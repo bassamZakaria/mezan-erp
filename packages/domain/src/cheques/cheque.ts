@@ -80,10 +80,11 @@ export function getChequeDirectionLabel(direction: ChequeDirection, locale = "ar
  *
  * `underCollectionAccountId` is the "شيكات تحت التحصيل" bucket (COA 1320 for
  * incoming cheques) or the equivalent "cheques payable" liability control for
- * outgoing ones. `bouncedAccountId` is only required for `incoming` cheques
- * (COA 1360 "شيكات مرتجعة") — an outgoing bounce simply reverses the original
- * posting back onto the supplier's AP account, since there is no "bounced
- * payable" concept.
+ * outgoing ones. `bouncedAccountId` (COA 1360 "شيكات مرتجعة") is still
+ * stored but no longer posted to: a bounce in either direction reverses the
+ * creation posting onto the party's own control account (D192), because a
+ * debt parked on an account with no party on it is invisible to the aging,
+ * the statement and the credit limit.
  */
 export interface ChequeControlAccounts {
   readonly underCollectionAccountId: string;

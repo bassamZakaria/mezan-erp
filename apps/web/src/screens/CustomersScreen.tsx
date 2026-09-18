@@ -343,6 +343,7 @@ function CustomerStatementTab({ customer }: { customer: CustomerDTO }) {
   const invoicesQuery = useSalesInvoices({ customerId: customer.id });
   const returnsQuery = useSalesReturns();
   const vouchersQuery = useVouchers();
+  const chequesQuery = useCheques();
   const agingQuery = useCustomerAging();
 
   const customerVouchers = useMemo(
@@ -359,6 +360,15 @@ function CustomerStatementTab({ customer }: { customer: CustomerDTO }) {
     const activeAllocations = allocations.filter((alloc) => alloc.status === "active");
     const allocatedInvoiceIds = new Set(activeAllocations.map((alloc) => alloc.invoiceId));
     const invoiceLabels = new Map((invoicesQuery.data ?? []).map((inv) => [inv.id, inv.docNo ?? inv.id]));
+    const customerCheques = (chequesQuery.data ?? []).filter(
+      (cheque) => cheque.direction === "incoming" && cheque.partyId === customer.id,
+    );
+    const chequeAllocatedByInvoice = new Map<string, bigint>();
+    for (const cheque of customerCheques) {
+      for (const alloc of cheque.allocations ?? []) {
+        chequeAllocatedByInvoice.set(alloc.invoiceId, (chequeAllocatedByInvoice.get(alloc.invoiceId) ?? 0n) + parseMoney(alloc.amount));
+      }
+    }
 
     const opening = parseMoney(customer.openingBalance);
     const built: StatementRow[] = [
@@ -389,7 +399,7 @@ function CustomerStatementTab({ customer }: { customer: CustomerDTO }) {
               : t("customers.statement.collectedOnInvoice"),
         reference: inv.docNo ?? inv.id,
         debit: parseMoney(inv.totals.grandTotal),
-        credit: hasAllocations ? 0n : counterPaid,
+        credit: hasAllocations ? 0n : counterPaid - (chequeAllocatedByInvoice.get(inv.id) ?? 0n),
       });
     }
 
@@ -446,15 +456,39 @@ function CustomerStatementTab({ customer }: { customer: CustomerDTO }) {
       }
     }
 
+    for (const cheque of customerCheques) {
+      const amount = parseMoney(cheque.amount);
+      built.push({
+        key: `chq-${cheque.id}`,
+        date: cheque.issueDate,
+        label: t("customers.statement.chequeReceived"),
+        note: null,
+        reference: cheque.chequeNumber,
+        debit: 0n,
+        credit: amount,
+      });
+      if (cheque.bouncedAt) {
+        built.push({
+          key: `chq-bounce-${cheque.id}`,
+          date: cheque.bouncedAt.slice(0, 10),
+          label: t("customers.statement.chequeBounced"),
+          note: t("customers.statement.chequeBouncedNote"),
+          reference: cheque.chequeNumber,
+          debit: amount,
+          credit: 0n,
+        });
+      }
+    }
+
     return built.sort((a, b) => {
       if (a.date === null) return -1;
       if (b.date === null) return 1;
       return a.date === b.date ? a.key.localeCompare(b.key) : a.date.localeCompare(b.date);
     });
-  }, [customer.openingBalance, customer.id, invoicesQuery.data, returnsQuery.data, customerVouchers, allocationsQuery.data, t]);
+  }, [customer.openingBalance, customer.id, invoicesQuery.data, returnsQuery.data, customerVouchers, allocationsQuery.data, chequesQuery.data, t]);
 
-  const isError = invoicesQuery.isError || returnsQuery.isError || vouchersQuery.isError || allocationsQuery.isError;
-  const isLoading = invoicesQuery.isLoading || returnsQuery.isLoading || vouchersQuery.isLoading || allocationsQuery.isLoading;
+  const isError = invoicesQuery.isError || returnsQuery.isError || vouchersQuery.isError || allocationsQuery.isError || chequesQuery.isError;
+  const isLoading = invoicesQuery.isLoading || returnsQuery.isLoading || vouchersQuery.isLoading || allocationsQuery.isLoading || chequesQuery.isLoading;
 
   if (isError) {
     return (
@@ -465,6 +499,7 @@ function CustomerStatementTab({ customer }: { customer: CustomerDTO }) {
           returnsQuery.refetch();
           vouchersQuery.refetch();
           allocationsQuery.refetch();
+          chequesQuery.refetch();
         }}
       />
     );

@@ -25,6 +25,19 @@ export interface AgingSuppliersContext {
    */
   readonly allocatedByInvoiceId?: ReadonlyMap<string, Money>;
   /**
+   * Confirmed purchase returns per SOURCE invoice. A return debits AP in the
+   * GL, so a ladder that ignores it reports a debt the ledger has cancelled —
+   * the twin of the customer ladder's `returnsByInvoiceId`.
+   */
+  readonly returnsByInvoiceId?: ReadonlyMap<string, Money>;
+  /**
+   * Supplier debits that settle no invoice — a live outgoing cheque's
+   * unallocated remainder, a payment nobody allocated. They debit AP the
+   * moment they are recorded, so the ladder absorbs them oldest bucket first,
+   * the twin of the customer ladder's `unappliedCreditsByCustomerId`.
+   */
+  readonly unappliedDebitsBySupplierId?: ReadonlyMap<string, Money>;
+  /**
    * Balance of the AP CONTROL account in the GL as of `asOfDate` (D112). Same
    * reason as the customer ladder: the report walks invoices, the control
    * account holds what they posted, and a difference means one of the two is
@@ -81,13 +94,29 @@ function addToBucket(totals: AgingBucketTotals, days: number, amount: Money): Ag
   return { ...totals, over120: totals.over120.add(amount) };
 }
 
+const BUCKETS = ["over120", "d91to120", "d61to90", "d31to60", "current"] as const;
+
+function applyDebit(totals: AgingBucketTotals, debit: Money): AgingBucketTotals {
+  let remaining = debit.scaled;
+  let next = totals;
+  for (const bucket of BUCKETS) {
+    if (remaining <= 0n) break;
+    const held = next[bucket].scaled;
+    if (held <= 0n) continue;
+    const taken = held < remaining ? held : remaining;
+    next = { ...next, [bucket]: Money.fromScaled(held - taken) };
+    remaining -= taken;
+  }
+  return next;
+}
+
 export function createAgingSuppliersReport(
   defaultAsOfDate: string,
 ): ReportDefinition<AgingSuppliersParams, AgingSuppliersRow, AgingSuppliersContext> {
   return {
     id: "aging.suppliers",
     titleAr: "أعمار ديون الموردين",
-    descriptionAr: "الموردون المتأخرون أكثر من 60 يوماً يستحقون أولوية التسديد (لا يشمل السداد — لا تتبع فواتير المشتريات حالياً دفعات).",
+    descriptionAr: "الموردون المتأخرون أكثر من 60 يوماً يستحقون أولوية التسديد.",
     paramsSchema,
     defaultParams: { asOfDate: defaultAsOfDate, branchId: "" },
     paramFields: [{ kind: "date", key: "asOfDate", label: "حتى تاريخ" }, BRANCH_PARAM_FIELD],
@@ -129,12 +158,18 @@ export function createAgingSuppliersReport(
         if (invoice.date > params.asOfDate) continue;
         if (!matchesBranch(invoice.branchId, params.branchId)) continue;
         const allocated = ctx.allocatedByInvoiceId?.get(invoice.id) ?? Money.zero();
-        const outstanding = Money.fromScaled(purchaseInvoiceTotal(invoice).scaled - allocated.scaled);
+        const returned = ctx.returnsByInvoiceId?.get(invoice.id) ?? Money.zero();
+        const outstanding = Money.fromScaled(purchaseInvoiceTotal(invoice).scaled - allocated.scaled - returned.scaled);
         if (outstanding.scaled <= 0n) continue;
         const dueDate = invoice.dueDate ?? invoice.date;
         const existing = byBucketTotals.get(invoice.supplierId) ?? emptyBucketTotals();
         const days = daysPastDue(dueDate, params.asOfDate);
         byBucketTotals.set(invoice.supplierId, addToBucket(existing, days, outstanding));
+      }
+      for (const [supplierId, debit] of ctx.unappliedDebitsBySupplierId ?? []) {
+        const existing = byBucketTotals.get(supplierId);
+        if (!existing || debit.scaled <= 0n) continue;
+        byBucketTotals.set(supplierId, applyDebit(existing, debit));
       }
       return [...byBucketTotals.entries()].map(([supplierId, agg]) => ({
         supplierId,

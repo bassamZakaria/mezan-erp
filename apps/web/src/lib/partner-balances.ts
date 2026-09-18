@@ -37,8 +37,10 @@ const VOUCHER_SETTLED: ReadonlySet<string> = new Set(["confirmed", "posted"]);
  * The cheque term is the twin of the supplier one below, and was missing here.
  * An incoming cheque credits AR the moment it is received — leaving it out
  * overstates what the customer owes by exactly the cheques in hand, which for a
- * distribution business is most of the balance. A bounced cheque puts the debt
- * back, so it is excluded.
+ * distribution business is most of the balance. Only the part no invoice
+ * claims is subtracted: an allocated part is already in `remainingBalance`. A
+ * bounced cheque puts the debt back and a replaced one was bounced first, so
+ * neither counts (D192) — the server's `outstandingByCustomer` is the same sum.
  */
 export function customerOwedById(
   customers: readonly CustomerDTO[],
@@ -52,8 +54,9 @@ export function customerOwedById(
     owed.set(inv.customerId, (owed.get(inv.customerId) ?? 0) + num(inv.remainingBalance));
   }
   for (const cheque of cheques) {
-    if (cheque.direction !== "incoming" || cheque.effectiveStatus === "bounced") continue;
-    owed.set(cheque.partyId, (owed.get(cheque.partyId) ?? 0) - num(cheque.amount));
+    if (cheque.direction !== "incoming" || cheque.effectiveStatus === "bounced" || cheque.effectiveStatus === "replaced") continue;
+    const applied = (cheque.allocations ?? []).reduce((total, alloc) => total + num(alloc.amount), 0);
+    owed.set(cheque.partyId, (owed.get(cheque.partyId) ?? 0) - (num(cheque.amount) - applied));
   }
   return owed;
 }

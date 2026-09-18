@@ -1011,6 +1011,8 @@ export {
   bounceChequeSchema,
   replaceChequeSchema,
   chequeListQuerySchema,
+  chequeAllocationSchema,
+  createChequeAllocationSchema,
   type ChequeDirectionDTO,
   type ChequeStoredStatusDTO,
   type ChequeStatusDTO,
@@ -1022,6 +1024,8 @@ export {
   type BounceChequeDTO,
   type ReplaceChequeDTO,
   type ChequeListQueryDTO,
+  type ChequeAllocationDTO,
+  type CreateChequeAllocationDTO,
 } from "./cheque.js";
 
 export {

@@ -19,7 +19,6 @@ export {
   DuplicateChequeNumberError,
   InvalidChequeCommandError,
   InvalidChequeTransitionError,
-  MissingBouncedAccountError,
   ReplacementAmountMismatchError,
 } from "./errors.js";
 
@@ -27,6 +26,7 @@ export { COLLECTION_WINDOW_DAYS, assertChequeTransition, effectiveChequeStatus }
 
 export {
   ChequeService,
+  type AllocateChequeCommand,
   type BounceChequeCommand,
   type ChequeListQuery,
   type ChequeServiceDeps,

@@ -480,6 +480,7 @@ export async function run(ctx: Ctx): Promise<void> {
   await ctx.scenario("cheque — a bounce reverses cleanly and returns the party's control-account balance to its prior value", async () => {
     const underCollectionBefore = await accountBalance(ctx, "1320");
     const bouncedBefore = await accountBalance(ctx, "1360");
+    const receivableBefore = await accountBalance(ctx, "1105");
 
     const chequeId = "SCN-CHQ-BOUNCE-1";
     const amount = "500.00";
@@ -520,7 +521,8 @@ export async function run(ctx: Ctx): Promise<void> {
       underCollectionAfter,
       underCollectionBefore,
     );
-    ctx.checkEq("1360 (شيكات مرتجعة) increases by exactly the bounced cheque's amount", bouncedAfter, bouncedBefore + ctx.n(amount));
+    ctx.checkEq("1360 (شيكات مرتجعة) does not move — a bounce puts the debt back on the customer's own receivable (D192)", bouncedAfter, bouncedBefore);
+    ctx.checkEq("1105 returns exactly to its value before the cheque was received (D192)", await accountBalance(ctx, "1105"), receivableBefore);
   });
 }
 

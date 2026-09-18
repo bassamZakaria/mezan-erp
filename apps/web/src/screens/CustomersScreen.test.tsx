@@ -5,6 +5,7 @@ import { screen, fireEvent, within, waitFor } from "@testing-library/react";
 import type {
   AttachmentDTO,
   AuditEventDTO,
+  ChequeDTO,
   CustomerDTO,
   InstallmentLineDTO,
   InstallmentPlanDocumentDTO,
@@ -626,6 +627,7 @@ describe("CustomersScreen", () => {
       "GET /sales-invoices": () => ({ body: [inv] }),
       "GET /sales-returns": () => ({ body: [] }),
       "GET /vouchers": () => ({ body: [] }),
+      "GET /cheques": () => ({ body: [] }),
       "GET /reports/aging/customers": () => ({ body: { rows: [], groups: [], grandTotals: {}, reconciliation: null } }),
     });
     renderWithProviders(<CustomersScreen />, { transport, initialSession: testAdminSession });
@@ -641,6 +643,57 @@ describe("CustomersScreen", () => {
     expect(debitValue?.textContent).toBe("660.90");
     const creditValue = screen.getByText("إجمالي الدائن").nextElementSibling;
     expect(creditValue?.textContent).toBe("50.00");
+  });
+
+  it("shows a bounced cheque as received and returned, and credits a live cheque once even when it is applied to an invoice (D192)", async () => {
+    const cust = customer({ openingBalance: "0.000000" });
+    const inv = salesInvoice({
+      id: "inv-1",
+      customerId: cust.id,
+      status: "partially_paid",
+      amountPaid: "50.000000",
+      totals: { ...salesInvoice().totals, grandTotal: "210.90" },
+    });
+    const chequeRow = (id: string, amount: string, extra: Partial<ChequeDTO>): ChequeDTO =>
+      ({
+        id,
+        direction: "incoming",
+        status: "deposited",
+        effectiveStatus: "deposited",
+        chequeNumber: id,
+        amount,
+        issueDate: "2026-08-21",
+        partyId: cust.id,
+        bouncedAt: null,
+        allocations: [],
+        ...extra,
+      }) as ChequeDTO;
+    const transport = stubTransport({
+      "GET /customers": () => ({ body: [cust] }),
+      "GET /customers/counts": () => ({ body: { all: 1, active: 1, inactive: 0 } }),
+      "GET /customers/stats": () => ({ body: { count: 1, active: 1, creditLimits: "0", toCollect: "0" } }),
+      "GET /price-lists": () => ({ body: [] }),
+      "GET /sales-invoices": () => ({ body: [inv] }),
+      "GET /sales-returns": () => ({ body: [] }),
+      "GET /vouchers": () => ({ body: [] }),
+      "GET /cheques": () => ({
+        body: [
+          chequeRow("CHQ-LIVE", "80.000000", { allocations: [{ id: "a1", invoiceId: "inv-1", amount: "50.000000" }] }),
+          chequeRow("CHQ-BOUNCED", "1750.000000", { status: "bounced", effectiveStatus: "bounced", bouncedAt: "2026-08-25T10:00:00.000Z" }),
+        ],
+      }),
+      "GET /reports/aging/customers": () => ({ body: { rows: [], groups: [], grandTotals: {}, reconciliation: null } }),
+    });
+    renderWithProviders(<CustomersScreen />, { transport, initialSession: testAdminSession });
+
+    fireEvent.click(await screen.findByText("شركة الأمل للتجارة"));
+    fireEvent.click(screen.getByRole("tab", { name: "كشف حساب" }));
+
+    expect(await screen.findByText("ارتداد شيك")).toBeInTheDocument();
+    expect(screen.getAllByText("شيك وارد")).toHaveLength(2);
+    expect(screen.getByText("الرصيد الختامي").nextElementSibling?.textContent).toBe("130.90");
+    expect(screen.getByText("إجمالي المدين").nextElementSibling?.textContent).toBe("1,960.90");
+    expect(screen.getByText("إجمالي الدائن").nextElementSibling?.textContent).toBe("1,830.00");
   });
 
   it("scopes the invoices tab to this customer's own invoices, excluding another customer's, with real stats", async () => {

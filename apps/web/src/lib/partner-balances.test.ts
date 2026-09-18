@@ -72,6 +72,21 @@ describe("customerOwedById", () => {
     expect(owed.get("C1")).toBe(1000);
   });
 
+  it("counts a replaced cheque once, through its replacement (D192)", () => {
+    const owed = customerOwedById(
+      [customer("C1", "0.000000")],
+      [salesInvoice("C1", "confirmed", "1000.000000")],
+      [cheque("C1", "incoming", "replaced", "400.000000"), cheque("C1", "incoming", "pending", "400.000000")],
+    );
+    expect(owed.get("C1")).toBe(600);
+  });
+
+  it("subtracts only the part of a cheque no invoice claims — the rest is already in remainingBalance (D192)", () => {
+    const applied = { ...cheque("C1", "incoming", "deposited", "400.000000"), allocations: [{ id: "a1", invoiceId: "I1", amount: "250.000000" }] };
+    const owed = customerOwedById([customer("C1", "0.000000")], [salesInvoice("C1", "confirmed", "750.000000")], [applied]);
+    expect(owed.get("C1")).toBe(600);
+  });
+
   it("ignores an outgoing cheque, which has nothing to do with what a customer owes", () => {
     const owed = customerOwedById(
       [customer("C1", "0.000000")],

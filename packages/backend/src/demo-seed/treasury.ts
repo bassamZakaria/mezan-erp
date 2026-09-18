@@ -298,6 +298,7 @@ async function seedCheques(app: App): Promise<void> {
     controlAccounts: { underCollectionAccountId: CHEQUES_UNDER_COLLECTION_GL, bouncedAccountId: CHEQUES_BOUNCED_GL },
     amount: "1750.00",
   });
+  await step(app, "POST", "/cheques/CHQ-DEMO-3/allocations", { allocationId: "CHQ-DEMO-3-ALLOC-1", invoiceId: "INV-DEMO-4", amount: "1750.00" });
   await step(app, "POST", "/cheques/CHQ-DEMO-3/deposit", { bankTreasuryAccountId: BANK_TREASURY_ID });
   await step(app, "POST", "/cheques/CHQ-DEMO-3/bounce", {});
 

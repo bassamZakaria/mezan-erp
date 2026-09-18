@@ -9,7 +9,6 @@ import {
   DuplicateChequeNumberError,
   InvalidChequeCommandError,
   InvalidChequeTransitionError,
-  MissingBouncedAccountError,
   ReplacementAmountMismatchError,
   UnbalancedEntryError,
   AccountNotFoundError,
@@ -17,7 +16,11 @@ import {
   InactiveAccountError,
   NoFiscalPeriodForDateError,
   PeriodNotOpenForPostingError,
+  AllocationExceedsError,
+  AllocationMismatchError,
+  InvoiceNotFoundError,
   type AuditSink,
+  type VoucherAllocation,
   type Cheque,
   type ChequeServiceDeps,
 } from "@mezan/domain";
@@ -27,6 +30,7 @@ import {
   collectChequeSchema,
   bounceChequeSchema,
   replaceChequeSchema,
+  createChequeAllocationSchema,
   chequeListQuerySchema,
   type ChequeListQueryDTO,
 } from "@mezan/contracts";
@@ -46,7 +50,7 @@ export type ChequeRoutesDeps = ChequeServiceDeps & {
   readonly audit?: AuditSink;
 };
 
-function serialize(cheque: Cheque, asOfDate: string) {
+function serialize(cheque: Cheque, asOfDate: string, allocations: readonly VoucherAllocation[] = []) {
   return {
     id: cheque.id,
     direction: cheque.direction,
@@ -80,11 +84,14 @@ function serialize(cheque: Cheque, asOfDate: string) {
     creationJournalEntryId: cheque.creationJournalEntryId,
     collectionJournalEntryId: cheque.collectionJournalEntryId,
     bounceJournalEntryId: cheque.bounceJournalEntryId,
+    allocations: allocations
+      .filter((a) => a.status === "active")
+      .map((a) => ({ id: a.id, invoiceId: a.invoiceId, amount: a.amount.toString() })),
   };
 }
 
 function handleDomainError(c: Context, err: unknown): Response {
-  if (err instanceof ChequeNotFoundError) {
+  if (err instanceof ChequeNotFoundError || err instanceof InvoiceNotFoundError) {
     return c.json({ error: err.code, message: err.message }, 404);
   }
   if (err instanceof DuplicateChequeNumberError || err instanceof InvalidChequeTransitionError) {
@@ -92,8 +99,9 @@ function handleDomainError(c: Context, err: unknown): Response {
   }
   if (
     err instanceof InvalidChequeCommandError ||
-    err instanceof MissingBouncedAccountError ||
     err instanceof ReplacementAmountMismatchError ||
+    err instanceof AllocationExceedsError ||
+    err instanceof AllocationMismatchError ||
     err instanceof UnbalancedEntryError ||
     err instanceof AccountNotFoundError ||
     err instanceof HeaderAccountNotPostableError ||
@@ -117,6 +125,8 @@ function handleDomainError(c: Context, err: unknown): Response {
  *   POST /cheques/:id/collect       bank confirms clearance              cheques.collect
  *   POST /cheques/:id/bounce        bank rejects it                      cheques.bounce
  *   POST /cheques/:id/replace       replace a bounced cheque             cheques.create
+ *   GET  /cheques/:id/allocations   its active invoice allocations      cheques.view
+ *   POST /cheques/:id/allocations   apply it against an open invoice    treasury.allocation.manage
  *
  * Only 5 `cheques.*` permissions exist (view/create/deposit/collect/bounce —
  * see permissions/catalog.ts module 13); "replace" is gated on `.create`
@@ -135,6 +145,8 @@ export function createChequesRoutes(deps: ChequeRoutesDeps, resolveAuthContext: 
    * caller named would make the register's attribution fiction (D80).
    */
   const actorOf = (c: Context) => getAuthContext(c)?.userId ?? deps.actor ?? "system";
+  const present = async (cheque: Cheque, asOfDate: string) =>
+    serialize(cheque, asOfDate, await service.listAllocations(cheque.id));
 
   function auditTransition(c: Context, action: string, cheque: Cheque) {
     return recordAdminEvent(deps.audit, c, {
@@ -193,7 +205,7 @@ export function createChequesRoutes(deps: ChequeRoutesDeps, resolveAuthContext: 
     }
     const asOfDate = asOf();
     const cheques = await listFilteredCheques(c, parsed.filter, asOfDate);
-    return c.json(cheques.map((cheque) => serialize(cheque, asOfDate)));
+    return c.json(await Promise.all(cheques.map((cheque) => present(cheque, asOfDate))));
   });
 
   /**
@@ -257,7 +269,42 @@ export function createChequesRoutes(deps: ChequeRoutesDeps, resolveAuthContext: 
   app.get("/:id", gate("cheques.view"), async (c) => {
     const cheque = await service.findById(c.req.param("id"));
     if (!cheque) return c.json({ error: "NOT_FOUND" }, 404);
-    return c.json(serialize(cheque, asOf()));
+    return c.json(await present(cheque, asOf()));
+  });
+
+  app.get("/:id/allocations", gate("cheques.view"), async (c) => {
+    const cheque = await service.findById(c.req.param("id"));
+    if (!cheque) return c.json({ error: "NOT_FOUND" }, 404);
+    return c.json((await service.listAllocations(cheque.id)).map((a) => ({
+      id: a.id,
+      chequeId: a.voucherId,
+      invoiceId: a.invoiceId,
+      amount: a.amount.toString(),
+      status: a.status,
+      createdAt: a.createdAt,
+      reversedAt: a.reversedAt,
+    })));
+  });
+
+  app.post("/:id/allocations", gate("treasury.allocation.manage"), async (c) => {
+    const parsed = createChequeAllocationSchema.safeParse(await c.req.json());
+    if (!parsed.success) {
+      return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    }
+    try {
+      await service.allocate({
+        chequeId: c.req.param("id"),
+        allocationId: parsed.data.allocationId ?? idGen(),
+        invoiceId: parsed.data.invoiceId,
+        amount: Money.fromMajor(parsed.data.amount),
+      });
+      const cheque = await service.findById(c.req.param("id"));
+      if (!cheque) return c.json({ error: "NOT_FOUND" }, 404);
+      await auditTransition(c, "ALLOCATE", cheque);
+      return c.json(await present(cheque, asOf()), 201);
+    } catch (err) {
+      return handleDomainError(c, err);
+    }
   });
 
   app.post("/", gate("cheques.create"), async (c) => {
@@ -287,7 +334,7 @@ export function createChequesRoutes(deps: ChequeRoutesDeps, resolveAuthContext: 
         actor: actorOf(c),
       });
       await auditTransition(c, "CREATE", cheque);
-      return c.json(serialize(cheque, asOf()), 201);
+      return c.json(await present(cheque, asOf()), 201);
     } catch (err) {
       return handleDomainError(c, err);
     }
@@ -305,7 +352,7 @@ export function createChequesRoutes(deps: ChequeRoutesDeps, resolveAuthContext: 
         actor: actorOf(c),
       });
       await auditTransition(c, "DEPOSIT", cheque);
-      return c.json(serialize(cheque, asOf()));
+      return c.json(await present(cheque, asOf()));
     } catch (err) {
       return handleDomainError(c, err);
     }
@@ -325,7 +372,7 @@ export function createChequesRoutes(deps: ChequeRoutesDeps, resolveAuthContext: 
         actor: actorOf(c),
       });
       await auditTransition(c, "COLLECT", cheque);
-      return c.json(serialize(cheque, asOf()));
+      return c.json(await present(cheque, asOf()));
     } catch (err) {
       return handleDomainError(c, err);
     }
@@ -350,7 +397,7 @@ export function createChequesRoutes(deps: ChequeRoutesDeps, resolveAuthContext: 
         actor: actorOf(c),
       });
       await auditTransition(c, "BOUNCE", cheque);
-      return c.json(serialize(cheque, asOf()));
+      return c.json(await present(cheque, asOf()));
     } catch (err) {
       return handleDomainError(c, err);
     }
@@ -381,7 +428,7 @@ export function createChequesRoutes(deps: ChequeRoutesDeps, resolveAuthContext: 
         actor: actorOf(c),
       });
       await auditTransition(c, "REPLACE", result.original);
-      return c.json({ original: serialize(result.original, asOf()), replacement: serialize(result.replacement, asOf()) }, 201);
+      return c.json({ original: await present(result.original, asOf()), replacement: await present(result.replacement, asOf()) }, 201);
     } catch (err) {
       return handleDomainError(c, err);
     }

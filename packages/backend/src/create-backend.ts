@@ -999,6 +999,12 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   // ledger reader resolves a treasury account's GL account and reads its posted movements,
   // so statement lines only ever link to entries the voucher/cheque engines already posted. ---
   const cheques = createSqliteChequeRepository(sqlite);
+  const invoiceSettlement = {
+    applySettled: async ({ invoiceId, kind, settled }: { invoiceId: string; kind: string; settled: Money }) => {
+      if (kind !== "sales") return;
+      await applyAllocatedSettlement(salesInvoices, invoiceId, settled);
+    },
+  };
   const bankStatements = createSqliteBankReconciliationStore(sqlite);
 
   // --- phase11/crm-projects-assets-field — CRM, Projects, Fixed Assets, Field/Van Sales. ---
@@ -2394,13 +2400,14 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
      * A cheque reclassifies a receivable/payable the moment it is written: an
      * incoming cheque credits AR into cheques-under-collection, an outgoing one
      * debits AP into cheques-payable. Both move the control account, so the
-     * sub-ledger has to follow them or it reads permanently high. Only an
-     * OUTGOING bounce credits the counterparty back — an incoming bounce moves
-     * under-collection to the bounced account and leaves AR where it is.
+     * sub-ledger has to follow them or it reads permanently high. A bounce in
+     * either direction reverses that posting onto the counterparty (D192), and
+     * a replaced cheque was bounced first — its replacement is a cheque of its
+     * own and carries the new credit.
      */
     const chequeEffect = { receivable: 0n, payable: 0n };
     for (const cheque of await cheques.list()) {
-      const restored = cheque.direction === "outgoing" && cheque.status === "bounced";
+      const restored = cheque.status === "bounced" || cheque.status === "replaced";
       const net = restored ? 0n : -cheque.amount.scaled;
       if (cheque.counterpartyGlAccountId === AR_CONTROL) chequeEffect.receivable += net;
       if (cheque.counterpartyGlAccountId === AP_CONTROL) chequeEffect.payable += net;
@@ -2837,12 +2844,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       allocations: vouchers.allocations,
       invoices: vouchers.invoices,
       settings,
-      settlement: {
-        applySettled: async ({ invoiceId, kind, settled }) => {
-          if (kind !== "sales") return;
-          await applyAllocatedSettlement(salesInvoices, invoiceId, settled);
-        },
-      },
+      settlement: invoiceSettlement,
       audit: auditSink,
       actor: input.actor,
     });
@@ -2988,12 +2990,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       // credits AR while the invoice still reports amountPaid 0 forever (D1).
       // Purchase invoices carry no paid field; their settled figure lives in the
       // allocation sub-ledger, which the reconciliation above now reads.
-      settlement: {
-        applySettled: async ({ invoiceId, kind, settled }) => {
-          if (kind !== "sales") return;
-          await applyAllocatedSettlement(salesInvoices, invoiceId, settled);
-        },
-      },
+      settlement: invoiceSettlement,
       events: voucherEventBridge,
       // Law 6/2025 exempts a regime taxpayer from withholding, so the route
       // refuses a voucher that withholds rather than posting a liability the
@@ -3134,6 +3131,9 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     cheques: {
       cheques,
       gl: salesInvoiceGl,
+      // A cheque applied against an invoice lives in the same allocation
+      // sub-ledger as a voucher, so a bounce can reopen what it settled (D192).
+      allocation: { allocations: vouchers.allocations, invoices: vouchers.invoices, settlement: invoiceSettlement },
     },
     bankReconciliation: {
       statements: bankStatements.statements,
@@ -3712,6 +3712,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       // posted against 1105, or it and the dashboard tile report two
       // different receivables (D37).
       salesReturnDocs: salesReturns,
+      purchaseReturnDocs: purchaseReturns,
       cheques,
       voucherDocuments: vouchers.documents,
       allocations: vouchers.allocations,

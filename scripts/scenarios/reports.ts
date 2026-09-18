@@ -296,3 +296,50 @@ async function drillDownAnswersFromTheSourceDocuments_A5(ctx: Ctx): Promise<void
     ctx.check("the drill-down is gated by the entity's own permission", unpermitted.status === 403, `status ${unpermitted.status}`);
   });
 }
+
+async function glBalance(ctx: Ctx, accountId: string): Promise<number> {
+  const res = await ctx.req("GET", `/gl/accounts/${accountId}/ledger`);
+  return ctx.n(res.body?.balance?.balance);
+}
+
+/**
+ * D192 — the seeded CHQ-DEMO-3 was applied against INV-DEMO-4, deposited and
+ * returned by the bank. A bounce reverses the payment: the debt goes back on
+ * 1105 and the invoice reopens, so the ladder, the customer's balance and the
+ * control account describe one debt. Before, the bounce parked it on 1360 and
+ * the ladder stood 1,750.00 above 1105.
+ *
+ * Runs against the seeded tenant before any module has written to it, so it
+ * reads the demo as a user first sees it.
+ */
+export async function agingLaddersTieToTheirControlAccounts_D192(ctx: Ctx): Promise<void> {
+  await ctx.scenario("D192 — both aging ladders tie to their control accounts on the seeded tenant, bounced cheque included", async () => {
+    const customers = await ctx.req("GET", "/reports/aging/customers");
+    const ar = await glBalance(ctx, "1105");
+    ctx.check("aging customers: the reconciliation banner holds", customers.body?.reconciliation?.withinTolerance === true, JSON.stringify(customers.body?.reconciliation));
+    ctx.checkEq("aging customers: the ladder total is the 1105 balance", ctx.n(customers.body?.grandTotals?.total), ar);
+
+    const suppliers = await ctx.req("GET", "/reports/aging/suppliers");
+    const ap = -(await glBalance(ctx, "2100"));
+    ctx.check("aging suppliers: the reconciliation banner holds", suppliers.body?.reconciliation?.withinTolerance === true, JSON.stringify(suppliers.body?.reconciliation));
+    ctx.checkEq("aging suppliers: the ladder total is the 2100 balance", ctx.n(suppliers.body?.grandTotals?.total), ap);
+
+    ctx.checkEq("1360 holds nothing: no bounce parks a customer's debt off their own receivable", await glBalance(ctx, "1360"), 0);
+
+    const cheque = await ctx.req("GET", "/cheques/CHQ-DEMO-3");
+    ctx.check("CHQ-DEMO-3 is bounced and applies against nothing", cheque.body?.status === "bounced" && (cheque.body?.allocations ?? []).length === 0, JSON.stringify(cheque.body?.allocations));
+    const history = ctx.rows((await ctx.req("GET", "/cheques/CHQ-DEMO-3/allocations")).body);
+    ctx.check(
+      "its allocation against INV-DEMO-4 was undone by the bounce, not deleted",
+      history.length === 1 && history[0]?.invoiceId === "INV-DEMO-4" && history[0]?.status === "reversed",
+      JSON.stringify(history),
+    );
+    const invoice = await ctx.req("GET", "/sales-invoices/INV-DEMO-4");
+    ctx.checkEq("INV-DEMO-4 is open again for its whole value", ctx.n(invoice.body?.remainingBalance), ctx.n(invoice.body?.totals?.grandTotal));
+
+    const agingRow = ctx.rows(customers.body).find((row: any) => row.customerId === "CUST-DEMO-1");
+    const code = (await ctx.req("GET", "/customers/CUST-DEMO-1")).body?.code;
+    const stats = await ctx.req("GET", `/customers/stats?q=${encodeURIComponent(String(code))}`);
+    ctx.checkEq("CUST-DEMO-1: what the customers screen says they owe is their aging row", ctx.n(stats.body?.toCollect), ctx.n(agingRow?.total));
+  });
+}

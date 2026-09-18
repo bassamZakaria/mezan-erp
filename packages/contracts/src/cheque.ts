@@ -17,6 +17,20 @@ export const chequeControlAccountsSchema = z.object({
   bouncedAccountId: z.string().nullish(),
 });
 
+/** One ACTIVE application of a cheque against an invoice. */
+export const chequeAllocationSchema = z.object({
+  id: z.string(),
+  invoiceId: z.string(),
+  amount: moneyString,
+});
+
+/** Apply part or all of a cheque against one of its party's open invoices. */
+export const createChequeAllocationSchema = z.object({
+  allocationId: z.string().min(1).optional(),
+  invoiceId: z.string().min(1),
+  amount: moneyString,
+});
+
 /** A cheque as it crosses the wire. */
 export const chequeSchema = z.object({
   id: z.string().min(1),
@@ -46,6 +60,7 @@ export const chequeSchema = z.object({
   creationJournalEntryId: z.string().nullable(),
   collectionJournalEntryId: z.string().nullable(),
   bounceJournalEntryId: z.string().nullable(),
+  allocations: z.array(chequeAllocationSchema).optional(),
 });
 
 /** Record a newly received/issued cheque. */
@@ -114,3 +129,5 @@ export type CollectChequeDTO = z.infer<typeof collectChequeSchema>;
 export type BounceChequeDTO = z.infer<typeof bounceChequeSchema>;
 export type ReplaceChequeDTO = z.infer<typeof replaceChequeSchema>;
 export type ChequeListQueryDTO = z.infer<typeof chequeListQuerySchema>;
+export type ChequeAllocationDTO = z.infer<typeof chequeAllocationSchema>;
+export type CreateChequeAllocationDTO = z.infer<typeof createChequeAllocationSchema>;

@@ -6,6 +6,7 @@ import {
   salesReturnCreditByInvoice,
   purchaseInvoiceTotal,
   extend,
+  sumActive,
   voucherLine,
   SeatSessionRegistry,
   createEntitlements,
@@ -987,12 +988,13 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   }
   /**
    * What each customer still owes, for the customers list's own KPI strip and
-   * its over-credit-limit filter (R1.1). It is the SAME derivation
+   * its over-credit-limit filter (R1.1). Per invoice it is the SAME derivation
    * `/sales-invoices/stats` reports as `remaining` — grand total less what has
    * been collected less what has been credited back by a confirmed return,
-   * over the live invoices only — rolled up by customer. The customers screen
-   * used to add those figures as JS numbers over whatever page it held; two
-   * screens reading the same fact must read it from the same place.
+   * over the live invoices only — rolled up by customer, less the unapplied
+   * part of every live incoming cheque: the cheque credited AR when it
+   * arrived, and a bounce reverses both that credit and its allocations
+   * (D192). The customer detail screen's `customerOwedById` is the same sum.
    */
   const customerReceivables: CustomerReceivablesSource | undefined = options.salesInvoices
     ? {
@@ -1008,6 +1010,14 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
               .grandTotal.add(invoice.amountPaid.negate())
               .add((credits.get(invoice.id) ?? Money.zero()).negate());
             out.set(invoice.customerId, (out.get(invoice.customerId) ?? Money.zero()).add(remaining));
+          }
+          if (options.cheques) {
+            const allocations = options.cheques.allocation?.allocations;
+            for (const cheque of await options.cheques.cheques.list({ direction: "incoming" })) {
+              if (cheque.direction !== "incoming" || cheque.status === "bounced" || cheque.status === "replaced") continue;
+              const applied = allocations ? sumActive(await allocations.listByVoucher(cheque.id)) : Money.zero();
+              out.set(cheque.partyId, (out.get(cheque.partyId) ?? Money.zero()).add(applied).add(cheque.amount.negate()));
+            }
           }
           return out;
         },

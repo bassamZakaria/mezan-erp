@@ -99,8 +99,6 @@ import {
   type PartyStatement,
   type PartyStatementEntry,
   type ProgressCertificate,
-  salesInvoiceBaseGrandTotal,
-  purchaseInvoiceBaseTotal,
   extend,
   type SalesReturnDocument,
   type PurchaseReturnLine,

@@ -164,6 +164,9 @@ function InvoiceDetail({
   const paid = num(invoice.amountPaid);
   const remaining = num(invoice.remainingBalance);
   const canPay = invoice.status === "confirmed" && remaining > 0;
+  const settledInBase = Boolean(invoice.fxRate);
+  const docCurrencyLabel = settledInBase ? invoice.currency : undefined;
+  const settlementTotal = num(invoice.baseTotal ?? invoice.total);
 
   const fulfilment = useMemo(() => {
     const map = new Map<number, PurchaseInvoiceLineFulfilmentDTO>();
@@ -244,7 +247,8 @@ function InvoiceDetail({
         { label: t("purchaseInvoices.detail.supplierInvoiceNo"), value: invoice.supplierInvoiceNumber ?? "—" },
         { label: t("purchaseInvoices.detail.source"), value: invoice.receiptId ? t("purchaseInvoices.source.fromReceipt") : t("purchaseInvoices.source.manual") },
         { label: t("common.project"), value: projectName(invoice.projectId) },
-        { label: t("purchaseInvoices.detail.grandTotal"), value: <MoneyValue value={num(invoice.total)} /> },
+        { label: t("purchaseInvoices.detail.grandTotal"), value: <MoneyValue value={num(invoice.total)} currencyLabel={docCurrencyLabel} /> },
+        ...(settledInBase ? [{ label: t("purchaseInvoices.detail.baseTotal"), value: <MoneyValue value={settlementTotal} /> }] : []),
         { label: t("purchaseInvoices.pay.paid"), value: <MoneyValue value={paid} /> },
         { label: t("purchaseInvoices.pay.remaining"), value: <MoneyValue value={remaining} />, valueTone: remaining > 0 ? "danger" : "default" },
       ]}
@@ -382,8 +386,8 @@ function InvoiceDetail({
             <div className="flex flex-col gap-[14px]">
               <div className="grid grid-cols-1 gap-[12px] sm:grid-cols-3">
                 <div className="rounded-lg border border-border bg-surface p-[13px_15px]">
-                  <div className="text-[11px] font-semibold text-ink-faint">{t("purchaseInvoices.detail.grandTotal")}</div>
-                  <div className="mt-[5px] text-[14.5px] font-bold text-ink"><MoneyValue value={num(invoice.total)} showUnit={false} /></div>
+                  <div className="text-[11px] font-semibold text-ink-faint">{t(settledInBase ? "purchaseInvoices.detail.baseTotal" : "purchaseInvoices.detail.grandTotal")}</div>
+                  <div className="mt-[5px] text-[14.5px] font-bold text-ink"><MoneyValue value={settlementTotal} showUnit={false} /></div>
                 </div>
                 <div className="rounded-lg border border-border bg-surface p-[13px_15px]">
                   <div className="text-[11px] font-semibold text-ink-faint">{t("purchaseInvoices.pay.paid")}</div>

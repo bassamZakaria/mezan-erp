@@ -2633,6 +2633,14 @@ export interface SalesInvoiceDTO {
   readonly discount: SalesInvoiceDiscountDTO;
   readonly arAccountId: string;
   readonly taxAccountId: string;
+  /** The rate the invoice confirmed at; null for a base-currency or unconfirmed invoice. */
+  readonly fxRate?: string | null;
+  /**
+   * `totals.grandTotal` in BASE currency at `fxRate` — what GL 1105 holds.
+   * `amountPaid`, `returnedCredit` and `remainingBalance` are base figures
+   * measured against this, never against `totals.grandTotal` (D202).
+   */
+  readonly baseGrandTotal?: string;
   readonly amountPaid: string;
   /** Confirmed returns credited against this invoice — already netted out of `remainingBalance`. */
   readonly returnedCredit: string;

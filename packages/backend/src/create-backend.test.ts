@@ -4220,3 +4220,97 @@ describe("createBackend — party balances no invoice carries, and one figure pe
     expect(reversed.some((v) => v.reversesDocId === "v-wht")).toBe(true);
   });
 });
+
+describe("createBackend — foreign documents settle and return in base (D202, D203)", () => {
+  async function get(app: App, path: string): Promise<any> {
+    return (await app.fetch(new Request(`http://local${path}`, { headers: admin(app) }))).json();
+  }
+  async function reconDiff(app: App, key: "ar" | "ap"): Promise<number> {
+    const { rows } = (await get(app, "/reconciliation")) as { rows: { key: string; subLedgerBalance: string; glBalance: string }[] };
+    const row = rows.find((r) => r.key === key)!;
+    return Number(row.subLedgerBalance) - Number(row.glBalance);
+  }
+  async function glBalance(app: App, accountId: string): Promise<number> {
+    return Number((await get(app, `/gl/accounts/${accountId}/ledger`)).balance.balance);
+  }
+  async function approvedRate(app: App, id: string, currency: string, rate: string, effectiveDate: string) {
+    expect((await post(app, "/exchange-rates", { id, currency, rate, effectiveDate, rateType: "standard", source: "manual" }, admin(app))).status).toBe(201);
+    expect((await post(app, `/exchange-rates/${id}/approve`, {}, admin(app))).status).toBe(200);
+  }
+  async function multiCurrency(app: App) {
+    await approvedRate(app, "fx-usd", "USD", "48.00", "2026-08-01");
+    await approvedRate(app, "fx-sar", "SAR", "13.20", "2026-08-01");
+    const settings = await get(app, "/settings");
+    const put = await app.fetch(
+      new Request("http://local/settings", {
+        method: "PUT",
+        headers: { "content-type": "application/json", ...admin(app) },
+        body: JSON.stringify({ ...settings, multiCurrencyEnabled: true }),
+      }),
+    );
+    expect(put.status).toBe(200);
+    expect(
+      (await post(app, "/treasury-accounts", { id: "ta-cash", code: "TA-CASH", name: "الخزينة", branchId: "BR1", glAccountId: "1300-1", openingBalance: "0" }, admin(app))).status,
+    ).toBe(201);
+  }
+
+  it("D202: a USD 100 sales invoice booked at 48.00 is partly paid by EGP 1,000 and still owes the base remainder", async () => {
+    const app = await newBackend();
+    await createCustomer(app, "cust-usd", "0");
+    await createServiceItem(app);
+    await multiCurrency(app);
+    expect((await authedPost(app, "/sales-invoices", { ...invoiceBody("inv-usd", "cust-usd", "100"), currency: "USD" })).status).toBe(201);
+    expect((await authedPost(app, "/sales-invoices/inv-usd/confirm", {})).status).toBe(200);
+
+    const paid = await post(app, "/sales-invoices/inv-usd/payments", { amount: "1000", treasuryAccountId: "ta-cash", date: "2026-08-23" }, admin(app));
+    expect(paid.status).toBe(200);
+    const invoice = await get(app, "/sales-invoices/inv-usd");
+    expect(invoice.status).toBe("partially_paid");
+    expect(invoice.baseGrandTotal).toBe("4800.000000");
+    expect(invoice.amountPaid).toBe("1000.000000");
+    expect(invoice.remainingBalance).toBe("3800.000000");
+    expect(await glBalance(app, "1105")).toBe(3800);
+    expect((await post(app, "/sales-invoices/inv-usd/payments", { amount: "3800.01", treasuryAccountId: "ta-cash", date: "2026-08-23" }, admin(app))).status).toBe(422);
+    expect((await get(app, "/sales-invoices/stats")).sales).toBe("4800.000000");
+  });
+
+  it("D202: a SAR 100 purchase invoice booked at 13.20 is paid against its 1,320.00 base total", async () => {
+    const app = await newBackend();
+    await createCustomer(app, "cust-cash", "0");
+    await createServiceItem(app);
+    await multiCurrency(app);
+    expect((await authedPost(app, "/sales-invoices", invoiceBody("inv-cash", "cust-cash", "2000"))).status).toBe(201);
+    expect((await authedPost(app, "/sales-invoices/inv-cash/confirm", {})).status).toBe(200);
+    expect((await post(app, "/sales-invoices/inv-cash/payments", { amount: "2000", treasuryAccountId: "ta-cash", date: "2026-08-22" }, admin(app))).status).toBe(200);
+
+    expect((await post(app, "/suppliers", { id: "sup-sar", code: "sup-sar", nameAr: "مورد بالريال", currency: "SAR", openingBalance: "0" }, admin(app))).status).toBe(201);
+    const bill = await post(
+      app,
+      "/purchases/invoices",
+      {
+        id: "pi-sar",
+        supplierId: "sup-sar",
+        date: "2026-08-22",
+        dueDate: "2026-09-21",
+        branchId: "BR1",
+        warehouseId: "WH1",
+        currency: "SAR",
+        lines: [{ description: "خدمة بالريال", kind: "expense", qty: "1", unitCost: "100", taxRatePercent: 0 }],
+      },
+      admin(app),
+    );
+    expect(bill.status).toBe(201);
+    expect((await post(app, "/purchases/invoices/pi-sar/confirm", {}, admin(app))).status).toBe(200);
+
+    const paid = await post(app, "/purchases/invoices/pi-sar/payments", { amount: "500", treasuryAccountId: "ta-cash", date: "2026-08-23" }, admin(app));
+    expect(paid.status).toBe(200);
+    const invoice = await get(app, "/purchases/invoices/pi-sar");
+    expect(invoice.total).toBe("100.000000");
+    expect(invoice.baseTotal).toBe("1320.000000");
+    expect(invoice.amountPaid).toBe("500.000000");
+    expect(invoice.remainingBalance).toBe("820.000000");
+    expect(-(await glBalance(app, "2100"))).toBe(820);
+    expect((await post(app, "/purchases/invoices/pi-sar/payments", { amount: "820.01", treasuryAccountId: "ta-cash", date: "2026-08-23" }, admin(app))).status).toBe(422);
+    expect(await reconDiff(app, "ap")).toBe(0);
+  });
+});

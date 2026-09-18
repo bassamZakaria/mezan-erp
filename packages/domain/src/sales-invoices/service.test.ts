@@ -13,7 +13,9 @@ import {
   createSalesInvoiceGlHook,
   createSalesInvoiceStockHook,
   applyAllocatedSettlement,
+  createSalesInvoiceCustomerExposureHook,
   InvalidSalesInvoiceError,
+  InvalidSalesInvoicePaymentError,
   InvalidSalesInvoiceTransitionError,
   SalesInvoiceNotFoundError,
   DuplicateSalesInvoiceError,
@@ -246,6 +248,38 @@ describe("applyAllocatedSettlement", () => {
     const before = await repo.findById("inv-1");
     const again = await applyAllocatedSettlement(repo, "inv-1", Money.fromMajor("200"));
     expect(again).toEqual(before);
+  });
+});
+
+describe("a foreign invoice settles in base (D202)", () => {
+  async function usdInvoice() {
+    const deps = await baseDeps({ exchangeRates: { findRate: async () => ({ rate: "50.00" }) } });
+    await deps.svc.createDraft(draftCmd({ currency: "USD" }));
+    await deps.svc.confirm("inv-1");
+    return deps;
+  }
+
+  it("is مدفوع جزئياً, not مدفوع, when 500.00 EGP is allocated against USD 500 booked at 50.00", async () => {
+    const { repo } = await usdInvoice();
+    const partial = await applyAllocatedSettlement(repo, "inv-1", Money.fromMajor("500"));
+    expect(partial?.status).toBe("partially_paid");
+    expect(partial?.amountPaid.toString()).toBe("500.000000");
+    const full = await applyAllocatedSettlement(repo, "inv-1", Money.fromMajor("30000"));
+    expect(full?.status).toBe("paid");
+    expect(full?.amountPaid.toString()).toBe("25000.000000");
+  });
+
+  it("lets a collection run up to the base total, and no further", async () => {
+    const { svc } = await usdInvoice();
+    await expect(svc.assertCollectable("inv-1", Money.fromMajor("20000"))).resolves.toBeTruthy();
+    await expect(svc.assertCollectable("inv-1", Money.fromMajor("25000.01"))).rejects.toBeInstanceOf(InvalidSalesInvoicePaymentError);
+  });
+
+  it("counts the base amount still owed towards the customer's credit exposure", async () => {
+    const { repo } = await usdInvoice();
+    await applyAllocatedSettlement(repo, "inv-1", Money.fromMajor("5000"));
+    const exposure = await createSalesInvoiceCustomerExposureHook(repo).currentBalance("cust-1");
+    expect(exposure.toString()).toBe("20000.000000");
   });
 });
 

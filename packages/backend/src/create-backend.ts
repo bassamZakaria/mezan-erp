@@ -655,7 +655,7 @@ async function enqueueSalesInvoiceAsReceipt(args: {
     buyer: { type: "P", id: null, name: invoice.customerNameAr },
     // Mezan does not yet record HOW a sale was paid, so the only two states it
     // can tell the authority truthfully are "settled at the till" and "not".
-    paymentMethod: invoice.amountPaid.scaled >= totals.grandTotal.scaled ? "cash" : "other",
+    paymentMethod: invoice.status === "paid" ? "cash" : "other",
     lines,
     totalSales: totals.grossTotal.toString(),
     totalCommercialDiscount: totalDiscount.scaled === 0n ? undefined : totalDiscount.toString(),

@@ -33,6 +33,7 @@ import {
   useItemStock,
   useItemUnits,
   useItems,
+  useItem,
   useItemCounts,
   useItemStats,
   type ItemListFilter,
@@ -815,7 +816,9 @@ export function ItemsScreen() {
    * a uuid still resolves, so links written against the internal id keep
    * working.
    */
-  const editingItem = isEditing ? (items.find((i) => i.code === formSegment || i.id === formSegment) ?? null) : null;
+  const editingOnPage = isEditing ? (items.find((i) => i.code === formSegment || i.id === formSegment) ?? null) : null;
+  const editingFetch = useItem(isEditing && editingOnPage === null && !query.isLoading && formSegment ? formSegment : null);
+  const editingItem = editingOnPage ?? (isEditing ? (editingFetch.data ?? null) : null);
   const editingId = editingItem?.id ?? null;
 
   /**
@@ -1339,7 +1342,7 @@ export function ItemsScreen() {
   if (formSegment === "new") return formPage;
   if (isEditing) {
     if (editingItem) return formPage;
-    if (query.isLoading) return <div className="w-full p-8 text-center text-sm text-ink-muted">{t("common.loading")}</div>;
+    if (query.isLoading || editingFetch.isLoading) return <div className="w-full p-8 text-center text-sm text-ink-muted">{t("common.loading")}</div>;
     return (
       <div className="w-full p-8 text-center text-sm text-ink-muted">
         {t("items.notFound")}

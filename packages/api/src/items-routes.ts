@@ -344,7 +344,9 @@ export function createItemsRouter(
   });
 
   app.get("/:id", gate("inventory.item.view"), async (c) => {
-    const item = await repo.findById(c.req.param("id"));
+    const key = c.req.param("id");
+    // The catalogue addresses an item by its code (`/items/items/ITM-000054`).
+    const item = (await repo.findById(key)) ?? (await repo.list()).find((row) => row.code === key) ?? null;
     if (!item) return c.json({ error: "NOT_FOUND" }, 404);
     const showCost = maySeeCost(c);
     if (!snapshots) return c.json({ ...serialize(item, showCost), stock: null });

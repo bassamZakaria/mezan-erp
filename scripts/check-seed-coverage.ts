@@ -62,6 +62,12 @@ const ALLOWED_EMPTY: Record<string, string> = {
   "/reports/returns/fx-face-value":
     "an EXCEPTIONS report (D222): it lists returns that posted a foreign invoice's digits as base before " +
     "D203. Every return since carries its invoice's rate, so a tenant seeded now has none; a row is the finding",
+  "/gl/opening-balance-duplicates":
+    "an EXCEPTIONS report: it lists only a customer/supplier whose opening balance was posted more " +
+    "than once (D241 — a screen posting under one entry id and a backfill posting the same balance " +
+    "again under another, on a books file that already restarted before the fix). The demo seed's " +
+    "opening balances are each posted exactly once, so an empty report is the correct reading of a " +
+    "healthy tenant, and a populated one is the finding pnpm scenarios manufactures and then repairs.",
 };
 
 function countOf(body: unknown): number | null {

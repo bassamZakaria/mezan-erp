@@ -158,6 +158,17 @@ export {
   type ReturnDocumentLike,
 } from "./returns-fx-face-value.js";
 
+// --- تكرار ترحيل الأرصدة الافتتاحية — Duplicate Opening-Balance Postings (D241) ---
+
+export {
+  createOpeningBalanceDuplicatesReport,
+  findOpeningBalanceDuplicates,
+  type OpeningBalanceDuplicatesContext,
+  type OpeningBalanceDuplicateRow,
+  type OpeningBalanceEntryRef,
+  type OpeningBalancePartyRef,
+} from "./opening-balance-duplicates.js";
+
 // --- التصنيع أم الشراء — Make vs Buy ---------------------------------------
 
 export {

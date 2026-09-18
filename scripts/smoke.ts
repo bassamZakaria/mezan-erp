@@ -301,6 +301,7 @@ const READ_PATHS = [
   "/gl/journal-entries",
   "/gl/journal-entries/counts",
   "/gl/journal-entries/stats",
+  "/gl/opening-balance-duplicates",
   "/cost-centers/importable-departments",
 ];
 

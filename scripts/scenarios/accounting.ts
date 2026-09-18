@@ -31,6 +31,7 @@ export async function run(ctx: Ctx): Promise<void> {
   await aLegacyDraftBecomesPostableThroughPUT_D226(ctx);
   await closingAMonthStrandsTheDraftsDatedIntoIt(ctx);
   await aCustomerOpeningBalanceNeverReachesTheControlAccount(ctx);
+  await duplicateOpeningBalancePostingsAreReportedAndRepaired_D241(ctx);
   await ctx.scenario("reconciliation — sub-ledgers vs GL control accounts", async () => {
     const res = await ctx.req("GET", "/reconciliation");
     const rows = ctx.rows(res.body);
@@ -1366,6 +1367,114 @@ export async function aCustomerOpeningBalanceNeverReachesTheControlAccount(ctx: 
     ctx.check("the opening balance is cleared again so later scenarios start level", cleared.status === 200, `status ${cleared.status}`);
     const after = ctx.rows((await ctx.req("GET", "/reports/aging/suppliers")).body).find((r: any) => r.supplierId === id);
     ctx.check("and the supplier's row is gone with it", after === undefined || ctx.scaled(after.total) === 0n, JSON.stringify(after));
+  });
+}
+
+/**
+ * D241 — a customer's opening balance posted a second time once the server
+ * restarted under the old backfill: the screen posted under one entry id, the
+ * backfill looked for a different one and posted the same figure again. The
+ * fix unified both paths onto ONE poster with ONE deterministic key, so
+ * neither can ever produce this again going forward — this scenario proves
+ * the OTHER half: a books file that already carries the duplicate from
+ * before the fix still needs a human, permission-gated, audited repair.
+ *
+ * The duplicate is simulated the only way it can be here: written straight
+ * through the SQLite ledger on a second connection to the SAME file the
+ * running backend already has open, exactly the shape an old books file
+ * already holds — never something today's poster could produce on its own.
+ */
+export async function duplicateOpeningBalancePostingsAreReportedAndRepaired_D241(ctx: Ctx): Promise<void> {
+  await ctx.scenario("opening balances — D241: a duplicate customer/supplier posting is reported and repaired, not silently or by editing", async () => {
+    const custId = "SCN-CUST-D241";
+    const suppId = "SCN-SUPP-D241";
+    const arBefore = await accountBalance(ctx, "1105");
+    const apBefore = await accountBalance(ctx, "2100");
+
+    const custCreated = await ctx.req("POST", "/customers", { id: custId, code: "SCN-D241-C", nameAr: "عميل مكرر", openingBalance: "750.00" });
+    const suppCreated = await ctx.req("POST", "/suppliers", { id: suppId, code: "SCN-D241-S", nameAr: "مورد مكرر", openingBalance: "300.00" });
+    ctx.check("a customer and a supplier exist to duplicate", custCreated.status === 201 && suppCreated.status === 201, `${custCreated.status} ${suppCreated.status}`);
+    if (custCreated.status !== 201 || suppCreated.status !== 201) return;
+
+    const blank = { memo: null, costCenterId: null, currency: null, fxRate: null, taxRatePercent: null, projectId: null, costCategory: null, branchId: null, partyId: null };
+    const legacyLedger = createSqliteLedgerStore(ctx.dbPath);
+    await legacyLedger.save({
+      id: "LEGACY-OPEN-JE:SCN-CUST-D241", entryNo: null, date: today(), memo: "قيد شاشة قديم قبل التوحيد (D241)", status: "posted", source: "system",
+      createdAt: new Date().toISOString(), postedAt: new Date().toISOString(),
+      reversesEntryId: null, reversedByEntryId: null, sourceDocType: "CUSTOMER_OPENING_BALANCE", sourceDocId: custId, sourceDocNumber: null,
+      lines: [
+        { ...blank, accountId: "1105", debit: Money.fromMajor("750"), credit: Money.zero() },
+        { ...blank, accountId: "3210", debit: Money.zero(), credit: Money.fromMajor("750") },
+      ],
+    });
+    await legacyLedger.save({
+      id: "LEGACY-OPEN-JE:SCN-SUPP-D241", entryNo: null, date: today(), memo: "قيد شاشة قديم قبل التوحيد (D241)", status: "posted", source: "system",
+      createdAt: new Date().toISOString(), postedAt: new Date().toISOString(),
+      reversesEntryId: null, reversedByEntryId: null, sourceDocType: "SUPPLIER_OPENING_BALANCE", sourceDocId: suppId, sourceDocNumber: null,
+      lines: [
+        { ...blank, accountId: "3210", debit: Money.fromMajor("300"), credit: Money.zero() },
+        { ...blank, accountId: "2100", debit: Money.zero(), credit: Money.fromMajor("300") },
+      ],
+    });
+    legacyLedger.close();
+
+    ctx.checkEq("1105 now carries the duplicate — 750 posted twice", await accountBalance(ctx, "1105"), arBefore + 1500);
+    ctx.checkEq("2100 now carries the duplicate — 300 posted twice", await accountBalance(ctx, "2100"), apBefore - 600);
+
+    const report = await ctx.req("GET", "/gl/opening-balance-duplicates");
+    const custRow = ctx.rows(report.body).find((r: any) => r.partyId === custId);
+    const suppRow = ctx.rows(report.body).find((r: any) => r.partyId === suppId);
+    ctx.check(
+      "the exceptions report lists the duplicated customer, with the excess",
+      report.status === 200 && custRow?.kind === "customer" && ctx.n(custRow?.wanted) === 750 && ctx.n(custRow?.totalPosted) === 1500 && ctx.n(custRow?.excess) === 750,
+      JSON.stringify(custRow),
+    );
+    ctx.check(
+      "and lists the duplicated supplier too — D241 names both",
+      suppRow?.kind === "supplier" && ctx.n(suppRow?.wanted) === -300 && ctx.n(suppRow?.totalPosted) === -600 && ctx.n(suppRow?.excess) === -300,
+      JSON.stringify(suppRow),
+    );
+
+    const custRepair = await ctx.req("POST", `/gl/opening-balance-duplicates/customer/${custId}/repair`, {});
+    const suppRepair = await ctx.req("POST", `/gl/opening-balance-duplicates/supplier/${suppId}/repair`, {});
+    ctx.check(
+      "the repair action posts a reversing entry for exactly the excess",
+      custRepair.status === 200 && custRepair.body?.repaired === true && suppRepair.status === 200 && suppRepair.body?.repaired === true,
+      `${custRepair.status} ${JSON.stringify(custRepair.body)} / ${suppRepair.status} ${JSON.stringify(suppRepair.body)}`,
+    );
+    ctx.checkEq("1105 is back to exactly one posting of the opening balance", await accountBalance(ctx, "1105"), arBefore + 750);
+    ctx.checkEq("2100 is back to exactly one posting of the opening balance", await accountBalance(ctx, "2100"), apBefore - 300);
+
+    const reversalEntries = (await ctx.allRows("/gl/journal-entries")).filter((e: any) => e.reversesEntryId);
+    const custReversal = reversalEntries.find((e: any) => (e.lines ?? []).some((l: any) => l.accountId === "1105" && l.partyId === custId));
+    ctx.check(
+      "the reversal names the party on the control-account line, even though the duplicate it removes never did (D205's shape)",
+      Boolean(custReversal),
+      JSON.stringify(reversalEntries.map((e: any) => e.id)),
+    );
+
+    const clean = await ctx.req("GET", "/gl/opening-balance-duplicates");
+    ctx.check(
+      "the exceptions report no longer lists either party",
+      ctx.rows(clean.body).every((r: any) => r.partyId !== custId && r.partyId !== suppId),
+      JSON.stringify(clean.body),
+    );
+
+    const custRepairAgain = await ctx.req("POST", `/gl/opening-balance-duplicates/customer/${custId}/repair`, {});
+    ctx.check(
+      "idempotent — repairing again reverses nothing extra",
+      custRepairAgain.status === 200 && custRepairAgain.body?.repaired === false,
+      `status ${custRepairAgain.status} body ${JSON.stringify(custRepairAgain.body)}`,
+    );
+    ctx.checkEq("and 1105 has not moved again", await accountBalance(ctx, "1105"), arBefore + 750);
+
+    // Clear both back to zero, the reverse-and-repost way (D142/D241), so
+    // later scenarios inherit the same AR/AP this one started with.
+    const custCleared = await ctx.req("PATCH", `/customers/${custId}`, { openingBalance: "0.00" });
+    const suppCleared = await ctx.req("PATCH", `/suppliers/${suppId}`, { openingBalance: "0.00" });
+    ctx.check("both are cleared again so later scenarios start level", custCleared.status === 200 && suppCleared.status === 200, `${custCleared.status} ${suppCleared.status}`);
+    ctx.checkEq("1105 is exactly where it started", await accountBalance(ctx, "1105"), arBefore);
+    ctx.checkEq("2100 is exactly where it started", await accountBalance(ctx, "2100"), apBefore);
   });
 }
 

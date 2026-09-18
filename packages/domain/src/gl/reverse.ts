@@ -16,6 +16,15 @@ export interface ReverseJournalEntryOptions {
   readonly date?: string;
   /** Memo for the reversing entry; defaults to an "عكس القيد …" note. */
   readonly memo?: string;
+  /**
+   * Applied to each mirrored line before it posts — every other dimension
+   * still comes straight from the original. Exists for callers correcting an
+   * entry that predates a dimension the domain now expects (e.g. a legacy
+   * opening balance whose control-account line never named its party, D241):
+   * the reversal can carry what the original never did, without rewriting the
+   * original itself.
+   */
+  readonly linePatch?: (line: JournalLine) => JournalLine;
 }
 
 export interface ReverseJournalEntryResult {
@@ -71,7 +80,7 @@ export async function reverseJournalEntry(
   }
 
   const reversalDate = opts.date ?? original.date;
-  const reversalLines = original.lines.map(mirror);
+  const reversalLines = original.lines.map(mirror).map(opts.linePatch ?? ((line) => line));
   const { totalDebit, totalCredit } = assertBalanced(reversalLines);
   await assertPeriodOpen(reversalDate, deps.periods);
   // The filed-VAT lock is a second, independent gate: an accounting period can

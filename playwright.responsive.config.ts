@@ -1,3 +1,6 @@
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { defineConfig, devices } from "@playwright/test";
 
 /**
@@ -17,6 +20,7 @@ import { defineConfig, devices } from "@playwright/test";
  */
 const PORT = 5233;
 const API_PORT = 3133;
+const platformDir = mkdtempSync(path.join(tmpdir(), "mezan-responsive-"));
 
 export default defineConfig({
   testDir: "./e2e",
@@ -35,12 +39,12 @@ export default defineConfig({
   webServer: [
     {
       command: `pnpm exec tsx apps/server/src/index.ts`,
-      url: `http://127.0.0.1:${API_PORT}/health`,
+      url: `http://127.0.0.1:${API_PORT}/healthz`,
       reuseExistingServer: !process.env.CI,
       timeout: 120_000,
       stdout: "pipe",
       stderr: "pipe",
-      env: { PORT: String(API_PORT), MEZAN_DB: ":memory:", MEZAN_SEED_DEMO: "1" },
+      env: { PORT: String(API_PORT), MEZAN_DB: ":memory:", MEZAN_SEED_DEMO: "1", MEZAN_PLATFORM_DIR: platformDir },
     },
     {
       command: `cd apps/web && pnpm exec vite --port ${PORT} --strictPort --host 127.0.0.1`,
@@ -49,7 +53,7 @@ export default defineConfig({
       timeout: 120_000,
       stdout: "pipe",
       stderr: "pipe",
-      env: { MEZAN_API_URL: `http://127.0.0.1:${API_PORT}` },
+      env: { MEZAN_API_URL: `http://127.0.0.1:${API_PORT}/api` },
     },
   ],
 });

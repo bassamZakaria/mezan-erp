@@ -19,6 +19,7 @@ const platformDir = mkdtempSync(path.join(tmpdir(), "mezan-e2e-platform-"));
 
 export default defineConfig({
   testDir: "./e2e",
+  testIgnore: /every-screen\.spec\.ts/,
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
@@ -68,7 +69,7 @@ export default defineConfig({
       timeout: 60_000,
       stdout: "pipe",
       stderr: "pipe",
-      env: { MEZAN_API_URL: API_URL },
+      env: { MEZAN_API_URL: `${API_URL}/api` },
     },
   ],
 });

@@ -316,7 +316,12 @@ export async function run(ctx: Ctx): Promise<void> {
     const runBefore = (await ctx.req("GET", "/hr/payroll/runs/PR-DEMO-3")).body;
     const ahmedSlip = runBefore.payslips.find((p: any) => p.employeeId === "EMP-DEMO-5");
     const recoveryLine = ahmedSlip.lines.find((l: any) => l.source === "advance_recovery" && l.referenceId === "ADV-DEMO-2");
-    ctx.check("PR-18/PR-25 — August's محتسب preview already shows the سداد سلفة line before approval", !!recoveryLine && ctx.n(recoveryLine.amount) === 1000, recoveryLine?.amount);
+    // D183 (Art. 43): recovery is capped at 10% of Ahmed's August gross —
+    // 8,200 basic + 600 + 400 allowances = 9,200.00, so the ceiling is 920.00,
+    // below the instalment's own 1,000.00. The shortfall (80.00) is NOT
+    // written off — it carries forward on the advance's own balance.
+    ctx.check("PR-18/PR-25 — August's محتسب preview already shows the سداد سلفة line before approval, capped at 10% of gross (920.00)", !!recoveryLine && ctx.n(recoveryLine.amount) === 920, recoveryLine?.amount);
+    ctx.check("PR-18 — the capped recovery line says so", !!recoveryLine?.capped);
 
     const approve = await ctx.req("POST", "/hr/payroll/runs/PR-DEMO-3/approve", {});
     ctx.check("PR-24 — approving a محتسب run succeeds and posts a journal entry", approve.status === 200 && !!approve.body.journalEntryId, `status ${approve.status}`);
@@ -328,8 +333,8 @@ export async function run(ctx: Ctx): Promise<void> {
       ctx.n(before.outstanding) - ctx.n(after.outstanding),
       recoveryLine ? ctx.n(recoveryLine.amount) : NaN,
     );
-    ctx.checkEq("ADV-DEMO-2 — outstanding after approval is 3,000.00", ctx.n(after.outstanding), 3000);
-    ctx.checkEq("ADV-DEMO-2 — instalment #1 fully recovered (1,000.00)", ctx.n(after.installments[0].recovered), 1000);
+    ctx.checkEq("ADV-DEMO-2 — outstanding after approval is 3,080.00 (4,000 − the 920.00 the D183 cap actually recovered)", ctx.n(after.outstanding), 3080);
+    ctx.checkEq("ADV-DEMO-2 — instalment #1 partially recovered under the D183 cap (920.00 of 1,000.00) — the 80.00 shortfall carries forward", ctx.n(after.installments[0].recovered), 920);
   });
 
   await ctx.scenario("hr / payroll disbursement — balanced journal entry, treasury reduced by exactly the net (PR-DEMO-3)", async () => {
@@ -551,9 +556,12 @@ export async function run(ctx: Ctx): Promise<void> {
     const slip = created[0];
 
     ctx.checkEq("PR-20 — paid days = 16 of 31 (contract/hire started mid-period)", slip.paidDays, 16);
-    const expectedBasic = allocate(Money.fromMajor("1000"), [16, 15])[0]!;
+    // D185: the wage proration reads the tenant's day-divisor setting (FIXED_30
+    // by default here, unset on these fake deps) — amount × 16 / 30, NOT the
+    // 16-of-31 calendar split this scenario asserted before the fix.
+    const expectedBasic = allocate(Money.fromMajor("1000"), [16, 14])[0]!;
     ctx.checkEq(
-      "PR-20 — basic salary prorated by the exact largest-remainder split",
+      "PR-20 — basic salary prorated by the exact largest-remainder split, on the FIXED_30 divisor (D185)",
       ctx.n(slip.lines.find((l: any) => l.source === "contract_basic").amount.toString()),
       ctx.n(expectedBasic.toString()),
     );

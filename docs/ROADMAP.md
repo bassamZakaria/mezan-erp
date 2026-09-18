@@ -46,8 +46,8 @@ competitor study (§8), and the deferred HR/POS/Cloud build plans (§9).
 | **Parity (§2.2, P0–P6)** | Complete but for one cluster — row menus on 17 read-only surfaces, which is a question rather than a backlog item |
 | **Open now (§3)** | **Nothing.** Row menus answered (no), contracting complete, outbound notification delivery landed 2026-09-14 |
 | **Deferred by decision (§4)** | POS, statutory payroll, HR depth, cloud — not scheduled, not defects |
-| **Defects (§5)** | **0 open** of the 83 filed (D66–D148). The three filed on 2026-09-14 are closed with the decisions that found them: D146 (an item marked FIFO was valued WAC), D147 (a rep holding `view_own` saw an empty list because an employee id was compared to a user id), D148 (consumer e-receipts parked awaiting a seal the regime does not require). Every open half that used to be a decision is now taken — D90 → DEC-19, D111 → DEC-20, D116 → DEC-14 |
-| **Desktop audit (2026-09-07)** | The thirty-two findings of the full desktop audit (`artifacts/audit-2026-09-07.md`, filed as D145–D176 on that branch — **ids that collide with the D145–D148 filed here on 2026-09-14 and need renumbering**) came in with PR #55: licence, update, LAN, books, performance and security. All fixed on that branch, including Q-1, which moved the desktop backend off the Electron main process into a `utilityProcess` |
+| **Defects (§5)** | **0 open** of the 115 filed (D66–D180). The three filed on 2026-09-14 are closed with the decisions that found them: D146 (an item marked FIFO was valued WAC), D147 (a rep holding `view_own` saw an empty list because an employee id was compared to a user id), D148 (consumer e-receipts parked awaiting a seal the regime does not require). Every open half that used to be a decision is now taken — D90 → DEC-19, D111 → DEC-20, D116 → DEC-14 |
+| **Desktop audit (2026-09-07)** | The thirty-two findings of the full desktop audit (`artifacts/audit-2026-09-07.md`, filed as D145–D176 on that branch; its first four are renumbered D177–D180 because main had already used D145–D148 — see §6.4 D-D) came in with PR #55: licence, update, LAN, books, performance and security. All fixed on that branch, including Q-1, which moved the desktop backend off the Electron main process into a `utilityProcess` |
 | **Compliance (§5.4)** | The B2C e-receipt, the e-seal seam and نموذج 41 landed 2026-09-07 — but nothing *called* the receipt path until DEC-9 wired the producer on 2026-09-14. Law 6/2025's simplified regime is built and deliberately unclaimed (DEC-13) |
 | **Decisions (§6)** | **None open.** All fourteen taken 2026-09-14 against the persona panel and recorded in §6.4 with the option chosen, what other platforms do, who dissented, and the cost of reversal. Three scope questions remain in §6.3 — they are pricing calls, not code |
 | **Beyond parity (§7)** | 27 candidates across E1–E3, none started; `enhancements` branch only |
@@ -710,14 +710,14 @@ need a measured reading in the running app before anyone fixes them.
 | D143 | A refused BOM deactivation was completely silent: `deactivate()` caught the error and did nothing, behind a comment claiming the re-render would communicate it — it did not. The BOM stayed active and the person had no way to know the server had refused. Now renders a `role="alert"` banner carrying the server's own reason | `apps/web/src/screens/BomsScreen.tsx` | fixed in this pass (`BomsScreen.test.tsx`) |
 | D144 | **The sales-returns create page spun the CPU forever on an invoice with nothing returnable.** The line-seeding effect ended in `setLines(firstLine ? [...] : [])`, and its own guard was `lines.length > 0` — a guard an empty array can never satisfy. A fresh `[]` is never `Object.is`-equal to the current state, so React re-rendered; `invoices` was rebuilt by `.filter()` on every render, so the effect's deps changed too and it re-ran, wrote `[]` again, and never settled. Choosing a service-only invoice in «فاتورة المصدر» — or arriving at `#/…/sales-returns/new/<id>` for one — froze the screen with no error. Found by a coverage test that hung a vitest worker at 100% CPU rather than failing (a 5s testTimeout cannot interrupt a synchronous render loop). Fixed by bailing out when there is no returnable line, and memoising `invoices` | `apps/web/src/screens/SalesReturnsScreen.tsx` | fixed in this pass (`SalesReturnsScreen.coverage.test.tsx`) |
 
-**Thirty-two filed 2026-09-07 by the full audit** (`docs/artifacts/audit-2026-09-07.md`, D145–D176). Every one was verified in code at `ab699559`; the ids in brackets are the audit's own (L = licence, U = updates, N = LAN, B = books, Q = performance, S = security).
+**Thirty-two filed 2026-09-07 by the full audit** (`docs/artifacts/audit-2026-09-07.md`, now D149–D180 — the first four were filed as D145–D148 on the audit branch and renumbered D177–D180 on merge, because main had already used those numbers). Every one was verified in code at `ab699559`; the ids in brackets are the audit's own (L = licence, U = updates, N = LAN, B = books, Q = performance, S = security).
 
 | # | Defect | Evidence | State |
 |---|---|---|---|
-| D145 | **No packaged build could be licensed** [L-1]. The vendor public key was an empty constant read from `process.env` at runtime — no esbuild `define`, no CI variable — so a Dock launch resolved `NO_PUBLIC_KEY` → `UNLICENSED`, read-only, seats 0, LAN off, with a banner blaming the shop | `apps/desktop/src/main/license-runtime.ts`, `apps/desktop/scripts/build.mjs` | fixed 2026-09-07 — keys, salt and check-in URL are `define`d at build time; env overrides are refused when `app.isPackaged`; `NO_PUBLIC_KEY` has its own Arabic sentence (`license-runtime.test.ts`) |
-| D146 | **The vendor side did not exist** [L-2]: no keypair generation, no licence signer, no revocation list, no check-in service — nothing could produce a `license.mezan` | `packages/domain/src/licensing/`, `scripts/` | fixed 2026-09-07 — `signLicense`, `pnpm licence:keygen` / `licence:issue`, and `apps/licence-server` (`POST /checkin` with a signed answer and a JSON revocation list) |
-| D147 | **The check-in clock started at the licence's expiry date** [L-3]: a valid licence never degraded; an expired one made the app `app.exit(1)` before any window, with no dialog and no log | `apps/desktop/src/main/index.ts` | fixed 2026-09-07 — clock starts at `notBefore` (or first launch); no licence verdict ever exits; past 30 days the app opens READ_ONLY with a blocking Arabic notice (`license-checkin.test.ts`, `LicenseBanner.test.tsx`) |
-| D148 | The check-in payload identified nothing [L-4]: `licenseId` was the state enum, `fingerprint` the `userData` path, the reply unsigned, and `{revoked:true}` only logged | `apps/desktop/src/main/index.ts`, `license-checkin.ts` | fixed 2026-09-07 — real `licenseId` and salted fingerprint, Ed25519-signed reply verified with replay rejection, `REVOKED` latches to read-only |
+| D177 | **No packaged build could be licensed** [L-1]. The vendor public key was an empty constant read from `process.env` at runtime — no esbuild `define`, no CI variable — so a Dock launch resolved `NO_PUBLIC_KEY` → `UNLICENSED`, read-only, seats 0, LAN off, with a banner blaming the shop | `apps/desktop/src/main/license-runtime.ts`, `apps/desktop/scripts/build.mjs` | fixed 2026-09-07 — keys, salt and check-in URL are `define`d at build time; env overrides are refused when `app.isPackaged`; `NO_PUBLIC_KEY` has its own Arabic sentence (`license-runtime.test.ts`) |
+| D178 | **The vendor side did not exist** [L-2]: no keypair generation, no licence signer, no revocation list, no check-in service — nothing could produce a `license.mezan` | `packages/domain/src/licensing/`, `scripts/` | fixed 2026-09-07 — `signLicense`, `pnpm licence:keygen` / `licence:issue`, and `apps/licence-server` (`POST /checkin` with a signed answer and a JSON revocation list) |
+| D179 | **The check-in clock started at the licence's expiry date** [L-3]: a valid licence never degraded; an expired one made the app `app.exit(1)` before any window, with no dialog and no log | `apps/desktop/src/main/index.ts` | fixed 2026-09-07 — clock starts at `notBefore` (or first launch); no licence verdict ever exits; past 30 days the app opens READ_ONLY with a blocking Arabic notice (`license-checkin.test.ts`, `LicenseBanner.test.tsx`) |
+| D180 | The check-in payload identified nothing [L-4]: `licenseId` was the state enum, `fingerprint` the `userData` path, the reply unsigned, and `{revoked:true}` only logged | `apps/desktop/src/main/index.ts`, `license-checkin.ts` | fixed 2026-09-07 — real `licenseId` and salted fingerprint, Ed25519-signed reply verified with replay rejection, `REVOKED` latches to read-only |
 | D149 | First-run «تفعيل الترخيص» was a stub that showed a green «مُفعّل» pill on a no-op [L-5] | `apps/web/src/login/FirstRunWizard.tsx` | fixed 2026-09-07 — a real file import (`mezan:licence:import`) that re-verifies and shows the actual verdict (`FirstRunWizard.test.tsx`) |
 | D150 | The licence panel reported `MEZAN_ENTITLEMENTS_JSON`, not the verified licence, so a licensed install read `LIC-MISSING` while the write gate said ACTIVE [L-6] | `apps/desktop/src/main/licence-ipc.ts` | fixed 2026-09-07 (`licence-ipc.test.ts`) |
 | D151 | A successful manual check-in could not lift read-only until restart, and a licence expiring mid-session was never noticed [L-7]: the write gate closed over the startup verdict | `apps/desktop/src/main/index.ts` | fixed 2026-09-07 — `resolveLicenseState` re-evaluates per request |
@@ -967,7 +967,7 @@ Entries were last re-read against the tree on **2026-09-07**.
   no authentic licence fails closed to read-only. `MEZAN_ENTITLEMENTS_JSON` survives only as
   a documented DEV convenience (ignored by packaged builds). ~~The vendor public key and
   fingerprint salt are baked by the release build~~ — **that was false when written and is
-  true now (D145, 2026-09-07).** They were `process.env` reads with empty compile-time
+  true now (D177, 2026-09-07).** They were `process.env` reads with empty compile-time
   defaults and nothing anywhere that set them, so every packaged build resolved
   `NO_PUBLIC_KEY` → `UNLICENSED`. They are now esbuild `define` substitutions
   (`__MEZAN_LICENSE_PUBLIC_KEY__`, `__MEZAN_LICENSE_FINGERPRINT_SALT__`,
@@ -1482,6 +1482,46 @@ failure the working agreement warns about.
 descoped. **Reversal cost:** a plan row. The real cost is a wrong net on a payslip, so the gate
 is legal review, not engineering.
 
+##### 2026-09-18 — PR #50 closed, its work re-landed in two parts (D-B)
+
+The HR-finalisation branch (#50, 11 commits, +6,286 lines) was the statutory computation this
+decision deferred. The panel — `hr-payroll`, `tax-expert`, `chartered-accountant`, `accountant`,
+`owner`, `implementation-consultant` — checked its figures against current Egyptian sources.
+
+**Its structure met the bar; its content did not.** Effective-dated tables, a citation per row,
+integer basis points, runs refused for uncovered periods — all right. But:
+
+- **End of service** was computed on every termination and accrued monthly to the ledger for every
+  employee. Under Law 14/2025 the employer owes it only when the worker reaches 60 without a pension
+  entitlement covering the period. The monthly provision overstated liabilities on every client's
+  balance sheet; the chartered accountant would not sign it.
+- **Insurance shares** were fixed constants. Law 148/2019 Art. 19 raises old-age cover to 12.5% /
+  9.5% from 1 January 2027 — wrong in under four months.
+- **Salary tax** started 2025-01-01 citing Law 30/2023; the brackets are Law 7/2024 from 2024-03-01.
+  The disability exemption was missing.
+- **The martyrs' fund levy** applied to daily workers, whom the law excludes.
+- Nothing was marked unverified, and the branch declared this decision "taken".
+
+Verified correct: the 2025 and 2026 insurable-wage limits (2,300–14,500; 2,700–16,700, NOSI) and the
+salary-tax brackets themselves (40k at 0%, then 10/15/20/22.5/25/27.5; 20k exemption).
+
+**What other platforms do:** computing Egyptian statutory payroll is market standard — Odoo ships an
+official Egypt payroll localisation, ZenHR automates tax, the martyrs' levy, insurance and end of
+service. Zoho Payroll is not offered in Egypt. Odoo's own sick-leave tiers are pre-2025.
+
+**Taken:** #50 closed unmerged, the branch archived as tag `pr50-archive`. Re-landed on current `main`
+as `hr/payroll-foundations` (garnishments, the payroll day divisor, the HR reports without the
+end-of-service provision, the printable payslip, overtime-hours capture — merges normally) and
+`hr/statutory-payroll` (the engine with every fix above, `source` + `verified` on every row with
+«غير مُتحقَّق منه» on unverified figures, the end-of-service provision dropped until its condition
+exists, **behind a tenant flag `hr.payroll.statutory` that is off by default** and needs an audited
+admin acknowledgement to turn on). **This decision's wording stands:** statutory payroll is built, not
+claimed, until a محاسب قانوني signs the figures row by row.
+
+**Dissent:** `owner` and `implementation-consultant` wanted #50 merged behind a flag as it was —
+rejected, because a flagged wrong end-of-service provision still posts to the ledger the day the flag
+is turned on.
+
 ---
 
 #### DEC-13 — Build Law 6/2025 now, quietly. Claim it only once the pieces below exist and an accountant has signed off on the turnover base.
@@ -1722,6 +1762,13 @@ the most common refund request.
 consumer sale it records is an e-receipt." **Reversal cost:** reversing a "no" costs nothing;
 reversing a half-built POS costs a design spike done wrong.
 
+**Re-confirmed 2026-09-18 (D-E)**, against the owner's request that "all modules are handled and
+finalized". POS has no code at all; "handled" is met by this recorded decision, not by building a
+till. Intuit — the QuickBooks baseline — discontinued QuickBooks Desktop Point of Sale on 3 October
+2023. `client-retail` and `owner` still want a date; the answer is a trigger instead: **POS reopens
+when three paying retail or restaurant tenants ask for it, or one quarter after v1 general
+availability, whichever comes first.**
+
 ---
 
 #### DEC-17 — Delete the API-key and webhook back end. Keep the event bus. Rebuild integration as a licensable module when the cloud edition has a public HTTP surface.
@@ -1882,6 +1929,93 @@ had earned. **A branch's balance sheet stopped balancing the day the year closed
 loss-making one can net to a zero company result while each still needs its own line.
 
 The four zero-invariants read exactly `0.000000` before and after.
+
+---
+
+### Taken 2026-09-18
+
+#### DEC-21 — The public demo keeps a published login, scoped to the demo tenant; a shared password is the real gate
+
+The Render demo auto-deployed from git with `MEZAN_SEED_ADMIN_PIN=123456`. PR #55's cloud entrypoint
+**refuses to boot** with that variable set (its audit finding S-1: "a writable ERP on the open
+internet behind a published PIN") and otherwise generates a random PIN, printed once to the deploy log.
+
+**Four facts decided it:**
+
+1. **The refusal protected nothing on the demo tenant.** Its seed creates ~20 personas, all on
+   `123456`, including a second company admin with the `*` wildcard. A random PIN on one admin still
+   leaves a published admin login.
+2. **A per-deploy PIN is unusable on a free instance.** Render's free plan sleeps after 15 idle minutes
+   and the demo re-seeds on every wake, so the PIN would change on every wake.
+3. **The refusal did not take the demo down — it froze it.** Render keeps environment variables that
+   are removed from `render.yaml` and never prompts for `sync: false` ones after creation, and a deploy
+   that fails its health check leaves the previous one serving. So every new build failed and the
+   **old** build — with optional auth and the published PIN — stayed on the internet.
+4. **The variable is genuinely dangerous process-wide.** It fed the seed-admin secrets of every tenant,
+   including tenants the platform console provisions. That is the legitimate reason to refuse it.
+
+**What other platforms do:** QuickBooks Online's Test Drive needs no sign-in and wipes each visitor's
+sandbox; Odoo's public demo databases live a few hours and its runbot publishes `admin`/`admin` on
+throwaway builds; ERPNext offers a one-click demo login. **A known admin login is normal when the
+instance is disposable and isolated.** None of them put one on a host that also serves real tenants.
+
+**Taken:** the demo tenant's PIN is pinned **in code, for that tenant only** (`demo-tenant.ts` passes
+`seedAdminPin` to `createBackend`, which refuses it unless the demo is being seeded). The process-wide
+variable stays refused. `MEZAN_DEMO_PASSWORD` (basic auth) becomes mandatory exactly when the demo is
+seeded, and is the real gate — handed to each prospect by sales, rotated monthly and after any leak,
+never published. Without `MEZAN_SEED_DEMO=1` neither applies, so the future AWS SaaS is not behind a
+`demo:` prompt. A test proves the pinned PIN does not reach a platform-provisioned tenant.
+
+**Panel:** `owner`, `support-agent`, `product` backed the known PIN — a demo that needs a log lookup
+before every call does not get used. `it-admin` backed it on condition the dashboard is fixed first.
+`security-officer` backed it on three conditions, all met: the process-wide refusal stays, the gate is
+mandatory wherever the demo is seeded, and the password is never published. **Dissent:**
+`security-officer` prefers per-visitor ephemeral tenants, as QuickBooks does — deferred, because a
+seeded tenant is ~375 MB on a 512 MB free instance; recorded as the target for the AWS demo.
+
+**Ops step that only the dashboard can do** (Render keeps removed variables): delete
+`MEZAN_SEED_ADMIN_PIN`, set `MEZAN_DEMO_PASSWORD`, set the platform-owner credentials, deploy, and check
+`/` answers 401 without credentials and `/healthz` answers 200. `docs/DEPLOY-DEMO.md` has the steps.
+
+**Also fixed by this:** `pnpm env:testing` / `env:staging` could not start on `main` — `scripts/env.mjs`
+set the refused variable and not the now-required password. And the demo seeder's own second lock
+(`assertLocalOrTest`) refused `NODE_ENV=production` outright, while `cloud.ts` and the Dockerfile both
+run in production — so the demo would have crashed on boot even with the PIN fixed. Production now
+passes that lock only with `MEZAN_SEED_DEMO=1` in the process's own environment. Landed as PR #63.
+
+**Reversal cost:** low — drop the `seedAdminPin` argument.
+
+---
+
+#### DEC-22 — One set of security reports: the `report-*` screens survive, the `security-*` duplicates go
+
+The #55 merge left two complete sets of screens routed and in the nav for the same four reports
+(exceptions, post-posting changes, after hours, new accounts).
+
+**Taken:** keep `screens/reports/` (rendered through `ReportRunner`); delete `screens/security/`. The
+kept set has Excel/CSV export and print/PDF — an auditor needs both to file evidence — real date-range
+fields defaulting to this month, and it is the only set with a navigation permission entry
+(`audit.logs.view`); the deleted set had none, so the menu showed it to users who then got a 403.
+
+Two defects fixed in the survivor on the way: the after-hours report offered three audit streams the
+contract does not have (`financial`, `operational`, `admin` — each a validation error) and omitted
+`sensitive`; and its KPI and gap labels rendered raw Arabic with no English. The deleted set's
+translated labels were ported across. Landed as PR #64.
+
+**What other platforms do:** exception and audit reports in QuickBooks (Audit Log, Voided/Deleted
+report) and Odoo are exportable and printable; for audit evidence that is table stakes (ISA 230).
+**Dissent:** `designer` preferred the deleted set's layout, which matches «سجل المراجعة» beside it —
+overruled because it had no export; the part of the dissent carried out is the translated labels.
+
+---
+
+#### D-D — The D145–D148 collision
+
+Main's D145–D148 (filed 2026-09-11 and 2026-09-14) keep their numbers; the desktop audit's first four,
+filed as D145–D148 on the #55 branch, are **D177–D180**. §5.1 assigns an id by adding a row to the
+register on `main`, so a number is the next free integer at the moment it lands there — main's four
+landed first. Main's are also cited in 16 places in code and tests and in DEC-7, DEC-9 and §6.3; the
+audit's are cited only here, and its code refers to the audit's own tags (L-1…S-*).
 
 ---
 

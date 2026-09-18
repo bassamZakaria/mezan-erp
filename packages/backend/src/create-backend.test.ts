@@ -896,7 +896,12 @@ describe("createBackend — sweep/finish-and-mount: manufacturing, RFQ, historic
  * never posted, invisible to `/reconciliation`.
  */
 describe("createBackend — partner opening balances reach the ledger (B-2)", () => {
-  type Entry = { status: string; lines: { accountId: string; debit: string; credit: string }[] };
+  type Entry = {
+    id: string;
+    status: string;
+    reversesEntryId: string | null;
+    lines: { accountId: string; debit: string; credit: string; partyId: string | null }[];
+  };
 
   async function entry(app: App, id: string) {
     const res = await app.fetch(new Request(`http://local/gl/journal-entries/${id}`, { headers: admin(app) }));
@@ -1027,21 +1032,36 @@ describe("createBackend — partner opening balances reach the ledger (B-2)", ()
     expect(patch.status).toBe(200);
 
     /*
-     * The branch this test was written on corrected by REVERSING the original
-     * and re-posting the whole figure. The shipped behaviour (D142) is
-     * stronger: it posts only the DIFFERENCE, so the original entry is never
-     * reversed and never edited — it simply stays true of the day it was made.
-     * Two entries, both posted, netting to the new balance.
+     * D241 unified the customers/suppliers screens and the start-up backfill
+     * onto ONE poster (`postPartyOpeningBalance`), which corrects a changed
+     * balance the way this codebase corrects anything posted: reverse the
+     * standing entry, post the new figure — never edit either one. An earlier
+     * branch posted only the delta (D142) instead; that guard is superseded by
+     * this one, which also closes the gap D142's delta-posting left open (a
+     * screen posting under its own id and a backfill posting the SAME balance
+     * again under another, D241).
      */
     const openings = await openingEntriesFor(app, "cust-chg");
-    expect(openings, "the original and its correction are both on the ledger").toHaveLength(2);
-    expect(openings.every((e) => e.status === "posted")).toBe(true);
+    expect(openings, "the original, its reversal, and the new figure").toHaveLength(3);
 
-    const arDebits = openings.map((e) => e.lines.find((l) => l.accountId === "1105")?.debit ?? "0.000000");
-    expect(arDebits).toContain("5000.000000");
-    expect(arDebits).toContain("2500.000000");
+    const original = openings.find((e) => e.status === "reversed");
+    expect(original?.lines.find((l) => l.accountId === "1105")?.debit).toBe("5000.000000");
 
-    // And AR nets to the new figure, not to 12,500.
+    const reversal = openings.find((e) => e.reversesEntryId === original?.id);
+    expect(reversal?.status).toBe("posted");
+    const reversalLine = reversal?.lines.find((l) => l.accountId === "1105");
+    expect(reversalLine?.credit).toBe("5000.000000");
+    // The reversal names the party on the control-account line even though
+    // the entry it offsets never did — so the sub-ledger can follow the
+    // correction even for an entry written before D205 (D241's repair uses
+    // this same reversal for a duplicate that predates it entirely).
+    expect(reversalLine?.partyId).toBe("cust-chg");
+
+    const repost = openings.find((e) => e !== original && e !== reversal);
+    expect(repost?.status).toBe("posted");
+    expect(repost?.lines.find((l) => l.accountId === "1105")?.debit).toBe("7500.000000");
+
+    // And AR nets to the new figure, not to 12,500 or to 2,500.
     const rec = await app.fetch(new Request("http://local/reconciliation", { headers: admin(app) }));
     const { rows } = (await rec.json()) as { rows: { key: string; glBalance: string; matched: boolean }[] };
     expect(rows.find((r) => r.key === "ar")!.glBalance).toBe("7500.000000");
@@ -1076,6 +1096,174 @@ describe("createBackend — partner opening balances reach the ledger (B-2)", ()
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+/**
+ * D241 (the second half) — a books file that had already restarted under the
+ * OLD backfill still carries the duplicate: the fixed backfill only ever
+ * fills a gap now (`postPartyOpeningBalance`'s `"backfill"` mode leaves an
+ * existing entry, posted or not, exactly alone). Accounting practice forbids
+ * editing or deleting a posted entry, so the read-only exceptions report and
+ * its permission-gated repair action are the only legal way to remove the
+ * excess. Suppliers get the identical hole (D241 names both).
+ */
+describe("createBackend — duplicate opening-balance postings are reported and repaired (D241)", () => {
+  async function get(app: App, path: string): Promise<any> {
+    return (await app.fetch(new Request(`http://local${path}`, { headers: admin(app) }))).json();
+  }
+
+  /**
+   * Simulates a books file exactly as the OLD, pre-fix code left it: the real
+   * `/customers` (or `/suppliers`) POST posts the party's ONE legitimate entry
+   * through the current, unified poster; this then injects a SECOND entry
+   * under the old per-change screen id, straight through the SQLite
+   * {@link LedgerRepository} on a second connection — the shape a books file
+   * already carries if it restarted before this fix, never something today's
+   * poster could produce on its own.
+   */
+  async function injectLegacyDuplicate(dbPath: string, kind: "customer" | "supplier", partyId: string, majorAmount: string) {
+    const controlAccountId = kind === "customer" ? "1105" : "2100";
+    const docType = kind === "customer" ? "CUSTOMER_OPENING_BALANCE" : "SUPPLIER_OPENING_BALANCE";
+    const amount = Money.fromMajor(majorAmount);
+    const controlLine =
+      kind === "customer"
+        ? { accountId: controlAccountId, debit: amount, credit: Money.zero() }
+        : { accountId: controlAccountId, debit: Money.zero(), credit: amount };
+    const equityLine =
+      kind === "customer"
+        ? { accountId: "3210", debit: Money.zero(), credit: amount }
+        : { accountId: "3210", debit: amount, credit: Money.zero() };
+    const blank = { memo: null, costCenterId: null, currency: null, fxRate: null, taxRatePercent: null, projectId: null, costCategory: null, branchId: null, partyId: null };
+    const ledger = createSqliteLedgerStore(dbPath);
+    await ledger.save({
+      id: `LEGACY-OPEN-JE:${partyId}:${kind}`,
+      entryNo: `JE-LEGACY-${partyId}`,
+      date: "2026-01-01",
+      memo: "قيد شاشة قديم قبل التوحيد",
+      status: "posted",
+      source: "system",
+      createdAt: new Date().toISOString(),
+      postedAt: new Date().toISOString(),
+      sourceDocType: docType,
+      sourceDocId: partyId,
+      lines: [
+        { ...blank, ...controlLine },
+        { ...blank, ...equityLine },
+      ],
+    });
+    ledger.close();
+  }
+
+  async function withDuplicatedTenant(
+    run: (ctx: { app: App; dbPath: string; reopen: () => Promise<App> }) => Promise<void>,
+  ) {
+    const dir = mkdtempSync(path.join(tmpdir(), "mezan-d241-repair-"));
+    const dbPath = path.join(dir, "books.sqlite");
+    try {
+      const first = keep(await createBackend({ dbPath }));
+      expect((await post(first, "/customers", {
+        id: "cust-dup", code: "cust-dup", nameAr: "عميل مكرر", paymentTermsDays: 30, currency: "EGP", openingBalance: "750",
+        active: true, creditLimit: "0", taxExempt: false, etaBuyerType: "auto",
+      }, admin(first))).status).toBe(201);
+      expect((await post(first, "/suppliers", { id: "sup-dup", code: "sup-dup", nameAr: "مورد مكرر", openingBalance: "300" }, admin(first))).status).toBe(201);
+      await injectLegacyDuplicate(dbPath, "customer", "cust-dup", "750");
+      await injectLegacyDuplicate(dbPath, "supplier", "sup-dup", "300");
+
+      // The restart the duplicate needs to exist at all: the fixed backfill
+      // runs again here, sees a live deterministic entry for each party, and
+      // — in "backfill" mode — leaves it exactly alone.
+      const reopen = async () => keep(await createBackend({ dbPath }));
+      const app = await reopen();
+      await run({ app, dbPath, reopen });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  it("lists the customer and the supplier the old backfill duplicated, with the excess still on the control account", async () => {
+    await withDuplicatedTenant(async ({ app }) => {
+      // Measured, per the register: 750 in, 1500 posted, once. Same for the supplier at 300/600.
+      expect((await get(app, "/gl/accounts/1105/ledger")).balance.balance).toBe("1500.000000");
+      expect((await get(app, "/gl/accounts/2100/ledger")).balance.balance).toBe("-600.000000");
+
+      const res = await app.fetch(new Request("http://local/gl/opening-balance-duplicates", { headers: admin(app) }));
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { rows: { kind: string; partyId: string; wanted: number; totalPosted: number; excess: number; entryCount: number }[] };
+      const customerRow = body.rows.find((r) => r.partyId === "cust-dup");
+      const supplierRow = body.rows.find((r) => r.partyId === "sup-dup");
+      expect(customerRow).toMatchObject({ kind: "customer", wanted: 750, totalPosted: 1500, excess: 750, entryCount: 2 });
+      expect(supplierRow).toMatchObject({ kind: "supplier", wanted: -300, totalPosted: -600, excess: -300, entryCount: 2 });
+    });
+  });
+
+  it("refuses the report to a caller with no accounting.reports.view permission", async () => {
+    await withDuplicatedTenant(async ({ app }) => {
+      const res = await app.fetch(new Request("http://local/gl/opening-balance-duplicates", { headers: sessionHeaders(app, "u-nobody", ["sales.customer.view"]) }));
+      expect(res.status).toBe(403);
+    });
+  });
+
+  it("repairs the customer's duplicate: reverses exactly the excess, ties the ladder, and does nothing on a second run", async () => {
+    await withDuplicatedTenant(async ({ app }) => {
+      const repair = () => app.fetch(new Request("http://local/gl/opening-balance-duplicates/customer/cust-dup/repair", { method: "POST", headers: admin(app) }));
+
+      const first = await repair();
+      expect(first.status).toBe(200);
+      expect(await first.json()).toMatchObject({ kind: "customer", partyId: "cust-dup", repaired: true });
+
+      expect((await get(app, "/gl/accounts/1105/ledger")).balance.balance).toBe("750.000000");
+      const rec = (await get(app, "/reconciliation")).rows.find((r: { key: string }) => r.key === "ar");
+      expect(rec).toMatchObject({ subLedgerBalance: "750.000000", glBalance: "750.000000", matched: true });
+      expect((await get(app, "/customers/cust-dup")).owed).toBe("750.000000");
+
+      // The party rides on the reversal's control-account line, even though
+      // neither duplicated entry ever carried one (D205's shape, D241's repair).
+      const listBody = await get(app, "/gl/journal-entries");
+      const entries = (Array.isArray(listBody) ? listBody : (listBody.rows ?? [])) as { id: string; reversesEntryId: string | null; lines: { accountId: string; partyId: string | null }[] }[];
+      const reversal = entries.find((e) => e.reversesEntryId !== null && e.reversesEntryId !== undefined);
+      expect(reversal?.lines.find((l) => l.accountId === "1105")?.partyId).toBe("cust-dup");
+
+      // Idempotent: the exception is gone, and repairing again reverses nothing extra.
+      const gone = (await get(app, "/gl/opening-balance-duplicates")).rows.find((r: { partyId: string }) => r.partyId === "cust-dup");
+      expect(gone).toBeUndefined();
+      const second = await repair();
+      expect(second.status).toBe(200);
+      expect(await second.json()).toMatchObject({ kind: "customer", partyId: "cust-dup", repaired: false });
+      expect((await get(app, "/gl/accounts/1105/ledger")).balance.balance).toBe("750.000000");
+    });
+  });
+
+  it("repairs the supplier's duplicate the identical way", async () => {
+    await withDuplicatedTenant(async ({ app }) => {
+      const res = await app.fetch(new Request("http://local/gl/opening-balance-duplicates/supplier/sup-dup/repair", { method: "POST", headers: admin(app) }));
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({ kind: "supplier", partyId: "sup-dup", repaired: true });
+      expect((await get(app, "/gl/accounts/2100/ledger")).balance.balance).toBe("-300.000000");
+      const rec = (await get(app, "/reconciliation")).rows.find((r: { key: string }) => r.key === "ap");
+      expect(rec).toMatchObject({ subLedgerBalance: "300.000000", glBalance: "300.000000", matched: true });
+    });
+  });
+
+  it("refuses the repair to a caller with no accounting.journal.post permission, and nothing moves", async () => {
+    await withDuplicatedTenant(async ({ app }) => {
+      const res = await app.fetch(
+        new Request("http://local/gl/opening-balance-duplicates/customer/cust-dup/repair", {
+          method: "POST",
+          headers: sessionHeaders(app, "u-nobody", ["accounting.reports.view"]),
+        }),
+      );
+      expect(res.status).toBe(403);
+      expect((await get(app, "/gl/accounts/1105/ledger")).balance.balance).toBe("1500.000000");
+    });
+  });
+
+  it("a restart after the repair posts nothing new — the backfill still only fills a gap", async () => {
+    await withDuplicatedTenant(async ({ app, reopen }) => {
+      await app.fetch(new Request("http://local/gl/opening-balance-duplicates/customer/cust-dup/repair", { method: "POST", headers: admin(app) }));
+      const restarted = await reopen();
+      expect((await get(restarted, "/gl/accounts/1105/ledger")).balance.balance).toBe("750.000000");
+    });
   });
 });
 

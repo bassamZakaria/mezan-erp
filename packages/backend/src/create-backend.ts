@@ -114,6 +114,8 @@ import {
   SettlementRateMissingError,
   salesReturnCreditByInvoice,
   purchaseReturnCreditByInvoice,
+  type OpeningBalanceDuplicatesContext,
+  type OpeningBalanceEntryRef,
 } from "@mezan/domain";
 import {
   openSqliteConnection,
@@ -2325,9 +2327,23 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     return generation === 0 ? base : `${base}:v${generation}`;
   }
 
+  /**
+   * `"sync"` is the ONE poster the customers/suppliers screens and the manual
+   * duplicate-repair action call: it corrects a changed balance by reversing
+   * the standing entry and posting the new figure, never by editing (D241).
+   *
+   * `"backfill"` is the unattended start-up sweep. It only ever fills a gap —
+   * if a deterministic entry already exists for this party it leaves it
+   * exactly alone, posted or reversed, matching or not. Reversing an existing
+   * entry with no human driving it and no permission gate in front of it
+   * would silently erase the evidence the duplicate-openings report exists to
+   * show; that repair is `"sync"`'s job, run explicitly and audited.
+   */
   async function postPartyOpeningBalance(
     kind: "customer" | "supplier",
     party: PartyOpeningBalanceInput,
+    mode: "sync" | "backfill" = "sync",
+    dateOverride?: string,
   ): Promise<boolean> {
     let generation = 0;
     let live: Awaited<ReturnType<typeof ledger.findById>> = null;
@@ -2337,8 +2353,9 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       live = found;
       generation += 1;
     }
+    if (mode === "backfill" && live) return false;
 
-    const openingBalanceDate = await resolveOpeningBalanceDate();
+    const openingBalanceDate = dateOverride ?? (await resolveOpeningBalanceDate());
     const routing = await accountRouting.get();
     const controlAccountId =
       kind === "customer"
@@ -2358,16 +2375,27 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     const wanted = kind === "customer" ? party.openingBalance : party.openingBalance.negate();
     const remainder = wanted.add(postedElsewhere.negate());
 
+    // Tracks whether THIS call actually moved the ledger — not merely
+    // whether a (possibly already-reversed, from an earlier call) entry
+    // exists — so a repeat call reports honestly that nothing happened
+    // (D241's repair action must be idempotent in what it REPORTS, not only
+    // in what it posts).
+    let reversed = false;
     if (live && live.status === "posted") {
       if (onControl(live).equals(remainder)) return false;
       await reverseJournalEntry(live.id, salesInvoiceGl, {
         reversalId: `${live.id}:REV`,
         date: openingBalanceDate,
         memo: `عكس الرصيد الافتتاحي ${party.code}`,
+        // The line may predate the party dimension below (a pre-D241 entry
+        // never carried one) — the reversal names the party regardless, so
+        // the sub-ledger can follow it even when the entry it offsets could not.
+        linePatch: (line) => (line.accountId === controlAccountId ? { ...line, partyId: party.id } : line),
       });
+      reversed = true;
     }
 
-    if (remainder.scaled === 0n) return live !== null;
+    if (remainder.scaled === 0n) return reversed;
 
     const owed = kind === "customer" ? remainder : remainder.negate();
     const magnitude = owed.scaled < 0n ? owed.negate() : owed;
@@ -2383,6 +2411,14 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         sourceDocType: kind === "customer" ? CUSTOMER_OPENING_BALANCE_DOC_TYPE : SUPPLIER_OPENING_BALANCE_DOC_TYPE,
         sourceDocId: party.id,
         sourceDocNumber: party.code,
+        // No `partyId` on this line, deliberately: `partyOpenItems` (D204/D205)
+        // reads an opening balance by `sourceDocType`/its deterministic id, and
+        // a control-account line that names a party is read as a MANUAL
+        // journal fact instead — tagging it here double-counted the balance
+        // (the manual-journal reading, plus the party-record fallback that
+        // still fires because nothing landed in the opening-balance bucket).
+        // The reversal that repairs a duplicate (D241) tags its own line
+        // instead, which nets against this one's bucket correctly.
         lines: controlIsDebit
           ? [
               { accountId: controlAccountId, debit: magnitude, credit: Money.zero() },
@@ -2399,11 +2435,61 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   }
 
   const customerOpeningBalances = {
-    post: (party: PartyOpeningBalanceInput) => postPartyOpeningBalance("customer", party).then(() => undefined),
+    post: (party: PartyOpeningBalanceInput, date?: string) => postPartyOpeningBalance("customer", party, "sync", date).then(() => undefined),
   };
   const supplierOpeningBalances = {
-    post: (party: PartyOpeningBalanceInput) => postPartyOpeningBalance("supplier", party).then(() => undefined),
+    post: (party: PartyOpeningBalanceInput, date?: string) => postPartyOpeningBalance("supplier", party, "sync", date).then(() => undefined),
   };
+
+  /**
+   * The duplicate-openings repair action (D241): re-runs the same `"sync"`
+   * poster a screen edit would, against the party's OWN current
+   * `openingBalance` — nothing about the wanted figure changes, so the only
+   * thing that can happen is the standing entry getting reversed down to it.
+   * Idempotent by construction: a party with nothing left to reverse (already
+   * repaired, or never duplicated) reports no movement.
+   */
+  async function repairOpeningBalanceDuplicate(kind: "customer" | "supplier", partyId: string): Promise<boolean | null> {
+    const party = kind === "customer" ? await customers.findById(partyId) : await suppliers.findById(partyId);
+    if (!party) return null;
+    return postPartyOpeningBalance(kind, party, "sync");
+  }
+
+  /**
+   * Every line the duplicate-openings report (D241) needs, across BOTH
+   * control accounts — one query, read once per report run rather than once
+   * per party.
+   */
+  async function resolveOpeningBalanceDuplicatesContext(): Promise<OpeningBalanceDuplicatesContext> {
+    const routing = await accountRouting.get();
+    const arControl = routedAccountId(routing, "control.receivable") ?? "1105";
+    const apControl = routedAccountId(routing, "control.payable") ?? "2100";
+    const [customerRows, supplierRows, rawEntries] = await Promise.all([
+      customers.findAll(),
+      suppliers.findAll(),
+      ledger.list({ sourceDocTypes: [CUSTOMER_OPENING_BALANCE_DOC_TYPE, SUPPLIER_OPENING_BALANCE_DOC_TYPE] }),
+    ]);
+    const entries: OpeningBalanceEntryRef[] = rawEntries.map((entry) => {
+      const controlId = entry.sourceDocType === CUSTOMER_OPENING_BALANCE_DOC_TYPE ? arControl : apControl;
+      const controlMovement = entry.lines
+        .filter((l) => l.accountId === controlId)
+        .reduce((acc, l) => acc.add(l.debit).add(l.credit.negate()), Money.zero());
+      return {
+        id: entry.id,
+        entryNo: entry.entryNo ?? null,
+        date: entry.date,
+        status: entry.status,
+        sourceDocType: entry.sourceDocType ?? null,
+        sourceDocId: entry.sourceDocId ?? null,
+        controlMovement,
+      };
+    });
+    return {
+      customers: customerRows.map((c) => ({ id: c.id, code: c.code, nameAr: c.nameAr, openingBalance: c.openingBalance })),
+      suppliers: supplierRows.map((s) => ({ id: s.id, code: s.code, nameAr: s.nameAr, openingBalance: s.openingBalance })),
+      entries,
+    };
+  }
 
   /** The accounts a hand-written line must name its customer or supplier on (D205). */
   async function resolvePartyControlAccounts(): Promise<ReadonlyMap<string, "customer" | "supplier">> {
@@ -2573,8 +2659,13 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     arScaled += fxRevaluationNet(partyControlLines, AR_CONTROL).scaled;
     apScaled -= fxRevaluationNet(partyControlLines, AP_CONTROL).scaled;
     // A manual journal line names its party (D205) and no document records it.
+    // An opening-balance line can ALSO name a party now (D241's reversal, so
+    // its own D205 lookup works even for a legacy entry that never carried
+    // one) but that movement is already in `customerRows`/`supplierRows`
+    // above — counting it again here is exactly the double-post D241 was.
     for (const line of partyControlLines) {
       if (!line.partyId) continue;
+      if (line.sourceDocType === CUSTOMER_OPENING_BALANCE_DOC_TYPE || line.sourceDocType === SUPPLIER_OPENING_BALANCE_DOC_TYPE) continue;
       const net = line.debit.scaled - line.credit.scaled;
       if (line.accountId === AR_CONTROL) arScaled += net;
       if (line.accountId === AP_CONTROL) apScaled -= net;
@@ -2736,10 +2827,10 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     let posted = 0;
     try {
       for (const customer of await customers.findAll()) {
-        if (customer.openingBalance.scaled !== 0n && (await postPartyOpeningBalance("customer", customer))) posted += 1;
+        if (customer.openingBalance.scaled !== 0n && (await postPartyOpeningBalance("customer", customer, "backfill"))) posted += 1;
       }
       for (const supplier of await suppliers.findAll()) {
-        if (supplier.openingBalance.scaled !== 0n && (await postPartyOpeningBalance("supplier", supplier))) posted += 1;
+        if (supplier.openingBalance.scaled !== 0n && (await postPartyOpeningBalance("supplier", supplier, "backfill"))) posted += 1;
       }
       if (posted > 0) {
         console.info(`[opening-balances] posted ${posted} previously-unposted party opening balance(s) to the ledger`);
@@ -3433,6 +3524,11 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       unitMappings: etaStore.unitMappings,
     },
     reconciliation: { ledger, resolveControls: resolveReconciliationControls },
+    openingBalanceDuplicates: {
+      resolveContext: resolveOpeningBalanceDuplicatesContext,
+      repair: repairOpeningBalanceDuplicate,
+      audit: auditSink,
+    },
     // --- phase4/inventory-ops ---
     stockAdjustments: { service: stockAdjustments },
     stockTransfers: { service: stockTransfers },

@@ -610,9 +610,15 @@ async function partyOpenItems(
   const sign = kind === "customer" ? 1n : -1n;
   const items: AgingOpenItem[] = [];
   const openingByPartyDay = new Map<string, Map<string, bigint>>();
+  const openingDocType = kind === "customer" ? CUSTOMER_OPENING_BALANCE_DOC_TYPE : SUPPLIER_OPENING_BALANCE_DOC_TYPE;
   for (const line of asOf.controlLines) {
     const amount = sign * (line.debit.scaled - line.credit.scaled);
-    if (line.partyId) {
+    // A line naming a party is read as a manual journal fact (D205) UNLESS it
+    // is itself an opening-balance posting (D241's reversal names its party
+    // too, even reversing a legacy entry that never did) — that movement is
+    // read below, by `openingPartyOf`, and reading it here as well would
+    // double it.
+    if (line.partyId && line.sourceDocType !== openingDocType) {
       // A realised exchange difference is carried by its live allocation — the
       // voucher it used up and the invoice it relieved (D221). Once that is
       // undone the ladder no longer sees the allocation, so the entry and its

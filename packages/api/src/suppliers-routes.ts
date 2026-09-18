@@ -215,8 +215,11 @@ export function createSuppliersRouter(
         ...rest,
         openingBalance: openingBalance !== undefined ? Money.fromMajor(openingBalance) : undefined,
       });
-      await repo.save(supplier);
+      // The GL post goes FIRST (matches customers-routes.ts): a refused
+      // period must leave behind no supplier carrying a balance the control
+      // account never heard about.
       await openingBalances?.post(supplier);
+      await repo.save(supplier);
       await auditSupplier(c, supplier, "CREATE");
       return c.json(serialize(supplier), 201);
     } catch (err) {
@@ -250,10 +253,10 @@ export function createSuppliersRouter(
         ...(openingBalance !== undefined ? { openingBalance: Money.fromMajor(openingBalance) } : {}),
       };
       const next = updateSupplier(current, patch);
-      await repo.save(next);
       if (next.openingBalance.scaled !== current.openingBalance.scaled) {
         await openingBalances?.post(next);
       }
+      await repo.save(next);
       await auditSupplier(c, next, "UPDATE", current);
       return c.json(serialize(next));
     } catch (err) {

@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { Money, NoFiscalPeriodForDateError } from "@mezan/domain";
 import { createSqliteCustomerRepository, type SqliteCustomerRepositoryHandle } from "@mezan/persistence";
-import { createCustomersRouter, type CustomerOpeningBalancePoster } from "./customers-routes.js";
+import { createCustomersRouter, type PartyOpeningBalancePoster } from "./customers-routes.js";
 
 import { insecureHeaderAuthContextResolver } from "./permission-gate.js";
 const handles: SqliteCustomerRepositoryHandle[] = [];
@@ -196,25 +196,31 @@ describe("customers router — CRUD", () => {
 });
 
 /**
- * D142 — a customer's opening balance is how every migration starts, and it
- * has to reach the AR control account or the sub-ledger exceeds GL 1105 from
- * day one by the sum of the debtors typed in at go-live.
+ * D142/D241 — a customer's opening balance is how every migration starts, and
+ * it has to reach the AR control account through the SAME poster the
+ * suppliers screen and the start-up backfill call (`PartyOpeningBalancePoster`,
+ * suppliers-routes.ts) — a screen-only posting path under its own id is
+ * exactly how D241 happened. What that poster does with the figure (delta,
+ * full reverse-and-repost, idempotent skip) is its own concern, covered in
+ * `create-backend.test.ts`; this router only has to hand it the party and the
+ * caller's date, every time the balance could have moved.
  */
-describe("customers router — the opening balance reaches the AR control account (D142)", () => {
+describe("customers router — the opening balance reaches the AR control account (D142, D241)", () => {
   interface Posted {
-    entryId: string;
-    customerId: string;
-    date: string;
-    amount: string;
+    id: string;
+    openingBalance: string;
+    date: string | undefined;
   }
 
-  function newPostingApp(poster?: CustomerOpeningBalancePoster) {
+  function newPostingApp(poster?: (party: { id: string }, date: string | undefined) => Promise<void>) {
     const repo = createSqliteCustomerRepository();
     handles.push(repo);
     const posted: Posted[] = [];
-    const recording: CustomerOpeningBalancePoster = async (p) => {
-      posted.push({ entryId: p.entryId, customerId: p.customerId, date: p.date, amount: p.amount.toString() });
-      await (poster?.(p) ?? Promise.resolve());
+    const recording: PartyOpeningBalancePoster = {
+      post: async (party, date) => {
+        posted.push({ id: party.id, openingBalance: party.openingBalance.toString(), date });
+        await (poster?.(party, date) ?? Promise.resolve());
+      },
     };
     const app = createCustomersRouter(repo, insecureHeaderAuthContextResolver, undefined, undefined, undefined, recording);
     return { app, repo, posted };
@@ -238,43 +244,34 @@ describe("customers router — the opening balance reaches the AR control accoun
     });
   }
 
-  it("posts the whole opening balance on create, dated at the date the caller gave", async () => {
+  it("hands the poster the whole customer and the date the caller gave, on create", async () => {
     const { app, posted } = newPostingApp();
     const res = await app.fetch(create({ ...VALID_PAYLOAD, openingBalance: "4250.00", openingBalanceDate: "2026-01-01" }));
     expect(res.status).toBe(201);
-    expect(posted).toEqual([
-      { entryId: expect.stringContaining("CUST-OPEN-JE:c1:"), customerId: "c1", date: "2026-01-01", amount: "4250.000000" },
-    ]);
+    expect(posted).toEqual([{ id: "c1", openingBalance: "4250.000000", date: "2026-01-01" }]);
   });
 
-  it("posts nothing when there is no opening balance to post", async () => {
+  it("still calls the poster with a zero balance — the poster, not the route, decides there is nothing to do", async () => {
     const { app, posted } = newPostingApp();
     expect((await app.fetch(create(VALID_PAYLOAD))).status).toBe(201);
-    expect(posted).toEqual([]);
+    expect(posted).toEqual([{ id: "c1", openingBalance: "0.000000", date: undefined }]);
   });
 
-  it("a customer in credit posts a NEGATIVE movement, so the control account is credited rather than debited", async () => {
+  it("a customer in credit is handed its NEGATIVE balance unchanged", async () => {
     const { app, posted } = newPostingApp();
     expect((await app.fetch(create({ ...VALID_PAYLOAD, openingBalance: "-500.50", openingBalanceDate: "2026-01-01" }))).status).toBe(201);
-    expect(posted[0]?.amount).toBe("-500.500000");
+    expect(posted[0]?.openingBalance).toBe("-500.500000");
   });
 
-  it("an opening balance corrected after it was posted moves the control account by the DELTA, not by the new figure", async () => {
+  it("an edit posts again with the customer's new full balance, not a delta the route computed itself", async () => {
     const { app, posted } = newPostingApp();
     await app.fetch(create({ ...VALID_PAYLOAD, openingBalance: "4250.00", openingBalanceDate: "2026-01-01" }));
     const res = await app.fetch(patch("c1", { openingBalance: "4520.00", openingBalanceDate: "2026-01-01" }));
     expect(res.status).toBe(200);
-    expect(posted.map((p) => p.amount)).toEqual(["4250.000000", "270.000000"]);
+    expect(posted.map((p) => p.openingBalance)).toEqual(["4250.000000", "4520.000000"]);
   });
 
-  it("clearing an opening balance back to zero posts the reversing movement", async () => {
-    const { app, posted } = newPostingApp();
-    await app.fetch(create({ ...VALID_PAYLOAD, openingBalance: "4250.00", openingBalanceDate: "2026-01-01" }));
-    await app.fetch(patch("c1", { openingBalance: "0.00", openingBalanceDate: "2026-01-01" }));
-    expect(posted.map((p) => p.amount)).toEqual(["4250.000000", "-4250.000000"]);
-  });
-
-  it("an edit that leaves the opening balance alone posts nothing", async () => {
+  it("an edit that leaves the opening balance alone never calls the poster again", async () => {
     const { app, posted } = newPostingApp();
     await app.fetch(create({ ...VALID_PAYLOAD, openingBalance: "4250.00", openingBalanceDate: "2026-01-01" }));
     await app.fetch(patch("c1", { creditLimit: "9000.00" }));
@@ -290,7 +287,7 @@ describe("customers router — the opening balance reaches the AR control accoun
     expect(await repo.findById("c1")).toBeNull();
   });
 
-  it("a refused period leaves an existing opening balance exactly where it was", async () => {
+  it("a refused period leaves an existing customer exactly where it was", async () => {
     let refuse = false;
     const { app, repo } = newPostingApp(async () => {
       if (refuse) throw new NoFiscalPeriodForDateError("2020-01-01");

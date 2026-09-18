@@ -2,7 +2,6 @@ import { Hono } from "hono";
 import type { ItemCatalogCheck } from "./item-check.js";
 import {
   Money,
-  CUSTOMER_OPENING_BALANCE_DOC_TYPE,
   SeatSessionRegistry,
   createEntitlements,
   type UnitOfWork,
@@ -114,7 +113,6 @@ import { createBranchesRoutes } from "./branches-routes.js";
 import { createWarehousesRoutes } from "./warehouses-routes.js";
 import {
   createCustomersRouter,
-  type CustomerOpeningBalancePoster,
   type CustomerReceivablesSource,
   type PartyOpeningBalancePoster,
 } from "./customers-routes.js";
@@ -161,6 +159,7 @@ import { createExchangeRatesRoutes } from "./exchange-rates-routes.js";
 import { createCostCenterPnLRoutes, type CostCenterPnLRoutesDeps } from "./cost-center-pl-routes.js";
 import { createFxRevaluationRoutes, type FxRevaluationRoutesDeps } from "./fx-revaluation-routes.js";
 import { createReconciliationRoutes, type ReconciliationRoutesDeps } from "./reconciliation-routes.js";
+import { createOpeningBalanceDuplicatesRoutes, type OpeningBalanceDuplicatesRoutesDeps } from "./opening-balance-duplicates-routes.js";
 import { createEtaRoutes, type EtaRoutesDeps } from "./eta-routes.js";
 import type { ExchangeRateRepository } from "@mezan/domain";
 import type { DocumentEventPublisher } from "@mezan/domain";
@@ -249,10 +248,6 @@ export type InstallmentCollectPort = (input: {
   memo?: string | null;
   actor?: string;
 }) => Promise<{ voucherId: string }>;
-
-/** حسابات المدينون / الأرصدة الافتتاحية from the seed chart template — where a customer's opening balance lands (D142). */
-const AR_CONTROL_ACCOUNT_ID = "1105";
-const OPENING_BALANCE_EQUITY_ACCOUNT_ID = "3210";
 
 export interface CreateAppOptions {
   /**
@@ -507,6 +502,8 @@ export interface CreateAppOptions {
   readonly fxRevaluation?: FxRevaluationRoutesDeps;
   /** Mounts `/reconciliation` (docs/archive/catalog/04 "مطابقة الأرصدة") when present. */
   readonly reconciliation?: ReconciliationRoutesDeps;
+  /** Mounts `/gl/opening-balance-duplicates` (D241's exceptions report + repair action) when present. */
+  readonly openingBalanceDuplicates?: OpeningBalanceDuplicatesRoutesDeps;
   /** Mounts `/eta` (docs/archive/catalog/04 "الفاتورة الإلكترونية") when present. */
   readonly eta?: EtaRoutesDeps;
   /**
@@ -993,43 +990,6 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     ? { outstandingBySupplier: () => supplierAgingOwed(reportsDeps) }
     : undefined;
 
-  /**
-   * A customer's opening balance debits the AR control account and credits
-   * opening-balance equity, through the same period-gated, numbered, audited
-   * posting path every document uses. Without it the AR sub-ledger exceeded
-   * GL 1105 by every debtor typed in at go-live and nothing closed the gap
-   * (D142). Needs `options.gl`; a composition with no ledger posts nothing.
-   */
-  const customerOpeningBalanceGl: CustomerOpeningBalancePoster | undefined = options.gl
-    ? async (posting) => {
-        const receivable = posting.amount.scaled > 0n ? posting.amount : posting.amount.negate();
-        const debitAr = posting.amount.scaled > 0n;
-        await postJournalEntry(
-          {
-            id: posting.entryId,
-            date: posting.date,
-            memo: `رصيد افتتاحي — ${posting.customerName}`,
-            source: "system",
-            sourceDocType: CUSTOMER_OPENING_BALANCE_DOC_TYPE,
-            sourceDocId: posting.customerId,
-            lines: [
-              {
-                accountId: AR_CONTROL_ACCOUNT_ID,
-                debit: debitAr ? receivable : Money.zero(),
-                credit: debitAr ? Money.zero() : receivable,
-              },
-              {
-                accountId: OPENING_BALANCE_EQUITY_ACCOUNT_ID,
-                debit: debitAr ? Money.zero() : receivable,
-                credit: debitAr ? receivable : Money.zero(),
-              },
-            ],
-          },
-          options.gl!,
-        );
-      }
-    : undefined;
-
   if (options.customerStore) {
     app.route(
       "/customers",
@@ -1039,7 +999,10 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
         options.auditSink,
         options.priceListRepo,
         customerReceivables,
-        customerOpeningBalanceGl,
+        // The SAME poster the suppliers screen and the start-up backfill use
+        // (B-2, D241) — a second, screen-only posting path is exactly the bug
+        // this defect was.
+        options.customerOpeningBalances,
       ),
     );
   }
@@ -1079,6 +1042,9 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   }
   if (options.gl) {
     app.route("/gl", createGlRoutes(options.gl, resolveAuth));
+  }
+  if (options.openingBalanceDuplicates) {
+    app.route("/gl/opening-balance-duplicates", createOpeningBalanceDuplicatesRoutes(options.openingBalanceDuplicates, resolveAuth));
   }
   if (options.vouchers) {
     app.route("/vouchers", createVouchersRoutes(options.vouchers, resolveAuth));

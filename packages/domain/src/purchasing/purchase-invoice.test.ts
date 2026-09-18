@@ -390,6 +390,47 @@ describe("confirmPurchaseInvoice — sub-ledger (AP) and GL control account both
     expect((await stock.getBalanceDetail("item-C", WH)).totalValue.toString()).toBe("1000.000000");
   });
 
+  it("D213: a foreign multi-line invoice balances exactly, credits AP with its per-line base total and stocks the goods at the GL debit", async () => {
+    const invoices = new InMemoryPurchaseInvoices();
+    const numbering = makeNumbering();
+    const stock = makeStockService();
+    await createPurchaseInvoice(
+      {
+        id: "pi-d213",
+        supplierId: "sup-2",
+        date: "2026-08-23",
+        branchId: "MAIN",
+        warehouseId: WH,
+        currency: "USD",
+        lines: [
+          { itemId: "item-C", kind: "inventory", qty: Qty.fromMajor("3"), unitCost: Money.fromMajor("0.333333"), taxRatePercent: 14 },
+          { itemId: "item-D", kind: "inventory", qty: Qty.fromMajor("1"), unitCost: Money.fromMajor("0.333333"), taxRatePercent: 14 },
+          { itemId: null, description: "شحن", kind: "freight", qty: Qty.fromMajor("1"), unitCost: Money.fromMajor("0.333333") },
+        ],
+      },
+      { invoices, numbering },
+    );
+    const gl = new RecordingGlPort();
+    const { invoice, posting } = await confirmPurchaseInvoice("pi-d213", {
+      invoices,
+      stock,
+      gl,
+      accounts: ACCOUNTS,
+      now,
+      baseCurrency: "EGP",
+      exchangeRates: { findRate: async () => ({ rate: "1.5" }) },
+    });
+    const debit = Money.sum(posting.lines.map((l) => l.debit));
+    const credit = Money.sum(posting.lines.map((l) => l.credit));
+    expect(debit.toString()).toBe(credit.toString());
+    const payable = posting.lines.find((l) => l.accountId === "2100-ap")!;
+    expect(payable.credit.toString()).toBe(purchaseInvoiceBaseTotal(invoice).toString());
+    const inventoryDebit = Money.sum(posting.lines.filter((l) => l.accountId === ACCOUNTS.inventoryAccountId).map((l) => l.debit));
+    const stocked = (await stock.getBalanceDetail("item-C", WH)).totalValue.add((await stock.getBalanceDetail("item-D", WH)).totalValue);
+    expect(stocked.toString()).toBe(inventoryDebit.toString());
+    expect(inventoryDebit.toString()).toBe("1.999999");
+  });
+
   it("404s confirming an unknown invoice", async () => {
     const invoices = new InMemoryPurchaseInvoices();
     const stock = makeStockService();

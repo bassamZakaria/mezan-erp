@@ -1317,7 +1317,28 @@ export interface JournalEntryDTO {
     projectId?: string | null;
     costCategory?: CostCategoryDTO | null;
     branchId?: string | null;
+    partyId?: string | null;
   }>;
+}
+
+/** An account whose hand-written lines must name a customer or a supplier (D205). */
+export interface PartyControlAccountDTO {
+  readonly accountId: string;
+  readonly partyKind: "customer" | "supplier";
+}
+
+export function usePartyControlAccounts(): UseQueryResult<PartyControlAccountDTO[], ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<PartyControlAccountDTO[], ApiError>({
+    queryKey: ["gl", "party-control-accounts"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/gl/party-control-accounts");
+      if (!res.ok) throw await loaderError(res, t("journals.partyControlsCouldNotLoad"), t);
+      return res.json<PartyControlAccountDTO[]>();
+    },
+  });
 }
 
 export interface JournalEntryListFilter {
@@ -2612,6 +2633,14 @@ export interface SalesInvoiceDTO {
   readonly discount: SalesInvoiceDiscountDTO;
   readonly arAccountId: string;
   readonly taxAccountId: string;
+  /** The rate the invoice confirmed at; null for a base-currency or unconfirmed invoice. */
+  readonly fxRate?: string | null;
+  /**
+   * `totals.grandTotal` in BASE currency at `fxRate` — what GL 1105 holds.
+   * `amountPaid`, `returnedCredit` and `remainingBalance` are base figures
+   * measured against this, never against `totals.grandTotal` (D202).
+   */
+  readonly baseGrandTotal?: string;
   readonly amountPaid: string;
   /** Confirmed returns credited against this invoice — already netted out of `remainingBalance`. */
   readonly returnedCredit: string;

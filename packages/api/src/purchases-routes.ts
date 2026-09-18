@@ -21,6 +21,7 @@ import {
   purchaseInvoiceSubtotal,
   purchaseInvoiceTax,
   purchaseInvoiceTotal,
+  purchaseInvoiceBaseTotal,
   PurchaseOrderNotFoundError,
   GoodsReceiptNotFoundError,
   PurchaseInvoiceNotFoundError,
@@ -254,7 +255,8 @@ function serializeInvoice(inv: PurchaseInvoice, allocated: Money = Money.zero())
    * settled — no مدفوع / مدفوع جزئياً / متأخر state was derivable (R4.1).
    */
   const total = purchaseInvoiceTotal(inv);
-  const remaining = Money.fromScaled(total.scaled - allocated.scaled);
+  const baseTotal = purchaseInvoiceBaseTotal(inv);
+  const remaining = Money.fromScaled(baseTotal.scaled - allocated.scaled);
   return {
     id: inv.id,
     number: inv.number,
@@ -284,6 +286,7 @@ function serializeInvoice(inv: PurchaseInvoice, allocated: Money = Money.zero())
     subtotal: purchaseInvoiceSubtotal(inv).toString(),
     tax: purchaseInvoiceTax(inv).toString(),
     total: total.toString(),
+    baseTotal: baseTotal.toString(),
     amountPaid: allocated.toString(),
     remainingBalance: remaining.toString(),
     createdBy: inv.createdBy,
@@ -796,7 +799,7 @@ export function createPurchasesRoutes(
    * one place or the rows, the chips and the KPI strip will disagree.
    */
   function paymentStateOf(inv: PurchaseInvoice, allocated: Money, today: string, horizon: string) {
-    const total = purchaseInvoiceTotal(inv);
+    const total = purchaseInvoiceBaseTotal(inv);
     const remaining = total.scaled - allocated.scaled;
     const live = inv.status === "confirmed";
     const settled = remaining <= 0n;
@@ -952,7 +955,7 @@ export function createPurchasesRoutes(
     let count = 0;
     for (const inv of rows) {
       if (inv.status !== "confirmed") continue;
-      const total = purchaseInvoiceTotal(inv);
+      const total = purchaseInvoiceBaseTotal(inv);
       const allocated = allocations.get(inv.id) ?? Money.zero();
       count += 1;
       purchases = purchases.add(total);
@@ -1093,7 +1096,7 @@ export function createPurchasesRoutes(
       return c.json({ error: "INVALID_PAYMENT", message: "قيمة السداد يجب أن تكون أكبر من صفر." }, 422);
     }
     const allocated = (await allocatedByInvoice([invoice.id])).get(invoice.id) ?? Money.zero();
-    const remaining = purchaseInvoiceTotal(invoice).scaled - allocated.scaled;
+    const remaining = purchaseInvoiceBaseTotal(invoice).scaled - allocated.scaled;
     if (amount.scaled > remaining) {
       return c.json(
         { error: "PAYMENT_EXCEEDS_BALANCE", message: "قيمة السداد أكبر من المتبقي على الفاتورة." },

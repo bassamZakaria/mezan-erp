@@ -25,6 +25,12 @@ export const supplierSchema = z.object({
   addressDistrict: z.string().nullable(),
   addressStreet: z.string().nullable(),
   bankAccount: z.string().nullable(),
+  /**
+   * What the supplier is owed today: their row on the supplier aging ladder,
+   * opening balance included (D201, D204). Read-only; null when the server has
+   * no payables source.
+   */
+  owed: moneyString.nullish(),
 });
 
 /** POST /suppliers body — matches the catalog's "Add/Edit Supplier" modal defaults. */
@@ -51,7 +57,7 @@ export const createSupplierSchema = z.object({
 });
 
 /** PATCH /suppliers/:id body — every field but id optional. */
-export const updateSupplierSchema = supplierSchema.omit({ id: true }).partial();
+export const updateSupplierSchema = supplierSchema.omit({ id: true, owed: true }).partial();
 
 export type SupplierDTO = z.infer<typeof supplierSchema>;
 export type CreateSupplierDTO = z.infer<typeof createSupplierSchema>;

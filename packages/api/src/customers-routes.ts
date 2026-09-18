@@ -211,9 +211,9 @@ export function createCustomersRouter(
     return (await receivables?.outstandingByCustomer()) ?? new Map<string, Money>();
   }
 
-  /** Opening balance plus what is left on every live invoice — one definition, used by both the filter and the KPI. */
+  /** The customer's aging row, which carries the opening balance itself (D204) — one definition, used by both the filter and the KPI. */
   function owedBy(customer: Customer, outstanding: ReadonlyMap<string, Money>): Money {
-    return customer.openingBalance.add(outstanding.get(customer.id) ?? Money.zero());
+    return outstanding.get(customer.id) ?? Money.zero();
   }
 
   async function withOwed(rows: readonly Customer[]) {

@@ -9,6 +9,8 @@ import type {
   CustomerDTO,
   InstallmentLineDTO,
   InstallmentPlanDocumentDTO,
+  PartyStatementDTO,
+  PartyStatementLineDTO,
   PriceListDTO,
   SalesReturnDocumentDTO,
   SalesReturnLineDTO,
@@ -307,6 +309,8 @@ function renderScreen(
     auditEventsByCustomer?: Record<string, AuditEventDTO[]>;
     attachmentsByCustomer?: Record<string, AttachmentDTO[]>;
     agingRows?: Array<Record<string, unknown>>;
+    /** The server-built كشف حساب (`/reports/statements/customers/:id`). */
+    statement?: (customerId: string) => { status?: number; body: unknown };
     /** Fails only the per-customer `?customerId=` invoices request. */
     failScopedInvoices?: boolean;
     failInstallments?: boolean;
@@ -388,8 +392,36 @@ function renderScreen(
       return { body: opts.attachmentsByCustomer?.[entityId] ?? [] };
     },
     "GET /reports/aging/customers": () => ({ body: { rows: opts.agingRows ?? [], groups: [], grandTotals: {}, reconciliation: null } }),
+    "GET /reports/statements/customers/*": (_init, path) => {
+      const customerId = decodeURIComponent(path.split("/").pop()!.split("?")[0]!);
+      return opts.statement?.(customerId) ?? { body: statementOf(customerId, []) };
+    },
   });
   return renderWithProviders(<CustomersScreen />, { transport, initialSession: testAdminSession, route: opts.route });
+}
+
+type StatementLine = Pick<PartyStatementLineDTO, "kind" | "reference" | "increase" | "decrease"> & Partial<PartyStatementLineDTO>;
+
+/** What `/reports/statements/customers/:id` answers: base amounts, a running balance, and the party's aging row beside the closing. */
+function statementOf(partyId: string, lines: StatementLine[], agingTotal?: string): PartyStatementDTO {
+  let running = 0;
+  let increase = 0;
+  let decrease = 0;
+  const built = lines.map((line, index) => {
+    running += Number(line.increase) - Number(line.decrease);
+    increase += Number(line.increase);
+    decrease += Number(line.decrease);
+    return { key: `l${index}`, date: "2026-08-20", allocations: [], ...line, balance: running.toFixed(6) };
+  });
+  return {
+    partyId,
+    asOfDate: "2026-08-31",
+    lines: built,
+    totalIncrease: increase.toFixed(6),
+    totalDecrease: decrease.toFixed(6),
+    closing: running.toFixed(6),
+    agingTotal: agingTotal ?? running.toFixed(6),
+  };
 }
 
 describe("CustomersScreen", () => {
@@ -596,118 +628,6 @@ describe("CustomersScreen", () => {
     });
   });
 
-  it("computes the statement's closing balance from a real opening balance, an unpaid invoice and a partial collection", async () => {
-    const cust = customer({ openingBalance: "450.00" });
-    const inv: SalesInvoiceDTO = {
-      id: "inv-1",
-      docType: "SALES_INVOICE",
-      docNo: "INV-000001",
-      status: "partially_paid",
-      date: "2026-08-20",
-      dueDate: "2026-09-20",
-      customerId: cust.id,
-      customerNameAr: cust.nameAr,
-      customerTaxExempt: false,
-      taxInclusive: false,
-      warehouseId: "wh-1",
-      branchId: "MAIN",
-      salespersonId: null,
-      salespersonNameAr: null,
-      couponCode: null,
-      appliedPromotion: null,
-      currency: "EGP",
-      notes: null,
-      internalNotes: null,
-      discount: { type: "amount", amount: "0.000000" },
-      arAccountId: "1105",
-      taxAccountId: "2200",
-      amountPaid: "50.000000",
-      returnedCredit: "0.000000",
-      remainingBalance: "160.900000",
-      journalEntryId: "je-1",
-      workflowRequestId: null,
-      createdAt: "2026-08-20T09:00:00.000Z",
-      confirmedAt: "2026-08-20T09:00:00.000Z",
-      lines: [],
-      totals: { grossTotal: "185.00", lineDiscountTotal: "0.00", promotionDiscountTotal: "0.00", invoiceDiscountTotal: "0.00", subtotal: "185.00", taxableTotal: "185.00", taxTotal: "25.90", grandTotal: "210.90" },
-    };
-    const transport = stubTransport({
-      "GET /customers": () => ({ body: [cust] }),
-      "GET /customers/counts": () => ({ body: { all: 1, active: 1, inactive: 0 } }),
-      "GET /customers/stats": () => ({ body: { count: 1, active: 1, creditLimits: "0", toCollect: "0" } }),
-      "GET /price-lists": () => ({ body: [] }),
-      "GET /sales-invoices": () => ({ body: [inv] }),
-      "GET /sales-returns": () => ({ body: [] }),
-      "GET /vouchers": () => ({ body: [] }),
-      "GET /cheques": () => ({ body: [] }),
-      "GET /reports/aging/customers": () => ({ body: { rows: [], groups: [], grandTotals: {}, reconciliation: null } }),
-    });
-    renderWithProviders(<CustomersScreen />, { transport, initialSession: testAdminSession });
-
-    fireEvent.click(await screen.findByText("شركة الأمل للتجارة"));
-    fireEvent.click(screen.getByRole("tab", { name: "كشف حساب" }));
-
-    // opening 450.00 (debit) + invoice grand total 210.90 (debit) = 660.90 debit;
-    // the 50.00 counter-paid on the invoice (no allocations) is the only credit.
-    const closingValue = (await screen.findByText("الرصيد الختامي")).nextElementSibling;
-    expect(closingValue?.textContent).toBe("610.90");
-    const debitValue = screen.getByText("إجمالي المدين").nextElementSibling;
-    expect(debitValue?.textContent).toBe("660.90");
-    const creditValue = screen.getByText("إجمالي الدائن").nextElementSibling;
-    expect(creditValue?.textContent).toBe("50.00");
-  });
-
-  it("shows a bounced cheque as received and returned, and credits a live cheque once even when it is applied to an invoice (D192)", async () => {
-    const cust = customer({ openingBalance: "0.000000" });
-    const inv = salesInvoice({
-      id: "inv-1",
-      customerId: cust.id,
-      status: "partially_paid",
-      amountPaid: "50.000000",
-      totals: { ...salesInvoice().totals, grandTotal: "210.90" },
-    });
-    const chequeRow = (id: string, amount: string, extra: Partial<ChequeDTO>): ChequeDTO =>
-      ({
-        id,
-        direction: "incoming",
-        status: "deposited",
-        effectiveStatus: "deposited",
-        chequeNumber: id,
-        amount,
-        issueDate: "2026-08-21",
-        partyId: cust.id,
-        bouncedAt: null,
-        allocations: [],
-        ...extra,
-      }) as ChequeDTO;
-    const transport = stubTransport({
-      "GET /customers": () => ({ body: [cust] }),
-      "GET /customers/counts": () => ({ body: { all: 1, active: 1, inactive: 0 } }),
-      "GET /customers/stats": () => ({ body: { count: 1, active: 1, creditLimits: "0", toCollect: "0" } }),
-      "GET /price-lists": () => ({ body: [] }),
-      "GET /sales-invoices": () => ({ body: [inv] }),
-      "GET /sales-returns": () => ({ body: [] }),
-      "GET /vouchers": () => ({ body: [] }),
-      "GET /cheques": () => ({
-        body: [
-          chequeRow("CHQ-LIVE", "80.000000", { allocations: [{ id: "a1", invoiceId: "inv-1", amount: "50.000000" }] }),
-          chequeRow("CHQ-BOUNCED", "1750.000000", { status: "bounced", effectiveStatus: "bounced", bouncedAt: "2026-08-25T10:00:00.000Z" }),
-        ],
-      }),
-      "GET /reports/aging/customers": () => ({ body: { rows: [], groups: [], grandTotals: {}, reconciliation: null } }),
-    });
-    renderWithProviders(<CustomersScreen />, { transport, initialSession: testAdminSession });
-
-    fireEvent.click(await screen.findByText("شركة الأمل للتجارة"));
-    fireEvent.click(screen.getByRole("tab", { name: "كشف حساب" }));
-
-    expect(await screen.findByText("ارتداد شيك")).toBeInTheDocument();
-    expect(screen.getAllByText("شيك وارد")).toHaveLength(2);
-    expect(screen.getByText("الرصيد الختامي").nextElementSibling?.textContent).toBe("130.90");
-    expect(screen.getByText("إجمالي المدين").nextElementSibling?.textContent).toBe("1,960.90");
-    expect(screen.getByText("إجمالي الدائن").nextElementSibling?.textContent).toBe("1,830.00");
-  });
-
   it("scopes the invoices tab to this customer's own invoices, excluding another customer's, with real stats", async () => {
     const mine1 = salesInvoice({
       id: "inv-1",
@@ -818,9 +738,9 @@ describe("CustomersScreen", () => {
     fireEvent.click(screen.getByRole("tab", { name: "المرتجعات" }));
 
     const row = (await screen.findByText("2026-08-05")).closest("tr")!;
-    // The returns tab's total is qty × unit price only (no tax) — 2 × 100.00 =
-    // 200.00; the cust-2 line (5 × 1,000.00 = 5,000.00) must not leak in.
-    expect(within(row).getByText("200.00")).toBeInTheDocument();
+    // What the customer's own line took off their receivable: 2 × 100.00 +
+    // 28.00 tax = 228.00; the cust-2 line must not leak in.
+    expect(within(row).getByText("228.00")).toBeInTheDocument();
   });
 
   it("shows this customer's own audit events, actor and action", async () => {
@@ -964,70 +884,6 @@ describe("CustomersScreen", () => {
     const valueDiv = label.nextElementSibling as HTMLElement;
     expect(valueDiv.className).not.toContain("text-danger-ink");
     expect(valueDiv.querySelector(".mz-num")?.textContent).toBe("700.00");
-  });
-
-  it("builds the statement's return, allocation and unallocated-remainder rows with exact debit/credit numbers", async () => {
-    const cust = customer({ id: "cust-1", openingBalance: "0.00" });
-    const inv = salesInvoice({
-      id: "inv-1",
-      docNo: "INV-000010",
-      customerId: "cust-1",
-      status: "confirmed",
-      amountPaid: "0.000000",
-      totals: { ...salesInvoice().totals, grandTotal: "1000.00" },
-    });
-    const ret = salesReturnDoc({
-      id: "sr-1",
-      date: "2026-08-06",
-      status: "confirmed",
-      lines: [salesReturnLine({ customerId: "cust-1", qty: "1", unitPrice: "200.00", taxAmount: "28.00" })],
-    });
-    const receipt = voucherRow({ id: "v-1", docNo: "CV-000001", direction: "receipt", status: "confirmed", customerId: "cust-1", amount: "500.000000" });
-    const alloc = voucherAllocation({ id: "alloc-1", voucherId: "v-1", invoiceId: "inv-1", amount: "300.000000", status: "active" });
-
-    renderScreen([cust, inactiveCustomer], {
-      invoices: [inv],
-      returns: [ret],
-      vouchers: [receipt],
-      allocationsByVoucher: { "v-1": [alloc] },
-    });
-    fireEvent.click(await screen.findByText("شركة الأمل للتجارة"));
-    fireEvent.click(screen.getByRole("tab", { name: "كشف حساب" }));
-
-    // Total debit is the invoice alone (1000.00); total credit is the return
-    // (228.00 = 1 × 200 + 28 tax) + the allocation (300.00) + the unallocated
-    // remainder of the receipt (500 − 300 = 200.00) = 728.00.
-    expect((await screen.findByText("إجمالي المدين")).nextElementSibling?.textContent).toBe("1,000.00");
-    expect(screen.getByText("إجمالي الدائن").nextElementSibling?.textContent).toBe("728.00");
-    expect(screen.getByText("الرصيد الختامي").nextElementSibling?.textContent).toBe("272.00");
-    expect(screen.getByText("غير مخصص على فاتورة — تحت حساب العميل")).toBeInTheDocument();
-    expect(screen.getByText("مخصص على الفاتورة INV-000010")).toBeInTheDocument();
-  });
-
-  it("shows the aging-reconciliation banner as matching when the report agrees with the computed closing balance", async () => {
-    const cust = customer({ id: "cust-1", openingBalance: "0.00" });
-    const inv = salesInvoice({ id: "inv-1", customerId: "cust-1", status: "confirmed", amountPaid: "0.000000", totals: { ...salesInvoice().totals, grandTotal: "500.00" } });
-    renderScreen([cust, inactiveCustomer], {
-      invoices: [inv],
-      agingRows: [{ customerId: "cust-1", customerNameAr: cust.nameAr, customerNameEn: null, current: 500, d31to60: 0, d61to90: 0, d91to120: 0, over120: 0, total: 500 }],
-    });
-    fireEvent.click(await screen.findByText("شركة الأمل للتجارة"));
-    fireEvent.click(screen.getByRole("tab", { name: "كشف حساب" }));
-
-    expect(await screen.findByText("مطابق لتقرير أعمار الديون")).toBeInTheDocument();
-  });
-
-  it("shows the aging-reconciliation banner as differing when the report disagrees with the computed closing balance", async () => {
-    const cust = customer({ id: "cust-1", openingBalance: "0.00" });
-    const inv = salesInvoice({ id: "inv-1", customerId: "cust-1", status: "confirmed", amountPaid: "0.000000", totals: { ...salesInvoice().totals, grandTotal: "500.00" } });
-    renderScreen([cust, inactiveCustomer], {
-      invoices: [inv],
-      agingRows: [{ customerId: "cust-1", customerNameAr: cust.nameAr, customerNameEn: null, current: 350, d31to60: 0, d61to90: 0, d91to120: 0, over120: 0, total: 350 }],
-    });
-    fireEvent.click(await screen.findByText("شركة الأمل للتجارة"));
-    fireEvent.click(screen.getByRole("tab", { name: "كشف حساب" }));
-
-    expect(await screen.findByText("يختلف عن تقرير أعمار الديون")).toBeInTheDocument();
   });
 
   it("leaves a blank customer code for the server to allocate", async () => {
@@ -1238,21 +1094,70 @@ describe("CustomersScreen", () => {
     expect(await screen.findByText("2026-08-05")).toBeInTheDocument();
   });
 
-  it("recovers the statement tab via retry after its vouchers request fails once", async () => {
+  it("shows the server's statement in base currency: debits, credits and the closing it sends (D200–D205)", async () => {
+    renderScreen([customer({ id: "cust-1" })], {
+      statement: (id) => ({
+        body: statementOf(id, [
+          { kind: "opening", reference: "", increase: "450.000000", decrease: "0.000000" },
+          { kind: "invoice", reference: "INV-000001", increase: "4800.000000", decrease: "0.000000" },
+          { kind: "receipt", reference: "CV-000001", increase: "0.000000", decrease: "500.000000", allocations: [{ invoiceRef: "INV-000001", amount: "300.000000" }] },
+          { kind: "journal", reference: "JE-000007", increase: "1140.000000", decrease: "0.000000" },
+        ]),
+      }),
+    });
+    fireEvent.click(await screen.findByText("شركة الأمل للتجارة"));
+    fireEvent.click(screen.getByRole("tab", { name: "كشف حساب" }));
+
+    expect((await screen.findByText("إجمالي المدين")).nextElementSibling?.textContent).toBe("6,390.00");
+    expect(screen.getByText("إجمالي الدائن").nextElementSibling?.textContent).toBe("500.00");
+    expect(screen.getByText("الرصيد الختامي").nextElementSibling?.textContent).toBe("5,890.00");
+    expect(screen.getByText("قيد يومية")).toBeInTheDocument();
+    expect(screen.getByText("مخصص على الفاتورة INV-000001")).toBeInTheDocument();
+    expect(screen.getByText("غير مخصص على فاتورة — تحت حساب العميل")).toBeInTheDocument();
+    expect(screen.getByText("مطابق لتقرير أعمار الديون")).toBeInTheDocument();
+  });
+
+  it("shows a bounced cheque as received and then returned (D192)", async () => {
+    renderScreen([customer({ id: "cust-1" })], {
+      statement: (id) => ({
+        body: statementOf(id, [
+          { kind: "cheque", reference: "CHQ-1", increase: "0.000000", decrease: "1750.000000" },
+          { kind: "cheque_returned", reference: "CHQ-1", increase: "1750.000000", decrease: "0.000000" },
+        ]),
+      }),
+    });
+    fireEvent.click(await screen.findByText("شركة الأمل للتجارة"));
+    fireEvent.click(screen.getByRole("tab", { name: "كشف حساب" }));
+
+    expect(await screen.findByText("ارتداد شيك")).toBeInTheDocument();
+    expect(screen.getByText("شيك وارد")).toBeInTheDocument();
+    expect(screen.getByText("الرصيد الختامي").nextElementSibling?.textContent).toBe("0.00");
+  });
+
+  it("says the statement differs from the aging report when the server's two figures disagree", async () => {
+    renderScreen([customer({ id: "cust-1" })], {
+      statement: (id) => ({ body: statementOf(id, [{ kind: "invoice", reference: "INV-1", increase: "500.000000", decrease: "0.000000" }], "350.000000") }),
+    });
+    fireEvent.click(await screen.findByText("شركة الأمل للتجارة"));
+    fireEvent.click(screen.getByRole("tab", { name: "كشف حساب" }));
+
+    expect(await screen.findByText("يختلف عن تقرير أعمار الديون")).toBeInTheDocument();
+  });
+
+  it("recovers the statement tab via retry after its request fails once", async () => {
     let calls = 0;
-    const transport = retryTransport({
-      vouchers: () => {
+    renderScreen([customer({ id: "cust-1" })], {
+      statement: (id) => {
         calls += 1;
         if (calls === 1) return { status: 500, body: { error: "INTERNAL" } };
-        return { body: [] };
+        return { body: statementOf(id, [{ kind: "opening", reference: "", increase: "10.000000", decrease: "0.000000" }]) };
       },
     });
-    renderWithProviders(<CustomersScreen />, { transport, initialSession: testAdminSession });
     fireEvent.click(await screen.findByText("شركة الأمل للتجارة"));
     fireEvent.click(screen.getByRole("tab", { name: "كشف حساب" }));
 
     expect(await screen.findByText("تعذّر تحميل حركة حساب العميل.")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "إعادة المحاولة" }));
-    expect((await screen.findAllByText("رصيد افتتاحي")).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText("رصيد افتتاحي")).length).toBe(2);
   });
 });

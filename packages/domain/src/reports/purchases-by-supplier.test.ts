@@ -105,3 +105,16 @@ describe("createPurchasesBySupplierReport", () => {
     expect(outcome.rows).toHaveLength(0);
   });
 });
+
+describe("createPurchasesBySupplierReport — a foreign invoice (D201's twin)", () => {
+  it("totals a CHF 300 bill booked at 60.00 at its 18,000.00 base value", () => {
+    const definition = createPurchasesBySupplierReport("2026-01-01", "2026-12-31");
+    const outcome = runReport(
+      definition,
+      { dateFrom: "2026-08-01", dateTo: "2026-08-31" },
+      { invoices: [pinvoice({ currency: "CHF", fxRate: "60.00", lines: [pline({ qty: Qty.fromMajor("3") })] })], suppliers: [supplier()] },
+    );
+    if (!outcome.ok) throw new Error("report failed");
+    expect(outcome.rows[0]?.total).toBe(18000);
+  });
+});

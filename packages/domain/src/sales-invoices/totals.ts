@@ -245,16 +245,30 @@ export function salesInvoiceTotals(invoice: SalesInvoice): SalesInvoiceTotals {
  * for a foreign invoice the two differ by the rate it confirmed at (D24), and
  * a sub-ledger that compares the wrong one to the control account reads adrift
  * by the whole exchange rate.
- *
- * Converts per line and adds — the same order `buildSalesInvoiceGlPosting`
- * uses, so the two agree to the last unit rather than to within a rounding
- * step.
  */
 export function salesInvoiceBaseGrandTotal(totals: SalesInvoiceTotals, fxRate?: string | null): Money {
-  if (!fxRate) return totals.grandTotal;
-  let sum = convertToBase(totals.taxTotal, fxRate);
+  return salesInvoiceBaseTotals(totals, fxRate).grandTotal;
+}
+
+export interface SalesInvoiceBaseTotals {
+  readonly taxableTotal: Money;
+  readonly taxTotal: Money;
+  readonly grandTotal: Money;
+}
+
+/**
+ * The invoice's taxable base, tax and grand total in the BASE currency.
+ * Converts each line's taxable base and tax and adds — exactly the parts
+ * `buildSalesInvoiceGlPosting` credits — so every figure agrees with the
+ * ledger to the last unit rather than to within a rounding step.
+ */
+export function salesInvoiceBaseTotals(totals: SalesInvoiceTotals, fxRate?: string | null): SalesInvoiceBaseTotals {
+  if (!fxRate) return { taxableTotal: totals.taxableTotal, taxTotal: totals.taxTotal, grandTotal: totals.grandTotal };
+  let taxableTotal = Money.zero();
+  let taxTotal = Money.zero();
   for (const line of totals.lines) {
-    sum = sum.add(convertToBase(line.taxableBase, fxRate));
+    taxableTotal = taxableTotal.add(convertToBase(line.taxableBase, fxRate));
+    taxTotal = taxTotal.add(convertToBase(line.tax, fxRate));
   }
-  return sum;
+  return { taxableTotal, taxTotal, grandTotal: taxableTotal.add(taxTotal) };
 }

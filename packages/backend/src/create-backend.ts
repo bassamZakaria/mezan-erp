@@ -82,6 +82,9 @@ import {
   purchaseInvoiceBaseTotal,
   voucherBaseAmount,
   isStandingVoucher,
+  PartyRequiredOnControlAccountError,
+  CUSTOMER_OPENING_BALANCE_DOC_TYPE,
+  SUPPLIER_OPENING_BALANCE_DOC_TYPE,
   fxRevaluationNet,
   Qty,
   purchaseReturnGrandTotal,
@@ -652,7 +655,7 @@ async function enqueueSalesInvoiceAsReceipt(args: {
     buyer: { type: "P", id: null, name: invoice.customerNameAr },
     // Mezan does not yet record HOW a sale was paid, so the only two states it
     // can tell the authority truthfully are "settled at the till" and "not".
-    paymentMethod: invoice.amountPaid.scaled >= totals.grandTotal.scaled ? "cash" : "other",
+    paymentMethod: invoice.status === "paid" ? "cash" : "other",
     lines,
     totalSales: totals.grossTotal.toString(),
     totalCommercialDiscount: totalDiscount.scaled === 0n ? undefined : totalDiscount.toString(),
@@ -2336,6 +2339,9 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         date: openingBalanceDate,
         memo: `رصيد افتتاحي ${kind === "customer" ? "عميل" : "مورد"} ${party.code} — ${party.nameAr}`,
         source: "system",
+        sourceDocType: kind === "customer" ? CUSTOMER_OPENING_BALANCE_DOC_TYPE : SUPPLIER_OPENING_BALANCE_DOC_TYPE,
+        sourceDocId: party.id,
+        sourceDocNumber: party.code,
         lines: controlIsDebit
           ? [
               { accountId: controlAccountId, debit: magnitude, credit: Money.zero() },
@@ -2357,6 +2363,15 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const supplierOpeningBalances = {
     post: (party: PartyOpeningBalanceInput) => postPartyOpeningBalance("supplier", party).then(() => undefined),
   };
+
+  /** The accounts a hand-written line must name its customer or supplier on (D205). */
+  async function resolvePartyControlAccounts(): Promise<ReadonlyMap<string, "customer" | "supplier">> {
+    const routing = await accountRouting.get();
+    return new Map<string, "customer" | "supplier">([
+      [routedAccountId(routing, "control.receivable") ?? "1105", "customer"],
+      [routedAccountId(routing, "control.payable") ?? "2100", "supplier"],
+    ]);
+  }
 
   async function resolveReconciliationControls() {
     // The tenant's own control accounts (B-8). Comparing a recoded chart
@@ -2516,6 +2531,13 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     const partyControlLines = (await ledger.listLines?.({ accountIds: [AR_CONTROL, AP_CONTROL] })) ?? [];
     arScaled += fxRevaluationNet(partyControlLines, AR_CONTROL).scaled;
     apScaled -= fxRevaluationNet(partyControlLines, AP_CONTROL).scaled;
+    // A manual journal line names its party (D205) and no document records it.
+    for (const line of partyControlLines) {
+      if (!line.partyId) continue;
+      const net = line.debit.scaled - line.credit.scaled;
+      if (line.accountId === AR_CONTROL) arScaled += net;
+      if (line.accountId === AP_CONTROL) apScaled -= net;
+    }
 
     let inventoryScaled = 0n;
     for (const snap of snapshots) {
@@ -2601,8 +2623,8 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       const lineTotals = salesInvoiceTotals(inv).lines;
       inv.lines.forEach((line, index) => {
         if (line.revenueAccountId !== billingsAccountId) return;
-        const base = lineTotals[index]?.taxableBase;
-        if (base) billingsScaled += base.scaled;
+        const stated = lineTotals[index]?.taxableBase;
+        if (stated) billingsScaled += (inv.fxRate ? convertToBase(stated, inv.fxRate) : stated).scaled;
       });
     }
     for (const run of postedRuns) billingsScaled -= run.billedInPeriod.scaled;
@@ -3072,6 +3094,9 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       // The HAND-WRITTEN journal is exactly where an uncategorised movement on
       // a contracting control account gets in, so the same set guards it.
       projectRequiredAccountIds,
+      resolvePartyControlAccounts,
+      partyExists: async (kind, id) =>
+        kind === "customer" ? (await customers.findById(id)) !== null : (await suppliers.findById(id)) !== null,
       vatFilings,
       openPartyDocuments: () => collectOpenPartyDocuments(),
       baseCurrency: async () => ((await settings.get()) ?? createDefaultSettings()).currency,
@@ -3562,17 +3587,26 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       accounts,
       fiscalPeriods,
       postOpeningEntry: async (entry) => {
-        await postJournalEntry(
-          {
-            id: entry.id,
-            date: entry.date,
-            memo: entry.memo,
-            source: "manual",
-            sourceDocType: "INITIAL_BALANCE",
-            lines: entry.lines.map((l) => ({ accountId: l.accountId, debit: l.debit, credit: l.credit })),
-          },
-          salesInvoiceGl,
-        );
+        try {
+          await postJournalEntry(
+            {
+              id: entry.id,
+              date: entry.date,
+              memo: entry.memo,
+              source: "manual",
+              sourceDocType: "INITIAL_BALANCE",
+              lines: entry.lines.map((l) => ({ accountId: l.accountId, debit: l.debit, credit: l.credit })),
+            },
+            // A trial-balance row names no party, so a debtors or creditors
+            // total would sit on 1105/2100 with no customer behind it (D212).
+            { ...salesInvoiceGl, partyControlAccounts: await resolvePartyControlAccounts() },
+          );
+        } catch (err) {
+          if (!(err instanceof PartyRequiredOnControlAccountError)) throw err;
+          throw new Error(
+            `${err.message} أدخل أرصدة العملاء والموردين الافتتاحية على بطاقة كل عميل ومورد، أو باستيراد الفواتير المفتوحة. / ${err.messageEn} Enter customer and supplier opening balances on each customer's or supplier's record, or by importing their open invoices.`,
+          );
+        }
       },
       // Both reuse the historical-import path, so a migrated invoice lands in
       // the same archive and posts the same 1105/2100 balance a hand-run
@@ -3683,6 +3717,8 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
             customerId: invoice.customerId,
             warehouseId: invoice.warehouseId,
             projectId: invoice.projectId,
+            currency: invoice.currency,
+            fxRate: invoice.fxRate ?? null,
             date: invoice.date,
             status: "confirmed" as const,
             // A return is quoted in BASE units, because that is what it puts
@@ -3797,6 +3833,8 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
             number: invoice.number ?? invoice.id,
             supplierId: invoice.supplierId,
             warehouseId: invoice.warehouseId,
+            currency: invoice.currency,
+            fxRate: invoice.fxRate ?? null,
             date: invoice.date,
             status: "confirmed" as const,
             lines: invoice.lines
@@ -3836,6 +3874,10 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       allocations: vouchers.allocations,
       salesInvoices,
       purchaseInvoices,
+      historicalArchives: {
+        sales: () => salesHistoricalImportArchives.list(),
+        purchases: () => historicalImportArchives.list(),
+      },
       customers,
       suppliers,
       items,
@@ -3864,6 +3906,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       // إقرار الخصم والتحصيل covers both halves: tax withheld on a payment
       // voucher and tax withheld on a subcontractor's certified bill.
       subCertificates: subcontracts,
+      progressCertificates,
     },
     financialReports: {
       ledger,

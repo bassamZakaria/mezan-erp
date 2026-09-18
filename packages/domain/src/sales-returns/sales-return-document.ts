@@ -18,6 +18,7 @@ import type { DocumentTypeDefinition, FrameworkDocument } from "../documents/doc
 import { buildEffects, type DocumentEffects } from "../documents/effects.js";
 import type { DocumentGlPosting, DocumentStockPlan } from "../documents/hooks.js";
 import { InvalidDocumentError } from "../documents/errors.js";
+import { convertToBase } from "../exchange-rates/convert.js";
 
 export const DOC_TYPE = "SALES_RETURN";
 
@@ -70,6 +71,15 @@ export interface SalesReturnLine {
    * none, same as `taxRatePercent`.
    */
   readonly projectId?: string | null;
+  /**
+   * The source invoice's currency and the rate it confirmed at, stamped by the
+   * server from that invoice — never from the caller. `unitPrice` and
+   * `taxAmount` are in this currency; the return reverses them at this rate
+   * (D203). `unitCost` is the captured stock cost and is already base. Absent
+   * for a base-currency invoice.
+   */
+  readonly currency?: string | null;
+  readonly fxRate?: string | null;
 }
 
 export type SalesReturnDocument = FrameworkDocument<SalesReturnLine>;
@@ -83,10 +93,22 @@ export interface SalesReturnGlAccounts {
   readonly cogsAccountId: string;
 }
 
+/**
+ * One line's revenue and tax in BASE currency, converted per line at the
+ * source invoice's rate — the one computation the posting and every credit
+ * helper share, so the AR sub-ledger ties to 1105 to the last unit.
+ */
+export function salesReturnLineBase(line: SalesReturnLine): { readonly revenue: Money; readonly tax: Money } {
+  const revenue = extend(line.qty, line.unitPrice);
+  if (!line.fxRate) return { revenue, tax: line.taxAmount };
+  return { revenue: convertToBase(revenue, line.fxRate), tax: convertToBase(line.taxAmount, line.fxRate) };
+}
+
 function totals(lines: readonly SalesReturnLine[]) {
-  const revenueValue = Money.sum(lines.map((l) => extend(l.qty, l.unitPrice)));
+  const parts = lines.map(salesReturnLineBase);
+  const revenueValue = Money.sum(parts.map((p) => p.revenue));
   const costValue = Money.sum(lines.map((l) => extend(l.qty, l.unitCost)));
-  const taxValue = Money.sum(lines.map((l) => l.taxAmount));
+  const taxValue = Money.sum(parts.map((p) => p.tax));
   return { revenueValue, costValue, taxValue, grandTotal: revenueValue.add(taxValue) };
 }
 
@@ -106,7 +128,8 @@ export function salesReturnGrandTotal(doc: SalesReturnDocument): Money {
  * figure, not the document's grand total.
  */
 export function salesReturnLineCredit(line: SalesReturnLine): Money {
-  return extend(line.qty, line.unitPrice).add(line.taxAmount);
+  const { revenue, tax } = salesReturnLineBase(line);
+  return revenue.add(tax);
 }
 
 /** Confirmed-return credit per source invoice — what each invoice's remaining balance must net off. */
@@ -143,6 +166,9 @@ export function createSalesReturnDocumentType(
       for (const line of doc.lines) {
         if (line.sourceInvoiceId !== invoiceId) {
           throw new InvalidDocumentError(DOC_TYPE, doc.id, "كل بنود المرتجع يجب أن تنتمي لنفس الفاتورة.");
+        }
+        if ((line.fxRate ?? null) !== (doc.lines[0]?.fxRate ?? null)) {
+          throw new InvalidDocumentError(DOC_TYPE, doc.id, "كل بنود المرتجع يجب أن تحمل سعر صرف الفاتورة نفسه.");
         }
         if (line.qty.isNegative() || line.qty.isZero()) {
           throw new InvalidDocumentError(DOC_TYPE, doc.id, `بند الصنف "${line.itemId}": كمية الإرجاع يجب أن تكون أكبر من صفر.`);
@@ -192,8 +218,11 @@ export function createSalesReturnDocumentType(
       for (const l of doc.lines) {
         const rate = l.taxRatePercent ?? null;
         const slot = byRate.get(rate) ?? { base: Money.zero(), tax: Money.zero() };
-        byRate.set(rate, { base: slot.base.add(extend(l.qty, l.unitPrice)), tax: slot.tax.add(l.taxAmount) });
+        const part = salesReturnLineBase(l);
+        byRate.set(rate, { base: slot.base.add(part.revenue), tax: slot.tax.add(part.tax) });
       }
+      const first = doc.lines[0];
+      const fxTag = first?.fxRate ? { currency: first.currency ?? null, fxRate: first.fxRate } : {};
       const lines = [
         ...[...byRate.entries()]
           .filter(([, v]) => v.base.scaled !== 0n)
@@ -213,7 +242,7 @@ export function createSalesReturnDocumentType(
             taxRatePercent: rate,
             projectId,
           })),
-        { accountId: accounts.accountsReceivableId, debit: Money.zero(), credit: grandTotal, projectId },
+        { accountId: accounts.accountsReceivableId, debit: Money.zero(), credit: grandTotal, projectId, ...fxTag },
       ];
 
       const stockLines =

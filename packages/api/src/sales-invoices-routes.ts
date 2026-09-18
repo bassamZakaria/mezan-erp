@@ -31,6 +31,7 @@ import {
   JournalEntryAlreadyReversedError,
   assertSalesInvoiceTransition,
   isSalesInvoiceTerminal,
+  salesInvoiceBaseGrandTotal,
   type DocumentStockHook,
   type AppliedSalesInvoicePromotion,
   type SalesInvoice,
@@ -247,9 +248,10 @@ function serializeTotals(totals: SalesInvoiceTotals) {
 }
 
 /**
- * What the invoice still owes. Shared by `serialize` and the counts/stats
- * endpoints so a row's own "remaining" and the KPI strip's total can never
- * be computed two different ways.
+ * What the invoice still owes, in BASE currency: the base grand total less the
+ * base settlement and the base return credit (D202). Shared by `serialize` and
+ * the counts/stats endpoints so a row's own "remaining" and the KPI strip's
+ * total can never be computed two different ways.
  *
  * A cancelled or reversed invoice owes NOTHING — a void reverses the AR
  * posting, so an invoice that went on reporting a remaining balance would put
@@ -261,7 +263,7 @@ function remainingOf(
   returnedCredit: Money = Money.zero(),
 ): Money {
   if (isSalesInvoiceTerminal(invoice.status)) return Money.zero();
-  return totals.grandTotal.add(invoice.amountPaid.negate()).add(returnedCredit.negate());
+  return salesInvoiceBaseGrandTotal(totals, invoice.fxRate).add(invoice.amountPaid.negate()).add(returnedCredit.negate());
 }
 
 function serialize(
@@ -309,6 +311,7 @@ function serialize(
     discount: serializeDiscount(invoice.discount),
     arAccountId: invoice.arAccountId,
     taxAccountId: invoice.taxAccountId,
+    baseGrandTotal: salesInvoiceBaseGrandTotal(totals, invoice.fxRate).toString(),
     amountPaid: paid.toString(),
     returnedCredit: returnedCredit.toString(),
     remainingBalance: remaining.toString(),
@@ -935,7 +938,7 @@ export function createSalesInvoicesRoutes(
       const totals = totalsFor(svc, invoice);
       const credit = credits.get(invoice.id) ?? Money.zero();
       count += 1;
-      sales = sales.add(totals.grandTotal);
+      sales = sales.add(salesInvoiceBaseGrandTotal(totals, invoice.fxRate));
       collected = collected.add(invoice.amountPaid);
       returned = returned.add(credit);
       remaining = remaining.add(remainingOf(invoice, totals, credit));

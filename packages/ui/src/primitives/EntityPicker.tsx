@@ -19,6 +19,8 @@ export interface EntityPickerProps {
   emptyMessage?: string;
   id?: string;
   className?: string;
+  /** The accessible name when there is no visible `label` (a picker inside a table row). */
+  ariaLabel?: string;
 }
 
 /**
@@ -36,6 +38,7 @@ export function EntityPicker({
   emptyMessage,
   id,
   className,
+  ariaLabel,
 }: EntityPickerProps) {
   const { t } = useUiTranslation();
   const [open, setOpen] = useState(false);
@@ -81,6 +84,7 @@ export function EntityPicker({
       <input
         id={inputId}
         role="combobox"
+        aria-label={label ? undefined : ariaLabel}
         aria-expanded={open}
         aria-controls={listboxId}
         aria-autocomplete="list"

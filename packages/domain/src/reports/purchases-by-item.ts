@@ -2,6 +2,7 @@ import { z } from "zod";
 import { isoDateParamSchema } from "./iso-date.js";
 import { Money, Qty } from "../money/index.js";
 import { purchaseInvoiceLineBase, type PurchaseInvoice } from "../purchasing/purchase-invoice.js";
+import { convertToBase } from "../exchange-rates/convert.js";
 import type { Item } from "../items/item.js";
 import type { ReportDefinition } from "./types.js";
 import { sumRows, averageOf } from "./kpi.js";
@@ -100,9 +101,10 @@ export function createPurchasesByItemReport(
         for (const line of invoice.lines) {
           if (line.kind !== "inventory" || line.itemId === null) continue;
           const existing = byItem.get(line.itemId) ?? { qty: Qty.zero(), cost: Money.zero() };
+          const stated = purchaseInvoiceLineBase(line);
           byItem.set(line.itemId, {
             qty: existing.qty.add(line.qty),
-            cost: existing.cost.add(purchaseInvoiceLineBase(line)),
+            cost: existing.cost.add(invoice.fxRate ? convertToBase(stated, invoice.fxRate) : stated),
           });
         }
       }

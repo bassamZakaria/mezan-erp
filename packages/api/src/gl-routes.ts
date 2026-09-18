@@ -18,6 +18,9 @@ import {
   JournalEntryNotDraftError,
   JournalEntryNotPostedError,
   JournalEntryAlreadyReversedError,
+  PartyRequiredOnControlAccountError,
+  InvalidJournalPartyError,
+  type PartyControlKind,
   type JournalEntry,
   type JournalPostingDeps,
   type LedgerRepository,
@@ -77,6 +80,13 @@ export interface GlRoutesDeps {
    * movement on 1230 or 2160 gets in.
    */
   readonly projectRequiredAccountIds?: JournalPostingDeps["projectRequiredAccountIds"];
+  /**
+   * The party control accounts, read per request because the routing is
+   * tenant configuration (D205). A hand-written line on one must name its
+   * customer or supplier.
+   */
+  readonly resolvePartyControlAccounts?: () => Promise<ReadonlyMap<string, PartyControlKind>>;
+  readonly partyExists?: JournalPostingDeps["partyExists"];
   readonly audit?: AuditSink;
   readonly events?: GlEventPublisher;
   readonly now?: () => string;
@@ -123,6 +133,7 @@ function serialize(entry: JournalEntry) {
       projectId: l.projectId ?? null,
       costCategory: l.costCategory ?? null,
       branchId: l.branchId ?? null,
+      partyId: l.partyId ?? null,
     })),
   };
 }
@@ -193,6 +204,9 @@ function handleDomainError(c: Context, err: unknown): Response {
   if (err instanceof InvalidJournalEntryError) {
     return c.json({ error: err.code, message: err.message }, 400);
   }
+  if (err instanceof PartyRequiredOnControlAccountError || err instanceof InvalidJournalPartyError) {
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, accountId: err.accountId }, 422);
+  }
   if (err instanceof VatPeriodAlreadyFiledError) {
     return c.json({ error: err.code, message: err.message }, 422);
   }
@@ -254,6 +268,14 @@ export function createGlRoutes(
   const gate = createPermissionGate(resolveAuthContext);
   const idGen = deps.idGen ?? (() => randomUUID());
 
+  async function manualPostingDeps(c: Context): Promise<JournalPostingDeps> {
+    return {
+      ...postingDeps(c),
+      partyControlAccounts: await deps.resolvePartyControlAccounts?.(),
+      partyExists: deps.partyExists,
+    };
+  }
+
   function postingDeps(c: Context): JournalPostingDeps {
     return {
       ledger: deps.ledger,
@@ -269,6 +291,16 @@ export function createGlRoutes(
       actor: getAuthContext(c)?.userId ?? "system",
     };
   }
+
+  /**
+   * The accounts on which a hand-written line must name its customer or
+   * supplier (D205), so the journal screen can ask for the party before the
+   * post is refused.
+   */
+  app.get("/party-control-accounts", gate("accounting.journal.view"), async (c) => {
+    const controls = (await deps.resolvePartyControlAccounts?.()) ?? new Map<string, PartyControlKind>();
+    return c.json([...controls].map(([accountId, partyKind]) => ({ accountId, partyKind })));
+  });
 
   app.post("/journal-entries", gate("accounting.journal.post"), async (c) => {
     const parsed = createGlJournalEntrySchema.safeParse(await c.req.json());
@@ -294,9 +326,10 @@ export function createGlRoutes(
             projectId: l.projectId ?? null,
             costCategory: l.costCategory ?? null,
             branchId: l.branchId ?? null,
+            partyId: l.partyId ?? null,
           })),
         },
-        postingDeps(c),
+        await manualPostingDeps(c),
       );
       return c.json(serialize(entry), 201);
     } catch (err) {
@@ -463,9 +496,10 @@ export function createGlRoutes(
             projectId: l.projectId ?? null,
             costCategory: l.costCategory ?? null,
             branchId: l.branchId ?? null,
+            partyId: l.partyId ?? null,
           })),
         },
-        postingDeps(c),
+        await manualPostingDeps(c),
       );
       return c.json(serialize(entry), 201);
     } catch (err) {
@@ -475,7 +509,7 @@ export function createGlRoutes(
 
   app.post("/journal-entries/:id/post", gate("accounting.journal.post"), async (c) => {
     try {
-      const entry = await postDraftJournalEntry(c.req.param("id"), postingDeps(c));
+      const entry = await postDraftJournalEntry(c.req.param("id"), await manualPostingDeps(c));
       return c.json(serialize(entry));
     } catch (err) {
       return handleDomainError(c, err);

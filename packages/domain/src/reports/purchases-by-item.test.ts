@@ -113,3 +113,21 @@ describe("createPurchasesByItemReport", () => {
     expect(outcome.rows[0]?.itemNameAr).toBe("unknown-item");
   });
 });
+
+describe("createPurchasesByItemReport — a foreign invoice (D201's twin)", () => {
+  it("costs a CHF line at the base value the inventory debit posted, so the report still ties to the GL", () => {
+    const definition = createPurchasesByItemReport("2026-01-01", "2026-12-31");
+    const outcome = runReport(
+      definition,
+      { dateFrom: "2026-08-01", dateTo: "2026-08-31" },
+      {
+        invoices: [pinvoice({ currency: "CHF", fxRate: "60.00", lines: [pline({ itemId: "item-a", qty: Qty.fromMajor("3") })] })],
+        items: [item({ id: "item-a", nameAr: "صنف أ" })],
+        postedInventory: () => 18000,
+      },
+    );
+    if (!outcome.ok) throw new Error("report failed");
+    expect(outcome.rows[0]?.cost).toBe(18000);
+    expect(outcome.reconciliation?.withinTolerance).toBe(true);
+  });
+});

@@ -2,11 +2,7 @@ import { Hono } from "hono";
 import type { ItemCatalogCheck } from "./item-check.js";
 import {
   Money,
-  purchaseInvoiceBaseTotal,
-  extend,
-  voucherBaseAmount,
-  isStandingVoucher,
-  voucherLine,
+  CUSTOMER_OPENING_BALANCE_DOC_TYPE,
   SeatSessionRegistry,
   createEntitlements,
   type UnitOfWork,
@@ -168,7 +164,7 @@ import { createReconciliationRoutes, type ReconciliationRoutesDeps } from "./rec
 import { createEtaRoutes, type EtaRoutesDeps } from "./eta-routes.js";
 import type { ExchangeRateRepository } from "@mezan/domain";
 import type { DocumentEventPublisher } from "@mezan/domain";
-import { createReportsRoutes, customerAgingOwed, type ReportsRoutesDeps } from "./reports-routes.js";
+import { createReportsRoutes, customerAgingOwed, supplierAgingOwed, type ReportsRoutesDeps } from "./reports-routes.js";
 import { createChequesRoutes, type ChequeRoutesDeps } from "./cheques-routes.js";
 import { createBankReconciliationRoutes, type BankReconciliationRoutesDeps } from "./bank-reconciliation-routes.js";
 import { createCrmRoutes, type CrmRoutesDeps } from "./crm-routes.js";
@@ -991,53 +987,9 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     ? { outstandingByCustomer: () => customerAgingOwed(reportsDeps) }
     : undefined;
 
-  /**
-   * What each supplier is still owed. A purchase invoice carries no
-   * `amountPaid` of its own, so payment is read from the vouchers that name
-   * the supplier, from confirmed purchase returns, and from outgoing cheques —
-   * a cheque debits AP the moment it is handed over, and only a bounce puts
-   * the debt back.
-   */
-  const supplierPayables: SupplierPayablesSource | undefined = options.purchases
-    ? {
-        async outstandingBySupplier() {
-          const out = new Map<string, Money>();
-          const add = (supplierId: string, amount: Money) =>
-            out.set(supplierId, (out.get(supplierId) ?? Money.zero()).add(amount));
-
-          for (const invoice of await options.purchases!.invoices.list()) {
-            if (invoice.status !== "confirmed") continue;
-            add(invoice.supplierId, purchaseInvoiceBaseTotal(invoice));
-          }
-          if (options.vouchers) {
-            for (const doc of await options.vouchers.documents.list()) {
-              if (!isStandingVoucher(doc)) continue;
-              const line = voucherLine(doc);
-              if (!line.supplierId) continue;
-              // A payment to the supplier clears debt; a refund from them raises it again.
-              if (line.direction === "payment") add(line.supplierId, voucherBaseAmount(line).negate());
-              else if (line.direction === "receipt") add(line.supplierId, voucherBaseAmount(line));
-            }
-          }
-          if (options.purchaseReturns) {
-            for (const doc of await options.purchaseReturns.service.list()) {
-              if (doc.status !== "confirmed") continue;
-              // The supplier is on the LINE, not the header, so a return that
-              // spans two suppliers has to be split rather than attributed whole.
-              for (const line of doc.lines) {
-                add(line.supplierId, extend(line.qty, line.unitCost).add(line.taxAmount).negate());
-              }
-            }
-          }
-          if (options.cheques) {
-            for (const cheque of await options.cheques.cheques.list()) {
-              if (cheque.direction !== "outgoing" || cheque.status === "bounced") continue;
-              add(cheque.partyId, cheque.amount.negate());
-            }
-          }
-          return out;
-        },
-      }
+  /** The supplier aging ladder's own row totals, as the customer side does (D201). */
+  const supplierPayables: SupplierPayablesSource | undefined = reportsDeps
+    ? { outstandingBySupplier: () => supplierAgingOwed(reportsDeps) }
     : undefined;
 
   /**
@@ -1057,7 +1009,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
             date: posting.date,
             memo: `رصيد افتتاحي — ${posting.customerName}`,
             source: "system",
-            sourceDocType: "CUSTOMER_OPENING_BALANCE",
+            sourceDocType: CUSTOMER_OPENING_BALANCE_DOC_TYPE,
             sourceDocId: posting.customerId,
             lines: [
               {

@@ -1107,6 +1107,7 @@ function InvoicePreviewPanel({
 
   const label = currencyLabelFor(invoice.currency, locale) ?? format.currencyLabel;
   const money = (wire: string) => `${format.money(toMajor(wire))} ${label}`;
+  const baseMoney = (wire: string) => `${format.money(toMajor(wire))} ${invoice.fxRate ? format.currencyLabel : label}`;
 
   // Plain text on purpose: it has to survive being pasted into a chat app.
   const summary = [
@@ -1114,7 +1115,8 @@ function InvoicePreviewPanel({
     invoice.customerNameAr,
     ...invoice.lines.map((l) => `${l.itemNameAr} × ${l.qty} = ${money(String(Number(l.unitPrice) * Number(l.qty)))}`),
     `${t("common.total")}: ${money(invoice.totals.grandTotal)}`,
-    `${t("salesInvoices.detail.remaining")}: ${money(invoice.remainingBalance)}`,
+    ...(invoice.fxRate ? [`${t("salesInvoices.detail.baseTotal")}: ${baseMoney(invoice.baseGrandTotal ?? invoice.totals.grandTotal)}`] : []),
+    `${t("salesInvoices.detail.remaining")}: ${baseMoney(invoice.remainingBalance)}`,
   ].join("\n");
 
   return (
@@ -1194,6 +1196,9 @@ function InvoiceDetailView({
   const [detailConfirmError, setDetailConfirmError] = useState<string | null>(null);
   const format = useFormat();
   const docCurrencyLabel = currencyLabelFor(invoice.currency, locale);
+  const settledInBase = Boolean(invoice.fxRate);
+  const settlementLabel = settledInBase ? format.currencyLabel : docCurrencyLabel;
+  const settlementTotal = toMajor(invoice.baseGrandTotal ?? invoice.totals.grandTotal);
   const accountsQuery = useAccounts();
   const warehousesQuery = useWarehouses();
   const itemsQuery = useItems();
@@ -1412,7 +1417,10 @@ function InvoiceDetailView({
             ]
           : []),
         { label: t("common.total"), value: <MoneyDisplay currencyLabel={docCurrencyLabel} value={toMajor(invoice.totals.grandTotal)} /> },
-        { label: t("salesInvoices.detail.remaining"), value: <MoneyDisplay currencyLabel={docCurrencyLabel} value={remaining} />, valueTone: remaining > 0 ? "danger" : "success" },
+        ...(settledInBase
+          ? [{ label: t("salesInvoices.detail.baseTotal"), value: <MoneyDisplay currencyLabel={settlementLabel} value={settlementTotal} /> }]
+          : []),
+        { label: t("salesInvoices.detail.remaining"), value: <MoneyDisplay currencyLabel={settlementLabel} value={remaining} />, valueTone: remaining > 0 ? "danger" : "success" },
       ]}
       effectsTitle={t("salesInvoices.effectsTitle")}
       effects={effects}
@@ -1514,12 +1522,12 @@ function InvoiceDetailView({
                       <>
                         <tr className="text-danger">
                           <td className="px-[15px] py-[9px]" colSpan={8}>{t("salesInvoices.detail.returnsDeduction")}</td>
-                          <td className="px-[15px] py-[9px] text-end"><MoneyDisplay currencyLabel={docCurrencyLabel} value={-toMajor(invoice.returnedCredit)} /></td>
+                          <td className="px-[15px] py-[9px] text-end"><MoneyDisplay currencyLabel={settlementLabel} value={-toMajor(invoice.returnedCredit)} /></td>
                         </tr>
                         <tr className="bg-surface-2 font-bold">
                           <td className="px-[15px] py-[11px]" colSpan={8}>{t("salesInvoices.detail.netAfterReturns")}</td>
                           <td className="px-[15px] py-[11px] text-end">
-                            <MoneyDisplay currencyLabel={docCurrencyLabel} value={toMajor(invoice.totals.grandTotal) - toMajor(invoice.returnedCredit)} />
+                            <MoneyDisplay currencyLabel={settlementLabel} value={settlementTotal - toMajor(invoice.returnedCredit)} />
                           </td>
                         </tr>
                       </>
@@ -1583,13 +1591,19 @@ function InvoiceDetailView({
                     <dt className="text-[11px] font-semibold text-ink-faint">{t("salesInvoices.grandTotal")}</dt>
                     <dd className="mt-[4px]"><MoneyDisplay currencyLabel={docCurrencyLabel} value={toMajor(invoice.totals.grandTotal)} /></dd>
                   </div>
+                  {settledInBase ? (
+                    <div>
+                      <dt className="text-[11px] font-semibold text-ink-faint">{t("salesInvoices.detail.baseTotal")}</dt>
+                      <dd className="mt-[4px]"><MoneyDisplay currencyLabel={settlementLabel} value={settlementTotal} /></dd>
+                    </div>
+                  ) : null}
                   <div>
                     <dt className="text-[11px] font-semibold text-ink-faint">{t("salesInvoices.payments.collected")}</dt>
-                    <dd className="mt-[4px]"><MoneyDisplay currencyLabel={docCurrencyLabel} value={toMajor(invoice.amountPaid)} /></dd>
+                    <dd className="mt-[4px]"><MoneyDisplay currencyLabel={settlementLabel} value={toMajor(invoice.amountPaid)} /></dd>
                   </div>
                   <div>
                     <dt className="text-[11px] font-semibold text-ink-faint">{t("salesInvoices.payments.remaining")}</dt>
-                    <dd className="mt-[4px]"><MoneyDisplay currencyLabel={docCurrencyLabel} value={remaining} /></dd>
+                    <dd className="mt-[4px]"><MoneyDisplay currencyLabel={settlementLabel} value={remaining} /></dd>
                   </div>
                 </dl>
               </Card>

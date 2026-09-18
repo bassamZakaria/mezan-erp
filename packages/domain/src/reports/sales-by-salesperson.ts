@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { isoDateParamSchema } from "./iso-date.js";
 import { Money } from "../money/index.js";
-import { salesInvoiceTotals } from "../sales-invoices/totals.js";
+import { salesInvoiceBaseTotals, salesInvoiceTotals } from "../sales-invoices/totals.js";
 import { SALES_INVOICE_ACTIVE_STATUSES, type SalesInvoice } from "../sales-invoices/sales-invoice.js";
 import type { ReportDefinition } from "./types.js";
 import { sumRows } from "./kpi.js";
@@ -110,8 +110,9 @@ export function createSalesBySalespersonReport(
         if (!withinDateRange(invoice.date, params.dateFrom, params.dateTo)) continue;
         if (!matchesBranch(invoice.branchId, params.branchId)) continue;
         const totals = salesInvoiceTotals(invoice);
-        const revenue = params.taxMode === "inc" ? totals.grandTotal : totals.taxableTotal;
-        const outstanding = Money.fromScaled(totals.grandTotal.scaled - invoice.amountPaid.scaled);
+        const base = salesInvoiceBaseTotals(totals, invoice.fxRate);
+        const revenue = params.taxMode === "inc" ? base.grandTotal : base.taxableTotal;
+        const outstanding = Money.fromScaled(base.grandTotal.scaled - invoice.amountPaid.scaled);
         const key = invoice.salespersonId ?? UNASSIGNED_SALESPERSON_KEY;
         const nameAr =
           invoice.salespersonId === null ? "غير محدد" : (invoice.salespersonNameAr ?? invoice.salespersonId);

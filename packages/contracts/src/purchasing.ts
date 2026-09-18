@@ -169,7 +169,14 @@ export const purchaseInvoiceSchema = z.object({
   subtotal: decimalString,
   tax: decimalString,
   total: decimalString,
-  /** Settled from the treasury allocation sub-ledger; the invoice itself holds no payment counter. */
+  /**
+   * `total` in BASE currency at the rate the invoice confirmed at — what GL 2100
+   * holds. Equal to `total` for a base-currency or unconfirmed invoice.
+   * `amountPaid` and `remainingBalance` are measured against this, never
+   * against `total` (D202).
+   */
+  baseTotal: decimalString.optional(),
+  /** Settled from the treasury allocation sub-ledger (base currency); the invoice itself holds no payment counter. */
   amountPaid: decimalString,
   remainingBalance: decimalString,
   createdBy: z.string(),

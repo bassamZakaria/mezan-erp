@@ -13,7 +13,7 @@ import { postJournalEntry, reverseJournalEntry, type JournalPostingDeps } from "
 import type { DocumentGlHook } from "../documents/hooks.js";
 import type { StockLedgerService } from "../inventory/index.js";
 import { Money, type Qty } from "../money/index.js";
-import { salesInvoiceTotals } from "./totals.js";
+import { salesInvoiceBaseGrandTotal, salesInvoiceTotals } from "./totals.js";
 import type { SalesInvoiceRepository, SalesInvoiceStockHook, SalesInvoiceCustomerExposureHook } from "./ports.js";
 
 /** Bind the GL posting engine behind the framework's GL hook, posting as a system document. */
@@ -109,7 +109,7 @@ export function createSalesInvoiceStockHook(
 
 /**
  * Bind the customer-exposure hook to the sales-invoice repository itself: sums
- * (grandTotal − amountPaid) across the customer's live invoices, excluding the
+ * (base grand total − amountPaid, both in base currency) across the customer's live invoices, excluding the
  * invoice currently being confirmed (its own exposure is passed separately by
  * the caller — see {@link SalesInvoiceService.confirm}).
  */
@@ -128,8 +128,7 @@ export function createSalesInvoiceCustomerExposureHook(
       for (const inv of invoices) {
         if (inv.id === excludeInvoiceId) continue;
         if (inv.status !== "confirmed" && inv.status !== "partially_paid") continue;
-        const totals = salesInvoiceTotals(inv);
-        total += totals.grandTotal.scaled - inv.amountPaid.scaled;
+        total += salesInvoiceBaseGrandTotal(salesInvoiceTotals(inv), inv.fxRate).scaled - inv.amountPaid.scaled;
       }
       return Money.fromScaled(total);
     },

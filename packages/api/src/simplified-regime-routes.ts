@@ -10,6 +10,7 @@ import {
   recordSimplifiedRegime,
   runReport,
   salesInvoiceTotals,
+  salesInvoiceBaseTotals,
   simplifiedRegimeActiveOn,
   simplifiedRegimeFlags,
   simplifiedRegimeScheduleOn,
@@ -110,8 +111,7 @@ export function createSimplifiedRegimeRoutes(
       if (!SALES_INVOICE_ACTIVE_STATUSES.has(invoice.status)) continue;
       const day = invoice.date.slice(0, 10);
       if (day < window.periodFrom || day > window.periodTo) continue;
-      const totals = salesInvoiceTotals(invoice);
-      const net = totals.grandTotal.scaled - totals.taxTotal.scaled;
+      const net = salesInvoiceBaseTotals(salesInvoiceTotals(invoice), invoice.fxRate).taxableTotal.scaled;
       byCustomer.set(invoice.customerId, (byCustomer.get(invoice.customerId) ?? 0n) + net);
     }
     return [...byCustomer].map(([customerId, scaled]) => ({

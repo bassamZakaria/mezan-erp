@@ -35,6 +35,9 @@ export interface SourceSalesInvoice {
   readonly lines: readonly SourceSalesInvoiceLine[];
   /** بُعد المشروع on the invoice; a return built from it inherits this onto every line it produces. */
   readonly projectId?: string | null;
+  /** The invoice's currency and the rate it confirmed at; a return reverses at this rate (D203). */
+  readonly currency?: string | null;
+  readonly fxRate?: string | null;
 }
 
 /** Resolves a confirmed sales invoice by id. Implemented by the real invoices module (or a demo/test double) once wired in. */

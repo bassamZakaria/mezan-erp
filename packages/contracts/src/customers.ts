@@ -32,9 +32,9 @@ export const customerSchema = z.object({
   logoAttachmentId: z.string().nullable(),
   nationalId: z.string().nullable(),
   /**
-   * What the customer owes today: the opening balance plus their row on the
-   * customer aging ladder (D195). Read-only, sent on the list and on GET
-   * /customers/:id; null when the server has no receivables source.
+   * What the customer owes today: their row on the customer aging ladder,
+   * which carries the opening balance (D195, D204). Read-only, sent on the list
+   * and on GET /customers/:id; null when the server has no receivables source.
    */
   owed: moneyString.nullish(),
 });

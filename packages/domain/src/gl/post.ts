@@ -25,8 +25,11 @@ import type { GlEventPublisher } from "./events.js";
 import {
   DuplicateJournalEntryError,
   InactiveAccountError,
+  InvalidJournalPartyError,
   JournalEntryNotDraftError,
   JournalEntryNotFoundError,
+  PartyRequiredOnControlAccountError,
+  type PartyControlKind,
 } from "./errors.js";
 
 /** Sequence code the JE numbering engine uses (numbering/sequences.ts). */
@@ -52,6 +55,8 @@ export interface JournalLineInput {
   readonly costCategory?: JournalLine["costCategory"];
   /** بُعد الفرع (DEC-20). Nullable — a line with no branch lands in the statements' «غير مخصص» bucket. */
   readonly branchId?: string | null;
+  /** The customer/supplier of a line on a party control account (D205). */
+  readonly partyId?: string | null;
 }
 
 /** Command to create/post a journal entry. */
@@ -105,6 +110,14 @@ export interface JournalPostingDeps {
    * checked, which is how every composition behaved before the set existed.
    */
   readonly projectRequiredAccountIds?: ReadonlySet<string>;
+  /**
+   * The party control accounts and which party each one's lines must name
+   * (D205). Supplied for the hand-written journal only: a document posting
+   * leaves `partyId` null because its document is the sub-ledger record.
+   */
+  readonly partyControlAccounts?: ReadonlyMap<string, PartyControlKind>;
+  /** Whether a named party exists; checked only when `partyControlAccounts` is supplied. */
+  readonly partyExists?: (kind: PartyControlKind, id: string) => Promise<boolean>;
   readonly audit?: AuditSink;
   readonly events?: GlEventPublisher;
   /** ISO-8601 UTC "now"; overridable for deterministic tests. */
@@ -130,6 +143,7 @@ function toLine(input: JournalLineInput): JournalLine {
     projectId: input.projectId ?? null,
     costCategory: input.costCategory ?? null,
     branchId: input.branchId ?? null,
+    partyId: input.partyId ?? null,
   };
 }
 
@@ -246,6 +260,31 @@ export function assertProjectRequired(
   }
 }
 
+/**
+ * A line on a party control account must name its customer or supplier, and a
+ * line elsewhere must name none (D205). Omit `partyControlAccounts` and
+ * nothing is checked.
+ */
+export async function assertPartyLines(
+  lines: readonly JournalLineInput[],
+  deps: Pick<JournalPostingDeps, "partyControlAccounts" | "partyExists">,
+): Promise<void> {
+  const controls = deps.partyControlAccounts;
+  if (!controls) return;
+  for (const line of lines) {
+    const kind = controls.get(line.accountId);
+    const partyId = line.partyId?.trim() ? line.partyId.trim() : null;
+    if (!kind) {
+      if (partyId) throw new InvalidJournalPartyError(line.accountId, partyId, "not_control");
+      continue;
+    }
+    if (!partyId) throw new PartyRequiredOnControlAccountError(line.accountId, kind);
+    if (deps.partyExists && !(await deps.partyExists(kind, partyId))) {
+      throw new InvalidJournalPartyError(line.accountId, partyId, "not_found", kind);
+    }
+  }
+}
+
 /** Every `projectId` a line carries must name a project that exists — when the composition can check. */
 export async function assertProjectsExist(
   lines: readonly JournalLineInput[],
@@ -329,6 +368,7 @@ export async function createJournalEntry(
   assertProjectRequired(cmd.lines, deps.projectRequiredAccountIds);
   await assertLinesPostable(cmd.lines, deps.accounts);
   await assertProjectsExist(cmd.lines, deps.projects);
+  await assertPartyLines(cmd.lines, deps);
 
   return deps.ledger.transaction(async () => {
     if (await deps.ledger.findById(cmd.id)) {
@@ -375,6 +415,7 @@ export async function postJournalEntry(
   assertProjectRequired(cmd.lines, deps.projectRequiredAccountIds);
   await assertLinesPostable(cmd.lines, deps.accounts);
   await assertProjectsExist(cmd.lines, deps.projects);
+  await assertPartyLines(cmd.lines, deps);
   await assertPeriodOpen(cmd.date, deps.periods);
   await assertVatNotFiled(cmd.date, deps.vatFilings);
 
@@ -428,6 +469,7 @@ export async function postDraftJournalEntry(
   const { totalDebit, totalCredit } = assertBalanced(existing.lines);
   assertProjectRequired(existing.lines, deps.projectRequiredAccountIds);
   await assertLinesPostable(existing.lines, deps.accounts);
+  await assertPartyLines(existing.lines, deps);
   await assertPeriodOpen(existing.date, deps.periods);
   await assertVatNotFiled(existing.date, deps.vatFilings);
 

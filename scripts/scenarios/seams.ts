@@ -711,7 +711,7 @@ export async function run(ctx: Ctx): Promise<void> {
     check("July's VAT return runs — this is the figure a tenant would file", filed.status === 200, `status ${filed.status}`);
 
     const backdatedBefore = await postJournal("SCN-S-JE-JULY-VAT", "2026-07-20", "مبيعات يوليو أُدخلت قبل الإقرار", [
-      { accountId: AR, debit: "1140.00", credit: "0.00" },
+      { accountId: AR, debit: "1140.00", credit: "0.00", partyId: CUSTOMER },
       { accountId: REVENUE, debit: "0.00", credit: "1000.00" },
       { accountId: OUTPUT_TAX, debit: "0.00", credit: "140.00" },
     ]);
@@ -733,7 +733,7 @@ export async function run(ctx: Ctx): Promise<void> {
     check("a second filing for the same window is refused", twice.status === 409, `status ${twice.status} ${JSON.stringify(twice.body).slice(0, 200)}`);
 
     const afterFiling = await postJournal("SCN-S-JE-JULY-AFTER", "2026-07-22", "مبيعات يوليو أُدخلت بعد الإقرار", [
-      { accountId: AR, debit: "1140.00", credit: "0.00" },
+      { accountId: AR, debit: "1140.00", credit: "0.00", partyId: CUSTOMER },
       { accountId: REVENUE, debit: "0.00", credit: "1000.00" },
       { accountId: OUTPUT_TAX, debit: "0.00", credit: "140.00" },
     ]);
@@ -754,7 +754,7 @@ export async function run(ctx: Ctx): Promise<void> {
     check("amending WITH a reason reopens the window and records why", amended.status === 200 && amended.body?.status === "amended" && amended.body?.amendmentReason, JSON.stringify(amended.body).slice(0, 250));
 
     const afterAmend = await postJournal("SCN-S-JE-JULY-AMENDED", "2026-07-23", "مبيعات يوليو بعد تعديل الإقرار", [
-      { accountId: AR, debit: "1140.00", credit: "0.00" },
+      { accountId: AR, debit: "1140.00", credit: "0.00", partyId: CUSTOMER },
       { accountId: REVENUE, debit: "0.00", credit: "1000.00" },
       { accountId: OUTPUT_TAX, debit: "0.00", credit: "140.00" },
     ]);
@@ -766,7 +766,7 @@ export async function run(ctx: Ctx): Promise<void> {
       const closed = await req("POST", `/fiscal-periods/${july.id}/close`, {});
       check("July closes", closed.status === 200, `status ${closed.status}`);
       const blocked = await postJournal("SCN-S-JE-JULY-BLOCKED", "2026-07-21", "محاولة بعد الإقفال", [
-        { accountId: AR, debit: "1140.00", credit: "0.00" },
+        { accountId: AR, debit: "1140.00", credit: "0.00", partyId: CUSTOMER },
         { accountId: REVENUE, debit: "0.00", credit: "1000.00" },
         { accountId: OUTPUT_TAX, debit: "0.00", credit: "140.00" },
       ]);
@@ -774,6 +774,88 @@ export async function run(ctx: Ctx): Promise<void> {
       const reopened = await req("POST", `/fiscal-periods/${july.id}/reopen`, {});
       check("July reopens for the rest of the suite", reopened.status === 200 && reopened.body?.status === "open", `status ${reopened.status}`);
     }
+  });
+
+  // ---------------------------------------------------------------------------
+  // X47b — a manual line on a party control account names its party (D205)
+  // ---------------------------------------------------------------------------
+  await scenario("x47b · a manual journal line on 1105 or 2100 must name the customer or supplier, and then moves that party's balance (D205)", async () => {
+    const owedOf = async (kind: "customers" | "suppliers", id: string) => ctx.scaled((await req("GET", `/${kind}/${id}`)).body?.owed);
+    const rowOf = async (kind: "customers" | "suppliers", id: string) => {
+      const aging = await req("GET", `/reports/aging/${kind}`);
+      const row = rows(aging.body).find((r: any) => (kind === "customers" ? r.customerId : r.supplierId) === id);
+      return { row: ctx.scaled(row?.total ?? 0), tie: aging.body?.reconciliation };
+    };
+    const statementOf = async (kind: "customers" | "suppliers", id: string) => (await req("GET", `/reports/statements/${kind}/${id}`)).body;
+
+    const partyless = await postJournal("SCN-S-JE-AR-NOPARTY", TODAY, "قيد على العملاء بلا عميل", [
+      { accountId: AR, debit: "500.00", credit: "0.00" },
+      { accountId: REVENUE, debit: "0.00", credit: "500.00" },
+    ]);
+    check(
+      "a manual line on 1105 that names no customer is refused, in Arabic and in English",
+      partyless.status === 422 &&
+        partyless.body?.error === "PARTY_REQUIRED_ON_CONTROL_ACCOUNT" &&
+        /العميل/.test(String(partyless.body?.message)) &&
+        /customer/.test(String(partyless.body?.messageEn)),
+      `status ${partyless.status} ${JSON.stringify(partyless.body).slice(0, 250)}`,
+    );
+    const partylessAp = await postJournal("SCN-S-JE-AP-NOPARTY", TODAY, "قيد على الموردين بلا مورد", [
+      { accountId: EXPENSE, debit: "300.00", credit: "0.00" },
+      { accountId: PAYABLE, debit: "0.00", credit: "300.00" },
+    ]);
+    check("and so is one on 2100 that names no supplier", partylessAp.status === 422 && partylessAp.body?.error === "PARTY_REQUIRED_ON_CONTROL_ACCOUNT", `status ${partylessAp.status}`);
+    const draft = await req("POST", "/gl/journal-entries/draft", {
+      id: "SCN-S-JE-AR-NOPARTY-DRAFT", date: TODAY, memo: "مسودة بلا عميل",
+      lines: [{ accountId: AR, debit: "10.00", credit: "0.00" }, { accountId: REVENUE, debit: "0.00", credit: "10.00" }],
+    });
+    check("a draft cannot park the party-less line for later either", draft.status === 422, `status ${draft.status}`);
+    const ghost = await postJournal("SCN-S-JE-AR-GHOST", TODAY, "عميل غير موجود", [
+      { accountId: AR, debit: "10.00", credit: "0.00", partyId: "CUST-DOES-NOT-EXIST" },
+      { accountId: REVENUE, debit: "0.00", credit: "10.00" },
+    ]);
+    check("a customer that does not exist is refused", ghost.status === 422 && ghost.body?.error === "INVALID_JOURNAL_PARTY", `status ${ghost.status}`);
+    const stray = await postJournal("SCN-S-JE-STRAY-PARTY", TODAY, "طرف على حساب إيرادات", [
+      { accountId: CASH, debit: "10.00", credit: "0.00" },
+      { accountId: REVENUE, debit: "0.00", credit: "10.00", partyId: CUSTOMER },
+    ]);
+    check("and a party on an account that is not a control account is refused", stray.status === 422 && stray.body?.error === "INVALID_JOURNAL_PARTY", `status ${stray.status}`);
+
+    const owedBefore = await owedOf("customers", CUSTOMER);
+    const ladderBefore = await rowOf("customers", CUSTOMER);
+    const named = await postJournal("SCN-S-JE-AR-PARTY", TODAY, "مبيعات مباشرة على حساب العميل", [
+      { accountId: AR, debit: "1140.00", credit: "0.00", partyId: CUSTOMER },
+      { accountId: REVENUE, debit: "0.00", credit: "1000.00" },
+      { accountId: OUTPUT_TAX, debit: "0.00", credit: "140.00" },
+    ]);
+    check("the same line naming the customer posts", named.status === 201 && named.body?.lines?.[0]?.partyId === CUSTOMER, `status ${named.status} ${JSON.stringify(named.body).slice(0, 250)}`);
+    const ladderAfter = await rowOf("customers", CUSTOMER);
+    check("it lands on the customer's aging row as an open debit", ladderAfter.row! - ladderBefore.row! === 1_140_000_000n, `${ladderBefore.row} → ${ladderAfter.row}`);
+    check("the customer ladder still ties to 1105 exactly", ladderAfter.tie?.diff === 0, JSON.stringify(ladderAfter.tie));
+    check("what the customers screen says they owe moved by the same 1,140.00", (await owedOf("customers", CUSTOMER))! - owedBefore! === 1_140_000_000n);
+    const statement = await statementOf("customers", CUSTOMER);
+    check(
+      "their statement shows the journal line and closes on their aging row",
+      (statement?.lines ?? []).some((l: any) => l.kind === "journal" && ctx.scaled(l.increase) === 1_140_000_000n) &&
+        ctx.scaled(statement?.closing) === ladderAfter.row &&
+        ctx.scaled(statement?.agingTotal) === ladderAfter.row,
+      JSON.stringify(statement).slice(0, 300),
+    );
+
+    const supplierBefore = await rowOf("suppliers", SUPPLIER);
+    const credit = await postJournal("SCN-S-JE-AP-PARTY", TODAY, "تسوية دائنة للمورد", [
+      { accountId: EXPENSE, debit: "300.00", credit: "0.00" },
+      { accountId: PAYABLE, debit: "0.00", credit: "300.00", partyId: SUPPLIER },
+    ]);
+    check("a 2100 line naming the supplier posts", credit.status === 201, `status ${credit.status}`);
+    const supplierAfter = await rowOf("suppliers", SUPPLIER);
+    check("it raises what the supplier is owed on their aging row", supplierAfter.row! - supplierBefore.row! === 300_000_000n, `${supplierBefore.row} → ${supplierAfter.row}`);
+    check("the supplier ladder still ties to 2100 exactly", supplierAfter.tie?.diff === 0, JSON.stringify(supplierAfter.tie));
+    check("the suppliers screen's owed figure is that row", (await owedOf("suppliers", SUPPLIER)) === supplierAfter.row);
+
+    const reversed = await req("POST", "/gl/journal-entries/SCN-S-JE-AP-PARTY/reverse", { reversalId: "SCN-S-JE-AP-PARTY-REV" });
+    check("reversing the supplier line posts", reversed.status === 200 || reversed.status === 201, `status ${reversed.status}`);
+    check("and takes it back off their row", (await rowOf("suppliers", SUPPLIER)).row === supplierBefore.row);
   });
 
   // ---------------------------------------------------------------------------

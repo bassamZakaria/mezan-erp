@@ -55,4 +55,30 @@ describe("createStandaloneSqliteSalesReturnStore", () => {
       store.close();
     }
   });
+
+  it("keeps the source invoice's currency and rate across a reload (D203)", async () => {
+    const store = createStandaloneSqliteSalesReturnStore();
+    try {
+      await store.save({
+        id: "SR2",
+        docType: "SALES_RETURN",
+        docNo: null,
+        date: "2026-08-21",
+        memo: "",
+        status: "draft",
+        lines: [{ ...line(), currency: "USD", fxRate: "48.000000" }],
+        createdAt: "2026-08-21T00:00:00.000Z",
+        confirmedAt: null,
+        reversesDocId: null,
+        reversedByDocId: null,
+        workflowRequestId: null,
+        journalEntryId: null,
+      });
+      const found = await store.findById("SR2");
+      expect(found?.lines[0]?.currency).toBe("USD");
+      expect(found?.lines[0]?.fxRate).toBe("48.000000");
+    } finally {
+      store.close();
+    }
+  });
 });

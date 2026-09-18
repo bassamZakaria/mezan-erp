@@ -343,13 +343,13 @@ export class SalesInvoiceService {
     const promoted = await this.applyContractBilling(await this.applyPromotion(existing));
     const totals = this.totalsOf(promoted);
 
-    const creditWarning = await this.checkCredit(promoted, totals.grandTotal);
-    const pricingVariances = await this.checkPricing(promoted);
-
     // A foreign-currency invoice needs the rate BEFORE anything is written:
     // resolved here, a missing rate refuses the confirm outright rather than
     // leaving stock issued against a document that never posted.
     const fx = await this.resolveFxRate(promoted);
+
+    const creditWarning = await this.checkCredit(promoted, salesInvoiceBaseGrandTotal(totals, fx?.rate));
+    const pricingVariances = await this.checkPricing(promoted);
 
     const confirmed = await this.deps.repo.transaction(async () => {
       const number = await this.deps.numbering.next({ branchId: existing.branchId });
@@ -534,7 +534,7 @@ export class SalesInvoiceService {
     if (amount.scaled <= 0n) {
       throw new InvalidSalesInvoicePaymentError("قيمة الدفعة يجب أن تكون أكبر من صفر.");
     }
-    const grandTotal = this.totalsOf(existing).grandTotal;
+    const grandTotal = salesInvoiceBaseGrandTotal(this.totalsOf(existing), existing.fxRate);
     if (existing.amountPaid.scaled + amount.scaled > grandTotal.scaled) {
       throw new InvalidSalesInvoicePaymentError("الدفعة تتجاوز الرصيد المتبقي للفاتورة.");
     }
@@ -765,7 +765,7 @@ export async function applyAllocatedSettlement(
   if (!existing) return null;
   if (!SALES_INVOICE_ACTIVE_STATUSES.has(existing.status)) return existing;
 
-  const grandTotal = salesInvoiceTotals(existing).grandTotal;
+  const grandTotal = salesInvoiceBaseGrandTotal(salesInvoiceTotals(existing), existing.fxRate);
   const capped = settled.scaled > grandTotal.scaled ? grandTotal : settled;
   const nextStatus: SalesInvoiceStatus =
     capped.scaled <= 0n ? "confirmed" : capped.scaled >= grandTotal.scaled ? "paid" : "partially_paid";

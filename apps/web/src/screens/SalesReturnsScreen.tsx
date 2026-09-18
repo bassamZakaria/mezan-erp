@@ -349,7 +349,7 @@ export function SalesReturnsScreen() {
         </div>
       ),
     },
-    { key: "total", header: t("salesReturns.col.total"), align: "end", render: (d) => <MoneyDisplay value={d.lines.reduce((s, l) => s + lineTotal(l), 0)} /> },
+    { key: "total", header: t("salesReturns.col.total"), align: "end", render: (d) => <MoneyDisplay value={d.grandTotal !== undefined ? num(d.grandTotal) : d.lines.reduce((s, l) => s + lineTotal(l), 0)} /> },
     {
       key: "refundDue",
       header: t("salesReturns.col.refundDue"),

@@ -2,7 +2,7 @@
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
 import { screen, fireEvent, within, waitFor } from "@testing-library/react";
-import type { OpenInvoiceDTO, PurchaseInvoiceDTO, SupplierDTO, VoucherAllocationDTO, VoucherDTO } from "@mezan/contracts";
+import type { OpenInvoiceDTO, PartyStatementDTO, PartyStatementLineDTO, PurchaseInvoiceDTO, SupplierDTO, VoucherAllocationDTO, VoucherDTO } from "@mezan/contracts";
 import { SuppliersScreen } from "./SuppliersScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
 
@@ -175,8 +175,43 @@ function renderScreen(
     "GET /vouchers": () => ({ body: [] }),
     "GET /open-invoices": () => ({ body: [] }),
     "GET /reports/aging/suppliers": () => ({ body: { rows: [], groups: [], grandTotals: {}, reconciliation: null } }),
+    "GET /reports/statements/suppliers/*": (_init, path) => ({ body: statementOf(path.split("/").pop()!, []) }),
   });
   return renderWithProviders(<SuppliersScreen />, { transport, initialSession: testAdminSession, route: opts.route });
+}
+
+type StatementLine = Pick<PartyStatementLineDTO, "kind" | "reference" | "increase" | "decrease"> & Partial<PartyStatementLineDTO>;
+
+/** What `/reports/statements/suppliers/:id` answers: base amounts, a running balance, and the supplier's aging row beside the closing. */
+function statementOf(partyId: string, lines: StatementLine[], agingTotal?: string): PartyStatementDTO {
+  let running = 0;
+  let increase = 0;
+  let decrease = 0;
+  const built = lines.map((line, index) => {
+    running += Number(line.increase) - Number(line.decrease);
+    increase += Number(line.increase);
+    decrease += Number(line.decrease);
+    return { key: `l${index}`, date: "2026-08-20", allocations: [], ...line, balance: running.toFixed(6) };
+  });
+  return {
+    partyId,
+    asOfDate: "2026-08-31",
+    lines: built,
+    totalIncrease: increase.toFixed(6),
+    totalDecrease: decrease.toFixed(6),
+    closing: running.toFixed(6),
+    agingTotal: agingTotal ?? running.toFixed(6),
+  };
+}
+
+function statementTransport(statement: (id: string) => { status?: number; body: unknown }, agingRows: Array<Record<string, unknown>> = []) {
+  return stubTransport({
+    "GET /suppliers": () => ({ body: [supplier({ owed: "3900.000000" })] }),
+    "GET /suppliers/counts": () => ({ body: { all: 1, active: 1, inactive: 0 } }),
+    "GET /purchases/invoices": () => ({ body: [] }),
+    "GET /reports/aging/suppliers": () => ({ body: { rows: agingRows, groups: [], grandTotals: {}, reconciliation: null } }),
+    "GET /reports/statements/suppliers/*": (_init, path) => statement(path.split("/").pop()!),
+  });
 }
 
 describe("SuppliersScreen", () => {
@@ -311,86 +346,6 @@ describe("SuppliersScreen", () => {
     await waitFor(() => expect(screen.queryByText("تعذّر تحميل الموردين.")).not.toBeInTheDocument());
   });
 
-  it("computes the statement's closing payable from a real opening balance and a confirmed purchase invoice", async () => {
-    const inv: PurchaseInvoiceDTO = {
-      id: "pinv-1",
-      number: "PINV-000001",
-      projectId: null,
-      supplierId: "sup-1",
-      date: "2026-08-15",
-      dueDate: null,
-      supplierInvoiceNumber: null,
-      branchId: "MAIN",
-      warehouseId: "wh-1",
-      currency: "EGP",
-      fxRate: null,
-      notes: null,
-      receiptId: null,
-      lines: [],
-      status: "confirmed",
-      subtotal: "1000.000000",
-      tax: "0.000000",
-      total: "1000.000000",
-      amountPaid: "0.000000",
-      remainingBalance: "1000.000000",
-      createdBy: "USER-ADMIN",
-      createdAt: "2026-08-15T00:00:00.000Z",
-    };
-    const payment: VoucherDTO = {
-      id: "vch-1",
-      docNo: "PV-000001",
-      projectId: null,
-      costCategory: null,
-      voucherType: "supplier_payment",
-      direction: "payment",
-      status: "confirmed",
-      date: "2026-08-18",
-      memo: "",
-      amount: "300.000000",
-      currency: "EGP",
-      fxRate: null,
-      baseAmount: "300.000000",
-      branchId: "MAIN",
-      paymentMethod: "cash",
-      treasuryAccountId: "tr-1",
-      treasuryGlAccountId: "1010",
-      counterpartyGlAccountId: null,
-      counterTreasuryAccountId: null,
-      counterTreasuryGlAccountId: null,
-      customerId: null,
-      supplierId: "sup-1",
-      referenceNo: null,
-      costCenterId: null,
-      withholdingAmount: null,
-      withholdingRatePercent: null,
-      netPaidAmount: "300.000000",
-      journalEntryId: "je-1",
-      confirmedAt: "2026-08-18T00:00:00.000Z",
-    };
-    const transport = stubTransport({
-      "GET /suppliers": () => ({ body: [supplier()] }),
-      "GET /suppliers/counts": () => ({ body: { all: 1, active: 1, inactive: 0 } }),
-      "GET /purchases/invoices": () => ({ body: [inv] }),
-      "GET /vouchers": () => ({ body: [payment] }),
-      "GET /vouchers/vch-1/allocations": () => ({ body: { allocations: [] } }),
-      "GET /open-invoices": () => ({ body: [] }),
-      "GET /reports/aging/suppliers": () => ({ body: { rows: [], groups: [], grandTotals: {}, reconciliation: null } }),
-      "GET /purchase-returns": () => ({ body: [] }),
-      "GET /cheques": () => ({ body: [] }),
-    });
-    renderWithProviders(<SuppliersScreen />, { transport, initialSession: testAdminSession });
-
-    fireEvent.click(await screen.findByText("جاري"));
-    fireEvent.click(screen.getByRole("tab", { name: "كشف حساب المورد" }));
-
-    // opening 3200.00 (credit) + invoice total 1000.00 (credit) − the unallocated
-    // 300.00 payment (debit) = 3,900.00. Swapping the subtraction for an addition
-    // (a real bug shape: crediting a payment as if it were another purchase)
-    // would read 4,500.00 instead.
-    const closingValue = (await screen.findByText("الرصيد الختامي (مستحق للمورد)")).nextElementSibling;
-    expect(closingValue?.textContent).toBe("3,900.00");
-  });
-
   it("scopes the invoices tab to this supplier's own purchase invoices, excluding another supplier's, with real stats", async () => {
     const mine1 = purchaseInvoice({ id: "pinv-1", number: "PINV-000010", supplierId: "sup-1", status: "confirmed", total: "300.000000" });
     const mine2 = purchaseInvoice({ id: "pinv-2", number: "PINV-000011", supplierId: "sup-1", status: "draft", total: "150.000000" });
@@ -439,104 +394,10 @@ describe("SuppliersScreen", () => {
     expect(await screen.findByText("PINV-000010")).toBeInTheDocument();
   });
 
-  it("shows the sub-ledger and aging reconciliation banners as matching, and lists the aging ladder's own buckets", async () => {
-    const inv = purchaseInvoice({ id: "pinv-1", number: "PINV-000010", supplierId: "sup-1", status: "confirmed", total: "1000.000000" });
-    const transport = stubTransport({
-      "GET /suppliers": () => ({ body: [supplier({ openingBalance: "0.00" })] }),
-      "GET /suppliers/counts": () => ({ body: { all: 1, active: 1, inactive: 0 } }),
-      "GET /purchases/invoices": () => ({ body: [inv] }),
-      "GET /vouchers": () => ({ body: [] }),
-      "GET /open-invoices": () => ({ body: [openInvoice({ id: "pinv-1", outstanding: "1000.00" })] }),
-      "GET /reports/aging/suppliers": () => ({
-        body: { rows: [{ supplierId: "sup-1", supplierNameAr: "جاري", supplierNameEn: null, current: 1000, d31to60: 0, d61to90: 0, d91to120: 0, over120: 0, total: 1000 }], groups: [], grandTotals: {}, reconciliation: null },
-      }),
-      "GET /cheques": () => ({ body: [] }),
-    });
-    renderWithProviders(<SuppliersScreen />, { transport, initialSession: testAdminSession });
-    fireEvent.click(await screen.findByText("جاري"));
-    fireEvent.click(screen.getByRole("tab", { name: "كشف حساب المورد" }));
-
-    expect(await screen.findByText("مطابق لدفتر الفواتير المفتوحة")).toBeInTheDocument();
-    expect(screen.getByText("مطابق لتقرير أعمار الديون")).toBeInTheDocument();
-    // The aging ladder's own "current" bucket for a fresh invoice.
-    const agingHeading = screen.getByText("أعمار فواتير هذا المورد");
-    const agingCard = agingHeading.closest("div")!;
-    const agingTable = agingCard.querySelector("table")!;
-    const cells = within(agingTable).getAllByRole("cell");
-    expect(cells[0]?.textContent).toBe("1,000.00"); // current bucket
-    expect(cells.at(-1)?.textContent).toBe("1,000.00"); // total column
-  });
-
-  it("shows the sub-ledger and aging reconciliation banners as differing when the figures disagree", async () => {
-    const inv = purchaseInvoice({ id: "pinv-1", number: "PINV-000010", supplierId: "sup-1", status: "confirmed", total: "1000.000000" });
-    const transport = stubTransport({
-      "GET /suppliers": () => ({ body: [supplier({ openingBalance: "0.00" })] }),
-      "GET /suppliers/counts": () => ({ body: { all: 1, active: 1, inactive: 0 } }),
-      "GET /purchases/invoices": () => ({ body: [inv] }),
-      "GET /vouchers": () => ({ body: [] }),
-      "GET /open-invoices": () => ({ body: [openInvoice({ id: "pinv-1", outstanding: "400.00" })] }),
-      "GET /reports/aging/suppliers": () => ({
-        body: { rows: [{ supplierId: "sup-1", supplierNameAr: "جاري", supplierNameEn: null, current: 250, d31to60: 0, d61to90: 0, d91to120: 0, over120: 0, total: 250 }], groups: [], grandTotals: {}, reconciliation: null },
-      }),
-      "GET /cheques": () => ({ body: [] }),
-    });
-    renderWithProviders(<SuppliersScreen />, { transport, initialSession: testAdminSession });
-    fireEvent.click(await screen.findByText("جاري"));
-    fireEvent.click(screen.getByRole("tab", { name: "كشف حساب المورد" }));
-
-    expect(await screen.findByText("يختلف عن دفتر الفواتير المفتوحة")).toBeInTheDocument();
-    expect(screen.getByText("يختلف عن تقرير أعمار الديون")).toBeInTheDocument();
-  });
-
-  it("builds the statement's allocation and unallocated-remainder rows from a real voucher allocation", async () => {
-    const inv = purchaseInvoice({ id: "pinv-1", number: "PINV-000010", supplierId: "sup-1", status: "confirmed", total: "1000.000000" });
-    const payment = voucher({ id: "vch-1", docNo: "PV-000001", direction: "payment", status: "confirmed", supplierId: "sup-1", amount: "700.000000" });
-    const alloc = voucherAllocation({ id: "alloc-1", voucherId: "vch-1", invoiceId: "pinv-1", amount: "600.000000", status: "active" });
-    const transport = stubTransport({
-      "GET /suppliers": () => ({ body: [supplier({ openingBalance: "0.00" })] }),
-      "GET /suppliers/counts": () => ({ body: { all: 1, active: 1, inactive: 0 } }),
-      "GET /purchases/invoices": () => ({ body: [inv] }),
-      "GET /vouchers": () => ({ body: [payment] }),
-      "GET /vouchers/vch-1/allocations": () => ({ body: { allocations: [alloc] } }),
-      "GET /open-invoices": () => ({ body: [] }),
-      "GET /reports/aging/suppliers": () => ({ body: { rows: [], groups: [], grandTotals: {}, reconciliation: null } }),
-      "GET /cheques": () => ({ body: [] }),
-    });
-    renderWithProviders(<SuppliersScreen />, { transport, initialSession: testAdminSession });
-    fireEvent.click(await screen.findByText("جاري"));
-    fireEvent.click(screen.getByRole("tab", { name: "كشف حساب المورد" }));
-
-    // credit: invoice 1000.00; debit: allocation 600.00 + unallocated remainder 100.00 (700-600) = 700.00.
-    expect((await screen.findByText("إجمالي المشتريات (دائن)")).nextElementSibling?.textContent).toBe("1,000.00");
-    expect(screen.getByText("إجمالي المسدَّد (مدين)").nextElementSibling?.textContent).toBe("700.00");
-    expect(screen.getByText("الرصيد الختامي (مستحق للمورد)").nextElementSibling?.textContent).toBe("300.00");
-    expect(screen.getByText(/غير مخصص/)).toBeInTheDocument();
-  });
-
-  it("recovers the statement tab via retry after its vouchers request fails once", async () => {
-    let fail = true;
-    const transport = stubTransport({
-      "GET /suppliers": () => ({ body: [supplier()] }),
-      "GET /suppliers/counts": () => ({ body: { all: 1, active: 1, inactive: 0 } }),
-      "GET /purchases/invoices": () => ({ body: [] }),
-      "GET /vouchers": () => (fail ? { status: 500, body: { error: "INTERNAL" } } : { body: [] }),
-      "GET /open-invoices": () => ({ body: [] }),
-      "GET /reports/aging/suppliers": () => ({ body: { rows: [], groups: [], grandTotals: {}, reconciliation: null } }),
-      "GET /cheques": () => ({ body: [] }),
-    });
-    renderWithProviders(<SuppliersScreen />, { transport, initialSession: testAdminSession });
-    fireEvent.click(await screen.findByText("جاري"));
-    fireEvent.click(screen.getByRole("tab", { name: "كشف حساب المورد" }));
-
-    expect(await screen.findByText("تعذّر تحميل حركة حساب المورد.")).toBeInTheDocument();
-    fail = false;
-    fireEvent.click(screen.getByRole("button", { name: "إعادة المحاولة" }));
-    expect((await screen.findAllByText("رصيد افتتاحي")).length).toBeGreaterThan(0);
-  });
-
   it("recovers the aging ladder via its own retry after the aging report fails once", async () => {
     let calls = 0;
     const transport = stubTransport({
+      "GET /reports/statements/suppliers/*": (_init, path) => ({ body: statementOf(path.split("/").pop()!, []) }),
       "GET /suppliers": () => ({ body: [supplier()] }),
       "GET /suppliers/counts": () => ({ body: { all: 1, active: 1, inactive: 0 } }),
       "GET /purchases/invoices": () => ({ body: [] }),
@@ -665,5 +526,56 @@ describe("SuppliersScreen", () => {
     fireEvent.change(screen.getByPlaceholderText("ابحث باسم المورد أو الكود أو الهاتف…"), { target: { value: "الشرقي" } });
     await waitFor(() => expect(screen.queryByText("جاري")).not.toBeInTheDocument());
     expect(requests.some((p) => new URL(p, "http://x").searchParams.get("q") === "الشرقي")).toBe(true);
+  });
+
+  it("shows the server's statement with the payable on the credit side, and the payable column is the server's owed (D201)", async () => {
+    const transport = statementTransport((id) => ({
+      body: statementOf(id, [
+        { kind: "opening", reference: "", increase: "3200.000000", decrease: "0.000000" },
+        { kind: "invoice", reference: "PINV-000001", increase: "1320.000000", decrease: "0.000000" },
+        { kind: "payment", reference: "PV-000001", increase: "0.000000", decrease: "700.000000", allocations: [{ invoiceRef: "PINV-000001", amount: "600.000000" }] },
+        { kind: "journal", reference: "JE-000003", increase: "80.000000", decrease: "0.000000" },
+      ]),
+    }), [{ supplierId: "sup-1", supplierNameAr: "جاري", supplierNameEn: null, current: 3900, d31to60: 0, d61to90: 0, d91to120: 0, over120: 0, total: 3900 }]);
+    renderWithProviders(<SuppliersScreen />, { transport, initialSession: testAdminSession });
+    expect(await screen.findByText("3,900.00")).toBeInTheDocument();
+    fireEvent.click(await screen.findByText("جاري"));
+    fireEvent.click(screen.getByRole("tab", { name: "كشف حساب المورد" }));
+
+    expect((await screen.findByText("إجمالي المشتريات (دائن)")).nextElementSibling?.textContent).toBe("4,600.00");
+    expect(screen.getByText("إجمالي المسدَّد (مدين)").nextElementSibling?.textContent).toBe("700.00");
+    expect(screen.getByText("الرصيد الختامي (مستحق للمورد)").nextElementSibling?.textContent).toBe("3,900.00");
+    expect(screen.getByText("مخصص على الفاتورة PINV-000001")).toBeInTheDocument();
+    expect(screen.getByText(/غير مخصص/)).toBeInTheDocument();
+    expect(screen.getByText("قيد يومية")).toBeInTheDocument();
+    expect(screen.getByText("مطابق لتقرير أعمار الديون")).toBeInTheDocument();
+    const agingTable = screen.getByText("أعمار فواتير هذا المورد").closest("div")!.querySelector("table")!;
+    expect(within(agingTable).getAllByRole("cell").at(-1)?.textContent).toBe("3,900.00");
+  });
+
+  it("says the statement differs from the aging report when the server's two figures disagree", async () => {
+    const transport = statementTransport((id) => ({
+      body: statementOf(id, [{ kind: "invoice", reference: "PINV-1", increase: "1000.000000", decrease: "0.000000" }], "250.000000"),
+    }));
+    renderWithProviders(<SuppliersScreen />, { transport, initialSession: testAdminSession });
+    fireEvent.click(await screen.findByText("جاري"));
+    fireEvent.click(screen.getByRole("tab", { name: "كشف حساب المورد" }));
+
+    expect(await screen.findByText("يختلف عن تقرير أعمار الديون")).toBeInTheDocument();
+  });
+
+  it("recovers the statement tab via retry after its request fails once", async () => {
+    let fail = true;
+    const transport = statementTransport((id) =>
+      fail ? { status: 500, body: { error: "INTERNAL" } } : { body: statementOf(id, [{ kind: "opening", reference: "", increase: "5.000000", decrease: "0.000000" }]) },
+    );
+    renderWithProviders(<SuppliersScreen />, { transport, initialSession: testAdminSession });
+    fireEvent.click(await screen.findByText("جاري"));
+    fireEvent.click(screen.getByRole("tab", { name: "كشف حساب المورد" }));
+
+    expect(await screen.findByText("تعذّر تحميل حركة حساب المورد.")).toBeInTheDocument();
+    fail = false;
+    fireEvent.click(screen.getByRole("button", { name: "إعادة المحاولة" }));
+    expect((await screen.findAllByText("رصيد افتتاحي")).length).toBe(2);
   });
 });

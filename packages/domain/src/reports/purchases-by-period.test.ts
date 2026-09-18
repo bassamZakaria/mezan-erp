@@ -83,3 +83,18 @@ describe("createPurchasesByPeriodReport", () => {
     expect(outcome.rows[0]?.gross).toBe(120);
   });
 });
+
+describe("createPurchasesByPeriodReport — a foreign invoice (D201's twin)", () => {
+  it("states a CHF 100 + 14% bill booked at 60.00 at the 6,840.00 its posting credited 2100 with", () => {
+    const definition = createPurchasesByPeriodReport("2026-01-01", "2026-12-31");
+    const outcome = runReport(
+      definition,
+      { dateFrom: "2026-08-01", dateTo: "2026-08-31", groupBy: "month" },
+      { invoices: [pinvoice({ currency: "CHF", fxRate: "60.00", lines: [pline({ taxRatePercent: 14 })] })] },
+    );
+    if (!outcome.ok) throw new Error("report failed");
+    expect(outcome.rows[0]?.gross).toBe(6000);
+    expect(outcome.rows[0]?.tax).toBe(840);
+    expect(outcome.rows[0]?.net).toBe(6840);
+  });
+});

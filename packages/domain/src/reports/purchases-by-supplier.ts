@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { isoDateParamSchema } from "./iso-date.js";
 import { Money } from "../money/index.js";
-import { purchaseInvoiceTotal, type PurchaseInvoice } from "../purchasing/purchase-invoice.js";
+import { purchaseInvoiceBaseTotal, type PurchaseInvoice } from "../purchasing/purchase-invoice.js";
 import type { Supplier } from "../suppliers/supplier.js";
 import type { ReportDefinition } from "./types.js";
 import { sumRows } from "./kpi.js";
@@ -84,7 +84,7 @@ export function createPurchasesBySupplierReport(
         if (invoice.status !== "confirmed") continue;
         if (!withinDateRange(invoice.date, params.dateFrom, params.dateTo)) continue;
         if (!matchesBranch(invoice.branchId, params.branchId)) continue;
-        const total = purchaseInvoiceTotal(invoice);
+        const total = purchaseInvoiceBaseTotal(invoice);
         const existing = bySupplier.get(invoice.supplierId) ?? { count: 0, total: Money.zero() };
         bySupplier.set(invoice.supplierId, { count: existing.count + 1, total: existing.total.add(total) });
       }

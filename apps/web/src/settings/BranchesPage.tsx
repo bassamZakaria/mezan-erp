@@ -128,17 +128,17 @@ function BranchKpis({ branch }: { branch: BranchDTO }) {
   const salesInvoices = (salesQuery.data ?? []).filter((i) => i.branchId === branch.id && SALES_INVOICE_ACTIVE_STATUSES.has(i.status));
   const purchaseInvoices = (purchasesQuery.data ?? []).filter((i) => i.branchId === branch.id && i.status === "confirmed");
   const vouchers = (vouchersQuery.data ?? []).filter(
-    (v) => v.branchId === branch.id && (v.status === "confirmed" || v.status === "posted"),
+    (v) => v.branchId === branch.id && (v.status === "confirmed" || v.status === "posted") && !v.reversesDocId,
   );
   const employees = (employeesQuery.data ?? []).filter((e) => e.branchId === branch.id);
   const assets = (assetsQuery.data ?? []).filter((a) => a.branchId === branch.id);
 
-  const salesTotal = sumMoney(salesInvoices.map((i) => i.totals.grandTotal));
-  const purchasesTotal = sumMoney(purchaseInvoices.map((i) => i.total));
+  const salesTotal = sumMoney(salesInvoices.map((i) => i.baseGrandTotal ?? i.totals.grandTotal));
+  const purchasesTotal = sumMoney(purchaseInvoices.map((i) => i.baseTotal ?? i.total));
   const stockValue = sumMoney((stockQuery.data ?? []).map((row) => row.totalValue));
   const assetsCost = sumMoney(assets.map((a) => a.acquisitionCost));
   const voucherNet = vouchers.reduce<bigint>(
-    (total, v) => (v.direction === "receipt" ? total + parseMoney(v.amount) : v.direction === "payment" ? total - parseMoney(v.amount) : total),
+    (total, v) => (v.direction === "receipt" ? total + parseMoney(v.baseAmount) : v.direction === "payment" ? total - parseMoney(v.baseAmount) : total),
     0n,
   );
 

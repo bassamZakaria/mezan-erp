@@ -31,8 +31,11 @@ import {
   useJournalEntryCounts,
   useJournalEntryStats,
   useBranches,
+  useCustomers,
+  usePartyControlAccounts,
   useProjects,
   useReverseJournalEntry,
+  useSuppliers,
   type JournalEntryDTO,
   type JournalEntryListFilter,
 } from "../data/hooks";
@@ -111,6 +114,7 @@ interface LineDraft {
   projectId: string;
   costCategory: CostCategoryDTO | "";
   branchId: string;
+  partyId: string;
 }
 
 let lineSeq = 0;
@@ -126,6 +130,7 @@ function blankLine(): LineDraft {
     projectId: "",
     costCategory: "",
     branchId: "",
+    partyId: "",
   };
 }
 
@@ -226,6 +231,15 @@ export function JournalsScreen() {
     const map = new Map(branches.map((b) => [b.id, `${b.code} — ${b.name}`]));
     return (id: string | null | undefined) => (id ? (map.get(id) ?? id) : null);
   }, [branches]);
+
+  const customersQuery = useCustomers();
+  const suppliersQuery = useSuppliers();
+  const partyLabel = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const c of customersQuery.data ?? []) map.set(c.id, `${c.code} — ${nameOf(c)}`);
+    for (const s of suppliersQuery.data ?? []) map.set(s.id, `${s.code} — ${nameOf(s)}`);
+    return (id: string | null | undefined) => (id ? (map.get(id) ?? id) : null);
+  }, [customersQuery.data, suppliersQuery.data, nameOf]);
 
   // What the server returned IS the page; `counts.all` is the filtered total
   // the pager needs, since the rows on screen no longer are it.
@@ -371,7 +385,10 @@ export function JournalsScreen() {
                       <tbody>
                         {selected.lines.map((l, i) => (
                           <tr key={i} className="border-b border-border last:border-b-0">
-                            <td className="px-[15px] py-[11px] text-ink">{accountLabel(l.accountId)}</td>
+                            <td className="px-[15px] py-[11px] text-ink">
+                              {accountLabel(l.accountId)}
+                              {l.partyId ? <span className="block text-[12px] text-ink-muted">{partyLabel(l.partyId)}</span> : null}
+                            </td>
                             <td className="px-[15px] py-[11px] text-ink-muted">{l.memo ?? "—"}</td>
                             <td className="px-[15px] py-[11px] text-ink-muted">{branchLabel(l.branchId) ?? t("journals.unattributedBranch")}</td>
                             <td className="px-[15px] py-[11px] text-ink-muted">{projectLabel(l.projectId) ?? "—"}</td>
@@ -555,6 +572,9 @@ function CreateJournalView({
   const { t } = useAppTranslation();
   const projectsQuery = useProjects();
   const branchesQuery = useBranches();
+  const partyControlsQuery = usePartyControlAccounts();
+  const customersQuery = useCustomers();
+  const suppliersQuery = useSuppliers();
   const [date, setDate] = useState(todayIso());
   const [memo, setMemo] = useState("");
   const [lines, setLines] = useState<LineDraft[]>([blankLine(), blankLine()]);
@@ -567,6 +587,12 @@ function CreateJournalView({
   const branchOptions: EntityPickerOption[] = (branchesQuery.data ?? [])
     .filter((b) => b.active)
     .map((b) => ({ id: b.id, label: `${b.code} — ${b.name}` }));
+  const partyKindOf = useMemo(
+    () => new Map((partyControlsQuery.data ?? []).map((row) => [row.accountId, row.partyKind])),
+    [partyControlsQuery.data],
+  );
+  const customerOptions: EntityPickerOption[] = (customersQuery.data ?? []).map((c) => ({ id: c.id, label: `${c.code} — ${nameOf(c)}` }));
+  const supplierOptions: EntityPickerOption[] = (suppliersQuery.data ?? []).map((s) => ({ id: s.id, label: `${s.code} — ${nameOf(s)}` }));
   const costCategoryOptions = [
     { value: "", label: t("common.none") },
     ...COST_CATEGORY_VALUES.map((c) => ({ value: c, label: t(`costCategory.${c}` as AppTranslationKey) })),
@@ -583,7 +609,8 @@ function CreateJournalView({
       amountOf(l.credit) !== null &&
       isPositiveAmount(l.debit) !== isPositiveAmount(l.credit),
   );
-  const canPost = balanced && allLinesValid && memo.trim() !== "" && !busy;
+  const missingParty = lines.some((l) => partyKindOf.has(l.accountId) && l.partyId === "");
+  const canPost = balanced && allLinesValid && !missingParty && memo.trim() !== "" && !busy;
 
   const options = useMemo(() => [{ value: "", label: t("journals.chooseAnAccount") }, ...accountOptions], [accountOptions, t]);
   const centerOptions = useMemo(
@@ -619,6 +646,7 @@ function CreateJournalView({
           projectId: l.projectId || null,
           costCategory: l.projectId && l.costCategory ? l.costCategory : null,
           branchId: l.branchId || null,
+          partyId: partyKindOf.has(l.accountId) && l.partyId ? l.partyId : null,
         })),
       });
       onDone();
@@ -662,10 +690,11 @@ function CreateJournalView({
 
           <Card className="overflow-hidden">
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[1040px] border-collapse text-[13px]">
+              <table className="w-full min-w-[1220px] border-collapse text-[13px]">
                 <thead>
                   <tr>
                     <th scope="col" className="border-b border-border bg-surface-2 px-[12px] py-[10px] text-start text-[11px] font-bold uppercase text-ink-muted">{t("journals.account")}</th>
+                    <th scope="col" className="border-b border-border bg-surface-2 px-[12px] py-[10px] text-start text-[11px] font-bold uppercase text-ink-muted">{t("journals.party")}</th>
                     <th scope="col" className="border-b border-border bg-surface-2 px-[12px] py-[10px] text-start text-[11px] font-bold uppercase text-ink-muted">{t("journals.description")}</th>
                     <th scope="col" className="border-b border-border bg-surface-2 px-[12px] py-[10px] text-start text-[11px] font-bold uppercase text-ink-muted">{t("journals.costCenter")}</th>
                     <th scope="col" className="border-b border-border bg-surface-2 px-[12px] py-[10px] text-start text-[11px] font-bold uppercase text-ink-muted">{t("common.branch")}</th>
@@ -685,9 +714,27 @@ function CreateJournalView({
                           className="min-w-[160px]"
                           aria-label={t("journals.lineAccount", { number: i + 1 })}
                           value={line.accountId}
-                          onChange={(value) => updateLine(i, { accountId: value })}
+                          onChange={(value) => updateLine(i, { accountId: value, partyId: "" })}
                           options={options}
                         />
+                      </td>
+                      <td className="px-[12px] py-[8px]">
+                        {partyKindOf.has(line.accountId) ? (
+                          <EntityPicker
+                            className="min-w-[170px]"
+                            ariaLabel={t("journals.partyLabel", { n: String(i + 1) })}
+                            value={
+                              (partyKindOf.get(line.accountId) === "customer" ? customerOptions : supplierOptions).find(
+                                (o) => o.id === line.partyId,
+                              ) ?? null
+                            }
+                            onChange={(o) => updateLine(i, { partyId: o?.id ?? "" })}
+                            options={partyKindOf.get(line.accountId) === "customer" ? customerOptions : supplierOptions}
+                            placeholder={t(partyKindOf.get(line.accountId) === "customer" ? "journals.chooseCustomer" : "journals.chooseSupplier")}
+                          />
+                        ) : (
+                          <span className="text-ink-faint">—</span>
+                        )}
                       </td>
                       <td className="px-[12px] py-[8px]">
                         <TextInput
@@ -823,6 +870,12 @@ function CreateJournalView({
                 <li className="flex items-start gap-[8px] text-danger-ink">
                   <span aria-hidden className="mt-[7px] h-[5px] w-[5px] flex-none rounded-full bg-danger" />
                   {t("journals.theEntryIsOutOf")}
+                </li>
+              ) : null}
+              {missingParty ? (
+                <li className="flex items-start gap-[8px] text-danger-ink">
+                  <span aria-hidden className="mt-[7px] h-[5px] w-[5px] flex-none rounded-full bg-danger" />
+                  {t("journals.partyRequired")}
                 </li>
               ) : null}
             </ul>

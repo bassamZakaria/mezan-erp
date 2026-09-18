@@ -172,10 +172,19 @@ export {
 } from "./aging-customers.js";
 export {
   createAgingSuppliersReport,
+  supplierAgingBalances,
+  supplierAgingTotal,
+  type SupplierAgingBalance,
   type AgingSuppliersContext,
   type AgingSuppliersParams,
   type AgingSuppliersRow,
 } from "./aging-suppliers.js";
+export {
+  type AgingOpenItem,
+  type AgingOpenItemSource,
+  CUSTOMER_OPENING_BALANCE_DOC_TYPE,
+  SUPPLIER_OPENING_BALANCE_DOC_TYPE,
+} from "./aging-open-items.js";
 
 // --- المبيعات الميدانية — Field/Van sales reports -------------------------
 
@@ -332,3 +341,12 @@ export {
   type HeadcountMovementContext,
   type HeadcountMovementRow,
 } from "./hr-workforce.js";
+
+export {
+  buildPartyStatement,
+  statementSides,
+  type PartyStatement,
+  type PartyStatementEntry,
+  type PartyStatementEntryKind,
+  type PartyStatementLine,
+} from "./party-statement.js";

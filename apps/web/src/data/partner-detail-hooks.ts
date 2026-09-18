@@ -1,6 +1,6 @@
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import type { AgingCustomersRow, AgingSuppliersRow } from "@mezan/domain";
-import type { StockBalanceRowDTO, VoucherAllocationDTO, StockBalanceWarehouseRowDTO } from "@mezan/contracts";
+import type { PartyStatementDTO, StockBalanceRowDTO, VoucherAllocationDTO, StockBalanceWarehouseRowDTO } from "@mezan/contracts";
 import { useApi } from "./ApiContext";
 import { ApiError, readError } from "./hooks";
 import { useReport, type ReportResult } from "./reports-hooks";
@@ -101,6 +101,31 @@ export function agingBucketsFor(row: AgingCustomersRow | AgingSuppliersRow | und
     over120: row?.over120 ?? 0,
     total: row?.total ?? 0,
   };
+}
+
+/* ------------------------------------------------------------------ */
+/* Party statement                                                      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * كشف حساب العميل / المورد, built on the server from the aging ladder's own
+ * terms in base currency, so it closes on the party's aging row (D200–D205).
+ */
+export function usePartyStatement(kind: "customer" | "supplier", partyId: string): UseQueryResult<PartyStatementDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<PartyStatementDTO, ApiError>({
+    queryKey: ["party-statement", kind, partyId],
+    enabled: session !== null && partyId !== "",
+    queryFn: async () => {
+      const res = await request(`/reports/statements/${kind === "customer" ? "customers" : "suppliers"}/${encodeURIComponent(partyId)}`);
+      if (!res.ok) {
+        const fallback = kind === "customer" ? t("customers.statement.loadFailed") : t("suppliers.statement.loadFailed");
+        throw new ApiError(res.status, await readError(res, fallback, t));
+      }
+      return res.json<PartyStatementDTO>();
+    },
+  });
 }
 
 /* ------------------------------------------------------------------ */

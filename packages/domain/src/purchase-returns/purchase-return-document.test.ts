@@ -19,8 +19,10 @@ import { InvalidDocumentError } from "../documents/errors.js";
 import {
   createPurchaseReturnDocumentType,
   purchaseReturnGrandTotal,
+  purchaseReturnLineCredit,
   type PurchaseReturnLine,
 } from "./purchase-return-document.js";
+import { buildPurchaseReturnLinesFromInvoice } from "./from-invoice.js";
 
 const ACCOUNTS = {
   accountsPayableId: "AP",
@@ -285,5 +287,61 @@ describe("createPurchaseReturnDocumentType — buildGlPosting variance branches"
     expect(inv?.costCategory).toBe("materials");
     expect(ap?.costCategory).toBeUndefined();
     expect(tax?.costCategory).toBeUndefined();
+  });
+});
+
+describe("a return against a foreign invoice reverses at the invoice's rate (D203)", () => {
+  const type = createPurchaseReturnDocumentType(ACCOUNTS);
+  const sar = line({ currency: "SAR", fxRate: "13.20" });
+  const doc = {
+    id: "PRT-SAR",
+    docType: "PURCHASE_RETURN",
+    docNo: "PRT-000009",
+    date: "2026-08-21",
+    memo: "",
+    status: "confirmed" as const,
+    lines: [sar],
+    createdAt: "2026-08-21T00:00:00.000Z",
+    confirmedAt: "2026-08-21T00:00:00.000Z",
+    reversesDocId: null,
+    reversedByDocId: null,
+    workflowRequestId: null,
+    journalEntryId: null,
+  };
+
+  it("debits AP with SAR 136.80 × 13.20 = 1,805.76, and the variance is base credit less what stock removed", () => {
+    const posting = type.buildGlPosting?.(doc, { valueMoved: Money.fromMajor("-1500") });
+    const amount = (accountId: string, side: "debit" | "credit") =>
+      posting?.lines.filter((l) => l.accountId === accountId).reduce((sum, l) => sum.add(l[side]), Money.zero()).toString();
+    expect(amount("AP", "debit")).toBe("1805.760000");
+    expect(amount("INPUT_TAX", "credit")).toBe("221.760000");
+    expect(amount("INVENTORY", "credit")).toBe("1500.000000");
+    expect(amount("PPV", "credit")).toBe("84.000000");
+    expect(posting?.lines.find((l) => l.accountId === "AP")).toMatchObject({ currency: "SAR", fxRate: "13.20" });
+  });
+
+  it("gives the credit helpers the same base figure the posting debited", () => {
+    expect(purchaseReturnGrandTotal(doc).toString()).toBe("1805.760000");
+    expect(purchaseReturnLineCredit(sar).toString()).toBe("1805.760000");
+  });
+
+  it("stamps the invoice's currency and rate onto every line built from it", () => {
+    const lines = buildPurchaseReturnLinesFromInvoice(
+      {
+        id: "PI1",
+        number: "PI-000002",
+        supplierId: "SUP1",
+        warehouseId: "WH1",
+        date: "2026-08-20",
+        status: "confirmed",
+        currency: "SAR",
+        fxRate: "13.20",
+        lines: [{ itemId: "ITEM1", itemName: "صنف", qty: Qty.fromMajor("5"), alreadyReturnedQty: Qty.zero(), unitCost: Money.fromMajor("40"), taxAmount: Money.fromMajor("28") }],
+      },
+      "WH1",
+      "DEFECTIVE",
+      [{ itemId: "ITEM1", qty: Qty.fromMajor("3") }],
+    );
+    expect(lines[0]).toMatchObject({ currency: "SAR", fxRate: "13.20" });
   });
 });

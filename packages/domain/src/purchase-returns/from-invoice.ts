@@ -46,6 +46,7 @@ export function buildPurchaseReturnLinesFromInvoice(
       // are stated, and a return that drops them loses the project's cost.
       projectId: invoice.projectId ?? null,
       costCategory: invLine.costCategory ?? null,
+      ...(invoice.fxRate ? { currency: invoice.currency ?? null, fxRate: invoice.fxRate } : {}),
     });
   }
   return lines;

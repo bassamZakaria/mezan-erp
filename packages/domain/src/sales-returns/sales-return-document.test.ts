@@ -17,9 +17,13 @@ import {
 import { InvalidDocumentError } from "../documents/errors.js";
 import {
   createSalesReturnDocumentType,
+  salesReturnCreditByInvoice,
+  salesReturnGrandTotal,
+  salesReturnLineCredit,
   type SalesReturnLine,
 } from "./sales-return-document.js";
-import { isAwaitingRefund } from "./refund.js";
+import { isAwaitingRefund, refundDue } from "./refund.js";
+import { buildSalesReturnLinesFromInvoice } from "./from-invoice.js";
 
 const ACCOUNTS = {
   accountsReceivableId: "AR",
@@ -183,5 +187,63 @@ describe("Sales Return — restock + GL", () => {
     const { service } = harness();
     const draft = await service.createDraft({ id: "SR4", date: "2026-08-21", memo: "", lines: [line()] });
     expect(isAwaitingRefund(draft)).toBe(false);
+  });
+});
+
+describe("a return against a foreign invoice reverses at the invoice's rate (D203)", () => {
+  const type = createSalesReturnDocumentType(ACCOUNTS);
+  const usd = line({ currency: "USD", fxRate: "48.00" });
+  const doc = {
+    id: "SR-USD",
+    docType: "SALES_RETURN",
+    docNo: "SRT-000009",
+    date: "2026-08-21",
+    memo: "",
+    status: "confirmed" as const,
+    lines: [usd],
+    createdAt: "2026-08-21T00:00:00.000Z",
+    confirmedAt: "2026-08-21T00:00:00.000Z",
+    reversesDocId: null,
+    reversedByDocId: null,
+    workflowRequestId: null,
+    journalEntryId: null,
+  };
+
+  it("credits AR with USD 228 × 48.00 = 10,944.00 and reverses revenue and VAT in base, while the restock stays at base cost", () => {
+    const posting = type.buildGlPosting?.(doc, undefined);
+    const amount = (accountId: string, side: "debit" | "credit") =>
+      posting?.lines.filter((l) => l.accountId === accountId).reduce((sum, l) => sum.add(l[side]), Money.zero()).toString();
+    expect(amount("AR", "credit")).toBe("10944.000000");
+    expect(amount("SALES_RETURNS", "debit")).toBe("9600.000000");
+    expect(amount("OUTPUT_TAX", "debit")).toBe("1344.000000");
+    expect(amount("INVENTORY", "debit")).toBe("120.000000");
+    expect(posting?.lines.find((l) => l.accountId === "AR")).toMatchObject({ currency: "USD", fxRate: "48.00" });
+  });
+
+  it("gives every credit helper the same base figure the posting credited", () => {
+    expect(salesReturnGrandTotal(doc).toString()).toBe("10944.000000");
+    expect(salesReturnLineCredit(usd).toString()).toBe("10944.000000");
+    expect(salesReturnCreditByInvoice([doc]).get("INV1")?.toString()).toBe("10944.000000");
+    expect(refundDue(doc, []).toString()).toBe("10944.000000");
+  });
+
+  it("stamps the invoice's currency and rate onto every line built from it", () => {
+    const lines = buildSalesReturnLinesFromInvoice(
+      {
+        id: "INV1",
+        number: "INV-000014",
+        customerId: "CUST1",
+        warehouseId: "WH1",
+        date: "2026-08-20",
+        status: "confirmed",
+        currency: "USD",
+        fxRate: "48.00",
+        lines: [{ itemId: "ITEM1", itemName: "صنف", qty: Qty.fromMajor("2"), alreadyReturnedQty: Qty.zero(), unitPrice: Money.fromMajor("100"), unitCost: Money.fromMajor("60"), taxAmount: Money.fromMajor("28") }],
+      },
+      "WH1",
+      "DEFECTIVE",
+      [{ itemId: "ITEM1", qty: Qty.fromMajor("1") }],
+    );
+    expect(lines[0]).toMatchObject({ currency: "USD", fxRate: "48.00" });
   });
 });

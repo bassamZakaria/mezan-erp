@@ -556,6 +556,24 @@ describe("work order — receiving product", () => {
   });
 });
 
+describe("work order — the finished goods are worth exactly what the completion capitalises (D206)", () => {
+  it.each(["10", "2.5", "1", "0.3"])("receives %s units at the WIP total to the last micro-unit", async (qty) => {
+    const { workOrders, stock, gl, now, wo } = await setup();
+    const deps = { workOrders, stock, now, gl: { async post() {} }, accounts: WASTE_ACCOUNTS };
+    await startWorkOrder(wo.id, deps);
+    await issueWorkOrderMaterials(wo.id, deps);
+    await logWorkOrderCost(wo.id, { kind: "overhead", amount: Money.fromMajor("0.000007") }, { workOrders, now });
+    await receiveWorkOrderProduct(wo.id, Qty.fromMajor(qty), deps);
+
+    const { posting } = await completeWorkOrder(wo.id, { workOrders, gl, accounts: ACCOUNTS, now });
+    const capitalised = posting!.lines.find((l) => l.accountId === ACCOUNTS.finishedGoodsAccountId)!.debit;
+    const fg = await stock.getBalanceDetail("FG", FG);
+    expect(capitalised.toString()).toBe("300.000007");
+    expect(fg.totalValue.toString()).toBe(capitalised.toString());
+    expect(fg.onHand.toString()).toBe(Qty.fromMajor(qty).toString());
+  });
+});
+
 describe("work order — completing twice must not double-post", () => {
   it("refuses a second completion, and the GL keeps exactly one posting", async () => {
     const { workOrders, stock, gl, now, wo } = await setup();

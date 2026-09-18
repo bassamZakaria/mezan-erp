@@ -71,7 +71,17 @@ export const salesReturnDocumentSchema = z.object({
   date: z.string(),
   memo: z.string(),
   status: documentStatusSchema,
-  lines: z.array(salesReturnLineSchema),
+  lines: z.array(
+    salesReturnLineSchema.extend({
+      /** The source invoice's currency and confirm rate, stamped by the server (D203). */
+      currency: z.string().nullable().optional(),
+      fxRate: z.string().nullable().optional(),
+      /** What this line credits, in base currency at `fxRate`. */
+      baseCredit: z.string().optional(),
+    }),
+  ),
+  /** What the return credits AR with, in base currency at the source invoice's rate (D203). */
+  grandTotal: z.string().optional(),
   createdAt: z.string(),
   confirmedAt: z.string().nullable(),
   reversesDocId: z.string().nullable(),

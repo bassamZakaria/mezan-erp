@@ -104,6 +104,7 @@ function serialize(doc: VoucherDocument) {
     netPaidAmount: voucherNetPaid(line).toString(),
     journalEntryId: doc.journalEntryId,
     confirmedAt: doc.confirmedAt,
+    reversesDocId: doc.reversesDocId ?? null,
   };
 }
 

@@ -189,7 +189,11 @@ export interface SalesInvoice {
   /** Output-VAT payable account credited on confirm. */
   readonly taxAccountId: string;
   readonly lines: readonly SalesInvoiceLine[];
-  /** Amount collected so far (drives partially_paid / paid). */
+  /**
+   * Amount collected so far, in BASE currency (drives partially_paid / paid).
+   * It mirrors the allocation sub-ledger, which is base, so it is compared with
+   * `salesInvoiceBaseGrandTotal`, never with the document's own `grandTotal` (D202).
+   */
   readonly amountPaid: Money;
   readonly createdAt: string;
   readonly confirmedAt: string | null;

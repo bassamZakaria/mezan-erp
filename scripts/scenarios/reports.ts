@@ -346,19 +346,53 @@ export async function agingLaddersTieToTheirControlAccounts_D192(ctx: Ctx): Prom
 }
 
 /**
- * D195 — every customer's «المستحق» on the customers screen is their opening
- * balance plus their aging row: one server computation, so an on-account
- * receipt, a cheque or a return cannot land in one and not the other. Runs in
- * the reports module, after sales and purchases have moved the tenant.
+ * D195 — every customer's «المستحق» on the customers screen is their aging
+ * row: one server computation, so an on-account receipt, a cheque or a return
+ * cannot land in one and not the other. The row carries the opening balance
+ * itself since D204, so the figure is the row, not opening balance plus row.
  */
 export async function everyCustomerOwesTheirAgingRow_D195(ctx: Ctx): Promise<void> {
   await ctx.scenario("D195 — every customer's amount owed on the customers screen is their aging row", async () => {
     const aging = await ctx.req("GET", "/reports/aging/customers");
-    const rowTotal = new Map(ctx.rows(aging.body).map((row: any) => [row.customerId, ctx.n(row.total)]));
+    const rowTotal = new Map(ctx.rows(aging.body).map((row: any) => [row.customerId, ctx.scaled(row.total)]));
     const customers = await ctx.allRows("/customers");
     ctx.check("the customers list carries the server's owed figure", customers.length > 0 && customers.every((c: any) => typeof c.owed === "string"), JSON.stringify(customers[0] ?? {}).slice(0, 200));
-    const off = customers.filter((c: any) => Math.abs(ctx.n(c.owed) - ctx.n(c.openingBalance) - (rowTotal.get(c.id) ?? 0)) > 0.005);
-    ctx.check("owed − opening balance = the aging row, for every customer", off.length === 0, off.slice(0, 3).map((c: any) => `${c.id} owed ${c.owed} row ${rowTotal.get(c.id) ?? 0}`).join("; "));
+    const off = customers.filter((c: any) => ctx.scaled(c.owed) !== (rowTotal.get(c.id) ?? 0n));
+    ctx.check("owed = the aging row, opening balance included, for every customer (D204)", off.length === 0, off.slice(0, 3).map((c: any) => `${c.id} owed ${c.owed} row ${rowTotal.get(c.id) ?? 0}`).join("; "));
+  });
+}
+
+/**
+ * D200, D201, D204, D205, D210, D211 — at the end of the run, after every module has
+ * moved the tenant: both ladders tie to their control accounts to the
+ * micro-unit, and for every customer and supplier the owed figure on their
+ * screen, their aging row and the closing balance of their statement are one
+ * number.
+ */
+export async function everyPartyTiesItsOwedLadderAndStatement(ctx: Ctx): Promise<void> {
+  await ctx.scenario("every party — owed figure = aging row = statement closing, and both ladders tie exactly", async () => {
+    for (const kind of ["customers", "suppliers"] as const) {
+      const aging = await ctx.req("GET", `/reports/aging/${kind}`);
+      ctx.check(
+        `aging ${kind}: the ladder equals its control account to the micro-unit`,
+        ctx.scaled(aging.body?.reconciliation?.reportTotal) === ctx.scaled(aging.body?.reconciliation?.referenceTotal),
+        JSON.stringify(aging.body?.reconciliation),
+      );
+      const idOf = (row: any) => (kind === "customers" ? row.customerId : row.supplierId);
+      const rowTotal = new Map(ctx.rows(aging.body).map((row: any) => [idOf(row), ctx.scaled(row.total)]));
+      const parties = await ctx.allRows(`/${kind}`);
+      const off: string[] = [];
+      for (const party of parties) {
+        const row = rowTotal.get(party.id) ?? 0n;
+        const statement = (await ctx.req("GET", `/reports/statements/${kind}/${party.id}`)).body;
+        const owed = ctx.scaled(party.owed);
+        const closing = ctx.scaled(statement?.closing);
+        if (owed !== row || closing !== row || ctx.scaled(statement?.agingTotal) !== row) {
+          off.push(`${party.id} owed ${party.owed} row ${row} statement ${statement?.closing}`);
+        }
+      }
+      ctx.check(`${kind}: every party's owed figure, aging row and statement closing agree`, parties.length > 0 && off.length === 0, off.slice(0, 4).join("; "));
+    }
   });
 }
 
@@ -501,5 +535,99 @@ export async function foreignInvoicesOnAccountReceiptsAndChequeVouchers_D194_D19
     checkEq("the AR sub-ledger still reconciles after the bounce", settled.ar, before.invariants.ar);
     const row = ctx.rows((await req("GET", "/reports/aging/customers")).body).find((r: any) => r.customerId === "SCN-D196-CUST");
     checkEq("the customer owes the whole invoice again on the ladder", n(row?.total), 1000);
+  });
+}
+
+/**
+ * D201, D202, D203 on the seeded tenant: a CHF invoice on each side is
+ * settled in base, reported in base, and partly returned at its own rate.
+ * CHF is this module's own currency (see D194); the settings are restored.
+ */
+export async function foreignSettlementReportsAndReturns_D201_D203(ctx: Ctx): Promise<void> {
+  const { req, check, checkEq, n } = ctx;
+  const today = "2026-08-24";
+  const glBalanceOf = (accountId: string) => glBalance(ctx, accountId);
+
+  await ctx.scenario("D201–D203 — a CHF invoice on each side is settled in base, reported in base and returned at its own rate", async () => {
+    const base = (await req("GET", "/settings")).body;
+    const currencies: string[] = base?.secondaryCurrencies ?? [];
+    const enabled = await req("PUT", "/settings", { ...base, multiCurrencyEnabled: true, secondaryCurrencies: [...currencies.filter((c) => c !== "CHF"), "CHF"] });
+    check("multi-currency is on with CHF allowed", enabled.status === 200, `status ${enabled.status}`);
+    await req("POST", "/exchange-rates", { id: "SCN-D202-CHF-22", currency: "CHF", rate: "60.00", effectiveDate: "2026-08-22", rateType: "standard", source: "manual" });
+    check("a CHF rate of 60.00 is approved for the 22nd", (await req("POST", "/exchange-rates/SCN-D202-CHF-22/approve", {})).body?.status === "approved");
+    try {
+      await req("POST", "/items", { id: "SCN-D202-SVC", code: "SCN-D202-SVC", nameAr: "خدمة سيناريو التسوية", type: "service", baseUnitCode: "PCS", trackInventory: false, taxRatePercent: 0, revenueAccountId: "4100" });
+      await req("POST", "/items", { id: "SCN-D203-STK", code: "SCN-D203-STK", nameAr: "صنف مرتجع بالفرنك", type: "stock", baseUnitCode: "PCS", costingMethod: "WAC" });
+      await req("POST", "/customers", { id: "SCN-D202-CUST", code: "SCN-D202-CUST", nameAr: "عميل التسوية بالفرنك", paymentTermsDays: 30, currency: "CHF", openingBalance: "0", active: true, creditLimit: "0", taxExempt: false, etaBuyerType: "auto" });
+      await req("POST", "/suppliers", { id: "SCN-D203-SUPP", code: "SCN-D203-SUPP", nameAr: "مورد المرتجع بالفرنك", currency: "CHF", openingBalance: "0" });
+      const before = { ar: await glBalanceOf("1105"), ap: -(await glBalanceOf("2100")), invariants: await ctx.invariants() };
+
+      await req("POST", "/sales-invoices", {
+        id: "SCN-D202-SI", date: today, dueDate: "2026-09-23", customerId: "SCN-D202-CUST", customerNameAr: "عميل التسوية بالفرنك",
+        warehouseId: "WH-MAIN", branchId: "BR-MAIN", currency: "CHF", arAccountId: "1105", taxAccountId: "2200",
+        lines: [{ lineId: "SCN-D202-SI-L1", itemId: "SCN-D202-SVC", itemNameAr: "خدمة بالفرنك", isStock: false, qty: "2", unitPrice: "50", taxRatePercent: 0, revenueAccountId: "4100" }],
+      });
+      const sale = await req("POST", "/sales-invoices/SCN-D202-SI/confirm", {});
+      check("a CHF 100 sales invoice confirms at 60.00", sale.status === 200, `status ${sale.status} ${JSON.stringify(sale.body).slice(0, 200)}`);
+      checkEq("1105 takes it at 6,000.00", (await glBalanceOf("1105")) - before.ar, 6000);
+
+      const collected = await req("POST", "/sales-invoices/SCN-D202-SI/payments", { amount: "1000", treasuryAccountId: "TR-DEMO-CASH", date: today });
+      check("EGP 1,000 is collected against it", collected.status === 200, `status ${collected.status} ${JSON.stringify(collected.body).slice(0, 200)}`);
+      let invoice = (await req("GET", "/sales-invoices/SCN-D202-SI")).body;
+      check("D202: EGP 1,000 against a CHF 100 invoice worth 6,000.00 leaves it «مدفوع جزئياً», not «مدفوع»", invoice?.status === "partially_paid", String(invoice?.status));
+      checkEq("its base total is stated beside the settlement", n(invoice?.baseGrandTotal), 6000);
+      checkEq("its remaining balance is the base total less what was allocated", n(invoice?.remainingBalance), 5000);
+      checkEq("1105 holds the same 5,000.00", (await glBalanceOf("1105")) - before.ar, 5000);
+
+      const byCustomer = (await req("GET", `/reports/sales/by-customer?dateFrom=${today}&dateTo=${today}`)).body;
+      const row = ctx.rows(byCustomer).find((r: any) => r.customerId === "SCN-D202-CUST");
+      checkEq("D201: sales by customer counts the invoice at its 6,000.00 base value, not its face 100", n(row?.total), 6000);
+      checkEq("and its outstanding at the base 5,000.00", n(row?.outstanding), 5000);
+      const byPeriod = ctx.rows((await req("GET", `/reports/sales/by-period?dateFrom=${today}&dateTo=${today}&groupBy=day`)).body);
+      check("D201: sales by period includes the invoice at base", byPeriod.some((r: any) => n(r.net) >= 6000), JSON.stringify(byPeriod).slice(0, 200));
+
+      const drafted = await req("POST", "/sales-returns/from-invoice", {
+        id: "SCN-D203-SR", date: today, memo: "", warehouseId: "WH-MAIN", sourceInvoiceId: "SCN-D202-SI", reason: "OTHER", requested: [{ itemId: "SCN-D202-SVC", qty: "1" }],
+      });
+      const returned = await req("POST", "/sales-returns/SCN-D203-SR/confirm", {});
+      check("one of the two CHF 50 units comes back", drafted.status === 201 && returned.status === 200, `${drafted.status}/${returned.status} ${JSON.stringify(returned.body).slice(0, 200)}`);
+      checkEq("D203: the return credits 1105 with CHF 50 × 60.00 = 3,000.00, not 50", (await glBalanceOf("1105")) - before.ar, 2000);
+      checkEq("the return states that base credit as its total", n((await req("GET", "/sales-returns/SCN-D203-SR")).body?.grandTotal), 3000);
+      checkEq("and it owes the customer 3,000.00 back", n((await req("GET", "/sales-returns/SCN-D203-SR")).body?.refundDue), 3000);
+      invoice = (await req("GET", "/sales-invoices/SCN-D202-SI")).body;
+      checkEq("the invoice now owes 6,000.00 − 1,000.00 − 3,000.00", n(invoice?.remainingBalance), 2000);
+      checkEq("the /reconciliation AR row is exactly as tied as before", (await ctx.invariants()).ar, before.invariants.ar);
+
+      await req("POST", "/purchases/invoices", {
+        id: "SCN-D203-PI", supplierId: "SCN-D203-SUPP", date: today, dueDate: "2026-09-23", warehouseId: "WH-MAIN", branchId: "BR-MAIN", currency: "CHF",
+        lines: [{ itemId: "SCN-D203-STK", kind: "inventory", description: "صنف بالفرنك", qty: "10", unitCost: "5", taxRatePercent: 14 }],
+      });
+      const bill = await req("POST", "/purchases/invoices/SCN-D203-PI/confirm", {});
+      check("a CHF 57 purchase invoice confirms at 60.00", bill.status === 200, `status ${bill.status} ${JSON.stringify(bill.body).slice(0, 200)}`);
+      checkEq("2100 takes it at 3,420.00", -(await glBalanceOf("2100")) - before.ap, 3420);
+      const paid = await req("POST", "/purchases/invoices/SCN-D203-PI/payments", { amount: "420", treasuryAccountId: "TR-DEMO-CASH", date: today });
+      check("EGP 420 is paid against it", paid.status === 200, `status ${paid.status} ${JSON.stringify(paid.body).slice(0, 200)}`);
+      const pi = (await req("GET", "/purchases/invoices/SCN-D203-PI")).body;
+      checkEq("D202: its base total is stated beside the settlement", n(pi?.baseTotal), 3420);
+      checkEq("and its remaining balance is base total − paid", n(pi?.remainingBalance), 3000);
+
+      const number = String(pi?.number ?? "");
+      const prCreated = await req("POST", "/purchase-returns", {
+        id: "SCN-D203-PR", date: today, memo: "",
+        lines: [{ itemId: "SCN-D203-STK", warehouseId: "WH-MAIN", supplierId: "SCN-D203-SUPP", sourceInvoiceId: "SCN-D203-PI", sourceInvoiceNumber: number, reason: "DEFECTIVE",
+          availableQty: "10", qty: "2", unitCost: "5", taxAmount: "1.40", taxRatePercent: 14, fxRate: "1", currency: "EGP" }],
+      });
+      const prConfirmed = await req("POST", "/purchase-returns/SCN-D203-PR/confirm", {});
+      check("two units go back to the supplier", prCreated.status === 201 && prConfirmed.status === 200, `${prCreated.status}/${prConfirmed.status} ${JSON.stringify(prConfirmed.body).slice(0, 200)}`);
+      checkEq("D203: the return debits 2100 with CHF 11.40 × 60.00 = 684.00, whatever rate the caller sent", -(await glBalanceOf("2100")) - before.ap, 3420 - 420 - 684);
+      const after = await ctx.invariants();
+      checkEq("the /reconciliation AP row is exactly as tied as before", after.ap, before.invariants.ap);
+      checkEq("and so is inventory", after.inventory, before.invariants.inventory);
+      check("the supplier ladder still ties to 2100", (await req("GET", "/reports/aging/suppliers")).body?.reconciliation?.withinTolerance === true);
+      check("the customer ladder still ties to 1105", (await req("GET", "/reports/aging/customers")).body?.reconciliation?.withinTolerance === true);
+    } finally {
+      const restored = await req("PUT", "/settings", { ...(await req("GET", "/settings")).body, multiCurrencyEnabled: base?.multiCurrencyEnabled, secondaryCurrencies: currencies });
+      check("the currency settings are restored", restored.status === 200, `status ${restored.status}`);
+    }
   });
 }

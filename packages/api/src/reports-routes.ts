@@ -40,8 +40,9 @@ import {
   ACCOUNT_TYPE_LABELS,
   SALES_INVOICE_ACTIVE_STATUSES,
   moneyToNumber,
-  purchaseInvoiceTotal,
+  purchaseInvoiceBaseTotal,
   salesInvoiceTotals,
+  salesInvoiceBaseGrandTotal,
   type GlReportContext,
   type SalesInvoiceRepository,
   type PurchaseInvoiceRepository,
@@ -79,12 +80,26 @@ import {
   salesReturnGrandTotal,
   sumActive,
   voucherBaseAmount,
+  voucherBaseWithholding,
   isStandingVoucher,
   fxRevaluationNet,
   type AgingCustomersContext,
+  type AgingSuppliersContext,
+  type AgingOpenItem,
+  type HistoricalSalesArchive,
+  type HistoricalPurchaseArchive,
   customerAgingBalances,
   agingBucketsTotal,
-  extend,
+  supplierAgingBalances,
+  supplierAgingTotal,
+  CUSTOMER_OPENING_BALANCE_DOC_TYPE,
+  SUPPLIER_OPENING_BALANCE_DOC_TYPE,
+  buildPartyStatement,
+  statementSides,
+  type PartyStatement,
+  type PartyStatementEntry,
+  type ProgressCertificate,
+  purchaseReturnLineCredit,
   type SalesReturnDocument,
   type PurchaseReturnLine,
   type ChequeRepository,
@@ -111,7 +126,15 @@ export interface ReportsRoutesDeps {
   readonly salesReturnDocs?: { list(filter?: { status?: "confirmed" }): Promise<readonly SalesReturnDocument[]> };
   /** Confirmed purchase returns, so the supplier aging ladder nets the debits the GL already posted. */
   readonly purchaseReturnDocs?: {
-    list(filter?: { status?: "confirmed" }): Promise<readonly { readonly status: string; readonly lines: readonly PurchaseReturnLine[] }[]>;
+    list(filter?: { status?: "confirmed" }): Promise<
+      readonly {
+        readonly id: string;
+        readonly docNo: string | null;
+        readonly date: string;
+        readonly status: string;
+        readonly lines: readonly PurchaseReturnLine[];
+      }[]
+    >;
   };
   /** Cheques, whose creation already reclassified a customer's receivable or a supplier's payable. */
   readonly cheques?: Pick<ChequeRepository, "list">;
@@ -120,6 +143,15 @@ export interface ReportsRoutesDeps {
   /** Allocations, to tell an applied collection from an on-account one. */
   readonly allocations?: Pick<AllocationRepository, "listByVoucher">;
   readonly purchaseInvoices: PurchaseInvoiceRepository;
+  /**
+   * Documents imported from the previous system (x31/x32). An unsettled one
+   * posts its remainder to 1105/2100 with no invoice behind it, so both
+   * ladders carry it as an open item (D210).
+   */
+  readonly historicalArchives?: {
+    sales(): Promise<readonly HistoricalSalesArchive[]>;
+    purchases(): Promise<readonly HistoricalPurchaseArchive[]>;
+  };
   readonly customers: CustomerRepository;
   readonly suppliers: SupplierRepository;
   readonly items: ItemRepository;
@@ -172,6 +204,8 @@ export interface ReportsRoutesDeps {
    * assembled from vouchers alone under-declares by the whole subcontract side.
    */
   readonly subCertificates?: Pick<SubcontractStore, "listCertificates">;
+  /** مستخلصات: an approved one credits AR by its deductions against the invoice it raised, which a statement must show. */
+  readonly progressCertificates?: { list(): Promise<readonly ProgressCertificate[]> };
   /**
    * العروض master data, for a campaign's TYPE and English name. Optional: the
    * report still runs without it — every figure comes off the invoice's own
@@ -446,6 +480,79 @@ async function unappliedCustomerCredits(deps: ReportsRoutesDeps): Promise<Readon
   return new Map([...out].map(([id, scaled]) => [id, Money.fromScaled(scaled)]));
 }
 
+/**
+ * What the control account holds for a party that no invoice carries: its
+ * opening balance (D204), aged from the day it was posted, and every manual
+ * journal line that names it (D205). Signed on the party's natural side.
+ */
+async function partyOpenItems(
+  deps: ReportsRoutesDeps,
+  kind: "customer" | "supplier",
+  parties: readonly { readonly id: string; readonly openingBalance?: Money; readonly branchId?: string | null }[],
+): Promise<AgingOpenItem[]> {
+  const controlId = kind === "customer" ? RECEIVABLES_CONTROL_ACCOUNT_ID : PAYABLES_CONTROL_ACCOUNT_ID;
+  const openingDocType = kind === "customer" ? CUSTOMER_OPENING_BALANCE_DOC_TYPE : SUPPLIER_OPENING_BALANCE_DOC_TYPE;
+  const sign = kind === "customer" ? 1n : -1n;
+  const lines = (await deps.ledger.listLines?.({ accountIds: [controlId] })) ?? [];
+  const items: AgingOpenItem[] = [];
+  const openedOn = new Map<string, string>();
+  for (const line of lines) {
+    if (line.partyId) {
+      items.push({
+        partyId: line.partyId,
+        source: "journal",
+        reference: line.entryNo ?? line.entryId,
+        date: line.date,
+        amount: Money.fromScaled(sign * (line.debit.scaled - line.credit.scaled)),
+        branchId: line.branchId,
+      });
+    }
+    if (line.sourceDocType === openingDocType && line.sourceDocId) {
+      const seen = openedOn.get(line.sourceDocId);
+      if (!seen || line.date < seen) openedOn.set(line.sourceDocId, line.date);
+    }
+  }
+  for (const party of parties) {
+    const opening = party.openingBalance ?? Money.zero();
+    if (opening.scaled === 0n) continue;
+    items.push({ partyId: party.id, source: "opening", date: openedOn.get(party.id) ?? todayIso(deps), amount: opening, branchId: party.branchId ?? null });
+  }
+  const archives =
+    kind === "customer"
+      ? ((await deps.historicalArchives?.sales()) ?? []).map((a) => ({ ...a, partyId: a.customerId, isReturn: a.docType === "SALES_RETURN" }))
+      : ((await deps.historicalArchives?.purchases()) ?? []).map((a) => ({ ...a, partyId: a.supplierId, isReturn: a.docType === "PURCHASE_RETURN" }));
+  for (const archive of archives) {
+    if (archive.settled || archive.remainingBalance.scaled === 0n) continue;
+    items.push({
+      partyId: archive.partyId,
+      source: "imported",
+      reference: archive.originalNumber,
+      date: archive.date,
+      dueDate: archive.dueDate,
+      amount: archive.isReturn ? archive.remainingBalance.negate() : archive.remainingBalance,
+    });
+  }
+  // Money paid back to a customer, or refunded by a supplier, across the
+  // control account: it reopens the balance a return or an overpayment closed.
+  const refundDirection = kind === "customer" ? "payment" : "receipt";
+  for (const doc of (await deps.voucherDocuments?.list({ status: "confirmed" })) ?? []) {
+    if (!isStandingVoucher(doc)) continue;
+    const line = doc.lines[0];
+    if (!line || line.direction !== refundDirection || line.counterpartyGlAccountId !== controlId) continue;
+    const partyId = kind === "customer" ? line.customerId : line.supplierId;
+    if (!partyId) continue;
+    items.push({
+      partyId,
+      source: "refund",
+      reference: doc.docNo ?? doc.id,
+      date: doc.date,
+      amount: voucherBaseAmount(line),
+      branchId: line.branchId ?? null,
+    });
+  }
+  return items;
+}
+
 /** The one place the ladder's netting terms are built; the customers screen must not get its own (D195). */
 async function agingCustomersTerms(
   deps: ReportsRoutesDeps,
@@ -457,7 +564,8 @@ async function agingCustomersTerms(
     deps.customers.findAll(),
     settledByInvoiceId(deps, invoices),
   ]);
-  return { customers, allocatedByInvoiceId, returnsByInvoiceId: returns, unappliedCreditsByCustomerId: credits };
+  const openItems = await partyOpenItems(deps, "customer", customers);
+  return { customers, allocatedByInvoiceId, returnsByInvoiceId: returns, unappliedCreditsByCustomerId: credits, openItems };
 }
 
 /** Each customer's row total on today's customer aging ladder, every branch (D195). */
@@ -466,6 +574,29 @@ export async function customerAgingOwed(deps: ReportsRoutesDeps): Promise<Readon
   const invoices = await deps.salesInvoices.list({ statusIn: [...SALES_INVOICE_ACTIVE_STATUSES], toDate: asOfDate });
   const balances = customerAgingBalances({ asOfDate, branchId: "" }, { invoices, ...(await agingCustomersTerms(deps, invoices)) });
   return new Map([...balances].map(([customerId, row]) => [customerId, agingBucketsTotal(row)]));
+}
+
+/** The supplier ladder's netting terms, shared by the report and the suppliers screen (D201). */
+async function agingSuppliersTerms(
+  deps: ReportsRoutesDeps,
+  invoices: readonly { readonly id: string }[],
+): Promise<Omit<AgingSuppliersContext, "invoices" | "payablesControlBalance" | "fxRevaluationOnControl">> {
+  const [suppliers, returns, debits, allocatedByInvoiceId] = await Promise.all([
+    deps.suppliers.findAll(),
+    purchaseReturnsByInvoiceId(deps),
+    unappliedSupplierDebits(deps),
+    settledByInvoiceId(deps, invoices),
+  ]);
+  const openItems = await partyOpenItems(deps, "supplier", suppliers);
+  return { suppliers, allocatedByInvoiceId, returnsByInvoiceId: returns, unappliedDebitsBySupplierId: debits, openItems };
+}
+
+/** Each supplier's row total on today's supplier aging ladder, every branch — what the suppliers screen shows as owed (D201). */
+export async function supplierAgingOwed(deps: ReportsRoutesDeps): Promise<ReadonlyMap<string, Money>> {
+  const asOfDate = todayIso(deps);
+  const invoices = await deps.purchaseInvoices.list({ status: "confirmed", toDate: asOfDate });
+  const balances = supplierAgingBalances({ asOfDate, branchId: "" }, { invoices, ...(await agingSuppliersTerms(deps, invoices)) });
+  return new Map([...balances].map(([supplierId, row]) => [supplierId, supplierAgingTotal(row)]));
 }
 
 /** What the allocation sub-ledger has applied from one cheque or voucher. */
@@ -510,7 +641,7 @@ async function purchaseReturnsByInvoiceId(deps: ReportsRoutesDeps): Promise<Read
     if (doc.status !== "confirmed") continue;
     for (const line of doc.lines) {
       if (!line.sourceInvoiceId) continue;
-      const value = extend(line.qty, line.unitCost).add(line.taxAmount).scaled;
+      const value = purchaseReturnLineCredit(line).scaled;
       out.set(line.sourceInvoiceId, (out.get(line.sourceInvoiceId) ?? 0n) + value);
     }
   }
@@ -1178,16 +1309,11 @@ export function createReportsRoutes(
     const params = { ...definition.defaultParams, ...queryParams(c) };
     // Same two bounds as the customer ladder, and the same rule: the SQL set
     // must be exactly what the report itself would have kept (Q-6).
-    const [invoices, suppliers, returns, debits] = await Promise.all([
-      scopedPurchaseInvoices(c, {
-        status: "confirmed" as const,
-        ...(isoDateOrUndefined(params.asOfDate) ? { toDate: String(params.asOfDate) } : {}),
-      }),
-      deps.suppliers.findAll(),
-      purchaseReturnsByInvoiceId(deps),
-      unappliedSupplierDebits(deps),
-    ]);
-    const allocatedByInvoiceId = await settledByInvoiceId(deps, invoices);
+    const invoices = await scopedPurchaseInvoices(c, {
+      status: "confirmed" as const,
+      ...(isoDateOrUndefined(params.asOfDate) ? { toDate: String(params.asOfDate) } : {}),
+    });
+    const terms = await agingSuppliersTerms(deps, invoices);
     const payablesControl = branchNarrowed(c, params)
       ? undefined
       : await partyControlTie(deps, PAYABLES_CONTROL_ACCOUNT_ID, "credit", isoDateOrUndefined(params.asOfDate));
@@ -1195,14 +1321,200 @@ export function createReportsRoutes(
       c,
       runReport(definition, params, {
         invoices,
-        suppliers,
-        allocatedByInvoiceId,
-        returnsByInvoiceId: returns,
-        unappliedDebitsBySupplierId: debits,
+        ...terms,
         payablesControlBalance: payablesControl === undefined ? undefined : () => payablesControl.balance,
         fxRevaluationOnControl: payablesControl === undefined ? undefined : () => payablesControl.revaluation,
       }),
     );
+  });
+
+  // --- كشف حساب العميل / المورد ------------------------------------------
+  // Built from the aging ladder's own terms, in base currency, so a party's
+  // statement closes on exactly their ladder row (D200, D201, D204, D205).
+
+  async function voucherAllocations(voucherId: string, invoiceRefs: ReadonlyMap<string, string>) {
+    const active = (await deps.allocations?.listByVoucher(voucherId)) ?? [];
+    return active
+      .filter((alloc) => alloc.status === "active")
+      .map((alloc) => ({ invoiceRef: invoiceRefs.get(alloc.invoiceId) ?? alloc.invoiceId, amount: alloc.amount }));
+  }
+
+  function openItemEntries(items: readonly AgingOpenItem[], partyId: string, asOfDate: string): PartyStatementEntry[] {
+    return items
+      .filter((item) => item.partyId === partyId && item.date <= asOfDate)
+      .map((item, index) => ({
+        key: `${item.source}-${index}`,
+        date: item.date,
+        kind: item.source === "refund" ? "refund" : item.source,
+        reference: item.reference ?? "",
+        ...statementSides(item.amount),
+      }));
+  }
+
+  function serializeStatement(partyId: string, asOfDate: string, statement: PartyStatement, agingTotal: Money) {
+    return {
+      partyId,
+      asOfDate,
+      lines: statement.lines.map((line) => ({
+        key: line.key,
+        date: line.date,
+        kind: line.kind,
+        reference: line.reference,
+        increase: line.increase.toString(),
+        decrease: line.decrease.toString(),
+        balance: line.balance.toString(),
+        allocations: (line.allocations ?? []).map((a) => ({ invoiceRef: a.invoiceRef, amount: a.amount.toString() })),
+      })),
+      totalIncrease: statement.totalIncrease.toString(),
+      totalDecrease: statement.totalDecrease.toString(),
+      closing: statement.closing.toString(),
+      agingTotal: agingTotal.toString(),
+    };
+  }
+
+  app.get("/statements/customers/:id", gate("sales.customer.view"), async (c) => {
+    const id = c.req.param("id");
+    const customer = await deps.customers.findById(id);
+    if (!customer || withinScope([customer], branchScopeOf(c), (row) => row.branchId).length === 0) {
+      return c.json({ error: "NOT_FOUND" }, 404);
+    }
+    const asOfDate = todayIso(deps);
+    const invoices = (await scopedSalesInvoices(c, { statusIn: [...SALES_INVOICE_ACTIVE_STATUSES], toDate: asOfDate })).filter(
+      (invoice) => invoice.customerId === id,
+    );
+    const terms = await agingCustomersTerms(deps, invoices);
+    const invoiceRefs = new Map(invoices.map((invoice) => [invoice.id, invoice.docNo ?? invoice.id]));
+    const entries: PartyStatementEntry[] = invoices.map((invoice) => ({
+      key: `inv-${invoice.id}`,
+      date: invoice.date,
+      kind: "invoice",
+      reference: invoice.docNo ?? invoice.id,
+      increase: salesInvoiceBaseGrandTotal(salesInvoiceTotals(invoice), invoice.fxRate),
+      decrease: Money.zero(),
+    }));
+    for (const doc of (await deps.salesReturnDocs?.list({ status: "confirmed" })) ?? []) {
+      if (doc.status !== "confirmed" || !invoiceRefs.has(doc.lines[0]?.sourceInvoiceId ?? "")) continue;
+      entries.push({ key: `ret-${doc.id}`, date: doc.date, kind: "return", reference: doc.docNo ?? doc.id, increase: Money.zero(), decrease: salesReturnGrandTotal(doc) });
+    }
+    for (const doc of (await deps.voucherDocuments?.list({ status: "confirmed" })) ?? []) {
+      if (!isStandingVoucher(doc)) continue;
+      const line = doc.lines[0];
+      if (!line || line.direction !== "receipt" || line.counterpartyGlAccountId !== RECEIVABLES_CONTROL_ACCOUNT_ID || line.customerId !== id) continue;
+      entries.push({
+        key: `vch-${doc.id}`,
+        date: doc.date,
+        kind: "receipt",
+        reference: doc.docNo ?? doc.id,
+        increase: Money.zero(),
+        decrease: voucherBaseAmount(line),
+        allocations: await voucherAllocations(doc.id, invoiceRefs),
+      });
+    }
+    for (const cheque of (await deps.cheques?.list({ direction: "incoming" })) ?? []) {
+      if (cheque.direction !== "incoming" || cheque.counterpartyGlAccountId !== RECEIVABLES_CONTROL_ACCOUNT_ID || cheque.partyId !== id) continue;
+      entries.push({ key: `chq-${cheque.id}`, date: cheque.issueDate, kind: "cheque", reference: cheque.chequeNumber, increase: Money.zero(), decrease: cheque.amount });
+      if (cheque.status === "bounced" || cheque.status === "replaced") {
+        entries.push({
+          key: `chq-back-${cheque.id}`,
+          date: cheque.bouncedAt?.slice(0, 10) ?? cheque.issueDate,
+          kind: "cheque_returned",
+          reference: cheque.chequeNumber,
+          increase: cheque.amount,
+          decrease: Money.zero(),
+        });
+      }
+    }
+    for (const certificate of (await deps.progressCertificates?.list()) ?? []) {
+      if (!certificate.invoiceId || !invoiceRefs.has(certificate.invoiceId) || certificate.postedDeductionsTotal.scaled === 0n) continue;
+      entries.push({
+        key: `ded-${certificate.id}`,
+        date: (certificate.approvedAt ?? certificate.periodTo).slice(0, 10),
+        kind: "deduction",
+        reference: certificate.docNo,
+        increase: Money.zero(),
+        decrease: certificate.postedDeductionsTotal,
+      });
+    }
+    entries.push(...openItemEntries(terms.openItems ?? [], id, asOfDate));
+    const row = customerAgingBalances({ asOfDate, branchId: "" }, { invoices, ...terms }).get(id);
+    return c.json(serializeStatement(id, asOfDate, buildPartyStatement(entries), row ? agingBucketsTotal(row) : Money.zero()));
+  });
+
+  app.get("/statements/suppliers/:id", gate("purchases.supplier.view"), async (c) => {
+    const id = c.req.param("id");
+    const supplier = await deps.suppliers.findById(id);
+    if (!supplier || withinScope([supplier], branchScopeOf(c), (row) => row.branchId).length === 0) {
+      return c.json({ error: "NOT_FOUND" }, 404);
+    }
+    const asOfDate = todayIso(deps);
+    const invoices = (await scopedPurchaseInvoices(c, { status: "confirmed", toDate: asOfDate })).filter(
+      (invoice) => invoice.supplierId === id,
+    );
+    const terms = await agingSuppliersTerms(deps, invoices);
+    const invoiceRefs = new Map(invoices.map((invoice) => [invoice.id, invoice.number ?? invoice.id]));
+    const entries: PartyStatementEntry[] = invoices.map((invoice) => ({
+      key: `inv-${invoice.id}`,
+      date: invoice.date,
+      kind: "invoice",
+      reference: invoice.number ?? invoice.id,
+      increase: purchaseInvoiceBaseTotal(invoice),
+      decrease: Money.zero(),
+    }));
+    for (const doc of (await deps.purchaseReturnDocs?.list({ status: "confirmed" })) ?? []) {
+      if (doc.status !== "confirmed") continue;
+      const mine = doc.lines.filter((line) => line.sourceInvoiceId && invoiceRefs.has(line.sourceInvoiceId));
+      if (mine.length === 0) continue;
+      entries.push({
+        key: `ret-${doc.id}`,
+        date: doc.date,
+        kind: "return",
+        reference: doc.docNo ?? doc.id,
+        increase: Money.zero(),
+        decrease: Money.sum(mine.map(purchaseReturnLineCredit)),
+      });
+    }
+    for (const doc of (await deps.voucherDocuments?.list({ status: "confirmed" })) ?? []) {
+      if (!isStandingVoucher(doc)) continue;
+      const line = doc.lines[0];
+      if (!line || line.direction !== "payment" || line.counterpartyGlAccountId !== PAYABLES_CONTROL_ACCOUNT_ID || line.supplierId !== id) continue;
+      entries.push({
+        key: `vch-${doc.id}`,
+        date: doc.date,
+        kind: "payment",
+        reference: doc.docNo ?? doc.id,
+        increase: Money.zero(),
+        decrease: voucherBaseAmount(line),
+        allocations: await voucherAllocations(doc.id, invoiceRefs),
+      });
+    }
+    for (const cheque of (await deps.cheques?.list({ direction: "outgoing" })) ?? []) {
+      if (cheque.direction !== "outgoing" || cheque.counterpartyGlAccountId !== PAYABLES_CONTROL_ACCOUNT_ID || cheque.partyId !== id) continue;
+      entries.push({ key: `chq-${cheque.id}`, date: cheque.issueDate, kind: "cheque", reference: cheque.chequeNumber, increase: Money.zero(), decrease: cheque.amount });
+      if (cheque.status === "bounced" || cheque.status === "replaced") {
+        entries.push({
+          key: `chq-back-${cheque.id}`,
+          date: cheque.bouncedAt?.slice(0, 10) ?? cheque.issueDate,
+          kind: "cheque_returned",
+          reference: cheque.chequeNumber,
+          increase: cheque.amount,
+          decrease: Money.zero(),
+        });
+      }
+    }
+    for (const certificate of (await deps.subCertificates?.listCertificates()) ?? []) {
+      if (!certificate.invoiceId || !invoiceRefs.has(certificate.invoiceId) || certificate.postedDeductionsTotal.scaled === 0n) continue;
+      entries.push({
+        key: `ded-${certificate.id}`,
+        date: (certificate.approvedAt ?? certificate.periodTo).slice(0, 10),
+        kind: "deduction",
+        reference: certificate.docNo,
+        increase: Money.zero(),
+        decrease: certificate.postedDeductionsTotal,
+      });
+    }
+    entries.push(...openItemEntries(terms.openItems ?? [], id, asOfDate));
+    const row = supplierAgingBalances({ asOfDate, branchId: "" }, { invoices, ...terms }).get(id);
+    return c.json(serializeStatement(id, asOfDate, buildPartyStatement(entries), row ? supplierAgingTotal(row) : Money.zero()));
   });
 
   // --- الأقساط ---------------------------------------------------------
@@ -1251,18 +1563,20 @@ export function createReportsRoutes(
     const vouchers = withinScope(allVouchers, branchScopeOf(c), (doc) => doc.lines[0]?.branchId);
     const supplierName = new Map(suppliers.map((s) => [s.id, s.nameAr]));
     const rows = vouchers.flatMap((doc) => {
+      // A reversal's mirror is a confirmed document with the same line; the
+      // tax it withheld was un-withheld by that very reversal (D200).
+      if (!isStandingVoucher(doc)) return [];
       const line = doc.lines[0];
-      const withheld = line?.withholdingAmount;
-      if (!line || !withheld || withheld.scaled <= 0n) return [];
+      if (!line || !line.withholdingAmount || line.withholdingAmount.scaled <= 0n) return [];
       return [{
         voucherId: doc.id,
         voucherNo: doc.docNo,
         date: doc.date,
         partyId: line.supplierId,
         partyNameAr: (line.supplierId && supplierName.get(line.supplierId)) || "—",
-        grossAmount: line.amount,
+        grossAmount: voucherBaseAmount(line),
         ratePercent: line.withholdingRatePercent ?? null,
-        withheldAmount: withheld,
+        withheldAmount: voucherBaseWithholding(line),
       }];
     });
     // The subcontract half: the tax was withheld when the certificate was
@@ -1303,9 +1617,9 @@ export function createReportsRoutes(
     let outstanding = 0n;
     let billed = 0n;
     for (const invoice of own) {
-      const totals = salesInvoiceTotals(invoice);
-      billed += totals.grandTotal.scaled;
-      const balance = totals.grandTotal.scaled - invoice.amountPaid.scaled;
+      const total = salesInvoiceBaseGrandTotal(salesInvoiceTotals(invoice), invoice.fxRate);
+      billed += total.scaled;
+      const balance = total.scaled - invoice.amountPaid.scaled;
       if (balance > 0n) outstanding += balance;
     }
     return c.json({
@@ -1325,7 +1639,7 @@ export function createReportsRoutes(
         date: invoice.date,
         type: "SALES_INVOICE",
         status: invoice.status,
-        amount: moneyToNumber(salesInvoiceTotals(invoice).grandTotal),
+        amount: moneyToNumber(salesInvoiceBaseGrandTotal(salesInvoiceTotals(invoice), invoice.fxRate)),
         amountFormat: "money",
       })),
       documentCount: own.length,
@@ -1341,7 +1655,7 @@ export function createReportsRoutes(
       .filter((invoice) => invoice.supplierId === id && invoice.status === "confirmed")
       .sort((a, b) => b.date.localeCompare(a.date));
     let billed = 0n;
-    for (const invoice of own) billed += purchaseInvoiceTotal(invoice).scaled;
+    for (const invoice of own) billed += purchaseInvoiceBaseTotal(invoice).scaled;
     return c.json({
       kind: "supplier",
       id,
@@ -1359,7 +1673,7 @@ export function createReportsRoutes(
         date: invoice.date,
         type: "PURCHASE_INVOICE",
         status: invoice.status,
-        amount: moneyToNumber(purchaseInvoiceTotal(invoice)),
+        amount: moneyToNumber(purchaseInvoiceBaseTotal(invoice)),
         amountFormat: "money",
       })),
       documentCount: own.length,

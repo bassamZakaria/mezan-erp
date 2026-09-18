@@ -17,31 +17,22 @@ import {
 } from "@mezan/ui";
 import type { PurchaseInvoiceStatusDTO, SupplierDTO } from "@mezan/contracts";
 import {
-  useCheques,
   useCreateSupplier,
-  useOpenInvoices,
   usePurchaseInvoices,
-  usePurchaseReturns,
   useSuppliers,
   useSupplierCounts,
   useSupplierStats,
   type SupplierListFilter,
   useUpdateSupplier,
-  useVouchers,
 } from "../data/hooks";
 import {
-  MONEY_RECONCILIATION_TOLERANCE,
   agingBucketsFor,
-  moneyFromNumber,
   moneyToNumber,
-  parseMoney,
-  sumActiveAllocations,
   sumMoney,
   useSupplierAging,
-  useVoucherAllocations,
 } from "../data/partner-detail-hooks";
 import { TextField, NumberField, ToggleField } from "../settings/form-controls";
-import { supplierPayableById } from "../lib/partner-balances";
+import { PartyStatementTab } from "./PartyStatementTab";
 import { majorOf } from "../lib/money";
 import { useNavigation } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
@@ -54,12 +45,9 @@ import { EMPTY } from "../lib/empty";
  * backed by the real `/suppliers` API.
  *
  * فواتير المشتريات reads the live `GET /purchases/invoices` narrowed to this
- * supplier. كشف حساب المورد builds a dated running payable from the allocation
- * sub-ledger a confirmed purchase invoice now writes into — opening balance,
- * every confirmed invoice as a credit, every confirmed supplier voucher as a
- * debit split over the invoices it was allocated onto — and reconciles the
- * closing figure against both `GET /open-invoices?kind=purchase` and
- * `GET /reports/aging/suppliers`.
+ * supplier. كشف حساب المورد and the payable column both come from the server's
+ * supplier aging ladder (`/reports/statements/suppliers/:id`, `owed`), so the
+ * screen never derives a second payable of its own (D201).
  *
  * There is no attachments tab: this build has no file-storage subsystem of any
  * kind, so the tab would be a navigational dead end rather than an empty list.
@@ -94,6 +82,51 @@ function TabError({ message, onRetry }: { message: string; onRetry: () => void }
         {t("common.retry")}
       </Button>
     </Card>
+  );
+}
+
+/** أعمار فواتير هذا المورد — the supplier's own row on the aging ladder, bucket by bucket. */
+function SupplierAgingCard({ supplierId }: { supplierId: string }) {
+  const { t } = useAppTranslation();
+  const agingQuery = useSupplierAging();
+  const buckets = agingBucketsFor(agingQuery.data?.rows.find((row) => row.supplierId === supplierId));
+  return (
+    <div className="rounded-lg border border-border bg-surface p-[16px_18px]">
+      <h3 className="font-display text-[13.5px] font-bold text-ink">{t("suppliers.aging.heading")}</h3>
+      <p className="mt-[4px] max-w-[80ch] text-[11.5px] leading-[1.8] text-ink-faint">{t("suppliers.aging.description")}</p>
+      {agingQuery.isError ? (
+        <div className="mt-[12px]">
+          <TabError message={t("suppliers.aging.loadFailed")} onRetry={() => agingQuery.refetch()} />
+        </div>
+      ) : (
+        <div className="mt-[14px] overflow-x-auto">
+          <table className="w-full min-w-[560px] border-collapse text-[12.5px]">
+            <thead>
+              <tr className="border-b border-border text-ink-muted">
+                <th className="p-[8px] text-end font-semibold">{t("suppliers.aging.current")}</th>
+                <th className="p-[8px] text-end font-semibold">{t("suppliers.aging.d31to60")}</th>
+                <th className="p-[8px] text-end font-semibold">{t("suppliers.aging.d61to90")}</th>
+                <th className="p-[8px] text-end font-semibold">{t("suppliers.aging.d91to120")}</th>
+                <th className="p-[8px] text-end font-semibold">{t("suppliers.aging.over120")}</th>
+                <th className="p-[8px] text-end font-semibold">{t("common.total")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                {[buckets.current, buckets.d31to60, buckets.d61to90, buckets.d91to120, buckets.over120].map((value, index) => (
+                  <td key={index} className="p-[8px] text-end text-ink">
+                    <MoneyValue value={value} showUnit={false} />
+                  </td>
+                ))}
+                <td className="p-[8px] text-end font-semibold text-ink">
+                  <MoneyValue value={buckets.total} showUnit={false} />
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -132,7 +165,7 @@ function SupplierInvoicesTab({ supplierId }: { supplierId: string }) {
   }
 
   const confirmed = invoices.filter((inv) => inv.status === "confirmed");
-  const confirmedTotal = sumMoney(confirmed.map((inv) => inv.total));
+  const confirmedTotal = sumMoney(confirmed.map((inv) => inv.baseTotal ?? inv.total));
 
   return (
     <div className="flex flex-col gap-[16px]">
@@ -187,300 +220,6 @@ function SupplierInvoicesTab({ supplierId }: { supplierId: string }) {
   );
 }
 
-interface StatementRow {
-  readonly key: string;
-  readonly date: string | null;
-  readonly label: string;
-  readonly note: string | null;
-  readonly reference: string;
-  readonly debit: bigint;
-  readonly credit: bigint;
-}
-
-/**
- * كشف حساب المورد — a dated AP movement ledger with a running payable.
- *
- * Confirming a purchase invoice now writes it into the voucher allocation
- * sub-ledger, so AP has a per-supplier dimension: every confirmed invoice is a
- * credit (raising the payable), and every confirmed supplier voucher is a debit
- * split into the invoices it was allocated onto (`GET /vouchers/:id/allocations`,
- * dated by the voucher and posted to the GL) plus any remainder still sitting
- * on account. The closing figure is reconciled twice — against the open-invoice
- * sub-ledger and against the أعمار ديون الموردين report.
- */
-function SupplierStatementTab({ supplier }: { supplier: SupplierDTO }) {
-  const { t } = useAppTranslation();
-  const invoicesQuery = usePurchaseInvoices();
-  const vouchersQuery = useVouchers();
-  const openInvoicesQuery = useOpenInvoices("purchase", supplier.id);
-  const agingQuery = useSupplierAging();
-
-  const supplierVouchers = useMemo(
-    () =>
-      (vouchersQuery.data ?? []).filter(
-        (voucher) => voucher.supplierId === supplier.id && (voucher.status === "confirmed" || voucher.status === "posted"),
-      ),
-    [vouchersQuery.data, supplier.id],
-  );
-  const allocationsQuery = useVoucherAllocations(supplierVouchers.map((voucher) => voucher.id));
-
-  const confirmedInvoices = useMemo(
-    () => (invoicesQuery.data ?? []).filter((inv) => inv.supplierId === supplier.id && inv.status === "confirmed"),
-    [invoicesQuery.data, supplier.id],
-  );
-
-  const invoiceLabels = useMemo(() => {
-    const labels = new Map<string, string>();
-    for (const inv of openInvoicesQuery.data ?? []) labels.set(inv.id, inv.invoiceNo);
-    for (const inv of confirmedInvoices) labels.set(inv.id, inv.number);
-    return labels;
-  }, [openInvoicesQuery.data, confirmedInvoices]);
-
-  const rows = useMemo<StatementRow[]>(() => {
-    const opening = parseMoney(supplier.openingBalance);
-    const built: StatementRow[] = [
-      {
-        key: "opening",
-        date: null,
-        label: t("suppliers.statement.opening"),
-        note: null,
-        reference: t("suppliers.statement.supplierRecord"),
-        debit: opening < 0n ? -opening : 0n,
-        credit: opening > 0n ? opening : 0n,
-      },
-    ];
-
-    for (const inv of confirmedInvoices) {
-      built.push({
-        key: `inv-${inv.id}`,
-        date: inv.date,
-        label: t("suppliers.statement.purchaseInvoice"),
-        note: null,
-        reference: inv.number,
-        debit: 0n,
-        credit: parseMoney(inv.total),
-      });
-    }
-
-    const allocations = allocationsQuery.data ?? [];
-    for (const voucher of supplierVouchers) {
-      if (voucher.direction === "transfer") continue;
-      const isPayment = voucher.direction === "payment";
-      const label = isPayment ? t("suppliers.statement.paymentOut") : t("suppliers.statement.paymentIn");
-      const voucherRef = voucher.docNo ?? voucher.id;
-      const mine = allocations.filter((alloc) => alloc.voucherId === voucher.id && alloc.status === "active");
-      for (const alloc of mine) {
-        const amount = parseMoney(alloc.amount);
-        built.push({
-          key: `alloc-${alloc.id}`,
-          date: voucher.date,
-          label,
-          note: t("suppliers.statement.allocatedTo", { invoice: invoiceLabels.get(alloc.invoiceId) ?? alloc.invoiceId }),
-          reference: voucherRef,
-          debit: isPayment ? amount : 0n,
-          credit: isPayment ? 0n : amount,
-        });
-      }
-      const remainder = parseMoney(voucher.amount) - sumActiveAllocations(mine);
-      if (remainder !== 0n) {
-        const amount = remainder < 0n ? -remainder : remainder;
-        const towardsDebit = remainder > 0n ? isPayment : !isPayment;
-        built.push({
-          key: `vch-${voucher.id}`,
-          date: voucher.date,
-          label,
-          note: t("suppliers.statement.unallocated"),
-          reference: voucherRef,
-          debit: towardsDebit ? amount : 0n,
-          credit: towardsDebit ? 0n : amount,
-        });
-      }
-    }
-
-    return built.sort((a, b) => {
-      if (a.date === null) return -1;
-      if (b.date === null) return 1;
-      return a.date === b.date ? a.key.localeCompare(b.key) : a.date.localeCompare(b.date);
-    });
-  }, [supplier.openingBalance, confirmedInvoices, supplierVouchers, allocationsQuery.data, invoiceLabels, t]);
-
-  const isError = invoicesQuery.isError || vouchersQuery.isError || allocationsQuery.isError || openInvoicesQuery.isError;
-  const isLoading = invoicesQuery.isLoading || vouchersQuery.isLoading || allocationsQuery.isLoading || openInvoicesQuery.isLoading;
-
-  const buckets = agingBucketsFor(agingQuery.data?.rows.find((row) => row.supplierId === supplier.id));
-
-  if (isError) {
-    return (
-      <TabError
-        message={t("suppliers.statement.loadFailed")}
-        onRetry={() => {
-          invoicesQuery.refetch();
-          vouchersQuery.refetch();
-          allocationsQuery.refetch();
-          openInvoicesQuery.refetch();
-        }}
-      />
-    );
-  }
-  if (isLoading) return <p className="p-[18px] text-[12.5px] text-ink-muted">{t("suppliers.statement.loading")}</p>;
-
-  const totalDebit = rows.reduce<bigint>((total, row) => total + row.debit, 0n);
-  const totalCredit = rows.reduce<bigint>((total, row) => total + row.credit, 0n);
-  const closing = totalCredit - totalDebit;
-
-  const invoicedTotal = sumMoney(confirmedInvoices.map((inv) => inv.total));
-  const allocatedNet = (allocationsQuery.data ?? []).reduce<bigint>((total, alloc) => {
-    if (alloc.status !== "active") return total;
-    const voucher = supplierVouchers.find((v) => v.id === alloc.voucherId);
-    if (!voucher) return total;
-    return voucher.direction === "payment" ? total + parseMoney(alloc.amount) : total - parseMoney(alloc.amount);
-  }, 0n);
-  const subLedgerOutstanding = sumMoney((openInvoicesQuery.data ?? []).map((inv) => inv.outstanding));
-  const matchesSubLedger = absDiff(invoicedTotal - allocatedNet, subLedgerOutstanding) <= MONEY_RECONCILIATION_TOLERANCE;
-
-  const agingTotal = moneyFromNumber(buckets.total);
-  const agingKnown = agingQuery.isSuccess;
-  const matchesAging = absDiff(closing, agingTotal) <= MONEY_RECONCILIATION_TOLERANCE;
-
-  let running = 0n;
-
-  return (
-    <div className="flex flex-col gap-[16px]">
-      <div className="grid grid-cols-2 gap-[12px] sm:grid-cols-4">
-        <MiniStat label={t("suppliers.statement.opening")} value={<MoneyValue value={num(supplier.openingBalance)} showUnit={false} />} />
-        <MiniStat label={t("suppliers.statement.totalCredit")} value={<MoneyValue value={moneyToNumber(totalCredit)} showUnit={false} />} />
-        <MiniStat label={t("suppliers.statement.totalDebit")} value={<MoneyValue value={moneyToNumber(totalDebit)} showUnit={false} />} />
-        <MiniStat label={t("suppliers.statement.closing")} value={<MoneyValue value={moneyToNumber(closing)} showUnit={false} />} />
-      </div>
-
-      <div className="flex flex-col gap-[10px] rounded-lg border border-border bg-surface p-[12px_15px]">
-        <div className="flex flex-wrap items-center gap-[10px]">
-          <StatusPill
-            label={matchesSubLedger ? t("suppliers.statement.matchesSubLedger") : t("suppliers.statement.differsFromSubLedger")}
-            tone={matchesSubLedger ? "success" : "warning"}
-          />
-          <span className="text-[12px] text-ink-muted">
-            {t("suppliers.statement.outstandingLabel")} <MoneyValue value={moneyToNumber(subLedgerOutstanding)} showUnit={false} className="text-ink" />
-            {matchesSubLedger
-              ? t("suppliers.statement.subLedgerMatchNote")
-              : t("suppliers.statement.subLedgerDiffNote")}
-          </span>
-        </div>
-        {agingKnown ? (
-          <div className="flex flex-wrap items-center gap-[10px]">
-            <StatusPill
-              label={matchesAging ? t("suppliers.statement.matchesAging") : t("suppliers.statement.differsFromAging")}
-              tone={matchesAging ? "success" : "warning"}
-            />
-            <span className="text-[12px] text-ink-muted">
-              {t("suppliers.statement.reportBalance")} <MoneyValue value={moneyToNumber(agingTotal)} showUnit={false} className="text-ink" />
-              {matchesAging
-                ? t("suppliers.statement.agingMatchNote")
-                : t("suppliers.statement.agingDiffNote")}
-            </span>
-          </div>
-        ) : null}
-      </div>
-
-      <div className="overflow-x-auto rounded-lg border border-border bg-surface">
-        <table className="w-full min-w-[720px] border-collapse text-[12.5px]">
-          <thead>
-            <tr className="border-b border-border text-ink-muted">
-              <th className="p-[10px] text-start font-semibold">{t("common.date")}</th>
-              <th className="p-[10px] text-start font-semibold">{t("suppliers.statement.col.movement")}</th>
-              <th className="p-[10px] text-start font-semibold">{t("suppliers.statement.col.reference")}</th>
-              <th className="p-[10px] text-end font-semibold">{t("common.debit")}</th>
-              <th className="p-[10px] text-end font-semibold">{t("common.credit")}</th>
-              <th className="p-[10px] text-end font-semibold">{t("suppliers.statement.col.balance")}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row) => {
-              running += row.credit - row.debit;
-              return (
-                <tr key={row.key} className="border-b border-border last:border-b-0">
-                  <td className="mz-num p-[10px] text-ink-muted">{row.date === null ? "—" : isoToDisplay(row.date)}</td>
-                  <td className="p-[10px] text-ink">
-                    {row.label}
-                    {row.note ? <div className="mt-[3px] text-[11px] text-ink-faint">{row.note}</div> : null}
-                  </td>
-                  <td className="mz-num p-[10px] text-ink-muted">{row.reference}</td>
-                  <td className="p-[10px] text-end text-ink">
-                    {row.debit === 0n ? "—" : <MoneyValue value={moneyToNumber(row.debit)} showUnit={false} />}
-                  </td>
-                  <td className="p-[10px] text-end text-ink">
-                    {row.credit === 0n ? "—" : <MoneyValue value={moneyToNumber(row.credit)} showUnit={false} />}
-                  </td>
-                  <td className="p-[10px] text-end font-semibold text-ink">
-                    <MoneyValue value={moneyToNumber(running)} showUnit={false} />
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-
-      <div className="rounded-lg border border-border bg-surface p-[16px_18px]">
-        <h3 className="font-display text-[13.5px] font-bold text-ink">{t("suppliers.aging.heading")}</h3>
-        <p className="mt-[4px] max-w-[80ch] text-[11.5px] leading-[1.8] text-ink-faint">
-          {t("suppliers.aging.description")}
-        </p>
-        {agingQuery.isError ? (
-          <div className="mt-[12px]">
-            <TabError message={t("suppliers.aging.loadFailed")} onRetry={() => agingQuery.refetch()} />
-          </div>
-        ) : (
-          <div className="mt-[14px] overflow-x-auto">
-            <table className="w-full min-w-[560px] border-collapse text-[12.5px]">
-              <thead>
-                <tr className="border-b border-border text-ink-muted">
-                  <th className="p-[8px] text-end font-semibold">{t("suppliers.aging.current")}</th>
-                  <th className="p-[8px] text-end font-semibold">{t("suppliers.aging.d31to60")}</th>
-                  <th className="p-[8px] text-end font-semibold">{t("suppliers.aging.d61to90")}</th>
-                  <th className="p-[8px] text-end font-semibold">{t("suppliers.aging.d91to120")}</th>
-                  <th className="p-[8px] text-end font-semibold">{t("suppliers.aging.over120")}</th>
-                  <th className="p-[8px] text-end font-semibold">{t("common.total")}</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td className="p-[8px] text-end text-ink">
-                    <MoneyValue value={buckets.current} showUnit={false} />
-                  </td>
-                  <td className="p-[8px] text-end text-ink">
-                    <MoneyValue value={buckets.d31to60} showUnit={false} />
-                  </td>
-                  <td className="p-[8px] text-end text-ink">
-                    <MoneyValue value={buckets.d61to90} showUnit={false} />
-                  </td>
-                  <td className="p-[8px] text-end text-ink">
-                    <MoneyValue value={buckets.d91to120} showUnit={false} />
-                  </td>
-                  <td className="p-[8px] text-end text-ink">
-                    <MoneyValue value={buckets.over120} showUnit={false} />
-                  </td>
-                  <td className="p-[8px] text-end font-semibold text-ink">
-                    <MoneyValue value={buckets.total} showUnit={false} />
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-      <p className="max-w-[80ch] text-[11.5px] leading-[1.9] text-ink-faint">
-        {t("suppliers.statement.footnote")}
-      </p>
-    </div>
-  );
-}
-
-/** Absolute difference of two scaled integers — reconciliation stays in `bigint` space. */
-function absDiff(a: bigint, b: bigint): bigint {
-  return a > b ? a - b : b - a;
-}
 
 interface SupplierDraft {
   code: string;
@@ -612,7 +351,12 @@ function SupplierDetail({ supplier, onBack, onEdit }: { supplier: SupplierDTO; o
           ),
         },
         { key: "invoices", label: t("suppliers.tab.invoices"), content: <SupplierInvoicesTab supplierId={supplier.id} /> },
-        { key: "statement", label: t("suppliers.tab.statement"), content: <SupplierStatementTab supplier={supplier} /> },
+        { key: "statement", label: t("suppliers.tab.statement"), content: (
+            <div className="flex flex-col gap-[16px]">
+              <PartyStatementTab kind="supplier" partyId={supplier.id} />
+              <SupplierAgingCard supplierId={supplier.id} />
+            </div>
+          ), },
       ]}
     />
   );
@@ -654,20 +398,9 @@ export function SuppliersScreen() {
   const counts = useSupplierCounts(filter).data ?? {};
   const stats = useSupplierStats(filter).data ?? {};
 
-  // The payable a supplier ROW must answer is the LIVE one: opening balance plus
-  // confirmed invoices, less payments and returns. Reporting the opening figure
-  // left every row at 0.00 against 150,867.60 of confirmed invoices (D39). The
-  // strip's total comes off `/suppliers/stats`, which derives the same figure
-  // server-side in `Money`.
-  const purchaseInvoices = usePurchaseInvoices().data ?? EMPTY;
-  const vouchers = useVouchers().data ?? EMPTY;
-  const purchaseReturns = usePurchaseReturns().data ?? EMPTY;
-  const cheques = useCheques().data ?? EMPTY;
-  const payableById = useMemo(
-    () => supplierPayableById(suppliers, purchaseInvoices, vouchers, purchaseReturns, cheques),
-    [suppliers, purchaseInvoices, vouchers, purchaseReturns, cheques],
-  );
-  const payableOf = (id: string) => payableById.get(id) ?? 0;
+  // The payable a supplier ROW shows is the server's `owed`: their row on the
+  // supplier aging ladder, in base currency, opening balance included (D201).
+  const payableOf = (id: string) => majorOf(suppliers.find((s) => s.id === id)?.owed ?? "0");
 
   const selected = suppliers.find((s) => s.id === selectedId) ?? null;
 

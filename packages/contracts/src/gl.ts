@@ -37,6 +37,11 @@ export const glJournalLineSchema = z.object({
    * 201 — the same way the voucher's cost centre (D26) once did.
    */
   branchId: z.string().min(1).nullish(),
+  /**
+   * The customer (on 1105) or supplier (on 2100) the line belongs to. Required
+   * on a party control account, refused anywhere else (D205).
+   */
+  partyId: z.string().min(1).nullish(),
 });
 
 /** Create (and post) a journal entry. */

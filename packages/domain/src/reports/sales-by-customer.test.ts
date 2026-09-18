@@ -132,3 +132,16 @@ describe("createSalesByCustomerReport", () => {
     expect(outcome.rows[0]?.outstanding).toBe(0);
   });
 });
+
+describe("createSalesByCustomerReport — a foreign invoice (D201)", () => {
+  it("counts a CHF 100 + 14% invoice booked at 60.00 as the 6,840.00 its posting debited AR with, and its outstanding in base", () => {
+    const definition = createSalesByCustomerReport("2026-01-01", "2026-12-31");
+    const foreign = invoice({ currency: "CHF", fxRate: "60.00", lines: [line({ taxRatePercent: 14 })], amountPaid: Money.fromMajor("3000") });
+    const inc = runReport(definition, { dateFrom: "2026-08-01", dateTo: "2026-08-31", taxMode: "inc" }, { invoices: [foreign] });
+    const exc = runReport(definition, { dateFrom: "2026-08-01", dateTo: "2026-08-31", taxMode: "exc" }, { invoices: [foreign] });
+    if (!inc.ok || !exc.ok) throw new Error("report failed");
+    expect(inc.rows[0]?.total).toBe(6840);
+    expect(exc.rows[0]?.total).toBe(6000);
+    expect(inc.rows[0]?.outstanding).toBe(3840);
+  });
+});

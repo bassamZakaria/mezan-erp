@@ -31,6 +31,7 @@ export {
   assertEntryDate,
   assertMemorandumPartition,
   assertProjectRequired,
+  assertPartyLines,
 } from "./post.js";
 export {
   reverseJournalEntry,
@@ -45,6 +46,9 @@ export {
   JournalEntryAlreadyReversedError,
   InactiveAccountError,
   DuplicateJournalEntryError,
+  PartyRequiredOnControlAccountError,
+  InvalidJournalPartyError,
+  type PartyControlKind,
 } from "./errors.js";
 
 export {

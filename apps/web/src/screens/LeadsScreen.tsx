@@ -173,7 +173,7 @@ export function LeadsScreen() {
     event.preventDefault();
     const error = validateDraft(draft);
     if (error) {
-      setFormError(error);
+      setFormError(t(error));
       return;
     }
     setFormError(null);

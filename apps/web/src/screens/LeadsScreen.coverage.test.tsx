@@ -149,7 +149,7 @@ describe("LeadsScreen — create form validation", () => {
     const dialog = screen.getByRole("dialog", { name: "عميل محتمل جديد" });
     fireEvent.click(within(dialog).getByRole("button", { name: "إضافة" }));
 
-    expect(await within(dialog).findByRole("alert")).toHaveTextContent("leads.nameRequired");
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("الاسم مطلوب.");
     expect(createCalls).toBe(0);
   });
 

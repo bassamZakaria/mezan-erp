@@ -441,7 +441,7 @@ function BranchActivityTab({ branch }: { branch: BranchDTO }) {
         kind: t("branches.salesInvoice"),
         reference: inv.docNo ?? inv.id,
         detail: inv.customerNameAr,
-        amount: Number(inv.totals.grandTotal),
+        amount: Number(inv.baseGrandTotal ?? inv.totals.grandTotal),
       });
     }
     for (const inv of purchasesQuery.data ?? []) {
@@ -452,7 +452,7 @@ function BranchActivityTab({ branch }: { branch: BranchDTO }) {
         kind: t("branches.purchaseInvoice"),
         reference: inv.number,
         detail: inv.supplierInvoiceNumber ?? "—",
-        amount: Number(inv.total),
+        amount: Number(inv.baseTotal ?? inv.total),
       });
     }
     for (const voucher of vouchersQuery.data ?? []) {
@@ -463,7 +463,7 @@ function BranchActivityTab({ branch }: { branch: BranchDTO }) {
         kind: voucher.direction === "receipt" ? t("branches.receiptVoucher") : voucher.direction === "payment" ? t("branches.paymentVoucher") : t("branches.treasuryTransfer"),
         reference: voucher.docNo ?? voucher.id,
         detail: voucher.memo === "" ? "—" : voucher.memo,
-        amount: Number(voucher.amount),
+        amount: Number(voucher.baseAmount),
       });
     }
     return built.sort((a, b) => (a.date === b.date ? b.key.localeCompare(a.key) : b.date.localeCompare(a.date)));

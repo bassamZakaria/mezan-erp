@@ -203,13 +203,13 @@ function SupplierInvoicesTab({ supplierId }: { supplierId: string }) {
                   <StatusPill label={t(PURCHASE_STATUS_KEY[inv.status])} tone={PURCHASE_STATUS_TONE[inv.status]} />
                 </td>
                 <td className="p-[10px] text-end text-ink-muted">
-                  <MoneyValue value={num(inv.subtotal)} showUnit={false} />
+                  <MoneyValue value={num(inv.subtotal)} showUnit={Boolean(inv.fxRate)} currencyLabel={inv.fxRate ? inv.currency : undefined} />
                 </td>
                 <td className="p-[10px] text-end text-ink-muted">
-                  <MoneyValue value={num(inv.tax)} showUnit={false} />
+                  <MoneyValue value={num(inv.tax)} showUnit={Boolean(inv.fxRate)} currencyLabel={inv.fxRate ? inv.currency : undefined} />
                 </td>
                 <td className="p-[10px] text-end font-semibold text-ink">
-                  <MoneyValue value={num(inv.total)} showUnit={false} />
+                  <MoneyValue value={num(inv.total)} showUnit={Boolean(inv.fxRate)} currencyLabel={inv.fxRate ? inv.currency : undefined} />
                 </td>
               </tr>
             ))}

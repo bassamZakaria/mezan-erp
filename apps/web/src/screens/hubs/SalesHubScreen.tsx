@@ -72,7 +72,7 @@ export function SalesHubScreen() {
           key: inv.id,
           primary: inv.customerNameAr,
           secondary: <DateAndDoc date={inv.date} docNo={inv.docNo} />,
-          trailing: <Money value={num(inv.totals.grandTotal)} />,
+          trailing: <Money value={num(inv.baseGrandTotal ?? inv.totals.grandTotal)} />,
         })),
       }}
     />

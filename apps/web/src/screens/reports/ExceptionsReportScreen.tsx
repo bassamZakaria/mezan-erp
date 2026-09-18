@@ -1,10 +1,12 @@
 import type { SecurityExceptionRowDTO, SecurityWatchlistEntryDTO } from "@mezan/contracts";
 import type { ReportRunnerColumn, ReportRunnerParamField } from "@mezan/ui";
-import { SecurityReportScreen, type SecurityReportResult } from "./SecurityReportScreen";
+import { SecurityReportScreen, securityCopy, type SecurityReportResult } from "./SecurityReportScreen";
 import { useAppTranslation } from "../../i18n";
 import { monthStartIso, todayIso } from "../../lib/dates";
 
 /** تقرير الاستثناءات الأمنية — `/security-reports/exceptions` (P-4). */
+
+const REPORT = "exceptions" as const;
 
 const SEVERITY_OPTIONS = ["", "INFO", "WARNING", "ERROR", "CRITICAL"] as const;
 
@@ -28,18 +30,33 @@ export function ExceptionsReportScreen() {
   ];
 
   const columns: ReportRunnerColumn<SecurityExceptionRowDTO>[] = [
-    { key: "actor", header: t("securityReports.actor"), value: (r) => r.actor },
-    { key: "actionLabelAr", header: t("securityReports.event"), value: (r) => r.actionLabelAr },
-    { key: "count", header: t("securityReports.count"), format: "qty", align: "end", value: (r) => r.count, total: true },
-    { key: "critical", header: t("securityReports.severity.CRITICAL"), format: "qty", align: "end", value: (r) => r.critical, total: true },
-    { key: "warning", header: t("securityReports.severity.WARNING"), format: "qty", align: "end", value: (r) => r.warning },
-    { key: "info", header: t("securityReports.severity.INFO"), format: "qty", align: "end", value: (r) => r.info },
-    { key: "firstAt", header: t("securityReports.firstAt"), value: (r) => r.firstAt },
-    { key: "lastAt", header: t("securityReports.lastAt"), value: (r) => r.lastAt },
+    { key: "actor", header: securityCopy(REPORT, "col", "actor", "المستخدم", t), value: (r) => r.actor },
+    { key: "actionLabelAr", header: securityCopy(REPORT, "col", "actionLabelAr", "الحدث", t), value: (r) => r.actionLabelAr },
+    {
+      key: "count",
+      header: securityCopy(REPORT, "col", "count", "العدد", t),
+      format: "qty",
+      align: "end",
+      value: (r) => r.count,
+      total: true,
+    },
+    {
+      key: "critical",
+      header: securityCopy(REPORT, "col", "critical", "حرِج", t),
+      format: "qty",
+      align: "end",
+      value: (r) => r.critical,
+      total: true,
+    },
+    { key: "warning", header: securityCopy(REPORT, "col", "warning", "تحذير", t), format: "qty", align: "end", value: (r) => r.warning },
+    { key: "info", header: securityCopy(REPORT, "col", "info", "معلومة", t), format: "qty", align: "end", value: (r) => r.info },
+    { key: "firstAt", header: securityCopy(REPORT, "col", "firstAt", "أول حدوث", t), value: (r) => r.firstAt },
+    { key: "lastAt", header: securityCopy(REPORT, "col", "lastAt", "آخر حدوث", t), value: (r) => r.lastAt },
   ];
 
   return (
     <SecurityReportScreen<SecurityExceptionRowDTO>
+      report={REPORT}
       reportId="security.exceptions"
       apiPath="/exceptions"
       title={t("securityReports.exceptionsTitle")}

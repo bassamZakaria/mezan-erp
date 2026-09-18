@@ -81,10 +81,13 @@ describe("the four exception-report screens", () => {
   });
 
   it("renders the gaps the server declared rather than showing a blank column as 'nothing to report'", async () => {
+    // A gap key the catalogue has no override for — this exercises the
+    // fallback path, so the assertion stays true even if a translator
+    // later refines the catalogue's copy for a real, named gap.
     const transport = stubTransport({
       "GET /security-reports/post-posting-changes": () => ({
         body: envelope([], {
-          gaps: [{ key: "reason", labelAr: "سبب الإلغاء", detailAr: "لا يسجّل أي مسار إلغاء سبباً بعد." }],
+          gaps: [{ key: "unmapped-gap", labelAr: "سبب الإلغاء", detailAr: "لا يسجّل أي مسار إلغاء سبباً بعد." }],
         }),
       }),
     });

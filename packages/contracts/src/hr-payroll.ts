@@ -77,6 +77,7 @@ export const payslipLineSourceSchema = z.enum([
   "contract_deduction",
   "unpaid_leave",
   "advance_recovery",
+  "garnishment",
 ]);
 
 export const payslipLineSchema = z.object({

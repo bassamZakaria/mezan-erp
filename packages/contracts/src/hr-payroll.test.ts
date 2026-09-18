@@ -179,8 +179,8 @@ describe("payslipLineKindSchema", () => {
 });
 
 describe("payslipLineSourceSchema", () => {
-  it("accepts each of the five known sources", () => {
-    for (const s of ["contract_basic", "contract_allowance", "contract_deduction", "unpaid_leave", "advance_recovery"]) {
+  it("accepts each of the six known sources, garnishment included", () => {
+    for (const s of ["contract_basic", "contract_allowance", "contract_deduction", "unpaid_leave", "advance_recovery", "garnishment"]) {
       expect(payslipLineSourceSchema.safeParse(s).success).toBe(true);
     }
   });

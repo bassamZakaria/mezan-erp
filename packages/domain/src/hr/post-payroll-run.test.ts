@@ -128,7 +128,7 @@ function payrollRun(overrides: Partial<PayrollRun> = {}): PayrollRun {
 }
 
 function line(overrides: Partial<PayslipLine> & Pick<PayslipLine, "kind" | "source" | "amount">): PayslipLine {
-  return { id: `line-${Math.random()}`, nameAr: "بند", glAccountId: null, referenceId: null, ...overrides };
+  return { id: `line-${Math.random()}`, nameAr: "بند", glAccountId: null, referenceId: null, capped: false, ...overrides };
 }
 
 function payslip(overrides: Partial<Payslip> & Pick<Payslip, "id" | "employeeId" | "lines" | "grossEarnings" | "totalDeductions" | "netPay">): Payslip {
@@ -545,6 +545,38 @@ describe("approvePayrollRun — garnishments and branch attribution", () => {
     expect(order.outstanding.toString()).toBe("200.000000");
     expect(order.recovered.toString()).toBe("300.000000");
     expect(order.active).toBe(true);
+  });
+
+  it("D181: counts the order down by only what the run actually withheld when the statutory cap reduced it, so the shortfall carries forward", async () => {
+    const orders = register();
+    await orders.create(
+      createGarnishment(
+        {
+          id: "grn-1",
+          employeeId: "emp-1",
+          kind: "court_order",
+          reference: "1842/2026",
+          labelAr: "حجز",
+          totalAmount: Money.fromMajor("5000.00"),
+          monthlyAmount: Money.fromMajor("500.00"),
+          currency: "EGP",
+          startDate: "2026-01-01",
+        },
+        () => "2026-01-01T00:00:00.000Z",
+      ),
+    );
+    await h.runs.create(payrollRun());
+    // The order's own instalment is 500.00, but the payroll engine capped
+    // this period's withholding at 125.00 (calculate-payroll-run.test.ts
+    // proves the cap itself) — the payslip records only what was withheld.
+    await h.payslips.create(garnishedSlip("ps-1", "emp-1", "125.00", "875.00"));
+
+    await approvePayrollRun("run-1", "user-1", { ...h.deps, garnishments: orders });
+
+    const order = orders.rows.get("grn-1")!;
+    expect(order.outstanding.toString()).toBe("4875.000000"); // 5000 - 125, NOT 5000 - 500
+    expect(order.recovered.toString()).toBe("125.000000");
+    expect(order.active).toBe(true); // still owed — the 375.00 shortfall carries to next month
   });
 
   it("refuses to approve when a payslip names an order the register does not hold, rather than posting a liability nobody owns", async () => {

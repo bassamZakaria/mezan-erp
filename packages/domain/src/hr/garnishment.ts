@@ -1,6 +1,8 @@
 import { Money } from "../money/index.js";
 import { InvalidGarnishmentError } from "./errors.js";
-import type { Garnishment, GarnishmentProvider } from "./payroll-run.js";
+import type { Garnishment, GarnishmentKind, GarnishmentProvider } from "./payroll-run.js";
+
+export type { GarnishmentKind } from "./payroll-run.js";
 
 /**
  * الحجز على الأجر — a court-ordered or agreed deduction from wages.
@@ -16,8 +18,6 @@ import type { Garnishment, GarnishmentProvider } from "./payroll-run.js";
  * honour. Where the net will not stretch to both, the advance instalment is the
  * one that carries forward.
  */
-
-export type GarnishmentKind = "court_order" | "alimony" | "debt_settlement" | "union_dues" | "other";
 
 export interface GarnishmentKindDefinition {
   readonly code: GarnishmentKind;

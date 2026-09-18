@@ -9102,6 +9102,7 @@ const webAr = {
   "settingsGeneral.dayDivisorFixed30": "ثابت — 30 يوماً",
   "settingsGeneral.dayDivisorCalendarDays": "أيام الشهر الفعلية",
   "payslipPrint.statutoryNotComputed": "صافي الراتب لا يشمل ضريبة كسب العمل ولا التأمينات الاجتماعية — لم تُحتسبا.",
+  "payslipPrint.garnishmentCapped": "طُبِّق الحد الأقصى القانوني للحجز على الأجر — يُرحّل الباقي للشهر التالي",
 } as const;
 
 export type WebTranslationKey = keyof typeof webAr;
@@ -18210,6 +18211,7 @@ const webEn: Record<WebTranslationKey, string> = {
   "settingsGeneral.dayDivisorFixed30": "Fixed — 30 days",
   "settingsGeneral.dayDivisorCalendarDays": "Actual days in the month",
   "payslipPrint.statutoryNotComputed": "Net pay excludes salary tax and social insurance — neither is computed.",
+  "payslipPrint.garnishmentCapped": "The statutory wage-attachment cap applied — the remainder carries to next month",
 };
 
 export const webCatalogs: LocaleCatalogs = { ar: webAr, en: webEn };

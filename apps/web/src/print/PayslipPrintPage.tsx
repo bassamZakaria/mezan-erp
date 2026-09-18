@@ -52,6 +52,7 @@ export function PayslipPrintPage({ payslip, run }: { payslip: PayslipDTO; run: P
           netPay: t("payslipPrint.netPay"),
           employerContributions: t("payslipPrint.employerContributions"),
           paidDays: t("payslipPrint.paidDays"),
+          garnishmentCapped: t("payslipPrint.garnishmentCapped"),
         },
         statutoryNotice: t("payslipPrint.statutoryNotComputed"),
       }),

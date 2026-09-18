@@ -145,6 +145,8 @@ export interface PayslipLine {
   readonly glAccountId: string | null;
   /** The advance this line recovers, for `advance_recovery` lines. */
   readonly referenceId: string | null;
+  /** True when a `garnishment` line was reduced by the statutory wage-attachment cap (Art. 44) rather than paid at the order's full instalment. */
+  readonly capped: boolean;
 }
 
 export interface Payslip {
@@ -223,10 +225,22 @@ export interface PayslipRepository {
   deleteByRunId(runId: string): Promise<void>;
 }
 
+/**
+ * The garnishment's own kind. نفقة (alimony/family-maintenance) orders rank
+ * ahead of every other kind and are allowed a higher statutory ceiling — see
+ * `calculatePayrollRun`. Optional and defaults to "other" so a caller that
+ * predates this distinction (or a repository that has not populated it) still
+ * type-checks; the canonical, exhaustive definition lives on
+ * `GarnishmentRecord` in garnishment.ts.
+ */
+export type GarnishmentKind = "court_order" | "alimony" | "debt_settlement" | "union_dues" | "other";
+
 /** A court-ordered or agreed deduction that is not an employee advance (حجز على الأجر). */
 export interface Garnishment {
   readonly id: string;
   readonly employeeId: string;
+  /** Absent/undefined is treated as "other" — only "alimony" (نفقة) changes ranking and cap. */
+  readonly kind?: GarnishmentKind;
   readonly reference: string;
   readonly labelAr: string;
   readonly monthlyAmount: Money;

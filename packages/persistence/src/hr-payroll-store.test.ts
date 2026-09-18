@@ -292,6 +292,7 @@ describe("SqlitePayslipRepository", () => {
       amount: Money.fromMajor(overrides.amount ?? "5000.000001"),
       glAccountId: null,
       referenceId: null,
+      capped: false,
     };
   }
 

@@ -50,6 +50,8 @@ export interface PayslipPrintContext {
     readonly netPay: string;
     readonly employerContributions: string;
     readonly paidDays: string;
+    /** Shown beside a garnishment line the statutory wage-attachment cap reduced. */
+    readonly garnishmentCapped: string;
   };
   /** What the net does NOT include, printed on the paper copy so a partial net is never read as a statutory one. */
   readonly statutoryNotice?: string;
@@ -63,7 +65,7 @@ export function payslipPrintModel(ctx: PayslipPrintContext): PrintDocumentModel 
     const kindLabel =
       line.kind === "earning" ? labels.earning : line.kind === "deduction" ? labels.deduction : labels.employerContribution;
     return {
-      description: line.nameAr,
+      description: line.capped ? `${line.nameAr} — ${labels.garnishmentCapped}` : line.nameAr,
       unit: kindLabel,
       qty: 1,
       // A deduction reduces the net, so it prints as a negative number rather

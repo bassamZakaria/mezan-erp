@@ -88,6 +88,8 @@ export const payslipLineSchema = z.object({
   amount: moneyString,
   glAccountId: z.string().nullable(),
   referenceId: z.string().nullable(),
+  /** True when a `garnishment` line was reduced by the statutory wage-attachment cap (Art. 44). Absent on lines predating the cap. */
+  capped: z.boolean().optional(),
 });
 
 export const payslipSchema = z.object({

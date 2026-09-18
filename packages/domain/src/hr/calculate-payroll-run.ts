@@ -13,6 +13,7 @@ import {
   payrollDayDivisor,
   payrollPeriodBounds,
   PAYROLL_GL_ACCOUNTS,
+  type Garnishment,
   type GarnishmentProvider,
   type PayrollDayDivisorBasis,
   type PayrollRun,
@@ -38,12 +39,15 @@ import {
  *   - gross = the active contract's monthly salary + its allowance lines,
  *     each PRORATED by the days the contract was actually live inside the
  *     period (hire mid-month, contract start/end mid-month);
- *   - deductions = the contract's own deduction lines (fixed monthly amounts,
- *     NOT prorated), an unpaid-leave deduction if and only if an unpaid-leave
+ *   - deductions = an unpaid-leave deduction if and only if an unpaid-leave
  *     day source is bound (each day priced at the monthly wage over the
- *     tenant's day divisor), wage garnishments, and advance-recovery
- *     instalments falling due — garnishments first, because a court order
- *     outranks the employer's own loan;
+ *     tenant's day divisor), then wage garnishments, then the contract's own
+ *     deduction lines (fixed monthly amounts, NOT prorated), then
+ *     advance-recovery instalments falling due — COURT ORDERS RANK FIRST
+ *     among these: a legal order outranks both the employer's own voluntary
+ *     contract deductions and its own loan (advance recovery). Garnishments
+ *     are themselves capped under Labour Law 12/2003 Art. 44 — see
+ *     `calculatePayrollRun` below for the 25%/50% ceilings;
  *   - net = gross − deductions.
  *
  * Every proration and split runs through `allocate` (largest remainder) so the
@@ -161,6 +165,49 @@ function prorate(amount: Money, paidDays: number, periodDays: number): Money {
   return allocate(amount, [paidDays, periodDays - paidDays])[0] as Money;
 }
 
+/** A percentage of `base`, floored to the scaled unit — a cap must never be crossed by rounding up. */
+function ceilingOf(base: bigint, percent: bigint): bigint {
+  return (base * percent) / 100n;
+}
+
+interface GarnishmentWithholdingResult {
+  /** What was actually withheld this period. */
+  readonly take: bigint;
+  /** What the order is due this period, before any cap or net-pay limit. */
+  readonly owed: bigint;
+  /** True when the statutory ceiling — not net pay — kept `take` below `owed`. */
+  readonly cappedByLaw: boolean;
+  /** True when net pay left after the cap — not the cap itself — further reduced `take`. */
+  readonly cappedByNet: boolean;
+}
+
+/**
+ * Resolves one order against a shared statutory ceiling for its group (نفقة or
+ * everything else) and the wage still available. `withheldInGroup` is the
+ * running total already taken by earlier orders in the SAME group this
+ * period, so the ceiling is shared across every order of that kind, not
+ * reset per order.
+ */
+function resolveGarnishmentWithholding(
+  order: Garnishment,
+  ceiling: bigint,
+  withheldInGroup: bigint,
+  available: bigint,
+): GarnishmentWithholdingResult | null {
+  const owed = order.outstanding.scaled < order.monthlyAmount.scaled ? order.outstanding.scaled : order.monthlyAmount.scaled;
+  if (owed <= 0n) return null;
+  const roomUnderCap = ceiling - withheldInGroup;
+  if (roomUnderCap <= 0n) return { take: 0n, owed, cappedByLaw: true, cappedByNet: false };
+  const underCap = owed < roomUnderCap ? owed : roomUnderCap;
+  const take = underCap < available ? underCap : available;
+  return {
+    take: take < 0n ? 0n : take,
+    owed,
+    cappedByLaw: underCap < owed,
+    cappedByNet: take < underCap,
+  };
+}
+
 interface EmployeePayrollInput {
   readonly employee: EmployeeRef;
   readonly contract: Contract;
@@ -239,6 +286,7 @@ export async function calculatePayrollRun(runId: string, deps: PayrollCalculatio
       amount: prorate(contract.monthlySalary, paidDays, periodDays),
       glAccountId: null,
       referenceId: null,
+      capped: false,
     });
     for (const allowance of contract.allowances) {
       lines.push({
@@ -249,9 +297,14 @@ export async function calculatePayrollRun(runId: string, deps: PayrollCalculatio
         amount: prorate(allowance.amount, paidDays, periodDays),
         glAccountId: componentAccountId(components, allowance.componentId),
         referenceId: null,
+        capped: false,
       });
     }
 
+    // The wage base every statutory calculation below reads off — the gross
+    // earnings this engine already computes above, UNREDUCED by any
+    // deduction. Both the unpaid-leave clamp and the garnishment cap measure
+    // against this same figure.
     const grossEarnings = Money.sum(lines.filter((l) => l.kind === "earning").map((l) => l.amount));
 
     if (deps.unpaidLeave) {
@@ -260,17 +313,94 @@ export async function calculatePayrollRun(runId: string, deps: PayrollCalculatio
       if (unpaidDays > 0) {
         const monthlyWage = contract.monthlySalary.add(Money.sum(contract.allowances.map((a) => a.amount)));
         const atDayRate = unpaidDays >= divisor ? monthlyWage : (allocate(monthlyWage, [unpaidDays, divisor - unpaidDays])[0] as Money);
+        // D184: the ÷30 (FIXED_30) divisor under-deducts once EVERY paid day
+        // in the period was unpaid but the period itself is shorter than 30
+        // days (February) — e.g. 28 unpaid days of a 28-day February would
+        // only bill 28/30, leaving the employee 2/30 of a month they never
+        // worked. Once unpaid days cover the whole paid period, the
+        // deduction is that period's own gross earnings, never a
+        // divisor-based fraction of it.
+        const fullyUnpaid = unpaidDays >= paidDays;
+        const deduction = fullyUnpaid ? grossEarnings : atDayRate.scaled > grossEarnings.scaled ? grossEarnings : atDayRate;
         lines.push({
           id: idGen(),
           kind: "deduction",
           source: "unpaid_leave",
           nameAr: `إجازة بدون أجر (${unpaidDays} يوم)`,
-          amount: atDayRate.scaled > grossEarnings.scaled ? grossEarnings : atDayRate,
+          amount: deduction,
           glAccountId: null,
           referenceId: null,
+          capped: false,
         });
       }
     }
+
+    // D182: court orders rank ahead of the employer's own voluntary/contract
+    // deductions (Labour Law 12/2003 obliges the employer to honour a legal
+    // order before its own agreed deductions), so garnishments are resolved
+    // against the wage BEFORE contract deductions are even totalled.
+    let available = grossEarnings.scaled - Money.sum(lines.filter((l) => l.kind === "deduction").map((l) => l.amount)).scaled;
+
+    const eligibleOrders: Garnishment[] = [];
+    for (const order of (await deps.garnishments?.listActiveFor(employee.id, run.periodEnd)) ?? []) {
+      if (order.currency !== run.currency) {
+        warnings.push(`${employee.fullNameAr} (${employee.code}): الحجز ${order.reference} بعملة ${order.currency} — لم يُخصم.`);
+        continue;
+      }
+      eligibleOrders.push(order);
+    }
+
+    /**
+     * D181 — Labour Law 12/2003 Art. 44: wage attachment is capped at 25% of
+     * the wage; where there is a نفقة (alimony/family-maintenance) order the
+     * combined attachment may reach 50%, and نفقة is satisfied first. So:
+     * نفقة orders share a 50% ceiling and go first; every other order shares
+     * a 25% ceiling; and the two ceilings combined never exceed 50%.
+     */
+    const nafaqaCeiling = ceilingOf(grossEarnings.scaled, 50n);
+    const nonNafaqaCeiling = ceilingOf(grossEarnings.scaled, 25n);
+
+    const nafaqaOrders = eligibleOrders.filter((o) => o.kind === "alimony");
+    const otherOrders = eligibleOrders.filter((o) => o.kind !== "alimony");
+
+    function withholdGroup(orders: readonly Garnishment[], ceiling: bigint, ceilingLabelAr: string): bigint {
+      let withheld = 0n;
+      for (const order of orders) {
+        if (available <= 0n) break;
+        const result = resolveGarnishmentWithholding(order, ceiling, withheld, available);
+        if (result === null) continue;
+        const { take, cappedByLaw, cappedByNet } = result;
+        if (take <= 0n) {
+          if (cappedByLaw) {
+            warnings.push(`${employee.fullNameAr} (${employee.code}): الحجز ${order.reference} بلغ الحد الأقصى القانوني ${ceilingLabelAr} — يُرحّل الباقي.`);
+          }
+          continue;
+        }
+        available -= take;
+        withheld += take;
+        if (cappedByLaw) {
+          warnings.push(`${employee.fullNameAr} (${employee.code}): الحجز ${order.reference} خُصم بحدود الحد الأقصى القانوني ${ceilingLabelAr} — يُرحّل الباقي.`);
+        }
+        if (cappedByNet) {
+          warnings.push(`${employee.fullNameAr} (${employee.code}): الحجز ${order.reference} خُصم جزئياً بحدود صافي الراتب المتاح — يُرحّل الباقي.`);
+        }
+        lines.push({
+          id: idGen(),
+          kind: "deduction",
+          source: "garnishment",
+          nameAr: `${order.labelAr} (${order.reference})`,
+          amount: Money.fromScaled(take),
+          glAccountId: PAYROLL_GL_ACCOUNTS.garnishmentPayableAccountId,
+          referenceId: order.id,
+          capped: cappedByLaw,
+        });
+      }
+      return withheld;
+    }
+
+    const nafaqaWithheld = withholdGroup(nafaqaOrders, nafaqaCeiling, "(50% نفقة)");
+    const otherCeiling = nonNafaqaCeiling < nafaqaCeiling - nafaqaWithheld ? nonNafaqaCeiling : nafaqaCeiling - nafaqaWithheld;
+    withholdGroup(otherOrders, otherCeiling, "(25% للحجز على الأجر)");
 
     for (const deduction of contract.deductions) {
       lines.push({
@@ -281,37 +411,14 @@ export async function calculatePayrollRun(runId: string, deps: PayrollCalculatio
         amount: deduction.amount,
         glAccountId: componentAccountId(components, deduction.componentId),
         referenceId: null,
+        capped: false,
       });
     }
 
     const fixedDeductions = Money.sum(lines.filter((l) => l.kind === "deduction").map((l) => l.amount));
-    let available = grossEarnings.scaled - fixedDeductions.scaled;
+    available = grossEarnings.scaled - fixedDeductions.scaled;
     if (available < 0n) {
       throw new NegativeNetPayError(employee.id, grossEarnings.toString(), fixedDeductions.toString());
-    }
-
-    for (const order of (await deps.garnishments?.listActiveFor(employee.id, run.periodEnd)) ?? []) {
-      if (available <= 0n) break;
-      if (order.currency !== run.currency) {
-        warnings.push(`${employee.fullNameAr} (${employee.code}): الحجز ${order.reference} بعملة ${order.currency} — لم يُخصم.`);
-        continue;
-      }
-      const owed = order.outstanding.scaled < order.monthlyAmount.scaled ? order.outstanding.scaled : order.monthlyAmount.scaled;
-      if (owed <= 0n) continue;
-      const take = owed < available ? owed : available;
-      available -= take;
-      if (take < owed) {
-        warnings.push(`${employee.fullNameAr} (${employee.code}): الحجز ${order.reference} خُصم جزئياً بحدود صافي الراتب المتاح — يُرحّل الباقي.`);
-      }
-      lines.push({
-        id: idGen(),
-        kind: "deduction",
-        source: "garnishment",
-        nameAr: `${order.labelAr} (${order.reference})`,
-        amount: Money.fromScaled(take),
-        glAccountId: PAYROLL_GL_ACCOUNTS.garnishmentPayableAccountId,
-        referenceId: order.id,
-      });
     }
 
     const advances = (await deps.advances.listByEmployeeId(employee.id))
@@ -338,6 +445,7 @@ export async function calculatePayrollRun(runId: string, deps: PayrollCalculatio
         amount: Money.fromScaled(take),
         glAccountId: null,
         referenceId: advance.id,
+        capped: false,
       });
     }
 

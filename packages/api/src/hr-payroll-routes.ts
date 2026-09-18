@@ -162,6 +162,7 @@ function serializePayslip(p: Payslip) {
       amount: l.amount.toString(),
       glAccountId: l.glAccountId,
       referenceId: l.referenceId,
+      capped: l.capped,
     })),
     grossEarnings: p.grossEarnings.toString(),
     totalDeductions: p.totalDeductions.toString(),

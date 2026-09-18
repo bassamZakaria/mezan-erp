@@ -445,6 +445,8 @@ interface SerializedPayslipLine {
   amount: number;
   glAccountId: string | null;
   referenceId: string | null;
+  /** Optional — absent on rows written before the garnishment cap shipped. */
+  capped?: boolean;
 }
 
 function serializeLines(lines: readonly PayslipLine[]): string {
@@ -457,6 +459,7 @@ function serializeLines(lines: readonly PayslipLine[]): string {
       amount: l.amount.toScaledNumber(),
       glAccountId: l.glAccountId,
       referenceId: l.referenceId,
+      capped: l.capped,
     })),
   );
 }
@@ -470,6 +473,7 @@ function deserializeLines(json: string): PayslipLine[] {
     amount: Money.fromScaled(l.amount),
     glAccountId: l.glAccountId,
     referenceId: l.referenceId,
+    capped: l.capped ?? false,
   }));
 }
 

@@ -16,7 +16,7 @@
 
 import { Money } from "../money/index.js";
 import { postJournalEntry, reverseJournalEntry, type JournalLineInput, type JournalPostingDeps } from "../gl/index.js";
-import type { AllocatableInvoice, SettlementRates, SettlementSplit, VoucherAllocation } from "./allocation.js";
+import { laterDay, type AllocatableInvoice, type SettlementRates, type SettlementSplit, type VoucherAllocation } from "./allocation.js";
 import type { AllocationInvoiceKind } from "./voucher-types.js";
 
 /** `sourceDocType` of a realised-FX entry and, through the mirror, of its reversal. The ladders skip these lines by it. */
@@ -102,7 +102,7 @@ export interface RealisedFxPostingInput {
   readonly currency: string;
   readonly invoiceRate: string;
   readonly money: SettlingLine;
-  /** The date the settlement happened; the entry is dated the later of it and the invoice's own date. */
+  /** The allocation's effective day (D265); the entry is dated the later of it and the invoice's own date. */
   readonly date: string;
   /** The party's control account the voucher or cheque posted to (1105 / 2100). */
   readonly controlAccountId: string;
@@ -185,7 +185,7 @@ export async function postRealisedFx(
   await postJournalEntry(
     {
       id,
-      date: input.date > input.invoice.date ? input.date : input.invoice.date,
+      date: laterDay(input.date, input.invoice.date),
       memo:
         input.split.fxDifference.scaled === 0n
           ? `تسوية ${input.invoice.invoiceNo} بعملة ${input.currency} (${input.reference})`
@@ -201,22 +201,32 @@ export async function postRealisedFx(
   return id;
 }
 
+export function realisedFxReversalId(fxEntryId: string): string {
+  return `${fxEntryId}:REV`;
+}
+
 /**
- * Mirrors the realised-FX entry of an allocation being undone, on `date` or,
- * when none is given, the later of the entry's own date and today. An
- * allocation that posted nothing has nothing to mirror.
+ * The day an undo of `allocation` takes effect (D265): the day of the event
+ * that undid it — the hand undo, the voucher's reversal, the cheque's bounce —
+ * but never before the allocation itself took effect, so its settlement entry
+ * and the mirror never stand in the wrong order.
  */
-export async function reverseRealisedFx(
+export async function allocationUndoDay(
   allocation: VoucherAllocation,
-  gl: JournalPostingDeps,
-  opts: { readonly date?: string; readonly today: string },
-): Promise<void> {
+  eventDay: string,
+  ledger: Pick<JournalPostingDeps["ledger"], "findById">,
+): Promise<string> {
+  const made = allocation.date ?? (allocation.fxEntryId ? (await ledger.findById(allocation.fxEntryId))?.date : null);
+  return laterDay(eventDay, made);
+}
+
+/** Mirrors the settlement entry of an allocation being undone, on the day from {@link allocationUndoDay}. */
+export async function reverseRealisedFx(allocation: VoucherAllocation, gl: JournalPostingDeps, date: string): Promise<void> {
   if (!allocation.fxEntryId) return;
   const entry = await gl.ledger.findById(allocation.fxEntryId);
   if (!entry || entry.reversedByEntryId) return;
-  const date = opts.date ?? (entry.date > opts.today ? entry.date : opts.today);
   await reverseJournalEntry(allocation.fxEntryId, gl, {
-    reversalId: `${allocation.fxEntryId}:REV`,
+    reversalId: realisedFxReversalId(allocation.fxEntryId),
     date,
     memo: `عكس فروق عملة محققة (${entry.entryNo ?? entry.id})`,
   });

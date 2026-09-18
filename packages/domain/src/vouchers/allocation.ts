@@ -61,6 +61,14 @@ export interface VoucherAllocation {
   readonly status: AllocationStatus;
   readonly createdAt: string;
   readonly reversedAt: string | null;
+  /** The day it took effect (D265); its settlement entry carries the same date. Absent before D265. */
+  readonly date?: string | null;
+  /** The day it was undone (D265); the settlement entry's mirror carries the same date. */
+  readonly reversedOn?: string | null;
+}
+
+export function laterDay(a: string, b: string | null | undefined): string {
+  return b && b > a ? b : a;
 }
 
 /** What an allocation relieved its invoice of, in base at the invoice's own rate. */
@@ -217,6 +225,8 @@ export interface AllocateInput {
   readonly invoiceId: string;
   readonly amount: Money;
   readonly now: string;
+  /** The day the allocation is made (D265); lifted to the invoice's date if that is later. */
+  readonly date?: string;
   /**
    * Resolves the booked and settlement rates once the invoice is known; null
    * for a base-currency invoice. Supplied, a foreign invoice is relieved at its
@@ -228,7 +238,7 @@ export interface AllocateInput {
    * returns the realised-FX entry it posted. A refusal here (a closed period)
    * leaves the sub-ledger untouched.
    */
-  readonly beforeSave?: (invoice: AllocatableInvoice, split: SettlementSplit) => Promise<{ fxEntryId: string | null }>;
+  readonly beforeSave?: (invoice: AllocatableInvoice, split: SettlementSplit, date: string | null) => Promise<{ fxEntryId: string | null }>;
 }
 
 /**
@@ -273,7 +283,8 @@ export async function allocate(
   if (split.relief.scaled <= 0n) {
     throw new AllocationExceedsError("مبلغ التخصيص أصغر من أن يسدد أي جزء من الفاتورة بسعر الصرف.");
   }
-  const posted = input.beforeSave ? await input.beforeSave(invoice, split) : { fxEntryId: null };
+  const date = input.date ? laterDay(input.date, invoice.date) : null;
+  const posted = input.beforeSave ? await input.beforeSave(invoice, split, date) : { fxEntryId: null };
 
   const allocation: VoucherAllocation = {
     id: input.allocationId,
@@ -285,6 +296,7 @@ export async function allocate(
     status: "active",
     createdAt: input.now,
     reversedAt: null,
+    ...(date ? { date } : {}),
   };
   const updatedInvoice: AllocatableInvoice = {
     ...invoice,
@@ -303,13 +315,14 @@ export async function reverseAllocation(
   allocationId: string,
   now: string,
   deps: { allocations: AllocationRepository; invoices: AllocatableInvoiceRepository },
+  reversedOn?: string,
 ): Promise<{ allocation: VoucherAllocation; invoice: AllocatableInvoice | null }> {
   const allocation = await deps.allocations.findById(allocationId);
   if (!allocation) throw new AllocationNotFoundError(allocationId);
   if (allocation.status === "reversed") {
     throw new AllocationAlreadyReversedError(allocationId);
   }
-  const reversed: VoucherAllocation = { ...allocation, status: "reversed", reversedAt: now };
+  const reversed: VoucherAllocation = { ...allocation, status: "reversed", reversedAt: now, ...(reversedOn ? { reversedOn } : {}) };
   await deps.allocations.update(reversed);
 
   const invoice = await deps.invoices.findById(allocation.invoiceId);

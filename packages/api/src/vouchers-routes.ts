@@ -697,6 +697,7 @@ export function createVouchersRoutes(
         allocationId: parsed.data.allocationId ?? idGen(),
         invoiceId: parsed.data.invoiceId,
         amount: Money.fromMajor(parsed.data.amount),
+        date: await tenantDay(c, new Date().toISOString()),
       });
       return c.json(serializeAllocation(result.allocation), 201);
     } catch (err) {
@@ -721,7 +722,7 @@ export function createAllocationRoutes(
 
   app.post("/allocations/:id/reverse", gate("treasury.allocation.manage"), async (c) => {
     try {
-      const result = await service().reverseAllocation(c.req.param("id"));
+      const result = await service().reverseAllocation(c.req.param("id"), { date: await tenantDay(c, new Date().toISOString()) });
       return c.json(serializeAllocation(result.allocation));
     } catch (err) {
       return handleDomainError(c, err);

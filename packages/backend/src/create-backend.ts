@@ -3213,6 +3213,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       allocationId: `${voucherId}:A1`,
       invoiceId: input.invoiceId,
       amount: input.amount,
+      date: input.date,
     });
     return { voucherId };
   };
@@ -3419,6 +3420,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
           allocationId: `${voucherId}:A1`,
           invoiceId: input.invoiceId,
           amount: input.amount,
+          date: input.date,
         });
         // The number is stamped by the confirm, not the create — read it back so
         // the screen can name the voucher instead of showing its internal id.

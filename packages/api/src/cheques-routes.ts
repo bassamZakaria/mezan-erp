@@ -299,6 +299,7 @@ export function createChequesRoutes(deps: ChequeRoutesDeps, resolveAuthContext: 
         allocationId: parsed.data.allocationId ?? idGen(),
         invoiceId: parsed.data.invoiceId,
         amount: Money.fromMajor(parsed.data.amount),
+        date: await tenantDay(c, new Date().toISOString()),
       });
       const cheque = await service.findById(c.req.param("id"));
       if (!cheque) return c.json({ error: "NOT_FOUND" }, 404);

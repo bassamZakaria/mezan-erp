@@ -845,6 +845,9 @@ export class StockLedgerService {
       if (line.qty.isNegative() || line.qty.isZero()) {
         throw new InvalidStockMovementError([`السطر ${i}: الكمية يجب أن تكون رقماً موجباً`]);
       }
+      if (line.unitCost.scaled < 0n) {
+        throw new InvalidStockMovementError([`السطر ${i}: تكلفة الوحدة لا يمكن أن تكون سالبة`]);
+      }
     }
     const occurredAt = command.occurredAt ?? this.now();
 

@@ -68,6 +68,7 @@ import type {
   CreateExchangeRateDTO,
   CreateFollowUpDTO,
   CreateGlJournalEntryDTO,
+  UpdateGlJournalEntryDTO,
   CreateGoodsReceiptDTO,
   CreateInstallmentPlanDTO,
   CreateItemDTO,
@@ -1314,6 +1315,7 @@ export interface JournalEntryDTO {
     debit: string;
     credit: string;
     memo: string | null;
+    costCenterId?: string | null;
     projectId?: string | null;
     costCategory?: CostCategoryDTO | null;
     branchId?: string | null;
@@ -1441,6 +1443,35 @@ export function useCreateJournalEntry() {
       const res = await request("/gl/journal-entries", { method: "POST", body: JSON.stringify(body) });
       if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theEntryCouldNotBe"), t));
       return res.json<JournalEntryDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["journal-entries"] }),
+  });
+}
+
+/** تعديل مسودة قيد قائمة (PUT /gl/journal-entries/:id, D226) — refused 409 on anything not a draft. */
+export function useUpdateJournalEntry() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<JournalEntryDTO, ApiError, { id: string } & UpdateGlJournalEntryDTO>({
+    mutationFn: async ({ id, ...body }) => {
+      const res = await request(`/gl/journal-entries/${id}`, { method: "PUT", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theEntryCouldNotBeUpdated"), t));
+      return res.json<JournalEntryDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["journal-entries"] }),
+  });
+}
+
+/** حذف مسودة قيد قائمة (DELETE /gl/journal-entries/:id, D226) — refused 409 on anything not a draft. */
+export function useDeleteJournalEntry() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<void, ApiError, { id: string }>({
+    mutationFn: async ({ id }) => {
+      const res = await request(`/gl/journal-entries/${id}`, { method: "DELETE" });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theEntryCouldNotBeDeleted"), t));
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["journal-entries"] }),
   });

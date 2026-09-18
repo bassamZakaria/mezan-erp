@@ -111,6 +111,25 @@ function totals(lines: readonly PurchaseReturnLine[]) {
 }
 
 /**
+ * Confirmed purchase-return debit per SOURCE invoice, line by line, in base —
+ * what 2100 was debited with against each invoice (D216). A reversal's
+ * mirror undoes a return, so it is never counted as one.
+ */
+export function purchaseReturnCreditByInvoice(
+  docs: readonly { readonly status: string; readonly reversesDocId?: string | null; readonly lines: readonly PurchaseReturnLine[] }[],
+): ReadonlyMap<string, Money> {
+  const byInvoice = new Map<string, Money>();
+  for (const doc of docs) {
+    if (doc.status !== "confirmed" || doc.reversesDocId) continue;
+    for (const line of doc.lines) {
+      if (!line.sourceInvoiceId) continue;
+      byInvoice.set(line.sourceInvoiceId, (byInvoice.get(line.sourceInvoiceId) ?? Money.zero()).add(purchaseReturnLineCredit(line)));
+    }
+  }
+  return byInvoice;
+}
+
+/**
  * What a confirmed return takes OFF the supplier payable — the same figure its
  * GL posting debits to AP. Exported so the AP control-account reconciliation
  * can net returns out of the sub-ledger.

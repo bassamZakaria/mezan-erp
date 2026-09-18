@@ -162,6 +162,7 @@ function InvoiceDetail({
   const [payNote, setPayNote] = useState<string | null>(null);
 
   const paid = num(invoice.amountPaid);
+  const returned = num(invoice.returnedCredit ?? "0");
   const remaining = num(invoice.remainingBalance);
   const canPay = invoice.status === "confirmed" && remaining > 0;
   const settledInBase = Boolean(invoice.fxRate);
@@ -250,6 +251,7 @@ function InvoiceDetail({
         { label: t("purchaseInvoices.detail.grandTotal"), value: <MoneyValue value={num(invoice.total)} currencyLabel={docCurrencyLabel} /> },
         ...(settledInBase ? [{ label: t("purchaseInvoices.detail.baseTotal"), value: <MoneyValue value={settlementTotal} /> }] : []),
         { label: t("purchaseInvoices.pay.paid"), value: <MoneyValue value={paid} /> },
+        ...(returned > 0 ? [{ label: t("purchaseInvoices.pay.returned"), value: <MoneyValue value={-returned} /> }] : []),
         { label: t("purchaseInvoices.pay.remaining"), value: <MoneyValue value={remaining} />, valueTone: remaining > 0 ? "danger" : "default" },
       ]}
       effects={[

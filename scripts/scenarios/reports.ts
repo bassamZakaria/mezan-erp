@@ -397,6 +397,29 @@ export async function everyPartyTiesItsOwedLadderAndStatement(ctx: Ctx): Promise
 }
 
 /**
+ * D220: a ladder run as of a past day ties to its control account as of that
+ * day. Run last, when the tenant carries the most history — receipts,
+ * returns, cheques bounced and vouchers reversed after many of these days.
+ */
+export async function laddersTieOnPastDays_D220(ctx: Ctx): Promise<void> {
+  await ctx.scenario("D220 — both ladders tie to their control accounts as of every past day checked", async () => {
+    const days = ["2025-12-31", "2026-01-31", "2026-02-28", "2026-03-31", "2026-04-30", "2026-05-31", "2026-06-30", "2026-07-31"];
+    for (let day = 15; day <= 31; day += 1) days.push(`2026-08-${String(day).padStart(2, "0")}`);
+    days.push("2026-09-01", "2026-09-15");
+    for (const kind of ["customers", "suppliers"] as const) {
+      const off: string[] = [];
+      for (const day of days) {
+        const recon = (await ctx.req("GET", `/reports/aging/${kind}?asOfDate=${day}`)).body?.reconciliation;
+        if (!recon || ctx.scaled(recon.reportTotal) !== ctx.scaled(recon.referenceTotal)) {
+          off.push(`${day}: ladder ${recon?.reportTotal} control ${recon?.referenceTotal}`);
+        }
+      }
+      ctx.check(`aging ${kind}: the ladder equals its control account to the micro-unit on each of ${days.length} past days`, off.length === 0, off.slice(0, 4).join("; "));
+    }
+  });
+}
+
+/**
  * D194, D195, D196 on the seeded tenant. A currency of this scenario's own
  * (CHF) keeps its open balance and its revaluation out of the USD/EUR trails
  * the seams module measures; the settings it needs are restored afterwards.
@@ -596,6 +619,12 @@ export async function foreignSettlementReportsAndReturns_D201_D203(ctx: Ctx): Pr
       checkEq("and it owes the customer 3,000.00 back", n((await req("GET", "/sales-returns/SCN-D203-SR")).body?.refundDue), 3000);
       invoice = (await req("GET", "/sales-invoices/SCN-D202-SI")).body;
       checkEq("the invoice now owes 6,000.00 − 1,000.00 − 3,000.00", n(invoice?.remainingBalance), 2000);
+      const byCustomerAfterReturn = ctx.rows((await req("GET", `/reports/sales/by-customer?dateFrom=${today}&dateTo=${today}`)).body).find((r: any) => r.customerId === "SCN-D202-CUST");
+      checkEq("D219: sales by customer's outstanding nets the return too", n(byCustomerAfterReturn?.outstanding), 2000);
+      const drill = (await req("GET", "/reports/drill-down/customer/SCN-D202-CUST")).body;
+      checkEq("D219: and so does the customer drill-down", n(drill?.facts?.find((f: any) => f.key === "outstanding")?.value), 2000);
+      const overCollect = await req("POST", "/sales-invoices/SCN-D202-SI/payments", { amount: "2000.01", treasuryAccountId: "TR-DEMO-CASH", date: today });
+      checkEq("D219: a collection beyond what the return left owing is refused", overCollect.status, 422);
       checkEq("the /reconciliation AR row is exactly as tied as before", (await ctx.invariants()).ar, before.invariants.ar);
 
       await req("POST", "/purchases/invoices", {
@@ -620,6 +649,13 @@ export async function foreignSettlementReportsAndReturns_D201_D203(ctx: Ctx): Pr
       const prConfirmed = await req("POST", "/purchase-returns/SCN-D203-PR/confirm", {});
       check("two units go back to the supplier", prCreated.status === 201 && prConfirmed.status === 200, `${prCreated.status}/${prConfirmed.status} ${JSON.stringify(prConfirmed.body).slice(0, 200)}`);
       checkEq("D203: the return debits 2100 with CHF 11.40 × 60.00 = 684.00, whatever rate the caller sent", -(await glBalanceOf("2100")) - before.ap, 3420 - 420 - 684);
+      const piAfterReturn = (await req("GET", "/purchases/invoices/SCN-D203-PI")).body;
+      checkEq("D216: the bill's remaining balance nets its return, 3,420.00 − 420.00 − 684.00", n(piAfterReturn?.remainingBalance), 3420 - 420 - 684);
+      checkEq("D216: and names the 684.00 it returned", n(piAfterReturn?.returnedCredit), 684);
+      const supplierRow = ctx.rows((await req("GET", "/reports/aging/suppliers")).body).find((r: any) => r.supplierId === "SCN-D203-SUPP");
+      checkEq("D216: which is the supplier's row on the ladder", n(supplierRow?.total), n(piAfterReturn?.remainingBalance));
+      const bySupplier = ctx.rows((await req("GET", `/reports/purchases/by-supplier?dateFrom=${today}&dateTo=${today}`)).body).find((r: any) => r.supplierId === "SCN-D203-SUPP");
+      checkEq("D217: purchases by supplier's «المستحق» is that same figure, not the bill's full total", n(bySupplier?.outstanding), n(supplierRow?.total));
       const after = await ctx.invariants();
       checkEq("the /reconciliation AP row is exactly as tied as before", after.ap, before.invariants.ap);
       checkEq("and so is inventory", after.inventory, before.invariants.inventory);

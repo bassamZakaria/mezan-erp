@@ -138,7 +138,10 @@ class SharedSequenceStore implements SequenceStore {
 class SqliteLedgerRepository implements LedgerRepository {
   private readonly insertEntry: Database.Statement;
   private readonly updateEntry: Database.Statement;
+  private readonly updateDraftEntry: Database.Statement;
   private readonly insertLine: Database.Statement;
+  private readonly deleteLinesByEntry: Database.Statement;
+  private readonly deleteEntryById: Database.Statement;
   private readonly selectEntryById: Database.Statement;
   private readonly selectEntryByNo: Database.Statement;
   private readonly selectLines: Database.Statement;
@@ -161,10 +164,22 @@ class SqliteLedgerRepository implements LedgerRepository {
         source_doc_number = @source_doc_number
       WHERE id = @id
     `);
+    this.updateDraftEntry = sqlite.prepare(`
+      UPDATE journal_entry SET
+        date = @date,
+        memo = @memo,
+        source = @source,
+        source_doc_type = @source_doc_type,
+        source_doc_id = @source_doc_id,
+        source_doc_number = @source_doc_number
+      WHERE id = @id AND status = 'draft'
+    `);
     this.insertLine = sqlite.prepare(`
       INSERT INTO journal_line (entry_id, line_no, account_id, debit, credit, memo, cost_center_id, currency, fx_rate, tax_rate_percent, project_id, cost_category, branch_id, party_id)
       VALUES (@entry_id, @line_no, @account_id, @debit, @credit, @memo, @cost_center_id, @currency, @fx_rate, @tax_rate_percent, @project_id, @cost_category, @branch_id, @party_id)
     `);
+    this.deleteLinesByEntry = sqlite.prepare(`DELETE FROM journal_line WHERE entry_id = ? AND entry_id IN (SELECT id FROM journal_entry WHERE status = 'draft')`);
+    this.deleteEntryById = sqlite.prepare(`DELETE FROM journal_entry WHERE id = ? AND status = 'draft'`);
     this.selectEntryById = sqlite.prepare(`SELECT * FROM journal_entry WHERE id = ?`);
     this.selectEntryByNo = sqlite.prepare(`SELECT * FROM journal_entry WHERE entry_no = ?`);
     this.selectLines = sqlite
@@ -174,11 +189,10 @@ class SqliteLedgerRepository implements LedgerRepository {
       .safeIntegers();
   }
 
-  async save(entry: JournalEntry): Promise<void> {
-    this.insertEntry.run(entryParams(entry));
-    entry.lines.forEach((line, index) => {
+  private insertLines(entryId: string, lines: readonly JournalLine[]): void {
+    lines.forEach((line, index) => {
       this.insertLine.run({
-        entry_id: entry.id,
+        entry_id: entryId,
         line_no: index,
         account_id: line.accountId,
         debit: line.debit.toScaledNumber(),
@@ -196,6 +210,11 @@ class SqliteLedgerRepository implements LedgerRepository {
     });
   }
 
+  async save(entry: JournalEntry): Promise<void> {
+    this.insertEntry.run(entryParams(entry));
+    this.insertLines(entry.id, entry.lines);
+  }
+
   async update(entry: JournalEntry): Promise<void> {
     this.updateEntry.run({
       id: entry.id,
@@ -207,6 +226,26 @@ class SqliteLedgerRepository implements LedgerRepository {
       source_doc_id: entry.sourceDocId ?? null,
       source_doc_number: entry.sourceDocNumber ?? null,
     });
+  }
+
+  async replaceDraft(entry: JournalEntry): Promise<void> {
+    const updated = this.updateDraftEntry.run({
+      id: entry.id,
+      date: entry.date,
+      memo: entry.memo,
+      source: entry.source ?? "manual",
+      source_doc_type: entry.sourceDocType ?? null,
+      source_doc_id: entry.sourceDocId ?? null,
+      source_doc_number: entry.sourceDocNumber ?? null,
+    });
+    if (updated.changes === 0) return;
+    this.deleteLinesByEntry.run(entry.id);
+    this.insertLines(entry.id, entry.lines);
+  }
+
+  async deleteDraft(entryId: string): Promise<void> {
+    this.deleteLinesByEntry.run(entryId);
+    this.deleteEntryById.run(entryId);
   }
 
   async findById(id: string): Promise<JournalEntry | null> {

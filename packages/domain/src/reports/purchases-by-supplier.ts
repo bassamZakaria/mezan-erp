@@ -10,16 +10,22 @@ import { BRANCH_PARAM_FIELD, branchIdParamSchema, matchesBranch } from "./branch
 
 /**
  * المشتريات حسب المورد — Purchases by Supplier (docs/archive/catalog/08-reports.md):
- * supplier concentration and outstanding payables. Purchase invoices don't
- * yet track payments made against them (no `amountPaid`, unlike
- * `SalesInvoice` — supplier settlement lands in a later treasury phase), so
- * المستحق is every confirmed invoice's full total: an honest "nothing has
- * been recorded as paid yet" rather than a guessed partial figure.
+ * supplier concentration and outstanding payables. المستحق is what each of the
+ * period's confirmed invoices still owes — its BASE total less what the
+ * allocation sub-ledger settled and less its confirmed returns — the same
+ * per-invoice term the supplier aging ladder ages (D217). An invoice returned
+ * beyond what it still owed counts as nothing owed, not as a credit: its
+ * refund is not in the period's invoice set, so netting it would leave a
+ * refunded supplier reading as owing us forever.
  */
 
 export interface PurchasesBySupplierContext {
   readonly invoices: readonly PurchaseInvoice[];
   readonly suppliers: readonly Supplier[];
+  /** Amount settled per invoice id, from the allocation sub-ledger. */
+  readonly allocatedByInvoiceId?: ReadonlyMap<string, Money>;
+  /** Confirmed purchase-return debit per SOURCE invoice, in base. */
+  readonly returnsByInvoiceId?: ReadonlyMap<string, Money>;
 }
 
 export interface PurchasesBySupplierParams {
@@ -52,7 +58,7 @@ export function createPurchasesBySupplierReport(
   return {
     id: "purchases.by-supplier",
     titleAr: "المشتريات حسب المورد",
-    descriptionAr: "على من نعتمد أكثر في مشترياتنا وما هي المستحقات المتبقية (لا يشمل السداد — لا تتبع فواتير المشتريات حالياً دفعات).",
+    descriptionAr: "على من نعتمد أكثر في مشترياتنا وما هي المستحقات المتبقية بعد السداد والمرتجعات.",
     paramsSchema,
     defaultParams: { dateFrom: defaultDateFrom, dateTo: defaultDateTo, branchId: "" },
     paramFields: [{ kind: "dateRange", fromKey: "dateFrom", toKey: "dateTo", label: "الفترة" }, BRANCH_PARAM_FIELD],
@@ -79,22 +85,29 @@ export function createPurchasesBySupplierReport(
     run: (params, ctx) => {
       const supplierNames = new Map(ctx.suppliers.map((s) => [s.id, s.nameAr]));
       const supplierNamesEn = new Map(ctx.suppliers.map((s) => [s.id, s.nameEn ?? null]));
-      const bySupplier = new Map<string, { count: number; total: Money }>();
+      const bySupplier = new Map<string, { count: number; total: Money; outstanding: Money }>();
       for (const invoice of ctx.invoices) {
         if (invoice.status !== "confirmed") continue;
         if (!withinDateRange(invoice.date, params.dateFrom, params.dateTo)) continue;
         if (!matchesBranch(invoice.branchId, params.branchId)) continue;
         const total = purchaseInvoiceBaseTotal(invoice);
-        const existing = bySupplier.get(invoice.supplierId) ?? { count: 0, total: Money.zero() };
-        bySupplier.set(invoice.supplierId, { count: existing.count + 1, total: existing.total.add(total) });
+        const settled = ctx.allocatedByInvoiceId?.get(invoice.id) ?? Money.zero();
+        const returned = ctx.returnsByInvoiceId?.get(invoice.id) ?? Money.zero();
+        const outstanding = Money.fromScaled(total.scaled - settled.scaled - returned.scaled);
+        const existing = bySupplier.get(invoice.supplierId) ?? { count: 0, total: Money.zero(), outstanding: Money.zero() };
+        bySupplier.set(invoice.supplierId, {
+          count: existing.count + 1,
+          total: existing.total.add(total),
+          outstanding: existing.outstanding.add(outstanding.scaled > 0n ? outstanding : Money.zero()),
+        });
       }
       const rows = [...bySupplier.entries()].map(([supplierId, agg]) => ({
         supplierId,
         supplierNameAr: supplierNames.get(supplierId) ?? supplierId,
-          supplierNameEn: supplierNamesEn.get(supplierId) ?? null,
+        supplierNameEn: supplierNamesEn.get(supplierId) ?? null,
         count: agg.count,
         total: Number(agg.total.toString()),
-        outstanding: Number(agg.total.toString()),
+        outstanding: Number(agg.outstanding.toString()),
       }));
       const totalAll = sumRows(rows, (r) => r.total);
       return rows

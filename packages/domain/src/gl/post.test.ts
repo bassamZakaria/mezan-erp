@@ -8,6 +8,8 @@ import {
   createJournalEntry,
   postJournalEntry,
   postDraftJournalEntry,
+  replaceDraftJournalEntry,
+  deleteDraftJournalEntry,
   type CreateJournalEntryCommand,
   type JournalPostingDeps,
 } from "./post.js";
@@ -590,5 +592,135 @@ describe("party control accounts — a manual line on 1105/2100 names its party 
   it("checks nothing for a posting whose composition supplies no control accounts — a document posting", async () => {
     const { deps } = await harness();
     expect((await postJournalEntry(cashSale, deps)).status).toBe("posted");
+  });
+});
+
+describe("replaceDraftJournalEntry / deleteDraftJournalEntry — editing and discarding a draft (D226)", () => {
+  const partyControlAccounts = new Map([["1300-1", "customer" as const], ["2200", "supplier" as const]]);
+  const partyExists = async (kind: "customer" | "supplier", id: string) =>
+    (kind === "customer" && id === "CUST-1") || (kind === "supplier" && id === "SUPP-1");
+
+  it("overwrites a draft's date, memo and lines in place, keeping its id and draft status", async () => {
+    const { deps, ledger } = await harness();
+    await createJournalEntry(cashSale, deps);
+
+    const edited = await replaceDraftJournalEntry(
+      "je-1",
+      {
+        date: "2026-08-23",
+        memo: "Cash sale (corrected)",
+        lines: [
+          { accountId: "1300-1", debit: Money.fromMajor("200"), credit: Money.zero() },
+          { accountId: "4000", debit: Money.zero(), credit: Money.fromMajor("200") },
+        ],
+      },
+      deps,
+    );
+
+    expect(edited.id).toBe("je-1");
+    expect(edited.status).toBe("draft");
+    expect(edited.entryNo).toBeNull();
+    expect(edited.date).toBe("2026-08-23");
+    expect(edited.memo).toBe("Cash sale (corrected)");
+    expect(edited.lines).toHaveLength(2);
+
+    const stored = await ledger.findById("je-1");
+    expect(stored?.date).toBe("2026-08-23");
+    expect(stored?.lines).toHaveLength(2);
+  });
+
+  it("re-validates on edit: an unbalanced replacement is refused and the draft is left untouched", async () => {
+    const { deps, ledger } = await harness();
+    await createJournalEntry(cashSale, deps);
+    await expect(
+      replaceDraftJournalEntry(
+        "je-1",
+        {
+          date: "2026-08-23",
+          memo: "unbalanced",
+          lines: [
+            { accountId: "1300-1", debit: Money.fromMajor("100"), credit: Money.zero() },
+            { accountId: "4000", debit: Money.zero(), credit: Money.fromMajor("90") },
+          ],
+        },
+        deps,
+      ),
+    ).rejects.toBeInstanceOf(UnbalancedEntryError);
+    expect((await ledger.findById("je-1"))?.memo).toBe("Cash sale");
+  });
+
+  it("adding the missing party (D205) to a legacy draft's control-account line makes it postable", async () => {
+    const { deps } = await harness();
+    // Saved before D205 existed: a party-less line on the receivables control account.
+    await createJournalEntry(cashSale, deps);
+    await expect(
+      postDraftJournalEntry("je-1", { ...deps, partyControlAccounts, partyExists }),
+    ).rejects.toBeInstanceOf(PartyRequiredOnControlAccountError);
+
+    const edited = await replaceDraftJournalEntry(
+      "je-1",
+      {
+        date: cashSale.date,
+        memo: cashSale.memo,
+        lines: cashSale.lines.map((l) =>
+          l.accountId === "1300-1"
+            ? { ...l, partyId: "CUST-1" }
+            : l.accountId === "2200"
+              ? { ...l, partyId: "SUPP-1" }
+              : l,
+        ),
+      },
+      { ...deps, partyControlAccounts, partyExists },
+    );
+    expect(edited.lines.find((l) => l.accountId === "1300-1")?.partyId).toBe("CUST-1");
+    expect(edited.lines.find((l) => l.accountId === "2200")?.partyId).toBe("SUPP-1");
+
+    const posted = await postDraftJournalEntry("je-1", { ...deps, partyControlAccounts, partyExists });
+    expect(posted.status).toBe("posted");
+    expect(posted.entryNo).toBe("JE-000001");
+  });
+
+  it("refuses to edit an unknown draft id", async () => {
+    const { deps } = await harness();
+    await expect(
+      replaceDraftJournalEntry("nope", { date: "2026-08-22", memo: "x", lines: cashSale.lines }, deps),
+    ).rejects.toBeInstanceOf(JournalEntryNotFoundError);
+  });
+
+  it("refuses to edit a posted entry — corrections are reversals, not edits", async () => {
+    const { deps } = await harness();
+    await postJournalEntry(cashSale, deps);
+    await expect(
+      replaceDraftJournalEntry("je-1", { date: "2026-08-22", memo: "sneaky edit", lines: cashSale.lines }, deps),
+    ).rejects.toBeInstanceOf(JournalEntryNotDraftError);
+  });
+
+  it("deletes a draft outright, and it is gone from the ledger", async () => {
+    const { deps, ledger } = await harness();
+    await createJournalEntry(cashSale, deps);
+    await deleteDraftJournalEntry("je-1", deps);
+    expect(await ledger.findById("je-1")).toBeNull();
+  });
+
+  it("refuses to delete an unknown id", async () => {
+    const { deps } = await harness();
+    await expect(deleteDraftJournalEntry("nope", deps)).rejects.toBeInstanceOf(JournalEntryNotFoundError);
+  });
+
+  it("refuses to delete a posted entry — it stays immutable and undeletable", async () => {
+    const { deps, ledger } = await harness();
+    await postJournalEntry(cashSale, deps);
+    await expect(deleteDraftJournalEntry("je-1", deps)).rejects.toBeInstanceOf(JournalEntryNotDraftError);
+    expect(await ledger.findById("je-1")).not.toBeNull();
+  });
+
+  it("audits an edit and a delete", async () => {
+    const { deps, audit } = await harness();
+    await createJournalEntry(cashSale, deps);
+    await replaceDraftJournalEntry("je-1", { date: "2026-08-23", memo: "edited", lines: cashSale.lines }, deps);
+    await deleteDraftJournalEntry("je-1", deps);
+
+    expect(audit.events.map((e) => e.action)).toEqual(["UPDATE", "DELETE"]);
+    expect(audit.events.every((e) => e.entityType === "JOURNAL_ENTRY")).toBe(true);
   });
 });

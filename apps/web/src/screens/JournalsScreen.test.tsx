@@ -2,7 +2,7 @@
 import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, it } from "vitest";
 import { useState, type ReactNode } from "react";
-import { screen, fireEvent, waitFor } from "@testing-library/react";
+import { screen, fireEvent, waitFor, within } from "@testing-library/react";
 import type { AccountDTO } from "@mezan/contracts";
 import { JournalsScreen } from "./JournalsScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
@@ -355,5 +355,92 @@ describe("JournalsScreen — create: a line on a party control account names its
     const body = posted[0] as { lines: { accountId: string; partyId: string | null }[] };
     expect(body.lines[0]).toMatchObject({ accountId: "1105", partyId: "CUST-7" });
     expect(body.lines[1]?.partyId).toBeNull();
+  });
+});
+
+describe("JournalsScreen — editing and deleting a draft (D226)", () => {
+  function draftEntry(overrides: Partial<JournalEntryDTO> = {}): JournalEntryDTO {
+    return entry({
+      id: "je-draft",
+      entryNo: null,
+      status: "draft",
+      postedAt: null,
+      memo: "مسودة قيد",
+      ...overrides,
+    });
+  }
+
+  function renderWithDraft(
+    current: JournalEntryDTO[],
+    extra: Record<string, (init: RequestInit | undefined, path: string) => { status?: number; body?: unknown }> = {},
+  ) {
+    const transport = stubTransport({
+      "GET /gl/journal-entries": () => ({ body: current }),
+      "GET /gl/journal-entries/counts": () => ({ body: countsOf(current) }),
+      "GET /gl/journal-entries/stats": () => ({ body: statsOf(current) }),
+      "GET /accounts": () => ({ body: sampleAccounts }),
+      ...extra,
+    });
+    return renderWithProviders(
+      <TestNavigation>
+        <JournalsScreen />
+      </TestNavigation>,
+      { transport, initialSession: testAdminSession },
+    );
+  }
+
+  it("a posted entry offers neither تعديل nor حذف", async () => {
+    renderWithDraft([entry()]);
+    fireEvent.click(await screen.findByText("JE-000001"));
+    expect(screen.queryByRole("button", { name: "تعديل" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "حذف" })).not.toBeInTheDocument();
+  });
+
+  it("a draft entry offers both تعديل and حذف", async () => {
+    renderWithDraft([draftEntry()]);
+    fireEvent.click(await screen.findByText("مسودة قيد"));
+    expect(screen.getByRole("button", { name: "تعديل" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "حذف" })).toBeInTheDocument();
+  });
+
+  it("تعديل opens the form prefilled from the draft and PUTs the changes", async () => {
+    let putBody: { date: string; memo: string; lines: unknown[] } | null = null;
+    renderWithDraft([draftEntry()], {
+      "PUT /gl/journal-entries/je-draft": (init) => {
+        putBody = JSON.parse((init?.body as string) ?? "{}");
+        return { status: 200, body: { ...draftEntry(), ...putBody } };
+      },
+    });
+    fireEvent.click(await screen.findByText("مسودة قيد"));
+    fireEvent.click(screen.getByRole("button", { name: "تعديل" }));
+
+    expect(await screen.findByRole("heading", { name: "تعديل قيد يومية" })).toBeInTheDocument();
+    const memoField = screen.getByPlaceholderText("وصف القيد...") as HTMLInputElement;
+    expect(memoField.value).toBe("مسودة قيد");
+
+    fireEvent.change(memoField, { target: { value: "مسودة معدّلة" } });
+    fireEvent.click(screen.getByRole("button", { name: "حفظ التعديلات" }));
+
+    await waitFor(() => expect(putBody).not.toBeNull());
+    expect(putBody!.memo).toBe("مسودة معدّلة");
+    expect(putBody!.lines).toHaveLength(2);
+  });
+
+  it("حذف asks for confirmation, then DELETEs the draft", async () => {
+    let deleted = false;
+    renderWithDraft([draftEntry()], {
+      "DELETE /gl/journal-entries/je-draft": () => {
+        deleted = true;
+        return { status: 204 };
+      },
+    });
+    fireEvent.click(await screen.findByText("مسودة قيد"));
+    fireEvent.click(screen.getByRole("button", { name: "حذف" }));
+
+    const dialog = await screen.findByRole("dialog");
+    expect(deleted).toBe(false);
+    fireEvent.click(within(dialog).getByRole("button", { name: "حذف" }));
+
+    await waitFor(() => expect(deleted).toBe(true));
   });
 });

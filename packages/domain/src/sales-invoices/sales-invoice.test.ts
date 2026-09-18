@@ -343,6 +343,18 @@ describe("sales-invoice lifecycle transitions", () => {
       InvalidSalesInvoicePaymentError,
     );
   });
+
+  it("D219: a collection may not exceed what the invoice still owes after its returns", async () => {
+    const { svc, stockService } = await harness();
+    await seedStock(stockService, "ITEM-A", "100", "10");
+    await svc.createDraft(draftCmd({ id: "inv-r" }));
+    await svc.confirm("inv-r"); // grand total 387.60
+    const returned = Money.fromMajor("87.60");
+    await expect(svc.assertCollectable("inv-r", Money.fromMajor("300"), returned)).resolves.toBeTruthy();
+    await expect(svc.assertCollectable("inv-r", Money.fromMajor("300.01"), returned)).rejects.toBeInstanceOf(
+      InvalidSalesInvoicePaymentError,
+    );
+  });
 });
 
 /* ================================================================== */

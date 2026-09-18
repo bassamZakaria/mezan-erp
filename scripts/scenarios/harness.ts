@@ -27,11 +27,12 @@ export interface Res {
 
 export async function boot() {
   const dir = mkdtempSync(join(tmpdir(), "mezan-scn-"));
+  const dbPath = join(dir, "s.db");
   // The demo seed creates more accounts than the platform default's 10 seats
   // allow (A3's SEAT_LIMIT_REACHED); this stand-in resolver keeps every cap off.
   const resolveEntitlements = () =>
     createEntitlements({ plan: "DEMO", activeModules: MODULE_CATALOG, features: {}, seats: 50, expiresAt: null });
-  const { app, sessions } = await createBackend({ dbPath: join(dir, "s.db"), seedDemoData: true, resolveEntitlements });
+  const { app, sessions } = await createBackend({ dbPath, seedDemoData: true, resolveEntitlements });
 
   /**
    * A scenario acts as an identity by minting a session for it, not by writing
@@ -239,5 +240,27 @@ export async function boot() {
     return out;
   }
 
-  return { app, sessions, req, rows, allRows, n, scaled, check, checkEq, scenario, invariants, report, passes, failures };
+  return {
+    app,
+    sessions,
+    req,
+    rows,
+    allRows,
+    n,
+    scaled,
+    check,
+    checkEq,
+    scenario,
+    invariants,
+    report,
+    passes,
+    failures,
+    /**
+     * The live database file, so a scenario can reach a store directly (D226:
+     * a draft saved before D205 existed, inserted straight through the
+     * SQLite {@link LedgerRepository} the way an old books file already holds
+     * one — there is no HTTP route that can create that shape, on purpose).
+     */
+    dbPath,
+  };
 }

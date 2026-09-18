@@ -3,6 +3,7 @@ import {
   Button,
   Card,
   Chip,
+  ConfirmDialog,
   DocumentDetail,
   DocumentList,
   DocumentStatusStepper,
@@ -21,11 +22,12 @@ import {
   type RowMenuItem,
 } from "@mezan/ui";
 import { Money } from "@mezan/domain";
-import type { CostCategoryDTO, CreateGlJournalEntryDTO, JournalEntryStatusDTO, JournalSourceModuleDTO, ProjectDTO } from "@mezan/contracts";
+import type { CostCategoryDTO, CreateGlJournalEntryDTO, JournalEntryStatusDTO, JournalSourceModuleDTO, ProjectDTO, UpdateGlJournalEntryDTO } from "@mezan/contracts";
 import {
   useAccounts,
   useCostCenters,
   useCreateJournalEntry,
+  useDeleteJournalEntry,
   useJournalEntries,
   useJournalEntry,
   useJournalEntryCounts,
@@ -36,6 +38,7 @@ import {
   useProjects,
   useReverseJournalEntry,
   useSuppliers,
+  useUpdateJournalEntry,
   type JournalEntryDTO,
   type JournalEntryListFilter,
 } from "../data/hooks";
@@ -46,7 +49,7 @@ import { useSubPage } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 import { useEntityName } from "../lib/entity-names";
-import { majorOf, sumMajor } from "../lib/money";
+import { majorOf, scaledOf, sumMajor } from "../lib/money";
 import { todayIso } from "../lib/dates";
 import { EMPTY } from "../lib/empty";
 
@@ -168,6 +171,8 @@ export function JournalsScreen() {
   const projectsQuery = useProjects();
   const branchesQuery = useBranches();
   const createJournalEntry = useCreateJournalEntry();
+  const updateJournalEntry = useUpdateJournalEntry();
+  const deleteJournalEntry = useDeleteJournalEntry();
   const reverseJournalEntry = useReverseJournalEntry();
   const accounts = accountsQuery.data ?? EMPTY;
   const costCenters = costCentersQuery.data ?? EMPTY;
@@ -176,6 +181,7 @@ export function JournalsScreen() {
 
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [rowError, setRowError] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<JournalDoc | null>(null);
   // The open entry lives in the URL like every other document screen, so the
   // shell's breadcrumb (and the «رجوع» that sits beside it) can lead out of it.
   const subPage = useSubPage();
@@ -303,6 +309,20 @@ export function JournalsScreen() {
     }
   }
 
+  async function deleteEntry(doc: JournalDoc) {
+    if (pendingId) return;
+    setPendingId(doc.id);
+    setRowError(null);
+    try {
+      await deleteJournalEntry.mutateAsync({ id: doc.id });
+      if (selectedId) subPage.close();
+    } catch (err) {
+      setRowError(errorMessage(err, t("common.failed")));
+    } finally {
+      setPendingId(null);
+    }
+  }
+
   if (selectedId && selectedId !== "new" && !selected && !query.isLoading && !single.isLoading) {
     return (
       <div className="w-full p-[24px]">
@@ -315,15 +335,32 @@ export function JournalsScreen() {
     );
   }
 
+  const accountOptions = accounts.map((a) => ({ value: a.id, label: `${a.code} — ${nameOf(a)}` }));
+  const costCenterOptions = costCenters
+    .filter((c) => c.status === "active")
+    .map((c) => ({ value: c.id, label: `${c.code} — ${nameOf(c)}` }));
+
   if (selectedId === "new") {
     return (
       <CreateJournalView
-        onPost={(body) => createJournalEntry.mutateAsync(body)}
-        accountOptions={accounts.map((a) => ({ value: a.id, label: `${a.code} — ${nameOf(a)}` }))}
-        costCenterOptions={costCenters
-          .filter((c) => c.status === "active")
-          .map((c) => ({ value: c.id, label: `${c.code} — ${nameOf(c)}` }))}
+        onPost={(body) => createJournalEntry.mutateAsync({ id: crypto.randomUUID(), ...body })}
+        accountOptions={accountOptions}
+        costCenterOptions={costCenterOptions}
         onDone={subPage.close}
+      />
+    );
+  }
+
+  // `#/money/journals/<id>/edit` — a DRAFT only; a posted/reversed entry never offers it (D226).
+  if (selected && selected.status === "draft" && subPage.segments[1] === "edit") {
+    return (
+      <CreateJournalView
+        mode="edit"
+        initial={selected}
+        onPost={(body) => updateJournalEntry.mutateAsync({ id: selected.id, ...body })}
+        accountOptions={accountOptions}
+        costCenterOptions={costCenterOptions}
+        onDone={() => subPage.open(selected.id)}
       />
     );
   }
@@ -351,6 +388,20 @@ export function JournalsScreen() {
                 >
                   {t("journals.reverseEntry")}
                 </Button>
+              ) : null}
+              {selected.status === "draft" ? (
+                <>
+                  <Button
+                    variant="danger-outline"
+                    disabled={pendingId === selected.id}
+                    onClick={() => setDeleteTarget(selected)}
+                  >
+                    {t("journals.deleteEntry")}
+                  </Button>
+                  <Button disabled={pendingId === selected.id} onClick={() => subPage.open(selected.id, "edit")}>
+                    {t("journals.editEntry")}
+                  </Button>
+                </>
               ) : null}
               <Button onClick={() => subPage.open(selected.entryNo ?? selected.id, "print")}>{t("journals.print")}</Button>
             </>
@@ -413,6 +464,18 @@ export function JournalsScreen() {
               ),
             },
           ]}
+        />
+        <ConfirmDialog
+          open={deleteTarget?.id === selected.id}
+          title={t("journals.deleteConfirmTitle")}
+          consequence={t("journals.deleteConfirmBody")}
+          confirmLabel={t("journals.deleteEntry")}
+          tone="danger"
+          onConfirm={() => {
+            setDeleteTarget(null);
+            void deleteEntry(selected);
+          }}
+          onCancel={() => setDeleteTarget(null)}
         />
       </div>
     );
@@ -524,6 +587,12 @@ export function JournalsScreen() {
             ...(d.status === "posted"
               ? [{ key: "reverse", label: t("journals.reverseEntry"), tone: "danger" as const, disabled: pendingId === d.id, onSelect: () => void reverseEntry(d) }]
               : []),
+            ...(d.status === "draft"
+              ? [
+                  { key: "edit", label: t("journals.editEntry"), disabled: pendingId === d.id, onSelect: () => subPage.open(d.id, "edit") },
+                  { key: "delete", label: t("journals.deleteEntry"), tone: "danger" as const, disabled: pendingId === d.id, onSelect: () => deleteEntry(d) },
+                ]
+              : []),
           ];
           return <RowMenu items={menuItems} label={t("common.rowActionsFor", { name: d.entryNo ?? d.id })} />;
         }}
@@ -557,13 +626,50 @@ export function JournalsScreen() {
 /* Create view                                                          */
 /* -------------------------------------------------------------------- */
 
+/** What a create/edit submit sends — an `id` accompanies it only when creating (D226). */
+interface JournalFormPayload {
+  readonly date: string;
+  readonly memo: string;
+  readonly lines: CreateGlJournalEntryDTO["lines"];
+}
+
+/** The decimal wire string trimmed for editing, never touched by a float — "" means zero, matching {@link blankLine}. */
+function amountText(value: string): string {
+  if (scaledOf(value) === 0n) return "";
+  const trimmed = value.replace(/0+$/, "").replace(/\.$/, "");
+  return trimmed === "" || trimmed === "-" ? "0" : trimmed;
+}
+
+function linesFromEntry(entry: JournalDoc): LineDraft[] {
+  return entry.lines.map((l) => {
+    lineSeq += 1;
+    return {
+      key: `l${lineSeq}`,
+      accountId: l.accountId,
+      memo: l.memo ?? "",
+      debit: amountText(l.debit),
+      credit: amountText(l.credit),
+      costCenterId: l.costCenterId ?? "",
+      projectId: l.projectId ?? "",
+      costCategory: (l.costCategory ?? "") as CostCategoryDTO | "",
+      branchId: l.branchId ?? "",
+      partyId: l.partyId ?? "",
+    };
+  });
+}
+
 function CreateJournalView({
+  mode = "create",
+  initial,
   onPost,
   accountOptions,
   costCenterOptions,
   onDone,
 }: {
-  onPost: (body: CreateGlJournalEntryDTO) => Promise<unknown>;
+  /** "edit" only for a DRAFT entry (D226) — a posted/reversed entry is corrected by reversal, never edited. */
+  mode?: "create" | "edit";
+  initial?: JournalDoc;
+  onPost: (body: JournalFormPayload) => Promise<unknown>;
   accountOptions: { value: string; label: string }[];
   costCenterOptions: { value: string; label: string }[];
   onDone: () => void;
@@ -575,9 +681,9 @@ function CreateJournalView({
   const partyControlsQuery = usePartyControlAccounts();
   const customersQuery = useCustomers();
   const suppliersQuery = useSuppliers();
-  const [date, setDate] = useState(todayIso());
-  const [memo, setMemo] = useState("");
-  const [lines, setLines] = useState<LineDraft[]>([blankLine(), blankLine()]);
+  const [date, setDate] = useState(initial?.date ?? todayIso());
+  const [memo, setMemo] = useState(initial?.memo ?? "");
+  const [lines, setLines] = useState<LineDraft[]>(() => (initial ? linesFromEntry(initial) : [blankLine(), blankLine()]));
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -634,7 +740,6 @@ function CreateJournalView({
     setError(null);
     try {
       await onPost({
-        id: crypto.randomUUID(),
         date,
         memo: memo.trim(),
         lines: lines.map((l) => ({
@@ -651,7 +756,7 @@ function CreateJournalView({
       });
       onDone();
     } catch (err) {
-      setError(err instanceof Error ? err.message : t("journals.theEntryCouldNotBe"));
+      setError(err instanceof Error ? err.message : t(mode === "edit" ? "journals.theEntryCouldNotBeSaved" : "journals.theEntryCouldNotBe"));
     } finally {
       setBusy(false);
     }
@@ -665,12 +770,14 @@ function CreateJournalView({
     <div className="w-full">
       <div className="mb-[16px] flex flex-wrap items-end justify-between gap-[18px]">
         <div>
-          <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">{t("journals.createAJournalEntry")}</h1>
+          <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">
+            {t(mode === "edit" ? "journals.editJournalEntry" : "journals.createAJournalEntry")}
+          </h1>
         </div>
         <div className="flex items-center gap-[9px]">
           <Button onClick={onDone}>{t("common.cancel")}</Button>
           <Button variant="primary" disabled={!canPost} onClick={handlePost}>
-            {t("journals.postEntry")}
+            {t(mode === "edit" ? "journals.saveChanges" : "journals.postEntry")}
           </Button>
         </div>
       </div>

@@ -222,6 +222,12 @@ export interface DataMigrationRoutesDeps {
    * step to be mounted.
    */
   readonly fiscalPeriods?: FiscalPeriodRepository;
+  /**
+   * The routed receivable and payable control accounts (D205). An opening
+   * trial balance row on one of them names no party, so the commit refuses it
+   * (D212) — and the preview must say so before the operator commits (D225).
+   */
+  readonly partyControlAccounts?: () => Promise<ReadonlyMap<string, "customer" | "supplier">>;
   readonly postOpeningEntry?: (entry: {
     readonly id: string;
     readonly date: string;
@@ -778,6 +784,12 @@ export function createDataMigrationRoutes(
     app.post("/chart-of-accounts/commit", gate("accounting.coa.manage"), (c) => chartOfAccountsStep(c, true));
   }
 
+  function partyControlRowRefusal(code: string, kind: "customer" | "supplier"): string {
+    return kind === "customer"
+      ? `الحساب "${code}" حساب مراقبة العملاء ولا يُستورد رصيده من الميزان: أدخل أرصدة العملاء الافتتاحية على بطاقة كل عميل (أو باستيراد فواتيرهم المفتوحة)، واجعل مقابلها في هذا الميزان على حساب 3210. / Account "${code}" is the customer control account and cannot be imported from the trial balance: enter customer balances through the customer opening balances (or by importing their open invoices), and offset them in this trial balance with account 3210.`
+      : `الحساب "${code}" حساب مراقبة الموردين ولا يُستورد رصيده من الميزان: أدخل أرصدة الموردين الافتتاحية على بطاقة كل مورد (أو باستيراد فواتيرهم المفتوحة)، واجعل مقابلها في هذا الميزان على حساب 3210. / Account "${code}" is the supplier control account and cannot be imported from the trial balance: enter supplier balances through the supplier opening balances (or by importing their open invoices), and offset them in this trial balance with account 3210.`;
+  }
+
   // --- 11. ميزان المراجعة الافتتاحي (Opening trial balance) — P-5 ---
   const tbAccounts = deps.accounts;
   const tbPeriods = deps.fiscalPeriods;
@@ -832,6 +844,7 @@ export function createDataMigrationRoutes(
       const errors = preview.errors.map((e) => ({ rowNumber: e.rowNumber, reasons: e.reasons }));
 
       const byCode = new Map((await tbAccounts!.list()).map((a) => [a.code, a]));
+      const partyControls = (await deps.partyControlAccounts?.()) ?? new Map<string, "customer" | "supplier">();
       const lines: { accountId: string; debit: Money; credit: Money }[] = [];
       for (const row of preview.valid) {
         const account = byCode.get(row.accountCode);
@@ -845,6 +858,11 @@ export function createDataMigrationRoutes(
         }
         if (account.status !== "active") {
           errors.push({ rowNumber: row.rowNumber, reasons: [`الحساب "${row.accountCode}" غير نشط`] });
+          continue;
+        }
+        const partyKind = partyControls.get(account.id);
+        if (partyKind) {
+          errors.push({ rowNumber: row.rowNumber, reasons: [partyControlRowRefusal(row.accountCode, partyKind)] });
           continue;
         }
         lines.push({ accountId: account.id, debit: row.debit, credit: row.credit });

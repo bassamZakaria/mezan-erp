@@ -906,7 +906,7 @@ export async function receiveWorkOrderProduct(
   // the day it happened and must never reach the product.
   const materialCost = consumedCost.add(workOrderNormalWasteCost(order));
   const wip = workOrderWipTotal({ ...order, materialCost });
-  const unitCost = unitCostOf(wip, producedQty);
+  const unitCost = unitCostFloor(wip, producedQty);
   await deps.stock.postReceipt({
     receiptId,
     sourceDocId: order.id,
@@ -955,7 +955,9 @@ export async function receiveWorkOrderProduct(
  * posting debits to inventory. One line at `round(wip ÷ qty)` left the stock
  * ledger up to half a micro-unit per unit away from GL 1200 (D206), so one unit
  * carries the remainder. At a quantity of one or less the rounding cannot
- * survive `extend`, so no split is needed.
+ * survive `extend`, so no split is needed. The unit cost must be rounded DOWN
+ * (`unitCostFloor`): rounded up, the remainder unit goes negative once
+ * (qty − 1) half-micro-units exceed the WIP itself (D224).
  */
 function finishedGoodsReceiptLines(
   itemId: string,
@@ -973,6 +975,11 @@ function finishedGoodsReceiptLines(
     { itemId, qty: head, unitCost },
     { itemId, qty: one, unitCost: tail },
   ];
+}
+
+function unitCostFloor(total: Money, qty: Qty): Money {
+  if (qty.scaled <= 0n || total.scaled <= 0n) return unitCostOf(total, qty);
+  return Money.fromScaled((total.scaled * 1_000_000n) / qty.scaled);
 }
 
 export interface CompleteWorkOrderDeps {

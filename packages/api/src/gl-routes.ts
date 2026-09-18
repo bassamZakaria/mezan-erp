@@ -5,6 +5,8 @@ import {
   createJournalEntry,
   postJournalEntry,
   postDraftJournalEntry,
+  replaceDraftJournalEntry,
+  deleteDraftJournalEntry,
   reverseJournalEntry,
   UnbalancedEntryError,
   InvalidJournalEntryError,
@@ -51,6 +53,7 @@ import {
 import { tenantDay } from "./tenant-day.js";
 import {
   createGlJournalEntrySchema,
+  updateGlJournalEntrySchema,
   reverseGlJournalEntrySchema,
   glJournalListQuerySchema,
   type GlJournalListQueryDTO,
@@ -249,6 +252,8 @@ function handleDomainError(c: Context, err: unknown): Response {
  * GL posting routes (docs/archive/catalog/04 §القيود المحاسبية), mounted under `/gl`:
  *   POST /journal-entries            create + post in one step (post gate)
  *   POST /journal-entries/draft      save a draft            (create gate)
+ *   PUT  /journal-entries/:id        edit an existing draft  (create gate)
+ *   DELETE /journal-entries/:id      delete an existing draft (create gate)
  *   POST /journal-entries/:id/post   post an existing draft  (post gate)
  *   POST /journal-entries/:id/reverse  reverse a posted entry (post gate)
  *   GET  /journal-entries            list (status/source/date filters) (view gate)
@@ -511,6 +516,58 @@ export function createGlRoutes(
     try {
       const entry = await postDraftJournalEntry(c.req.param("id"), await manualPostingDeps(c));
       return c.json(serialize(entry));
+    } catch (err) {
+      return handleDomainError(c, err);
+    }
+  });
+
+  /**
+   * Edit a مسودة (draft) entry in place (D226): a draft saved before the D205
+   * party rule existed, or any other draft, is stuck otherwise — there is no
+   * other route that can change a line once saved. Refused 409 on anything
+   * that is not a draft; a posted or reversed entry is corrected only by
+   * reversal.
+   */
+  app.put("/journal-entries/:id", gate("accounting.journal.create"), async (c) => {
+    const parsed = updateGlJournalEntrySchema.safeParse(await c.req.json());
+    if (!parsed.success) {
+      return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    }
+    try {
+      const entry = await replaceDraftJournalEntry(
+        c.req.param("id"),
+        {
+          date: await tenantDay(c, parsed.data.date),
+          memo: parsed.data.memo,
+          source: parsed.data.source,
+          lines: parsed.data.lines.map((l) => ({
+            accountId: l.accountId,
+            debit: Money.fromMajor(l.debit),
+            credit: Money.fromMajor(l.credit),
+            memo: l.memo ?? null,
+            costCenterId: l.costCenterId ?? null,
+            taxRatePercent: l.taxRatePercent ?? null,
+            currency: l.currency ?? null,
+            fxRate: l.fxRate ?? null,
+            projectId: l.projectId ?? null,
+            costCategory: l.costCategory ?? null,
+            branchId: l.branchId ?? null,
+            partyId: l.partyId ?? null,
+          })),
+        },
+        await manualPostingDeps(c),
+      );
+      return c.json(serialize(entry));
+    } catch (err) {
+      return handleDomainError(c, err);
+    }
+  });
+
+  /** Delete a مسودة (draft) entry (D226). Refused 409 on anything that is not a draft. */
+  app.delete("/journal-entries/:id", gate("accounting.journal.create"), async (c) => {
+    try {
+      await deleteDraftJournalEntry(c.req.param("id"), postingDeps(c));
+      return c.body(null, 204);
     } catch (err) {
       return handleDomainError(c, err);
     }

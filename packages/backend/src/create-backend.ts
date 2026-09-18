@@ -2314,12 +2314,21 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         ? routedAccountId(routing, "control.receivable") ?? "1105"
         : routedAccountId(routing, "control.payable") ?? "2100";
 
+    // The customers screen posts each change of an opening balance as its own
+    // CUST-OPEN-JE entry. Those stand beside this one, so they count towards
+    // what the control account already holds — ignoring them posted every
+    // customer's opening balance a second time on the next start (D241).
+    const docType = kind === "customer" ? CUSTOMER_OPENING_BALANCE_DOC_TYPE : SUPPLIER_OPENING_BALANCE_DOC_TYPE;
+    const onControl = (entry: { lines: readonly { accountId: string; debit: Money; credit: Money }[] }) =>
+      entry.lines.filter((l) => l.accountId === controlAccountId).reduce((acc, l) => acc.add(l.debit).add(l.credit.negate()), Money.zero());
+    const postedElsewhere = (await ledger.list({ sourceDocId: party.id }))
+      .filter((entry) => entry.sourceDocType === docType && entry.status !== "draft" && !entry.id.startsWith(openingEntryId(kind, party.id, 0)))
+      .reduce((acc, entry) => acc.add(onControl(entry)), Money.zero());
+    const wanted = kind === "customer" ? party.openingBalance : party.openingBalance.negate();
+    const remainder = wanted.add(postedElsewhere.negate());
+
     if (live && live.status === "posted") {
-      const standing = live.lines
-        .filter((l) => l.accountId === controlAccountId)
-        .reduce((acc, l) => acc.add(l.debit).add(l.credit.negate()), Money.zero());
-      const wanted = kind === "customer" ? party.openingBalance : party.openingBalance.negate();
-      if (standing.equals(wanted)) return false;
+      if (onControl(live).equals(remainder)) return false;
       await reverseJournalEntry(live.id, salesInvoiceGl, {
         reversalId: `${live.id}:REV`,
         date: openingBalanceDate,
@@ -2327,12 +2336,13 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       });
     }
 
-    if (party.openingBalance.scaled === 0n) return live !== null;
+    if (remainder.scaled === 0n) return live !== null;
 
-    const magnitude = party.openingBalance.scaled < 0n ? party.openingBalance.negate() : party.openingBalance;
+    const owed = kind === "customer" ? remainder : remainder.negate();
+    const magnitude = owed.scaled < 0n ? owed.negate() : owed;
     // A customer owes us (Dr AR / Cr 3210); a supplier is owed (Cr AP / Dr
     // 3210). A negative opening balance is the same fact the other way round.
-    const controlIsDebit = (kind === "customer") !== (party.openingBalance.scaled < 0n);
+    const controlIsDebit = (kind === "customer") !== (owed.scaled < 0n);
     await postJournalEntry(
       {
         id: openingEntryId(kind, party.id, generation),
@@ -3586,6 +3596,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       // opening trial balance, and the open AR/AP the shop is actually owed.
       accounts,
       fiscalPeriods,
+      partyControlAccounts: resolvePartyControlAccounts,
       postOpeningEntry: async (entry) => {
         try {
           await postJournalEntry(

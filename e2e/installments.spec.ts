@@ -26,49 +26,76 @@ async function createCustomer(page: Page, name: string): Promise<void> {
   await expect(form).toBeHidden();
 }
 
+/**
+ * Item add/edit is a full sub-PAGE (FormPage), not a dialog — there is no
+ * `role="dialog"` here, just an `h1` heading "إضافة صنف" and an "إضافة"
+ * submit button (see items.spec.ts's file header for the same finding).
+ */
 async function createItem(page: Page, name: string, salePrice: string): Promise<void> {
   await clickSidebarItem(page, "الأصناف");
   await expect(page.getByRole("heading", { name: "الأصناف" })).toBeVisible();
-  await page.getByRole("button", { name: "إضافة صنف" }).click();
-  const form = page.getByRole("dialog", { name: "إضافة صنف" });
+  await page.getByRole("button", { name: "إضافة صنف" }).first().click();
+  await expect(page.getByRole("heading", { name: "إضافة صنف", level: 1 })).toBeVisible();
   // Service items skip inventory tracking, so they stay sellable without
   // needing real on-hand stock (see sales-invoices.spec.ts).
-  await form.getByLabel("نوع الصنف *").selectOption({ label: "خدمة" });
-  await form.getByLabel("اسم الصنف *").fill(name);
-  const price = form.getByLabel("سعر البيع");
+  await chooseComboOnPage(page, "نوع الصنف", "خدمة");
+  await page.getByLabel("اسم الصنف *").fill(name);
+  const price = page.getByLabel("سعر البيع");
   await price.fill(salePrice);
   await price.press("Tab");
-  await form.getByRole("button", { name: "إضافة", exact: true }).click();
-  await expect(form).toBeHidden();
+  await page.getByRole("button", { name: "إضافة", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "إضافة صنف", level: 1 })).toBeHidden();
 }
 
-async function pickEntity(scope: Locator, label: string, query: string): Promise<void> {
+async function pickEntity(scope: Page | Locator, label: string, query: string): Promise<void> {
   const input = scope.getByLabel(label);
   await input.click();
   await input.fill(query);
   await scope.getByRole("button", { name: new RegExp(query) }).first().click();
 }
 
-/** Selects a plain <select>'s option by a text substring — robust against exact-label formatting (money/date) we don't control. */
-async function selectOptionContaining(select: Locator, substring: string): Promise<void> {
-  const value = await select.locator("option").filter({ hasText: substring }).first().getAttribute("value");
-  if (value === null) throw new Error(`No <option> containing "${substring}"`);
-  await select.selectOption(value);
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** Clicks a `Select`/`EntityPicker` combobox trigger, then the matching option — neither is a native `<select>` (packages/ui/src/primitives/Select.tsx, EntityPicker.tsx). */
+async function chooseCombo(page: Page, scope: Locator, comboLabel: string, optionName: string | RegExp): Promise<void> {
+  await scope.getByRole("combobox", { name: comboLabel, exact: true }).click();
+  await page.getByRole("option", { name: optionName }).click();
+}
+
+/** Same as `chooseCombo`, for a combobox on a full sub-page rather than inside a dialog (e.g. items — see items.spec.ts's file header). */
+async function chooseComboOnPage(page: Page, comboLabel: string, optionName: string | RegExp): Promise<void> {
+  await page.getByRole("combobox", { name: comboLabel }).click();
+  await page.getByRole("option", { name: optionName }).click();
+}
+
+/** Picks a combobox option by a text substring — robust against exact-label formatting (money/date) we don't control. */
+async function chooseComboContaining(page: Page, scope: Locator, comboLabel: string, substring: string): Promise<void> {
+  await chooseCombo(page, scope, comboLabel, new RegExp(escapeRegExp(substring)));
 }
 
 function uniqueRow(page: Page, text: string): Locator {
   return page.locator("table tbody tr").filter({ hasText: text });
 }
 
+/**
+ * Create is a full sub-PAGE (h1 "فاتورة مبيعات جديدة"), not a dialog, and
+ * opens on a creation-method step ("إدخال بنود يدوياً" is the default,
+ * already pressed) before "متابعة" reveals the actual line-item form (see
+ * sales-invoices.spec.ts's file header for the same finding).
+ */
 async function createConfirmedSalesInvoice(page: Page, customerName: string, itemName: string): Promise<string> {
   await clickSidebarItem(page, "فواتير المبيعات");
   await expect(page.getByRole("heading", { name: "فواتير المبيعات" })).toBeVisible();
-  await page.getByRole("button", { name: "فاتورة جديدة" }).click();
-  const dialog = page.getByRole("dialog", { name: "فاتورة مبيعات جديدة" });
-  await pickEntity(dialog, "العميل *", customerName);
-  await pickEntity(dialog, "الصنف — سطر 1", itemName);
-  await dialog.getByRole("button", { name: "تأكيد الفاتورة" }).click();
-  await expect(dialog).toBeHidden();
+  await page.getByRole("button", { name: "فاتورة جديدة" }).first().click();
+  await expect(page.getByRole("heading", { name: "فاتورة مبيعات جديدة", level: 1 })).toBeVisible();
+  await page.getByRole("button", { name: "متابعة" }).click();
+
+  await pickEntity(page, "العميل *", customerName);
+  await pickEntity(page, "الصنف — سطر 1", itemName);
+  await page.getByRole("button", { name: "تأكيد الفاتورة" }).click();
+  await expect(page.getByRole("heading", { name: "فواتير المبيعات" })).toBeVisible();
 
   await page.getByPlaceholder("بحث برقم الفاتورة أو اسم العميل…").fill(customerName);
   const row = uniqueRow(page, customerName);
@@ -97,10 +124,10 @@ test.describe("Installment Plans", () => {
     await page.getByRole("button", { name: "خطة جديدة" }).click();
     const dialog = page.getByRole("dialog", { name: "خطة أقساط جديدة" });
 
-    await selectOptionContaining(dialog.getByLabel("الفاتورة *"), docNo);
+    await chooseComboContaining(page, dialog, "الفاتورة *", docNo);
     await expect(dialog.getByText("معاينة الجدول")).toBeVisible();
     await dialog.getByLabel("عدد الأقساط *").fill("4");
-    await dialog.getByLabel("التكرار *").selectOption({ label: "شهري" });
+    await chooseCombo(page, dialog, "التكرار *", "شهري");
 
     const saveButton = dialog.getByRole("button", { name: "حفظ", exact: true });
     await expect(saveButton).toBeEnabled();
@@ -145,8 +172,8 @@ test.describe("Installment Collection Follow-ups", () => {
     await page.getByRole("button", { name: "متابعة جديدة" }).click();
     const dialog = page.getByRole("dialog", { name: "متابعة جديدة" });
 
-    await selectOptionContaining(dialog.getByLabel("العميل *"), customerName);
-    await dialog.getByLabel("نوع المتابعة *").selectOption({ label: "زيارة" });
+    await chooseComboContaining(page, dialog, "العميل *", customerName);
+    await chooseCombo(page, dialog, "نوع المتابعة *", "زيارة");
     await dialog.getByLabel("ملاحظات").fill("متابعة اختبار E2E");
     await dialog.getByRole("button", { name: "إضافة" }).click();
     await expect(dialog).toBeHidden();
@@ -173,8 +200,8 @@ test.describe("Installment Collection Follow-ups", () => {
     await expect(page.getByRole("heading", { name: "متابعة التحصيل" })).toBeVisible();
     await page.getByRole("button", { name: "متابعة جديدة" }).click();
     const dialog = page.getByRole("dialog", { name: "متابعة جديدة" });
-    await selectOptionContaining(dialog.getByLabel("العميل *"), customerName);
-    await dialog.getByLabel("نوع المتابعة *").selectOption({ label: "اتصال" });
+    await chooseComboContaining(page, dialog, "العميل *", customerName);
+    await chooseCombo(page, dialog, "نوع المتابعة *", "اتصال");
     await dialog.getByRole("button", { name: "إضافة" }).click();
     await expect(dialog).toBeHidden();
 

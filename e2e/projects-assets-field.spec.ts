@@ -34,6 +34,14 @@ async function chooseCombo(scope: Page | Locator, comboLabel: string, optionName
 test.describe("Projects", () => {
   test.describe.configure({ mode: "serial" });
 
+  // Regenerated at the top of the first test below (never at collection
+  // time) so a repeated run against the same tenant (--repeat-each) gets a
+  // fresh code/name each pass instead of colliding with the previous pass's
+  // own project; the second test reads the code back to exercise the SAME
+  // code's duplicate-rejection, since serial mode keeps both in one worker.
+  let projectCode = "";
+  let projectName = "";
+
   test.beforeEach(async ({ page }) => {
     await loginAsDemoUser(page);
     await clickSidebarItem(page, "المقاولات");
@@ -41,28 +49,32 @@ test.describe("Projects", () => {
   });
 
   test("creating a project validates code then name, then succeeds; status can then be changed from its detail", async ({ page }) => {
-    await page.getByRole("button", { name: "مشروع جديد" }).click();
+    const suffix = `${Date.now()}${Math.floor(Math.random() * 1000)}`;
+    projectCode = `PRJ-${suffix}`;
+    projectName = `مشروع تجريبي ${suffix}`;
+
+    await page.getByRole("button", { name: "مشروع جديد" }).first().click();
     const form = page.getByRole("dialog", { name: "مشروع جديد" });
     await expect(form).toBeVisible();
 
     await form.getByRole("button", { name: "حفظ", exact: true }).click();
     await expect(form.getByRole("alert")).toContainText("كود المشروع مطلوب");
 
-    await form.getByLabel("كود المشروع *").fill("PRJ-TEST");
+    await form.getByLabel("كود المشروع *").fill(projectCode);
     await form.getByRole("button", { name: "حفظ", exact: true }).click();
     await expect(form.getByRole("alert")).toContainText("اسم المشروع مطلوب");
 
-    await form.getByLabel("اسم المشروع *").fill("مشروع تجريبي");
+    await form.getByLabel("اسم المشروع *").fill(projectName);
     await form.getByRole("button", { name: "حفظ", exact: true }).click();
     await expect(form).toBeHidden();
 
-    const projectRow = row(page, "مشروع تجريبي");
+    const projectRow = row(page, projectName);
     await expect(projectRow).toBeVisible();
-    await expect(projectRow.getByText("PRJ-TEST")).toBeVisible();
+    await expect(projectRow.getByText(projectCode)).toBeVisible();
     await expect(projectRow.getByText("مخطط", { exact: true })).toBeVisible();
 
     await projectRow.click();
-    const detail = page.getByRole("dialog", { name: "مشروع — مشروع تجريبي" });
+    const detail = page.getByRole("dialog", { name: `مشروع — ${projectName}` });
     await expect(detail).toBeVisible();
     await expect(detail.getByText("بدون عميل")).toBeVisible();
     await expect(detail.getByText("بدون مدير")).toBeVisible();
@@ -72,13 +84,13 @@ test.describe("Projects", () => {
     await expect(detail.getByText("نشط", { exact: true }).first()).toBeVisible();
 
     await page.getByRole("button", { name: "إغلاق اللوحة" }).click();
-    await expect(row(page, "مشروع تجريبي").getByText("نشط", { exact: true })).toBeVisible();
+    await expect(row(page, projectName).getByText("نشط", { exact: true })).toBeVisible();
   });
 
   test("a duplicate project code is rejected", async ({ page }) => {
     await page.getByRole("button", { name: "مشروع جديد" }).first().click();
     const form = page.getByRole("dialog", { name: "مشروع جديد" });
-    await form.getByLabel("كود المشروع *").fill("PRJ-TEST");
+    await form.getByLabel("كود المشروع *").fill(projectCode);
     await form.getByLabel("اسم المشروع *").fill("مشروع مكرر");
     await form.getByRole("button", { name: "حفظ", exact: true }).click();
     await expect(form.getByRole("alert")).toContainText("مستخدم بالفعل");

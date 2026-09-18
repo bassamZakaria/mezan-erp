@@ -38,8 +38,15 @@ async function chooseCombo(page: Page, comboLabel: string, optionPattern: RegExp
   await page.getByRole("option", { name: optionPattern }).click();
 }
 
-/** Posts a balanced 2-line entry (1300-1 debit / 4100 credit) with the given memo and date, returning its entry number. */
-async function createPostedJournalEntry(page: Page, memo: string, date: string, amount = "100"): Promise<string> {
+/** Posts a balanced 2-line entry against the given accounts, with the given memo and date, returning its entry number. */
+async function createPostedJournalEntry(
+  page: Page,
+  memo: string,
+  date: string,
+  amount: string,
+  debitAccount: RegExp,
+  creditAccount: RegExp,
+): Promise<string> {
   await clickSidebarItem(page, "القيود المحاسبية");
   await expect(page.getByRole("heading", { name: "القيود المحاسبية" })).toBeVisible();
   await page.getByRole("button", { name: "قيد جديد" }).first().click();
@@ -49,9 +56,9 @@ async function createPostedJournalEntry(page: Page, memo: string, date: string, 
   // the guarantee that this field's label names its input.
   await brokenLabelField(page, "تاريخ القيد *").fill(date);
   await page.getByPlaceholder("وصف القيد...").fill(memo);
-  await chooseCombo(page, "الحساب للسطر 1", /^1300-1 —/);
+  await chooseCombo(page, "الحساب للسطر 1", debitAccount);
   await page.getByLabel("مدين للسطر 1").fill(amount);
-  await chooseCombo(page, "الحساب للسطر 2", /^4100 —/);
+  await chooseCombo(page, "الحساب للسطر 2", creditAccount);
   await page.getByLabel("دائن للسطر 2").fill(amount);
 
   await page.getByRole("button", { name: "ترحيل القيد" }).click();
@@ -62,6 +69,23 @@ async function createPostedJournalEntry(page: Page, memo: string, date: string, 
   await expect(row).toHaveCount(1);
   const entryNo = (await row.locator("td").first().locator(".mz-num").first().innerText()).trim();
   return entryNo;
+}
+
+/** Creates a postable (non-header) account with a unique code, via دليل الحسابات. */
+async function createDetailAccount(page: Page, code: string, name: string): Promise<void> {
+  await clickSidebarItem(page, "دليل الحسابات");
+  await expect(page.getByRole("heading", { name: "دليل الحسابات" })).toBeVisible();
+  await page.getByRole("button", { name: "إضافة حساب" }).click();
+  const form = page.getByRole("dialog", { name: "إضافة حساب" });
+  await expect(form).toBeVisible();
+  await form.getByLabel("الكود *").fill(code);
+  await form.getByLabel("الاسم *").fill(name);
+  await form.getByRole("button", { name: "إضافة", exact: true }).click();
+  await expect(form).toBeHidden();
+}
+
+function uniqueAccountCode(): string {
+  return `9${Date.now()}${Math.floor(Math.random() * 1000)}`;
 }
 
 test.describe("Report runner — ميزان المراجعة", () => {
@@ -90,20 +114,27 @@ test.describe("Report runner — ميزان المراجعة", () => {
   });
 
   test("running the report reflects a real posted entry, with a balanced reconciliation banner", async ({ page }) => {
-    // 1300-1 and 4100 already carry real demo activity (the seed's opening
-    // capital deposit and every treasury/sales posting since), so this
-    // reads the BEFORE balances first and asserts the CHANGE this entry
-    // causes — never an absolute figure.
+    // 1300-1 and 4100 also carry every OTHER worker's concurrent postings in
+    // a full parallel run, so a before/after delta on them can't be trusted
+    // — this test posts to two accounts it creates and owns exclusively,
+    // and reads their balance from a verified-zero start instead.
+    const debitCode = uniqueAccountCode();
+    const creditCode = uniqueAccountCode();
+    await createDetailAccount(page, debitCode, unique("حساب مدين اختبار"));
+    await createDetailAccount(page, creditCode, unique("حساب دائن اختبار"));
+
+    await clickSidebarItem(page, "ميزان المراجعة");
+    await expect(page.getByRole("heading", { name: "ميزان المراجعة" })).toBeVisible();
     await page.getByRole("button", { name: "عرض التقرير" }).click();
-    const cashRow = page.locator("table tbody tr").filter({ hasText: "1300-1" });
-    const revenueRow = page.locator("table tbody tr").filter({ hasText: "4100" });
-    await expect(cashRow).toBeVisible();
-    await expect(revenueRow).toBeVisible();
-    const cashDebitBefore = await cellMoney(cashRow, 2);
-    const revenueCreditBefore = await cellMoney(revenueRow, 3);
+    const debitRow = page.locator("table tbody tr").filter({ hasText: debitCode });
+    const creditRow = page.locator("table tbody tr").filter({ hasText: creditCode });
+    await expect(debitRow).toBeVisible();
+    await expect(creditRow).toBeVisible();
+    expect(await cellMoney(debitRow, 2)).toBe(0);
+    expect(await cellMoney(creditRow, 3)).toBe(0);
 
     const memo = unique("قيد ميزان مراجعة");
-    await createPostedJournalEntry(page, memo, todayIso(), "250");
+    await createPostedJournalEntry(page, memo, todayIso(), "250", new RegExp(`^${debitCode} —`), new RegExp(`^${creditCode} —`));
 
     await clickSidebarItem(page, "ميزان المراجعة");
     await expect(page.getByRole("heading", { name: "ميزان المراجعة" })).toBeVisible();
@@ -116,12 +147,16 @@ test.describe("Report runner — ميزان المراجعة", () => {
     await expect(page.getByRole("heading", { name: "ميزان المراجعة" })).toBeVisible();
     await page.getByRole("button", { name: "عرض التقرير" }).click();
 
-    await expect(cashRow).toBeVisible();
-    expect(await cellMoney(cashRow, 2)).toBeCloseTo(cashDebitBefore + 250, 2);
+    await expect(debitRow).toBeVisible();
+    expect(await cellMoney(debitRow, 2)).toBeCloseTo(250, 2);
 
-    await expect(revenueRow).toBeVisible();
-    expect(await cellMoney(revenueRow, 3)).toBeCloseTo(revenueCreditBefore + 250, 2);
+    await expect(creditRow).toBeVisible();
+    expect(await cellMoney(creditRow, 3)).toBeCloseTo(250, 2);
 
+    // The reconciliation banner sums EVERY account, not just this test's
+    // two — but every entry ever posted balances by construction, so the
+    // ledger-wide total is unaffected by whatever else concurrent workers
+    // post.
     await expect(page.getByText("إجمالي المدين = إجمالي الدائن")).toBeVisible();
     await expect(page.getByText("الدفاتر متوازنة — إجمالي المدين يساوي إجمالي الدائن")).toBeVisible();
 
@@ -131,7 +166,7 @@ test.describe("Report runner — ميزان المراجعة", () => {
 
   test("an as-of date before the entry was posted excludes it from the balance", async ({ page }) => {
     const memo = unique("قيد ميزان مراجعة سابق");
-    await createPostedJournalEntry(page, memo, todayIso(), "250");
+    await createPostedJournalEntry(page, memo, todayIso(), "250", /^1300-1 —/, /^4100 —/);
 
     await clickSidebarItem(page, "ميزان المراجعة");
     await page.getByLabel("حتى تاريخ").fill("2020-01-01");
@@ -150,7 +185,7 @@ test.describe("Report runner — ميزان المراجعة", () => {
   // the fictitious error this spec used to assert.
   test("clearing the as-of date runs the report unbounded instead of refusing to run", async ({ page }) => {
     const memo = unique("قيد بلا تاريخ محدد");
-    await createPostedJournalEntry(page, memo, todayIso(), "250");
+    await createPostedJournalEntry(page, memo, todayIso(), "250", /^1300-1 —/, /^4100 —/);
 
     await clickSidebarItem(page, "ميزان المراجعة");
     await page.getByLabel("حتى تاريخ").fill("");

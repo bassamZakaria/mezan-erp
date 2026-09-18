@@ -21,6 +21,7 @@ import {
   getVoucherPaymentMethodLabel,
   getVoucherTypeDefinition,
   isVoucherType,
+  convertFromBase,
   Money,
   VOUCHER_PAYMENT_METHODS,
   VOUCHER_TYPE_DEFINITIONS,
@@ -686,7 +687,7 @@ function VoucherDetailView({
     { label: t("common.date"), value: <span className="mz-num">{doc.date}</span> },
     { label: t("vouchers.paymentMethod"), value: getVoucherPaymentMethodLabel(doc.paymentMethod) },
     { label: t("vouchers.party"), value: partyName(partyId) },
-    { label: t("common.amount"), value: <MoneyDisplay value={toMajor(doc.amount)} /> },
+    { label: t("common.amount"), value: <MoneyDisplay value={toMajor(doc.amount)} currencyLabel={doc.fxRate ? doc.currency : undefined} /> },
     ...(doc.projectId
       ? [
           {
@@ -726,11 +727,13 @@ function VoucherDetailView({
 
         <Card className="overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[520px] border-collapse text-[13px]">
+            <table className="w-full min-w-[820px] border-collapse text-[13px]">
               <thead>
                 <tr>
                   <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-start text-[11px] font-bold uppercase text-ink-muted">{t("vouchers.invoiceNumber")}</th>
-                  <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">{t("common.amount")}</th>
+                  <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">{t("vouchers.alloc.amountApplied")}</th>
+                  <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">{t("vouchers.alloc.invoiceRelieved")}</th>
+                  <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">{t("vouchers.alloc.fxDifference")}</th>
                   <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-start text-[11px] font-bold uppercase text-ink-muted">{t("common.date")}</th>
                   <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px]" />
                 </tr>
@@ -738,15 +741,33 @@ function VoucherDetailView({
               <tbody>
                 {activeAllocations.length === 0 ? (
                   <tr>
-                    <td colSpan={4} className="px-[15px] py-[16px] text-center text-ink-muted">{t("vouchers.noAllocationsYet")}</td>
+                    <td colSpan={6} className="px-[15px] py-[16px] text-center text-ink-muted">{t("vouchers.noAllocationsYet")}</td>
                   </tr>
                 ) : (
                   activeAllocations.map((a) => {
                     const inv = invoiceById.get(a.invoiceId);
+                    const base = Money.fromMajor(a.amount);
+                    const applied = doc.fxRate ? convertFromBase(base, doc.fxRate) : base;
+                    const relieved = a.invoiceAmount ?? a.amount;
+                    const difference = Money.fromMajor(a.fxDifference ?? "0").scaled;
+                    const isGain = def.allocationKind === "purchase" ? difference < 0n : difference > 0n;
                     return (
                       <tr key={a.id} className="border-b border-border last:border-b-0">
                         <td className="mz-num px-[15px] py-[11px] text-ink">{inv?.invoiceNo ?? a.invoiceId}</td>
-                        <td className="px-[15px] py-[11px] text-end"><MoneyDisplay value={toMajor(a.amount)} /></td>
+                        <td className="px-[15px] py-[11px] text-end">
+                          <MoneyDisplay value={toMajor(applied.toString())} currencyLabel={doc.fxRate ? doc.currency : undefined} />
+                        </td>
+                        <td className="px-[15px] py-[11px] text-end"><MoneyDisplay value={toMajor(relieved)} /></td>
+                        <td className="px-[15px] py-[11px] text-end">
+                          {difference === 0n ? (
+                            <span className="text-ink-faint">—</span>
+                          ) : (
+                            <span className="inline-flex items-center gap-[8px]">
+                              <StatusPill label={isGain ? t("vouchers.alloc.fxGain") : t("vouchers.alloc.fxLoss")} tone={isGain ? "success" : "danger"} />
+                              <MoneyDisplay value={toMajor(Money.fromScaled(difference < 0n ? -difference : difference).toString())} />
+                            </span>
+                          )}
+                        </td>
                         <td className="mz-num px-[15px] py-[11px] text-ink-muted">{a.createdAt.slice(0, 10)}</td>
                         <td className="px-[15px] py-[11px] text-end">
                           <Button

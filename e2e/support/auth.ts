@@ -13,8 +13,13 @@ import type { Page } from "@playwright/test";
  */
 const SEED_ADMIN_EMAIL = "admin@cyag.example";
 const SEED_ADMIN_PIN = "123456";
+const DEMO_TENANT_CODE = "demo";
 
 export async function loginAsDemoUser(page: Page): Promise<void> {
+  const platformMode = page
+    .waitForResponse((r) => r.url().includes("/platform/resolve"), { timeout: 60_000 })
+    .then(async (r) => ((await r.json()) as { mode?: string }).mode ?? null)
+    .catch(() => null);
   await page.goto("/");
 
   /*
@@ -77,6 +82,17 @@ export async function loginAsDemoUser(page: Page): Promise<void> {
   // so a timeout here means "the login screen never arrived in 60s" rather than
   // a confusing failure three lines later.
   await firstPinBox.waitFor({ state: "visible", timeout: 10_000 });
+
+  // apps/server resolves the tenant from `x-mezan-tenant`; `demo` is what MEZAN_SEED_DEMO=1 provisions.
+  const tenantCode = page.getByRole("textbox", { name: "رمز المنشأة" });
+  if ((await platformMode) === "code" || (await tenantCode.isVisible().catch(() => false))) {
+    await tenantCode.waitFor({ state: "visible", timeout: 10_000 });
+    if ((await tenantCode.inputValue()) !== DEMO_TENANT_CODE) {
+      await tenantCode.fill(DEMO_TENANT_CODE);
+      await tenantCode.blur();
+    }
+    await page.getByRole("button", { name: "تغيير المنشأة" }).waitFor({ state: "visible", timeout: 20_000 });
+  }
 
   const email = page.getByRole("textbox", { name: "البريد الإلكتروني" });
   if (await email.isVisible().catch(() => false)) {

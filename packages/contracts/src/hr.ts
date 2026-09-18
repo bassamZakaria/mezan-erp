@@ -306,6 +306,8 @@ export const attendanceEntrySchema = z.object({
   checkIn: z.string().nullable(),
   checkOut: z.string().nullable(),
   workedMinutes: z.number().int(),
+  /** Null = no overtime approval recorded, which is NOT the same as an approved zero. */
+  approvedOvertimeMinutes: z.number().int().nullable(),
   status: attendanceStatusSchema,
   notes: z.string().nullable(),
   createdAt: z.string().min(1),
@@ -323,12 +325,15 @@ export const recordAttendanceSchema = z.object({
   status: attendanceStatusSchema.nullable().optional(),
   expectedCheckIn: timeOfDaySchema.nullable().optional(),
   graceMinutes: z.number().int().min(0).optional(),
+  /** Overtime the manager approved for this day, in whole minutes. */
+  approvedOvertimeMinutes: z.number().int().min(0).nullable().optional(),
 });
 
 export const correctAttendanceSchema = recordAttendanceSchema.omit({ id: true, employeeId: true, date: true }).partial();
 
 export const attendanceSummarySchema = z.object({
-  employeeId: z.string().min(1),
+  /** Null = the whole workforce, not one employee. */
+  employeeId: z.string().min(1).nullable(),
   from: z.string().min(1),
   to: z.string().min(1),
   workingDays: z.number(),

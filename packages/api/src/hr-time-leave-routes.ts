@@ -20,6 +20,7 @@ import {
   runLeaveAccrual,
   submitApproval,
   summarizeAttendance,
+  summarizeWorkforceAttendance,
   updateLeavePolicy,
   ApprovalRequestNotFoundError,
   AttendanceEntryNotFoundError,
@@ -100,6 +101,7 @@ function serializeAttendance(e: AttendanceEntry) {
     checkIn: e.checkIn,
     checkOut: e.checkOut,
     workedMinutes: e.workedMinutes,
+    approvedOvertimeMinutes: e.approvedOvertimeMinutes,
     status: e.status,
     notes: e.notes,
     createdAt: e.createdAt,
@@ -217,8 +219,32 @@ export function createHrTimeLeaveRoutes(deps: HrTimeLeaveRoutesDeps, resolveAuth
     const employeeId = c.req.query("employeeId");
     const from = c.req.query("from");
     const to = c.req.query("to");
-    if (!employeeId || !from || !to) {
-      return c.json({ error: "VALIDATION_ERROR", message: "employeeId و from و to مطلوبة." }, 400);
+    if (!from || !to) {
+      return c.json({ error: "VALIDATION_ERROR", message: "from و to مطلوبتان." }, 400);
+    }
+    // No employee named = the WHOLE workforce. The screen's summary tiles used
+    // to render `?? 0` in that state, so four zeros sat above a table of forty
+    // present days: a plausible figure where the honest one was available.
+    if (!employeeId) {
+      const entries = await deps.attendance.list({ from, to });
+      const workforce = summarizeWorkforceAttendance(from, to, entries);
+      return c.json({
+        employeeId: null,
+        from,
+        to,
+        workingDays: workforce.workingDays,
+        daysPresent: workforce.daysPresent,
+        daysLate: workforce.daysLate,
+        daysAbsent: workforce.daysAbsent,
+        halfDays: workforce.halfDays,
+        daysOnLeave: workforce.daysOnLeave,
+        holidays: 0,
+        weeklyOffDays: 0,
+        workedMinutes: entries.reduce((sum, entry) => sum + entry.workedMinutes, 0),
+        // The screen shows an attendance rate; the workforce summary computes
+        // its complement, so it is derived here rather than left blank.
+        attendanceRatePercent: 100 - workforce.absenceRatePercent,
+      });
     }
     const entries = await deps.attendance.list({ employeeId, from, to });
     return c.json(summarizeAttendance(employeeId, from, to, entries));

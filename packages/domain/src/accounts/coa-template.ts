@@ -82,6 +82,7 @@ export const STANDARD_COA_TEMPLATE: readonly CreateAccountCommand[] = [
   { id: "2170", code: "2170", nameAr: "رواتب مستحقة", nameEn: "Salaries Payable", type: "liability", naturalBalance: "credit", parentId: "2000", isHeader: false },
   { id: "2180", code: "2180", nameAr: "التزام إجازات مستحقة", nameEn: "Accrued Leave Liability", type: "liability", naturalBalance: "credit", parentId: "2000", isHeader: false },
   { id: "2190", code: "2190", nameAr: "استقطاعات ومستحقات رواتب", nameEn: "Payroll Withholdings Payable", type: "liability", naturalBalance: "credit", parentId: "2000", isHeader: false },
+  { id: "2193", code: "2193", nameAr: "حجوزات على الأجور", nameEn: "Wage Garnishments Payable", type: "liability", naturalBalance: "credit", parentId: "2000", isHeader: false },
   // Egypt withholds tax on most local B2B payments: the supplier is settled in
   // full, the withheld slice is owed to the authority instead of to them. 2190
   // is payroll-only and must not be reused for it.

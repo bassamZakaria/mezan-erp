@@ -28,7 +28,7 @@ const baseSettings = {
   allowedEmailDomains: [],
   address: "Cairo, Egypt",
   hrContractExpiryWarningDays: 30,
-  overtimeMultiplier: 1.5,
+  payrollDayDivisorBasis: "FIXED_30",
   standardDailyWorkHours: 8,
   taxEnabled: true,
   defaultTaxRate: 14,

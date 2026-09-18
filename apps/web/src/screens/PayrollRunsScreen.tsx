@@ -15,6 +15,7 @@ import {
 } from "@mezan/ui";
 import type { PayrollRunDTO, PayrollRunStatusDTO, PayslipDTO } from "@mezan/contracts";
 import { PAYROLL_UNIMPLEMENTED_RULES } from "@mezan/domain";
+import { PayslipPrintPage } from "../print/PayslipPrintPage";
 import { NumberField, SelectField } from "../settings/form-controls";
 import { ApiError, useBranches, useEmployees, useTreasuryAccounts } from "../data/hooks";
 import {
@@ -109,6 +110,7 @@ export function PayrollRunsScreen() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
+  const [printing, setPrinting] = useState<PayslipDTO | null>(null);
   const [treasuryAccountId, setTreasuryAccountId] = useState("");
   const [branchId, setBranchId] = useState("");
 
@@ -212,6 +214,17 @@ export function PayrollRunsScreen() {
   const yearDisbursed = sumMajor(
     runs.filter((r) => r.year === now.getUTCFullYear() && r.status === "disbursed").map((r) => r.totalNet),
   );
+
+  if (printing !== null && detail !== null) {
+    return (
+      <div className="w-full">
+        <div className="mb-[14px] print:hidden">
+          <Button onClick={() => setPrinting(null)}>{t("common.back")}</Button>
+        </div>
+        <PayslipPrintPage payslip={printing} run={detail} />
+      </div>
+    );
+  }
 
   return (
     <div className="w-full">
@@ -434,6 +447,11 @@ export function PayrollRunsScreen() {
                           <NetPayQualifierBadge />
                         </span>
                         <MoneyDisplay value={Number(p.netPay)} />
+                      </div>
+                      <div className="mt-[8px] flex justify-end">
+                        <Button size="sm" onClick={() => setPrinting(p)}>
+                          {t("payslipPrint.print")}
+                        </Button>
                       </div>
                     </div>
                   ))}

@@ -7,7 +7,7 @@ import { createContract } from "./create-contract.js";
 import { requestEmployeeAdvance, approveEmployeeAdvance, markEmployeeAdvanceDisbursed, type EmployeeAdvance, type EmployeeAdvanceRepository } from "./advance.js";
 import type { PayrollComponentRepository } from "./payroll-component.js";
 import { createPayrollComponent } from "./payroll-component.js";
-import type { PayrollRun, PayrollRunRepository, Payslip, PayslipRepository, UnpaidLeaveDaysProvider } from "./payroll-run.js";
+import { payrollDayDivisor, type Garnishment, type GarnishmentProvider, type PayrollRun, type PayrollRunRepository, type Payslip, type PayslipRepository, type UnpaidLeaveDaysProvider } from "./payroll-run.js";
 import { createPayrollRun, calculatePayrollRun, cancelPayrollRun, type PayrollCalculationDeps, type PayrollNumbering } from "./calculate-payroll-run.js";
 import {
   DuplicatePayrollPeriodError,
@@ -372,13 +372,13 @@ describe("calculatePayrollRun", () => {
     expect(payslip!.lines.some((l) => l.source === "unpaid_leave")).toBe(false);
   });
 
-  it("with an unpaid-leave provider, deducts the exact prorated amount for the reported day count", async () => {
+  it("with an unpaid-leave provider and the CALENDAR_DAYS divisor, deducts the month's real day rate for the reported day count", async () => {
     const h = await harness();
     const unpaidLeave: UnpaidLeaveDaysProvider = { async unpaidDaysFor() { return 3; } };
     const run = await createPayrollRun({ id: "r1", year: 2026, month: 1 }, h.deps);
     // 31-day month, full-month contract: gross 3100.00, so allocate(3100, [3, 28]).
     await employeeWithContract(h, { id: "emp-1", monthlySalary: "3100.00" });
-    const calculated = await calculatePayrollRun(run.id, { ...h.deps, unpaidLeave });
+    const calculated = await calculatePayrollRun(run.id, { ...h.deps, unpaidLeave, dayDivisorBasis: "CALENDAR_DAYS" });
     expect(calculated.unpaidLeaveSource).toBe("provider");
     const [payslip] = await h.payslips.listByRunId(run.id);
     const unpaidLine = payslip!.lines.find((l) => l.source === "unpaid_leave")!;
@@ -544,5 +544,344 @@ describe("cancelPayrollRun", () => {
     expect(cancelled.totalNet.scaled).toBe(0n);
     expect(cancelled.cancelledAt).not.toBeNull();
     expect(await h.payslips.listByRunId(run.id)).toHaveLength(0);
+  });
+});
+
+describe("calculatePayrollRun — garnishments ahead of advances", () => {
+  async function advance(h: Awaited<ReturnType<typeof harness>>, id: string, number: string, amount: string, count: number) {
+    const requested = await requestEmployeeAdvance(
+      { id, number, employeeId: "emp-1", amount: Money.fromMajor(amount), installmentCount: count, firstDeductionDate: "2026-01-01" },
+      h.advances,
+    );
+    const disbursed = markEmployeeAdvanceDisbursed(approveEmployeeAdvance(requested, "user-1"), { voucherId: "cv-1", journalEntryId: null });
+    await h.advances.update(disbursed);
+  }
+
+  function order(overrides: Partial<Garnishment> = {}): Garnishment {
+    return {
+      id: "grn-1",
+      employeeId: "emp-1",
+      reference: "1842/2026",
+      labelAr: "حجز تنفيذي",
+      monthlyAmount: Money.fromMajor("300.00"),
+      currency: "EGP",
+      startDate: "2026-01-01",
+      endDate: null,
+      outstanding: Money.fromMajor("3000.00"),
+      active: true,
+      ...overrides,
+    };
+  }
+
+  function provider(orders: readonly Garnishment[]): GarnishmentProvider {
+    return { listActiveFor: async (employeeId) => orders.filter((o) => o.employeeId === employeeId) };
+  }
+
+  it("takes the court order (within its 25% cap) before the employer's advance, and the advance carries the shortfall when net will not stretch", async () => {
+    const h = await harness();
+    const run = await createPayrollRun({ id: "r1", year: 2026, month: 1 }, h.deps);
+    // 2,000.00 wage: 25% ceiling is 500.00, comfortably above the order's own
+    // 300.00 instalment, so the cap does not bind here — this test is about
+    // ORDERING against the advance, not the cap itself (see the "D181"
+    // describe block below for the cap).
+    await employeeWithContract(h, { id: "emp-1", monthlySalary: "2000.00" });
+    await advance(h, "adv-1", "ADV-000001", "5000.00", 1); // one instalment due in full: 5,000.00
+
+    const calculated = await calculatePayrollRun(run.id, { ...h.deps, garnishments: provider([order()]) });
+    const [payslip] = await h.payslips.listByRunId(run.id);
+    const sources = payslip!.lines.filter((l) => l.kind === "deduction").map((l) => l.source);
+    expect(sources).toEqual(["garnishment", "advance_recovery"]);
+
+    const garnishment = payslip!.lines.find((l) => l.source === "garnishment")!;
+    expect(garnishment.amount.toString()).toBe("300.000000");
+    expect(garnishment.referenceId).toBe("grn-1");
+    expect(garnishment.glAccountId).toBe("2193");
+    expect(garnishment.capped).toBe(false);
+
+    const recovery = payslip!.lines.find((l) => l.source === "advance_recovery")!;
+    expect(recovery.amount.toString()).toBe("1700.000000"); // 2000 - 300, all of what is left
+    expect(payslip!.netPay.scaled).toBe(0n);
+    expect(calculated.warnings.some((w) => w.includes("ADV-000001") && w.includes("جزئياً"))).toBe(true);
+  });
+
+  it("D181: caps a single order at 25% of the wage even when its own instalment and outstanding balance are both far larger", async () => {
+    const h = await harness();
+    const run = await createPayrollRun({ id: "r1", year: 2026, month: 1 }, h.deps);
+    await employeeWithContract(h, { id: "emp-1", monthlySalary: "250.00" }); // 25% ceiling = 62.50
+
+    const calculated = await calculatePayrollRun(run.id, { ...h.deps, garnishments: provider([order()]) }); // instalment 300.00, outstanding 3000.00
+    const [payslip] = await h.payslips.listByRunId(run.id);
+    const garnishment = payslip!.lines.find((l) => l.source === "garnishment")!;
+    expect(garnishment.amount.toString()).toBe("62.500000");
+    expect(garnishment.capped).toBe(true);
+    expect(payslip!.netPay.toString()).toBe("187.500000");
+    expect(calculated.warnings.some((w) => w.includes("1842/2026") && w.includes("الحد الأقصى القانوني"))).toBe(true);
+  });
+
+  it("withholds only what is still outstanding when that is less than the monthly instalment", async () => {
+    const h = await harness();
+    const run = await createPayrollRun({ id: "r1", year: 2026, month: 1 }, h.deps);
+    await employeeWithContract(h, { id: "emp-1", monthlySalary: "3000.00" });
+
+    await calculatePayrollRun(run.id, { ...h.deps, garnishments: provider([order({ outstanding: Money.fromMajor("120.50") })]) });
+    const [payslip] = await h.payslips.listByRunId(run.id);
+    expect(payslip!.lines.find((l) => l.source === "garnishment")!.amount.toString()).toBe("120.500000");
+    expect(payslip!.netPay.toString()).toBe("2879.500000");
+  });
+
+  it("skips an order in another currency with a named warning rather than withholding at par", async () => {
+    const h = await harness();
+    const run = await createPayrollRun({ id: "r1", year: 2026, month: 1 }, h.deps);
+    await employeeWithContract(h, { id: "emp-1", monthlySalary: "3000.00" });
+
+    const calculated = await calculatePayrollRun(run.id, { ...h.deps, garnishments: provider([order({ currency: "USD" })]) });
+    const [payslip] = await h.payslips.listByRunId(run.id);
+    expect(payslip!.lines.some((l) => l.source === "garnishment")).toBe(false);
+    expect(calculated.warnings.some((w) => w.includes("1842/2026") && w.includes("USD"))).toBe(true);
+  });
+
+  it("D181: shares the 25% non-nafaqa ceiling across multiple orders, in the order the register hands them over", async () => {
+    const h = await harness();
+    const run = await createPayrollRun({ id: "r1", year: 2026, month: 1 }, h.deps);
+    await employeeWithContract(h, { id: "emp-1", monthlySalary: "500.00" }); // 25% ceiling = 125.00 for BOTH orders together
+
+    const calculated = await calculatePayrollRun(run.id, {
+      ...h.deps,
+      garnishments: provider([order({ id: "grn-a", reference: "A" }), order({ id: "grn-b", reference: "B" })]),
+    });
+    const [payslip] = await h.payslips.listByRunId(run.id);
+    const lines = payslip!.lines.filter((l) => l.source === "garnishment");
+    // grn-a exhausts the whole shared ceiling; grn-b gets nothing (not "net
+    // exhaustion" — net pay still has 375.00 left, the STATUTORY cap is what stops it).
+    expect(lines.map((l) => [l.referenceId, l.amount.toString(), l.capped])).toEqual([["grn-a", "125.000000", true]]);
+    expect(payslip!.netPay.toString()).toBe("375.000000");
+    expect(calculated.warnings.some((w) => w.includes("B") && w.includes("الحد الأقصى القانوني"))).toBe(true);
+  });
+});
+
+describe("calculatePayrollRun — D181: نفقة ranks first and may reach 50% of the wage", () => {
+  function order(overrides: Partial<Garnishment> = {}): Garnishment {
+    return {
+      id: "grn-1",
+      employeeId: "emp-1",
+      reference: "1842/2026",
+      labelAr: "حجز تنفيذي",
+      monthlyAmount: Money.fromMajor("300.00"),
+      currency: "EGP",
+      startDate: "2026-01-01",
+      endDate: null,
+      outstanding: Money.fromMajor("3000.00"),
+      active: true,
+      ...overrides,
+    };
+  }
+
+  function provider(orders: readonly Garnishment[]): GarnishmentProvider {
+    return { listActiveFor: async (employeeId) => orders.filter((o) => o.employeeId === employeeId) };
+  }
+
+  it("lets a نفقة order reach 50% of the wage, above the 25% ceiling every other kind is held to", async () => {
+    const h = await harness();
+    const run = await createPayrollRun({ id: "r1", year: 2026, month: 1 }, h.deps);
+    await employeeWithContract(h, { id: "emp-1", monthlySalary: "1000.00" }); // 50% ceiling = 500.00
+
+    const calculated = await calculatePayrollRun(run.id, {
+      ...h.deps,
+      garnishments: provider([order({ kind: "alimony", monthlyAmount: Money.fromMajor("500.00"), outstanding: Money.fromMajor("6000.00") })]),
+    });
+    const [payslip] = await h.payslips.listByRunId(run.id);
+    const line = payslip!.lines.find((l) => l.source === "garnishment")!;
+    expect(line.amount.toString()).toBe("500.000000"); // the full instalment — 50% of 1000, not capped at 25%
+    expect(line.capped).toBe(false);
+    expect(calculated.warnings.some((w) => w.includes("الحد الأقصى القانوني"))).toBe(false);
+  });
+
+  it("caps a نفقة order at 50% of the wage once its instalment would exceed that", async () => {
+    const h = await harness();
+    const run = await createPayrollRun({ id: "r1", year: 2026, month: 1 }, h.deps);
+    await employeeWithContract(h, { id: "emp-1", monthlySalary: "1000.00" }); // 50% ceiling = 500.00
+
+    const calculated = await calculatePayrollRun(run.id, {
+      ...h.deps,
+      garnishments: provider([order({ kind: "alimony", monthlyAmount: Money.fromMajor("700.00"), outstanding: Money.fromMajor("6000.00") })]),
+    });
+    const [payslip] = await h.payslips.listByRunId(run.id);
+    const line = payslip!.lines.find((l) => l.source === "garnishment")!;
+    expect(line.amount.toString()).toBe("500.000000");
+    expect(line.capped).toBe(true);
+    expect(payslip!.netPay.toString()).toBe("500.000000");
+    expect(calculated.warnings.some((w) => w.includes("1842/2026") && w.includes("الحد الأقصى القانوني"))).toBe(true);
+  });
+
+  it("honours نفقة first — it is withheld before any other order, and the other order only gets the room left under the COMBINED 50% ceiling", async () => {
+    const h = await harness();
+    const run = await createPayrollRun({ id: "r1", year: 2026, month: 1 }, h.deps);
+    await employeeWithContract(h, { id: "emp-1", monthlySalary: "1000.00" }); // 50% ceiling = 500.00, 25% ceiling = 250.00
+
+    const calculated = await calculatePayrollRun(run.id, {
+      ...h.deps,
+      garnishments: provider([
+        // Registered AFTER the نفقة order, to prove ranking is by KIND, not registration order.
+        order({ id: "grn-other", reference: "OTHER", kind: "court_order", monthlyAmount: Money.fromMajor("400.00"), outstanding: Money.fromMajor("4000.00") }),
+        order({ id: "grn-nafaqa", reference: "NAFAQA", kind: "alimony", monthlyAmount: Money.fromMajor("400.00"), outstanding: Money.fromMajor("4000.00") }),
+      ]),
+    });
+    const [payslip] = await h.payslips.listByRunId(run.id);
+    const lines = payslip!.lines.filter((l) => l.source === "garnishment");
+    // نفقة goes FIRST despite being listed second, taking its full 400.00
+    // (inside its own 500.00 ceiling); the other order's own 25% ceiling
+    // (250.00) is then squeezed to the 100.00 left under the COMBINED 50%
+    // ceiling (500.00 - 400.00 already taken by نفقة).
+    expect(lines.map((l) => [l.referenceId, l.amount.toString(), l.capped])).toEqual([
+      ["grn-nafaqa", "400.000000", false],
+      ["grn-other", "100.000000", true],
+    ]);
+    expect(payslip!.netPay.toString()).toBe("500.000000"); // 1000 - 400 - 100
+  });
+});
+
+describe("calculatePayrollRun — D182: court orders rank ahead of contract deductions", () => {
+  function order(overrides: Partial<Garnishment> = {}): Garnishment {
+    return {
+      id: "grn-1",
+      employeeId: "emp-1",
+      reference: "1842/2026",
+      labelAr: "حجز تنفيذي",
+      monthlyAmount: Money.fromMajor("300.00"),
+      currency: "EGP",
+      startDate: "2026-01-01",
+      endDate: null,
+      outstanding: Money.fromMajor("3000.00"),
+      active: true,
+      ...overrides,
+    };
+  }
+
+  function provider(orders: readonly Garnishment[]): GarnishmentProvider {
+    return { listActiveFor: async (employeeId) => orders.filter((o) => o.employeeId === employeeId) };
+  }
+
+  it("lists the court order's line ahead of the contract deduction's, and honours both when the wage covers them", async () => {
+    const h = await harness();
+    const run = await createPayrollRun({ id: "r1", year: 2026, month: 1 }, h.deps);
+    await employeeWithContract(h, { id: "emp-1", monthlySalary: "2000.00", deductions: [{ name: "تأمينات", amount: "300.00" }] }); // 25% ceiling = 500.00
+
+    await calculatePayrollRun(run.id, { ...h.deps, garnishments: provider([order()]) });
+    const [payslip] = await h.payslips.listByRunId(run.id);
+    const sources = payslip!.lines.filter((l) => l.kind === "deduction").map((l) => l.source);
+    expect(sources).toEqual(["garnishment", "contract_deduction"]);
+    expect(payslip!.netPay.toString()).toBe("1400.000000"); // 2000 - 300 - 300
+  });
+
+  it("protects the court order's (capped) share ahead of a voluntary contract deduction — the run refuses rather than shorting the order", async () => {
+    const h = await harness();
+    const run = await createPayrollRun({ id: "r1", year: 2026, month: 1 }, h.deps);
+    // 25% ceiling = 250.00, so the order takes 250.00 (capped from its own
+    // 300.00 instalment) BEFORE the 800.00 contract deduction is even
+    // considered — leaving only 750.00 for a deduction that needs 800.00.
+    await employeeWithContract(h, { id: "emp-1", monthlySalary: "1000.00", deductions: [{ name: "قسط قرض", amount: "800.00" }] });
+    await expect(calculatePayrollRun(run.id, { ...h.deps, garnishments: provider([order()]) })).rejects.toThrow(NegativeNetPayError);
+  });
+});
+
+describe("calculatePayrollRun — D184: a fully unpaid period nets zero, whatever the ÷30 divisor would otherwise leave", () => {
+  const days = (n: number): UnpaidLeaveDaysProvider => ({ unpaidDaysFor: async () => n });
+
+  it("28 unpaid days in a 28-day February (2026 is not a leap year) deducts the whole gross, not 28/30 of it", async () => {
+    const h = await harness();
+    const run = await createPayrollRun({ id: "r1", year: 2026, month: 2 }, h.deps);
+    await employeeWithContract(h, { id: "emp-1", monthlySalary: "2800.00" });
+    await calculatePayrollRun(run.id, { ...h.deps, unpaidLeave: days(28) });
+    const [payslip] = await h.payslips.listByRunId(run.id);
+    expect(payslip!.periodDays).toBe(28);
+    const unpaid = payslip!.lines.find((l) => l.source === "unpaid_leave")!;
+    // The pre-fix ÷30 formula would have deducted only 28/30 of the wage
+    // (~2613.33), leaving the employee paid for days they never worked.
+    expect(unpaid.amount.toString()).toBe("2800.000000");
+    expect(payslip!.netPay.scaled).toBe(0n);
+  });
+
+  it("31 unpaid days in a 31-day month (January) also deducts the whole gross — the fix never OVER-deducts either", async () => {
+    const h = await harness();
+    const run = await createPayrollRun({ id: "r1", year: 2026, month: 1 }, h.deps);
+    await employeeWithContract(h, { id: "emp-1", monthlySalary: "3100.00" });
+    await calculatePayrollRun(run.id, { ...h.deps, unpaidLeave: days(31) });
+    const [payslip] = await h.payslips.listByRunId(run.id);
+    expect(payslip!.periodDays).toBe(31);
+    const unpaid = payslip!.lines.find((l) => l.source === "unpaid_leave")!;
+    expect(unpaid.amount.toString()).toBe("3100.000000");
+    expect(payslip!.netPay.scaled).toBe(0n);
+  });
+});
+
+describe("calculatePayrollRun — the day divisor prices a day of unpaid leave", () => {
+  const days = (n: number): UnpaidLeaveDaysProvider => ({ unpaidDaysFor: async () => n });
+
+  it("defaults to FIXED_30: three days of a 3,100 salary in a 31-day month is 310.00, not 300.00", async () => {
+    const h = await harness();
+    const run = await createPayrollRun({ id: "r1", year: 2026, month: 1 }, h.deps);
+    await employeeWithContract(h, { id: "emp-1", monthlySalary: "3100.00" });
+    await calculatePayrollRun(run.id, { ...h.deps, unpaidLeave: days(3) });
+    const [payslip] = await h.payslips.listByRunId(run.id);
+    expect(payslip!.lines.find((l) => l.source === "unpaid_leave")!.amount.toString()).toBe("310.000000");
+  });
+
+  it("CALENDAR_DAYS in February: two days of a 2,800 salary is 200.00, where FIXED_30 would take 186.67", async () => {
+    const calendar = await harness();
+    const r1 = await createPayrollRun({ id: "r1", year: 2026, month: 2 }, calendar.deps);
+    await employeeWithContract(calendar, { id: "emp-1", monthlySalary: "2800.00" });
+    await calculatePayrollRun(r1.id, { ...calendar.deps, unpaidLeave: days(2), dayDivisorBasis: "CALENDAR_DAYS" });
+    const [cal] = await calendar.payslips.listByRunId(r1.id);
+    expect(cal!.lines.find((l) => l.source === "unpaid_leave")!.amount.toString()).toBe("200.000000");
+
+    const fixed = await harness();
+    const r2 = await createPayrollRun({ id: "r2", year: 2026, month: 2 }, fixed.deps);
+    await employeeWithContract(fixed, { id: "emp-1", monthlySalary: "2800.00" });
+    await calculatePayrollRun(r2.id, { ...fixed.deps, unpaidLeave: days(2), dayDivisorBasis: "FIXED_30" });
+    const [fix] = await fixed.payslips.listByRunId(r2.id);
+    expect(fix!.lines.find((l) => l.source === "unpaid_leave")!.amount.toString()).toBe("186.666667");
+  });
+
+  it("prices the day on basic PLUS allowances, the whole monthly wage", async () => {
+    const h = await harness();
+    const run = await createPayrollRun({ id: "r1", year: 2026, month: 4 }, h.deps);
+    await employeeWithContract(h, { id: "emp-1", monthlySalary: "2700.00", allowances: [{ name: "بدل", amount: "300.00" }] });
+    await calculatePayrollRun(run.id, { ...h.deps, unpaidLeave: days(1) });
+    const [payslip] = await h.payslips.listByRunId(run.id);
+    expect(payslip!.lines.find((l) => l.source === "unpaid_leave")!.amount.toString()).toBe("100.000000");
+  });
+
+  it("never deducts more than was earned: 30 FIXED_30 days in a 31-day month take the whole gross, not 31/30 of it", async () => {
+    const h = await harness();
+    const run = await createPayrollRun({ id: "r1", year: 2026, month: 1 }, h.deps);
+    await employeeWithContract(h, { id: "emp-1", monthlySalary: "3100.00" });
+    await calculatePayrollRun(run.id, { ...h.deps, unpaidLeave: days(31) });
+    const [payslip] = await h.payslips.listByRunId(run.id);
+    expect(payslip!.lines.find((l) => l.source === "unpaid_leave")!.amount.toString()).toBe(payslip!.grossEarnings.toString());
+    expect(payslip!.netPay.scaled).toBe(0n);
+  });
+
+  it("caps a mid-month joiner's deduction at what they actually earned", async () => {
+    const h = await harness();
+    const run = await createPayrollRun({ id: "r1", year: 2026, month: 1 }, h.deps);
+    await employeeWithContract(h, { id: "emp-1", monthlySalary: "3000.00", hireDate: "2026-01-30", contractStart: "2026-01-30" });
+    await calculatePayrollRun(run.id, { ...h.deps, unpaidLeave: days(2) });
+    const [payslip] = await h.payslips.listByRunId(run.id);
+    const unpaid = payslip!.lines.find((l) => l.source === "unpaid_leave")!;
+    // Two paid days of 3,000 over a 31-day month earn 193.548387; two unpaid
+    // days at 3,000 / 30 would be 200.00, so the deduction stops at gross.
+    expect(payslip!.grossEarnings.toString()).toBe("193.548387");
+    expect(unpaid.amount.toString()).toBe("193.548387");
+    expect(payslip!.netPay.scaled).toBe(0n);
+  });
+});
+
+describe("payrollDayDivisor", () => {
+  it("is 30 under FIXED_30 whatever the month's length", () => {
+    expect([28, 29, 30, 31].map((n) => payrollDayDivisor("FIXED_30", n))).toEqual([30, 30, 30, 30]);
+  });
+
+  it("is the period's real length under CALENDAR_DAYS", () => {
+    expect([28, 29, 30, 31].map((n) => payrollDayDivisor("CALENDAR_DAYS", n))).toEqual([28, 29, 30, 31]);
   });
 });

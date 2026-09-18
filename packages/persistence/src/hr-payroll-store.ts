@@ -18,6 +18,10 @@ import {
   type PayrollComponentFilter,
   type PayrollComponentKind,
   type PayrollComponentRepository,
+  type GarnishmentFilter,
+  type GarnishmentKind,
+  type GarnishmentRecord,
+  type GarnishmentRepository,
 } from "@mezan/domain";
 
 /**
@@ -441,6 +445,8 @@ interface SerializedPayslipLine {
   amount: number;
   glAccountId: string | null;
   referenceId: string | null;
+  /** Optional — absent on rows written before the garnishment cap shipped. */
+  capped?: boolean;
 }
 
 function serializeLines(lines: readonly PayslipLine[]): string {
@@ -453,6 +459,7 @@ function serializeLines(lines: readonly PayslipLine[]): string {
       amount: l.amount.toScaledNumber(),
       glAccountId: l.glAccountId,
       referenceId: l.referenceId,
+      capped: l.capped,
     })),
   );
 }
@@ -466,6 +473,7 @@ function deserializeLines(json: string): PayslipLine[] {
     amount: Money.fromScaled(l.amount),
     glAccountId: l.glAccountId,
     referenceId: l.referenceId,
+    capped: l.capped ?? false,
   }));
 }
 
@@ -556,6 +564,161 @@ class SqlitePayslipRepository implements PayslipRepository {
 
   async deleteByRunId(runId: string): Promise<void> {
     this.deleteByRun.run(runId);
+  }
+}
+
+// --- Garnishments ----------------------------------------------------------
+
+const CREATE_GARNISHMENT = `
+CREATE TABLE IF NOT EXISTS hr_garnishment (
+  id             TEXT PRIMARY KEY,
+  employee_id    TEXT NOT NULL,
+  kind           TEXT NOT NULL,
+  reference      TEXT NOT NULL,
+  label_ar       TEXT NOT NULL,
+  total_amount   INTEGER NOT NULL,
+  monthly_amount INTEGER NOT NULL,
+  outstanding    INTEGER NOT NULL,
+  recovered      INTEGER NOT NULL,
+  currency       TEXT NOT NULL,
+  start_date     TEXT NOT NULL,
+  end_date       TEXT,
+  notes          TEXT,
+  active         INTEGER NOT NULL,
+  created_at     TEXT NOT NULL,
+  updated_at     TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS hr_garnishment_employee_idx ON hr_garnishment (employee_id);
+`;
+
+interface GarnishmentRow {
+  id: string;
+  employee_id: string;
+  kind: string;
+  reference: string;
+  label_ar: string;
+  total_amount: number;
+  monthly_amount: number;
+  outstanding: number;
+  recovered: number;
+  currency: string;
+  start_date: string;
+  end_date: string | null;
+  notes: string | null;
+  active: number;
+  created_at: string;
+  updated_at: string;
+}
+
+function toGarnishment(row: GarnishmentRow): GarnishmentRecord {
+  return {
+    id: row.id,
+    employeeId: row.employee_id,
+    kind: row.kind as GarnishmentKind,
+    reference: row.reference,
+    labelAr: row.label_ar,
+    totalAmount: Money.fromScaled(row.total_amount),
+    monthlyAmount: Money.fromScaled(row.monthly_amount),
+    outstanding: Money.fromScaled(row.outstanding),
+    recovered: Money.fromScaled(row.recovered),
+    currency: row.currency,
+    startDate: row.start_date,
+    endDate: row.end_date,
+    notes: row.notes,
+    active: row.active === 1,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+class SqliteGarnishmentRepository implements GarnishmentRepository {
+  private readonly upsert: Database.Statement;
+  private readonly selectById: Database.Statement;
+  private readonly selectByEmployee: Database.Statement;
+
+  constructor(private readonly sqlite: Database.Database) {
+    this.upsert = sqlite.prepare(`
+      INSERT INTO hr_garnishment (
+        id, employee_id, kind, reference, label_ar, total_amount, monthly_amount, outstanding, recovered,
+        currency, start_date, end_date, notes, active, created_at, updated_at
+      )
+      VALUES (
+        @id, @employee_id, @kind, @reference, @label_ar, @total_amount, @monthly_amount, @outstanding, @recovered,
+        @currency, @start_date, @end_date, @notes, @active, @created_at, @updated_at
+      )
+      ON CONFLICT(id) DO UPDATE SET
+        kind = excluded.kind,
+        reference = excluded.reference,
+        label_ar = excluded.label_ar,
+        total_amount = excluded.total_amount,
+        monthly_amount = excluded.monthly_amount,
+        outstanding = excluded.outstanding,
+        recovered = excluded.recovered,
+        currency = excluded.currency,
+        start_date = excluded.start_date,
+        end_date = excluded.end_date,
+        notes = excluded.notes,
+        active = excluded.active,
+        updated_at = excluded.updated_at
+    `);
+    this.selectById = sqlite.prepare(`SELECT * FROM hr_garnishment WHERE id = ?`);
+    this.selectByEmployee = sqlite.prepare(`SELECT * FROM hr_garnishment WHERE employee_id = ? ORDER BY start_date DESC, reference`);
+  }
+
+  async findById(id: string): Promise<GarnishmentRecord | null> {
+    const row = this.selectById.get(id) as GarnishmentRow | undefined;
+    return row ? toGarnishment(row) : null;
+  }
+
+  async list(filter?: GarnishmentFilter): Promise<GarnishmentRecord[]> {
+    const clauses: string[] = [];
+    const params: unknown[] = [];
+    if (filter?.employeeId) {
+      clauses.push("employee_id = ?");
+      params.push(filter.employeeId);
+    }
+    if (filter?.active !== undefined && filter.active !== null) {
+      clauses.push("active = ?");
+      params.push(filter.active ? 1 : 0);
+    }
+    const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
+    const rows = this.sqlite
+      .prepare(`SELECT * FROM hr_garnishment ${where} ORDER BY start_date DESC, reference`)
+      .all(...params) as GarnishmentRow[];
+    return rows.map(toGarnishment);
+  }
+
+  async listByEmployeeId(employeeId: string): Promise<GarnishmentRecord[]> {
+    return (this.selectByEmployee.all(employeeId) as GarnishmentRow[]).map(toGarnishment);
+  }
+
+  async create(record: GarnishmentRecord): Promise<void> {
+    this.write(record);
+  }
+
+  async update(record: GarnishmentRecord): Promise<void> {
+    this.write(record);
+  }
+
+  private write(record: GarnishmentRecord): void {
+    this.upsert.run({
+      id: record.id,
+      employee_id: record.employeeId,
+      kind: record.kind,
+      reference: record.reference,
+      label_ar: record.labelAr,
+      total_amount: record.totalAmount.toScaledNumber(),
+      monthly_amount: record.monthlyAmount.toScaledNumber(),
+      outstanding: record.outstanding.toScaledNumber(),
+      recovered: record.recovered.toScaledNumber(),
+      currency: record.currency,
+      start_date: record.startDate,
+      end_date: record.endDate,
+      notes: record.notes,
+      active: record.active ? 1 : 0,
+      created_at: record.createdAt,
+      updated_at: record.updatedAt,
+    });
   }
 }
 
@@ -716,4 +879,17 @@ export function createSqlitePayrollComponentRepository(path: SqliteConnectionInp
   sqlite.exec(CREATE_PAYROLL_COMPONENT);
   const repo = new SqlitePayrollComponentRepository(sqlite);
   return Object.assign(repo, { close: () => { if (owned) sqlite.close(); } }) as SqlitePayrollComponentRepositoryHandle;
+}
+
+export interface SqliteGarnishmentRepositoryHandle extends GarnishmentRepository {
+  close(): void;
+}
+
+/** Open a SQLite-backed GarnishmentRepository (الحجز على الأجر). */
+export function createSqliteGarnishmentRepository(path: SqliteConnectionInput = ":memory:"): SqliteGarnishmentRepositoryHandle {
+  const { sqlite, owned } = openSqliteConnection(path);
+  sqlite.pragma("foreign_keys = ON");
+  sqlite.exec(CREATE_GARNISHMENT);
+  const repo = new SqliteGarnishmentRepository(sqlite);
+  return Object.assign(repo, { close: () => { if (owned) sqlite.close(); } }) as SqliteGarnishmentRepositoryHandle;
 }

@@ -281,6 +281,8 @@ export {
   createSqlitePayrollRunRepository,
   createSqlitePayslipRepository,
   createSqlitePayrollComponentRepository,
+  createSqliteGarnishmentRepository,
+  type SqliteGarnishmentRepositoryHandle,
   type SqliteEmployeeAdvanceRepositoryHandle,
   type SqlitePayrollRunRepositoryHandle,
   type SqlitePayslipRepositoryHandle,

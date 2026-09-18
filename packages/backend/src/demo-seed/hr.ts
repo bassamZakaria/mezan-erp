@@ -13,7 +13,7 @@ import { ADMIN_HEADERS, BRANCH_ID, CORE, seedActorHeaders, step } from "./shared
  * stages of the draft → محتسب → معتمد → مصروف flow.
  *
  * Payroll figures are contractual only: basic salary, contract allowances,
- * contract deductions and advance recovery. The engine computes NO income tax,
+ * contract deductions, wage garnishments and advance recovery. The engine computes NO income tax,
  * social insurance, Article 47 seniority bonus, overtime or end-of-service
  * gratuity — no formula for any of them was ever captured — so nothing here
  * seeds a number that would imply one was.
@@ -503,12 +503,15 @@ const ATTENDANCE_WINDOWS = [
  * leave — so 23 يوليو scores holiday and سلمى's approved days score on_leave
  * without this table asserting either.
  */
-const ATTENDANCE_EXCEPTIONS: Record<string, { checkIn: string | null; checkOut?: string | null; halfDay?: boolean; notes?: string }> = {
+const ATTENDANCE_EXCEPTIONS: Record<
+  string,
+  { checkIn: string | null; checkOut?: string | null; halfDay?: boolean; approvedOvertimeMinutes?: number; notes?: string }
+> = {
   "EMP-DEMO-1|2026-07-22": { checkIn: "09:28", checkOut: "17:15", notes: "تأخير — زحام مروري" },
   "EMP-DEMO-1|2026-07-23": { checkIn: null },
   "EMP-DEMO-3|2026-07-23": { checkIn: null },
   "EMP-DEMO-6|2026-07-23": { checkIn: null },
-  "EMP-DEMO-6|2026-07-21": { checkIn: "08:40", checkOut: "19:20", notes: "وردية ممتدة — أمر تشغيل عاجل" },
+  "EMP-DEMO-6|2026-07-21": { checkIn: "08:40", checkOut: "19:20", approvedOvertimeMinutes: 150, notes: "وردية ممتدة — أمر تشغيل عاجل" },
   "EMP-DEMO-1|2026-08-04": { checkIn: "09:35", checkOut: "17:20", notes: "تأخير — عطل بالسيارة" },
   "EMP-DEMO-1|2026-08-05": { checkIn: null, notes: "غياب بدون إذن" },
   "EMP-DEMO-2|2026-08-10": { checkIn: null },
@@ -519,8 +522,54 @@ const ATTENDANCE_EXCEPTIONS: Record<string, { checkIn: string | null; checkOut?:
   "EMP-DEMO-4|2026-08-06": { checkIn: "09:00", checkOut: "13:00", halfDay: true, notes: "نصف يوم بإذن" },
   "EMP-DEMO-5|2026-08-11": { checkIn: "09:41", checkOut: "17:12", notes: "تأخير" },
   "EMP-DEMO-5|2026-08-13": { checkIn: null, notes: "غياب — أُبلغ بالهاتف" },
-  "EMP-DEMO-3|2026-08-06": { checkIn: "08:15", checkOut: "18:40", notes: "اجتماع مجلس الإدارة" },
+  "EMP-DEMO-3|2026-08-06": { checkIn: "08:15", checkOut: "18:40", approvedOvertimeMinutes: 90, notes: "اجتماع مجلس الإدارة" },
+  "EMP-DEMO-6|2026-08-07": { checkIn: "16:00", checkOut: "23:30", approvedOvertimeMinutes: 90, notes: "وردية مسائية" },
 };
+
+/**
+ * Two live orders and one already settled, so the register has an active row, a
+ * closed row, and an employee (EMP-DEMO-1) carrying BOTH a garnishment and an
+ * advance — which is the case that proves the court order is taken first.
+ */
+const GARNISHMENTS = [
+  {
+    id: "GRN-DEMO-1",
+    employeeId: "EMP-DEMO-1",
+    kind: "court_order",
+    reference: "1842/2026 كلي",
+    labelAr: "حجز تنفيذي لصالح بنك القاهرة",
+    totalAmount: "9000",
+    monthlyAmount: "750",
+    startDate: "2026-05-01",
+    endDate: null,
+    notes: "يُخصم شهرياً حتى السداد الكامل",
+  },
+  {
+    id: "GRN-DEMO-2",
+    employeeId: "EMP-DEMO-5",
+    kind: "alimony",
+    reference: "نفقة 337/2025",
+    labelAr: "نفقة زوجية ومصروفات",
+    totalAmount: "24000",
+    monthlyAmount: "1000",
+    startDate: "2026-01-01",
+    endDate: null,
+    notes: null,
+  },
+  {
+    id: "GRN-DEMO-3",
+    employeeId: "EMP-DEMO-7",
+    kind: "debt_settlement",
+    reference: "تسوية 12/2025",
+    labelAr: "تسوية دين مع مورد",
+    totalAmount: "3000",
+    monthlyAmount: "500",
+    startDate: "2025-11-01",
+    endDate: "2026-04-30",
+    notes: "انتهت مدته — رُفع الحجز",
+    release: true,
+  },
+];
 
 const ADVANCES = [
   { id: "ADV-DEMO-1", employeeId: "EMP-DEMO-1", amount: "6000", installmentCount: 6, firstDeductionDate: "2026-06-01", reason: "مصاريف علاج", flow: "disbursed", disburseDate: "2026-05-28" },
@@ -703,11 +752,31 @@ export async function seedHr(app: App): Promise<void> {
           checkOut: exception ? (exception.checkOut ?? null) : offDay ? null : DEFAULT_CHECK_OUT,
           halfDay: exception?.halfDay ?? false,
           notes: exception?.notes ?? null,
+          approvedOvertimeMinutes: exception?.approvedOvertimeMinutes ?? null,
           expectedCheckIn: SHIFT_START,
           graceMinutes: GRACE_MINUTES,
         });
       }
     }
+  }
+
+  // Garnishments are seeded before the payroll runs, so the runs actually
+  // withhold against them and count each order down.
+  for (const order of GARNISHMENTS) {
+    await step(app, "POST", "/hr/payroll/garnishments", {
+      id: order.id,
+      employeeId: order.employeeId,
+      kind: order.kind,
+      reference: order.reference,
+      labelAr: order.labelAr,
+      totalAmount: order.totalAmount,
+      monthlyAmount: order.monthlyAmount,
+      currency: "EGP",
+      startDate: order.startDate,
+      endDate: order.endDate,
+      notes: order.notes,
+    });
+    if (order.release) await step(app, "POST", `/hr/payroll/garnishments/${order.id}/release`, {});
   }
 
   const treasuryAccountId = await bankTreasuryAccountId(app);

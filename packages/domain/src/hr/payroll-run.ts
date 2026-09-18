@@ -116,12 +116,6 @@ export const PAYROLL_UNIMPLEMENTED_RULES: readonly PayrollUnimplementedRule[] = 
     detailAr: "العقد بعملة تختلف عن عملة الدورة يُستبعد؛ لا يوجد تحويل بسعر صرف.",
     appliesToEveryPayslip: false,
   },
-  {
-    code: "loans_garnishments",
-    labelAr: "القروض والحجز على الراتب",
-    detailAr: "لا يُخصم سوى أقساط سلف الموظفين؛ القروض الأخرى والحجوزات القضائية غير مدعومة.",
-    appliesToEveryPayslip: false,
-  },
 ] as const;
 
 /** What a payslip line does to the net: adds to it, takes from it, or is an employer-side cost that never touches it. */
@@ -133,7 +127,8 @@ export type PayslipLineSource =
   | "contract_allowance"
   | "contract_deduction"
   | "unpaid_leave"
-  | "advance_recovery";
+  | "advance_recovery"
+  | "garnishment";
 
 export interface PayslipLine {
   readonly id: string;
@@ -150,6 +145,8 @@ export interface PayslipLine {
   readonly glAccountId: string | null;
   /** The advance this line recovers, for `advance_recovery` lines. */
   readonly referenceId: string | null;
+  /** True when a `garnishment` line was reduced by the statutory wage-attachment cap (Art. 44) rather than paid at the order's full instalment. */
+  readonly capped: boolean;
 }
 
 export interface Payslip {
@@ -229,6 +226,65 @@ export interface PayslipRepository {
 }
 
 /**
+ * The garnishment's own kind. نفقة (alimony/family-maintenance) orders rank
+ * ahead of every other kind and are allowed a higher statutory ceiling — see
+ * `calculatePayrollRun`. Optional and defaults to "other" so a caller that
+ * predates this distinction (or a repository that has not populated it) still
+ * type-checks; the canonical, exhaustive definition lives on
+ * `GarnishmentRecord` in garnishment.ts.
+ */
+export type GarnishmentKind = "court_order" | "alimony" | "debt_settlement" | "union_dues" | "other";
+
+/** A court-ordered or agreed deduction that is not an employee advance (حجز على الأجر). */
+export interface Garnishment {
+  readonly id: string;
+  readonly employeeId: string;
+  /** Absent/undefined is treated as "other" — only "alimony" (نفقة) changes ranking and cap. */
+  readonly kind?: GarnishmentKind;
+  readonly reference: string;
+  readonly labelAr: string;
+  readonly monthlyAmount: Money;
+  readonly currency: string;
+  readonly startDate: string;
+  readonly endDate: string | null;
+  readonly outstanding: Money;
+  readonly active: boolean;
+}
+
+export interface GarnishmentProvider {
+  listActiveFor(employeeId: string, onDate: string): Promise<readonly Garnishment[]>;
+}
+
+/**
+ * أساس قسمة اليوم — the divisor a monthly salary is broken into days by.
+ * FIXED_30 is the Egyptian convention (every month is 30 days, so a day is
+ * always salary/30); CALENDAR_DAYS uses the period's real length, so a day in
+ * February is worth more than a day in March. Both are defensible and they
+ * disagree, so the tenant chooses.
+ */
+export type PayrollDayDivisorBasis = "FIXED_30" | "CALENDAR_DAYS";
+
+export interface PayrollDayDivisorBasisDefinition {
+  readonly code: PayrollDayDivisorBasis;
+  readonly labelAr: string;
+  readonly detailAr: string;
+}
+
+export const PAYROLL_DAY_DIVISOR_BASIS_DEFINITIONS: readonly PayrollDayDivisorBasisDefinition[] = [
+  { code: "FIXED_30", labelAr: "ثابت — 30 يوماً", detailAr: "قيمة اليوم = الراتب الشهري ÷ 30 في كل الشهور." },
+  { code: "CALENDAR_DAYS", labelAr: "أيام الشهر الفعلية", detailAr: "قيمة اليوم = الراتب الشهري ÷ عدد أيام الشهر (28 أو 29 أو 30 أو 31)." },
+] as const;
+
+export function getPayrollDayDivisorBasisLabel(basis: PayrollDayDivisorBasis): string {
+  return PAYROLL_DAY_DIVISOR_BASIS_DEFINITIONS.find((d) => d.code === basis)?.labelAr ?? basis;
+}
+
+/** The divisor a period actually uses, given the tenant's basis. */
+export function payrollDayDivisor(basis: PayrollDayDivisorBasis, periodDays: number): number {
+  return basis === "FIXED_30" ? 30 : periodDays;
+}
+
+/**
  * Unpaid-leave days per employee within a payroll period.
  *
  * This is the SEAM to the attendance/leave-balance side of HR (leave policies,
@@ -255,6 +311,8 @@ export interface PayrollGlAccounts {
   readonly deductionLiabilityAccountId: string;
   readonly employerContributionExpenseAccountId: string;
   readonly employerContributionLiabilityAccountId: string;
+  /** Credited with wage garnishments — owed to the court or the third party named on the order. */
+  readonly garnishmentPayableAccountId: string;
 }
 
 /** System defaults, mapping onto the standard COA leaves 5120 / 2170 / 1160 / 2190 / 5130. */
@@ -265,6 +323,7 @@ export const PAYROLL_GL_ACCOUNTS: PayrollGlAccounts = {
   deductionLiabilityAccountId: "2190",
   employerContributionExpenseAccountId: "5130",
   employerContributionLiabilityAccountId: "2190",
+  garnishmentPayableAccountId: "2193",
 };
 
 const DAYS_IN_MONTH = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];

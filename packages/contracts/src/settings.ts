@@ -35,7 +35,7 @@ export const tenantSettingsSchema = z.object({
   ),
   address: z.string(),
   hrContractExpiryWarningDays: z.number().int().min(7).max(365),
-  overtimeMultiplier: z.number().positive(),
+  payrollDayDivisorBasis: z.enum(["FIXED_30", "CALENDAR_DAYS"]),
   standardDailyWorkHours: z.number().positive().max(24),
 
   taxEnabled: z.boolean(),

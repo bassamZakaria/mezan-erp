@@ -203,7 +203,8 @@ export const navGroupSpecs: readonly NavGroupSpec[] = [
       { key: "staff", itemKeys: ["employees", "departments", "job-titles", "contracts"] },
       { key: "time", defaultCollapsed: true, itemKeys: ["attendance", "holidays", "leave-requests", "leave-balances", "leave-accrual-batches", "my-leave"] },
       { key: "pay", defaultCollapsed: true, itemKeys: ["payroll", "advances"] },
-      { key: "config", defaultCollapsed: true, itemKeys: ["leave-policies", "payroll-components"] },
+      { key: "config", defaultCollapsed: true, itemKeys: ["leave-policies", "payroll-components", "garnishments"] },
+      { key: "reports", defaultCollapsed: true, itemKeys: ["report-payroll-register", "report-attendance-summary", "report-leave-liability", "report-headcount-movement"] },
     ],
   },
   {
@@ -474,6 +475,11 @@ export const NAV_ITEM_ACCESS: Readonly<Record<string, { readonly permission?: st
   advances: { permission: "hr.advance.view", module: "hr" },
   "leave-policies": { permission: "hr.leave_policy.view", module: "hr" },
   "payroll-components": { permission: "hr.payroll.view", module: "hr" },
+  garnishments: { permission: "hr.payroll.view", module: "hr" },
+  "report-payroll-register": { permission: "hr.payroll.view", module: "hr" },
+  "report-attendance-summary": { permission: "hr.attendance.view", module: "hr" },
+  "report-leave-liability": { permission: "hr.leave.view", module: "hr" },
+  "report-headcount-movement": { permission: "hr.employee.view", module: "hr" },
 
   "assets-hub": { permission: "assets.view", module: "assets" },
   "asset-register": { permission: "assets.view", module: "assets" },

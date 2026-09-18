@@ -10,8 +10,10 @@ import { requestEmployeeAdvance, approveEmployeeAdvance, markEmployeeAdvanceDisb
 import type { PayrollRun, PayrollRunRepository, Payslip, PayslipLine, PayslipRepository } from "./payroll-run.js";
 import { PAYROLL_GL_ACCOUNTS } from "./payroll-run.js";
 import { approvePayrollRun, type PostPayrollRunDeps } from "./post-payroll-run.js";
+import { createGarnishment, type GarnishmentRecord, type GarnishmentRepository } from "./garnishment.js";
 import {
   EmployeeAdvanceNotFoundError,
+  GarnishmentNotFoundError,
   InvalidPayrollRunTransitionError,
   NoPayableEmployeesError,
   PayrollRunNotFoundError,
@@ -126,7 +128,7 @@ function payrollRun(overrides: Partial<PayrollRun> = {}): PayrollRun {
 }
 
 function line(overrides: Partial<PayslipLine> & Pick<PayslipLine, "kind" | "source" | "amount">): PayslipLine {
-  return { id: `line-${Math.random()}`, nameAr: "بند", glAccountId: null, referenceId: null, ...overrides };
+  return { id: `line-${Math.random()}`, nameAr: "بند", glAccountId: null, referenceId: null, capped: false, ...overrides };
 }
 
 function payslip(overrides: Partial<Payslip> & Pick<Payslip, "id" | "employeeId" | "lines" | "grossEarnings" | "totalDeductions" | "netPay">): Payslip {
@@ -165,6 +167,7 @@ async function harness(): Promise<Harness> {
   await accounts.create(account("2190", { type: "liability", naturalBalance: "credit" }));
   await accounts.create(account("5130", { type: "expense", naturalBalance: "debit" }));
   await accounts.create(account("5121", { type: "expense", naturalBalance: "debit" }));
+  await accounts.create(account("2193", { type: "liability", naturalBalance: "credit" }));
   await periods.create({ id: "fp-2026-01", year: 2026, periodNumber: 1, startDate: "2026-01-01", endDate: "2026-01-31", status: "open" });
 
   const gl: JournalPostingDeps = {
@@ -467,5 +470,163 @@ describe("approvePayrollRun", () => {
     await approvePayrollRun("run-1", "user-1", h.deps);
     const entry = await h.ledger.findById("PAYROLL-JE:run-1");
     expect(entry!.lines.find((l) => l.accountId === "2190")!.credit.toString()).toBe("50.000000");
+  });
+});
+
+describe("approvePayrollRun — garnishments and branch attribution", () => {
+  let h: Harness;
+
+  beforeEach(async () => {
+    h = await harness();
+  });
+
+  function register(): GarnishmentRepository & { rows: Map<string, GarnishmentRecord> } {
+    const rows = new Map<string, GarnishmentRecord>();
+    return {
+      rows,
+      async findById(id) {
+        return rows.get(id) ?? null;
+      },
+      async list() {
+        return [...rows.values()];
+      },
+      async listByEmployeeId(employeeId) {
+        return [...rows.values()].filter((r) => r.employeeId === employeeId);
+      },
+      async create(record) {
+        rows.set(record.id, record);
+      },
+      async update(record) {
+        rows.set(record.id, record);
+      },
+    };
+  }
+
+  function garnishedSlip(id: string, employeeId: string, withheld: string, net: string): Payslip {
+    return payslip({
+      id,
+      employeeId,
+      lines: [
+        line({ kind: "earning", source: "contract_basic", amount: Money.fromMajor("1000.00") }),
+        line({ kind: "deduction", source: "garnishment", amount: Money.fromMajor(withheld), glAccountId: "2193", referenceId: "grn-1" }),
+      ],
+      grossEarnings: Money.fromMajor("1000.00"),
+      totalDeductions: Money.fromMajor(withheld),
+      netPay: Money.fromMajor(net),
+    });
+  }
+
+  it("credits the garnishment to 2193 and counts the order down by what the run actually withheld, once", async () => {
+    const orders = register();
+    await orders.create(
+      createGarnishment(
+        {
+          id: "grn-1",
+          employeeId: "emp-1",
+          kind: "court_order",
+          reference: "1842/2026",
+          labelAr: "حجز",
+          totalAmount: Money.fromMajor("500.00"),
+          monthlyAmount: Money.fromMajor("300.00"),
+          currency: "EGP",
+          startDate: "2026-01-01",
+        },
+        () => "2026-01-01T00:00:00.000Z",
+      ),
+    );
+    await h.runs.create(payrollRun());
+    await h.payslips.create(garnishedSlip("ps-1", "emp-1", "300.00", "700.00"));
+
+    await approvePayrollRun("run-1", "user-1", { ...h.deps, garnishments: orders });
+
+    const entry = await h.ledger.findById("PAYROLL-JE:run-1");
+    expect(entry!.lines.find((l) => l.accountId === "2193")!.credit.toString()).toBe("300.000000");
+    const order = orders.rows.get("grn-1")!;
+    expect(order.outstanding.toString()).toBe("200.000000");
+    expect(order.recovered.toString()).toBe("300.000000");
+    expect(order.active).toBe(true);
+  });
+
+  it("D181: counts the order down by only what the run actually withheld when the statutory cap reduced it, so the shortfall carries forward", async () => {
+    const orders = register();
+    await orders.create(
+      createGarnishment(
+        {
+          id: "grn-1",
+          employeeId: "emp-1",
+          kind: "court_order",
+          reference: "1842/2026",
+          labelAr: "حجز",
+          totalAmount: Money.fromMajor("5000.00"),
+          monthlyAmount: Money.fromMajor("500.00"),
+          currency: "EGP",
+          startDate: "2026-01-01",
+        },
+        () => "2026-01-01T00:00:00.000Z",
+      ),
+    );
+    await h.runs.create(payrollRun());
+    // The order's own instalment is 500.00, but the payroll engine capped
+    // this period's withholding at 125.00 (calculate-payroll-run.test.ts
+    // proves the cap itself) — the payslip records only what was withheld.
+    await h.payslips.create(garnishedSlip("ps-1", "emp-1", "125.00", "875.00"));
+
+    await approvePayrollRun("run-1", "user-1", { ...h.deps, garnishments: orders });
+
+    const order = orders.rows.get("grn-1")!;
+    expect(order.outstanding.toString()).toBe("4875.000000"); // 5000 - 125, NOT 5000 - 500
+    expect(order.recovered.toString()).toBe("125.000000");
+    expect(order.active).toBe(true); // still owed — the 375.00 shortfall carries to next month
+  });
+
+  it("refuses to approve when a payslip names an order the register does not hold, rather than posting a liability nobody owns", async () => {
+    await h.runs.create(payrollRun());
+    await h.payslips.create(garnishedSlip("ps-1", "emp-1", "300.00", "700.00"));
+    await expect(approvePayrollRun("run-1", "user-1", { ...h.deps, garnishments: register() })).rejects.toThrow(GarnishmentNotFoundError);
+  });
+
+  it("stamps each line with the employee's branch when the run spans every branch (DEC-20), and still balances", async () => {
+    await h.runs.create(payrollRun({ branchId: null }));
+    const earningOnly = (id: string, employeeId: string, amount: string) =>
+      payslip({
+        id,
+        employeeId,
+        lines: [line({ kind: "earning", source: "contract_basic", amount: Money.fromMajor(amount) })],
+        grossEarnings: Money.fromMajor(amount),
+        totalDeductions: Money.zero(),
+        netPay: Money.fromMajor(amount),
+      });
+    await h.payslips.create(earningOnly("ps-1", "emp-cairo", "3000.00"));
+    await h.payslips.create(earningOnly("ps-2", "emp-alex", "2000.00"));
+    await h.payslips.create(earningOnly("ps-3", "emp-unknown", "500.00"));
+    const branches: Record<string, string> = { "emp-cairo": "CAIRO", "emp-alex": "ALEX" };
+    const employees = {
+      findById: async (id: string) => (branches[id] ? ({ id, branchId: branches[id] } as never) : null),
+    };
+
+    await approvePayrollRun("run-1", "user-1", { ...h.deps, employees });
+
+    const entry = await h.ledger.findById("PAYROLL-JE:run-1");
+    const expense = entry!.lines.filter((l) => l.accountId === "5120").map((l) => [l.branchId, l.debit.toString()]);
+    expect(expense).toEqual([
+      ["CAIRO", "3000.000000"],
+      ["ALEX", "2000.000000"],
+      [null, "500.000000"],
+    ]);
+    const debit = entry!.lines.reduce((acc, l) => acc.add(l.debit), Money.zero());
+    const credit = entry!.lines.reduce((acc, l) => acc.add(l.credit), Money.zero());
+    expect(debit.equals(credit)).toBe(true);
+    for (const branch of ["CAIRO", "ALEX", null]) {
+      const own = entry!.lines.filter((l) => l.branchId === branch);
+      expect(own.reduce((a, l) => a.add(l.debit), Money.zero()).equals(own.reduce((a, l) => a.add(l.credit), Money.zero()))).toBe(true);
+    }
+  });
+
+  it("uses the run's own branch for every line when the run is scoped to one branch", async () => {
+    await h.runs.create(payrollRun({ branchId: "CAIRO" }));
+    await h.payslips.create(garnishedSlip("ps-1", "emp-1", "300.00", "700.00"));
+    await approvePayrollRun("run-1", "user-1", h.deps);
+    const entry = await h.ledger.findById("PAYROLL-JE:run-1");
+    expect(entry!.lines.every((l) => l.branchId === "CAIRO")).toBe(true);
   });
 });

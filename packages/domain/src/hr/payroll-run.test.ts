@@ -111,6 +111,7 @@ describe("PAYROLL_GL_ACCOUNTS", () => {
       deductionLiabilityAccountId: "2190",
       employerContributionExpenseAccountId: "5130",
       employerContributionLiabilityAccountId: "2190",
+      garnishmentPayableAccountId: "2193",
     });
   });
 });
@@ -127,7 +128,6 @@ describe("PAYROLL_UNIMPLEMENTED_RULES", () => {
       "hourly_daily_basis",
       "pay_frequency",
       "multi_currency",
-      "loans_garnishments",
     ]);
   });
 
@@ -136,8 +136,8 @@ describe("PAYROLL_UNIMPLEMENTED_RULES", () => {
     expect(alwaysOn).toEqual(["income_tax", "social_insurance", "seniority_bonus", "overtime", "end_of_service"]);
   });
 
-  it("flags hourly/daily basis, pay frequency, multi-currency and loans/garnishments as conditional gaps", () => {
+  it("flags hourly/daily basis, pay frequency and multi-currency as conditional gaps — garnishments are deducted, so they are no longer one", () => {
     const conditional = PAYROLL_UNIMPLEMENTED_RULES.filter((r) => !r.appliesToEveryPayslip).map((r) => r.code);
-    expect(conditional).toEqual(["hourly_daily_basis", "pay_frequency", "multi_currency", "loans_garnishments"]);
+    expect(conditional).toEqual(["hourly_daily_basis", "pay_frequency", "multi_currency"]);
   });
 });

@@ -59,6 +59,18 @@ import {
   type AccountRepository,
   type VanTripRepository,
   type EmployeeRepository,
+  type PayrollRunRepository,
+  type PayslipRepository,
+  type ContractRepository,
+  type AttendanceRepository,
+  type LeaveBalanceRepository,
+  type LeavePolicyRepository,
+  createPayrollRegisterReport,
+  createAttendanceSummaryReport,
+  createLeaveLiabilityReport,
+  createHeadcountMovementReport,
+  createEmployeeDirectory,
+  LEAVE_LIABILITY_CONTROL_ACCOUNT,
   type RunReportOutcome,
   salesReturnGrandTotal,
   sumActive,
@@ -123,6 +135,21 @@ export interface ReportsRoutesDeps {
   readonly vanTrips?: VanTripRepository;
   /** Resolves van-trip crew ids to employee names; ids are shown verbatim when absent. */
   readonly employees?: EmployeeRepository;
+  /**
+   * HR data sources. Each block is optional and each gates ITS OWN routes: an
+   * install without payroll serves no payroll register rather than an empty
+   * one, which is the difference between "nothing to show" and "nothing built".
+   */
+  readonly hrPayroll?: {
+    readonly runs: Pick<PayrollRunRepository, "list">;
+    readonly payslips: Pick<PayslipRepository, "listByRunId">;
+  };
+  readonly hrContracts?: Pick<ContractRepository, "list">;
+  readonly hrAttendance?: Pick<AttendanceRepository, "list">;
+  readonly hrLeave?: {
+    readonly balances: Pick<LeaveBalanceRepository, "list">;
+    readonly policies: Pick<LeavePolicyRepository, "list">;
+  };
   /**
    * مستخلصات مقاولي الباطن. Egypt's Form 41 covers tax withheld on a PAYMENT
    * and tax withheld on a certified subcontractor's bill alike; a filing
@@ -884,6 +911,109 @@ export function createReportsRoutes(
         c,
         runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { items, boms: bomList, purchaseInvoices: invoices }),
       );
+    });
+  }
+
+  // --- الموارد البشرية والرواتب ----------------------------------------
+  //
+  // An employee carries a branch and nothing else in HR does, so branch scope
+  // (D111) reaches payslips, attendance and leave balances through the
+  // employee they belong to.
+
+  const hrEmployees = deps.employees;
+
+  async function scopedEmployeeIds(c: Context): Promise<ReadonlySet<string> | null> {
+    const branches = reportBranches(c);
+    if (!branches || !hrEmployees) return null;
+    return new Set(withinScope(await hrEmployees.list(), branches, (e) => e.branchId).map((e) => e.id));
+  }
+
+  function inScope<T extends { readonly employeeId: string }>(rows: readonly T[], ids: ReadonlySet<string> | null): T[] {
+    return ids === null ? [...rows] : rows.filter((row) => ids.has(row.employeeId));
+  }
+
+  async function controlBalance(accountId: string): Promise<Money> {
+    let scaled = 0n;
+    for (const entry of await deps.ledger.list({ status: "posted" })) {
+      for (const line of entry.lines) {
+        if (line.accountId === accountId) scaled += line.credit.scaled - line.debit.scaled;
+      }
+    }
+    return Money.fromScaled(scaled);
+  }
+
+  const hrPayroll = deps.hrPayroll;
+  if (hrPayroll && hrEmployees) {
+    const directory = createEmployeeDirectory(hrEmployees);
+    app.get("/hr/payroll-register", gate("hr.payroll.view"), async (c) => {
+      const definition = createPayrollRegisterReport();
+      const ids = await scopedEmployeeIds(c);
+      const runs = await hrPayroll.runs.list();
+      const payslips = (await Promise.all(runs.map((run) => hrPayroll.payslips.listByRunId(run.id)))).flat();
+      const employees = await directory.list();
+      return respond(
+        c,
+        runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, {
+          runs,
+          payslips: inScope(payslips, ids),
+          employees,
+        }),
+      );
+    });
+  }
+
+  const hrAttendance = deps.hrAttendance;
+  if (hrAttendance && hrEmployees) {
+    app.get("/hr/attendance-summary", gate("hr.attendance.view"), async (c) => {
+      const definition = createAttendanceSummaryReport();
+      const ids = await scopedEmployeeIds(c);
+      const [employees, attendance] = await Promise.all([hrEmployees.list(), hrAttendance.list()]);
+      return respond(
+        c,
+        runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, {
+          employees: ids === null ? employees : employees.filter((e) => ids.has(e.id)),
+          attendance: inScope(attendance, ids),
+        }),
+      );
+    });
+  }
+
+  const hrContracts = deps.hrContracts;
+  const hrLeave = deps.hrLeave;
+  if (hrContracts && hrLeave && hrEmployees) {
+    app.get("/hr/leave-liability", gate("hr.leave.view"), async (c) => {
+      const definition = createLeaveLiabilityReport();
+      const params = { ...definition.defaultParams, asOfDate: todayIso(deps), ...queryParams(c) };
+      const ids = await scopedEmployeeIds(c);
+      const [employees, contracts, balances, policies] = await Promise.all([
+        hrEmployees.list(),
+        hrContracts.list(),
+        hrLeave.balances.list(),
+        hrLeave.policies.list(),
+      ]);
+      // The control account holds the whole company, so a branch-narrowed run
+      // is not compared against it.
+      const glBalancesByAccountId = branchNarrowed(c, queryParams(c))
+        ? undefined
+        : new Map([[LEAVE_LIABILITY_CONTROL_ACCOUNT, await controlBalance(LEAVE_LIABILITY_CONTROL_ACCOUNT)]]);
+      return respond(
+        c,
+        runReport(definition, params, {
+          employees,
+          contracts,
+          balances: inScope(balances, ids),
+          policies,
+          glBalancesByAccountId,
+        }),
+      );
+    });
+  }
+
+  if (hrEmployees) {
+    app.get("/hr/headcount-movement", gate("hr.employee.view"), async (c) => {
+      const definition = createHeadcountMovementReport();
+      const employees = withinScope(await hrEmployees.list(), reportBranches(c), (e) => e.branchId);
+      return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { employees }));
     });
   }
 

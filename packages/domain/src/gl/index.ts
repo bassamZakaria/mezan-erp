@@ -19,11 +19,14 @@ export type {
   JournalLineInput,
   CreateJournalEntryCommand,
   JournalPostingDeps,
+  ReplaceDraftJournalEntryCommand,
 } from "./post.js";
 export {
   createJournalEntry,
   postJournalEntry,
   postDraftJournalEntry,
+  replaceDraftJournalEntry,
+  deleteDraftJournalEntry,
   assertEntryStructure,
   assertBalanced,
   assertLinesPostable,

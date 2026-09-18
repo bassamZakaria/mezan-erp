@@ -489,6 +489,102 @@ export async function postDraftJournalEntry(
   return entry;
 }
 
+/** Command to overwrite a مسودة (draft) entry's date, memo and lines (D226). */
+export interface ReplaceDraftJournalEntryCommand {
+  readonly date: string;
+  readonly memo: string;
+  readonly source?: JournalEntrySource;
+  readonly sourceDocType?: string | null;
+  readonly sourceDocId?: string | null;
+  readonly sourceDocNumber?: string | null;
+  readonly lines: readonly JournalLineInput[];
+}
+
+/**
+ * Overwrite a DRAFT entry in place — the industry-normal "edit a draft" a
+ * legacy party-less line on 1105/2100 needs to become postable again (D226).
+ * Refuses anything that is not `status === "draft"`; a posted or reversed
+ * entry is corrected only by reversal, never by edit. Re-runs every structural
+ * check `createJournalEntry` runs, so an edit cannot smuggle in what a create
+ * would have refused.
+ */
+export async function replaceDraftJournalEntry(
+  entryId: string,
+  cmd: ReplaceDraftJournalEntryCommand,
+  deps: JournalPostingDeps,
+): Promise<JournalEntry> {
+  const existing = await deps.ledger.findById(entryId);
+  if (!existing) throw new JournalEntryNotFoundError(entryId);
+  if (existing.status !== "draft") {
+    throw new JournalEntryNotDraftError(entryId, existing.status);
+  }
+
+  assertEntryDate(cmd.date);
+  assertEntryStructure(cmd.lines);
+  assertBalanced(cmd.lines);
+  assertProjectRequired(cmd.lines, deps.projectRequiredAccountIds);
+  await assertLinesPostable(cmd.lines, deps.accounts);
+  await assertProjectsExist(cmd.lines, deps.projects);
+  await assertPartyLines(cmd.lines, deps);
+
+  const entry: JournalEntry = {
+    ...existing,
+    date: cmd.date,
+    memo: cmd.memo,
+    source: cmd.source ?? existing.source ?? "manual",
+    sourceDocType: cmd.sourceDocType !== undefined ? cmd.sourceDocType : existing.sourceDocType ?? null,
+    sourceDocId: cmd.sourceDocId !== undefined ? cmd.sourceDocId : existing.sourceDocId ?? null,
+    sourceDocNumber: cmd.sourceDocNumber !== undefined ? cmd.sourceDocNumber : existing.sourceDocNumber ?? null,
+    lines: cmd.lines.map(toLine),
+  };
+
+  await deps.ledger.transaction(() => deps.ledger.replaceDraft(entry));
+
+  if (deps.audit) {
+    await recordSensitiveEvent(deps.audit, {
+      module: "accounting",
+      entityType: "JOURNAL_ENTRY",
+      entityId: entry.id,
+      action: "UPDATE",
+      actor: deps.actor ?? "system",
+      severity: "INFO",
+      details: { entryId: entry.id, date: entry.date, lineCount: entry.lines.length },
+    });
+  }
+
+  return entry;
+}
+
+/**
+ * Permanently remove a DRAFT entry — the industry-normal "discard a draft"
+ * (D226). Refuses anything that is not `status === "draft"`; nothing ever
+ * deletes a posted or reversed entry.
+ */
+export async function deleteDraftJournalEntry(
+  entryId: string,
+  deps: Pick<JournalPostingDeps, "ledger" | "audit" | "actor">,
+): Promise<void> {
+  const existing = await deps.ledger.findById(entryId);
+  if (!existing) throw new JournalEntryNotFoundError(entryId);
+  if (existing.status !== "draft") {
+    throw new JournalEntryNotDraftError(entryId, existing.status);
+  }
+
+  await deps.ledger.transaction(() => deps.ledger.deleteDraft(entryId));
+
+  if (deps.audit) {
+    await recordSensitiveEvent(deps.audit, {
+      module: "accounting",
+      entityType: "JOURNAL_ENTRY",
+      entityId: entryId,
+      action: "DELETE",
+      actor: deps.actor ?? "system",
+      severity: "WARNING",
+      details: { entryId, date: existing.date, memo: existing.memo },
+    });
+  }
+}
+
 async function emitPosted(
   entry: JournalEntry,
   totalDebit: Money,

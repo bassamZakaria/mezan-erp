@@ -1,4 +1,6 @@
 import type { Ctx } from "./harness.js";
+import { createSqliteLedgerStore } from "../../packages/persistence/src/index.js";
+import { Money } from "../../packages/domain/src/index.js";
 
 function qs(params: Record<string, string>): string {
   return new URLSearchParams(params).toString();
@@ -26,6 +28,7 @@ export async function run(ctx: Ctx): Promise<void> {
   await theTrialBalanceMovesByExactlyOnePosting(ctx);
   await aPostedToAccountResistsTheEditsThatWouldStrandIt(ctx);
   await aPostedEntryCannotBeEditedOrDeletedThroughAnyRoute(ctx);
+  await aLegacyDraftBecomesPostableThroughPUT_D226(ctx);
   await closingAMonthStrandsTheDraftsDatedIntoIt(ctx);
   await aCustomerOpeningBalanceNeverReachesTheControlAccount(ctx);
   await ctx.scenario("reconciliation — sub-ledgers vs GL control accounts", async () => {
@@ -1098,15 +1101,30 @@ export async function aPostedEntryCannotBeEditedOrDeletedThroughAnyRoute(ctx: Ct
     ctx.check("the entry posts", create.status === 201 && create.body?.status === "posted", `status ${create.status}`);
     const original = JSON.stringify(create.body);
 
-    for (const method of ["PUT", "PATCH", "DELETE"] as const) {
+    // PATCH is not a route at all. PUT and DELETE ARE routes now (D226, editing
+    // and deleting a DRAFT) — the immutability guard on a POSTED entry is that
+    // they refuse it with 409, not that the route does not exist.
+    const patch = await ctx.req("PATCH", `/gl/journal-entries/${id}`, {
+      memo: "tampered",
+      lines: [
+        { accountId: "1300-1", debit: "1.00", credit: "0.00" },
+        { accountId: "4900", debit: "0.00", credit: "1.00" },
+      ],
+    });
+    ctx.check("PATCH on a posted entry is not a route at all", patch.status === 404 || patch.status === 405, `status ${patch.status}`);
+
+    for (const method of ["PUT", "DELETE"] as const) {
+      // A well-shaped body on purpose — this probes the immutability guard
+      // (409, not a validation error).
       const res = await ctx.req(method, `/gl/journal-entries/${id}`, {
+        date: today(),
         memo: "tampered",
         lines: [
           { accountId: "1300-1", debit: "1.00", credit: "0.00" },
           { accountId: "4900", debit: "0.00", credit: "1.00" },
         ],
       });
-      ctx.check(`${method} on a posted entry is not a route at all`, res.status === 404 || res.status === 405, `status ${res.status}`);
+      ctx.check(`${method} on a posted entry is refused (D226 — a draft is editable/deletable, a posted entry is not)`, res.status === 409, `status ${res.status} body ${JSON.stringify(res.body).slice(0, 200)}`);
     }
 
     const reread = await ctx.req("GET", `/gl/journal-entries/${id}`);
@@ -1123,6 +1141,92 @@ export async function aPostedEntryCannotBeEditedOrDeletedThroughAnyRoute(ctx: Ct
     const afterReversal = await ctx.req("GET", `/gl/journal-entries/${id}`);
     ctx.check("the original entry LINES are still untouched — only its status and its forward link changed", JSON.stringify(afterReversal.body?.lines) === JSON.stringify(create.body?.lines), JSON.stringify(afterReversal.body?.lines).slice(0, 200));
     ctx.check("the original is marked reversed, never deleted", afterReversal.body?.status === "reversed", String(afterReversal.body?.status));
+  });
+}
+
+/**
+ * D226. A draft saved BEFORE D205 existed — a party-less line on 1105 — can
+ * never post through the normal API, because `createJournalEntry` runs the
+ * same D205 check a fresh draft does. So the legacy row is inserted straight
+ * through the SQLite {@link LedgerRepository}, on a second connection to the
+ * SAME database file the running backend already has open, exactly the way
+ * an old books file already holds one.
+ */
+export async function aLegacyDraftBecomesPostableThroughPUT_D226(ctx: Ctx): Promise<void> {
+  await ctx.scenario("journal entry — a legacy party-less draft on 1105 is edited in through PUT, then posts (D226)", async () => {
+    const id = "SCN-JE-LEGACY-D226";
+    const customerId = "SCN-CUST-D226";
+
+    const customer = await ctx.req("POST", "/customers", { id: customerId, code: "SCN-D226", nameAr: "عميل قديم", openingBalance: "0" });
+    ctx.check("a customer exists to name on the legacy line", customer.status === 201, `status ${customer.status}`);
+
+    const legacyLedger = createSqliteLedgerStore(ctx.dbPath);
+    await legacyLedger.save({
+      id,
+      entryNo: null,
+      date: today(),
+      memo: "قيد يدوي قديم",
+      status: "draft",
+      source: "manual",
+      lines: [
+        {
+          accountId: "1105", debit: Money.fromMajor("500"), credit: Money.zero(), memo: null, costCenterId: null,
+          currency: null, fxRate: null, taxRatePercent: null, projectId: null, costCategory: null, branchId: null, partyId: null,
+        },
+        {
+          accountId: "4100", debit: Money.zero(), credit: Money.fromMajor("500"), memo: null, costCenterId: null,
+          currency: null, fxRate: null, taxRatePercent: null, projectId: null, costCategory: null, branchId: null, partyId: null,
+        },
+      ],
+      createdAt: new Date().toISOString(),
+      postedAt: null,
+      reversesEntryId: null,
+      reversedByEntryId: null,
+      sourceDocType: null,
+      sourceDocId: null,
+      sourceDocNumber: null,
+    });
+    legacyLedger.close();
+
+    const blocked = await ctx.req("POST", `/gl/journal-entries/${id}/post`, {});
+    ctx.check(
+      "the legacy draft cannot post as saved — D205 still guards it",
+      blocked.status === 422 && blocked.body?.error === "PARTY_REQUIRED_ON_CONTROL_ACCOUNT",
+      `status ${blocked.status} body ${JSON.stringify(blocked.body).slice(0, 200)}`,
+    );
+
+    const edited = await ctx.req("PUT", `/gl/journal-entries/${id}`, {
+      date: today(),
+      memo: "قيد يدوي قديم",
+      lines: [
+        { accountId: "1105", debit: "500.00", credit: "0.00", partyId: customerId },
+        { accountId: "4100", debit: "0.00", credit: "500.00" },
+      ],
+    });
+    ctx.check(
+      "PUT names the missing party and saves the edit, keeping it a draft",
+      edited.status === 200 && edited.body?.status === "draft" && edited.body?.entryNo === null,
+      `status ${edited.status} body ${JSON.stringify(edited.body).slice(0, 200)}`,
+    );
+
+    const posted = await ctx.req("POST", `/gl/journal-entries/${id}/post`, {});
+    ctx.check(
+      "it posts once the party is named",
+      posted.status === 200 && posted.body?.status === "posted",
+      `status ${posted.status} body ${JSON.stringify(posted.body).slice(0, 200)}`,
+    );
+
+    const recon = await ctx.req("GET", "/reconciliation");
+    const ar = ctx.rows(recon.body).find((r: any) => r.key === "ar");
+    ctx.checkEq("AR sub-ledger still reconciles exactly to GL 1105", ctx.n(ar?.subLedgerBalance), ctx.n(ar?.glBalance));
+
+    const aging = await ctx.req("GET", "/reports/aging/customers");
+    const agingRow = ctx.rows(aging.body).find((r: any) => r.customerId === customerId);
+    ctx.checkEq("the customer's aging row carries exactly the once-orphaned 500", ctx.n(agingRow?.total), 500);
+
+    // Cleanup: reverse the probe posting, as the month-end probes above do,
+    // so this scenario leaves no permanent residue on the shared demo books.
+    if (posted.status === 200) await ctx.req("POST", `/gl/journal-entries/${id}/reverse`, {});
   });
 }
 

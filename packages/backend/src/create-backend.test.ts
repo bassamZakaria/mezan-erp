@@ -4,7 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { App, SessionRegistry } from "@mezan/api";
 import { ALL_SCOPE, MODULE_CATALOG, Money, createCustomer as buildCustomer, createSupplier as buildSupplier, createEntitlements } from "@mezan/domain";
-import { createSqliteCustomerRepository, createSqliteSupplierRepository, openSqliteConnection } from "@mezan/persistence";
+import { createSqliteCustomerRepository, createSqliteLedgerStore, createSqliteSupplierRepository, openSqliteConnection } from "@mezan/persistence";
 import type { DashboardSummaryDTO, SessionDTO } from "@mezan/contracts";
 import { createBackend, type BackendHandle } from "./create-backend.js";
 
@@ -4336,6 +4336,123 @@ describe("createBackend — party balances no invoice carries, and one figure pe
     expect(after.rows).toEqual([]);
     const reversed = (await get(app, "/vouchers")) as { id: string; reversesDocId?: string | null }[];
     expect(reversed.some((v) => v.reversesDocId === "v-wht")).toBe(true);
+  });
+});
+
+/**
+ * A draft saved BEFORE D205 existed — a party-less line on 1105 — can never
+ * post through the normal API, because `createJournalEntry` runs the same
+ * D205 check a fresh draft does. So the legacy row is inserted straight
+ * through the SQLite {@link LedgerRepository}, on a SECOND connection to the
+ * same file, exactly the way an old books file already holds one (D226).
+ */
+describe("createBackend — a legacy draft with no party becomes postable through PUT (D226)", () => {
+  let dir: string;
+  afterEach(() => {
+    if (dir) rmSync(dir, { recursive: true, force: true });
+  });
+
+  async function newFileBackedBackend(): Promise<{ app: App; dbPath: string }> {
+    dir = mkdtempSync(path.join(tmpdir(), "mezan-d226-test-"));
+    const dbPath = path.join(dir, "mezan.db");
+    return { app: keep(await createBackend({ dbPath })), dbPath };
+  }
+
+  async function saveLegacyDraft(dbPath: string) {
+    const ledger = createSqliteLedgerStore(dbPath);
+    const blank = {
+      memo: null,
+      costCenterId: null,
+      currency: null,
+      fxRate: null,
+      taxRatePercent: null,
+      projectId: null,
+      costCategory: null,
+      branchId: null,
+      partyId: null,
+    };
+    await ledger.save({
+      id: "je-legacy",
+      entryNo: null,
+      date: "2026-08-22",
+      memo: "قيد يدوي قديم",
+      status: "draft",
+      source: "manual",
+      lines: [
+        { accountId: "1105", debit: Money.fromMajor("500"), credit: Money.zero(), ...blank },
+        { accountId: "4100", debit: Money.zero(), credit: Money.fromMajor("500"), ...blank },
+      ],
+      createdAt: "2026-08-20T10:00:00.000Z",
+      postedAt: null,
+      reversesEntryId: null,
+      reversedByEntryId: null,
+      sourceDocType: null,
+      sourceDocId: null,
+      sourceDocNumber: null,
+    });
+    ledger.close();
+  }
+
+  async function get(app: App, apiPath: string): Promise<any> {
+    return (await app.fetch(new Request(`http://local${apiPath}`, { headers: admin(app) }))).json();
+  }
+  function put(app: App, apiPath: string, body: unknown) {
+    return app.fetch(
+      new Request(`http://local${apiPath}`, {
+        method: "PUT",
+        headers: { "content-type": "application/json", ...admin(app) },
+        body: JSON.stringify(body),
+      }),
+    );
+  }
+  function del(app: App, apiPath: string) {
+    return app.fetch(new Request(`http://local${apiPath}`, { method: "DELETE", headers: admin(app) }));
+  }
+  async function arDiff(app: App): Promise<string> {
+    const { rows } = (await get(app, "/reconciliation")) as { rows: { key: string; difference: string }[] };
+    return rows.find((r) => r.key === "ar")!.difference;
+  }
+
+  it("cannot post as saved (D205), PUT names the party, then it posts and AR ties", async () => {
+    const { app, dbPath } = await newFileBackedBackend();
+    await createCustomer(app, "cust-legacy", "0");
+    await saveLegacyDraft(dbPath);
+
+    const blocked = await post(app, "/gl/journal-entries/je-legacy/post", {}, admin(app));
+    expect(blocked.status).toBe(422);
+    expect(((await blocked.json()) as { error: string }).error).toBe("PARTY_REQUIRED_ON_CONTROL_ACCOUNT");
+
+    const edited = await put(app, "/gl/journal-entries/je-legacy", {
+      date: "2026-08-22",
+      memo: "قيد يدوي قديم",
+      lines: [
+        { accountId: "1105", debit: "500", credit: "0", partyId: "cust-legacy" },
+        { accountId: "4100", debit: "0", credit: "500" },
+      ],
+    });
+    expect(edited.status).toBe(200);
+    const editedBody = (await edited.json()) as { status: string; lines: { partyId: string | null }[] };
+    expect(editedBody.status).toBe("draft");
+    expect(editedBody.lines.find((l) => l.partyId)?.partyId).toBe("cust-legacy");
+
+    const posted = await post(app, "/gl/journal-entries/je-legacy/post", {}, admin(app));
+    expect(posted.status).toBe(200);
+    expect(((await posted.json()) as { entryNo: string | null }).entryNo).toBeTruthy();
+
+    expect(await arDiff(app)).toBe("0.000000");
+    const aging = await get(app, "/reports/aging/customers?asOfDate=2026-08-31");
+    expect(aging.rows.find((r: { customerId: string }) => r.customerId === "cust-legacy")?.total).toBe(500);
+    expect((await get(app, "/customers/cust-legacy")).owed).toBe("500.000000");
+  });
+
+  it("can instead be discarded outright, and posting it afterwards 404s", async () => {
+    const { app, dbPath } = await newFileBackedBackend();
+    await saveLegacyDraft(dbPath);
+
+    const res = await del(app, "/gl/journal-entries/je-legacy");
+    expect(res.status).toBe(204);
+    expect((await app.fetch(new Request("http://local/gl/journal-entries/je-legacy", { headers: admin(app) }))).status).toBe(404);
+    expect((await post(app, "/gl/journal-entries/je-legacy/post", {}, admin(app))).status).toBe(404);
   });
 });
 

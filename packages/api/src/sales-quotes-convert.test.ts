@@ -43,6 +43,8 @@ class MemSeq {
 class NoopLedger implements LedgerRepository {
   async save() {}
   async update() {}
+  async replaceDraft() {}
+  async deleteDraft() {}
   async findById() {
     return null;
   }

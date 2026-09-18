@@ -283,6 +283,199 @@ describe("gl-routes — draft, post, reverse, read", () => {
   });
 });
 
+async function newAppWithPartyControls() {
+  const harness = await newApp();
+  const deps: GlRoutesDeps = {
+    ledger: harness.ledger,
+    accounts: harness.accounts,
+    periods: harness.periods,
+    numbering: harness.ledger.numbering,
+    resolvePartyControlAccounts: async () => new Map([["1300-1", "customer" as const]]),
+    partyExists: async (kind, id) => kind === "customer" && id === "CUST-1",
+    now: () => "2026-08-22T10:00:00.000Z",
+    idGen: () => "rev-fixed",
+  };
+  return { app: createGlRoutes(deps, insecureHeaderAuthContextResolver), ledger: harness.ledger };
+}
+
+/**
+ * A "legacy" draft with a party-less line on what is now a control account —
+ * saved straight through the ledger repository the way a book from before
+ * D205 existed holds one, bypassing the create-time check entirely (D226).
+ */
+async function saveLegacyDraft(ledger: Awaited<ReturnType<typeof newApp>>["ledger"]) {
+  await ledger.save({
+    id: "je-1",
+    entryNo: null,
+    date: balanced.date,
+    memo: balanced.memo,
+    status: "draft",
+    source: "manual",
+    lines: balanced.lines.map((l) => ({
+      accountId: l.accountId,
+      debit: Money.fromMajor(l.debit),
+      credit: Money.fromMajor(l.credit),
+      memo: null,
+      costCenterId: null,
+      currency: null,
+      fxRate: null,
+      taxRatePercent: null,
+      projectId: null,
+      costCategory: null,
+      branchId: null,
+      partyId: null,
+    })),
+    createdAt: "2026-08-20T10:00:00.000Z",
+    postedAt: null,
+    reversesEntryId: null,
+    reversedByEntryId: null,
+    sourceDocType: null,
+    sourceDocId: null,
+    sourceDocNumber: null,
+  });
+}
+
+describe("gl-routes — editing and deleting a draft (D226)", () => {
+  it("edits a draft's date, memo and lines, keeping it a draft with no JE number", async () => {
+    const { app } = await newApp();
+    await app.fetch(
+      req("/journal-entries/draft", { method: "POST", permissions: "accounting.journal.create", body: JSON.stringify(balanced) }),
+    );
+    const res = await app.fetch(
+      req("/journal-entries/je-1", {
+        method: "PUT",
+        permissions: "accounting.journal.create",
+        body: JSON.stringify({
+          date: "2026-08-23",
+          memo: "Cash sale (corrected)",
+          lines: [
+            { accountId: "1300-1", debit: "800.00", credit: "0" },
+            { accountId: "4000", debit: "0", credit: "800.00" },
+          ],
+        }),
+      }),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { id: string; status: string; entryNo: string | null; date: string; memo: string; lines: unknown[] };
+    expect(body.id).toBe("je-1");
+    expect(body.status).toBe("draft");
+    expect(body.entryNo).toBeNull();
+    expect(body.date).toBe("2026-08-23");
+    expect(body.memo).toBe("Cash sale (corrected)");
+    expect(body.lines).toHaveLength(2);
+
+    const getRes = await app.fetch(req("/journal-entries/je-1", { permissions: "accounting.journal.view" }));
+    expect(((await getRes.json()) as { date: string }).date).toBe("2026-08-23");
+  });
+
+  it("409s editing a posted entry, in Arabic", async () => {
+    const { app } = await newApp();
+    await postBalanced(app);
+    const res = await app.fetch(
+      req("/journal-entries/je-1", { method: "PUT", permissions: "accounting.journal.create", body: JSON.stringify(balanced) }),
+    );
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as { error: string; message: string };
+    expect(body.error).toBe("JOURNAL_ENTRY_NOT_DRAFT");
+    expect(body.message).toMatch(/مسودة/);
+  });
+
+  it("404s editing an unknown draft", async () => {
+    const { app } = await newApp();
+    const res = await app.fetch(
+      req("/journal-entries/nope", { method: "PUT", permissions: "accounting.journal.create", body: JSON.stringify(balanced) }),
+    );
+    expect(res.status).toBe(404);
+  });
+
+  it("400s a malformed edit body", async () => {
+    const { app } = await newApp();
+    const res = await app.fetch(
+      req("/journal-entries/je-1", { method: "PUT", permissions: "accounting.journal.create", body: JSON.stringify({ memo: "x" }) }),
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it("403s editing without the create permission", async () => {
+    const { app } = await newApp();
+    const res = await app.fetch(req("/journal-entries/je-1", { method: "PUT", body: JSON.stringify(balanced) }));
+    expect(res.status).toBe(403);
+  });
+
+  it("422s editing a party-less line onto a control account, in Arabic and English (D205 x D226)", async () => {
+    const { app, ledger } = await newAppWithPartyControls();
+    await saveLegacyDraft(ledger);
+    const res = await app.fetch(
+      req("/journal-entries/je-1", { method: "PUT", permissions: "accounting.journal.create", body: JSON.stringify(balanced) }),
+    );
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as { error: string; message: string; messageEn: string; accountId: string };
+    expect(body.error).toBe("PARTY_REQUIRED_ON_CONTROL_ACCOUNT");
+    expect(body.accountId).toBe("1300-1");
+    expect(body.message).toMatch(/العميل/);
+    expect(body.messageEn).toMatch(/customer/);
+  });
+
+  it("edits in the missing party and the entry then posts (the legacy D226 path)", async () => {
+    const { app, ledger } = await newAppWithPartyControls();
+    await saveLegacyDraft(ledger);
+    const editRes = await app.fetch(
+      req("/journal-entries/je-1", {
+        method: "PUT",
+        permissions: "accounting.journal.create",
+        body: JSON.stringify({
+          ...balanced,
+          lines: balanced.lines.map((l) => (l.accountId === "1300-1" ? { ...l, partyId: "CUST-1" } : l)),
+        }),
+      }),
+    );
+    expect(editRes.status).toBe(200);
+    const postRes = await app.fetch(
+      req("/journal-entries/je-1/post", { method: "POST", permissions: "accounting.journal.post" }),
+    );
+    expect(postRes.status).toBe(200);
+    expect(((await postRes.json()) as { status: string }).status).toBe("posted");
+  });
+
+  it("deletes a draft outright", async () => {
+    const { app } = await newApp();
+    await app.fetch(
+      req("/journal-entries/draft", { method: "POST", permissions: "accounting.journal.create", body: JSON.stringify(balanced) }),
+    );
+    const res = await app.fetch(
+      req("/journal-entries/je-1", { method: "DELETE", permissions: "accounting.journal.create" }),
+    );
+    expect(res.status).toBe(204);
+
+    const getRes = await app.fetch(req("/journal-entries/je-1", { permissions: "accounting.journal.view" }));
+    expect(getRes.status).toBe(404);
+  });
+
+  it("409s deleting a posted entry, in Arabic", async () => {
+    const { app } = await newApp();
+    await postBalanced(app);
+    const res = await app.fetch(
+      req("/journal-entries/je-1", { method: "DELETE", permissions: "accounting.journal.create" }),
+    );
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as { error: string; message: string };
+    expect(body.error).toBe("JOURNAL_ENTRY_NOT_DRAFT");
+    expect(body.message).toMatch(/مسودة/);
+  });
+
+  it("404s deleting an unknown draft", async () => {
+    const { app } = await newApp();
+    const res = await app.fetch(req("/journal-entries/nope", { method: "DELETE", permissions: "accounting.journal.create" }));
+    expect(res.status).toBe(404);
+  });
+
+  it("403s deleting without the create permission", async () => {
+    const { app } = await newApp();
+    const res = await app.fetch(req("/journal-entries/je-1", { method: "DELETE" }));
+    expect(res.status).toBe(403);
+  });
+});
+
 async function accountBalance(app: Awaited<ReturnType<typeof newApp>>["app"], accountId: string): Promise<string> {
   const res = await app.fetch(req(`/accounts/${accountId}/ledger`, { permissions: "accounting.journal.view" }));
   const body = (await res.json()) as { balance: { balance: string } };

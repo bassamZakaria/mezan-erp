@@ -25,6 +25,20 @@ export interface LedgerRepository {
    * corrections are reversing entries.
    */
   update(entry: JournalEntry): Promise<void>;
+  /**
+   * Overwrite a مسودة (draft) entry's date, memo, source and lines in place,
+   * keeping its id. Every line is replaced — unlike `update`, this is the one
+   * port method allowed to touch `journal_line` content, and only because
+   * nothing has posted from these lines yet. Callers MUST verify
+   * `status === "draft"` first (D226); this method does not re-check.
+   */
+  replaceDraft(entry: JournalEntry): Promise<void>;
+  /**
+   * Permanently remove a مسودة (draft) entry and its lines — the only delete
+   * this port exposes, because nothing downstream has ever read a draft's
+   * lines as fact. Callers MUST verify `status === "draft"` first (D226).
+   */
+  deleteDraft(entryId: string): Promise<void>;
   findById(id: string): Promise<JournalEntry | null>;
   findByEntryNo(entryNo: string): Promise<JournalEntry | null>;
   list(filter?: JournalListFilter): Promise<readonly JournalEntry[]>;

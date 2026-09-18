@@ -114,6 +114,14 @@ export const createGlJournalEntrySchema = z.object({
   lines: z.array(glJournalLineSchema).min(2),
 });
 
+/** Overwrite a مسودة (draft) journal entry's date, memo and lines (D226). No `id` — it travels in the URL and never changes. */
+export const updateGlJournalEntrySchema = z.object({
+  date: isoDateOrInstant,
+  memo: z.string(),
+  source: journalEntrySourceSchema.optional(),
+  lines: z.array(glJournalLineSchema).min(2),
+});
+
 /** Reverse a posted journal entry via a reversing entry. */
 export const reverseGlJournalEntrySchema = z.object({
   /** Optional — the server generates a UUID when omitted. */
@@ -157,6 +165,7 @@ export type JournalEntrySourceDTO = z.infer<typeof journalEntrySourceSchema>;
 export type JournalEntryStatusDTO = z.infer<typeof journalEntryStatusSchema>;
 export type GlJournalLineDTO = z.infer<typeof glJournalLineSchema>;
 export type CreateGlJournalEntryDTO = z.infer<typeof createGlJournalEntrySchema>;
+export type UpdateGlJournalEntryDTO = z.infer<typeof updateGlJournalEntrySchema>;
 export type ReverseGlJournalEntryDTO = z.infer<typeof reverseGlJournalEntrySchema>;
 export type GlJournalListQueryDTO = z.infer<typeof glJournalListQuerySchema>;
 export type JournalSourceModuleDTO = z.infer<typeof journalSourceModuleSchema>;

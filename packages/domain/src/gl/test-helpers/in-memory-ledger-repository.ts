@@ -25,6 +25,14 @@ export class InMemoryLedgerRepository implements LedgerRepository {
     this.rows.set(entry.id, entry);
   }
 
+  async replaceDraft(entry: JournalEntry): Promise<void> {
+    this.rows.set(entry.id, entry);
+  }
+
+  async deleteDraft(entryId: string): Promise<void> {
+    this.rows.delete(entryId);
+  }
+
   async findById(id: string): Promise<JournalEntry | null> {
     return this.rows.get(id) ?? null;
   }

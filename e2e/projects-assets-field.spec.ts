@@ -160,7 +160,10 @@ test.describe("Fixed Assets", () => {
     await clickSidebarItem(page, "الإهلاك");
     await expect(page.getByRole("heading", { name: "الإهلاك" })).toBeVisible();
 
-    await page.getByRole("button", { name: "تشغيل إهلاك جديد" }).click();
+    // .first() — the header's button is always present; an empty-state
+    // region renders a second one with the exact same label whenever the
+    // list reads zero rows.
+    await page.getByRole("button", { name: "تشغيل إهلاك جديد" }).first().click();
     const form = page.getByRole("dialog", { name: "تشغيل إهلاك جديد" });
     await expect(form).toBeVisible();
 

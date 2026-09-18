@@ -100,9 +100,16 @@ test.describe("Notifications inbox", () => {
     await page.getByRole("button", { name: "صندوق الوارد", exact: true }).click();
     await expect(page.getByRole("heading", { name: "الإشعارات" })).toBeVisible();
 
-    // 3 real notifications from the seeded sales/purchase returns
-    // (packages/backend/src/demo-seed/platform.ts): 2 unread, 1 urgent.
-    await expect(page.getByText("عرض 3 من 3 إشعار")).toBeVisible();
+    // At least 3 real notifications from the seeded sales/purchase returns
+    // (packages/backend/src/demo-seed/platform.ts) — not asserting an exact
+    // total, since other e2e spec files sharing this backend also confirm
+    // sales/purchase returns and genuinely add more notifications.
+    await expect
+      .poll(async () => {
+        const text = await page.locator("main").innerText();
+        return Number(text.match(/عرض\s*\d+\s*من\s*(\d+)\s*إشعار/)?.[1] ?? 0);
+      })
+      .toBeGreaterThanOrEqual(3);
     const salesReturnRow = page.locator("tr", { hasText: "تم تسجيل مرتجع مبيعات" }).first();
     await expect(salesReturnRow).toBeVisible();
     await expect(salesReturnRow.getByText(/تم تأكيد مرتجع مبيعات على المستند SRT-\d+/)).toBeVisible();

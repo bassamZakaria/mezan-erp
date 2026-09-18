@@ -11,6 +11,7 @@ export {
   purchaseReturnGrandTotal,
   purchaseReturnLineBase,
   purchaseReturnLineCredit,
+  purchaseReturnCreditByInvoice,
   type PurchaseReturnReason,
   type PurchaseReturnLine,
   type PurchaseReturnDocument,

@@ -285,6 +285,14 @@ describe("PurchaseInvoicesScreen (filters, stats, entity ids, payments)", () => 
     expect(await screen.findByText("لا يمكن إنشاء فاتورة بدون بنود")).toBeInTheDocument();
   });
 
+  it("D216: the payment tab names the returned amount the remaining balance nets", async () => {
+    renderScreen([purchaseInvoice({ status: "confirmed", total: "200.000000", returnedCredit: "60.000000", remainingBalance: "140.000000" })]);
+    fireEvent.click(await screen.findByText("PI-000001"));
+    fireEvent.click(await screen.findByRole("tab", { name: "السداد" }));
+    expect(await screen.findByText("المرتجع")).toBeInTheDocument();
+    expect(screen.getAllByText((_, el) => el?.textContent === "140.00").length).toBeGreaterThan(0);
+  });
+
   it("payment tab: guards block submit with Arabic messages, then posts the real treasury id and shows the voucher note", async () => {
     const { getPayBody } = renderScreen([purchaseInvoice({ remainingBalance: "100.000000", status: "confirmed" })]);
     fireEvent.click(await screen.findByText("PI-000001"));

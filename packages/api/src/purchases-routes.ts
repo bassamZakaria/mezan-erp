@@ -22,6 +22,8 @@ import {
   purchaseInvoiceTax,
   purchaseInvoiceTotal,
   purchaseInvoiceBaseTotal,
+  purchaseReturnCreditByInvoice,
+  type PurchaseReturnDocument,
   PurchaseOrderNotFoundError,
   GoodsReceiptNotFoundError,
   PurchaseInvoiceNotFoundError,
@@ -129,6 +131,19 @@ export interface PurchasesRoutesDeps {
   readonly gl: PurchaseGlPostingPort;
   readonly accounts: PurchaseGlAccounts;
   readonly allocatable?: AllocatableInvoiceRepository;
+  /**
+   * Confirmed purchase returns, so an invoice's remaining balance and paid
+   * state net what 2100 was debited with for its returns, as the supplier
+   * ladder does (D216).
+   */
+  readonly returns?: {
+    list(): Promise<readonly PurchaseReturnDocument[]>;
+    listByLineRef?(
+      field: "sourceInvoiceId",
+      ids: readonly string[],
+      filter?: { status?: "confirmed" },
+    ): Promise<readonly PurchaseReturnDocument[]>;
+  };
   /** Exchange rates, so a foreign-currency invoice posts at the rate of its own date (D24). */
   readonly exchangeRates?: { findRate(currency: string, asOfDate: string): Promise<{ rate: string } | null> };
   /** The tenant's own currency; anything else on a document needs a rate. */
@@ -247,7 +262,7 @@ function serializeReceipt(r: GoodsReceipt) {
   };
 }
 
-function serializeInvoice(inv: PurchaseInvoice, allocated: Money = Money.zero()) {
+function serializeInvoice(inv: PurchaseInvoice, allocated: Money = Money.zero(), returned: Money = Money.zero()) {
   /**
    * What supplier-payment vouchers have applied against this invoice, read
    * from the allocation sub-ledger. The purchase invoice carried no payment
@@ -256,7 +271,7 @@ function serializeInvoice(inv: PurchaseInvoice, allocated: Money = Money.zero())
    */
   const total = purchaseInvoiceTotal(inv);
   const baseTotal = purchaseInvoiceBaseTotal(inv);
-  const remaining = Money.fromScaled(baseTotal.scaled - allocated.scaled);
+  const remaining = Money.fromScaled(baseTotal.scaled - allocated.scaled - returned.scaled);
   return {
     id: inv.id,
     number: inv.number,
@@ -288,6 +303,7 @@ function serializeInvoice(inv: PurchaseInvoice, allocated: Money = Money.zero())
     total: total.toString(),
     baseTotal: baseTotal.toString(),
     amountPaid: allocated.toString(),
+    returnedCredit: returned.toString(),
     remainingBalance: remaining.toString(),
     createdBy: inv.createdBy,
     createdAt: inv.createdAt,
@@ -773,6 +789,16 @@ export function createPurchasesRoutes(
     return out;
   }
 
+  /** Confirmed purchase-return debit against just these invoices (D216). */
+  async function returnedByInvoice(ids: readonly string[]): Promise<ReadonlyMap<string, Money>> {
+    if (!deps.returns || ids.length === 0) return new Map();
+    const docs = deps.returns.listByLineRef
+      ? await deps.returns.listByLineRef("sourceInvoiceId", ids, { status: "confirmed" })
+      : await deps.returns.list();
+    const wanted = new Set(ids);
+    return new Map([...purchaseReturnCreditByInvoice(docs)].filter(([id]) => wanted.has(id)));
+  }
+
   function parseInvoiceListQuery(c: Context) {
     return purchaseInvoiceListQuerySchema.safeParse({
       status: c.req.query("status"),
@@ -790,6 +816,7 @@ export function createPurchasesRoutes(
   interface FilteredInvoices {
     readonly rows: readonly PurchaseInvoice[];
     readonly allocations: ReadonlyMap<string, Money>;
+    readonly returns: ReadonlyMap<string, Money>;
   }
 
   /**
@@ -798,9 +825,9 @@ export function createPurchasesRoutes(
    * — rather than stored on the invoice, so they must be computed in exactly
    * one place or the rows, the chips and the KPI strip will disagree.
    */
-  function paymentStateOf(inv: PurchaseInvoice, allocated: Money, today: string, horizon: string) {
+  function paymentStateOf(inv: PurchaseInvoice, allocated: Money, returned: Money, today: string, horizon: string) {
     const total = purchaseInvoiceBaseTotal(inv);
-    const remaining = total.scaled - allocated.scaled;
+    const remaining = total.scaled - allocated.scaled - returned.scaled;
     const live = inv.status === "confirmed";
     const settled = remaining <= 0n;
     return {
@@ -868,12 +895,15 @@ export function createPurchasesRoutes(
       );
     }
 
-    const allocations = await allocatedByInvoice(rows.map((i) => i.id));
+    const [allocations, returns] = await Promise.all([
+      allocatedByInvoice(rows.map((i) => i.id)),
+      returnedByInvoice(rows.map((i) => i.id)),
+    ]);
     if (status && status !== "all") {
       const today = (deps.now?.() ?? new Date().toISOString()).slice(0, 10);
       const horizon = paymentHorizon(today);
       rows = rows.filter((inv) => {
-        const state = paymentStateOf(inv, allocations.get(inv.id) ?? Money.zero(), today, horizon);
+        const state = paymentStateOf(inv, allocations.get(inv.id) ?? Money.zero(), returns.get(inv.id) ?? Money.zero(), today, horizon);
         switch (status) {
           case "overdue":
             return state.overdue;
@@ -888,13 +918,13 @@ export function createPurchasesRoutes(
         }
       });
     }
-    return { rows, allocations };
+    return { rows, allocations, returns };
   }
 
   app.get("/invoices", gateAny("purchases.invoice.view", "purchases.invoice.view_own"), async (c) => {
     const parsed = parseInvoiceListQuery(c);
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
-    const { rows, allocations } = await listFilteredInvoices(c, parsed.data);
+    const { rows, allocations, returns } = await listFilteredInvoices(c, parsed.data);
     // The scope and the derived payment chips are JS predicates, so the page is
     // cut AFTER them — a LIMIT ahead of a filter is a wrong page, not a fast
     // one. The row set reaching here is already narrowed by every SQL filter.
@@ -909,7 +939,7 @@ export function createPurchasesRoutes(
     // version or `expectedVersion` is never sent and the guard never fires.
     const versions = await documentVersionsOf(deps.invoiceVersions, window.map((inv) => inv.id));
     return c.json(
-      window.map((inv) => ({ ...serializeInvoice(inv, allocations.get(inv.id)), version: versions.get(inv.id) })),
+      window.map((inv) => ({ ...serializeInvoice(inv, allocations.get(inv.id), returns.get(inv.id)), version: versions.get(inv.id) })),
     );
   });
 
@@ -918,7 +948,7 @@ export function createPurchasesRoutes(
     const parsed = parseInvoiceListQuery(c);
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     const { status: _ignored, ...withoutStatus } = parsed.data;
-    const { rows, allocations } = await listFilteredInvoices(c, withoutStatus);
+    const { rows, allocations, returns } = await listFilteredInvoices(c, withoutStatus);
     const today = (deps.now?.() ?? new Date().toISOString()).slice(0, 10);
     const horizon = paymentHorizon(today);
 
@@ -934,7 +964,7 @@ export function createPurchasesRoutes(
     };
     for (const inv of rows) {
       counts[inv.status] = (counts[inv.status] ?? 0) + 1;
-      const state = paymentStateOf(inv, allocations.get(inv.id) ?? Money.zero(), today, horizon);
+      const state = paymentStateOf(inv, allocations.get(inv.id) ?? Money.zero(), returns.get(inv.id) ?? Money.zero(), today, horizon);
       if (state.overdue) counts.overdue! += 1;
       if (state.dueSoon) counts.due_soon! += 1;
       if (state.partiallyPaid) counts.partially_paid! += 1;
@@ -947,7 +977,7 @@ export function createPurchasesRoutes(
   app.get("/invoices/stats", gateAny("purchases.invoice.view", "purchases.invoice.view_own"), async (c) => {
     const parsed = parseInvoiceListQuery(c);
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
-    const { rows, allocations } = await listFilteredInvoices(c, parsed.data);
+    const { rows, allocations, returns } = await listFilteredInvoices(c, parsed.data);
 
     let purchases = Money.zero();
     let paid = Money.zero();
@@ -962,7 +992,7 @@ export function createPurchasesRoutes(
       paid = paid.add(allocated);
       // A credit balance on one invoice must not cancel what another still
       // owes — "unpaid" is what is outstanding, not a net position.
-      const remaining = total.scaled - allocated.scaled;
+      const remaining = total.scaled - allocated.scaled - (returns.get(inv.id) ?? Money.zero()).scaled;
       if (remaining > 0n) unpaid = unpaid.add(Money.fromScaled(remaining));
     }
     return c.json({
@@ -985,7 +1015,11 @@ export function createPurchasesRoutes(
     const invoice = await deps.invoices.findById(c.req.param("id"));
     if (!invoice || hiddenFromOwn(c, invoice)) return c.json({ error: "NOT_FOUND" }, 404);
     return c.json({
-      ...serializeInvoice(invoice, (await allocatedByInvoice([invoice.id])).get(invoice.id)),
+      ...serializeInvoice(
+        invoice,
+        (await allocatedByInvoice([invoice.id])).get(invoice.id),
+        (await returnedByInvoice([invoice.id])).get(invoice.id),
+      ),
       version: await documentVersionOf(deps.invoiceVersions, invoice.id),
     });
   });
@@ -1096,7 +1130,8 @@ export function createPurchasesRoutes(
       return c.json({ error: "INVALID_PAYMENT", message: "قيمة السداد يجب أن تكون أكبر من صفر." }, 422);
     }
     const allocated = (await allocatedByInvoice([invoice.id])).get(invoice.id) ?? Money.zero();
-    const remaining = purchaseInvoiceBaseTotal(invoice).scaled - allocated.scaled;
+    const returned = (await returnedByInvoice([invoice.id])).get(invoice.id) ?? Money.zero();
+    const remaining = purchaseInvoiceBaseTotal(invoice).scaled - allocated.scaled - returned.scaled;
     if (amount.scaled > remaining) {
       return c.json(
         { error: "PAYMENT_EXCEEDS_BALANCE", message: "قيمة السداد أكبر من المتبقي على الفاتورة." },
@@ -1120,7 +1155,7 @@ export function createPurchasesRoutes(
         actor: actor(c),
       });
       const settled = (await allocatedByInvoice([invoice.id])).get(invoice.id);
-      return c.json({ ...serializeInvoice(invoice, settled), voucherId, voucherNo });
+      return c.json({ ...serializeInvoice(invoice, settled, returned), voucherId, voucherNo });
     } catch (err) {
       return handleDomainError(c, err);
     }
@@ -1265,6 +1300,29 @@ export function createPurchasesRoutes(
     app.post("/invoices/:id/cancel", gate("purchases.invoice.void"), async (c) => {
       const stale = await refuseStaleDocument(c, deps.invoiceVersions, c.req.param("id"), expectedVersionOf(await readOptionalBody(c)));
       if (stale) return stale;
+      const target = await deps.invoices.findById(c.req.param("id"));
+      if (target?.status === "confirmed") {
+        if (((await allocatedByInvoice([target.id])).get(target.id) ?? Money.zero()).scaled !== 0n) {
+          return c.json(
+            {
+              error: "INVOICE_HAS_PAYMENTS",
+              message: "لا يمكن إلغاء فاتورة سُدّدت مبالغ عليها — اعكس السداد أولاً.",
+              messageEn: "This invoice has payments applied to it — reverse the payment first.",
+            },
+            409,
+          );
+        }
+        if (((await returnedByInvoice([target.id])).get(target.id) ?? Money.zero()).scaled !== 0n) {
+          return c.json(
+            {
+              error: "INVOICE_HAS_RETURNS",
+              message: "لا يمكن إلغاء فاتورة صدر عليها مرتجع مؤكد.",
+              messageEn: "This invoice has a confirmed purchase return against it.",
+            },
+            409,
+          );
+        }
+      }
       try {
         const invoice = await cancelPurchaseInvoice(c.req.param("id"), {
           invoices: deps.invoices,

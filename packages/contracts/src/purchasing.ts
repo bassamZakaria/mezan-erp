@@ -178,6 +178,8 @@ export const purchaseInvoiceSchema = z.object({
   baseTotal: decimalString.optional(),
   /** Settled from the treasury allocation sub-ledger (base currency); the invoice itself holds no payment counter. */
   amountPaid: decimalString,
+  /** Confirmed purchase returns against this invoice, in base; `remainingBalance` nets them (D216). */
+  returnedCredit: decimalString.optional(),
   remainingBalance: decimalString,
   createdBy: z.string(),
   createdAt: z.string(),

@@ -2678,6 +2678,103 @@ describe("createBackend — the reconciliation tie at a NON-ZERO balance", () =>
   });
 });
 
+describe("createBackend — a purchase invoice nets its confirmed returns (D216, D240)", () => {
+  async function get(app: App, path: string): Promise<any> {
+    return (await app.fetch(new Request(`http://local${path}`, { headers: admin(app) }))).json();
+  }
+  async function cashTreasury(app: App) {
+    expect(
+      (await post(app, "/treasury-accounts", { id: "ta-cash", code: "TA-CASH", name: "الخزينة", branchId: "BR1", glAccountId: "1300-1", openingBalance: "0" }, admin(app))).status,
+    ).toBe(201);
+    const fund = {
+      id: "v-fund", date: "2026-08-22", voucherType: "capital_injection", amount: "5000", branchId: "BR1", paymentMethod: "cash",
+      treasuryAccountId: "ta-cash", treasuryGlAccountId: "1300-1", counterpartyGlAccountId: "3100",
+    };
+    expect((await post(app, "/vouchers", fund, admin(app))).status).toBe(201);
+    expect((await post(app, "/vouchers/v-fund/confirm", {}, admin(app))).status).toBe(200);
+  }
+  async function returnedBill(app: App, returnQty: string) {
+    await cashTreasury(app);
+    expect((await post(app, "/items", { id: "item-d216", code: "ITEM-D216", nameAr: "صنف", type: "stock", baseUnitCode: "PCS", costingMethod: "WAC" }, admin(app))).status).toBe(201);
+    expect((await post(app, "/suppliers", { id: "sup-d216", code: "sup-d216", nameAr: "مورد", currency: "EGP", openingBalance: "0" }, admin(app))).status).toBe(201);
+    expect(
+      (
+        await post(app, "/purchases/invoices", {
+          id: "pi-d216", supplierId: "sup-d216", date: "2026-08-22", dueDate: "2026-08-25", branchId: "BR-MAIN", warehouseId: "WH-MAIN",
+          lines: [{ itemId: "item-d216", description: "صنف", kind: "inventory", qty: "10", unitCost: "20.00", taxRatePercent: 0 }],
+        }, admin(app))
+      ).status,
+    ).toBe(201);
+    const invoice = (await (await post(app, "/purchases/invoices/pi-d216/confirm", {}, admin(app))).json()) as { id: string; number: string };
+    const created = await post(app, "/purchase-returns", {
+      id: "pr-d216", date: "2026-08-23", memo: "",
+      lines: [{ itemId: "item-d216", warehouseId: "WH-MAIN", supplierId: "sup-d216", sourceInvoiceId: invoice.id, sourceInvoiceNumber: invoice.number, reason: "DEFECTIVE", availableQty: "10", qty: returnQty, unitCost: "20.00", taxAmount: "0" }],
+    }, admin(app));
+    expect(created.status).toBe(201);
+    expect((await post(app, "/purchase-returns/pr-d216/confirm", {}, admin(app))).status).toBe(200);
+  }
+
+  it("D216: the invoice's remaining balance nets a partial return, and the pay cap follows it", async () => {
+    const app = await newBackend();
+    await returnedBill(app, "3");
+    const invoice = await get(app, "/purchases/invoices/pi-d216");
+    expect(invoice).toMatchObject({ baseTotal: "200.000000", amountPaid: "0.000000", returnedCredit: "60.000000", remainingBalance: "140.000000" });
+    const ladder = await get(app, "/reports/aging/suppliers");
+    expect(ladder.rows.find((r: { supplierId: string }) => r.supplierId === "sup-d216")?.total).toBe(140);
+
+    const over = await post(app, "/purchases/invoices/pi-d216/payments", { amount: "140.01", treasuryAccountId: "ta-cash", date: "2026-08-24" }, admin(app));
+    expect(over.status).toBe(422);
+    const paid = await post(app, "/purchases/invoices/pi-d216/payments", { amount: "140", treasuryAccountId: "ta-cash", date: "2026-08-24" }, admin(app));
+    expect(paid.status).toBe(200);
+    expect(await paid.json()).toMatchObject({ amountPaid: "140.000000", remainingBalance: "0.000000" });
+
+    const paidList = await get(app, "/purchases/invoices?status=paid");
+    expect(paidList.map((r: { id: string }) => r.id)).toContain("pi-d216");
+    const counts = await get(app, "/purchases/invoices/counts");
+    expect(counts.partially_paid).toBe(0);
+    expect((await get(app, "/purchases/invoices/stats")).unpaid).toBe("0.000000");
+  });
+
+  it("D216: a fully returned bill is settled — not overdue, not unpaid", async () => {
+    const app = await newBackend();
+    await returnedBill(app, "10");
+    expect(await get(app, "/purchases/invoices/pi-d216")).toMatchObject({ remainingBalance: "0.000000", returnedCredit: "200.000000" });
+    expect((await get(app, "/purchases/invoices?status=overdue")).map((r: { id: string }) => r.id)).not.toContain("pi-d216");
+    expect((await get(app, "/purchases/invoices?status=paid")).map((r: { id: string }) => r.id)).toContain("pi-d216");
+    expect((await get(app, "/purchases/invoices/stats")).unpaid).toBe("0.000000");
+  });
+
+  it("D240: a purchase invoice with a confirmed return or a payment cannot be cancelled", async () => {
+    const app = await newBackend();
+    await returnedBill(app, "3");
+    const refused = await post(app, "/purchases/invoices/pi-d216/cancel", {}, admin(app));
+    expect(refused.status).toBe(409);
+    expect(((await refused.json()) as { error: string }).error).toBe("INVOICE_HAS_RETURNS");
+    expect((await get(app, "/purchases/invoices/pi-d216")).status).toBe("confirmed");
+  });
+
+  it("D240: a paid purchase invoice cannot be cancelled either, so its payment never loses its invoice", async () => {
+    const app = await newBackend();
+    await cashTreasury(app);
+    expect((await post(app, "/suppliers", { id: "sup-d240", code: "sup-d240", nameAr: "مورد", currency: "EGP", openingBalance: "0" }, admin(app))).status).toBe(201);
+    expect(
+      (
+        await post(app, "/purchases/invoices", {
+          id: "pi-d240", supplierId: "sup-d240", date: "2026-08-22", branchId: "BR-MAIN", warehouseId: "WH-MAIN",
+          lines: [{ description: "خدمة", kind: "expense", qty: "1", unitCost: "100.00", taxRatePercent: 0 }],
+        }, admin(app))
+      ).status,
+    ).toBe(201);
+    expect((await post(app, "/purchases/invoices/pi-d240/confirm", {}, admin(app))).status).toBe(200);
+    expect((await post(app, "/purchases/invoices/pi-d240/payments", { amount: "40", treasuryAccountId: "ta-cash", date: "2026-08-23" }, admin(app))).status).toBe(200);
+    const refused = await post(app, "/purchases/invoices/pi-d240/cancel", {}, admin(app));
+    expect(refused.status).toBe(409);
+    expect(((await refused.json()) as { error: string }).error).toBe("INVOICE_HAS_PAYMENTS");
+    const ladder = await get(app, "/reports/aging/suppliers");
+    expect(ladder.reconciliation).toMatchObject({ reportTotal: ladder.reconciliation.referenceTotal });
+  });
+});
+
 describe("createBackend — stock reservations (مخزون محجوز), derived from open documents", () => {
   it("a draft sales invoice's stock line reserves qty, confirming it releases the reservation and moves onHand instead", async () => {
     const app = await newBackend();

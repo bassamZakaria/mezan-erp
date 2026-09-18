@@ -1466,6 +1466,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
           glReverse: purchases.layers ? glReversePort : undefined,
           accounts: purchases.accounts,
           allocatable: purchases.allocatable,
+          returns: options.purchaseReturns?.service,
           exchangeRates: fxRatesUnder(purchases.exchangeRates, options.settingsStore),
           baseCurrency: purchases.baseCurrency,
           policy,

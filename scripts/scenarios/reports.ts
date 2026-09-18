@@ -620,6 +620,11 @@ export async function foreignSettlementReportsAndReturns_D201_D203(ctx: Ctx): Pr
       const prConfirmed = await req("POST", "/purchase-returns/SCN-D203-PR/confirm", {});
       check("two units go back to the supplier", prCreated.status === 201 && prConfirmed.status === 200, `${prCreated.status}/${prConfirmed.status} ${JSON.stringify(prConfirmed.body).slice(0, 200)}`);
       checkEq("D203: the return debits 2100 with CHF 11.40 × 60.00 = 684.00, whatever rate the caller sent", -(await glBalanceOf("2100")) - before.ap, 3420 - 420 - 684);
+      const piAfterReturn = (await req("GET", "/purchases/invoices/SCN-D203-PI")).body;
+      checkEq("D216: the bill's remaining balance nets its return, 3,420.00 − 420.00 − 684.00", n(piAfterReturn?.remainingBalance), 3420 - 420 - 684);
+      checkEq("D216: and names the 684.00 it returned", n(piAfterReturn?.returnedCredit), 684);
+      const supplierRow = ctx.rows((await req("GET", "/reports/aging/suppliers")).body).find((r: any) => r.supplierId === "SCN-D203-SUPP");
+      checkEq("D216: which is the supplier's row on the ladder", n(supplierRow?.total), n(piAfterReturn?.remainingBalance));
       const after = await ctx.invariants();
       checkEq("the /reconciliation AP row is exactly as tied as before", after.ap, before.invariants.ap);
       checkEq("and so is inventory", after.inventory, before.invariants.inventory);

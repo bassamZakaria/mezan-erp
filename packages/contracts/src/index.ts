@@ -1370,6 +1370,11 @@ export {
   type PayrollComponentDTO,
   type CreatePayrollComponentDTO,
   type UpdatePayrollComponentDTO,
+  garnishmentKindSchema,
+  garnishmentSchema,
+  createGarnishmentSchema,
+  type GarnishmentDTO,
+  type CreateGarnishmentDTO,
 } from "./hr-payroll.js";
 
 export {

@@ -413,3 +413,21 @@ export class DuplicatePayrollComponentError extends Error {
     this.name = "DuplicatePayrollComponentError";
   }
 }
+
+/** Raised when a garnishment command fails validation. */
+export class InvalidGarnishmentError extends Error {
+  readonly code = "INVALID_GARNISHMENT";
+  constructor(readonly reasons: readonly string[]) {
+    super(reasons.join("، "));
+    this.name = "InvalidGarnishmentError";
+  }
+}
+
+/** Raised when an operation references a garnishment id that does not exist. */
+export class GarnishmentNotFoundError extends Error {
+  readonly code = "GARNISHMENT_NOT_FOUND";
+  constructor(readonly garnishmentId: string) {
+    super("سند الحجز غير موجود.");
+    this.name = "GarnishmentNotFoundError";
+  }
+}

@@ -200,3 +200,43 @@ export type PayrollComponentKindDTO = z.infer<typeof payrollComponentKindSchema>
 export type PayrollComponentDTO = z.infer<typeof payrollComponentSchema>;
 export type CreatePayrollComponentDTO = z.infer<typeof createPayrollComponentSchema>;
 export type UpdatePayrollComponentDTO = z.infer<typeof updatePayrollComponentSchema>;
+
+// --- Garnishments (الحجز على الأجر) ----------------------------------------
+
+export const garnishmentKindSchema = z.enum(["court_order", "alimony", "debt_settlement", "union_dues", "other"]);
+
+export const garnishmentSchema = z.object({
+  id: z.string().min(1),
+  employeeId: z.string().min(1),
+  kind: garnishmentKindSchema,
+  reference: z.string().min(1),
+  labelAr: z.string().min(1),
+  totalAmount: moneyString,
+  monthlyAmount: moneyString,
+  outstanding: moneyString,
+  recovered: moneyString,
+  currency: z.string().min(1),
+  startDate: z.string().min(1),
+  endDate: z.string().nullable(),
+  notes: z.string().nullable(),
+  active: z.boolean(),
+  createdAt: z.string().min(1),
+  updatedAt: z.string().min(1),
+});
+
+export const createGarnishmentSchema = z.object({
+  id: z.string().min(1).optional(),
+  employeeId: z.string().min(1),
+  kind: garnishmentKindSchema,
+  reference: z.string().min(1),
+  labelAr: z.string().min(1),
+  totalAmount: moneyString,
+  monthlyAmount: moneyString,
+  currency: z.string().min(1).default("EGP"),
+  startDate: z.string().min(1),
+  endDate: z.string().min(1).nullable().optional(),
+  notes: z.string().nullable().optional(),
+});
+
+export type GarnishmentDTO = z.infer<typeof garnishmentSchema>;
+export type CreateGarnishmentDTO = z.infer<typeof createGarnishmentSchema>;

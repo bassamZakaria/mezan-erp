@@ -302,3 +302,23 @@ export {
   withinBranchScope,
 } from "./branch-filter.js";
 export { isoDateParamSchema, isRealIsoDate } from "./iso-date.js";
+export {
+  createPayrollRegisterReport,
+  type PayrollReportContext,
+  type PayrollPeriodParams,
+  type PayrollRegisterRow,
+} from "./hr-payroll.js";
+export {
+  createAttendanceSummaryReport,
+  createLeaveLiabilityReport,
+  createHeadcountMovementReport,
+  LEAVE_LIABILITY_CONTROL_ACCOUNT,
+  type AttendanceSummaryContext,
+  type AttendanceSummaryParams,
+  type AttendanceSummaryRow,
+  type LeaveLiabilityContext,
+  type LeaveLiabilityParams,
+  type LeaveLiabilityRow,
+  type HeadcountMovementContext,
+  type HeadcountMovementRow,
+} from "./hr-workforce.js";

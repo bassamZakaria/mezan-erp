@@ -11,6 +11,8 @@ import type {
   PayrollRunDetailDTO,
   PayslipDTO,
   TreasuryDisbursementDTO,
+  GarnishmentDTO,
+  CreateGarnishmentDTO,
 } from "@mezan/contracts";
 import { ApiError, readError } from "./hooks";
 import { useApi } from "./ApiContext";
@@ -270,6 +272,60 @@ export function useUpdatePayrollComponent() {
       const res = await request(`/hr/payroll/components/${id}`, { method: "PUT", body: JSON.stringify(body) });
       if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("payrollComponents.theComponentCouldNotBe")));
       return res.json<PayrollComponentDTO>();
+    },
+    onSuccess: invalidate,
+  });
+}
+
+/* -------------------------------------------------------------------- */
+/* الحجز على الأجر — /hr/payroll/garnishments                              */
+/* -------------------------------------------------------------------- */
+
+function useGarnishmentInvalidation() {
+  const client = useQueryClient();
+  return () => {
+    void client.invalidateQueries({ queryKey: ["hr", "payroll", "garnishments"] });
+  };
+}
+
+export function useGarnishments(employeeId?: string | null): UseQueryResult<GarnishmentDTO[], ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<GarnishmentDTO[], ApiError>({
+    queryKey: ["hr", "payroll", "garnishments", employeeId ?? "all"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const query = employeeId ? `?employeeId=${encodeURIComponent(employeeId)}` : "";
+      const res = await request(`/hr/payroll/garnishments${query}`);
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("garnishments.couldNotLoad"), t));
+      return res.json<GarnishmentDTO[]>();
+    },
+  });
+}
+
+export function useCreateGarnishment() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const invalidate = useGarnishmentInvalidation();
+  return useMutation<GarnishmentDTO, ApiError, CreateGarnishmentDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/hr/payroll/garnishments", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("garnishments.couldNotSave")));
+      return res.json<GarnishmentDTO>();
+    },
+    onSuccess: invalidate,
+  });
+}
+
+export function useReleaseGarnishment() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const invalidate = useGarnishmentInvalidation();
+  return useMutation<GarnishmentDTO, ApiError, string>({
+    mutationFn: async (id) => {
+      const res = await request(`/hr/payroll/garnishments/${id}/release`, { method: "POST" });
+      if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("garnishments.couldNotRelease")));
+      return res.json<GarnishmentDTO>();
     },
     onSuccess: invalidate,
   });

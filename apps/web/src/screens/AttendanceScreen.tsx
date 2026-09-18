@@ -43,12 +43,14 @@ interface AttendanceDraft {
   expectedCheckIn: string;
   status: string;
   notes: string;
+  /** Blank = no approval recorded, which is NOT the same as an approved zero. */
+  approvedOvertimeMinutes: string;
 }
 
 const PAGE_SIZES = [10, 25, 50, 100] as const;
 
 function blankDraft(employeeId: string, date: string): AttendanceDraft {
-  return { employeeId, date, checkIn: "", checkOut: "", halfDay: false, expectedCheckIn: "", status: "", notes: "" };
+  return { employeeId, date, checkIn: "", checkOut: "", halfDay: false, expectedCheckIn: "", status: "", notes: "", approvedOvertimeMinutes: "" };
 }
 
 function EditIcon() {
@@ -111,6 +113,7 @@ export function AttendanceScreen() {
       expectedCheckIn: "",
       status: entry.status,
       notes: entry.notes ?? "",
+      approvedOvertimeMinutes: entry.approvedOvertimeMinutes === null ? "" : String(entry.approvedOvertimeMinutes),
     });
     setFormError(null);
     setFormOpen(true);
@@ -130,6 +133,7 @@ export function AttendanceScreen() {
       expectedCheckIn: draft.expectedCheckIn.trim() === "" ? null : draft.expectedCheckIn.trim(),
       status: draft.status === "" ? null : (draft.status as AttendanceStatusDTO),
       notes: draft.notes.trim() === "" ? null : draft.notes.trim(),
+      approvedOvertimeMinutes: draft.approvedOvertimeMinutes.trim() === "" ? null : Number(draft.approvedOvertimeMinutes.trim()),
     };
     try {
       if (editingId) {
@@ -154,6 +158,17 @@ export function AttendanceScreen() {
       header: t("attendance.hoursWorked"),
       align: "end",
       render: (e) => <span className="mz-num text-ink">{formatWorkedDuration(e.workedMinutes)}</span>,
+    },
+    {
+      key: "approvedOvertime",
+      header: t("attendance.approvedOvertime"),
+      align: "end",
+      render: (e) =>
+        e.approvedOvertimeMinutes === null ? (
+          <span className="text-ink-faint">{t("attendance.notApproved")}</span>
+        ) : (
+          <span className="mz-num font-semibold text-ink">{formatWorkedDuration(e.approvedOvertimeMinutes)}</span>
+        ),
     },
     { key: "status", header: t("common.status"), render: (e) => <StatusPill label={t(ATTENDANCE_STATUS_KEY[e.status])} tone={ATTENDANCE_STATUS_TONE[e.status]} /> },
     {
@@ -316,6 +331,13 @@ export function AttendanceScreen() {
           />
           <TextField label={t("attendance.timeIn")} value={draft.checkIn} onChange={(v) => setDraft((d) => ({ ...d, checkIn: v }))} placeholder="09:00" />
           <TextField label={t("attendance.timeOut")} value={draft.checkOut} onChange={(v) => setDraft((d) => ({ ...d, checkOut: v }))} placeholder="17:00" />
+          <TextField
+            label={t("attendance.approvedOvertime")}
+            value={draft.approvedOvertimeMinutes}
+            onChange={(v) => setDraft((d) => ({ ...d, approvedOvertimeMinutes: v.replace(/[^0-9]/g, "") }))}
+            hint={t("attendance.approvedOvertimeHint")}
+            placeholder="0"
+          />
           <TextField
             label={t("attendance.shiftStart")}
             value={draft.expectedCheckIn}

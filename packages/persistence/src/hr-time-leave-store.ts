@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS hr_attendance (
   check_in       TEXT,
   check_out      TEXT,
   worked_minutes INTEGER NOT NULL,
+  approved_overtime_minutes INTEGER,
   status         TEXT NOT NULL,
   notes          TEXT,
   created_at     TEXT NOT NULL,
@@ -53,6 +54,7 @@ interface AttendanceRow {
   check_in: string | null;
   check_out: string | null;
   worked_minutes: number;
+  approved_overtime_minutes: number | null;
   status: string;
   notes: string | null;
   created_at: string;
@@ -67,6 +69,7 @@ function toAttendance(row: AttendanceRow): AttendanceEntry {
     checkIn: row.check_in,
     checkOut: row.check_out,
     workedMinutes: row.worked_minutes,
+    approvedOvertimeMinutes: row.approved_overtime_minutes ?? null,
     status: row.status as AttendanceStatus,
     notes: row.notes,
     createdAt: row.created_at,
@@ -81,12 +84,13 @@ class SqliteAttendanceRepository implements AttendanceRepository {
 
   constructor(private readonly sqlite: Database.Database) {
     this.upsert = sqlite.prepare(`
-      INSERT INTO hr_attendance (id, employee_id, date, check_in, check_out, worked_minutes, status, notes, created_at, updated_at)
-      VALUES (@id, @employee_id, @date, @check_in, @check_out, @worked_minutes, @status, @notes, @created_at, @updated_at)
+      INSERT INTO hr_attendance (id, employee_id, date, check_in, check_out, worked_minutes, approved_overtime_minutes, status, notes, created_at, updated_at)
+      VALUES (@id, @employee_id, @date, @check_in, @check_out, @worked_minutes, @approved_overtime_minutes, @status, @notes, @created_at, @updated_at)
       ON CONFLICT(id) DO UPDATE SET
         check_in = excluded.check_in,
         check_out = excluded.check_out,
         worked_minutes = excluded.worked_minutes,
+        approved_overtime_minutes = excluded.approved_overtime_minutes,
         status = excluded.status,
         notes = excluded.notes,
         updated_at = excluded.updated_at
@@ -145,6 +149,7 @@ class SqliteAttendanceRepository implements AttendanceRepository {
       check_in: entry.checkIn,
       check_out: entry.checkOut,
       worked_minutes: entry.workedMinutes,
+      approved_overtime_minutes: entry.approvedOvertimeMinutes,
       status: entry.status,
       notes: entry.notes,
       created_at: entry.createdAt,
@@ -531,6 +536,12 @@ export function createSqliteAttendanceRepository(path: SqliteConnectionInput = "
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(CREATE_ATTENDANCE);
+  // Approved overtime landed after attendance shipped; an existing install gains
+  // the column rather than losing its history. NULL is "no approval recorded",
+  // which is deliberately distinct from an approved zero.
+  if (!(sqlite.pragma(`table_info(hr_attendance)`) as { name: string }[]).some((c) => c.name === "approved_overtime_minutes")) {
+    sqlite.exec(`ALTER TABLE hr_attendance ADD COLUMN approved_overtime_minutes INTEGER`);
+  }
   const repo = new SqliteAttendanceRepository(sqlite);
   return Object.assign(repo, { close: () => { if (owned) sqlite.close(); } }) as SqliteAttendanceRepositoryHandle;
 }

@@ -81,8 +81,8 @@ export async function run(ctx: Ctx): Promise<void> {
       universal.map((r) => r.code).join(", "),
     );
     ctx.check(
-      "PR-10 — exactly 4 situational scope gaps (hourly/daily basis, pay frequency, multi-currency, loans/garnishments)",
-      situational.length === 4,
+      "PR-10 — exactly 3 situational scope gaps (hourly/daily basis, pay frequency, multi-currency); garnishments are deducted now",
+      situational.length === 3 && !situational.some((r) => r.code === "loans_garnishments"),
       situational.map((r) => r.code).join(", "),
     );
 
@@ -108,6 +108,84 @@ export async function run(ctx: Ctx): Promise<void> {
     }
   });
 
+  await ctx.scenario("hr / garnishments — withheld before advances, counted down, and stopping when satisfied", async () => {
+    const orders = ctx.rows((await ctx.req("GET", "/hr/payroll/garnishments")).body);
+    ctx.check("GRN-01 — the register holds the seeded orders", orders.length >= 3, `got ${orders.length}`);
+
+    for (const order of orders) {
+      ctx.checkEq(`GRN-02 ${order.reference} — total always equals outstanding plus what has been recovered`, ctx.n(order.totalAmount), ctx.n(order.outstanding) + ctx.n(order.recovered));
+      ctx.check(`GRN-03 ${order.reference} — an order is never left active with nothing left to collect`, !(order.active && ctx.n(order.outstanding) === 0), `active=${order.active} outstanding=${order.outstanding}`);
+    }
+
+    const withheld = orders.some((o: any) => ctx.n(o.recovered) > 0);
+    ctx.check("GRN-04 — approving a run actually counted an order down (the seam is wired, not decorative)", withheld);
+
+    // A court order outranks the employer's own loan, so on a payslip carrying
+    // both, the garnishment line must precede the advance-recovery line.
+    const run = (await ctx.req("GET", "/hr/payroll/runs/PR-DEMO-1")).body;
+    for (const p of run.payslips) {
+      const g = p.lines.findIndex((l: any) => l.source === "garnishment");
+      const a = p.lines.findIndex((l: any) => l.source === "advance_recovery");
+      if (g === -1 || a === -1) continue;
+      ctx.check(`GRN-05 ${p.number} — the court order is taken before the employer's own advance`, g < a, `garnishment at ${g}, advance at ${a}`);
+    }
+
+    // The employee must be resolved against the real register: free text where
+    // the reference picks an entity is money withheld from nobody.
+    const bogus = await ctx.req("POST", "/hr/payroll/garnishments", {
+      employeeId: "EMP-NOT-A-REAL-EMPLOYEE",
+      kind: "court_order",
+      reference: "TEST/9999",
+      labelAr: "اختبار",
+      totalAmount: "100",
+      monthlyAmount: "50",
+      currency: "EGP",
+      startDate: "2026-01-01",
+    });
+    ctx.check("GRN-06 — an order against an employee id nobody holds is refused with 404", bogus.status === 404, `got ${bogus.status}`);
+
+    const overInstalment = await ctx.req("POST", "/hr/payroll/garnishments", {
+      employeeId: "EMP-DEMO-1",
+      kind: "court_order",
+      reference: "TEST/9998",
+      labelAr: "اختبار",
+      totalAmount: "100",
+      monthlyAmount: "500",
+      currency: "EGP",
+      startDate: "2026-01-01",
+    });
+    ctx.check("GRN-07 — a monthly instalment larger than the order itself is refused", overInstalment.status === 422, `got ${overInstalment.status}`);
+  });
+
+  await ctx.scenario("hr / attendance summary — a workforce total, not four zeros over a full table", async () => {
+    // The summary tiles rendered `?? 0` whenever no employee was picked, so
+    // four zeros sat above forty-odd present days. A plausible zero is
+    // indistinguishable from a bug; the honest figure was always available.
+    const scoped = (await ctx.req("GET", "/hr/attendance/summary?employeeId=EMP-DEMO-1&from=2026-08-01&to=2026-08-31")).body;
+    ctx.check("ATT-20 — a named employee still gets their own summary", scoped.employeeId === "EMP-DEMO-1", JSON.stringify(scoped.employeeId));
+
+    const workforce = (await ctx.req("GET", "/hr/attendance/summary?from=2026-08-01&to=2026-08-31")).body;
+    ctx.check("ATT-21 — omitting the employee answers for the WHOLE workforce instead of 400", workforce.employeeId === null, JSON.stringify(workforce.employeeId));
+    ctx.check("ATT-22 — and its counts are non-zero where the attendance table has rows", workforce.daysPresent > 0, `daysPresent ${workforce.daysPresent}`);
+    ctx.check(
+      "ATT-23 — the workforce total covers at least the one employee's own days",
+      workforce.daysPresent >= scoped.daysPresent,
+      `${workforce.daysPresent} vs ${scoped.daysPresent}`,
+    );
+    ctx.check("ATT-24 — the attendance rate is a real percentage, not a placeholder", workforce.attendanceRatePercent > 0 && workforce.attendanceRatePercent <= 100, `${workforce.attendanceRatePercent}`);
+
+    const missingDates = await ctx.req("GET", "/hr/attendance/summary?employeeId=EMP-DEMO-1");
+    ctx.check("ATT-25 — the date range is still required", missingDates.status === 400, `got ${missingDates.status}`);
+  });
+
+  await ctx.scenario("hr / approved overtime — the manager's figure is captured and survives the round trip", async () => {
+    const entries = ctx.rows((await ctx.req("GET", "/hr/attendance?employeeId=EMP-DEMO-6&from=2026-07-21&to=2026-07-21")).body);
+    const day = entries[0];
+    ctx.check("OT-01 — the approved-overtime field survives the round trip (a zod schema that omits it drops it silently)", day?.approvedOvertimeMinutes === 150, `got ${day?.approvedOvertimeMinutes}`);
+    const plain = ctx.rows((await ctx.req("GET", "/hr/attendance?employeeId=EMP-DEMO-1&from=2026-07-20&to=2026-07-20")).body)[0];
+    ctx.check("OT-02 — a day with no approval reads null, not zero", plain === undefined || plain.approvedOvertimeMinutes === null, `got ${plain?.approvedOvertimeMinutes}`);
+  });
+
   await ctx.scenario("hr / payslip arithmetic — gross minus deductions equals net, per payslip and run total (PR-DEMO-1, June, مصروف)", async () => {
     const run = (await ctx.req("GET", "/hr/payroll/runs/PR-DEMO-1")).body;
     for (const p of run.payslips) {
@@ -118,7 +196,11 @@ export async function run(ctx: Ctx): Promise<void> {
     ctx.checkEq("PR-DEMO-1 — run totalNet = sum of payslip netPay", ctx.n(run.totalNet), run.payslips.reduce((s: number, p: any) => s + ctx.n(p.netPay), 0));
 
     const kareem = run.payslips.find((p: any) => p.employeeId === "EMP-DEMO-1");
-    ctx.checkEq("PR-14 كريم عادل June — net = 8,900.00", ctx.n(kareem.netPay), 8900);
+    ctx.checkEq("PR-14 كريم عادل June — net = 8,150.00 (8,900 less the 750 court-order instalment)", ctx.n(kareem.netPay), 8150);
+    ctx.check(
+      "PR-14b — carries a garnishment line for GRN-DEMO-1 of exactly 750.00",
+      kareem.lines.some((l: any) => l.source === "garnishment" && l.referenceId === "GRN-DEMO-1" && ctx.n(l.amount) === 750),
+    );
     ctx.check(
       "PR-14 — carries an advance-recovery line for ADV-DEMO-1 of exactly 1,000.00",
       kareem.lines.some((l: any) => l.source === "advance_recovery" && l.referenceId === "ADV-DEMO-1" && ctx.n(l.amount) === 1000),
@@ -142,8 +224,15 @@ export async function run(ctx: Ctx): Promise<void> {
     const unpaidLine = mostafa.lines.find((l: any) => l.source === "unpaid_leave");
     ctx.check("PR-17 مصطفى رزق — July payslip carries an unpaid-leave deduction line (LR-DEMO-8, 2 days)", !!unpaidLine && unpaidLine.nameAr.includes("2"), unpaidLine?.nameAr);
     if (unpaidLine) {
-      const expected = allocate(Money.fromMajor(mostafa.grossEarnings), [2, mostafa.paidDays - 2])[0]!;
-      ctx.checkEq("PR-17 — deduction is the exact largest-remainder split of gross over unpaid/paid days", ctx.n(unpaidLine.amount), ctx.n(expected.toString()));
+      // The tenant's day divisor prices the day: FIXED_30 by default, so a
+      // July day is the monthly wage ÷ 30, not ÷ 31.
+      const settings = (await ctx.req("GET", "/settings")).body;
+      const divisor = settings.payrollDayDivisorBasis === "CALENDAR_DAYS" ? mostafa.periodDays : 30;
+      const monthly = mostafa.lines
+        .filter((l: any) => l.source === "contract_basic" || l.source === "contract_allowance")
+        .reduce((sum: number, l: any) => sum + ctx.n(l.amount), 0);
+      const expected = allocate(Money.fromMajor(monthly.toFixed(6)), [2, divisor - 2])[0]!;
+      ctx.checkEq("PR-17 — deduction is the monthly wage split by the tenant's day divisor over the unpaid days", ctx.n(unpaidLine.amount), ctx.n(expected.toString()));
     }
     ctx.checkEq("PR-17 — net still equals gross minus deductions", ctx.n(mostafa.grossEarnings) - ctx.n(mostafa.totalDeductions), ctx.n(mostafa.netPay));
   });

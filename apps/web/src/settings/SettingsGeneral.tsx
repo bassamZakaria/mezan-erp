@@ -446,12 +446,15 @@ function SettingsForm({ initial }: { initial: TenantSettingsDTO }) {
                   onChange={(v) => patch({ hrContractExpiryWarningDays: v })}
                   hint={t("settingsGeneral.allowedRange7365Default")}
                 />
-                <NumberField
-                  label={t("settingsGeneral.overtimeMultiplier")}
-                  value={draft.overtimeMultiplier}
-                  step={0.1}
-                  min={1}
-                  onChange={(v) => patch({ overtimeMultiplier: v })}
+                <SelectField
+                  label={t("settingsGeneral.payrollDayDivisorBasis")}
+                  value={draft.payrollDayDivisorBasis}
+                  onChange={(v) => patch({ payrollDayDivisorBasis: v as TenantSettingsDTO["payrollDayDivisorBasis"] })}
+                  options={[
+                    { value: "FIXED_30", label: t("settingsGeneral.dayDivisorFixed30") },
+                    { value: "CALENDAR_DAYS", label: t("settingsGeneral.dayDivisorCalendarDays") },
+                  ]}
+                  hint={t("settingsGeneral.payrollDayDivisorBasisHint")}
                 />
                 <NumberField
                   label={t("settingsGeneral.standardWorkingHoursADay")}

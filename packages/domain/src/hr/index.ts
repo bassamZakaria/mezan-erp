@@ -196,6 +196,10 @@ export type {
   PayrollPeriodBounds,
   PayrollUnimplementedRule,
   UnpaidLeaveDaysProvider,
+  Garnishment,
+  GarnishmentProvider,
+  PayrollDayDivisorBasis,
+  PayrollDayDivisorBasisDefinition,
 } from "./payroll-run.js";
 export {
   PAYROLL_RUN_STATUS_DEFINITIONS,
@@ -204,6 +208,9 @@ export {
   canTransitionPayrollRun,
   PAYROLL_GL_ACCOUNTS,
   PAYROLL_UNIMPLEMENTED_RULES,
+  PAYROLL_DAY_DIVISOR_BASIS_DEFINITIONS,
+  getPayrollDayDivisorBasisLabel,
+  payrollDayDivisor,
   daysInPayrollMonth,
   payrollPeriodBounds,
   inclusiveDays,
@@ -271,6 +278,8 @@ export {
   DuplicatePayrollPeriodError,
   NoPayableEmployeesError,
   NegativeNetPayError,
+  InvalidGarnishmentError,
+  GarnishmentNotFoundError,
   LeaveBalanceExceededError,
   TreasuryDisbursementHeldError,
   TreasuryDisbursementUnavailableError,
@@ -278,3 +287,20 @@ export {
   PayrollComponentNotFoundError,
   DuplicatePayrollComponentError,
 } from "./errors.js";
+
+export type {
+  GarnishmentKind,
+  GarnishmentKindDefinition,
+  GarnishmentRecord,
+  GarnishmentFilter,
+  GarnishmentRepository,
+  CreateGarnishmentCommand,
+} from "./garnishment.js";
+export {
+  GARNISHMENT_KIND_DEFINITIONS,
+  getGarnishmentKindLabel,
+  createGarnishment,
+  applyGarnishmentRecovery,
+  releaseGarnishment,
+  createGarnishmentProvider,
+} from "./garnishment.js";

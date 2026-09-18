@@ -177,6 +177,7 @@ import {
   createSqlitePayrollRunRepository,
   createSqlitePayslipRepository,
   createSqlitePayrollComponentRepository,
+  createSqliteGarnishmentRepository,
   createSqliteWritedownRunRepository,
   createSqliteProductTemplateStore,
   createSqliteNotificationRuleStore,
@@ -1104,6 +1105,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const hrPayrollRuns = createSqlitePayrollRunRepository(sqlite);
   const hrPayslips = createSqlitePayslipRepository(sqlite);
   const hrPayrollComponents = createSqlitePayrollComponentRepository(sqlite);
+  const hrGarnishments = createSqliteGarnishmentRepository(sqlite);
 
   // --- w8/notifications — قواعد الإشعارات rules engine. ONE EventBus for the
   // whole backend; the engine subscribes to every event and (per rule) writes
@@ -3200,6 +3202,8 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         accounts: PAYROLL_GL_ACCOUNTS,
         treasury: hrTreasuryDisbursement,
         payrollComponents: hrPayrollComponents,
+        garnishmentRegister: hrGarnishments,
+        settings,
       },
       users: uow.users,
       numbering: ledger.numbering,
@@ -3719,6 +3723,12 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       // مبيعات المندوبين reads the same van-trip store /field/van-trips writes.
       vanTrips,
       employees: hrEmployees,
+      // The HR reports read the SAME payroll runs, attendance and leave
+      // balances the HR screens write — no second source behind the returns.
+      hrPayroll: { runs: hrPayrollRuns, payslips: hrPayslips },
+      hrContracts,
+      hrAttendance,
+      hrLeave: { balances: hrLeaveBalances, policies: hrLeavePolicies },
       // تقرير العروض reads the same promotion master /promotions writes, for a
       // campaign's type; every figure comes off the invoices themselves.
       promotions,

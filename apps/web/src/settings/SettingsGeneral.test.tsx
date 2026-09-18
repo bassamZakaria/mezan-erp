@@ -49,7 +49,7 @@ const baseSettings: TenantSettingsDTO = {
   email: "info@cyag.example",
   address: "القاهرة الجديدة، القاهرة",
   hrContractExpiryWarningDays: 30,
-  overtimeMultiplier: 1.5,
+  payrollDayDivisorBasis: "FIXED_30",
   standardDailyWorkHours: 8,
   taxEnabled: true,
   defaultTaxRate: 14,
@@ -320,7 +320,7 @@ describe("SettingsGeneral", () => {
     fireEvent.keyDown(domainEntry, { key: "Enter" });
 
     fireEvent.change(textboxByLabel("فترة التنبيه على انتهاء العقد (يوم)"), { target: { value: "45" } });
-    fireEvent.change(textboxByLabel("معامل العمل الإضافي"), { target: { value: "2" } });
+    selectOption("أساس قسمة اليوم في الرواتب", "أيام الشهر الفعلية");
     fireEvent.change(textboxByLabel("ساعات العمل اليومية القياسية"), { target: { value: "10" } });
 
     fireEvent.click(screen.getByRole("button", { name: "حفظ الإعدادات" }));
@@ -347,7 +347,7 @@ describe("SettingsGeneral", () => {
     expect(body.depreciationProrate).toBe("FULL_MONTH");
     expect(body.allowedEmailDomains).toEqual(["mezan.com"]);
     expect(body.hrContractExpiryWarningDays).toBe(45);
-    expect(body.overtimeMultiplier).toBe(2);
+    expect(body.payrollDayDivisorBasis).toBe("CALENDAR_DAYS");
     expect(body.standardDailyWorkHours).toBe(10);
     // Fields on the tabs never touched this run rode along unchanged, not blanked.
     expect(body.companyName).toBe(baseSettings.companyName);

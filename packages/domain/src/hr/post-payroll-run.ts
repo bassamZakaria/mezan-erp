@@ -1,6 +1,8 @@
 import { Money } from "../money/index.js";
 import { postJournalEntry, type JournalLineInput, type JournalPostingDeps } from "../gl/index.js";
 import { applyAdvanceRecovery, type EmployeeAdvanceRepository } from "./advance.js";
+import type { EmployeeDirectory } from "../hr-shared/employee-ref.js";
+import { applyGarnishmentRecovery, type GarnishmentRepository } from "./garnishment.js";
 import {
   canTransitionPayrollRun,
   type PayrollGlAccounts,
@@ -11,6 +13,7 @@ import {
 } from "./payroll-run.js";
 import {
   EmployeeAdvanceNotFoundError,
+  GarnishmentNotFoundError,
   InvalidPayrollRunTransitionError,
   NoPayableEmployeesError,
   PayrollRunNotFoundError,
@@ -25,6 +28,7 @@ import {
  *
  *   Dr  مصروف الرواتب (5120)          gross earnings
  *   Dr  مساهمات صاحب العمل (5130)     employer contributions (none configured yet)
+ *   Cr  حجوزات على الأجور (2193)      garnishments
  *   Cr  سلف الموظفين (1160)           advance recovery
  *   Cr  استقطاعات رواتب (2190)        other deductions
  *   Cr  رواتب مستحقة (2170)           net pay
@@ -38,43 +42,57 @@ export interface PostPayrollRunDeps {
   readonly runs: PayrollRunRepository;
   readonly payslips: Pick<PayslipRepository, "listByRunId">;
   readonly advances: Pick<EmployeeAdvanceRepository, "findById" | "update">;
+  /** Absent = garnishment lines post to the ledger but no order is counted down. */
+  readonly garnishments?: Pick<GarnishmentRepository, "findById" | "update">;
+  /** Resolves each payslip's branch for the journal lines (DEC-20) when the run spans every branch; absent = those lines stay unattributed. */
+  readonly employees?: Pick<EmployeeDirectory, "findById">;
   readonly gl: JournalPostingDeps;
   readonly accounts: PayrollGlAccounts;
   readonly now?: () => string;
 }
 
-function addTo(totals: Map<string, bigint>, accountId: string, amount: Money): void {
-  totals.set(accountId, (totals.get(accountId) ?? 0n) + amount.scaled);
+type BranchedTotals = Map<string, { readonly accountId: string; readonly branchId: string | null; scaled: bigint }>;
+
+function addTo(totals: BranchedTotals, accountId: string, branchId: string | null, amount: Money): void {
+  const key = `${accountId}\u0000${branchId ?? ""}`;
+  const bucket = totals.get(key);
+  if (bucket) bucket.scaled += amount.scaled;
+  else totals.set(key, { accountId, branchId, scaled: amount.scaled });
 }
 
-function buildJournalLines(payslips: readonly Payslip[], accounts: PayrollGlAccounts): JournalLineInput[] {
-  const debits = new Map<string, bigint>();
-  const credits = new Map<string, bigint>();
+function buildJournalLines(
+  payslips: readonly Payslip[],
+  accounts: PayrollGlAccounts,
+  branchOf: (payslip: Payslip) => string | null,
+): JournalLineInput[] {
+  const debits: BranchedTotals = new Map();
+  const credits: BranchedTotals = new Map();
 
   for (const payslip of payslips) {
+    const branchId = branchOf(payslip);
     for (const line of payslip.lines) {
       if (line.kind === "earning") {
-        addTo(debits, line.glAccountId ?? accounts.salaryExpenseAccountId, line.amount);
+        addTo(debits, line.glAccountId ?? accounts.salaryExpenseAccountId, branchId, line.amount);
       } else if (line.kind === "employer_contribution") {
-        addTo(debits, line.glAccountId ?? accounts.employerContributionExpenseAccountId, line.amount);
-        addTo(credits, accounts.employerContributionLiabilityAccountId, line.amount);
+        addTo(debits, line.glAccountId ?? accounts.employerContributionExpenseAccountId, branchId, line.amount);
+        addTo(credits, accounts.employerContributionLiabilityAccountId, branchId, line.amount);
       } else if (line.source === "advance_recovery") {
-        addTo(credits, accounts.employeeAdvanceAccountId, line.amount);
+        addTo(credits, accounts.employeeAdvanceAccountId, branchId, line.amount);
       } else {
-        addTo(credits, line.glAccountId ?? accounts.deductionLiabilityAccountId, line.amount);
+        addTo(credits, line.glAccountId ?? accounts.deductionLiabilityAccountId, branchId, line.amount);
       }
     }
-    addTo(credits, accounts.salariesPayableAccountId, payslip.netPay);
+    addTo(credits, accounts.salariesPayableAccountId, branchId, payslip.netPay);
   }
 
   const lines: JournalLineInput[] = [];
-  for (const [accountId, scaled] of debits) {
+  for (const { accountId, branchId, scaled } of debits.values()) {
     if (scaled === 0n) continue;
-    lines.push({ accountId, debit: Money.fromScaled(scaled), credit: Money.zero() });
+    lines.push({ accountId, debit: Money.fromScaled(scaled), credit: Money.zero(), branchId });
   }
-  for (const [accountId, scaled] of credits) {
+  for (const { accountId, branchId, scaled } of credits.values()) {
     if (scaled === 0n) continue;
-    lines.push({ accountId, debit: Money.zero(), credit: Money.fromScaled(scaled) });
+    lines.push({ accountId, debit: Money.zero(), credit: Money.fromScaled(scaled), branchId });
   }
   return lines;
 }
@@ -95,7 +113,13 @@ export async function approvePayrollRun(runId: string, approvedBy: string, deps:
   const payslips = await deps.payslips.listByRunId(runId);
   if (payslips.length === 0) throw new NoPayableEmployeesError(runId);
 
-  const lines = buildJournalLines(payslips, deps.accounts);
+  const employeeBranch = new Map<string, string | null>();
+  if (run.branchId === null && deps.employees) {
+    for (const employeeId of new Set(payslips.map((p) => p.employeeId))) {
+      employeeBranch.set(employeeId, (await deps.employees.findById(employeeId))?.branchId ?? null);
+    }
+  }
+  const lines = buildJournalLines(payslips, deps.accounts, (p) => run.branchId ?? employeeBranch.get(p.employeeId) ?? null);
   const entry = await postJournalEntry(
     {
       id: `PAYROLL-JE:${run.id}`,
@@ -122,6 +146,21 @@ export async function approvePayrollRun(runId: string, approvedBy: string, deps:
     const advance = await deps.advances.findById(advanceId);
     if (!advance) throw new EmployeeAdvanceNotFoundError(advanceId);
     await deps.advances.update(applyAdvanceRecovery(advance, Money.fromScaled(scaled), now));
+  }
+
+  if (deps.garnishments) {
+    const withheldByOrder = new Map<string, bigint>();
+    for (const payslip of payslips) {
+      for (const line of payslip.lines) {
+        if (line.source !== "garnishment" || line.referenceId === null) continue;
+        withheldByOrder.set(line.referenceId, (withheldByOrder.get(line.referenceId) ?? 0n) + line.amount.scaled);
+      }
+    }
+    for (const [orderId, scaled] of withheldByOrder) {
+      const order = await deps.garnishments.findById(orderId);
+      if (!order) throw new GarnishmentNotFoundError(orderId);
+      await deps.garnishments.update(applyGarnishmentRecovery(order, Money.fromScaled(scaled), () => now));
+    }
   }
 
   const approved: PayrollRun = {

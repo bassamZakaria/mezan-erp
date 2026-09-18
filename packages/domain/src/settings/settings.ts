@@ -19,6 +19,8 @@ export type NumeralSystem = "western" | "arabic";
 export type UiDirection = "LTR" | "RTL";
 export type SettingsLanguage = "ar" | "en" | "de";
 export type SmtpSecurity = "NONE" | "STARTTLS" | "TLS";
+/** Mirrors `PayrollDayDivisorBasis` in hr/payroll-run.ts; settings must not import hr. */
+export type PayrollDayDivisorBasisSetting = "FIXED_30" | "CALENDAR_DAYS";
 
 export interface TenantSettings {
   // --- عام (General / localization) ---
@@ -71,7 +73,16 @@ export interface TenantSettings {
   readonly allowedEmailDomains: readonly string[];
   readonly address: string;
   readonly hrContractExpiryWarningDays: number;
-  readonly overtimeMultiplier: number;
+  /**
+   * أساس قسمة اليوم — how a monthly salary breaks into a day's pay. FIXED_30 is
+   * the Egyptian convention (a day is always salary/30); CALENDAR_DAYS uses the
+   * month's real length. Payroll reads it per calculation to price a day of
+   * unpaid leave.
+   *
+   * There is deliberately no overtime-multiplier setting: overtime premiums are
+   * statute, not tenant preference.
+   */
+  readonly payrollDayDivisorBasis: PayrollDayDivisorBasisSetting;
   readonly standardDailyWorkHours: number;
 
   // --- الضريبة (Tax) ---
@@ -160,6 +171,7 @@ const TAX_CALCULATION_MODES: readonly TaxCalculationMode[] = ["EXCLUSIVE", "INCL
 const CREDIT_CONTROL_MODES: readonly CreditControlMode[] = ["WARNING", "BLOCK"];
 const FX_RATE_MISSING_POLICIES: readonly FxRateMissingPolicy[] = ["STRICT", "ALLOW_MISSING"];
 const DEPRECIATION_PRORATE_MODES: readonly DepreciationProrateMode[] = ["DAILY", "FULL_MONTH"];
+const PAYROLL_DAY_DIVISOR_BASES: readonly PayrollDayDivisorBasisSetting[] = ["FIXED_30", "CALENDAR_DAYS"];
 const NUMERAL_SYSTEMS: readonly NumeralSystem[] = ["western", "arabic"];
 const UI_DIRECTIONS: readonly UiDirection[] = ["LTR", "RTL"];
 const LANGUAGES: readonly SettingsLanguage[] = ["ar", "en", "de"];
@@ -194,7 +206,7 @@ export const DEFAULT_SETTINGS: TenantSettings = {
   allowedEmailDomains: [],
   address: "",
   hrContractExpiryWarningDays: 30,
-  overtimeMultiplier: 1.5,
+  payrollDayDivisorBasis: "FIXED_30",
   standardDailyWorkHours: 8,
 
   taxEnabled: true,
@@ -279,8 +291,8 @@ function validate(settings: TenantSettings): string[] {
   ) {
     reasons.push("hrContractExpiryWarningDays must be an integer in 7..365");
   }
-  if (settings.overtimeMultiplier <= 0) {
-    reasons.push("overtimeMultiplier must be greater than 0");
+  if (!PAYROLL_DAY_DIVISOR_BASES.includes(settings.payrollDayDivisorBasis)) {
+    reasons.push("payrollDayDivisorBasis must be FIXED_30 or CALENDAR_DAYS");
   }
   if (settings.standardDailyWorkHours <= 0 || settings.standardDailyWorkHours > 24) {
     reasons.push("standardDailyWorkHours must be in (0, 24]");

@@ -201,6 +201,11 @@ const navItemIcons: Readonly<Record<string, LucideIcon>> = {
   "crm-activities": PhoneCall,
 
   "hr-dashboard": UsersRound,
+  "garnishments": ShieldCheck,
+  "report-payroll-register": ReceiptText,
+  "report-attendance-summary": CalendarCheck,
+  "report-leave-liability": CalendarClock,
+  "report-headcount-movement": UsersRound,
   employees: UserRound,
   departments: Building2,
   "job-titles": Briefcase,

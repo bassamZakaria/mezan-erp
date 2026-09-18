@@ -49,6 +49,13 @@ export interface AttendanceEntry {
   readonly checkOut: string | null;
   /** Exact worked duration in whole minutes — an integer, never a float hour count. */
   readonly workedMinutes: number;
+  /**
+   * Overtime a manager APPROVED for this day, in whole minutes. Null means "no
+   * approval recorded", which is not the same as zero: payroll pays overtime
+   * only against an approved figure, so a site with no clocks records the
+   * minutes here and a site with clocks approves what the clock derived.
+   */
+  readonly approvedOvertimeMinutes: number | null;
   readonly status: AttendanceStatus;
   readonly notes: string | null;
   readonly createdAt: string;
@@ -95,6 +102,13 @@ export function workedMinutesBetween(checkIn: string | null, checkOut: string | 
   const start = minutesOfDay(checkIn);
   const end = minutesOfDay(checkOut);
   return end > start ? end - start : end + 24 * 60 - start;
+}
+
+/** Approved overtime is whole non-negative minutes, or null when nothing was approved. */
+function normalizeOvertimeMinutes(value: number | null | undefined): number | null {
+  if (value === null || value === undefined) return null;
+  if (!Number.isFinite(value) || value < 0) return null;
+  return Math.round(value);
 }
 
 export function isWeeklyOffDay(date: string, weeklyOffDays: readonly number[] = DEFAULT_WEEKLY_OFF_DAYS): boolean {
@@ -158,6 +172,7 @@ export interface RecordAttendanceCommand {
   readonly onApprovedLeave?: boolean;
   readonly expectedCheckIn?: string | null;
   readonly graceMinutes?: number;
+  readonly approvedOvertimeMinutes?: number | null;
 }
 
 function validate(command: Pick<RecordAttendanceCommand, "employeeId" | "date" | "checkIn" | "checkOut">): string[] {
@@ -185,6 +200,7 @@ export function recordAttendance(command: RecordAttendanceCommand, now: () => st
     checkIn,
     checkOut,
     workedMinutes: workedMinutesBetween(checkIn, checkOut),
+    approvedOvertimeMinutes: normalizeOvertimeMinutes(command.approvedOvertimeMinutes),
     status: command.status ?? resolveAttendanceStatus({ ...command, checkIn }),
     notes: command.notes ?? null,
     createdAt: timestamp,
@@ -203,6 +219,7 @@ export interface CorrectAttendanceCommand {
   readonly onApprovedLeave?: boolean;
   readonly expectedCheckIn?: string | null;
   readonly graceMinutes?: number;
+  readonly approvedOvertimeMinutes?: number | null;
 }
 
 /** Applies a correction to an existing entry, re-deriving the duration and (unless overridden) the status. */
@@ -221,6 +238,8 @@ export function correctAttendance(
     checkIn,
     checkOut,
     workedMinutes: workedMinutesBetween(checkIn, checkOut),
+    approvedOvertimeMinutes:
+      patch.approvedOvertimeMinutes === undefined ? current.approvedOvertimeMinutes : normalizeOvertimeMinutes(patch.approvedOvertimeMinutes),
     status: patch.status ?? resolveAttendanceStatus({ ...patch, date: current.date, checkIn }),
     notes: patch.notes === undefined ? current.notes : patch.notes,
     updatedAt: now(),

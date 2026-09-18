@@ -192,6 +192,7 @@ function entry(overrides: Partial<AttendanceEntry> & Pick<AttendanceEntry, "empl
     checkIn: null,
     checkOut: null,
     workedMinutes: 0,
+    approvedOvertimeMinutes: null,
     notes: null,
     createdAt: "2026-08-01T00:00:00.000Z",
     updatedAt: "2026-08-01T00:00:00.000Z",

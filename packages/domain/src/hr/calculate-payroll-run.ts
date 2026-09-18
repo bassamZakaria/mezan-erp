@@ -10,7 +10,11 @@ import {
 import {
   canTransitionPayrollRun,
   inclusiveDays,
+  payrollDayDivisor,
   payrollPeriodBounds,
+  PAYROLL_GL_ACCOUNTS,
+  type GarnishmentProvider,
+  type PayrollDayDivisorBasis,
   type PayrollRun,
   type PayrollRunRepository,
   type Payslip,
@@ -36,7 +40,10 @@ import {
  *     period (hire mid-month, contract start/end mid-month);
  *   - deductions = the contract's own deduction lines (fixed monthly amounts,
  *     NOT prorated), an unpaid-leave deduction if and only if an unpaid-leave
- *     day source is bound, and advance-recovery instalments falling due;
+ *     day source is bound (each day priced at the monthly wage over the
+ *     tenant's day divisor), wage garnishments, and advance-recovery
+ *     instalments falling due — garnishments first, because a court order
+ *     outranks the employer's own loan;
  *   - net = gross − deductions.
  *
  * Every proration and split runs through `allocate` (largest remainder) so the
@@ -73,8 +80,12 @@ export interface PayrollCalculationDeps {
   readonly numbering: PayrollNumbering;
   /** Bound by the attendance/leave side of HR; absent = no unpaid-leave day is deducted (recorded on the run). */
   readonly unpaidLeave?: UnpaidLeaveDaysProvider;
+  /** Court-ordered and agreed wage deductions that are not employee advances. */
+  readonly garnishments?: GarnishmentProvider;
   /** GL routing registry for earning/deduction components (R10.7); absent = every line falls back to the run's default accounts. */
   readonly payrollComponents?: Pick<PayrollComponentRepository, "list">;
+  /** أساس قسمة اليوم — how a monthly salary breaks into days. Defaults to the Egyptian FIXED_30 convention. */
+  readonly dayDivisorBasis?: PayrollDayDivisorBasis;
   readonly idGen?: () => string;
   readonly now?: () => string;
 }
@@ -172,6 +183,7 @@ export async function calculatePayrollRun(runId: string, deps: PayrollCalculatio
   const now = deps.now?.() ?? new Date().toISOString();
   const idGen = deps.idGen ?? (() => `${runId}:${Math.random().toString(36).slice(2)}`);
   const periodDays = inclusiveDays(run.periodStart, run.periodEnd);
+  const divisor = payrollDayDivisor(deps.dayDivisorBasis ?? "FIXED_30", periodDays);
   const warnings: string[] = [];
 
   const employees = (await deps.employees.listActive()).filter((e) => run.branchId === null || e.branchId === run.branchId);
@@ -246,12 +258,14 @@ export async function calculatePayrollRun(runId: string, deps: PayrollCalculatio
       const reported = await deps.unpaidLeave.unpaidDaysFor(employee.id, run.periodStart, run.periodEnd);
       const unpaidDays = Math.min(Math.max(Math.round(reported), 0), paidDays);
       if (unpaidDays > 0) {
+        const monthlyWage = contract.monthlySalary.add(Money.sum(contract.allowances.map((a) => a.amount)));
+        const atDayRate = unpaidDays >= divisor ? monthlyWage : (allocate(monthlyWage, [unpaidDays, divisor - unpaidDays])[0] as Money);
         lines.push({
           id: idGen(),
           kind: "deduction",
           source: "unpaid_leave",
           nameAr: `إجازة بدون أجر (${unpaidDays} يوم)`,
-          amount: allocate(grossEarnings, [unpaidDays, paidDays - unpaidDays])[0] as Money,
+          amount: atDayRate.scaled > grossEarnings.scaled ? grossEarnings : atDayRate,
           glAccountId: null,
           referenceId: null,
         });
@@ -274,6 +288,30 @@ export async function calculatePayrollRun(runId: string, deps: PayrollCalculatio
     let available = grossEarnings.scaled - fixedDeductions.scaled;
     if (available < 0n) {
       throw new NegativeNetPayError(employee.id, grossEarnings.toString(), fixedDeductions.toString());
+    }
+
+    for (const order of (await deps.garnishments?.listActiveFor(employee.id, run.periodEnd)) ?? []) {
+      if (available <= 0n) break;
+      if (order.currency !== run.currency) {
+        warnings.push(`${employee.fullNameAr} (${employee.code}): الحجز ${order.reference} بعملة ${order.currency} — لم يُخصم.`);
+        continue;
+      }
+      const owed = order.outstanding.scaled < order.monthlyAmount.scaled ? order.outstanding.scaled : order.monthlyAmount.scaled;
+      if (owed <= 0n) continue;
+      const take = owed < available ? owed : available;
+      available -= take;
+      if (take < owed) {
+        warnings.push(`${employee.fullNameAr} (${employee.code}): الحجز ${order.reference} خُصم جزئياً بحدود صافي الراتب المتاح — يُرحّل الباقي.`);
+      }
+      lines.push({
+        id: idGen(),
+        kind: "deduction",
+        source: "garnishment",
+        nameAr: `${order.labelAr} (${order.reference})`,
+        amount: Money.fromScaled(take),
+        glAccountId: PAYROLL_GL_ACCOUNTS.garnishmentPayableAccountId,
+        referenceId: order.id,
+      });
     }
 
     const advances = (await deps.advances.listByEmployeeId(employee.id))

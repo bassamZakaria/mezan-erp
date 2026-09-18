@@ -35,6 +35,15 @@ import {
   TreasuryDisbursementHeldError,
   TreasuryDisbursementUnavailableError,
   UnbalancedEntryError,
+  InvalidGarnishmentError,
+  GarnishmentNotFoundError,
+  createGarnishment,
+  createGarnishmentProvider,
+  releaseGarnishment,
+  type GarnishmentRecord,
+  type GarnishmentRepository,
+  type PayrollDayDivisorBasis,
+  type SettingsRepository,
   type EmployeeAdvance,
   type EmployeeAdvanceRepository,
   type EmployeeRepository,
@@ -55,6 +64,7 @@ import {
   createEmployeeAdvanceSchema,
   createPayrollRunSchema,
   createPayrollComponentSchema,
+  createGarnishmentSchema,
   updatePayrollComponentSchema,
   treasuryDisbursementSchema,
 } from "@mezan/contracts";
@@ -85,6 +95,20 @@ export interface HrPayrollRoutesDeps {
   readonly unpaidLeave?: UnpaidLeaveDaysProvider;
   /** The payroll-component registry (R10.7); absent = the component routes are not mounted and every line posts to the run defaults. */
   readonly payrollComponents?: PayrollComponentRepository;
+  /**
+   * The garnishment register (الحجز على الأجر). Supplying it mounts its routes,
+   * feeds payroll's deduction seam and counts each order down as payroll
+   * withholds — the three go together, so a register can never be half-wired.
+   */
+  readonly garnishmentRegister?: GarnishmentRepository;
+  /**
+   * Tenant settings, read PER CALCULATION rather than captured at wiring time,
+   * so a day divisor changed in the settings screen reaches the next run
+   * without a restart.
+   */
+  readonly settings?: Pick<SettingsRepository, "get">;
+  /** Overrides the settings-derived basis; for tests. */
+  readonly dayDivisorBasis?: PayrollDayDivisorBasis;
   readonly idGen?: () => string;
 }
 
@@ -147,6 +171,27 @@ function serializePayslip(p: Payslip) {
   };
 }
 
+function serializeGarnishment(g: GarnishmentRecord) {
+  return {
+    id: g.id,
+    employeeId: g.employeeId,
+    kind: g.kind,
+    reference: g.reference,
+    labelAr: g.labelAr,
+    totalAmount: g.totalAmount.toString(),
+    monthlyAmount: g.monthlyAmount.toString(),
+    outstanding: g.outstanding.toString(),
+    recovered: g.recovered.toString(),
+    currency: g.currency,
+    startDate: g.startDate,
+    endDate: g.endDate,
+    notes: g.notes,
+    active: g.active,
+    createdAt: g.createdAt,
+    updatedAt: g.updatedAt,
+  };
+}
+
 function serializeRun(r: PayrollRun) {
   return {
     id: r.id,
@@ -177,7 +222,12 @@ function serializeRun(r: PayrollRun) {
 }
 
 function handleDomainError(c: Context, err: unknown): Response {
-  if (err instanceof EmployeeAdvanceNotFoundError || err instanceof PayrollRunNotFoundError || err instanceof EmployeeNotFoundError) {
+  if (
+    err instanceof EmployeeAdvanceNotFoundError ||
+    err instanceof PayrollRunNotFoundError ||
+    err instanceof EmployeeNotFoundError ||
+    err instanceof GarnishmentNotFoundError
+  ) {
     return c.json({ error: err.code, message: err.message }, 404);
   }
   if (err instanceof TreasuryDisbursementUnavailableError) {
@@ -198,6 +248,7 @@ function handleDomainError(c: Context, err: unknown): Response {
     err instanceof DuplicatePayrollPeriodError ||
     err instanceof NoPayableEmployeesError ||
     err instanceof NegativeNetPayError ||
+    err instanceof InvalidGarnishmentError ||
     err instanceof InvalidPayrollComponentError ||
     err instanceof DuplicatePayrollComponentError
   ) {
@@ -238,9 +289,18 @@ export function createHrPayrollRoutes(deps: HrPayrollRoutesDeps, resolveAuthCont
     advances: deps.advances,
     numbering: deps.numbering,
     unpaidLeave: deps.unpaidLeave,
+    garnishments: deps.garnishmentRegister ? createGarnishmentProvider(deps.garnishmentRegister) : undefined,
     payrollComponents: deps.payrollComponents,
     idGen,
   };
+
+  async function currentCalculationDeps() {
+    const settings = await deps.settings?.get();
+    return {
+      ...calculationDeps,
+      dayDivisorBasis: deps.dayDivisorBasis ?? settings?.payrollDayDivisorBasis ?? "FIXED_30",
+    };
+  }
 
   // --- Payroll components (GL routing) -------------------------------------
 
@@ -378,6 +438,60 @@ export function createHrPayrollRoutes(deps: HrPayrollRoutesDeps, resolveAuthCont
     }
   });
 
+  // --- Garnishments (الحجز على الأجر) -------------------------------------
+
+  const garnishmentRegister = deps.garnishmentRegister;
+  if (garnishmentRegister) {
+    app.get("/payroll/garnishments", gate("hr.payroll.view"), async (c) => {
+      const employeeId = c.req.query("employeeId") ?? null;
+      const activeParam = c.req.query("active");
+      const rows = await garnishmentRegister.list({
+        employeeId,
+        active: activeParam === undefined ? null : activeParam === "true",
+      });
+      return c.json(rows.map(serializeGarnishment));
+    });
+
+    app.get("/payroll/garnishments/:id", gate("hr.payroll.view"), async (c) => {
+      const row = await garnishmentRegister.findById(c.req.param("id"));
+      if (!row) return c.json({ error: "GARNISHMENT_NOT_FOUND" }, 404);
+      return c.json(serializeGarnishment(row));
+    });
+
+    app.post("/payroll/garnishments", gate("hr.payroll.create"), async (c) => {
+      const parsed = createGarnishmentSchema.safeParse(await c.req.json().catch(() => ({})));
+      if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+      if (!(await deps.employees.findById(parsed.data.employeeId))) {
+        return c.json({ error: "EMPLOYEE_NOT_FOUND", message: "الموظف غير موجود." }, 404);
+      }
+      try {
+        const record = createGarnishment({
+          ...parsed.data,
+          id: parsed.data.id ?? idGen(),
+          totalAmount: Money.fromMajor(parsed.data.totalAmount),
+          monthlyAmount: Money.fromMajor(parsed.data.monthlyAmount),
+          endDate: parsed.data.endDate ?? null,
+          notes: parsed.data.notes ?? null,
+        });
+        if (await garnishmentRegister.findById(record.id)) {
+          return c.json({ error: "DUPLICATE_GARNISHMENT", message: "يوجد سند حجز بنفس المعرّف." }, 409);
+        }
+        await garnishmentRegister.create(record);
+        return c.json(serializeGarnishment(record), 201);
+      } catch (err) {
+        return handleDomainError(c, err);
+      }
+    });
+
+    app.post("/payroll/garnishments/:id/release", gate("hr.payroll.create"), async (c) => {
+      const current = await garnishmentRegister.findById(c.req.param("id"));
+      if (!current) return c.json({ error: "GARNISHMENT_NOT_FOUND" }, 404);
+      const next = releaseGarnishment(current);
+      await garnishmentRegister.update(next);
+      return c.json(serializeGarnishment(next));
+    });
+  }
+
   // --- Payroll runs --------------------------------------------------------
 
   app.get("/payroll/runs", gate("hr.payroll.view"), async (c) => {
@@ -424,7 +538,7 @@ export function createHrPayrollRoutes(deps: HrPayrollRoutesDeps, resolveAuthCont
 
   app.post("/payroll/runs/:id/calculate", gate("hr.payroll.calculate"), async (c) => {
     try {
-      const run = await calculatePayrollRun(c.req.param("id"), calculationDeps);
+      const run = await calculatePayrollRun(c.req.param("id"), await currentCalculationDeps());
       const payslips = await deps.payslips.listByRunId(run.id);
       return c.json({ ...serializeRun(run), payslips: payslips.map(serializePayslip) });
     } catch (err) {
@@ -438,6 +552,8 @@ export function createHrPayrollRoutes(deps: HrPayrollRoutesDeps, resolveAuthCont
         runs: deps.runs,
         payslips: deps.payslips,
         advances: deps.advances,
+        garnishments: deps.garnishmentRegister,
+        employees: directory,
         gl: deps.gl,
         accounts: deps.accounts,
       });

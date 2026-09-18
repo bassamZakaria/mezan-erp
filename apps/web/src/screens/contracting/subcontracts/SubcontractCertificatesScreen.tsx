@@ -504,9 +504,16 @@ function SubCertificateDetailPage({
   const mayCertify = can(authContext, "contracting.certificate.certify");
   const mayApprove = can(authContext, "contracting.certificate.approve");
   const editable = mayPrepare && (certificate.status === "draft" || certificate.status === "measured") && !certificate.hasLaterCertificate;
+  // The transition signs the STORED lines; an unsaved quantity would be
+  // silently dropped and the measurement approved at the old figure.
+  const unsaved = editable && draftQty !== null;
 
   async function move(action: "measure" | "certify" | "approve" | "cancel") {
     setError(null);
+    if (unsaved && (action === "measure" || action === "certify")) {
+      setError(t("subCertificates.saveBeforeTransition"));
+      return;
+    }
     try {
       if (action === "cancel" && cancelReason.trim() === "") {
         setError(t("subCertificates.cancelReasonRequired"));
@@ -558,6 +565,11 @@ function SubCertificateDetailPage({
         <div className="flex flex-wrap items-center gap-[9px]">
           <Button onClick={onBack}>{t("common.back")}</Button>
           <Button onClick={onPrint}>{t("subCertificates.print")}</Button>
+          {unsaved && (certificate.status === "draft" || certificate.status === "measured") ? (
+            <span role="status" className="text-[12px] font-semibold text-warning-ink">
+              {t("subCertificates.saveBeforeTransition")}
+            </span>
+          ) : null}
           {certificate.hasLaterCertificate ? (
             <span className="text-[12px] font-semibold text-warning-ink">{t("subCertificates.lockedByLater")}</span>
           ) : (
@@ -570,7 +582,7 @@ function SubCertificateDetailPage({
                     onChange={(e) => setSignedAt(e.target.value)}
                     aria-label={t("subCertificates.field.measuredAt")}
                   />
-                  <Button variant="primary" onClick={() => void move("measure")} disabled={transition.isPending}>
+                  <Button variant="primary" onClick={() => void move("measure")} disabled={transition.isPending || unsaved}>
                     {t("subCertificates.action.measure")}
                   </Button>
                 </>
@@ -583,7 +595,7 @@ function SubCertificateDetailPage({
                     onChange={(e) => setSignedAt(e.target.value)}
                     aria-label={t("subCertificates.field.certifiedAt")}
                   />
-                  <Button variant="primary" onClick={() => void move("certify")} disabled={transition.isPending}>
+                  <Button variant="primary" onClick={() => void move("certify")} disabled={transition.isPending || unsaved}>
                     {t("subCertificates.action.certify")}
                   </Button>
                 </>

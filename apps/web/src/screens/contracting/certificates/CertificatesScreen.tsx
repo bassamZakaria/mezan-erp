@@ -713,9 +713,16 @@ function CertificateDetailPage({
   const mayCertify = can(authContext, "contracting.certificate.certify");
   const mayApprove = can(authContext, "contracting.certificate.approve");
   const editable = mayPrepare && (certificate.status === "draft" || certificate.status === "measured") && !certificate.hasLaterCertificate;
+  // The transition signs the STORED lines; an unsaved quantity would be
+  // silently dropped and the measurement approved at the old figure.
+  const unsaved = editable && (draftQty !== null || draftMaterials !== null);
 
   async function move(action: "measure" | "certify" | "approve" | "cancel" | "void") {
     setError(null);
+    if (unsaved && (action === "measure" || action === "certify")) {
+      setError(t("certificates.saveBeforeTransition"));
+      return;
+    }
     if ((action === "cancel" || action === "void") && reason.trim() === "") {
       setError(t("certificates.reasonRequired"));
       return;
@@ -794,6 +801,11 @@ function CertificateDetailPage({
           {certificate.hasLaterCertificate ? (
             <span className="text-[12px] font-semibold text-warning-ink">{t("certificates.lockedByLater")}</span>
           ) : null}
+          {unsaved && (certificate.status === "draft" || certificate.status === "measured") ? (
+            <span role="status" className="text-[12px] font-semibold text-warning-ink">
+              {t("certificates.saveBeforeTransition")}
+            </span>
+          ) : null}
           {mayPrepare && certificate.status === "draft" ? (
             <>
               <TextInput
@@ -802,7 +814,7 @@ function CertificateDetailPage({
                 onChange={(e) => setActionDate(e.target.value)}
                 aria-label={t("certificates.field.measuredAt")}
               />
-              <Button variant="primary" onClick={() => void move("measure")} disabled={transition.isPending}>
+              <Button variant="primary" onClick={() => void move("measure")} disabled={transition.isPending || unsaved}>
                 {t("certificates.action.measure")}
               </Button>
             </>
@@ -815,7 +827,7 @@ function CertificateDetailPage({
                 onChange={(e) => setActionDate(e.target.value)}
                 aria-label={t("certificates.field.certifiedAt")}
               />
-              <Button variant="primary" onClick={() => void move("certify")} disabled={transition.isPending}>
+              <Button variant="primary" onClick={() => void move("certify")} disabled={transition.isPending || unsaved}>
                 {t("certificates.action.certify")}
               </Button>
             </>

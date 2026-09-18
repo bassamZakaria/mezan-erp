@@ -236,3 +236,67 @@ describe("CertificatesScreen — materials editor", () => {
     expect(screen.getByDisplayValue("cement")).toBeInTheDocument();
   });
 });
+
+describe("CertificatesScreen — a transition never signs an unsaved quantity", () => {
+  const workLine: ProgressCertificateDTO["workLines"][number] = {
+    id: "CERT-DEMO-1-W1",
+    boqLineId: "BOQ-1",
+    code: "1.1",
+    descriptionAr: "خرسانة عادية للأساسات",
+    unit: "m3",
+    unitRate: "1200.000000",
+    thisPeriodQty: "0.000000",
+    previousCumulativeQty: "0.000000",
+    cumulativeQty: "0.000000",
+    contractedQty: "500.000000",
+    completionPercent: "0",
+    previousCumulativeValue: "0.00",
+    cumulativeValue: "0.00",
+    thisPeriodValue: "0.00",
+    sortOrder: 1,
+  };
+
+  it("refuses «اعتماد الحصر» while a typed quantity is unsaved, and allows it once saved", async () => {
+    const cert = certificate({ workLines: [workLine] });
+    const transitions: string[] = [];
+    const patched: unknown[] = [];
+    const transport = stubTransport({
+      "GET /contracting/certificates": () => ({ body: [cert] }),
+      "GET /contracting/certificates/CERT-DEMO-1": () => ({ body: cert }),
+      "GET /projects": () => ({ body: [] }),
+      "GET /customers": () => ({ body: [] }),
+      "PATCH /contracting/certificates/CERT-DEMO-1": (init) => {
+        patched.push(JSON.parse((init?.body as string) ?? "{}"));
+        return { body: cert };
+      },
+      "POST /contracting/certificates/CERT-DEMO-1/measure": () => {
+        transitions.push("measure");
+        return { body: { ...cert, status: "measured", derivedStatus: "measured" } };
+      },
+    });
+    renderWithProviders(
+      <TestNavigation>
+        <CertificatesScreen />
+      </TestNavigation>,
+      { transport, initialSession: testAdminSession },
+    );
+    fireEvent.click(await screen.findByText("CERT-0001"));
+    await screen.findByRole("heading", { name: /CERT-0001/ });
+
+    const measure = screen.getByRole("button", { name: "اعتماد الحصر" });
+    expect(measure).toBeEnabled();
+
+    fireEvent.change(screen.getByRole("textbox", { name: "هذا المستخلص" }), { target: { value: "42" } });
+    expect(measure).toBeDisabled();
+    expect(screen.getByRole("status")).toHaveTextContent("تعديلات غير محفوظة");
+    fireEvent.click(measure);
+    expect(transitions).toEqual([]);
+
+    fireEvent.click(screen.getByRole("button", { name: "حفظ" }));
+    await waitFor(() => expect(patched).toHaveLength(1));
+    expect(patched[0]).toMatchObject({ workLines: [{ boqLineId: "BOQ-1", thisPeriodQty: "42" }] });
+    await waitFor(() => expect(measure).toBeEnabled());
+    fireEvent.click(measure);
+    await waitFor(() => expect(transitions).toEqual(["measure"]));
+  });
+});

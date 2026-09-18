@@ -3,12 +3,20 @@ import { loginAsDemoUser } from "./support/auth";
 import { clickSidebarItem, expandSidebarGroup } from "./support/nav";
 
 /**
- * Users & Roles (apps/web/src/pages/UsersPage.tsx, RolesPage.tsx). The e2e
- * backend now seeds exactly ONE user (the admin, محمد الشهابي) and ZERO
- * custom roles — no more أحمد الجندي / يوسف محمد / كريم عزت or a seeded
- * "مندوب مبيعات" (VAN_SALES) role — so every test creates its own fixtures,
- * isolated by a unique name. "Roles" runs FIRST in this file (before any
- * test creates one) so its "lists no custom roles" check has a clean count.
+ * Users & Roles (apps/web/src/pages/UsersPage.tsx, RolesPage.tsx). The demo
+ * seed (packages/backend/src/demo-seed/access.ts) now carries 17 custom
+ * roles (ACCOUNTANT, WAREHOUSE_KEEPER, …) plus the built-in "مدير النظام",
+ * and 21 users (20 active, 1 inactive) — not the single seeded admin and
+ * zero custom roles the old fixture assumed. Every test below either checks
+ * an invariant that holds regardless of how many other rows exist (a system
+ * role has no delete button; the seeded admin is active with the owner
+ * role), or creates its own uniquely-named fixture and asserts against that
+ * fixture specifically, per the isolation pattern used throughout this
+ * suite.
+ *
+ * Every account this suite creates uses `@cyag.example` — the demo tenant's
+ * `allowedEmailDomains` (see access.ts) — never `@cyag.test`, which the
+ * domain policy rejects.
  *
  * The add/edit user form is a dialog (SidePanel); its fields are a LOCAL
  * `TextField` inside UsersPage.tsx that properly nests the `<input>` inside
@@ -43,30 +51,33 @@ async function createRole(page: Page, name: string, code: string): Promise<void>
   await expect(page.getByRole("heading", { name: "الأدوار والصلاحيات" })).toBeVisible();
 }
 
-// Both baseline counts must be checked BEFORE anything below creates a user
-// or a role — every other describe block mutates one or both, and since
-// specs in this file share the backend and run in declaration order, this
-// block has to come first.
-test.describe("Users & Roles — clean-seed baseline", () => {
+test.describe("Users & Roles — seeded baseline", () => {
   test.beforeEach(async ({ page }) => {
     await loginAsDemoUser(page);
     await expandSidebarGroup(page, "الإعدادات");
   });
 
-  test("lists no custom roles in the freshly-seeded tenant — only the built-in مدير النظام", async ({ page }) => {
+  test("the built-in مدير النظام is tagged as a system role with no delete button, alongside seeded custom roles", async ({ page }) => {
     await clickSidebarItem(page, "الأدوار والصلاحيات");
     await expect(page.getByRole("heading", { name: "الأدوار والصلاحيات" })).toBeVisible();
-    // "مدير النظام" (SYSTEM_ADMIN) is a seeded system role now — the custom
-    // count is what starts at zero.
-    await expect(tableRow(page, "مدير النظام")).toBeVisible();
-    await expect(page.locator("table tbody tr")).toHaveCount(1);
+
+    const systemRow = tableRow(page, "مدير النظام");
+    await expect(systemRow).toBeVisible();
+    await expect(systemRow.getByText("نظام", { exact: true })).toBeVisible();
+    await expect(systemRow.getByRole("button", { name: "حذف" })).toHaveCount(0);
+
+    // demo-seed.ts's access.ts seeds 17 custom roles alongside the one
+    // system role — "محاسب" (ACCOUNTANT) is one of them.
+    const customRow = tableRow(page, "محاسب");
+    await expect(customRow).toBeVisible();
+    await expect(customRow.getByText("مخصص", { exact: true })).toBeVisible();
   });
 
-  test("lists the seeded admin as the sole active user", async ({ page }) => {
+  test("lists the seeded admin as an active user holding the owner role", async ({ page }) => {
     await clickSidebarItem(page, "المستخدمون");
     await expect(page.getByRole("heading", { name: "المستخدمون" })).toBeVisible();
-    await expect(page.getByText("عرض 1 من 1 مستخدم")).toBeVisible();
     const row = tableRow(page, "محمد الشهابي");
+    await expect(row).toBeVisible();
     await expect(row.getByText("نشط", { exact: true })).toBeVisible();
     await expect(row.getByText("مدير المنشأة", { exact: true })).toBeVisible();
   });
@@ -115,7 +126,7 @@ test.describe("Roles", () => {
     await page.getByRole("button", { name: "إضافة مستخدم" }).click();
     const form = page.getByRole("dialog", { name: "إضافة مستخدم" });
     await form.getByLabel("الاسم بالعربية").fill(unique("مستخدم لدور مستخدم"));
-    await form.getByLabel("البريد الإلكتروني *").fill(`${Date.now()}-${Math.floor(Math.random() * 100000)}@cyag.test`);
+    await form.getByLabel("البريد الإلكتروني *").fill(`${Date.now()}-${Math.floor(Math.random() * 100000)}@cyag.example`);
     await form.getByLabel(/كلمة مرور مؤقتة/).fill("Passw0rd1");
     const roleInput = form.getByLabel("الدور *");
     await roleInput.click();
@@ -164,7 +175,7 @@ test.describe("Users", () => {
     await expect(page.getByRole("heading", { name: "المستخدمون" })).toBeVisible();
 
     const userName = unique("مستخدم اختبار");
-    const email = `${Date.now()}-${Math.floor(Math.random() * 100000)}@cyag.test`;
+    const email = `${Date.now()}-${Math.floor(Math.random() * 100000)}@cyag.example`;
     await page.getByRole("button", { name: "إضافة مستخدم" }).click();
     const form = page.getByRole("dialog", { name: "إضافة مستخدم" });
 
@@ -195,7 +206,7 @@ test.describe("Users", () => {
 
   test("toggling a user's status flips its pill and the toggle button label", async ({ page }) => {
     const userName = unique("مستخدم تعطيل");
-    const email = `${Date.now()}-${Math.floor(Math.random() * 100000)}@cyag.test`;
+    const email = `${Date.now()}-${Math.floor(Math.random() * 100000)}@cyag.example`;
     await page.getByRole("button", { name: "إضافة مستخدم" }).click();
     const form = page.getByRole("dialog", { name: "إضافة مستخدم" });
     await form.getByLabel("الاسم بالعربية").fill(userName);

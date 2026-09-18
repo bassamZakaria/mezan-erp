@@ -444,7 +444,11 @@ export async function run(ctx: Ctx): Promise<void> {
       const cancelled = await req("POST", "/vouchers/SCN-X-NEG-1/cancel", {});
       check("the refused draft is cancelled so it cannot post later by accident", cancelled.status === 200, `status ${cancelled.status}`);
     } else {
-      await req("POST", "/vouchers/SCN-X-NEG-1/reverse", {});
+      // D270: an omitted date now defaults to the REAL calendar day the
+      // suite runs on, not this file's fictional TODAY — pass TODAY
+      // explicitly so the reversal stays same-day, as every other posting
+      // in this file is, and the as-of-TODAY cash guard below still sees it.
+      await req("POST", "/vouchers/SCN-X-NEG-1/reverse", { date: TODAY });
     }
     check("either way the خزنة is left exactly as this scenario found it", Math.abs((await gl(CASH)) - cashNow) < 0.005, `cash=${await gl(CASH)} started=${cashNow}`);
   });
@@ -1008,7 +1012,9 @@ export async function run(ctx: Ctx): Promise<void> {
     checkEq("the خزنة falls by the expense", cashBefore - (await gl(CASH)), 1750);
     checkEq("the expense account rises by the same", (await gl(EXPENSE)) - expenseBefore, 1750);
 
-    const reversed = await req("POST", "/vouchers/SCN-X-EXP-1/reverse", {});
+    // D270: pass TODAY explicitly — an omitted date now defaults to the real
+    // calendar day, not this file's fictional TODAY (see x5's own note).
+    const reversed = await req("POST", "/vouchers/SCN-X-EXP-1/reverse", { date: TODAY });
     check("the voucher reverses", reversed.status === 200 || reversed.status === 201, `status ${reversed.status} ${JSON.stringify(reversed.body).slice(0, 200)}`);
     checkEq("the خزنة returns to exactly its pre-payment balance", await gl(CASH), cashBefore);
     checkEq("and so does the expense account — a reversal undoes both legs, not one", await gl(EXPENSE), expenseBefore);

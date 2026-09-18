@@ -11,6 +11,7 @@ import {
   Button,
   MoneyInput,
   EntityPicker,
+  ConfirmDialog,
   type DocumentListColumn,
   type DocumentStatusStep,
   type PillTone,
@@ -608,6 +609,8 @@ function VoucherDetailView({
   const [reversingAllocId, setReversingAllocId] = useState<string | null>(null);
   const [invoiceId, setInvoiceId] = useState("");
   const [allocAmount, setAllocAmount] = useState<number | null>(null);
+  const [reverseConfirmOpen, setReverseConfirmOpen] = useState(false);
+  const [reverseDate, setReverseDate] = useState(todayIso());
 
   const doc = query.data;
   const def = doc ? getVoucherTypeDefinition(doc.voucherType) : null;
@@ -623,12 +626,19 @@ function VoucherDetailView({
     return voucherDocumentType.describeEffects(preview);
   }, [doc]);
 
+  function openReverseConfirm() {
+    if (busy || !doc) return;
+    setReverseDate(todayIso());
+    setReverseConfirmOpen(true);
+  }
+
   async function handleReverseVoucher() {
     if (busy || !doc) return;
+    setReverseConfirmOpen(false);
     setBusy(true);
     setError(null);
     try {
-      await reverseVoucher.mutateAsync({ id: doc.id });
+      await reverseVoucher.mutateAsync({ id: doc.id, body: { date: reverseDate } });
       onBack();
     } catch (err) {
       setError(err instanceof Error ? err.message : t("vouchers.theVoucherCouldNotBe"));
@@ -863,7 +873,7 @@ function VoucherDetailView({
         actions={
           <>
             {doc.status === "confirmed" ? (
-              <Button variant="danger-outline" disabled={busy} onClick={handleReverseVoucher}>
+              <Button variant="danger-outline" disabled={busy} onClick={openReverseConfirm}>
                 {t("vouchers.reverseVoucher")}
               </Button>
             ) : null}
@@ -873,6 +883,20 @@ function VoucherDetailView({
         effectsTitle={t("vouchers.whatThisVoucherDoes")}
         effects={(effects?.effects ?? []).map((e) => e.description)}
         tabs={tabs}
+      />
+      <ConfirmDialog
+        open={reverseConfirmOpen}
+        title={t("vouchers.reverseConfirmTitle")}
+        consequence={
+          <div className="flex flex-col gap-[10px]">
+            <p>{t("vouchers.reverseConfirmBody")}</p>
+            <TextField label={t("vouchers.reversalDate")} value={reverseDate} onChange={setReverseDate} type="date" />
+          </div>
+        }
+        confirmLabel={t("vouchers.reverseVoucher")}
+        tone="danger"
+        onConfirm={() => void handleReverseVoucher()}
+        onCancel={() => setReverseConfirmOpen(false)}
       />
     </div>
   );

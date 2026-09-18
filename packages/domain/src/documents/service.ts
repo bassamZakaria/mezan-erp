@@ -29,6 +29,7 @@ import type {
   DocumentStockResult,
 } from "./hooks.js";
 import { assertTransition, isActive, type DocumentStatus } from "./status.js";
+import { ReversalDateBeforeOriginalError } from "../gl/errors.js";
 import {
   DocumentNotFoundError,
   DuplicateDocumentError,
@@ -264,6 +265,16 @@ export class DocumentService<Line> {
     if (!isActive(existing.status)) {
       // assertTransition gives the precise error (only active → reversed is legal).
       assertTransition(this.def.code, id, existing.status, "reversed");
+    }
+    const resolvedDate = opts.date ?? existing.date;
+    // A reversal dated before the document it reverses would restate a day
+    // already reported (D270, voucher reversal). This is scoped to THIS
+    // document-lifecycle path rather than the shared `reverseJournalEntry` —
+    // other reversal flows (a depreciation run, a purchase-invoice cancel)
+    // legitimately reverse at an earlier date and are gated by the period
+    // lock alone.
+    if (resolvedDate < existing.date) {
+      throw new ReversalDateBeforeOriginalError(id, resolvedDate, existing.date);
     }
 
     return this.deps.repo.transaction(async () => {

@@ -22,6 +22,7 @@ import {
   JournalEntryAlreadyReversedError,
   PartyRequiredOnControlAccountError,
   InvalidJournalPartyError,
+  ReversalDateBeforeOriginalError,
   type PartyControlKind,
   type JournalEntry,
   type JournalPostingDeps,
@@ -209,6 +210,9 @@ function handleDomainError(c: Context, err: unknown): Response {
   }
   if (err instanceof PartyRequiredOnControlAccountError || err instanceof InvalidJournalPartyError) {
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, accountId: err.accountId }, 422);
+  }
+  if (err instanceof ReversalDateBeforeOriginalError) {
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 422);
   }
   if (err instanceof VatPeriodAlreadyFiledError) {
     return c.json({ error: err.code, message: err.message }, 422);
@@ -585,9 +589,24 @@ export function createGlRoutes(
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
     try {
-      const result = await reverseJournalEntry(c.req.param("id"), postingDeps(c), {
+      const entryId = c.req.param("id");
+      const resolvedDate = await tenantDay(c, parsed.data.date ?? (deps.now ? deps.now() : new Date().toISOString()));
+      // A reversal dated before the entry's own day would restate a day
+      // already reported (D270). Checked only for THIS manual-reversal route
+      // — a depreciation run or a purchase-invoice cancel calls
+      // `reverseJournalEntry` directly with its own date semantics and is
+      // gated by the period lock alone.
+      const existing = await deps.ledger.findById(entryId);
+      if (existing && resolvedDate < existing.date) {
+        throw new ReversalDateBeforeOriginalError(entryId, resolvedDate, existing.date);
+      }
+      const result = await reverseJournalEntry(entryId, postingDeps(c), {
         reversalId: parsed.data.reversalId ?? idGen(),
-        date: await tenantDay(c, parsed.data.date),
+        // No date sent (D270) defaults to today, in the tenant's own
+        // calendar day, never the entry's own day. `deps.now`, not a raw
+        // `new Date()`, so it stays the same injectable clock `postingDeps`
+        // already uses for this route.
+        date: resolvedDate,
         memo: parsed.data.memo,
       });
       return c.json(

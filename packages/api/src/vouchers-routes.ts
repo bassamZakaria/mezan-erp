@@ -27,6 +27,7 @@ import {
   AllocationMismatchError,
   AllocationExceedsError,
   SettlementRateMissingError,
+  ReversalDateBeforeOriginalError,
   allocationFxDifference,
   allocationInvoiceAmount,
   invoiceOpenBalance,
@@ -154,6 +155,9 @@ function serializeInvoice(i: AllocatableInvoice, returned: Money = Money.zero())
 function handleDomainError(c: Context, err: unknown): Response {
   if (err instanceof CashBalanceWouldGoNegativeError) {
     return c.json({ error: err.code, message: err.message }, 422);
+  }
+  if (err instanceof ReversalDateBeforeOriginalError) {
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 422);
   }
   if (
     err instanceof InvalidDocumentError ||
@@ -666,7 +670,12 @@ export function createVouchersRoutes(
     try {
       const result = await serviceFor(c).reverseVoucher(c.req.param("id"), {
         reversalId: parsed.data.reversalId ?? idGen(),
-        date: await tenantDay(c, parsed.data.date),
+        // No date sent (D270) defaults to today, in the tenant's own
+        // calendar day — the same rule a cheque bounce already follows —
+        // never the voucher's own day, which would restate a day already
+        // reported. `deps.now`, not a raw `new Date()`, so it stays the same
+        // injectable clock every other default in this route uses.
+        date: await tenantDay(c, parsed.data.date ?? (deps.now ? deps.now() : new Date().toISOString())),
         memo: parsed.data.memo,
       });
       return c.json({ original: serialize(result.original), reversal: serialize(result.reversal) }, 201);

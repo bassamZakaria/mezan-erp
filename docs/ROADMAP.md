@@ -1978,7 +1978,10 @@ seeded tenant is ~375 MB on a 512 MB free instance; recorded as the target for t
 `/` answers 401 without credentials and `/healthz` answers 200. `docs/DEPLOY-DEMO.md` has the steps.
 
 **Also fixed by this:** `pnpm env:testing` / `env:staging` could not start on `main` — `scripts/env.mjs`
-set the refused variable and not the now-required password.
+set the refused variable and not the now-required password. And the demo seeder's own second lock
+(`assertLocalOrTest`) refused `NODE_ENV=production` outright, while `cloud.ts` and the Dockerfile both
+run in production — so the demo would have crashed on boot even with the PIN fixed. Production now
+passes that lock only with `MEZAN_SEED_DEMO=1` in the process's own environment. Landed as PR #63.
 
 **Reversal cost:** low — drop the `seedAdminPin` argument.
 
@@ -1997,7 +2000,7 @@ fields defaulting to this month, and it is the only set with a navigation permis
 Two defects fixed in the survivor on the way: the after-hours report offered three audit streams the
 contract does not have (`financial`, `operational`, `admin` — each a validation error) and omitted
 `sensitive`; and its KPI and gap labels rendered raw Arabic with no English. The deleted set's
-translated labels were ported across.
+translated labels were ported across. Landed as PR #64.
 
 **What other platforms do:** exception and audit reports in QuickBooks (Audit Log, Voided/Deleted
 report) and Odoo are exportable and printable; for audit evidence that is table stakes (ISA 230).

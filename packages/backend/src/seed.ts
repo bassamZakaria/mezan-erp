@@ -104,10 +104,17 @@ export function takeSeededAdminSecrets(): SeedAdminSecrets | null {
  * the SQLite file or losing the books.
  *
  * `MEZAN_SEED_ADMIN_PIN` overrides it for a deliberate packaged-build test.
+ * That variable is PROCESS-WIDE: in a multi-tenant server it reaches every
+ * tenant this process seeds, including real ones. `pinOverride` is the
+ * per-tenant alternative, passed by one caller for one database.
  */
 export function resolveSeedAdminSecrets(
   env: Record<string, string | undefined> = process.env,
+  pinOverride?: string,
 ): SeedAdminSecrets {
+  if (pinOverride !== undefined && /^\d{6}$/.test(pinOverride)) {
+    return { pin: pinOverride, password: SEED_ADMIN_PASSWORD, generated: false };
+  }
   const override = env["MEZAN_SEED_ADMIN_PIN"];
   if (override && /^\d{6}$/.test(override)) {
     return { pin: override, password: SEED_ADMIN_PASSWORD, generated: false };
@@ -209,7 +216,11 @@ export async function isEmptyTenant(stores: Pick<SeedStores, "accounts">): Promi
  * sequences are initialised lazily by the NextNumber service on first use, so
  * no counters are pre-seeded. Idempotent: a no-op on an already-seeded DB.
  */
-export async function seedIfEmpty(stores: SeedStores, now: () => Date = () => new Date()): Promise<BootstrapSeedResultDTO> {
+export async function seedIfEmpty(
+  stores: SeedStores,
+  now: () => Date = () => new Date(),
+  opts: { readonly adminPin?: string } = {},
+): Promise<BootstrapSeedResultDTO> {
   if (!(await isEmptyTenant(stores))) {
     return currentCounts(stores);
   }
@@ -284,7 +295,7 @@ export async function seedIfEmpty(stores: SeedStores, now: () => Date = () => ne
   };
   await stores.uow.roles.save(adminRole);
 
-  const adminSecrets = resolveSeedAdminSecrets();
+  const adminSecrets = resolveSeedAdminSecrets(process.env, opts.adminPin);
   lastSeededAdminSecrets = adminSecrets;
   await saveUser(
     {

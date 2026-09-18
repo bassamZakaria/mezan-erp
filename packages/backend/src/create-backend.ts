@@ -789,6 +789,14 @@ export interface CreateBackendOptions {
    * install never receives invented data.
    */
   readonly seedDemoData?: boolean;
+  /**
+   * Pins the fallback admin's PIN for THIS database only. For the public demo
+   * tenant alone: its instance re-seeds from scratch on every wake, so a
+   * generated PIN would change each time, and every demo persona shares the
+   * published PIN anyway. Refused without `seedDemoData: true` so a real tenant
+   * can never be opened with a known admin PIN.
+   */
+  readonly seedAdminPin?: string;
   /** Outbound HTTP for the ETA gateway. Tests inject a fake server; nothing else should. */
   readonly etaHttpClient?: EtaHttpClient;
   /** Runs the operator's external CAdES-BES signing program. Tests inject a fake. */
@@ -861,6 +869,9 @@ export interface CreateBackendOptions {
 const CERTIFICATE_AR_ACCOUNT_ID = "1105";
 
 export async function createBackend(options: CreateBackendOptions = {}): Promise<BackendHandle> {
+  if (options.seedAdminPin !== undefined && options.seedDemoData !== true) {
+    throw new Error("createBackend: seedAdminPin is only accepted together with seedDemoData: true");
+  }
   const dbPath = options.dbPath ?? ":memory:";
 
   // ONE shared connection for every store below, instead of each of the ~35
@@ -2602,7 +2613,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     itemCatalog,
     labelLayouts,
   };
-  await seedIfEmpty(seedStores);
+  await seedIfEmpty(seedStores, undefined, { adminPin: options.seedAdminPin });
 
   /**
    * One-off backfill for tenants migrated before B-2: every customer/supplier

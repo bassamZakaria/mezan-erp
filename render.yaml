@@ -37,10 +37,11 @@ services:
       # Minimum 12 characters.
       - key: MEZAN_DEMO_PASSWORD
         sync: false
-      # The fallback admin's PIN is GENERATED per deploy and printed once to the
-      # deploy log. MEZAN_SEED_ADMIN_PIN is deliberately absent: it used to pin
-      # the published `123456` here, and cloud.ts now refuses to start if it is
-      # set at all.
+      # The demo tenant's PIN `123456` is set in apps/server/src/demo-tenant.ts,
+      # for that tenant only. MEZAN_SEED_ADMIN_PIN is deliberately absent and
+      # cloud.ts refuses to start if it is set. Render keeps a variable that was
+      # removed from this file, so on the existing service the dashboard copy of
+      # MEZAN_SEED_ADMIN_PIN must be deleted by hand (docs/DEPLOY-DEMO.md).
       # MEZAN_PLATFORM_OWNER_EMAIL / _PASSWORD are `sync: false`: the
       # blueprint stops and asks for a value before it will deploy, so the
       # platform owner's login is never committed to the repo.

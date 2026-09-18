@@ -175,6 +175,8 @@ function AccountRoutingTab() {
     inventory_adjustment: "routing.section.inventoryAdjustment",
     payroll: "routing.section.payroll",
     item_type: "routing.section.itemType",
+    control: "routing.section.control",
+    fx: "routing.section.fx",
   };
 
   if (routingQuery.isLoading) {

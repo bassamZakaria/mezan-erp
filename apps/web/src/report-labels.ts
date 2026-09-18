@@ -144,6 +144,8 @@ const GROUP_LABEL_KEYS: Readonly<Record<string, string>> = {
   "حسابات نظامية": "reportGroup.accountType.memorandum",
   "تكلفة البضاعة المباعة": "reportGroup.section.cogs",
   "المصاريف التشغيلية": "reportGroup.section.opex",
+  "الإيرادات والمكاسب الأخرى": "reportGroup.section.otherIncome",
+  "المصروفات والخسائر الأخرى": "reportGroup.section.otherExpense",
   "النقدية وما في حكمها": "reportGroup.section.cash",
   "الأصول المتداولة": "reportGroup.section.currentAsset",
   "الأصول غير المتداولة": "reportGroup.section.nonCurrentAsset",

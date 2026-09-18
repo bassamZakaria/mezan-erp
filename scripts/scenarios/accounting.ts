@@ -698,8 +698,9 @@ export async function accountRoutingDecidesWherePostingsLand_R61(ctx: Ctx): Prom
     // screen showing only what you changed cannot tell you where things post.
     ctx.check("every slot is listed with a resolved account", slots.length > 0 && slots.every((s) => s.accountId !== ""), `${slots.length} slots`);
     // 8 since B-8 added the `control` section (AR/AP/inventory control accounts),
-    // which the sub-ledger↔GL reconciliation now reads instead of "1105"/"2100"/"1200".
-    ctx.check("and the sections cover the documented set", new Set(slots.map((s: any) => s.section)).size === 8, JSON.stringify([...new Set(slots.map((s: any) => s.section))]));
+    // which the sub-ledger↔GL reconciliation now reads instead of "1105"/"2100"/"1200";
+    // 9 since D229 added `fx`, the exchange-difference accounts.
+    ctx.check("and the sections cover the documented set", new Set(slots.map((s: any) => s.section)).size === 9, JSON.stringify([...new Set(slots.map((s: any) => s.section))]));
     ctx.check(
       "including the three control-account slots the reconciliation reads (B-8)",
       ["control.receivable", "control.payable", "control.inventory"].every((k) => slots.some((s) => s.key === k)),

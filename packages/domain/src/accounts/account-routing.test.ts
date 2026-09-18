@@ -23,6 +23,20 @@ describe("ACCOUNT_ROUTING_SLOTS", () => {
   });
 });
 
+describe("fx.* slots (D229)", () => {
+  it("route exchange differences to their own accounts by default, never to 4900/5900", () => {
+    expect(routedAccountId(EMPTY_ACCOUNT_ROUTING, "fx.realised_gain")).toBe("4920");
+    expect(routedAccountId(EMPTY_ACCOUNT_ROUTING, "fx.realised_loss")).toBe("5920");
+    expect(routedAccountId(EMPTY_ACCOUNT_ROUTING, "fx.unrealised_gain")).toBe("4940");
+    expect(routedAccountId(EMPTY_ACCOUNT_ROUTING, "fx.unrealised_loss")).toBe("5940");
+  });
+
+  it("follow a tenant's override", () => {
+    const routing: AccountRouting = { ...EMPTY_ACCOUNT_ROUTING, overrides: { "fx.realised_loss": "5910" } };
+    expect(routedAccountId(routing, "fx.realised_loss")).toBe("5910");
+  });
+});
+
 describe("isAccountRoutingKey", () => {
   it("is true for a known slot key", () => {
     expect(isAccountRoutingKey("tax.output_vat")).toBe(true);

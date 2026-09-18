@@ -97,6 +97,7 @@ import {
   type AccountRouting,
   costToDateOf,
   routedAccountId,
+  addMissingStandardAccounts,
   type StockAdjustmentDocLine,
   type StockTransferDocLine,
   EventBus,
@@ -108,6 +109,7 @@ import {
   recordSecurityEvent,
   type Entitlements,
   type RealisedFxPort,
+  type FxDifferenceAccounts,
   type InvoiceReturnCreditPort,
   SettlementRateMissingError,
   salesReturnCreditByInvoice,
@@ -261,14 +263,6 @@ async function listReturnsCiting<L>(
 ): Promise<readonly FrameworkDocument<L>[]> {
   return repo.listByLineRef ? repo.listByLineRef("sourceInvoiceId", ids, { status: "confirmed" }) : repo.list({ status: "confirmed" });
 }
-
-/**
- * FX gains and losses, realised (D221) and unrealised (revaluation) alike. The
- * standard chart has no dedicated exchange-difference accounts, so فائض/عجز
- * الصندوق (postable leaves) carry them.
- */
-const FX_GAIN_ACCOUNT_ID = "4900";
-const FX_LOSS_ACCOUNT_ID = "5900";
 
 /**
  * The GL accounts the purchase chain's invoice confirm posts against —
@@ -2719,6 +2713,19 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   await seedIfEmpty(seedStores, undefined, { adminPin: options.seedAdminPin });
 
   /**
+   * Books seeded before a template account existed get it now (D229: the
+   * exchange-difference accounts). Idempotent; it adds, and never renames or
+   * repurposes an account — posted history stays where it was posted.
+   */
+  {
+    const { added, skipped } = await addMissingStandardAccounts(accounts);
+    if (added.length > 0) console.info(`[chart-of-accounts] added standard account(s) ${added.join(", ")}`);
+    if (skipped.length > 0) {
+      console.warn(`[chart-of-accounts] ${skipped.join(", ")} already used by another account; map the fx.* slots in account routing`);
+    }
+  }
+
+  /**
    * One-off backfill for tenants migrated before B-2: every customer/supplier
    * carrying a non-zero opening balance that was never posted gets its entry
    * now. It is idempotent (the deterministic entry id is already there on a
@@ -2924,12 +2931,24 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
    * the debt back on the party (D192); a replacement credits the party's own
    * control account.
    */
-  /**
-   * The rates a settlement of a foreign invoice is measured with, and where the
-   * realised difference goes (D221): the same gain and loss accounts FX
-   * revaluation restates into, so realised and unrealised differences read
-   * together in the P&L.
-   */
+  /** Exchange differences post to their own accounts, routed so a tenant can remap them — never 4900/5900, the till's over and short (D229). */
+  async function fxDifferenceAccounts(kind: "realised" | "unrealised"): Promise<FxDifferenceAccounts> {
+    const routing = await accountRouting.get();
+    return kind === "realised"
+      ? {
+          gainAccountId: routedAccountId(routing, "fx.realised_gain") ?? "4920",
+          lossAccountId: routedAccountId(routing, "fx.realised_loss") ?? "5920",
+        }
+      : {
+          gainAccountId: routedAccountId(routing, "fx.unrealised_gain") ?? "4940",
+          lossAccountId: routedAccountId(routing, "fx.unrealised_loss") ?? "5940",
+        };
+  }
+  async function otherIncomeExpenseAccountIds(): Promise<readonly string[]> {
+    const [realised, unrealised] = await Promise.all([fxDifferenceAccounts("realised"), fxDifferenceAccounts("unrealised")]);
+    return [realised.gainAccountId, realised.lossAccountId, unrealised.gainAccountId, unrealised.lossAccountId];
+  }
+  /** The rates a settlement of a foreign invoice is measured with, and where the realised difference goes (D221, D229). */
   const realisedFx: RealisedFxPort = {
     async invoiceFx(invoiceId, kind) {
       if (kind === "sales") {
@@ -2942,8 +2961,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     async rateOn(currency, date) {
       return (await exchangeRates.findRate(currency, date))?.rate ?? null;
     },
-    gainAccountId: FX_GAIN_ACCOUNT_ID,
-    lossAccountId: FX_LOSS_ACCOUNT_ID,
+    differenceAccounts: () => fxDifferenceAccounts("realised"),
   };
   const settlementPreviewer = new VoucherService({
     documents: vouchers.documents,
@@ -3402,8 +3420,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       numbering: ledger.numbering,
       projects,
       exchangeRates,
-      gainAccountId: FX_GAIN_ACCOUNT_ID,
-      lossAccountId: FX_LOSS_ACCOUNT_ID,
+      differenceAccounts: () => fxDifferenceAccounts("unrealised"),
     },
     eta: {
       service: etaService,
@@ -4019,6 +4036,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       accounts,
       vatAccounts: { outputVatAccountId: "2200", inputVatAccountId: "1400" },
       cashAccountIds: ["1300-1", "1310", "1315", "1320", "1330"],
+      otherIncomeExpenseAccountIds,
       branchOfEntry: resolveEntryBranches,
     },
     notificationRuleRepo: notificationRules,
@@ -4092,6 +4110,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       countSuppliers: async () => (await suppliers.findAll()).length,
       countItems: async () => (await items.list()).length,
       uow,
+      otherIncomeExpenseAccountIds,
     }, resolveAuthContext),
   );
   // Unconditional: a route mounted only when an optional dep happens to be

@@ -21,7 +21,8 @@ export type AccountRoutingSection =
   | "inventory_adjustment"
   | "payroll"
   | "item_type"
-  | "control";
+  | "control"
+  | "fx";
 
 export interface AccountRoutingSlot {
   /** Stable key the posting code asks for. Never renamed once shipped. */
@@ -102,6 +103,12 @@ export const ACCOUNT_ROUTING_SLOTS: readonly AccountRoutingSlot[] = [
   { key: "control.receivable", section: "control", labelAr: "حساب مراقبة ذمم العملاء", labelEn: "Accounts receivable control", defaultAccountId: "1105" },
   { key: "control.payable", section: "control", labelAr: "حساب مراقبة ذمم الموردين", labelEn: "Accounts payable control", defaultAccountId: "2100" },
   { key: "control.inventory", section: "control", labelAr: "حساب مراقبة المخزون", labelEn: "Inventory control", defaultAccountId: "1200" },
+
+  // --- فروق العملة (D229) ---
+  { key: "fx.realised_gain", section: "fx", labelAr: "أرباح فروق العملة المحققة", labelEn: "Realised exchange gains", defaultAccountId: "4920" },
+  { key: "fx.realised_loss", section: "fx", labelAr: "خسائر فروق العملة المحققة", labelEn: "Realised exchange losses", defaultAccountId: "5920" },
+  { key: "fx.unrealised_gain", section: "fx", labelAr: "أرباح فروق إعادة تقييم العملات غير المحققة", labelEn: "Unrealised revaluation gains", defaultAccountId: "4940" },
+  { key: "fx.unrealised_loss", section: "fx", labelAr: "خسائر فروق إعادة تقييم العملات غير المحققة", labelEn: "Unrealised revaluation losses", defaultAccountId: "5940" },
 
   // --- حسب نوع الصنف ---
   { key: "item_type.revenue", section: "item_type", labelAr: "إيرادات المبيعات", labelEn: "Sales revenue", defaultAccountId: "4100" },

@@ -115,6 +115,12 @@ export const STANDARD_COA_TEMPLATE: readonly CreateAccountCommand[] = [
   // an "other income" voucher is rent received, interest, a bank rebate.
   { id: "4910", code: "4910", nameAr: "إيرادات أخرى", nameEn: "Other Income", type: "revenue", naturalBalance: "credit", parentId: "4000", isHeader: false },
   { id: "4900", code: "4900", nameAr: "فائض الصندوق", nameEn: "Cash Overage", type: "revenue", naturalBalance: "credit", parentId: "4000", isHeader: false },
+  // Exchange differences (IAS 21 ¶28/¶52) get accounts of their own instead of
+  // 4900/5900, which are the till's over and short (D229). Routed through the
+  // fx.* account-routing slots; existing books receive them from
+  // `addMissingStandardAccounts` at start-up.
+  { id: "4920", code: "4920", nameAr: "أرباح فروق العملة المحققة", nameEn: "Realised Exchange Gains", type: "revenue", naturalBalance: "credit", parentId: "4000", isHeader: false },
+  { id: "4940", code: "4940", nameAr: "أرباح فروق إعادة تقييم العملات غير المحققة", nameEn: "Unrealised Exchange Revaluation Gains", type: "revenue", naturalBalance: "credit", parentId: "4000", isHeader: false },
   { id: "4500", code: "4500", nameAr: "أرباح بيع الأصول", nameEn: "Gain on Asset Disposal", type: "revenue", naturalBalance: "credit", parentId: "4000", isHeader: false },
 
   // --- 5000 المصروفات (Expenses) ---
@@ -172,6 +178,8 @@ export const STANDARD_COA_TEMPLATE: readonly CreateAccountCommand[] = [
   { id: "5160", code: "5160", nameAr: "استرداد تكلفة تشغيل المعدات", nameEn: "Internal Plant Hire Recovery", type: "expense", naturalBalance: "credit", parentId: "5000", isHeader: false },
   { id: "5930", code: "5930", nameAr: "خسائر عقود متوقعة", nameEn: "Foreseeable Contract Losses", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
   { id: "5900", code: "5900", nameAr: "عجز الصندوق", nameEn: "Cash Shortage", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
+  { id: "5920", code: "5920", nameAr: "خسائر فروق العملة المحققة", nameEn: "Realised Exchange Losses", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
+  { id: "5940", code: "5940", nameAr: "خسائر فروق إعادة تقييم العملات غير المحققة", nameEn: "Unrealised Exchange Revaluation Losses", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
 
   // --- 9000 حسابات نظامية (Memorandum / off-balance-sheet) ---
   // A letter of guarantee's face value is a contingent obligation, not an
@@ -193,4 +201,42 @@ export async function seedStandardChartOfAccounts(repo: AccountRepository): Prom
   for (const command of STANDARD_COA_TEMPLATE) {
     await createAccount(command, repo);
   }
+}
+
+/** Template accounts added after books were already being kept; a chart seeded before them lacks them. */
+export const LATER_STANDARD_ACCOUNT_IDS: readonly string[] = ["4920", "4940", "5920", "5940"];
+
+export interface AddedStandardAccounts {
+  readonly added: readonly string[];
+  /** Taken by an account of the tenant's own (same id or code); left alone. */
+  readonly skipped: readonly string[];
+}
+
+/**
+ * Adds the {@link LATER_STANDARD_ACCOUNT_IDS} a chart does not have yet.
+ * Idempotent, and it never renames, retypes or moves an existing account: an
+ * id or code the tenant already uses for an account of another type is
+ * reported and skipped, and a chart without the template's parent header gets
+ * the account at the root.
+ */
+export async function addMissingStandardAccounts(
+  repo: AccountRepository,
+  ids: readonly string[] = LATER_STANDARD_ACCOUNT_IDS,
+): Promise<AddedStandardAccounts> {
+  const added: string[] = [];
+  const skipped: string[] = [];
+  for (const id of ids) {
+    const command = STANDARD_COA_TEMPLATE.find((row) => row.id === id);
+    if (!command) continue;
+    const existing = (await repo.findById(command.id)) ?? (await repo.findByCode(command.code));
+    if (existing) {
+      const isTemplates = existing.id === command.id && existing.code === command.code && existing.type === command.type;
+      if (!isTemplates) skipped.push(id);
+      continue;
+    }
+    const parent = command.parentId ? await repo.findById(command.parentId) : null;
+    await createAccount({ ...command, parentId: parent?.isHeader ? parent.id : null }, repo);
+    added.push(id);
+  }
+  return { added, skipped };
 }

@@ -23,7 +23,9 @@ import { sumRows } from "./kpi.js";
  * Revenue is shown positive, expense sections negative, so the grand total is
  * صافي الدخل = الإيرادات − تكلفة المبيعات − المصروفات. Grouped into the three
  * sections the catalog lists (الإيرادات / تكلفة البضاعة المباعة / المصاريف
- * التشغيلية) with a per-section subtotal each.
+ * التشغيلية), then الإيرادات والمكاسب الأخرى / المصروفات والخسائر الأخرى for the
+ * accounts the context names non-operating (D229: exchange differences), with a
+ * per-section subtotal each.
  *
  * Comparative: every run also computes the same figures over a comparison
  * window and the signed change between them (ux-enhancement-spec §4 dose 3).
@@ -76,6 +78,8 @@ const SECTIONS: Record<string, string> = {
   revenue: "الإيرادات",
   cogs: "تكلفة البضاعة المباعة",
   opex: "المصاريف التشغيلية",
+  otherIncome: "الإيرادات والمكاسب الأخرى",
+  otherExpense: "المصروفات والخسائر الأخرى",
 };
 
 /** Sum of a section's row amounts — the report's own "net income" primitive, reused by reconciliation-free callers. */
@@ -142,6 +146,7 @@ export function createIncomeStatementReport(
       const previous = netBalancesByAccount(ctx.journalEntries, { from: prior.from, to: prior.to }, { ...scoped, branchId: params.branchId });
       const unattributed = unattributedNetBalancesByAccount(ctx.journalEntries, window, scoped);
       const rows: IncomeStatementRow[] = [];
+      const otherIds = new Set(ctx.otherIncomeExpenseAccountIds ?? []);
       for (const account of ctx.accounts) {
         if (account.isHeader) continue;
         const section = classifyAccount(account, ctx.cashAccountIds);
@@ -161,7 +166,15 @@ export function createIncomeStatementReport(
         const isRevenue = section === "revenue";
         const amountMoney = currentNet.negate();
         const priorAmountMoney = priorNet.negate();
-        const sectionKey = isRevenue ? "revenue" : account.code.startsWith("51") ? "cogs" : "opex";
+        const sectionKey = otherIds.has(account.id)
+          ? isRevenue
+            ? "otherIncome"
+            : "otherExpense"
+          : isRevenue
+            ? "revenue"
+            : account.code.startsWith("51")
+              ? "cogs"
+              : "opex";
         rows.push({
           accountId: account.id,
           code: account.code,
@@ -175,8 +188,7 @@ export function createIncomeStatementReport(
           unattributed: moneyToNumber(unattributedNet.negate()),
         });
       }
-      // Stable section order: revenue → cogs → opex.
-      const order = ["revenue", "cogs", "opex"];
+      const order = ["revenue", "cogs", "opex", "otherIncome", "otherExpense"];
       rows.sort((a, b) => order.indexOf(a.sectionKey) - order.indexOf(b.sectionKey) || a.code.localeCompare(b.code));
       return rows;
     },

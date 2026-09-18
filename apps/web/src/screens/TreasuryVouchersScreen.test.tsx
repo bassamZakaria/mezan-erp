@@ -2,7 +2,7 @@
 import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, it } from "vitest";
 import { useState, type ReactNode } from "react";
-import { screen, fireEvent, waitFor } from "@testing-library/react";
+import { screen, fireEvent, waitFor, within } from "@testing-library/react";
 import type { AccountDTO, BranchDTO, CustomerDTO, OpenInvoiceDTO, SupplierDTO, TreasuryAccountDTO, VoucherAllocationDTO, VoucherDTO } from "@mezan/contracts";
 import { TreasuryVouchersScreen } from "./TreasuryVouchersScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
@@ -147,10 +147,10 @@ function statsOf(rows: VoucherRowDTO[]): Record<string, number> {
   };
 }
 
-function renderScreen({ heldOnConfirm = false }: { heldOnConfirm?: boolean } = {}) {
+function renderScreen({ heldOnConfirm = false, allocations = seededAllocations }: { heldOnConfirm?: boolean; allocations?: Record<string, VoucherAllocationDTO[]> } = {}) {
   let current = [...seededVouchers];
   let nextSeq = 5;
-  const allocationsByVoucher = { ...seededAllocations };
+  const allocationsByVoucher = { ...allocations };
   const transport = stubTransport({
     "GET /vouchers": (_init, path) => {
       const params = new URLSearchParams(path.split("?")[1] ?? "");
@@ -334,5 +334,32 @@ describe("TreasuryVouchersScreen — allocation", () => {
     const reverseButtons = screen.getAllByRole("button", { name: "عكس التخصيص" });
     fireEvent.click(reverseButtons[0]!);
     await waitFor(() => expect(screen.queryByText("INV-000001")).not.toBeInTheDocument());
+  });
+});
+
+describe("TreasuryVouchersScreen — allocation table (D228)", () => {
+  it("shows per allocation what was applied, what the invoice was relieved of and the realised difference as a gain or a loss", async () => {
+    renderScreen({
+      allocations: {
+        "cv-1": [
+          { id: "alloc-g", voucherId: "cv-1", invoiceId: "inv-1", amount: "500.000000", invoiceAmount: "480.000000", fxDifference: "20.000000", status: "active", createdAt: "2026-08-07T10:00:00.000Z", reversedAt: null },
+          { id: "alloc-l", voucherId: "cv-1", invoiceId: "inv-2", amount: "300.000000", invoiceAmount: "312.500000", fxDifference: "-12.500000", status: "active", createdAt: "2026-08-07T10:00:00.000Z", reversedAt: null },
+        ],
+      },
+    });
+    fireEvent.click(await screen.findByText("CV-000001"));
+    fireEvent.click(await screen.findByRole("tab", { name: /تخصيص على الفواتير/ }));
+
+    for (const header of ["المبلغ المخصص (بعملة السند)", "ما خُصم من الفاتورة (بالعملة الأساسية)", "فروق عملة محققة (بالعملة الأساسية)"]) {
+      expect(await screen.findByRole("columnheader", { name: header })).toBeInTheDocument();
+    }
+    const gainRow = (await screen.findByText("INV-000001")).closest("tr")!;
+    expect(within(gainRow).getByText("ربح")).toBeInTheDocument();
+    expect(within(gainRow).getByText("480.00")).toBeInTheDocument();
+    expect(within(gainRow).getByText("20.00")).toBeInTheDocument();
+    const lossRow = screen.getByText("INV-000002").closest("tr")!;
+    expect(within(lossRow).getByText("خسارة")).toBeInTheDocument();
+    expect(within(lossRow).getByText("312.50")).toBeInTheDocument();
+    expect(within(lossRow).getByText("12.50")).toBeInTheDocument();
   });
 });

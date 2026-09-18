@@ -43,8 +43,8 @@ async function seed(periodStatus: "open" | "closed" | "locked" = "open") {
 
   await accounts.create(account("1100")); // AR (debit-natured)
   await accounts.create(account("4000", { type: "revenue", naturalBalance: "credit" }));
-  await accounts.create(account("4900", { type: "revenue", naturalBalance: "credit" })); // FX gain
-  await accounts.create(account("5900", { type: "expense", naturalBalance: "debit" })); // FX loss
+  await accounts.create(account("4940", { type: "revenue", naturalBalance: "credit" })); // unrealised FX gain
+  await accounts.create(account("5940", { type: "expense", naturalBalance: "debit" })); // unrealised FX loss
   await periods.create({ id: "fp-08", year: 2026, periodNumber: 8, startDate: "2026-08-01", endDate: "2026-08-31", status: "open" });
   await periods.create({ id: "fp-09", year: 2026, periodNumber: 9, startDate: "2026-09-01", endDate: "2026-09-30", status: "open" });
   await exchangeRates.create({ id: "usd", currency: "USD", rate: "55", effectiveDate: "2026-08-01", rateType: "standard", source: "manual", status: "approved" });
@@ -71,8 +71,7 @@ function newApp(seeded: Awaited<ReturnType<typeof seed>>) {
     periods: seeded.periods,
     numbering: seeded.ledger.numbering,
     exchangeRates: seeded.exchangeRates,
-    gainAccountId: "4900",
-    lossAccountId: "5900",
+    differenceAccounts: async () => ({ gainAccountId: "4940", lossAccountId: "5940" }),
     now: () => "2026-08-31T10:00:00.000Z",
   };
   const app = createFxRevaluationRoutes(deps, createSessionAuthContextResolver(sessions));
@@ -160,7 +159,7 @@ describe("fx-revaluation router — POST /post", () => {
     expect(body.preview.totalGain).toBe(Money.fromMajor("500").toString());
 
     const arBalance = await seeded.ledger.accountBalance("1100");
-    const gainBalance = await seeded.ledger.accountBalance("4900");
+    const gainBalance = await seeded.ledger.accountBalance("4940");
     // AR (debit-natured) revalued up by 500; FX-gain (credit-natured) up by 500 — same 500 on both sides of the entry.
     expect(arBalance.balance.toString()).toBe(Money.fromMajor("5500").toString());
     expect(gainBalance.balance.toString()).toBe(Money.fromMajor("-500").toString());
@@ -179,7 +178,7 @@ describe("fx-revaluation router — POST /post", () => {
     expect(body.reversalId).not.toBeNull();
 
     const arBalance = await seeded.ledger.accountBalance("1100");
-    const gainBalance = await seeded.ledger.accountBalance("4900");
+    const gainBalance = await seeded.ledger.accountBalance("4940");
     expect(arBalance.balance.toString()).toBe(Money.fromMajor("5000").toString());
     expect(gainBalance.balance.toString()).toBe(Money.zero().toString());
   });

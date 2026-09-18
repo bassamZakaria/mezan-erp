@@ -31,7 +31,8 @@ const INPUT_TAX = "1400";
 const REVENUE = "4100";
 const INVENTORY = "1200";
 const EXPENSE = "5900";
-const FX_LOSS = "5900";
+/** خسائر فروق إعادة تقييم العملات غير المحققة — revaluation's own loss account, never عجز الصندوق 5900 (D229). */
+const FX_LOSS = "5940";
 /** استقطاعات ومستحقات رواتب — a plain liability, deliberately NOT a reconciled control account. */
 const USD_LIABILITY = "2190";
 /** رواتب مستحقة — the second plain liability, so the EUR trail cannot contaminate the USD one. */
@@ -205,7 +206,8 @@ export async function run(ctx: Ctx): Promise<void> {
     const posted = await req("POST", "/revaluation/post", { date: MONTH_END, currencies: ["USD"], autoReverse: true });
     check("posting the revaluation succeeds", posted.status === 200 || posted.status === 201, `status ${posted.status} ${JSON.stringify(posted.body).slice(0, 250)}`);
     const entry = await journalOf(posted.body?.entry?.id ?? posted.body?.entryId ?? "");
-    checkEq("the FX loss account takes the whole restatement", n(entry.lines.find((l: any) => l.accountId === FX_LOSS)?.debit), 4000);
+    checkEq("the unrealised FX loss account 5940 takes the whole restatement (D229)", n(entry.lines.find((l: any) => l.accountId === FX_LOSS)?.debit), 4000);
+    check("and عجز الصندوق 5900 takes none of it (D229)", !entry.lines.some((l: any) => l.accountId === "5900"), JSON.stringify(entry.lines.map((l: any) => l.accountId)));
     checkEq("and the liability itself is written up by exactly the same 4,000 — the two sides of one restatement", n(entry.lines.find((l: any) => l.accountId === USD_LIABILITY)?.credit), 4000);
     checkEq("GL 1200 does not move — a revaluation restates a debt, it is never a cost of inventory", await gl(INVENTORY), inventoryBefore);
 

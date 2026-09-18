@@ -30,9 +30,13 @@ export interface RealisedFxPort {
   invoiceFx(invoiceId: string, kind: AllocationInvoiceKind): Promise<{ currency: string; fxRate: string } | null>;
   /** The approved rate for `currency` on `date` (on or before it), or null. */
   rateOn(currency: string, date: string): Promise<string | null>;
-  /** فروق عملة دائنة — the gain account FX revaluation already credits. */
+  /** Where a realised difference posts, read at each posting so a tenant's account routing applies at once (D229). */
+  differenceAccounts(): Promise<FxDifferenceAccounts>;
+}
+
+/** أرباح / خسائر فروق العملة المحققة — the realised gain and loss accounts. */
+export interface FxDifferenceAccounts {
   readonly gainAccountId: string;
-  /** فروق عملة مدينة — the loss account FX revaluation already debits. */
   readonly lossAccountId: string;
 }
 
@@ -100,7 +104,7 @@ export function realisedFxEntryId(allocationId: string): string {
  * is debited by what the receipt over-credited it (a gain) or credited by what
  * it fell short (a loss); a supplier's the mirror. Null when there is none.
  */
-export function buildRealisedFxLines(input: RealisedFxPostingInput, accounts: Pick<RealisedFxPort, "gainAccountId" | "lossAccountId">): JournalLineInput[] | null {
+export function buildRealisedFxLines(input: RealisedFxPostingInput, accounts: FxDifferenceAccounts): JournalLineInput[] | null {
   const diff = input.split.fxDifference.scaled;
   if (diff === 0n) return null;
   const magnitude = Money.fromScaled(diff < 0n ? -diff : diff);
@@ -133,10 +137,11 @@ export function buildRealisedFxLines(input: RealisedFxPostingInput, accounts: Pi
 /** Posts the realised difference of one allocation; returns the entry id, or null when there was none. */
 export async function postRealisedFx(
   input: RealisedFxPostingInput,
-  port: Pick<RealisedFxPort, "gainAccountId" | "lossAccountId">,
+  port: Pick<RealisedFxPort, "differenceAccounts">,
   gl: JournalPostingDeps,
 ): Promise<string | null> {
-  const lines = buildRealisedFxLines(input, port);
+  if (input.split.fxDifference.scaled === 0n) return null;
+  const lines = buildRealisedFxLines(input, await port.differenceAccounts());
   if (!lines) return null;
   const id = realisedFxEntryId(input.allocationId);
   await postJournalEntry(

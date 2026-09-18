@@ -73,6 +73,29 @@ describe("createIncomeStatementReport", () => {
     expect(incomeStatementNetIncome(outcome.rows)).toBe(outcome.grandTotals.amount);
   });
 
+  it("D229: shows the accounts the context names as other income and expense below opex, not in revenue", () => {
+    const withFx = [
+      ...accounts,
+      account({ id: "4920", code: "4920", nameAr: "أرباح فروق العملة المحققة", type: "revenue", naturalBalance: "credit" }),
+      account({ id: "5920", code: "5920", nameAr: "خسائر فروق العملة المحققة", type: "expense", naturalBalance: "debit" }),
+    ];
+    const entries = [
+      je({ id: "je-rev", date: "2026-03-05", lines: [dr("1100", "1000"), cr("4100", "1000")] }),
+      je({ id: "je-gain", date: "2026-03-06", lines: [dr("1100", "80"), cr("4920", "80")] }),
+      je({ id: "je-loss", date: "2026-03-07", lines: [dr("5920", "30"), cr("1100", "30")] }),
+    ];
+    const definition = createIncomeStatementReport({ periodFrom: "2026-03-01", periodTo: "2026-03-31" });
+    const ctx: GlReportContext = { accounts: withFx, journalEntries: entries, otherIncomeExpenseAccountIds: ["4920", "5920"] };
+    const outcome = runReport(definition, { periodFrom: "2026-03-01", periodTo: "2026-03-31", compareTo: "previous" }, ctx);
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.groups.map((g) => g.key)).toEqual(["revenue", "otherIncome", "otherExpense"]);
+    expect(outcome.groups.find((g) => g.key === "revenue")?.totals.amount).toBe(1000);
+    expect(outcome.groups.find((g) => g.key === "otherIncome")?.totals.amount).toBe(80);
+    expect(outcome.groups.find((g) => g.key === "otherExpense")?.totals.amount).toBe(-30);
+    expect(outcome.grandTotals.amount).toBe(1000 + 80 - 30);
+  });
+
   it("includes a revenue entry dated exactly on periodFrom and one dated exactly on periodTo", () => {
     const entries = [
       je({ id: "on-from", date: "2026-03-01", lines: [dr("1100", "10"), cr("4100", "10")] }),

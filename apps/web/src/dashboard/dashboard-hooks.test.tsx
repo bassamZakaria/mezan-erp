@@ -141,6 +141,17 @@ describe("periodTotals", () => {
     ]);
     expect(periodTotals(report)).toEqual({ revenue: 6000, expenses: 3500, netProfit: 2500 });
   });
+
+  it("D229: nets other income (an exchange gain) against expenses rather than counting it as a cost or a sale", () => {
+    const report = incomeReport([
+      incomeRow({ accountId: "4100", sectionKey: "revenue", amount: 5000 }),
+      incomeRow({ accountId: "5200", sectionKey: "opex", amount: -1500 }),
+      incomeRow({ accountId: "4920", sectionKey: "otherIncome", amount: 80 }),
+      incomeRow({ accountId: "5920", sectionKey: "otherExpense", amount: -30 }),
+    ]);
+    expect(periodTotals(report)).toEqual({ revenue: 5000, expenses: 1450, netProfit: 3550 });
+    expect(expenseSlices(report).map((slice) => slice.key)).toEqual(["5200", "5920"]);
+  });
 });
 
 const window = { from: "2026-03-01", to: "2026-03-31" };

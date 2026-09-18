@@ -114,6 +114,11 @@ async function createConfirmedSalesInvoice(page: Page, customerName: string, ite
   await expect(page.getByRole("heading", { name: "فواتير المبيعات" })).toBeVisible();
 }
 
+/** The voucher-type card on «اختر نوع السند» — the list behind it shows the same label in its type column (D230). */
+function voucherTypeCard(page: Page, label: string): Locator {
+  return page.getByRole("button").filter({ has: page.getByText(label, { exact: true }) });
+}
+
 function uniqueRow(page: Page, text: string): Locator {
   return page.locator("table tbody tr").filter({ hasText: text });
 }
@@ -154,7 +159,7 @@ test.describe("Treasury Vouchers", () => {
 
     // Receipt: تحصيل من عميل — deposits 1000 into the cash account's GL leaf.
     await page.getByRole("button", { name: "سند جديد" }).first().click();
-    await page.getByText("تحصيل من عميل", { exact: true }).click();
+    await voucherTypeCard(page, "تحصيل من عميل").click();
     await page.getByLabel("المبلغ").fill("1000");
     await pickParty(page, "ابحث عن عميل…", customerName);
     await page.getByRole("button", { name: "إنشاء وتأكيد" }).click();
@@ -169,7 +174,7 @@ test.describe("Treasury Vouchers", () => {
     // Payment: دفع لمورد — the cash guard now allows it (balance 1000 ≥ 500).
     await page.getByPlaceholder("ابحث برقم السند، المرجع، العميل، المورد…").fill("");
     await page.getByRole("button", { name: "سند جديد" }).first().click();
-    await page.getByText("دفع لمورد", { exact: true }).click();
+    await voucherTypeCard(page, "دفع لمورد").click();
     await page.getByLabel("المبلغ").fill("500");
     await pickParty(page, "ابحث عن مورّد…", supplierName);
     await page.getByRole("button", { name: "إنشاء وتأكيد" }).click();
@@ -201,7 +206,7 @@ test.describe("Treasury Vouchers", () => {
     await clickSidebarItem(page, "السندات النقدية");
     await expect(page.getByRole("heading", { name: "السندات النقدية" })).toBeVisible();
     await page.getByRole("button", { name: "سند جديد" }).first().click();
-    await page.getByText("تحصيل من عميل", { exact: true }).click();
+    await voucherTypeCard(page, "تحصيل من عميل").click();
     await page.getByLabel("المبلغ").fill("100");
     await pickParty(page, "ابحث عن عميل…", customerName);
     await page.getByRole("button", { name: "إنشاء وتأكيد" }).click();

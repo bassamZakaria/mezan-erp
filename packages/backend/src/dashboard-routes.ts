@@ -101,7 +101,10 @@ export function createDashboardRoutes(
 
     const allEntries = await deps.ledger.list({});
     const posted = allEntries.filter((e) => e.status === "posted");
-    const inRange = posted.filter(
+    // A reversed entry stays in the books beside its mirror: dropping the
+    // original while keeping the mirror counted every reversal twice.
+    const onTheBooks = allEntries.filter((e) => e.status === "posted" || e.status === "reversed");
+    const inRange = onTheBooks.filter(
       (e) => (!fromDate || e.date >= fromDate) && (!toDate || e.date <= toDate),
     );
 

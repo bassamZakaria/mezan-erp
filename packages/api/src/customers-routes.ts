@@ -33,12 +33,10 @@ export interface CustomerPriceListLookup {
 }
 
 /**
- * What each customer still owes on their LIVE sales invoices — the receivable
- * net of collections and of confirmed returns, drafts and cancelled invoices
- * excluded. It is the same figure `/sales-invoices` reports as an invoice's
- * `remainingBalance`, rolled up per customer, and the composition root MUST
- * bind it to that same derivation: a second opinion here would put the
- * customers list and the AR sub-ledger at odds.
+ * What each customer still owes, excluding the opening balance: their row
+ * total on the customer aging ladder, and the composition root MUST bind it to
+ * the ladder's own computation (D195) — a second opinion here would put the
+ * customers list and the ladder at odds.
  *
  * Optional because this module owns customer master data only and has no
  * access to invoices. Without it `GET /stats` reports `toCollect: null` and
@@ -218,6 +216,14 @@ export function createCustomersRouter(
     return customer.openingBalance.add(outstanding.get(customer.id) ?? Money.zero());
   }
 
+  async function withOwed(rows: readonly Customer[]) {
+    const outstanding = receivables ? await outstandingByCustomer() : null;
+    return rows.map((customer) => ({
+      ...serialize(customer),
+      owed: outstanding ? owedBy(customer, outstanding).toString() : null,
+    }));
+  }
+
   /**
    * The single filter the rows, the chip counts and the KPI strip all go
    * through. The screen used to narrow by status, price list, credit limit and
@@ -292,7 +298,8 @@ export function createCustomersRouter(
     const filter = parseCustomerListQuery(c);
     const unavailable = receivablesMissing(c, filter);
     if (unavailable) return unavailable;
-    return c.json((await listFilteredCustomers(c, filter)).map(serialize));
+    const rows = await listFilteredCustomers(c, filter);
+    return c.json(await withOwed(rows));
   });
 
   /**
@@ -347,7 +354,7 @@ export function createCustomersRouter(
     if (withinScope([customer], branchScopeOf(c), (row) => row.branchId).length === 0) {
       return c.json({ error: "NOT_FOUND" }, 404);
     }
-    return c.json(serialize(customer));
+    return c.json((await withOwed([customer]))[0]);
   });
 
   app.post("/", gate("sales.customer.create"), async (c) => {

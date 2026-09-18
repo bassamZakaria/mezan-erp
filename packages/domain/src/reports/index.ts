@@ -12,6 +12,7 @@ export type {
   ReportKpiSpec,
   ReportChartSpec,
   ReportReconciliationSpec,
+  ReportReconcilingItem,
   ReportValidationError,
   RunReportOutcome,
 } from "./types.js";
@@ -162,6 +163,9 @@ export {
 
 export {
   createAgingCustomersReport,
+  customerAgingBalances,
+  agingBucketsTotal,
+  type CustomerAgingBalance,
   type AgingCustomersContext,
   type AgingCustomersParams,
   type AgingCustomersRow,

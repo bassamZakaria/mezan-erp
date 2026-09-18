@@ -2,11 +2,10 @@ import { Hono } from "hono";
 import type { ItemCatalogCheck } from "./item-check.js";
 import {
   Money,
-  salesInvoiceTotals,
-  salesReturnCreditByInvoice,
-  purchaseInvoiceTotal,
+  purchaseInvoiceBaseTotal,
   extend,
-  sumActive,
+  voucherBaseAmount,
+  isStandingVoucher,
   voucherLine,
   SeatSessionRegistry,
   createEntitlements,
@@ -169,7 +168,7 @@ import { createReconciliationRoutes, type ReconciliationRoutesDeps } from "./rec
 import { createEtaRoutes, type EtaRoutesDeps } from "./eta-routes.js";
 import type { ExchangeRateRepository } from "@mezan/domain";
 import type { DocumentEventPublisher } from "@mezan/domain";
-import { createReportsRoutes, type ReportsRoutesDeps } from "./reports-routes.js";
+import { createReportsRoutes, customerAgingOwed, type ReportsRoutesDeps } from "./reports-routes.js";
 import { createChequesRoutes, type ChequeRoutesDeps } from "./cheques-routes.js";
 import { createBankReconciliationRoutes, type BankReconciliationRoutesDeps } from "./bank-reconciliation-routes.js";
 import { createCrmRoutes, type CrmRoutesDeps } from "./crm-routes.js";
@@ -986,42 +985,10 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   if (options.warehouseStore) {
     app.route("/warehouses", createWarehousesRoutes(options.warehouseStore, resolveAuth));
   }
-  /**
-   * What each customer still owes, for the customers list's own KPI strip and
-   * its over-credit-limit filter (R1.1). Per invoice it is the SAME derivation
-   * `/sales-invoices/stats` reports as `remaining` — grand total less what has
-   * been collected less what has been credited back by a confirmed return,
-   * over the live invoices only — rolled up by customer, less the unapplied
-   * part of every live incoming cheque: the cheque credited AR when it
-   * arrived, and a bounce reverses both that credit and its allocations
-   * (D192). The customer detail screen's `customerOwedById` is the same sum.
-   */
-  const customerReceivables: CustomerReceivablesSource | undefined = options.salesInvoices
-    ? {
-        async outstandingByCustomer() {
-          const invoices = await options.salesInvoices!.repo.list();
-          const credits = options.salesReturns
-            ? salesReturnCreditByInvoice(await options.salesReturns.service.list())
-            : new Map<string, Money>();
-          const out = new Map<string, Money>();
-          for (const invoice of invoices) {
-            if (invoice.status === "draft" || invoice.status === "cancelled") continue;
-            const remaining = salesInvoiceTotals(invoice)
-              .grandTotal.add(invoice.amountPaid.negate())
-              .add((credits.get(invoice.id) ?? Money.zero()).negate());
-            out.set(invoice.customerId, (out.get(invoice.customerId) ?? Money.zero()).add(remaining));
-          }
-          if (options.cheques) {
-            const allocations = options.cheques.allocation?.allocations;
-            for (const cheque of await options.cheques.cheques.list({ direction: "incoming" })) {
-              if (cheque.direction !== "incoming" || cheque.status === "bounced" || cheque.status === "replaced") continue;
-              const applied = allocations ? sumActive(await allocations.listByVoucher(cheque.id)) : Money.zero();
-              out.set(cheque.partyId, (out.get(cheque.partyId) ?? Money.zero()).add(applied).add(cheque.amount.negate()));
-            }
-          }
-          return out;
-        },
-      }
+  /** The customer aging ladder's own row totals — never a second derivation beside it (D195). */
+  const reportsDeps = options.reports;
+  const customerReceivables: CustomerReceivablesSource | undefined = reportsDeps
+    ? { outstandingByCustomer: () => customerAgingOwed(reportsDeps) }
     : undefined;
 
   /**
@@ -1040,16 +1007,16 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
 
           for (const invoice of await options.purchases!.invoices.list()) {
             if (invoice.status !== "confirmed") continue;
-            add(invoice.supplierId, purchaseInvoiceTotal(invoice));
+            add(invoice.supplierId, purchaseInvoiceBaseTotal(invoice));
           }
           if (options.vouchers) {
             for (const doc of await options.vouchers.documents.list()) {
-              if (doc.status !== "confirmed" && doc.status !== "posted") continue;
+              if (!isStandingVoucher(doc)) continue;
               const line = voucherLine(doc);
               if (!line.supplierId) continue;
               // A payment to the supplier clears debt; a refund from them raises it again.
-              if (line.direction === "payment") add(line.supplierId, line.amount.negate());
-              else if (line.direction === "receipt") add(line.supplierId, line.amount);
+              if (line.direction === "payment") add(line.supplierId, voucherBaseAmount(line).negate());
+              else if (line.direction === "receipt") add(line.supplierId, voucherBaseAmount(line));
             }
           }
           if (options.purchaseReturns) {

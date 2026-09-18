@@ -10,7 +10,7 @@ import {
 } from "../gl/test-helpers/in-memory-ledger-repository.js";
 import type { JournalPostingDeps } from "../gl/post.js";
 import { FxRateMissingError } from "../exchange-rates/convert.js";
-import { computeFxRevaluation, postFxRevaluation, nextDay, type OpenFxBalance, type FxRevaluationConfig } from "./revaluation.js";
+import { computeFxRevaluation, postFxRevaluation, nextDay, fxRevaluationNet, type OpenFxBalance, type FxRevaluationConfig } from "./revaluation.js";
 
 function account(id: string, overrides: Partial<Account> = {}): Account {
   return { id, code: id, nameAr: id, nameEn: null, type: "asset", naturalBalance: "debit", parentId: null, isHeader: false, status: "active", ...overrides };
@@ -152,5 +152,35 @@ describe("postFxRevaluation — posting + auto-reversal", () => {
   it("nextDay rolls month boundaries in UTC", () => {
     expect(nextDay("2026-08-31")).toBe("2026-09-01");
     expect(nextDay("2026-12-31")).toBe("2027-01-01");
+  });
+});
+
+/**
+ * D194 — the aging ladders age each invoice at its booked rate, so the one
+ * amount a control account holds that no invoice does is the unreversed
+ * revaluation. `fxRevaluationNet` finds it by the memo every revaluation line
+ * and every reversal line carries.
+ */
+describe("fxRevaluationNet", () => {
+  async function linesOf(ledger: InMemoryLedgerRepository, toDate: string) {
+    const entries = await ledger.list();
+    return entries
+      .filter((e) => e.date <= toDate)
+      .flatMap((e) => e.lines.map((l) => ({ accountId: l.accountId, memo: l.memo ?? null, source: e.source ?? "manual", debit: l.debit, credit: l.credit })));
+  }
+  const balances: OpenFxBalance[] = [
+    { accountId: "1100", currency: "USD", foreignAmount: Money.fromMajor("100"), bookedBase: Money.fromMajor("5000"), naturalBalance: "debit" },
+  ];
+
+  it("is the restatement on the revaluation date and nothing once the auto-reversal has posted", async () => {
+    const { deps, ledger } = await harness();
+    await postFxRevaluation(balances, config, deps, { id: "reval-1", reversalId: "reval-1-rev" });
+    expect(fxRevaluationNet(await linesOf(ledger, "2026-08-31"), "1100").toString()).toBe(Money.fromMajor("500").toString());
+    expect(fxRevaluationNet(await linesOf(ledger, "2026-09-01"), "1100").toString()).toBe(Money.zero().toString());
+  });
+
+  it("ignores a manual journal that happens to reuse the memo", () => {
+    const lines = [{ accountId: "1100", memo: "إعادة تقييم عملات أجنبية", source: "manual" as const, debit: Money.fromMajor("9"), credit: Money.zero() }];
+    expect(fxRevaluationNet(lines, "1100").toString()).toBe(Money.zero().toString());
   });
 });

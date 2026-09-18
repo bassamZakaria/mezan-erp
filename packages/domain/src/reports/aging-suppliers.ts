@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { isoDateParamSchema } from "./iso-date.js";
 import { Money } from "../money/index.js";
-import { purchaseInvoiceTotal, type PurchaseInvoice } from "../purchasing/purchase-invoice.js";
+import { purchaseInvoiceBaseTotal, type PurchaseInvoice } from "../purchasing/purchase-invoice.js";
 import type { Supplier } from "../suppliers/supplier.js";
 import type { ReportDefinition } from "./types.js";
 import { sumRows, percentOf } from "./kpi.js";
@@ -10,8 +10,8 @@ import { BRANCH_PARAM_FIELD, branchIdParamSchema, matchesBranch } from "./branch
 /**
  * أعمار ديون الموردين — Supplier Debt Aging (docs/archive/catalog/08-reports.md): the
  * AP mirror of أعمار ديون العملاء. Purchase invoices don't track payments
- * outstanding — each invoice's total less whatever the allocation sub-ledger
- * has settled against it, bucketed by days past
+ * outstanding — each invoice's BASE total less whatever the allocation
+ * sub-ledger has settled against it, bucketed by days past
  * `dueDate` (falls back to the invoice `date` when no due date was set).
  */
 
@@ -44,6 +44,12 @@ export interface AgingSuppliersContext {
    * wrong. Optional — omit it and the report makes no claim to tie.
    */
   readonly payablesControlBalance?: (params: AgingSuppliersParams) => number;
+  /**
+   * What FX revaluation has posted to the control account and not yet
+   * reversed as of `asOfDate` — the twin of the customer ladder's term.
+   * `payablesControlBalance` is already net of it.
+   */
+  readonly fxRevaluationOnControl?: (params: AgingSuppliersParams) => number;
 }
 
 export interface AgingSuppliersParams {
@@ -107,6 +113,7 @@ function applyDebit(totals: AgingBucketTotals, debit: Money): AgingBucketTotals 
     next = { ...next, [bucket]: Money.fromScaled(held - taken) };
     remaining -= taken;
   }
+  if (remaining > 0n) next = { ...next, current: Money.fromScaled(next.current.scaled - remaining) };
   return next;
 }
 
@@ -136,6 +143,10 @@ export function createAgingSuppliersReport(
       computeReferenceTotal: (_rows, ctx, params) => ctx.payablesControlBalance?.(params) ?? 0,
       available: (ctx) => ctx.payablesControlBalance !== undefined,
       toleranceMoney: 0.01,
+      reconcilingItems: (ctx, params) => {
+        const revalued = ctx.fxRevaluationOnControl?.(params) ?? 0;
+        return [{ key: "fxRevaluation", labelAr: "إعادة تقييم العملات المرحّلة على الحساب (مستبعدة من المطابقة)", amount: revalued }];
+      },
     },
     chart: {
       labelColumn: "supplierNameAr",
@@ -159,7 +170,8 @@ export function createAgingSuppliersReport(
         if (!matchesBranch(invoice.branchId, params.branchId)) continue;
         const allocated = ctx.allocatedByInvoiceId?.get(invoice.id) ?? Money.zero();
         const returned = ctx.returnsByInvoiceId?.get(invoice.id) ?? Money.zero();
-        const outstanding = Money.fromScaled(purchaseInvoiceTotal(invoice).scaled - allocated.scaled - returned.scaled);
+        // The BASE total — what the posting credited 2100 with (D194).
+        const outstanding = Money.fromScaled(purchaseInvoiceBaseTotal(invoice).scaled - allocated.scaled - returned.scaled);
         if (outstanding.scaled <= 0n) continue;
         const dueDate = invoice.dueDate ?? invoice.date;
         const existing = byBucketTotals.get(invoice.supplierId) ?? emptyBucketTotals();
@@ -167,14 +179,15 @@ export function createAgingSuppliersReport(
         byBucketTotals.set(invoice.supplierId, addToBucket(existing, days, outstanding));
       }
       for (const [supplierId, debit] of ctx.unappliedDebitsBySupplierId ?? []) {
+        if (debit.scaled <= 0n) continue;
         const existing = byBucketTotals.get(supplierId);
-        if (!existing || debit.scaled <= 0n) continue;
-        byBucketTotals.set(supplierId, applyDebit(existing, debit));
+        if (!existing && params.branchId !== "") continue;
+        byBucketTotals.set(supplierId, applyDebit(existing ?? emptyBucketTotals(), debit));
       }
       return [...byBucketTotals.entries()].map(([supplierId, agg]) => ({
         supplierId,
         supplierNameAr: supplierNames.get(supplierId) ?? supplierId,
-          supplierNameEn: supplierNamesEn.get(supplierId) ?? null,
+        supplierNameEn: supplierNamesEn.get(supplierId) ?? null,
         current: Number(agg.current.toString()),
         d31to60: Number(agg.d31to60.toString()),
         d61to90: Number(agg.d61to90.toString()),

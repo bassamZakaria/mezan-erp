@@ -104,6 +104,16 @@ export function voucherLine(doc: VoucherDocument): VoucherLine {
   return line;
 }
 
+/**
+ * Whether a voucher still moves its counterparty. Reversing one leaves the
+ * original «معكوس» and saves a mirror DOCUMENT in the confirmed status with the
+ * same line, so a sub-ledger that sums confirmed vouchers must skip the mirror
+ * or it counts the reversed receipt a second time while the GL nets to zero.
+ */
+export function isStandingVoucher(doc: VoucherDocument): boolean {
+  return (doc.status === "confirmed" || doc.status === "posted") && !doc.reversesDocId;
+}
+
 class InvalidVoucherLineError extends Error {
   constructor(id: string) {
     super(`Voucher "${id}" has no economic line.`);

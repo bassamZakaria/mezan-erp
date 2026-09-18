@@ -25,6 +25,7 @@ export {
   VOUCHER_DOC_TYPE,
   voucherDocumentType,
   voucherLine,
+  isStandingVoucher,
   voucherNetPaid,
   voucherBaseAmount,
   voucherBaseWithholding,
@@ -54,6 +55,8 @@ export {
   VoucherService,
   createVoucherGlHook,
   type VoucherServiceDeps,
+  type VoucherChequeRegistration,
+  type VoucherChequeRegistrationPort,
   type CreateVoucherCommand,
   type ConfirmVoucherOptions,
 } from "./voucher-service.js";

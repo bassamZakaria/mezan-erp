@@ -90,6 +90,14 @@ export interface ReportReconciliationSpec<Row, Ctx, TParams = unknown> {
    * to ignore the banner, the opposite of what it is for.
    */
   readonly available?: (ctx: Ctx) => boolean;
+  /** Ledger amounts `computeReferenceTotal` has ALREADY excluded; shown, never subtracted again. */
+  readonly reconcilingItems?: (ctx: Ctx, params: TParams) => readonly ReportReconcilingItem[];
+}
+
+export interface ReportReconcilingItem {
+  readonly key: string;
+  readonly labelAr: string;
+  readonly amount: number;
 }
 
 export interface ReportDefinition<TParams, Row, Ctx = unknown> {
@@ -211,6 +219,8 @@ export interface ReportReconciliationResult {
   readonly referenceTotal: number;
   readonly diff: number;
   readonly withinTolerance: boolean;
+  /** Present only when at least one item is non-zero. */
+  readonly reconcilingItems?: readonly ReportReconcilingItem[];
 }
 
 export type RunReportOutcome<TParams, Row> =

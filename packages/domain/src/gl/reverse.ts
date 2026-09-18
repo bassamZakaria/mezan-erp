@@ -96,6 +96,11 @@ export async function reverseJournalEntry(
       postedAt: stamp,
       reversesEntryId: original.id,
       reversedByEntryId: null,
+      // The mirror belongs to the same document's trail (R6.3): without these a
+      // reversal is filed under no module at all.
+      sourceDocType: original.sourceDocType ?? null,
+      sourceDocId: original.sourceDocId ?? null,
+      sourceDocNumber: original.sourceDocNumber ?? null,
     };
     await deps.ledger.save(reversal);
 

@@ -135,3 +135,17 @@ describe("createSalesByItemReport", () => {
     expect(outcome.rows[0]?.revenue).toBe(90);
   });
 });
+
+describe("createSalesByItemReport — a foreign invoice (D194's twin)", () => {
+  it("counts a CHF 100 line booked at 60.00 as the 6,000.00 of revenue it posted, so the report still ties to the GL", () => {
+    const definition = createSalesByItemReport("2026-01-01", "2026-12-31");
+    const outcome = runReport(
+      definition,
+      { dateFrom: "2026-08-01", dateTo: "2026-08-31" },
+      { invoices: [invoice({ currency: "CHF", fxRate: "60.00" })], postedRevenue: () => 6000 },
+    );
+    if (!outcome.ok) throw new Error("report failed");
+    expect(outcome.rows[0]?.revenue).toBe(6000);
+    expect(outcome.reconciliation?.withinTolerance).toBe(true);
+  });
+});

@@ -78,6 +78,12 @@ import {
   type RunReportOutcome,
   salesReturnGrandTotal,
   sumActive,
+  voucherBaseAmount,
+  isStandingVoucher,
+  fxRevaluationNet,
+  type AgingCustomersContext,
+  customerAgingBalances,
+  agingBucketsTotal,
   extend,
   type SalesReturnDocument,
   type PurchaseReturnLine,
@@ -344,6 +350,27 @@ async function controlAccountBalance(
   return naturalSide === "debit" ? net : -net;
 }
 
+/**
+ * The ladders age each invoice at its booked rate and revaluation restates the
+ * control account without touching one, so the ladder ties to the balance net
+ * of the unreversed restatement, which is shown as the reconciling item (D194).
+ */
+async function partyControlTie(
+  deps: ReportsRoutesDeps,
+  accountId: string,
+  naturalSide: "debit" | "credit",
+  asOfDate?: string,
+): Promise<{ readonly balance: number; readonly revaluation: number }> {
+  const { balance } = await deps.ledger.accountBalance(accountId, asOfDate);
+  const lines = (await deps.ledger.listLines?.({ accountIds: [accountId], ...(asOfDate ? { toDate: asOfDate } : {}) })) ?? [];
+  const revaluation = fxRevaluationNet(lines, accountId);
+  const sign = naturalSide === "debit" ? 1n : -1n;
+  return {
+    balance: moneyToNumber(Money.fromScaled(sign * (balance.scaled - revaluation.scaled))),
+    revaluation: moneyToNumber(Money.fromScaled(sign * revaluation.scaled)),
+  };
+}
+
 function isoDateOrUndefined(value: unknown): string | undefined {
   return typeof value === "string" && ISO_DATE.test(value) ? value : undefined;
 }
@@ -409,13 +436,36 @@ async function unappliedCustomerCredits(deps: ReportsRoutesDeps): Promise<Readon
   }
 
   for (const doc of (await deps.voucherDocuments?.list({ status: "confirmed" })) ?? []) {
+    if (!isStandingVoucher(doc)) continue;
     const line = doc.lines[0];
     if (!line || line.direction !== "receipt") continue;
     if (line.counterpartyGlAccountId !== "1105") continue;
-    add(line.customerId, line.amount.scaled - (await allocatedTo(deps, doc.id)));
+    add(line.customerId, voucherBaseAmount(line).scaled - (await allocatedTo(deps, doc.id)));
   }
 
   return new Map([...out].map(([id, scaled]) => [id, Money.fromScaled(scaled)]));
+}
+
+/** The one place the ladder's netting terms are built; the customers screen must not get its own (D195). */
+async function agingCustomersTerms(
+  deps: ReportsRoutesDeps,
+  invoices: readonly { readonly id: string }[],
+): Promise<Omit<AgingCustomersContext, "invoices" | "receivablesControlBalance" | "fxRevaluationOnControl">> {
+  const [returns, credits, customers, allocatedByInvoiceId] = await Promise.all([
+    returnsByInvoiceId(deps),
+    unappliedCustomerCredits(deps),
+    deps.customers.findAll(),
+    settledByInvoiceId(deps, invoices),
+  ]);
+  return { customers, allocatedByInvoiceId, returnsByInvoiceId: returns, unappliedCreditsByCustomerId: credits };
+}
+
+/** Each customer's row total on today's customer aging ladder, every branch (D195). */
+export async function customerAgingOwed(deps: ReportsRoutesDeps): Promise<ReadonlyMap<string, Money>> {
+  const asOfDate = todayIso(deps);
+  const invoices = await deps.salesInvoices.list({ statusIn: [...SALES_INVOICE_ACTIVE_STATUSES], toDate: asOfDate });
+  const balances = customerAgingBalances({ asOfDate, branchId: "" }, { invoices, ...(await agingCustomersTerms(deps, invoices)) });
+  return new Map([...balances].map(([customerId, row]) => [customerId, agingBucketsTotal(row)]));
 }
 
 /** What the allocation sub-ledger has applied from one cheque or voucher. */
@@ -443,10 +493,11 @@ async function unappliedSupplierDebits(deps: ReportsRoutesDeps): Promise<Readonl
   }
 
   for (const doc of (await deps.voucherDocuments?.list({ status: "confirmed" })) ?? []) {
+    if (!isStandingVoucher(doc)) continue;
     const line = doc.lines[0];
     if (!line || line.direction !== "payment") continue;
     if (line.counterpartyGlAccountId !== "2100") continue;
-    add(line.supplierId, line.amount.scaled - (await allocatedTo(deps, doc.id)));
+    add(line.supplierId, voucherBaseAmount(line).scaled - (await allocatedTo(deps, doc.id)));
   }
 
   return new Map([...out].map(([id, scaled]) => [id, Money.fromScaled(scaled)]));
@@ -1100,31 +1151,24 @@ export function createReportsRoutes(
     // The ladder drops every invoice that is not live and every one dated after
     // the snapshot, so both bounds belong in SQL rather than in a fold over the
     // whole table (Q-6). The set here must stay exactly the report's own.
-    const [invoices, returns, credits, customers] = await Promise.all([
-      scopedSalesInvoices(c, {
-        statusIn: [...SALES_INVOICE_ACTIVE_STATUSES],
-        ...(isoDateOrUndefined(params.asOfDate) ? { toDate: String(params.asOfDate) } : {}),
-      }),
-      returnsByInvoiceId(deps),
-      unappliedCustomerCredits(deps),
-      deps.customers.findAll(),
-    ]);
-    const allocatedByInvoiceId = await settledByInvoiceId(deps, invoices);
+    const invoices = await scopedSalesInvoices(c, {
+      statusIn: [...SALES_INVOICE_ACTIVE_STATUSES],
+      ...(isoDateOrUndefined(params.asOfDate) ? { toDate: String(params.asOfDate) } : {}),
+    });
+    const terms = await agingCustomersTerms(deps, invoices);
     // The ladder walks invoices; 1105 holds what those invoices, their
     // collections and their returns actually posted. Two independent paths to
     // one number — a difference means one of them is wrong (D112).
     const receivablesControl = branchNarrowed(c, params)
       ? undefined
-      : await controlAccountBalance(deps, RECEIVABLES_CONTROL_ACCOUNT_ID, "debit", isoDateOrUndefined(params.asOfDate));
+      : await partyControlTie(deps, RECEIVABLES_CONTROL_ACCOUNT_ID, "debit", isoDateOrUndefined(params.asOfDate));
     return respond(
       c,
       runReport(definition, params, {
         invoices,
-        customers,
-        allocatedByInvoiceId,
-        returnsByInvoiceId: returns,
-        unappliedCreditsByCustomerId: credits,
-        receivablesControlBalance: receivablesControl === undefined ? undefined : () => receivablesControl,
+        ...terms,
+        receivablesControlBalance: receivablesControl === undefined ? undefined : () => receivablesControl.balance,
+        fxRevaluationOnControl: receivablesControl === undefined ? undefined : () => receivablesControl.revaluation,
       }),
     );
   });
@@ -1146,7 +1190,7 @@ export function createReportsRoutes(
     const allocatedByInvoiceId = await settledByInvoiceId(deps, invoices);
     const payablesControl = branchNarrowed(c, params)
       ? undefined
-      : await controlAccountBalance(deps, PAYABLES_CONTROL_ACCOUNT_ID, "credit", isoDateOrUndefined(params.asOfDate));
+      : await partyControlTie(deps, PAYABLES_CONTROL_ACCOUNT_ID, "credit", isoDateOrUndefined(params.asOfDate));
     return respond(
       c,
       runReport(definition, params, {
@@ -1155,7 +1199,8 @@ export function createReportsRoutes(
         allocatedByInvoiceId,
         returnsByInvoiceId: returns,
         unappliedDebitsBySupplierId: debits,
-        payablesControlBalance: payablesControl === undefined ? undefined : () => payablesControl,
+        payablesControlBalance: payablesControl === undefined ? undefined : () => payablesControl.balance,
+        fxRevaluationOnControl: payablesControl === undefined ? undefined : () => payablesControl.revaluation,
       }),
     );
   });

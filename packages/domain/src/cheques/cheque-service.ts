@@ -158,6 +158,21 @@ export interface ChequeServiceDeps {
       applySettled(input: { invoiceId: string; kind: AllocationInvoiceKind; settled: Money }): Promise<void>;
     };
   };
+  readonly raisedBy?: ChequeRaisingDocumentPort;
+}
+
+/**
+ * The document a cheque was raised by, when one was (a «شيك» voucher, D196).
+ * Such a cheque does not credit the party itself — the voucher did — so its
+ * creation posting only moves the money from the voucher's treasury leg into
+ * the cheque control account, and its bounce must undo the voucher to put the
+ * debt back on the party (D192).
+ */
+export interface ChequeRaisingDocumentPort {
+  /** Called inside the bounce, after the cheque's own reversal has posted. */
+  onBounced(cheque: Cheque, context: { readonly date: string; readonly actor: string }): Promise<void>;
+  /** The party control account a replacement cheque must credit; null for a cheque no document raised. */
+  partyControlAccountOf(cheque: Cheque): Promise<string | null>;
 }
 
 export class ChequeService {
@@ -347,6 +362,7 @@ export class ChequeService {
         bounceJournalEntryId: entry.id,
       };
       await this.deps.cheques.update(updated);
+      await this.deps.raisedBy?.onBounced(updated, { date, actor: this.actorOf(cmd) });
       return updated;
     });
   }
@@ -433,6 +449,10 @@ export class ChequeService {
     const clash = await this.deps.cheques.findByChequeNumber("incoming", cmd.newCheque.chequeNumber);
     if (clash) throw new DuplicateChequeNumberError("incoming", cmd.newCheque.chequeNumber);
 
+    // A replacement is a fresh receipt from the customer, so it credits their
+    // control account even when the bounced cheque had been raised by a
+    // voucher and only reclassified that voucher's treasury leg.
+    const counterpartyGlAccountId = (await this.deps.raisedBy?.partyControlAccountOf(original)) ?? original.counterpartyGlAccountId;
     const entry = await postJournalEntry(
       {
         id: cmd.journalEntryId,
@@ -442,7 +462,7 @@ export class ChequeService {
         sourceDocType: "CHEQUE",
         lines: [
           { accountId: original.controlAccounts.underCollectionAccountId, debit: amount, credit: Money.zero() },
-          { accountId: original.counterpartyGlAccountId, debit: Money.zero(), credit: amount },
+          { accountId: counterpartyGlAccountId, debit: Money.zero(), credit: amount },
         ],
       },
       this.deps.gl,
@@ -463,7 +483,7 @@ export class ChequeService {
       branchId: cmd.newCheque.branchId,
       notes: cmd.newCheque.notes ?? null,
       partyId: original.partyId,
-      counterpartyGlAccountId: original.counterpartyGlAccountId,
+      counterpartyGlAccountId,
       controlAccounts: original.controlAccounts,
       bankTreasuryAccountId: null,
       createdAt: this.now(),

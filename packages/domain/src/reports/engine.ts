@@ -106,7 +106,15 @@ export function computeReconciliation<TParams, Row, Ctx>(
   const reportTotal = computeReportTotal(rows);
   const referenceTotal = computeReferenceTotal(rows, ctx, params);
   const diff = reportTotal - referenceTotal;
-  return { labelAr, reportTotal, referenceTotal, diff, withinTolerance: Math.abs(diff) <= toleranceMoney };
+  const items = (definition.reconciliation.reconcilingItems?.(ctx, params) ?? []).filter((item) => item.amount !== 0);
+  return {
+    labelAr,
+    reportTotal,
+    referenceTotal,
+    diff,
+    withinTolerance: Math.abs(diff) <= toleranceMoney,
+    ...(items.length > 0 ? { reconcilingItems: items } : {}),
+  };
 }
 
 /**

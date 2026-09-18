@@ -50,22 +50,35 @@
 # LAYER TWO: THE ARTIFACT'S OWN Ed25519 SIGNATURE (main/update-verify.ts).
 #
 # Independent of every certificate above, and the layer that still holds if the
-# OS one is ever misconfigured. The release build signs each artifact's SHA-512
-# with the vendor Ed25519 secret key and publishes the detached signature beside
-# the installer as `<feed>/<version>.sig`; the app refuses to download or
-# install any release whose signature does not verify against
-# `MEZAN_UPDATE_PUBLIC_KEY`. No key configured means nothing is ever installed —
-# fail closed, like the licence.
+# OS one is ever misconfigured. `scripts/sign-release.mjs` signs, per artifact,
+# the tuple `version || channel || arch || sha512` with the vendor Ed25519 secret
+# key and publishes the detached signature beside the installer as
+# `<feed>/<version>-<platform>-<arch>.sig`; the app refuses to download or
+# install any release whose signature does not verify against the vendor public
+# key COMPILED INTO IT. No key baked in means nothing is ever installed — fail
+# closed, like the licence.
 #
-# Plus user consent: `autoDownload` and `autoInstallOnAppQuit` are always false.
-# The person chooses to download, then chooses to install. The launch-time check
-# does not even run unless `MEZAN_AUTO_UPDATE=1`.
+# The tuple, not the hash alone: a signature over bytes and nothing else lets an
+# old installer we genuinely signed be republished under a higher version on a
+# feed somebody else controls. Per platform AND arch: one feed directory carries
+# both `latest.yml` and `latest-mac.yml`, and the Mac build ships x64 and arm64.
+#
+# Plus user consent: `autoDownload` is always false and `autoInstallOnAppQuit`
+# is false until a person has chosen it for one specific release, in a dialog
+# that names the tills about to lose their host. The launch-time check does not
+# even run unless `MEZAN_AUTO_UPDATE=1`.
 #
 # So the release pipeline must, per version:
-#   1. build + upload the installer and `latest.yml` (electron-builder),
-#   2. sign `latest.yml`'s primary `sha512` with the vendor Ed25519 secret key,
-#   3. upload that signature as `<publish.url>/<version>.sig`.
-# `MEZAN_UPDATE_PUBLIC_KEY` and `MEZAN_UPDATE_FEED_URL` are set in the build env.
+#   1. build the main bundle with `MEZAN_UPDATE_PUBLIC_KEY` in the environment,
+#      so the vendor key is a string literal in the binary,
+#   2. build + upload the installers and `latest*.yml` (electron-builder),
+#   3. run `scripts/sign-release.mjs`, which signs the tuple above for the ONE
+#      artifact per arch the updater actually downloads (the .zip on macOS, the
+#      .exe on Windows — never the DMG),
+#   4. upload each `<version>-<platform>-<arch>.sig` into the SAME feed directory
+#      as `latest*.yml`.
+# `.github/workflows/release.yml` does all four and refuses to start without the
+# keys; docs/INSTALL.md §8.2/§8.3 is the runbook.
 #
 # The Ed25519 layer does NOT excuse shipping unsigned binaries: OS signing and
 # notarization stay required for anything a customer installs (§8 of

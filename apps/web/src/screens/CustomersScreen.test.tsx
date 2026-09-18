@@ -201,7 +201,7 @@ function salesReturnDoc(overrides: Partial<SalesReturnDocumentDTO> = {}): SalesR
 }
 
 function voucherRow(overrides: Partial<VoucherRowDTO> = {}): VoucherRowDTO {
-  return {
+  const row: VoucherRowDTO = {
     id: "v-1",
     docNo: "CV-000001",
     voucherType: "customer_collection",
@@ -211,6 +211,8 @@ function voucherRow(overrides: Partial<VoucherRowDTO> = {}): VoucherRowDTO {
     memo: "",
     amount: "500.000000",
     currency: "EGP",
+    fxRate: null,
+    baseAmount: "500.000000",
     branchId: "MAIN",
     paymentMethod: "cash",
     treasuryAccountId: "tr-1",
@@ -239,6 +241,7 @@ function voucherRow(overrides: Partial<VoucherRowDTO> = {}): VoucherRowDTO {
     },
     ...overrides,
   };
+  return { ...row, baseAmount: overrides.baseAmount ?? row.amount };
 }
 
 function voucherAllocation(overrides: Partial<VoucherAllocationDTO> = {}): VoucherAllocationDTO {

@@ -193,7 +193,7 @@ describe("SalesReturnsScreen", () => {
       "GET /sales-returns": () => ({ status: 500, body: { error: "INTERNAL" } }),
     });
     renderWithProviders(<TestNavigation><SalesReturnsScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
-    expect(await screen.findByText("تعذّر تحميل مرتجعات المبيعات.")).toBeInTheDocument();
+    expect(await screen.findByText("تعذّر تحميل مرتجعات المبيعات. (رمز 500)")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "إعادة المحاولة" })).toBeInTheDocument();
   });
 

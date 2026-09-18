@@ -53,6 +53,7 @@ import { majorOf } from "../lib/money";
 import { useDebounced } from "../lib/use-debounced";
 import { useWorkingLocation } from "../data/hub-hooks";
 import { SelectField, TextField, NumberField } from "../settings/form-controls";
+import { PurchaseInvoicePrintPage } from "../print/documents";
 import { useNavigation, useScreenIntent, useSubPage } from "../navigation";
 import { AttachmentsTab } from "../attachments/AttachmentsTab";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
@@ -137,6 +138,7 @@ function InvoiceDetail({
   projectName,
   onBack,
   onConfirm,
+  onPrint,
 }: {
   invoice: PurchaseInvoiceDTO;
   supplierName: (id: string) => string;
@@ -144,6 +146,7 @@ function InvoiceDetail({
   projectName: (id: string | null) => string;
   onBack: () => void;
   onConfirm: () => void;
+  onPrint: () => void;
 }) {
   const nameOf = useEntityName();
   const { t } = useAppTranslation();
@@ -231,6 +234,7 @@ function InvoiceDetail({
               {t("purchaseInvoices.confirm")}
             </Button>
           ) : null}
+          <Button onClick={onPrint}>{t("print.action.print")}</Button>
         </>
       }
       summary={[
@@ -524,7 +528,7 @@ export function PurchaseInvoicesScreen() {
    * client, so choosing a supplier or a date range never moved the totals.
    */
   const debouncedSearch = useDebounced(search);
-  const listFilter: PurchaseInvoiceListQueryDTO = useMemo(
+  const listFilter: Partial<PurchaseInvoiceListQueryDTO> = useMemo(
     () => ({
       ...(statusFilter === "all" ? {} : { status: statusFilter }),
       ...(supplierFilter ? { supplierId: supplierFilter } : {}),
@@ -536,7 +540,10 @@ export function PurchaseInvoicesScreen() {
     }),
     [statusFilter, supplierFilter, fromDate, toDate, branchFilter, warehouseFilter, debouncedSearch],
   );
-  const query = usePurchaseInvoices(listFilter);
+  // Only the ROWS query carries the page (Q-9); the chips and the KPI strip
+  // still speak for the whole filtered set. The server applies the newest-first
+  // order the screen used to apply after fetching every invoice.
+  const query = usePurchaseInvoices({ ...listFilter, page, pageSize });
   const counts = usePurchaseInvoiceCounts(listFilter).data ?? {};
   const stats = usePurchaseInvoiceStats(listFilter).data ?? null;
   const invoices = query.data ?? EMPTY;
@@ -620,12 +627,13 @@ export function PurchaseInvoicesScreen() {
     };
   }, []);
 
-  const filtered = useMemo(() => [...invoices].sort((a, b) => b.number.localeCompare(a.number)), [invoices]);
+  const filtered = invoices;
+  const totalRows = counts.all ?? filtered.length;
   /** Only the collapsed filter bar's own controls — the chips and the search box stay visible. */
   const activeFilterCount = [branchFilter, warehouseFilter, supplierFilter, fromDate, toDate].filter((v) => v !== "").length;
-  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const pageCount = Math.max(1, Math.ceil(totalRows / pageSize));
   const currentPage = Math.min(page, pageCount);
-  const pageRows = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const pageRows = filtered;
 
   const money = {
     purchases: majorOf(stats?.purchases),
@@ -674,11 +682,14 @@ export function PurchaseInvoicesScreen() {
     subPage.open(...(supplierId ? ["new", supplierId] : ["new"]));
   }
 
-  async function confirmSelected(id: string) {
+  async function confirmSelected(id: string, expectedVersion?: number) {
+    setFormError(null);
     try {
-      await confirmInvoice.mutateAsync(id);
-    } catch {
-      // failure surfaces via the mutation's own error state on retry; nothing further to do here.
+      await confirmInvoice.mutateAsync({ id, expectedVersion });
+    } catch (err) {
+      // N-9: a refusal because another till already moved this invoice names that
+      // till's operator. Swallowing it left the button doing nothing at all.
+      setFormError(err instanceof Error ? err.message : t("purchaseInvoices.error.saveFailed"));
     }
   }
 
@@ -938,10 +949,21 @@ export function PurchaseInvoicesScreen() {
 
   if (firstSegment === "new") return createPage;
 
+  // `#/buy/purchase-invoices/<number>/print` — a destination, not an overlay (P-6).
+  if (selected && subPage.segments[1] === "print") return <PurchaseInvoicePrintPage invoice={selected} />;
+
   if (selected) {
     return (
       <>
-        <InvoiceDetail invoice={selected} supplierName={supplierName} itemName={itemName} projectName={projectName} onBack={() => subPage.close()} onConfirm={() => confirmSelected(selected.id)} />
+        <InvoiceDetail
+          invoice={selected}
+          supplierName={supplierName}
+          itemName={itemName}
+          projectName={projectName}
+          onBack={() => subPage.close()}
+          onConfirm={() => confirmSelected(selected.id, selected.version)}
+          onPrint={() => subPage.open(selected.number ?? selected.id, "print")}
+        />
       </>
     );
   }
@@ -1031,6 +1053,7 @@ export function PurchaseInvoicesScreen() {
           const owing = num(inv.remainingBalance) > 0 && inv.status === "confirmed";
           const menuItems: RowMenuItem[] = [
             { key: "view", label: t("common.view"), onSelect: () => subPage.open(inv.number ?? inv.id) },
+            { key: "print", label: t("print.action.print"), onSelect: () => subPage.open(inv.number ?? inv.id, "print") },
             ...(inv.status === "draft"
               ? [{ key: "confirm", label: t("purchaseInvoices.confirm"), onSelect: () => void confirmSelected(inv.id) }]
               : []),
@@ -1068,7 +1091,7 @@ export function PurchaseInvoicesScreen() {
           setPageSize(size);
           setPage(1);
         }}
-        pageSummary={<>{t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{filtered.length}</span> {t("purchaseInvoices.showingSuffix")}</>}
+        pageSummary={<>{t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{totalRows}</span> {t("purchaseInvoices.showingSuffix")}</>}
         emptyState={
           <EmptyState
             title={t("purchaseInvoices.empty")}

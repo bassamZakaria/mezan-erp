@@ -119,6 +119,8 @@ export function TextAreaField({ label, value, onChange, placeholder, hint, disab
 export interface SelectOption {
   value: string;
   label: string;
+  /** Offered but not choosable — the option exists and this build cannot honour it. */
+  disabled?: boolean;
 }
 
 export interface SelectFieldProps {
@@ -219,7 +221,18 @@ export function MultiChipField({
     <Field label={label} hint={hint}>
       <div className="flex flex-wrap gap-[8px]">
         {options.map((opt) => (
-          <Chip key={opt.value} type="button" toggle active={value.includes(opt.value)} disabled={disabled} onClick={() => toggle(opt.value)}>
+          <Chip
+            key={opt.value}
+            type="button"
+            toggle
+            active={value.includes(opt.value)}
+            disabled={disabled || opt.disabled}
+            className={disabled || opt.disabled ? "cursor-not-allowed opacity-55" : undefined}
+            onClick={() => {
+              if (opt.disabled) return;
+              toggle(opt.value);
+            }}
+          >
             {opt.label}
           </Chip>
         ))}

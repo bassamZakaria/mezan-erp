@@ -243,6 +243,7 @@ const navItemIcons: Readonly<Record<string, LucideIcon>> = {
   "report-sales-by-customer": PieChart,
   "report-sales-by-salesperson": Award,
   "report-sales-top-products": Trophy,
+  "report-offers": Tag,
   "report-purchases-by-period": AreaChart,
   "report-purchases-by-supplier": PackageSearch,
   "report-purchases-by-item": ListOrdered,

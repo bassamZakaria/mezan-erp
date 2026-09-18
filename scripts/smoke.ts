@@ -200,6 +200,7 @@ const READ_PATHS = [
   "/reports/sales/by-item",
   "/reports/sales/by-customer",
   "/reports/sales/top-products",
+  "/reports/sales/offers",
   "/reports/purchases/by-period",
   "/reports/purchases/by-supplier",
   "/reports/purchases/by-item",
@@ -225,6 +226,11 @@ const READ_PATHS = [
   "/financial-reports/vat-return",
   "/financial-reports/general-ledger",
   "/financial-reports/account-ledger",
+  // product-compliance P-4 — built, mounted and absent from smoke until now.
+  "/security-reports/exceptions",
+  "/security-reports/post-posting-changes",
+  "/security-reports/after-hours",
+  "/security-reports/new-accounts",
   "/reports/drill-down/customer/CUST-DEMO-1",
   "/reports/drill-down/supplier/SUPP-DEMO-1",
   "/reports/drill-down/item/ITEM-DEMO-1",
@@ -240,6 +246,10 @@ const READ_PATHS = [
   "/audit",
   "/profile",
   "/profile/activity",
+  // The api-key and webhook surfaces are unmounted — DEC-17, packages/api/src/app.ts.
+  // (Do not write their paths as string literals here: check-seed-coverage.ts
+  // scrapes every quoted path out of this file.)
+  "/audit/verify",
   "/notification-rules",
   "/notification-rules/triggers",
   "/notifications",

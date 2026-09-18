@@ -39,6 +39,29 @@ const VAT = 14;
 export async function run(ctx: Ctx): Promise<void> {
   const { req, n, check, checkEq, scenario } = ctx;
 
+  /**
+   * READS A WHOLE LIST, not the first page of one.
+   *
+   * Every list query carries `pageSize` with a compiled-in default of 25
+   * (contracts/paging.ts, Q-8) — an omitted page size used to mean "every row
+   * ever", which is what `GET /gl/journal-entries` answered with. So a bare GET
+   * is now one page, and any assertion that compares a whole-set count against
+   * "the rows the list returned" has to walk the pages or it is asking a
+   * different question than it reads.
+   */
+  const allRows = async (path: string): Promise<any[]> => {
+    const sep = path.includes("?") ? "&" : "?";
+    const out: any[] = [];
+    for (let page = 1; page <= 200; page += 1) {
+      const res = await req("GET", `${path}${sep}page=${page}&pageSize=200`);
+      if (!res.ok) return Array.isArray(res.body) ? (res.body as any[]) : [];
+      const rows = Array.isArray(res.body) ? (res.body as any[]) : [];
+      out.push(...rows);
+      if (rows.length < 200) break;
+    }
+    return out;
+  };
+
   /** The live balance of a GL account — the same number every treasury screen renders. */
   async function gl(code: string): Promise<number> {
     return n((await req("GET", `/gl/accounts/${code}/ledger`)).body?.balance?.balance);
@@ -1366,7 +1389,7 @@ export async function run(ctx: Ctx): Promise<void> {
     const stockBefore = await stock(itemId);
     const apBefore = await creditBalance(AP);
     const invBefore = await gl(INVENTORY);
-    const journalsBefore = ctx.rows((await req("GET", "/gl/journal-entries")).body).length;
+    const journalsBefore = (await allRows("/gl/journal-entries")).length;
 
     const rows = [
       // Settled: paid in full before go-live. Must leave no trace in the books.
@@ -1399,7 +1422,7 @@ export async function run(ctx: Ctx): Promise<void> {
       ctx.rows((await req("GET", "/purchases/historical-import/archives")).body).length >= 2,
       "archives",
     );
-    const journalsAfter = ctx.rows((await req("GET", "/gl/journal-entries")).body).length;
+    const journalsAfter = (await allRows("/gl/journal-entries")).length;
     check(
       "at most one journal entry was posted for the whole import (the opening AP), never one per historical document",
       journalsAfter - journalsBefore <= 1,
@@ -1603,9 +1626,9 @@ export async function run(ctx: Ctx): Promise<void> {
     const confirmed = await req("POST", "/sales-invoices/SCN-X-INV-BR2/confirm", {});
     check("a sale posts in the second branch", confirmed.status === 200, JSON.stringify(confirmed.body).slice(0, 200));
 
-    const all = ctx.rows((await req("GET", "/sales-invoices", undefined, { "x-branch-scope": "*" })).body).length;
-    const mainOnly = ctx.rows((await req("GET", "/sales-invoices", undefined, { "x-branch-scope": BRANCH })).body);
-    const secondOnly = ctx.rows((await req("GET", "/sales-invoices", undefined, { "x-branch-scope": "BR-SCN-X-2" })).body);
+    const all = (await ctx.allRows("/sales-invoices", { "x-branch-scope": "*" })).length;
+    const mainOnly = await ctx.allRows("/sales-invoices", { "x-branch-scope": BRANCH });
+    const secondOnly = await ctx.allRows("/sales-invoices", { "x-branch-scope": "BR-SCN-X-2" });
     // D7 is fixed; these now guard the fix. A scope that narrows nothing was the
     // defect, so the assertion is that each branch sees strictly less than "*",
     // and that the two branches partition the set rather than overlapping.
@@ -1626,8 +1649,8 @@ export async function run(ctx: Ctx): Promise<void> {
     );
 
     // Warehouse scope is the same mechanism on a different axis (F8) — proven here so the two stay independent.
-    const stockAll = ctx.rows((await req("GET", "/inventory/stock-balance", undefined, { "x-warehouse-scope": "*" })).body).length;
-    const stockScoped = ctx.rows((await req("GET", "/inventory/stock-balance", undefined, { "x-warehouse-scope": "WH-SCN-X-2" })).body).length;
+    const stockAll = (await ctx.allRows("/inventory/stock-balance", { "x-warehouse-scope": "*" })).length;
+    const stockScoped = (await ctx.allRows("/inventory/stock-balance", { "x-warehouse-scope": "WH-SCN-X-2" })).length;
     check("warehouse scope narrows the stock balances the same way", stockScoped > 0 && stockScoped < stockAll, `all=${stockAll} WH-SCN-X-2=${stockScoped}`);
   });
 
@@ -2042,8 +2065,7 @@ export async function run(ctx: Ctx): Promise<void> {
 
     // --- sales invoices ------------------------------------------------------
     for (const query of ["", "?status=confirmed", "?customerId=CUST-DEMO-1"]) {
-      const rowsRes = await req("GET", `/sales-invoices${query}`);
-      const list = (rowsRes.body ?? []) as any[];
+      const list = await allRows(`/sales-invoices${query}`);
       const stats = (await req("GET", `/sales-invoices/stats${query}`)).body as any;
 
       const live = list.filter((r) => r.status !== "draft" && r.status !== "cancelled");
@@ -2059,13 +2081,13 @@ export async function run(ctx: Ctx): Promise<void> {
     const salesUnderFilter = (await req("GET", "/sales-invoices/counts?status=paid")).body as Record<string, number>;
     checkEq("sales chip counts ignore the status filter — 'all' is unchanged", n(salesUnderFilter?.all), n(salesCounts?.all));
     for (const chip of ["confirmed", "paid", "draft", "open", "overdue"]) {
-      const rows = ((await req("GET", `/sales-invoices?status=${chip}`)).body ?? []) as any[];
+      const rows = await allRows(`/sales-invoices?status=${chip}`);
       checkEq(`sales chip "${chip}" counts exactly the rows that chip shows`, n(salesCounts?.[chip]), rows.length);
     }
 
     // --- purchase invoices ---------------------------------------------------
     for (const query of ["", "?status=confirmed"]) {
-      const list = ((await req("GET", `/purchases/invoices${query}`)).body ?? []) as any[];
+      const list = await allRows(`/purchases/invoices${query}`);
       const stats = (await req("GET", `/purchases/invoices/stats${query}`)).body as any;
       const live = list.filter((r) => r.status === "confirmed");
       checkEq(`purchase stats.count = the confirmed rows returned (${query || "no filter"})`, n(stats?.count), live.length);
@@ -2082,14 +2104,14 @@ export async function run(ctx: Ctx): Promise<void> {
 
     const purchaseCounts = (await req("GET", "/purchases/invoices/counts")).body as Record<string, number>;
     for (const chip of ["confirmed", "draft", "overdue", "due_soon", "partially_paid", "paid"]) {
-      const rows = ((await req("GET", `/purchases/invoices?status=${chip}`)).body ?? []) as any[];
+      const rows = await allRows(`/purchases/invoices?status=${chip}`);
       checkEq(`purchase chip "${chip}" counts exactly the rows that chip shows`, n(purchaseCounts?.[chip]), rows.length);
     }
 
     // --- the filters reach all three, not just the rows ----------------------
     // The original defect: search narrowed the table and left the KPI strip on
     // the unfiltered total.
-    const searched = ((await req("GET", "/sales-invoices?search=INV-000002")).body ?? []) as any[];
+    const searched = await allRows("/sales-invoices?search=INV-000002");
     const searchedStats = (await req("GET", "/sales-invoices/stats?search=INV-000002")).body as any;
     check("a search narrows the rows", searched.length > 0 && searched.length < 6, `rows=${searched.length}`);
     checkEq(
@@ -2268,9 +2290,9 @@ export async function run(ctx: Ctx): Promise<void> {
 
   await scenario("x20 · every remaining list's rows, chip counts and KPI strip agree (R1.1)", async () => {
     const rowsOf = async (path: string): Promise<any[]> => {
-      const res = await req("GET", path);
+      const res = await req("GET", `${path}${path.includes("?") ? "&" : "?"}pageSize=1`);
       check(`${path} answers 2xx`, res.ok, `status ${res.status}`);
-      return Array.isArray(res.body) ? res.body : [];
+      return allRows(path);
     };
 
     for (const c of LIST_AGGREGATES) {

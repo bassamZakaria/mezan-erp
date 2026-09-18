@@ -45,8 +45,41 @@ export interface EtaConfig {
   readonly clientId: string | null;
   /** True when a client secret is stored (encrypted); the secret itself is never returned. */
   readonly hasClientSecret: boolean;
+  /** عناوين بوابة المصلحة — per-environment gateway addresses, configurable because the authority moves them. */
+  readonly preproductionIdentityUrl: string;
+  readonly preproductionApiUrl: string;
+  readonly productionIdentityUrl: string;
+  readonly productionApiUrl: string;
+  /**
+   * أمر التوقيع الخارجي — the program that talks to the taxpayer's hardware
+   * token. Canonical JSON on stdin, the CAdES-BES signature on stdout. Null
+   * means signing is not set up and a v1.0 document cannot be transmitted.
+   */
+  readonly signingCommand: string | null;
+  readonly signingCommandArgs: readonly string[];
   /** مهلة الإبلاغ عن الإيصال — see {@link ETA_RECEIPT_REPORTING_WINDOW_HOURS}. */
   readonly receiptReportingWindowHours: number;
+}
+
+/** The authority's published addresses. Overridable per install; these are the defaults. */
+export const ETA_DEFAULT_ENDPOINTS = {
+  preproductionIdentityUrl: "https://id.preprod.eta.gov.eg",
+  preproductionApiUrl: "https://api.preprod.invoicing.eta.gov.eg/api/v1",
+  productionIdentityUrl: "https://id.eta.gov.eg",
+  productionApiUrl: "https://api.invoicing.eta.gov.eg/api/v1",
+} as const;
+
+export interface EtaEndpoints {
+  readonly identityUrl: string;
+  readonly apiBaseUrl: string;
+}
+
+/** Which pair of addresses this config's environment selects, trailing slashes trimmed. */
+export function resolveEtaEndpoints(config: EtaConfig): EtaEndpoints {
+  const trim = (url: string): string => url.replace(/\/+$/, "");
+  return config.environment === "production"
+    ? { identityUrl: trim(config.productionIdentityUrl), apiBaseUrl: trim(config.productionApiUrl) }
+    : { identityUrl: trim(config.preproductionIdentityUrl), apiBaseUrl: trim(config.preproductionApiUrl) };
 }
 
 export const DEFAULT_ETA_CONFIG: EtaConfig = {
@@ -60,6 +93,9 @@ export const DEFAULT_ETA_CONFIG: EtaConfig = {
   signingMethod: "none",
   clientId: null,
   hasClientSecret: false,
+  ...ETA_DEFAULT_ENDPOINTS,
+  signingCommand: null,
+  signingCommandArgs: [],
   receiptReportingWindowHours: ETA_RECEIPT_REPORTING_WINDOW_HOURS,
 };
 
@@ -125,6 +161,9 @@ export function computeEtaReadiness(config: EtaConfig, counts?: EtaReadinessCoun
     field("clientId", "بيانات الربط (Client ID)", !!config.clientId),
     field("clientSecret", "السر (Client Secret)", config.hasClientSecret),
   );
+  if (config.signingMethod === "eseal") {
+    items.push(field("signingCommand", "أمر التوقيع الخارجي", !!config.signingCommand?.trim()));
+  }
   const done = items.filter((i) => i.complete).length;
   return { items, percent: Math.round((done / items.length) * 100) };
 }

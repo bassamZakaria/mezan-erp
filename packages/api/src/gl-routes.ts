@@ -502,6 +502,8 @@ export function createGlRoutes(
     readonly fromDate?: string;
     readonly toDate?: string;
     readonly search?: string;
+    readonly page: number;
+    readonly pageSize: number;
   }
 
   function parseJournalListQuery(
@@ -516,9 +518,12 @@ export function createGlRoutes(
       sourceModule: c.req.query("sourceModule"),
       fromDate: c.req.query("fromDate"),
       toDate: c.req.query("toDate"),
+      search: c.req.query("search") || undefined,
+      page: c.req.query("page"),
+      pageSize: c.req.query("pageSize"),
     });
     if (!parsed.success) return { ok: false, details: parsed.error.flatten() };
-    return { ok: true, filter: { ...parsed.data, search: c.req.query("search") || undefined } };
+    return { ok: true, filter: parsed.data };
   }
 
   /**
@@ -526,11 +531,26 @@ export function createGlRoutes(
    * (R1.1). Nothing else selects journal rows, so the register, its chips and
    * its debit/credit totals cannot disagree.
    */
-  async function listFilteredJournalEntries(filter: JournalListFilter): Promise<readonly JournalEntry[]> {
+  async function listFilteredJournalEntries(
+    filter: JournalListFilter,
+    page?: { limit: number; offset: number },
+  ): Promise<readonly JournalEntry[]> {
     const { sourceModule, search, ...ledgerFilter } = filter;
-    let entries = await deps.ledger.list(ledgerFilter);
+    // `search` reaches the store as SQL AND is re-applied below: the store's
+    // clause narrows the page, the JS pass keeps a ledger that cannot express
+    // it honest. `sourceModule` is derived from the document type through a
+    // mapping SQL does not hold, so a request carrying either of the two JS
+    // filters is paged after them — a LIMIT ahead of a filter is a wrong page,
+    // not a fast one.
+    const pagedInSql = page !== undefined && !sourceModule;
+    let entries = await deps.ledger.list({
+      ...ledgerFilter,
+      ...(search ? { search } : {}),
+      ...(pagedInSql ? page : {}),
+    });
     if (sourceModule) entries = entries.filter((e) => journalSourceModule(e.sourceDocType, e.source) === sourceModule);
     if (search) entries = entries.filter((e) => matchesSearch(search, e.entryNo, e.memo, e.sourceDocNumber));
+    if (page && !pagedInSql) entries = entries.slice(page.offset, page.offset + page.limit);
     return entries;
   }
 
@@ -539,7 +559,12 @@ export function createGlRoutes(
     if (!parsed.ok) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.details }, 400);
     }
-    return c.json((await listFilteredJournalEntries(parsed.filter)).map(serialize));
+    const { page, pageSize } = parsed.filter;
+    const rows = await listFilteredJournalEntries(parsed.filter, {
+      limit: pageSize,
+      offset: (page - 1) * pageSize,
+    });
+    return c.json(rows.map(serialize));
   });
 
   /**

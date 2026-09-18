@@ -72,6 +72,24 @@ export type CustomerOpeningBalancePoster = (posting: {
   readonly amount: Money;
 }) => Promise<void>;
 
+/**
+ * Posts a party's رصيد افتتاحي into the general ledger, idempotently.
+ *
+ * The opening balance used to be a number stored on the master record and
+ * nowhere else: never posted, counted in the customer KPI and in the browser
+ * statement, and invisible to `/reconciliation` and the aging ladder — one
+ * fact, three figures, none of them the ledger (B-2). The historical-import
+ * path already posted the identical entry (Dr AR / Cr 3210); this port routes
+ * the master-data field through the same posting.
+ *
+ * Optional because this module owns master data only. Without it nothing is
+ * posted and nothing is counted, which is honest; the figure simply is not a
+ * receivable until the ledger says so.
+ */
+export interface PartyOpeningBalancePoster {
+  post(party: { readonly id: string; readonly code: string; readonly nameAr: string; readonly openingBalance: Money }): Promise<void>;
+}
+
 /** Wire representation of a customer — a plain JSON-safe projection with Money as decimal strings. */
 function serialize(customer: Customer) {
   return {

@@ -222,7 +222,7 @@ describe("ConfigInstancesScreen", () => {
       "GET /warehouses": () => ({ body: warehouses }),
     });
     renderWithProviders(<ConfigInstancesScreen />, { transport, initialSession: testAdminSession });
-    expect(await screen.findByText("تعذّر تحميل أوامر التصنيع المخصص.")).toBeInTheDocument();
+    expect(await screen.findByText("تعذّر تحميل أوامر التصنيع المخصص. (رمز 500)")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "إعادة المحاولة" })).toBeInTheDocument();
   });
 
@@ -459,7 +459,7 @@ describe("ConfigInstancesScreen — cancel, list controls and preview states", (
       "GET /warehouses": () => ({ body: warehouses }),
     });
     renderWithProviders(<ConfigInstancesScreen />, { transport, initialSession: testAdminSession });
-    expect(await screen.findByText("تعذّر تحميل أوامر التصنيع المخصص.")).toBeInTheDocument();
+    expect(await screen.findByText("تعذّر تحميل أوامر التصنيع المخصص. (رمز 500)")).toBeInTheDocument();
     fail = false;
     fireEvent.click(screen.getByRole("button", { name: "إعادة المحاولة" }));
     await waitFor(() => expect(getCalls).toBe(2));

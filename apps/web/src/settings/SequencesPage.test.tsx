@@ -101,6 +101,9 @@ describe("SequencesPage — edit panel", () => {
     expect(called).toBe(false);
   });
 
+  // guards D100 / §4.5 #13 — this test used to pin the DEFECT: every failed
+  // save showed one fixed sentence whatever the backend said. `readError` now
+  // carries the server's own reason to the screen.
   it("D100: a save the backend refuses shows the server's own reason, not a fixed generic sentence", async () => {
     const transport = stubTransport({
       "GET /sequences": () => ({ body: [sequenceOne] }),

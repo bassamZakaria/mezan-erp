@@ -68,7 +68,7 @@ import {
   type SubcontractStore,
   type VoucherLine,
 } from "@mezan/domain";
-import { branchScopeOf, createPermissionGate, warehouseScopeOf, withinScope, type AuthContextResolver } from "./permission-gate.js";
+import { branchScopeOf, createAnyPermissionGate, createPermissionGate, warehouseScopeOf, withinScope, type AuthContextResolver } from "./permission-gate.js";
 
 /**
  * التقارير — operational reports (docs/archive/catalog/08-reports.md), mounted under
@@ -84,7 +84,7 @@ export interface ReportsRoutesDeps {
   /** Allocation sub-ledger — lets the aging reports deduct what has actually been settled. */
   readonly allocatable?: AllocatableInvoiceRepository;
   /** Confirmed sales returns, so the customer aging ladder nets the credits the GL already posted. */
-  readonly salesReturnDocs?: { list(): Promise<readonly SalesReturnDocument[]> };
+  readonly salesReturnDocs?: { list(filter?: { status?: "confirmed" }): Promise<readonly SalesReturnDocument[]> };
   /** Cheques, whose creation already reclassified a customer's receivable. */
   readonly cheques?: Pick<ChequeRepository, "list">;
   /** Confirmed vouchers, for collections that named no invoice. */
@@ -129,6 +129,12 @@ export interface ReportsRoutesDeps {
    * assembled from vouchers alone under-declares by the whole subcontract side.
    */
   readonly subCertificates?: Pick<SubcontractStore, "listCertificates">;
+  /**
+   * العروض master data, for a campaign's TYPE and English name. Optional: the
+   * report still runs without it — every figure comes off the invoice's own
+   * recorded promotion — and the type column is simply blank.
+   */
+  readonly promotions?: { list(): Promise<readonly { readonly id: string; readonly nameEn: string | null; readonly type: string }[]> };
   /** ISO `YYYY-MM-DD` "today" — overridable for tests; defaults to the real date. */
   readonly today?: () => string;
 }
@@ -250,6 +256,18 @@ async function postedGross(
    */
   sourceDocTypes?: readonly string[],
 ): Promise<number> {
+  // One SQL aggregate where the ledger can answer it (Q-6); the fold survives
+  // for in-memory ledgers and must produce the same figure.
+  if (deps.ledger.sumLines) {
+    const sums = await deps.ledger.sumLines({
+      statuses: ["posted"],
+      fromDate: range.dateFrom,
+      toDate: range.dateTo,
+      accountIds,
+      ...(sourceDocTypes ? { sourceDocTypes } : {}),
+    });
+    return Number(sums[side].toString());
+  }
   const entries = await deps.ledger.list({ status: "posted" });
   const allowed = new Set(accountIds);
   let total = 0;
@@ -307,8 +325,17 @@ function respond(c: Context, outcome: RunReportOutcome<unknown, unknown>): Respo
   });
 }
 
-/** Every stock movement across every position — the shared ledger the inventory reports slice differently. */
+/**
+ * Every stock movement across every position — the shared ledger the inventory
+ * reports slice differently.
+ *
+ * ONE query when the store can answer it (Q-6: this was a synchronous SQLite
+ * round trip per position, 12,001 of them on the reference database). The
+ * per-position fallback survives for stores without `listAll`, and returns the
+ * array in the SAME order, which `listAll`'s contract exists to guarantee.
+ */
 async function loadAllMovements(deps: ReportsRoutesDeps) {
+  if (deps.stockLedger.listAll) return deps.stockLedger.listAll();
   const positions = await deps.stockLedger.listPositions();
   const lists = await Promise.all(positions.map((p) => deps.stockLedger.listByPosition(p.itemId, p.warehouseId)));
   return lists.flat();
@@ -316,6 +343,7 @@ async function loadAllMovements(deps: ReportsRoutesDeps) {
 
 /** Every cost layer across every position (aging + drift both need the full set). */
 async function loadAllLayers(deps: ReportsRoutesDeps) {
+  if (deps.costLayers.listAll) return deps.costLayers.listAll();
   const positions = await deps.stockLedger.listPositions();
   const lists = await Promise.all(positions.map((p) => deps.costLayers.listByPosition(p.itemId, p.warehouseId)));
   return lists.flat();
@@ -334,7 +362,7 @@ async function unappliedCustomerCredits(deps: ReportsRoutesDeps): Promise<Readon
     out.set(partyId, (out.get(partyId) ?? 0n) + scaled);
   };
 
-  for (const cheque of (await deps.cheques?.list()) ?? []) {
+  for (const cheque of (await deps.cheques?.list({ direction: "incoming" })) ?? []) {
     if (cheque.direction !== "incoming") continue;
     // A bounced or replaced cheque credited nothing that still stands: bouncing
     // reclassifies GL 1320 → 1360 and deliberately leaves AR where it is. Counting
@@ -359,7 +387,7 @@ async function unappliedCustomerCredits(deps: ReportsRoutesDeps): Promise<Readon
 /** Confirmed sales-return credit per source invoice. */
 async function returnsByInvoiceId(deps: ReportsRoutesDeps): Promise<ReadonlyMap<string, Money>> {
   const out = new Map<string, bigint>();
-  for (const doc of (await deps.salesReturnDocs?.list()) ?? []) {
+  for (const doc of (await deps.salesReturnDocs?.list({ status: "confirmed" })) ?? []) {
     if (doc.status !== "confirmed") continue;
     const invoiceId = doc.lines[0]?.sourceInvoiceId;
     if (!invoiceId) continue;
@@ -387,12 +415,52 @@ async function settledByInvoiceId(
   return deps.allocatable.allocatedByIds(invoices.map((invoice) => invoice.id));
 }
 
+/**
+ * The branches a report may cover (P-7).
+ *
+ * `branchScopeOf` is the SCOPE — what this session is allowed to see at all —
+ * and `?branchId=` is a presentation filter that may only narrow it. A
+ * `branchId` the session may not see resolves to no branches rather than
+ * widening the scope, which is the whole point of a scope.
+ */
+function reportBranches(c: Context): readonly string[] | undefined {
+  const scope = branchScopeOf(c);
+  const requested = (c.req.query("branchId") ?? "").trim();
+  if (requested === "" || requested === "*") return scope;
+  if (scope && !scope.includes(requested)) return [];
+  return [requested];
+}
+
 export function createReportsRoutes(
   deps: ReportsRoutesDeps,
   resolveAuthContext: AuthContextResolver,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
+  const gateAny = createAnyPermissionGate(resolveAuthContext);
+
+  /** Rows already in hand, narrowed to the branches this report may cover (P-7). */
+  function scopedRows<T extends { readonly branchId?: string | null }>(c: Context, rows: readonly T[]): readonly T[] {
+    return withinScope(rows, reportBranches(c), (r) => r.branchId);
+  }
+
+  /**
+   * An instalment plan carries no branch of its own; its branch is the branch
+   * of the sales invoice it was raised against, which is a resolution, not a
+   * guess. A plan whose source invoice is gone stays unattributed.
+   */
+  async function scopedPlans<T extends { readonly lines: readonly { readonly sourceInvoiceId: string }[] }>(
+    c: Context,
+    plans: readonly T[],
+  ): Promise<readonly T[]> {
+    const branches = reportBranches(c);
+    if (!branches) return plans;
+    const branchByInvoiceId = new Map((await deps.salesInvoices.list()).map((i) => [i.id, i.branchId]));
+    return withinScope(plans, branches, (p) => {
+      const sourceId = p.lines[0]?.sourceInvoiceId;
+      return sourceId ? branchByInvoiceId.get(sourceId) ?? null : null;
+    });
+  }
 
   function queryParams(c: Context): Record<string, string> {
     const out: Record<string, string> = {};
@@ -410,13 +478,13 @@ export function createReportsRoutes(
    * scope therefore returns that caller's own nothing rather than the other
    * branch's numbers. Same line every list route in this package holds.
    */
-  async function scopedSalesInvoices(c: Context) {
-    return withinScope(await deps.salesInvoices.list(), branchScopeOf(c), (invoice) => invoice.branchId);
+  async function scopedSalesInvoices(c: Context, bounds?: Parameters<SalesInvoiceRepository["list"]>[0]) {
+    return withinScope(await deps.salesInvoices.list(bounds), branchScopeOf(c), (invoice) => invoice.branchId);
   }
 
   /** The purchase invoices this caller may see. See {@link scopedSalesInvoices}. */
-  async function scopedPurchaseInvoices(c: Context) {
-    return withinScope(await deps.purchaseInvoices.list(), branchScopeOf(c), (invoice) => invoice.branchId);
+  async function scopedPurchaseInvoices(c: Context, bounds?: Parameters<PurchaseInvoiceRepository["list"]>[0]) {
+    return withinScope(await deps.purchaseInvoices.list(bounds), branchScopeOf(c), (invoice) => invoice.branchId);
   }
 
   /**
@@ -535,6 +603,143 @@ export function createReportsRoutes(
       c,
       runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { invoices, items, isContractBilling }),
     );
+  });
+
+  /**
+   * تقرير العروض — the promotions report (docs/archive/catalog/08-reports.md:87,
+   * fully specified in 01-sales.md §"تقرير العروض"). The one catalogue report
+   * with no route at all (P-8).
+   *
+   * What it answers: how much was given away through promotions in a period,
+   * per campaign, net of what the returns handed back. Every figure comes off
+   * documents that were actually posted — the promotion the invoice RECORDED
+   * (`appliedPromotion`, stamped at confirm), never a re-evaluation of today's
+   * campaign rules against yesterday's invoice, which would restate history
+   * every time someone edits a promotion.
+   *
+   * «خصم معكوس» is pro-rated per returned line: a return of 3 of the 10 units
+   * a promotion discounted reverses three tenths of that line's discount. The
+   * alternative — reversing a campaign's whole discount on any return against
+   * the invoice — overstates the reversal and can drive the net negative.
+   *
+   * Money is summed in `Money` and converted once per emitted figure, at the
+   * response boundary.
+   */
+  app.get("/sales/offers", gateAny("sales.promotion.view", "sales.invoice.view"), async (c) => {
+    const today = todayIso(deps);
+    const params = { dateFrom: firstOfMonth(today), dateTo: today, ...queryParams(c) };
+    if (!ISO_DATE.test(params.dateFrom) || !ISO_DATE.test(params.dateTo)) {
+      return c.json(
+        {
+          error: "VALIDATION_ERROR",
+          errors: [
+            ...(ISO_DATE.test(params.dateFrom) ? [] : [{ path: "dateFrom", messageAr: "تاريخ غير صالح" }]),
+            ...(ISO_DATE.test(params.dateTo) ? [] : [{ path: "dateTo", messageAr: "تاريخ غير صالح" }]),
+          ],
+        },
+        400,
+      );
+    }
+
+    const [allInvoices, promotions, returns] = await Promise.all([
+      deps.salesInvoices.list(),
+      deps.promotions?.list() ?? Promise.resolve([]),
+      deps.salesReturnDocs?.list() ?? Promise.resolve([]),
+    ]);
+    const invoices = scopedRows(c, allInvoices);
+
+    const promotionById = new Map(promotions.map((promotion) => [promotion.id, promotion]));
+
+    interface Agg {
+      code: string;
+      nameAr: string;
+      nameEn: string | null;
+      type: string;
+      uses: number;
+      granted: Money;
+      reversed: Money;
+    }
+    const byPromotion = new Map<string, Agg>();
+    /** Invoices in range that carry a promotion — the only ones a return can reverse against. */
+    const inRange = new Map<string, (typeof invoices)[number]>();
+
+    for (const invoice of invoices) {
+      if (!SALES_INVOICE_ACTIVE_STATUSES.has(invoice.status)) continue;
+      if (invoice.date < params.dateFrom || invoice.date > params.dateTo) continue;
+      const applied = invoice.appliedPromotion;
+      if (!applied) continue;
+      inRange.set(invoice.id, invoice);
+      const master = promotionById.get(applied.promotionId);
+      const existing = byPromotion.get(applied.promotionId) ?? {
+        code: applied.code,
+        nameAr: applied.nameAr,
+        nameEn: master?.nameEn ?? null,
+        type: master?.type ?? "",
+        uses: 0,
+        granted: Money.zero(),
+        reversed: Money.zero(),
+      };
+      existing.uses += 1;
+      existing.granted = existing.granted.add(applied.discountTotal);
+      byPromotion.set(applied.promotionId, existing);
+    }
+
+    for (const doc of returns) {
+      if (doc.status !== "confirmed") continue;
+      if (doc.date < params.dateFrom || doc.date > params.dateTo) continue;
+      for (const line of doc.lines) {
+        const invoice = inRange.get(line.sourceInvoiceId);
+        const applied = invoice?.appliedPromotion;
+        if (!invoice || !applied) continue;
+        const agg = byPromotion.get(applied.promotionId);
+        if (!agg) continue;
+        const discountedForItem = Money.sum(
+          applied.lineDiscounts.filter((d) => d.itemId === line.itemId).map((d) => d.amount),
+        );
+        if (discountedForItem.scaled === 0n) continue;
+        const invoicedQty = invoice.lines
+          .filter((l) => l.itemId === line.itemId)
+          .reduce<bigint>((total, l) => total + l.qty.scaled, 0n);
+        if (invoicedQty === 0n) continue;
+        const share = (discountedForItem.scaled * line.qty.scaled) / invoicedQty;
+        agg.reversed = agg.reversed.add(Money.fromScaled(share));
+      }
+    }
+
+    const rows = [...byPromotion.entries()]
+      .map(([promotionId, agg]) => ({
+        promotionId,
+        code: agg.code,
+        nameAr: agg.nameAr,
+        nameEn: agg.nameEn,
+        type: agg.type,
+        uses: agg.uses,
+        granted: moneyToNumber(agg.granted),
+        reversed: moneyToNumber(agg.reversed),
+        net: moneyToNumber(Money.fromScaled(agg.granted.scaled - agg.reversed.scaled)),
+      }))
+      .sort((a, b) => b.net - a.net);
+
+    const sum = (pick: (row: (typeof rows)[number]) => number): number => rows.reduce((total, row) => total + pick(row), 0);
+
+    return c.json({
+      params,
+      rows,
+      groups: [],
+      grandTotals: {
+        uses: sum((r) => r.uses),
+        granted: sum((r) => r.granted),
+        reversed: sum((r) => r.reversed),
+        net: sum((r) => r.net),
+      },
+      reconciliation: null,
+      kpis: [
+        { key: "promotionsUsed", labelAr: "عروض مستخدمة", format: "qty" as const, value: rows.length },
+        { key: "uses", labelAr: "عدد مرات الاستخدام", format: "qty" as const, value: sum((r) => r.uses) },
+        { key: "granted", labelAr: "إجمالي الخصم الممنوح", format: "money" as const, value: sum((r) => r.granted) },
+        { key: "net", labelAr: "صافي الخصم", format: "money" as const, value: sum((r) => r.net) },
+      ],
+    });
   });
 
   // --- المشتريات -----------------------------------------------------
@@ -687,8 +892,14 @@ export function createReportsRoutes(
   app.get("/aging/customers", gate("sales.invoice.view"), async (c) => {
     const definition = createAgingCustomersReport(todayIso(deps));
     const params = { ...definition.defaultParams, ...queryParams(c) };
+    // The ladder drops every invoice that is not live and every one dated after
+    // the snapshot, so both bounds belong in SQL rather than in a fold over the
+    // whole table (Q-6). The set here must stay exactly the report's own.
     const [invoices, returns, credits, customers] = await Promise.all([
-      scopedSalesInvoices(c),
+      scopedSalesInvoices(c, {
+        statusIn: [...SALES_INVOICE_ACTIVE_STATUSES],
+        ...(isoDateOrUndefined(params.asOfDate) ? { toDate: String(params.asOfDate) } : {}),
+      }),
       returnsByInvoiceId(deps),
       unappliedCustomerCredits(deps),
       deps.customers.findAll(),
@@ -716,7 +927,15 @@ export function createReportsRoutes(
   app.get("/aging/suppliers", gate("purchases.invoice.view"), async (c) => {
     const definition = createAgingSuppliersReport(todayIso(deps));
     const params = { ...definition.defaultParams, ...queryParams(c) };
-    const [invoices, suppliers] = await Promise.all([scopedPurchaseInvoices(c), deps.suppliers.findAll()]);
+    // Same two bounds as the customer ladder, and the same rule: the SQL set
+    // must be exactly what the report itself would have kept (Q-6).
+    const [invoices, suppliers] = await Promise.all([
+      scopedPurchaseInvoices(c, {
+        status: "confirmed" as const,
+        ...(isoDateOrUndefined(params.asOfDate) ? { toDate: String(params.asOfDate) } : {}),
+      }),
+      deps.suppliers.findAll(),
+    ]);
     const allocatedByInvoiceId = await settledByInvoiceId(deps, invoices);
     const payablesControl = branchNarrowed(c, params)
       ? undefined
@@ -736,13 +955,15 @@ export function createReportsRoutes(
 
   app.get("/installments/overview", gate("installments.plan.view"), async (c) => {
     const definition = createInstallmentsOverviewReport(todayIso(deps));
-    const [plans, customers] = await Promise.all([deps.installmentPlans.list(), deps.customers.findAll()]);
+    const [allPlans, customers] = await Promise.all([deps.installmentPlans.list(), deps.customers.findAll()]);
+    const plans = await scopedPlans(c, allPlans);
     return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { plans, customers }));
   });
 
   app.get("/installments/overdue", gate("installments.plan.view"), async (c) => {
     const definition = createInstallmentsOverdueReport(todayIso(deps));
-    const [plans, customers] = await Promise.all([deps.installmentPlans.list(), deps.customers.findAll()]);
+    const [allPlans, customers] = await Promise.all([deps.installmentPlans.list(), deps.customers.findAll()]);
+    const plans = await scopedPlans(c, allPlans);
     return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { plans, customers }));
   });
 

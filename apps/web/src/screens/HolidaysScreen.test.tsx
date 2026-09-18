@@ -73,7 +73,7 @@ describe("HolidaysScreen", () => {
   it("shows an error banner with a retry action when holidays fail to load", async () => {
     const transport = stubTransport({ "GET /hr/holidays": () => ({ status: 500, body: { error: "INTERNAL" } }) });
     renderWithProviders(<HolidaysScreen />, { transport, initialSession: testAdminSession });
-    expect(await screen.findByText("تعذّر تحميل الإجازات الرسمية.")).toBeInTheDocument();
+    expect(await screen.findByText("تعذّر تحميل الإجازات الرسمية. (رمز 500)")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "إعادة المحاولة" })).toBeInTheDocument();
   });
 });

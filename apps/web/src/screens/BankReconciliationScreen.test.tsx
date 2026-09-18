@@ -125,7 +125,8 @@ describe("BankReconciliationScreen — list", () => {
         "GET /treasury-accounts": () => ({ body: [BANK_ACCOUNT] }),
       }),
     });
-    expect(await screen.findByText("تعذّر تحميل كشوف البنك.")).toBeInTheDocument();
+    // guards §4.5 #13 — the fallback sentence now carries the status as a support code.
+    expect(await screen.findByText("تعذّر تحميل كشوف البنك. (رمز 500)")).toBeInTheDocument();
   });
 
   it("shows the documented empty state when no statement has been imported", async () => {

@@ -7,7 +7,7 @@ import type {
   SequenceOverrideDTO,
 } from "@mezan/contracts";
 import { useApi } from "./ApiContext";
-import { ApiError } from "./hooks";
+import { ApiError, readError } from "./hooks";
 import { useAppTranslation } from "../i18n";
 
 /**
@@ -26,7 +26,7 @@ export function useSequences(): UseQueryResult<SequenceListItemDTO[], ApiError> 
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/sequences");
-      if (!res.ok) throw new ApiError(res.status, t("sequences.loadFailed"));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("sequences.loadFailed"), t));
       return res.json<SequenceListItemDTO[]>();
     },
   });
@@ -43,12 +43,11 @@ export function useUpdateSequence() {
         method: "PATCH",
         body: JSON.stringify(patch),
       });
-      if (!res.ok) {
-        // The server's refusal is the useful half — «البادئة مستخدمة بالفعل»
-        // tells the admin what to change; the generic sentence does not (D100).
-        const payload = await res.json<{ message?: string }>().catch(() => ({}) as { message?: string });
-        throw new ApiError(res.status, payload.message ?? t("platformApi.theSequenceSettingsCouldNot"));
-      }
+      // The server's refusal is the useful half — «البادئة مستخدمة بالفعل»
+      // tells the admin what to change; the generic sentence does not (D100).
+      // `readError` prefers that message and falls back to the sentence with a
+      // support code appended.
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("platformApi.theSequenceSettingsCouldNot"), t));
       return res.json<SequenceListItemDTO>();
     },
     onSuccess: () => {
@@ -84,6 +83,38 @@ export function useResetSequenceCounter() {
   });
 }
 
+/**
+ * What `GET /audit/verify` answers — the hash-chain walk in
+ * packages/persistence/src/audit-sink.ts. Not in @mezan/contracts because the
+ * shape belongs to the storage layer that computes it, not to a document.
+ */
+export interface AuditChainVerificationDTO {
+  readonly ok: boolean;
+  readonly checked: number;
+  readonly unchained: number;
+  readonly brokenRowId: number | null;
+  readonly reason: "OK" | "ROW_ALTERED" | "CHAIN_BROKEN" | "HEAD_MISSING" | "HEAD_ALTERED" | "TRUNCATED";
+}
+
+/**
+ * «تحقق من سلامة السجل» — on demand only.
+ *
+ * A `useMutation` rather than a query because it must not run on mount or on a
+ * refetch: it walks every audit row, and an integrity check nobody asked for
+ * that reports a break is a fright with no context.
+ */
+export function useVerifyAuditChain() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  return useMutation<AuditChainVerificationDTO, ApiError, void>({
+    mutationFn: async () => {
+      const res = await request("/audit/verify");
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("audit.verifyFailed"), t));
+      return res.json<AuditChainVerificationDTO>();
+    },
+  });
+}
+
 /** GET /audit — filtered, paginated read of the append-only audit trail. Read-only by construction. */
 export function useAuditLog(filter: AuditQueryDTO = {}): UseQueryResult<AuditQueryResponseDTO, ApiError> {
   const { t } = useAppTranslation();
@@ -106,7 +137,7 @@ export function useAuditLog(filter: AuditQueryDTO = {}): UseQueryResult<AuditQue
       if (filter.offset) params.set("offset", String(filter.offset));
       const qs = params.toString();
       const res = await request(`/audit${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, t("audit.couldNotLoadTheAudit"));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("audit.couldNotLoadTheAudit"), t));
       return res.json<AuditQueryResponseDTO>();
     },
   });

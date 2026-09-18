@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Button, Card, StatusPill, TextInput } from "@mezan/ui";
 import { useApi } from "../data/ApiContext";
-import { useAppTranslation } from "../i18n";
+import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
 /**
  * النسخ الاحتياطي والاستعادة — the screen a restore was missing.
@@ -41,17 +41,23 @@ type RestoreResult =
   | { ok: true; restoredFrom: BackupEntry; safetyBackupFileName: string | null; relaunching: boolean }
   | Failure;
 
+type ExportResult = { ok: true; filePath: string } | Failure;
+
 interface BackupBridge {
   list(sessionToken: string): Promise<ListResult>;
   create(sessionToken: string): Promise<CreateResult>;
   restore(sessionToken: string, fileName: string): Promise<RestoreResult>;
+  revertToPreUpdate?(sessionToken: string): Promise<RestoreResult>;
+  exportPortable?(sessionToken: string, passphrase: string): Promise<ExportResult>;
 }
 
 function bridge(): BackupBridge | undefined {
   return (globalThis as { mezan?: { backup?: BackupBridge } }).mezan?.backup;
 }
 
-function isFailure(result: ListResult | CreateResult | RestoreResult): result is Failure {
+function isFailure(
+  result: ListResult | CreateResult | RestoreResult | ExportResult,
+): result is Failure {
   return "ok" in result && result.ok === false;
 }
 
@@ -64,6 +70,23 @@ function megabytes(bytes: number): string {
   return (bytes / 1_048_576).toFixed(1);
 }
 
+/**
+ * The reason an archive exists, in the language of the screen it is on.
+ *
+ * The column printed `manual` / `scheduled` / `pre-migration` / `on-close` raw:
+ * four English machine tokens in an Arabic table, in the one place an owner
+ * looks while deciding which copy of their books to restore. An unrecognised
+ * value falls through to itself rather than to a guess — a new reason a newer
+ * build wrote is better shown as it is than mislabelled as one of these.
+ */
+const REASON_KEYS: Record<string, AppTranslationKey> = {
+  manual: "backup.reason.manual",
+  scheduled: "backup.reason.scheduled",
+  "pre-migration": "backup.reason.preMigration",
+  "on-close": "backup.reason.onClose",
+  "pre-update": "backup.reason.preUpdate",
+};
+
 export function BackupRestorePage() {
   const { t } = useAppTranslation();
   const { session } = useApi();
@@ -75,6 +98,15 @@ export function BackupRestorePage() {
   /** WHICH archive is being confirmed — never a page-wide "confirming" flag. */
   const [confirming, setConfirming] = useState<BackupEntry | null>(null);
   const [typedDate, setTypedDate] = useState("");
+  const [passphrase, setPassphrase] = useState("");
+  /** Per-action, never a page-wide flag: two buttons must not disable each other. */
+  const [running, setRunning] = useState<"revert" | "export" | null>(null);
+
+  function reasonLabel(reason: string | null): string {
+    if (reason === null) return "—";
+    const key = REASON_KEYS[reason];
+    return key ? t(key) : reason;
+  }
 
   const api = bridge();
   const token = session?.token ?? null;
@@ -124,6 +156,44 @@ export function BackupRestorePage() {
     }
   }
 
+  /**
+   * «الرجوع إلى ما قبل التحديث». The main process picks the archive — the same
+   * verified restore, the same relaunch — because the owner should not have to
+   * recognise which timestamp came before the version that broke their books.
+   */
+  async function handleRevert() {
+    if (!api?.revertToPreUpdate || !token || running) return;
+    setRunning("revert");
+    setNotice(null);
+    setError(null);
+    try {
+      const result = await api.revertToPreUpdate(token);
+      if (isFailure(result)) setError(result.message);
+      else setNotice(t("backup.restoredRelaunching"));
+    } finally {
+      setRunning(null);
+    }
+  }
+
+  async function handleExportPortable() {
+    if (!api?.exportPortable || !token || running) return;
+    setRunning("export");
+    setNotice(null);
+    setError(null);
+    try {
+      const result = await api.exportPortable(token, passphrase);
+      if (isFailure(result)) setError(result.message);
+      else {
+        setNotice(t("backup.portableDone", { path: result.filePath }));
+        // The passphrase leaves the screen the moment it has been used.
+        setPassphrase("");
+      }
+      await refresh();
+    } finally {
+      setRunning(null);
+    }
+  }
+
   async function handleRestore(entry: BackupEntry) {
     if (!api || !token || busy) return;
     setBusy(true);
@@ -167,6 +237,47 @@ export function BackupRestorePage() {
         {notice ? <p className="mt-[10px] text-[12px] text-success-ink">{notice}</p> : null}
       </Card>
 
+      {api.revertToPreUpdate ? (
+        <Card className="mb-[16px] p-[18px]">
+          <div className="text-[13px] font-semibold text-ink">{t("backup.revertTitle")}</div>
+          <p className="mt-[4px] text-[12.5px] text-ink-muted">{t("backup.revertHint")}</p>
+          <div className="mt-[12px]">
+            <Button
+              variant="danger-outline"
+              disabled={running !== null}
+              onClick={() => void handleRevert()}
+            >
+              {t("backup.revert")}
+            </Button>
+          </div>
+        </Card>
+      ) : null}
+
+      {api.exportPortable ? (
+        <Card className="mb-[16px] p-[18px]">
+          <div className="text-[13px] font-semibold text-ink">{t("backup.portableTitle")}</div>
+          <p className="mt-[4px] text-[12.5px] text-ink-muted">{t("backup.portableHint")}</p>
+          <div className="mt-[12px] flex flex-wrap items-center gap-[8px]">
+            <div className="max-w-[280px] grow">
+              <TextInput
+                type="password"
+                value={passphrase}
+                onChange={(e) => setPassphrase(e.target.value)}
+                aria-label={t("backup.portablePassphrase")}
+                placeholder={t("backup.portablePassphrase")}
+              />
+            </div>
+            <Button
+              variant="default"
+              disabled={running !== null || passphrase.trim().length === 0}
+              onClick={() => void handleExportPortable()}
+            >
+              {t("backup.portableExport")}
+            </Button>
+          </div>
+        </Card>
+      ) : null}
+
       <Card className="p-[18px]">
         <div className="overflow-x-auto">
           <table className="w-full border-collapse text-[12.5px]">
@@ -190,8 +301,13 @@ export function BackupRestorePage() {
                 entries.map((entry) => (
                   <tr key={entry.fileName} className="border-b border-border last:border-b-0">
                     <td className="p-[8px] mz-num font-semibold text-ink">{archiveDate(entry)}</td>
-                    <td className="p-[8px] text-ink-muted">{entry.reason ?? "—"}</td>
-                    <td className="p-[8px] mz-lat text-ink-muted">{entry.appVersion ?? "—"}</td>
+                    <td className="p-[8px] text-ink-muted">{reasonLabel(entry.reason)}</td>
+                    {/*
+                      The version the archive RECORDS, which is the build that
+                      wrote it — never this build's version, which would tell an
+                      owner restoring a year-old copy that it came from today.
+                    */}
+                    <td className="p-[8px] mz-lat text-ink-muted">{entry.appVersion ?? t("support.unknown")}</td>
                     <td className="p-[8px] mz-num text-ink-muted">{megabytes(entry.sizeBytes)} MB</td>
                     <td className="p-[8px]">
                       {entry.readable ? (

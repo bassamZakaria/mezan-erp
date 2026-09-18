@@ -28,6 +28,8 @@ function harness() {
   const numbering = new NextNumberService(new MemSeq());
   const deps: SalesQuoteRoutesDeps = {
     repo,
+    // guards N-9 — the routes only enforce optimistic concurrency when a guard is wired.
+    versionGuard: { versions: repo.versions },
     numbering: { next: () => numbering.next("SALES_QUOTE") },
     now: () => NOW,
     idGen: (() => {
@@ -165,6 +167,42 @@ describe("sales-quotes routes", () => {
     const { app } = harness();
     const res = await app.fetch(req("/", { method: "POST", body: JSON.stringify({ ...draftBody, lines: [] }), permissions: "sales.quote.create" }));
     expect(res.status).toBe(400);
+  });
+});
+
+/**
+ * guards N-9 — every quote transition (send / accept / reject / cancel) is
+ * driven from the LIST row's kebab, never from a detail read. A list that omits
+ * `version` leaves the row with nothing to send back as `expectedVersion`, and
+ * the optimistic guard silently never fires.
+ */
+describe("sales-quotes routes — the list row carries the version the kebab acts on", () => {
+  it("serves a version on every row, and refuses a stale one with 409", async () => {
+    const { app, repo } = harness();
+    await app.fetch(req("/", { method: "POST", permissions: "sales.quote.create", body: JSON.stringify(draftBody) }));
+
+    const rows = (await (await app.fetch(req("/", { permissions: "sales.quote.view" }))).json()) as {
+      id: string;
+      version: number;
+    }[];
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.version).toBe(1);
+    const staleVersion = rows[0]!.version;
+
+    // Another till gets there first.
+    const won = await app.fetch(req(`/${rows[0]!.id}/send`, { method: "POST", permissions: "sales.quote.send" }));
+    expect(won.status).toBe(200);
+    expect((await repo.versions.read(rows[0]!.id))!.version).toBeGreaterThan(staleVersion);
+
+    const refused = await app.fetch(
+      req(`/${rows[0]!.id}/cancel`, {
+        method: "POST",
+        permissions: "sales.quote.edit",
+        body: JSON.stringify({ expectedVersion: staleVersion }),
+      }),
+    );
+    expect(refused.status).toBe(409);
+    expect(((await refused.json()) as { error: string }).error).toBe("DOCUMENT_VERSION_CONFLICT");
   });
 });
 

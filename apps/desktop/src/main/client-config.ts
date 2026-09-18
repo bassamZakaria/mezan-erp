@@ -106,9 +106,11 @@ export interface PairingRequest {
  * address, and a pairing step that skipped it would leave a client that trusts
  * whoever replies first — see lan-client.ts.
  *
- * A flag rather than a screen, for now, because it is what a consultant can run
- * from a shortcut on twelve machines in an afternoon. The first-run wizard step
- * that wraps this is the obvious next piece.
+ * STILL SUPPORTED ALONGSIDE THE IN-APP FLOW, not replaced by it. The pairing
+ * screen (apps/web's PairHostScreen) is what a shop uses to add its own fourth
+ * till; these flags are what a consultant runs from a shortcut on twelve
+ * machines in an afternoon, and scripting a rollout must not require twelve
+ * people clicking through a wizard.
  */
 export function readPairingRequest(argv: readonly string[] = process.argv): PairingRequest | null {
   const read = (name: string): string | undefined => {
@@ -130,6 +132,40 @@ export function readPairingRequest(argv: readonly string[] = process.argv): Pair
     );
   }
   return { hostUrl, fingerprintSha256, deviceLabel: read("device-label") };
+}
+
+/**
+ * RE-POINTS AN ALREADY-PAIRED CLIENT AT A NEW ADDRESS, keeping the pin.
+ *
+ * The failure this exists for is a router reboot: DHCP hands the host
+ * `192.168.1.9` instead of `.7`, every till says it cannot reach the main
+ * machine on Thursday morning, and the only recovery was a consultant editing
+ * `client.json` on each of them. The CERTIFICATE survives a move — it is the
+ * same machine and the same key — so the address is the only stale fact.
+ *
+ * THE FINGERPRINT AND THE DEVICE ID ARE NOT ARGUMENTS HERE, and that is the
+ * security property this function turns on: a caller can move a client to a new
+ * address but cannot change WHICH MACHINE it will accept there. A host at the
+ * new address that presents a different certificate is refused by the pin
+ * exactly as before, so "the address moved" can never be used to walk a till
+ * onto an impostor. Re-pairing to a genuinely different host is
+ * `writeClientConfig`, which requires a human to compare fingerprints.
+ *
+ * Keeping `deviceId` matters for a second reason: a new id is a new seat, so a
+ * shop that re-homed three tills after a router reboot would find its two-seat
+ * licence full of devices that no longer exist.
+ */
+export async function updateClientHostUrl(dbPath: string, hostUrl: string): Promise<ClientConfig> {
+  const existing = await readClientConfig(dbPath);
+  if (existing.role !== "client") {
+    throw new Error("This machine is not paired with a host, so there is no address to change.");
+  }
+  const config = clientConfigSchema.parse({ ...existing.config, hostUrl });
+  await writeFile(clientConfigPath(dbPath), `${JSON.stringify(config, null, 2)}\n`, {
+    encoding: "utf8",
+    mode: 0o600,
+  });
+  return config;
 }
 
 /** Writes the file that makes this install a client of `hostUrl`. */

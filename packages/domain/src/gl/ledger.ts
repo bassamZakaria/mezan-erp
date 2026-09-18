@@ -28,6 +28,8 @@ export interface LedgerRepository {
   findById(id: string): Promise<JournalEntry | null>;
   findByEntryNo(entryNo: string): Promise<JournalEntry | null>;
   list(filter?: JournalListFilter): Promise<readonly JournalEntry[]>;
+  /** How many entries the same filter matches, ignoring `limit`/`offset`. Optional on the port. */
+  count?(filter?: JournalListFilter): Promise<number>;
   /** Net debit/credit for one account, counting posted+reversed lines dated on/before `asOfDate` (inclusive). */
   accountBalance(accountId: string, asOfDate?: string): Promise<AccountBalance>;
   /** The individual posted movements for one account, oldest-first, dated on/before `asOfDate`. */
@@ -39,8 +41,45 @@ export interface LedgerRepository {
    * port so lightweight in-memory ledgers need not implement it.
    */
   listLines?(filter?: PostedLineFilter): Promise<readonly PostedLine[]>;
+  /**
+   * Net (debit − credit) per account over the entries matching `filter`, as ONE
+   * aggregate rather than every entry and line read into JS (Q-6). Positive is
+   * a net debit. An account with no matching line is absent from the map.
+   *
+   * Must answer exactly what `netBalancesByAccount` computes over the same
+   * slice — the trial balance and the seven financial statements read one or
+   * the other and may never disagree. Optional on the port, so a lightweight
+   * in-memory ledger keeps folding its own entries.
+   */
+  accountBalances?(filter?: LedgerAggregateFilter): Promise<ReadonlyMap<string, Money>>;
+  /**
+   * Σ debit and Σ credit over the lines matching `filter` — GROSS, not net, so
+   * a report that sums what documents recorded has a ledger figure of the same
+   * question to reconcile against. One aggregate, not a fold over every entry.
+   */
+  sumLines?(filter?: LedgerAggregateFilter): Promise<{ readonly debit: Money; readonly credit: Money }>;
   /** Run `fn` inside one atomic transaction (BEGIN IMMEDIATE on SQLite). */
   transaction<T>(fn: () => Promise<T>): Promise<T>;
+}
+
+/** Filter for the SQL-side aggregates {@link LedgerRepository.accountBalances} / {@link LedgerRepository.sumLines}. */
+export interface LedgerAggregateFilter {
+  /** ISO date (YYYY-MM-DD), inclusive bounds on the entry date. */
+  readonly fromDate?: string;
+  readonly toDate?: string;
+  /**
+   * Entry statuses to count. Defaults to `["posted", "reversed"]` — the slice
+   * `isLedgerEffective` defines. Reversal posts a MIRROR entry and marks the
+   * original `reversed`, so counting only `posted` keeps the mirror and drops
+   * what it offsets; narrow this only when the caller means gross activity.
+   */
+  readonly statuses?: readonly JournalEntryStatus[];
+  /** Restrict to lines carrying one of these account ids. */
+  readonly accountIds?: readonly string[];
+  /** Restrict to entries produced by one of these document types. */
+  readonly sourceDocTypes?: readonly string[];
+  /** Drops the year-end closing entry, which no performance statement counts as activity. */
+  readonly excludeSourceDocTypes?: readonly string[];
 }
 
 /** Filter for {@link LedgerRepository.listLines}. */
@@ -88,6 +127,21 @@ export interface JournalListFilter {
   readonly toDate?: string;
   /** Every entry one source document posted — its own GL trail. */
   readonly sourceDocId?: string;
+  /**
+   * Substring of the entry number, the memo, or the source document's number.
+   * In SQL, so a searched register is still a page rather than the whole
+   * ledger read into memory and filtered (Q-8).
+   */
+  readonly search?: string;
+  /** Restrict to entries produced by one of these document types. An empty array matches nothing. */
+  readonly sourceDocTypes?: readonly string[];
+  /**
+   * One page of the register. ABSENT MEANS EVERYTHING, which is what
+   * `GET /gl/journal-entries` used to serve unconditionally — every entry ever
+   * posted. A route must supply a page.
+   */
+  readonly limit?: number;
+  readonly offset?: number;
 }
 
 /** Aggregated debit/credit and net balance (debit − credit) for one account. */

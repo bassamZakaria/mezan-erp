@@ -399,7 +399,7 @@ export function TaxesScreen() {
       <>
       {query.isError ? (
         <Card className="mb-[18px] p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-danger-ink">{t("taxes.taxesCouldNotBeLoaded")}</p>
+          <p className="text-[13px] font-semibold text-danger-ink">{query.error?.message ?? t("taxes.taxesCouldNotBeLoaded")}</p>
           <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
             {t("common.retry")}
           </Button>

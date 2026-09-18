@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { isoDateParamSchema } from "./iso-date.js";
-import { type GlReportContext, accountNet, isLedgerEffective, moneyToNumber } from "./gl-shared.js";
+import { type GlReportContext, accountNet, isLedgerEffective, moneyToNumber, netBalancesByAccount } from "./gl-shared.js";
+import { Money } from "../money/index.js";
 import type { Account } from "../accounts/account.js";
 import type { ReportDefinition } from "./types.js";
 import { sumRows } from "./kpi.js";
@@ -110,7 +111,13 @@ export function createAccountLedgerReport(
       captionAr: "الرصيد الجاري بعد كل حركة من آخر اثنتي عشرة حركة في الفترة.",
     },
     run: (params, ctx) => {
-      const opening = accountNet(ctx.journalEntries, params.accountId, { to: dayBefore(params.periodFrom) });
+      // The running balance is carried in `Money` and converted once per row
+      // (C-10): a float running total drifts down a long account ledger, and
+      // the closing balance is the figure a reconciliation is judged on.
+      const openingMoney =
+        netBalancesByAccount(ctx.journalEntries, { to: dayBefore(params.periodFrom) }).get(params.accountId) ??
+        Money.zero();
+      const opening = moneyToNumber(openingMoney);
       const rows: AccountLedgerRow[] = [
         {
           rowId: "_opening",
@@ -126,7 +133,7 @@ export function createAccountLedgerReport(
         },
       ];
 
-      let running = opening;
+      let running = openingMoney;
       let seq = 0;
       const inPeriod = ctx.journalEntries
         .filter(
@@ -137,18 +144,16 @@ export function createAccountLedgerReport(
       for (const entry of inPeriod) {
         for (const line of entry.lines) {
           if (line.accountId !== params.accountId) continue;
-          const debit = moneyToNumber(line.debit);
-          const credit = moneyToNumber(line.credit);
-          running += debit - credit;
+          running = running.add(line.debit).add(line.credit.negate());
           seq += 1;
           rows.push({
             rowId: `${entry.id}:${seq}`,
             date: entry.date,
             entryNo: entry.entryNo ?? entry.id,
             memo: line.memo ?? entry.memo,
-            debit,
-            credit,
-            balance: running,
+            debit: moneyToNumber(line.debit),
+            credit: moneyToNumber(line.credit),
+            balance: moneyToNumber(running),
             isOpening: false,
             accountId: params.accountId,
             periodTo: params.periodTo,

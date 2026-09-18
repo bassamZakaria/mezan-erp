@@ -6,6 +6,7 @@ import {
   createAsset,
   createDepreciationRun,
   postDepreciationRun,
+  reverseDepreciationRun,
   DuplicateAssetCategoryCodeError,
   InvalidAssetCategoryError,
   AssetCategoryNotFoundError,
@@ -18,6 +19,10 @@ import {
   postJournalEntry,
   DepreciationRunNotFoundError,
   DepreciationRunNotDraftError,
+  DepreciationRunNotPostedError,
+  NoFiscalPeriodForDateError,
+  PeriodNotOpenForPostingError,
+  VatPeriodAlreadyFiledError,
   DuplicateDepreciationPeriodError,
   NoDepreciableAssetsError,
   type AssetCategory,
@@ -164,8 +169,21 @@ function handleDomainError(c: Context, err: unknown) {
   if (err instanceof DuplicateAssetCategoryCodeError || err instanceof DuplicateAssetCodeError || err instanceof DuplicateDepreciationPeriodError) {
     return c.json({ error: err.code, message: err.message }, 409);
   }
-  if (err instanceof DepreciationRunNotDraftError || err instanceof AssetAlreadyDisposedError) {
+  if (
+    err instanceof DepreciationRunNotDraftError ||
+    err instanceof DepreciationRunNotPostedError ||
+    err instanceof AssetAlreadyDisposedError
+  ) {
     return c.json({ error: err.code, message: err.message }, 409);
+  }
+  // The GL's own gates reach the caller as a refusal, not a 500: a reversal
+  // dated into a closed period or a filed VAT month is a business answer.
+  if (
+    err instanceof NoFiscalPeriodForDateError ||
+    err instanceof PeriodNotOpenForPostingError ||
+    err instanceof VatPeriodAlreadyFiledError
+  ) {
+    return c.json({ error: err.code, message: err.message }, 422);
   }
   if (err instanceof InvalidAssetDisposalError) {
     return c.json({ error: err.code, message: err.message }, 422);
@@ -512,6 +530,25 @@ export function createFixedAssetsRoutes(
         gl: deps.gl,
         defaultAccounts: deps.defaultAccounts,
       });
+      return c.json(serializeRun(run));
+    } catch (err) {
+      return handleDomainError(c, err);
+    }
+  });
+
+  /**
+   * عكس تشغيل الإهلاك (B-9). Period-gated by the GL engine on the reversal's
+   * own date, so a locked or closed month refuses; the assets' accumulated
+   * depreciation comes back with the entry.
+   */
+  app.post("/depreciation/runs/:id/reverse", gate("assets.depreciation.run"), async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { date?: string; memo?: string };
+    try {
+      const run = await reverseDepreciationRun(
+        c.req.param("id"),
+        { runs: deps.runs, assets: deps.assets, gl: deps.gl },
+        { reversalId: idGen(), date: body.date, memo: body.memo },
+      );
       return c.json(serializeRun(run));
     } catch (err) {
       return handleDomainError(c, err);

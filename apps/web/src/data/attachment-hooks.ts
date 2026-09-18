@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import type { AttachmentContentDTO, AttachmentDTO, AttachmentEntityTypeDTO } from "@mezan/contracts";
-import { ApiError } from "./hooks";
+import { ApiError, readError } from "./hooks";
 import { useApi } from "./ApiContext";
 import { useAppTranslation } from "../i18n";
 
@@ -25,7 +25,7 @@ export function useAttachments(
     enabled: session !== null && Boolean(entityId),
     queryFn: async () => {
       const res = await request(`/attachments?entityType=${encodeURIComponent(entityType)}&entityId=${encodeURIComponent(entityId ?? "")}`);
-      if (!res.ok) throw new ApiError(res.status, t("attachments.couldNotBeLoaded"));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("attachments.couldNotBeLoaded"), t));
       return res.json<AttachmentDTO[]>();
     },
   });
@@ -81,7 +81,7 @@ export function useDownloadAttachment() {
   return useMutation<AttachmentContentDTO, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/attachments/${encodeURIComponent(id)}/content`);
-      if (!res.ok) throw new ApiError(res.status, t("attachments.downloadFailed"));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("attachments.downloadFailed"), t));
       return res.json<AttachmentContentDTO>();
     },
   });

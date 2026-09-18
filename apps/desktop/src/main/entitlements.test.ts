@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { diagnoseDesktopEntitlements, resolveDesktopEntitlements } from "./entitlements.js";
+import { diagnoseDesktopEntitlements, parseDesktopEntitlementsJson } from "./entitlements.js";
 
 const VALID = {
   plan: "ENTERPRISE",
@@ -13,46 +13,45 @@ function clockAt(iso: string) {
   return { now: () => Date.parse(iso) };
 }
 
-describe("resolveDesktopEntitlements", () => {
+/**
+ * guards L-9 (dead code): `resolveDesktopEntitlements` was deleted. It read the
+ * unsigned `MEZAN_ENTITLEMENTS_JSON` env var into a real `Entitlements` object
+ * and had no caller left once the verified licence became the source of both
+ * entitlements and write permission — a second, unsigned answer to a question
+ * that now has exactly one. Only the dev-seam PARSER survives.
+ */
+describe("parseDesktopEntitlementsJson", () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
-  it("falls back to unlicensed (zero seats, no LAN flag) when the env var is unset", () => {
-    const ent = resolveDesktopEntitlements({});
-    expect(ent.plan).toBe("UNLICENSED");
-    expect(ent.seats).toBe(0);
-    expect(ent.hasFeature("lan.multi_till")).toBe(false);
+  it("returns null — not a permissive default — when the env var is unset", () => {
+    expect(parseDesktopEntitlementsJson({})).toBeNull();
   });
 
-  it("falls back to unlicensed on malformed JSON, without throwing", () => {
+  it("returns null on malformed JSON, without throwing", () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
-    const ent = resolveDesktopEntitlements({ MEZAN_ENTITLEMENTS_JSON: "{not json" });
-    expect(ent.plan).toBe("UNLICENSED");
+    expect(parseDesktopEntitlementsJson({ MEZAN_ENTITLEMENTS_JSON: "{not json" })).toBeNull();
   });
 
-  it("falls back to unlicensed when the JSON fails schema validation", () => {
+  it("returns null when the JSON fails schema validation", () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
-    const ent = resolveDesktopEntitlements({
-      MEZAN_ENTITLEMENTS_JSON: JSON.stringify({ plan: "ENTERPRISE" /* missing required fields */ }),
-    });
-    expect(ent.plan).toBe("UNLICENSED");
+    expect(
+      parseDesktopEntitlementsJson({
+        MEZAN_ENTITLEMENTS_JSON: JSON.stringify({ plan: "ENTERPRISE" /* missing required fields */ }),
+      }),
+    ).toBeNull();
   });
 
   it("resolves a real EntitlementsView from a valid entitlements JSON blob", () => {
-    const ent = resolveDesktopEntitlements({ MEZAN_ENTITLEMENTS_JSON: JSON.stringify(VALID) });
-    expect(ent.plan).toBe("ENTERPRISE");
-    expect(ent.seats).toBe(4);
-    expect(ent.has("pos")).toBe(true);
-    expect(ent.hasFeature("lan.multi_till")).toBe(true);
+    const ent = parseDesktopEntitlementsJson({ MEZAN_ENTITLEMENTS_JSON: JSON.stringify(VALID) });
+    expect(ent?.plan).toBe("ENTERPRISE");
+    expect(ent?.seats).toBe(4);
+    expect(ent?.has("pos")).toBe(true);
+    expect(ent?.hasFeature("lan.multi_till")).toBe(true);
   });
 });
 
-/**
- * The half that was missing. Every failure below used to be a `console.warn`
- * and an app that silently did less — no message, no date, and no code an
- * owner could read down the phone.
- */
 describe("diagnoseDesktopEntitlements", () => {
   afterEach(() => {
     vi.restoreAllMocks();

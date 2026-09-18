@@ -3,22 +3,39 @@ import {
   MEZAN_BACKUP_CREATE_CHANNEL,
   MEZAN_BACKUP_LIST_CHANNEL,
   MEZAN_BACKUP_RESTORE_CHANNEL,
+  MEZAN_BACKUP_REVERT_CHANNEL,
+  MEZAN_BACKUP_EXPORT_PORTABLE_CHANNEL,
+  MEZAN_APP_VERSION_CHANNEL,
   MEZAN_FETCH_CHANNEL,
   MEZAN_LICENCE_CHECKIN_CHANNEL,
+  MEZAN_LICENCE_IMPORT_CHANNEL,
   MEZAN_LICENCE_STATUS_CHANNEL,
+  MEZAN_PAIRING_CHANNEL,
   MEZAN_PRINT_TO_PDF_CHANNEL,
+  MEZAN_SAVE_PDF_CHANNEL,
+  MEZAN_SUPPORT_DELETE_CHANNEL,
+  MEZAN_SUPPORT_DIAGNOSTIC_CHANNEL,
+  MEZAN_SUPPORT_REVEAL_CHANNEL,
   MEZAN_UPDATE_EVENT_CHANNEL,
   MEZAN_UPDATE_INVOKE_CHANNEL,
+  type SavePdfOptions,
+  type SavePdfResult,
   type BackupCreateResult,
+  type BackupExportResult,
   type BackupFailure,
   type BackupListResult,
   type BackupRestoreResult,
   type IpcFetchRequest,
   type IpcFetchResponse,
   type LicenceCheckinResult,
+  type LicenceImportResult,
   type LicenceStatusResult,
   type MezanBridge,
+  type PairingRequestMessage,
+  type PairingResponse,
+  type PlaintextRiskTarget,
   type PrintToPdfOptions,
+  type SupportActionResult,
   type UpdateAction,
   type UpdateStatus,
 } from "../shared/ipc-contract.js";
@@ -65,6 +82,9 @@ const mezanBridge: MezanBridge = {
   printToPDF(options?: PrintToPdfOptions): Promise<Uint8Array> {
     return ipcRenderer.invoke(MEZAN_PRINT_TO_PDF_CHANNEL, options);
   },
+  savePDF(options?: SavePdfOptions): Promise<SavePdfResult> {
+    return ipcRenderer.invoke(MEZAN_SAVE_PDF_CHANNEL, options);
+  },
   /**
    * Backup and restore. Each call forwards the caller's SESSION TOKEN — the
    * one `POST /auth/login` minted — because an IPC channel carries no headers
@@ -84,6 +104,12 @@ const mezanBridge: MezanBridge = {
     },
     restore(sessionToken: string, fileName: string): Promise<BackupRestoreResult> {
       return ipcRenderer.invoke(MEZAN_BACKUP_RESTORE_CHANNEL, sessionToken, fileName);
+    },
+    revertToPreUpdate(sessionToken: string): Promise<BackupRestoreResult> {
+      return ipcRenderer.invoke(MEZAN_BACKUP_REVERT_CHANNEL, sessionToken);
+    },
+    exportPortable(sessionToken: string, passphrase: string): Promise<BackupExportResult> {
+      return ipcRenderer.invoke(MEZAN_BACKUP_EXPORT_PORTABLE_CHANNEL, sessionToken, passphrase);
     },
   },
   /** Drives the signed update channel (main/updater.ts + main/update-verify.ts). */
@@ -108,6 +134,39 @@ const mezanBridge: MezanBridge = {
     /** The operator asking now, rather than waiting for the silent startup check. */
     checkin(sessionToken: string): Promise<LicenceCheckinResult> {
       return ipcRenderer.invoke(MEZAN_LICENCE_CHECKIN_CHANNEL, sessionToken);
+    },
+    /** OS file picker → `userData/license.mezan` → re-verification → the real verdict. */
+    import(sessionToken: string): Promise<LicenceImportResult> {
+      return ipcRenderer.invoke(MEZAN_LICENCE_IMPORT_CHANNEL, sessionToken);
+    },
+  },
+  /**
+   * In-app pairing and host relocation, and the ONE bridge call that carries no
+   * session token — because the two states it exists for (a machine nobody has
+   * set up, a till that cannot reach its host) are the two where no session can
+   * exist. The main-process handler is where that is made safe; see
+   * MEZAN_PAIRING_CHANNEL and main/pairing-ipc.ts.
+   */
+  pairing(message: PairingRequestMessage): Promise<PairingResponse> {
+    return ipcRenderer.invoke(MEZAN_PAIRING_CHANNEL, message);
+  },
+  /**
+   * `app.getVersion()`. No session token: the login screen prints the version
+   * before anybody has one, and that literal is exactly what «ما هي نسختك؟»
+   * kept getting a wrong answer from.
+   */
+  appVersion(): Promise<string> {
+    return ipcRenderer.invoke(MEZAN_APP_VERSION_CHANNEL);
+  },
+  support: {
+    saveDiagnostic(sessionToken: string, body: string): Promise<SupportActionResult> {
+      return ipcRenderer.invoke(MEZAN_SUPPORT_DIAGNOSTIC_CHANNEL, sessionToken, body);
+    },
+    reveal(sessionToken: string, target: PlaintextRiskTarget): Promise<SupportActionResult> {
+      return ipcRenderer.invoke(MEZAN_SUPPORT_REVEAL_CHANNEL, sessionToken, target);
+    },
+    remove(sessionToken: string, target: PlaintextRiskTarget): Promise<SupportActionResult> {
+      return ipcRenderer.invoke(MEZAN_SUPPORT_DELETE_CHANNEL, sessionToken, target);
     },
   },
 };

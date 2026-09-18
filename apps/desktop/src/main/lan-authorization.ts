@@ -52,18 +52,36 @@ export function readBearerToken(request: Request): string | null {
   return request.headers.get("x-session-token");
 }
 
+/**
+ * The policy itself, over a token rather than a `Request`.
+ *
+ * Split out because the two registries it consults moved into the backend
+ * process with the database (Q-1): the LAN socket runs in the main process and
+ * only the token and the peer address can cross the port, so the DECISION has
+ * to be taken on the far side. Keeping one definition here — rather than a
+ * second copy inside main/backend-worker.ts — is what stops the two drifting.
+ */
+export function authorizeSeatedSession(
+  options: LanAuthorizationOptions,
+  token: string,
+  remote: string,
+): boolean {
+  if (!token) return false;
+
+  const userId = options.resolveSessionUser(token, remote);
+  if (userId === null) return false;
+
+  // `list()` reaps stale sessions as it reads, which is why the check is made
+  // against it rather than against a cached count.
+  return options.registry.list().some((session) => session.userId === userId);
+}
+
 export function createLanClientAuthorizer(
   options: LanAuthorizationOptions,
 ): (request: Request, remote: string) => boolean {
   return (request, remote) => {
     const token = readBearerToken(request);
     if (!token) return false;
-
-    const userId = options.resolveSessionUser(token, remote);
-    if (userId === null) return false;
-
-    // `list()` reaps stale sessions as it reads, which is why the check is made
-    // against it rather than against a cached count.
-    return options.registry.list().some((session) => session.userId === userId);
+    return authorizeSeatedSession(options, token, remote);
   };
 }

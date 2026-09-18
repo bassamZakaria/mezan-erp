@@ -8,6 +8,7 @@ import type {
 } from "@mezan/contracts";
 import { useApi } from "./ApiContext";
 import { useAppTranslation } from "../i18n";
+import { withSupportCode, type AppTranslate } from "./hooks";
 
 /**
  * Self-service profile hooks — kept out of `data/hooks.ts` but following the
@@ -25,9 +26,14 @@ export class ApiError extends Error {
   }
 }
 
-async function readError(res: { json<T>(): Promise<T> }, fallback: string): Promise<string> {
+async function readError(
+  res: { readonly status: number; json<T>(): Promise<T> },
+  fallback: string,
+  t?: AppTranslate,
+): Promise<string> {
   const body = (await res.json<{ message?: string }>().catch(() => ({}))) as { message?: string };
-  return body.message ?? fallback;
+  if (body.message !== undefined && body.message !== "") return body.message;
+  return withSupportCode(fallback, res.status, t);
 }
 
 // --- الملف الشخصي (self-service profile) ---
@@ -40,7 +46,7 @@ export function useProfile(): UseQueryResult<ProfileDTO, ApiError> {
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/profile");
-      if (!res.ok) throw new ApiError(res.status, t("accountApi.theProfileCouldNotBe"));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("accountApi.theProfileCouldNotBe"), t));
       return res.json<ProfileDTO>();
     },
   });
@@ -53,7 +59,7 @@ export function useUpdateProfile() {
   return useMutation<ProfileDTO, ApiError, UpdateProfileDTO>({
     mutationFn: async (body) => {
       const res = await request("/profile", { method: "PUT", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("accountApi.theProfileCouldNotBe2")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("accountApi.theProfileCouldNotBe2"), t));
       return res.json<ProfileDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["profile"] }),
@@ -66,7 +72,7 @@ export function useChangePassword() {
   return useMutation<void, ApiError, ChangePasswordDTO>({
     mutationFn: async (body) => {
       const res = await request("/profile/change-password", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("profile.couldNotChangeThePassword")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("profile.couldNotChangeThePassword"), t));
     },
   });
 }
@@ -77,7 +83,7 @@ export function useChangePin() {
   return useMutation<void, ApiError, ChangePinDTO>({
     mutationFn: async (body) => {
       const res = await request("/profile/change-pin", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("profile.couldNotChangeThePin")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("profile.couldNotChangeThePin"), t));
     },
   });
 }
@@ -90,7 +96,7 @@ export function useProfileActivity(): UseQueryResult<AuditEventDTO[], ApiError> 
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/profile/activity");
-      if (!res.ok) throw new ApiError(res.status, t("accountApi.theActivityLogCouldNot"));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("accountApi.theActivityLogCouldNot"), t));
       return res.json<AuditEventDTO[]>();
     },
   });

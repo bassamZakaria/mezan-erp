@@ -5,6 +5,13 @@
  * no dependency on domain, persistence, api or any driver, so every layer can
  * import it without pulling in a runtime.
  */
+export {
+  DEFAULT_PAGE_SIZE,
+  MAX_PAGE_SIZE,
+  pageQuerySchema,
+  pageWindow,
+  type PageQueryDTO,
+} from "./paging.js";
 
 export {
   sequenceDefinitionSchema,
@@ -966,6 +973,8 @@ export {
   type ExcludeEtaSubmissionDTO,
   etaActivityCodeSchema,
   etaTestConnectionResultSchema,
+  etaTransmitLogEntrySchema,
+  etaConnectionCheckSchema,
   etaBranchCodeRowSchema,
   updateEtaBranchCodeSchema,
   etaItemMappingRowSchema,
@@ -977,6 +986,8 @@ export {
   etaTaxSubTypeRowSchema,
   type EtaActivityCodeDTO,
   type EtaTestConnectionResultDTO,
+  type EtaTransmitLogEntryDTO,
+  type EtaConnectionCheckDTO,
   type EtaBranchCodeRowDTO,
   type UpdateEtaBranchCodeDTO,
   type EtaItemMappingRowDTO,

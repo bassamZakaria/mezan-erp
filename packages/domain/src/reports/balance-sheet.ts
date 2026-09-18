@@ -127,14 +127,16 @@ export function createBalanceSheetReport(
         branchScope: ctx.branchScope,
       });
       const rows: BalanceSheetRow[] = [];
-      let retainedEarnings = 0;
-      let unattributedRetainedEarnings = 0;
+      // Retained earnings accumulates across every P&L account in the chart, so
+      // it is the figure most exposed to float drift — kept in `Money` (C-10).
+      let retainedEarnings = Money.zero();
+      let unattributedRetainedEarnings = Money.zero();
 
       for (const account of ctx.accounts) {
         if (account.isHeader) continue;
         const section = classifyAccount(account, ctx.cashAccountIds);
-        const net = moneyToNumber(balances.get(account.id) ?? Money.zero());
-        const unattributedNet = moneyToNumber(unattributedBalances.get(account.id) ?? Money.zero());
+        const net = balances.get(account.id) ?? Money.zero();
+        const unattributedNet = unattributedBalances.get(account.id) ?? Money.zero();
 
         // حسابات نظامية are off balance sheet by definition: the pair is
         // self-balancing, so including it would add the same contingent face
@@ -143,16 +145,16 @@ export function createBalanceSheetReport(
         // Revenue/expense don't appear on the balance sheet — they accumulate
         // into retained earnings (net income to date), added under equity below.
         if (section === "revenue" || section === "expense") {
-          retainedEarnings += -net;
-          unattributedRetainedEarnings += -unattributedNet;
+          retainedEarnings = retainedEarnings.add(net.negate());
+          unattributedRetainedEarnings = unattributedRetainedEarnings.add(unattributedNet.negate());
           continue;
         }
-        if (net === 0 && unattributedNet === 0) continue;
+        if (net.scaled === 0n && unattributedNet.scaled === 0n) continue;
 
         const isAsset = ASSET_SECTIONS.includes(section);
         // Assets are debit-normal (net>0); liabilities/equity credit-normal
         // (net<0) — present every section as a positive natural balance.
-        const amount = isAsset ? net : -net;
+        const amount = moneyToNumber(isAsset ? net : net.negate());
         rows.push({
           rowId: account.id,
           code: account.code,
@@ -162,11 +164,11 @@ export function createBalanceSheetReport(
           sectionLabel: ACCOUNT_SECTION_LABELS[section],
           amount,
           side: isAsset ? "asset" : "liability-equity",
-          unattributed: isAsset ? unattributedNet : -unattributedNet,
+          unattributed: moneyToNumber(isAsset ? unattributedNet : unattributedNet.negate()),
         });
       }
 
-      if (retainedEarnings !== 0 || unattributedRetainedEarnings !== 0) {
+      if (retainedEarnings.scaled !== 0n || unattributedRetainedEarnings.scaled !== 0n) {
         rows.push({
           rowId: "_retained-earnings",
           code: "",
@@ -174,9 +176,9 @@ export function createBalanceSheetReport(
           nameEn: "Retained earnings (net income for the period)",
           sectionKey: "equity",
           sectionLabel: ACCOUNT_SECTION_LABELS.equity,
-          amount: retainedEarnings,
+          amount: moneyToNumber(retainedEarnings),
           side: "liability-equity",
-          unattributed: unattributedRetainedEarnings,
+          unattributed: moneyToNumber(unattributedRetainedEarnings),
         });
       }
 

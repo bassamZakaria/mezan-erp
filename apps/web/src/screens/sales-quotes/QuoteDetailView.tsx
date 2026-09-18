@@ -46,7 +46,7 @@ const STEPS = [
  * moves stock; the effects panel says so on the screen, because "what will
  * happen when I press this" is the question the seller is actually asking.
  */
-export function QuoteDetailView({ quote, onBack }: { quote: SalesQuoteRecord; onBack: () => void }) {
+export function QuoteDetailView({ quote, onPrint, onBack }: { quote: SalesQuoteRecord; onPrint?: () => void; onBack: () => void }) {
   const { openScreenAt } = useNavigation();
   const { t } = useAppTranslation();
   const format = useFormat();
@@ -296,6 +296,11 @@ export function QuoteDetailView({ quote, onBack }: { quote: SalesQuoteRecord; on
             <SectionCard title={t("quotes.nextStepTitle")}>
               <div className="sm:col-span-2 flex flex-col gap-3">
                 <p className="text-[12.5px] text-ink-muted">{t(bannerKey)}</p>
+                {onPrint ? (
+                  <Button variant="default" onClick={onPrint}>
+                    {t("print.action.print")}
+                  </Button>
+                ) : null}
                 {expired ? <p className="text-[12.5px] text-danger">{t("quotes.expiredAgo", { days: daysExpired(quote) })}</p> : null}
 
                 {quote.status === "draft" ? (

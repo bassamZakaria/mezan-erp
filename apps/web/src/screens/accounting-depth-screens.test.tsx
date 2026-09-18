@@ -125,10 +125,16 @@ describe("EtaScreen", () => {
       receiptReportingWindowHours: 24,
       clientId: "client-1",
       hasClientSecret: true,
+      preproductionIdentityUrl: "https://id.preprod.eta.gov.eg",
+      preproductionApiUrl: "https://api.preprod.invoicing.eta.gov.eg/api/v1",
+      productionIdentityUrl: "https://id.eta.gov.eg",
+      productionApiUrl: "https://api.invoicing.eta.gov.eg/api/v1",
+      signingCommand: null,
+      signingCommandArgs: [],
     };
     const readiness: EtaReadinessDTO = { percent: 80, items: [{ key: "config", labelAr: "الإعدادات", complete: true, missing: 0 }] };
     let submissions: EtaSubmissionDTO[] = [
-      { id: "s1", internalId: "INV-000014", documentType: "invoice", status: "ready", etaUuid: null, errors: [], exclusionReason: null, createdAt: "2026-08-22T10:00:00.000Z", updatedAt: "2026-08-22T10:00:00.000Z", submittedAt: null },
+      { id: "s1", internalId: "INV-000014", documentType: "invoice", status: "ready", etaUuid: null, errors: [], exclusionReason: null, createdAt: "2026-08-22T10:00:00.000Z", updatedAt: "2026-08-22T10:00:00.000Z", submittedAt: null, gatewaySubmissionId: null, signed: false },
     ];
     const transport = stubTransport({
       "GET /eta/config": () => ({ body: { config, readiness } }),

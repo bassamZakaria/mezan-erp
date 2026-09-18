@@ -183,7 +183,7 @@ export function WorkflowConfigPage() {
   if (configsQuery.isError) {
     return (
       <Card className="p-[18px_20px]">
-        <p className="text-[13px] font-semibold text-danger-ink">{t("workflowConfig.loadFailed")}</p>
+        <p className="text-[13px] font-semibold text-danger-ink">{configsQuery.error?.message ?? t("workflowConfig.loadFailed")}</p>
         <Button size="sm" className="mt-[10px]" onClick={() => configsQuery.refetch()}>
           {t("workflowConfig.retry")}
         </Button>

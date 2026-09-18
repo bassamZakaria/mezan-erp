@@ -4,7 +4,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import type { SessionGrant, SessionRegistry } from "@mezan/api";
+import type { SessionGrant } from "@mezan/api";
+import type { SessionLookup } from "./backend-bridge.js";
 import { createBackup } from "../backup/index.js";
 import {
   cipherDriver,
@@ -15,7 +16,10 @@ import {
   MEZAN_BACKUP_CREATE_CHANNEL,
   MEZAN_BACKUP_LIST_CHANNEL,
   MEZAN_BACKUP_RESTORE_CHANNEL,
+  MEZAN_BACKUP_REVERT_CHANNEL,
+  MEZAN_BACKUP_EXPORT_PORTABLE_CHANNEL,
   type BackupCreateResult,
+  type BackupExportResult,
   type BackupEntryDTO,
   type BackupFailure,
   type BackupListResult,
@@ -43,14 +47,22 @@ vi.mock("electron", () => ({
   },
 }));
 
-function fakeSessions(grant: SessionGrant | null): SessionRegistry {
-  return {
-    issue: () => "unused",
-    find: (token: string) => (token === "good-token" ? grant : null),
-    inspect: (token: string) => ({ grant: token === "good-token" ? grant : null, refusal: null }),
-    revoke: () => {},
-    revokeUser: () => {},
-  };
+/**
+ * A stand-in for the Electron invoke event, carrying the renderer frame the
+ * `guarded` wrapper (main/ipc-guard.ts, audit S-5) checks. `null` used to do —
+ * it no longer does, because a channel that answers a frame it cannot identify
+ * is the finding.
+ */
+const RENDERER_EVENT = { senderFrame: { url: "app://mezan/index.html" } } as never;
+
+/**
+ * guards Q-1 — ASYNC ON PURPOSE. The session registry lives in the backend
+ * process now (main/backend-process.ts), so every one of these channels reads
+ * the caller's grant across a MessagePort. A refusal that only holds while the
+ * lookup is synchronous is not a refusal.
+ */
+function fakeSessions(grant: SessionGrant | null): SessionLookup {
+  return { find: async (token: string) => (token === "good-token" ? grant : null) };
 }
 
 const ADMIN: SessionGrant = {
@@ -97,7 +109,7 @@ async function register(grant: SessionGrant | null, cipher?: TenantCipher): Prom
 }
 
 function call<T>(channel: string, ...args: unknown[]): Promise<T> {
-  return handlers.get(channel)!(null, ...args) as Promise<T>;
+  return handlers.get(channel)!(RENDERER_EVENT, ...args) as Promise<T>;
 }
 
 beforeEach(() => {
@@ -411,5 +423,150 @@ describe("an encrypted install", () => {
     // Not "your backup is corrupt": it is intact and it needs a key.
     expect(failed.message).toContain("مفتاح");
     expect(failed.message).toContain("لم تتغيّر بياناتك");
+  });
+});
+
+/**
+ * GUARDS U-9. The pre-update archive was already being written and had no route
+ * back: the only way to use it was for an owner to recognise which timestamp in
+ * a list came before the version that broke their books.
+ */
+describe("revert to the copy taken before the update", () => {
+  it("restores the newest pre-update archive through the same verified path", async () => {
+    await register(ADMIN);
+    // An ordinary scheduled archive, and a pre-update one taken after it.
+    await createBackup({ sqlite: live, backupsDir, appVersion: "9.9.8", reason: "scheduled" });
+    await createBackup({
+      sqlite: live,
+      backupsDir,
+      appVersion: "9.9.9",
+      reason: "pre-update",
+      label: "pre-update-9.9.9",
+    });
+
+    const result = await call<BackupRestoreResult>(MEZAN_BACKUP_REVERT_CHANNEL, "good-token");
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.restoredFrom.fileName).toContain("pre-update-9.9.9");
+      // The same safety copy the manual restore takes: reverting is still
+      // replacing the books.
+      expect(result.safetyBackupFileName).not.toBeNull();
+    }
+    expect(closed).toBe(1);
+  });
+
+  it("says in Arabic that there is none, rather than restoring some other archive", async () => {
+    await register(ADMIN);
+    await createBackup({ sqlite: live, backupsDir, appVersion: "9.9.8", reason: "scheduled" });
+
+    const result = await call<BackupRestoreResult>(MEZAN_BACKUP_REVERT_CHANNEL, "good-token");
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe("NOT_FOUND");
+      expect(result.message).toContain("قبل التحديث");
+    }
+    expect(closed).toBe(0);
+  });
+
+  it("needs the restore grant, not merely the view one", async () => {
+    await register(CLERK);
+    expect((await call<BackupFailure>(MEZAN_BACKUP_REVERT_CHANNEL, "good-token")).code).toBe(
+      "UNAUTHORIZED",
+    );
+  });
+});
+
+/**
+ * GUARDS N-11. `portable` used to be passed on every scheduled backup, so each
+ * daily archive was rekeyed to plaintext in a folder people copy to a USB
+ * stick. It is now one deliberate action, and the file that leaves is encrypted
+ * under a passphrase the operator chose.
+ */
+describe("exporting a portable copy", () => {
+  it("refuses a passphrase too short to protect the whole books", async () => {
+    await register(ADMIN);
+    const result = await call<BackupExportResult>(
+      MEZAN_BACKUP_EXPORT_PORTABLE_CHANNEL,
+      "good-token",
+      "1234",
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.message).toContain("كلمة سر");
+  });
+
+  it("refuses a caller without the restore grant", async () => {
+    await register(CLERK);
+    const result = await call<BackupExportResult>(
+      MEZAN_BACKUP_EXPORT_PORTABLE_CHANNEL,
+      "good-token",
+      "kalimat-sirr-2026",
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe("UNAUTHORIZED");
+  });
+
+  it("writes one encrypted file and leaves no readable archive behind", async () => {
+    await register(ADMIN);
+    const result = await call<BackupExportResult>(
+      MEZAN_BACKUP_EXPORT_PORTABLE_CHANNEL,
+      "good-token",
+      "kalimat-sirr-2026",
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const { readdirSync } = await import("node:fs");
+    const written = readdirSync(backupsDir);
+    expect(written).toEqual([path.basename(result.filePath)]);
+    expect(written[0]).toMatch(/\.mezanbak\.enc$/);
+  });
+});
+
+/**
+ * guards S-3 — "a restore replaces the trail wholesale and writes no audit
+ * event". The whole difficulty is ordering: an event written before the swap is
+ * destroyed by the swap it records.
+ */
+describe("a restore is recorded in the trail it lands in", () => {
+  it("writes a CRITICAL backup.restored row into the RESTORED database", async () => {
+    await register(ADMIN);
+
+    const snapshot = await createBackup({
+      sqlite: live,
+      backupsDir,
+      appVersion: "9.9.9",
+      reason: "manual",
+    });
+    const archiveName = path.basename(snapshot.archivePath);
+
+    const res = await call<BackupRestoreResult>(MEZAN_BACKUP_RESTORE_CHANNEL, "good-token", archiveName);
+    expect(res.ok).toBe(true);
+
+    // Read the file that is now on disk — the archive's own database, which the
+    // event has to have survived into.
+    const reopened = new Database(dbPath, { readonly: true });
+    try {
+      const row = reopened
+        .prepare(
+          "SELECT stream, module, action, actor, severity, details, row_hash FROM audit_event WHERE action = 'backup.restored'",
+        )
+        .get() as
+        | { stream: string; module: string; action: string; actor: string; severity: string; details: string; row_hash: string | null }
+        | undefined;
+      expect(row).toBeDefined();
+      expect(row?.severity).toBe("CRITICAL");
+      expect(row?.stream).toBe("security");
+      expect(row?.module).toBe("backup");
+      // The actor is the userId the SERVER holds for that token, not a name the
+      // renderer sent.
+      expect(row?.actor).toBe("USER-ADMIN");
+      expect(JSON.parse(row?.details ?? "{}")).toMatchObject({ archive: archiveName });
+      // It is chained like every other row, so deleting it is detectable.
+      expect(row?.row_hash).toMatch(/^[0-9a-f]{64}$/);
+    } finally {
+      reopened.close();
+    }
   });
 });

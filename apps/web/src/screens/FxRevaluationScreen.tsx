@@ -186,7 +186,7 @@ export function FxRevaluationScreen() {
 
         {balancesQuery.isError ? (
           <div role="alert" className="mt-[12px] rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
-            {t("fx.balances.couldNotLoad")}
+            {balancesQuery.error?.message ?? t("fx.balances.couldNotLoad")}
           </div>
         ) : null}
 

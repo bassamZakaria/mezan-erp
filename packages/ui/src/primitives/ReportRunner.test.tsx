@@ -216,3 +216,95 @@ describe("ReportRunner — export", () => {
     await waitFor(() => expect(URL.createObjectURL).toHaveBeenCalledTimes(1));
   });
 });
+
+/** guards P-6 — no report or financial statement could be printed or saved as a PDF. */
+describe("ReportRunner — print and PDF", () => {
+  const wideColumns: ReportRunnerColumn<Row>[] = [
+    ...columns,
+    { key: "c3", header: "٣", value: () => "" },
+    { key: "c4", header: "٤", value: () => "" },
+    { key: "c5", header: "٥", value: () => "" },
+    { key: "c6", header: "٦", value: () => "" },
+    { key: "c7", header: "٧", value: () => "" },
+  ];
+
+  function runner(props: Partial<React.ComponentProps<typeof ReportRunner<Row>>> = {}) {
+    return render(
+      <ReportRunner
+        title="تقرير تجريبي"
+        paramFields={[]}
+        params={{}}
+        onParamsChange={() => {}}
+        result={makeResult([{ id: "1", label: "نقدية", amount: 1000 }])}
+        columns={columns}
+        rowKey={(r) => r.id}
+        {...props}
+      />,
+    );
+  }
+
+  afterEach(() => {
+    delete (window as unknown as { mezan?: unknown }).mezan;
+  });
+
+  it("offers «طباعة», which prints the page the reader is looking at", () => {
+    const print = vi.spyOn(window, "print").mockImplementation(() => {});
+    runner();
+    fireEvent.click(screen.getByRole("button", { name: "طباعة" }));
+    expect(print).toHaveBeenCalledTimes(1);
+    print.mockRestore();
+  });
+
+  it("offers no «حفظ PDF» in the browser — its own print dialog already saves one", () => {
+    runner();
+    expect(screen.queryByRole("button", { name: "حفظ PDF" })).toBeNull();
+  });
+
+  it("saves through the desktop bridge, turning a wide report on its side", async () => {
+    const savePDF = vi.fn().mockResolvedValue({ ok: true, path: "/tmp/تقرير.pdf" });
+    (window as unknown as { mezan: unknown }).mezan = { savePDF };
+    runner({ columns: wideColumns, exportBaseFilename: "wide-report" });
+
+    fireEvent.click(screen.getByRole("button", { name: "حفظ PDF" }));
+
+    await waitFor(() => expect(savePDF).toHaveBeenCalledTimes(1));
+    expect(savePDF).toHaveBeenCalledWith({ landscape: true, defaultFileName: "wide-report" });
+    expect(await screen.findByRole("status")).toHaveTextContent("/tmp/تقرير.pdf");
+  });
+
+  it("keeps a narrow report portrait", async () => {
+    const savePDF = vi.fn().mockResolvedValue({ ok: false, cancelled: true });
+    (window as unknown as { mezan: unknown }).mezan = { savePDF };
+    runner();
+
+    fireEvent.click(screen.getByRole("button", { name: "حفظ PDF" }));
+
+    await waitFor(() => expect(savePDF).toHaveBeenCalledTimes(1));
+    expect(savePDF.mock.calls[0]?.[0]).toMatchObject({ landscape: false });
+  });
+
+  it("says nothing when the operator dismisses the save dialog, and reports a real failure", async () => {
+    const savePDF = vi.fn().mockResolvedValue({ ok: false, cancelled: true });
+    (window as unknown as { mezan: unknown }).mezan = { savePDF };
+    const { rerender } = runner();
+
+    fireEvent.click(screen.getByRole("button", { name: "حفظ PDF" }));
+    await waitFor(() => expect(savePDF).toHaveBeenCalled());
+    expect(screen.queryByRole("status")).toBeNull();
+
+    savePDF.mockResolvedValue({ ok: false, cancelled: false, message: "تعذّر حفظ ملف PDF." });
+    rerender(
+      <ReportRunner
+        title="تقرير تجريبي"
+        paramFields={[]}
+        params={{}}
+        onParamsChange={() => {}}
+        result={makeResult([{ id: "1", label: "نقدية", amount: 1000 }])}
+        columns={columns}
+        rowKey={(r) => r.id}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "حفظ PDF" }));
+    expect(await screen.findByRole("status")).toHaveTextContent("تعذّر حفظ ملف PDF.");
+  });
+});

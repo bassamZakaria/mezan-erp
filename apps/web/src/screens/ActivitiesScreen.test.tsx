@@ -70,7 +70,7 @@ describe("ActivitiesScreen", () => {
     const transport = stubTransport({ "GET /crm/activities": () => ({ status: 500, body: { error: "DOWN" } }) });
     renderWithProviders(<ActivitiesScreen />, { transport, initialSession: testAdminSession });
 
-    expect(await screen.findByText("تعذّر تحميل الأنشطة.")).toBeInTheDocument();
+    expect(await screen.findByText("تعذّر تحميل الأنشطة. (رمز 500)")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "إعادة المحاولة" })).toBeInTheDocument();
   });
 
@@ -120,5 +120,23 @@ describe("ActivitiesScreen", () => {
 
     await screen.findByText("متابعة عرض السعر");
     expect(screen.getAllByText("مكتمل").length).toBeGreaterThan(0);
+  });
+});
+
+/** guards §4.5 #13 — the error card shows the SERVER's reason, not the screen's fixed sentence. */
+describe("ActivitiesScreen — a 502 body reaches the error card", () => {
+  it("renders the server's own Arabic reason", async () => {
+    renderWithProviders(
+      <ActivitiesScreen />,
+      {
+        transport: stubTransport({
+          "GET /crm/activities": () => ({ status: 502, body: { message: "تعذّر الوصول إلى الجهاز الرئيسي. الجهاز مغلق أو غير متصل بالشبكة." } }),
+        }),
+        initialSession: testAdminSession,
+      },
+    );
+
+    expect(await screen.findByText("تعذّر الوصول إلى الجهاز الرئيسي. الجهاز مغلق أو غير متصل بالشبكة.")).toBeInTheDocument();
+    expect(screen.queryByText("تعذّر تحميل الأنشطة.")).not.toBeInTheDocument();
   });
 });

@@ -130,7 +130,7 @@ export function PrintTemplatesPage() {
     return <p className="text-[13px] text-ink-muted">{t("printTemplates.loadingThePrintTemplate")}</p>;
   }
   if (query.isError) {
-    return <StatusPill label={t("printTemplates.couldNotLoadThePrint")} tone="danger" />;
+    return <StatusPill label={query.error?.message ?? t("printTemplates.couldNotLoadThePrint")} tone="danger" />;
   }
 
   return (

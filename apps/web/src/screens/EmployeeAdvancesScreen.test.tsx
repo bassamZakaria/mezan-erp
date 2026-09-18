@@ -181,7 +181,7 @@ describe("EmployeeAdvancesScreen", () => {
         },
       },
     });
-    expect(await screen.findByText("تعذّر تحميل السلف.")).toBeInTheDocument();
+    expect(await screen.findByText("تعذّر تحميل السلف. (رمز 500)")).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByText("INTERNAL")).not.toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "إعادة المحاولة" }));
     expect(await screen.findByText("ADV-000001")).toBeInTheDocument();
@@ -324,5 +324,27 @@ describe("EmployeeAdvancesScreen", () => {
 
     await waitFor(() => expect(posted).not.toBeNull());
     expect(posted).toEqual({ treasuryAccountId: "tre-1", branchId: "MAIN" });
+  });
+});
+
+/** guards §4.5 #13 — the error card shows the SERVER's reason, not the screen's fixed sentence. */
+describe("EmployeeAdvancesScreen — a 502 body reaches the error card", () => {
+  it("renders the server's own Arabic reason", async () => {
+    renderWithProviders(
+      <EmployeeAdvancesScreen />,
+      {
+        transport: stubTransport({
+          "GET /hr/advances": () => ({ status: 502, body: { message: "تعذّر الوصول إلى الجهاز الرئيسي. الجهاز مغلق أو غير متصل بالشبكة." } }),
+          "GET /hr/advances/outstanding": () => ({ body: [] }),
+          "GET /hr/employees": () => ({ body: [] }),
+          "GET /treasury-accounts": () => ({ body: [] }),
+          "GET /branches": () => ({ body: [] }),
+        }),
+        initialSession: testAdminSession,
+      },
+    );
+
+    expect(await screen.findByText("تعذّر الوصول إلى الجهاز الرئيسي. الجهاز مغلق أو غير متصل بالشبكة.")).toBeInTheDocument();
+    expect(screen.queryByText("تعذّر تحميل السلف.")).not.toBeInTheDocument();
   });
 });

@@ -15,6 +15,7 @@ import {
   type EntityPickerOption,
   type RowMenuItem,
 } from "@mezan/ui";
+import { QuotePrintPage } from "../../print/documents";
 import { SelectField, TextField } from "../../settings/form-controls";
 import {
   useAcceptSalesQuote,
@@ -70,12 +71,18 @@ export function SalesQuotesScreen() {
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [rowError, setRowError] = useState<string | null>(null);
 
-  async function runTransition(id: string, transition: { mutateAsync: (id: string) => Promise<unknown> }): Promise<void> {
+  async function runTransition(
+    id: string,
+    transition: { mutateAsync: (input: { id: string; expectedVersion?: number }) => Promise<unknown> },
+    expectedVersion?: number,
+  ): Promise<void> {
     if (pendingId) return;
     setRowError(null);
     setPendingId(id);
     try {
-      await transition.mutateAsync(id);
+      // N-9: the version this screen was served. Another till that already moved
+      // this quote wins, and this call is refused by name rather than silently.
+      await transition.mutateAsync({ id, expectedVersion });
     } catch (err) {
       setRowError(errorMessage(err, t("common.failed")));
     } finally {
@@ -193,7 +200,10 @@ export function SalesQuotesScreen() {
   if (firstSegment === "new") return <QuoteFormView onClose={subPage.close} initialCustomerId={subPage.segments[1] ?? ""} />;
   if (firstSegment !== undefined) {
     const quote = filtered.find((q) => q.id === firstSegment || q.docNo === firstSegment);
-    if (quote) return <QuoteDetailView quote={quote} onBack={subPage.close} />;
+    // `#/sell/quotes/<docNo>/print` — a destination, not an overlay, the way
+    // the sales invoice's print page already is (P-6).
+    if (quote && subPage.segments[1] === "print") return <QuotePrintPage quote={quote} />;
+    if (quote) return <QuoteDetailView quote={quote} onPrint={() => subPage.open(quote.docNo ?? quote.id, "print")} onBack={subPage.close} />;
     if (!query.isLoading) {
       return (
         <div className="w-full p-8 text-center text-sm text-ink-muted">
@@ -297,13 +307,14 @@ export function SalesQuotesScreen() {
            */
           const menuItems: RowMenuItem[] = [
             { key: "view", label: t("quotes.row.view"), onSelect: () => subPage.open(q.docNo ?? q.id) },
+            { key: "print", label: t("print.action.print"), onSelect: () => subPage.open(q.docNo ?? q.id, "print") },
             ...(q.status === "draft"
-              ? [{ key: "send", label: t("quotes.send"), disabled: pendingId === q.id, onSelect: () => void runTransition(q.id, send) }]
+              ? [{ key: "send", label: t("quotes.send"), disabled: pendingId === q.id, onSelect: () => void runTransition(q.id, send, q.version) }]
               : []),
             ...(q.status === "sent"
               ? [
-                  { key: "accept", label: t("quotes.accept"), disabled: pendingId === q.id, onSelect: () => void runTransition(q.id, accept) },
-                  { key: "reject", label: t("quotes.reject"), disabled: pendingId === q.id, onSelect: () => void runTransition(q.id, reject) },
+                  { key: "accept", label: t("quotes.accept"), disabled: pendingId === q.id, onSelect: () => void runTransition(q.id, accept, q.version) },
+                  { key: "reject", label: t("quotes.reject"), disabled: pendingId === q.id, onSelect: () => void runTransition(q.id, reject, q.version) },
                 ]
               : []),
             ...(q.status === "accepted"
@@ -319,7 +330,7 @@ export function SalesQuotesScreen() {
                     label: t("quotes.cancel"),
                     tone: "danger" as const,
                     disabled: pendingId === q.id,
-                    onSelect: () => void runTransition(q.id, cancel),
+                    onSelect: () => void runTransition(q.id, cancel, q.version),
                   },
                 ]
               : []),
@@ -327,7 +338,7 @@ export function SalesQuotesScreen() {
           return (
             <div className="flex items-center gap-2" onClick={(event) => event.stopPropagation()}>
               {q.status === "draft" ? (
-                <Button size="sm" variant="default" disabled={pendingId === q.id} onClick={() => void runTransition(q.id, send)}>
+                <Button size="sm" variant="default" disabled={pendingId === q.id} onClick={() => void runTransition(q.id, send, q.version)}>
                   {t("quotes.send")}
                 </Button>
               ) : null}

@@ -26,6 +26,8 @@ export {
   voucherDocumentType,
   voucherLine,
   voucherNetPaid,
+  voucherBaseAmount,
+  voucherBaseWithholding,
 } from "./voucher-document.js";
 
 export {

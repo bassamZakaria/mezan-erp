@@ -27,6 +27,7 @@ import { useConfirmGoodsReceipt, useCreateGoodsReceipt, useGoodsReceiptCounts, u
 import { useWorkingLocation } from "../data/hub-hooks";
 import { SelectField, TextField, NumberField } from "../settings/form-controls";
 import { itemTypeIsPurchasable } from "@mezan/domain";
+import { GoodsReceiptPrintPage } from "../print/documents";
 import { useNavigation, useScreenIntent, useSubPage } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { majorOf } from "../lib/money";
@@ -112,6 +113,7 @@ function ReceiptDetail({
   projectName,
   onBack,
   onConfirm,
+  onPrint,
 }: {
   receipt: GoodsReceiptDTO;
   order: { number: string } | undefined;
@@ -120,6 +122,7 @@ function ReceiptDetail({
   projectName: (id: string | null) => string;
   onBack: () => void;
   onConfirm: () => void;
+  onPrint: () => void;
 }) {
   const { t } = useAppTranslation();
   return (
@@ -135,6 +138,7 @@ function ReceiptDetail({
               {t("goodsReceipts.confirm")}
             </Button>
           ) : null}
+          <Button onClick={onPrint}>{t("print.action.print")}</Button>
         </>
       }
       summary={[
@@ -679,6 +683,9 @@ export function GoodsReceiptsScreen() {
 
   if (firstSegment === "new") return createPage;
 
+  // إذن استلام — the paper the storekeeper signs at the gate (P-6).
+  if (selected && subPage.segments[1] === "print") return <GoodsReceiptPrintPage receipt={selected} />;
+
   if (selected) {
     return (
       <>
@@ -690,6 +697,7 @@ export function GoodsReceiptsScreen() {
           projectName={projectName}
           onBack={() => subPage.close()}
           onConfirm={() => confirmSelected(selected.id)}
+          onPrint={() => subPage.open(selected.number ?? selected.id, "print")}
         />
       </>
     );
@@ -763,6 +771,7 @@ export function GoodsReceiptsScreen() {
           // A confirmed but un-invoiced receipt is the only one an invoice can be raised from (R1.3).
           const menuItems: RowMenuItem[] = [
             { key: "view", label: t("common.view"), onSelect: () => subPage.open(r.number ?? r.id) },
+            { key: "print", label: t("print.action.print"), onSelect: () => subPage.open(r.number ?? r.id, "print") },
             ...(r.status === "draft"
               ? [{ key: "confirm", label: t("goodsReceipts.confirm"), onSelect: () => void confirmSelected(r.id) }]
               : []),

@@ -1,6 +1,7 @@
 import Database from "better-sqlite3";
 import { openSqliteConnection, withSqliteTransaction, type SqliteConnectionInput } from "./sqlite-connection.js";
 import { childRowsByParent } from "./list-query.js";
+import { addVersionColumns, createDocumentVersionStore, type DocumentVersionStore } from "./document-version.js";
 import {
   Money,
   Qty,
@@ -160,7 +161,7 @@ class SqliteSalesQuoteRepository implements SalesQuoteRepository {
   private readonly selectQuoteById: Database.Statement;
   private readonly selectLines: Database.Statement;
 
-  constructor(private readonly sqlite: Database.Database) {
+  constructor(private readonly sqlite: Database.Database, private readonly versions?: DocumentVersionStore) {
     this.insertQuote = sqlite.prepare(`
       INSERT INTO sales_quote (
         id, doc_type, doc_no, status, date, expiry_date, customer_id, customer_name_ar,
@@ -228,6 +229,8 @@ class SqliteSalesQuoteRepository implements SalesQuoteRepository {
     this.updateQuote.run(quoteParams(quote));
     this.deleteLines.run(quote.id);
     this.insertLines(quote);
+    // N-9: any write moves the version, whichever path made the change.
+    this.versions?.bump(quote.id);
   }
 
   async findById(id: string): Promise<SalesQuote | null> {
@@ -320,6 +323,8 @@ class SqliteSalesQuoteRepository implements SalesQuoteRepository {
 }
 
 export interface SqliteSalesQuoteStoreHandle extends SalesQuoteRepository {
+  /** N-9 — the row version an optimistic update compares against. */
+  readonly versions: DocumentVersionStore;
   close(): void;
 }
 
@@ -328,8 +333,11 @@ export function createSqliteSalesQuoteStore(path: SqliteConnectionInput = ":memo
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(CREATE_TABLES);
-  const repo = new SqliteSalesQuoteRepository(sqlite);
+  addVersionColumns(sqlite, "sales_quote");
+  const versions = createDocumentVersionStore(sqlite, "sales_quote");
+  const repo = new SqliteSalesQuoteRepository(sqlite, versions);
   return Object.assign(repo, {
+    versions,
     close: () => { if (owned) sqlite.close(); },
   }) as SqliteSalesQuoteStoreHandle;
 }

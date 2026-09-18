@@ -84,6 +84,8 @@ const NO_CATEGORY_KEY = "common.uncategorized" as const;
 const DEFAULT_GL_ID = "__default__";
 const DEFAULT_GL_KEY = "items.defaultForTheItemType" as const;
 const PAGE_SIZES = [5, 10, 25, 50, 100] as const;
+/** Stable identity so the catalogue-size query is not re-keyed on every render. */
+const WHOLE_CATALOGUE: ItemListFilter = {};
 
 /** Draft shape for the add/edit panel. Money fields are plain numbers here (MoneyInput's contract) — converted to/from the ItemDTO's decimal-string wire shape on submit/load. */
 /**
@@ -297,8 +299,8 @@ function draftToItem(draft: ItemDraft, id: string): CreateItemDTO & { status: It
   };
 }
 
-function nextItemCode(items: ItemDTO[]): string {
-  return `ITM-${String(items.length + 1).padStart(6, "0")}`;
+function nextItemCode(catalogueSize: number): string {
+  return `ITM-${String(catalogueSize + 1).padStart(6, "0")}`;
 }
 
 /** الأصناف (Items) — docs/archive/catalog/03-inventory.md. List (KPI strip + filters + table + pager), item detail (tabs), add/edit form. */
@@ -680,6 +682,18 @@ function ItemCostLayersTab({ itemId }: { itemId: string }) {
   );
 }
 
+/**
+ * The sortable columns the ROUTE can order by. The order is applied server-side
+ * because the list is a page now, and sorting a page instead of the set
+ * reorders rows within a page while leaving the pages themselves arbitrary. A
+ * column outside this set falls back to the document code rather than silently
+ * asking for an order the server does not have.
+ */
+const SERVER_SORT_KEYS = ["code", "nameAr", "salePrice", "costPrice"] as const;
+function serverSortKey(key: string): (typeof SERVER_SORT_KEYS)[number] {
+  return SERVER_SORT_KEYS.find((k) => k === key) ?? "code";
+}
+
 export function ItemsScreen() {
   const { t } = useAppTranslation();
   const nameOf = useEntityName();
@@ -753,9 +767,19 @@ export function ItemsScreen() {
     [statusChipKey, categoryFilter, brandFilter, seasonFilter, unitFilter, search],
   );
 
-  const query = useItems(filter);
+  // Only the ROWS query carries the page and the sort (Q-9): the screen used
+  // to fetch the whole catalogue and slice it here, and the chips and the KPI
+  // strip still speak for the whole filtered set.
+  const query = useItems({ ...filter, page, pageSize, sort: serverSortKey(sort.key), sortDir: sort.direction });
   const items = query.data ?? EMPTY;
   const counts = useItemCounts(filter).data ?? {};
+  // The offered code counts the CATALOGUE, never the page in front of the
+  // reader: `items` has been one server page since Q-9, so this offered
+  // ITM-000026 on every full page and the create was refused the moment that
+  // code was taken. `filter` cannot be used either — it would count what the
+  // reader has searched for.
+  const catalogueQuery = useItemCounts(WHOLE_CATALOGUE);
+  const catalogueSize = catalogueQuery.data?.all ?? 0;
   const stats = useItemStats(filter).data ?? {};
 
   const totalCount = counts.all ?? 0;
@@ -763,19 +787,10 @@ export function ItemsScreen() {
   const lowStockCount = counts.low_stock ?? 0;
   const outOfStockCount = counts.out_of_stock ?? 0;
 
-  const filtered = useMemo(() => {
-    const sorted = [...items].sort((a, b) => {
-      const dir = sort.direction === "asc" ? 1 : -1;
-      if (sort.key === "salePrice") return (Number(a.salePrice ?? 0) - Number(b.salePrice ?? 0)) * dir;
-      if (sort.key === "costPrice") return (Number(a.costPrice ?? 0) - Number(b.costPrice ?? 0)) * dir;
-      if (sort.key === "nameAr") return a.nameAr.localeCompare(b.nameAr) * dir;
-      return a.code.localeCompare(b.code) * dir;
-    });
-    return sorted;
-  }, [items, sort]);
-
-  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
-  const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
+  // What the server returned IS the page, already in the requested order.
+  const filtered = items;
+  const pageCount = Math.max(1, Math.ceil(totalCount / pageSize));
+  const pageRows = filtered;
 
   const activeFilterCount =
     (statusChipKey !== "all" ? 1 : 0) +
@@ -820,11 +835,11 @@ export function ItemsScreen() {
     }
     if (seededFor.current === formSegment) return;
     if (formSegment === "new") {
-      // NOT before the catalogue has loaded: `nextItemCode([])` is ITM-000001,
+      // NOT before the catalogue has loaded: `nextItemCode(0)` is ITM-000001,
       // which is already taken, and the guard below would then keep that wrong
       // code for the life of the form.
-      if (query.isLoading) return;
-      setDraft({ ...BLANK_DRAFT, code: nextItemCode(items) });
+      if (query.isLoading || catalogueQuery.isLoading) return;
+      setDraft({ ...BLANK_DRAFT, code: nextItemCode(catalogueSize) });
     } else if (editingItem) {
       setDraft(draftFromItem(editingItem));
     } else {
@@ -832,7 +847,7 @@ export function ItemsScreen() {
     }
     seededFor.current = formSegment;
     setFormError(null);
-  }, [formSegment, editingItem, items, query.isLoading]);
+  }, [formSegment, editingItem, items, query.isLoading, catalogueQuery.isLoading, catalogueSize]);
 
   function openCreateForm() {
     subPage.open("new");

@@ -67,6 +67,14 @@ import { recordAdminEvent } from "./admin-audit.js";
 import { refuseUnknownItems, type ItemCatalogCheck } from "./item-check.js";
 import { type AuthContextResolver, branchScopeOf, callerRoleCodes, createAnyPermissionGate, createPermissionGate, getAuthContext, moduleRefusalFor, warehouseScopeOf } from "./permission-gate.js";
 import { tenantDay } from "./tenant-day.js";
+import {
+  documentVersionOf,
+  documentVersionsOf,
+  expectedVersionOf,
+  refuseStaleDocument,
+  stampDocumentModifier,
+  type DocumentVersionGuard,
+} from "./document-version.js";
 
 /**
  * External dependencies the sales-invoice routes bind the domain service to.
@@ -76,6 +84,12 @@ import { tenantDay } from "./tenant-day.js";
  */
 export interface SalesInvoiceRoutesDeps {
   readonly repo: SalesInvoiceRepository;
+  /**
+   * N-9 — optimistic concurrency. Omit it and the routes behave exactly as
+   * before; supply it and a caller holding a stale `expectedVersion` is refused
+   * instead of silently overwriting the till that got there first.
+   */
+  readonly versionGuard?: DocumentVersionGuard;
   readonly numbering: DocumentNumberingHook;
   readonly gl: DocumentGlHook;
   readonly stock: SalesInvoiceStockHook;
@@ -155,7 +169,15 @@ export interface SalesInvoiceRoutesDeps {
    * has been returned against it — the GL credits AR on every confirmed return
    * while the invoice went on reporting its full total as outstanding.
    */
-  readonly returns?: { list(): Promise<readonly SalesReturnDocument[]> };
+  readonly returns?: {
+    list(): Promise<readonly SalesReturnDocument[]>;
+    /** The confirmed returns citing these invoices, in one query — see `DocumentRepository.listByLineRef`. */
+    listByLineRef?(
+      field: "sourceInvoiceId",
+      ids: readonly string[],
+      filter?: { status?: "confirmed" },
+    ): Promise<readonly SalesReturnDocument[]>;
+  };
   /**
    * Resolves the caller's linked `Employee.id`. `view_own` narrows on
    * `salespersonId`, which holds an employee id, not a user id — without this
@@ -423,14 +445,25 @@ export function createSalesInvoicesRoutes(
     return ctx ? can(ctx, "sales.invoice.view_cost") : false;
   };
 
-  /** Confirmed-return credit per invoice; empty when the app mounts no returns module. */
-  async function returnCredits(): Promise<ReadonlyMap<string, Money>> {
-    if (!deps.returns) return new Map();
-    return salesReturnCreditByInvoice(await deps.returns.list());
+  /**
+   * Confirmed-return credit for JUST these invoices; empty when the app mounts
+   * no returns module. Scoped by id deliberately (Q-5): the whole return
+   * history was being read to decorate a page of twenty-five rows, and again
+   * on every `GET /:id`.
+   */
+  async function returnCredits(ids: readonly string[]): Promise<ReadonlyMap<string, Money>> {
+    if (!deps.returns || ids.length === 0) return new Map();
+    const docs = deps.returns.listByLineRef
+      ? await deps.returns.listByLineRef("sourceInvoiceId", ids, { status: "confirmed" })
+      : await deps.returns.list();
+    // A matched document may still carry a line citing an invoice outside the
+    // page, so the map is narrowed either way and the two paths agree exactly.
+    const wanted = new Set(ids);
+    return new Map([...salesReturnCreditByInvoice(docs)].filter(([id]) => wanted.has(id)));
   }
 
   async function creditFor(invoiceId: string): Promise<Money> {
-    return (await returnCredits()).get(invoiceId) ?? Money.zero();
+    return (await returnCredits([invoiceId])).get(invoiceId) ?? Money.zero();
   }
 
   /**
@@ -439,11 +472,9 @@ export function createSalesInvoicesRoutes(
    * app mounts no treasury module.
    */
   async function allocatedByInvoice(ids: readonly string[]): Promise<ReadonlyMap<string, Money>> {
-    const out = new Map<string, Money>();
-    if (!deps.allocatable) return out;
-    const rows = await Promise.all(ids.map((id) => deps.allocatable!.findById(id)));
-    for (const row of rows) if (row) out.set(row.id, row.allocated);
-    return out;
+    if (!deps.allocatable || ids.length === 0) return new Map<string, Money>();
+    // One chunked `IN (...)`, not an awaited findById per row (Q-5).
+    return deps.allocatable.allocatedByIds(ids);
   }
 
   function service(c: Context): SalesInvoiceService {
@@ -727,6 +758,9 @@ export function createSalesInvoicesRoutes(
 
   const DERIVED_FILTER_KEYS = new Set(["all", "open", "overdue"]);
 
+  /** The only two stored statuses an unpaid balance can sit under. */
+  const UNSETTLED_STATUSES = ["confirmed", "partially_paid"] as const satisfies readonly SalesInvoice["status"][];
+
   function isOpen(invoice: SalesInvoice, remaining: Money): boolean {
     return (invoice.status === "confirmed" || invoice.status === "partially_paid") && remaining.scaled > 0n;
   }
@@ -742,12 +776,16 @@ export function createSalesInvoicesRoutes(
    * the whole tenant is being told the figure they may not see.
    */
   async function repoFilterFor(c: Context, filter: SalesInvoiceListQueryDTO, page?: { limit: number; offset: number }) {
-    const { branchId, warehouseId, search, status, ...dateFilter } = filter;
+    const { branchId, warehouseId, search, status, page: _page, pageSize: _pageSize, ...dateFilter } = filter;
     return {
       ...dateFilter,
       // `open`/`overdue`/`all` are not stored statuses, so they must not reach
       // the repository — it would match none of them and return nothing.
       ...(status && !DERIVED_FILTER_KEYS.has(status) ? { status } : {}),
+      // …but only a confirmed or partially-paid invoice can BE open or
+      // overdue, so those two chips narrow in SQL to the open receivable
+      // instead of hydrating every draft, paid and cancelled row to discard it.
+      ...(status === "open" || status === "overdue" ? { statusIn: UNSETTLED_STATUSES } : {}),
       branchScope: branchScopeOf(c),
       warehouseScope: warehouseScopeOf(c),
       branchId,
@@ -772,7 +810,7 @@ export function createSalesInvoicesRoutes(
     const derived = status === "open" || status === "overdue";
     let rows = await svc.list(await repoFilterFor(c, filter, derived ? undefined : page));
 
-    const credits = await returnCredits();
+    const credits = await returnCredits(rows.map((inv) => inv.id));
     const allocations = await allocatedByInvoice(rows.map((inv) => inv.id));
 
     if (derived) {
@@ -801,12 +839,21 @@ export function createSalesInvoicesRoutes(
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
     const svc = service(c);
+    // Both carry a contract default, so the unbounded branch is gone:
+    // an omitted page can no longer mean the whole table (Q-8).
     const { page, pageSize } = parsed.data;
-    const window =
-      pageSize === undefined ? undefined : { limit: pageSize, offset: ((page ?? 1) - 1) * pageSize };
+    const window = { limit: pageSize, offset: (page - 1) * pageSize };
     const { rows: invoices, credits, allocations } = await listFiltered(svc, c, parsed.data, window);
     const costs = maySeeCost(c);
-    return c.json(invoices.map((inv) => serialize(inv, totalsFor(svc, inv), credits.get(inv.id), costs)));
+    // N-9: the row's own confirm acts from this payload, so the version has to
+    // ride on the row or `expectedVersion` is never sent and the guard no-ops.
+    const versions = await documentVersionsOf(deps.versionGuard, invoices.map((inv) => inv.id));
+    return c.json(
+      invoices.map((inv) => ({
+        ...serialize(inv, totalsFor(svc, inv), credits.get(inv.id), costs),
+        version: versions.get(inv.id),
+      })),
+    );
   });
 
   /**
@@ -814,6 +861,10 @@ export function createSalesInvoicesRoutes(
    * chip has to say how many rows it WOULD show, so counting the already
    * status-filtered set would render every chip but the active one as zero.
    * Every other filter still applies.
+   *
+   * The stored statuses are one `GROUP BY`; only `open`/`overdue` need rows,
+   * and only the two statuses an unpaid balance can sit under, because the
+   * remaining balance is a function of the lines and no column holds it (Q-5).
    */
   app.get("/counts", gateAny("sales.invoice.view", "sales.invoice.view_all", "sales.invoice.view_own"), async (c) => {
     const parsed = parseListQuery(c);
@@ -822,11 +873,12 @@ export function createSalesInvoicesRoutes(
     }
     const svc = service(c);
     const { status: _ignored, ...withoutStatus } = parsed.data;
-    const { rows: invoices, credits, allocations } = await listFiltered(svc, c, withoutStatus);
+    const byStatus = await svc.countByStatus(await repoFilterFor(c, withoutStatus));
     const today = (deps.now?.() ?? new Date().toISOString()).slice(0, 10);
 
+    let all = 0;
     const counts: Record<string, number> = {
-      all: invoices.length,
+      all: 0,
       draft: 0,
       confirmed: 0,
       partially_paid: 0,
@@ -836,12 +888,19 @@ export function createSalesInvoicesRoutes(
       open: 0,
       overdue: 0,
     };
-    for (const invoice of invoices) {
-      counts[invoice.status] = (counts[invoice.status] ?? 0) + 1;
+    for (const [status, n] of byStatus) {
+      counts[status] = (counts[status] ?? 0) + n;
+      all += n;
+    }
+    counts.all = all;
+
+    const unsettled = await svc.list(await repoFilterFor(c, { ...withoutStatus, status: "open" }));
+    const credits = await returnCredits(unsettled.map((inv) => inv.id));
+    for (const invoice of unsettled) {
       const remaining = remainingOf(invoice, totalsFor(svc, invoice), credits.get(invoice.id));
-      const unsettled = isOpen(invoice, remaining);
-      if (unsettled) counts.open! += 1;
-      if (unsettled && invoice.dueDate !== null && invoice.dueDate < today) counts.overdue! += 1;
+      if (!isOpen(invoice, remaining)) continue;
+      counts.open! += 1;
+      if (invoice.dueDate !== null && invoice.dueDate < today) counts.overdue! += 1;
     }
     return c.json(counts);
   });
@@ -899,7 +958,12 @@ export function createSalesInvoicesRoutes(
     if (ownVisibilityOnly(c) && invoice.salespersonId !== (await ownSalespersonIdOf(c))) {
       return c.json({ error: "NOT_FOUND" }, 404);
     }
-    return c.json(serialize(invoice, totalsFor(svc, invoice), await creditFor(invoice.id), maySeeCost(c)));
+    return c.json({
+      ...serialize(invoice, totalsFor(svc, invoice), await creditFor(invoice.id), maySeeCost(c)),
+      // N-9: the screen keeps this and sends it back, so a second till acting on
+      // a document that has already moved is refused rather than winning.
+      version: await documentVersionOf(deps.versionGuard, invoice.id),
+    });
   });
 
   app.post("/:id/confirm", gate("sales.invoice.confirm"), async (c) => {
@@ -913,6 +977,8 @@ export function createSalesInvoicesRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
+    const stale = await refuseStaleDocument(c, deps.versionGuard, c.req.param("id"), expectedVersionOf(body));
+    if (stale) return stale;
     const svc = service(c);
     const ctx = getAuthContext(c);
     try {
@@ -921,6 +987,7 @@ export function createSalesInvoicesRoutes(
         actor: ctx?.userId,
         actorRoles: gateActorRoles(c),
       });
+      await stampDocumentModifier(deps.versionGuard, result.invoice.id, ctx?.userId);
       return c.json({
         ...serialize(result.invoice, totalsFor(svc, result.invoice), await creditFor(result.invoice.id)),
         held: result.held,
@@ -940,9 +1007,18 @@ export function createSalesInvoicesRoutes(
   });
 
   app.post("/:id/cancel", gate("sales.invoice.delete_draft"), async (c) => {
+    let body: unknown = {};
+    try {
+      body = await c.req.json();
+    } catch {
+      body = {};
+    }
+    const stale = await refuseStaleDocument(c, deps.versionGuard, c.req.param("id"), expectedVersionOf(body));
+    if (stale) return stale;
     const svc = service(c);
     try {
       const invoice = await svc.cancel(c.req.param("id"));
+      await stampDocumentModifier(deps.versionGuard, invoice.id, getAuthContext(c)?.userId);
       return c.json(serialize(invoice, totalsFor(svc, invoice)));
     } catch (err) {
       return handleDomainError(c, err);

@@ -1,5 +1,5 @@
-import { useCallback, useState, type ReactNode } from "react";
-import { Button, Card, StatusPill, formatDate, formatTime, type Locale } from "@mezan/ui";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { Button, Card, StatusPill, TextInput, formatDate, formatTime, type Locale } from "@mezan/ui";
 import {
   isDesktopHost,
   useDesktopLicence,
@@ -7,7 +7,17 @@ import {
   useLanSessions,
   useLanStatus,
 } from "../data/hooks";
+import { CopyableValue, PlaintextKeyRiskBanner } from "../settings/SupportInfoCard";
 import { useAppTranslation } from "../i18n";
+// lan-ux
+import { useConfirmAction } from "../lib/use-confirm-action";
+import { pairing, pairingSupported } from "./pairing-bridge";
+
+/**
+ * Mirrors main/lan-host.ts's `LanClosedReason`. Declared here rather than
+ * imported: the web build compiles with no desktop package present.
+ */
+type LanClosedReason = "NOT_LICENSED" | "PORT_IN_USE" | "TLS_UNAVAILABLE" | "NO_INTERFACE";
 
 /**
  * Admin panel for LAN multi-till (docs/archive/plan.md §6.3.3): the devices
@@ -77,27 +87,52 @@ export function LicenceStatusNotice() {
   }
 
   const data = licence.data;
-  if (!data || !data.ok || data.code === "LIC-OK") return null;
+  if (!data || !data.ok) return null;
 
   return (
-    <Card className="mb-[14px] border-warning bg-warning-soft p-[14px]">
-      <div className="text-[13px] font-semibold text-ink">{t("licence.problem")}</div>
-      <p className="mt-1 text-[12.5px] text-ink">{data.messageAr}</p>
-      {data.expiresAt ? (
-        <p className="mt-1 text-[12px] text-ink-muted">
-          {t("licence.expiryDate")}{" "}
-          <span className="mz-num" dir="ltr">
-            {formatDate(data.expiresAt, { locale })}
-          </span>
-        </p>
-      ) : null}
-      <p className="mt-[6px] text-[12px] text-ink-muted">
-        {t("licence.supportCode")}{" "}
-        <span className="mz-num font-semibold text-ink" dir="ltr">
-          {data.code}
-        </span>
-      </p>
-    </Card>
+    <>
+      {/*
+        The two plaintext files, which are a risk whatever the licence says —
+        so this renders even on a perfectly licensed install.
+      */}
+      <PlaintextKeyRiskBanner />
+      {data.code === "LIC-OK" ? null : (
+        <Card className="mb-[14px] border-warning bg-warning-soft p-[14px]">
+          <div className="text-[13px] font-semibold text-ink">{t("licence.problem")}</div>
+          <p className="mt-1 text-[12.5px] text-ink">{data.messageAr}</p>
+          {data.expiresAt ? (
+            <p className="mt-1 text-[12px] text-ink-muted">
+              {t("licence.expiryDate")}{" "}
+              <span className="mz-num" dir="ltr">
+                {formatDate(data.expiresAt, { locale })}
+              </span>
+            </p>
+          ) : null}
+          <p className="mt-[6px] text-[12px] text-ink-muted">
+            {t("licence.supportCode")}{" "}
+            <span className="mz-num font-semibold text-ink" dir="ltr">
+              {data.code}
+            </span>
+          </p>
+          {/*
+            THE FINGERPRINT, on the notice itself. A replacement PC restoring its
+            backup meets `FINGERPRINT_MISMATCH`, and neither the owner nor
+            support could obtain the one string that would let a new licence be
+            issued: there was no flag, no panel and no log carrying it.
+          */}
+          {data.fingerprint ? (
+            <div className="mt-[8px] flex flex-col gap-[4px] text-[12px] text-ink-muted">
+              <span>{t("licenceUi.fingerprint")}</span>
+              <CopyableValue
+                value={data.fingerprint}
+                copyLabel={t("licenceUi.copy")}
+                copiedLabel={t("licenceUi.copied")}
+              />
+            </div>
+          ) : null}
+        </Card>
+      )}
+    </>
   );
 }
 
@@ -198,7 +233,18 @@ function LanAddress() {
   } else if (!licence.data.ok) {
     body = line(licence.data.message, true);
   } else if (!licence.data.lan.listening) {
-    body = line(t("devices.lanNotRunning"));
+    // lan-ux (N-5): four faults, four different fixes. «الشبكة المحلية غير
+    // مشغّلة» named none of them and the distinguishing reason went to a
+    // console — one sentence, and the shop cannot act on any of it.
+    const reason = (licence.data.lan as { closedReason?: LanClosedReason | null }).closedReason ?? null;
+    body = (
+      <>
+        {line(t("devices.lanNotRunning"))}
+        {reason ? (
+          <p className="mt-[6px] text-[12.5px] text-ink">{t(`devices.lanClosed.${reason}`)}</p>
+        ) : null}
+      </>
+    );
   } else if (!licence.data.lan.url) {
     body = line(t("devices.lanAddressUnknown"));
   } else {
@@ -242,12 +288,156 @@ function LanAddress() {
       <div className="text-[12.5px] font-semibold text-ink">{t("devices.lanAddress")}</div>
       <p className="mb-[6px] mt-1 text-[12px] text-ink-muted">{t("devices.lanAddressHint")}</p>
       {body}
+      <ReachabilityTest />
       {fingerprintBody ? (
         <div className="mt-[12px]">
           <div className="text-[12.5px] font-semibold text-ink">{t("devices.lanFingerprint")}</div>
           <p className="mb-[6px] mt-1 text-[12px] text-ink-muted">{t("devices.lanFingerprintHint")}</p>
           {fingerprintBody}
         </div>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * «اختبر الوصول» — the host asking whether it can reach its OWN LAN address.
+ *
+ * The only probe in the product that separates "Mezan is not listening" from
+ * "something between the till and this machine is dropping the packets", which
+ * `INSTALL.md §7A.3` names as the most likely LAN failure there is and which
+ * nothing could diagnose from either side. A host that fails its own test has a
+ * local firewall rule in the way; a host that passes it while a till still
+ * cannot connect has a network problem the till's own message names.
+ */
+function ReachabilityTest() {
+  const { t } = useAppTranslation();
+  const [state, setState] = useState<
+    { readonly phase: "idle" | "running" } | { readonly phase: "done"; readonly message: string }
+  >({ phase: "idle" });
+
+  if (!pairingSupported()) return null;
+
+  return (
+    <div className="mt-[10px]">
+      <Button
+        variant="ghost"
+        size="sm"
+        disabled={state.phase === "running"}
+        onClick={() => {
+          setState({ phase: "running" });
+          void pairing({ kind: "selftest" })
+            .then((res) => {
+              if (res?.kind !== "selftest") {
+                setState({ phase: "done", message: t("devices.reachability.unknown") });
+                return;
+              }
+              setState({
+                phase: "done",
+                message: res.reachable
+                  ? t("devices.reachability.ok", { address: res.address ?? "" })
+                  : res.detail === "NO_INTERFACE"
+                    ? t("devices.reachability.noInterface")
+                    : res.detail === "TIMEOUT"
+                      ? t("devices.reachability.blocked")
+                      : t("devices.reachability.notListening"),
+              });
+            })
+            .catch(() => setState({ phase: "done", message: t("devices.reachability.unknown") }));
+        }}
+      >
+        {state.phase === "running" ? t("devices.reachability.testing") : t("devices.reachability.test")}
+      </Button>
+      {state.phase === "done" ? (
+        <p role="status" className="mt-[6px] text-[12.5px] text-ink">
+          {state.message}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * THE ADDRESS THIS TILL IS POINTED AT, EDITABLE — the recovery for a router
+ * reboot, which is the failure that takes three tills down at once.
+ *
+ * The pinned certificate is NOT editable here and cannot be: `relocate` on the
+ * desktop side moves the address while keeping the pin and the device id, so
+ * this can never walk a till onto a different machine, and re-pointing does not
+ * burn a second seat. «ابحث عن الجهاز الرئيسي» does the same thing without
+ * anybody having to know an IP address at all.
+ */
+function ClientHostAddress() {
+  const { t } = useAppTranslation();
+  const [hostUrl, setHostUrl] = useState<string | null>(null);
+  const [typed, setTyped] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!pairingSupported()) return;
+    void pairing({ kind: "state" }).then((res) => {
+      if (res?.kind !== "state" || res.role !== "client") return;
+      setHostUrl(res.hostUrl);
+      setTyped(res.hostUrl ?? "");
+    });
+  }, []);
+
+  if (hostUrl === null) return null;
+
+  async function apply(address: string) {
+    setBusy(true);
+    setNotice(null);
+    const res = await pairing({ kind: "relocate", accept: address }).catch(() => null);
+    setBusy(false);
+    if (res?.kind === "relocate" && res.ok) setNotice(t("devices.hostUrl.saved"));
+    else setNotice(res?.kind === "relocate" ? res.message : t("devices.hostUrl.failed"));
+  }
+
+  return (
+    <div className="mt-[14px] border-t border-border pt-[12px]">
+      <div className="text-[12.5px] font-semibold text-ink">{t("devices.hostUrl.title")}</div>
+      <p className="mb-[6px] mt-1 text-[12px] text-ink-muted">{t("devices.hostUrl.hint")}</p>
+      <div className="flex flex-wrap items-center gap-[8px]">
+        <TextInput dir="ltr" value={typed} onChange={(e) => setTyped(e.target.value)} />
+        <Button
+          variant="default"
+          size="sm"
+          disabled={busy || typed.trim() === "" || typed.trim() === hostUrl}
+          onClick={() => void apply(typed.trim())}
+        >
+          {busy ? t("devices.hostUrl.saving") : t("devices.hostUrl.save")}
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          disabled={busy}
+          onClick={() => {
+            setBusy(true);
+            setNotice(null);
+            void pairing({ kind: "relocate" })
+              .then((res) => {
+                setBusy(false);
+                if (res?.kind === "relocate" && res.ok) {
+                  setTyped(res.found);
+                  setNotice(t("devices.hostUrl.found", { address: res.found }));
+                } else {
+                  setNotice(res?.kind === "relocate" ? res.message : t("devices.hostUrl.failed"));
+                }
+              })
+              .catch(() => {
+                setBusy(false);
+                setNotice(t("devices.hostUrl.failed"));
+              });
+          }}
+        >
+          {t("devices.hostUrl.search")}
+        </Button>
+      </div>
+      {notice ? (
+        <p role="status" className="mt-[8px] text-[12.5px] text-ink">
+          {notice}
+        </p>
       ) : null}
     </div>
   );
@@ -261,6 +451,16 @@ export function ConnectedDevicesPanel(_props: ConnectedDevicesPanelProps = {}) {
   const disconnect = useDisconnectLanSession();
   const [disconnectingId, setDisconnectingId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  /**
+   * lan-ux (N-8): DISCONNECTING A TILL IS DESTRUCTIVE AND FIRED ON CLICK.
+   *
+   * It revokes that device's bearer token, so the cashier three metres away
+   * loses the invoice they were typing — and this row sat one mis-aimed tap
+   * away from doing it, on a screen whose own hint encourages pressing it. The
+   * dialog names the DEVICE and says what will happen to it, because "are you
+   * sure?" is not a question anybody can answer.
+   */
+  const confirm = useConfirmAction();
 
   const handleDisconnect = useCallback(
     async (sessionId: string) => {
@@ -367,7 +567,16 @@ export function ConnectedDevicesPanel(_props: ConnectedDevicesPanelProps = {}) {
                       variant="danger-outline"
                       size="sm"
                       disabled={disconnectingId === session.sessionId}
-                      onClick={() => void handleDisconnect(session.sessionId)}
+                      onClick={() =>
+                        confirm.ask({
+                          title: t("devices.confirmDisconnect.title", { device: session.deviceLabel }),
+                          consequence: t("devices.confirmDisconnect.consequence", {
+                            device: session.deviceLabel,
+                          }),
+                          confirmLabel: t("devices.confirmDisconnect.confirm"),
+                          onConfirm: () => handleDisconnect(session.sessionId),
+                        })
+                      }
                     >
                       {disconnectingId === session.sessionId ? t("devices.disconnecting") : t("devices.disconnect")}
                     </Button>
@@ -377,8 +586,12 @@ export function ConnectedDevicesPanel(_props: ConnectedDevicesPanelProps = {}) {
             )}
           </tbody>
         </table>
+        <p className="mt-[8px] text-[12px] text-ink-muted">{t("devices.staleSeatHint")}</p>
       </div>
       ) : null}
+
+      <ClientHostAddress />
+      {confirm.dialog}
     </Card>
   );
 }

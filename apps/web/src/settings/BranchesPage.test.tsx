@@ -370,7 +370,9 @@ describe("BranchesPage", () => {
 
     fireEvent.click(await screen.findByText("MAIN"));
     fireEvent.click(screen.getByRole("tab", { name: "المخزون" }));
-    expect(await screen.findByText("تعذّر تحميل رصيد مخزون الفرع.")).toBeInTheDocument();
+    // guards §4.5 #13 — the tab shows the message the stock-balance hook threw
+    // («تعذّر تحميل رصيد المخزون.» plus its «رمز NNN»), not this tab's own sentence.
+    expect(await screen.findByText(/تعذّر تحميل رصيد المخزون\. \(رمز 500\)/)).toBeInTheDocument();
     const callsBeforeRetry = stockCalls;
 
     failStock = false;

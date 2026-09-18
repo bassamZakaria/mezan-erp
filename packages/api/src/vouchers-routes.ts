@@ -6,6 +6,7 @@ import {
   VoucherService,
   voucherLine,
   voucherNetPaid,
+  voucherBaseAmount,
   invoiceOutstanding,
   getVoucherTypeDefinition,
   VOUCHER_TYPE_DEFINITIONS,
@@ -119,6 +120,8 @@ function serialize(doc: VoucherDocument) {
     memo: doc.memo,
     amount: line.amount.toString(),
     currency: line.currency,
+    fxRate: line.fxRate ?? null,
+    baseAmount: voucherBaseAmount(line).toString(),
     branchId: line.branchId,
     paymentMethod: line.paymentMethod,
     treasuryAccountId: line.treasuryAccountId,
@@ -331,6 +334,8 @@ export function createVouchersRoutes(
       toDate: c.req.query("toDate"),
       search: c.req.query("search"),
       needsAllocation: c.req.query("needsAllocation"),
+      page: c.req.query("page"),
+      pageSize: c.req.query("pageSize"),
     });
   }
 
@@ -340,9 +345,19 @@ export function createVouchersRoutes(
    * queue that has to be right over every voucher, not over the page the
    * client happens to hold.
    */
-  async function listFilteredVouchers(c: Context, filter: VoucherListQueryDTO) {
+  async function listFilteredVouchers(
+    c: Context,
+    filter: VoucherListQueryDTO,
+    page?: { limit: number; offset: number },
+  ) {
     const svc = serviceFor(c);
-    let docs = await svc.list(filter.status ? { status: filter.status } : undefined);
+    // The date bounds are columns, so they narrow at the store; the JS pass
+    // below re-applies them for a repository that cannot express them.
+    let docs = await svc.list({
+      ...(filter.status ? { status: filter.status } : {}),
+      ...(filter.fromDate ? { fromDate: filter.fromDate } : {}),
+      ...(filter.toDate ? { toDate: filter.toDate } : {}),
+    });
     if (filter.type) docs = docs.filter((d) => voucherLine(d).voucherType === filter.type);
     if (filter.branchId) docs = docs.filter((d) => voucherLine(d).branchId === filter.branchId);
     if (filter.fromDate) docs = docs.filter((d) => d.date >= filter.fromDate!);
@@ -357,10 +372,18 @@ export function createVouchersRoutes(
     }
     docs = [...withinScope(docs, branchScopeOf(c), (d) => voucherLine(d).branchId)];
 
+    // Cut the page BEFORE the per-row allocation summary — that summary is a
+    // sub-ledger read per voucher, and running it over the whole book to
+    // return twenty-five rows is the N+1 this exists to avoid (Q-8). It cannot
+    // be cut here when the needs-allocation queue is the filter, because that
+    // filter reads the summary; that case pages after it instead.
+    const pagesAfterAllocation = filter.needsAllocation !== undefined;
+    const window = page && !pagesAfterAllocation ? docs.slice(page.offset, page.offset + page.limit) : docs;
+
     // Row-level allocation summary so the list's "needs allocation" chip and
     // filter don't need an N+1 detail fetch per row.
     let rows = await Promise.all(
-      docs.map(async (doc) => {
+      window.map(async (doc) => {
         const line = voucherLine(doc);
         const def = getVoucherTypeDefinition(line.voucherType);
         return {
@@ -380,6 +403,7 @@ export function createVouchersRoutes(
           row.allocationSummary.needsAllocation &&
           (filter.needsAllocation === "any" || row.direction === filter.needsAllocation),
       );
+      if (page) rows = rows.slice(page.offset, page.offset + page.limit);
     }
     return rows;
   }
@@ -389,7 +413,8 @@ export function createVouchersRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
-    return c.json(await listFilteredVouchers(c, parsed.data));
+    const { page, pageSize } = parsed.data;
+    return c.json(await listFilteredVouchers(c, parsed.data, { limit: pageSize, offset: (page - 1) * pageSize }));
   });
 
   /**

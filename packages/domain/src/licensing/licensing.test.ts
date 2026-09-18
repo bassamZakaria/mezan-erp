@@ -1,6 +1,10 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import { getPublicKeyAsync, signAsync } from "@noble/ed25519";
 import {
+  checkinSignedBytes,
+  signCheckinResponse,
+  signLicense,
+  verifyCheckinResponse,
   verifyLicense,
   parseLicense,
   LicenseParseError,
@@ -233,5 +237,137 @@ describe("monotonic-clock guard", () => {
     expect(await store.getHighWaterMark()).toBe(
       Date.parse("2026-06-01T00:00:00.000Z"),
     );
+  });
+});
+
+/**
+ * guards L-2: the vendor half did not exist. `@noble/ed25519` was imported for
+ * `verifyAsync` alone, so nothing in the repository could mint a licence the
+ * verifier would accept — there was no sales-to-activation path at all.
+ */
+describe("signLicense — the vendor half", () => {
+  it("produces a licence its own verifier accepts", async () => {
+    const payload: LicensePayload = {
+      v: 1,
+      licenseId: "lic-issued",
+      licensee: "صيدلية الشفاء",
+      edition: "desktop",
+      plan: "CORE",
+      activeModules: ["sales", "inventory"],
+      features: {},
+      seats: 2,
+      issuedAt: "2026-01-01T00:00:00.000Z",
+      notBefore: "2026-01-01T00:00:00.000Z",
+      expiresAt: "2027-01-01T00:00:00.000Z",
+      graceDays: 14,
+      machineBinding: [boundHash],
+    };
+    const raw = await signLicense(payload, secretKey);
+    const result = await verifyLicense(raw, { ...baseOpts(), clock: clockAt("2026-06-01T00:00:00.000Z") });
+
+    expect(result.state).toBe("ACTIVE");
+    expect(result.payload?.licenseId).toBe("lic-issued");
+    expect(result.entitlements?.has("inventory")).toBe(true);
+  });
+
+  it("is rejected when signed with anyone else's key", async () => {
+    const payload = parseLicense(await makeLicense()).payload;
+    const raw = await signLicense(payload, new Uint8Array(32).fill(2));
+    const result = await verifyLicense(raw, { ...baseOpts(), clock: clockAt("2026-06-01T00:00:00.000Z") });
+    expect(result.state).toBe("INVALID");
+    expect(result.reason).toBe("BAD_SIGNATURE");
+  });
+
+  /**
+   * `scripts/licence-issue.mjs` signs with `node:crypto` so the vendor tools
+   * need no dependency tree. That is only safe if the two implementations agree
+   * on the canonical bytes byte for byte — which is what this proves, by
+   * verifying the CLI's real output with the real verifier.
+   */
+  it("agrees byte for byte with the node:crypto CLI", async () => {
+    const { mkdtemp, readFile, rm } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const { execFileSync } = await import("node:child_process");
+    const nodePath = await import("node:path");
+    const { fileURLToPath } = await import("node:url");
+
+    const repoRoot = fileURLToPath(new URL("../../../../", import.meta.url));
+    const dir = await mkdtemp(nodePath.join(tmpdir(), "mezan-issue-"));
+    try {
+      const out = nodePath.join(dir, "license.mezan");
+      execFileSync(
+        process.execPath,
+        [
+          nodePath.join(repoRoot, "scripts", "licence-issue.mjs"),
+          "--licensee", "النور للتجارة",
+          "--plan", "CORE",
+          "--modules", "sales,inventory",
+          "--seats", "2",
+          "--expires", "2027-01-01",
+          "--not-before", "2026-01-01",
+          "--bind", boundHash,
+          "--out", out,
+        ],
+        {
+          encoding: "utf8",
+          env: { ...process.env, MEZAN_LICENSE_PRIVATE_KEY: bytesToHex(secretKey) },
+        },
+      );
+      const raw = await readFile(out, "utf8");
+      const result = await verifyLicense(raw, {
+        ...baseOpts(),
+        clock: clockAt("2026-06-01T00:00:00.000Z"),
+      });
+      expect(result.state).toBe("ACTIVE");
+      expect(result.payload?.licensee).toBe("النور للتجارة");
+      expect(result.payload?.machineBinding).toEqual([boundHash]);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+/** guards L-4: the check-in reply used to be unsigned JSON over unpinned TLS. */
+describe("the signed check-in answer", () => {
+  const claim = {
+    licenseId: "lic-1",
+    fingerprint: "fp-1",
+    revoked: false,
+    serverTime: "2026-09-10T00:00:00.000Z",
+  };
+
+  it("verifies a genuine answer", async () => {
+    const signature = await signCheckinResponse(claim, secretKey);
+    expect(await verifyCheckinResponse(claim, signature, publicKeyHex)).toBe(true);
+  });
+
+  it("does not verify once any bound field changes", async () => {
+    const signature = await signCheckinResponse(claim, secretKey);
+    for (const tampered of [
+      { ...claim, revoked: true },
+      { ...claim, licenseId: "lic-2" },
+      { ...claim, fingerprint: "fp-2" },
+      { ...claim, serverTime: "2026-09-11T00:00:00.000Z" },
+    ]) {
+      expect(await verifyCheckinResponse(tampered, signature, publicKeyHex)).toBe(false);
+    }
+  });
+
+  it("refuses a field carrying the separator, which could forge a second claim", () => {
+    expect(() => checkinSignedBytes({ ...claim, licenseId: "a|b" })).toThrow();
+  });
+});
+
+/** guards L-3, L-4: the salted fingerprint has to reach the caller. */
+describe("the verify result carries this machine's fingerprint", () => {
+  it("reports it even when the licence is not authentic", async () => {
+    const result = await verifyLicense("not-a-licence", {
+      ...baseOpts(),
+      clock: clockAt("2026-06-01T00:00:00.000Z"),
+    });
+    expect(result.state).toBe("INVALID");
+    expect(result.fingerprint).toBe(boundHash);
+    // The raw machine identity never leaves the hashing function.
+    expect(result.fingerprint).not.toContain(RAW_MACHINE);
   });
 });

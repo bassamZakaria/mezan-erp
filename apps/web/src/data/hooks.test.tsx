@@ -63,6 +63,7 @@ import {
   useImportBankStatement,
   useItemCounts,
   useItems,
+  useSalesInvoices,
   useItemStats,
   useJournalEntries,
   useLogin,
@@ -867,5 +868,62 @@ describe("stock adjustments", () => {
     expect(keys).toContainEqual(["stock-adjustments"]);
     expect(keys).toContainEqual(["stock-balance"]);
     expect(spy).toHaveBeenCalledTimes(2);
+  });
+});
+
+/**
+ * Q-8/Q-9: the list routes answer with ONE page by default now. A caller that
+ * needs the whole set — every item picker, a customer statement, a per-branch
+ * count — must not be silently cut to the first page: a truncated figure on a
+ * screen is indistinguishable from a wrong one.
+ */
+describe("whole-set list reads walk the pages (guards Q-8)", () => {
+  function pagingTransport(total: number, path: string, calls: string[]): Transport {
+    const rows = Array.from({ length: total }, (_, i) => ({ id: `row-${i}` }));
+    return stubTransport({
+      [`GET ${path}`]: (_init, requested) => {
+        calls.push(requested);
+        const params = new URL(requested, "http://x").searchParams;
+        const pageSize = Number(params.get("pageSize") ?? 25);
+        const page = Number(params.get("page") ?? 1);
+        return { body: rows.slice((page - 1) * pageSize, page * pageSize) };
+      },
+    });
+  }
+
+  it("useItems with no page returns every item across several requests", async () => {
+    const calls: string[] = [];
+    const { result } = renderHook(() => useItems(), {
+      wrapper: makeWrapper(pagingTransport(450, "/items", calls)).Wrapper,
+    });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data).toHaveLength(450);
+    // 200 + 200 + 50: it stops on the first short page rather than looping on.
+    expect(calls).toHaveLength(3);
+    expect(calls.every((c) => c.includes("pageSize=200"))).toBe(true);
+    // No row is fetched twice.
+    expect(new Set((result.current.data ?? []).map((r) => (r as { id: string }).id)).size).toBe(450);
+  });
+
+  it("a caller that DID name a page gets that page only, in one request", async () => {
+    const calls: string[] = [];
+    const { result } = renderHook(() => useItems({ page: 2, pageSize: 10 }), {
+      wrapper: makeWrapper(pagingTransport(450, "/items", calls)).Wrapper,
+    });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data).toHaveLength(10);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toContain("page=2");
+  });
+
+  it("useSalesInvoices with no page walks the pages too", async () => {
+    const calls: string[] = [];
+    const { result } = renderHook(() => useSalesInvoices({ customerId: "cust-1" }), {
+      wrapper: makeWrapper(pagingTransport(260, "/sales-invoices", calls)).Wrapper,
+    });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data).toHaveLength(260);
+    expect(calls).toHaveLength(2);
+    expect(calls.every((c) => c.includes("customerId=cust-1"))).toBe(true);
   });
 });

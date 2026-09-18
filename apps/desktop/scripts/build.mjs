@@ -26,6 +26,45 @@ const appDir = path.join(root, "..");
 // support — main/encrypted-database.ts opens the tenant database with it.
 const external = ["electron", "better-sqlite3", "better-sqlite3-multiple-ciphers"];
 
+// THE VENDOR CONFIGURATION IS BAKED IN HERE, and this is the only place it can
+// come from.
+//
+// The licence public key, the fingerprint salt, the check-in address and the
+// update-signing key used to be read from `process.env` at RUNTIME, with empty
+// compile-time defaults and nothing anywhere that set them. A packaged app
+// launched from the Dock or the Start menu has no environment, so every shipped
+// build resolved to `NO_PUBLIC_KEY`: a paid licence file changed nothing, and
+// the red banner blamed the shop for a build defect.
+//
+// esbuild substitutes these identifiers with string literals at bundle time, so
+// they are part of the binary. Absent from the build environment they stay
+// empty, and the app says plainly that it was built without a vendor key rather
+// than pretending the customer has no licence. The release workflow's preflight
+// is what refuses to publish a build with them empty.
+const vendorDefine = {
+  __MEZAN_LICENSE_PUBLIC_KEY__: JSON.stringify(process.env.MEZAN_LICENSE_PUBLIC_KEY ?? ""),
+  __MEZAN_LICENSE_FINGERPRINT_SALT__: JSON.stringify(
+    process.env.MEZAN_LICENSE_FINGERPRINT_SALT ?? "",
+  ),
+  __MEZAN_LICENSE_CHECKIN_URL__: JSON.stringify(process.env.MEZAN_LICENSE_CHECKIN_URL ?? ""),
+  __MEZAN_UPDATE_PUBLIC_KEY__: JSON.stringify(process.env.MEZAN_UPDATE_PUBLIC_KEY ?? ""),
+  // COMPILED OUT unless a build is deliberately made for a test machine. This
+  // replaced `MEZAN_AUTO_UPDATE_ALLOW_UNSIGNED=1`, which a packaged customer
+  // install read from its own environment — i.e. whoever launched the app
+  // decided whether it checked its own signature. `false` in everything the
+  // release workflow produces.
+  __MEZAN_ALLOW_UNSIGNED_UPDATES__: process.env.MEZAN_ALLOW_UNSIGNED_UPDATES === "1" ? "true" : "false",
+};
+
+for (const [name, value] of Object.entries(vendorDefine)) {
+  if (name === "__MEZAN_ALLOW_UNSIGNED_UPDATES__") continue;
+  if (value === '""') {
+    console.warn(
+      `[build] ${name.replace(/^__|__$/g, "")} is not set — this build cannot be used in production.`,
+    );
+  }
+}
+
 await build({
   entryPoints: [path.join(appDir, "src/main/index.ts")],
   outfile: path.join(appDir, "dist/main/index.cjs"),
@@ -34,6 +73,44 @@ await build({
   format: "cjs",
   target: "node20",
   external,
+  define: vendorDefine,
+  sourcemap: true,
+  logLevel: "info",
+});
+
+// The off-main-thread half of the daily backup (docs/artifacts/audit-2026-09-07.md
+// Q-2): forked as its own process, so it needs its own entry point rather than
+// riding along inside index.cjs — bundled beside it so backup-service.ts's
+// `resolveWorkerEntry()` finds it at a fixed, predictable path.
+await build({
+  entryPoints: [path.join(appDir, "src/backup/backup-worker.ts")],
+  outfile: path.join(appDir, "dist/main/backup-worker.cjs"),
+  bundle: true,
+  platform: "node",
+  format: "cjs",
+  target: "node20",
+  external,
+  sourcemap: true,
+  logLevel: "info",
+});
+
+// The process that owns SQLite (docs/artifacts/audit-2026-09-07.md Q-1):
+// forked as an Electron `utilityProcess`, so — like the backup worker above —
+// it needs its own entry point rather than riding along inside index.cjs.
+// Bundled beside it so backend-process.ts's `resolveBackendWorkerEntry()` finds
+// it at a fixed, predictable path.
+await build({
+  entryPoints: [path.join(appDir, "src/main/backend-worker.ts")],
+  outfile: path.join(appDir, "dist/main/backend-worker.cjs"),
+  bundle: true,
+  platform: "node",
+  format: "cjs",
+  target: "node20",
+  external,
+  // The worker imports main/license.ts for `reevaluateLicenseState`, which is
+  // reached from the same module graph as the vendor identifiers; without these
+  // the bundle would fail to resolve them.
+  define: vendorDefine,
   sourcemap: true,
   logLevel: "info",
 });

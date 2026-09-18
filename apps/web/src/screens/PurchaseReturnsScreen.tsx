@@ -30,6 +30,7 @@ import {
   type PurchaseReturnListFilter,
 } from "../data/hooks";
 import { DOC_STATUS_TONE, documentStatusLabel } from "../doc-status";
+import { PurchaseReturnPrintPage } from "../print/documents";
 import { useScreenIntent, useSubPage } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { todayIso } from "../lib/dates";
@@ -342,6 +343,11 @@ export function PurchaseReturnsScreen() {
         <div>
           <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-ink-muted">{t("eyebrow.purchases.returns")}</div>
           <h1 className="font-display text-xl font-bold text-ink">{selected?.docNo ?? t("purchaseReturns.detailTitle")}</h1>
+          {selected ? (
+            <Button className="mt-2" onClick={() => subPage.open(selected.docNo ?? selected.id, "print")}>
+              {t("print.action.print")}
+            </Button>
+          ) : null}
         </div>
       </div>
         {selected ? (
@@ -380,13 +386,15 @@ export function PurchaseReturnsScreen() {
   );
 
   if (firstSegment === "new") return createPage;
+  // إشعار خصم — the debit note sent to the supplier (P-6).
+  if (selected && subPage.segments[1] === "print") return <PurchaseReturnPrintPage document={selected} />;
   if (selected) return detailPage;
 
   return (
     <div className="w-full">
       {query.isError ? (
         <Card className="mb-[18px] p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-danger-ink">{t("purchaseReturns.loadFailed")}</p>
+          <p className="text-[13px] font-semibold text-danger-ink">{query.error?.message ?? t("purchaseReturns.loadFailed")}</p>
           <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
             {t("common.retry")}
           </Button>
@@ -432,6 +440,7 @@ export function PurchaseReturnsScreen() {
         rowAction={(d) => {
           const menuItems: RowMenuItem[] = [
             { key: "view", label: t("common.view"), onSelect: () => subPage.open(d.docNo ?? d.id) },
+            { key: "print", label: t("print.action.print"), onSelect: () => subPage.open(d.docNo ?? d.id, "print") },
             ...(d.status === "draft"
               ? [
                   { key: "confirm", label: t("purchaseReturns.confirm"), onSelect: () => void confirmExisting(d.id) },

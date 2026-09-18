@@ -132,6 +132,69 @@ describe("DocumentService — generic lifecycle with hooks", () => {
     expect(audit.events[0]?.action).toBe("CONFIRM");
   });
 
+  // guards B-10: reverse mirrored the GL entry and left the goods on hand, so
+  // a reversed document's stock stayed put while GL 1200 had been credited.
+  it("reverse mirrors the stock plan when the document moved stock", async () => {
+    const repo = new InMemoryDocumentRepository<FakeLine>();
+    const reversed: { plan: unknown; reversesDocId: string }[] = [];
+    const stock = {
+      apply: async () => ({ valueMoved: Money.fromMajor("300.00") }),
+      reverse: async (plan: unknown, reversesDocId: string) => {
+        reversed.push({ plan, reversesDocId });
+        return { valueMoved: Money.fromMajor("-300.00") };
+      },
+    };
+    const gl = {
+      post: async () => ({ journalEntryId: "je-x", journalEntryNo: "JE-000001" }),
+      reverse: async () => ({ journalEntryId: "je-r", journalEntryNo: "JE-000002" }),
+    };
+    const svc = new DocumentService(
+      fakeType({
+        numberingSequence: undefined,
+        buildStockPlan: (doc) => ({
+          sourceDocType: "FAKE_DOC",
+          sourceDocId: doc.id,
+          sourceDocNumber: doc.docNo,
+          warehouseId: "W1",
+          lines: [],
+          date: doc.date,
+        }),
+        buildGlPosting: () => ({ sourceDocType: "FAKE_DOC", sourceDocId: "d1", sourceDocNumber: null, date: "2026-08-22", memo: "m", lines: [] }),
+      }),
+      { repo, stock, gl, now: () => "2026-08-22T00:00:00.000Z" },
+    );
+
+    await svc.createDraft({ id: "d1", date: "2026-08-22", memo: "m", lines: [{ note: "a" }] });
+    await svc.confirm("d1");
+    await svc.reverse("d1", { reversalId: "d1-rev" });
+
+    expect(reversed).toHaveLength(1);
+    // The plan is keyed to the REVERSING document — its own movements — and
+    // names the original as the movements to undo.
+    expect(reversed[0]!.reversesDocId).toBe("d1");
+    expect((reversed[0]!.plan as { sourceDocId: string }).sourceDocId).toBe("d1-rev");
+  });
+
+  it("refuses to reverse a stock-moving document when the hook cannot reverse", async () => {
+    const repo = new InMemoryDocumentRepository<FakeLine>();
+    const stock = { apply: async () => ({ valueMoved: Money.zero() }) };
+    const gl = {
+      post: async () => ({ journalEntryId: "je-x", journalEntryNo: "JE-000001" }),
+      reverse: async () => ({ journalEntryId: "je-r", journalEntryNo: "JE-000002" }),
+    };
+    const svc = new DocumentService(
+      fakeType({
+        numberingSequence: undefined,
+        buildStockPlan: (doc) => ({ sourceDocType: "FAKE_DOC", sourceDocId: doc.id, sourceDocNumber: null, warehouseId: "W1", lines: [] }),
+        buildGlPosting: () => ({ sourceDocType: "FAKE_DOC", sourceDocId: "d1", sourceDocNumber: null, date: "2026-08-22", memo: "m", lines: [] }),
+      }),
+      { repo, stock, gl, now: () => "2026-08-22T00:00:00.000Z" },
+    );
+    await svc.createDraft({ id: "d1", date: "2026-08-22", memo: "m", lines: [] });
+    await svc.confirm("d1");
+    await expect(svc.reverse("d1", { reversalId: "d1-rev" })).rejects.toBeInstanceOf(MissingHookError);
+  });
+
   it("skips hooks a type does not declare", async () => {
     const repo = new InMemoryDocumentRepository<FakeLine>();
     // A type with no numbering, no GL, no stock — a pure metadata document.

@@ -630,11 +630,11 @@ export async function voucherTypesRouteToTheirOwnAccounts_R81(ctx: Ctx): Promise
 export async function voucherQueuesAreAServerConcern_R82_R83(ctx: Ctx): Promise<void> {
   await ctx.scenario("voucher chip counts and needs-allocation queues agree with the rows (R8.2, R8.3)", async () => {
     const counts = ((await ctx.req("GET", "/vouchers/counts")).body ?? {}) as Record<string, number>;
-    const all = ((await ctx.req("GET", "/vouchers")).body ?? []) as Array<{ status: string; voucherType: string }>;
+    const all = (await ctx.allRows("/vouchers")) as Array<{ status: string; voucherType: string }>;
     ctx.checkEq("counts.all matches the unfiltered row count", counts.all, all.length);
 
     for (const status of ["draft", "confirmed", "cancelled"]) {
-      const rows = ((await ctx.req("GET", `/vouchers?status=${status}`)).body ?? []) as unknown[];
+      const rows = await ctx.allRows(`/vouchers?status=${status}`);
       ctx.checkEq(`chip "${status}" counts exactly the rows it shows`, counts[status] ?? 0, rows.length);
     }
 
@@ -646,20 +646,20 @@ export async function voucherQueuesAreAServerConcern_R82_R83(ctx: Ctx): Promise<
     ctx.check("and some of them are legitimately zero", typeKeys.some((k) => counts[k] === 0), JSON.stringify(counts));
     for (const key of typeKeys) {
       const type = key.slice("type:".length);
-      const rows = ((await ctx.req("GET", `/vouchers?type=${type}`)).body ?? []) as unknown[];
+      const rows = await ctx.allRows(`/vouchers?type=${type}`);
       ctx.checkEq(`type chip "${type}" counts exactly the rows it shows`, counts[key] ?? 0, rows.length);
     }
 
     // The queues, split by intent.
-    const receipts = ((await ctx.req("GET", "/vouchers?needsAllocation=receipt")).body ?? []) as Array<{
+    const receipts = (await ctx.allRows("/vouchers?needsAllocation=receipt")) as Array<{
       voucherType: string;
       status: string;
       allocationSummary: { needsAllocation: boolean };
     }>;
-    const payments = ((await ctx.req("GET", "/vouchers?needsAllocation=payment")).body ?? []) as Array<{
+    const payments = (await ctx.allRows("/vouchers?needsAllocation=payment")) as Array<{
       voucherType: string;
     }>;
-    const any = ((await ctx.req("GET", "/vouchers?needsAllocation=any")).body ?? []) as unknown[];
+    const any = await ctx.allRows("/vouchers?needsAllocation=any");
 
     ctx.check("the receipt queue is not empty — an empty queue proves nothing", receipts.length > 0, `${receipts.length}`);
     ctx.check("the payment queue is not empty", payments.length > 0, `${payments.length}`);
@@ -692,7 +692,14 @@ export async function accountRoutingDecidesWherePostingsLand_R61(ctx: Ctx): Prom
     // Every slot is listed and resolved, not just the overridden ones — a
     // screen showing only what you changed cannot tell you where things post.
     ctx.check("every slot is listed with a resolved account", slots.length > 0 && slots.every((s) => s.accountId !== ""), `${slots.length} slots`);
-    ctx.check("and the sections cover the documented set", new Set(slots.map((s: any) => s.section)).size === 7, JSON.stringify([...new Set(slots.map((s: any) => s.section))]));
+    // 8 since B-8 added the `control` section (AR/AP/inventory control accounts),
+    // which the sub-ledger↔GL reconciliation now reads instead of "1105"/"2100"/"1200".
+    ctx.check("and the sections cover the documented set", new Set(slots.map((s: any) => s.section)).size === 8, JSON.stringify([...new Set(slots.map((s: any) => s.section))]));
+    ctx.check(
+      "including the three control-account slots the reconciliation reads (B-8)",
+      ["control.receivable", "control.payable", "control.inventory"].every((k) => slots.some((s) => s.key === k)),
+      JSON.stringify(slots.filter((s) => s.key.startsWith("control.")).map((s) => `${s.key}=${s.accountId}`)),
+    );
 
     const damage = slots.find((s) => s.key === "inventory_adjustment.DAMAGE");
     ctx.check("the damage-adjustment slot exists", damage !== undefined, JSON.stringify(slots.map((s) => s.key)).slice(0, 200));
@@ -748,7 +755,7 @@ async function draftAndConfirmAdjustment(ctx: Ctx, id: string, reason: string) {
  */
 export async function everyJournalEntryNamesItsModule_R63(ctx: Ctx): Promise<void> {
   await ctx.scenario("every journal entry names the module that produced it (R6.3)", async () => {
-    const entries = ((await ctx.req("GET", "/gl/journal-entries")).body ?? []) as Array<{
+    const entries = (await ctx.allRows("/gl/journal-entries")) as Array<{
       entryNo: string | null;
       memo: string;
       source: string;
@@ -770,14 +777,16 @@ export async function everyJournalEntryNamesItsModule_R63(ctx: Ctx): Promise<voi
     const misfiled = entries.filter((e) => e.source === "system" && e.sourceModule === "manual");
     ctx.check("no system entry is filed as a manual one", misfiled.length === 0, JSON.stringify(misfiled.map((e) => e.entryNo)));
 
-    for (const entry of entries) {
-      if (entry.sourceModule === "manual") continue;
-      ctx.check(`${entry.entryNo} carries the document it came from`, entry.sourceDocType !== null, JSON.stringify(entry));
-    }
+    const anonymous = entries.filter((e) => e.sourceModule !== "manual" && e.sourceDocType === null);
+    ctx.check(
+      "every non-manual entry carries the document it came from",
+      anonymous.length === 0,
+      JSON.stringify(anonymous.slice(0, 5).map((e) => [e.entryNo, e.sourceModule, e.memo.slice(0, 30)])),
+    );
 
     // And the filter returns exactly the entries of that module.
     for (const module of ["sales", "purchases", "inventory", "treasury", "payroll"]) {
-      const filtered = ((await ctx.req("GET", `/gl/journal-entries?sourceModule=${module}`)).body ?? []) as Array<{ sourceModule: string }>;
+      const filtered = (await ctx.allRows(`/gl/journal-entries?sourceModule=${module}`)) as Array<{ sourceModule: string }>;
       const expected = entries.filter((e) => e.sourceModule === module).length;
       ctx.checkEq(`the ${module} filter returns exactly that module's entries`, filtered.length, expected);
       ctx.check(`and nothing else leaks into it`, filtered.every((e) => e.sourceModule === module), module);
@@ -1159,10 +1168,35 @@ export async function aCustomerOpeningBalanceNeverReachesTheControlAccount(ctx: 
       JSON.stringify(listed).slice(0, 220),
     );
 
-    // D142: the control account moves by exactly the opening balance, against
-    // أرصدة افتتاحية (3210) — the sub-ledger and the GL agree from day one.
+    // D142 / guards B-2 — the opening balance used to be held on the customer
+    // record only, so the AR sub-ledger exceeded its control account by exactly
+    // the opening balances typed in at go-live and nothing ever closed the gap.
+    // It moves the control account against أرصدة افتتاحية (3210) instead: the
+    // sub-ledger and the GL agree from day one.
     ctx.checkEq("GL 1105 moved by exactly the opening balance", await accountBalance(ctx, "1105"), arBefore + opening);
     ctx.checkEq("and the other side landed in opening-balance equity 3210 as a credit", await accountBalance(ctx, "3210"), equityBefore - opening);
+
+    /*
+     * Found by its SOURCE DOCUMENT, not by a guessable id. The entry key is
+     * `CUST-OPEN-JE:<customer>:<uuid>` on purpose: correcting an opening
+     * balance posts a NEW delta entry rather than editing the one already on
+     * the ledger, so a stable key would have to be overwritten to work — which
+     * is exactly what a posted entry must never be.
+     */
+    const allEntries = await ctx.allRows("/gl/journal-entries");
+    const openingRow = allEntries.find(
+      (e: any) => e.sourceDocType === "CUSTOMER_OPENING_BALANCE" && e.sourceDocId === id,
+    );
+    const openingEntry = openingRow
+      ? await ctx.req("GET", `/gl/journal-entries/${openingRow.id}`)
+      : { status: 404, body: null };
+    ctx.check(
+      "and the entry behind it is Dr 1105 / Cr 3210, posted against the customer it belongs to",
+      openingEntry.status === 200 &&
+        (openingEntry.body?.lines ?? []).some((l: any) => l.accountId === "1105" && ctx.n(l.debit) === opening) &&
+        (openingEntry.body?.lines ?? []).some((l: any) => l.accountId === "3210" && ctx.n(l.credit) === opening),
+      `status ${openingEntry.status} body ${JSON.stringify(openingEntry.body).slice(0, 240)}`,
+    );
 
     // Correcting an opening balance after it was posted moves the control
     // account by the DIFFERENCE, so a typo fixed on the customer screen cannot
@@ -1175,8 +1209,8 @@ export async function aCustomerOpeningBalanceNeverReachesTheControlAccount(ctx: 
     );
     ctx.checkEq("and GL 1105 followed the correction, not the whole figure twice", await accountBalance(ctx, "1105"), arBefore + opening + 270);
 
-    // Put it back, or every reconciliation scenario after this one inherits
-    // this one's debtor.
+    // Put it back — the standing entry is reversed and 1105 returns to where it
+    // started, or every reconciliation scenario after this one inherits it.
     const cleared = await ctx.req("PATCH", `/customers/${id}`, { openingBalance: "0.00" });
     ctx.check(
       "the opening balance is cleared again so later scenarios start level",

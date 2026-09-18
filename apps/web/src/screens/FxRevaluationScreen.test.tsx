@@ -283,7 +283,8 @@ describe("FxRevaluationScreen — party balances by currency", () => {
         "GET /gl/balances-by-currency": () => ({ status: 500, body: { error: "INTERNAL" } }),
       }),
     });
-    expect(await screen.findByText("تعذّر تحميل الأرصدة حسب العملة.")).toBeInTheDocument();
+    // guards §4.5 #13 — the hook's message, which carries the support code.
+    expect(await screen.findByText(/تعذّر تحميل الأرصدة حسب العملة\. \(رمز 500\)/)).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByText("INTERNAL")).not.toBeInTheDocument());
   });
 });

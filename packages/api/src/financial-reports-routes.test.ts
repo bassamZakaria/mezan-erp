@@ -710,3 +710,125 @@ describe("financial reports — بُعد الفرع on the statements (DEC-20)",
     expect(asking.grandTotals.credit).toBe(0);
   });
 });
+
+/**
+ * The income statement honours بُعد الفرع, tagged where it actually lives.
+ *
+ * This suite used to resolve an entry's branch through the DOCUMENT that
+ * posted it, because the ledger carried no branch of its own. DEC-20 made that
+ * false — `journal_line.branch_id` exists and main narrows at the LINE — and
+ * keeping the old entry-level pre-filter alongside it narrowed twice: it
+ * deleted every entry it could not attribute before the line-level logic saw
+ * them, which zeroed the mandatory «غير مخصص» column and could leave debits
+ * and credits unequal for a branch-scoped caller. So the mechanism is gone and
+ * these assertions are made against the line.
+ *
+ * The sibling suite above proves the same property on the trial balance; this
+ * one exists because the income statement is a different route.
+ */
+describe("financial reports routes — the income statement narrows by branch (DEC-20)", () => {
+  /** Two branch-tagged sales on top of the seed: 1,000 to فرع ١ and 400 to فرع ٢. */
+  async function seedTwoBranches() {
+    const seeded = await seed();
+    await postJournalEntry(
+      {
+        id: "je-br1-sale",
+        date: "2026-08-05",
+        memo: "مبيعات فرع ١",
+        lines: [
+          { accountId: "1100", debit: Money.fromMajor("1000"), credit: Money.zero(), branchId: "br-1" },
+          { accountId: "4100", debit: Money.zero(), credit: Money.fromMajor("1000"), branchId: "br-1" },
+        ],
+      },
+      seeded.deps,
+    );
+    await postJournalEntry(
+      {
+        id: "je-br2-sale",
+        date: "2026-08-20",
+        memo: "مبيعات فرع ٢",
+        lines: [
+          { accountId: "1100", debit: Money.fromMajor("400"), credit: Money.zero(), branchId: "br-2" },
+          { accountId: "4100", debit: Money.zero(), credit: Money.fromMajor("400"), branchId: "br-2" },
+        ],
+      },
+      seeded.deps,
+    );
+    return seeded;
+  }
+
+  function scoped(path: string, branchScope?: string): Request {
+    return new Request(`http://local${path}`, {
+      headers: {
+        "x-permissions": "accounting.reports.view",
+        ...(branchScope ? { "x-branch-scope": branchScope } : {}),
+      },
+    });
+  }
+
+  const PERIOD = "periodFrom=2026-08-01&periodTo=2026-08-31";
+
+  it("counts only the branch's own lines when the session is scoped to one branch", async () => {
+    const { ledger, accounts } = await seedTwoBranches();
+    const app = makeApp({ ledger, accounts });
+    const res = await app.fetch(scoped(`/income-statement?${PERIOD}`, "br-1"));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { rows: { accountId: string; amount: number }[] };
+    /*
+     * 1,400 untagged + فرع ١'s own 1,000, and NOT فرع ٢'s 400.
+     *
+     * The unattributed lines stay visible on purpose: branch scope is authority,
+     * not presentation. A line no branch owns belongs to the company, and hiding
+     * it from every branch would mean no set of branch statements ever summed
+     * back to the entity — which is the reconciling guarantee «غير مخصص» exists
+     * to keep.
+     */
+    expect(body.rows.find((r) => r.accountId === "4100")?.amount).toBe(2400);
+  });
+
+  it("?branchId= narrows an unscoped caller, and can never widen a scoped one", async () => {
+    const { ledger, accounts } = await seedTwoBranches();
+    const app = makeApp({ ledger, accounts });
+
+    const narrowed = await app.fetch(scoped(`/income-statement?${PERIOD}&branchId=br-2`));
+    const narrowedBody = (await narrowed.json()) as { rows: { accountId: string; amount: number }[] };
+    expect(narrowedBody.rows.find((r) => r.accountId === "4100")?.amount).toBe(400);
+
+    // Scoped to فرع ١, asking for فرع ٢ by name returns فرع ٢ nothing.
+    const widened = await app.fetch(scoped(`/income-statement?${PERIOD}&branchId=br-2`, "br-1"));
+    const widenedBody = (await widened.json()) as { rows: { accountId: string; amount: number }[] };
+    expect(widenedBody.rows.find((r) => r.accountId === "4100")?.amount ?? 0).toBe(0);
+  });
+
+  it("leaves the company-wide statement untouched when no branch narrowing is asked for", async () => {
+    const { ledger, accounts } = await seedTwoBranches();
+    const app = makeApp({ ledger, accounts });
+    const res = await app.fetch(scoped(`/income-statement?${PERIOD}`));
+    const body = (await res.json()) as { rows: { accountId: string; amount: number }[] };
+    // The seed's own 1,400 plus both branch sales — nothing is excluded.
+    expect(body.rows.find((r) => r.accountId === "4100")?.amount).toBe(2800);
+  });
+});
+
+describe("financial reports — trial balance: the SQL aggregate equals the JS fold (guards Q-6)", () => {
+  it("returns the same body whether or not the ledger can aggregate", async () => {
+    const { ledger, accounts } = await seed();
+    const aggregating = makeApp({ ledger, accounts });
+    // Same store, with the aggregate hidden: the route then loads the entries
+    // and the report folds them, exactly as it did before Q-6.
+    const folding = makeApp({
+      ledger: { list: (filter) => ledger.list(filter) },
+      accounts,
+    });
+
+    for (const asOfDate of ["2026-07-15", "2026-08-31", "2026-09-30", "2027-01-01"]) {
+      const [a, b] = await Promise.all([
+        aggregating.fetch(req(`/trial-balance?asOfDate=${asOfDate}`, "accounting.reports.view")),
+        folding.fetch(req(`/trial-balance?asOfDate=${asOfDate}`, "accounting.reports.view")),
+      ]);
+      expect(a.status).toBe(200);
+      expect(b.status).toBe(200);
+      expect(await a.json()).toEqual(await b.json());
+    }
+  });
+});

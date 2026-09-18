@@ -75,6 +75,18 @@ export class DepreciationRunNotDraftError extends Error {
   }
 }
 
+/** Raised when reversing a depreciation run that was never posted (or has already been reversed). */
+export class DepreciationRunNotPostedError extends Error {
+  readonly code = "DEPRECIATION_RUN_NOT_POSTED";
+  constructor(
+    readonly runId: string,
+    readonly status: string,
+  ) {
+    super(`Depreciation run "${runId}" is "${status}", not posted, and cannot be reversed.`);
+    this.name = "DepreciationRunNotPostedError";
+  }
+}
+
 /** Raised when a depreciation run already exists for a given period + branch (and isn't cancelled). */
 export class DuplicateDepreciationPeriodError extends Error {
   readonly code = "DUPLICATE_DEPRECIATION_PERIOD";

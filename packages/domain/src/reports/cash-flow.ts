@@ -116,7 +116,17 @@ export function cashFlowNetChange(rows: readonly CashFlowRow[]): number {
 
 type CashFlowRowCore = Omit<CashFlowRow, "priorAmount" | "variance" | "unattributed">;
 
-function cashFlowRows(range: { from: string; to: string }, ctx: GlReportContext, branchId: string): CashFlowRowCore[] {
+/**
+ * Rows plus the exact `Money` behind each row's amount, so the comparison
+ * against the prior period subtracts bigints and converts once (C-10). The
+ * emitted row shape is unchanged — the map never leaves this module.
+ */
+interface CashFlowRowSet {
+  readonly rows: CashFlowRowCore[];
+  readonly amounts: Map<string, Money>;
+}
+
+function cashFlowRows(range: { from: string; to: string }, ctx: GlReportContext, branchId: string): CashFlowRowSet {
   // Authority and the reader's filter travel together into every one of the
   // three queries below. Bounding only the period movement by branch while
   // leaving the opening/closing cash unbounded would break the report's own
@@ -138,20 +148,21 @@ function cashFlowRows(range: { from: string; to: string }, ctx: GlReportContext,
   const closingCash = sumOver(cashAccounts, closingBalances);
 
   // Net income = −Σ Δnet(revenue+expense) — the operating section's anchor.
-  let netIncome = 0;
+  let netIncome = Money.zero();
+  const amounts = new Map<string, Money>();
   const workingCapital: CashFlowRowCore[] = [];
   const investing: CashFlowRowCore[] = [];
   const financing: CashFlowRowCore[] = [];
 
   for (const account of ctx.accounts) {
     if (account.isHeader || cashIds.has(account.id)) continue;
-    const net = moneyToNumber(periodBalances.get(account.id) ?? Money.zero());
+    const net = periodBalances.get(account.id) ?? Money.zero();
     const section = classifyAccount(account, ctx.cashAccountIds);
     if (section === "revenue" || section === "expense") {
-      netIncome += -net;
+      netIncome = netIncome.add(net.negate());
       continue;
     }
-    if (net === 0) continue;
+    if (net.scaled === 0n) continue;
     const activity = activityForSection(section);
     if (activity === null) continue;
     const row: CashFlowRowCore = {
@@ -162,10 +173,11 @@ function cashFlowRows(range: { from: string; to: string }, ctx: GlReportContext,
         activity === "operating"
           ? `${WORKING_CAPITAL_LABELS[section] ?? "التغير"} — ${account.nameAr}`
           : account.nameAr,
-      amount: -net,
+      amount: moneyToNumber(net.negate()),
       openingCash,
       closingCash,
     };
+    amounts.set(row.rowId, net.negate());
     if (activity === "operating") workingCapital.push(row);
     else if (activity === "investing") investing.push(row);
     else financing.push(row);
@@ -176,12 +188,13 @@ function cashFlowRows(range: { from: string; to: string }, ctx: GlReportContext,
     activity: "operating",
     activityLabel: ACTIVITY_LABELS.operating,
     label: "صافي الدخل",
-    amount: netIncome,
+    amount: moneyToNumber(netIncome),
     openingCash,
     closingCash,
   };
+  amounts.set(netIncomeRow.rowId, netIncome);
 
-  return [netIncomeRow, ...workingCapital, ...investing, ...financing];
+  return { rows: [netIncomeRow, ...workingCapital, ...investing, ...financing], amounts };
 }
 
 export function createCashFlowReport(
@@ -241,28 +254,29 @@ export function createCashFlowReport(
       const window = { from: params.periodFrom, to: params.periodTo };
       const current = cashFlowRows(window, ctx, params.branchId);
       const prior = cashFlowRows(comparativeRange(window, params.compareTo), ctx, params.branchId);
-      const priorById = new Map(prior.map((row) => [row.rowId, row.amount]));
       // The same statement run over the «غير مخصص» bucket alone, matched line
       // by line. Never narrowed by `params.branchId` — a branch column only
       // adds up to the entity once this one is read beside it (DEC-20).
-      const unattributedById = new Map(
-        cashFlowRows(window, ctx, UNATTRIBUTED_BRANCH_ID).map((row) => [row.rowId, row.amount]),
-      );
+      const unattributed = cashFlowRows(window, ctx, UNATTRIBUTED_BRANCH_ID);
 
-      const rows: CashFlowRow[] = current.map((row) => ({
-        ...row,
-        priorAmount: priorById.get(row.rowId) ?? 0,
-        variance: row.amount - (priorById.get(row.rowId) ?? 0),
-        unattributed: unattributedById.get(row.rowId) ?? 0,
-      }));
+      const rows: CashFlowRow[] = current.rows.map((row) => {
+        const priorMoney = prior.amounts.get(row.rowId) ?? Money.zero();
+        const currentMoney = current.amounts.get(row.rowId) ?? Money.zero();
+        return {
+          ...row,
+          priorAmount: moneyToNumber(priorMoney),
+          variance: moneyToNumber(currentMoney.add(priorMoney.negate())),
+          unattributed: moneyToNumber(unattributed.amounts.get(row.rowId) ?? Money.zero()),
+        };
+      });
 
       // A line that had flow only in the comparison window still belongs in a
       // comparison. Its cash balances are the CURRENT period's, because the
       // reconciliation banner reads them off the first row.
-      const seen = new Set(current.map((row) => row.rowId));
-      const opening = current[0]?.openingCash ?? 0;
-      const closing = current[0]?.closingCash ?? 0;
-      for (const row of prior) {
+      const seen = new Set(current.rows.map((row) => row.rowId));
+      const opening = current.rows[0]?.openingCash ?? 0;
+      const closing = current.rows[0]?.closingCash ?? 0;
+      for (const row of prior.rows) {
         if (seen.has(row.rowId)) continue;
         rows.push({
           ...row,
@@ -271,7 +285,7 @@ export function createCashFlowReport(
           closingCash: closing,
           priorAmount: row.amount,
           variance: -row.amount,
-          unattributed: unattributedById.get(row.rowId) ?? 0,
+          unattributed: moneyToNumber(unattributed.amounts.get(row.rowId) ?? Money.zero()),
         });
       }
 
@@ -289,7 +303,9 @@ function dayBefore(date: string): string {
 }
 
 function sumOver(accounts: readonly Account[], balances: Map<string, Money>): number {
-  let total = 0;
-  for (const account of accounts) total += moneyToNumber(balances.get(account.id) ?? Money.zero());
-  return total;
+  // Summed in `Money`, converted once — the opening/closing cash figures the
+  // reconciliation banner is judged on (C-10).
+  let total = Money.zero();
+  for (const account of accounts) total = total.add(balances.get(account.id) ?? Money.zero());
+  return moneyToNumber(total);
 }

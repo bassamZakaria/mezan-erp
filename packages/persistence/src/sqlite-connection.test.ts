@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import Database from "better-sqlite3";
-import { openSqliteConnection, withSqliteTransaction, type SqliteDriver } from "./sqlite-connection.js";
+import { openSqliteConnection, withSqliteRead, withSqliteTransaction, type SqliteDriver } from "./sqlite-connection.js";
 
 describe("openSqliteConnection", () => {
   it("opens and owns a fresh connection for a string path, with WAL + busy_timeout set", () => {
@@ -267,5 +267,83 @@ describe("withSqliteTransaction", () => {
     } finally {
       db.close();
     }
+  });
+});
+
+/**
+ * The latent dirty-read hazard on the shared connection, pinned both ways.
+ *
+ * Every store shares ONE connection and SQLite shows a connection its own
+ * uncommitted rows, so isolation today rests entirely on better-sqlite3 being
+ * synchronous — a transaction that never yields cannot be interleaved with.
+ * These two tests are what stops that from being an accident nobody notices.
+ */
+describe("withSqliteTransaction — the dirty-read invariant", () => {
+  function table(): Database.Database {
+    const sqlite = new Database(":memory:");
+    sqlite.exec(`CREATE TABLE t (id TEXT PRIMARY KEY, amount INTEGER NOT NULL)`);
+    return sqlite;
+  }
+  const rows = (sqlite: Database.Database) =>
+    (sqlite.prepare(`SELECT id FROM t ORDER BY id`).all() as { id: string }[]).map((r) => r.id);
+
+  it("A TRANSACTION THAT NEVER YIELDS CANNOT BE READ INTO — the property every store relies on", async () => {
+    const sqlite = table();
+    const seen: string[][] = [];
+    await Promise.all([
+      withSqliteTransaction(sqlite, async () => {
+        sqlite.prepare(`INSERT INTO t (id, amount) VALUES ('a', 1)`).run();
+        // No await on anything real: better-sqlite3 is synchronous, so the
+        // concurrent reader below cannot run before COMMIT.
+        sqlite.prepare(`INSERT INTO t (id, amount) VALUES ('b', 2)`).run();
+        throw new Error("rolled back");
+      }).catch(() => {}),
+      (async () => {
+        seen.push(rows(sqlite));
+      })(),
+    ]);
+    expect(seen.every((snapshot) => snapshot.length === 0)).toBe(true);
+    expect(rows(sqlite)).toEqual([]);
+  });
+
+  it("LIMITATION: a transaction that awaits real I/O DOES leak its uncommitted rows to a plain read", async () => {
+    const sqlite = table();
+    let leaked: string[] = [];
+    await withSqliteTransaction(sqlite, async () => {
+      sqlite.prepare(`INSERT INTO t (id, amount) VALUES ('a', 1)`).run();
+      // Stands in for the `await fetch()` / attachment write the audit warns
+      // about: the moment a transaction yields, another request's read runs.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      leaked = rows(sqlite);
+      throw new Error("rolled back");
+    }).catch(() => {});
+    // The row was never committed, and a plain read saw it anyway.
+    expect(leaked).toEqual(["a"]);
+    expect(rows(sqlite)).toEqual([]);
+  });
+
+  it("withSqliteRead takes the mutex, so it observes only committed rows", async () => {
+    const sqlite = table();
+    let observed: string[] = [];
+    const write = withSqliteTransaction(sqlite, async () => {
+      sqlite.prepare(`INSERT INTO t (id, amount) VALUES ('a', 1)`).run();
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      sqlite.prepare(`INSERT INTO t (id, amount) VALUES ('b', 2)`).run();
+    });
+    const read = withSqliteRead(sqlite, () => {
+      observed = rows(sqlite);
+    });
+    await Promise.all([write, read]);
+    // The read waited for the COMMIT rather than catching the half-written set.
+    expect(observed).toEqual(["a", "b"]);
+  });
+
+  it("a read nested INSIDE its own transaction runs straight through rather than deadlocking", async () => {
+    const sqlite = table();
+    const inside = await withSqliteTransaction(sqlite, async () => {
+      sqlite.prepare(`INSERT INTO t (id, amount) VALUES ('a', 1)`).run();
+      return withSqliteRead(sqlite, () => rows(sqlite));
+    });
+    expect(inside).toEqual(["a"]);
   });
 });

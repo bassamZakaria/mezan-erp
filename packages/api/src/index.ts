@@ -1,6 +1,8 @@
 export { createApp, type App, type CreateAppOptions, type InstallmentCollectPort } from "./app.js";
 export {
+  applyModuleGates,
   createModuleGate,
+  MODULE_ROUTE_PREFIXES,
   type EntitlementsResolver,
 } from "./module-gate.js";
 export { createLanGate } from "./lan/gate.js";

@@ -135,10 +135,10 @@ describe("LeaveRequestsScreen", () => {
       "GET /hr/leave-requests/counts": () => ({ body: { total: 1, pending: 1, approved: 0, rejected: 0, cancelled: 0 } }),
     });
     renderWithProviders(<LeaveRequestsScreen />, { transport, initialSession: testAdminSession });
-    expect(await screen.findByText("تعذّر تحميل طلبات الإجازات.")).toBeInTheDocument();
+    expect(await screen.findByText("تعذّر تحميل طلبات الإجازات. (رمز 500)")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "إعادة المحاولة" }));
     await screen.findByText("LR-000001");
-    await waitFor(() => expect(screen.queryByText("تعذّر تحميل طلبات الإجازات.")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByText("تعذّر تحميل طلبات الإجازات. (رمز 500)")).not.toBeInTheDocument());
   });
 
   it("status chip filter changes the outgoing request", async () => {

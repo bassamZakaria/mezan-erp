@@ -13,6 +13,7 @@ import {
   createEntitlements,
   createAuthContext,
   type Account,
+  type SalesReturnDocument,
   type DocumentWorkflowGate,
 } from "@mezan/domain";
 import { createSqliteSalesInvoiceStore, type SqliteSalesInvoiceStoreHandle } from "@mezan/persistence";
@@ -89,7 +90,15 @@ class MemStockLedger { rows: any[] = []; async append(m: any) { this.rows.push(m
 class MemLayers { rows = new Map<string, any>(); async add(l: any) { this.rows.set(l.id, l); } async listByPosition(i: string, w: string) { return [...this.rows.values()].filter((l) => l.itemId === i && l.warehouseId === w); } async updateRemaining(id: string, q: any) { const l = this.rows.get(id); if (l) this.rows.set(id, { ...l, remainingQty: q }); } async remove(id: string) { this.rows.delete(id); } }
 class MemSnaps { rows = new Map<string, any>(); key(i: string, w: string) { return `${i}:${w}`; } async get(i: string, w: string) { return this.rows.get(this.key(i, w)) ?? null; } async save(s: any) { this.rows.set(this.key(s.itemId, s.warehouseId), s); } async list() { return [...this.rows.values()]; } }
 
-async function harness(opts: { maxLineDiscountPercent?: number; withoutStockRestore?: boolean; now?: string; workflow?: DocumentWorkflowGate } = {}) {
+async function harness(
+  opts: {
+    maxLineDiscountPercent?: number;
+    returns?: SalesInvoiceRoutesDeps["returns"];
+    withoutStockRestore?: boolean;
+    now?: string;
+    workflow?: DocumentWorkflowGate;
+  } = {},
+) {
   const accounts = {
     map: new Map<string, Account>([
       [AR, account(AR)],
@@ -136,9 +145,12 @@ async function harness(opts: { maxLineDiscountPercent?: number; withoutStockRest
   const collectionNumbering = new NextNumberService(new MemSeq());
   const deps: SalesInvoiceRoutesDeps = {
     repo,
+    ...(opts.returns ? { returns: opts.returns } : {}),
     ...(opts.maxLineDiscountPercent === undefined
       ? {}
       : { discountPolicy: async () => ({ maxLineDiscountPercent: opts.maxLineDiscountPercent as number }) }),
+    // guards N-9 — the routes only enforce optimistic concurrency when a guard is wired.
+    versionGuard: { versions: repo.versions, displayNameOf: async (id: string) => (id === "u1" ? "منى" : null) },
     numbering: { next: () => new NextNumberService(new MemSeq()).next("SALES_INVOICE") },
     gl: glHook,
     stock: createSalesInvoiceStockHook(stockService),
@@ -176,7 +188,7 @@ async function harness(opts: { maxLineDiscountPercent?: number; withoutStockRest
       return { voucherId };
     },
   };
-  return { app: createSalesInvoicesRoutes(deps, testAuthContextResolver), ledger, stockService };
+  return { app: createSalesInvoicesRoutes(deps, testAuthContextResolver), ledger, repo, stockService };
 }
 
 function req(path: string, init: RequestInit & { permissions?: string; roleCodes?: string } = {}) {
@@ -705,5 +717,222 @@ describe("the discount ceiling and the giveaway gate", () => {
       }),
     );
     expect(res.status).toBe(201);
+  });
+});
+
+/**
+ * Q-5: `/counts` used to hydrate the whole filtered table on every keystroke,
+ * and every credit lookup listed every return ever raised. The counts must be
+ * identical whichever path the returns module offers.
+ */
+describe("sales-invoices counts + return credit (guards Q-5)", () => {
+  const overdueBody = { ...draftBody, dueDate: "2026-08-01" };
+
+  function returnDoc(sourceInvoiceId: string, unitPrice: string, taxAmount: string): SalesReturnDocument {
+    return {
+      id: `ret-${sourceInvoiceId}`,
+      docType: "SALES_RETURN",
+      docNo: "SR-000001",
+      date: "2026-08-22",
+      memo: "مرتجع",
+      status: "confirmed",
+      lines: [
+        {
+          itemId: "ITEM-A",
+          warehouseId: "WH1",
+          customerId: "cust-1",
+          sourceInvoiceId,
+          sourceInvoiceNumber: null,
+          reason: "DEFECTIVE",
+          availableQty: Qty.fromMajor("1"),
+          qty: Qty.fromMajor("1"),
+          unitPrice: Money.fromMajor(unitPrice),
+          unitCost: Money.fromMajor("10"),
+          taxAmount: Money.fromMajor(taxAmount),
+        },
+      ],
+      createdAt: "2026-08-22T10:00:00.000Z",
+      confirmedAt: "2026-08-22T10:00:00.000Z",
+      reversesDocId: null,
+      reversedByDocId: null,
+      workflowRequestId: null,
+      journalEntryId: null,
+    };
+  }
+
+  async function seed(h: { app: { fetch(req: Request): Response | Promise<Response> }; repo: SqliteSalesInvoiceStoreHandle }) {
+    const ids: string[] = [];
+    for (const body of [draftBody, draftBody, overdueBody, draftBody]) {
+      const res = await h.app.fetch(req("/", { method: "POST", body: JSON.stringify(body), permissions: "sales.invoice.create" }));
+      ids.push(((await res.json()) as any).id);
+    }
+    // Confirm the first three in the store: the harness's numbering hook mints
+    // INV-000001 on every call, so confirming three through the route would
+    // collide on the document number rather than exercise the counts.
+    let n = 0;
+    for (const id of ids.slice(0, 3)) {
+      const inv = await h.repo.findById(id);
+      await h.repo.update({ ...inv!, status: "confirmed", docNo: `INV-00000${++n}`, confirmedAt: NOW });
+    }
+    return ids;
+  }
+
+  it("counts every stored status and both derived chips, with return credit netted off", async () => {
+    // ids[0] is fully credited by a confirmed return, so it is no longer open.
+    const docs = [returnDoc("inv-1", "340", "47.60")];
+    const h = await harness({ returns: { list: async () => docs } });
+    const { app } = h;
+    const ids = await seed(h);
+    expect(ids[0]).toBe("inv-1");
+
+    const res = await app.fetch(req("/counts", { permissions: "sales.invoice.view" }));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      all: 4,
+      draft: 1,
+      confirmed: 3,
+      // A cancelled confirmed invoice is `reversed`, not `cancelled` — it keeps
+      // its number and its mirror entry. The chip exists so the count is not
+      // silently absent from a status the list can actually be filtered by.
+      reversed: 0,
+      partially_paid: 0,
+      paid: 0,
+      cancelled: 0,
+      open: 2,
+      overdue: 1,
+    });
+  });
+
+  it("answers identically whether the returns module can scope by invoice id or only list everything", async () => {
+    const docs = [returnDoc("inv-1", "340", "47.60")];
+    const listOnly = await harness({ returns: { list: async () => docs } });
+    await seed(listOnly);
+
+    const scoped = await harness({
+      returns: {
+        // The scoped path must never fall back to the whole history.
+        list: async () => { throw new Error("returns.list() must not be called when listByLineRef exists"); },
+        listByLineRef: async (_field, invoiceIds) => docs.filter((d) => d.lines.some((l) => invoiceIds.includes(l.sourceInvoiceId))),
+      },
+    });
+    await seed(scoped);
+
+    for (const path of ["/counts", "/inv-1", "/inv-2", "/?status=open", "/stats"]) {
+      const a = await listOnly.app.fetch(req(path, { permissions: "sales.invoice.view" }));
+      const b = await scoped.app.fetch(req(path, { permissions: "sales.invoice.view" }));
+      expect(b.status).toBe(a.status);
+      expect(await b.json()).toEqual(await a.json());
+    }
+  });
+});
+
+// guards N-9 — two tills on one invoice used to be last-write-wins and silent.
+describe("sales invoice routes — optimistic concurrency (N-9)", () => {
+  async function draft() {
+    const { app, repo } = await harness();
+    const created = await app.fetch(req("/", { method: "POST", permissions: "sales.invoice.create", body: JSON.stringify(draftBody) }));
+    const invoice = (await created.json()) as { id: string };
+    return { app, repo, id: invoice.id };
+  }
+
+  it("serves the row version on the detail read", async () => {
+    const { app, id } = await draft();
+    const res = await app.fetch(req(`/${id}`, { permissions: "sales.invoice.view" }));
+    const body = (await res.json()) as { version: number };
+    expect(body.version).toBe(1);
+  });
+
+  it("refuses a stale expectedVersion with 409 and names who moved it", async () => {
+    const { app, repo, id } = await draft();
+    // Another till acts first: any write moves the version.
+    const current = (await repo.findById(id))!;
+    await repo.update({ ...current, notes: "غيّرها صندوق آخر" });
+    await repo.versions.stampModifier(id, "u1");
+
+    const res = await app.fetch(
+      req(`/${id}/confirm`, { method: "POST", permissions: "sales.invoice.confirm", body: JSON.stringify({ expectedVersion: 1 }) }),
+    );
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as { error: string; message: string; currentVersion: number };
+    expect(body.error).toBe("DOCUMENT_VERSION_CONFLICT");
+    expect(body.message).toBe("تم تعديل هذا المستند قبل قليل بواسطة منى — أعد التحميل");
+    expect(body.currentVersion).toBe(2);
+    expect((await repo.findById(id))!.status).toBe("draft");
+  });
+
+  it("lets the CURRENT version through, and moves the version on", async () => {
+    const { app, repo, id } = await draft();
+    const res = await app.fetch(
+      req(`/${id}/confirm`, { method: "POST", permissions: "sales.invoice.confirm", body: JSON.stringify({ expectedVersion: 1 }) }),
+    );
+    expect(res.status).toBe(200);
+    expect((await repo.versions.read(id))!.version).toBeGreaterThan(1);
+  });
+
+  it("degrades honestly when the winning editor cannot be named", async () => {
+    const { app, repo, id } = await draft();
+    const current = (await repo.findById(id))!;
+    await repo.update({ ...current, notes: "x" });
+
+    const res = await app.fetch(
+      req(`/${id}/confirm`, { method: "POST", permissions: "sales.invoice.confirm", body: JSON.stringify({ expectedVersion: 1 }) }),
+    );
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { message: string }).message).toBe("تم تعديل هذا المستند قبل قليل — أعد التحميل");
+  });
+
+  it("an older client that sends no expectedVersion keeps working exactly as before", async () => {
+    const { app, repo, id } = await draft();
+    const current = (await repo.findById(id))!;
+    await repo.update({ ...current, notes: "x" });
+
+    const res = await app.fetch(req(`/${id}/confirm`, { method: "POST", permissions: "sales.invoice.confirm", body: JSON.stringify({}) }));
+    expect(res.status).toBe(200);
+  });
+
+  /**
+   * The list row's own kebab confirms the invoice — it does not open the
+   * detail first. A list that omits `version` therefore leaves the row with
+   * nothing to send back, and the guard above never fires at all.
+   */
+  it("serves the row version on the LIST, so a row-level confirm can send it", async () => {
+    const { app } = await draft();
+    const res = await app.fetch(req("/", { permissions: "sales.invoice.view" }));
+    const rows = (await res.json()) as { id: string; version: number }[];
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.version).toBe(1);
+  });
+
+  it("refuses a confirm sent with a version the LIST row served before another till moved it", async () => {
+    const { app, repo, id } = await draft();
+    const rows = (await (await app.fetch(req("/", { permissions: "sales.invoice.view" }))).json()) as {
+      version: number;
+    }[];
+    const staleVersion = rows[0]!.version;
+
+    const current = (await repo.findById(id))!;
+    await repo.update({ ...current, notes: "غيّرها صندوق آخر" });
+
+    const res = await app.fetch(
+      req(`/${id}/confirm`, {
+        method: "POST",
+        permissions: "sales.invoice.confirm",
+        body: JSON.stringify({ expectedVersion: staleVersion }),
+      }),
+    );
+    expect(res.status).toBe(409);
+    expect((await repo.findById(id))!.status).toBe("draft");
+  });
+
+  it("refuses a stale cancel too, not only a stale confirm", async () => {
+    const { app, repo, id } = await draft();
+    const current = (await repo.findById(id))!;
+    await repo.update({ ...current, notes: "x" });
+
+    const res = await app.fetch(
+      req(`/${id}/cancel`, { method: "POST", permissions: "sales.invoice.delete_draft", body: JSON.stringify({ expectedVersion: 1 }) }),
+    );
+    expect(res.status).toBe(409);
+    expect((await repo.findById(id))!.status).toBe("draft");
   });
 });

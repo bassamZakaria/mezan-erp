@@ -106,6 +106,11 @@ describe("ConnectedDevicesPanel", () => {
     const backRow = screen.getByText("Back office").closest("tr")!;
 
     await user.click(within(frontRow).getByRole("button", { name: "فصل" }));
+    // guards N-8: a click ASKS. Disconnecting revokes that device's bearer
+    // token and drops the cashier mid-invoice, and it used to fire on click.
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getAllByText(/Front till/).length).toBeGreaterThan(0);
+    await user.click(within(dialog).getByRole("button", { name: "افصل الجهاز" }));
 
     // The row being disconnected shows pending state; the OTHER row's button
     // must stay enabled (per-item pending, not a mutation-wide disable).
@@ -113,6 +118,50 @@ describe("ConnectedDevicesPanel", () => {
 
     await waitFor(() => expect(screen.queryByText("Front till")).not.toBeInTheDocument());
     expect(screen.getByText("Back office")).toBeInTheDocument();
+  });
+
+  // guards N-8: the negative control. Without it a dialog that rendered and
+  // then disconnected anyway would pass the test above.
+  it("does not disconnect anything when the confirmation is cancelled", async () => {
+    const user = userEvent.setup();
+    let deleted = 0;
+    const transport = stubTransport({
+      "GET /lan/status": () => ({ body: { licensed: true, seats: 2, connected: 1 } }),
+      "GET /lan/sessions": () => ({
+        body: {
+          seats: 2,
+          connected: 1,
+          sessions: [
+            {
+              sessionId: "s1",
+              userId: "USER-ADMIN",
+              deviceId: "till-1",
+              deviceLabel: "Front till",
+              connectedAt: 1000,
+              lastSeenAt: 2000,
+            },
+          ],
+        },
+      }),
+      "DELETE /lan/sessions/s1": () => {
+        deleted += 1;
+        return { status: 204, body: null };
+      },
+    });
+
+    renderWithProviders(<ConnectedDevicesPanel />, { transport, initialSession: testAdminSession });
+
+    const row = (await screen.findByText("Front till")).closest("tr")!;
+    await user.click(within(row).getByRole("button", { name: "فصل" }));
+
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "رجوع" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(deleted).toBe(0);
+    expect(screen.getByText("Front till")).toBeInTheDocument();
+    // And the hint that makes the button unnecessary in the common case.
+    expect(screen.getByText(/يحرّر مقعده تلقائياً/)).toBeInTheDocument();
   });
 
   it("reports a failure as a failure — not as 'not licensed', and not as an empty list", async () => {

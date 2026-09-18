@@ -138,7 +138,7 @@ describe("BarcodeConfigPage", () => {
       },
     });
     renderWithProviders(<BarcodeConfigPage />, { transport, initialSession: testAdminSession });
-    expect(await screen.findByText("تعذّر تحميل إعدادات الباركود.")).toBeInTheDocument();
+    expect(await screen.findByText(/تعذّر تحميل إعدادات الباركود\./)).toBeInTheDocument();
     const callsBeforeRetry = calls;
 
     fail = false;

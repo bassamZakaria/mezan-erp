@@ -7,6 +7,7 @@ import {
   createSqliteAssetRepository,
   createSqliteTreasuryAccountRepository,
   createSqliteBranchStore,
+  createSqliteAccountRepository,
   type SqliteSupplierRepositoryHandle,
   type SqliteCustomerRepositoryHandle,
   type SqliteItemStoreHandle,
@@ -107,7 +108,18 @@ async function newApp() {
     assets,
     branches,
   }, insecureHeaderAuthContextResolver);
-  return { app, departments, employees, treasuryAccounts, suppliers, customers, items, assetCategories, assets };
+  return {
+    app,
+    departments,
+    employees,
+    treasuryAccounts,
+    suppliers,
+    customers,
+    items,
+    assetCategories,
+    assets,
+    deps: { treasuryAccounts, suppliers, customers, items, assetCategories, assets, branches },
+  };
 }
 
 function req(path: string, body?: unknown, permissions = "admin.settings.edit") {
@@ -277,5 +289,283 @@ describe("data-migration-routes — status", () => {
     const body = (await res.json()) as Record<string, number>;
     expect(body.departments).toBe(0);
     expect(body.salesInvoices).toBe(0);
+  });
+});
+
+// guards P-5 — the chart, the opening trial balance, and the open AR/AP: the
+// three steps a real go-live cannot happen without.
+describe("data-migration-routes — دليل الحسابات (P-5)", () => {
+  async function chartApp() {
+    const accounts = createSqliteAccountRepository();
+    handles.push(accounts as unknown as { close(): void });
+    const base = await newApp();
+    const departments = inMemoryDepartments();
+    const employees = inMemoryEmployees();
+    const app = createDataMigrationRoutes(
+      { ...base.deps, departments, employees, accounts },
+      insecureHeaderAuthContextResolver,
+    );
+    return { app, accounts };
+  }
+
+  it("commits parents before children and resolves the parent code to a REAL account id", async () => {
+    const { app, accounts } = await chartApp();
+    const res = await app.fetch(
+      req(
+        "/chart-of-accounts/commit",
+        [
+          { code: "1100", nameAr: "النقدية", type: "asset", parentCode: "1000" },
+          { code: "1000", nameAr: "الأصول المتداولة", type: "asset" },
+        ],
+        "accounting.coa.manage",
+      ),
+    );
+    expect(res.status).toBe(201);
+
+    const rows = await accounts.list();
+    const parent = rows.find((a) => a.code === "1000")!;
+    const child = rows.find((a) => a.code === "1100")!;
+    expect(parent.isHeader).toBe(true);
+    expect(child.parentId).toBe(parent.id);
+    expect(child.naturalBalance).toBe("debit");
+  });
+
+  it("refuses the whole batch in Arabic when one row names an unknown type, and writes nothing", async () => {
+    const { app, accounts } = await chartApp();
+    const res = await app.fetch(
+      req("/chart-of-accounts/commit", [{ code: "9999", nameAr: "حساب", type: "بند" }], "accounting.coa.manage"),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { errors: { rowNumber: number; reasons: string[] }[] };
+    expect(body.errors[0]!.reasons[0]).toContain("نوع الحساب");
+    expect(await accounts.list()).toHaveLength(0);
+  });
+
+  it("gates the commit on accounting.coa.manage, not admin.settings.edit", async () => {
+    const { app } = await chartApp();
+    const denied = await app.fetch(
+      req("/chart-of-accounts/commit", [{ code: "1", nameAr: "ح", type: "asset" }], "admin.settings.edit"),
+    );
+    expect(denied.status).toBe(403);
+  });
+});
+
+describe("data-migration-routes — ميزان المراجعة الافتتاحي (P-5)", () => {
+  async function tbApp(periodStatus: "open" | "closed" = "open") {
+    const accounts = createSqliteAccountRepository();
+    handles.push(accounts as unknown as { close(): void });
+    await accounts.create({ id: "a-cash", code: "1100", nameAr: "النقدية", nameEn: null, type: "asset", naturalBalance: "debit", parentId: null, isHeader: false, status: "active" });
+    await accounts.create({ id: "a-cap", code: "3100", nameAr: "رأس المال", nameEn: null, type: "equity", naturalBalance: "credit", parentId: null, isHeader: false, status: "active" });
+    await accounts.create({ id: "a-hdr", code: "1000", nameAr: "الأصول", nameEn: null, type: "asset", naturalBalance: "debit", parentId: null, isHeader: true, status: "active" });
+
+    const periods = [
+      { id: "fp-2025-12", year: 2025, periodNumber: 12, startDate: "2025-12-01", endDate: "2025-12-31", status: periodStatus },
+      { id: "fp-2026-01", year: 2026, periodNumber: 1, startDate: "2026-01-01", endDate: "2026-01-31", status: "open" as const },
+    ];
+    const fiscalPeriods = {
+      async findById(id: string) {
+        return periods.find((p) => p.id === id) ?? null;
+      },
+      async findByDate(date: string) {
+        return periods.find((p) => p.startDate <= date && date <= p.endDate) ?? null;
+      },
+      async findByYearAndNumber() {
+        return null;
+      },
+      async listByYear() {
+        return [];
+      },
+      async list() {
+        return [...periods];
+      },
+      async create() {},
+      async update() {},
+    } as never;
+
+    const posted: { id: string; date: string; lines: unknown[] }[] = [];
+    const base = await newApp();
+    const app = createDataMigrationRoutes(
+      {
+        ...base.deps,
+        departments: inMemoryDepartments(),
+        employees: inMemoryEmployees(),
+        accounts,
+        fiscalPeriods,
+        postOpeningEntry: async (entry) => {
+          posted.push({ id: entry.id, date: entry.date, lines: [...entry.lines] });
+        },
+      },
+      insecureHeaderAuthContextResolver,
+    );
+    return { app, posted };
+  }
+
+  it("posts ONE entry, and says out loud when the date had to move into the first open period", async () => {
+    const { app, posted } = await tbApp();
+    const res = await app.fetch(
+      req(
+        "/opening-trial-balance/commit",
+        [
+          { accountCode: "1100", debit: "10000.00", credit: "0" },
+          { accountCode: "3100", debit: "0", credit: "10000.00" },
+        ],
+        "accounting.journal.create",
+      ),
+    );
+    expect(res.status).toBe(201);
+    expect(posted).toHaveLength(1);
+    expect(posted[0]!.date).toBe("2025-12-01");
+    expect(posted[0]!.lines).toHaveLength(2);
+  });
+
+  it("refuses an unbalanced file in Arabic and posts nothing", async () => {
+    const { app, posted } = await tbApp();
+    const res = await app.fetch(
+      req(
+        "/opening-trial-balance/commit",
+        [
+          { accountCode: "1100", debit: "10000.00", credit: "0" },
+          { accountCode: "3100", debit: "0", credit: "9000.00" },
+        ],
+        "accounting.journal.create",
+      ),
+    );
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as { balanced: boolean; errors: { reasons: string[] }[] };
+    expect(body.balanced).toBe(false);
+    expect(body.errors[0]!.reasons[0]).toContain("غير متوازن");
+    expect(posted).toHaveLength(0);
+  });
+
+  it("refuses a header account and an unknown account code, row by row, in Arabic", async () => {
+    const { app, posted } = await tbApp();
+    const res = await app.fetch(
+      req(
+        "/opening-trial-balance/commit",
+        [
+          { accountCode: "1000", debit: "10000.00", credit: "0" },
+          { accountCode: "9999", debit: "0", credit: "10000.00" },
+        ],
+        "accounting.journal.create",
+      ),
+    );
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as { errors: { rowNumber: number; reasons: string[] }[] };
+    expect(body.errors[0]!.reasons[0]).toContain("رئيسي");
+    expect(body.errors[1]!.reasons[0]).toContain("غير موجود");
+    expect(posted).toHaveLength(0);
+  });
+
+  it("preview posts nothing and reports the date it WOULD use", async () => {
+    const { app, posted } = await tbApp();
+    const res = await app.fetch(
+      req(
+        "/opening-trial-balance/preview",
+        [
+          { accountCode: "1100", debit: "5.00", credit: "0" },
+          { accountCode: "3100", debit: "0", credit: "5.00" },
+        ],
+        "admin.settings.view",
+      ),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { balanced: boolean; date: string | null; dateAdjusted: boolean; dateNoteAr: string | null };
+    expect(body.balanced).toBe(true);
+    expect(body.date).toBe("2025-12-01");
+    expect(body.dateAdjusted).toBe(true);
+    expect(body.dateNoteAr).toContain("2025-11-30");
+    expect(posted).toHaveLength(0);
+  });
+});
+
+// guards P-5 — the open AR/AP steps must post through the SAME historical-import
+// path, so the sub-ledger and its control account (1105/2100) agree.
+describe("data-migration-routes — أرصدة العملاء/الموردين المفتوحة (P-5)", () => {
+  function inMemorySalesArchives() {
+    const rows: { id: string; docType: string; originalNumber: string }[] = [];
+    return {
+      rows,
+      repo: {
+        async create(a: { id: string; docType: string; originalNumber: string }) {
+          rows.push(a);
+        },
+        async list() {
+          return rows as never;
+        },
+        async findById(id: string) {
+          return (rows.find((r) => r.id === id) ?? null) as never;
+        },
+        async findByOriginalNumber(docType: string, originalNumber: string) {
+          return (rows.find((r) => r.docType === docType && r.originalNumber === originalNumber) ?? null) as never;
+        },
+      } as never,
+    };
+  }
+
+  it("archives an open customer invoice and posts ONLY its remaining balance to 1105", async () => {
+    const archives = inMemorySalesArchives();
+    const postings: { lines: { accountId: string; debit: unknown; credit: unknown }[] }[] = [];
+    const base = await newApp();
+    const app = createDataMigrationRoutes(
+      {
+        ...base.deps,
+        departments: inMemoryDepartments(),
+        employees: inMemoryEmployees(),
+        openCustomerInvoices: {
+          archives: archives.repo,
+          gl: { post: async (posting: never) => { postings.push(posting as never); } },
+          accounts: { openingBalanceAccountId: "3210", receivableAccountId: "1105" },
+        },
+      },
+      insecureHeaderAuthContextResolver,
+    );
+
+    const res = await app.fetch(
+      req(
+        "/open-customer-invoices/commit",
+        [
+          { documentNumber: "INV-1001", customerId: "cus-1", date: "2026-01-15", qty: "1", unitPrice: "1500.00", amountPaid: "500.00" },
+        ],
+        "sales.invoice.create",
+      ),
+    );
+    expect(res.status).toBe(201);
+    expect(archives.rows).toHaveLength(1);
+    expect(postings).toHaveLength(1);
+    const accountIds = postings[0]!.lines.map((l) => l.accountId).sort();
+    expect(accountIds).toEqual(["1105", "3210"]);
+  });
+
+  it("preview validates without archiving or posting anything", async () => {
+    const archives = inMemorySalesArchives();
+    let posted = 0;
+    const base = await newApp();
+    const app = createDataMigrationRoutes(
+      {
+        ...base.deps,
+        departments: inMemoryDepartments(),
+        employees: inMemoryEmployees(),
+        openCustomerInvoices: {
+          archives: archives.repo,
+          gl: { post: async () => { posted += 1; } },
+          accounts: { openingBalanceAccountId: "3210", receivableAccountId: "1105" },
+        },
+      },
+      insecureHeaderAuthContextResolver,
+    );
+
+    const res = await app.fetch(
+      req(
+        "/open-customer-invoices/preview",
+        [{ documentNumber: "INV-1001", customerId: "cus-1", date: "2026-01-15", qty: "1", unitPrice: "1500.00", amountPaid: "500.00" }],
+        "admin.settings.view",
+      ),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { validCount: number; documents: { remainingBalance: string }[] };
+    expect(body.validCount).toBe(1);
+    expect(body.documents[0]!.remainingBalance).toBe("1000.000000");
+    expect(archives.rows).toHaveLength(0);
+    expect(posted).toBe(0);
   });
 });

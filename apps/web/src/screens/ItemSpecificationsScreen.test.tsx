@@ -152,7 +152,7 @@ describe("ItemSpecificationsScreen", () => {
       </WithSubPageNav>,
       { transport, initialSession: testAdminSession },
     );
-    expect(await screen.findByText("تعذّر تحميل المواصفات.")).toBeInTheDocument();
+    expect(await screen.findByText("تعذّر تحميل المواصفات. (رمز 500)")).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByText(/INTERNAL/)).not.toBeInTheDocument());
     expect(screen.getByRole("button", { name: "إعادة المحاولة" })).toBeInTheDocument();
   });
@@ -305,5 +305,25 @@ describe("ItemSpecificationsScreen", () => {
     renderScreen([specification({ code: "USED", nameAr: "مواصفة مستخدمة", usageCount: 3 })]);
     await screen.findByText("مواصفة مستخدمة");
     expect(screen.getByRole("button", { name: "حذف مواصفة مستخدمة" })).toBeDisabled();
+  });
+});
+
+/** guards §4.5 #13 — the error card shows the SERVER's reason, not the screen's fixed sentence. */
+describe("ItemSpecificationsScreen — a 502 body reaches the error card", () => {
+  it("renders the server's own Arabic reason", async () => {
+    renderWithProviders(
+      <WithSubPageNav>
+        <ItemSpecificationsScreen />
+      </WithSubPageNav>,
+      {
+        transport: stubTransport({
+          "GET /item-specifications": () => ({ status: 502, body: { message: "تعذّر الوصول إلى الجهاز الرئيسي. الجهاز مغلق أو غير متصل بالشبكة." } }),
+        }),
+        initialSession: testAdminSession,
+      },
+    );
+
+    expect(await screen.findByText("تعذّر الوصول إلى الجهاز الرئيسي. الجهاز مغلق أو غير متصل بالشبكة.")).toBeInTheDocument();
+    expect(screen.queryByText("تعذّر تحميل المواصفات.")).not.toBeInTheDocument();
   });
 });

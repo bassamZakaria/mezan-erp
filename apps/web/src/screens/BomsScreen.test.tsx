@@ -164,7 +164,7 @@ describe("BomsScreen", () => {
       </WithSubPageNav>,
       { transport, initialSession: testAdminSession },
     );
-    expect(await screen.findByText("تعذّر تحميل قوائم المواد.")).toBeInTheDocument();
+    expect(await screen.findByText("تعذّر تحميل قوائم المواد. (رمز 500)")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "إعادة المحاولة" })).toBeInTheDocument();
   });
 

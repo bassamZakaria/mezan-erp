@@ -165,7 +165,7 @@ export function ApprovalsInboxScreen() {
   if (query.isError) {
     return (
       <Card className="p-[18px_20px]">
-        <p className="text-[13px] font-semibold text-danger-ink">{t("approvals.couldNotLoadThePending")}</p>
+        <p className="text-[13px] font-semibold text-danger-ink">{query.error?.message ?? t("approvals.couldNotLoadThePending")}</p>
         <Button size="sm" className="mt-[10px]" onClick={() => void query.refetch()}>
           {t("common.retry")}
         </Button>

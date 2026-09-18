@@ -8,6 +8,7 @@ export type {
 
 export {
   base64UrlToBytes,
+  bytesToBase64Url,
   bytesToUtf8,
   utf8ToBytes,
   hexToBytes,
@@ -16,7 +17,16 @@ export {
 } from "./encoding.js";
 
 export {
+  checkinSignedBytes,
+  signCheckinResponse,
+  verifyCheckinResponse,
+  type CheckinClaim,
+} from "./checkin.js";
+
+export {
+  licensePublicKeyHex,
   parseLicense,
+  signLicense,
   verifyLicense,
   LicenseParseError,
   type LicensePayload,

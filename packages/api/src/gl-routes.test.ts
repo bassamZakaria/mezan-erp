@@ -1126,6 +1126,77 @@ describe("gl-routes — year-end close", () => {
   });
 });
 
+/**
+ * Q-8: `GET /gl/journal-entries` answered with every entry ever posted. The
+ * register is now a page, and the search that used to be a JS filter over the
+ * whole ledger is SQL — so a searched page is still a page.
+ */
+describe("gl-routes — the journal register is a page (guards Q-8)", () => {
+  async function seed(ledger: Awaited<ReturnType<typeof newApp>>["ledger"], n: number) {
+    await ledger.transaction(async () => {
+      for (let i = 0; i < n; i++) {
+        await ledger.save({
+          id: `seed-${i}`,
+          entryNo: `JE-${String(i).padStart(6, "0")}`,
+          date: `2026-08-${String(1 + (i % 28)).padStart(2, "0")}`,
+          memo: i % 3 === 0 ? "قيد مبيعات" : "قيد آخر",
+          status: "posted",
+          source: "manual",
+          lines: [
+            { accountId: "1300-1", debit: Money.fromMajor("10"), credit: Money.zero(), memo: null, costCenterId: null, taxRatePercent: null, currency: null, fxRate: null },
+            { accountId: "4000", debit: Money.zero(), credit: Money.fromMajor("10"), memo: null, costCenterId: null, taxRatePercent: null, currency: null, fxRate: null },
+          ],
+          createdAt: "2026-08-22T10:00:00.000Z",
+          postedAt: "2026-08-22T10:00:00.000Z",
+          reversesEntryId: null,
+          reversedByEntryId: null,
+          sourceDocType: null,
+          sourceDocId: null,
+          sourceDocNumber: null,
+        });
+      }
+    });
+  }
+
+  it("answers 25 entries when the caller asks for no page at all", async () => {
+    const { app, ledger } = await newApp();
+    await seed(ledger, 60);
+    const res = await app.fetch(req("/journal-entries", { permissions: "accounting.journal.view" }));
+    expect(res.status).toBe(200);
+    expect((await res.json()) as unknown[]).toHaveLength(25);
+  });
+
+  it("pages a SEARCHED register too, and the page holds only matching rows", async () => {
+    const { app, ledger } = await newApp();
+    await seed(ledger, 60);
+    const page = (await (
+      await app.fetch(req("/journal-entries?search=مبيعات&page=1&pageSize=5", { permissions: "accounting.journal.view" }))
+    ).json()) as { memo: string }[];
+    expect(page).toHaveLength(5);
+    expect(page.every((e) => e.memo.includes("مبيعات"))).toBe(true);
+
+    // The chips still count the whole filtered set, not the page.
+    const counts = (await (
+      await app.fetch(req("/journal-entries/counts?search=مبيعات", { permissions: "accounting.journal.view" }))
+    ).json()) as Record<string, number>;
+    expect(counts.all).toBe(20);
+  });
+
+  it("no entry appears on two pages", async () => {
+    const { app, ledger } = await newApp();
+    await seed(ledger, 60);
+    const ids: string[] = [];
+    for (const page of [1, 2, 3]) {
+      const rows = (await (
+        await app.fetch(req(`/journal-entries?page=${page}&pageSize=20`, { permissions: "accounting.journal.view" }))
+      ).json()) as { id: string }[];
+      expect(rows).toHaveLength(20);
+      ids.push(...rows.map((r) => r.id));
+    }
+    expect(new Set(ids).size).toBe(60);
+  });
+});
+
 describe("gl-routes — an instant on the wire lands on the tenant's calendar day", () => {
   /**
    * The engine keeps refusing instants (`assertEntryDate`), because a stored

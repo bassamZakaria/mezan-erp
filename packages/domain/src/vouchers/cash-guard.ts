@@ -22,7 +22,7 @@ import { Money } from "../money/index.js";
 import type { LedgerRepository } from "../gl/ledger.js";
 import type { TreasuryAccountRepository } from "../treasury-accounts/treasury-account.js";
 import { CashBalanceWouldGoNegativeError } from "./errors.js";
-import type { VoucherLine } from "./voucher-document.js";
+import { voucherNetPaid, type VoucherLine } from "./voucher-document.js";
 
 export interface CashGuardDeps {
   readonly treasuryAccounts: Pick<TreasuryAccountRepository, "findById">;
@@ -57,8 +57,10 @@ export async function assertCashBalanceAllows(
   if (!guarded) return;
 
   // What LEAVES the treasury, which is the settling amount less any tax
-  // withheld — the withheld slice never becomes cash.
-  const leaving = Money.fromScaled(line.amount.scaled - (line.withholdingAmount?.scaled ?? 0n));
+  // withheld — the withheld slice never becomes cash. In BASE currency: the
+  // ledger balance it is compared against is base, and comparing a foreign
+  // figure to it let a USD payment pass a guard it should have failed (B-4).
+  const leaving = voucherNetPaid(line);
   const balance = await deps.ledger.accountBalance(glAccountId, asOfDate);
   const projected = Money.fromScaled(balance.balance.scaled - leaving.scaled);
   if (projected.scaled < 0n) {

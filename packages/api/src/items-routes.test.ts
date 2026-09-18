@@ -274,6 +274,64 @@ describe("items router — CRUD", () => {
   });
 });
 
+/**
+ * Q-8: an omitted page used to mean the whole catalogue. The default is what
+ * makes the unbounded read unreachable by omission, and `/counts` still
+ * reports the whole filtered set so the chips do not shrink with the page.
+ */
+describe("items router — the list is a page (guards Q-8)", () => {
+  async function seed(app: { fetch(r: Request): Response | Promise<Response> }, n: number) {
+    for (let i = 0; i < n; i++) {
+      const res = await app.fetch(
+        req("/", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          permissions: "inventory.item.create",
+          body: JSON.stringify({ ...VALID_PAYLOAD, id: `itm-${i}`, code: `ITM-${String(i).padStart(4, "0")}` }),
+        }),
+      );
+      expect(res.status).toBe(201);
+    }
+  }
+
+  it("answers 25 rows when the caller asks for no page at all", async () => {
+    const { app } = newApp();
+    await seed(app, 30);
+    const res = await app.fetch(req("/", { permissions: "inventory.item.view" }));
+    expect(res.status).toBe(200);
+    expect((await res.json()) as unknown[]).toHaveLength(25);
+  });
+
+  it("honours page and pageSize, and the last page is the remainder", async () => {
+    const { app } = newApp();
+    await seed(app, 30);
+    const first = (await (await app.fetch(req("/?page=1&pageSize=10", { permissions: "inventory.item.view" }))).json()) as { id: string }[];
+    const third = (await (await app.fetch(req("/?page=3&pageSize=10", { permissions: "inventory.item.view" }))).json()) as { id: string }[];
+    const fourth = (await (await app.fetch(req("/?page=4&pageSize=10", { permissions: "inventory.item.view" }))).json()) as { id: string }[];
+    expect(first).toHaveLength(10);
+    expect(third).toHaveLength(10);
+    expect(fourth).toHaveLength(0);
+    // No row appears on two pages.
+    expect(new Set([...first, ...third].map((r) => r.id)).size).toBe(20);
+  });
+
+  it("caps a caller who asks for more than the compiled-in ceiling", async () => {
+    const { app } = newApp();
+    await seed(app, 30);
+    // 500 is above MAX_PAGE_SIZE; the schema refuses it and the route falls
+    // back to the default rather than serving the whole catalogue.
+    const res = await app.fetch(req("/?pageSize=500", { permissions: "inventory.item.view" }));
+    expect((await res.json()) as unknown[]).toHaveLength(25);
+  });
+
+  it("counts still report the WHOLE filtered set, not the page", async () => {
+    const { app } = newApp();
+    await seed(app, 30);
+    const counts = (await (await app.fetch(req("/counts", { permissions: "inventory.item.view" }))).json()) as Record<string, number>;
+    expect(counts.all).toBe(30);
+  });
+});
+
 describe("items router — the cost price is a separate grant (D94)", () => {
   const withCost = { ...VALID_PAYLOAD, costPrice: "42.50", salePrice: "70.00" };
 

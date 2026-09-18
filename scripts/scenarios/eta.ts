@@ -180,9 +180,16 @@ export async function run(ctx: Ctx): Promise<void> {
     check("only the fact that one is on file is", JSON.parse(body).config?.hasClientSecret === true, body.slice(0, 200));
 
     const test = await req("POST", "/eta/test-connection", {});
+    // The two honest answers to a REAL token request made with invented
+    // credentials: `rejected` when the authority's identity server answered
+    // and refused them, `unreachable` when the machine could not reach it at
+    // all. Which one comes back depends on the network this suite runs on, so
+    // the assertion is that the test never claims `connected`, and never
+    // claims `missing_credentials` when a secret IS on file — that pair is the
+    // whole promise, and `offline` is not a reason this product can return.
     check(
-      "with credentials on file the test reports the transmit leg is offline, not a fake success",
-      test.status === 200 && test.body?.ok === false && test.body?.reason === "offline",
+      "with credentials on file the test reports what really came back, not a fake success",
+      test.status === 200 && test.body?.ok === false && ["rejected", "unreachable"].includes(test.body?.reason),
       JSON.stringify(test.body),
     );
   });

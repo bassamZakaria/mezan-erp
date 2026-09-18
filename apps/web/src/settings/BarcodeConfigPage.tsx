@@ -152,7 +152,7 @@ export function BarcodeConfigPage() {
       <Card className="p-[24px] text-center text-[13px] text-ink-muted">
         {query.isError ? (
           <>
-            <p className="font-semibold text-danger-ink">{t("barcode.couldNotLoadTheBarcode")}</p>
+            <p className="font-semibold text-danger-ink">{query.error?.message ?? t("barcode.couldNotLoadTheBarcode")}</p>
             <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
               {t("common.retry")}
             </Button>

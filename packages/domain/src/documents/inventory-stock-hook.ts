@@ -14,7 +14,9 @@
  */
 
 import { occurredAtFromDocumentDate, type StockLedgerService, type StockSourceDocType } from "../inventory/index.js";
+import { mirrorStockPlan } from "./hooks.js";
 import type { DocumentStockHook, DocumentStockPlan, DocumentStockResult } from "./hooks.js";
+import { Money } from "../money/index.js";
 
 export function createInventoryStockHook(service: StockLedgerService): DocumentStockHook {
   return {
@@ -32,6 +34,19 @@ export function createInventoryStockHook(service: StockLedgerService): DocumentS
         // The document's own date, not the wall clock, so a replay of the
         // ledger can order these against every other document-dated movement.
         occurredAt: plan.date ? occurredAtFromDocumentDate(plan.date) : undefined,
+      });
+    },
+
+    async reverse(plan: DocumentStockPlan, reversesDocId: string): Promise<DocumentStockResult> {
+      const mirrored = mirrorStockPlan(plan, await service.getMovementsOfDocument(reversesDocId));
+      if (!mirrored) return { valueMoved: Money.zero() };
+      return await service.applyDocumentStockPlan({
+        sourceDocType: mirrored.sourceDocType as StockSourceDocType,
+        sourceDocId: mirrored.sourceDocId,
+        sourceDocNumber: mirrored.sourceDocNumber,
+        warehouseId: mirrored.warehouseId,
+        lines: mirrored.lines,
+        occurredAt: mirrored.date ? occurredAtFromDocumentDate(mirrored.date) : undefined,
       });
     },
   };

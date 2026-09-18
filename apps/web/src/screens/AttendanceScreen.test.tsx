@@ -184,11 +184,11 @@ describe("AttendanceScreen", () => {
         },
       },
     });
-    expect(await screen.findByText("تعذّر تحميل سجل الحضور.")).toBeInTheDocument();
+    expect(await screen.findByText("تعذّر تحميل سجل الحضور. (رمز 500)")).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByText("INTERNAL")).not.toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "إعادة المحاولة" }));
     expect(await screen.findByText("أحمد حسن")).toBeInTheDocument();
-    await waitFor(() => expect(screen.queryByText("تعذّر تحميل سجل الحضور.")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByText("تعذّر تحميل سجل الحضور. (رمز 500)")).not.toBeInTheDocument());
   });
 
   it("records a new attendance entry with the real employee id from the picker, not typed text", async () => {

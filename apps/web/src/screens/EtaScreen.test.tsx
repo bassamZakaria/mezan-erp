@@ -66,6 +66,12 @@ function config(overrides: Partial<EtaConfigDTO> = {}): EtaConfigDTO {
     signingMethod: "none",
     clientId: null,
     hasClientSecret: false,
+    preproductionIdentityUrl: "https://id.preprod.eta.gov.eg",
+    preproductionApiUrl: "https://api.preprod.invoicing.eta.gov.eg/api/v1",
+    productionIdentityUrl: "https://id.eta.gov.eg",
+    productionApiUrl: "https://api.invoicing.eta.gov.eg/api/v1",
+    signingCommand: null,
+    signingCommandArgs: [],
     receiptReportingWindowHours: 24,
     ...overrides,
   };
@@ -84,6 +90,8 @@ function readiness(overrides: Partial<EtaReadinessDTO> = {}): EtaReadinessDTO {
 
 function submission(overrides: Partial<EtaSubmissionDTO> = {}): EtaSubmissionDTO {
   return {
+    gatewaySubmissionId: null,
+    signed: false,
     id: "s1",
     internalId: "INV-000014",
     documentType: "invoice",
@@ -282,25 +290,86 @@ describe("EtaScreen — بيانات الربط (credentials)", () => {
 
     fireEvent.click(screen.getByRole("tab", { name: "بيانات الربط" }));
     const clientIdInput = await screen.findByLabelText("معرّف العميل (Client ID)");
+    await waitFor(() => expect(clientIdInput).toHaveValue("old-client"));
     fireEvent.change(clientIdInput, { target: { value: "new-client-id" } });
     selectNearLabel("طريقة التوقيع", "ختم إلكتروني (e-Seal)");
     fireEvent.click(screen.getByRole("button", { name: "حفظ" }));
 
     await screen.findByText("حُفظت الإعدادات.");
-    expect(saved).toEqual({ clientId: "new-client-id", signingMethod: "eseal" });
+    // guards P-1 — the gateway addresses and the external signer travel with the
+    // save; a field the contract drops is a setting that silently never applies.
+    expect(saved).toEqual({
+      clientId: "new-client-id",
+      signingMethod: "eseal",
+      preproductionIdentityUrl: "https://id.preprod.eta.gov.eg",
+      preproductionApiUrl: "https://api.preprod.invoicing.eta.gov.eg/api/v1",
+      productionIdentityUrl: "https://id.eta.gov.eg",
+      productionApiUrl: "https://api.invoicing.eta.gov.eg/api/v1",
+      signingCommand: null,
+      signingCommandArgs: [],
+    });
+  });
+
+  // guards P-1 — an e-seal install must be able to name the program that talks
+  // to the taxpayer's token; it is the only way a v1.0 document can be signed.
+  it("asks for the external signing command once e-seal signing is chosen, and saves it", async () => {
+    let saved: Record<string, unknown> = {};
+    const { transport } = trackedTransport({
+      "GET /eta/config": () => ({ body: { config: config({ signingMethod: "eseal" }), readiness: readiness() } }),
+      "GET /eta/submissions": () => ({ body: [] }),
+      "PUT /eta/config": (init) => {
+        saved = JSON.parse((init?.body as string) ?? "{}") as Record<string, unknown>;
+        return { body: { config: config({ signingMethod: "eseal" }), readiness: readiness() } };
+      },
+    });
+    renderWithProviders(<EtaScreen />, { transport, initialSession: testAdminSession });
+
+    fireEvent.click(screen.getByRole("tab", { name: "بيانات الربط" }));
+    const commandInput = await screen.findByLabelText("أمر التوقيع الخارجي");
+    await waitFor(() => expect(screen.getByLabelText("خادم الهوية — بيئة التجارب")).toHaveValue("https://id.preprod.eta.gov.eg"));
+    fireEvent.change(commandInput, { target: { value: "/opt/eta/sign" } });
+    fireEvent.change(screen.getByLabelText("معاملات أمر التوقيع"), { target: { value: "--slot 1" } });
+    fireEvent.click(screen.getByRole("button", { name: "حفظ" }));
+
+    await screen.findByText("حُفظت الإعدادات.");
+    expect(saved.signingCommand).toBe("/opt/eta/sign");
+    expect(saved.signingCommandArgs).toEqual(["--slot", "1"]);
   });
 
   it("shows the Arabic reason a connection test could not run", async () => {
     const { transport } = trackedTransport({
       "GET /eta/config": () => ({ body: { config: config(), readiness: readiness() } }),
       "GET /eta/submissions": () => ({ body: [] }),
-      "POST /eta/test-connection": () => ({ body: { ok: false, reason: "missing_credentials", checkedAt: "2026-08-30T00:00:00.000Z" } }),
+      "POST /eta/test-connection": () => ({
+        body: { ok: false, reason: "missing_credentials", detail: null, identityUrl: "https://id.preprod.eta.gov.eg", checkedAt: "2026-08-30T00:00:00.000Z" },
+      }),
     });
     renderWithProviders(<EtaScreen />, { transport, initialSession: testAdminSession });
 
     fireEvent.click(screen.getByRole("tab", { name: "بيانات الربط" }));
     fireEvent.click(await screen.findByRole("button", { name: "اختبار الاتصال" }));
     expect(await screen.findByText("تعذّر الاختبار: أكمل معرّف العميل والسر أولاً.")).toBeInTheDocument();
+  });
+
+  // guards P-1 — the check no longer answers a fixed "offline"; it reports what
+  // the identity server actually said.
+  it("reports a successful handshake, and shows the gateway's own detail on a refusal", async () => {
+    let answer = { ok: true, reason: "connected", detail: null as string | null, identityUrl: "https://id.preprod.eta.gov.eg", checkedAt: "2026-08-30T00:00:00.000Z" };
+    const { transport } = trackedTransport({
+      "GET /eta/config": () => ({ body: { config: config({ clientId: "cid", hasClientSecret: true }), readiness: readiness() } }),
+      "GET /eta/submissions": () => ({ body: [] }),
+      "POST /eta/test-connection": () => ({ body: answer }),
+    });
+    renderWithProviders(<EtaScreen />, { transport, initialSession: testAdminSession });
+
+    fireEvent.click(screen.getByRole("tab", { name: "بيانات الربط" }));
+    fireEvent.click(await screen.findByRole("button", { name: "اختبار الاتصال" }));
+    expect(await screen.findByText("تم الاتصال بمصلحة الضرائب وقُبلت بيانات الربط.")).toBeInTheDocument();
+
+    answer = { ok: false, reason: "rejected", detail: "invalid_client", identityUrl: "https://id.preprod.eta.gov.eg", checkedAt: "2026-08-30T00:00:00.000Z" };
+    fireEvent.click(screen.getByRole("button", { name: "اختبار الاتصال" }));
+    expect(await screen.findByText("رفضت المصلحة بيانات الربط. راجع معرّف العميل والسر.")).toBeInTheDocument();
+    expect(screen.getByText("invalid_client")).toBeInTheDocument();
   });
 });
 

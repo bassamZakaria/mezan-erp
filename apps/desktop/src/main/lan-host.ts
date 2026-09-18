@@ -1,18 +1,23 @@
 import { createServer as createHttpsServer } from "node:https";
-import type { AddressInfo } from "node:net";
+import { connect as netConnect, type AddressInfo } from "node:net";
 import { networkInterfaces } from "node:os";
 import { serve, type ServerType } from "@hono/node-server";
 import type { Http2Bindings, HttpBindings } from "@hono/node-server";
 import { hasFeature, LAN_MULTI_TILL_FEATURE, type Entitlements } from "@mezan/domain";
-import type { App } from "@mezan/api";
+import type { FetchLike } from "./backend-bridge.js";
 import type { LanTlsIdentity } from "./lan-tls.js";
 
 const FALLBACK_LAN_HOST = "0.0.0.0";
 const DEFAULT_LAN_PORT = 4173;
 
 export interface LanHostOptions {
-  /** The SAME Hono app instance the IPC bridge already serves in-process. */
-  readonly app: App;
+  /**
+   * The SAME backend the IPC bridge already serves. On the shipped host that is
+   * main/backend-process.ts's shim over the utility process that owns SQLite
+   * (Q-1) — one backend, two mounts, exactly as before; what changed is only
+   * that `fetch` now crosses a process boundary.
+   */
+  readonly app: FetchLike;
   readonly entitlements: Entitlements;
   /**
    * The host's persistent TLS identity, resolved lazily so this module stays
@@ -40,9 +45,31 @@ export interface LanHostOptions {
    * OMITTED MEANS DENY, and that is the pre-client behaviour exactly: a host
    * built without this forwards the seat protocol and nothing else. It is not
    * optional-with-a-permissive-default anywhere.
+   *
+   * ASYNC because the session and seat registries moved into the backend
+   * process with the database (Q-1). The answer is still resolved on EVERY
+   * request against the live registries — never against a copy mirrored into
+   * this process, which would go on authorising a till whose seat had already
+   * been reaped.
    */
-  readonly authorizeClientRequest?: (request: Request, remote: string) => boolean;
+  readonly authorizeClientRequest?: (request: Request, remote: string) => boolean | Promise<boolean>;
 }
+
+/**
+ * WHY THE LOCAL NETWORK IS NOT SERVING, when it is not.
+ *
+ * «الشبكة المحلية غير مشغّلة» covered four unrelated faults with four different
+ * fixes — the licence does not carry multi-till, another program holds the
+ * port, the TLS identity could not be read, or this machine has no network
+ * interface to publish on — and the distinguishing reason went to a console the
+ * shop never opens. One sentence and no named cause is a support call every
+ * time; the panel now names the cause and the next step.
+ *
+ * NO_INTERFACE is the odd one: the socket IS bound (on `0.0.0.0`), but there is
+ * no address a till could be pointed at, so it is a closure from the operator's
+ * side even though `address()` is non-null.
+ */
+export type LanClosedReason = "NOT_LICENSED" | "PORT_IN_USE" | "TLS_UNAVAILABLE" | "NO_INTERFACE";
 
 export interface LanHostHandle {
   readonly enabled: boolean;
@@ -78,6 +105,24 @@ export interface LanHostHandle {
    * matches nothing on the wire.
    */
   fingerprint(): string | null;
+  /**
+   * Why this socket is not usable, or null when it is. See
+   * {@link LanClosedReason}.
+   */
+  closedReason(): LanClosedReason | null;
+  /**
+   * «اختبر الوصول» — does a TCP connection to this host's OWN LAN address
+   * succeed, from this machine?
+   *
+   * It is the one probe that separates "Mezan is not listening" from "something
+   * between the till and this machine is dropping the packets": a host that
+   * cannot reach its own advertised address has a local firewall rule in the
+   * way, and a host that can, while a till cannot, has a network problem the
+   * till's own diagnostic will name. `INSTALL.md §7A.3` calls the Windows
+   * firewall the most likely LAN failure and nothing in the product ever
+   * probed for it.
+   */
+  testReachability(timeoutMs?: number): Promise<{ reachable: boolean; address: string | null; detail: string | null }>;
   close(): Promise<void>;
 }
 
@@ -87,6 +132,12 @@ const NOOP_HANDLE: LanHostHandle = {
   address: () => null,
   url: () => null,
   fingerprint: () => null,
+  closedReason: () => "NOT_LICENSED",
+  testReachability: async () => ({
+    reachable: false,
+    address: null,
+    detail: "the local-network feature is not part of this licence",
+  }),
   close: async () => {},
 };
 
@@ -297,6 +348,61 @@ function resolveBindAddress(): string {
  * Deliberately free of any `electron` import (unlike main/index.ts) so it is
  * exercised directly by vitest — same split as main/backup-hooks.ts.
  */
+/**
+ * A COARSE CEILING ON WHAT ONE ADDRESS MAY ASK FOR.
+ *
+ * The login ladder counts credential failures; nothing counted REQUESTS, so a
+ * device on the shop wifi could hold this socket — and with it the host's
+ * single-threaded event loop, which every SQLite call in the product runs on —
+ * at whatever rate it liked, without ever presenting a credential.
+ *
+ * Deliberately generous. A busy till mounting a screen fires a dozen requests
+ * in a second and a report refresh a few more; the number below is far above
+ * anything a person generates and far below what a loop does. It is a floor
+ * under the host's responsiveness, not an authorisation decision — the session,
+ * seat and permission gates behind it are what decide who may do what.
+ */
+const RATE_WINDOW_MS = 10_000;
+const RATE_MAX_PER_WINDOW = 600;
+/** Bounded like the login throttle's map is, and for the same reason. */
+const RATE_MAX_SOURCES = 512;
+
+interface RateBucket {
+  count: number;
+  windowStartedAt: number;
+}
+
+export function createSourceRateLimiter(
+  now: () => number = Date.now,
+  maxPerWindow: number = RATE_MAX_PER_WINDOW,
+  windowMs: number = RATE_WINDOW_MS,
+): (source: string) => boolean {
+  const buckets = new Map<string, RateBucket>();
+  return (source) => {
+    const at = now();
+    const bucket = buckets.get(source);
+    if (!bucket || at - bucket.windowStartedAt >= windowMs) {
+      if (buckets.size >= RATE_MAX_SOURCES) {
+        for (const [key, held] of buckets) {
+          if (at - held.windowStartedAt >= windowMs) buckets.delete(key);
+        }
+        // Still full: this is a flood from many addresses, and dropping the
+        // oldest is the only bounded answer.
+        if (buckets.size >= RATE_MAX_SOURCES) {
+          const oldest = [...buckets.entries()].sort(
+            (a, b) => a[1].windowStartedAt - b[1].windowStartedAt,
+          )[0];
+          if (oldest) buckets.delete(oldest[0]);
+        }
+      }
+      buckets.set(source, { count: 1, windowStartedAt: at });
+      return true;
+    }
+    bucket.count += 1;
+    return bucket.count <= maxPerWindow;
+  };
+}
+
 export function startLanHost(options: LanHostOptions): LanHostHandle {
   if (!hasFeature(options.entitlements, LAN_MULTI_TILL_FEATURE)) {
     return NOOP_HANDLE;
@@ -304,13 +410,26 @@ export function startLanHost(options: LanHostOptions): LanHostHandle {
 
   const hostname = options.host ?? resolveBindAddress();
   const port = options.port ?? DEFAULT_LAN_PORT;
+  const withinRate = createSourceRateLimiter();
+  let closedReason: LanClosedReason | null = hostname === FALLBACK_LAN_HOST ? "NO_INTERFACE" : null;
 
-  const handle = (
+  const handle = async (
     request: Request,
     env: HttpBindings | Http2Bindings,
-  ): Response | Promise<Response> => {
+  ): Promise<Response> => {
     const remoteRaw = env.incoming.socket.remoteAddress;
     const remote = remoteRaw ? normalizeRemoteAddress(remoteRaw) : null;
+
+    if (remote !== null && !withinRate(remote)) {
+      console.warn(`[lan] rate-limited ${request.method} from ${remote}`);
+      return Response.json(
+        {
+          error: "TOO_MANY_REQUESTS",
+          message: "طلبات كثيرة من هذا الجهاز. انتظر قليلاً ثم أعد المحاولة.",
+        },
+        { status: 429, headers: { "retry-after": String(Math.ceil(RATE_WINDOW_MS / 1000)) } },
+      );
+    }
 
     if (remote === null || !isOnOwnSubnet(remote)) {
       console.warn(`[lan] refused ${request.method} from off-subnet address ${remoteRaw ?? "unknown"}`);
@@ -360,7 +479,7 @@ export function startLanHost(options: LanHostOptions): LanHostHandle {
       // `requestOrigin` hands the session registry when the token was minted
       // (packages/api/src/request-origin.ts), and the authorizer has to ask the
       // registry the same question the app itself asks.
-      if (!options.authorizeClientRequest?.(request, remoteRaw ?? remote)) return notFound();
+      if (!(await options.authorizeClientRequest?.(request, remoteRaw ?? remote))) return notFound();
     }
 
     // `env` is FORWARDED, not dropped. The backend reads the peer address off
@@ -404,13 +523,21 @@ export function startLanHost(options: LanHostOptions): LanHostHandle {
             `[lan] multi-till host listening on https://${hostname}:${info.port} ` +
               `(seats=${options.entitlements.seats}, ` +
               `sha256=${tls.fingerprintSha256}, ` +
-              `public=${LAN_PUBLIC_ROUTES.map((r) => r.path).join(" ")}, ` +
+              // `routes=`, which is what `INSTALL.md §6.1` quotes. It said
+              // `public=` here, so a consultant checking the install guide's own
+              // log sample against a running host found neither line matched and
+              // had no way to tell a documentation drift from a broken start.
+              `routes=${LAN_PUBLIC_ROUTES.map((r) => r.path).join(" ")}, ` +
               `clients=${options.authorizeClientRequest ? "the rest of the app, once signed in and seated" : "REFUSED (no authorizer wired)"})`,
           );
           resolveReady(info);
         },
       );
       server.on("error", (err: unknown) => {
+        // EADDRINUSE is a different fix from every other bind failure — another
+        // program (or a second copy of Mezan) holds 4173 — so it is reported as
+        // its own reason rather than folded into "the socket is closed".
+        closedReason = (err as NodeJS.ErrnoException).code === "EADDRINUSE" ? "PORT_IN_USE" : "TLS_UNAVAILABLE";
         console.error(
           `[lan] the multi-till socket could not bind ${hostname}:${port} — it is CLOSED, and ` +
             `no plain-HTTP socket was opened in its place.`,
@@ -420,6 +547,7 @@ export function startLanHost(options: LanHostOptions): LanHostHandle {
       });
     })
     .catch((err: unknown) => {
+      closedReason = "TLS_UNAVAILABLE";
       // The loud half of "HTTPS is not optional". Every till stays offline,
       // which is visible within minutes; the alternative — quietly serving the
       // same routes in clear text — is invisible for the life of the install.
@@ -450,6 +578,30 @@ export function startLanHost(options: LanHostOptions): LanHostHandle {
       return `https://${authority}:${info.port}`;
     },
     fingerprint: () => identity?.fingerprintSha256 ?? null,
+    closedReason: () => (boundAddress() === null ? (closedReason ?? "TLS_UNAVAILABLE") : closedReason),
+    testReachability: async (timeoutMs = 3_000) => {
+      const info = boundAddress();
+      if (!info) {
+        return { reachable: false, address: null, detail: closedReason ?? "not listening" };
+      }
+      if (hostname === FALLBACK_LAN_HOST) {
+        return { reachable: false, address: null, detail: "NO_INTERFACE" };
+      }
+      const address = `${hostname}:${info.port}`;
+      // A PLAIN TCP CONNECT, not a request. What is being asked is whether the
+      // packets arrive at all; completing a handshake or a route would confound
+      // "the firewall is blocking this" with "the app answered 404".
+      return await new Promise((resolve) => {
+        const socket = netConnect({ host: hostname, port: info.port });
+        const finish = (reachable: boolean, detail: string | null) => {
+          socket.destroy();
+          resolve({ reachable, address, detail });
+        };
+        socket.setTimeout(timeoutMs, () => finish(false, "TIMEOUT"));
+        socket.once("connect", () => finish(true, null));
+        socket.once("error", (err: NodeJS.ErrnoException) => finish(false, err.code ?? err.message));
+      });
+    },
     close: async () => {
       // Awaited, not raced: closing while the bind is still in flight used to
       // leave a listening socket behind a handle its owner had already

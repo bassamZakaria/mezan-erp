@@ -118,7 +118,7 @@ export function LeaveBalancesScreen() {
     <div className="w-full">
       {query.isError ? (
         <Card className="mb-[18px] p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-danger-ink">{t("leaveBalances.leaveBalancesCouldNotBe")}</p>
+          <p className="text-[13px] font-semibold text-danger-ink">{query.error?.message ?? t("leaveBalances.leaveBalancesCouldNotBe")}</p>
           <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
             {t("common.retry")}
           </Button>

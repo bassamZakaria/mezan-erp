@@ -1,6 +1,6 @@
 {
   "name": "desktop",
-  "version": "0.0.0",
+  "version": "2026.9.0",
   "private": true,
   "type": "module",
   "main": "dist/main/index.cjs",
@@ -10,7 +10,8 @@
     "build:main": "node scripts/build.mjs",
     "start": "pnpm run build:main && electron .",
     "package": "pnpm run build:main && electron-builder",
-    "check:abi": "electron scripts/check-native-abi.cjs"
+    "check:abi": "electron scripts/check-native-abi.cjs",
+    "prove:off-loop": "tsx scripts/prove-backend-off-loop.mts"
   },
   "dependencies": {
     "@hono/node-server": "^1.13.7",
@@ -21,6 +22,7 @@
     "@mezan/persistence": "workspace:*",
     "better-sqlite3": "^13.0.3",
     "better-sqlite3-multiple-ciphers": "^13.0.3",
+    "bonjour-service": "^1.4.4",
     "electron-updater": "^6.8.9",
     "selfsigned": "^5.5.0",
     "tar": "^7.5.22",

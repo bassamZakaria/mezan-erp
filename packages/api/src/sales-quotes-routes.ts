@@ -33,6 +33,15 @@ import {
 } from "@mezan/contracts";
 import { refuseUnknownItems, type ItemCatalogCheck } from "./item-check.js";
 import {
+  documentVersionOf,
+  documentVersionsOf,
+  expectedVersionOf,
+  readOptionalBody,
+  refuseStaleDocument,
+  stampDocumentModifier,
+  type DocumentVersionGuard,
+} from "./document-version.js";
+import {
   createPermissionGate,
   createAnyPermissionGate,
   getAuthContext,
@@ -49,6 +58,12 @@ import {
  */
 export interface SalesQuoteRoutesDeps {
   readonly repo: SalesQuoteRepository;
+  /**
+   * N-9 — optimistic concurrency. Omitted, the routes behave exactly as before;
+   * supplied, a caller holding a stale `expectedVersion` is refused instead of
+   * overwriting the till that got there first.
+   */
+  readonly versionGuard?: DocumentVersionGuard;
   /** Refuses a line naming an item the catalogue does not hold (D38); omit for no check. */
   readonly itemCheck?: ItemCatalogCheck;
   readonly numbering: DocumentNumberingHook;
@@ -325,7 +340,10 @@ export function createSalesQuotesRoutes(
     }
     const svc = service(c);
     const quotes = await listFilteredQuotes(svc, c, parsed.filter);
-    return c.json(quotes.map((q) => serialize(q, totalsFor(svc, q))));
+    // N-9: send/accept/reject/cancel all act from the row's kebab, so the row
+    // has to carry the version or `expectedVersion` is never sent.
+    const versions = await documentVersionsOf(deps.versionGuard, quotes.map((q) => q.id));
+    return c.json(quotes.map((q) => ({ ...serialize(q, totalsFor(svc, q)), version: versions.get(q.id) })));
   });
 
   /**
@@ -393,13 +411,17 @@ export function createSalesQuotesRoutes(
     const quote = await svc.findById(c.req.param("id"));
     if (!quote) return c.json({ error: "NOT_FOUND" }, 404);
     if (visibleQuotes(c, [quote]).length === 0) return c.json({ error: "NOT_FOUND" }, 404);
-    return c.json(serialize(quote, totalsFor(svc, quote)));
+    // N-9: the screen keeps this and sends it back on the next act.
+    return c.json({ ...serialize(quote, totalsFor(svc, quote)), version: await documentVersionOf(deps.versionGuard, quote.id) });
   });
 
   app.post("/:id/send", gate("sales.quote.send"), async (c) => {
+    const stale = await refuseStaleDocument(c, deps.versionGuard, c.req.param("id"), expectedVersionOf(await readOptionalBody(c)));
+    if (stale) return stale;
     const svc = service(c);
     try {
       const quote = await svc.send(c.req.param("id"));
+      await stampDocumentModifier(deps.versionGuard, quote.id, getAuthContext(c)?.userId);
       return c.json(serialize(quote, totalsFor(svc, quote)));
     } catch (err) {
       return handleDomainError(c, err);
@@ -407,9 +429,12 @@ export function createSalesQuotesRoutes(
   });
 
   app.post("/:id/accept", gate("sales.quote.edit"), async (c) => {
+    const stale = await refuseStaleDocument(c, deps.versionGuard, c.req.param("id"), expectedVersionOf(await readOptionalBody(c)));
+    if (stale) return stale;
     const svc = service(c);
     try {
       const quote = await svc.accept(c.req.param("id"));
+      await stampDocumentModifier(deps.versionGuard, quote.id, getAuthContext(c)?.userId);
       return c.json(serialize(quote, totalsFor(svc, quote)));
     } catch (err) {
       return handleDomainError(c, err);
@@ -417,9 +442,12 @@ export function createSalesQuotesRoutes(
   });
 
   app.post("/:id/reject", gate("sales.quote.edit"), async (c) => {
+    const stale = await refuseStaleDocument(c, deps.versionGuard, c.req.param("id"), expectedVersionOf(await readOptionalBody(c)));
+    if (stale) return stale;
     const svc = service(c);
     try {
       const quote = await svc.reject(c.req.param("id"));
+      await stampDocumentModifier(deps.versionGuard, quote.id, getAuthContext(c)?.userId);
       return c.json(serialize(quote, totalsFor(svc, quote)));
     } catch (err) {
       return handleDomainError(c, err);
@@ -427,9 +455,12 @@ export function createSalesQuotesRoutes(
   });
 
   app.post("/:id/cancel", gate("sales.quote.edit"), async (c) => {
+    const stale = await refuseStaleDocument(c, deps.versionGuard, c.req.param("id"), expectedVersionOf(await readOptionalBody(c)));
+    if (stale) return stale;
     const svc = service(c);
     try {
       const quote = await svc.cancel(c.req.param("id"));
+      await stampDocumentModifier(deps.versionGuard, quote.id, getAuthContext(c)?.userId);
       return c.json(serialize(quote, totalsFor(svc, quote)));
     } catch (err) {
       return handleDomainError(c, err);

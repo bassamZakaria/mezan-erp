@@ -66,7 +66,6 @@ interface EventTrigger {
   readonly emitted: boolean;
 }
 
-
 export async function seedPlatform(app: App): Promise<void> {
   // --- إعدادات الموافقات (workflow configs) — chains a later request can reference. ---
   await step(app, "POST", "/workflow/configs", {
@@ -130,6 +129,10 @@ export async function seedPlatform(app: App): Promise<void> {
   );
 
   // --- قواعد الإشعارات — only subscribe to what this build really emits. ---
+  //
+  // DEC-17: the API-key and webhook seeding that stood here is gone with the
+  // routes (packages/api/src/app.ts). Seeding through routes that are no longer
+  // mounted 404s, and the seed is the first thing every scenario run does.
   const triggerCatalog = (await step(app, "GET", "/notification-rules/triggers")) as {
     triggers: readonly EventTrigger[];
   };

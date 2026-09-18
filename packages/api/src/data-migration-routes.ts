@@ -35,6 +35,26 @@ import {
   type StockAdjustmentDocLine,
   type OpeningBalanceImportRowInput,
   type ImportRowError,
+  createAccount,
+  previewChartOfAccountsImport,
+  orderChartOfAccountsRows,
+  previewOpeningTrialBalanceImport,
+  dayBefore,
+  previewHistoricalSalesImport,
+  importHistoricalSalesDocuments,
+  previewHistoricalImport,
+  importHistoricalPurchaseDocuments,
+  type Account,
+  type AccountRepository,
+  type FiscalPeriodRepository,
+  type HistoricalSalesArchiveRepository,
+  type HistoricalSalesImportGlPostingPort,
+  type HistoricalSalesImportGlAccounts,
+  type HistoricalSalesImportRowInput,
+  type HistoricalPurchaseArchiveRepository,
+  type HistoricalImportGlPostingPort,
+  type HistoricalImportGlAccounts,
+  type HistoricalImportRowInput,
 } from "@mezan/domain";
 import { openingBalanceImportBatchSchema, type OpeningBalanceImportRowDTO } from "@mezan/contracts";
 import { tenantDay } from "./tenant-day.js";
@@ -47,7 +67,7 @@ import { tenantDay } from "./tenant-day.js";
 export interface DataMigrationTransactor {
   run<T>(fn: () => Promise<T>): Promise<T>;
 }
-import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
+import { createPermissionGate, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
 
 /**
  * نقل البيانات (Data Migration wizard) — docs/archive/catalog/09 §"نقل البيانات":
@@ -190,6 +210,44 @@ export interface DataMigrationRoutesDeps {
   readonly stockAdjustments?: DocumentService<StockAdjustmentDocLine>;
   readonly transact?: DataMigrationTransactor;
   readonly resolveAuthContext?: AuthContextResolver;
+  /**
+   * P-5 — دليل الحسابات. Mounts `/chart-of-accounts`; omit it and that step is
+   * not served rather than served empty.
+   */
+  readonly accounts?: AccountRepository;
+  /**
+   * P-5 — ميزان المراجعة الافتتاحي. `postOpeningEntry` posts ONE balanced
+   * `INITIAL_BALANCE` journal entry; `fiscalPeriods` decides the date it
+   * carries (the day before the first open period). Both are required for the
+   * step to be mounted.
+   */
+  readonly fiscalPeriods?: FiscalPeriodRepository;
+  readonly postOpeningEntry?: (entry: {
+    readonly id: string;
+    readonly date: string;
+    readonly memo: string;
+    readonly lines: readonly { readonly accountId: string; readonly debit: Money; readonly credit: Money }[];
+  }) => Promise<void>;
+  /**
+   * P-5 — أرصدة العملاء/الموردين المفتوحة. These reuse the EXISTING historical
+   * import path (`importHistoricalSalesDocuments` /
+   * `importHistoricalPurchaseDocuments`), which is the only path that archives
+   * the document AND posts its remaining balance to 1105/2100 — so the AR/AP
+   * sub-ledgers and their control accounts agree the moment the migration
+   * lands. Reimplementing the posting here would give a second answer.
+   */
+  readonly openCustomerInvoices?: {
+    readonly archives: HistoricalSalesArchiveRepository;
+    readonly gl?: HistoricalSalesImportGlPostingPort;
+    readonly accounts?: HistoricalSalesImportGlAccounts;
+    readonly now?: () => string;
+  };
+  readonly openSupplierInvoices?: {
+    readonly archives: HistoricalPurchaseArchiveRepository;
+    readonly gl?: HistoricalImportGlPostingPort;
+    readonly accounts?: HistoricalImportGlAccounts;
+    readonly now?: () => string;
+  };
 }
 
 function toOpeningBalanceRows(rows: readonly OpeningBalanceImportRowDTO[]): OpeningBalanceImportRowInput[] {
@@ -662,6 +720,299 @@ export function createDataMigrationRoutes(
   app.post("/assets/preview", gate("admin.settings.view"), (c) => assetsStep(c, false));
   app.post("/assets/commit", gate("admin.settings.edit"), (c) => assetsStep(c, true));
 
+  // --- 10. دليل الحسابات (Chart of accounts) — P-5 ---
+  const coaAccounts = deps.accounts;
+  if (coaAccounts) {
+    async function chartOfAccountsStep(c: Context, commit: boolean) {
+      const rows = rowsOf(await readBody(c));
+      const existing = await coaAccounts!.list();
+      const preview = previewChartOfAccountsImport(
+        rows.map((row, i) => ({
+          rowNumber: i + 1,
+          code: str(row, "code"),
+          nameAr: str(row, "nameAr"),
+          nameEn: optStr(row, "nameEn"),
+          type: str(row, "type"),
+          parentCode: optStr(row, "parentCode"),
+          naturalBalance: optStr(row, "naturalBalance"),
+          isHeader: optStr(row, "isHeader"),
+        })),
+        new Set(existing.map((a) => a.code)),
+        new Set(existing.filter((a) => a.isHeader).map((a) => a.code)),
+      );
+      const errors = preview.errors.map((e) => ({ rowNumber: e.rowNumber, reasons: e.reasons }));
+      if (!commit || errors.length > 0) {
+        return c.json({ validCount: preview.valid.length, errors }, 200);
+      }
+      const idByCode = new Map(existing.map((a) => [a.code, a.id]));
+      const createdIds: string[] = [];
+      const write = async () => {
+        for (const row of orderChartOfAccountsRows(preview.valid)) {
+          const id = randomId();
+          await createAccount(
+            {
+              id,
+              code: row.code,
+              nameAr: row.nameAr,
+              nameEn: row.nameEn,
+              type: row.type,
+              naturalBalance: row.naturalBalance,
+              parentId: row.parentCode ? idByCode.get(row.parentCode) ?? null : null,
+              isHeader: row.isHeader,
+            },
+            coaAccounts!,
+          );
+          idByCode.set(row.code, id);
+          createdIds.push(id);
+        }
+      };
+      try {
+        if (deps.transact) await deps.transact.run(write);
+        else await write();
+      } catch (err) {
+        return c.json({ validCount: preview.valid.length, errors: [{ rowNumber: 0, reasons: [errorMessage(err)] }] }, 422);
+      }
+      return c.json({ validCount: preview.valid.length, errors: [], createdIds }, 201);
+    }
+    app.post("/chart-of-accounts/preview", gate("admin.settings.view"), (c) => chartOfAccountsStep(c, false));
+    app.post("/chart-of-accounts/commit", gate("accounting.coa.manage"), (c) => chartOfAccountsStep(c, true));
+  }
+
+  // --- 11. ميزان المراجعة الافتتاحي (Opening trial balance) — P-5 ---
+  const tbAccounts = deps.accounts;
+  const tbPeriods = deps.fiscalPeriods;
+  const tbPost = deps.postOpeningEntry;
+  if (tbAccounts && tbPeriods && tbPost) {
+    /**
+     * The opening entry is dated the day BEFORE the first open period — that is
+     * what an opening balance is: the state of the books before trading starts.
+     *
+     * INVARIANT: posting is only ever allowed into an OPEN period. With
+     * contiguous periods the day before the first open one belongs to a closed
+     * period (or to none at all), so the date falls back to the first open
+     * period's own start date. The fallback is REPORTED, never silent: the
+     * preview shows the operator the exact date the entry will carry before
+     * they commit it.
+     */
+    async function openingDateFor(
+      requested: string | undefined,
+    ): Promise<{ date: string; adjusted: boolean; noteAr: string | null } | { refusal: string }> {
+      if (requested) {
+        const period = await tbPeriods!.findByDate(requested);
+        if (!period) return { refusal: `لا توجد فترة مالية تشمل ${requested} — أنشئ الفترة أولاً.` };
+        if (period.status !== "open") return { refusal: `الفترة المالية التي تشمل ${requested} ليست مفتوحة للترحيل.` };
+        return { date: requested, adjusted: false, noteAr: null };
+      }
+      const open = (await tbPeriods!.list())
+        .filter((p) => p.status === "open")
+        .sort((a, b) => a.startDate.localeCompare(b.startDate));
+      const first = open[0];
+      if (!first) return { refusal: "لا توجد فترة مالية مفتوحة — أنشئ السنة المالية أولاً." };
+      const preferred = dayBefore(first.startDate);
+      const period = await tbPeriods!.findByDate(preferred);
+      if (period && period.status === "open") return { date: preferred, adjusted: false, noteAr: null };
+      return {
+        date: first.startDate,
+        adjusted: true,
+        noteAr: `اليوم السابق لأول فترة مفتوحة (${preferred}) لا يقع في فترة مالية مفتوحة، فسيُرحَّل الرصيد الافتتاحي بتاريخ ${first.startDate}. افتح الفترة السابقة إن أردت ترحيله قبل بداية السنة.`,
+      };
+    }
+
+    async function openingTrialBalanceStep(c: Context, commit: boolean) {
+      const body = (await c.req.json()) as { rows?: unknown; date?: unknown };
+      const rows = rowsOf(body);
+      const preview = previewOpeningTrialBalanceImport(
+        rows.map((row, i) => ({
+          rowNumber: i + 1,
+          accountCode: str(row, "accountCode"),
+          debit: Money.fromMajor(str(row, "debit") || "0"),
+          credit: Money.fromMajor(str(row, "credit") || "0"),
+        })),
+      );
+      const errors = preview.errors.map((e) => ({ rowNumber: e.rowNumber, reasons: e.reasons }));
+
+      const byCode = new Map((await tbAccounts!.list()).map((a) => [a.code, a]));
+      const lines: { accountId: string; debit: Money; credit: Money }[] = [];
+      for (const row of preview.valid) {
+        const account = byCode.get(row.accountCode);
+        if (!account) {
+          errors.push({ rowNumber: row.rowNumber, reasons: [`الحساب بالكود "${row.accountCode}" غير موجود`] });
+          continue;
+        }
+        if (account.isHeader) {
+          errors.push({ rowNumber: row.rowNumber, reasons: [`الحساب "${row.accountCode}" حساب رئيسي ولا يقبل الترحيل`] });
+          continue;
+        }
+        if (account.status !== "active") {
+          errors.push({ rowNumber: row.rowNumber, reasons: [`الحساب "${row.accountCode}" غير نشط`] });
+          continue;
+        }
+        lines.push({ accountId: account.id, debit: row.debit, credit: row.credit });
+      }
+      errors.sort((a, b) => a.rowNumber - b.rowNumber);
+
+      const summary = {
+        validCount: lines.length,
+        errors,
+        totalDebit: preview.totalDebit.toString(),
+        totalCredit: preview.totalCredit.toString(),
+        difference: preview.difference.toString(),
+        balanced: preview.balanced,
+      };
+      const requestedDate = typeof body.date === "string" && body.date.trim() !== "" ? body.date.trim() : undefined;
+      const resolved = await openingDateFor(requestedDate);
+      if (!commit) {
+        return c.json({
+          ...summary,
+          date: "refusal" in resolved ? null : resolved.date,
+          dateAdjusted: "refusal" in resolved ? false : resolved.adjusted,
+          dateNoteAr: "refusal" in resolved ? null : resolved.noteAr,
+          refusal: "refusal" in resolved ? resolved.refusal : null,
+        });
+      }
+      if (errors.length > 0 || lines.length === 0) return c.json(summary, 422);
+      if (!preview.balanced) {
+        return c.json(
+          {
+            ...summary,
+            errors: [
+              {
+                rowNumber: 0,
+                reasons: [`الميزان غير متوازن: المدين ${preview.totalDebit.toString()} والدائن ${preview.totalCredit.toString()} — الفرق ${preview.difference.toString()}`],
+              },
+            ],
+          },
+          422,
+        );
+      }
+      if ("refusal" in resolved) {
+        return c.json({ ...summary, errors: [{ rowNumber: 0, reasons: [resolved.refusal] }] }, 422);
+      }
+      const entryId = `OPENING-TB:${resolved.date}`;
+      try {
+        await tbPost!({ id: entryId, date: resolved.date, memo: "الرصيد الافتتاحي", lines });
+      } catch (err) {
+        return c.json({ ...summary, errors: [{ rowNumber: 0, reasons: [errorMessage(err)] }] }, 422);
+      }
+      return c.json(
+        { ...summary, errors: [], date: resolved.date, dateAdjusted: resolved.adjusted, dateNoteAr: resolved.noteAr, createdIds: [entryId] },
+        201,
+      );
+    }
+    app.post("/opening-trial-balance/preview", gate("admin.settings.view"), (c) => openingTrialBalanceStep(c, false));
+    app.post("/opening-trial-balance/commit", gate("accounting.journal.create"), (c) => openingTrialBalanceStep(c, true));
+  }
+
+  // --- 12. فواتير العملاء المفتوحة (Open customer invoices) — P-5 ---
+  const openCustomer = deps.openCustomerInvoices;
+  if (openCustomer) {
+    function toSalesRows(rows: readonly Record<string, unknown>[]): HistoricalSalesImportRowInput[] {
+      return rows.map((row, i) => ({
+        rowNumber: i + 1,
+        docType: "SALES_INVOICE" as const,
+        documentNumber: str(row, "documentNumber"),
+        customerId: str(row, "customerId"),
+        date: str(row, "date"),
+        dueDate: optStr(row, "dueDate") ?? null,
+        itemId: optStr(row, "itemId") ?? null,
+        description: optStr(row, "description") ?? null,
+        qty: Qty.fromMajor(str(row, "qty") || "1"),
+        unitCost: Money.fromMajor(str(row, "unitPrice") || str(row, "unitCost") || "0"),
+        amountPaid: Money.fromMajor(str(row, "amountPaid") || "0"),
+      }));
+    }
+
+    app.post("/open-customer-invoices/preview", gate("admin.settings.view"), async (c) => {
+      const rows = toSalesRows(rowsOf(await readBody(c)));
+      const preview = previewHistoricalSalesImport(rows);
+      return c.json({
+        validCount: preview.groups.length,
+        errors: preview.errors,
+        documents: preview.groups.map((g) => ({
+          documentNumber: g.documentNumber,
+          customerId: g.customerId,
+          date: g.date,
+          total: g.total.toString(),
+          amountPaid: g.amountPaid.toString(),
+          remainingBalance: g.remainingBalance.toString(),
+          settled: g.settled,
+        })),
+      });
+    });
+
+    app.post("/open-customer-invoices/commit", gate("sales.invoice.create"), async (c) => {
+      const rows = toSalesRows(rowsOf(await readBody(c)));
+      const result = await importHistoricalSalesDocuments(
+        {
+          importBatchId: `MIG-AR-${randomId()}`,
+          rows,
+          createdBy: getAuthContext(c)?.userId ?? "system",
+        },
+        openCustomer,
+      );
+      const errors = [...result.errors];
+      return c.json(
+        { validCount: result.archived.length, errors, createdIds: result.archived.map((a) => a.id) },
+        errors.length > 0 ? 422 : 201,
+      );
+    });
+  }
+
+  // --- 13. فواتير الموردين المفتوحة (Open supplier invoices) — P-5 ---
+  const openSupplier = deps.openSupplierInvoices;
+  if (openSupplier) {
+    function toPurchaseRows(rows: readonly Record<string, unknown>[]): HistoricalImportRowInput[] {
+      return rows.map((row, i) => ({
+        rowNumber: i + 1,
+        docType: "PURCHASE_INVOICE" as const,
+        documentNumber: str(row, "documentNumber"),
+        supplierId: str(row, "supplierId"),
+        date: str(row, "date"),
+        dueDate: optStr(row, "dueDate") ?? null,
+        itemId: optStr(row, "itemId") ?? null,
+        description: optStr(row, "description") ?? null,
+        qty: Qty.fromMajor(str(row, "qty") || "1"),
+        unitCost: Money.fromMajor(str(row, "unitCost") || str(row, "unitPrice") || "0"),
+        amountPaid: Money.fromMajor(str(row, "amountPaid") || "0"),
+      }));
+    }
+
+    app.post("/open-supplier-invoices/preview", gate("admin.settings.view"), async (c) => {
+      const rows = toPurchaseRows(rowsOf(await readBody(c)));
+      const preview = previewHistoricalImport(rows);
+      return c.json({
+        validCount: preview.groups.length,
+        errors: preview.errors,
+        documents: preview.groups.map((g) => ({
+          documentNumber: g.documentNumber,
+          supplierId: g.supplierId,
+          date: g.date,
+          total: g.total.toString(),
+          amountPaid: g.amountPaid.toString(),
+          remainingBalance: g.remainingBalance.toString(),
+          settled: g.settled,
+        })),
+      });
+    });
+
+    app.post("/open-supplier-invoices/commit", gate("purchases.invoice.create"), async (c) => {
+      const rows = toPurchaseRows(rowsOf(await readBody(c)));
+      const result = await importHistoricalPurchaseDocuments(
+        {
+          importBatchId: `MIG-AP-${randomId()}`,
+          rows,
+          createdBy: getAuthContext(c)?.userId ?? "system",
+        },
+        openSupplier,
+      );
+      const errors = [...result.errors];
+      return c.json(
+        { validCount: result.archived.length, errors, createdIds: result.archived.map((a) => a.id) },
+        errors.length > 0 ? 422 : 201,
+      );
+    });
+  }
+
   // --- الحالة (Status) — per-step registered counts driving the wizard's checkmarks/badges. ---
   app.get("/status", gate("admin.settings.view"), async (c) => {
     const [departments, employees, treasuryAccounts, suppliers, customers, items, assetCategories, assets] = await Promise.all([
@@ -675,6 +1026,7 @@ export function createDataMigrationRoutes(
       deps.assets.list(),
     ]);
     const itemUnits = items.reduce((sum, i) => sum + i.alternateUnits.length, 0);
+    const chartAccounts = deps.accounts ? (await deps.accounts.list()).length : 0;
     const historical = deps.historicalCounts
       ? await deps.historicalCounts()
       : { salesInvoices: 0, salesReturns: 0, purchaseInvoices: 0, purchaseReturns: 0 };
@@ -688,6 +1040,7 @@ export function createDataMigrationRoutes(
       itemUnits,
       assetCategories: assetCategories.length,
       assets: assets.length,
+      accounts: chartAccounts,
       ...historical,
     });
   });

@@ -91,8 +91,21 @@ export class DeviceSessionNotFoundError extends Error {
   }
 }
 
-/** One authenticated account may hold this many concurrent seats by default. */
-export const DEFAULT_MAX_SEATS_PER_USER = 2;
+/**
+ * One authenticated account may hold this many concurrent seats by default.
+ *
+ * ONE, not two. At two, a single cashier account holds BOTH seats of the
+ * two-seat licence every small shop buys — so one person signing in on a till
+ * and on the back-office machine locks the owner out of their own system, and
+ * an attacker who has one account needs no second one to do it deliberately.
+ * The legitimate case for a second concurrent seat on one account — the same
+ * person on two machines at once — is the case the seat count is meant to be
+ * SOLD for, so allowing it by default gave the shop a seat it had not bought.
+ *
+ * It is still a parameter: a shop that genuinely wants one login on a counter
+ * till and a tablet raises it in one place, deliberately.
+ */
+export const DEFAULT_MAX_SEATS_PER_USER = 1;
 
 /**
  * A session with no heartbeat in this long is presumed dead and reaped on the

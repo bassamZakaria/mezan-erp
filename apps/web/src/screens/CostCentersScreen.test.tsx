@@ -218,7 +218,26 @@ describe("CostCentersScreen", () => {
       "GET /branches": () => ({ body: [] }),
     });
     renderWithProviders(<CostCentersScreen />, { transport, initialSession: testAdminSession });
-    expect(await screen.findByText("تعذّر تحميل مراكز التكلفة.")).toBeInTheDocument();
+    expect(await screen.findByText("تعذّر تحميل مراكز التكلفة. (رمز 500)")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "إعادة المحاولة" })).toBeInTheDocument();
+  });
+});
+
+/** guards §4.5 #13 — the error card shows the SERVER's reason, not the screen's fixed sentence. */
+describe("CostCentersScreen — a 502 body reaches the error card", () => {
+  it("renders the server's own Arabic reason", async () => {
+    renderWithProviders(
+      <CostCentersScreen />,
+      {
+        transport: stubTransport({
+          "GET /cost-centers": () => ({ status: 502, body: { message: "تعذّر الوصول إلى الجهاز الرئيسي. الجهاز مغلق أو غير متصل بالشبكة." } }),
+          "GET /branches": () => ({ body: [] }),
+        }),
+        initialSession: testAdminSession,
+      },
+    );
+
+    expect(await screen.findByText("تعذّر الوصول إلى الجهاز الرئيسي. الجهاز مغلق أو غير متصل بالشبكة.")).toBeInTheDocument();
+    expect(screen.queryByText("تعذّر تحميل مراكز التكلفة.")).not.toBeInTheDocument();
   });
 });

@@ -670,8 +670,13 @@ describe("reports routes — aging bucket boundaries, exactly at the day", () =>
       expect(row?.total, `days=${days}`).toBe(100);
     }
 
-    // Real insertion order, not re-sorted by the test.
-    expect(body.rows.map((r) => r.supplierId)).toEqual(boundaries.map(([days]) => `sup-${days}`));
+    // guards Q-8: the store now pages the purchase-invoice list, and a page
+    // without a total order is a different page on every call — so the rows
+    // arrive in invoice-date order (oldest debt first) rather than in whatever
+    // order SQLite happened to hold the rows in. Not re-sorted by the test.
+    expect(body.rows.map((r) => r.supplierId)).toEqual(
+      [...boundaries].reverse().map(([days]) => `sup-${days}`),
+    );
   });
 });
 
@@ -937,6 +942,90 @@ describe("reports routes — D112: the aging reports tie to the AR/AP control ac
     expect(owed).toBe(100);
     expect(owed).not.toBe(0);
     expect(row!.total).toBe(owed);
+  });
+});
+
+// guards P-7 — D111 is closed: the session's branch scope narrows every
+// report, and ?branchId= narrows it further without ever widening it.
+describe("reports routes — branch scope and the branchId filter (P-7)", () => {
+  async function twoBranches() {
+    const { app, deps } = await newApp();
+    await deps.salesInvoices.save(
+      makeInvoice({ id: "inv-br1", docNo: "INV-BR1", date: "2026-08-10", branchId: "br-1", customerId: "cust-br1" }),
+    );
+    await deps.salesInvoices.save(
+      makeInvoice({ id: "inv-br2", docNo: "INV-BR2", date: "2026-08-10", branchId: "br-2", customerId: "cust-br2" }),
+    );
+    return { app, deps };
+  }
+
+  function scopedRequest(path: string, branchScope: string): Request {
+    return new Request(`http://local${path}`, {
+      headers: { "x-permissions": "sales.invoice.view", "x-branch-scope": branchScope },
+    });
+  }
+
+  it("a caller scoped to one branch sees only that branch's invoices", async () => {
+    const { app } = await twoBranches();
+    const res = await app.fetch(scopedRequest("/sales/by-customer?dateFrom=2026-08-01&dateTo=2026-08-31", "br-1"));
+    const body = (await res.json()) as { rows: { customerId: string }[] };
+    expect(body.rows.map((r) => r.customerId)).toEqual(["cust-br1"]);
+  });
+
+  it("an unscoped caller still sees every branch", async () => {
+    const { app } = await twoBranches();
+    const res = await app.fetch(req("/sales/by-customer?dateFrom=2026-08-01&dateTo=2026-08-31", "sales.invoice.view"));
+    const body = (await res.json()) as { rows: { customerId: string }[] };
+    expect(body.rows.map((r) => r.customerId).sort()).toEqual(["cust-br1", "cust-br2"]);
+  });
+
+  it("?branchId= narrows an unscoped caller to one branch", async () => {
+    const { app } = await twoBranches();
+    const res = await app.fetch(
+      req("/sales/by-customer?dateFrom=2026-08-01&dateTo=2026-08-31&branchId=br-2", "sales.invoice.view"),
+    );
+    const body = (await res.json()) as { rows: { customerId: string }[] };
+    expect(body.rows.map((r) => r.customerId)).toEqual(["cust-br2"]);
+  });
+
+  it("?branchId= can never WIDEN the session's scope", async () => {
+    const { app } = await twoBranches();
+    const res = await app.fetch(
+      scopedRequest("/sales/by-customer?dateFrom=2026-08-01&dateTo=2026-08-31&branchId=br-2", "br-1"),
+    );
+    const body = (await res.json()) as { rows: { customerId: string }[] };
+    expect(body.rows).toEqual([]);
+  });
+
+  it("scopes تقرير العروض (/sales/offers) too — it reads the same invoices", async () => {
+    const { app, deps } = await newApp();
+    const promotion = {
+      promotionId: "promo-1",
+      code: "SUMMER",
+      nameAr: "عرض الصيف",
+      discountTotal: Money.fromMajor("50.00"),
+      lineDiscounts: [],
+      couponCode: null,
+      appliedAt: "2026-08-10T10:00:00.000Z",
+    };
+    await deps.salesInvoices.save(
+      makeInvoice({ id: "inv-p2", docNo: "INV-P2", date: "2026-08-10", branchId: "br-2", customerId: "cust-br2", appliedPromotion: promotion }),
+    );
+
+    const unscoped = await app.fetch(req("/sales/offers?dateFrom=2026-08-01&dateTo=2026-08-31", "sales.invoice.view"));
+    const unscopedBody = (await unscoped.json()) as { rows: { code: string }[] };
+    expect(unscopedBody.rows.map((r) => r.code)).toEqual(["SUMMER"]);
+
+    const scopedRes = await app.fetch(scopedRequest("/sales/offers?dateFrom=2026-08-01&dateTo=2026-08-31", "br-1"));
+    const scopedBody = (await scopedRes.json()) as { rows: { code: string }[] };
+    expect(scopedBody.rows).toEqual([]);
+  });
+
+  it("scopes the aging ladder and the purchases reports too, not just sales", async () => {
+    const { app } = await twoBranches();
+    const aging = await app.fetch(scopedRequest("/aging/customers?asOfDate=2026-08-31", "br-1"));
+    const agingBody = (await aging.json()) as { rows: { customerId: string }[] };
+    expect(agingBody.rows.every((r) => r.customerId !== "cust-br2")).toBe(true);
   });
 });
 
@@ -1959,5 +2048,110 @@ describe("reports routes — drill-down/account/:id", () => {
     expect(body.facts.find((f) => f.key === "balance")?.value).toBe("120.00");
     // All three postings touched this account: the original, its reversal, and the unrelated one.
     expect(body.documentCount).toBe(3);
+  });
+});
+
+/** guards P-8 — تقرير العروض was the one catalogue report with no route at all. */
+describe("reports routes — تقرير العروض", () => {
+  const promotion = {
+    promotionId: "promo-summer",
+    code: "SUMMER25",
+    nameAr: "خصم الصيف",
+    couponCode: null,
+    discountTotal: Money.fromMajor("100.00"),
+    lineDiscounts: [{ lineId: "l1", itemId: "item-1", amount: Money.fromMajor("100.00") }],
+    appliedAt: "2026-08-10T00:00:00.000Z",
+  };
+
+  it("refuses a caller who may not see promotions or invoices", async () => {
+    const { app } = await newApp();
+    expect((await app.fetch(req("/sales/offers"))).status).toBe(403);
+    expect((await app.fetch(req("/sales/offers", "inventory.stock.view"))).status).toBe(403);
+    expect((await app.fetch(req("/sales/offers", "sales.promotion.view"))).status).toBe(200);
+  });
+
+  it("sums the discount each campaign actually granted, and counts its uses", async () => {
+    const { app, deps } = await newApp();
+    await deps.salesInvoices.save(
+      makeInvoice({ id: "inv-p1", docNo: "INV-P1", date: "2026-08-05", appliedPromotion: promotion }),
+    );
+    await deps.salesInvoices.save(
+      makeInvoice({ id: "inv-p2", docNo: "INV-P2", date: "2026-08-06", appliedPromotion: promotion }),
+    );
+    // Outside the range, and a draft inside it — neither may be counted.
+    await deps.salesInvoices.save(
+      makeInvoice({ id: "inv-old", docNo: "INV-OLD", date: "2026-07-01", appliedPromotion: promotion }),
+    );
+    await deps.salesInvoices.save(
+      makeInvoice({ id: "inv-draft", docNo: null, date: "2026-08-07", status: "draft", appliedPromotion: promotion }),
+    );
+
+    const body = (await (
+      await app.fetch(req("/sales/offers?dateFrom=2026-08-01&dateTo=2026-08-31", "sales.promotion.view"))
+    ).json()) as {
+      rows: { promotionId: string; code: string; uses: number; granted: number; reversed: number; net: number }[];
+      kpis: { key: string; value: number }[];
+    };
+
+    expect(body.rows).toHaveLength(1);
+    expect(body.rows[0]).toMatchObject({ promotionId: "promo-summer", code: "SUMMER25", uses: 2, granted: 200, reversed: 0, net: 200 });
+    expect(body.kpis.find((k) => k.key === "uses")?.value).toBe(2);
+    expect(body.kpis.find((k) => k.key === "net")?.value).toBe(200);
+  });
+
+  it("reverses the discount in PROPORTION to what was returned, not the whole campaign", async () => {
+    const { app, deps, salesReturns } = await newApp();
+    await deps.salesInvoices.save(
+      makeInvoice({
+        id: "inv-p1",
+        docNo: "INV-P1",
+        date: "2026-08-05",
+        appliedPromotion: promotion,
+        lines: [makeInvoiceLine({ qty: Qty.fromMajor("4"), unitPrice: Money.fromMajor("100.00") })],
+      }),
+    );
+    await salesReturns.save({
+      id: "sr-p1",
+      docType: "SALES_RETURN",
+      docNo: "SRT-P1",
+      date: "2026-08-09",
+      memo: "",
+      status: "confirmed",
+      lines: [
+        {
+          itemId: "item-1",
+          warehouseId: "wh-1",
+          customerId: "cust-1",
+          sourceInvoiceId: "inv-p1",
+          sourceInvoiceNumber: "INV-P1",
+          reason: "DEFECTIVE",
+          availableQty: Qty.fromMajor("4"),
+          qty: Qty.fromMajor("1"),
+          unitPrice: Money.fromMajor("100.00"),
+          unitCost: Money.fromMajor("60.00"),
+          taxAmount: Money.zero(),
+        },
+      ],
+      createdAt: "2026-08-09T00:00:00.000Z",
+      confirmedAt: "2026-08-09T00:00:00.000Z",
+      reversesDocId: null,
+      reversedByDocId: null,
+      workflowRequestId: null,
+      journalEntryId: null,
+    });
+
+    const body = (await (
+      await app.fetch(req("/sales/offers?dateFrom=2026-08-01&dateTo=2026-08-31", "sales.promotion.view"))
+    ).json()) as { rows: { granted: number; reversed: number; net: number }[] };
+
+    // One of four units came back, so a quarter of the 100 granted is reversed.
+    expect(body.rows[0]).toMatchObject({ granted: 100, reversed: 25, net: 75 });
+  });
+
+  it("refuses an unparseable date rather than reporting an empty period", async () => {
+    const { app } = await newApp();
+    const res = await app.fetch(req("/sales/offers?dateFrom=yesterday&dateTo=2026-08-31", "sales.promotion.view"));
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: string }).error).toBe("VALIDATION_ERROR");
   });
 });

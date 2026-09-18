@@ -3,10 +3,10 @@ import { serve } from "@hono/node-server";
 import type { AddressInfo } from "node:net";
 import { createApp } from "./app.js";
 import {
-  createSqliteUnitOfWork,
-  createSqliteLedgerStore,
   createSqliteAccountRepository,
   createSqliteFiscalPeriodRepository,
+  createSqliteLedgerStore,
+  createSqliteUnitOfWork,
   type SqliteUnitOfWorkHandle,
 } from "@mezan/persistence";
 
@@ -129,6 +129,7 @@ describe("dual-mount journal posting", () => {
     const fetched = (await getRes.json()) as {
       id: string;
       status: string;
+      entryNo: string | null;
       lines: Array<{ accountId: string; debit: string; credit: string }>;
     };
     expect(fetched.status).toBe("posted");
@@ -139,6 +140,29 @@ describe("dual-mount journal posting", () => {
       debit: "1150.750000",
       credit: "0.000000",
     });
+    // The real engine numbers the entry; the spike never did.
+    expect(fetched.entryNo).not.toBeNull();
+  });
+
+  // guards B-6: the spike's unprefixed mount posted into uow_journal_*, which
+  // no report reads, with no period gate, no account check and no numbering.
+  it("no longer mounts the unprefixed legacy poster", async () => {
+    const app = await newInProcessApp();
+    const res = await app.fetch(
+      new Request("http://local/journal-entries", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-permissions": "accounting.journal.post" },
+        body: JSON.stringify(balancedEntry),
+      }),
+    );
+    expect(res.status).toBe(404);
+
+    const get = await app.fetch(
+      new Request(`http://local/journal-entries/${balancedEntry.id}`, {
+        headers: { "x-permissions": "accounting.journal.view" },
+      }),
+    );
+    expect(get.status).toBe(404);
   });
 
   // Proof test #2

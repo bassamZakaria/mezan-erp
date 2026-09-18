@@ -34,6 +34,7 @@ import {
   type SalesReturnListFilter,
 } from "../data/hooks";
 import { DOC_STATUS_TONE, documentStatusLabel } from "../doc-status";
+import { SalesReturnPrintPage } from "../print/documents";
 import { useNavigation, useScreenIntent, useSubPage } from "../navigation";
 import { AttachmentsTab } from "../attachments/AttachmentsTab";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
@@ -461,6 +462,9 @@ export function SalesReturnsScreen() {
           <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-ink-muted">{t("eyebrow.sales.returns")}</div>
           <h1 className="font-display text-xl font-bold text-ink">{selected?.docNo ?? t("salesReturns.detailTitle")}</h1>
         </div>
+        {selected ? (
+          <Button onClick={() => subPage.open(selected.docNo ?? selected.id, "print")}>{t("print.action.print")}</Button>
+        ) : null}
       </div>
         {selected ? (
           <div className="flex flex-col gap-4 p-5">
@@ -583,13 +587,16 @@ export function SalesReturnsScreen() {
   );
 
   if (firstSegment === "new") return createPage;
+  // إشعار خصم — the credit note the customer keeps (P-6). A destination, not
+  // an overlay, so it survives a reload.
+  if (selected && subPage.segments[1] === "print") return <SalesReturnPrintPage document={selected} />;
   if (selected) return detailPage;
 
   return (
     <div className="w-full">
       {query.isError ? (
         <Card className="mb-[18px] p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-danger-ink">{t("salesReturns.loadFailed")}</p>
+          <p className="text-[13px] font-semibold text-danger-ink">{query.error?.message ?? t("salesReturns.loadFailed")}</p>
           <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
             {t("common.retry")}
           </Button>
@@ -655,6 +662,7 @@ export function SalesReturnsScreen() {
         rowAction={(d) => {
           const menuItems: RowMenuItem[] = [
             { key: "view", label: t("salesReturns.row.view"), onSelect: () => subPage.open(d.docNo ?? d.id) },
+            { key: "print", label: t("print.action.print"), onSelect: () => subPage.open(d.docNo ?? d.id, "print") },
             ...(d.lines[0]
               ? [
                   {

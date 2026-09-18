@@ -309,3 +309,69 @@ describe("postDepreciationRun", () => {
     await expect(postDepreciationRun("run-1", h.deps)).rejects.toBeInstanceOf(DepreciationRunNotDraftError);
   });
 });
+
+/**
+ * guards B-9 — the GL entry and every asset write went out one at a time with
+ * nothing around them, and the memo was English in an Arabic-first product.
+ */
+describe("postDepreciationRun — atomicity and the Arabic memo", () => {
+  let h: Harness;
+
+  beforeEach(async () => {
+    h = await harness();
+    await h.categories.create(category());
+    await h.assets.create(asset("a1", { accumulatedDepreciation: Money.zero() }));
+    await h.runs.create({
+      id: "run-tx",
+      period: "2026-03",
+      branchId: null,
+      status: "draft",
+      lines: [{ assetId: "a1", amount: Money.fromMajor("1000.00") }],
+      totalAmount: Money.fromMajor("1000.00"),
+      journalEntryId: null,
+      createdAt: "2026-03-31T00:00:00.000Z",
+      postedAt: null,
+    });
+  });
+
+  it("writes the entry, the asset and the run inside ONE transaction", async () => {
+    let depth = 0;
+    const openTransaction = h.ledger.transaction.bind(h.ledger);
+    h.ledger.transaction = async <T,>(fn: () => Promise<T>): Promise<T> => {
+      depth += 1;
+      try {
+        return await openTransaction(fn);
+      } finally {
+        depth -= 1;
+      }
+    };
+
+    const seen: Record<string, number> = {};
+    const saveEntry = h.ledger.save.bind(h.ledger);
+    h.ledger.save = async (entry) => {
+      seen.entry = depth;
+      return saveEntry(entry);
+    };
+    const updateAsset = h.assets.update.bind(h.assets);
+    h.assets.update = async (a) => {
+      seen.asset = depth;
+      return updateAsset(a);
+    };
+    const updateRun = h.runs.update.bind(h.runs);
+    h.runs.update = async (r) => {
+      seen.run = depth;
+      return updateRun(r);
+    };
+
+    await postDepreciationRun("run-tx", h.deps);
+
+    expect(seen.entry, "the journal entry").toBeGreaterThan(0);
+    expect(seen.asset, "the asset write").toBeGreaterThan(0);
+    expect(seen.run, "the run status").toBeGreaterThan(0);
+  });
+
+  it("memos the entry in Arabic", async () => {
+    await postDepreciationRun("run-tx", h.deps);
+    expect((await h.ledger.findById("DEP-JE:run-tx"))!.memo).toBe("إهلاك الفترة 2026-03");
+  });
+});

@@ -1,11 +1,10 @@
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { createHmac } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
 import type { App, SessionRegistry } from "@mezan/api";
-import { ALL_SCOPE, createEntitlements, MODULE_CATALOG } from "@mezan/domain";
-import { openSqliteConnection } from "@mezan/persistence";
+import { ALL_SCOPE, MODULE_CATALOG, Money, createCustomer as buildCustomer, createEntitlements } from "@mezan/domain";
+import { createSqliteCustomerRepository, openSqliteConnection } from "@mezan/persistence";
 import type { DashboardSummaryDTO, SessionDTO } from "@mezan/contracts";
 import { createBackend, type BackendHandle } from "./create-backend.js";
 
@@ -77,6 +76,22 @@ describe("createBackend — seeded app", () => {
     expect(session.isCompanyAdmin).toBe(true);
     expect(session.permissions).toContain("*");
     expect(session.tenantName).toBe("Cyag");
+  });
+
+  /**
+   * GUARDS U-10. `/health` answered `{ok:true}` and nothing else, so host and
+   * client version skew was undetectable from either side: a till on an old
+   * build kept talking to a host it no longer matched, and the first symptom
+   * was wrong data. main/lan-client.ts reads both fields at startup.
+   */
+  it("reports the app and schema version on /health, not merely that it is up", async () => {
+    const app = await newBackend();
+    const res = await app.fetch(new Request("http://local/health"));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { ok: boolean; version: string; schemaVersion: number };
+    expect(body.ok).toBe(true);
+    expect(typeof body.version).toBe("string");
+    expect(body.schemaVersion).toBeGreaterThan(0);
   });
 
   it("rejects a wrong PIN", async () => {
@@ -823,6 +838,298 @@ describe("createBackend — sweep/finish-and-mount: manufacturing, RFQ, historic
       expect(res.status, `GET ${path}`).toBe(200);
       expect((await res.json()) as unknown[]).toEqual([]);
     }
+  });
+});
+
+/**
+ * guards B-2 — a partner opening balance was one fact with three figures and
+ * none of them the ledger: stored on the master record, counted in the KPI,
+ * never posted, invisible to `/reconciliation`.
+ */
+describe("createBackend — partner opening balances reach the ledger (B-2)", () => {
+  type Entry = { status: string; lines: { accountId: string; debit: string; credit: string }[] };
+
+  async function entry(app: App, id: string) {
+    const res = await app.fetch(new Request(`http://local/gl/journal-entries/${id}`, { headers: admin(app) }));
+    if (res.status !== 200) return null;
+    return (await res.json()) as Entry;
+  }
+
+  /**
+   * The customer opening balance is looked up by its SOURCE DOCUMENT, not by a
+   * guessable entry id. Main's poster mints `CUST-OPEN-JE:<customer>:<uuid>`
+   * on purpose: a corrected opening balance posts a new delta entry rather than
+   * editing the one already on the ledger (D142), so the id cannot be stable.
+   */
+  async function openingEntryFor(app: App, customerId: string): Promise<Entry | null> {
+    const res = await app.fetch(new Request("http://local/gl/journal-entries", { headers: admin(app) }));
+    if (res.status !== 200) return null;
+    const body = (await res.json()) as { rows?: { id: string; sourceDocType?: string | null; sourceDocId?: string | null }[] } | { id: string; sourceDocType?: string | null; sourceDocId?: string | null }[];
+    const rows = Array.isArray(body) ? body : (body.rows ?? []);
+    const match = rows.find((r) => r.sourceDocType === "CUSTOMER_OPENING_BALANCE" && r.sourceDocId === customerId);
+    return match ? entry(app, match.id) : null;
+  }
+
+  /** Every opening-balance entry for one customer — the original and each correction. */
+  async function openingEntriesFor(app: App, customerId: string): Promise<Entry[]> {
+    const res = await app.fetch(new Request("http://local/gl/journal-entries", { headers: admin(app) }));
+    if (res.status !== 200) return [];
+    const body = (await res.json()) as { rows?: { id: string; sourceDocType?: string | null; sourceDocId?: string | null }[] } | { id: string; sourceDocType?: string | null; sourceDocId?: string | null }[];
+    const rows = Array.isArray(body) ? body : (body.rows ?? []);
+    const out: Entry[] = [];
+    for (const r of rows.filter((r) => r.sourceDocType === "CUSTOMER_OPENING_BALANCE" && r.sourceDocId === customerId)) {
+      const e = await entry(app, r.id);
+      if (e) out.push(e);
+    }
+    return out;
+  }
+
+  it("posts Dr 1105 / Cr 3210 for a customer and Cr 2100 / Dr 3210 for a supplier", async () => {
+    const app = await newBackend();
+    // createCustomer() passes openingBalance "0", so nothing is posted.
+    await createCustomer(app, "cust-ob", "0");
+    expect(await openingEntryFor(app, "cust-ob")).toBeNull();
+
+    const withBalance = await authedPost(app, "/customers", {
+      id: "cust-ob2",
+      code: "cust-ob2",
+      nameAr: "عميل برصيد افتتاحي",
+      paymentTermsDays: 30,
+      currency: "EGP",
+      openingBalance: "5000.00",
+      active: true,
+      creditLimit: "0",
+      taxExempt: false,
+      etaBuyerType: "auto",
+    });
+    expect(withBalance.status).toBe(201);
+
+    const posted = await openingEntryFor(app, "cust-ob2");
+    expect(posted, "a customer opening balance must post").not.toBeNull();
+    expect(posted!.status).toBe("posted");
+    expect(posted!.lines.find((l) => l.accountId === "1105")!.debit).toBe("5000.000000");
+    expect(posted!.lines.find((l) => l.accountId === "3210")!.credit).toBe("5000.000000");
+
+    const supplier = await post(app, "/suppliers", {
+      id: "supp-ob",
+      code: "supp-ob",
+      nameAr: "مورد برصيد افتتاحي",
+      openingBalance: "1250.50",
+    }, admin(app));
+    expect(supplier.status).toBe(201);
+    const supEntry = await entry(app, "OB-SUPP-JE:supp-ob");
+    expect(supEntry).not.toBeNull();
+    expect(supEntry!.lines.find((l) => l.accountId === "2100")!.credit).toBe("1250.500000");
+    expect(supEntry!.lines.find((l) => l.accountId === "3210")!.debit).toBe("1250.500000");
+  });
+
+  it("keeps the sub-ledger and its control account in step", async () => {
+    const app = await newBackend();
+    await authedPost(app, "/customers", {
+      id: "cust-rec",
+      code: "cust-rec",
+      nameAr: "عميل",
+      paymentTermsDays: 30,
+      currency: "EGP",
+      openingBalance: "5000.00",
+      active: true,
+      creditLimit: "0",
+      taxExempt: false,
+      etaBuyerType: "auto",
+    });
+    await post(app, "/suppliers", { id: "supp-rec", code: "supp-rec", nameAr: "مورد", openingBalance: "1250.50" }, admin(app));
+
+    const res = await app.fetch(new Request("http://local/reconciliation", { headers: admin(app) }));
+    const { rows } = (await res.json()) as {
+      rows: { key: string; subLedgerBalance: string; glBalance: string; matched: boolean }[];
+    };
+    const ar = rows.find((r) => r.key === "ar")!;
+    const ap = rows.find((r) => r.key === "ap")!;
+    expect(ar.glBalance).toBe("5000.000000");
+    expect(ar.subLedgerBalance).toBe("5000.000000");
+    expect(ar.matched).toBe(true);
+    expect(ap.glBalance).toBe("1250.500000");
+    expect(ap.subLedgerBalance).toBe("1250.500000");
+    expect(ap.matched).toBe(true);
+  });
+
+  it("corrects a changed opening balance by posting the difference, never by editing the posted entry", async () => {
+    const app = await newBackend();
+    await authedPost(app, "/customers", {
+      id: "cust-chg",
+      code: "cust-chg",
+      nameAr: "عميل",
+      paymentTermsDays: 30,
+      currency: "EGP",
+      openingBalance: "5000.00",
+      active: true,
+      creditLimit: "0",
+      taxExempt: false,
+      etaBuyerType: "auto",
+    });
+
+    const patch = await app.fetch(
+      new Request("http://local/customers/cust-chg", {
+        method: "PATCH",
+        headers: { "content-type": "application/json", ...admin(app) },
+        body: JSON.stringify({ openingBalance: "7500.00" }),
+      }),
+    );
+    expect(patch.status).toBe(200);
+
+    /*
+     * The branch this test was written on corrected by REVERSING the original
+     * and re-posting the whole figure. The shipped behaviour (D142) is
+     * stronger: it posts only the DIFFERENCE, so the original entry is never
+     * reversed and never edited — it simply stays true of the day it was made.
+     * Two entries, both posted, netting to the new balance.
+     */
+    const openings = await openingEntriesFor(app, "cust-chg");
+    expect(openings, "the original and its correction are both on the ledger").toHaveLength(2);
+    expect(openings.every((e) => e.status === "posted")).toBe(true);
+
+    const arDebits = openings.map((e) => e.lines.find((l) => l.accountId === "1105")?.debit ?? "0.000000");
+    expect(arDebits).toContain("5000.000000");
+    expect(arDebits).toContain("2500.000000");
+
+    // And AR nets to the new figure, not to 12,500.
+    const rec = await app.fetch(new Request("http://local/reconciliation", { headers: admin(app) }));
+    const { rows } = (await rec.json()) as { rows: { key: string; glBalance: string; matched: boolean }[] };
+    expect(rows.find((r) => r.key === "ar")!.glBalance).toBe("7500.000000");
+    expect(rows.find((r) => r.key === "ar")!.matched).toBe(true);
+  });
+
+  it("backfills a migrated tenant whose opening balances were saved before the posting existed", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "mezan-ob-"));
+    const dbPath = path.join(dir, "books.sqlite");
+    try {
+      (await createBackend({ dbPath })).close();
+      // Write the master record straight through the repository, exactly as a
+      // pre-B-2 build did: stored, never posted.
+      const repo = createSqliteCustomerRepository(dbPath);
+      await repo.save(
+        buildCustomer({
+          id: "cust-legacy",
+          code: "cust-legacy",
+          nameAr: "عميل مهاجَر",
+          openingBalance: Money.fromMajor("4321.00"),
+        }),
+      );
+      repo.close();
+
+      const second = keep(await createBackend({ dbPath }));
+      const res = await second.fetch(
+        new Request("http://local/gl/journal-entries/OB-CUST-JE:cust-legacy", { headers: admin(second) }),
+      );
+      expect(res.status, "the backfill must post the unposted opening balance on the next start").toBe(200);
+      const posted = (await res.json()) as { lines: { accountId: string; debit: string }[] };
+      expect(posted.lines.find((l) => l.accountId === "1105")!.debit).toBe("4321.000000");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+/**
+ * guards B-8 — the reconciliation compared the sub-ledger against "1105",
+ * "2100" and "1200" compiled into the composition root, so a tenant on a
+ * recoded chart of accounts read a mismatch equal to every collection made.
+ */
+describe("createBackend — the reconciliation reads the tenant's control accounts (B-8)", () => {
+  it("reports the shipped defaults with no routing table", async () => {
+    const app = await newBackend();
+    const res = await app.fetch(new Request("http://local/reconciliation", { headers: admin(app) }));
+    expect(res.status).toBe(200);
+    const { rows } = (await res.json()) as { rows: { key: string; controlAccountId: string }[] };
+    expect(rows.find((r) => r.key === "ar")!.controlAccountId).toBe("1105");
+    expect(rows.find((r) => r.key === "ap")!.controlAccountId).toBe("2100");
+    expect(rows.find((r) => r.key === "inventory")!.controlAccountId).toBe("1200");
+  });
+
+  it("follows an override to the recoded accounts", async () => {
+    const app = await newBackend();
+    const put = await app.fetch(
+      new Request("http://local/accounting/account-routing", {
+        method: "PUT",
+        headers: { "content-type": "application/json", ...admin(app) },
+        body: JSON.stringify({
+          overrides: { "control.receivable": "1100", "control.payable": "2110", "control.inventory": "1210" },
+        }),
+      }),
+    );
+    expect(put.status).toBe(200);
+
+    const res = await app.fetch(new Request("http://local/reconciliation", { headers: admin(app) }));
+    const { rows } = (await res.json()) as { rows: { key: string; controlAccountId: string }[] };
+    expect(rows.find((r) => r.key === "ar")!.controlAccountId).toBe("1100");
+    expect(rows.find((r) => r.key === "ap")!.controlAccountId).toBe("2110");
+    expect(rows.find((r) => r.key === "inventory")!.controlAccountId).toBe("1210");
+  });
+});
+
+/**
+ * guards B-3 — both return adapters passed `taxAmount: Money.zero()` into the
+ * lookup port, so «مرتجع من فاتورة» pro-rated nothing: GL 2200 kept the VAT of
+ * every returned good forever and the VAT return overstated output tax.
+ */
+describe("createBackend — a return of a VAT invoice credits the VAT (B-3)", () => {
+  function taxedInvoiceBody(id: string, customerId: string) {
+    return {
+      ...invoiceBody(id, customerId, "100"),
+      lines: [
+        {
+          lineId: "L1",
+          itemId: "SVC-1",
+          itemNameAr: "خدمة",
+          isStock: false,
+          qty: "2",
+          unitPrice: "100",
+          taxRatePercent: 14,
+          revenueAccountId: "4100",
+        },
+      ],
+    };
+  }
+
+  it("pro-rates the source invoice's VAT onto the return and moves GL 2200", async () => {
+    const app = await newBackend();
+    await createServiceItem(app);
+    await createCustomer(app, "cust-vat-1", "0");
+    expect((await authedPost(app, "/sales-invoices", taxedInvoiceBody("inv-vat-1", "cust-vat-1"))).status).toBe(201);
+    const confirmed = await authedPost(app, "/sales-invoices/inv-vat-1/confirm", {});
+    expect(confirmed.status).toBe(200);
+
+    const draft = await post(app, "/sales-returns/from-invoice", {
+      id: "sr-vat-1",
+      date: "2026-08-23",
+      memo: "مرتجع بضاعة",
+      warehouseId: "WH1",
+      sourceInvoiceId: "inv-vat-1",
+      reason: "OTHER",
+      requested: [{ itemId: "SVC-1", qty: "1" }],
+    }, admin(app));
+    expect(draft.status).toBe(201);
+    const draftDoc = (await draft.json()) as { lines: { taxAmount: string; taxRatePercent: number | null }[] };
+    // Half the quantity returned → half the invoice's 28.00 VAT.
+    expect(draftDoc.lines[0]!.taxAmount).toBe("14.000000");
+    expect(draftDoc.lines[0]!.taxRatePercent).toBe(14);
+
+    const confirmRes = await post(app, "/sales-returns/sr-vat-1/confirm", {}, admin(app));
+    expect(confirmRes.status).toBe(200);
+    const returned = (await confirmRes.json()) as { document: { journalEntryId: string | null } };
+    const entryId = returned.document.journalEntryId;
+    expect(entryId).toBeTruthy();
+
+    const entryRes = await app.fetch(
+      new Request(`http://local/gl/journal-entries/${entryId}`, { headers: admin(app) }),
+    );
+    expect(entryRes.status).toBe(200);
+    const entry = (await entryRes.json()) as { lines: { accountId: string; debit: string; credit: string }[] };
+    const vat = entry.lines.find((l) => l.accountId === "2200");
+    expect(vat, "the return must move output VAT 2200").toBeDefined();
+    expect(vat!.debit).toBe("14.000000");
+    // And the receivable is credited with the tax-inclusive total.
+    expect(entry.lines.find((l) => l.accountId === "1105")!.credit).toBe("114.000000");
   });
 });
 

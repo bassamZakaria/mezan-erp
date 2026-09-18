@@ -278,6 +278,11 @@ export class SalesInvoiceService {
     return this.deps.repo.count(filter);
   }
 
+  /** Row count per stored status for the same filter — see the port. */
+  async countByStatus(filter?: SalesInvoiceListFilter): Promise<ReadonlyMap<SalesInvoice["status"], number>> {
+    return this.deps.repo.countByStatus(filter);
+  }
+
   /** Open a new مسودة (draft): validated and persisted, not numbered or posted. */
   async createDraft(cmd: CreateSalesInvoiceCommand): Promise<SalesInvoice> {
     if (await this.deps.repo.findById(cmd.id)) {

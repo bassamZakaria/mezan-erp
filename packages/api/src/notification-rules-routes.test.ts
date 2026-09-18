@@ -1,5 +1,6 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { createSqliteNotificationRuleStore, type SqliteNotificationRuleStoreHandle } from "@mezan/persistence";
+import type { AuditEvent, AuditSink } from "@mezan/domain";
 import { createNotificationRulesRoutes } from "./notification-rules-routes.js";
 
 import { insecureHeaderAuthContextResolver } from "./permission-gate.js";
@@ -9,11 +10,25 @@ afterEach(() => {
   for (const h of handles.splice(0)) h.close();
 });
 
+function fakeAudit(): AuditSink & { events: AuditEvent[] } {
+  const events: AuditEvent[] = [];
+  return {
+    events,
+    async append(event) {
+      events.push(event);
+    },
+    async query(stream, limit = 100) {
+      return events.filter((e) => e.stream === stream).slice(0, limit);
+    },
+  };
+}
+
 function newApp() {
   const repo = createSqliteNotificationRuleStore();
   handles.push(repo);
-  const app = createNotificationRulesRoutes(repo, insecureHeaderAuthContextResolver);
-  return { app, repo };
+  const audit = fakeAudit();
+  const app = createNotificationRulesRoutes(repo, insecureHeaderAuthContextResolver, [], audit);
+  return { app, repo, audit };
 }
 
 function req(path: string, init: RequestInit & { permissions?: string } = {}) {
@@ -149,5 +164,62 @@ describe("notification-rules router — CRUD", () => {
 
     const byEvent = (await (await app.fetch(req("/?eventCode=LOW_STOCK_DETECTED", { permissions: perms }))).json()) as unknown[];
     expect(byEvent).toHaveLength(1);
+  });
+});
+
+/**
+ * Guards the gap the webhook mount left behind: `/webhooks` recorded every
+ * write and `/notification-rules`, which replaced it, recorded nothing — so
+ * silencing the alert on a voided invoice left no trace at all.
+ */
+describe("notification-rules router — audit trail", () => {
+  const perms = "notifications.rule.view,notifications.rule.manage";
+
+  function write(path: string, method: string, body?: unknown) {
+    return req(path, {
+      method,
+      permissions: perms,
+      headers: { "content-type": "application/json", "x-user-id": "USER-ADMIN", "x-branch-scope": "BR-MAIN" },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    });
+  }
+
+  it("records the create with the resolved actor and the caller's branch", async () => {
+    const { app, audit } = newApp();
+    expect((await app.fetch(write("/", "POST", payload))).status).toBe(201);
+
+    expect(audit.events).toHaveLength(1);
+    expect(audit.events[0]).toMatchObject({
+      stream: "sensitive",
+      module: "notification-rules",
+      entityType: "NOTIFICATION_RULE",
+      entityId: "rule-1",
+      action: "CREATE",
+      actor: "USER-ADMIN",
+      branchId: "BR-MAIN",
+    });
+    expect(audit.events[0]?.details).toMatchObject({ name: payload.name, eventCode: payload.eventCode });
+  });
+
+  it("records the update, the silencing and the delete, each as its own act", async () => {
+    const { app, audit } = newApp();
+    await app.fetch(write("/", "POST", payload));
+    await app.fetch(write("/rule-1", "PUT", { ...payload, name: "اسم آخر" }));
+    await app.fetch(write("/rule-1/deactivate", "POST"));
+    await app.fetch(write("/rule-1/activate", "POST"));
+    expect((await app.fetch(write("/rule-1", "DELETE"))).status).toBe(204);
+
+    expect(audit.events.map((e) => e.action)).toEqual(["CREATE", "UPDATE", "DEACTIVATE", "ACTIVATE", "DELETE"]);
+    // Turning an alert off, and removing it outright, are the acts an auditor
+    // is looking for — they may not sit at the same severity as switching one on.
+    expect(audit.events.find((e) => e.action === "DEACTIVATE")?.severity).toBe("CRITICAL");
+    expect(audit.events.find((e) => e.action === "DELETE")?.severity).toBe("CRITICAL");
+  });
+
+  it("still answers 2xx when no sink is wired", async () => {
+    const repo = createSqliteNotificationRuleStore();
+    handles.push(repo);
+    const app = createNotificationRulesRoutes(repo, insecureHeaderAuthContextResolver);
+    expect((await app.fetch(write("/", "POST", payload))).status).toBe(201);
   });
 });

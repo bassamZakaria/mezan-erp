@@ -184,3 +184,76 @@ describe("createVatReturnReport — net payable / refundable", () => {
     expect(outcome.ok).toBe(false);
   });
 });
+
+/**
+ * guards C-10 — the statutory VAT return summed its buckets in IEEE-754. The
+ * number that drifts is the one filed with the authority.
+ */
+describe("createVatReturnReport — exact arithmetic", () => {
+  it("sums a rate bucket exactly across many small invoices", () => {
+    const entries = ["0.10", "0.20", "0.10", "0.30", "0.20"].map((amount, i) =>
+      je({
+        id: `s${i}`,
+        date: "2026-03-0" + String(i + 1),
+        lines: [
+          line({ accountId: "1100", debit: Money.fromMajor(amount) }),
+          line({ accountId: "4100", credit: Money.fromMajor(amount), taxRatePercent: 14 }),
+        ],
+      }),
+    );
+    const definition = createVatReturnReport({ periodFrom: "2026-03-01", periodTo: "2026-03-31" });
+    const outcome = runReport(definition, { periodFrom: "2026-03-01", periodTo: "2026-03-31" }, ctx(entries));
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    const bucket = outcome.rows.find((r) => r.side === "output" && r.rate === 14);
+    // 0.10 + 0.20 + 0.10 + 0.30 + 0.20 = 0.90, exactly.
+    expect(bucket?.base).toBe(0.9);
+  });
+
+  it("derives an untagged entry's rate from exact integers, not a float quotient", () => {
+    const entries = [
+      je({
+        id: "legacy",
+        date: "2026-03-01",
+        lines: [
+          line({ accountId: "1100", debit: Money.fromMajor("114.00") }),
+          line({ accountId: "4100", credit: Money.fromMajor("100.00") }),
+          line({ accountId: OUTPUT_VAT, credit: Money.fromMajor("14.00") }),
+        ],
+      }),
+    ];
+    const definition = createVatReturnReport({ periodFrom: "2026-03-01", periodTo: "2026-03-31" });
+    const outcome = runReport(definition, { periodFrom: "2026-03-01", periodTo: "2026-03-31" }, ctx(entries));
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.rows.find((r) => r.side === "output")).toMatchObject({ rate: 14, base: 100, tax: 14 });
+  });
+
+  it("nets output against input exactly", () => {
+    const entries = [
+      je({
+        id: "sale",
+        date: "2026-03-01",
+        lines: [
+          line({ accountId: "1100", debit: Money.fromMajor("0.57") }),
+          line({ accountId: "4100", credit: Money.fromMajor("0.50"), taxRatePercent: 14 }),
+          line({ accountId: OUTPUT_VAT, credit: Money.fromMajor("0.07"), taxRatePercent: 14 }),
+        ],
+      }),
+      je({
+        id: "purchase",
+        date: "2026-03-02",
+        lines: [
+          line({ accountId: "5100", debit: Money.fromMajor("0.30"), taxRatePercent: 14 }),
+          line({ accountId: INPUT_VAT, debit: Money.fromMajor("0.04"), taxRatePercent: 14 }),
+          line({ accountId: "2100", credit: Money.fromMajor("0.34") }),
+        ],
+      }),
+    ];
+    const definition = createVatReturnReport({ periodFrom: "2026-03-01", periodTo: "2026-03-31" });
+    const outcome = runReport(definition, { periodFrom: "2026-03-01", periodTo: "2026-03-31" }, ctx(entries));
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(vatNetPayable(outcome.rows)).toBeCloseTo(0.03, 10);
+  });
+});

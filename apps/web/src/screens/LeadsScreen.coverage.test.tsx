@@ -230,7 +230,7 @@ describe("LeadsScreen — filtering", () => {
         },
       },
     });
-    expect(await screen.findByText("تعذّر تحميل العملاء المحتملين.")).toBeInTheDocument();
+    expect(await screen.findByText("تعذّر تحميل العملاء المحتملين. (رمز 500)")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "إعادة المحاولة" }));
     expect(await screen.findByText("أحمد سالم")).toBeInTheDocument();
   });

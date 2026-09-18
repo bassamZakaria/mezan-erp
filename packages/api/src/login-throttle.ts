@@ -25,6 +25,11 @@
  *     shop from, and the per-account HOST counter still catches anyone with
  *     physical access, who has the SQLite file anyway.
  *
+ * That asymmetry alone left a hole, and `GLOBAL_ATTEMPT_CEILING` below is what
+ * closes it: on a flat LAN an attacker rotates source addresses and buys five
+ * fresh attempts each time. A per-account TOTAL now caps the whole account
+ * regardless of address, with the host's own console exempt from it.
+ *
  * `POST /users/:id/unlock` clears a key. The map is bounded: it is keyed by a
  * string the caller supplies, records are created BEFORE any account lookup so
  * nonexistent emails accumulate, and `read()` only ever evicted the one key it
@@ -33,6 +38,37 @@
 
 /** Consecutive failures tolerated before the account starts locking. */
 const FREE_ATTEMPTS = 5;
+/**
+ * THE CEILING THE PER-SOURCE LADDER DOES NOT HAVE.
+ *
+ * Counting per (account, source) is what keeps one phone on the shop wifi from
+ * holding the owner's account at the fifteen-minute lock forever — and it is
+ * also, on its own, a way to buy unlimited guesses: an attacker on a flat LAN
+ * gets a FRESH FIVE ATTEMPTS PER SOURCE ADDRESS, and a laptop can hold a
+ * hundred addresses on that subnet. Five per address across a /24 is 1,270
+ * guesses before anything locks at all, repeatable every hour as the streaks
+ * decay: a six-digit PIN falls in a few weeks of that.
+ *
+ * So failures are counted TWICE — once on the per-source key, which is what
+ * locks, and once on a per-account total, which is a hard ceiling: past
+ * `GLOBAL_ATTEMPT_CEILING` failures against one account inside the decay
+ * window, that account is locked no matter which address the next attempt comes
+ * from.
+ *
+ * THE HOST-LOCAL CONSOLE IS EXEMPT, and that exemption is what makes this safe
+ * to ship. The person standing at the machine must always be able to get in —
+ * otherwise the attack becomes "lock the owner out of their own shop from the
+ * car park", which is the outage this file's asymmetry was written to prevent.
+ * Physical access already means the SQLite file, so nothing is protected by
+ * refusing them.
+ *
+ * The number is high enough that a real shop never reaches it — sixty typos
+ * against ONE account within an hour, across every till — and low enough that
+ * it caps a distributed sweep at roughly one guess a minute.
+ */
+const GLOBAL_ATTEMPT_CEILING = 60;
+/** How long an account stays locked once the global ceiling is crossed. */
+const GLOBAL_LOCK_MS = 15 * 60_000;
 /** First lock, doubling with each further failure. */
 const BASE_LOCK_MS = 60_000;
 /** Ceiling, so a locked-out shop is never locked out for a whole shift. */
@@ -74,6 +110,18 @@ function lockDuration(failures: number): number {
 }
 
 /**
+ * The separator between the account half and the source half of a key.
+ *
+ * NOT `@`, which is what this used, and the reason is the per-account ceiling
+ * below: an account IS an email address, so `owner@shop.com@192.168.1.40` has
+ * no unambiguous split and the account could not be recovered from the key. A
+ * NUL cannot occur in either half.
+ */
+const KEY_SEPARATOR = "\u0000";
+/** Prefix for the per-account total. Cannot collide: no real key starts with it. */
+const GLOBAL_PREFIX = "\u0001";
+
+/**
  * The key a failed attempt is counted against.
  *
  * `source` is the REMOTE ADDRESS the request arrived from, and it is null for
@@ -83,7 +131,17 @@ function lockDuration(failures: number): number {
  */
 export function throttleKey(account: string, source: string | null): string {
   const needle = account.trim().toLowerCase();
-  return source ? `${needle}@${source}` : needle;
+  return source ? `${needle}${KEY_SEPARATOR}${source}` : needle;
+}
+
+/** The account half of a key, whether or not it carries a source. */
+function accountOf(key: string): string {
+  return key.split(KEY_SEPARATOR)[0] ?? key;
+}
+
+/** True for the host's own console, which the global ceiling deliberately exempts. */
+function isHostLocal(key: string): boolean {
+  return !key.includes(KEY_SEPARATOR);
 }
 
 export function createLoginThrottle(now: () => number = Date.now): LoginThrottle {
@@ -112,6 +170,15 @@ export function createLoginThrottle(now: () => number = Date.now): LoginThrottle
   return {
     retryAfter(key) {
       const at = now();
+      // The per-account ceiling is consulted FIRST and does not step down: it
+      // is what a rotating attacker walks into no matter which address the next
+      // attempt comes from. The host's own console never reaches this branch.
+      if (!isHostLocal(key)) {
+        const global = read(`${GLOBAL_PREFIX}${accountOf(key)}`, at);
+        if (global && global.lockedUntil > at) {
+          return Math.ceil((global.lockedUntil - at) / 1000);
+        }
+      }
       const record = read(key, at);
       if (!record) return 0;
       if (record.lockedUntil > at) return Math.ceil((record.lockedUntil - at) / 1000);
@@ -148,16 +215,36 @@ export function createLoginThrottle(now: () => number = Date.now): LoginThrottle
       const lock = lockDuration(record.failures);
       record.lockedUntil = lock > 0 ? at + lock : 0;
       records.set(key, record);
+
+      // The same failure, counted a second time against the ACCOUNT, so that
+      // rotating source addresses buys attempts instead of buying immunity.
+      let globalLock = 0;
+      if (!isHostLocal(key)) {
+        const globalKey = `${GLOBAL_PREFIX}${accountOf(key)}`;
+        const global = read(globalKey, at) ?? { failures: 0, lastFailureAt: at, lockedUntil: 0 };
+        global.failures += 1;
+        global.lastFailureAt = at;
+        if (global.failures >= GLOBAL_ATTEMPT_CEILING) global.lockedUntil = at + GLOBAL_LOCK_MS;
+        records.set(globalKey, global);
+        if (global.lockedUntil > at) globalLock = global.lockedUntil - at;
+      }
+
       evict(at);
-      return Math.ceil(lock / 1000);
+      // The longer of the two, because both are true: the caller is told the
+      // wait it actually has to serve, not the one its own address earned.
+      return Math.ceil(Math.max(lock, globalLock) / 1000);
     },
     succeed(key) {
       records.delete(key);
       // An unlock clears the account everywhere it was counted, not only on the
       // one source that happened to lock it: an admin pressing «فكّ القفل» means
       // "this person can sign in now", and leaving four other keys locked would
-      // make the button a lie.
-      const prefix = `${key}@`;
+      // make the button a lie — and leaving the per-account total in place
+      // would make it a lie one attempt later.
+      const account = accountOf(key);
+      records.delete(account);
+      records.delete(`${GLOBAL_PREFIX}${account}`);
+      const prefix = `${account}${KEY_SEPARATOR}`;
       for (const held of [...records.keys()]) {
         if (held.startsWith(prefix)) records.delete(held);
       }

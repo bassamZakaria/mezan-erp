@@ -10,6 +10,7 @@ import { markSessionExpired } from "../data/session";
 import { createQueryClient } from "../data/queryClient";
 import { AppI18nProvider } from "../i18n";
 import { rememberDeviceUser } from "./device-users";
+import { MemoryRouter } from "react-router";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
 import type { Transport } from "../data/transport";
 
@@ -31,7 +32,9 @@ function renderEnglish(ui: ReactElement, transport: Transport) {
     <AppI18nProvider initialLocale="en">
       <QueryClientProvider client={queryClient}>
         <ApiProvider transport={transport} initialSession={null}>
-          {ui}
+          {/* The screen navigates on a resolved tenant code, so it needs a router
+              exactly as `renderWithProviders` gives every other case here. */}
+          <MemoryRouter initialEntries={["/"]}>{ui}</MemoryRouter>
         </ApiProvider>
       </QueryClientProvider>
     </AppI18nProvider>,

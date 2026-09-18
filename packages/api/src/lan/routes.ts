@@ -44,6 +44,9 @@ export interface LanRoutesOptions {
 /** One `disconnected`/`connected`/`ping` push to every open `/lan/events` stream. */
 type LanBroadcast = (event: string, data: unknown) => Promise<void>;
 
+/** Concurrent `/lan/events` streams one session may hold. See `GET /events`. */
+const MAX_STREAMS_PER_SESSION = 3;
+
 /**
  * LAN multi-till routes — mounted at `/lan` on the shared Hono app (both the
  * IPC mount and the LAN-socket mount, per docs/archive/plan.md §2.2's "one HTTP app,
@@ -107,6 +110,9 @@ export function createLanRoutes(options: LanRoutesOptions) {
 
   /** Every open `/lan/events` SSE stream, so a disconnect can push to all of them. */
   const subscribers = new Set<LanBroadcast>();
+
+  /** How many streams each session currently holds. See `GET /events`. */
+  const streamsByToken = new Map<string, number>();
 
   function broadcast(event: string, data: unknown): void {
     for (const emit of subscribers) {
@@ -215,6 +221,34 @@ export function createLanRoutes(options: LanRoutesOptions) {
 
   app.get("/events", licensedGate, signedIn, (c) => {
     const heartbeatMs = options.sseHeartbeatMs ?? 15_000;
+    /**
+     * ONE MACHINE HOLDING A THOUSAND OPEN STREAMS IS A DENIAL OF SERVICE, and
+     * nothing counted them. Each subscriber is a live socket plus a heartbeat
+     * timer on the host's single event loop — the same loop every SQLite call
+     * in the product runs on — so a signed-in till looping `GET /lan/events`
+     * takes the shop down without ever exceeding its seat or its permissions.
+     *
+     * Counted per SESSION rather than per address: a till legitimately opens
+     * one stream and, briefly, two across a reconnect. Three is slack for a
+     * reload racing its own teardown; a fourth is a loop.
+     */
+    // The bearer token where there is one, the resolved user otherwise: the
+    // desktop's own in-process mount carries no `authorization` header, and a
+    // cap that silently did not apply there would be a cap with a hole in the
+    // shape of "run it from the host".
+    const token = readSessionToken(c) ?? callerUserId(c);
+    const held = token ? (streamsByToken.get(token) ?? 0) : 0;
+    if (held >= MAX_STREAMS_PER_SESSION) {
+      return c.json(
+        {
+          error: "TOO_MANY_STREAMS",
+          message: "هذا الجهاز يفتح عدداً كبيراً من الاتصالات المباشرة. أعد تشغيل البرنامج على الجهاز.",
+        },
+        429,
+      );
+    }
+    if (token) streamsByToken.set(token, held + 1);
+
     return streamSSE(c, async (stream) => {
       const signal = c.req.raw.signal;
       const emit: LanBroadcast = async (event, data) => {
@@ -230,6 +264,14 @@ export function createLanRoutes(options: LanRoutesOptions) {
         }
       } finally {
         subscribers.delete(emit);
+        if (token) {
+          // In `finally`, so a stream that died mid-write releases its slot
+          // too. Counting up on open and down only on a clean close is how a
+          // cap becomes a permanent lockout after one dropped wifi link.
+          const remaining = (streamsByToken.get(token) ?? 1) - 1;
+          if (remaining <= 0) streamsByToken.delete(token);
+          else streamsByToken.set(token, remaining);
+        }
       }
     });
   });

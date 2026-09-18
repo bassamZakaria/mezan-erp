@@ -199,3 +199,22 @@ describe("ProjectsScreen", () => {
     expect((await within(detail).findAllByText("نشط")).length).toBeGreaterThan(0);
   });
 });
+
+/** guards §4.5 #13 — the error card shows the SERVER's reason, not the screen's fixed sentence. */
+describe("ProjectsScreen — a 502 body reaches the error card", () => {
+  it("renders the server's own Arabic reason", async () => {
+    renderWithProviders(
+      <ProjectsScreen />,
+      {
+        transport: stubTransport({
+          "GET /projects": () => ({ status: 502, body: { message: "تعذّر الوصول إلى الجهاز الرئيسي. الجهاز مغلق أو غير متصل بالشبكة." } }),
+          "GET /customers": () => ({ body: [] }),
+          "GET /users": () => ({ body: [] }),
+        }),
+        initialSession: testAdminSession,
+      },
+    );
+
+    expect(await screen.findByText("تعذّر الوصول إلى الجهاز الرئيسي. الجهاز مغلق أو غير متصل بالشبكة.")).toBeInTheDocument();
+  });
+});

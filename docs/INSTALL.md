@@ -55,8 +55,13 @@ through a small link at the bottom — the natural first move was to type the ow
 fail five times, and land in a lockout on a brand-new install within ninety seconds. The wizard
 has four steps (`apps/web/src/login/FirstRunWizard.tsx`):
 
-1. **Activate the licence** — the entitlements source for this install (see §6 for what is
-   and is not verified here today).
+1. **Activate the licence** — a real **file import**, not a code box. «استيراد ملف الترخيص»
+   opens a file picker, hands `license.mezan` to the same verifier the write gate uses, and
+   reports **that verdict**: on acceptance, the plan, the seat count and the expiry the signed
+   payload actually carries; on refusal, the reason. It used to accept any `XXXX-XXXX` string,
+   call nothing, and show a green «مُفعّل» pill over an install where every save was about to
+   be refused. Skipping this step is fine — the licence can be imported later from
+   `الإعدادات ← الأجهزة المتصلة` — but a green pill now means the file verified.
 2. **Administrator account** — `POST /bootstrap/admin` with the owner's real name (Arabic
    and, optionally, English), a real email, and a PIN **they** choose. This call also
    idempotently seeds the empty database (chart of accounts, VAT, the main branch and
@@ -245,11 +250,19 @@ sibling "Mezan Backups" folder next to `userData` (`defaultBackupsDir()` in
 
 A backup runs automatically:
 
-- **Before every schema migration**, always (`backupThenMigrate` — there is no migration
-  runner wired yet as of this writing, so this currently fires on every launch as a no-op
-  migration step, but the backup itself is real).
+- **Before a schema migration, and only then** (`backupThenMigrate`). The decision is taken
+  from the file's own `PRAGMA user_version` stamp before the database is opened
+  (`isMigrationPending`): equal to this build's schema version means nothing about the file's
+  shape changes on this launch, and no backup is taken. It used to run unconditionally, on
+  every cold start, before any window existed — measured at ~1.1 s per 88 MB, so minutes on a
+  2 GB shop database against a dock icon that did nothing, which is a force-quit and a support
+  call. When a migration **is** pending, the window opens **first** and shows the copy's
+  progress. The archive is labelled `pre-update-<version>` so it can be found by name.
 - **Once daily** while the app is running (`scheduleBackups`, a 24-hour interval from launch).
-- **On app close** (`will-quit`).
+- **On app close** — on `before-quit`, and **awaited** with a 120-second bound. It used to be
+  fired on `will-quit` and not awaited, so the process exited mid-write and the close backup
+  effectively never completed. If the bound is hit the app quits anyway and logs it; the daily
+  archive still stands.
 
 Retention is GFS (Grandfather-Father-Son): **7 daily, 4 weekly, 12 monthly** backups are
 kept, pruned automatically after each new one — see `apps/desktop/src/backup/retention.ts` if
@@ -263,6 +276,14 @@ a "we deleted the wrong thing last Tuesday"; it does not protect against the lap
 being stolen, flooded or dying. Getting a copy of "Mezan Backups" off-machine — a USB drive
 taken home, a network share, anything — is the client's job, and this build does not do it
 for them.
+
+**For a copy that has to open somewhere else, use «تصدير نسخة قابلة للنقل»** in
+`الإعدادات ← النسخ الاحتياطي والاستعادة`. A scheduled archive is keyed to this machine and
+dies with it (the key-card box below); the portable export re-encrypts one under a
+**passphrase the owner picks**, so it opens on replacement hardware without carrying the key
+card. It is an explicit action, never a schedule, and the passphrase is not recoverable —
+`.mezanbak.enc`, scrypt + AES-256-GCM, minimum ten characters
+(`apps/desktop/src/backup/portable-export.ts`).
 
 > ### ⚠️ THE KEY CARD: DO THIS ON INSTALL DAY OR THE BACKUPS ARE WORTHLESS
 >
@@ -281,11 +302,18 @@ for them.
 > bilingual Arabic/English, containing the key and an explanation. Every launch warns while
 > it is still sitting there.
 >
+> **You no longer have to leave the app to deal with it.** `الإعدادات ← الأجهزة المتصلة`
+> carries a warning banner — «ملفات حسّاسة ما زالت على هذا الجهاز» — that appears **only while
+> a risky file still exists**, names its full path (LTR and selectable), and offers two
+> actions per file: «افتح مجلد الملف» to reveal it in Finder/Explorer, and «تم — احذف الملف»,
+> which asks for a confirmation before it unlinks. The banner covers **both** files: the key
+> card and the pre-conversion plaintext archive below. When neither exists, it renders nothing.
+>
 > **On install day, in front of the owner:**
-> 1. Open `database-key.txt`.
+> 1. Open the banner's «افتح مجلد الملف», or open `database-key.txt` directly.
 > 2. Copy the key into the client's safe, their password manager, or a notebook that lives
 >    somewhere other than this building.
-> 3. **Delete the file.**
+> 3. **Press «تم — احذف الملف» and confirm** (or delete the file by hand).
 > 4. Tell them, in these words: *anyone holding this key and one backup archive can read your
 >    entire books — customers, prices, salaries.* It is a bearer secret. It does not go over
 >    WhatsApp and it does not go in an email.
@@ -296,9 +324,11 @@ for them.
 **The pre-conversion safety archive is PLAINTEXT.** When an existing unencrypted install is
 converted (see below), the safety backup taken beforehand was made from a plaintext database
 and is therefore itself plaintext. The startup log names its path and says
-`UNENCRYPTED — delete it once you trust this build`. Nothing deletes it automatically, on
-purpose: silently destroying the only pre-conversion copy of a shop's books to tidy up is the
-worse failure. Delete it yourself once the converted install has been used for real work.
+`UNENCRYPTED — delete it once you trust this build`, and the warning banner in
+`الإعدادات ← الأجهزة المتصلة` names it too, with the same reveal-and-delete pair as the key
+card. Nothing deletes it automatically, on purpose: silently destroying the only
+pre-conversion copy of a shop's books to tidy up is the worse failure. Delete it once the
+converted install has been used for real work.
 
 ### 4.2 Restoring onto replacement hardware
 
@@ -493,10 +523,13 @@ whichever address they can actually reach the shop from.
 ## 6. LAN multi-till setup
 
 Licensed by the `lan.multi_till` feature flag (`packages/domain/src/lan/feature-flag.ts`).
-Entitlements today come from `MEZAN_ENTITLEMENTS_JSON`, an environment variable read and
-schema-validated but **not cryptographically verified** — see §7. Absent or invalid
-entitlements resolve to fully unlicensed (zero seats, no features), never to a permissive
-default.
+Entitlements come from the **verified `license.mezan`** — the Ed25519 signature, the machine
+binding and the expiry are all checked before a single seat exists (§7). `MEZAN_ENTITLEMENTS_JSON`
+is a dev-only convenience on an **unpackaged** build and is refused outright by a packaged one;
+earlier revisions of this document described it as the source of entitlements, which it has not
+been since the licence verifier was wired. Absent or invalid entitlements resolve to fully
+unlicensed (zero seats, no features), never to a permissive default — an unlicensed install
+opens no LAN socket at all.
 
 ### 6.1 What actually opens on the network
 
@@ -571,6 +604,17 @@ a bound socket with no single dialable address reads as unknown rather than prin
 nobody could reach. The browser build (no Electron host) says plainly that it cannot know the
 host's address, rather than guessing.
 
+**When it is NOT running, the screen names which of four faults it is.**
+«خدمة الشبكة المحلية غير مشغّلة» used to cover all four, with the distinguishing reason on a
+console the shop never opens — one sentence, four different fixes, none of them named:
+
+| Reason | What happened | The fix |
+|---|---|---|
+| `NOT_LICENSED` | the licence does not carry `lan.multi_till` | a new licence file (§7A.3) |
+| `PORT_IN_USE` | another program, or a second copy of Mezan, holds 4173 | close it and restart |
+| `TLS_UNAVAILABLE` | the identity beside the database could not be read, and **no plain-HTTP socket was opened in its place** | restore the PEM pair; deleting them re-pairs every till (§6.3) |
+| `NO_INTERFACE` | this machine is attached to no network, so there is no address to hand out | connect the cable or wifi and restart |
+
 ### 6.2 Seats, connecting, and freeing a stuck one
 
 Seats are enforced by `SeatSessionRegistry` (`packages/domain/src/lan/session-registry.ts`),
@@ -622,19 +666,40 @@ till to validate. What the till trusts instead is **this** certificate's fingerp
 remembers from the first connection — and the only thing that makes that first connection
 trustworthy is a person comparing two strings.
 
+**The procedure is in the app now.** It used to be a command-line flag on each machine
+(`--pair-host` / `--pair-fingerprint`), which meant a shop could never add its own fourth till.
+Those flags still work and are still the right tool for scripting twelve machines in an
+afternoon (§7A.3); everything below is what an operator does without one.
+
 1. On the **host** machine, open `الإعدادات ← الأجهزة المتصلة` (Settings → Connected Devices).
    Read the two values in §6.1: the `https://<address>:<port>` URL and the `sha256=AB:CD:…`
-   fingerprint.
-2. On the **till**, enter that URL.
-3. The till will refuse the certificate — correctly, it is self-signed — and show you the
-   fingerprint of whatever answered.
-4. **Compare the two strings, character by character, standing in the shop with both screens
-   in front of you.** Not "it starts with AB and ends with 9F". The whole string. Both screens
-   are LTR and copyable precisely so this comparison is possible.
-5. **Match → pin it.** From then on that till trusts only this certificate.
-6. **Mismatch → STOP.** Do not pin, do not type a PIN, do not "try again". A different
+   fingerprint. Leave that screen open.
+2. On the **till** — a fresh install, nobody has set it up yet — press
+   **«الاتصال بجهاز رئيسي»** on the login screen. The link appears only on a machine that
+   holds no books; it is absent on a live host, because pairing one would orphan the ledger.
+3. The till lists the hosts it can see. Discovery is `_mezan._tcp` over mDNS and it is a
+   **convenience only** — anything on the wifi can advertise, and plenty of shop networks
+   block multicast outright, so an empty list is normal and **«اكتب عنوان الجهاز الرئيسي»**
+   is always available. Pick the host, or type the URL from step 1.
+4. The till completes a TLS handshake, reads the certificate that machine **presented**, and
+   shows it — grouped in fours, LTR, next to nothing else. **Nothing has been sent to that
+   address at this point, and nothing will be until step 6.**
+5. **Compare the two strings, character by character, standing in the shop with both screens
+   in front of you.** Not "it starts with AB and ends with 9F". The whole string. The
+   advertised fingerprint from step 3 is *not* what you compare — only the one the handshake
+   presented, which is the value the till will pin.
+6. **Match → press «الشهادتان متطابقتان — اقترن».** The till re-reads the certificate at that
+   instant (so a host swapped mid-comparison is refused), writes `client.json`, moves its own
+   empty database aside, and restarts as a till. From then on it trusts only this certificate.
+7. **Mismatch → STOP.** Do not pin, do not type a PIN, do not "try again". A different
    certificate on that address means something other than the host answered you. Disconnect
    the till from the network and find out what, before any credential goes near it.
+
+**A paired till that later meets a different certificate** shows a dedicated screen rather
+than a console line and a 502: it names the address, states that **nothing was sent**, shows
+the expected and the presented fingerprints side by side, warns you to stop, and offers
+**«إعادة الاقتران»** — which re-runs steps 3–6, comparison included. There is no "trust it
+anyway" button, and there must never be one.
 
 **What this buys and what it does not.** Pinning is trust-on-first-use: it makes every
 connection after the first one safe against an impostor, and it makes the first one safe only
@@ -653,6 +718,14 @@ repeating steps 1–6 at each one. Budget for that before you promise a client a
 ## 7. What is NOT secure yet — tell the client the truth
 
 A consultant who cannot say this plainly is setting the client up to find out the hard way.
+
+**Three claims this section used to make are gone, and none should be repeated to a client.**
+It said *licence verification is a stub* and that entitlements came from
+`MEZAN_ENTITLEMENTS_JSON`: both were stale — the Ed25519 verifier drives the write gate and the
+module gates, and a packaged build refuses every environment override of the key, the salt, the
+check-in address and the licence path. It also documented `MEZAN_AUTO_UPDATE_INSTALL=1` as the
+flag that gates an install; no such variable exists or ever did (below). What is genuinely
+still open is the list that follows, and the certificates in §8.1.
 
 - **LAN traffic is encrypted now, but the trust decision is a human one.** The socket is HTTPS
   only, with no plain-HTTP fallback anywhere in `lan-host.ts` (§6.1). What that does NOT do:
@@ -675,17 +748,36 @@ A consultant who cannot say this plainly is setting the client up to find out th
 - **The SQLite file and its backups are encrypted at rest now.** `mezan.db` is opened with
   `better-sqlite3-multiple-ciphers` under a 32-byte random key sealed to this OS user account
   by Electron's `safeStorage` (macOS Keychain, Windows DPAPI, libsecret/kwallet on Linux) —
-  `apps/desktop/src/main/encrypted-database.ts`. Every backup archive is encrypted with the
-  same key. An existing plaintext install is converted on first launch, and takes a full
-  verified backup **before** a byte of the plaintext file is touched. What you must still tell
-  the client:
+  `apps/desktop/src/main/encrypted-database.ts`. **Every scheduled archive is encrypted, by
+  default and with no way to turn it off.** `scheduleBackups` no longer takes a `portable`
+  option at all: it used to be passed unconditionally by the call site, which rekeyed each
+  daily archive to plaintext and left `~/Mezan Backups` holding the shop's complete books —
+  customers, prices, salaries — readable by anyone who picked up the USB stick. Nobody chose
+  that; it was inherited from the caller. An existing plaintext install is converted on first
+  launch, and takes a full verified backup **before** a byte of the plaintext file is touched.
+  What you must still tell the client:
   - **The key is bound to this machine and this OS account, and so every backup is.** That is
     the point — a stolen disk is useless — and it is also why losing the machine loses the
     backups unless the key was written down. On first encryption the app writes
     `database-key.txt` beside the database (owner-only) containing the key in Arabic and
-    English, and warns on **every** launch while that file is still there. **Copy it into the
-    client's safe or password manager and delete the file, in front of them, on install day.**
-    `--export-database-key` writes it again for an owner who lost it.
+    English, and warns on **every** launch while that file is still there. The warning is on
+    screen too, in `الإعدادات ← الأجهزة المتصلة`, with «افتح مجلد الملف» and a confirmed
+    «تم — احذف الملف» beside the path. **Copy it into the client's safe or password manager
+    and delete the file, in front of them, on install day.** `--export-database-key` writes it
+    again for an owner who lost it.
+  - **An off-machine copy is an explicit act, not a default.** «تصدير نسخة قابلة للنقل» in
+    `الإعدادات ← النسخ الاحتياطي والاستعادة` asks for a passphrase (ten characters minimum),
+    derives a key with scrypt and writes a `.mezanbak.enc` under AES-256-GCM
+    (`backup/portable-export.ts`). That archive opens on other hardware — which is exactly why
+    it must never be produced casually and why the passphrase is not recoverable. A wrong
+    passphrase fails the GCM tag check and is refused, never half-decrypted.
+  - **A schema-changing update takes its own archive, and it is one button to go back.**
+    When a launch brings a migration the app opens the window first, copies the database to a
+    `pre-update-<version>` archive, and only then migrates. «الرجوع إلى ما قبل التحديث» on the
+    backup screen restores that specific archive — named rather than left for an owner to guess
+    which timestamp came before the version that broke their books. On a launch with no pending
+    migration, no archive is taken and nothing is copied: that check is `PRAGMA user_version`,
+    read before the database is opened.
   - **Anyone holding that card and one backup archive reads the entire books** — customers,
     prices, salaries. It is a bearer secret. It must not travel by WhatsApp or email.
   - **The pre-conversion safety copy is UNENCRYPTED.** The startup log names its path. Delete
@@ -710,43 +802,107 @@ A consultant who cannot say this plainly is setting the client up to find out th
   bought and §8's secrets are set, **do not tell a client "this installer is provably from
   us"** — it is not, and saying so is the one sentence in this section that would actually
   cost them money.
-- **The auto-updater is off, and now refuses rather than trusts.** It needs
-  `MEZAN_AUTO_UPDATE=1` to run at all and a separate `MEZAN_AUTO_UPDATE_INSTALL=1` before it
-  will write anything. On top of that it now checks, at launch, whether the app it is running
-  inside is itself signed by a Developer ID certificate, and **refuses** if the answer is no or
-  merely unknown — including on Windows and Linux, where there is nothing to check. The
-  reasoning is in `apps/desktop/src/main/updater.ts`: an unsigned app has no publisher, so
-  electron-updater has nothing to verify a download against, and this product also binds a LAN
-  socket — anyone on the shop wifi could answer for the update feed. There is an override,
-  `MEZAN_AUTO_UPDATE_ALLOW_UNSIGNED=1`, spelled that way on purpose. **Never set it on a
-  customer install.**
-- **License verification is a stub — but a licence problem now says so, on screen, instead of
-  disappearing.** `MEZAN_ENTITLEMENTS_JSON` is still trusted with a schema check and no
-  signature — an env var unlocks LAN mode and every module, and the real Ed25519 verifier in
-  `packages/domain/src/licensing/license.ts` is not wired up yet. What closed
-  (`apps/desktop/src/main/entitlements.ts`'s `diagnoseDesktopEntitlements()`, resolved once at
-  startup in `main/index.ts` and read by every gate from that one call): a missing, malformed
-  or schema-invalid `MEZAN_ENTITLEMENTS_JSON` used to fall to `console.warn` and an install
-  that simply looked absent — no LAN mode, no modules, no message anywhere a shop owner or a
-  consultant could see. It now resolves to a status (`licensed`/`missing`/`malformed`/
-  `invalid`/`expired`), a short stable code (`LIC-OK`/`LIC-MISSING`/`LIC-MALFORMED`/
-  `LIC-INVALID`/`LIC-EXPIRED` — safe to read down the phone to support) and an Arabic message,
-  read over a session-gated IPC channel (`mezan:licence:status`, no permission beyond being
-  signed in — a licence problem is the owner's to see) and rendered on `الإعدادات ←
-  الأجهزة المتصلة` by `LicenceStatusNotice` above the seat panel it explains: an install with
-  no licence, or one past expiry, is why the seat count reads zero and no till can connect.
-  **Past `expiresAt`, the capability set is deliberately left exactly as granted rather than
-  dropped to unlicensed** — a licensing lapse never withholds a shop's own data — with the
-  status still reporting `expired` so the client is told, while the real cutover
-  (active → grace → read-only) is left to `verifyLicense()` once it lands.
-- **The audit trail stops the app's own code from editing its history, not a person with the
-  file.** A SQLite trigger refuses `UPDATE`/`DELETE` against audit rows from anything the
-  application itself does — which is real, and is what closed several audit gaps this rollout
-  depends on (a login lockout, a PIN reset, an approval-config change all now leave a row that
-  cannot be quietly edited back out by the app). It does not stop someone with direct
-  filesystem access to `mezan.db` — in practice, the company admin — from opening the file with
-  another tool and editing past the trigger, or from restoring an older backup that never had
-  the entry in question.
+- **The auto-updater refuses rather than trusts, and nothing about it is set from the
+  environment any more.** The launch-time check runs only with `MEZAN_AUTO_UPDATE=1`; the
+  operator's own check, download and install are always available from the update banner and
+  from «الإعدادات ← الصيانة والتحديثات». There is **no `MEZAN_AUTO_UPDATE_INSTALL`** — it was
+  documented here and read by nothing. Consent is now a dialog that names the tills currently
+  connected, defaults to "install after the app closes", and refuses an immediate install
+  during shop hours unless the operator ticks a box saying they mean it.
+
+  Three gates stand between a feed and a running installer, and all three must pass:
+  1. **The vendor Ed25519 signature over `version || channel || arch || sha512`.** The public
+     key is **compiled into the build** (`scripts/build.mjs`'s `define`, fed from
+     `MEZAN_UPDATE_PUBLIC_KEY` in the release workflow) and a packaged app ignores the
+     environment for it — a trust anchor the launching environment can set is not a trust
+     anchor. Signing the tuple rather than the hash alone is what stops an old, genuinely
+     signed installer republished under a higher version: a downgrade from a compromised feed.
+     The signature is fetched from `<feed>/<version>-<platform>-<arch>.sig`.
+  2. **The downloaded bytes are re-hashed and the signature re-checked** before the installer is
+     handed to the OS.
+  3. **The running app's own signature.** An unsigned app has no publisher, so electron-updater
+     has nothing to verify a download against, and this product also binds a LAN socket — anyone
+     on the shop wifi could answer for the update feed. The old escape hatch,
+     `MEZAN_AUTO_UPDATE_ALLOW_UNSIGNED=1`, **no longer exists in a shipped build**: it is a
+     build-time flag (`MEZAN_ALLOW_UNSIGNED_UPDATES=1` when running `build:main`) that is false
+     in everything the release workflow produces.
+
+  A build with **no vendor key and no feed** — which is every build today — is not an error
+  state. Pressing «ابحث عن تحديثات» answers «لا تتوفر تحديثات تلقائية في هذه النسخة — التحديث
+  يتم بتثبيت نسخة جديدة» once, and the notice can be dismissed.
+- **License verification is real, and it is the ONE source of both entitlements and write
+  permission.** The install reads `license.mezan` from its userData directory, verifies the
+  Ed25519 signature against the vendor public key **baked into the build** (esbuild `define`,
+  `apps/desktop/scripts/build.mjs`), then checks the monotonic-clock guard, `notBefore`, the
+  machine binding and expiry/grace — `packages/domain/src/licensing/license.ts` driven by
+  `main/license.ts` + `main/license-runtime.ts`. `MEZAN_ENTITLEMENTS_JSON` survives only as a
+  developer convenience on an **unpackaged** build; a packaged one refuses every environment
+  override of the key, the salt, the check-in address and the licence path, because a licence
+  check anybody can switch off from a shortcut's Properties dialog is not a licence check.
+  What you must still tell the client:
+  - **A build made without `MEZAN_LICENSE_PUBLIC_KEY` cannot verify anything, and says so** —
+    «هذه النسخة من ميزان بُنيت بدون مفتاح المورّد» with the code `LIC-NOKEY`, deliberately
+    different from «لا يوجد ترخيص». If you meet that sentence, the installer is wrong, not the
+    customer's licence. Get a correctly built one; do not go looking for the licence file.
+  - **A lapse never withholds data.** Past `expiresAt` there is a writable grace window, then
+    READ_ONLY: every record stays readable, printable and exportable and only new postings are
+    refused, server-side, at one choke point (`packages/api/src/license-gate.ts`). **The app
+    never refuses to start on a licence verdict** — not on expiry, not on a revocation, not
+    30 days past a missed check-in. It opens, and it explains.
+  - **The verdict is re-read on every request.** Pressing «تحقّق الآن» lifts read-only there
+    and then, and a licence that expires mid-session is noticed without a restart.
+  - **Modules are gated now.** A licence's `activeModules` decides which route groups the API
+    serves, in Arabic when it refuses (`packages/api/src/module-gate.ts`). A Core licence gets
+    403 on manufacturing, HR and fixed assets rather than serving them. Platform surface —
+    settings, users, roles, documents, reports, backup, `/auth`, `/license` — is never gated;
+    a licence that locked the owner out of the screen explaining the problem would be worse
+    than no licence at all.
+  - **The online check-in is enforced, and it is the one thing here that needs connectivity.**
+    ≤7 days: normal. >7 days: READ_ONLY, with the Arabic sentence saying *connect to the
+    internet*, never *renew*. >30 days: still READ_ONLY, with a blocking notice. Only a
+    **signed** answer from the licensing service moves that clock or revokes anything; an
+    outage, a DNS hiccup or an offline shop is never read as a revocation.
+  - **The anti-rollback record is sealed to the database key.** `license-guard.json` in
+    userData holds the clock high-water mark, the last verified time and the install stamp
+    under an HMAC; deleting or editing it resolves to TAMPERED and read-only, not to a fresh
+    week. Deleting it also buys nothing, because the clock's origin is the licence's own
+    signed `notBefore`.
+  - **The machine fingerprint is obtainable, by the owner, without a terminal.** It is on the
+    licence banner, on `الإعدادات ← الأجهزة المتصلة`, and on the «معلومات الدعم» card in
+    `الإعدادات ← عام` beside the version, the `LIC-*` code, the host URL and the paths — LTR,
+    copyable, with one button that copies the lot. `Mezan --print-machine-fingerprint` prints
+    it and exits for anyone who
+    would rather read it down the phone. It is a salted hash, never the machine's raw identity,
+    so it is safe to send by any channel. Before this, a replacement PC met «مرتبط بجهاز آخر …
+    تواصل مع الدعم» and **neither the owner nor support could obtain the one value the new
+    licence needed.**
+  - **Moving to a new machine is three steps the screen states.** `MACHINE_NOT_BOUND` no longer
+    ends at "contact support": the banner names the fault, then lists (1) send this machine's
+    fingerprint and support code to support, (2) support issues a new `license.mezan` bound to
+    it, (3) press «استيراد ملف الترخيص», pick the file, read the verdict immediately. Issue the
+    replacement with `--bind` passed **twice** during a handover — the old fingerprint and the
+    new one — so the shop is never between two working machines (§7A.3).
+- **The audit trail is now tamper-EVIDENT, which is not the same as tamper-proof.** A SQLite
+  trigger refuses `UPDATE`/`DELETE` against audit rows from anything the application itself
+  does — which is what closed several audit gaps this rollout depends on (a login lockout, a
+  PIN reset, an approval-config change all now leave a row that cannot be quietly edited back
+  out by the app). On top of it, each row carries the hash of the row before it, and the latest
+  row's hash is held under an **HMAC whose key is not in the database**: on desktop it is
+  derived from the sealed database key in the OS keychain. «تحقق من سلامة السجل» on the audit
+  screen (`GET /audit/verify`) walks the chain and says whether it holds, which row broke it,
+  and whether the head itself was altered. A restore writes a `CRITICAL` `backup.restored` row
+  after the swap, so a restore is in the trail rather than being a way out of it. What to tell
+  the client, plainly:
+  - **Someone with the file can still destroy history — they cannot forge it.** The hashing
+    algorithm is public, so a person with direct filesystem access to `mezan.db` (in practice,
+    the company admin) can drop the trigger, delete rows and re-chain what remains. What they
+    cannot produce is a head MAC that agrees, because that key is not in the file they hold.
+    The result is a verification that fails, not a trail that lies.
+  - **Detectable is only useful if someone looks.** Nothing checks the chain on a schedule;
+    the verify button is a person's act. Restoring an older backup that never held the
+    damaging entry is still invisible from inside.
+  - Rows written before the chain existed carry no hash. They are reported as `unchained`, not
+    as failures — the table is append-only, so they can never be back-filled.
 
 ---
 
@@ -770,6 +926,26 @@ each one is there. Three are easy to skip and each produces an installer that lo
 is not: fetching the Electron **binary** (`pnpm install` never does — `allowBuilds.electron:
 false`), rebuilding the native modules for **Electron's** ABI rather than Node's, and
 verifying that by launching the real Electron and opening a real encrypted database.
+
+**The vendor configuration must be in the environment OF THE BUILD, not of the app.** Three
+values are substituted into the main bundle by esbuild `define` at the `build:main` step
+(`apps/desktop/scripts/build.mjs`, `vendorDefine`), which `pnpm desktop:package` runs for you:
+
+| Build-time variable | Without it |
+|---|---|
+| `MEZAN_LICENSE_PUBLIC_KEY` | No licence file can be verified. The app says «هذه النسخة من ميزان بُنيت بدون مفتاح المورّد» (`LIC-NOKEY`) — deliberately not «لا يوجد ترخيص», because the installer is wrong, not the customer |
+| `MEZAN_LICENSE_CHECKIN_URL` | Nothing can confirm the licence online, so every install walks the same 7/30-day path to read-only. It is not an escape hatch |
+| `MEZAN_UPDATE_PUBLIC_KEY` | No update can ever be verified, so none is ever installed |
+
+`MEZAN_LICENSE_FINGERPRINT_SALT` is substituted alongside them and falls back to a published
+default; changing it invalidates every licence already issued. The build **warns** on each one
+it had to leave empty and carries on — that is what makes a local test build possible — so read
+the `[build]` lines. The release workflow's `preflight` is what refuses to publish with any of
+them empty (§8.2).
+
+**A packaged app reads none of these from its own environment**, by design: a trust anchor the
+launching environment can set is not a trust anchor. Getting them wrong here cannot be fixed
+after packaging; it needs another build.
 
 **The build is UNSIGNED unless you pass `--signed`.** That is right for a build you are about
 to test on your own machine and wrong for anything a client installs — see §8. An unsigned
@@ -804,48 +980,116 @@ look entirely normal, and take a day of somebody's invoices into books nobody el
 
 ### 7A.3 The rollout, in order
 
-**1. On the host: put the licence where the app can read it.** Entitlements now come from
-`licence.json` beside the database (`MEZAN_ENTITLEMENTS_JSON` still wins if it is set, for
-development). Before this, entitlements were env-var-only — which a packaged app launched
-from the Start menu or the Dock never has, so **no shipped install could be licensed at
-all**, and `lan.multi_till` was unreachable by anyone. It is schema-validated and **not**
-cryptographically verified; see §7 and `main/licence-file.ts` for what that does and does not
-buy you.
+**1. On the host: put the licence where the app can read it.**
 
-```json
-{
-  "plan": "ENTERPRISE",
-  "activeModules": ["sales", "purchases", "inventory", "accounting", "treasury"],
-  "features": { "lan.multi_till": true },
-  "seats": 3,
-  "expiresAt": null
-}
-```
-
-**2. Start the host and let the OS firewall let it in.** The socket binds, and on both macOS
-and Windows the operating system's own firewall silently drops the incoming connections until
-the app is allowed. This is the single most likely reason a correctly configured client says
-"no answer from the host": on macOS the app must be added to System Settings → Network →
-Firewall → Options; on Windows, approve the prompt on first launch (or add an inbound rule for
-the Mezan executable). Nothing in the product can tell you this is happening — from the
-client's side an OS-blocked port and an unplugged machine are the same silence.
-
-**3. Read the address and the fingerprint off the host's «الأجهزة المتصلة» screen** — or off
-its console line — and compare the fingerprint by eye, in the shop (§6.3). They are also both
-printed at startup:
+Ask support (or, if you are the vendor, run the two commands below) for a `license.mezan`
+issued against **this machine's fingerprint**. Read the fingerprint off the host, either from
+`الإعدادات ← الأجهزة المتصلة` or from a terminal:
 
 ```
-[lan] multi-till host listening on https://192.168.1.7:4173 (seats=3, sha256=49:0E:…, …)
+Mezan --print-machine-fingerprint
 ```
 
-**4. Pair each client, once, from a shortcut or a terminal:**
+It prints one salted hash and exits. It is safe to send by any channel — it is a hash, never
+the machine's raw identity.
+
+The vendor mints the file offline, with the signing key that never leaves their machine:
 
 ```
-Mezan --pair-host=https://192.168.1.7:4173 --pair-fingerprint=49:0E:E0:… --device-label="مكتب المحاسب"
+pnpm licence:keygen --out vendor-signing.key      # ONCE, ever. Keep it in the safe.
+pnpm licence:issue \
+  --key vendor-signing.key \
+  --licensee "النور للتجارة والتوزيع" \
+  --plan CORE \
+  --modules sales,purchases,inventory,accounting,treasury \
+  --seats 3 \
+  --expires 2027-01-01 \
+  --bind <the fingerprint from the step above> \
+  --out license.mezan
 ```
 
-It writes `client.json` (mode `0600`) and exits. It refuses to run on a machine that already
-has a `mezan.db`, because a client holds no books of its own and pairing would orphan them.
+Copy `license.mezan` into the host's userData directory — `%APPDATA%\Mezan` on Windows,
+`~/Library/Application Support/Mezan` on macOS — or import it from
+`الإعدادات ← الأجهزة المتصلة`, which puts it in the same place and shows the real verdict.
+There is no `licence.json` and no `main/licence-file.ts`; earlier revisions of this document
+described both, and a consultant who followed them produced an unlicensed install.
+
+`--bind` is what makes the file worth something: an unbound licence runs on every PC it is
+copied to. Pass `--bind` twice during a hardware handover so the shop is never between two
+working machines.
+
+**Modules are enforced.** `--modules` decides which parts of the API the install serves; a
+licence that omits `manufacturing` answers 403 in Arabic on those routes. `lan.multi_till`
+is a FEATURE, not a module — pass it as `--features lan.multi_till` if the client has bought
+the second till.
+
+**The check-in address, and what happens without one.** A build carries the licensing
+service's URL baked in (`MEZAN_LICENSE_CHECKIN_URL`). An install that cannot confirm its
+licence online goes read-only after 7 days and shows a blocking notice after 30 — it never
+refuses to start, and its data stays readable, printable and exportable throughout. The
+service itself is `apps/licence-server` (`POST /checkin`, `GET /health`), which answers from
+a JSON revocation list and signs every answer with the same vendor key:
+
+```
+MEZAN_LICENSE_PRIVATE_KEY=<hex> MEZAN_REVOCATIONS=/var/lib/mezan/revocations.json pnpm licence:server
+```
+
+Run it behind a TLS terminator. If the client's site genuinely has no internet, say so before
+the sale: this is the one part of Mezan that requires connectivity, and the honest answer is
+a longer-dated licence, not a promise the software will not keep.
+
+**2. Start the host and let the OS firewall let it in.** The socket binds, and the operating
+system's own firewall silently drops the incoming connections until the app is allowed. This
+is the single most likely reason a correctly configured client says "no answer from the host".
+
+- **Windows**: the NSIS installer now adds the inbound rule itself — TCP 4173, **private and
+  domain profiles only**, never the public profile, so a laptop tethered to a phone or sitting
+  on hotel wifi does not publish the books (`apps/desktop/build/installer.nsh`). It needs
+  elevation; an install that ran without it completes anyway and simply has no rule, which is
+  what step 2a below is for.
+- **macOS**: still manual — add the app under System Settings → Network → Firewall → Options.
+
+**2a. Press «اختبر الوصول» on the host's «الأجهزة المتصلة» screen.** It opens a TCP connection
+from the host to the host's *own* advertised address and reports what happened, which is the
+one probe that separates the two faults a consultant otherwise cannot tell apart:
+
+| What it says | What it means | What to do |
+|---|---|---|
+| الاتصال … ناجح | the socket is bound and reachable on this machine | the problem, if any, is between the till and here — read the till's own message |
+| جدار الحماية يحجب المنفذ | packets do not arrive even locally | allow Mezan inbound on private networks (step 2) |
+| الخدمة لا تستقبل اتصالات | nothing is listening | the LAN socket did not start — read the reason under «خدمة الشبكة المحلية غير مشغّلة» on the same screen |
+| لا يوجد عنوان شبكة محلية | this machine is on no network | plug in the cable or join the wifi and restart |
+
+From the **client's** side the same distinction is drawn in the failure message: a refused
+connection says Mezan is not running on the host, and silence says a firewall is dropping the
+packets or the machine is asleep. They used to be the same sentence.
+
+**3. Open the host's «الأجهزة المتصلة» screen and leave it open.** It shows the address to
+point a till at and the certificate fingerprint to compare against, both LTR and copyable.
+The host also advertises itself on the subnet as `_mezan._tcp` with that fingerprint in TXT,
+so a till can find it without anybody typing an IP — a convenience only; the comparison in
+step 4 is what makes the pairing safe. Both values are still printed at startup:
+
+```
+[lan] multi-till host listening on https://192.168.1.7:4173 (seats=3, sha256=49:0E:…, routes=…)
+```
+
+**4. Pair each client.** Two ways, and they produce the same `client.json` (mode `0600`):
+
+- **From the till itself** — press «الاتصال بجهاز رئيسي» on its login screen and follow §6.3.
+  This is what a shop uses to add its own fourth till six months after you leave, and it is
+  the only route that puts the fingerprint comparison in front of a person.
+- **From a shortcut or a terminal**, for a rollout across a dozen machines:
+
+  ```
+  Mezan --pair-host=https://192.168.1.7:4173 --pair-fingerprint=49:0E:E0:… --device-label="مكتب المحاسب"
+  ```
+
+  It writes the file and exits, and refuses to run on a machine that already has a `mezan.db`
+  — a client holds no books of its own and pairing would orphan them. **You still compare the
+  fingerprint** (§6.3): the flag pins whatever you typed, so a typo pins nothing and a copied
+  wrong value pins the wrong machine, silently and permanently.
+
 Re-pairing an existing client keeps its `deviceId`, so repointing a till at a rebuilt host
 does not burn a second seat.
 
@@ -854,15 +1098,44 @@ signing in, and re-announces itself every 15 seconds — the host reaps a device
 seen for 45 seconds, so without that heartbeat the app loads on login and goes empty a minute
 later. If the licence has no free seat, the **login itself** is refused with an Arabic
 message; there is deliberately no "signed in but seatless" state, because it renders as a
-complete application in which every single screen is empty.
+complete application in which every single screen is empty. One account holds **one** seat by
+default (`maxSeatsPerUser`), so a cashier signing in on the counter and on the back office
+does not consume both seats of a two-seat licence — give the second machine its own account.
+
+**When the router reboots and the host's address changes**, the till does not need a visit.
+Its message names the fault, and it searches the subnet for the certificate it pinned; finding
+the same certificate at a new address is proof it is the same machine, so
+«انتقل الجهاز الرئيسي إلى … — إعادة الاتصال؟» is one press. The address is also editable
+directly on the till's own «الأجهزة المتصلة» panel. The **pinned certificate never changes**
+either way, so neither path can walk a till onto a different machine.
 
 ### 7A.4 What a client cannot do, and says so
 
-Backups and restore are the host's (`النسخ الاحتياطي يُدار من الجهاز الرئيسي`), and the
-licence panel on a client reports which host it is paired with and which certificate it
-pinned rather than restating a licence it does not own. The client also does **not** run the
-auto-updater: a client and its host must be the same version, so the host is updated first,
-deliberately, by a person.
+Backups and restore are the host's, and the licence panel on a client reports which host it is
+paired with and which certificate it pinned rather than restating a licence it does not own.
+The client also does **not** run the auto-updater: a client and its host must be the same
+version, so the host is updated first, deliberately, by a person.
+
+**Every one of those refusals is now an Arabic sentence, and the buttons that cannot work are
+disabled.** A client startup registers no handler for the maintenance channels, and an
+unregistered `ipcMain.handle` does not degrade to "no data" — it **rejects**. So «تحقّق من
+الترخيص» and «ابحث عن تحديث» on a till answered with nothing happening at all, twice, and
+neither caller had a `catch`. `apps/desktop/src/main/client-refusals.ts` now answers each one
+with a refusal that names the reason and the host it belongs to:
+
+| On a client | What it answers |
+|---|---|
+| licence check-in, licence file import | «الترخيص يُدار من الجهاز الرئيسي (`<host>`)…» / «ملف الترخيص يُثبَّت على الجهاز الرئيسي…» |
+| update check / install | phase `unavailable`, reason `CLIENT_MACHINE` — **not** an error. A till genuinely cannot update itself, and reporting a fact about the machine as a failure puts «تعذّر إكمال التحديث» in front of a shop where nothing went wrong |
+| backup now, revert to pre-update, portable export | «النسخ الاحتياطي يُدار من الجهاز الرئيسي (`<host>`). هذا الجهاز محطة متصلة ولا يحتفظ بقاعدة بيانات خاصة به.» |
+| support diagnostic, reveal file, delete file | «هذا الجهاز محطة متصلة ولا يحتفظ بقاعدة بيانات. نفّذ هذا من الجهاز الرئيسي (`<host>`).» |
+
+`الإعدادات ← الصيانة والتحديثات` states the same thing before anyone presses anything: on a
+client it shows which host it is paired with, and «أخذ نسخة الآن» and «تحقّق من الترخيص الآن»
+render **disabled**. «ابحث عن تحديثات» stays pressable — it answers calmly, with the
+`CLIENT_MACHINE` notice rather than a red failure — and the panel's closing line states the
+order: the host is updated first. A refusal a person reads before they press is worth more
+than one they read after.
 
 ---
 
@@ -871,10 +1144,12 @@ deliberately, by a person.
 > **The workflow this section describes was removed on 2026-09-18**, with the rest of
 > GitHub Actions, to stay inside the free plan: signing runs on macOS and Windows runners,
 > which the free plan bills at 10× and 2×. Nothing below is wrong about how signing
-> works — it is a record of how to restore it. To bring the pipeline back:
-> `git log --diff-filter=D --format=%h -1 -- .github/workflows/release.yml` gives the
-> commit that deleted it, and `git show <that>^:.github/workflows/release.yml` gives the
-> file. Until then, desktop builds are made locally with `pnpm desktop:package` and are
+> works — it is a record of how to restore it.
+>
+> **To bring it back, restore the newest version**, which is the one carrying the licence
+> work (90 lines longer than the one `main` deleted):
+> `git show 8b17879f:.github/workflows/release.yml > .github/workflows/release.yml`.
+> Until then, desktop builds are made locally with `pnpm desktop:package` and are
 > **unsigned** — which means SmartScreen and Gatekeeper will warn on install.
 
 **For the maintainer who cuts releases, not the consultant at the counter.** Everything in this
@@ -910,7 +1185,10 @@ Two notes that decide how §8.2 is configured:
 
 All of these live in the GitHub repository's **Settings → Secrets and variables → Actions**.
 `.github/workflows/release.yml`'s `preflight` job checks every one of them for emptiness and
-fails the whole run, naming all the missing ones at once, before anything is built.
+fails the whole run, naming all the missing ones at once, before anything is built. Two of them
+are **not certificates and cannot be bought** — the Ed25519 update pair below is generated once
+by the business and never rotated casually: changing it makes every install already in the field
+refuse every future update, because the old public key is compiled into those builds.
 
 **Secrets** (Settings → Secrets and variables → Actions → *Secrets* tab):
 
@@ -923,11 +1201,16 @@ fails the whole run, naming all the missing ones at once, before anything is bui
 | `APPLE_API_ISSUER` | The Issuer ID from that page (a UUID) | Copy it. Read as `APPLE_API_ISSUER` |
 | `WINDOWS_CERTIFICATE_PFX` | The Windows code-signing certificate (OV) | `base64 -w0 cert.pfx`. Read as `WIN_CSC_LINK` |
 | `WINDOWS_CERTIFICATE_PASSWORD` | That certificate's password | Type it. Read as `WIN_CSC_KEY_PASSWORD` |
+| `MEZAN_UPDATE_SIGNING_KEY` | The vendor Ed25519 **private** seed that signs each release artifact | `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`, once, ever. Keep the only other copy offline. Anyone holding it can publish an update every install in the field will accept |
+| `MEZAN_UPDATE_PUBLIC_KEY` | Its public half, **compiled into the app** | Derive it from the seed with `@noble/ed25519`'s `getPublicKeyAsync`, as 64 hex characters. `sign-release.mjs` refuses to sign if it is not the public half of the seed above — a mismatch would produce a flawless release nobody can install |
+| `MEZAN_LICENSE_PUBLIC_KEY` | The vendor key licence files are verified against, likewise compiled in | See §7A; 64 hex characters |
+| `MEZAN_LICENSE_FINGERPRINT_SALT` | Salts the machine fingerprint a licence is bound to | 32 random bytes as hex. Changing it invalidates every licence already issued |
 
 **Variables** (the *Variables* tab — not a secret, and it should be readable in logs):
 
 | Variable | What it is |
 |---|---|
+| `MEZAN_LICENSE_CHECKIN_URL` | The HTTPS endpoint an install confirms itself against. `preflight` rejects anything that is not `https://`, because a plain-HTTP check-in lets anyone on the path answer for the licensing service. Compiled into the build, not read from the environment |
 | `MEZAN_UPDATE_FEED_URL` | The HTTPS base URL electron-updater will poll, e.g. the base URL of the release assets or an S3/self-hosted directory. `preflight` rejects anything that is not `https://`. It is passed to electron-builder as `--config.publish.url`, so the placeholder feed in `electron-builder.yml` is **overridden per release** rather than edited — a developer build can never inherit the production feed |
 
 Nothing above is ever committed. `electron-builder.yml` holds no credential, no team ID and no
@@ -940,12 +1223,25 @@ without it.
 2. `preflight` verifies every secret above exists and that the feed URL is HTTPS. **If anything
    is missing the run stops here and produces no artifact.** That is the intended behaviour, not
    a bug to work around.
-3. The `macos` job packages, signs with the Developer ID certificate, and notarizes.
-4. The `windows` job packages and signs with Authenticode plus an RFC-3161 timestamp.
-5. **Each job then runs `apps/desktop/scripts/check-signed.mjs` against its own artifacts, on
+3. Both jobs bundle the main process with the vendor keys **baked in** (`build:main` reads
+   `MEZAN_UPDATE_PUBLIC_KEY`, `MEZAN_LICENSE_PUBLIC_KEY`, `MEZAN_LICENSE_CHECKIN_URL` and
+   `MEZAN_LICENSE_FINGERPRINT_SALT` as esbuild `define`s). A packaged app reads none of them
+   from the environment, which is why they must be right at THIS step and cannot be fixed later.
+4. The `macos` job packages, signs with the Developer ID certificate, and notarizes.
+5. The `windows` job packages and signs with Authenticode plus an RFC-3161 timestamp.
+6. **Each job then runs `apps/desktop/scripts/check-signed.mjs` against its own artifacts, on
    its own OS.** This is the gate — see §8.4.
-6. Only if both pass does `draft-release` collect the artifacts, print a SHA-256 manifest, and
-   open a **draft** GitHub release. A human reads the manifest and presses publish.
+7. **Each job then runs `apps/desktop/scripts/sign-release.mjs`**, which reads the `latest*.yml`
+   electron-builder just wrote, picks the ONE artifact per architecture the updater actually
+   downloads (the `.zip` on macOS, the `.exe` on Windows — never the DMG), and writes
+   `<version>-<platform>-<arch>.sig`: a detached Ed25519 signature over
+   `version || channel || arch || sha512`. It verifies each signature with the public key before
+   writing it, and refuses outright if the public key is not the signing key's own half. The
+   `.sig` files are uploaded with the installers and must be published **to the same feed
+   directory** as `latest.yml` / `latest-mac.yml`, or every install will refuse every update.
+8. Only if all of that passes does `draft-release` collect the artifacts, print a SHA-256
+   manifest, and open a **draft** GitHub release. A human reads the manifest and presses
+   publish.
 
 Linux is not on this path. AppImage and `.deb` carry no per-application signature that
 electron-updater or the gate could verify, so a green Linux release would be a claim nobody
@@ -1018,3 +1314,94 @@ correctly refuses them, which is the half that can be proven without a purchase.
 - Every build is unsigned, and §7's warning stands.
 - The auto-updater refuses to run, by design, on every platform.
 - `release.yml` fails at `preflight` and emits nothing.
+
+---
+
+## 9. Vendor operations
+
+The half of licensing that is not on the customer's machine. It is four scripts and a JSON
+file, deliberately: a service that could mint licences would be a service worth attacking.
+§7A.3 walks the customer-facing sequence; this is the reference.
+
+**The signing key. Once, ever.**
+
+```
+pnpm licence:keygen --out vendor-signing.key    # writes the private seed, mode 0600
+pnpm licence:keygen                             # or print both halves to stdout
+```
+
+It prints `MEZAN_LICENSE_PUBLIC_KEY=<64 hex>` either way. The **public** half is what goes in
+the release build environment (§7A.1, §8.2); the private seed signs every licence and every
+check-in answer the product will ever accept. Losing it means no shop can be licensed or
+renewed again; leaking it means anyone can mint licences. It belongs in the password manager or
+an HSM — never in this repository, never in CI logs, never on a build machine.
+
+**Issuing a licence.** `pnpm licence:issue` reads the key from `--key <file>` or
+`MEZAN_LICENSE_PRIVATE_KEY` and writes a signed `license.mezan` (mode `0600`):
+
+| Flag | Meaning |
+|---|---|
+| `--licensee` | The shop's registered name, in Arabic. Required |
+| `--plan` | `CORE`, `STANDARD`, `ENTERPRISE` — a label. Required |
+| `--modules` | Comma-separated, and **enforced**: routes outside this list answer 403 in Arabic. Required — a licence that activates nothing sells nothing |
+| `--features` | Feature flags, e.g. `lan.multi_till`. A feature is not a module |
+| `--seats` | Concurrent LAN seats. Default 1 |
+| `--expires` | `YYYY-MM-DD` (taken as end of that day) or an ISO timestamp. Required |
+| `--grace-days` | Writable window past expiry. Default 14 |
+| `--not-before` | Start date; defaults to now. It is signed, and it is the check-in clock's origin — which is why deleting the local guard file cannot buy a fresh week |
+| `--bind` | A machine fingerprint, **repeatable**. Empty means the file runs on every PC it is copied to. Pass it twice during a hardware handover |
+| `--license-id`, `--edition`, `--out` | Override the generated id, the edition label, the output path |
+
+It echoes the id, the plan, the seat count, the validity window, the bound machines and the
+public key the file verifies against — check that last line matches the build the customer has.
+
+**The check-in service.** `apps/licence-server` is two routes on `node:http` and no framework:
+
+```
+MEZAN_LICENSE_PRIVATE_KEY=<hex> \
+MEZAN_REVOCATIONS=/var/lib/mezan/revocations.json \
+PORT=8787 HOST=127.0.0.1 \
+pnpm licence:server
+```
+
+`POST /checkin` takes `{licenseId, fingerprint}` and returns a **signed** answer; `GET /health`
+reports whether it holds a key. It refuses to start without a 64-hex private seed — an unsigned
+answer is worse than no answer, because an unsigned `{"revoked":true}` lets anyone on the path
+switch a paying shop off. It listens on plain HTTP on purpose: **run it behind a TLS
+terminator**, so the certificate is the operator's to manage and never this process's. A
+malformed request is 400 and never a revocation; the install must be able to tell "I could not
+be checked" (degrades over a month) from "you are revoked" (immediate).
+
+**The revocation list is a JSON file a person edits**, at `MEZAN_REVOCATIONS`:
+
+```json
+{
+  "revoked": ["lic-…"],
+  "seen": { "lic-…": ["fingerprint-a", "fingerprint-b"] }
+}
+```
+
+`revoked` is the decision. `seen` is the **evidence** for one, appended by the service as it
+answers: one licence checking in from four fingerprints is the copied-file case the whole
+scheme exists to catch. A missing or unparseable file revokes **nothing** — the failure mode of
+a mistyped path must not be every customer switched off at once — so confirm the path took.
+
+**Signing a release.** `apps/desktop/scripts/sign-release.mjs` runs in CI (§8.3 step 7) and can
+be run by hand against a release directory:
+
+```
+MEZAN_UPDATE_SIGNING_KEY=<hex seed> MEZAN_UPDATE_PUBLIC_KEY=<hex public> \
+node apps/desktop/scripts/sign-release.mjs --release-dir apps/desktop/release --channel latest
+```
+
+It reads the `latest*.yml` electron-builder wrote, picks the one artifact per architecture the
+updater actually downloads (the `.zip` on macOS, the `.exe` on Windows — never the DMG), and
+writes `<version>-<platform>-<arch>.sig`: a detached Ed25519 signature over
+`version || channel || arch || sha512`. **The tuple, not the hash alone** — a signature bound to
+bytes and nothing else lets an old installer we genuinely signed be republished under a higher
+version on a feed somebody else controls, which is a downgrade to a build whose bugs are public.
+It verifies each signature with the public key before writing it and exits non-zero on a missing
+key, an unparseable feed, a public key that is not the seed's own half, or an artifact whose
+architecture it cannot identify. The update-signing key is a **different** key from the licence
+key, and `main/update-verify.ts` is the other half of this contract: change the separator, the
+field order or the artifact-selection rule in one and every update stops verifying in the field.

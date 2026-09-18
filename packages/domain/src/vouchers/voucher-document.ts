@@ -18,6 +18,7 @@
  */
 
 import { Money } from "../money/index.js";
+import { convertToBase } from "../exchange-rates/convert.js";
 import type { DocumentTypeDefinition, FrameworkDocument } from "../documents/document.js";
 import { buildEffects } from "../documents/effects.js";
 import type { DocumentGlPosting } from "../documents/hooks.js";
@@ -40,8 +41,18 @@ import {
 export interface VoucherLine {
   readonly voucherType: VoucherType;
   readonly direction: VoucherDirection;
+  /** The amount as the voucher STATES it, in {@link currency} — not necessarily base. */
   readonly amount: Money;
   readonly currency: string;
+  /**
+   * Base units per one unit of {@link currency}, resolved from the approved
+   * rate table at confirm. Null for a base-currency voucher.
+   *
+   * Without it a USD 1,000 receipt posted 1,000 EGP and settled 1,000 of a
+   * 49,350 EGP receivable (B-4), and the untagged AR line left the invoice in
+   * the FX revaluation's open position forever (B-5).
+   */
+  readonly fxRate?: string | null;
   readonly branchId: string;
   readonly paymentMethod: VoucherPaymentMethod;
   /** The treasury account the money moves in/out of (source treasury for a transfer). */
@@ -146,8 +157,30 @@ function describeEffectLines(line: VoucherLine): [string, string] {
  * caller has already resolved every GL account id onto the line; here we only
  * pick the sides.
  */
+/**
+ * The voucher's amount in BASE currency — what the GL, the treasury balance
+ * and the AR/AP sub-ledger all hold. `amount` is the figure the document
+ * states, in its own currency.
+ */
+export function voucherBaseAmount(line: VoucherLine): Money {
+  return line.fxRate ? convertToBase(line.amount, line.fxRate) : line.amount;
+}
+
+/** The withheld slice, in base currency. */
+export function voucherBaseWithholding(line: VoucherLine): Money {
+  const withheld = line.withholdingAmount ?? Money.zero();
+  return line.fxRate ? convertToBase(withheld, line.fxRate) : withheld;
+}
+
 function buildVoucherLines(line: VoucherLine): DocumentGlPosting["lines"] {
-  const { amount, treasuryGlAccountId } = line;
+  const { treasuryGlAccountId } = line;
+  // BASE, always: GL 1105/2100 and every treasury account are base-currency,
+  // so a foreign voucher converts at the rate stamped on it at confirm (B-4).
+  const amount = voucherBaseAmount(line);
+  // The counterparty leg carries the currency and the rate it was booked at,
+  // or FX revaluation can never see that this settlement closed the position
+  // and books a phantom gain every month-end (B-5).
+  const fx = line.fxRate ? { currency: line.currency, fxRate: line.fxRate } : {};
   const zero = Money.zero();
   // Only the counterparty side carries the cost centre: the treasury leg is a
   // cash movement, and tagging both would double the spend in the P&L.
@@ -169,30 +202,29 @@ function buildVoucherLines(line: VoucherLine): DocumentGlPosting["lines"] {
   if (line.direction === "receipt") {
     return [
       { accountId: treasuryGlAccountId, debit: amount, credit: zero, memo: null, projectId },
-      { accountId: counter, debit: zero, credit: amount, memo: null, costCenterId: cc, projectId, costCategory },
+      { accountId: counter, debit: zero, credit: amount, memo: null, costCenterId: cc, projectId, costCategory, ...fx },
     ];
   }
   // payment
-  const withheld = line.withholdingAmount ?? zero;
+  const withheld = voucherBaseWithholding(line);
   if (withheld.scaled > 0n) {
     const whtAccount = line.withholdingGlAccountId;
     if (!whtAccount) throw new Error("a withholding voucher needs a withholding-tax GL account");
     return [
-      { accountId: counter, debit: amount, credit: zero, memo: null, costCenterId: cc, projectId, costCategory },
+      { accountId: counter, debit: amount, credit: zero, memo: null, costCenterId: cc, projectId, costCategory, ...fx },
       { accountId: treasuryGlAccountId, debit: zero, credit: Money.fromScaled(amount.scaled - withheld.scaled), memo: null, projectId },
       { accountId: whtAccount, debit: zero, credit: withheld, memo: null, projectId },
     ];
   }
   return [
-    { accountId: counter, debit: amount, credit: zero, memo: null, costCenterId: cc, projectId, costCategory },
+    { accountId: counter, debit: amount, credit: zero, memo: null, costCenterId: cc, projectId, costCategory, ...fx },
     { accountId: treasuryGlAccountId, debit: zero, credit: amount, memo: null, projectId },
   ];
 }
 
-/** What actually leaves the treasury: the settling amount less any tax withheld. */
+/** What actually leaves the treasury, in BASE currency: the settling amount less any tax withheld. */
 export function voucherNetPaid(line: VoucherLine): Money {
-  const withheld = line.withholdingAmount?.scaled ?? 0n;
-  return Money.fromScaled(line.amount.scaled - withheld);
+  return Money.fromScaled(voucherBaseAmount(line).scaled - voucherBaseWithholding(line).scaled);
 }
 
 /** The treasury-voucher document type definition. Plugs into {@link DocumentService}. */

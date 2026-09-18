@@ -2,6 +2,7 @@ import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
 import {
   DEFAULT_ETA_CONFIG,
+  ETA_DEFAULT_ENDPOINTS,
   type EtaCompanyAddress,
   type EtaConfig,
   type EtaConfigRepository,
@@ -16,6 +17,7 @@ import {
   type EtaBranchCodeRepository,
   type EtaUnitMapping,
   type EtaUnitMappingRepository,
+  type EtaTransmitLogEntry,
 } from "@mezan/domain";
 
 /**
@@ -37,6 +39,12 @@ CREATE TABLE IF NOT EXISTS eta_config (
   signing_method           TEXT NOT NULL,
   client_id                TEXT,
   client_secret_enc        TEXT,
+  preproduction_identity_url TEXT,
+  preproduction_api_url      TEXT,
+  production_identity_url    TEXT,
+  production_api_url         TEXT,
+  signing_command            TEXT,
+  signing_command_args       TEXT,
   receipt_reporting_window_hours INTEGER
 );
 CREATE TABLE IF NOT EXISTS eta_submission (
@@ -50,7 +58,10 @@ CREATE TABLE IF NOT EXISTS eta_submission (
   exclusion_reason TEXT,
   created_at       TEXT NOT NULL,
   updated_at       TEXT NOT NULL,
-  submitted_at     TEXT
+  submitted_at     TEXT,
+  gateway_submission_id TEXT,
+  signature        TEXT,
+  transmit_log     TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_eta_submission_status ON eta_submission(status);
 CREATE TABLE IF NOT EXISTS eta_branch_code (
@@ -68,6 +79,7 @@ CREATE TABLE IF NOT EXISTS eta_unit_mapping (
 
 const SINGLETON = "singleton";
 
+/** Columns added after the first release; existing files get them here rather than on a rebuild. */
 /**
  * Placeholder secret-at-rest transform. A real deployment swaps this for
  * AES-256 (the catalog's "يحفظ السر مشفراً"); base64 here keeps the secret out
@@ -76,6 +88,10 @@ const SINGLETON = "singleton";
  */
 function seal(secret: string): string {
   return Buffer.from(secret, "utf8").toString("base64");
+}
+
+function unseal(sealed: string): string {
+  return Buffer.from(sealed, "base64").toString("utf8");
 }
 
 interface ConfigRow {
@@ -89,6 +105,12 @@ interface ConfigRow {
   signing_method: string;
   client_id: string | null;
   client_secret_enc: string | null;
+  preproduction_identity_url: string | null;
+  preproduction_api_url: string | null;
+  production_identity_url: string | null;
+  production_api_url: string | null;
+  signing_command: string | null;
+  signing_command_args: string | null;
   receipt_reporting_window_hours: number | null;
 }
 
@@ -96,6 +118,7 @@ class SqliteEtaConfigRepository implements EtaConfigRepository {
   private readonly read: Database.Statement;
   private readonly upsert: Database.Statement;
   private readonly setSecret: Database.Statement;
+  private readonly readSecret: Database.Statement;
 
   constructor(sqlite: Database.Database) {
     this.read = sqlite.prepare(`SELECT * FROM eta_config WHERE id = ?`);
@@ -103,11 +126,13 @@ class SqliteEtaConfigRepository implements EtaConfigRepository {
       INSERT INTO eta_config
         (id, environment, tax_registration_number, activity_code, address, buyer_data_threshold,
          document_version, auto_submit_on_confirm, signing_method, client_id,
-         receipt_reporting_window_hours)
+         preproduction_identity_url, preproduction_api_url, production_identity_url, production_api_url,
+         signing_command, signing_command_args, receipt_reporting_window_hours)
       VALUES
         (@id, @environment, @tax_registration_number, @activity_code, @address, @buyer_data_threshold,
          @document_version, @auto_submit_on_confirm, @signing_method, @client_id,
-         @receipt_reporting_window_hours)
+         @preproduction_identity_url, @preproduction_api_url, @production_identity_url, @production_api_url,
+         @signing_command, @signing_command_args, @receipt_reporting_window_hours)
       ON CONFLICT(id) DO UPDATE SET
         environment = excluded.environment,
         tax_registration_number = excluded.tax_registration_number,
@@ -118,9 +143,16 @@ class SqliteEtaConfigRepository implements EtaConfigRepository {
         auto_submit_on_confirm = excluded.auto_submit_on_confirm,
         signing_method = excluded.signing_method,
         client_id = excluded.client_id,
+        preproduction_identity_url = excluded.preproduction_identity_url,
+        preproduction_api_url = excluded.preproduction_api_url,
+        production_identity_url = excluded.production_identity_url,
+        production_api_url = excluded.production_api_url,
+        signing_command = excluded.signing_command,
+        signing_command_args = excluded.signing_command_args,
         receipt_reporting_window_hours = excluded.receipt_reporting_window_hours
     `);
     this.setSecret = sqlite.prepare(`UPDATE eta_config SET client_secret_enc = ? WHERE id = ?`);
+    this.readSecret = sqlite.prepare(`SELECT client_secret_enc FROM eta_config WHERE id = ?`);
   }
 
   async get(): Promise<EtaConfig> {
@@ -138,6 +170,12 @@ class SqliteEtaConfigRepository implements EtaConfigRepository {
       signingMethod: row.signing_method as EtaSigningMethod,
       clientId: row.client_id,
       hasClientSecret: row.client_secret_enc != null,
+      preproductionIdentityUrl: row.preproduction_identity_url ?? ETA_DEFAULT_ENDPOINTS.preproductionIdentityUrl,
+      preproductionApiUrl: row.preproduction_api_url ?? ETA_DEFAULT_ENDPOINTS.preproductionApiUrl,
+      productionIdentityUrl: row.production_identity_url ?? ETA_DEFAULT_ENDPOINTS.productionIdentityUrl,
+      productionApiUrl: row.production_api_url ?? ETA_DEFAULT_ENDPOINTS.productionApiUrl,
+      signingCommand: row.signing_command,
+      signingCommandArgs: row.signing_command_args ? (JSON.parse(row.signing_command_args) as string[]) : [],
       receiptReportingWindowHours:
         row.receipt_reporting_window_hours ?? DEFAULT_ETA_CONFIG.receiptReportingWindowHours,
     };
@@ -155,8 +193,25 @@ class SqliteEtaConfigRepository implements EtaConfigRepository {
       auto_submit_on_confirm: config.autoSubmitOnConfirm ? 1 : 0,
       signing_method: config.signingMethod,
       client_id: config.clientId,
+      preproduction_identity_url: config.preproductionIdentityUrl,
+      preproduction_api_url: config.preproductionApiUrl,
+      production_identity_url: config.productionIdentityUrl,
+      production_api_url: config.productionApiUrl,
+      signing_command: config.signingCommand,
+      signing_command_args: JSON.stringify(config.signingCommandArgs),
       receipt_reporting_window_hours: config.receiptReportingWindowHours,
     });
+  }
+
+  /**
+   * SECURITY: the only reader of the sealed secret. It exists solely for the
+   * OAuth token request; it is never surfaced through {@link EtaConfig} or any
+   * API response.
+   */
+  async getClientSecret(): Promise<string | null> {
+    const row = this.readSecret.get(SINGLETON) as { client_secret_enc: string | null } | undefined;
+    if (!row?.client_secret_enc) return null;
+    return unseal(row.client_secret_enc);
   }
 
   /** Store a new client secret (sealed). Ensures a config row exists first. */
@@ -179,6 +234,9 @@ interface SubmissionRow {
   created_at: string;
   updated_at: string;
   submitted_at: string | null;
+  gateway_submission_id: string | null;
+  signature: string | null;
+  transmit_log: string | null;
 }
 
 function toSubmission(row: SubmissionRow): EtaSubmission {
@@ -194,6 +252,9 @@ function toSubmission(row: SubmissionRow): EtaSubmission {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     submittedAt: row.submitted_at,
+    gatewaySubmissionId: row.gateway_submission_id,
+    signature: row.signature,
+    transmitLog: row.transmit_log ? (JSON.parse(row.transmit_log) as EtaTransmitLogEntry[]) : [],
   };
 }
 
@@ -207,16 +268,21 @@ class SqliteEtaSubmissionRepository implements EtaSubmissionRepository {
   constructor(sqlite: Database.Database) {
     this.upsert = sqlite.prepare(`
       INSERT INTO eta_submission
-        (id, internal_id, document_type, status, eta_uuid, payload, errors, exclusion_reason, created_at, updated_at, submitted_at)
+        (id, internal_id, document_type, status, eta_uuid, payload, errors, exclusion_reason, created_at, updated_at, submitted_at,
+         gateway_submission_id, signature, transmit_log)
       VALUES
-        (@id, @internal_id, @document_type, @status, @eta_uuid, @payload, @errors, @exclusion_reason, @created_at, @updated_at, @submitted_at)
+        (@id, @internal_id, @document_type, @status, @eta_uuid, @payload, @errors, @exclusion_reason, @created_at, @updated_at, @submitted_at,
+         @gateway_submission_id, @signature, @transmit_log)
       ON CONFLICT(id) DO UPDATE SET
         status = excluded.status,
         eta_uuid = excluded.eta_uuid,
         errors = excluded.errors,
         exclusion_reason = excluded.exclusion_reason,
         updated_at = excluded.updated_at,
-        submitted_at = excluded.submitted_at
+        submitted_at = excluded.submitted_at,
+        gateway_submission_id = excluded.gateway_submission_id,
+        signature = excluded.signature,
+        transmit_log = excluded.transmit_log
     `);
     this.selectById = sqlite.prepare(`SELECT * FROM eta_submission WHERE id = ?`);
     this.selectByInternal = sqlite.prepare(`SELECT * FROM eta_submission WHERE internal_id = ?`);
@@ -260,6 +326,9 @@ class SqliteEtaSubmissionRepository implements EtaSubmissionRepository {
       created_at: s.createdAt,
       updated_at: s.updatedAt,
       submitted_at: s.submittedAt,
+      gateway_submission_id: s.gatewaySubmissionId,
+      signature: s.signature,
+      transmit_log: JSON.stringify(s.transmitLog),
     });
   }
 }
@@ -335,6 +404,8 @@ class SqliteEtaUnitMappingRepository implements EtaUnitMappingRepository {
 /** Config repo with the extra secret-write the API uses (never on the domain port). */
 export interface EtaConfigStore extends EtaConfigRepository {
   setClientSecret(secret: string): Promise<void>;
+  /** SECURITY: for the OAuth token request only. Never route this into a response. */
+  getClientSecret(): Promise<string | null>;
 }
 
 export interface SqliteEtaStoreHandle {
@@ -352,8 +423,22 @@ function addColumnIfMissing(sqlite: Database.Database, table: string, column: st
   if (!existing.has(column)) sqlite.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
 }
 
+/**
+ * An existing books file already has these tables, and CREATE TABLE IF NOT
+ * EXISTS no-ops on it, so every column added after they shipped is widened
+ * in place here. Dropping one silently loses the setting it carries.
+ */
 function migrateEtaTables(sqlite: Database.Database): void {
   addColumnIfMissing(sqlite, "eta_config", "receipt_reporting_window_hours", "receipt_reporting_window_hours INTEGER");
+  addColumnIfMissing(sqlite, "eta_config", "preproduction_identity_url", "preproduction_identity_url TEXT");
+  addColumnIfMissing(sqlite, "eta_config", "preproduction_api_url", "preproduction_api_url TEXT");
+  addColumnIfMissing(sqlite, "eta_config", "production_identity_url", "production_identity_url TEXT");
+  addColumnIfMissing(sqlite, "eta_config", "production_api_url", "production_api_url TEXT");
+  addColumnIfMissing(sqlite, "eta_config", "signing_command", "signing_command TEXT");
+  addColumnIfMissing(sqlite, "eta_config", "signing_command_args", "signing_command_args TEXT");
+  addColumnIfMissing(sqlite, "eta_submission", "gateway_submission_id", "gateway_submission_id TEXT");
+  addColumnIfMissing(sqlite, "eta_submission", "signature", "signature TEXT");
+  addColumnIfMissing(sqlite, "eta_submission", "transmit_log", "transmit_log TEXT");
   addColumnIfMissing(sqlite, "eta_branch_code", "device_serial_number", "device_serial_number TEXT");
   addColumnIfMissing(sqlite, "eta_branch_code", "pos_client_id", "pos_client_id TEXT");
   addColumnIfMissing(sqlite, "eta_branch_code", "pos_client_secret_enc", "pos_client_secret_enc TEXT");

@@ -53,6 +53,12 @@ export { createDepreciationRun } from "./create-depreciation-run.js";
 export type { PostDepreciationRunDeps } from "./post-depreciation-run.js";
 export { postDepreciationRun } from "./post-depreciation-run.js";
 
+export type {
+  ReverseDepreciationRunDeps,
+  ReverseDepreciationRunOptions,
+} from "./reverse-depreciation-run.js";
+export { reverseDepreciationRun } from "./reverse-depreciation-run.js";
+
 export {
   DuplicateAssetCategoryCodeError,
   InvalidAssetCategoryError,
@@ -62,6 +68,7 @@ export {
   AssetNotFoundError,
   DepreciationRunNotFoundError,
   DepreciationRunNotDraftError,
+  DepreciationRunNotPostedError,
   DuplicateDepreciationPeriodError,
   NoDepreciableAssetsError,
 } from "./errors.js";

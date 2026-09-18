@@ -1377,7 +1377,9 @@ function InvoiceDetailView({
               onClick={async () => {
                 setDetailConfirmError(null);
                 try {
-                  await detailConfirm.mutateAsync(invoice.id);
+                  // N-9: the version this screen was served. A second till that
+                  // already moved this invoice gets the 409 refusal here.
+                  await detailConfirm.mutateAsync({ id: invoice.id, expectedVersion: invoice.version });
                 } catch (err) {
                   setDetailConfirmError(errorMessage(err, t("common.failed")));
                 }
@@ -1812,12 +1814,14 @@ export function SalesInvoicesScreen() {
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
   const [rowError, setRowError] = useState<string | null>(null);
 
-  async function confirmRow(id: string): Promise<void> {
+  async function confirmRow(id: string, expectedVersion?: number): Promise<void> {
     if (confirmingId) return;
     setRowError(null);
     setConfirmingId(id);
     try {
-      await listConfirm.mutateAsync(id);
+      // N-9: the version the LIST row was served. Without it a second till that
+      // already moved this invoice wins silently.
+      await listConfirm.mutateAsync({ id, expectedVersion });
     } catch (err) {
       setRowError(errorMessage(err, t("common.failed")));
     } finally {
@@ -1958,7 +1962,7 @@ export function SalesInvoicesScreen() {
           ) : null}
           {query.isError ? (
             <Card className="mb-[18px] p-[18px_20px]">
-              <p className="text-[13px] font-semibold text-danger-ink">{t("salesInvoices.loadFailed")}</p>
+              <p className="text-[13px] font-semibold text-danger-ink">{query.error?.message ?? t("salesInvoices.loadFailed")}</p>
               <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
                 {t("common.retry")}
               </Button>
@@ -2074,7 +2078,7 @@ export function SalesInvoicesScreen() {
                         key: "confirm",
                         label: t("salesInvoices.confirm"),
                         disabled: confirmingId === inv.id,
-                        onSelect: () => void confirmRow(inv.id),
+                        onSelect: () => void confirmRow(inv.id, inv.version),
                       },
                     ]
                   : []),

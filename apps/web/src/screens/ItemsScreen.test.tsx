@@ -262,7 +262,21 @@ function renderScreen(
       if (brandId) rows = rows.filter((i) => i.brandId === brandId);
       if (seasonId) rows = rows.filter((i) => i.seasonId === seasonId);
       if (unitCode) rows = rows.filter((i) => i.baseUnitCode === unitCode);
-      return { body: rows };
+      // guards Q-9: the list is a SERVER page in the requested order now, so
+      // the stub has to honour the same contract the route does — a stub that
+      // returned everything would let a client-side slice pass unnoticed.
+      const dir = params.get("sortDir") === "desc" ? -1 : 1;
+      const sortKey = params.get("sort") ?? "code";
+      const price = (v: string | null | undefined) => Number(v ?? 0);
+      rows = [...rows].sort((a, b) => {
+        if (sortKey === "salePrice") return (price(a.salePrice) - price(b.salePrice)) * dir;
+        if (sortKey === "costPrice") return (price(a.costPrice) - price(b.costPrice)) * dir;
+        if (sortKey === "nameAr") return a.nameAr.localeCompare(b.nameAr) * dir;
+        return a.code.localeCompare(b.code) * dir;
+      });
+      const pageSize = Number(params.get("pageSize") ?? 25);
+      const page = Number(params.get("page") ?? 1);
+      return { body: rows.slice((page - 1) * pageSize, page * pageSize) };
     },
     "GET /items/counts": () => {
       const active = current.filter((i) => i.status === "active").length;
@@ -353,6 +367,20 @@ describe("ItemsScreen", () => {
 
     await user.click(screen.getByRole("button", { name: "رجوع للقائمة" }));
     expect(screen.getByRole("heading", { name: "الأصناف" })).toBeInTheDocument();
+  });
+
+  // guards Q-9: `items` is one server page, so the offered code used to be
+  // ITM-000026 on every full page — a code the catalogue already held.
+  it("offers a code counted from the whole catalogue, not from the page on screen", async () => {
+    const user = userEvent.setup();
+    const catalogue = Array.from({ length: 30 }, (_, i) =>
+      item({ id: `itm-${i + 1}`, code: `ITM-${String(i + 1).padStart(6, "0")}`, nameAr: `صنف رقم ${i + 1}` }),
+    );
+    renderScreen(catalogue);
+    await screen.findByText("صنف رقم 1");
+    await user.click(screen.getByRole("button", { name: "إضافة صنف" }));
+
+    expect(screen.getByLabelText("كود الصنف")).toHaveValue("ITM-000031");
   });
 
   it("hides the inventory-policy section once the item type is switched to service", async () => {
@@ -513,7 +541,7 @@ describe("ItemsScreen", () => {
     await waitFor(() => expect(nameOrder()[0]).toContain("منتج أ"));
   });
 
-  it("paginates client-side: page 2 shows the remaining rows and page 1's rows are gone", async () => {
+  it("paginates SERVER-side (guards Q-9): page 2 shows the remaining rows and page 1's rows are gone", async () => {
     const user = userEvent.setup();
     const many = Array.from({ length: 7 }, (_, i) =>
       item({ id: `itm-${i + 1}`, code: `ITM-${String(i + 1).padStart(6, "0")}`, nameAr: `صنف رقم ${i + 1}` }),

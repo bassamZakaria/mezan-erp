@@ -1,7 +1,7 @@
 import { Suspense, useCallback, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Outlet, useLocation, useNavigate } from "react-router";
-import { AppShell, SkeletonTable, navGroupItems, type NavGroup, type NavItem } from "@mezan/ui";
+import { AppShell, SkeletonTable, filterNavGroups, navGroupItems, type NavGroup, type NavItem } from "@mezan/ui";
 import { ALL_SCOPE } from "@mezan/domain";
 import type { BranchDTO, RoleDTO, ScopeSelectionDTO } from "@mezan/contracts";
 import { TenantPreferences } from "./settings/TenantPreferences";
@@ -254,12 +254,26 @@ export function AppLayout() {
         }
         return { ...item, tag };
       });
-    return buildNavGroups(t).map((group) => ({
+    /**
+     * P-3: the rail draws only what this seat may open. Every destination now
+     * declares the permission its own routes gate on and the module its
+     * licence prefix belongs to (`NAV_ITEM_ACCESS` in nav-config.tsx); a
+     * company admin holds `"*"` and keeps all of them.
+     *
+     * Hiding, never enforcement — the server resolves permissions from its own
+     * copy of the grant on every request. A row removed here is a row that
+     * would have opened a screen whose every call answers 403.
+     */
+    const visible = filterNavGroups(buildNavGroups(t), {
+      permissions: session?.permissions ?? EMPTY,
+      activeModules: entitlements?.activeModules ?? null,
+    });
+    return visible.map((group) => ({
       ...group,
       items: wire(group.items),
       sections: group.sections?.map((section) => ({ ...section, items: wire(section.items) })),
     }));
-  }, [navigate, pendingApprovalCount, unreadNotificationCount, t]);
+  }, [entitlements, navigate, pendingApprovalCount, session?.permissions, unreadNotificationCount, t]);
 
   /**
    * The rail's own view of `groups`, with any screen whose module the plan
@@ -364,14 +378,23 @@ export function AppLayout() {
     // Every navigable screen gets a go-to entry (R1.5). Built from the nav
     // specs rather than listed, so a screen added to the sidebar is reachable
     // here without anyone remembering to add it in two places.
+    /**
+     * ⌘K reaches only what the rail reaches (P-3). `groups` is already
+     * filtered by the seat's permissions and the licence's modules, so
+     * deriving the visible key set from it keeps the palette and the column
+     * from disagreeing about what this user has — a hidden screen that is
+     * still one keystroke away is not hidden.
+     */
+    const visibleKeys = new Set(groups.flatMap((group) => navGroupItems(group)).map((item) => item.key));
     const goTo = buildGoToCommandItems(t)
       .map((item) => {
         const key = item.id.slice("goto-".length);
+        if (!visibleKeys.has(key)) return null;
         return isRoutable(key) ? { ...item, onSelect: () => navigate(key as ScreenKey) } : null;
       })
       .filter((item): item is CommandItem => item !== null);
     return [...quickActions, ...goTo];
-  }, [navigate, t]);
+  }, [groups, navigate, t]);
 
   // The user chip in the column's foot IS the link to الملف الشخصي, and signing
   // out is its own control beside it — the two-item dropdown they used to share

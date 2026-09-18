@@ -2,7 +2,7 @@ import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import type { AgingCustomersRow, AgingSuppliersRow } from "@mezan/domain";
 import type { StockBalanceRowDTO, VoucherAllocationDTO, StockBalanceWarehouseRowDTO } from "@mezan/contracts";
 import { useApi } from "./ApiContext";
-import { ApiError } from "./hooks";
+import { ApiError, readError } from "./hooks";
 import { useReport, type ReportResult } from "./reports-hooks";
 import { useAppTranslation } from "../i18n";
 
@@ -125,7 +125,7 @@ export function useVoucherAllocations(voucherIds: readonly string[]): UseQueryRe
       const perVoucher = await Promise.all(
         ids.map(async (voucherId) => {
           const res = await request(`/vouchers/${encodeURIComponent(voucherId)}/allocations`);
-          if (!res.ok) throw new ApiError(res.status, t("partnerApi.theVoucherAllocationsCouldNot"));
+          if (!res.ok) throw new ApiError(res.status, await readError(res, t("partnerApi.theVoucherAllocationsCouldNot"), t));
           const body = await res.json<{ allocations: VoucherAllocationDTO[] }>();
           return body.allocations;
         }),
@@ -161,7 +161,7 @@ export function useBranchStockBalance(warehouseIds: readonly string[]): UseQuery
       const perWarehouse = await Promise.all(
         ids.map(async (warehouseId) => {
           const res = await request(`/inventory/stock-balance?warehouseId=${encodeURIComponent(warehouseId)}`);
-          if (!res.ok) throw new ApiError(res.status, t("api.theStockBalanceCouldNot"));
+          if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theStockBalanceCouldNot"), t));
           const body = await res.json<{ rows: StockBalanceRowDTO[] }>();
           return body.rows;
         }),

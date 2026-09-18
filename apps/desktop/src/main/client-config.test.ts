@@ -2,7 +2,12 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { clientConfigPath, readClientConfig, writeClientConfig } from "./client-config.js";
+import {
+  clientConfigPath,
+  readClientConfig,
+  updateClientHostUrl,
+  writeClientConfig,
+} from "./client-config.js";
 
 const dirs: string[] = [];
 
@@ -96,5 +101,52 @@ describe("which machine this install is", () => {
     );
 
     expect((await readClientConfig(dbPath)).role).toBe("unusable");
+  });
+});
+
+/**
+ * guards N-2: a router reboot used to take every till in the shop out, and the
+ * recovery was a consultant editing `client.json` on each of them by hand.
+ */
+describe("re-pointing a paired till at a moved host", () => {
+  it("changes the address while keeping the pin and the device id", async () => {
+    const dbPath = await scratchDb();
+    const original = await writeClientConfig(dbPath, {
+      hostUrl: "https://192.168.1.7:4173",
+      fingerprintSha256: FINGERPRINT,
+      deviceLabel: "كاشير ١",
+    });
+
+    const moved = await updateClientHostUrl(dbPath, "https://192.168.1.9:4173");
+
+    expect(moved.hostUrl).toBe("https://192.168.1.9:4173");
+    // THE SECURITY PROPERTY: the certificate this till will accept did not
+    // change, so "the address moved" can never walk it onto an impostor.
+    expect(moved.fingerprintSha256).toBe(original.fingerprintSha256);
+    // And the seat is the same seat: a new device id would burn a second one
+    // out of a two-seat licence every time the router rebooted.
+    expect(moved.deviceId).toBe(original.deviceId);
+    expect(moved.deviceLabel).toBe("كاشير ١");
+
+    const reread = await readClientConfig(dbPath);
+    expect(reread).toEqual({ role: "client", config: moved });
+  });
+
+  it("refuses on a machine that was never paired, rather than inventing a pairing", async () => {
+    const dbPath = await scratchDb();
+    await expect(updateClientHostUrl(dbPath, "https://192.168.1.9:4173")).rejects.toThrow();
+    expect((await readClientConfig(dbPath)).role).toBe("host");
+  });
+
+  it("refuses a plain-HTTP address, exactly as the original pairing does", async () => {
+    const dbPath = await scratchDb();
+    await writeClientConfig(dbPath, {
+      hostUrl: "https://192.168.1.7:4173",
+      fingerprintSha256: FINGERPRINT,
+    });
+
+    await expect(updateClientHostUrl(dbPath, "http://192.168.1.9:4173")).rejects.toThrow();
+    const reread = await readClientConfig(dbPath);
+    expect(reread.role === "client" && reread.config.hostUrl).toBe("https://192.168.1.7:4173");
   });
 });

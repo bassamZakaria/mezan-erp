@@ -3,7 +3,15 @@ export {
   type SqliteUnitOfWorkHandle,
 } from "./unit-of-work.js";
 export {
+  CURRENT_SCHEMA_VERSION,
+  SchemaTooNewError,
+  readSchemaVersion,
+  stampSchemaVersion,
+} from "./schema-sync.js";
+export {
   openSqliteConnection,
+  withSqliteRead,
+  withSqliteTransaction,
   type SqliteConnectionInput,
   type OpenedSqliteConnection,
   type SqliteDriver,
@@ -28,7 +36,11 @@ export {
 } from "./sequence-config-store.js";
 export {
   createSqliteAuditSink,
+  deriveAuditChainKey,
   type SqliteAuditSinkHandle,
+  type SqliteAuditSinkOptions,
+  type AuditChainVerification,
+  type AuditChainVerifyPort,
 } from "./audit-sink.js";
 export {
   createSqliteAccountRepository,
@@ -338,3 +350,11 @@ export {
   readSimplifiedRegime,
   type SqliteSimplifiedRegimeStoreHandle,
 } from "./simplified-regime-store.js";
+
+export {
+  addVersionColumns,
+  createDocumentVersionStore,
+  StaleDocumentError,
+  type DocumentVersionRow,
+  type DocumentVersionStore,
+} from "./document-version.js";

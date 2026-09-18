@@ -3,6 +3,7 @@ import { createSupplier, updateSupplier, InvalidSupplierError, Money, type Audit
 import { createSupplierSchema, updateSupplierSchema } from "@mezan/contracts";
 import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
 import { recordAdminEvent } from "./admin-audit.js";
+import type { PartyOpeningBalancePoster } from "./customers-routes.js";
 
 /**
  * What is still owed to each supplier on their LIVE documents — confirmed
@@ -68,6 +69,8 @@ export function createSuppliersRouter(
    * was logged and this one was not.
    */
   audit?: AuditSink,
+  /** Posts the supplier's رصيد افتتاحي into the ledger (Dr 3210 / Cr 2100) — see customers-routes.ts (B-2). */
+  openingBalances?: PartyOpeningBalancePoster,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
@@ -163,7 +166,10 @@ export function createSuppliersRouter(
     let payable = Money.zero();
     for (const supplier of suppliers) {
       if (supplier.active) active += 1;
-      payable = payable.add(supplier.openingBalance).add(outstanding.get(supplier.id) ?? Money.zero());
+      // NOT plus the opening balance (B-2): it is posted to GL 2100 like any
+      // other payable, so `outstandingBySupplier` already carries it. Adding
+      // the master-data field again counted the same debt twice.
+      payable = payable.add(outstanding.get(supplier.id) ?? Money.zero());
     }
     return c.json({
       count: suppliers.length,
@@ -196,6 +202,7 @@ export function createSuppliersRouter(
         openingBalance: openingBalance !== undefined ? Money.fromMajor(openingBalance) : undefined,
       });
       await repo.save(supplier);
+      await openingBalances?.post(supplier);
       await auditSupplier(c, supplier, "CREATE");
       return c.json(serialize(supplier), 201);
     } catch (err) {
@@ -230,6 +237,9 @@ export function createSuppliersRouter(
       };
       const next = updateSupplier(current, patch);
       await repo.save(next);
+      if (next.openingBalance.scaled !== current.openingBalance.scaled) {
+        await openingBalances?.post(next);
+      }
       await auditSupplier(c, next, "UPDATE", current);
       return c.json(serialize(next));
     } catch (err) {

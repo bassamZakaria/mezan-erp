@@ -118,7 +118,12 @@ export function createSalesInvoiceCustomerExposureHook(
 ): SalesInvoiceCustomerExposureHook {
   return {
     async currentBalance(customerId, excludeInvoiceId) {
-      const invoices = await repo.list({ customerId });
+      // The two unsettled statuses reach the repository (Q-10): every other
+      // status contributes nothing, so re-reading the customer's whole invoice
+      // history on every confirm was O(history) to answer a question about the
+      // open receivable. The JS guard stays for a repository that cannot
+      // express the set.
+      const invoices = await repo.list({ customerId, statusIn: ["confirmed", "partially_paid"] });
       let total = 0n;
       for (const inv of invoices) {
         if (inv.id === excludeInvoiceId) continue;

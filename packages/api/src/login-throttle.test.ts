@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createLoginThrottle } from "./login-throttle.js";
+import { createLoginThrottle, throttleKey } from "./login-throttle.js";
 
 /**
  * S6. A Mezan credential is a six-digit PIN — one million combinations. With
@@ -172,5 +172,87 @@ describe("createLoginThrottle — the sequence has to cost something", () => {
 
     expect(throttle.retryAfter("owner@shop.test")).toBe(60);
     expect(throttle.retryAfter("Owner@Shop.test")).toBe(0);
+  });
+  /**
+   * guards N-12: the per-source ladder, alone, SELLS attempts.
+   *
+   * Counting per (account, source) is what stops one phone on the wifi holding
+   * the owner's account locked all day — and on a flat LAN it also means a
+   * fresh five attempts per source address. A laptop can hold a hundred
+   * addresses on that subnet: 1,270 free guesses before anything locks, every
+   * hour, which walks a six-digit PIN in weeks.
+   */
+  it("caps one account across EVERY source address, not just per address", () => {
+    const { throttle } = throttleAt();
+    const account = "owner@shop.test";
+
+    // Four failures each from twenty different addresses: never enough to trip
+    // any single source's own five-attempt ladder.
+    let lastLock = 0;
+    for (let host = 1; host <= 20; host += 1) {
+      const key = throttleKey(account, `192.168.1.${host}`);
+      for (let i = 0; i < 4; i += 1) lastLock = throttle.fail(key);
+    }
+
+    expect(lastLock).toBeGreaterThan(0);
+    // A twenty-first address, which has failed nothing at all, is refused too:
+    // the ceiling belongs to the ACCOUNT.
+    expect(throttle.retryAfter(throttleKey(account, "192.168.1.99"))).toBeGreaterThan(0);
+    // And a different account on the same subnet is untouched.
+    expect(throttle.retryAfter(throttleKey("clerk@shop.test", "192.168.1.99"))).toBe(0);
+  });
+
+  /**
+   * guards N-12: THE HOST'S OWN CONSOLE STAYS OPEN.
+   *
+   * Without this exemption the ceiling becomes an attack of its own — lock the
+   * owner out of the machine standing in their own shop, from the car park.
+   * Physical access already means the SQLite file, so refusing them protects
+   * nothing.
+   */
+  it("never lets a remote flood lock the machine's own console", () => {
+    const { throttle } = throttleAt();
+    const account = "owner@shop.test";
+
+    for (let host = 1; host <= 40; host += 1) {
+      const key = throttleKey(account, `192.168.1.${host}`);
+      for (let i = 0; i < 4; i += 1) throttle.fail(key);
+    }
+
+    expect(throttle.retryAfter(throttleKey(account, "192.168.1.7"))).toBeGreaterThan(0);
+    // `throttleKey(account, null)` is the host's in-process mount.
+    expect(throttle.retryAfter(throttleKey(account, null))).toBe(0);
+  });
+
+  // guards N-12: «فكّ القفل» has to mean "this person can sign in now" — and
+  // that includes clearing the per-account total, or the very next attempt from
+  // any address locks them straight back out.
+  it("clears the account ceiling on an unlock, not just the source streaks", () => {
+    const { throttle } = throttleAt();
+    const account = "owner@shop.test";
+    for (let host = 1; host <= 20; host += 1) {
+      const key = throttleKey(account, `192.168.1.${host}`);
+      for (let i = 0; i < 4; i += 1) throttle.fail(key);
+    }
+    expect(throttle.retryAfter(throttleKey(account, "192.168.1.7"))).toBeGreaterThan(0);
+
+    // What `POST /users/:id/unlock` calls: the bare account.
+    throttle.succeed(account);
+
+    expect(throttle.retryAfter(throttleKey(account, "192.168.1.7"))).toBe(0);
+    expect(throttle.retryAfter(throttleKey(account, "192.168.1.99"))).toBe(0);
+  });
+
+  // The key carries an email, which contains "@" — so the separator between the
+  // account half and the source half cannot be "@" or the account is not
+  // recoverable from the key, and the ceiling above cannot be counted at all.
+  it("keeps the account recoverable from a key even though an account is an email", () => {
+    const { throttle } = throttleAt();
+    for (let i = 0; i < 60; i += 1) throttle.fail(throttleKey("owner@shop.test", "10.0.0.5"));
+
+    // The ceiling landed on "owner@shop.test", not on "owner" or on
+    // "owner@shop.test@10.0.0.5".
+    expect(throttle.retryAfter(throttleKey("owner@shop.test", "10.0.0.9"))).toBeGreaterThan(0);
+    expect(throttle.retryAfter(throttleKey("owner", "10.0.0.9"))).toBe(0);
   });
 });

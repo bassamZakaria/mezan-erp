@@ -221,7 +221,8 @@ describe("AttachmentsTab", () => {
     const downloadButton = screen.getByRole("button", { name: "تنزيل" });
     fireEvent.click(downloadButton);
 
-    expect(await screen.findByText("تعذّر تنزيل الملف")).toBeInTheDocument();
+    // guards §4.5 #13 — the fallback sentence now carries the status as a support code.
+    expect(await screen.findByText(/^تعذّر تنزيل الملف/)).toBeInTheDocument();
     expect(downloadButton).toBeEnabled();
   });
 

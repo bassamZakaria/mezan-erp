@@ -44,7 +44,7 @@ import { branchScopeOf, createPermissionGate, type AuthContextResolver } from ".
  * declare nothing rather than offering a control that would only confuse.
  */
 export interface FinancialReportsRoutesDeps {
-  readonly ledger: Pick<LedgerRepository, "list">;
+  readonly ledger: Pick<LedgerRepository, "list"> & Pick<Partial<LedgerRepository>, "accountBalances">;
   readonly accounts: Pick<AccountRepository, "list">;
   /**
    * The GL accounts the VAT return reads output/input tax off. Required for
@@ -62,6 +62,19 @@ export interface FinancialReportsRoutesDeps {
   readonly cashAccountIds?: readonly string[];
   /** ISO `YYYY-MM-DD` "today" — overridable for tests; defaults to the real date. */
   readonly today?: () => string;
+  /**
+   * Which branch each posted entry belongs to (P-7).
+   *
+   * The general ledger carries NO branch dimension of its own — a journal entry
+   * has no `branchId` — so a branch-limited statement can only be produced by
+   * resolving each entry through the document that posted it. An entry this
+   * cannot attribute is EXCLUDED from a branch-limited statement rather than
+   * counted in it: a company figure presented as a branch figure is worse than
+   * a statement that says it could not be produced.
+   *
+   * Omitted, the statements accept no branch narrowing at all and say so.
+   */
+  readonly branchOfEntry?: (entries: readonly JournalEntry[]) => Promise<ReadonlyMap<string, string | null>>;
 }
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;

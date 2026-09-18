@@ -24,6 +24,8 @@ export type LicenseStateName =
   | "TAMPERED"
   | "NOT_YET_VALID"
   | "FINGERPRINT_MISMATCH"
+  /** The licensing service says this licence was withdrawn. Read-only. */
+  | "REVOKED"
   | "UNLICENSED";
 
 /**
@@ -43,6 +45,30 @@ export interface LicenseStateView {
   readonly graceEndsAt?: string;
   /** Machine-readable reason for a non-writable/unusable result. */
   readonly reason?: string;
+  /**
+   * Arabic, ready to render, when the generic banner copy would be WRONG for
+   * this particular reason — «جدّد الترخيص» for a build that shipped without a
+   * vendor key, or for a valid licence that has merely not been online, sends
+   * the shop to buy something they already own. Absent means the banner's own
+   * copy for `state` is correct.
+   */
+  readonly messageAr?: string;
+  /**
+   * Days since the last successful online check-in, when `reason` is
+   * `CHECKIN_OVERDUE`. The blocking notice counts in days, not in states.
+   */
+  readonly daysSince?: number;
+  /**
+   * True when the shell must put a blocking notice over the window rather than
+   * a banner beside it. The threshold lives in the main process, not in the
+   * renderer, so there is one place that decides how long is too long.
+   */
+  readonly blocking?: boolean;
+  /**
+   * This machine's salted fingerprint hash. The one value support needs to bind
+   * a replacement PC, and the product's only place to read it off a screen.
+   */
+  readonly fingerprint?: string | null;
 }
 
 /** Full read/write — the default whenever no license source is wired (cloud, tests). */
@@ -108,11 +134,14 @@ export function createWriteGate(
         state: license.state,
         reason: license.reason ?? "EXPIRED_PAST_GRACE",
         // Arabic-first: domain refusals surface to the operator in Arabic
-        // (working-agreement.md), never raw English enum text.
+        // (working-agreement.md), never raw English enum text. A state that
+        // carries its own sentence wins — telling a shop whose licence is
+        // valid but merely offline to "renew" sends them to buy what they own.
         message:
+          license.messageAr ??
           "الترخيص غير فعّال حاليًا، والبرنامج في وضع القراءة فقط. كل بياناتك " +
-          "متاحة للعرض والطباعة والتصدير، لكن لا يمكن حفظ أي حركة جديدة حتى " +
-          "تجديد الترخيص.",
+            "متاحة للعرض والطباعة والتصدير، لكن لا يمكن حفظ أي حركة جديدة حتى " +
+            "تجديد الترخيص.",
       },
       403,
     );

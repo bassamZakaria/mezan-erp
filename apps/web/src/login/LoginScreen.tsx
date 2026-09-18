@@ -2,10 +2,13 @@ import { useEffect, useRef, useState, type ChangeEvent, type FormEvent, type Key
 import { useQueryClient } from "@tanstack/react-query";
 import { BrandMark, Button, Copyright, TextInput, cn } from "@mezan/ui";
 import { useLogin, usePlatformResolve, useTenantInfo } from "../data/hooks";
+import { useAppVersion } from "../data/hub-hooks";
 import { clearSessionExpired, clearTenantCode, loadTenantCode, persistTenantCode, sessionExpiredPending } from "../data/session";
 import { useAppTranslation } from "../i18n";
 import { displayName } from "../display-name";
 import { readDeviceUsers, rememberDeviceUser, type DeviceUser } from "./device-users";
+// lan-ux
+import { PairHostLink } from "./PairHostLink";
 
 const PIN_LENGTH = 6;
 const TENANT_CODE_RE = /^[a-z0-9](?:[a-z0-9-]{1,30}[a-z0-9])$/;
@@ -51,6 +54,7 @@ export interface LoginScreenProps {
  */
 export function LoginScreen({ onStartWizard }: LoginScreenProps) {
   const { t, locale } = useAppTranslation();
+  const appVersion = useAppVersion();
   const login = useLogin();
   const queryClient = useQueryClient();
 
@@ -451,7 +455,17 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
           <button type="button" onClick={onStartWizard} className="text-ink-muted hover:underline">
             {t("login.wizard.short")}
           </button>
-          <span className="mz-lat ms-auto">Mezan 2026.8</span>
+          {/* lan-ux: the only way into pairing from the UI. Rendered only on a
+              desktop machine that holds no books, so it can never appear on a
+              shop's live host and offer to turn it into a till. */}
+          <PairHostLink />
+          {/*
+            The build's OWN version, over IPC on desktop. It was the literal
+            `Mezan 2026.8`, which is the first thing support asks for and the one
+            place a user could read it — so «ما هي نسختك؟» had a confident wrong
+            answer that no upgrade ever changed.
+          */}
+          <span className="mz-lat ms-auto">Mezan {appVersion}</span>
         </div>
 
         <div className="mt-[10px] border-t border-border pt-[10px] text-center">

@@ -25,6 +25,7 @@ export class InMemorySalesInvoiceRepository implements SalesInvoiceRepository {
     const term = filter.search?.trim().toLowerCase();
     return [...this.rows.values()]
       .filter((inv) => (filter.status ? inv.status === filter.status : true))
+      .filter((inv) => (filter.statusIn ? filter.statusIn.includes(inv.status) : true))
       .filter((inv) => (filter.customerId ? inv.customerId === filter.customerId : true))
       .filter((inv) => (filter.fromDate ? inv.date >= filter.fromDate : true))
       .filter((inv) => (filter.toDate ? inv.date <= filter.toDate : true))
@@ -51,6 +52,13 @@ export class InMemorySalesInvoiceRepository implements SalesInvoiceRepository {
 
   async count(filter: SalesInvoiceListFilter = {}): Promise<number> {
     return this.matching(filter).length;
+  }
+
+  async countByStatus(filter: SalesInvoiceListFilter = {}): Promise<ReadonlyMap<SalesInvoice["status"], number>> {
+    const { status: _status, statusIn: _statusIn, limit: _limit, offset: _offset, ...rest } = filter;
+    const out = new Map<SalesInvoice["status"], number>();
+    for (const inv of this.matching(rest)) out.set(inv.status, (out.get(inv.status) ?? 0) + 1);
+    return out;
   }
 
   async transaction<T>(fn: () => Promise<T>): Promise<T> {

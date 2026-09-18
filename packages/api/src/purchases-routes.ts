@@ -73,6 +73,15 @@ import {
   type PurchaseInvoiceListQueryDTO,
 } from "@mezan/contracts";
 import { refuseUnknownItems, type ItemCatalogCheck } from "./item-check.js";
+import {
+  documentVersionOf,
+  documentVersionsOf,
+  expectedVersionOf,
+  readOptionalBody,
+  refuseStaleDocument,
+  stampDocumentModifier,
+  type DocumentVersionGuard,
+} from "./document-version.js";
 import type { CurrencyCheck } from "./currency-policy.js";
 import { tenantDay } from "./tenant-day.js";
 import {
@@ -106,6 +115,14 @@ export interface PurchasesRoutesDeps {
   readonly orders: PurchaseOrderRepository;
   readonly receipts: GoodsReceiptRepository;
   readonly invoices: PurchaseInvoiceRepository;
+  /**
+   * N-9 — optimistic concurrency for orders and invoices. Omitted, the routes
+   * behave exactly as before; supplied, a caller holding a stale
+   * `expectedVersion` is refused instead of overwriting the till that got there
+   * first.
+   */
+  readonly orderVersions?: DocumentVersionGuard;
+  readonly invoiceVersions?: DocumentVersionGuard;
   readonly numbering: NextNumberService;
   readonly stock: PurchaseStockPostingPort;
   readonly gl: PurchaseGlPostingPort;
@@ -432,7 +449,11 @@ export function createPurchasesRoutes(
   }
 
   app.get("/orders", gate("purchases.order.view"), async (c) => {
-    return c.json((await listFilteredOrders(c, parseOrderListQuery(c))).map(serializeOrder));
+    const rows = await listFilteredOrders(c, parseOrderListQuery(c));
+    // N-9: the screen acts straight off a list row, so the row has to carry the
+    // version or `expectedVersion` is never sent and the guard never fires.
+    const versions = await documentVersionsOf(deps.orderVersions, rows.map((o) => o.id));
+    return c.json(rows.map((o) => ({ ...serializeOrder(o), version: versions.get(o.id) })));
   });
 
   /**
@@ -474,7 +495,8 @@ export function createPurchasesRoutes(
   app.get("/orders/:id", gate("purchases.order.view"), async (c) => {
     const order = await deps.orders.findById(c.req.param("id"));
     if (!order) return c.json({ error: "NOT_FOUND" }, 404);
-    return c.json(serializeOrder(order));
+    // N-9: the screen keeps this and sends it back on the next act.
+    return c.json({ ...serializeOrder(order), version: await documentVersionOf(deps.orderVersions, order.id) });
   });
 
   app.post("/orders", gate("purchases.order.create"), async (c) => {
@@ -521,12 +543,15 @@ export function createPurchasesRoutes(
   }
 
   app.post("/orders/:id/confirm", gate("purchases.order.confirm"), async (c) => {
+    const stale = await refuseStaleDocument(c, deps.orderVersions, c.req.param("id"), expectedVersionOf(await readOptionalBody(c)));
+    if (stale) return stale;
     try {
       const order = await confirmPurchaseOrder(c.req.param("id"), {
         orders: deps.orders,
         audit: audit(c),
         actor: actor(c),
       });
+      await stampDocumentModifier(deps.orderVersions, order.id, actor(c));
       emit("DOCUMENT_CONFIRMED", "PURCHASE_ORDER", order.id, order.number);
       return c.json(serializeOrder(order));
     } catch (err) {
@@ -535,12 +560,15 @@ export function createPurchasesRoutes(
   });
 
   app.post("/orders/:id/cancel", gate("purchases.order.cancel"), async (c) => {
+    const stale = await refuseStaleDocument(c, deps.orderVersions, c.req.param("id"), expectedVersionOf(await readOptionalBody(c)));
+    if (stale) return stale;
     try {
       const order = await cancelPurchaseOrder(c.req.param("id"), {
         orders: deps.orders,
         audit: audit(c),
         actor: actor(c),
       });
+      await stampDocumentModifier(deps.orderVersions, order.id, actor(c));
       emit("DOCUMENT_CANCELLED", "PURCHASE_ORDER", order.id, order.number);
       return c.json(serializeOrder(order));
     } catch (err) {
@@ -751,6 +779,8 @@ export function createPurchasesRoutes(
       branchId: c.req.query("branchId"),
       warehouseId: c.req.query("warehouseId"),
       search: c.req.query("search"),
+      page: c.req.query("page"),
+      pageSize: c.req.query("pageSize"),
     });
   }
 
@@ -783,9 +813,38 @@ export function createPurchasesRoutes(
     return new Date(base.getTime() + 7 * 86_400_000).toISOString().slice(0, 10);
   }
 
+  /**
+   * The chip keys that ARE stored statuses. Everything else on the axis
+   * (`all`, `overdue`, `due_soon`, `partially_paid`, `paid`) is derived from
+   * the allocation sub-ledger, so sending one to the store would match no row
+   * and the list would come back empty.
+   */
+  const STORED_INVOICE_STATUSES = ["draft", "confirmed", "cancelled"] as const;
+  function storedInvoiceStatus(
+    key: PurchaseInvoiceListQueryDTO["status"],
+  ): (typeof STORED_INVOICE_STATUSES)[number] | undefined {
+    return STORED_INVOICE_STATUSES.find((s) => s === key);
+  }
+
   async function listFilteredInvoices(c: Context, filter: PurchaseInvoiceListQueryDTO): Promise<FilteredInvoices> {
+    const { status, supplierId, fromDate, toDate, branchId, warehouseId, search } = filter;
+    // Everything that is a column reaches the store as SQL (Q-8); every JS
+    // predicate below is re-applied so a repository that cannot express one
+    // still answers the same rows.
     let rows = withinScope(
-      withinScope(await deps.invoices.list(), branchScopeOf(c), (i) => i.branchId),
+      withinScope(
+        await deps.invoices.list({
+          supplierId,
+          fromDate,
+          toDate,
+          branchId,
+          warehouseId,
+          search,
+          status: storedInvoiceStatus(status),
+        }),
+        branchScopeOf(c),
+        (i) => i.branchId,
+      ),
       warehouseScopeOf(c),
       (i) => i.warehouseId,
     );
@@ -793,7 +852,6 @@ export function createPurchasesRoutes(
       const me = getAuthContext(c)?.userId;
       rows = me ? rows.filter((inv) => inv.createdBy === me) : [];
     }
-    const { status, supplierId, fromDate, toDate, branchId, warehouseId, search } = filter;
     if (supplierId) rows = rows.filter((inv) => inv.supplierId === supplierId);
     if (fromDate) rows = rows.filter((inv) => inv.date >= fromDate);
     if (toDate) rows = rows.filter((inv) => inv.date <= toDate);
@@ -834,7 +892,22 @@ export function createPurchasesRoutes(
     const parsed = parseInvoiceListQuery(c);
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     const { rows, allocations } = await listFilteredInvoices(c, parsed.data);
-    return c.json(rows.map((inv) => serializeInvoice(inv, allocations.get(inv.id))));
+    // The scope and the derived payment chips are JS predicates, so the page is
+    // cut AFTER them — a LIMIT ahead of a filter is a wrong page, not a fast
+    // one. The row set reaching here is already narrowed by every SQL filter.
+    //
+    // THE ORDER IS THE SCREEN'S, APPLIED HERE. Newest document number first is
+    // what the list has always shown; sorting a page instead of the set would
+    // reorder rows within a page and leave the pages themselves arbitrary.
+    const ordered = [...rows].sort((a, b) => b.number.localeCompare(a.number));
+    const { page, pageSize } = parsed.data;
+    const window = ordered.slice((page - 1) * pageSize, (page - 1) * pageSize + pageSize);
+    // N-9: the screen acts straight off a list row, so the row has to carry the
+    // version or `expectedVersion` is never sent and the guard never fires.
+    const versions = await documentVersionsOf(deps.invoiceVersions, window.map((inv) => inv.id));
+    return c.json(
+      window.map((inv) => ({ ...serializeInvoice(inv, allocations.get(inv.id)), version: versions.get(inv.id) })),
+    );
   });
 
   /** Chip counts over the whole filtered set, ignoring the status filter (R1.1). */
@@ -908,7 +981,10 @@ export function createPurchasesRoutes(
   app.get("/invoices/:id", gateAny("purchases.invoice.view", "purchases.invoice.view_own"), async (c) => {
     const invoice = await deps.invoices.findById(c.req.param("id"));
     if (!invoice || hiddenFromOwn(c, invoice)) return c.json({ error: "NOT_FOUND" }, 404);
-    return c.json(serializeInvoice(invoice, (await allocatedByInvoice([invoice.id])).get(invoice.id)));
+    return c.json({
+      ...serializeInvoice(invoice, (await allocatedByInvoice([invoice.id])).get(invoice.id)),
+      version: await documentVersionOf(deps.invoiceVersions, invoice.id),
+    });
   });
 
   /**
@@ -1156,6 +1232,8 @@ export function createPurchasesRoutes(
   });
 
   app.post("/invoices/:id/confirm", gate("purchases.invoice.confirm"), async (c) => {
+    const stale = await refuseStaleDocument(c, deps.invoiceVersions, c.req.param("id"), expectedVersionOf(await readOptionalBody(c)));
+    if (stale) return stale;
     try {
       const { invoice } = await confirmPurchaseInvoice(c.req.param("id"), {
         invoices: deps.invoices,
@@ -1170,6 +1248,7 @@ export function createPurchasesRoutes(
         actor: actor(c),
         now: deps.now,
       });
+      await stampDocumentModifier(deps.invoiceVersions, invoice.id, actor(c));
       emit("DOCUMENT_CONFIRMED", "PURCHASE_INVOICE", invoice.id, invoice.number);
       return c.json(serializeInvoice(invoice));
     } catch (err) {
@@ -1181,6 +1260,8 @@ export function createPurchasesRoutes(
     const layers = deps.layers;
     const glReverse = deps.glReverse;
     app.post("/invoices/:id/cancel", gate("purchases.invoice.void"), async (c) => {
+      const stale = await refuseStaleDocument(c, deps.invoiceVersions, c.req.param("id"), expectedVersionOf(await readOptionalBody(c)));
+      if (stale) return stale;
       try {
         const invoice = await cancelPurchaseInvoice(c.req.param("id"), {
           invoices: deps.invoices,
@@ -1192,6 +1273,7 @@ export function createPurchasesRoutes(
           actor: actor(c),
           now: deps.now,
         });
+        await stampDocumentModifier(deps.invoiceVersions, invoice.id, actor(c));
         emit("DOCUMENT_CANCELLED", "PURCHASE_INVOICE", invoice.id, invoice.number);
         return c.json(serializeInvoice(invoice));
       } catch (err) {

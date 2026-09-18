@@ -129,10 +129,11 @@ describe("NotificationsScreen", () => {
       </TestNavigation>,
       { transport, initialSession: testAdminSession },
     );
-    expect(await screen.findByText("تعذّر تحميل الإشعارات.")).toBeInTheDocument();
+    // guards §4.5 #13 — the card shows the message the hook threw, with its support code.
+    expect(await screen.findByText(/تعذر تحميل الإشعارات\. \(رمز 500\)/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "إعادة المحاولة" }));
     await screen.findByText("تم تأكيد الفاتورة");
-    await waitFor(() => expect(screen.queryByText("تعذّر تحميل الإشعارات.")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByText(/تعذر تحميل الإشعارات\./)).not.toBeInTheDocument());
   });
 
   it("the unread tab filters to unread rows only", async () => {

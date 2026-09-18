@@ -48,6 +48,25 @@ const VAT = 14;
 export async function run(ctx: Ctx): Promise<void> {
   const { req, n, check, checkEq, scenario, rows } = ctx;
 
+  /**
+   * READS A WHOLE LIST, not the first page of one. `pageSize` carries a
+   * compiled-in default of 25 (contracts/paging.ts, Q-8), so an entry posted
+   * after the twenty-fifth is invisible to a bare GET — which reads as "the
+   * confirm posted nothing" rather than as "you asked for one page".
+   */
+  const allRows = async (path: string): Promise<any[]> => {
+    const sep = path.includes("?") ? "&" : "?";
+    const out: any[] = [];
+    for (let page = 1; page <= 200; page += 1) {
+      const res = await req("GET", `${path}${sep}page=${page}&pageSize=200`);
+      if (!res.ok) return out;
+      const batch = rows(res.body);
+      out.push(...batch);
+      if (batch.length < 200) break;
+    }
+    return out;
+  };
+
   async function gl(code: string): Promise<number> {
     return n((await req("GET", `/gl/accounts/${code}/ledger`)).body?.balance?.balance);
   }
@@ -211,7 +230,8 @@ export async function run(ctx: Ctx): Promise<void> {
     const usdConfirm = await req("POST", "/purchases/invoices/SCN-S-PI-USD/confirm", {});
     check("a USD purchase invoice is accepted and confirms", usdPurchase.status === 201 && usdConfirm.status === 200, `${usdPurchase.status}/${usdConfirm.status} ${JSON.stringify(usdConfirm.body).slice(0, 200)}`);
     const usdNumber = String(usdConfirm.body?.number ?? "");
-    const usdEntryId = rows((await req("GET", "/gl/journal-entries")).body).find((e: any) => String(e.memo ?? "").includes(usdNumber))?.id ?? "";
+    const usdEntryId =
+      (await allRows("/gl/journal-entries")).find((e: any) => String(e.memo ?? "").includes(usdNumber))?.id ?? "";
     const usdEntry = await journalOf(usdEntryId);
     const usdRate = n((await req("GET", "/exchange-rates")).body?.find?.((r: any) => r.currency === "USD" && r.effectiveDate <= TODAY && r.status === "approved")?.rate ?? 0);
     check(
@@ -267,7 +287,7 @@ export async function run(ctx: Ctx): Promise<void> {
     check("the rate it confirmed at is stamped on the document", invoice?.fxRate !== null && invoice?.fxRate !== undefined, `fxRate=${invoice?.fxRate}`);
     checkEq("and the document total stays in its OWN currency", n(invoice?.total), 1000);
 
-    const entries = rows((await req("GET", "/gl/journal-entries?sourceModule=purchases")).body);
+    const entries = await allRows("/gl/journal-entries?sourceModule=purchases");
     const entry = entries.find((e: any) => e.sourceDocId === "SCN-S-PI-CUR");
     check("the confirm posted an entry naming this invoice", entry !== undefined, `entries=${entries.length}`);
     const payable = entry?.lines?.find((l: any) => l.accountId === "2100");
@@ -539,6 +559,9 @@ export async function run(ctx: Ctx): Promise<void> {
     });
     check("a rule on a genuinely-emitted event is created", rule.status === 201, `status ${rule.status} ${JSON.stringify(rule.body).slice(0, 250)}`);
 
+    // The webhook half of this seam went with the mount (DEC-17): there is no
+    // longer a way to register a target, so the only listener left on a confirm
+    // is the notification-rules engine.
     const unreadBefore = rows((await req("GET", "/notifications", undefined, { "x-user-id": "USER-ADMIN" })).body).length;
     const sale = await serviceInvoice("SCN-S-INV-EVENT", [{ qty: "2", unitPrice: "250" }]);
     check("the invoice confirms while a rule listens", sale.confirmed.status === 200, JSON.stringify(sale.confirmed.body).slice(0, 250));

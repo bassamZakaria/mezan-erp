@@ -98,7 +98,7 @@ describe("ExchangeRatesScreen — list", () => {
         "GET /settings/currencies": () => ({ body: ALLOWED }),
       }),
     });
-    expect(await screen.findByText("تعذّر تحميل أسعار الصرف.")).toBeInTheDocument();
+    expect(await screen.findByText("تعذّر تحميل أسعار الصرف. (رمز 500)")).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByText("INTERNAL")).not.toBeInTheDocument());
     expect(screen.getByRole("button", { name: "إعادة المحاولة" })).toBeInTheDocument();
   });
@@ -260,5 +260,24 @@ describe("ExchangeRatesScreen — approve", () => {
     // RowMenu awaits never rejects, and RowMenu.run (RowMenu.tsx ~117-130)
     // unconditionally shows its "done" toast even though the request failed.
     expect(await screen.findByText("تم تنفيذ «اعتماد»")).toBeInTheDocument();
+  });
+});
+
+/** guards §4.5 #13 — the error card shows the SERVER's reason, not the screen's fixed sentence. */
+describe("ExchangeRatesScreen — a 502 body reaches the error card", () => {
+  it("renders the server's own Arabic reason", async () => {
+    renderWithProviders(
+      <ExchangeRatesScreen />,
+      {
+        transport: stubTransport({
+          "GET /exchange-rates": () => ({ status: 502, body: { message: "تعذّر الوصول إلى الجهاز الرئيسي. الجهاز مغلق أو غير متصل بالشبكة." } }),
+          "GET /settings/currencies": () => ({ body: ALLOWED }),
+        }),
+        initialSession: testAdminSession,
+      },
+    );
+
+    expect(await screen.findByText("تعذّر الوصول إلى الجهاز الرئيسي. الجهاز مغلق أو غير متصل بالشبكة.")).toBeInTheDocument();
+    expect(screen.queryByText("تعذّر تحميل أسعار الصرف.")).not.toBeInTheDocument();
   });
 });

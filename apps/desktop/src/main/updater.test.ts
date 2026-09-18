@@ -18,23 +18,42 @@ const updaterState = {
   autoInstallOnAppQuit: false,
   listeners: new Map<string, Array<(...args: unknown[]) => void>>(),
   checkCalls: 0,
+  quitAndInstallCalls: 0,
+  feedUrl: "" as string | null,
 };
 
-const electronState = { isPackaged: true };
+const electronState = { isPackaged: true, version: "1.0.0" };
 let checkForUpdatesResult: Promise<unknown> = Promise.resolve(null);
+/** The handler the updater registers, captured so the IPC actions can be driven. */
+let invokeHandler: ((event: unknown, action: string) => Promise<unknown>) | null = null;
 
 vi.mock("electron", () => ({
   app: {
     get isPackaged() {
       return electronState.isPackaged;
     },
+    getVersion: () => electronState.version,
   },
+  dialog: { showMessageBox: () => Promise.resolve({ response: 2, checkboxChecked: false }) },
   // The updater registers one IPC handler for the user-initiated actions
   // (download / install / check) before it ever reaches the launch-check gates
   // these tests exercise, so the mock has to carry it or the module throws on
   // import rather than failing an assertion.
-  ipcMain: { handle: () => {}, removeHandler: () => {} },
+  ipcMain: {
+    handle: (_channel: string, handler: (event: unknown, action: string) => Promise<unknown>) => {
+      invokeHandler = handler;
+    },
+    removeHandler: () => {},
+  },
 }));
+
+/**
+ * A stand-in for the Electron invoke event, carrying the renderer frame the
+ * `guarded` wrapper (main/ipc-guard.ts, audit S-5) checks. `null` used to do —
+ * it no longer does, because a channel that answers a frame it cannot identify
+ * is the finding.
+ */
+const RENDERER_EVENT = { senderFrame: { url: "app://mezan/index.html" } } as never;
 
 vi.mock("electron-updater", () => ({
   autoUpdater: {
@@ -49,6 +68,12 @@ vi.mock("electron-updater", () => ({
     },
     set autoInstallOnAppQuit(value: boolean) {
       updaterState.autoInstallOnAppQuit = value;
+    },
+    channel: "latest",
+    getFeedURL: () => updaterState.feedUrl,
+    downloadUpdate: () => Promise.resolve([]),
+    quitAndInstall: () => {
+      updaterState.quitAndInstallCalls += 1;
     },
     on(event: string, listener: (...args: unknown[]) => void) {
       const list = updaterState.listeners.get(event) ?? [];
@@ -65,7 +90,12 @@ vi.mock("electron-updater", () => ({
 // A static import is correct here despite the mocks above: vitest hoists
 // `vi.mock` calls above the import block, so `electron` and `electron-updater`
 // are already replaced by the time this module is evaluated.
-import { registerAutoUpdater, inspectAppSignature, realSignatureEnvironment } from "./updater.js";
+import {
+  registerAutoUpdater,
+  inspectAppSignature,
+  realSignatureEnvironment,
+  resolveInstallDecision,
+} from "./updater.js";
 import type { BrowserWindow } from "electron";
 
 /**
@@ -102,8 +132,12 @@ beforeEach(() => {
   updaterState.autoInstallOnAppQuit = false;
   updaterState.listeners.clear();
   updaterState.checkCalls = 0;
+  updaterState.quitAndInstallCalls = 0;
+  updaterState.feedUrl = "";
+  invokeHandler = null;
   checkForUpdatesResult = Promise.resolve(null);
   electronState.isPackaged = true;
+  electronState.version = "1.0.0";
   vi.spyOn(console, "log").mockImplementation(() => {});
   vi.spyOn(console, "warn").mockImplementation(() => {});
   vi.spyOn(console, "error").mockImplementation(() => {});
@@ -134,7 +168,7 @@ function macEnvironment(overrides: Partial<SignatureEnvironment> = {}): Signatur
 describe("registerAutoUpdater — the enable gate", () => {
   it("does nothing at all in a dev build", () => {
     electronState.isPackaged = false;
-    registerAutoUpdater(WIN, { MEZAN_AUTO_UPDATE: "1", MEZAN_AUTO_UPDATE_INSTALL: "1" }, CLOSED, SIGNED);
+    registerAutoUpdater(WIN, { MEZAN_AUTO_UPDATE: "1" }, CLOSED, SIGNED);
     expect(updaterState.checkCalls).toBe(0);
     expect(updaterState.autoInstallOnAppQuit).toBe(false);
   });
@@ -165,33 +199,23 @@ describe("registerAutoUpdater — the signature gate", () => {
     expect(console.error).toHaveBeenCalledWith(expect.stringContaining("REFUSED"));
   });
 
-  it("refuses an unsigned build even when the INSTALL flag is also set", () => {
-    registerAutoUpdater(WIN, { MEZAN_AUTO_UPDATE: "1", MEZAN_AUTO_UPDATE_INSTALL: "1" },
+  /**
+   * GUARDS U-12, and it is the inversion of the assertion that used to live
+   * here. `MEZAN_AUTO_UPDATE_ALLOW_UNSIGNED=1` in the ENVIRONMENT used to switch
+   * the signature gate off on a packaged customer install — i.e. whoever
+   * launched the app decided whether it checked its own signature. The override
+   * is now a build-time define, false in everything the release workflow
+   * produces, so the environment cannot reach it at all.
+   */
+  it("ignores MEZAN_AUTO_UPDATE_ALLOW_UNSIGNED — the override is compiled out, not read", () => {
+    registerAutoUpdater(
+      WIN,
+      { MEZAN_AUTO_UPDATE: "1", MEZAN_AUTO_UPDATE_ALLOW_UNSIGNED: "1" },
       CLOSED,
       UNSIGNED,
     );
     expect(updaterState.checkCalls).toBe(0);
-    // The install flag must not be able to buy its way past the signature gate:
-    // that ordering is the entire fix.
-    expect(updaterState.autoDownload).toBe(false);
-    expect(updaterState.autoInstallOnAppQuit).toBe(false);
-  });
-
-  it("proceeds on an unsigned build ONLY with the explicit ALLOW_UNSIGNED override", () => {
-    registerAutoUpdater(WIN, { MEZAN_AUTO_UPDATE: "1", MEZAN_AUTO_UPDATE_ALLOW_UNSIGNED: "1" },
-      CLOSED,
-      UNSIGNED,
-    );
-    expect(updaterState.checkCalls).toBe(1);
-    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining("Never set this on a customer install"));
-  });
-
-  it("does not treat any value but \"1\" as the override", () => {
-    registerAutoUpdater(WIN, { MEZAN_AUTO_UPDATE: "1", MEZAN_AUTO_UPDATE_ALLOW_UNSIGNED: "true" },
-      CLOSED,
-      UNSIGNED,
-    );
-    expect(updaterState.checkCalls).toBe(0);
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining("REFUSED"));
   });
 
   it("checks for updates on a signed build", () => {
@@ -226,31 +250,12 @@ describe("registerAutoUpdater — shop hours and the install gate", () => {
    * itself" is exactly the guarantee a regression here would quietly take away.
    */
   it("never auto-downloads or auto-installs, whatever the environment asks for", () => {
+    // GUARDS U-13: `MEZAN_AUTO_UPDATE_INSTALL` was documented and asserted here
+    // and read by nothing. Consent is a dialog now, not an environment variable.
     registerAutoUpdater(WIN, { MEZAN_AUTO_UPDATE: "1", MEZAN_AUTO_UPDATE_INSTALL: "1" }, CLOSED, SIGNED);
     expect(updaterState.autoDownload).toBe(false);
     expect(updaterState.autoInstallOnAppQuit).toBe(false);
     expect(updaterState.checkCalls).toBe(1);
-  });
-
-  it("keeps consent even when the signature override is stacked on the install flag", () => {
-    // The loudest configuration this product can be put into: the signature gate
-    // overridden AND installing requested. It is reachable — a test machine needs
-    // it — so what it must never do is install anything on its own, and what it
-    // must never be is quiet about running unsigned.
-    registerAutoUpdater(
-      WIN,
-      {
-        MEZAN_AUTO_UPDATE: "1",
-        MEZAN_AUTO_UPDATE_ALLOW_UNSIGNED: "1",
-        MEZAN_AUTO_UPDATE_INSTALL: "1",
-      },
-      CLOSED,
-      UNSIGNED,
-    );
-    expect(updaterState.autoInstallOnAppQuit).toBe(false);
-    expect(console.warn).toHaveBeenCalledWith(
-      expect.stringContaining("MEZAN_AUTO_UPDATE_ALLOW_UNSIGNED=1"),
-    );
   });
 
   it("registers the error/available/not-available handlers so a failure is never silent", () => {
@@ -424,5 +429,92 @@ describe("the update check never throws into the main process", () => {
       expect.stringContaining("check failed"),
       failure,
     );
+  });
+});
+
+/**
+ * GUARDS U-8. `install()` was `quitAndInstall()` on a button press: at 1pm,
+ * with five tills connected, with nothing asked and nobody told.
+ */
+describe("resolveInstallDecision — the gate on quitAndInstall", () => {
+  it("defaults to installing when the app closes", () => {
+    expect(
+      resolveInstallDecision({
+        choice: "on-quit",
+        overrideBusinessHours: false,
+        inBusinessHours: true,
+      }),
+    ).toBe("install-on-quit");
+  });
+
+  it("refuses an immediate install during shop hours without an explicit override", () => {
+    expect(
+      resolveInstallDecision({ choice: "now", overrideBusinessHours: false, inBusinessHours: true }),
+    ).toBe("refused-in-hours");
+  });
+
+  it("installs now during shop hours only when the operator ticked the box", () => {
+    expect(
+      resolveInstallDecision({ choice: "now", overrideBusinessHours: true, inBusinessHours: true }),
+    ).toBe("install-now");
+  });
+
+  it("installs now outside shop hours with no override needed", () => {
+    expect(
+      resolveInstallDecision({
+        choice: "now",
+        overrideBusinessHours: false,
+        inBusinessHours: false,
+      }),
+    ).toBe("install-now");
+  });
+
+  it("cancels, and cancelling is not an install", () => {
+    expect(
+      resolveInstallDecision({
+        choice: "cancel",
+        overrideBusinessHours: true,
+        inBusinessHours: false,
+      }),
+    ).toBe("cancelled");
+  });
+});
+
+describe("the IPC actions", () => {
+  /**
+   * GUARDS U-5 and support ticket #8. A build with no feed and no vendor key —
+   * i.e. every install in the field today — answered «تعذّر إكمال التحديث» in a
+   * red, undismissable alert on every screen. It is not an error: the machine is
+   * updated by running a new installer, and the phase says so.
+   */
+  it("answers `unavailable`, not `error`, when no feed is configured", async () => {
+    updaterState.feedUrl = "";
+    registerAutoUpdater(WIN, {}, CLOSED, SIGNED);
+    expect(await invokeHandler?.(RENDERER_EVENT, "check")).toEqual({ phase: "unavailable" });
+    // And it never touched the network to find that out.
+    expect(updaterState.checkCalls).toBe(0);
+  });
+
+  it("refuses to install anything that was not verified and downloaded", async () => {
+    registerAutoUpdater(WIN, {}, CLOSED, SIGNED);
+    expect(await invokeHandler?.(RENDERER_EVENT, "install")).toEqual({
+      phase: "rejected",
+      reason: "NOT_VERIFIED",
+    });
+    expect(updaterState.quitAndInstallCalls).toBe(0);
+  });
+
+  /**
+   * GUARDS U-1. The vendor key is a build-time define and a packaged build
+   * reads NOTHING else — not the environment, which is the exact hole L-1 and
+   * U-1 name. With no key baked in, a feed that says "there is an update" gets
+   * no download at all, and the answer is the calm "this build does not receive
+   * updates" rather than a red alert.
+   */
+  it("downloads nothing when no vendor key is baked in, whatever the environment says", async () => {
+    updaterState.feedUrl = "https://updates.example.test/mezan";
+    registerAutoUpdater(WIN, { MEZAN_UPDATE_PUBLIC_KEY: "ff".repeat(32) }, CLOSED, SIGNED);
+    updaterState.listeners.get("update-available")?.[0]?.({ version: "9.9.9" });
+    expect(await invokeHandler?.(RENDERER_EVENT, "download")).toEqual({ phase: "unavailable" });
   });
 });

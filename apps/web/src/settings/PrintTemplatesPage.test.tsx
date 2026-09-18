@@ -282,6 +282,6 @@ describe("PrintTemplatesPage", () => {
 
     const errorTransport = stubTransport({ "GET /print-template-config": () => ({ status: 500, body: { error: "INTERNAL" } }) });
     renderWithProviders(<PrintTemplatesPage />, { transport: errorTransport, initialSession: testAdminSession });
-    expect(await screen.findByText("تعذّر تحميل قالب الطباعة.")).toBeInTheDocument();
+    expect(await screen.findByText(/تعذّر تحميل قالب الطباعة\./)).toBeInTheDocument();
   });
 });

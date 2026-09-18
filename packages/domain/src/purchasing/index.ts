@@ -105,6 +105,7 @@ export {
   type PurchaseInvoiceLine,
   type PurchaseInvoiceLineKind,
   type PurchaseInvoiceRepository,
+  type PurchaseInvoiceListFilter,
   type PurchaseInvoiceLineInput,
   type CreatePurchaseInvoiceCommand,
   type CreatePurchaseInvoiceDeps,

@@ -1,7 +1,8 @@
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { app, ipcMain, type BrowserWindow } from "electron";
+import { app, dialog, type BrowserWindow } from "electron";
+import { handleGuarded } from "./ipc-guard.js";
 import { autoUpdater, type UpdateInfo } from "electron-updater";
 import { isDev } from "./env.js";
 import {
@@ -10,7 +11,15 @@ import {
   type UpdateAction,
   type UpdateStatus,
 } from "../shared/ipc-contract.js";
-import { primaryArtifactSha512, verifyUpdateSignature } from "./update-verify.js";
+import {
+  canonicalUpdateMessage,
+  isNewerVersion,
+  legacySignatureFileName,
+  selectArtifactSha512,
+  sha512OfFile,
+  signatureFileName,
+  verifyUpdateSignature,
+} from "./update-verify.js";
 
 /**
  * Signed auto-update channel (docs/archive/plan.md §2.3).
@@ -23,29 +32,53 @@ import { primaryArtifactSha512, verifyUpdateSignature } from "./update-verify.js
  * process that holds the shop's books, on every install at once, on the next
  * quit, with no operator action.
  *
- * Two independent safeguards close that, and BOTH must hold:
+ * Three independent safeguards close that, and ALL must hold:
  *   1. App-level Ed25519 verification (main/update-verify.ts). Nothing is ever
- *      downloaded or installed unless a detached signature over the release's
- *      SHA-512 verifies against the vendor key (`MEZAN_UPDATE_PUBLIC_KEY`). This
- *      does not depend on OS code-signing and refuses an unsigned/placeholder
- *      feed outright (no key → no download). It is the offline-first trust
- *      anchor; OS notarization/signing remains a separate vendor-cert step.
- *   2. User consent. autoDownload/autoInstallOnAppQuit are always false — the
- *      renderer surfaces "available" and the user chooses download, then
- *      install. Nothing swaps the running app underneath a till mid-sale.
+ *      downloaded or installed unless a detached signature over
+ *      `version || channel || arch || sha512` verifies against the vendor key
+ *      BAKED INTO THE BUILD. This does not depend on OS code-signing and
+ *      refuses an unsigned/placeholder feed outright (no key → no download).
+ *   2. The bytes are re-hashed and re-verified AFTER the download, before the
+ *      installer is handed to the OS.
+ *   3. User consent. autoDownload is always false, and installing asks — naming
+ *      the tills that are about to lose their host. Nothing swaps the running
+ *      app underneath a till mid-sale.
  *
  * The launch-time check stays OFF unless the operator opts in
  * (`MEZAN_AUTO_UPDATE=1`) and, even then, waits for closing time so a download
  * never competes with the counter. User-initiated actions over IPC are always
- * available (each still gated by (1) and (2) above).
+ * available (each still gated by the three above).
  *
- * Config baked by the release build, overridable by env:
- *   - MEZAN_UPDATE_PUBLIC_KEY : vendor Ed25519 public key (hex)
- *   - MEZAN_UPDATE_FEED_URL   : base URL of the update feed (matches
- *                               electron-builder.yml `publish.url`)
+ * CONFIG IS BAKED, NOT READ FROM THE ENVIRONMENT.
+ *
+ * `__MEZAN_UPDATE_PUBLIC_KEY__` is an esbuild `define` (scripts/build.mjs), so on a
+ * packaged build it is a string literal in the bundle. A packaged app IGNORES
+ * the environment for it: a trust anchor an attacker can set in the launching
+ * environment is not a trust anchor. Unpackaged runs may still override it,
+ * because there is nothing baked in to override.
  */
 
-const VENDOR_UPDATE_PUBLIC_KEY_HEX = ""; // set by the release build
+/**
+ * The vendor Ed25519 public key, substituted at build time. Absent (a `tsx` or
+ * vitest run) `typeof` answers "undefined" rather than throwing, and an empty
+ * key refuses every update — fail closed.
+ */
+declare const __MEZAN_UPDATE_PUBLIC_KEY__: string;
+const VENDOR_UPDATE_PUBLIC_KEY_HEX: string =
+  typeof __MEZAN_UPDATE_PUBLIC_KEY__ === "string" ? __MEZAN_UPDATE_PUBLIC_KEY__ : "";
+
+/**
+ * COMPILED OUT, not read from the environment.
+ *
+ * This used to be `MEZAN_AUTO_UPDATE_ALLOW_UNSIGNED=1`, which meant a packaged
+ * customer install could be told to skip its own signature gate by whoever
+ * launched it. It is now a build-time define that is `false` in every build the
+ * release workflow produces, so the escape hatch does not exist in the field at
+ * all — only in a build somebody deliberately made for a test machine.
+ */
+declare const __MEZAN_ALLOW_UNSIGNED_UPDATES__: boolean;
+const ALLOW_UNSIGNED_BUILD: boolean =
+  typeof __MEZAN_ALLOW_UNSIGNED_UPDATES__ === "boolean" ? __MEZAN_ALLOW_UNSIGNED_UPDATES__ : false;
 
 /** Opts the launch-time check in at all. Absent or not "1" means it never runs on launch. */
 const ENABLE_FLAG = "MEZAN_AUTO_UPDATE";
@@ -53,19 +86,6 @@ const ENABLE_FLAG = "MEZAN_AUTO_UPDATE";
 /** Shop hours, local time — the launch check waits until the shop is closed. */
 const BUSINESS_HOURS_START = 8;
 const BUSINESS_HOURS_END = 23;
-
-/**
- * THE SIGNATURE GATE — ported from the pre-merge updater, and it guards a
- * different thing from `update-verify.ts`.
- *
- * `update-verify.ts` proves the DOWNLOAD is ours (Ed25519 over its SHA-512).
- * This proves the RUNNING APP is ours. They are not the same check and neither
- * covers the other: on Windows `verifyUpdateCodeSignature` compares a
- * downloaded package's publisher against the running app's, and an unsigned
- * running app gives it nothing to compare with. So an app that cannot prove its
- * own signature does not fetch updates at all.
- */
-const ALLOW_UNSIGNED_FLAG = "MEZAN_AUTO_UPDATE_ALLOW_UNSIGNED";
 
 /**
  * `unknown` is a distinct answer from `unsigned` on purpose, and BOTH refuse.
@@ -225,16 +245,34 @@ function isBusinessHours(now: Date): boolean {
   return hour >= BUSINESS_HOURS_START && hour < BUSINESS_HOURS_END;
 }
 
+/** What the download proved, kept so `install` can prove it again on the bytes. */
+interface VerifiedRelease {
+  readonly version: string;
+  readonly channel: string;
+  readonly arch: string;
+  readonly sha512: string;
+  readonly signatureB64: string;
+  readonly publicKeyHex: string;
+}
+
 let latestInfo: UpdateInfo | null = null;
-let signatureVerified = false;
+let verified: VerifiedRelease | null = null;
+let downloadedFile: string | null = null;
 
 function send(win: BrowserWindow, status: UpdateStatus): void {
   if (!win.isDestroyed()) win.webContents.send(MEZAN_UPDATE_EVENT_CHANNEL, status);
 }
 
+/**
+ * A packaged build reads its feed from `app-update.yml`, which electron-builder
+ * baked at release time, and NOT from the environment — the same reasoning as
+ * the public key above.
+ */
 function feedBaseUrl(env: Record<string, string | undefined>): string | null {
-  const fromEnv = env["MEZAN_UPDATE_FEED_URL"];
-  if (fromEnv) return fromEnv.replace(/\/+$/, "");
+  if (!app.isPackaged) {
+    const fromEnv = env["MEZAN_UPDATE_FEED_URL"];
+    if (fromEnv) return fromEnv.replace(/\/+$/, "");
+  }
   try {
     const configured = autoUpdater.getFeedURL();
     return configured ? configured.replace(/\/+$/, "") : null;
@@ -243,34 +281,188 @@ function feedBaseUrl(env: Record<string, string | undefined>): string | null {
   }
 }
 
+function publicKeyHex(env: Record<string, string | undefined>): string {
+  if (app.isPackaged) return VENDOR_UPDATE_PUBLIC_KEY_HEX;
+  return env["MEZAN_UPDATE_PUBLIC_KEY"] || VENDOR_UPDATE_PUBLIC_KEY_HEX;
+}
+
 /**
- * Fetches the detached signature (`<feed>/<version>.sig`) and verifies it over
- * the release's SHA-512. Returns the reason on failure, or null on success.
+ * Is this install on the update channel at all?
+ *
+ * A build with no vendor key or no feed is not broken and must not be reported
+ * as an error: it is an install that is updated by running a new installer, and
+ * the renderer says exactly that. Nine tenths of the field is this today.
+ */
+function updatesConfigured(env: Record<string, string | undefined>): boolean {
+  return publicKeyHex(env) !== "" && feedBaseUrl(env) !== null;
+}
+
+function currentChannel(): string {
+  try {
+    return autoUpdater.channel ?? "latest";
+  } catch {
+    return "latest";
+  }
+}
+
+async function fetchSignature(base: string, version: string, arch: string): Promise<string | null> {
+  const names = [
+    signatureFileName(version, process.platform, arch),
+    // A single-platform feed may publish the shorter name; the signature covers
+    // the whole tuple either way, so a wrong file simply fails to verify.
+    legacySignatureFileName(version, arch),
+  ];
+  for (const name of names) {
+    try {
+      const res = await fetch(`${base}/${name}`);
+      if (!res.ok) continue;
+      const body = (await res.text()).trim();
+      if (body) return body;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+/**
+ * Fetches the detached signature and verifies it over the canonical release
+ * tuple. Returns the reason on failure, or the verified release on success.
  */
 async function verifyRelease(
   info: UpdateInfo,
   env: Record<string, string | undefined>,
-): Promise<string | null> {
-  const publicKeyHex = env["MEZAN_UPDATE_PUBLIC_KEY"] || VENDOR_UPDATE_PUBLIC_KEY_HEX;
-  if (!publicKeyHex) return "NO_PUBLIC_KEY";
-
-  const sha512 = primaryArtifactSha512(info);
-  if (!sha512) return "NO_ARTIFACT_HASH";
+): Promise<VerifiedRelease | string> {
+  const key = publicKeyHex(env);
+  if (!key) return "NO_PUBLIC_KEY";
 
   const base = feedBaseUrl(env);
   if (!base) return "NO_FEED_URL";
 
-  let signatureB64: string;
-  try {
-    const res = await fetch(`${base}/${info.version}.sig`);
-    if (!res.ok) return "SIGNATURE_UNAVAILABLE";
-    signatureB64 = (await res.text()).trim();
-  } catch {
-    return "SIGNATURE_FETCH_FAILED";
-  }
+  const version = info.version;
+  if (!version) return "NO_VERSION";
+  // A signature binds a version, and this is where that binding is USED: the
+  // release being applied has to be newer than the one running, or a genuinely
+  // signed old installer republished under a new name is a downgrade attack.
+  if (!isNewerVersion(version, app.getVersion())) return "NOT_NEWER";
 
-  const ok = await verifyUpdateSignature({ publicKeyHex, sha512, signatureB64 });
-  return ok ? null : "SIGNATURE_INVALID";
+  const arch = process.arch;
+  const sha512 = selectArtifactSha512(info, { arch, platform: process.platform });
+  if (!sha512) return "NO_ARTIFACT_HASH";
+
+  const channel = currentChannel();
+  const signatureB64 = await fetchSignature(base, version, arch);
+  if (!signatureB64) return "SIGNATURE_UNAVAILABLE";
+
+  const message = canonicalUpdateMessage({ version, channel, arch, sha512 });
+  const ok = await verifyUpdateSignature({ publicKeyHex: key, message, signatureB64 });
+  if (!ok) return "SIGNATURE_INVALID";
+
+  return { version, channel, arch, sha512, signatureB64, publicKeyHex: key };
+}
+
+/**
+ * Re-proves the DOWNLOADED bytes before the OS is handed an installer.
+ *
+ * electron-updater checks the download against `info.sha512` itself, which is a
+ * value from the same feed metadata an attacker would be rewriting. This hashes
+ * the file on disk and re-runs the vendor signature over the tuple that hash
+ * belongs to, so the last thing that happens before `quitAndInstall` is a proof
+ * rather than a memory of one.
+ */
+async function reverifyDownload(release: VerifiedRelease, filePath: string): Promise<boolean> {
+  try {
+    const actual = await sha512OfFile(filePath);
+    if (actual !== release.sha512) return false;
+  } catch {
+    return false;
+  }
+  return verifyUpdateSignature({
+    publicKeyHex: release.publicKeyHex,
+    message: canonicalUpdateMessage(release),
+    signatureB64: release.signatureB64,
+  });
+}
+
+export type InstallChoice = "now" | "on-quit" | "cancel";
+
+export interface InstallPrompt {
+  readonly version: string;
+  /** Labels of the tills currently connected to this host. */
+  readonly devices: readonly string[];
+  readonly inBusinessHours: boolean;
+}
+
+export type ConfirmInstall = (prompt: InstallPrompt) => Promise<{
+  readonly choice: InstallChoice;
+  /** The operator ticked "install now even though the shop is open". */
+  readonly overrideBusinessHours: boolean;
+}>;
+
+/**
+ * THE CONFIRMATION AN INSTALL DID NOT HAVE.
+ *
+ * `install` used to be `quitAndInstall()` on a button press, at any hour, with
+ * no mention of the tills that lose their host the instant this process exits —
+ * every one of them showing «تعذّر الوصول إلى الجهاز الرئيسي» to a customer at
+ * the counter. So the dialog NAMES them, defaults to installing when the app is
+ * next closed, and will not install during shop hours unless the operator ticks
+ * a box saying they mean it.
+ */
+function electronConfirmInstall(win: BrowserWindow): ConfirmInstall {
+  return async (prompt) => {
+    const deviceLines =
+      prompt.devices.length === 0
+        ? "لا توجد أجهزة متصلة الآن."
+        : `الأجهزة المتصلة الآن وستفقد الاتصال بالجهاز الرئيسي:\n• ${prompt.devices.join("\n• ")}`;
+    const result = await dialog.showMessageBox(win, {
+      type: "question",
+      title: "تثبيت التحديث",
+      message: `تثبيت الإصدار ${prompt.version}؟`,
+      detail:
+        `${deviceLines}\n\n` +
+        (prompt.inBusinessHours
+          ? "الوقت الآن داخل ساعات العمل. التثبيت الفوري يغلق البرنامج ويقطع كل الأجهزة المتصلة."
+          : "التثبيت يغلق البرنامج ثم يعيد تشغيله بالإصدار الجديد."),
+      buttons: ["التثبيت بعد إغلاق البرنامج", "التثبيت الآن", "إلغاء"],
+      defaultId: 0,
+      cancelId: 2,
+      checkboxLabel: "أفهم أن الأجهزة المتصلة ستتوقف، وأريد التثبيت الآن",
+      checkboxChecked: false,
+      noLink: true,
+    });
+    const choice: InstallChoice =
+      result.response === 0 ? "on-quit" : result.response === 1 ? "now" : "cancel";
+    return { choice, overrideBusinessHours: result.checkboxChecked === true };
+  };
+}
+
+export type InstallDecision = "install-now" | "install-on-quit" | "cancelled" | "refused-in-hours";
+
+/**
+ * The whole of the install gate, as a decision over three booleans — because a
+ * gate that only exists inside an IPC handler around a `dialog` call is a gate
+ * nobody can test, and this one decides whether five tills go dark at 1pm.
+ */
+export function resolveInstallDecision(input: {
+  readonly choice: InstallChoice;
+  readonly overrideBusinessHours: boolean;
+  readonly inBusinessHours: boolean;
+}): InstallDecision {
+  if (input.choice === "cancel") return "cancelled";
+  if (input.choice === "on-quit") return "install-on-quit";
+  if (input.inBusinessHours && !input.overrideBusinessHours) return "refused-in-hours";
+  return "install-now";
+}
+
+export interface UpdaterDeps {
+  /**
+   * Labels of the tills holding a seat on this host, read from the live seat
+   * registry at the moment the operator presses install — never a cached count.
+   */
+  readonly connectedDevices?: () => readonly string[] | Promise<readonly string[]>;
+  /** Injected in tests; production uses the Electron dialog. */
+  readonly confirmInstall?: ConfirmInstall;
 }
 
 /**
@@ -289,8 +481,12 @@ export function registerAutoUpdater(
    * computed lazily on the opt-in path only — see the call site.
    */
   signature?: SignatureReport,
+  deps: UpdaterDeps = {},
 ): void {
   if (isDev()) return;
+
+  const confirmInstall = deps.confirmInstall ?? electronConfirmInstall(win);
+  const connectedDevices = deps.connectedDevices ?? (() => []);
 
   // Never silent, never auto-installed — consent + verification gate every step.
   autoUpdater.autoDownload = false;
@@ -301,7 +497,8 @@ export function registerAutoUpdater(
   });
   autoUpdater.on("update-available", (info) => {
     latestInfo = info;
-    signatureVerified = false;
+    verified = null;
+    downloadedFile = null;
     send(win, {
       phase: "available",
       version: info.version,
@@ -315,15 +512,19 @@ export function registerAutoUpdater(
   autoUpdater.on("download-progress", (p) => {
     send(win, { phase: "downloading", percent: Math.round(p.percent), version: latestInfo?.version });
   });
-  autoUpdater.on("update-downloaded", (info) => {
-    send(win, { phase: "ready", version: info.version });
+  autoUpdater.on("update-downloaded", (event) => {
+    downloadedFile = (event as { downloadedFile?: string }).downloadedFile ?? null;
+    send(win, { phase: "ready", version: event.version });
   });
 
-  ipcMain.handle(
+  handleGuarded(
     MEZAN_UPDATE_INVOKE_CHANNEL,
     async (_event, action: UpdateAction): Promise<UpdateStatus> => {
       switch (action) {
         case "check": {
+          // Not an error, and not a dead button: an install with no vendor key
+          // or no feed is updated by running a new installer, and says so.
+          if (!updatesConfigured(env)) return { phase: "unavailable" };
           send(win, { phase: "checking" });
           try {
             const result = await autoUpdater.checkForUpdates();
@@ -339,16 +540,18 @@ export function registerAutoUpdater(
           }
         }
         case "download": {
+          if (!updatesConfigured(env)) return { phase: "unavailable" };
           if (!latestInfo) return { phase: "error", reason: "NO_UPDATE" };
           // Verify authenticity BEFORE downloading — a release that cannot be
           // proven to come from the vendor key is never fetched or applied.
           send(win, { phase: "verifying", version: latestInfo.version });
-          const reason = await verifyRelease(latestInfo, env);
-          if (reason) {
-            signatureVerified = false;
-            return { phase: "rejected", version: latestInfo.version, reason };
+          const outcome = await verifyRelease(latestInfo, env);
+          if (typeof outcome === "string") {
+            verified = null;
+            return { phase: "rejected", version: latestInfo.version, reason: outcome };
           }
-          signatureVerified = true;
+          verified = outcome;
+          downloadedFile = null;
           try {
             await autoUpdater.downloadUpdate();
             return { phase: "downloading", version: latestInfo.version };
@@ -358,9 +561,32 @@ export function registerAutoUpdater(
         }
         case "install": {
           // Never install something we did not verify and download.
-          if (!signatureVerified) return { phase: "rejected", reason: "NOT_VERIFIED" };
-          autoUpdater.quitAndInstall();
-          return { phase: "ready", version: latestInfo?.version };
+          if (!verified) return { phase: "rejected", reason: "NOT_VERIFIED" };
+          if (downloadedFile && !(await reverifyDownload(verified, downloadedFile))) {
+            verified = null;
+            return { phase: "rejected", version: latestInfo?.version, reason: "DOWNLOAD_TAMPERED" };
+          }
+
+          const inBusinessHours = isBusinessHours(new Date());
+          const answer = await confirmInstall({
+            version: verified.version,
+            devices: await connectedDevices(),
+            inBusinessHours,
+          });
+          switch (resolveInstallDecision({ ...answer, inBusinessHours })) {
+            case "cancelled":
+              return { phase: "ready", version: verified.version };
+            case "refused-in-hours":
+              return { phase: "rejected", version: verified.version, reason: "IN_BUSINESS_HOURS" };
+            case "install-on-quit":
+              // Consented, and only now: the flag stays false until a person has
+              // chosen it for this one release.
+              autoUpdater.autoInstallOnAppQuit = true;
+              return { phase: "scheduled", version: verified.version };
+            default:
+              autoUpdater.quitAndInstall();
+              return { phase: "ready", version: verified.version };
+          }
         }
         default:
           return { phase: "idle" };
@@ -388,19 +614,18 @@ export function registerAutoUpdater(
   // the very first line of this function.
   const report = signature ?? inspectAppSignature(realSignatureEnvironment());
   if (report.verdict !== "signed") {
-    if (env[ALLOW_UNSIGNED_FLAG] !== "1") {
+    if (!ALLOW_UNSIGNED_BUILD) {
       console.error(
         `[updater] REFUSED: this build's signature is ${report.verdict} (${report.detail}). ` +
           "An unsigned app has no publisher, so a downloaded update cannot be verified as ours — " +
           "and this product binds a LAN socket, where anyone on the shop wifi can answer for the " +
-          `update feed. Install updates from the signed installer instead. ${ALLOW_UNSIGNED_FLAG}=1 ` +
-          "overrides this on a test machine only.",
+          "update feed. Install updates from the signed installer instead.",
       );
       return;
     }
     console.warn(
-      `[updater] ${ALLOW_UNSIGNED_FLAG}=1 — proceeding on a build whose signature is ` +
-        `${report.verdict} (${report.detail}). Never set this on a customer install.`,
+      "[updater] this build was compiled with MEZAN_ALLOW_UNSIGNED_UPDATES — proceeding on a build " +
+        `whose signature is ${report.verdict} (${report.detail}). Never ship such a build.`,
     );
   } else {
     console.log(`[updater] signature ok: ${report.detail}`);

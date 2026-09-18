@@ -42,6 +42,7 @@ import {
   useSaveEtaItemMapping,
   useSaveEtaUnitMapping,
   useSubmitAllReadyEta,
+  useProcessEtaQueue,
   useSubmitEtaSubmission,
   useTestEtaConnection,
   useUpdateEtaConfig,
@@ -241,6 +242,9 @@ function GeneralTab({ config }: { config: EtaConfigDTO | null }) {
   const addressComplete = form.governorate.trim() !== "" && form.city.trim() !== "" && form.street.trim() !== "" && form.buildingNumber.trim() !== "";
 
   async function save() {
+    // Saving before the current config has loaded would post empty gateway
+    // addresses over the stored ones.
+    if (!config) return;
     setSaved(false);
     // `onClick={save}` does not await this, so a rejected mutation escapes as
     // an unhandled promise rejection — and `setSaved(true)` below would run on
@@ -369,7 +373,7 @@ function GeneralTab({ config }: { config: EtaConfigDTO | null }) {
           />
         </div>
         <div className="mt-[16px] flex items-center gap-[10px]">
-          <Button variant="primary" onClick={save} disabled={update.isPending}>{t("common.save")}</Button>
+          <Button variant="primary" onClick={save} disabled={update.isPending || config === null}>{t("common.save")}</Button>
           {saved ? <span role="status" className="text-[12.5px] text-success-ink">{t("eta.settingsSaved")}</span> : null}
         </div>
       </Card>
@@ -488,21 +492,42 @@ function CredentialsTab({ config }: { config: EtaConfigDTO | null }) {
   const [clientId, setClientId] = useState("");
   const [clientSecret, setClientSecret] = useState("");
   const [signingMethod, setSigningMethod] = useState<EtaConfigDTO["signingMethod"]>("none");
+  const [preproductionIdentityUrl, setPreproductionIdentityUrl] = useState("");
+  const [preproductionApiUrl, setPreproductionApiUrl] = useState("");
+  const [productionIdentityUrl, setProductionIdentityUrl] = useState("");
+  const [productionApiUrl, setProductionApiUrl] = useState("");
+  const [signingCommand, setSigningCommand] = useState("");
+  const [signingCommandArgs, setSigningCommandArgs] = useState("");
   const [saved, setSaved] = useState(false);
-  const [testResult, setTestResult] = useState<string | null>(null);
+  const [testResult, setTestResult] = useState<{ tone: "ok" | "warn"; text: string; detail: string | null } | null>(null);
 
   useEffect(() => {
     if (!config) return;
     setClientId(config.clientId ?? "");
     setSigningMethod(config.signingMethod);
+    setPreproductionIdentityUrl(config.preproductionIdentityUrl);
+    setPreproductionApiUrl(config.preproductionApiUrl);
+    setProductionIdentityUrl(config.productionIdentityUrl);
+    setProductionApiUrl(config.productionApiUrl);
+    setSigningCommand(config.signingCommand ?? "");
+    setSigningCommandArgs(config.signingCommandArgs.join(" "));
   }, [config]);
 
   async function save() {
+    // Saving before the current config has loaded would post empty gateway
+    // addresses over the stored ones.
+    if (!config) return;
     setSaved(false);
     try {
       await update.mutateAsync({
         clientId: clientId.trim() || null,
         signingMethod,
+        preproductionIdentityUrl: preproductionIdentityUrl.trim(),
+        preproductionApiUrl: preproductionApiUrl.trim(),
+        productionIdentityUrl: productionIdentityUrl.trim(),
+        productionApiUrl: productionApiUrl.trim(),
+        signingCommand: signingCommand.trim() || null,
+        signingCommandArgs: signingCommandArgs.trim() === "" ? [] : signingCommandArgs.trim().split(/\s+/),
         ...(clientSecret.trim() === "" ? {} : { clientSecret: clientSecret.trim() }),
       });
     } catch {
@@ -515,8 +540,17 @@ function CredentialsTab({ config }: { config: EtaConfigDTO | null }) {
   }
 
   async function runTest() {
+    setTestResult(null);
     const result = await test.mutateAsync();
-    setTestResult(result.reason === "missing_credentials" ? t("eta.testMissingCredentials") : t("eta.testOffline"));
+    const text =
+      result.reason === "connected"
+        ? t("eta.testConnected")
+        : result.reason === "missing_credentials"
+          ? t("eta.testMissingCredentials")
+          : result.reason === "rejected"
+            ? t("eta.testRejected")
+            : t("eta.testUnreachable");
+    setTestResult({ tone: result.ok ? "ok" : "warn", text, detail: result.detail });
   }
 
   return (
@@ -549,15 +583,45 @@ function CredentialsTab({ config }: { config: EtaConfigDTO | null }) {
             ]}
           />
         </Field>
+        <Field label={t("eta.preproductionIdentityUrl")} htmlFor="eta-preprod-id-url">
+          <TextInput id="eta-preprod-id-url" dir="ltr" value={preproductionIdentityUrl} onChange={(e) => setPreproductionIdentityUrl(e.target.value)} />
+        </Field>
+        <Field label={t("eta.preproductionApiUrl")} htmlFor="eta-preprod-api-url">
+          <TextInput id="eta-preprod-api-url" dir="ltr" value={preproductionApiUrl} onChange={(e) => setPreproductionApiUrl(e.target.value)} />
+        </Field>
+        <Field label={t("eta.productionIdentityUrl")} htmlFor="eta-prod-id-url">
+          <TextInput id="eta-prod-id-url" dir="ltr" value={productionIdentityUrl} onChange={(e) => setProductionIdentityUrl(e.target.value)} />
+        </Field>
+        <Field label={t("eta.productionApiUrl")} htmlFor="eta-prod-api-url">
+          <TextInput id="eta-prod-api-url" dir="ltr" value={productionApiUrl} onChange={(e) => setProductionApiUrl(e.target.value)} />
+        </Field>
       </div>
+      {signingMethod === "eseal" ? (
+        <div className="mt-[14px] grid gap-[14px] md:grid-cols-2">
+          <Field label={t("eta.signingCommand")} hint={t("eta.signingCommandHint")} htmlFor="eta-signing-command">
+            <TextInput id="eta-signing-command" dir="ltr" value={signingCommand} onChange={(e) => setSigningCommand(e.target.value)} />
+          </Field>
+          <Field label={t("eta.signingCommandArgs")} htmlFor="eta-signing-args">
+            <TextInput id="eta-signing-args" dir="ltr" value={signingCommandArgs} onChange={(e) => setSigningCommandArgs(e.target.value)} />
+          </Field>
+        </div>
+      ) : null}
       <div className="mt-[16px] flex flex-wrap items-center gap-[10px]">
-        <Button variant="primary" onClick={save} disabled={update.isPending}>{t("common.save")}</Button>
+        <Button variant="primary" onClick={save} disabled={update.isPending || config === null}>{t("common.save")}</Button>
         <Button onClick={runTest} disabled={test.isPending}>{t("eta.testConnection")}</Button>
         {saved ? <span role="status" className="text-[12.5px] text-success-ink">{t("eta.settingsSaved")}</span> : null}
       </div>
       {testResult ? (
-        <div role="status" className="mt-[12px] rounded-md border border-warning bg-warning-soft px-[12px] py-[10px] text-[12.5px] text-warning-ink">
-          {testResult}
+        <div
+          role="status"
+          className={
+            testResult.tone === "ok"
+              ? "mt-[12px] rounded-md border border-success bg-success-soft px-[12px] py-[10px] text-[12.5px] text-success-ink"
+              : "mt-[12px] rounded-md border border-warning bg-warning-soft px-[12px] py-[10px] text-[12.5px] text-warning-ink"
+          }
+        >
+          {testResult.text}
+          {testResult.detail ? <div className="mt-[4px] text-ink-muted" dir="ltr">{testResult.detail}</div> : null}
         </div>
       ) : null}
     </Card>
@@ -885,8 +949,14 @@ function SubmissionsTab({ statusKeys }: { statusKeys: Record<EtaSubmissionStatus
   ];
   const submitOneMutation = useSubmitEtaSubmission();
   const submitAllMutation = useSubmitAllReadyEta();
+  const processMutation = useProcessEtaQueue();
   const excludeMutation = useExcludeEtaSubmission();
-  const [notice, setNotice] = useState<{ kind: "offline" } | { kind: "queued"; count: number } | null>(null);
+  const [notice, setNotice] = useState<
+    | { kind: "offline" }
+    | { kind: "queued"; count: number }
+    | { kind: "processed"; submitted: number; accepted: number; rejected: number; queued: number; unsigned: number }
+    | null
+  >(null);
   const [excludingId, setExcludingId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [reason, setReason] = useState("");
@@ -924,6 +994,24 @@ function SubmissionsTab({ statusKeys }: { statusKeys: Record<EtaSubmissionStatus
     setNotice(null);
     const result = await submitAllMutation.mutateAsync();
     if (result.queued.length > 0) setNotice({ kind: "queued", count: result.queued.length });
+  }
+
+  async function processQueue() {
+    setNotice(null);
+    setActionError(null);
+    try {
+      const result = await processMutation.mutateAsync();
+      setNotice({
+        kind: "processed",
+        submitted: result.submitted.length,
+        accepted: result.accepted.length,
+        rejected: result.rejected.length,
+        queued: result.queued.length,
+        unsigned: result.unsigned.length,
+      });
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : t("api.thatActionCouldNotBe"));
+    }
   }
 
   async function confirmExclude() {
@@ -983,13 +1071,24 @@ function SubmissionsTab({ statusKeys }: { statusKeys: Record<EtaSubmissionStatus
 
       <ReceiptQueueCard />
 
-      <div className="mb-[12px] flex justify-end">
+      <div className="mb-[12px] flex flex-wrap justify-end gap-[8px]">
+        <Button onClick={processQueue} disabled={processMutation.isPending}>{t("eta.processQueue")}</Button>
         <Button variant="primary" onClick={submitAll} disabled={submitAllMutation.isPending}>{t("eta.submitEverythingReady")}</Button>
       </div>
 
       {notice ? (
         <div role="status" className="mb-[14px] rounded-md border border-warning bg-warning-soft px-[12px] py-[10px] text-[12.5px] text-warning-ink">
-          {notice.kind === "offline" ? t("eta.actualSubmissionNeedsALive") : t("eta.queuedNotice", { count: String(notice.count) })}
+          {notice.kind === "offline"
+            ? t("eta.actualSubmissionNeedsALive")
+            : notice.kind === "queued"
+              ? t("eta.queuedNotice", { count: String(notice.count) })
+              : t("eta.processedNotice", {
+                  submitted: String(notice.submitted),
+                  accepted: String(notice.accepted),
+                  rejected: String(notice.rejected),
+                  queued: String(notice.queued),
+                  unsigned: String(notice.unsigned),
+                })}
         </div>
       ) : null}
 

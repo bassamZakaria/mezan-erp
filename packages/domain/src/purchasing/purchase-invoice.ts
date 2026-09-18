@@ -104,9 +104,32 @@ export interface PurchaseInvoice {
 
 export interface PurchaseInvoiceRepository {
   findById(id: string): Promise<PurchaseInvoice | null>;
-  list(): Promise<PurchaseInvoice[]>;
+  list(filter?: PurchaseInvoiceListFilter): Promise<PurchaseInvoice[]>;
+  /** How many invoices the same filter matches, ignoring `limit`/`offset`. */
+  count?(filter?: PurchaseInvoiceListFilter): Promise<number>;
   create(invoice: PurchaseInvoice): Promise<void>;
   update(invoice: PurchaseInvoice): Promise<void>;
+}
+
+/**
+ * What the store can answer in SQL, so a list is a page rather than the whole
+ * table (Q-8). Everything here is a column; anything derived stays in the
+ * caller.
+ */
+export interface PurchaseInvoiceListFilter {
+  readonly status?: PurchaseInvoiceStatus;
+  /** A SET of statuses, ANDed with `status`. An empty array matches nothing. */
+  readonly statusIn?: readonly PurchaseInvoiceStatus[];
+  readonly supplierId?: string;
+  /** Inclusive bounds on the invoice date. */
+  readonly fromDate?: string;
+  readonly toDate?: string;
+  readonly branchId?: string;
+  readonly warehouseId?: string;
+  /** Substring of the document number or the supplier's own invoice number. */
+  readonly search?: string;
+  readonly limit?: number;
+  readonly offset?: number;
 }
 
 export interface PurchaseInvoiceLineInput {
@@ -550,65 +573,71 @@ export async function confirmPurchaseInvoice(
     fx = { rate: found.rate, baseCurrency };
   }
 
-  // The GL goes FIRST, and this ordering is load-bearing: there is no
-  // transaction around this confirm, so whatever runs before a refusal stays
-  // applied. Posting first means a closed period, an inactive account or an
-  // unbalanced entry leaves nothing behind; with the stock move first, a
-  // refused confirm left the inventory sub-ledger permanently ahead of GL 1200
-  // with no document to explain it (D21). The reverse risk does not exist here:
-  // a purchase invoice's movement is always a receipt IN, which no stock policy
-  // can refuse.
   const posting = buildInvoicePosting(invoice, deps.accounts, fx);
-  await deps.gl.post(posting);
 
-  // Manual invoice (no prior receipt): the invoice IS the stock-in document.
-  if (!invoice.receiptId) {
-    const stockLines = invoice.lines
-      .filter((l) => l.kind === "inventory" && l.itemId !== null)
-      .map((l) => ({
-        itemId: l.itemId as string,
-        qty: l.qty,
-        // The stock ledger keeps every cost in BASE currency, because GL 1200
-        // does and the two must reconcile. Receiving a foreign invoice at its
-        // own unit cost put the sub-ledger 48,350.00 below its control account
-        // on a single 1,000 USD invoice — the GL had already converted.
-        unitCost: fx ? convertToBase(l.unitCost, fx.rate) : l.unitCost,
-        batchNo: l.batchNo,
-        expiryDate: l.expiryDate,
-      }));
-    if (stockLines.length > 0) {
-      await deps.stock.postReceipt({
-        receiptId: invoice.id,
-        receiptNumber: invoice.number,
-        warehouseId: invoice.warehouseId,
-        sourceDocType: "PURCHASE_INVOICE",
-        lines: stockLines,
-        occurredAt: occurredAtFromDocumentDate(invoice.date),
+  // EVERY WRITE BELOW SHARES ONE TRANSACTION (B-7). The GL entry is keyed
+  // `PI-JE:<invoiceId>`, so a failure after it posted left the invoice `draft`
+  // with a live entry and every retry threw DuplicateJournalEntryError — the
+  // invoice was permanently unconfirmable. SAVEPOINT nesting on the shared
+  // connection makes the inner GL transaction safe inside this one.
+  //
+  // The GL still goes first inside it: a closed period, an inactive account or
+  // an unbalanced entry then refuses before the sub-ledger has moved (D21).
+  const runAtomically = deps.gl.transaction?.bind(deps.gl) ?? (<T,>(fn: () => Promise<T>) => fn());
+
+  const confirmed = await runAtomically(async () => {
+    await deps.gl.post(posting);
+
+    // Manual invoice (no prior receipt): the invoice IS the stock-in document.
+    if (!invoice.receiptId) {
+      const stockLines = invoice.lines
+        .filter((l) => l.kind === "inventory" && l.itemId !== null)
+        .map((l) => ({
+          itemId: l.itemId as string,
+          qty: l.qty,
+          // The stock ledger keeps every cost in BASE currency, because GL 1200
+          // does and the two must reconcile. Receiving a foreign invoice at its
+          // own unit cost put the sub-ledger 48,350.00 below its control account
+          // on a single 1,000 USD invoice — the GL had already converted.
+          unitCost: fx ? convertToBase(l.unitCost, fx.rate) : l.unitCost,
+          batchNo: l.batchNo,
+          expiryDate: l.expiryDate,
+        }));
+      if (stockLines.length > 0) {
+        await deps.stock.postReceipt({
+          receiptId: invoice.id,
+          receiptNumber: invoice.number,
+          warehouseId: invoice.warehouseId,
+          sourceDocType: "PURCHASE_INVOICE",
+          lines: stockLines,
+          occurredAt: occurredAtFromDocumentDate(invoice.date),
+        });
+      }
+    }
+
+    if (invoice.receiptId && deps.receipts) {
+      await markGoodsReceiptInvoiced(invoice.receiptId, { receipts: deps.receipts });
+    }
+
+    const next: PurchaseInvoice = { ...invoice, status: "confirmed", fxRate: fx?.rate ?? null };
+    await deps.invoices.update(next);
+
+    if (deps.allocatable) {
+      await deps.allocatable.save({
+        id: next.id,
+        invoiceNo: next.number,
+        kind: "purchase",
+        partyId: next.supplierId,
+        date: next.date,
+        // BASE currency: a supplier payment settles in base, and GL 2100 holds
+        // base — storing the document's own USD figure made a foreign invoice
+        // look settled by a fraction of what it owes (D24).
+        total: purchaseInvoiceBaseTotal(next),
+        allocated: Money.zero(),
       });
     }
-  }
-
-  if (invoice.receiptId && deps.receipts) {
-    await markGoodsReceiptInvoiced(invoice.receiptId, { receipts: deps.receipts });
-  }
-
-  const confirmed: PurchaseInvoice = { ...invoice, status: "confirmed", fxRate: fx?.rate ?? null };
-  await deps.invoices.update(confirmed);
-
-  if (deps.allocatable) {
-    await deps.allocatable.save({
-      id: confirmed.id,
-      invoiceNo: confirmed.number,
-      kind: "purchase",
-      partyId: confirmed.supplierId,
-      date: confirmed.date,
-      // BASE currency: a supplier payment settles in base, and GL 2100 holds
-      // base — storing the document's own USD figure made a foreign invoice
-      // look settled by a fraction of what it owes (D24).
-      total: purchaseInvoiceBaseTotal(confirmed),
-      allocated: Money.zero(),
-    });
-  }
+    return next;
+  });
 
   await recordPurchaseAudit(deps, "PURCHASE_INVOICE", "CONFIRM", {
     invoiceId: confirmed.id,

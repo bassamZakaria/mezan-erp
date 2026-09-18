@@ -288,3 +288,62 @@ describe("NotificationRulesPage", () => {
     expect((seenBody as unknown as { channels: string[] }).channels).toEqual(expect.arrayContaining(["in_app", "email"]));
   });
 });
+
+/**
+ * guards §4.5 #10 — the rules TABLE dropped the form's caveat, and «قيد الإرسال»
+ * read as "on its way" for a channel with no transport at all.
+ */
+describe("NotificationRulesPage — channels with no transport", () => {
+  const TRIGGERS = {
+    "GET /notification-rules/triggers": () => ({
+      body: {
+        triggers: [
+          { code: "SALES_INVOICE_CONFIRMED", category: "sales", labelAr: "تم تأكيد فاتورة مبيعات", emitted: true },
+        ],
+        implementedChannels: ["in_app"],
+      },
+    }),
+  };
+
+  it("carries the same badge in the table as in the form", async () => {
+    renderWithProviders(<NotificationRulesPage />, {
+      initialSession: testAdminSession,
+      transport: stubTransport({
+        ...BASE_HANDLERS,
+        ...TRIGGERS,
+        "GET /notification-rules": () => ({ body: [rule({ channels: ["in_app", "email"] })] }),
+      }),
+    });
+
+    expect(
+      await screen.findByText("بريد إلكتروني — غير مفعّل بعد (لن تصل رسائل)"),
+    ).toBeInTheDocument();
+    // The delivering channel keeps its plain label.
+    expect(screen.getAllByText("داخل التطبيق").length).toBeGreaterThan(0);
+  });
+
+  it("will not let a rule be saved against a channel that cannot deliver", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<NotificationRulesPage />, {
+      initialSession: testAdminSession,
+      transport: stubTransport({
+        ...BASE_HANDLERS,
+        ...TRIGGERS,
+        "GET /notification-rules": () => ({ body: [rule()] }),
+      }),
+    });
+
+    await screen.findByText("فاتورة مبيعات مؤكدة");
+    await user.click(screen.getByRole("button", { name: "إضافة قاعدة" }));
+    const dialog = screen.getByRole("dialog", { name: "إضافة قاعدة" });
+
+    const email = within(dialog).getByRole("button", { name: /بريد إلكتروني/ });
+    const push = within(dialog).getByRole("button", { name: /إشعار فوري/ });
+    expect(email).toBeDisabled();
+    expect(push).toBeDisabled();
+    expect(within(dialog).getByRole("button", { name: /^داخل التطبيق$/ })).not.toBeDisabled();
+
+    await user.click(email);
+    expect(email).toHaveAttribute("aria-pressed", "false");
+  });
+});

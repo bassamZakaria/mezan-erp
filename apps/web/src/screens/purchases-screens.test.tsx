@@ -188,10 +188,10 @@ describe("PurchaseOrdersScreen", () => {
       </TestNavigation>,
       { transport, initialSession: testAdminSession },
     );
-    expect(await screen.findByText("تعذّر تحميل أوامر الشراء.")).toBeInTheDocument();
+    expect(await screen.findByText("تعذّر تحميل أوامر الشراء. (رمز 500)")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "إعادة المحاولة" }));
     expect(await screen.findByText("PO-000003")).toBeInTheDocument();
-    await waitFor(() => expect(screen.queryByText("تعذّر تحميل أوامر الشراء.")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByText("تعذّر تحميل أوامر الشراء. (رمز 500)")).not.toBeInTheDocument());
   });
 });
 

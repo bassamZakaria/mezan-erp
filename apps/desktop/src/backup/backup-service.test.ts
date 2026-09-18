@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from "vitest";
 import Database from "better-sqlite3";
-import { mkdir, mkdtemp, rm, readdir, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, readdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
@@ -8,10 +8,17 @@ import {
   listBackups,
   backupFileName,
   parseCreatedAtFromFileName,
+  isPreUpdateArchive,
+  preUpdateLabel,
+  isPrecompressedAttachment,
+  isFullIntegrityCheckDue,
+  readIntegrityState,
+  INTEGRITY_CHECK_INTERVAL_MS,
   BACKUP_FILE_EXTENSION,
 } from "./backup-service.js";
 import { extractArchive } from "./archive.js";
 import { parseManifest } from "./manifest.js";
+import { cipherDriver, openTenantConnection, type TenantCipher } from "../main/encrypted-database.js";
 
 const dirs: string[] = [];
 const dbs: Database.Database[] = [];
@@ -149,5 +156,171 @@ describe("listBackups / backupFileName / parseCreatedAtFromFileName", () => {
     const dir = await tmpDir();
     await writeFile(path.join(dir, "readme.txt"), "not a backup");
     expect(await listBackups(dir)).toEqual([]);
+  });
+
+  /**
+   * GUARDS U-9. The archive taken before a schema change has to be findable
+   * without extracting every manifest in the folder, because the button that
+   * offers to go back to it is the whole point of taking it.
+   */
+  it("carries the version it was taken before in the file name, and still parses", () => {
+    const createdAt = new Date("2026-08-14T03:00:00.000Z");
+    const fileName = backupFileName(createdAt, preUpdateLabel("1.4.0"));
+
+    expect(fileName).toContain("pre-update-1.4.0");
+    expect(isPreUpdateArchive(fileName)).toBe(true);
+    // Retention reads the timestamp out of the name; a labelled archive must
+    // not become invisible to it.
+    expect(parseCreatedAtFromFileName(fileName)?.toISOString()).toBe(createdAt.toISOString());
+  });
+
+  it("does not mistake an ordinary archive for a pre-update one", () => {
+    expect(isPreUpdateArchive(backupFileName(new Date()))).toBe(false);
+  });
+
+  it("creates the backups directory private to this user (0700)", async () => {
+    const base = await tmpDir();
+    const { db } = await seededFileDb(base);
+    const dir = path.join(base, "fresh-backups");
+    await createBackup({ sqlite: db, backupsDir: dir, appVersion: "1.0.0", reason: "manual" });
+    const { stat } = await import("node:fs/promises");
+    expect((await stat(dir)).mode & 0o777).toBe(0o700);
+  });
+});
+
+// GUARDS Q-2 (docs/artifacts/audit-2026-09-07.md §4.4): the daily backup used to
+// run its full copy, sha256, tar+gzip, extract and integrity_check synchronously
+// on the Electron main-process event loop. These prove the off-thread pipeline
+// actually produces the same trustworthy archive, that attachments already in a
+// compressed format are not gzip'd a second time, and that the weekly
+// integrity-check cadence never lets an unverified archive evict a good one.
+
+describe("isPrecompressedAttachment", () => {
+  it("recognises image/video/audio/archive extensions, case-insensitively", () => {
+    for (const name of ["photo.JPG", "clip.mp4", "song.mp3", "backup.zip", "scan.heic"]) {
+      expect(isPrecompressedAttachment(name)).toBe(true);
+    }
+  });
+
+  it("treats everything else — including the database itself — as compressible", () => {
+    for (const name of ["ledger.sqlite", "notes.txt", "report.csv", "no-extension"]) {
+      expect(isPrecompressedAttachment(name)).toBe(false);
+    }
+  });
+});
+
+describe("createBackup — attachment compression policy", () => {
+  it("skips gzip for an already-compressed attachment, keeps a compressible one in the tar, and records the split in the manifest", async () => {
+    const dir = await tmpDir();
+    const { db } = await seededFileDb(dir);
+    const backupsDir = path.join(dir, "backups");
+
+    const pngBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 9, 9, 9, 9]);
+    const pngPath = path.join(dir, "logo.png");
+    await writeFile(pngPath, pngBytes);
+    const txtPath = path.join(dir, "note.txt");
+    await writeFile(txtPath, "compress me");
+
+    const result = await createBackup({
+      sqlite: db,
+      backupsDir,
+      appVersion: "1.0.0",
+      reason: "manual",
+      extraFiles: [
+        { sourcePath: pngPath, archiveName: "logo.png" },
+        { sourcePath: txtPath, archiveName: "note.txt" },
+      ],
+    });
+
+    expect(result.manifest.looseAttachments).toEqual(["logo.png"]);
+
+    const extracted = await extractArchive(result.archivePath, path.join(dir, "extracted"));
+    const entries = await readdir(extracted.destDir);
+    expect(entries).toContain("note.txt");
+    expect(entries).not.toContain("logo.png");
+
+    const loose = await readFile(path.join(`${result.archivePath}.attachments`, "logo.png"));
+    expect(loose.equals(pngBytes)).toBe(true);
+  });
+});
+
+describe("createBackup — weekly integrity-check cadence", () => {
+  it("runs the full check on the first backup, skips it on the next within 7 days, and preserves verify-before-retention either way", async () => {
+    const dir = await tmpDir();
+    const { db } = await seededFileDb(dir);
+    const backupsDir = path.join(dir, "backups");
+    const day1 = new Date("2026-09-01T08:00:00.000Z");
+
+    const first = await createBackup({ sqlite: db, backupsDir, appVersion: "1.0.0", reason: "scheduled", now: day1 });
+    expect(first.manifest.lastIntegrityCheckAt).toBe(day1.toISOString());
+    const stateAfterFirst = await readIntegrityState(backupsDir);
+    expect(stateAfterFirst.lastIntegrityCheckAt).toBe(day1.toISOString());
+
+    const day2 = new Date(day1.getTime() + 6 * 60 * 60 * 1000);
+    db.prepare("INSERT INTO journal_entry (id, memo) VALUES (?, ?)").run("JE-3", "second day");
+    const second = await createBackup({ sqlite: db, backupsDir, appVersion: "1.0.0", reason: "scheduled", now: day2 });
+    // Not due yet — the manifest carries the FIRST run's timestamp forward
+    // rather than optimistically claiming a fresh proof that didn't happen.
+    expect(second.manifest.lastIntegrityCheckAt).toBe(day1.toISOString());
+    const stateAfterSecond = await readIntegrityState(backupsDir);
+    expect(stateAfterSecond.lastIntegrityCheckAt).toBe(day1.toISOString());
+
+    // Both archives are still individually openable — the cheaper proof
+    // (extract + checksum) ran on both, full-check cadence or not.
+    for (const archivePath of [first.archivePath, second.archivePath]) {
+      const extracted = await extractArchive(archivePath, path.join(dir, `verify-${path.basename(archivePath)}`));
+      expect(parseManifest(extracted.manifestJson).checksum).toHaveLength(64);
+    }
+
+    const day9 = new Date(day1.getTime() + INTEGRITY_CHECK_INTERVAL_MS + 60_000);
+    const third = await createBackup({ sqlite: db, backupsDir, appVersion: "1.0.0", reason: "scheduled", now: day9 });
+    expect(third.manifest.lastIntegrityCheckAt).toBe(day9.toISOString());
+  });
+
+  it("isFullIntegrityCheckDue: never run or older than 7 days is due, a recent run is not", () => {
+    const now = new Date("2026-09-07T00:00:00.000Z");
+    expect(isFullIntegrityCheckDue(null, now)).toBe(true);
+    expect(isFullIntegrityCheckDue(new Date(now.getTime() - INTEGRITY_CHECK_INTERVAL_MS).toISOString(), now)).toBe(
+      true,
+    );
+    expect(isFullIntegrityCheckDue(new Date(now.getTime() - 60_000).toISOString(), now)).toBe(false);
+  });
+});
+
+describe("createBackup — the copy itself off-thread (cipher opt-in)", () => {
+  it("takes the VACUUM INTO snapshot in the worker, via its own connection, when `cipher` is supplied", async () => {
+    const dir = await tmpDir();
+    const KEY = "7".repeat(64);
+    const cipher: TenantCipher = { driver: cipherDriver, key: KEY };
+    const dbPath = path.join(dir, "mezan.db");
+    const db = openTenantConnection(dbPath, cipher);
+    db.pragma("journal_mode = WAL");
+    db.exec("CREATE TABLE customer (id TEXT PRIMARY KEY, name TEXT NOT NULL)");
+    db.prepare("INSERT INTO customer VALUES (?, ?)").run("C-1", "شركة الاختبار");
+
+    try {
+      const result = await createBackup({
+        sqlite: db,
+        backupsDir: path.join(dir, "backups"),
+        appVersion: "1.0.0",
+        reason: "scheduled",
+        encrypted: true,
+        cipher: { key: KEY },
+      });
+
+      const extracted = await extractArchive(result.archivePath, path.join(dir, "extracted"));
+      const opened = new cipherDriver(extracted.dbFilePath, { readonly: true });
+      opened.pragma(`key = "x'${KEY}'"`);
+      expect(opened.prepare("SELECT name FROM customer WHERE id = 'C-1'").get()).toEqual({
+        name: "شركة الاختبار",
+      });
+      opened.close();
+      expect(result.manifest.tables["customer"]).toBe(1);
+      // The archive was verifiable at all (needs the key), so it was proven —
+      // not merely skipped like the no-cipher encrypted default.
+      expect(result.manifest.lastIntegrityCheckAt).not.toBeNull();
+    } finally {
+      db.close();
+    }
   });
 });

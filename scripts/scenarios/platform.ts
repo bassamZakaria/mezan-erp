@@ -368,10 +368,10 @@ export async function run(ctx: Ctx): Promise<void> {
   // ---------------------------------------------------------------------
   await ctx.scenario("platform / D5 — a confirmed sales invoice reaches the ETA queue", async () => {
     const submissions = await req("GET", "/eta/submissions", undefined, {});
-    const queued = rows(submissions.body);
+    const queued = await ctx.allRows("/eta/submissions");
     check("D5 — /eta/submissions has rows: a confirmed invoice now produces one", submissions.status === 200 && queued.length > 0, `${submissions.status}: ${queued.length} rows`);
 
-    const confirmed = rows((await req("GET", "/sales-invoices", undefined, {})).body).filter(
+    const confirmed = (await ctx.allRows("/sales-invoices")).filter(
       (i: any) => i.status !== "draft" && i.status !== "pending" && i.status !== "cancelled",
     );
     // The queue holds invoices, the إشعارات دائنة raised by confirmed sales
@@ -383,9 +383,10 @@ export async function run(ctx: Ctx): Promise<void> {
     const queuedInvoices = queued.filter((s: any) => s.documentType === "invoice");
     const queuedReceipts = queued.filter((s: any) => s.documentType === "receipt");
     const queuedNotes = queued.filter((s: any) => s.documentType === "credit_note");
-    const confirmedReturns = rows((await req("GET", "/sales-returns", undefined, {})).body).filter(
-      (r: any) => r.status === "confirmed",
-    );
+    // `ctx.allRows`, not a bare GET: a list route answers with ONE page of 25
+    // by default (Q-8), and a truncated count compared against the queue reads
+    // as a missing credit note rather than as a missing page.
+    const confirmedReturns = (await ctx.allRows("/sales-returns", {})).filter((r: any) => r.status === "confirmed");
 
     check("D5 — every live sales invoice is queued exactly once, as an invoice or as a receipt", queuedInvoices.length + queuedReceipts.length === confirmed.length, `invoices=${queuedInvoices.length} receipts=${queuedReceipts.length} live invoices=${confirmed.length}`);
     check("D5 — the B2C half of the queue is not empty: consumer sales really do produce receipts", queuedReceipts.length > 0, `receipts=${queuedReceipts.length}`);
@@ -414,7 +415,7 @@ export async function run(ctx: Ctx): Promise<void> {
       id: "SCN-RULE-REFUSED", name: "SCN-should-be-refused", eventCode: "SALES_INVOICE_CONFIRMED",
       recipientType: "user", recipientValue: "USER-ADMIN", priority: "normal", channels: ["in_app"], active: true,
     }, noPerm);
-    check("POST /notification-rules refused without admin.settings.edit", ruleCreate.status === 403, `${ruleCreate.status}: ${JSON.stringify(ruleCreate.body)}`);
+    check("POST /notification-rules refused without notifications.rule.manage", ruleCreate.status === 403, `${ruleCreate.status}: ${JSON.stringify(ruleCreate.body)}`);
 
     const auditList = await req("GET", "/audit", undefined, noPerm);
     check("GET /audit refused without audit.logs.view", auditList.status === 403, `${auditList.status}: ${JSON.stringify(auditList.body)}`);
@@ -425,6 +426,13 @@ export async function run(ctx: Ctx): Promise<void> {
     const decideNoPerm = await req("POST", `/workflow/requests/${approveOutcome!.workflowRequestId}/decide`, { decision: "approve" }, nonAdmin("SCN-USER-NOWORKFLOW", "", "SCN_NONE"));
     check("POST /workflow/requests/:id/decide refused without workflow.view", decideNoPerm.status === 403, `${decideNoPerm.status}: ${JSON.stringify(decideNoPerm.body)}`);
   });
+
+  // ---------------------------------------------------------------------
+  // Webhooks — REMOVED with the mount (DEC-17, packages/api/src/app.ts). The
+  // dispatcher, its HMAC signing and its bounded retries are still covered by
+  // @mezan/api's own route tests; what no longer exists is a way for a user of
+  // this product to register a target for them.
+  // ---------------------------------------------------------------------
 
   // ---------------------------------------------------------------------
   // Numbering sequences — a prefix change affects the next document only,
@@ -483,27 +491,28 @@ export async function run(ctx: Ctx): Promise<void> {
   // visible only unfiltered.
   // ---------------------------------------------------------------------
   await ctx.scenario("platform / audit — actor, branch, and the branch filter", async () => {
-    // The vehicle is a role write: any audited admin action would do, and this
-    // one records the caller's branch the same way the webhook registration it
-    // replaced did (DEC-17 removed that surface).
-    const role = (name: string) => ({
-      code: name.toUpperCase().replace(/-/g, "_"),
-      name,
-      permissions: ["admin.users.view"],
-      isSystem: false,
-      status: "active",
-    });
+    // Notification rules, not webhooks: the webhook mount is gone (DEC-17) and
+    // this scenario is about the AUDIT row's actor/branch, not about what wrote
+    // it. Rule creation is audited through the same `recordSensitiveEvent`.
+    async function rule(id: string, name: string, headers: Record<string, string>) {
+      return req("POST", "/notification-rules", {
+        id, name, eventCode: "SALES_INVOICE_VOIDED", recipientType: "permission",
+        recipientValue: "sales.invoice.view", priority: "normal", channels: ["in_app"],
+        titleAr: null, bodyAr: null, active: true,
+      }, headers);
+    }
 
-    const whMain = await req("POST", "/roles", role("SCN-audit-branch-main"), branchScoped("BR-MAIN"));
-    check("write role A scoped to BR-MAIN", whMain.status === 201, whMain.status);
+    const whMain = await rule("SCN-AUD-A", "SCN-audit-branch-main", branchScoped("BR-MAIN"));
+    check("register rule A scoped to BR-MAIN", whMain.status === 201, `${whMain.status}: ${JSON.stringify(whMain.body)}`);
 
-    const whOther = await req("POST", "/roles", role("SCN-audit-branch-other"), branchScoped("SCN-BR-OTHER"));
-    check("write role B scoped to SCN-BR-OTHER", whOther.status === 201, whOther.status);
+    const whOther = await rule("SCN-AUD-B", "SCN-audit-branch-other", branchScoped("SCN-BR-OTHER"));
+    check("register rule B scoped to SCN-BR-OTHER", whOther.status === 201, `${whOther.status}: ${JSON.stringify(whOther.body)}`);
 
-    const whUnscoped = await req("POST", "/roles", role("SCN-audit-branchless"), {});
-    check("write role C with no branch scope (ALL_SCOPE → branchId null)", whUnscoped.status === 201, whUnscoped.status);
+    const whUnscoped = await rule("SCN-AUD-C", "SCN-audit-branchless", {});
+    check("register rule C with no branch scope (ALL_SCOPE → branchId null)", whUnscoped.status === 201, `${whUnscoped.status}: ${JSON.stringify(whUnscoped.body)}`);
 
-    const filteredMain = await req("GET", "/audit?module=admin&entityType=ROLE&action=CREATE&branchId=BR-MAIN", undefined, {});
+    const q = "module=notification-rules&action=CREATE";
+    const filteredMain = await req("GET", `/audit?${q}&branchId=BR-MAIN`, undefined, {});
     const namesMain = filteredMain.body.events.map((e: any) => e.details?.name);
     check("branch filter BR-MAIN includes A", namesMain.includes("SCN-audit-branch-main"), namesMain.join(","));
     check("the right actor is recorded on A's row", filteredMain.body.events.find((e: any) => e.details?.name === "SCN-audit-branch-main")?.actor === "USER-ADMIN", JSON.stringify(filteredMain.body.events[0]));
@@ -511,17 +520,38 @@ export async function run(ctx: Ctx): Promise<void> {
     check("branch filter BR-MAIN excludes B (a different branch)", !namesMain.includes("SCN-audit-branch-other"), namesMain.join(","));
     check("branch filter BR-MAIN excludes C (no branch at all)", !namesMain.includes("SCN-audit-branchless"), namesMain.join(","));
 
-    const filteredOther = await req("GET", "/audit?module=admin&entityType=ROLE&action=CREATE&branchId=SCN-BR-OTHER", undefined, {});
+    const filteredOther = await req("GET", `/audit?${q}&branchId=SCN-BR-OTHER`, undefined, {});
     const namesOther = filteredOther.body.events.map((e: any) => e.details?.name);
     check("branch filter SCN-BR-OTHER includes only B", namesOther.includes("SCN-audit-branch-other") && !namesOther.includes("SCN-audit-branch-main") && !namesOther.includes("SCN-audit-branchless"), namesOther.join(","));
 
-    const unfiltered = await req("GET", "/audit?module=admin&entityType=ROLE&action=CREATE", undefined, {});
+    const unfiltered = await req("GET", `/audit?${q}`, undefined, {});
     const namesUnfiltered = unfiltered.body.events.map((e: any) => e.details?.name);
     check("unfiltered view includes the branchless row C", namesUnfiltered.includes("SCN-audit-branchless"), namesUnfiltered.join(","));
     check("unfiltered view also includes A and B", namesUnfiltered.includes("SCN-audit-branch-main") && namesUnfiltered.includes("SCN-audit-branch-other"), namesUnfiltered.join(","));
 
-    const anyBranchFilter = await req("GET", "/audit?module=admin&entityType=ROLE&action=CREATE&branchId=BR-MAIN", undefined, {});
+    const anyBranchFilter = await req("GET", `/audit?${q}&branchId=BR-MAIN`, undefined, {});
     check("a branchless historical row never appears under ANY specific-branch filter", !anyBranchFilter.body.events.some((e: any) => e.branchId === null), JSON.stringify(anyBranchFilter.body.events.map((e: any) => e.branchId)));
+
+    // The audit rows stay — the trail is append-only — but the three RULES are
+    // scenario scaffolding, and every later assertion that counts the tenant's
+    // notification rules would count them too.
+    for (const id of ["SCN-AUD-A", "SCN-AUD-B", "SCN-AUD-C"]) {
+      const removed = await req("DELETE", `/notification-rules/${id}`, undefined, {});
+      check(`the scenario's rule ${id} is removed again`, removed.status === 204, `status ${removed.status}`);
+    }
+  });
+
+  // ---------------------------------------------------------------------
+  // The audit trail is hash-chained (audit S-3): `/audit/verify` walks it.
+  // ---------------------------------------------------------------------
+  await ctx.scenario("platform / audit — the chain verifies on an untouched trail", async () => {
+    const verified = await req("GET", "/audit/verify", undefined, {});
+    check("GET /audit/verify answers 200", verified.status === 200, `${verified.status}: ${JSON.stringify(verified.body)}`);
+    check("the seeded trail verifies intact", verified.body?.ok === true, JSON.stringify(verified.body));
+    check("every chained row was actually walked", (verified.body?.checked ?? 0) > 0, JSON.stringify(verified.body));
+
+    const refused = await req("GET", "/audit/verify", undefined, nonAdmin("SCN-USER-NOAUDIT", "", "SCN_NONE"));
+    check("GET /audit/verify refused without audit.logs.view", refused.status === 403, `${refused.status}: ${JSON.stringify(refused.body)}`);
   });
 
   // ---------------------------------------------------------------------

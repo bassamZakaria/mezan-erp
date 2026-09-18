@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useId, useRef, useState } from "react";
+import { Fragment, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent, ReactNode } from "react";
 import { cn } from "../lib/cn";
 import {
@@ -169,6 +169,13 @@ export interface DocumentListProps<Row> {
 
 const DEFAULT_PAGE_SIZES = [10, 25, 50, 100] as const;
 
+/** Table-row height in px — the `h-[36px]` on every `<tr>` below. The two must move together. */
+const VIRTUAL_ROW_HEIGHT = 36;
+/** Rows rendered beyond the viewport on each side, so a fast scroll never shows a gap. */
+const VIRTUAL_OVERSCAN = 8;
+/** Below this a page renders whole: the scroll listener costs more than the rows do. */
+const VIRTUALIZE_THRESHOLD = 60;
+
 function getListStorage(): Storage | null {
   try {
     return typeof window !== "undefined" ? window.localStorage : null;
@@ -282,6 +289,49 @@ export function DocumentList<Row>({
   // `preventDefault` and nothing moves.
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const tbodyRef = useRef<HTMLTableSectionElement | null>(null);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const [viewport, setViewport] = useState({ top: 0, height: 0 });
+
+  /**
+   * Windowing (Q-9). Every table row is a fixed 36px, so the visible slice is
+   * arithmetic rather than measurement — no library and no per-row observer.
+   *
+   * OFF when a row can expand: an expanded row is not 36px, so the spacers
+   * below would compute the wrong offset and the table would jump. Also off
+   * under the threshold, because rendering forty rows whole costs less than
+   * the scroll listener does.
+   */
+  const canVirtualize = renderExpandedRow === undefined && rows.length > VIRTUALIZE_THRESHOLD;
+
+  useEffect(() => {
+    if (!canVirtualize) return;
+    const el = scrollRef.current;
+    if (!el) return;
+    const read = () => setViewport({ top: el.scrollTop, height: el.clientHeight });
+    read();
+    el.addEventListener("scroll", read, { passive: true });
+    window.addEventListener("resize", read);
+    return () => {
+      el.removeEventListener("scroll", read);
+      window.removeEventListener("resize", read);
+    };
+  }, [canVirtualize]);
+
+  const visible = useMemo(() => {
+    if (!canVirtualize) return { start: 0, end: rows.length };
+    const height = viewport.height > 0 ? viewport.height : 760;
+    const first = Math.max(0, Math.floor(viewport.top / VIRTUAL_ROW_HEIGHT) - VIRTUAL_OVERSCAN);
+    const span = Math.ceil(height / VIRTUAL_ROW_HEIGHT) + VIRTUAL_OVERSCAN * 2;
+    let start = first;
+    let end = Math.min(rows.length, first + span);
+    // The keyboard-selected row must stay in the DOM: `j`/`k` navigation finds
+    // it by `data-mz-row-index` and scrolls it into view.
+    if (selectedIndex !== null) {
+      start = Math.min(start, selectedIndex);
+      end = Math.max(end, selectedIndex + 1);
+    }
+    return { start, end };
+  }, [canVirtualize, rows.length, viewport, selectedIndex]);
   const navId = useId();
   const latest = useRef({ rows, onRowClick, selectedIndex });
   latest.current = { rows, onRowClick, selectedIndex };
@@ -452,7 +502,7 @@ export function DocumentList<Row>({
       ) : null}
 
       <Card className="overflow-hidden rounded-md">
-        <div className="max-h-[min(68vh,760px)] overflow-auto">
+        <div ref={scrollRef} className="max-h-[min(68vh,760px)] overflow-auto">
           <table className="w-full min-w-[720px] border-separate border-spacing-0 text-sm">
             <thead>
               <tr>
@@ -503,7 +553,13 @@ export function DocumentList<Row>({
               </tr>
             </thead>
             <tbody ref={tbodyRef}>
-              {rows.map((row, rowIndex) => {
+              {visible.start > 0 ? (
+                <tr aria-hidden="true">
+                  <td colSpan={columns.length + (showRowAction ? 1 : 0)} style={{ height: visible.start * VIRTUAL_ROW_HEIGHT }} />
+                </tr>
+              ) : null}
+              {rows.slice(visible.start, visible.end).map((row, offsetIndex) => {
+                const rowIndex = visible.start + offsetIndex;
                 const key = rowKey(row, rowIndex);
                 const expansion = renderExpandedRow?.(row);
                 const isExpanded = expansion !== undefined && expansion !== null && expandedKeys?.includes(key) === true;
@@ -562,6 +618,14 @@ export function DocumentList<Row>({
                 </Fragment>
                 );
               })}
+              {visible.end < rows.length ? (
+                <tr aria-hidden="true">
+                  <td
+                    colSpan={columns.length + (showRowAction ? 1 : 0)}
+                    style={{ height: (rows.length - visible.end) * VIRTUAL_ROW_HEIGHT }}
+                  />
+                </tr>
+              ) : null}
             </tbody>
             {rows.length > 0 && footerColumns.length > 0 ? (
               <tfoot>

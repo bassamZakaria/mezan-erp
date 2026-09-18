@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import type { CreateLabelLayoutDTO, LabelLayoutDTO, UpdateLabelLayoutDTO } from "@mezan/contracts";
-import { ApiError } from "./hooks";
+import { ApiError, readError } from "./hooks";
 import { useApi } from "./ApiContext";
 import { useAppTranslation } from "../i18n";
 
@@ -19,7 +19,7 @@ export function useLabelLayouts(): UseQueryResult<LabelLayoutDTO[], ApiError> {
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/label-layouts");
-      if (!res.ok) throw new ApiError(res.status, t("labelApi.theLabelLayoutsCouldNot"));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("labelApi.theLabelLayoutsCouldNot"), t));
       return res.json<LabelLayoutDTO[]>();
     },
   });

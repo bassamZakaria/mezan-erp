@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { Hono } from "hono";
 import { createEntitlements, ALL_SCOPE, createAuthContext } from "@mezan/domain";
-import { createModuleGate, entitlementsBinding } from "./module-gate.js";
+import { applyModuleGates, createModuleGate, entitlementsBinding } from "./module-gate.js";
 import { createPermissionGate } from "./permission-gate.js";
 
 function appWithEntitlements(activeModules: string[]) {
@@ -51,6 +51,89 @@ describe("module gate middleware", () => {
     app.get("/pos/sales", (c) => c.json({ ok: true }));
     const res = await app.fetch(new Request("http://x/pos/sales"));
     expect(res.status).toBe(403);
+  });
+});
+
+/**
+ * guards L-12: `createModuleGate` had ZERO call sites. It was exported, tested
+ * in isolation, and gated nothing — the API served all nineteen modules
+ * regardless of the licence, so a Core-priced install ran manufacturing, HR and
+ * fixed assets in full.
+ */
+describe("applyModuleGates over the real route prefixes", () => {
+  function coreApp() {
+    const entitlements = createEntitlements({
+      plan: "CORE",
+      activeModules: ["sales", "purchases", "inventory", "accounting", "treasury"],
+      features: {},
+      seats: 2,
+      expiresAt: null,
+    });
+    const app = new Hono();
+    applyModuleGates(app, () => entitlements);
+    for (const path of [
+      "/manufacturing/work-orders",
+      "/manufacturing",
+      "/hr/employees",
+      "/assets/register",
+      "/sales-invoices",
+      "/sales-invoices/INV-1",
+      "/settings",
+      "/users",
+      "/license/state",
+      "/auth/login",
+      "/documents",
+      "/reports/trial-balance",
+    ]) {
+      app.get(path, (c) => c.json({ ok: true }));
+      app.post(path, (c) => c.json({ ok: true }));
+    }
+    return app;
+  }
+
+  it("refuses a Core licence on a manufacturing route, in Arabic", async () => {
+    const res = await coreApp().fetch(new Request("http://x/manufacturing/work-orders"));
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { error: string; module: string; message: string };
+    expect(body.error).toBe("MODULE_NOT_LICENSED");
+    expect(body.module).toBe("manufacturing");
+    expect(body.message).toContain("التصنيع");
+    expect(body.message).toMatch(/[؀-ۿ]/);
+  });
+
+  it("refuses the bare collection route too, not just the wildcard below it", async () => {
+    const res = await coreApp().fetch(new Request("http://x/manufacturing"));
+    expect(res.status).toBe(403);
+  });
+
+  it("refuses HR and fixed assets on the same licence", async () => {
+    for (const path of ["/hr/employees", "/assets/register"]) {
+      expect((await coreApp().fetch(new Request(`http://x${path}`))).status).toBe(403);
+    }
+  });
+
+  it("serves the modules the licence DID buy", async () => {
+    for (const path of ["/sales-invoices", "/sales-invoices/INV-1"]) {
+      expect((await coreApp().fetch(new Request(`http://x${path}`))).status).toBe(200);
+    }
+  });
+
+  /**
+   * Platform surface is never module-gated: a licence that locked an owner out
+   * of settings, users or the licence screen itself would lock them out of the
+   * one screen that explains why.
+   */
+  it("never gates settings, users, documents, reports, auth or /license", async () => {
+    for (const path of [
+      "/settings",
+      "/users",
+      "/license/state",
+      "/auth/login",
+      "/documents",
+      "/reports/trial-balance",
+    ]) {
+      expect((await coreApp().fetch(new Request(`http://x${path}`))).status).toBe(200);
+    }
   });
 });
 

@@ -54,6 +54,7 @@ export const navGroupSpecs: readonly NavGroupSpec[] = [
           "report-sales-by-customer",
           "report-sales-by-salesperson",
           "report-sales-top-products",
+          "report-offers",
           "report-van-sales",
           "report-aging-customers",
         ],
@@ -262,7 +263,25 @@ export const navGroupSpecs: readonly NavGroupSpec[] = [
       },
       {
         key: "permissions",
-        itemKeys: ["users", "roles", "settings-workflow", "notification-rules", "audit", "devices", "settings-backup"],
+        // `status` (حالة النظام) is back in the rail. It carries the version,
+        // the licence support code, the paths and the fingerprint — the answers
+        // to the first four questions of every support call — and it was
+        // reachable only by typing its address. It keeps that address: `setup`
+        // is the group it was already filed under in `UNLISTED_SCREEN_GROUP`.
+        itemKeys: ["users", "roles", "settings-workflow", "notification-rules", "audit", "devices", "settings-backup", "status"],
+      },
+      {
+        // P-4 — four exception reports that were built, mounted and reachable
+        // from nowhere. They read the same trail أحداث الأمان does, so they
+        // belong beside it rather than in an operational reports shelf.
+        key: "control",
+        defaultCollapsed: true,
+        itemKeys: [
+          "report-security-exceptions",
+          "report-post-posting-changes",
+          "report-after-hours",
+          "report-new-accounts",
+        ],
       },
       /**
        * تقارير الرقابة والأمان. The four exception reports read the SAME
@@ -346,6 +365,164 @@ export function filterNavGroupsByEntitlements(groups: readonly NavGroup[], entit
 export const PINNED_NAV_ITEM_KEYS: readonly string[] = ["notifications", "approvals"];
 
 /**
+ * What each destination costs to reach (P-3).
+ *
+ * `permission` is the code the screen's OWN routes gate on — read off the
+ * `gate("…")` call on each route group in packages/api, so the rail and the
+ * server agree about who may open a screen. `module` is the ENTITLEMENT id
+ * from `MODULE_ROUTE_PREFIXES` (packages/api/src/module-gate.ts) for the
+ * prefix that screen calls, and only where that prefix is actually gated —
+ * `/reports`, `/eta` and every platform route are absent from that map, so
+ * the rows that call them carry no module either. Nav that claims a licence
+ * gate the API does not enforce is a different lie from the one being fixed.
+ *
+ * A key with no entry is reachable by anyone signed in: the dashboard, the
+ * person's own profile, their own leave.
+ */
+export const NAV_ITEM_ACCESS: Readonly<Record<string, { readonly permission?: string; readonly module?: string }>> = {
+  dashboard: { permission: "dashboard.view" },
+  notifications: { module: "notifications" },
+  approvals: { permission: "workflow.view" },
+
+  "sales-hub": { permission: "sales.invoice.view", module: "sales" },
+  quotes: { permission: "sales.quote.view", module: "sales" },
+  "sales-invoices": { permission: "sales.invoice.view", module: "sales" },
+  "sales-returns": { permission: "sales.return.view", module: "sales" },
+  "van-trips": { permission: "field.van_trip.view", module: "field" },
+  customers: { permission: "sales.customer.view", module: "sales" },
+  "price-lists": { permission: "sales.price_list.view", module: "sales" },
+  promotions: { permission: "sales.promotion.view", module: "sales" },
+  "report-sales-by-period": { permission: "sales.invoice.view" },
+  "report-sales-by-item": { permission: "sales.invoice.view" },
+  "report-sales-by-customer": { permission: "sales.invoice.view" },
+  "report-sales-by-salesperson": { permission: "sales.invoice.view" },
+  "report-sales-top-products": { permission: "sales.invoice.view" },
+  "report-offers": { permission: "sales.promotion.view" },
+  "report-van-sales": { permission: "field.van_trip.view" },
+  "report-aging-customers": { permission: "sales.invoice.view" },
+
+  "crm-hub": { permission: "crm.lead.view", module: "crm" },
+  "crm-activities": { permission: "crm.activity.view", module: "crm" },
+  leads: { permission: "crm.lead.view", module: "crm" },
+  opportunities: { permission: "crm.opportunity.view", module: "crm" },
+  pipeline: { permission: "crm.pipeline.view", module: "crm" },
+  "pipeline-stages": { permission: "crm.pipeline.manage", module: "crm" },
+
+  "installment-plans": { permission: "installments.plan.view", module: "installments" },
+  "installment-follow-ups": { permission: "installments.follow_up.view", module: "installments" },
+  "report-installments-overview": { permission: "installments.plan.view" },
+  "report-installments-overdue": { permission: "installments.plan.view" },
+
+  "purchases-hub": { permission: "purchases.invoice.view", module: "purchases" },
+  rfqs: { permission: "purchases.rfq.view", module: "purchases" },
+  "purchase-orders": { permission: "purchases.order.view", module: "purchases" },
+  "goods-receipts": { permission: "purchases.receipt.view", module: "purchases" },
+  "purchase-invoices": { permission: "purchases.invoice.view", module: "purchases" },
+  "purchase-returns": { permission: "purchases.return.view", module: "purchases" },
+  "landed-costs": { permission: "purchases.landed_cost.view", module: "purchases" },
+  vendors: { permission: "purchases.supplier.view", module: "purchases" },
+  "report-purchases-by-period": { permission: "purchases.invoice.view" },
+  "report-purchases-by-supplier": { permission: "purchases.invoice.view" },
+  "report-purchases-by-item": { permission: "purchases.invoice.view" },
+  "report-aging-suppliers": { permission: "purchases.invoice.view" },
+
+  "items-hub": { permission: "inventory.item.view", module: "inventory" },
+  items: { permission: "inventory.item.view", module: "inventory" },
+  "product-templates": { permission: "inventory.template.view", module: "inventory" },
+  "configurable-products": { permission: "inventory.template.view", module: "inventory" },
+  "item-specifications": { permission: "inventory.item.view", module: "inventory" },
+  boms: { permission: "manufacturing.bom.view", module: "manufacturing" },
+
+  "inventory-hub": { permission: "inventory.stock.view", module: "inventory" },
+  "stock-balance": { permission: "inventory.stock.view", module: "inventory" },
+  "stock-transfers": { permission: "inventory.transfer.view", module: "inventory" },
+  "stock-adjustments": { permission: "inventory.adjustment.view", module: "inventory" },
+  "physical-counts": { permission: "inventory.count.view", module: "inventory" },
+  "writedown-runs": { permission: "inventory.writedown.view", module: "inventory" },
+  "report-inventory-stock-levels": { permission: "inventory.stock.view" },
+  "report-inventory-movement": { permission: "inventory.stock.view" },
+  "report-inventory-ledger": { permission: "inventory.stock.view" },
+  "report-inventory-valuation": { permission: "inventory.valuation.view" },
+  "report-inventory-aging": { permission: "inventory.stock.view" },
+  "report-inventory-expiring": { permission: "inventory.stock.view" },
+  "report-inventory-slow-moving": { permission: "inventory.stock.view" },
+  "report-inventory-drift": { permission: "inventory.valuation.view" },
+
+  "manufacturing-hub": { permission: "manufacturing.wo.view", module: "manufacturing" },
+  "work-orders": { permission: "manufacturing.wo.view", module: "manufacturing" },
+  "production-dashboard": { permission: "manufacturing.wo.view", module: "manufacturing" },
+  "custom-manufacturing": { permission: "manufacturing.wo.create", module: "manufacturing" },
+  "report-make-vs-buy": { permission: "manufacturing.bom.view" },
+
+  "treasury-hub": { permission: "treasury.account.view", module: "treasury" },
+  "treasury-vouchers": { permission: "treasury.cash_voucher.view", module: "treasury" },
+  cheques: { permission: "cheques.view", module: "financial_papers" },
+  "treasury-accounts": { permission: "treasury.account.view", module: "treasury" },
+
+  "accounting-hub": { permission: "accounting.reports.view", module: "accounting" },
+  journals: { permission: "accounting.journal.view", module: "accounting" },
+  "fiscal-periods": { permission: "accounting.period.view", module: "accounting" },
+  // `/reconciliation` is mounted under the TREASURY licence prefix even though
+  // its route gates on an accounting code — the rail states what the API does.
+  reconciliation: { permission: "accounting.reports.view", module: "treasury" },
+  "bank-reconciliation": { permission: "treasury.reconciliation.view", module: "treasury" },
+  revaluation: { permission: "accounting.journal.post", module: "accounting" },
+  eta: { permission: "accounting.eta.view" },
+  coa: { permission: "accounting.coa.view", module: "accounting" },
+  "cost-centers": { permission: "accounting.coa.view", module: "accounting" },
+  taxes: { permission: "accounting.tax.view", module: "accounting" },
+  "exchange-rates": { permission: "accounting.exchange_rate.manage", module: "accounting" },
+  "trial-balance-report": { permission: "accounting.reports.view", module: "accounting" },
+  "financial-reports": { permission: "accounting.reports.view", module: "accounting" },
+  "cost-center-pl": { permission: "accounting.reports.view", module: "accounting" },
+
+  "hr-dashboard": { permission: "hr.employee.view", module: "hr" },
+  employees: { permission: "hr.employee.view", module: "hr" },
+  departments: { permission: "hr.department.view", module: "hr" },
+  "job-titles": { permission: "hr.job_title.view", module: "hr" },
+  contracts: { permission: "hr.contract.view", module: "hr" },
+  attendance: { permission: "hr.attendance.view", module: "hr" },
+  holidays: { permission: "hr.leave_policy.view", module: "hr" },
+  "leave-requests": { permission: "hr.leave.view", module: "hr" },
+  "leave-balances": { permission: "hr.leave.view", module: "hr" },
+  "leave-accrual-batches": { permission: "hr.leave_accrual.run", module: "hr" },
+  "my-leave": { module: "hr" },
+  payroll: { permission: "hr.payroll.view", module: "hr" },
+  advances: { permission: "hr.advance.view", module: "hr" },
+  "leave-policies": { permission: "hr.leave_policy.view", module: "hr" },
+  "payroll-components": { permission: "hr.payroll.view", module: "hr" },
+
+  "assets-hub": { permission: "assets.view", module: "assets" },
+  "asset-register": { permission: "assets.view", module: "assets" },
+  "depreciation-runs": { permission: "assets.depreciation.view", module: "assets" },
+  "asset-categories": { permission: "assets.manage", module: "assets" },
+
+  projects: { permission: "projects.project.view", module: "projects" },
+
+  "settings-general": { permission: "admin.settings.view" },
+  "settings-profile": {},
+  "settings-branches": { permission: "admin.branches.view" },
+  "settings-warehouses": { permission: "admin.warehouses.view" },
+  "settings-sequences": { permission: "admin.sequences.view" },
+  "settings-print": { permission: "admin.settings.view" },
+  "settings-barcode": { permission: "admin.settings.view" },
+  "settings-data-migration": { permission: "admin.settings.view" },
+  users: { permission: "admin.users.view" },
+  roles: { permission: "admin.roles.view" },
+  "settings-workflow": { permission: "workflow.config.view" },
+  "notification-rules": { permission: "notifications.rule.view", module: "notifications" },
+  audit: { permission: "audit.logs.view" },
+  // P-4 — the exact code each of the four /security-reports routes gates on.
+  "report-security-exceptions": { permission: "audit.logs.view" },
+  "report-post-posting-changes": { permission: "audit.logs.view" },
+  "report-after-hours": { permission: "audit.logs.view" },
+  "report-new-accounts": { permission: "audit.logs.view" },
+  devices: { permission: "admin.devices.view" },
+  "settings-backup": { permission: "admin.backup.view" },
+  status: { permission: "admin.settings.view" },
+};
+
+/**
  * The quick actions (R1.5). Go-to entries are NOT listed here — they are
  * generated from the nav config below, so a screen added to the sidebar is
  * reachable from the palette without anyone remembering to add it twice.
@@ -414,7 +591,7 @@ const COMMAND_KEYWORDS: Readonly<Record<string, readonly string[]>> = {
 };
 
 export function buildTopNavItem(t: Translate): NavItem {
-  return { key: "dashboard", label: t("nav.item.dashboard"), icon: navItemIcon("dashboard") };
+  return { key: "dashboard", label: t("nav.item.dashboard"), icon: navItemIcon("dashboard"), ...NAV_ITEM_ACCESS.dashboard };
 }
 
 function buildNavItems(keys: readonly string[], t: Translate): NavItem[] {
@@ -422,6 +599,7 @@ function buildNavItems(keys: readonly string[], t: Translate): NavItem[] {
     key,
     label: t(`nav.item.${key}` as AppTranslationKey),
     icon: navItemIcon(key),
+    ...NAV_ITEM_ACCESS[key],
   }));
 }
 

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from "./paging.js";
 import { moneyString } from "./money-string.js";
 import { costCategorySchema } from "./contracting.js";
 import { isoDateOrInstant } from "./iso-date.js";
@@ -39,8 +40,18 @@ export const voucherSchema = z.object({
   status: voucherStatusSchema,
   date: z.string().min(1),
   memo: z.string(),
+  /** The figure the voucher states, in `currency` — not necessarily base. */
   amount: moneyString,
   currency: z.string(),
+  /**
+   * Base units per one unit of `currency`, stamped from the approved rate table
+   * at confirm; null on a base-currency voucher. Without it a foreign voucher's
+   * digits posted as base and the settlement was invisible to FX revaluation
+   * (B-4/B-5).
+   */
+  fxRate: z.string().nullable(),
+  /** `amount` converted at `fxRate` — what the GL, the treasury and every allocation hold. */
+  baseAmount: z.string(),
   branchId: z.string(),
   paymentMethod: voucherPaymentMethodSchema,
   treasuryAccountId: z.string(),
@@ -159,6 +170,9 @@ export const voucherListQuerySchema = z.object({
    * to be applied to theirs. They are two different people's work queues.
    */
   needsAllocation: z.enum(["any", "receipt", "payment"]).optional(),
+  /** One page of rows, 1-based. Both carry a default, so an omitted page never means the whole book (Q-8). */
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(MAX_PAGE_SIZE).default(DEFAULT_PAGE_SIZE),
 });
 
 export type VoucherTypeDTO = z.infer<typeof voucherTypeSchema>;

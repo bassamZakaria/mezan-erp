@@ -28,9 +28,10 @@ RUN pnpm --filter web build
 
 RUN mkdir -p /data && chown node:node /data
 
-# @mezan/backend's resolveSeedAdminSecrets randomises the fallback admin PIN
-# under production; render.yaml sets MEZAN_SEED_ADMIN_PIN so the demo tenant
-# keeps a known login despite NODE_ENV=production here.
+# NODE_ENV=production so @mezan/backend's resolveSeedAdminSecrets randomises the
+# fallback admin PIN. A "known login" on a public origin was the published
+# `123456` company admin (audit S-1); cloud.ts prints the generated PIN once to
+# the deploy log instead, and refuses to start if MEZAN_SEED_ADMIN_PIN pins it.
 ENV NODE_ENV=production
 ENV MEZAN_PLATFORM_DIR=/data
 ENV PORT=8080

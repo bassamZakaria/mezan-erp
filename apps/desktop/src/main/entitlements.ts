@@ -8,30 +8,6 @@ import { entitlementsSchema } from "@mezan/contracts";
 import type { LicenceCode } from "../shared/ipc-contract.js";
 
 /**
- * Resolves the desktop edition's current `Entitlements` (docs/archive/plan.md §2.5).
- *
- * STUBBED SEAM: the real path is the Ed25519 offline license file (§2.5) —
- * `verifyLicense()` in @mezan/domain/licensing, wired to a real machine
- * `FingerprintSource` and a persisted monotonic-clock store. That activation
- * flow (fingerprinting per OS, the request/response air-gapped code UX, the
- * signing-key/public-key distribution) is its own, larger piece of work
- * (docs/archive/plan.md Phase 8 "Licensing service + activation portal") and is
- * OUT OF SCOPE here — this issue only needs a real `Entitlements` object to
- * gate LAN mode against, not the full activation UX.
- *
- * Until that lands, this reads a pre-verified entitlements JSON blob from
- * `MEZAN_ENTITLEMENTS_JSON` (validated against the SAME `entitlementsSchema`
- * the license payload itself uses) and falls back to `UNLICENSED_ENTITLEMENTS`
- * — never to a permissive default — when it's absent or invalid. Swapping in
- * real license verification later only touches this one function.
- */
-export function resolveDesktopEntitlements(
-  env: Record<string, string | undefined> = process.env,
-): EntitlementsView {
-  return parseDesktopEntitlementsJson(env) ?? UNLICENSED_ENTITLEMENTS;
-}
-
-/**
  * Parses the dev/back-compat `MEZAN_ENTITLEMENTS_JSON` blob, returning `null`
  * (not the unlicensed fallback) when it is absent or invalid — so the license
  * resolver can tell "no dev entitlements configured" apart from "configured but

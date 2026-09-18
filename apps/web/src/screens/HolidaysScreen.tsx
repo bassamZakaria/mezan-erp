@@ -175,7 +175,7 @@ export function HolidaysScreen() {
     <div className="w-full">
       {query.isError ? (
         <Card className="mb-[18px] p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-danger-ink">{t("holidays.publicHolidaysCouldNotBe")}</p>
+          <p className="text-[13px] font-semibold text-danger-ink">{query.error?.message ?? t("holidays.publicHolidaysCouldNotBe")}</p>
           <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
             {t("common.retry")}
           </Button>

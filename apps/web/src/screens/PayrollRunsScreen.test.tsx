@@ -175,10 +175,10 @@ describe("PayrollRunsScreen", () => {
       },
     });
     renderWithProviders(<PayrollRunsScreen />, { transport, initialSession: testAdminSession });
-    expect(await screen.findByText("تعذّر تحميل دورات الرواتب.")).toBeInTheDocument();
+    expect(await screen.findByText("تعذّر تحميل دورات الرواتب. (رمز 500)")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "إعادة المحاولة" }));
     await screen.findByText("PR-000001");
-    await waitFor(() => expect(screen.queryByText("تعذّر تحميل دورات الرواتب.")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByText("تعذّر تحميل دورات الرواتب. (رمز 500)")).not.toBeInTheDocument());
   });
 
   it("status chip filter and search box each narrow the visible rows", async () => {

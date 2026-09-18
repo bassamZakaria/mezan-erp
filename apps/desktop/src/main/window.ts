@@ -6,7 +6,7 @@ import { RENDERER_HOST, RENDERER_SCHEME } from "./renderer-protocol.js";
  * Origins the renderer may navigate to. Everything else is a link, and a link
  * belongs in the user's browser — never in the window that holds the books.
  */
-function isRendererOrigin(target: string, entry: string): boolean {
+export function isRendererOrigin(target: string, entry: string): boolean {
   try {
     const url = new URL(target);
     // The renderer's own scheme, and only its own host. `app://` is standard

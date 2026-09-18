@@ -18,6 +18,13 @@ export function base64UrlToBytes(input: string): Uint8Array {
   return bytes;
 }
 
+/** Encode bytes as an unpadded base64url string. */
+export function bytesToBase64Url(bytes: Uint8Array): string {
+  let binary = "";
+  for (const b of bytes) binary += String.fromCharCode(b);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
 /** UTF-8 decode a byte array to a string. */
 export function bytesToUtf8(bytes: Uint8Array): string {
   return new TextDecoder().decode(bytes);

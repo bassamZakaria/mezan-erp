@@ -87,7 +87,14 @@ function renderScreen(entries: JournalEntryDTO[] = sampleEntries) {
   let current = [...entries];
   let nextSeq = current.length + 1;
   const transport = stubTransport({
-    "GET /gl/journal-entries": () => ({ body: current }),
+    // guards Q-9: the register is a SERVER page now — a stub returning every
+    // entry would let a client-side slice pass unnoticed.
+    "GET /gl/journal-entries": (_init, path) => {
+      const params = new URLSearchParams(path.split("?")[1] ?? "");
+      const pageSize = Number(params.get("pageSize") ?? 25);
+      const page = Number(params.get("page") ?? 1);
+      return { body: current.slice((page - 1) * pageSize, page * pageSize) };
+    },
     "GET /gl/journal-entries/counts": () => ({ body: countsOf(current) }),
     "GET /gl/journal-entries/stats": () => ({ body: statsOf(current) }),
     "GET /accounts": () => ({ body: sampleAccounts }),
@@ -184,6 +191,73 @@ describe("JournalsScreen — create: balance gating", () => {
     fireEvent.change(screen.getByLabelText("دائن للسطر 2"), { target: { value: "100" } });
     expect(post).toBeEnabled();
     expect(screen.getByText("متوازن ✓")).toBeInTheDocument();
+  });
+});
+
+describe("JournalsScreen — create: decimals and dimensions", () => {
+  // guards B-1: lines were summed as floats and the balance check then called
+  // Money.fromMajor(String(300.29999999999995)), which throws — in render.
+  it("balances 100.10 + 200.20 against 300.30 without throwing", async () => {
+    renderScreen();
+    await screen.findByText("JE-000001");
+    fireEvent.click(screen.getByRole("button", { name: "قيد جديد" }));
+    fireEvent.change(screen.getByPlaceholderText("وصف القيد..."), { target: { value: "قيد كسور" } });
+    chooseAccount("الحساب للسطر 1", "1300-1");
+    fireEvent.change(screen.getByLabelText("مدين للسطر 1"), { target: { value: "100.10" } });
+    chooseAccount("الحساب للسطر 2", "4100");
+    fireEvent.change(screen.getByLabelText("دائن للسطر 2"), { target: { value: "100.10" } });
+    fireEvent.click(screen.getByRole("button", { name: "إضافة سطر" }));
+    chooseAccount("الحساب للسطر 3", "1300-1");
+    fireEvent.change(screen.getByLabelText("مدين للسطر 3"), { target: { value: "200.20" } });
+    fireEvent.click(screen.getByRole("button", { name: "إضافة سطر" }));
+    chooseAccount("الحساب للسطر 4", "4100");
+    fireEvent.change(screen.getByLabelText("دائن للسطر 4"), { target: { value: "200.20" } });
+
+    expect(screen.getByText("متوازن ✓")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "ترحيل القيد" })).toBeEnabled();
+  });
+
+  // guards C-5 (first half): glJournalLineSchema already carries costCenterId;
+  // the screen sent none, so the cost-centre P&L never saw a manual accrual.
+  it("sends the line's cost centre with the posted entry", async () => {
+    const posted: unknown[] = [];
+    const transport = stubTransport({
+      "GET /gl/journal-entries": () => ({ body: sampleEntries }),
+      "GET /gl/journal-entries/counts": () => ({ body: countsOf(sampleEntries) }),
+      "GET /gl/journal-entries/stats": () => ({ body: statsOf(sampleEntries) }),
+      "GET /accounts": () => ({ body: sampleAccounts }),
+      "GET /cost-centers": () => ({
+        body: [
+          { id: "cc-1", code: "CC-01", nameAr: "الإدارة", nameEn: null, type: "general", departmentId: null, branchId: null, parentId: null, notes: null, status: "active" },
+        ],
+      }),
+      "POST /gl/journal-entries": (init) => {
+        const body = JSON.parse((init?.body as string) ?? "{}");
+        posted.push(body);
+        return { status: 201, body: entry({ id: body.id, entryNo: "JE-000009" }) };
+      },
+    });
+    renderWithProviders(
+      <TestNavigation>
+        <JournalsScreen />
+      </TestNavigation>,
+      { transport, initialSession: testAdminSession },
+    );
+    await screen.findByText("JE-000001");
+    fireEvent.click(screen.getByRole("button", { name: "قيد جديد" }));
+    fireEvent.change(screen.getByPlaceholderText("وصف القيد..."), { target: { value: "مصروف" } });
+    chooseAccount("الحساب للسطر 1", "1300-1");
+    fireEvent.change(screen.getByLabelText("مدين للسطر 1"), { target: { value: "50" } });
+    fireEvent.click(screen.getByRole("combobox", { name: "مركز التكلفة للسطر 1" }));
+    fireEvent.mouseDown(await screen.findByRole("option", { name: /CC-01/ }));
+    chooseAccount("الحساب للسطر 2", "4100");
+    fireEvent.change(screen.getByLabelText("دائن للسطر 2"), { target: { value: "50" } });
+    fireEvent.click(screen.getByRole("button", { name: "ترحيل القيد" }));
+
+    await waitFor(() => expect(posted).toHaveLength(1));
+    const body = posted[0] as { lines: { costCenterId: string | null }[] };
+    expect(body.lines[0]?.costCenterId).toBe("cc-1");
+    expect(body.lines[1]?.costCenterId).toBeNull();
   });
 });
 

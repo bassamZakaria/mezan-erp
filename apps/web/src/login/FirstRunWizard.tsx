@@ -7,7 +7,15 @@ import {
   TextInput,
 } from "@mezan/ui";
 import type { BootstrapSeedResultDTO } from "@mezan/contracts";
-import { useBootstrapSeed, useBootstrapStatus, useCreateFirstAdmin, useTenantInfo } from "../data/hooks";
+import {
+  isDesktopHost,
+  useBootstrapSeed,
+  useBootstrapStatus,
+  useCreateFirstAdmin,
+  useDesktopLicence,
+  useTenantInfo,
+} from "../data/hooks";
+import { useLicenceImport } from "../data/license-hooks";
 import { loadTenantCode } from "../data/session";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
@@ -77,24 +85,17 @@ function StepIndicator({ currentIndex }: { currentIndex: number }) {
   );
 }
 
-function StubNote({ children }: { children: string }) {
-  const { t } = useAppTranslation();
-  return (
-    <div className="mt-[10px] flex items-start gap-[8px] rounded-md border border-dashed border-border bg-surface-2 p-[10px_12px] text-[11.5px] text-ink-muted">
-      <StatusPill label={t("firstRun.demo")} tone="info" />
-      <span>{children}</span>
-    </div>
-  );
-}
-
 /**
  * First-run wizard skeleton — docs/archive/catalog/09-settings-dashboard-ux.md
  * (نقل البيانات wizard + Dashboard's `GET /api/dashboard/setup` onboarding
- * checklist) plus the Phase-1 task's step sequence: activate license → create
- * admin → seed COA/tax/numbering/branch/warehouse → optional import. Every
- * step action is STUBBED (marked "تجريبي") — no license service, no user
- * persistence, no seeding/import backend is wired yet; this only builds the
- * stepper UX and validation shape those real actions will plug into.
+ * checklist) plus the Phase-1 task's step sequence: install the licence →
+ * create admin → seed COA/tax/numbering/branch/warehouse → optional import.
+ *
+ * The licence step is a FILE IMPORT that reports the verification's own verdict.
+ * It used to ask for an `XXXX-XXXX-XXXX-XXXX` key the product has never used,
+ * call nothing, and paint a green «مُفعّل» pill — so the one moment a new owner
+ * is told whether they are licensed was the one moment nothing was checked, and
+ * every save afterwards was refused with a 403.
  */
 export function FirstRunWizard({ onFinish, onCancel }: FirstRunWizardProps) {
   const { t } = useAppTranslation();
@@ -106,8 +107,9 @@ export function FirstRunWizard({ onFinish, onCancel }: FirstRunWizardProps) {
   const tenantName = useTenantInfo(loadTenantCode()).data?.name ?? "";
   const createAdmin = useCreateFirstAdmin();
 
-  const [licenseKey, setLicenseKey] = useState("");
-  const [activateStatus, setActivateStatus] = useState<"idle" | "activating" | "done">("idle");
+  const licence = useDesktopLicence();
+  const importLicence = useLicenceImport();
+  const licenceStatus = licence.data && licence.data.ok ? licence.data : null;
 
   const [adminName, setAdminName] = useState("");
   const [adminEmail, setAdminEmail] = useState("");
@@ -130,12 +132,6 @@ export function FirstRunWizard({ onFinish, onCancel }: FirstRunWizardProps) {
   const [adminCreated, setAdminCreated] = useState(false);
 
 
-  function handleActivate() {
-    setActivateStatus("activating");
-    // Stubbed: no license service wired yet (see docs/archive/plan.md §2.5 / packages/domain/src/licensing).
-    // Resolves synchronously here purely to drive the demo stepper forward.
-    setActivateStatus("done");
-  }
 
   function handleAdminNext() {
     if (!adminName.trim() || !adminEmail.trim()) {
@@ -186,6 +182,32 @@ export function FirstRunWizard({ onFinish, onCancel }: FirstRunWizardProps) {
   const counts = seedStatus.data ?? null;
   const allSeeded = counts !== null && SEED_ROWS.every((row) => counts[row.key] > 0);
 
+  /**
+   * The verification's own verdict, in the words of the verification. A refusal
+   * is the main process's Arabic sentence; an acceptance states the plan, the
+   * seats and the expiry the signed payload actually carries, because "activated"
+   * on its own is exactly the claim this step used to make and could not back.
+   */
+  const importResult = importLicence.data ?? null;
+  let importVerdict: string | null = null;
+  if (importResult && !importResult.ok) {
+    importVerdict = importResult.code === "CANCELLED" ? null : importResult.message;
+  } else if (importResult) {
+    const expiry = importResult.status.expiresAt?.slice(0, 10) ?? null;
+    importVerdict = !importResult.accepted
+      ? t("licenceUi.importRefused")
+      : expiry
+        ? t("licenceUi.importAccepted", {
+            plan: importResult.status.plan,
+            seats: String(importResult.status.seats),
+            expiry,
+          })
+        : t("licenceUi.importAcceptedPerpetual", {
+            plan: importResult.status.plan,
+            seats: String(importResult.status.seats),
+          });
+  }
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-surface-2 p-[24px]">
       <div className="w-full max-w-[640px] rounded-lg border border-border bg-surface p-[28px] shadow-2">
@@ -204,23 +226,52 @@ export function FirstRunWizard({ onFinish, onCancel }: FirstRunWizardProps) {
         {step === "activate" ? (
           <section aria-label={t("firstRun.activateTheLicence")}>
             <h2 className="font-display text-[15px] font-bold text-ink">{t("firstRun.activateTheLicence")}</h2>
-            <p className="mt-[4px] text-[12.5px] text-ink-muted">{t("firstRun.enterTheLicenceKeyYou")} {tenantName}.</p>
-            <label className="mt-[14px] flex flex-col gap-[6px]">
-              <span className="text-[12.5px] font-semibold text-ink">{t("firstRun.licenceKey")}</span>
-              <TextInput
-                value={licenseKey}
-                onChange={(e) => setLicenseKey(e.target.value)}
-                placeholder="XXXX-XXXX-XXXX-XXXX"
-                className="mz-lat"
-              />
-            </label>
-            <StubNote>{t("firstRun.reallyCallingTheLicenceServer")}</StubNote>
-            <div className="mt-[14px] flex items-center gap-[10px]">
-              <Button type="button" variant="primary" onClick={handleActivate} disabled={activateStatus === "done"}>
-                {activateStatus === "done" ? t("firstRun.activated") : t("firstRun.activate")}
+            <p className="mt-[4px] text-[12.5px] text-ink-muted">{t("firstRun.licenceFileHint")}</p>
+            {!isDesktopHost() ? (
+              <p className="mt-[10px] text-[12px] text-ink-muted">{t("licenceUi.importDesktopOnly")}</p>
+            ) : licenceStatus && licenceStatus.code === "LIC-OK" ? (
+              <p className="mt-[10px] text-[12.5px] text-ink">
+                {t("firstRun.licenceCurrent", {
+                  plan: licenceStatus.plan,
+                  seats: String(licenceStatus.seats),
+                })}
+              </p>
+            ) : (
+              <p className="mt-[10px] text-[12.5px] text-ink-muted">{t("firstRun.licenceNone")}</p>
+            )}
+            <div className="mt-[14px] flex flex-wrap items-center gap-[10px]">
+              <Button
+                type="button"
+                variant="primary"
+                disabled={importLicence.isPending || !isDesktopHost()}
+                onClick={() => {
+                  if (importLicence.isPending) return;
+                  importLicence.mutate();
+                }}
+              >
+                {importLicence.isPending ? t("licenceUi.importWorking") : t("licenceUi.import")}
               </Button>
-              {activateStatus === "done" ? <StatusPill label={t("firstRun.activated2")} tone="success" /> : null}
+              {/*
+                A pill ONLY on a verified verdict. The step it replaces set its
+                own status to "done" without calling anything and showed a green
+                «مُفعّل», so the new owner was told the licence took and then met
+                a 403 on every save.
+              */}
+              {importLicence.data?.ok && importLicence.data.accepted ? (
+                <StatusPill label={t("firstRun.activated2")} tone="success" />
+              ) : null}
             </div>
+            {importVerdict ? (
+              <p
+                className={`mt-[10px] text-[12.5px] font-semibold ${
+                  importLicence.data?.ok && importLicence.data.accepted
+                    ? "text-success-ink"
+                    : "text-danger-ink"
+                }`}
+              >
+                {importVerdict}
+              </p>
+            ) : null}
           </section>
         ) : null}
 
@@ -350,7 +401,10 @@ export function FirstRunWizard({ onFinish, onCancel }: FirstRunWizardProps) {
               </Button>
             ) : null}
             {step === "activate" ? (
-              <Button type="button" variant="primary" disabled={activateStatus !== "done"} onClick={goNext}>
+              // Never gated on the licence. A shop without a file yet must still
+              // be able to finish setting up and read its data — the write gate
+              // is what enforces the licence, not this button.
+              <Button type="button" variant="primary" onClick={goNext}>
                 {t("firstRun.next")}
               </Button>
             ) : null}

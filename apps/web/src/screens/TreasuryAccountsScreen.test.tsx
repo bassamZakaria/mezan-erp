@@ -138,8 +138,27 @@ describe("TreasuryAccountsScreen", () => {
     });
     renderWithProviders(<TreasuryAccountsScreen />, { transport, initialSession: testAdminSession });
 
-    expect(await screen.findByText("تعذّر تحميل حسابات الخزينة.")).toBeInTheDocument();
+    expect(await screen.findByText("تعذّر تحميل حسابات الخزينة. (رمز 500)")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "إعادة المحاولة" }));
     await waitFor(() => expect(getCalls).toBeGreaterThan(1));
+  });
+});
+
+/** guards §4.5 #13 — the error card shows the SERVER's reason, not the screen's fixed sentence. */
+describe("TreasuryAccountsScreen — a 502 body reaches the error card", () => {
+  it("renders the server's own Arabic reason", async () => {
+    renderWithProviders(
+      <TreasuryAccountsScreen />,
+      {
+        transport: stubTransport({
+          "GET /treasury-accounts": () => ({ status: 502, body: { message: "تعذّر الوصول إلى الجهاز الرئيسي. الجهاز مغلق أو غير متصل بالشبكة." } }),
+          "GET /branches": () => ({ body: sampleBranches }),
+        }),
+        initialSession: testAdminSession,
+      },
+    );
+
+    expect(await screen.findByText("تعذّر الوصول إلى الجهاز الرئيسي. الجهاز مغلق أو غير متصل بالشبكة.")).toBeInTheDocument();
+    expect(screen.queryByText("تعذّر تحميل حسابات الخزينة.")).not.toBeInTheDocument();
   });
 });

@@ -62,3 +62,23 @@ export class EtaExclusionReasonRequiredError extends Error {
     this.name = "EtaExclusionReasonRequiredError";
   }
 }
+
+/** التوقيع الإلكتروني غير مُهيّأ — no external signing program is configured. */
+export class EtaSignerNotConfiguredError extends Error {
+  readonly code = "ETA_SIGNER_NOT_CONFIGURED";
+  constructor() {
+    super(
+      "التوقيع الإلكتروني يتم بجهاز التوقيع (التوكن) الخاص بالممول ولا يمكن تنفيذه داخل البرنامج. اضبط أمر التوقيع الخارجي في إعدادات الفاتورة الإلكترونية قبل الإرسال.",
+    );
+    this.name = "EtaSignerNotConfiguredError";
+  }
+}
+
+/** برنامج التوقيع رفض أو أخفق — the configured signing program did not return a signature. */
+export class EtaSigningFailedError extends Error {
+  readonly code = "ETA_SIGNING_FAILED";
+  constructor(readonly detail: string) {
+    super(`تعذّر توقيع المستند: ${detail}`);
+    this.name = "EtaSigningFailedError";
+  }
+}

@@ -280,6 +280,7 @@ import type {
   LanSessionsListDTO,
 } from "@mezan/contracts";
 import { useApi } from "./ApiContext";
+import type { TransportResponse } from "./transport";
 import { useAppTranslation } from "../i18n";
 
 /**
@@ -325,6 +326,8 @@ export interface SalesQuoteRecord {
   readonly respondedAt: string | null;
   readonly convertedAt: string | null;
   readonly convertedInvoiceId: string | null;
+  /** N-9 — the row version the detail read serves; sent back as `expectedVersion` on the next act. */
+  readonly version?: number;
   readonly lines: readonly SalesQuoteLineRecord[];
   readonly totals: {
     readonly grossTotal: string;
@@ -401,7 +404,7 @@ export function useBootstrapSeed() {
   return useMutation<BootstrapSeedResultDTO, ApiError, void>({
     mutationFn: async () => {
       const res = await request("/bootstrap/seed", { method: "POST", body: JSON.stringify({}) });
-      if (!res.ok) throw await loaderError(res, t("api.theCoreDataCouldNot"));
+      if (!res.ok) throw await loaderError(res, t("api.theCoreDataCouldNot"), t);
       return res.json<BootstrapSeedResultDTO>();
     },
     onSuccess: (counts) => queryClient.setQueryData(["bootstrap", "status"], counts),
@@ -420,11 +423,7 @@ export function useTenantInfo(
     enabled: options.enabled ?? true,
     queryFn: async () => {
       const res = await request("/tenant");
-      if (!res.ok) {
-        type TenantError = { message?: string };
-        const err = await res.json<TenantError>().catch((): TenantError => ({}));
-        throw new ApiError(res.status, err.message ?? t("api.theCompanySDetailsCould"));
-      }
+      if (!res.ok) throw await loaderError(res, t("api.theCompanySDetailsCould"), t);
       return res.json<{ name: string }>();
     },
   });
@@ -456,7 +455,7 @@ export function useBootstrapStatus(): UseQueryResult<BootstrapSeedResultDTO, Api
     queryKey: ["bootstrap", "status"],
     queryFn: async () => {
       const res = await request("/bootstrap/status");
-      if (!res.ok) throw await loaderError(res, t("api.theCoreDataStatusCould"));
+      if (!res.ok) throw await loaderError(res, t("api.theCoreDataStatusCould"), t);
       return res.json<BootstrapSeedResultDTO>();
     },
   });
@@ -475,7 +474,7 @@ export function useEntitlements(): UseQueryResult<EntitlementsDTO, ApiError> {
     queryKey: ["entitlements"],
     queryFn: async () => {
       const res = await request("/entitlements");
-      if (!res.ok) throw await loaderError(res, t("api.licenceDetailsCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.licenceDetailsCouldNotBe"), t);
       return res.json<EntitlementsDTO>();
     },
   });
@@ -521,15 +520,43 @@ export function useDashboardSummary(range: DashboardRange = {}): UseQueryResult<
       if (range.toDate) params.set("toDate", range.toDate);
       const qs = params.toString();
       const res = await request(`/dashboard/summary${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw await loaderError(res, t("api.dashboardDataCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.dashboardDataCouldNotBe"), t);
       return res.json<DashboardSummaryDTO>();
     },
   });
 }
 
-async function readError(res: { json<T>(): Promise<T> }, fallback: string): Promise<string> {
+/**
+ * The failure text a screen shows: the SERVER's own Arabic reason when it sent
+ * one, otherwise the screen's fallback sentence with the HTTP status appended
+ * as a support code so a phone call has something to quote.
+ *
+ * Reads the body ONCE — `TransportResponse.json()` is `Response.json()` on the
+ * HTTP transport, so a second call on the same response rejects. A caller that
+ * already consumed the body (the two report hooks, via
+ * `readReportFieldErrors`) must not call this.
+ */
+export async function readError(
+  res: { readonly status: number; json<T>(): Promise<T> },
+  fallback: string,
+  t?: AppTranslate,
+): Promise<string> {
   const body = (await res.json<{ message?: string }>().catch(() => ({}))) as { message?: string };
-  return body.message ?? fallback;
+  if (body.message !== undefined && body.message !== "") return body.message;
+  return withSupportCode(fallback, res.status, t);
+}
+
+/** `t`, narrowed to what {@link readError} needs, so data files need no i18n types of their own. */
+export type AppTranslate = ReturnType<typeof useAppTranslation>["t"];
+
+/**
+ * Appends «رمز 502» to a fallback sentence. Support's first question is "what
+ * did it say", and «تعذّر تحميل …» is the same sentence for a sleeping host, a
+ * permission denial and an expired session.
+ */
+export function withSupportCode(message: string, status: number, t?: AppTranslate): string {
+  if (!t || !Number.isFinite(status) || status <= 0) return message;
+  return `${message} ${t("api.supportCode", { code: String(status) })}`;
 }
 
 /**
@@ -539,20 +566,77 @@ async function readError(res: { json<T>(): Promise<T> }, fallback: string): Prom
  * غير مفعّلة في باقتكم») — that must reach the screen, not the generic
  * "تعذّر تحميل…" `fallback` every other failure keeps.
  */
-async function loaderError(res: { status: number; json<T>(): Promise<T> }, fallback: string): Promise<ApiError> {
-  if (res.status === 403) {
-    const body = (await res.json<{ error?: string; message?: string }>().catch(() => ({}))) as {
-      error?: string;
-      message?: string;
-    };
-    if (body.error === "MODULE_NOT_LICENSED" && body.message) {
-      return new ApiError(res.status, body.message, undefined, undefined, body.error);
-    }
+/**
+ * The ApiError a loader throws, carrying everything the screen and support both
+ * need. Both branches of this merge had grown their own half of this, and each
+ * half was load-bearing:
+ *
+ *   - A 403 `MODULE_NOT_LICENSED` keeps its CODE, not just its text, because the
+ *     shell renders an unlicensed module differently from a plain refusal.
+ *   - The server's own Arabic reason is preferred over the generic fallback
+ *     whatever the status, because the server knows why and the screen does not.
+ *   - A fallback picks up «رمز NNN», since support's first question is the code
+ *     and the user cannot read one off a sentence that never carried it.
+ *
+ * Keeping only one half is a silent regression either way: the module refusal
+ * loses its code, or every failure loses the server's reason and the support
+ * code with it.
+ */
+async function loaderError(
+  res: { status: number; json<T>(): Promise<T> },
+  fallback: string,
+  t?: AppTranslate,
+): Promise<ApiError> {
+  const body = (await res.json<{ error?: string; message?: string }>().catch(() => ({}))) as {
+    error?: string;
+    message?: string;
+  };
+  if (res.status === 403 && body.error === "MODULE_NOT_LICENSED" && body.message) {
+    return new ApiError(res.status, body.message, undefined, undefined, body.error);
   }
-  return new ApiError(res.status, fallback);
+  if (body.message !== undefined && body.message !== "") return new ApiError(res.status, body.message);
+  return new ApiError(res.status, withSupportCode(fallback, res.status, t));
 }
 
 /** الأصناف (docs/archive/catalog/03) — list, create, edit. */
+/**
+ * Rows per request when a caller needs the WHOLE set, and how many such
+ * requests it may make. Both are compiled in — a limit the caller supplies is
+ * not a limit.
+ */
+const WHOLE_SET_PAGE_SIZE = 200;
+const WHOLE_SET_MAX_PAGES = 50;
+
+/**
+ * Every page of a list route, for the callers that genuinely need the whole
+ * set: a picker over the catalogue, a customer statement, a per-branch count.
+ *
+ * The list routes now answer with ONE page by default (Q-8), so a caller that
+ * meant "everything" and sent no page would silently receive the first
+ * twenty-five rows — and a truncated figure on a screen is indistinguishable
+ * from a wrong one. This walks the pages instead, and stops at a compiled-in
+ * ceiling rather than pulling an unbounded set into the renderer.
+ */
+async function fetchEveryPage<T>(
+  request: (path: string, init?: RequestInit) => Promise<TransportResponse>,
+  path: string,
+  params: URLSearchParams,
+  fail: (res: TransportResponse) => Promise<never>,
+): Promise<T[]> {
+  const all: T[] = [];
+  for (let page = 1; page <= WHOLE_SET_MAX_PAGES; page += 1) {
+    const qs = new URLSearchParams(params);
+    qs.set("page", String(page));
+    qs.set("pageSize", String(WHOLE_SET_PAGE_SIZE));
+    const res = await request(`${path}?${qs.toString()}`);
+    if (!res.ok) await fail(res);
+    const rows = await res.json<T[]>();
+    all.push(...rows);
+    if (rows.length < WHOLE_SET_PAGE_SIZE) break;
+  }
+  return all;
+}
+
 export interface ItemListFilter {
   /** A chip key: `all`, `active`, `inactive`, `low_stock`, `out_of_stock`, or an item type. */
   readonly status?: string;
@@ -561,6 +645,12 @@ export interface ItemListFilter {
   readonly seasonId?: string;
   readonly unitCode?: string;
   readonly search?: string;
+  /** One page of the catalogue, 1-based. Only the ROWS query sends it (Q-9). */
+  readonly page?: number;
+  readonly pageSize?: number;
+  /** The total order the page is cut from — the server applies it, not the browser. */
+  readonly sort?: "code" | "nameAr" | "salePrice" | "costPrice";
+  readonly sortDir?: "asc" | "desc";
 }
 
 function itemParams(filter: ItemListFilter): URLSearchParams {
@@ -571,6 +661,10 @@ function itemParams(filter: ItemListFilter): URLSearchParams {
   if (filter.seasonId) params.set("seasonId", filter.seasonId);
   if (filter.unitCode && filter.unitCode !== "all") params.set("unitCode", filter.unitCode);
   if (filter.search) params.set("search", filter.search);
+  if (filter.page) params.set("page", String(filter.page));
+  if (filter.pageSize) params.set("pageSize", String(filter.pageSize));
+  if (filter.sort) params.set("sort", filter.sort);
+  if (filter.sortDir) params.set("sortDir", filter.sortDir);
   return params;
 }
 
@@ -581,9 +675,16 @@ export function useItems(filter: ItemListFilter = {}): UseQueryResult<ItemDTO[],
     queryKey: ["items", filter],
     enabled: session !== null,
     queryFn: async () => {
+      const fail = async (res: TransportResponse): Promise<never> => {
+        throw await loaderError(res, t("api.itemsCouldNotBeLoaded"), t);
+      };
+      // A caller that named no page means the whole catalogue — every picker
+      // and every name lookup on the app does — so the pages are walked
+      // rather than silently cut to the route's default (Q-8).
+      if (filter.page === undefined) return fetchEveryPage<ItemDTO>(request, "/items", itemParams(filter), fail);
       const qs = itemParams(filter).toString();
       const res = await request(`/items${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw await loaderError(res, t("api.itemsCouldNotBeLoaded"));
+      if (!res.ok) await fail(res);
       return res.json<ItemDTO[]>();
     },
   });
@@ -597,14 +698,16 @@ export function useItems(filter: ItemListFilter = {}): UseQueryResult<ItemDTO[],
 export function useItemCounts(filter: ItemListFilter = {}): UseQueryResult<ListCountsDTO, ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
-  const { status: _status, ...rest } = filter;
+  // Every chip counts the WHOLE filtered set, so neither the active status nor
+  // the page may travel (Q-9).
+  const { status: _status, page: _page, pageSize: _pageSize, sort: _sort, sortDir: _sortDir, ...rest } = filter;
   return useQuery<ListCountsDTO, ApiError>({
     queryKey: ["items", "counts", rest],
     enabled: session !== null,
     queryFn: async () => {
       const qs = itemParams(rest).toString();
       const res = await request(`/items/counts${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw await loaderError(res, t("api.itemsCouldNotBeLoaded"));
+      if (!res.ok) throw await loaderError(res, t("api.itemsCouldNotBeLoaded"), t);
       return res.json<ListCountsDTO>();
     },
   });
@@ -614,13 +717,15 @@ export function useItemCounts(filter: ItemListFilter = {}): UseQueryResult<ListC
 export function useItemStats(filter: ItemListFilter = {}): UseQueryResult<ListStatsDTO, ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
+  // The KPI strip totals the WHOLE filtered set, so the page must not travel.
+  const { page: _page, pageSize: _pageSize, sort: _sort, sortDir: _sortDir, ...rest } = filter;
   return useQuery<ListStatsDTO, ApiError>({
-    queryKey: ["items", "stats", filter],
+    queryKey: ["items", "stats", rest],
     enabled: session !== null,
     queryFn: async () => {
-      const qs = itemParams(filter).toString();
+      const qs = itemParams(rest).toString();
       const res = await request(`/items/stats${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw await loaderError(res, t("api.itemsCouldNotBeLoaded"));
+      if (!res.ok) throw await loaderError(res, t("api.itemsCouldNotBeLoaded"), t);
       return res.json<ListStatsDTO>();
     },
   });
@@ -633,7 +738,7 @@ export function useCreateItem() {
   return useMutation<ItemDTO, ApiError, CreateItemDTO>({
     mutationFn: async (body) => {
       const res = await request("/items", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theItemCouldNotBe")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theItemCouldNotBe"), t));
       return res.json<ItemDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["items"] }),
@@ -647,7 +752,7 @@ export function useUpdateItem() {
   return useMutation<ItemDTO, ApiError, { id: string; patch: UpdateItemDTO }>({
     mutationFn: async ({ id, patch }) => {
       const res = await request(`/items/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theItemCouldNotBe2")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theItemCouldNotBe2"), t));
       return res.json<ItemDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["items"] }),
@@ -685,7 +790,7 @@ export function useCustomers(filter: CustomerListFilter = {}): UseQueryResult<Cu
     queryFn: async () => {
       const qs = customerParams(filter).toString();
       const res = await request(`/customers${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw await loaderError(res, t("api.customersCouldNotBeLoaded"));
+      if (!res.ok) throw await loaderError(res, t("api.customersCouldNotBeLoaded"), t);
       return res.json<CustomerDTO[]>();
     },
   });
@@ -702,7 +807,7 @@ export function useCustomerCounts(filter: CustomerListFilter = {}): UseQueryResu
     queryFn: async () => {
       const qs = customerParams(rest).toString();
       const res = await request(`/customers/counts${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw await loaderError(res, t("api.customersCouldNotBeLoaded"));
+      if (!res.ok) throw await loaderError(res, t("api.customersCouldNotBeLoaded"), t);
       return res.json<ListCountsDTO>();
     },
   });
@@ -718,7 +823,7 @@ export function useCustomerStats(filter: CustomerListFilter = {}): UseQueryResul
     queryFn: async () => {
       const qs = customerParams(filter).toString();
       const res = await request(`/customers/stats${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw await loaderError(res, t("api.customersCouldNotBeLoaded"));
+      if (!res.ok) throw await loaderError(res, t("api.customersCouldNotBeLoaded"), t);
       return res.json<ListStatsDTO>();
     },
   });
@@ -731,7 +836,7 @@ export function useCreateCustomer() {
   return useMutation<CustomerDTO, ApiError, CreateCustomerDTO>({
     mutationFn: async (body) => {
       const res = await request("/customers", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theCustomerCouldNotBe")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theCustomerCouldNotBe"), t));
       return res.json<CustomerDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["customers"] }),
@@ -745,7 +850,7 @@ export function useUpdateCustomer() {
   return useMutation<CustomerDTO, ApiError, { id: string; patch: UpdateCustomerDTO }>({
     mutationFn: async ({ id, patch }) => {
       const res = await request(`/customers/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theCustomerCouldNotBe2")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theCustomerCouldNotBe2"), t));
       return res.json<CustomerDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["customers"] }),
@@ -774,7 +879,7 @@ export function useSuppliers(filter: SupplierListFilter = {}): UseQueryResult<Su
     queryFn: async () => {
       const qs = supplierParams(filter).toString();
       const res = await request(`/suppliers${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw await loaderError(res, t("api.suppliersCouldNotBeLoaded"));
+      if (!res.ok) throw await loaderError(res, t("api.suppliersCouldNotBeLoaded"), t);
       return res.json<SupplierDTO[]>();
     },
   });
@@ -791,7 +896,7 @@ export function useSupplierCounts(filter: SupplierListFilter = {}): UseQueryResu
     queryFn: async () => {
       const qs = supplierParams(rest).toString();
       const res = await request(`/suppliers/counts${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw await loaderError(res, t("api.suppliersCouldNotBeLoaded"));
+      if (!res.ok) throw await loaderError(res, t("api.suppliersCouldNotBeLoaded"), t);
       return res.json<ListCountsDTO>();
     },
   });
@@ -807,7 +912,7 @@ export function useSupplierStats(filter: SupplierListFilter = {}): UseQueryResul
     queryFn: async () => {
       const qs = supplierParams(filter).toString();
       const res = await request(`/suppliers/stats${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw await loaderError(res, t("api.suppliersCouldNotBeLoaded"));
+      if (!res.ok) throw await loaderError(res, t("api.suppliersCouldNotBeLoaded"), t);
       return res.json<ListStatsDTO>();
     },
   });
@@ -820,7 +925,7 @@ export function useCreateSupplier() {
   return useMutation<SupplierDTO, ApiError, CreateSupplierDTO>({
     mutationFn: async (body) => {
       const res = await request("/suppliers", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theSupplierCouldNotBe")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theSupplierCouldNotBe"), t));
       return res.json<SupplierDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["suppliers"] }),
@@ -834,7 +939,7 @@ export function useUpdateSupplier() {
   return useMutation<SupplierDTO, ApiError, { id: string; patch: UpdateSupplierDTO }>({
     mutationFn: async ({ id, patch }) => {
       const res = await request(`/suppliers/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theSupplierCouldNotBe2")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theSupplierCouldNotBe2"), t));
       return res.json<SupplierDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["suppliers"] }),
@@ -850,7 +955,7 @@ export function useAccounts(): UseQueryResult<AccountDTO[], ApiError> {
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/accounts");
-      if (!res.ok) throw await loaderError(res, t("api.theChartOfAccountsCould"));
+      if (!res.ok) throw await loaderError(res, t("api.theChartOfAccountsCould"), t);
       return res.json<AccountDTO[]>();
     },
   });
@@ -863,7 +968,7 @@ export function useCreateAccount() {
   return useMutation<AccountDTO, ApiError, CreateAccountDTO>({
     mutationFn: async (body) => {
       const res = await request("/accounts", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theAccountCouldNotBe")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theAccountCouldNotBe"), t));
       return res.json<AccountDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["accounts"] }),
@@ -877,7 +982,7 @@ export function useUpdateAccount() {
   return useMutation<AccountDTO, ApiError, { id: string; patch: UpdateAccountDTO }>({
     mutationFn: async ({ id, patch }) => {
       const res = await request(`/accounts/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theAccountCouldNotBe2")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theAccountCouldNotBe2"), t));
       return res.json<AccountDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["accounts"] }),
@@ -893,7 +998,7 @@ export function useTreasuryAccounts(): UseQueryResult<TreasuryAccountDTO[], ApiE
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/treasury-accounts");
-      if (!res.ok) throw await loaderError(res, t("api.treasuryAccountsCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.treasuryAccountsCouldNotBe"), t);
       return res.json<TreasuryAccountDTO[]>();
     },
   });
@@ -906,7 +1011,7 @@ export function useCreateTreasuryAccount() {
   return useMutation<TreasuryAccountDTO, ApiError, CreateTreasuryAccountDTO>({
     mutationFn: async (body) => {
       const res = await request("/treasury-accounts", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theAccountCouldNotBe")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theAccountCouldNotBe"), t));
       return res.json<TreasuryAccountDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["treasury-accounts"] }),
@@ -920,7 +1025,7 @@ export function useUpdateTreasuryAccount() {
   return useMutation<TreasuryAccountDTO, ApiError, { id: string; patch: UpdateTreasuryAccountDTO }>({
     mutationFn: async ({ id, patch }) => {
       const res = await request(`/treasury-accounts/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theAccountCouldNotBe2")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theAccountCouldNotBe2"), t));
       return res.json<TreasuryAccountDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["treasury-accounts"] }),
@@ -936,7 +1041,7 @@ export function usePriceLists(): UseQueryResult<PriceListDTO[], ApiError> {
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/price-lists");
-      if (!res.ok) throw await loaderError(res, t("api.priceListsCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.priceListsCouldNotBe"), t);
       return res.json<PriceListDTO[]>();
     },
   });
@@ -968,7 +1073,7 @@ export function usePromotions(): UseQueryResult<PromotionDTO[], ApiError> {
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/promotions");
-      if (!res.ok) throw await loaderError(res, t("api.promotionsCouldNotBeLoaded"));
+      if (!res.ok) throw await loaderError(res, t("api.promotionsCouldNotBeLoaded"), t);
       return res.json<PromotionDTO[]>();
     },
   });
@@ -983,7 +1088,7 @@ export function usePromotionUsageReport(): UseQueryResult<PromotionUsageRowDTO[]
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/promotions/report");
-      if (!res.ok) throw await loaderError(res, t("api.thePromotionUsageReportCould"));
+      if (!res.ok) throw await loaderError(res, t("api.thePromotionUsageReportCould"), t);
       return res.json<PromotionUsageRowDTO[]>();
     },
   });
@@ -1042,7 +1147,7 @@ export function useSalesQuotes(filter: SalesQuoteListFilter = {}): UseQueryResul
     queryFn: async () => {
       const qs = salesQuoteParams(filter).toString();
       const res = await request(`/sales-quotes${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw await loaderError(res, t("api.quotesCouldNotBeLoaded"));
+      if (!res.ok) throw await loaderError(res, t("api.quotesCouldNotBeLoaded"), t);
       return res.json<SalesQuoteRecord[]>();
     },
   });
@@ -1062,7 +1167,7 @@ export function useSalesQuoteCounts(filter: SalesQuoteListFilter = {}): UseQuery
     queryFn: async () => {
       const qs = salesQuoteParams(rest).toString();
       const res = await request(`/sales-quotes/counts${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw await loaderError(res, t("api.quotesCouldNotBeLoaded"));
+      if (!res.ok) throw await loaderError(res, t("api.quotesCouldNotBeLoaded"), t);
       return res.json<ListCountsDTO>();
     },
   });
@@ -1078,7 +1183,7 @@ export function useSalesQuoteStats(filter: SalesQuoteListFilter = {}): UseQueryR
     queryFn: async () => {
       const qs = salesQuoteParams(filter).toString();
       const res = await request(`/sales-quotes/stats${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw await loaderError(res, t("api.quotesCouldNotBeLoaded"));
+      if (!res.ok) throw await loaderError(res, t("api.quotesCouldNotBeLoaded"), t);
       return res.json<ListStatsDTO>();
     },
   });
@@ -1101,13 +1206,25 @@ export function useCreateSalesQuote() {
   });
 }
 
+/** N-9 — an act on a document carries the version the screen was served. */
+export type DocumentAct = string | { readonly id: string; readonly expectedVersion?: number };
+
+function actOf(input: DocumentAct): { id: string; body: string } {
+  if (typeof input === "string") return { id: input, body: JSON.stringify({}) };
+  return {
+    id: input.id,
+    body: JSON.stringify(input.expectedVersion === undefined ? {} : { expectedVersion: input.expectedVersion }),
+  };
+}
+
 function useSalesQuoteTransition(action: "send" | "accept" | "reject" | "cancel") {
   const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
-  return useMutation<SalesQuoteRecord, ApiError, string>({
-    mutationFn: async (id) => {
-      const res = await request(`/sales-quotes/${id}/${action}`, { method: "POST", body: JSON.stringify({}) });
+  return useMutation<SalesQuoteRecord, ApiError, DocumentAct>({
+    mutationFn: async (input) => {
+      const { id, body } = actOf(input);
+      const res = await request(`/sales-quotes/${id}/${action}`, { method: "POST", body });
       if (!res.ok) {
         const err = (await res.json<{ message?: string }>().catch(() => ({}))) as { message?: string };
         throw new ApiError(res.status, err.message ?? t("api.thatActionCouldNotBe"));
@@ -1196,6 +1313,9 @@ export interface JournalEntryListFilter {
   readonly fromDate?: string;
   readonly toDate?: string;
   readonly search?: string;
+  /** One page of the register, 1-based. Only the ROWS query sends it (Q-9). */
+  readonly page?: number;
+  readonly pageSize?: number;
 }
 
 /**
@@ -1210,6 +1330,8 @@ function journalEntryParams(filter: JournalEntryListFilter): URLSearchParams {
   if (filter.fromDate) params.set("fromDate", filter.fromDate);
   if (filter.toDate) params.set("toDate", filter.toDate);
   if (filter.search) params.set("search", filter.search);
+  if (filter.page) params.set("page", String(filter.page));
+  if (filter.pageSize) params.set("pageSize", String(filter.pageSize));
   return params;
 }
 
@@ -1221,9 +1343,16 @@ export function useJournalEntries(filter: JournalEntryListFilter = {}): UseQuery
     queryKey: ["journal-entries", filter],
     enabled: session !== null,
     queryFn: async () => {
+      const fail = async (res: TransportResponse): Promise<never> => {
+        throw await loaderError(res, t("api.journalEntriesCouldNotBe"), t);
+      };
+      // A caller that named no page means the whole filtered set — a statement,
+      // a per-branch count, a picker — so the pages are walked rather than
+      // silently cut to the route's default (Q-8).
+      if (filter.page === undefined) return fetchEveryPage<JournalEntryDTO>(request, "/gl/journal-entries", journalEntryParams(filter), fail);
       const qs = journalEntryParams(filter).toString();
       const res = await request(`/gl/journal-entries${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw await loaderError(res, t("api.journalEntriesCouldNotBe"));
+      if (!res.ok) await fail(res);
       return res.json<JournalEntryDTO[]>();
     },
   });
@@ -1233,14 +1362,16 @@ export function useJournalEntries(filter: JournalEntryListFilter = {}): UseQuery
 export function useJournalEntryCounts(filter: JournalEntryListFilter = {}): UseQueryResult<ListCountsDTO, ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
-  const { status: _status, ...rest } = filter;
+  // Every chip counts the WHOLE filtered set, so neither the active status nor
+  // the page may travel (Q-9).
+  const { status: _status, page: _page, pageSize: _pageSize, ...rest } = filter;
   return useQuery<ListCountsDTO, ApiError>({
     queryKey: ["journal-entries", "counts", rest],
     enabled: session !== null,
     queryFn: async () => {
       const qs = journalEntryParams(rest).toString();
       const res = await request(`/gl/journal-entries/counts${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw await loaderError(res, t("api.journalEntriesCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.journalEntriesCouldNotBe"), t);
       return res.json<ListCountsDTO>();
     },
   });
@@ -1250,13 +1381,15 @@ export function useJournalEntryCounts(filter: JournalEntryListFilter = {}): UseQ
 export function useJournalEntryStats(filter: JournalEntryListFilter = {}): UseQueryResult<ListStatsDTO, ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
+  // The KPI strip totals the WHOLE filtered set, so the page must not travel.
+  const { page: _page, pageSize: _pageSize, ...rest } = filter;
   return useQuery<ListStatsDTO, ApiError>({
-    queryKey: ["journal-entries", "stats", filter],
+    queryKey: ["journal-entries", "stats", rest],
     enabled: session !== null,
     queryFn: async () => {
-      const qs = journalEntryParams(filter).toString();
+      const qs = journalEntryParams(rest).toString();
       const res = await request(`/gl/journal-entries/stats${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw await loaderError(res, t("api.journalEntriesCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.journalEntriesCouldNotBe"), t);
       return res.json<ListStatsDTO>();
     },
   });
@@ -1270,7 +1403,7 @@ export function useCreateJournalEntry() {
   return useMutation<JournalEntryDTO, ApiError, CreateGlJournalEntryDTO>({
     mutationFn: async (body) => {
       const res = await request("/gl/journal-entries", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theEntryCouldNotBe")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theEntryCouldNotBe"), t));
       return res.json<JournalEntryDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["journal-entries"] }),
@@ -1285,7 +1418,7 @@ export function useReverseJournalEntry() {
   return useMutation<{ original: JournalEntryDTO; reversal: JournalEntryDTO }, ApiError, { id: string; body?: ReverseGlJournalEntryDTO }>({
     mutationFn: async ({ id, body }) => {
       const res = await request(`/gl/journal-entries/${id}/reverse`, { method: "POST", body: JSON.stringify(body ?? {}) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theEntryCouldNotBe2")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theEntryCouldNotBe2"), t));
       return res.json<{ original: JournalEntryDTO; reversal: JournalEntryDTO }>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["journal-entries"] }),
@@ -1301,7 +1434,7 @@ export function useUsers(): UseQueryResult<UserDTO[], ApiError> {
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/users");
-      if (!res.ok) throw await loaderError(res, t("api.usersCouldNotBeLoaded"));
+      if (!res.ok) throw await loaderError(res, t("api.usersCouldNotBeLoaded"), t);
       return res.json<UserDTO[]>();
     },
   });
@@ -1314,7 +1447,7 @@ export function useCreateUser() {
   return useMutation<UserDTO, ApiError, CreateUserDTO>({
     mutationFn: async (body) => {
       const res = await request("/users", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theUserCouldNotBe")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theUserCouldNotBe"), t));
       return res.json<UserDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["users"] }),
@@ -1328,7 +1461,7 @@ export function useUpdateUser() {
   return useMutation<UserDTO, ApiError, { id: string; body: UpdateUserDTO }>({
     mutationFn: async ({ id, body }) => {
       const res = await request(`/users/${id}`, { method: "PUT", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theUserCouldNotBe")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theUserCouldNotBe"), t));
       return res.json<UserDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["users"] }),
@@ -1342,7 +1475,7 @@ export function useSetUserStatus() {
   return useMutation<UserDTO, ApiError, { id: string; status: "active" | "inactive" }>({
     mutationFn: async ({ id, status }) => {
       const res = await request(`/users/${id}/${status === "active" ? "activate" : "deactivate"}`, { method: "POST" });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theUserSStatusCould")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theUserSStatusCould"), t));
       return res.json<UserDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["users"] }),
@@ -1358,7 +1491,7 @@ export function useRoles(): UseQueryResult<RoleDTO[], ApiError> {
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/roles");
-      if (!res.ok) throw await loaderError(res, t("api.rolesCouldNotBeLoaded"));
+      if (!res.ok) throw await loaderError(res, t("api.rolesCouldNotBeLoaded"), t);
       return res.json<RoleDTO[]>();
     },
   });
@@ -1371,7 +1504,7 @@ export function useCreateRole() {
   return useMutation<RoleDTO, ApiError, CreateRoleDTO>({
     mutationFn: async (body) => {
       const res = await request("/roles", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theRoleCouldNotBe")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theRoleCouldNotBe"), t));
       return res.json<RoleDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["roles"] }),
@@ -1385,7 +1518,7 @@ export function useUpdateRole() {
   return useMutation<RoleDTO, ApiError, { id: string; body: UpdateRoleDTO }>({
     mutationFn: async ({ id, body }) => {
       const res = await request(`/roles/${id}`, { method: "PUT", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theRoleCouldNotBe")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theRoleCouldNotBe"), t));
       return res.json<RoleDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["roles"] }),
@@ -1400,7 +1533,7 @@ export function useDeleteRole() {
     mutationFn: async (id) => {
       const res = await request(`/roles/${id}`, { method: "DELETE" });
       // 204 No Content on success — the body is empty, never parse it as JSON.
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theRoleCouldNotBe2")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theRoleCouldNotBe2"), t));
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["roles"] }),
   });
@@ -1439,7 +1572,7 @@ export function useSettings(): UseQueryResult<TenantSettingsDTO, ApiError> {
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/settings");
-      if (!res.ok) throw await loaderError(res, t("api.settingsCouldNotBeLoaded"));
+      if (!res.ok) throw await loaderError(res, t("api.settingsCouldNotBeLoaded"), t);
       return res.json<TenantSettingsDTO>();
     },
   });
@@ -1452,7 +1585,7 @@ export function useUpdateSettings() {
   return useMutation<TenantSettingsDTO, ApiError, UpdateTenantSettingsDTO>({
     mutationFn: async (body) => {
       const res = await request("/settings", { method: "PUT", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.settingsCouldNotBeSaved")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.settingsCouldNotBeSaved"), t));
       return res.json<TenantSettingsDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["settings"] }),
@@ -1472,7 +1605,7 @@ export function useBranches(): UseQueryResult<BranchDTO[], ApiError> {
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/branches");
-      if (!res.ok) throw await loaderError(res, t("api.branchesCouldNotBeLoaded"));
+      if (!res.ok) throw await loaderError(res, t("api.branchesCouldNotBeLoaded"), t);
       return res.json<BranchDTO[]>();
     },
   });
@@ -1485,7 +1618,7 @@ export function useCreateBranch() {
   return useMutation<BranchDTO, ApiError, CreateBranchDTO>({
     mutationFn: async (body) => {
       const res = await request("/branches", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theBranchCouldNotBe")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theBranchCouldNotBe"), t));
       return res.json<BranchDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["branches"] }),
@@ -1499,7 +1632,7 @@ export function useUpdateBranch() {
   return useMutation<BranchDTO, ApiError, { id: string; patch: UpdateBranchDTO }>({
     mutationFn: async ({ id, patch }) => {
       const res = await request(`/branches/${id}`, { method: "PUT", body: JSON.stringify(patch) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theBranchCouldNotBe2")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theBranchCouldNotBe2"), t));
       return res.json<BranchDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["branches"] }),
@@ -1547,7 +1680,7 @@ export function useCheques(filters: ChequeListFilters = {}): UseQueryResult<Cheq
     queryFn: async () => {
       const qs = chequeParams(filters).toString();
       const res = await request(`/cheques${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw await loaderError(res, t("api.chequesCouldNotBeLoaded"));
+      if (!res.ok) throw await loaderError(res, t("api.chequesCouldNotBeLoaded"), t);
       return res.json<ChequeDTO[]>();
     },
   });
@@ -1564,7 +1697,7 @@ export function useChequeCounts(filter: ChequeListFilters = {}): UseQueryResult<
     queryFn: async () => {
       const qs = chequeParams(rest).toString();
       const res = await request(`/cheques/counts${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw await loaderError(res, t("api.chequesCouldNotBeLoaded"));
+      if (!res.ok) throw await loaderError(res, t("api.chequesCouldNotBeLoaded"), t);
       return res.json<ListCountsDTO>();
     },
   });
@@ -1580,7 +1713,7 @@ export function useChequeStats(filter: ChequeListFilters = {}): UseQueryResult<L
     queryFn: async () => {
       const qs = chequeParams(filter).toString();
       const res = await request(`/cheques/stats${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw await loaderError(res, t("api.chequesCouldNotBeLoaded"));
+      if (!res.ok) throw await loaderError(res, t("api.chequesCouldNotBeLoaded"), t);
       return res.json<ListStatsDTO>();
     },
   });
@@ -1593,7 +1726,7 @@ export function useCreateCheque() {
   return useMutation<ChequeDTO, ApiError, CreateChequeDTO>({
     mutationFn: async (body) => {
       const res = await request("/cheques", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theChequeCouldNotBe")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theChequeCouldNotBe"), t));
       return res.json<ChequeDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["cheques"] }),
@@ -1638,7 +1771,7 @@ export function useReplaceCheque() {
   return useMutation<{ original: ChequeDTO; replacement: ChequeDTO }, ApiError, { id: string; body: ReplaceChequeDTO }>({
     mutationFn: async ({ id, body }) => {
       const res = await request(`/cheques/${id}/replace`, { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theChequeCouldNotBe4")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theChequeCouldNotBe4"), t));
       return res.json<{ original: ChequeDTO; replacement: ChequeDTO }>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["cheques"] }),
@@ -1676,7 +1809,7 @@ export function useBankStatements(filters: BankStatementListFilters = {}): UseQu
       if (filters.toDate) params.set("toDate", filters.toDate);
       const qs = params.toString();
       const res = await request(`/bank-statements${qs === "" ? "" : `?${qs}`}`);
-      if (!res.ok) throw await loaderError(res, t("api.bankStatementsCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.bankStatementsCouldNotBe"), t);
       return res.json<BankStatementListItemDTO[]>();
     },
   });
@@ -1690,7 +1823,7 @@ export function useBankStatement(id: string | null): UseQueryResult<BankStatemen
     enabled: session !== null && id !== null,
     queryFn: async () => {
       const res = await request(`/bank-statements/${id}`);
-      if (!res.ok) throw await loaderError(res, t("api.theBankStatementCouldNot"));
+      if (!res.ok) throw await loaderError(res, t("api.theBankStatementCouldNot"), t);
       return res.json<BankStatementDetailDTO>();
     },
   });
@@ -1710,7 +1843,7 @@ export function useStatementColumnMapping(treasuryAccountId: string | null): Use
     queryFn: async () => {
       const res = await request(`/bank-statements/column-mapping/${treasuryAccountId}`);
       if (res.status === 404) return null;
-      if (!res.ok) throw await loaderError(res, t("api.theColumnMappingCouldNot"));
+      if (!res.ok) throw await loaderError(res, t("api.theColumnMappingCouldNot"), t);
       return res.json<StatementColumnMappingDTO>();
     },
   });
@@ -1728,7 +1861,7 @@ export function useStatementMatchCandidates(statementId: string | null): UseQuer
     enabled: session !== null && statementId !== null,
     queryFn: async () => {
       const res = await request(`/bank-statements/${statementId}/candidates`);
-      if (!res.ok) throw await loaderError(res, t("api.theMatchableEntriesCouldNot"));
+      if (!res.ok) throw await loaderError(res, t("api.theMatchableEntriesCouldNot"), t);
       return res.json<MatchCandidateDTO[]>();
     },
   });
@@ -1742,7 +1875,7 @@ export function useImportBankStatement() {
   return useMutation<BankStatementDetailDTO, ApiError, ImportBankStatementDTO>({
     mutationFn: async (body) => {
       const res = await request("/bank-statements/import", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theBankStatementCouldNot2")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theBankStatementCouldNot2"), t));
       return res.json<BankStatementDetailDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["bank-statements"] }),
@@ -1757,7 +1890,7 @@ export function useAutoMatchStatement() {
   return useMutation<{ matchedCount: number }, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/bank-statements/${id}/auto-match`, { method: "POST", body: JSON.stringify({}) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.automaticMatchingFailed")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.automaticMatchingFailed"), t));
       return res.json<{ matchedCount: number }>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["bank-statements"] }),
@@ -1774,7 +1907,7 @@ export function useMatchStatementLine() {
         method: "POST",
         body: JSON.stringify({ entryId }),
       });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theLineCouldNotBe")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theLineCouldNotBe"), t));
       return res.json<StatementLineDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["bank-statements"] }),
@@ -1791,7 +1924,7 @@ export function useUnmatchStatementLine() {
         method: "POST",
         body: JSON.stringify({}),
       });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theLineCouldNotBe2")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theLineCouldNotBe2"), t));
       return res.json<StatementLineDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["bank-statements"] }),
@@ -1806,7 +1939,7 @@ export function useFinalizeBankStatement() {
   return useMutation<BankStatementDTO, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/bank-statements/${id}/finalize`, { method: "POST", body: JSON.stringify({}) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theReconciliationCouldNotBe")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theReconciliationCouldNotBe"), t));
       return res.json<BankStatementDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["bank-statements"] }),
@@ -1828,7 +1961,7 @@ export function useJournalEntry(id: string | null): UseQueryResult<JournalEntryD
     enabled: session !== null && id !== null,
     queryFn: async () => {
       const res = await request(`/gl/journal-entries/${id}`);
-      if (!res.ok) throw await loaderError(res, t("api.theJournalEntryCouldNot"));
+      if (!res.ok) throw await loaderError(res, t("api.theJournalEntryCouldNot"), t);
       return res.json<JournalEntryDTO>();
     },
   });
@@ -1843,7 +1976,7 @@ export function useWarehouses(): UseQueryResult<WarehouseDTO[], ApiError> {
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/warehouses");
-      if (!res.ok) throw await loaderError(res, t("api.warehousesCouldNotBeLoaded"));
+      if (!res.ok) throw await loaderError(res, t("api.warehousesCouldNotBeLoaded"), t);
       return res.json<WarehouseDTO[]>();
     },
   });
@@ -1856,7 +1989,7 @@ export function useCreateWarehouse() {
   return useMutation<WarehouseDTO, ApiError, CreateWarehouseDTO>({
     mutationFn: async (body) => {
       const res = await request("/warehouses", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theWarehouseCouldNotBe")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theWarehouseCouldNotBe"), t));
       return res.json<WarehouseDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["warehouses"] }),
@@ -1870,7 +2003,7 @@ export function useUpdateWarehouse() {
   return useMutation<WarehouseDTO, ApiError, { id: string; patch: UpdateWarehouseDTO }>({
     mutationFn: async ({ id, patch }) => {
       const res = await request(`/warehouses/${id}`, { method: "PUT", body: JSON.stringify(patch) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theWarehouseCouldNotBe2")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theWarehouseCouldNotBe2"), t));
       return res.json<WarehouseDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["warehouses"] }),
@@ -1885,7 +2018,7 @@ export interface VoucherRowDTO extends VoucherDTO {
 
 /** السندات النقدية (docs/archive/catalog/04) — list, create, confirm, reverse, allocate. */
 /** The one place the voucher list's filters become a query string (R8.2). */
-function voucherParams(filter: VoucherListQueryDTO): URLSearchParams {
+function voucherParams(filter: Partial<VoucherListQueryDTO>): URLSearchParams {
   const params = new URLSearchParams();
   if (filter.type) params.set("type", filter.type);
   if (filter.status) params.set("status", filter.status);
@@ -1903,7 +2036,7 @@ function voucherParams(filter: VoucherListQueryDTO): URLSearchParams {
  * to drop for which count. Withholding both here made the status chips report
  * the whole book while a type was selected.
  */
-export function useVoucherCounts(filter: VoucherListQueryDTO = {}): UseQueryResult<ListCountsDTO, ApiError> {
+export function useVoucherCounts(filter: Partial<VoucherListQueryDTO> = {}): UseQueryResult<ListCountsDTO, ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<ListCountsDTO, ApiError>({
@@ -1912,14 +2045,14 @@ export function useVoucherCounts(filter: VoucherListQueryDTO = {}): UseQueryResu
     queryFn: async () => {
       const qs = voucherParams(filter).toString();
       const res = await request(`/vouchers/counts${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw await loaderError(res, t("api.vouchersCouldNotBeLoaded"));
+      if (!res.ok) throw await loaderError(res, t("api.vouchersCouldNotBeLoaded"), t);
       return res.json<ListCountsDTO>();
     },
   });
 }
 
 /** The KPI strip, summed in `Money` on the server over the whole filtered set. */
-export function useVoucherStats(filter: VoucherListQueryDTO = {}): UseQueryResult<ListStatsDTO, ApiError> {
+export function useVoucherStats(filter: Partial<VoucherListQueryDTO> = {}): UseQueryResult<ListStatsDTO, ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<ListStatsDTO, ApiError>({
@@ -1928,22 +2061,29 @@ export function useVoucherStats(filter: VoucherListQueryDTO = {}): UseQueryResul
     queryFn: async () => {
       const qs = voucherParams(filter).toString();
       const res = await request(`/vouchers/stats${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw await loaderError(res, t("api.vouchersCouldNotBeLoaded"));
+      if (!res.ok) throw await loaderError(res, t("api.vouchersCouldNotBeLoaded"), t);
       return res.json<ListStatsDTO>();
     },
   });
 }
 
-export function useVouchers(filter: VoucherListQueryDTO = {}): UseQueryResult<VoucherRowDTO[], ApiError> {
+export function useVouchers(filter: Partial<VoucherListQueryDTO> = {}): UseQueryResult<VoucherRowDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<VoucherRowDTO[], ApiError>({
     queryKey: ["vouchers", filter],
     enabled: session !== null,
     queryFn: async () => {
+      const fail = async (res: TransportResponse): Promise<never> => {
+        throw await loaderError(res, t("api.vouchersCouldNotBeLoaded"), t);
+      };
+      // A caller that named no page means the whole filtered set — a statement,
+      // a per-branch count, a picker — so the pages are walked rather than
+      // silently cut to the route's default (Q-8).
+      if (filter.page === undefined) return fetchEveryPage<VoucherRowDTO>(request, "/vouchers", voucherParams(filter), fail);
       const qs = voucherParams(filter).toString();
       const res = await request(`/vouchers${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw await loaderError(res, t("api.vouchersCouldNotBeLoaded"));
+      if (!res.ok) await fail(res);
       return res.json<VoucherRowDTO[]>();
     },
   });
@@ -1963,7 +2103,7 @@ export function useVoucherDetail(id: string | null): UseQueryResult<VoucherDetai
     enabled: session !== null && id !== null,
     queryFn: async () => {
       const res = await request(`/vouchers/${id}`);
-      if (!res.ok) throw await loaderError(res, t("api.theVoucherCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.theVoucherCouldNotBe"), t);
       return res.json<VoucherDetailDTO>();
     },
   });
@@ -1980,7 +2120,7 @@ export function useCreateVoucher() {
   return useMutation<VoucherDTO, ApiError, CreateVoucherDTO>({
     mutationFn: async (body) => {
       const res = await request("/vouchers", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theVoucherCouldNotBe2")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theVoucherCouldNotBe2"), t));
       return res.json<VoucherDTO>();
     },
     onSuccess: () => invalidateVouchers(queryClient),
@@ -1994,7 +2134,7 @@ export function useConfirmVoucher() {
   return useMutation<VoucherDTO & { held: boolean }, ApiError, { id: string; body?: ConfirmVoucherDTO }>({
     mutationFn: async ({ id, body }) => {
       const res = await request(`/vouchers/${id}/confirm`, { method: "POST", body: JSON.stringify(body ?? {}) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theVoucherCouldNotBe3")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theVoucherCouldNotBe3"), t));
       return res.json<VoucherDTO & { held: boolean }>();
     },
     onSuccess: () => invalidateVouchers(queryClient),
@@ -2009,7 +2149,7 @@ export function useCancelVoucher() {
   return useMutation<VoucherDTO, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/vouchers/${id}/cancel`, { method: "POST", body: JSON.stringify({}) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theVoucherCouldNotBe3")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theVoucherCouldNotBe3"), t));
       return res.json<VoucherDTO>();
     },
     onSuccess: () => invalidateVouchers(queryClient),
@@ -2023,7 +2163,7 @@ export function useReverseVoucher() {
   return useMutation<{ original: VoucherDTO; reversal: VoucherDTO }, ApiError, { id: string; body?: ReverseVoucherDTO }>({
     mutationFn: async ({ id, body }) => {
       const res = await request(`/vouchers/${id}/reverse`, { method: "POST", body: JSON.stringify(body ?? {}) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theVoucherCouldNotBe4")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theVoucherCouldNotBe4"), t));
       return res.json<{ original: VoucherDTO; reversal: VoucherDTO }>();
     },
     onSuccess: () => invalidateVouchers(queryClient),
@@ -2037,7 +2177,7 @@ export function useCreateAllocation() {
   return useMutation<VoucherAllocationDTO, ApiError, { voucherId: string; body: CreateAllocationDTO }>({
     mutationFn: async ({ voucherId, body }) => {
       const res = await request(`/vouchers/${voucherId}/allocations`, { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theAmountCouldNotBe")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theAmountCouldNotBe"), t));
       return res.json<VoucherAllocationDTO>();
     },
     onSuccess: () => invalidateVouchers(queryClient),
@@ -2051,7 +2191,7 @@ export function useReverseAllocation() {
   return useMutation<VoucherAllocationDTO, ApiError, string>({
     mutationFn: async (allocationId) => {
       const res = await request(`/allocations/${allocationId}/reverse`, { method: "POST" });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theAllocationCouldNotBe")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theAllocationCouldNotBe"), t));
       return res.json<VoucherAllocationDTO>();
     },
     onSuccess: () => invalidateVouchers(queryClient),
@@ -2070,7 +2210,7 @@ export function useOpenInvoices(kind?: "sales" | "purchase", partyId?: string | 
       if (partyId) params.set("partyId", partyId);
       const qs = params.toString();
       const res = await request(`/open-invoices${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw await loaderError(res, t("api.openInvoicesCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.openInvoicesCouldNotBe"), t);
       return res.json<OpenInvoiceDTO[]>();
     },
   });
@@ -2113,7 +2253,7 @@ export function usePurchaseOrders(filter: PurchaseOrderListFilter = {}): UseQuer
     queryFn: async () => {
       const qs = purchaseOrderParams(filter).toString();
       const res = await request(`/purchases/orders${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw await loaderError(res, t("api.purchaseOrdersCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.purchaseOrdersCouldNotBe"), t);
       return res.json<PurchaseOrderDTO[]>();
     },
   });
@@ -2130,7 +2270,7 @@ export function usePurchaseOrderCounts(filter: PurchaseOrderListFilter = {}): Us
     queryFn: async () => {
       const qs = purchaseOrderParams(rest).toString();
       const res = await request(`/purchases/orders/counts${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw await loaderError(res, t("api.purchaseOrdersCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.purchaseOrdersCouldNotBe"), t);
       return res.json<ListCountsDTO>();
     },
   });
@@ -2146,7 +2286,7 @@ export function usePurchaseOrderStats(filter: PurchaseOrderListFilter = {}): Use
     queryFn: async () => {
       const qs = purchaseOrderParams(filter).toString();
       const res = await request(`/purchases/orders/stats${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw await loaderError(res, t("api.purchaseOrdersCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.purchaseOrdersCouldNotBe"), t);
       return res.json<ListStatsDTO>();
     },
   });
@@ -2159,7 +2299,7 @@ export function useCreatePurchaseOrder() {
   return useMutation<PurchaseOrderDTO, ApiError, CreatePurchaseOrderDTO>({
     mutationFn: async (body) => {
       const res = await request("/purchases/orders", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.thePurchaseOrderCouldNot")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.thePurchaseOrderCouldNot"), t));
       return res.json<PurchaseOrderDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["purchase-orders"] }),
@@ -2170,10 +2310,11 @@ export function useConfirmPurchaseOrder() {
   const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
-  return useMutation<PurchaseOrderDTO, ApiError, string>({
-    mutationFn: async (id) => {
-      const res = await request(`/purchases/orders/${id}/confirm`, { method: "POST" });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.thePurchaseOrderCouldNot2")));
+  return useMutation<PurchaseOrderDTO, ApiError, DocumentAct>({
+    mutationFn: async (input) => {
+      const { id, body } = actOf(input);
+      const res = await request(`/purchases/orders/${id}/confirm`, { method: "POST", body });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.thePurchaseOrderCouldNot2"), t));
       return res.json<PurchaseOrderDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["purchase-orders"] }),
@@ -2218,7 +2359,7 @@ export function useGoodsReceipts(filter: GoodsReceiptListFilter = {}): UseQueryR
     queryFn: async () => {
       const qs = goodsReceiptParams(filter).toString();
       const res = await request(`/purchases/receipts${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw await loaderError(res, t("api.goodsReceiptsCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.goodsReceiptsCouldNotBe"), t);
       return res.json<GoodsReceiptDTO[]>();
     },
   });
@@ -2235,7 +2376,7 @@ export function useGoodsReceiptCounts(filter: GoodsReceiptListFilter = {}): UseQ
     queryFn: async () => {
       const qs = goodsReceiptParams(rest).toString();
       const res = await request(`/purchases/receipts/counts${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw await loaderError(res, t("api.goodsReceiptsCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.goodsReceiptsCouldNotBe"), t);
       return res.json<ListCountsDTO>();
     },
   });
@@ -2251,7 +2392,7 @@ export function useGoodsReceiptStats(filter: GoodsReceiptListFilter = {}): UseQu
     queryFn: async () => {
       const qs = goodsReceiptParams(filter).toString();
       const res = await request(`/purchases/receipts/stats${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw await loaderError(res, t("api.goodsReceiptsCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.goodsReceiptsCouldNotBe"), t);
       return res.json<ListStatsDTO>();
     },
   });
@@ -2264,7 +2405,7 @@ export function useCreateGoodsReceipt() {
   return useMutation<GoodsReceiptDTO, ApiError, CreateGoodsReceiptDTO>({
     mutationFn: async (body) => {
       const res = await request("/purchases/receipts", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theGoodsReceiptCouldNot")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theGoodsReceiptCouldNot"), t));
       return res.json<GoodsReceiptDTO>();
     },
     onSuccess: () => {
@@ -2281,7 +2422,7 @@ export function useConfirmGoodsReceipt() {
   return useMutation<GoodsReceiptDTO, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/purchases/receipts/${id}/confirm`, { method: "POST" });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theGoodsReceiptCouldNot2")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theGoodsReceiptCouldNot2"), t));
       return res.json<GoodsReceiptDTO>();
     },
     onSuccess: () => {
@@ -2293,7 +2434,7 @@ export function useConfirmGoodsReceipt() {
 
 /** فواتير المشتريات (docs/archive/catalog/02) — list, create (manual or from a confirmed receipt), confirm. */
 /** The one place the purchase-invoice filters become a query string (R1.1). */
-function purchaseInvoiceParams(filter: PurchaseInvoiceListQueryDTO): URLSearchParams {
+function purchaseInvoiceParams(filter: Partial<PurchaseInvoiceListQueryDTO>): URLSearchParams {
   const params = new URLSearchParams();
   if (filter.status) params.set("status", filter.status);
   if (filter.supplierId) params.set("supplierId", filter.supplierId);
@@ -2305,23 +2446,30 @@ function purchaseInvoiceParams(filter: PurchaseInvoiceListQueryDTO): URLSearchPa
   return params;
 }
 
-export function usePurchaseInvoices(filter: PurchaseInvoiceListQueryDTO = {}): UseQueryResult<PurchaseInvoiceDTO[], ApiError> {
+export function usePurchaseInvoices(filter: Partial<PurchaseInvoiceListQueryDTO> = {}): UseQueryResult<PurchaseInvoiceDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<PurchaseInvoiceDTO[], ApiError>({
     queryKey: ["purchase-invoices", filter],
     enabled: session !== null,
     queryFn: async () => {
+      const fail = async (res: TransportResponse): Promise<never> => {
+        throw await loaderError(res, t("api.purchaseInvoicesCouldNotBe"), t);
+      };
+      // A caller that named no page means the whole filtered set — a statement,
+      // a per-branch count, a picker — so the pages are walked rather than
+      // silently cut to the route's default (Q-8).
+      if (filter.page === undefined) return fetchEveryPage<PurchaseInvoiceDTO>(request, "/purchases/invoices", purchaseInvoiceParams(filter), fail);
       const qs = purchaseInvoiceParams(filter).toString();
       const res = await request(`/purchases/invoices${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw await loaderError(res, t("api.purchaseInvoicesCouldNotBe"));
+      if (!res.ok) await fail(res);
       return res.json<PurchaseInvoiceDTO[]>();
     },
   });
 }
 
 /** Chip counts; the status filter is withheld so every chip reports its own total. */
-export function usePurchaseInvoiceCounts(filter: PurchaseInvoiceListQueryDTO = {}): UseQueryResult<ListCountsDTO, ApiError> {
+export function usePurchaseInvoiceCounts(filter: Partial<PurchaseInvoiceListQueryDTO> = {}): UseQueryResult<ListCountsDTO, ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
   const { status: _status, ...rest } = filter;
@@ -2331,13 +2479,13 @@ export function usePurchaseInvoiceCounts(filter: PurchaseInvoiceListQueryDTO = {
     queryFn: async () => {
       const qs = purchaseInvoiceParams(rest).toString();
       const res = await request(`/purchases/invoices/counts${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw await loaderError(res, t("api.purchaseInvoicesCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.purchaseInvoicesCouldNotBe"), t);
       return res.json<ListCountsDTO>();
     },
   });
 }
 
-export function usePurchaseInvoiceStats(filter: PurchaseInvoiceListQueryDTO = {}): UseQueryResult<PurchaseInvoiceStatsDTO, ApiError> {
+export function usePurchaseInvoiceStats(filter: Partial<PurchaseInvoiceListQueryDTO> = {}): UseQueryResult<PurchaseInvoiceStatsDTO, ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<PurchaseInvoiceStatsDTO, ApiError>({
@@ -2346,7 +2494,7 @@ export function usePurchaseInvoiceStats(filter: PurchaseInvoiceListQueryDTO = {}
     queryFn: async () => {
       const qs = purchaseInvoiceParams(filter).toString();
       const res = await request(`/purchases/invoices/stats${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw await loaderError(res, t("api.purchaseInvoicesCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.purchaseInvoicesCouldNotBe"), t);
       return res.json<PurchaseInvoiceStatsDTO>();
     },
   });
@@ -2359,7 +2507,7 @@ export function useCreatePurchaseInvoice() {
   return useMutation<PurchaseInvoiceDTO, ApiError, CreatePurchaseInvoiceDTO>({
     mutationFn: async (body) => {
       const res = await request("/purchases/invoices", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.thePurchaseInvoiceCouldNot")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.thePurchaseInvoiceCouldNot"), t));
       return res.json<PurchaseInvoiceDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["purchase-invoices"] }),
@@ -2370,10 +2518,11 @@ export function useConfirmPurchaseInvoice() {
   const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
-  return useMutation<PurchaseInvoiceDTO, ApiError, string>({
-    mutationFn: async (id) => {
-      const res = await request(`/purchases/invoices/${id}/confirm`, { method: "POST" });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.thePurchaseInvoiceCouldNot2")));
+  return useMutation<PurchaseInvoiceDTO, ApiError, DocumentAct>({
+    mutationFn: async (input) => {
+      const { id, body } = actOf(input);
+      const res = await request(`/purchases/invoices/${id}/confirm`, { method: "POST", body });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.thePurchaseInvoiceCouldNot2"), t));
       return res.json<PurchaseInvoiceDTO>();
     },
     onSuccess: () => {
@@ -2421,6 +2570,8 @@ export interface SalesInvoiceTotalsDTO {
 }
 
 export interface SalesInvoiceDTO {
+  /** N-9 — the row version the detail read serves; sent back as `expectedVersion` on the next act. */
+  readonly version?: number;
   readonly id: string;
   readonly docType: string;
   readonly docNo: string | null;
@@ -2459,16 +2610,23 @@ export interface SalesInvoiceDTO {
 }
 
 /** فواتير المبيعات (docs/archive/catalog/01) — list, create, confirm, record a payment. */
-export function useSalesInvoices(filter: SalesInvoiceListQueryDTO = {}): UseQueryResult<SalesInvoiceDTO[], ApiError> {
+export function useSalesInvoices(filter: Partial<SalesInvoiceListQueryDTO> = {}): UseQueryResult<SalesInvoiceDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<SalesInvoiceDTO[], ApiError>({
     queryKey: ["sales-invoices", filter],
     enabled: session !== null,
     queryFn: async () => {
+      const fail = async (res: TransportResponse): Promise<never> => {
+        throw await loaderError(res, t("api.salesInvoicesCouldNotBe"), t);
+      };
+      // A caller that named no page means the whole filtered set — a statement,
+      // a per-branch count, a picker — so the pages are walked rather than
+      // silently cut to the route's default (Q-8).
+      if (filter.page === undefined) return fetchEveryPage<SalesInvoiceDTO>(request, "/sales-invoices", salesInvoiceParams(filter), fail);
       const qs = salesInvoiceParams(filter).toString();
       const res = await request(`/sales-invoices${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw await loaderError(res, t("api.salesInvoicesCouldNotBe"));
+      if (!res.ok) await fail(res);
       return res.json<SalesInvoiceDTO[]>();
     },
   });
@@ -2479,7 +2637,7 @@ export function useSalesInvoices(filter: SalesInvoiceListQueryDTO = {}): UseQuer
  * the chip counts and the KPI strip all go through it, so a filter can never
  * reach one of the three and not the others.
  */
-function salesInvoiceParams(filter: SalesInvoiceListQueryDTO): URLSearchParams {
+function salesInvoiceParams(filter: Partial<SalesInvoiceListQueryDTO>): URLSearchParams {
   const params = new URLSearchParams();
   if (filter.status) params.set("status", filter.status);
   if (filter.customerId) params.set("customerId", filter.customerId);
@@ -2506,7 +2664,7 @@ export function useSalesInvoice(idOrDocNo: string | null): UseQueryResult<SalesI
     enabled: session !== null && idOrDocNo !== null,
     queryFn: async () => {
       const res = await request(`/sales-invoices/${encodeURIComponent(idOrDocNo ?? "")}`);
-      if (!res.ok) throw await loaderError(res, t("api.salesInvoicesCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.salesInvoicesCouldNotBe"), t);
       return res.json<SalesInvoiceDTO>();
     },
   });
@@ -2516,7 +2674,7 @@ export function useSalesInvoice(idOrDocNo: string | null): UseQueryResult<SalesI
  * The status-chip counts (R1.1). The status filter is intentionally NOT sent:
  * every chip has to state its own total, not the active one's.
  */
-export function useSalesInvoiceCounts(filter: SalesInvoiceListQueryDTO = {}): UseQueryResult<ListCountsDTO, ApiError> {
+export function useSalesInvoiceCounts(filter: Partial<SalesInvoiceListQueryDTO> = {}): UseQueryResult<ListCountsDTO, ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
   // Every chip counts the WHOLE filtered set, so neither the active status nor
@@ -2528,14 +2686,14 @@ export function useSalesInvoiceCounts(filter: SalesInvoiceListQueryDTO = {}): Us
     queryFn: async () => {
       const qs = salesInvoiceParams(rest).toString();
       const res = await request(`/sales-invoices/counts${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw await loaderError(res, t("api.salesInvoicesCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.salesInvoicesCouldNotBe"), t);
       return res.json<ListCountsDTO>();
     },
   });
 }
 
 /** The KPI strip, summed in `Money` on the server over the whole filtered set. */
-export function useSalesInvoiceStats(filter: SalesInvoiceListQueryDTO = {}): UseQueryResult<SalesInvoiceStatsDTO, ApiError> {
+export function useSalesInvoiceStats(filter: Partial<SalesInvoiceListQueryDTO> = {}): UseQueryResult<SalesInvoiceStatsDTO, ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
   // The KPI strip totals the WHOLE filtered set, so the page must not travel.
@@ -2546,7 +2704,7 @@ export function useSalesInvoiceStats(filter: SalesInvoiceListQueryDTO = {}): Use
     queryFn: async () => {
       const qs = salesInvoiceParams(rest).toString();
       const res = await request(`/sales-invoices/stats${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw await loaderError(res, t("api.salesInvoicesCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.salesInvoicesCouldNotBe"), t);
       return res.json<SalesInvoiceStatsDTO>();
     },
   });
@@ -2563,7 +2721,7 @@ export function useCreateSalesInvoice() {
   return useMutation<SalesInvoiceDTO, ApiError, CreateSalesInvoiceDTO>({
     mutationFn: async (body) => {
       const res = await request("/sales-invoices", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theInvoiceCouldNotBe")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theInvoiceCouldNotBe"), t));
       return res.json<SalesInvoiceDTO>();
     },
     onSuccess: () => invalidateSalesInvoices(queryClient),
@@ -2574,10 +2732,11 @@ export function useConfirmSalesInvoice() {
   const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
-  return useMutation<SalesInvoiceDTO & { held: boolean }, ApiError, string>({
-    mutationFn: async (id) => {
-      const res = await request(`/sales-invoices/${id}/confirm`, { method: "POST", body: JSON.stringify({}) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theInvoiceCouldNotBe2")));
+  return useMutation<SalesInvoiceDTO & { held: boolean }, ApiError, DocumentAct>({
+    mutationFn: async (input) => {
+      const { id, body } = actOf(input);
+      const res = await request(`/sales-invoices/${id}/confirm`, { method: "POST", body });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theInvoiceCouldNotBe2"), t));
       return res.json<SalesInvoiceDTO & { held: boolean }>();
     },
     onSuccess: () => invalidateSalesInvoices(queryClient),
@@ -2591,7 +2750,7 @@ export function useRecordSalesInvoicePayment() {
   return useMutation<SalesInvoiceDTO, ApiError, { id: string } & SalesInvoicePaymentDTO>({
     mutationFn: async ({ id, ...body }) => {
       const res = await request(`/sales-invoices/${id}/payments`, { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.thePaymentCouldNotBe")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.thePaymentCouldNotBe"), t));
       return res.json<SalesInvoiceDTO>();
     },
     // A collection is a real voucher now, so the treasury and the ledger both
@@ -2617,7 +2776,7 @@ export function useLeads(): UseQueryResult<LeadDTO[], ApiError> {
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/crm/leads");
-      if (!res.ok) throw await loaderError(res, t("api.leadsCouldNotBeLoaded"));
+      if (!res.ok) throw await loaderError(res, t("api.leadsCouldNotBeLoaded"), t);
       return res.json<LeadDTO[]>();
     },
   });
@@ -2630,7 +2789,7 @@ export function useCreateLead() {
   return useMutation<LeadDTO, ApiError, CreateLeadDTO>({
     mutationFn: async (body) => {
       const res = await request("/crm/leads", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theLeadCouldNotBe")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theLeadCouldNotBe"), t));
       return res.json<LeadDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["crm-leads"] }),
@@ -2644,7 +2803,7 @@ export function useTransitionLead() {
   return useMutation<LeadDTO, ApiError, { id: string; body: TransitionLeadDTO }>({
     mutationFn: async ({ id, body }) => {
       const res = await request(`/crm/leads/${id}/transition`, { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theLeadSStatusCould")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theLeadSStatusCould"), t));
       return res.json<LeadDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["crm-leads"] }),
@@ -2664,7 +2823,7 @@ export function useConvertLead() {
   return useMutation<ConvertLeadResultDTO, ApiError, { id: string; body: ConvertLeadDTO }>({
     mutationFn: async ({ id, body }) => {
       const res = await request(`/crm/leads/${id}/convert`, { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theLeadCouldNotBe2")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theLeadCouldNotBe2"), t));
       return res.json<ConvertLeadResultDTO>();
     },
     onSuccess: () => {
@@ -2683,7 +2842,7 @@ export function useOpportunities(): UseQueryResult<OpportunityDTO[], ApiError> {
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/crm/opportunities");
-      if (!res.ok) throw await loaderError(res, t("api.opportunitiesCouldNotBeLoaded"));
+      if (!res.ok) throw await loaderError(res, t("api.opportunitiesCouldNotBeLoaded"), t);
       return res.json<OpportunityDTO[]>();
     },
   });
@@ -2696,7 +2855,7 @@ export function useCreateOpportunity() {
   return useMutation<OpportunityDTO, ApiError, CreateOpportunityDTO>({
     mutationFn: async (body) => {
       const res = await request("/crm/opportunities", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theOpportunityCouldNotBe")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theOpportunityCouldNotBe"), t));
       return res.json<OpportunityDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["crm-opportunities"] }),
@@ -2710,7 +2869,7 @@ export function useMoveOpportunityStage() {
   return useMutation<OpportunityDTO, ApiError, { id: string; body: MoveOpportunityStageDTO }>({
     mutationFn: async ({ id, body }) => {
       const res = await request(`/crm/opportunities/${id}/move-stage`, { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theOpportunityCouldNotBe2")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theOpportunityCouldNotBe2"), t));
       return res.json<OpportunityDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["crm-opportunities"] }),
@@ -2725,7 +2884,7 @@ export function usePipelineStages(): UseQueryResult<PipelineStageDTO[], ApiError
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/crm/pipeline-stages");
-      if (!res.ok) throw await loaderError(res, t("api.pipelineStagesCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.pipelineStagesCouldNotBe"), t);
       return res.json<PipelineStageDTO[]>();
     },
   });
@@ -2738,7 +2897,7 @@ export function useCreatePipelineStage() {
   return useMutation<PipelineStageDTO, ApiError, CreatePipelineStageDTO>({
     mutationFn: async (body) => {
       const res = await request("/crm/pipeline-stages", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theStageCouldNotBe")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theStageCouldNotBe"), t));
       return res.json<PipelineStageDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["crm-pipeline-stages"] }),
@@ -2752,7 +2911,7 @@ export function useMovePipelineStage() {
   return useMutation<PipelineStageDTO, ApiError, { id: string; direction: "up" | "down" }>({
     mutationFn: async ({ id, direction }) => {
       const res = await request(`/crm/pipeline-stages/${id}/move`, { method: "POST", body: JSON.stringify({ direction }) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theStageCouldNotBe2")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theStageCouldNotBe2"), t));
       return res.json<PipelineStageDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["crm-pipeline-stages"] }),
@@ -2767,7 +2926,7 @@ export function useCrmActivities(): UseQueryResult<ActivityDTO[], ApiError> {
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/crm/activities");
-      if (!res.ok) throw await loaderError(res, t("api.activitiesCouldNotBeLoaded"));
+      if (!res.ok) throw await loaderError(res, t("api.activitiesCouldNotBeLoaded"), t);
       return res.json<ActivityDTO[]>();
     },
   });
@@ -2780,7 +2939,7 @@ export function useCreateActivity() {
   return useMutation<ActivityDTO, ApiError, CreateActivityDTO>({
     mutationFn: async (body) => {
       const res = await request("/crm/activities", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theActivityCouldNotBe")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theActivityCouldNotBe"), t));
       return res.json<ActivityDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["crm-activities"] }),
@@ -2794,7 +2953,7 @@ export function useCompleteActivity() {
   return useMutation<ActivityDTO, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/crm/activities/${id}/complete`, { method: "POST", body: JSON.stringify({}) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theActivityCouldNotBe2")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theActivityCouldNotBe2"), t));
       return res.json<ActivityDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["crm-activities"] }),
@@ -2808,7 +2967,7 @@ export function useCancelActivity() {
   return useMutation<ActivityDTO, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/crm/activities/${id}/cancel`, { method: "POST", body: JSON.stringify({}) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theActivityCouldNotBe3")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theActivityCouldNotBe3"), t));
       return res.json<ActivityDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["crm-activities"] }),
@@ -2827,7 +2986,7 @@ export function useProjects(): UseQueryResult<ProjectDTO[], ApiError> {
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/projects");
-      if (!res.ok) throw await loaderError(res, t("api.projectsCouldNotBeLoaded"));
+      if (!res.ok) throw await loaderError(res, t("api.projectsCouldNotBeLoaded"), t);
       return res.json<ProjectDTO[]>();
     },
   });
@@ -2854,7 +3013,7 @@ export function useCreateProject() {
   return useMutation<ProjectDTO, ApiError, CreateProjectDTO>({
     mutationFn: async (body) => {
       const res = await request("/projects", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theProjectCouldNotBe")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theProjectCouldNotBe"), t));
       return res.json<ProjectDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["projects"] }),
@@ -2868,7 +3027,7 @@ export function useUpdateProject() {
   return useMutation<ProjectDTO, ApiError, { id: string; patch: UpdateProjectDTO }>({
     mutationFn: async ({ id, patch }) => {
       const res = await request(`/projects/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theProjectCouldNotBe2")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theProjectCouldNotBe2"), t));
       return res.json<ProjectDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["projects"] }),
@@ -2887,7 +3046,7 @@ export function useAssetCategories(): UseQueryResult<AssetCategoryDTO[], ApiErro
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/assets/categories");
-      if (!res.ok) throw await loaderError(res, t("api.assetCategoriesCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.assetCategoriesCouldNotBe"), t);
       return res.json<AssetCategoryDTO[]>();
     },
   });
@@ -2900,7 +3059,7 @@ export function useCreateAssetCategory() {
   return useMutation<AssetCategoryDTO, ApiError, CreateAssetCategoryDTO>({
     mutationFn: async (body) => {
       const res = await request("/assets/categories", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theCategoryCouldNotBe")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theCategoryCouldNotBe"), t));
       return res.json<AssetCategoryDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["asset-categories"] }),
@@ -2937,7 +3096,7 @@ export function useAssets(filter: AssetListFilter = {}): UseQueryResult<AssetDTO
     queryFn: async () => {
       const qs = assetParams(filter).toString();
       const res = await request(`/assets${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw await loaderError(res, t("api.theAssetRegisterCouldNot"));
+      if (!res.ok) throw await loaderError(res, t("api.theAssetRegisterCouldNot"), t);
       return res.json<AssetDTO[]>();
     },
   });
@@ -2954,7 +3113,7 @@ export function useAssetCounts(filter: AssetListFilter = {}): UseQueryResult<Lis
     queryFn: async () => {
       const qs = assetParams(rest).toString();
       const res = await request(`/assets/counts${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw await loaderError(res, t("api.theAssetRegisterCouldNot"));
+      if (!res.ok) throw await loaderError(res, t("api.theAssetRegisterCouldNot"), t);
       return res.json<ListCountsDTO>();
     },
   });
@@ -2970,7 +3129,7 @@ export function useAssetStats(filter: AssetListFilter = {}): UseQueryResult<List
     queryFn: async () => {
       const qs = assetParams(filter).toString();
       const res = await request(`/assets/stats${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw await loaderError(res, t("api.theAssetRegisterCouldNot"));
+      if (!res.ok) throw await loaderError(res, t("api.theAssetRegisterCouldNot"), t);
       return res.json<ListStatsDTO>();
     },
   });
@@ -2983,7 +3142,7 @@ export function useCreateAsset() {
   return useMutation<AssetDTO, ApiError, CreateAssetDTO>({
     mutationFn: async (body) => {
       const res = await request("/assets", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theAssetCouldNotBe")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theAssetCouldNotBe"), t));
       return res.json<AssetDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["assets"] }),
@@ -3019,7 +3178,7 @@ export function useDisposeAsset() {
   return useMutation<AssetDTO, ApiError, { id: string } & DisposeAssetDTO>({
     mutationFn: async ({ id, ...body }) => {
       const res = await request(`/assets/${id}/dispose`, { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theAssetCouldNotBeDisposed")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theAssetCouldNotBeDisposed"), t));
       return res.json<AssetDTO>();
     },
     onSuccess: () => {
@@ -3037,7 +3196,7 @@ export function useDepreciationRuns(): UseQueryResult<DepreciationRunDTO[], ApiE
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/assets/depreciation/runs");
-      if (!res.ok) throw await loaderError(res, t("api.depreciationRunsCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.depreciationRunsCouldNotBe"), t);
       return res.json<DepreciationRunDTO[]>();
     },
   });
@@ -3050,7 +3209,7 @@ export function useCreateDepreciationRun() {
   return useMutation<DepreciationRunDTO, ApiError, CreateDepreciationRunDTO>({
     mutationFn: async (body) => {
       const res = await request("/assets/depreciation/runs", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theDepreciationRunCouldNot")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theDepreciationRunCouldNot"), t));
       return res.json<DepreciationRunDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["depreciation-runs"] }),
@@ -3064,7 +3223,7 @@ export function usePostDepreciationRun() {
   return useMutation<DepreciationRunDTO, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/assets/depreciation/runs/${id}/post`, { method: "POST", body: JSON.stringify({}) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theDepreciationRunCouldNot2")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theDepreciationRunCouldNot2"), t));
       return res.json<DepreciationRunDTO>();
     },
     onSuccess: () => {
@@ -3086,7 +3245,7 @@ export function useWritedownRuns(): UseQueryResult<WritedownRunDTO[], ApiError> 
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/inventory/writedown-runs");
-      if (!res.ok) throw await loaderError(res, t("api.inventoryWriteDownRunsCould"));
+      if (!res.ok) throw await loaderError(res, t("api.inventoryWriteDownRunsCould"), t);
       return res.json<WritedownRunDTO[]>();
     },
   });
@@ -3099,7 +3258,7 @@ export function useCreateWritedownRun() {
   return useMutation<WritedownRunDTO, ApiError, CreateWritedownRunDTO>({
     mutationFn: async (body) => {
       const res = await request("/inventory/writedown-runs", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theWriteDownRunCould")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theWriteDownRunCould"), t));
       return res.json<WritedownRunDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["writedown-runs"] }),
@@ -3113,7 +3272,7 @@ export function usePostWritedownRun() {
   return useMutation<WritedownRunDTO, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/inventory/writedown-runs/${id}/post`, { method: "POST", body: JSON.stringify({}) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theWriteDownRunCould2")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theWriteDownRunCould2"), t));
       return res.json<WritedownRunDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["writedown-runs"] }),
@@ -3132,7 +3291,7 @@ export function useProductTemplates(): UseQueryResult<ProductTemplateDTO[], ApiE
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/inventory/product-templates");
-      if (!res.ok) throw await loaderError(res, t("api.productTemplatesCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.productTemplatesCouldNotBe"), t);
       return res.json<ProductTemplateDTO[]>();
     },
   });
@@ -3145,7 +3304,7 @@ export function useCreateProductTemplate() {
   return useMutation<ProductTemplateDTO, ApiError, CreateProductTemplateDTO>({
     mutationFn: async (body) => {
       const res = await request("/inventory/product-templates", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theProductTemplateCouldNot")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theProductTemplateCouldNot"), t));
       return res.json<ProductTemplateDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["product-templates"] }),
@@ -3160,7 +3319,7 @@ export function useTemplateVariants(templateId: string | null): UseQueryResult<P
     enabled: session !== null && templateId !== null,
     queryFn: async () => {
       const res = await request(`/inventory/product-templates/${templateId}/variants`);
-      if (!res.ok) throw await loaderError(res, t("api.variantsCouldNotBeLoaded"));
+      if (!res.ok) throw await loaderError(res, t("api.variantsCouldNotBeLoaded"), t);
       return res.json<ProductTemplateVariantDTO[]>();
     },
   });
@@ -3173,7 +3332,7 @@ export function useAddTemplateAttribute() {
   return useMutation<ProductTemplateDTO, ApiError, { templateId: string; body: AddTemplateAttributeDTO }>({
     mutationFn: async ({ templateId, body }) => {
       const res = await request(`/inventory/product-templates/${templateId}/attributes`, { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theAttributeCouldNotBe")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theAttributeCouldNotBe"), t));
       return res.json<ProductTemplateDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["product-templates"] }),
@@ -3187,7 +3346,7 @@ export function useDeleteTemplateAttribute() {
   return useMutation<ProductTemplateDTO, ApiError, { templateId: string; attributeId: string }>({
     mutationFn: async ({ templateId, attributeId }) => {
       const res = await request(`/inventory/product-templates/${templateId}/attributes/${attributeId}`, { method: "DELETE" });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theAttributeCouldNotBe2")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theAttributeCouldNotBe2"), t));
       return res.json<ProductTemplateDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["product-templates"] }),
@@ -3201,7 +3360,7 @@ export function useAddAttributeValue() {
   return useMutation<ProductTemplateDTO, ApiError, { templateId: string; attributeId: string; body: AddAttributeValueDTO }>({
     mutationFn: async ({ templateId, attributeId, body }) => {
       const res = await request(`/inventory/product-templates/${templateId}/attributes/${attributeId}/values`, { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theValueCouldNotBe")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theValueCouldNotBe"), t));
       return res.json<ProductTemplateDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["product-templates"] }),
@@ -3215,7 +3374,7 @@ export function useDeleteAttributeValue() {
   return useMutation<ProductTemplateDTO, ApiError, { templateId: string; attributeId: string; value: string }>({
     mutationFn: async ({ templateId, attributeId, value }) => {
       const res = await request(`/inventory/product-templates/${templateId}/attributes/${attributeId}/values/${encodeURIComponent(value)}`, { method: "DELETE" });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theValueCouldNotBe2")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theValueCouldNotBe2"), t));
       return res.json<ProductTemplateDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["product-templates"] }),
@@ -3229,7 +3388,7 @@ export function useGenerateVariants() {
   return useMutation<GenerateVariantsResultDTO, ApiError, { templateId: string; body: GenerateVariantsDTO }>({
     mutationFn: async ({ templateId, body }) => {
       const res = await request(`/inventory/product-templates/${templateId}/variants/generate`, { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.variantsCouldNotBeGenerated")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.variantsCouldNotBeGenerated"), t));
       return res.json<GenerateVariantsResultDTO>();
     },
     onSuccess: (_data, { templateId }) => {
@@ -3251,7 +3410,7 @@ export function useVanTrips(): UseQueryResult<VanTripDTO[], ApiError> {
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/field/van-trips");
-      if (!res.ok) throw await loaderError(res, t("api.vanTripsCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.vanTripsCouldNotBe"), t);
       return res.json<VanTripDTO[]>();
     },
   });
@@ -3264,7 +3423,7 @@ export function useOpenVanTrip() {
   return useMutation<VanTripDTO, ApiError, OpenVanTripDTO>({
     mutationFn: async (body) => {
       const res = await request("/field/van-trips", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theTripCouldNotBe")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theTripCouldNotBe"), t));
       return res.json<VanTripDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["van-trips"] }),
@@ -3278,7 +3437,7 @@ export function useRecordVanCashMovement() {
   return useMutation<VanTripDTO, ApiError, { id: string; body: RecordVanCashMovementDTO }>({
     mutationFn: async ({ id, body }) => {
       const res = await request(`/field/van-trips/${id}/cash-movements`, { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theCashMovementCouldNot")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theCashMovementCouldNot"), t));
       return res.json<VanTripDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["van-trips"] }),
@@ -3292,7 +3451,7 @@ export function useSettleVanTrip() {
   return useMutation<VanTripDTO, ApiError, { id: string; body: SettleVanTripDTO }>({
     mutationFn: async ({ id, body }) => {
       const res = await request(`/field/van-trips/${id}/settle`, { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theTripCouldNotBe2")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theTripCouldNotBe2"), t));
       return res.json<VanTripDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["van-trips"] }),
@@ -3351,7 +3510,7 @@ export function useBoms(): UseQueryResult<BomRecord[], ApiError> {
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/manufacturing/boms");
-      if (!res.ok) throw await loaderError(res, t("api.billsOfMaterialsCouldNot"));
+      if (!res.ok) throw await loaderError(res, t("api.billsOfMaterialsCouldNot"), t);
       return res.json<BomRecord[]>();
     },
   });
@@ -3364,7 +3523,7 @@ export function useCreateBom() {
   return useMutation<BomRecord, ApiError, CreateBomDTO>({
     mutationFn: async (body) => {
       const res = await request("/manufacturing/boms", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theBillOfMaterialsCould")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theBillOfMaterialsCould"), t));
       return res.json<BomRecord>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["boms"] }),
@@ -3378,7 +3537,7 @@ export function useDeactivateBom() {
   return useMutation<BomRecord, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/manufacturing/boms/${id}/deactivate`, { method: "POST" });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theBillOfMaterialsCould2")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theBillOfMaterialsCould2"), t));
       return res.json<BomRecord>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["boms"] }),
@@ -3494,7 +3653,7 @@ export function useWorkOrders(filter: WorkOrderListFilter = {}): UseQueryResult<
     queryFn: async () => {
       const qs = workOrderParams(filter).toString();
       const res = await request(`/manufacturing/work-orders${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw await loaderError(res, t("api.workOrdersCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.workOrdersCouldNotBe"), t);
       return res.json<WorkOrderRecord[]>();
     },
   });
@@ -3511,7 +3670,7 @@ export function useWorkOrderCounts(filter: WorkOrderListFilter = {}): UseQueryRe
     queryFn: async () => {
       const qs = workOrderParams(rest).toString();
       const res = await request(`/manufacturing/work-orders/counts${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw await loaderError(res, t("api.workOrdersCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.workOrdersCouldNotBe"), t);
       return res.json<ListCountsDTO>();
     },
   });
@@ -3527,7 +3686,7 @@ export function useWorkOrderStats(filter: WorkOrderListFilter = {}): UseQueryRes
     queryFn: async () => {
       const qs = workOrderParams(filter).toString();
       const res = await request(`/manufacturing/work-orders/stats${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw await loaderError(res, t("api.workOrdersCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.workOrdersCouldNotBe"), t);
       return res.json<ListStatsDTO>();
     },
   });
@@ -3564,7 +3723,7 @@ export function useWorkOrderActivity(id: string | null): UseQueryResult<WorkOrde
     enabled: session !== null && id !== null,
     queryFn: async () => {
       const res = await request(`/manufacturing/work-orders/${id}/activity`);
-      if (!res.ok) throw await loaderError(res, t("api.workOrdersCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.workOrdersCouldNotBe"), t);
       return res.json<WorkOrderActivity>();
     },
   });
@@ -3577,7 +3736,7 @@ export function useCreateWorkOrder() {
   return useMutation<WorkOrderRecord, ApiError, CreateWorkOrderDTO>({
     mutationFn: async (body) => {
       const res = await request("/manufacturing/work-orders", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theWorkOrderCouldNot")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theWorkOrderCouldNot"), t));
       return res.json<WorkOrderRecord>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["work-orders"] }),
@@ -3620,7 +3779,7 @@ export function useWorkStations(): UseQueryResult<WorkStationDTO[], ApiError> {
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/manufacturing/work-stations");
-      if (!res.ok) throw await loaderError(res, t("api.workStationsCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.workStationsCouldNotBe"), t);
       return res.json<WorkStationDTO[]>();
     },
   });
@@ -3633,7 +3792,7 @@ export function useCreateWorkStation() {
   return useMutation<WorkStationDTO, ApiError, CreateWorkStationDTO>({
     mutationFn: async (body) => {
       const res = await request("/manufacturing/work-stations", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theWorkStationCouldNot")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theWorkStationCouldNot"), t));
       return res.json<WorkStationDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["work-stations"] }),
@@ -3648,7 +3807,7 @@ export function useSetWorkStationStatus() {
     mutationFn: async ({ id, status }) => {
       const action = status === "active" ? "activate" : "deactivate";
       const res = await request(`/manufacturing/work-stations/${id}/${action}`, { method: "POST" });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theWorkStationCouldNot")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theWorkStationCouldNot"), t));
       return res.json<WorkStationDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["work-stations"] }),
@@ -3679,7 +3838,7 @@ export function useIssueWorkOrderMaterials() {
   return useMutation<WorkOrderRecord, ApiError, { id: string; body?: IssueMaterialsDTO }>({
     mutationFn: async ({ id, body }) => {
       const res = await request(`/manufacturing/work-orders/${id}/issue`, { method: "POST", body: JSON.stringify(body ?? {}) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theMaterialsCouldNotBe")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theMaterialsCouldNotBe"), t));
       return res.json<WorkOrderRecord>();
     },
     onSuccess: (_data, { id }) => {
@@ -3702,7 +3861,7 @@ export function useExtraIssueWorkOrderMaterials() {
   return useMutation<WorkOrderRecord, ApiError, { id: string; body: WorkOrderLineActionDTO }>({
     mutationFn: async ({ id, body }) => {
       const res = await request(`/manufacturing/work-orders/${id}/extra-issue`, { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theMaterialsCouldNotBe")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theMaterialsCouldNotBe"), t));
       return res.json<WorkOrderRecord>();
     },
     onSuccess: (_data, { id }) => {
@@ -3719,7 +3878,7 @@ export function useReturnWorkOrderMaterials() {
   return useMutation<WorkOrderRecord, ApiError, { id: string; body: WorkOrderLineActionDTO }>({
     mutationFn: async ({ id, body }) => {
       const res = await request(`/manufacturing/work-orders/${id}/return`, { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theMaterialsCouldNotBe")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theMaterialsCouldNotBe"), t));
       return res.json<WorkOrderRecord>();
     },
     onSuccess: (_data, { id }) => {
@@ -3736,7 +3895,7 @@ export function useLogWorkOrderWaste() {
   return useMutation<WorkOrderRecord, ApiError, { id: string; body: LogWasteDTO }>({
     mutationFn: async ({ id, body }) => {
       const res = await request(`/manufacturing/work-orders/${id}/log-waste`, { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theMaterialsCouldNotBe")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theMaterialsCouldNotBe"), t));
       return res.json<WorkOrderRecord>();
     },
     onSuccess: (_data, { id }) => {
@@ -3753,7 +3912,7 @@ export function useLogWorkOrderCost() {
   return useMutation<WorkOrderRecord, ApiError, { id: string; body: LogCostDTO }>({
     mutationFn: async ({ id, body }) => {
       const res = await request(`/manufacturing/work-orders/${id}/log-cost`, { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theProductCouldNotBe")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theProductCouldNotBe"), t));
       return res.json<WorkOrderRecord>();
     },
     onSuccess: (_data, { id }) => {
@@ -3771,7 +3930,7 @@ export function useReceiveWorkOrderProduct() {
   return useMutation<WorkOrderRecord, ApiError, { id: string; body: ReceiveProductDTO }>({
     mutationFn: async ({ id, body }) => {
       const res = await request(`/manufacturing/work-orders/${id}/receive`, { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theProductCouldNotBe")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theProductCouldNotBe"), t));
       return res.json<WorkOrderRecord>();
     },
     onSuccess: (_data, { id }) => {
@@ -3810,7 +3969,7 @@ export function useConfigurableProducts(): UseQueryResult<ConfigurableProductRec
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/manufacturing/configurable-products");
-      if (!res.ok) throw await loaderError(res, t("api.configurableProductsCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.configurableProductsCouldNotBe"), t);
       return res.json<ConfigurableProductRecord[]>();
     },
   });
@@ -3823,7 +3982,7 @@ export function useCreateConfigurableProduct() {
   return useMutation<ConfigurableProductRecord, ApiError, UpsertConfigurableProductDTO>({
     mutationFn: async (body) => {
       const res = await request("/manufacturing/configurable-products", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theConfigurableProductCouldNot")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theConfigurableProductCouldNot"), t));
       return res.json<ConfigurableProductRecord>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["configurable-products"] }),
@@ -3837,7 +3996,7 @@ export function useDeactivateConfigurableProduct() {
   return useMutation<ConfigurableProductRecord, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/manufacturing/configurable-products/${id}/deactivate`, { method: "POST" });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theProductCouldNotBe2")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theProductCouldNotBe2"), t));
       return res.json<ConfigurableProductRecord>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["configurable-products"] }),
@@ -3887,7 +4046,7 @@ export function useConfigInstances(): UseQueryResult<ConfigInstanceRecord[], Api
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/manufacturing/config-instances");
-      if (!res.ok) throw await loaderError(res, t("api.customOrdersCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.customOrdersCouldNotBe"), t);
       return res.json<ConfigInstanceRecord[]>();
     },
   });
@@ -3900,7 +4059,7 @@ export function useCreateConfigInstance() {
   return useMutation<ConfigInstanceRecord, ApiError, CreateConfigInstanceDTO>({
     mutationFn: async (body) => {
       const res = await request("/manufacturing/config-instances", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theCustomOrderCouldNot")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theCustomOrderCouldNot"), t));
       return res.json<ConfigInstanceRecord>();
     },
     onSuccess: () => {
@@ -3958,7 +4117,7 @@ export function usePreviewConfigInstance() {
   return useMutation<ConfigInstancePreviewResult, ApiError, PreviewConfigInstanceDTO>({
     mutationFn: async (body) => {
       const res = await request("/manufacturing/config-instances/preview", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theOrderCouldNotBe")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theOrderCouldNotBe"), t));
       return res.json<ConfigInstancePreviewResult>();
     },
   });
@@ -3977,7 +4136,7 @@ export function useCostCenters(): UseQueryResult<CostCenterDTO[], ApiError> {
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/cost-centers");
-      if (!res.ok) throw await loaderError(res, t("api.costCentresCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.costCentresCouldNotBe"), t);
       return res.json<CostCenterDTO[]>();
     },
   });
@@ -3990,7 +4149,7 @@ export function useCreateCostCenter() {
   return useMutation<CostCenterDTO, ApiError, CreateCostCenterDTO>({
     mutationFn: async (body) => {
       const res = await request("/cost-centers", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theCostCentreCouldNot")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theCostCentreCouldNot"), t));
       return res.json<CostCenterDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["cost-centers"] }),
@@ -4004,7 +4163,7 @@ export function useUpdateCostCenter() {
   return useMutation<CostCenterDTO, ApiError, { id: string; patch: UpdateCostCenterDTO }>({
     mutationFn: async ({ id, patch }) => {
       const res = await request(`/cost-centers/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theCostCentreCouldNot2")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theCostCentreCouldNot2"), t));
       return res.json<CostCenterDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["cost-centers"] }),
@@ -4020,7 +4179,7 @@ export function useFiscalPeriods(): UseQueryResult<FiscalPeriodDTO[], ApiError> 
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/fiscal-periods");
-      if (!res.ok) throw await loaderError(res, t("api.financialPeriodsCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.financialPeriodsCouldNotBe"), t);
       return res.json<FiscalPeriodDTO[]>();
     },
   });
@@ -4034,7 +4193,7 @@ export function useGenerateFiscalYear() {
   return useMutation<FiscalPeriodDTO[], ApiError, GenerateFiscalYearDTO>({
     mutationFn: async (body) => {
       const res = await request("/fiscal-periods/generate-year", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theFinancialYearSPeriods")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theFinancialYearSPeriods"), t));
       return res.json<FiscalPeriodDTO[]>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["fiscal-periods"] }),
@@ -4086,7 +4245,7 @@ export function useYearEndClosePreview(year: number | null): UseQueryResult<Year
     queryFn: async () => {
       const res = await request(`/gl/year-end-close/${year}/preview`);
       if (res.status === 409 || res.status === 422) return null;
-      if (!res.ok) throw await loaderError(res, t("api.theYearEndCloseCouldNot"));
+      if (!res.ok) throw await loaderError(res, t("api.theYearEndCloseCouldNot"), t);
       return res.json<YearEndClosePreviewDTO>();
     },
   });
@@ -4107,7 +4266,7 @@ export function useYearEndCloseEntry(year: number | null): UseQueryResult<Journa
     queryFn: async () => {
       const res = await request(`/gl/journal-entries/${encodeURIComponent(`YEAR-CLOSE:${year}`)}`);
       if (res.status === 404) return null;
-      if (!res.ok) throw await loaderError(res, t("api.theJournalEntryCouldNot"));
+      if (!res.ok) throw await loaderError(res, t("api.theJournalEntryCouldNot"), t);
       return res.json<JournalEntryDTO>();
     },
   });
@@ -4128,7 +4287,7 @@ export function useCloseFiscalYear() {
   return useMutation<CloseFiscalYearResultDTO, ApiError, CloseFiscalYearDTO>({
     mutationFn: async (body) => {
       const res = await request("/gl/year-end-close", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theFinancialYearCouldNot")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theFinancialYearCouldNot"), t));
       return res.json<CloseFiscalYearResultDTO>();
     },
     onSuccess: () => {
@@ -4149,7 +4308,7 @@ export function useTaxRates(): UseQueryResult<TaxRateDTO[], ApiError> {
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/tax-rates");
-      if (!res.ok) throw await loaderError(res, t("api.taxesCouldNotBeLoaded"));
+      if (!res.ok) throw await loaderError(res, t("api.taxesCouldNotBeLoaded"), t);
       return res.json<TaxRateDTO[]>();
     },
   });
@@ -4162,7 +4321,7 @@ export function useCreateTaxRate() {
   return useMutation<TaxRateDTO, ApiError, CreateTaxRateDTO>({
     mutationFn: async (body) => {
       const res = await request("/tax-rates", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theTaxCouldNotBe")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theTaxCouldNotBe"), t));
       return res.json<TaxRateDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["tax-rates"] }),
@@ -4176,7 +4335,7 @@ export function useUpdateTaxRate() {
   return useMutation<TaxRateDTO, ApiError, { id: string; patch: UpdateTaxRateDTO }>({
     mutationFn: async ({ id, patch }) => {
       const res = await request(`/tax-rates/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theTaxCouldNotBe2")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theTaxCouldNotBe2"), t));
       return res.json<TaxRateDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["tax-rates"] }),
@@ -4195,7 +4354,7 @@ export function useExchangeRates(): UseQueryResult<ExchangeRateDTO[], ApiError> 
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/exchange-rates");
-      if (!res.ok) throw await loaderError(res, t("api.exchangeRatesCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.exchangeRatesCouldNotBe"), t);
       return res.json<ExchangeRateDTO[]>();
     },
   });
@@ -4208,7 +4367,7 @@ export function useCreateExchangeRate() {
   return useMutation<ExchangeRateDTO, ApiError, CreateExchangeRateDTO>({
     mutationFn: async (body) => {
       const res = await request("/exchange-rates", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theExchangeRateCouldNot")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theExchangeRateCouldNot"), t));
       return res.json<ExchangeRateDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["exchange-rates"] }),
@@ -4222,7 +4381,7 @@ export function useApproveExchangeRate() {
   return useMutation<ExchangeRateDTO, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/exchange-rates/${id}/approve`, { method: "POST" });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theExchangeRateCouldNot2")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theExchangeRateCouldNot2"), t));
       return res.json<ExchangeRateDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["exchange-rates"] }),
@@ -4242,7 +4401,7 @@ export function useCostCenterPnL(fromDate: string, toDate: string): UseQueryResu
     enabled: session !== null,
     queryFn: async () => {
       const res = await request(`/cost-center-pl?fromDate=${encodeURIComponent(fromDate)}&toDate=${encodeURIComponent(toDate)}`);
-      if (!res.ok) throw await loaderError(res, t("api.costCentreProfitabilityCouldNot"));
+      if (!res.ok) throw await loaderError(res, t("api.costCentreProfitabilityCouldNot"), t);
       return res.json<CostCenterPnLReportDTO>();
     },
   });
@@ -4258,7 +4417,7 @@ export function useFxRevaluationPreview() {
   return useMutation<FxRevaluationPreviewDTO, ApiError, FxRevaluationRequestDTO>({
     mutationFn: async (body) => {
       const res = await request("/revaluation/preview", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theRevaluationCouldNotBe")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theRevaluationCouldNotBe"), t));
       return res.json<FxRevaluationPreviewDTO>();
     },
   });
@@ -4271,7 +4430,7 @@ export function useFxRevaluationPost() {
   return useMutation<FxRevaluationPostResultDTO, ApiError, FxRevaluationRequestDTO>({
     mutationFn: async (body) => {
       const res = await request("/revaluation/post", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theRevaluationCouldNotBe2")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theRevaluationCouldNotBe2"), t));
       return res.json<FxRevaluationPostResultDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["reconciliation"] }),
@@ -4290,7 +4449,7 @@ export function useReconciliation(): UseQueryResult<ReconciliationReportDTO, Api
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/reconciliation");
-      if (!res.ok) throw await loaderError(res, t("api.theReconciliationCouldNotBe2"));
+      if (!res.ok) throw await loaderError(res, t("api.theReconciliationCouldNotBe2"), t);
       return res.json<ReconciliationReportDTO>();
     },
   });
@@ -4313,7 +4472,7 @@ export function useEtaConfig(): UseQueryResult<EtaConfigResponse, ApiError> {
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/eta/config");
-      if (!res.ok) throw await loaderError(res, t("api.eInvoicingSettingsCouldNot"));
+      if (!res.ok) throw await loaderError(res, t("api.eInvoicingSettingsCouldNot"), t);
       return res.json<EtaConfigResponse>();
     },
   });
@@ -4326,7 +4485,7 @@ export function useUpdateEtaConfig() {
   return useMutation<EtaConfigResponse, ApiError, UpdateEtaConfigDTO>({
     mutationFn: async (body) => {
       const res = await request("/eta/config", { method: "PUT", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.eInvoicingSettingsCouldNot2")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.eInvoicingSettingsCouldNot2"), t));
       return res.json<EtaConfigResponse>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["eta-config"] }),
@@ -4341,7 +4500,7 @@ export function useEtaSubmissions(status?: EtaSubmissionStatusDTO): UseQueryResu
     enabled: session !== null,
     queryFn: async () => {
       const res = await request(`/eta/submissions${status ? `?status=${status}` : ""}`);
-      if (!res.ok) throw await loaderError(res, t("api.theSubmissionQueueCouldNot"));
+      if (!res.ok) throw await loaderError(res, t("api.theSubmissionQueueCouldNot"), t);
       return res.json<EtaSubmissionDTO[]>();
     },
   });
@@ -4363,7 +4522,7 @@ export function useSubmitEtaSubmission() {
       // 202 (EtaOfflineError — the stubbed online transmit refusing offline) is a
       // non-fatal, still-queued outcome, not an error — its body has no submission.
       if (res.status === 202) return { submission: null, queuedOffline: true };
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theDocumentCouldNotBe")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theDocumentCouldNotBe"), t));
       return { submission: await res.json<EtaSubmissionDTO>(), queuedOffline: false };
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["eta-submissions"] }),
@@ -4382,8 +4541,30 @@ export function useSubmitAllReadyEta() {
   return useMutation<SubmitAllReadyEtaResult, ApiError, void>({
     mutationFn: async () => {
       const res = await request("/eta/submissions/submit-all", { method: "POST" });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theReadyDocumentsCouldNot")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theReadyDocumentsCouldNot"), t));
       return res.json<SubmitAllReadyEtaResult>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["eta-submissions"] }),
+  });
+}
+
+export interface ProcessEtaQueueResult {
+  readonly submitted: EtaSubmissionDTO[];
+  readonly accepted: EtaSubmissionDTO[];
+  readonly rejected: EtaSubmissionDTO[];
+  readonly queued: string[];
+  readonly unsigned: string[];
+}
+
+export function useProcessEtaQueue() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<ProcessEtaQueueResult, ApiError, void>({
+    mutationFn: async () => {
+      const res = await request("/eta/submissions/process", { method: "POST" });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theReadyDocumentsCouldNot"), t));
+      return res.json<ProcessEtaQueueResult>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["eta-submissions"] }),
   });
@@ -4396,7 +4577,7 @@ export function useExcludeEtaSubmission() {
   return useMutation<EtaSubmissionDTO, ApiError, { id: string; body: ExcludeEtaSubmissionDTO }>({
     mutationFn: async ({ id, body }) => {
       const res = await request(`/eta/submissions/${id}/exclude`, { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theDocumentCouldNotBe2")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theDocumentCouldNotBe2"), t));
       return res.json<EtaSubmissionDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["eta-submissions"] }),
@@ -4412,7 +4593,7 @@ export function useEtaActivityCodes(): UseQueryResult<EtaActivityCodeDTO[], ApiE
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/eta/activity-codes");
-      if (!res.ok) throw await loaderError(res, t("api.eInvoicingSettingsCouldNot"));
+      if (!res.ok) throw await loaderError(res, t("api.eInvoicingSettingsCouldNot"), t);
       return res.json<EtaActivityCodeDTO[]>();
     },
   });
@@ -4426,7 +4607,7 @@ export function useEtaUnitCodes(): UseQueryResult<EtaUnitCodeDTO[], ApiError> {
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/eta/unit-codes");
-      if (!res.ok) throw await loaderError(res, t("api.eInvoicingSettingsCouldNot"));
+      if (!res.ok) throw await loaderError(res, t("api.eInvoicingSettingsCouldNot"), t);
       return res.json<EtaUnitCodeDTO[]>();
     },
   });
@@ -4438,7 +4619,7 @@ export function useTestEtaConnection() {
   return useMutation<EtaTestConnectionResultDTO, ApiError, void>({
     mutationFn: async () => {
       const res = await request("/eta/test-connection", { method: "POST" });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.eInvoicingSettingsCouldNot2")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.eInvoicingSettingsCouldNot2"), t));
       return res.json<EtaTestConnectionResultDTO>();
     },
   });
@@ -4452,7 +4633,7 @@ export function useEtaBranchCodes(): UseQueryResult<EtaBranchCodeRowDTO[], ApiEr
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/eta/branch-codes");
-      if (!res.ok) throw await loaderError(res, t("api.eInvoicingSettingsCouldNot"));
+      if (!res.ok) throw await loaderError(res, t("api.eInvoicingSettingsCouldNot"), t);
       return res.json<EtaBranchCodeRowDTO[]>();
     },
   });
@@ -4465,7 +4646,7 @@ export function useSaveEtaBranchCode() {
   return useMutation<EtaBranchCodeRowDTO, ApiError, { branchId: string; body: UpdateEtaBranchCodeDTO }>({
     mutationFn: async ({ branchId, body }) => {
       const res = await request(`/eta/branch-codes/${branchId}`, { method: "PUT", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.eInvoicingSettingsCouldNot2")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.eInvoicingSettingsCouldNot2"), t));
       return res.json<EtaBranchCodeRowDTO>();
     },
     onSuccess: () => {
@@ -4493,7 +4674,7 @@ export function useEtaItemMappings(filter: { q?: string; unmappedOnly?: boolean 
       if (filter.unmappedOnly) params.set("unmapped", "1");
       const suffix = params.toString();
       const res = await request(`/eta/item-mappings${suffix ? `?${suffix}` : ""}`);
-      if (!res.ok) throw await loaderError(res, t("api.eInvoicingSettingsCouldNot"));
+      if (!res.ok) throw await loaderError(res, t("api.eInvoicingSettingsCouldNot"), t);
       return res.json<EtaItemMappingsResponse>();
     },
   });
@@ -4506,7 +4687,7 @@ export function useSaveEtaItemMapping() {
   return useMutation<EtaItemMappingRowDTO, ApiError, { itemId: string; body: UpdateEtaItemMappingDTO }>({
     mutationFn: async ({ itemId, body }) => {
       const res = await request(`/eta/item-mappings/${itemId}`, { method: "PUT", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.eInvoicingSettingsCouldNot2")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.eInvoicingSettingsCouldNot2"), t));
       return res.json<EtaItemMappingRowDTO>();
     },
     onSuccess: () => {
@@ -4524,7 +4705,7 @@ export function useEtaUnitMappings(): UseQueryResult<EtaUnitMappingRowDTO[], Api
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/eta/unit-mappings");
-      if (!res.ok) throw await loaderError(res, t("api.eInvoicingSettingsCouldNot"));
+      if (!res.ok) throw await loaderError(res, t("api.eInvoicingSettingsCouldNot"), t);
       return res.json<EtaUnitMappingRowDTO[]>();
     },
   });
@@ -4537,7 +4718,7 @@ export function useSaveEtaUnitMapping() {
   return useMutation<EtaUnitMappingRowDTO, ApiError, { unitCode: string; body: UpdateEtaUnitMappingDTO }>({
     mutationFn: async ({ unitCode, body }) => {
       const res = await request(`/eta/unit-mappings/${unitCode}`, { method: "PUT", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.eInvoicingSettingsCouldNot2")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.eInvoicingSettingsCouldNot2"), t));
       return res.json<EtaUnitMappingRowDTO>();
     },
     onSuccess: () => {
@@ -4554,7 +4735,7 @@ export function useApplyEtaUnitSuggestions() {
   return useMutation<ApplyEtaUnitSuggestionsResultDTO, ApiError, void>({
     mutationFn: async () => {
       const res = await request("/eta/unit-mappings/apply-suggestions", { method: "POST" });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.eInvoicingSettingsCouldNot2")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.eInvoicingSettingsCouldNot2"), t));
       return res.json<ApplyEtaUnitSuggestionsResultDTO>();
     },
     onSuccess: () => {
@@ -4572,7 +4753,7 @@ export function useEtaTaxSubTypes(): UseQueryResult<EtaTaxSubTypeRowDTO[], ApiEr
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/eta/tax-subtypes");
-      if (!res.ok) throw await loaderError(res, t("api.eInvoicingSettingsCouldNot"));
+      if (!res.ok) throw await loaderError(res, t("api.eInvoicingSettingsCouldNot"), t);
       return res.json<EtaTaxSubTypeRowDTO[]>();
     },
   });
@@ -4633,7 +4814,7 @@ export function useStockAdjustment(id: string | null): UseQueryResult<StockAdjus
     retry: false,
     queryFn: async () => {
       const res = await request(`/inventory/stock-adjustments/${encodeURIComponent(id ?? "")}`);
-      if (!res.ok) throw await loaderError(res, t("api.stockAdjustmentsCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.stockAdjustmentsCouldNotBe"), t);
       return res.json<StockAdjustmentDocumentDTO>();
     },
   });
@@ -4648,7 +4829,7 @@ export function useStockAdjustments(filter: StockAdjustmentFilter = {}): UseQuer
     queryFn: async () => {
       const qs = stockAdjustmentParams(filter).toString();
       const res = await request(`/inventory/stock-adjustments${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw await loaderError(res, t("api.stockAdjustmentsCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.stockAdjustmentsCouldNotBe"), t);
       return res.json<StockAdjustmentDocumentDTO[]>();
     },
   });
@@ -4665,7 +4846,7 @@ export function useStockAdjustmentCounts(filter: StockAdjustmentFilter = {}): Us
     queryFn: async () => {
       const qs = stockAdjustmentParams(rest).toString();
       const res = await request(`/inventory/stock-adjustments/counts${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw await loaderError(res, t("api.stockAdjustmentsCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.stockAdjustmentsCouldNotBe"), t);
       return res.json<ListCountsDTO>();
     },
   });
@@ -4681,7 +4862,7 @@ export function useStockAdjustmentStats(filter: StockAdjustmentFilter = {}): Use
     queryFn: async () => {
       const qs = stockAdjustmentParams(filter).toString();
       const res = await request(`/inventory/stock-adjustments/stats${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw await loaderError(res, t("api.stockAdjustmentsCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.stockAdjustmentsCouldNotBe"), t);
       return res.json<ListStatsDTO>();
     },
   });
@@ -4694,7 +4875,7 @@ export function useCreateStockAdjustment() {
   return useMutation<StockAdjustmentDocumentDTO, ApiError, CreateStockAdjustmentDTO>({
     mutationFn: async (body) => {
       const res = await request("/inventory/stock-adjustments/draft", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theStockAdjustmentCouldNot")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theStockAdjustmentCouldNot"), t));
       return res.json<StockAdjustmentDocumentDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["stock-adjustments"] }),
@@ -4708,7 +4889,7 @@ export function useConfirmStockAdjustment() {
   return useMutation<{ document: StockAdjustmentDocumentDTO; held: boolean }, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/inventory/stock-adjustments/${id}/confirm`, { method: "POST" });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theStockAdjustmentCouldNot2")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theStockAdjustmentCouldNot2"), t));
       return res.json<{ document: StockAdjustmentDocumentDTO; held: boolean }>();
     },
     onSuccess: () => {
@@ -4728,7 +4909,7 @@ export function useStockTransfer(id: string | null): UseQueryResult<StockTransfe
     retry: false,
     queryFn: async () => {
       const res = await request(`/inventory/stock-transfers/${encodeURIComponent(id ?? "")}`);
-      if (!res.ok) throw await loaderError(res, t("api.stockTransfersCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.stockTransfersCouldNotBe"), t);
       return res.json<StockTransferDocumentDTO>();
     },
   });
@@ -4743,7 +4924,7 @@ export function useStockTransfers(filter: StockDocumentListFilter = {}): UseQuer
     queryFn: async () => {
       const qs = stockDocumentParams(filter).toString();
       const res = await request(`/inventory/stock-transfers${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw await loaderError(res, t("api.stockTransfersCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.stockTransfersCouldNotBe"), t);
       return res.json<StockTransferDocumentDTO[]>();
     },
   });
@@ -4760,7 +4941,7 @@ export function useStockTransferCounts(filter: StockDocumentListFilter = {}): Us
     queryFn: async () => {
       const qs = stockDocumentParams(rest).toString();
       const res = await request(`/inventory/stock-transfers/counts${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw await loaderError(res, t("api.stockTransfersCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.stockTransfersCouldNotBe"), t);
       return res.json<ListCountsDTO>();
     },
   });
@@ -4776,7 +4957,7 @@ export function useStockTransferStats(filter: StockDocumentListFilter = {}): Use
     queryFn: async () => {
       const qs = stockDocumentParams(filter).toString();
       const res = await request(`/inventory/stock-transfers/stats${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw await loaderError(res, t("api.stockTransfersCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.stockTransfersCouldNotBe"), t);
       return res.json<ListStatsDTO>();
     },
   });
@@ -4789,7 +4970,7 @@ export function useCreateStockTransfer() {
   return useMutation<StockTransferDocumentDTO, ApiError, CreateStockTransferDTO>({
     mutationFn: async (body) => {
       const res = await request("/inventory/stock-transfers/draft", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theStockTransferCouldNot")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theStockTransferCouldNot"), t));
       return res.json<StockTransferDocumentDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["stock-transfers"] }),
@@ -4803,7 +4984,7 @@ export function useConfirmStockTransfer() {
   return useMutation<{ document: StockTransferDocumentDTO; held: boolean }, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/inventory/stock-transfers/${id}/confirm`, { method: "POST" });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theStockTransferCouldNot2")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theStockTransferCouldNot2"), t));
       return res.json<{ document: StockTransferDocumentDTO; held: boolean }>();
     },
     onSuccess: () => {
@@ -4841,7 +5022,7 @@ export function usePhysicalCounts(filter: PhysicalCountFilter = {}): UseQueryRes
     queryFn: async () => {
       const qs = physicalCountParams(filter).toString();
       const res = await request(`/inventory/physical-counts${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw await loaderError(res, t("api.physicalCountsCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.physicalCountsCouldNotBe"), t);
       return res.json<PhysicalCountDTO[]>();
     },
   });
@@ -4858,7 +5039,7 @@ export function usePhysicalCountCounts(filter: PhysicalCountFilter = {}): UseQue
     queryFn: async () => {
       const qs = physicalCountParams(rest).toString();
       const res = await request(`/inventory/physical-counts/counts${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw await loaderError(res, t("api.physicalCountsCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.physicalCountsCouldNotBe"), t);
       return res.json<ListCountsDTO>();
     },
   });
@@ -4874,7 +5055,7 @@ export function usePhysicalCountStats(filter: PhysicalCountFilter = {}): UseQuer
     queryFn: async () => {
       const qs = physicalCountParams(filter).toString();
       const res = await request(`/inventory/physical-counts/stats${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw await loaderError(res, t("api.physicalCountsCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.physicalCountsCouldNotBe"), t);
       return res.json<ListStatsDTO>();
     },
   });
@@ -4887,7 +5068,7 @@ export function useStartPhysicalCount() {
   return useMutation<PhysicalCountDTO, ApiError, StartPhysicalCountDTO>({
     mutationFn: async (body) => {
       const res = await request("/inventory/physical-counts", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theCountCouldNotBe")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theCountCouldNotBe"), t));
       return res.json<PhysicalCountDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["physical-counts"] }),
@@ -4901,7 +5082,7 @@ export function useRecordPhysicalCountEntries() {
   return useMutation<PhysicalCountDTO, ApiError, { id: string; body: RecordPhysicalCountEntriesDTO }>({
     mutationFn: async ({ id, body }) => {
       const res = await request(`/inventory/physical-counts/${id}/counts`, { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theCountedQuantitiesCouldNot")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theCountedQuantitiesCouldNot"), t));
       return res.json<PhysicalCountDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["physical-counts"] }),
@@ -4915,7 +5096,7 @@ export function useCompletePhysicalCount() {
   return useMutation<PhysicalCountDTO, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/inventory/physical-counts/${id}/complete`, { method: "POST" });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theCountCouldNotBe2")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theCountCouldNotBe2"), t));
       return res.json<PhysicalCountDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["physical-counts"] }),
@@ -4929,7 +5110,7 @@ export function useCancelPhysicalCount() {
   return useMutation<PhysicalCountDTO, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/inventory/physical-counts/${id}/cancel`, { method: "POST" });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theCountCouldNotBe3")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theCountCouldNotBe3"), t));
       return res.json<PhysicalCountDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["physical-counts"] }),
@@ -4947,7 +5128,7 @@ export function useGenerateAdjustmentFromCount() {
   >({
     mutationFn: async ({ id, body }) => {
       const res = await request(`/inventory/physical-counts/${id}/generate-adjustment`, { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theCountAdjustmentCouldNot")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theCountAdjustmentCouldNot"), t));
       return res.json<{ count: PhysicalCountDTO; adjustment: StockAdjustmentDocumentDTO | null }>();
     },
     onSuccess: () => {
@@ -4971,7 +5152,7 @@ export function useStockBalance(filter: StockBalanceFilter = {}): UseQueryResult
     enabled: session !== null,
     queryFn: async () => {
       const res = await request(`/inventory/stock-balance${filter.warehouseId ? `?warehouseId=${filter.warehouseId}` : ""}`);
-      if (!res.ok) throw await loaderError(res, t("api.theStockBalanceCouldNot"));
+      if (!res.ok) throw await loaderError(res, t("api.theStockBalanceCouldNot"), t);
       const body = await res.json<{ rows: StockBalanceRowDTO[] }>();
       return body.rows;
     },
@@ -5005,7 +5186,7 @@ export function useAccountLedger(accountId: string | null): UseQueryResult<Accou
     enabled: session !== null && accountId !== null,
     queryFn: async () => {
       const res = await request(`/gl/accounts/${encodeURIComponent(accountId!)}/ledger`);
-      if (!res.ok) throw await loaderError(res, t("api.theAccountLedgerCouldNot"));
+      if (!res.ok) throw await loaderError(res, t("api.theAccountLedgerCouldNot"), t);
       return res.json<AccountLedgerRecord>();
     },
   });
@@ -5049,7 +5230,7 @@ export function useItemStock(itemId: string | null): UseQueryResult<
     enabled: session !== null && itemId !== null,
     queryFn: async () => {
       const res = await request(`/inventory/items/${encodeURIComponent(itemId!)}/stock`);
-      if (!res.ok) throw await loaderError(res, t("api.theStockBalanceCouldNot"));
+      if (!res.ok) throw await loaderError(res, t("api.theStockBalanceCouldNot"), t);
       return res.json<{ positions: ItemStockPositionRecord[]; layers: ItemCostLayerRecord[] }>();
     },
   });
@@ -5109,7 +5290,7 @@ export function useRfqs(filter: RfqListFilter = {}): UseQueryResult<PurchaseRfqD
     queryFn: async () => {
       const qs = rfqParams(filter).toString();
       const res = await request(`/rfqs${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw await loaderError(res, t("api.requestsForQuotationCouldNot"));
+      if (!res.ok) throw await loaderError(res, t("api.requestsForQuotationCouldNot"), t);
       return res.json<PurchaseRfqDTO[]>();
     },
   });
@@ -5126,7 +5307,7 @@ export function useRfqCounts(filter: RfqListFilter = {}): UseQueryResult<ListCou
     queryFn: async () => {
       const qs = rfqParams(rest).toString();
       const res = await request(`/rfqs/counts${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw await loaderError(res, t("api.requestsForQuotationCouldNot"));
+      if (!res.ok) throw await loaderError(res, t("api.requestsForQuotationCouldNot"), t);
       return res.json<ListCountsDTO>();
     },
   });
@@ -5142,7 +5323,7 @@ export function useRfqStats(filter: RfqListFilter = {}): UseQueryResult<ListStat
     queryFn: async () => {
       const qs = rfqParams(filter).toString();
       const res = await request(`/rfqs/stats${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw await loaderError(res, t("api.requestsForQuotationCouldNot"));
+      if (!res.ok) throw await loaderError(res, t("api.requestsForQuotationCouldNot"), t);
       return res.json<ListStatsDTO>();
     },
   });
@@ -5157,7 +5338,7 @@ export function useRfqQuotes(rfqId: string | null): UseQueryResult<RfqQuoteDTO[]
     enabled: session !== null && rfqId !== null,
     queryFn: async () => {
       const res = await request(`/rfqs/${rfqId}/quotes`);
-      if (!res.ok) throw await loaderError(res, t("api.supplierQuotesCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.supplierQuotesCouldNotBe"), t);
       return res.json<RfqQuoteDTO[]>();
     },
   });
@@ -5172,7 +5353,7 @@ export function useRfqComparison(rfqId: string | null): UseQueryResult<RfqCompar
     enabled: session !== null && rfqId !== null,
     queryFn: async () => {
       const res = await request(`/rfqs/${rfqId}/comparison`);
-      if (!res.ok) throw await loaderError(res, t("api.theQuoteComparisonCouldNot"));
+      if (!res.ok) throw await loaderError(res, t("api.theQuoteComparisonCouldNot"), t);
       return res.json<RfqComparisonRecord>();
     },
   });
@@ -5185,7 +5366,7 @@ export function useCreateRfq() {
   return useMutation<PurchaseRfqDTO, ApiError, CreatePurchaseRfqDTO>({
     mutationFn: async (body) => {
       const res = await request("/rfqs", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theRequestForQuotationCould")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theRequestForQuotationCould"), t));
       return res.json<PurchaseRfqDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["rfqs"] }),
@@ -5229,7 +5410,7 @@ export function useCreateRfqQuote() {
   return useMutation<RfqQuoteDTO, ApiError, { rfqId: string; body: CreateRfqQuoteDTO }>({
     mutationFn: async ({ rfqId, body }) => {
       const res = await request(`/rfqs/${rfqId}/quotes`, { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theQuoteCouldNotBe3")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theQuoteCouldNotBe3"), t));
       return res.json<RfqQuoteDTO>();
     },
     onSuccess: (_data, { rfqId }) => {
@@ -5247,7 +5428,7 @@ export function useConvertRfq() {
   return useMutation<{ rfq: PurchaseRfqDTO; purchaseOrderId: string }, ApiError, { rfqId: string; body: ConvertRfqDTO }>({
     mutationFn: async ({ rfqId, body }) => {
       const res = await request(`/rfqs/${rfqId}/convert`, { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theRequestForQuotationCould5")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theRequestForQuotationCould5"), t));
       return res.json<{ rfq: PurchaseRfqDTO; purchaseOrderId: string }>();
     },
     onSuccess: (_data, { rfqId }) => {
@@ -5294,7 +5475,7 @@ export function useSalesReturns(filter: SalesReturnListFilter = {}): UseQueryRes
     queryFn: async () => {
       const qs = salesReturnParams(filter).toString();
       const res = await request(`/sales-returns${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw await loaderError(res, t("api.salesReturnsCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.salesReturnsCouldNotBe"), t);
       return res.json<SalesReturnDocumentDTO[]>();
     },
   });
@@ -5311,7 +5492,7 @@ export function useSalesReturnCounts(filter: SalesReturnListFilter = {}): UseQue
     queryFn: async () => {
       const qs = salesReturnParams(rest).toString();
       const res = await request(`/sales-returns/counts${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw await loaderError(res, t("api.salesReturnsCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.salesReturnsCouldNotBe"), t);
       return res.json<ListCountsDTO>();
     },
   });
@@ -5327,7 +5508,7 @@ export function useSalesReturnStats(filter: SalesReturnListFilter = {}): UseQuer
     queryFn: async () => {
       const qs = salesReturnParams(filter).toString();
       const res = await request(`/sales-returns/stats${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw await loaderError(res, t("api.salesReturnsCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.salesReturnsCouldNotBe"), t);
       return res.json<ListStatsDTO>();
     },
   });
@@ -5340,7 +5521,7 @@ export function useCreateSalesReturn() {
   return useMutation<SalesReturnDocumentDTO, ApiError, CreateSalesReturnDTO>({
     mutationFn: async (body) => {
       const res = await request("/sales-returns", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theSalesReturnCouldNot")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theSalesReturnCouldNot"), t));
       return res.json<SalesReturnDocumentDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["sales-returns"] }),
@@ -5354,7 +5535,7 @@ export function useConfirmSalesReturn() {
   return useMutation<{ document: SalesReturnDocumentDTO; held: boolean }, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/sales-returns/${id}/confirm`, { method: "POST" });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theSalesReturnCouldNot2")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theSalesReturnCouldNot2"), t));
       return res.json<{ document: SalesReturnDocumentDTO; held: boolean }>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["sales-returns"] }),
@@ -5368,7 +5549,7 @@ export function useCancelSalesReturn() {
   return useMutation<SalesReturnDocumentDTO, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/sales-returns/${id}/cancel`, { method: "POST" });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theSalesReturnCouldNot3")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theSalesReturnCouldNot3"), t));
       return res.json<SalesReturnDocumentDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["sales-returns"] }),
@@ -5408,7 +5589,7 @@ export function usePurchaseReturns(filter: PurchaseReturnListFilter = {}): UseQu
     queryFn: async () => {
       const qs = purchaseReturnParams(filter).toString();
       const res = await request(`/purchase-returns${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw await loaderError(res, t("api.purchaseReturnsCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.purchaseReturnsCouldNotBe"), t);
       return res.json<PurchaseReturnDocumentDTO[]>();
     },
   });
@@ -5425,7 +5606,7 @@ export function usePurchaseReturnCounts(filter: PurchaseReturnListFilter = {}): 
     queryFn: async () => {
       const qs = purchaseReturnParams(rest).toString();
       const res = await request(`/purchase-returns/counts${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw await loaderError(res, t("api.purchaseReturnsCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.purchaseReturnsCouldNotBe"), t);
       return res.json<ListCountsDTO>();
     },
   });
@@ -5441,7 +5622,7 @@ export function usePurchaseReturnStats(filter: PurchaseReturnListFilter = {}): U
     queryFn: async () => {
       const qs = purchaseReturnParams(filter).toString();
       const res = await request(`/purchase-returns/stats${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw await loaderError(res, t("api.purchaseReturnsCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.purchaseReturnsCouldNotBe"), t);
       return res.json<ListStatsDTO>();
     },
   });
@@ -5454,7 +5635,7 @@ export function useCreatePurchaseReturn() {
   return useMutation<PurchaseReturnDocumentDTO, ApiError, CreatePurchaseReturnDTO>({
     mutationFn: async (body) => {
       const res = await request("/purchase-returns", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.thePurchaseReturnCouldNot")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.thePurchaseReturnCouldNot"), t));
       return res.json<PurchaseReturnDocumentDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["purchase-returns"] }),
@@ -5468,7 +5649,7 @@ export function useConfirmPurchaseReturn() {
   return useMutation<{ document: PurchaseReturnDocumentDTO; held: boolean }, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/purchase-returns/${id}/confirm`, { method: "POST" });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.thePurchaseReturnCouldNot2")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.thePurchaseReturnCouldNot2"), t));
       return res.json<{ document: PurchaseReturnDocumentDTO; held: boolean }>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["purchase-returns"] }),
@@ -5482,7 +5663,7 @@ export function useCancelPurchaseReturn() {
   return useMutation<PurchaseReturnDocumentDTO, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/purchase-returns/${id}/cancel`, { method: "POST" });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.thePurchaseReturnCouldNot3")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.thePurchaseReturnCouldNot3"), t));
       return res.json<PurchaseReturnDocumentDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["purchase-returns"] }),
@@ -5499,7 +5680,7 @@ export function useLandedCosts(status?: DocumentStatusDTO): UseQueryResult<Lande
     queryFn: async () => {
       const qs = status ? `?status=${status}` : "";
       const res = await request(`/landed-costs${qs}`);
-      if (!res.ok) throw await loaderError(res, t("api.landedCostDocumentsCouldNot"));
+      if (!res.ok) throw await loaderError(res, t("api.landedCostDocumentsCouldNot"), t);
       return res.json<LandedCostDocumentDTO[]>();
     },
   });
@@ -5512,7 +5693,7 @@ export function useCreateLandedCost() {
   return useMutation<LandedCostDocumentDTO, ApiError, CreateLandedCostDTO>({
     mutationFn: async (body) => {
       const res = await request("/landed-costs", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theLandedCostDocumentCould")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theLandedCostDocumentCould"), t));
       return res.json<LandedCostDocumentDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["landed-costs"] }),
@@ -5526,7 +5707,7 @@ export function useConfirmLandedCost() {
   return useMutation<{ document: LandedCostDocumentDTO; held: boolean }, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/landed-costs/${id}/confirm`, { method: "POST" });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theLandedCostDocumentCould2")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theLandedCostDocumentCould2"), t));
       return res.json<{ document: LandedCostDocumentDTO; held: boolean }>();
     },
     onSuccess: () => {
@@ -5543,7 +5724,7 @@ export function useCancelLandedCost() {
   return useMutation<LandedCostDocumentDTO, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/landed-costs/${id}/cancel`, { method: "POST" });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theLandedCostDocumentCould3")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theLandedCostDocumentCould3"), t));
       return res.json<LandedCostDocumentDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["landed-costs"] }),
@@ -5575,7 +5756,7 @@ export function useInstallmentPlans(filter: InstallmentPlanListFilter = {}): Use
     queryFn: async () => {
       const qs = installmentPlanParams(filter).toString();
       const res = await request(`/installments/plans${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw await loaderError(res, t("api.instalmentPlansCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.instalmentPlansCouldNotBe"), t);
       return res.json<InstallmentPlanDocumentDTO[]>();
     },
   });
@@ -5592,7 +5773,7 @@ export function useInstallmentPlanCounts(filter: InstallmentPlanListFilter = {})
     queryFn: async () => {
       const qs = installmentPlanParams(rest).toString();
       const res = await request(`/installments/plans/counts${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw await loaderError(res, t("api.instalmentPlansCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.instalmentPlansCouldNotBe"), t);
       return res.json<ListCountsDTO>();
     },
   });
@@ -5608,7 +5789,7 @@ export function useInstallmentPlanStats(filter: InstallmentPlanListFilter = {}):
     queryFn: async () => {
       const qs = installmentPlanParams(filter).toString();
       const res = await request(`/installments/plans/stats${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw await loaderError(res, t("api.instalmentPlansCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.instalmentPlansCouldNotBe"), t);
       return res.json<ListStatsDTO>();
     },
   });
@@ -5621,7 +5802,7 @@ export function useCreateInstallmentPlan() {
   return useMutation<InstallmentPlanDocumentDTO, ApiError, CreateInstallmentPlanDTO>({
     mutationFn: async (body) => {
       const res = await request("/installments/plans", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theInstalmentPlanCouldNot")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theInstalmentPlanCouldNot"), t));
       return res.json<InstallmentPlanDocumentDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["installment-plans"] }),
@@ -5635,7 +5816,7 @@ export function useConfirmInstallmentPlan() {
   return useMutation<{ document: InstallmentPlanDocumentDTO; held: boolean }, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/installments/plans/${id}/confirm`, { method: "POST" });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theInstalmentPlanCouldNot2")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theInstalmentPlanCouldNot2"), t));
       return res.json<{ document: InstallmentPlanDocumentDTO; held: boolean }>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["installment-plans"] }),
@@ -5649,7 +5830,7 @@ export function useCancelInstallmentPlan() {
   return useMutation<InstallmentPlanDocumentDTO, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/installments/plans/${id}/cancel`, { method: "POST" });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theInstalmentPlanCouldNot3")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theInstalmentPlanCouldNot3"), t));
       return res.json<InstallmentPlanDocumentDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["installment-plans"] }),
@@ -5663,7 +5844,7 @@ export function useProcessOverdueInstallments() {
   return useMutation<ProcessOverdueInstallmentsResultDTO, ApiError, ProcessOverdueInstallmentsDTO>({
     mutationFn: async (body) => {
       const res = await request("/installments/plans/overdue/process", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theOverdueInstalmentsCouldNot")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theOverdueInstalmentsCouldNot"), t));
       return res.json<ProcessOverdueInstallmentsResultDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["installment-plans"] }),
@@ -5697,7 +5878,7 @@ export function useFollowUps(filters: FollowUpListFilters = {}): UseQueryResult<
     queryFn: async () => {
       const qs = followUpParams(filters).toString();
       const res = await request(`/installments/follow-ups${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw await loaderError(res, t("api.collectionFollowUpsCouldNot"));
+      if (!res.ok) throw await loaderError(res, t("api.collectionFollowUpsCouldNot"), t);
       return res.json<CollectionFollowUpDTO[]>();
     },
   });
@@ -5714,7 +5895,7 @@ export function useFollowUpCounts(filter: FollowUpListFilters = {}): UseQueryRes
     queryFn: async () => {
       const qs = followUpParams(rest).toString();
       const res = await request(`/installments/follow-ups/counts${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw await loaderError(res, t("api.collectionFollowUpsCouldNot"));
+      if (!res.ok) throw await loaderError(res, t("api.collectionFollowUpsCouldNot"), t);
       return res.json<ListCountsDTO>();
     },
   });
@@ -5730,7 +5911,7 @@ export function useFollowUpStats(filter: FollowUpListFilters = {}): UseQueryResu
     queryFn: async () => {
       const qs = followUpParams(filter).toString();
       const res = await request(`/installments/follow-ups/stats${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw await loaderError(res, t("api.collectionFollowUpsCouldNot"));
+      if (!res.ok) throw await loaderError(res, t("api.collectionFollowUpsCouldNot"), t);
       return res.json<ListStatsDTO>();
     },
   });
@@ -5743,7 +5924,7 @@ export function useCreateFollowUp() {
   return useMutation<CollectionFollowUpDTO, ApiError, CreateFollowUpDTO>({
     mutationFn: async (body) => {
       const res = await request("/installments/follow-ups", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theFollowUpCouldNot")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theFollowUpCouldNot"), t));
       return res.json<CollectionFollowUpDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["follow-ups"] }),
@@ -5757,7 +5938,7 @@ export function useCompleteFollowUp() {
   return useMutation<CollectionFollowUpDTO, ApiError, { id: string; outcome: string }>({
     mutationFn: async ({ id, outcome }) => {
       const res = await request(`/installments/follow-ups/${id}/complete`, { method: "POST", body: JSON.stringify({ outcome }) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theFollowUpCouldNot2")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theFollowUpCouldNot2"), t));
       return res.json<CollectionFollowUpDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["follow-ups"] }),
@@ -5771,7 +5952,7 @@ export function useCancelFollowUp() {
   return useMutation<CollectionFollowUpDTO, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/installments/follow-ups/${id}/cancel`, { method: "POST" });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theFollowUpCouldNot3")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theFollowUpCouldNot3"), t));
       return res.json<CollectionFollowUpDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["follow-ups"] }),
@@ -5790,7 +5971,7 @@ export function useDepartments(): UseQueryResult<DepartmentDTO[], ApiError> {
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/hr/departments");
-      if (!res.ok) throw await loaderError(res, t("api.departmentsCouldNotBeLoaded"));
+      if (!res.ok) throw await loaderError(res, t("api.departmentsCouldNotBeLoaded"), t);
       return res.json<DepartmentDTO[]>();
     },
   });
@@ -5803,7 +5984,7 @@ export function useCreateDepartment() {
   return useMutation<DepartmentDTO, ApiError, CreateDepartmentDTO>({
     mutationFn: async (body) => {
       const res = await request("/hr/departments", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theDepartmentCouldNotBe")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theDepartmentCouldNotBe"), t));
       return res.json<DepartmentDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hr-departments"] }),
@@ -5817,7 +5998,7 @@ export function useUpdateDepartment() {
   return useMutation<DepartmentDTO, ApiError, { id: string; body: UpdateDepartmentDTO }>({
     mutationFn: async ({ id, body }) => {
       const res = await request(`/hr/departments/${id}`, { method: "PUT", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theDepartmentCouldNotBe2")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theDepartmentCouldNotBe2"), t));
       return res.json<DepartmentDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hr-departments"] }),
@@ -5832,7 +6013,7 @@ export function useJobTitles(): UseQueryResult<JobTitleDTO[], ApiError> {
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/hr/job-titles");
-      if (!res.ok) throw await loaderError(res, t("api.jobTitlesCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.jobTitlesCouldNotBe"), t);
       return res.json<JobTitleDTO[]>();
     },
   });
@@ -5845,7 +6026,7 @@ export function useCreateJobTitle() {
   return useMutation<JobTitleDTO, ApiError, CreateJobTitleDTO>({
     mutationFn: async (body) => {
       const res = await request("/hr/job-titles", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theJobTitleCouldNot")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theJobTitleCouldNot"), t));
       return res.json<JobTitleDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hr-job-titles"] }),
@@ -5859,7 +6040,7 @@ export function useUpdateJobTitle() {
   return useMutation<JobTitleDTO, ApiError, { id: string; body: UpdateJobTitleDTO }>({
     mutationFn: async ({ id, body }) => {
       const res = await request(`/hr/job-titles/${id}`, { method: "PUT", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theJobTitleCouldNot2")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theJobTitleCouldNot2"), t));
       return res.json<JobTitleDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hr-job-titles"] }),
@@ -5874,7 +6055,7 @@ export function useEmployees(): UseQueryResult<EmployeeDTO[], ApiError> {
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/hr/employees");
-      if (!res.ok) throw await loaderError(res, t("api.employeesCouldNotBeLoaded"));
+      if (!res.ok) throw await loaderError(res, t("api.employeesCouldNotBeLoaded"), t);
       return res.json<EmployeeDTO[]>();
     },
   });
@@ -5888,7 +6069,7 @@ export function useEmployeeContracts(employeeId: string | null): UseQueryResult<
     enabled: session !== null && employeeId !== null,
     queryFn: async () => {
       const res = await request(`/hr/employees/${employeeId}/contracts`);
-      if (!res.ok) throw await loaderError(res, t("api.theEmployeeSContractsCould"));
+      if (!res.ok) throw await loaderError(res, t("api.theEmployeeSContractsCould"), t);
       return res.json<ContractDTO[]>();
     },
   });
@@ -5901,7 +6082,7 @@ export function useCreateEmployee() {
   return useMutation<EmployeeDTO, ApiError, CreateEmployeeDTO>({
     mutationFn: async (body) => {
       const res = await request("/hr/employees", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theEmployeeCouldNotBe")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theEmployeeCouldNotBe"), t));
       return res.json<EmployeeDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hr-employees"] }),
@@ -5915,7 +6096,7 @@ export function useUpdateEmployee() {
   return useMutation<EmployeeDTO, ApiError, { id: string; body: UpdateEmployeeDTO }>({
     mutationFn: async ({ id, body }) => {
       const res = await request(`/hr/employees/${id}`, { method: "PUT", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theEmployeeCouldNotBe2")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theEmployeeCouldNotBe2"), t));
       return res.json<EmployeeDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hr-employees"] }),
@@ -5929,7 +6110,7 @@ export function useTransitionEmployee() {
   return useMutation<EmployeeDTO, ApiError, { id: string; body: TransitionEmployeeDTO }>({
     mutationFn: async ({ id, body }) => {
       const res = await request(`/hr/employees/${id}/transition`, { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theEmployeeSStatusCould")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theEmployeeSStatusCould"), t));
       return res.json<EmployeeDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hr-employees"] }),
@@ -5943,7 +6124,7 @@ export function useTerminateEmployee() {
   return useMutation<EmployeeDTO, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/hr/employees/${id}/terminate`, { method: "POST" });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theEmployeeSServiceCould")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theEmployeeSServiceCould"), t));
       return res.json<EmployeeDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hr-employees"] }),
@@ -5957,7 +6138,7 @@ export function useRehireEmployee() {
   return useMutation<EmployeeDTO, ApiError, { id: string; hireDate: string }>({
     mutationFn: async ({ id, hireDate }) => {
       const res = await request(`/hr/employees/${id}/rehire`, { method: "POST", body: JSON.stringify({ hireDate }) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("employees.theEmployeeCouldNotBe")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("employees.theEmployeeCouldNotBe"), t));
       return res.json<EmployeeDTO>();
     },
     onSuccess: () => {
@@ -5975,7 +6156,7 @@ export function useContracts(): UseQueryResult<ContractDTO[], ApiError> {
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/hr/contracts");
-      if (!res.ok) throw await loaderError(res, t("api.contractsCouldNotBeLoaded"));
+      if (!res.ok) throw await loaderError(res, t("api.contractsCouldNotBeLoaded"), t);
       return res.json<ContractDTO[]>();
     },
   });
@@ -5988,7 +6169,7 @@ export function useCreateContract() {
   return useMutation<ContractDTO, ApiError, CreateContractDTO>({
     mutationFn: async (body) => {
       const res = await request("/hr/contracts", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theContractCouldNotBe")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theContractCouldNotBe"), t));
       return res.json<ContractDTO>();
     },
     onSuccess: (_data, variables) => {
@@ -6005,7 +6186,7 @@ export function useTerminateContract() {
   return useMutation<ContractDTO, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/hr/contracts/${id}/terminate`, { method: "POST" });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theContractCouldNotBe2")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theContractCouldNotBe2"), t));
       return res.json<ContractDTO>();
     },
     onSuccess: (data) => {
@@ -6023,7 +6204,7 @@ export function useHolidays(year: number): UseQueryResult<HolidayDTO[], ApiError
     enabled: session !== null,
     queryFn: async () => {
       const res = await request(`/hr/holidays?year=${year}`);
-      if (!res.ok) throw await loaderError(res, t("api.publicHolidaysCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.publicHolidaysCouldNotBe"), t);
       return res.json<HolidayDTO[]>();
     },
   });
@@ -6036,7 +6217,7 @@ export function useCreateHoliday() {
   return useMutation<HolidayDTO, ApiError, CreateHolidayDTO>({
     mutationFn: async (body) => {
       const res = await request("/hr/holidays", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theHolidayCouldNotBe")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theHolidayCouldNotBe"), t));
       return res.json<HolidayDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hr-holidays"] }),
@@ -6050,7 +6231,7 @@ export function useUpdateHoliday() {
   return useMutation<HolidayDTO, ApiError, { id: string; body: UpdateHolidayDTO }>({
     mutationFn: async ({ id, body }) => {
       const res = await request(`/hr/holidays/${id}`, { method: "PUT", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theHolidayCouldNotBe2")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theHolidayCouldNotBe2"), t));
       return res.json<HolidayDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hr-holidays"] }),
@@ -6064,7 +6245,7 @@ export function useDeleteHoliday() {
   return useMutation<void, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/hr/holidays/${id}`, { method: "DELETE" });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theHolidayCouldNotBe3")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theHolidayCouldNotBe3"), t));
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hr-holidays"] }),
   });
@@ -6083,7 +6264,7 @@ export function useMyLeave(): UseQueryResult<MyLeaveDTO, ApiError> {
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/hr/leave-requests/me");
-      if (!res.ok) throw await loaderError(res, t("api.yourLeaveCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.yourLeaveCouldNotBe"), t);
       return res.json<MyLeaveDTO>();
     },
   });
@@ -6096,7 +6277,7 @@ export function useCreateLeaveRequest() {
   return useMutation<LeaveRequestDTO, ApiError, CreateLeaveRequestDTO>({
     mutationFn: async (body) => {
       const res = await request("/hr/leave-requests", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theLeaveRequestCouldNot")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theLeaveRequestCouldNot"), t));
       return res.json<LeaveRequestDTO>();
     },
     onSuccess: () => {
@@ -6115,7 +6296,7 @@ export function useCancelLeaveRequest() {
   return useMutation<LeaveRequestDTO, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/hr/leave-requests/${id}/cancel`, { method: "POST" });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theLeaveRequestCouldNot2")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theLeaveRequestCouldNot2"), t));
       return res.json<LeaveRequestDTO>();
     },
     onSuccess: () => {
@@ -6136,7 +6317,7 @@ export function useHrDashboard(): UseQueryResult<HrDashboardSummaryDTO, ApiError
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/hr/dashboard");
-      if (!res.ok) throw await loaderError(res, t("api.theHrDashboardCouldNot"));
+      if (!res.ok) throw await loaderError(res, t("api.theHrDashboardCouldNot"), t);
       return res.json<HrDashboardSummaryDTO>();
     },
   });
@@ -6159,7 +6340,7 @@ export function useNotificationTriggers(): UseQueryResult<NotificationTriggerCat
     retry: false,
     queryFn: async () => {
       const res = await request("/notification-rules/triggers");
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.notificationEventsCouldNotBe")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.notificationEventsCouldNotBe"), t));
       return res.json<NotificationTriggerCatalogDTO>();
     },
   });
@@ -6185,7 +6366,7 @@ export function useLanStatus(): UseQueryResult<LanStatusDTO, ApiError> {
     refetchInterval: 5000,
     queryFn: async () => {
       const res = await request("/lan/status");
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("devices.couldNotLoadTheConnected")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("devices.couldNotLoadTheConnected"), t));
       return res.json<LanStatusDTO>();
     },
   });
@@ -6200,7 +6381,7 @@ export function useLanSessions(enabled: boolean): UseQueryResult<LanSessionsList
     refetchInterval: 5000,
     queryFn: async () => {
       const res = await request("/lan/sessions");
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("devices.couldNotLoadTheConnected")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("devices.couldNotLoadTheConnected"), t));
       return res.json<LanSessionsListDTO>();
     },
   });
@@ -6214,7 +6395,7 @@ export function useDisconnectLanSession() {
     mutationFn: async (sessionId) => {
       const res = await request(`/lan/sessions/${encodeURIComponent(sessionId)}`, { method: "DELETE" });
       // A 403 used to render as a successful disconnect that did nothing.
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("devices.couldNotDisconnectTheDevice")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("devices.couldNotDisconnectTheDevice"), t));
     },
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: ["lan"] });
@@ -6239,10 +6420,28 @@ export function useDisconnectLanSession() {
  */
 export type DesktopLicenceCode =
   | "LIC-OK"
+  | "LIC-GRACE"
   | "LIC-MISSING"
   | "LIC-MALFORMED"
   | "LIC-INVALID"
-  | "LIC-EXPIRED";
+  | "LIC-EXPIRED"
+  | "LIC-CHECKIN"
+  | "LIC-REVOKED"
+  | "LIC-NOKEY"
+  | "LIC-MACHINE"
+  | "LIC-CLOCK"
+  | "LIC-NOTYET";
+
+export type DesktopLicenceStateDTO =
+  | "ACTIVE"
+  | "GRACE"
+  | "READ_ONLY"
+  | "INVALID"
+  | "TAMPERED"
+  | "NOT_YET_VALID"
+  | "FINGERPRINT_MISMATCH"
+  | "REVOKED"
+  | "UNLICENSED";
 
 export interface DesktopLicenceStatusDTO {
   readonly ok: true;
@@ -6252,6 +6451,35 @@ export interface DesktopLicenceStatusDTO {
   readonly plan: string;
   readonly seats: number;
   readonly expiresAt: string | null;
+  /**
+   * OPTIONAL, all of them, because a renderer must survive an older main
+   * process: this bundle is served from disk by whatever desktop build is
+   * installed, and a screen that assumed a field a previous build never sent
+   * would render `undefined` into Arabic prose. Every consumer branches on
+   * absence rather than defaulting.
+   */
+  /** The VERIFIED state the write gate runs under — the same reading, not a second one. */
+  readonly state?: DesktopLicenceStateDTO;
+  /** `CHECKIN_OVERDUE`, `MACHINE_NOT_BOUND`, `REVOKED`, … or null. */
+  readonly reason?: string | null;
+  readonly canWrite?: boolean;
+  readonly seatsUsed?: number;
+  readonly modules?: readonly string[];
+  /**
+   * The raw machine fingerprint, LTR and copyable. It is what support needs to
+   * reissue a licence for a replacement machine, and there was no way to read
+   * it anywhere in the product.
+   */
+  readonly fingerprint?: string | null;
+  readonly daysSinceCheckin?: number | null;
+  readonly licenceFilePath?: string;
+  readonly appVersion?: string;
+  readonly role?: "host" | "client";
+  readonly databasePath?: string | null;
+  readonly backupsDir?: string | null;
+  /** Plaintext copies of the keys to the books, while they are still on disk. */
+  readonly keyCardPath?: string | null;
+  readonly plaintextArchivePath?: string | null;
   readonly lan: {
     readonly listening: boolean;
     /** `https://…`; null when the host has no address to give. Never a guess — say unknown. */
@@ -6329,7 +6557,7 @@ export function useUnlockUser() {
   return useMutation<{ ok: boolean; userId: string }, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/users/${encodeURIComponent(id)}/unlock`, { method: "POST", body: JSON.stringify({}) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theAccountCouldNotBeUnlocked")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theAccountCouldNotBeUnlocked"), t));
       return res.json<{ ok: boolean; userId: string }>();
     },
     onSettled: () => {
@@ -6346,7 +6574,7 @@ export function useNotificationRules(): UseQueryResult<NotificationRuleDTO[], Ap
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/notification-rules");
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.notificationRulesCouldNotBe")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.notificationRulesCouldNotBe"), t));
       return res.json<NotificationRuleDTO[]>();
     },
   });
@@ -6359,7 +6587,7 @@ export function useCreateNotificationRule() {
   return useMutation<NotificationRuleDTO, ApiError, CreateNotificationRuleDTO>({
     mutationFn: async (body) => {
       const res = await request("/notification-rules", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theRuleCouldNotBe")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theRuleCouldNotBe"), t));
       return res.json<NotificationRuleDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["notification-rules"] }),
@@ -6373,7 +6601,7 @@ export function useUpdateNotificationRule() {
   return useMutation<NotificationRuleDTO, ApiError, { id: string; body: UpdateNotificationRuleDTO }>({
     mutationFn: async ({ id, body }) => {
       const res = await request(`/notification-rules/${id}`, { method: "PUT", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theRuleCouldNotBe2")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theRuleCouldNotBe2"), t));
       return res.json<NotificationRuleDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["notification-rules"] }),
@@ -6387,7 +6615,7 @@ export function useSetNotificationRuleActive() {
   return useMutation<NotificationRuleDTO, ApiError, { id: string; active: boolean }>({
     mutationFn: async ({ id, active }) => {
       const res = await request(`/notification-rules/${id}/${active ? "activate" : "deactivate"}`, { method: "POST" });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theRuleSStatusCould")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theRuleSStatusCould"), t));
       return res.json<NotificationRuleDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["notification-rules"] }),
@@ -6401,7 +6629,7 @@ export function useDeleteNotificationRule() {
   return useMutation<void, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/notification-rules/${id}`, { method: "DELETE" });
-      if (!res.ok && res.status !== 204) throw new ApiError(res.status, await readError(res, t("api.theRuleCouldNotBe3")));
+      if (!res.ok && res.status !== 204) throw new ApiError(res.status, await readError(res, t("api.theRuleCouldNotBe3"), t));
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["notification-rules"] }),
   });
@@ -6418,7 +6646,7 @@ export function useNotifications(status?: "unread" | "read"): UseQueryResult<Not
     queryFn: async () => {
       const qs = status ? `?status=${status}&limit=50` : "?limit=50";
       const res = await request(`/notifications${qs}`);
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.notificationsCouldNotBeLoaded")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.notificationsCouldNotBeLoaded"), t));
       return res.json<NotificationDTO[]>();
     },
   });
@@ -6433,7 +6661,7 @@ export function useUnreadNotificationCount(): UseQueryResult<number, ApiError> {
     refetchInterval: 30_000,
     queryFn: async () => {
       const res = await request("/notifications/unread-count");
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theNotificationCountCouldNot")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theNotificationCountCouldNot"), t));
       const body = await res.json<{ count: number }>();
       return body.count;
     },
@@ -6447,7 +6675,7 @@ export function useMarkNotificationRead() {
   return useMutation<NotificationDTO, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/notifications/${id}/read`, { method: "POST" });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theNotificationCouldNotBe")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theNotificationCouldNotBe"), t));
       return res.json<NotificationDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["notifications"] }),
@@ -6461,7 +6689,7 @@ export function useMarkAllNotificationsRead() {
   return useMutation<void, ApiError, void>({
     mutationFn: async () => {
       const res = await request("/notifications/read-all", { method: "POST" });
-      if (!res.ok && res.status !== 204) throw new ApiError(res.status, await readError(res, t("api.theyCouldNotAllBe")));
+      if (!res.ok && res.status !== 204) throw new ApiError(res.status, await readError(res, t("api.theyCouldNotAllBe"), t));
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["notifications"] }),
   });
@@ -6480,7 +6708,7 @@ export function usePrintTemplateConfig(): UseQueryResult<PrintTemplateConfigDTO,
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/print-template-config");
-      if (!res.ok) throw await loaderError(res, t("api.thePrintTemplateCouldNot"));
+      if (!res.ok) throw await loaderError(res, t("api.thePrintTemplateCouldNot"), t);
       return res.json<PrintTemplateConfigDTO>();
     },
   });
@@ -6493,7 +6721,7 @@ export function useSavePrintTemplateConfig() {
   return useMutation<PrintTemplateConfigDTO, ApiError, PrintTemplateConfigDTO>({
     mutationFn: async (body) => {
       const res = await request("/print-template-config", { method: "PUT", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.thePrintTemplateCouldNot2")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.thePrintTemplateCouldNot2"), t));
       return res.json<PrintTemplateConfigDTO>();
     },
     onSuccess: (config) => queryClient.setQueryData(["print-template-config"], config),
@@ -6526,13 +6754,19 @@ export interface DataMigrationStatusDTO {
   readonly itemUnits: number;
   readonly assetCategories: number;
   readonly assets: number;
+  /** P-5 — how many accounts the chart already holds. */
+  readonly accounts: number;
   readonly salesInvoices: number;
   readonly salesReturns: number;
   readonly purchaseInvoices: number;
   readonly purchaseReturns: number;
 }
 
-/** The 9 master-data step ids `createDataMigrationRoutes` (packages/api) exposes preview/commit for. */
+/**
+ * The step ids `createDataMigrationRoutes` (packages/api) exposes preview/commit
+ * for. The last four are P-5: the chart, the opening trial balance, and the
+ * open AR/AP a migrating shop is actually owed and actually owes.
+ */
 export type DataMigrationMasterStep =
   | "departments"
   | "employees"
@@ -6542,7 +6776,11 @@ export type DataMigrationMasterStep =
   | "items"
   | "item-units"
   | "asset-categories"
-  | "assets";
+  | "assets"
+  | "chart-of-accounts"
+  | "opening-trial-balance"
+  | "open-customer-invoices"
+  | "open-supplier-invoices";
 
 export function useDataMigrationStatus(): UseQueryResult<DataMigrationStatusDTO, ApiError> {
   const { t } = useAppTranslation();
@@ -6552,7 +6790,7 @@ export function useDataMigrationStatus(): UseQueryResult<DataMigrationStatusDTO,
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/data-migration/status");
-      if (!res.ok) throw await loaderError(res, t("api.theDataMigrationStatusCould"));
+      if (!res.ok) throw await loaderError(res, t("api.theDataMigrationStatusCould"), t);
       return res.json<DataMigrationStatusDTO>();
     },
   });
@@ -6565,7 +6803,7 @@ export function useDataMigrationPreview(step: DataMigrationMasterStep) {
   return useMutation<DataMigrationStepResultDTO, ApiError, readonly Record<string, string>[]>({
     mutationFn: async (rows) => {
       const res = await request(`/data-migration/${step}/preview`, { method: "POST", body: JSON.stringify({ rows }) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theFileCouldNotBe")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theFileCouldNotBe"), t));
       return res.json<DataMigrationStepResultDTO>();
     },
   });
@@ -6579,7 +6817,7 @@ export function useDataMigrationCommit(step: DataMigrationMasterStep) {
   return useMutation<DataMigrationStepResultDTO, ApiError, readonly Record<string, string>[]>({
     mutationFn: async (rows) => {
       const res = await request(`/data-migration/${step}/commit`, { method: "POST", body: JSON.stringify({ rows }) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theImportCouldNotBe")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theImportCouldNotBe"), t));
       return res.json<DataMigrationStepResultDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["data-migration", "status"] }),
@@ -6664,7 +6902,7 @@ export function useHistoricalImportPreview(kind: HistoricalImportKind) {
         method: "POST",
         body: JSON.stringify(toHistoricalImportWireBody(kind, rows)),
       });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theFileCouldNotBe")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theFileCouldNotBe"), t));
       return res.json<HistoricalImportResultDTO>();
     },
   });
@@ -6680,7 +6918,7 @@ export function useHistoricalImportCommit(kind: HistoricalImportKind) {
         method: "POST",
         body: JSON.stringify(toHistoricalImportWireBody(kind, rows)),
       });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theImportCouldNotBe")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theImportCouldNotBe"), t));
       return res.json<HistoricalImportResultDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["data-migration", "status"] }),
@@ -6701,7 +6939,7 @@ export function useWorkflowConfigs(): UseQueryResult<WorkflowConfigDTO[], ApiErr
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/workflow/configs");
-      if (!res.ok) throw await loaderError(res, t("api.workflowSettingsCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.workflowSettingsCouldNotBe"), t);
       return res.json<WorkflowConfigDTO[]>();
     },
   });
@@ -6714,7 +6952,7 @@ export function useCreateWorkflowConfig() {
   return useMutation<WorkflowConfigDTO, ApiError, CreateWorkflowConfigDTO>({
     mutationFn: async (body) => {
       const res = await request("/workflow/configs", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theWorkflowCouldNotBe")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theWorkflowCouldNotBe"), t));
       return res.json<WorkflowConfigDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["workflow-configs"] }),
@@ -6728,7 +6966,7 @@ export function useUpdateWorkflowConfig() {
   return useMutation<WorkflowConfigDTO, ApiError, { id: string; body: UpdateWorkflowConfigDTO }>({
     mutationFn: async ({ id, body }) => {
       const res = await request(`/workflow/configs/${id}`, { method: "PUT", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theWorkflowCouldNotBe")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theWorkflowCouldNotBe"), t));
       return res.json<WorkflowConfigDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["workflow-configs"] }),
@@ -6742,7 +6980,7 @@ export function useDeleteWorkflowConfig() {
   return useMutation<void, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/workflow/configs/${id}`, { method: "DELETE" });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theWorkflowCouldNotBe2")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theWorkflowCouldNotBe2"), t));
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["workflow-configs"] }),
   });
@@ -6763,7 +7001,7 @@ export function usePendingApprovals(): UseQueryResult<ApprovalRequestDTO[], ApiE
     refetchInterval: 30_000,
     queryFn: async () => {
       const res = await request("/workflow/requests/pending");
-      if (!res.ok) throw await loaderError(res, t("api.pendingApprovalsCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.pendingApprovalsCouldNotBe"), t);
       return res.json<ApprovalRequestDTO[]>();
     },
   });
@@ -6778,7 +7016,7 @@ export function useMyApprovalRequests(): UseQueryResult<ApprovalRequestDTO[], Ap
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/workflow/requests/mine");
-      if (!res.ok) throw await loaderError(res, t("api.pendingApprovalsCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.pendingApprovalsCouldNotBe"), t);
       return res.json<ApprovalRequestDTO[]>();
     },
   });
@@ -6793,7 +7031,7 @@ export function useMyApprovalDecisions(): UseQueryResult<ApprovalRequestDTO[], A
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/workflow/requests/acted");
-      if (!res.ok) throw await loaderError(res, t("api.pendingApprovalsCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.pendingApprovalsCouldNotBe"), t);
       return res.json<ApprovalRequestDTO[]>();
     },
   });
@@ -6809,7 +7047,7 @@ export function usePendingApprovalCount(): UseQueryResult<number, ApiError> {
     refetchInterval: 30_000,
     queryFn: async () => {
       const res = await request("/workflow/requests/pending-count");
-      if (!res.ok) throw await loaderError(res, t("api.thePendingApprovalCountCould"));
+      if (!res.ok) throw await loaderError(res, t("api.thePendingApprovalCountCould"), t);
       const body = await res.json<{ count: number }>();
       return body.count;
     },
@@ -6824,7 +7062,7 @@ export function useSubmitApproval() {
   return useMutation<ApprovalRequestDTO, ApiError, SubmitApprovalRequestDTO>({
     mutationFn: async (body) => {
       const res = await request("/workflow/requests", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theApprovalRequestCouldNot")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theApprovalRequestCouldNot"), t));
       return res.json<ApprovalRequestDTO>();
     },
     onSuccess: () => {
@@ -6841,7 +7079,7 @@ export function useDecideApproval() {
   return useMutation<ApprovalRequestDTO, ApiError, { id: string; body: DecideApprovalRequestDTO }>({
     mutationFn: async ({ id, body }) => {
       const res = await request(`/workflow/requests/${id}/decide`, { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theDecisionCouldNotBe")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theDecisionCouldNotBe"), t));
       return res.json<ApprovalRequestDTO>();
     },
     onSuccess: () => {
@@ -6864,7 +7102,7 @@ export function useItemUnits(): UseQueryResult<ItemUnitDTO[], ApiError> {
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/item-units");
-      if (!res.ok) throw await loaderError(res, t("api.unitsOfMeasureCouldNot"));
+      if (!res.ok) throw await loaderError(res, t("api.unitsOfMeasureCouldNot"), t);
       return res.json<ItemUnitDTO[]>();
     },
   });
@@ -6877,7 +7115,7 @@ export function useCreateItemUnit() {
   return useMutation<ItemUnitDTO, ApiError, CreateItemUnitDTO>({
     mutationFn: async (body) => {
       const res = await request("/item-units", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theUnitOfMeasureCould")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theUnitOfMeasureCould"), t));
       return res.json<ItemUnitDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["item-units"] }),
@@ -6891,7 +7129,7 @@ export function useUpdateItemUnit() {
   return useMutation<ItemUnitDTO, ApiError, { code: string; patch: UpdateItemUnitDTO }>({
     mutationFn: async ({ code, patch }) => {
       const res = await request(`/item-units/${code}`, { method: "PATCH", body: JSON.stringify(patch) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theUnitOfMeasureCould2")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theUnitOfMeasureCould2"), t));
       return res.json<ItemUnitDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["item-units"] }),
@@ -6907,7 +7145,7 @@ export function useItemCategories(): UseQueryResult<ItemCategoryDTO[], ApiError>
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/item-categories");
-      if (!res.ok) throw await loaderError(res, t("api.itemCategoriesCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.itemCategoriesCouldNotBe"), t);
       return res.json<ItemCategoryDTO[]>();
     },
   });
@@ -6922,7 +7160,7 @@ export function useItemBrands(): UseQueryResult<ItemBrandDTO[], ApiError> {
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/item-brands");
-      if (!res.ok) throw await loaderError(res, t("api.itemCategoriesCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.itemCategoriesCouldNotBe"), t);
       return res.json<ItemBrandDTO[]>();
     },
   });
@@ -6937,7 +7175,7 @@ export function useItemSeasons(): UseQueryResult<ItemSeasonDTO[], ApiError> {
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/item-seasons");
-      if (!res.ok) throw await loaderError(res, t("api.itemCategoriesCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.itemCategoriesCouldNotBe"), t);
       return res.json<ItemSeasonDTO[]>();
     },
   });
@@ -6950,7 +7188,7 @@ export function useCreateItemCategory() {
   return useMutation<ItemCategoryDTO, ApiError, CreateItemCategoryDTO>({
     mutationFn: async (body) => {
       const res = await request("/item-categories", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theCategoryCouldNotBe")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theCategoryCouldNotBe"), t));
       return res.json<ItemCategoryDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["item-categories"] }),
@@ -6964,7 +7202,7 @@ export function useUpdateItemCategory() {
   return useMutation<ItemCategoryDTO, ApiError, { id: string; patch: UpdateItemCategoryDTO }>({
     mutationFn: async ({ id, patch }) => {
       const res = await request(`/item-categories/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theCategoryCouldNotBe2")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theCategoryCouldNotBe2"), t));
       return res.json<ItemCategoryDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["item-categories"] }),
@@ -7000,7 +7238,7 @@ export function useAttendance(filters: AttendanceFilters): UseQueryResult<Attend
     enabled: session !== null,
     queryFn: async () => {
       const res = await request(`/hr/attendance${attendanceQueryString(filters)}`);
-      if (!res.ok) throw await loaderError(res, t("api.theAttendanceRecordCouldNot"));
+      if (!res.ok) throw await loaderError(res, t("api.theAttendanceRecordCouldNot"), t);
       return res.json<AttendanceEntryDTO[]>();
     },
   });
@@ -7014,7 +7252,7 @@ export function useAttendanceSummary(employeeId: string | null, from: string, to
     enabled: session !== null && employeeId !== null,
     queryFn: async () => {
       const res = await request(`/hr/attendance/summary?employeeId=${encodeURIComponent(employeeId ?? "")}&from=${from}&to=${to}`);
-      if (!res.ok) throw await loaderError(res, t("api.theAttendanceSummaryCouldNot"));
+      if (!res.ok) throw await loaderError(res, t("api.theAttendanceSummaryCouldNot"), t);
       return res.json<AttendanceSummaryDTO>();
     },
   });
@@ -7027,7 +7265,7 @@ export function useRecordAttendance() {
   return useMutation<AttendanceEntryDTO, ApiError, RecordAttendanceDTO>({
     mutationFn: async (body) => {
       const res = await request("/hr/attendance", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.attendanceCouldNotBeRecorded")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.attendanceCouldNotBeRecorded"), t));
       return res.json<AttendanceEntryDTO>();
     },
     onSuccess: () => {
@@ -7044,7 +7282,7 @@ export function useCorrectAttendance() {
   return useMutation<AttendanceEntryDTO, ApiError, { id: string; body: CorrectAttendanceDTO }>({
     mutationFn: async ({ id, body }) => {
       const res = await request(`/hr/attendance/${id}`, { method: "PUT", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theAttendanceRecordCouldNot2")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theAttendanceRecordCouldNot2"), t));
       return res.json<AttendanceEntryDTO>();
     },
     onSuccess: () => {
@@ -7062,7 +7300,7 @@ export function useLeavePolicies(): UseQueryResult<LeavePolicyDTO[], ApiError> {
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/hr/leave-policies");
-      if (!res.ok) throw await loaderError(res, t("api.leavePoliciesCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.leavePoliciesCouldNotBe"), t);
       return res.json<LeavePolicyDTO[]>();
     },
   });
@@ -7076,7 +7314,7 @@ export function useLeavePolicyPresets(): UseQueryResult<LeavePolicyPresetDTO[], 
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/hr/leave-policies/presets");
-      if (!res.ok) throw await loaderError(res, t("api.thePresetsCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.thePresetsCouldNotBe"), t);
       return res.json<LeavePolicyPresetDTO[]>();
     },
   });
@@ -7089,7 +7327,7 @@ export function useCreateLeavePolicy() {
   return useMutation<LeavePolicyDTO, ApiError, CreateLeavePolicyDTO>({
     mutationFn: async (body) => {
       const res = await request("/hr/leave-policies", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theLeavePolicyCouldNot")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theLeavePolicyCouldNot"), t));
       return res.json<LeavePolicyDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hr-leave-policies"] }),
@@ -7103,7 +7341,7 @@ export function useUpdateLeavePolicy() {
   return useMutation<LeavePolicyDTO, ApiError, { id: string; body: UpdateLeavePolicyDTO }>({
     mutationFn: async ({ id, body }) => {
       const res = await request(`/hr/leave-policies/${id}`, { method: "PUT", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theLeavePolicyCouldNot2")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theLeavePolicyCouldNot2"), t));
       return res.json<LeavePolicyDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hr-leave-policies"] }),
@@ -7117,7 +7355,7 @@ export function useDeleteLeavePolicy() {
   return useMutation<void, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/hr/leave-policies/${id}`, { method: "DELETE" });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theLeavePolicyCouldNot3")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theLeavePolicyCouldNot3"), t));
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hr-leave-policies"] }),
   });
@@ -7130,7 +7368,7 @@ export function useApplyLeavePolicyPreset() {
   return useMutation<LeavePolicyDTO[], ApiError, string>({
     mutationFn: async (presetCode) => {
       const res = await request("/hr/leave-policies/apply-preset", { method: "POST", body: JSON.stringify({ presetCode }) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.thePresetCouldNotBe")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.thePresetCouldNotBe"), t));
       return res.json<LeavePolicyDTO[]>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hr-leave-policies"] }),
@@ -7147,7 +7385,7 @@ export function useLeaveBalances(employeeId: string | null, year: number): UseQu
       const params = new URLSearchParams({ year: String(year) });
       if (employeeId) params.set("employeeId", employeeId);
       const res = await request(`/hr/leave-balances?${params.toString()}`);
-      if (!res.ok) throw await loaderError(res, t("api.leaveBalancesCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.leaveBalancesCouldNotBe"), t);
       return res.json<LeaveBalanceDTO[]>();
     },
   });
@@ -7160,7 +7398,7 @@ export function useUpsertLeaveBalance() {
   return useMutation<LeaveBalanceDTO, ApiError, UpsertLeaveBalanceDTO>({
     mutationFn: async (body) => {
       const res = await request("/hr/leave-balances", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theLeaveBalanceCouldNot")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theLeaveBalanceCouldNot"), t));
       return res.json<LeaveBalanceDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hr-leave-balances"] }),
@@ -7175,7 +7413,7 @@ export function useLeaveAccrualBatches(runType: string | null): UseQueryResult<L
     enabled: session !== null,
     queryFn: async () => {
       const res = await request(`/hr/leave-accrual-batches${runType ? `?runType=${runType}` : ""}`);
-      if (!res.ok) throw await loaderError(res, t("api.accrualBatchesCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.accrualBatchesCouldNotBe"), t);
       return res.json<LeaveAccrualBatchDTO[]>();
     },
   });
@@ -7193,7 +7431,7 @@ export function useRunLeaveAccrual() {
   return useMutation<RunLeaveAccrualResultDTO, ApiError, RunLeaveAccrualDTO>({
     mutationFn: async (body) => {
       const res = await request("/hr/leave-accrual-batches/run", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theAccrualBatchCouldNot")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theAccrualBatchCouldNot"), t));
       return res.json<RunLeaveAccrualResultDTO>();
     },
     onSuccess: () => {
@@ -7226,7 +7464,7 @@ export function useLeaveRequests(filters: LeaveRequestFilters): UseQueryResult<L
       if (filters.to) params.set("to", filters.to);
       const query = params.toString();
       const res = await request(`/hr/leave-requests${query === "" ? "" : `?${query}`}`);
-      if (!res.ok) throw await loaderError(res, t("api.leaveRequestsCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.leaveRequestsCouldNotBe"), t);
       return res.json<LeaveRequestDTO[]>();
     },
   });
@@ -7248,7 +7486,7 @@ export function useLeaveRequestCounts(): UseQueryResult<LeaveRequestCountsDTO, A
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/hr/leave-requests/counts");
-      if (!res.ok) throw await loaderError(res, t("api.theLeaveRequestSummaryCould"));
+      if (!res.ok) throw await loaderError(res, t("api.theLeaveRequestSummaryCould"), t);
       return res.json<LeaveRequestCountsDTO>();
     },
   });
@@ -7269,7 +7507,7 @@ export function useDecideLeaveRequest() {
     mutationFn: async ({ id, decision, comment }) => {
       const path = decision === "approved" ? "approve" : "reject";
       const res = await request(`/hr/leave-requests/${id}/${path}`, { method: "POST", body: JSON.stringify({ decision, comment: comment ?? null }) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theDecisionOnThisLeave")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theDecisionOnThisLeave"), t));
       return res.json<DecideLeaveRequestResultDTO>();
     },
     onSuccess: () => {
@@ -7294,7 +7532,7 @@ export function useAccountRouting(): UseQueryResult<AccountRoutingDTO, ApiError>
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/accounting/account-routing");
-      if (!res.ok) throw await loaderError(res, t("api.theChartOfAccountsCould"));
+      if (!res.ok) throw await loaderError(res, t("api.theChartOfAccountsCould"), t);
       return res.json<AccountRoutingDTO>();
     },
   });
@@ -7307,7 +7545,7 @@ export function useUpdateAccountRouting() {
   return useMutation<AccountRoutingDTO, ApiError, UpdateAccountRoutingDTO>({
     mutationFn: async (body) => {
       const res = await request("/accounting/account-routing", { method: "PUT", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theChartOfAccountsCould")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theChartOfAccountsCould"), t));
       return res.json<AccountRoutingDTO>();
     },
     onSuccess: () => {
@@ -7325,7 +7563,7 @@ export function useTaxGroups(): UseQueryResult<TaxGroupDTO[], ApiError> {
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/tax-groups");
-      if (!res.ok) throw await loaderError(res, t("api.taxesCouldNotBeLoaded"));
+      if (!res.ok) throw await loaderError(res, t("api.taxesCouldNotBeLoaded"), t);
       return res.json<TaxGroupDTO[]>();
     },
   });
@@ -7338,7 +7576,7 @@ export function useCreateTaxGroup() {
   return useMutation<TaxGroupDTO, ApiError, UpsertTaxGroupDTO>({
     mutationFn: async (body) => {
       const res = await request("/tax-groups", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.taxesCouldNotBeLoaded")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.taxesCouldNotBeLoaded"), t));
       return res.json<TaxGroupDTO>();
     },
     onSuccess: () => {
@@ -7359,7 +7597,7 @@ export function useSendTestEmail() {
     mutationFn: async (body) => {
       const res = await request("/settings/email/test", { method: "POST", body: JSON.stringify(body) });
       const payload = await res.json<TestEmailResultDTO>();
-      if (payload?.message === undefined) throw new ApiError(res.status, t("api.settingsCouldNotBeSaved"));
+      if (payload?.message === undefined) throw new ApiError(res.status, withSupportCode(t("api.settingsCouldNotBeSaved"), res.status, t));
       return payload;
     },
   });
@@ -7386,7 +7624,7 @@ export function useItemAvailability(itemId: string, warehouseId: string): UseQue
     enabled: session !== null && itemId !== "" && warehouseId !== "",
     queryFn: async () => {
       const res = await request(`/inventory/availability?itemId=${encodeURIComponent(itemId)}&warehouseId=${encodeURIComponent(warehouseId)}`);
-      if (!res.ok) throw await loaderError(res, t("api.itemAvailabilityCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.itemAvailabilityCouldNotBe"), t);
       return res.json<ItemAvailabilityDTO>();
     },
   });
@@ -7401,7 +7639,7 @@ export function useAllowedCurrencies(): UseQueryResult<AllowedCurrenciesDTO, Api
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/settings/currencies");
-      if (!res.ok) throw await loaderError(res, t("api.settingsCouldNotBeLoaded"));
+      if (!res.ok) throw await loaderError(res, t("api.settingsCouldNotBeLoaded"), t);
       return res.json<AllowedCurrenciesDTO>();
     },
   });
@@ -7426,7 +7664,7 @@ export function useEntityAudit(entityType: string, entityId: string): UseQueryRe
       const res = await request(
         `/audit?entityType=${encodeURIComponent(entityType)}&entityId=${encodeURIComponent(entityId)}&limit=100`,
       );
-      if (!res.ok) throw await loaderError(res, t("api.auditCouldNotBeLoaded"));
+      if (!res.ok) throw await loaderError(res, t("api.auditCouldNotBeLoaded"), t);
       const body = await res.json<{ events?: AuditEventDTO[] } | AuditEventDTO[]>();
       return Array.isArray(body) ? body : (body.events ?? []);
     },
@@ -7446,7 +7684,7 @@ export function usePurchaseInvoiceFulfilment(invoiceId: string | null): UseQuery
     enabled: session !== null && invoiceId !== null,
     queryFn: async () => {
       const res = await request(`/purchases/invoices/${encodeURIComponent(invoiceId ?? "")}/fulfilment`);
-      if (!res.ok) throw await loaderError(res, t("api.purchaseInvoicesCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.purchaseInvoicesCouldNotBe"), t);
       return res.json<PurchaseInvoiceFulfilmentDTO>();
     },
   });
@@ -7460,7 +7698,7 @@ export function usePayPurchaseInvoice() {
   return useMutation<PurchaseInvoiceDTO & { voucherId: string; voucherNo: string | null }, ApiError, { id: string } & PurchaseInvoicePaymentDTO>({
     mutationFn: async ({ id, ...body }) => {
       const res = await request(`/purchases/invoices/${id}/payments`, { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.thePaymentCouldNotBe")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.thePaymentCouldNotBe"), t));
       return res.json<PurchaseInvoiceDTO & { voucherId: string; voucherNo: string | null }>();
     },
     onSuccess: () => {
@@ -7509,7 +7747,7 @@ export function useItemMovements(
           const res = await request(
             `/inventory/movements?itemId=${encodeURIComponent(itemId ?? "")}&warehouseId=${encodeURIComponent(warehouseId)}`,
           );
-          if (!res.ok) throw await loaderError(res, t("api.stockMovementsCouldNotBe"));
+          if (!res.ok) throw await loaderError(res, t("api.stockMovementsCouldNotBe"), t);
           return res.json<StockMovementRowDTO[]>();
         }),
       );
@@ -7529,7 +7767,7 @@ export function useImportableDepartments(): UseQueryResult<ImportableDepartmentD
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/cost-centers/importable-departments");
-      if (!res.ok) throw await loaderError(res, t("api.costCentresCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.costCentresCouldNotBe"), t);
       return res.json<ImportableDepartmentDTO[]>();
     },
   });
@@ -7543,7 +7781,7 @@ export function useCreateCostCentersFromDepartments() {
   return useMutation<{ created: CostCenterDTO[]; skipped: string[] }, ApiError, CreateCostCentersFromDepartmentsDTO>({
     mutationFn: async (body) => {
       const res = await request("/cost-centers/from-departments", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theCostCentreCouldNot")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theCostCentreCouldNot"), t));
       return res.json<{ created: CostCenterDTO[]; skipped: string[] }>();
     },
     onSuccess: () => {
@@ -7565,7 +7803,7 @@ export function useUpdatePriceList() {
   return useMutation<PriceListDTO, ApiError, { id: string; patch: UpdatePriceListDTO }>({
     mutationFn: async ({ id, patch }) => {
       const res = await request(`/price-lists/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.thePriceListCouldNot")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.thePriceListCouldNot"), t));
       return res.json<PriceListDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["price-lists"] }),
@@ -7590,7 +7828,7 @@ export function useResolvePriceListPrice() {
   return useMutation<ResolvedPriceListPrice, ApiError, ResolvePriceListPriceDTO>({
     mutationFn: async (body) => {
       const res = await request("/price-lists/resolve-price", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.priceListsCouldNotBe")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.priceListsCouldNotBe"), t));
       return res.json<ResolvedPriceListPrice>();
     },
   });
@@ -7605,7 +7843,7 @@ export function usePartyBalancesByCurrency(): UseQueryResult<PartyCurrencyBalanc
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/gl/balances-by-currency");
-      if (!res.ok) throw await loaderError(res, t("api.balancesByCurrencyCouldNot"));
+      if (!res.ok) throw await loaderError(res, t("api.balancesByCurrencyCouldNot"), t);
       return res.json<PartyCurrencyBalanceReportDTO>();
     },
   });
@@ -7623,7 +7861,7 @@ export function useCreateSalesReturnFromInvoice() {
   return useMutation<SalesReturnDocumentDTO, ApiError, BuildSalesReturnFromInvoiceDTO>({
     mutationFn: async (body) => {
       const res = await request("/sales-returns/from-invoice", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theSalesReturnCouldNot")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theSalesReturnCouldNot"), t));
       return res.json<SalesReturnDocumentDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["sales-returns"] }),
@@ -7645,7 +7883,7 @@ export function useRefundSalesReturn() {
   >({
     mutationFn: async ({ id, ...body }) => {
       const res = await request(`/sales-returns/${id}/refund`, { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theRefundCouldNotBe")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theRefundCouldNotBe"), t));
       return res.json<SalesReturnDocumentDTO & { voucherId: string; voucherNo: string | null }>();
     },
     onSuccess: () => {
@@ -7672,7 +7910,7 @@ export function useVans(): UseQueryResult<VanDTO[], ApiError> {
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/field/vans");
-      if (!res.ok) throw await loaderError(res, t("api.vansCouldNotBeLoaded"));
+      if (!res.ok) throw await loaderError(res, t("api.vansCouldNotBeLoaded"), t);
       return res.json<VanDTO[]>();
     },
   });
@@ -7686,7 +7924,7 @@ export function useUpdatePromotion() {
   return useMutation<PromotionDTO, ApiError, { id: string; patch: UpdatePromotionDTO }>({
     mutationFn: async ({ id, patch }) => {
       const res = await request(`/promotions/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.thePromotionCouldNotBe")));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.thePromotionCouldNotBe"), t));
       return res.json<PromotionDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["promotions"] }),
@@ -7719,7 +7957,7 @@ export function useTreasuryAccountStats(): UseQueryResult<TreasuryAccountStatsDT
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/treasury-accounts/stats");
-      if (!res.ok) throw await loaderError(res, t("api.treasuryAccountsCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("api.treasuryAccountsCouldNotBe"), t);
       return res.json<TreasuryAccountStatsDTO>();
     },
   });

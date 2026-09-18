@@ -120,7 +120,7 @@ describe("DepreciationRunsScreen", () => {
       "GET /branches": () => ({ body: sampleBranches }),
     });
     renderWithProviders(<DepreciationRunsScreen />, { transport, initialSession: testAdminSession });
-    expect(await screen.findByText("تعذّر تحميل عمليات الإهلاك.")).toBeInTheDocument();
+    expect(await screen.findByText("تعذّر تحميل عمليات الإهلاك. (رمز 500)")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "إعادة المحاولة" })).toBeInTheDocument();
   });
 

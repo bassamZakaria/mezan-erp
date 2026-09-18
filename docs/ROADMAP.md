@@ -47,6 +47,7 @@ competitor study (§8), and the deferred HR/POS/Cloud build plans (§9).
 | **Open now (§3)** | **Nothing.** Row menus answered (no), contracting complete, outbound notification delivery landed 2026-09-14 |
 | **Deferred by decision (§4)** | POS, statutory payroll, HR depth, cloud — not scheduled, not defects |
 | **Defects (§5)** | **0 open** of the 83 filed (D66–D148). The three filed on 2026-09-14 are closed with the decisions that found them: D146 (an item marked FIFO was valued WAC), D147 (a rep holding `view_own` saw an empty list because an employee id was compared to a user id), D148 (consumer e-receipts parked awaiting a seal the regime does not require). Every open half that used to be a decision is now taken — D90 → DEC-19, D111 → DEC-20, D116 → DEC-14 |
+| **Desktop audit (2026-09-07)** | The thirty-two findings of the full desktop audit (`artifacts/audit-2026-09-07.md`, filed as D145–D176 on that branch — **ids that collide with the D145–D148 filed here on 2026-09-14 and need renumbering**) came in with PR #55: licence, update, LAN, books, performance and security. All fixed on that branch, including Q-1, which moved the desktop backend off the Electron main process into a `utilityProcess` |
 | **Compliance (§5.4)** | The B2C e-receipt, the e-seal seam and نموذج 41 landed 2026-09-07 — but nothing *called* the receipt path until DEC-9 wired the producer on 2026-09-14. Law 6/2025's simplified regime is built and deliberately unclaimed (DEC-13) |
 | **Decisions (§6)** | **None open.** All fourteen taken 2026-09-14 against the persona panel and recorded in §6.4 with the option chosen, what other platforms do, who dissented, and the cost of reversal. Three scope questions remain in §6.3 — they are pricing calls, not code |
 | **Beyond parity (§7)** | 27 candidates across E1–E3, none started; `enhancements` branch only |
@@ -56,10 +57,10 @@ competitor study (§8), and the deferred HR/POS/Cloud build plans (§9).
 
 | Signal | Value | Measured |
 |---|---|---|
-| Nav destinations | **115** | 2026-08-29, from `nav-config.tsx` |
-| Routable screens | **116** | 2026-08-29, from `App.tsx`'s `ROUTABLE_SCREENS` |
-| Read surfaces answering `pnpm smoke` | **199** | 2026-08-29, run green |
-| «قريباً» placeholders outside HR | **0** | 2026-08-27 |
+| Nav destinations | **123** | 2026-09-07, `itemKeys` in `nav-config.tsx`; 124 keys carry a permission/module gate in `NAV_ITEM_ACCESS` |
+| Routable screens | **123 lazy route modules + 3 inline** | 2026-09-07, `router/screens.ts`'s `SCREEN_MODULES` plus the three addresses `router/routes.tsx` reserves for المستخدمون / الأدوار / محرر الدور, which `AppLayout` mounts itself. `App.tsx` is the router and nothing else now; there is no `ROUTABLE_SCREENS` |
+| Read surfaces enumerated in `pnpm smoke` | **203** | 2026-09-07, `READ_PATHS` in `scripts/smoke.ts` (run result: see commit message) |
+| «قريباً» placeholders outside HR | **0** | 2026-09-07 — the three remaining `قريباً` strings in `catalog.ts` are "due soon" labels, not placeholders |
 | Reference screens still absent | ~14, all POS or POS-adjacent | 2026-08-26 audit |
 | `pnpm scenarios` | **6,697 passing, 0 failing** | 2026-09-14 |
 | `pnpm test:responsive` | **17 passing, 0 failing** at 390px and 360px | 2026-09-14 |
@@ -67,12 +68,13 @@ competitor study (§8), and the deferred HR/POS/Cloud build plans (§9).
 | The four ledger invariants | all at exactly zero — trial balance, inventory vs GL 1200, AP vs GL 2100, AR vs GL 1105 | 2026-08-27 |
 | Typecheck · lint · RTL · native controls · permission labels · theme colour-only | all passing | 2026-09-11 |
 | `pnpm smoke` | 240 read surfaces, all responded | 2026-09-14 |
+| Backend off the UI loop | the desktop backend runs in a `utilityProcess`; a `VACUUM INTO` that froze the main process for 1,591 ms with zero ticks no longer blocks the window, the LAN socket or the backup schedule | PR #55, 2026-09-07 |
 | Contrast sweep, 13 screens × 2 themes | 0 failures, 0 horizontal overflow | 2026-08-27 |
-| Business-logic unit tests | disabled by decision — `TESTING.md` §1 | 2026-08-23 |
+| Business-logic unit tests | **required** — the 2026-08-23 decision was reversed on 2026-08-30 (`TESTING.md` §1): a test goes beside every file changed that has a sibling `.test.ts(x)`. Counts: see the commit message | 2026-09-07 |
 
 ## 1.2 How anything is verified
 
-Automated business-logic tests are off. Proof is:
+Unit tests are back on (`TESTING.md` §1) and are the floor, not the proof. Above them:
 
 1. **`pnpm smoke`** — boots the real backend, runs the demo seed, hits every read surface.
    Catches an unmounted route, which is the failure mode that has bitten this codebase
@@ -148,6 +150,45 @@ caught several "works until you look again" bugs.
   widening it beyond the session grant.
 - **Desktop packaging** — the renderer is served from a real `app://` origin rather than
   `file://`, with the path resolution unit-tested as the security boundary it is.
+- **Licensing, end to end (2026-09-07).** The vendor public key, the fingerprint salt and the
+  check-in address are substituted into the main bundle by esbuild `define`
+  (`apps/desktop/scripts/build.mjs`) and a packaged build refuses every environment override of
+  them, so a shipped installer can finally verify a paid `license.mezan` — before this, every
+  packaged build resolved `NO_PUBLIC_KEY` and blamed the shop. The check-in clock starts at the
+  licence's signed `notBefore`, the payload carries the real `licenseId` and the salted machine
+  fingerprint, the reply is Ed25519-signed and replay-checked, and **no licence verdict ever
+  exits the app**: past 7 days without a confirmation the install is read-only, past 30 it adds
+  a blocking Arabic notice, and the books stay readable, printable and exportable throughout.
+  The verdict is re-read per request, so «تحقّق الآن» lifts read-only without a restart. The
+  guard record is HMAC'd to the database key, so deleting it resolves to TAMPERED rather than
+  to a fresh week. Module entitlements now gate 46 route prefixes; first-run activation is a
+  real file import that reports the verifier's own verdict; `--print-machine-fingerprint`, a
+  copyable fingerprint on the banner and a three-step transfer procedure give a replacement PC
+  a way back.
+- **The vendor half of licensing (2026-09-07).** It did not exist at all. `pnpm licence:keygen`
+  mints the Ed25519 pair, `pnpm licence:issue` signs a licence (plan, modules, features, seats,
+  validity, grace, repeatable `--bind`), and `apps/licence-server` answers `POST /checkin` with
+  a **signed** verdict off a JSON revocation list, recording every (licence, fingerprint) pair
+  it sees as the evidence for a revocation decision. `INSTALL.md` §9 is the runbook.
+- **LAN pairing without a consultant (2026-09-07).** The host advertises `_mezan._tcp` with its
+  certificate fingerprint; a till pairs from its own login screen through a discovery, compare
+  and confirm flow that puts the two fingerprints side by side — the character-by-character
+  comparison INSTALL described as a procedure now exists as a screen, and a mismatch gets its
+  own refusal rather than a silent pin. A moved host is found again by its pinned certificate
+  and reconnected in one press. Every `LanClientError` code has its own Arabic sentence, login
+  has a 5-second connection budget, a dedicated "cannot reach the host" screen replaces a
+  freezing login form, the NSIS installer adds the inbound firewall rule (private and domain
+  profiles only), and «اختبر الوصول» separates a blocked port from a dead service.
+- **Updates a shop can actually receive (2026-09-07).** Releases are signed by
+  `apps/desktop/scripts/sign-release.mjs` over `version || channel || arch || sha512` — the
+  tuple, not the hash, so a genuinely-signed old installer cannot be republished as a newer one
+  — and the downloaded bytes are re-hashed and re-verified before the installer is handed to the
+  OS. The install dialog names the tills that are about to lose their host and defaults to
+  "after the app closes". A schema-changing launch takes a `pre-update-<version>` archive and
+  «الرجوع إلى ما قبل التحديث» restores exactly it; a newer schema than the build understands is
+  refused in Arabic instead of migrated. `/health` carries the version and a client on a
+  different build says so. A build with no feed answers «لا تتوفر تحديثات تلقائية في هذه النسخة»
+  once, dismissably, instead of reporting a failure.
 
 ## 2.2 Parity, item by item
 
@@ -669,6 +710,43 @@ need a measured reading in the running app before anyone fixes them.
 | D143 | A refused BOM deactivation was completely silent: `deactivate()` caught the error and did nothing, behind a comment claiming the re-render would communicate it — it did not. The BOM stayed active and the person had no way to know the server had refused. Now renders a `role="alert"` banner carrying the server's own reason | `apps/web/src/screens/BomsScreen.tsx` | fixed in this pass (`BomsScreen.test.tsx`) |
 | D144 | **The sales-returns create page spun the CPU forever on an invoice with nothing returnable.** The line-seeding effect ended in `setLines(firstLine ? [...] : [])`, and its own guard was `lines.length > 0` — a guard an empty array can never satisfy. A fresh `[]` is never `Object.is`-equal to the current state, so React re-rendered; `invoices` was rebuilt by `.filter()` on every render, so the effect's deps changed too and it re-ran, wrote `[]` again, and never settled. Choosing a service-only invoice in «فاتورة المصدر» — or arriving at `#/…/sales-returns/new/<id>` for one — froze the screen with no error. Found by a coverage test that hung a vitest worker at 100% CPU rather than failing (a 5s testTimeout cannot interrupt a synchronous render loop). Fixed by bailing out when there is no returnable line, and memoising `invoices` | `apps/web/src/screens/SalesReturnsScreen.tsx` | fixed in this pass (`SalesReturnsScreen.coverage.test.tsx`) |
 
+**Thirty-two filed 2026-09-07 by the full audit** (`docs/artifacts/audit-2026-09-07.md`, D145–D176). Every one was verified in code at `ab699559`; the ids in brackets are the audit's own (L = licence, U = updates, N = LAN, B = books, Q = performance, S = security).
+
+| # | Defect | Evidence | State |
+|---|---|---|---|
+| D145 | **No packaged build could be licensed** [L-1]. The vendor public key was an empty constant read from `process.env` at runtime — no esbuild `define`, no CI variable — so a Dock launch resolved `NO_PUBLIC_KEY` → `UNLICENSED`, read-only, seats 0, LAN off, with a banner blaming the shop | `apps/desktop/src/main/license-runtime.ts`, `apps/desktop/scripts/build.mjs` | fixed 2026-09-07 — keys, salt and check-in URL are `define`d at build time; env overrides are refused when `app.isPackaged`; `NO_PUBLIC_KEY` has its own Arabic sentence (`license-runtime.test.ts`) |
+| D146 | **The vendor side did not exist** [L-2]: no keypair generation, no licence signer, no revocation list, no check-in service — nothing could produce a `license.mezan` | `packages/domain/src/licensing/`, `scripts/` | fixed 2026-09-07 — `signLicense`, `pnpm licence:keygen` / `licence:issue`, and `apps/licence-server` (`POST /checkin` with a signed answer and a JSON revocation list) |
+| D147 | **The check-in clock started at the licence's expiry date** [L-3]: a valid licence never degraded; an expired one made the app `app.exit(1)` before any window, with no dialog and no log | `apps/desktop/src/main/index.ts` | fixed 2026-09-07 — clock starts at `notBefore` (or first launch); no licence verdict ever exits; past 30 days the app opens READ_ONLY with a blocking Arabic notice (`license-checkin.test.ts`, `LicenseBanner.test.tsx`) |
+| D148 | The check-in payload identified nothing [L-4]: `licenseId` was the state enum, `fingerprint` the `userData` path, the reply unsigned, and `{revoked:true}` only logged | `apps/desktop/src/main/index.ts`, `license-checkin.ts` | fixed 2026-09-07 — real `licenseId` and salted fingerprint, Ed25519-signed reply verified with replay rejection, `REVOKED` latches to read-only |
+| D149 | First-run «تفعيل الترخيص» was a stub that showed a green «مُفعّل» pill on a no-op [L-5] | `apps/web/src/login/FirstRunWizard.tsx` | fixed 2026-09-07 — a real file import (`mezan:licence:import`) that re-verifies and shows the actual verdict (`FirstRunWizard.test.tsx`) |
+| D150 | The licence panel reported `MEZAN_ENTITLEMENTS_JSON`, not the verified licence, so a licensed install read `LIC-MISSING` while the write gate said ACTIVE [L-6] | `apps/desktop/src/main/licence-ipc.ts` | fixed 2026-09-07 (`licence-ipc.test.ts`) |
+| D151 | A successful manual check-in could not lift read-only until restart, and a licence expiring mid-session was never noticed [L-7]: the write gate closed over the startup verdict | `apps/desktop/src/main/index.ts` | fixed 2026-09-07 — `resolveLicenseState` re-evaluates per request |
+| D152 | `CHECKIN_OVERDUE` rendered «حتى تجديد الترخيص» — telling the shop to renew a valid licence instead of connecting to the internet [L-8]; `FINGERPRINT_MISMATCH` had no recovery path and the fingerprint was surfaced nowhere [L-9] | `apps/web/src/LicenseBanner.tsx` | fixed 2026-09-07 — banner branches on `reason`, «تحقّق الآن» button, copyable fingerprint, `--print-machine-fingerprint`, machine-transfer steps |
+| D153 | The clock-rollback and check-in guards were plain JSON files the owner could delete; a missing file resolved to permissive, and a comment claimed a cross-check that did not exist [L-10] | `apps/desktop/src/main/license.ts`, `license-checkin.ts` | fixed 2026-09-07 — one HMAC'd `license-guard.json` keyed off the sealed database key; missing or edited → TAMPERED |
+| D154 | Module entitlements gated no surface: `createModuleGate` had zero call sites and the API served all 19 modules regardless of the licence [L-12] | `packages/api/src/module-gate.ts`, `app.ts` | fixed 2026-09-07 — `applyModuleGates` over 45 route prefixes; `createBackend` takes the verified entitlements (`module-gate.test.ts`) |
+| D155 | **No update could ever be installed** [U-1/U-2]: the update key was empty, the release workflow never signed the SHA-512 nor published `.sig`, and the banner's error was undismissable | `apps/desktop/src/main/updater.ts`, `.github/workflows/release.yml` | fixed 2026-09-07 — `sign-release.mjs`, per-artifact `.sig`, preflight requires the keys, `unavailable` info state with a dismiss (`update-verify.test.ts`, `updater.test.ts`) |
+| D156 | The update signature bound only the hash, so an old signed installer republished under a higher version passed [U-6]; one `.sig` covered two Mac architectures [U-7] | `apps/desktop/src/main/update-verify.ts` | fixed 2026-09-07 — signs `version‖channel‖arch‖sha512`, requires strictly newer, re-verifies after download |
+| D157 | Manual install quit the host mid-day with no confirmation and no regard for connected tills [U-8]; no schema version stamp, no rollback, host/client version skew unchecked [U-9/U-10] | `apps/desktop/src/main/updater.ts`, `packages/persistence/src/schema-sync.ts` | fixed 2026-09-07 — install dialog names devices and defaults to after-close; `PRAGMA user_version` + `schema_meta`, `SchemaTooNewError`, `pre-update-<version>` archive with one-click revert; `/health` carries version and the client blocks on mismatch |
+| D158 | **A full backup ran on every launch before the window existed** [Q-3], and the on-close backup raced quit and never completed [Q-4] | `apps/desktop/src/main/backup-hooks.ts`, `index.ts` | fixed 2026-09-07 — launch backup only when a migration is pending, window first with a busy state; on-close awaited on `before-quit` (`backup-hooks.test.ts`) |
+| D159 | **Every scheduled backup was written decrypted** [N-11]: the desktop passed `portable:{key}` unconditionally | `apps/desktop/src/main/index.ts`, `apps/desktop/src/backup/` | fixed 2026-09-07 — archives encrypted by default; portable export is an explicit passphrase-encrypted action; backups directory 0700 |
+| D160 | Pairing a till was a CLI flag with no GUI and no discovery; a DHCP change killed every till; certificate mismatch had no path forward [N-1/N-2/N-4] | `apps/desktop/src/main/client-config.ts`, `lan-client.ts` | fixed 2026-09-07 — mDNS `_mezan._tcp`, `PairHostScreen`, relocate-by-pinned-fingerprint, dedicated PIN_MISMATCH screen (`pairing-ipc.test.ts`, `PairHostScreen.test.tsx`) |
+| D161 | Every LAN failure was one bilingual sentence with a URL and `30000ms` after a 30 s freeze; «الشبكة المحلية غير مشغّلة» covered three unrelated faults [N-3/N-5] | `apps/desktop/src/main/ipc.ts`, `lan-host.ts` | fixed 2026-09-07 — `{code, host}` mapped to Arabic per code, 5 s login budget, `LanHostGate` screen, `lan.closedReason` |
+| D162 | On a LAN client two maintenance buttons were dead (IPC never registered, no `catch`); disconnect fired with no confirmation mid-document [N-7/N-8] | `apps/web/src/settings/MaintenancePanel.tsx`, `ConnectedDevicesPanel.tsx` | fixed 2026-09-07 (`client-refusals.test.ts`, `ConnectedDevicesPanel.test.tsx`) |
+| D163 | A new TLS handshake per LAN request; one account could hold every seat of a 2-seat licence; brute force keyed by attacker-chosen source address; unbounded SSE streams [N-10/N-12] | `apps/desktop/src/main/lan-client.ts`, `packages/domain/src/lan/session-registry.ts`, `packages/api/src/login-throttle.ts` | fixed 2026-09-07 — keep-alive pinned agent, seats per account 1, per-account 60/h ceiling, 3 streams per session, 600 req/10 s per source |
+| D164 | **The manual journal screen crashed on ordinary decimals** [B-1]: float sum then `Money.fromMajor(String(300.29999999999995))` threw in render | `apps/web/src/screens/JournalsScreen.tsx` | fixed 2026-09-07 — decimal strings summed with `Money`; cost-centre picker added (`JournalsScreen.test.tsx`) |
+| D165 | **A return of a VAT invoice credited no VAT** [B-3]: both wiring adapters passed `taxAmount: Money.zero()` | `packages/backend/src/create-backend.ts` | fixed 2026-09-07 — per-line tax and rate pass through (`create-backend.test.ts`) |
+| D166 | **A foreign-currency voucher posted its foreign digits as EGP** [B-4], and FX revaluation kept restating the settled invoice [B-5] | `packages/domain/src/vouchers/voucher-service.ts`, `fx-revaluation/revaluation.ts` | fixed 2026-09-07 — approved rate resolved at confirm, base amounts on GL and allocation, tagged counterparty line (`voucher-service.test.ts`) |
+| D167 | The legacy `POST /journal-entries` was mounted in the shipped app and posted into a table no report reads, bypassing every gate [B-6, D99 residual] | `packages/api/src/app.ts` | fixed 2026-09-07 — deleted; four callers migrated to `/gl` |
+| D168 | Purchase-invoice confirm was not a transaction: a failure after the GL post left a live entry and a draft that could never confirm again [B-7] | `packages/domain/src/purchasing/purchase-invoice.ts` | fixed 2026-09-07 — confirm runs in `gl.transaction()` (`purchase-invoice.test.ts`) |
+| D169 | The reconciliation hardcoded 1105/2100/1200 with no routing slot [B-8]; a depreciation run could not be reversed and its two halves were not atomic [B-9]; `DocumentService.reverse` reversed GL and never stock [B-10]; reversal bypassed the filed-VAT lock [B-11] | `packages/backend/src/create-backend.ts`, `packages/domain/src/fixed-assets/`, `documents/service.ts`, `gl/reverse.ts` | fixed 2026-09-07 — `control.*` slots, `reverseDepreciationRun`, `DocumentStockHook.reverse`, `assertVatNotFiled` on reverse |
+| D170 | The VAT return and the five financial statements accumulated in floats [C-10] | `packages/domain/src/reports/` | fixed 2026-09-07 — `Money` to the row boundary |
+| D171 | Every SQLite call ran on the Electron main-process event loop, so one report or the daily backup froze the host and every till [Q-1/Q-2] | `apps/desktop/src/main/index.ts`, `apps/desktop/src/backup/backup-service.ts` | see the perf pass in this commit for what landed |
+| D172 | `/sales-invoices/counts` hydrated the whole filtered table on every keystroke; every report loaded whole tables into JS; 58 of 66 route files had no `LIMIT`; five screens paged in the browser [Q-5..Q-9] | `packages/api/src/sales-invoices-routes.ts`, `reports-routes.ts`, `packages/persistence/src/ledger-store.ts` | see the perf pass in this commit for what landed |
+| D173 | 198 GET error paths threw a fixed sentence and discarded the server's Arabic reason; email notification rules saved as if they delivered [support #13/#10] | `apps/web/src/data/*.ts`, `NotificationRulesPage.tsx` | see the support-hardening pass in this commit |
+| D174 | The public demo shipped a published admin PIN with optional auth on `0.0.0.0` [S-1]; `apps/server` bound every interface while printing `127.0.0.1` [S-2]; the audit trail could be edited past its trigger and a restore wrote no audit event [S-3] | `render.yaml`, `apps/server/src/`, `packages/persistence/src/audit-sink.ts` | see the support-hardening pass in this commit |
+| D175 | ETA e-invoicing could not transmit (stub port throws unconditionally); four exception reports were mounted with no screen; no open AR/AP, chart or opening-TB import; no report was branch-scoped; concurrent edits were last-write-wins [P-1/P-4/P-5/P-7/N-9] | `packages/domain/src/eta/service.ts`, `packages/api/src/security-reports-routes.ts`, `data-migration-routes.ts` | see the product-compliance pass in this commit |
+| D176 | Partner opening balances were one fact with three figures, none the GL [B-2, D142 wider]; the customer/supplier statements were browser-built, the supplier one omitting returns, landed costs and cheques [C-2]; closing a month checked nothing [C-3]; all fiscal-period refusals were English [C-4, D74] | `packages/api/src/customers-routes.ts`, `apps/web/src/screens/SuppliersScreen.tsx`, `packages/domain/src/fiscal-periods/` | B-2 fixed 2026-09-07 (`PartyOpeningBalancePoster`, idempotent `OB-CUST-JE:<id>`); the rest: see the month-end pass in this commit |
+
 D1–D65 are closed; the register is `archive/defect-register.md`.
 
 D65 — 20 scenario assertions failing because `2c0e7fa` made a user's Arabic name mandatory
@@ -755,6 +833,10 @@ right answer; they are in §6's territory.
 runs on: a closed item is how you recognise its regression, and every one of the three closed
 on 2026-08-30 left residual risk behind it that a consultant still has to be able to say out
 loud. Read what a closed entry says it did **not** fix before promising a client anything.
+Struck-through text **inside** an otherwise-open entry marks a claim that has since been
+corrected against the code — several were written ahead of the work and were simply not true;
+they are struck rather than deleted so that nobody re-files the correction as a new finding.
+Entries were last re-read against the tree on **2026-09-07**.
 
 - **~~The SQLite file and the backups it produces are not encrypted at rest.~~ CLOSED
   2026-08-30 — kept here because the residuals below are real and a consultant must know
@@ -797,23 +879,34 @@ loud. Read what a closed entry says it did **not** fix before promising a client
   and kept for the life of the install, so it can be pinned, and it deliberately refuses to
   re-mint over a damaged key pair because a new fingerprint is indistinguishable from an
   impostor to a till that pinned the old one. The connected-devices screen shows the `https://`
-  URL and the SHA-256 fingerprint. Residual, and all of it still open:
-  - **Pinning is trust-on-first-use.** An attacker already impersonating the host at the
-    moment a till is paired gets pinned instead — silently, permanently, no later warning.
-    The only defence is a human comparing the two fingerprint strings character by character
-    while standing in the shop (`docs/INSTALL.md` §6.3). **A procedure, not a mechanism** —
-    which means it is only as good as the consultant's discipline, and it is worth saying
-    plainly rather than filing under "we have TLS now".
-  - **Nothing authenticates the client.** TLS here is one-way; there are no client
-    certificates. The subnet check and the path allow-list remain the only things narrowing
-    who and what can reach the socket.
+  URL and the SHA-256 fingerprint. Residual — one of these was narrowed on 2026-09-07 and the
+  rest are untouched:
+  - **Pinning is still trust-on-first-use, but the comparison is now IN THE APP.** An attacker
+    already impersonating the host at the moment a till is paired still gets pinned —
+    permanently, with no later warning — and the only defence remains a human comparing the two
+    fingerprint strings character by character while standing in the shop. What changed on
+    2026-09-07 (N-1/N-4): that comparison exists as a screen rather than as a paragraph in a
+    runbook. The till discovers hosts over mDNS `_mezan._tcp`, shows the candidate's fingerprint
+    grouped in fours and `dir="ltr"` inside the RTL page beside the pinned one when there is
+    one, and confirming re-reads the certificate rather than trusting what was advertised; a
+    mismatch gets its own refusal screen. **It is still a procedure backed by a mechanism, not
+    a mechanism** — a consultant who clicks «تأكيد» without reading has learned nothing.
+  - **Nothing authenticates the client.** Unchanged. TLS here is one-way — `startLanHost` passes
+    `{ key, cert }` and never `requestCert`, so there are no client certificates. The subnet
+    check and the path allow-list remain the only things narrowing who and what can reach the
+    socket.
   - **A stolen session token is still the whole ERP.** Untouched: `session-auth.ts` binds a
     session to no device, no address and no seat, and it lives 12 hours. TLS stops the token
     being read off the air and does nothing about one taken off a till.
   - **The private key is protected by filesystem permissions only** (`lan-tls-key.pem`,
     `0600`, beside the database).
-  - **No revocation and no rotation path.** If the key leaks, recovery is deleting both PEM
-    files and re-pairing every till by hand.
+  - **No revocation and no rotation path, still manual.** If the key leaks, recovery is
+    deleting both PEM files and re-pairing every till by hand. `lan-tls.ts` deliberately
+    refuses to re-mint over a damaged key pair, so there is no rotate button and there is not
+    meant to be one until re-pairing can be driven from the host — a new fingerprint is
+    indistinguishable from an impostor to a till that pinned the old one. In-app pairing
+    (above) makes the re-pairing itself a shop task rather than a site visit, which lowers the
+    cost of the manual path without closing this.
 - **~~Electron auto-updates are not code-signed or notarized.~~ CONFIGURED 2026-08-30, and
   still UNSIGNED IN FACT — the gap is now a purchase order, not a code change.** What landed:
   `apps/desktop/electron-builder.yml` carries a real macOS (Developer ID, hardened runtime with
@@ -845,16 +938,26 @@ loud. Read what a closed entry says it did **not** fix before promising a client
   - **The distribution channel is still unchosen.** `MEZAN_UPDATE_FEED_URL` is a repository
     variable with no value; whether it points at GitHub release assets, S3 or a self-hosted
     directory is a business decision nobody has made.
-- **The audit trail is append-only by a SQLite trigger (`BEFORE UPDATE/DELETE` on
-  `audit_events`), not append-only against the person who holds the file.** That trigger
-  stops the APPLICATION from ever issuing an `UPDATE`/`DELETE` against its own audit rows —
-  which is what closed the admin-CRUD and workflow-CRUD audit gaps (S21, S25) — but anyone
-  with filesystem access to `mezan.db` (the company admin, in practice, since it is one
-  file with no OS-level access control of its own) can still open it directly and edit past
-  the trigger, or restore an OLDER backup that never had a damaging entry in the first
-  place. A sink the application itself cannot write to — signed export on a schedule,
-  syslog to an external collector, a hash-chained rows-since-last-export digest — is still
-  open; the trigger only ever promised to stop the app's own code from cutting a corner.
+- **The audit trail is append-only by a SQLite trigger AND hash-chained now (S-3, landed
+  2026-09-07) — but a person holding the file can still destroy history, just not forge it.**
+  The trigger (`BEFORE UPDATE/DELETE` on `audit_event`) stops the APPLICATION from ever issuing
+  an `UPDATE`/`DELETE` against its own audit rows — which is what closed the admin-CRUD and
+  workflow-CRUD audit gaps (S21, S25). On top of it, each row now carries `prev_hash` and
+  `row_hash` over a frozen canonical tuple, and `audit_chain_head` holds the latest row's hash
+  under an **HMAC keyed outside the database** — derived from the sealed database key on
+  desktop, from a `0600` `audit-chain.key` beside the file on the server edition, per-process
+  in memory. `GET /audit/verify` walks the chain and the audit screen has a button for it,
+  answering `OK` / `ROW_ALTERED` / `CHAIN_BROKEN` / `HEAD_MISSING` / `HEAD_ALTERED` /
+  `TRUNCATED`; a restore now writes a `CRITICAL` `backup.restored` event after the swap. What
+  is still open, and must be said plainly: **the row hashes alone stop an edit in place, not a
+  re-hash of the whole table** — the algorithm is public. The head MAC is what cannot be
+  forged, and it is only as good as the key's separation from the file, so **a person with
+  filesystem access can `DROP` the trigger, delete rows and re-chain what is left — they simply
+  cannot produce a head MAC that agrees**, so the tampering is detectable rather than
+  preventable, and detectable only if someone presses verify. Restoring an OLDER backup that
+  never held the damaging entry remains undetectable from inside. A sink the application itself
+  cannot write to — signed export on a schedule, syslog to an external collector — is still the
+  real answer and is still open.
 - **License verification is wired (was a stub — D115, now fixed).** Desktop startup now reads `license.mezan` and runs the
   Ed25519 verifier (`packages/domain/src/licensing/license.ts`) end to end — signature,
   clock-rollback guard, machine fingerprint, expiry and grace — through
@@ -862,17 +965,38 @@ loud. Read what a closed entry says it did **not** fix before promising a client
   of both entitlements and write permission; past grace the app is READ_ONLY, enforced by
   the server-side write-gate (`packages/api/src/license-gate.ts`), and a packaged build with
   no authentic licence fails closed to read-only. `MEZAN_ENTITLEMENTS_JSON` survives only as
-  a documented DEV convenience (ignored by packaged builds). The vendor public key and
-  fingerprint salt are baked by the release build; the full activation portal / air-gapped
-  code UX remains Phase 8.
+  a documented DEV convenience (ignored by packaged builds). ~~The vendor public key and
+  fingerprint salt are baked by the release build~~ — **that was false when written and is
+  true now (D145, 2026-09-07).** They were `process.env` reads with empty compile-time
+  defaults and nothing anywhere that set them, so every packaged build resolved
+  `NO_PUBLIC_KEY` → `UNLICENSED`. They are now esbuild `define` substitutions
+  (`__MEZAN_LICENSE_PUBLIC_KEY__`, `__MEZAN_LICENSE_FINGERPRINT_SALT__`,
+  `__MEZAN_LICENSE_CHECKIN_URL__` in `apps/desktop/scripts/build.mjs`'s `vendorDefine`, fed
+  from the release environment), i.e. string literals in the binary — and `app.isPackaged`
+  refuses every environment override of the key, the salt, the check-in URL and the licence
+  path. `release.yml`'s `preflight` fails the run if any is empty. The vendor side exists too
+  (`pnpm licence:keygen` / `licence:issue`, `apps/licence-server`, `INSTALL.md` §9). What
+  remains: the full activation portal / air-gapped reprieve-code UX is still Phase 8, and the
+  7/30-day online check-in against the offline-first promise is an owner decision, not a
+  defect (§6).
 - **The auto-update channel is signed and user-consented (was CONFIG-ONLY).** The electron-updater flow (`main/updater.ts`) checks on
   launch only when the operator opts in (`MEZAN_AUTO_UPDATE=1`, and outside shop hours),
-  never auto-downloads, and verifies a detached Ed25519 signature over the release's
-  SHA-512 (`main/update-verify.ts`) against `MEZAN_UPDATE_PUBLIC_KEY` BEFORE downloading —
-  refusing any release that does not verify. Progress and the refusal surface in an
-  Arabic-first banner (`apps/web/src/UpdateBanner.tsx`). This is the offline-first trust
-  layer and is independent of OS code-signing/notarization, which is still a vendor-cert
-  release step (`electron-builder.yml`). Guarded: `update-verify.test.ts`.
+  never auto-downloads, and verifies a detached Ed25519 signature (`main/update-verify.ts`)
+  BEFORE downloading — refusing any release that does not verify — **and again after**, on the
+  bytes it actually received. Progress and the refusal surface in an Arabic-first banner
+  (`apps/web/src/UpdateBanner.tsx`). This is the offline-first trust layer and is independent
+  of OS code-signing/notarization, which is still a vendor-cert release step
+  (`electron-builder.yml`). Guarded: `update-verify.test.ts`. Two claims here were stale and
+  are corrected: ~~the signature is over the release's SHA-512~~ — it is over
+  `version || channel || arch || sha512`, because a signature bound to bytes alone lets an old,
+  genuinely signed installer be republished under a higher version on a hostile feed (U-6/U-7);
+  and ~~verified against `MEZAN_UPDATE_PUBLIC_KEY`~~ — that key is no longer read from the
+  environment at runtime. It is `define`d into the bundle (`__MEZAN_UPDATE_PUBLIC_KEY__`), like
+  the licence key, and `MEZAN_AUTO_UPDATE_ALLOW_UNSIGNED` — which let whoever launched a
+  packaged app decide whether it checked its own signature — is deleted and replaced by the
+  build-time `MEZAN_ALLOW_UNSIGNED_UPDATES`, false in everything the release workflow produces.
+  `apps/desktop/scripts/sign-release.mjs` is the vendor half; it refuses to sign if the public
+  key is not the signing key's own half.
 - **A fresh, never-configured install can still be claimed by whoever reaches it first.**
   `POST /bootstrap/admin` has to be open before there is anyone to authenticate as; it now
   closes the moment the tenant has an account of its own (S1, hardened by S17 so that fact
@@ -889,7 +1013,15 @@ loud. Read what a closed entry says it did **not** fix before promising a client
   modelled or otherwise, so earlier notes claiming one were wrong. An SMTP transport exists
   (`packages/api/src/smtp-client.ts`, used by the settings test-send), so email is no longer
   a missing-transport problem — it is a delivery/retry decision for a product that is
-  normally offline.
+  normally offline. **The UI no longer pretends otherwise (support #10, 2026-09-07.)** The
+  triggers endpoint answers `implementedChannels`, and قواعد التنبيهات marks every channel
+  outside it « — غير مفعّل بعد (لن تصل رسائل)» *and* renders its option **disabled**, so a rule
+  cannot be SAVED against a channel with no transport. Before that, a rule saved against email
+  showed «قيد الإرسال», which reads as "on its way", and the operator came back to the screen
+  for a message that was never going to arrive. Until the endpoint answers, nothing is marked
+  undeliverable — labelling a working channel "not enabled" is the same lie in the other
+  direction. Events that are modelled but never emitted carry their own « — لا يُطلق بعد»
+  suffix on the trigger picker.
 - **The API-key and webhook backend has no consumer.** `packages/domain/src/api-keys`,
   `packages/domain/src/webhooks`, their contracts and their routes. The two screens that
   drove them were deleted (F129) because a desktop, offline-first v1 has nothing to call

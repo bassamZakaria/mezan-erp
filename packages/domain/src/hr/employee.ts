@@ -84,6 +84,14 @@ export interface Employee {
   readonly priorServiceYears: number;
   readonly requireSelfieAtClockIn: boolean;
   readonly requireBiometricAtClockIn: boolean;
+  /**
+   * Whether the employee holds a pension entitlement covering their service.
+   * End-of-service gratuity is payable only when this is false; null means the
+   * question was never answered, and no gratuity is computed until it is.
+   */
+  readonly hasPensionEntitlement: boolean | null;
+  /** Qualifies for the raised personal exemption a person with a disability gets on salary tax. */
+  readonly taxDisabilityExemption: boolean;
   readonly address: EmployeeAddress | null;
   readonly emergencyContact: EmergencyContact | null;
   readonly status: EmployeeStatus;
@@ -128,6 +136,7 @@ export function toEmployeeRef(employee: Employee): EmployeeRef {
     priorServiceYears: employee.priorServiceYears,
     requireSelfieAtClockIn: employee.requireSelfieAtClockIn,
     requireBiometricAtClockIn: employee.requireBiometricAtClockIn,
+    taxDisabilityExemption: employee.taxDisabilityExemption,
   };
 }
 

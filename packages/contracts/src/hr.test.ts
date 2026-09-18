@@ -211,7 +211,7 @@ describe("employeeSchema", () => {
     probationEndDate: null,
     priorServiceYears: 0,
     requireSelfieAtClockIn: false,
-    requireBiometricAtClockIn: false,
+    requireBiometricAtClockIn: false, hasPensionEntitlement: null, taxDisabilityExemption: false,
     address: null,
     emergencyContact: null,
     status: "active" as const,

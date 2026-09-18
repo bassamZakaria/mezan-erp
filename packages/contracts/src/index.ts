@@ -1375,6 +1375,14 @@ export {
   createGarnishmentSchema,
   type GarnishmentDTO,
   type CreateGarnishmentDTO,
+  socialInsuranceYearOverrideSchema,
+  upsertSocialInsuranceYearSchema,
+  payrollStatutoryFlagSchema,
+  setPayrollStatutoryFlagSchema,
+  type SocialInsuranceYearOverrideDTO,
+  type UpsertSocialInsuranceYearDTO,
+  type PayrollStatutoryFlagDTO,
+  type SetPayrollStatutoryFlagDTO,
 } from "./hr-payroll.js";
 
 export {

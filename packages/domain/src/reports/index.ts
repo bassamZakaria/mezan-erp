@@ -304,6 +304,12 @@ export {
 export { isoDateParamSchema, isRealIsoDate } from "./iso-date.js";
 export {
   createPayrollRegisterReport,
+  createSocialInsuranceReturnReport,
+  createSalaryTaxReturnReport,
+  SOCIAL_INSURANCE_CONTROL_ACCOUNT,
+  SALARY_TAX_CONTROL_ACCOUNT,
+  type SocialInsuranceReturnRow,
+  type SalaryTaxReturnRow,
   type PayrollReportContext,
   type PayrollPeriodParams,
   type PayrollRegisterRow,

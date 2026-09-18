@@ -25,7 +25,7 @@ describe("createEmployee", () => {
       overtimeEligibility: "inherit_department",
       priorServiceYears: 0,
       requireSelfieAtClockIn: false,
-      requireBiometricAtClockIn: false,
+      requireBiometricAtClockIn: false, hasPensionEntitlement: null, taxDisabilityExemption: false,
       terminatedAt: null,
     });
     expect(await repo.findById("emp-1")).toEqual(emp);

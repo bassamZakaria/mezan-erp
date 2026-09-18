@@ -431,3 +431,31 @@ export class GarnishmentNotFoundError extends Error {
     this.name = "GarnishmentNotFoundError";
   }
 }
+
+/**
+ * Raised when no dated statutory table covers the period being calculated —
+ * the insurance floor and ceiling are republished every year, so a run for a
+ * year whose figures have not been entered REFUSES rather than computing on a
+ * superseded table. The message names each missing table.
+ */
+export class StatutoryRulesUnavailableError extends Error {
+  readonly code = "STATUTORY_RULES_UNAVAILABLE";
+  constructor(
+    readonly onDate: string,
+    readonly missing: readonly string[],
+  ) {
+    super(
+      `لا توجد قواعد قانونية سارية بتاريخ ${onDate}: ${missing.join("، ")}. أدخل حدود الأجر التأميني للسنة من شاشة الجداول القانونية قبل احتساب المسير.`,
+    );
+    this.name = "StatutoryRulesUnavailableError";
+  }
+}
+
+/** Raised when end-of-service is requested for an employee whose service has not ended. */
+export class EmployeeStillEmployedError extends Error {
+  readonly code = "EMPLOYEE_STILL_EMPLOYED";
+  constructor(readonly employeeId: string) {
+    super("لا تُحتسب مستحقات نهاية الخدمة إلا بعد إنهاء خدمة الموظف.");
+    this.name = "EmployeeStillEmployedError";
+  }
+}

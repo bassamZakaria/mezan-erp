@@ -78,6 +78,11 @@ export const payslipLineSourceSchema = z.enum([
   "unpaid_leave",
   "advance_recovery",
   "garnishment",
+  "overtime",
+  "income_tax",
+  "social_insurance_employee",
+  "social_insurance_employer",
+  "statutory_levy",
 ]);
 
 export const payslipLineSchema = z.object({
@@ -108,6 +113,10 @@ export const payslipSchema = z.object({
   totalDeductions: z.string(),
   employerContributions: z.string(),
   netPay: z.string(),
+  insurableWage: z.string(),
+  insurableWageCapped: z.boolean(),
+  annualTaxableIncome: z.string(),
+  totalEmployerCost: z.string(),
   createdAt: z.string().min(1),
 });
 
@@ -126,7 +135,11 @@ export const payrollRunSchema = z.object({
   totalDeductions: z.string(),
   totalEmployerContributions: z.string(),
   totalNet: moneyString,
+  totalEmployerCost: moneyString,
   unpaidLeaveSource: z.enum(["none", "provider"]),
+  overtimeSource: z.enum(["none", "provider"]),
+  /** Empty = computed with statutory rules OFF; the screens then keep saying tax and insurance were not computed. */
+  statutoryTableCodes: z.array(z.string()),
   warnings: z.array(z.string()),
   journalEntryId: z.string().nullable(),
   disbursementVoucherId: z.string().nullable(),
@@ -243,3 +256,42 @@ export const createGarnishmentSchema = z.object({
 
 export type GarnishmentDTO = z.infer<typeof garnishmentSchema>;
 export type CreateGarnishmentDTO = z.infer<typeof createGarnishmentSchema>;
+
+// --- Statutory insurance-year overrides and the statutory switch ------------
+
+export const socialInsuranceYearOverrideSchema = z.object({
+  year: z.number().int().min(2019).max(2100),
+  monthlyWageFloor: z.string().min(1),
+  monthlyWageCeiling: z.string().min(1),
+  note: z.string().nullable(),
+  enteredBy: z.string().min(1),
+  enteredAt: z.string().min(1),
+});
+
+export const upsertSocialInsuranceYearSchema = z.object({
+  year: z.number().int().min(2019).max(2100),
+  /** Exact decimal strings, transcribed from the published decree. */
+  monthlyWageFloor: z.string().regex(/^\d+(\.\d{1,2})?$/, "الحد الأدنى يجب أن يكون رقماً"),
+  monthlyWageCeiling: z.string().regex(/^\d+(\.\d{1,2})?$/, "الحد الأقصى يجب أن يكون رقماً"),
+  note: z.string().nullable().optional(),
+});
+
+export const payrollStatutoryFlagSchema = z.object({
+  enabled: z.boolean(),
+  changedBy: z.string().nullable(),
+  changedAt: z.string().nullable(),
+  acknowledged: z.boolean(),
+  /** Codes of the statutory rows nobody has checked against the primary text. */
+  unverifiedTableCodes: z.array(z.string()),
+});
+
+export const setPayrollStatutoryFlagSchema = z.object({
+  enabled: z.boolean(),
+  /** Required true to switch ON: the admin accepts that the figures are unverified. */
+  acknowledged: z.boolean().optional(),
+});
+
+export type SocialInsuranceYearOverrideDTO = z.infer<typeof socialInsuranceYearOverrideSchema>;
+export type UpsertSocialInsuranceYearDTO = z.infer<typeof upsertSocialInsuranceYearSchema>;
+export type PayrollStatutoryFlagDTO = z.infer<typeof payrollStatutoryFlagSchema>;
+export type SetPayrollStatutoryFlagDTO = z.infer<typeof setPayrollStatutoryFlagSchema>;

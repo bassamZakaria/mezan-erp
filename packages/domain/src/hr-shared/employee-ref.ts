@@ -39,6 +39,8 @@ export interface EmployeeRef {
   readonly priorServiceYears: number;
   readonly requireSelfieAtClockIn: boolean;
   readonly requireBiometricAtClockIn: boolean;
+  /** Raised salary-tax personal exemption for a person with a disability; absent = no. */
+  readonly taxDisabilityExemption?: boolean;
 }
 
 /** Read-only directory port — attendance/leave/payroll query employees through this, never the full `EmployeeRepository`. */

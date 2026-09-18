@@ -112,6 +112,8 @@ describe("PAYROLL_GL_ACCOUNTS", () => {
       employerContributionExpenseAccountId: "5130",
       employerContributionLiabilityAccountId: "2190",
       garnishmentPayableAccountId: "2193",
+      salaryTaxPayableAccountId: "2191",
+      socialInsurancePayableAccountId: "2192",
     });
   });
 });

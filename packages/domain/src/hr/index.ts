@@ -200,6 +200,9 @@ export type {
   GarnishmentProvider,
   PayrollDayDivisorBasis,
   PayrollDayDivisorBasisDefinition,
+  PayslipLineSourceDefinition,
+  OvertimeHoursProvider,
+  PeriodOvertimeHours,
 } from "./payroll-run.js";
 export {
   PAYROLL_RUN_STATUS_DEFINITIONS,
@@ -208,6 +211,11 @@ export {
   canTransitionPayrollRun,
   PAYROLL_GL_ACCOUNTS,
   PAYROLL_UNIMPLEMENTED_RULES,
+  PAYROLL_UNIMPLEMENTED_RULES_STATUTORY,
+  payrollUnimplementedRulesFor,
+  PAYSLIP_LINE_SOURCE_DEFINITIONS,
+  STATUTORY_PAYSLIP_LINE_SOURCES,
+  getPayslipLineSourceLabel,
   PAYROLL_DAY_DIVISOR_BASIS_DEFINITIONS,
   getPayrollDayDivisorBasisLabel,
   payrollDayDivisor,
@@ -280,6 +288,8 @@ export {
   NegativeNetPayError,
   InvalidGarnishmentError,
   GarnishmentNotFoundError,
+  StatutoryRulesUnavailableError,
+  EmployeeStillEmployedError,
   LeaveBalanceExceededError,
   TreasuryDisbursementHeldError,
   TreasuryDisbursementUnavailableError,
@@ -304,3 +314,81 @@ export {
   releaseGarnishment,
   createGarnishmentProvider,
 } from "./garnishment.js";
+
+export type {
+  BasisPoints,
+  StatutoryProvenance,
+  IncomeTaxBracket,
+  BracketEliminationTier,
+  IncomeTaxTable,
+  ContributionShare,
+  SocialInsuranceTable,
+  ResolvedSocialInsuranceTable,
+  LevyBase,
+  LevySide,
+  LevyPayBasis,
+  PayrollLevy,
+  PayrollLevyTable,
+  OvertimeTable,
+  EndOfServiceTier,
+  EndOfServiceTable,
+  EgyptStatutoryRules,
+  SocialInsuranceYearOverride,
+  StatutoryOverrideRepository,
+} from "./egypt-statutory.js";
+export {
+  BASIS_POINTS_PER_UNIT,
+  EGYPT_INCOME_TAX_TABLES,
+  EGYPT_SOCIAL_INSURANCE_TABLES,
+  EGYPT_PAYROLL_LEVY_TABLES,
+  EGYPT_OVERTIME_TABLES,
+  EGYPT_END_OF_SERVICE_TABLES,
+  resolveEgyptStatutoryRules,
+  resolveEndOfServiceTable,
+  listEgyptStatutoryTables,
+  unverifiedStatutoryTableCodes,
+  totalShareBp,
+  formatRateBp,
+  overrideToSocialInsuranceTable,
+} from "./egypt-statutory.js";
+
+export type {
+  ContributionLine,
+  SocialInsuranceResult,
+  IncomeTaxResult,
+  MonthlyIncomeTaxInput,
+  LevyLine,
+  OvertimeKind,
+  OvertimeHours,
+  OvertimeLine,
+  EndOfServiceResult,
+  EndOfServiceEligibilityInput,
+} from "./statutory-payroll.js";
+export {
+  applyRateBp,
+  insurableWage,
+  socialInsuranceFor,
+  annualIncomeTax,
+  monthlyIncomeTax,
+  payrollLevies,
+  hourlyRate,
+  overtimePay,
+  overtimeKindForHour,
+  endOfServiceGratuity,
+  endOfServiceEligibility,
+  ageOn,
+  serviceYearsBetween,
+  NO_OVERTIME_HOURS,
+} from "./statutory-payroll.js";
+
+export type { OvertimeDerivationOptions } from "./attendance-overtime.js";
+export { overtimeMinutesForEntry, summarizeOvertime, createOvertimeHoursProvider } from "./attendance-overtime.js";
+
+export type { EndOfServiceSettlement, EndOfServiceSettlementInput } from "./end-of-service.js";
+export { calculateEndOfServiceSettlement } from "./end-of-service.js";
+
+export type { HrProvisionKind, HrProvisionDefinition, PostHrProvisionCommand, PostHrProvisionDeps, HrProvisionResult } from "./post-hr-provision.js";
+export { HR_PROVISION_DEFINITIONS, getHrProvisionDefinition, hrProvisionMovement, postHrProvision } from "./post-hr-provision.js";
+
+export type { PayrollStatutoryFlag, PayrollStatutoryFlagRepository } from "./statutory-flag.js";
+export { PAYROLL_STATUTORY_FLAG_CODE, DEFAULT_PAYROLL_STATUTORY_FLAG } from "./statutory-flag.js";

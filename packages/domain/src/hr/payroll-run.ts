@@ -118,6 +118,56 @@ export const PAYROLL_UNIMPLEMENTED_RULES: readonly PayrollUnimplementedRule[] = 
   },
 ] as const;
 
+/**
+ * The gaps left when the tenant has switched statutory computation ON
+ * (`hr.payroll.statutory`). A run computed with it off keeps the list above:
+ * which list a payslip shows is decided by the run, not by today's switch.
+ */
+export const PAYROLL_UNIMPLEMENTED_RULES_STATUTORY: readonly PayrollUnimplementedRule[] = [
+  {
+    code: "annual_tax_settlement",
+    labelAr: "التسوية الضريبية السنوية",
+    detailAr:
+      "تُحتسب الضريبة شهرياً على أساس سنوي من راتب الشهر نفسه. إذا تغيّر الأجر خلال السنة فقد يختلف الإجمالي المستقطع عن الربط السنوي النهائي، ولا يُجري النظام تسوية في ديسمبر.",
+    appliesToEveryPayslip: true,
+  },
+  {
+    code: "seniority_bonus",
+    labelAr: "العلاوة الدورية",
+    detailAr: "لا يصدر بند للعلاوة الدورية أو علاوة الأقدمية؛ تُعدَّل على العقد نفسه.",
+    appliesToEveryPayslip: true,
+  },
+  {
+    code: "in_kind_benefits",
+    labelAr: "المزايا العينية",
+    detailAr: "السيارة والسكن والتأمين الطبي الخاص لا تُقيَّم ولا تُضاف إلى وعاء الضريبة؛ تُدرَج فقط إن سُجّلت كبدل نقدي على العقد.",
+    appliesToEveryPayslip: false,
+  },
+  {
+    code: "hourly_daily_basis",
+    labelAr: "الأجر بالساعة أو باليوم",
+    detailAr: "العقود بأساس دفع «بالساعة» أو «باليوم» تُستبعد من الدورة ولا يصدر لها كشف راتب.",
+    appliesToEveryPayslip: false,
+  },
+  {
+    code: "pay_frequency",
+    labelAr: "الدفع الأسبوعي أو نصف الشهري",
+    detailAr: "يُحتسب راتب شهر كامل للفترة أياً كان تكرار الدفع المسجّل على العقد.",
+    appliesToEveryPayslip: false,
+  },
+  {
+    code: "multi_currency",
+    labelAr: "الرواتب متعددة العملات",
+    detailAr: "العقد بعملة تختلف عن عملة الدورة يُستبعد؛ لا يوجد تحويل بسعر صرف.",
+    appliesToEveryPayslip: false,
+  },
+] as const;
+
+/** The gaps behind a run's nets: the statutory list only when the run was computed with statutory rules. */
+export function payrollUnimplementedRulesFor(run: Pick<PayrollRun, "statutoryTableCodes">): readonly PayrollUnimplementedRule[] {
+  return run.statutoryTableCodes.length > 0 ? PAYROLL_UNIMPLEMENTED_RULES_STATUTORY : PAYROLL_UNIMPLEMENTED_RULES;
+}
+
 /** What a payslip line does to the net: adds to it, takes from it, or is an employer-side cost that never touches it. */
 export type PayslipLineKind = "earning" | "deduction" | "employer_contribution";
 
@@ -128,7 +178,44 @@ export type PayslipLineSource =
   | "contract_deduction"
   | "unpaid_leave"
   | "advance_recovery"
-  | "garnishment";
+  | "garnishment"
+  | "overtime"
+  | "income_tax"
+  | "social_insurance_employee"
+  | "social_insurance_employer"
+  | "statutory_levy";
+
+export interface PayslipLineSourceDefinition {
+  readonly code: PayslipLineSource;
+  readonly labelAr: string;
+}
+
+export const PAYSLIP_LINE_SOURCE_DEFINITIONS: readonly PayslipLineSourceDefinition[] = [
+  { code: "contract_basic", labelAr: "الراتب الأساسي" },
+  { code: "contract_allowance", labelAr: "بدلات العقد" },
+  { code: "overtime", labelAr: "الأجر الإضافي" },
+  { code: "contract_deduction", labelAr: "استقطاعات العقد" },
+  { code: "unpaid_leave", labelAr: "إجازة بدون أجر" },
+  { code: "advance_recovery", labelAr: "سداد السلف" },
+  { code: "garnishment", labelAr: "الحجز على الأجر" },
+  { code: "income_tax", labelAr: "ضريبة كسب العمل" },
+  { code: "social_insurance_employee", labelAr: "التأمينات — حصة الموظف" },
+  { code: "social_insurance_employer", labelAr: "التأمينات — حصة صاحب العمل" },
+  { code: "statutory_levy", labelAr: "رسوم قانونية" },
+] as const;
+
+export function getPayslipLineSourceLabel(source: PayslipLineSource): string {
+  return PAYSLIP_LINE_SOURCE_DEFINITIONS.find((d) => d.code === source)?.labelAr ?? source;
+}
+
+/** Sources whose amount came from a dated statutory table; their `referenceId` names the table row. */
+export const STATUTORY_PAYSLIP_LINE_SOURCES: readonly PayslipLineSource[] = [
+  "overtime",
+  "income_tax",
+  "social_insurance_employee",
+  "social_insurance_employer",
+  "statutory_levy",
+];
 
 export interface PayslipLine {
   readonly id: string;
@@ -167,6 +254,14 @@ export interface Payslip {
   readonly totalDeductions: Money;
   readonly employerContributions: Money;
   readonly netPay: Money;
+  /** الأجر التأميني — the wage social insurance was computed on, after the year's floor and ceiling; zero when statutory computation was off. */
+  readonly insurableWage: Money;
+  /** True when the year's ceiling bound the insurable wage. */
+  readonly insurableWageCapped: boolean;
+  /** Annualised taxable income the salary-tax brackets were walked on; zero when statutory computation was off. */
+  readonly annualTaxableIncome: Money;
+  /** Net + every deduction + every employer contribution: what employing this person cost for the period. */
+  readonly totalEmployerCost: Money;
   readonly createdAt: string;
 }
 
@@ -194,6 +289,15 @@ export interface PayrollRun {
    * them yet — recorded on the run so a wrong net is never silently plausible.
    */
   readonly unpaidLeaveSource: "none" | "provider";
+  /** Whether overtime hours were supplied for the period, so a zero is never read as "no overtime worked". */
+  readonly overtimeSource: "none" | "provider";
+  /**
+   * The dated statutory tables this run computed against. EMPTY when the
+   * tenant's statutory switch was off for the calculation, which is how every
+   * screen knows to keep saying that tax and insurance were not computed.
+   */
+  readonly statutoryTableCodes: readonly string[];
+  readonly totalEmployerCost: Money;
   /** Employees skipped, inputs missing, assumptions applied — surfaced verbatim in the UI. */
   readonly warnings: readonly string[];
   readonly journalEntryId: string | null;
@@ -292,6 +396,18 @@ export function payrollDayDivisor(basis: PayrollDayDivisorBasis, periodDays: num
  * day count. Until an implementation is bound, `PayrollCalculationDeps.unpaidLeave`
  * is undefined and every run records `unpaidLeaveSource: "none"`.
  */
+/** Overtime hours worked in a period, split by the statutory premium each hour attracts. */
+export interface PeriodOvertimeHours {
+  readonly day: number;
+  readonly night: number;
+  readonly restDay: number;
+}
+
+/** The seam to attendance: payroll needs hours, attendance stores clock times. */
+export interface OvertimeHoursProvider {
+  overtimeHoursFor(employeeId: string, periodStart: string, periodEnd: string): Promise<PeriodOvertimeHours>;
+}
+
 export interface UnpaidLeaveDaysProvider {
   unpaidDaysFor(employeeId: string, periodStart: string, periodEnd: string): Promise<number>;
 }
@@ -313,6 +429,10 @@ export interface PayrollGlAccounts {
   readonly employerContributionLiabilityAccountId: string;
   /** Credited with wage garnishments — owed to the court or the third party named on the order. */
   readonly garnishmentPayableAccountId: string;
+  /** Credited with salary tax withheld — owed to the Tax Authority, not to the employee. */
+  readonly salaryTaxPayableAccountId: string;
+  /** Credited with BOTH insurance shares — owed to the social-insurance authority. */
+  readonly socialInsurancePayableAccountId: string;
 }
 
 /** System defaults, mapping onto the standard COA leaves 5120 / 2170 / 1160 / 2190 / 5130. */
@@ -324,6 +444,8 @@ export const PAYROLL_GL_ACCOUNTS: PayrollGlAccounts = {
   employerContributionExpenseAccountId: "5130",
   employerContributionLiabilityAccountId: "2190",
   garnishmentPayableAccountId: "2193",
+  salaryTaxPayableAccountId: "2191",
+  socialInsurancePayableAccountId: "2192",
 };
 
 const DAYS_IN_MONTH = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];

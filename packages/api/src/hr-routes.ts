@@ -22,6 +22,12 @@ import {
   listHolidaysForYear,
   createLeaveRequest,
   createUnpaidLeaveDaysProvider,
+  advanceOutstanding,
+  createOvertimeHoursProvider,
+  calculateEndOfServiceSettlement,
+  EGYPT_OVERTIME_TABLES,
+  EmployeeStillEmployedError,
+  StatutoryRulesUnavailableError,
   cancelLeaveRequest,
   summarizeWorkforceAttendance,
   LEAVE_TYPE_DEFINITIONS,
@@ -165,6 +171,8 @@ function serializeEmployee(e: Employee) {
     priorServiceYears: e.priorServiceYears,
     requireSelfieAtClockIn: e.requireSelfieAtClockIn,
     requireBiometricAtClockIn: e.requireBiometricAtClockIn,
+    hasPensionEntitlement: e.hasPensionEntitlement,
+    taxDisabilityExemption: e.taxDisabilityExemption,
     address: e.address,
     emergencyContact: e.emergencyContact,
     status: e.status,
@@ -520,6 +528,89 @@ export function createHrRoutes(deps: HrRoutesDeps, resolveAuthContext: AuthConte
     }
   });
 
+  /**
+   * مستحقات نهاية الخدمة — the settlement statement for a terminated employee.
+   *
+   * A STATEMENT, not a posting: it computes gratuity, the payable leave balance
+   * and outstanding advances so the figures can be checked before a voucher is
+   * raised against them. Reading it changes nothing.
+   */
+  app.get("/employees/:id/end-of-service", gate("hr.payroll.view"), async (c) => {
+    // A gratuity is a statutory figure: with the tenant's switch off it is not
+    // computed at all, the same as tax and insurance on the payslip.
+    if (!(await deps.payroll?.statutoryFlag?.get())?.enabled) {
+      return c.json({ error: "STATUTORY_DISABLED", message: "احتساب المستحقات القانونية غير مفعّل لهذه المنشأة." }, 409);
+    }
+    const employee = await deps.employees.findById(c.req.param("id"));
+    if (!employee) return c.json({ error: "EMPLOYEE_NOT_FOUND" }, 404);
+
+    const contracts = await deps.contracts.listByEmployeeId(employee.id);
+    // The last contract, running or terminated — an employee who has left has no
+    // active one, so filtering to active would answer 409 for every real case.
+    const contract = [...contracts].sort((a, b) => (a.startDate < b.startDate ? 1 : a.startDate > b.startDate ? -1 : 0))[0];
+    if (!contract) return c.json({ error: "CONTRACT_NOT_FOUND", message: "لا يوجد عقد لهذا الموظف." }, 404);
+
+    const lastWorkingDay = c.req.query("lastWorkingDay") ?? employee.terminatedAt?.slice(0, 10) ?? new Date().toISOString().slice(0, 10);
+
+    const payableBalances = [];
+    if (deps.leaveBalances && deps.leavePolicies) {
+      const policies = await deps.leavePolicies.list();
+      const payoutTypes = new Set(policies.filter((p) => p.payoutOnTermination && p.active).map((p) => p.leaveType));
+      for (const balance of await deps.leaveBalances.list({ employeeId: employee.id })) {
+        if (payoutTypes.has(balance.leaveType)) payableBalances.push(balance);
+      }
+    }
+
+    let outstandingAdvances = Money.zero();
+    if (deps.payroll?.advances) {
+      for (const advance of await deps.payroll.advances.listByEmployeeId(employee.id)) {
+        if (advance.status === "disbursed") outstandingAdvances = outstandingAdvances.add(advanceOutstanding(advance));
+      }
+    }
+
+    try {
+      const settlement = calculateEndOfServiceSettlement({
+        employee,
+        contract,
+        lastWorkingDay,
+        payableLeaveBalances: payableBalances,
+        outstandingAdvances,
+      });
+      return c.json({
+        employeeId: settlement.employeeId,
+        lastWorkingDay: settlement.lastWorkingDay,
+        currency: settlement.currency,
+        serviceYears: settlement.serviceYears,
+        priorServiceYears: settlement.priorServiceYears,
+        settlementWage: settlement.settlementWage.toString(),
+        allowancesIncluded: settlement.allowancesIncluded,
+        gratuity: settlement.gratuity.gratuity.toString(),
+        monthsEarned: settlement.gratuity.monthsEarned,
+        gratuityBreakdown: settlement.gratuity.tierBreakdown.map((t) => ({
+          labelAr: t.labelAr,
+          years: t.years,
+          monthsPerYear: t.monthsPerYear,
+          amount: t.amount.toString(),
+        })),
+        leavePayoutDays: settlement.leavePayoutDays,
+        leavePayout: settlement.leavePayout.toString(),
+        outstandingAdvances: settlement.outstandingAdvances.toString(),
+        netSettlement: settlement.netSettlement.toString(),
+        advanceShortfall: settlement.advanceShortfall.toString(),
+        statutoryTableCode: settlement.statutoryTableCode,
+        citationAr: settlement.citationAr,
+        verified: settlement.verified,
+        gratuityEligible: settlement.gratuity.eligible,
+        gratuityIneligibleReasonAr: settlement.gratuity.ineligibleReasonAr,
+      });
+    } catch (err) {
+      if (err instanceof EmployeeStillEmployedError || err instanceof StatutoryRulesUnavailableError) {
+        return c.json({ error: err.code, message: err.message }, 422);
+      }
+      return handleDomainError(c, err);
+    }
+  });
+
   app.post("/employees/:id/rehire", gate("hr.employee.create"), async (c) => {
     const current = await deps.employees.findById(c.req.param("id"));
     if (!current) return c.json({ error: "EMPLOYEE_NOT_FOUND" }, 404);
@@ -704,6 +795,20 @@ export function createHrRoutes(deps: HrRoutesDeps, resolveAuthContext: AuthConte
   // path stays under `/hr`) --------------------------------------------------
 
   if (deps.payroll) {
+    // Attendance turns clock times into payable overtime. The standard day, the
+    // weekend and the holiday calendar are resolved per run, not captured here.
+    const overtimeTable = EGYPT_OVERTIME_TABLES[EGYPT_OVERTIME_TABLES.length - 1];
+    const attendanceRepo = deps.attendance;
+    const holidaysRepo = deps.holidays;
+    const settingsRepo = deps.payroll.settings;
+    const resolveDerivationOptions = async () => {
+      const settings = await settingsRepo?.get();
+      return {
+        standardDailyHours: settings?.standardDailyWorkHours ?? overtimeTable?.standardDailyHours ?? 8,
+        weeklyOffDays: settings?.weekendDays,
+        holidays: await holidaysRepo.list(),
+      };
+    };
     app.route(
       "/",
       createHrPayrollRoutes(
@@ -713,6 +818,11 @@ export function createHrRoutes(deps: HrRoutesDeps, resolveAuthContext: AuthConte
           contracts: deps.contracts,
           numbering: deps.numbering,
           unpaidLeave: deps.payroll.unpaidLeave ?? createUnpaidLeaveDaysProvider(deps.leaveRequests),
+          overtime:
+            deps.payroll.overtime ??
+            (attendanceRepo && overtimeTable ? createOvertimeHoursProvider(attendanceRepo, overtimeTable, resolveDerivationOptions) : undefined),
+          leave:
+            deps.payroll.leave ?? (deps.leaveBalances && deps.leavePolicies ? { balances: deps.leaveBalances, policies: deps.leavePolicies } : undefined),
         },
         resolveAuthContext,
       ),

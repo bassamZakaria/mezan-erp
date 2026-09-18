@@ -34,8 +34,9 @@ import {
   useLeaveBalances,
   useLeaveRequests,
   useRehireEmployee,
+  useUpdateEmployee,
 } from "../data/hooks";
-import { useEmployeeAdvances, useEmployeePayslips } from "../data/hr-payroll-hooks";
+import { useEmployeeAdvances, useEmployeePayslips, useEndOfServiceSettlement, usePayrollStatutoryFlag } from "../data/hr-payroll-hooks";
 import { ATTENDANCE_STATUS_KEY, LEAVE_STATUS_KEY, LEAVE_STATUS_TONE, LEAVE_TYPE_KEY } from "./hr-leave-labels";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { bilingualName, employeeDisplayName } from "./hr-employee-name";
@@ -118,6 +119,8 @@ interface EmployeeDraft {
   priorServiceYears: number;
   requireSelfieAtClockIn: boolean;
   requireBiometricAtClockIn: boolean;
+  hasPensionEntitlement: "" | "yes" | "no";
+  taxDisabilityExemption: boolean;
   street: string;
   city: string;
   governorate: string;
@@ -153,6 +156,8 @@ function blankDraft(): EmployeeDraft {
     priorServiceYears: 0,
     requireSelfieAtClockIn: false,
     requireBiometricAtClockIn: false,
+    hasPensionEntitlement: "",
+    taxDisabilityExemption: false,
     street: "",
     city: "",
     governorate: "",
@@ -164,8 +169,133 @@ function blankDraft(): EmployeeDraft {
   };
 }
 
+/**
+ * مستحقات نهاية الخدمة — the settlement statement for someone who has left.
+ *
+ * A statement, not a posting: the money moves when a voucher is raised against
+ * these figures. Saying so on the screen is the difference between a number
+ * someone acts on and a number someone assumes was already paid.
+ */
+function EndOfServiceTab({ employeeId }: { employeeId: string }) {
+  const { t } = useAppTranslation();
+  const query = useEndOfServiceSettlement(employeeId, true);
+
+  if (query.isLoading) return <p className="text-[12.5px] text-ink-muted">{t("common.loading")}</p>;
+  if (query.isError || !query.data) {
+    return <p className="text-[12.5px] text-danger-ink">{query.error?.message ?? t("endOfService.couldNotLoad")}</p>;
+  }
+  const s = query.data;
+
+  return (
+    <div className="flex flex-col gap-[14px]">
+      <dl className="grid grid-cols-1 gap-[12px] text-[12.5px] sm:grid-cols-3">
+        <div>
+          <dt className="text-ink-faint">{t("endOfService.serviceYears")}</dt>
+          <dd className="mz-num text-ink">{s.serviceYears}</dd>
+        </div>
+        <div>
+          <dt className="text-ink-faint">{t("endOfService.priorService")}</dt>
+          <dd className="mz-num text-ink">{s.priorServiceYears}</dd>
+        </div>
+        <div>
+          <dt className="text-ink-faint">{t("endOfService.settlementWage")}</dt>
+          <dd className="text-ink"><MoneyDisplay value={Number(s.settlementWage)} /></dd>
+        </div>
+        <div>
+          <dt className="text-ink-faint">{t("endOfService.monthsEarned")}</dt>
+          <dd className="mz-num text-ink">{s.monthsEarned}</dd>
+        </div>
+        <div>
+          <dt className="text-ink-faint">{t("endOfService.leavePayoutDays")}</dt>
+          <dd className="mz-num text-ink">{s.leavePayoutDays}</dd>
+        </div>
+      </dl>
+
+      {s.gratuityEligible ? null : (
+        <div role="status" className="rounded-md border border-warning bg-warning-soft px-[12px] py-[10px] text-[12.5px] text-warning-ink">
+          {s.gratuityIneligibleReasonAr}
+        </div>
+      )}
+
+      <div className="rounded-lg border border-border p-[14px]">
+        <h3 className="mb-[8px] font-display text-[13px] font-bold text-ink">{t("endOfService.breakdown")}</h3>
+        <ul className="flex flex-col gap-[4px] text-[12.5px] text-ink-muted">
+          {s.gratuityBreakdown.map((tier, index) => (
+            <li key={index} className="flex items-center justify-between">
+              <span>{tier.labelAr}</span>
+              <MoneyDisplay value={Number(tier.amount)} />
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      <ul className="flex flex-col gap-[6px] text-[12.5px]">
+        <li className="flex items-center justify-between text-ink-muted">
+          <span>{t("endOfService.gratuity")}</span>
+          <MoneyDisplay value={Number(s.gratuity)} />
+        </li>
+        <li className="flex items-center justify-between text-ink-muted">
+          <span>{t("endOfService.leavePayout")}</span>
+          <MoneyDisplay value={Number(s.leavePayout)} />
+        </li>
+        <li className="flex items-center justify-between text-ink-muted">
+          <span>{t("endOfService.outstandingAdvances")}</span>
+          <MoneyDisplay value={-Number(s.outstandingAdvances)} />
+        </li>
+        <li className="flex items-center justify-between border-t border-border pt-[6px] font-bold text-ink">
+          <span>{t("endOfService.netSettlement")}</span>
+          <MoneyDisplay value={Number(s.netSettlement)} />
+        </li>
+        {Number(s.advanceShortfall) > 0 ? (
+          <li className="flex items-center justify-between text-danger-ink">
+            <span>{t("endOfService.advanceShortfall")}</span>
+            <MoneyDisplay value={Number(s.advanceShortfall)} />
+          </li>
+        ) : null}
+      </ul>
+
+      <p className="text-[11.5px] leading-relaxed text-ink-faint">{t("endOfService.statement")}</p>
+      <div className="flex flex-wrap items-center gap-[8px]">
+        {s.verified ? null : <StatusPill label={t("statutory.unverified")} tone="warning" />}
+        <p className="text-[11.5px] leading-relaxed text-ink-faint">{s.citationAr}</p>
+      </div>
+    </div>
+  );
+}
+
+function PensionEntitlementControl({ employeeId, value }: { employeeId: string; value: boolean | null }) {
+  const { t } = useAppTranslation();
+  const update = useUpdateEmployee();
+  const [error, setError] = useState<string | null>(null);
+  const current = value === null ? "" : value ? "yes" : "no";
+  return (
+    <div>
+      <SelectField
+        label={t("employees.pensionEntitlement")}
+        value={current}
+        disabled={update.isPending}
+        onChange={(v) => {
+          if (v === "" || v === current) return;
+          setError(null);
+          update.mutate(
+            { id: employeeId, body: { hasPensionEntitlement: v === "yes" } },
+            { onError: (err) => setError(err.message) },
+          );
+        }}
+        options={[
+          { value: "", label: t("employees.pensionNotRecorded") },
+          { value: "no", label: t("employees.pensionNo") },
+          { value: "yes", label: t("employees.pensionYes") },
+        ]}
+      />
+      {error ? <p className="mt-[4px] text-[11.5px] text-danger-ink">{error}</p> : null}
+    </div>
+  );
+}
+
 export function EmployeesScreen() {
   const { t, locale } = useAppTranslation();
+  const statutoryEnabled = usePayrollStatutoryFlag().data?.enabled === true;
   const query = useEmployees();
   const departmentsQuery = useDepartments();
   const jobTitlesQuery = useJobTitles();
@@ -304,6 +434,8 @@ export function EmployeesScreen() {
         priorServiceYears: draft.priorServiceYears,
         requireSelfieAtClockIn: draft.requireSelfieAtClockIn,
         requireBiometricAtClockIn: draft.requireBiometricAtClockIn,
+        hasPensionEntitlement: draft.hasPensionEntitlement === "" ? null : draft.hasPensionEntitlement === "yes",
+        taxDisabilityExemption: draft.taxDisabilityExemption,
         address: hasAddress
           ? {
               street: draft.street.trim() === "" ? null : draft.street.trim(),
@@ -463,6 +595,16 @@ export function EmployeesScreen() {
               <div>
                 <dt className="text-ink-faint">{t("employees.priorYearsOfService")}</dt>
                 <dd className="mz-num text-ink">{selected.priorServiceYears}</dd>
+              </div>
+              <div>
+                <dt className="text-ink-faint">{t("employees.pensionEntitlement")}</dt>
+                <dd className="text-ink">
+                  <PensionEntitlementControl employeeId={selected.id} value={selected.hasPensionEntitlement} />
+                </dd>
+              </div>
+              <div>
+                <dt className="text-ink-faint">{t("employees.taxDisabilityExemption")}</dt>
+                <dd className="text-ink">{selected.taxDisabilityExemption ? t("employees.yes") : t("employees.no")}</dd>
               </div>
               <div>
                 <dt className="text-ink-faint">{t("employees.overtimeCalculation")}</dt>
@@ -673,6 +815,20 @@ export function EmployeesScreen() {
               </table>
             ),
         },
+        /*
+         * Only for a leaver. A settlement quoted for a serving employee reads
+         * as a figure they are owed today, and the server refuses it anyway —
+         * a tab that always 422s is worse than one that is not there.
+         */
+        ...(selected.status === "terminated" && statutoryEnabled
+          ? [
+              {
+                key: "end-of-service",
+                label: t("endOfService.tab"),
+                content: <EndOfServiceTab employeeId={selected.id} />,
+              },
+            ]
+          : []),
       ]
     : [];
 
@@ -945,6 +1101,22 @@ export function EmployeesScreen() {
             label={t("employees.requireFingerprintVerificationWhenClocking")}
             checked={draft.requireBiometricAtClockIn}
             onChange={(v) => setDraft((d) => ({ ...d, requireBiometricAtClockIn: v }))}
+          />
+          <SelectField
+            label={t("employees.pensionEntitlement")}
+            value={draft.hasPensionEntitlement}
+            onChange={(v) => setDraft((d) => ({ ...d, hasPensionEntitlement: v as EmployeeDraft["hasPensionEntitlement"] }))}
+            options={[
+              { value: "", label: t("employees.pensionNotRecorded") },
+              { value: "no", label: t("employees.pensionNo") },
+              { value: "yes", label: t("employees.pensionYes") },
+            ]}
+            hint={t("employees.pensionEntitlementHint")}
+          />
+          <ToggleField
+            label={t("employees.taxDisabilityExemption")}
+            checked={draft.taxDisabilityExemption}
+            onChange={(v) => setDraft((d) => ({ ...d, taxDisabilityExemption: v }))}
           />
 
           <h3 className="mt-[6px] font-display text-[13px] font-bold text-ink">{t("employees.address")}</h3>

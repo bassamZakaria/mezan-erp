@@ -388,7 +388,7 @@ describe("BranchesPage", () => {
         email: null, phone: "0100000001", birthDate: null, nationalId: null, gender: null, maritalStatus: null,
         departmentId: null, jobTitleId: null, managerId: null, branchId: "b1", hireDate: "2024-01-15",
         workerCategory: "monthly", employmentType: "full_time", overtimeEligibility: "none", standardWorkHours: null,
-        probationEndDate: null, priorServiceYears: 0, requireSelfieAtClockIn: false, requireBiometricAtClockIn: false,
+        probationEndDate: null, priorServiceYears: 0, requireSelfieAtClockIn: false, requireBiometricAtClockIn: false, hasPensionEntitlement: null, taxDisabilityExemption: false,
         address: null, emergencyContact: null, status: "active", terminatedAt: null, createdAt: "2024-01-01T00:00:00.000Z",
       },
       {
@@ -396,7 +396,7 @@ describe("BranchesPage", () => {
         email: null, phone: null, birthDate: null, nationalId: null, gender: null, maritalStatus: null,
         departmentId: null, jobTitleId: null, managerId: null, branchId: "b2", hireDate: "2024-02-01",
         workerCategory: "monthly", employmentType: "part_time", overtimeEligibility: "none", standardWorkHours: null,
-        probationEndDate: null, priorServiceYears: 0, requireSelfieAtClockIn: false, requireBiometricAtClockIn: false,
+        probationEndDate: null, priorServiceYears: 0, requireSelfieAtClockIn: false, requireBiometricAtClockIn: false, hasPensionEntitlement: null, taxDisabilityExemption: false,
         address: null, emergencyContact: null, status: "active", terminatedAt: null, createdAt: "2024-01-01T00:00:00.000Z",
       },
     ] as unknown as EmployeeDTO[];

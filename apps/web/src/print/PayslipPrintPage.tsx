@@ -4,6 +4,7 @@ import type { PayrollRunDTO, PayslipDTO } from "@mezan/contracts";
 import { useAppTranslation } from "../i18n";
 import { useBranches, useDepartments, useEmployees, useJobTitles, usePrintTemplateConfig, useSettings } from "../data/hooks";
 import { payslipPrintModel } from "./payslip-print";
+import { useUnverifiedStatutoryCodes } from "../data/hr-payroll-hooks";
 import { employeeDisplayName } from "../screens/hr-employee-name";
 import { EMPTY } from "../lib/empty";
 
@@ -26,6 +27,9 @@ export function PayslipPrintPage({ payslip, run }: { payslip: PayslipDTO; run: P
   const branches = useBranches().data ?? EMPTY;
 
   const employee = employees.find((e) => e.id === payslip.employeeId);
+  const unverifiedCodes = useUnverifiedStatutoryCodes();
+  const statutory = run.statutoryTableCodes.length > 0;
+  const computedFromUnverified = payslip.lines.some((l) => l.referenceId !== null && unverifiedCodes.has(l.referenceId));
 
   const document = useMemo(
     () =>
@@ -53,10 +57,16 @@ export function PayslipPrintPage({ payslip, run }: { payslip: PayslipDTO; run: P
           employerContributions: t("payslipPrint.employerContributions"),
           paidDays: t("payslipPrint.paidDays"),
           garnishmentCapped: t("payslipPrint.garnishmentCapped"),
+          insurableWage: t("payslipPrint.insurableWage"),
         },
-        statutoryNotice: t("payslipPrint.statutoryNotComputed"),
+        statutory,
+        statutoryNotice: !statutory
+          ? t("payslipPrint.statutoryNotComputed")
+          : computedFromUnverified
+            ? t("payslipPrint.statutoryUnverified")
+            : undefined,
       }),
-    [payslip, run, employee, departments, jobTitles, branches, settings, format.currencyLabel, locale, t],
+    [payslip, run, employee, departments, jobTitles, branches, settings, format.currencyLabel, locale, t, statutory, computedFromUnverified],
   );
 
   if (configQuery.isLoading) return null;

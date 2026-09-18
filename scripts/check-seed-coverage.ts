@@ -43,6 +43,10 @@ const NEEDS_PARAMS = new Set(["/inventory/drift"]);
 
 /** Surfaces that are legitimately empty on a fresh tenant, with the reason. */
 const ALLOWED_EMPTY: Record<string, string> = {
+  "/reports/hr/social-insurance-return":
+    "a statutory return lists only payroll runs computed with the tenant's hr.payroll.statutory switch ON; it is OFF by default and the demo seed leaves it off, so an empty return is the honest reading (pnpm scenarios switches it on and fills it)",
+  "/reports/hr/salary-tax-return":
+    "same as the insurance return: empty until an admin switches statutory computation on, which the demo seed deliberately does not",
   "/hr/leave-requests/me": "the seed admin is not an employee, so their own queue is correctly empty",
   "/notifications": "per-user inbox; the seed admin has received none",
   "/contracting/reports/boq-overrun":

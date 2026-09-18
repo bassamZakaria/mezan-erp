@@ -15,6 +15,7 @@ import {
   PAYROLL_GL_ACCOUNTS,
   type Garnishment,
   type GarnishmentProvider,
+  type OvertimeHoursProvider,
   type PayrollDayDivisorBasis,
   type PayrollRun,
   type PayrollRunRepository,
@@ -23,6 +24,14 @@ import {
   type PayslipRepository,
   type UnpaidLeaveDaysProvider,
 } from "./payroll-run.js";
+import {
+  resolveEgyptStatutoryRules,
+  formatRateBp,
+  totalShareBp,
+  type EgyptStatutoryRules,
+  type StatutoryOverrideRepository,
+} from "./egypt-statutory.js";
+import { hourlyRate, monthlyIncomeTax, overtimePay, payrollLevies, socialInsuranceFor } from "./statutory-payroll.js";
 import {
   DuplicatePayrollPeriodError,
   InvalidPayrollRunError,
@@ -53,12 +62,14 @@ import {
  * Every proration and split runs through `allocate` (largest remainder) so the
  * parts sum EXACTLY to the whole — payroll never loses or invents a unit.
  *
- * WHAT IT DOES NOT COMPUTE: income tax, social insurance (employee or
- * employer share), overtime, seniority bonuses, end-of-service. The catalog
- * specifies no formula for any of them, so this engine produces no line for
- * them rather than a plausible-looking wrong one. They slot in as additional
- * `PayslipLine`s when their rules are actually specified, and are enumerated
- * for the screens in `PAYROLL_UNIMPLEMENTED_RULES` (payroll-run.ts).
+ * STATUTORY COMPUTATION is OFF unless the tenant switched it on
+ * (`statutoryEnabled`, the `hr.payroll.statutory` flag). Off, the engine
+ * produces no tax, insurance, levy or overtime line and the screens keep
+ * saying so (`PAYROLL_UNIMPLEMENTED_RULES`). On, it resolves the dated tables
+ * in `egypt-statutory.ts` for the period's END and adds, in this order:
+ * overtime at the statutory premiums, social insurance on the الأجر التأميني,
+ * salary tax on the annualised brackets, and the levies — each line naming the
+ * table row it came from in `referenceId`. A period no table covers REFUSES.
  */
 
 export interface PayrollNumbering {
@@ -90,6 +101,14 @@ export interface PayrollCalculationDeps {
   readonly payrollComponents?: Pick<PayrollComponentRepository, "list">;
   /** أساس قسمة اليوم — how a monthly salary breaks into days. Defaults to the Egyptian FIXED_30 convention. */
   readonly dayDivisorBasis?: PayrollDayDivisorBasis;
+  /** The tenant's `hr.payroll.statutory` switch. Absent or false = no statutory line is produced. */
+  readonly statutoryEnabled?: boolean;
+  /** Insurance limits an admin entered for a year the shipped tables do not carry. */
+  readonly statutoryOverrides?: Pick<StatutoryOverrideRepository, "list">;
+  /** Bound by attendance; read only when statutory computation is on. */
+  readonly overtime?: OvertimeHoursProvider;
+  /** Standard contracted hours in a working day; falls back to the statutory table's. */
+  readonly standardDailyHours?: number;
   readonly idGen?: () => string;
   readonly now?: () => string;
 }
@@ -127,7 +146,10 @@ export async function createPayrollRun(
     totalDeductions: Money.zero(),
     totalEmployerContributions: Money.zero(),
     totalNet: Money.zero(),
+    totalEmployerCost: Money.zero(),
     unpaidLeaveSource: "none",
+    overtimeSource: "none",
+    statutoryTableCodes: [],
     warnings: [],
     journalEntryId: null,
     disbursementVoucherId: null,
@@ -227,6 +249,10 @@ export async function calculatePayrollRun(runId: string, deps: PayrollCalculatio
     throw new InvalidPayrollRunTransitionError(run.status, "calculated");
   }
 
+  const statutory: EgyptStatutoryRules | null = deps.statutoryEnabled
+    ? resolveEgyptStatutoryRules(run.periodEnd, (await deps.statutoryOverrides?.list()) ?? [])
+    : null;
+
   const now = deps.now?.() ?? new Date().toISOString();
   const idGen = deps.idGen ?? (() => `${runId}:${Math.random().toString(36).slice(2)}`);
   const periodDays = inclusiveDays(run.periodStart, run.periodEnd);
@@ -271,6 +297,9 @@ export async function calculatePayrollRun(runId: string, deps: PayrollCalculatio
   if (!deps.unpaidLeave) {
     warnings.push("لم يُربط مصدر أيام الإجازات بدون أجر — لم تُخصم أي أيام إجازة بدون أجر في هذه الدورة.");
   }
+  if (statutory && !deps.overtime) {
+    warnings.push("لم يُربط مصدر ساعات العمل الإضافي — لم يُحتسب أي أجر إضافي في هذه الدورة.");
+  }
 
   const components = (await deps.payrollComponents?.list()) ?? [];
 
@@ -301,33 +330,59 @@ export async function calculatePayrollRun(runId: string, deps: PayrollCalculatio
       });
     }
 
+    const contractEarnings = Money.sum(lines.filter((l) => l.kind === "earning").map((l) => l.amount));
+    const monthlyWage = contract.monthlySalary.add(Money.sum(contract.allowances.map((a) => a.amount)));
+
+    if (statutory && deps.overtime) {
+      const hours = await deps.overtime.overtimeHoursFor(employee.id, run.periodStart, run.periodEnd);
+      const rate = hourlyRate(monthlyWage, divisor, deps.standardDailyHours ?? statutory.overtime.standardDailyHours);
+      for (const line of overtimePay(rate, hours, statutory.overtime)) {
+        lines.push({
+          id: idGen(),
+          kind: "earning",
+          source: "overtime",
+          nameAr: line.labelAr,
+          amount: line.amount,
+          glAccountId: null,
+          referenceId: statutory.overtime.code,
+          capped: false,
+        });
+      }
+    }
+
     // The wage base every statutory calculation below reads off — the gross
-    // earnings this engine already computes above, UNREDUCED by any
-    // deduction. Both the unpaid-leave clamp and the garnishment cap measure
-    // against this same figure.
+    // earnings this engine computes above (contract pay plus overtime once
+    // the statutory switch is on), UNREDUCED by any deduction. Both the
+    // garnishment cap (D181, below) and the taxable-gross figure measure
+    // against this same grossEarnings.
     const grossEarnings = Money.sum(lines.filter((l) => l.kind === "earning").map((l) => l.amount));
 
+    let unpaidLeaveDeduction = Money.zero();
     if (deps.unpaidLeave) {
       const reported = await deps.unpaidLeave.unpaidDaysFor(employee.id, run.periodStart, run.periodEnd);
       const unpaidDays = Math.min(Math.max(Math.round(reported), 0), paidDays);
       if (unpaidDays > 0) {
-        const monthlyWage = contract.monthlySalary.add(Money.sum(contract.allowances.map((a) => a.amount)));
         const atDayRate = unpaidDays >= divisor ? monthlyWage : (allocate(monthlyWage, [unpaidDays, divisor - unpaidDays])[0] as Money);
         // D184: the ÷30 (FIXED_30) divisor under-deducts once EVERY paid day
         // in the period was unpaid but the period itself is shorter than 30
         // days (February) — e.g. 28 unpaid days of a 28-day February would
         // only bill 28/30, leaving the employee 2/30 of a month they never
         // worked. Once unpaid days cover the whole paid period, the
-        // deduction is that period's own gross earnings, never a
-        // divisor-based fraction of it.
+        // deduction is that period's own CONTRACT earnings — not gross;
+        // overtime worked on other days is not forfeited by a day of unpaid
+        // leave — never a divisor-based fraction of it.
         const fullyUnpaid = unpaidDays >= paidDays;
-        const deduction = fullyUnpaid ? grossEarnings : atDayRate.scaled > grossEarnings.scaled ? grossEarnings : atDayRate;
+        unpaidLeaveDeduction = fullyUnpaid
+          ? contractEarnings
+          : atDayRate.scaled > contractEarnings.scaled
+            ? contractEarnings
+            : atDayRate;
         lines.push({
           id: idGen(),
           kind: "deduction",
           source: "unpaid_leave",
           nameAr: `إجازة بدون أجر (${unpaidDays} يوم)`,
-          amount: deduction,
+          amount: unpaidLeaveDeduction,
           glAccountId: null,
           referenceId: null,
           capped: false,
@@ -335,10 +390,90 @@ export async function calculatePayrollRun(runId: string, deps: PayrollCalculatio
       }
     }
 
+    let insurableWage = Money.zero();
+    let insurableWageCapped = false;
+    let annualTaxableIncome = Money.zero();
+    if (statutory) {
+      const taxableGross = Money.fromScaled(grossEarnings.scaled - unpaidLeaveDeduction.scaled);
+
+      // The floor and ceiling are MONTHLY caps, so the full contractual wage is
+      // clamped first and the contribution prorated after; clamping a prorated
+      // wage would push every mid-month joiner onto the floor.
+      const insurance = socialInsuranceFor(monthlyWage, statutory.socialInsurance);
+      insurableWage = insurance.insurableWage;
+      insurableWageCapped = insurance.cappedByCeiling;
+      const employeeInsurance = prorate(insurance.employeeTotal, paidDays, periodDays);
+      const employerInsurance = prorate(insurance.employerTotal, paidDays, periodDays);
+      if (employeeInsurance.scaled > 0n) {
+        lines.push({
+          id: idGen(),
+          kind: "deduction",
+          source: "social_insurance_employee",
+          nameAr: `التأمينات الاجتماعية — حصة الموظف (${formatRateBp(totalShareBp(statutory.socialInsurance.employeeShares))}%)`,
+          amount: employeeInsurance,
+          glAccountId: PAYROLL_GL_ACCOUNTS.socialInsurancePayableAccountId,
+          referenceId: statutory.socialInsurance.code,
+          capped: false,
+        });
+      }
+      if (employerInsurance.scaled > 0n) {
+        lines.push({
+          id: idGen(),
+          kind: "employer_contribution",
+          source: "social_insurance_employer",
+          nameAr: `التأمينات الاجتماعية — حصة صاحب العمل (${formatRateBp(totalShareBp(statutory.socialInsurance.employerShares))}%)`,
+          amount: employerInsurance,
+          // On an employer contribution `glAccountId` names the DEBIT account;
+          // its credit is routed by source in post-payroll-run.ts.
+          glAccountId: null,
+          referenceId: statutory.socialInsurance.code,
+          capped: false,
+        });
+      }
+      if (insurance.cappedByCeiling) {
+        warnings.push(
+          `${employee.fullNameAr} (${employee.code}): الأجر التأميني بلغ الحد الأقصى ${statutory.socialInsurance.monthlyWageCeiling} — لا اشتراك على ما زاد.`,
+        );
+      }
+
+      const tax = monthlyIncomeTax(
+        { monthlyTaxableGross: taxableGross, monthlyEmployeeInsurance: employeeInsurance, disabilityExemption: employee.taxDisabilityExemption === true },
+        statutory.incomeTax,
+      );
+      annualTaxableIncome = tax.annualTaxableIncome;
+      if (tax.monthlyTax.scaled > 0n) {
+        lines.push({
+          id: idGen(),
+          kind: "deduction",
+          source: "income_tax",
+          nameAr: `ضريبة كسب العمل (${formatRateBp(tax.effectiveRateBp)}% فعلي)`,
+          amount: tax.monthlyTax,
+          glAccountId: PAYROLL_GL_ACCOUNTS.salaryTaxPayableAccountId,
+          referenceId: statutory.incomeTax.code,
+          capped: false,
+        });
+      }
+
+      for (const levy of payrollLevies(taxableGross, insurance.insurableWage, statutory.levies, contract.payBasis)) {
+        lines.push({
+          id: idGen(),
+          kind: levy.side === "employer" ? "employer_contribution" : "deduction",
+          source: "statutory_levy",
+          nameAr: `${levy.labelAr} (${formatRateBp(levy.rateBp)}%)`,
+          amount: levy.amount,
+          glAccountId: PAYROLL_GL_ACCOUNTS.deductionLiabilityAccountId,
+          referenceId: statutory.levies.code,
+          capped: false,
+        });
+      }
+    }
+
     // D182: court orders rank ahead of the employer's own voluntary/contract
     // deductions (Labour Law 12/2003 obliges the employer to honour a legal
-    // order before its own agreed deductions), so garnishments are resolved
-    // against the wage BEFORE contract deductions are even totalled.
+    // order before its own agreed deductions) — so garnishments are resolved
+    // against the wage AFTER the mandatory unpaid-leave/statutory deductions
+    // above (none of them "voluntary"), but BEFORE contract deductions are
+    // even totalled.
     let available = grossEarnings.scaled - Money.sum(lines.filter((l) => l.kind === "deduction").map((l) => l.amount)).scaled;
 
     const eligibleOrders: Garnishment[] = [];
@@ -469,6 +604,10 @@ export async function calculatePayrollRun(runId: string, deps: PayrollCalculatio
       totalDeductions,
       employerContributions,
       netPay,
+      insurableWage,
+      insurableWageCapped,
+      annualTaxableIncome,
+      totalEmployerCost: Money.fromScaled(grossEarnings.scaled + employerContributions.scaled),
       createdAt: now,
     });
   }
@@ -484,7 +623,12 @@ export async function calculatePayrollRun(runId: string, deps: PayrollCalculatio
     totalDeductions: Money.sum(payslips.map((p) => p.totalDeductions)),
     totalEmployerContributions: Money.sum(payslips.map((p) => p.employerContributions)),
     totalNet: Money.sum(payslips.map((p) => p.netPay)),
+    totalEmployerCost: Money.sum(payslips.map((p) => p.totalEmployerCost)),
     unpaidLeaveSource: deps.unpaidLeave ? "provider" : "none",
+    overtimeSource: statutory && deps.overtime ? "provider" : "none",
+    statutoryTableCodes: statutory
+      ? [statutory.incomeTax.code, statutory.socialInsurance.code, statutory.levies.code, statutory.overtime.code, statutory.endOfService.code]
+      : [],
     warnings,
     calculatedAt: now,
   };
@@ -508,6 +652,7 @@ export async function cancelPayrollRun(runId: string, deps: Pick<PayrollCalculat
     totalDeductions: Money.zero(),
     totalEmployerContributions: Money.zero(),
     totalNet: Money.zero(),
+    totalEmployerCost: Money.zero(),
     cancelledAt: deps.now?.() ?? new Date().toISOString(),
   };
   await deps.runs.update(cancelled);

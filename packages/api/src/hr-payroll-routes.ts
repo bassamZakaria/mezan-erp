@@ -44,6 +44,25 @@ import {
   type GarnishmentRepository,
   type PayrollDayDivisorBasis,
   type SettingsRepository,
+  StatutoryRulesUnavailableError,
+  listEgyptStatutoryTables,
+  unverifiedStatutoryTableCodes,
+  formatRateBp,
+  totalShareBp,
+  getHrProvisionDefinition,
+  hrProvisionMovement,
+  postHrProvision,
+  createLeaveLiabilityReport,
+  runReport,
+  type AuditSink,
+  type HrProvisionKind,
+  type LedgerRepository,
+  type LeaveBalanceRepository,
+  type LeavePolicyRepository,
+  type OvertimeHoursProvider,
+  type PayrollStatutoryFlagRepository,
+  type SocialInsuranceYearOverride,
+  type StatutoryOverrideRepository,
   type EmployeeAdvance,
   type EmployeeAdvanceRepository,
   type EmployeeRepository,
@@ -65,10 +84,13 @@ import {
   createPayrollRunSchema,
   createPayrollComponentSchema,
   createGarnishmentSchema,
+  setPayrollStatutoryFlagSchema,
+  upsertSocialInsuranceYearSchema,
   updatePayrollComponentSchema,
   treasuryDisbursementSchema,
 } from "@mezan/contracts";
 import { createPermissionGate, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
+import { recordAdminEvent } from "./admin-audit.js";
 import { tenantDay } from "./tenant-day.js";
 
 /**
@@ -109,6 +131,31 @@ export interface HrPayrollRoutesDeps {
   readonly settings?: Pick<SettingsRepository, "get">;
   /** Overrides the settings-derived basis; for tests. */
   readonly dayDivisorBasis?: PayrollDayDivisorBasis;
+  /**
+   * The tenant's `hr.payroll.statutory` switch, read per calculation. Absent =
+   * statutory computation is unavailable and every run computes with it off.
+   */
+  readonly statutoryFlag?: PayrollStatutoryFlagRepository;
+  /**
+   * Insurance limits an admin entered for a year the shipped tables do not
+   * carry. Supplying it mounts the routes AND feeds the calculation, so the
+   * screen can never edit a figure payroll does not read.
+   */
+  readonly statutoryOverrides?: StatutoryOverrideRepository;
+  /** Bound to attendance; read only when statutory computation is on. */
+  readonly overtime?: OvertimeHoursProvider;
+  /**
+   * Read side of the leave provision. Supplying `ledger` and `leave` mounts the
+   * provision routes: without the ledger there is no posted balance to compare
+   * the computed obligation against.
+   */
+  readonly ledger?: Pick<LedgerRepository, "list">;
+  readonly leave?: {
+    readonly balances: Pick<LeaveBalanceRepository, "list">;
+    readonly policies: Pick<LeavePolicyRepository, "list">;
+  };
+  /** Forensic trail for the statutory switch and the admin-entered legal figures. */
+  readonly audit?: AuditSink;
   readonly idGen?: () => string;
 }
 
@@ -168,6 +215,10 @@ function serializePayslip(p: Payslip) {
     totalDeductions: p.totalDeductions.toString(),
     employerContributions: p.employerContributions.toString(),
     netPay: p.netPay.toString(),
+    insurableWage: p.insurableWage.toString(),
+    insurableWageCapped: p.insurableWageCapped,
+    annualTaxableIncome: p.annualTaxableIncome.toString(),
+    totalEmployerCost: p.totalEmployerCost.toString(),
     createdAt: p.createdAt,
   };
 }
@@ -209,7 +260,10 @@ function serializeRun(r: PayrollRun) {
     totalDeductions: r.totalDeductions.toString(),
     totalEmployerContributions: r.totalEmployerContributions.toString(),
     totalNet: r.totalNet.toString(),
+    totalEmployerCost: r.totalEmployerCost.toString(),
     unpaidLeaveSource: r.unpaidLeaveSource,
+    overtimeSource: r.overtimeSource,
+    statutoryTableCodes: r.statutoryTableCodes,
     warnings: r.warnings,
     journalEntryId: r.journalEntryId,
     disbursementVoucherId: r.disbursementVoucherId,
@@ -249,6 +303,7 @@ function handleDomainError(c: Context, err: unknown): Response {
     err instanceof DuplicatePayrollPeriodError ||
     err instanceof NoPayableEmployeesError ||
     err instanceof NegativeNetPayError ||
+    err instanceof StatutoryRulesUnavailableError ||
     err instanceof InvalidGarnishmentError ||
     err instanceof InvalidPayrollComponentError ||
     err instanceof DuplicatePayrollComponentError
@@ -292,14 +347,18 @@ export function createHrPayrollRoutes(deps: HrPayrollRoutesDeps, resolveAuthCont
     unpaidLeave: deps.unpaidLeave,
     garnishments: deps.garnishmentRegister ? createGarnishmentProvider(deps.garnishmentRegister) : undefined,
     payrollComponents: deps.payrollComponents,
+    statutoryOverrides: deps.statutoryOverrides,
+    overtime: deps.overtime,
     idGen,
   };
 
   async function currentCalculationDeps() {
-    const settings = await deps.settings?.get();
+    const [settings, flag] = await Promise.all([deps.settings?.get(), deps.statutoryFlag?.get()]);
     return {
       ...calculationDeps,
       dayDivisorBasis: deps.dayDivisorBasis ?? settings?.payrollDayDivisorBasis ?? "FIXED_30",
+      standardDailyHours: settings?.standardDailyWorkHours,
+      statutoryEnabled: flag?.enabled === true,
     };
   }
 
@@ -490,6 +549,262 @@ export function createHrPayrollRoutes(deps: HrPayrollRoutesDeps, resolveAuthCont
       const next = releaseGarnishment(current);
       await garnishmentRegister.update(next);
       return c.json(serializeGarnishment(next));
+    });
+  }
+
+  // --- Statutory tables, the admin-entered insurance years, and the switch ---
+
+  async function unverifiedCodes(): Promise<readonly string[]> {
+    return unverifiedStatutoryTableCodes((await deps.statutoryOverrides?.list()) ?? []);
+  }
+
+  app.get("/payroll/statutory-tables", gate("hr.payroll.view"), async (c) => {
+    const overrides = (await deps.statutoryOverrides?.list()) ?? [];
+    const tables = listEgyptStatutoryTables(overrides);
+    const provenance = (t: { source: string; verified: boolean }) => ({ source: t.source, verified: t.verified });
+    return c.json({
+      incomeTax: tables.incomeTax.map((t) => ({
+        code: t.code,
+        effectiveFrom: t.effectiveFrom,
+        effectiveTo: t.effectiveTo,
+        citationAr: t.citationAr,
+        ...provenance(t),
+        annualPersonalExemption: t.annualPersonalExemption,
+        disabilityExemptionMultiplierPercent: formatRateBp(t.disabilityExemptionMultiplierBp),
+        brackets: t.brackets.map((b) => ({ upToAnnual: b.upToAnnual, ratePercent: formatRateBp(b.rateBp) })),
+        eliminationTiers: t.eliminationTiers.map((e) => ({
+          aboveAnnual: e.aboveAnnual,
+          upToAnnual: e.upToAnnual,
+          dropsLowestBrackets: e.dropsLowestBrackets,
+        })),
+      })),
+      socialInsurance: tables.socialInsurance.map((t) => ({
+        code: t.code,
+        effectiveFrom: t.effectiveFrom,
+        effectiveTo: t.effectiveTo,
+        citationAr: t.citationAr,
+        ...provenance(t),
+        monthlyWageFloor: t.monthlyWageFloor,
+        monthlyWageCeiling: t.monthlyWageCeiling,
+        employeeTotalPercent: formatRateBp(totalShareBp(t.employeeShares)),
+        employerTotalPercent: formatRateBp(totalShareBp(t.employerShares)),
+        employeeShares: t.employeeShares.map((x) => ({ code: x.code, labelAr: x.labelAr, ratePercent: formatRateBp(x.rateBp) })),
+        employerShares: t.employerShares.map((x) => ({ code: x.code, labelAr: x.labelAr, ratePercent: formatRateBp(x.rateBp) })),
+      })),
+      levies: tables.levies.map((t) => ({
+        code: t.code,
+        effectiveFrom: t.effectiveFrom,
+        effectiveTo: t.effectiveTo,
+        citationAr: t.citationAr,
+        ...provenance(t),
+        levies: t.levies.map((x) => ({
+          code: x.code,
+          labelAr: x.labelAr,
+          ratePercent: formatRateBp(x.rateBp),
+          base: x.base,
+          side: x.side,
+          exemptPayBases: x.exemptPayBases,
+        })),
+      })),
+      overtime: tables.overtime.map((t) => ({
+        code: t.code,
+        effectiveFrom: t.effectiveFrom,
+        effectiveTo: t.effectiveTo,
+        citationAr: t.citationAr,
+        ...provenance(t),
+        dayPremiumPercent: formatRateBp(t.dayPremiumBp),
+        nightPremiumPercent: formatRateBp(t.nightPremiumBp),
+        restDayPremiumPercent: formatRateBp(t.restDayPremiumBp),
+        standardDailyHours: t.standardDailyHours,
+        standardWeeklyHours: t.standardWeeklyHours,
+      })),
+      endOfService: tables.endOfService.map((t) => ({
+        code: t.code,
+        effectiveFrom: t.effectiveFrom,
+        effectiveTo: t.effectiveTo,
+        citationAr: t.citationAr,
+        ...provenance(t),
+        minimumAge: t.minimumAge,
+        minimumAnnualRaisePercent: formatRateBp(t.minimumAnnualRaiseBp),
+        tiers: t.tiers.map((x) => ({ throughYears: x.throughYears, monthsPerYear: x.monthsPerYear })),
+      })),
+      insuranceYearOverrides: overrides,
+    });
+  });
+
+  const statutoryOverrides = deps.statutoryOverrides;
+  if (statutoryOverrides) {
+    app.put("/payroll/statutory-tables/insurance-years/:year", gate("hr.payroll.create"), async (c) => {
+      const parsed = upsertSocialInsuranceYearSchema.safeParse({
+        ...(await c.req.json().catch(() => ({}))),
+        year: Number.parseInt(c.req.param("year"), 10),
+      });
+      if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+      if (Money.fromMajor(parsed.data.monthlyWageCeiling).scaled <= Money.fromMajor(parsed.data.monthlyWageFloor).scaled) {
+        return c.json({ error: "INVALID_INSURANCE_LIMITS", message: "الحد الأقصى للأجر التأميني يجب أن يزيد عن الحد الأدنى." }, 422);
+      }
+      const previous = await statutoryOverrides.findByYear(parsed.data.year);
+      const override: SocialInsuranceYearOverride = {
+        year: parsed.data.year,
+        monthlyWageFloor: parsed.data.monthlyWageFloor,
+        monthlyWageCeiling: parsed.data.monthlyWageCeiling,
+        note: parsed.data.note ?? null,
+        enteredBy: actorOf(c),
+        enteredAt: new Date().toISOString(),
+      };
+      await statutoryOverrides.upsert(override);
+      await recordAdminEvent(deps.audit, c, {
+        module: "hr",
+        entityType: "payroll_insurance_year",
+        entityId: String(override.year),
+        action: previous ? "update" : "create",
+        details: { before: previous, after: override },
+      });
+      return c.json(override);
+    });
+
+    app.delete("/payroll/statutory-tables/insurance-years/:year", gate("hr.payroll.create"), async (c) => {
+      const year = Number.parseInt(c.req.param("year"), 10);
+      const previous = await statutoryOverrides.findByYear(year);
+      await statutoryOverrides.remove(year);
+      if (previous) {
+        await recordAdminEvent(deps.audit, c, {
+          module: "hr",
+          entityType: "payroll_insurance_year",
+          entityId: String(year),
+          action: "delete",
+          details: { before: previous },
+        });
+      }
+      return c.body(null, 204);
+    });
+  }
+
+  const statutoryFlag = deps.statutoryFlag;
+  if (statutoryFlag) {
+    app.get("/payroll/statutory-flag", gate("hr.payroll.view"), async (c) => {
+      return c.json({ ...(await statutoryFlag.get()), unverifiedTableCodes: await unverifiedCodes() });
+    });
+
+    // Tenant admin only, whatever payroll permissions the caller holds: turning
+    // this on makes the product compute legal figures nobody has verified, and
+    // that decision belongs to whoever answers for the books.
+    app.put("/payroll/statutory-flag", gate("hr.payroll.view"), async (c) => {
+      if (!getAuthContext(c)?.permissions.has("*")) {
+        return c.json({ error: "TENANT_ADMIN_REQUIRED", message: "تفعيل احتساب الضريبة والتأمينات يقتصر على مدير النظام." }, 403);
+      }
+      const parsed = setPayrollStatutoryFlagSchema.safeParse(await c.req.json().catch(() => ({})));
+      if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+      if (parsed.data.enabled && parsed.data.acknowledged !== true) {
+        return c.json(
+          {
+            error: "ACKNOWLEDGEMENT_REQUIRED",
+            message: "يجب الإقرار بأن الأرقام القانونية غير مُتحقَّق منها قبل تفعيل احتسابها.",
+          },
+          422,
+        );
+      }
+      const before = await statutoryFlag.get();
+      const unverified = await unverifiedCodes();
+      const next = {
+        enabled: parsed.data.enabled,
+        changedBy: actorOf(c),
+        changedAt: new Date().toISOString(),
+        acknowledged: parsed.data.enabled ? true : before.acknowledged,
+      };
+      await statutoryFlag.set(next);
+      await recordAdminEvent(deps.audit, c, {
+        module: "hr",
+        entityType: "payroll_statutory_flag",
+        entityId: "hr.payroll.statutory",
+        action: parsed.data.enabled ? "enable" : "disable",
+        severity: "CRITICAL",
+        details: { before: before.enabled, after: next.enabled, acknowledged: parsed.data.acknowledged === true, unverifiedTableCodes: unverified },
+      });
+      return c.json({ ...next, unverifiedTableCodes: unverified });
+    });
+  }
+
+  // --- Leave provision (ترحيل مخصص الإجازات) ---------------------------------
+
+  // Posts the MOVEMENT — the obligation now less what 2180 already carries —
+  // computed from the same report definition the screen renders.
+  const ledger = deps.ledger;
+  const leave = deps.leave;
+  if (ledger && leave) {
+    async function provisionState(kind: HrProvisionKind, asOfDate: string) {
+      const definition = getHrProvisionDefinition(kind);
+      let balance = 0n;
+      for (const entry of await ledger!.list({ status: "posted" })) {
+        for (const line of entry.lines) {
+          if (line.accountId === definition.liabilityAccountId) balance += line.credit.scaled - line.debit.scaled;
+        }
+      }
+      const outcome = runReport(createLeaveLiabilityReport(), { asOfDate }, {
+        employees: await deps.employees.list(),
+        contracts: await deps.contracts.list(),
+        balances: await leave!.balances.list(),
+        policies: await leave!.policies.list(),
+      });
+      // Each row's figure is re-read as the exact six-decimal amount it was
+      // rendered from and summed as bigint, never added up as floats.
+      const computedScaled = outcome.ok
+        ? outcome.rows.reduce((sum, row) => sum + Money.fromMajor(row.liability.toFixed(6)).scaled, 0n)
+        : 0n;
+      return { definition, postedBalance: Money.fromScaled(balance), computedTotal: Money.fromScaled(computedScaled) };
+    }
+
+    function parseKind(raw: string): HrProvisionKind | null {
+      return raw === "leave" ? raw : null;
+    }
+
+    app.get("/payroll/provisions/:kind/preview", gate("hr.payroll.view"), async (c) => {
+      const kind = parseKind(c.req.param("kind"));
+      if (!kind) return c.json({ error: "UNKNOWN_PROVISION", message: "نوع المخصص غير معروف." }, 404);
+      const asOfDate = c.req.query("asOfDate") ?? new Date().toISOString().slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(asOfDate)) return c.json({ error: "VALIDATION_ERROR", message: "تاريخ غير صالح." }, 400);
+      const { definition, postedBalance, computedTotal } = await provisionState(kind, asOfDate);
+      return c.json({
+        kind,
+        asOfDate,
+        labelAr: definition.labelAr,
+        expenseAccountId: definition.expenseAccountId,
+        liabilityAccountId: definition.liabilityAccountId,
+        computedTotal: computedTotal.toString(),
+        postedBalance: postedBalance.toString(),
+        movement: hrProvisionMovement(computedTotal, postedBalance).toString(),
+      });
+    });
+
+    app.post("/payroll/provisions/:kind", gate("hr.payroll.approve"), async (c) => {
+      const kind = parseKind(c.req.param("kind"));
+      if (!kind) return c.json({ error: "UNKNOWN_PROVISION", message: "نوع المخصص غير معروف." }, 404);
+      const body = (await c.req.json().catch(() => ({}))) as { asOfDate?: string };
+      const asOfDate = body.asOfDate ?? new Date().toISOString().slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(asOfDate)) return c.json({ error: "VALIDATION_ERROR", message: "تاريخ غير صالح." }, 400);
+      const { definition, postedBalance, computedTotal } = await provisionState(kind, asOfDate);
+      try {
+        const result = await postHrProvision({ kind, asOfDate, computedTotal, postedBalance }, { gl: deps.gl });
+        return c.json({
+          kind: result.kind,
+          asOfDate: result.asOfDate,
+          labelAr: definition.labelAr,
+          computedTotal: result.computedTotal.toString(),
+          previousBalance: result.previousBalance.toString(),
+          movement: result.movement.toString(),
+          journalEntryId: result.journalEntryId,
+        });
+      } catch (err) {
+        if (
+          err instanceof InvalidPayrollRunError ||
+          err instanceof NoFiscalPeriodForDateError ||
+          err instanceof PeriodNotOpenForPostingError ||
+          err instanceof UnbalancedEntryError
+        ) {
+          return c.json({ error: err.code, message: err.message }, 422);
+        }
+        throw err;
+      }
     });
   }
 

@@ -30,7 +30,7 @@
  */
 
 import { Money, Qty, allocate } from "../money/index.js";
-import { unitCostOf } from "../inventory/index.js";
+import { extend, unitCostOf } from "../inventory/index.js";
 import { NextNumberService } from "../numbering/index.js";
 import { type Bom, type BomRepository, bomLineEffectiveQty, wasteAllowanceOf } from "./bom.js";
 import {
@@ -913,7 +913,7 @@ export async function receiveWorkOrderProduct(
     receiptNumber: order.number,
     warehouseId: order.destinationWarehouseId,
     sourceDocType: "WORK_ORDER",
-    lines: [{ itemId: order.productItemId, qty: producedQty, unitCost }],
+    lines: finishedGoodsReceiptLines(order.productItemId, producedQty, wip, unitCost),
     occurredAt,
   });
 
@@ -948,6 +948,31 @@ export async function receiveWorkOrderProduct(
   };
   await deps.workOrders.update(updated);
   return updated;
+}
+
+/**
+ * INVARIANT: the receipt is worth exactly `wip`, the amount the completion
+ * posting debits to inventory. One line at `round(wip ÷ qty)` left the stock
+ * ledger up to half a micro-unit per unit away from GL 1200 (D206), so one unit
+ * carries the remainder. At a quantity of one or less the rounding cannot
+ * survive `extend`, so no split is needed.
+ */
+function finishedGoodsReceiptLines(
+  itemId: string,
+  qty: Qty,
+  wip: Money,
+  unitCost: Money,
+): { itemId: string; qty: Qty; unitCost: Money }[] {
+  const one = Qty.fromMajor("1");
+  if (extend(qty, unitCost).scaled === wip.scaled || qty.compare(one) <= 0) {
+    return [{ itemId, qty, unitCost }];
+  }
+  const head = qty.subtract(one);
+  const tail = Money.fromScaled(wip.scaled - extend(head, unitCost).scaled);
+  return [
+    { itemId, qty: head, unitCost },
+    { itemId, qty: one, unitCost: tail },
+  ];
 }
 
 export interface CompleteWorkOrderDeps {

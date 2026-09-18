@@ -4615,6 +4615,31 @@ describe("createBackend — foreign documents settle and return in base (D202, D
     expect(await reconDiff(app, "ar")).toBe(0);
   });
 
+  it("D215: a purchase return raised through the raw POST inherits its invoice's project and cost category", async () => {
+    const app = await newBackend();
+    expect((await post(app, "/projects", { id: "proj-1", code: "TOWER-A", nameAr: "مشروع البرج أ", budget: "100000" }, admin(app))).status).toBe(201);
+    expect((await post(app, "/items", { id: "item-prj", code: "ITEM-PRJ", nameAr: "حديد", type: "stock", baseUnitCode: "PCS", costingMethod: "WAC" }, admin(app))).status).toBe(201);
+    expect((await post(app, "/suppliers", { id: "sup-prj", code: "sup-prj", nameAr: "مورد المشروع", openingBalance: "0" }, admin(app))).status).toBe(201);
+    expect((await post(app, "/purchases/invoices", {
+      id: "pi-prj", supplierId: "sup-prj", date: "2026-08-22", dueDate: "2026-09-21", branchId: "BR1", warehouseId: "WH1", projectId: "proj-1",
+      lines: [{ itemId: "item-prj", description: "حديد", kind: "inventory", qty: "10", unitCost: "20", taxRatePercent: 14, costCategory: "materials" }],
+    }, admin(app))).status).toBe(201);
+    expect((await post(app, "/purchases/invoices/pi-prj/confirm", {}, admin(app))).status).toBe(200);
+
+    const created = await post(app, "/purchase-returns", {
+      id: "pr-prj", date: "2026-08-23", memo: "",
+      lines: [{
+        itemId: "item-prj", warehouseId: "WH1", supplierId: "sup-prj", sourceInvoiceId: "pi-prj", sourceInvoiceNumber: null, reason: "DEFECTIVE",
+        availableQty: "10", qty: "2", unitCost: "20", taxAmount: "5.60", taxRatePercent: 14,
+      }],
+    }, admin(app));
+    expect(created.status).toBe(201);
+    const line = ((await created.json()) as { lines: { projectId: string | null; costCategory: string | null }[] }).lines[0]!;
+    expect(line.projectId).toBe("proj-1");
+    expect(line.costCategory).toBe("materials");
+    expect((await post(app, "/purchase-returns/pr-prj/confirm", {}, admin(app))).status).toBe(200);
+  });
+
   it("D203: a purchase return against a SAR invoice debits 2100 at the invoice's rate, whatever rate the caller sends", async () => {
     const app = await newBackend();
     await multiCurrency(app);

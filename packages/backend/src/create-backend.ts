@@ -3844,6 +3844,9 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
             number: invoice.number ?? invoice.id,
             supplierId: invoice.supplierId,
             warehouseId: invoice.warehouseId,
+            // A return inherits the invoice's project and each line's cost
+            // category (D-01); leaving them off here dropped both (D215).
+            projectId: invoice.projectId ?? null,
             currency: invoice.currency,
             fxRate: invoice.fxRate ?? null,
             date: invoice.date,
@@ -3861,6 +3864,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
                 // gives the VAT return nothing to group by (D76).
                 taxAmount: purchaseInvoiceLineTax(l),
                 taxRatePercent: l.taxRatePercent,
+                costCategory: l.costCategory ?? null,
               })),
           };
         },

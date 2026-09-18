@@ -21,6 +21,14 @@ function row(page: Page, text: string, exact = true) {
   return page.locator("table tbody tr").filter({ has: page.getByText(text, { exact }) });
 }
 
+function unique(prefix: string): string {
+  return `${prefix} ${Date.now()}-${Math.floor(Math.random() * 100000)}`;
+}
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 /** Clicks a `Select` primitive's combobox trigger, then the matching portaled option — it is not a native `<select>` (packages/ui/src/primitives/Select.tsx). */
 async function chooseCombo(page: Page, scope: Page | Locator, comboLabel: string, optionName: string | RegExp): Promise<void> {
   await scope.getByRole("combobox", { name: comboLabel }).click();
@@ -194,12 +202,22 @@ test.describe("Leads", () => {
 test.describe("Opportunities & Pipeline", () => {
   test.describe.configure({ mode: "serial" });
 
+  // Shared between the two serial tests below, and made unique per run
+  // (rather than a literal string) so a --repeat-each rerun — which reuses
+  // this same seeded backend across repetitions — never leaves two
+  // same-named customers for the EntityPicker search to collide on, and
+  // never leaves two same-named opportunity rows for `row()` to collide on.
+  let customerName: string;
+  let opportunityTitle: string;
+
   test.beforeEach(async ({ page }) => {
     await loginAsDemoUser(page);
   });
 
   test("creating an opportunity validates required title/customer, then succeeds against a real customer", async ({ page }) => {
-    await createCustomer(page, "عميل الفرص التجريبي");
+    customerName = unique("عميل الفرص التجريبي");
+    opportunityTitle = unique("فرصة تجريبية أولى");
+    await createCustomer(page, customerName);
 
     await clickSidebarItem(page, "الفرص");
     await expect(page.getByRole("heading", { name: "الفرص" })).toBeVisible();
@@ -214,21 +232,21 @@ test.describe("Opportunities & Pipeline", () => {
     await form.getByRole("button", { name: "إضافة", exact: true }).click();
     await expect(form.getByRole("alert")).toContainText("العنوان مطلوب");
 
-    await form.getByLabel("العنوان *").fill("فرصة تجريبية أولى");
+    await form.getByLabel("العنوان *").fill(opportunityTitle);
     await form.getByRole("button", { name: "إضافة", exact: true }).click();
     await expect(form.getByRole("alert")).toContainText("العميل مطلوب");
 
     const customerField = form.getByPlaceholder("اختر العميل...");
     await customerField.click();
-    await customerField.fill("عميل الفرص التجريبي");
-    await form.getByRole("option", { name: /عميل الفرص التجريبي/ }).click();
+    await customerField.fill(customerName);
+    await form.getByRole("option", { name: new RegExp(escapeRegExp(customerName)) }).click();
 
     await form.getByRole("button", { name: "إضافة", exact: true }).click();
     await expect(form).toBeHidden();
 
-    const oppRow = row(page, "فرصة تجريبية أولى");
+    const oppRow = row(page, opportunityTitle);
     await expect(oppRow).toBeVisible();
-    await expect(oppRow.getByText("عميل الفرص التجريبي")).toBeVisible();
+    await expect(oppRow.getByText(customerName)).toBeVisible();
     await expect(oppRow.getByText("عميل محتمل", { exact: true })).toBeVisible(); // default first stage
     await expect(oppRow.getByText("مفتوحة", { exact: true })).toBeVisible();
   });
@@ -244,12 +262,12 @@ test.describe("Opportunities & Pipeline", () => {
     // Note: the "عميل محتمل" column also holds the opportunity the earlier
     // Leads conversion test created by default (createOpportunity stayed on) —
     // so this scopes to OUR card specifically rather than asserting a column count.
-    const card = page.locator("div.rounded-md.border.border-border.bg-surface").filter({ hasText: "فرصة تجريبية أولى" });
+    const card = page.locator("div.rounded-md.border.border-border.bg-surface").filter({ hasText: opportunityTitle });
     await expect(card).toBeVisible();
     await chooseCombo(page, card, "نقل إلى", "عرض سعر");
 
     await clickSidebarItem(page, "الفرص");
-    await expect(row(page, "فرصة تجريبية أولى").getByText("عرض سعر", { exact: true })).toBeVisible();
+    await expect(row(page, opportunityTitle).getByText("عرض سعر", { exact: true })).toBeVisible();
   });
 });
 

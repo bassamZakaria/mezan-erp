@@ -1,3 +1,4 @@
+import { toTenantDay } from "@mezan/domain";
 import type { Ctx } from "./harness.js";
 
 /**
@@ -833,6 +834,7 @@ export async function foreignSettledInBaseIsNotRevalued_D260(ctx: Ctx): Promise<
   const { req, check, checkEq, n } = ctx;
   const glBalanceOf = (accountId: string) => glBalance(ctx, accountId);
   const monthEnd = "2026-08-31";
+  const today = toTenantDay(new Date().toISOString());
   const detailOn = async (accountId: string, date = monthEnd) => {
     const preview = (await req("POST", "/revaluation/preview", { date, currencies: ["GBP"] })).body;
     return ((preview?.details ?? []) as any[]).find((detail) => detail.accountId === accountId) ?? null;
@@ -880,15 +882,17 @@ export async function foreignSettledInBaseIsNotRevalued_D260(ctx: Ctx): Promise<
       const half = await req("POST", "/vouchers/SCN-D260-CV/allocations", { allocationId: "SCN-D260-CV-A1", invoiceId: "SCN-D260-SI2", amount: "3100" });
       check("and is applied to SCN-D260-SI2", half.status === 201, `status ${half.status} ${JSON.stringify(half.body).slice(0, 200)}`);
       checkEq("D221: the two settlements realise 200.00 + 100.00 on 4920", (await glBalanceOf("4920")) - start.gain, -300);
-      let ar = await detailOn("1105");
-      check("D260: at 59.00 the month-end restates only the GBP 50 still owed, booked at 3,000.00, by −50.00", n(ar?.foreignAmount) === 50 && n(ar?.bookedBase) === 3000 && n(ar?.delta) === -50, JSON.stringify(ar));
+      let ar = await detailOn("1105", today);
+      check("D260: at 59.00 a revaluation today restates only the GBP 50 still owed, booked at 3,000.00, by −50.00", n(ar?.foreignAmount) === 50 && n(ar?.bookedBase) === 3000 && n(ar?.delta) === -50, JSON.stringify(ar));
+      ar = await detailOn("1105");
+      check("D265: the receipt was applied by hand today, so at the August close SCN-D260-SI2 was still open — GBP 100 at 6,000.00", n(ar?.foreignAmount) === 100 && n(ar?.bookedBase) === 6000 && n(ar?.delta) === -100, JSON.stringify(ar));
 
       const reversed = await req("POST", "/vouchers/SCN-D260-CV/reverse", { date: "2026-08-28" });
       check("the part receipt is reversed on the 28th", reversed.status === 201, `status ${reversed.status} ${JSON.stringify(reversed.body).slice(0, 200)}`);
       ar = await detailOn("1105");
       check("D260: the reversal reopens all of SCN-D260-SI2 — GBP 100 at 6,000.00, restated by −100.00", n(ar?.foreignAmount) === 100 && n(ar?.bookedBase) === 6000 && n(ar?.delta) === -100, JSON.stringify(ar));
-      ar = await detailOn("1105", "2026-08-27");
-      check("D220: and as of the 27th, before the reversal, it was still half settled", n(ar?.foreignAmount) === 50 && n(ar?.bookedBase) === 3000, JSON.stringify(ar));
+      ar = await detailOn("1105", today);
+      check("D265: and today, the reversal undid the allocation — GBP 100 at 6,000.00", n(ar?.foreignAmount) === 100 && n(ar?.bookedBase) === 6000, JSON.stringify(ar));
       const rest = await req("POST", "/sales-invoices/SCN-D260-SI2/payments", { amount: "6200", treasuryAccountId: "TR-DEMO-CASH", date: "2026-08-28" });
       check("D260: EGP 6,200.00 then collects SCN-D260-SI2 in full", rest.status === 200 && (await req("GET", "/sales-invoices/SCN-D260-SI2")).body?.status === "paid", `status ${rest.status}`);
       ar = await detailOn("1105");
@@ -904,21 +908,23 @@ export async function foreignSettledInBaseIsNotRevalued_D260(ctx: Ctx): Promise<
       const applied = await req("POST", "/cheques/SCN-D260-PV1/allocations", { allocationId: "SCN-D260-PV1-A1", invoiceId: "SCN-D260-PI", amount: "6200" });
       check("and its cheque pays the GBP bill in full", applied.status === 201 && n((await req("GET", "/purchases/invoices/SCN-D260-PI")).body?.remainingBalance) === 0, `status ${applied.status}`);
       checkEq("D221: paying 200.00 more than booked is a realised loss on 5920", (await glBalanceOf("5920")) - start.loss, 200);
-      let ap = await detailOn("2100");
-      check("D260: a 59.00 month-end finds nothing on 2100 in GBP", ap === null, JSON.stringify(ap));
+      let ap = await detailOn("2100", today);
+      check("D260: a 59.00 revaluation today finds nothing on 2100 in GBP", ap === null, JSON.stringify(ap));
+      ap = await detailOn("2100");
+      check("D265: the cheque was applied by hand today, so at the August close the bill was still open", n(ap?.foreignAmount) === 100 && n(ap?.bookedBase) === 6000, JSON.stringify(ap));
       await req("POST", "/cheques/SCN-D260-PV1/deposit", { bankTreasuryAccountId: "TR-DEMO-BANK" });
       const bounced = await req("POST", "/cheques/SCN-D260-PV1/bounce", { date: "2026-08-28" });
       check("the bank returns the cheque on the 28th", bounced.status === 200 && bounced.body?.status === "bounced", `status ${bounced.status}`);
       ap = await detailOn("2100");
       check("D260: the bounce reopens the bill — GBP 100 at 6,000.00, which a 59.00 close restates as a 100.00 gain", n(ap?.foreignAmount) === 100 && n(ap?.bookedBase) === 6000 && n(ap?.gainLoss) === 100, JSON.stringify(ap));
-      ap = await detailOn("2100", "2026-08-27");
-      check("D220: and as of the 27th, before the bounce, it was closed", ap === null, JSON.stringify(ap));
+      ap = await detailOn("2100", today);
+      check("D265: and today, the bounce undid the cheque's allocation — GBP 100 open", n(ap?.foreignAmount) === 100 && n(ap?.bookedBase) === 6000, JSON.stringify(ap));
       check("an EGP 6,200.00 cash payment posts", (await req("POST", "/vouchers", payment("SCN-D260-PV2", "cash", "2026-08-28"))).status === 201 && (await req("POST", "/vouchers/SCN-D260-PV2/confirm", {})).status === 200);
       check("and pays the bill again", (await req("POST", "/vouchers/SCN-D260-PV2/allocations", { allocationId: "SCN-D260-PV2-A1", invoiceId: "SCN-D260-PI", amount: "6200" })).status === 201);
-      ap = await detailOn("2100");
-      check("D260: a 59.00 month-end finds nothing on 2100 in GBP again", ap === null, JSON.stringify(ap));
-      const preview = (await req("POST", "/revaluation/preview", { date: monthEnd, currencies: ["GBP"] })).body;
-      check("D260: the GBP month-end preview has nothing to post", preview?.hasImpact === false && n(preview?.totalGain) === 0 && n(preview?.totalLoss) === 0, JSON.stringify(preview).slice(0, 300));
+      ap = await detailOn("2100", today);
+      check("D260: a 59.00 revaluation today finds nothing on 2100 in GBP again", ap === null, JSON.stringify(ap));
+      const preview = (await req("POST", "/revaluation/preview", { date: today, currencies: ["GBP"] })).body;
+      check("D260: a GBP preview today has nothing to post", preview?.hasImpact === false && n(preview?.totalGain) === 0 && n(preview?.totalLoss) === 0, JSON.stringify(preview).slice(0, 300));
 
       checkEq("the realised gains on 4920 are 200.00 + 200.00", (await glBalanceOf("4920")) - start.gain, -400);
       checkEq("the realised loss on 5920 is the second payment's 200.00", (await glBalanceOf("5920")) - start.loss, 200);
@@ -928,6 +934,82 @@ export async function foreignSettledInBaseIsNotRevalued_D260(ctx: Ctx): Promise<
       check("the supplier ladder still ties to 2100", (await req("GET", "/reports/aging/suppliers")).body?.reconciliation?.withinTolerance === true);
       const statement = (await req("GET", "/reports/statements/customers/SCN-D260-CUST")).body;
       check("the customer's statement closes at 0 on their ladder row", n(statement?.closing) === 0 && statement?.closing === statement?.agingTotal, JSON.stringify({ closing: statement?.closing, aging: statement?.agingTotal }));
+    } finally {
+      const restored = await req("PUT", "/settings", { ...(await req("GET", "/settings")).body, multiCurrencyEnabled: base?.multiCurrencyEnabled, secondaryCurrencies: currencies });
+      check("the currency settings are restored", restored.status === 200, `status ${restored.status}`);
+    }
+  });
+}
+
+/**
+ * D265 on the seeded tenant, in AED — no other scenario books it. An EGP
+ * receipt dated 26 August sits on account, and today it is applied to half an
+ * AED invoice, undone and applied again. The settlement is dated the day it
+ * was made, so on every day from the receipt to today revaluation, 4920, 1105
+ * and the customer's ladder row tell one story, and never two settlements.
+ */
+export async function allocationUndoneAndMadeAgainSettlesOnce_D265(ctx: Ctx): Promise<void> {
+  const { req, check, n } = ctx;
+  const today = toTenantDay(new Date().toISOString());
+  const days: string[] = [];
+  for (let at = Date.parse("2026-08-26T00:00:00Z"); at <= Date.parse(`${today}T00:00:00Z`); at += 86_400_000) days.push(new Date(at).toISOString().slice(0, 10));
+  const balanceOn = async (accountId: string, date: string) => n((await req("GET", `/gl/accounts/${accountId}/ledger?asOf=${date}`)).body?.balance?.balance);
+  const snapshot = async (date: string) => {
+    const preview = (await req("POST", "/revaluation/preview", { date, currencies: ["AED"] })).body;
+    const position = ((preview?.details ?? []) as any[]).find((detail) => detail.accountId === "1105") ?? null;
+    const ladder = (await req("GET", `/reports/aging/customers?asOfDate=${date}`)).body;
+    const row = ((ladder?.rows ?? []) as any[]).find((r) => r.customerId === "SCN-D265-CUST");
+    return { foreign: n(position?.foreignAmount), booked: n(position?.bookedBase), gain: await balanceOn("4920", date), control: await balanceOn("1105", date), row: n(row?.total) };
+  };
+
+  await ctx.scenario("D265 — an EGP receipt applied to half an AED invoice, undone and applied again today, is one settlement dated today on every day's revaluation, GL and ladder", async () => {
+    const base = (await req("GET", "/settings")).body;
+    const currencies: string[] = base?.secondaryCurrencies ?? [];
+    const enabled = await req("PUT", "/settings", { ...base, multiCurrencyEnabled: true, secondaryCurrencies: [...currencies.filter((c) => c !== "AED"), "AED"] });
+    check("multi-currency is on with AED allowed", enabled.status === 200, `status ${enabled.status}`);
+    for (const [id, rate, date] of [["SCN-D265-AED-20", "13.00", "2026-08-20"], ["SCN-D265-AED-25", "14.00", "2026-08-25"]] as const) {
+      await req("POST", "/exchange-rates", { id, currency: "AED", rate, effectiveDate: date, rateType: "standard", source: "manual" });
+      check(`an AED rate of ${rate} is approved from ${date}`, (await req("POST", `/exchange-rates/${id}/approve`, {})).body?.status === "approved");
+    }
+    try {
+      const start = { invariants: await ctx.invariants(), days: new Map<string, Awaited<ReturnType<typeof snapshot>>>() };
+      for (const day of days) start.days.set(day, await snapshot(day));
+      await req("POST", "/items", { id: "SCN-D265-SVC", code: "SCN-D265-SVC", nameAr: "خدمة بالدرهم", type: "service", baseUnitCode: "PCS", trackInventory: false, taxRatePercent: 0, revenueAccountId: "4100" });
+      await req("POST", "/customers", { id: "SCN-D265-CUST", code: "SCN-D265-CUST", nameAr: "عميل بالدرهم", paymentTermsDays: 30, currency: "AED", openingBalance: "0", active: true, creditLimit: "0", taxExempt: false, etaBuyerType: "auto" });
+      await req("POST", "/sales-invoices", {
+        id: "SCN-D265-SI", date: "2026-08-22", dueDate: "2026-09-21", customerId: "SCN-D265-CUST", customerNameAr: "عميل بالدرهم",
+        warehouseId: "WH-MAIN", branchId: "BR-MAIN", currency: "AED", arAccountId: "1105", taxAccountId: "2200",
+        lines: [{ lineId: "SCN-D265-SI-L1", itemId: "SCN-D265-SVC", itemNameAr: "خدمة", isStock: false, qty: "1", unitPrice: "100", taxRatePercent: 0, revenueAccountId: "4100" }],
+      });
+      check("SCN-D265-SI: AED 100 confirms at 13.00", (await req("POST", "/sales-invoices/SCN-D265-SI/confirm", {})).status === 200);
+      const cashGl = String((await req("GET", "/treasury-accounts/TR-DEMO-CASH")).body?.glAccountId);
+      const receipt = await req("POST", "/vouchers", {
+        id: "SCN-D265-CV", date: "2026-08-26", voucherType: "customer_collection", amount: "700", branchId: "BR-MAIN", paymentMethod: "cash",
+        treasuryAccountId: "TR-DEMO-CASH", treasuryGlAccountId: cashGl, counterpartyGlAccountId: "1105", customerId: "SCN-D265-CUST",
+      });
+      check("an EGP 700.00 receipt dated 26 August posts on account", receipt.status === 201 && (await req("POST", "/vouchers/SCN-D265-CV/confirm", {})).status === 200);
+      const apply = (id: string) => req("POST", "/vouchers/SCN-D265-CV/allocations", { allocationId: id, invoiceId: "SCN-D265-SI", amount: "700" });
+      check("today it is applied to SCN-D265-SI", (await apply("SCN-D265-A1")).status === 201);
+      check("the allocation is undone", (await req("POST", "/allocations/SCN-D265-A1/reverse", {})).status === 200);
+      check("and applied again", (await apply("SCN-D265-A2")).status === 201);
+
+      const dated = [];
+      for (const id of ["FXR:SCN-D265-A1", "FXR:SCN-D265-A1:REV", "FXR:SCN-D265-A2"]) dated.push([id, (await req("GET", `/gl/journal-entries/${encodeURIComponent(id)}`)).body?.date]);
+      check("D265: both settlements and the undo are dated today", dated.every(([, date]) => date === today), JSON.stringify(dated));
+
+      for (const day of days) {
+        const was = start.days.get(day)!;
+        const now = await snapshot(day);
+        const moved = { foreign: now.foreign - was.foreign, booked: now.booked - was.booked, gain: now.gain - was.gain, control: now.control - was.control, row: now.row };
+        const expected = day === today
+          ? { foreign: 50, booked: 650, gain: -50, control: 650, row: 650 }
+          : { foreign: 100, booked: 1300, gain: 0, control: 600, row: 600 };
+        check(`D265: on ${day} revaluation, 4920, 1105 and the ladder row agree — ${day === today ? "one settlement" : "the receipt on account"}`, JSON.stringify(moved) === JSON.stringify(expected), JSON.stringify(moved));
+      }
+
+      const now = await ctx.invariants();
+      check("AR, AP and inventory all still tie to the micro-unit", now.exact.ar === start.invariants.exact.ar && now.exact.ap === start.invariants.exact.ap && now.exact.inventory === start.invariants.exact.inventory, `ar ${now.ar} ap ${now.ap} inventory ${now.inventory}`);
+      check("the customer ladder still ties to 1105", (await req("GET", "/reports/aging/customers")).body?.reconciliation?.withinTolerance === true);
     } finally {
       const restored = await req("PUT", "/settings", { ...(await req("GET", "/settings")).body, multiCurrencyEnabled: base?.multiCurrencyEnabled, secondaryCurrencies: currencies });
       check("the currency settings are restored", restored.status === 200, `status ${restored.status}`);

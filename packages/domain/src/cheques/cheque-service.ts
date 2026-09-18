@@ -51,6 +51,7 @@ import {
 } from "./errors.js";
 import {
   allocate as allocateFn,
+  laterDay,
   reverseAllocation as reverseAllocationFn,
   type AllocatableInvoiceRepository,
   type AllocationRepository,
@@ -58,7 +59,7 @@ import {
   type VoucherAllocation,
 } from "../vouchers/allocation.js";
 import type { AllocationInvoiceKind } from "../vouchers/voucher-types.js";
-import { postRealisedFx, reverseRealisedFx, settlementRatesFor, type RealisedFxPort, type SettlingLine, type SettlingMoney } from "../vouchers/realised-fx.js";
+import { allocationUndoDay, postRealisedFx, reverseRealisedFx, settlementRatesFor, type RealisedFxPort, type SettlingLine, type SettlingMoney } from "../vouchers/realised-fx.js";
 
 export interface CreateChequeCommand {
   readonly id: string;
@@ -126,6 +127,7 @@ export interface AllocateChequeCommand {
   readonly invoiceId: string;
   readonly amount: Money;
   readonly now?: string;
+  readonly date?: string;
 }
 
 export interface ChequeListQuery {
@@ -405,10 +407,11 @@ export class ChequeService {
           invoiceId: cmd.invoiceId,
           amount: cmd.amount,
           now: cmd.now ?? this.now(),
+          date: laterDay(cmd.date ?? (cmd.now ?? this.now()).slice(0, 10), cheque.issueDate),
           ...(realisedFx
             ? {
                 rates: (invoice) => settlementRatesFor(realisedFx, invoice, money),
-                beforeSave: async (invoice, split) => {
+                beforeSave: async (invoice, split, date) => {
                   const booked = await realisedFx.invoiceFx(invoice.id, invoice.kind);
                   const rates = await settlementRatesFor(realisedFx, invoice, money);
                   if (!booked || !rates) return { fxEntryId: null };
@@ -424,7 +427,7 @@ export class ChequeService {
                       currency: booked.currency,
                       invoiceRate: booked.fxRate,
                       money,
-                      date: cheque.issueDate,
+                      date: date ?? cheque.issueDate,
                       controlAccountId,
                       branchId: cheque.branchId,
                       reference: cheque.chequeNumber,
@@ -461,8 +464,9 @@ export class ChequeService {
     const store = { allocations: this.deps.allocation.allocations, invoices: this.deps.allocation.invoices };
     const active = (await store.allocations.listByVoucher(chequeId)).filter((a) => a.status === "active");
     for (const alloc of active) {
-      await reverseRealisedFx(alloc, this.deps.gl, { date, today: this.now().slice(0, 10) });
-      const undone = await reverseAllocationFn(alloc.id, this.now(), store);
+      const undoneOn = await allocationUndoDay(alloc, date, this.deps.gl.ledger);
+      await reverseRealisedFx(alloc, this.deps.gl, undoneOn);
+      const undone = await reverseAllocationFn(alloc.id, this.now(), store, undoneOn);
       await this.projectSettlement(undone.invoice);
     }
   }

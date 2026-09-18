@@ -82,7 +82,9 @@ CREATE TABLE IF NOT EXISTS voucher_allocation (
   created_at  TEXT NOT NULL,
   reversed_at TEXT,
   invoice_amount INTEGER,
-  fx_entry_id TEXT
+  fx_entry_id TEXT,
+  date        TEXT,
+  reversed_on TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_alloc_voucher ON voucher_allocation(voucher_id);
 CREATE INDEX IF NOT EXISTS idx_alloc_invoice ON voucher_allocation(invoice_id);
@@ -112,6 +114,8 @@ const ADDED_VOUCHER_COLUMNS: readonly [string, string][] = [
 const ADDED_ALLOCATION_COLUMNS: readonly [string, string][] = [
   ["invoice_amount", "INTEGER"],
   ["fx_entry_id", "TEXT"],
+  ["date", "TEXT"],
+  ["reversed_on", "TEXT"],
 ];
 
 function addMissingColumns(sqlite: Database.Database): void {
@@ -335,6 +339,8 @@ interface AllocationRow {
   reversed_at: string | null;
   invoice_amount: bigint | null;
   fx_entry_id: string | null;
+  date: string | null;
+  reversed_on: string | null;
 }
 
 function toAllocation(row: AllocationRow): VoucherAllocation {
@@ -348,6 +354,8 @@ function toAllocation(row: AllocationRow): VoucherAllocation {
     status: row.status as AllocationStatus,
     createdAt: row.created_at,
     reversedAt: row.reversed_at,
+    date: row.date,
+    reversedOn: row.reversed_on,
   };
 }
 
@@ -359,9 +367,9 @@ class SqliteAllocationRepository implements AllocationRepository {
 
   constructor(sqlite: Database.Database) {
     this.upsert = sqlite.prepare(`
-      INSERT INTO voucher_allocation (id, voucher_id, invoice_id, amount, status, created_at, reversed_at, invoice_amount, fx_entry_id)
-      VALUES (@id, @voucher_id, @invoice_id, @amount, @status, @created_at, @reversed_at, @invoice_amount, @fx_entry_id)
-      ON CONFLICT(id) DO UPDATE SET status = excluded.status, reversed_at = excluded.reversed_at
+      INSERT INTO voucher_allocation (id, voucher_id, invoice_id, amount, status, created_at, reversed_at, invoice_amount, fx_entry_id, date, reversed_on)
+      VALUES (@id, @voucher_id, @invoice_id, @amount, @status, @created_at, @reversed_at, @invoice_amount, @fx_entry_id, @date, @reversed_on)
+      ON CONFLICT(id) DO UPDATE SET status = excluded.status, reversed_at = excluded.reversed_at, reversed_on = excluded.reversed_on
     `);
     this.selectById = sqlite.prepare(`SELECT * FROM voucher_allocation WHERE id = ?`).safeIntegers();
     this.selectByVoucher = sqlite.prepare(`SELECT * FROM voucher_allocation WHERE voucher_id = ? ORDER BY created_at`).safeIntegers();
@@ -379,6 +387,8 @@ class SqliteAllocationRepository implements AllocationRepository {
       reversed_at: alloc.reversedAt,
       invoice_amount: alloc.invoiceAmount ? alloc.invoiceAmount.toScaledNumber() : null,
       fx_entry_id: alloc.fxEntryId ?? null,
+      date: alloc.date ?? null,
+      reversed_on: alloc.reversedOn ?? null,
     });
   }
 

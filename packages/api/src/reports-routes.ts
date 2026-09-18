@@ -88,6 +88,7 @@ import {
   fxRevaluationNet,
   FX_REALISED_DOC_TYPE,
   allocationInvoiceAmount,
+  realisedFxReversalId,
   type AgingCustomersContext,
   type AgingSuppliersContext,
   type AgingOpenItem,
@@ -113,6 +114,7 @@ import {
   type VoucherDocument,
   purchaseReturnCreditByInvoice,
   type AllocationRepository,
+  type VoucherAllocation,
   type SubcontractStore,
   type VoucherLine,
 } from "@mezan/domain";
@@ -520,10 +522,36 @@ function chequeDays(cheque: Cheque, asOf: AgingAsOf): { readonly raised: string;
   return { raised, undone };
 }
 
-/** Whether the allocation a realised-FX entry belongs to still stands (D221). */
-async function allocationIsActive(deps: ReportsRoutesDeps, allocationId: string | null | undefined): Promise<boolean> {
+/**
+ * Whether an allocation stood on `asOfDate` (D265): from the day it took effect
+ * until the day it was undone, which are the days its settlement entry and
+ * that entry's mirror carry. An allocation written before D265 has no days of
+ * its own; its entries' dates stand in for them and, with no entry, it is read
+ * as it always was — live from its money's date while active, never once undone.
+ */
+function allocationLiveOn(
+  alloc: VoucherAllocation,
+  asOfDate: string,
+  entryDate: (entryId: string) => string | undefined,
+  moneyDate: string,
+): boolean {
+  const from = alloc.date ?? (alloc.fxEntryId ? entryDate(alloc.fxEntryId) : undefined) ?? moneyDate;
+  if (from > asOfDate) return false;
+  if (alloc.status === "active") return true;
+  const undone = alloc.reversedOn ?? (alloc.fxEntryId ? entryDate(realisedFxReversalId(alloc.fxEntryId)) : undefined);
+  return undone !== undefined && undone > asOfDate;
+}
+
+async function realisedFxAllocationLiveOn(
+  deps: ReportsRoutesDeps,
+  allocationId: string | null | undefined,
+  asOfDate: string,
+  entryDates: ReadonlyMap<string, string>,
+): Promise<boolean> {
   if (!allocationId || !deps.allocations?.findById) return true;
-  return (await deps.allocations.findById(allocationId))?.status === "active";
+  const alloc = await deps.allocations.findById(allocationId);
+  if (!alloc) return true;
+  return allocationLiveOn(alloc, asOfDate, (id) => entryDates.get(id), asOfDate);
 }
 
 interface UnappliedTerms {
@@ -545,15 +573,19 @@ async function unappliedPartyTerms(deps: ReportsRoutesDeps, asOf: AgingAsOf): Pr
   const direction = asOf.kind === "customer" ? "incoming" : "outgoing";
 
   const source = async (id: string, partyId: string | null | undefined, amount: bigint, date: string, standing: boolean) => {
-    const active = ((await deps.allocations?.listByVoucher(id)) ?? []).filter((alloc) => alloc.status === "active");
-    if (date > asOf.asOfDate) {
-      // The invoice gets back what it was relieved of, which for a foreign one
-      // settled at another rate is not what the voucher gave (D221).
-      for (const alloc of active) settledAfter.set(alloc.invoiceId, (settledAfter.get(alloc.invoiceId) ?? 0n) + allocationInvoiceAmount(alloc).scaled);
-      return;
+    let applied = 0n;
+    for (const alloc of (await deps.allocations?.listByVoucher(id)) ?? []) {
+      const live = allocationLiveOn(alloc, asOf.asOfDate, (entryId) => asOf.entryDates.get(entryId), date);
+      // The invoice's sub-ledger holds what the ACTIVE allocations relieved it
+      // of; the day's figure swaps that for what the allocations live on the
+      // day relieved, which for a foreign one settled at another rate is not
+      // what the voucher gave (D221).
+      const relief = allocationInvoiceAmount(alloc).scaled;
+      const shift = (alloc.status === "active" ? relief : 0n) - (live ? relief : 0n);
+      if (shift !== 0n) settledAfter.set(alloc.invoiceId, (settledAfter.get(alloc.invoiceId) ?? 0n) + shift);
+      if (live && !asOf.laterInvoiceIds.has(alloc.invoiceId)) applied += alloc.amount.scaled;
     }
-    if (!standing || !partyId) return;
-    const applied = active.filter((alloc) => !asOf.laterInvoiceIds.has(alloc.invoiceId)).reduce((sum, alloc) => sum + alloc.amount.scaled, 0n);
+    if (date > asOf.asOfDate || !standing || !partyId) return;
     const left = amount - applied;
     if (left > 0n) unapplied.set(partyId, (unapplied.get(partyId) ?? 0n) + left);
   };
@@ -620,12 +652,12 @@ async function partyOpenItems(
     // read below, by `openingPartyOf`, and reading it here as well would
     // double it.
     if (line.partyId && line.sourceDocType !== openingDocType) {
-      // A realised exchange difference is carried by its live allocation — the
-      // voucher it used up and the invoice it relieved (D221). Once that is
-      // undone the ladder no longer sees the allocation, so the entry and its
-      // reversal stand as items of their own, dated as they posted.
+      // A realised exchange difference is carried by its allocation while that
+      // stands on the day — the voucher it used up and the invoice it relieved
+      // (D221, D265). On any other day the entry and its reversal stand as
+      // items of their own, dated as they posted.
       if (line.sourceDocType === FX_REALISED_DOC_TYPE) {
-        if (await allocationIsActive(deps, line.sourceDocId)) continue;
+        if (await realisedFxAllocationLiveOn(deps, line.sourceDocId, asOf.asOfDate, asOf.entryDates)) continue;
         const key = `${line.entryId} ${line.partyId}`;
         const item = realisedByEntry.get(key) ?? { partyId: line.partyId, source: "fx_difference", reference: line.entryNo ?? line.entryId, date: line.date, amount: Money.zero(), branchId: line.branchId, scaled: 0n };
         item.scaled += amount;
@@ -1534,11 +1566,12 @@ export function createReportsRoutes(
    * rate, so without them the statement closes that far from the ladder.
    */
   async function realisedFxEntries(controlId: string, partyId: string, asOfDate: string, sign: 1n | -1n): Promise<PartyStatementEntry[]> {
-    const lines = (await deps.ledger.listLines?.({ accountIds: [controlId], toDate: asOfDate })) ?? [];
+    const lines = (await deps.ledger.listLines?.({ accountIds: [controlId] })) ?? [];
+    const entryDates = new Map(lines.map((line) => [line.entryId, line.date]));
     const byEntry = new Map<string, { line: PostedLine; scaled: bigint }>();
     for (const line of lines) {
-      if (line.sourceDocType !== FX_REALISED_DOC_TYPE || line.partyId !== partyId) continue;
-      if (!(await allocationIsActive(deps, line.sourceDocId))) continue;
+      if (line.date > asOfDate || line.sourceDocType !== FX_REALISED_DOC_TYPE || line.partyId !== partyId) continue;
+      if (!(await realisedFxAllocationLiveOn(deps, line.sourceDocId, asOfDate, entryDates))) continue;
       const entry = byEntry.get(line.entryId) ?? { line, scaled: 0n };
       entry.scaled += line.debit.scaled - line.credit.scaled;
       byEntry.set(line.entryId, entry);

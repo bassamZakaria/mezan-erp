@@ -1,9 +1,9 @@
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { App, SessionRegistry } from "@mezan/api";
-import { ALL_SCOPE, MODULE_CATALOG, Money, createCustomer as buildCustomer, createSupplier as buildSupplier, createEntitlements } from "@mezan/domain";
+import { ALL_SCOPE, MODULE_CATALOG, Money, createCustomer as buildCustomer, createSupplier as buildSupplier, createEntitlements, toTenantDay } from "@mezan/domain";
 import { createSqliteCustomerRepository, createSqliteLedgerStore, createSqliteSupplierRepository, openSqliteConnection } from "@mezan/persistence";
 import type { DashboardSummaryDTO, SessionDTO } from "@mezan/contracts";
 import { createBackend, type BackendHandle } from "./create-backend.js";
@@ -5183,13 +5183,15 @@ describe("createBackend — foreign documents settle and return in base (D202, D
     const open = { foreign: "100.000000", booked: "4800.000000", delta: "-100.000000", gainLoss: "-100.000000" };
     const half = { foreign: "50.000000", booked: "2400.000000", delta: "-50.000000", gainLoss: "-50.000000" };
 
+    const today = toTenantDay(new Date().toISOString());
+
     expect((await post(app, "/vouchers/v-half/allocations", { allocationId: "al-1", invoiceId: "inv-usd", amount: "2500" }, admin(app))).status).toBe(201);
     expect(await glBalance(app, "4920")).toBe(-100);
-    expect(await position(app, "2026-08-31", "1105")).toEqual(half);
+    expect(await position(app, today, "1105")).toEqual(half);
+    // D265: applied by hand today, so at the August close the receipt was still on account.
+    expect(await position(app, "2026-08-31", "1105")).toEqual(open);
     expect((await post(app, "/allocations/al-1/reverse", {}, admin(app))).status).toBe(200);
-    const today = new Date().toISOString().slice(0, 10);
     expect(await position(app, today, "1105")).toEqual(open);
-    expect(await position(app, "2026-08-31", "1105")).toEqual(half);
     expect((await post(app, "/vouchers/v-half/allocations", { allocationId: "al-2", invoiceId: "inv-usd", amount: "2500" }, admin(app))).status).toBe(201);
     expect(await position(app, today, "1105")).toEqual(half);
     expect(await reconDiff(app, "ar")).toBe(0);
@@ -5198,6 +5200,7 @@ describe("createBackend — foreign documents settle and return in base (D202, D
     expect((await get(app, "/sales-invoices/inv-usd")).remainingBalance).toBe("4800.000000");
     expect(await glBalance(app, "4920")).toBe(0);
     expect(await position(app, today, "1105")).toEqual(open);
+    expect(await position(app, "2026-08-31", "1105")).toEqual(open);
     expect(await reconDiff(app, "ar")).toBe(0);
   });
 
@@ -5228,17 +5231,104 @@ describe("createBackend — foreign documents settle and return in base (D202, D
     expect(await glBalance(app, "2100")).toBe(0);
     expect(await glBalance(app, "5920")).toBe(200);
 
-    expect(await position(app, "2026-08-31", "2100")).toBeNull();
-    expect((await revaluationPreview(app, "2026-08-31")).hasImpact).toBe(false);
+    const today = toTenantDay(new Date().toISOString());
+    const open = { foreign: "100.000000", booked: "4800.000000", delta: "-100.000000", gainLoss: "100.000000" };
+    expect(await position(app, today, "2100")).toBeNull();
+    expect((await revaluationPreview(app, today)).hasImpact).toBe(false);
+    // D265: the cheque was applied by hand today; at the August close it was still on account.
+    expect(await position(app, "2026-08-31", "2100")).toEqual(open);
     expect(await reconDiff(app, "ap")).toBe(0);
 
     expect((await post(app, "/cheques/v-chq/deposit", { bankTreasuryAccountId: "ta-cash" }, admin(app))).status).toBe(200);
     expect((await post(app, "/cheques/v-chq/bounce", { date: "2026-08-28" }, admin(app))).status).toBe(200);
     expect((await get(app, "/purchases/invoices/pi-usd")).remainingBalance).toBe("4800.000000");
     expect(await glBalance(app, "5920")).toBe(0);
-    expect(await position(app, "2026-08-31", "2100")).toEqual({ foreign: "100.000000", booked: "4800.000000", delta: "-100.000000", gainLoss: "100.000000" });
-    expect(await position(app, "2026-08-27", "2100")).toBeNull();
+    expect(await position(app, today, "2100")).toEqual(open);
+    expect(await position(app, "2026-08-31", "2100")).toEqual(open);
     expect(await reconDiff(app, "ap")).toBe(0);
+  });
+
+  function daysFrom(from: string, to: string): string[] {
+    const days: string[] = [];
+    for (let at = Date.parse(`${from}T00:00:00Z`); at <= Date.parse(`${to}T00:00:00Z`); at += 86_400_000) days.push(new Date(at).toISOString().slice(0, 10));
+    return days;
+  }
+  async function balanceOn(app: App, accountId: string, date: string): Promise<string> {
+    return (await get(app, `/gl/accounts/${accountId}/ledger?asOf=${date}`)).balance.balance;
+  }
+  /** What revaluation, the GL and the ladder each say about cust-usd as of `date` (D265). */
+  async function dayOf(app: App, date: string) {
+    const ladder = await get(app, `/reports/aging/customers?asOfDate=${date}`);
+    const row = ladder.rows.find((r: { customerId: string }) => r.customerId === "cust-usd");
+    return {
+      date,
+      position: await position(app, date, "1105"),
+      gain: Number(await balanceOn(app, "4920", date)),
+      control: Number(await balanceOn(app, "1105", date)),
+      ladderRow: row?.total ?? 0,
+      ladderTies: ladder.reconciliation.reportTotal === ladder.reconciliation.referenceTotal,
+    };
+  }
+  async function halfReceiptOnAccount(app: App) {
+    await createCustomer(app, "cust-usd", "0");
+    await createServiceItem(app);
+    await multiCurrency(app);
+    expect((await authedPost(app, "/sales-invoices", { ...invoiceBody("inv-usd", "cust-usd", "100"), currency: "USD" })).status).toBe(201);
+    expect((await authedPost(app, "/sales-invoices/inv-usd/confirm", {})).status).toBe(200);
+    await approvedRate(app, "fx-usd-50", "USD", "50.00", "2026-08-25");
+    expect((await post(app, "/vouchers", {
+      id: "v-half", date: "2026-08-26", voucherType: "customer_collection", amount: "2500", branchId: "BR1", paymentMethod: "cash",
+      treasuryAccountId: "ta-cash", treasuryGlAccountId: "1300-1", counterpartyGlAccountId: "1105", customerId: "cust-usd",
+    }, admin(app))).status).toBe(201);
+    expect((await post(app, "/vouchers/v-half/confirm", {}, admin(app))).status).toBe(200);
+  }
+  const OPEN = { foreign: "100.000000", booked: "4800.000000", delta: "200.000000", gainLoss: "200.000000" };
+  const HALF = { foreign: "50.000000", booked: "2400.000000", delta: "100.000000", gainLoss: "100.000000" };
+  const onAccount = (date: string) => ({ date, position: OPEN, gain: 0, control: 2300, ladderRow: 2300, ladderTies: true });
+  const settled = (date: string) => ({ date, position: HALF, gain: -100, control: 2400, ladderRow: 2400, ladderTies: true });
+
+  it("D265: EGP 2,500 applied to half a USD 100 invoice, undone and applied again today, is one settlement dated today — revaluation, 4920, 1105 and the ladder agree on every day", async () => {
+    const app = await newBackend();
+    await halfReceiptOnAccount(app);
+    const today = toTenantDay(new Date().toISOString());
+    for (const id of ["al-1", "al-2"]) {
+      expect((await post(app, "/vouchers/v-half/allocations", { allocationId: id, invoiceId: "inv-usd", amount: "2500" }, admin(app))).status).toBe(201);
+      if (id === "al-1") expect((await post(app, "/allocations/al-1/reverse", {}, admin(app))).status).toBe(200);
+    }
+    for (const id of ["FXR:al-1", "FXR:al-1:REV", "FXR:al-2"]) {
+      expect({ id, date: (await get(app, `/gl/journal-entries/${encodeURIComponent(id)}`)).date }).toEqual({ id, date: today });
+    }
+
+    for (const date of daysFrom("2026-08-26", today)) {
+      expect(await dayOf(app, date)).toEqual(date === today ? settled(date) : onAccount(date));
+    }
+    expect(await reconDiff(app, "ar")).toBe(0);
+  });
+
+  it("D265: made on the 28th, undone on 2 September and made again on the 5th — each settlement stands only between its own days, and a closed August refuses nothing it no longer touches", async () => {
+    const app = await newBackend();
+    await halfReceiptOnAccount(app);
+    const at = (day: string) => vi.setSystemTime(new Date(`${day}T09:00:00Z`));
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      at("2026-08-28");
+      expect((await post(app, "/vouchers/v-half/allocations", { allocationId: "al-1", invoiceId: "inv-usd", amount: "2500" }, admin(app))).status).toBe(201);
+      const periods = (await get(app, "/fiscal-periods")) as { id: string; startDate: string; endDate: string }[];
+      const august = periods.find((p) => p.startDate <= "2026-08-28" && p.endDate >= "2026-08-28")!;
+      at("2026-09-02");
+      expect((await post(app, `/fiscal-periods/${august.id}/close`, {}, admin(app))).status).toBe(200);
+      expect((await post(app, "/allocations/al-1/reverse", {}, admin(app))).status).toBe(200);
+      at("2026-09-05");
+      expect((await post(app, "/vouchers/v-half/allocations", { allocationId: "al-2", invoiceId: "inv-usd", amount: "2500" }, admin(app))).status).toBe(201);
+    } finally {
+      vi.useRealTimers();
+    }
+
+    for (const date of daysFrom("2026-08-26", "2026-09-07")) {
+      const live = (date >= "2026-08-28" && date < "2026-09-02") || date >= "2026-09-05";
+      expect(await dayOf(app, date)).toEqual(live ? settled(date) : onAccount(date));
+    }
+    expect(await reconDiff(app, "ar")).toBe(0);
   });
 });
 

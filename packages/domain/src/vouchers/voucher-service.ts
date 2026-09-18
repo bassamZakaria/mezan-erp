@@ -46,6 +46,7 @@ import { assertCashBalanceAllows } from "./cash-guard.js";
 import {
   allocate as allocateFn,
   invoiceOpenBalance,
+  laterDay,
   returnedByInvoice,
   reverseAllocation as reverseAllocationFn,
   settlementSplit,
@@ -58,7 +59,7 @@ import {
   type VoucherAllocation,
 } from "./allocation.js";
 import { InvoiceNotFoundError, VoucherNotAllocatableError, VoucherNotConfirmedError } from "./errors.js";
-import { postRealisedFx, reverseRealisedFx, settlementRatesFor, type RealisedFxPort, type SettlingMoney } from "./realised-fx.js";
+import { allocationUndoDay, postRealisedFx, reverseRealisedFx, settlementRatesFor, type RealisedFxPort, type SettlingMoney } from "./realised-fx.js";
 import { Money } from "../money/index.js";
 
 /** GL hook binding the REAL posting engine behind the framework, tagging vouchers as "system". */
@@ -442,11 +443,14 @@ export class VoucherService {
     const result = await this.service.reverse(id, opts);
     const active = (await this.deps.allocations.listByVoucher(id)).filter((a) => a.status === "active");
     for (const alloc of active) {
-      await reverseRealisedFx(alloc, this.glDeps, { date: opts.date, today: this.now().slice(0, 10) });
-      const undone = await reverseAllocationFn(alloc.id, this.now(), {
-        allocations: this.deps.allocations,
-        invoices: this.deps.invoices,
-      });
+      const undoneOn = await allocationUndoDay(alloc, result.reversal.date, this.deps.ledger);
+      await reverseRealisedFx(alloc, this.glDeps, undoneOn);
+      const undone = await reverseAllocationFn(
+        alloc.id,
+        this.now(),
+        { allocations: this.deps.allocations, invoices: this.deps.invoices },
+        undoneOn,
+      );
       await this.projectSettlement(undone.invoice);
     }
     return result;
@@ -454,7 +458,13 @@ export class VoucherService {
 
   async allocate(
     voucherId: string,
-    input: { allocationId: string; invoiceId: string; amount: import("../money/money.js").Money; now?: string },
+    input: {
+      allocationId: string;
+      invoiceId: string;
+      amount: import("../money/money.js").Money;
+      now?: string;
+      date?: string;
+    },
   ): Promise<{ allocation: VoucherAllocation }> {
     const doc = await this.requireConfirmedAllocatable(voucherId);
     const line = voucherLine(doc);
@@ -475,10 +485,11 @@ export class VoucherService {
           invoiceId: input.invoiceId,
           amount: input.amount,
           now: input.now ?? this.now(),
+          date: laterDay(input.date ?? (input.now ?? this.now()).slice(0, 10), doc.date),
           ...(realisedFx
             ? {
                 rates: (invoice) => settlementRatesFor(realisedFx, invoice, money),
-                beforeSave: async (invoice, split) => {
+                beforeSave: async (invoice, split, date) => {
                   const booked = await realisedFx.invoiceFx(invoice.id, invoice.kind);
                   const rates = await settlementRatesFor(realisedFx, invoice, money);
                   if (!booked || !rates) return { fxEntryId: null };
@@ -490,7 +501,7 @@ export class VoucherService {
                       currency: booked.currency,
                       invoiceRate: booked.fxRate,
                       money,
-                      date: doc.date,
+                      date: date ?? doc.date,
                       controlAccountId: line.counterpartyGlAccountId!,
                       branchId: line.branchId,
                       reference: doc.docNo ?? doc.id,
@@ -530,15 +541,18 @@ export class VoucherService {
     return settlementSplit(money.amount, invoiceOpenBalance(invoice, returned), rates);
   }
 
-  async reverseAllocation(allocationId: string, now?: string): Promise<{ allocation: VoucherAllocation }> {
-    const stamp = now ?? this.now();
+  async reverseAllocation(allocationId: string, opts: { now?: string; date?: string } = {}): Promise<{ allocation: VoucherAllocation }> {
+    const stamp = opts.now ?? this.now();
     const run = async () => {
       const existing = await this.deps.allocations.findById(allocationId);
-      if (existing?.status === "active") await reverseRealisedFx(existing, this.glDeps, { today: stamp.slice(0, 10) });
-      const result = await reverseAllocationFn(allocationId, stamp, {
-        allocations: this.deps.allocations,
-        invoices: this.deps.invoices,
-      });
+      const undoneOn = existing ? await allocationUndoDay(existing, opts.date ?? stamp.slice(0, 10), this.deps.ledger) : undefined;
+      if (existing?.status === "active" && undoneOn) await reverseRealisedFx(existing, this.glDeps, undoneOn);
+      const result = await reverseAllocationFn(
+        allocationId,
+        stamp,
+        { allocations: this.deps.allocations, invoices: this.deps.invoices },
+        undoneOn,
+      );
       await this.projectSettlement(result.invoice);
       return { allocation: result.allocation };
     };

@@ -63,6 +63,7 @@ export async function run(ctx: Ctx): Promise<void> {
   await headlineFiguresTieToTheLedger_R212(ctx);
   await aFilterMovesBothRowsAndKpi_R212(ctx);
   await drillDownAnswersFromTheSourceDocuments_A5(ctx);
+  await everyCustomerOwesTheirAgingRow_D195(ctx);
 }
 
 async function everyReportCarriesAKpiStrip_R212(ctx: Ctx): Promise<void> {
@@ -341,5 +342,164 @@ export async function agingLaddersTieToTheirControlAccounts_D192(ctx: Ctx): Prom
     const code = (await ctx.req("GET", "/customers/CUST-DEMO-1")).body?.code;
     const stats = await ctx.req("GET", `/customers/stats?q=${encodeURIComponent(String(code))}`);
     ctx.checkEq("CUST-DEMO-1: what the customers screen says they owe is their aging row", ctx.n(stats.body?.toCollect), ctx.n(agingRow?.total));
+  });
+}
+
+/**
+ * D195 — every customer's «المستحق» on the customers screen is their opening
+ * balance plus their aging row: one server computation, so an on-account
+ * receipt, a cheque or a return cannot land in one and not the other. Runs in
+ * the reports module, after sales and purchases have moved the tenant.
+ */
+export async function everyCustomerOwesTheirAgingRow_D195(ctx: Ctx): Promise<void> {
+  await ctx.scenario("D195 — every customer's amount owed on the customers screen is their aging row", async () => {
+    const aging = await ctx.req("GET", "/reports/aging/customers");
+    const rowTotal = new Map(ctx.rows(aging.body).map((row: any) => [row.customerId, ctx.n(row.total)]));
+    const customers = await ctx.allRows("/customers");
+    ctx.check("the customers list carries the server's owed figure", customers.length > 0 && customers.every((c: any) => typeof c.owed === "string"), JSON.stringify(customers[0] ?? {}).slice(0, 200));
+    const off = customers.filter((c: any) => Math.abs(ctx.n(c.owed) - ctx.n(c.openingBalance) - (rowTotal.get(c.id) ?? 0)) > 0.005);
+    ctx.check("owed − opening balance = the aging row, for every customer", off.length === 0, off.slice(0, 3).map((c: any) => `${c.id} owed ${c.owed} row ${rowTotal.get(c.id) ?? 0}`).join("; "));
+  });
+}
+
+/**
+ * D194, D195, D196 on the seeded tenant. A currency of this scenario's own
+ * (CHF) keeps its open balance and its revaluation out of the USD/EUR trails
+ * the seams module measures; the settings it needs are restored afterwards.
+ */
+export async function foreignInvoicesOnAccountReceiptsAndChequeVouchers_D194_D196(ctx: Ctx): Promise<void> {
+  const { req, check, checkEq, n } = ctx;
+  const today = "2026-08-24";
+  const monthEnd = "2026-08-31";
+  const glBalanceOf = (accountId: string) => glBalance(ctx, accountId);
+  const approveRate = async (id: string, rate: string, effectiveDate: string) => {
+    await req("POST", "/exchange-rates", { id, currency: "CHF", rate, effectiveDate, rateType: "standard", source: "manual" });
+    return req("POST", `/exchange-rates/${id}/approve`, {});
+  };
+  const tie = (body: any) => n(body?.reconciliation?.reportTotal) - n(body?.reconciliation?.referenceTotal);
+  const item = (body: any) => n(((body?.reconciliation?.reconcilingItems ?? []) as any[]).find((i) => i.key === "fxRevaluation")?.amount ?? 0);
+
+  await req("POST", "/items", { id: "SCN-D194-SVC", code: "SCN-D194-SVC", nameAr: "خدمة سيناريو الأعمار", type: "service", baseUnitCode: "PCS", trackInventory: false, taxRatePercent: 0, revenueAccountId: "4100" });
+
+  await ctx.scenario("D194 — a foreign invoice on each side ages at its booked EGP value; revaluation is the ladders' one named reconciling item", async () => {
+    const base = (await req("GET", "/settings")).body;
+    const currencies: string[] = base?.secondaryCurrencies ?? [];
+    const enabled = await req("PUT", "/settings", { ...base, multiCurrencyEnabled: true, secondaryCurrencies: [...currencies.filter((c) => c !== "CHF"), "CHF"] });
+    check("multi-currency is on with CHF allowed", enabled.status === 200, `status ${enabled.status}`);
+    check("a CHF booking rate of 60.00 is approved", (await approveRate("SCN-D194-CHF-20", "60.00", "2026-08-20")).body?.status === "approved");
+    try {
+      await req("POST", "/customers", { id: "SCN-D194-CUST", code: "SCN-D194-CUST", nameAr: "عميل بالفرنك", paymentTermsDays: 30, currency: "CHF", openingBalance: "0", active: true, creditLimit: "0", taxExempt: false, etaBuyerType: "auto" });
+      await req("POST", "/suppliers", { id: "SCN-D194-SUPP", code: "SCN-D194-SUPP", nameAr: "مورد بالفرنك", currency: "CHF", openingBalance: "0" });
+      const arBefore = await glBalanceOf("1105");
+      const apBefore = -(await glBalanceOf("2100"));
+
+      const sale = await req("POST", "/sales-invoices", {
+        id: "SCN-D194-SI", date: today, dueDate: "2026-09-23", customerId: "SCN-D194-CUST", customerNameAr: "عميل بالفرنك",
+        warehouseId: "WH-MAIN", branchId: "BR-MAIN", currency: "CHF", arAccountId: "1105", taxAccountId: "2200",
+        lines: [{ lineId: "SCN-D194-SI-L1", itemId: "SCN-D194-SVC", itemNameAr: "خدمة بالفرنك", isStock: false, qty: "1", unitPrice: "100", taxRatePercent: 0, revenueAccountId: "4100" }],
+      });
+      const saleConfirmed = await req("POST", "/sales-invoices/SCN-D194-SI/confirm", {});
+      check("a CHF 100 sales invoice confirms", sale.status === 201 && saleConfirmed.status === 200, `${sale.status}/${saleConfirmed.status} ${JSON.stringify(saleConfirmed.body).slice(0, 200)}`);
+      const bill = await req("POST", "/purchases/invoices", {
+        id: "SCN-D194-PI", supplierId: "SCN-D194-SUPP", date: today, dueDate: "2026-09-23", warehouseId: "WH-MAIN", branchId: "BR-MAIN", currency: "CHF",
+        lines: [{ itemId: null, kind: "expense", description: "خدمة بالفرنك", qty: "1", unitCost: "50", taxRatePercent: 0 }],
+      });
+      const billConfirmed = await req("POST", "/purchases/invoices/SCN-D194-PI/confirm", {});
+      check("a CHF 50 purchase invoice confirms", bill.status === 201 && billConfirmed.status === 200, `${bill.status}/${billConfirmed.status} ${JSON.stringify(billConfirmed.body).slice(0, 200)}`);
+      checkEq("1105 takes the sale at its booked EGP value, 100 × 60.00", (await glBalanceOf("1105")) - arBefore, 6000);
+      checkEq("2100 takes the bill at its booked EGP value, 50 × 60.00", -(await glBalanceOf("2100")) - apBefore, 3000);
+
+      const customers = await req("GET", "/reports/aging/customers");
+      const suppliers = await req("GET", "/reports/aging/suppliers");
+      checkEq("the customer ladder ages the CHF invoice at 6,000.00, not at its face 100", n(ctx.rows(customers.body).find((r: any) => r.customerId === "SCN-D194-CUST")?.total), 6000);
+      checkEq("the supplier ladder ages the CHF bill at 3,000.00, not at its face 50", n(ctx.rows(suppliers.body).find((r: any) => r.supplierId === "SCN-D194-SUPP")?.total), 3000);
+      check("the customer ladder still ties to 1105", customers.body?.reconciliation?.withinTolerance === true, JSON.stringify(customers.body?.reconciliation));
+      check("the supplier ladder still ties to 2100", suppliers.body?.reconciliation?.withinTolerance === true, JSON.stringify(suppliers.body?.reconciliation));
+
+      const agingAt = (side: string) => req("GET", `/reports/aging/${side}?asOfDate=${monthEnd}`);
+      const customerTieBefore = tie((await agingAt("customers")).body);
+      const supplierTieBefore = tie((await agingAt("suppliers")).body);
+      check("a CHF closing rate of 62.50 is approved", (await approveRate("SCN-D194-CHF-31", "62.50", monthEnd)).body?.status === "approved");
+      const revalued = await req("POST", "/revaluation/post", { date: monthEnd, currencies: ["CHF"], autoReverse: true });
+      check("the month-end CHF revaluation posts, with its next-day reversal", revalued.status === 201 && Boolean(revalued.body?.reversalId), `status ${revalued.status} ${JSON.stringify(revalued.body).slice(0, 200)}`);
+      const customersAtMonthEnd = (await agingAt("customers")).body;
+      const suppliersAtMonthEnd = (await agingAt("suppliers")).body;
+      checkEq("on the revaluation date the customer ladder names the 250.00 restatement of 1105 (100 × 2.50)", item(customersAtMonthEnd), 250);
+      checkEq("and the supplier ladder the 125.00 restatement of 2100 (50 × 2.50)", item(suppliersAtMonthEnd), 125);
+      checkEq("the customer ladder's tie is exactly what it was before the revaluation", tie(customersAtMonthEnd), customerTieBefore);
+      checkEq("and so is the supplier ladder's", tie(suppliersAtMonthEnd), supplierTieBefore);
+      const customersNow = (await req("GET", "/reports/aging/customers")).body;
+      check("once the reversal has posted there is nothing left to reconcile", item(customersNow) === 0 && customersNow?.reconciliation?.withinTolerance === true, JSON.stringify(customersNow?.reconciliation));
+    } finally {
+      const restored = await req("PUT", "/settings", { ...(await req("GET", "/settings")).body, multiCurrencyEnabled: base?.multiCurrencyEnabled, secondaryCurrencies: currencies });
+      check("the currency settings are restored", restored.status === 200, `status ${restored.status}`);
+    }
+  });
+
+  await ctx.scenario("D195 — an on-account receipt moves the customers screen and the aging row together", async () => {
+    await req("POST", "/customers", { id: "SCN-D195-CUST", code: "SCN-D195-CUST", nameAr: "عميل الدفعة غير المخصصة", paymentTermsDays: 30, currency: "EGP", openingBalance: "0", active: true, creditLimit: "0", taxExempt: false, etaBuyerType: "auto" });
+    await req("POST", "/sales-invoices", {
+      id: "SCN-D195-SI", date: today, dueDate: "2026-09-23", customerId: "SCN-D195-CUST", customerNameAr: "عميل الدفعة غير المخصصة",
+      warehouseId: "WH-MAIN", branchId: "BR-MAIN", arAccountId: "1105", taxAccountId: "2200",
+      lines: [{ lineId: "SCN-D195-SI-L1", itemId: "SCN-D194-SVC", itemNameAr: "خدمة", isStock: false, qty: "1", unitPrice: "1000", taxRatePercent: 0, revenueAccountId: "4100" }],
+    });
+    await req("POST", "/sales-invoices/SCN-D195-SI/confirm", {});
+    const cash = (await req("GET", "/treasury-accounts/TR-DEMO-CASH")).body;
+    await req("POST", "/vouchers", {
+      id: "SCN-D195-V", date: today, voucherType: "customer_collection", amount: "100", branchId: "BR-MAIN", paymentMethod: "cash",
+      treasuryAccountId: "TR-DEMO-CASH", treasuryGlAccountId: cash?.glAccountId, counterpartyGlAccountId: "1105", customerId: "SCN-D195-CUST",
+    });
+    const confirmed = await req("POST", "/vouchers/SCN-D195-V/confirm", {});
+    check("a 100.00 collection nobody allocates confirms", confirmed.status === 200, `status ${confirmed.status} ${JSON.stringify(confirmed.body).slice(0, 200)}`);
+    const row = ctx.rows((await req("GET", "/reports/aging/customers")).body).find((r: any) => r.customerId === "SCN-D195-CUST");
+    const customer = (await req("GET", "/customers/SCN-D195-CUST")).body;
+    checkEq("the aging row nets the on-account receipt: 1,000.00 − 100.00", n(row?.total), 900);
+    checkEq("and the customers screen says the same", n(customer?.owed), 900);
+    checkEq("so does the KPI strip", n((await req("GET", "/customers/stats?q=SCN-D195-CUST")).body?.toCollect), 900);
+  });
+
+  await ctx.scenario("D196 — a «شيك» receipt voucher raises its cheque in the real app, credits AR once, and its bounce reverses it", async () => {
+    await req("POST", "/customers", { id: "SCN-D196-CUST", code: "SCN-D196-CUST", nameAr: "عميل الشيك", paymentTermsDays: 30, currency: "EGP", openingBalance: "0", active: true, creditLimit: "0", taxExempt: false, etaBuyerType: "auto" });
+    await req("POST", "/sales-invoices", {
+      id: "SCN-D196-SI", date: today, dueDate: "2026-09-23", customerId: "SCN-D196-CUST", customerNameAr: "عميل الشيك",
+      warehouseId: "WH-MAIN", branchId: "BR-MAIN", arAccountId: "1105", taxAccountId: "2200",
+      lines: [{ lineId: "SCN-D196-SI-L1", itemId: "SCN-D194-SVC", itemNameAr: "خدمة", isStock: false, qty: "1", unitPrice: "1000", taxRatePercent: 0, revenueAccountId: "4100" }],
+    });
+    await req("POST", "/sales-invoices/SCN-D196-SI/confirm", {});
+    const bank = (await req("GET", "/treasury-accounts/TR-DEMO-BANK")).body;
+    const treasuryGl = String(bank?.glAccountId);
+    const before = { ar: await glBalanceOf("1105"), cheques: await glBalanceOf("1320"), bank: await glBalanceOf(treasuryGl), invariants: await ctx.invariants() };
+
+    const created = await req("POST", "/vouchers", {
+      id: "SCN-D196-V", date: today, voucherType: "customer_collection", amount: "400", branchId: "BR-MAIN", paymentMethod: "cheque", referenceNo: "SCN-D196-0001",
+      treasuryAccountId: "TR-DEMO-BANK", treasuryGlAccountId: treasuryGl, counterpartyGlAccountId: "1105", customerId: "SCN-D196-CUST",
+    });
+    const confirmed = await req("POST", "/vouchers/SCN-D196-V/confirm", {});
+    check("a «شيك» collection of 400.00 creates and confirms", created.status === 201 && confirmed.status === 200, `${created.status}/${confirmed.status} ${JSON.stringify(confirmed.body).slice(0, 200)}`);
+    const cheque = (await req("GET", "/cheques/SCN-D196-V")).body;
+    check(
+      "the cheque register holds it: incoming, pending, the customer's, numbered as typed",
+      cheque?.direction === "incoming" && cheque?.status === "pending" && cheque?.partyId === "SCN-D196-CUST" && cheque?.chequeNumber === "SCN-D196-0001",
+      JSON.stringify(cheque).slice(0, 240),
+    );
+    checkEq("the cheque is for the voucher's 400.00", n(cheque?.amount), 400);
+    checkEq("1105 is credited ONCE — by the voucher, not again by the cheque", (await glBalanceOf("1105")) - before.ar, -400);
+    checkEq("the amount waits in cheques under collection", (await glBalanceOf("1320")) - before.cheques, 400);
+    checkEq("and the bank holds nothing until the cheque clears", (await glBalanceOf(treasuryGl)) - before.bank, 0);
+    const after = await ctx.invariants();
+    checkEq("the AR sub-ledger still reconciles", after.ar, before.invariants.ar);
+    check("the customer ladder still ties to 1105", (await req("GET", "/reports/aging/customers")).body?.reconciliation?.withinTolerance === true);
+
+    await req("POST", "/cheques/SCN-D196-V/deposit", { bankTreasuryAccountId: "TR-DEMO-BANK" });
+    const bounced = await req("POST", "/cheques/SCN-D196-V/bounce", { date: today });
+    check("the bank returns the cheque", bounced.status === 200 && bounced.body?.status === "bounced", `status ${bounced.status} ${JSON.stringify(bounced.body).slice(0, 200)}`);
+    check("the bounce reverses the voucher that raised it", (await req("GET", "/vouchers/SCN-D196-V")).body?.status === "reversed");
+    checkEq("the debt is back on 1105", await glBalanceOf("1105"), before.ar);
+    checkEq("1320 is empty again", await glBalanceOf("1320"), before.cheques);
+    checkEq("and the bank never moved", await glBalanceOf(treasuryGl), before.bank);
+    const settled = await ctx.invariants();
+    checkEq("the AR sub-ledger still reconciles after the bounce", settled.ar, before.invariants.ar);
+    const row = ctx.rows((await req("GET", "/reports/aging/customers")).body).find((r: any) => r.customerId === "SCN-D196-CUST");
+    checkEq("the customer owes the whole invoice again on the ladder", n(row?.total), 1000);
   });
 }

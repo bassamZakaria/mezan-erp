@@ -10,7 +10,7 @@ import { run as shell } from "./scenarios/shell.js";
 import { run as crossModule } from "./scenarios/cross-module.js";
 import { run as seams } from "./scenarios/seams.js";
 import { run as eta } from "./scenarios/eta.js";
-import { run as reports, agingLaddersTieToTheirControlAccounts_D192 } from "./scenarios/reports.js";
+import { run as reports, agingLaddersTieToTheirControlAccounts_D192, foreignInvoicesOnAccountReceiptsAndChequeVouchers_D194_D196 } from "./scenarios/reports.js";
 import { run as salesParity } from "./scenarios/sales-parity.js";
 import { run as itemsForms } from "./scenarios/items-forms.js";
 import { run as security } from "./scenarios/security.js";
@@ -35,6 +35,7 @@ if (!only.size || only.has("reports")) {
   process.stdout.write("  seeded-tenant…");
   const before = ctx.passes.length + ctx.failures.length;
   await agingLaddersTieToTheirControlAccounts_D192(ctx);
+  await foreignInvoicesOnAccountReceiptsAndChequeVouchers_D194_D196(ctx);
   console.log(` ${ctx.passes.length + ctx.failures.length - before} assertions`);
 }
 
@@ -51,4 +52,6 @@ for (const [name, fn] of [
   console.log(` ${ctx.passes.length + ctx.failures.length - before} assertions`);
 }
 
+const end = await ctx.invariants();
+console.log(`final     tb ${end.tb.toFixed(6)} · inventory ${end.inventory.toFixed(6)} · ap ${end.ap.toFixed(6)} · ar ${end.ar.toFixed(6)}`);
 process.exit(ctx.report());

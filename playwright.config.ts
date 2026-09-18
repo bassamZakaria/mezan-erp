@@ -69,7 +69,7 @@ export default defineConfig({
       timeout: 60_000,
       stdout: "pipe",
       stderr: "pipe",
-      env: { MEZAN_API_URL: `${API_URL}/api` },
+      env: { MEZAN_API_URL: API_URL },
     },
   ],
 });

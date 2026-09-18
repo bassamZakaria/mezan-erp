@@ -9,7 +9,7 @@ import { ADMIN_HEADERS, BRANCH_ID, CORE, seedActorHeaders, step } from "./shared
  * salespeople plus seven more), a contract per employee, and the year of
  * activity that hangs off them — holidays, an applied leave-policy preset with
  * its accrual batches and balances, leave requests in every status, two weeks
- * of attendance, five advances and three monthly payroll runs at different
+ * of attendance plus the month the seed runs in, five advances and three monthly payroll runs at different
  * stages of the draft → محتسب → معتمد → مصروف flow.
  *
  * Payroll figures are contractual only: basic salary, contract allowances,
@@ -498,6 +498,40 @@ const ATTENDANCE_WINDOWS = [
 ];
 
 /**
+ * The attendance screen opens on the current month, so the fixed windows
+ * above leave it empty on any later day. This window runs from the first of
+ * the month the seed runs in (or two weeks back, early in a month) to that
+ * day, for the employees still at work. Dates a fixed window already holds
+ * are skipped — the route refuses a second entry for the same day.
+ */
+const ROLLING_ATTENDANCE_EMPLOYEES = ["EMP-DEMO-1", "EMP-DEMO-2", "EMP-DEMO-3", "EMP-DEMO-5", "EMP-DEMO-6"];
+
+/** Nth working day of the rolling window → the day that breaks the shift. */
+const ROLLING_ATTENDANCE_EXCEPTIONS: readonly {
+  workingDay: number;
+  employeeId: string;
+  checkIn: string | null;
+  checkOut?: string | null;
+  notes: string;
+}[] = [
+  { workingDay: 1, employeeId: "EMP-DEMO-1", checkIn: "09:32", checkOut: "17:18", notes: "تأخير — زحام مروري" },
+  { workingDay: 2, employeeId: "EMP-DEMO-5", checkIn: null, notes: "غياب — أُبلغ بالهاتف" },
+  { workingDay: 3, employeeId: "EMP-DEMO-6", checkIn: "08:40", checkOut: "19:05", notes: "وردية ممتدة — أمر تشغيل عاجل" },
+];
+
+function rollingAttendanceWindow(today: string): { from: string; to: string } {
+  const firstOfMonth = `${today.slice(0, 7)}-01`;
+  const twoWeeksBack = shiftDate(today, -13);
+  return { from: firstOfMonth < twoWeeksBack ? firstOfMonth : twoWeeksBack, to: today };
+}
+
+function shiftDate(iso: string, days: number): string {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+/**
  * Days that break the ordinary shift. A null `checkIn` leaves the status to
  * the route, which reads the holiday calendar and the employee's approved
  * leave — so 23 يوليو scores holiday and سلمى's approved days score on_leave
@@ -757,6 +791,35 @@ export async function seedHr(app: App): Promise<void> {
           graceMinutes: GRACE_MINUTES,
         });
       }
+    }
+  }
+
+  const fixedDays = new Set(
+    ATTENDANCE_WINDOWS.flatMap((w) => eachDate(w.from, w.to).flatMap((date) => w.employeeIds.map((id) => `${id}|${date}`))),
+  );
+  const rolling = rollingAttendanceWindow(new Date().toISOString().slice(0, 10));
+  const rollingDates = eachDate(rolling.from, rolling.to);
+  const isHoliday = (date: string) =>
+    HOLIDAYS.some((h) => h.date === date || (h.recurringAnnual && h.date.slice(5) === date.slice(5)));
+  const workingDates = rollingDates.filter((date) => !isWeekend(date) && !isHoliday(date));
+  for (const date of rollingDates) {
+    for (const employeeId of ROLLING_ATTENDANCE_EMPLOYEES) {
+      if (fixedDays.has(`${employeeId}|${date}`)) continue;
+      const exception = ROLLING_ATTENDANCE_EXCEPTIONS.find(
+        (e) => e.employeeId === employeeId && workingDates[e.workingDay] === date,
+      );
+      const offDay = isWeekend(date) || isHoliday(date);
+      await step(app, "POST", "/hr/attendance", {
+        id: `ATT-${employeeId.replace("EMP-DEMO-", "")}-${date}`,
+        employeeId,
+        date,
+        checkIn: exception ? exception.checkIn : offDay ? null : DEFAULT_CHECK_IN,
+        checkOut: exception ? (exception.checkOut ?? null) : offDay ? null : DEFAULT_CHECK_OUT,
+        halfDay: false,
+        notes: exception?.notes ?? null,
+        expectedCheckIn: SHIFT_START,
+        graceMinutes: GRACE_MINUTES,
+      });
     }
   }
 

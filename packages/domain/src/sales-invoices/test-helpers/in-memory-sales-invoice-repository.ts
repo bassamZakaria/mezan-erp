@@ -41,7 +41,16 @@ export class InMemorySalesInvoiceRepository implements SalesInvoiceRepository {
           ? (inv.docNo ?? "").toLowerCase().includes(term) || (inv.customerNameAr ?? "").toLowerCase().includes(term)
           : true,
       )
-      .sort((a, b) => (a.date === b.date ? a.createdAt.localeCompare(b.createdAt) : a.date.localeCompare(b.date)));
+      .sort((a, b) => {
+        if (filter.sort?.key === "docNo") {
+          if (a.docNo === null || b.docNo === null) {
+            return a.docNo === b.docNo ? a.createdAt.localeCompare(b.createdAt) : a.docNo === null ? 1 : -1;
+          }
+          const byNo = a.docNo.localeCompare(b.docNo);
+          return filter.sort.direction === "desc" ? -byNo : byNo;
+        }
+        return a.date === b.date ? a.createdAt.localeCompare(b.createdAt) : a.date.localeCompare(b.date);
+      });
   }
 
   async list(filter: SalesInvoiceListFilter = {}): Promise<readonly SalesInvoice[]> {

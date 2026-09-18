@@ -2661,6 +2661,8 @@ function salesInvoiceParams(filter: Partial<SalesInvoiceListQueryDTO>): URLSearc
   if (filter.branchId) params.set("branchId", filter.branchId);
   if (filter.warehouseId) params.set("warehouseId", filter.warehouseId);
   if (filter.search) params.set("search", filter.search);
+  if (filter.sort) params.set("sort", filter.sort);
+  if (filter.sortDir) params.set("sortDir", filter.sortDir);
   if (filter.page) params.set("page", String(filter.page));
   if (filter.pageSize) params.set("pageSize", String(filter.pageSize));
   return params;

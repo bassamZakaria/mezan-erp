@@ -6,6 +6,7 @@ import {
   DocumentDetail,
   DocumentList,
   type DocumentListColumn,
+  type DocumentListSort,
   type DocumentListStatusChip,
   EmptyState,
   EntityPicker,
@@ -1787,7 +1788,12 @@ export function SalesInvoicesScreen() {
   // The rows are ONE page from the server; the counts and the KPI strip are
   // computed over the whole filtered set and strip the page out again, so the
   // total the pager needs is the «الكل» chip rather than the rows on screen.
-  const query = useSalesInvoices(listFilter);
+  const [sort, setSort] = useState<DocumentListSort | undefined>(undefined);
+  // Only the rows carry the sort: the counts and the KPI strip are the same
+  // whatever order the page is drawn in.
+  const query = useSalesInvoices(
+    sort ? { ...listFilter, sort: "docNo", sortDir: sort.direction } : listFilter,
+  );
   const invoices = query.data ?? [];
   const counts = useSalesInvoiceCounts(listFilter).data ?? {};
   const stats = useSalesInvoiceStats(listFilter).data ?? null;
@@ -2015,6 +2021,12 @@ export function SalesInvoicesScreen() {
           },
         ]}
         statusChips={statusChips}
+            sort={sort}
+            onSortChange={(key) => {
+              if (key !== "docNo") return;
+              setSort((prev) => ({ key, direction: prev?.key === key && prev.direction === "asc" ? "desc" : "asc" }));
+              setPage(1);
+            }}
             activeStatusKey={statusFilter}
             onStatusChange={(key) => {
               setStatusFilter(key as InvoiceFilterKey);

@@ -3586,6 +3586,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       // opening trial balance, and the open AR/AP the shop is actually owed.
       accounts,
       fiscalPeriods,
+      partyControlAccounts: resolvePartyControlAccounts,
       postOpeningEntry: async (entry) => {
         try {
           await postJournalEntry(

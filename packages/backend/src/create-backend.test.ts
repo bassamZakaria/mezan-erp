@@ -4145,6 +4145,23 @@ describe("createBackend — party balances no invoice carries, and one figure pe
     expect(clean.status).toBe(201);
   });
 
+  it("D225: the opening trial balance preview refuses the 1105/2100 rows its commit would refuse", async () => {
+    const app = await newBackend();
+    const res = await post(app, "/data-migration/opening-trial-balance/preview", {
+      rows: [
+        { accountCode: "1105", debit: "10000.00", credit: "0" },
+        { accountCode: "2100", debit: "0", credit: "4000.00" },
+        { accountCode: "3100", debit: "0", credit: "6000.00" },
+      ],
+    }, admin(app));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { errors: { rowNumber: number; reasons: string[] }[] };
+    expect(body.errors.map((e) => e.rowNumber)).toEqual([1, 2]);
+    expect(body.errors[0]!.reasons[0]).toContain("3210");
+    expect(body.errors[0]!.reasons[0]).toContain("customer opening balances");
+    expect(body.errors[1]!.reasons[0]).toContain("supplier opening balances");
+  });
+
   it("D204: an opening balance is on the party's aging row, the ladder ties to its control account, and owed is that row", async () => {
     const app = await newBackend();
     const customer = await authedPost(app, "/customers", {

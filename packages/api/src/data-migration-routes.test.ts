@@ -357,6 +357,8 @@ describe("data-migration-routes — ميزان المراجعة الافتتاح
     await accounts.create({ id: "a-cash", code: "1100", nameAr: "النقدية", nameEn: null, type: "asset", naturalBalance: "debit", parentId: null, isHeader: false, status: "active" });
     await accounts.create({ id: "a-cap", code: "3100", nameAr: "رأس المال", nameEn: null, type: "equity", naturalBalance: "credit", parentId: null, isHeader: false, status: "active" });
     await accounts.create({ id: "a-hdr", code: "1000", nameAr: "الأصول", nameEn: null, type: "asset", naturalBalance: "debit", parentId: null, isHeader: true, status: "active" });
+    await accounts.create({ id: "1105", code: "1105", nameAr: "العملاء", nameEn: null, type: "asset", naturalBalance: "debit", parentId: null, isHeader: false, status: "active" });
+    await accounts.create({ id: "2100", code: "2100", nameAr: "الموردون", nameEn: null, type: "liability", naturalBalance: "credit", parentId: null, isHeader: false, status: "active" });
 
     const periods = [
       { id: "fp-2025-12", year: 2025, periodNumber: 12, startDate: "2025-12-01", endDate: "2025-12-31", status: periodStatus },
@@ -391,6 +393,7 @@ describe("data-migration-routes — ميزان المراجعة الافتتاح
         employees: inMemoryEmployees(),
         accounts,
         fiscalPeriods,
+        partyControlAccounts: async () => new Map<string, "customer" | "supplier">([["1105", "customer"], ["2100", "supplier"]]),
         postOpeningEntry: async (entry) => {
           posted.push({ id: entry.id, date: entry.date, lines: [...entry.lines] });
         },
@@ -474,6 +477,30 @@ describe("data-migration-routes — ميزان المراجعة الافتتاح
     expect(body.date).toBe("2025-12-01");
     expect(body.dateAdjusted).toBe(true);
     expect(body.dateNoteAr).toContain("2025-11-30");
+    expect(posted).toHaveLength(0);
+  });
+
+  it("D225: the preview refuses a row on the customer or supplier control account, in both languages, as the commit does", async () => {
+    const { app, posted } = await tbApp();
+    const rows = [
+      { accountCode: "1105", debit: "700.00", credit: "0" },
+      { accountCode: "2100", debit: "0", credit: "200.00" },
+      { accountCode: "3100", debit: "0", credit: "500.00" },
+    ];
+    const preview = await app.fetch(req("/opening-trial-balance/preview", rows, "admin.settings.view"));
+    expect(preview.status).toBe(200);
+    const body = (await preview.json()) as { validCount: number; errors: { rowNumber: number; reasons: string[] }[] };
+    expect(body.errors.map((e) => e.rowNumber)).toEqual([1, 2]);
+    expect(body.errors[0]!.reasons[0]).toContain("أرصدة العملاء الافتتاحية");
+    expect(body.errors[0]!.reasons[0]).toContain("customer opening balances");
+    expect(body.errors[0]!.reasons[0]).toContain("3210");
+    expect(body.errors[1]!.reasons[0]).toContain("أرصدة الموردين الافتتاحية");
+    expect(body.errors[1]!.reasons[0]).toContain("supplier opening balances");
+    expect(body.validCount).toBe(1);
+
+    const commit = await app.fetch(req("/opening-trial-balance/commit", rows, "accounting.journal.create"));
+    expect(commit.status).toBe(422);
+    expect(((await commit.json()) as { errors: { rowNumber: number }[] }).errors.map((e) => e.rowNumber)).toEqual([1, 2]);
     expect(posted).toHaveLength(0);
   });
 });

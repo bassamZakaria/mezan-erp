@@ -1,6 +1,6 @@
 import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
-import { Money, type AlternateUnit, type CostingMethod, type EtaCodeType, type Item, type ItemRepository, type ItemStatus, type ItemType, type ItemSpecificationValue } from "@mezan/domain";
+import { DuplicateItemCodeError, Money, type AlternateUnit, type CostingMethod, type EtaCodeType, type Item, type ItemRepository, type ItemStatus, type ItemType, type ItemSpecificationValue } from "@mezan/domain";
 
 /**
  * Self-contained SQLite-backed ItemRepository (docs/archive/catalog/03-inventory.md
@@ -204,7 +204,25 @@ class SqliteItemStore implements ItemRepository {
     this.write(item);
   }
 
+  /**
+   * `code` is the table's only UNIQUE column besides the `id` primary key
+   * that `ON CONFLICT(id)` already handles, so any constraint failure here is
+   * a code clash — surfaced as the same domain error the in-memory fake and
+   * the pre-check throw, so `createItem`'s allocation retry can catch it
+   * regardless of which layer won the race.
+   */
   private write(item: Item): void {
+    try {
+      this.runUpsert(item);
+    } catch (err) {
+      if (err instanceof Error && "code" in err && (err as { code?: string }).code === "SQLITE_CONSTRAINT_UNIQUE") {
+        throw new DuplicateItemCodeError(item.code);
+      }
+      throw err;
+    }
+  }
+
+  private runUpsert(item: Item): void {
     this.upsert.run({
       id: item.id,
       code: item.code,

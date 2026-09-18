@@ -227,6 +227,19 @@ describe("createItemSchema", () => {
     expect(result.success).toBe(true);
     if (result.success) expect(result.data.costPrice).toBe("0.100001");
   });
+
+  it("accepts an omitted code — the server allocates the next free ITM-######", () => {
+    const { code, ...withoutCode } = create;
+    const result = createItemSchema.safeParse(withoutCode);
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data).not.toHaveProperty("code");
+  });
+
+  it("rejects a blank code rather than silently allocating one", () => {
+    const result = createItemSchema.safeParse({ ...create, code: "" });
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.flatten().fieldErrors).toHaveProperty("code");
+  });
 });
 
 describe("updateItemSchema", () => {

@@ -93,7 +93,8 @@ export const itemSchema = z.object({
 
 export const createItemSchema = z.object({
   id: z.string().min(1),
-  code: z.string().min(1),
+  /** Omitted or blank, the server allocates the next free ITM-###### code. */
+  code: z.string().trim().min(1).optional(),
   nameAr: z.string().min(1),
   nameEn: z.string().nullable().optional(),
   type: itemTypeSchema,

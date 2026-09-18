@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { Money, createItem } from "@mezan/domain";
+import { Money, createItem, DuplicateItemCodeError } from "@mezan/domain";
 import { createSqliteItemStore } from "./item-store.js";
 
 describe("SqliteItemStore", () => {
@@ -108,6 +108,40 @@ describe("SqliteItemStore", () => {
       await store.create(minimalItem("itm-2", "ITM-0002"));
       const all = await store.list();
       expect(all.map((i) => i.code).sort()).toEqual(["ITM-0001", "ITM-0002"]);
+    } finally {
+      store.close();
+    }
+  });
+
+  /**
+   * Concurrent-create race guard: two different items landing on the same
+   * code — the shape a client-side "next code" preview races into — must
+   * fail as a domain `DuplicateItemCodeError`, not a raw SQLite exception,
+   * so `createItem`'s allocation retry (packages/domain/src/items/create-item.ts)
+   * can catch it regardless of which layer noticed the collision first.
+   */
+  it("translates a code clash from a rival create into DuplicateItemCodeError, not a raw SQLite error", async () => {
+    const store = createSqliteItemStore();
+    try {
+      await store.create(minimalItem("itm-1", "ITM-0001"));
+      await expect(store.create(minimalItem("itm-2", "ITM-0001"))).rejects.toThrow(DuplicateItemCodeError);
+    } finally {
+      store.close();
+    }
+  });
+
+  it("lets two racing creates each land their own code, one after the other", async () => {
+    const store = createSqliteItemStore();
+    try {
+      // Simulates the interleaving a real race produces: both callers read
+      // the catalog (empty) before either writes, so both would compute
+      // ITM-000001 — the second create must be told so and retry with
+      // ITM-000002 rather than silently overwriting the first item.
+      await store.create(minimalItem("itm-1", "ITM-000001"));
+      await expect(store.create(minimalItem("itm-2", "ITM-000001"))).rejects.toThrow(DuplicateItemCodeError);
+      await store.create(minimalItem("itm-2", "ITM-000002"));
+      const all = await store.list();
+      expect(all.map((i) => i.code).sort()).toEqual(["ITM-000001", "ITM-000002"]);
     } finally {
       store.close();
     }

@@ -38,8 +38,16 @@ cross-references (`see SALES-042`, `X18`, `T13`) still resolve, because the IDs 
 
 # 1. Policy — automated test execution is required again
 
+> **Where the gate runs (2026-09-18).** GitHub Actions CI was removed to stay inside the
+> free plan. The same gates run on the developer's machine instead, and they are not
+> optional: `.githooks/pre-commit` runs typecheck and the six lint gates, and
+> `.githooks/pre-push` runs the unit suite and the scenarios, so nothing reaches the
+> remote without passing them. `SKIP_HOOKS=1` bypasses both — treat using it the way you
+> would treat merging a red build. The one remaining workflow deploys on a merge to
+> `production` and runs no tests.
+
 **Reversed 2026-08-30, at the owner's instruction.** The 2026-08-23 decision to disable
-automated tests is withdrawn. Automated tests run again, locally and in CI, *in addition to*
+automated tests is withdrawn. Automated tests run again, locally, *in addition to*
 live verification in the running app — not instead of it.
 
 ## 1.1 The rule

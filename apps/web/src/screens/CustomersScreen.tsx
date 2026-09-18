@@ -21,7 +21,6 @@ import {
 import { ETA_BUYER_TYPES, SALES_INVOICE_ACTIVE_STATUSES, SALES_INVOICE_STATUS_LABELS_AR, matchesSearch } from "@mezan/domain";
 import type { CustomerDTO, EtaBuyerTypeDTO, SalesInvoiceStatusDTO } from "@mezan/contracts";
 import {
-  useCheques,
   useCreateCustomer,
   useCustomers,
   useCustomerCounts,
@@ -33,21 +32,14 @@ import {
   useInstallmentPlans,
   useEntityAudit,
   useUpdateCustomer,
-  useVouchers,
 } from "../data/hooks";
 import { AttachmentsTab } from "../attachments/AttachmentsTab";
+import { PartyStatementTab } from "./PartyStatementTab";
 import { useAttachments } from "../data/attachment-hooks";
 import {
-  MONEY_RECONCILIATION_TOLERANCE,
-  agingBucketsFor,
-  moneyFromNumber,
   moneyToNumber,
   multiplyMoney,
-  parseMoney,
-  sumActiveAllocations,
   sumMoney,
-  useCustomerAging,
-  useVoucherAllocations,
 } from "../data/partner-detail-hooks";
 import { TextField, NumberField, SelectField, ToggleField } from "../settings/form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
@@ -315,273 +307,6 @@ function CustomerInvoicesTab({ customerId }: { customerId: string }) {
   );
 }
 
-interface StatementRow {
-  readonly key: string;
-  readonly date: string | null;
-  readonly label: string;
-  readonly note: string | null;
-  readonly reference: string;
-  readonly debit: bigint;
-  readonly credit: bigint;
-}
-
-/**
- * كشف حساب العميل — a dated AR movement ledger over every document this build
- * records against the customer.
- *
- * Collections are taken from the voucher allocation sub-ledger first: a
- * confirmed sales invoice is written into it on confirmation, so an allocation
- * (`GET /vouchers/:id/allocations`) carries both the invoice it settles and —
- * through its voucher — a date and a GL posting. The cumulative `amountPaid`
- * counter that `POST /sales-invoices/:id/payments` bumps carries no date and is
- * used only for invoices the sub-ledger has no allocation for, labelled as such
- * on the invoice's own row.
- */
-function CustomerStatementTab({ customer }: { customer: CustomerDTO }) {
-  const { t } = useAppTranslation();
-  const invoicesQuery = useSalesInvoices({ customerId: customer.id });
-  const returnsQuery = useSalesReturns();
-  const vouchersQuery = useVouchers();
-  const chequesQuery = useCheques();
-  const agingQuery = useCustomerAging();
-
-  const customerVouchers = useMemo(
-    () =>
-      (vouchersQuery.data ?? []).filter(
-        (voucher) => voucher.customerId === customer.id && (voucher.status === "confirmed" || voucher.status === "posted"),
-      ),
-    [vouchersQuery.data, customer.id],
-  );
-  const allocationsQuery = useVoucherAllocations(customerVouchers.map((voucher) => voucher.id));
-
-  const rows = useMemo<StatementRow[]>(() => {
-    const allocations = allocationsQuery.data ?? [];
-    const activeAllocations = allocations.filter((alloc) => alloc.status === "active");
-    const allocatedInvoiceIds = new Set(activeAllocations.map((alloc) => alloc.invoiceId));
-    const invoiceLabels = new Map((invoicesQuery.data ?? []).map((inv) => [inv.id, inv.docNo ?? inv.id]));
-    const customerCheques = (chequesQuery.data ?? []).filter(
-      (cheque) => cheque.direction === "incoming" && cheque.partyId === customer.id,
-    );
-    const chequeAllocatedByInvoice = new Map<string, bigint>();
-    for (const cheque of customerCheques) {
-      for (const alloc of cheque.allocations ?? []) {
-        chequeAllocatedByInvoice.set(alloc.invoiceId, (chequeAllocatedByInvoice.get(alloc.invoiceId) ?? 0n) + parseMoney(alloc.amount));
-      }
-    }
-
-    const opening = parseMoney(customer.openingBalance);
-    const built: StatementRow[] = [
-      {
-        key: "opening",
-        date: null,
-        label: t("customers.statement.opening"),
-        note: null,
-        reference: t("customers.statement.customerRecord"),
-        debit: opening > 0n ? opening : 0n,
-        credit: opening < 0n ? -opening : 0n,
-      },
-    ];
-
-    for (const inv of invoicesQuery.data ?? []) {
-      if (!SALES_INVOICE_ACTIVE_STATUSES.has(inv.status)) continue;
-      const counterPaid = parseMoney(inv.amountPaid);
-      const hasAllocations = allocatedInvoiceIds.has(inv.id);
-      built.push({
-        key: `inv-${inv.id}`,
-        date: inv.date,
-        label: t("customers.statement.salesInvoice"),
-        note:
-          counterPaid === 0n
-            ? null
-            : hasAllocations
-              ? t("customers.statement.collectedFromAllocations")
-              : t("customers.statement.collectedOnInvoice"),
-        reference: inv.docNo ?? inv.id,
-        debit: parseMoney(inv.totals.grandTotal),
-        credit: hasAllocations ? 0n : counterPaid - (chequeAllocatedByInvoice.get(inv.id) ?? 0n),
-      });
-    }
-
-    for (const doc of returnsQuery.data ?? []) {
-      if (doc.status !== "confirmed") continue;
-      const mine = doc.lines.filter((line) => line.customerId === customer.id);
-      if (mine.length === 0) continue;
-      const amount = mine.reduce<bigint>(
-        (total, line) => total + multiplyMoney(line.qty, line.unitPrice) + parseMoney(line.taxAmount),
-        0n,
-      );
-      built.push({
-        key: `ret-${doc.id}`,
-        date: doc.date,
-        label: t("customers.statement.salesReturn"),
-        note: null,
-        reference: doc.docNo ?? doc.id,
-        debit: 0n,
-        credit: amount,
-      });
-    }
-
-    for (const voucher of customerVouchers) {
-      if (voucher.direction === "transfer") continue;
-      const isReceipt = voucher.direction === "receipt";
-      const label = isReceipt ? t("customers.statement.receipt") : t("customers.statement.disbursement");
-      const voucherRef = voucher.docNo ?? voucher.id;
-      const mine = activeAllocations.filter((alloc) => alloc.voucherId === voucher.id);
-      for (const alloc of mine) {
-        const amount = parseMoney(alloc.amount);
-        built.push({
-          key: `alloc-${alloc.id}`,
-          date: voucher.date,
-          label,
-          note: t("customers.statement.allocatedTo", { invoice: invoiceLabels.get(alloc.invoiceId) ?? alloc.invoiceId }),
-          reference: voucherRef,
-          debit: isReceipt ? 0n : amount,
-          credit: isReceipt ? amount : 0n,
-        });
-      }
-      const remainder = parseMoney(voucher.amount) - sumActiveAllocations(mine);
-      if (remainder !== 0n) {
-        const amount = remainder < 0n ? -remainder : remainder;
-        const towardsCredit = remainder > 0n ? isReceipt : !isReceipt;
-        built.push({
-          key: `vch-${voucher.id}`,
-          date: voucher.date,
-          label,
-          note: t("customers.statement.unallocated"),
-          reference: voucherRef,
-          debit: towardsCredit ? 0n : amount,
-          credit: towardsCredit ? amount : 0n,
-        });
-      }
-    }
-
-    for (const cheque of customerCheques) {
-      const amount = parseMoney(cheque.amount);
-      built.push({
-        key: `chq-${cheque.id}`,
-        date: cheque.issueDate,
-        label: t("customers.statement.chequeReceived"),
-        note: null,
-        reference: cheque.chequeNumber,
-        debit: 0n,
-        credit: amount,
-      });
-      if (cheque.bouncedAt) {
-        built.push({
-          key: `chq-bounce-${cheque.id}`,
-          date: cheque.bouncedAt.slice(0, 10),
-          label: t("customers.statement.chequeBounced"),
-          note: t("customers.statement.chequeBouncedNote"),
-          reference: cheque.chequeNumber,
-          debit: amount,
-          credit: 0n,
-        });
-      }
-    }
-
-    return built.sort((a, b) => {
-      if (a.date === null) return -1;
-      if (b.date === null) return 1;
-      return a.date === b.date ? a.key.localeCompare(b.key) : a.date.localeCompare(b.date);
-    });
-  }, [customer.openingBalance, customer.id, invoicesQuery.data, returnsQuery.data, customerVouchers, allocationsQuery.data, chequesQuery.data, t]);
-
-  const isError = invoicesQuery.isError || returnsQuery.isError || vouchersQuery.isError || allocationsQuery.isError || chequesQuery.isError;
-  const isLoading = invoicesQuery.isLoading || returnsQuery.isLoading || vouchersQuery.isLoading || allocationsQuery.isLoading || chequesQuery.isLoading;
-
-  if (isError) {
-    return (
-      <TabError
-        message={t("customers.statement.loadFailed")}
-        onRetry={() => {
-          invoicesQuery.refetch();
-          returnsQuery.refetch();
-          vouchersQuery.refetch();
-          allocationsQuery.refetch();
-          chequesQuery.refetch();
-        }}
-      />
-    );
-  }
-  if (isLoading) return <p className="p-[18px] text-[12.5px] text-ink-muted">{t("customers.statement.loading")}</p>;
-
-  const closing = rows.reduce<bigint>((total, row) => total + row.debit - row.credit, 0n);
-  const totalDebit = rows.reduce<bigint>((total, row) => total + row.debit, 0n);
-  const totalCredit = rows.reduce<bigint>((total, row) => total + row.credit, 0n);
-  const agingRow = agingQuery.data?.rows.find((r) => r.customerId === customer.id);
-  const agingTotal = moneyFromNumber(agingBucketsFor(agingRow).total);
-  const agingKnown = agingQuery.isSuccess;
-  const matchesAging = (closing > agingTotal ? closing - agingTotal : agingTotal - closing) <= MONEY_RECONCILIATION_TOLERANCE;
-
-  let running = 0n;
-
-  return (
-    <div className="flex flex-col gap-[16px]">
-      <div className="grid grid-cols-2 gap-[12px] sm:grid-cols-4">
-        <MiniStat label={t("customers.statement.opening")} value={<MoneyValue value={num(customer.openingBalance)} showUnit={false} />} />
-        <MiniStat label={t("customers.statement.totalDebit")} value={<MoneyValue value={moneyToNumber(totalDebit)} showUnit={false} />} />
-        <MiniStat label={t("customers.statement.totalCredit")} value={<MoneyValue value={moneyToNumber(totalCredit)} showUnit={false} />} />
-        <MiniStat label={t("customers.statement.closing")} value={<MoneyValue value={moneyToNumber(closing)} showUnit={false} />} />
-      </div>
-
-      {agingKnown ? (
-        <div className="flex flex-wrap items-center gap-[10px] rounded-lg border border-border bg-surface p-[12px_15px]">
-          <StatusPill label={matchesAging ? t("customers.statement.matchesAging") : t("customers.statement.differsFromAging")} tone={matchesAging ? "success" : "warning"} />
-          <span className="text-[12px] text-ink-muted">
-            {t("customers.statement.reportBalance")} <MoneyValue value={moneyToNumber(agingTotal)} showUnit={false} className="text-ink" />
-            {matchesAging
-              ? t("customers.statement.agingMatchNote")
-              : t("customers.statement.agingDiffNote")}
-          </span>
-        </div>
-      ) : null}
-
-      <div className="overflow-x-auto rounded-lg border border-border bg-surface">
-        <table className="w-full min-w-[720px] border-collapse text-[12.5px]">
-          <thead>
-            <tr className="border-b border-border text-ink-muted">
-              <th className="p-[10px] text-start font-semibold">{t("common.date")}</th>
-              <th className="p-[10px] text-start font-semibold">{t("customers.statement.col.movement")}</th>
-              <th className="p-[10px] text-start font-semibold">{t("customers.statement.col.reference")}</th>
-              <th className="p-[10px] text-end font-semibold">{t("common.debit")}</th>
-              <th className="p-[10px] text-end font-semibold">{t("common.credit")}</th>
-              <th className="p-[10px] text-end font-semibold">{t("customers.statement.col.balance")}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row) => {
-              running += row.debit - row.credit;
-              return (
-                <tr key={row.key} className="border-b border-border last:border-b-0">
-                  <td className="mz-num p-[10px] text-ink-muted">{row.date === null ? "—" : isoToDisplay(row.date)}</td>
-                  <td className="p-[10px] text-ink">
-                    {row.label}
-                    {row.note ? <div className="mt-[3px] text-[11px] text-ink-faint">{row.note}</div> : null}
-                  </td>
-                  <td className="mz-num p-[10px] text-ink-muted">{row.reference}</td>
-                  <td className="p-[10px] text-end text-ink">
-                    {row.debit === 0n ? "—" : <MoneyValue value={moneyToNumber(row.debit)} showUnit={false} />}
-                  </td>
-                  <td className="p-[10px] text-end text-ink">
-                    {row.credit === 0n ? "—" : <MoneyValue value={moneyToNumber(row.credit)} showUnit={false} />}
-                  </td>
-                  <td className="p-[10px] text-end font-semibold text-ink">
-                    <MoneyValue value={moneyToNumber(running)} showUnit={false} />
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-
-      <p className="max-w-[80ch] text-[11.5px] leading-[1.9] text-ink-faint">
-        {t("customers.statement.footnote")}
-      </p>
-    </div>
-  );
-}
-
 interface CustomerDraft {
   code: string;
   nameAr: string;
@@ -774,7 +499,7 @@ function CustomerDetail({ customer, onBack, onEdit }: { customer: CustomerDTO; o
           ),
         },
         { key: "invoices", label: t("customers.tab.invoices"), content: <CustomerInvoicesTab customerId={customer.id} /> },
-        { key: "statement", label: t("customers.tab.statement"), content: <CustomerStatementTab customer={customer} /> },
+        { key: "statement", label: t("customers.tab.statement"), content: <PartyStatementTab kind="customer" partyId={customer.id} /> },
         { key: "installments", label: t("customers.tab.installments"), content: <CustomerInstallmentsTab customerId={customer.id} /> },
         { key: "returns", label: t("customers.tab.returns"), content: <CustomerReturnsTab customerId={customer.id} /> },
         { key: "attachments", label: t("customers.tab.attachments"), content: <AttachmentsTab entityType="customer" entityId={customer.id} /> },

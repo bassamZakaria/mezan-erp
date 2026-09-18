@@ -215,3 +215,58 @@ describe("createAgingCustomersReport — foreign invoices and leftover credits (
     expect(without.reconciliation).not.toHaveProperty("reconcilingItems");
   });
 });
+
+describe("customerAgingBalances — balances no invoice carries (D204, D205, D210, D211)", () => {
+  const params = { asOfDate: "2026-08-22", branchId: "" };
+  const total = (map: ReturnType<typeof customerAgingBalances>, id: string) => agingBucketsTotal(map.get(id)!).toString();
+
+  it("ages an opening balance from the day it was posted, so the ladder carries what 1105 holds", () => {
+    const map = customerAgingBalances(params, {
+      invoices: [],
+      openItems: [{ partyId: "c1", source: "opening", date: "2026-01-01", amount: Money.fromMajor("750") }],
+    });
+    expect(total(map, "c1")).toBe("750.000000");
+    expect(map.get("c1")?.over120.toString()).toBe("750.000000");
+  });
+
+  it("carries a manual journal debit as an open item and nets a manual credit like an unallocated receipt", () => {
+    const map = customerAgingBalances(params, {
+      invoices: [invoice()],
+      openItems: [
+        { partyId: "c1", source: "journal", date: "2026-08-20", amount: Money.fromMajor("1140") },
+        { partyId: "c1", source: "journal", date: "2026-08-21", amount: Money.fromMajor("-340") },
+      ],
+    });
+    expect(total(map, "c1")).toBe("1000.000000");
+  });
+
+  it("leaves out an item dated after the snapshot, as the control balance as of that day does", () => {
+    const map = customerAgingBalances(params, {
+      invoices: [],
+      openItems: [{ partyId: "c1", source: "journal", date: "2026-09-01", amount: Money.fromMajor("100") }],
+    });
+    expect(map.has("c1")).toBe(false);
+  });
+
+  it("ages an imported invoice's remainder from its due date", () => {
+    const map = customerAgingBalances(params, {
+      invoices: [],
+      openItems: [{ partyId: "c1", source: "imported", date: "2026-03-01", dueDate: "2026-08-15", amount: Money.fromMajor("80") }],
+    });
+    expect(map.get("c1")?.current.toString()).toBe("80.000000");
+  });
+
+  it("keeps a return beyond what is still open as the customer's credit, and a refund puts it back", () => {
+    const returned = customerAgingBalances(params, {
+      invoices: [invoice({ amountPaid: Money.fromMajor("200") })],
+      returnsByInvoiceId: new Map([["inv-1", Money.fromMajor("50")]]),
+    });
+    expect(total(returned, "c1")).toBe("-50.000000");
+    const refunded = customerAgingBalances(params, {
+      invoices: [invoice({ amountPaid: Money.fromMajor("200") })],
+      returnsByInvoiceId: new Map([["inv-1", Money.fromMajor("50")]]),
+      openItems: [{ partyId: "c1", source: "refund", date: "2026-08-20", amount: Money.fromMajor("50") }],
+    });
+    expect(total(refunded, "c1")).toBe("0.000000");
+  });
+});

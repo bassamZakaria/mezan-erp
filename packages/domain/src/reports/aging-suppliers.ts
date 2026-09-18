@@ -6,6 +6,7 @@ import type { Supplier } from "../suppliers/supplier.js";
 import type { ReportDefinition } from "./types.js";
 import { sumRows, percentOf } from "./kpi.js";
 import { BRANCH_PARAM_FIELD, branchIdParamSchema, matchesBranch } from "./branch-filter.js";
+import type { AgingOpenItem } from "./aging-open-items.js";
 
 /**
  * أعمار ديون الموردين — Supplier Debt Aging (docs/archive/catalog/08-reports.md): the
@@ -37,6 +38,8 @@ export interface AgingSuppliersContext {
    * the twin of the customer ladder's `unappliedCreditsByCustomerId`.
    */
   readonly unappliedDebitsBySupplierId?: ReadonlyMap<string, Money>;
+  /** Opening balances and manual journal lines on the supplier (D204, D205). */
+  readonly openItems?: readonly AgingOpenItem[];
   /**
    * Balance of the AP CONTROL account in the GL as of `asOfDate` (D112). Same
    * reason as the customer ladder: the report walks invoices, the control
@@ -163,28 +166,7 @@ export function createAgingSuppliersReport(
     run: (params, ctx) => {
       const supplierNames = new Map(ctx.suppliers.map((s) => [s.id, s.nameAr]));
       const supplierNamesEn = new Map(ctx.suppliers.map((s) => [s.id, s.nameEn ?? null]));
-      const byBucketTotals = new Map<string, AgingBucketTotals>();
-      for (const invoice of ctx.invoices) {
-        if (invoice.status !== "confirmed") continue;
-        if (invoice.date > params.asOfDate) continue;
-        if (!matchesBranch(invoice.branchId, params.branchId)) continue;
-        const allocated = ctx.allocatedByInvoiceId?.get(invoice.id) ?? Money.zero();
-        const returned = ctx.returnsByInvoiceId?.get(invoice.id) ?? Money.zero();
-        // The BASE total — what the posting credited 2100 with (D194).
-        const outstanding = Money.fromScaled(purchaseInvoiceBaseTotal(invoice).scaled - allocated.scaled - returned.scaled);
-        if (outstanding.scaled <= 0n) continue;
-        const dueDate = invoice.dueDate ?? invoice.date;
-        const existing = byBucketTotals.get(invoice.supplierId) ?? emptyBucketTotals();
-        const days = daysPastDue(dueDate, params.asOfDate);
-        byBucketTotals.set(invoice.supplierId, addToBucket(existing, days, outstanding));
-      }
-      for (const [supplierId, debit] of ctx.unappliedDebitsBySupplierId ?? []) {
-        if (debit.scaled <= 0n) continue;
-        const existing = byBucketTotals.get(supplierId);
-        if (!existing && params.branchId !== "") continue;
-        byBucketTotals.set(supplierId, applyDebit(existing ?? emptyBucketTotals(), debit));
-      }
-      return [...byBucketTotals.entries()].map(([supplierId, agg]) => ({
+      return [...supplierAgingBalances(params, ctx)].map(([supplierId, agg]) => ({
         supplierId,
         supplierNameAr: supplierNames.get(supplierId) ?? supplierId,
         supplierNameEn: supplierNamesEn.get(supplierId) ?? null,
@@ -193,12 +175,65 @@ export function createAgingSuppliersReport(
         d61to90: Number(agg.d61to90.toString()),
         d91to120: Number(agg.d91to120.toString()),
         over120: Number(agg.over120.toString()),
-        total: Number(
-          Money.fromScaled(
-            agg.current.scaled + agg.d31to60.scaled + agg.d61to90.scaled + agg.d91to120.scaled + agg.over120.scaled,
-          ).toString(),
-        ),
+        total: Number(supplierAgingTotal(agg).toString()),
       }));
     },
   };
+}
+
+export type SupplierAgingBalance = AgingBucketTotals;
+
+/** A supplier's whole ladder row as one figure. */
+export function supplierAgingTotal(totals: AgingBucketTotals): Money {
+  return Money.fromScaled(
+    totals.current.scaled + totals.d31to60.scaled + totals.d61to90.scaled + totals.d91to120.scaled + totals.over120.scaled,
+  );
+}
+
+/**
+ * The ladder per supplier, in `Money`; the suppliers screen's payable reads it
+ * too, so the screen and the report cannot disagree (the D195 rule, D201).
+ */
+export function supplierAgingBalances(
+  params: AgingSuppliersParams,
+  ctx: Omit<AgingSuppliersContext, "suppliers" | "payablesControlBalance" | "fxRevaluationOnControl">,
+): Map<string, SupplierAgingBalance> {
+  const byBucketTotals = new Map<string, AgingBucketTotals>();
+  const debits = new Map<string, bigint>();
+  const addDebit = (supplierId: string, scaled: bigint) => debits.set(supplierId, (debits.get(supplierId) ?? 0n) + scaled);
+  for (const invoice of ctx.invoices) {
+    if (invoice.status !== "confirmed") continue;
+    if (invoice.date > params.asOfDate) continue;
+    if (!matchesBranch(invoice.branchId, params.branchId)) continue;
+    const allocated = ctx.allocatedByInvoiceId?.get(invoice.id) ?? Money.zero();
+    const returned = ctx.returnsByInvoiceId?.get(invoice.id) ?? Money.zero();
+    // The BASE total — what the posting credited 2100 with (D194).
+    const outstanding = Money.fromScaled(purchaseInvoiceBaseTotal(invoice).scaled - allocated.scaled - returned.scaled);
+    if (outstanding.scaled < 0n) addDebit(invoice.supplierId, -outstanding.scaled);
+    if (outstanding.scaled <= 0n) continue;
+    const dueDate = invoice.dueDate ?? invoice.date;
+    const existing = byBucketTotals.get(invoice.supplierId) ?? emptyBucketTotals();
+    const days = daysPastDue(dueDate, params.asOfDate);
+    byBucketTotals.set(invoice.supplierId, addToBucket(existing, days, outstanding));
+  }
+  for (const [supplierId, debit] of ctx.unappliedDebitsBySupplierId ?? []) {
+    if (debit.scaled > 0n) addDebit(supplierId, debit.scaled);
+  }
+  for (const item of ctx.openItems ?? []) {
+    if (item.date > params.asOfDate) continue;
+    if (!matchesBranch(item.branchId, params.branchId)) continue;
+    if (item.amount.scaled < 0n) {
+      addDebit(item.partyId, -item.amount.scaled);
+      continue;
+    }
+    if (item.amount.scaled === 0n) continue;
+    const existing = byBucketTotals.get(item.partyId) ?? emptyBucketTotals();
+    byBucketTotals.set(item.partyId, addToBucket(existing, daysPastDue(item.dueDate ?? item.date, params.asOfDate), item.amount));
+  }
+  for (const [supplierId, scaled] of debits) {
+    const existing = byBucketTotals.get(supplierId);
+    if (!existing && params.branchId !== "") continue;
+    byBucketTotals.set(supplierId, applyDebit(existing ?? emptyBucketTotals(), Money.fromScaled(scaled)));
+  }
+  return byBucketTotals;
 }

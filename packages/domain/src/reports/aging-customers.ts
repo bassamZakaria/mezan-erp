@@ -6,6 +6,7 @@ import { SALES_INVOICE_ACTIVE_STATUSES, type SalesInvoice } from "../sales-invoi
 import type { ReportDefinition } from "./types.js";
 import { sumRows, percentOf } from "./kpi.js";
 import { BRANCH_PARAM_FIELD, branchIdParamSchema, matchesBranch } from "./branch-filter.js";
+import type { AgingOpenItem } from "./aging-open-items.js";
 
 /**
  * أعمار ديون العملاء — Customer Debt Aging (docs/archive/catalog/08-reports.md): the
@@ -47,6 +48,8 @@ export interface AgingCustomersContext {
    * the order a collector would actually clear a customer's debt in.
    */
   readonly unappliedCreditsByCustomerId?: ReadonlyMap<string, Money>;
+  /** Opening balances and manual journal lines on the customer (D204, D205). */
+  readonly openItems?: readonly AgingOpenItem[];
   /**
    * Balance of the AR CONTROL account in the GL as of `asOfDate` (D112).
    *
@@ -217,6 +220,8 @@ export function customerAgingBalances(
   const namesEn = new Map((ctx.customers ?? []).map((c) => [c.id, c.nameEn ?? null]));
   const namesAr = new Map((ctx.customers ?? []).map((c) => [c.id, c.nameAr]));
   const byCustomer = new Map<string, AgingBucketTotals>();
+  const credits = new Map<string, bigint>();
+  const addCredit = (customerId: string, scaled: bigint) => credits.set(customerId, (credits.get(customerId) ?? 0n) + scaled);
   for (const invoice of ctx.invoices) {
     if (!SALES_INVOICE_ACTIVE_STATUSES.has(invoice.status)) continue;
     if (invoice.date > params.asOfDate) continue;
@@ -226,13 +231,32 @@ export function customerAgingBalances(
     const settled = allocated.scaled > invoice.amountPaid.scaled ? allocated : invoice.amountPaid;
     const returned = ctx.returnsByInvoiceId?.get(invoice.id) ?? Money.zero();
     const balance = Money.fromScaled(total.scaled - settled.scaled - returned.scaled);
+    // A return beyond what is still open leaves the customer in credit, and
+    // 1105 carries that credit until it is refunded.
+    if (balance.scaled < 0n) addCredit(invoice.customerId, -balance.scaled);
     if (balance.scaled <= 0n) continue;
     const existing = byCustomer.get(invoice.customerId) ?? emptyBucketTotals(invoice.customerNameAr, namesEn.get(invoice.customerId) ?? null);
     const days = daysPastDue(invoice.dueDate, params.asOfDate);
     byCustomer.set(invoice.customerId, addToBucket(existing, days, balance));
   }
   for (const [customerId, credit] of ctx.unappliedCreditsByCustomerId ?? []) {
-    if (credit.scaled <= 0n) continue;
+    if (credit.scaled > 0n) addCredit(customerId, credit.scaled);
+  }
+  for (const item of ctx.openItems ?? []) {
+    if (item.date > params.asOfDate) continue;
+    if (!matchesBranch(item.branchId, params.branchId)) continue;
+    if (item.amount.scaled < 0n) {
+      addCredit(item.partyId, -item.amount.scaled);
+      continue;
+    }
+    if (item.amount.scaled === 0n) continue;
+    const existing =
+      byCustomer.get(item.partyId) ??
+      emptyBucketTotals(namesAr.get(item.partyId) ?? item.partyId, namesEn.get(item.partyId) ?? null);
+    byCustomer.set(item.partyId, addToBucket(existing, daysPastDue(item.dueDate ?? item.date, params.asOfDate), item.amount));
+  }
+  for (const [customerId, scaled] of credits) {
+    const credit = Money.fromScaled(scaled);
     const existing = byCustomer.get(customerId);
     // A branch-narrowed ladder cannot say which branch an unapplied credit
     // belongs to, so it only nets one against a row the branch already has.

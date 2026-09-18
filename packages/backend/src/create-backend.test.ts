@@ -2189,9 +2189,10 @@ describe("createBackend — financial statements over real posted GL (file-backe
     accountId: string;
     debit: string;
     credit: string;
+    partyId?: string;
   }
-  function line(accountId: string, debit: string, credit: string): Line {
-    return { accountId, debit, credit };
+  function line(accountId: string, debit: string, credit: string, partyId?: string): Line {
+    return { accountId, debit, credit, ...(partyId ? { partyId } : {}) };
   }
 
   async function postEntry(app: App, id: string, date: string, memo: string, lines: Line[]) {
@@ -2205,16 +2206,19 @@ describe("createBackend — financial statements over real posted GL (file-backe
    *  14% input VAT, E4 COGS, E5 cash operating expense.
    */
   async function seedLedger(app: App) {
+    // A manual line on 1105/2100 names its party (D205).
+    await createCustomer(app, "cust-fs", "0");
+    expect((await post(app, "/suppliers", { id: "sup-fs", code: "sup-fs", nameAr: "مورد", openingBalance: "0" }, admin(app))).status).toBe(201);
     await postEntry(app, "je-cap", "2026-02-01", "رأس المال", [line("1300-1", "200000", "0"), line("3100", "0", "200000")]);
     await postEntry(app, "je-sale", "2026-03-01", "مبيعات آجلة (ض.ق.م 14%)", [
-      line("1105", "114000", "0"),
+      line("1105", "114000", "0", "cust-fs"),
       line("4100", "0", "100000"),
       line("2200", "0", "14000"),
     ]);
     await postEntry(app, "je-purch", "2026-03-05", "مشتريات آجلة (ض.ق.م 14%)", [
       line("1200", "80000", "0"),
       line("1400", "11200", "0"),
-      line("2100", "0", "91200"),
+      line("2100", "0", "91200", "sup-fs"),
     ]);
     await postEntry(app, "je-cogs", "2026-03-06", "تكلفة البضاعة المباعة", [line("5100", "60000", "0"), line("1200", "0", "60000")]);
     await postEntry(app, "je-opex", "2026-04-01", "مصروفات تشغيلية نقدية", [line("5200", "5000", "0"), line("1300-1", "0", "5000")]);
@@ -4044,5 +4048,175 @@ describe("createBackend — FX aging, the customers screen and cheque vouchers (
     expect(await glBalance(app, "2150")).toBe(-300);
     expect(await glBalance(app, "1300-1")).toBe(1000);
     expect(await reconDiff(app, "ap")).toBe(0);
+  });
+});
+
+describe("createBackend — party balances no invoice carries, and one figure per party (D200–D205, D210, D211)", () => {
+  async function get(app: App, path: string): Promise<any> {
+    return (await app.fetch(new Request(`http://local${path}`, { headers: admin(app) }))).json();
+  }
+  async function reconDiffs(app: App): Promise<{ ar: string; ap: string }> {
+    const { rows } = (await get(app, "/reconciliation")) as { rows: { key: string; difference: string }[] };
+    return { ar: rows.find((r) => r.key === "ar")!.difference, ap: rows.find((r) => r.key === "ap")!.difference };
+  }
+  async function cashTreasury(app: App) {
+    const res = await post(
+      app,
+      "/treasury-accounts",
+      { id: "ta-cash", code: "TA-CASH", name: "الخزينة", branchId: "BR1", glAccountId: "1300-1", openingBalance: "0" },
+      admin(app),
+    );
+    expect(res.status).toBe(201);
+  }
+  function journal(id: string, lines: Record<string, unknown>[]) {
+    return { id, date: "2026-08-22", memo: "قيد يدوي", lines };
+  }
+
+  it("D205: a manual line on 1105 or 2100 with no party is refused in Arabic and English, and posts nothing", async () => {
+    const app = await newBackend();
+    const refused = await post(app, "/gl/journal-entries", journal("je-np", [
+      { accountId: "1105", debit: "500", credit: "0" },
+      { accountId: "4100", debit: "0", credit: "500" },
+    ]), admin(app));
+    expect(refused.status).toBe(422);
+    const body = (await refused.json()) as { error: string; message: string; messageEn: string };
+    expect(body.error).toBe("PARTY_REQUIRED_ON_CONTROL_ACCOUNT");
+    expect(body.message).toContain("العميل");
+    expect(body.messageEn).toContain("customer");
+    const ap = await post(app, "/gl/journal-entries", journal("je-np-ap", [
+      { accountId: "5900", debit: "300", credit: "0" },
+      { accountId: "2100", debit: "0", credit: "300" },
+    ]), admin(app));
+    expect(ap.status).toBe(422);
+    expect(Number((await get(app, "/gl/accounts/1105/ledger")).balance.balance)).toBe(0);
+    expect(await get(app, "/gl/party-control-accounts")).toEqual(
+      expect.arrayContaining([{ accountId: "1105", partyKind: "customer" }, { accountId: "2100", partyKind: "supplier" }]),
+    );
+  });
+
+  it("D205: a manual line naming the customer reaches their aging row, their owed figure and their statement, and AR still ties", async () => {
+    const app = await newBackend();
+    await createCustomer(app, "cust-je", "0");
+    const posted = await post(app, "/gl/journal-entries", journal("je-cust", [
+      { accountId: "1105", debit: "1140", credit: "0", partyId: "cust-je" },
+      { accountId: "4100", debit: "0", credit: "1000" },
+      { accountId: "2200", debit: "0", credit: "140" },
+    ]), admin(app));
+    expect(posted.status).toBe(201);
+    expect(((await posted.json()) as { lines: { partyId: string | null }[] }).lines[0]?.partyId).toBe("cust-je");
+    const credit = await post(app, "/gl/journal-entries", journal("je-cust-cr", [
+      { accountId: "5900", debit: "140", credit: "0" },
+      { accountId: "1105", debit: "0", credit: "140", partyId: "cust-je" },
+    ]), admin(app));
+    expect(credit.status).toBe(201);
+
+    expect(await reconDiffs(app)).toEqual({ ar: "0.000000", ap: "0.000000" });
+    const aging = await get(app, "/reports/aging/customers?asOfDate=2026-08-31");
+    expect(aging.rows.find((r: { customerId: string }) => r.customerId === "cust-je")?.total).toBe(1000);
+    expect(aging.reconciliation).toMatchObject({ reportTotal: 1000, referenceTotal: 1000 });
+    expect((await get(app, "/customers/cust-je")).owed).toBe("1000.000000");
+    const statement = await get(app, "/reports/statements/customers/cust-je");
+    expect(statement.lines.map((l: { kind: string; increase: string; decrease: string }) => [l.kind, l.increase, l.decrease])).toEqual([
+      ["journal", "1140.000000", "0.000000"],
+      ["journal", "0.000000", "140.000000"],
+    ]);
+    expect(statement.closing).toBe("1000.000000");
+    expect(statement.agingTotal).toBe("1000.000000");
+  });
+
+  it("D212: an opening trial balance cannot put a debtors total on 1105 with no customer behind it", async () => {
+    const app = await newBackend();
+    const res = await post(app, "/data-migration/opening-trial-balance/commit", {
+      rows: [
+        { accountCode: "1105", debit: "10000.00", credit: "0" },
+        { accountCode: "3100", debit: "0", credit: "10000.00" },
+      ],
+    }, admin(app));
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as { errors: { reasons: string[] }[] };
+    expect(body.errors[0]!.reasons[0]).toContain("بطاقة كل عميل");
+    expect(Number((await get(app, "/gl/accounts/1105/ledger")).balance.balance)).toBe(0);
+    const clean = await post(app, "/data-migration/opening-trial-balance/commit", {
+      rows: [
+        { accountCode: "1310", debit: "10000.00", credit: "0" },
+        { accountCode: "3100", debit: "0", credit: "10000.00" },
+      ],
+    }, admin(app));
+    expect(clean.status).toBe(201);
+  });
+
+  it("D204: an opening balance is on the party's aging row, the ladder ties to its control account, and owed is that row", async () => {
+    const app = await newBackend();
+    const customer = await authedPost(app, "/customers", {
+      id: "cust-ob", code: "cust-ob", nameAr: "عميل برصيد", paymentTermsDays: 30, currency: "EGP", openingBalance: "750",
+      active: true, creditLimit: "0", taxExempt: false, etaBuyerType: "auto",
+    });
+    expect(customer.status).toBe(201);
+    expect((await post(app, "/suppliers", { id: "sup-ob", code: "sup-ob", nameAr: "مورد برصيد", openingBalance: "300" }, admin(app))).status).toBe(201);
+
+    const customers = await get(app, "/reports/aging/customers");
+    expect(customers.rows.find((r: { customerId: string }) => r.customerId === "cust-ob")?.total).toBe(750);
+    expect(customers.reconciliation).toMatchObject({ reportTotal: 750, referenceTotal: 750 });
+    expect((await get(app, "/customers/cust-ob")).owed).toBe("750.000000");
+    expect((await get(app, "/reports/statements/customers/cust-ob")).lines[0]).toMatchObject({ kind: "opening", increase: "750.000000" });
+
+    const suppliers = await get(app, "/reports/aging/suppliers");
+    expect(suppliers.rows.find((r: { supplierId: string }) => r.supplierId === "sup-ob")?.total).toBe(300);
+    expect(suppliers.reconciliation).toMatchObject({ reportTotal: 300, referenceTotal: 300 });
+    expect((await get(app, "/suppliers/sup-ob")).owed).toBe("300.000000");
+    expect((await get(app, "/suppliers/stats")).payable).toBe("300.000000");
+  });
+
+  it("D201: what the suppliers screen says a supplier is owed is their aging row at the rate each invoice was booked at", async () => {
+    const app = await newBackend();
+    const created = await post(app, "/exchange-rates", { id: "fx-sar", currency: "SAR", rate: "13.20", effectiveDate: "2026-08-01", rateType: "standard", source: "manual" }, admin(app));
+    expect(created.status).toBe(201);
+    expect((await post(app, "/exchange-rates/fx-sar/approve", {}, admin(app))).status).toBe(200);
+    const settings = await get(app, "/settings");
+    await app.fetch(new Request("http://local/settings", {
+      method: "PUT",
+      headers: { "content-type": "application/json", ...admin(app) },
+      body: JSON.stringify({ ...settings, multiCurrencyEnabled: true }),
+    }));
+    expect((await post(app, "/suppliers", { id: "sup-sar", code: "sup-sar", nameAr: "مورد بالريال", currency: "SAR", openingBalance: "0" }, admin(app))).status).toBe(201);
+    const bill = await post(app, "/purchases/invoices", {
+      id: "pi-sar", supplierId: "sup-sar", date: "2026-08-22", dueDate: "2026-09-21", branchId: "BR1", warehouseId: "WH1", currency: "SAR",
+      lines: [{ description: "خدمة بالريال", kind: "expense", qty: "1", unitCost: "100", taxRatePercent: 0 }],
+    }, admin(app));
+    expect(bill.status).toBe(201);
+    expect((await post(app, "/purchases/invoices/pi-sar/confirm", {}, admin(app))).status).toBe(200);
+
+    expect((await get(app, "/suppliers/sup-sar")).owed).toBe("1320.000000");
+    const listed = (await get(app, "/suppliers")) as { id: string; owed: string }[];
+    expect(listed.find((s) => s.id === "sup-sar")?.owed).toBe("1320.000000");
+    const statement = await get(app, "/reports/statements/suppliers/sup-sar");
+    expect(statement.closing).toBe("1320.000000");
+  });
+
+  it("D200: a reversed withholding payment leaves the withholding report, and its mirror is not a second one", async () => {
+    const app = await newBackend();
+    await cashTreasury(app);
+    const fund = {
+      id: "v-fund", date: "2026-08-22", voucherType: "capital_injection", amount: "5000", branchId: "BR1", paymentMethod: "cash",
+      treasuryAccountId: "ta-cash", treasuryGlAccountId: "1300-1", counterpartyGlAccountId: "3100",
+    };
+    expect((await post(app, "/vouchers", fund, admin(app))).status).toBe(201);
+    expect((await post(app, "/vouchers/v-fund/confirm", {}, admin(app))).status).toBe(200);
+    expect((await post(app, "/suppliers", { id: "sup-wht", code: "sup-wht", nameAr: "مورد خاضع", openingBalance: "0" }, admin(app))).status).toBe(201);
+    const voucher = await post(app, "/vouchers", {
+      id: "v-wht", date: "2026-08-22", voucherType: "supplier_payment", amount: "1000", branchId: "BR1", paymentMethod: "cash",
+      treasuryAccountId: "ta-cash", treasuryGlAccountId: "1300-1", counterpartyGlAccountId: "2100", supplierId: "sup-wht",
+      withholdingRatePercent: 3, withholdingAmount: "30", withholdingGlAccountId: "2210",
+    }, admin(app));
+    expect(voucher.status).toBe(201);
+    expect((await post(app, "/vouchers/v-wht/confirm", {}, admin(app))).status).toBe(200);
+    const before = await get(app, "/reports/tax/withholding?periodFrom=2026-01-01&periodTo=2026-12-31");
+    expect(before.rows.filter((r: { voucherId: string }) => r.voucherId === "v-wht")).toHaveLength(1);
+
+    expect((await post(app, "/vouchers/v-wht/reverse", { date: "2026-08-23" }, admin(app))).status).toBe(201);
+    const after = await get(app, "/reports/tax/withholding?periodFrom=2026-01-01&periodTo=2026-12-31");
+    expect(after.rows).toEqual([]);
+    const reversed = (await get(app, "/vouchers")) as { id: string; reversesDocId?: string | null }[];
+    expect(reversed.some((v) => v.reversesDocId === "v-wht")).toBe(true);
   });
 });

@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { Money, Qty } from "../money/index.js";
 import { runReport } from "./engine.js";
-import { createAgingSuppliersReport } from "./aging-suppliers.js";
+import { createAgingSuppliersReport, supplierAgingBalances, supplierAgingTotal } from "./aging-suppliers.js";
 import type { PurchaseInvoice, PurchaseInvoiceLine } from "../purchasing/purchase-invoice.js";
 import type { Supplier } from "../suppliers/supplier.js";
 
@@ -132,5 +132,46 @@ describe("createAgingSuppliersReport — foreign invoices and leftover debits (D
     );
     if (!outcome.ok) throw new Error("report failed");
     expect(outcome.reconciliation?.reconcilingItems).toEqual([expect.objectContaining({ key: "fxRevaluation", amount: 30 })]);
+  });
+});
+
+describe("supplierAgingBalances — balances no invoice carries (D204, D205, D210, D211)", () => {
+  const params = { asOfDate: "2026-08-22", branchId: "" };
+  const total = (map: ReturnType<typeof supplierAgingBalances>, id: string) => supplierAgingTotal(map.get(id)!).toString();
+
+  it("carries the supplier's opening balance and a manual credit on 2100 as what they are owed", () => {
+    const map = supplierAgingBalances(params, {
+      invoices: [],
+      openItems: [
+        { partyId: "sup-1", source: "opening", date: "2026-01-01", amount: Money.fromMajor("1500") },
+        { partyId: "sup-1", source: "journal", date: "2026-08-20", amount: Money.fromMajor("300") },
+      ],
+    });
+    expect(total(map, "sup-1")).toBe("1800.000000");
+    expect(map.get("sup-1")?.over120.toString()).toBe("1500.000000");
+  });
+
+  it("nets a manual debit on 2100 like an unallocated payment", () => {
+    const map = supplierAgingBalances(params, {
+      invoices: [pinvoice()],
+      openItems: [{ partyId: "sup-1", source: "journal", date: "2026-08-20", amount: Money.fromMajor("-100") }],
+    });
+    expect(total(map, "sup-1")).toBe("200.000000");
+  });
+
+  it("keeps a return beyond what is still owed as a debit on the supplier, and a supplier refund puts it back", () => {
+    const returned = supplierAgingBalances(params, {
+      invoices: [pinvoice()],
+      allocatedByInvoiceId: new Map([["pinv-1", Money.fromMajor("300")]]),
+      returnsByInvoiceId: new Map([["pinv-1", Money.fromMajor("40")]]),
+    });
+    expect(total(returned, "sup-1")).toBe("-40.000000");
+    const refunded = supplierAgingBalances(params, {
+      invoices: [pinvoice()],
+      allocatedByInvoiceId: new Map([["pinv-1", Money.fromMajor("300")]]),
+      returnsByInvoiceId: new Map([["pinv-1", Money.fromMajor("40")]]),
+      openItems: [{ partyId: "sup-1", source: "refund", date: "2026-08-21", amount: Money.fromMajor("40") }],
+    });
+    expect(total(refunded, "sup-1")).toBe("0.000000");
   });
 });

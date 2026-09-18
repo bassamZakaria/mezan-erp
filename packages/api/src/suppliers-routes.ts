@@ -7,11 +7,11 @@ import { recordAdminEvent } from "./admin-audit.js";
 import type { PartyOpeningBalancePoster } from "./customers-routes.js";
 
 /**
- * What is still owed to each supplier on their LIVE documents — confirmed
- * purchase invoices, less payments made to them, confirmed returns sent back
- * and cheques already handed over. The composition root MUST bind this to the
- * same derivation the supplier statement tab uses; a second opinion here would
- * put the suppliers list and the AP sub-ledger at odds.
+ * What is still owed to each supplier — the supplier aging ladder's row, which
+ * carries the opening balance, confirmed purchase invoices at their base total,
+ * payments, returns, cheques and manual journal lines. The composition root
+ * MUST bind this to that ladder; a second opinion here would put the
+ * suppliers list and the AP sub-ledger at odds.
  *
  * Optional because this module owns supplier master data only and has no
  * access to purchase invoices, vouchers, returns or cheques. Without it
@@ -137,8 +137,21 @@ export function createSuppliersRouter(
     return rows;
   }
 
+  /**
+   * What each supplier is owed, from the supplier aging ladder's own row —
+   * opening balance, invoices at their base total, returns, payments and
+   * cheques — so the screen never derives a second figure (D201).
+   */
+  async function withOwed(rows: readonly Supplier[]) {
+    const outstanding = payables ? await payables.outstandingBySupplier() : null;
+    return rows.map((supplier) => ({
+      ...serialize(supplier),
+      owed: outstanding ? (outstanding.get(supplier.id) ?? Money.zero()).toString() : null,
+    }));
+  }
+
   app.get("/", gate("purchases.supplier.view"), async (c) => {
-    return c.json((await listFilteredSuppliers(parseSupplierListQuery(c))).map(serialize));
+    return c.json(await withOwed(await listFilteredSuppliers(parseSupplierListQuery(c))));
   });
 
   /**
@@ -167,9 +180,6 @@ export function createSuppliersRouter(
     let payable = Money.zero();
     for (const supplier of suppliers) {
       if (supplier.active) active += 1;
-      // NOT plus the opening balance (B-2): it is posted to GL 2100 like any
-      // other payable, so `outstandingBySupplier` already carries it. Adding
-      // the master-data field again counted the same debt twice.
       payable = payable.add(outstanding.get(supplier.id) ?? Money.zero());
     }
     return c.json({
@@ -182,7 +192,8 @@ export function createSuppliersRouter(
   app.get("/:id", gate("purchases.supplier.view"), async (c) => {
     const supplier = await repo.findById(c.req.param("id"));
     if (!supplier) return c.json({ error: "NOT_FOUND" }, 404);
-    return c.json(serialize(supplier));
+    const [row] = await withOwed([supplier]);
+    return c.json(row);
   });
 
   app.post("/", gate("purchases.supplier.create"), async (c) => {

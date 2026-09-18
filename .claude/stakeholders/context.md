@@ -133,7 +133,7 @@ switch. Buyer and user in the same room.
   descoped from v1 by decision (`docs/ROADMAP.md` §4).
 - No installer has ever been code-signed: the certificates are a business
   purchase nobody has made (`docs/INSTALL.md` §8.1).
-- Everything already filed in `docs/ROADMAP.md` §5 (D66–D180) and in
+- Everything already filed in `docs/ROADMAP.md` §5 (D66–D191) and in
   `docs/artifacts/audit-2026-09-07.md`. Read both before filing anything.
 
 **What every finding must carry:** the screen or `file:line`, what it costs the

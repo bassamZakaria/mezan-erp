@@ -2114,6 +2114,7 @@ const webAr = {
   "reportCell.sourceDoc.POS_SALE": "بيع نقطة بيع",
   "reportCell.sourceDoc.WORK_ORDER": "أمر إنتاج",
   "reportCell.sourceDoc.PURCHASE_CANCELLATION": "إلغاء استلام/فاتورة مشتريات",
+  "reportCell.notComputed": "غير محسوب",
 
   // purchases — hub
   "purchasesHub.action.newOrder": "أمر شراء جديد",
@@ -9102,7 +9103,7 @@ const webAr = {
   "settingsGeneral.dayDivisorFixed30": "ثابت — 30 يوماً",
   "settingsGeneral.dayDivisorCalendarDays": "أيام الشهر الفعلية",
   "payslipPrint.statutoryNotComputed": "صافي الراتب لا يشمل ضريبة كسب العمل ولا التأمينات الاجتماعية — لم تُحتسبا.",
-  "payslipPrint.garnishmentCapped": "طُبِّق الحد الأقصى القانوني للحجز على الأجر — يُرحّل الباقي للشهر التالي",
+  "payslipPrint.statutoryCapped": "طُبِّق الحد الأقصى القانوني — يُرحّل الباقي للشهر التالي",
   "statutory.title": "الجداول القانونية للرواتب",
   "statutory.couldNotLoad": "تعذّر تحميل الجداول القانونية.",
   "statutory.loadingBody": "جارٍ تحميل الجداول القانونية…",
@@ -9178,6 +9179,7 @@ const webAr = {
   "payroll.atCeiling": "بلغ الحد الأقصى",
   "payroll.beforeAnnualTaxSettlement": "قبل التسوية الضريبية السنوية",
   "payroll.employerCost": "تكلفة صاحب العمل",
+  "payroll.notComputed": "غير محسوب",
   "payroll.insurableWage": "الأجر التأميني",
   "payroll.noSourceForOvertime": "لم يُربط مصدر ساعات العمل الإضافي، فلم يُحتسب أي أجر إضافي في هذه الدورة.",
   "payroll.statutoryTablesUsed": "الجداول القانونية المستخدمة في الاحتساب",
@@ -11334,6 +11336,7 @@ const webEn: Record<WebTranslationKey, string> = {
   "reportCell.sourceDoc.POS_SALE": "Point-of-sale sale",
   "reportCell.sourceDoc.WORK_ORDER": "Work order",
   "reportCell.sourceDoc.PURCHASE_CANCELLATION": "Purchase receipt/invoice cancellation",
+  "reportCell.notComputed": "Not computed",
 
   // purchases — hub
   "purchasesHub.action.newOrder": "New purchase order",
@@ -18324,7 +18327,7 @@ const webEn: Record<WebTranslationKey, string> = {
   "settingsGeneral.dayDivisorFixed30": "Fixed — 30 days",
   "settingsGeneral.dayDivisorCalendarDays": "Actual days in the month",
   "payslipPrint.statutoryNotComputed": "Net pay excludes salary tax and social insurance — neither is computed.",
-  "payslipPrint.garnishmentCapped": "The statutory wage-attachment cap applied — the remainder carries to next month",
+  "payslipPrint.statutoryCapped": "The statutory cap applied — the remainder carries to next month",
   "statutory.title": "Statutory payroll tables",
   "statutory.couldNotLoad": "The statutory tables could not be loaded.",
   "statutory.loadingBody": "Loading the statutory tables…",
@@ -18400,6 +18403,7 @@ const webEn: Record<WebTranslationKey, string> = {
   "payroll.atCeiling": "At ceiling",
   "payroll.beforeAnnualTaxSettlement": "Before the annual tax settlement",
   "payroll.employerCost": "Employer cost",
+  "payroll.notComputed": "Not computed",
   "payroll.insurableWage": "Insurable wage",
   "payroll.noSourceForOvertime": "No overtime-hours source was bound, so no overtime was paid in this run.",
   "payroll.statutoryTablesUsed": "Statutory tables used",

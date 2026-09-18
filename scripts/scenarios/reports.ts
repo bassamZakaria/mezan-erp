@@ -397,6 +397,29 @@ export async function everyPartyTiesItsOwedLadderAndStatement(ctx: Ctx): Promise
 }
 
 /**
+ * D220: a ladder run as of a past day ties to its control account as of that
+ * day. Run last, when the tenant carries the most history — receipts,
+ * returns, cheques bounced and vouchers reversed after many of these days.
+ */
+export async function laddersTieOnPastDays_D220(ctx: Ctx): Promise<void> {
+  await ctx.scenario("D220 — both ladders tie to their control accounts as of every past day checked", async () => {
+    const days = ["2025-12-31", "2026-01-31", "2026-02-28", "2026-03-31", "2026-04-30", "2026-05-31", "2026-06-30", "2026-07-31"];
+    for (let day = 15; day <= 31; day += 1) days.push(`2026-08-${String(day).padStart(2, "0")}`);
+    days.push("2026-09-01", "2026-09-15");
+    for (const kind of ["customers", "suppliers"] as const) {
+      const off: string[] = [];
+      for (const day of days) {
+        const recon = (await ctx.req("GET", `/reports/aging/${kind}?asOfDate=${day}`)).body?.reconciliation;
+        if (!recon || ctx.scaled(recon.reportTotal) !== ctx.scaled(recon.referenceTotal)) {
+          off.push(`${day}: ladder ${recon?.reportTotal} control ${recon?.referenceTotal}`);
+        }
+      }
+      ctx.check(`aging ${kind}: the ladder equals its control account to the micro-unit on each of ${days.length} past days`, off.length === 0, off.slice(0, 4).join("; "));
+    }
+  });
+}
+
+/**
  * D194, D195, D196 on the seeded tenant. A currency of this scenario's own
  * (CHF) keeps its open balance and its revaluation out of the USD/EUR trails
  * the seams module measures; the settings it needs are restored afterwards.

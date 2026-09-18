@@ -36,6 +36,12 @@ export interface AgingCustomersContext {
    */
   readonly allocatedByInvoiceId?: ReadonlyMap<string, Money>;
   /**
+   * The part of each invoice's settlement applied from a collection or cheque
+   * dated after `asOfDate` (D220). The control balance as of that day has not
+   * been credited with it, so an as-of ladder must not net it either.
+   */
+  readonly settledAfterAsOfByInvoiceId?: ReadonlyMap<string, Money>;
+  /**
    * Confirmed sales returns per SOURCE invoice. A return credits AR in the GL,
    * so an aging ladder that ignores it reports a debt the ledger has already
    * cancelled.
@@ -228,7 +234,9 @@ export function customerAgingBalances(
     if (!matchesBranch(invoice.branchId, params.branchId)) continue;
     const total = salesInvoiceBaseGrandTotal(salesInvoiceTotals(invoice), invoice.fxRate);
     const allocated = ctx.allocatedByInvoiceId?.get(invoice.id) ?? Money.zero();
-    const settled = allocated.scaled > invoice.amountPaid.scaled ? allocated : invoice.amountPaid;
+    const settledNow = allocated.scaled > invoice.amountPaid.scaled ? allocated : invoice.amountPaid;
+    const later = ctx.settledAfterAsOfByInvoiceId?.get(invoice.id)?.scaled ?? 0n;
+    const settled = Money.fromScaled(settledNow.scaled > later ? settledNow.scaled - later : 0n);
     const returned = ctx.returnsByInvoiceId?.get(invoice.id) ?? Money.zero();
     const balance = Money.fromScaled(total.scaled - settled.scaled - returned.scaled);
     // A return beyond what is still open leaves the customer in credit, and

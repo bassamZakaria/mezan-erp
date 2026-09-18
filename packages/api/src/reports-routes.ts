@@ -39,6 +39,7 @@ import {
   INPUT_VAT_ACCOUNT_ID,
   ACCOUNT_TYPE_LABELS,
   SALES_INVOICE_ACTIVE_STATUSES,
+  SALES_INVOICE_TERMINAL_STATUSES,
   moneyToNumber,
   purchaseInvoiceBaseTotal,
   salesInvoiceTotals,
@@ -79,7 +80,6 @@ import {
   type RunReportOutcome,
   salesReturnGrandTotal,
   salesReturnCreditByInvoice,
-  sumActive,
   voucherBaseAmount,
   voucherBaseWithholding,
   isStandingVoucher,
@@ -104,6 +104,10 @@ import {
   type SalesReturnDocument,
   type PurchaseReturnLine,
   type ChequeRepository,
+  type Cheque,
+  type PostedLine,
+  type VoucherDocument,
+  purchaseReturnCreditByInvoice,
   type AllocationRepository,
   type SubcontractStore,
   type VoucherLine,
@@ -133,6 +137,7 @@ export interface ReportsRoutesDeps {
         readonly docNo: string | null;
         readonly date: string;
         readonly status: string;
+        readonly reversesDocId?: string | null;
         readonly lines: readonly PurchaseReturnLine[];
       }[]
     >;
@@ -448,75 +453,174 @@ async function loadAllLayers(deps: ReportsRoutesDeps) {
   return lists.flat();
 }
 
+type PartyKind = "customer" | "supplier";
+
 /**
- * Customer credits that no invoice claims: an incoming cheque (which credited AR
- * the moment it was written) and the unallocated remainder of a confirmed
- * collection. Without them the aging ladder reports debt the ledger has already
- * cleared, and the dashboard's receivables tile and this report disagree (D37).
+ * What an as-of ladder needs to know about the day it is run for (D220): every
+ * term must stand as it stood that day, or the ladder nets a receipt, a return
+ * or a bounce that the control balance as of that day does not yet hold.
  */
-async function unappliedCustomerCredits(deps: ReportsRoutesDeps): Promise<ReadonlyMap<string, Money>> {
-  const out = new Map<string, bigint>();
-  const add = (partyId: string | null | undefined, scaled: bigint) => {
-    if (!partyId || scaled <= 0n) return;
-    out.set(partyId, (out.get(partyId) ?? 0n) + scaled);
+interface AgingAsOf {
+  readonly kind: PartyKind;
+  readonly asOfDate: string;
+  readonly controlId: string;
+  /** Every line on the control account, whatever its date; entries are dated by them. */
+  readonly controlLines: readonly PostedLine[];
+  readonly entryDates: ReadonlyMap<string, string>;
+  /** This side's invoices dated after `asOfDate`: an allocation to one had not been applied that day. */
+  readonly laterInvoiceIds: ReadonlySet<string>;
+}
+
+function nextDay(iso: string): string {
+  const at = Date.parse(`${iso}T00:00:00Z`);
+  return Number.isNaN(at) ? iso : new Date(at + 86_400_000).toISOString().slice(0, 10);
+}
+
+async function agingAsOf(deps: ReportsRoutesDeps, kind: PartyKind, asOfDate: string): Promise<AgingAsOf> {
+  const controlId = kind === "customer" ? RECEIVABLES_CONTROL_ACCOUNT_ID : PAYABLES_CONTROL_ACCOUNT_ID;
+  const controlLines = (await deps.ledger.listLines?.({ accountIds: [controlId] })) ?? [];
+  const entryDates = new Map<string, string>();
+  for (const line of controlLines) entryDates.set(line.entryId, line.date);
+  const later =
+    kind === "customer"
+      ? await deps.salesInvoices.list({ fromDate: nextDay(asOfDate) })
+      : await deps.purchaseInvoices.list({ fromDate: nextDay(asOfDate) });
+  return {
+    kind,
+    asOfDate,
+    controlId,
+    controlLines,
+    entryDates,
+    laterInvoiceIds: new Set(later.filter((invoice) => invoice.date > asOfDate).map((invoice) => invoice.id)),
+  };
+}
+
+/**
+ * Whether a voucher stood on `asOfDate`: dated on or before it, and not yet
+ * reversed. A reversal's mirror carries the date the reversal posted, so a
+ * voucher reversed after the snapshot still counts in it.
+ */
+function voucherStoodOn(doc: VoucherDocument, byId: ReadonlyMap<string, VoucherDocument>, asOfDate: string): boolean {
+  if (doc.reversesDocId || doc.date > asOfDate) return false;
+  if (isStandingVoucher(doc)) return true;
+  if (doc.status !== "reversed") return false;
+  const reversedOn = (doc.reversedByDocId ? byId.get(doc.reversedByDocId)?.date : undefined) ?? doc.date;
+  return reversedOn > asOfDate;
+}
+
+/** The days a cheque's credit to its party arose and, if it bounced, was undone — read off the entries that posted them. */
+function chequeDays(cheque: Cheque, asOf: AgingAsOf): { readonly raised: string; readonly undone: string | null } {
+  const raised = (cheque.creationJournalEntryId ? asOf.entryDates.get(cheque.creationJournalEntryId) : undefined) ?? cheque.issueDate;
+  if (cheque.status !== "bounced" && cheque.status !== "replaced") return { raised, undone: null };
+  const undone = (cheque.bounceJournalEntryId ? asOf.entryDates.get(cheque.bounceJournalEntryId) : undefined) ?? cheque.bouncedAt?.slice(0, 10) ?? raised;
+  return { raised, undone };
+}
+
+interface UnappliedTerms {
+  /** Per party: what its receipts (or payments) standing on the day had not applied to an invoice of that day. */
+  readonly unapplied: ReadonlyMap<string, Money>;
+  /** Per invoice: what a receipt (or payment) dated after the day has since applied to it. */
+  readonly settledAfter: ReadonlyMap<string, Money>;
+}
+
+/**
+ * Party credits (customer) or debits (supplier) that no invoice claims on the
+ * day: a live cheque written against the control account and the unallocated
+ * remainder of a standing collection or payment. The ladder nets them oldest
+ * bucket first (D37, D193).
+ */
+async function unappliedPartyTerms(deps: ReportsRoutesDeps, asOf: AgingAsOf): Promise<UnappliedTerms> {
+  const unapplied = new Map<string, bigint>();
+  const settledAfter = new Map<string, bigint>();
+  const direction = asOf.kind === "customer" ? "incoming" : "outgoing";
+
+  const source = async (id: string, partyId: string | null | undefined, amount: bigint, date: string, standing: boolean) => {
+    const active = ((await deps.allocations?.listByVoucher(id)) ?? []).filter((alloc) => alloc.status === "active");
+    if (date > asOf.asOfDate) {
+      for (const alloc of active) settledAfter.set(alloc.invoiceId, (settledAfter.get(alloc.invoiceId) ?? 0n) + alloc.amount.scaled);
+      return;
+    }
+    if (!standing || !partyId) return;
+    const applied = active.filter((alloc) => !asOf.laterInvoiceIds.has(alloc.invoiceId)).reduce((sum, alloc) => sum + alloc.amount.scaled, 0n);
+    const left = amount - applied;
+    if (left > 0n) unapplied.set(partyId, (unapplied.get(partyId) ?? 0n) + left);
   };
 
-  for (const cheque of (await deps.cheques?.list({ direction: "incoming" })) ?? []) {
-    if (cheque.direction !== "incoming") continue;
-    // A bounce reverses the cheque's AR credit and undoes its allocations
-    // (D192), so a bounced or replaced cheque credits nothing that still stands.
-    if (cheque.status === "bounced" || cheque.status === "replaced") continue;
-    if (cheque.counterpartyGlAccountId !== "1105") continue;
-    add(cheque.partyId, cheque.amount.scaled - (await allocatedTo(deps, cheque.id)));
+  for (const cheque of (await deps.cheques?.list({ direction })) ?? []) {
+    if (cheque.direction !== direction || cheque.counterpartyGlAccountId !== asOf.controlId) continue;
+    const { raised, undone } = chequeDays(cheque, asOf);
+    await source(cheque.id, cheque.partyId, cheque.amount.scaled, raised, undone === null || undone > asOf.asOfDate);
   }
 
-  for (const doc of (await deps.voucherDocuments?.list({ status: "confirmed" })) ?? []) {
-    if (!isStandingVoucher(doc)) continue;
+  const vouchers = (await deps.voucherDocuments?.list()) ?? [];
+  const byId = new Map(vouchers.map((doc) => [doc.id, doc]));
+  const voucherDirection = asOf.kind === "customer" ? "receipt" : "payment";
+  for (const doc of vouchers) {
+    if (doc.reversesDocId) continue;
     const line = doc.lines[0];
-    if (!line || line.direction !== "receipt") continue;
-    if (line.counterpartyGlAccountId !== "1105") continue;
-    add(line.customerId, voucherBaseAmount(line).scaled - (await allocatedTo(deps, doc.id)));
+    if (!line || line.direction !== voucherDirection || line.counterpartyGlAccountId !== asOf.controlId) continue;
+    if (!isStandingVoucher(doc) && doc.status !== "reversed") continue;
+    const partyId = asOf.kind === "customer" ? line.customerId : line.supplierId;
+    await source(doc.id, partyId, voucherBaseAmount(line).scaled, doc.date, voucherStoodOn(doc, byId, asOf.asOfDate));
   }
 
-  return new Map([...out].map(([id, scaled]) => [id, Money.fromScaled(scaled)]));
+  const toMoney = (map: Map<string, bigint>) => new Map([...map].map(([id, scaled]) => [id, Money.fromScaled(scaled)]));
+  return { unapplied: toMoney(unapplied), settledAfter: toMoney(settledAfter) };
+}
+
+const OPENING_ENTRY_ID = { customer: /^OB-CUST-JE:(.+?)(?::v\d+)?(?::REV)?$/, supplier: /^OB-SUPP-JE:(.+?)(?::v\d+)?(?::REV)?$/ } as const;
+
+/**
+ * The party an opening-balance line belongs to. Books written before D204
+ * carry no document type on the entry, but its id has always been
+ * `OB-CUST-JE:<party>` / `OB-SUPP-JE:<party>` (`:v<n>` for a correction,
+ * `:REV` for the reversal of a superseded one) — D223.
+ */
+function openingPartyOf(line: PostedLine, kind: PartyKind): string | null {
+  const docType = kind === "customer" ? CUSTOMER_OPENING_BALANCE_DOC_TYPE : SUPPLIER_OPENING_BALANCE_DOC_TYPE;
+  if (line.sourceDocType === docType && line.sourceDocId) return line.sourceDocId;
+  return OPENING_ENTRY_ID[kind].exec(line.entryId)?.[1] ?? null;
 }
 
 /**
  * What the control account holds for a party that no invoice carries: its
- * opening balance (D204), aged from the day it was posted, and every manual
- * journal line that names it (D205). Signed on the party's natural side.
+ * opening balance (D204), dated by the entries that posted it (D223), every
+ * manual journal line that names it (D205), the open remainder of an imported
+ * document (D210) and a refund paid back across the control account (D211).
+ * Signed on the party's natural side.
  */
 async function partyOpenItems(
   deps: ReportsRoutesDeps,
-  kind: "customer" | "supplier",
+  asOf: AgingAsOf,
   parties: readonly { readonly id: string; readonly openingBalance?: Money; readonly branchId?: string | null }[],
 ): Promise<AgingOpenItem[]> {
-  const controlId = kind === "customer" ? RECEIVABLES_CONTROL_ACCOUNT_ID : PAYABLES_CONTROL_ACCOUNT_ID;
-  const openingDocType = kind === "customer" ? CUSTOMER_OPENING_BALANCE_DOC_TYPE : SUPPLIER_OPENING_BALANCE_DOC_TYPE;
+  const { kind, controlId } = asOf;
   const sign = kind === "customer" ? 1n : -1n;
-  const lines = (await deps.ledger.listLines?.({ accountIds: [controlId] })) ?? [];
   const items: AgingOpenItem[] = [];
-  const openedOn = new Map<string, string>();
-  for (const line of lines) {
+  const openingByPartyDay = new Map<string, Map<string, bigint>>();
+  for (const line of asOf.controlLines) {
+    const amount = sign * (line.debit.scaled - line.credit.scaled);
     if (line.partyId) {
-      items.push({
-        partyId: line.partyId,
-        source: "journal",
-        reference: line.entryNo ?? line.entryId,
-        date: line.date,
-        amount: Money.fromScaled(sign * (line.debit.scaled - line.credit.scaled)),
-        branchId: line.branchId,
-      });
+      items.push({ partyId: line.partyId, source: "journal", reference: line.entryNo ?? line.entryId, date: line.date, amount: Money.fromScaled(amount), branchId: line.branchId });
+      continue;
     }
-    if (line.sourceDocType === openingDocType && line.sourceDocId) {
-      const seen = openedOn.get(line.sourceDocId);
-      if (!seen || line.date < seen) openedOn.set(line.sourceDocId, line.date);
-    }
+    const partyId = openingPartyOf(line, kind);
+    if (!partyId) continue;
+    const days = openingByPartyDay.get(partyId) ?? new Map<string, bigint>();
+    days.set(line.date, (days.get(line.date) ?? 0n) + amount);
+    openingByPartyDay.set(partyId, days);
   }
   for (const party of parties) {
+    const posted = openingByPartyDay.get(party.id);
+    if (posted) {
+      for (const [date, scaled] of posted) {
+        if (scaled !== 0n) items.push({ partyId: party.id, source: "opening", date, amount: Money.fromScaled(scaled), branchId: party.branchId ?? null });
+      }
+      continue;
+    }
     const opening = party.openingBalance ?? Money.zero();
     if (opening.scaled === 0n) continue;
-    items.push({ partyId: party.id, source: "opening", date: openedOn.get(party.id) ?? todayIso(deps), amount: opening, branchId: party.branchId ?? null });
+    items.push({ partyId: party.id, source: "opening", date: todayIso(deps), amount: opening, branchId: party.branchId ?? null });
   }
   const archives =
     kind === "customer"
@@ -536,44 +640,66 @@ async function partyOpenItems(
   // Money paid back to a customer, or refunded by a supplier, across the
   // control account: it reopens the balance a return or an overpayment closed.
   const refundDirection = kind === "customer" ? "payment" : "receipt";
-  for (const doc of (await deps.voucherDocuments?.list({ status: "confirmed" })) ?? []) {
-    if (!isStandingVoucher(doc)) continue;
+  const vouchers = (await deps.voucherDocuments?.list()) ?? [];
+  const byId = new Map(vouchers.map((doc) => [doc.id, doc]));
+  for (const doc of vouchers) {
+    if (!voucherStoodOn(doc, byId, asOf.asOfDate)) continue;
     const line = doc.lines[0];
     if (!line || line.direction !== refundDirection || line.counterpartyGlAccountId !== controlId) continue;
     const partyId = kind === "customer" ? line.customerId : line.supplierId;
     if (!partyId) continue;
-    items.push({
-      partyId,
-      source: "refund",
-      reference: doc.docNo ?? doc.id,
-      date: doc.date,
-      amount: voucherBaseAmount(line),
-      branchId: line.branchId ?? null,
-    });
+    items.push({ partyId, source: "refund", reference: doc.docNo ?? doc.id, date: doc.date, amount: voucherBaseAmount(line), branchId: line.branchId ?? null });
   }
   return items;
+}
+
+/**
+ * Invoices voided or cancelled after the snapshot were still live on it: their
+ * posting stood on the control account until the reversal, dated by the
+ * reversal's own line (it carries the invoice as its source document, D199).
+ */
+function liveOnTheDay<T extends { readonly id: string }>(voided: readonly T[], asOf: AgingAsOf): T[] {
+  const undoneOn = new Map<string, string>();
+  for (const line of asOf.controlLines) {
+    if (!line.sourceDocId) continue;
+    const undoes = asOf.kind === "customer" ? line.credit.scaled > 0n : line.debit.scaled > 0n;
+    if (!undoes) continue;
+    const seen = undoneOn.get(line.sourceDocId);
+    if (!seen || line.date > seen) undoneOn.set(line.sourceDocId, line.date);
+  }
+  return voided.filter((invoice) => (undoneOn.get(invoice.id) ?? "") > asOf.asOfDate);
 }
 
 /** The one place the ladder's netting terms are built; the customers screen must not get its own (D195). */
 async function agingCustomersTerms(
   deps: ReportsRoutesDeps,
   invoices: readonly { readonly id: string }[],
+  given?: AgingAsOf,
 ): Promise<Omit<AgingCustomersContext, "invoices" | "receivablesControlBalance" | "fxRevaluationOnControl">> {
-  const [returns, credits, customers, allocatedByInvoiceId] = await Promise.all([
-    returnsByInvoiceId(deps),
-    unappliedCustomerCredits(deps),
+  const asOf = given ?? (await agingAsOf(deps, "customer", todayIso(deps)));
+  const asOfDate = asOf.asOfDate;
+  const [returns, terms, customers, allocatedByInvoiceId] = await Promise.all([
+    returnsByInvoiceId(deps, asOfDate),
+    unappliedPartyTerms(deps, asOf),
     deps.customers.findAll(),
     settledByInvoiceId(deps, invoices),
   ]);
-  const openItems = await partyOpenItems(deps, "customer", customers);
-  return { customers, allocatedByInvoiceId, returnsByInvoiceId: returns, unappliedCreditsByCustomerId: credits, openItems };
+  const openItems = await partyOpenItems(deps, asOf, customers);
+  return {
+    customers,
+    allocatedByInvoiceId,
+    settledAfterAsOfByInvoiceId: terms.settledAfter,
+    returnsByInvoiceId: returns,
+    unappliedCreditsByCustomerId: terms.unapplied,
+    openItems,
+  };
 }
 
 /** Each customer's row total on today's customer aging ladder, every branch (D195). */
 export async function customerAgingOwed(deps: ReportsRoutesDeps): Promise<ReadonlyMap<string, Money>> {
   const asOfDate = todayIso(deps);
   const invoices = await deps.salesInvoices.list({ statusIn: [...SALES_INVOICE_ACTIVE_STATUSES], toDate: asOfDate });
-  const balances = customerAgingBalances({ asOfDate, branchId: "" }, { invoices, ...(await agingCustomersTerms(deps, invoices)) });
+  const balances = customerAgingBalances({ asOfDate, branchId: "" }, { invoices, ...(await agingCustomersTerms(deps, invoices, await agingAsOf(deps, "customer", asOfDate))) });
   return new Map([...balances].map(([customerId, row]) => [customerId, agingBucketsTotal(row)]));
 }
 
@@ -581,72 +707,39 @@ export async function customerAgingOwed(deps: ReportsRoutesDeps): Promise<Readon
 async function agingSuppliersTerms(
   deps: ReportsRoutesDeps,
   invoices: readonly { readonly id: string }[],
+  given?: AgingAsOf,
 ): Promise<Omit<AgingSuppliersContext, "invoices" | "payablesControlBalance" | "fxRevaluationOnControl">> {
-  const [suppliers, returns, debits, allocatedByInvoiceId] = await Promise.all([
+  const asOf = given ?? (await agingAsOf(deps, "supplier", todayIso(deps)));
+  const asOfDate = asOf.asOfDate;
+  const [suppliers, returns, terms, allocatedByInvoiceId] = await Promise.all([
     deps.suppliers.findAll(),
-    purchaseReturnsByInvoiceId(deps),
-    unappliedSupplierDebits(deps),
+    purchaseReturnsByInvoiceId(deps, asOfDate),
+    unappliedPartyTerms(deps, asOf),
     settledByInvoiceId(deps, invoices),
   ]);
-  const openItems = await partyOpenItems(deps, "supplier", suppliers);
-  return { suppliers, allocatedByInvoiceId, returnsByInvoiceId: returns, unappliedDebitsBySupplierId: debits, openItems };
+  const openItems = await partyOpenItems(deps, asOf, suppliers);
+  return {
+    suppliers,
+    allocatedByInvoiceId,
+    settledAfterAsOfByInvoiceId: terms.settledAfter,
+    returnsByInvoiceId: returns,
+    unappliedDebitsBySupplierId: terms.unapplied,
+    openItems,
+  };
 }
 
 /** Each supplier's row total on today's supplier aging ladder, every branch — what the suppliers screen shows as owed (D201). */
 export async function supplierAgingOwed(deps: ReportsRoutesDeps): Promise<ReadonlyMap<string, Money>> {
   const asOfDate = todayIso(deps);
   const invoices = await deps.purchaseInvoices.list({ status: "confirmed", toDate: asOfDate });
-  const balances = supplierAgingBalances({ asOfDate, branchId: "" }, { invoices, ...(await agingSuppliersTerms(deps, invoices)) });
+  const balances = supplierAgingBalances({ asOfDate, branchId: "" }, { invoices, ...(await agingSuppliersTerms(deps, invoices, await agingAsOf(deps, "supplier", asOfDate))) });
   return new Map([...balances].map(([supplierId, row]) => [supplierId, supplierAgingTotal(row)]));
 }
 
-/** What the allocation sub-ledger has applied from one cheque or voucher. */
-async function allocatedTo(deps: ReportsRoutesDeps, sourceId: string): Promise<bigint> {
-  return deps.allocations ? sumActive(await deps.allocations.listByVoucher(sourceId)).scaled : 0n;
-}
-
-/**
- * Supplier debits that no invoice claims: a live outgoing cheque (which
- * debited AP the moment it was issued) and the unallocated remainder of a
- * confirmed supplier payment. The twin of {@link unappliedCustomerCredits}.
- */
-async function unappliedSupplierDebits(deps: ReportsRoutesDeps): Promise<ReadonlyMap<string, Money>> {
-  const out = new Map<string, bigint>();
-  const add = (partyId: string | null | undefined, scaled: bigint) => {
-    if (!partyId || scaled <= 0n) return;
-    out.set(partyId, (out.get(partyId) ?? 0n) + scaled);
-  };
-
-  for (const cheque of (await deps.cheques?.list({ direction: "outgoing" })) ?? []) {
-    if (cheque.direction !== "outgoing") continue;
-    if (cheque.status === "bounced" || cheque.status === "replaced") continue;
-    if (cheque.counterpartyGlAccountId !== "2100") continue;
-    add(cheque.partyId, cheque.amount.scaled - (await allocatedTo(deps, cheque.id)));
-  }
-
-  for (const doc of (await deps.voucherDocuments?.list({ status: "confirmed" })) ?? []) {
-    if (!isStandingVoucher(doc)) continue;
-    const line = doc.lines[0];
-    if (!line || line.direction !== "payment") continue;
-    if (line.counterpartyGlAccountId !== "2100") continue;
-    add(line.supplierId, voucherBaseAmount(line).scaled - (await allocatedTo(deps, doc.id)));
-  }
-
-  return new Map([...out].map(([id, scaled]) => [id, Money.fromScaled(scaled)]));
-}
-
-/** Confirmed purchase-return debit per source invoice, attributed line by line. */
-async function purchaseReturnsByInvoiceId(deps: ReportsRoutesDeps): Promise<ReadonlyMap<string, Money>> {
-  const out = new Map<string, bigint>();
-  for (const doc of (await deps.purchaseReturnDocs?.list({ status: "confirmed" })) ?? []) {
-    if (doc.status !== "confirmed") continue;
-    for (const line of doc.lines) {
-      if (!line.sourceInvoiceId) continue;
-      const value = purchaseReturnLineCredit(line).scaled;
-      out.set(line.sourceInvoiceId, (out.get(line.sourceInvoiceId) ?? 0n) + value);
-    }
-  }
-  return new Map([...out].map(([id, scaled]) => [id, Money.fromScaled(scaled)]));
+/** Confirmed purchase-return debit per source invoice, attributed line by line, as of a day. */
+async function purchaseReturnsByInvoiceId(deps: ReportsRoutesDeps, asOfDate?: string): Promise<ReadonlyMap<string, Money>> {
+  const docs = (await deps.purchaseReturnDocs?.list({ status: "confirmed" })) ?? [];
+  return purchaseReturnCreditByInvoice(docs.filter((doc) => !asOfDate || doc.date <= asOfDate));
 }
 
 /**
@@ -658,11 +751,11 @@ async function salesReturnCreditsByInvoiceId(deps: ReportsRoutesDeps): Promise<R
   return salesReturnCreditByInvoice(docs.filter((doc) => !doc.reversesDocId));
 }
 
-/** Confirmed sales-return credit per source invoice. */
-async function returnsByInvoiceId(deps: ReportsRoutesDeps): Promise<ReadonlyMap<string, Money>> {
+/** Confirmed sales-return credit per source invoice, as of a day. */
+async function returnsByInvoiceId(deps: ReportsRoutesDeps, asOfDate: string): Promise<ReadonlyMap<string, Money>> {
   const out = new Map<string, bigint>();
   for (const doc of (await deps.salesReturnDocs?.list({ status: "confirmed" })) ?? []) {
-    if (doc.status !== "confirmed") continue;
+    if (doc.status !== "confirmed" || doc.reversesDocId || doc.date > asOfDate) continue;
     const invoiceId = doc.lines[0]?.sourceInvoiceId;
     if (!invoiceId) continue;
     out.set(invoiceId, (out.get(invoiceId) ?? 0n) + salesReturnGrandTotal(doc).scaled);
@@ -1292,11 +1385,15 @@ export function createReportsRoutes(
     // The ladder drops every invoice that is not live and every one dated after
     // the snapshot, so both bounds belong in SQL rather than in a fold over the
     // whole table (Q-6). The set here must stay exactly the report's own.
-    const invoices = await scopedSalesInvoices(c, {
-      statusIn: [...SALES_INVOICE_ACTIVE_STATUSES],
-      ...(isoDateOrUndefined(params.asOfDate) ? { toDate: String(params.asOfDate) } : {}),
-    });
-    const terms = await agingCustomersTerms(deps, invoices);
+    const asOfDate = isoDateOrUndefined(params.asOfDate) ?? todayIso(deps);
+    const live = await scopedSalesInvoices(c, { statusIn: [...SALES_INVOICE_ACTIVE_STATUSES], toDate: asOfDate });
+    const asOf = await agingAsOf(deps, "customer", asOfDate);
+    const voided = liveOnTheDay(
+      await scopedSalesInvoices(c, { statusIn: [...SALES_INVOICE_TERMINAL_STATUSES], toDate: asOfDate }),
+      asOf,
+    ).map((invoice) => ({ ...invoice, status: "confirmed" as const }));
+    const invoices = [...live, ...voided];
+    const terms = await agingCustomersTerms(deps, invoices, asOf);
     // The ladder walks invoices; 1105 holds what those invoices, their
     // collections and their returns actually posted. Two independent paths to
     // one number — a difference means one of them is wrong (D112).
@@ -1319,11 +1416,15 @@ export function createReportsRoutes(
     const params = { ...definition.defaultParams, ...queryParams(c) };
     // Same two bounds as the customer ladder, and the same rule: the SQL set
     // must be exactly what the report itself would have kept (Q-6).
-    const invoices = await scopedPurchaseInvoices(c, {
-      status: "confirmed" as const,
-      ...(isoDateOrUndefined(params.asOfDate) ? { toDate: String(params.asOfDate) } : {}),
-    });
-    const terms = await agingSuppliersTerms(deps, invoices);
+    const asOfDate = isoDateOrUndefined(params.asOfDate) ?? todayIso(deps);
+    const live = await scopedPurchaseInvoices(c, { status: "confirmed" as const, toDate: asOfDate });
+    const asOf = await agingAsOf(deps, "supplier", asOfDate);
+    const cancelled = liveOnTheDay(
+      await scopedPurchaseInvoices(c, { status: "cancelled" as const, toDate: asOfDate }),
+      asOf,
+    ).map((invoice) => ({ ...invoice, status: "confirmed" as const }));
+    const invoices = [...live, ...cancelled];
+    const terms = await agingSuppliersTerms(deps, invoices, asOf);
     const payablesControl = branchNarrowed(c, params)
       ? undefined
       : await partyControlTie(deps, PAYABLES_CONTROL_ACCOUNT_ID, "credit", isoDateOrUndefined(params.asOfDate));
@@ -1392,7 +1493,8 @@ export function createReportsRoutes(
     const invoices = (await scopedSalesInvoices(c, { statusIn: [...SALES_INVOICE_ACTIVE_STATUSES], toDate: asOfDate })).filter(
       (invoice) => invoice.customerId === id,
     );
-    const terms = await agingCustomersTerms(deps, invoices);
+    const asOf = await agingAsOf(deps, "customer", asOfDate);
+    const terms = await agingCustomersTerms(deps, invoices, asOf);
     const invoiceRefs = new Map(invoices.map((invoice) => [invoice.id, invoice.docNo ?? invoice.id]));
     const entries: PartyStatementEntry[] = invoices.map((invoice) => ({
       key: `inv-${invoice.id}`,
@@ -1403,11 +1505,11 @@ export function createReportsRoutes(
       decrease: Money.zero(),
     }));
     for (const doc of (await deps.salesReturnDocs?.list({ status: "confirmed" })) ?? []) {
-      if (doc.status !== "confirmed" || !invoiceRefs.has(doc.lines[0]?.sourceInvoiceId ?? "")) continue;
+      if (doc.status !== "confirmed" || doc.date > asOfDate || !invoiceRefs.has(doc.lines[0]?.sourceInvoiceId ?? "")) continue;
       entries.push({ key: `ret-${doc.id}`, date: doc.date, kind: "return", reference: doc.docNo ?? doc.id, increase: Money.zero(), decrease: salesReturnGrandTotal(doc) });
     }
     for (const doc of (await deps.voucherDocuments?.list({ status: "confirmed" })) ?? []) {
-      if (!isStandingVoucher(doc)) continue;
+      if (!isStandingVoucher(doc) || doc.date > asOfDate) continue;
       const line = doc.lines[0];
       if (!line || line.direction !== "receipt" || line.counterpartyGlAccountId !== RECEIVABLES_CONTROL_ACCOUNT_ID || line.customerId !== id) continue;
       entries.push({
@@ -1422,11 +1524,13 @@ export function createReportsRoutes(
     }
     for (const cheque of (await deps.cheques?.list({ direction: "incoming" })) ?? []) {
       if (cheque.direction !== "incoming" || cheque.counterpartyGlAccountId !== RECEIVABLES_CONTROL_ACCOUNT_ID || cheque.partyId !== id) continue;
-      entries.push({ key: `chq-${cheque.id}`, date: cheque.issueDate, kind: "cheque", reference: cheque.chequeNumber, increase: Money.zero(), decrease: cheque.amount });
-      if (cheque.status === "bounced" || cheque.status === "replaced") {
+      const days = chequeDays(cheque, asOf);
+      if (days.raised > asOfDate) continue;
+      entries.push({ key: `chq-${cheque.id}`, date: days.raised, kind: "cheque", reference: cheque.chequeNumber, increase: Money.zero(), decrease: cheque.amount });
+      if (days.undone !== null && days.undone <= asOfDate) {
         entries.push({
           key: `chq-back-${cheque.id}`,
-          date: cheque.bouncedAt?.slice(0, 10) ?? cheque.issueDate,
+          date: days.undone,
           kind: "cheque_returned",
           reference: cheque.chequeNumber,
           increase: cheque.amount,
@@ -1460,7 +1564,8 @@ export function createReportsRoutes(
     const invoices = (await scopedPurchaseInvoices(c, { status: "confirmed", toDate: asOfDate })).filter(
       (invoice) => invoice.supplierId === id,
     );
-    const terms = await agingSuppliersTerms(deps, invoices);
+    const asOf = await agingAsOf(deps, "supplier", asOfDate);
+    const terms = await agingSuppliersTerms(deps, invoices, asOf);
     const invoiceRefs = new Map(invoices.map((invoice) => [invoice.id, invoice.number ?? invoice.id]));
     const entries: PartyStatementEntry[] = invoices.map((invoice) => ({
       key: `inv-${invoice.id}`,
@@ -1471,7 +1576,7 @@ export function createReportsRoutes(
       decrease: Money.zero(),
     }));
     for (const doc of (await deps.purchaseReturnDocs?.list({ status: "confirmed" })) ?? []) {
-      if (doc.status !== "confirmed") continue;
+      if (doc.status !== "confirmed" || doc.reversesDocId || doc.date > asOfDate) continue;
       const mine = doc.lines.filter((line) => line.sourceInvoiceId && invoiceRefs.has(line.sourceInvoiceId));
       if (mine.length === 0) continue;
       entries.push({
@@ -1484,7 +1589,7 @@ export function createReportsRoutes(
       });
     }
     for (const doc of (await deps.voucherDocuments?.list({ status: "confirmed" })) ?? []) {
-      if (!isStandingVoucher(doc)) continue;
+      if (!isStandingVoucher(doc) || doc.date > asOfDate) continue;
       const line = doc.lines[0];
       if (!line || line.direction !== "payment" || line.counterpartyGlAccountId !== PAYABLES_CONTROL_ACCOUNT_ID || line.supplierId !== id) continue;
       entries.push({
@@ -1499,11 +1604,13 @@ export function createReportsRoutes(
     }
     for (const cheque of (await deps.cheques?.list({ direction: "outgoing" })) ?? []) {
       if (cheque.direction !== "outgoing" || cheque.counterpartyGlAccountId !== PAYABLES_CONTROL_ACCOUNT_ID || cheque.partyId !== id) continue;
-      entries.push({ key: `chq-${cheque.id}`, date: cheque.issueDate, kind: "cheque", reference: cheque.chequeNumber, increase: Money.zero(), decrease: cheque.amount });
-      if (cheque.status === "bounced" || cheque.status === "replaced") {
+      const days = chequeDays(cheque, asOf);
+      if (days.raised > asOfDate) continue;
+      entries.push({ key: `chq-${cheque.id}`, date: days.raised, kind: "cheque", reference: cheque.chequeNumber, increase: Money.zero(), decrease: cheque.amount });
+      if (days.undone !== null && days.undone <= asOfDate) {
         entries.push({
           key: `chq-back-${cheque.id}`,
-          date: cheque.bouncedAt?.slice(0, 10) ?? cheque.issueDate,
+          date: days.undone,
           kind: "cheque_returned",
           reference: cheque.chequeNumber,
           increase: cheque.amount,

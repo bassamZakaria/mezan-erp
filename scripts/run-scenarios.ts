@@ -16,6 +16,7 @@ import {
   foreignInvoicesOnAccountReceiptsAndChequeVouchers_D194_D196,
   foreignSettlementReportsAndReturns_D201_D203,
   everyPartyTiesItsOwedLadderAndStatement,
+  laddersTieOnPastDays_D220,
 } from "./scenarios/reports.js";
 import { run as salesParity } from "./scenarios/sales-parity.js";
 import { run as itemsForms } from "./scenarios/items-forms.js";
@@ -69,6 +70,7 @@ if (!only.size || only.has("reports")) {
   process.stdout.write("  end-of-run parties…");
   const before = ctx.passes.length + ctx.failures.length;
   await everyPartyTiesItsOwedLadderAndStatement(ctx);
+  await laddersTieOnPastDays_D220(ctx);
   console.log(` ${ctx.passes.length + ctx.failures.length - before} assertions`);
 }
 

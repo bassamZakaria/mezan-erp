@@ -3,8 +3,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { App, SessionRegistry } from "@mezan/api";
-import { ALL_SCOPE, MODULE_CATALOG, Money, createCustomer as buildCustomer, createEntitlements } from "@mezan/domain";
-import { createSqliteCustomerRepository, openSqliteConnection } from "@mezan/persistence";
+import { ALL_SCOPE, MODULE_CATALOG, Money, createCustomer as buildCustomer, createSupplier as buildSupplier, createEntitlements } from "@mezan/domain";
+import { createSqliteCustomerRepository, createSqliteSupplierRepository, openSqliteConnection } from "@mezan/persistence";
 import type { DashboardSummaryDTO, SessionDTO } from "@mezan/contracts";
 import { createBackend, type BackendHandle } from "./create-backend.js";
 
@@ -4526,5 +4526,152 @@ describe("createBackend — foreign documents settle and return in base (D202, D
     const { rows } = (await get(app, "/reconciliation")) as { rows: { key: string; subLedgerBalance: string; glBalance: string }[] };
     const inventory = rows.find((r) => r.key === "inventory")!;
     expect(Number(inventory.subLedgerBalance)).toBe(Number(inventory.glBalance));
+  });
+});
+
+describe("createBackend — a ladder run as of a past day ties to its control account as of that day (D220, D223)", () => {
+  async function get(app: App, path: string): Promise<any> {
+    return (await app.fetch(new Request(`http://local${path}`, { headers: admin(app) }))).json();
+  }
+  async function fundedCash(app: App) {
+    expect(
+      (await post(app, "/treasury-accounts", { id: "ta-cash", code: "TA-CASH", name: "الخزينة", branchId: "BR1", glAccountId: "1300-1", openingBalance: "0" }, admin(app))).status,
+    ).toBe(201);
+    expect((await post(app, "/vouchers", {
+      id: "v-fund", date: "2026-08-01", voucherType: "capital_injection", amount: "50000", branchId: "BR1", paymentMethod: "cash",
+      treasuryAccountId: "ta-cash", treasuryGlAccountId: "1300-1", counterpartyGlAccountId: "3100",
+    }, admin(app))).status).toBe(201);
+    expect((await post(app, "/vouchers/v-fund/confirm", {}, admin(app))).status).toBe(200);
+  }
+  async function ladderAt(app: App, kind: "customers" | "suppliers", date: string, partyId: string) {
+    const report = await get(app, `/reports/aging/${kind}?asOfDate=${date}`);
+    const row = report.rows.find((r: { customerId?: string; supplierId?: string }) => (r.customerId ?? r.supplierId) === partyId);
+    return { row: row?.total ?? 0, reportTotal: report.reconciliation.reportTotal, referenceTotal: report.reconciliation.referenceTotal };
+  }
+
+  it("D220: collections, returns, cheques, reversals and voids dated after the day are not netted on the customer ladder", async () => {
+    const app = await newBackend();
+    await createCustomer(app, "cust-asof", "0");
+    await createServiceItem(app);
+    await fundedCash(app);
+    const a = invoiceBody("inv-a", "cust-asof", "500");
+    expect((await authedPost(app, "/sales-invoices", { ...a, date: "2026-08-01", dueDate: "2026-08-31", lines: [{ ...a.lines[0], qty: "2" }] })).status).toBe(201);
+    expect((await authedPost(app, "/sales-invoices/inv-a/confirm", {})).status).toBe(200);
+    expect((await authedPost(app, "/sales-invoices", { ...invoiceBody("inv-v", "cust-asof", "300"), date: "2026-08-02", dueDate: "2026-08-31" })).status).toBe(201);
+    expect((await authedPost(app, "/sales-invoices/inv-v/confirm", {})).status).toBe(200);
+    expect((await post(app, "/sales-invoices/inv-a/payments", { amount: "400", treasuryAccountId: "ta-cash", date: "2026-08-10" }, admin(app))).status).toBe(200);
+    expect((await post(app, "/sales-returns/from-invoice", {
+      id: "sr-asof", date: "2026-08-12", memo: "", warehouseId: "WH1", sourceInvoiceId: "inv-a", reason: "OTHER", requested: [{ itemId: "SVC-1", qty: "1" }],
+    }, admin(app))).status).toBe(201);
+    expect((await post(app, "/sales-returns/sr-asof/confirm", {}, admin(app))).status).toBe(200);
+    const receipt = (id: string, date: string, amount: string) => ({
+      id, date, voucherType: "customer_collection", amount, branchId: "BR1", paymentMethod: "cash",
+      treasuryAccountId: "ta-cash", treasuryGlAccountId: "1300-1", counterpartyGlAccountId: "1105", customerId: "cust-asof",
+    });
+    for (const [id, date, amount] of [["v-oa", "2026-08-15", "100"], ["v-rev", "2026-08-20", "50"]] as const) {
+      expect((await post(app, "/vouchers", receipt(id, date, amount), admin(app))).status).toBe(201);
+      expect((await post(app, `/vouchers/${id}/confirm`, {}, admin(app))).status).toBe(200);
+    }
+    expect((await post(app, "/vouchers/v-rev/reverse", { date: "2026-08-25" }, admin(app))).status).toBe(201);
+    expect((await post(app, "/cheques", {
+      id: "chq-asof", direction: "incoming", chequeNumber: "770001", bankName: "بنك القاهرة", amount: "70.00", issueDate: "2026-08-18", dueDate: "2026-08-19",
+      branchId: "BR1", partyId: "cust-asof", counterpartyGlAccountId: "1105", controlAccounts: { underCollectionAccountId: "1320", bouncedAccountId: "1360" },
+    }, admin(app))).status).toBe(201);
+    expect((await post(app, "/cheques/chq-asof/deposit", { bankTreasuryAccountId: "ta-bank1" }, admin(app))).status).toBe(200);
+    expect((await post(app, "/cheques/chq-asof/bounce", { date: "2026-08-28" }, admin(app))).status).toBe(200);
+    expect((await post(app, "/sales-invoices/inv-v/void", {}, admin(app))).status).toBe(200);
+
+    for (const [date, owed] of [
+      ["2026-08-05", 1300], ["2026-08-11", 900], ["2026-08-13", 400], ["2026-08-16", 300],
+      ["2026-08-19", 230], ["2026-08-22", 180], ["2026-08-26", 230], ["2026-08-29", 300],
+    ] as const) {
+      const at = await ladderAt(app, "customers", date, "cust-asof");
+      expect({ date, row: at.row }).toEqual({ date, row: owed });
+      expect({ date, ladder: at.reportTotal }).toEqual({ date, ladder: at.referenceTotal });
+    }
+    const today = await get(app, "/reports/aging/customers");
+    expect(today.reconciliation.reportTotal).toBe(today.reconciliation.referenceTotal);
+    expect(today.rows.find((r: { customerId: string }) => r.customerId === "cust-asof")?.total ?? 0).toBe(0);
+  });
+
+  it("D220: payments, returns and cancellations dated after the day are not netted on the supplier ladder", async () => {
+    const app = await newBackend();
+    await fundedCash(app);
+    expect((await post(app, "/items", { id: "item-asof", code: "ITEM-ASOF", nameAr: "صنف", type: "stock", baseUnitCode: "PCS", costingMethod: "WAC" }, admin(app))).status).toBe(201);
+    expect((await post(app, "/suppliers", { id: "sup-asof", code: "sup-asof", nameAr: "مورد", currency: "EGP", openingBalance: "0" }, admin(app))).status).toBe(201);
+    const bill = (id: string, date: string, qty: string) => ({
+      id, supplierId: "sup-asof", date, dueDate: "2026-08-31", branchId: "BR-MAIN", warehouseId: "WH-MAIN",
+      lines: [{ itemId: "item-asof", description: "صنف", kind: "inventory", qty, unitCost: "100.00", taxRatePercent: 0 }],
+    });
+    for (const [id, date, qty] of [["pi-a", "2026-08-01", "10"], ["pi-c", "2026-08-02", "2"]] as const) {
+      expect((await post(app, "/purchases/invoices", bill(id, date, qty), admin(app))).status).toBe(201);
+      expect((await post(app, `/purchases/invoices/${id}/confirm`, {}, admin(app))).status).toBe(200);
+    }
+    expect((await post(app, "/purchases/invoices/pi-a/payments", { amount: "300", treasuryAccountId: "ta-cash", date: "2026-08-10" }, admin(app))).status).toBe(200);
+    const number = (await get(app, "/purchases/invoices/pi-a")).number;
+    expect((await post(app, "/purchase-returns", {
+      id: "pr-asof", date: "2026-08-12", memo: "",
+      lines: [{ itemId: "item-asof", warehouseId: "WH-MAIN", supplierId: "sup-asof", sourceInvoiceId: "pi-a", sourceInvoiceNumber: number, reason: "DEFECTIVE", availableQty: "10", qty: "1", unitCost: "100.00", taxAmount: "0" }],
+    }, admin(app))).status).toBe(201);
+    expect((await post(app, "/purchase-returns/pr-asof/confirm", {}, admin(app))).status).toBe(200);
+    expect((await post(app, "/purchases/invoices/pi-c/cancel", {}, admin(app))).status).toBe(200);
+
+    for (const [date, owed] of [["2026-08-05", 1200], ["2026-08-11", 900], ["2026-08-13", 800]] as const) {
+      const at = await ladderAt(app, "suppliers", date, "sup-asof");
+      expect({ date, row: at.row }).toEqual({ date, row: owed });
+      expect({ date, ladder: at.reportTotal }).toEqual({ date, ladder: at.referenceTotal });
+    }
+    const today = await ladderAt(app, "suppliers", "2026-12-31", "sup-asof");
+    expect(today.row).toBe(600);
+    expect(today.reportTotal).toBe(today.referenceTotal);
+  });
+
+  it("D223: an opening balance posted before its entry carried a document type ages from the day it posted", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "mezan-d223-"));
+    const dbPath = path.join(dir, "books.sqlite");
+    try {
+      (await createBackend({ dbPath })).close();
+      const customers = createSqliteCustomerRepository(dbPath);
+      await customers.save(buildCustomer({ id: "cust-old", code: "cust-old", nameAr: "عميل قديم", openingBalance: Money.fromMajor("750") }));
+      customers.close();
+      const suppliers = createSqliteSupplierRepository(dbPath);
+      await suppliers.save(buildSupplier({ id: "sup-old", code: "sup-old", nameAr: "مورد قديم", openingBalance: Money.fromMajor("300") }));
+      suppliers.close();
+      (await createBackend({ dbPath })).close();
+      const { sqlite } = openSqliteConnection(dbPath);
+      const day = (sqlite.prepare("SELECT date FROM journal_entry WHERE id = 'OB-CUST-JE:cust-old'").get() as { date: string }).date;
+      sqlite.prepare("UPDATE journal_entry SET source_doc_type = NULL, source_doc_id = NULL, source_doc_number = NULL WHERE id LIKE 'OB-%'").run();
+      sqlite.close();
+
+      const app = keep(await createBackend({ dbPath }));
+      expect(await ladderAt(app, "customers", day, "cust-old")).toEqual({ row: 750, reportTotal: 750, referenceTotal: 750 });
+      expect(await ladderAt(app, "suppliers", day, "sup-old")).toEqual({ row: 300, reportTotal: 300, referenceTotal: 300 });
+      const later = new Date(Date.parse(`${day}T00:00:00Z`) + 200 * 86_400_000).toISOString().slice(0, 10);
+      const aged = (await get(app, `/reports/aging/customers?asOfDate=${later}`)).rows.find((r: { customerId: string }) => r.customerId === "cust-old");
+      expect(aged?.over120).toBe(750);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("D241: a customer's opening balance entered on the customers screen is not posted a second time when the server restarts", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "mezan-d241-"));
+    const dbPath = path.join(dir, "books.sqlite");
+    try {
+      const firstHandle = await createBackend({ dbPath });
+      registries.set(firstHandle.app, firstHandle.sessions);
+      expect((await post(firstHandle.app, "/customers", {
+        id: "cust-new", code: "cust-new", nameAr: "عميل جديد", paymentTermsDays: 30, currency: "EGP", openingBalance: "750",
+        active: true, creditLimit: "0", taxExempt: false, etaBuyerType: "auto",
+      }, admin(firstHandle.app))).status).toBe(201);
+      firstHandle.close();
+
+      const app = keep(await createBackend({ dbPath }));
+      expect((await get(app, "/gl/accounts/1105/ledger")).balance.balance).toBe("750.000000");
+      const ar = (await get(app, "/reconciliation")).rows.find((r: { key: string }) => r.key === "ar");
+      expect(ar).toMatchObject({ subLedgerBalance: "750.000000", glBalance: "750.000000", matched: true });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

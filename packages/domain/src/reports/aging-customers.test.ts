@@ -270,3 +270,17 @@ describe("customerAgingBalances — balances no invoice carries (D204, D205, D21
     expect(total(refunded, "c1")).toBe("0.000000");
   });
 });
+
+describe("customerAgingBalances — a settlement applied after the snapshot does not settle it (D220)", () => {
+  it("ages the invoice at what it owed that day, even though amountPaid now says paid", () => {
+    const map = customerAgingBalances(
+      { asOfDate: "2026-06-30", branchId: "" },
+      {
+        invoices: [invoice({ amountPaid: Money.fromMajor("200"), status: "paid" })],
+        allocatedByInvoiceId: new Map([["inv-1", Money.fromMajor("200")]]),
+        settledAfterAsOfByInvoiceId: new Map([["inv-1", Money.fromMajor("150")]]),
+      },
+    );
+    expect(agingBucketsTotal(map.get("c1")!).toString()).toBe("150.000000");
+  });
+});

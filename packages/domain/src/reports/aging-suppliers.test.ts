@@ -175,3 +175,17 @@ describe("supplierAgingBalances — balances no invoice carries (D204, D205, D21
     expect(total(refunded, "sup-1")).toBe("0.000000");
   });
 });
+
+describe("supplierAgingBalances — a payment dated after the snapshot does not settle it (D220)", () => {
+  it("ages the bill at what it owed that day", () => {
+    const map = supplierAgingBalances(
+      { asOfDate: "2026-06-30", branchId: "" },
+      {
+        invoices: [pinvoice()],
+        allocatedByInvoiceId: new Map([["pinv-1", Money.fromMajor("300")]]),
+        settledAfterAsOfByInvoiceId: new Map([["pinv-1", Money.fromMajor("100")]]),
+      },
+    );
+    expect(supplierAgingTotal(map.get("sup-1")!).toString()).toBe("100.000000");
+  });
+});

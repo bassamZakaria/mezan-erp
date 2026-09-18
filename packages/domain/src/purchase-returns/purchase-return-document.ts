@@ -116,7 +116,7 @@ function totals(lines: readonly PurchaseReturnLine[]) {
  * mirror undoes a return, so it is never counted as one.
  */
 export function purchaseReturnCreditByInvoice(
-  docs: readonly PurchaseReturnDocument[],
+  docs: readonly { readonly status: string; readonly reversesDocId?: string | null; readonly lines: readonly PurchaseReturnLine[] }[],
 ): ReadonlyMap<string, Money> {
   const byInvoice = new Map<string, Money>();
   for (const doc of docs) {

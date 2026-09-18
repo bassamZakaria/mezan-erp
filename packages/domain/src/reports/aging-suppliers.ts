@@ -26,6 +26,11 @@ export interface AgingSuppliersContext {
    */
   readonly allocatedByInvoiceId?: ReadonlyMap<string, Money>;
   /**
+   * The part of each invoice's settlement applied from a payment or cheque
+   * dated after `asOfDate` (D220) — the twin of the customer ladder's term.
+   */
+  readonly settledAfterAsOfByInvoiceId?: ReadonlyMap<string, Money>;
+  /**
    * Confirmed purchase returns per SOURCE invoice. A return debits AP in the
    * GL, so a ladder that ignores it reports a debt the ledger has cancelled —
    * the twin of the customer ladder's `returnsByInvoiceId`.
@@ -205,7 +210,9 @@ export function supplierAgingBalances(
     if (invoice.status !== "confirmed") continue;
     if (invoice.date > params.asOfDate) continue;
     if (!matchesBranch(invoice.branchId, params.branchId)) continue;
-    const allocated = ctx.allocatedByInvoiceId?.get(invoice.id) ?? Money.zero();
+    const allocatedNow = ctx.allocatedByInvoiceId?.get(invoice.id)?.scaled ?? 0n;
+    const later = ctx.settledAfterAsOfByInvoiceId?.get(invoice.id)?.scaled ?? 0n;
+    const allocated = Money.fromScaled(allocatedNow > later ? allocatedNow - later : 0n);
     const returned = ctx.returnsByInvoiceId?.get(invoice.id) ?? Money.zero();
     // The BASE total — what the posting credited 2100 with (D194).
     const outstanding = Money.fromScaled(purchaseInvoiceBaseTotal(invoice).scaled - allocated.scaled - returned.scaled);

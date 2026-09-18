@@ -33,6 +33,7 @@
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:install": "playwright install --with-deps chromium",
     "lint:permission-labels": "node scripts/check-permission-labels.mjs",
+    "test:changed": "vitest run --changed origin/main --passWithNoTests",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:fuzz": "vitest run --testNamePattern=fuzz",

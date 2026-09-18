@@ -45,6 +45,12 @@ cross-references (`see SALES-042`, `X18`, `T13`) still resolve, because the IDs 
 > remote without passing them. `SKIP_HOOKS=1` bypasses both — treat using it the way you
 > would treat merging a red build. The one remaining workflow deploys on a merge to
 > `production` and runs no tests.
+>
+> **Scoped by default (2026-09-19).** `pre-push` runs only the vitest files the change
+> can reach (`vitest --changed <merge-base>`), and runs the scenarios only when the
+> change touches `packages/`, `apps/server/` or `scripts/`. `FULL=1 git push` runs the
+> whole suite and the scenarios; do that before merging `main` into `production`.
+> `pnpm test:changed` is the same scoped run by hand.
 
 **Reversed 2026-08-30, at the owner's instruction.** The 2026-08-23 decision to disable
 automated tests is withdrawn. Automated tests run again, locally, *in addition to*

@@ -1,16 +1,18 @@
 #!/bin/sh
 #
-# The heavy gates, run once before anything leaves this machine rather than on
-# every commit — a hook slow enough to be annoying is a hook people bypass.
+# Runs before anything leaves this machine. By default it runs only what the
+# pushed changes can affect, so a push takes minutes, not half an hour:
 #
-# `pnpm test` is vitest. `pnpm scenarios` is the OTHER suite: ~6,300 assertions
-# driven against a live seeded backend, checking that the sub-ledgers still tie
-# to their GL control accounts after every trail. It is not part of the
-# coverage number and vitest does not run it, so nothing else catches a change
-# that leaves inventory 500 short of GL 1200 — which has happened here.
+#   - vitest --changed <merge-base with origin/main>: the test files that import
+#     a changed file, directly or transitively (vitest follows the module graph).
+#   - pnpm scenarios, ONLY when the change touches code the ledger runs on
+#     (packages/, apps/server/, scripts/). The scenarios are the only check that
+#     the sub-ledgers still tie to their GL control accounts after every trail —
+#     vitest does not run them, so a ledger change must never skip them.
 #
-# Escape hatch, for a deliberate WIP branch push only:
-#   SKIP_HOOKS=1 git push ...
+# FULL=1 git push ...      runs the whole vitest suite and the scenarios. Do this
+#                          before merging to `production`.
+# SKIP_HOOKS=1 git push ... skips everything, for a deliberate WIP branch push.
 
 set -e
 
@@ -19,21 +21,45 @@ if [ "$SKIP_HOOKS" = "1" ]; then
   exit 0
 fi
 
-echo "pre-push: vitest …"
-if ! pnpm test; then
+git fetch -q origin main 2>/dev/null || true
+BASE=$(git merge-base HEAD origin/main 2>/dev/null || echo "")
+
+if [ "$FULL" = "1" ] || [ -z "$BASE" ]; then
+  echo "pre-push: vitest (full suite) …"
+  TEST_CMD="pnpm test"
+  RUN_SCENARIOS=1
+else
+  CHANGED=$(git diff --name-only "$BASE" HEAD)
+  if [ -z "$CHANGED" ]; then
+    echo "pre-push: nothing changed against origin/main"
+    exit 0
+  fi
+  echo "pre-push: vitest (tests related to changes since $(git rev-parse --short "$BASE")) …"
+  TEST_CMD="pnpm exec vitest run --changed $BASE --passWithNoTests"
+  RUN_SCENARIOS=0
+  if echo "$CHANGED" | grep -Eq '^(packages/|apps/server/|scripts/)'; then
+    RUN_SCENARIOS=1
+  fi
+fi
+
+if ! $TEST_CMD; then
   echo ""
   echo "pre-push: TESTS FAILED."
   exit 1
 fi
 
-echo "pre-push: scenarios (sub-ledger vs GL across every trail) …"
-if ! pnpm scenarios; then
-  echo ""
-  echo "pre-push: SCENARIOS FAILED."
-  echo "  Each failure is either a product defect or a wrong assertion. Work out"
-  echo "  which before changing anything — and never weaken an assertion to get"
-  echo "  green."
-  exit 1
+if [ "$RUN_SCENARIOS" = "1" ]; then
+  echo "pre-push: scenarios (sub-ledger vs GL across every trail) …"
+  if ! pnpm scenarios; then
+    echo ""
+    echo "pre-push: SCENARIOS FAILED."
+    echo "  Each failure is either a product defect or a wrong assertion. Work out"
+    echo "  which before changing anything — and never weaken an assertion to get"
+    echo "  green."
+    exit 1
+  fi
+else
+  echo "pre-push: scenarios skipped (no change under packages/, apps/server/ or scripts/)"
 fi
 
 echo "pre-push: ok"

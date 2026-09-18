@@ -84,6 +84,7 @@ import {
   voucherBaseWithholding,
   isStandingVoucher,
   fxRevaluationNet,
+  FX_REALISED_DOC_TYPE,
   type AgingCustomersContext,
   type AgingSuppliersContext,
   type AgingOpenItem,
@@ -601,7 +602,12 @@ async function partyOpenItems(
   for (const line of asOf.controlLines) {
     const amount = sign * (line.debit.scaled - line.credit.scaled);
     if (line.partyId) {
-      items.push({ partyId: line.partyId, source: "journal", reference: line.entryNo ?? line.entryId, date: line.date, amount: Money.fromScaled(amount), branchId: line.branchId });
+      // A realised exchange difference is carried by the allocation that
+      // produced it — the voucher it used up and the invoice it relieved — so
+      // it is no open item of its own (D221).
+      if (line.sourceDocType !== FX_REALISED_DOC_TYPE) {
+        items.push({ partyId: line.partyId, source: "journal", reference: line.entryNo ?? line.entryId, date: line.date, amount: Money.fromScaled(amount), branchId: line.branchId });
+      }
       continue;
     }
     const partyId = openingPartyOf(line, kind);
@@ -1462,6 +1468,24 @@ export function createReportsRoutes(
       }));
   }
 
+  /**
+   * The realised exchange differences posted against a party (D221): each
+   * restates what the party's voucher or cheque settled to the invoice's booked
+   * rate, so without them the statement closes that far from the ladder.
+   */
+  async function realisedFxEntries(controlId: string, partyId: string, asOfDate: string, sign: 1n | -1n): Promise<PartyStatementEntry[]> {
+    const lines = (await deps.ledger.listLines?.({ accountIds: [controlId], toDate: asOfDate })) ?? [];
+    return lines
+      .filter((line) => line.sourceDocType === FX_REALISED_DOC_TYPE && line.partyId === partyId)
+      .map((line) => ({
+        key: `fx-${line.entryId}`,
+        date: line.date,
+        kind: "fx_difference" as const,
+        reference: line.entryNo ?? line.entryId,
+        ...statementSides(Money.fromScaled(sign * (line.debit.scaled - line.credit.scaled))),
+      }));
+  }
+
   function serializeStatement(partyId: string, asOfDate: string, statement: PartyStatement, agingTotal: Money) {
     return {
       partyId,
@@ -1550,6 +1574,7 @@ export function createReportsRoutes(
       });
     }
     entries.push(...openItemEntries(terms.openItems ?? [], id, asOfDate));
+    entries.push(...(await realisedFxEntries(RECEIVABLES_CONTROL_ACCOUNT_ID, id, asOfDate, 1n)));
     const row = customerAgingBalances({ asOfDate, branchId: "" }, { invoices, ...terms }).get(id);
     return c.json(serializeStatement(id, asOfDate, buildPartyStatement(entries), row ? agingBucketsTotal(row) : Money.zero()));
   });
@@ -1630,6 +1655,7 @@ export function createReportsRoutes(
       });
     }
     entries.push(...openItemEntries(terms.openItems ?? [], id, asOfDate));
+    entries.push(...(await realisedFxEntries(PAYABLES_CONTROL_ACCOUNT_ID, id, asOfDate, -1n)));
     const row = supplierAgingBalances({ asOfDate, branchId: "" }, { invoices, ...terms }).get(id);
     return c.json(serializeStatement(id, asOfDate, buildPartyStatement(entries), row ? supplierAgingTotal(row) : Money.zero()));
   });

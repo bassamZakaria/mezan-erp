@@ -157,6 +157,13 @@ export interface SalesInvoiceRoutesDeps {
     actor?: string;
   }) => Promise<{ voucherId: string }>;
   /**
+   * What `amount` of base money dated `date` would relieve a foreign invoice
+   * of at its booked rate, and the most it can still take at that date's rate
+   * (D221). A collection is capped on this rather than on the base remainder:
+   * USD 100 booked at 48.00 is settled in full by EGP 5,000 at 50.00.
+   */
+  readonly settlementPreview?: (invoiceId: string, amount: Money, date: string) => Promise<{ relief: Money; capacity: Money }>;
+  /**
    * Puts the issued stock back when a confirmed invoice is voided. Bind it with
    * `createInventoryStockHook(stockLedger)` — the same adapter the returns and
    * transfer documents use. Without it a void that would move stock answers 503
@@ -1178,7 +1185,18 @@ export function createSalesInvoicesRoutes(
     const svc = service(c);
     const amount = Money.fromMajor(parsed.data.amount);
     try {
-      const invoice = await svc.assertCollectable(c.req.param("id"), amount, await creditFor(c.req.param("id")));
+      const id = c.req.param("id");
+      const existing = await svc.findById(id);
+      const date = (await tenantDay(c, parsed.data.date)) ?? existing?.date ?? "";
+      let relief = amount;
+      if (existing?.fxRate && deps.settlementPreview && amount.scaled > 0n) {
+        const preview = await deps.settlementPreview(id, amount, date);
+        if (amount.scaled > preview.capacity.scaled) {
+          throw new InvalidSalesInvoicePaymentError("الدفعة تتجاوز الرصيد المتبقي للفاتورة.");
+        }
+        relief = preview.relief;
+      }
+      const invoice = await svc.assertCollectable(id, relief, await creditFor(id));
       const { voucherId } = await deps.collect({
         invoiceId: invoice.id,
         customerId: invoice.customerId,
@@ -1186,7 +1204,7 @@ export function createSalesInvoicesRoutes(
         amount,
         treasuryAccountId: parsed.data.treasuryAccountId,
         paymentMethod: parsed.data.paymentMethod ?? "cash",
-        date: (await tenantDay(c, parsed.data.date)) ?? invoice.date,
+        date,
         referenceNo: parsed.data.referenceNo ?? null,
         memo: parsed.data.notes ?? `تحصيل على الفاتورة ${invoice.docNo ?? invoice.id}`,
         actor: getAuthContext(c)?.userId,

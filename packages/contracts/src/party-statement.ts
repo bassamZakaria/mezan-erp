@@ -19,6 +19,7 @@ export const partyStatementEntryKindSchema = z.enum([
   "deduction",
   "journal",
   "imported",
+  "fx_difference",
 ]);
 
 export const partyStatementLineSchema = z.object({

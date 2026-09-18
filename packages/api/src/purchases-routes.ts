@@ -206,6 +206,12 @@ export interface PurchasesRoutesDeps {
     readonly memo: string;
     readonly actor?: string;
   }) => Promise<{ voucherId: string; voucherNo: string | null }>;
+  /**
+   * The most base money dated `date` a foreign invoice can still take at that
+   * date's rate (D221); a payment is capped on it rather than on the base
+   * remainder at the booked rate.
+   */
+  readonly settlementPreview?: (invoiceId: string, amount: Money, date: string) => Promise<{ relief: Money; capacity: Money }>;
   readonly now?: () => string;
 }
 
@@ -1131,8 +1137,18 @@ export function createPurchasesRoutes(
     }
     const allocated = (await allocatedByInvoice([invoice.id])).get(invoice.id) ?? Money.zero();
     const returned = (await returnedByInvoice([invoice.id])).get(invoice.id) ?? Money.zero();
-    const remaining = purchaseInvoiceBaseTotal(invoice).scaled - allocated.scaled - returned.scaled;
-    if (amount.scaled > remaining) {
+    // A payment happens when it happens — dating it back to the invoice
+    // would measure the treasury's balance on the wrong day.
+    const date = (await tenantDay(c, parsed.data.date)) ?? (deps.now?.() ?? new Date().toISOString()).slice(0, 10);
+    let capacity = purchaseInvoiceBaseTotal(invoice).scaled - allocated.scaled - returned.scaled;
+    if (invoice.fxRate && deps.settlementPreview) {
+      try {
+        capacity = (await deps.settlementPreview(invoice.id, amount, date)).capacity.scaled;
+      } catch (err) {
+        return handleDomainError(c, err);
+      }
+    }
+    if (amount.scaled > capacity) {
       return c.json(
         { error: "PAYMENT_EXCEEDS_BALANCE", message: "قيمة السداد أكبر من المتبقي على الفاتورة." },
         422,
@@ -1147,9 +1163,7 @@ export function createPurchasesRoutes(
         amount,
         treasuryAccountId: parsed.data.treasuryAccountId,
         paymentMethod: parsed.data.paymentMethod ?? "cash",
-        // A payment happens when it happens — dating it back to the invoice
-        // would measure the treasury's balance on the wrong day.
-        date: (await tenantDay(c, parsed.data.date)) ?? (deps.now?.() ?? new Date().toISOString()).slice(0, 10),
+        date,
         referenceNo: parsed.data.referenceNo ?? null,
         memo: parsed.data.notes ?? `سداد على الفاتورة ${invoice.number}`,
         actor: actor(c),

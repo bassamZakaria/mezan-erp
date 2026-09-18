@@ -44,12 +44,31 @@ export {
   type AllocatableInvoiceRepository,
   type AllocationSummary,
   type AllocateInput,
+  type SettlementRates,
+  type SettlementSplit,
   invoiceOutstanding,
+  allocationInvoiceAmount,
+  allocationFxDifference,
+  settlementSplit,
   sumActive,
   summarize,
   allocate,
   reverseAllocation,
 } from "./allocation.js";
+
+export {
+  FX_REALISED_DOC_TYPE,
+  FX_REALISED_LINE_MEMO,
+  SettlementRateMissingError,
+  buildRealisedFxLines,
+  postRealisedFx,
+  realisedFxEntryId,
+  reverseRealisedFx,
+  settlementRatesFor,
+  type RealisedFxPort,
+  type RealisedFxPostingInput,
+  type SettlingMoney,
+} from "./realised-fx.js";
 
 export {
   VoucherService,

@@ -140,6 +140,10 @@ export const voucherAllocationSchema = z.object({
   voucherId: z.string(),
   invoiceId: z.string(),
   amount: moneyString,
+  /** What the invoice was relieved of at its booked rate; differs from `amount` by the realised exchange difference (D221). */
+  invoiceAmount: z.string().optional(),
+  fxDifference: z.string().optional(),
+  fxEntryId: z.string().nullable().optional(),
   status: allocationStatusSchema,
   createdAt: z.string(),
   reversedAt: z.string().nullable(),

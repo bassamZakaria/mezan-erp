@@ -4615,6 +4615,107 @@ describe("createBackend — foreign documents settle and return in base (D202, D
     expect(await reconDiff(app, "ar")).toBe(0);
   });
 
+  async function statement(app: App, kind: "customers" | "suppliers", id: string) {
+    return (await get(app, `/reports/statements/${kind}/${id}`)) as { closing: string; agingTotal: string; lines: { kind: string; increase: string; decrease: string }[] };
+  }
+
+  it("D221: EGP 5,000 at 50.00 settles a USD 100 invoice booked at 48.00 in full and books the 200.00 gain, leaving nothing on the customer", async () => {
+    const app = await newBackend();
+    await createCustomer(app, "cust-usd", "0");
+    await createServiceItem(app);
+    await multiCurrency(app);
+    expect((await authedPost(app, "/sales-invoices", { ...invoiceBody("inv-usd", "cust-usd", "100"), currency: "USD" })).status).toBe(201);
+    expect((await authedPost(app, "/sales-invoices/inv-usd/confirm", {})).status).toBe(200);
+    await approvedRate(app, "fx-usd-50", "USD", "50.00", "2026-08-25");
+
+    const over = await post(app, "/sales-invoices/inv-usd/payments", { amount: "5000.01", treasuryAccountId: "ta-cash", date: "2026-08-26" }, admin(app));
+    expect(over.status).toBe(422);
+    const paid = await post(app, "/sales-invoices/inv-usd/payments", { amount: "5000", treasuryAccountId: "ta-cash", date: "2026-08-26" }, admin(app));
+    expect(paid.status).toBe(200);
+    const invoice = await get(app, "/sales-invoices/inv-usd");
+    expect(invoice.status).toBe("paid");
+    expect(invoice.remainingBalance).toBe("0.000000");
+    expect(await glBalance(app, "1105")).toBe(0);
+    expect(await glBalance(app, "4900")).toBe(-200);
+    expect(await glBalance(app, "1300-1")).toBe(5000);
+    expect(await reconDiff(app, "ar")).toBe(0);
+
+    const aging = await get(app, "/reports/aging/customers");
+    expect(aging.rows.find((row: { customerId: string }) => row.customerId === "cust-usd")?.total ?? 0).toBe(0);
+    expect(aging.reconciliation).toMatchObject({ withinTolerance: true });
+    const stmt = await statement(app, "customers", "cust-usd");
+    expect(stmt.closing).toBe("0.000000");
+    expect(stmt.agingTotal).toBe("0.000000");
+    expect(stmt.lines.find((line) => line.kind === "fx_difference")?.increase).toBe("200.000000");
+
+    const preview = await post(app, "/revaluation/preview", { date: "2026-08-31", currencies: ["USD"] }, admin(app));
+    expect(((await preview.json()) as { hasImpact: boolean }).hasImpact).toBe(false);
+  });
+
+  it("D221: a SAR payment at 13.50 against a bill booked at 13.20 books a 30.00 loss, and undoing the allocation undoes it", async () => {
+    const app = await newBackend();
+    await multiCurrency(app);
+    expect((await post(app, "/suppliers", { id: "sup-sar", code: "sup-sar", nameAr: "مورد بالريال", currency: "SAR", openingBalance: "0" }, admin(app))).status).toBe(201);
+    expect((await post(app, "/purchases/invoices", {
+      id: "pi-sar", supplierId: "sup-sar", date: "2026-08-22", dueDate: "2026-09-21", branchId: "BR1", warehouseId: "WH1", currency: "SAR",
+      lines: [{ description: "خدمة بالريال", kind: "expense", qty: "1", unitCost: "100", taxRatePercent: 0 }],
+    }, admin(app))).status).toBe(201);
+    expect((await post(app, "/purchases/invoices/pi-sar/confirm", {}, admin(app))).status).toBe(200);
+    await approvedRate(app, "fx-sar-135", "SAR", "13.50", "2026-08-25");
+    expect((await post(app, "/gl/journal-entries", {
+      id: "je-fund", date: "2026-08-24", memo: "تمويل", source: "manual", lines: [
+        { accountId: "1300-1", debit: "5000", credit: "0" },
+        { accountId: "3100", debit: "0", credit: "5000" },
+      ],
+    }, admin(app))).status).toBeLessThan(300);
+
+    expect((await post(app, "/vouchers", {
+      id: "v-sar", date: "2026-08-26", voucherType: "supplier_payment", amount: "100", currency: "SAR", branchId: "BR1", paymentMethod: "cash",
+      treasuryAccountId: "ta-cash", treasuryGlAccountId: "1300-1", counterpartyGlAccountId: "2100", supplierId: "sup-sar",
+    }, admin(app))).status).toBe(201);
+    expect((await post(app, "/vouchers/v-sar/confirm", {}, admin(app))).status).toBe(200);
+    const allocated = await post(app, "/vouchers/v-sar/allocations", { allocationId: "al-sar", invoiceId: "pi-sar", amount: "1350" }, admin(app));
+    expect(allocated.status).toBe(201);
+    expect(await allocated.json()).toMatchObject({ amount: "1350.000000", invoiceAmount: "1320.000000", fxDifference: "30.000000" });
+    expect(await glBalance(app, "2100")).toBe(0);
+    expect(await glBalance(app, "5900")).toBe(30);
+    expect((await get(app, "/purchases/invoices/pi-sar")).remainingBalance).toBe("0.000000");
+    expect(await reconDiff(app, "ap")).toBe(0);
+    const paidStmt = await statement(app, "suppliers", "sup-sar");
+    expect(paidStmt.closing).toBe("0.000000");
+    expect(paidStmt.agingTotal).toBe("0.000000");
+
+    expect((await post(app, "/allocations/al-sar/reverse", {}, admin(app))).status).toBe(200);
+    expect(await glBalance(app, "5900")).toBe(0);
+    expect(await glBalance(app, "2100")).toBe(30);
+    expect((await get(app, "/purchases/invoices/pi-sar")).remainingBalance).toBe("1320.000000");
+    expect(await reconDiff(app, "ap")).toBe(0);
+    const openStmt = await statement(app, "suppliers", "sup-sar");
+    expect(openStmt.closing).toBe(openStmt.agingTotal);
+    expect(openStmt.closing).toBe("-30.000000");
+  });
+
+  it("D221: a USD invoice revalued at month-end and settled the next month realises its whole difference once", async () => {
+    const app = await newBackend();
+    await createCustomer(app, "cust-usd", "0");
+    await createServiceItem(app);
+    await multiCurrency(app);
+    expect((await authedPost(app, "/sales-invoices", { ...invoiceBody("inv-usd", "cust-usd", "100"), currency: "USD" })).status).toBe(201);
+    expect((await authedPost(app, "/sales-invoices/inv-usd/confirm", {})).status).toBe(200);
+    await approvedRate(app, "fx-usd-49", "USD", "49.00", "2026-08-28");
+    expect((await post(app, "/revaluation/post", { date: "2026-08-31", currencies: ["USD"], autoReverse: true }, admin(app))).status).toBe(201);
+    expect(await glBalance(app, "1105")).toBe(4800);
+    await approvedRate(app, "fx-usd-50", "USD", "50.00", "2026-09-05");
+
+    expect((await post(app, "/sales-invoices/inv-usd/payments", { amount: "5000", treasuryAccountId: "ta-cash", date: "2026-09-10" }, admin(app))).status).toBe(200);
+    expect(await glBalance(app, "1105")).toBe(0);
+    expect(await glBalance(app, "4900")).toBe(-200);
+    expect(await glBalance(app, "5900")).toBe(0);
+    expect(await reconDiff(app, "ar")).toBe(0);
+    const preview = await post(app, "/revaluation/preview", { date: "2026-09-30", currencies: ["USD"] }, admin(app));
+    expect(((await preview.json()) as { hasImpact: boolean }).hasImpact).toBe(false);
+  });
+
   it("D215: a purchase return raised through the raw POST inherits its invoice's project and cost category", async () => {
     const app = await newBackend();
     expect((await post(app, "/projects", { id: "proj-1", code: "TOWER-A", nameAr: "مشروع البرج أ", budget: "100000" }, admin(app))).status).toBe(201);

@@ -27,6 +27,9 @@ import {
   AllocationNotFoundError,
   AllocationMismatchError,
   AllocationExceedsError,
+  SettlementRateMissingError,
+  allocationFxDifference,
+  allocationInvoiceAmount,
   AllocationAlreadyReversedError,
   DuplicateChequeNumberError,
   auditBranchFromScope,
@@ -114,6 +117,9 @@ function serializeAllocation(a: VoucherAllocation) {
     voucherId: a.voucherId,
     invoiceId: a.invoiceId,
     amount: a.amount.toString(),
+    invoiceAmount: allocationInvoiceAmount(a).toString(),
+    fxDifference: allocationFxDifference(a).toString(),
+    fxEntryId: a.fxEntryId ?? null,
     status: a.status,
     createdAt: a.createdAt,
     reversedAt: a.reversedAt,
@@ -156,7 +162,8 @@ function handleDomainError(c: Context, err: unknown): Response {
     err instanceof NoFiscalPeriodForDateError ||
     err instanceof PeriodNotOpenForPostingError ||
     err instanceof AllocationMismatchError ||
-    err instanceof AllocationExceedsError
+    err instanceof AllocationExceedsError ||
+    err instanceof SettlementRateMissingError
   ) {
     return c.json({ error: err.code, message: err.message }, 422);
   }

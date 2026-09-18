@@ -45,14 +45,18 @@ import {
 import { assertCashBalanceAllows } from "./cash-guard.js";
 import {
   allocate as allocateFn,
+  invoiceOutstanding,
   reverseAllocation as reverseAllocationFn,
+  settlementSplit,
   summarize,
   type AllocatableInvoiceRepository,
   type AllocationRepository,
   type AllocationSummary,
+  type SettlementSplit,
   type VoucherAllocation,
 } from "./allocation.js";
-import { VoucherNotAllocatableError, VoucherNotConfirmedError } from "./errors.js";
+import { InvoiceNotFoundError, VoucherNotAllocatableError, VoucherNotConfirmedError } from "./errors.js";
+import { postRealisedFx, reverseRealisedFx, settlementRatesFor, type RealisedFxPort, type SettlingMoney } from "./realised-fx.js";
 import { Money } from "../money/index.js";
 
 /** GL hook binding the REAL posting engine behind the framework, tagging vouchers as "system". */
@@ -193,6 +197,12 @@ export interface VoucherServiceDeps {
   readonly actorRoles?: readonly string[];
   /** The cheque register a «شيك» voucher writes into when it posts (D81, D196). */
   readonly cheques?: VoucherChequeRegistrationPort;
+  /**
+   * Rates and accounts for the realised exchange difference an allocation
+   * against a foreign invoice posts (D221). Omit it and a foreign invoice is
+   * relieved at face base value, the difference staying on the party.
+   */
+  readonly realisedFx?: RealisedFxPort;
 }
 
 /** All the fields needed to open a new voucher draft (one economic line + envelope). */
@@ -229,6 +239,7 @@ export interface ConfirmVoucherOptions {
 
 export class VoucherService {
   private readonly service: DocumentService<VoucherLine>;
+  private readonly glDeps: JournalPostingDeps;
 
   constructor(private readonly deps: VoucherServiceDeps) {
     const glDeps: JournalPostingDeps = {
@@ -241,6 +252,7 @@ export class VoucherService {
       actor: deps.actor,
       projects: deps.projects,
     };
+    this.glDeps = glDeps;
     this.service = new DocumentService(voucherDocumentType, {
       repo: deps.documents,
       numbering: { next: (opts) => deps.numbering.next("CASH_VOUCHER", { branchId: opts?.branchId }) },
@@ -423,6 +435,7 @@ export class VoucherService {
     const result = await this.service.reverse(id, opts);
     const active = (await this.deps.allocations.listByVoucher(id)).filter((a) => a.status === "active");
     for (const alloc of active) {
+      await reverseRealisedFx(alloc, this.glDeps, { date: opts.date, today: this.now().slice(0, 10) });
       const undone = await reverseAllocationFn(alloc.id, this.now(), {
         allocations: this.deps.allocations,
         invoices: this.deps.invoices,
@@ -440,32 +453,87 @@ export class VoucherService {
     const line = voucherLine(doc);
     const def = getVoucherTypeDefinition(line.voucherType);
     const partyId = (line.customerId ?? line.supplierId)!;
-    const result = await allocateFn(
-      {
-        allocationId: input.allocationId,
-        voucherId,
-        // BASE, like the invoice totals it is compared against (B-4): a
-        // USD 1,000 receipt used to settle 1,000 EGP of a 49,350 EGP invoice.
-        voucherAmount: voucherBaseAmount(line),
-        voucherPartyId: partyId,
-        expectedKind: def.allocationKind!,
-        invoiceId: input.invoiceId,
-        amount: input.amount,
-        now: input.now ?? this.now(),
-      },
-      { allocations: this.deps.allocations, invoices: this.deps.invoices },
-    );
-    await this.projectSettlement(result.invoice);
-    return { allocation: result.allocation };
+    const realisedFx = this.deps.realisedFx;
+    const money: SettlingMoney = { currency: line.currency, fxRate: line.fxRate, date: doc.date };
+    const run = async () => {
+      const result = await allocateFn(
+        {
+          allocationId: input.allocationId,
+          voucherId,
+          // BASE, like the invoice totals it is compared against (B-4): a
+          // USD 1,000 receipt used to settle 1,000 EGP of a 49,350 EGP invoice.
+          voucherAmount: voucherBaseAmount(line),
+          voucherPartyId: partyId,
+          expectedKind: def.allocationKind!,
+          invoiceId: input.invoiceId,
+          amount: input.amount,
+          now: input.now ?? this.now(),
+          ...(realisedFx
+            ? {
+                rates: (invoice) => settlementRatesFor(realisedFx, invoice, money),
+                beforeSave: async (invoice, split) => {
+                  const booked = await realisedFx.invoiceFx(invoice.id, invoice.kind);
+                  const rates = await settlementRatesFor(realisedFx, invoice, money);
+                  if (!booked || !rates) return { fxEntryId: null };
+                  const fxEntryId = await postRealisedFx(
+                    {
+                      allocationId: input.allocationId,
+                      invoice,
+                      split,
+                      currency: booked.currency,
+                      settlementRate: rates.settlementRate,
+                      date: doc.date,
+                      controlAccountId: line.counterpartyGlAccountId!,
+                      branchId: line.branchId,
+                      reference: doc.docNo ?? doc.id,
+                    },
+                    realisedFx,
+                    this.glDeps,
+                  );
+                  return { fxEntryId };
+                },
+              }
+            : {}),
+        },
+        { allocations: this.deps.allocations, invoices: this.deps.invoices },
+      );
+      await this.projectSettlement(result.invoice);
+      return { allocation: result.allocation };
+    };
+    // The realised-FX entry and the allocation are one act: a posted
+    // difference with no allocation behind it would sit on the party forever.
+    return realisedFx ? this.deps.documents.transaction(run) : run();
+  }
+
+  /**
+   * What `amount` of base money dated `date` would do to an invoice, without
+   * writing anything: what it relieves at the booked rate, the realised
+   * difference, and the most the invoice can still absorb (D221). The invoice
+   * collect and pay routes cap on this before they raise a voucher.
+   */
+  async settlementPreview(
+    invoiceId: string,
+    money: { readonly amount: import("../money/money.js").Money } & SettlingMoney,
+  ): Promise<SettlementSplit> {
+    const invoice = await this.deps.invoices.findById(invoiceId);
+    if (!invoice) throw new InvoiceNotFoundError(invoiceId);
+    const rates = this.deps.realisedFx ? await settlementRatesFor(this.deps.realisedFx, invoice, money) : null;
+    return settlementSplit(money.amount, invoiceOutstanding(invoice), rates);
   }
 
   async reverseAllocation(allocationId: string, now?: string): Promise<{ allocation: VoucherAllocation }> {
-    const result = await reverseAllocationFn(allocationId, now ?? this.now(), {
-      allocations: this.deps.allocations,
-      invoices: this.deps.invoices,
-    });
-    await this.projectSettlement(result.invoice);
-    return { allocation: result.allocation };
+    const stamp = now ?? this.now();
+    const run = async () => {
+      const existing = await this.deps.allocations.findById(allocationId);
+      if (existing?.status === "active") await reverseRealisedFx(existing, this.glDeps, { today: stamp.slice(0, 10) });
+      const result = await reverseAllocationFn(allocationId, stamp, {
+        allocations: this.deps.allocations,
+        invoices: this.deps.invoices,
+      });
+      await this.projectSettlement(result.invoice);
+      return { allocation: result.allocation };
+    };
+    return this.deps.documents.transaction(run);
   }
 
   private async projectSettlement(invoice: { id: string; kind: AllocationInvoiceKind; allocated: Money } | null): Promise<void> {

@@ -107,6 +107,8 @@ import {
   createProductTemplateSpecificationUsage,
   recordSecurityEvent,
   type Entitlements,
+  type RealisedFxPort,
+  SettlementRateMissingError,
 } from "@mezan/domain";
 import {
   openSqliteConnection,
@@ -247,6 +249,14 @@ import { createPreferencesRoutes } from "./preferences-routes.js";
 import { seedIfEmpty, type SeedStores } from "./seed.js";
 import { seedDemoTenant } from "./demo-seed.js";
 import { createHrTreasuryDisbursementPort } from "./hr-treasury-disbursement.js";
+
+/**
+ * FX gains and losses, realised (D221) and unrealised (revaluation) alike. The
+ * standard chart has no dedicated exchange-difference accounts, so فائض/عجز
+ * الصندوق (postable leaves) carry them.
+ */
+const FX_GAIN_ACCOUNT_ID = "4900";
+const FX_LOSS_ACCOUNT_ID = "5900";
 
 /**
  * The GL accounts the purchase chain's invoice confirm posts against —
@@ -2887,6 +2897,50 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
    * the debt back on the party (D192); a replacement credits the party's own
    * control account.
    */
+  /**
+   * The rates a settlement of a foreign invoice is measured with, and where the
+   * realised difference goes (D221): the same gain and loss accounts FX
+   * revaluation restates into, so realised and unrealised differences read
+   * together in the P&L.
+   */
+  const realisedFx: RealisedFxPort = {
+    async invoiceFx(invoiceId, kind) {
+      if (kind === "sales") {
+        const invoice = await salesInvoices.findById(invoiceId);
+        return invoice?.fxRate && invoice.currency ? { currency: invoice.currency, fxRate: invoice.fxRate } : null;
+      }
+      const invoice = await purchaseInvoices.findById(invoiceId);
+      return invoice?.fxRate && invoice.currency ? { currency: invoice.currency, fxRate: invoice.fxRate } : null;
+    },
+    async rateOn(currency, date) {
+      return (await exchangeRates.findRate(currency, date))?.rate ?? null;
+    },
+    gainAccountId: FX_GAIN_ACCOUNT_ID,
+    lossAccountId: FX_LOSS_ACCOUNT_ID,
+  };
+  const settlementPreviewer = new VoucherService({
+    documents: vouchers.documents,
+    ledger,
+    accounts,
+    periods: fiscalPeriods,
+    numbering: ledger.numbering,
+    treasuryAccounts,
+    allocations: vouchers.allocations,
+    invoices: vouchers.invoices,
+    realisedFx,
+  });
+  /** An invoice collect or pay route's cap for base money dated `date` (D221); a missing rate is refused in that module's own terms. */
+  const previewSettlement =
+    (refuse: (message: string) => Error) =>
+    async (invoiceId: string, amount: Money, date: string) => {
+      try {
+        const split = await settlementPreviewer.settlementPreview(invoiceId, { amount, currency: "EGP", fxRate: null, date });
+        return { relief: split.relief, capacity: split.capacity };
+      } catch (err) {
+        if (err instanceof SettlementRateMissingError) throw refuse(err.message);
+        throw err;
+      }
+    };
   const voucherChequeControls = {
     incoming: { underCollectionAccountId: "1320", bouncedAccountId: "1360" },
     outgoing: { underCollectionAccountId: "2150", bouncedAccountId: null },
@@ -2932,6 +2986,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     gl: salesInvoiceGl,
     allocation: { allocations: vouchers.allocations, invoices: vouchers.invoices, settlement: invoiceSettlement },
     raisedBy: chequeRaisedByVoucher,
+    realisedFx,
   });
   const voucherCheques: VoucherChequeRegistrationPort = {
     async register(input) {
@@ -2993,6 +3048,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       audit: auditSink,
       actor: input.actor,
       cheques: voucherCheques,
+      realisedFx,
     });
     await service.createVoucher({
       id: voucherId,
@@ -3142,6 +3198,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       settlement: invoiceSettlement,
       events: voucherEventBridge,
       cheques: voucherCheques,
+      realisedFx,
       // Law 6/2025 exempts a regime taxpayer from withholding, so the route
       // refuses a voucher that withholds rather than posting a liability the
       // authority does not recognise (DEC-13).
@@ -3195,6 +3252,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
           audit: auditSink,
           actor: input.actor,
           cheques: voucherCheques,
+          realisedFx,
         });
         await service.createVoucher({
           id: voucherId,
@@ -3221,6 +3279,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         const posted = await vouchers.documents.findById(voucherId);
         return { voucherId, voucherNo: posted?.docNo ?? null };
       },
+      settlementPreview: previewSettlement((message) => new InvalidPurchaseDocumentError([message])),
       // Mounts POST /purchases/receipts/:id/cancel and /invoices/:id/cancel,
       // which 404 without it. app.ts derives the GL reversal port from this
       // being present, so omitting it silently disables both.
@@ -3261,6 +3320,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       // (resolvePrice) always existed and no route called it, so the whole
       // pricing order held only in the browser (D35).
       collect: collectFromCustomer,
+      settlementPreview: previewSettlement((message) => new InvalidSalesInvoicePaymentError(message)),
       pricing: {
         listPriceFor: async (customerId: string, itemId: string, qty: Qty) => {
           // تفعيل قوائم الأسعار (settings §"الرقابة الائتمانية"): with price
@@ -3286,6 +3346,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       // sub-ledger as a voucher, so a bounce can reopen what it settled (D192).
       allocation: { allocations: vouchers.allocations, invoices: vouchers.invoices, settlement: invoiceSettlement },
       raisedBy: chequeRaisedByVoucher,
+      realisedFx,
     },
     bankReconciliation: {
       statements: bankStatements.statements,
@@ -3310,9 +3371,8 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       numbering: ledger.numbering,
       projects,
       exchangeRates,
-      // فائض/عجز الصندوق double as the FX gain/loss accounts (postable leaves in the standard COA).
-      gainAccountId: "4900",
-      lossAccountId: "5900",
+      gainAccountId: FX_GAIN_ACCOUNT_ID,
+      lossAccountId: FX_LOSS_ACCOUNT_ID,
     },
     eta: {
       service: etaService,

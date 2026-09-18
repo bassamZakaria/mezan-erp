@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { isoDateParamSchema } from "./iso-date.js";
 import { Money } from "../money/index.js";
-import { salesInvoiceTotals } from "../sales-invoices/totals.js";
+import { salesInvoiceBaseTotals, salesInvoiceTotals } from "../sales-invoices/totals.js";
 import { SALES_INVOICE_ACTIVE_STATUSES, type SalesInvoice } from "../sales-invoices/sales-invoice.js";
 import type { ReportDefinition } from "./types.js";
 import { sumRows, averageOf } from "./kpi.js";
@@ -11,7 +11,7 @@ import { BRANCH_PARAM_FIELD, branchIdParamSchema, matchesBranch } from "./branch
 /**
  * المبيعات حسب العميل — Sales by Customer (docs/archive/catalog/08-reports.md): top
  * customers by revenue and outstanding balance. Revenue is tax-inclusive
- * (`grandTotal`) per the catalog's "عرض الإيرادات: شامل/غير شامل الضريبة"
+ * (`grandTotal`, in base currency) per the catalog's "عرض الإيرادات: شامل/غير شامل الضريبة"
  * toggle; outstanding is the invoice's own `total − amountPaid`, the SAME
  * figure `applyAllocatedSettlement` maintains from the allocation sub-ledger
  * (the `recordPayment` this once named is gone — DEC-3).
@@ -106,8 +106,9 @@ export function createSalesByCustomerReport(
         if (!withinDateRange(invoice.date, params.dateFrom, params.dateTo)) continue;
         if (!matchesBranch(invoice.branchId, params.branchId)) continue;
         const totals = salesInvoiceTotals(invoice);
-        const revenue = params.taxMode === "inc" ? totals.grandTotal : totals.taxableTotal;
-        const outstanding = Money.fromScaled(totals.grandTotal.scaled - invoice.amountPaid.scaled);
+        const base = salesInvoiceBaseTotals(totals, invoice.fxRate);
+        const revenue = params.taxMode === "inc" ? base.grandTotal : base.taxableTotal;
+        const outstanding = Money.fromScaled(base.grandTotal.scaled - invoice.amountPaid.scaled);
         const existing = byCustomer.get(invoice.customerId) ?? {
           customerNameAr: invoice.customerNameAr,
           count: 0,

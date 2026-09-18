@@ -2623,8 +2623,8 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       const lineTotals = salesInvoiceTotals(inv).lines;
       inv.lines.forEach((line, index) => {
         if (line.revenueAccountId !== billingsAccountId) return;
-        const base = lineTotals[index]?.taxableBase;
-        if (base) billingsScaled += base.scaled;
+        const stated = lineTotals[index]?.taxableBase;
+        if (stated) billingsScaled += (inv.fxRate ? convertToBase(stated, inv.fxRate) : stated).scaled;
       });
     }
     for (const run of postedRuns) billingsScaled -= run.billedInPeriod.scaled;

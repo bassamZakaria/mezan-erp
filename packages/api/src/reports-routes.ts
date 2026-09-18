@@ -40,8 +40,9 @@ import {
   ACCOUNT_TYPE_LABELS,
   SALES_INVOICE_ACTIVE_STATUSES,
   moneyToNumber,
-  purchaseInvoiceTotal,
+  purchaseInvoiceBaseTotal,
   salesInvoiceTotals,
+  salesInvoiceBaseGrandTotal,
   type GlReportContext,
   type SalesInvoiceRepository,
   type PurchaseInvoiceRepository,
@@ -1623,9 +1624,9 @@ export function createReportsRoutes(
     let outstanding = 0n;
     let billed = 0n;
     for (const invoice of own) {
-      const totals = salesInvoiceTotals(invoice);
-      billed += totals.grandTotal.scaled;
-      const balance = totals.grandTotal.scaled - invoice.amountPaid.scaled;
+      const total = salesInvoiceBaseGrandTotal(salesInvoiceTotals(invoice), invoice.fxRate);
+      billed += total.scaled;
+      const balance = total.scaled - invoice.amountPaid.scaled;
       if (balance > 0n) outstanding += balance;
     }
     return c.json({
@@ -1645,7 +1646,7 @@ export function createReportsRoutes(
         date: invoice.date,
         type: "SALES_INVOICE",
         status: invoice.status,
-        amount: moneyToNumber(salesInvoiceTotals(invoice).grandTotal),
+        amount: moneyToNumber(salesInvoiceBaseGrandTotal(salesInvoiceTotals(invoice), invoice.fxRate)),
         amountFormat: "money",
       })),
       documentCount: own.length,
@@ -1661,7 +1662,7 @@ export function createReportsRoutes(
       .filter((invoice) => invoice.supplierId === id && invoice.status === "confirmed")
       .sort((a, b) => b.date.localeCompare(a.date));
     let billed = 0n;
-    for (const invoice of own) billed += purchaseInvoiceTotal(invoice).scaled;
+    for (const invoice of own) billed += purchaseInvoiceBaseTotal(invoice).scaled;
     return c.json({
       kind: "supplier",
       id,
@@ -1679,7 +1680,7 @@ export function createReportsRoutes(
         date: invoice.date,
         type: "PURCHASE_INVOICE",
         status: invoice.status,
-        amount: moneyToNumber(purchaseInvoiceTotal(invoice)),
+        amount: moneyToNumber(purchaseInvoiceBaseTotal(invoice)),
         amountFormat: "money",
       })),
       documentCount: own.length,

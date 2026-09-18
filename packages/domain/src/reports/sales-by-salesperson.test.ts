@@ -211,3 +211,18 @@ describe("createSalesBySalespersonReport", () => {
     expect(outcome.ok).toBe(false);
   });
 });
+
+describe("createSalesBySalespersonReport — a foreign invoice (D201)", () => {
+  it("credits the rep with the base value of a CHF invoice and states what is outstanding in base", () => {
+    const definition = createSalesBySalespersonReport("2026-01-01", "2026-12-31");
+    const outcome = runReport(
+      definition,
+      { dateFrom: "2026-08-01", dateTo: "2026-08-31", taxMode: "inc" },
+      { invoices: [invoice({ salespersonId: "sp-1", salespersonNameAr: "أحمد", currency: "CHF", fxRate: "60.00", lines: [line({ taxRatePercent: 14 })], amountPaid: Money.fromMajor("3000") })] },
+    );
+    if (!outcome.ok) throw new Error("report failed");
+    const row = outcome.rows.find((r) => r.salespersonId === "sp-1");
+    expect(row?.total).toBe(6840);
+    expect(row?.outstanding).toBe(3840);
+  });
+});

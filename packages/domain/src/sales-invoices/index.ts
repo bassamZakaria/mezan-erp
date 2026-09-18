@@ -32,9 +32,11 @@ export {
   computeInvoiceTotals,
   salesInvoiceTotals,
   salesInvoiceBaseGrandTotal,
+  salesInvoiceBaseTotals,
   INVOICE_ROUNDING_DECIMALS,
   type SalesInvoiceTotals,
   type SalesInvoiceLineTotals,
+  type SalesInvoiceBaseTotals,
 } from "./totals.js";
 
 export { describeSalesInvoiceEffects } from "./effects.js";

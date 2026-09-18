@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { Money, Qty } from "../money/index.js";
-import { computeInvoiceTotals } from "./totals.js";
+import { computeInvoiceTotals, salesInvoiceBaseGrandTotal } from "./totals.js";
 import { buildSalesInvoiceGlPosting, type SalesInvoiceCogsLine } from "./gl.js";
 import type { SalesInvoice, SalesInvoiceLine } from "./sales-invoice.js";
 
@@ -211,5 +211,18 @@ describe("buildSalesInvoiceGlPosting — the project dimension (D-01)", () => {
     for (const l of posting.lines) {
       expect(l.projectId ?? null).toBeNull();
     }
+  });
+});
+
+describe("salesInvoiceBaseGrandTotal — agrees with the AR debit to the last unit", () => {
+  it("converts each line's tax, as the posting does, rather than the invoice's summed tax", () => {
+    const inv = invoice({
+      currency: "USD",
+      lines: [line({ lineId: "L1", unitPrice: Money.fromMajor("0.07") }), line({ lineId: "L2", unitPrice: Money.fromMajor("0.07") })],
+    });
+    const totals = computeInvoiceTotals(inv.lines, inv.discount);
+    const posting = buildSalesInvoiceGlPosting(inv, totals, [], { rate: "48.123457" });
+    const ar = posting.lines.find((l) => l.accountId === "1100");
+    expect(salesInvoiceBaseGrandTotal(totals, "48.123457").toString()).toBe(ar?.debit.toString());
   });
 });

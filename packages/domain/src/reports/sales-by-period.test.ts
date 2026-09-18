@@ -133,3 +133,18 @@ describe("createSalesByPeriodReport", () => {
     expect(outcome.ok).toBe(false);
   });
 });
+
+describe("createSalesByPeriodReport — a foreign invoice (D201)", () => {
+  it("states a CHF 100 + 14% invoice booked at 60.00 in base: 6,000.00 gross, 840.00 tax, 6,840.00 net", () => {
+    const definition = createSalesByPeriodReport("2026-01-01", "2026-12-31");
+    const outcome = runReport(
+      definition,
+      { dateFrom: "2026-08-01", dateTo: "2026-08-31", groupBy: "month" },
+      { invoices: [invoice({ currency: "CHF", fxRate: "60.00", lines: [line({ taxRatePercent: 14 })] })] },
+    );
+    if (!outcome.ok) throw new Error("report failed");
+    expect(outcome.rows[0]?.gross).toBe(6000);
+    expect(outcome.rows[0]?.tax).toBe(840);
+    expect(outcome.rows[0]?.net).toBe(6840);
+  });
+});

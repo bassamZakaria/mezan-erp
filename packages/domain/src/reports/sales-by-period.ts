@@ -1,7 +1,8 @@
 import { z } from "zod";
 import { isoDateParamSchema } from "./iso-date.js";
 import { Money } from "../money/index.js";
-import { salesInvoiceTotals } from "../sales-invoices/totals.js";
+import { salesInvoiceBaseTotals, salesInvoiceTotals } from "../sales-invoices/totals.js";
+import { convertToBase } from "../exchange-rates/convert.js";
 import { SALES_INVOICE_ACTIVE_STATUSES, type SalesInvoice } from "../sales-invoices/sales-invoice.js";
 import type { ReportDefinition } from "./types.js";
 import { sumRows, averageOf } from "./kpi.js";
@@ -95,16 +96,19 @@ export function createSalesByPeriodReport(
         if (!withinDateRange(invoice.date, params.dateFrom, params.dateTo)) continue;
         if (!matchesBranch(invoice.branchId, params.branchId)) continue;
         const totals = salesInvoiceTotals(invoice);
-        const discount = Money.fromScaled(totals.lineDiscountTotal.scaled + totals.invoiceDiscountTotal.scaled);
+        const base = salesInvoiceBaseTotals(totals, invoice.fxRate);
+        const rate = invoice.fxRate;
+        const toBase = (amount: Money): Money => (rate ? convertToBase(amount, rate) : amount);
+        const discount = toBase(Money.fromScaled(totals.lineDiscountTotal.scaled + totals.invoiceDiscountTotal.scaled));
         const key = periodBucketKey(invoice.date, params.groupBy);
         const existing = buckets.get(key) ?? { bucket: key, count: 0, gross: 0, discount: 0, tax: 0, net: 0 };
         buckets.set(key, {
           bucket: key,
           count: existing.count + 1,
-          gross: existing.gross + Number(totals.grossTotal.toString()),
+          gross: existing.gross + Number(toBase(totals.grossTotal).toString()),
           discount: existing.discount + Number(discount.toString()),
-          tax: existing.tax + Number(totals.taxTotal.toString()),
-          net: existing.net + Number(totals.grandTotal.toString()),
+          tax: existing.tax + Number(base.taxTotal.toString()),
+          net: existing.net + Number(base.grandTotal.toString()),
         });
       }
       return [...buckets.values()].sort((a, b) => a.bucket.localeCompare(b.bucket));

@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { isoDateParamSchema } from "./iso-date.js";
-import { purchaseInvoiceSubtotal, purchaseInvoiceTax, purchaseInvoiceTotal, type PurchaseInvoice } from "../purchasing/purchase-invoice.js";
+import { Money } from "../money/index.js";
+import { convertToBase } from "../exchange-rates/convert.js";
+import { purchaseInvoiceBaseTotal, purchaseInvoiceTax, type PurchaseInvoice } from "../purchasing/purchase-invoice.js";
 import type { ReportDefinition } from "./types.js";
 import { sumRows, averageOf } from "./kpi.js";
 import { periodBucketKey, withinDateRange, type PeriodGroupBy } from "./period-bucket.js";
@@ -92,12 +94,14 @@ export function createPurchasesByPeriodReport(
         if (!matchesBranch(invoice.branchId, params.branchId)) continue;
         const key = periodBucketKey(invoice.date, params.groupBy);
         const existing = buckets.get(key) ?? { bucket: key, count: 0, gross: 0, tax: 0, net: 0 };
+        const net = purchaseInvoiceBaseTotal(invoice);
+        const tax = invoice.fxRate ? convertToBase(purchaseInvoiceTax(invoice), invoice.fxRate) : purchaseInvoiceTax(invoice);
         buckets.set(key, {
           bucket: key,
           count: existing.count + 1,
-          gross: existing.gross + Number(purchaseInvoiceSubtotal(invoice).toString()),
-          tax: existing.tax + Number(purchaseInvoiceTax(invoice).toString()),
-          net: existing.net + Number(purchaseInvoiceTotal(invoice).toString()),
+          gross: existing.gross + Number(Money.fromScaled(net.scaled - tax.scaled).toString()),
+          tax: existing.tax + Number(tax.toString()),
+          net: existing.net + Number(net.toString()),
         });
       }
       return [...buckets.values()].sort((a, b) => a.bucket.localeCompare(b.bucket));

@@ -127,10 +127,10 @@ export function DocumentDetail({
       ) : null}
 
       <div className={cn("grid gap-5", aside ? "lg:grid-cols-[2fr_1fr]" : "grid-cols-1")}>
-        <div>
+        <div className="min-w-0">
           {tabs && tabs.length > 0 ? (
             <>
-              <div role="tablist" className="mb-[18px] flex gap-1 border-b border-border">
+              <div role="tablist" className="mb-[18px] flex gap-1 overflow-x-auto border-b border-border pb-px">
                 {tabs.map((tab) => (
                   <button
                     key={tab.key}
@@ -139,7 +139,7 @@ export function DocumentDetail({
                     aria-selected={currentTab === tab.key}
                     onClick={() => handleTabChange(tab.key)}
                     className={cn(
-                      "-mb-px border-b-2 px-4 py-[11px] text-[13px] font-semibold transition-colors",
+                      "-mb-px flex-none whitespace-nowrap border-b-2 px-4 py-[11px] text-[13px] font-semibold transition-colors",
                       currentTab === tab.key
                         ? "border-brand text-brand"
                         : "border-transparent text-ink-muted hover:text-ink",

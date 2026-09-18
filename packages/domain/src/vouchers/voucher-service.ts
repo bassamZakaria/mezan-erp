@@ -45,13 +45,15 @@ import {
 import { assertCashBalanceAllows } from "./cash-guard.js";
 import {
   allocate as allocateFn,
-  invoiceOutstanding,
+  invoiceOpenBalance,
+  returnedByInvoice,
   reverseAllocation as reverseAllocationFn,
   settlementSplit,
   summarize,
   type AllocatableInvoiceRepository,
   type AllocationRepository,
   type AllocationSummary,
+  type InvoiceReturnCreditPort,
   type SettlementSplit,
   type VoucherAllocation,
 } from "./allocation.js";
@@ -203,6 +205,11 @@ export interface VoucherServiceDeps {
    * relieved at face base value, the difference staying on the party.
    */
   readonly realisedFx?: RealisedFxPort;
+  /**
+   * Confirmed return credit per invoice, so money is never applied to debt a
+   * return already cleared (D242). Omit it and outstanding ignores returns.
+   */
+  readonly returns?: InvoiceReturnCreditPort;
 }
 
 /** All the fields needed to open a new voucher draft (one economic line + envelope). */
@@ -495,7 +502,7 @@ export class VoucherService {
               }
             : {}),
         },
-        { allocations: this.deps.allocations, invoices: this.deps.invoices },
+        { allocations: this.deps.allocations, invoices: this.deps.invoices, returns: this.deps.returns },
       );
       await this.projectSettlement(result.invoice);
       return { allocation: result.allocation };
@@ -518,7 +525,8 @@ export class VoucherService {
     const invoice = await this.deps.invoices.findById(invoiceId);
     if (!invoice) throw new InvoiceNotFoundError(invoiceId);
     const rates = this.deps.realisedFx ? await settlementRatesFor(this.deps.realisedFx, invoice, money) : null;
-    return settlementSplit(money.amount, invoiceOutstanding(invoice), rates);
+    const returned = (await returnedByInvoice(this.deps.returns, [invoice])).get(invoice.id) ?? Money.zero();
+    return settlementSplit(money.amount, invoiceOpenBalance(invoice, returned), rates);
   }
 
   async reverseAllocation(allocationId: string, now?: string): Promise<{ allocation: VoucherAllocation }> {

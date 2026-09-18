@@ -71,6 +71,8 @@ export function buildTestService(
     invoices?: readonly AllocatableInvoice[];
     /** Approved rates by currency, so a foreign-currency voucher can confirm (B-4). */
     rates?: Readonly<Record<string, string>>;
+    /** Confirmed return credit per invoice id (D242). */
+    returned?: Readonly<Record<string, string>>;
   } = {},
 ): TestHarness {
   const ledger = new InMemoryLedgerRepository();
@@ -119,6 +121,15 @@ export function buildTestService(
       },
     },
     baseCurrency: "EGP",
+    ...(opts.returned
+      ? {
+          returns: {
+            async returnedByIds(ids: readonly string[]) {
+              return new Map(ids.filter((id) => opts.returned?.[id]).map((id) => [id, Money.fromMajor(opts.returned![id]!)]));
+            },
+          },
+        }
+      : {}),
     now: () => "2026-08-22T10:00:00.000Z",
     actor: "tester",
     actorRoles: ["*"],

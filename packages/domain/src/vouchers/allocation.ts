@@ -78,6 +78,40 @@ export function invoiceOutstanding(invoice: AllocatableInvoice): Money {
   return Money.fromScaled(invoice.total.scaled - invoice.allocated.scaled);
 }
 
+/**
+ * What confirmed returns have already taken off each invoice, in base — the
+ * same credit the ledger posted to the party's control account (D242).
+ */
+export interface InvoiceReturnCreditPort {
+  returnedByIds(ids: readonly string[], kind: AllocationInvoiceKind): Promise<ReadonlyMap<string, Money>>;
+}
+
+/**
+ * What money can still settle on an invoice: its total less what is allocated
+ * and what returns cleared, never below zero. A return is not an allocation,
+ * so the sub-ledger row does not carry it; without netting it a voucher could
+ * be applied to debt a return had already taken off (D242).
+ */
+export function invoiceOpenBalance(invoice: AllocatableInvoice, returned: Money = Money.zero()): Money {
+  const open = invoice.total.scaled - invoice.allocated.scaled - returned.scaled;
+  return Money.fromScaled(open > 0n ? open : 0n);
+}
+
+/** Each invoice's return credit, or an empty map when no returns module is wired. */
+export async function returnedByInvoice(
+  returns: InvoiceReturnCreditPort | undefined,
+  invoices: readonly AllocatableInvoice[],
+): Promise<ReadonlyMap<string, Money>> {
+  if (!returns || invoices.length === 0) return new Map();
+  const out = new Map<string, Money>();
+  for (const kind of ["sales", "purchase"] as const) {
+    const ids = invoices.filter((invoice) => invoice.kind === kind).map((invoice) => invoice.id);
+    if (ids.length === 0) continue;
+    for (const [id, credit] of await returns.returnedByIds(ids, kind)) out.set(id, credit);
+  }
+  return out;
+}
+
 /** The rate a foreign invoice was booked at and the rate it is being settled at, both base units per foreign unit. */
 export interface SettlementRates {
   readonly invoiceRate: string;
@@ -205,7 +239,7 @@ export interface AllocateInput {
  */
 export async function allocate(
   input: AllocateInput,
-  deps: { allocations: AllocationRepository; invoices: AllocatableInvoiceRepository },
+  deps: { allocations: AllocationRepository; invoices: AllocatableInvoiceRepository; returns?: InvoiceReturnCreditPort },
 ): Promise<{ allocation: VoucherAllocation; invoice: AllocatableInvoice }> {
   if (input.amount.scaled <= 0n) {
     throw new AllocationExceedsError("مبلغ التخصيص يجب أن يكون أكبر من صفر.");
@@ -228,7 +262,8 @@ export async function allocate(
       `مبلغ التخصيص (${input.amount.toString()}) يتجاوز المتبقي غير المخصص من السند (${unallocated.toString()}).`,
     );
   }
-  const outstanding = invoiceOutstanding(invoice);
+  const returned = (await returnedByInvoice(deps.returns, [invoice])).get(invoice.id) ?? Money.zero();
+  const outstanding = invoiceOpenBalance(invoice, returned);
   const split = settlementSplit(input.amount, outstanding, input.rates ? await input.rates(invoice) : null);
   if (input.amount.scaled > split.capacity.scaled) {
     throw new AllocationExceedsError(

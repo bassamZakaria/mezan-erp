@@ -87,6 +87,7 @@ import {
   isStandingVoucher,
   fxRevaluationNet,
   FX_REALISED_DOC_TYPE,
+  allocationInvoiceAmount,
   type AgingCustomersContext,
   type AgingSuppliersContext,
   type AgingOpenItem,
@@ -150,7 +151,7 @@ export interface ReportsRoutesDeps {
   /** Confirmed vouchers, for collections that named no invoice. */
   readonly voucherDocuments?: Pick<DocumentRepository<VoucherLine>, "list">;
   /** Allocations, to tell an applied collection from an on-account one. */
-  readonly allocations?: Pick<AllocationRepository, "listByVoucher">;
+  readonly allocations?: Pick<AllocationRepository, "listByVoucher"> & Partial<Pick<AllocationRepository, "findById">>;
   readonly purchaseInvoices: PurchaseInvoiceRepository;
   /**
    * Documents imported from the previous system (x31/x32). An unsettled one
@@ -519,6 +520,12 @@ function chequeDays(cheque: Cheque, asOf: AgingAsOf): { readonly raised: string;
   return { raised, undone };
 }
 
+/** Whether the allocation a realised-FX entry belongs to still stands (D221). */
+async function allocationIsActive(deps: ReportsRoutesDeps, allocationId: string | null | undefined): Promise<boolean> {
+  if (!allocationId || !deps.allocations?.findById) return true;
+  return (await deps.allocations.findById(allocationId))?.status === "active";
+}
+
 interface UnappliedTerms {
   /** Per party: what its receipts (or payments) standing on the day had not applied to an invoice of that day. */
   readonly unapplied: ReadonlyMap<string, Money>;
@@ -540,7 +547,9 @@ async function unappliedPartyTerms(deps: ReportsRoutesDeps, asOf: AgingAsOf): Pr
   const source = async (id: string, partyId: string | null | undefined, amount: bigint, date: string, standing: boolean) => {
     const active = ((await deps.allocations?.listByVoucher(id)) ?? []).filter((alloc) => alloc.status === "active");
     if (date > asOf.asOfDate) {
-      for (const alloc of active) settledAfter.set(alloc.invoiceId, (settledAfter.get(alloc.invoiceId) ?? 0n) + alloc.amount.scaled);
+      // The invoice gets back what it was relieved of, which for a foreign one
+      // settled at another rate is not what the voucher gave (D221).
+      for (const alloc of active) settledAfter.set(alloc.invoiceId, (settledAfter.get(alloc.invoiceId) ?? 0n) + allocationInvoiceAmount(alloc).scaled);
       return;
     }
     if (!standing || !partyId) return;
@@ -604,12 +613,13 @@ async function partyOpenItems(
   for (const line of asOf.controlLines) {
     const amount = sign * (line.debit.scaled - line.credit.scaled);
     if (line.partyId) {
-      // A realised exchange difference is carried by the allocation that
-      // produced it — the voucher it used up and the invoice it relieved — so
-      // it is no open item of its own (D221).
-      if (line.sourceDocType !== FX_REALISED_DOC_TYPE) {
-        items.push({ partyId: line.partyId, source: "journal", reference: line.entryNo ?? line.entryId, date: line.date, amount: Money.fromScaled(amount), branchId: line.branchId });
-      }
+      // A realised exchange difference is carried by its live allocation — the
+      // voucher it used up and the invoice it relieved (D221). Once that is
+      // undone the ladder no longer sees the allocation, so the entry and its
+      // reversal stand as items of their own, dated as they posted.
+      const realised = line.sourceDocType === FX_REALISED_DOC_TYPE;
+      if (realised && (await allocationIsActive(deps, line.sourceDocId))) continue;
+      items.push({ partyId: line.partyId, source: realised ? "fx_difference" : "journal", reference: line.entryNo ?? line.entryId, date: line.date, amount: Money.fromScaled(amount), branchId: line.branchId });
       continue;
     }
     const partyId = openingPartyOf(line, kind);
@@ -1509,8 +1519,12 @@ export function createReportsRoutes(
    */
   async function realisedFxEntries(controlId: string, partyId: string, asOfDate: string, sign: 1n | -1n): Promise<PartyStatementEntry[]> {
     const lines = (await deps.ledger.listLines?.({ accountIds: [controlId], toDate: asOfDate })) ?? [];
-    return lines
-      .filter((line) => line.sourceDocType === FX_REALISED_DOC_TYPE && line.partyId === partyId)
+    const live: PostedLine[] = [];
+    for (const line of lines) {
+      if (line.sourceDocType !== FX_REALISED_DOC_TYPE || line.partyId !== partyId) continue;
+      if (await allocationIsActive(deps, line.sourceDocId)) live.push(line);
+    }
+    return live
       .map((line) => ({
         key: `fx-${line.entryId}`,
         date: line.date,

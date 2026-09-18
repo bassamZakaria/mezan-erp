@@ -9,7 +9,7 @@ import type { Money } from "../money/index.js";
  * to a customer, a credit to a supplier). A positive item ages from its date;
  * a negative one nets like an unallocated voucher.
  */
-export type AgingOpenItemSource = "opening" | "journal" | "imported" | "refund";
+export type AgingOpenItemSource = "opening" | "journal" | "imported" | "refund" | "fx_difference";
 
 export interface AgingOpenItem {
   readonly partyId: string;

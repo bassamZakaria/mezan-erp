@@ -54,6 +54,7 @@ import {
   reverseAllocation as reverseAllocationFn,
   type AllocatableInvoiceRepository,
   type AllocationRepository,
+  type InvoiceReturnCreditPort,
   type VoucherAllocation,
 } from "../vouchers/allocation.js";
 import type { AllocationInvoiceKind } from "../vouchers/voucher-types.js";
@@ -155,6 +156,8 @@ export interface ChequeServiceDeps {
   readonly allocation?: {
     readonly allocations: AllocationRepository;
     readonly invoices: AllocatableInvoiceRepository;
+    /** Confirmed return credit per invoice, so a cheque is never applied to debt a return cleared (D242). */
+    readonly returns?: InvoiceReturnCreditPort;
     readonly settlement?: {
       applySettled(input: { invoiceId: string; kind: AllocationInvoiceKind; settled: Money }): Promise<void>;
     };
@@ -442,7 +445,7 @@ export class ChequeService {
     if (!this.deps.allocation) {
       throw new InvalidChequeCommandError("تخصيص الشيكات على الفواتير غير مُفعّل على هذا الخادم.");
     }
-    return { allocations: this.deps.allocation.allocations, invoices: this.deps.allocation.invoices };
+    return { allocations: this.deps.allocation.allocations, invoices: this.deps.allocation.invoices, returns: this.deps.allocation.returns };
   }
 
   private async releaseAllocations(chequeId: string, date: string): Promise<void> {

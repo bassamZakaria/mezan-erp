@@ -131,6 +131,8 @@ export const openInvoiceSchema = z.object({
   date: z.string(),
   total: moneyString,
   allocated: z.string(),
+  /** What confirmed returns took off the invoice; `outstanding` is net of it (D242). */
+  returned: z.string().optional(),
   outstanding: z.string(),
 });
 

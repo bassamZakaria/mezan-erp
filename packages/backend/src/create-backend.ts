@@ -108,7 +108,10 @@ import {
   recordSecurityEvent,
   type Entitlements,
   type RealisedFxPort,
+  type InvoiceReturnCreditPort,
   SettlementRateMissingError,
+  salesReturnCreditByInvoice,
+  purchaseReturnCreditByInvoice,
 } from "@mezan/domain";
 import {
   openSqliteConnection,
@@ -234,6 +237,7 @@ import {
   type SalesInvoiceRepository,
   type SalesReturnLine,
   type DocumentRepository,
+  type FrameworkDocument,
   type SalesInvoiceLine,
   type CustomerRepository,
   type Item,
@@ -249,6 +253,14 @@ import { createPreferencesRoutes } from "./preferences-routes.js";
 import { seedIfEmpty, type SeedStores } from "./seed.js";
 import { seedDemoTenant } from "./demo-seed.js";
 import { createHrTreasuryDisbursementPort } from "./hr-treasury-disbursement.js";
+
+/** The confirmed returns citing any of `ids`, in one query where the store can answer it. */
+async function listReturnsCiting<L>(
+  repo: { listByLineRef?: DocumentRepository<L>["listByLineRef"]; list: DocumentRepository<L>["list"] },
+  ids: readonly string[],
+): Promise<readonly FrameworkDocument<L>[]> {
+  return repo.listByLineRef ? repo.listByLineRef("sourceInvoiceId", ids, { status: "confirmed" }) : repo.list({ status: "confirmed" });
+}
 
 /**
  * FX gains and losses, realised (D221) and unrealised (revaluation) alike. The
@@ -1111,6 +1123,18 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const purchaseReturnStore = createStandaloneSqlitePurchaseReturnStore(sqlite);
   const landedCostStore = createStandaloneSqliteLandedCostStore(sqlite);
   const followUps = createStandaloneSqliteFollowUpStore(sqlite);
+  /** What confirmed returns took off each invoice, in base — the allocation sub-ledger nets it (D242). */
+  const invoiceReturnCredits: InvoiceReturnCreditPort = {
+    async returnedByIds(ids, kind) {
+      if (ids.length === 0) return new Map();
+      const wanted = new Set(ids);
+      const credits =
+        kind === "sales"
+          ? salesReturnCreditByInvoice(await listReturnsCiting(salesReturnStore, ids))
+          : purchaseReturnCreditByInvoice(await listReturnsCiting(purchaseReturnStore, ids));
+      return new Map([...credits].filter(([id]) => wanted.has(id)));
+    },
+  };
 
   // --- phase4/inventory-ops — Stock Adjustments, Stock Transfers, Physical
   // Counts document layer (docs/archive/catalog/03), on the SAME shared connection
@@ -1482,12 +1506,13 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       const total = salesInvoiceBaseGrandTotal(salesInvoiceTotals(invoice), invoice.fxRate);
       const sub = await vouchers.invoices.findById(invoiceId);
       const allocated = sub?.allocated ?? Money.zero();
+      const returned = (await invoiceReturnCredits.returnedByIds([invoiceId], "sales")).get(invoiceId) ?? Money.zero();
       return {
         invoiceId,
         docNo: invoice.docNo,
         total,
         amountPaid: allocated,
-        remainingBalance: Money.fromScaled(total.scaled - allocated.scaled),
+        remainingBalance: Money.fromScaled(total.scaled - allocated.scaled - returned.scaled),
         dueDate: invoice.dueDate,
         status: invoice.status,
       };
@@ -1680,12 +1705,13 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       const total = salesInvoiceBaseGrandTotal(salesInvoiceTotals(invoice), invoice.fxRate);
       const sub = await vouchers.invoices.findById(invoiceId);
       const allocated = sub?.allocated ?? Money.zero();
+      const returned = (await invoiceReturnCredits.returnedByIds([invoiceId], "sales")).get(invoiceId) ?? Money.zero();
       return {
         invoiceId,
         docNo: invoice.docNo,
         total,
         amountPaid: allocated,
-        remainingBalance: Money.fromScaled(total.scaled - allocated.scaled),
+        remainingBalance: Money.fromScaled(total.scaled - allocated.scaled - returned.scaled),
         dueDate: invoice.dueDate,
         status: invoice.status,
       };
@@ -1842,12 +1868,13 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       const total = purchaseInvoiceBaseTotal(invoice);
       const sub = await vouchers.invoices.findById(invoiceId);
       const allocated = sub?.allocated ?? Money.zero();
+      const returned = (await invoiceReturnCredits.returnedByIds([invoiceId], "purchase")).get(invoiceId) ?? Money.zero();
       return {
         invoiceId,
         docNo: invoice.number,
         total,
         amountPaid: allocated,
-        remainingBalance: Money.fromScaled(total.scaled - allocated.scaled),
+        remainingBalance: Money.fromScaled(total.scaled - allocated.scaled - returned.scaled),
         dueDate: invoice.dueDate,
         status: invoice.status,
       };
@@ -2928,6 +2955,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     allocations: vouchers.allocations,
     invoices: vouchers.invoices,
     realisedFx,
+    returns: invoiceReturnCredits,
   });
   /** An invoice collect or pay route's cap for base money dated `date` (D221); a missing rate is refused in that module's own terms. */
   const previewSettlement =
@@ -2984,7 +3012,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const voucherChequeRegister = new ChequeService({
     cheques,
     gl: salesInvoiceGl,
-    allocation: { allocations: vouchers.allocations, invoices: vouchers.invoices, settlement: invoiceSettlement },
+    allocation: { allocations: vouchers.allocations, invoices: vouchers.invoices, settlement: invoiceSettlement, returns: invoiceReturnCredits },
     raisedBy: chequeRaisedByVoucher,
     realisedFx,
   });
@@ -3049,6 +3077,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       actor: input.actor,
       cheques: voucherCheques,
       realisedFx,
+      returns: invoiceReturnCredits,
     });
     await service.createVoucher({
       id: voucherId,
@@ -3199,6 +3228,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       events: voucherEventBridge,
       cheques: voucherCheques,
       realisedFx,
+      returns: invoiceReturnCredits,
       // Law 6/2025 exempts a regime taxpayer from withholding, so the route
       // refuses a voucher that withholds rather than posting a liability the
       // authority does not recognise (DEC-13).
@@ -3253,6 +3283,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
           actor: input.actor,
           cheques: voucherCheques,
           realisedFx,
+          returns: invoiceReturnCredits,
         });
         await service.createVoucher({
           id: voucherId,
@@ -3344,7 +3375,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       gl: salesInvoiceGl,
       // A cheque applied against an invoice lives in the same allocation
       // sub-ledger as a voucher, so a bounce can reopen what it settled (D192).
-      allocation: { allocations: vouchers.allocations, invoices: vouchers.invoices, settlement: invoiceSettlement },
+      allocation: { allocations: vouchers.allocations, invoices: vouchers.invoices, settlement: invoiceSettlement, returns: invoiceReturnCredits },
       raisedBy: chequeRaisedByVoucher,
       realisedFx,
     },

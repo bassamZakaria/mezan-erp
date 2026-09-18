@@ -670,7 +670,7 @@ export async function foreignSettlementReportsAndReturns_D201_D203(ctx: Ctx): Pr
 }
 
 /**
- * D213, D214, D215, D221, D222 on the seeded tenant, in CAD — this scenario's
+ * D213, D214, D215, D221, D222, D242 on the seeded tenant, in CAD — this scenario's
  * own currency, so its open positions and revaluation stay out of every other
  * module's. CAD is 35.20 on the 23rd and 36.00 from the 26th; the settings are
  * restored afterwards.
@@ -752,6 +752,10 @@ export async function foreignRatesSettleAndReturnInputs_D213_D222(ctx: Ctx): Pro
       check("the sales return confirms", (await req("POST", "/sales-returns/SCN-D214-SR/confirm", {})).status === 200);
       now = await exact();
       check("AR and AP still tie to the micro-unit after both raw returns", now.exact.ar === start.invariants.exact.ar && now.exact.ap === start.invariants.exact.ap, `ar ${now.ar} ap ${now.ap}`);
+      const openSales = (await req("GET", "/open-invoices?kind=sales&partyId=SCN-D221-CUST")).body as any[];
+      check("D242: an invoice its return cleared is no longer offered for allocation", Array.isArray(openSales) && !openSales.some((row) => row.id === "SCN-D214-SI"), JSON.stringify(openSales).slice(0, 200));
+      const openBill = ((await req("GET", "/open-invoices?kind=purchase&partyId=SCN-D213-SUPP")).body as any[]).find((row) => row.id === "SCN-D213-PI");
+      check("D242: the bill is offered net of its 802.56 return", ctx.scaled(openBill?.outstanding) === 8090837287n - 802560000n && ctx.scaled(openBill?.returned) === 802560000n, JSON.stringify(openBill));
 
       // D221 — a customer pays CAD 100 booked at 35.20 with EGP at 36.00.
       await req("POST", "/sales-invoices", {

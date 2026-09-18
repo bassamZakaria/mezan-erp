@@ -7,7 +7,6 @@ import {
   voucherLine,
   voucherNetPaid,
   voucherBaseAmount,
-  invoiceOutstanding,
   getVoucherTypeDefinition,
   VOUCHER_TYPE_DEFINITIONS,
   InvalidDocumentError,
@@ -30,6 +29,8 @@ import {
   SettlementRateMissingError,
   allocationFxDifference,
   allocationInvoiceAmount,
+  invoiceOpenBalance,
+  returnedByInvoice,
   AllocationAlreadyReversedError,
   DuplicateChequeNumberError,
   auditBranchFromScope,
@@ -136,7 +137,7 @@ function serializeSummary(s: AllocationSummary) {
   };
 }
 
-function serializeInvoice(i: AllocatableInvoice) {
+function serializeInvoice(i: AllocatableInvoice, returned: Money = Money.zero()) {
   return {
     id: i.id,
     invoiceNo: i.invoiceNo,
@@ -145,7 +146,8 @@ function serializeInvoice(i: AllocatableInvoice) {
     date: i.date,
     total: i.total.toString(),
     allocated: i.allocated.toString(),
-    outstanding: invoiceOutstanding(i).toString(),
+    returned: returned.toString(),
+    outstanding: invoiceOpenBalance(i, returned).toString(),
   };
 }
 
@@ -731,7 +733,14 @@ export function createAllocationRoutes(
     const kind = kindParam === "sales" || kindParam === "purchase" ? kindParam : undefined;
     const partyId = c.req.query("partyId") ?? undefined;
     const invoices = await deps.invoices.listOpen({ kind, partyId });
-    return c.json(invoices.map(serializeInvoice));
+    // A return clears debt without an allocation; an invoice it cleared is not
+    // open, and what is open on one it touched is net of it (D242).
+    const returned = await returnedByInvoice(deps.returns, invoices);
+    return c.json(
+      invoices
+        .map((invoice) => serializeInvoice(invoice, returned.get(invoice.id)))
+        .filter((invoice) => Money.fromMajor(invoice.outstanding).scaled > 0n),
+    );
   });
 
   return app;

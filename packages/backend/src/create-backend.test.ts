@@ -4650,6 +4650,10 @@ describe("createBackend — foreign documents settle and return in base (D202, D
 
     const preview = await post(app, "/revaluation/preview", { date: "2026-08-31", currencies: ["USD"] }, admin(app));
     expect(((await preview.json()) as { hasImpact: boolean }).hasImpact).toBe(false);
+    for (const asOfDate of ["2026-08-25", "2026-08-26"]) {
+      const asOf = await get(app, `/reports/aging/customers?asOfDate=${asOfDate}`);
+      expect(asOf.reconciliation.reportTotal, asOfDate).toBe(asOf.reconciliation.referenceTotal);
+    }
   });
 
   it("D221: a SAR payment at 13.50 against a bill booked at 13.20 books a 30.00 loss, and undoing the allocation undoes it", async () => {
@@ -4693,6 +4697,10 @@ describe("createBackend — foreign documents settle and return in base (D202, D
     const openStmt = await statement(app, "suppliers", "sup-sar");
     expect(openStmt.closing).toBe(openStmt.agingTotal);
     expect(openStmt.closing).toBe("-30.000000");
+    for (const asOfDate of ["2026-08-25", "2026-08-26", "2026-08-31"]) {
+      const asOf = await get(app, `/reports/aging/suppliers?asOfDate=${asOfDate}`);
+      expect(asOf.reconciliation.reportTotal, asOfDate).toBe(asOf.reconciliation.referenceTotal);
+    }
   });
 
   it("D221: money dated before the invoice's currency has any approved rate cannot settle it — refused, nothing posted", async () => {
@@ -4713,6 +4721,58 @@ describe("createBackend — foreign documents settle and return in base (D202, D
     expect((await get(app, "/sales-invoices/inv-usd")).remainingBalance).toBe("4800.000000");
     expect(await glBalance(app, "4900")).toBe(0);
     expect(await reconDiff(app, "ar")).toBe(0);
+  });
+
+  it("D242: an invoice a return cleared is not open, and a voucher cannot be applied to it", async () => {
+    const app = await newBackend();
+    await createCustomer(app, "cust-ret", "0");
+    await createServiceItem(app);
+    await multiCurrency(app);
+    expect((await authedPost(app, "/sales-invoices", invoiceBody("inv-ret", "cust-ret", "1000"))).status).toBe(201);
+    expect((await authedPost(app, "/sales-invoices/inv-ret/confirm", {})).status).toBe(200);
+    const open = async () => (await get(app, "/open-invoices?kind=sales&partyId=cust-ret")) as { id: string; outstanding: string; returned: string }[];
+    expect((await open()).map((row) => row.outstanding)).toEqual(["1000.000000"]);
+    expect((await post(app, "/sales-returns/from-invoice", {
+      id: "sr-ret", date: "2026-08-23", memo: "", warehouseId: "WH1", sourceInvoiceId: "inv-ret", reason: "OTHER", requested: [{ itemId: "SVC-1", qty: "1" }],
+    }, admin(app))).status).toBe(201);
+    expect((await post(app, "/sales-returns/sr-ret/confirm", {}, admin(app))).status).toBe(200);
+    expect(await open()).toEqual([]);
+
+    expect((await post(app, "/vouchers", {
+      id: "v-ret", date: "2026-08-24", voucherType: "customer_collection", amount: "1000", branchId: "BR1", paymentMethod: "cash",
+      treasuryAccountId: "ta-cash", treasuryGlAccountId: "1300-1", counterpartyGlAccountId: "1105", customerId: "cust-ret",
+    }, admin(app))).status).toBe(201);
+    expect((await post(app, "/vouchers/v-ret/confirm", {}, admin(app))).status).toBe(200);
+    const refused = await post(app, "/vouchers/v-ret/allocations", { allocationId: "al-ret", invoiceId: "inv-ret", amount: "1" }, admin(app));
+    expect(refused.status).toBe(422);
+    expect((await get(app, "/sales-invoices/inv-ret")).amountPaid).toBe("0.000000");
+    expect(await reconDiff(app, "ar")).toBe(0);
+  });
+
+  it("D221 with D242: half a USD invoice returned, the other half settled at a moved rate realises the difference on that half only", async () => {
+    const app = await newBackend();
+    await createCustomer(app, "cust-usd", "0");
+    await createServiceItem(app);
+    await multiCurrency(app);
+    const body = { ...invoiceBody("inv-usd", "cust-usd", "50"), currency: "USD" };
+    expect((await authedPost(app, "/sales-invoices", { ...body, lines: body.lines.map((line) => ({ ...line, qty: "2" })) })).status).toBe(201);
+    expect((await authedPost(app, "/sales-invoices/inv-usd/confirm", {})).status).toBe(200);
+    expect((await post(app, "/sales-returns/from-invoice", {
+      id: "sr-half", date: "2026-08-23", memo: "", warehouseId: "WH1", sourceInvoiceId: "inv-usd", reason: "OTHER", requested: [{ itemId: "SVC-1", qty: "1" }],
+    }, admin(app))).status).toBe(201);
+    expect((await post(app, "/sales-returns/sr-half/confirm", {}, admin(app))).status).toBe(200);
+    expect(await glBalance(app, "1105")).toBe(2400);
+    await approvedRate(app, "fx-usd-50", "USD", "50.00", "2026-08-25");
+
+    expect((await post(app, "/sales-invoices/inv-usd/payments", { amount: "2500.01", treasuryAccountId: "ta-cash", date: "2026-08-26" }, admin(app))).status).toBe(422);
+    expect((await post(app, "/sales-invoices/inv-usd/payments", { amount: "2500", treasuryAccountId: "ta-cash", date: "2026-08-26" }, admin(app))).status).toBe(200);
+    expect((await get(app, "/sales-invoices/inv-usd")).remainingBalance).toBe("0.000000");
+    expect(await glBalance(app, "1105")).toBe(0);
+    expect(await glBalance(app, "4900")).toBe(-100);
+    expect(await reconDiff(app, "ar")).toBe(0);
+    const stmt = await statement(app, "customers", "cust-usd");
+    expect(stmt.closing).toBe("0.000000");
+    expect(stmt.agingTotal).toBe("0.000000");
   });
 
   it("D221: a USD invoice revalued at month-end and settled the next month realises its whole difference once", async () => {

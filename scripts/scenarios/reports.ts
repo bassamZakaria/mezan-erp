@@ -346,19 +346,53 @@ export async function agingLaddersTieToTheirControlAccounts_D192(ctx: Ctx): Prom
 }
 
 /**
- * D195 — every customer's «المستحق» on the customers screen is their opening
- * balance plus their aging row: one server computation, so an on-account
- * receipt, a cheque or a return cannot land in one and not the other. Runs in
- * the reports module, after sales and purchases have moved the tenant.
+ * D195 — every customer's «المستحق» on the customers screen is their aging
+ * row: one server computation, so an on-account receipt, a cheque or a return
+ * cannot land in one and not the other. The row carries the opening balance
+ * itself since D204, so the figure is the row, not opening balance plus row.
  */
 export async function everyCustomerOwesTheirAgingRow_D195(ctx: Ctx): Promise<void> {
   await ctx.scenario("D195 — every customer's amount owed on the customers screen is their aging row", async () => {
     const aging = await ctx.req("GET", "/reports/aging/customers");
-    const rowTotal = new Map(ctx.rows(aging.body).map((row: any) => [row.customerId, ctx.n(row.total)]));
+    const rowTotal = new Map(ctx.rows(aging.body).map((row: any) => [row.customerId, ctx.scaled(row.total)]));
     const customers = await ctx.allRows("/customers");
     ctx.check("the customers list carries the server's owed figure", customers.length > 0 && customers.every((c: any) => typeof c.owed === "string"), JSON.stringify(customers[0] ?? {}).slice(0, 200));
-    const off = customers.filter((c: any) => Math.abs(ctx.n(c.owed) - ctx.n(c.openingBalance) - (rowTotal.get(c.id) ?? 0)) > 0.005);
-    ctx.check("owed − opening balance = the aging row, for every customer", off.length === 0, off.slice(0, 3).map((c: any) => `${c.id} owed ${c.owed} row ${rowTotal.get(c.id) ?? 0}`).join("; "));
+    const off = customers.filter((c: any) => ctx.scaled(c.owed) !== (rowTotal.get(c.id) ?? 0n));
+    ctx.check("owed = the aging row, opening balance included, for every customer (D204)", off.length === 0, off.slice(0, 3).map((c: any) => `${c.id} owed ${c.owed} row ${rowTotal.get(c.id) ?? 0}`).join("; "));
+  });
+}
+
+/**
+ * D200, D201, D204, D205, D210, D211 — at the end of the run, after every module has
+ * moved the tenant: both ladders tie to their control accounts to the
+ * micro-unit, and for every customer and supplier the owed figure on their
+ * screen, their aging row and the closing balance of their statement are one
+ * number.
+ */
+export async function everyPartyTiesItsOwedLadderAndStatement(ctx: Ctx): Promise<void> {
+  await ctx.scenario("every party — owed figure = aging row = statement closing, and both ladders tie exactly", async () => {
+    for (const kind of ["customers", "suppliers"] as const) {
+      const aging = await ctx.req("GET", `/reports/aging/${kind}`);
+      ctx.check(
+        `aging ${kind}: the ladder equals its control account to the micro-unit`,
+        ctx.scaled(aging.body?.reconciliation?.reportTotal) === ctx.scaled(aging.body?.reconciliation?.referenceTotal),
+        JSON.stringify(aging.body?.reconciliation),
+      );
+      const idOf = (row: any) => (kind === "customers" ? row.customerId : row.supplierId);
+      const rowTotal = new Map(ctx.rows(aging.body).map((row: any) => [idOf(row), ctx.scaled(row.total)]));
+      const parties = await ctx.allRows(`/${kind}`);
+      const off: string[] = [];
+      for (const party of parties) {
+        const row = rowTotal.get(party.id) ?? 0n;
+        const statement = (await ctx.req("GET", `/reports/statements/${kind}/${party.id}`)).body;
+        const owed = ctx.scaled(party.owed);
+        const closing = ctx.scaled(statement?.closing);
+        if (owed !== row || closing !== row || ctx.scaled(statement?.agingTotal) !== row) {
+          off.push(`${party.id} owed ${party.owed} row ${row} statement ${statement?.closing}`);
+        }
+      }
+      ctx.check(`${kind}: every party's owed figure, aging row and statement closing agree`, parties.length > 0 && off.length === 0, off.slice(0, 4).join("; "));
+    }
   });
 }
 

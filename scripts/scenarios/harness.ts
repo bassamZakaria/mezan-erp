@@ -138,22 +138,44 @@ export async function boot() {
     check(label, Math.abs(a - b) <= tolerance, `${a} vs ${b} (differ by ${(a - b).toFixed(6)})`);
   }
 
+  /** A decimal amount as integer micro-units, so two figures compare exactly rather than within a float's noise. */
+  function scaled(v: unknown): bigint | null {
+    if (typeof v === "number") return Number.isFinite(v) ? BigInt(Math.round(v * 1e6)) : null;
+    const text = String(v ?? "").trim();
+    const m = /^(-)?(\d+)(?:\.(\d{0,6}))?$/.exec(text);
+    if (!m) return null;
+    const units = BigInt(m[2]!) * 1_000_000n + BigInt((m[3] ?? "").padEnd(6, "0"));
+    return m[1] ? -units : units;
+  }
+
   async function invariants() {
     const tb = await req("GET", "/financial-reports/trial-balance");
     const g = tb.body?.grandTotals ?? {};
     const recon = await req("GET", "/reconciliation");
     const list = rows(recon.body).length ? rows(recon.body) : (recon.body?.controls ?? []);
-    const diff = (k: string) => {
+    const diff = (k: string): bigint | null => {
       const r = list.find((x: any) => x.key === k);
-      return r ? n(r.subLedgerBalance) - n(r.glBalance) : NaN;
+      const sub = r ? scaled(r.subLedgerBalance) : null;
+      const gl = r ? scaled(r.glBalance) : null;
+      return sub === null || gl === null ? null : sub - gl;
     };
-    return { tb: n(g.debit) - n(g.credit), inventory: diff("inventory"), ap: diff("ap"), ar: diff("ar") };
+    const debit = scaled(g.debit);
+    const credit = scaled(g.credit);
+    const exact = {
+      tb: debit === null || credit === null ? null : debit - credit,
+      inventory: diff("inventory"),
+      ap: diff("ap"),
+      ar: diff("ar"),
+    };
+    const asNumber = (x: bigint | null) => (x === null ? NaN : Number(x) / 1e6);
+    return { tb: asNumber(exact.tb), inventory: asNumber(exact.inventory), ap: asNumber(exact.ap), ar: asNumber(exact.ar), exact };
   }
 
   /**
-   * Runs one scenario and asserts the books afterwards. AR is excluded from the
-   * automatic check because D1 keeps it legitimately adrift; a scenario that
-   * cares about AR asserts it explicitly.
+   * Runs one scenario and asserts the books afterwards: the trial balance
+   * balances and every sub-ledger — stock, AP and AR — sits exactly where it
+   * sat before, to the micro-unit. A tolerance here once hid a 0.000002 stock
+   * residue (D206), and leaving AR out hid a 2,280.00 one (D205).
    */
   async function scenario(name: string, fn: () => Promise<void>) {
     current = name;
@@ -164,9 +186,12 @@ export async function boot() {
       failures.push(`${current} · threw — ${String((e as Error).message).slice(0, 160)}`);
     }
     const after = await invariants();
-    check("trial balance still balances", Math.abs(after.tb) < 0.005, `debit − credit = ${after.tb}`);
-    checkEq("inventory still reconciles to GL 1200", after.inventory, before.inventory);
-    checkEq("AP still reconciles", after.ap, before.ap);
+    const same = (k: "inventory" | "ap" | "ar") => after.exact[k] !== null && after.exact[k] === before.exact[k];
+    const moved = (k: "inventory" | "ap" | "ar") => `${before[k].toFixed(6)} → ${after[k].toFixed(6)}`;
+    check("trial balance still balances", after.exact.tb === 0n, `debit − credit = ${after.tb.toFixed(6)}`);
+    check("inventory still reconciles to GL 1200", same("inventory"), moved("inventory"));
+    check("AP still reconciles", same("ap"), moved("ap"));
+    check("AR still reconciles", same("ar"), moved("ar"));
   }
 
   function report(): number {
@@ -214,5 +239,5 @@ export async function boot() {
     return out;
   }
 
-  return { app, sessions, req, rows, allRows, n, check, checkEq, scenario, invariants, report, passes, failures };
+  return { app, sessions, req, rows, allRows, n, scaled, check, checkEq, scenario, invariants, report, passes, failures };
 }

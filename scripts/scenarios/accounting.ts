@@ -1178,6 +1178,25 @@ export async function aCustomerOpeningBalanceNeverReachesTheControlAccount(ctx: 
     ctx.checkEq("GL 1105 moved by exactly the opening balance", await accountBalance(ctx, "1105"), arBefore + opening);
     ctx.checkEq("and the other side landed in opening-balance equity 3210 as a credit", await accountBalance(ctx, "3210"), equityBefore - opening);
 
+    // D204 — the ladder ages the opening balance too, from the day it posted,
+    // so it still ties to 1105 and the owed figure is the customer's row.
+    const aging = await ctx.req("GET", "/reports/aging/customers");
+    const agingRow = ctx.rows(aging.body).find((r: any) => r.customerId === id);
+    ctx.check("D204 — the customer's opening balance is on their aging row", ctx.scaled(agingRow?.total) === ctx.scaled(`${opening}.00`), JSON.stringify(agingRow));
+    ctx.check(
+      "D204 — and the customer ladder still ties to 1105 to the micro-unit",
+      ctx.scaled(aging.body?.reconciliation?.reportTotal) === ctx.scaled(aging.body?.reconciliation?.referenceTotal),
+      JSON.stringify(aging.body?.reconciliation),
+    );
+    const detail = await ctx.req("GET", `/customers/${id}`);
+    ctx.check("D204 — what the customer owes is that row, not the opening balance counted twice", ctx.scaled(detail.body?.owed) === ctx.scaled(agingRow?.total), `owed ${detail.body?.owed}`);
+    const statement = await ctx.req("GET", `/reports/statements/customers/${id}`);
+    ctx.check(
+      "D204 — their statement opens with it and closes on the same figure",
+      statement.body?.lines?.[0]?.kind === "opening" && ctx.scaled(statement.body?.closing) === ctx.scaled(`${opening}.00`),
+      JSON.stringify(statement.body).slice(0, 300),
+    );
+
     /*
      * Found by its SOURCE DOCUMENT, not by a guessable id. The entry key is
      * `CUST-OPEN-JE:<customer>:<uuid>` on purpose: correcting an opening
@@ -1221,6 +1240,27 @@ export async function aCustomerOpeningBalanceNeverReachesTheControlAccount(ctx: 
     );
     ctx.checkEq("and GL 1105 is exactly where it started", await accountBalance(ctx, "1105"), arBefore);
     ctx.checkEq("and so is 3210", await accountBalance(ctx, "3210"), equityBefore);
+  });
+
+  await ctx.scenario("opening balances — D204: a supplier's opening balance is on the supplier ladder, which still ties to 2100", async () => {
+    const id = "SCN-SUPP-OPENING";
+    const created = await ctx.req("POST", "/suppliers", { id, code: "SCN-SOPEN-1", nameAr: "مورد برصيد افتتاحي", openingBalance: "1500.00" });
+    ctx.check("a supplier can be created carrying an opening balance", created.status === 201, `status ${created.status} ${JSON.stringify(created.body).slice(0, 200)}`);
+    if (created.status !== 201) return;
+    const aging = await ctx.req("GET", "/reports/aging/suppliers");
+    const row = ctx.rows(aging.body).find((r: any) => r.supplierId === id);
+    ctx.check("D204 — the opening balance is on the supplier's aging row", ctx.scaled(row?.total) === 1_500_000_000n, JSON.stringify(row));
+    ctx.check(
+      "D204 — and the supplier ladder still ties to 2100 to the micro-unit",
+      ctx.scaled(aging.body?.reconciliation?.reportTotal) === ctx.scaled(aging.body?.reconciliation?.referenceTotal),
+      JSON.stringify(aging.body?.reconciliation),
+    );
+    const detail = await ctx.req("GET", `/suppliers/${id}`);
+    ctx.check("D204 — what the suppliers screen says they are owed is that row", ctx.scaled(detail.body?.owed) === 1_500_000_000n, `owed ${detail.body?.owed}`);
+    const cleared = await ctx.req("PATCH", `/suppliers/${id}`, { openingBalance: "0.00" });
+    ctx.check("the opening balance is cleared again so later scenarios start level", cleared.status === 200, `status ${cleared.status}`);
+    const after = ctx.rows((await ctx.req("GET", "/reports/aging/suppliers")).body).find((r: any) => r.supplierId === id);
+    ctx.check("and the supplier's row is gone with it", after === undefined || ctx.scaled(after.total) === 0n, JSON.stringify(after));
   });
 }
 

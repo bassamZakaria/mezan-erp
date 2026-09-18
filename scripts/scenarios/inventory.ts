@@ -324,10 +324,10 @@ async function physicalCountAdjustmentPostsNoJournalEntry_D2(ctx: Ctx): Promise<
   );
 
   const after = await ctx.invariants();
-  ctx.checkEq(
+  ctx.check(
     "D2 fixed — the count leaves the inventory sub-ledger and GL 1200 in step",
-    after.inventory - before.inventory,
-    0,
+    after.exact.inventory === before.exact.inventory,
+    `${before.inventory.toFixed(6)} → ${after.inventory.toFixed(6)}`,
   );
 }
 
@@ -371,10 +371,22 @@ async function completingAWorkOrderPostsToGl1200_D3(ctx: Ctx): Promise<void> {
   );
 
   const after = await ctx.invariants();
-  ctx.checkEq(
-    "D3 — so completing the work order leaves the inventory sub-ledger still reconciled to GL 1200",
-    after.inventory - before.inventory,
-    0,
+  ctx.check(
+    "D3/D206 — so completing the work order leaves the inventory sub-ledger reconciled to GL 1200 to the micro-unit",
+    after.exact.inventory === before.exact.inventory,
+    `${before.inventory.toFixed(6)} → ${after.inventory.toFixed(6)}`,
+  );
+  const received = ctx
+    .rows((await ctx.req("GET", "/inventory/movements?itemId=ITEM-DEMO-5&warehouseId=WH-MAIN")).body)
+    .filter((m: any) => m.sourceDocId === "SCN-WO-D3" && m.direction === "IN");
+  const receivedValue = received.reduce(
+    (sum: bigint, m: any) => sum + (ctx.scaled(m.qty)! * ctx.scaled(m.unitCost)! + 500_000n) / 1_000_000n,
+    0n,
+  );
+  ctx.check(
+    "D206 — the finished goods the order received are worth exactly the WIP total its completion capitalised",
+    received.length > 0 && receivedValue === ctx.scaled(receive.body?.wipTotal),
+    `wip=${receive.body?.wipTotal} received=${JSON.stringify(received).slice(0, 400)}`,
   );
 }
 

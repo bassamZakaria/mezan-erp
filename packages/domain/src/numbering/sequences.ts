@@ -87,6 +87,9 @@ export const SEQUENCE_DEFINITIONS = [
   { code: "REVENUE_RECOGNITION_RUN", labelAr: "اعتراف بالإيراد", prefix: "RR-", padLength: 6, annualReset: false },
   { code: "RETENTION_RELEASE", labelAr: "إفراج عن محتجزات", prefix: "RET-", padLength: 6, annualReset: false },
   { code: "LETTER_OF_GUARANTEE", labelAr: "خطاب ضمان", prefix: "LG-", padLength: 6, annualReset: false },
+  // Field/van sales (docs/archive/catalog/07 "رحلات المندوبين") — opened through
+  // the UI with no number until this sequence existed (D: raw UUID shown).
+  { code: "VAN_TRIP", labelAr: "رحلة عربة بيع", prefix: "TRIP-", padLength: 4, annualReset: false },
 ] as const satisfies readonly SequenceDefinition[];
 
 export type SequenceCode = (typeof SEQUENCE_DEFINITIONS)[number]["code"];

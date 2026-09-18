@@ -160,6 +160,78 @@ describe("items router — CRUD", () => {
     expect(res.status).toBe(409);
   });
 
+  it("409s a duplicate item code with an Arabic message", async () => {
+    const { app } = newApp();
+    await app.fetch(
+      req("/", {
+        method: "POST",
+        permissions: "inventory.item.create",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(VALID_PAYLOAD),
+      }),
+    );
+    const res = await app.fetch(
+      req("/", {
+        method: "POST",
+        permissions: "inventory.item.create",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ...VALID_PAYLOAD, id: "itm-2" }),
+      }),
+    );
+    const body = (await res.json()) as { message: string };
+    expect(body.message).toContain("مستخدم بالفعل");
+    expect(body.message).toContain(VALID_PAYLOAD.code);
+  });
+
+  /**
+   * Regression guard (D: the browser computed the code from the catalog's
+   * page size and posted it as a literal, so two operators racing the create
+   * form could be handed the same code). The server now allocates it.
+   */
+  it("allocates the code itself when the create omits it", async () => {
+    const { app } = newApp();
+    const { code: _code, ...withoutCode } = VALID_PAYLOAD;
+    const res = await app.fetch(
+      req("/", {
+        method: "POST",
+        permissions: "inventory.item.create",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(withoutCode),
+      }),
+    );
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { code: string };
+    expect(body.code).toBe("ITM-000001");
+  });
+
+  it("resolves a real race between two concurrent creates that both omit the code", async () => {
+    const { app } = newApp();
+    const { code: _code, ...withoutCode } = VALID_PAYLOAD;
+    const [resA, resB] = await Promise.all([
+      app.fetch(
+        req("/", {
+          method: "POST",
+          permissions: "inventory.item.create",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ ...withoutCode, id: "itm-a", nameAr: "صنف أ" }),
+        }),
+      ),
+      app.fetch(
+        req("/", {
+          method: "POST",
+          permissions: "inventory.item.create",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ ...withoutCode, id: "itm-b", nameAr: "صنف ب" }),
+        }),
+      ),
+    ]);
+    expect(resA.status).toBe(201);
+    expect(resB.status).toBe(201);
+    const [bodyA, bodyB] = (await Promise.all([resA.json(), resB.json()])) as { code: string }[];
+    expect(bodyA?.code).not.toBe(bodyB?.code);
+    expect(new Set([bodyA?.code, bodyB?.code])).toEqual(new Set(["ITM-000001", "ITM-000002"]));
+  });
+
   it("422s a service item asked to track inventory", async () => {
     const { app } = newApp();
     const res = await app.fetch(

@@ -2,7 +2,7 @@
 export class DuplicateItemCodeError extends Error {
   readonly code = "DUPLICATE_ITEM_CODE";
   constructor(readonly itemCode: string) {
-    super(`Item code "${itemCode}" already exists.`);
+    super(`كود الصنف «${itemCode}» مستخدم بالفعل.`);
     this.name = "DuplicateItemCodeError";
   }
 }

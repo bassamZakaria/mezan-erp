@@ -311,7 +311,10 @@ function renderScreen(
       const body = JSON.parse((init?.body as string) ?? "{}");
       const overridden = opts.onCreateItem?.(body);
       if (overridden) return overridden;
-      const created: ItemDTO = { ...item(), ...body, id: body.id, code: body.code, status: "active" };
+      // A blank/omitted code is what the real screen sends now — the server
+      // allocates it, so the stub mirrors that instead of persisting `undefined`.
+      const code = body.code && body.code !== "" ? body.code : `ITM-${String(current.length + 1).padStart(6, "0")}`;
+      const created: ItemDTO = { ...item(), ...body, id: body.id, code, status: "active" };
       current = [...current, created];
       return { status: 201, body: created };
     },
@@ -369,9 +372,13 @@ describe("ItemsScreen", () => {
     expect(screen.getByRole("heading", { name: "الأصناف" })).toBeInTheDocument();
   });
 
-  // guards Q-9: `items` is one server page, so the offered code used to be
-  // ITM-000026 on every full page — a code the catalogue already held.
-  it("offers a code counted from the whole catalogue, not from the page on screen", async () => {
+  // Regression guard: the code field used to be computed client-side from the
+  // catalogue's current size (`nextItemCode`) — a stale count under
+  // concurrent creates (Q-9's own guard, then a second, separate defect: two
+  // operators racing the same guessed code). The server now allocates the
+  // code atomically at save time, so the form never guesses one — the field
+  // stays blank and disabled no matter how large the catalogue is.
+  it("never guesses a code client-side — the field stays blank, whatever the catalogue size", async () => {
     const user = userEvent.setup();
     const catalogue = Array.from({ length: 30 }, (_, i) =>
       item({ id: `itm-${i + 1}`, code: `ITM-${String(i + 1).padStart(6, "0")}`, nameAr: `صنف رقم ${i + 1}` }),
@@ -380,7 +387,9 @@ describe("ItemsScreen", () => {
     await screen.findByText("صنف رقم 1");
     await user.click(screen.getByRole("button", { name: "إضافة صنف" }));
 
-    expect(screen.getByLabelText("كود الصنف")).toHaveValue("ITM-000031");
+    const codeField = screen.getByLabelText("كود الصنف");
+    expect(codeField).toHaveValue("");
+    expect(codeField).toBeDisabled();
   });
 
   it("hides the inventory-policy section once the item type is switched to service", async () => {
@@ -429,6 +438,24 @@ describe("ItemsScreen", () => {
     await user.click(screen.getByRole("button", { name: "إضافة" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("مكرر");
+    expect(screen.getByRole("heading", { name: "إضافة صنف" })).toBeInTheDocument();
+  });
+
+  // The code is never sent by this form (the server allocates it), but a
+  // 409 DUPLICATE_ITEM_CODE can still come back — e.g. a rare allocation
+  // race exhausting its retries — and must show the server's own Arabic
+  // message, not raw English, on a form that stays open.
+  it("shows the server's Arabic duplicate-code message and keeps the form open", async () => {
+    const user = userEvent.setup();
+    renderScreen(sampleItems, {
+      onCreateItem: () => ({ status: 409, body: { error: "DUPLICATE_ITEM_CODE", message: "كود الصنف «ITM-000031» مستخدم بالفعل." } }),
+    });
+    await screen.findByText("أرز أبيض مصري 5 كجم");
+    await user.click(screen.getByRole("button", { name: "إضافة صنف" }));
+    await user.type(screen.getByLabelText("اسم الصنف *"), "صنف يتعارض كوده");
+    await user.click(screen.getByRole("button", { name: "إضافة" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("مستخدم بالفعل");
     expect(screen.getByRole("heading", { name: "إضافة صنف" })).toBeInTheDocument();
   });
 

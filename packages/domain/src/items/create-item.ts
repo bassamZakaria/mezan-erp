@@ -7,7 +7,8 @@ import { itemTypeTracksStock } from "./item-type.js";
 
 export interface CreateItemCommand {
   readonly id: string;
-  readonly code: string;
+  /** Omitted or blank, the server allocates the next free `ITM-######` code. */
+  readonly code?: string;
   readonly nameAr: string;
   readonly nameEn?: string | null;
   readonly type: ItemType;
@@ -38,7 +39,26 @@ export interface CreateItemCommand {
   readonly gpcCode?: string | null;
 }
 
-function buildCandidate(command: CreateItemCommand): Item {
+const ITEM_CODE_PREFIX = "ITM-";
+const ITEM_CODE_PATTERN = new RegExp(`^${ITEM_CODE_PREFIX}(\\d+)$`);
+
+/**
+ * The next free `ITM-######` code after the highest already in `existing`.
+ * Pure — the caller (`createItem`) re-derives this against a fresh read on
+ * every retry, so a race that lands between the read and the write is
+ * resolved by trying again rather than by trusting a stale count (the item
+ * twin of `packages/api/src/master-code.ts`'s `nextMasterCode`).
+ */
+export function nextItemCode(existing: readonly Item[]): string {
+  let max = 0;
+  for (const item of existing) {
+    const match = ITEM_CODE_PATTERN.exec(item.code);
+    if (match) max = Math.max(max, Number(match[1]));
+  }
+  return `${ITEM_CODE_PREFIX}${String(max + 1).padStart(6, "0")}`;
+}
+
+function buildCandidate(command: CreateItemCommand & { code: string }): Item {
   const status: ItemStatus = "active";
   return {
     id: command.id,
@@ -81,7 +101,7 @@ function buildCandidate(command: CreateItemCommand): Item {
  * rule from `./validation.js` must hold. Pure — does not touch the repo.
  */
 export function validateNewItem(
-  command: CreateItemCommand,
+  command: CreateItemCommand & { code: string },
   existing: readonly Item[],
   accounts?: readonly Account[],
 ): void {
@@ -93,21 +113,46 @@ export function validateNewItem(
   if (reasons.length > 0) throw new InvalidItemError(reasons);
 }
 
+/** Retries a code collision this many times before giving up (each attempt re-reads the catalog). */
+const MAX_CODE_ALLOCATION_ATTEMPTS = 20;
+
 /**
  * Creates and persists a new item. New items always start `active`
  * (docs/archive/catalog/03 — status is toggled later via edit, never at creation).
  * `accounts`, when supplied, is used to validate any GL mapping overrides —
  * omit it to skip that check (every mapping is itself optional).
+ *
+ * A blank/omitted `command.code` is allocated here, not by the caller: the
+ * catalog size the browser could compute is a stale snapshot the moment a
+ * second create races it, so every attempt re-reads the repo and re-derives
+ * the code, retrying on a `DuplicateItemCodeError` from either the pre-check
+ * (a rival create already landed) or the repo's own unique-code constraint (a
+ * rival create landed in the gap between this attempt's read and its write).
+ * A manually supplied code never retries — a real duplicate is reported once.
  */
 export async function createItem(
   command: CreateItemCommand,
   repo: ItemRepository,
   accounts?: readonly Account[],
 ): Promise<Item> {
-  const existing = await repo.list();
-  validateNewItem(command, existing, accounts);
+  const manualCode = command.code?.trim();
+  const autoAssign = manualCode === undefined || manualCode === "";
 
-  const item = buildCandidate(command);
-  await repo.create(item);
-  return item;
+  for (let attempt = 0; ; attempt++) {
+    const existing = await repo.list();
+    const code = autoAssign ? nextItemCode(existing) : manualCode;
+    const resolved = { ...command, code };
+    try {
+      validateNewItem(resolved, existing, accounts);
+      const item = buildCandidate(resolved);
+      await repo.create(item);
+      return item;
+    } catch (err) {
+      if (autoAssign && err instanceof DuplicateItemCodeError && attempt < MAX_CODE_ALLOCATION_ATTEMPTS - 1) {
+        continue;
+      }
+      throw err;
+    }
+  }
 }
+

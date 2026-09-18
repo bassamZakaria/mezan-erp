@@ -85,8 +85,6 @@ const NO_CATEGORY_KEY = "common.uncategorized" as const;
 const DEFAULT_GL_ID = "__default__";
 const DEFAULT_GL_KEY = "items.defaultForTheItemType" as const;
 const PAGE_SIZES = [5, 10, 25, 50, 100] as const;
-/** Stable identity so the catalogue-size query is not re-keyed on every render. */
-const WHOLE_CATALOGUE: ItemListFilter = {};
 
 /** Draft shape for the add/edit panel. Money fields are plain numbers here (MoneyInput's contract) — converted to/from the ItemDTO's decimal-string wire shape on submit/load. */
 /**
@@ -231,7 +229,7 @@ function validateDraft(
   editingId: string | null,
   t: (key: AppTranslationKey, params?: Record<string, string | number>) => string,
 ): string | null {
-  if (!editingId && existing.some((i) => i.code === draft.code)) {
+  if (!editingId && draft.code.trim() !== "" && existing.some((i) => i.code === draft.code)) {
     return t("items.codeInUse", { code: draft.code });
   }
   if (draft.nameAr.trim() === "") return t("items.theItemNeedsAName");
@@ -261,7 +259,10 @@ function validateDraft(
 function draftToItem(draft: ItemDraft, id: string): CreateItemDTO & { status: ItemStatusDTO } {
   return {
     id,
-    code: draft.code,
+    // Blank (the normal case — the code field is disabled and never filled
+    // client-side) is left OUT, not sent as "", so the server allocates the
+    // next free ITM-###### atomically rather than rejecting an empty code.
+    ...(draft.code.trim() === "" ? {} : { code: draft.code.trim() }),
     nameAr: draft.nameAr.trim(),
     nameEn: draft.nameEn.trim() === "" ? null : draft.nameEn.trim(),
     type: draft.type,
@@ -298,10 +299,6 @@ function draftToItem(draft: ItemDraft, id: string): CreateItemDTO & { status: It
     gpcCode: draft.gpcCode.trim() === "" ? null : draft.gpcCode.trim(),
     status: draft.status,
   };
-}
-
-function nextItemCode(catalogueSize: number): string {
-  return `ITM-${String(catalogueSize + 1).padStart(6, "0")}`;
 }
 
 /** الأصناف (Items) — docs/archive/catalog/03-inventory.md. List (KPI strip + filters + table + pager), item detail (tabs), add/edit form. */
@@ -774,13 +771,6 @@ export function ItemsScreen() {
   const query = useItems({ ...filter, page, pageSize, sort: serverSortKey(sort.key), sortDir: sort.direction });
   const items = query.data ?? EMPTY;
   const counts = useItemCounts(filter).data ?? {};
-  // The offered code counts the CATALOGUE, never the page in front of the
-  // reader: `items` has been one server page since Q-9, so this offered
-  // ITM-000026 on every full page and the create was refused the moment that
-  // code was taken. `filter` cannot be used either — it would count what the
-  // reader has searched for.
-  const catalogueQuery = useItemCounts(WHOLE_CATALOGUE);
-  const catalogueSize = catalogueQuery.data?.all ?? 0;
   const stats = useItemStats(filter).data ?? {};
 
   const totalCount = counts.all ?? 0;
@@ -837,17 +827,15 @@ export function ItemsScreen() {
       return;
     }
     if (formSegment === "new") {
+      // The code is never computed here — the server allocates the next free
+      // ITM-###### atomically at save time, so two operators opening this
+      // form at once each get their own code instead of racing for the same
+      // client-guessed one. The disabled code field just shows a hint.
       if (seededFor.current !== "new") {
         seededFor.current = "new";
         setDraft(BLANK_DRAFT);
         setFormError(null);
       }
-      // The code waits for the catalogue (`nextItemCode(0)` is ITM-000001, which
-      // is taken) and is the ONLY field filled in when it arrives: the form is
-      // already open, and whatever was typed meanwhile must survive.
-      if (query.isLoading || catalogueQuery.isLoading) return;
-      const code = nextItemCode(catalogueSize);
-      setDraft((current) => (current.code === "" ? { ...current, code } : current));
       return;
     }
     if (seededFor.current === formSegment) return;
@@ -858,7 +846,7 @@ export function ItemsScreen() {
     }
     seededFor.current = formSegment;
     setFormError(null);
-  }, [formSegment, editingItem, items, query.isLoading, catalogueQuery.isLoading, catalogueSize]);
+  }, [formSegment, editingItem, items]);
 
   function openCreateForm() {
     subPage.open("new");
@@ -1043,7 +1031,7 @@ export function ItemsScreen() {
           <Button type="button" onClick={subPage.close}>
             {t("common.cancel")}
           </Button>
-          <Button type="submit" form="item-form" variant="primary" disabled={draft.code === ""}>
+          <Button type="submit" form="item-form" variant="primary">
             {editingId ? t("common.save") : t("common.add")}
           </Button>
         </>
@@ -1097,7 +1085,15 @@ export function ItemsScreen() {
           ]}
         />
 
-        <TextField label={t("items.itemCode")} value={draft.code} onChange={() => {}} disabled dir="ltr" hint={t("items.generatedAutomatically")} />
+        <TextField
+          label={t("items.itemCode")}
+          value={draft.code}
+          onChange={() => {}}
+          disabled
+          dir="ltr"
+          placeholder={editingId ? undefined : "ITM-######"}
+          hint={t("items.generatedAutomatically")}
+        />
         <TextField label={t("items.itemName")} required value={draft.nameAr} onChange={(v) => setDraft((d) => ({ ...d, nameAr: v }))} />
         <TextField label={t("items.nameInEnglish")} dir="ltr" value={draft.nameEn} onChange={(v) => setDraft((d) => ({ ...d, nameEn: v }))} />
 

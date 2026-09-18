@@ -31,6 +31,12 @@ export {
   type VanRepository,
 } from "./van.js";
 
-export { openVanTrip, type OpenVanTripCommand, type OpenVanTripDeps, type TreasuryTransferInput } from "./open-van-trip.js";
+export {
+  openVanTrip,
+  type OpenVanTripCommand,
+  type OpenVanTripDeps,
+  type TreasuryTransferInput,
+  type VanTripNumberingHook,
+} from "./open-van-trip.js";
 export { recordVanCashMovement, type RecordVanCashMovementInput } from "./record-van-cash-movement.js";
 export { settleVanTrip, type SettleVanTripCommand, type SettleVanTripDeps } from "./settle-van-trip.js";

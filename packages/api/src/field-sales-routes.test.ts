@@ -14,7 +14,7 @@ import {
 // separately to avoid a concurrent-edit conflict), so this test imports the new
 // store file directly by relative path.
 import { createSqliteVanTripRepository, type SqliteVanTripRepositoryHandle } from "../../persistence/src/van-trip-store.js";
-import { createFieldSalesRoutes } from "./field-sales-routes.js";
+import { createFieldSalesRoutes, type FieldSalesRoutesDeps } from "./field-sales-routes.js";
 
 import { insecureHeaderAuthContextResolver } from "./permission-gate.js";
 /**
@@ -96,12 +96,12 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function newApp() {
+function newApp(overrides: Partial<FieldSalesRoutesDeps> = {}) {
   const trips = createSqliteVanTripRepository();
   handles.push(trips);
   const stock = buildStockService();
   const treasuryTransfer = vi.fn(async () => {});
-  const app = createFieldSalesRoutes({ trips, stock, treasuryTransfer }, insecureHeaderAuthContextResolver);
+  const app = createFieldSalesRoutes({ trips, stock, treasuryTransfer, ...overrides }, insecureHeaderAuthContextResolver);
   return { app, trips, stock, treasuryTransfer };
 }
 
@@ -151,6 +151,31 @@ describe("field-sales router — permission gate", () => {
       req("/", { method: "POST", permissions: "field.van_trip.open", headers: { "content-type": "application/json" }, body: JSON.stringify(openPayload) }),
     );
     expect(res.status).toBe(201);
+  });
+
+  /**
+   * Regression guard (D: a trip opened through the real UI — which never
+   * sends `tripNo` — showed the client's raw uuid instead of a number).
+   */
+  it("allocates a TRIP-#### number from the wired numbering dep when the body omits one", async () => {
+    const next = vi.fn().mockResolvedValue({ value: 7, formatted: "TRIP-0007" });
+    const { app } = newApp({ numbering: { next } });
+    const res = await app.fetch(
+      req("/", { method: "POST", permissions: "field.van_trip.open", headers: { "content-type": "application/json" }, body: JSON.stringify(openPayload) }),
+    );
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { tripNo: string | null };
+    expect(body.tripNo).toBe("TRIP-0007");
+    expect(next).toHaveBeenCalledWith({ branchId: "MAIN" });
+  });
+
+  it("has no trip number when no numbering dep is wired", async () => {
+    const { app } = newApp();
+    const res = await app.fetch(
+      req("/", { method: "POST", permissions: "field.van_trip.open", headers: { "content-type": "application/json" }, body: JSON.stringify(openPayload) }),
+    );
+    const body = (await res.json()) as { tripNo: string | null };
+    expect(body.tripNo).toBeNull();
   });
 });
 

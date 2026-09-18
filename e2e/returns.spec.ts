@@ -46,51 +46,26 @@ async function createSupplier(page: Page, name: string): Promise<void> {
 }
 
 /**
- * DEFECT (documented and reproduced in items.spec.ts): ItemsScreen.tsx:304
- * computes a new item's code client-side from the catalogue's current size
- * and never re-derives it at submit time, so two clients creating an item
- * around the same moment can be offered the identical code — one save is
- * then refused with "Item code … already exists", surfacing whenever
- * several copies of a test that creates an item run in parallel (e.g.
- * --repeat-each). A bounded retry covers the common case without
- * pretending a client-side fix exists.
+ * The item's code is never typed here — packages/domain/src/items/create-item.ts
+ * allocates the next free ITM-###### on the server, atomically, so several
+ * copies of a test that creates an item running in parallel (e.g.
+ * --repeat-each) each get their own code instead of racing for one (see
+ * items.spec.ts's regression test for that directly).
  */
 async function createItem(page: Page, name: string, salePrice: string, type: "stock" | "service"): Promise<void> {
   await clickSidebarItem(page, "الأصناف");
   await expect(page.getByRole("heading", { name: "الأصناف" })).toBeVisible();
-  const MAX_ATTEMPTS = 3;
-  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
-    await page.getByRole("button", { name: "إضافة صنف" }).first().click();
-    await expect(page.getByRole("heading", { name: "إضافة صنف", level: 1 })).toBeVisible();
-    if (type === "service") {
-      await page.getByRole("combobox", { name: "نوع الصنف" }).click();
-      await page.getByRole("option", { name: "خدمة" }).click();
-    }
-    await page.getByLabel("اسم الصنف *").fill(name);
-    const price = page.getByLabel("سعر البيع");
-    await price.fill(salePrice);
-    await price.press("Tab");
-    await page.getByRole("button", { name: "إضافة", exact: true }).click();
-
-    // Poll for either outcome instead of racing a fixed timeout against the
-    // save — the ordinary case can legitimately take a few seconds.
-    const listHeading = page.getByRole("heading", { name: "الأصناف" });
-    const codeAlert = page.getByRole("alert").filter({ hasText: "already exists" });
-    let collided = false;
-    const deadline = Date.now() + 10_000;
-    while (Date.now() < deadline) {
-      if (await listHeading.isVisible().catch(() => false)) return;
-      if (await codeAlert.isVisible().catch(() => false)) {
-        collided = true;
-        break;
-      }
-      await page.waitForTimeout(200);
-    }
-    if (!collided) break; // neither happened — let the final assertion report the real error.
-    if (attempt === MAX_ATTEMPTS) break;
-    await page.getByRole("button", { name: "رجوع إلى الأصناف" }).click();
-    await expect(page.getByRole("heading", { name: "الأصناف" })).toBeVisible();
+  await page.getByRole("button", { name: "إضافة صنف" }).first().click();
+  await expect(page.getByRole("heading", { name: "إضافة صنف", level: 1 })).toBeVisible();
+  if (type === "service") {
+    await page.getByRole("combobox", { name: "نوع الصنف" }).click();
+    await page.getByRole("option", { name: "خدمة" }).click();
   }
+  await page.getByLabel("اسم الصنف *").fill(name);
+  const price = page.getByLabel("سعر البيع");
+  await price.fill(salePrice);
+  await price.press("Tab");
+  await page.getByRole("button", { name: "إضافة", exact: true }).click();
   await expect(page.getByRole("heading", { name: "الأصناف" })).toBeVisible();
 }
 
@@ -212,10 +187,9 @@ async function createConfirmedSalesInvoice(page: Page, customerName: string, ite
   return docNo;
 }
 
-// Both describes below create an item with a client-assigned code, which is
-// unsafe under concurrent creation (a real app defect — see items.spec.ts's
-// file header and its dedicated test.fail). Serial (applied file-wide, since
-// each describe only holds one test) keeps them from racing each other.
+// Serial (applied file-wide, since each describe only holds one test) keeps
+// this file's own doc-number/row assertions deterministic; item-code
+// allocation itself is safe under concurrency now (server-side, atomic).
 test.describe.configure({ mode: "serial" });
 
 test.describe("Sales Returns", () => {

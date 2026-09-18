@@ -274,15 +274,13 @@ test.describe("Configurable Products", () => {
   });
 
   /**
-   * DEFECT: ConfigurableProductsScreen.tsx:241 joins the input-label column
-   * with `t("common.notes")` ("ملاحظات") instead of a real separator, so two
-   * inputs render as one run-on string with the word "ملاحظات" welded between
-   * them — e.g. "وزن الشاي (كجم)ملاحظاتوزن السكر (كجم)" — rather than the
-   * two labels separated by a comma. Evidence: probed list row text for
-   * CFG-0001 is exactly that run-on string. Not a test bug — the join
-   * separator in the app is wrong.
+   * Regression guard: ConfigurableProductsScreen.tsx used to join the
+   * input-label column with `t("common.notes")` ("ملاحظات") instead of a
+   * real separator, rendering two inputs as one run-on string —
+   * "وزن الشاي (كجم)ملاحظاتوزن السكر (كجم)". Fixed by joining with the
+   * i18n key `configProducts.inputLabelSeparator` ("، " / ", ").
    */
-  test.fail("the configuration-inputs column separates multiple input labels legibly (D: joins with «ملاحظات» instead of a separator)", async ({ page }) => {
+  test("the configuration-inputs column separates multiple input labels legibly", async ({ page }) => {
     const cfgRow = row(page, "CFG-0001");
     await expect(cfgRow.getByText("وزن الشاي (كجم)، وزن السكر (كجم)")).toBeVisible();
   });

@@ -243,4 +243,52 @@ describe("createItem", () => {
       validateNewItem({ id: "x", code: "ITM-9999", nameAr: "صنف", type: "stock", baseUnitCode: "PCS" }, []),
     ).not.toThrow();
   });
+
+  describe("server-allocated code (blank/omitted `code`)", () => {
+    it("allocates ITM-000001 for the first item in an empty catalog", async () => {
+      const repo = new InMemoryItemRepository();
+      const item = await createItem({ id: "itm-1", nameAr: "صنف", type: "stock", baseUnitCode: "PCS" }, repo);
+      expect(item.code).toBe("ITM-000001");
+    });
+
+    it("continues after the highest existing ITM code, not after the catalog's size", async () => {
+      const repo = new InMemoryItemRepository();
+      await createItem({ id: "itm-1", code: "ITM-000007", nameAr: "صنف", type: "stock", baseUnitCode: "PCS" }, repo);
+      const item = await createItem({ id: "itm-2", nameAr: "صنف آخر", type: "stock", baseUnitCode: "PCS" }, repo);
+      expect(item.code).toBe("ITM-000008");
+    });
+
+    it("treats a blank string the same as an omitted code", async () => {
+      const repo = new InMemoryItemRepository();
+      const item = await createItem({ id: "itm-1", code: "  ", nameAr: "صنف", type: "stock", baseUnitCode: "PCS" }, repo);
+      expect(item.code).toBe("ITM-000001");
+    });
+
+    it("never retries a manually supplied duplicate code — reports it once", async () => {
+      const repo = new InMemoryItemRepository();
+      await createItem({ id: "itm-1", code: "ITM-0001", nameAr: "صنف", type: "stock", baseUnitCode: "PCS" }, repo);
+      await expect(
+        createItem({ id: "itm-2", code: "ITM-0001", nameAr: "نسخة", type: "stock", baseUnitCode: "PCS" }, repo),
+      ).rejects.toThrow(DuplicateItemCodeError);
+    });
+
+    /**
+     * Concurrent-create guard (D: two clients racing a client-computed
+     * "catalog size + 1" code could be handed the same one). Two real
+     * concurrent `createItem` calls against ONE shared repo, both starting
+     * from an empty catalog, must each end up with their OWN code — the
+     * second one's collision is caught and retried rather than surfacing as
+     * a raw duplicate-code failure.
+     */
+    it("resolves a real race between two concurrent auto-assigned creates", async () => {
+      const repo = new InMemoryItemRepository();
+      const [a, b] = await Promise.all([
+        createItem({ id: "itm-a", nameAr: "صنف أ", type: "stock", baseUnitCode: "PCS" }, repo),
+        createItem({ id: "itm-b", nameAr: "صنف ب", type: "stock", baseUnitCode: "PCS" }, repo),
+      ]);
+      expect(a.code).not.toBe(b.code);
+      expect(new Set([a.code, b.code])).toEqual(new Set(["ITM-000001", "ITM-000002"]));
+      expect((await repo.list()).map((i) => i.code).sort()).toEqual(["ITM-000001", "ITM-000002"]);
+    });
+  });
 });

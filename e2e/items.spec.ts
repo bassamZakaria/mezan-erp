@@ -33,10 +33,10 @@ const SCREENSHOT_DIR = "e2e-results/screenshots";
  * tabs, and validation.
  *
  * `serial`: every test here creates an item with no explicit code (the
- * server assigns the next ITM-###### itself), and doing that from several
- * workers at once is a real, reproducible app defect — see the DEFECT test
- * below. Serial keeps the rest of this suite deterministic without papering
- * over that defect by weakening an assertion.
+ * server assigns the next ITM-###### itself, atomically and retrying past a
+ * concurrent-create race — see the regression test below). Serial just keeps
+ * this suite's own item count/search assertions deterministic; it is no
+ * longer required for code-allocation correctness.
  */
 
 function unique(prefix: string): string {
@@ -70,9 +70,9 @@ async function createItem(page: Page, name: string, salePrice: string, options?:
 }
 
 test.describe("Items", () => {
-  // See the file header: every test creates an item with a client-assigned
-  // code, which is unsafe under concurrent creation (a real app defect,
-  // demonstrated below) — serial keeps THIS suite off that race.
+  // See the file header: serial keeps this suite's own search/count
+  // assertions deterministic; it does not paper over any code-allocation
+  // defect (the server allocates atomically now).
   test.describe.configure({ mode: "serial" });
 
   test.beforeEach(async ({ page }) => {
@@ -275,19 +275,16 @@ test.describe("Items", () => {
   });
 
   /**
-   * DEFECT: ItemsScreen.tsx:304's `nextItemCode(catalogueSize)` computes the
-   * new item's code client-side from the catalogue's current size and posts
-   * it as a literal `code`; there is no server-side atomic allocation
-   * (packages/domain/src/items/create-item.ts:88 only checks the literal
-   * code against a snapshot fetched earlier). Two operators who open the
-   * create form before either has saved both get offered the SAME code, and
-   * whichever saves second is refused with a raw "Item code … already
-   * exists" error instead of getting its own — reproduced below with two
-   * real browser tabs, neither racing the other, both just reading the same
-   * catalogue size. Not a test bug — the app never re-derives the code at
-   * submit time.
+   * Regression guard: ItemsScreen.tsx used to compute the new item's code
+   * client-side from the catalogue's current size (`nextItemCode`) and post
+   * it as a literal `code`. Two operators who opened the create form before
+   * either had saved were offered the SAME code, and whichever saved second
+   * was refused. The code field is now always disabled/blank on create and
+   * the server (packages/domain/src/items/create-item.ts) allocates the next
+   * free ITM-###### atomically, retrying past a race — both saves below must
+   * succeed, each with its own code.
    */
-  test.fail("two operators who both open the create form get offered the same generated code", async ({ browser }) => {
+  test("two operators who both open the create form each get their own generated code", async ({ browser }) => {
     const contextA = await browser.newContext();
     const contextB = await browser.newContext();
     try {
@@ -298,7 +295,7 @@ test.describe("Items", () => {
       await clickSidebarItem(pageA, "الأصناف");
       await clickSidebarItem(pageB, "الأصناف");
 
-      // Both forms open before either saves — each reads the same catalogue size.
+      // Both forms open before either saves.
       await openItemForm(pageA);
       await openItemForm(pageB);
 
@@ -315,10 +312,21 @@ test.describe("Items", () => {
       await pageA.getByRole("button", { name: "إضافة", exact: true }).click();
       await expect(pageA.getByRole("heading", { name: "الأصناف" })).toBeVisible();
 
-      // B was offered the SAME code A just took — this save should succeed
-      // with its own code, but the app refuses it instead.
+      // B must succeed too, with its own server-allocated code.
       await pageB.getByRole("button", { name: "إضافة", exact: true }).click();
       await expect(pageB.getByRole("heading", { name: "الأصناف" })).toBeVisible();
+
+      const searchA = pageA.getByPlaceholder("بحث بالاسم أو الكود...");
+      await searchA.fill(nameA);
+      const codeA = (await listRow(pageA, nameA).locator("td").first().locator(".mz-num").innerText()).trim();
+
+      const searchB = pageB.getByPlaceholder("بحث بالاسم أو الكود...");
+      await searchB.fill(nameB);
+      const codeB = (await listRow(pageB, nameB).locator("td").first().locator(".mz-num").innerText()).trim();
+
+      expect(codeA).toMatch(/^ITM-\d+$/);
+      expect(codeB).toMatch(/^ITM-\d+$/);
+      expect(codeA).not.toBe(codeB);
     } finally {
       await contextA.close();
       await contextB.close();

@@ -23,6 +23,7 @@ import {
   type StockLedgerService,
   type SettleVanTripDeps,
   type TreasuryTransferInput,
+  type VanTripNumberingHook,
 } from "@mezan/domain";
 import { createVanSchema, openVanTripSchema, recordVanCashMovementSchema, settleVanTripSchema } from "@mezan/contracts";
 import {
@@ -53,6 +54,8 @@ export interface FieldSalesRoutesDeps {
   readonly employeeExists?: (employeeId: string) => Promise<boolean>;
   readonly stock: Pick<StockLedgerService, "postTransfer">;
   readonly treasuryTransfer?: (input: TreasuryTransferInput) => Promise<void>;
+  /** Allocates a trip's `TRIP-####` number from the VAN_TRIP sequence (D: raw UUID shown otherwise). */
+  readonly numbering?: VanTripNumberingHook;
   /**
    * Posts roadside takings INTO the van's treasury account. Without it the trip
    * document was the only record of them, while settlement transferred the full
@@ -308,6 +311,7 @@ export function createFieldSalesRoutes(
           stock: deps.stock,
           treasuryTransfer: deps.treasuryTransfer,
           employeeExists: deps.employeeExists,
+          numbering: deps.numbering,
         },
       );
       return c.json(serialize(trip), 201);

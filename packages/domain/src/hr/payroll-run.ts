@@ -232,7 +232,12 @@ export interface PayslipLine {
   readonly glAccountId: string | null;
   /** The advance this line recovers, for `advance_recovery` lines. */
   readonly referenceId: string | null;
-  /** True when a `garnishment` line was reduced by the statutory wage-attachment cap (Art. 44) rather than paid at the order's full instalment. */
+  /**
+   * True when a `garnishment` line was reduced by the statutory
+   * wage-attachment cap (Art. 44), or an `advance_recovery` line by the 10%
+   * employer-loan recovery cap (Art. 43, D183), rather than paid at the
+   * order's/advance's full instalment.
+   */
   readonly capped: boolean;
 }
 
@@ -260,8 +265,13 @@ export interface Payslip {
   readonly insurableWageCapped: boolean;
   /** Annualised taxable income the salary-tax brackets were walked on; zero when statutory computation was off. */
   readonly annualTaxableIncome: Money;
-  /** Net + every deduction + every employer contribution: what employing this person cost for the period. */
-  readonly totalEmployerCost: Money;
+  /**
+   * Net + every deduction + every employer contribution: what employing this
+   * person cost for the period. NULL on a payslip calculated before this
+   * field existed (D191) — never 0, which would be a fabricated cost the
+   * reports could not tell apart from a genuinely zero-cost period.
+   */
+  readonly totalEmployerCost: Money | null;
   readonly createdAt: string;
 }
 
@@ -297,7 +307,8 @@ export interface PayrollRun {
    * screen knows to keep saying that tax and insurance were not computed.
    */
   readonly statutoryTableCodes: readonly string[];
-  readonly totalEmployerCost: Money;
+  /** As {@link Payslip.totalEmployerCost}: NULL on a run calculated before this field existed (D191), never a fabricated 0. */
+  readonly totalEmployerCost: Money | null;
   /** Employees skipped, inputs missing, assumptions applied — surfaced verbatim in the UI. */
   readonly warnings: readonly string[];
   readonly journalEntryId: string | null;

@@ -93,7 +93,7 @@ export const payslipLineSchema = z.object({
   amount: moneyString,
   glAccountId: z.string().nullable(),
   referenceId: z.string().nullable(),
-  /** True when a `garnishment` line was reduced by the statutory wage-attachment cap (Art. 44). Absent on lines predating the cap. */
+  /** True when a `garnishment` line hit the Art. 44 wage-attachment cap, or an `advance_recovery` line hit the Art. 43 10% cap (D183). Absent on lines predating either cap. */
   capped: z.boolean().optional(),
 });
 
@@ -116,7 +116,8 @@ export const payslipSchema = z.object({
   insurableWage: z.string(),
   insurableWageCapped: z.boolean(),
   annualTaxableIncome: z.string(),
-  totalEmployerCost: z.string(),
+  /** Null on a payslip calculated before this field existed (D191) — never "0", a fabricated employer cost. */
+  totalEmployerCost: z.string().nullable(),
   createdAt: z.string().min(1),
 });
 
@@ -135,7 +136,8 @@ export const payrollRunSchema = z.object({
   totalDeductions: z.string(),
   totalEmployerContributions: z.string(),
   totalNet: moneyString,
-  totalEmployerCost: moneyString,
+  /** As {@link payslipSchema.totalEmployerCost} — null on a run calculated before this field existed (D191). */
+  totalEmployerCost: moneyString.nullable(),
   unpaidLeaveSource: z.enum(["none", "provider"]),
   overtimeSource: z.enum(["none", "provider"]),
   /** Empty = computed with statutory rules OFF; the screens then keep saying tax and insurance were not computed. */

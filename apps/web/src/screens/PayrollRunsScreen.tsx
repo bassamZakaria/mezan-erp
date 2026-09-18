@@ -467,7 +467,12 @@ export function PayrollRunsScreen() {
                             ) : null}
                           </span>
                           <span className="flex items-center gap-[4px]">
-                            {t("payroll.employerCost")} <MoneyDisplay value={Number(p.totalEmployerCost)} />
+                            {t("payroll.employerCost")}{" "}
+                            {p.totalEmployerCost === null ? (
+                              <span className="text-ink-faint">{t("payroll.notComputed")}</span>
+                            ) : (
+                              <MoneyDisplay value={Number(p.totalEmployerCost)} />
+                            )}
                           </span>
                         </div>
                       ) : null}

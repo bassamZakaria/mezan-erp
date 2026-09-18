@@ -181,10 +181,28 @@ function pickContract(contracts: readonly Contract[], periodStart: string, perio
   return [...candidates].sort((a, b) => (a.startDate < b.startDate ? 1 : a.startDate > b.startDate ? -1 : 0))[0] ?? null;
 }
 
-/** Prorates a monthly amount over the days the contract was live. Exact — the two parts always sum to `amount`. */
+/** Prorates a monthly amount over the days the contract was live, by calendar days. Exact — the two parts always sum to `amount`. */
 function prorate(amount: Money, paidDays: number, periodDays: number): Money {
   if (paidDays >= periodDays) return amount;
   return allocate(amount, [paidDays, periodDays - paidDays])[0] as Money;
+}
+
+/**
+ * D185 — prorates a mid-month joiner's or leaver's WAGE on the tenant's OWN
+ * day-divisor setting (`divisor`, from {@link payrollDayDivisor}) instead of
+ * always on calendar days, so a payslip never mixes two day conventions: this
+ * is the same divisor unpaid leave already prices a day at. Under FIXED_30
+ * (`divisor` 30) a day worked is always worth amount/30, whatever the actual
+ * month length — so a full calendar month (`paidDays >= periodDays`) still
+ * pays the WHOLE amount, and no more than 30 days are ever paid for even in a
+ * 31-day month. Under CALENDAR_DAYS `divisor === periodDays`, which reduces
+ * to plain calendar proration — today's behaviour, unchanged.
+ */
+function prorateByDivisor(amount: Money, paidDays: number, periodDays: number, divisor: number): Money {
+  if (paidDays >= periodDays) return amount;
+  const days = Math.min(paidDays, divisor);
+  if (days >= divisor) return amount;
+  return allocate(amount, [days, divisor - days])[0] as Money;
 }
 
 /** A percentage of `base`, floored to the scaled unit — a cap must never be crossed by rounding up. */
@@ -312,7 +330,7 @@ export async function calculatePayrollRun(runId: string, deps: PayrollCalculatio
       kind: "earning",
       source: "contract_basic",
       nameAr: "الراتب الأساسي",
-      amount: prorate(contract.monthlySalary, paidDays, periodDays),
+      amount: prorateByDivisor(contract.monthlySalary, paidDays, periodDays, divisor),
       glAccountId: null,
       referenceId: null,
       capped: false,
@@ -323,7 +341,7 @@ export async function calculatePayrollRun(runId: string, deps: PayrollCalculatio
         kind: "earning",
         source: "contract_allowance",
         nameAr: allowance.name,
-        amount: prorate(allowance.amount, paidDays, periodDays),
+        amount: prorateByDivisor(allowance.amount, paidDays, periodDays, divisor),
         glAccountId: componentAccountId(components, allowance.componentId),
         referenceId: null,
         capped: false,
@@ -556,6 +574,18 @@ export async function calculatePayrollRun(runId: string, deps: PayrollCalculatio
       throw new NegativeNetPayError(employee.id, grossEarnings.toString(), fixedDeductions.toString());
     }
 
+    /**
+     * D183 — Labour Law 12/2003 Art. 43: an employer loan (سلفة) may not be
+     * recovered at more than 10% of the wage per period. The ceiling is
+     * shared across every advance the employee owes this period, against the
+     * SAME gross-earnings base the garnishment ceiling (Art. 44, above) uses.
+     * Whatever the cap leaves unrecovered is NOT written off: `amountDueBy`
+     * re-reads the advance's own instalment schedule next run, so the
+     * shortfall carries forward on its own until it is actually recovered.
+     */
+    const advanceRecoveryCeiling = ceilingOf(grossEarnings.scaled, 10n);
+    let advanceRecoveryWithheld = 0n;
+
     const advances = (await deps.advances.listByEmployeeId(employee.id))
       .filter((a: EmployeeAdvance) => a.status === "disbursed")
       .sort((a, b) => (a.number < b.number ? -1 : a.number > b.number ? 1 : 0));
@@ -567,9 +597,22 @@ export async function calculatePayrollRun(runId: string, deps: PayrollCalculatio
       }
       const due = amountDueBy(advance, run.periodEnd).scaled;
       if (due <= 0n) continue;
-      const take = due < available ? due : available;
+
+      const roomUnderCap = advanceRecoveryCeiling - advanceRecoveryWithheld;
+      if (roomUnderCap <= 0n) {
+        warnings.push(`${employee.fullNameAr} (${employee.code}): قسط السلفة ${advance.number} بلغ الحد الأقصى القانوني للاستقطاع (10% من الأجر) — يُرحّل الباقي.`);
+        continue;
+      }
+      const underCap = due < roomUnderCap ? due : roomUnderCap;
+      const take = underCap < available ? underCap : available;
+      if (take <= 0n) continue;
+      const cappedByLaw = underCap < due;
+      advanceRecoveryWithheld += take;
       available -= take;
-      if (take < due) {
+      if (cappedByLaw) {
+        warnings.push(`${employee.fullNameAr} (${employee.code}): قسط السلفة ${advance.number} خُصم بحدود الحد الأقصى القانوني للاستقطاع (10% من الأجر) — يُرحّل الباقي.`);
+      }
+      if (take < underCap) {
         warnings.push(`${employee.fullNameAr} (${employee.code}): قسط السلفة ${advance.number} خُصم جزئياً بحدود صافي الراتب المتاح — يُرحّل الباقي.`);
       }
       lines.push({
@@ -580,7 +623,7 @@ export async function calculatePayrollRun(runId: string, deps: PayrollCalculatio
         amount: Money.fromScaled(take),
         glAccountId: null,
         referenceId: advance.id,
-        capped: false,
+        capped: cappedByLaw,
       });
     }
 
@@ -623,7 +666,11 @@ export async function calculatePayrollRun(runId: string, deps: PayrollCalculatio
     totalDeductions: Money.sum(payslips.map((p) => p.totalDeductions)),
     totalEmployerContributions: Money.sum(payslips.map((p) => p.employerContributions)),
     totalNet: Money.sum(payslips.map((p) => p.netPay)),
-    totalEmployerCost: Money.sum(payslips.map((p) => p.totalEmployerCost)),
+    // Every payslip just built above always carries a real, freshly-computed
+    // totalEmployerCost (never null — null only ever comes back from a run
+    // persisted before this field existed, D191); the `?? Money.zero()` here
+    // is type-level bookkeeping only, not a fallback this run can hit.
+    totalEmployerCost: Money.sum(payslips.map((p) => p.totalEmployerCost ?? Money.zero())),
     unpaidLeaveSource: deps.unpaidLeave ? "provider" : "none",
     overtimeSource: statutory && deps.overtime ? "provider" : "none",
     statutoryTableCodes: statutory

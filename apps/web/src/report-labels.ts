@@ -101,6 +101,7 @@ const CELL_LABEL_KEYS: Readonly<Record<string, string>> = {
   "بيع نقطة بيع": "reportCell.sourceDoc.POS_SALE",
   "أمر إنتاج": "reportCell.sourceDoc.WORK_ORDER",
   "إلغاء استلام/فاتورة مشتريات": "reportCell.sourceDoc.PURCHASE_CANCELLATION",
+  "غير محسوب": "reportCell.notComputed",
 };
 
 /** Columns holding copy. Everything not named here is data and is left alone. */
@@ -112,6 +113,10 @@ const LABEL_COLUMN_KEYS: ReadonlySet<string> = new Set([
   "verdictLabel",
   "direction",
   "sourceDocTypeLabel",
+  // Normally numeric (format: "money"); the server sends the "غير محسوب"
+  // label in its place for a payslip whose employer cost predates D191 — a
+  // number stays untouched, only that one Arabic string is looked up.
+  "employerCost",
 ]);
 
 const ARABIC = /[\u0600-\u06FF]/;

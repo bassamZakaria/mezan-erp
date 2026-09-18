@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import Database from "better-sqlite3";
 import { Money } from "@mezan/domain";
 import {
   createSqliteEmployeeAdvanceRepository,
@@ -283,6 +284,63 @@ describe("SqlitePayrollRunRepository", () => {
       repo.close();
     }
   });
+
+  it("D191: a run inserted before total_employer_cost existed loads NULL, never a fabricated 0", async () => {
+    const db = new Database(":memory:");
+    try {
+      // Every column the CURRENT schema has, except total_employer_cost —
+      // exactly what a pre-D191 install's hr_payroll_run table looked like.
+      db.exec(`
+        CREATE TABLE hr_payroll_run (
+          id                            TEXT PRIMARY KEY,
+          number                        TEXT NOT NULL UNIQUE,
+          year                          INTEGER NOT NULL,
+          month                         INTEGER NOT NULL,
+          period_start                  TEXT NOT NULL,
+          period_end                    TEXT NOT NULL,
+          branch_id                     TEXT,
+          currency                      TEXT NOT NULL,
+          status                        TEXT NOT NULL,
+          employee_count                INTEGER NOT NULL,
+          total_gross                   INTEGER NOT NULL,
+          total_deductions              INTEGER NOT NULL,
+          total_employer_contributions  INTEGER NOT NULL,
+          total_net                     INTEGER NOT NULL,
+          unpaid_leave_source           TEXT NOT NULL,
+          overtime_source               TEXT NOT NULL DEFAULT 'none',
+          statutory_tables_json         TEXT NOT NULL DEFAULT '[]',
+          warnings_json                 TEXT NOT NULL,
+          journal_entry_id              TEXT,
+          disbursement_voucher_id       TEXT,
+          calculated_at                 TEXT,
+          approved_at                   TEXT,
+          approved_by                   TEXT,
+          disbursed_at                  TEXT,
+          cancelled_at                  TEXT,
+          created_at                    TEXT NOT NULL
+        )
+      `);
+      db.prepare(
+        `INSERT INTO hr_payroll_run (
+          id, number, year, month, period_start, period_end, branch_id, currency, status,
+          employee_count, total_gross, total_deductions, total_employer_contributions, total_net,
+          unpaid_leave_source, warnings_json, created_at
+        ) VALUES (
+          'run-old', 'PR-OLD', 2025, 6, '2025-06-01', '2025-06-30', NULL, 'EGP', 'disbursed',
+          1, 10000000000, 0, 0, 10000000000, 'none', '[]', '2025-06-01T00:00:00.000Z'
+        )`,
+      ).run();
+
+      const repo = createSqlitePayrollRunRepository(db);
+      const loaded = await repo.findById("run-old");
+      expect(loaded).not.toBeNull();
+      expect(loaded!.totalEmployerCost).toBeNull();
+      // The columns that DID exist before still round-trip normally.
+      expect(loaded!.totalGross.toString()).toBe("10000.000000");
+    } finally {
+      db.close();
+    }
+  });
 });
 
 describe("SqlitePayslipRepository", () => {
@@ -406,6 +464,55 @@ describe("SqlitePayslipRepository", () => {
       expect(await repo.findById("slip-1")).toBeNull();
     } finally {
       repo.close();
+    }
+  });
+
+  it("D191: a payslip inserted before total_employer_cost existed loads NULL, never a fabricated 0 (the payroll register reads this field)", async () => {
+    const db = new Database(":memory:");
+    try {
+      // Every column the CURRENT schema has, except total_employer_cost —
+      // exactly what a pre-D191 install's hr_payslip table looked like.
+      db.exec(`
+        CREATE TABLE hr_payslip (
+          id                      TEXT PRIMARY KEY,
+          number                  TEXT NOT NULL UNIQUE,
+          run_id                  TEXT NOT NULL,
+          employee_id             TEXT NOT NULL,
+          contract_id             TEXT NOT NULL,
+          currency                TEXT NOT NULL,
+          period_start            TEXT NOT NULL,
+          period_end              TEXT NOT NULL,
+          period_days             INTEGER NOT NULL,
+          paid_days               INTEGER NOT NULL,
+          lines_json              TEXT NOT NULL,
+          gross_earnings          INTEGER NOT NULL,
+          total_deductions        INTEGER NOT NULL,
+          employer_contributions  INTEGER NOT NULL,
+          net_pay                 INTEGER NOT NULL,
+          insurable_wage          INTEGER NOT NULL DEFAULT 0,
+          insurable_wage_capped   INTEGER NOT NULL DEFAULT 0,
+          annual_taxable_income   INTEGER NOT NULL DEFAULT 0,
+          created_at              TEXT NOT NULL
+        )
+      `);
+      db.prepare(
+        `INSERT INTO hr_payslip (
+          id, number, run_id, employee_id, contract_id, currency, period_start, period_end,
+          period_days, paid_days, lines_json, gross_earnings, total_deductions,
+          employer_contributions, net_pay, created_at
+        ) VALUES (
+          'slip-old', 'PS-OLD', 'run-old', 'emp-1', 'ctr-1', 'EGP', '2025-06-01', '2025-06-30',
+          30, 30, '[]', 5000000000, 0, 0, 5000000000, '2025-06-01T00:00:00.000Z'
+        )`,
+      ).run();
+
+      const repo = createSqlitePayslipRepository(db);
+      const loaded = await repo.findById("slip-old");
+      expect(loaded).not.toBeNull();
+      expect(loaded!.totalEmployerCost).toBeNull();
+      expect(loaded!.grossEarnings.toString()).toBe("5000.000000");
+    } finally {
+      db.close();
     }
   });
 });

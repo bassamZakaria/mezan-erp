@@ -218,7 +218,7 @@ function serializePayslip(p: Payslip) {
     insurableWage: p.insurableWage.toString(),
     insurableWageCapped: p.insurableWageCapped,
     annualTaxableIncome: p.annualTaxableIncome.toString(),
-    totalEmployerCost: p.totalEmployerCost.toString(),
+    totalEmployerCost: p.totalEmployerCost === null ? null : p.totalEmployerCost.toString(),
     createdAt: p.createdAt,
   };
 }
@@ -260,7 +260,7 @@ function serializeRun(r: PayrollRun) {
     totalDeductions: r.totalDeductions.toString(),
     totalEmployerContributions: r.totalEmployerContributions.toString(),
     totalNet: r.totalNet.toString(),
-    totalEmployerCost: r.totalEmployerCost.toString(),
+    totalEmployerCost: r.totalEmployerCost === null ? null : r.totalEmployerCost.toString(),
     unpaidLeaveSource: r.unpaidLeaveSource,
     overtimeSource: r.overtimeSource,
     statutoryTableCodes: r.statutoryTableCodes,

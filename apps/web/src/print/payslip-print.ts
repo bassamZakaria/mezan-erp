@@ -50,8 +50,8 @@ export interface PayslipPrintContext {
     readonly netPay: string;
     readonly employerContributions: string;
     readonly paidDays: string;
-    /** Shown beside a garnishment line the statutory wage-attachment cap reduced. */
-    readonly garnishmentCapped: string;
+    /** Shown beside a line a statutory recovery cap reduced — the Art. 44 wage-attachment cap on a garnishment line, or the Art. 43 10% cap (D183) on an advance-recovery line. */
+    readonly statutoryCapped: string;
     readonly insurableWage: string;
   };
   /** True when the run was computed with statutory rules on; the insurable wage is printed then. */
@@ -68,7 +68,7 @@ export function payslipPrintModel(ctx: PayslipPrintContext): PrintDocumentModel 
     const kindLabel =
       line.kind === "earning" ? labels.earning : line.kind === "deduction" ? labels.deduction : labels.employerContribution;
     return {
-      description: line.capped ? `${line.nameAr} — ${labels.garnishmentCapped}` : line.nameAr,
+      description: line.capped ? `${line.nameAr} — ${labels.statutoryCapped}` : line.nameAr,
       unit: kindLabel,
       qty: 1,
       // A deduction reduces the net, so it prints as a negative number rather

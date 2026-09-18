@@ -1141,6 +1141,17 @@ than one they read after.
 
 ## 8. Release runbook — signing a build so a client can trust it
 
+> **The workflow this section describes was removed on 2026-09-18**, with the rest of
+> GitHub Actions, to stay inside the free plan: signing runs on macOS and Windows runners,
+> which the free plan bills at 10× and 2×. Nothing below is wrong about how signing
+> works — it is a record of how to restore it.
+>
+> **To bring it back, restore the newest version**, which is the one carrying the licence
+> work (90 lines longer than the one `main` deleted):
+> `git show 8b17879f:.github/workflows/release.yml > .github/workflows/release.yml`.
+> Until then, desktop builds are made locally with `pnpm desktop:package` and are
+> **unsigned** — which means SmartScreen and Gatekeeper will warn on install.
+
 **For the maintainer who cuts releases, not the consultant at the counter.** Everything in this
 section is a one-time setup plus a short per-release checklist. Until step 8.1 is done, the
 release workflow produces **nothing at all** — deliberately. There is no unsigned fallback,
@@ -1270,7 +1281,7 @@ On **both**:
 
 ### 8.5 Verifying a signed build by hand before it goes out
 
-The gate already ran in CI. Do this anyway for the first release from a new certificate, on a
+When the release workflow was in place, the gate ran there. Do this anyway for the first release from a new certificate, on a
 machine that is not the build machine:
 
 ```sh

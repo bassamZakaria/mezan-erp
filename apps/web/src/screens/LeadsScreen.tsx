@@ -106,7 +106,7 @@ interface ConvertDraft {
 function blankConvertDraft(lead: LeadDTO, firstStageId: string, t: (key: AppTranslationKey, params?: Record<string, string | number>) => string): ConvertDraft {
   return {
     createCustomer: true,
-    customerCode: lead.name.trim().slice(0, 20),
+    customerCode: "",
     createOpportunity: true,
     opportunityTitle: t("leads.opportunityTitle", { name: lead.name }),
     opportunityStageId: firstStageId,
@@ -217,10 +217,6 @@ export function LeadsScreen() {
   async function submitConvert(event: FormEvent) {
     event.preventDefault();
     if (!selected || !convertDraft) return;
-    if (convertDraft.createCustomer && convertDraft.customerCode.trim() === "") {
-      setConvertError(t("leads.customerCodeIsRequiredTo"));
-      return;
-    }
     if (convertDraft.createOpportunity && (convertDraft.opportunityTitle.trim() === "" || convertDraft.opportunityStageId === "")) {
       setConvertError(t("leads.opportunityTitleAndStageAre"));
       return;
@@ -232,7 +228,9 @@ export function LeadsScreen() {
         id: selected.id,
         body: {
           createCustomer: convertDraft.createCustomer,
-          customer: convertDraft.createCustomer ? { id: crypto.randomUUID(), code: convertDraft.customerCode.trim() } : undefined,
+          customer: convertDraft.createCustomer
+            ? { id: crypto.randomUUID(), ...(convertDraft.customerCode.trim() === "" ? {} : { code: convertDraft.customerCode.trim() }) }
+            : undefined,
           createOpportunity: convertDraft.createOpportunity,
           opportunity: convertDraft.createOpportunity
             ? {
@@ -499,6 +497,7 @@ export function LeadsScreen() {
             {convertDraft.createCustomer ? (
               <TextField
                 label={t("leads.customerCode")}
+                placeholder={t("customers.field.codePlaceholder")}
                 value={convertDraft.customerCode}
                 onChange={(v) => setConvertDraft((d) => (d ? { ...d, customerCode: v } : d))}
               />

@@ -47,7 +47,8 @@ export const convertLeadSchema = z.object({
   customer: z
     .object({
       id: z.string().min(1),
-      code: z.string().min(1),
+      /** Omitted, the server allocates the next free customer code. */
+      code: z.string().trim().min(1).optional(),
     })
     .optional(),
   createOpportunity: z.boolean(),

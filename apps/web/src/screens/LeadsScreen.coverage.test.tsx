@@ -305,12 +305,12 @@ describe("LeadsScreen — converting a lead", () => {
     expect(within(convertDialog).getByRole("button", { name: "تحويل" })).not.toBeDisabled();
   });
 
-  it("requires a customer code before creating a customer from a lead", async () => {
-    let convertCalls = 0;
+  it("leaves a blank customer code for the server to allocate when converting a lead", async () => {
+    let posted: { customer?: Record<string, unknown> } | null = null;
     renderScreen({
       extraHandlers: {
-        "POST /crm/leads/lead-2/convert": () => {
-          convertCalls += 1;
+        "POST /crm/leads/lead-2/convert": (init) => {
+          posted = JSON.parse((init?.body as string) ?? "{}");
           return { body: { lead: sampleLeads[1], customerId: "cust-1", opportunityId: null } };
         },
       },
@@ -320,11 +320,12 @@ describe("LeadsScreen — converting a lead", () => {
     fireEvent.click(within(detailDialog).getByRole("button", { name: "تحويل" }));
 
     const convertDialog = screen.getByRole("dialog", { name: "تحويل العميل المحتمل" });
-    fireEvent.change(within(convertDialog).getByLabelText("كود العميل *"), { target: { value: "" } });
+    expect(within(convertDialog).getByLabelText("كود العميل")).toHaveValue("");
     fireEvent.click(within(convertDialog).getByRole("button", { name: "تحويل" }));
 
-    expect(await within(convertDialog).findByRole("alert")).toHaveTextContent("كود العميل مطلوب لإنشاء عميل جديد.");
-    expect(convertCalls).toBe(0);
+    await waitFor(() => expect(posted).not.toBeNull());
+    expect(posted!.customer).toBeDefined();
+    expect(posted!.customer).not.toHaveProperty("code");
   });
 
   it("blocks converting into a pipeline with no active stages", async () => {
@@ -354,13 +355,13 @@ describe("LeadsScreen — converting a lead", () => {
     fireEvent.click(within(detailDialog).getByRole("button", { name: "تحويل" }));
 
     const convertDialog = screen.getByRole("dialog", { name: "تحويل العميل المحتمل" });
-    expect(within(convertDialog).getByLabelText("كود العميل *")).toBeInTheDocument();
+    expect(within(convertDialog).getByLabelText("كود العميل")).toBeInTheDocument();
     expect(within(convertDialog).getByLabelText("عنوان الفرصة *")).toBeInTheDocument();
 
     fireEvent.click(within(convertDialog).getByRole("switch", { name: "إنشاء عميل" }));
     fireEvent.click(within(convertDialog).getByRole("switch", { name: "إنشاء فرصة" }));
 
-    expect(within(convertDialog).queryByLabelText("كود العميل *")).not.toBeInTheDocument();
+    expect(within(convertDialog).queryByLabelText("كود العميل")).not.toBeInTheDocument();
     expect(within(convertDialog).queryByLabelText("عنوان الفرصة *")).not.toBeInTheDocument();
 
     fireEvent.click(within(convertDialog).getByRole("button", { name: "تحويل" }));

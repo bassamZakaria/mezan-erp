@@ -118,6 +118,7 @@ describe("crm router — lead create -> transition -> convert", () => {
 
     const persistedCustomers = await customers.findAll();
     expect(persistedCustomers).toHaveLength(1);
+    expect(persistedCustomers[0]?.code).toBe("C000001");
     const persistedOpportunity = await opportunities.findById("opp1");
     expect(persistedOpportunity).not.toBeNull();
     expect(persistedOpportunity?.title).toBe("صفقة أحمد");
@@ -135,6 +136,19 @@ describe("crm router — lead create -> transition -> convert", () => {
     const { app } = newApp();
     const res = await app.fetch(jsonReq("/leads/nope/transition", "crm.lead.edit", { status: "contacted" }));
     expect(res.status).toBe(404);
+  });
+
+  it("refuses a customer code the customer rules reject with 422 and the Arabic reason, not a 500", async () => {
+    const { app, customers } = newApp();
+    await app.fetch(jsonReq("/leads", "crm.lead.create", { id: "lead1", name: "أحمد" }));
+    await app.fetch(jsonReq("/leads/lead1/transition", "crm.lead.edit", { status: "contacted" }));
+    await app.fetch(jsonReq("/leads/lead1/transition", "crm.lead.edit", { status: "qualified" }));
+    const res = await app.fetch(
+      jsonReq("/leads/lead1/convert", "crm.lead.convert", { createCustomer: true, customer: { id: "c1", code: "عميل محتمل" }, createOpportunity: false }),
+    );
+    expect(res.status).toBe(422);
+    expect(((await res.json()) as { message: string }).message).toContain("الكود");
+    expect(await customers.findAll()).toHaveLength(0);
   });
 
   it("422s converting a lead that is not qualified", async () => {

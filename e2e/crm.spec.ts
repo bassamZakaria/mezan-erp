@@ -130,18 +130,8 @@ test.describe("Leads", () => {
     await expect(convertForm).toBeVisible();
     await expect(convertForm.getByLabel("عنوان الفرصة *")).not.toHaveValue("");
 
-    // BUG: LeadsScreen.tsx's blankConvertDraft() prefills "كود العميل *" with the
-    // lead's Arabic NAME (customerCode: lead.name.trim().slice(0, 20)), but a
-    // customer code must match /^[A-Za-z0-9_-]{1,30}$/ (partner-base.ts) — so
-    // converting a lead with its untouched default always fails, and the
-    // screen only ever shows a generic "تعذّر تحويل العميل المحتمل." (the real
-    // "الكود يجب أن يتكون من ..." validation reason never reaches the user).
-    await expect(convertForm.getByLabel("كود العميل *")).toHaveValue("عميل محتمل تجريبي");
-    await convertForm.getByRole("button", { name: "تحويل", exact: true }).click();
-    await expect(convertForm.getByRole("alert")).toContainText("تعذّر تحويل العميل المحتمل");
-    await expect(convertForm).toBeVisible(); // stays open — nothing was converted
-
-    await convertForm.getByLabel("كود العميل *").fill("CUST-TEST-01");
+    // Guards the fixed prefill: the lead's Arabic name as the code 500'd as «خطأ داخلي».
+    await expect(convertForm.getByLabel("كود العميل")).toHaveValue("");
     await convertForm.getByRole("button", { name: "تحويل", exact: true }).click();
     await expect(convertForm).toBeHidden();
     await expect(detail).toBeHidden(); // conversion also closes the detail panel

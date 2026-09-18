@@ -192,7 +192,7 @@ export const navGroupSpecs: readonly NavGroupSpec[] = [
       { key: "daily", itemKeys: ["journals"] },
       { key: "close", itemKeys: ["fiscal-periods", "reconciliation", "bank-reconciliation", "revaluation", "eta"] },
       { key: "master", defaultCollapsed: true, itemKeys: ["coa", "cost-centers", "taxes", "tax-simplified-regime", "exchange-rates"] },
-      { key: "reports", defaultCollapsed: true, itemKeys: ["trial-balance-report", "financial-reports", "cost-center-pl", "report-simplified-regime-comparison"] },
+      { key: "reports", defaultCollapsed: true, itemKeys: ["trial-balance-report", "financial-reports", "cost-center-pl", "report-simplified-regime-comparison", "report-returns-fx-face-value"] },
     ],
   },
   {
@@ -459,6 +459,7 @@ export const NAV_ITEM_ACCESS: Readonly<Record<string, { readonly permission?: st
   "trial-balance-report": { permission: "accounting.reports.view", module: "accounting" },
   "financial-reports": { permission: "accounting.reports.view", module: "accounting" },
   "cost-center-pl": { permission: "accounting.reports.view", module: "accounting" },
+  "report-returns-fx-face-value": { permission: "accounting.reports.view", module: "accounting" },
 
   "hr-dashboard": { permission: "hr.employee.view", module: "hr" },
   employees: { permission: "hr.employee.view", module: "hr" },

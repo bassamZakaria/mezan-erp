@@ -21,6 +21,8 @@ import {
   createInventoryExpiringReport,
   createInventorySlowMovingReport,
   createInventoryDriftReport,
+  createReturnsFxFaceValueReport,
+  type ForeignInvoiceRef,
   createMakeVsBuyReport,
   createAgingCustomersReport,
   createAgingSuppliersReport,
@@ -1244,6 +1246,38 @@ export function createReportsRoutes(
     const snapshots = withinScope(allSnapshots, stockScope, (s) => s.warehouseId);
     const movements = withinScope(allMovements, stockScope, (m) => m.warehouseId);
     return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { snapshots, movements, items, warehouses }));
+  });
+
+  // --- مرتجعات بعملة أجنبية مرحّلة بالقيمة الاسمية (D222) ------------------
+
+  app.get("/returns/fx-face-value", gate("accounting.reports.view"), async (c) => {
+    const definition = createReturnsFxFaceValueReport();
+    const [sales, purchases, salesReturns, purchaseReturns, customers, suppliers] = await Promise.all([
+      scopedSalesInvoices(c),
+      scopedPurchaseInvoices(c),
+      deps.salesReturnDocs?.list({ status: "confirmed" }) ?? [],
+      deps.purchaseReturnDocs?.list({ status: "confirmed" }) ?? [],
+      deps.customers.findAll(),
+      deps.suppliers.findAll(),
+    ]);
+    const salesInvoices = new Map<string, ForeignInvoiceRef>();
+    for (const invoice of sales) {
+      if (!invoice.fxRate || !invoice.currency) continue;
+      salesInvoices.set(invoice.id, { number: invoice.docNo ?? invoice.id, currency: invoice.currency, fxRate: invoice.fxRate, partyId: invoice.customerId });
+    }
+    const purchaseInvoices = new Map<string, ForeignInvoiceRef>();
+    for (const invoice of purchases) {
+      if (!invoice.fxRate || !invoice.currency) continue;
+      purchaseInvoices.set(invoice.id, { number: invoice.number ?? invoice.id, currency: invoice.currency, fxRate: invoice.fxRate, partyId: invoice.supplierId });
+    }
+    const partyNames = new Map<string, string>([
+      ...customers.map((party) => [party.id, party.nameAr] as const),
+      ...suppliers.map((party) => [party.id, party.nameAr] as const),
+    ]);
+    return respond(
+      c,
+      runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { salesReturns, purchaseReturns, salesInvoices, purchaseInvoices, partyNames }),
+    );
   });
 
   // --- التصنيع أم الشراء -----------------------------------------------

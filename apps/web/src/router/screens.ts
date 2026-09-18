@@ -109,6 +109,7 @@ export const SCREEN_MODULES = {
   "report-after-hours": () => import("../screens/reports/AfterHoursReportScreen").then((m) => ({ Component: m.AfterHoursReportScreen })),
   "report-new-accounts": () => import("../screens/reports/NewAccountsReportScreen").then((m) => ({ Component: m.NewAccountsReportScreen })),
   "tax-simplified-regime": () => import("../screens/tax/SimplifiedRegimeScreen").then((m) => ({ Component: m.SimplifiedRegimeScreen })),
+  "report-returns-fx-face-value": () => import("../screens/reports/ReturnsFxFaceValueReportScreen").then((m) => ({ Component: m.ReturnsFxFaceValueReportScreen })),
   "report-simplified-regime-comparison": () => import("../screens/tax/SimplifiedRegimeComparisonScreen").then((m) => ({ Component: m.SimplifiedRegimeComparisonScreen })),
   "financial-reports": () => import("../screens/FinancialReportsScreen").then((m) => ({ Component: m.FinancialReportsScreen })),
   "settings-general": () => import("../settings/SettingsGeneral").then((m) => ({ Component: m.SettingsGeneral })),

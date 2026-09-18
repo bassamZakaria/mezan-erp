@@ -148,6 +148,15 @@ export {
   type InventoryDriftRow,
   type DriftType,
 } from "./inventory-drift.js";
+export {
+  createReturnsFxFaceValueReport,
+  type ForeignInvoiceRef,
+  type ReturnFxKind,
+  type ReturnsFxFaceValueContext,
+  type ReturnsFxFaceValueParams,
+  type ReturnsFxFaceValueRow,
+  type ReturnDocumentLike,
+} from "./returns-fx-face-value.js";
 
 // --- التصنيع أم الشراء — Make vs Buy ---------------------------------------
 

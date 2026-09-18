@@ -212,6 +212,7 @@ const READ_PATHS = [
   "/reports/inventory/expiring",
   "/reports/inventory/slow-moving",
   "/reports/inventory/drift",
+  "/reports/returns/fx-face-value",
   "/reports/aging/customers",
   "/reports/aging/suppliers",
   "/reports/installments/overview",

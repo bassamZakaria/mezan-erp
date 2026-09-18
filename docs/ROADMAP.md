@@ -46,7 +46,7 @@ competitor study (§8), and the deferred HR/POS/Cloud build plans (§9).
 | **Parity (§2.2, P0–P6)** | Complete but for one cluster — row menus on 17 read-only surfaces, which is a question rather than a backlog item |
 | **Open now (§3)** | **Nothing.** Row menus answered (no), contracting complete, outbound notification delivery landed 2026-09-14 |
 | **Deferred by decision (§4)** | POS, statutory payroll, HR depth, cloud — not scheduled, not defects |
-| **Defects (§5)** | **0 open** of the 115 filed (D66–D180). The three filed on 2026-09-14 are closed with the decisions that found them: D146 (an item marked FIFO was valued WAC), D147 (a rep holding `view_own` saw an empty list because an employee id was compared to a user id), D148 (consumer e-receipts parked awaiting a seal the regime does not require). Every open half that used to be a decision is now taken — D90 → DEC-19, D111 → DEC-20, D116 → DEC-14 |
+| **Defects (§5)** | **8 open** of the 126 filed (D66–D191) — all eight are HR payroll follow-ups filed 2026-09-18 (§5.0); D186–D189 only with `hr.payroll.statutory` on. The three filed on 2026-09-14 are closed with the decisions that found them: D146 (an item marked FIFO was valued WAC), D147 (a rep holding `view_own` saw an empty list because an employee id was compared to a user id), D148 (consumer e-receipts parked awaiting a seal the regime does not require). Every open half that used to be a decision is now taken — D90 → DEC-19, D111 → DEC-20, D116 → DEC-14 |
 | **Desktop audit (2026-09-07)** | The thirty-two findings of the full desktop audit (`artifacts/audit-2026-09-07.md`, filed as D145–D176 on that branch; its first four are renumbered D177–D180 because main had already used D145–D148 — see §6.4 D-D) came in with PR #55: licence, update, LAN, books, performance and security. All fixed on that branch, including Q-1, which moved the desktop backend off the Electron main process into a `utilityProcess` |
 | **Compliance (§5.4)** | The B2C e-receipt, the e-seal seam and نموذج 41 landed 2026-09-07 — but nothing *called* the receipt path until DEC-9 wired the producer on 2026-09-14. Law 6/2025's simplified regime is built and deliberately unclaimed (DEC-13) |
 | **Decisions (§6)** | **None open.** All fourteen taken 2026-09-14 against the persona panel and recorded in §6.4 with the option chosen, what other platforms do, who dissented, and the cost of reversal. Three scope questions remain in §6.3 — they are pricing calls, not code |
@@ -807,6 +807,28 @@ comparing two numbers that must agree.
 | # | Defect | Evidence | State |
 |---|---|---|---|
 | D146 | **An item marked FIFO is valued WAC.** `costingMethod` is a real field — `z.enum(["WAC", "FIFO"])` on the wire, a column on `item`, round-tripped by the store, settable on an item, a product template and a data-migration import — and **no valuation path reads it**. Grepping the domain, backend and persistence for `costingMethod` outside its own definition and storage returns only writes. The stock ledger values every position weighted-average regardless, so a tenant who deliberately sets FIFO on an item gets WAC costing, a WAC unit cost on every issue, and a WAC figure in the valuation report — with a screen telling them otherwise. Found while checking whether §6.3's "FIFO-in-v1 scope" was still an open decision: it is not a decision, it is this. The failure shape is the one this repo keeps shipping — a configurable field no code path reads, indistinguishable on screen from an enforced one (DEC-1's `minAmount`, D72's purchasing toggles, D116's permissions) | `packages/contracts/src/items.ts:18`, `packages/persistence/src/item-store.ts:106,223`, and the absence of any reader in `packages/domain/src/inventory/` | fixed 2026-09-14 — the contract is split in two. `costingMethodSchema` still accepts FIFO so rows already carrying it stay readable; `settableCostingMethodSchema` accepts only WAC and now guards every write path — create, update, product templates and the migration importer. The item screen drops the FIFO option and keeps the label, so a legacy item still renders its real stored value |
+
+---
+
+### Filed 2026-09-18 by the HR review panel (PRs #67, #68)
+
+`hr-payroll`, `tax-expert` and `chartered-accountant` reviewed the two branches that re-land PR #50 (DEC-12 addendum). Both
+merged with these as follow-ups; D181, D182 and D184 were fixed first because they are reachable with no flag on. The
+figures cited as law are the panel's reading, not yet a محاسب قانوني's — the same bar as DEC-12.
+
+| # | Defect | Evidence | State |
+|---|---|---|---|
+| D181 | **A court order could take a worker's whole net pay.** Garnishments had no cap: Labour Law 12/2003 Art. 44 limits attachment of a wage to 25%, or 50% where a نفقة (maintenance) order is among them, with نفقة satisfied first. The employer typed a monthly amount and nothing checked it | `packages/domain/src/hr/garnishment.ts:151-155`, `calculate-payroll-run.ts:418` | fixed 2026-09-18 in PR #67 before merge — capped at 25% / 50%, نفقة first, the shortfall carried forward on the order's balance, the payslip says the cap applied |
+| D182 | Contract deductions were taken before court-ordered garnishments; a court order ranks first | `calculate-payroll-run.ts` | fixed 2026-09-18 in PR #67 before merge |
+| D183 | Employee-advance instalments are not capped at 10% of the wage (Law 12/2003 Art. 43, employer loans) | `calculate-payroll-run.ts:442` | open — reachable today; the instalment is whatever was agreed on the advance |
+| D184 | A fully unpaid month under the ÷30 divisor still pays (30 − days)/30: 28 unpaid days in February leave 2/30 of the wage. Deduct at most the period's contract earnings | `calculate-payroll-run.ts:284,313`, `settings.ts:209` (`FIXED_30`) | fixed 2026-09-18 in PR #67 before merge — the deduction is clamped to the period's contract earnings |
+| D185 | A mid-month joiner is prorated by calendar days while unpaid leave uses the ÷30 setting — two bases in one payslip | `calculate-payroll-run.ts` | open — reachable today |
+| D186 | Public-holiday overtime is priced at the rest-day 100%, not «مثلي الأجر» (Art. 52); the rest-day row cites «بالمثل», which reads as 35/70%; the replacement rest day is not tracked | `egypt-statutory.ts:255,270`, `attendance-overtime.ts:84` | open — flag-on only, row unverified; must be fixed before any overtime row is marked verified |
+| D187 | Overtime ignores department and employee eligibility and department working hours, and pays unapproved clock time by default (`requireApproval` never set) | `attendance-overtime.ts:58`, `department.ts:20`, `hr-routes.ts:168` | open — flag-on only |
+| D188 | The overtime table is selected once, not by the period's date | `hr-routes.ts:800` | open — flag-on only |
+| D189 | The insurance and tax returns compare a period total with the all-time balance of 2191/2192, so they disagree from the second month; the comparison also goes through `Number()` | `reports-routes.ts:939-946`, `hr-payroll.ts:285,366` | open — flag-on only; a warning banner, posts nothing |
+| D190 | The leave-provision posting can post with `hr.payroll.statutory` off while the leave presets are still unverified (DEC-6) — decide whether it belongs behind the flag | `hr-payroll-routes.ts:778` | open — needs a manual click and approve permission |
+| D191 | Runs calculated before the statutory PR load a total employer cost of 0 in the reports | HR payroll register | open — historical runs only |
 
 ---
 

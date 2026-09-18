@@ -436,6 +436,55 @@ describe("createBackend — cheques + bank reconciliation (phase7/treasury-compl
     expect(res.status).toBe(201);
   });
 
+  it("D192: a cheque applied to an invoice and then bounced reopens the invoice, and the aging ladder still ties to 1105", async () => {
+    const app = await newBackend();
+    await createCustomer(app, "cust-chq", "0");
+    await createServiceItem(app);
+    expect((await authedPost(app, "/sales-invoices", invoiceBody("inv-chq", "cust-chq", "5335.20"))).status).toBe(201);
+    expect((await authedPost(app, "/sales-invoices/inv-chq/confirm", {})).status).toBe(200);
+    const get = async (path: string) => (await app.fetch(new Request(`http://local${path}`, { headers: admin(app) }))).json() as Promise<any>;
+    const ar = async () => Number((await get("/gl/accounts/1105/ledger")).balance.balance);
+
+    const created = await post(
+      app,
+      "/cheques",
+      {
+        id: "chq-d192",
+        direction: "incoming",
+        chequeNumber: "0451238",
+        bankName: "بنك القاهرة",
+        amount: "1750.00",
+        issueDate: "2026-08-22",
+        dueDate: "2026-08-30",
+        branchId: "BR1",
+        partyId: "cust-chq",
+        counterpartyGlAccountId: "1105",
+        controlAccounts: { underCollectionAccountId: "1320", bouncedAccountId: "1360" },
+      },
+      admin(app),
+    );
+    expect(created.status).toBe(201);
+    const allocated = await post(app, "/cheques/chq-d192/allocations", { invoiceId: "inv-chq", amount: "1750.00" }, admin(app));
+    expect(allocated.status).toBe(201);
+    expect(((await allocated.json()) as { allocations: unknown[] }).allocations).toHaveLength(1);
+    expect(await get("/sales-invoices/inv-chq")).toMatchObject({ status: "partially_paid", remainingBalance: "3585.200000" });
+    expect(await ar()).toBe(3585.2);
+
+    expect((await post(app, "/cheques/chq-d192/deposit", { bankTreasuryAccountId: "ta-bank1" }, admin(app))).status).toBe(200);
+    const bounced = await post(app, "/cheques/chq-d192/bounce", { date: "2026-08-25" }, admin(app));
+    expect(bounced.status).toBe(200);
+    expect((await bounced.json()) as { status: string; allocations: unknown[] }).toMatchObject({ status: "bounced", allocations: [] });
+
+    expect(await get("/sales-invoices/inv-chq")).toMatchObject({ status: "confirmed", remainingBalance: "5335.200000" });
+    expect(await ar()).toBe(5335.2);
+    expect(Number((await get("/gl/accounts/1360/ledger")).balance.balance)).toBe(0);
+
+    const aging = await get("/reports/aging/customers?asOfDate=2026-09-30");
+    expect(aging.reconciliation).toMatchObject({ withinTolerance: true });
+    expect(aging.grandTotals.total).toBe(await ar());
+    expect(aging.rows.find((row: { customerId: string }) => row.customerId === "cust-chq")?.total).toBe(5335.2);
+  });
+
   it("gates /cheques behind cheques.view", async () => {
     const app = await newBackend();
     expect((await app.fetch(new Request("http://local/cheques"))).status).toBe(401);

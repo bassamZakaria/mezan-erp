@@ -6,7 +6,6 @@ import {
   DuplicateChequeNumberError,
   InvalidChequeCommandError,
   InvalidChequeTransitionError,
-  MissingBouncedAccountError,
   ReplacementAmountMismatchError,
 } from "./errors.js";
 import type { CreateChequeCommand } from "./cheque-service.js";
@@ -130,7 +129,7 @@ describe("ChequeService full lifecycle", () => {
     ]);
   });
 
-  it("incoming: bounce posts Dr bouncedAccount / Cr underCollection", async () => {
+  it("incoming: bounce reverses the creation posting back onto AR (D192)", async () => {
     const { service, ledger } = buildTestService();
     await service.createCheque(incomingCmd());
     await service.deposit({ chequeId: "chq-1", bankTreasuryAccountId: "ta-bank1" });
@@ -138,7 +137,7 @@ describe("ChequeService full lifecycle", () => {
     expect(bounced.status).toBe("bounced");
     const entry = await ledger.findById("je-bounce-1");
     expect(glLines(entry)).toEqual([
-      { accountId: "1360", debit: Money.fromMajor("1000"), credit: Money.zero() },
+      { accountId: "1100", debit: Money.fromMajor("1000"), credit: Money.zero() },
       { accountId: "1320", debit: Money.zero(), credit: Money.fromMajor("1000") },
     ]);
   });
@@ -155,14 +154,15 @@ describe("ChequeService full lifecycle", () => {
     ]);
   });
 
-  it("incoming bounce without a configured bounced account throws", async () => {
-    const { service } = buildTestService();
+  it("incoming bounce needs no bounced-cheques account: the debt goes back to AR", async () => {
+    const { service, ledger } = buildTestService();
     await service.createCheque(incomingCmd({ controlAccounts: { underCollectionAccountId: "1320", bouncedAccountId: null } }));
     await service.deposit({ chequeId: "chq-1", bankTreasuryAccountId: "ta-bank1" });
-    await expect(service.bounce({ chequeId: "chq-1", journalEntryId: "je-x" })).rejects.toThrow(MissingBouncedAccountError);
+    await service.bounce({ chequeId: "chq-1", journalEntryId: "je-x" });
+    expect((await ledger.accountBalance("1100")).balance.toString()).toBe("0.000000");
   });
 
-  it("replace: bounced → replaced, creates a new pending cheque and reclassifies 1360 → 1320", async () => {
+  it("replace: bounced → replaced, creates a new pending cheque that credits AR again", async () => {
     const { service, cheques, ledger } = buildTestService();
     await service.createCheque(incomingCmd());
     await service.deposit({ chequeId: "chq-1", bankTreasuryAccountId: "ta-bank1" });
@@ -191,7 +191,7 @@ describe("ChequeService full lifecycle", () => {
     const entry = await ledger.findById("je-replace-1");
     expect(glLines(entry)).toEqual([
       { accountId: "1320", debit: Money.fromMajor("1000"), credit: Money.zero() },
-      { accountId: "1360", debit: Money.zero(), credit: Money.fromMajor("1000") },
+      { accountId: "1100", debit: Money.zero(), credit: Money.fromMajor("1000") },
     ]);
   });
 

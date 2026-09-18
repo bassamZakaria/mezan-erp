@@ -131,18 +131,9 @@ test.describe("Aging — Customers", () => {
     await expect(page.getByRole("button", { name: "تصدير Excel" })).toBeEnabled();
   });
 
-  // DEFECT: the report's own reconciliation banner (packages/domain/src/
-  // reports/aging-customers.ts's `reconciliation`) shows the aging ladder's
-  // total OFF from the AR control account balance by exactly 1,750.00 —
-  // the amount of CUST-DEMO-1's bounced cheque CHQ-DEMO-3
-  // (packages/backend/src/demo-seed/treasury.ts:299, deposited then bounced).
-  // The GL reinstates the receivable on the bounce; the aging ladder (built
-  // from invoices + `unappliedCreditsByCustomerId`) never re-applies it
-  // against an invoice, so the two "independent paths to one number" the
-  // report's own doc comment describes disagree. Confirmed via
-  // GET /api/reports/aging/customers: reportTotal 3,993,770.61 vs
-  // referenceTotal 3,992,020.61, diff 1,750, withinTolerance:false.
-  test.fail("the aging report's own reconciliation banner agrees with the AR control account", async ({ page }) => {
+  // Guards D192: CUST-DEMO-1's bounced cheque CHQ-DEMO-3 left the ladder
+  // 1,750.00 above 1105 until a bounce reversed the payment onto AR.
+  test("the aging report's own reconciliation banner agrees with the AR control account", async ({ page }) => {
     await expect(page.getByText("إجمالي أعمار الديون مقابل حساب العملاء في دفتر الأستاذ")).toBeVisible();
     await expect(page.getByText(/^\(فرق/)).toHaveCount(0);
   });

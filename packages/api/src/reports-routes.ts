@@ -78,7 +78,9 @@ import {
   type RunReportOutcome,
   salesReturnGrandTotal,
   sumActive,
+  extend,
   type SalesReturnDocument,
+  type PurchaseReturnLine,
   type ChequeRepository,
   type AllocationRepository,
   type SubcontractStore,
@@ -101,7 +103,11 @@ export interface ReportsRoutesDeps {
   readonly allocatable?: AllocatableInvoiceRepository;
   /** Confirmed sales returns, so the customer aging ladder nets the credits the GL already posted. */
   readonly salesReturnDocs?: { list(filter?: { status?: "confirmed" }): Promise<readonly SalesReturnDocument[]> };
-  /** Cheques, whose creation already reclassified a customer's receivable. */
+  /** Confirmed purchase returns, so the supplier aging ladder nets the debits the GL already posted. */
+  readonly purchaseReturnDocs?: {
+    list(filter?: { status?: "confirmed" }): Promise<readonly { readonly status: string; readonly lines: readonly PurchaseReturnLine[] }[]>;
+  };
+  /** Cheques, whose creation already reclassified a customer's receivable or a supplier's payable. */
   readonly cheques?: Pick<ChequeRepository, "list">;
   /** Confirmed vouchers, for collections that named no invoice. */
   readonly voucherDocuments?: Pick<DocumentRepository<VoucherLine>, "list">;
@@ -395,23 +401,68 @@ async function unappliedCustomerCredits(deps: ReportsRoutesDeps): Promise<Readon
 
   for (const cheque of (await deps.cheques?.list({ direction: "incoming" })) ?? []) {
     if (cheque.direction !== "incoming") continue;
-    // A bounced or replaced cheque credited nothing that still stands: bouncing
-    // reclassifies GL 1320 → 1360 and deliberately leaves AR where it is. Counting
-    // it here netted the debt back out of the ladder, so a customer who paid with a
-    // cheque that bounced dropped out of collections while still owing the money.
+    // A bounce reverses the cheque's AR credit and undoes its allocations
+    // (D192), so a bounced or replaced cheque credits nothing that still stands.
     if (cheque.status === "bounced" || cheque.status === "replaced") continue;
     if (cheque.counterpartyGlAccountId !== "1105") continue;
-    add(cheque.partyId, cheque.amount.scaled);
+    add(cheque.partyId, cheque.amount.scaled - (await allocatedTo(deps, cheque.id)));
   }
 
   for (const doc of (await deps.voucherDocuments?.list({ status: "confirmed" })) ?? []) {
     const line = doc.lines[0];
     if (!line || line.direction !== "receipt") continue;
     if (line.counterpartyGlAccountId !== "1105") continue;
-    const allocated = deps.allocations ? sumActive(await deps.allocations.listByVoucher(doc.id)).scaled : 0n;
-    add(line.customerId, line.amount.scaled - allocated);
+    add(line.customerId, line.amount.scaled - (await allocatedTo(deps, doc.id)));
   }
 
+  return new Map([...out].map(([id, scaled]) => [id, Money.fromScaled(scaled)]));
+}
+
+/** What the allocation sub-ledger has applied from one cheque or voucher. */
+async function allocatedTo(deps: ReportsRoutesDeps, sourceId: string): Promise<bigint> {
+  return deps.allocations ? sumActive(await deps.allocations.listByVoucher(sourceId)).scaled : 0n;
+}
+
+/**
+ * Supplier debits that no invoice claims: a live outgoing cheque (which
+ * debited AP the moment it was issued) and the unallocated remainder of a
+ * confirmed supplier payment. The twin of {@link unappliedCustomerCredits}.
+ */
+async function unappliedSupplierDebits(deps: ReportsRoutesDeps): Promise<ReadonlyMap<string, Money>> {
+  const out = new Map<string, bigint>();
+  const add = (partyId: string | null | undefined, scaled: bigint) => {
+    if (!partyId || scaled <= 0n) return;
+    out.set(partyId, (out.get(partyId) ?? 0n) + scaled);
+  };
+
+  for (const cheque of (await deps.cheques?.list({ direction: "outgoing" })) ?? []) {
+    if (cheque.direction !== "outgoing") continue;
+    if (cheque.status === "bounced" || cheque.status === "replaced") continue;
+    if (cheque.counterpartyGlAccountId !== "2100") continue;
+    add(cheque.partyId, cheque.amount.scaled - (await allocatedTo(deps, cheque.id)));
+  }
+
+  for (const doc of (await deps.voucherDocuments?.list({ status: "confirmed" })) ?? []) {
+    const line = doc.lines[0];
+    if (!line || line.direction !== "payment") continue;
+    if (line.counterpartyGlAccountId !== "2100") continue;
+    add(line.supplierId, line.amount.scaled - (await allocatedTo(deps, doc.id)));
+  }
+
+  return new Map([...out].map(([id, scaled]) => [id, Money.fromScaled(scaled)]));
+}
+
+/** Confirmed purchase-return debit per source invoice, attributed line by line. */
+async function purchaseReturnsByInvoiceId(deps: ReportsRoutesDeps): Promise<ReadonlyMap<string, Money>> {
+  const out = new Map<string, bigint>();
+  for (const doc of (await deps.purchaseReturnDocs?.list({ status: "confirmed" })) ?? []) {
+    if (doc.status !== "confirmed") continue;
+    for (const line of doc.lines) {
+      if (!line.sourceInvoiceId) continue;
+      const value = extend(line.qty, line.unitCost).add(line.taxAmount).scaled;
+      out.set(line.sourceInvoiceId, (out.get(line.sourceInvoiceId) ?? 0n) + value);
+    }
+  }
   return new Map([...out].map(([id, scaled]) => [id, Money.fromScaled(scaled)]));
 }
 
@@ -1083,12 +1134,14 @@ export function createReportsRoutes(
     const params = { ...definition.defaultParams, ...queryParams(c) };
     // Same two bounds as the customer ladder, and the same rule: the SQL set
     // must be exactly what the report itself would have kept (Q-6).
-    const [invoices, suppliers] = await Promise.all([
+    const [invoices, suppliers, returns, debits] = await Promise.all([
       scopedPurchaseInvoices(c, {
         status: "confirmed" as const,
         ...(isoDateOrUndefined(params.asOfDate) ? { toDate: String(params.asOfDate) } : {}),
       }),
       deps.suppliers.findAll(),
+      purchaseReturnsByInvoiceId(deps),
+      unappliedSupplierDebits(deps),
     ]);
     const allocatedByInvoiceId = await settledByInvoiceId(deps, invoices);
     const payablesControl = branchNarrowed(c, params)
@@ -1100,6 +1153,8 @@ export function createReportsRoutes(
         invoices,
         suppliers,
         allocatedByInvoiceId,
+        returnsByInvoiceId: returns,
+        unappliedDebitsBySupplierId: debits,
         payablesControlBalance: payablesControl === undefined ? undefined : () => payablesControl,
       }),
     );

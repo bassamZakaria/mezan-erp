@@ -20,13 +20,16 @@
  *              was handed to) — no GL entry; still the same instrument.
  *   - collect  (incoming): Dr bank treasury GL account / Cr underCollection
  *              (outgoing): Dr underCollection / Cr bank treasury GL account
- *   - bounce   (incoming): Dr bouncedAccount / Cr underCollection
- *              (outgoing): Dr underCollection / Cr counterparty (reverses the
- *                          original posting — an outgoing bounce means we
- *                          never actually paid, so the AP obligation returns)
- *   - replace  (incoming only — see below): Dr underCollection (new cheque) /
- *              Cr bouncedAccount (closing the bounced one); an outgoing
- *              replacement is just a fresh `create()` referencing the old id.
+ *   - bounce   (incoming): Dr counterparty (AR) / Cr underCollection
+ *              (outgoing): Dr underCollection / Cr counterparty (AP)
+ *              Either way the creation entry is reversed and every invoice
+ *              allocation the cheque carried is undone, so the invoices it
+ *              settled are open again and the party sub-ledger, the aging
+ *              ladder and the control account move together (D192).
+ *   - replace  (incoming only — see below): Dr underCollection / Cr
+ *              counterparty (AR) — the replacement is a fresh receipt against
+ *              the customer; an outgoing replacement is just a fresh
+ *              `create()` referencing the old id.
  */
 
 import { Money } from "../money/index.js";
@@ -44,9 +47,16 @@ import {
   DuplicateChequeNumberError,
   ChequeNotFoundError,
   InvalidChequeCommandError,
-  MissingBouncedAccountError,
   ReplacementAmountMismatchError,
 } from "./errors.js";
+import {
+  allocate as allocateFn,
+  reverseAllocation as reverseAllocationFn,
+  type AllocatableInvoiceRepository,
+  type AllocationRepository,
+  type VoucherAllocation,
+} from "../vouchers/allocation.js";
+import type { AllocationInvoiceKind } from "../vouchers/voucher-types.js";
 
 export interface CreateChequeCommand {
   readonly id: string;
@@ -108,6 +118,14 @@ export interface ReplaceChequeCommand {
   readonly actor?: string;
 }
 
+export interface AllocateChequeCommand {
+  readonly chequeId: string;
+  readonly allocationId: string;
+  readonly invoiceId: string;
+  readonly amount: Money;
+  readonly now?: string;
+}
+
 export interface ChequeListQuery {
   readonly direction?: ChequeDirection;
   /** The DERIVED (7-state) status — see `effectiveChequeStatus`. */
@@ -127,6 +145,19 @@ export interface ChequeServiceDeps {
    * shape `VoucherServiceDeps.actor` and `SalesInvoiceServiceDeps.actor` take.
    */
   readonly actor?: string;
+  /**
+   * The invoice allocation sub-ledger vouchers apply against. A cheque's
+   * allocations are keyed by the cheque id in the same store, so an invoice's
+   * settled total covers both. `settlement` projects that total back onto the
+   * invoice document, exactly as `VoucherServiceDeps.settlement` does (D1).
+   */
+  readonly allocation?: {
+    readonly allocations: AllocationRepository;
+    readonly invoices: AllocatableInvoiceRepository;
+    readonly settlement?: {
+      applySettled(input: { invoiceId: string; kind: AllocationInvoiceKind; settled: Money }): Promise<void>;
+    };
+  };
 }
 
 export class ChequeService {
@@ -271,55 +302,119 @@ export class ChequeService {
     return updated;
   }
 
-  /** The bank rejects the cheque: deposited → bounced. Posts the bad-debt reclassification entry. */
+  /**
+   * The bank rejects the cheque: deposited → bounced. Reverses the creation
+   * posting, so the debt is back on the party's own control account, and
+   * undoes the cheque's invoice allocations so the invoices it paid are open.
+   */
   async bounce(cmd: BounceChequeCommand): Promise<Cheque> {
-    const cheque = await this.require(cmd.chequeId);
-    assertChequeTransition(cheque, "bounce");
+    return this.deps.cheques.transaction(async () => {
+      const cheque = await this.require(cmd.chequeId);
+      assertChequeTransition(cheque, "bounce");
 
-    let lines;
-    if (cheque.direction === "incoming") {
-      const bouncedAccountId = cheque.controlAccounts.bouncedAccountId;
-      if (!bouncedAccountId) throw new MissingBouncedAccountError(cheque.id);
-      lines = [
-        { accountId: bouncedAccountId, debit: cheque.amount, credit: Money.zero() },
-        { accountId: cheque.controlAccounts.underCollectionAccountId, debit: Money.zero(), credit: cheque.amount },
-      ];
-    } else {
-      lines = [
-        { accountId: cheque.controlAccounts.underCollectionAccountId, debit: cheque.amount, credit: Money.zero() },
-        { accountId: cheque.counterpartyGlAccountId, debit: Money.zero(), credit: cheque.amount },
-      ];
+      const lines =
+        cheque.direction === "incoming"
+          ? [
+              { accountId: cheque.counterpartyGlAccountId, debit: cheque.amount, credit: Money.zero() },
+              { accountId: cheque.controlAccounts.underCollectionAccountId, debit: Money.zero(), credit: cheque.amount },
+            ]
+          : [
+              { accountId: cheque.controlAccounts.underCollectionAccountId, debit: cheque.amount, credit: Money.zero() },
+              { accountId: cheque.counterpartyGlAccountId, debit: Money.zero(), credit: cheque.amount },
+            ];
+
+      const date = cmd.date ?? this.now().slice(0, 10);
+      const entry = await postJournalEntry(
+        {
+          id: cmd.journalEntryId,
+          date,
+          memo: `ارتداد شيك رقم ${cheque.chequeNumber}`,
+          source: "system",
+          sourceDocType: "CHEQUE",
+          sourceDocId: cheque.id,
+          sourceDocNumber: cheque.chequeNumber,
+          lines,
+        },
+        this.deps.gl,
+      );
+      await this.releaseAllocations(cheque.id);
+
+      const updated: Cheque = {
+        ...cheque,
+        status: "bounced",
+        bouncedAt: this.now(),
+        bouncedBy: this.actorOf(cmd),
+        bounceJournalEntryId: entry.id,
+      };
+      await this.deps.cheques.update(updated);
+      return updated;
+    });
+  }
+
+  /**
+   * Apply part or all of a live cheque against one of its party's open
+   * invoices: an incoming cheque against a sales invoice, an outgoing one
+   * against a purchase invoice. Moves no GL — the creation entry already
+   * moved the control account; this only says which invoice the money is for.
+   */
+  async allocate(cmd: AllocateChequeCommand): Promise<VoucherAllocation> {
+    const store = this.allocationStore();
+    return this.deps.cheques.transaction(async () => {
+      const cheque = await this.require(cmd.chequeId);
+      if (cheque.status === "bounced" || cheque.status === "replaced") {
+        throw new InvalidChequeCommandError("لا يمكن تخصيص شيك مرتد على فاتورة.");
+      }
+      const result = await allocateFn(
+        {
+          allocationId: cmd.allocationId,
+          voucherId: cheque.id,
+          voucherAmount: cheque.amount,
+          voucherPartyId: cheque.partyId,
+          expectedKind: cheque.direction === "incoming" ? "sales" : "purchase",
+          invoiceId: cmd.invoiceId,
+          amount: cmd.amount,
+          now: cmd.now ?? this.now(),
+        },
+        store,
+      );
+      await this.projectSettlement(result.invoice);
+      return result.allocation;
+    });
+  }
+
+  async listAllocations(chequeId: string): Promise<readonly VoucherAllocation[]> {
+    if (!this.deps.allocation) return [];
+    return this.deps.allocation.allocations.listByVoucher(chequeId);
+  }
+
+  private allocationStore() {
+    if (!this.deps.allocation) {
+      throw new InvalidChequeCommandError("تخصيص الشيكات على الفواتير غير مُفعّل على هذا الخادم.");
     }
+    return { allocations: this.deps.allocation.allocations, invoices: this.deps.allocation.invoices };
+  }
 
-    const entry = await postJournalEntry(
-      {
-        id: cmd.journalEntryId,
-        date: cmd.date ?? this.now().slice(0, 10),
-        memo: `ارتداد شيك رقم ${cheque.chequeNumber}`,
-        source: "system",
-        sourceDocType: "CHEQUE",
-        sourceDocId: cheque.id,
-        sourceDocNumber: cheque.chequeNumber,
-        lines,
-      },
-      this.deps.gl,
-    );
+  private async releaseAllocations(chequeId: string): Promise<void> {
+    if (!this.deps.allocation) return;
+    const store = { allocations: this.deps.allocation.allocations, invoices: this.deps.allocation.invoices };
+    const active = (await store.allocations.listByVoucher(chequeId)).filter((a) => a.status === "active");
+    for (const alloc of active) {
+      const undone = await reverseAllocationFn(alloc.id, this.now(), store);
+      await this.projectSettlement(undone.invoice);
+    }
+  }
 
-    const updated: Cheque = {
-      ...cheque,
-      status: "bounced",
-      bouncedAt: this.now(),
-      bouncedBy: this.actorOf(cmd),
-      bounceJournalEntryId: entry.id,
-    };
-    await this.deps.cheques.update(updated);
-    return updated;
+  private async projectSettlement(invoice: { id: string; kind: AllocationInvoiceKind; allocated: Money } | null): Promise<void> {
+    const settlement = this.deps.allocation?.settlement;
+    if (!invoice || !settlement) return;
+    await settlement.applySettled({ invoiceId: invoice.id, kind: invoice.kind, settled: invoice.allocated });
   }
 
   /**
    * Replace a bounced cheque with a new one of the same amount: bounced →
-   * replaced (old), creates a fresh `pending` cheque linked both ways.
-   * Incoming only reclassifies 1360 → 1320 for the new cheque; an outgoing
+   * replaced (old), creates a fresh `pending` cheque linked both ways. The
+   * bounce already put the debt back on AR, so the replacement credits AR
+   * again, exactly like receiving any new cheque. Incoming only; an outgoing
    * replacement should call `createCheque` directly instead (see class doc).
    */
   async replace(cmd: ReplaceChequeCommand): Promise<{ original: Cheque; replacement: Cheque }> {
@@ -332,13 +427,11 @@ export class ChequeService {
     if (!amount.equals(original.amount)) {
       throw new ReplacementAmountMismatchError(original.id);
     }
-    // The number must be free BEFORE the reclassification entry posts: storage
+    // The number must be free BEFORE the receipt entry posts: storage
     // enforces UNIQUE(direction, cheque_number), so a clash discovered at save
-    // time would leave the 1360 to 1320 journal entry committed with no cheque.
+    // time would leave the AR to 1320 journal entry committed with no cheque.
     const clash = await this.deps.cheques.findByChequeNumber("incoming", cmd.newCheque.chequeNumber);
     if (clash) throw new DuplicateChequeNumberError("incoming", cmd.newCheque.chequeNumber);
-    const bouncedAccountId = original.controlAccounts.bouncedAccountId;
-    if (!bouncedAccountId) throw new MissingBouncedAccountError(original.id);
 
     const entry = await postJournalEntry(
       {
@@ -349,7 +442,7 @@ export class ChequeService {
         sourceDocType: "CHEQUE",
         lines: [
           { accountId: original.controlAccounts.underCollectionAccountId, debit: amount, credit: Money.zero() },
-          { accountId: bouncedAccountId, debit: Money.zero(), credit: amount },
+          { accountId: original.counterpartyGlAccountId, debit: Money.zero(), credit: amount },
         ],
       },
       this.deps.gl,

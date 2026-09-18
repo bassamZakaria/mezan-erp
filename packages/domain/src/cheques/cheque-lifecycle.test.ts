@@ -262,7 +262,7 @@ describe("every illegal edge of the register is refused, and the refusal writes 
 
 
 describe("the bounced cheque from last week", () => {
-  it("takes the value straight back out of تحت التحصيل and into شيكات مرتجعة, to the micro-unit", async () => {
+  it("takes the value straight back out of تحت التحصيل and onto the customer's own receivable, to the micro-unit", async () => {
     const h = await chequeAt("deposited");
     const beforeBank = (await balances(h))["1310"];
 
@@ -270,10 +270,11 @@ describe("the bounced cheque from last week", () => {
 
     const after = await balances(h);
     expect(after["1320"]).toBe("0.000000");
-    expect(after["1360"]).toBe("1750.250000");
+    expect(after["1360"]).toBe("0.000000");
+    expect(after["1100"]).toBe("12000.000000");
     expect(after["1310"]).toBe(beforeBank);
     expect(lines(await h.ledger.findById("je-bounce"))).toEqual([
-      { accountId: "1360", debit: "1750.250000", credit: "0.000000" },
+      { accountId: "1100", debit: "1750.250000", credit: "0.000000" },
       { accountId: "1320", debit: "0.000000", credit: "1750.250000" },
     ]);
   });
@@ -291,24 +292,11 @@ describe("the bounced cheque from last week", () => {
     expect((await balances(h))["2150"]).toBe("0.000000");
     expect((await balances(h))["1310"]).toBe("8000.000000");
   });
-
-  it("LIMITATION: an incoming bounce never puts the debt back onto the customer own receivable", async () => {
-    const h = await chequeAt("deposited");
-    await h.service.bounce({ chequeId: "chq-in", journalEntryId: "je-bounce", date: "2026-08-21" });
-
-    const after = await balances(h);
-    // The receivable was credited the moment the paper arrived and is never
-    // re-debited: 12,000.00 opening less the 1,750.25 cheque.
-    expect(after["1100"]).toBe("10249.750000");
-    // The whole 1,750.25 sits in the un-partied 1360 control instead, so the
-    // customer sub-ledger and the AR control no longer describe the same debt.
-    expect(after["1360"]).toBe("1750.250000");
-  });
 });
 
 
 describe("replacement closes the old cheque instead of leaving two live", () => {
-  it("reclassifies 1360 back into 1320 and links both rows in both directions", async () => {
+  it("credits the customer again for the new paper and links both rows in both directions", async () => {
     const h = await chequeAt("bounced");
 
     const { original, replacement } = await h.service.replace({

@@ -210,9 +210,12 @@ describe("تقفيل الخزنة — one day at the safe", () => {
     expect(await d.balance(SAFE)).toBe("2874.500000");
   });
 
-  it("last week cheque bouncing moves 2,900.00 out of تحت التحصيل and touches neither the safe nor the bank", async () => {
+  it("last week cheque bouncing moves 2,900.00 out of تحت التحصيل back onto the customer, touching neither the safe nor the bank", async () => {
     const d = await runTheDay();
-    expect(await d.balance(BOUNCED)).toBe("2900.000000");
+    expect(await d.balance(UNDER_COLLECTION)).toBe("3200.000000");
+    expect(await d.balance(BOUNCED)).toBe("0.000000");
+    const arToday = Money.fromMajor(await d.balance("1100")).scaled - Money.fromMajor(await d.balance("1100", "2026-08-21")).scaled;
+    expect(Money.fromScaled(arToday).toString()).toBe(Money.fromMajor("-2150.00").toString());
     expect(await d.balance(SAFE)).toBe("2874.500000");
     expect(await d.balance(BANK)).toBe("34000.000000");
     expect((await d.chequeService.findById("chq-last-week"))!.status).toBe("bounced");

@@ -34,15 +34,6 @@ export class InvalidChequeCommandError extends Error {
   }
 }
 
-/** Raised by `bounce()` on an incoming cheque when the caller has no configured bounced-cheques control account. */
-export class MissingBouncedAccountError extends Error {
-  readonly code = "MISSING_BOUNCED_ACCOUNT";
-  constructor(readonly chequeId: string) {
-    super(`Cheque "${chequeId}" has no bounced-cheques control account configured.`);
-    this.name = "MissingBouncedAccountError";
-  }
-}
-
 /** Raised by `replace()` when the replacement amount does not match the bounced cheque's amount. */
 export class ReplacementAmountMismatchError extends Error {
   readonly code = "REPLACEMENT_AMOUNT_MISMATCH";

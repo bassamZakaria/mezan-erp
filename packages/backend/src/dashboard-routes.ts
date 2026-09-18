@@ -20,10 +20,10 @@ import {
  * advances (1160) are receivables of a different kind and belong on the balance
  * sheet, not in a collections KPI.
  *
- * 1360 is here because bouncing a cheque reclassifies 1320 → 1360 and leaves AR
- * alone: the money is still owed by the customer and still has to be chased, so
- * a collections figure that omitted it dropped exactly the debts most in need of
- * chasing. The aging ladder counts the same thing, and the two must agree.
+ * 1360 stays for a ledger written before D192, when a bounce parked the debt
+ * there and left AR credited; a bounce now reverses onto AR, so on any newer
+ * tenant 1360 reads zero. Either way the tile and the aging ladder count the
+ * same debt, and the two must agree.
  */
 const CUSTOMER_RECEIVABLE_ACCOUNTS = new Set(["1105", "1110", "1360"]);
 

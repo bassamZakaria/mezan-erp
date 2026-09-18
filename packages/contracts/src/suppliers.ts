@@ -30,7 +30,8 @@ export const supplierSchema = z.object({
 /** POST /suppliers body — matches the catalog's "Add/Edit Supplier" modal defaults. */
 export const createSupplierSchema = z.object({
   id: z.string().min(1),
-  code: z.string().min(1),
+  /** Omitted, the server allocates the next free code. */
+  code: z.string().trim().min(1).optional(),
   nameAr: z.string().min(1),
   nameEn: z.string().nullable().optional(),
   phone: z.string().nullable().optional(),

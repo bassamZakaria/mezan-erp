@@ -622,7 +622,10 @@ export function createGlRoutes(
   });
 
   app.get("/journal-entries/:id", gate("accounting.journal.view"), async (c) => {
-    const entry = await deps.ledger.findById(c.req.param("id"));
+    const key = c.req.param("id");
+    // The register addresses an entry by its number (`/money/journals/JE-000100`).
+    const entry =
+      (await deps.ledger.findById(key)) ?? (await deps.ledger.list({ search: key })).find((e) => e.entryNo === key) ?? null;
     if (!entry) return c.json({ error: "NOT_FOUND" }, 404);
     return c.json(serialize(entry));
   });

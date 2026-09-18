@@ -967,7 +967,7 @@ describe("CustomersScreen", () => {
     expect(await screen.findByText("يختلف عن تقرير أعمار الديون")).toBeInTheDocument();
   });
 
-  it("auto-generates the customer code from the current row count when left blank", async () => {
+  it("leaves a blank customer code for the server to allocate", async () => {
     let created: Record<string, unknown> | undefined;
     renderScreen([customer(), inactiveCustomer], {
       onCreateCustomer: (body) => {
@@ -982,7 +982,7 @@ describe("CustomersScreen", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "إضافة عميل" }));
 
     await waitFor(() => expect(created).toBeDefined());
-    expect(created?.code).toBe("C000003");
+    expect(created).not.toHaveProperty("code");
   });
 
   it("preserves an explicit customer code instead of auto-generating one", async () => {

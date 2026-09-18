@@ -690,6 +690,21 @@ export function useItems(filter: ItemListFilter = {}): UseQueryResult<ItemDTO[],
   });
 }
 
+/** One item by id or code, for a form addressed by URL whose item is not on the current page. */
+export function useItem(key: string | null): UseQueryResult<ItemDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<ItemDTO, ApiError>({
+    queryKey: ["items", "one", key],
+    enabled: session !== null && key !== null,
+    queryFn: async () => {
+      const res = await request(`/items/${encodeURIComponent(key!)}`);
+      if (!res.ok) throw await loaderError(res, t("api.itemsCouldNotBeLoaded"), t);
+      return res.json<ItemDTO>();
+    },
+  });
+}
+
 /**
  * Chip counts (R1.1). Two axes share one `status` parameter here — active/
  * inactive, the stock states and the item types — so the route answers with a

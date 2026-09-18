@@ -83,7 +83,7 @@ export function CreateOpportunityForm({ onDone, onCancel, defaultStageId }: Crea
     event.preventDefault();
     const validationError = validateOpportunityDraft(draft);
     if (validationError) {
-      setError(validationError);
+      setError(t(validationError));
       return;
     }
     setError(null);

@@ -744,9 +744,8 @@ export function SuppliersScreen() {
       if (editingId) {
         await updateSupplier.mutateAsync({ id: editingId, patch: { ...fields, active: draft.active } });
       } else {
-        // "الكود: تلقائي إذا فارغ" — auto-generate a sequential code when left blank.
-        const code = draft.code.trim() === "" ? `S${String(suppliers.length + 1).padStart(6, "0")}` : draft.code.trim();
-        await createSupplier.mutateAsync({ id: crypto.randomUUID(), code, ...fields });
+        const code = draft.code.trim();
+        await createSupplier.mutateAsync({ id: crypto.randomUUID(), ...(code === "" ? {} : { code }), ...fields });
       }
       setPanelOpen(false);
     } catch (err) {

@@ -15,6 +15,7 @@ import {
   cancelActivity,
   LeadNotFoundError,
   InvalidLeadError,
+  InvalidCustomerError,
   InvalidLeadTransitionError,
   LeadNotConvertibleError,
   InvalidOpportunityError,
@@ -44,6 +45,7 @@ import {
   createActivitySchema,
 } from "@mezan/contracts";
 import { branchScopeOf, createPermissionGate, withinScope, type AuthContextResolver } from "./permission-gate.js";
+import { nextMasterCode } from "./master-code.js";
 
 /**
  * CRM routes (docs/archive/catalog/06-crm-hr.md "العملاء المحتملون / الفرص / خط
@@ -135,7 +137,8 @@ function handleDomainError(c: Context, err: unknown): Response {
     err instanceof InvalidOpportunityError ||
     err instanceof DuplicatePipelineStageWinError ||
     err instanceof InvalidActivityError ||
-    err instanceof ActivityNotPendingError
+    err instanceof ActivityNotPendingError ||
+    err instanceof InvalidCustomerError
   ) {
     return c.json({ error: err.code, message: err.message }, 422);
   }
@@ -205,12 +208,21 @@ export function createCrmRoutes(deps: CrmRoutesDeps, resolveAuthContext: AuthCon
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
+    let customer: { id: string; code: string } | undefined;
+    if (parsed.data.createCustomer) {
+      const existing = (await deps.customers.findAll()).map((row) => row.code);
+      const code = parsed.data.customer?.code ?? nextMasterCode(existing, "C");
+      if (existing.includes(code)) {
+        return c.json({ error: "DUPLICATE_CUSTOMER_CODE", message: `كود العميل «${code}» مستخدم بالفعل.` }, 409);
+      }
+      customer = { id: parsed.data.customer?.id ?? randomUUID(), code };
+    }
     try {
       const result = await convertLead(
         {
           leadId: c.req.param("id"),
           createCustomer: parsed.data.createCustomer,
-          customer: parsed.data.customer,
+          customer,
           createOpportunity: parsed.data.createOpportunity,
           opportunity: parsed.data.opportunity
             ? {

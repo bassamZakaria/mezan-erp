@@ -106,15 +106,16 @@ export function PurchaseReturnsScreen() {
     const firstInvoice = invoices[0];
     if (!firstInvoice) return;
     setInvoiceId(firstInvoice.id);
+    setWarehouseId(firstInvoice.warehouseId);
     const firstLine = firstInvoice.lines.find((l) => l.kind === "inventory" && l.itemId !== null);
     setLines(firstLine?.itemId ? [blankLine(firstLine.itemId)] : []);
   }, [firstSegment, invoices, invoiceId]);
 
   useEffect(() => {
-    if (firstSegment !== "new" || warehouseId !== "") return;
+    if (firstSegment !== "new" || warehouseId !== "" || invoiceId !== "") return;
     const firstWarehouse = warehouses[0];
     if (firstWarehouse) setWarehouseId(firstWarehouse.id);
-  }, [firstSegment, warehouses, warehouseId]);
+  }, [firstSegment, warehouses, warehouseId, invoiceId]);
 
   const selectedInvoice = invoices.find((i) => i.id === invoiceId) ?? null;
   const returnableLines = useMemo(
@@ -167,7 +168,7 @@ export function PurchaseReturnsScreen() {
     setError(null);
     const firstInvoice = invoices.find((i) => i.id === sourceInvoiceId) ?? invoices[0] ?? null;
     setInvoiceId(firstInvoice?.id ?? "");
-    setWarehouseId(warehouses[0]?.id ?? "");
+    setWarehouseId(firstInvoice?.warehouseId ?? warehouses[0]?.id ?? "");
     setReason("DEFECTIVE");
     const firstLine = firstInvoice?.lines.find((l) => l.kind === "inventory" && l.itemId !== null);
     setLines(firstLine?.itemId ? [blankLine(firstLine.itemId)] : []);
@@ -177,6 +178,7 @@ export function PurchaseReturnsScreen() {
   function changeInvoice(id: string) {
     setInvoiceId(id);
     const invoice = invoices.find((i) => i.id === id) ?? null;
+    if (invoice) setWarehouseId(invoice.warehouseId);
     const firstLine = invoice?.lines.find((l) => l.kind === "inventory" && l.itemId !== null);
     setLines(firstLine?.itemId ? [blankLine(firstLine.itemId)] : []);
   }

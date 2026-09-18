@@ -513,7 +513,8 @@ export function createVouchersRoutes(
    * it, so answering 403 by id would confirm it exists (D130).
    */
   async function findInScope(c: Context, svc: VoucherService, id: string): Promise<VoucherDocument | null> {
-    const doc = await svc.findById(id);
+    // A voucher is also addressed by its number (`/treasury/treasury-vouchers/CV-000979`).
+    const doc = (await svc.findById(id)) ?? (await svc.list({})).find((d) => d.docNo === id) ?? null;
     if (!doc) return null;
     const visible = withinScope([doc], branchScopeOf(c), (d) => voucherLine(d).branchId);
     return visible.length === 1 ? doc : null;

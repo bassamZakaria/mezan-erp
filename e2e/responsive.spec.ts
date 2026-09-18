@@ -1,5 +1,6 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { loginAsDemoUser } from "./support/auth";
+import { horizontalOverflow, offendingElements, OVERFLOW_TOLERANCE } from "./support/overflow";
 
 /**
  * Does the app survive a phone-sized screen?
@@ -49,58 +50,6 @@ import { loginAsDemoUser } from "./support/auth";
 const PHONE = { width: 390, height: 844 };
 const NARROW_ANDROID = { width: 360, height: 800 };
 
-/** A few pixels of slack: sub-pixel rounding on a scaled layout is not a defect. */
-const OVERFLOW_TOLERANCE = 2;
-
-async function horizontalOverflow(page: Page): Promise<number> {
-  return page.evaluate(() => {
-    const doc = document.documentElement;
-    return Math.max(0, doc.scrollWidth - doc.clientWidth);
-  });
-}
-
-/**
- * Every element sticking out past the viewport's right edge, named well enough
- * to fix — a bare "the page is 40px too wide" sends the next person hunting.
- */
-async function offendingElements(page: Page): Promise<string[]> {
-  return page.evaluate(() => {
-    const limit = document.documentElement.clientWidth;
-    const hits: { label: string; past: number }[] = [];
-    for (const el of Array.from(document.querySelectorAll<HTMLElement>("body *"))) {
-      const rect = el.getBoundingClientRect();
-      if (rect.width === 0 || rect.height === 0) continue;
-      // BOTH edges. The app runs RTL, so overflowing content escapes past the
-      // LEFT edge and `rect.right` stays inside the viewport the whole time — a
-      // right-edge-only detector reports nothing while the page is 149px wide.
-      const past = Math.round(Math.max(rect.right - limit, -rect.left));
-      if (past <= 2) continue;
-      // An element inside a container that scrolls horizontally is NOT an
-      // offender — that is the pattern we want. Only report something whose
-      // overflow reaches the page.
-      let scrolls = false;
-      for (let node = el.parentElement; node && node !== document.body; node = node.parentElement) {
-        const overflowX = getComputedStyle(node).overflowX;
-        if (overflowX === "auto" || overflowX === "scroll" || overflowX === "hidden") {
-          scrolls = true;
-          break;
-        }
-      }
-      if (scrolls) continue;
-      const id = el.id ? `#${el.id}` : "";
-      const cls =
-        typeof el.className === "string"
-          ? `.${el.className.split(/\s+/).filter(Boolean).slice(0, 4).join(".")}`
-          : "";
-      hits.push({ label: `${el.tagName.toLowerCase()}${id}${cls}`, past });
-    }
-    return hits
-      .sort((a, b) => b.past - a.past)
-      .slice(0, 6)
-      .map((h) => `${h.label} → ${h.past}px past the edge`);
-  });
-}
-
 /**
  * The routes a phone user actually opens. Deliberately not all 120: these cover
  * the shell, a dense list, a document form, a report and the settings tree,
@@ -108,11 +57,11 @@ async function offendingElements(page: Page): Promise<string[]> {
  */
 const ROUTES: readonly { path: string; name: string }[] = [
   { path: "/dashboard", name: "لوحة التحكم" },
-  { path: "/sales/invoices", name: "فواتير المبيعات" },
-  { path: "/inventory/items", name: "الأصناف" },
-  { path: "/sales/customers", name: "العملاء" },
-  { path: "/accounting/journal", name: "القيود" },
-  { path: "/settings/general", name: "الإعدادات" },
+  { path: "/sell/sales-invoices", name: "فواتير المبيعات" },
+  { path: "/items/items", name: "الأصناف" },
+  { path: "/sell/customers", name: "العملاء" },
+  { path: "/money/journals", name: "القيود" },
+  { path: "/setup/settings-general", name: "الإعدادات" },
 ];
 
 for (const viewport of [PHONE, NARROW_ANDROID]) {
@@ -126,6 +75,7 @@ for (const viewport of [PHONE, NARROW_ANDROID]) {
         // The shell renders its chrome before the screen's data arrives; waiting
         // for network idle measures the settled layout rather than the skeleton.
         await page.waitForLoadState("networkidle");
+        await expect(page.getByText("الصفحة غير موجودة")).toHaveCount(0);
 
         const overflow = await horizontalOverflow(page);
         const offenders = await offendingElements(page);
@@ -145,7 +95,7 @@ test.describe("the shell itself on a phone", () => {
 
   test("the primary action stays reachable without sideways scrolling", async ({ page }) => {
     await loginAsDemoUser(page);
-    await page.goto("/sales/invoices");
+    await page.goto("/sell/sales-invoices");
     await page.waitForLoadState("networkidle");
 
     // A «جديد» button pushed off the edge is the difference between a screen
@@ -161,7 +111,7 @@ test.describe("the shell itself on a phone", () => {
 
   test("a wide table scrolls inside its own container, not the page", async ({ page }) => {
     await loginAsDemoUser(page);
-    await page.goto("/sales/invoices");
+    await page.goto("/sell/sales-invoices");
     await page.waitForLoadState("networkidle");
 
     const table = page.locator("table").first();

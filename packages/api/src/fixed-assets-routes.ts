@@ -25,6 +25,8 @@ import {
   VatPeriodAlreadyFiledError,
   DuplicateDepreciationPeriodError,
   NoDepreciableAssetsError,
+  ReversalDateBeforeOriginalError,
+  LaterDepreciationRunExistsError,
   type AssetCategory,
   type AssetCategoryRepository,
   type Asset,
@@ -184,6 +186,11 @@ function handleDomainError(c: Context, err: unknown) {
     err instanceof VatPeriodAlreadyFiledError
   ) {
     return c.json({ error: err.code, message: err.message }, 422);
+  }
+  // D275: a reversal dated before the run it reverses, or reversing under a
+  // later posted run still standing on the same asset — both bilingual.
+  if (err instanceof ReversalDateBeforeOriginalError || err instanceof LaterDepreciationRunExistsError) {
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 422);
   }
   if (err instanceof InvalidAssetDisposalError) {
     return c.json({ error: err.code, message: err.message }, 422);
@@ -537,9 +544,12 @@ export function createFixedAssetsRoutes(
   });
 
   /**
-   * عكس تشغيل الإهلاك (B-9). Period-gated by the GL engine on the reversal's
-   * own date, so a locked or closed month refuses; the assets' accumulated
-   * depreciation comes back with the entry.
+   * عكس تشغيل الإهلاك (B-9, D275). Period-gated by the GL engine on the
+   * reversal's own date, so a locked or closed month refuses; the assets'
+   * accumulated depreciation comes back with the entry. No date sent
+   * defaults to today, in the tenant's own calendar day — the same fix D270
+   * gave voucher reversals, one bounded context over — never the run's own
+   * period-end day, which would restate a period already reported.
    */
   app.post("/depreciation/runs/:id/reverse", gate("assets.depreciation.run"), async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as { date?: string; memo?: string };
@@ -547,7 +557,11 @@ export function createFixedAssetsRoutes(
       const run = await reverseDepreciationRun(
         c.req.param("id"),
         { runs: deps.runs, assets: deps.assets, gl: deps.gl },
-        { reversalId: idGen(), date: body.date, memo: body.memo },
+        {
+          reversalId: idGen(),
+          date: await tenantDay(c, body.date ?? (deps.gl.now ? deps.gl.now() : new Date().toISOString())),
+          memo: body.memo,
+        },
       );
       return c.json(serializeRun(run));
     } catch (err) {

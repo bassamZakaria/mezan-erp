@@ -4113,6 +4113,10 @@ const webAr = {
   "depreciation.yearInvalid": "السنة غير صحيحة.",
   "depreciation.monthInvalid": "الشهر يجب أن يكون بين 1 و12.",
   "depreciation.detailTitle": "عملية إهلاك — {period}",
+  "depreciation.reverse": "عكس التشغيل",
+  "depreciation.reverseConfirmTitle": "عكس تشغيل الإهلاك هذا؟",
+  "depreciation.reverseConfirmBody": "سيُرحَّل قيد معكوس بتاريخ اليوم أدناه، وتُستعاد قيمة الإهلاك المتراكم لكل أصل في هذا التشغيل. لا يمكن أن يسبق تاريخ العكس تاريخ التشغيل نفسه، ولا يمكن عكس تشغيل بينما يقف تشغيل لاحق على نفس الأصل.",
+  "depreciation.reversalDate": "تاريخ العكس",
 
   // fiscalPeriods
   "fiscalPeriods.currentPeriod": "الفترة الحالية",
@@ -4367,6 +4371,7 @@ const webAr = {
   "api.depreciationRunsCouldNotBe": "تعذّر تحميل عمليات الإهلاك.",
   "api.theDepreciationRunCouldNot": "تعذّر إنشاء عملية الإهلاك.",
   "api.theDepreciationRunCouldNot2": "تعذّر ترحيل عملية الإهلاك.",
+  "api.theDepreciationRunCouldNotBeReversed": "تعذّر عكس عملية الإهلاك.",
   "api.inventoryWriteDownRunsCould": "تعذّر تحميل عمليات هبوط قيمة المخزون.",
   "api.theWriteDownRunCould": "تعذّر إنشاء عملية هبوط قيمة المخزون.",
   "api.theWriteDownRunCould2": "تعذّر ترحيل عملية هبوط قيمة المخزون.",
@@ -13414,6 +13419,10 @@ const webEn: Record<WebTranslationKey, string> = {
   "depreciation.yearInvalid": "That year is not valid.",
   "depreciation.monthInvalid": "The month must be between 1 and 12.",
   "depreciation.detailTitle": "Depreciation run — {period}",
+  "depreciation.reverse": "Reverse run",
+  "depreciation.reverseConfirmTitle": "Reverse this depreciation run?",
+  "depreciation.reverseConfirmBody": "A mirror-image entry will post on the date below, and every asset in this run has its accumulated depreciation restored. The reversal date may not be before the run's own date, and a run cannot be reversed while a later run stands on the same asset.",
+  "depreciation.reversalDate": "Reversal date",
 
   // fiscalPeriods
   "fiscalPeriods.currentPeriod": "Current period",
@@ -13668,6 +13677,7 @@ const webEn: Record<WebTranslationKey, string> = {
   "api.depreciationRunsCouldNotBe": "Depreciation runs could not be loaded.",
   "api.theDepreciationRunCouldNot": "The depreciation run could not be created.",
   "api.theDepreciationRunCouldNot2": "The depreciation run could not be posted.",
+  "api.theDepreciationRunCouldNotBeReversed": "The depreciation run could not be reversed.",
   "api.inventoryWriteDownRunsCould": "Inventory write-down runs could not be loaded.",
   "api.theWriteDownRunCould": "The write-down run could not be created.",
   "api.theWriteDownRunCould2": "The write-down run could not be posted.",

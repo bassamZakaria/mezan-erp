@@ -37,6 +37,7 @@ const sampleRuns: DepreciationRunDTO[] = [
 
 function renderScreen(runs: DepreciationRunDTO[] = sampleRuns) {
   let current = [...runs];
+  const reverseRequests: { date?: string }[] = [];
   const transport = stubTransport({
     "GET /assets/depreciation/runs": () => ({ body: current }),
     "GET /branches": () => ({ body: sampleBranches }),
@@ -64,8 +65,16 @@ function renderScreen(runs: DepreciationRunDTO[] = sampleRuns) {
       current = [posted, ...current.slice(1)];
       return { body: posted };
     },
+    "POST /assets/depreciation/runs/run-2/reverse": (init) => {
+      const body = JSON.parse((init?.body as string) ?? "{}");
+      reverseRequests.push(body);
+      const reversed: DepreciationRunDTO = { ...current.find((r) => r.id === "run-2")!, status: "cancelled" as const };
+      current = current.map((r) => (r.id === "run-2" ? reversed : r));
+      return { body: reversed };
+    },
   });
-  return renderWithProviders(<DepreciationRunsScreen />, { transport, initialSession: testAdminSession });
+  const result = renderWithProviders(<DepreciationRunsScreen />, { transport, initialSession: testAdminSession });
+  return { ...result, reverseRequests };
 }
 
 describe("DepreciationRunsScreen", () => {
@@ -131,5 +140,24 @@ describe("DepreciationRunsScreen", () => {
     const detail = screen.getByRole("dialog", { name: /عملية إهلاك —/ });
     expect(within(detail).getByText("asset-1")).toBeInTheDocument();
     expect(within(detail).getByText("asset-2")).toBeInTheDocument();
+  });
+
+  /** guards D275 — the reverse action must send a date, not rely on the server's own default. */
+  it("reverses a posted run through a confirm dialog defaulting its date field to today, and sends that date", async () => {
+    const { reverseRequests } = renderScreen();
+    fireEvent.click(await screen.findByText("2026-05"));
+    fireEvent.click(screen.getByRole("button", { name: "عكس التشغيل" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "عكس تشغيل الإهلاك هذا؟" });
+    const dateInput = within(dialog).getByLabelText("تاريخ العكس") as HTMLInputElement;
+    const today = new Date().toISOString().slice(0, 10);
+    // The run itself posted on 2026-05-02; the dialog defaults to today, not that (D275).
+    expect(dateInput.value).toBe(today);
+    expect(dateInput.value).not.toBe("2026-05-02");
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "عكس التشغيل" }));
+
+    await waitFor(() => expect(reverseRequests).toEqual([{ date: today }]));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "عكس تشغيل الإهلاك هذا؟" })).not.toBeInTheDocument());
   });
 });

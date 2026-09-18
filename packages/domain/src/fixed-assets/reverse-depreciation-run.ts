@@ -1,8 +1,13 @@
-import { reverseJournalEntry, type JournalPostingDeps } from "../gl/index.js";
+import { reverseJournalEntry, ReversalDateBeforeOriginalError, type JournalPostingDeps } from "../gl/index.js";
 import type { Asset, AssetRepository } from "./asset.js";
 import type { DepreciationRun, DepreciationRunRepository } from "./depreciation-run.js";
 import { depreciableBase } from "./depreciation.js";
-import { AssetNotFoundError, DepreciationRunNotFoundError, DepreciationRunNotPostedError } from "./errors.js";
+import {
+  AssetNotFoundError,
+  DepreciationRunNotFoundError,
+  DepreciationRunNotPostedError,
+  LaterDepreciationRunExistsError,
+} from "./errors.js";
 
 export interface ReverseDepreciationRunDeps {
   readonly runs: DepreciationRunRepository;
@@ -43,6 +48,30 @@ export async function reverseDepreciationRun(
     throw new DepreciationRunNotPostedError(runId, run.status);
   }
 
+  // D275 — the same fault D270 fixed for vouchers, one bounded context over:
+  // a reversal dated before the run's own posting day would restate a period
+  // already reported. The route defaults a missing date to today; a caller
+  // that omits one here still falls back to the run's own posting day, the
+  // same fallback every other reversal path uses.
+  const originalEntry = await deps.gl.ledger.findById(run.journalEntryId);
+  const resolvedDate = opts.date ?? originalEntry?.date ?? run.period;
+  if (originalEntry && resolvedDate < originalEntry.date) {
+    throw new ReversalDateBeforeOriginalError(run.journalEntryId, resolvedDate, originalEntry.date);
+  }
+
+  // D275 — the QuickBooks/Odoo norm: only the LATEST posted run touching an
+  // asset may be reversed. A later posted run has already built its own
+  // accumulated-depreciation figure on top of this one; undoing this run
+  // first would leave that figure standing on a run that no longer exists.
+  const assetIds = new Set(run.lines.map((l) => l.assetId));
+  for (const other of await deps.runs.list()) {
+    if (other.id === run.id || other.status !== "posted") continue;
+    if (other.period <= run.period) continue;
+    if (other.lines.some((l) => assetIds.has(l.assetId))) {
+      throw new LaterDepreciationRunExistsError(run.id, run.period, other.id, other.period);
+    }
+  }
+
   const assetsById = new Map<string, Asset>();
   for (const line of run.lines) {
     const asset = await deps.assets.findById(line.assetId);
@@ -53,7 +82,7 @@ export async function reverseDepreciationRun(
   return deps.gl.ledger.transaction(async () => {
     await reverseJournalEntry(run.journalEntryId as string, deps.gl, {
       reversalId: opts.reversalId,
-      date: opts.date,
+      date: resolvedDate,
       memo: opts.memo ?? `عكس إهلاك الفترة ${run.period}`,
     });
 

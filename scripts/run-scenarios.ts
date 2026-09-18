@@ -19,6 +19,7 @@ import {
   foreignSettledInBaseIsNotRevalued_D260,
   allocationUndoneAndMadeAgainSettlesOnce_D265,
   voucherReversalDatedByReversalDay_D270,
+  depreciationRunReversalDatedByReversalDay_D275,
   everyPartyTiesItsOwedLadderAndStatement,
   laddersTieOnPastDays_D220,
 } from "./scenarios/reports.js";
@@ -79,6 +80,10 @@ if (!only.size || only.has("reports")) {
   const before = ctx.passes.length + ctx.failures.length;
   await everyPartyTiesItsOwedLadderAndStatement(ctx);
   await laddersTieOnPastDays_D220(ctx);
+  // Runs LAST, like cross-module: it registers a new active asset that would
+  // otherwise inflate every eligible-asset count an earlier suite (crm.ts)
+  // asserts exactly.
+  await depreciationRunReversalDatedByReversalDay_D275(ctx);
   console.log(` ${ctx.passes.length + ctx.failures.length - before} assertions`);
 }
 

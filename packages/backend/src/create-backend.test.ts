@@ -2721,12 +2721,16 @@ describe("createBackend — a purchase invoice nets its confirmed returns (D216,
     expect(invoice).toMatchObject({ baseTotal: "200.000000", amountPaid: "0.000000", returnedCredit: "60.000000", remainingBalance: "140.000000" });
     const ladder = await get(app, "/reports/aging/suppliers");
     expect(ladder.rows.find((r: { supplierId: string }) => r.supplierId === "sup-d216")?.total).toBe(140);
+    const bySupplier = await get(app, "/reports/purchases/by-supplier?dateFrom=2026-08-01&dateTo=2026-08-31");
+    expect(bySupplier.rows.find((r: { supplierId: string }) => r.supplierId === "sup-d216")?.outstanding).toBe(140);
 
     const over = await post(app, "/purchases/invoices/pi-d216/payments", { amount: "140.01", treasuryAccountId: "ta-cash", date: "2026-08-24" }, admin(app));
     expect(over.status).toBe(422);
     const paid = await post(app, "/purchases/invoices/pi-d216/payments", { amount: "140", treasuryAccountId: "ta-cash", date: "2026-08-24" }, admin(app));
     expect(paid.status).toBe(200);
     expect(await paid.json()).toMatchObject({ amountPaid: "140.000000", remainingBalance: "0.000000" });
+    const settledBySupplier = await get(app, "/reports/purchases/by-supplier?dateFrom=2026-08-01&dateTo=2026-08-31");
+    expect(settledBySupplier.rows.find((r: { supplierId: string }) => r.supplierId === "sup-d216")?.outstanding).toBe(0);
 
     const paidList = await get(app, "/purchases/invoices?status=paid");
     expect(paidList.map((r: { id: string }) => r.id)).toContain("pi-d216");
@@ -4426,6 +4430,36 @@ describe("createBackend — foreign documents settle and return in base (D202, D
     expect(-(await glBalance(app, "2100"))).toBe(820);
     expect((await post(app, "/purchases/invoices/pi-sar/payments", { amount: "820.01", treasuryAccountId: "ta-cash", date: "2026-08-23" }, admin(app))).status).toBe(422);
     expect(await reconDiff(app, "ap")).toBe(0);
+  });
+
+  it("D219: a return comes off what may be collected, sales by customer and by salesperson, and the customer drill-down", async () => {
+    const app = await newBackend();
+    await createCustomer(app, "cust-ret", "0");
+    await createServiceItem(app);
+    await multiCurrency(app);
+    const body = invoiceBody("inv-ret", "cust-ret", "500");
+    expect((await authedPost(app, "/sales-invoices", { ...body, lines: [{ ...body.lines[0], qty: "2" }] })).status).toBe(201);
+    expect((await authedPost(app, "/sales-invoices/inv-ret/confirm", {})).status).toBe(200);
+    expect((await post(app, "/sales-invoices/inv-ret/payments", { amount: "200", treasuryAccountId: "ta-cash", date: "2026-08-22" }, admin(app))).status).toBe(200);
+    expect((await post(app, "/sales-returns/from-invoice", {
+      id: "sr-ret", date: "2026-08-23", memo: "", warehouseId: "WH1", sourceInvoiceId: "inv-ret", reason: "OTHER", requested: [{ itemId: "SVC-1", qty: "1" }],
+    }, admin(app))).status).toBe(201);
+    expect((await post(app, "/sales-returns/sr-ret/confirm", {}, admin(app))).status).toBe(200);
+    expect((await get(app, "/sales-invoices/inv-ret")).remainingBalance).toBe("300.000000");
+
+    const over = await post(app, "/sales-invoices/inv-ret/payments", { amount: "300.01", treasuryAccountId: "ta-cash", date: "2026-08-24" }, admin(app));
+    expect(over.status).toBe(422);
+    const byCustomer = await get(app, "/reports/sales/by-customer?dateFrom=2026-08-01&dateTo=2026-08-31");
+    expect(byCustomer.rows.find((r: { customerId: string }) => r.customerId === "cust-ret")?.outstanding).toBe(300);
+    const bySalesperson = await get(app, "/reports/sales/by-salesperson?dateFrom=2026-08-01&dateTo=2026-08-31");
+    expect(bySalesperson.grandTotals.outstanding).toBe(300);
+    const drill = await get(app, "/reports/drill-down/customer/cust-ret");
+    expect(drill.facts.find((f: { key: string }) => f.key === "outstanding")?.value).toBe("300.00");
+    expect((await get(app, "/customers/cust-ret")).owed).toBe("300.000000");
+
+    expect((await post(app, "/sales-invoices/inv-ret/payments", { amount: "300", treasuryAccountId: "ta-cash", date: "2026-08-24" }, admin(app))).status).toBe(200);
+    expect((await get(app, "/sales-invoices/inv-ret")).remainingBalance).toBe("0.000000");
+    expect(await reconDiff(app, "ar")).toBe(0);
   });
 
   it("D203: a sales return against a USD invoice credits 1105 at the invoice's rate, by either route, and refunds the base amount", async () => {

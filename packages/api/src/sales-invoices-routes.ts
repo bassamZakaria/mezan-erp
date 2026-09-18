@@ -1178,7 +1178,7 @@ export function createSalesInvoicesRoutes(
     const svc = service(c);
     const amount = Money.fromMajor(parsed.data.amount);
     try {
-      const invoice = await svc.assertCollectable(c.req.param("id"), amount);
+      const invoice = await svc.assertCollectable(c.req.param("id"), amount, await creditFor(c.req.param("id")));
       const { voucherId } = await deps.collect({
         invoiceId: invoice.id,
         customerId: invoice.customerId,

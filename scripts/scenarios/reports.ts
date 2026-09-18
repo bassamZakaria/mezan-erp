@@ -596,6 +596,12 @@ export async function foreignSettlementReportsAndReturns_D201_D203(ctx: Ctx): Pr
       checkEq("and it owes the customer 3,000.00 back", n((await req("GET", "/sales-returns/SCN-D203-SR")).body?.refundDue), 3000);
       invoice = (await req("GET", "/sales-invoices/SCN-D202-SI")).body;
       checkEq("the invoice now owes 6,000.00 − 1,000.00 − 3,000.00", n(invoice?.remainingBalance), 2000);
+      const byCustomerAfterReturn = ctx.rows((await req("GET", `/reports/sales/by-customer?dateFrom=${today}&dateTo=${today}`)).body).find((r: any) => r.customerId === "SCN-D202-CUST");
+      checkEq("D219: sales by customer's outstanding nets the return too", n(byCustomerAfterReturn?.outstanding), 2000);
+      const drill = (await req("GET", "/reports/drill-down/customer/SCN-D202-CUST")).body;
+      checkEq("D219: and so does the customer drill-down", n(drill?.facts?.find((f: any) => f.key === "outstanding")?.value), 2000);
+      const overCollect = await req("POST", "/sales-invoices/SCN-D202-SI/payments", { amount: "2000.01", treasuryAccountId: "TR-DEMO-CASH", date: today });
+      checkEq("D219: a collection beyond what the return left owing is refused", overCollect.status, 422);
       checkEq("the /reconciliation AR row is exactly as tied as before", (await ctx.invariants()).ar, before.invariants.ar);
 
       await req("POST", "/purchases/invoices", {
@@ -625,6 +631,8 @@ export async function foreignSettlementReportsAndReturns_D201_D203(ctx: Ctx): Pr
       checkEq("D216: and names the 684.00 it returned", n(piAfterReturn?.returnedCredit), 684);
       const supplierRow = ctx.rows((await req("GET", "/reports/aging/suppliers")).body).find((r: any) => r.supplierId === "SCN-D203-SUPP");
       checkEq("D216: which is the supplier's row on the ladder", n(supplierRow?.total), n(piAfterReturn?.remainingBalance));
+      const bySupplier = ctx.rows((await req("GET", `/reports/purchases/by-supplier?dateFrom=${today}&dateTo=${today}`)).body).find((r: any) => r.supplierId === "SCN-D203-SUPP");
+      checkEq("D217: purchases by supplier's «المستحق» is that same figure, not the bill's full total", n(bySupplier?.outstanding), n(supplierRow?.total));
       const after = await ctx.invariants();
       checkEq("the /reconciliation AP row is exactly as tied as before", after.ap, before.invariants.ap);
       checkEq("and so is inventory", after.inventory, before.invariants.inventory);

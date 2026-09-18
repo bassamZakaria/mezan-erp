@@ -524,7 +524,7 @@ export class SalesInvoiceService {
    * owns — and one the ledger never heard about, so AR drifted by every
    * collection ever recorded that way (D1).
    */
-  async assertCollectable(id: string, amount: Money): Promise<SalesInvoice> {
+  async assertCollectable(id: string, amount: Money, returnedCredit: Money = Money.zero()): Promise<SalesInvoice> {
     const existing = await this.require(id);
     if (existing.status !== "confirmed" && existing.status !== "partially_paid") {
       throw new InvalidSalesInvoicePaymentError(
@@ -535,7 +535,7 @@ export class SalesInvoiceService {
       throw new InvalidSalesInvoicePaymentError("قيمة الدفعة يجب أن تكون أكبر من صفر.");
     }
     const grandTotal = salesInvoiceBaseGrandTotal(this.totalsOf(existing), existing.fxRate);
-    if (existing.amountPaid.scaled + amount.scaled > grandTotal.scaled) {
+    if (existing.amountPaid.scaled + returnedCredit.scaled + amount.scaled > grandTotal.scaled) {
       throw new InvalidSalesInvoicePaymentError("الدفعة تتجاوز الرصيد المتبقي للفاتورة.");
     }
     return existing;

@@ -88,6 +88,25 @@ describe("createSalesByCustomerReport", () => {
     expect(outcome.rows[0]?.contributionPercent).toBe(100);
   });
 
+  it("D219: outstanding nets the invoice's confirmed return credits, and a fully returned invoice owes nothing", () => {
+    const definition = createSalesByCustomerReport("2026-08-01", "2026-08-31");
+    const outcome = runReport(
+      definition,
+      { dateFrom: "2026-08-01", dateTo: "2026-08-31", taxMode: "inc" },
+      {
+        invoices: [
+          invoice({ id: "i1", customerId: "c1", lines: [line({ qty: Qty.fromMajor("3") })], amountPaid: Money.fromMajor("100") }),
+          invoice({ id: "i2", customerId: "c1", lines: [line()] }),
+        ],
+        returnsByInvoiceId: new Map([["i1", Money.fromMajor("40")], ["i2", Money.fromMajor("100")]]),
+      },
+    );
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.rows[0]?.total).toBe(400);
+    expect(outcome.rows[0]?.outstanding).toBe(160);
+  });
+
   it("excludes tax when taxMode=exc", () => {
     const definition = createSalesByCustomerReport("2026-08-01", "2026-08-31");
     const outcome = runReport(

@@ -12,9 +12,10 @@ import { BRANCH_PARAM_FIELD, branchIdParamSchema, matchesBranch } from "./branch
  * المبيعات حسب العميل — Sales by Customer (docs/archive/catalog/08-reports.md): top
  * customers by revenue and outstanding balance. Revenue is tax-inclusive
  * (`grandTotal`, in base currency) per the catalog's "عرض الإيرادات: شامل/غير شامل الضريبة"
- * toggle; outstanding is the invoice's own `total − amountPaid`, the SAME
- * figure `applyAllocatedSettlement` maintains from the allocation sub-ledger
- * (the `recordPayment` this once named is gone — DEC-3).
+ * toggle; outstanding is the invoice's own `total − amountPaid − returns`,
+ * the figure the invoice screen shows as remaining (D219); `amountPaid` is
+ * what `applyAllocatedSettlement` maintains from the allocation sub-ledger.
+ * An invoice returned beyond what it still owed counts as nothing owed.
  */
 
 export interface SalesByCustomerContext {
@@ -25,6 +26,8 @@ export interface SalesByCustomerContext {
    * in English (D57). Optional: omit it and the Arabic name stands.
    */
   readonly customers?: readonly { readonly id: string; readonly nameEn: string | null }[];
+  /** Confirmed sales-return credit per SOURCE invoice, in base; outstanding nets it (D219). */
+  readonly returnsByInvoiceId?: ReadonlyMap<string, Money>;
 }
 
 export interface SalesByCustomerParams {
@@ -108,7 +111,8 @@ export function createSalesByCustomerReport(
         const totals = salesInvoiceTotals(invoice);
         const base = salesInvoiceBaseTotals(totals, invoice.fxRate);
         const revenue = params.taxMode === "inc" ? base.grandTotal : base.taxableTotal;
-        const outstanding = Money.fromScaled(base.grandTotal.scaled - invoice.amountPaid.scaled);
+        const returned = ctx.returnsByInvoiceId?.get(invoice.id) ?? Money.zero();
+        const outstanding = Money.fromScaled(base.grandTotal.scaled - invoice.amountPaid.scaled - returned.scaled);
         const existing = byCustomer.get(invoice.customerId) ?? {
           customerNameAr: invoice.customerNameAr,
           count: 0,

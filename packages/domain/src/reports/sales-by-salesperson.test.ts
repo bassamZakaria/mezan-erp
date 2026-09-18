@@ -87,6 +87,24 @@ describe("createSalesBySalespersonReport", () => {
     expect(row?.outstanding).toBe(150);
   });
 
+  it("D219: outstanding nets each invoice's confirmed return credits", () => {
+    const definition = createSalesBySalespersonReport("2026-08-01", "2026-08-31");
+    const outcome = runReport(
+      definition,
+      { dateFrom: "2026-08-01", dateTo: "2026-08-31", taxMode: "inc" },
+      {
+        invoices: [
+          invoice({ id: "i1", salespersonId: "sp-1", salespersonNameAr: "أحمد", lines: [line({ qty: Qty.fromMajor("2"), unitPrice: Money.fromMajor("100") })], amountPaid: Money.fromMajor("100") }),
+          invoice({ id: "i2", salespersonId: "sp-1", salespersonNameAr: "أحمد", lines: [line({ qty: Qty.fromMajor("1"), unitPrice: Money.fromMajor("50") })] }),
+        ],
+        returnsByInvoiceId: new Map([["i1", Money.fromMajor("30")], ["i2", Money.fromMajor("50")]]),
+      },
+    );
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.rows.find((r) => r.salespersonId === "sp-1")?.outstanding).toBe(70);
+  });
+
   it("buckets invoices with no salesperson into an explicit UNASSIGNED row, never dropping them", () => {
     const definition = createSalesBySalespersonReport("2026-08-01", "2026-08-31");
     const outcome = runReport(

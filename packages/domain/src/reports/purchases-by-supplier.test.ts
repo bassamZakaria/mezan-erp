@@ -56,7 +56,7 @@ function supplier(overrides: Partial<Supplier> = {}): Supplier {
 }
 
 describe("createPurchasesBySupplierReport", () => {
-  it("aggregates total per supplier and treats the full total as outstanding (no payment tracking)", () => {
+  it("aggregates total per supplier; with nothing paid or returned the full total is outstanding", () => {
     const definition = createPurchasesBySupplierReport("2026-08-01", "2026-08-31");
     const outcome = runReport(
       definition,
@@ -72,6 +72,29 @@ describe("createPurchasesBySupplierReport", () => {
     expect(outcome.rows[0]?.supplierNameAr).toBe("مورد أ");
     expect(outcome.rows[0]?.total).toBe(300);
     expect(outcome.rows[0]?.outstanding).toBe(300);
+  });
+
+  it("D217: المستحق nets what was paid and returned against each invoice, and an over-returned bill owes nothing", () => {
+    const definition = createPurchasesBySupplierReport("2026-08-01", "2026-08-31");
+    const outcome = runReport(
+      definition,
+      { dateFrom: "2026-08-01", dateTo: "2026-08-31" },
+      {
+        invoices: [
+          pinvoice({ id: "p1", lines: [pline({ qty: Qty.fromMajor("3") })] }),
+          pinvoice({ id: "p2", lines: [pline({ qty: Qty.fromMajor("2") })] }),
+          pinvoice({ id: "p3", lines: [pline()] }),
+        ],
+        suppliers: [supplier()],
+        allocatedByInvoiceId: new Map([["p1", Money.fromMajor("120")], ["p2", Money.fromMajor("200")]]),
+        returnsByInvoiceId: new Map([["p1", Money.fromMajor("30")], ["p3", Money.fromMajor("150")]]),
+      },
+    );
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.rows[0]?.total).toBe(600);
+    expect(outcome.rows[0]?.outstanding).toBe(150);
+    expect(outcome.kpis.find((k) => k.key === "outstanding")?.value).toBe(150);
   });
 
   it("computes contribution % across two suppliers and sorts by total descending", () => {

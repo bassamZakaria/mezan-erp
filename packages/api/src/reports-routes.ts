@@ -78,6 +78,7 @@ import {
   LEAVE_LIABILITY_CONTROL_ACCOUNT,
   type RunReportOutcome,
   salesReturnGrandTotal,
+  salesReturnCreditByInvoice,
   sumActive,
   voucherBaseAmount,
   voucherBaseWithholding,
@@ -648,6 +649,15 @@ async function purchaseReturnsByInvoiceId(deps: ReportsRoutesDeps): Promise<Read
   return new Map([...out].map(([id, scaled]) => [id, Money.fromScaled(scaled)]));
 }
 
+/**
+ * Confirmed sales-return credit per source invoice, line by line — the figure
+ * the invoice screen nets from its remaining balance (D219).
+ */
+async function salesReturnCreditsByInvoiceId(deps: ReportsRoutesDeps): Promise<ReadonlyMap<string, Money>> {
+  const docs = (await deps.salesReturnDocs?.list({ status: "confirmed" })) ?? [];
+  return salesReturnCreditByInvoice(docs.filter((doc) => !doc.reversesDocId));
+}
+
 /** Confirmed sales-return credit per source invoice. */
 async function returnsByInvoiceId(deps: ReportsRoutesDeps): Promise<ReadonlyMap<string, Money>> {
   const out = new Map<string, bigint>();
@@ -844,15 +854,15 @@ export function createReportsRoutes(
   app.get("/sales/by-customer", gate("sales.invoice.view"), async (c) => {
     const today = todayIso(deps);
     const definition = createSalesByCustomerReport(firstOfMonth(today), today);
-    const [invoices, customers] = await Promise.all([scopedSalesInvoices(c), deps.customers.findAll()]);
-    return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { invoices, customers }));
+    const [invoices, customers, returnsByInvoiceId] = await Promise.all([scopedSalesInvoices(c), deps.customers.findAll(), salesReturnCreditsByInvoiceId(deps)]);
+    return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { invoices, customers, returnsByInvoiceId }));
   });
 
   app.get("/sales/by-salesperson", gate("sales.invoice.view"), async (c) => {
     const today = todayIso(deps);
     const definition = createSalesBySalespersonReport(firstOfMonth(today), today);
-    const invoices = await scopedSalesInvoices(c);
-    return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { invoices }));
+    const [invoices, returnsByInvoiceId] = await Promise.all([scopedSalesInvoices(c), salesReturnCreditsByInvoiceId(deps)]);
+    return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { invoices, returnsByInvoiceId }));
   });
 
   app.get("/sales/top-products", gate("sales.invoice.view"), async (c) => {
@@ -1019,10 +1029,10 @@ export function createReportsRoutes(
     const today = todayIso(deps);
     const definition = createPurchasesBySupplierReport(firstOfMonth(today), today);
     const [invoices, suppliers] = await Promise.all([scopedPurchaseInvoices(c), deps.suppliers.findAll()]);
-    const allocatedByInvoiceId = await settledByInvoiceId(deps, invoices);
+    const [allocatedByInvoiceId, returnsByInvoiceId] = await Promise.all([settledByInvoiceId(deps, invoices), purchaseReturnsByInvoiceId(deps)]);
     return respond(
       c,
-      runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { invoices, suppliers, allocatedByInvoiceId }),
+      runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { invoices, suppliers, allocatedByInvoiceId, returnsByInvoiceId }),
     );
   });
 
@@ -1608,7 +1618,7 @@ export function createReportsRoutes(
 
   app.get("/drill-down/customer/:id", gate("sales.customer.view"), async (c) => {
     const id = c.req.param("id");
-    const [customers, invoices] = await Promise.all([deps.customers.findAll(), scopedSalesInvoices(c)]);
+    const [customers, invoices, returned] = await Promise.all([deps.customers.findAll(), scopedSalesInvoices(c), salesReturnCreditsByInvoiceId(deps)]);
     const customer = customers.find((entry) => entry.id === id);
     if (!customer) return c.json({ error: "NOT_FOUND" }, 404);
     const own = invoices
@@ -1619,7 +1629,7 @@ export function createReportsRoutes(
     for (const invoice of own) {
       const total = salesInvoiceBaseGrandTotal(salesInvoiceTotals(invoice), invoice.fxRate);
       billed += total.scaled;
-      const balance = total.scaled - invoice.amountPaid.scaled;
+      const balance = total.scaled - invoice.amountPaid.scaled - (returned.get(invoice.id)?.scaled ?? 0n);
       if (balance > 0n) outstanding += balance;
     }
     return c.json({

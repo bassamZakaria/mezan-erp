@@ -29,6 +29,8 @@ export const UNASSIGNED_SALESPERSON_KEY = "__unassigned__";
 
 export interface SalesBySalespersonContext {
   readonly invoices: readonly SalesInvoice[];
+  /** Confirmed sales-return credit per SOURCE invoice, in base; outstanding nets it (D219). */
+  readonly returnsByInvoiceId?: ReadonlyMap<string, Money>;
 }
 
 export interface SalesBySalespersonParams {
@@ -112,7 +114,8 @@ export function createSalesBySalespersonReport(
         const totals = salesInvoiceTotals(invoice);
         const base = salesInvoiceBaseTotals(totals, invoice.fxRate);
         const revenue = params.taxMode === "inc" ? base.grandTotal : base.taxableTotal;
-        const outstanding = Money.fromScaled(base.grandTotal.scaled - invoice.amountPaid.scaled);
+        const returned = ctx.returnsByInvoiceId?.get(invoice.id) ?? Money.zero();
+        const outstanding = Money.fromScaled(base.grandTotal.scaled - invoice.amountPaid.scaled - returned.scaled);
         const key = invoice.salespersonId ?? UNASSIGNED_SALESPERSON_KEY;
         const nameAr =
           invoice.salespersonId === null ? "غير محدد" : (invoice.salespersonNameAr ?? invoice.salespersonId);

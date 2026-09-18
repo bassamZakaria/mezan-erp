@@ -73,6 +73,12 @@ export const voucherSchema = z.object({
   netPaidAmount: z.string(),
   journalEntryId: z.string().nullable(),
   confirmedAt: z.string().nullable(),
+  /**
+   * On a reversal's mirror: the voucher it reverses. The mirror is saved
+   * confirmed with the same line, so a figure summing confirmed vouchers must
+   * skip it (D197, D200). Optional so older payloads still parse.
+   */
+  reversesDocId: z.string().nullish(),
 });
 
 /** Create a voucher draft. */

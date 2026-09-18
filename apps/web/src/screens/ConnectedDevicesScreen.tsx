@@ -1,4 +1,6 @@
+import { Card } from "@mezan/ui";
 import { ConnectedDevicesPanel, LicenceStatusNotice } from "../lan/ConnectedDevicesPanel";
+import { isDesktopHost } from "../data/hooks";
 import { useAppTranslation } from "../i18n";
 
 /**
@@ -18,12 +20,23 @@ import { useAppTranslation } from "../i18n";
  */
 export function ConnectedDevicesScreen() {
   const { t } = useAppTranslation();
+  // Only the desktop app mounts `/lan/*` (createApp's `lan` option); the cloud
+  // server has no such routes, so the panel must not be mounted there at all.
+  const desktop = isDesktopHost();
   return (
     <div className="p-[20px]">
       <h1 className="mb-[4px] font-display text-[18px] font-bold text-ink">{t("nav.item.devices")}</h1>
-      <p className="mb-[16px] text-[12.5px] text-ink-muted">{t("devices.screenHint")}</p>
-      <LicenceStatusNotice />
-      <ConnectedDevicesPanel />
+      {desktop ? (
+        <>
+          <p className="mb-[16px] text-[12.5px] text-ink-muted">{t("devices.screenHint")}</p>
+          <LicenceStatusNotice />
+          <ConnectedDevicesPanel />
+        </>
+      ) : (
+        <Card className="mt-[12px] p-[18px]">
+          <p className="text-[12.5px] text-ink-muted">{t("devices.desktopOnly")}</p>
+        </Card>
+      )}
     </div>
   );
 }

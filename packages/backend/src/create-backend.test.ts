@@ -4695,6 +4695,26 @@ describe("createBackend — foreign documents settle and return in base (D202, D
     expect(openStmt.closing).toBe("-30.000000");
   });
 
+  it("D221: money dated before the invoice's currency has any approved rate cannot settle it — refused, nothing posted", async () => {
+    const app = await newBackend();
+    await createCustomer(app, "cust-usd", "0");
+    await createServiceItem(app);
+    await multiCurrency(app);
+    expect((await authedPost(app, "/sales-invoices", { ...invoiceBody("inv-usd", "cust-usd", "100"), currency: "USD" })).status).toBe(201);
+    expect((await authedPost(app, "/sales-invoices/inv-usd/confirm", {})).status).toBe(200);
+    expect((await post(app, "/vouchers", {
+      id: "v-early", date: "2026-07-15", voucherType: "customer_collection", amount: "4800", branchId: "BR1", paymentMethod: "cash",
+      treasuryAccountId: "ta-cash", treasuryGlAccountId: "1300-1", counterpartyGlAccountId: "1105", customerId: "cust-usd",
+    }, admin(app))).status).toBe(201);
+    expect((await post(app, "/vouchers/v-early/confirm", {}, admin(app))).status).toBe(200);
+    const refused = await post(app, "/vouchers/v-early/allocations", { allocationId: "al-early", invoiceId: "inv-usd", amount: "4800" }, admin(app));
+    expect(refused.status).toBe(422);
+    expect(((await refused.json()) as { error: string }).error).toBe("FX_RATE_MISSING");
+    expect((await get(app, "/sales-invoices/inv-usd")).remainingBalance).toBe("4800.000000");
+    expect(await glBalance(app, "4900")).toBe(0);
+    expect(await reconDiff(app, "ar")).toBe(0);
+  });
+
   it("D221: a USD invoice revalued at month-end and settled the next month realises its whole difference once", async () => {
     const app = await newBackend();
     await createCustomer(app, "cust-usd", "0");

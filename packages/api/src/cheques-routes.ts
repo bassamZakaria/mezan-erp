@@ -17,6 +17,7 @@ import {
   NoFiscalPeriodForDateError,
   PeriodNotOpenForPostingError,
   AllocationExceedsError,
+  SettlementRateMissingError,
   AllocationMismatchError,
   InvoiceNotFoundError,
   type AuditSink,
@@ -102,6 +103,7 @@ function handleDomainError(c: Context, err: unknown): Response {
     err instanceof ReplacementAmountMismatchError ||
     err instanceof AllocationExceedsError ||
     err instanceof AllocationMismatchError ||
+    err instanceof SettlementRateMissingError ||
     err instanceof UnbalancedEntryError ||
     err instanceof AccountNotFoundError ||
     err instanceof HeaderAccountNotPostableError ||

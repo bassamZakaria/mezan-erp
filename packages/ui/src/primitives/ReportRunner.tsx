@@ -65,6 +65,8 @@ export interface ReportRunnerReconciliation {
   readonly referenceTotal: number;
   readonly diff: number;
   readonly withinTolerance: boolean;
+  /** Ledger amounts the reference already excludes, named so the tie can be followed. */
+  readonly reconcilingItems?: readonly { readonly key: string; readonly labelAr: string; readonly amount: number }[];
 }
 
 /**
@@ -507,6 +509,12 @@ export function ReportRunner<Row>({
                   <span className="font-semibold text-danger-ink">{t("ui.report.difference", { amount: fmt.money(Math.abs(result.reconciliation.diff)) })}</span>
                 ) : null}
               </span>
+              {result.reconciliation.reconcilingItems?.map((item) => (
+                <span key={item.key} className="flex w-full items-center justify-between gap-[10px] text-ink-muted">
+                  <span>{item.labelAr}</span>
+                  <span className="mz-num">{fmt.money(item.amount)}</span>
+                </span>
+              ))}
             </Card>
           ) : null}
 

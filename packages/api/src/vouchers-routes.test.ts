@@ -558,10 +558,13 @@ describe("a voucher paid by cheque", () => {
     referenceNo: "CHQ-9001",
   };
 
-  it("puts an INCOMING cheque in the register for a receipt voucher, with the acting user", async () => {
+  it("puts an INCOMING cheque in the register when a receipt voucher posts, with the acting user (D196)", async () => {
     const { vouchers, register } = await newGatedApp({ withRegister: true });
     const created = await vouchers.fetch(req("/", { method: "POST", body: JSON.stringify(chequeCollection), userId: "nadia" }));
     expect(created.status).toBe(201);
+    // A draft has posted nothing, so there is no cheque to chase yet.
+    expect(await register.list()).toHaveLength(0);
+    expect((await vouchers.fetch(req("/v1/confirm", { method: "POST", userId: "nadia" }))).status).toBe(200);
 
     const rows = await register.list();
     expect(rows).toHaveLength(1);
@@ -574,9 +577,12 @@ describe("a voucher paid by cheque", () => {
     expect(rows[0]!.amount.toString()).toBe("250.000000");
   });
 
-  it("puts an OUTGOING cheque in the register for a payment voucher", async () => {
+  it("puts an OUTGOING cheque in the register when a payment voucher posts", async () => {
     const { vouchers, register } = await newGatedApp({ withRegister: true });
+    await vouchers.fetch(req("/", { method: "POST", body: JSON.stringify({ ...collection, id: "v-fund", amount: "1000.00" }) }));
+    await vouchers.fetch(req("/v-fund/confirm", { method: "POST" }));
     await vouchers.fetch(req("/", { method: "POST", body: JSON.stringify(chequePayment), userId: "hossam" }));
+    expect((await vouchers.fetch(req("/v2/confirm", { method: "POST", userId: "hossam" }))).status).toBe(200);
     const rows = await register.list();
     expect(rows.map((r) => [r.direction, r.chequeNumber, r.partyId])).toEqual([["outgoing", "CHQ-9001", "sup-1"]]);
   });
@@ -584,6 +590,7 @@ describe("a voucher paid by cheque", () => {
   it("leaves the register alone for a voucher paid any other way", async () => {
     const { vouchers, register } = await newGatedApp({ withRegister: true });
     await vouchers.fetch(req("/", { method: "POST", body: JSON.stringify(collection) }));
+    await vouchers.fetch(req("/v1/confirm", { method: "POST" }));
     expect(await register.list()).toHaveLength(0);
   });
 });

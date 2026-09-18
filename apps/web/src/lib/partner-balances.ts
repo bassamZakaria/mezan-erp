@@ -1,13 +1,11 @@
 import type {
   ChequeDTO,
-  CustomerDTO,
   PurchaseInvoiceDTO,
   PurchaseReturnDocumentDTO,
   SupplierDTO,
   TreasuryAccountDTO,
   VoucherDTO,
 } from "@mezan/contracts";
-import type { SalesInvoiceDTO } from "../data/hooks";
 
 /**
  * Live balances for the list screens.
@@ -28,38 +26,6 @@ function num(value: string | null | undefined): number {
 }
 
 const VOUCHER_SETTLED: ReadonlySet<string> = new Set(["confirmed", "posted"]);
-
-/**
- * What each customer still owes: their opening balance plus what is left on
- * every live invoice, less the cheques they have handed over. `remainingBalance`
- * is the server's own figure, already net of collections and confirmed returns.
- *
- * The cheque term is the twin of the supplier one below, and was missing here.
- * An incoming cheque credits AR the moment it is received — leaving it out
- * overstates what the customer owes by exactly the cheques in hand, which for a
- * distribution business is most of the balance. Only the part no invoice
- * claims is subtracted: an allocated part is already in `remainingBalance`. A
- * bounced cheque puts the debt back and a replaced one was bounced first, so
- * neither counts (D192) — the server's `outstandingByCustomer` is the same sum.
- */
-export function customerOwedById(
-  customers: readonly CustomerDTO[],
-  invoices: readonly SalesInvoiceDTO[],
-  cheques: readonly ChequeDTO[] = [],
-): Map<string, number> {
-  const owed = new Map<string, number>();
-  for (const c of customers) owed.set(c.id, num(c.openingBalance));
-  for (const inv of invoices) {
-    if (inv.status === "draft" || inv.status === "cancelled") continue;
-    owed.set(inv.customerId, (owed.get(inv.customerId) ?? 0) + num(inv.remainingBalance));
-  }
-  for (const cheque of cheques) {
-    if (cheque.direction !== "incoming" || cheque.effectiveStatus === "bounced" || cheque.effectiveStatus === "replaced") continue;
-    const applied = (cheque.allocations ?? []).reduce((total, alloc) => total + num(alloc.amount), 0);
-    owed.set(cheque.partyId, (owed.get(cheque.partyId) ?? 0) - (num(cheque.amount) - applied));
-  }
-  return owed;
-}
 
 /**
  * What each supplier is still owed: opening balance plus confirmed purchase

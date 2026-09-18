@@ -92,3 +92,45 @@ describe("createAgingSuppliersReport — the tie to the AP control account (D112
     expect(outcome.reconciliation?.withinTolerance).toBe(false);
   });
 });
+
+describe("createAgingSuppliersReport — foreign invoices and leftover debits (D194)", () => {
+  const definition = createAgingSuppliersReport("2026-08-22");
+
+  it("ages a SAR 100 invoice booked at 13.20 at the 1,320.00 it credited 2100 with, not at 100", () => {
+    const outcome = runReport(
+      definition,
+      { asOfDate: "2026-06-05" },
+      { invoices: [pinvoice({ currency: "SAR", fxRate: "13.20", lines: [pline({ kind: "expense", itemId: null, unitCost: Money.fromMajor("100") })] })], suppliers: [supplier()], payablesControlBalance: () => 1320 },
+    );
+    if (!outcome.ok) throw new Error("report failed");
+    expect(outcome.rows[0]?.total).toBe(1320);
+    expect(outcome.reconciliation?.withinTolerance).toBe(true);
+  });
+
+  it("keeps a payment larger than the debt on the row as a negative «جاري», so the ladder still ties", () => {
+    const outcome = runReport(
+      definition,
+      { asOfDate: "2026-06-05" },
+      {
+        invoices: [pinvoice()],
+        suppliers: [supplier(), supplier({ id: "sup-2", nameAr: "مورد ب" })],
+        unappliedDebitsBySupplierId: new Map([["sup-1", Money.fromMajor("350")], ["sup-2", Money.fromMajor("40")]]),
+        payablesControlBalance: () => -90,
+      },
+    );
+    if (!outcome.ok) throw new Error("report failed");
+    expect(outcome.rows.find((r) => r.supplierId === "sup-1")).toMatchObject({ current: -50, total: -50 });
+    expect(outcome.rows.find((r) => r.supplierId === "sup-2")).toMatchObject({ current: -40, total: -40 });
+    expect(outcome.reconciliation?.withinTolerance).toBe(true);
+  });
+
+  it("names the FX revaluation it excluded from the reference", () => {
+    const outcome = runReport(
+      definition,
+      { asOfDate: "2026-06-05" },
+      { invoices: [pinvoice()], suppliers: [supplier()], payablesControlBalance: () => 300, fxRevaluationOnControl: () => 30 },
+    );
+    if (!outcome.ok) throw new Error("report failed");
+    expect(outcome.reconciliation?.reconcilingItems).toEqual([expect.objectContaining({ key: "fxRevaluation", amount: 30 })]);
+  });
+});

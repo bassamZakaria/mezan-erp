@@ -3783,3 +3783,266 @@ describe("backupTo", () => {
     }
   });
 });
+
+describe("createBackend — FX aging, the customers screen and cheque vouchers (D194–D196)", () => {
+  async function get(app: App, path: string): Promise<any> {
+    return (await app.fetch(new Request(`http://local${path}`, { headers: admin(app) }))).json();
+  }
+  async function reconDiff(app: App, key: "ar" | "ap"): Promise<number> {
+    const { rows } = (await get(app, "/reconciliation")) as { rows: { key: string; subLedgerBalance: string; glBalance: string }[] };
+    const row = rows.find((r) => r.key === key)!;
+    return Number(row.subLedgerBalance) - Number(row.glBalance);
+  }
+  async function glBalance(app: App, accountId: string): Promise<number> {
+    return Number((await get(app, `/gl/accounts/${accountId}/ledger`)).balance.balance);
+  }
+  async function cashTreasury(app: App) {
+    const res = await post(
+      app,
+      "/treasury-accounts",
+      { id: "ta-cash", code: "TA-CASH", name: "الخزينة", branchId: "BR1", glAccountId: "1300-1", openingBalance: "0" },
+      admin(app),
+    );
+    expect(res.status).toBe(201);
+  }
+  function collection(id: string, customerId: string, amount: string, extra: Record<string, unknown> = {}) {
+    return {
+      id,
+      date: "2026-08-22",
+      voucherType: "customer_collection",
+      amount,
+      branchId: "BR1",
+      paymentMethod: "cash",
+      treasuryAccountId: "ta-cash",
+      treasuryGlAccountId: "1300-1",
+      counterpartyGlAccountId: "1105",
+      customerId,
+      ...extra,
+    };
+  }
+
+  async function approvedRate(app: App, id: string, currency: string, rate: string, effectiveDate: string) {
+    const created = await post(app, "/exchange-rates", { id, currency, rate, effectiveDate, rateType: "standard", source: "manual" }, admin(app));
+    expect(created.status).toBe(201);
+    expect((await post(app, `/exchange-rates/${id}/approve`, {}, admin(app))).status).toBe(200);
+  }
+
+  it("D197: reversing an on-account collection leaves AR reconciled — the mirror voucher is not a second receipt", async () => {
+    const app = await newBackend();
+    await createCustomer(app, "cust-rev", "0");
+    await createServiceItem(app);
+    await cashTreasury(app);
+    expect((await authedPost(app, "/sales-invoices", invoiceBody("inv-rev", "cust-rev", "1000"))).status).toBe(201);
+    expect((await authedPost(app, "/sales-invoices/inv-rev/confirm", {})).status).toBe(200);
+    expect((await post(app, "/vouchers", collection("v-rev", "cust-rev", "400"), admin(app))).status).toBe(201);
+    expect((await post(app, "/vouchers/v-rev/confirm", {}, admin(app))).status).toBe(200);
+    expect(await reconDiff(app, "ar")).toBe(0);
+
+    expect((await post(app, "/vouchers/v-rev/reverse", { date: "2026-08-23" }, admin(app))).status).toBe(201);
+    expect(await glBalance(app, "1105")).toBe(1000);
+    expect(await reconDiff(app, "ar")).toBe(0);
+    const aging = await get(app, "/reports/aging/customers?asOfDate=2026-09-30");
+    expect(aging.grandTotals.total).toBe(1000);
+    expect(aging.reconciliation).toMatchObject({ withinTolerance: true });
+  });
+
+  it("D197's twin: a reversed expense leaves the dashboard P&L where it was, and its mirror entry names its module", async () => {
+    const app = await newBackend();
+    await cashTreasury(app);
+    const fund = { ...collection("v-fund", "none", "1000"), voucherType: "capital_injection", counterpartyGlAccountId: "3100", customerId: null };
+    expect((await post(app, "/vouchers", fund, admin(app))).status).toBe(201);
+    expect((await post(app, "/vouchers/v-fund/confirm", {}, admin(app))).status).toBe(200);
+    const expense = { ...collection("v-exp", "none", "250"), voucherType: "other_expense", counterpartyGlAccountId: "5910", customerId: null };
+    expect((await post(app, "/vouchers", expense, admin(app))).status).toBe(201);
+    expect((await post(app, "/vouchers/v-exp/confirm", {}, admin(app))).status).toBe(200);
+    expect(Number((await get(app, "/dashboard/summary")).gl.expenses)).toBe(250);
+
+    expect((await post(app, "/vouchers/v-exp/reverse", { date: "2026-08-23" }, admin(app))).status).toBe(201);
+    expect(Number((await get(app, "/dashboard/summary")).gl.expenses)).toBe(0);
+    const entries = (await get(app, "/gl/journal-entries?pageSize=200")) as { items?: { sourceModule: string; memo: string }[] } | { sourceModule: string }[];
+    const list = Array.isArray(entries) ? entries : (entries.items ?? []);
+    expect(list.length).toBeGreaterThanOrEqual(3);
+    expect(list.filter((e) => e.sourceModule === "unknown")).toEqual([]);
+  });
+
+  it("D194: both ladders age a foreign invoice at its booked EGP value, and still tie once revaluation restates the control accounts", async () => {
+    const app = await newBackend();
+    await createCustomer(app, "cust-usd", "0");
+    await createServiceItem(app);
+    await approvedRate(app, "fx-usd-1", "USD", "48.00", "2026-08-01");
+    await approvedRate(app, "fx-sar-1", "SAR", "13.20", "2026-08-01");
+    const settings = await get(app, "/settings");
+    const put = await app.fetch(
+      new Request("http://local/settings", {
+        method: "PUT",
+        headers: { "content-type": "application/json", ...admin(app) },
+        body: JSON.stringify({ ...settings, multiCurrencyEnabled: true }),
+      }),
+    );
+    expect(put.status).toBe(200);
+    expect((await authedPost(app, "/sales-invoices", { ...invoiceBody("inv-usd", "cust-usd", "100"), currency: "USD" })).status).toBe(201);
+    expect((await authedPost(app, "/sales-invoices/inv-usd/confirm", {})).status).toBe(200);
+    expect(await glBalance(app, "1105")).toBe(4800);
+
+    expect((await post(app, "/suppliers", { id: "sup-sar", code: "sup-sar", nameAr: "مورد بالريال", currency: "SAR", openingBalance: "0" }, admin(app))).status).toBe(201);
+    const bill = await post(
+      app,
+      "/purchases/invoices",
+      {
+        id: "pi-sar",
+        supplierId: "sup-sar",
+        date: "2026-08-22",
+        dueDate: "2026-09-21",
+        branchId: "BR1",
+        warehouseId: "WH1",
+        currency: "SAR",
+        lines: [{ description: "خدمة بالريال", kind: "expense", qty: "1", unitCost: "100", taxRatePercent: 0 }],
+      },
+      admin(app),
+    );
+    expect(bill.status).toBe(201);
+    expect((await post(app, "/purchases/invoices/pi-sar/confirm", {}, admin(app))).status).toBe(200);
+    expect(-(await glBalance(app, "2100"))).toBe(1320);
+
+    const customers = await get(app, "/reports/aging/customers?asOfDate=2026-08-31");
+    expect(customers.rows.find((row: { customerId: string }) => row.customerId === "cust-usd")?.total).toBe(4800);
+    expect(customers.reconciliation).toMatchObject({ reportTotal: 4800, referenceTotal: 4800, withinTolerance: true });
+    const suppliers = await get(app, "/reports/aging/suppliers?asOfDate=2026-08-31");
+    expect(suppliers.rows.find((row: { supplierId: string }) => row.supplierId === "sup-sar")?.total).toBe(1320);
+    expect(suppliers.reconciliation).toMatchObject({ reportTotal: 1320, referenceTotal: 1320, withinTolerance: true });
+
+    // A month-end revaluation that is NOT auto-reversed restates both control
+    // accounts and touches no invoice: the ladders stay at the booked rate and
+    // the restatement is the one named reconciling item.
+    await approvedRate(app, "fx-usd-2", "USD", "50.00", "2026-08-31");
+    await approvedRate(app, "fx-sar-2", "SAR", "13.50", "2026-08-31");
+    const revalued = await post(app, "/revaluation/post", { date: "2026-08-31", currencies: ["USD", "SAR"], autoReverse: false }, admin(app));
+    expect(revalued.status).toBe(201);
+    expect(await glBalance(app, "1105")).toBe(5000);
+    expect(-(await glBalance(app, "2100"))).toBe(1350);
+
+    const customersAfter = await get(app, "/reports/aging/customers?asOfDate=2026-08-31");
+    expect(customersAfter.grandTotals.total).toBe(4800);
+    expect(customersAfter.reconciliation).toMatchObject({
+      referenceTotal: 4800,
+      withinTolerance: true,
+      reconcilingItems: [{ key: "fxRevaluation", amount: 200 }],
+    });
+    const suppliersAfter = await get(app, "/reports/aging/suppliers?asOfDate=2026-08-31");
+    expect(suppliersAfter.grandTotals.total).toBe(1320);
+    expect(suppliersAfter.reconciliation).toMatchObject({
+      referenceTotal: 1320,
+      withinTolerance: true,
+      reconcilingItems: [{ key: "fxRevaluation", amount: 30 }],
+    });
+    expect(await reconDiff(app, "ar")).toBe(0);
+    expect(await reconDiff(app, "ap")).toBe(0);
+  });
+
+  it("D195: what the customers screen says a customer owes is their aging row, on-account receipts included", async () => {
+    const app = await newBackend();
+    await createCustomer(app, "cust-owe", "0");
+    await createCustomer(app, "cust-credit", "0");
+    await createServiceItem(app);
+    await cashTreasury(app);
+    expect((await authedPost(app, "/sales-invoices", invoiceBody("inv-owe", "cust-owe", "1000"))).status).toBe(201);
+    expect((await authedPost(app, "/sales-invoices/inv-owe/confirm", {})).status).toBe(200);
+    for (const [id, customerId, amount] of [["v-onacc", "cust-owe", "100"], ["v-advance", "cust-credit", "50"]] as const) {
+      expect((await post(app, "/vouchers", collection(id, customerId, amount), admin(app))).status).toBe(201);
+      expect((await post(app, "/vouchers/" + id + "/confirm", {}, admin(app))).status).toBe(200);
+    }
+
+    const aging = await get(app, "/reports/aging/customers");
+    const row = (id: string) => aging.rows.find((r: { customerId: string }) => r.customerId === id)?.total;
+    expect(row("cust-owe")).toBe(900);
+    expect(row("cust-credit")).toBe(-50);
+    expect(aging.grandTotals.total).toBe(await glBalance(app, "1105"));
+
+    expect((await get(app, "/customers/cust-owe")).owed).toBe("900.000000");
+    expect((await get(app, "/customers/cust-credit")).owed).toBe("-50.000000");
+    const listed = (await get(app, "/customers")) as { id: string; owed: string }[];
+    expect(listed.find((c) => c.id === "cust-owe")?.owed).toBe("900.000000");
+    expect((await get(app, "/customers/stats?q=cust-owe")).toCollect).toBe("900.000000");
+  });
+
+  it("D196: a «شيك» receipt voucher raises its cheque through the real backend, credits AR once, and a bounce reverses it", async () => {
+    const app = await newBackend();
+    await createCustomer(app, "cust-chq", "0");
+    await createServiceItem(app);
+    await cashTreasury(app);
+    expect((await authedPost(app, "/sales-invoices", invoiceBody("inv-chq", "cust-chq", "1000"))).status).toBe(201);
+    expect((await authedPost(app, "/sales-invoices/inv-chq/confirm", {})).status).toBe(200);
+
+    const body = collection("v-chq", "cust-chq", "400", { paymentMethod: "cheque", referenceNo: "CHQ-196" });
+    expect((await post(app, "/vouchers", body, admin(app))).status).toBe(201);
+    expect((await get(app, "/cheques")).find?.((c: { id: string }) => c.id === "v-chq")).toBeUndefined();
+    expect((await post(app, "/vouchers/v-chq/confirm", {}, admin(app))).status).toBe(200);
+
+    const cheque = await get(app, "/cheques/v-chq");
+    expect(cheque).toMatchObject({ direction: "incoming", status: "pending", chequeNumber: "CHQ-196", partyId: "cust-chq", amount: "400.000000" });
+    expect(await glBalance(app, "1105")).toBe(600);
+    expect(await glBalance(app, "1320")).toBe(400);
+    expect(await glBalance(app, "1300-1")).toBe(0);
+    expect(await reconDiff(app, "ar")).toBe(0);
+    const aging = await get(app, "/reports/aging/customers?asOfDate=2026-09-30");
+    expect(aging.grandTotals.total).toBe(600);
+    expect(aging.reconciliation).toMatchObject({ withinTolerance: true });
+
+    expect((await post(app, "/vouchers/v-chq/allocations", { invoiceId: "inv-chq", amount: "400.00" }, admin(app))).status).toBe(201);
+    expect((await get(app, "/cheques/v-chq")).allocations).toHaveLength(1);
+    expect((await post(app, "/vouchers/v-chq/reverse", { date: "2026-08-23" }, admin(app))).status).toBe(422);
+
+    expect((await post(app, "/cheques/v-chq/deposit", { bankTreasuryAccountId: "ta-cash" }, admin(app))).status).toBe(200);
+    expect((await post(app, "/cheques/v-chq/bounce", { date: "2026-08-25" }, admin(app))).status).toBe(200);
+    expect((await get(app, "/vouchers/v-chq")).status).toBe("reversed");
+    expect(await get(app, "/sales-invoices/inv-chq")).toMatchObject({ status: "confirmed", remainingBalance: "1000.000000" });
+    expect(await glBalance(app, "1105")).toBe(1000);
+    expect(await glBalance(app, "1320")).toBe(0);
+    expect(await glBalance(app, "1300-1")).toBe(0);
+    expect(await reconDiff(app, "ar")).toBe(0);
+    const bounced = await get(app, "/reports/aging/customers?asOfDate=2026-09-30");
+    expect(bounced.grandTotals.total).toBe(1000);
+    expect(bounced.reconciliation).toMatchObject({ withinTolerance: true });
+
+    const replaced = await post(
+      app,
+      "/cheques/v-chq/replace",
+      { newCheque: { id: "chq-196-b", chequeNumber: "CHQ-196-B", bankName: "بنك مصر", issueDate: "2026-08-26", dueDate: "2026-09-10", branchId: "BR1" } },
+      admin(app),
+    );
+    expect(replaced.status).toBe(201);
+    expect(await glBalance(app, "1105")).toBe(600);
+    expect(await glBalance(app, "1320")).toBe(400);
+    expect(await reconDiff(app, "ar")).toBe(0);
+    const trialBalance = await get(app, "/financial-reports/trial-balance");
+    expect(Number(trialBalance.grandTotals.debit) - Number(trialBalance.grandTotals.credit)).toBe(0);
+  });
+
+  it("D196: a «شيك» supplier payment issues an outgoing cheque and debits AP once", async () => {
+    const app = await newBackend();
+    await cashTreasury(app);
+    expect((await post(app, "/vouchers", { ...collection("v-fund", "cust-none", "1000"), voucherType: "capital_injection", counterpartyGlAccountId: "3100", customerId: null }, admin(app))).status).toBe(201);
+    expect((await post(app, "/vouchers/v-fund/confirm", {}, admin(app))).status).toBe(200);
+    expect((await post(app, "/suppliers", { id: "sup-chq", code: "sup-chq", nameAr: "مورد", currency: "EGP", openingBalance: "0" }, admin(app))).status).toBe(201);
+    const payment = {
+      id: "v-pay-chq",
+      date: "2026-08-22",
+      voucherType: "supplier_payment",
+      amount: "300",
+      branchId: "BR1",
+      paymentMethod: "cheque",
+      treasuryAccountId: "ta-cash",
+      treasuryGlAccountId: "1300-1",
+      counterpartyGlAccountId: "2100",
+      supplierId: "sup-chq",
+      referenceNo: "OUT-196",
+    };
+    expect((await post(app, "/vouchers", payment, admin(app))).status).toBe(201);
+    expect((await post(app, "/vouchers/v-pay-chq/confirm", {}, admin(app))).status).toBe(200);
+    expect(await get(app, "/cheques/v-pay-chq")).toMatchObject({ direction: "outgoing", partyId: "sup-chq", chequeNumber: "OUT-196" });
+    expect(await glBalance(app, "2100")).toBe(300);
+    expect(await glBalance(app, "2150")).toBe(-300);
+    expect(await glBalance(app, "1300-1")).toBe(1000);
+    expect(await reconDiff(app, "ap")).toBe(0);
+  });
+});

@@ -6,11 +6,11 @@ import { InMemoryLedgerRepository, InMemorySequenceStore } from "../gl/test-help
 import { InMemoryAllocationRepository, InMemoryInvoiceRepository } from "../vouchers/test-helpers/in-memory-allocation-stores.js";
 import { invoiceOutstanding } from "../vouchers/allocation.js";
 import { AllocationExceedsError, AllocationMismatchError } from "../vouchers/errors.js";
-import { ChequeService } from "./cheque-service.js";
+import { ChequeService, type ChequeRaisingDocumentPort } from "./cheque-service.js";
 import { InvalidChequeCommandError } from "./errors.js";
 import { InMemoryChequeRepository, TEST_ACCOUNTS, TEST_PERIOD } from "./test-helpers/build-test-service.js";
 
-function harness() {
+function harness(raisedBy?: ChequeRaisingDocumentPort) {
   const ledger = new InMemoryLedgerRepository();
   const cheques = new InMemoryChequeRepository();
   const allocations = new InMemoryAllocationRepository();
@@ -33,6 +33,7 @@ function harness() {
       invoices,
       settlement: { applySettled: async ({ invoiceId, settled: value }) => void settled.set(invoiceId, value) },
     },
+    raisedBy,
   });
   return { service, ledger, invoices, settled };
 }
@@ -152,5 +153,65 @@ describe("D192 — a cheque applied to an invoice, then returned by the bank", (
 
     await expect(h.service.allocate({ chequeId: "chq-in", allocationId: "late", invoiceId: "inv-1", amount: Money.fromMajor("100") })).rejects.toBeInstanceOf(InvalidChequeCommandError);
     expect(await subLedger(h, "inv-1")).toBe("5000.000000");
+  });
+});
+
+/**
+ * D196 — a cheque a «شيك» voucher raised. The voucher credited the party, so
+ * the cheque only reclassifies the voucher's treasury leg (1310 here) into
+ * 1320, and its bounce hands back to the voucher, which is what reverses the
+ * party's credit.
+ */
+describe("D196 — a cheque raised by a voucher", () => {
+  async function raised(h: ReturnType<typeof harness>) {
+    await h.service.createCheque({
+      id: "v-1",
+      direction: "incoming",
+      chequeNumber: "CHQ-V1",
+      bankName: "غير مسجّل",
+      amount: Money.fromMajor("400"),
+      issueDate: "2026-08-05",
+      dueDate: "2026-08-05",
+      branchId: "b1",
+      partyId: "cust-1",
+      counterpartyGlAccountId: "1310",
+      controlAccounts: { underCollectionAccountId: "1320", bouncedAccountId: "1360" },
+      journalEntryId: "je-v1-cheque",
+    });
+  }
+  const balance = async (h: ReturnType<typeof harness>, accountId: string) => (await h.ledger.accountBalance(accountId)).balance.toString();
+
+  it("hands the bounce to the raising document after its own reversal posted, and never touches AR itself", async () => {
+    const bounced: string[] = [];
+    const h = harness({
+      onBounced: async (cheque, { date }) => void bounced.push(`${cheque.id}:${cheque.status}:${date}`),
+      partyControlAccountOf: async () => "1100",
+    });
+    await raised(h);
+    expect(await balance(h, "1320")).toBe("400.000000");
+    expect(await balance(h, "1310")).toBe("-400.000000");
+    expect(await balance(h, "1100")).toBe("0.000000");
+
+    await h.service.deposit({ chequeId: "v-1", bankTreasuryAccountId: "ta-bank1" });
+    await h.service.bounce({ chequeId: "v-1", journalEntryId: "je-v1-bounce", date: "2026-08-25" });
+    expect(bounced).toEqual(["v-1:bounced:2026-08-25"]);
+    expect(await balance(h, "1320")).toBe("0.000000");
+    expect(await balance(h, "1310")).toBe("0.000000");
+    expect(await balance(h, "1100")).toBe("0.000000");
+  });
+
+  it("credits the party's own control account on a replacement, not the treasury leg the voucher used", async () => {
+    const h = harness({ onBounced: async () => undefined, partyControlAccountOf: async () => "1100" });
+    await raised(h);
+    await h.service.deposit({ chequeId: "v-1", bankTreasuryAccountId: "ta-bank1" });
+    await h.service.bounce({ chequeId: "v-1", journalEntryId: "je-v1-bounce" });
+    const { replacement } = await h.service.replace({
+      bouncedChequeId: "v-1",
+      newCheque: { id: "chq-new", chequeNumber: "CHQ-V1-B", bankName: "بنك مصر", issueDate: "2026-08-26", dueDate: "2026-08-30", branchId: "b1" },
+      journalEntryId: "je-replace",
+    });
+    expect(replacement.counterpartyGlAccountId).toBe("1100");
+    expect(await balance(h, "1100")).toBe("-400.000000");
+    expect(await balance(h, "1310")).toBe("0.000000");
   });
 });

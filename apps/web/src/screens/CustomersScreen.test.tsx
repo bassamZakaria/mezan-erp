@@ -67,6 +67,7 @@ function customer(overrides: Partial<CustomerDTO> = {}): CustomerDTO {
     address: null,
     logoAttachmentId: null,
     nationalId: null,
+    owed: "450.000000",
     ...overrides,
   };
 }
@@ -306,7 +307,7 @@ function renderScreen(
     auditEventsByCustomer?: Record<string, AuditEventDTO[]>;
     attachmentsByCustomer?: Record<string, AttachmentDTO[]>;
     agingRows?: Array<Record<string, unknown>>;
-    /** Fails only the per-customer `?customerId=` invoices request, not the unfiltered one the credit-remaining calc uses. */
+    /** Fails only the per-customer `?customerId=` invoices request. */
     failScopedInvoices?: boolean;
     failInstallments?: boolean;
     failReturns?: boolean;
@@ -397,6 +398,17 @@ describe("CustomersScreen", () => {
     expect(screen.getByRole("heading", { name: "العملاء" })).toBeInTheDocument();
     expect(await screen.findByText("شركة الأمل للتجارة")).toBeInTheDocument();
     expect(screen.getByText("C000001")).toBeInTheDocument();
+  });
+
+  it("shows what the server says each customer owes, not a figure rebuilt from invoices in the browser (D195)", async () => {
+    const owing = customer({ owed: "1234.50" });
+    const invoice = salesInvoice({ id: "inv-x", customerId: owing.id, status: "confirmed", remainingBalance: "99999.000000" });
+    renderScreen([owing], { invoices: [invoice] });
+    expect(await screen.findByText("1,234.50")).toBeInTheDocument();
+    expect(screen.queryByText("99,999.00")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("شركة الأمل للتجارة"));
+    expect(screen.getByText("متبقي من الحد").nextElementSibling?.textContent).toContain("13,765.50");
   });
 
   it("shows an empty state when there are no customers yet", async () => {
@@ -932,10 +944,9 @@ describe("CustomersScreen", () => {
     await waitFor(() => expect(screen.getByText("شركة الأمل للتجارة")).toBeInTheDocument());
   });
 
-  it("shows a negative, danger-toned credit-remaining figure when live invoices push the customer over their limit", async () => {
-    const cust = customer({ id: "cust-1", openingBalance: "0.00", creditLimit: "1000.00" });
-    const inv = salesInvoice({ id: "inv-1", customerId: "cust-1", status: "confirmed", remainingBalance: "1200.000000" });
-    renderScreen([cust, inactiveCustomer], { invoices: [inv] });
+  it("shows a negative, danger-toned credit-remaining figure when what the customer owes passes their limit", async () => {
+    const cust = customer({ id: "cust-1", openingBalance: "0.00", creditLimit: "1000.00", owed: "1200.000000" });
+    renderScreen([cust, inactiveCustomer]);
     fireEvent.click(await screen.findByText("شركة الأمل للتجارة"));
 
     const label = screen.getByText("متبقي من الحد");
@@ -945,9 +956,8 @@ describe("CustomersScreen", () => {
   });
 
   it("shows a positive, default-toned credit-remaining figure when the customer is within their limit", async () => {
-    const cust = customer({ id: "cust-1", openingBalance: "0.00", creditLimit: "1000.00" });
-    const inv = salesInvoice({ id: "inv-1", customerId: "cust-1", status: "confirmed", remainingBalance: "300.000000" });
-    renderScreen([cust, inactiveCustomer], { invoices: [inv] });
+    const cust = customer({ id: "cust-1", openingBalance: "0.00", creditLimit: "1000.00", owed: "300.000000" });
+    renderScreen([cust, inactiveCustomer]);
     fireEvent.click(await screen.findByText("شركة الأمل للتجارة"));
 
     const label = screen.getByText("متبقي من الحد");

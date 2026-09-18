@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { isoDateParamSchema } from "./iso-date.js";
 import { Money } from "../money/index.js";
-import { salesInvoiceTotals } from "../sales-invoices/totals.js";
+import { salesInvoiceBaseGrandTotal, salesInvoiceTotals } from "../sales-invoices/totals.js";
 import { SALES_INVOICE_ACTIVE_STATUSES, type SalesInvoice } from "../sales-invoices/sales-invoice.js";
 import type { ReportDefinition } from "./types.js";
 import { sumRows, percentOf } from "./kpi.js";
@@ -11,10 +11,9 @@ import { BRANCH_PARAM_FIELD, branchIdParamSchema, matchesBranch } from "./branch
  * أعمار ديون العملاء — Customer Debt Aging (docs/archive/catalog/08-reports.md): the
  * standard 5-bucket AR aging ladder (جاري / 31-60 / 61-90 / 91-120 / أكثر من
  * 120 يوم) as of a snapshot date, from every live (confirmed/partially-paid/
- * paid) `SalesInvoice`'s own `dueDate` and outstanding balance
- * (`grandTotal − amountPaid`, using the SAME `computeInvoiceTotals` and
- * `amountPaid` the invoice screen uses — `applyAllocatedSettlement` is the
- * single writer of that field; the `recordPayment` this once named is gone).
+ * paid) `SalesInvoice`'s own `dueDate` and outstanding balance (its BASE
+ * grand total less what the allocation sub-ledger or `amountPaid` settled,
+ * less its confirmed returns — see {@link customerAgingBalances}).
  * "جاري" absorbs
  * both not-yet-due invoices and the first 30 days past due — the
  * conventional AR aging convention.
@@ -27,7 +26,7 @@ export interface AgingCustomersContext {
    * Arabic name it was written with, so without this the report cannot be read
    * in English (D57). Optional: omit it and the Arabic name stands.
    */
-  readonly customers?: readonly { readonly id: string; readonly nameEn: string | null }[];
+  readonly customers?: readonly { readonly id: string; readonly nameAr?: string; readonly nameEn: string | null }[];
   /**
    * Amount already settled per invoice id, from the allocation sub-ledger. A
    * collection can be recorded either as `amountPaid` on the invoice or as a
@@ -59,6 +58,13 @@ export interface AgingCustomersContext {
    * no claim to tie to the ledger.
    */
   readonly receivablesControlBalance?: (params: AgingCustomersParams) => number;
+  /**
+   * What FX revaluation has posted to the control account and not yet
+   * reversed as of `asOfDate`. The ladder ages every invoice at the rate it
+   * was booked at, so this is the one amount 1105 holds that no invoice does;
+   * `receivablesControlBalance` is already net of it.
+   */
+  readonly fxRevaluationOnControl?: (params: AgingCustomersParams) => number;
 }
 
 export interface AgingCustomersParams {
@@ -115,7 +121,7 @@ function addToBucket(totals: AgingBucketTotals, days: number, amount: Money): Ag
 /** Oldest bucket first — the order a collector clears a customer's debt in. */
 const BUCKETS = ["over120", "d91to120", "d61to90", "d31to60", "current"] as const;
 
-/** Draw an unallocated customer credit down the ladder, oldest debt first. */
+/** Draw an unallocated customer credit down the ladder, oldest debt first; what is left over is a negative «جاري». */
 function applyCredit(totals: AgingBucketTotals, credit: Money): AgingBucketTotals {
   let remaining = credit.scaled;
   let next = totals;
@@ -127,6 +133,7 @@ function applyCredit(totals: AgingBucketTotals, credit: Money): AgingBucketTotal
     next = { ...next, [bucket]: Money.fromScaled(held - taken) };
     remaining -= taken;
   }
+  if (remaining > 0n) next = { ...next, current: Money.fromScaled(next.current.scaled - remaining) };
   return next;
 }
 
@@ -156,6 +163,10 @@ export function createAgingCustomersReport(
       computeReferenceTotal: (_rows, ctx, params) => ctx.receivablesControlBalance?.(params) ?? 0,
       available: (ctx) => ctx.receivablesControlBalance !== undefined,
       toleranceMoney: 0.01,
+      reconcilingItems: (ctx, params) => {
+        const revalued = ctx.fxRevaluationOnControl?.(params) ?? 0;
+        return [{ key: "fxRevaluation", labelAr: "إعادة تقييم العملات المرحّلة على الحساب (مستبعدة من المطابقة)", amount: revalued }];
+      },
     },
     chart: {
       labelColumn: "customerNameAr",
@@ -169,29 +180,8 @@ export function createAgingCustomersReport(
       { key: "over90Percent", labelAr: "نسبة المتأخر", format: "percent", value: (rows) => percentOf(sumRows(rows, (r) => r.d91to120 + r.over120), sumRows(rows, (r) => r.total)) },
       { key: "customerCount", labelAr: "عدد العملاء المدينين", format: "qty", value: (rows) => rows.length },
     ],
-    run: (params, ctx) => {
-      const namesEn = new Map((ctx.customers ?? []).map((c) => [c.id, c.nameEn ?? null]));
-      const byCustomer = new Map<string, AgingBucketTotals>();
-      for (const invoice of ctx.invoices) {
-        if (!SALES_INVOICE_ACTIVE_STATUSES.has(invoice.status)) continue;
-        if (invoice.date > params.asOfDate) continue;
-        if (!matchesBranch(invoice.branchId, params.branchId)) continue;
-        const totals = salesInvoiceTotals(invoice);
-        const allocated = ctx.allocatedByInvoiceId?.get(invoice.id) ?? Money.zero();
-        const settled = allocated.scaled > invoice.amountPaid.scaled ? allocated : invoice.amountPaid;
-        const returned = ctx.returnsByInvoiceId?.get(invoice.id) ?? Money.zero();
-        const balance = Money.fromScaled(totals.grandTotal.scaled - settled.scaled - returned.scaled);
-        if (balance.scaled <= 0n) continue;
-        const existing = byCustomer.get(invoice.customerId) ?? emptyBucketTotals(invoice.customerNameAr, namesEn.get(invoice.customerId) ?? null);
-        const days = daysPastDue(invoice.dueDate, params.asOfDate);
-        byCustomer.set(invoice.customerId, addToBucket(existing, days, balance));
-      }
-      for (const [customerId, credit] of ctx.unappliedCreditsByCustomerId ?? []) {
-        const existing = byCustomer.get(customerId);
-        if (!existing || credit.scaled <= 0n) continue;
-        byCustomer.set(customerId, applyCredit(existing, credit));
-      }
-      return [...byCustomer.entries()].map(([customerId, agg]) => ({
+    run: (params, ctx) =>
+      [...customerAgingBalances(params, ctx)].map(([customerId, agg]) => ({
         customerId,
         customerNameAr: agg.customerNameAr,
         customerNameEn: agg.customerNameEn,
@@ -200,12 +190,55 @@ export function createAgingCustomersReport(
         d61to90: Number(agg.d61to90.toString()),
         d91to120: Number(agg.d91to120.toString()),
         over120: Number(agg.over120.toString()),
-        total: Number(
-          Money.fromScaled(
-            agg.current.scaled + agg.d31to60.scaled + agg.d61to90.scaled + agg.d91to120.scaled + agg.over120.scaled,
-          ).toString(),
-        ),
-      }));
-    },
+        total: Number(agingBucketsTotal(agg).toString()),
+      })),
   };
+}
+
+export type CustomerAgingBalance = AgingBucketTotals;
+
+/** A customer's whole ladder row as one figure. */
+export function agingBucketsTotal(totals: Omit<AgingBucketTotals, "customerNameAr" | "customerNameEn">): Money {
+  return Money.fromScaled(
+    totals.current.scaled + totals.d31to60.scaled + totals.d61to90.scaled + totals.d91to120.scaled + totals.over120.scaled,
+  );
+}
+
+/**
+ * The ladder per customer, in `Money`; the customers screen's «المستحق» reads
+ * it too (D195). Invoices age at their BASE total, the amount 1105 was debited
+ * with (D194), and a credit beyond the debt stays as a negative «جاري» because
+ * 1105 still carries it.
+ */
+export function customerAgingBalances(
+  params: AgingCustomersParams,
+  ctx: AgingCustomersContext,
+): Map<string, CustomerAgingBalance> {
+  const namesEn = new Map((ctx.customers ?? []).map((c) => [c.id, c.nameEn ?? null]));
+  const namesAr = new Map((ctx.customers ?? []).map((c) => [c.id, c.nameAr]));
+  const byCustomer = new Map<string, AgingBucketTotals>();
+  for (const invoice of ctx.invoices) {
+    if (!SALES_INVOICE_ACTIVE_STATUSES.has(invoice.status)) continue;
+    if (invoice.date > params.asOfDate) continue;
+    if (!matchesBranch(invoice.branchId, params.branchId)) continue;
+    const total = salesInvoiceBaseGrandTotal(salesInvoiceTotals(invoice), invoice.fxRate);
+    const allocated = ctx.allocatedByInvoiceId?.get(invoice.id) ?? Money.zero();
+    const settled = allocated.scaled > invoice.amountPaid.scaled ? allocated : invoice.amountPaid;
+    const returned = ctx.returnsByInvoiceId?.get(invoice.id) ?? Money.zero();
+    const balance = Money.fromScaled(total.scaled - settled.scaled - returned.scaled);
+    if (balance.scaled <= 0n) continue;
+    const existing = byCustomer.get(invoice.customerId) ?? emptyBucketTotals(invoice.customerNameAr, namesEn.get(invoice.customerId) ?? null);
+    const days = daysPastDue(invoice.dueDate, params.asOfDate);
+    byCustomer.set(invoice.customerId, addToBucket(existing, days, balance));
+  }
+  for (const [customerId, credit] of ctx.unappliedCreditsByCustomerId ?? []) {
+    if (credit.scaled <= 0n) continue;
+    const existing = byCustomer.get(customerId);
+    // A branch-narrowed ladder cannot say which branch an unapplied credit
+    // belongs to, so it only nets one against a row the branch already has.
+    if (!existing && params.branchId !== "") continue;
+    const start = existing ?? emptyBucketTotals(namesAr.get(customerId) ?? customerId, namesEn.get(customerId) ?? null);
+    byCustomer.set(customerId, applyCredit(start, credit));
+  }
+  return byCustomer;
 }

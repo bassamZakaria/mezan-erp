@@ -171,6 +171,7 @@ const MODULE_BY_DOC_TYPE: Readonly<Record<string, JournalSourceModule>> = {
   WRITEDOWN_RUN: "inventory",
   TREASURY_VOUCHER: "treasury",
   CHEQUE: "treasury",
+  FX_REVALUATION: "treasury",
   WORK_ORDER: "manufacturing",
   PAYROLL_RUN: "payroll",
   LEAVE_ACCRUAL: "payroll",

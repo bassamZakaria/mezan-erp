@@ -49,6 +49,10 @@ import {
   type ContractBillingRoutingPort,
   createTreasuryLedgerReader,
   VoucherService,
+  voucherLine,
+  ChequeService,
+  type ChequeRaisingDocumentPort,
+  type VoucherChequeRegistrationPort,
   VOUCHER_DOC_TYPE,
   NO_SIMPLIFIED_REGIME,
   simplifiedRegimeActiveOn,
@@ -76,6 +80,9 @@ import {
   type OpenPartyDocument,
   purchaseInvoiceTotal,
   purchaseInvoiceBaseTotal,
+  voucherBaseAmount,
+  isStandingVoucher,
+  fxRevaluationNet,
   Qty,
   purchaseReturnGrandTotal,
   salesReturnGrandTotal,
@@ -2385,14 +2392,18 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
      */
     const voucherEffect = { receivable: 0n, payable: 0n };
     for (const doc of await vouchers.documents.list({ status: "confirmed" })) {
+      if (!isStandingVoucher(doc)) continue;
       const line = doc.lines[0];
       if (!line || line.direction === "transfer") continue;
       const credited = line.direction === "receipt";
+      // BASE, as the voucher posted it: a foreign voucher's own `amount` is in
+      // its currency (D194's twin).
+      const amount = voucherBaseAmount(line).scaled;
       if (line.counterpartyGlAccountId === AR_CONTROL) {
-        voucherEffect.receivable += credited ? -line.amount.scaled : line.amount.scaled;
+        voucherEffect.receivable += credited ? -amount : amount;
       }
       if (line.counterpartyGlAccountId === AP_CONTROL) {
-        voucherEffect.payable += credited ? line.amount.scaled : -line.amount.scaled;
+        voucherEffect.payable += credited ? amount : -amount;
       }
     }
 
@@ -2497,6 +2508,15 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     // this figure is again what it claims to be: what real supplier documents
     // say is owed.
 
+    /**
+     * FX revaluation restates 1105/2100 without touching a document, so the
+     * sub-ledger — every document at the rate it was booked at — carries the
+     * unreversed restatement as its one non-document term (D194).
+     */
+    const partyControlLines = (await ledger.listLines?.({ accountIds: [AR_CONTROL, AP_CONTROL] })) ?? [];
+    arScaled += fxRevaluationNet(partyControlLines, AR_CONTROL).scaled;
+    apScaled -= fxRevaluationNet(partyControlLines, AP_CONTROL).scaled;
+
     let inventoryScaled = 0n;
     for (const snap of snapshots) {
       inventoryScaled += snap.totalValue.scaled;
@@ -2550,9 +2570,10 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     const advanceAccountId = account("contracting.customer_advances", "2160");
     let customerAdvancesScaled = 0n;
     for (const doc of await vouchers.documents.list({ status: "confirmed" })) {
+      if (!isStandingVoucher(doc)) continue;
       const line = doc.lines[0];
       if (!line || line.counterpartyGlAccountId !== advanceAccountId) continue;
-      customerAdvancesScaled += line.direction === "receipt" ? line.amount.scaled : -line.amount.scaled;
+      customerAdvancesScaled += line.direction === "receipt" ? voucherBaseAmount(line).scaled : -voucherBaseAmount(line).scaled;
     }
     for (const c of postedCertificates) {
       customerAdvancesScaled -= deduction(c.computed.deductions, "advanceRecovery");
@@ -2821,6 +2842,98 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   };
 
   /**
+   * D196 — the cheque behind a «شيك» voucher, registered when the voucher
+   * posts. The voucher already credited the party (Dr treasury / Cr 1105, or
+   * Dr 2100 / Cr treasury), so the cheque must NOT credit it again: its
+   * creation posting only moves the amount from the voucher's treasury leg
+   * into the cheque control account (Dr 1320 / Cr treasury, or Dr treasury /
+   * Cr 2150), and the cheque's counterparty is that treasury account. The
+   * sub-ledgers count only cheques whose counterparty is a party control
+   * account, so this cheque is never netted twice. It shares the voucher's id,
+   * so the voucher's allocations are the cheque's allocations. A bounce
+   * reverses that reclassification and then the voucher itself, which puts
+   * the debt back on the party (D192); a replacement credits the party's own
+   * control account.
+   */
+  const voucherChequeControls = {
+    incoming: { underCollectionAccountId: "1320", bouncedAccountId: "1360" },
+    outgoing: { underCollectionAccountId: "2150", bouncedAccountId: null },
+  } as const;
+  const raisingVoucherOf = async (cheque: { readonly id: string; readonly counterpartyGlAccountId: string }) => {
+    const doc = await vouchers.documents.findById(cheque.id);
+    if (!doc || doc.reversesDocId) return null;
+    const line = voucherLine(doc);
+    return line.paymentMethod === "cheque" && line.treasuryGlAccountId === cheque.counterpartyGlAccountId ? doc : null;
+  };
+  const chequeRaisedByVoucher: ChequeRaisingDocumentPort = {
+    async onBounced(cheque, { date, actor }) {
+      const doc = await raisingVoucherOf(cheque);
+      if (!doc || doc.status !== "confirmed") return;
+      await new VoucherService({
+        documents: vouchers.documents,
+        ledger,
+        accounts,
+        periods: fiscalPeriods,
+        numbering: ledger.numbering,
+        projects,
+        treasuryAccounts,
+        allocations: vouchers.allocations,
+        invoices: vouchers.invoices,
+        settings,
+        settlement: invoiceSettlement,
+        audit: auditSink,
+        events: voucherEventBridge,
+        actor,
+      }).reverseVoucher(doc.id, {
+        reversalId: `${doc.id}:BOUNCED`,
+        date,
+        memo: `عكس السند لارتداد الشيك رقم ${cheque.chequeNumber}`,
+      });
+    },
+    async partyControlAccountOf(cheque) {
+      const doc = await raisingVoucherOf(cheque);
+      return doc ? voucherLine(doc).counterpartyGlAccountId : null;
+    },
+  };
+  const voucherChequeRegister = new ChequeService({
+    cheques,
+    gl: salesInvoiceGl,
+    allocation: { allocations: vouchers.allocations, invoices: vouchers.invoices, settlement: invoiceSettlement },
+    raisedBy: chequeRaisedByVoucher,
+  });
+  const voucherCheques: VoucherChequeRegistrationPort = {
+    async register(input) {
+      // Cheque.partyId is required, and a cheque nobody owes is not one the
+      // register can chase; «إيراد آخر» by cheque posts as before.
+      if (!input.partyId) return null;
+      const cheque = await voucherChequeRegister.createCheque({
+        id: input.voucherId,
+        direction: input.direction,
+        chequeNumber: input.chequeNumber ?? input.voucherNo ?? input.voucherId,
+        // The voucher form does not capture the drawee bank or a due date yet;
+        // the register shows the gap rather than inventing either.
+        bankName: "غير مسجّل",
+        amount: input.amount,
+        currency: input.currency,
+        issueDate: input.issueDate,
+        dueDate: input.issueDate,
+        branchId: input.branchId,
+        notes: input.memo,
+        partyId: input.partyId,
+        counterpartyGlAccountId: input.treasuryGlAccountId,
+        controlAccounts: voucherChequeControls[input.direction],
+        journalEntryId: `CHQ-JE:${input.voucherId}`,
+        actor: input.actor,
+      });
+      return { chequeId: cheque.id };
+    },
+    async blocksReversal(voucherId) {
+      const cheque = await cheques.findById(voucherId);
+      return cheque !== null && cheque.status !== "bounced" && cheque.status !== "replaced";
+    },
+  };
+
+  /**
    * تحصيل من عميل — creates and CONFIRMS a real collection voucher and
    * allocates it to the invoice, so the money lands in a treasury account, AR
    * is credited in the ledger, and the invoice's amountPaid follows from the
@@ -2847,6 +2960,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       settlement: invoiceSettlement,
       audit: auditSink,
       actor: input.actor,
+      cheques: voucherCheques,
     });
     await service.createVoucher({
       id: voucherId,
@@ -2992,6 +3106,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       // allocation sub-ledger, which the reconciliation above now reads.
       settlement: invoiceSettlement,
       events: voucherEventBridge,
+      cheques: voucherCheques,
       // Law 6/2025 exempts a regime taxpayer from withholding, so the route
       // refuses a voucher that withholds rather than posting a liability the
       // authority does not recognise (DEC-13).
@@ -3044,6 +3159,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
           settings,
           audit: auditSink,
           actor: input.actor,
+          cheques: voucherCheques,
         });
         await service.createVoucher({
           id: voucherId,
@@ -3134,6 +3250,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       // A cheque applied against an invoice lives in the same allocation
       // sub-ledger as a voucher, so a bounce can reopen what it settled (D192).
       allocation: { allocations: vouchers.allocations, invoices: vouchers.invoices, settlement: invoiceSettlement },
+      raisedBy: chequeRaisedByVoucher,
     },
     bankReconciliation: {
       statements: bankStatements.statements,

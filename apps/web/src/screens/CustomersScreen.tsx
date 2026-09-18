@@ -50,7 +50,6 @@ import {
   useVoucherAllocations,
 } from "../data/partner-detail-hooks";
 import { TextField, NumberField, SelectField, ToggleField } from "../settings/form-controls";
-import { customerOwedById } from "../lib/partner-balances";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { useUrlFlag, useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 import { customerFilterFromUrl } from "../data/list-queries";
@@ -703,10 +702,9 @@ function CustomerDetail({ customer, onBack, onEdit }: { customer: CustomerDTO; o
   const { t } = useAppTranslation();
   const { navigate } = useNavigation();
   // Credit left is the limit minus what the customer owes TODAY. Measuring it
-  // against the opening balance ignored every invoice since (D40).
-  const invoices = useSalesInvoices().data ?? EMPTY;
-  const cheques = useCheques().data ?? EMPTY;
-  const owed = customerOwedById([customer], invoices, cheques).get(customer.id) ?? 0;
+  // against the opening balance ignored every invoice since (D40). `owed` is
+  // the server's figure, the customer's aging row (D195).
+  const owed = num(customer.owed ?? undefined);
   const remainingCredit = num(customer.creditLimit) - owed;
   return (
     <DocumentDetail
@@ -853,10 +851,6 @@ export function CustomersScreen() {
   const customers = query.data ?? EMPTY;
   const counts = useCustomerCounts(filter).data ?? {};
   const stats = useCustomerStats(filter).data ?? {};
-  const invoices = useSalesInvoices().data ?? EMPTY;
-  const cheques = useCheques().data ?? EMPTY;
-  const owedById = useMemo(() => customerOwedById(customers, invoices, cheques), [customers, invoices, cheques]);
-  const owedOf = (id: string) => owedById.get(id) ?? 0;
 
   const selected = customers.find((c) => c.id === selectedId) ?? null;
   const filtered = customers;
@@ -890,7 +884,7 @@ export function CustomersScreen() {
     { key: "terms", header: t("customers.detail.paymentTerms"), render: (c) => <span className="mz-num">{t("customers.detail.days", { days: c.paymentTermsDays })}</span> },
     { key: "category", header: t("customers.detail.category"), render: (c) => c.category ?? t("common.uncategorized") },
     { key: "creditLimit", header: t("customers.detail.creditLimit"), align: "end", render: (c) => <MoneyValue value={num(c.creditLimit)} /> },
-    { key: "owed", header: t("customers.col.owed"), align: "end", render: (c) => <MoneyValue value={owedOf(c.id)} /> },
+    { key: "owed", header: t("customers.col.owed"), align: "end", render: (c) => <MoneyValue value={num(c.owed ?? undefined)} /> },
     {
       key: "status",
       header: t("common.status"),

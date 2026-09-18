@@ -164,6 +164,34 @@ describe("ReportRunner — reconciliation banner", () => {
     expect(screen.getByText("إجمالي المدين = إجمالي الدائن")).toBeInTheDocument();
     expect(screen.getByText("≠")).toBeInTheDocument();
   });
+
+  it("names each reconciling item the reference already excludes, beside the tie (D194)", () => {
+    render(
+      <ReportRunner
+        title="تقرير"
+        paramFields={[]}
+        params={{}}
+        onParamsChange={() => {}}
+        result={{
+          rows: [],
+          groups: [],
+          grandTotals: {},
+          reconciliation: {
+            labelAr: "إجمالي أعمار الديون مقابل حساب العملاء",
+            reportTotal: 4800,
+            referenceTotal: 4800,
+            diff: 0,
+            withinTolerance: true,
+            reconcilingItems: [{ key: "fxRevaluation", labelAr: "إعادة تقييم العملات", amount: 200 }],
+          },
+        }}
+        columns={columns}
+        rowKey={(r) => r.id}
+      />,
+    );
+    expect(screen.getByText("=")).toBeInTheDocument();
+    expect(screen.getByText("إعادة تقييم العملات").nextElementSibling?.textContent).toBe("200.00");
+  });
 });
 
 describe("ReportRunner — export", () => {

@@ -167,6 +167,10 @@ export function ReportScreen<TParams extends object, Row>({ definition: rawDefin
           ? {
               ...localized.reconciliation,
               labelAr: tryReportLabel(`report.${definition.id}.recon`, localized.reconciliation.labelAr, t),
+              reconcilingItems: localized.reconciliation.reconcilingItems?.map((item) => ({
+                ...item,
+                labelAr: tryReportLabel(`report.${definition.id}.reconItem.${item.key}`, item.labelAr, t),
+              })),
             }
           : null,
         summary:

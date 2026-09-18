@@ -30,6 +30,7 @@ export {
   type BounceChequeCommand,
   type ChequeListQuery,
   type ChequeServiceDeps,
+  type ChequeRaisingDocumentPort,
   type CollectChequeCommand,
   type CreateChequeCommand,
   type DepositChequeCommand,

@@ -31,6 +31,12 @@ export const customerSchema = z.object({
   address: z.string().nullable(),
   logoAttachmentId: z.string().nullable(),
   nationalId: z.string().nullable(),
+  /**
+   * What the customer owes today: the opening balance plus their row on the
+   * customer aging ladder (D195). Read-only, sent on the list and on GET
+   * /customers/:id; null when the server has no receivables source.
+   */
+  owed: moneyString.nullish(),
 });
 
 /** POST /customers body — matches the catalog's "Add customer" dialog defaults. */
@@ -71,7 +77,7 @@ export const createCustomerSchema = z.object({
 
 /** PATCH /customers/:id body — every field but id optional. */
 export const updateCustomerSchema = customerSchema
-  .omit({ id: true })
+  .omit({ id: true, owed: true })
   .partial()
   .extend({ openingBalanceDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() });
 

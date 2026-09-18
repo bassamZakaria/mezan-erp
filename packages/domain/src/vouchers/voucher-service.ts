@@ -99,6 +99,49 @@ export function createVoucherGlHook(deps: JournalPostingDeps): DocumentGlHook {
   };
 }
 
+/**
+ * Everything a «شيك» voucher knows about the cheque it raised, handed to the
+ * register when the voucher POSTS, so the paper and the money are one record
+ * (D81, D196). `amount` is the base amount the voucher posted.
+ */
+export interface VoucherChequeRegistration {
+  readonly voucherId: string;
+  readonly voucherNo: string | null;
+  /** A receipt voucher takes a cheque IN; a payment voucher issues one OUT. */
+  readonly direction: "incoming" | "outgoing";
+  /** The voucher's `referenceNo`, which is where the cheque number is typed. */
+  readonly chequeNumber: string | null;
+  readonly amount: Money;
+  readonly currency: string;
+  readonly issueDate: string;
+  readonly branchId: string;
+  /** Customer for an incoming cheque, supplier for an outgoing one. */
+  readonly partyId: string | null;
+  /** The party's control account the voucher itself settled. */
+  readonly counterpartyGlAccountId: string | null;
+  /** The treasury leg the voucher posted — what the cheque actually sits in until it clears. */
+  readonly treasuryGlAccountId: string;
+  readonly memo: string | null;
+  /** The RESOLVED caller — the same attribution every cheque transition carries (D80). */
+  readonly actor: string;
+}
+
+/**
+ * Registers the cheque behind a «شيك» voucher. Returns the cheque's id, or null
+ * when the register declined to record one. Omit the port and a cheque voucher
+ * posts exactly as a cash one does and leaves the register short.
+ */
+export interface VoucherChequeRegistrationPort {
+  register(input: VoucherChequeRegistration): Promise<{ chequeId: string } | null>;
+  /**
+   * True while the cheque this voucher raised is still live. Reversing the
+   * voucher then would leave the cheque sitting in its control account against
+   * a treasury leg that no longer exists; the cheque's own bounce is what
+   * reverses such a voucher.
+   */
+  blocksReversal?(voucherId: string): Promise<boolean>;
+}
+
 export interface VoucherServiceDeps {
   readonly documents: import("../documents/document.js").DocumentRepository<VoucherLine>;
   readonly ledger: LedgerRepository;
@@ -148,6 +191,8 @@ export interface VoucherServiceDeps {
   readonly now?: () => string;
   readonly actor?: string;
   readonly actorRoles?: readonly string[];
+  /** The cheque register a «شيك» voucher writes into when it posts (D81, D196). */
+  readonly cheques?: VoucherChequeRegistrationPort;
 }
 
 /** All the fields needed to open a new voucher draft (one economic line + envelope). */
@@ -282,7 +327,41 @@ export class VoucherService {
         ...(await this.cashPolicy()),
       }, stamped.date);
     }
-    return this.service.confirm(id, opts);
+    const cheques = this.deps.cheques;
+    if (!cheques) return this.service.confirm(id, opts);
+    // The posting and the register row are one act: a «شيك» voucher that
+    // posted while its cheque failed to register is exactly the gap D81 filed.
+    return this.deps.documents.transaction(async () => {
+      const result = await this.service.confirm(id, opts);
+      if (!result.held) await this.registerCheque(cheques, result.document, opts.actor);
+      return result;
+    });
+  }
+
+  private async registerCheque(
+    cheques: VoucherChequeRegistrationPort,
+    doc: VoucherDocument,
+    actor: string | undefined,
+  ): Promise<void> {
+    const line = voucherLine(doc);
+    if (line.paymentMethod !== "cheque") return;
+    const direction = getVoucherTypeDefinition(line.voucherType).direction;
+    if (direction !== "receipt" && direction !== "payment") return;
+    await cheques.register({
+      voucherId: doc.id,
+      voucherNo: doc.docNo,
+      direction: direction === "receipt" ? "incoming" : "outgoing",
+      chequeNumber: line.referenceNo,
+      amount: voucherBaseAmount(line),
+      currency: line.fxRate ? (this.deps.baseCurrency ?? BASE_CURRENCY) : line.currency,
+      issueDate: doc.date,
+      branchId: line.branchId,
+      partyId: direction === "receipt" ? line.customerId : line.supplierId,
+      counterpartyGlAccountId: line.counterpartyGlAccountId,
+      treasuryGlAccountId: line.treasuryGlAccountId,
+      memo: doc.memo ?? null,
+      actor: actor ?? this.deps.actor ?? "system",
+    });
   }
 
   /**
@@ -334,6 +413,13 @@ export class VoucherService {
     id: string,
     opts: { reversalId: string; date?: string; memo?: string },
   ): Promise<{ original: VoucherDocument; reversal: VoucherDocument }> {
+    if (await this.deps.cheques?.blocksReversal?.(id)) {
+      throw new InvalidDocumentError(
+        voucherDocumentType.code,
+        id,
+        "الشيك المرتبط بهذا السند ما زال قائماً في سجل الشيكات؛ ارتداد الشيك هو ما يعكس السند.",
+      );
+    }
     const result = await this.service.reverse(id, opts);
     const active = (await this.deps.allocations.listByVoucher(id)).filter((a) => a.status === "active");
     for (const alloc of active) {

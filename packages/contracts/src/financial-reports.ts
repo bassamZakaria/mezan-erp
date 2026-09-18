@@ -25,6 +25,7 @@ export const reportReconciliationSchema = z.object({
   referenceTotal: z.number(),
   diff: z.number(),
   withinTolerance: z.boolean(),
+  reconcilingItems: z.array(z.object({ key: z.string(), labelAr: z.string(), amount: z.number() })).optional(),
 });
 
 const totalsSchema = z.record(z.string(), z.number());

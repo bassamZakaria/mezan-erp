@@ -1,21 +1,15 @@
 import { describe, expect, it } from "vitest";
 import type {
   ChequeDTO,
-  CustomerDTO,
   PurchaseInvoiceDTO,
   PurchaseReturnDocumentDTO,
   SupplierDTO,
   TreasuryAccountDTO,
   VoucherDTO,
 } from "@mezan/contracts";
-import type { SalesInvoiceDTO } from "../data/hooks";
-import { customerOwedById, supplierPayableById, treasuryBalanceById } from "./partner-balances";
+import { supplierPayableById, treasuryBalanceById } from "./partner-balances";
 
-const customer = (id: string, openingBalance: string): CustomerDTO => ({ id, openingBalance }) as CustomerDTO;
 const supplier = (id: string, openingBalance: string): SupplierDTO => ({ id, openingBalance }) as SupplierDTO;
-
-const salesInvoice = (customerId: string, status: string, remainingBalance: string): SalesInvoiceDTO =>
-  ({ customerId, status, remainingBalance }) as SalesInvoiceDTO;
 
 const purchaseInvoice = (supplierId: string, status: string, total: string): PurchaseInvoiceDTO =>
   ({ supplierId, status, total }) as PurchaseInvoiceDTO;
@@ -30,77 +24,6 @@ const purchaseReturn = (
   status: string,
   lines: { supplierId: string; qty: string; unitCost: string; taxAmount: string }[],
 ): PurchaseReturnDocumentDTO => ({ status, lines }) as PurchaseReturnDocumentDTO;
-
-describe("customerOwedById", () => {
-  it("starts every customer at their opening balance", () => {
-    const owed = customerOwedById([customer("C1", "500.000000"), customer("C2", "0.000000")], []);
-    expect(owed.get("C1")).toBe(500);
-    expect(owed.get("C2")).toBe(0);
-  });
-
-  it("adds what is left on every live invoice", () => {
-    const owed = customerOwedById(
-      [customer("C1", "100.000000")],
-      [salesInvoice("C1", "confirmed", "250.000000"), salesInvoice("C1", "partially_paid", "50.000000")],
-    );
-    expect(owed.get("C1")).toBe(400);
-  });
-
-  it("ignores drafts and cancelled invoices, which no one owes anything on", () => {
-    const owed = customerOwedById(
-      [customer("C1", "0.000000")],
-      [salesInvoice("C1", "draft", "999.000000"), salesInvoice("C1", "cancelled", "999.000000")],
-    );
-    expect(owed.get("C1")).toBe(0);
-  });
-
-  it("credits an incoming cheque the moment it is received", () => {
-    const owed = customerOwedById(
-      [customer("C1", "0.000000")],
-      [salesInvoice("C1", "confirmed", "1000.000000")],
-      [cheque("C1", "incoming", "deposited", "400.000000")],
-    );
-    expect(owed.get("C1")).toBe(600);
-  });
-
-  it("puts the debt back when a cheque bounces", () => {
-    const owed = customerOwedById(
-      [customer("C1", "0.000000")],
-      [salesInvoice("C1", "confirmed", "1000.000000")],
-      [cheque("C1", "bounced-party", "bounced", "400.000000"), cheque("C1", "incoming", "bounced", "400.000000")],
-    );
-    expect(owed.get("C1")).toBe(1000);
-  });
-
-  it("counts a replaced cheque once, through its replacement (D192)", () => {
-    const owed = customerOwedById(
-      [customer("C1", "0.000000")],
-      [salesInvoice("C1", "confirmed", "1000.000000")],
-      [cheque("C1", "incoming", "replaced", "400.000000"), cheque("C1", "incoming", "pending", "400.000000")],
-    );
-    expect(owed.get("C1")).toBe(600);
-  });
-
-  it("subtracts only the part of a cheque no invoice claims — the rest is already in remainingBalance (D192)", () => {
-    const applied = { ...cheque("C1", "incoming", "deposited", "400.000000"), allocations: [{ id: "a1", invoiceId: "I1", amount: "250.000000" }] };
-    const owed = customerOwedById([customer("C1", "0.000000")], [salesInvoice("C1", "confirmed", "750.000000")], [applied]);
-    expect(owed.get("C1")).toBe(600);
-  });
-
-  it("ignores an outgoing cheque, which has nothing to do with what a customer owes", () => {
-    const owed = customerOwedById(
-      [customer("C1", "0.000000")],
-      [salesInvoice("C1", "confirmed", "1000.000000")],
-      [cheque("C1", "outgoing", "deposited", "400.000000")],
-    );
-    expect(owed.get("C1")).toBe(1000);
-  });
-
-  it("still reports an invoice for a customer who is not in the list", () => {
-    const owed = customerOwedById([], [salesInvoice("GHOST", "confirmed", "10.000000")]);
-    expect(owed.get("GHOST")).toBe(10);
-  });
-});
 
 describe("supplierPayableById", () => {
   it("adds confirmed purchase invoices to the opening balance", () => {

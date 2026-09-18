@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { Money, Qty } from "../money/index.js";
 import { runReport } from "./engine.js";
-import { createAgingCustomersReport } from "./aging-customers.js";
+import { agingBucketsTotal, createAgingCustomersReport, customerAgingBalances } from "./aging-customers.js";
 import type { SalesInvoice, SalesInvoiceLine } from "../sales-invoices/sales-invoice.js";
 
 function line(overrides: Partial<SalesInvoiceLine> = {}): SalesInvoiceLine {
@@ -154,5 +154,64 @@ describe("a reconciliation whose reference is not wired shows no banner (D112)",
     if (!outcome.ok) return;
     expect(outcome.rows[0]?.total).toBe(200);
     expect(outcome.reconciliation).toBeNull();
+  });
+});
+
+describe("createAgingCustomersReport — foreign invoices and leftover credits (D194, D195)", () => {
+  const definition = createAgingCustomersReport("2026-08-22");
+
+  it("ages a USD 100 invoice booked at 48.00 at the 4,800.00 it debited 1105 with", () => {
+    const outcome = runReport(
+      definition,
+      { asOfDate: "2026-06-05" },
+      { invoices: [invoice({ currency: "USD", fxRate: "48.00", lines: [line({ unitPrice: Money.fromMajor("100") })] })], receivablesControlBalance: () => 4800 },
+    );
+    if (!outcome.ok) throw new Error("report failed");
+    expect(outcome.rows[0]?.total).toBe(4800);
+    expect(outcome.reconciliation?.withinTolerance).toBe(true);
+  });
+
+  it("keeps an on-account receipt larger than the debt as a negative «جاري», and gives a credit-only customer a row", () => {
+    const outcome = runReport(
+      definition,
+      { asOfDate: "2026-06-05" },
+      {
+        invoices: [invoice()],
+        customers: [{ id: "c1", nameEn: null }, { id: "c2", nameAr: "عميل ب", nameEn: null }],
+        unappliedCreditsByCustomerId: new Map([["c1", Money.fromMajor("250")], ["c2", Money.fromMajor("30")]]),
+        receivablesControlBalance: () => -80,
+      },
+    );
+    if (!outcome.ok) throw new Error("report failed");
+    expect(outcome.rows.find((r) => r.customerId === "c1")).toMatchObject({ current: -50, total: -50 });
+    expect(outcome.rows.find((r) => r.customerId === "c2")).toMatchObject({ customerNameAr: "عميل ب", total: -30 });
+    expect(outcome.reconciliation?.withinTolerance).toBe(true);
+  });
+
+  it("does not invent a row for a credit when the ladder is narrowed to a branch", () => {
+    const outcome = runReport(
+      definition,
+      { asOfDate: "2026-06-05", branchId: "br-1" },
+      { invoices: [invoice()], unappliedCreditsByCustomerId: new Map([["c2", Money.fromMajor("30")]]) },
+    );
+    if (!outcome.ok) throw new Error("report failed");
+    expect(outcome.rows.map((r) => r.customerId)).toEqual(["c1"]);
+  });
+
+  it("the customers screen's figure is the ladder row itself (D195)", () => {
+    const ctx = { invoices: [invoice()], unappliedCreditsByCustomerId: new Map([["c1", Money.fromMajor("100")]]) };
+    const balances = customerAgingBalances({ asOfDate: "2026-08-22", branchId: "" }, ctx);
+    const outcome = runReport(definition, { asOfDate: "2026-08-22" }, ctx);
+    if (!outcome.ok) throw new Error("report failed");
+    expect(agingBucketsTotal(balances.get("c1")!).toString()).toBe("100.000000");
+    expect(outcome.rows[0]?.total).toBe(100);
+  });
+
+  it("names the FX revaluation it excluded from the reference, and omits the item when there is none", () => {
+    const withItem = runReport(definition, { asOfDate: "2026-06-05" }, { invoices: [invoice()], receivablesControlBalance: () => 200, fxRevaluationOnControl: () => 12.5 });
+    const without = runReport(definition, { asOfDate: "2026-06-05" }, { invoices: [invoice()], receivablesControlBalance: () => 200 });
+    if (!withItem.ok || !without.ok) throw new Error("report failed");
+    expect(withItem.reconciliation?.reconcilingItems).toEqual([expect.objectContaining({ key: "fxRevaluation", amount: 12.5 })]);
+    expect(without.reconciliation).not.toHaveProperty("reconcilingItems");
   });
 });

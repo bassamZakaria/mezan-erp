@@ -2,6 +2,7 @@ import { Money, Qty } from "../money/index.js";
 import { salesInvoiceTotals } from "../sales-invoices/totals.js";
 import { SALES_INVOICE_ACTIVE_STATUSES, type SalesInvoice } from "../sales-invoices/sales-invoice.js";
 import { withinDateRange } from "./period-bucket.js";
+import { convertToBase } from "../exchange-rates/convert.js";
 
 /**
  * Shared per-item revenue aggregation behind المبيعات حسب الصنف and أفضل
@@ -47,7 +48,10 @@ export function aggregateItemSales(
       const lineTotals = totals.lines[i];
       if (!lineTotals) return;
       if (isContractBilling?.(line.revenueAccountId)) return;
-      const revenue = taxMode === "inc" ? lineTotals.total : lineTotals.taxableBase;
+      const stated = taxMode === "inc" ? lineTotals.total : lineTotals.taxableBase;
+      // In BASE currency, per line — what the posting credited revenue with
+      // (D194's twin); a foreign line's own figure is not an EGP amount.
+      const revenue = invoice.fxRate ? convertToBase(stated, invoice.fxRate) : stated;
       const existing = byItem.get(line.itemId) ?? { itemNameAr: line.itemNameAr, qty: Qty.zero(), revenue: Money.zero() };
       byItem.set(line.itemId, {
         itemNameAr: line.itemNameAr,

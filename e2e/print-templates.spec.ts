@@ -38,7 +38,9 @@ test.describe("Print view — قوالب الطباعة", () => {
     await expect(undoButton).toBeDisabled();
     await expect(saveButton).toBeDisabled();
 
-    await page.getByRole("textbox", { name: "https://…/logo.png" }).fill("https://example.com/logo.png");
+    // "رابط الشعار" is the field's real label — the earlier locator
+    // mistook its placeholder ("https://…/logo.png") for its accessible name.
+    await page.getByLabel("رابط الشعار").fill("https://example.com/logo.png");
 
     await expect(undoButton).toBeEnabled();
     await expect(saveButton).toBeEnabled();

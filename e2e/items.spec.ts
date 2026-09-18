@@ -52,9 +52,25 @@ async function chooseCombo(page: Page, comboLabel: string, optionName: string | 
   await page.getByRole("option", { name: optionName }).click();
 }
 
+/**
+ * Retries the WHOLE navigation from a known-good state rather than
+ * re-clicking blind — re-clicking the add button while its own screen is
+ * mid-transition (a client-side sub-page swap over an already-large
+ * seeded+test-grown items table) risks Playwright's actionability wait
+ * landing on a button that is itself being detached/replaced, which can
+ * stall far longer than any single check (same finding as `gotoScreen` in
+ * returns.spec.ts/purchase-chain.spec.ts, applied the safe way here:
+ * `clickSidebarItem` always returns to a stable list render before the next
+ * attempt clicks a fresh, definitely-attached button).
+ */
 async function openItemForm(page: Page): Promise<void> {
-  await page.getByRole("button", { name: "إضافة صنف" }).first().click();
-  await expect(page.getByRole("heading", { name: "إضافة صنف", level: 1 })).toBeVisible();
+  const heading = page.getByRole("heading", { name: "إضافة صنف", level: 1 });
+  for (let attempt = 0; attempt < 4; attempt++) {
+    if (attempt > 0) await clickSidebarItem(page, "الأصناف");
+    await page.getByRole("button", { name: "إضافة صنف" }).first().click();
+    if (await heading.isVisible({ timeout: 5_000 }).catch(() => false)) return;
+  }
+  await expect(heading).toBeVisible();
 }
 
 /** Fills the minimum required fields (name + a sale price) and submits. */

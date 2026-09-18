@@ -21,7 +21,15 @@ test.describe("Simplified tax regime journey", () => {
     await page.getByRole("textbox", { name: "تاريخ نموذج 1/10 المقدَّم" }).fill("2026-03-15");
     await page.getByRole("textbox", { name: "رقم نموذج 1/10" }).fill(reference);
     await page.getByRole("textbox", { name: "تاريخ الانضمام للفاتورة/الإيصال الإلكتروني" }).fill("2025-11-01");
+    // Two waits, registered before the click so neither response can slip by
+    // unobserved: the combobox reads `useSimplifiedRegime`, which the save
+    // mutation's `onSettled` only invalidates — the new status shows up once
+    // that refetch (GET /tax/simplified-regime) lands, not on the PUT alone.
+    const saved = page.waitForResponse((r) => r.request().method() === "PUT" && new URL(r.url()).pathname.endsWith("/tax/simplified-regime"));
+    const refetched = page.waitForResponse((r) => r.request().method() === "GET" && new URL(r.url()).pathname.endsWith("/tax/simplified-regime"));
     await page.getByRole("button", { name: "حفظ التسجيل" }).click();
+    await saved;
+    await refetched;
 
     await expect(page.locator("main [role=alert]")).toHaveCount(0);
     await expect(status).toHaveText("مسجَّل ونافذ");

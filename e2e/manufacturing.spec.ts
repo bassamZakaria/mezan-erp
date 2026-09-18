@@ -142,15 +142,21 @@ test.describe("BOMs", () => {
     await expect(save).toBeDisabled(); // still needs a component line
 
     await page.getByLabel("الصنف", { exact: true }).click();
-    await page.getByRole("option", { name: "زيت عباد الشمس 1 لتر" }).click();
+    await page.getByRole("option", { name: "زيت عباد الشمس 1 لتر قطعة", exact: true }).click();
     await expect(save).toBeEnabled();
 
     await save.click();
     await expect(page.getByRole("heading", { name: "قوائم المواد" })).toBeVisible();
-    await expect(page.getByText("عرض 4 من 4 قائمة")).toBeVisible();
-    const newRow = row(page, "BOM-0004");
+    // The newly-created row is the FIRST one (newest-first order) — never an
+    // assumed total or BOM number: a re-run of this exact scenario against
+    // the same tenant (e.g. --repeat-each) adds ANOTHER superseding version
+    // row for "أرز أبيض 5 كجم" (packages/domain/src/manufacturing/bom.ts's
+    // insertBom keeps every version's own row), so the product name alone
+    // stops uniquely identifying a single row after the first run.
+    const newRow = page.locator("table tbody tr").first();
     await expect(newRow).toBeVisible();
     await expect(newRow.getByText("أرز أبيض 5 كجم")).toBeVisible();
+    await expect(newRow.locator("td").nth(3)).toHaveText("1"); // عدد البنود — one component line (the oil)
   });
 });
 

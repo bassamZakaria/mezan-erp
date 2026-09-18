@@ -146,7 +146,7 @@ test.describe("Treasury Vouchers", () => {
 
   test("a customer-collection voucher funds a cash account, then a supplier-payment voucher draws on it", async ({ page }) => {
     const treasuryName = unique("صندوق اختبار");
-    const treasuryCode = `CASH-${Date.now() % 100000}`;
+    const treasuryCode = `CASH-${Date.now()}-${Math.floor(Math.random() * 100000)}`;
     const customerName = unique("عميل سند تحصيل");
     const supplierName = unique("مورد سند دفع");
 
@@ -162,7 +162,15 @@ test.describe("Treasury Vouchers", () => {
     await voucherTypeCard(page, "تحصيل من عميل").click();
     await page.getByLabel("المبلغ").fill("1000");
     await pickParty(page, "ابحث عن عميل…", customerName);
+    // "إنشاء وتأكيد" chains a create POST then a confirm POST — the list
+    // row's number/status only reflect the SECOND one, and only once the
+    // confirm's invalidation re-fetches the vouchers list, so wait on that
+    // network round trip rather than the row settling on its own.
+    const confirmed = page.waitForResponse((r) => r.request().method() === "POST" && /\/vouchers\/[^/]+\/confirm$/.test(new URL(r.url()).pathname));
+    const refetched = page.waitForResponse((r) => r.request().method() === "GET" && new URL(r.url()).pathname.endsWith("/vouchers"));
     await page.getByRole("button", { name: "إنشاء وتأكيد" }).click();
+    await confirmed;
+    await refetched;
     await expect(page.getByRole("heading", { name: "السندات النقدية" })).toBeVisible();
 
     await page.getByPlaceholder("ابحث برقم السند، المرجع، العميل، المورد…").fill(customerName);
@@ -177,7 +185,11 @@ test.describe("Treasury Vouchers", () => {
     await voucherTypeCard(page, "دفع لمورد").click();
     await page.getByLabel("المبلغ").fill("500");
     await pickParty(page, "ابحث عن مورّد…", supplierName);
+    const paymentConfirmed = page.waitForResponse((r) => r.request().method() === "POST" && /\/vouchers\/[^/]+\/confirm$/.test(new URL(r.url()).pathname));
+    const paymentRefetched = page.waitForResponse((r) => r.request().method() === "GET" && new URL(r.url()).pathname.endsWith("/vouchers"));
     await page.getByRole("button", { name: "إنشاء وتأكيد" }).click();
+    await paymentConfirmed;
+    await paymentRefetched;
     await expect(page.getByRole("heading", { name: "السندات النقدية" })).toBeVisible();
 
     await page.getByPlaceholder("ابحث برقم السند، المرجع، العميل، المورد…").fill(supplierName);
@@ -194,7 +206,7 @@ test.describe("Treasury Vouchers", () => {
   // invoice as an open, allocatable one.
   test("a confirmed sales invoice appears as an open invoice, and allocating a voucher against it fully settles it", async ({ page }) => {
     const treasuryName = unique("صندوق تخصيص");
-    const treasuryCode = `CASH-${Date.now() % 100000}`;
+    const treasuryCode = `CASH-${Date.now()}-${Math.floor(Math.random() * 100000)}`;
     const customerName = unique("عميل تخصيص فاتورة");
     const itemName = unique("صنف تخصيص فاتورة");
 

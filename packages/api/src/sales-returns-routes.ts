@@ -23,9 +23,12 @@ import {
   createSalesReturnSchema,
   refundSalesReturnSchema,
 } from "@mezan/contracts";
+import type { z } from "zod";
 import { type AuthContextResolver, callerUserId, createAnyPermissionGate, createPermissionGate, getAuthContext, warehouseScopeOf, withinScope } from "./permission-gate.js";
 import { handleDocumentError } from "./document-error-handling.js";
 import { tenantDay } from "./tenant-day.js";
+
+type CreateSalesReturnLineInput = z.infer<typeof createSalesReturnSchema>["lines"][number];
 
 function serializeLine(l: SalesReturnLine) {
   return {
@@ -130,20 +133,6 @@ export function createSalesReturnsRoutes(
   }
 
   /**
-   * The client's `availableQty` is a hint, never the cap. When the invoice is
-   * resolvable the server uses what the invoice actually has left; otherwise it
-   * falls back to the claim, which is the pre-existing behaviour for editions
-   * that mount returns without an invoices module.
-   */
-  async function resolveAvailableQty(sourceInvoiceId: string, itemId: string, claimed: string): Promise<Qty> {
-    if (!invoices) return Qty.fromMajor(claimed);
-    const invoice = await invoices.findConfirmedInvoice(sourceInvoiceId);
-    const line = invoice?.lines.find((il) => il.itemId === itemId);
-    if (!line) return Qty.zero();
-    return line.qty.subtract(line.alreadyReturnedQty);
-  }
-
-  /**
    * Every figure a caller stated on a `POST /` line, checked against the
    * invoice it names (D89, D102).
    *
@@ -186,29 +175,36 @@ export function createSalesReturnsRoutes(
   }
 
   /**
-   * The unit cost the INVOICE recorded, not the one the caller sent (D102).
+   * Every figure of a `POST /` line read off the invoice it names, never off
+   * the request (D102, D214): price, cost, the line's share of the VAT it was
+   * actually charged, its rate, the returnable quantity, the project and the
+   * currency and rate it confirmed at (D203). Only the quantity, the reason
+   * and the warehouse the goods come back into are the caller's. Stating a
+   * price is stating the credit note; stating a cost is stating the margin.
    *
-   * Cost decides the COGS reversal and therefore the margin; letting the
-   * caller state it is letting them state their own profit. `/from-invoice`
-   * always derived it, and this makes `POST /` derive it too wherever the
-   * invoice is resolvable, so the two routes cannot disagree.
+   * With no invoices module wired the caller's figures are all there is.
    */
-  async function resolveUnitCost(sourceInvoiceId: string, itemId: string, claimed: string): Promise<Money> {
-    if (!invoices) return Money.fromMajor(claimed);
-    const invoice = await invoices.findConfirmedInvoice(sourceInvoiceId);
-    const line = invoice?.lines.find((il) => il.itemId === itemId);
-    return line ? line.unitCost : Money.fromMajor(claimed);
-  }
-
-  /**
-   * The currency and rate the SOURCE INVOICE confirmed at (D203). A return
-   * reverses at the original document's rate, so the rate is read off the
-   * invoice here and never taken from the request.
-   */
-  async function resolveFx(sourceInvoiceId: string): Promise<{ currency?: string | null; fxRate?: string | null }> {
-    if (!invoices) return {};
-    const invoice = await invoices.findConfirmedInvoice(sourceInvoiceId);
-    return invoice?.fxRate ? { currency: invoice.currency ?? null, fxRate: invoice.fxRate } : {};
+  async function deriveLine(l: CreateSalesReturnLineInput): Promise<SalesReturnLine> {
+    const claimed: SalesReturnLine = {
+      itemId: l.itemId,
+      warehouseId: l.warehouseId,
+      customerId: l.customerId,
+      sourceInvoiceId: l.sourceInvoiceId,
+      sourceInvoiceNumber: l.sourceInvoiceNumber,
+      reason: l.reason,
+      availableQty: Qty.fromMajor(l.availableQty),
+      qty: Qty.fromMajor(l.qty),
+      unitPrice: Money.fromMajor(l.unitPrice),
+      unitCost: Money.fromMajor(l.unitCost),
+      taxAmount: Money.fromMajor(l.taxAmount),
+      taxRatePercent: l.taxRatePercent ?? null,
+      projectId: l.projectId ?? null,
+    };
+    if (!invoices) return claimed;
+    const invoice = await invoices.findConfirmedInvoice(l.sourceInvoiceId);
+    if (!invoice) return claimed;
+    const [derived] = buildSalesReturnLinesFromInvoice(invoice, l.warehouseId, l.reason, [{ itemId: l.itemId, qty: claimed.qty }]);
+    return derived ?? { ...claimed, availableQty: Qty.zero() };
   }
 
   interface SalesReturnListFilter {
@@ -378,22 +374,7 @@ export function createSalesReturnsRoutes(
         id: parsed.data.id,
         date: await tenantDay(c, parsed.data.date),
         memo: parsed.data.memo,
-        lines: await Promise.all(parsed.data.lines.map(async (l) => ({
-          itemId: l.itemId,
-          warehouseId: l.warehouseId,
-          customerId: l.customerId,
-          sourceInvoiceId: l.sourceInvoiceId,
-          sourceInvoiceNumber: l.sourceInvoiceNumber,
-          reason: l.reason,
-          availableQty: await resolveAvailableQty(l.sourceInvoiceId, l.itemId, l.availableQty),
-          qty: Qty.fromMajor(l.qty),
-          unitPrice: Money.fromMajor(l.unitPrice),
-          unitCost: await resolveUnitCost(l.sourceInvoiceId, l.itemId, l.unitCost),
-          taxAmount: Money.fromMajor(l.taxAmount),
-          taxRatePercent: l.taxRatePercent ?? null,
-          projectId: l.projectId ?? null,
-          ...(await resolveFx(l.sourceInvoiceId)),
-        }))),
+        lines: await Promise.all(parsed.data.lines.map(deriveLine)),
       });
       return c.json(serialize(doc), 201);
     } catch (err) {

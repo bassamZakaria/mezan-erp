@@ -54,9 +54,11 @@ import {
   reverseAllocation as reverseAllocationFn,
   type AllocatableInvoiceRepository,
   type AllocationRepository,
+  type InvoiceReturnCreditPort,
   type VoucherAllocation,
 } from "../vouchers/allocation.js";
 import type { AllocationInvoiceKind } from "../vouchers/voucher-types.js";
+import { postRealisedFx, reverseRealisedFx, settlementRatesFor, type RealisedFxPort, type SettlingMoney } from "../vouchers/realised-fx.js";
 
 export interface CreateChequeCommand {
   readonly id: string;
@@ -154,11 +156,15 @@ export interface ChequeServiceDeps {
   readonly allocation?: {
     readonly allocations: AllocationRepository;
     readonly invoices: AllocatableInvoiceRepository;
+    /** Confirmed return credit per invoice, so a cheque is never applied to debt a return cleared (D242). */
+    readonly returns?: InvoiceReturnCreditPort;
     readonly settlement?: {
       applySettled(input: { invoiceId: string; kind: AllocationInvoiceKind; settled: Money }): Promise<void>;
     };
   };
   readonly raisedBy?: ChequeRaisingDocumentPort;
+  /** Rates and accounts for the realised exchange difference a cheque settling a foreign invoice posts (D221). */
+  readonly realisedFx?: RealisedFxPort;
 }
 
 /**
@@ -352,7 +358,7 @@ export class ChequeService {
         },
         this.deps.gl,
       );
-      await this.releaseAllocations(cheque.id);
+      await this.releaseAllocations(cheque.id, date);
 
       const updated: Cheque = {
         ...cheque,
@@ -380,6 +386,8 @@ export class ChequeService {
       if (cheque.status === "bounced" || cheque.status === "replaced") {
         throw new InvalidChequeCommandError("لا يمكن تخصيص شيك مرتد على فاتورة.");
       }
+      const realisedFx = this.deps.realisedFx;
+      const money: SettlingMoney = { currency: cheque.currency, fxRate: null, date: cheque.issueDate };
       const result = await allocateFn(
         {
           allocationId: cmd.allocationId,
@@ -390,6 +398,36 @@ export class ChequeService {
           invoiceId: cmd.invoiceId,
           amount: cmd.amount,
           now: cmd.now ?? this.now(),
+          ...(realisedFx
+            ? {
+                rates: (invoice) => settlementRatesFor(realisedFx, invoice, money),
+                beforeSave: async (invoice, split) => {
+                  const booked = await realisedFx.invoiceFx(invoice.id, invoice.kind);
+                  const rates = await settlementRatesFor(realisedFx, invoice, money);
+                  if (!booked || !rates) return { fxEntryId: null };
+                  // A cheque a voucher raised sits on the voucher's treasury
+                  // leg; the party's own control account is the voucher's.
+                  const controlAccountId =
+                    (await this.deps.raisedBy?.partyControlAccountOf(cheque)) ?? cheque.counterpartyGlAccountId;
+                  const fxEntryId = await postRealisedFx(
+                    {
+                      allocationId: cmd.allocationId,
+                      invoice,
+                      split,
+                      currency: booked.currency,
+                      settlementRate: rates.settlementRate,
+                      date: cheque.issueDate,
+                      controlAccountId,
+                      branchId: cheque.branchId,
+                      reference: cheque.chequeNumber,
+                    },
+                    realisedFx,
+                    this.deps.gl,
+                  );
+                  return { fxEntryId };
+                },
+              }
+            : {}),
         },
         store,
       );
@@ -407,14 +445,15 @@ export class ChequeService {
     if (!this.deps.allocation) {
       throw new InvalidChequeCommandError("تخصيص الشيكات على الفواتير غير مُفعّل على هذا الخادم.");
     }
-    return { allocations: this.deps.allocation.allocations, invoices: this.deps.allocation.invoices };
+    return { allocations: this.deps.allocation.allocations, invoices: this.deps.allocation.invoices, returns: this.deps.allocation.returns };
   }
 
-  private async releaseAllocations(chequeId: string): Promise<void> {
+  private async releaseAllocations(chequeId: string, date: string): Promise<void> {
     if (!this.deps.allocation) return;
     const store = { allocations: this.deps.allocation.allocations, invoices: this.deps.allocation.invoices };
     const active = (await store.allocations.listByVoucher(chequeId)).filter((a) => a.status === "active");
     for (const alloc of active) {
+      await reverseRealisedFx(alloc, this.deps.gl, { date, today: this.now().slice(0, 10) });
       const undone = await reverseAllocationFn(alloc.id, this.now(), store);
       await this.projectSettlement(undone.invoice);
     }

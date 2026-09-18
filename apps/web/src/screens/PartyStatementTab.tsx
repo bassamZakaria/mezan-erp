@@ -19,6 +19,7 @@ const MOVEMENT_LABEL: Record<PartyKind, Record<PartyStatementEntryKindDTO, AppTr
     deduction: "customers.statement.deduction",
     journal: "customers.statement.journal",
     imported: "customers.statement.imported",
+    fx_difference: "customers.statement.fxDifference",
   },
   supplier: {
     opening: "suppliers.statement.opening",
@@ -32,6 +33,7 @@ const MOVEMENT_LABEL: Record<PartyKind, Record<PartyStatementEntryKindDTO, AppTr
     deduction: "suppliers.statement.deduction",
     journal: "suppliers.statement.journal",
     imported: "suppliers.statement.imported",
+    fx_difference: "suppliers.statement.fxDifference",
   },
 };
 

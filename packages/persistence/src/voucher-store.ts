@@ -80,7 +80,9 @@ CREATE TABLE IF NOT EXISTS voucher_allocation (
   amount      INTEGER NOT NULL,
   status      TEXT NOT NULL,
   created_at  TEXT NOT NULL,
-  reversed_at TEXT
+  reversed_at TEXT,
+  invoice_amount INTEGER,
+  fx_entry_id TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_alloc_voucher ON voucher_allocation(voucher_id);
 CREATE INDEX IF NOT EXISTS idx_alloc_invoice ON voucher_allocation(invoice_id);
@@ -106,12 +108,20 @@ const ADDED_VOUCHER_COLUMNS: readonly [string, string][] = [
   ["cost_category", "TEXT"],
 ];
 
+/** Allocation columns added after the table shipped (D221: a foreign invoice relieved at its booked rate). */
+const ADDED_ALLOCATION_COLUMNS: readonly [string, string][] = [
+  ["invoice_amount", "INTEGER"],
+  ["fx_entry_id", "TEXT"],
+];
+
 function addMissingColumns(sqlite: Database.Database): void {
-  const existing = new Set(
-    (sqlite.prepare(`PRAGMA table_info(voucher)`).all() as { name: string }[]).map((c) => c.name),
-  );
-  for (const [name, type] of ADDED_VOUCHER_COLUMNS) {
-    if (!existing.has(name)) sqlite.exec(`ALTER TABLE voucher ADD COLUMN ${name} ${type}`);
+  for (const [table, columns] of [["voucher", ADDED_VOUCHER_COLUMNS], ["voucher_allocation", ADDED_ALLOCATION_COLUMNS]] as const) {
+    const existing = new Set(
+      (sqlite.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name),
+    );
+    for (const [name, type] of columns) {
+      if (!existing.has(name)) sqlite.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${type}`);
+    }
   }
 }
 
@@ -323,6 +333,8 @@ interface AllocationRow {
   status: string;
   created_at: string;
   reversed_at: string | null;
+  invoice_amount: bigint | null;
+  fx_entry_id: string | null;
 }
 
 function toAllocation(row: AllocationRow): VoucherAllocation {
@@ -331,6 +343,8 @@ function toAllocation(row: AllocationRow): VoucherAllocation {
     voucherId: row.voucher_id,
     invoiceId: row.invoice_id,
     amount: Money.fromScaled(row.amount),
+    invoiceAmount: row.invoice_amount === null ? null : Money.fromScaled(row.invoice_amount),
+    fxEntryId: row.fx_entry_id,
     status: row.status as AllocationStatus,
     createdAt: row.created_at,
     reversedAt: row.reversed_at,
@@ -345,8 +359,8 @@ class SqliteAllocationRepository implements AllocationRepository {
 
   constructor(sqlite: Database.Database) {
     this.upsert = sqlite.prepare(`
-      INSERT INTO voucher_allocation (id, voucher_id, invoice_id, amount, status, created_at, reversed_at)
-      VALUES (@id, @voucher_id, @invoice_id, @amount, @status, @created_at, @reversed_at)
+      INSERT INTO voucher_allocation (id, voucher_id, invoice_id, amount, status, created_at, reversed_at, invoice_amount, fx_entry_id)
+      VALUES (@id, @voucher_id, @invoice_id, @amount, @status, @created_at, @reversed_at, @invoice_amount, @fx_entry_id)
       ON CONFLICT(id) DO UPDATE SET status = excluded.status, reversed_at = excluded.reversed_at
     `);
     this.selectById = sqlite.prepare(`SELECT * FROM voucher_allocation WHERE id = ?`).safeIntegers();
@@ -363,6 +377,8 @@ class SqliteAllocationRepository implements AllocationRepository {
       status: alloc.status,
       created_at: alloc.createdAt,
       reversed_at: alloc.reversedAt,
+      invoice_amount: alloc.invoiceAmount ? alloc.invoiceAmount.toScaledNumber() : null,
+      fx_entry_id: alloc.fxEntryId ?? null,
     });
   }
 

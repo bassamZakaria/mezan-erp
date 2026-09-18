@@ -36,7 +36,7 @@ import {
   type SalesInvoiceLine,
   type SalesInvoiceDiscount,
   type SalesInvoiceDiscountType,
-  type SalesInvoiceLineDiscountType, itemTypeIsSellable, findCurrency,} from "@mezan/domain";
+  type SalesInvoiceLineDiscountType, itemTypeIsSellable, findCurrency, convertToBase, extend,} from "@mezan/domain";
 import type { ProjectDTO, SalesInvoiceListQueryDTO, SalesInvoiceStatusDTO } from "@mezan/contracts";
 import { SalesInvoicePrintPage } from "../print/SalesInvoicePrintPage";
 import {
@@ -1198,6 +1198,8 @@ function InvoiceDetailView({
   const docCurrencyLabel = currencyLabelFor(invoice.currency, locale);
   const settledInBase = Boolean(invoice.fxRate);
   const settlementLabel = settledInBase ? format.currencyLabel : docCurrencyLabel;
+  // Cost, profit and the journal are base-currency figures whatever the invoice's own currency.
+  const baseLabel = format.currencyLabel;
   const settlementTotal = toMajor(invoice.baseGrandTotal ?? invoice.totals.grandTotal);
   const accountsQuery = useAccounts();
   const warehousesQuery = useWarehouses();
@@ -1236,13 +1238,6 @@ function InvoiceDetailView({
    * figure it needs is already on the wire: each line carries the `unitCost`
    * the confirm consumed.
    */
-  const margin = useMemo(() => {
-    let cost = 0;
-    for (const l of invoice.lines) cost += Number(l.unitCost ?? "0") * Number(l.qty);
-    const net = toMajor(invoice.totals.taxableTotal ?? invoice.totals.subtotal);
-    const profit = net - cost;
-    return { cost, profit, marginPct: net === 0 ? 0 : (profit / net) * 100 };
-  }, [invoice]);
 
   const [paymentAmount, setPaymentAmount] = useState<number | null>(null);
   const [paymentError, setPaymentError] = useState<string | null>(null);
@@ -1306,6 +1301,33 @@ function InvoiceDetailView({
     });
     return new Map(totals.lines.map((l) => [l.lineId, l]));
   }, [invoice]);
+
+  /**
+   * Cost is captured in BASE (it is what 1200 and COGS moved by), so profit is
+   * the line's taxable base in base currency less it (D218): subtracting a base
+   * cost from a CHF price labelled as CHF was neither figure.
+   */
+  const lineBaseNet = (lineId: string): Money | null => {
+    const lt = lineTotals.get(lineId);
+    if (!lt) return null;
+    return invoice.fxRate ? convertToBase(lt.taxableBase, invoice.fxRate) : lt.taxableBase;
+  };
+  const lineCost = (l: { unitCost?: string | null; qty: string }): Money | null =>
+    l.unitCost ? extend(Qty.fromMajor(l.qty), Money.fromMajor(l.unitCost)) : null;
+  const margin = (() => {
+    let cost = Money.zero();
+    let net = Money.zero();
+    for (const l of invoice.lines) {
+      cost = cost.add(lineCost(l) ?? Money.zero());
+      net = net.add(lineBaseNet(l.lineId) ?? Money.zero());
+    }
+    const profit = Money.fromScaled(net.scaled - cost.scaled);
+    return {
+      cost: toMajor(cost.toString()),
+      profit: toMajor(profit.toString()),
+      marginPct: net.scaled === 0n ? 0 : (toMajor(profit.toString()) / toMajor(net.toString())) * 100,
+    };
+  })();
 
   const accountLabel = (id: string) => {
     const a = accounts.find((acc) => acc.id === id);
@@ -1458,6 +1480,8 @@ function InvoiceDetailView({
                   <tbody>
                     {invoice.lines.map((l) => {
                       const lt = lineTotals.get(l.lineId);
+                      const cost = lineCost(l);
+                      const baseNet = lineBaseNet(l.lineId);
                       return (
                         <tr key={l.lineId} className="border-b border-border last:border-b-0">
                           <td className="px-[15px] py-[11px] text-ink">{l.itemNameAr}</td>
@@ -1477,11 +1501,11 @@ function InvoiceDetailView({
                           </td>
                           <td className="px-[15px] py-[11px] text-end">{lt ? <MoneyDisplay currencyLabel={docCurrencyLabel} value={toMajor(lt.tax.toString())} /> : "—"}</td>
                           <td className="px-[15px] py-[11px] text-end">
-                            {l.unitCost ? <MoneyDisplay currencyLabel={docCurrencyLabel} value={toMajor(l.unitCost) * Number(l.qty)} /> : "—"}
+                            {cost ? <MoneyDisplay currencyLabel={baseLabel} value={toMajor(cost.toString())} /> : "—"}
                           </td>
                           <td className="px-[15px] py-[11px] text-end">
-                            {l.unitCost && lt ? (
-                              <MoneyDisplay currencyLabel={docCurrencyLabel} value={toMajor(lt.taxableBase.toString()) - toMajor(l.unitCost) * Number(l.qty)} />
+                            {cost && baseNet ? (
+                              <MoneyDisplay currencyLabel={baseLabel} value={toMajor(Money.fromScaled(baseNet.scaled - cost.scaled).toString())} />
                             ) : (
                               "—"
                             )}
@@ -1508,11 +1532,11 @@ function InvoiceDetailView({
                     </tr>
                     <tr className="text-ink-muted">
                       <td className="px-[15px] py-[9px]" colSpan={8}>{t("salesInvoices.detail.totalCost")}</td>
-                      <td className="px-[15px] py-[9px] text-end"><MoneyDisplay currencyLabel={docCurrencyLabel} value={margin.cost} /></td>
+                      <td className="px-[15px] py-[9px] text-end"><MoneyDisplay currencyLabel={baseLabel} value={margin.cost} /></td>
                     </tr>
                     <tr className="text-ink-muted">
                       <td className="px-[15px] py-[9px]" colSpan={8}>{t("salesInvoices.detail.totalProfit")}</td>
-                      <td className="px-[15px] py-[9px] text-end"><MoneyDisplay currencyLabel={docCurrencyLabel} value={margin.profit} /></td>
+                      <td className="px-[15px] py-[9px] text-end"><MoneyDisplay currencyLabel={baseLabel} value={margin.profit} /></td>
                     </tr>
                     <tr className="text-ink-muted">
                       <td className="px-[15px] py-[9px]" colSpan={8}>{t("salesInvoices.detail.grossMargin")}</td>
@@ -1563,8 +1587,8 @@ function InvoiceDetailView({
                           {journalEntryQuery.data.lines.map((l, i) => (
                             <tr key={i} className="border-b border-border last:border-b-0">
                               <td className="px-[15px] py-[11px] text-ink">{accountLabel(l.accountId)}</td>
-                              <td className="px-[15px] py-[11px] text-end">{Number(l.debit) !== 0 ? <MoneyDisplay currencyLabel={docCurrencyLabel} value={Number(l.debit)} /> : "—"}</td>
-                              <td className="px-[15px] py-[11px] text-end">{Number(l.credit) !== 0 ? <MoneyDisplay currencyLabel={docCurrencyLabel} value={Number(l.credit)} /> : "—"}</td>
+                              <td className="px-[15px] py-[11px] text-end">{Number(l.debit) !== 0 ? <MoneyDisplay currencyLabel={baseLabel} value={Number(l.debit)} /> : "—"}</td>
+                              <td className="px-[15px] py-[11px] text-end">{Number(l.credit) !== 0 ? <MoneyDisplay currencyLabel={baseLabel} value={Number(l.credit)} /> : "—"}</td>
                             </tr>
                           ))}
                         </tbody>

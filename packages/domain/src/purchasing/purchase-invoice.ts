@@ -14,7 +14,7 @@
 import { Money, Qty } from "../money/index.js";
 import type { CostCategory } from "../contracting/cost-category.js";
 import type { AllocatableInvoiceRepository } from "../vouchers/allocation.js";
-import { extend, occurredAtFromDocumentDate, type CostLayerRepository } from "../inventory/index.js";
+import { extend, occurredAtFromDocumentDate, unitCostOf, type CostLayerRepository } from "../inventory/index.js";
 import { convertToBase } from "../exchange-rates/convert.js";
 import { NextNumberService } from "../numbering/index.js";
 import type { GoodsReceipt, GoodsReceiptRepository } from "./goods-receipt.js";
@@ -244,6 +244,41 @@ export function purchaseInvoiceLineTax(line: {
   return Money.fromScaled(divRoundHalfUp(base.scaled * rateScaled, 100n * TAX_SCALE));
 }
 
+/** The base-currency parts of an invoice, each the sum of its lines converted one by one. */
+export interface PurchaseInvoiceBaseParts {
+  readonly inventory: Money;
+  readonly freight: Money;
+  readonly expense: Money;
+  readonly tax: Money;
+  readonly total: Money;
+}
+
+/**
+ * Every figure the posting carries, in the BASE currency. Each line's base and
+ * tax are converted on their own and the kind totals and the payable are sums
+ * of those, so the AP credit is exactly the sum of the debits it balances; a
+ * sum converted once can sit a rounding unit away from its converted parts,
+ * which unbalanced the entry (D213).
+ */
+export function purchaseInvoiceBaseParts(
+  invoice: { readonly lines: readonly PurchaseInvoiceLine[] },
+  rate?: string | null,
+): PurchaseInvoiceBaseParts {
+  const convert = (amount: Money): Money => (rate ? convertToBase(amount, rate) : amount);
+  let inventory = Money.zero();
+  let freight = Money.zero();
+  let expense = Money.zero();
+  let tax = Money.zero();
+  for (const line of invoice.lines) {
+    const base = convert(purchaseInvoiceLineBase(line));
+    if (line.kind === "inventory") inventory = inventory.add(base);
+    else if (line.kind === "freight") freight = freight.add(base);
+    else expense = expense.add(base);
+    tax = tax.add(convert(purchaseInvoiceLineTax(line)));
+  }
+  return { inventory, freight, expense, tax, total: inventory.add(freight).add(expense).add(tax) };
+}
+
 /**
  * The invoice's total in the BASE currency — what GL 2100 was credited with.
  * `purchaseInvoiceTotal` is the document's own figure, in the document's own
@@ -255,15 +290,7 @@ export function purchaseInvoiceBaseTotal(invoice: {
   readonly lines: readonly PurchaseInvoiceLine[];
   readonly fxRate?: string | null;
 }): Money {
-  const rate = invoice.fxRate;
-  if (!rate) return purchaseInvoiceTotal(invoice);
-  // Converted component by component, in the same order `buildInvoicePosting`
-  // uses — converting the sum instead can land a rounding unit away from what
-  // the control account actually holds.
-  return convertToBase(purchaseInvoiceInventoryBase(invoice), rate)
-    .add(convertToBase(purchaseInvoiceFreightBase(invoice), rate))
-    .add(convertToBase(purchaseInvoiceExpenseBase(invoice), rate))
-    .add(convertToBase(purchaseInvoiceTax(invoice), rate));
+  return purchaseInvoiceBaseParts(invoice, invoice.fxRate).total;
 }
 
 /** Σ line bases across all lines (the invoice subtotal, before tax). */
@@ -435,6 +462,26 @@ export async function createPurchaseInvoice(
   return invoice;
 }
 
+/**
+ * INVARIANT: a foreign line enters the stock ledger worth exactly the base
+ * amount the posting debits for it, `convertToBase(qty × unitCost)`. One line
+ * at the converted unit cost sits up to half a micro-unit per unit away from
+ * GL 1200, so, as a work-order receipt does (D206), one unit carries the
+ * remainder.
+ */
+export function baseReceiptLines(qty: Qty, unitCost: Money, rate?: string | null): { qty: Qty; unitCost: Money }[] {
+  if (!rate) return [{ qty, unitCost }];
+  const target = convertToBase(extend(qty, unitCost), rate);
+  const unit = unitCostOf(target, qty);
+  const one = Qty.fromMajor("1");
+  if (extend(qty, unit).scaled === target.scaled || qty.compare(one) <= 0) return [{ qty, unitCost: unit }];
+  const head = qty.subtract(one);
+  return [
+    { qty: head, unitCost: unit },
+    { qty: one, unitCost: Money.fromScaled(target.scaled - extend(head, unit).scaled) },
+  ];
+}
+
 /** Build the balanced Dr/Cr posting for a confirmed invoice (pure). */
 export function buildInvoicePosting(
   invoice: PurchaseInvoice,
@@ -450,11 +497,12 @@ export function buildInvoicePosting(
   const foreign = fx !== undefined;
   const convert = (amount: Money): Money => (foreign ? convertToBase(amount, fx.rate) : amount);
 
-  const inventoryBase = convert(purchaseInvoiceInventoryBase(invoice));
-  const freightBase = convert(purchaseInvoiceFreightBase(invoice));
-  const expenseBase = convert(purchaseInvoiceExpenseBase(invoice));
-  const tax = convert(purchaseInvoiceTax(invoice));
-  const payable = inventoryBase.add(freightBase).add(expenseBase).add(tax);
+  const parts = purchaseInvoiceBaseParts(invoice, foreign ? fx.rate : null);
+  const inventoryBase = parts.inventory;
+  const freightBase = parts.freight;
+  const expenseBase = parts.expense;
+  const tax = parts.tax;
+  const payable = parts.total;
   const freightAccountId = accounts.freightAccountId ?? accounts.inventoryAccountId;
   const expenseAccountId = accounts.expenseAccountId ?? freightAccountId;
   const fxTag = foreign ? { currency: invoice.currency, fxRate: fx.rate } : {};
@@ -590,19 +638,21 @@ export async function confirmPurchaseInvoice(
 
     // Manual invoice (no prior receipt): the invoice IS the stock-in document.
     if (!invoice.receiptId) {
+      // The stock ledger keeps every cost in BASE currency, because GL 1200
+      // does and the two must reconcile. Receiving a foreign invoice at its
+      // own unit cost put the sub-ledger 48,350.00 below its control account
+      // on a single 1,000 USD invoice — the GL had already converted.
       const stockLines = invoice.lines
         .filter((l) => l.kind === "inventory" && l.itemId !== null)
-        .map((l) => ({
-          itemId: l.itemId as string,
-          qty: l.qty,
-          // The stock ledger keeps every cost in BASE currency, because GL 1200
-          // does and the two must reconcile. Receiving a foreign invoice at its
-          // own unit cost put the sub-ledger 48,350.00 below its control account
-          // on a single 1,000 USD invoice — the GL had already converted.
-          unitCost: fx ? convertToBase(l.unitCost, fx.rate) : l.unitCost,
-          batchNo: l.batchNo,
-          expiryDate: l.expiryDate,
-        }));
+        .flatMap((l) =>
+          baseReceiptLines(l.qty, l.unitCost, fx?.rate).map((part) => ({
+            itemId: l.itemId as string,
+            qty: part.qty,
+            unitCost: part.unitCost,
+            batchNo: l.batchNo,
+            expiryDate: l.expiryDate,
+          })),
+        );
       if (stockLines.length > 0) {
         await deps.stock.postReceipt({
           receiptId: invoice.id,

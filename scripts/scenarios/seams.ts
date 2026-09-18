@@ -219,8 +219,13 @@ export async function run(ctx: Ctx): Promise<void> {
       48000,
     );
 
+    // D227: the restatement moved the liability's base value and none of its
+    // dollars. Read as dollars at 52.00 it put USD 76.92 on the position, so the
+    // same-day re-run found another 4,000 to post and a second post doubled it.
     const again = await req("POST", "/revaluation/preview", { date: MONTH_END, currencies: ["USD"], autoReverse: true });
-    checkEq("re-running the same revaluation reports the same figure, never a doubled one", n(again.body?.totalLoss), 4000);
+    const againDetail = ((again.body?.details ?? []) as any[]).find((d) => d.accountId === USD_LIABILITY);
+    checkEq("re-running the same revaluation on the same day finds the debt already restated — nothing to post twice (D227)", n(again.body?.totalLoss), 0);
+    checkEq("the position is still USD 1,000, not 1,000 plus the restatement read as dollars (D227)", n(againDetail?.foreignAmount), 1000);
 
     // The product half of X23: a DOCUMENT carries its foreign balance into the GL.
     const usdPurchase = await req("POST", "/purchases/invoices", {

@@ -430,6 +430,17 @@ describe("PurchaseInvoicesScreen (filters, stats, entity ids, payments)", () => 
     expect(within(rowSettled!).queryByRole("button", { name: "تسجيل السداد" })).not.toBeInTheDocument();
   });
 
+  it("D218: the «الإجمالي» column is in base under the base label, and a foreign invoice's own figure sits under it in its own currency", async () => {
+    const local = purchaseInvoice({ id: "pi-egp", number: "PI-000006", total: "500.000000", baseTotal: "500.000000", remainingBalance: "500.000000" });
+    const foreign = purchaseInvoice({ id: "pi-sar", number: "PI-000007", currency: "SAR", fxRate: "13.2", total: "100.000000", baseTotal: "1320.000000", remainingBalance: "1320.000000" });
+    renderScreen([local, foreign]);
+    await screen.findByText("PI-000007");
+    const [rowForeign, rowLocal] = screen.getAllByRole("row").slice(1);
+    const baseLabel = within(rowLocal!).getByText("500.00").nextElementSibling?.textContent;
+    expect(within(rowForeign!).getByText("1,320.00").nextElementSibling?.textContent).toBe(baseLabel);
+    expect(within(rowForeign!).getByText("100.00").nextElementSibling?.textContent).toBe("SAR");
+  });
+
   it("KNOWN DEFECT: a rejected confirm from the row menu leaves the invoice a draft but shows the user no error at all — confirmSelected swallows the failure silently", async () => {
     const draft = purchaseInvoice({ id: "pi-draft", number: "PI-000002", status: "draft" });
     renderScreen([draft], {

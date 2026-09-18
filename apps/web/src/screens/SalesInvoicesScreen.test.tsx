@@ -259,6 +259,49 @@ describe("SalesInvoicesScreen — list", () => {
   });
 });
 
+describe("SalesInvoicesScreen — a foreign invoice's base figures carry the base label (D218)", () => {
+  const usd = invoice({
+    id: "inv-usd",
+    docNo: "INV-USD-1",
+    currency: "USD",
+    fxRate: "48",
+    baseGrandTotal: "4800.000000",
+    remainingBalance: "4800.000000",
+    journalEntryId: "je-usd",
+    lines: [invoiceLine({ unitPrice: "100.000000", taxRatePercent: 0, unitCost: "3000.000000" })],
+    totals: { grossTotal: "100.00", lineDiscountTotal: "0.00", promotionDiscountTotal: "0.00", invoiceDiscountTotal: "0.00", subtotal: "100.00", taxableTotal: "100.00", taxTotal: "0.00", grandTotal: "100.00" },
+  });
+  const usdEntry: JournalEntryDTO = {
+    ...journalEntry,
+    id: "je-usd",
+    entryNo: "INV-USD-1",
+    lines: [
+      { accountId: "1105", debit: "4800.00", credit: "0.00", memo: null },
+      { accountId: "4100", debit: "0.00", credit: "4800.00", memo: null },
+    ],
+  };
+  const labelOf = (figure: HTMLElement) => figure.nextElementSibling?.textContent ?? "";
+
+  it("states cost and profit in base — profit is the base net less the base cost, not a USD price less an EGP cost", async () => {
+    const transport = stubTransport({ ...baseHandlers([usd]), "GET /gl/journal-entries/je-usd": () => ({ body: usdEntry }) });
+    renderWithProviders(<TestNavigation><SalesInvoicesScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
+    fireEvent.click(await screen.findByText("INV-USD-1"));
+    await screen.findByRole("heading", { name: "INV-USD-1" });
+    const docLabel = labelOf(screen.getAllByText("100.00")[0]!);
+    const baseLabel = labelOf(screen.getAllByText("4,800.00")[0]!);
+    expect(docLabel).not.toBe(baseLabel);
+    const costs = screen.getAllByText("3,000.00");
+    const profits = screen.getAllByText("1,800.00");
+    expect(profits.length).toBeGreaterThanOrEqual(2);
+    for (const figure of [...costs, ...profits]) expect(labelOf(figure)).toBe(baseLabel);
+    expect(screen.queryByText("-2,900.00")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("tab", { name: "القيود المحاسبية" }));
+    const journalFigures = await screen.findAllByText("4,800.00");
+    for (const figure of journalFigures) expect(labelOf(figure)).toBe(baseLabel);
+  });
+});
+
 describe("SalesInvoicesScreen — create + confirm flow", () => {
   it("creates and confirms a new invoice through the real API", async () => {
     let current = [...seededInvoices];

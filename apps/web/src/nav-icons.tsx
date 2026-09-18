@@ -179,6 +179,7 @@ const navItemIcons: Readonly<Record<string, LucideIcon>> = {
   taxes: Percent,
   "tax-simplified-regime": Scale,
   "report-simplified-regime-comparison": GitCompare,
+  "report-returns-fx-face-value": Undo2,
   "exchange-rates": ArrowRightLeft,
   revaluation: RefreshCw,
   reconciliation: GitCompare,

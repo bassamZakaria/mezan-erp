@@ -7,7 +7,6 @@ import {
   voucherLine,
   voucherNetPaid,
   voucherBaseAmount,
-  invoiceOutstanding,
   getVoucherTypeDefinition,
   VOUCHER_TYPE_DEFINITIONS,
   InvalidDocumentError,
@@ -27,6 +26,11 @@ import {
   AllocationNotFoundError,
   AllocationMismatchError,
   AllocationExceedsError,
+  SettlementRateMissingError,
+  allocationFxDifference,
+  allocationInvoiceAmount,
+  invoiceOpenBalance,
+  returnedByInvoice,
   AllocationAlreadyReversedError,
   DuplicateChequeNumberError,
   auditBranchFromScope,
@@ -114,6 +118,9 @@ function serializeAllocation(a: VoucherAllocation) {
     voucherId: a.voucherId,
     invoiceId: a.invoiceId,
     amount: a.amount.toString(),
+    invoiceAmount: allocationInvoiceAmount(a).toString(),
+    fxDifference: allocationFxDifference(a).toString(),
+    fxEntryId: a.fxEntryId ?? null,
     status: a.status,
     createdAt: a.createdAt,
     reversedAt: a.reversedAt,
@@ -130,7 +137,7 @@ function serializeSummary(s: AllocationSummary) {
   };
 }
 
-function serializeInvoice(i: AllocatableInvoice) {
+function serializeInvoice(i: AllocatableInvoice, returned: Money = Money.zero()) {
   return {
     id: i.id,
     invoiceNo: i.invoiceNo,
@@ -139,7 +146,8 @@ function serializeInvoice(i: AllocatableInvoice) {
     date: i.date,
     total: i.total.toString(),
     allocated: i.allocated.toString(),
-    outstanding: invoiceOutstanding(i).toString(),
+    returned: returned.toString(),
+    outstanding: invoiceOpenBalance(i, returned).toString(),
   };
 }
 
@@ -156,7 +164,8 @@ function handleDomainError(c: Context, err: unknown): Response {
     err instanceof NoFiscalPeriodForDateError ||
     err instanceof PeriodNotOpenForPostingError ||
     err instanceof AllocationMismatchError ||
-    err instanceof AllocationExceedsError
+    err instanceof AllocationExceedsError ||
+    err instanceof SettlementRateMissingError
   ) {
     return c.json({ error: err.code, message: err.message }, 422);
   }
@@ -724,7 +733,14 @@ export function createAllocationRoutes(
     const kind = kindParam === "sales" || kindParam === "purchase" ? kindParam : undefined;
     const partyId = c.req.query("partyId") ?? undefined;
     const invoices = await deps.invoices.listOpen({ kind, partyId });
-    return c.json(invoices.map(serializeInvoice));
+    // A return clears debt without an allocation; an invoice it cleared is not
+    // open, and what is open on one it touched is net of it (D242).
+    const returned = await returnedByInvoice(deps.returns, invoices);
+    return c.json(
+      invoices
+        .map((invoice) => serializeInvoice(invoice, returned.get(invoice.id)))
+        .filter((invoice) => Money.fromMajor(invoice.outstanding).scaled > 0n),
+    );
   });
 
   return app;

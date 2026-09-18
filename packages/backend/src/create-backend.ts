@@ -107,6 +107,11 @@ import {
   createProductTemplateSpecificationUsage,
   recordSecurityEvent,
   type Entitlements,
+  type RealisedFxPort,
+  type InvoiceReturnCreditPort,
+  SettlementRateMissingError,
+  salesReturnCreditByInvoice,
+  purchaseReturnCreditByInvoice,
 } from "@mezan/domain";
 import {
   openSqliteConnection,
@@ -232,6 +237,7 @@ import {
   type SalesInvoiceRepository,
   type SalesReturnLine,
   type DocumentRepository,
+  type FrameworkDocument,
   type SalesInvoiceLine,
   type CustomerRepository,
   type Item,
@@ -247,6 +253,22 @@ import { createPreferencesRoutes } from "./preferences-routes.js";
 import { seedIfEmpty, type SeedStores } from "./seed.js";
 import { seedDemoTenant } from "./demo-seed.js";
 import { createHrTreasuryDisbursementPort } from "./hr-treasury-disbursement.js";
+
+/** The confirmed returns citing any of `ids`, in one query where the store can answer it. */
+async function listReturnsCiting<L>(
+  repo: { listByLineRef?: DocumentRepository<L>["listByLineRef"]; list: DocumentRepository<L>["list"] },
+  ids: readonly string[],
+): Promise<readonly FrameworkDocument<L>[]> {
+  return repo.listByLineRef ? repo.listByLineRef("sourceInvoiceId", ids, { status: "confirmed" }) : repo.list({ status: "confirmed" });
+}
+
+/**
+ * FX gains and losses, realised (D221) and unrealised (revaluation) alike. The
+ * standard chart has no dedicated exchange-difference accounts, so فائض/عجز
+ * الصندوق (postable leaves) carry them.
+ */
+const FX_GAIN_ACCOUNT_ID = "4900";
+const FX_LOSS_ACCOUNT_ID = "5900";
 
 /**
  * The GL accounts the purchase chain's invoice confirm posts against —
@@ -1101,6 +1123,18 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const purchaseReturnStore = createStandaloneSqlitePurchaseReturnStore(sqlite);
   const landedCostStore = createStandaloneSqliteLandedCostStore(sqlite);
   const followUps = createStandaloneSqliteFollowUpStore(sqlite);
+  /** What confirmed returns took off each invoice, in base — the allocation sub-ledger nets it (D242). */
+  const invoiceReturnCredits: InvoiceReturnCreditPort = {
+    async returnedByIds(ids, kind) {
+      if (ids.length === 0) return new Map();
+      const wanted = new Set(ids);
+      const credits =
+        kind === "sales"
+          ? salesReturnCreditByInvoice(await listReturnsCiting(salesReturnStore, ids))
+          : purchaseReturnCreditByInvoice(await listReturnsCiting(purchaseReturnStore, ids));
+      return new Map([...credits].filter(([id]) => wanted.has(id)));
+    },
+  };
 
   // --- phase4/inventory-ops — Stock Adjustments, Stock Transfers, Physical
   // Counts document layer (docs/archive/catalog/03), on the SAME shared connection
@@ -1472,12 +1506,13 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       const total = salesInvoiceBaseGrandTotal(salesInvoiceTotals(invoice), invoice.fxRate);
       const sub = await vouchers.invoices.findById(invoiceId);
       const allocated = sub?.allocated ?? Money.zero();
+      const returned = (await invoiceReturnCredits.returnedByIds([invoiceId], "sales")).get(invoiceId) ?? Money.zero();
       return {
         invoiceId,
         docNo: invoice.docNo,
         total,
         amountPaid: allocated,
-        remainingBalance: Money.fromScaled(total.scaled - allocated.scaled),
+        remainingBalance: Money.fromScaled(total.scaled - allocated.scaled - returned.scaled),
         dueDate: invoice.dueDate,
         status: invoice.status,
       };
@@ -1670,12 +1705,13 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       const total = salesInvoiceBaseGrandTotal(salesInvoiceTotals(invoice), invoice.fxRate);
       const sub = await vouchers.invoices.findById(invoiceId);
       const allocated = sub?.allocated ?? Money.zero();
+      const returned = (await invoiceReturnCredits.returnedByIds([invoiceId], "sales")).get(invoiceId) ?? Money.zero();
       return {
         invoiceId,
         docNo: invoice.docNo,
         total,
         amountPaid: allocated,
-        remainingBalance: Money.fromScaled(total.scaled - allocated.scaled),
+        remainingBalance: Money.fromScaled(total.scaled - allocated.scaled - returned.scaled),
         dueDate: invoice.dueDate,
         status: invoice.status,
       };
@@ -1832,12 +1868,13 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       const total = purchaseInvoiceBaseTotal(invoice);
       const sub = await vouchers.invoices.findById(invoiceId);
       const allocated = sub?.allocated ?? Money.zero();
+      const returned = (await invoiceReturnCredits.returnedByIds([invoiceId], "purchase")).get(invoiceId) ?? Money.zero();
       return {
         invoiceId,
         docNo: invoice.number,
         total,
         amountPaid: allocated,
-        remainingBalance: Money.fromScaled(total.scaled - allocated.scaled),
+        remainingBalance: Money.fromScaled(total.scaled - allocated.scaled - returned.scaled),
         dueDate: invoice.dueDate,
         status: invoice.status,
       };
@@ -2887,6 +2924,51 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
    * the debt back on the party (D192); a replacement credits the party's own
    * control account.
    */
+  /**
+   * The rates a settlement of a foreign invoice is measured with, and where the
+   * realised difference goes (D221): the same gain and loss accounts FX
+   * revaluation restates into, so realised and unrealised differences read
+   * together in the P&L.
+   */
+  const realisedFx: RealisedFxPort = {
+    async invoiceFx(invoiceId, kind) {
+      if (kind === "sales") {
+        const invoice = await salesInvoices.findById(invoiceId);
+        return invoice?.fxRate && invoice.currency ? { currency: invoice.currency, fxRate: invoice.fxRate } : null;
+      }
+      const invoice = await purchaseInvoices.findById(invoiceId);
+      return invoice?.fxRate && invoice.currency ? { currency: invoice.currency, fxRate: invoice.fxRate } : null;
+    },
+    async rateOn(currency, date) {
+      return (await exchangeRates.findRate(currency, date))?.rate ?? null;
+    },
+    gainAccountId: FX_GAIN_ACCOUNT_ID,
+    lossAccountId: FX_LOSS_ACCOUNT_ID,
+  };
+  const settlementPreviewer = new VoucherService({
+    documents: vouchers.documents,
+    ledger,
+    accounts,
+    periods: fiscalPeriods,
+    numbering: ledger.numbering,
+    treasuryAccounts,
+    allocations: vouchers.allocations,
+    invoices: vouchers.invoices,
+    realisedFx,
+    returns: invoiceReturnCredits,
+  });
+  /** An invoice collect or pay route's cap for base money dated `date` (D221); a missing rate is refused in that module's own terms. */
+  const previewSettlement =
+    (refuse: (message: string) => Error) =>
+    async (invoiceId: string, amount: Money, date: string) => {
+      try {
+        const split = await settlementPreviewer.settlementPreview(invoiceId, { amount, currency: "EGP", fxRate: null, date });
+        return { relief: split.relief, capacity: split.capacity };
+      } catch (err) {
+        if (err instanceof SettlementRateMissingError) throw refuse(err.message);
+        throw err;
+      }
+    };
   const voucherChequeControls = {
     incoming: { underCollectionAccountId: "1320", bouncedAccountId: "1360" },
     outgoing: { underCollectionAccountId: "2150", bouncedAccountId: null },
@@ -2930,8 +3012,9 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const voucherChequeRegister = new ChequeService({
     cheques,
     gl: salesInvoiceGl,
-    allocation: { allocations: vouchers.allocations, invoices: vouchers.invoices, settlement: invoiceSettlement },
+    allocation: { allocations: vouchers.allocations, invoices: vouchers.invoices, settlement: invoiceSettlement, returns: invoiceReturnCredits },
     raisedBy: chequeRaisedByVoucher,
+    realisedFx,
   });
   const voucherCheques: VoucherChequeRegistrationPort = {
     async register(input) {
@@ -2993,6 +3076,8 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       audit: auditSink,
       actor: input.actor,
       cheques: voucherCheques,
+      realisedFx,
+      returns: invoiceReturnCredits,
     });
     await service.createVoucher({
       id: voucherId,
@@ -3142,6 +3227,8 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       settlement: invoiceSettlement,
       events: voucherEventBridge,
       cheques: voucherCheques,
+      realisedFx,
+      returns: invoiceReturnCredits,
       // Law 6/2025 exempts a regime taxpayer from withholding, so the route
       // refuses a voucher that withholds rather than posting a liability the
       // authority does not recognise (DEC-13).
@@ -3195,6 +3282,8 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
           audit: auditSink,
           actor: input.actor,
           cheques: voucherCheques,
+          realisedFx,
+          returns: invoiceReturnCredits,
         });
         await service.createVoucher({
           id: voucherId,
@@ -3221,6 +3310,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         const posted = await vouchers.documents.findById(voucherId);
         return { voucherId, voucherNo: posted?.docNo ?? null };
       },
+      settlementPreview: previewSettlement((message) => new InvalidPurchaseDocumentError([message])),
       // Mounts POST /purchases/receipts/:id/cancel and /invoices/:id/cancel,
       // which 404 without it. app.ts derives the GL reversal port from this
       // being present, so omitting it silently disables both.
@@ -3261,6 +3351,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       // (resolvePrice) always existed and no route called it, so the whole
       // pricing order held only in the browser (D35).
       collect: collectFromCustomer,
+      settlementPreview: previewSettlement((message) => new InvalidSalesInvoicePaymentError(message)),
       pricing: {
         listPriceFor: async (customerId: string, itemId: string, qty: Qty) => {
           // تفعيل قوائم الأسعار (settings §"الرقابة الائتمانية"): with price
@@ -3284,8 +3375,9 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       gl: salesInvoiceGl,
       // A cheque applied against an invoice lives in the same allocation
       // sub-ledger as a voucher, so a bounce can reopen what it settled (D192).
-      allocation: { allocations: vouchers.allocations, invoices: vouchers.invoices, settlement: invoiceSettlement },
+      allocation: { allocations: vouchers.allocations, invoices: vouchers.invoices, settlement: invoiceSettlement, returns: invoiceReturnCredits },
       raisedBy: chequeRaisedByVoucher,
+      realisedFx,
     },
     bankReconciliation: {
       statements: bankStatements.statements,
@@ -3310,9 +3402,8 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       numbering: ledger.numbering,
       projects,
       exchangeRates,
-      // فائض/عجز الصندوق double as the FX gain/loss accounts (postable leaves in the standard COA).
-      gainAccountId: "4900",
-      lossAccountId: "5900",
+      gainAccountId: FX_GAIN_ACCOUNT_ID,
+      lossAccountId: FX_LOSS_ACCOUNT_ID,
     },
     eta: {
       service: etaService,
@@ -3844,6 +3935,9 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
             number: invoice.number ?? invoice.id,
             supplierId: invoice.supplierId,
             warehouseId: invoice.warehouseId,
+            // A return inherits the invoice's project and each line's cost
+            // category (D-01); leaving them off here dropped both (D215).
+            projectId: invoice.projectId ?? null,
             currency: invoice.currency,
             fxRate: invoice.fxRate ?? null,
             date: invoice.date,
@@ -3861,6 +3955,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
                 // gives the VAT return nothing to group by (D76).
                 taxAmount: purchaseInvoiceLineTax(l),
                 taxRatePercent: l.taxRatePercent,
+                costCategory: l.costCategory ?? null,
               })),
           };
         },

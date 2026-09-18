@@ -11,7 +11,8 @@ export type PartyStatementEntryKind =
   | "cheque_returned"
   | "deduction"
   | "journal"
-  | "imported";
+  | "imported"
+  | "fx_difference";
 
 /**
  * One movement on a party's account, in BASE currency. `increase` raises what

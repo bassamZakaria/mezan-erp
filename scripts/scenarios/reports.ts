@@ -43,6 +43,7 @@ const ALL_REPORTS: readonly string[] = [
   "/reports/inventory/expiring",
   "/reports/inventory/slow-moving",
   "/reports/inventory/drift",
+  "/reports/returns/fx-face-value",
   "/reports/manufacturing/make-vs-buy",
   "/reports/aging/customers",
   "/reports/aging/suppliers",
@@ -661,6 +662,155 @@ export async function foreignSettlementReportsAndReturns_D201_D203(ctx: Ctx): Pr
       checkEq("and so is inventory", after.inventory, before.invariants.inventory);
       check("the supplier ladder still ties to 2100", (await req("GET", "/reports/aging/suppliers")).body?.reconciliation?.withinTolerance === true);
       check("the customer ladder still ties to 1105", (await req("GET", "/reports/aging/customers")).body?.reconciliation?.withinTolerance === true);
+    } finally {
+      const restored = await req("PUT", "/settings", { ...(await req("GET", "/settings")).body, multiCurrencyEnabled: base?.multiCurrencyEnabled, secondaryCurrencies: currencies });
+      check("the currency settings are restored", restored.status === 200, `status ${restored.status}`);
+    }
+  });
+}
+
+/**
+ * D213, D214, D215, D221, D222, D242 on the seeded tenant, in CAD — this scenario's
+ * own currency, so its open positions and revaluation stay out of every other
+ * module's. CAD is 35.20 on the 23rd and 36.00 from the 26th; the settings are
+ * restored afterwards.
+ */
+export async function foreignRatesSettleAndReturnInputs_D213_D222(ctx: Ctx): Promise<void> {
+  const { req, check, checkEq, n } = ctx;
+  const booked = "2026-08-24";
+  const settled = "2026-08-27";
+  const glBalanceOf = (accountId: string) => glBalance(ctx, accountId);
+  const exact = async () => ctx.invariants();
+
+  await ctx.scenario("D213–D222 — a CAD bill balances line by line, raw returns read their invoice, and settling at 36.00 what was booked at 35.20 realises the difference", async () => {
+    const base = (await req("GET", "/settings")).body;
+    const currencies: string[] = base?.secondaryCurrencies ?? [];
+    const enabled = await req("PUT", "/settings", { ...base, multiCurrencyEnabled: true, secondaryCurrencies: [...currencies.filter((c) => c !== "CAD"), "CAD"] });
+    check("multi-currency is on with CAD allowed", enabled.status === 200, `status ${enabled.status}`);
+    for (const [id, rate, date] of [["SCN-D221-CAD-23", "35.20", "2026-08-23"], ["SCN-D221-CAD-26", "36.00", "2026-08-26"]] as const) {
+      await req("POST", "/exchange-rates", { id, currency: "CAD", rate, effectiveDate: date, rateType: "standard", source: "manual" });
+      check(`a CAD rate of ${rate} is approved from ${date}`, (await req("POST", `/exchange-rates/${id}/approve`, {})).body?.status === "approved");
+    }
+    try {
+      for (const id of ["SCN-D213-STK1", "SCN-D213-STK2", "SCN-D213-STK3"]) {
+        await req("POST", "/items", { id, code: id, nameAr: `صنف بالدولار الكندي ${id.slice(-1)}`, type: "stock", baseUnitCode: "PCS", costingMethod: "WAC" });
+      }
+      await req("POST", "/items", { id: "SCN-D221-SVC", code: "SCN-D221-SVC", nameAr: "خدمة بالدولار الكندي", type: "service", baseUnitCode: "PCS", trackInventory: false, taxRatePercent: 0, revenueAccountId: "4100" });
+      await req("POST", "/suppliers", { id: "SCN-D213-SUPP", code: "SCN-D213-SUPP", nameAr: "مورد بالدولار الكندي", currency: "CAD", openingBalance: "0" });
+      await req("POST", "/customers", { id: "SCN-D221-CUST", code: "SCN-D221-CUST", nameAr: "عميل بالدولار الكندي", paymentTermsDays: 30, currency: "CAD", openingBalance: "0", active: true, creditLimit: "0", taxExempt: false, etaBuyerType: "auto" });
+      const start = { ar: await glBalanceOf("1105"), ap: await glBalanceOf("2100"), gain: await glBalanceOf("4900"), loss: await glBalanceOf("5900"), invariants: await exact() };
+
+      // D213 — three lines at 0.333333 convert to one micro-unit more, line by
+      // line, than their sum converted once.
+      const bill = await req("POST", "/purchases/invoices", {
+        id: "SCN-D213-PI", supplierId: "SCN-D213-SUPP", date: booked, dueDate: "2026-09-23", warehouseId: "WH-MAIN", branchId: "BR-MAIN", currency: "CAD", projectId: "PRJ-DEMO-1",
+        lines: [
+          { itemId: "SCN-D213-STK1", kind: "inventory", description: "صنف 1", qty: "3", unitCost: "0.333333", taxRatePercent: 14, costCategory: "materials" },
+          { itemId: "SCN-D213-STK2", kind: "inventory", description: "صنف 2", qty: "1", unitCost: "0.333333", taxRatePercent: 14, costCategory: "materials" },
+          { itemId: null, kind: "freight", description: "شحن", qty: "1", unitCost: "0.333333", taxRatePercent: 0 },
+          { itemId: "SCN-D213-STK3", kind: "inventory", description: "صنف 3", qty: "10", unitCost: "20", taxRatePercent: 14, costCategory: "materials" },
+        ],
+      });
+      const billConfirmed = await req("POST", "/purchases/invoices/SCN-D213-PI/confirm", {});
+      check("D213: a four-line CAD bill whose lines convert a micro-unit apart from their sums is accepted and posts", bill.status === 201 && billConfirmed.status === 200, `${bill.status}/${billConfirmed.status} ${JSON.stringify(billConfirmed.body).slice(0, 240)}`);
+      const pi = (await req("GET", "/purchases/invoices/SCN-D213-PI")).body;
+      check("D213: its base total is the sum of its lines converted one by one — 8,090.837287, not the 8,090.837286 its summed kinds convert to", ctx.scaled(pi?.baseTotal) === 8090837287n, `baseTotal ${pi?.baseTotal}`);
+      check("D213: and 2100 is credited with exactly that", ctx.scaled(-((await glBalanceOf("2100")) - start.ap)) === 8090837287n, `2100 moved ${(await glBalanceOf("2100")) - start.ap}`);
+      let now = await exact();
+      check("D213: the AP sub-ledger still ties to the micro-unit", now.exact.ap === start.invariants.exact.ap, `ap ${now.ap}`);
+      check("D213: and the stock the bill received is worth exactly what it debited to 1200", now.exact.inventory === start.invariants.exact.inventory, `inventory ${now.inventory}`);
+
+      // D214 / D215 — a raw return states its own cost, VAT, rate and no project.
+      const mismatch = await req("POST", "/purchase-returns", {
+        id: "SCN-D214-PR-X", date: booked, memo: "",
+        lines: [{ itemId: "SCN-D213-STK3", warehouseId: "WH-MAIN", supplierId: "SUPP-DEMO-1", sourceInvoiceId: "SCN-D213-PI", sourceInvoiceNumber: null, reason: "DEFECTIVE", availableQty: "10", qty: "1", unitCost: "20", taxAmount: "2.80" }],
+      });
+      check("D214: a purchase return naming another supplier than its invoice's is refused", mismatch.status === 422 && mismatch.body?.error === "RETURN_SUPPLIER_MISMATCH", `${mismatch.status} ${JSON.stringify(mismatch.body).slice(0, 200)}`);
+      const pr = await req("POST", "/purchase-returns", {
+        id: "SCN-D214-PR", date: booked, memo: "",
+        lines: [{ itemId: "SCN-D213-STK3", warehouseId: "WH-MAIN", supplierId: "SCN-D213-SUPP", sourceInvoiceId: "SCN-D213-PI", sourceInvoiceNumber: null, reason: "DEFECTIVE", availableQty: "10", qty: "1", unitCost: "999", taxAmount: "999", taxRatePercent: 50 }],
+      });
+      const prLine = pr.body?.lines?.[0];
+      check("D214: the raw purchase return takes the invoice's cost, VAT share and rate, not the caller's", pr.status === 201 && n(prLine?.unitCost) === 20 && n(prLine?.taxAmount) === 2.8 && prLine?.taxRatePercent === 14, JSON.stringify(prLine).slice(0, 240));
+      check("D215: and it inherits the invoice's project and cost category", prLine?.projectId === "PRJ-DEMO-1" && prLine?.costCategory === "materials", JSON.stringify(prLine).slice(0, 240));
+      const prConfirmed = await req("POST", "/purchase-returns/SCN-D214-PR/confirm", {});
+      check("the return confirms", prConfirmed.status === 200, `status ${prConfirmed.status} ${JSON.stringify(prConfirmed.body).slice(0, 200)}`);
+      checkEq("D214: it debits 2100 with CAD 22.80 × 35.20 = 802.56", (await glBalanceOf("2100")) + n(pi?.baseTotal) - start.ap, 802.56);
+
+      await req("POST", "/sales-invoices", {
+        id: "SCN-D214-SI", date: booked, dueDate: "2026-09-23", customerId: "SCN-D221-CUST", customerNameAr: "عميل بالدولار الكندي",
+        warehouseId: "WH-MAIN", branchId: "BR-MAIN", currency: "CAD", arAccountId: "1105", taxAccountId: "2200",
+        lines: [{ lineId: "SCN-D214-SI-L1", itemId: "SCN-D221-SVC", itemNameAr: "خدمة", isStock: false, qty: "1", unitPrice: "10", taxRatePercent: 0, revenueAccountId: "4100" }],
+      });
+      await req("POST", "/sales-invoices/SCN-D214-SI/confirm", {});
+      const sr = await req("POST", "/sales-returns", {
+        id: "SCN-D214-SR", date: booked, memo: "",
+        lines: [{ itemId: "SCN-D221-SVC", warehouseId: "WH-MAIN", customerId: "SCN-D221-CUST", sourceInvoiceId: "SCN-D214-SI", sourceInvoiceNumber: null, reason: "OTHER", availableQty: "1", qty: "1", unitPrice: "999", unitCost: "0", taxAmount: "999" }],
+      });
+      check("D214: the raw sales return takes the invoice's price and VAT, not the caller's", sr.status === 201 && n(sr.body?.lines?.[0]?.unitPrice) === 10 && n(sr.body?.lines?.[0]?.taxAmount) === 0, JSON.stringify(sr.body?.lines?.[0]).slice(0, 240));
+      checkEq("and credits CAD 10 at 35.20", n(sr.body?.grandTotal), 352);
+      check("the sales return confirms", (await req("POST", "/sales-returns/SCN-D214-SR/confirm", {})).status === 200);
+      now = await exact();
+      check("AR and AP still tie to the micro-unit after both raw returns", now.exact.ar === start.invariants.exact.ar && now.exact.ap === start.invariants.exact.ap, `ar ${now.ar} ap ${now.ap}`);
+      const openSales = (await req("GET", "/open-invoices?kind=sales&partyId=SCN-D221-CUST")).body as any[];
+      check("D242: an invoice its return cleared is no longer offered for allocation", Array.isArray(openSales) && !openSales.some((row) => row.id === "SCN-D214-SI"), JSON.stringify(openSales).slice(0, 200));
+      const openBill = ((await req("GET", "/open-invoices?kind=purchase&partyId=SCN-D213-SUPP")).body as any[]).find((row) => row.id === "SCN-D213-PI");
+      check("D242: the bill is offered net of its 802.56 return", ctx.scaled(openBill?.outstanding) === 8090837287n - 802560000n && ctx.scaled(openBill?.returned) === 802560000n, JSON.stringify(openBill));
+
+      // D221 — a customer pays CAD 100 booked at 35.20 with EGP at 36.00.
+      await req("POST", "/sales-invoices", {
+        id: "SCN-D221-SI", date: booked, dueDate: "2026-09-23", customerId: "SCN-D221-CUST", customerNameAr: "عميل بالدولار الكندي",
+        warehouseId: "WH-MAIN", branchId: "BR-MAIN", currency: "CAD", arAccountId: "1105", taxAccountId: "2200",
+        lines: [{ lineId: "SCN-D221-SI-L1", itemId: "SCN-D221-SVC", itemNameAr: "خدمة", isStock: false, qty: "2", unitPrice: "50", taxRatePercent: 0, revenueAccountId: "4100" }],
+      });
+      check("a CAD 100 sales invoice confirms at 35.20", (await req("POST", "/sales-invoices/SCN-D221-SI/confirm", {})).status === 200);
+      const ar = await glBalanceOf("1105");
+      const over = await req("POST", "/sales-invoices/SCN-D221-SI/payments", { amount: "3600.01", treasuryAccountId: "TR-DEMO-CASH", date: settled });
+      check("D221: EGP 3,600.01 at 36.00 is more than CAD 100 and is refused", over.status === 422, `status ${over.status}`);
+      const paid = await req("POST", "/sales-invoices/SCN-D221-SI/payments", { amount: "3600", treasuryAccountId: "TR-DEMO-CASH", date: settled });
+      check("D221: EGP 3,600.00 at 36.00 is collected against it", paid.status === 200, `status ${paid.status} ${JSON.stringify(paid.body).slice(0, 200)}`);
+      const si = (await req("GET", "/sales-invoices/SCN-D221-SI")).body;
+      check("D221: it settles the invoice in full, which reads «مدفوع»", si?.status === "paid" && n(si?.remainingBalance) === 0, `${si?.status} ${si?.remainingBalance}`);
+      checkEq("D221: 1105 is relieved of the 3,520.00 it was booked at and no more — nothing is left on the customer", (await glBalanceOf("1105")) - ar, -3520);
+      checkEq("D221: the 80.00 difference is a realised gain on 4900", (await glBalanceOf("4900")) - start.gain, -80);
+      now = await exact();
+      check("D221: the AR sub-ledger still ties to the micro-unit", now.exact.ar === start.invariants.exact.ar, `ar ${now.ar}`);
+      const statement = (await req("GET", "/reports/statements/customers/SCN-D221-CUST")).body;
+      check("D221: the customer's statement shows the realised difference and closes on their ladder row", statement?.closing === statement?.agingTotal && (statement?.lines ?? []).some((line: any) => line.kind === "fx_difference" && n(line.increase) === 80), JSON.stringify({ closing: statement?.closing, aging: statement?.agingTotal }));
+      const revaluation = (await req("POST", "/revaluation/preview", { date: "2026-08-31", currencies: ["CAD"] })).body;
+      const arDetail = ((revaluation?.details ?? []) as any[]).find((detail) => detail.accountId === "1105");
+      check("D221: month-end revaluation finds nothing left open on 1105 in CAD to restate again", !arDetail || n(arDetail.delta) === 0 || n(arDetail.foreignAmount) !== 0, JSON.stringify(arDetail ?? null));
+
+      // D221 — the supplier is paid by a «شيك» at 36.00 against the bill at 35.20.
+      const bankGl = String((await req("GET", "/treasury-accounts/TR-DEMO-BANK")).body?.glAccountId);
+      const voucher = await req("POST", "/vouchers", {
+        id: "SCN-D221-V", date: settled, voucherType: "supplier_payment", amount: "3600", branchId: "BR-MAIN", paymentMethod: "cheque", referenceNo: "SCN-D221-0001",
+        treasuryAccountId: "TR-DEMO-BANK", treasuryGlAccountId: bankGl, counterpartyGlAccountId: "2100", supplierId: "SCN-D213-SUPP",
+      });
+      const voucherConfirmed = await req("POST", "/vouchers/SCN-D221-V/confirm", {});
+      check("an EGP 3,600.00 «شيك» payment to the CAD supplier posts and raises its cheque", voucher.status === 201 && voucherConfirmed.status === 200, `${voucher.status}/${voucherConfirmed.status} ${JSON.stringify(voucherConfirmed.body).slice(0, 200)}`);
+      const apBefore = await glBalanceOf("2100");
+      const owedBefore = n((await req("GET", "/purchases/invoices/SCN-D213-PI")).body?.remainingBalance);
+      const applied = await req("POST", "/cheques/SCN-D221-V/allocations", { allocationId: "SCN-D221-V-A1", invoiceId: "SCN-D213-PI", amount: "3600" });
+      check("D221: the cheque is applied to the CAD bill", applied.status === 201 || applied.status === 200, `status ${applied.status} ${JSON.stringify(applied.body).slice(0, 200)}`);
+      checkEq("D221: CAD 100 bought at 36.00 relieves 3,520.00 of the bill; the 80.00 more paid is a realised loss on 5900", (await glBalanceOf("5900")) - start.loss, 80);
+      checkEq("D221: 2100 takes the 80.00 back so it holds only what is owed at the booked rate", (await glBalanceOf("2100")) - apBefore, -80);
+      checkEq("D221: the bill owes 3,520.00 less than before", n((await req("GET", "/purchases/invoices/SCN-D213-PI")).body?.remainingBalance), owedBefore - 3520);
+      now = await exact();
+      check("D221: the AP sub-ledger still ties to the micro-unit", now.exact.ap === start.invariants.exact.ap, `ap ${now.ap}`);
+
+      await req("POST", "/cheques/SCN-D221-V/deposit", { bankTreasuryAccountId: "TR-DEMO-BANK" });
+      const bounced = await req("POST", "/cheques/SCN-D221-V/bounce", { date: "2026-08-28" });
+      check("the bank returns the cheque", bounced.status === 200 && bounced.body?.status === "bounced", `status ${bounced.status} ${JSON.stringify(bounced.body).slice(0, 200)}`);
+      checkEq("D221: the bounce takes the realised loss back off 5900", (await glBalanceOf("5900")) - start.loss, 0);
+      checkEq("D221: and the bill owes what it did before the cheque", n((await req("GET", "/purchases/invoices/SCN-D213-PI")).body?.remainingBalance), owedBefore);
+      now = await exact();
+      check("D221: AR, AP and inventory all still tie to the micro-unit", now.exact.ar === start.invariants.exact.ar && now.exact.ap === start.invariants.exact.ap && now.exact.inventory === start.invariants.exact.inventory, `ar ${now.ar} ap ${now.ap} inventory ${now.inventory}`);
+      check("the supplier ladder still ties to 2100", (await req("GET", "/reports/aging/suppliers")).body?.reconciliation?.withinTolerance === true);
+      check("the customer ladder still ties to 1105", (await req("GET", "/reports/aging/customers")).body?.reconciliation?.withinTolerance === true);
+
+      const exceptions = (await req("GET", "/reports/returns/fx-face-value")).body;
+      check("D222: every return this tenant has posted carries its invoice's rate, so the face-value exceptions report is empty", Array.isArray(exceptions?.rows) && exceptions.rows.length === 0, JSON.stringify(exceptions?.rows ?? exceptions).slice(0, 240));
     } finally {
       const restored = await req("PUT", "/settings", { ...(await req("GET", "/settings")).body, multiCurrencyEnabled: base?.multiCurrencyEnabled, secondaryCurrencies: currencies });
       check("the currency settings are restored", restored.status === 200, `status ${restored.status}`);

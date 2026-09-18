@@ -13,8 +13,8 @@ function invoice(id: string, kind: "sales" | "purchase", partyId: string, total:
   return { id, invoiceNo: id.toUpperCase(), kind, partyId, date: "2026-08-10", total: Money.fromMajor(total), allocated: Money.zero() };
 }
 
-async function confirmedCollection(total: string, invoices: AllocatableInvoice[]) {
-  const h = buildTestService({ invoices });
+async function confirmedCollection(total: string, invoices: AllocatableInvoice[], returned?: Record<string, string>) {
+  const h = buildTestService({ invoices, ...(returned ? { returned } : {}) });
   await h.service.createVoucher({
     id: "vc",
     date: "2026-08-22",
@@ -45,6 +45,15 @@ describe("voucher invoice allocation", () => {
 
     expect((await h.invoices.findById("inv1"))!.allocated.toString()).toBe("200.000000");
     expect((await h.invoices.findById("inv2"))!.allocated.toString()).toBe("100.000000");
+  });
+
+  it("D242: money is never applied to debt a return already cleared", async () => {
+    const h = await confirmedCollection("300", [invoice("inv1", "sales", "cust-1", "200"), invoice("inv2", "sales", "cust-1", "200")], { inv1: "200", inv2: "50" });
+    await expect(h.service.allocate("vc", { allocationId: "al1", invoiceId: "inv1", amount: Money.fromMajor("0.01") })).rejects.toThrow(AllocationExceedsError);
+    await expect(h.service.allocate("vc", { allocationId: "al2", invoiceId: "inv2", amount: Money.fromMajor("150.01") })).rejects.toThrow(AllocationExceedsError);
+    await h.service.allocate("vc", { allocationId: "al3", invoiceId: "inv2", amount: Money.fromMajor("150") });
+    expect((await h.invoices.findById("inv2"))!.allocated.toString()).toBe("150.000000");
+    expect((await h.invoices.findById("inv1"))!.allocated.toString()).toBe("0.000000");
   });
 
   it("partial allocation leaves the voucher بحاجة لتخصيص (needsAllocation)", async () => {

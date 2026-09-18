@@ -101,6 +101,8 @@ export {
   purchaseInvoiceTax,
   purchaseInvoiceTotal,
   purchaseInvoiceBaseTotal,
+  purchaseInvoiceBaseParts,
+  type PurchaseInvoiceBaseParts,
   type PurchaseInvoice,
   type PurchaseInvoiceLine,
   type PurchaseInvoiceLineKind,

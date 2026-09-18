@@ -654,6 +654,7 @@ export interface CreateAppOptions {
     readonly currencyCheck?: CurrencyCheck;
     /** Backs `POST /purchases/invoices/:id/payments`; omit it and that route answers 503. */
     readonly pay?: NonNullable<PurchasesRoutesDeps["pay"]>;
+    readonly settlementPreview?: PurchasesRoutesDeps["settlementPreview"];
     readonly resolveAuthContext?: AuthContextResolver;
     /** Audit sink for the chain's confirm/cancel records; falls back to `options.auditSink`. */
     readonly audit?: AuditSink;
@@ -1472,6 +1473,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
           policy,
           layers: purchases.layers,
           pay: purchases.pay,
+          settlementPreview: purchases.settlementPreview,
           resolveTaxRate: purchases.resolveTaxRate,
           currencyCheck:
             purchases.currencyCheck ?? (options.settingsStore ? createCurrencyCheck(options.settingsStore) : undefined),

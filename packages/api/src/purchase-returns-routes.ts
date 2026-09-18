@@ -2,6 +2,7 @@ import { Hono, type Context } from "hono";
 import {
   Money,
   Qty,
+  buildPurchaseReturnLinesFromInvoice,
   purchaseReturnGrandTotal,
   purchaseReturnLineCredit,
   type DocumentService,
@@ -80,13 +81,28 @@ export function createPurchaseReturnsRoutes(
     return cache.get(sourceInvoiceId) ?? null;
   }
 
-  /** The client's `availableQty` is a hint, never the cap. */
-  async function resolveAvailableQty(sourceInvoiceId: string, itemId: string, claimed: string): Promise<Qty> {
-    const invoice = await lookupInvoice(new Map(), sourceInvoiceId);
-    if (invoice === undefined) return Qty.fromMajor(claimed);
-    const line = invoice?.lines.find((il) => il.itemId === itemId);
-    if (!line) return Qty.zero();
-    return line.qty.subtract(line.alreadyReturnedQty);
+  /**
+   * A `POST /` line checked against the invoice it names: a return against an
+   * invoice that does not exist, against another supplier's invoice, or for an
+   * item the invoice never carried is a debit note nobody owes (the twin of
+   * the sales check, D89). With no invoices module wired there is nothing to
+   * check against.
+   */
+  function refuseInconsistentLine(
+    line: { supplierId: string; itemId: string },
+    invoice: SourceInvoice | undefined,
+  ): { error: string; message: string } | null {
+    if (invoice === undefined) return null;
+    if (!invoice) {
+      return { error: "SOURCE_INVOICE_NOT_FOUND", message: "الفاتورة المصدر غير موجودة أو غير مؤكدة." };
+    }
+    if (invoice.supplierId !== line.supplierId) {
+      return { error: "RETURN_SUPPLIER_MISMATCH", message: "مورد المرتجع لا يطابق مورد الفاتورة المصدر." };
+    }
+    if (!invoice.lines.some((il) => il.itemId === line.itemId)) {
+      return { error: "RETURN_ITEM_NOT_ON_INVOICE", message: "الصنف غير موجود في الفاتورة المصدر." };
+    }
+    return null;
   }
 
   interface PurchaseReturnListFilter {
@@ -200,29 +216,42 @@ export function createPurchaseReturnsRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
+    const requestInvoices = new Map<string, SourceInvoice>();
+    for (const line of parsed.data.lines) {
+      const refusal = refuseInconsistentLine(line, await lookupInvoice(requestInvoices, line.sourceInvoiceId));
+      if (refusal) return c.json(refusal, 422);
+    }
     try {
-      // A return built from an invoice inherits the invoice's projectId and
-      // each line's costCategory when the caller does not state its own
-      // (D-01) — otherwise an unattended build-from-invoice would drop them.
-      const requestInvoices = new Map<string, SourceInvoice>();
+      // Every figure is read off the invoice (D214): cost, the line's share of
+      // the VAT it actually carried, its rate, what is still returnable and the
+      // currency and rate it confirmed at (D203). The inventory credit comes
+      // from what the stock ledger removes at confirm (D47). The project and
+      // cost category are the caller's to state, and inherit the invoice's
+      // when they are not (D-01).
       const lines = await Promise.all(parsed.data.lines.map(async (l) => {
         const invoice = await lookupInvoice(requestInvoices, l.sourceInvoiceId);
-        const invoiceLine = invoice?.lines.find((il) => il.itemId === l.itemId);
-        return {
+        const claimed: PurchaseReturnLine = {
           itemId: l.itemId,
           warehouseId: l.warehouseId,
           supplierId: l.supplierId,
           sourceInvoiceId: l.sourceInvoiceId,
           sourceInvoiceNumber: l.sourceInvoiceNumber,
           reason: l.reason,
-          availableQty: await resolveAvailableQty(l.sourceInvoiceId, l.itemId, l.availableQty),
+          availableQty: Qty.fromMajor(l.availableQty),
           qty: Qty.fromMajor(l.qty),
           unitCost: Money.fromMajor(l.unitCost),
           taxAmount: Money.fromMajor(l.taxAmount),
           taxRatePercent: l.taxRatePercent ?? null,
-          projectId: parsed.data.projectId ?? invoice?.projectId ?? null,
-          costCategory: l.costCategory ?? invoiceLine?.costCategory ?? null,
-          ...(invoice?.fxRate ? { currency: invoice.currency ?? null, fxRate: invoice.fxRate } : {}),
+          projectId: parsed.data.projectId ?? null,
+          costCategory: l.costCategory ?? null,
+        };
+        if (!invoice) return claimed;
+        const [derived] = buildPurchaseReturnLinesFromInvoice(invoice, l.warehouseId, l.reason, [{ itemId: l.itemId, qty: claimed.qty }]);
+        if (!derived) return { ...claimed, availableQty: Qty.zero() };
+        return {
+          ...derived,
+          projectId: parsed.data.projectId ?? derived.projectId ?? null,
+          costCategory: l.costCategory ?? derived.costCategory ?? null,
         };
       }));
       const doc = await service.createDraft({

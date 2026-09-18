@@ -76,7 +76,7 @@ export function PurchasesHubScreen() {
           key: inv.id,
           primary: supplierName(inv.supplierId),
           secondary: <DateAndDoc date={inv.date} docNo={inv.number} />,
-          trailing: <Money value={num(inv.total)} />,
+          trailing: <Money value={num(inv.baseTotal ?? inv.total)} />,
         })),
       }}
     />

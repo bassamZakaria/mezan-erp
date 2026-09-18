@@ -21,6 +21,8 @@ import {
   createInventoryExpiringReport,
   createInventorySlowMovingReport,
   createInventoryDriftReport,
+  createReturnsFxFaceValueReport,
+  type ForeignInvoiceRef,
   createMakeVsBuyReport,
   createAgingCustomersReport,
   createAgingSuppliersReport,
@@ -84,6 +86,8 @@ import {
   voucherBaseWithholding,
   isStandingVoucher,
   fxRevaluationNet,
+  FX_REALISED_DOC_TYPE,
+  allocationInvoiceAmount,
   type AgingCustomersContext,
   type AgingSuppliersContext,
   type AgingOpenItem,
@@ -147,7 +151,7 @@ export interface ReportsRoutesDeps {
   /** Confirmed vouchers, for collections that named no invoice. */
   readonly voucherDocuments?: Pick<DocumentRepository<VoucherLine>, "list">;
   /** Allocations, to tell an applied collection from an on-account one. */
-  readonly allocations?: Pick<AllocationRepository, "listByVoucher">;
+  readonly allocations?: Pick<AllocationRepository, "listByVoucher"> & Partial<Pick<AllocationRepository, "findById">>;
   readonly purchaseInvoices: PurchaseInvoiceRepository;
   /**
    * Documents imported from the previous system (x31/x32). An unsettled one
@@ -516,6 +520,12 @@ function chequeDays(cheque: Cheque, asOf: AgingAsOf): { readonly raised: string;
   return { raised, undone };
 }
 
+/** Whether the allocation a realised-FX entry belongs to still stands (D221). */
+async function allocationIsActive(deps: ReportsRoutesDeps, allocationId: string | null | undefined): Promise<boolean> {
+  if (!allocationId || !deps.allocations?.findById) return true;
+  return (await deps.allocations.findById(allocationId))?.status === "active";
+}
+
 interface UnappliedTerms {
   /** Per party: what its receipts (or payments) standing on the day had not applied to an invoice of that day. */
   readonly unapplied: ReadonlyMap<string, Money>;
@@ -537,7 +547,9 @@ async function unappliedPartyTerms(deps: ReportsRoutesDeps, asOf: AgingAsOf): Pr
   const source = async (id: string, partyId: string | null | undefined, amount: bigint, date: string, standing: boolean) => {
     const active = ((await deps.allocations?.listByVoucher(id)) ?? []).filter((alloc) => alloc.status === "active");
     if (date > asOf.asOfDate) {
-      for (const alloc of active) settledAfter.set(alloc.invoiceId, (settledAfter.get(alloc.invoiceId) ?? 0n) + alloc.amount.scaled);
+      // The invoice gets back what it was relieved of, which for a foreign one
+      // settled at another rate is not what the voucher gave (D221).
+      for (const alloc of active) settledAfter.set(alloc.invoiceId, (settledAfter.get(alloc.invoiceId) ?? 0n) + allocationInvoiceAmount(alloc).scaled);
       return;
     }
     if (!standing || !partyId) return;
@@ -601,7 +613,13 @@ async function partyOpenItems(
   for (const line of asOf.controlLines) {
     const amount = sign * (line.debit.scaled - line.credit.scaled);
     if (line.partyId) {
-      items.push({ partyId: line.partyId, source: "journal", reference: line.entryNo ?? line.entryId, date: line.date, amount: Money.fromScaled(amount), branchId: line.branchId });
+      // A realised exchange difference is carried by its live allocation — the
+      // voucher it used up and the invoice it relieved (D221). Once that is
+      // undone the ladder no longer sees the allocation, so the entry and its
+      // reversal stand as items of their own, dated as they posted.
+      const realised = line.sourceDocType === FX_REALISED_DOC_TYPE;
+      if (realised && (await allocationIsActive(deps, line.sourceDocId))) continue;
+      items.push({ partyId: line.partyId, source: realised ? "fx_difference" : "journal", reference: line.entryNo ?? line.entryId, date: line.date, amount: Money.fromScaled(amount), branchId: line.branchId });
       continue;
     }
     const partyId = openingPartyOf(line, kind);
@@ -1240,6 +1258,38 @@ export function createReportsRoutes(
     return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { snapshots, movements, items, warehouses }));
   });
 
+  // --- مرتجعات بعملة أجنبية مرحّلة بالقيمة الاسمية (D222) ------------------
+
+  app.get("/returns/fx-face-value", gate("accounting.reports.view"), async (c) => {
+    const definition = createReturnsFxFaceValueReport();
+    const [sales, purchases, salesReturns, purchaseReturns, customers, suppliers] = await Promise.all([
+      scopedSalesInvoices(c),
+      scopedPurchaseInvoices(c),
+      deps.salesReturnDocs?.list({ status: "confirmed" }) ?? [],
+      deps.purchaseReturnDocs?.list({ status: "confirmed" }) ?? [],
+      deps.customers.findAll(),
+      deps.suppliers.findAll(),
+    ]);
+    const salesInvoices = new Map<string, ForeignInvoiceRef>();
+    for (const invoice of sales) {
+      if (!invoice.fxRate || !invoice.currency) continue;
+      salesInvoices.set(invoice.id, { number: invoice.docNo ?? invoice.id, currency: invoice.currency, fxRate: invoice.fxRate, partyId: invoice.customerId });
+    }
+    const purchaseInvoices = new Map<string, ForeignInvoiceRef>();
+    for (const invoice of purchases) {
+      if (!invoice.fxRate || !invoice.currency) continue;
+      purchaseInvoices.set(invoice.id, { number: invoice.number ?? invoice.id, currency: invoice.currency, fxRate: invoice.fxRate, partyId: invoice.supplierId });
+    }
+    const partyNames = new Map<string, string>([
+      ...customers.map((party) => [party.id, party.nameAr] as const),
+      ...suppliers.map((party) => [party.id, party.nameAr] as const),
+    ]);
+    return respond(
+      c,
+      runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { salesReturns, purchaseReturns, salesInvoices, purchaseInvoices, partyNames }),
+    );
+  });
+
   // --- التصنيع أم الشراء -----------------------------------------------
 
   if (deps.boms) {
@@ -1462,6 +1512,28 @@ export function createReportsRoutes(
       }));
   }
 
+  /**
+   * The realised exchange differences posted against a party (D221): each
+   * restates what the party's voucher or cheque settled to the invoice's booked
+   * rate, so without them the statement closes that far from the ladder.
+   */
+  async function realisedFxEntries(controlId: string, partyId: string, asOfDate: string, sign: 1n | -1n): Promise<PartyStatementEntry[]> {
+    const lines = (await deps.ledger.listLines?.({ accountIds: [controlId], toDate: asOfDate })) ?? [];
+    const live: PostedLine[] = [];
+    for (const line of lines) {
+      if (line.sourceDocType !== FX_REALISED_DOC_TYPE || line.partyId !== partyId) continue;
+      if (await allocationIsActive(deps, line.sourceDocId)) live.push(line);
+    }
+    return live
+      .map((line) => ({
+        key: `fx-${line.entryId}`,
+        date: line.date,
+        kind: "fx_difference" as const,
+        reference: line.entryNo ?? line.entryId,
+        ...statementSides(Money.fromScaled(sign * (line.debit.scaled - line.credit.scaled))),
+      }));
+  }
+
   function serializeStatement(partyId: string, asOfDate: string, statement: PartyStatement, agingTotal: Money) {
     return {
       partyId,
@@ -1550,6 +1622,7 @@ export function createReportsRoutes(
       });
     }
     entries.push(...openItemEntries(terms.openItems ?? [], id, asOfDate));
+    entries.push(...(await realisedFxEntries(RECEIVABLES_CONTROL_ACCOUNT_ID, id, asOfDate, 1n)));
     const row = customerAgingBalances({ asOfDate, branchId: "" }, { invoices, ...terms }).get(id);
     return c.json(serializeStatement(id, asOfDate, buildPartyStatement(entries), row ? agingBucketsTotal(row) : Money.zero()));
   });
@@ -1630,6 +1703,7 @@ export function createReportsRoutes(
       });
     }
     entries.push(...openItemEntries(terms.openItems ?? [], id, asOfDate));
+    entries.push(...(await realisedFxEntries(PAYABLES_CONTROL_ACCOUNT_ID, id, asOfDate, -1n)));
     const row = supplierAgingBalances({ asOfDate, branchId: "" }, { invoices, ...terms }).get(id);
     return c.json(serializeStatement(id, asOfDate, buildPartyStatement(entries), row ? supplierAgingTotal(row) : Money.zero()));
   });

@@ -664,7 +664,24 @@ export function PurchaseInvoicesScreen() {
     { key: "number", header: t("purchaseInvoices.col.number"), render: (inv) => <span className="mz-num font-semibold text-ink">{inv.number}</span> },
     { key: "supplier", header: t("common.supplier"), render: (inv) => supplierName(inv.supplierId) },
     { key: "date", header: t("common.date"), render: (inv) => <span className="mz-num">{inv.date.split("-").reverse().join("/")}</span> },
-    { key: "total", header: t("common.total"), align: "end", render: (inv) => <MoneyValue value={num(inv.total)} /> },
+    {
+      key: "total",
+      header: t("common.total"),
+      align: "end",
+      // The column is in base, so rows in different currencies can be read and
+      // added together; a foreign invoice's own figure sits under it in its
+      // own currency (D218).
+      render: (inv) => (
+        <div className="flex flex-col items-end gap-[3px]">
+          <MoneyValue value={num(inv.baseTotal ?? inv.total)} />
+          {inv.fxRate ? (
+            <span className="text-[11px] text-ink-muted">
+              <MoneyValue value={num(inv.total)} currencyLabel={inv.currency} />
+            </span>
+          ) : null}
+        </div>
+      ),
+    },
     {
       key: "dueDate",
       header: t("salesInvoices.col.dueDate"),

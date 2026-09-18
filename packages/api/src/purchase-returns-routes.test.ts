@@ -186,7 +186,8 @@ describe("purchase-returns router — cannot return more than was received", () 
         qty: Qty.fromMajor("3"),
         alreadyReturnedQty: Qty.fromMajor("1"),
         unitCost: Money.fromMajor("60"),
-        taxAmount: Money.zero(),
+        taxAmount: Money.fromMajor("25.2"),
+        taxRatePercent: 14,
       },
     ],
   };
@@ -237,6 +238,47 @@ describe("purchase-returns router — cannot return more than was received", () 
     );
     expect(overByOne.status).toBe(422);
     expect(await service.findById("PRT-OVER-1")).toBeNull();
+  });
+
+  it("D214: takes the cost, the VAT share and its rate off the invoice, whatever the caller states", async () => {
+    const { app, service } = await rigWithInvoices();
+    const res = await app.fetch(
+      req("/", {
+        method: "POST",
+        permissions: "purchases.return.create",
+        body: JSON.stringify({
+          ...payload,
+          id: "PRT-PRICE",
+          lines: [{ ...payload.lines[0], availableQty: "2", qty: "1", unitCost: "600", taxAmount: "300", taxRatePercent: 50 }],
+        }),
+      }),
+    );
+    expect(res.status).toBe(201);
+    const line = (await service.findById("PRT-PRICE"))?.lines[0];
+    expect(line?.unitCost.toString()).toBe("60.000000");
+    expect(line?.taxAmount.toString()).toBe("8.400000");
+    expect(line?.taxRatePercent).toBe(14);
+  });
+
+  it("D214: refuses a return against another supplier's invoice, a missing invoice, or an item the invoice never carried", async () => {
+    const { app, service } = await rigWithInvoices();
+    const cases: [string, Record<string, unknown>, string][] = [
+      ["PRT-SUP", { supplierId: "SUP-OTHER" }, "RETURN_SUPPLIER_MISMATCH"],
+      ["PRT-GHOST", { sourceInvoiceId: "PI-NOT-REAL" }, "SOURCE_INVOICE_NOT_FOUND"],
+      ["PRT-ITEM", { itemId: "ITEM-NOT-ON-INVOICE" }, "RETURN_ITEM_NOT_ON_INVOICE"],
+    ];
+    for (const [id, override, code] of cases) {
+      const res = await app.fetch(
+        req("/", {
+          method: "POST",
+          permissions: "purchases.return.create",
+          body: JSON.stringify({ ...payload, id, lines: [{ ...payload.lines[0], availableQty: "2", qty: "1", ...override }] }),
+        }),
+      );
+      expect(res.status).toBe(422);
+      expect(((await res.json()) as { error: string }).error).toBe(code);
+      expect(await service.findById(id)).toBeNull();
+    }
   });
 
   it("with NO invoices port wired, the caller's own availableQty is trusted verbatim (documented fallback)", async () => {

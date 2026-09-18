@@ -167,7 +167,13 @@ export function createSimplifiedRegimeRoutes(
   app.put("/", gate("admin.settings.edit"), async (c) => {
     const parsed = recordSimplifiedRegimeSchema.safeParse(await c.req.json());
     if (!parsed.success) {
-      return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+      // The schema's refinements carry the Arabic reason (the Form 1/10 or 1/11
+      // date and number); zod's own messages are English and stay in `details`.
+      const reason = parsed.error.issues.find((issue) => issue.code === "custom")?.message;
+      return c.json(
+        { error: "VALIDATION_ERROR", ...(reason ? { message: reason } : {}), details: parsed.error.flatten() },
+        400,
+      );
     }
     const ctx = await resolveAuthContext(c);
     try {

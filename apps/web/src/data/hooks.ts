@@ -582,7 +582,7 @@ export function withSupportCode(message: string, status: number, t?: AppTranslat
  * loses its code, or every failure loses the server's reason and the support
  * code with it.
  */
-async function loaderError(
+export async function loaderError(
   res: { status: number; json<T>(): Promise<T> },
   fallback: string,
   t?: AppTranslate,

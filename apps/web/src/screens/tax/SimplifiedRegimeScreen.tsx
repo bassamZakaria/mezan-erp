@@ -5,6 +5,7 @@ import { useAppTranslation, type AppTranslationKey } from "../../i18n";
 import { useNavigation } from "../../navigation";
 import type { ScreenKey } from "../../router/screens";
 import { useRecordSimplifiedRegime, useSimplifiedRegime } from "./simplified-regime-hooks";
+import { errorMessage } from "../../lib/error-message";
 
 /**
  * النظام الضريبي المبسط (قانون 6 لسنة 2025).
@@ -149,7 +150,7 @@ export function SimplifiedRegimeScreen() {
       await record.mutateAsync(body);
       setSaved(true);
     } catch (err) {
-      setSaveError(err instanceof Error ? err.message : t("simplifiedRegime.api.saveFailed"));
+      setSaveError(errorMessage(err, t("simplifiedRegime.api.saveFailed")));
     }
   }
 

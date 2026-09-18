@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient, type UseMutationResult, type UseQueryResult } from "@tanstack/react-query";
 import type { RecordSimplifiedRegimeDTO, SimplifiedRegimeElectionDTO, SimplifiedRegimeStatusDTO } from "@mezan/contracts";
 import { useApi } from "../../data/ApiContext";
-import { ApiError } from "../../data/hooks";
+import { ApiError, loaderError } from "../../data/hooks";
 import { useAppTranslation } from "../../i18n";
 
 /**
@@ -20,7 +20,7 @@ export function useSimplifiedRegime(): UseQueryResult<SimplifiedRegimeStatusDTO 
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/tax/simplified-regime");
-      if (!res.ok) throw new ApiError(res.status, t("simplifiedRegime.api.loadFailed"));
+      if (!res.ok) throw await loaderError(res, t("simplifiedRegime.api.loadFailed"), t);
       return res.json<SimplifiedRegimeStatusDTO & { activeToday: boolean }>();
     },
   });
@@ -37,10 +37,7 @@ export function useRecordSimplifiedRegime(): UseMutationResult<
   return useMutation({
     mutationFn: async (body: RecordSimplifiedRegimeDTO) => {
       const res = await request("/tax/simplified-regime", { method: "PUT", body: JSON.stringify(body) });
-      if (!res.ok) {
-        const detail = await res.json<{ message?: string }>().catch(() => null);
-        throw new ApiError(res.status, detail?.message ?? t("simplifiedRegime.api.saveFailed"));
-      }
+      if (!res.ok) throw await loaderError(res, t("simplifiedRegime.api.saveFailed"), t);
       return res.json<SimplifiedRegimeElectionDTO>();
     },
     onSettled: () => {

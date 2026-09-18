@@ -2,13 +2,17 @@ import { test, expect, type Page } from "@playwright/test";
 import { loginAsDemoUser } from "./support/auth";
 import { clickSidebarItem } from "./support/nav";
 import { brokenLabelField } from "./support/broken-label";
+import { confirmRowAction, runRowAction } from "./support/row-menu";
 
 /**
  * Customers screen (apps/web/src/screens/CustomersScreen.tsx). The e2e
- * backend now starts as a genuinely empty tenant (packages/backend/src/
- * seed.ts) — no customers seeded — so every test creates its own customers
- * via the real create flow first, isolated by a unique name, the same
- * pattern sales-invoices.spec.ts and purchase-chain.spec.ts use.
+ * backend now runs the fully seeded MEZAN_SEED_DEMO tenant, not an empty one
+ * — the demo already carries a page's worth of customers, so a freshly
+ * created row is never guaranteed to land on page 1 (server-paged at 25,
+ * sorted by whatever the backend's default order is). Every test here
+ * searches by its own unique name right after creating, the same pattern
+ * sales-invoices.spec.ts and purchase-chain.spec.ts use, rather than assuming
+ * the new row is visible on the current page.
  *
  * The name/phone/email/credit-limit fields are filled through
  * `brokenLabelField`, a positional locator (see e2e/support/broken-label.ts):
@@ -31,6 +35,13 @@ async function openCustomerForm(page: Page) {
   return form;
 }
 
+/** Server-paged at 25 — search by the row's own unique name to bring it onto the current page regardless of where it sorts. */
+async function searchFor(page: Page, name: string) {
+  const search = page.getByPlaceholder("بحث بالاسم أو الكود أو الهاتف…");
+  await search.fill(name);
+  await expect(row(page, name)).toBeVisible();
+}
+
 test.describe("Customers", () => {
   test.beforeEach(async ({ page }) => {
     await loginAsDemoUser(page);
@@ -46,10 +57,10 @@ test.describe("Customers", () => {
     await brokenLabelField(form, "الهاتف").fill("01055500000");
     await brokenLabelField(form, "الحد الائتماني").fill("5000");
     await form.getByRole("button", { name: "إضافة عميل", exact: true }).click();
-
     await expect(form).toBeHidden();
+
+    await searchFor(page, name);
     const newRow = row(page, name);
-    await expect(newRow).toBeVisible();
     await expect(newRow.getByText(/^C\d+$/)).toBeVisible();
     await expect(newRow.getByText("01055500000")).toBeVisible();
   });
@@ -61,21 +72,13 @@ test.describe("Customers", () => {
     await form.getByRole("button", { name: "إضافة عميل", exact: true }).click();
     await expect(form).toBeHidden();
 
-    // Deactivate it via the edit form's ToggleField (only shown when editing).
-    await row(page, name).click();
-    await page.getByRole("button", { name: "تعديل" }).click();
-    const editForm = page.getByRole("dialog", { name: "تعديل عميل" });
-    await editForm.getByRole("switch", { name: "نشط" }).click();
-    await editForm.getByRole("button", { name: "حفظ التعديلات" }).click();
-    await expect(editForm).toBeHidden();
-
-    await page.getByRole("button", { name: "رجوع لقائمة العملاء" }).click();
-    await expect(page.getByRole("heading", { name: "العملاء" })).toBeVisible();
-
-    const search = page.getByPlaceholder("بحث بالاسم أو الكود أو الهاتف…");
-    await search.fill(name);
+    await searchFor(page, name);
+    await runRowAction(row(page, name), "إيقاف العميل");
+    await confirmRowAction(page, "إيقاف العميل");
     await expect(row(page, name).getByText("غير نشط", { exact: true })).toBeVisible();
 
+    // Scoped by the search box to our one customer, so the tab counts stay
+    // meaningful under the demo tenant's large existing customer list.
     const tablist = page.getByRole("tablist", { name: "تصفية حسب الحالة" });
     await tablist.getByRole("tab", { name: "غير نشط" }).click();
     await expect(row(page, name)).toBeVisible();
@@ -84,6 +87,9 @@ test.describe("Customers", () => {
     // ListViews.tsx — "a zero-count option teaches nothing"): with the search
     // scoped to our one inactive customer, "نشط" has nothing to offer.
     await expect(tablist.getByRole("tab", { name: /^نشط\s+\d/ })).toHaveCount(0);
+
+    await tablist.getByRole("tab", { name: "الكل" }).click();
+    await expect(row(page, name)).toBeVisible();
   });
 
   test("search narrows the list by name and by generated code", async ({ page }) => {
@@ -93,11 +99,10 @@ test.describe("Customers", () => {
     await form.getByRole("button", { name: "إضافة عميل", exact: true }).click();
     await expect(form).toBeHidden();
 
-    const code = (await row(page, name).getByText(/^C\d+$/).innerText()).trim();
-
     const search = page.getByPlaceholder("بحث بالاسم أو الكود أو الهاتف…");
     await search.fill(name);
     await expect(page.locator("table tbody tr")).toHaveCount(1);
+    const code = (await row(page, name).getByText(/^C\d+$/).innerText()).trim();
 
     await search.fill("");
     await search.fill(code);
@@ -113,6 +118,7 @@ test.describe("Customers", () => {
     await form.getByRole("button", { name: "إضافة عميل", exact: true }).click();
     await expect(form).toBeHidden();
 
+    await searchFor(page, name);
     await row(page, name).click();
     await expect(page.getByRole("heading", { name: new RegExp(name) })).toBeVisible();
     await expect(page.getByText("01012345099")).toBeVisible();
@@ -124,7 +130,7 @@ test.describe("Customers", () => {
 
     await page.getByRole("button", { name: "رجوع لقائمة العملاء" }).click();
     await expect(page.getByRole("heading", { name: "العملاء" })).toBeVisible();
-    await expect(row(page, name)).toBeVisible();
+    await searchFor(page, name);
   });
 
   test("editing a customer via the detail view prefills the form and updates the record", async ({ page }) => {
@@ -134,6 +140,8 @@ test.describe("Customers", () => {
     await brokenLabelField(form, "الهاتف").fill("01555512004");
     await form.getByRole("button", { name: "إضافة عميل", exact: true }).click();
     await expect(form).toBeHidden();
+
+    await searchFor(page, name);
     const code = (await row(page, name).getByText(/^C\d+$/).innerText()).trim();
 
     await row(page, name).click();
@@ -154,6 +162,7 @@ test.describe("Customers", () => {
     await expect(page.getByText("01500000004")).toBeVisible();
 
     await page.getByRole("button", { name: "رجوع لقائمة العملاء" }).click();
+    await searchFor(page, name);
     await expect(row(page, name).getByText("01500000004")).toBeVisible();
   });
 

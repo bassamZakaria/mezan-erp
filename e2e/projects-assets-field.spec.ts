@@ -211,16 +211,13 @@ test.describe("Field / Van Trips", () => {
   });
 
   /**
-   * DEFECT: the create form (VanTripsScreen.tsx) never sends a `tripNo`, and
-   * packages/domain/src/field-sales/open-van-trip.ts:92 stores
-   * `cmd.tripNo ?? null` with no fallback to the numbering-sequence system
-   * every other document (BOM-0001, WO-0001, …) gets — so a trip opened
-   * through the real UI shows the client's raw `crypto.randomUUID()` as its
-   * "رقم الرحلة" instead of a human number. Evidence: after opening a trip
-   * below, its row's number cell is a UUID, not a TRIP-#### number. Not a
-   * test bug — the app never assigns one outside the seed's own literal ids.
+   * Regression guard: openVanTrip used to store `cmd.tripNo ?? null` with no
+   * fallback, so a trip opened through the real UI (which never sends a
+   * `tripNo`) showed the client's raw `crypto.randomUUID()` as its "رقم
+   * الرحلة". Fixed by allocating from the new VAN_TRIP numbering sequence
+   * (`TRIP-####`) when the command omits one.
    */
-  test.fail("opening a new trip for the seeded van gets a real trip number", async ({ page }) => {
+  test("opening a new trip for the seeded van gets a real trip number", async ({ page }) => {
     await page.getByRole("button", { name: "فتح رحلة" }).first().click();
     const form = page.getByRole("dialog", { name: "فتح رحلة" });
     await expect(form).toBeVisible();
@@ -240,6 +237,10 @@ test.describe("Field / Van Trips", () => {
     // TRIP-DEMO-1 (settled) also has him, TRIP-DEMO-2 (open) does not.
     const newRow = page.locator("table tbody tr").filter({ hasText: "جارية" }).filter({ hasText: "كريم عادل" });
     await expect(newRow).toBeVisible();
-    await expect(newRow.locator("td").first()).toHaveText(/^TRIP-\d+$/);
+    // The first cell carries the trip number AND the date on two lines
+    // (VanTripsScreen.tsx's tripNo column, `.mz-num.font-semibold` then a
+    // second `.mz-num` for the date) — target the number's own line, not the
+    // cell's whole text, which would run the two together with no separator.
+    await expect(newRow.locator("td").first().locator(".font-semibold")).toHaveText(/^TRIP-\d+$/);
   });
 });

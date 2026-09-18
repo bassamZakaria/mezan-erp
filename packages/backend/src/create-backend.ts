@@ -3445,6 +3445,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       treasuryTransfer: vanTripTreasuryTransfer,
       recordCashTaking: recordVanCashTaking,
       recordCashVariance: recordVanCashVariance,
+      numbering: { next: (opts) => ledger.numbering.next("VAN_TRIP", { branchId: opts?.branchId }) },
     },
     manufacturing: {
       boms: manufacturing.boms,

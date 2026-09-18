@@ -5990,9 +5990,9 @@ reachable from this file's five domains.
 **FLD-10 — Opening cash float helper text**
 - Assert: تحت حقل "النقدية الافتتاحية" نص: "العهدة النقدية التي يأخذها المندوب — تُحوَّل فعلياً من الخزينة المصدر لخزينة الڤان."
 
-**FLD-11 — Newly-opened trips via the UI never get a trip number — they display a raw UUID** `[gap]`
+**FLD-11 — Newly-opened trips via the UI now get a real `TRIP-####` number** `[fixed]`
 - Steps: افتح رحلة جديدة كاملة الحقول عبر النموذج (لا حقل لرقم الرحلة يدوياً في هذا النموذج أصلاً)، اضغط "فتح رحلة".
-- Assert: الرحلة الجديدة تظهر في القائمة بعمود "رقم الرحلة" يعرض **معرّفاً عشوائياً (UUID)** بدل رقم رحلة مقروء مثل "TRIP-000003" — النموذج لا يرسل `tripNo` إطلاقاً، والخادم لا يولّد رقماً بديلاً؛ الرحلتان المزروعتان (TRIP-DEMO-1/2) تحملان أرقاماً ودّية فقط لأن سكربت الزرع أرسلها مباشرة عبر الـAPI، متجاوزاً الواجهة.
+- Assert: الرحلة الجديدة تظهر في القائمة بعمود "رقم الرحلة" يعرض رقماً مقروءاً مثل "TRIP-0003" — الخادم يخصّص الرقم من تسلسل الترقيم `VAN_TRIP` (`packages/domain/src/numbering/sequences.ts`) عندما لا يرسل النموذج `tripNo`؛ الرحلتان المزروعتان (TRIP-DEMO-1/2) ما زالتا تحملان رقمَيهما اليدويَّين لأن سكربت الزرع يرسلهما مباشرة عبر الـAPI.
 
 **FLD-12 — Ongoing trip detail: no tabs — everything is stacked cards** `[gap]`
 - Pre: TRIP-DEMO-2 (جارية).

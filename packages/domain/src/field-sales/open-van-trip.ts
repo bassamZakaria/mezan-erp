@@ -19,6 +19,16 @@ export interface OpenVanTripCommand {
   readonly notes?: string | null;
 }
 
+/**
+ * Bound to the VAN_TRIP numbering sequence — the same shape as
+ * `DocumentNumberingHook` (packages/domain/src/documents/hooks.ts), kept local
+ * so this port stays independent of the generic document framework van trips
+ * do not otherwise use.
+ */
+export interface VanTripNumberingHook {
+  next(opts?: { readonly branchId?: string | null }): Promise<{ readonly value: number; readonly formatted: string }>;
+}
+
 export interface TreasuryTransferInput {
   readonly id: string;
   readonly date: string;
@@ -46,6 +56,13 @@ export interface OpenVanTripDeps {
    * this command uses.
    */
   readonly treasuryTransfer?: (input: TreasuryTransferInput) => Promise<void>;
+  /**
+   * Allocates the trip's own `TRIP-####` number from the VAN_TRIP sequence.
+   * Omitted, a trip opens with no number (`tripNo: null`) rather than one a
+   * client guessed — an id-only trip is honest; a client-guessed number is a
+   * collision waiting to happen.
+   */
+  readonly numbering?: VanTripNumberingHook;
   readonly now?: () => string;
 }
 
@@ -87,9 +104,12 @@ export async function openVanTrip(cmd: OpenVanTripCommand, deps: OpenVanTripDeps
     });
   }
 
+  const tripNo =
+    cmd.tripNo ?? (deps.numbering ? (await deps.numbering.next({ branchId: cmd.branchId })).formatted : null);
+
   const trip: VanTrip = {
     id: cmd.id,
-    tripNo: cmd.tripNo ?? null,
+    tripNo,
     date: cmd.date,
     branchId: cmd.branchId,
     vanId: cmd.vanId ?? null,

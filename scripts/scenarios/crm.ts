@@ -438,7 +438,7 @@ export async function run(ctx: Ctx): Promise<void> {
     checkEq("settling an already-settled trip is rejected", doubleSettle.status, 409);
   });
 
-  await scenario("field-sales · FLD-11: the open route discards the caller's id and never mints a tripNo", async () => {
+  await scenario("field-sales · FLD-11: the open route discards the caller's id", async () => {
     const opened = await req("POST", "/field/van-trips", {
       id: "SCN-VANTRIP-FLD11",
       date: "2026-08-24",
@@ -452,8 +452,11 @@ export async function run(ctx: Ctx): Promise<void> {
     checkEq("open succeeds", opened.status, 201);
     check("the route ignores the caller-supplied id and mints its own uuid instead (see demo-seed/treasury.ts's own comment on this)",
       opened.body.id !== "SCN-VANTRIP-FLD11");
-    check("tripNo stays null — the create form never sends one, so the UI shows the raw id in its place (FLD-11)",
-      opened.body.tripNo === null);
+    // Regression guard: tripNo used to stay null forever — the create form
+    // never sends one, and openVanTrip had no fallback. Fixed by allocating
+    // from the VAN_TRIP numbering sequence (`TRIP-####`) when omitted.
+    check("tripNo is allocated from the VAN_TRIP sequence when the command omits one",
+      typeof opened.body.tripNo === "string" && /^TRIP-\d+$/.test(opened.body.tripNo));
   });
 
   // --- Installments priority 5: schedule sums to exactly the plan total, no rounding leak ---

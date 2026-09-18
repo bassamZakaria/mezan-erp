@@ -92,4 +92,43 @@ describe("openVanTrip", () => {
 
     await expect(openVanTrip({ ...baseCmd(), crew: [] }, deps)).rejects.toThrow(InvalidVanTripError);
   });
+
+  /**
+   * Regression guard (D: a trip opened through the UI never got a number —
+   * `cmd.tripNo ?? null` had no fallback). The UI never sends `tripNo`, so
+   * the VAN_TRIP sequence must be consulted whenever the command omits one.
+   */
+  it("allocates a trip number from the numbering sequence when the command omits one", async () => {
+    const trips = createInMemoryVanTripRepository();
+    const postTransfer = vi.fn().mockResolvedValue(undefined);
+    const next = vi.fn().mockResolvedValue({ value: 3, formatted: "TRIP-0003" });
+    const deps: OpenVanTripDeps = { trips, stock: { postTransfer }, numbering: { next } };
+
+    const trip = await openVanTrip(baseCmd(), deps);
+
+    expect(next).toHaveBeenCalledWith({ branchId: "branch1" });
+    expect(trip.tripNo).toBe("TRIP-0003");
+  });
+
+  it("keeps an explicit tripNo and never consults the numbering sequence", async () => {
+    const trips = createInMemoryVanTripRepository();
+    const postTransfer = vi.fn().mockResolvedValue(undefined);
+    const next = vi.fn().mockResolvedValue({ value: 3, formatted: "TRIP-0003" });
+    const deps: OpenVanTripDeps = { trips, stock: { postTransfer }, numbering: { next } };
+
+    const trip = await openVanTrip({ ...baseCmd(), tripNo: "TRIP-CUSTOM-1" }, deps);
+
+    expect(next).not.toHaveBeenCalled();
+    expect(trip.tripNo).toBe("TRIP-CUSTOM-1");
+  });
+
+  it("opens with no trip number when no numbering dep is wired and none is supplied", async () => {
+    const trips = createInMemoryVanTripRepository();
+    const postTransfer = vi.fn().mockResolvedValue(undefined);
+    const deps: OpenVanTripDeps = { trips, stock: { postTransfer } };
+
+    const trip = await openVanTrip(baseCmd(), deps);
+
+    expect(trip.tripNo).toBeNull();
+  });
 });

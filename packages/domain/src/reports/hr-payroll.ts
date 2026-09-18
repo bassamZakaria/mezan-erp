@@ -110,8 +110,11 @@ export interface PayrollRegisterRow {
   readonly netPay: number;
   readonly employerContributions: number;
   readonly insuranceEmployer: number;
-  readonly employerCost: number;
+  /** Null on a payslip calculated before this field existed (D191) — the column then renders "not computed", never a fabricated 0. */
+  readonly employerCost: number | null;
 }
+
+const EMPLOYER_COST_NOT_COMPUTED_AR = "غير محسوب";
 
 /**
  * سجل الرواتب — one row per employee per period, with every component the net
@@ -157,7 +160,7 @@ export function createPayrollRegisterReport(): ReportDefinition<PayrollPeriodPar
           netPay: toNumber(payslip.netPay),
           employerContributions: toNumber(payslip.employerContributions),
           insuranceEmployer: toNumber(totalOf(payslip, ["social_insurance_employer"])),
-          employerCost: toNumber(payslip.totalEmployerCost),
+          employerCost: payslip.totalEmployerCost === null ? null : toNumber(payslip.totalEmployerCost),
         };
       }),
     rowKey: (row) => `${row.employeeId}:${row.periodLabel}`,
@@ -179,7 +182,17 @@ export function createPayrollRegisterReport(): ReportDefinition<PayrollPeriodPar
       { key: "netPay", header: "الصافي", format: "money", align: "end", value: (r) => r.netPay, total: true },
       { key: "employerContributions", header: "مساهمات صاحب العمل", format: "money", align: "end", value: (r) => r.employerContributions, total: true },
       { key: "insuranceEmployer", header: "منها تأمينات صاحب العمل", format: "money", align: "end", value: (r) => r.insuranceEmployer, total: true },
-      { key: "employerCost", header: "تكلفة صاحب العمل", format: "money", align: "end", value: (r) => r.employerCost, total: true },
+      {
+        key: "employerCost",
+        header: "تكلفة صاحب العمل",
+        format: "money",
+        align: "end",
+        // D191: a null cost (a run calculated before this field existed) prints
+        // the "غير محسوب" label rather than falling through to a bare 0 — the
+        // KPI below still reads the raw `employerCost` field and skips it.
+        value: (r) => (r.employerCost === null ? EMPLOYER_COST_NOT_COMPUTED_AR : r.employerCost),
+        total: true,
+      },
     ],
     kpis: [
       { key: "headcount", labelAr: "عدد كشوف الرواتب", value: (rows) => rows.length },

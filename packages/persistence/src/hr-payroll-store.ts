@@ -233,7 +233,7 @@ CREATE TABLE IF NOT EXISTS hr_payroll_run (
   total_deductions              INTEGER NOT NULL,
   total_employer_contributions  INTEGER NOT NULL,
   total_net                     INTEGER NOT NULL,
-  total_employer_cost           INTEGER NOT NULL DEFAULT 0,
+  total_employer_cost           INTEGER,
   unpaid_leave_source           TEXT NOT NULL,
   overtime_source               TEXT NOT NULL DEFAULT 'none',
   statutory_tables_json         TEXT NOT NULL DEFAULT '[]',
@@ -295,7 +295,9 @@ function toPayrollRun(row: PayrollRunRow): PayrollRun {
     totalDeductions: Money.fromScaled(row.total_deductions),
     totalEmployerContributions: Money.fromScaled(row.total_employer_contributions),
     totalNet: Money.fromScaled(row.total_net),
-    totalEmployerCost: Money.fromScaled(row.total_employer_cost ?? 0),
+    // D191: NULL means this run predates the column — never fabricate 0, which
+    // the payroll register could not tell apart from a genuinely zero cost.
+    totalEmployerCost: row.total_employer_cost === null ? null : Money.fromScaled(row.total_employer_cost),
     unpaidLeaveSource: row.unpaid_leave_source === "provider" ? "provider" : "none",
     overtimeSource: row.overtime_source === "provider" ? "provider" : "none",
     statutoryTableCodes: JSON.parse(row.statutory_tables_json ?? "[]") as string[],
@@ -400,7 +402,7 @@ class SqlitePayrollRunRepository implements PayrollRunRepository {
       total_deductions: run.totalDeductions.toScaledNumber(),
       total_employer_contributions: run.totalEmployerContributions.toScaledNumber(),
       total_net: run.totalNet.toScaledNumber(),
-      total_employer_cost: run.totalEmployerCost.toScaledNumber(),
+      total_employer_cost: run.totalEmployerCost === null ? null : run.totalEmployerCost.toScaledNumber(),
       unpaid_leave_source: run.unpaidLeaveSource,
       overtime_source: run.overtimeSource,
       statutory_tables_json: JSON.stringify(run.statutoryTableCodes),
@@ -439,7 +441,7 @@ CREATE TABLE IF NOT EXISTS hr_payslip (
   insurable_wage          INTEGER NOT NULL DEFAULT 0,
   insurable_wage_capped   INTEGER NOT NULL DEFAULT 0,
   annual_taxable_income   INTEGER NOT NULL DEFAULT 0,
-  total_employer_cost     INTEGER NOT NULL DEFAULT 0,
+  total_employer_cost     INTEGER,
   created_at              TEXT NOT NULL
 );
 `;
@@ -527,7 +529,8 @@ function toPayslip(row: PayslipRow): Payslip {
     insurableWage: Money.fromScaled(row.insurable_wage ?? 0),
     insurableWageCapped: (row.insurable_wage_capped ?? 0) === 1,
     annualTaxableIncome: Money.fromScaled(row.annual_taxable_income ?? 0),
-    totalEmployerCost: Money.fromScaled(row.total_employer_cost ?? 0),
+    // D191: as toPayrollRun above — NULL means never computed, not a genuine zero.
+    totalEmployerCost: row.total_employer_cost === null ? null : Money.fromScaled(row.total_employer_cost),
     createdAt: row.created_at,
   };
 }
@@ -601,7 +604,7 @@ class SqlitePayslipRepository implements PayslipRepository {
       insurable_wage: payslip.insurableWage.toScaledNumber(),
       insurable_wage_capped: payslip.insurableWageCapped ? 1 : 0,
       annual_taxable_income: payslip.annualTaxableIncome.toScaledNumber(),
-      total_employer_cost: payslip.totalEmployerCost.toScaledNumber(),
+      total_employer_cost: payslip.totalEmployerCost === null ? null : payslip.totalEmployerCost.toScaledNumber(),
       created_at: payslip.createdAt,
     });
   }
@@ -858,6 +861,11 @@ class SqliteStatutoryOverrideRepository implements StatutoryOverrideRepository {
  * first payroll runs existed, so an install that already holds runs must gain
  * the new columns rather than be recreated — the DEFAULTs are what a
  * pre-statutory run legitimately had.
+ *
+ * `total_employer_cost` is the one exception (D191): it is added with NO
+ * default, so a run/payslip that predates the column comes back NULL — "not
+ * computed" — rather than being backfilled with a 0 the payroll register could
+ * never tell apart from a genuinely zero-cost period.
  */
 function addMissingColumns(sqlite: Database.Database, table: string, columns: readonly (readonly [string, string])[]): void {
   const existing = new Set((sqlite.pragma(`table_info(${table})`) as { name: string }[]).map((c) => c.name));
@@ -868,7 +876,7 @@ function addMissingColumns(sqlite: Database.Database, table: string, columns: re
 
 function migratePayrollRunSchema(sqlite: Database.Database): void {
   addMissingColumns(sqlite, "hr_payroll_run", [
-    ["total_employer_cost", "INTEGER NOT NULL DEFAULT 0"],
+    ["total_employer_cost", "INTEGER"],
     ["overtime_source", "TEXT NOT NULL DEFAULT 'none'"],
     ["statutory_tables_json", "TEXT NOT NULL DEFAULT '[]'"],
   ]);
@@ -879,7 +887,7 @@ function migratePayslipSchema(sqlite: Database.Database): void {
     ["insurable_wage", "INTEGER NOT NULL DEFAULT 0"],
     ["insurable_wage_capped", "INTEGER NOT NULL DEFAULT 0"],
     ["annual_taxable_income", "INTEGER NOT NULL DEFAULT 0"],
-    ["total_employer_cost", "INTEGER NOT NULL DEFAULT 0"],
+    ["total_employer_cost", "INTEGER"],
   ]);
 }
 

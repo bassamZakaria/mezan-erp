@@ -86,6 +86,7 @@ function statsOf(entries: JournalEntryDTO[]): Record<string, number> {
 function renderScreen(entries: JournalEntryDTO[] = sampleEntries) {
   let current = [...entries];
   let nextSeq = current.length + 1;
+  const reverseRequests: { date?: string }[] = [];
   const transport = stubTransport({
     // guards Q-9: the register is a SERVER page now — a stub returning every
     // entry would let a client-side slice pass unnoticed.
@@ -110,19 +111,22 @@ function renderScreen(entries: JournalEntryDTO[] = sampleEntries) {
       current = [...current, created];
       return { status: 201, body: created };
     },
-    "POST /gl/journal-entries/je-1/reverse": () => {
+    "POST /gl/journal-entries/je-1/reverse": (init) => {
+      const body = JSON.parse((init?.body as string) ?? "{}");
+      reverseRequests.push(body);
       const original = { ...current[0]!, status: "reversed" as const };
-      const reversal = entry({ id: "je-reversal-1", entryNo: "JE-000099", reversesEntryId: "je-1" });
+      const reversal = entry({ id: "je-reversal-1", entryNo: "JE-000099", reversesEntryId: "je-1", date: body.date });
       current = [original, ...current.slice(1), reversal];
       return { status: 201, body: { original, reversal } };
     },
   });
-  return renderWithProviders(
+  const result = renderWithProviders(
     <TestNavigation>
       <JournalsScreen />
     </TestNavigation>,
     { transport, initialSession: testAdminSession },
   );
+  return { ...result, reverseRequests };
 }
 
 /** The account picker is a listbox combobox, not a native <select> — open it, then commit an option (Select.tsx commits on mousedown). */
@@ -276,16 +280,25 @@ describe("JournalsScreen — create: post flow", () => {
     expect(postedStat).not.toBeNull();
   });
 
-  it("reverses a posted entry from its detail view", async () => {
-    renderScreen();
+  it("reverses a posted entry from its detail view, defaulting the confirm dialog's date to today and sending it (D270)", async () => {
+    const { reverseRequests } = renderScreen();
     fireEvent.click(await screen.findByText("JE-000001"));
     fireEvent.click(screen.getByRole("button", { name: "عكس القيد" }));
+
+    // The confirm dialog defaults its date field to today, not the entry's
+    // own 2026-08-05 (D270) — the caller may still change it.
+    const dialog = await screen.findByRole("dialog");
+    const dateInput = within(dialog).getByLabelText("تاريخ العكس") as HTMLInputElement;
+    const today = new Date().toISOString().slice(0, 10);
+    expect(dateInput.value).toBe(today);
+    fireEvent.click(within(dialog).getByRole("button", { name: "عكس القيد" }));
 
     // The mutation invalidates the journal-entries query; the same detail
     // sub-page re-renders with the refetched, now-reversed status — no
     // navigation back to the list happens on reverse.
     await waitFor(() => expect(screen.getAllByText("معكوس").length).toBeGreaterThan(0));
-    expect(screen.queryByRole("button", { name: "عكس القيد" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(reverseRequests).toEqual([{ date: today }]);
   });
 });
 

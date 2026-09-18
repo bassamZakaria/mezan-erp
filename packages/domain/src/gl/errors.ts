@@ -128,3 +128,23 @@ export class InvalidJournalPartyError extends Error {
     this.name = "InvalidJournalPartyError";
   }
 }
+
+/**
+ * A reversal dated before the entry it reverses (D270): QuickBooks and Odoo
+ * both refuse this, because it would restate a day the books have already
+ * reported on. The reversal may be dated anywhere from the original entry's
+ * own day onward, never earlier.
+ */
+export class ReversalDateBeforeOriginalError extends Error {
+  readonly code = "REVERSAL_DATE_BEFORE_ORIGINAL";
+  readonly messageEn: string;
+  constructor(
+    readonly entryId: string,
+    readonly date: string,
+    readonly originalDate: string,
+  ) {
+    super(`تاريخ العكس "${date}" أسبق من تاريخ القيد الأصلي "${originalDate}"؛ لا يمكن أن يعكس المستند قبل تاريخه.`);
+    this.messageEn = `Reversal date "${date}" is before the original entry's date "${originalDate}"; a reversal cannot be dated before the document it reverses.`;
+    this.name = "ReversalDateBeforeOriginalError";
+  }
+}

@@ -1016,3 +1016,72 @@ export async function allocationUndoneAndMadeAgainSettlesOnce_D265(ctx: Ctx): Pr
     }
   });
 }
+
+/**
+ * D270 — «عكس السند» sent no date, and a reversal without one used to take the
+ * VOUCHER's own day for its mirror document and journal entry, rewriting the
+ * ledger of a day already reported. Fixed: the route now defaults a missing
+ * date to today. The distinguishing proof is the as-of aging ladder the day
+ * BEFORE the reversal: under the old bug the mirror entry sat on the
+ * voucher's own (much earlier) day, so every day since already read as
+ * reversed; under the fix, a reversal made today has not happened yet as of
+ * yesterday, and the ladder must still show the voucher standing then.
+ */
+export async function voucherReversalDatedByReversalDay_D270(ctx: Ctx): Promise<void> {
+  const { req, check, n } = ctx;
+  const today = toTenantDay(new Date().toISOString());
+  const yesterday = new Date(Date.parse(`${today}T00:00:00Z`) - 86_400_000).toISOString().slice(0, 10);
+  const rowOn = async (date: string) => {
+    const ladder = (await req("GET", `/reports/aging/customers?asOfDate=${date}`)).body;
+    return ((ladder?.rows ?? []) as any[]).find((r) => r.customerId === "SCN-D270-CUST") ?? null;
+  };
+
+  await ctx.scenario("D270 — a voucher reversed with no date is dated the day it is reversed, never the voucher's own day", async () => {
+    const start = await ctx.invariants();
+    await req("POST", "/customers", {
+      id: "SCN-D270-CUST", code: "SCN-D270-CUST", nameAr: "عميل عكس السند", paymentTermsDays: 30, currency: "EGP",
+      openingBalance: "0", active: true, creditLimit: "0", taxExempt: false, etaBuyerType: "auto",
+    });
+    await req("POST", "/items", { id: "SCN-D270-SVC", code: "SCN-D270-SVC", nameAr: "خدمة", type: "service", baseUnitCode: "PCS", trackInventory: false, taxRatePercent: 0, revenueAccountId: "4100" });
+    await req("POST", "/sales-invoices", {
+      id: "SCN-D270-SI", date: "2026-07-01", dueDate: "2026-07-31", customerId: "SCN-D270-CUST", customerNameAr: "عميل عكس السند",
+      warehouseId: "WH-MAIN", branchId: "BR-MAIN", currency: "EGP", arAccountId: "1105", taxAccountId: "2200",
+      lines: [{ lineId: "SCN-D270-SI-L1", itemId: "SCN-D270-SVC", itemNameAr: "خدمة", isStock: false, qty: "1", unitPrice: "500", taxRatePercent: 0, revenueAccountId: "4100" }],
+    });
+    check("SCN-D270-SI: EGP 500.00 invoice confirms on 1 July", (await req("POST", "/sales-invoices/SCN-D270-SI/confirm", {})).status === 200);
+
+    const cashGl = String((await req("GET", "/treasury-accounts/TR-DEMO-CASH")).body?.glAccountId);
+    const receipt = await req("POST", "/vouchers", {
+      id: "SCN-D270-CV", date: "2026-07-05", voucherType: "customer_collection", amount: "500", branchId: "BR-MAIN", paymentMethod: "cash",
+      treasuryAccountId: "TR-DEMO-CASH", treasuryGlAccountId: cashGl, counterpartyGlAccountId: "1105", customerId: "SCN-D270-CUST",
+    });
+    check("an EGP 500.00 receipt posts on 5 July", receipt.status === 201 && (await req("POST", "/vouchers/SCN-D270-CV/confirm", {})).status === 200);
+    const applied = await req("POST", "/vouchers/SCN-D270-CV/allocations", { allocationId: "SCN-D270-A1", invoiceId: "SCN-D270-SI", amount: "500" });
+    check("and settles SCN-D270-SI in full", applied.status === 201 && (await req("GET", "/sales-invoices/SCN-D270-SI")).body?.status === "paid", JSON.stringify(applied.body).slice(0, 200));
+
+    const beforeReversalYesterday = await rowOn(yesterday);
+    check("setup: before the reversal, yesterday's ladder already reads the invoice settled", n(beforeReversalYesterday?.total) === 0, JSON.stringify(beforeReversalYesterday));
+
+    const reversed = await req("POST", "/vouchers/SCN-D270-CV/reverse", {});
+    check("D270: reversing with no date defaults to today, not the voucher's own 5 July", reversed.status === 201 && reversed.body?.reversal?.date === today, JSON.stringify(reversed.body).slice(0, 300));
+
+    const stillSettledYesterday = await rowOn(yesterday);
+    check("D270: the as-of ladder the day BEFORE the reversal still shows the voucher standing — the reversal has not happened yet as of yesterday", n(stillSettledYesterday?.total) === 0, JSON.stringify(stillSettledYesterday));
+
+    const reopenedToday = await rowOn(today);
+    check("D270: today the reversal has reopened the invoice to its full 500.00", n(reopenedToday?.total) === 500, JSON.stringify(reopenedToday));
+
+    const past = await req("POST", "/vouchers", {
+      id: "SCN-D270-CV2", date: "2026-07-10", voucherType: "customer_collection", amount: "10", branchId: "BR-MAIN", paymentMethod: "cash",
+      treasuryAccountId: "TR-DEMO-CASH", treasuryGlAccountId: cashGl, counterpartyGlAccountId: "1105", customerId: "SCN-D270-CUST",
+    });
+    check("a second EGP 10.00 receipt posts on 10 July", past.status === 201 && (await req("POST", "/vouchers/SCN-D270-CV2/confirm", {})).status === 200);
+    const tooEarly = await req("POST", "/vouchers/SCN-D270-CV2/reverse", { date: "2026-07-01" });
+    check("D270: a reversal dated before the voucher's own day is refused, bilingually", tooEarly.status === 422 && tooEarly.body?.error === "REVERSAL_DATE_BEFORE_ORIGINAL" && typeof tooEarly.body?.messageEn === "string" && tooEarly.body.messageEn.length > 0, JSON.stringify(tooEarly.body));
+    check("and nothing posted for the refused reversal — the second receipt is still confirmed", (await req("GET", "/vouchers/SCN-D270-CV2")).body?.status === "confirmed");
+
+    const now = await ctx.invariants();
+    check("AR, AP and inventory all still tie to the micro-unit", now.exact.ar === start.exact.ar && now.exact.ap === start.exact.ap && now.exact.inventory === start.exact.inventory, `ar ${now.ar} ap ${now.ap} inventory ${now.inventory}`);
+    check("the customer ladder still ties to 1105", (await req("GET", "/reports/aging/customers")).body?.reconciliation?.withinTolerance === true);
+  });
+}

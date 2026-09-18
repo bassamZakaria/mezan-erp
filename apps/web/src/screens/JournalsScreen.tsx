@@ -182,6 +182,8 @@ export function JournalsScreen() {
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [rowError, setRowError] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<JournalDoc | null>(null);
+  const [reverseTarget, setReverseTarget] = useState<JournalDoc | null>(null);
+  const [reverseDate, setReverseDate] = useState(todayIso());
   // The open entry lives in the URL like every other document screen, so the
   // shell's breadcrumb (and the «رجوع» that sits beside it) can lead out of it.
   const subPage = useSubPage();
@@ -296,12 +298,18 @@ export function JournalsScreen() {
     subPage.open(doc?.entryNo ?? id);
   }
 
-  async function reverseEntry(doc: JournalDoc) {
+  function openReverseConfirm(doc: JournalDoc) {
+    if (pendingId) return;
+    setReverseDate(todayIso());
+    setReverseTarget(doc);
+  }
+
+  async function reverseEntry(doc: JournalDoc, date: string) {
     if (pendingId) return;
     setPendingId(doc.id);
     setRowError(null);
     try {
-      await reverseJournalEntry.mutateAsync({ id: doc.id });
+      await reverseJournalEntry.mutateAsync({ id: doc.id, body: { date } });
     } catch (err) {
       setRowError(errorMessage(err, t("common.failed")));
     } finally {
@@ -384,7 +392,7 @@ export function JournalsScreen() {
                 <Button
                   variant="danger-outline"
                   disabled={pendingId === selected.id}
-                  onClick={() => void reverseEntry(selected)}
+                  onClick={() => openReverseConfirm(selected)}
                 >
                   {t("journals.reverseEntry")}
                 </Button>
@@ -476,6 +484,24 @@ export function JournalsScreen() {
             void deleteEntry(selected);
           }}
           onCancel={() => setDeleteTarget(null)}
+        />
+        <ConfirmDialog
+          open={reverseTarget?.id === selected.id}
+          title={t("journals.reverseConfirmTitle")}
+          consequence={
+            <div className="flex flex-col gap-[10px]">
+              <p>{t("journals.reverseConfirmBody")}</p>
+              <TextField label={t("journals.reversalDate")} value={reverseDate} onChange={setReverseDate} type="date" />
+            </div>
+          }
+          confirmLabel={t("journals.reverseEntry")}
+          tone="danger"
+          onConfirm={() => {
+            const target = reverseTarget;
+            setReverseTarget(null);
+            if (target) void reverseEntry(target, reverseDate);
+          }}
+          onCancel={() => setReverseTarget(null)}
         />
       </div>
     );
@@ -584,8 +610,14 @@ export function JournalsScreen() {
         rowAction={(d) => {
           const menuItems: RowMenuItem[] = [
             { key: "view", label: t("common.view"), onSelect: () => openDetail(d.id) },
+            // The row menu's own generic danger-tone confirmation handles this
+            // one (RowMenu.tsx `select()`), so the reversal is dated today
+            // (D270) and posts immediately on confirm; the detail page's
+            // dedicated button opens the date-picking dialog below instead,
+            // since embedding a live date field in the row menu's frozen
+            // `pending` snapshot would not stay editable.
             ...(d.status === "posted"
-              ? [{ key: "reverse", label: t("journals.reverseEntry"), tone: "danger" as const, disabled: pendingId === d.id, onSelect: () => void reverseEntry(d) }]
+              ? [{ key: "reverse", label: t("journals.reverseEntry"), tone: "danger" as const, disabled: pendingId === d.id, onSelect: () => void reverseEntry(d, todayIso()) }]
               : []),
             ...(d.status === "draft"
               ? [

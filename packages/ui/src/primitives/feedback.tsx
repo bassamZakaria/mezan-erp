@@ -320,7 +320,10 @@ export function ConfirmDialog({
           <h2 id={titleId} className="text-[15.5px] font-bold text-ink">
             {title}
           </h2>
-          <p className="mt-[8px] text-[13px] text-ink-muted">{consequence}</p>
+          {/* A `div`, not a `p`: `consequence` is free-form and some callers embed
+              a form field (e.g. a reversal's date picker, D270) inside it — a
+              `<p>` cannot legally contain block content. */}
+          <div className="mt-[8px] text-[13px] text-ink-muted">{consequence}</div>
           <div className="mt-[20px] flex items-center justify-end gap-[10px]">
             <Button ref={cancelRef} variant="default" onClick={onCancel}>
               {cancelLabel ?? t("ui.confirm.cancel")}

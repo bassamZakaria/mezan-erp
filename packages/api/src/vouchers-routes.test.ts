@@ -3,6 +3,8 @@ import {
   ChequeService,
   Money,
   createAuthContext,
+  toTenantDay,
+  DEFAULT_TIME_ZONE,
   type Account,
   type GateConfig,
 } from "@mezan/domain";
@@ -592,6 +594,108 @@ describe("a voucher paid by cheque", () => {
     await vouchers.fetch(req("/", { method: "POST", body: JSON.stringify(collection) }));
     await vouchers.fetch(req("/v1/confirm", { method: "POST" }));
     expect(await register.list()).toHaveLength(0);
+  });
+});
+
+/**
+ * D270 — «عكس السند» used to date its mirror entry the VOUCHER's own day
+ * (`opts.date ?? existing.date` in documents/service.ts), so a reversal
+ * rewrote a day already reported and a receipt from a closed month could
+ * never be reversed at all. Each test below gets its own fiscal-period
+ * layout, so the period gate under test is isolated from the others.
+ */
+async function newReversalApp(periodRows: ReadonlyArray<{ id: string; year: number; periodNumber: number; startDate: string; endDate: string; status: "open" | "closed" | "locked" }>) {
+  const { sqlite } = openSqliteConnection(":memory:");
+  closers.push({ close: () => sqlite.close() });
+  const ledger = createSqliteLedgerStore(sqlite);
+  const accounts = createSqliteAccountRepository(sqlite);
+  const periods = createSqliteFiscalPeriodRepository(sqlite);
+  const treasury = createSqliteTreasuryAccountRepository(sqlite);
+  const store = createSqliteVoucherStore(sqlite);
+
+  await accounts.create(account("1300-1"));
+  await accounts.create(account("1100"));
+  for (const p of periodRows) await periods.create(p);
+  await treasury.create({
+    id: "ta-cash1", code: "CASH-001", name: "الخزينة الرئيسية", nameEn: null, type: "cash", currency: "EGP",
+    branchId: "b1", glAccountId: "1300-1", openingBalance: Money.zero(), openingBalanceDate: null, guaranteeFacilityLimit: null, status: "active",
+  });
+
+  idSeq = 0;
+  const deps: VoucherRoutesDeps = {
+    documents: store.documents,
+    allocations: store.allocations,
+    invoices: store.invoices,
+    ledger,
+    accounts,
+    periods,
+    numbering: ledger.numbering,
+    treasuryAccounts: treasury,
+    idGen: () => `gen-${++idSeq}`,
+  };
+  return { vouchers: createVouchersRoutes(deps, insecureHeaderAuthContextResolver), ledger };
+}
+
+function collectionOn(date: string) {
+  return { ...collection, id: "v1", date };
+}
+
+describe("D270 — a voucher reversal's date", () => {
+  it("with no date sent, defaults to today (the tenant's day), never the voucher's own day", async () => {
+    // Wide open so today (whenever this runs) and the voucher's own day both post.
+    const { vouchers } = await newReversalApp([
+      { id: "fp-wide", year: 2026, periodNumber: 1, startDate: "2020-01-01", endDate: "2035-12-31", status: "open" },
+    ]);
+    await vouchers.fetch(req("/", { method: "POST", body: JSON.stringify(collectionOn("2026-08-07")) }));
+    await vouchers.fetch(req("/v1/confirm", { method: "POST" }));
+
+    const res = await vouchers.fetch(req("/v1/reverse", { method: "POST", body: JSON.stringify({}) }));
+    expect(res.status).toBe(201);
+    const body = await res.json() as any;
+    const today = toTenantDay(new Date().toISOString(), DEFAULT_TIME_ZONE);
+    expect(body.reversal.date).toBe(today);
+    expect(body.reversal.date).not.toBe("2026-08-07");
+  });
+
+  it("refuses a date before the voucher's own date, with a bilingual 422", async () => {
+    const { vouchers, ledger } = await newReversalApp([
+      { id: "fp-wide", year: 2026, periodNumber: 1, startDate: "2020-01-01", endDate: "2035-12-31", status: "open" },
+    ]);
+    await vouchers.fetch(req("/", { method: "POST", body: JSON.stringify(collectionOn("2026-08-15")) }));
+    await vouchers.fetch(req("/v1/confirm", { method: "POST" }));
+
+    const res = await vouchers.fetch(req("/v1/reverse", { method: "POST", body: JSON.stringify({ date: "2026-08-10" }) }));
+    expect(res.status).toBe(422);
+    const body = await res.json() as any;
+    expect(body.error).toBe("REVERSAL_DATE_BEFORE_ORIGINAL");
+    expect(typeof body.message).toBe("string");
+    expect(body.message.length).toBeGreaterThan(0);
+    expect(typeof body.messageEn).toBe("string");
+    expect(body.messageEn.length).toBeGreaterThan(0);
+    expect(body.messageEn).not.toBe(body.message);
+
+    // Refused before anything posted: the voucher is still confirmed, un-reversed.
+    const detail = await (await vouchers.fetch(req("/v1"))).json() as any;
+    expect(detail.status).toBe("confirmed");
+    expect((await ledger.accountBalance("1300-1")).balance.toString()).toBe("250.000000");
+  });
+
+  it("refuses a date landing in a closed period, same as any other posting (period locks refuse as usual)", async () => {
+    const { vouchers } = await newReversalApp([
+      { id: "fp-2026-08", year: 2026, periodNumber: 8, startDate: "2026-08-01", endDate: "2026-08-31", status: "open" },
+      { id: "fp-2026-09", year: 2026, periodNumber: 9, startDate: "2026-09-01", endDate: "2026-09-30", status: "closed" },
+    ]);
+    await vouchers.fetch(req("/", { method: "POST", body: JSON.stringify(collectionOn("2026-08-10")) }));
+    await vouchers.fetch(req("/v1/confirm", { method: "POST" }));
+
+    // 09-05 is AFTER the voucher's own 08-10 (so this is not the D270 date-order
+    // refusal above) but lands in a closed period.
+    const res = await vouchers.fetch(req("/v1/reverse", { method: "POST", body: JSON.stringify({ date: "2026-09-05" }) }));
+    expect(res.status).toBe(422);
+    expect((await res.json() as any).error).toBe("PERIOD_NOT_OPEN_FOR_POSTING");
+
+    const detail = await (await vouchers.fetch(req("/v1"))).json() as any;
+    expect(detail.status).toBe("confirmed");
   });
 });
 

@@ -18,6 +18,7 @@ import {
   foreignRatesSettleAndReturnInputs_D213_D222,
   foreignSettledInBaseIsNotRevalued_D260,
   allocationUndoneAndMadeAgainSettlesOnce_D265,
+  voucherReversalDatedByReversalDay_D270,
   everyPartyTiesItsOwedLadderAndStatement,
   laddersTieOnPastDays_D220,
 } from "./scenarios/reports.js";
@@ -56,6 +57,7 @@ if (!only.size || only.has("reports")) {
   await foreignRatesSettleAndReturnInputs_D213_D222(ctx);
   await foreignSettledInBaseIsNotRevalued_D260(ctx);
   await allocationUndoneAndMadeAgainSettlesOnce_D265(ctx);
+  await voucherReversalDatedByReversalDay_D270(ctx);
   console.log(` ${ctx.passes.length + ctx.failures.length - before} assertions`);
 }
 

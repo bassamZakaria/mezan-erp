@@ -51,6 +51,7 @@ export {
   DuplicateJournalEntryError,
   PartyRequiredOnControlAccountError,
   InvalidJournalPartyError,
+  ReversalDateBeforeOriginalError,
   type PartyControlKind,
 } from "./errors.js";
 

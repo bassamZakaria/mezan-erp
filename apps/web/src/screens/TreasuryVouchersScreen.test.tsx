@@ -151,6 +151,7 @@ function renderScreen({ heldOnConfirm = false, allocations = seededAllocations }
   let current = [...seededVouchers];
   let nextSeq = 5;
   const allocationsByVoucher = { ...allocations };
+  const reverseRequests: { date?: string }[] = [];
   const transport = stubTransport({
     "GET /vouchers": (_init, path) => {
       const params = new URLSearchParams(path.split("?")[1] ?? "");
@@ -211,13 +212,22 @@ function renderScreen({ heldOnConfirm = false, allocations = seededAllocations }
       allocationsByVoucher["cv-1"] = (allocationsByVoucher["cv-1"] ?? []).map((a) => (a.id === "alloc-1" ? { ...a, status: "reversed" as const } : a));
       return { body: allocationsByVoucher["cv-1"]!.find((a) => a.id === "alloc-1") };
     },
+    "POST /vouchers/cv-1/reverse": (init) => {
+      const body = JSON.parse((init?.body as string) ?? "{}");
+      reverseRequests.push(body);
+      const original = current.find((v) => v.id === "cv-1")!;
+      const reversed = { ...original, status: "reversed" as const };
+      current = current.map((v) => (v.id === "cv-1" ? reversed : v));
+      return { status: 201, body: { original: reversed, reversal: { ...voucher({ id: "cv-1:rev", date: body.date, status: "confirmed" }) } } };
+    },
   });
-  return renderWithProviders(
+  const result = renderWithProviders(
     <TestNavigation>
       <TreasuryVouchersScreen />
     </TestNavigation>,
     { transport, initialSession: testAdminSession },
   );
+  return { ...result, reverseRequests };
 }
 
 describe("TreasuryVouchersScreen — list", () => {
@@ -334,6 +344,26 @@ describe("TreasuryVouchersScreen — allocation", () => {
     const reverseButtons = screen.getAllByRole("button", { name: "عكس التخصيص" });
     fireEvent.click(reverseButtons[0]!);
     await waitFor(() => expect(screen.queryByText("INV-000001")).not.toBeInTheDocument());
+  });
+});
+
+describe("TreasuryVouchersScreen — reversal (D270)", () => {
+  it("opens a confirm dialog defaulting its date field to today and sends that date, not the voucher's own", async () => {
+    const { reverseRequests } = renderScreen();
+    fireEvent.click(await screen.findByText("CV-000001"));
+    fireEvent.click(await screen.findByRole("button", { name: "عكس السند" }));
+
+    const dialog = await screen.findByRole("dialog");
+    const dateInput = within(dialog).getByLabelText("تاريخ العكس") as HTMLInputElement;
+    const today = new Date().toISOString().slice(0, 10);
+    // The voucher itself is dated 2026-08-07; the dialog defaults to today, not that (D270).
+    expect(dateInput.value).toBe(today);
+    expect(dateInput.value).not.toBe("2026-08-07");
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "عكس السند" }));
+
+    await waitFor(() => expect(reverseRequests).toEqual([{ date: today }]));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
 });
 

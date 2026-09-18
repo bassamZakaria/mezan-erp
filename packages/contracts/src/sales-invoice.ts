@@ -145,6 +145,9 @@ export const salesInvoiceListQuerySchema = z.object({
   warehouseId: z.string().optional(),
   /** Free-text over document number and customer name. */
   search: z.string().optional(),
+  /** Row order for the list route; the counts and the KPI strip ignore it. */
+  sort: z.enum(["docNo"]).optional(),
+  sortDir: z.enum(["asc", "desc"]).optional(),
   /**
    * One page of rows, 1-based. The list route answers with that page only —
    * the totals every screen needs already come from `/counts` and `/stats`,

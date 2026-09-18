@@ -732,6 +732,8 @@ export function createSalesInvoicesRoutes(
       branchId: c.req.query("branchId"),
       warehouseId: c.req.query("warehouseId"),
       search: c.req.query("search"),
+      sort: c.req.query("sort"),
+      sortDir: c.req.query("sortDir"),
       page: c.req.query("page"),
       pageSize: c.req.query("pageSize"),
     });
@@ -776,9 +778,10 @@ export function createSalesInvoicesRoutes(
    * the whole tenant is being told the figure they may not see.
    */
   async function repoFilterFor(c: Context, filter: SalesInvoiceListQueryDTO, page?: { limit: number; offset: number }) {
-    const { branchId, warehouseId, search, status, page: _page, pageSize: _pageSize, ...dateFilter } = filter;
+    const { branchId, warehouseId, search, status, sort, sortDir, page: _page, pageSize: _pageSize, ...dateFilter } = filter;
     return {
       ...dateFilter,
+      ...(sort ? { sort: { key: sort, direction: sortDir ?? "asc" } } : {}),
       // `open`/`overdue`/`all` are not stored statuses, so they must not reach
       // the repository — it would match none of them and return nothing.
       ...(status && !DERIVED_FILTER_KEYS.has(status) ? { status } : {}),

@@ -353,6 +353,19 @@ export function createGlRoutes(
   });
 
   /**
+   * Whether a year has been closed, and by which entry. A year not yet closed
+   * is a normal state, so it answers 200 with `entry: null` rather than a 404.
+   */
+  app.get("/year-end-close/:year", gate("accounting.journal.view"), async (c) => {
+    const year = Number(c.req.param("year"));
+    if (!Number.isInteger(year) || year < 1900 || year > 9999) {
+      return c.json({ error: "VALIDATION_ERROR", message: "سنة غير صالحة." }, 400);
+    }
+    const entry = await deps.ledger.findById(`YEAR-CLOSE:${year}`);
+    return c.json({ year, closed: entry !== null, entry: entry ? serialize(entry) : null });
+  });
+
+  /**
    * What closing the year WOULD post, without posting it. The screen shows this
    * before the button is pressed, and it runs the same `planYearEndClose` the
    * close itself runs — so a preview that disagreed with the entry is not a

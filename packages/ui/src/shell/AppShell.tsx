@@ -28,12 +28,15 @@ const MAIN_ID = "mz-main";
  * The badge is a bare number, so the count is spelled into the accessible name
  * rather than left for the reader to associate positionally.
  */
-function BrandAction({ item, active }: { item: NavItem; active: boolean }) {
+function BrandAction({ item, active, onActivate }: { item: NavItem; active: boolean; onActivate: () => void }) {
   const label = item.tag ? `${item.label} (${item.tag.label})` : item.label;
   return (
     <button
       type="button"
-      onClick={item.onClick}
+      onClick={() => {
+        onActivate();
+        item.onClick?.();
+      }}
       aria-label={label}
       title={label}
       aria-current={active ? "page" : undefined}
@@ -394,18 +397,33 @@ export function AppShell({
                 <span className="mz-disp truncate text-lg font-bold">{t("shell.brand.name")}</span>
               </button>
               {directNavItems.map((item) => (
-                <BrandAction key={item.key} item={item} active={item.key === activeNavKey} />
+                <BrandAction
+                  key={item.key}
+                  item={item}
+                  active={item.key === activeNavKey}
+                  onActivate={() => setRailOpen(false)}
+                />
               ))}
             </div>
           }
           footer={
             <RailFooter
-              onOpenPalette={openPalette}
+              onOpenPalette={() => {
+                setRailOpen(false);
+                openPalette();
+              }}
               onShowHelp={onShowHelp}
               theme={theme}
               onToggleTheme={toggleTheme}
               user={user}
-              onOpenProfile={onOpenProfile}
+              onOpenProfile={
+                onOpenProfile
+                  ? () => {
+                      setRailOpen(false);
+                      onOpenProfile();
+                    }
+                  : undefined
+              }
               onSignOut={onSignOut}
               branchOptions={branchOptions}
               warehouseOptions={warehouseOptions}

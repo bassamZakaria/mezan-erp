@@ -201,8 +201,19 @@ export function createLeaveLiabilityReport(): ReportDefinition<LeaveLiabilityPar
     paramFields: [{ kind: "date", key: "asOfDate", label: "حتى تاريخ" }],
     run: (params, ctx) => {
       const payoutTypes = new Set(ctx.policies.filter((p) => p.payoutOnTermination && p.active).map((p) => p.leaveType));
-      const rows: LeaveLiabilityRow[] = [];
+      // Each year's balance already carries the previous year's unused days in
+      // `carriedOver`, so only the latest year up to the as-of date is the
+      // position; adding the earlier years counts the carried days twice.
+      const asOfYear = Number(params.asOfDate.slice(0, 4)) || Number.POSITIVE_INFINITY;
+      const current = new Map<string, LeaveBalance>();
       for (const balance of ctx.balances) {
+        if (balance.year > asOfYear) continue;
+        const key = `${balance.employeeId}:${balance.leaveType}`;
+        const held = current.get(key);
+        if (!held || balance.year > held.year) current.set(key, balance);
+      }
+      const rows: LeaveLiabilityRow[] = [];
+      for (const balance of current.values()) {
         if (!payoutTypes.has(balance.leaveType)) continue;
         const available = availableLeaveDays(balance);
         if (available.isZero() || available.isNegative()) continue;

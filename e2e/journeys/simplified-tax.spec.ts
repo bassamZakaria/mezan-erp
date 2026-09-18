@@ -14,6 +14,9 @@ test.describe("Simplified tax regime journey", () => {
     const status = page.getByRole("combobox", { name: "الحالة المسجَّلة" });
     await status.click();
     await page.getByRole("option", { name: "مسجَّل ونافذ", exact: true }).click();
+    await page.getByRole("button", { name: "حفظ التسجيل" }).click();
+    await expect(page.locator("main [role=alert]")).toHaveText("تاريخ ورقم نموذج 1/10 المقدَّم مطلوبان لتسجيل الاختيار");
+
     const reference = `110-${String(Date.now()).slice(-6)}`;
     await page.getByRole("textbox", { name: "تاريخ نموذج 1/10 المقدَّم" }).fill("2026-03-15");
     await page.getByRole("textbox", { name: "رقم نموذج 1/10" }).fill(reference);

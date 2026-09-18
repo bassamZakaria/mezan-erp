@@ -509,7 +509,10 @@ class SqliteSalesInvoiceRepository implements SalesInvoiceRepository {
     const rows = selectPage<InvoiceRow>(this.sqlite, {
       table: "sales_invoice",
       where: this.clausesFor(filter),
-      orderBy: "date, created_at",
+      orderBy:
+        filter.sort?.key === "docNo"
+          ? `doc_no IS NULL, doc_no ${filter.sort.direction === "desc" ? "DESC" : "ASC"}, created_at`
+          : "date, created_at",
       page: { limit: filter.limit, offset: filter.offset },
     });
     // One query for the whole page's lines, not one per invoice.

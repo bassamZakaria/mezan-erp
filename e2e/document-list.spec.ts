@@ -129,18 +129,11 @@ test.describe("DocumentList — Sales Invoices", () => {
     await expect(tablist.getByRole("tab", { name: /^مسودة/ })).toHaveCount(0);
   });
 
-  // BUG: apps/web/src/screens/SalesInvoicesScreen.tsx marks its "رقم
-  // الفاتورة" column `sortable: true` (DocumentListColumn), which draws it as
-  // clickable (cursor-pointer, hover state, title="ترتيب حسب هذا العمود"),
-  // but the screen never passes `sort`/`onSortChange` to <DocumentList>
-  // (packages/ui/src/primitives/DocumentList.tsx's header onClick is
-  // `col.sortable ? () => onSortChange?.(col.key) : undefined`, and
-  // `onSortChange` is undefined here) — a click sets no `aria-sort` and
-  // changes nothing. Contrast ItemsScreen.tsx, which wires `sort`/
-  // `onSortChange` and sorts for real (see items.spec.ts's sort test) — the
-  // same primitive, correctly used elsewhere, makes this a wiring gap.
-  test("BUG: the «رقم الفاتورة» column header looks sortable but a click changes nothing", async ({ page }) => {
-    test.fail();
+  // Guards the sort that used to be decorative: the «رقم الفاتورة» header was
+  // drawn sortable (cursor, hover, «ترتيب حسب هذا العمود») while the screen
+  // never passed `sort`/`onSortChange`, so a click changed nothing. The list
+  // is a server page, so the order must come back from `/sales-invoices`.
+  test("the «رقم الفاتورة» column header sorts the invoices by number, both ways", async ({ page }) => {
     const prefix = unique("عميل ترتيب قائمة");
     const item = unique("صنف ترتيب قائمة");
     await createItem(page, item, "10");
@@ -156,6 +149,15 @@ test.describe("DocumentList — Sales Invoices", () => {
     const numberHeader = page.getByRole("columnheader", { name: /رقم الفاتورة/ });
     await numberHeader.click();
     await expect(numberHeader).toHaveAttribute("aria-sort", "ascending", { timeout: 3000 });
+    await expect.poll(async () => {
+      const numbers = await invoiceNumberTexts(page);
+      return numbers.length === 2 && numbers[0]! < numbers[1]!;
+    }).toBe(true);
+    const ascending = await invoiceNumberTexts(page);
+
+    await numberHeader.click();
+    await expect(numberHeader).toHaveAttribute("aria-sort", "descending", { timeout: 3000 });
+    await expect.poll(() => invoiceNumberTexts(page)).toEqual([...ascending].reverse());
   });
 
   // BUG: with a search filter active and pageSize=10, clicking pager page

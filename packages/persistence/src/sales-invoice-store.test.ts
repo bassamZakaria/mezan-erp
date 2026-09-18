@@ -128,6 +128,21 @@ describe("SqliteSalesInvoiceStore — list with filter", () => {
     const all = await repo.list();
     expect(all.map((i) => i.date)).toEqual(["2026-08-01", "2026-08-10", "2026-08-15"]);
   });
+
+  it("orders a page by document number in either direction, drafts last, before the page is cut", async () => {
+    const repo = store();
+    await repo.save(invoice({ id: "inv-a", docNo: "INV-000002", status: "confirmed", date: "2026-08-01" }));
+    await repo.save(invoice({ id: "inv-b", docNo: null, status: "draft", date: "2026-08-02" }));
+    await repo.save(invoice({ id: "inv-c", docNo: "INV-000003", status: "confirmed", date: "2026-08-03" }));
+    await repo.save(invoice({ id: "inv-d", docNo: "INV-000001", status: "confirmed", date: "2026-08-04" }));
+
+    const asc = await repo.list({ sort: { key: "docNo", direction: "asc" } });
+    expect(asc.map((i) => i.docNo)).toEqual(["INV-000001", "INV-000002", "INV-000003", null]);
+    const desc = await repo.list({ sort: { key: "docNo", direction: "desc" } });
+    expect(desc.map((i) => i.docNo)).toEqual(["INV-000003", "INV-000002", "INV-000001", null]);
+    const firstPage = await repo.list({ sort: { key: "docNo", direction: "desc" }, limit: 2, offset: 0 });
+    expect(firstPage.map((i) => i.docNo)).toEqual(["INV-000003", "INV-000002"]);
+  });
 });
 
 describe("SqliteSalesInvoiceStore — update on confirm", () => {

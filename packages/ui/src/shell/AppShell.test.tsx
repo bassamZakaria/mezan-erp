@@ -342,3 +342,52 @@ describe("AppShell — workspace column plus a two-row bar", () => {
     expect(onOpenProfile).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("AppShell — the phone drawer closes on every navigation from it", () => {
+  function openDrawer() {
+    const toggle = screen.getByRole("button", { name: "فتح قائمة التنقل" });
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    return toggle;
+  }
+
+  it.each(["لوحة التحكم", "صندوق الوارد", "الموافقات"])("closes after «%s» beside the wordmark", (label) => {
+    const onClick = vi.fn();
+    renderShell({
+      directNavItems: [
+        { key: "dashboard", label: "لوحة التحكم", onClick: label === "لوحة التحكم" ? onClick : undefined },
+        { key: "inbox", label: "صندوق الوارد", onClick: label === "صندوق الوارد" ? onClick : undefined },
+        { key: "approvals", label: "الموافقات", onClick: label === "الموافقات" ? onClick : undefined },
+      ],
+    });
+    const toggle = openDrawer();
+    fireEvent.click(screen.getByRole("button", { name: label }));
+    expect(onClick).toHaveBeenCalledOnce();
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("closes after the wordmark, a workspace, the profile and the search", () => {
+    const onNavigateHome = vi.fn();
+    const onOpenProfile = vi.fn();
+    renderShell({ onNavigateHome, onOpenProfile });
+
+    let toggle = openDrawer();
+    fireEvent.click(screen.getByRole("button", { name: "ميزان — الذهاب إلى لوحة التحكم" }));
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+
+    toggle = openDrawer();
+    const rail = screen.getByRole("navigation", { name: "التنقل بين مساحات العمل" });
+    fireEvent.click(within(rail).getByRole("button", { name: "البيع والتحصيل" }));
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+
+    toggle = openDrawer();
+    fireEvent.click(screen.getByRole("button", { name: /محمد/ }));
+    expect(onOpenProfile).toHaveBeenCalledOnce();
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+
+    toggle = openDrawer();
+    fireEvent.click(screen.getByRole("button", { name: "بحث وأوامر (CtrlK)" }));
+    expect(screen.getByRole("combobox", { name: "لوحة الأوامر" })).toBeInTheDocument();
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+  });
+});

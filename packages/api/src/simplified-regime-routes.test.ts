@@ -201,6 +201,10 @@ describe("PUT / — recording a filing, never making one", () => {
       req("/", "*", { method: "PUT", body: JSON.stringify({ state: "active", electedOn: "2025-06-01" }) }),
     );
     expect(res.status).toBe(400);
+    // The Arabic reason travels as `message`, which the screen shows verbatim.
+    expect(((await res.json()) as { message?: string }).message).toBe(
+      "تاريخ ورقم نموذج 1/10 المقدَّم مطلوبان لتسجيل الاختيار",
+    );
   });
 
   it("stores the filing, derives the irrevocability window, and turns the VAT return quarterly", async () => {

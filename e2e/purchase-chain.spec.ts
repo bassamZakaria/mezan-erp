@@ -39,16 +39,53 @@ async function createSupplier(page: Page, name: string): Promise<void> {
   await expect(form).toBeHidden();
 }
 
+/**
+ * DEFECT (documented and reproduced in items.spec.ts): ItemsScreen.tsx:304
+ * computes a new item's code client-side from the catalogue's current size
+ * and never re-derives it at submit time, so two clients creating an item
+ * around the same moment can be offered the identical code — one save is
+ * then refused with "Item code … already exists", and the failed attempt
+ * never invalidates the cached catalogue-size query either, so simply
+ * retrying keeps reading the same stale count. This is a real, separate app
+ * defect (not this test's to paper over completely) that surfaces only
+ * under artificial concurrent load — several copies of this same test
+ * running in parallel, each creating its own item. A couple of retries
+ * covers the common case without pretending a client-side fix exists.
+ */
 async function createItem(page: Page, name: string, salePrice: string): Promise<void> {
   await clickSidebarItem(page, "الأصناف");
   await expect(page.getByRole("heading", { name: "الأصناف" })).toBeVisible();
-  await page.getByRole("button", { name: "إضافة صنف" }).first().click();
-  await expect(page.getByRole("heading", { name: "إضافة صنف", level: 1 })).toBeVisible();
-  await page.getByLabel("اسم الصنف *").fill(name);
-  const price = page.getByLabel("سعر البيع");
-  await price.fill(salePrice);
-  await price.press("Tab");
-  await page.getByRole("button", { name: "إضافة", exact: true }).click();
+  const MAX_ATTEMPTS = 3;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
+    await page.getByRole("button", { name: "إضافة صنف" }).first().click();
+    await expect(page.getByRole("heading", { name: "إضافة صنف", level: 1 })).toBeVisible();
+    await page.getByLabel("اسم الصنف *").fill(name);
+    const price = page.getByLabel("سعر البيع");
+    await price.fill(salePrice);
+    await price.press("Tab");
+    await page.getByRole("button", { name: "إضافة", exact: true }).click();
+
+    // Poll for either outcome instead of racing a fixed timeout against the
+    // save — the ordinary case can legitimately take a few seconds, and the
+    // duplicate-code alert (a real app defect — see the comment above) is
+    // otherwise indistinguishable from "still saving".
+    const listHeading = page.getByRole("heading", { name: "الأصناف" });
+    const codeAlert = page.getByRole("alert").filter({ hasText: "already exists" });
+    let collided = false;
+    const deadline = Date.now() + 10_000;
+    while (Date.now() < deadline) {
+      if (await listHeading.isVisible().catch(() => false)) return;
+      if (await codeAlert.isVisible().catch(() => false)) {
+        collided = true;
+        break;
+      }
+      await page.waitForTimeout(200);
+    }
+    if (!collided) break; // neither happened — let the final assertion report the real error.
+    if (attempt === MAX_ATTEMPTS) break;
+    await page.getByRole("button", { name: "رجوع إلى الأصناف" }).click();
+    await expect(page.getByRole("heading", { name: "الأصناف" })).toBeVisible();
+  }
   await expect(page.getByRole("heading", { name: "الأصناف" })).toBeVisible();
 }
 
@@ -63,7 +100,39 @@ function uniqueRow(page: Page, text: string): Locator {
   return page.locator("table tbody tr").filter({ hasText: text });
 }
 
+/**
+ * `clickSidebarItem` right after a breadcrumb "رجوع" navigation is a real,
+ * reproducible race — the «كل الشاشات» click occasionally lands while the
+ * previous view is still settling and the target screen never opens, with
+ * nothing throwing (the click itself succeeds; it's just clicking too
+ * early). Retrying the click — never widening the per-attempt timeout —
+ * is what actually waits on the specific outcome instead of a fixed delay.
+ */
+async function gotoScreen(page: Page, sidebarLabel: string, headingName: string): Promise<void> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await clickSidebarItem(page, sidebarLabel);
+    if (
+      await page
+        .getByRole("heading", { name: headingName })
+        .isVisible({ timeout: 5_000 })
+        .catch(() => false)
+    ) {
+      return;
+    }
+  }
+  // Final attempt: let it fail with Playwright's own clear error if the
+  // screen genuinely never opens, rather than swallowing a real failure.
+  await expect(page.getByRole("heading", { name: headingName })).toBeVisible();
+}
+
 test.describe("Purchase chain — PO → GRN → Purchase Invoice", () => {
+  // This test creates an item with a client-assigned code (createItem), which
+  // is unsafe under concurrent creation (a real app defect — see
+  // items.spec.ts's file header and its dedicated test.fail). --repeat-each
+  // runs several copies of this same test in parallel by default; serial
+  // keeps them from racing each other on that same defect.
+  test.describe.configure({ mode: "serial" });
+
   test.beforeEach(async ({ page }) => {
     await loginAsDemoUser(page);
   });
@@ -103,10 +172,14 @@ test.describe("Purchase chain — PO → GRN → Purchase Invoice", () => {
     await expect(page.getByText("مرسل").first()).toBeVisible();
     await expect(page.getByRole("button", { name: "تأكيد وإرسال" })).toHaveCount(0);
     await page.getByRole("button", { name: "رجوع إلى أوامر الشراء" }).click();
+    // Wait for the list to actually settle before navigating again — firing
+    // clickSidebarItem while this breadcrumb navigation is still resolving
+    // is a real, reproducible race (the next screen's own heading never
+    // appears and the run times out several steps later).
+    await expect(page.getByRole("heading", { name: "أوامر الشراء" })).toBeVisible();
 
     // --- Goods Receipt: created "from" the confirmed PO, auto-filled lines ---
-    await clickSidebarItem(page, "استلام البضائع");
-    await expect(page.getByRole("heading", { name: "إيصالات الاستلام" })).toBeVisible();
+    await gotoScreen(page, "استلام البضائع", "إيصالات الاستلام");
     await page.getByRole("button", { name: "إيصال استلام جديد" }).first().click();
     await expect(page.getByRole("heading", { name: "إيصال استلام جديد", level: 1 })).toBeVisible();
     await expect(page.getByText(/الاستلام يبدأ دائماً من أمر شراء/)).toBeVisible();
@@ -131,10 +204,11 @@ test.describe("Purchase chain — PO → GRN → Purchase Invoice", () => {
     // The breadcrumb "رجوع إلى X" uses the nav item's label (استلام البضائع),
     // not the screen's own h1 heading (إيصالات الاستلام).
     await page.getByRole("button", { name: "رجوع إلى استلام البضائع" }).click();
+    // Same settling wait as above, before the next clickSidebarItem.
+    await expect(page.getByRole("heading", { name: "إيصالات الاستلام" })).toBeVisible();
 
     // --- Purchase Invoice: created "from" the confirmed GRN, auto-filled lines ---
-    await clickSidebarItem(page, "فواتير المشتريات");
-    await expect(page.getByRole("heading", { name: "فواتير المشتريات" })).toBeVisible();
+    await gotoScreen(page, "فواتير المشتريات", "فواتير المشتريات");
     await page.getByRole("button", { name: "فاتورة مشتريات جديدة" }).first().click();
     await expect(page.getByRole("heading", { name: "فاتورة مشتريات جديدة", level: 1 })).toBeVisible();
     // "إنشاء فاتورة جديدة" (manual) is the default-pressed method here, not

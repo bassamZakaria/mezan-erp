@@ -7,9 +7,11 @@ const SCREENSHOT_DIR = "e2e-results/screenshots";
 
 /**
  * Items screen (apps/web/src/screens/ItemsScreen.tsx) — الأصناف. The e2e
- * backend starts as a genuinely empty tenant (packages/backend/src/seed.ts)
- * — no items seeded — so every test creates its own via the real create
- * flow, isolated by a unique name prefix.
+ * backend is the fully seeded demo tenant (MEZAN_SEED_DEMO=1 — see
+ * packages/backend/src/demo-seed.ts), not an empty one, so the list is
+ * already past its 25-row page size before any test runs — every test
+ * creates its own item via the real create flow, isolated by a unique name,
+ * and searches for it rather than assuming it lands on page 1.
  *
  * Add/edit is a full sub-PAGE (FormPage/FormColumns in
  * apps/web/src/settings/form-controls.tsx), not a modal — there is no
@@ -29,6 +31,12 @@ const SCREENSHOT_DIR = "e2e-results/screenshots";
  * via Sales Invoices; the tests below focus on what's specific to items —
  * the repeatable unit/barcode editors, the service-type field toggle, detail
  * tabs, and validation.
+ *
+ * `serial`: every test here creates an item with no explicit code (the
+ * server assigns the next ITM-###### itself), and doing that from several
+ * workers at once is a real, reproducible app defect — see the DEFECT test
+ * below. Serial keeps the rest of this suite deterministic without papering
+ * over that defect by weakening an assertion.
  */
 
 function unique(prefix: string): string {
@@ -62,6 +70,11 @@ async function createItem(page: Page, name: string, salePrice: string, options?:
 }
 
 test.describe("Items", () => {
+  // See the file header: every test creates an item with a client-assigned
+  // code, which is unsafe under concurrent creation (a real app defect,
+  // demonstrated below) — serial keeps THIS suite off that race.
+  test.describe.configure({ mode: "serial" });
+
   test.beforeEach(async ({ page }) => {
     await loginAsDemoUser(page);
     await clickSidebarItem(page, "الأصناف");
@@ -72,14 +85,17 @@ test.describe("Items", () => {
     const name = unique("صنف تجريبي جديد");
     await createItem(page, name, "42.50");
 
+    // The list is server-paged at 25 and the seeded tenant already holds more
+    // than that, so a freshly-created row is not guaranteed to land on page 1
+    // — search for it by name rather than assuming it does.
+    const search = page.getByPlaceholder("بحث بالاسم أو الكود...");
+    await search.fill(name);
     const row = listRow(page, name);
     await expect(row).toBeVisible();
+    await expect(page.locator("table tbody tr")).toHaveCount(1);
     const code = (await row.locator("td").first().locator(".mz-num").innerText()).trim();
     expect(code).toMatch(/^ITM-\d+$/);
 
-    const search = page.getByPlaceholder("بحث بالاسم أو الكود...");
-    await search.fill(name);
-    await expect(page.locator("table tbody tr")).toHaveCount(1);
     await search.fill("");
     await search.fill(code);
     await expect(listRow(page, name)).toBeVisible();
@@ -256,5 +272,56 @@ test.describe("Items", () => {
     await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
 
     await page.screenshot({ path: `${SCREENSHOT_DIR}/items-dark.png` });
+  });
+
+  /**
+   * DEFECT: ItemsScreen.tsx:304's `nextItemCode(catalogueSize)` computes the
+   * new item's code client-side from the catalogue's current size and posts
+   * it as a literal `code`; there is no server-side atomic allocation
+   * (packages/domain/src/items/create-item.ts:88 only checks the literal
+   * code against a snapshot fetched earlier). Two operators who open the
+   * create form before either has saved both get offered the SAME code, and
+   * whichever saves second is refused with a raw "Item code … already
+   * exists" error instead of getting its own — reproduced below with two
+   * real browser tabs, neither racing the other, both just reading the same
+   * catalogue size. Not a test bug — the app never re-derives the code at
+   * submit time.
+   */
+  test.fail("two operators who both open the create form get offered the same generated code", async ({ browser }) => {
+    const contextA = await browser.newContext();
+    const contextB = await browser.newContext();
+    try {
+      const pageA = await contextA.newPage();
+      const pageB = await contextB.newPage();
+      await loginAsDemoUser(pageA);
+      await loginAsDemoUser(pageB);
+      await clickSidebarItem(pageA, "الأصناف");
+      await clickSidebarItem(pageB, "الأصناف");
+
+      // Both forms open before either saves — each reads the same catalogue size.
+      await openItemForm(pageA);
+      await openItemForm(pageB);
+
+      const nameA = unique("صنف تزامن أ");
+      const nameB = unique("صنف تزامن ب");
+      await pageA.getByLabel("اسم الصنف *").fill(nameA);
+      await pageB.getByLabel("اسم الصنف *").fill(nameB);
+      for (const p of [pageA, pageB]) {
+        const price = p.getByLabel("سعر البيع");
+        await price.fill("10");
+        await price.press("Tab");
+      }
+
+      await pageA.getByRole("button", { name: "إضافة", exact: true }).click();
+      await expect(pageA.getByRole("heading", { name: "الأصناف" })).toBeVisible();
+
+      // B was offered the SAME code A just took — this save should succeed
+      // with its own code, but the app refuses it instead.
+      await pageB.getByRole("button", { name: "إضافة", exact: true }).click();
+      await expect(pageB.getByRole("heading", { name: "الأصناف" })).toBeVisible();
+    } finally {
+      await contextA.close();
+      await contextB.close();
+    }
   });
 });

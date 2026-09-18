@@ -8,8 +8,12 @@ import { brokenLabelField } from "./support/broken-label";
  * docs/archive/catalog/09 §قواعد الإشعارات) + the top-bar notifications inbox
  * screen (apps/web/src/screens/NotificationsScreen.tsx — reached via the
  * "صندوق الوارد" icon beside the wordmark, not a bell dropdown; see
- * app-shell.spec.ts). Real backend, real SQLite — the demo tenant starts
- * with zero configured rules and zero notifications.
+ * app-shell.spec.ts). Real backend, real SQLite — the demo tenant is the
+ * fully seeded demo company (packages/backend/src/demo-seed/platform.ts),
+ * not an empty one: it already carries 4 notification rules (3 active, 1
+ * disabled) and 3 real, engine-generated notifications (2 unread) from
+ * seeded sales/purchase returns — so these tests read that seed instead of
+ * assuming an empty list.
  *
  * الحدث/نوع المستلم/قيمة المستلم/الأولوية are the portaled `Select`
  * combobox (packages/ui/src/primitives/Select.tsx), chosen via click +
@@ -28,6 +32,11 @@ async function chooseCombo(scope: Page, comboLabel: string, optionName: string |
 }
 
 test.describe("Notification rules builder", () => {
+  // Both tests create a rule against the SAME shared list and the first
+  // asserts an exact total — serial keeps them from racing each other
+  // (playwright.config.ts runs fullyParallel).
+  test.describe.configure({ mode: "serial" });
+
   test.beforeEach(async ({ page }) => {
     await loginAsDemoUser(page);
     await expandSidebarGroup(page, "الإعدادات");
@@ -35,8 +44,13 @@ test.describe("Notification rules builder", () => {
     await expect(page.getByRole("heading", { name: "قواعد الإشعارات" })).toBeVisible();
   });
 
-  test("starts empty and creates a real rule over the event catalog", async ({ page }) => {
-    await expect(page.getByText("لا توجد قواعد إشعارات")).toBeVisible();
+  test("lists the 4 seeded rules and creates a real rule over the event catalog", async ({ page }) => {
+    await expect(page.getByText("عرض 4 من 4 قاعدة")).toBeVisible();
+    const seededRow = page.locator("tr", { hasText: "تنبيه تأكيد فاتورة مبيعات" });
+    await expect(seededRow).toBeVisible();
+    await expect(seededRow.getByText("نشط", { exact: true })).toBeVisible();
+    const disabledRow = page.locator("tr", { hasText: "تنبيه إلغاء مرتجع مشتريات" });
+    await expect(disabledRow.getByText("غير نشط", { exact: true })).toBeVisible();
 
     const name = unique("فاتورة مبيعات مؤكدة");
     await page.getByRole("button", { name: "إضافة قاعدة" }).click();
@@ -55,6 +69,7 @@ test.describe("Notification rules builder", () => {
     const row = page.locator("tr", { hasText: name });
     await expect(row).toBeVisible();
     await expect(row.getByText("تم تأكيد فاتورة مبيعات", { exact: true })).toBeVisible();
+    await expect(page.getByText("عرض 5 من 5 قاعدة")).toBeVisible();
   });
 
   test("toggles a rule inactive then deletes it", async ({ page }) => {
@@ -80,10 +95,28 @@ test.describe("Notification rules builder", () => {
 });
 
 test.describe("Notifications inbox", () => {
-  test("opens from صندوق الوارد and shows the real (empty) notification list", async ({ page }) => {
+  test("opens from صندوق الوارد and shows the real, engine-generated notifications", async ({ page }) => {
     await loginAsDemoUser(page);
     await page.getByRole("button", { name: "صندوق الوارد", exact: true }).click();
     await expect(page.getByRole("heading", { name: "الإشعارات" })).toBeVisible();
-    await expect(page.getByText(/لا توجد إشعارات|لا يوجد إشعارات/)).toBeVisible();
+
+    // At least 3 real notifications from the seeded sales/purchase returns
+    // (packages/backend/src/demo-seed/platform.ts) — not asserting an exact
+    // total, since other e2e spec files sharing this backend also confirm
+    // sales/purchase returns and genuinely add more notifications.
+    await expect
+      .poll(async () => {
+        const text = await page.locator("main").innerText();
+        return Number(text.match(/عرض\s*\d+\s*من\s*(\d+)\s*إشعار/)?.[1] ?? 0);
+      })
+      .toBeGreaterThanOrEqual(3);
+    const salesReturnRow = page.locator("tr", { hasText: "تم تسجيل مرتجع مبيعات" }).first();
+    await expect(salesReturnRow).toBeVisible();
+    await expect(salesReturnRow.getByText(/تم تأكيد مرتجع مبيعات على المستند SRT-\d+/)).toBeVisible();
+    const purchaseReturnRow = page.locator("tr", { hasText: "تم تسجيل مرتجع مشتريات" });
+    await expect(purchaseReturnRow).toBeVisible();
+
+    await page.getByRole("button", { name: "تحديد الكل كمقروء" }).click();
+    await expect(page.getByText("غير مقروء", { exact: true }).first().locator("xpath=..")).toContainText("0");
   });
 });

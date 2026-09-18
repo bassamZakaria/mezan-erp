@@ -1,4 +1,4 @@
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Page, type Locator } from "@playwright/test";
 import { loginAsDemoUser } from "./support/auth";
 import { clickSidebarItem } from "./support/nav";
 
@@ -19,6 +19,36 @@ import { clickSidebarItem } from "./support/nav";
 
 function row(page: Page, text: string, exact = true) {
   return page.locator("table tbody tr").filter({ has: page.getByText(text, { exact }) });
+}
+
+function unique(prefix: string): string {
+  return `${prefix} ${Date.now()}-${Math.floor(Math.random() * 100000)}`;
+}
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** Clicks a `Select` primitive's combobox trigger, then the matching portaled option — it is not a native `<select>` (packages/ui/src/primitives/Select.tsx). */
+async function chooseCombo(page: Page, scope: Page | Locator, comboLabel: string, optionName: string | RegExp): Promise<void> {
+  await scope.getByRole("combobox", { name: comboLabel }).click();
+  await page.getByRole("option", { name: optionName }).click();
+}
+
+/** Opens a row's «…» actions menu (RowMenu) by its accessible name, then clicks the named menu item. */
+async function rowMenuAction(page: Page, rowLocator: Locator, rowMenuLabel: string, itemLabel: string): Promise<void> {
+  await rowLocator.getByRole("button", { name: rowMenuLabel }).click();
+  await page.getByRole("menuitem", { name: itemLabel }).click();
+}
+
+/**
+ * Same as `rowMenuAction`, for a `tone: "danger"` item — RowMenu.tsx always
+ * confirms those through a "تأكيد: {action}" ConfirmDialog before running.
+ */
+async function rowMenuActionWithConfirm(page: Page, rowLocator: Locator, rowMenuLabel: string, itemLabel: string): Promise<void> {
+  await rowLocator.getByRole("button", { name: rowMenuLabel }).click();
+  await page.getByRole("menuitem", { name: itemLabel }).click();
+  await page.getByRole("dialog").getByRole("button", { name: itemLabel, exact: true }).click();
 }
 
 async function createCustomer(page: Page, nameAr: string): Promise<void> {
@@ -172,38 +202,51 @@ test.describe("Leads", () => {
 test.describe("Opportunities & Pipeline", () => {
   test.describe.configure({ mode: "serial" });
 
+  // Shared between the two serial tests below, and made unique per run
+  // (rather than a literal string) so a --repeat-each rerun — which reuses
+  // this same seeded backend across repetitions — never leaves two
+  // same-named customers for the EntityPicker search to collide on, and
+  // never leaves two same-named opportunity rows for `row()` to collide on.
+  let customerName: string;
+  let opportunityTitle: string;
+
   test.beforeEach(async ({ page }) => {
     await loginAsDemoUser(page);
   });
 
   test("creating an opportunity validates required title/customer, then succeeds against a real customer", async ({ page }) => {
-    await createCustomer(page, "عميل الفرص التجريبي");
+    customerName = unique("عميل الفرص التجريبي");
+    opportunityTitle = unique("فرصة تجريبية أولى");
+    await createCustomer(page, customerName);
 
     await clickSidebarItem(page, "الفرص");
     await expect(page.getByRole("heading", { name: "الفرص" })).toBeVisible();
 
-    await page.getByRole("button", { name: "فرصة جديدة" }).click();
+    // .first() — the header's button is always present; an empty-state region
+    // renders a second one with the exact same label whenever the list reads
+    // zero rows (a real race when this test's own row is the first ever created).
+    await page.getByRole("button", { name: "فرصة جديدة" }).first().click();
     const form = page.getByRole("dialog", { name: "فرصة جديدة" });
     await expect(form).toBeVisible();
 
     await form.getByRole("button", { name: "إضافة", exact: true }).click();
     await expect(form.getByRole("alert")).toContainText("العنوان مطلوب");
 
-    await form.getByLabel("العنوان *").fill("فرصة تجريبية أولى");
+    await form.getByLabel("العنوان *").fill(opportunityTitle);
     await form.getByRole("button", { name: "إضافة", exact: true }).click();
     await expect(form.getByRole("alert")).toContainText("العميل مطلوب");
 
     const customerField = form.getByPlaceholder("اختر العميل...");
     await customerField.click();
-    await customerField.fill("عميل الفرص التجريبي");
-    await form.getByRole("option", { name: /عميل الفرص التجريبي/ }).click();
+    await customerField.fill(customerName);
+    await form.getByRole("option", { name: new RegExp(escapeRegExp(customerName)) }).click();
 
     await form.getByRole("button", { name: "إضافة", exact: true }).click();
     await expect(form).toBeHidden();
 
-    const oppRow = row(page, "فرصة تجريبية أولى");
+    const oppRow = row(page, opportunityTitle);
     await expect(oppRow).toBeVisible();
-    await expect(oppRow.getByText("عميل الفرص التجريبي")).toBeVisible();
+    await expect(oppRow.getByText(customerName)).toBeVisible();
     await expect(oppRow.getByText("عميل محتمل", { exact: true })).toBeVisible(); // default first stage
     await expect(oppRow.getByText("مفتوحة", { exact: true })).toBeVisible();
   });
@@ -219,12 +262,12 @@ test.describe("Opportunities & Pipeline", () => {
     // Note: the "عميل محتمل" column also holds the opportunity the earlier
     // Leads conversion test created by default (createOpportunity stayed on) —
     // so this scopes to OUR card specifically rather than asserting a column count.
-    const card = page.locator("div.rounded-md.border.border-border.bg-surface").filter({ hasText: "فرصة تجريبية أولى" });
+    const card = page.locator("div.rounded-md.border.border-border.bg-surface").filter({ hasText: opportunityTitle });
     await expect(card).toBeVisible();
-    await card.getByLabel("نقل إلى").selectOption({ label: "عرض سعر" });
+    await chooseCombo(page, card, "نقل إلى", "عرض سعر");
 
     await clickSidebarItem(page, "الفرص");
-    await expect(row(page, "فرصة تجريبية أولى").getByText("عرض سعر", { exact: true })).toBeVisible();
+    await expect(row(page, opportunityTitle).getByText("عرض سعر", { exact: true })).toBeVisible();
   });
 });
 
@@ -246,7 +289,7 @@ test.describe("Activities", () => {
     await expect(form.getByRole("alert")).toContainText("الموضوع مطلوب");
 
     await form.getByLabel("الموضوع *").fill("نشاط متابعة تجريبي");
-    await form.getByLabel("النوع").selectOption({ label: "اجتماع" });
+    await chooseCombo(page, form, "النوع", "اجتماع");
     await form.getByLabel("تاريخ الاستحقاق").fill("2026-09-01");
     await form.getByRole("button", { name: "إضافة", exact: true }).click();
     await expect(form).toBeHidden();
@@ -256,9 +299,11 @@ test.describe("Activities", () => {
     await expect(activityRow.getByText("معلق", { exact: true })).toBeVisible();
     await expect(activityRow.getByText("اجتماع", { exact: true })).toBeVisible();
 
-    await activityRow.getByRole("button", { name: "إكمال" }).click();
+    // «إكمال»/«إلغاء» live inside the row's «…» actions menu (RowMenu), not as their own buttons.
+    // A completed activity has no menu items left, so RowMenu renders nothing at all.
+    await rowMenuAction(page, activityRow, "إجراءات نشاط متابعة تجريبي", "إكمال");
     await expect(row(page, "نشاط متابعة تجريبي").getByText("مكتمل", { exact: true })).toBeVisible();
-    await expect(row(page, "نشاط متابعة تجريبي").getByRole("button", { name: "إكمال" })).toHaveCount(0);
+    await expect(row(page, "نشاط متابعة تجريبي").getByRole("button", { name: "إجراءات نشاط متابعة تجريبي" })).toHaveCount(0);
   });
 
   test("a second activity can be cancelled, and status chips narrow correctly", async ({ page }) => {
@@ -268,7 +313,7 @@ test.describe("Activities", () => {
     await form.getByRole("button", { name: "إضافة", exact: true }).click();
     await expect(form).toBeHidden();
 
-    await row(page, "نشاط ملغى تجريبي").getByRole("button", { name: "إلغاء" }).click();
+    await rowMenuActionWithConfirm(page, row(page, "نشاط ملغى تجريبي"), "إجراءات نشاط ملغى تجريبي", "إلغاء");
     await expect(row(page, "نشاط ملغى تجريبي").getByText("ملغى", { exact: true })).toBeVisible();
 
     const tablist = page.getByRole("tablist", { name: "تصفية حسب الحالة" });

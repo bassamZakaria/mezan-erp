@@ -29,6 +29,8 @@ import {
   DuplicateJournalEntryError,
   JournalEntryNotDraftError,
   JournalEntryNotFoundError,
+  InvalidJournalPartyError,
+  PartyRequiredOnControlAccountError,
 } from "./errors.js";
 import {
   InMemoryLedgerRepository,
@@ -522,5 +524,71 @@ describe("project-bound control accounts (C.4)", () => {
       { ...deps, projectRequiredAccountIds },
     );
     expect(entry.status).toBe("posted");
+  });
+});
+
+describe("party control accounts — a manual line on 1105/2100 names its party (D205)", () => {
+  const partyControlAccounts = new Map([["1300-1", "customer" as const], ["2200", "supplier" as const]]);
+  const partyExists = async (kind: "customer" | "supplier", id: string) =>
+    (kind === "customer" && id === "CUST-1") || (kind === "supplier" && id === "SUPP-1");
+  const withParties = (lines: CreateJournalEntryCommand["lines"]): CreateJournalEntryCommand => ({ ...cashSale, lines });
+
+  it("refuses a line on the receivables control account that names no customer, in Arabic and English", async () => {
+    const { deps, ledger } = await harness();
+    const refusal = postJournalEntry(cashSale, { ...deps, partyControlAccounts, partyExists });
+    await expect(refusal).rejects.toBeInstanceOf(PartyRequiredOnControlAccountError);
+    await expect(refusal).rejects.toMatchObject({
+      code: "PARTY_REQUIRED_ON_CONTROL_ACCOUNT",
+      accountId: "1300-1",
+      partyKind: "customer",
+      message: expect.stringContaining("العميل"),
+      messageEn: expect.stringContaining("customer"),
+    });
+    expect(await ledger.findById("je-1")).toBeNull();
+  });
+
+  it("refuses the same line as a draft, and when a draft missing it is posted", async () => {
+    const { deps } = await harness();
+    await expect(createJournalEntry(cashSale, { ...deps, partyControlAccounts, partyExists })).rejects.toBeInstanceOf(
+      PartyRequiredOnControlAccountError,
+    );
+    await createJournalEntry(cashSale, deps);
+    await expect(postDraftJournalEntry("je-1", { ...deps, partyControlAccounts, partyExists })).rejects.toBeInstanceOf(
+      PartyRequiredOnControlAccountError,
+    );
+  });
+
+  it("posts once every control line names a party that exists, and keeps the party on the line", async () => {
+    const { deps } = await harness();
+    const entry = await postJournalEntry(
+      withParties([
+        { ...cashSale.lines[0]!, partyId: "CUST-1" },
+        cashSale.lines[1]!,
+        { ...cashSale.lines[2]!, partyId: "SUPP-1" },
+      ]),
+      { ...deps, partyControlAccounts, partyExists },
+    );
+    expect(entry.lines.map((l) => l.partyId)).toEqual(["CUST-1", null, "SUPP-1"]);
+  });
+
+  it("refuses a party that does not exist, and a party on an account that is not a control account", async () => {
+    const { deps } = await harness();
+    await expect(
+      postJournalEntry(
+        withParties([{ ...cashSale.lines[0]!, partyId: "CUST-GHOST" }, cashSale.lines[1]!, { ...cashSale.lines[2]!, partyId: "SUPP-1" }]),
+        { ...deps, partyControlAccounts, partyExists },
+      ),
+    ).rejects.toBeInstanceOf(InvalidJournalPartyError);
+    await expect(
+      postJournalEntry(
+        withParties([{ ...cashSale.lines[0]!, partyId: "CUST-1" }, { ...cashSale.lines[1]!, partyId: "CUST-1" }, { ...cashSale.lines[2]!, partyId: "SUPP-1" }]),
+        { ...deps, partyControlAccounts, partyExists },
+      ),
+    ).rejects.toBeInstanceOf(InvalidJournalPartyError);
+  });
+
+  it("checks nothing for a posting whose composition supplies no control accounts — a document posting", async () => {
+    const { deps } = await harness();
+    expect((await postJournalEntry(cashSale, deps)).status).toBe("posted");
   });
 });

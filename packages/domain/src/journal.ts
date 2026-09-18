@@ -70,6 +70,14 @@ export interface JournalLine {
    * explicit «غير مخصص» bucket rather than dropping what has no branch.
    */
   readonly branchId?: string | null;
+  /**
+   * The customer or supplier a line on a party control account (1105, 2100)
+   * belongs to. Which of the two it names follows from the account. A manual
+   * line on a control account must carry one (D205) so the sub-ledger can
+   * follow it; document postings leave it null because their document is the
+   * sub-ledger record.
+   */
+  readonly partyId?: string | null;
 }
 
 /**
@@ -157,9 +165,11 @@ const MODULE_BY_DOC_TYPE: Readonly<Record<string, JournalSourceModule>> = {
   SALES_INVOICE: "sales",
   SALES_RETURN: "sales",
   SALES_QUOTE: "sales",
+  CUSTOMER_OPENING_BALANCE: "sales",
   PURCHASE_INVOICE: "purchases",
   PURCHASE_RETURN: "purchases",
   PURCHASE_ORDER: "purchases",
+  SUPPLIER_OPENING_BALANCE: "purchases",
   GOODS_RECEIPT: "purchases",
   // The stock ledger and the GL name a receipt differently; both reach here.
   PURCHASE_RECEIPT: "purchases",

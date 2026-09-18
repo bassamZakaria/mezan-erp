@@ -63,7 +63,8 @@ CREATE TABLE IF NOT EXISTS journal_line (
   tax_rate_percent REAL,
   project_id    TEXT,
   cost_category TEXT,
-  branch_id     TEXT
+  branch_id     TEXT,
+  party_id      TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_journal_line_entry ON journal_line(entry_id);
 CREATE INDEX IF NOT EXISTS idx_journal_line_account ON journal_line(account_id);
@@ -105,6 +106,7 @@ interface LineRow {
   project_id: string | null;
   cost_category: string | null;
   branch_id: string | null;
+  party_id: string | null;
 }
 
 /**
@@ -160,14 +162,14 @@ class SqliteLedgerRepository implements LedgerRepository {
       WHERE id = @id
     `);
     this.insertLine = sqlite.prepare(`
-      INSERT INTO journal_line (entry_id, line_no, account_id, debit, credit, memo, cost_center_id, currency, fx_rate, tax_rate_percent, project_id, cost_category, branch_id)
-      VALUES (@entry_id, @line_no, @account_id, @debit, @credit, @memo, @cost_center_id, @currency, @fx_rate, @tax_rate_percent, @project_id, @cost_category, @branch_id)
+      INSERT INTO journal_line (entry_id, line_no, account_id, debit, credit, memo, cost_center_id, currency, fx_rate, tax_rate_percent, project_id, cost_category, branch_id, party_id)
+      VALUES (@entry_id, @line_no, @account_id, @debit, @credit, @memo, @cost_center_id, @currency, @fx_rate, @tax_rate_percent, @project_id, @cost_category, @branch_id, @party_id)
     `);
     this.selectEntryById = sqlite.prepare(`SELECT * FROM journal_entry WHERE id = ?`);
     this.selectEntryByNo = sqlite.prepare(`SELECT * FROM journal_entry WHERE entry_no = ?`);
     this.selectLines = sqlite
       .prepare(
-        `SELECT line_no, account_id, debit, credit, memo, cost_center_id, currency, fx_rate, tax_rate_percent, project_id, cost_category, branch_id FROM journal_line WHERE entry_id = ? ORDER BY line_no`,
+        `SELECT line_no, account_id, debit, credit, memo, cost_center_id, currency, fx_rate, tax_rate_percent, project_id, cost_category, branch_id, party_id FROM journal_line WHERE entry_id = ? ORDER BY line_no`,
       )
       .safeIntegers();
   }
@@ -189,6 +191,7 @@ class SqliteLedgerRepository implements LedgerRepository {
         project_id: line.projectId ?? null,
         cost_category: line.costCategory ?? null,
         branch_id: line.branchId ?? null,
+        party_id: line.partyId ?? null,
       });
     });
   }
@@ -283,7 +286,7 @@ class SqliteLedgerRepository implements LedgerRepository {
       parentColumn: "entry_id",
       parentIds: rows.map((row) => row.id),
       orderBy: "entry_id, line_no",
-      columns: "entry_id, line_no, account_id, debit, credit, memo, cost_center_id, currency, fx_rate, tax_rate_percent, project_id, cost_category, branch_id",
+      columns: "entry_id, line_no, account_id, debit, credit, memo, cost_center_id, currency, fx_rate, tax_rate_percent, project_id, cost_category, branch_id, party_id",
       safeIntegers: true,
     });
     return rows.map((row) => this.hydrate(row, linesByEntry.get(row.id) ?? []));
@@ -451,6 +454,7 @@ class SqliteLedgerRepository implements LedgerRepository {
         `SELECT je.id AS entry_id, je.entry_no AS entry_no, je.date AS date, je.source AS source,
                 jl.account_id AS account_id, jl.cost_center_id AS cost_center_id,
                 jl.project_id AS project_id, jl.cost_category AS cost_category, jl.branch_id AS branch_id,
+                jl.party_id AS party_id, je.source_doc_type AS source_doc_type, je.source_doc_id AS source_doc_id,
                 jl.currency AS currency, jl.fx_rate AS fx_rate, jl.memo AS memo,
                 jl.debit AS debit, jl.credit AS credit
            FROM journal_line jl
@@ -469,6 +473,9 @@ class SqliteLedgerRepository implements LedgerRepository {
       project_id: string | null;
       cost_category: string | null;
       branch_id: string | null;
+      party_id: string | null;
+      source_doc_type: string | null;
+      source_doc_id: string | null;
       currency: string | null;
       fx_rate: string | null;
       memo: string | null;
@@ -485,6 +492,9 @@ class SqliteLedgerRepository implements LedgerRepository {
       projectId: r.project_id,
       costCategory: r.cost_category as PostedLine["costCategory"],
       branchId: r.branch_id,
+      partyId: r.party_id,
+      sourceDocType: r.source_doc_type,
+      sourceDocId: r.source_doc_id,
       currency: r.currency,
       fxRate: r.fx_rate,
       memo: r.memo,
@@ -508,6 +518,7 @@ class SqliteLedgerRepository implements LedgerRepository {
       projectId: l.project_id,
       costCategory: l.cost_category as JournalLine["costCategory"],
       branchId: l.branch_id,
+      partyId: l.party_id,
       taxRatePercent: l.tax_rate_percent === null ? null : Number(l.tax_rate_percent),
       currency: l.currency,
       fxRate: l.fx_rate,
@@ -586,6 +597,7 @@ export function createSqliteLedgerStore(
   // line already in an existing books file reads back with no branch, which is
   // exactly the «غير مخصص» bucket the branch statements always show.
   if (!lineColumns.has("branch_id")) sqlite.exec(`ALTER TABLE journal_line ADD COLUMN branch_id TEXT`);
+  if (!lineColumns.has("party_id")) sqlite.exec(`ALTER TABLE journal_line ADD COLUMN party_id TEXT`);
   sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_journal_line_project ON journal_line(project_id)`);
   sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_journal_line_branch ON journal_line(branch_id)`);
   const repo = new SqliteLedgerRepository(sqlite);

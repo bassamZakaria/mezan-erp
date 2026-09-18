@@ -76,3 +76,55 @@ export class DuplicateJournalEntryError extends Error {
     this.name = "DuplicateJournalEntryError";
   }
 }
+
+export type PartyControlKind = "customer" | "supplier";
+
+/**
+ * A manual line on a party control account names no customer or supplier
+ * (D205). QuickBooks' rule: an A/R or A/P line must name its party, or the
+ * control account moves while no party's balance does.
+ */
+export class PartyRequiredOnControlAccountError extends Error {
+  readonly code = "PARTY_REQUIRED_ON_CONTROL_ACCOUNT";
+  readonly messageEn: string;
+  constructor(
+    readonly accountId: string,
+    readonly partyKind: PartyControlKind,
+  ) {
+    super(
+      partyKind === "customer"
+        ? `الحساب "${accountId}" حساب مراقبة العملاء — كل سطر عليه يجب أن يحدد العميل.`
+        : `الحساب "${accountId}" حساب مراقبة الموردين — كل سطر عليه يجب أن يحدد المورد.`,
+    );
+    this.messageEn =
+      partyKind === "customer"
+        ? `Account "${accountId}" is the accounts receivable control account — every line on it must name a customer.`
+        : `Account "${accountId}" is the accounts payable control account — every line on it must name a supplier.`;
+    this.name = "PartyRequiredOnControlAccountError";
+  }
+}
+
+/** A line names a party that does not exist, or names one on an account that is not a party control account. */
+export class InvalidJournalPartyError extends Error {
+  readonly code = "INVALID_JOURNAL_PARTY";
+  readonly messageEn: string;
+  constructor(
+    readonly accountId: string,
+    readonly partyId: string,
+    reason: "not_found" | "not_control",
+    partyKind?: PartyControlKind,
+  ) {
+    super(
+      reason === "not_control"
+        ? `الحساب "${accountId}" ليس حساب مراقبة عملاء أو موردين، فلا يُحدَّد عليه طرف.`
+        : partyKind === "customer"
+          ? `العميل "${partyId}" غير موجود.`
+          : `المورد "${partyId}" غير موجود.`,
+    );
+    this.messageEn =
+      reason === "not_control"
+        ? `Account "${accountId}" is not a customer or supplier control account, so a line on it cannot name a party.`
+        : `${partyKind === "customer" ? "Customer" : "Supplier"} "${partyId}" does not exist.`;
+    this.name = "InvalidJournalPartyError";
+  }
+}

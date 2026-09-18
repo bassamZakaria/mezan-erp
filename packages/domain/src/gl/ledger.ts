@@ -110,6 +110,11 @@ export interface PostedLine {
   readonly costCategory: CostCategory | null;
   /** بُعد الفرع (DEC-20). Null on every line no path has filled yet — the statements report those as «غير مخصص». */
   readonly branchId: string | null;
+  /** The customer/supplier a manual line on a party control account names (D205). */
+  readonly partyId?: string | null;
+  /** The document that posted the entry (R6.3), so a sub-ledger can find its own postings. */
+  readonly sourceDocType?: string | null;
+  readonly sourceDocId?: string | null;
   readonly currency: string | null;
   readonly fxRate: string | null;
   readonly memo: string | null;

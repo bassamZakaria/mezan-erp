@@ -298,3 +298,62 @@ describe("JournalsScreen — themes", () => {
     expect(screen.getByRole("button", { name: "ترحيل القيد" })).toBeEnabled();
   });
 });
+
+describe("JournalsScreen — create: a line on a party control account names its party (D205)", () => {
+  it("asks for the customer on a 1105 line, keeps the post disabled until one is chosen, and sends its real id", async () => {
+    const posted: unknown[] = [];
+    const transport = stubTransport({
+      "GET /gl/journal-entries": () => ({ body: sampleEntries }),
+      "GET /gl/journal-entries/counts": () => ({ body: countsOf(sampleEntries) }),
+      "GET /gl/journal-entries/stats": () => ({ body: statsOf(sampleEntries) }),
+      "GET /accounts": () => ({
+        body: [
+          ...sampleAccounts,
+          { id: "1105", code: "1105", nameAr: "ذمم عملاء تجارية", nameEn: null, type: "asset", naturalBalance: "debit", parentId: null, isHeader: false, status: "active" },
+        ],
+      }),
+      "GET /gl/party-control-accounts": () => ({
+        body: [
+          { accountId: "1105", partyKind: "customer" },
+          { accountId: "2100", partyKind: "supplier" },
+        ],
+      }),
+      "GET /customers": () => ({ body: [{ id: "CUST-7", code: "C-0007", nameAr: "شركة النيل", nameEn: null }] }),
+      "GET /suppliers": () => ({ body: [] }),
+      "POST /gl/journal-entries": (init) => {
+        const body = JSON.parse((init?.body as string) ?? "{}");
+        posted.push(body);
+        return { status: 201, body: entry({ id: body.id, entryNo: "JE-000009" }) };
+      },
+    });
+    renderWithProviders(
+      <TestNavigation>
+        <JournalsScreen />
+      </TestNavigation>,
+      { transport, initialSession: testAdminSession },
+    );
+    await screen.findByText("JE-000001");
+    fireEvent.click(screen.getByRole("button", { name: "قيد جديد" }));
+    fireEvent.change(screen.getByPlaceholderText("وصف القيد..."), { target: { value: "مبيعات مباشرة" } });
+    chooseAccount("الحساب للسطر 1", "1105");
+    fireEvent.change(screen.getByLabelText("مدين للسطر 1"), { target: { value: "1140" } });
+    chooseAccount("الحساب للسطر 2", "4100");
+    fireEvent.change(screen.getByLabelText("دائن للسطر 2"), { target: { value: "1140" } });
+
+    const post = screen.getByRole("button", { name: "ترحيل القيد" });
+    const picker = await screen.findByRole("combobox", { name: "العميل أو المورد للسطر 1" });
+    expect(screen.queryByRole("combobox", { name: "العميل أو المورد للسطر 2" })).not.toBeInTheDocument();
+    expect(post).toBeDisabled();
+    expect(screen.getByText(/يجب أن يحدد العميل أو المورد/)).toBeInTheDocument();
+
+    fireEvent.focus(picker);
+    fireEvent.mouseDown(await screen.findByRole("button", { name: /شركة النيل/ }));
+    expect(post).toBeEnabled();
+    fireEvent.click(post);
+
+    await waitFor(() => expect(posted).toHaveLength(1));
+    const body = posted[0] as { lines: { accountId: string; partyId: string | null }[] };
+    expect(body.lines[0]).toMatchObject({ accountId: "1105", partyId: "CUST-7" });
+    expect(body.lines[1]?.partyId).toBeNull();
+  });
+});

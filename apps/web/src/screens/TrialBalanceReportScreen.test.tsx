@@ -4,9 +4,14 @@ import { describe, expect, it } from "vitest";
 import { screen, fireEvent, waitFor} from "@testing-library/react";
 import { TrialBalanceReportScreen } from "./TrialBalanceReportScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
+import { todayIso } from "../lib/dates";
 
-/** The real screen defaults "حتى تاريخ" to the live clock (apps/web/src/screens/TrialBalanceReportScreen.tsx), not a fixed date. */
-const TODAY = new Date().toISOString().slice(0, 10);
+/**
+ * The real screen defaults "حتى تاريخ" to the live clock via `todayIso()` —
+ * the LOCAL calendar day, not `toISOString()`'s UTC one. The two disagree for
+ * several hours a day east of Greenwich, which is where this product ships.
+ */
+const TODAY = todayIso();
 
 const CASH_ROW = { accountId: "1100", code: "1100", nameAr: "النقدية", typeLabel: "الأصول", debit: 147000, credit: 0 };
 const REVENUE_ROW = { accountId: "4100", code: "4100", nameAr: "إيرادات المبيعات", typeLabel: "الإيرادات", debit: 0, credit: 147000 };

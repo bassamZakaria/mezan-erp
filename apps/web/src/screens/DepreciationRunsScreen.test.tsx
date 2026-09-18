@@ -5,6 +5,7 @@ import { screen, fireEvent, within, waitFor } from "@testing-library/react";
 import type { BranchDTO, DepreciationRunDTO } from "@mezan/contracts";
 import { DepreciationRunsScreen } from "./DepreciationRunsScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
+import { todayIso } from "../lib/dates";
 
 const sampleBranches: BranchDTO[] = [
   { id: "br-1", code: "MAIN", name: "الفرع الرئيسي", parentBranchId: null, phone: null, email: null, address: null, isMain: true, active: true },
@@ -150,7 +151,10 @@ describe("DepreciationRunsScreen", () => {
 
     const dialog = await screen.findByRole("dialog", { name: "عكس تشغيل الإهلاك هذا؟" });
     const dateInput = within(dialog).getByLabelText("تاريخ العكس") as HTMLInputElement;
-    const today = new Date().toISOString().slice(0, 10);
+    // The component's default is the LOCAL calendar day (`todayIso`), not
+    // `toISOString()`'s UTC day — the two disagree for several hours a day
+    // east of Greenwich, which is where this product ships.
+    const today = todayIso();
     // The run itself posted on 2026-05-02; the dialog defaults to today, not that (D275).
     expect(dateInput.value).toBe(today);
     expect(dateInput.value).not.toBe("2026-05-02");

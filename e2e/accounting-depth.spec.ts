@@ -8,19 +8,34 @@ import { clickSidebarItem } from "./support/nav";
  * longer run over a self-contained sandbox store (the old
  * `apps/web/src/store/accounting-depth-store.ts` this spec used to describe
  * no longer exists in the codebase) — every one of them is now wired to the
- * REAL shared backend, same as the rest of the app. The e2e tenant starts
- * with no cost centers, exchange rates, foreign-currency exposure, or
- * mismatched control accounts, so:
+ * REAL shared backend, same as the rest of the app. The demo seed
+ * (MEZAN_SEED_DEMO=1) is NOT the empty tenant the old fixture assumed:
  *   - Exchange Rates gets full real CRUD coverage (add/approve/filter) since
- *     that needs no other fixture.
- *   - Cost Center P&L / FX Revaluation / Balance Reconciliation are
- *     genuinely empty in a fresh tenant (no cost-center-tagged postings, no
- *     open foreign-currency balances, no mismatched control accounts to
- *     manufacture without deep cross-module fixtures) — their honest empty
- *     states are what's tested here.
+ *     that needs no other fixture — unaffected by the seed either way.
+ *   - Cost Center P&L's default month-to-date window carries a real,
+ *     un-tagged posting ("غير مخصص" — no cost centre — packages/backend/src/
+ *     demo-seed/treasury.ts dates several documents relative to whenever the
+ *     seed actually runs, via `today()`/`addDays()`, so this always falls in
+ *     the current month).
+ *   - FX Revaluation genuinely has no OPEN foreign-currency exposure at
+ *     month-end even with a USD supplier seeded (confirmed against
+ *     `POST /revaluation/preview`) — its empty result is real, but the
+ *     empty-state copy itself moved (`fx.noOpenForeignCurrencyBalances` /
+ *     `fx.emptyBody`, not the "لا توجد أرصدة مفتوحة." string, which now
+ *     labels a DIFFERENT, always-visible "open balances by party" table
+ *     further down the same screen).
+ *   - Balance Reconciliation's control accounts all still tie to the GL
+ *     (`allMatched: true`), but the seed's sales/purchase-return and
+ *     landed-cost postings (fixed, non-relative dates in demo-seed/
+ *     platform.ts and demo-seed/purchasing.ts) post straight to a control
+ *     account without a sub-ledger reference, so "القيود غير المرتبطة" is a
+ *     real, stable 11 — not the 0 a fresh tenant would show.
  *   - ETA e-Invoicing is now a setup/configuration screen (a readiness
- *     meter over "بيانات الربط"/"ربط الأصناف"/"ربط الوحدات"/"الإرسالات"
- *     tabs), not the old list of pre-submitted documents.
+ *     meter over "عام"/"بيانات الربط"/"ربط الأصناف"/"ربط الوحدات"/
+ *     "الإرسالات" tabs). The demo seed already fills in tax registration,
+ *     activity code, address, branch codes and API credentials (67%
+ *     ready) — the readiness-raising test below maps the seeded item UNITS
+ *     instead, which the seed deliberately leaves incomplete.
  */
 
 function row(page: Page, text: string, exact = true) {
@@ -34,9 +49,13 @@ test.describe("Cost Center P&L", () => {
     await expect(page.getByRole("heading", { name: "أرباح مراكز التكلفة" })).toBeVisible();
   });
 
-  test("shows a genuine empty state — no cost-center-tagged postings in a fresh tenant", async ({ page }) => {
+  test("shows the seeded month-to-date postings, including the un-tagged بلا مركز تكلفة row", async ({ page }) => {
     await expect(page.getByText("إجمالي الإيرادات")).toBeVisible();
-    await expect(page.getByText("لا توجد حركات في هذه الفترة")).toBeVisible();
+    // The demo seed dates several documents relative to whenever it runs, so
+    // an un-tagged posting always lands in the current month-to-date window
+    // — not the empty tenant the old fixture assumed.
+    await expect(page.getByText("لا توجد حركات في هذه الفترة")).toHaveCount(0);
+    await expect(row(page, "غير مخصص")).toBeVisible();
   });
 });
 
@@ -90,7 +109,13 @@ test.describe("FX Revaluation", () => {
 
     await page.getByRole("button", { name: "معاينة" }).click();
 
-    await expect(page.getByText("لا توجد أرصدة مفتوحة.").first()).toBeVisible();
+    // "لا توجد أرصدة مفتوحة." now labels a DIFFERENT, always-visible "open
+    // balances by party" table further down the screen — the preview
+    // RESULT's own empty state is this EmptyState title/description pair.
+    await expect(page.getByText("لا توجد أرصدة عملات أجنبية مفتوحة")).toBeVisible();
+    await expect(
+      page.getByText("لا توجد أرصدة بعملة أجنبية مفتوحة في هذا التاريخ — إعادة التقييم تحتاج رصيداً قائماً بعملة غير العملة الأساسية."),
+    ).toBeVisible();
   });
 });
 
@@ -101,7 +126,7 @@ test.describe("Balance Reconciliation", () => {
     await expect(page.getByRole("heading", { name: "مطابقة الأرصدة" })).toBeVisible();
   });
 
-  test("shows every control account matched in a fresh tenant with nothing posted", async ({ page }) => {
+  test("shows every control account matched, and the seed's own unlinked postings", async ({ page }) => {
     await expect(page.getByText("جميع الأرصدة متطابقة")).toBeVisible();
 
     for (const label of [
@@ -112,7 +137,13 @@ test.describe("Balance Reconciliation", () => {
       await expect(row(page, label).getByText("متطابق", { exact: true })).toBeVisible();
     }
 
-    await expect(page.getByText("القيود غير المرتبطة (0)")).toBeVisible();
+    // Every control account still ties to the GL, but the seed's own
+    // sales/purchase-return and landed-cost postings (fixed 2026-08 dates —
+    // demo-seed/platform.ts, demo-seed/purchasing.ts) post straight to a
+    // control account with no sub-ledger reference: a real, stable 11 lines
+    // across 6 entries (SRET-DEMO-1/2, PRET-DEMO-1, SRT-DEMO-1, PRT-DEMO-1,
+    // LC-DEMO-1) — not the 0 a fresh tenant would show.
+    await expect(page.getByText("القيود غير المرتبطة (11)")).toBeVisible();
   });
 });
 
@@ -137,26 +168,45 @@ test.describe("ETA e-Invoicing setup", () => {
     }
   });
 
-  test("filling the tax registration number and saving raises the readiness percentage", async ({ page }) => {
-    // "رقم التسجيل الضريبي *" lives on "عام" (GeneralTab) — the tab already
-    // active by default — NOT "بيانات الربط" (CredentialsTab, client
-    // id/secret only). See apps/web/src/screens/EtaScreen.tsx's TAB_ENTRIES
-    // ("eta.tabGeneral" → "عام", "eta.tabCredentials" → "بيانات الربط").
+  test("mapping the seeded item units raises the readiness percentage", async ({ page }) => {
+    // The demo seed already fills tax registration, activity code, address,
+    // branch codes and API credentials (67% ready — 6 of 9 items), so
+    // filling "رقم التسجيل الضريبي *" again changes nothing: it's already
+    // `complete: true` (GET /eta/config). "ربط الوحدات" (unit mapping) is one
+    // of the 3 items the seed deliberately leaves incomplete (8 of 8 seeded
+    // units unmapped), so it's what this test drives to completion instead.
     const before = Number((await page.getByText(/الجاهزية: \d+%/).innerText()).match(/(\d+)%/)?.[1] ?? "0");
 
-    await page.getByLabel("رقم التسجيل الضريبي *").fill("300123456700099");
-    // Two "حفظ" buttons exist on this tab — the main config form's, and the
-    // branch-codes sub-table's own per-row save; .first() is the form's.
-    const configSaved = page.waitForResponse((r) => r.url().includes("/eta/config") && r.request().method() === "PUT");
-    await page.getByRole("button", { name: "حفظ", exact: true }).first().click();
-    await configSaved;
+    const tablist = page.getByRole("tablist");
+    await tablist.getByRole("tab", { name: "ربط الوحدات" }).click();
 
-    await expect(page.getByText(/الجاهزية: \d+%/)).toBeVisible();
+    // "تطبيق الاقتراحات" maps every unit it has a confident suggestion for in
+    // one call — 7 of the 8 seeded units (packages/backend/src/seed.ts's
+    // SEED_ITEM_UNITS), leaving only "خدمة" (Service, code SVC) unresolved.
+    const applied = page.waitForResponse((r) => r.url().includes("/eta/unit-mappings/apply-suggestions"));
+    await page.getByRole("button", { name: "تطبيق الاقتراحات" }).click();
+    await applied;
+    await expect(page.getByText(/الاقتراحات المُطبَّقة: 7/)).toBeVisible();
+
+    // Map the one unit with no suggestion by hand — "يوم" (Day) is a
+    // reasonable authority code for a service unit — so "ربط الوحدات"
+    // reaches 0 missing and flips to complete.
+    const svcRow = page.locator("table tbody tr").filter({ has: page.getByText("خدمة", { exact: true }) });
+    await svcRow.getByRole("combobox", { name: /كود الوحدة لدى المصلحة/ }).click();
+    await page.getByRole("option", { name: /^DAY —/ }).click();
+    const svcSaved = page.waitForResponse((r) => r.url().includes("/eta/unit-mappings/SVC") && r.request().method() === "PUT");
+    await svcRow.getByRole("button", { name: "حفظ", exact: true }).click();
+    await svcSaved;
+
+    // The readiness query refetches asynchronously after the mutation
+    // settles — poll for the percentage to actually change rather than
+    // reading it the instant the save response lands.
+    await expect(page.getByText(/الجاهزية: \d+%/)).not.toHaveText(`الجاهزية: ${before}%`);
     const after = Number((await page.getByText(/الجاهزية: \d+%/).innerText()).match(/(\d+)%/)?.[1] ?? "0");
     expect(after).toBeGreaterThan(before);
 
     // Persists across a reload — it's real tenant config, not local draft state.
     await page.reload();
-    await expect(page.getByLabel("رقم التسجيل الضريبي *")).toHaveValue("300123456700099");
+    await expect(page.getByText(/الجاهزية: \d+%/)).toHaveText(`الجاهزية: ${after}%`);
   });
 });

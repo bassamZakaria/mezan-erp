@@ -199,7 +199,10 @@ test.describe("Role editor — PermissionMatrix", () => {
     await page.getByRole("button", { name: "دور جديد" }).click();
     await expandModule(page, "الإدارة");
 
-    const padCard = permCard(page, "admin.modules.manage");
+    // admin.modules.manage was removed from the permission catalog —
+    // admin.tenant.settings.edit is the current "p" (platformAdminOnly)
+    // permission (packages/domain/src/permissions/catalog.ts).
+    const padCard = permCard(page, "admin.tenant.settings.edit");
     await expect(padCard).toBeVisible();
     await expect(padCard.locator('input[type="checkbox"]')).toBeDisabled();
     await expect(padCard).toHaveAttribute("title", "صلاحية مخصصة لمدير المنصة فقط");

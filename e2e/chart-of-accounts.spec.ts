@@ -4,7 +4,7 @@ import { clickSidebarItem } from "./support/nav";
 
 /**
  * Chart of Accounts screen (apps/web/src/screens/ChartOfAccountsScreen.tsx).
- * The seeded chart of accounts has grown to 66 accounts under 5 root headers
+ * The seeded chart of accounts has grown to 93 accounts under 6 root headers (a "9000 — حسابات نظامية" system-accounts root was added alongside the original 5)
  * (الأصول 1000 / الالتزامات 2000 / حقوق الملكية 3000 / الإيرادات 4000 /
  * المصروفات 5000) — every header account starts expanded, so the tree renders
  * fully open on first load. There is no posted opening-balance journal entry
@@ -27,11 +27,11 @@ test.describe("Chart of Accounts", () => {
   });
 
   test("tree starts fully expanded, then collapses and re-expands one branch", async ({ page }) => {
-    await expect(page.getByText("عرض 66 من 66 حساب")).toBeVisible();
+    await expect(page.getByText("عرض 93 من 93 حساب")).toBeVisible();
     await expect(treeRow(page, "ذمم مدينة")).toBeVisible();
 
     await page.getByRole("button", { name: "طي الكل" }).click();
-    await expect(page.getByText("عرض 5 من 66 حساب")).toBeVisible();
+    await expect(page.getByText("عرض 6 من 93 حساب")).toBeVisible();
     await expect(treeRow(page, "ذمم مدينة")).toBeHidden();
     await expect(treeRow(page, "الأصول")).toBeVisible();
 
@@ -80,7 +80,7 @@ test.describe("Chart of Accounts", () => {
 
     await expect(form).toBeHidden();
     await expect(treeRow(page, "حساب اختبار جديد")).toBeVisible();
-    await expect(page.getByText("عرض 67 من 67 حساب")).toBeVisible();
+    await expect(page.getByText("عرض 94 من 94 حساب")).toBeVisible();
   });
 
   test("editing an account via the row action updates its name in the tree", async ({ page }) => {

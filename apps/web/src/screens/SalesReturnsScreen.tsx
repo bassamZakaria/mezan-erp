@@ -200,9 +200,9 @@ export function SalesReturnsScreen() {
 
   useEffect(() => {
     if (firstSegment !== "new" || warehouseId !== "") return;
-    const firstWarehouse = warehouses[0];
-    if (firstWarehouse) setWarehouseId(firstWarehouse.id);
-  }, [firstSegment, warehouses, warehouseId]);
+    const next = invoices.find((i) => i.id === invoiceId)?.warehouseId ?? warehouses[0]?.id;
+    if (next) setWarehouseId(next);
+  }, [firstSegment, warehouses, warehouseId, invoices, invoiceId]);
 
   const selectedInvoice = invoices.find((i) => i.id === invoiceId) ?? null;
   const returnableLines = useMemo(
@@ -228,7 +228,7 @@ export function SalesReturnsScreen() {
     setError(null);
     const firstInvoice = invoices[0] ?? null;
     setInvoiceId(firstInvoice?.id ?? "");
-    setWarehouseId(warehouses[0]?.id ?? "");
+    setWarehouseId(firstInvoice?.warehouseId ?? warehouses[0]?.id ?? "");
     setReason("DEFECTIVE");
     const firstLine = firstInvoice?.lines.find((l) => l.isStock && l.unitCost !== null);
     setLines(firstLine ? [blankLine(firstLine.itemId, "DEFECTIVE")] : []);
@@ -238,6 +238,7 @@ export function SalesReturnsScreen() {
   function changeInvoice(id: string) {
     setInvoiceId(id);
     const invoice = invoices.find((i) => i.id === id) ?? null;
+    if (invoice) setWarehouseId(invoice.warehouseId);
     const firstLine = invoice?.lines.find((l) => l.isStock && l.unitCost !== null);
     setLines(firstLine ? [blankLine(firstLine.itemId, reason)] : []);
   }

@@ -159,6 +159,7 @@ describe("what the caller may claim on a return (D102)", () => {
     warehouseId: "WH1",
     date: "2026-08-20",
     status: "confirmed" as const,
+    projectId: "PRJ-1",
     lines: [
       {
         itemId: "ITEM1",
@@ -168,6 +169,7 @@ describe("what the caller may claim on a return (D102)", () => {
         unitPrice: Money.fromMajor("100"),
         unitCost: Money.fromMajor("60"),
         taxAmount: Money.fromMajor("42"),
+        taxRatePercent: 14,
       },
     ],
   };
@@ -269,6 +271,28 @@ describe("what the caller may claim on a return (D102)", () => {
     expect(res.status).toBe(201);
     const created = (await res.json()) as { lines: { unitCost: string }[] };
     expect(created.lines[0]?.unitCost).toBe("60.000000");
+  });
+
+  it("D214: takes the price, the VAT share, its rate and the project off the invoice, whatever the caller states", async () => {
+    const app = await appWithInvoices();
+    const res = await app.fetch(
+      req("/", {
+        method: "POST",
+        permissions: "sales.return.create",
+        body: JSON.stringify({
+          ...payload,
+          id: "SR-PRICE",
+          lines: [{ ...payload.lines[0], availableQty: "2", qty: "1", unitPrice: "1000", taxAmount: "500", taxRatePercent: 50, projectId: "PRJ-X" }],
+        }),
+      }),
+    );
+    expect(res.status).toBe(201);
+    const created = (await res.json()) as { lines: { unitPrice: string; taxAmount: string; taxRatePercent: number | null; projectId: string | null }[]; grandTotal: string };
+    expect(created.lines[0]?.unitPrice).toBe("100.000000");
+    expect(created.lines[0]?.taxAmount).toBe("14.000000");
+    expect(created.lines[0]?.taxRatePercent).toBe(14);
+    expect(created.lines[0]?.projectId).toBe("PRJ-1");
+    expect(created.grandTotal).toBe("114.000000");
   });
 
   it("LIMITATION (D102): with no invoices port wired, the caller's own availableQty IS the limit", async () => {

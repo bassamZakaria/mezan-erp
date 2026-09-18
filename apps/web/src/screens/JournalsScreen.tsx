@@ -27,6 +27,7 @@ import {
   useCostCenters,
   useCreateJournalEntry,
   useJournalEntries,
+  useJournalEntry,
   useJournalEntryCounts,
   useJournalEntryStats,
   useBranches,
@@ -238,10 +239,13 @@ export function JournalsScreen() {
   const activeFilterCount =
     (statusFilter === "all" ? 0 : 1) + (moduleFilter ? 1 : 0) + (fromDate ? 1 : 0) + (toDate ? 1 : 0);
 
-  const selected =
+  const onPage =
     selectedId && selectedId !== "new"
       ? pageRows.find((d) => d.id === selectedId || d.entryNo === selectedId) ?? null
       : null;
+  const needsFetch = Boolean(selectedId) && selectedId !== "new" && onPage === null && !query.isLoading;
+  const single = useJournalEntry(needsFetch && selectedId ? selectedId : null);
+  const selected = onPage ?? (needsFetch ? (single.data ?? null) : null);
 
   const columns: DocumentListColumn<JournalDoc>[] = [
     {
@@ -285,7 +289,7 @@ export function JournalsScreen() {
     }
   }
 
-  if (selectedId && selectedId !== "new" && !selected && !query.isLoading) {
+  if (selectedId && selectedId !== "new" && !selected && !query.isLoading && !single.isLoading) {
     return (
       <div className="w-full p-[24px]">
         <EmptyState

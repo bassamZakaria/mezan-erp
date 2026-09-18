@@ -34,6 +34,8 @@ export interface DashboardDeps {
   readonly countSuppliers: () => Promise<number>;
   readonly countItems: () => Promise<number>;
   readonly uow: Pick<UnitOfWork, "users">;
+  /** Revenue accounts the income statement shows as other income (D229); they net against expenses here too, so the tile ties to its revenue section. */
+  readonly otherIncomeExpenseAccountIds?: () => Promise<readonly string[]>;
   readonly now?: () => Date;
 }
 
@@ -62,14 +64,14 @@ async function sumBalanceWhere(
 }
 
 /** Period P&L, summed directly from posted entry lines so a date range genuinely re-scopes revenue/expenses. */
-function periodPnl(entries: readonly JournalEntry[], typeById: Map<string, Account["type"]>) {
+function periodPnl(entries: readonly JournalEntry[], typeById: Map<string, Account["type"]>, otherIncome: ReadonlySet<string>) {
   let revenue = Money.zero();
   let expenses = Money.zero();
   for (const entry of entries) {
     for (const line of entry.lines) {
       const type = typeById.get(line.accountId);
-      if (type === "revenue") revenue = revenue.add(line.credit).add(line.debit.negate());
-      else if (type === "expense") expenses = expenses.add(line.debit).add(line.credit.negate());
+      if (type === "revenue" && !otherIncome.has(line.accountId)) revenue = revenue.add(line.credit).add(line.debit.negate());
+      else if (type === "expense" || type === "revenue") expenses = expenses.add(line.debit).add(line.credit.negate());
     }
   }
   return { revenue, expenses };
@@ -108,7 +110,8 @@ export function createDashboardRoutes(
       (e) => (!fromDate || e.date >= fromDate) && (!toDate || e.date <= toDate),
     );
 
-    const { revenue, expenses } = periodPnl(inRange, typeById);
+    const otherIncome = new Set(await deps.otherIncomeExpenseAccountIds?.());
+    const { revenue, expenses } = periodPnl(inRange, typeById, otherIncome);
     const netProfit = revenue.add(expenses.negate());
     const cash = await sumBalanceWhere(deps.ledger, accounts, toDate, (a) => a.type === "asset" && a.code.startsWith("13"));
     // Customer receivables only — what the aging report means by the word.

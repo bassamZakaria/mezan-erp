@@ -60,6 +60,8 @@ export interface FinancialReportsRoutesDeps {
    * convention `classifyAccount()` falls back to.
    */
   readonly cashAccountIds?: readonly string[];
+  /** The accounts the income statement shows below operating profit, resolved per request from the tenant's routing (D229). */
+  readonly otherIncomeExpenseAccountIds?: () => Promise<readonly string[]>;
   /** ISO `YYYY-MM-DD` "today" — overridable for tests; defaults to the real date. */
   readonly today?: () => string;
   /**
@@ -142,13 +144,20 @@ export function createFinancialReportsRoutes(
     bounds: { fromDate?: string; toDate?: string },
     preloadedAccounts?: readonly Account[],
   ): Promise<GlReportContext> {
-    const [accounts, journalEntries] = await Promise.all([
+    const [accounts, journalEntries, otherIncomeExpenseAccountIds] = await Promise.all([
       preloadedAccounts ? Promise.resolve(preloadedAccounts) : deps.accounts.list(),
       loadJournalEntries(bounds),
+      deps.otherIncomeExpenseAccountIds?.(),
     ]);
     // The scope rides on the context, not on the query: it has to cut at the
     // posted LINE, and `ledger.list` can only bound whole entries by date.
-    return { accounts, journalEntries, cashAccountIds: deps.cashAccountIds, branchScope: branchScopeOf(c) };
+    return {
+      accounts,
+      journalEntries,
+      cashAccountIds: deps.cashAccountIds,
+      ...(otherIncomeExpenseAccountIds ? { otherIncomeExpenseAccountIds } : {}),
+      branchScope: branchScopeOf(c),
+    };
   }
 
   // --- ميزان المراجعة --------------------------------------------------

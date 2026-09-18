@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { InMemoryAccountRepository } from "./test-helpers/in-memory-account-repository.js";
-import { STANDARD_COA_TEMPLATE, seedStandardChartOfAccounts } from "./coa-template.js";
+import { LATER_STANDARD_ACCOUNT_IDS, STANDARD_COA_TEMPLATE, addMissingStandardAccounts, seedStandardChartOfAccounts } from "./coa-template.js";
+import { createAccount } from "./create-account.js";
 import { buildAccountTree } from "./hierarchy.js";
 
 describe("STANDARD_COA_TEMPLATE", () => {
@@ -47,5 +48,48 @@ describe("seedStandardChartOfAccounts", () => {
       }
     }
     assertLeavesPostable(tree);
+  });
+});
+
+describe("addMissingStandardAccounts (D229)", () => {
+  async function chartWithout(ids: readonly string[]): Promise<InMemoryAccountRepository> {
+    const repo = new InMemoryAccountRepository();
+    for (const command of STANDARD_COA_TEMPLATE) {
+      if (!ids.includes(command.id)) await createAccount(command, repo);
+    }
+    return repo;
+  }
+
+  it("adds the exchange-difference accounts to a chart seeded before them, under 4000 and 5000", async () => {
+    const repo = await chartWithout(LATER_STANDARD_ACCOUNT_IDS);
+    expect(await addMissingStandardAccounts(repo)).toEqual({ added: ["4920", "4940", "5920", "5940"], skipped: [] });
+    expect(await repo.findById("4920")).toMatchObject({ nameAr: "أرباح فروق العملة المحققة", type: "revenue", naturalBalance: "credit", parentId: "4000", isHeader: false });
+    expect(await repo.findById("5920")).toMatchObject({ nameAr: "خسائر فروق العملة المحققة", type: "expense", naturalBalance: "debit", parentId: "5000" });
+    expect(await repo.findById("4940")).toMatchObject({ type: "revenue", parentId: "4000" });
+    expect(await repo.findById("5940")).toMatchObject({ type: "expense", parentId: "5000" });
+    expect(await repo.list()).toHaveLength(STANDARD_COA_TEMPLATE.length);
+  });
+
+  it("is idempotent and leaves 4900/5900 exactly as they were", async () => {
+    const repo = await chartWithout(LATER_STANDARD_ACCOUNT_IDS);
+    await addMissingStandardAccounts(repo);
+    const before = await repo.list();
+    expect(await addMissingStandardAccounts(repo)).toEqual({ added: [], skipped: [] });
+    expect(await repo.list()).toEqual(before);
+    expect(await repo.findById("4900")).toMatchObject({ nameAr: "فائض الصندوق", type: "revenue" });
+    expect(await repo.findById("5900")).toMatchObject({ nameAr: "عجز الصندوق", type: "expense" });
+  });
+
+  it("does nothing to a freshly seeded chart", async () => {
+    const repo = new InMemoryAccountRepository();
+    await seedStandardChartOfAccounts(repo);
+    expect(await addMissingStandardAccounts(repo)).toEqual({ added: [], skipped: [] });
+  });
+
+  it("skips an id the tenant already uses for another kind of account instead of overwriting it", async () => {
+    const repo = await chartWithout(LATER_STANDARD_ACCOUNT_IDS);
+    await createAccount({ id: "4920", code: "4920", nameAr: "حساب العميل", type: "asset", naturalBalance: "debit", parentId: null, isHeader: false }, repo);
+    expect(await addMissingStandardAccounts(repo)).toEqual({ added: ["4940", "5920", "5940"], skipped: ["4920"] });
+    expect(await repo.findById("4920")).toMatchObject({ nameAr: "حساب العميل", type: "asset" });
   });
 });

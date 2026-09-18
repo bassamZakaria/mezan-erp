@@ -58,7 +58,7 @@ export const accountRoutingOptionsSchema = z.object({
 
 export const accountRoutingSlotSchema = z.object({
   key: z.string(),
-  section: z.enum(["tax", "leave", "contracting", "sales_discount", "inventory_adjustment", "payroll", "item_type"]),
+  section: z.enum(["tax", "leave", "contracting", "sales_discount", "inventory_adjustment", "payroll", "item_type", "control", "fx"]),
   labelAr: z.string(),
   labelEn: z.string(),
   defaultAccountId: z.string(),

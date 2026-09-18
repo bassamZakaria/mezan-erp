@@ -45,8 +45,8 @@ async function seed() {
   await accounts.create(account("1300")); // cash
   await accounts.create(account("4000", { type: "revenue", naturalBalance: "credit" }));
   await accounts.create(account("5000", { type: "expense", naturalBalance: "debit" }));
-  await accounts.create(account("4900", { type: "revenue", naturalBalance: "credit" })); // FX gain
-  await accounts.create(account("5900", { type: "expense", naturalBalance: "debit" })); // FX loss
+  await accounts.create(account("4940", { type: "revenue", naturalBalance: "credit" })); // unrealised FX gain
+  await accounts.create(account("5940", { type: "expense", naturalBalance: "debit" })); // unrealised FX loss
   await costCenters.create({ id: "cc-a", code: "CC-A", nameAr: "قسم أ", nameEn: null, type: "general", departmentId: null, branchId: null, parentId: null, notes: null, status: "active" });
   await periods.create({ id: "fp-08", year: 2026, periodNumber: 8, startDate: "2026-08-01", endDate: "2026-08-31", status: "open" });
   await periods.create({ id: "fp-09", year: 2026, periodNumber: 9, startDate: "2026-09-01", endDate: "2026-09-30", status: "open" });
@@ -89,7 +89,7 @@ describe("cost-center-pl router", () => {
 describe("fx-revaluation router", () => {
   it("previews the open USD AR balance revalued at the closing rate (gain)", async () => {
     const { ledger, accounts, periods, exchangeRates } = await seed();
-    const app = createFxRevaluationRoutes({ ledger, accounts, periods, numbering: ledger.numbering, exchangeRates, gainAccountId: "4900", lossAccountId: "5900", now: () => "2026-08-31T10:00:00.000Z" }, insecureHeaderAuthContextResolver);
+    const app = createFxRevaluationRoutes({ ledger, accounts, periods, numbering: ledger.numbering, exchangeRates, differenceAccounts: async () => ({ gainAccountId: "4940", lossAccountId: "5940" }), now: () => "2026-08-31T10:00:00.000Z" }, insecureHeaderAuthContextResolver);
     const res = await app.fetch(req("/preview", { method: "POST", permissions: "accounting.journal.post", headers: { "content-type": "application/json" }, body: JSON.stringify({ date: "2026-08-31" }) }));
     const body = await res.json() as { totalGain: string; reversalDate: string; hasImpact: boolean; details: unknown[] };
     expect(body.hasImpact).toBe(true);
@@ -99,7 +99,7 @@ describe("fx-revaluation router", () => {
 
   it("posts the revaluation and its auto-reversal", async () => {
     const { ledger, accounts, periods, exchangeRates } = await seed();
-    const app = createFxRevaluationRoutes({ ledger, accounts, periods, numbering: ledger.numbering, exchangeRates, gainAccountId: "4900", lossAccountId: "5900", now: () => "2026-08-31T10:00:00.000Z" }, insecureHeaderAuthContextResolver);
+    const app = createFxRevaluationRoutes({ ledger, accounts, periods, numbering: ledger.numbering, exchangeRates, differenceAccounts: async () => ({ gainAccountId: "4940", lossAccountId: "5940" }), now: () => "2026-08-31T10:00:00.000Z" }, insecureHeaderAuthContextResolver);
     const res = await app.fetch(req("/post", { method: "POST", permissions: "accounting.journal.post", headers: { "content-type": "application/json" }, body: JSON.stringify({ date: "2026-08-31", autoReverse: true }) }));
     expect(res.status).toBe(201);
     const body = await res.json() as { entryId: string | null; reversalId: string | null };
@@ -119,7 +119,7 @@ describe("fx-revaluation router", () => {
       { accountId: "1100", debit: Money.fromMajor("600"), credit: Money.zero(), currency: "EUR", fxRate: "60" },
       { accountId: "4000", debit: Money.zero(), credit: Money.fromMajor("600") },
     ] }, deps);
-    const app = createFxRevaluationRoutes({ ledger, accounts, periods, numbering: ledger.numbering, exchangeRates, gainAccountId: "4900", lossAccountId: "5900", now: () => "2026-08-31T10:00:00.000Z" }, insecureHeaderAuthContextResolver);
+    const app = createFxRevaluationRoutes({ ledger, accounts, periods, numbering: ledger.numbering, exchangeRates, differenceAccounts: async () => ({ gainAccountId: "4940", lossAccountId: "5940" }), now: () => "2026-08-31T10:00:00.000Z" }, insecureHeaderAuthContextResolver);
     const res = await app.fetch(req("/preview", { method: "POST", permissions: "accounting.journal.post", headers: { "content-type": "application/json" }, body: JSON.stringify({ date: "2026-08-31", currencies: ["EUR"] }) }));
     expect(res.status).toBe(422);
     expect((await res.json() as { error: string }).error).toBe("FX_RATE_MISSING");

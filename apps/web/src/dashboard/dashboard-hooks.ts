@@ -115,7 +115,7 @@ export interface ExpenseSlice {
 export function expenseSlices(report: FinancialReportResult<IncomeStatementRow> | undefined, locale = "ar"): ExpenseSlice[] {
   if (!report) return [];
   return report.rows
-    .filter((row) => row.sectionKey !== "revenue")
+    .filter((row) => row.sectionKey !== "revenue" && row.sectionKey !== "otherIncome")
     .map((row) => ({ key: row.accountId, label: entityName(row, locale, row.code), value: Math.abs(row.amount) }))
     .filter((slice) => slice.value > 0)
     .sort((a, b) => b.value - a.value);
@@ -123,9 +123,13 @@ export function expenseSlices(report: FinancialReportResult<IncomeStatementRow> 
 
 function sectionTotal(report: FinancialReportResult<IncomeStatementRow> | undefined, key: "revenue" | "expenses"): number {
   if (!report) return 0;
-  return report.rows
-    .filter((row) => (key === "revenue" ? row.sectionKey === "revenue" : row.sectionKey !== "revenue"))
-    .reduce((sum, row) => sum + Math.abs(row.amount), 0);
+  // Other income (D229) nets against expenses so revenue − expenses stays the statement's net income.
+  if (key === "expenses") {
+    return report.rows
+      .filter((row) => row.sectionKey !== "revenue")
+      .reduce((sum, row) => sum + (row.sectionKey === "otherIncome" ? -row.amount : Math.abs(row.amount)), 0);
+  }
+  return report.rows.filter((row) => row.sectionKey === "revenue").reduce((sum, row) => sum + Math.abs(row.amount), 0);
 }
 
 export interface PeriodTotals {

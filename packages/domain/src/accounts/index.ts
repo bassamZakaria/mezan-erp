@@ -20,7 +20,13 @@ export {
 } from "./hierarchy.js";
 export { validateNewAccount, createAccount, type CreateAccountCommand } from "./create-account.js";
 export { updateAccount, type UpdateAccountCommand, type PostedAccountLookup } from "./update-account.js";
-export { STANDARD_COA_TEMPLATE, seedStandardChartOfAccounts } from "./coa-template.js";
+export {
+  STANDARD_COA_TEMPLATE,
+  LATER_STANDARD_ACCOUNT_IDS,
+  addMissingStandardAccounts,
+  seedStandardChartOfAccounts,
+  type AddedStandardAccounts,
+} from "./coa-template.js";
 
 export {
   ACCOUNT_ROUTING_SLOTS,

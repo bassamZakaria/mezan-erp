@@ -27,11 +27,11 @@ test.describe("Chart of Accounts", () => {
   });
 
   test("tree starts fully expanded, then collapses and re-expands one branch", async ({ page }) => {
-    await expect(page.getByText("عرض 93 من 93 حساب")).toBeVisible();
+    await expect(page.getByText("عرض 100 من 100 حساب")).toBeVisible();
     await expect(treeRow(page, "ذمم مدينة")).toBeVisible();
 
     await page.getByRole("button", { name: "طي الكل" }).click();
-    await expect(page.getByText("عرض 6 من 93 حساب")).toBeVisible();
+    await expect(page.getByText("عرض 6 من 100 حساب")).toBeVisible();
     await expect(treeRow(page, "ذمم مدينة")).toBeHidden();
     await expect(treeRow(page, "الأصول")).toBeVisible();
 
@@ -80,7 +80,7 @@ test.describe("Chart of Accounts", () => {
 
     await expect(form).toBeHidden();
     await expect(treeRow(page, "حساب اختبار جديد")).toBeVisible();
-    await expect(page.getByText("عرض 94 من 94 حساب")).toBeVisible();
+    await expect(page.getByText("عرض 101 من 101 حساب")).toBeVisible();
   });
 
   test("editing an account via the row action updates its name in the tree", async ({ page }) => {

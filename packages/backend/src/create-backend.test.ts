@@ -4636,7 +4636,8 @@ describe("createBackend — foreign documents settle and return in base (D202, D
     expect(invoice.status).toBe("paid");
     expect(invoice.remainingBalance).toBe("0.000000");
     expect(await glBalance(app, "1105")).toBe(0);
-    expect(await glBalance(app, "4900")).toBe(-200);
+    expect(await glBalance(app, "4920")).toBe(-200);
+    expect(await glBalance(app, "4900")).toBe(0);
     expect(await glBalance(app, "1300-1")).toBe(5000);
     expect(await reconDiff(app, "ar")).toBe(0);
 
@@ -4682,7 +4683,8 @@ describe("createBackend — foreign documents settle and return in base (D202, D
     expect(allocated.status).toBe(201);
     expect(await allocated.json()).toMatchObject({ amount: "1350.000000", invoiceAmount: "1320.000000", fxDifference: "30.000000" });
     expect(await glBalance(app, "2100")).toBe(0);
-    expect(await glBalance(app, "5900")).toBe(30);
+    expect(await glBalance(app, "5920")).toBe(30);
+    expect(await glBalance(app, "5900")).toBe(0);
     expect((await get(app, "/purchases/invoices/pi-sar")).remainingBalance).toBe("0.000000");
     expect(await reconDiff(app, "ap")).toBe(0);
     const paidStmt = await statement(app, "suppliers", "sup-sar");
@@ -4690,7 +4692,7 @@ describe("createBackend — foreign documents settle and return in base (D202, D
     expect(paidStmt.agingTotal).toBe("0.000000");
 
     expect((await post(app, "/allocations/al-sar/reverse", {}, admin(app))).status).toBe(200);
-    expect(await glBalance(app, "5900")).toBe(0);
+    expect(await glBalance(app, "5920")).toBe(0);
     expect(await glBalance(app, "2100")).toBe(30);
     expect((await get(app, "/purchases/invoices/pi-sar")).remainingBalance).toBe("1320.000000");
     expect(await reconDiff(app, "ap")).toBe(0);
@@ -4719,7 +4721,7 @@ describe("createBackend — foreign documents settle and return in base (D202, D
     expect(refused.status).toBe(422);
     expect(((await refused.json()) as { error: string }).error).toBe("FX_RATE_MISSING");
     expect((await get(app, "/sales-invoices/inv-usd")).remainingBalance).toBe("4800.000000");
-    expect(await glBalance(app, "4900")).toBe(0);
+    expect(await glBalance(app, "4920")).toBe(0);
     expect(await reconDiff(app, "ar")).toBe(0);
   });
 
@@ -4768,7 +4770,7 @@ describe("createBackend — foreign documents settle and return in base (D202, D
     expect((await post(app, "/sales-invoices/inv-usd/payments", { amount: "2500", treasuryAccountId: "ta-cash", date: "2026-08-26" }, admin(app))).status).toBe(200);
     expect((await get(app, "/sales-invoices/inv-usd")).remainingBalance).toBe("0.000000");
     expect(await glBalance(app, "1105")).toBe(0);
-    expect(await glBalance(app, "4900")).toBe(-100);
+    expect(await glBalance(app, "4920")).toBe(-100);
     expect(await reconDiff(app, "ar")).toBe(0);
     const stmt = await statement(app, "customers", "cust-usd");
     expect(stmt.closing).toBe("0.000000");
@@ -4789,11 +4791,98 @@ describe("createBackend — foreign documents settle and return in base (D202, D
 
     expect((await post(app, "/sales-invoices/inv-usd/payments", { amount: "5000", treasuryAccountId: "ta-cash", date: "2026-09-10" }, admin(app))).status).toBe(200);
     expect(await glBalance(app, "1105")).toBe(0);
-    expect(await glBalance(app, "4900")).toBe(-200);
-    expect(await glBalance(app, "5900")).toBe(0);
+    expect(await glBalance(app, "4920")).toBe(-200);
+    expect(await glBalance(app, "5920")).toBe(0);
+    expect(await glBalance(app, "4940")).toBe(0);
     expect(await reconDiff(app, "ar")).toBe(0);
     const preview = await post(app, "/revaluation/preview", { date: "2026-09-30", currencies: ["USD"] }, admin(app));
     expect(((await preview.json()) as { hasImpact: boolean }).hasImpact).toBe(false);
+  });
+
+  async function settleUsdAtFifty(app: App): Promise<void> {
+    await createCustomer(app, "cust-usd", "0");
+    await createServiceItem(app);
+    await multiCurrency(app);
+    expect((await authedPost(app, "/sales-invoices", { ...invoiceBody("inv-usd", "cust-usd", "100"), currency: "USD" })).status).toBe(201);
+    expect((await authedPost(app, "/sales-invoices/inv-usd/confirm", {})).status).toBe(200);
+    await approvedRate(app, "fx-usd-50", "USD", "50.00", "2026-08-25");
+    expect((await post(app, "/sales-invoices/inv-usd/payments", { amount: "5000", treasuryAccountId: "ta-cash", date: "2026-08-26" }, admin(app))).status).toBe(200);
+  }
+
+  it("D229: books seeded before the exchange-difference accounts get them on start, once, and post to them afterwards", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "mezan-d229-"));
+    const dbPath = path.join(dir, "books.sqlite");
+    const fxIds = ["4920", "4940", "5920", "5940"];
+    try {
+      (await createBackend({ dbPath })).close();
+      const { sqlite } = openSqliteConnection(dbPath);
+      sqlite.prepare(`DELETE FROM account WHERE id IN (${fxIds.map(() => "?").join(",")})`).run(...fxIds);
+      const before = (sqlite.prepare("SELECT COUNT(*) AS n FROM account").get() as { n: number }).n;
+      sqlite.close();
+
+      (await createBackend({ dbPath })).close();
+      const app = keep(await createBackend({ dbPath }));
+      const chart = (await get(app, "/accounts")) as { id: string; code: string; nameAr: string; type: string; parentId: string | null }[];
+      expect(chart).toHaveLength(before + fxIds.length);
+      expect(chart.filter((a) => fxIds.includes(a.id)).map((a) => [a.id, a.nameAr, a.type, a.parentId]).sort()).toEqual([
+        ["4920", "أرباح فروق العملة المحققة", "revenue", "4000"],
+        ["4940", "أرباح فروق إعادة تقييم العملات غير المحققة", "revenue", "4000"],
+        ["5920", "خسائر فروق العملة المحققة", "expense", "5000"],
+        ["5940", "خسائر فروق إعادة تقييم العملات غير المحققة", "expense", "5000"],
+      ]);
+      expect(chart.find((a) => a.id === "4900")?.nameAr).toBe("فائض الصندوق");
+      expect(chart.find((a) => a.id === "5900")?.nameAr).toBe("عجز الصندوق");
+
+      await createCustomer(app, "cust-usd", "0");
+      await createServiceItem(app);
+      await multiCurrency(app);
+      expect((await authedPost(app, "/sales-invoices", { ...invoiceBody("inv-usd", "cust-usd", "100"), currency: "USD" })).status).toBe(201);
+      expect((await authedPost(app, "/sales-invoices/inv-usd/confirm", {})).status).toBe(200);
+      await approvedRate(app, "fx-usd-47", "USD", "47.00", "2026-08-23");
+      const revalued = await post(app, "/revaluation/post", { date: "2026-08-23", currencies: ["USD"], autoReverse: true }, admin(app));
+      expect(revalued.status).toBe(201);
+      const { entryId } = (await revalued.json()) as { entryId: string };
+      const entry = (await get(app, `/gl/journal-entries/${entryId}`)) as { lines: { accountId: string; debit: string }[] };
+      expect(entry.lines.find((line) => line.accountId === "5940")?.debit).toBe("100.000000");
+      expect(entry.lines.some((line) => line.accountId === "5900")).toBe(false);
+
+      await approvedRate(app, "fx-usd-50", "USD", "50.00", "2026-08-25");
+      expect((await post(app, "/sales-invoices/inv-usd/payments", { amount: "5000", treasuryAccountId: "ta-cash", date: "2026-08-26" }, admin(app))).status).toBe(200);
+      expect(await glBalance(app, "4920")).toBe(-200);
+      expect(await glBalance(app, "4900")).toBe(0);
+      expect(await glBalance(app, "5940")).toBe(0);
+      expect(await reconDiff(app, "ar")).toBe(0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("D229: a tenant that remaps fx.realised_gain has the next realised gain posted where it said", async () => {
+    const app = await newBackend();
+    const routing = await app.fetch(
+      new Request("http://local/accounting/account-routing", {
+        method: "PUT",
+        headers: { "content-type": "application/json", ...admin(app) },
+        body: JSON.stringify({ overrides: { "fx.realised_gain": "4910" } }),
+      }),
+    );
+    expect(routing.status).toBe(200);
+    await settleUsdAtFifty(app);
+    expect(await glBalance(app, "4910")).toBe(-200);
+    expect(await glBalance(app, "4920")).toBe(0);
+    const pnl = await get(app, "/financial-reports/income-statement?periodFrom=2026-08-01&periodTo=2026-08-31");
+    expect(pnl.rows.find((row: { accountId: string }) => row.accountId === "4910")).toMatchObject({ sectionKey: "otherIncome", amount: 200 });
+  });
+
+  it("D229: the income statement and the dashboard summary show a realised gain as other income, not as revenue", async () => {
+    const app = await newBackend();
+    await settleUsdAtFifty(app);
+    const pnl = await get(app, "/financial-reports/income-statement?periodFrom=2026-08-01&periodTo=2026-08-31");
+    const rows = pnl.rows as { accountId: string; sectionKey: string; amount: number }[];
+    expect(rows.find((row) => row.accountId === "4920")).toMatchObject({ sectionKey: "otherIncome", amount: 200 });
+    expect(rows.filter((row) => row.sectionKey === "revenue").map((row) => row.accountId)).not.toContain("4920");
+    const summary = await get(app, "/dashboard/summary?fromDate=2026-08-01&toDate=2026-08-31");
+    expect(summary.gl).toMatchObject({ revenue: "4800.000000", expenses: "-200.000000", netProfit: "5000.000000" });
   });
 
   it("D215: a purchase return raised through the raw POST inherits its invoice's project and cost category", async () => {

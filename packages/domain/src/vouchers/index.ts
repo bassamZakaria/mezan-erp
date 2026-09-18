@@ -69,6 +69,7 @@ export {
   reverseRealisedFx,
   settlementRatesFor,
   type RealisedFxPort,
+  type FxDifferenceAccounts,
   type RealisedFxPostingInput,
   type SettlingMoney,
 } from "./realised-fx.js";

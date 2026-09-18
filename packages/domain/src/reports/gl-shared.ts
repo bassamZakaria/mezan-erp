@@ -23,6 +23,12 @@ export interface GlReportContext {
    */
   readonly cashAccountIds?: readonly string[];
   /**
+   * Revenue and expense accounts the income statement shows below operating
+   * profit (الإيرادات والمكاسب الأخرى / المصروفات والخسائر الأخرى) — the
+   * exchange-difference accounts the tenant's routing names (D229).
+   */
+  readonly otherIncomeExpenseAccountIds?: readonly string[];
+  /**
    * The branches this caller is allowed to see (DEC-20). Undefined = every
    * branch. AUTHORITY, applied before the reader's own `branchId` parameter
    * narrows anything, so a scoped caller cannot widen out of it by asking for

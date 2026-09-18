@@ -10,6 +10,7 @@ import {
   PeriodNotOpenForPostingError,
   type AccountRepository,
   type ExchangeRateRepository,
+  type FxDifferenceAccounts,
   type FxRevaluationConfig,
   type FxRevaluationResult,
   type JournalPostingDeps,
@@ -27,10 +28,8 @@ export interface FxRevaluationRoutesDeps {
   readonly numbering: JournalPostingDeps["numbering"];
   readonly projects?: JournalPostingDeps["projects"];
   readonly exchangeRates: ExchangeRateRepository;
-  /** فروق عملة دائنة — FX gain account. */
-  readonly gainAccountId: string;
-  /** فروق عملة مدينة — FX loss account. */
-  readonly lossAccountId: string;
+  /** Where the unrealised gain and loss post, read per request so the tenant's `fx.unrealised_*` routing applies (D229). */
+  differenceAccounts(): Promise<FxDifferenceAccounts>;
   readonly audit?: JournalPostingDeps["audit"];
   readonly events?: JournalPostingDeps["events"];
   readonly now?: () => string;
@@ -96,7 +95,7 @@ export function createFxRevaluationRoutes(
       const rate = await deps.exchangeRates.findRate(currency, date);
       if (rate) closingRates.set(currency, rate.rate);
     }
-    return { balances, config: { date, closingRates, gainAccountId: deps.gainAccountId, lossAccountId: deps.lossAccountId } };
+    return { balances, config: { date, closingRates, ...(await deps.differenceAccounts()) } };
   }
 
   app.post("/preview", gate("accounting.journal.post"), async (c) => {

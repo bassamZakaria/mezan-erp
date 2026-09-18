@@ -698,7 +698,7 @@ export async function foreignRatesSettleAndReturnInputs_D213_D222(ctx: Ctx): Pro
       await req("POST", "/items", { id: "SCN-D221-SVC", code: "SCN-D221-SVC", nameAr: "خدمة بالدولار الكندي", type: "service", baseUnitCode: "PCS", trackInventory: false, taxRatePercent: 0, revenueAccountId: "4100" });
       await req("POST", "/suppliers", { id: "SCN-D213-SUPP", code: "SCN-D213-SUPP", nameAr: "مورد بالدولار الكندي", currency: "CAD", openingBalance: "0" });
       await req("POST", "/customers", { id: "SCN-D221-CUST", code: "SCN-D221-CUST", nameAr: "عميل بالدولار الكندي", paymentTermsDays: 30, currency: "CAD", openingBalance: "0", active: true, creditLimit: "0", taxExempt: false, etaBuyerType: "auto" });
-      const start = { ar: await glBalanceOf("1105"), ap: await glBalanceOf("2100"), gain: await glBalanceOf("4900"), loss: await glBalanceOf("5900"), invariants: await exact() };
+      const start = { ar: await glBalanceOf("1105"), ap: await glBalanceOf("2100"), gain: await glBalanceOf("4920"), loss: await glBalanceOf("5920"), tillOver: await glBalanceOf("4900"), tillShort: await glBalanceOf("5900"), invariants: await exact() };
 
       // D213 — three lines at 0.333333 convert to one micro-unit more, line by
       // line, than their sum converted once.
@@ -772,7 +772,11 @@ export async function foreignRatesSettleAndReturnInputs_D213_D222(ctx: Ctx): Pro
       const si = (await req("GET", "/sales-invoices/SCN-D221-SI")).body;
       check("D221: it settles the invoice in full, which reads «مدفوع»", si?.status === "paid" && n(si?.remainingBalance) === 0, `${si?.status} ${si?.remainingBalance}`);
       checkEq("D221: 1105 is relieved of the 3,520.00 it was booked at and no more — nothing is left on the customer", (await glBalanceOf("1105")) - ar, -3520);
-      checkEq("D221: the 80.00 difference is a realised gain on 4900", (await glBalanceOf("4900")) - start.gain, -80);
+      checkEq("D229: the 80.00 difference is a realised gain on 4920 أرباح فروق العملة المحققة", (await glBalanceOf("4920")) - start.gain, -80);
+      checkEq("D229: and فائض الصندوق 4900 does not move", (await glBalanceOf("4900")) - start.tillOver, 0);
+      const pnl = (await req("GET", `/financial-reports/income-statement?periodFrom=${settled.slice(0, 8)}01&periodTo=${settled}`)).body;
+      const gainRow = ((pnl?.rows ?? []) as any[]).find((row) => row.accountId === "4920");
+      check("D229: the income statement shows the realised gain under other income, not revenue", gainRow?.sectionKey === "otherIncome", JSON.stringify(gainRow ?? null));
       now = await exact();
       check("D221: the AR sub-ledger still ties to the micro-unit", now.exact.ar === start.invariants.exact.ar, `ar ${now.ar}`);
       const statement = (await req("GET", "/reports/statements/customers/SCN-D221-CUST")).body;
@@ -793,7 +797,8 @@ export async function foreignRatesSettleAndReturnInputs_D213_D222(ctx: Ctx): Pro
       const owedBefore = n((await req("GET", "/purchases/invoices/SCN-D213-PI")).body?.remainingBalance);
       const applied = await req("POST", "/cheques/SCN-D221-V/allocations", { allocationId: "SCN-D221-V-A1", invoiceId: "SCN-D213-PI", amount: "3600" });
       check("D221: the cheque is applied to the CAD bill", applied.status === 201 || applied.status === 200, `status ${applied.status} ${JSON.stringify(applied.body).slice(0, 200)}`);
-      checkEq("D221: CAD 100 bought at 36.00 relieves 3,520.00 of the bill; the 80.00 more paid is a realised loss on 5900", (await glBalanceOf("5900")) - start.loss, 80);
+      checkEq("D229: CAD 100 bought at 36.00 relieves 3,520.00 of the bill; the 80.00 more paid is a realised loss on 5920 خسائر فروق العملة المحققة", (await glBalanceOf("5920")) - start.loss, 80);
+      checkEq("D229: and عجز الصندوق 5900 does not move", (await glBalanceOf("5900")) - start.tillShort, 0);
       checkEq("D221: 2100 takes the 80.00 back so it holds only what is owed at the booked rate", (await glBalanceOf("2100")) - apBefore, -80);
       checkEq("D221: the bill owes 3,520.00 less than before", n((await req("GET", "/purchases/invoices/SCN-D213-PI")).body?.remainingBalance), owedBefore - 3520);
       now = await exact();
@@ -802,7 +807,7 @@ export async function foreignRatesSettleAndReturnInputs_D213_D222(ctx: Ctx): Pro
       await req("POST", "/cheques/SCN-D221-V/deposit", { bankTreasuryAccountId: "TR-DEMO-BANK" });
       const bounced = await req("POST", "/cheques/SCN-D221-V/bounce", { date: "2026-08-28" });
       check("the bank returns the cheque", bounced.status === 200 && bounced.body?.status === "bounced", `status ${bounced.status} ${JSON.stringify(bounced.body).slice(0, 200)}`);
-      checkEq("D221: the bounce takes the realised loss back off 5900", (await glBalanceOf("5900")) - start.loss, 0);
+      checkEq("D221: the bounce takes the realised loss back off 5920", (await glBalanceOf("5920")) - start.loss, 0);
       checkEq("D221: and the bill owes what it did before the cheque", n((await req("GET", "/purchases/invoices/SCN-D213-PI")).body?.remainingBalance), owedBefore);
       now = await exact();
       check("D221: AR, AP and inventory all still tie to the micro-unit", now.exact.ar === start.invariants.exact.ar && now.exact.ap === start.invariants.exact.ap && now.exact.inventory === start.invariants.exact.inventory, `ar ${now.ar} ap ${now.ap} inventory ${now.inventory}`);

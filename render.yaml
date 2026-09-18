@@ -8,7 +8,16 @@ services:
     # dashboard when the blueprint was first created — which is how a merge to
     # main deployed nothing at all. Naming the branch here keeps the trigger in
     # the repo instead of in someone's browser session.
-    branch: main
+    #
+    # `production`, not `main`: Render watches the repository itself and deploys
+    # on push — it does not go through GitHub Actions, so removing the workflows
+    # did not stop it. Tracking `main` meant every merge shipped to the public
+    # demo. Deploying is now the deliberate act of merging main into production.
+    #
+    # KEEP THIS IN STEP WITH THE DASHBOARD. A Blueprint sync applies this file to
+    # the service, so if the dashboard says `production` and this file says
+    # `main`, the next sync quietly flips the demo back to deploying every merge.
+    branch: production
     autoDeploy: true
     dockerfilePath: ./Dockerfile
     healthCheckPath: /healthz

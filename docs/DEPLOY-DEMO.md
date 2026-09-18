@@ -33,8 +33,11 @@ password is the only thing between the open internet and a writable ERP.
 
 ## Render (no credit card)
 
-1. Push to GitHub. The blueprint tracks `main` (`render.yaml` says so), so every
-   merge to `main` redeploys the demo on its own.
+1. Push to GitHub. The blueprint tracks `production` (`render.yaml` says so), so a
+   merge to `main` deploys nothing; the demo redeploys only when `main` is merged
+   into `production`. An existing service created while the blueprint said `main`
+   needs its branch changed once under **Settings → Build & Deploy → Branch** if a
+   blueprint sync has not already done it.
 2. On <https://dashboard.render.com> → **New → Blueprint**, point it at the repo.
    Render reads `render.yaml` and creates the `mezan-demo` web service on the free plan.
    It stops and asks for every `sync: false` variable, `MEZAN_DEMO_PASSWORD`

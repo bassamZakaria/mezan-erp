@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { Money, Qty } from "../money/index.js";
-import { StockLedgerService } from "../inventory/index.js";
+import { InvalidStockMovementError, StockLedgerService } from "../inventory/index.js";
 import { createBom } from "./bom.js";
 import {
   createWorkOrder,
@@ -571,6 +571,67 @@ describe("work order — the finished goods are worth exactly what the completio
     expect(capitalised.toString()).toBe("300.000007");
     expect(fg.totalValue.toString()).toBe(capitalised.toString());
     expect(fg.onHand.toString()).toBe(Qty.fromMajor(qty).toString());
+  });
+});
+
+describe("work order — no finished-goods unit is ever received at a negative cost (D224)", () => {
+  async function tinyWipOrder(materialCost: string, qty: string) {
+    const boms = new InMemoryBoms();
+    const workOrders = new InMemoryWorkOrders();
+    const numbering = makeNumbering();
+    const stock = makeStock();
+    const now = () => "2026-08-22T09:00:00.000Z";
+    await stock.recordOpeningBalance({
+      adjustmentId: "open-mt",
+      warehouseId: RAW,
+      lines: [{ itemId: "mt", qty: Qty.fromMajor("1"), unitCost: Money.fromMajor(materialCost) }],
+    });
+    const bom = await createBom(
+      { id: "bom-t", productItemId: "FG", standardQty: Qty.fromMajor(qty), unit: "PCS", lines: [{ itemId: "mt", qty: Qty.fromMajor("1") }] },
+      { boms, numbering, now },
+    );
+    const wo = await createWorkOrder(
+      { id: "wo-t", bomId: bom.id, plannedQty: Qty.fromMajor(qty), sourceWarehouseId: RAW, wipWarehouseId: WIP, destinationWarehouseId: FG, scheduledStartDate: "2026-08-22" },
+      { workOrders, boms, numbering, now },
+    );
+    return { workOrders, stock, now, wo };
+  }
+
+  it.each([
+    ["3000", "1000"],
+    ["60", "0.001"],
+  ])("receives %s units at a WIP of %s with every unit cost ≥ 0 and the WIP to the micro-unit", async (qty, wipTotal) => {
+    const { workOrders, stock, now, wo } = await tinyWipOrder(wipTotal, qty);
+    const received: { qty: Qty; unitCost: Money }[] = [];
+    const spy = Object.assign(Object.create(stock) as StockLedgerService, {
+      postReceipt: async (cmd: Parameters<StockLedgerService["postReceipt"]>[0]) => {
+        received.push(...cmd.lines);
+        return stock.postReceipt(cmd);
+      },
+    });
+    const deps = { workOrders, stock: spy, now, gl: { async post() {} }, accounts: WASTE_ACCOUNTS };
+    await startWorkOrder(wo.id, deps);
+    await issueWorkOrderMaterials(wo.id, deps);
+    await receiveWorkOrderProduct(wo.id, Qty.fromMajor(qty), deps);
+
+    expect(received.length).toBeGreaterThan(0);
+    for (const line of received) expect(line.unitCost.scaled >= 0n).toBe(true);
+    const fg = await stock.getBalanceDetail("FG", FG);
+    expect(fg.totalValue.toString()).toBe(Money.fromMajor(wipTotal).toString());
+    expect(fg.onHand.toString()).toBe(Qty.fromMajor(qty).toString());
+  });
+
+  it("the stock ledger refuses a receipt line at a negative unit cost", async () => {
+    const stock = makeStock();
+    await expect(
+      stock.postReceipt({
+        receiptId: "r-neg",
+        sourceDocType: "WORK_ORDER",
+        warehouseId: FG,
+        lines: [{ itemId: "FG", qty: Qty.fromMajor("1"), unitCost: Money.fromMajor("-0.000003") }],
+      }),
+    ).rejects.toBeInstanceOf(InvalidStockMovementError);
+    expect((await stock.getBalance("FG", FG)).toString()).toBe("0.000000");
   });
 });
 

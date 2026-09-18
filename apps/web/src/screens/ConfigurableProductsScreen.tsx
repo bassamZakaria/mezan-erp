@@ -238,7 +238,7 @@ export function ConfigurableProductsScreen() {
   const columns: DocumentListColumn<ConfigurableProductRecord>[] = [
     { key: "code", header: t("common.code"), render: (p) => <span className="font-semibold text-ink">{p.code}</span> },
     { key: "name", header: t("common.name"), render: (p) => p.nameAr },
-    { key: "inputs", header: t("configProducts.configurationInputs"), render: (p) => p.inputs.map((i) => i.labelAr).join(t("common.notes")) },
+    { key: "inputs", header: t("configProducts.configurationInputs"), render: (p) => p.inputs.map((i) => i.labelAr).join(t("configProducts.inputLabelSeparator")) },
     { key: "materials", header: t("configProducts.manufacturingMaterials"), align: "end", render: (p) => <span className="mz-num">{p.materials.length}</span> },
     { key: "unit", header: t("configProducts.productUnit"), render: (p) => p.unit },
     { key: "status", header: t("common.status"), render: (p) => <StatusPill label={t(STATUS_KEY[p.status])} tone={STATUS_TONE[p.status]} /> },

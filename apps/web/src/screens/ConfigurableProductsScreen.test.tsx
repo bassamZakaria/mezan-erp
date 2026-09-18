@@ -174,6 +174,24 @@ describe("ConfigurableProductsScreen", () => {
     expect(screen.getByText("WINDOW")).toBeInTheDocument();
   });
 
+  /**
+   * Regression guard: the list column used to join multiple input labels with
+   * `t("common.notes")` ("ملاحظات") instead of a real separator, rendering
+   * "وزن الشاي (كجم)ملاحظاتوزن السكر (كجم)". Fixed by joining with
+   * `configProducts.inputLabelSeparator` ("، ").
+   */
+  it("separates multiple configuration-input labels with a real separator, not «ملاحظات»", async () => {
+    renderScreen([
+      product({
+        inputs: [
+          { id: "tea", labelAr: "وزن الشاي (كجم)", labelEn: null, type: "number", min: null, max: null },
+          { id: "sugar", labelAr: "وزن السكر (كجم)", labelEn: null, type: "number", min: null, max: null },
+        ],
+      }),
+    ]);
+    expect(await screen.findByText("وزن الشاي (كجم)، وزن السكر (كجم)")).toBeInTheDocument();
+  });
+
   it("adds a new configurable product through the create sub-page and round-trips through the stubbed transport", async () => {
     renderScreen();
     await screen.findByText("نافذة قابلة للتهيئة");

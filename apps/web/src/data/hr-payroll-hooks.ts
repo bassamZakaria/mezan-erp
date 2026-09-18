@@ -13,6 +13,9 @@ import type {
   TreasuryDisbursementDTO,
   GarnishmentDTO,
   CreateGarnishmentDTO,
+  PayrollStatutoryFlagDTO,
+  SetPayrollStatutoryFlagDTO,
+  SocialInsuranceYearOverrideDTO,
 } from "@mezan/contracts";
 import { ApiError, readError } from "./hooks";
 import { useApi } from "./ApiContext";
@@ -328,5 +331,225 @@ export function useReleaseGarnishment() {
       return res.json<GarnishmentDTO>();
     },
     onSuccess: invalidate,
+  });
+}
+
+/* -------------------------------------------------------------------- */
+/* الجداول القانونية — /hr/payroll/statutory-tables                        */
+/* -------------------------------------------------------------------- */
+
+interface StatutoryRowDTO {
+  code: string;
+  effectiveFrom: string;
+  effectiveTo: string | null;
+  citationAr: string;
+  source: string;
+  verified: boolean;
+}
+
+export interface StatutoryTablesDTO {
+  incomeTax: (StatutoryRowDTO & {
+    annualPersonalExemption: string;
+    disabilityExemptionMultiplierPercent: string;
+    brackets: { upToAnnual: string | null; ratePercent: string }[];
+    eliminationTiers: { aboveAnnual: string; upToAnnual: string | null; dropsLowestBrackets: number }[];
+  })[];
+  socialInsurance: (StatutoryRowDTO & {
+    monthlyWageFloor: string | null;
+    monthlyWageCeiling: string | null;
+    employeeTotalPercent: string;
+    employerTotalPercent: string;
+    employeeShares: { code: string; labelAr: string; ratePercent: string }[];
+    employerShares: { code: string; labelAr: string; ratePercent: string }[];
+  })[];
+  levies: (StatutoryRowDTO & {
+    levies: { code: string; labelAr: string; ratePercent: string; base: string; side: string; exemptPayBases: string[] }[];
+  })[];
+  overtime: (StatutoryRowDTO & {
+    dayPremiumPercent: string;
+    nightPremiumPercent: string;
+    restDayPremiumPercent: string;
+    standardDailyHours: number;
+    standardWeeklyHours: number;
+  })[];
+  endOfService: (StatutoryRowDTO & {
+    minimumAge: number;
+    minimumAnnualRaisePercent: string;
+    tiers: { throughYears: number | null; monthsPerYear: string }[];
+  })[];
+  insuranceYearOverrides: { year: number; monthlyWageFloor: string; monthlyWageCeiling: string; note: string | null; enteredBy: string; enteredAt: string }[];
+}
+
+export function useStatutoryTables(): UseQueryResult<StatutoryTablesDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<StatutoryTablesDTO, ApiError>({
+    queryKey: ["hr", "payroll", "statutory-tables"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/hr/payroll/statutory-tables");
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("statutory.couldNotLoad"), t));
+      return res.json<StatutoryTablesDTO>();
+    },
+  });
+}
+
+/** Codes of every statutory row nobody has verified — the payslip marks a figure computed from one. */
+export function useUnverifiedStatutoryCodes(): ReadonlySet<string> {
+  const tables = useStatutoryTables().data;
+  if (!tables) return new Set();
+  const rows: StatutoryRowDTO[] = [...tables.incomeTax, ...tables.socialInsurance, ...tables.levies, ...tables.overtime, ...tables.endOfService];
+  return new Set(rows.filter((r) => !r.verified).map((r) => r.code));
+}
+
+function useStatutoryInvalidation() {
+  const client = useQueryClient();
+  return () => {
+    void client.invalidateQueries({ queryKey: ["hr", "payroll", "statutory-tables"] });
+    void client.invalidateQueries({ queryKey: ["hr", "payroll", "statutory-flag"] });
+  };
+}
+
+export function useSaveInsuranceYear() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const invalidate = useStatutoryInvalidation();
+  return useMutation<SocialInsuranceYearOverrideDTO, ApiError, { year: number; monthlyWageFloor: string; monthlyWageCeiling: string; note: string | null }>({
+    mutationFn: async ({ year, ...body }) => {
+      const res = await request(`/hr/payroll/statutory-tables/insurance-years/${year}`, { method: "PUT", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("statutory.couldNotSaveYear")));
+      return res.json<SocialInsuranceYearOverrideDTO>();
+    },
+    onSuccess: invalidate,
+  });
+}
+
+export function useRemoveInsuranceYear() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const invalidate = useStatutoryInvalidation();
+  return useMutation<void, ApiError, number>({
+    mutationFn: async (year) => {
+      const res = await request(`/hr/payroll/statutory-tables/insurance-years/${year}`, { method: "DELETE" });
+      if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("statutory.couldNotRemoveYear")));
+    },
+    onSuccess: invalidate,
+  });
+}
+
+export function usePayrollStatutoryFlag(): UseQueryResult<PayrollStatutoryFlagDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<PayrollStatutoryFlagDTO, ApiError>({
+    queryKey: ["hr", "payroll", "statutory-flag"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/hr/payroll/statutory-flag");
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("statutory.couldNotLoad"), t));
+      return res.json<PayrollStatutoryFlagDTO>();
+    },
+  });
+}
+
+export function useSetPayrollStatutoryFlag() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const invalidate = useStatutoryInvalidation();
+  return useMutation<PayrollStatutoryFlagDTO, ApiError, SetPayrollStatutoryFlagDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/hr/payroll/statutory-flag", { method: "PUT", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("statutory.couldNotSwitch")));
+      return res.json<PayrollStatutoryFlagDTO>();
+    },
+    onSuccess: invalidate,
+  });
+}
+
+/* -------------------------------------------------------------------- */
+/* ترحيل مخصص الإجازات — /hr/payroll/provisions                            */
+/* -------------------------------------------------------------------- */
+
+export type HrProvisionKindDTO = "leave";
+
+export interface HrProvisionPreviewDTO {
+  kind: HrProvisionKindDTO;
+  asOfDate: string;
+  labelAr: string;
+  expenseAccountId: string;
+  liabilityAccountId: string;
+  computedTotal: string;
+  postedBalance: string;
+  movement: string;
+}
+
+export function useProvisionPreview(kind: HrProvisionKindDTO, asOfDate: string, enabled = true): UseQueryResult<HrProvisionPreviewDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<HrProvisionPreviewDTO, ApiError>({
+    queryKey: ["hr", "payroll", "provisions", kind, asOfDate],
+    enabled: session !== null && enabled,
+    queryFn: async () => {
+      const res = await request(`/hr/payroll/provisions/${kind}/preview?asOfDate=${asOfDate}`);
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("provisions.couldNotLoad"), t));
+      return res.json<HrProvisionPreviewDTO>();
+    },
+  });
+}
+
+export function usePostProvision() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const client = useQueryClient();
+  return useMutation<{ movement: string; journalEntryId: string }, ApiError, { kind: HrProvisionKindDTO; asOfDate: string }>({
+    mutationFn: async ({ kind, asOfDate }) => {
+      const res = await request(`/hr/payroll/provisions/${kind}`, { method: "POST", body: JSON.stringify({ asOfDate }) });
+      if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("provisions.couldNotPost")));
+      return res.json<{ movement: string; journalEntryId: string }>();
+    },
+    onSettled: () => {
+      void client.invalidateQueries({ queryKey: ["hr", "payroll", "provisions"] });
+      void client.invalidateQueries({ queryKey: ["reports"] });
+    },
+  });
+}
+
+/* -------------------------------------------------------------------- */
+/* مستحقات نهاية الخدمة — /hr/employees/:id/end-of-service                  */
+/* -------------------------------------------------------------------- */
+
+export interface EndOfServiceSettlementDTO {
+  employeeId: string;
+  lastWorkingDay: string;
+  currency: string;
+  serviceYears: number;
+  priorServiceYears: number;
+  settlementWage: string;
+  allowancesIncluded: boolean;
+  gratuity: string;
+  monthsEarned: string;
+  gratuityBreakdown: { labelAr: string; years: number; monthsPerYear: string; amount: string }[];
+  gratuityEligible: boolean;
+  gratuityIneligibleReasonAr: string | null;
+  leavePayoutDays: string;
+  leavePayout: string;
+  outstandingAdvances: string;
+  netSettlement: string;
+  advanceShortfall: string;
+  statutoryTableCode: string;
+  citationAr: string;
+  verified: boolean;
+}
+
+export function useEndOfServiceSettlement(employeeId: string | null, enabled: boolean): UseQueryResult<EndOfServiceSettlementDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<EndOfServiceSettlementDTO, ApiError>({
+    queryKey: ["hr", "end-of-service", employeeId],
+    enabled: session !== null && enabled && employeeId !== null,
+    queryFn: async () => {
+      const res = await request(`/hr/employees/${employeeId}/end-of-service`);
+      if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("endOfService.couldNotLoad")));
+      return res.json<EndOfServiceSettlementDTO>();
+    },
   });
 }

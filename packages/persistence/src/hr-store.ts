@@ -296,6 +296,8 @@ interface EmployeeRow {
   prior_service_years: number;
   require_selfie_at_clock_in: number;
   require_biometric_at_clock_in: number;
+  has_pension_entitlement: number | null;
+  tax_disability_exemption: number;
   address_json: string | null;
   emergency_contact_json: string | null;
   status: string;
@@ -330,6 +332,8 @@ function toEmployee(row: EmployeeRow): Employee {
     priorServiceYears: row.prior_service_years,
     requireSelfieAtClockIn: row.require_selfie_at_clock_in === 1,
     requireBiometricAtClockIn: row.require_biometric_at_clock_in === 1,
+    hasPensionEntitlement: row.has_pension_entitlement === null || row.has_pension_entitlement === undefined ? null : row.has_pension_entitlement === 1,
+    taxDisabilityExemption: row.tax_disability_exemption === 1,
     address: row.address_json ? (JSON.parse(row.address_json) as EmployeeAddress) : null,
     emergencyContact: row.emergency_contact_json ? (JSON.parse(row.emergency_contact_json) as EmergencyContact) : null,
     status: row.status as EmployeeStatus,
@@ -349,15 +353,15 @@ class SqliteEmployeeRepository implements EmployeeRepository {
         id, code, first_name, last_name, first_name_ar, last_name_ar, email, phone, birth_date, national_id,
         gender, marital_status, department_id, job_title_id, manager_id, branch_id, hire_date, worker_category,
         employment_type, overtime_eligibility, standard_work_hours, probation_end_date, prior_service_years,
-        require_selfie_at_clock_in, require_biometric_at_clock_in, address_json, emergency_contact_json,
-        status, terminated_at, created_at
+        require_selfie_at_clock_in, require_biometric_at_clock_in, has_pension_entitlement, tax_disability_exemption,
+        address_json, emergency_contact_json, status, terminated_at, created_at
       )
       VALUES (
         @id, @code, @first_name, @last_name, @first_name_ar, @last_name_ar, @email, @phone, @birth_date, @national_id,
         @gender, @marital_status, @department_id, @job_title_id, @manager_id, @branch_id, @hire_date, @worker_category,
         @employment_type, @overtime_eligibility, @standard_work_hours, @probation_end_date, @prior_service_years,
-        @require_selfie_at_clock_in, @require_biometric_at_clock_in, @address_json, @emergency_contact_json,
-        @status, @terminated_at, @created_at
+        @require_selfie_at_clock_in, @require_biometric_at_clock_in, @has_pension_entitlement, @tax_disability_exemption,
+        @address_json, @emergency_contact_json, @status, @terminated_at, @created_at
       )
       ON CONFLICT(id) DO UPDATE SET
         first_name = excluded.first_name,
@@ -383,6 +387,8 @@ class SqliteEmployeeRepository implements EmployeeRepository {
         prior_service_years = excluded.prior_service_years,
         require_selfie_at_clock_in = excluded.require_selfie_at_clock_in,
         require_biometric_at_clock_in = excluded.require_biometric_at_clock_in,
+        has_pension_entitlement = excluded.has_pension_entitlement,
+        tax_disability_exemption = excluded.tax_disability_exemption,
         address_json = excluded.address_json,
         emergency_contact_json = excluded.emergency_contact_json,
         status = excluded.status,
@@ -436,6 +442,8 @@ class SqliteEmployeeRepository implements EmployeeRepository {
       prior_service_years: employee.priorServiceYears,
       require_selfie_at_clock_in: employee.requireSelfieAtClockIn ? 1 : 0,
       require_biometric_at_clock_in: employee.requireBiometricAtClockIn ? 1 : 0,
+      has_pension_entitlement: employee.hasPensionEntitlement === null ? null : employee.hasPensionEntitlement ? 1 : 0,
+      tax_disability_exemption: employee.taxDisabilityExemption ? 1 : 0,
       address_json: employee.address ? JSON.stringify(employee.address) : null,
       emergency_contact_json: employee.emergencyContact ? JSON.stringify(employee.emergencyContact) : null,
       status: employee.status,
@@ -846,6 +854,9 @@ export function createSqliteEmployeeRepository(path: SqliteConnectionInput = ":m
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(CREATE_EMPLOYEE);
+  const columns = new Set((sqlite.pragma("table_info(hr_employee)") as { name: string }[]).map((c) => c.name));
+  if (!columns.has("has_pension_entitlement")) sqlite.exec("ALTER TABLE hr_employee ADD COLUMN has_pension_entitlement INTEGER");
+  if (!columns.has("tax_disability_exemption")) sqlite.exec("ALTER TABLE hr_employee ADD COLUMN tax_disability_exemption INTEGER NOT NULL DEFAULT 0");
   const repo = new SqliteEmployeeRepository(sqlite);
   return Object.assign(repo, { close: () => { if (owned) sqlite.close(); } }) as SqliteEmployeeRepositoryHandle;
 }

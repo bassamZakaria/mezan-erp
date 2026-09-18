@@ -734,4 +734,154 @@ export async function run(ctx: Ctx): Promise<void> {
       `priorServiceYears ${rehired.body.priorServiceYears}`,
     );
   });
+
+  await ctx.scenario("hr / statutory payroll — OFF by default, switched on only by an acknowledged admin", async () => {
+    const initial = (await ctx.req("GET", "/hr/payroll/statutory-flag")).body;
+    ctx.check("STAT-01 — the switch is OFF on a fresh tenant", initial.enabled === false, JSON.stringify(initial));
+    ctx.check("STAT-02 — and it lists the unverified rows it would compute from", (initial.unverifiedTableCodes as string[]).includes("EG_SALARY_TAX_2024"));
+
+    for (const runId of ["PR-DEMO-1", "PR-DEMO-2", "PR-DEMO-3"]) {
+      const run = (await ctx.req("GET", `/hr/payroll/runs/${runId}`)).body;
+      ctx.check(
+        `STAT-03 ${runId} — computed with the switch off: no statutory table recorded, no tax or insurance line`,
+        run.statutoryTableCodes.length === 0 &&
+          run.payslips.every((p: any) => p.lines.every((l: any) => !["income_tax", "social_insurance_employee", "social_insurance_employer", "statutory_levy", "overtime"].includes(l.source))),
+      );
+    }
+
+    const unacknowledged = await ctx.req("PUT", "/hr/payroll/statutory-flag", { enabled: true });
+    ctx.check("STAT-04 — switching on without the acknowledgement is refused", unacknowledged.status === 422 && unacknowledged.body?.error === "ACKNOWLEDGEMENT_REQUIRED", `got ${unacknowledged.status}`);
+    const on = await ctx.req("PUT", "/hr/payroll/statutory-flag", { enabled: true, acknowledged: true });
+    ctx.check("STAT-05 — the admin switches it on with the acknowledgement", on.status === 200 && on.body.enabled === true, `got ${on.status}`);
+  });
+
+  await ctx.scenario("hr / statutory payroll — the Egyptian figures, checked against the law not against themselves", async () => {
+    const created = await ctx.req("POST", "/hr/payroll/runs", { id: "SCN-PR-STAT-1", year: 2026, month: 10, branchId, currency: "EGP" });
+    ctx.check("STAT-10 — a run opens for October 2026", created.status === 201, `got ${created.status}`);
+    const calculated = await ctx.req("POST", "/hr/payroll/runs/SCN-PR-STAT-1/calculate", {});
+    ctx.check("STAT-11 — it calculates with the switch on", calculated.status === 200, `got ${calculated.status}: ${JSON.stringify(calculated.body).slice(0, 200)}`);
+    const run = calculated.body;
+    ctx.check("STAT-12 — the run records the dated tables it used", (run.statutoryTableCodes as string[]).includes("EG_SOCIAL_INSURANCE_2026") && (run.statutoryTableCodes as string[]).includes("EG_SALARY_TAX_2024"));
+
+    const capped = run.payslips.find((p: any) => p.insurableWageCapped);
+    ctx.check("STAT-13 — a salary above the 2026 ceiling contributes on 16,700, not on gross", !!capped && ctx.n(capped.insurableWage) === 16700, capped ? `insurable ${capped.insurableWage}` : "no capped payslip");
+    if (capped) {
+      ctx.checkEq("STAT-14 — the employee share is 11% of the ceiling", ctx.n(capped.lines.find((l: any) => l.source === "social_insurance_employee").amount), 1837);
+      ctx.checkEq("STAT-15 — the employer share is 18.75% of the ceiling", ctx.n(capped.lines.find((l: any) => l.source === "social_insurance_employer").amount), 3131.25);
+    }
+
+    for (const p of run.payslips) {
+      const insurance = p.lines.filter((l: any) => l.source === "social_insurance_employee").reduce((s: number, l: any) => s + ctx.n(l.amount), 0);
+      const unpaid = p.lines.filter((l: any) => l.source === "unpaid_leave").reduce((s: number, l: any) => s + ctx.n(l.amount), 0);
+      const annual = Math.max((ctx.n(p.grossEarnings) - unpaid - insurance) * 12 - 20000, 0);
+      ctx.checkEq(`STAT-16 ${p.number} — annual taxable income is (gross − unpaid − insurance) × 12 − 20,000`, ctx.n(p.annualTaxableIncome), Math.round(annual * 100) / 100);
+      let expected = 0;
+      let lower = 0;
+      for (const [upper, rate] of [[40000, 0], [55000, 0.1], [70000, 0.15], [200000, 0.2], [400000, 0.225], [1200000, 0.25]] as const) {
+        expected += Math.max(Math.min(annual, upper) - lower, 0) * rate;
+        lower = upper;
+      }
+      expected += Math.max(annual - 1200000, 0) * 0.275;
+      const tax = p.lines.find((l: any) => l.source === "income_tax");
+      ctx.checkEq(`STAT-17 ${p.number} — the withheld tax is the annual bracket walk ÷ 12 (below the elimination tiers)`, tax ? ctx.n(tax.amount) : 0, Math.round((expected / 12) * 100) / 100);
+      const earnings = p.lines.filter((l: any) => l.kind === "earning").reduce((s: number, l: any) => s + ctx.n(l.amount), 0);
+      const deductions = p.lines.filter((l: any) => l.kind === "deduction").reduce((s: number, l: any) => s + ctx.n(l.amount), 0);
+      const employer = p.lines.filter((l: any) => l.kind === "employer_contribution").reduce((s: number, l: any) => s + ctx.n(l.amount), 0);
+      ctx.checkEq(`STAT-18 ${p.number} — net is gross less every deduction line`, ctx.n(p.netPay), earnings - deductions);
+      ctx.checkEq(`STAT-19 ${p.number} — employer cost is gross plus employer contributions`, ctx.n(p.totalEmployerCost), earnings + employer);
+      ctx.check(
+        `STAT-20 ${p.number} — every statutory line names the dated row it came from`,
+        p.lines.filter((l: any) => ["income_tax", "social_insurance_employee", "social_insurance_employer", "statutory_levy"].includes(l.source)).every((l: any) => (run.statutoryTableCodes as string[]).includes(l.referenceId)),
+      );
+    }
+
+    const approved = await ctx.req("POST", "/hr/payroll/runs/SCN-PR-STAT-1/approve", {});
+    ctx.check("STAT-21 — the statutory run approves and posts", approved.status === 200 && !!approved.body.journalEntryId, `got ${approved.status}: ${JSON.stringify(approved.body).slice(0, 200)}`);
+    if (approved.body.journalEntryId) {
+      await assertBalancedEntry(ctx, "STAT-22 — the statutory posting", approved.body.journalEntryId);
+      const insuranceTotal = run.payslips.reduce(
+        (s: number, p: any) => s + p.lines.filter((l: any) => l.source === "social_insurance_employee" || l.source === "social_insurance_employer").reduce((a: number, l: any) => a + ctx.n(l.amount), 0),
+        0,
+      );
+      const taxTotal = run.payslips.reduce((s: number, p: any) => s + p.lines.filter((l: any) => l.source === "income_tax").reduce((a: number, l: any) => a + ctx.n(l.amount), 0), 0);
+      ctx.checkEq("STAT-23 — 2192 carries both insurance shares", Math.abs(await ledgerBalance(ctx, "2192")), Math.round(insuranceTotal * 100) / 100);
+      ctx.checkEq("STAT-24 — 2191 carries the salary tax withheld", Math.abs(await ledgerBalance(ctx, "2191")), Math.round(taxTotal * 100) / 100);
+    }
+
+    for (const [label, path] of [
+      ["social insurance", "/reports/hr/social-insurance-return?year=2026"],
+      ["salary tax", "/reports/hr/salary-tax-return?year=2026"],
+    ] as const) {
+      const report = (await ctx.req("GET", path)).body;
+      ctx.check(`STAT-25 — the ${label} return counts only the statutory run`, report.rows.every((r: any) => r.periodLabel === "2026-10"), JSON.stringify(report.rows.map((r: any) => r.periodLabel)));
+      if (report.reconciliation) {
+        ctx.checkEq(`STAT-26 — the ${label} return ties to its control account`, ctx.n(report.reconciliation.reportTotal), ctx.n(report.reconciliation.referenceTotal));
+      } else {
+        ctx.check(`STAT-26 — the ${label} return renders its reconciliation`, false);
+      }
+    }
+  });
+
+  await ctx.scenario("hr / statutory payroll — an unpublished year REFUSES, then computes at the stepped 2027 rates", async () => {
+    await ctx.req("POST", "/hr/payroll/runs", { id: "SCN-PR-STAT-2027", year: 2027, month: 1, branchId, currency: "EGP" });
+    const refused = await ctx.req("POST", "/hr/payroll/runs/SCN-PR-STAT-2027/calculate", {});
+    ctx.check(
+      "STAT-30 — January 2027 is refused, naming the missing year, rather than computed on 2026's ceiling",
+      refused.status === 422 && refused.body?.error === "STATUTORY_RULES_UNAVAILABLE" && /2027/.test(String(refused.body?.message)),
+      JSON.stringify(refused.body),
+    );
+    const entered = await ctx.req("PUT", "/hr/payroll/statutory-tables/insurance-years/2027", { monthlyWageFloor: "3100", monthlyWageCeiling: "19200", note: "سيناريو" });
+    ctx.check("STAT-31 — an admin enters 2027's limits", entered.status === 200, `got ${entered.status}`);
+    const calculated = await ctx.req("POST", "/hr/payroll/runs/SCN-PR-STAT-2027/calculate", {});
+    ctx.check("STAT-32 — the same run then calculates", calculated.status === 200, `got ${calculated.status}`);
+    const slip = calculated.body.payslips?.[0];
+    const employeeLine = slip?.lines.find((l: any) => l.source === "social_insurance_employee");
+    ctx.check("STAT-33 — at the Art. 19 employee rate of 11.5%, taken from the 2027 row, not the 2019 schedule", !!employeeLine && /11\.5%/.test(employeeLine.nameAr), employeeLine?.nameAr);
+    await ctx.req("POST", "/hr/payroll/runs/SCN-PR-STAT-2027/cancel", {});
+    await ctx.req("DELETE", "/hr/payroll/statutory-tables/insurance-years/2027", {});
+  });
+
+  await ctx.scenario("hr / end-of-service — payable only at 60+ without a pension, and never assumed", async () => {
+    const before = await ctx.req("GET", "/hr/employees/EMP-DEMO-9/end-of-service");
+    ctx.check("EOS-01 — a terminated employee gets a settlement statement", before.status === 200, `got ${before.status}`);
+    ctx.check("EOS-02 — with no pension answer or birth date on file, the gratuity is zero and says why", before.body.gratuityEligible === false && ctx.n(before.body.gratuity) === 0 && !!before.body.gratuityIneligibleReasonAr);
+
+    await ctx.req("PUT", "/hr/employees/EMP-DEMO-9", { birthDate: "1960-01-01", hasPensionEntitlement: false });
+    const eligible = (await ctx.req("GET", "/hr/employees/EMP-DEMO-9/end-of-service")).body;
+    ctx.check("EOS-03 — over 60 with no pension, the gratuity is payable and broken down by tier", eligible.gratuityEligible === true && ctx.n(eligible.gratuity) > 0 && eligible.gratuityBreakdown.length > 0);
+    ctx.checkEq(
+      "EOS-04 — net settlement is gratuity plus payable leave less outstanding advances",
+      ctx.n(eligible.netSettlement),
+      Math.max(ctx.n(eligible.gratuity) + ctx.n(eligible.leavePayout) - ctx.n(eligible.outstandingAdvances), 0),
+    );
+
+    await ctx.req("PUT", "/hr/employees/EMP-DEMO-9", { hasPensionEntitlement: true });
+    const pensioned = (await ctx.req("GET", "/hr/employees/EMP-DEMO-9/end-of-service")).body;
+    ctx.check("EOS-05 — the same leaver WITH a pension entitlement is owed no gratuity", pensioned.gratuityEligible === false && ctx.n(pensioned.gratuity) === 0);
+
+    const serving = await ctx.req("GET", "/hr/employees/EMP-DEMO-1/end-of-service");
+    ctx.check("EOS-06 — a serving employee is refused, not quoted a settlement", serving.status === 422 && serving.body?.error === "EMPLOYEE_STILL_EMPLOYED", `got ${serving.status}`);
+  });
+
+  await ctx.scenario("hr / leave provision — the obligation reaches the LEDGER, and posting twice does not double it", async () => {
+    const asOfDate = "2026-08-31";
+    const before = (await ctx.req("GET", `/hr/payroll/provisions/leave/preview?asOfDate=${asOfDate}`)).body;
+    ctx.checkEq("PRV-01 — the movement offered is owed MINUS booked", ctx.n(before.movement), ctx.n(before.computedTotal) - ctx.n(before.postedBalance));
+    const eos = await ctx.req("GET", `/hr/payroll/provisions/end_of_service/preview?asOfDate=${asOfDate}`);
+    ctx.check("PRV-02 — there is no monthly end-of-service provision to post", eos.status === 404, `got ${eos.status}`);
+    if (ctx.n(before.movement) !== 0) {
+      const posted = await ctx.req("POST", "/hr/payroll/provisions/leave", { asOfDate });
+      ctx.check("PRV-03 — posting succeeds and returns its journal entry", posted.status === 200 && !!posted.body.journalEntryId, `status ${posted.status}`);
+      await assertBalancedEntry(ctx, "PRV-04", posted.body.journalEntryId);
+      const after = (await ctx.req("GET", `/hr/payroll/provisions/leave/preview?asOfDate=${asOfDate}`)).body;
+      ctx.checkEq("PRV-05 — 2180 now carries exactly what is owed", ctx.n(after.postedBalance), ctx.n(before.computedTotal));
+      const again = await ctx.req("POST", "/hr/payroll/provisions/leave", { asOfDate });
+      ctx.check("PRV-06 — posting a second time is refused rather than doubling it", again.status === 422, `status ${again.status}`);
+    }
+
+    const off = await ctx.req("PUT", "/hr/payroll/statutory-flag", { enabled: false });
+    ctx.check("STAT-40 — the switch goes back off, so later suites run on the default", off.status === 200 && off.body.enabled === false, `got ${off.status}`);
+    const refusedEos = await ctx.req("GET", "/hr/employees/EMP-DEMO-9/end-of-service");
+    ctx.check("STAT-41 — with it off, no gratuity is computed at all", refusedEos.status === 409, `got ${refusedEos.status}`);
+  });
 }

@@ -27,7 +27,9 @@ import {
  * as they do to every other document.
  *
  *   Dr  مصروف الرواتب (5120)          gross earnings
- *   Dr  مساهمات صاحب العمل (5130)     employer contributions (none configured yet)
+ *   Dr  مساهمات صاحب العمل (5130)     employer contributions (social insurance when statutory is on)
+ *   Cr  ضريبة كسب العمل مستحقة (2191) salary tax withheld
+ *   Cr  التأمينات الاجتماعية (2192)   BOTH insurance shares
  *   Cr  حجوزات على الأجور (2193)      garnishments
  *   Cr  سلف الموظفين (1160)           advance recovery
  *   Cr  استقطاعات رواتب (2190)        other deductions
@@ -75,7 +77,14 @@ function buildJournalLines(
         addTo(debits, line.glAccountId ?? accounts.salaryExpenseAccountId, branchId, line.amount);
       } else if (line.kind === "employer_contribution") {
         addTo(debits, line.glAccountId ?? accounts.employerContributionExpenseAccountId, branchId, line.amount);
-        addTo(credits, accounts.employerContributionLiabilityAccountId, branchId, line.amount);
+        // The credit follows WHO the money is owed to: the insurance authority
+        // for the employer's share, the general withholdings pool otherwise.
+        addTo(
+          credits,
+          line.source === "social_insurance_employer" ? accounts.socialInsurancePayableAccountId : accounts.employerContributionLiabilityAccountId,
+          branchId,
+          line.amount,
+        );
       } else if (line.source === "advance_recovery") {
         addTo(credits, accounts.employeeAdvanceAccountId, branchId, line.amount);
       } else {

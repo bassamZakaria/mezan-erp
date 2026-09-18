@@ -3,6 +3,8 @@ import {
   createHeadcountMovementReport,
   createLeaveLiabilityReport,
   createPayrollRegisterReport,
+  createSalaryTaxReturnReport,
+  createSocialInsuranceReturnReport,
 } from "@mezan/domain";
 import { ReportScreen } from "./ReportScreen";
 import { todayIso } from "../../lib/dates";
@@ -12,6 +14,14 @@ const YEAR_START = `${TODAY.slice(0, 4)}-01-01`;
 
 export function PayrollRegisterReportScreen() {
   return <ReportScreen definition={createPayrollRegisterReport()} apiPath="/hr/payroll-register" />;
+}
+
+export function SocialInsuranceReturnReportScreen() {
+  return <ReportScreen definition={createSocialInsuranceReturnReport()} apiPath="/hr/social-insurance-return" />;
+}
+
+export function SalaryTaxReturnReportScreen() {
+  return <ReportScreen definition={createSalaryTaxReturnReport()} apiPath="/hr/salary-tax-return" />;
 }
 
 export function AttendanceSummaryReportScreen() {

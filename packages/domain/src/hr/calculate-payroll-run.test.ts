@@ -16,6 +16,7 @@ import {
   NegativeNetPayError,
   NoPayableEmployeesError,
   PayrollRunNotFoundError,
+  StatutoryRulesUnavailableError,
 } from "./errors.js";
 
 function createInMemoryPayrollRunRepository(): PayrollRunRepository {
@@ -883,5 +884,55 @@ describe("payrollDayDivisor", () => {
 
   it("is the period's real length under CALENDAR_DAYS", () => {
     expect([28, 29, 30, 31].map((n) => payrollDayDivisor("CALENDAR_DAYS", n))).toEqual([28, 29, 30, 31]);
+  });
+});
+
+describe("calculatePayrollRun — statutory computation is gated by the tenant switch", () => {
+  it("OFF (the default): no tax, insurance or levy line, no table resolved, and the run records none", async () => {
+    const h = await harness();
+    const run = await createPayrollRun({ id: "r1", year: 2027, month: 6 }, h.deps);
+    await employeeWithContract(h, { id: "emp-1", monthlySalary: "10000.00" });
+    const calculated = await calculatePayrollRun(run.id, h.deps);
+    const [payslip] = await h.payslips.listByRunId(run.id);
+    expect(calculated.statutoryTableCodes).toEqual([]);
+    expect(payslip!.lines.map((l) => l.source)).toEqual(["contract_basic"]);
+    expect(payslip!.netPay.toString()).toBe("10000.000000");
+    expect(payslip!.insurableWage.scaled).toBe(0n);
+  });
+
+  it("ON: insurance, tax and the levy are withheld, each line naming the dated row it came from", async () => {
+    const h = await harness();
+    const run = await createPayrollRun({ id: "r1", year: 2026, month: 6 }, h.deps);
+    await employeeWithContract(h, { id: "emp-1", monthlySalary: "10000.00" });
+    const calculated = await calculatePayrollRun(run.id, { ...h.deps, statutoryEnabled: true });
+    const [payslip] = await h.payslips.listByRunId(run.id);
+    const bySource = new Map(payslip!.lines.map((l) => [l.source, l]));
+    expect(bySource.get("social_insurance_employee")!.amount.toString()).toBe("1100.000000");
+    expect(bySource.get("social_insurance_employee")!.referenceId).toBe("EG_SOCIAL_INSURANCE_2026");
+    expect(bySource.get("social_insurance_employer")!.amount.toString()).toBe("1875.000000");
+    expect(bySource.get("income_tax")!.amount.toString()).toBe("592.500000");
+    expect(bySource.get("income_tax")!.referenceId).toBe("EG_SALARY_TAX_2024");
+    expect(bySource.get("statutory_levy")!.amount.toString()).toBe("5.000000");
+    expect(payslip!.netPay.toString()).toBe("8302.500000");
+    expect(payslip!.totalEmployerCost.toString()).toBe("11875.000000");
+    expect(calculated.statutoryTableCodes).toContain("EG_SOCIAL_INSURANCE_2026");
+  });
+
+  it("ON for a year whose limits are unpublished: the run refuses rather than computing on an old ceiling", async () => {
+    const h = await harness();
+    const run = await createPayrollRun({ id: "r1", year: 2027, month: 6 }, h.deps);
+    await employeeWithContract(h, { id: "emp-1", monthlySalary: "10000.00" });
+    await expect(calculatePayrollRun(run.id, { ...h.deps, statutoryEnabled: true })).rejects.toThrow(StatutoryRulesUnavailableError);
+  });
+
+  it("ON: an employee with the disability exemption withholds less tax on the same pay", async () => {
+    const h = await harness();
+    const run = await createPayrollRun({ id: "r1", year: 2026, month: 6 }, h.deps);
+    await employeeWithContract(h, { id: "emp-1", monthlySalary: "10000.00" });
+    const current = (await h.employeeRepo.findById("emp-1"))!;
+    await h.employeeRepo.update({ ...current, taxDisabilityExemption: true });
+    await calculatePayrollRun(run.id, { ...h.deps, statutoryEnabled: true });
+    const [payslip] = await h.payslips.listByRunId(run.id);
+    expect(payslip!.lines.find((l) => l.source === "income_tax")!.amount.toString()).toBe("425.830000");
   });
 });

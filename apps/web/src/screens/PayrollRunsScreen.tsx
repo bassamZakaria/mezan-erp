@@ -14,8 +14,10 @@ import {
   type RowMenuItem,
 } from "@mezan/ui";
 import type { PayrollRunDTO, PayrollRunStatusDTO, PayslipDTO } from "@mezan/contracts";
-import { PAYROLL_UNIMPLEMENTED_RULES } from "@mezan/domain";
+import { STATUTORY_PAYSLIP_LINE_SOURCES, payrollUnimplementedRulesFor } from "@mezan/domain";
 import { PayslipPrintPage } from "../print/PayslipPrintPage";
+import { HrProvisionsPanel } from "./HrProvisionsPanel";
+import { useUnverifiedStatutoryCodes } from "../data/hr-payroll-hooks";
 import { NumberField, SelectField } from "../settings/form-controls";
 import { ApiError, useBranches, useEmployees, useTreasuryAccounts } from "../data/hooks";
 import {
@@ -65,14 +67,12 @@ const LINE_KIND_KEY = {
 
 const PAGE_SIZES = [10, 25, 50, 100] as const;
 
-const UNIVERSAL_UNIMPLEMENTED_RULES = PAYROLL_UNIMPLEMENTED_RULES.filter((r) => r.appliesToEveryPayslip);
-const SITUATIONAL_UNIMPLEMENTED_RULES = PAYROLL_UNIMPLEMENTED_RULES.filter((r) => !r.appliesToEveryPayslip);
-
-function NetPayQualifierBadge() {
+/** Which caveat the net carries depends on how THIS run was computed, not on today's switch. */
+function NetPayQualifierBadge({ statutory }: { statutory: boolean }) {
   const { t } = useAppTranslation();
   return (
     <span className="rounded-full border border-info bg-info-soft px-[7px] py-[1px] text-[10.5px] font-semibold text-info-ink">
-      {t("payroll.beforeTaxSocialInsuranceAnd")}
+      {statutory ? t("payroll.beforeAnnualTaxSettlement") : t("payroll.beforeTaxSocialInsuranceAnd")}
     </span>
   );
 }
@@ -111,11 +111,16 @@ export function PayrollRunsScreen() {
   const [detailError, setDetailError] = useState<string | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [printing, setPrinting] = useState<PayslipDTO | null>(null);
+  const unverifiedCodes = useUnverifiedStatutoryCodes();
   const [treasuryAccountId, setTreasuryAccountId] = useState("");
   const [branchId, setBranchId] = useState("");
 
   const detailQuery = usePayrollRun(selectedId);
   const detail = detailQuery.data ?? null;
+  const statutoryRun = (detail?.statutoryTableCodes.length ?? 0) > 0;
+  const detailRules = detail ? payrollUnimplementedRulesFor(detail) : [];
+  const universalRules = detailRules.filter((r) => r.appliesToEveryPayslip);
+  const situationalRules = detailRules.filter((r) => !r.appliesToEveryPayslip);
 
   function employeeName(employeeId: string): string {
     const e = employees.find((row) => row.id === employeeId);
@@ -369,7 +374,7 @@ export function PayrollRunsScreen() {
               <div className="border-e border-border p-[13px_15px]">
                 <div className="flex flex-wrap items-center gap-[6px]">
                   <span className="text-[11px] font-semibold text-ink-faint">{t("payroll.netPayroll")}</span>
-                  <NetPayQualifierBadge />
+                  <NetPayQualifierBadge statutory={statutoryRun} />
                 </div>
                 <div className="mt-[5px]">
                   <MoneyDisplay value={Number(detail.totalNet)} className="text-[14px] font-bold" />
@@ -384,17 +389,17 @@ export function PayrollRunsScreen() {
             <div role="note" className="rounded-lg border border-info bg-info-soft p-[14px] text-info-ink">
               <h3 className="mb-[6px] font-display text-[13px] font-bold">{t("payroll.whatWasCalculatedItemsThis")}</h3>
               <p className="text-[12.5px] leading-relaxed">
-                {t("payroll.theNetAboveCoversContractual")}
+                {statutoryRun ? t("payroll.theNetAboveIncludesStatutory") : t("payroll.theNetAboveCoversContractual")}
                 <span className="mz-num font-semibold">{detail.employeeCount}</span> {t("payroll.employees3")}
               </p>
               <ul className="mt-[8px] flex flex-col gap-[6px] text-[12px]">
-                {UNIVERSAL_UNIMPLEMENTED_RULES.map((rule) => (
+                {universalRules.map((rule) => (
                   <li key={rule.code}>
                     <span className="font-semibold">{rule.labelAr}</span> — {rule.detailAr}
                   </li>
                 ))}
               </ul>
-              {SITUATIONAL_UNIMPLEMENTED_RULES.length > 0 ? (
+              {situationalRules.length > 0 ? (
                 <p className="mt-[10px] text-[12px] leading-relaxed">
                   {t("payroll.otherUncalculatedItemsApplyOnly")}
                 </p>
@@ -404,6 +409,26 @@ export function PayrollRunsScreen() {
             {detail.unpaidLeaveSource === "none" ? (
               <div role="status" className="rounded-md border border-warning bg-warning-soft px-[12px] py-[10px] text-[12.5px] text-warning-ink">
                 {t("payroll.noSourceForUnpaidLeave")}
+              </div>
+            ) : null}
+
+            {statutoryRun && detail.overtimeSource === "none" ? (
+              <div role="status" className="rounded-md border border-warning bg-warning-soft px-[12px] py-[10px] text-[12.5px] text-warning-ink">
+                {t("payroll.noSourceForOvertime")}
+              </div>
+            ) : null}
+
+            {statutoryRun ? (
+              <div className="rounded-lg border border-border p-[14px]">
+                <h3 className="mb-[8px] font-display text-[13px] font-bold text-ink">{t("payroll.statutoryTablesUsed")}</h3>
+                <ul className="flex flex-wrap gap-[6px]" dir="ltr">
+                  {detail.statutoryTableCodes.map((code) => (
+                    <li key={code} className="mz-num rounded-full border border-border px-[8px] py-[2px] text-[11px] text-ink-muted">
+                      {code}
+                      {unverifiedCodes.has(code) ? <span className="ms-[4px] text-warning-ink">· {t("statutory.unverified")}</span> : null}
+                    </li>
+                  ))}
+                </ul>
               </div>
             ) : null}
 
@@ -431,11 +456,31 @@ export function PayrollRunsScreen() {
                       <div className="mz-num mt-[3px] text-[11.5px] text-ink-faint">
                         {p.paidDays} / {p.periodDays} {t("payroll.days")}
                       </div>
+                      {statutoryRun ? (
+                        <div className="mt-[6px] flex flex-wrap gap-x-[16px] gap-y-[3px] text-[11.5px] text-ink-faint">
+                          <span className="flex items-center gap-[4px]">
+                            {t("payroll.insurableWage")} <MoneyDisplay value={Number(p.insurableWage)} />
+                            {p.insurableWageCapped ? (
+                              <span className="rounded-full border border-warning bg-warning-soft px-[6px] py-[1px] text-[10px] font-semibold text-warning-ink">
+                                {t("payroll.atCeiling")}
+                              </span>
+                            ) : null}
+                          </span>
+                          <span className="flex items-center gap-[4px]">
+                            {t("payroll.employerCost")} <MoneyDisplay value={Number(p.totalEmployerCost)} />
+                          </span>
+                        </div>
+                      ) : null}
                       <ul className="mt-[8px] flex flex-col gap-[4px]">
                         {p.lines.map((l) => (
                           <li key={l.id} className="flex items-center justify-between text-[12px]">
                             <span className="text-ink-muted">
                               {l.nameAr} <span className="text-ink-faint">({t(LINE_KIND_KEY[l.kind])})</span>
+                              {STATUTORY_PAYSLIP_LINE_SOURCES.includes(l.source) && l.referenceId !== null && unverifiedCodes.has(l.referenceId) ? (
+                                <span className="ms-[6px] rounded-full border border-warning bg-warning-soft px-[6px] py-[1px] text-[10px] font-semibold text-warning-ink">
+                                  {t("statutory.unverified")}
+                                </span>
+                              ) : null}
                             </span>
                             <MoneyDisplay value={Number(l.amount)} />
                           </li>
@@ -444,7 +489,7 @@ export function PayrollRunsScreen() {
                       <div className="mt-[8px] flex items-center justify-between border-t border-border pt-[8px] text-[12.5px] font-bold text-ink">
                         <span className="flex flex-wrap items-center gap-[6px]">
                           <span>{t("payroll.net")}</span>
-                          <NetPayQualifierBadge />
+                          <NetPayQualifierBadge statutory={statutoryRun} />
                         </span>
                         <MoneyDisplay value={Number(p.netPay)} />
                       </div>
@@ -534,6 +579,10 @@ export function PayrollRunsScreen() {
           </div>
         </form>
       </SidePanel>
+
+      <div className="mt-[18px]">
+        <HrProvisionsPanel />
+      </div>
     </div>
   );
 }

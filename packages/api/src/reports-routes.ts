@@ -66,6 +66,10 @@ import {
   type LeaveBalanceRepository,
   type LeavePolicyRepository,
   createPayrollRegisterReport,
+  createSocialInsuranceReturnReport,
+  createSalaryTaxReturnReport,
+  SOCIAL_INSURANCE_CONTROL_ACCOUNT,
+  SALARY_TAX_CONTROL_ACCOUNT,
   createAttendanceSummaryReport,
   createLeaveLiabilityReport,
   createHeadcountMovementReport,
@@ -959,6 +963,26 @@ export function createReportsRoutes(
           employees,
         }),
       );
+    });
+
+    // The two statutory returns reconcile to their control account only when
+    // they cover the whole company: the account holds every branch.
+    async function statutoryReturnContext(c: Context, account: string) {
+      const ids = await scopedEmployeeIds(c);
+      const runs = await hrPayroll!.runs.list();
+      const payslips = (await Promise.all(runs.map((run) => hrPayroll!.payslips.listByRunId(run.id)))).flat();
+      const glBalancesByAccountId = branchNarrowed(c, queryParams(c)) ? undefined : new Map([[account, await controlBalance(account)]]);
+      return { runs, payslips: inScope(payslips, ids), employees: await directory.list(), glBalancesByAccountId };
+    }
+
+    app.get("/hr/social-insurance-return", gate("hr.payroll.view"), async (c) => {
+      const definition = createSocialInsuranceReturnReport();
+      return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, await statutoryReturnContext(c, SOCIAL_INSURANCE_CONTROL_ACCOUNT)));
+    });
+
+    app.get("/hr/salary-tax-return", gate("hr.payroll.view"), async (c) => {
+      const definition = createSalaryTaxReturnReport();
+      return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, await statutoryReturnContext(c, SALARY_TAX_CONTROL_ACCOUNT)));
     });
   }
 

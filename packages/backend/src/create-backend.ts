@@ -178,6 +178,8 @@ import {
   createSqlitePayslipRepository,
   createSqlitePayrollComponentRepository,
   createSqliteGarnishmentRepository,
+  createSqliteStatutoryOverrideRepository,
+  createSqlitePayrollStatutoryFlagRepository,
   createSqliteWritedownRunRepository,
   createSqliteProductTemplateStore,
   createSqliteNotificationRuleStore,
@@ -1106,6 +1108,8 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const hrPayslips = createSqlitePayslipRepository(sqlite);
   const hrPayrollComponents = createSqlitePayrollComponentRepository(sqlite);
   const hrGarnishments = createSqliteGarnishmentRepository(sqlite);
+  const hrStatutoryOverrides = createSqliteStatutoryOverrideRepository(sqlite);
+  const hrStatutoryFlag = createSqlitePayrollStatutoryFlagRepository(sqlite);
 
   // --- w8/notifications — قواعد الإشعارات rules engine. ONE EventBus for the
   // whole backend; the engine subscribes to every event and (per rule) writes
@@ -3204,6 +3208,12 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         payrollComponents: hrPayrollComponents,
         garnishmentRegister: hrGarnishments,
         settings,
+        statutoryOverrides: hrStatutoryOverrides,
+        statutoryFlag: hrStatutoryFlag,
+        // The leave provision compares the computed obligation against what
+        // 2180 already carries, so it reads the posted ledger.
+        ledger,
+        audit: auditSink,
       },
       users: uow.users,
       numbering: ledger.numbering,

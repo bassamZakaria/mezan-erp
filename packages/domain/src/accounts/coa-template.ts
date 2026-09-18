@@ -82,6 +82,10 @@ export const STANDARD_COA_TEMPLATE: readonly CreateAccountCommand[] = [
   { id: "2170", code: "2170", nameAr: "رواتب مستحقة", nameEn: "Salaries Payable", type: "liability", naturalBalance: "credit", parentId: "2000", isHeader: false },
   { id: "2180", code: "2180", nameAr: "التزام إجازات مستحقة", nameEn: "Accrued Leave Liability", type: "liability", naturalBalance: "credit", parentId: "2000", isHeader: false },
   { id: "2190", code: "2190", nameAr: "استقطاعات ومستحقات رواتب", nameEn: "Payroll Withholdings Payable", type: "liability", naturalBalance: "credit", parentId: "2000", isHeader: false },
+  // Statutory withholdings get their own leaves rather than pooling in 2190:
+  // each is owed to a different authority, and each return reconciles to one.
+  { id: "2191", code: "2191", nameAr: "ضريبة كسب العمل مستحقة", nameEn: "Salary Tax Payable", type: "liability", naturalBalance: "credit", parentId: "2000", isHeader: false },
+  { id: "2192", code: "2192", nameAr: "التأمينات الاجتماعية مستحقة", nameEn: "Social Insurance Payable", type: "liability", naturalBalance: "credit", parentId: "2000", isHeader: false },
   { id: "2193", code: "2193", nameAr: "حجوزات على الأجور", nameEn: "Wage Garnishments Payable", type: "liability", naturalBalance: "credit", parentId: "2000", isHeader: false },
   // Egypt withholds tax on most local B2B payments: the supplier is settled in
   // full, the withheld slice is owed to the authority instead of to them. 2190

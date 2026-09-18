@@ -152,6 +152,9 @@ describe("SqlitePayrollRunRepository", () => {
       totalEmployerContributions: Money.fromMajor("1000.000003"),
       totalNet: Money.fromMajor("13000.250000"),
       unpaidLeaveSource: "none" as const,
+      overtimeSource: "none" as const,
+      statutoryTableCodes: [],
+      totalEmployerCost: Money.zero(),
       warnings: ["الموظف emp-3 بلا عقد فعّال"],
       journalEntryId: null,
       disbursementVoucherId: null,
@@ -313,6 +316,10 @@ describe("SqlitePayslipRepository", () => {
       totalDeductions: Money.zero(),
       employerContributions: Money.zero(),
       netPay: Money.fromMajor("5000.000001"),
+      insurableWage: Money.zero(),
+      insurableWageCapped: false,
+      annualTaxableIncome: Money.zero(),
+      totalEmployerCost: Money.zero(),
       createdAt: "2026-01-01T00:00:00.000Z",
     };
   }

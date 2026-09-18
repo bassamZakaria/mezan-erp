@@ -118,6 +118,9 @@ export const employeeSchema = z.object({
   priorServiceYears: z.number(),
   requireSelfieAtClockIn: z.boolean(),
   requireBiometricAtClockIn: z.boolean(),
+  /** Null = never answered; end-of-service gratuity is not computed until it is. */
+  hasPensionEntitlement: z.boolean().nullable(),
+  taxDisabilityExemption: z.boolean(),
   address: employeeAddressSchema.nullable(),
   emergencyContact: emergencyContactSchema.nullable(),
   status: employeeStatusSchema,
@@ -150,6 +153,8 @@ export const createEmployeeSchema = z.object({
   priorServiceYears: z.number().optional(),
   requireSelfieAtClockIn: z.boolean().optional(),
   requireBiometricAtClockIn: z.boolean().optional(),
+  hasPensionEntitlement: z.boolean().nullable().optional(),
+  taxDisabilityExemption: z.boolean().optional(),
   address: employeeAddressSchema.nullable().optional(),
   emergencyContact: emergencyContactSchema.nullable().optional(),
 });

@@ -32,7 +32,9 @@ test.describe("Theme toggle", () => {
     await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
 
     const darkBg = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
-    expect(darkBg).toBe("rgb(10, 19, 16)"); // --bg dark token (#0a1310)
+    // The identity moved to Cyag blue — packages/ui/src/tokens/tokens.css's
+    // dark --bg is #0e1116 now, not the old teal-leaning #0a1310.
+    expect(darkBg).toBe("rgb(14, 17, 22)"); // --bg dark token (#0e1116)
     expect(darkBg).not.toBe(lightBg);
 
     await page.screenshot({ path: `${SCREENSHOT_DIR}/dark.png` });

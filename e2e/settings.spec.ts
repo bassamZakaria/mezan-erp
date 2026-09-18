@@ -12,10 +12,15 @@ import { brokenLabelField } from "./support/broken-label";
  * (regional & currency) / الضريبة / السياسات / a hidden البريد الإلكتروني.
  * There is no more plain "عام" tab.
  *
- * The e2e backend now starts with exactly ONE seeded branch (الفرع الرئيسي)
- * and TWO warehouses (WH-MAIN "رئيسي", WH-WIP "إنتاج") — no more Alexandria
- * branch or a pre-seeded van warehouse — so the branch-360 and
- * warehouse-type-filter tests create their own extra branch/warehouse first.
+ * The e2e backend starts with exactly ONE seeded branch (الفرع الرئيسي), but
+ * SEVEN seeded warehouses now (demo-seed.ts adds a Giza branch warehouse, a
+ * project site store, two transit warehouses and a delivery van alongside
+ * the base WH-MAIN/WH-WIP) covering all SIX catalog warehouse types
+ * (packages/domain/src/settings/warehouse.ts's WAREHOUSE_TYPE_DEFINITIONS
+ * added "SITE" — "مستودع موقع" — since this spec was last written), including
+ * an existing van warehouse — so the warehouse tests below assert against
+ * the real seeded count/types and, when adding a second van, check that its
+ * OWN row appears rather than assuming it is the only one of its type.
  */
 
 function unique(prefix: string): string {
@@ -116,15 +121,15 @@ test.describe("Settings — warehouses", () => {
     await expect(page.getByRole("heading", { name: "المستودعات" })).toBeVisible();
   });
 
-  test("lists the seeded main and WIP warehouses, and shows all 5 catalog types as filter chips", async ({ page }) => {
-    await expect(page.getByText("عرض 2 من 2 مستودع")).toBeVisible();
+  test("lists the seven seeded warehouses, and shows all 6 catalog types as filter chips", async ({ page }) => {
+    await expect(page.getByText("عرض 7 من 7 مستودع")).toBeVisible();
     // The type filter is a radiogroup, not plain buttons.
-    for (const label of ["كل الأنواع", "رئيسي", "مستودع وسيط", "مرتجعات", "إنتاج", "ڤان (سيارة توزيع)"]) {
+    for (const label of ["كل الأنواع", "رئيسي", "مستودع وسيط", "مرتجعات", "إنتاج", "ڤان (سيارة توزيع)", "مستودع موقع"]) {
       await expect(page.getByRole("radio", { name: label, exact: true })).toBeVisible();
     }
   });
 
-  test("adding a van warehouse appears in the list, and the ڤان type filter narrows to it", async ({ page }) => {
+  test("adding a second van warehouse appears in the list, and the ڤان type filter includes it", async ({ page }) => {
     const name = unique("سيارة اختبار");
     await page.getByRole("button", { name: "إضافة مستودع" }).first().click();
     const form = page.getByRole("dialog", { name: "إضافة مستودع" });
@@ -135,12 +140,15 @@ test.describe("Settings — warehouses", () => {
     await form.getByRole("button", { name: "حفظ المستودع" }).click();
     await expect(form).toBeHidden();
 
-    await expect(page.getByText("عرض 3 من 3 مستودع")).toBeVisible();
+    await expect(page.getByText("عرض 8 من 8 مستودع")).toBeVisible();
 
+    // The demo seed already carries one van warehouse (WH-DEMO-VAN), so the
+    // filter narrows to TWO rows, not just the one this test just added.
     await page.getByRole("radio", { name: "ڤان (سيارة توزيع)", exact: true }).click();
-    await expect(page.locator("table tbody tr td:first-child")).toHaveText([name]);
+    await expect(page.locator("table tbody tr")).toHaveCount(2);
+    await expect(page.getByText(name, { exact: true })).toBeVisible();
 
     await page.getByRole("radio", { name: "كل الأنواع" }).click();
-    await expect(page.locator("table tbody tr")).toHaveCount(3);
+    await expect(page.locator("table tbody tr")).toHaveCount(8);
   });
 });

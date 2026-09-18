@@ -2070,7 +2070,7 @@ export async function run(ctx: Ctx): Promise<void> {
 
       const live = list.filter((r) => r.status !== "draft" && r.status !== "cancelled");
       checkEq(`sales stats.count = the live rows returned (${query || "no filter"})`, n(stats?.count), live.length);
-      checkEq(`sales stats.sales = the sum over those rows (${query || "no filter"})`, n(stats?.sales), sum(live, (r) => r.totals?.grandTotal));
+      checkEq(`sales stats.sales = the sum over those rows, each in base currency (${query || "no filter"}; D202)`, n(stats?.sales), sum(live, (r) => r.baseGrandTotal));
       checkEq(`sales stats.remaining = the sum over those rows (${query || "no filter"})`, n(stats?.remaining), sum(live, (r) => r.remainingBalance));
     }
 
@@ -2091,7 +2091,7 @@ export async function run(ctx: Ctx): Promise<void> {
       const stats = (await req("GET", `/purchases/invoices/stats${query}`)).body as any;
       const live = list.filter((r) => r.status === "confirmed");
       checkEq(`purchase stats.count = the confirmed rows returned (${query || "no filter"})`, n(stats?.count), live.length);
-      checkEq(`purchase stats.purchases = the sum over those rows (${query || "no filter"})`, n(stats?.purchases), sum(live, (r) => r.total));
+      checkEq(`purchase stats.purchases = the sum over those rows, each in base currency (${query || "no filter"}; D202)`, n(stats?.purchases), sum(live, (r) => r.baseTotal));
       checkEq(`purchase stats.paid = the sum over those rows (${query || "no filter"})`, n(stats?.paid), sum(live, (r) => r.amountPaid));
       // Unpaid sums only what is still owed: a credit on one invoice must not
       // cancel another's debt.

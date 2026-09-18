@@ -738,9 +738,9 @@ describe("CustomersScreen", () => {
     fireEvent.click(screen.getByRole("tab", { name: "المرتجعات" }));
 
     const row = (await screen.findByText("2026-08-05")).closest("tr")!;
-    // The returns tab's total is qty × unit price only (no tax) — 2 × 100.00 =
-    // 200.00; the cust-2 line (5 × 1,000.00 = 5,000.00) must not leak in.
-    expect(within(row).getByText("200.00")).toBeInTheDocument();
+    // What the customer's own line took off their receivable: 2 × 100.00 +
+    // 28.00 tax = 228.00; the cust-2 line must not leak in.
+    expect(within(row).getByText("228.00")).toBeInTheDocument();
   });
 
   it("shows this customer's own audit events, actor and action", async () => {

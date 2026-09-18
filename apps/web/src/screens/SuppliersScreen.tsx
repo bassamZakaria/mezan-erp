@@ -165,7 +165,7 @@ function SupplierInvoicesTab({ supplierId }: { supplierId: string }) {
   }
 
   const confirmed = invoices.filter((inv) => inv.status === "confirmed");
-  const confirmedTotal = sumMoney(confirmed.map((inv) => inv.total));
+  const confirmedTotal = sumMoney(confirmed.map((inv) => inv.baseTotal ?? inv.total));
 
   return (
     <div className="flex flex-col gap-[16px]">
@@ -220,8 +220,6 @@ function SupplierInvoicesTab({ supplierId }: { supplierId: string }) {
   );
 }
 
-
-/** Absolute difference of two scaled integers — reconciliation stays in `bigint` space. */
 
 interface SupplierDraft {
   code: string;

@@ -39,6 +39,7 @@ import { useAttachments } from "../data/attachment-hooks";
 import {
   moneyToNumber,
   multiplyMoney,
+  parseMoney,
   sumMoney,
 } from "../data/partner-detail-hooks";
 import { TextField, NumberField, SelectField, ToggleField } from "../settings/form-controls";
@@ -191,10 +192,13 @@ function CustomerReturnsTab({ customerId }: { customerId: string }) {
                   value={moneyToNumber(
                     r.lines
                       .filter((l) => l.customerId === customerId)
-                      // multiplyMoney takes both operands as wire decimals and
-                      // stays in scaled-integer space; Number(qty) here would
-                      // drop the line total to a float.
-                      .reduce<bigint>((total, l) => total + multiplyMoney(l.unitPrice, l.qty), 0n),
+                      // What each line took off the receivable, in base: a
+                      // return against a foreign invoice reverses at its rate
+                      // (D203), so the line's own digits are not EGP.
+                      .reduce<bigint>(
+                        (total, l) => total + (l.baseCredit !== undefined ? parseMoney(l.baseCredit) : multiplyMoney(l.unitPrice, l.qty) + parseMoney(l.taxAmount)),
+                        0n,
+                      ),
                   )}
                 />
               </td>
@@ -256,7 +260,7 @@ function CustomerInvoicesTab({ customerId }: { customerId: string }) {
   }
 
   const live = invoices.filter((inv) => SALES_INVOICE_ACTIVE_STATUSES.has(inv.status));
-  const invoiced = sumMoney(live.map((inv) => inv.totals.grandTotal));
+  const invoiced = sumMoney(live.map((inv) => inv.baseGrandTotal ?? inv.totals.grandTotal));
   const collected = sumMoney(live.map((inv) => inv.amountPaid));
 
   return (
@@ -290,7 +294,7 @@ function CustomerInvoicesTab({ customerId }: { customerId: string }) {
                   <StatusPill label={SALES_INVOICE_STATUS_LABELS_AR[inv.status]} tone={INVOICE_STATUS_TONE[inv.status]} />
                 </td>
                 <td className="p-[10px] text-end text-ink">
-                  <MoneyValue value={num(inv.totals.grandTotal)} showUnit={false} />
+                  <MoneyValue value={num(inv.baseGrandTotal ?? inv.totals.grandTotal)} showUnit={false} />
                 </td>
                 <td className="p-[10px] text-end text-ink-muted">
                   <MoneyValue value={num(inv.amountPaid)} showUnit={false} />

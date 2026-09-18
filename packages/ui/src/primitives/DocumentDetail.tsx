@@ -126,7 +126,7 @@ export function DocumentDetail({
         </div>
       ) : null}
 
-      <div className={cn("grid gap-5", aside ? "lg:grid-cols-[2fr_1fr]" : "grid-cols-1")}>
+      <div className={cn("grid grid-cols-1 gap-5", aside ? "lg:grid-cols-[2fr_1fr]" : null)}>
         <div className="min-w-0">
           {tabs && tabs.length > 0 ? (
             <>
@@ -157,7 +157,7 @@ export function DocumentDetail({
             </>
           ) : null}
         </div>
-        {aside ? <div>{aside}</div> : null}
+        {aside ? <div className="min-w-0">{aside}</div> : null}
       </div>
     </div>
   );

@@ -129,7 +129,8 @@ export async function stepIfMounted(app: App, method: string, path: string, body
 }
 
 /**
- * Refuses to seed anywhere that is not a local or test environment.
+ * Refuses to seed anywhere that is not a local or test environment, or the
+ * hosted demo tenant.
  *
  * `createBackend` already gates on an explicit `seedDemoData` flag that only
  * apps/server sets, and only from `MEZAN_SEED_DEMO=1`. This is the second lock:
@@ -137,20 +138,26 @@ export async function stepIfMounted(app: App, method: string, path: string, body
  * flag flipped by mistake in a shipped edition still cannot invent rows in
  * someone's books.
  *
+ * A production process passes only with `MEZAN_SEED_DEMO=1` in its own
+ * environment: apps/server/src/cloud.ts runs in production (so every real
+ * tenant gets a generated admin PIN) and seeds the demo tenant, a database of
+ * its own, in the same process. Refusing production outright made every demo
+ * deploy crash on boot.
+ *
  * Throwing is deliberate. Returning quietly would let a misconfigured
  * deployment look like it had seeded when it had not.
  */
 export function assertLocalOrTest(): void {
   const env = process.env.NODE_ENV;
-  if (env === "production") {
+  const optedIn = process.env.MEZAN_SEED_DEMO === "1";
+  if (env === "production" && !optedIn) {
     throw new Error(
-      "[demo-seed] refusing to seed: NODE_ENV=production. This profile is for local development and tests only.",
+      "[demo-seed] refusing to seed: NODE_ENV=production with MEZAN_SEED_DEMO unset. This profile is for local development, tests and the hosted demo tenant only.",
     );
   }
   // A packaged desktop build never sets MEZAN_SEED_DEMO and never passes
   // seedDemoData, but if some future caller does, it must be running a test
   // runner or have opted in explicitly by environment.
-  const optedIn = process.env.MEZAN_SEED_DEMO === "1";
   const underTest = process.env.VITEST === "true" || process.env.NODE_ENV === "test" || env === undefined;
   if (!optedIn && !underTest) {
     throw new Error(

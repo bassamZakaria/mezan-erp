@@ -14,6 +14,7 @@ import {
   run as reports,
   agingLaddersTieToTheirControlAccounts_D192,
   foreignInvoicesOnAccountReceiptsAndChequeVouchers_D194_D196,
+  foreignSettlementReportsAndReturns_D201_D203,
   everyPartyTiesItsOwedLadderAndStatement,
 } from "./scenarios/reports.js";
 import { run as salesParity } from "./scenarios/sales-parity.js";
@@ -47,6 +48,7 @@ if (!only.size || only.has("reports")) {
   const before = ctx.passes.length + ctx.failures.length;
   await agingLaddersTieToTheirControlAccounts_D192(ctx);
   await foreignInvoicesOnAccountReceiptsAndChequeVouchers_D194_D196(ctx);
+  await foreignSettlementReportsAndReturns_D201_D203(ctx);
   console.log(` ${ctx.passes.length + ctx.failures.length - before} assertions`);
 }
 

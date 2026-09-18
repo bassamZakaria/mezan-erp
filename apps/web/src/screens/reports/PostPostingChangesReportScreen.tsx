@@ -1,10 +1,12 @@
 import type { PostPostingChangeRowDTO } from "@mezan/contracts";
 import type { ReportRunnerColumn, ReportRunnerParamField } from "@mezan/ui";
-import { SecurityReportScreen } from "./SecurityReportScreen";
+import { SecurityReportScreen, securityCopy } from "./SecurityReportScreen";
 import { useAppTranslation } from "../../i18n";
 import { monthStartIso, todayIso } from "../../lib/dates";
 
 /** تقرير التعديلات بعد الترحيل — `/security-reports/post-posting-changes` (P-4). */
+
+const REPORT = "postPosting" as const;
 
 const CHANGE_TYPES = ["", "VOID", "REVERSE", "PERIOD_REOPENED", "NUMBERING_ADJUSTED"] as const;
 
@@ -27,18 +29,23 @@ export function PostPostingChangesReportScreen() {
   ];
 
   const columns: ReportRunnerColumn<PostPostingChangeRowDTO>[] = [
-    { key: "timestamp", header: t("securityReports.timestamp"), value: (r) => r.timestamp },
-    { key: "actor", header: t("securityReports.actor"), value: (r) => r.actor },
-    { key: "changeTypeLabelAr", header: t("securityReports.changeType"), value: (r) => r.changeTypeLabelAr },
-    { key: "entityType", header: t("securityReports.entityType"), value: (r) => r.entityType },
-    { key: "docNo", header: t("securityReports.docNo"), value: (r) => r.docNo },
-    { key: "reversalId", header: t("securityReports.reversalId"), value: (r) => r.reversalId },
-    { key: "reason", header: t("securityReports.reason"), value: (r) => r.reason },
-    { key: "branchId", header: t("securityReports.branch"), value: (r) => r.branchId },
+    { key: "timestamp", header: securityCopy(REPORT, "col", "timestamp", "التاريخ والوقت", t), value: (r) => r.timestamp },
+    { key: "actor", header: securityCopy(REPORT, "col", "actor", "المستخدم", t), value: (r) => r.actor },
+    {
+      key: "changeTypeLabelAr",
+      header: securityCopy(REPORT, "col", "changeTypeLabelAr", "نوع التعديل", t),
+      value: (r) => r.changeTypeLabelAr,
+    },
+    { key: "entityType", header: securityCopy(REPORT, "col", "entityType", "نوع المستند", t), value: (r) => r.entityType },
+    { key: "docNo", header: securityCopy(REPORT, "col", "docNo", "رقم المستند", t), value: (r) => r.docNo },
+    { key: "reversalId", header: securityCopy(REPORT, "col", "reversalId", "مستند العكس", t), value: (r) => r.reversalId },
+    { key: "reason", header: securityCopy(REPORT, "col", "reason", "السبب", t), value: (r) => r.reason },
+    { key: "branchId", header: securityCopy(REPORT, "col", "branchId", "الفرع", t), value: (r) => r.branchId },
   ];
 
   return (
     <SecurityReportScreen<PostPostingChangeRowDTO>
+      report={REPORT}
       reportId="security.post_posting_changes"
       apiPath="/post-posting-changes"
       title={t("securityReports.postPostingTitle")}

@@ -1,12 +1,18 @@
-import type { AfterHoursRowDTO, WorkingHoursDTO } from "@mezan/contracts";
+import { auditStreamSchema, type AfterHoursRowDTO, type WorkingHoursDTO } from "@mezan/contracts";
 import type { ReportRunnerColumn, ReportRunnerParamField } from "@mezan/ui";
-import { SecurityReportScreen, type SecurityReportResult } from "./SecurityReportScreen";
-import { useAppTranslation } from "../../i18n";
+import { SecurityReportScreen, securityCopy, type SecurityReportResult } from "./SecurityReportScreen";
+import { useAppTranslation, type AppTranslationKey } from "../../i18n";
 import { monthStartIso, todayIso } from "../../lib/dates";
 
 /** نشاط خارج أوقات العمل — `/security-reports/after-hours` (P-4). */
 
-const STREAMS = ["", "security", "financial", "operational", "admin"] as const;
+const REPORT = "afterHours" as const;
+
+const STREAMS = ["", ...auditStreamSchema.options] as const;
+const STREAM_LABEL_KEY: Record<(typeof auditStreamSchema.options)[number], AppTranslationKey> = {
+  security: "audit.securityEvents",
+  sensitive: "audit.sensitiveOperations",
+};
 const SEVERITIES = ["", "INFO", "WARNING", "ERROR", "CRITICAL"] as const;
 
 export function AfterHoursReportScreen() {
@@ -19,7 +25,10 @@ export function AfterHoursReportScreen() {
       kind: "select",
       key: "stream",
       label: t("securityReports.stream"),
-      options: STREAMS.map((value) => ({ value, label: value === "" ? t("securityReports.anyStream") : value })),
+      options: STREAMS.map((value) => ({
+        value,
+        label: value === "" ? t("securityReports.anyStream") : t(STREAM_LABEL_KEY[value]),
+      })),
     },
     {
       kind: "select",
@@ -33,19 +42,24 @@ export function AfterHoursReportScreen() {
   ];
 
   const columns: ReportRunnerColumn<AfterHoursRowDTO>[] = [
-    { key: "localDate", header: t("securityReports.date"), format: "date", value: (r) => r.localDate },
-    { key: "localTime", header: t("securityReports.time"), value: (r) => r.localTime },
-    { key: "weekdayLabelAr", header: t("securityReports.weekday"), value: (r) => r.weekdayLabelAr },
-    { key: "outsideReasonLabelAr", header: t("securityReports.outsideReason"), value: (r) => r.outsideReasonLabelAr },
-    { key: "actor", header: t("securityReports.actor"), value: (r) => r.actor },
-    { key: "action", header: t("securityReports.action"), value: (r) => r.action },
-    { key: "entityType", header: t("securityReports.entityType"), value: (r) => r.entityType },
-    { key: "entityId", header: t("securityReports.reference"), value: (r) => r.entityId },
-    { key: "branchId", header: t("securityReports.branch"), value: (r) => r.branchId },
+    { key: "localDate", header: securityCopy(REPORT, "col", "localDate", "التاريخ", t), format: "date", value: (r) => r.localDate },
+    { key: "localTime", header: securityCopy(REPORT, "col", "localTime", "الوقت", t), value: (r) => r.localTime },
+    { key: "weekdayLabelAr", header: securityCopy(REPORT, "col", "weekdayLabelAr", "اليوم", t), value: (r) => r.weekdayLabelAr },
+    {
+      key: "outsideReasonLabelAr",
+      header: securityCopy(REPORT, "col", "outsideReasonLabelAr", "سبب الاستثناء", t),
+      value: (r) => r.outsideReasonLabelAr,
+    },
+    { key: "actor", header: securityCopy(REPORT, "col", "actor", "المستخدم", t), value: (r) => r.actor },
+    { key: "action", header: securityCopy(REPORT, "col", "action", "الإجراء", t), value: (r) => r.action },
+    { key: "entityType", header: securityCopy(REPORT, "col", "entityType", "النوع", t), value: (r) => r.entityType },
+    { key: "entityId", header: securityCopy(REPORT, "col", "entityId", "المرجع", t), value: (r) => r.entityId },
+    { key: "branchId", header: securityCopy(REPORT, "col", "branchId", "الفرع", t), value: (r) => r.branchId },
   ];
 
   return (
     <SecurityReportScreen<AfterHoursRowDTO>
+      report={REPORT}
       reportId="security.after_hours"
       apiPath="/after-hours"
       title={t("securityReports.afterHoursTitle")}

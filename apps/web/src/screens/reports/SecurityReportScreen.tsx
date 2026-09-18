@@ -2,7 +2,27 @@ import { useState, type ReactNode } from "react";
 import { ReportRunner, type ReportRunnerColumn, type ReportRunnerParamField } from "@mezan/ui";
 import type { ReportCoverageDTO, ReportGapDTO } from "@mezan/contracts";
 import { useReport } from "../../data/reports-hooks";
-import { useAppTranslation } from "../../i18n";
+import { useAppTranslation, type AppTranslationKey } from "../../i18n";
+import { tryReportLabel } from "../../report-labels";
+
+/** One of the four exception reports this shell renders, keyed the way `securityReports.<report>.*` i18n keys are. */
+export type SecurityReportKey = "exceptions" | "postPosting" | "afterHours" | "newAccounts";
+
+/**
+ * Overlays the server's raw `labelAr` (KPI, gap, gap-detail and column labels
+ * all arrive this way) with the catalogue's English pair, keyed by
+ * `securityReports.<report>.<kind>.<key>`. A key the catalogue lacks falls back
+ * to the server's Arabic rather than leaking a raw i18n key.
+ */
+export function securityCopy(
+  report: SecurityReportKey,
+  kind: "col" | "kpi" | "gap" | "gapDetail",
+  key: string,
+  fallbackAr: string,
+  t: (key: AppTranslationKey) => string,
+): string {
+  return tryReportLabel(`securityReports.${report}.${kind}.${key}`, fallbackAr, t);
+}
 
 /**
  * تقارير الرقابة — the shell the four exception reports render through (P-4).
@@ -32,6 +52,7 @@ export interface SecurityReportResult<Row> {
 }
 
 export interface SecurityReportScreenProps<Row> {
+  readonly report: SecurityReportKey;
   readonly reportId: string;
   readonly apiPath: string;
   readonly title: string;
@@ -45,6 +66,7 @@ export interface SecurityReportScreenProps<Row> {
 }
 
 export function SecurityReportScreen<Row>({
+  report,
   reportId,
   apiPath,
   title,
@@ -71,7 +93,7 @@ export function SecurityReportScreen<Row>({
             ? {
                 kpis: raw.kpis.map((k) => ({
                   key: k.key,
-                  label: k.labelAr,
+                  label: securityCopy(report, "kpi", k.key, k.labelAr, t),
                   value: k.value,
                   format: "qty" as const,
                   tone: k.tone === "danger" ? ("danger" as const) : ("default" as const),
@@ -116,9 +138,9 @@ export function SecurityReportScreen<Row>({
               <ul className="grid gap-[4px] text-ink-muted">
                 {gaps.map((gap) => (
                   <li key={gap.key}>
-                    <span className="font-semibold text-ink">{gap.labelAr}</span>
+                    <span className="font-semibold text-ink">{securityCopy(report, "gap", gap.key, gap.labelAr, t)}</span>
                     {" — "}
-                    {gap.detailAr}
+                    {securityCopy(report, "gapDetail", gap.key, gap.detailAr, t)}
                   </li>
                 ))}
               </ul>

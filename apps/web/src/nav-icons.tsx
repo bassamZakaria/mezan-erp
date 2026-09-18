@@ -262,6 +262,10 @@ const navItemIcons: Readonly<Record<string, LucideIcon>> = {
   "report-installments-overdue": AlarmClock,
   "report-van-sales": MapPin,
   "report-make-vs-buy": Split,
+  "report-security-exceptions": ShieldAlert,
+  "report-post-posting-changes": FileWarning,
+  "report-after-hours": MoonStar,
+  "report-new-accounts": UserPlus,
 
   "settings-general": Settings,
   "settings-branches": GitBranch,
@@ -276,10 +280,6 @@ const navItemIcons: Readonly<Record<string, LucideIcon>> = {
   "settings-barcode": Barcode,
   "settings-profile": CircleUser,
   audit: History,
-  "security-exceptions": ShieldAlert,
-  "security-post-posting-changes": FileWarning,
-  "security-after-hours": MoonStar,
-  "security-new-accounts": UserPlus,
   users: UserCog,
   roles: ShieldCheck,
 

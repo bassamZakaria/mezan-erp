@@ -45,20 +45,52 @@ async function createSupplier(page: Page, name: string): Promise<void> {
   await expect(form).toBeHidden();
 }
 
+/**
+ * DEFECT (documented and reproduced in items.spec.ts): ItemsScreen.tsx:304
+ * computes a new item's code client-side from the catalogue's current size
+ * and never re-derives it at submit time, so two clients creating an item
+ * around the same moment can be offered the identical code — one save is
+ * then refused with "Item code … already exists", surfacing whenever
+ * several copies of a test that creates an item run in parallel (e.g.
+ * --repeat-each). A bounded retry covers the common case without
+ * pretending a client-side fix exists.
+ */
 async function createItem(page: Page, name: string, salePrice: string, type: "stock" | "service"): Promise<void> {
   await clickSidebarItem(page, "الأصناف");
   await expect(page.getByRole("heading", { name: "الأصناف" })).toBeVisible();
-  await page.getByRole("button", { name: "إضافة صنف" }).first().click();
-  await expect(page.getByRole("heading", { name: "إضافة صنف", level: 1 })).toBeVisible();
-  if (type === "service") {
-    await page.getByRole("combobox", { name: "نوع الصنف" }).click();
-    await page.getByRole("option", { name: "خدمة" }).click();
+  const MAX_ATTEMPTS = 3;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
+    await page.getByRole("button", { name: "إضافة صنف" }).first().click();
+    await expect(page.getByRole("heading", { name: "إضافة صنف", level: 1 })).toBeVisible();
+    if (type === "service") {
+      await page.getByRole("combobox", { name: "نوع الصنف" }).click();
+      await page.getByRole("option", { name: "خدمة" }).click();
+    }
+    await page.getByLabel("اسم الصنف *").fill(name);
+    const price = page.getByLabel("سعر البيع");
+    await price.fill(salePrice);
+    await price.press("Tab");
+    await page.getByRole("button", { name: "إضافة", exact: true }).click();
+
+    // Poll for either outcome instead of racing a fixed timeout against the
+    // save — the ordinary case can legitimately take a few seconds.
+    const listHeading = page.getByRole("heading", { name: "الأصناف" });
+    const codeAlert = page.getByRole("alert").filter({ hasText: "already exists" });
+    let collided = false;
+    const deadline = Date.now() + 10_000;
+    while (Date.now() < deadline) {
+      if (await listHeading.isVisible().catch(() => false)) return;
+      if (await codeAlert.isVisible().catch(() => false)) {
+        collided = true;
+        break;
+      }
+      await page.waitForTimeout(200);
+    }
+    if (!collided) break; // neither happened — let the final assertion report the real error.
+    if (attempt === MAX_ATTEMPTS) break;
+    await page.getByRole("button", { name: "رجوع إلى الأصناف" }).click();
+    await expect(page.getByRole("heading", { name: "الأصناف" })).toBeVisible();
   }
-  await page.getByLabel("اسم الصنف *").fill(name);
-  const price = page.getByLabel("سعر البيع");
-  await price.fill(salePrice);
-  await price.press("Tab");
-  await page.getByRole("button", { name: "إضافة", exact: true }).click();
   await expect(page.getByRole("heading", { name: "الأصناف" })).toBeVisible();
 }
 
@@ -70,6 +102,29 @@ async function chooseCombo(page: Page, comboLabel: string, optionName: string | 
 
 function uniqueRow(page: Page, text: string): Locator {
   return page.locator("table tbody tr").filter({ hasText: text });
+}
+
+/**
+ * `clickSidebarItem` right after a breadcrumb "رجوع" navigation is a real,
+ * reproducible race — the «كل الشاشات» click occasionally lands while the
+ * previous view is still settling and the target screen never opens, with
+ * nothing throwing (the click itself succeeds; it's just clicking too
+ * early). Retrying the click is what actually waits on the specific outcome
+ * instead of a fixed delay (see purchase-chain.spec.ts for the same finding).
+ */
+async function gotoScreen(page: Page, sidebarLabel: string, headingName: string): Promise<void> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await clickSidebarItem(page, sidebarLabel);
+    if (
+      await page
+        .getByRole("heading", { name: headingName })
+        .isVisible({ timeout: 5_000 })
+        .catch(() => false)
+    ) {
+      return;
+    }
+  }
+  await expect(page.getByRole("heading", { name: headingName })).toBeVisible();
 }
 
 /** Creates + confirms a PO → GRN → Purchase Invoice chain, returning the confirmed invoice's number (e.g. "PI-000042"). */
@@ -92,10 +147,12 @@ async function createConfirmedPurchaseInvoice(page: Page, supplierName: string, 
   await row.click();
   await page.getByRole("button", { name: "تأكيد وإرسال" }).click();
   await expect(page.getByText("مرسل").first()).toBeVisible();
+  await expect(page.getByRole("button", { name: "تأكيد وإرسال" })).toHaveCount(0);
   await page.getByRole("button", { name: "رجوع إلى أوامر الشراء" }).click();
+  // Wait for the list to actually settle before navigating again.
+  await expect(page.getByRole("heading", { name: "أوامر الشراء" })).toBeVisible();
 
-  await clickSidebarItem(page, "استلام البضائع");
-  await expect(page.getByRole("heading", { name: "إيصالات الاستلام" })).toBeVisible();
+  await gotoScreen(page, "استلام البضائع", "إيصالات الاستلام");
   await page.getByRole("button", { name: "إيصال استلام جديد" }).first().click();
   await expect(page.getByRole("heading", { name: "إيصال استلام جديد", level: 1 })).toBeVisible();
   await page.getByRole("button", { name: "متابعة" }).click();
@@ -111,9 +168,9 @@ async function createConfirmedPurchaseInvoice(page: Page, supplierName: string, 
   await page.getByRole("button", { name: "تأكيد الاستلام" }).click();
   await expect(page.getByText(/تمت زيادة كمية المخزون/)).toBeVisible();
   await page.getByRole("button", { name: "رجوع إلى استلام البضائع" }).click();
+  await expect(page.getByRole("heading", { name: "إيصالات الاستلام" })).toBeVisible();
 
-  await clickSidebarItem(page, "فواتير المشتريات");
-  await expect(page.getByRole("heading", { name: "فواتير المشتريات" })).toBeVisible();
+  await gotoScreen(page, "فواتير المشتريات", "فواتير المشتريات");
   await page.getByRole("button", { name: "فاتورة مشتريات جديدة" }).first().click();
   await expect(page.getByRole("heading", { name: "فاتورة مشتريات جديدة", level: 1 })).toBeVisible();
   await page.getByRole("button", { name: /^من إيصال استلام/ }).click();
@@ -154,6 +211,12 @@ async function createConfirmedSalesInvoice(page: Page, customerName: string, ite
   const docNo = (await row.locator("td").first().locator(".mz-num").first().innerText()).trim();
   return docNo;
 }
+
+// Both describes below create an item with a client-assigned code, which is
+// unsafe under concurrent creation (a real app defect — see items.spec.ts's
+// file header and its dedicated test.fail). Serial (applied file-wide, since
+// each describe only holds one test) keeps them from racing each other.
+test.describe.configure({ mode: "serial" });
 
 test.describe("Sales Returns", () => {
   test.beforeEach(async ({ page }) => {
@@ -197,8 +260,7 @@ test.describe("Purchase Returns", () => {
     await createItem(page, itemName, "50", "stock");
     const piNumber = await createConfirmedPurchaseInvoice(page, supplierName, itemName);
 
-    await clickSidebarItem(page, "مرتجعات المشتريات");
-    await expect(page.getByRole("heading", { name: "مرتجعات المشتريات" })).toBeVisible();
+    await gotoScreen(page, "مرتجعات المشتريات", "مرتجعات المشتريات");
     await page.getByRole("button", { name: "مرتجع جديد" }).first().click();
     // Create is a full sub-PAGE (h1 "مرتجع مشتريات جديد"), not a dialog.
     await expect(page.getByRole("heading", { name: "مرتجع مشتريات جديد", level: 1 })).toBeVisible();
@@ -219,7 +281,12 @@ test.describe("Purchase Returns", () => {
     await page.getByPlaceholder("بحث بالاسم أو الكود...").fill(itemName);
     await page.locator("table tbody tr").filter({ hasText: itemName }).click();
     await page.getByRole("tab", { name: "المخزون" }).click();
-    // Received 20, returned 3 — 17 should remain on hand.
-    await expect(page.getByRole("tabpanel").getByText(/17/).first()).toBeVisible();
+    // Received 20, returned 3 — 17 should remain on hand. Scoped to the
+    // stock table's own "الرصيد" (on-hand) column rather than a bare /17/
+    // text search — a loose substring match can just as easily land on an
+    // unrelated "17" elsewhere on the page (a date, a price, a code).
+    const stockRow = page.getByRole("tabpanel").locator("tbody tr");
+    await expect(stockRow).toHaveCount(1);
+    await expect(stockRow.locator("td").nth(1)).toHaveText("17");
   });
 });

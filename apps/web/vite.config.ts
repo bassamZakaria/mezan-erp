@@ -6,6 +6,9 @@ import react from "@vitejs/plugin-react";
  * apps/server (run it with `pnpm server`; e2e starts it automatically). Electron
  * bypasses this entirely via `window.mezan.fetch` → `app.fetch`. Override the
  * target with MEZAN_API_URL.
+ *
+ * No path rewrite: apps/server mounts every route under `/api`, so stripping the
+ * prefix sends each call to the SPA fallback and the client parses HTML as JSON.
  */
 const apiTarget = process.env.MEZAN_API_URL ?? "http://127.0.0.1:3000";
 
@@ -28,7 +31,6 @@ export default defineConfig({
       "/api": {
         target: apiTarget,
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api/, ""),
       },
     },
   },

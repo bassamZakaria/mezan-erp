@@ -19,7 +19,8 @@ import { PayslipPrintPage } from "../print/PayslipPrintPage";
 import { HrProvisionsPanel } from "./HrProvisionsPanel";
 import { useUnverifiedStatutoryCodes } from "../data/hr-payroll-hooks";
 import { NumberField, SelectField } from "../settings/form-controls";
-import { ApiError, useBranches, useEmployees, useTreasuryAccounts } from "../data/hooks";
+import { ApiError, useBranches, useEmployees, useJournalEntry, useTreasuryAccounts } from "../data/hooks";
+import { useNavigation } from "../navigation";
 import {
   useApprovePayrollRun,
   useCalculatePayrollRun,
@@ -66,6 +67,26 @@ const LINE_KIND_KEY = {
 } as const;
 
 const PAGE_SIZES = [10, 25, 50, 100] as const;
+
+/** The run's posted entry by its human number (JE-…), opening it in the journal register. */
+function PayrollJournalRef({ journalEntryId }: { journalEntryId: string }) {
+  const { t } = useAppTranslation();
+  const { openScreenAt } = useNavigation();
+  const entry = useJournalEntry(journalEntryId);
+  if (!entry.data) {
+    return <span className="text-ink-muted">{entry.isError ? "—" : t("common.loading")}</span>;
+  }
+  const entryNo = entry.data.entryNo ?? entry.data.id;
+  return (
+    <button
+      type="button"
+      className="mz-num text-[12.5px] font-semibold text-brand underline"
+      onClick={() => openScreenAt("journals", [entryNo])}
+    >
+      {entryNo}
+    </button>
+  );
+}
 
 /** Which caveat the net carries depends on how THIS run was computed, not on today's switch. */
 function NetPayQualifierBadge({ statutory }: { statutory: boolean }) {
@@ -382,7 +403,9 @@ export function PayrollRunsScreen() {
               </div>
               <div className="p-[13px_15px]">
                 <div className="text-[11px] font-semibold text-ink-faint">{t("payroll.journalEntry")}</div>
-                <div className="mz-num mt-[5px] text-[12.5px] text-ink">{detail.journalEntryId ?? "—"}</div>
+                <div className="mt-[5px] text-[12.5px] text-ink">
+                  {detail.journalEntryId ? <PayrollJournalRef journalEntryId={detail.journalEntryId} /> : "—"}
+                </div>
               </div>
             </Card>
 

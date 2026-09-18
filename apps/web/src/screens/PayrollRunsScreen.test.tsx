@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { screen, fireEvent, within, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { BranchDTO, EmployeeDTO, PayrollRunDetailDTO, PayrollRunDTO, TreasuryAccountDTO } from "@mezan/contracts";
 import { PayrollRunsScreen } from "./PayrollRunsScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
+import { NavigationProvider } from "../navigation";
 
 // jsdom has no layout engine and does not implement scrollIntoView; the
 // dropdown menu (Select) calls it when the active option changes.
@@ -132,10 +133,13 @@ function renderScreen(runs: PayrollRunDTO[] = [run()]) {
     "POST /hr/payroll/runs/*/approve": (_init, path) => {
       const id = path.split("/")[4]!;
       current = current.map((r) => (r.id === id ? { ...r, status: "approved" } : r));
-      const detail = { ...details.get(id)!, status: "approved" as const, journalEntryId: "je-1" };
+      const detail = { ...details.get(id)!, status: "approved" as const, journalEntryId: `PAYROLL-JE:${id}` };
       details.set(id, detail);
       return { body: current.find((r) => r.id === id)! };
     },
+    "GET /gl/journal-entries/*": (_init, path) => ({
+      body: { id: decodeURIComponent(path.split("/").pop()!), entryNo: "JE-000321", date: "2026-08-31", status: "posted", lines: [] },
+    }),
     "POST /hr/payroll/runs/*/disburse": (init, path) => {
       disburseBody = JSON.parse((init?.body as string) ?? "{}");
       const id = path.split("/")[4]!;
@@ -152,8 +156,16 @@ function renderScreen(runs: PayrollRunDTO[] = [run()]) {
       return { body: current.find((r) => r.id === id)! };
     },
   });
-  const result = renderWithProviders(<PayrollRunsScreen />, { transport, initialSession: testAdminSession });
-  return { ...result, getCreatedBody: () => createdBody, getDisburseBody: () => disburseBody };
+  const openScreenAt = vi.fn();
+  const result = renderWithProviders(
+    <NavigationProvider
+      value={{ navigate: () => {}, segments: [], openSubPage: () => {}, openScreenAt, intent: null, clearIntent: () => {} }}
+    >
+      <PayrollRunsScreen />
+    </NavigationProvider>,
+    { transport, initialSession: testAdminSession },
+  );
+  return { ...result, openScreenAt, getCreatedBody: () => createdBody, getDisburseBody: () => disburseBody };
 }
 
 describe("PayrollRunsScreen", () => {
@@ -244,14 +256,18 @@ describe("PayrollRunsScreen", () => {
   });
 
   it("calculate → approve moves the run through its real lifecycle and posts the entry", async () => {
-    renderScreen();
+    const { openScreenAt } = renderScreen();
     fireEvent.click(await screen.findByText("PR-000001"));
     const dialog = screen.getByRole("dialog");
     fireEvent.click(await within(dialog).findByRole("button", { name: "احتساب الرواتب" }));
     await within(dialog).findByText("محتسب");
     fireEvent.click(within(dialog).getByRole("button", { name: "اعتماد وترحيل القيد" }));
     await within(dialog).findByText("معتمد");
-    expect(within(dialog).getByText("je-1")).toBeInTheDocument();
+    // The entry by its human number, linked to the journal — never the raw id.
+    const entryLink = await within(dialog).findByRole("button", { name: "JE-000321" });
+    expect(within(dialog).queryByText(/PAYROLL-JE:/)).not.toBeInTheDocument();
+    fireEvent.click(entryLink);
+    expect(openScreenAt).toHaveBeenCalledWith("journals", ["JE-000321"]);
   });
 
   it("cancel is only offered while draft/calculated, and works from the row menu", async () => {

@@ -7,15 +7,35 @@ import { clickSidebarItem } from "./support/nav";
  * each a thin apps/web/src/screens/reports/ReportScreen.tsx wrapper over
  * @mezan/ui's ReportRunner, hitting the REAL /reports/* API. None of these
  * (unlike ميزان المراجعة, already covered by e2e/trial-balance-report.spec.ts)
- * are `onDemand`, so they auto-run on mount — and since the seeded tenant
- * has zero sales/purchases/inventory/customer activity, every one of them
- * renders a genuine empty result (not a crash), which is exactly what this
- * suite checks alongside the shared param bar / export-button behaviour.
+ * are `onDemand`, so they auto-run on mount.
+ *
+ * The old fixture assumed a genuinely empty tenant, so every one of these
+ * reports rendered a genuine empty result. The demo seed
+ * (packages/backend/src/demo-seed*) carries real, non-trivial sales,
+ * purchases, inventory and customer-debt data — and its own dates are
+ * generated RELATIVE to whenever the seed actually runs (see
+ * `today()`/`addDays()` in demo-seed/treasury.ts), so hardcoding a literal
+ * date the old spec captured on one particular day breaks the moment the
+ * suite runs on another. Every date default below is computed the same way
+ * the report screens themselves compute it (SalesReportsScreens.tsx /
+ * PurchasesReportsScreens.tsx / AgingReportsScreens.tsx: month-to-date /
+ * as-of-today), and the "has real data" assertions check for the ABSENCE of
+ * the empty state and a non-zero row count rather than a specific figure
+ * that would drift with the same clock.
  *
  * There is no "financial statements" (income statement / balance sheet)
  * screen in this codebase yet — أرباح مراكز التكلفة (Cost Center P&L) is
  * the closest thing and already has its own spec (e2e/accounting-depth.spec.ts).
  */
+
+function isoToday(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function isoMonthStart(): string {
+  const today = isoToday();
+  return `${today.slice(0, 7)}-01`;
+}
 
 test.describe("Sales by Period", () => {
   test.beforeEach(async ({ page }) => {
@@ -24,17 +44,20 @@ test.describe("Sales by Period", () => {
     await expect(page.getByRole("heading", { name: "المبيعات حسب الفترة" })).toBeVisible();
   });
 
-  test("auto-runs with default month-to-date params and shows a genuine empty result", async ({ page }) => {
-    await expect(page.getByLabel("الفترة — من")).toHaveValue("2026-08-01");
-    await expect(page.getByLabel("الفترة — إلى")).toHaveValue("2026-08-30");
+  test("auto-runs with default month-to-date params and shows the seeded sales activity", async ({ page }) => {
+    await expect(page.getByLabel("الفترة — من")).toHaveValue(isoMonthStart());
+    await expect(page.getByLabel("الفترة — إلى")).toHaveValue(isoToday());
     // "التجميع" is the portaled `Select` combobox now, not a native <select>.
     await expect(page.getByRole("combobox", { name: "التجميع" })).toContainText("يومي");
 
     await expect(page.getByText("التاريخ", { exact: true })).toBeVisible(); // column header rendered
-    await expect(page.getByText("لا توجد بيانات لعرضها.")).toBeVisible();
+    // The demo seed carries real month-to-date sales activity now — not the
+    // empty tenant the old fixture assumed.
+    await expect(page.getByText("لا توجد بيانات لعرضها.")).toHaveCount(0);
+    await expect(page.locator("table tbody tr").first()).toBeVisible();
 
-    await expect(page.getByRole("button", { name: "تصدير CSV" })).toBeDisabled();
-    await expect(page.getByRole("button", { name: "تصدير Excel" })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "تصدير CSV" })).toBeEnabled();
+    await expect(page.getByRole("button", { name: "تصدير Excel" })).toBeEnabled();
   });
 
   test("an invalid (emptied) date silently fails — no field-level or page-level error is shown", async ({ page }) => {
@@ -58,11 +81,12 @@ test.describe("Purchases by Supplier", () => {
     await expect(page.getByRole("heading", { name: "المشتريات حسب المورد" })).toBeVisible();
   });
 
-  test("auto-runs and its export buttons stay disabled against zero rows", async ({ page }) => {
-    await expect(page.getByLabel("الفترة — من")).toHaveValue("2026-08-01");
-    await expect(page.getByLabel("الفترة — إلى")).toHaveValue("2026-08-30");
-    await expect(page.getByText("لا توجد بيانات لعرضها.")).toBeVisible();
-    await expect(page.getByRole("button", { name: "تصدير CSV" })).toBeDisabled();
+  test("auto-runs and its export buttons are enabled against the seeded purchase activity", async ({ page }) => {
+    await expect(page.getByLabel("الفترة — من")).toHaveValue(isoMonthStart());
+    await expect(page.getByLabel("الفترة — إلى")).toHaveValue(isoToday());
+    await expect(page.getByText("لا توجد بيانات لعرضها.")).toHaveCount(0);
+    await expect(page.locator("table tbody tr").first()).toBeVisible();
+    await expect(page.getByRole("button", { name: "تصدير CSV" })).toBeEnabled();
   });
 });
 
@@ -73,7 +97,7 @@ test.describe("Inventory Valuation", () => {
     await expect(page.getByRole("heading", { name: "تقييم المخزون" })).toBeVisible();
   });
 
-  test("has free-text search/warehouse params (no dates) and renders empty against the seeded catalog", async ({ page }) => {
+  test("has free-text search/warehouse params (no dates) and renders the seeded catalog's real valuation", async ({ page }) => {
     // "بحث" is ambiguous with the column's own "بحث وأوامر (CtrlK)" trigger —
     // scope to the textbox role.
     const search = page.getByRole("textbox", { name: "بحث" });
@@ -81,12 +105,15 @@ test.describe("Inventory Valuation", () => {
     // Also ambiguous, with the shell's own "المستودع الحالي" scope switcher.
     await expect(page.getByRole("textbox", { name: "المستودع" })).toHaveValue("");
 
-    await expect(page.getByText("لا توجد بيانات لعرضها.")).toBeVisible();
+    // The seeded catalog carries real on-hand stock and WAC valuation now —
+    // not the empty tenant the old fixture assumed.
+    await expect(page.getByText("لا توجد بيانات لعرضها.")).toHaveCount(0);
+    await expect(page.locator("table tbody tr").first()).toBeVisible();
 
     const refetch = page.waitForResponse((r) => r.url().includes("/inventory/valuation"));
     await search.fill("لا يوجد صنف بهذا الاسم");
     await refetch;
-    await expect(page.getByText("لا توجد بيانات لعرضها.")).toBeVisible(); // still empty, still no crash
+    await expect(page.getByText("لا توجد بيانات لعرضها.")).toBeVisible(); // a real, no-match search IS genuinely empty
   });
 });
 
@@ -97,9 +124,26 @@ test.describe("Aging — Customers", () => {
     await expect(page.getByRole("heading", { name: "أعمار ديون العملاء" })).toBeVisible();
   });
 
-  test("has a single as-of-date param, defaulting to today, and renders empty with no customer debt", async ({ page }) => {
-    await expect(page.getByLabel("حتى تاريخ")).toHaveValue("2026-08-30");
-    await expect(page.getByText("لا توجد بيانات لعرضها.")).toBeVisible();
-    await expect(page.getByRole("button", { name: "تصدير Excel" })).toBeDisabled();
+  test("has a single as-of-date param, defaulting to today, and renders the seeded customer debt ladder", async ({ page }) => {
+    await expect(page.getByLabel("حتى تاريخ")).toHaveValue(isoToday());
+    await expect(page.getByText("لا توجد بيانات لعرضها.")).toHaveCount(0);
+    await expect(page.locator("table tbody tr").first()).toBeVisible();
+    await expect(page.getByRole("button", { name: "تصدير Excel" })).toBeEnabled();
+  });
+
+  // DEFECT: the report's own reconciliation banner (packages/domain/src/
+  // reports/aging-customers.ts's `reconciliation`) shows the aging ladder's
+  // total OFF from the AR control account balance by exactly 1,750.00 —
+  // the amount of CUST-DEMO-1's bounced cheque CHQ-DEMO-3
+  // (packages/backend/src/demo-seed/treasury.ts:299, deposited then bounced).
+  // The GL reinstates the receivable on the bounce; the aging ladder (built
+  // from invoices + `unappliedCreditsByCustomerId`) never re-applies it
+  // against an invoice, so the two "independent paths to one number" the
+  // report's own doc comment describes disagree. Confirmed via
+  // GET /api/reports/aging/customers: reportTotal 3,993,770.61 vs
+  // referenceTotal 3,992,020.61, diff 1,750, withinTolerance:false.
+  test.fail("the aging report's own reconciliation banner agrees with the AR control account", async ({ page }) => {
+    await expect(page.getByText("إجمالي أعمار الديون مقابل حساب العملاء في دفتر الأستاذ")).toBeVisible();
+    await expect(page.getByText(/^\(فرق/)).toHaveCount(0);
   });
 });

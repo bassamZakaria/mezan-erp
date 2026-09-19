@@ -4,6 +4,7 @@ import {
   detectSodConflicts,
   getSodConflictRule,
   SodConflictId,
+  WILDCARD_PERMISSION,
   type AuditEvent,
   type AuditQueryFilter,
   type AuditQueryPort,
@@ -1230,11 +1231,17 @@ export function createSecurityReportsRoutes(
         }
       }
 
+      // A company admin holds the wildcard exactly as surely as a role
+      // listing `"*"` does (`saveUser`/`authorityOf` treat the flag that way
+      // already), so it trips every rule below. Skipping `isCompanyAdmin`
+      // users here — the earlier version of this loop did, via `if
+      // (!user.roleId) continue` — made the single most powerful account in
+      // the tenant invisible to the one report built to find exactly that.
+      const wildcardConflicts = detectSodConflicts([WILDCARD_PERMISSION]);
       for (const user of allUsers) {
-        if (!user.roleId) continue;
-        const conflicts = roleConflicts.get(user.roleId);
+        const conflicts = user.isCompanyAdmin ? wildcardConflicts : user.roleId ? roleConflicts.get(user.roleId) : undefined;
         if (!conflicts || conflicts.length === 0) continue;
-        const role = allRoles.find((r) => r.id === user.roleId);
+        const role = user.roleId ? allRoles.find((r) => r.id === user.roleId) : undefined;
         for (const conflict of conflicts) {
           rows.push({
             rowKey: `user|${user.id}|${conflict.ruleId}`,

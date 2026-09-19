@@ -7,6 +7,7 @@ import {
   ungrantablePermissions,
   ungrantableScopes,
   detectSodConflicts,
+  WILDCARD_PERMISSION,
   type AccountAuthority,
   InvalidUserError,
   DuplicateUserEmailError,
@@ -279,9 +280,17 @@ export function createUsersRoutes(
     );
   }
 
-  async function sodConflictsOfRole(roleId: string | null): Promise<readonly SodConflictMatch[]> {
-    if (!roleId) return [];
-    const role = await uow.roles.findById(roleId);
+  /**
+   * `isCompanyAdmin` grants the wildcard just as surely as a role listing
+   * `"*"` does — `authorityOf` above already treats it that way for the
+   * outrank/escalation checks — so it is checked here too. Without this, the
+   * quickest way past every SoD gate in the product was the flag this route
+   * exists to set: `isCompanyAdmin: true`, no role, nothing to look up.
+   */
+  async function sodConflictsOfGrant(grant: { roleId: string | null; isCompanyAdmin: boolean }): Promise<readonly SodConflictMatch[]> {
+    if (grant.isCompanyAdmin) return detectSodConflicts([WILDCARD_PERMISSION]);
+    if (!grant.roleId) return [];
+    const role = await uow.roles.findById(grant.roleId);
     if (!role) return [];
     return detectSodConflicts(role.permissions);
   }
@@ -398,7 +407,7 @@ export function createUsersRoutes(
     }
     const escalation = await refuseIfEscalating(c, parsed.data, null);
     if (escalation) return escalation;
-    const conflicts = await sodConflictsOfRole(parsed.data.roleId);
+    const conflicts = await sodConflictsOfGrant(parsed.data);
     if (conflicts.length > 0 && !(parsed.data.acknowledge && parsed.data.reason)) {
       return refuseSodConflicts(c, conflicts);
     }
@@ -434,11 +443,13 @@ export function createUsersRoutes(
     if (outranked) return outranked;
     const escalation = await refuseIfEscalating(c, parsed.data, id);
     if (escalation) return escalation;
-    // The check runs only when the ROLE ASSIGNMENT itself is changing — an
-    // unrelated edit (phone number, branch scope) to an account already
-    // sitting in a conflicted seat must not re-block on every save of a
-    // decision nobody is making right now.
-    const conflicts = before.roleId !== parsed.data.roleId ? await sodConflictsOfRole(parsed.data.roleId) : [];
+    // The check runs only when the GRANT itself is changing — role OR the
+    // admin flag, since either one decides which side(s) of a rule this
+    // account reaches. An unrelated edit (phone number, branch scope) to an
+    // account already sitting in a conflicted seat must not re-block on every
+    // save of a decision nobody is making right now.
+    const grantChanged = before.roleId !== parsed.data.roleId || before.isCompanyAdmin !== parsed.data.isCompanyAdmin;
+    const conflicts = grantChanged ? await sodConflictsOfGrant(parsed.data) : [];
     if (conflicts.length > 0 && !(parsed.data.acknowledge && parsed.data.reason)) {
       return refuseSodConflicts(c, conflicts);
     }

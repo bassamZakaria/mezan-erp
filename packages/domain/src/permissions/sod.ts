@@ -10,6 +10,7 @@
  * `GET /security-reports/sod`.
  */
 
+import { WILDCARD_PERMISSION } from "./catalog.js";
 import { resolvePermissions } from "./resolve.js";
 
 export enum SodConflictId {
@@ -233,10 +234,18 @@ export interface SodConflictMatch {
  */
 export function detectSodConflicts(granted: Iterable<string>): readonly SodConflictMatch[] {
   const resolved = resolvePermissions(granted);
+  // The wildcard is not one more code to match against `sideA`/`sideB` — it
+  // IS every code, including both sides of every rule below. Without this,
+  // `resolvePermissions(["*"])` resolves to the single-element set `{"*"}`
+  // (see resolve.ts), so a role or an `isCompanyAdmin` grant — literally one
+  // person holding every permission — read as conflict-free everywhere this
+  // function is called, which is the exact concentration of power ENH-051
+  // exists to surface.
+  const hasWildcard = resolved.has(WILDCARD_PERMISSION);
   const out: SodConflictMatch[] = [];
   for (const rule of SOD_CONFLICT_RULES) {
-    const matchedA = rule.sideA.filter((code) => resolved.has(code));
-    const matchedB = rule.sideB.filter((code) => resolved.has(code));
+    const matchedA = hasWildcard ? rule.sideA : rule.sideA.filter((code) => resolved.has(code));
+    const matchedB = hasWildcard ? rule.sideB : rule.sideB.filter((code) => resolved.has(code));
     if (matchedA.length > 0 && matchedB.length > 0) {
       out.push({
         ruleId: rule.id,

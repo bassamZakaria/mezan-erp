@@ -13,7 +13,7 @@ import {
   type EntityPickerOption,
   type PillTone,
 } from "@mezan/ui";
-import { ALL_SCOPE, detectSodConflicts, type ScopeSelection, type SodConflictMatch } from "@mezan/domain";
+import { ALL_SCOPE, detectSodConflicts, WILDCARD_PERMISSION, type ScopeSelection, type SodConflictMatch } from "@mezan/domain";
 import type { RoleDTO, ScopeSelectionDTO, UserDTO, UserStatusDTO } from "@mezan/contracts";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { useUrlParam } from "../lib/url-state";
@@ -127,9 +127,15 @@ export function UsersPage({ users, roles, branches, warehouses, employees, onSav
 
   const roleById = useMemo(() => new Map(roles.map((r) => [r.id, r])), [roles]);
 
-  /** ENH-051 — live, as a role is picked: the same rule set the server enforces. */
+  /**
+   * ENH-051 — live, as a role is picked: the same rule set the server
+   * enforces. Company-admin is checked too — it grants the wildcard exactly
+   * as a role listing `"*"` would, so it is the single largest conflict this
+   * screen can create, not an exemption from the check.
+   */
   const sodConflicts: readonly SodConflictMatch[] = useMemo(() => {
-    if (draft.isCompanyAdmin || !draft.roleId) return [];
+    if (draft.isCompanyAdmin) return detectSodConflicts([WILDCARD_PERMISSION]);
+    if (!draft.roleId) return [];
     const role = roleById.get(draft.roleId);
     return role ? detectSodConflicts(role.permissions) : [];
   }, [draft.isCompanyAdmin, draft.roleId, roleById]);
@@ -358,7 +364,15 @@ export function UsersPage({ users, roles, branches, warehouses, employees, onSav
             <div className="rounded-md border border-border bg-surface px-[12px] py-[10px]">
               <Checkbox
                 checked={draft.isCompanyAdmin}
-                onChange={(e) => setDraft((d) => ({ ...d, isCompanyAdmin: e.target.checked, roleId: e.target.checked ? null : d.roleId }))}
+                onChange={(e) =>
+                  setDraft((d) => ({
+                    ...d,
+                    isCompanyAdmin: e.target.checked,
+                    roleId: e.target.checked ? null : d.roleId,
+                    sodAcknowledge: false,
+                    sodReason: "",
+                  }))
+                }
                 label={
                   <>
                     <span className="block text-[12.5px] font-semibold text-ink">{t("users.companyAdministratorRights")}</span>

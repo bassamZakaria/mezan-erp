@@ -21,6 +21,7 @@ export const ATTACHMENT_ENTITY_TYPES = [
   "stock-transfer",
   "work-order",
   "voucher",
+  "attendance",
 ] as const;
 
 export type AttachmentEntityType = (typeof ATTACHMENT_ENTITY_TYPES)[number];

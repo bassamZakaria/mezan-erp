@@ -172,6 +172,7 @@ export type {
   EmployeeAdvanceStatus,
   EmployeeAdvanceStatusDefinition,
   AdvanceInstallment,
+  AdvanceRepayment,
   CreateEmployeeAdvanceCommand,
 } from "./advance.js";
 export {
@@ -191,6 +192,7 @@ export {
   installmentsDue,
   amountDueBy,
   applyAdvanceRecovery,
+  applyManualAdvanceRepayment,
 } from "./advance.js";
 
 export type {
@@ -264,8 +266,10 @@ export type {
   DisbursementInput,
   DisburseAdvanceDeps,
   DisbursePayrollRunDeps,
+  AdvanceRepaymentInput,
+  RepayAdvanceDeps,
 } from "./hr-disbursement.js";
-export { disburseEmployeeAdvance, disbursePayrollRun } from "./hr-disbursement.js";
+export { disburseEmployeeAdvance, disbursePayrollRun, repayEmployeeAdvance } from "./hr-disbursement.js";
 
 export {
   DepartmentNotFoundError,
@@ -314,6 +318,10 @@ export {
   InvalidPayrollComponentError,
   PayrollComponentNotFoundError,
   DuplicatePayrollComponentError,
+  DuplicateDeviceBadgeError,
+  AdvanceRepaymentExceedsOutstandingError,
+  InvalidAdvanceRepaymentError,
+  PendingAdvanceExistsError,
 } from "./errors.js";
 
 export type {
@@ -411,3 +419,15 @@ export { HR_PROVISION_DEFINITIONS, getHrProvisionDefinition, hrProvisionMovement
 
 export type { PayrollStatutoryFlag, PayrollStatutoryFlagRepository } from "./statutory-flag.js";
 export { PAYROLL_STATUTORY_FLAG_CODE, DEFAULT_PAYROLL_STATUTORY_FLAG } from "./statutory-flag.js";
+
+export type { ClockCredential, ClockCredentialRepository, ClockPunchPlan, TenantClockReading } from "./self-service.js";
+export {
+  SelfClockAction,
+  ClockRefusalCode,
+  ClockPunchRefusedError,
+  SELFIE_MIME_TYPES,
+  assertMayClock,
+  planClockPunch,
+  selfieBytesMatchMime,
+} from "./self-service.js";
+export { assertDeviceBadgeAvailable, normalizeDeviceBadgeId } from "./device-badge.js";

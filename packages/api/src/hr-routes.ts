@@ -61,6 +61,13 @@ import {
   type LeaveRequestRepository,
   type LeaveType,
   type UserRepository,
+  type AttachmentRepository,
+  type ClockCredentialRepository,
+  type PrintTemplateConfigRepository,
+  type SettingsRepository,
+  DuplicateDeviceBadgeError,
+  assertDeviceBadgeAvailable,
+  normalizeDeviceBadgeId,
 } from "@mezan/domain";
 import {
   createDepartmentSchema,
@@ -79,6 +86,7 @@ import {
 import { createPermissionGate, getAuthContext, type AuthContextResolver, branchScopeOf, withinScope } from "./permission-gate.js";
 import { createHrTimeLeaveRoutes, type HrTimeLeaveRoutesDeps } from "./hr-time-leave-routes.js";
 import { createHrPayrollRoutes, type HrPayrollRoutesDeps } from "./hr-payroll-routes.js";
+import { createHrSelfRoutes } from "./hr-self-routes.js";
 
 /**
  * The hr/time-leave stores are OPTIONAL here so the composition root can adopt
@@ -117,6 +125,11 @@ export interface HrRoutesDeps extends Partial<HrTimeLeaveDeps> {
   readonly users: Pick<UserRepository, "findById">;
   /** Same shape as `NextNumberService.next(code)` (`packages/domain/src/numbering`) — the SQLite-backed engine slots straight in. */
   readonly numbering: { next(code: string): Promise<{ readonly formatted: string }> };
+  /** Self-service (/hr/self): the web clock's device credentials, its selfie store, and the letterhead a printed payslip needs. */
+  readonly clockCredentials?: ClockCredentialRepository;
+  readonly attachments?: AttachmentRepository;
+  readonly printTemplates?: Pick<PrintTemplateConfigRepository, "get">;
+  readonly tenantSettings?: Pick<SettingsRepository, "get">;
 }
 
 function serializeDepartment(d: Department) {
@@ -252,6 +265,9 @@ function withMessageEn(err: { readonly code: string; readonly message: string; r
 }
 
 function handleDomainError(c: Context, err: unknown): Response {
+  if (err instanceof DuplicateDeviceBadgeError) {
+    return c.json(withMessageEn(err), 409);
+  }
   if (
     err instanceof DepartmentNotFoundError ||
     err instanceof JobTitleNotFoundError ||
@@ -485,9 +501,11 @@ export function createHrRoutes(deps: HrRoutesDeps, resolveAuthContext: AuthConte
     const parsed = createEmployeeSchema.safeParse(await c.req.json());
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     try {
+      const deviceBadgeId = normalizeDeviceBadgeId(parsed.data.deviceBadgeId);
+      assertDeviceBadgeAvailable(deviceBadgeId, null, await deps.employees.list());
       const id = parsed.data.id ?? randomUUID();
       const code = (await deps.numbering.next("EMPLOYEE")).formatted;
-      const employee = await createEmployee({ ...parsed.data, id, code }, deps.employees);
+      const employee = await createEmployee({ ...parsed.data, deviceBadgeId, id, code }, deps.employees);
       return c.json(serializeEmployee(employee), 201);
     } catch (err) {
       return handleDomainError(c, err);
@@ -500,7 +518,9 @@ export function createHrRoutes(deps: HrRoutesDeps, resolveAuthContext: AuthConte
     const parsed = updateEmployeeSchema.safeParse(await c.req.json());
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     try {
-      const next = updateEmployee(current, parsed.data);
+      const patch = parsed.data.deviceBadgeId === undefined ? parsed.data : { ...parsed.data, deviceBadgeId: normalizeDeviceBadgeId(parsed.data.deviceBadgeId) };
+      if (patch.deviceBadgeId !== undefined) assertDeviceBadgeAvailable(patch.deviceBadgeId, current.id, await deps.employees.list());
+      const next = updateEmployee(current, patch);
       await deps.employees.update(next);
       return c.json(serializeEmployee(next));
     } catch (err) {
@@ -724,7 +744,7 @@ export function createHrRoutes(deps: HrRoutesDeps, resolveAuthContext: AuthConte
 
   // --- Leave Requests (إجازاتي — My Leave self-service) ---------------------
 
-  app.get("/leave-requests/me", gate("hr.leave.view"), async (c) => {
+  app.get("/leave-requests/me", gate("hr.self.leave"), async (c) => {
     const employeeId = await resolveCallerEmployeeId(c, deps);
     if (!employeeId) return c.json({ employeeId: null, requests: [] });
     const requests = await deps.leaveRequests.listByEmployeeId(employeeId);
@@ -796,6 +816,32 @@ export function createHrRoutes(deps: HrRoutesDeps, resolveAuthContext: AuthConte
   if (attendance && leavePolicies && leaveBalances && leaveAccrualBatches) {
     app.route("/", createHrTimeLeaveRoutes({ ...deps, attendance, leavePolicies, leaveBalances, leaveAccrualBatches }, resolveAuthContext));
   }
+
+  app.route(
+    "/",
+    createHrSelfRoutes(
+      {
+        users: deps.users,
+        employees: deps.employees,
+        departments: deps.departments,
+        jobTitles: deps.jobTitles,
+        holidays: deps.holidays,
+        leaveRequests: deps.leaveRequests,
+        numbering: deps.numbering,
+        attendance: deps.attendance,
+        leaveBalances: deps.leaveBalances,
+        advances: deps.payroll?.advances,
+        runs: deps.payroll?.runs,
+        payslips: deps.payroll?.payslips,
+        attachments: deps.attachments,
+        clockCredentials: deps.clockCredentials,
+        printTemplates: deps.printTemplates,
+        tenantSettings: deps.tenantSettings ?? deps.payroll?.settings,
+        audit: deps.audit ?? deps.payroll?.audit,
+      },
+      resolveAuthContext,
+    ),
+  );
 
   // --- Payroll runs, payslips and employee advances (mounted here so every
   // path stays under `/hr`) --------------------------------------------------

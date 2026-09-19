@@ -292,6 +292,7 @@ export {
   type SqlitePayslipRepositoryHandle,
   type SqlitePayrollComponentRepositoryHandle,
 } from "./hr-payroll-store.js";
+export { createSqliteClockCredentialRepository, type SqliteClockCredentialRepositoryHandle } from "./hr-self-store.js";
 export {
   createSqliteWritedownRunRepository,
   type SqliteWritedownRunRepositoryHandle,

@@ -1060,7 +1060,18 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     app.route("/crm", createCrmRoutes(options.crm, resolveAuth));
   }
   if (options.hr) {
-    app.route("/hr", createHrRoutes(options.hr, resolveAuth));
+    app.route(
+      "/hr",
+      createHrRoutes(
+        {
+          ...options.hr,
+          attachments: options.hr.attachments ?? options.attachments?.repo,
+          printTemplates: options.hr.printTemplates ?? options.printTemplateConfig?.repo,
+          tenantSettings: options.hr.tenantSettings ?? options.settingsStore,
+        },
+        resolveAuth,
+      ),
+    );
   }
   if (options.projects) {
     app.route("/projects", createProjectsRoutes(options.projects, resolveAuth));

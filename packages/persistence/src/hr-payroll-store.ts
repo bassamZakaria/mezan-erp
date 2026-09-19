@@ -3,6 +3,7 @@ import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-conne
 import {
   Money,
   type AdvanceInstallment,
+  type AdvanceRepayment,
   type EmployeeAdvance,
   type EmployeeAdvanceRepository,
   type EmployeeAdvanceStatus,
@@ -59,7 +60,8 @@ CREATE TABLE IF NOT EXISTS hr_employee_advance (
   disbursement_voucher_id     TEXT,
   disbursement_journal_entry_id TEXT,
   repaid_at                   TEXT,
-  created_at                  TEXT NOT NULL
+  created_at                  TEXT NOT NULL,
+  repayments_json             TEXT
 );
 `;
 
@@ -82,6 +84,31 @@ interface AdvanceRow {
   disbursement_journal_entry_id: string | null;
   repaid_at: string | null;
   created_at: string;
+  repayments_json: string | null;
+}
+
+interface SerializedRepayment {
+  id: string;
+  date: string;
+  amount: string;
+  paymentMethod: string;
+  treasuryAccountId: string;
+  voucherId: string;
+  voucherNo: string | null;
+  journalEntryId: string | null;
+  note: string | null;
+  recordedBy: string;
+  recordedAt: string;
+}
+
+function serializeRepayments(items: readonly AdvanceRepayment[] | undefined): string | null {
+  if (!items || items.length === 0) return null;
+  return JSON.stringify(items.map((r): SerializedRepayment => ({ ...r, amount: r.amount.scaled.toString() })));
+}
+
+function deserializeRepayments(json: string | null): AdvanceRepayment[] {
+  if (!json) return [];
+  return (JSON.parse(json) as SerializedRepayment[]).map((r) => ({ ...r, amount: Money.fromScaled(BigInt(r.amount)) }));
 }
 
 interface SerializedInstallment {
@@ -131,6 +158,7 @@ function toAdvance(row: AdvanceRow): EmployeeAdvance {
     disbursementJournalEntryId: row.disbursement_journal_entry_id,
     repaidAt: row.repaid_at,
     createdAt: row.created_at,
+    repayments: deserializeRepayments(row.repayments_json),
   };
 }
 
@@ -145,12 +173,12 @@ class SqliteEmployeeAdvanceRepository implements EmployeeAdvanceRepository {
       INSERT INTO hr_employee_advance (
         id, number, employee_id, amount, currency, installment_count, first_deduction_date, reason,
         installments_json, status, requested_at, decided_at, decided_by, disbursed_at,
-        disbursement_voucher_id, disbursement_journal_entry_id, repaid_at, created_at
+        disbursement_voucher_id, disbursement_journal_entry_id, repaid_at, created_at, repayments_json
       )
       VALUES (
         @id, @number, @employee_id, @amount, @currency, @installment_count, @first_deduction_date, @reason,
         @installments_json, @status, @requested_at, @decided_at, @decided_by, @disbursed_at,
-        @disbursement_voucher_id, @disbursement_journal_entry_id, @repaid_at, @created_at
+        @disbursement_voucher_id, @disbursement_journal_entry_id, @repaid_at, @created_at, @repayments_json
       )
       ON CONFLICT(id) DO UPDATE SET
         amount = excluded.amount,
@@ -165,7 +193,8 @@ class SqliteEmployeeAdvanceRepository implements EmployeeAdvanceRepository {
         disbursed_at = excluded.disbursed_at,
         disbursement_voucher_id = excluded.disbursement_voucher_id,
         disbursement_journal_entry_id = excluded.disbursement_journal_entry_id,
-        repaid_at = excluded.repaid_at
+        repaid_at = excluded.repaid_at,
+        repayments_json = excluded.repayments_json
     `);
     this.selectById = sqlite.prepare(`SELECT * FROM hr_employee_advance WHERE id = ?`);
     this.selectAll = sqlite.prepare(`SELECT * FROM hr_employee_advance ORDER BY created_at DESC`);
@@ -213,6 +242,7 @@ class SqliteEmployeeAdvanceRepository implements EmployeeAdvanceRepository {
       disbursement_journal_entry_id: advance.disbursementJournalEntryId,
       repaid_at: advance.repaidAt,
       created_at: advance.createdAt,
+      repayments_json: serializeRepayments(advance.repayments),
     });
   }
 }
@@ -957,6 +987,8 @@ export function createSqliteEmployeeAdvanceRepository(path: SqliteConnectionInpu
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(CREATE_ADVANCE);
+  const advanceColumns = new Set((sqlite.pragma("table_info(hr_employee_advance)") as { name: string }[]).map((c) => c.name));
+  if (!advanceColumns.has("repayments_json")) sqlite.exec("ALTER TABLE hr_employee_advance ADD COLUMN repayments_json TEXT");
   const repo = new SqliteEmployeeAdvanceRepository(sqlite);
   return Object.assign(repo, { close: () => { if (owned) sqlite.close(); } }) as SqliteEmployeeAdvanceRepositoryHandle;
 }

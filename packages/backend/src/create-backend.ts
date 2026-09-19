@@ -189,6 +189,7 @@ import {
   createSqliteHolidayRepository,
   createSqliteAttendanceRepository,
   createSqliteEmployeeAdvanceRepository,
+  createSqliteClockCredentialRepository,
   createSqliteLeaveAccrualBatchRepository,
   createSqliteLeaveBalanceRepository,
   createSqliteLeavePolicyRepository,
@@ -848,6 +849,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const hrLeaveBalances = createSqliteLeaveBalanceRepository(sqlite);
   const hrLeaveAccrualBatches = createSqliteLeaveAccrualBatchRepository(sqlite);
   const hrAdvances = createSqliteEmployeeAdvanceRepository(sqlite);
+  const hrClockCredentials = createSqliteClockCredentialRepository(sqlite);
   const hrPayrollRuns = createSqlitePayrollRunRepository(sqlite);
   const hrPayslips = createSqlitePayslipRepository(sqlite);
   const hrPayrollComponents = createSqlitePayrollComponentRepository(sqlite);
@@ -3299,6 +3301,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       leaveAccrualBatches: hrLeaveAccrualBatches,
       workflow: { configs: workflowConfigs, requests: approvalRequests },
       audit: auditSink,
+      clockCredentials: hrClockCredentials,
       payroll: {
         advances: hrAdvances,
         runs: hrPayrollRuns,

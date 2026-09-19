@@ -12,6 +12,8 @@ import {
   DuplicatePromotionError,
   InvalidPromotionError,
   PromotionNotFoundError,
+  AuditChangeAction,
+  type AuditSink,
   type FrameworkDocument,
   type Promotion,
   type PromotionLineInput,
@@ -23,6 +25,45 @@ import {
 } from "@mezan/domain";
 import { createPromotionSchema, evaluatePromotionsQuerySchema, updatePromotionSchema } from "@mezan/contracts";
 import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
+import { recordFieldChanges } from "./admin-audit.js";
+
+const AUDITED_PROMOTION_FIELDS = [
+  "code",
+  "priority",
+  "nameAr",
+  "nameEn",
+  "description",
+  "type",
+  "percentValue",
+  "amountValue",
+  "minInvoiceValue",
+  "minQty",
+  "maxDiscountAmount",
+  "buyQty",
+  "getQty",
+  "bundleComponents",
+  "requiresCoupon",
+  "dayHourRestriction",
+  "scope",
+  "startDate",
+  "endDate",
+  "active",
+] as const;
+
+const PROMOTION_WARN_FIELDS = [
+  "type",
+  "percentValue",
+  "amountValue",
+  "minInvoiceValue",
+  "minQty",
+  "maxDiscountAmount",
+  "buyQty",
+  "getQty",
+  "scope",
+  "startDate",
+  "endDate",
+  "active",
+] as const;
 
 function serialize(promotion: Promotion) {
   return {
@@ -100,9 +141,21 @@ export function createPromotionsRoutes(
   repo: PromotionRepository,
   resolveAuthContext: AuthContextResolver,
   usage: PromotionsRoutesUsageDeps = {},
+  audit?: AuditSink,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
+
+  function auditPromotion(c: Context, action: AuditChangeAction, before: Promotion | null, after: Promotion) {
+    return recordFieldChanges(audit, c, {
+      entity: { module: "sales", entityType: "PROMOTION", entityId: after.id },
+      action,
+      before: before ? serialize(before) : null,
+      after: serialize(after),
+      fields: AUDITED_PROMOTION_FIELDS,
+      warnOn: PROMOTION_WARN_FIELDS,
+    });
+  }
 
   app.get("/", gate("sales.promotion.view"), async (c) => {
     const activeParam = c.req.query("active");
@@ -219,6 +272,7 @@ export function createPromotionsRoutes(
         },
         repo,
       );
+      await auditPromotion(c, AuditChangeAction.Create, null, promotion);
       return c.json(serialize(promotion), 201);
     } catch (err) {
       return handleDomainError(c, err);
@@ -231,6 +285,7 @@ export function createPromotionsRoutes(
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
     try {
+      const before = await repo.findById(c.req.param("id"));
       const promotion = await updatePromotion(
         c.req.param("id"),
         {
@@ -257,6 +312,7 @@ export function createPromotionsRoutes(
         },
         repo,
       );
+      await auditPromotion(c, AuditChangeAction.Update, before, promotion);
       return c.json(serialize(promotion));
     } catch (err) {
       return handleDomainError(c, err);
@@ -265,7 +321,9 @@ export function createPromotionsRoutes(
 
   app.post("/:id/deactivate", gate("sales.promotion.manage"), async (c) => {
     try {
+      const before = await repo.findById(c.req.param("id"));
       const promotion = await updatePromotion(c.req.param("id"), { active: false }, repo);
+      await auditPromotion(c, AuditChangeAction.Deactivate, before, promotion);
       return c.json(serialize(promotion));
     } catch (err) {
       return handleDomainError(c, err);

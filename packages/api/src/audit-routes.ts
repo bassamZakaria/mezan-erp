@@ -54,6 +54,7 @@ export function createAuditRoutes(
       actor: c.req.query("actor"),
       entityType: c.req.query("entityType"),
       entityId: c.req.query("entityId"),
+      field: c.req.query("field"),
       severity: c.req.query("severity"),
       from: c.req.query("from"),
       to: c.req.query("to"),

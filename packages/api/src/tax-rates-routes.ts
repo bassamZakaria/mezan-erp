@@ -5,11 +5,26 @@ import {
   DuplicateTaxCodeError,
   InvalidTaxRateError,
   TaxRateNotFoundError,
+  AuditChangeAction,
+  type AuditSink,
   type TaxRate,
   type TaxRateRepository,
 } from "@mezan/domain";
 import { createTaxRateSchema, updateTaxRateSchema } from "@mezan/contracts";
 import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
+import { recordFieldChanges } from "./admin-audit.js";
+
+const AUDITED_TAX_RATE_FIELDS = [
+  "code",
+  "name",
+  "rate",
+  "calculationType",
+  "isDefault",
+  "outputTaxAccountId",
+  "inputTaxAccountId",
+  "etaSubType",
+  "status",
+] as const;
 
 function serialize(taxRate: TaxRate) {
   return {
@@ -49,6 +64,7 @@ function handleDomainError(c: Context, err: unknown) {
 export function createTaxRatesRoutes(
   repo: TaxRateRepository,
   resolveAuthContext: AuthContextResolver,
+  audit?: AuditSink,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
@@ -71,6 +87,13 @@ export function createTaxRatesRoutes(
     }
     try {
       const taxRate = await createTaxRate(parsed.data, repo);
+      await recordFieldChanges(audit, c, {
+        entity: { module: "accounting", entityType: "TAX_RATE", entityId: taxRate.id },
+        action: AuditChangeAction.Create,
+        before: null,
+        after: serialize(taxRate),
+        fields: AUDITED_TAX_RATE_FIELDS,
+      });
       return c.json(serialize(taxRate), 201);
     } catch (err) {
       return handleDomainError(c, err);
@@ -83,7 +106,16 @@ export function createTaxRatesRoutes(
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
     try {
+      const before = await repo.findById(c.req.param("id"));
       const taxRate = await updateTaxRate(c.req.param("id"), parsed.data, repo);
+      await recordFieldChanges(audit, c, {
+        entity: { module: "accounting", entityType: "TAX_RATE", entityId: taxRate.id },
+        action: AuditChangeAction.Update,
+        before: before ? serialize(before) : null,
+        after: serialize(taxRate),
+        fields: AUDITED_TAX_RATE_FIELDS,
+        warnOn: ["rate", "calculationType", "isDefault", "outputTaxAccountId", "inputTaxAccountId", "status"],
+      });
       return c.json(serialize(taxRate));
     } catch (err) {
       return handleDomainError(c, err);

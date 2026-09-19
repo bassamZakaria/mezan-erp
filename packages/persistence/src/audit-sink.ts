@@ -3,6 +3,7 @@ import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypt
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
+import { auditChangedFieldNames } from "@mezan/domain";
 import type { AuditEvent, AuditQueryFilter, AuditQueryPort, AuditQueryResult, AuditSink, AuditStream } from "@mezan/domain";
 
 /**
@@ -52,6 +53,31 @@ CREATE TRIGGER IF NOT EXISTS audit_event_no_delete
   BEFORE DELETE ON audit_event
   BEGIN SELECT RAISE(ABORT, 'audit_event is append-only'); END;
 `;
+
+const CREATE_FIELD_INDEX = `
+CREATE TABLE IF NOT EXISTS audit_event_field (
+  event_id INTEGER NOT NULL,
+  field    TEXT NOT NULL,
+  PRIMARY KEY (event_id, field)
+) WITHOUT ROWID;
+CREATE INDEX IF NOT EXISTS idx_audit_event_field ON audit_event_field(field, event_id);
+CREATE TRIGGER IF NOT EXISTS audit_event_field_no_update
+  BEFORE UPDATE ON audit_event_field
+  BEGIN SELECT RAISE(ABORT, 'audit_event_field is append-only'); END;
+CREATE TRIGGER IF NOT EXISTS audit_event_field_no_delete
+  BEFORE DELETE ON audit_event_field
+  BEGIN SELECT RAISE(ABORT, 'audit_event_field is append-only'); END;
+`;
+
+function parseDetails(details: string | null): Record<string, unknown> | null {
+  if (details === null) return null;
+  try {
+    const parsed: unknown = JSON.parse(details);
+    return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * SECURITY CONTRACT — do not reorder, rename or drop a field.
@@ -122,7 +148,7 @@ export interface AuditChainVerification {
   readonly unchained: number;
   /** `audit_event.id` of the first row that failed, or null. */
   readonly brokenRowId: number | null;
-  readonly reason: "OK" | "ROW_ALTERED" | "CHAIN_BROKEN" | "HEAD_MISSING" | "HEAD_ALTERED" | "TRUNCATED";
+  readonly reason: "OK" | "ROW_ALTERED" | "CHAIN_BROKEN" | "HEAD_MISSING" | "HEAD_ALTERED" | "TRUNCATED" | "INDEX_ALTERED";
 }
 
 /** Read side of the tamper check — `GET /audit/verify` needs nothing else. */
@@ -221,7 +247,8 @@ class SqliteAuditSink implements AuditSink, AuditQueryPort, AuditChainVerifyPort
   private readonly insert: Database.Statement;
   private readonly select: Database.Statement;
   private readonly writeHead: Database.Statement;
-  private readonly appendChained: (row: AuditChainFields) => void;
+  private readonly insertField: Database.Statement;
+  private readonly appendChained: (row: AuditChainFields, fields: readonly string[]) => void;
 
   constructor(
     private readonly sqlite: Database.Database,
@@ -236,6 +263,7 @@ class SqliteAuditSink implements AuditSink, AuditQueryPort, AuditChainVerifyPort
       `SELECT stream, module, entity_type, entity_id, action, actor, branch_id, timestamp, severity, details
          FROM audit_event WHERE stream = ? ORDER BY id DESC LIMIT ?`,
     );
+    this.insertField = sqlite.prepare(`INSERT OR IGNORE INTO audit_event_field (event_id, field) VALUES (?, ?)`);
     this.writeHead = sqlite.prepare(
       `INSERT INTO audit_chain_head (id, row_id, row_hash, mac) VALUES (1, @row_id, @row_hash, @mac)
          ON CONFLICT(id) DO UPDATE SET row_id = @row_id, row_hash = @row_hash, mac = @mac`,
@@ -245,11 +273,15 @@ class SqliteAuditSink implements AuditSink, AuditQueryPort, AuditChainVerifyPort
     // truncated chain on the next verify; a head advanced without its row reads
     // as a deleted one. Both are false alarms that would teach an owner to
     // ignore the alarm.
-    this.appendChained = sqlite.transaction((row: AuditChainFields) => {
+    // The field index rides in the same transaction as the row: a row whose
+    // index entries are missing is invisible to a field search, which is the
+    // exact hiding place this index exists to close.
+    this.appendChained = sqlite.transaction((row: AuditChainFields, fields: readonly string[]) => {
       const prevHash = this.currentHeadHash();
       const rowHash = hashRow(row, prevHash);
       const info = this.insert.run({ ...row, prev_hash: prevHash, row_hash: rowHash });
       const rowId = Number(info.lastInsertRowid);
+      for (const field of fields) this.insertField.run(rowId, field);
       this.writeHead.run({ row_id: rowId, row_hash: rowHash, mac: macHead(this.chainKey, rowId, rowHash) });
     });
   }
@@ -276,7 +308,26 @@ class SqliteAuditSink implements AuditSink, AuditQueryPort, AuditChainVerifyPort
       timestamp: event.timestamp,
       severity: event.severity,
       details: event.details === null ? null : JSON.stringify(event.details),
-    });
+    }, auditChangedFieldNames(event.details));
+  }
+
+  private findIndexFault(rows: readonly { id: number; details: string | null }[]): number | null {
+    const stored = new Map<number, string[]>();
+    for (const r of this.sqlite
+      .prepare(`SELECT event_id, field FROM audit_event_field ORDER BY event_id, field`)
+      .all() as { event_id: number; field: string }[]) {
+      const list = stored.get(r.event_id);
+      if (list) list.push(r.field);
+      else stored.set(r.event_id, [r.field]);
+    }
+    for (const row of rows) {
+      const expected = auditChangedFieldNames(parseDetails(row.details)).join("\u0000");
+      const actual = [...(stored.get(row.id) ?? [])].sort().join("\u0000");
+      stored.delete(row.id);
+      if (expected !== actual) return row.id;
+    }
+    const orphan = stored.keys().next();
+    return orphan.done ? null : orphan.value;
   }
 
   /**
@@ -302,6 +353,15 @@ class SqliteAuditSink implements AuditSink, AuditQueryPort, AuditChainVerifyPort
       | { row_id: number; row_hash: string; mac: string }
       | undefined;
 
+    const indexFault = this.findIndexFault(rows);
+    const indexAltered: AuditChainVerification = {
+      ok: false,
+      checked: chained.length,
+      unchained,
+      brokenRowId: indexFault,
+      reason: "INDEX_ALTERED",
+    };
+
     let prevHash = GENESIS;
     let checked = 0;
     for (const row of chained) {
@@ -316,6 +376,7 @@ class SqliteAuditSink implements AuditSink, AuditQueryPort, AuditChainVerifyPort
     }
 
     if (chained.length === 0) {
+      if (head === undefined && indexFault !== null) return indexAltered;
       return { ok: head === undefined, checked, unchained, brokenRowId: null, reason: head === undefined ? "OK" : "TRUNCATED" };
     }
     if (!head) return { ok: false, checked, unchained, brokenRowId: null, reason: "HEAD_MISSING" };
@@ -330,6 +391,7 @@ class SqliteAuditSink implements AuditSink, AuditQueryPort, AuditChainVerifyPort
     if (head.row_id !== last.id || head.row_hash !== last.row_hash) {
       return { ok: false, checked, unchained, brokenRowId: last.id, reason: "TRUNCATED" };
     }
+    if (indexFault !== null) return indexAltered;
     return { ok: true, checked, unchained, brokenRowId: null, reason: "OK" };
   }
 
@@ -352,6 +414,10 @@ class SqliteAuditSink implements AuditSink, AuditQueryPort, AuditChainVerifyPort
         conditions.push(`${column} = @${key}`);
         params[key] = value;
       }
+    }
+    if (filter.field !== undefined) {
+      conditions.push("EXISTS (SELECT 1 FROM audit_event_field f WHERE f.event_id = audit_event.id AND f.field = @field)");
+      params.field = filter.field;
     }
     if (filter.from !== undefined) {
       conditions.push("timestamp >= @from");
@@ -414,6 +480,26 @@ function addBranchColumnIfMissing(sqlite: Database.Database): void {
   }
 }
 
+/**
+ * Creates the field index and, the first time only, fills it for rows written
+ * before it existed. Later rows are indexed inside their own append.
+ */
+function createFieldIndex(sqlite: Database.Database): void {
+  const existed =
+    sqlite.prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'audit_event_field'`).get() !== undefined;
+  sqlite.exec(CREATE_FIELD_INDEX);
+  if (existed) return;
+  const rows = sqlite
+    .prepare(`SELECT id, details FROM audit_event WHERE details LIKE '%"changes"%' ORDER BY id`)
+    .all() as { id: number; details: string | null }[];
+  const insert = sqlite.prepare(`INSERT OR IGNORE INTO audit_event_field (event_id, field) VALUES (?, ?)`);
+  sqlite.transaction(() => {
+    for (const row of rows) {
+      for (const field of auditChangedFieldNames(parseDetails(row.details))) insert.run(row.id, field);
+    }
+  })();
+}
+
 export interface SqliteAuditSinkOptions {
   /**
    * Key material the chain HEAD is MAC'd under. The desktop passes a value
@@ -432,6 +518,7 @@ export function createSqliteAuditSink(
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.exec(CREATE_TABLE);
   addBranchColumnIfMissing(sqlite);
+  createFieldIndex(sqlite);
   sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_audit_branch ON audit_event(branch_id, id)`);
   sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_audit_entity ON audit_event(entity_type, entity_id, id)`);
   const sink = new SqliteAuditSink(sqlite, resolveChainKey(sqlite, options.chainKey));

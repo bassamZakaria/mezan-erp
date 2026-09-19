@@ -10,7 +10,7 @@ import {
 import { updateTenantSettingsSchema, sendTestEmailSchema } from "@mezan/contracts";
 import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
 import { sendTestEmail } from "./smtp-client.js";
-import { changedKeys, recordAdminEvent } from "./admin-audit.js";
+import { changedKeys, changedKeysAsFieldChanges, recordAdminEvent } from "./admin-audit.js";
 
 /**
  * Settings routes (docs/archive/catalog/09 §"الإعدادات — عام"): a single tenant
@@ -95,7 +95,7 @@ export function createSettingsRoutes(
           entityType: "TENANT_SETTINGS",
           entityId: null,
           action: "UPDATE",
-          details: { changed },
+          details: { changed, changes: changedKeysAsFieldChanges(changed) },
         });
       }
       return c.json(maskSecrets(next));

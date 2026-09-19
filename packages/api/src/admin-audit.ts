@@ -1,5 +1,15 @@
 import type { Context } from "hono";
-import { auditBranchFromScope, recordSecurityEvent, recordSensitiveEvent, type AuditSeverity, type AuditSink } from "@mezan/domain";
+import {
+  auditBranchFromScope,
+  auditFieldValue,
+  diffAuditFields,
+  recordSecurityEvent,
+  recordSensitiveEvent,
+  type AuditChangeAction,
+  type AuditFieldChange,
+  type AuditSeverity,
+  type AuditSink,
+} from "@mezan/domain";
 import { getAuthContext } from "./permission-gate.js";
 import { requestOrigin } from "./request-origin.js";
 
@@ -123,4 +133,51 @@ export function changedKeys(
     if (JSON.stringify(from) !== JSON.stringify(to)) out[key] = { from: from ?? null, to: to ?? null };
   }
   return out;
+}
+
+export interface AuditEntityRef {
+  readonly module: string;
+  readonly entityType: string;
+  readonly entityId: string | null;
+}
+
+export interface FieldChangesEntry<T extends object> {
+  readonly entity: AuditEntityRef;
+  readonly action: AuditChangeAction;
+  readonly before: T | null | undefined;
+  readonly after: T;
+  readonly fields: readonly (keyof T & string)[];
+  readonly warnOn?: readonly string[];
+  readonly severity?: AuditSeverity;
+  readonly details?: Readonly<Record<string, unknown>>;
+  readonly extraChanges?: readonly AuditFieldChange[];
+}
+
+export async function recordFieldChanges<T extends object>(
+  audit: AuditSink | undefined,
+  c: Context,
+  entry: FieldChangesEntry<T>,
+): Promise<readonly AuditFieldChange[]> {
+  const changes = [...diffAuditFields(entry.before, entry.after, entry.fields), ...(entry.extraChanges ?? [])];
+  const warned = entry.warnOn ?? [];
+  const severity = entry.severity ?? (changes.some((change) => warned.includes(change.field)) ? "WARNING" : "INFO");
+  await recordAdminEvent(audit, c, {
+    module: entry.entity.module,
+    entityType: entry.entity.entityType,
+    entityId: entry.entity.entityId,
+    action: entry.action,
+    severity,
+    details: { ...(entry.details ?? {}), changes },
+  });
+  return changes;
+}
+
+export function changedKeysAsFieldChanges(
+  changed: Readonly<Record<string, { readonly from: unknown; readonly to: unknown }>>,
+): AuditFieldChange[] {
+  return Object.entries(changed).map(([field, { from, to }]) => ({
+    field,
+    from: auditFieldValue(from),
+    to: auditFieldValue(to),
+  }));
 }

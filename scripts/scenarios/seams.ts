@@ -1255,7 +1255,7 @@ export async function run(ctx: Ctx): Promise<void> {
       custTrail.every((row: any) => row.entityId === "CUST-DEMO-1"),
       JSON.stringify(custTrail.map((r: any) => r.entityId)).slice(0, 200),
     );
-    const raise = custTrail.find((row: any) => row.details?.previousCreditLimit !== undefined);
+    const raise = custTrail.find((row: any) => (row.details?.changes ?? []).some((ch: any) => ch.field === "creditLimit" && ch.from !== null));
     check("the credit-limit change carries what it was before, not just what it now is", raise !== undefined, JSON.stringify(custTrail[0]).slice(0, 300));
     check(
       "and is WARNING, not INFO — the credit limit decides how much may be sold on credit, so raising it quietly is the cheapest way to push a bad debt through",
@@ -1266,7 +1266,7 @@ export async function run(ctx: Ctx): Promise<void> {
     const priced = await req("PATCH", "/items/ITEM-DEMO-1", { salePrice: "188.00" });
     check("an item's sale price is changed", priced.status === 200, `status ${priced.status}`);
     const itemTrail = await auditRows("entityType=ITEM&entityId=ITEM-DEMO-1&limit=50");
-    const moved = itemTrail.find((row: any) => row.details?.previousSalePrice !== undefined);
+    const moved = itemTrail.find((row: any) => (row.details?.changes ?? []).some((ch: any) => ch.field === "salePrice"));
     check("the item's trail records the price move with its previous value", moved !== undefined, JSON.stringify(itemTrail[0] ?? {}).slice(0, 300));
     check("flagged WARNING — it restates the margin on every line booked after it", moved?.severity === "WARNING", `severity=${moved?.severity}`);
 

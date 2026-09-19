@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { createJournalEntry, type JournalPostingDeps } from "../gl/index.js";
 import { duePeriods, journalDateForPeriod, nextPeriodFirstDate } from "./schedule.js";
 import { RecurringJournalTemplateStatus, type RecurringJournalTemplate } from "./types.js";
@@ -7,7 +6,15 @@ import type { RecurringJournalRunRepository, RecurringJournalTemplateRepository 
 export interface GenerateDueRecurringJournalsDeps extends JournalPostingDeps {
   readonly templates: Pick<RecurringJournalTemplateRepository, "list">;
   readonly runs: RecurringJournalRunRepository;
-  readonly idGen?: () => string;
+  /**
+   * No ambient `node:crypto` default here — a `@mezan/domain` barrel export
+   * reaches the browser bundle (this package has no server/client split), and
+   * a bare `import { randomUUID } from "node:crypto"` at this module's top
+   * level fails Vite's build the moment anything walks this far into the
+   * `export *` graph, whether or not the fallback is ever called. The API
+   * layer (Node-only) always supplies one.
+   */
+  readonly idGen: () => string;
 }
 
 export interface GenerateDueRecurringJournalsOptions {
@@ -39,7 +46,7 @@ export async function generateDueRecurringJournals(
   deps: GenerateDueRecurringJournalsDeps,
   opts: GenerateDueRecurringJournalsOptions,
 ): Promise<GeneratedRecurringJournal[]> {
-  const idGen = deps.idGen ?? (() => randomUUID());
+  const idGen = deps.idGen;
   const templates = await deps.templates.list();
   const scope = opts.templateIds ? new Set(opts.templateIds) : null;
   const generated: GeneratedRecurringJournal[] = [];

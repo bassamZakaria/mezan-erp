@@ -22,6 +22,7 @@ import {
   type RowMenuItem,
 } from "@mezan/ui";
 import { Money } from "@mezan/domain";
+import { RecurringJournalFrequencyDTO } from "@mezan/contracts";
 import type { CostCategoryDTO, CreateGlJournalEntryDTO, JournalEntryStatusDTO, JournalSourceModuleDTO, ProjectDTO, UpdateGlJournalEntryDTO } from "@mezan/contracts";
 import {
   useAccounts,
@@ -37,6 +38,7 @@ import {
   usePartyControlAccounts,
   useProjects,
   useReverseJournalEntry,
+  useSaveJournalEntryAsRecurringTemplate,
   useSuppliers,
   useUpdateJournalEntry,
   type JournalEntryDTO,
@@ -184,6 +186,12 @@ export function JournalsScreen() {
   const [deleteTarget, setDeleteTarget] = useState<JournalDoc | null>(null);
   const [reverseTarget, setReverseTarget] = useState<JournalDoc | null>(null);
   const [reverseDate, setReverseDate] = useState(todayIso());
+  const [templateTarget, setTemplateTarget] = useState<JournalDoc | null>(null);
+  const [templateNameAr, setTemplateNameAr] = useState("");
+  const [templateFrequency, setTemplateFrequency] = useState<RecurringJournalFrequencyDTO>(RecurringJournalFrequencyDTO.Monthly);
+  const [templateStartDate, setTemplateStartDate] = useState(todayIso());
+  const [templateError, setTemplateError] = useState<string | null>(null);
+  const saveAsTemplate = useSaveJournalEntryAsRecurringTemplate();
   // The open entry lives in the URL like every other document screen, so the
   // shell's breadcrumb (and the «رجوع» that sits beside it) can lead out of it.
   const subPage = useSubPage();
@@ -317,6 +325,38 @@ export function JournalsScreen() {
     }
   }
 
+  function openSaveAsTemplate(doc: JournalDoc) {
+    if (pendingId) return;
+    setTemplateNameAr(doc.memo);
+    setTemplateFrequency(RecurringJournalFrequencyDTO.Monthly);
+    setTemplateStartDate(todayIso());
+    setTemplateError(null);
+    setTemplateTarget(doc);
+  }
+
+  async function submitSaveAsTemplate() {
+    const doc = templateTarget;
+    if (!doc || templateNameAr.trim() === "") return;
+    setTemplateError(null);
+    try {
+      await saveAsTemplate.mutateAsync({
+        entryId: doc.id,
+        id: crypto.randomUUID(),
+        nameAr: templateNameAr.trim(),
+        nameEn: null,
+        frequency: templateFrequency,
+        dayOfPeriod: Number(doc.date.slice(8, 10)),
+        yearlyMonth: templateFrequency === RecurringJournalFrequencyDTO.Yearly ? Number(doc.date.slice(5, 7)) : null,
+        startDate: templateStartDate,
+        endDate: null,
+        autoReverseNextPeriod: false,
+      });
+      setTemplateTarget(null);
+    } catch (err) {
+      setTemplateError(errorMessage(err, t("recurringJournals.templateCouldNotBeSaved")));
+    }
+  }
+
   async function deleteEntry(doc: JournalDoc) {
     if (pendingId) return;
     setPendingId(doc.id);
@@ -412,6 +452,9 @@ export function JournalsScreen() {
                 </>
               ) : null}
               <Button onClick={() => subPage.open(selected.entryNo ?? selected.id, "print")}>{t("journals.print")}</Button>
+              <Button disabled={pendingId === selected.id} onClick={() => openSaveAsTemplate(selected)}>
+                {t("recurringJournals.saveAsTemplate")}
+              </Button>
             </>
           }
           summary={[
@@ -502,6 +545,32 @@ export function JournalsScreen() {
             if (target) void reverseEntry(target, reverseDate);
           }}
           onCancel={() => setReverseTarget(null)}
+        />
+        <ConfirmDialog
+          open={templateTarget?.id === selected.id}
+          title={t("recurringJournals.saveAsTemplateTitle")}
+          consequence={
+            <div className="flex flex-col gap-[10px]">
+              <p>{t("recurringJournals.saveAsTemplateBody")}</p>
+              <TextField label={t("recurringJournals.name")} value={templateNameAr} onChange={setTemplateNameAr} />
+              <SelectField
+                label={t("recurringJournals.frequency")}
+                value={templateFrequency}
+                onChange={(v) => setTemplateFrequency(v as RecurringJournalFrequencyDTO)}
+                options={[
+                  { value: RecurringJournalFrequencyDTO.Monthly, label: t("recurringJournals.frequency.monthly") },
+                  { value: RecurringJournalFrequencyDTO.Quarterly, label: t("recurringJournals.frequency.quarterly") },
+                  { value: RecurringJournalFrequencyDTO.Yearly, label: t("recurringJournals.frequency.yearly") },
+                ]}
+              />
+              <TextField label={t("recurringJournals.startDate")} value={templateStartDate} onChange={setTemplateStartDate} type="date" />
+              {templateError ? <p className="text-[12.5px] text-danger-ink">{templateError}</p> : null}
+            </div>
+          }
+          confirmLabel={t("recurringJournals.save")}
+          confirmDisabled={templateNameAr.trim() === "" || saveAsTemplate.isPending}
+          onConfirm={() => void submitSaveAsTemplate()}
+          onCancel={() => setTemplateTarget(null)}
         />
       </div>
     );

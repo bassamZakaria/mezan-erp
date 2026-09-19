@@ -118,6 +118,8 @@ export const employeeSchema = z.object({
   priorServiceYears: z.number(),
   requireSelfieAtClockIn: z.boolean(),
   requireBiometricAtClockIn: z.boolean(),
+  /** Badge/employee-code on a fingerprint-device export; null until set. */
+  deviceBadgeId: z.string().nullable(),
   /** Null = never answered; end-of-service gratuity is not computed until it is. */
   hasPensionEntitlement: z.boolean().nullable(),
   taxDisabilityExemption: z.boolean(),
@@ -153,6 +155,7 @@ export const createEmployeeSchema = z.object({
   priorServiceYears: z.number().optional(),
   requireSelfieAtClockIn: z.boolean().optional(),
   requireBiometricAtClockIn: z.boolean().optional(),
+  deviceBadgeId: z.string().nullable().optional(),
   hasPensionEntitlement: z.boolean().nullable().optional(),
   taxDisabilityExemption: z.boolean().optional(),
   address: employeeAddressSchema.nullable().optional(),

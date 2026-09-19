@@ -64,6 +64,7 @@ const CORE_EMPLOYEE_PATCHES = [
   {
     id: CORE.employees[0],
     patch: {
+      deviceBadgeId: "1001",
       departmentId: "DEPT-DEMO-2",
       jobTitleId: "JT-DEMO-2",
       managerId: "EMP-DEMO-3",
@@ -81,6 +82,7 @@ const CORE_EMPLOYEE_PATCHES = [
   {
     id: CORE.employees[1],
     patch: {
+      deviceBadgeId: "1002",
       departmentId: "DEPT-DEMO-2",
       jobTitleId: "JT-DEMO-3",
       managerId: "EMP-DEMO-1",
@@ -100,6 +102,7 @@ const CORE_EMPLOYEE_PATCHES = [
 const EMPLOYEES = [
   {
     id: "EMP-DEMO-3",
+    deviceBadgeId: "1003",
     firstName: "Mohamed",
     lastName: "El-Shehaby",
     firstNameAr: "محمد",
@@ -125,6 +128,7 @@ const EMPLOYEES = [
   },
   {
     id: "EMP-DEMO-4",
+    deviceBadgeId: "1004",
     firstName: "Hoda",
     lastName: "Mostafa",
     firstNameAr: "هدى",
@@ -150,6 +154,7 @@ const EMPLOYEES = [
   },
   {
     id: "EMP-DEMO-5",
+    deviceBadgeId: "1005",
     firstName: "Ahmed",
     lastName: "El-Shennawy",
     firstNameAr: "أحمد",
@@ -175,6 +180,7 @@ const EMPLOYEES = [
   },
   {
     id: "EMP-DEMO-6",
+    deviceBadgeId: "1006",
     firstName: "Mostafa",
     lastName: "Rezk",
     firstNameAr: "مصطفى",
@@ -200,6 +206,7 @@ const EMPLOYEES = [
   },
   {
     id: "EMP-DEMO-7",
+    deviceBadgeId: "1007",
     firstName: "Yasmin",
     lastName: "Hegazy",
     firstNameAr: "ياسمين",
@@ -225,6 +232,7 @@ const EMPLOYEES = [
   },
   {
     id: "EMP-DEMO-8",
+    deviceBadgeId: "1008",
     firstName: "Amr",
     lastName: "El-Deeb",
     firstNameAr: "عمرو",
@@ -250,6 +258,7 @@ const EMPLOYEES = [
   },
   {
     id: "EMP-DEMO-9",
+    deviceBadgeId: "1009",
     firstName: "Nourhan",
     lastName: "Selim",
     firstNameAr: "نورهان",

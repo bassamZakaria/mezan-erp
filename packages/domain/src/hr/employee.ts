@@ -85,6 +85,13 @@ export interface Employee {
   readonly requireSelfieAtClockIn: boolean;
   readonly requireBiometricAtClockIn: boolean;
   /**
+   * The badge/employee-code stamped on a fingerprint/RFID attendance device
+   * export (ZKTeco-style CSV). Distinct from `code` (the EMP-#### numbering
+   * code): the device only ever knows this value, so the attendance-device
+   * import matches punches against it, never against `code`. Null until set.
+   */
+  readonly deviceBadgeId: string | null;
+  /**
    * Whether the employee holds a pension entitlement covering their service.
    * End-of-service gratuity is payable only when this is false; null means the
    * question was never answered, and no gratuity is computed until it is.

@@ -172,6 +172,7 @@ function serializeEmployee(e: Employee) {
     priorServiceYears: e.priorServiceYears,
     requireSelfieAtClockIn: e.requireSelfieAtClockIn,
     requireBiometricAtClockIn: e.requireBiometricAtClockIn,
+    deviceBadgeId: e.deviceBadgeId,
     hasPensionEntitlement: e.hasPensionEntitlement,
     taxDisabilityExemption: e.taxDisabilityExemption,
     address: e.address,

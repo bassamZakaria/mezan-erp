@@ -1,9 +1,9 @@
 import { mkdir, copyFile, open as fsOpen, rename, rm } from "node:fs/promises";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
 import { sha256File } from "./checksum.js";
 import { createArchive, extractArchive, type ArchiveExtraFile } from "./archive.js";
 import {
+  countRows,
   buildManifest,
   parseManifest,
   serializeManifest,
@@ -14,6 +14,7 @@ import { verifyArchive } from "./restore-service.js";
 import { ChecksumMismatchError, BackupKeyMismatchError } from "./errors.js";
 import { cipherDriver } from "../main/encrypted-database.js";
 import { assertSnapshotEncrypted, sqlStringLiteral } from "./backup-service.js";
+import { BACKUP_WORKER_FLAG } from "./worker-flags.js";
 
 /**
  * The out-of-process half of `createBackup()` (backup-service.ts) — everything
@@ -116,6 +117,28 @@ export async function lightVerify(params: {
   }
 }
 
+/**
+ * The manifest's row counts are read from the SNAPSHOT, not the live database:
+ * the backend keeps writing through its own connection while the copy is taken,
+ * so counts read from the live file can disagree with the archive they describe
+ * and the restore drill would report a healthy archive as having lost rows.
+ */
+async function countSnapshotRows(dbFilePath: string, key: string | null): Promise<Record<string, number> | null> {
+  let db: InstanceType<typeof cipherDriver> | undefined;
+  try {
+    db = new cipherDriver(dbFilePath, { readonly: true });
+    if (!(await isPlaintextSqlite(dbFilePath))) {
+      if (!key || !/^[0-9a-f]{64}$/.test(key)) return null;
+      db.pragma(`key = "x'${key}'"`);
+    }
+    return countRows(db);
+  } catch {
+    return null;
+  } finally {
+    db?.close();
+  }
+}
+
 async function takeEncryptedSnapshot(dbPath: string, key: string, tmpDbPath: string): Promise<void> {
   if (!/^[0-9a-f]{64}$/.test(key)) {
     throw new Error("Backup worker cipher key must be 32 bytes of lowercase hex.");
@@ -145,10 +168,13 @@ export async function runBackupWorkerJob(job: BackupWorkerJob): Promise<BackupWo
       }
     }
 
+    const tables =
+      (await countSnapshotRows(job.dbFilePath, job.snapshot?.key ?? job.verifyCipherKey)) ??
+      job.manifestInput.tables;
     const checksum = await sha256File(job.dbFilePath);
     const manifest = buildManifest({
       checksum,
-      tables: job.manifestInput.tables,
+      tables,
       appVersion: job.manifestInput.appVersion,
       reason: job.manifestInput.reason,
       schemaVersion: job.manifestInput.schemaVersion,
@@ -202,12 +228,13 @@ export async function runBackupWorkerJob(job: BackupWorkerJob): Promise<BackupWo
 
 /*
  * Only wired up when this file IS the forked process's entry script — never
- * when it's merely imported (backup-worker.test.ts imports the functions
- * above directly; vitest's own worker pool uses `process.on("message")` /
- * `process.send` for ITS IPC, and registering a second listener here would
- * intercept and corrupt that channel).
+ * when it's merely imported (vitest's own worker pool uses `process.on("message")`
+ * for ITS IPC, and a second listener here would corrupt that channel). Keyed on
+ * an argv flag the parent passes, NOT on `import.meta.url`: scripts/build.mjs
+ * bundles this file as CommonJS, where esbuild empties `import.meta`, so the
+ * packaged worker never listened, exited 0, and every backup failed.
  */
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (process.argv.includes(BACKUP_WORKER_FLAG)) {
   process.on("message", (job: BackupWorkerJob) => {
     runBackupWorkerJob(job)
       .catch(

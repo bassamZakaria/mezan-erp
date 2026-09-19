@@ -18,6 +18,7 @@ import {
 import { useLicenceImport } from "../data/license-hooks";
 import { loadTenantCode } from "../data/session";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { PortableImportPanel } from "../settings/PortableImportPanel";
 
 /**
  * The base data one idempotent `POST /bootstrap/seed` creates. Each row's
@@ -271,6 +272,11 @@ export function FirstRunWizard({ onFinish, onCancel }: FirstRunWizardProps) {
               >
                 {importVerdict}
               </p>
+            ) : null}
+            {isDesktopHost() ? (
+              <div className="mt-[18px] border-t border-border pt-[14px]">
+                <PortableImportPanel sessionToken="" firstRun />
+              </div>
             ) : null}
           </section>
         ) : null}

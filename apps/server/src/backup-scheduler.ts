@@ -1,7 +1,25 @@
-import { mkdirSync, readdirSync, renameSync, rmSync } from "node:fs";
+import { appendFileSync, mkdirSync, readdirSync, renameSync, rmSync } from "node:fs";
+import { copyFile, mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import type { PlatformHandle } from "@mezan/backend";
+import { openSqliteConnection } from "@mezan/persistence";
 import type { TenantRouter } from "./tenant-router.js";
+
+export const VERIFY_LOG_FILE_NAME = "verify.jsonl";
+
+export enum BackupVerifyOutcome {
+  Ok = "ok",
+  Failed = "failed",
+}
+
+export interface BackupVerifyRecord {
+  readonly at: string;
+  readonly file: string;
+  readonly outcome: BackupVerifyOutcome;
+  readonly ms: number;
+  readonly report: string;
+}
 
 const DEFAULT_KEEP = 12;
 
@@ -28,12 +46,46 @@ async function writeOneBackup(
   backupTo: (destination: string) => Promise<void>,
   folder: string,
   stamp: string,
-): Promise<void> {
+): Promise<string> {
   mkdirSync(folder, { recursive: true });
   const finalPath = path.join(folder, `${stamp}.sqlite`);
   const tmpPath = `${finalPath}.tmp`;
   await backupTo(tmpPath);
   renameSync(tmpPath, finalPath);
+  return finalPath;
+}
+
+// The COPY is opened, never the backup itself: opening a SQLite file can write to it.
+export async function verifyBackupFile(backupPath: string, now: Date = new Date()): Promise<BackupVerifyRecord> {
+  const started = Date.now();
+  const sandbox = await mkdtemp(path.join(tmpdir(), "mezan-backup-verify-"));
+  let outcome = BackupVerifyOutcome.Failed;
+  let report: string;
+  try {
+    const copy = path.join(sandbox, "restore.sqlite");
+    await copyFile(backupPath, copy);
+    const { sqlite } = openSqliteConnection(copy);
+    try {
+      const rows = sqlite.pragma("integrity_check") as Array<{ integrity_check: string }>;
+      report = rows.map((r) => r.integrity_check).join("; ");
+      if (report === "ok") outcome = BackupVerifyOutcome.Ok;
+    } finally {
+      sqlite.close();
+    }
+  } catch (err) {
+    report = err instanceof Error ? err.message : String(err);
+  } finally {
+    rmSync(sandbox, { recursive: true, force: true });
+  }
+  const record: BackupVerifyRecord = {
+    at: now.toISOString(),
+    file: path.basename(backupPath),
+    outcome,
+    ms: Date.now() - started,
+    report,
+  };
+  appendFileSync(path.join(path.dirname(backupPath), VERIFY_LOG_FILE_NAME), `${JSON.stringify(record)}\n`);
+  return record;
 }
 
 /** Deletes every backup in `folder` older than the newest `keep` (by filename, which sorts with the timestamp). */
@@ -60,15 +112,25 @@ export async function runBackups(options: RunBackupsOptions): Promise<void> {
   const keep = options.keep ?? DEFAULT_KEEP;
   const stamp = isoSafeTimestamp(now());
 
+  const failures: string[] = [];
+  const verify = async (file: string): Promise<void> => {
+    const record = await verifyBackupFile(file, now());
+    if (record.outcome !== BackupVerifyOutcome.Ok) failures.push(`${file}: ${record.report}`);
+  };
+
   const platformFolder = path.join(options.dir, "backups", "platform");
-  await writeOneBackup((destination) => options.platform.backupTo(destination), platformFolder, stamp);
+  await verify(await writeOneBackup((destination) => options.platform.backupTo(destination), platformFolder, stamp));
   pruneOldBackups(platformFolder, keep);
 
   for (const code of options.router.openTenants()) {
     const backend = await options.router.backendFor(code);
     const folder = path.join(options.dir, "backups", code);
-    await writeOneBackup((destination) => backend.backupTo(destination), folder, stamp);
+    await verify(await writeOneBackup((destination) => backend.backupTo(destination), folder, stamp));
     pruneOldBackups(folder, keep);
+  }
+
+  if (failures.length > 0) {
+    throw new Error(`backup verification failed: ${failures.join(" | ")}`);
   }
 }
 

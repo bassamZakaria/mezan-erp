@@ -5,6 +5,12 @@ import {
   MEZAN_BACKUP_RESTORE_CHANNEL,
   MEZAN_BACKUP_REVERT_CHANNEL,
   MEZAN_BACKUP_EXPORT_PORTABLE_CHANNEL,
+  MEZAN_BACKUP_DRILL_CHANNEL,
+  MEZAN_BACKUP_STATUS_CHANNEL,
+  MEZAN_BACKUP_PICK_PORTABLE_CHANNEL,
+  MEZAN_BACKUP_IMPORT_PORTABLE_CHANNEL,
+  MEZAN_BACKUP_SECOND_TARGET_CHOOSE_CHANNEL,
+  MEZAN_BACKUP_SECOND_TARGET_CLEAR_CHANNEL,
   MEZAN_APP_VERSION_CHANNEL,
   MEZAN_FETCH_CHANNEL,
   MEZAN_LICENCE_CHECKIN_CHANNEL,
@@ -21,6 +27,10 @@ import {
   type SavePdfOptions,
   type SavePdfResult,
   type BackupCreateResult,
+  type BackupDrillResult,
+  type BackupPickPortableResult,
+  type BackupSecondTargetResult,
+  type BackupStatusResult,
   type BackupExportResult,
   type BackupFailure,
   type BackupListResult,
@@ -110,6 +120,24 @@ const mezanBridge: MezanBridge = {
     },
     exportPortable(sessionToken: string, passphrase: string): Promise<BackupExportResult> {
       return ipcRenderer.invoke(MEZAN_BACKUP_EXPORT_PORTABLE_CHANNEL, sessionToken, passphrase);
+    },
+    drill(sessionToken: string): Promise<BackupDrillResult> {
+      return ipcRenderer.invoke(MEZAN_BACKUP_DRILL_CHANNEL, sessionToken);
+    },
+    status(sessionToken: string): Promise<BackupStatusResult | BackupFailure> {
+      return ipcRenderer.invoke(MEZAN_BACKUP_STATUS_CHANNEL, sessionToken);
+    },
+    pickPortable(sessionToken: string): Promise<BackupPickPortableResult> {
+      return ipcRenderer.invoke(MEZAN_BACKUP_PICK_PORTABLE_CHANNEL, sessionToken);
+    },
+    importPortable(sessionToken: string, pickId: string, passphrase: string): Promise<BackupRestoreResult> {
+      return ipcRenderer.invoke(MEZAN_BACKUP_IMPORT_PORTABLE_CHANNEL, sessionToken, pickId, passphrase);
+    },
+    chooseSecondTarget(sessionToken: string): Promise<BackupSecondTargetResult> {
+      return ipcRenderer.invoke(MEZAN_BACKUP_SECOND_TARGET_CHOOSE_CHANNEL, sessionToken);
+    },
+    clearSecondTarget(sessionToken: string): Promise<BackupSecondTargetResult> {
+      return ipcRenderer.invoke(MEZAN_BACKUP_SECOND_TARGET_CLEAR_CHANNEL, sessionToken);
     },
   },
   /** Drives the signed update channel (main/updater.ts + main/update-verify.ts). */

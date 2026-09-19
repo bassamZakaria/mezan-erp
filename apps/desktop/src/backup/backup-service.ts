@@ -8,6 +8,7 @@ import { countRows, type BackupManifest, type BackupReason } from "./manifest.js
 import type { ArchiveExtraFile } from "./archive.js";
 import { applyRetention, DEFAULT_RETENTION_POLICY, type RetentionPolicy } from "./retention.js";
 import type { BackupWorkerJob, BackupWorkerResult } from "./backup-worker.js";
+import { BACKUP_WORKER_FLAG } from "./worker-flags.js";
 
 export const BACKUP_FILE_EXTENSION = ".mezanbak";
 const BACKUP_FILE_PREFIX = "mezan-backup-";
@@ -228,7 +229,7 @@ export function isFullIntegrityCheckDue(lastIntegrityCheckAt: string | null, now
  * through tsx's ESM loader instead. Either way this stays a real, working
  * off-thread path rather than one only exercised in production.
  */
-function resolveWorkerEntry(): { modulePath: string; execArgv: string[] } {
+export function resolveWorkerEntry(baseName = "backup-worker"): { modulePath: string; execArgv: string[] } {
   // `__dirname` FIRST: scripts/build.mjs bundles this module as CommonJS, and
   // esbuild resolves `import.meta` to an empty object in that format, so
   // `fileURLToPath(undefined)` throws and a packaged app never finds its own
@@ -236,11 +237,11 @@ function resolveWorkerEntry(): { modulePath: string; execArgv: string[] } {
   // `import.meta.url` is real.
   const here =
     typeof __dirname === "string" ? __dirname : path.dirname(fileURLToPath(import.meta.url));
-  for (const built of ["backup-worker.cjs", "backup-worker.js"]) {
+  for (const built of [`${baseName}.cjs`, `${baseName}.js`]) {
     const candidate = path.join(here, built);
     if (existsSync(candidate)) return { modulePath: candidate, execArgv: [] };
   }
-  return { modulePath: path.join(here, "backup-worker.ts"), execArgv: ["--import", "tsx"] };
+  return { modulePath: path.join(here, `${baseName}.ts`), execArgv: ["--import", "tsx"] };
 }
 
 /**
@@ -253,7 +254,7 @@ export function spawnBackupWorker(job: BackupWorkerJob): Promise<BackupWorkerRes
   return new Promise((resolve, reject) => {
     let child: ChildProcess;
     try {
-      child = fork(modulePath, [], { execArgv });
+      child = fork(modulePath, [BACKUP_WORKER_FLAG], { execArgv });
     } catch (err) {
       reject(err instanceof Error ? err : new Error(String(err)));
       return;
@@ -421,6 +422,7 @@ export async function createBackup(params: {
     }
 
     const tables = countRows(sqlite);
+    const liveSchemaVersion = sqlite.pragma("user_version", { simple: true });
     const archivePath = path.join(backupsDir, backupFileName(now, label));
     const { compressible, precompressed } = partitionExtraFiles(extraFiles);
 
@@ -445,7 +447,7 @@ export async function createBackup(params: {
       manifestInput: {
         appVersion,
         reason,
-        schemaVersion,
+        schemaVersion: schemaVersion ?? (typeof liveSchemaVersion === "number" ? liveSchemaVersion : undefined),
         createdAt: now.toISOString(),
         tables,
         lastIntegrityCheckAt: integrityState.lastIntegrityCheckAt,

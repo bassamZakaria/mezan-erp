@@ -5,7 +5,12 @@ import type { SqliteDriver } from "@mezan/persistence";
 import { extractArchive } from "./archive.js";
 import { parseManifest, type BackupManifest } from "./manifest.js";
 import { sha256File } from "./checksum.js";
-import { BackupKeyMismatchError, ChecksumMismatchError, IntegrityCheckFailedError } from "./errors.js";
+import {
+  BackupKeyMismatchError,
+  ChecksumMismatchError,
+  IntegrityCheckFailedError,
+  SchemaTooNewForRestoreError,
+} from "./errors.js";
 
 const SQLITE_HEADER = Buffer.from("SQLite format 3\0", "latin1");
 
@@ -50,8 +55,9 @@ export async function restoreBackup(params: {
   targetDbPath: string;
   workDir: string;
   cipher?: RestoreCipher;
+  maxSchemaVersion?: number;
 }): Promise<RestoreResult> {
-  const { archivePath, targetDbPath, workDir, cipher } = params;
+  const { archivePath, targetDbPath, workDir, cipher, maxSchemaVersion } = params;
 
   const extractDir = path.join(workDir, `restore-${Date.now()}`);
   const { dbFilePath, manifestJson } = await extractArchive(archivePath, extractDir);
@@ -75,6 +81,11 @@ export async function restoreBackup(params: {
     //    encrypted install is fine — the next launch converts it.
     await assertIntegrityOk(dbFilePath, cipher);
 
+    if (maxSchemaVersion !== undefined) {
+      const fileVersion = await readDbSchemaVersion(dbFilePath, cipher);
+      if (fileVersion > maxSchemaVersion) throw new SchemaTooNewForRestoreError(fileVersion, maxSchemaVersion);
+    }
+
     // 4. Mount: atomic rename into place.
     await mkdir(path.dirname(targetDbPath), { recursive: true });
     const stagedPath = `${targetDbPath}.new`;
@@ -87,7 +98,37 @@ export async function restoreBackup(params: {
   }
 }
 
-async function assertIntegrityOk(dbFilePath: string, cipher?: RestoreCipher): Promise<void> {
+export async function openArchiveDatabase(dbFilePath: string, cipher?: RestoreCipher): Promise<Database.Database> {
+  if (await isPlaintextSqlite(dbFilePath)) {
+    return cipher ? new cipher.driver(dbFilePath, { readonly: true }) : new Database(dbFilePath, { readonly: true });
+  }
+  if (!cipher) throw new BackupKeyMismatchError();
+  if (!/^[0-9a-f]{64}$/.test(cipher.key)) {
+    throw new Error("Restore key must be 32 bytes of lowercase hex.");
+  }
+  let db: Database.Database | undefined;
+  try {
+    db = new cipher.driver(dbFilePath, { readonly: true });
+    db.pragma(`key = "x'${cipher.key}'"`);
+    db.prepare("SELECT count(*) FROM sqlite_master").get();
+    return db;
+  } catch (err) {
+    db?.close();
+    throw new BackupKeyMismatchError(err);
+  }
+}
+
+export async function readDbSchemaVersion(dbFilePath: string, cipher?: RestoreCipher): Promise<number> {
+  const db = await openArchiveDatabase(dbFilePath, cipher);
+  try {
+    const value = db.pragma("user_version", { simple: true });
+    return typeof value === "number" ? value : 0;
+  } finally {
+    db.close();
+  }
+}
+
+export async function assertIntegrityOk(dbFilePath: string, cipher?: RestoreCipher): Promise<void> {
   if (await isPlaintextSqlite(dbFilePath)) {
     runIntegrityCheck(new Database(dbFilePath, { readonly: true }));
     return;
@@ -160,6 +201,7 @@ export async function verifyArchive(params: {
   archivePath: string;
   workDir: string;
   cipher?: RestoreCipher;
+  maxSchemaVersion?: number;
 }): Promise<VerifyResult> {
   const extractDir = path.join(params.workDir, `verify-${Date.now()}-${process.pid}`);
   const { dbFilePath, manifestJson } = await extractArchive(params.archivePath, extractDir);
@@ -172,6 +214,13 @@ export async function verifyArchive(params: {
     }
 
     await assertIntegrityOk(dbFilePath, params.cipher);
+
+    if (params.maxSchemaVersion !== undefined) {
+      const fileVersion = await readDbSchemaVersion(dbFilePath, params.cipher);
+      if (fileVersion > params.maxSchemaVersion) {
+        throw new SchemaTooNewForRestoreError(fileVersion, params.maxSchemaVersion);
+      }
+    }
 
     return { ok: true, tables: manifest.tables };
   } finally {

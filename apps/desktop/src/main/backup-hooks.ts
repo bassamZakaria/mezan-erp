@@ -1,10 +1,23 @@
 import { app } from "electron";
 import type Database from "better-sqlite3";
 import { CURRENT_SCHEMA_VERSION, readSchemaVersion } from "@mezan/persistence";
-import { createBackup, preUpdateLabel, runPreMigrationBackup } from "../backup/index.js";
+import {
+  abortDrill,
+  copyToSecondTarget,
+  createBackup,
+  hasArchive,
+  isDrillDue,
+  sweepBackupScratch,
+  preUpdateLabel,
+  runPreMigrationBackup,
+  runRestoreDrill,
+  withBackupLock,
+} from "../backup/index.js";
+import { DrillTrigger } from "../shared/ipc-contract.js";
 import { defaultBackupsDir } from "./env.js";
 
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+const LAUNCH_DRILL_DELAY_MS = 10 * 60 * 1000;
 
 /**
  * How long the app waits for the on-close backup before quitting anyway.
@@ -132,17 +145,50 @@ export function scheduleBackups(params: {
 }): () => void {
   const backupsDir = params.backupsDir ?? defaultBackupsDir();
   const timeoutMs = params.onCloseTimeoutMs ?? ON_CLOSE_BACKUP_TIMEOUT_MS;
-  const run = (reason: "scheduled" | "on-close") =>
-    createBackup({
-      sqlite: params.sqlite,
+  let closing = false;
+  const scratchSwept = sweepBackupScratch(backupsDir).catch((err: unknown) =>
+    console.error("[backup] could not clear leftover drill/import scratch", err),
+  );
+  const drillIfDue = async (): Promise<void> => {
+    await scratchSwept;
+    if (!(await hasArchive(backupsDir)) || !(await isDrillDue(backupsDir))) return;
+    await runRestoreDrill({
       backupsDir,
-      appVersion: params.appVersion,
-      reason,
-      encrypted: params.encrypted,
-      cipher: params.cipher,
-    }).catch((err: unknown) => console.error(`[backup] ${reason} backup failed`, err));
+      cipherKey: params.cipher?.key ?? null,
+      appSchemaVersion: CURRENT_SCHEMA_VERSION,
+      trigger: DrillTrigger.Scheduled,
+    });
+  };
+  const run = async (reason: "scheduled" | "on-close"): Promise<void> => {
+    try {
+      const result = await withBackupLock(() =>
+        createBackup({
+          sqlite: params.sqlite,
+          backupsDir,
+          appVersion: params.appVersion,
+          reason,
+          encrypted: params.encrypted,
+          cipher: params.cipher,
+        }),
+      );
+      await copyToSecondTarget(backupsDir, result.archivePath);
+    } catch (err) {
+      console.error(`[backup] ${reason} backup failed`, err);
+      return;
+    }
+    if (reason === "scheduled" && !closing) {
+      await drillIfDue().catch((err: unknown) => console.error("[backup] weekly restore drill failed to run", err));
+    }
+  };
 
   const interval = setInterval(() => void run("scheduled"), ONE_DAY_MS);
+  // Verify-and-report only: a shop that closes every evening never reaches the
+  // 24-hour tick, so the weekly drill would otherwise never run on it.
+  const launchDrill = setTimeout(() => {
+    if (closing) return;
+    void drillIfDue().catch((err: unknown) => console.error("[backup] restore drill failed to run", err));
+  }, LAUNCH_DRILL_DELAY_MS);
+  launchDrill.unref();
 
   /**
    * THE ON-CLOSE BACKUP, AWAITED.
@@ -154,11 +200,11 @@ export function scheduleBackups(params: {
    * and `preventDefault()` on `before-quit` stops the quit BEFORE that runs.
    * The second `app.quit()` below then goes all the way through.
    */
-  let closing = false;
   const onBeforeQuit = (event: { preventDefault: () => void }): void => {
     if (closing) return;
     closing = true;
     event.preventDefault();
+    abortDrill();
 
     let timer: NodeJS.Timeout | undefined;
     const bounded = new Promise<void>((resolve) => {
@@ -181,6 +227,8 @@ export function scheduleBackups(params: {
 
   return () => {
     clearInterval(interval);
+    clearTimeout(launchDrill);
+    abortDrill();
     app.removeListener("before-quit", onBeforeQuit);
   };
 }

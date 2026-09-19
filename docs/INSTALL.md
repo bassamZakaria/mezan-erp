@@ -273,9 +273,29 @@ plus a manifest carrying a checksum and row counts.
 **Tell the client explicitly**: the backup folder lives on the SAME machine, on the SAME
 disk, as the database it backs up. A GFS retention schedule protects against a bad write or
 a "we deleted the wrong thing last Tuesday"; it does not protect against the laptop itself
-being stolen, flooded or dying. Getting a copy of "Mezan Backups" off-machine — a USB drive
-taken home, a network share, anything — is the client's job, and this build does not do it
-for them.
+being stolen, flooded or dying. Getting a copy of "Mezan Backups" off-machine is the
+client's job — but the app now does the copying once a folder is chosen: **«مجلد ثانٍ للنسخ»**
+in `الإعدادات ← النسخ الاحتياطي والاستعادة` takes a USB drive or a network share, and every
+backup (daily, on-close, manual) is copied there as soon as it is sealed and verified, with
+the same 7/4/12 GFS retention (`apps/desktop/src/backup/secondary-target.ts`). A missing stick
+never fails the backup; the screen shows «فشل آخر نسخ إلى المجلد الثاني» until a copy lands
+again. Those copies are still keyed to this machine — pair them with a portable export or the
+key card below.
+
+**Restore drills.** A backup that has never been restored is a hope, not a backup. Once a week
+(after the daily backup, or ten minutes after launch on a shop that closes every evening), and
+whenever the owner presses «شغّل اختبار الاستعادة الآن», the app restores the newest archive
+into a throwaway sandbox under `Mezan Backups/.tmp`, opens it with this machine's key, and
+checks the manifest, the checksum, `PRAGMA integrity_check`, the schema version and every
+table's row count against the manifest; it then boots a backend over the sandbox copy and ties
+the trial balance and the inventory, payables and receivables control accounts to their
+sub-ledgers. Nothing touches the live database. Each run is appended to
+`Mezan Backups/drills.jsonl` (pass / warn / fail, milliseconds, the failing check), and the
+backup screen shows the history, the date of the last good drill, and a warning once it is more
+than eight days old. "Warn" means the archive restores but its books do not tie — a books
+question for the accountant, not a broken backup
+(`apps/desktop/src/backup/drill-service.ts`, `drill-worker.ts`). The equivalent of QuickBooks
+Desktop's Verify Data, run against the backup instead of the live file.
 
 **For a copy that has to open somewhere else, use «تصدير نسخة قابلة للنقل»** in
 `الإعدادات ← النسخ الاحتياطي والاستعادة`. A scheduled archive is keyed to this machine and
@@ -283,7 +303,11 @@ dies with it (the key-card box below); the portable export re-encrypts one under
 **passphrase the owner picks**, so it opens on replacement hardware without carrying the key
 card. It is an explicit action, never a schedule, and the passphrase is not recoverable —
 `.mezanbak.enc`, scrypt + AES-256-GCM, minimum ten characters
-(`apps/desktop/src/backup/portable-export.ts`).
+(`apps/desktop/src/backup/portable-export.ts`). **It is restored with «استعادة نسخة قابلة
+للنقل»**, on the same screen or on the first-run screen of a fresh install (§4.2): the file
+is picked in an OS dialog, decrypted with the passphrase, verified, and then goes through the
+same verified restore as any archive. Until 2026-09-19 nothing called the decrypt step at all
+(D289), so the export could be written and never read back.
 
 > ### ⚠️ THE KEY CARD: DO THIS ON INSTALL DAY OR THE BACKUPS ARE WORTHLESS
 >
@@ -347,8 +371,12 @@ Two cases behave differently, and it is worth knowing which one you are in:
   launch converts it** to encrypted storage under this machine's own key. Nothing special to
   do; just expect the conversion message on the following start.
 
-The restore machinery is real, wired end to end, and exposed to the renderer — though not yet
-driven by a settings screen a consultant can click through (see below).
+- **A portable export (`.mezanbak.enc`)** carries no machine key at all: it opens anywhere
+  with its passphrase, through «استعادة نسخة قابلة للنقل» (below). This is the route for an
+  owner who never kept the key card.
+
+The restore machinery is wired end to end and driven from the settings screen and the
+first-run screen (see below).
 
 **What actually happens, mechanically** (`apps/desktop/src/backup/restore-service.ts`,
 called from `apps/desktop/src/main/restore-ipc.ts`): extract the archive → validate the
@@ -369,19 +397,15 @@ recovery needs:
 - **The app relaunches itself** after a restore attempt either way (success or a failed
   verification) — a short delay lets the confirmation reach the screen first, then the process
   exits and restarts on whatever is now on disk.
-- **Authorization is the live session, not the renderer's word for anything.** All three
-  channels (`mezan:backup:list`, `:create`, `:restore` — exposed to the renderer as
-  `window.mezan.backup.{list,create,restore}` via the preload bridge) take the caller's
-  session token and check it against the SAME session registry every HTTP route checks
-  against, requiring `admin.backup.restore` (or `*`) — its own permission pair rather than
-  riding on `admin.tenant.settings.edit`, so the person who holds the recovery runbook does
-  not also have to be handed every setting in the product. **All three channels check the
-  same `admin.backup.restore` today, including list and create** — `admin.backup.view` exists
-  in the permission catalog as a separate, weaker grant, but nothing in `restore-ipc.ts`
-  currently checks it, so granting only `admin.backup.view` to someone does not let them even
-  list the backups. Treat the two permissions as one until that is wired. The archive to
-  restore is named by a bare filename validated against path traversal, never an absolute
-  path the renderer could pick.
+- **Authorization is the live session, not the renderer's word for anything.** Every
+  channel (`mezan:backup:*`, exposed as `window.mezan.backup.*` via the preload bridge) takes
+  the caller's session token and checks it against the SAME session registry every HTTP route
+  checks against. `admin.backup.view` lets someone list the archives, read the drill history
+  and run a restore drill (it verifies, it never changes the books); `admin.backup.restore`
+  is needed to take a backup, restore, revert, export or import a portable copy, and choose
+  the second folder. The archive to restore is named by a bare filename validated against
+  path traversal, and a portable file is picked in an OS dialog in the main process — the
+  renderer never supplies a path.
 
 **`الإعدادات ← النسخ الاحتياطي والاستعادة` is a real screen now**
 (`apps/web/src/settings/BackupRestorePage.tsx`, routed as `settings-backup`, listed in the
@@ -399,9 +423,16 @@ relaunching," because it then does exactly that. On the web build (no Electron h
 to hold the database file), the screen says so and renders nothing else rather than a dead
 table. For a debug build, driving `window.mezan.backup.restore(token, fileName)` directly still works
 and gets the same safety-backup-first behaviour — the screen and the direct call are the same
-path underneath. If the app cannot even launch — the machine it was on is gone and this is a
-fresh install on replacement hardware, with nothing yet to sign into — there is no screen to
-reach: install fresh, then use the screen on the new install once it is up. Only if the app
+path underneath. **On replacement hardware, the first-run screen is the way in.** A fresh
+install opens «الإعداد الأولي», and its first step carries «استعادة نسخة قابلة للنقل»: pick the
+`.mezanbak.enc`, type the passphrase, and the books come back before any account is created —
+no key card needed, because the portable export is encrypted under the passphrase, not the dead
+machine's key. It works without a sign-in only while this install's tenant is unclaimed, the
+same rule the licence import uses. The imported database is re-keyed to this machine's key
+before the relaunch, then the login screen asks for a PIN from the old machine (or use
+`--reset-admin`, below). An archive written by a NEWER build is refused before anything is
+touched ("حدّث البرنامج على هذا الجهاز أولاً"). The licence is a separate file and is not in
+the backup: install the licence issued for this machine at the same step. Only if the app
 installs but will not start at all is a manual file operation the last resort: with the app
 fully closed, extract the chosen `.mezanbak` and copy its database over `<userData>/mezan.db`
 by hand — you lose the safety-backup-first behaviour and the checksum/integrity re-check the

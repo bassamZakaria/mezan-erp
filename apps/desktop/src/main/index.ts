@@ -740,6 +740,12 @@ app.whenReady().then(async () => {
       app.exit(0);
     },
     sessions: { find: (token) => backendProcess.findSession(token) },
+    tenantIsClaimed: async () => {
+      const res = await backend!.app.fetch(new Request("http://mezan.local/bootstrap/status"));
+      if (!res.ok) return true;
+      const body = (await res.json()) as { claimed?: boolean };
+      return body.claimed !== false;
+    },
   });
   // Registered before the socket is opened, and reading `lanHost` through a
   // getter: the bind is asynchronous (lan-host.ts), so the address is null

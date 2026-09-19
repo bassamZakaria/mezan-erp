@@ -234,9 +234,11 @@ export {
 export {
   ACCOUNT_SECTION_LABELS,
   ACCOUNT_TYPE_LABELS,
+  type AccountActivity,
   type AccountSection,
   type DateRange,
   type GlReportContext,
+  accountActivity,
   accountNet,
   classifyAccount,
   isCashAccount,

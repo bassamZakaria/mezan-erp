@@ -1,10 +1,11 @@
 import { useState } from "react";
-import { ReportRunner } from "@mezan/ui";
+import { ReportRunner, type ReportRunnerEntityRef } from "@mezan/ui";
 import { createTrialBalanceReport, type TrialBalanceRow } from "@mezan/domain";
 import { useFinancialReport } from "../data/financial-reports-hooks";
 import { localizeReportDefinition } from "../report-labels";
 import { useAppTranslation } from "../i18n";
 import { todayIso } from "../lib/dates";
+import { ReportDrillDownPanel } from "./reports/ReportDrillDownPanel";
 
 /**
  * ميزان المراجعة (docs/archive/catalog/08-reports.md), wired to `GET
@@ -28,6 +29,7 @@ export function TrialBalanceReportScreen() {
   const definition = localizeReportDefinition(rawDefinition, t);
   const [params, setParams] = useState<Record<string, string>>(() => toStringParams(rawDefinition.defaultParams));
   const [hasRun, setHasRun] = useState<boolean>(!rawDefinition.onDemand);
+  const [drillEntity, setDrillEntity] = useState<ReportRunnerEntityRef | null>(null);
 
   const query = useFinancialReport<TrialBalanceRow>("trial-balance", "/trial-balance", params, { enabled: hasRun });
 
@@ -68,6 +70,8 @@ export function TrialBalanceReportScreen() {
       columns={definition.columns}
       rowKey={definition.rowKey}
       exportBaseFilename="trial-balance"
+      onEntityClick={setDrillEntity}
+      footer={<ReportDrillDownPanel entity={drillEntity} reportParams={raw?.params ?? null} onClose={() => setDrillEntity(null)} />}
     />
   );
 }

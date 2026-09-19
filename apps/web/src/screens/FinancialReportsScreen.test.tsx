@@ -128,3 +128,49 @@ describe("FinancialReportsScreen (real GL API wiring)", () => {
     await waitFor(() => expect(exportButton).toBeEnabled());
   });
 });
+
+describe("FinancialReportsScreen — drilling into an account answers for the figure clicked (D281)", () => {
+  function drillTransport(drillPaths: string[]) {
+    const account = { accountId: "1100", code: "1100", nameAr: "النقدية", debit: 100, credit: 0 };
+    const body = (params: Record<string, string>) => ({
+      ...reportBody({ rows: [account], groups: [{ key: "الأصول", label: "الأصول", rows: [account], totals: { debit: 100, credit: 0 } }] }),
+      params,
+    });
+    return stubTransport({
+      "GET /financial-reports/trial-balance": () => ({ body: body({ asOfDate: "2026-08-24", branchId: "" }) }),
+      "GET /financial-reports/income-statement": () => ({ body: body({ periodFrom: "2026-01-01", periodTo: "2026-08-24", compareTo: "previous", branchId: "BR-1" }) }),
+      "GET /reports/drill-down/*/*": (_i, path) => {
+        drillPaths.push(path);
+        return {
+          body: {
+            kind: "account",
+            id: "1100",
+            titleAr: "النقدية",
+            subtitleAr: "1100",
+            facts: [{ key: "asOfDate", labelAr: "حتى تاريخ", value: "2026-08-24", format: "date" }],
+            documents: [],
+            documentCount: 0,
+          },
+        };
+      },
+    });
+  }
+
+  it("the trial balance's account link passes the as-of date the balance was computed for", async () => {
+    const drillPaths: string[] = [];
+    renderWithProviders(<FinancialReportsScreen />, { transport: drillTransport(drillPaths), initialSession: testAdminSession });
+    fireEvent.click(await screen.findByRole("button", { name: "النقدية" }));
+    await waitFor(() => expect(drillPaths).toEqual(["/reports/drill-down/account/1100?asOfDate=2026-08-24"]));
+    expect(await screen.findByText("2026-08-24")).toBeInTheDocument();
+  });
+
+  it("the income statement's account link passes its period and branch", async () => {
+    const drillPaths: string[] = [];
+    renderWithProviders(<FinancialReportsScreen />, { transport: drillTransport(drillPaths), initialSession: testAdminSession });
+    fireEvent.click(screen.getByRole("tab", { name: "قائمة الدخل" }));
+    fireEvent.click(await screen.findByRole("button", { name: "النقدية" }));
+    await waitFor(() =>
+      expect(drillPaths).toEqual(["/reports/drill-down/account/1100?fromDate=2026-01-01&asOfDate=2026-08-24&branchId=BR-1"]),
+    );
+  });
+});

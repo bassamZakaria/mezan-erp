@@ -4,6 +4,7 @@ import {
   Qty,
   applyLeavePolicyPreset,
   availableLeaveDays,
+  buildAttendanceImportPreview,
   correctAttendance,
   createLeaveBalance,
   assertLeaveBalanceCovers,
@@ -16,6 +17,7 @@ import {
   isOnApprovedLeave,
   leaveApprovalActionType,
   LEAVE_POLICY_PRESETS,
+  parseAttendanceDeviceCsv,
   recordAttendance,
   runLeaveAccrual,
   submitApproval,
@@ -37,9 +39,11 @@ import {
   UnknownLeavePolicyPresetError,
   WorkflowError,
   type AttendanceEntry,
+  type AttendanceImportDayGroup,
   type AttendanceRepository,
   type AttendanceStatus,
   type ApprovalRequestRepository,
+  type AuditSink,
   type EmployeeRepository,
   type HolidayRepository,
   type LeaveAccrualBatch,
@@ -56,6 +60,7 @@ import {
 } from "@mezan/domain";
 import {
   applyLeavePolicyPresetSchema,
+  attendanceImportRequestSchema,
   correctAttendanceSchema,
   createLeavePolicySchema,
   decideLeaveRequestSchema,
@@ -65,6 +70,7 @@ import {
   upsertLeaveBalanceSchema,
 } from "@mezan/contracts";
 import { type AuthContextResolver, callerRoleCodes, createPermissionGate, getAuthContext } from "./permission-gate.js";
+import { recordAdminEvent } from "./admin-audit.js";
 
 /**
  * HR time & leave routes — الحضور والانصراف, سياسات الإجازات, أرصدة الإجازات,
@@ -91,6 +97,8 @@ export interface HrTimeLeaveRoutesDeps {
     readonly configs: Pick<WorkflowConfigRepository, "findByActionType">;
     readonly requests: ApprovalRequestRepository;
   };
+  /** Best-effort forensic trail for the attendance-device import commit; absent sink writes nothing rather than failing the request. */
+  readonly audit?: AuditSink;
 }
 
 function serializeAttendance(e: AttendanceEntry) {
@@ -312,6 +320,110 @@ export function createHrTimeLeaveRoutes(deps: HrTimeLeaveRoutesDeps, resolveAuth
       return handleTimeLeaveError(c, err);
     }
   });
+
+  // --- Attendance-device CSV import -----------------------------------------
+
+  function importNoteFor(group: AttendanceImportDayGroup): string {
+    return group.device ? `مستورد من جهاز البصمة (${group.device})` : "مستورد من جهاز البصمة";
+  }
+
+  /**
+   * Shared preview/commit core. Preview is a pure dry-run (no persistence at
+   * all); commit replays every ready group through the SAME `recordAttendance`
+   * domain function the manual form uses — never approving overtime and never
+   * setting a shift baseline (D187: an import never invents an approval) — and
+   * is idempotent per (employee, date): a group already recorded (checked both
+   * in the preview snapshot AND again right before each create, since commit
+   * can run well after preview) is skipped, never duplicated or overwritten.
+   */
+  async function runAttendanceImport(c: Context, commit: boolean): Promise<Response> {
+    const parsedBody = attendanceImportRequestSchema.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsedBody.success) return c.json({ error: "VALIDATION_ERROR", details: parsedBody.error.flatten() }, 400);
+
+    const { punches, errors: parseErrors } = parseAttendanceDeviceCsv(parsedBody.data.csv);
+
+    const employees = await deps.employees.list();
+    const employeeIdByBadge = new Map<string, string>();
+    for (const employee of employees) {
+      if (employee.deviceBadgeId) employeeIdByBadge.set(employee.deviceBadgeId, employee.id);
+    }
+
+    let existingEntryKeys = new Set<string>();
+    if (punches.length > 0) {
+      const dates = punches.map((p) => p.date).sort();
+      const from = dates[0] as string;
+      const to = dates[dates.length - 1] as string;
+      const existing = await deps.attendance.list({ from, to });
+      existingEntryKeys = new Set(existing.map((e) => `${e.employeeId}|${e.date}`));
+    }
+
+    const preview = buildAttendanceImportPreview(punches, employeeIdByBadge, existingEntryKeys, parseErrors);
+
+    if (!commit) return c.json(preview);
+
+    const holidays = await deps.holidays.list();
+    const leaveRequestsByEmployee = new Map<string, LeaveRequest[]>();
+    let createdCount = 0;
+    let skippedAlreadyRecordedCount = 0;
+
+    for (const group of preview.groups) {
+      if (group.issues.includes("already_recorded")) skippedAlreadyRecordedCount++;
+      if (!group.readyToCommit || !group.employeeId) continue;
+
+      // Re-checked at commit time: the preview snapshot can be stale by the
+      // time the user confirms it (another import, or a manual edit, may have
+      // landed in between).
+      const existing = await deps.attendance.findByEmployeeAndDate(group.employeeId, group.date);
+      if (existing) {
+        skippedAlreadyRecordedCount++;
+        continue;
+      }
+
+      let leaveRequests = leaveRequestsByEmployee.get(group.employeeId);
+      if (!leaveRequests) {
+        leaveRequests = await deps.leaveRequests.listByEmployeeId(group.employeeId);
+        leaveRequestsByEmployee.set(group.employeeId, leaveRequests);
+      }
+
+      try {
+        const entry = recordAttendance({
+          id: randomUUID(),
+          employeeId: group.employeeId,
+          date: group.date,
+          checkIn: group.checkIn,
+          checkOut: group.checkOut,
+          notes: importNoteFor(group),
+          holidays,
+          onApprovedLeave: isOnApprovedLeave(leaveRequests, group.employeeId, group.date),
+        });
+        await deps.attendance.create(entry);
+        createdCount++;
+      } catch {
+        // A row the domain layer itself refuses (e.g. an unparseable time
+        // that slipped past the CSV parser) is dropped from this commit
+        // rather than aborting the whole batch — it still shows up as
+        // "not ready" the next time the same file is previewed.
+      }
+    }
+
+    await recordAdminEvent(deps.audit, c, {
+      module: "hr",
+      entityType: "attendance_import",
+      entityId: null,
+      action: "commit",
+      details: {
+        createdCount,
+        skippedAlreadyRecordedCount,
+        totalPunches: preview.totalPunches,
+        unmatchedBadges: preview.unmatchedBadges,
+      },
+    });
+
+    return c.json({ ...preview, createdCount, skippedAlreadyRecordedCount });
+  }
+
+  app.post("/attendance/import/preview", gate("hr.attendance.edit"), (c) => runAttendanceImport(c, false));
+  app.post("/attendance/import/commit", gate("hr.attendance.edit"), (c) => runAttendanceImport(c, true));
 
   // --- Leave policies ------------------------------------------------------
 

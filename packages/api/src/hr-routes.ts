@@ -85,7 +85,7 @@ import { createHrPayrollRoutes, type HrPayrollRoutesDeps } from "./hr-payroll-ro
  * them in its own step: without them `createHrRoutes` simply does not mount the
  * attendance/leave-policy/balance/accrual/admin-leave surface.
  */
-type HrTimeLeaveDeps = Pick<HrTimeLeaveRoutesDeps, "attendance" | "leavePolicies" | "leaveBalances" | "leaveAccrualBatches" | "workflow">;
+type HrTimeLeaveDeps = Pick<HrTimeLeaveRoutesDeps, "attendance" | "leavePolicies" | "leaveBalances" | "leaveAccrualBatches" | "workflow" | "audit">;
 
 /**
  * The payroll/advance stores are OPTIONAL for the same reason: without them

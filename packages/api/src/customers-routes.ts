@@ -16,6 +16,7 @@ import {
   type AuditSink,
   type Customer,
   type CustomerRepository,
+  POS_WALK_IN_CUSTOMER_ID,
 } from "@mezan/domain";
 import { createCustomerSchema, updateCustomerSchema } from "@mezan/contracts";
 import {
@@ -382,6 +383,20 @@ export function createCustomersRouter(
     const parsed = updateCustomerSchema.safeParse(await c.req.json());
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    }
+    // Every POS sale with no named buyer is invoiced to this customer: it must
+    // stay active and stay a consumer (no tax number), or the till stops selling.
+    if (
+      id === POS_WALK_IN_CUSTOMER_ID &&
+      (parsed.data.active === false || (parsed.data.taxNumber ?? "").trim() !== "")
+    ) {
+      return c.json(
+        {
+          error: "WALK_IN_CUSTOMER_LOCKED",
+          message: "«زبون عابر» تبيع له نقاط البيع — لا يُعطَّل ولا يُسجَّل له رقم ضريبي.",
+        },
+        409,
+      );
     }
     if (parsed.data.code !== undefined && parsed.data.code !== current.code) {
       const clash = await repo.findByCode(parsed.data.code);

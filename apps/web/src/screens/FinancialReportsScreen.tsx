@@ -1,4 +1,5 @@
 import { useMemo, useState, type ReactNode } from "react";
+import { useUrlParam } from "../lib/url-state";
 import {
   createAccountLedgerReport,
   createBalanceSheetReport,
@@ -140,7 +141,7 @@ const TABS: readonly TabDef[] = [
 
 export function FinancialReportsScreen() {
   const { t } = useAppTranslation();
-  const [activeTab, setActiveTab] = useState<string>(TABS[0]?.id ?? "trial-balance");
+  const [activeTab, setActiveTab] = useUrlParam("tab", TABS[0]?.id ?? "trial-balance");
   const tab = TABS.find((entry) => entry.id === activeTab) ?? TABS[0];
 
   return (

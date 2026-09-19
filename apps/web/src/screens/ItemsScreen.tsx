@@ -695,7 +695,7 @@ export function ItemsScreen() {
   const [detailTab, setDetailTab] = useState("general");
 
   const [searchText, setSearchText, search] = useUrlSearch();
-  const [statusChipKey, setStatusChipKey] = useState("all");
+  const [statusChipKey, setStatusChipKey] = useUrlParam("status", "all");
   const [brandFilter, setBrandFilter] = useState("");
   const [seasonFilter, setSeasonFilter] = useState("");
   const [categoryFilter, setCategoryFilter] = useUrlParam("category", "all") as [

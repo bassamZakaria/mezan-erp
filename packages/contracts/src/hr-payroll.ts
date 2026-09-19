@@ -54,7 +54,7 @@ export const employeeAdvanceSchema = z.object({
   disbursementJournalEntryId: z.string().nullable(),
   repaidAt: z.string().nullable(),
   createdAt: z.string().min(1),
-  repayments: z.array(advanceRepaymentSchema),
+  repayments: z.array(advanceRepaymentSchema).optional(),
 });
 
 export const createEmployeeAdvanceSchema = z.object({

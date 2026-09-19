@@ -1,6 +1,7 @@
 import type { LocaleCatalogs } from "@mezan/ui";
 import { posAr, posEn } from "../screens/pos/nav";
 import { enhAr, enhEn } from "../screens/enh/nav";
+import { hrSelfAr, hrSelfEn } from "../screens/hr-self-strings";
 
 /**
  * The web app's own strings. Arabic is the source language and `webEn` is typed
@@ -110,6 +111,7 @@ const webAr = {
   "nav.section.money.reports": "القوائم والتقارير",
   "nav.section.people.staff": "الموظفون",
   "nav.section.people.time": "الحضور والإجازات",
+  "nav.section.people.self": "خدماتي",
   "nav.section.people.pay": "الرواتب",
   "nav.section.people.assets": "الأصول",
   "nav.section.people.projects": "المشاريع",
@@ -226,6 +228,9 @@ const webAr = {
   "nav.item.leave-accrual-batches": "استحقاقات الإجازات",
   "nav.item.leave-policies": "سياسات الإجازات",
   "nav.item.my-leave": "إجازاتي",
+  "nav.item.my-attendance": "حضوري",
+  "nav.item.my-payslips": "كشوف رواتبي",
+  "nav.item.my-advances": "سلفي",
   "nav.item.projects": "المقاولات",
   "nav.item.guarantees": "خطابات الضمان",
   "guarantees.title": "خطابات الضمان",
@@ -588,6 +593,11 @@ const webAr = {
 
   // permission matrix — action verbs
   "perm.action.view": "عرض",
+  "perm.action.leave": "إجازاتي",
+  "perm.action.payslip": "كشوف رواتبي",
+  "perm.action.advance": "سلفي",
+  "perm.action.attendance": "حضوري",
+  "perm.action.clock": "تسجيل الحضور من الويب",
   "perm.action.view_own": "عرض الخاص بي",
   "perm.action.view_all": "عرض الكل",
   "perm.action.view_cost": "عرض التكلفة",
@@ -687,6 +697,7 @@ const webAr = {
   "perm.entity.lead": "عميل محتمل",
   "perm.entity.leave": "إجازة",
   "perm.entity.leave_accrual": "استحقاق الإجازات",
+  "perm.entity.self": "الخدمة الذاتية",
   "perm.entity.leave_policy": "سياسة الإجازات",
   "perm.entity.logs": "السجلات",
   "perm.entity.opportunity": "فرصة بيع",
@@ -9430,6 +9441,7 @@ const webAr = {
   "employees.no": "لا",
   ...posAr,
   ...enhAr,
+  ...hrSelfAr,
 } as const;
 
 export type WebTranslationKey = keyof typeof webAr;
@@ -9542,6 +9554,7 @@ const webEn: Record<WebTranslationKey, string> = {
   "nav.section.money.reports": "Statements & reports",
   "nav.section.people.staff": "Employees",
   "nav.section.people.time": "Attendance & leave",
+  "nav.section.people.self": "My services",
   "nav.section.people.pay": "Payroll",
   "nav.section.people.assets": "Assets",
   "nav.section.people.projects": "Projects",
@@ -9658,6 +9671,9 @@ const webEn: Record<WebTranslationKey, string> = {
   "nav.item.leave-accrual-batches": "Leave accruals",
   "nav.item.leave-policies": "Leave policies",
   "nav.item.my-leave": "My leave",
+  "nav.item.my-attendance": "My attendance",
+  "nav.item.my-payslips": "My payslips",
+  "nav.item.my-advances": "My advances",
   "nav.item.projects": "Contracting",
   "nav.item.guarantees": "Letters of guarantee",
   "guarantees.title": "Letters of guarantee",
@@ -10020,6 +10036,11 @@ const webEn: Record<WebTranslationKey, string> = {
 
   // permission matrix — action verbs
   "perm.action.view": "View",
+  "perm.action.leave": "My leave",
+  "perm.action.payslip": "My payslips",
+  "perm.action.advance": "My advances",
+  "perm.action.attendance": "My attendance",
+  "perm.action.clock": "Web clock-in",
   "perm.action.view_own": "View own",
   "perm.action.view_all": "View all",
   "perm.action.view_cost": "View cost",
@@ -10119,6 +10140,7 @@ const webEn: Record<WebTranslationKey, string> = {
   "perm.entity.lead": "Lead",
   "perm.entity.leave": "Leave",
   "perm.entity.leave_accrual": "Leave accrual",
+  "perm.entity.self": "Self-service",
   "perm.entity.leave_policy": "Leave policy",
   "perm.entity.logs": "Logs",
   "perm.entity.opportunity": "Opportunity",
@@ -18864,6 +18886,7 @@ const webEn: Record<WebTranslationKey, string> = {
   "employees.no": "No",
   ...posEn,
   ...enhEn,
+  ...hrSelfEn,
 };
 
 export const webCatalogs: LocaleCatalogs = { ar: webAr, en: webEn };

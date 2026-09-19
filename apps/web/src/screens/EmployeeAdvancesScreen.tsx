@@ -28,10 +28,11 @@ import {
 } from "../data/hr-payroll-hooks";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { useEntityName } from "../lib/entity-names";
-import { sumMajor } from "../lib/money";
+import { majorOf, sumMajor } from "../lib/money";
 import { employeeDisplayName } from "./hr-employee-name";
 import { EMPTY } from "../lib/empty";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
+import { AdvanceRepaymentPanel } from "./AdvanceRepaymentPanel";
 
 /** سلف الموظفين (Employee Advances) — docs/archive/catalog/06 §"سلف الموظفين". A cash advance is a DEBT on the employee (an asset, 1160), recovered from payroll in instalments — never an expense. */
 
@@ -274,6 +275,18 @@ export function EmployeeAdvancesScreen() {
               : []),
             // Paying out needs a treasury account the row cannot supply, so the
             // entry opens the detail panel that collects it rather than guessing.
+            ...(a.status === "disbursed"
+              ? [
+                  {
+                    key: "repay",
+                    label: t("advances.repay"),
+                    onSelect: () => {
+                      setDetailError(null);
+                      setSelectedId(a.id);
+                    },
+                  },
+                ]
+              : []),
             ...(a.status === "approved"
               ? [
                   {
@@ -376,6 +389,26 @@ export function EmployeeAdvancesScreen() {
                 ))}
               </ul>
             </div>
+
+            {(selected.repayments ?? []).length > 0 ? (
+              <div className="rounded-lg border border-border p-[14px]">
+                <h3 className="mb-[10px] font-display text-[13px] font-bold text-ink">{t("advances.repaymentsHistory")}</h3>
+                <ul className="flex flex-col gap-[6px]">
+                  {(selected.repayments ?? []).map((r) => (
+                    <li key={r.id} className="flex items-center justify-between gap-[10px] text-[12.5px]">
+                      <span className="mz-num text-ink-muted">
+                        {r.date} · {t("advances.repaymentVoucher", { voucher: r.voucherNo ?? r.voucherId })}
+                      </span>
+                      <MoneyDisplay value={majorOf(r.amount)} />
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+
+            {selected.status === "disbursed" ? (
+              <AdvanceRepaymentPanel key={selected.id} advance={selected} treasuryAccounts={treasuryAccounts.map((account) => ({ value: account.id, label: `${account.code} — ${nameOf(account)}` }))} branches={branches.map((b) => ({ value: b.id, label: b.name }))} />
+            ) : null}
 
             {selected.disbursementVoucherId ? (
               <Card className="p-[13px_15px]">

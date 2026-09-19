@@ -155,6 +155,7 @@ const EMPLOYEES = [
   {
     id: "EMP-DEMO-5",
     deviceBadgeId: "1005",
+    requireSelfieAtClockIn: true,
     firstName: "Ahmed",
     lastName: "El-Shennawy",
     firstNameAr: "أحمد",
@@ -895,4 +896,16 @@ export async function seedHr(app: App): Promise<void> {
       });
     }
   }
+
+  // «سداد نقدي» outside payroll, AFTER the runs: August's محتسب run already
+  // recovers one instalment of ADV-DEMO-1, and the route refuses to repay into it.
+  await step(app, "POST", "/hr/advances/ADV-DEMO-1/repay", {
+    repaymentId: "RPY-DEMO-1",
+    amount: "1500",
+    treasuryAccountId,
+    branchId: BRANCH_ID,
+    date: seedToday(),
+    paymentMethod: "bank",
+    note: "سداد جزئي مبكر بتحويل بنكي",
+  });
 }

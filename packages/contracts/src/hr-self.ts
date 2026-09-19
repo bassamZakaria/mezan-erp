@@ -156,6 +156,7 @@ export interface SelfPayslipsDTO {
 
 export interface SelfPayslipPrintDTO extends SelfPayslipRowDTO {
   readonly employee: SelfEmployeeDTO;
+  readonly statutoryUnverified: boolean;
   readonly printTemplate: unknown;
   readonly company: {
     readonly companyName: string;

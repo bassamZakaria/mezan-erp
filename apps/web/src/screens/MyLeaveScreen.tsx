@@ -2,7 +2,8 @@ import { useState, type FormEvent } from "react";
 import { Button, Card, SidePanel, StatusPill } from "@mezan/ui";
 import type { LeaveRequestDTO, LeaveTypeDTO } from "@mezan/contracts";
 import { SelectField, TextField, ToggleField } from "../settings/form-controls";
-import { ApiError, useCancelLeaveRequest, useCreateLeaveRequest, useMyLeave } from "../data/hooks";
+import { ApiError, useMyLeave } from "../data/hooks";
+import { useCancelSelfLeaveRequest, useCreateSelfLeaveRequest } from "../data/hr-self-hooks";
 import { LEAVE_STATUS_KEY, LEAVE_STATUS_TONE, LEAVE_TYPE_KEY, leaveTypeOptions } from "./hr-leave-labels";
 import { useAppTranslation } from "../i18n";
 
@@ -23,8 +24,8 @@ function blankDraft(): LeaveDraft {
 export function MyLeaveScreen() {
   const { t } = useAppTranslation();
   const query = useMyLeave();
-  const createLeaveRequest = useCreateLeaveRequest();
-  const cancelLeaveRequest = useCancelLeaveRequest();
+  const createLeaveRequest = useCreateSelfLeaveRequest();
+  const cancelLeaveRequest = useCancelSelfLeaveRequest();
 
   const [formOpen, setFormOpen] = useState(false);
   const [draft, setDraft] = useState<LeaveDraft>(blankDraft());

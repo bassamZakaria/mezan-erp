@@ -24,6 +24,7 @@ import {
   releaseLeaveBalance,
   requestEmployeeAdvance,
   selfieBytesMatchMime,
+  unverifiedStatutoryTableCodes,
   type AttachmentRepository,
   type AttendanceEntry,
   type AttendanceRepository,
@@ -43,6 +44,7 @@ import {
   type PayslipRepository,
   type PrintTemplateConfigRepository,
   type SettingsRepository,
+  type StatutoryOverrideRepository,
   type User,
   type UserRepository,
 } from "@mezan/domain";
@@ -93,6 +95,7 @@ export interface HrSelfRoutesDeps {
   readonly clockCredentials?: ClockCredentialRepository;
   readonly printTemplates?: Pick<PrintTemplateConfigRepository, "get">;
   readonly tenantSettings?: Pick<SettingsRepository, "get">;
+  readonly statutoryOverrides?: Pick<StatutoryOverrideRepository, "list">;
   readonly audit?: AuditSink;
 }
 
@@ -233,8 +236,10 @@ export function createHrSelfRoutes(deps: HrSelfRoutesDeps, resolveAuthContext: A
       if (!payslip || payslip.employeeId !== me.employee.id || !run || !RELEASED_RUN_STATUSES.includes(run.status)) {
         return bilingual(c, 404, "PAYSLIP_NOT_FOUND", "كشف الراتب غير موجود.", "The payslip was not found.");
       }
-      const [template, settings] = await Promise.all([deps.printTemplates?.get(), deps.tenantSettings?.get()]);
+      const [template, settings, overrides] = await Promise.all([deps.printTemplates?.get(), deps.tenantSettings?.get(), deps.statutoryOverrides?.list()]);
+      const unverified = new Set(unverifiedStatutoryTableCodes(overrides ?? []));
       return c.json({
+        statutoryUnverified: payslip.lines.some((l) => l.referenceId !== null && unverified.has(l.referenceId)),
         payslip: serializePayslip(payslip),
         run: runSummary(run),
         employee: await selfEmployee(me.employee),

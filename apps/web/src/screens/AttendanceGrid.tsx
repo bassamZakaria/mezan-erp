@@ -44,11 +44,12 @@ function emptyTotals(): EmployeeMonthTotals {
 export interface AttendanceGridProps {
   /** "YYYY-MM" */
   month: string;
-  employees: readonly EmployeeDTO[];
+  employees: readonly Pick<EmployeeDTO, "id" | "firstName" | "lastName" | "firstNameAr" | "lastNameAr">[];
   /** Every attendance entry for the visible month, across every employee shown (not pre-filtered by employee). */
   entries: readonly AttendanceEntryDTO[];
   loading?: boolean;
-  onCellClick: (employeeId: string, date: string, entry: AttendanceEntryDTO | null) => void;
+  /** Absent = read-only (the self-service row); cells then show the day without opening an editor. */
+  onCellClick?: (employeeId: string, date: string, entry: AttendanceEntryDTO | null) => void;
 }
 
 export function AttendanceGrid({ month, employees, entries, loading, onCellClick }: AttendanceGridProps) {
@@ -132,19 +133,24 @@ export function AttendanceGrid({ month, employees, entries, loading, onCellClick
                     const weekend = isWeekendColumn(date);
                     return (
                       <td key={day} className={`px-[2px] py-[4px] text-center ${weekend ? "bg-surface-3/40" : ""}`}>
-                        <button
-                          type="button"
-                          onClick={() => onCellClick(employee.id, date, entry)}
-                          title={entry ? `${t(ATTENDANCE_STATUS_KEY[entry.status])}${entry.checkIn ? ` — ${entry.checkIn}${entry.checkOut ? `-${entry.checkOut}` : ""}` : ""}` : t("attendance.grid.noRecordForDay")}
-                          aria-label={t("attendance.grid.cellLabel", { name, date })}
-                          className="mx-auto flex h-[22px] w-[26px] items-center justify-center rounded-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-                        >
-                          {entry ? (
-                            <StatusPill label={ATTENDANCE_GRID_CODE[entry.status]} tone={ATTENDANCE_STATUS_TONE[entry.status]} className="px-[5px] py-[1px] text-[10px]" />
-                          ) : (
-                            <span className="text-[11px] text-ink-faint">·</span>
-                          )}
-                        </button>
+                        {onCellClick ? (
+                          <button
+                            type="button"
+                            onClick={() => onCellClick(employee.id, date, entry)}
+                            title={entry ? `${t(ATTENDANCE_STATUS_KEY[entry.status])}${entry.checkIn ? ` — ${entry.checkIn}${entry.checkOut ? `-${entry.checkOut}` : ""}` : ""}` : t("attendance.grid.noRecordForDay")}
+                            aria-label={t("attendance.grid.cellLabel", { name, date })}
+                            className="mx-auto flex h-[22px] w-[26px] items-center justify-center rounded-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                          >
+                            <GridCell entry={entry} />
+                          </button>
+                        ) : (
+                          <span
+                            title={entry ? `${t(ATTENDANCE_STATUS_KEY[entry.status])}${entry.checkIn ? ` — ${entry.checkIn}${entry.checkOut ? `-${entry.checkOut}` : ""}` : ""}` : t("attendance.grid.noRecordForDay")}
+                            className="mx-auto flex h-[22px] w-[26px] items-center justify-center"
+                          >
+                            <GridCell entry={entry} />
+                          </span>
+                        )}
                       </td>
                     );
                   })}
@@ -159,5 +165,13 @@ export function AttendanceGrid({ month, employees, entries, loading, onCellClick
         </table>
       </div>
     </Card>
+  );
+}
+
+function GridCell({ entry }: { entry: AttendanceEntryDTO | null }) {
+  return entry ? (
+    <StatusPill label={ATTENDANCE_GRID_CODE[entry.status]} tone={ATTENDANCE_STATUS_TONE[entry.status]} className="px-[5px] py-[1px] text-[10px]" />
+  ) : (
+    <span className="text-[11px] text-ink-faint">·</span>
   );
 }

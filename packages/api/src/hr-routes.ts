@@ -837,6 +837,7 @@ export function createHrRoutes(deps: HrRoutesDeps, resolveAuthContext: AuthConte
         clockCredentials: deps.clockCredentials,
         printTemplates: deps.printTemplates,
         tenantSettings: deps.tenantSettings ?? deps.payroll?.settings,
+        statutoryOverrides: deps.payroll?.statutoryOverrides,
         audit: deps.audit ?? deps.payroll?.audit,
       },
       resolveAuthContext,

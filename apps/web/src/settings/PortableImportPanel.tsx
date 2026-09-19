@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Button, TextInput } from "@mezan/ui";
+import { Button, Checkbox, TextInput } from "@mezan/ui";
 import { useAppTranslation } from "../i18n";
 import { backupBridge, isBackupFailure, megabytes } from "./backup-bridge";
 
@@ -87,15 +87,11 @@ export function PortableImportPanel({ sessionToken, firstRun = false }: Portable
             />
           </div>
           {firstRun ? null : (
-            <label className="flex items-start gap-[8px] text-[12.5px] text-danger-ink">
-              <input
-                type="checkbox"
-                className="mt-[3px]"
-                checked={understood}
-                onChange={(e) => setUnderstood(e.target.checked)}
-              />
-              <span>{t("portableImport.confirm")}</span>
-            </label>
+            <Checkbox
+              checked={understood}
+              onChange={(e) => setUnderstood(e.target.checked)}
+              label={t("portableImport.confirm")}
+            />
           )}
           <div>
             <Button

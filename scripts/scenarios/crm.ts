@@ -474,8 +474,11 @@ export async function run(ctx: Ctx): Promise<void> {
     checkEq("down payment + all 6 instalments == the source invoice's grand total, exactly (two independently-read figures)",
       downPayment + sumOfLines, n(invoice.body.totals.grandTotal));
     checkEq("each instalment == 939.93 exactly (5,639.58 ÷ 6 divides evenly)", n(plan.body.lines[0].amount), 939.93);
-    check("line #1 is 'overdue' (due 2026-08-18, already past)", plan.body.lines[0].status === "overdue");
-    check("lines #2-6 are still 'pending'", plan.body.lines.slice(1).every((l: any) => l.status === "pending"));
+    check("line #1 is 'overdue' (due 2026-08-18, before any day this suite runs on)", plan.body.lines[0].status === "overdue");
+    // The seed runs overdue processing as of today, so which later lines are
+    // overdue depends on the day the suite runs.
+    const misread = plan.body.lines.filter((l: any) => l.status !== (l.dueDate < ctx.today ? "overdue" : "pending"));
+    check(`every line is 'overdue' exactly when its due date is before today (${ctx.today}), 'pending' otherwise`, misread.length === 0, JSON.stringify(misread.map((l: any) => [l.dueDate, l.status])));
 
     const uneven = await req("POST", "/installments/plans", {
       id: "SCN-IPLAN-UNEVEN", date: "2026-09-01", memo: "SCN rounding-leak stress test",

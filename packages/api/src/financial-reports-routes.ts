@@ -18,6 +18,7 @@ import {
   type VatReturnContext,
 } from "@mezan/domain";
 import { branchScopeOf, createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
+import { tenantToday } from "./tenant-day.js";
 
 /**
  * القوائم المالية — the seven financial statements (docs/archive/catalog/08-reports.md),
@@ -62,7 +63,7 @@ export interface FinancialReportsRoutesDeps {
   readonly cashAccountIds?: readonly string[];
   /** The accounts the income statement shows below operating profit, resolved per request from the tenant's routing (D229). */
   readonly otherIncomeExpenseAccountIds?: () => Promise<readonly string[]>;
-  /** ISO `YYYY-MM-DD` "today" — overridable for tests; defaults to the real date. */
+  /** ISO `YYYY-MM-DD` "today" — overridable for tests; defaults to the tenant's calendar day. */
   readonly today?: () => string;
   /**
    * Which branch each posted entry belongs to (P-7).
@@ -81,9 +82,6 @@ export interface FinancialReportsRoutesDeps {
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
-function todayIso(deps: FinancialReportsRoutesDeps): string {
-  return deps.today ? deps.today() : new Date().toISOString().slice(0, 10);
-}
 
 function firstOfMonth(today: string): string {
   return `${today.slice(0, 7)}-01`;
@@ -163,7 +161,7 @@ export function createFinancialReportsRoutes(
   // --- ميزان المراجعة --------------------------------------------------
 
   app.get("/trial-balance", gate("accounting.reports.view"), async (c) => {
-    const definition = createTrialBalanceReport(todayIso(deps));
+    const definition = createTrialBalanceReport(await tenantToday(c, deps.today));
     const params = mergeParams(c, definition.defaultParams);
     const ctx = await loadGlContext(c, { toDate: isoDateOrUndefined(params.asOfDate) });
     return respond(c, runReport(definition, params, ctx));
@@ -172,7 +170,7 @@ export function createFinancialReportsRoutes(
   // --- قائمة الدخل -------------------------------------------------------
 
   app.get("/income-statement", gate("accounting.reports.view"), async (c) => {
-    const today = todayIso(deps);
+    const today = await tenantToday(c, deps.today);
     const definition = createIncomeStatementReport({ periodFrom: firstOfMonth(today), periodTo: today });
     const params = mergeParams(c, definition.defaultParams);
     // The report is comparative, so the ledger query must reach back to the
@@ -190,7 +188,7 @@ export function createFinancialReportsRoutes(
   // --- الميزانية العمومية -------------------------------------------------
 
   app.get("/balance-sheet", gate("accounting.reports.view"), async (c) => {
-    const definition = createBalanceSheetReport(todayIso(deps));
+    const definition = createBalanceSheetReport(await tenantToday(c, deps.today));
     const params = mergeParams(c, definition.defaultParams);
     const ctx = await loadGlContext(c, { toDate: isoDateOrUndefined(params.asOfDate) });
     return respond(c, runReport(definition, params, ctx));
@@ -199,7 +197,7 @@ export function createFinancialReportsRoutes(
   // --- التدفقات النقدية ---------------------------------------------------
 
   app.get("/cash-flow", gate("accounting.reports.view"), async (c) => {
-    const today = todayIso(deps);
+    const today = await tenantToday(c, deps.today);
     const definition = createCashFlowReport({ periodFrom: firstOfMonth(today), periodTo: today });
     const params = mergeParams(c, definition.defaultParams);
     // The opening-cash figure needs every entry before periodFrom, so the
@@ -211,7 +209,7 @@ export function createFinancialReportsRoutes(
   // --- إقرار ضريبة القيمة المضافة ------------------------------------------
 
   app.get("/vat-return", gate("accounting.reports.view"), async (c) => {
-    const today = todayIso(deps);
+    const today = await tenantToday(c, deps.today);
     const definition = createVatReturnReport({ periodFrom: firstOfMonth(today), periodTo: today });
     const params = mergeParams(c, definition.defaultParams);
     const outputVatAccountId =
@@ -247,7 +245,7 @@ export function createFinancialReportsRoutes(
   // --- دفتر الأستاذ العام --------------------------------------------------
 
   app.get("/general-ledger", gate("accounting.reports.view"), async (c) => {
-    const today = todayIso(deps);
+    const today = await tenantToday(c, deps.today);
     const definition = createGeneralLedgerReport({ periodFrom: firstOfMonth(today), periodTo: today });
     const params = mergeParams(c, definition.defaultParams);
     const ctx = await loadGlContext(c, {
@@ -260,7 +258,7 @@ export function createFinancialReportsRoutes(
   // --- دفتر حساب -----------------------------------------------------------
 
   app.get("/account-ledger", gate("accounting.reports.view"), async (c) => {
-    const today = todayIso(deps);
+    const today = await tenantToday(c, deps.today);
     const accounts = await deps.accounts.list();
     const postable = accounts.filter((a) => !a.isHeader);
     const definition = createAccountLedgerReport(postable, {

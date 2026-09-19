@@ -12,7 +12,8 @@ describe("treasury-accounts errors", () => {
     expect(err.name).toBe("DuplicateTreasuryAccountCodeError");
     expect(err.code).toBe("DUPLICATE_TREASURY_ACCOUNT_CODE");
     expect(err.accountCode).toBe("TA-001");
-    expect(err.message).toBe('Treasury account code "TA-001" already exists.');
+    expect(err.message).toBe('كود حساب الخزينة "TA-001" مستخدم من قبل.');
+    expect(err.messageEn).toBe('Treasury account code "TA-001" already exists.');
   });
 
   it("TreasuryAccountNotFoundError carries the missing id", () => {
@@ -20,7 +21,8 @@ describe("treasury-accounts errors", () => {
     expect(err.name).toBe("TreasuryAccountNotFoundError");
     expect(err.code).toBe("TREASURY_ACCOUNT_NOT_FOUND");
     expect(err.accountId).toBe("ta-1");
-    expect(err.message).toBe('Treasury account "ta-1" was not found.');
+    expect(err.message).toBe('حساب الخزينة "ta-1" غير موجود.');
+    expect(err.messageEn).toBe('Treasury account "ta-1" was not found.');
   });
 
   it("NegativeCashBalanceError carries the account id", () => {
@@ -28,6 +30,7 @@ describe("treasury-accounts errors", () => {
     expect(err.name).toBe("NegativeCashBalanceError");
     expect(err.code).toBe("NEGATIVE_CASH_BALANCE");
     expect(err.accountId).toBe("ta-1");
-    expect(err.message).toBe('Cash treasury account "ta-1" cannot have a negative balance.');
+    expect(err.message).toBe('الخزينة النقدية "ta-1" لا يمكن أن يكون رصيدها سالباً.');
+    expect(err.messageEn).toBe('Cash treasury account "ta-1" cannot have a negative balance.');
   });
 });

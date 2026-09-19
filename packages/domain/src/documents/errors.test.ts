@@ -37,7 +37,8 @@ describe("DuplicateDocumentError", () => {
   it("carries the doc type/id", () => {
     const err = new DuplicateDocumentError("JOURNAL_ENTRY", "j-1");
     expect(err.code).toBe("DUPLICATE_DOCUMENT");
-    expect(err.message).toBe("Document JOURNAL_ENTRY/j-1 already exists.");
+    expect(err.message).toBe('المستند "JOURNAL_ENTRY/j-1" موجود بالفعل.');
+    expect(err.messageEn).toBe("Document JOURNAL_ENTRY/j-1 already exists.");
   });
 });
 
@@ -46,7 +47,8 @@ describe("MissingHookError", () => {
     const err = new MissingHookError("JOURNAL_ENTRY", "gl");
     expect(err.code).toBe("MISSING_DOCUMENT_HOOK");
     expect(err.hook).toBe("gl");
-    expect(err.message).toContain("gl hook");
+    expect(err.message).toContain("gl");
+    expect(err.messageEn).toContain("gl hook");
   });
 });
 

@@ -3,15 +3,13 @@ import { isoDateParamSchema } from "./iso-date.js";
 import type { Account, AccountType } from "../accounts/account.js";
 import type { JournalEntry } from "../journal.js";
 import { Money } from "../money/index.js";
-import { isLedgerEffective } from "./gl-shared.js";
+import { netBalancesByAccount } from "./gl-shared.js";
 import {
   BRANCH_STATEMENT_NOTE_AR,
   BRANCH_STATEMENT_PARAM_FIELD,
   UNATTRIBUTED_BRANCH_ID,
   UNATTRIBUTED_BRANCH_LABEL,
   branchIdParamSchema,
-  matchesStatementBranch,
-  withinBranchScope,
 } from "./branch-filter.js";
 import type { ReportDefinition } from "./types.js";
 import { sumRows } from "./kpi.js";
@@ -77,6 +75,10 @@ const trialBalanceParamsSchema = z.object({
  * manual journal split across branches does not, and that is real — the
  * «غير مخصص» column and the report's own note are what keep it visible rather
  * than letting «إجمالي المدين = إجمالي الدائن» go red with no explanation.
+ *
+ * The account drill-down (`/reports/drill-down/account/:id`) counts the same
+ * lines through `accountActivity` with this window and these options; change
+ * one and the panel stops reconciling to the row it was opened from (D281).
  */
 function computeAccountBalances(
   journalEntries: readonly JournalEntry[],
@@ -84,18 +86,7 @@ function computeAccountBalances(
   branchId: string,
   branchScope: readonly string[] | undefined,
 ): Map<string, Money> {
-  const balances = new Map<string, Money>();
-  for (const entry of journalEntries) {
-    if (!isLedgerEffective(entry)) continue;
-    if (entry.date > asOfDate) continue;
-    for (const line of entry.lines) {
-      if (!withinBranchScope(line.branchId, branchScope)) continue;
-      if (!matchesStatementBranch(line.branchId, branchId)) continue;
-      const net = line.debit.add(line.credit.negate());
-      balances.set(line.accountId, (balances.get(line.accountId) ?? Money.zero()).add(net));
-    }
-  }
-  return balances;
+  return netBalancesByAccount(journalEntries, { to: asOfDate }, { branchId, branchScope });
 }
 
 export function createTrialBalanceReport(

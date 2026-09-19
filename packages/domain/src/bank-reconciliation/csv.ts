@@ -71,7 +71,7 @@ export function parseCsv(raw: string): CsvTable {
 
   const nonEmpty = rows.filter((r) => !(r.length === 1 && r[0] === ""));
   if (nonEmpty.length === 0) {
-    throw new InvalidStatementFileError("The statement file is empty.");
+    throw new InvalidStatementFileError("ملف الكشف فارغ.", "The statement file is empty.");
   }
   const [headers, ...dataRows] = nonEmpty;
   return { headers: headers!, rows: dataRows };
@@ -93,11 +93,16 @@ function parseDateCell(raw: string, format: StatementColumnMapping["dateFormat"]
   const trimmed = raw.trim();
   if (format === "YYYY-MM-DD") {
     const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(trimmed);
-    if (!m) throw new InvalidStatementFileError(`Invalid date "${raw}" for format YYYY-MM-DD.`);
+    if (!m)
+      throw new InvalidStatementFileError(
+        `تاريخ غير صالح "${raw}" للصيغة YYYY-MM-DD.`,
+        `Invalid date "${raw}" for format YYYY-MM-DD.`,
+      );
     return `${m[1]}-${m[2]}-${m[3]}`;
   }
   const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(trimmed);
-  if (!m) throw new InvalidStatementFileError(`Invalid date "${raw}" for format ${format}.`);
+  if (!m)
+    throw new InvalidStatementFileError(`تاريخ غير صالح "${raw}" للصيغة ${format}.`, `Invalid date "${raw}" for format ${format}.`);
   const [, a, b, year] = m;
   const [month, day] = format === "DD/MM/YYYY" ? [b, a] : [a, b];
   return `${year}-${month!.padStart(2, "0")}-${day!.padStart(2, "0")}`;
@@ -117,6 +122,7 @@ export function mapCsvRows(table: CsvTable, mapping: StatementColumnMapping): re
   const hasDebitCredit = mapping.debitColumn != null && mapping.creditColumn != null;
   if (hasAmountColumn === hasDebitCredit) {
     throw new InvalidColumnMappingError(
+      "يجب أن يحدد تخطيط الأعمدة `amountColumn` وحده أو `debitColumn`+`creditColumn` معاً، وليس الاثنين ولا لا شيء.",
       "A column mapping must set exactly one of `amountColumn` or both `debitColumn`+`creditColumn`.",
     );
   }

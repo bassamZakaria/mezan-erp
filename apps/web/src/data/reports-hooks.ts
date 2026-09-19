@@ -16,6 +16,7 @@ import { useAppTranslation } from "../i18n";
  */
 
 export interface ReportResult<Row> {
+  readonly params?: Readonly<Record<string, unknown>>;
   readonly rows: readonly Row[];
   readonly groups: readonly ReportGroupResult<Row>[];
   readonly grandTotals: Readonly<Record<string, number>>;

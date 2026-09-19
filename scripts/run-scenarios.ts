@@ -1,3 +1,5 @@
+// Must stay the first import: it moves the clock before any module reads it.
+import "./scenarios/fake-clock.js";
 import { boot } from "./scenarios/harness.js";
 import { run as sales } from "./scenarios/sales.js";
 import { run as purchases } from "./scenarios/purchases.js";

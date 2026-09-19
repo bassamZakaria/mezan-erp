@@ -116,15 +116,15 @@ function validate(command: UpsertConfigurableProductCommand): {
   pricingMethod: PricingMethod;
 } {
   const reasons: string[] = [];
-  if (command.code.trim() === "") reasons.push("code is required");
-  if (command.nameAr.trim() === "") reasons.push("Arabic name is required");
-  if (command.outputItemId.trim() === "") reasons.push("an output item is required");
-  if (command.inputs.length === 0) reasons.push("at least one configuration input is required");
-  if (command.materials.length === 0) reasons.push("at least one manufacturing material is required");
+  if (command.code.trim() === "") reasons.push("الكود مطلوب");
+  if (command.nameAr.trim() === "") reasons.push("الاسم بالعربية مطلوب");
+  if (command.outputItemId.trim() === "") reasons.push("صنف المخرجات مطلوب");
+  if (command.inputs.length === 0) reasons.push("مطلوب مُدخل تهيئة واحد على الأقل");
+  if (command.materials.length === 0) reasons.push("مطلوبة مادة تصنيع واحدة على الأقل");
 
   const inputs = command.inputs.map<ConfigInput>((inp, i) => {
     if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(inp.id)) {
-      reasons.push(`input ${i}: id "${inp.id}" must be a valid formula variable name`);
+      reasons.push(`المُدخل ${i}: المعرف "${inp.id}" يجب أن يكون اسم متغيّر صيغة صالحاً`);
     }
     return {
       id: inp.id,
@@ -146,21 +146,21 @@ function validate(command: UpsertConfigurableProductCommand): {
   };
 
   const materials = command.materials.map<MaterialFormula>((m, i) => {
-    if (m.itemId.trim() === "") reasons.push(`material ${i}: an item is required`);
-    validateFormula(m.qtyFormula, `material ${i} quantity formula`);
+    if (m.itemId.trim() === "") reasons.push(`المادة ${i}: الصنف مطلوب`);
+    validateFormula(m.qtyFormula, `صيغة كمية المادة ${i}`);
     return { itemId: m.itemId, qtyFormula: m.qtyFormula, wastePercent: m.wastePercent ?? 0 };
   });
 
   const pricingMethod = command.pricingMethod ?? "manual";
   if (pricingMethod === "formula") {
     if (!command.priceFormula || command.priceFormula.trim() === "") {
-      reasons.push("a price formula is required when pricing method is formula");
+      reasons.push("صيغة السعر مطلوبة عندما تكون طريقة التسعير بالصيغة");
     } else {
-      validateFormula(command.priceFormula, "price formula");
+      validateFormula(command.priceFormula, "صيغة السعر");
     }
   }
-  if (command.laborFormula) validateFormula(command.laborFormula, "labour formula");
-  if (command.overheadFormula) validateFormula(command.overheadFormula, "overhead formula");
+  if (command.laborFormula) validateFormula(command.laborFormula, "صيغة الأجر");
+  if (command.overheadFormula) validateFormula(command.overheadFormula, "صيغة التكاليف الإضافية");
 
   if (reasons.length > 0) throw new InvalidManufacturingDocumentError(reasons);
   return { inputs, materials, pricingMethod };
@@ -277,16 +277,16 @@ export function evaluateConfigurableProduct(
   for (const input of product.inputs) {
     const raw = spec[input.id];
     if (raw === undefined || raw.trim() === "") {
-      reasons.push(`missing value for "${input.id}"`);
+      reasons.push(`القيمة مفقودة لـ "${input.id}"`);
       continue;
     }
     if (!/^-?\d+(\.\d+)?$/.test(raw.trim())) {
-      reasons.push(`value for "${input.id}" must be a number`);
+      reasons.push(`القيمة الخاصة بـ "${input.id}" يجب أن تكون رقماً`);
       continue;
     }
     const num = Number(raw);
-    if (input.min !== null && num < input.min) reasons.push(`"${input.id}" is below its minimum (${input.min})`);
-    if (input.max !== null && num > input.max) reasons.push(`"${input.id}" is above its maximum (${input.max})`);
+    if (input.min !== null && num < input.min) reasons.push(`"${input.id}" أقل من الحد الأدنى (${input.min})`);
+    if (input.max !== null && num > input.max) reasons.push(`"${input.id}" أكبر من الحد الأقصى (${input.max})`);
     scope[input.id] = raw.trim();
   }
   if (reasons.length > 0) throw new InvalidManufacturingDocumentError(reasons);

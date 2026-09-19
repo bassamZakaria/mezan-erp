@@ -116,7 +116,7 @@ export function createLandedCostsRoutes(
       return c.json(serialize(doc), 201);
     } catch (err) {
       if (err instanceof EmptyLandedCostTargetsError || err instanceof ZeroLandedCostWeightError) {
-        return c.json({ error: err.code, message: err.message }, 422);
+        return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 422);
       }
       return handleDocumentError(c, err);
     }

@@ -40,3 +40,8 @@ export async function tenantDay(c: Context, value: string | undefined): Promise<
   const resolve = (c as unknown as Context<TenantDayEnv>).get(KEY);
   return toTenantDay(value, (await resolve?.()) ?? DEFAULT_TIME_ZONE);
 }
+
+/** The default day every as-of report and its drill-down share (D281); they must not diverge. */
+export async function tenantToday(c: Context, override?: () => string): Promise<string> {
+  return override ? override() : tenantDay(c, new Date().toISOString());
+}

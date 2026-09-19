@@ -18,23 +18,25 @@ import {
  * stock-ledger errors a `buildStockPlan` confirm can surface.
  */
 export function handleDocumentError(c: Context, err: unknown): Response {
+  const refuse = (e: Error & { code: string; messageEn?: string }, status: 404 | 409 | 422 | 500) =>
+    c.json({ error: e.code, message: e.message, ...(e.messageEn ? { messageEn: e.messageEn } : {}) }, status);
   if (err instanceof DocumentNotFoundError) {
-    return c.json({ error: err.code, message: err.message }, 404);
+    return refuse(err, 404);
   }
   if (err instanceof DuplicateDocumentError) {
-    return c.json({ error: err.code, message: err.message }, 409);
+    return refuse(err, 409);
   }
   if (err instanceof ApprovalRequestRejectedError) {
-    return c.json({ error: err.code, message: err.message }, 409);
+    return refuse(err, 409);
   }
   if (err instanceof InvalidDocumentTransitionError) {
-    return c.json({ error: err.code, message: err.message }, 409);
+    return refuse(err, 409);
   }
   if (err instanceof InvalidDocumentError) {
-    return c.json({ error: err.code, message: err.message }, 422);
+    return refuse(err, 422);
   }
   if (err instanceof MissingHookError) {
-    return c.json({ error: err.code, message: err.message }, 500);
+    return refuse(err, 500);
   }
   if (err instanceof NegativeStockError) {
     return c.json(

@@ -32,11 +32,13 @@ function serialize(account: Account) {
 }
 
 function handleDomainError(c: Context, err: unknown) {
+  const refuse = (e: Error & { code: string; messageEn?: string }, status: 404 | 409 | 422) =>
+    c.json({ error: e.code, message: e.message, ...(e.messageEn ? { messageEn: e.messageEn } : {}) }, status);
   if (err instanceof AccountNotFoundError) {
-    return c.json({ error: err.code, message: err.message }, 404);
+    return refuse(err, 404);
   }
   if (err instanceof DuplicateAccountCodeError) {
-    return c.json({ error: err.code, message: err.message }, 409);
+    return refuse(err, 409);
   }
   if (
     err instanceof InvalidParentAccountError ||
@@ -44,7 +46,7 @@ function handleDomainError(c: Context, err: unknown) {
     err instanceof HeaderAccountHasChildrenError ||
     err instanceof AccountHasPostingsError
   ) {
-    return c.json({ error: err.code, message: err.message }, 422);
+    return refuse(err, 422);
   }
   throw err;
 }

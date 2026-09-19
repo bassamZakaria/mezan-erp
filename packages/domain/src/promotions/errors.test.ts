@@ -7,7 +7,8 @@ describe("InvalidPromotionError", () => {
     expect(err.code).toBe("INVALID_PROMOTION");
     expect(err.name).toBe("InvalidPromotionError");
     expect(err.reasons).toEqual(["كود العرض مطلوب.", "اسم العرض بالعربية مطلوب."]);
-    expect(err.message).toBe("Invalid promotion: كود العرض مطلوب.; اسم العرض بالعربية مطلوب.");
+    expect(err.message).toBe("بيانات العرض غير صالحة: كود العرض مطلوب.، اسم العرض بالعربية مطلوب.");
+    expect(err.messageEn).toBe("Invalid promotion: كود العرض مطلوب.; اسم العرض بالعربية مطلوب.");
     expect(err).toBeInstanceOf(Error);
   });
 });
@@ -18,7 +19,8 @@ describe("PromotionNotFoundError", () => {
     expect(err.code).toBe("PROMOTION_NOT_FOUND");
     expect(err.name).toBe("PromotionNotFoundError");
     expect(err.promotionId).toBe("promo-99");
-    expect(err.message).toBe('Promotion "promo-99" was not found.');
+    expect(err.message).toBe('العرض "promo-99" غير موجود.');
+    expect(err.messageEn).toBe('Promotion "promo-99" was not found.');
   });
 });
 
@@ -28,7 +30,8 @@ describe("DuplicatePromotionError", () => {
     expect(err.code).toBe("DUPLICATE_PROMOTION");
     expect(err.name).toBe("DuplicatePromotionError");
     expect(err.promotionCode).toBe("SUMMER10");
-    expect(err.message).toBe('Promotion code "SUMMER10" already exists.');
+    expect(err.message).toBe('كود العرض "SUMMER10" مستخدم من قبل.');
+    expect(err.messageEn).toBe('Promotion code "SUMMER10" already exists.');
   });
 });
 
@@ -38,6 +41,7 @@ describe("CouponRequiredError", () => {
     expect(err.code).toBe("COUPON_REQUIRED");
     expect(err.name).toBe("CouponRequiredError");
     expect(err.promotionCode).toBe("SUMMER10");
-    expect(err.message).toBe('Promotion "SUMMER10" requires a matching coupon code.');
+    expect(err.message).toBe('العرض "SUMMER10" يتطلب كود كوبون مطابق.');
+    expect(err.messageEn).toBe('Promotion "SUMMER10" requires a matching coupon code.');
   });
 });

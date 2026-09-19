@@ -123,7 +123,7 @@ export async function createConfigInstance(
   deps: CreateConfigInstanceDeps,
 ): Promise<CreateConfigInstanceResult> {
   if (command.qty.isZero() || command.qty.isNegative()) {
-    throw new InvalidManufacturingDocumentError(["quantity must be positive"]);
+    throw new InvalidManufacturingDocumentError(["الكمية يجب أن تكون أكبر من صفر"]);
   }
   if (await deps.instances.findById(command.id)) {
     throw new DuplicateManufacturingDocumentError(command.id);

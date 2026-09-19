@@ -165,18 +165,20 @@ function serializeRun(run: DepreciationRun) {
 }
 
 function handleDomainError(c: Context, err: unknown) {
+  const refuse = (e: Error & { code: string; messageEn?: string }, status: 404 | 409 | 422) =>
+    c.json({ error: e.code, message: e.message, ...(e.messageEn ? { messageEn: e.messageEn } : {}) }, status);
   if (err instanceof AssetCategoryNotFoundError || err instanceof AssetNotFoundError || err instanceof DepreciationRunNotFoundError) {
-    return c.json({ error: err.code, message: err.message }, 404);
+    return refuse(err, 404);
   }
   if (err instanceof DuplicateAssetCategoryCodeError || err instanceof DuplicateAssetCodeError || err instanceof DuplicateDepreciationPeriodError) {
-    return c.json({ error: err.code, message: err.message }, 409);
+    return refuse(err, 409);
   }
   if (
     err instanceof DepreciationRunNotDraftError ||
     err instanceof DepreciationRunNotPostedError ||
     err instanceof AssetAlreadyDisposedError
   ) {
-    return c.json({ error: err.code, message: err.message }, 409);
+    return refuse(err, 409);
   }
   // The GL's own gates reach the caller as a refusal, not a 500: a reversal
   // dated into a closed period or a filed VAT month is a business answer.
@@ -185,18 +187,17 @@ function handleDomainError(c: Context, err: unknown) {
     err instanceof PeriodNotOpenForPostingError ||
     err instanceof VatPeriodAlreadyFiledError
   ) {
-    return c.json({ error: err.code, message: err.message }, 422);
+    return refuse(err, 422);
   }
-  // D275: a reversal dated before the run it reverses, or reversing under a
-  // later posted run still standing on the same asset — both bilingual.
-  if (err instanceof ReversalDateBeforeOriginalError || err instanceof LaterDepreciationRunExistsError) {
-    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 422);
-  }
-  if (err instanceof InvalidAssetDisposalError) {
-    return c.json({ error: err.code, message: err.message }, 422);
-  }
-  if (err instanceof InvalidAssetCategoryError || err instanceof InvalidAssetError || err instanceof NoDepreciableAssetsError) {
-    return c.json({ error: err.code, message: err.message }, 422);
+  if (
+    err instanceof ReversalDateBeforeOriginalError ||
+    err instanceof LaterDepreciationRunExistsError ||
+    err instanceof InvalidAssetDisposalError ||
+    err instanceof InvalidAssetCategoryError ||
+    err instanceof InvalidAssetError ||
+    err instanceof NoDepreciableAssetsError
+  ) {
+    return refuse(err, 422);
   }
   throw err;
 }

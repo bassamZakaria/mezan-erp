@@ -1,8 +1,10 @@
 /** Raised when an account code already exists (codes are unique across the COA). */
 export class DuplicateAccountCodeError extends Error {
   readonly code = "DUPLICATE_ACCOUNT_CODE";
+  readonly messageEn: string;
   constructor(readonly accountCode: string) {
-    super(`Account code "${accountCode}" already exists.`);
+    super(`كود الحساب "${accountCode}" مستخدم من قبل.`);
+    this.messageEn = `Account code "${accountCode}" already exists.`;
     this.name = "DuplicateAccountCodeError";
   }
 }
@@ -10,8 +12,10 @@ export class DuplicateAccountCodeError extends Error {
 /** Raised when an operation references an account id that does not exist. */
 export class AccountNotFoundError extends Error {
   readonly code = "ACCOUNT_NOT_FOUND";
+  readonly messageEn: string;
   constructor(readonly accountId: string) {
-    super(`Account "${accountId}" was not found.`);
+    super(`الحساب "${accountId}" غير موجود.`);
+    this.messageEn = `Account "${accountId}" was not found.`;
     this.name = "AccountNotFoundError";
   }
 }
@@ -22,8 +26,10 @@ export class AccountNotFoundError extends Error {
  */
 export class InvalidParentAccountError extends Error {
   readonly code = "INVALID_PARENT_ACCOUNT";
-  constructor(message: string) {
+  readonly messageEn: string;
+  constructor(message: string, messageEn: string) {
     super(message);
+    this.messageEn = messageEn;
     this.name = "InvalidParentAccountError";
   }
 }
@@ -31,8 +37,10 @@ export class InvalidParentAccountError extends Error {
 /** Raised when a journal line (or any posting) targets a header/non-postable account. */
 export class HeaderAccountNotPostableError extends Error {
   readonly code = "HEADER_ACCOUNT_NOT_POSTABLE";
+  readonly messageEn: string;
   constructor(readonly accountId: string) {
-    super(`Account "${accountId}" is a header account and cannot be posted to.`);
+    super(`الحساب "${accountId}" حساب تجميعي، ولا يمكن الترحيل إليه.`);
+    this.messageEn = `Account "${accountId}" is a header account and cannot be posted to.`;
     this.name = "HeaderAccountNotPostableError";
   }
 }
@@ -40,8 +48,10 @@ export class HeaderAccountNotPostableError extends Error {
 /** Raised when reparenting an account would create a cycle in the hierarchy. */
 export class CircularParentAccountError extends Error {
   readonly code = "CIRCULAR_PARENT_ACCOUNT";
+  readonly messageEn: string;
   constructor(readonly accountId: string) {
-    super(`Setting this parent would make account "${accountId}" its own ancestor.`);
+    super(`تعيين هذا الحساب الأصل سيجعل الحساب "${accountId}" سلفاً لنفسه.`);
+    this.messageEn = `Setting this parent would make account "${accountId}" its own ancestor.`;
     this.name = "CircularParentAccountError";
   }
 }
@@ -52,8 +62,10 @@ export class CircularParentAccountError extends Error {
  */
 export class HeaderAccountHasChildrenError extends Error {
   readonly code = "HEADER_ACCOUNT_HAS_CHILDREN";
+  readonly messageEn: string;
   constructor(readonly accountId: string) {
-    super(`Account "${accountId}" has child accounts and cannot become a detail account.`);
+    super(`الحساب "${accountId}" له حسابات فرعية، ولا يمكن أن يصبح حساباً تفصيلياً.`);
+    this.messageEn = `Account "${accountId}" has child accounts and cannot become a detail account.`;
     this.name = "HeaderAccountHasChildrenError";
   }
 }

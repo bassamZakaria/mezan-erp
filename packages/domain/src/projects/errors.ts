@@ -3,8 +3,10 @@ import { getProjectStatusLabel, type ProjectStatus } from "./project.js";
 /** Raised when a project code already exists (codes are unique across projects). */
 export class DuplicateProjectCodeError extends Error {
   readonly code = "DUPLICATE_PROJECT_CODE";
+  readonly messageEn: string;
   constructor(readonly projectCode: string) {
-    super(`Project code "${projectCode}" already exists.`);
+    super(`كود المشروع "${projectCode}" مستخدم من قبل.`);
+    this.messageEn = `Project code "${projectCode}" already exists.`;
     this.name = "DuplicateProjectCodeError";
   }
 }
@@ -12,8 +14,10 @@ export class DuplicateProjectCodeError extends Error {
 /** Raised when an operation references a project id that does not exist. */
 export class ProjectNotFoundError extends Error {
   readonly code = "PROJECT_NOT_FOUND";
+  readonly messageEn: string;
   constructor(readonly projectId: string) {
-    super(`Project "${projectId}" was not found.`);
+    super(`المشروع "${projectId}" غير موجود.`);
+    this.messageEn = `Project "${projectId}" was not found.`;
     this.name = "ProjectNotFoundError";
   }
 }

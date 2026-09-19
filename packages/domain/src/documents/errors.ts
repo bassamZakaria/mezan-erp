@@ -28,11 +28,13 @@ export class DocumentNotFoundError extends Error {
 
 export class DuplicateDocumentError extends Error {
   readonly code = "DUPLICATE_DOCUMENT";
+  readonly messageEn: string;
   constructor(
     readonly docType: string,
     readonly docId: string,
   ) {
-    super(`Document ${docType}/${docId} already exists.`);
+    super(`المستند "${docType}/${docId}" موجود بالفعل.`);
+    this.messageEn = `Document ${docType}/${docId} already exists.`;
     this.name = "DuplicateDocumentError";
   }
 }
@@ -41,15 +43,17 @@ export class DuplicateDocumentError extends Error {
  * A document type declared a hook (GL, stock, workflow, numbering) but the
  * running `DocumentService` was constructed without an adapter for it. This is a
  * wiring/programming error, surfaced early rather than silently skipping the
- * hook.
+ * hook — not reachable from user input (D280: converted for consistency anyway).
  */
 export class MissingHookError extends Error {
   readonly code = "MISSING_DOCUMENT_HOOK";
+  readonly messageEn: string;
   constructor(
     readonly docType: string,
     readonly hook: "numbering" | "gl" | "stock" | "workflow",
   ) {
-    super(`Document type "${docType}" requires the ${hook} hook, but none was wired into the DocumentService.`);
+    super(`نوع المستند "${docType}" يتطلب ربط الخطاف "${hook}"، ولم يُربط في "DocumentService".`);
+    this.messageEn = `Document type "${docType}" requires the ${hook} hook, but none was wired into the DocumentService.`;
     this.name = "MissingHookError";
   }
 }

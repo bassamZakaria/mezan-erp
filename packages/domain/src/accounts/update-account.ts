@@ -61,10 +61,14 @@ export async function updateAccount(
     }
     const parent = existing.find((a) => a.id === nextParentId);
     if (!parent) {
-      throw new InvalidParentAccountError(`Parent account "${nextParentId}" was not found.`);
+      throw new InvalidParentAccountError(
+        `الحساب الأصل "${nextParentId}" غير موجود.`,
+        `Parent account "${nextParentId}" was not found.`,
+      );
     }
     if (!parent.isHeader) {
       throw new InvalidParentAccountError(
+        `الحساب الأصل "${nextParentId}" (${parent.code}) حساب تفصيلي، ولا يمكن أن يكون له حسابات فرعية.`,
         `Parent account "${nextParentId}" (${parent.code}) is a detail account and cannot own children.`,
       );
     }

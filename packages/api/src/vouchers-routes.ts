@@ -153,11 +153,13 @@ function serializeInvoice(i: AllocatableInvoice, returned: Money = Money.zero())
 }
 
 function handleDomainError(c: Context, err: unknown): Response {
+  const refuse = (e: Error & { code: string; messageEn?: string }, status: 404 | 409 | 422) =>
+    c.json({ error: e.code, message: e.message, ...(e.messageEn ? { messageEn: e.messageEn } : {}) }, status);
   if (err instanceof CashBalanceWouldGoNegativeError) {
-    return c.json({ error: err.code, message: err.message }, 422);
+    return refuse(err, 422);
   }
   if (err instanceof ReversalDateBeforeOriginalError) {
-    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 422);
+    return refuse(err, 422);
   }
   if (
     err instanceof InvalidDocumentError ||
@@ -171,10 +173,10 @@ function handleDomainError(c: Context, err: unknown): Response {
     err instanceof AllocationExceedsError ||
     err instanceof SettlementRateMissingError
   ) {
-    return c.json({ error: err.code, message: err.message }, 422);
+    return refuse(err, 422);
   }
   if (err instanceof DocumentNotFoundError || err instanceof InvoiceNotFoundError || err instanceof AllocationNotFoundError) {
-    return c.json({ error: err.code, message: err.message }, 404);
+    return refuse(err, 404);
   }
   if (
     err instanceof DuplicateDocumentError ||
@@ -184,7 +186,7 @@ function handleDomainError(c: Context, err: unknown): Response {
     err instanceof VoucherNotConfirmedError ||
     err instanceof AllocationAlreadyReversedError
   ) {
-    return c.json({ error: err.code, message: err.message }, 409);
+    return refuse(err, 409);
   }
   if (err instanceof DuplicateChequeNumberError) {
     return c.json({ error: err.code, message: `رقم الشيك «${err.chequeNumber}» مسجّل بالفعل في سجل الشيكات.` }, 409);

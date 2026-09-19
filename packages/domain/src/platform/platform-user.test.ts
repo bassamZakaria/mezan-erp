@@ -49,12 +49,12 @@ describe("createPlatformUser", () => {
 
   it("refuses an empty id", async () => {
     await expect(createPlatformUser({ ...cmd, id: " " }, memoryRepo(), hasher))
-      .rejects.toMatchObject({ reasons: expect.arrayContaining(["id is required"]) });
+      .rejects.toMatchObject({ reasons: expect.arrayContaining(["المعرّف مطلوب"]) });
   });
 
   it("refuses a clock that is not an ISO-8601 timestamp", async () => {
     await expect(createPlatformUser({ ...cmd, now: "garbage" }, memoryRepo(), hasher))
-      .rejects.toMatchObject({ reasons: expect.arrayContaining(["now must be an ISO-8601 timestamp"]) });
+      .rejects.toMatchObject({ reasons: expect.arrayContaining(["الطابع الزمني الحالي غير صالح (يجب أن يكون بصيغة ISO-8601)"]) });
   });
 });
 

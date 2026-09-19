@@ -57,7 +57,7 @@ function authContextOf(c: Context) {
 
 function handleDomainError(c: Context, err: unknown) {
   if (err instanceof NotificationNotFoundError) {
-    return c.json({ error: err.code, message: err.message }, 404);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 404);
   }
   throw err;
 }

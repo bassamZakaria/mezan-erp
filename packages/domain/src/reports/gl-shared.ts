@@ -184,6 +184,20 @@ export function netBalancesByAccount(
   options: NetBalanceOptions = {},
 ): Map<string, Money> {
   const balances = new Map<string, Money>();
+  for (const { line } of ledgerLines(journalEntries, range, options)) {
+    const net = line.debit.add(line.credit.negate());
+    balances.set(line.accountId, (balances.get(line.accountId) ?? Money.zero()).add(net));
+  }
+  return balances;
+}
+
+// The one line filter the statements and the account drill-down share (D281):
+// give either its own and a row stops reconciling to its drill-down.
+function* ledgerLines(
+  journalEntries: readonly JournalEntry[],
+  range: DateRange,
+  options: NetBalanceOptions,
+): Generator<{ readonly entry: JournalEntry; readonly line: JournalEntry["lines"][number] }> {
   const branchId = options.branchId ?? "";
   for (const entry of journalEntries) {
     if (!isLedgerEffective(entry)) continue;
@@ -196,11 +210,35 @@ export function netBalancesByAccount(
       // the first line named (DEC-20).
       if (!withinBranchScope(line.branchId, options.branchScope)) continue;
       if (!matchesStatementBranch(line.branchId, branchId)) continue;
-      const net = line.debit.add(line.credit.negate());
-      balances.set(line.accountId, (balances.get(line.accountId) ?? Money.zero()).add(net));
+      yield { entry, line };
     }
   }
-  return balances;
+}
+
+export interface AccountActivity {
+  readonly debit: Money;
+  readonly credit: Money;
+  readonly entries: readonly { readonly entry: JournalEntry; readonly net: Money }[];
+}
+
+export function accountActivity(
+  journalEntries: readonly JournalEntry[],
+  accountId: string,
+  range: DateRange = {},
+  options: NetBalanceOptions = {},
+): AccountActivity {
+  let debit = Money.zero();
+  let credit = Money.zero();
+  const byEntry = new Map<string, { entry: JournalEntry; net: Money }>();
+  for (const { entry, line } of ledgerLines(journalEntries, range, options)) {
+    if (line.accountId !== accountId) continue;
+    debit = debit.add(line.debit);
+    credit = credit.add(line.credit);
+    const current = byEntry.get(entry.id) ?? { entry, net: Money.zero() };
+    current.net = current.net.add(line.debit).add(line.credit.negate());
+    byEntry.set(entry.id, current);
+  }
+  return { debit, credit, entries: [...byEntry.values()] };
 }
 
 /**

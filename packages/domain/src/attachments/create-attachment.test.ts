@@ -81,32 +81,32 @@ describe("collectAttachmentErrors", () => {
 
   it("flags an unknown entityType", () => {
     expect(collectAttachmentErrors(cmd({ entityType: "not-a-real-entity" }))).toContain(
-      "unknown entityType 'not-a-real-entity'",
+      "نوع الكيان غير معروف 'not-a-real-entity'",
     );
   });
 
   it("flags a blank entityId — the document/entity this attachment would reference is not identified", () => {
-    expect(collectAttachmentErrors(cmd({ entityId: " " }))).toContain("entityId is required");
+    expect(collectAttachmentErrors(cmd({ entityId: " " }))).toContain("معرّف الكيان مطلوب");
   });
 
   it("flags a blank fileName", () => {
-    expect(collectAttachmentErrors(cmd({ fileName: "" }))).toContain("fileName is required");
+    expect(collectAttachmentErrors(cmd({ fileName: "" }))).toContain("اسم الملف مطلوب");
   });
 
   it("flags a path-traversal-only filename as blank once separators are stripped", () => {
-    expect(collectAttachmentErrors(cmd({ fileName: "///" }))).toContain("fileName is required");
+    expect(collectAttachmentErrors(cmd({ fileName: "///" }))).toContain("اسم الملف مطلوب");
   });
 
   it("flags an empty file", () => {
     expect(collectAttachmentErrors(cmd({ bytes: new Uint8Array(0) }))).toContain(
-      "an empty file cannot be attached",
+      "لا يمكن إرفاق ملف فارغ",
     );
   });
 
   it("flags a file exactly one byte over the limit", () => {
     const bytes = new Uint8Array(ATTACHMENT_MAX_BYTES + 1);
     const reasons = collectAttachmentErrors(cmd({ bytes }));
-    expect(reasons.some((r) => r.includes("over the"))).toBe(true);
+    expect(reasons.some((r) => r.includes("يتجاوز"))).toBe(true);
   });
 
   it("accepts a file exactly at the byte limit (boundary)", () => {

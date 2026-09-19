@@ -24,7 +24,10 @@ export function validateNewCostCenter(command: CreateCostCenterCommand, existing
     throw new DuplicateCostCenterCodeError(command.code);
   }
   if (command.parentId != null && !existing.some((c) => c.id === command.parentId)) {
-    throw new InvalidParentCostCenterError(`Parent cost center "${command.parentId}" was not found.`);
+    throw new InvalidParentCostCenterError(
+      `مركز التكلفة الأصل "${command.parentId}" غير موجود.`,
+      `Parent cost center "${command.parentId}" was not found.`,
+    );
   }
 }
 

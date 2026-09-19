@@ -169,7 +169,7 @@ function domainErrorResponse(c: Context, err: unknown): Response {
     err instanceof InvalidPaymentError ||
     err instanceof InvalidPlatformUserError
   ) {
-    return c.json({ error: err.code, message: err.message }, 422);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 422);
   }
   if (
     err instanceof InvalidTenantTransitionError ||

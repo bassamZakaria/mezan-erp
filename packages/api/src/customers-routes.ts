@@ -117,7 +117,8 @@ function handleDomainError(c: Context, err: unknown) {
     err instanceof PeriodNotOpenForPostingError ||
     err instanceof VatPeriodAlreadyFiledError
   ) {
-    return c.json({ error: err.code, message: err.message }, 422);
+    const messageEn = (err as Error & { messageEn?: string }).messageEn;
+    return c.json({ error: err.code, message: err.message, ...(messageEn ? { messageEn } : {}) }, 422);
   }
   throw err;
 }

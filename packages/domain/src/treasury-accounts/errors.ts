@@ -1,8 +1,10 @@
 /** Raised when a treasury account code already exists (codes are unique across treasury accounts). */
 export class DuplicateTreasuryAccountCodeError extends Error {
   readonly code = "DUPLICATE_TREASURY_ACCOUNT_CODE";
+  readonly messageEn: string;
   constructor(readonly accountCode: string) {
-    super(`Treasury account code "${accountCode}" already exists.`);
+    super(`كود حساب الخزينة "${accountCode}" مستخدم من قبل.`);
+    this.messageEn = `Treasury account code "${accountCode}" already exists.`;
     this.name = "DuplicateTreasuryAccountCodeError";
   }
 }
@@ -10,8 +12,10 @@ export class DuplicateTreasuryAccountCodeError extends Error {
 /** Raised when an operation references a treasury account id that does not exist. */
 export class TreasuryAccountNotFoundError extends Error {
   readonly code = "TREASURY_ACCOUNT_NOT_FOUND";
+  readonly messageEn: string;
   constructor(readonly accountId: string) {
-    super(`Treasury account "${accountId}" was not found.`);
+    super(`حساب الخزينة "${accountId}" غير موجود.`);
+    this.messageEn = `Treasury account "${accountId}" was not found.`;
     this.name = "TreasuryAccountNotFoundError";
   }
 }
@@ -24,8 +28,10 @@ export class TreasuryAccountNotFoundError extends Error {
  */
 export class NegativeCashBalanceError extends Error {
   readonly code = "NEGATIVE_CASH_BALANCE";
+  readonly messageEn: string;
   constructor(readonly accountId: string) {
-    super(`Cash treasury account "${accountId}" cannot have a negative balance.`);
+    super(`الخزينة النقدية "${accountId}" لا يمكن أن يكون رصيدها سالباً.`);
+    this.messageEn = `Cash treasury account "${accountId}" cannot have a negative balance.`;
     this.name = "NegativeCashBalanceError";
   }
 }

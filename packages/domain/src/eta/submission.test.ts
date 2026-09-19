@@ -70,8 +70,9 @@ describe("the submission errors", () => {
     const transition = new InvalidEtaTransitionError("accepted", "exclude");
     expect(transition.from).toBe("accepted");
     expect(transition.action).toBe("exclude");
-    expect(transition.message).toContain("accepted");
-    expect(transition.message).toContain("exclude");
+    expect(transition.message).toContain(getEtaStatusLabel("accepted"));
+    expect(transition.messageEn).toContain("accepted");
+    expect(transition.messageEn).toContain("exclude");
   });
 
   it("all of them are real Errors, so a catch block can rethrow what it does not handle", () => {
@@ -88,6 +89,7 @@ describe("the submission errors", () => {
   });
 
   it("the offline error says the document was queued, which is what the user needs to know", () => {
-    expect(new EtaOfflineError().message).toContain("queued");
+    expect(new EtaOfflineError().messageEn).toContain("queued");
+    expect(new EtaOfflineError().message).toContain("قائمة الانتظار");
   });
 });

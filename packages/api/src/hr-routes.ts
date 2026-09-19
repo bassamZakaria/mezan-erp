@@ -246,6 +246,10 @@ function serializeLeaveRequest(r: LeaveRequest) {
   };
 }
 
+function withMessageEn(err: { readonly code: string; readonly message: string; readonly messageEn?: string }) {
+  return { error: err.code, message: err.message, ...(err.messageEn ? { messageEn: err.messageEn } : {}) };
+}
+
 function handleDomainError(c: Context, err: unknown): Response {
   if (
     err instanceof DepartmentNotFoundError ||
@@ -255,7 +259,7 @@ function handleDomainError(c: Context, err: unknown): Response {
     err instanceof HolidayNotFoundError ||
     err instanceof LeaveRequestNotFoundError
   ) {
-    return c.json({ error: err.code, message: err.message }, 404);
+    return c.json(withMessageEn(err), 404);
   }
   if (
     err instanceof InvalidDepartmentError ||
@@ -268,7 +272,7 @@ function handleDomainError(c: Context, err: unknown): Response {
     err instanceof InvalidLeaveRequestError ||
     err instanceof InvalidLeaveRequestTransitionError
   ) {
-    return c.json({ error: err.code, message: err.message }, 422);
+    return c.json(withMessageEn(err), 422);
   }
   throw err;
 }

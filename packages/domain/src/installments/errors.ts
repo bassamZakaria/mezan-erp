@@ -13,8 +13,10 @@ export class InvalidInstallmentScheduleError extends Error {
 
 export class FollowUpNotFoundError extends Error {
   readonly code = "FOLLOW_UP_NOT_FOUND";
+  readonly messageEn: string;
   constructor(readonly id: string) {
-    super(`Collection follow-up "${id}" was not found.`);
+    super(`متابعة التحصيل "${id}" غير موجودة.`);
+    this.messageEn = `Collection follow-up "${id}" was not found.`;
     this.name = "FollowUpNotFoundError";
   }
 }

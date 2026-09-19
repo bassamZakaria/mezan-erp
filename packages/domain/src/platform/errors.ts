@@ -1,7 +1,9 @@
 export class InvalidTenantError extends Error {
   readonly code = "INVALID_TENANT";
+  readonly messageEn: string;
   constructor(readonly reasons: string[]) {
-    super(reasons.join("; "));
+    super(`بيانات المنشأة غير صالحة: ${reasons.join("، ")}`);
+    this.messageEn = `Invalid tenant: ${reasons.join("; ")}`;
     this.name = "InvalidTenantError";
   }
 }
@@ -32,8 +34,10 @@ export class InvalidTenantTransitionError extends Error {
 
 export class InvalidPlanError extends Error {
   readonly code = "INVALID_PLAN";
+  readonly messageEn: string;
   constructor(readonly reasons: string[]) {
-    super(reasons.join("; "));
+    super(`بيانات الباقة غير صالحة: ${reasons.join("، ")}`);
+    this.messageEn = `Invalid plan: ${reasons.join("; ")}`;
     this.name = "InvalidPlanError";
   }
 }
@@ -72,8 +76,10 @@ export class PlanInUseError extends Error {
 
 export class InvalidSubscriptionError extends Error {
   readonly code = "INVALID_SUBSCRIPTION";
+  readonly messageEn: string;
   constructor(readonly reasons: string[]) {
-    super(reasons.join("; "));
+    super(`بيانات الاشتراك غير صالحة: ${reasons.join("، ")}`);
+    this.messageEn = `Invalid subscription: ${reasons.join("; ")}`;
     this.name = "InvalidSubscriptionError";
   }
 }
@@ -104,16 +110,20 @@ export class InvalidSubscriptionTransitionError extends Error {
 
 export class InvalidPaymentError extends Error {
   readonly code = "INVALID_PAYMENT";
+  readonly messageEn: string;
   constructor(readonly reasons: string[]) {
-    super(reasons.join("; "));
+    super(`بيانات الدفعة غير صالحة: ${reasons.join("، ")}`);
+    this.messageEn = `Invalid payment: ${reasons.join("; ")}`;
     this.name = "InvalidPaymentError";
   }
 }
 
 export class InvalidPlatformUserError extends Error {
   readonly code = "INVALID_PLATFORM_USER";
+  readonly messageEn: string;
   constructor(readonly reasons: string[]) {
-    super(reasons.join("; "));
+    super(`بيانات مستخدم المنصة غير صالحة: ${reasons.join("، ")}`);
+    this.messageEn = `Invalid platform user: ${reasons.join("; ")}`;
     this.name = "InvalidPlatformUserError";
   }
 }

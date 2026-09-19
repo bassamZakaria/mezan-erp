@@ -1,7 +1,7 @@
 import type { App } from "@mezan/api";
 import { step } from "./shared.js";
 import type { SeedPerson } from "./fragments.js";
-import { FRAGMENT_PEOPLE, FRAGMENT_ROLES, fragmentGrantsFor } from "./fragment-registry.js";
+import { fragmentGrantsFor, fragmentPeople, fragmentRoles, seedLicensing } from "./fragment-registry.js";
 
 /**
  * Seed profile module — see `./shared.ts`. Local and test environments only.
@@ -587,18 +587,20 @@ export async function seedAccess(app: App): Promise<void> {
 
   // --- الأدوار ---
   const roleIdByCode = new Map<string, string>();
-  for (const role of [...ROLES, ...FRAGMENT_ROLES]) {
+  const licensing = await seedLicensing(app);
+  const extraRoles = fragmentRoles(licensing);
+  for (const role of [...ROLES, ...extraRoles]) {
     const created = (await step(app, "POST", "/roles", {
       code: role.code,
       name: role.name,
       description: role.description,
-      permissions: [...new Set([...role.permissions, ...fragmentGrantsFor(role.code)])],
+      permissions: [...new Set([...role.permissions, ...fragmentGrantsFor(role.code, licensing)])],
     })) as SeededRole;
     roleIdByCode.set(role.code, created.id);
   }
 
   // --- المستخدمون ---
-  for (const person of [...PEOPLE, ...FRAGMENT_PEOPLE]) {
+  for (const person of [...PEOPLE, ...fragmentPeople(new Set(extraRoles.map((r) => r.code)))]) {
     // Exactly one of roleId / isCompanyAdmin, which is what the wire schema
     // refines on. All but one person here holds a ROLE: an admin bypasses the
     // permission matrix entirely, so a tenant where everyone is one proves

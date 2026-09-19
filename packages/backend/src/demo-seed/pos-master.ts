@@ -1,6 +1,6 @@
 import type { App } from "@mezan/api";
 import { POS_CARD_METHOD_ID, POS_CASH_METHOD_ID } from "@mezan/domain";
-import type { SeedFragment } from "./fragments.js";
+import type { SeedFragment, SeedFragmentContext } from "./fragments.js";
 import { ACCOUNTS, BRANCH_ID, WAREHOUSE_ID, step } from "./shared.js";
 
 const GIZA_WAREHOUSE_ID = "WH-DEMO-2";
@@ -23,7 +23,10 @@ const SHIFT_TEMPLATES = [
   { nameAr: "الوردية الليلية", nameEn: "Night shift", fromTime: "00:00", toTime: "08:00", branchId: BRANCH_ID, active: false },
 ];
 
-async function run(app: App): Promise<void> {
+async function run(app: App, ctx: SeedFragmentContext): Promise<void> {
+  for (const template of SHIFT_TEMPLATES) await step(app, "POST", "/shift-templates", template);
+  if (!ctx.licensed("pos")) return;
+
   for (const account of TREASURY_ACCOUNTS) {
     await step(app, "POST", "/treasury-accounts", { ...account, currency: "EGP", branchId: BRANCH_ID });
   }
@@ -108,7 +111,6 @@ async function run(app: App): Promise<void> {
     mealSections: [{ name: "المقبلات" }, { name: "الأطباق الرئيسية" }, { name: "التحلية" }],
   });
 
-  for (const template of SHIFT_TEMPLATES) await step(app, "POST", "/shift-templates", template);
 }
 
 export const seed: SeedFragment = {

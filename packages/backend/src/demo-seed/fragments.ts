@@ -18,6 +18,11 @@ export interface SeedPerson {
   readonly employeeId?: string;
 }
 
+export interface SeedFragmentContext {
+  /** Whether the tenant being seeded holds this entitlement module (the cloud demo plan does not hold `pos`). */
+  readonly licensed: (moduleId: string) => boolean;
+}
+
 /**
  * A POS area's or an enhancement lane's share of the demo seed. `roles`,
  * `roleGrants` and `people` are folded into `seedAccess`; `run` goes through
@@ -28,5 +33,5 @@ export interface SeedFragment {
   readonly roles?: readonly SeedRole[];
   readonly roleGrants?: Readonly<Record<string, readonly string[]>>;
   readonly people?: readonly SeedPerson[];
-  readonly run?: (app: App) => Promise<void>;
+  readonly run?: (app: App, ctx: SeedFragmentContext) => Promise<void>;
 }

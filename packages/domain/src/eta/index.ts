@@ -164,3 +164,16 @@ export {
   type EtaSigningPort,
 } from "./signing.js";
 export { resolveEtaVatSubType, findLineTaxRate, ZERO_RATED_SUBTYPES } from "./tax-subtype.js";
+export {
+  EtaPrevalidationFailedError,
+  EtaPrevalidationFixScreen,
+  EtaPrevalidationRuleCode,
+  EtaPrevalidationSeverity,
+  hasBlockingEtaFindings,
+  prevalidateEtaInvoice,
+  type EtaPrevalidationFinding,
+  type EtaPrevalidationInput,
+  type EtaPrevalidationLineInput,
+  type EtaPrevalidationReceiverInput,
+} from "./prevalidate.js";
+export { summarizeEtaRejections, type EtaRejectionReasonGroup, type EtaRejectionsReport } from "./rejections-report.js";

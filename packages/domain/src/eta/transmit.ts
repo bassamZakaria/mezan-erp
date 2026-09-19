@@ -137,17 +137,25 @@ function parseJson(body: string): unknown {
   }
 }
 
-function flattenErrors(
+/** One rejection line, paired with the authority's own error code when it sent one — see `EtaSubmission.rejectionCodes`. */
+interface EtaFlattenedError {
+  readonly message: string;
+  readonly code: string | null;
+}
+
+function flattenErrorEntries(
   rejected: { readonly error?: EtaRejectedDocument["error"] } | undefined,
   fallback: string,
-): string[] {
-  if (!rejected?.error) return [fallback];
-  const head = rejected.error.message ?? rejected.error.code ?? fallback;
-  const details = (rejected.error.details ?? []).map((d) =>
-    [d.propertyPath, d.message ?? d.code].filter(Boolean).join(": "),
-  );
-  return [head, ...details].filter((s) => s.trim() !== "");
+): EtaFlattenedError[] {
+  if (!rejected?.error) return [{ message: fallback, code: null }];
+  const head = { message: rejected.error.message ?? rejected.error.code ?? fallback, code: rejected.error.code ?? null };
+  const details = (rejected.error.details ?? []).map((d) => ({
+    message: [d.propertyPath, d.message ?? d.code].filter(Boolean).join(": "),
+    code: d.code ?? null,
+  }));
+  return [head, ...details].filter((e) => e.message.trim() !== "");
 }
+
 
 /** Retry only what a retry can fix: a transport failure, a rate limit, or the authority's own 5xx. */
 function retryable(status: number | null): boolean {
@@ -367,9 +375,11 @@ export function createEtaHttpTransmitPort(deps: EtaHttpTransmitDeps): EtaTransmi
         log,
       };
     }
+    const rejectedEntries = flattenErrorEntries(parsed.rejectedDocuments?.find(mine), "رفضت مصلحة الضرائب الإيصال دون بيان السبب.");
     return {
       ok: false,
-      errors: flattenErrors(parsed.rejectedDocuments?.find(mine), "رفضت مصلحة الضرائب الإيصال دون بيان السبب."),
+      errors: rejectedEntries.map((e) => e.message),
+      errorCodes: rejectedEntries.map((e) => e.code),
       log,
     };
   }
@@ -480,9 +490,11 @@ export function createEtaHttpTransmitPort(deps: EtaHttpTransmitDeps): EtaTransmi
       const rejected = parsed.rejectedDocuments?.find(
         (d) => !d.internalId || d.internalId === submission.internalId,
       );
+      const rejectedEntries = flattenErrorEntries(rejected, "رفضت مصلحة الضرائب المستند دون بيان السبب.");
       return {
         ok: false,
-        errors: flattenErrors(rejected, "رفضت مصلحة الضرائب المستند دون بيان السبب."),
+        errors: rejectedEntries.map((e) => e.message),
+        errorCodes: rejectedEntries.map((e) => e.code),
         log,
       };
     },
@@ -503,7 +515,13 @@ export function createEtaHttpTransmitPort(deps: EtaHttpTransmitDeps): EtaTransmi
         null,
       );
       const parsed = parseJson(response.body) as
-        | { status?: string; validationResults?: { status?: string; validationSteps?: readonly { status?: string; error?: { message?: string } }[] } }
+        | {
+            status?: string;
+            validationResults?: {
+              status?: string;
+              validationSteps?: readonly { status?: string; error?: { message?: string; code?: string } }[];
+            };
+          }
         | null;
       if (response.status >= 400 || !parsed) {
         return { state: "unknown", errors: [`تعذّرت قراءة حالة المستند من مصلحة الضرائب (${response.status}).`], log };
@@ -511,12 +529,17 @@ export function createEtaHttpTransmitPort(deps: EtaHttpTransmitDeps): EtaTransmi
       const raw = (parsed.status ?? "").toLowerCase();
       if (raw === "valid") return { state: "accepted", errors: [], log };
       if (raw === "invalid" || raw === "rejected" || raw === "cancelled") {
-        const steps = parsed.validationResults?.validationSteps ?? [];
-        const errors = steps
+        const failing = (parsed.validationResults?.validationSteps ?? [])
           .filter((s) => (s.status ?? "").toLowerCase() !== "valid")
-          .map((s) => s.error?.message ?? "")
-          .filter((m) => m.trim() !== "");
-        return { state: "rejected", errors: errors.length > 0 ? errors : [`حالة المستند لدى المصلحة: ${parsed.status}`], log };
+          .filter((s) => (s.error?.message ?? "").trim() !== "");
+        const errors = failing.map((s) => s.error!.message!);
+        const errorCodes = failing.map((s) => s.error?.code ?? null);
+        return {
+          state: "rejected",
+          errors: errors.length > 0 ? errors : [`حالة المستند لدى المصلحة: ${parsed.status}`],
+          errorCodes: errors.length > 0 ? errorCodes : [null],
+          log,
+        };
       }
       return { state: "pending", errors: [], log };
     },

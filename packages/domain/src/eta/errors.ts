@@ -6,6 +6,7 @@ const ETA_ACTION_AR: Readonly<Record<string, string>> = {
   accept: "قبول",
   reject: "رفض",
   exclude: "استبعاد",
+  requeue: "إعادة الطابور",
 };
 
 function etaActionAr(action: string): string {

@@ -71,6 +71,41 @@ export const etaReadinessSchema = z.object({
   ),
 });
 
+/** ENH-011b — the closed value sets `packages/domain/src/eta/prevalidate.ts` defines as TS enums. */
+export const etaPrevalidationSeveritySchema = z.enum(["warning", "blocking"]);
+export const etaPrevalidationRuleCodeSchema = z.enum([
+  "ISSUER_TAX_REGISTRATION_INVALID",
+  "ISSUER_ACTIVITY_CODE_MISSING",
+  "ISSUER_ADDRESS_MISSING",
+  "BRANCH_CODE_MISSING",
+  "ITEM_CODE_MISSING",
+  "UNIT_NOT_MAPPED",
+  "TAX_SUBTYPE_NOT_MAPPED",
+  "BUYER_TIN_MISSING",
+  "BUYER_NATIONAL_ID_REQUIRED",
+  "TOTALS_MISMATCH",
+]);
+export const etaPrevalidationFixScreenSchema = z.enum([
+  "issuer_config",
+  "branch_codes",
+  "item_mapping",
+  "unit_mapping",
+  "tax_rates",
+  "customer",
+  "source_document",
+]);
+
+export const etaPrevalidationFindingSchema = z.object({
+  code: etaPrevalidationRuleCodeSchema,
+  severity: etaPrevalidationSeveritySchema,
+  messageAr: z.string(),
+  messageEn: z.string(),
+  fixHintAr: z.string(),
+  fixHintEn: z.string(),
+  fixScreen: etaPrevalidationFixScreenSchema,
+  fixRefId: z.string().nullable().optional(),
+});
+
 export const etaSubmissionSchema = z.object({
   id: z.string(),
   internalId: z.string(),
@@ -78,12 +113,40 @@ export const etaSubmissionSchema = z.object({
   status: etaSubmissionStatusSchema,
   etaUuid: z.string().nullable(),
   errors: z.array(z.string()),
+  rejectionCodes: z.array(z.string().nullable()).optional(),
   exclusionReason: z.string().nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
   submittedAt: z.string().nullable(),
   gatewaySubmissionId: z.string().nullable(),
   signed: z.boolean(),
+  prevalidation: z.array(etaPrevalidationFindingSchema).optional(),
+  hasBlockingFindings: z.boolean().optional(),
+});
+
+export const bulkRequeueSubmitSchema = z.object({ ids: z.array(z.string().min(1)).min(1) });
+
+export const bulkRequeueSubmitResultSchema = z.object({
+  results: z.array(
+    z.object({
+      id: z.string(),
+      outcome: z.enum(["submitted", "queued", "blocked", "not_available", "error"]),
+      submission: etaSubmissionSchema.optional(),
+      message: z.string().optional(),
+    }),
+  ),
+});
+
+export const etaRejectionReasonGroupSchema = z.object({
+  code: z.string(),
+  count: z.number(),
+  sampleMessage: z.string(),
+  exampleInternalIds: z.array(z.string()),
+});
+
+export const etaRejectionsReportSchema = z.object({
+  totalRejected: z.number(),
+  groups: z.array(etaRejectionReasonGroupSchema),
 });
 
 /** One request/response of one transmit attempt. Secrets are redacted upstream. */
@@ -214,3 +277,11 @@ export type EtaUnitMappingRowDTO = z.infer<typeof etaUnitMappingRowSchema>;
 export type UpdateEtaUnitMappingDTO = z.infer<typeof updateEtaUnitMappingSchema>;
 export type ApplyEtaUnitSuggestionsResultDTO = z.infer<typeof applyEtaUnitSuggestionsResultSchema>;
 export type EtaTaxSubTypeRowDTO = z.infer<typeof etaTaxSubTypeRowSchema>;
+export type EtaPrevalidationSeverityDTO = z.infer<typeof etaPrevalidationSeveritySchema>;
+export type EtaPrevalidationRuleCodeDTO = z.infer<typeof etaPrevalidationRuleCodeSchema>;
+export type EtaPrevalidationFixScreenDTO = z.infer<typeof etaPrevalidationFixScreenSchema>;
+export type EtaPrevalidationFindingDTO = z.infer<typeof etaPrevalidationFindingSchema>;
+export type BulkRequeueSubmitDTO = z.infer<typeof bulkRequeueSubmitSchema>;
+export type BulkRequeueSubmitResultDTO = z.infer<typeof bulkRequeueSubmitResultSchema>;
+export type EtaRejectionReasonGroupDTO = z.infer<typeof etaRejectionReasonGroupSchema>;
+export type EtaRejectionsReportDTO = z.infer<typeof etaRejectionsReportSchema>;

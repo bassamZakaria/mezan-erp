@@ -21,6 +21,8 @@ import {
   EtaMissingExchangeRateError,
   ETA_RECEIPT_PAYMENT_METHODS,
   EtaOfflineError,
+  EtaPrevalidationFailedError,
+  EtaPrevalidationSeverity,
   EtaReceiptUuidUnavailableError,
   EtaSignerNotConfiguredError,
   EtaSigningFailedError,
@@ -30,6 +32,7 @@ import {
   type EtaConfig,
   type EtaReadinessCounts,
   type EtaChainedReceiptInput,
+  type EtaPrevalidationFinding,
   type EtaReceiptPaymentMethod,
   type EtaSubmission,
   type EtaSubmissionStatus,
@@ -49,6 +52,7 @@ import {
   updateEtaBranchCodeSchema,
   updateEtaItemMappingSchema,
   updateEtaUnitMappingSchema,
+  bulkRequeueSubmitSchema,
 } from "@mezan/contracts";
 import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
 
@@ -73,6 +77,15 @@ export interface EtaRoutesDeps {
     kind: "invoice" | "return",
     docId: string,
   ) => Promise<{ receiptNo: string; uuid: string; qrValue: string } | null>;
+  /**
+   * إصلاح وإعادة الطابور (ENH-011b, WF-04 step 4) — rebuilds one submission's
+   * payload and pre-validation from the current source document and masters.
+   * Null when the document type has no rebuild path (a receipt) or the source
+   * document no longer resolves to a live B2B document.
+   */
+  readonly rebuildSubmission?: (
+    submission: EtaSubmission,
+  ) => Promise<{ readonly payload: unknown; readonly prevalidation: readonly EtaPrevalidationFinding[] } | null>;
 }
 
 function itemNeedsCode(item: Item): boolean {
@@ -139,6 +152,7 @@ function serializeConfig(config: EtaConfig, counts?: EtaReadinessCounts) {
  * screen or an auditor.
  */
 function serializeSubmission(s: EtaSubmission, opts: { payload?: boolean } = {}) {
+  const prevalidation = s.prevalidation ?? [];
   return {
     ...(opts.payload ? { payload: s.payload, transmitLog: s.transmitLog } : {}),
     id: s.id,
@@ -147,12 +161,15 @@ function serializeSubmission(s: EtaSubmission, opts: { payload?: boolean } = {})
     status: s.status,
     etaUuid: s.etaUuid,
     errors: s.errors,
+    rejectionCodes: s.rejectionCodes ?? [],
     exclusionReason: s.exclusionReason,
     createdAt: s.createdAt,
     updatedAt: s.updatedAt,
     submittedAt: s.submittedAt,
     gatewaySubmissionId: s.gatewaySubmissionId,
     signed: s.signature !== null,
+    prevalidation,
+    hasBlockingFindings: prevalidation.some((f) => f.severity === EtaPrevalidationSeverity.Blocking),
   };
 }
 
@@ -192,6 +209,11 @@ function handleError(c: Context, err: unknown): Response {
     return c.json({ error: err.code, message: err.message }, 422);
   }
   if (err instanceof EtaReceiptChainConflictError) return c.json({ error: err.code, message: err.message }, 409);
+  // ENH-011b: blocked before transmit — every failing rule, not just the
+  // first, so a "Fix & Requeue" pass clears the batch in one read.
+  if (err instanceof EtaPrevalidationFailedError) {
+    return c.json({ error: err.code, message: err.message, findings: err.findings }, 422);
+  }
   throw err;
 }
 
@@ -707,6 +729,81 @@ export function createEtaRoutes(
     } catch (err) {
       return handleError(c, err);
     }
+  });
+
+  /**
+   * إصلاح وإعادة الطابور (WF-04 step 4) — regenerate one submission's payload
+   * and pre-validation after a fix. 404 when no rebuild path exists for this
+   * document type (a receipt) or the source document no longer resolves.
+   */
+  app.post("/submissions/:id/requeue", gate("accounting.eta.submit"), async (c) => {
+    if (!deps.rebuildSubmission) return c.json({ error: "NOT_CONFIGURED" }, 404);
+    const submission = await service.findById(c.req.param("id"));
+    if (!submission) {
+      return c.json({ error: "ETA_SUBMISSION_NOT_FOUND", message: `الإرسال \"${c.req.param("id")}\" غير موجود.` }, 404);
+    }
+    const rebuilt = await deps.rebuildSubmission(submission);
+    if (!rebuilt) {
+      return c.json(
+        {
+          error: "ETA_REQUEUE_NOT_AVAILABLE",
+          message: "لا يمكن إعادة بناء هذا المستند — تحقّق من أنه فاتورة أو إشعار قائم وأن العميل له رقم ضريبي.",
+        },
+        422,
+      );
+    }
+    try {
+      return c.json(serializeSubmission(await service.requeue(submission.id, rebuilt)));
+    } catch (err) {
+      return handleError(c, err);
+    }
+  });
+
+  /**
+   * إصلاح وإعادة الطابور جماعياً — requeue then submit every selected row.
+   * Each id gets its own outcome so one still-broken document does not stop
+   * the rest of the batch (WF-04 step 4 "select all and Bulk Resubmit").
+   */
+  app.post("/submissions/bulk-requeue-submit", gate("accounting.eta.submit"), async (c) => {
+    const parsed = bulkRequeueSubmitSchema.safeParse(await c.req.json());
+    if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    const results: Array<{
+      readonly id: string;
+      readonly outcome: "submitted" | "queued" | "blocked" | "not_available" | "error";
+      readonly submission?: ReturnType<typeof serializeSubmission>;
+      readonly message?: string;
+    }> = [];
+    for (const id of parsed.data.ids) {
+      try {
+        const submission = await service.findById(id);
+        if (!submission) {
+          results.push({ id, outcome: "error", message: "الإرسال غير موجود." });
+          continue;
+        }
+        if (deps.rebuildSubmission) {
+          const rebuilt = await deps.rebuildSubmission(submission);
+          if (rebuilt) await service.requeue(id, rebuilt);
+        }
+        const submitted = await service.submit(id);
+        results.push({ id, outcome: "submitted", submission: serializeSubmission(submitted) });
+      } catch (err) {
+        if (err instanceof EtaOfflineError) {
+          results.push({ id, outcome: "queued", message: err.message });
+        } else if (err instanceof EtaPrevalidationFailedError) {
+          results.push({ id, outcome: "blocked", message: err.message });
+        } else if (err instanceof Error) {
+          results.push({ id, outcome: "error", message: err.message });
+        } else {
+          throw err;
+        }
+      }
+    }
+    return c.json({ results });
+  });
+
+  /** تقرير أسباب الرفض — grouped by the authority's own error code, with counts and example documents. */
+  app.get("/reports/rejections", gate("accounting.eta.view"), async (c) => {
+    return c.json(await service.rejectionsReport());
   });
 
   app.post("/submissions/:id/exclude", gate("accounting.eta.cancel"), async (c) => {

@@ -24,6 +24,7 @@ import type {
   EtaTransmitLogEntry,
 } from "./submission.js";
 import { canonicalEtaJson, unconfiguredEtaSigner, type EtaSignerPort } from "./signer.js";
+import { summarizeEtaRejections, type EtaRejectionsReport } from "./rejections-report.js";
 import {
   createInMemoryEtaReceiptChain,
   createInMemoryEtaReceiptGaps,
@@ -44,6 +45,12 @@ import {
   EtaSubmissionNotFoundError,
   InvalidEtaTransitionError,
 } from "./errors.js";
+import {
+  EtaPrevalidationFailedError,
+  EtaPrevalidationSeverity,
+  hasBlockingEtaFindings,
+  type EtaPrevalidationFinding,
+} from "./prevalidate.js";
 
 /**
  * Result of a transmit attempt against the ETA gateway. `ok` → accepted for
@@ -56,6 +63,8 @@ export interface EtaTransmitResult {
   readonly etaUuid?: string;
   readonly submissionId?: string | null;
   readonly errors?: readonly string[];
+  /** One authority error code per entry of {@link errors} (same index), null where none was sent. */
+  readonly errorCodes?: readonly (string | null)[];
   readonly log?: readonly EtaTransmitLogEntry[];
 }
 
@@ -63,6 +72,8 @@ export interface EtaTransmitResult {
 export interface EtaStatusResult {
   readonly state: "accepted" | "rejected" | "pending" | "unknown";
   readonly errors: readonly string[];
+  /** One authority error code per entry of {@link errors} (same index), null where none was sent. */
+  readonly errorCodes?: readonly (string | null)[];
   readonly log?: readonly EtaTransmitLogEntry[];
 }
 
@@ -218,8 +229,24 @@ export class EtaService {
     return this.deps.submissions.list(status);
   }
 
-  /** Build the payload and add a confirmed document to the queue in status جاهز. */
-  async enqueue(input: EtaEnqueueInput): Promise<EtaSubmission> {
+  /** تقرير أسباب الرفض — every رفض submission grouped by its authority error code. */
+  async rejectionsReport(): Promise<EtaRejectionsReport> {
+    return summarizeEtaRejections(await this.deps.submissions.list());
+  }
+
+  /**
+   * Build the payload and add a confirmed document to the queue in status
+   * جاهز. `prevalidation` is the ENH-011b pre-check the caller already ran
+   * against the source document's own master data (item/unit/tax-rate/branch
+   * mappings the domain layer has no port to read itself) — it is ALWAYS
+   * stored, never thrown here: a confirm is never blocked by it (WF-04 step
+   * 1 warns, it does not refuse). `EtaService.submit` is where a `Blocking`
+   * finding actually stops the document.
+   */
+  async enqueue(
+    input: EtaEnqueueInput,
+    prevalidation: readonly EtaPrevalidationFinding[] = [],
+  ): Promise<EtaSubmission> {
     const existing = await this.deps.submissions.findByInternalId(input.internalId);
     if (existing) throw new DuplicateEtaSubmissionError(input.internalId);
     const config = await this.deps.config.get();
@@ -239,9 +266,39 @@ export class EtaService {
       gatewaySubmissionId: null,
       signature: null,
       transmitLog: [],
+      prevalidation,
     };
     await this.deps.submissions.create(submission);
     return submission;
+  }
+
+  /**
+   * إصلاح وإعادة الطابور (WF-04 step 4) — regenerate a queued document's
+   * payload and pre-validation after the underlying data was fixed (an item
+   * code registered, a customer's TIN entered, …). Only a document the
+   * authority has not yet accepted or is currently processing may be rebuilt:
+   * requeuing a أُرسل/مقبول submission would silently replace evidence of
+   * what was actually filed. `signature` is cleared — a changed payload
+   * invalidates any prior e-seal.
+   */
+  async requeue(
+    id: string,
+    rebuilt: { readonly payload: unknown; readonly prevalidation: readonly EtaPrevalidationFinding[] },
+  ): Promise<EtaSubmission> {
+    const submission = await this.require(id);
+    if (!["ready", "pending_signature", "error", "excluded"].includes(submission.status)) {
+      throw new InvalidEtaTransitionError(submission.status, "requeue");
+    }
+    return this.persist({
+      ...submission,
+      status: "ready",
+      payload: rebuilt.payload,
+      prevalidation: rebuilt.prevalidation,
+      errors: [],
+      rejectionCodes: [],
+      exclusionReason: null,
+      signature: null,
+    });
   }
 
   /**
@@ -385,6 +442,14 @@ export class EtaService {
     if (!["ready", "pending_signature", "error"].includes(submission.status)) {
       throw new InvalidEtaTransitionError(submission.status, "submit");
     }
+    // ENH-011b: a `Blocking` finding means the authority would refuse this
+    // document outright — refused here, before a wasted round trip, listing
+    // every failing rule so a fix pass does not take one submit per rule.
+    if (submission.prevalidation && hasBlockingEtaFindings(submission.prevalidation)) {
+      throw new EtaPrevalidationFailedError(
+        submission.prevalidation.filter((f) => f.severity === EtaPrevalidationSeverity.Blocking),
+      );
+    }
     const config = await this.deps.config.get();
 
     // EXTERNAL CONTRACT: an e-receipt (B2C) carries NO e-signature or e-seal —
@@ -423,7 +488,12 @@ export class EtaService {
         submittedAt: this.now(),
       });
     }
-    return this.persist({ ...withLog, status: "error", errors: result.errors ?? ["فشل الإرسال"] });
+    return this.persist({
+      ...withLog,
+      status: "error",
+      errors: result.errors ?? ["فشل الإرسال"],
+      rejectionCodes: result.errorCodes ?? [],
+    });
   }
 
   /**
@@ -443,7 +513,7 @@ export class EtaService {
       return this.persist({ ...withLog, status: "accepted", errors: [] });
     }
     if (result.state === "rejected") {
-      return this.persist({ ...withLog, status: "error", errors: result.errors });
+      return this.persist({ ...withLog, status: "error", errors: result.errors, rejectionCodes: result.errorCodes ?? [] });
     }
     return this.persist(withLog);
   }

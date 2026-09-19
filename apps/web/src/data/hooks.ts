@@ -113,6 +113,8 @@ import type {
   EtaReadinessDTO,
   EtaSubmissionDTO,
   EtaSubmissionStatusDTO,
+  EtaRejectionsReportDTO,
+  BulkRequeueSubmitResultDTO,
   ExchangeRateDTO,
   ExcludeEtaSubmissionDTO,
   EtaActivityCodeDTO,
@@ -4903,6 +4905,50 @@ export function useExcludeEtaSubmission() {
       return res.json<EtaSubmissionDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["eta-submissions"] }),
+  });
+}
+
+/** إصلاح وإعادة الطابور (ENH-011b, WF-04 step 4) — rebuild one submission's payload and pre-validation. */
+export function useRequeueEtaSubmission() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<EtaSubmissionDTO, ApiError, string>({
+    mutationFn: async (id) => {
+      const res = await request(`/eta/submissions/${id}/requeue`, { method: "POST" });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theDocumentCouldNotBe"), t));
+      return res.json<EtaSubmissionDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["eta-submissions"] }),
+  });
+}
+
+/** إصلاح وإعادة الطابور جماعياً — requeue then submit every selected row. */
+export function useBulkRequeueSubmitEta() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<BulkRequeueSubmitResultDTO, ApiError, readonly string[]>({
+    mutationFn: async (ids) => {
+      const res = await request("/eta/submissions/bulk-requeue-submit", { method: "POST", body: JSON.stringify({ ids }) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theReadyDocumentsCouldNot"), t));
+      return res.json<BulkRequeueSubmitResultDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["eta-submissions"] }),
+  });
+}
+
+export function useEtaRejectionsReport(): UseQueryResult<EtaRejectionsReportDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<EtaRejectionsReportDTO, ApiError>({
+    queryKey: ["eta-rejections-report"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/eta/reports/rejections");
+      if (!res.ok) throw await loaderError(res, t("api.theSubmissionQueueCouldNot"), t);
+      return res.json<EtaRejectionsReportDTO>();
+    },
   });
 }
 

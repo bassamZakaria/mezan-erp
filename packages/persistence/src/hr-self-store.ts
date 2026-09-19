@@ -92,9 +92,39 @@ class SqliteClockCredentialRepository implements ClockCredentialRepository {
 
 export type SqliteClockCredentialRepositoryHandle = ClockCredentialRepository & { close(): void };
 
+function tableExists(sqlite: Database.Database, name: string): boolean {
+  return sqlite.prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`).get(name) !== undefined;
+}
+
+/**
+ * إجازاتي moved from `hr.leave.view` to `hr.self.leave`. A books file created
+ * before the move gets the new code on every role that could reach the screen,
+ * once: this table's first creation is the marker, so an admin who later
+ * removes the grant is not overridden on the next boot.
+ */
+function grantSelfLeaveToExistingRoles(sqlite: Database.Database): void {
+  if (!tableExists(sqlite, "role")) return;
+  const rows = sqlite.prepare(`SELECT id, permissions FROM role`).all() as { id: string; permissions: string }[];
+  const update = sqlite.prepare(`UPDATE role SET permissions = ? WHERE id = ?`);
+  for (const row of rows) {
+    let permissions: string[];
+    try {
+      permissions = JSON.parse(row.permissions) as string[];
+    } catch {
+      continue;
+    }
+    if (!Array.isArray(permissions) || permissions.includes("hr.self.leave")) continue;
+    if (permissions.includes("hr.leave.view") || permissions.includes("hr.leave.create")) {
+      update.run(JSON.stringify([...permissions, "hr.self.leave"]), row.id);
+    }
+  }
+}
+
 export function createSqliteClockCredentialRepository(path: SqliteConnectionInput = ":memory:"): SqliteClockCredentialRepositoryHandle {
   const { sqlite, owned } = openSqliteConnection(path);
+  const firstRun = !tableExists(sqlite, "hr_clock_credential");
   sqlite.exec(CREATE_CLOCK_CREDENTIAL);
+  if (firstRun) grantSelfLeaveToExistingRoles(sqlite);
   const repo = new SqliteClockCredentialRepository(sqlite);
   return Object.assign(repo, { close: () => { if (owned) sqlite.close(); } }) as SqliteClockCredentialRepositoryHandle;
 }

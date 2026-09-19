@@ -11,7 +11,7 @@ import {
   type Tenant,
 } from "@mezan/domain";
 import { createCardCheckoutRequestSchema, type TenantBillingDTO } from "@mezan/contracts";
-import { readSessionToken, requestOrigin, type SessionGrant } from "@mezan/api";
+import { readSessionToken, type SessionGrant } from "@mezan/api";
 import { serializeCardCheckout, type PlatformHandle } from "@mezan/backend";
 import type { CardCheckoutService } from "./card-checkout.js";
 import type { PaymobTestProvider } from "./paymob-provider.js";
@@ -126,7 +126,11 @@ export function createTenantBillingRoutes(options: TenantBillingRoutesOptions): 
     const token = readSessionToken(c);
     if (!token) return c.json({ error: "UNAUTHENTICATED", message: "سجّل الدخول أولًا" }, 401);
     const backend = await router.backendFor(code);
-    const grant = backend.sessions.find(token, requestOrigin(c));
+    // Must look the token up with the same origin the tenant backend saw at
+    // login. The tenant router forwards `backend.app.fetch(request)` without
+    // the socket env, so every tenant session is bound to the null origin; a
+    // mismatched lookup here would not just fail, it would REVOKE the session.
+    const grant = backend.sessions.find(token, null);
     if (!grant) return c.json({ error: "UNAUTHENTICATED", message: "انتهت الجلسة، سجّل الدخول مرة أخرى" }, 401);
     return { tenant, grant };
   }

@@ -57,6 +57,7 @@ const child = spawn("pnpm", ["exec", "tsx", "apps/server/src/cloud.ts"], {
     MEZAN_PLATFORM_OWNER_EMAIL: "owner@mezan.local",
     MEZAN_PLATFORM_OWNER_PASSWORD: "owner-password-123",
     MEZAN_DEMO_PASSWORD: "local-demo-password",
+    ...(process.env.MEZAN_PAYMOB_SECRET_KEY ? {} : { MEZAN_PAYMOB_TEST_MODE: process.env.MEZAN_PAYMOB_TEST_MODE ?? "1" }),
   },
 });
 

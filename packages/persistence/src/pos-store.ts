@@ -49,6 +49,9 @@ CREATE TABLE IF NOT EXISTS pos_terminal (
   eta_device_serial           TEXT,
   eta_pos_client_id           TEXT,
   eta_pos_client_secret_enc   TEXT,
+  eta_pos_os_version          TEXT,
+  eta_pos_model_framework     TEXT,
+  eta_pos_preshared_key_enc   TEXT,
   active                      INTEGER NOT NULL,
   last_receipt_seq            INTEGER NOT NULL DEFAULT 0
 );
@@ -83,7 +86,7 @@ const SETTINGS_ROW_ID = "singleton";
 /**
  * Secret-at-rest transform, the same placeholder `eta-store.ts` uses for the
  * branch's POS secret. The desktop database is itself encrypted at rest; the
- * value is still never returned by any read but `readEtaPosClientSecret`.
+ * value is still never returned by any read but `readEtaDeviceSecrets`.
  */
 function seal(secret: string): string {
   return Buffer.from(secret, "utf8").toString("base64");
@@ -136,6 +139,9 @@ interface TerminalRow {
   eta_device_serial: string | null;
   eta_pos_client_id: string | null;
   eta_pos_client_secret_enc: string | null;
+  eta_pos_os_version: string | null;
+  eta_pos_model_framework: string | null;
+  eta_pos_preshared_key_enc: string | null;
   active: number;
   last_receipt_seq: number;
 }
@@ -159,7 +165,10 @@ function toTerminal(row: TerminalRow): PosTerminal {
     },
     etaDeviceSerial: row.eta_device_serial,
     etaPosClientId: row.eta_pos_client_id,
+    etaPosOsVersion: row.eta_pos_os_version,
+    etaPosModelFramework: row.eta_pos_model_framework,
     hasEtaPosClientSecret: row.eta_pos_client_secret_enc !== null,
+    hasEtaPosPresharedKey: row.eta_pos_preshared_key_enc !== null,
     active: row.active === 1,
     lastReceiptSeq: row.last_receipt_seq,
   };
@@ -266,10 +275,10 @@ class SqlitePosTerminalStore implements PosTerminalRepository {
     this.upsert = sqlite.prepare(
       `INSERT INTO pos_terminal (id, code, name, name_en, kind, branch_id, warehouse_id, drawer_treasury_account_id,
          methods_json, default_method_id, printer_kind, printer_address, paper_width_mm,
-         eta_device_serial, eta_pos_client_id, active)
+         eta_device_serial, eta_pos_client_id, eta_pos_os_version, eta_pos_model_framework, active)
        VALUES (@id, @code, @name, @nameEn, @kind, @branchId, @warehouseId, @drawerTreasuryAccountId,
          @methodsJson, @defaultMethodId, @printerKind, @printerAddress, @paperWidthMm,
-         @etaDeviceSerial, @etaPosClientId, @active)
+         @etaDeviceSerial, @etaPosClientId, @etaPosOsVersion, @etaPosModelFramework, @active)
        ON CONFLICT(id) DO UPDATE SET
          code = @code, name = @name, name_en = @nameEn, kind = @kind, branch_id = @branchId,
          warehouse_id = @warehouseId, drawer_treasury_account_id = @drawerTreasuryAccountId,
@@ -278,7 +287,11 @@ class SqlitePosTerminalStore implements PosTerminalRepository {
          eta_pos_client_secret_enc = CASE
            WHEN pos_terminal.eta_device_serial IS NOT @etaDeviceSerial THEN NULL
            ELSE pos_terminal.eta_pos_client_secret_enc END,
-         eta_device_serial = @etaDeviceSerial, eta_pos_client_id = @etaPosClientId, active = @active`,
+         eta_pos_preshared_key_enc = CASE
+           WHEN pos_terminal.eta_device_serial IS NOT @etaDeviceSerial THEN NULL
+           ELSE pos_terminal.eta_pos_preshared_key_enc END,
+         eta_device_serial = @etaDeviceSerial, eta_pos_client_id = @etaPosClientId,
+         eta_pos_os_version = @etaPosOsVersion, eta_pos_model_framework = @etaPosModelFramework, active = @active`,
     );
   }
 
@@ -313,6 +326,8 @@ class SqlitePosTerminalStore implements PosTerminalRepository {
       paperWidthMm: terminal.printer.paperWidthMm,
       etaDeviceSerial: terminal.etaDeviceSerial,
       etaPosClientId: terminal.etaPosClientId,
+      etaPosOsVersion: terminal.etaPosOsVersion,
+      etaPosModelFramework: terminal.etaPosModelFramework,
       active: terminal.active ? 1 : 0,
     });
   }
@@ -321,11 +336,18 @@ class SqlitePosTerminalStore implements PosTerminalRepository {
     this.sqlite.prepare(`UPDATE pos_terminal SET eta_pos_client_secret_enc = ? WHERE id = ?`).run(seal(secret), terminalId);
   }
 
-  async readEtaPosClientSecret(terminalId: string): Promise<string | null> {
+  async setEtaPosPresharedKey(terminalId: string, key: string): Promise<void> {
+    this.sqlite.prepare(`UPDATE pos_terminal SET eta_pos_preshared_key_enc = ? WHERE id = ?`).run(seal(key), terminalId);
+  }
+
+  async readEtaDeviceSecrets(terminalId: string): Promise<{ clientSecret: string | null; presharedKey: string | null }> {
     const row = this.sqlite
-      .prepare(`SELECT eta_pos_client_secret_enc AS sealed FROM pos_terminal WHERE id = ?`)
-      .get(terminalId) as { sealed: string | null } | undefined;
-    return row?.sealed ? unseal(row.sealed) : null;
+      .prepare(`SELECT eta_pos_client_secret_enc AS secret, eta_pos_preshared_key_enc AS psk FROM pos_terminal WHERE id = ?`)
+      .get(terminalId) as { secret: string | null; psk: string | null } | undefined;
+    return {
+      clientSecret: row?.secret ? unseal(row.secret) : null,
+      presharedKey: row?.psk ? unseal(row.psk) : null,
+    };
   }
 
   async nextReceiptSeq(terminalId: string): Promise<number> {

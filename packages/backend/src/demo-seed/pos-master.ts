@@ -70,6 +70,8 @@ async function run(app: App): Promise<void> {
     printer: { kind: "escpos-tcp", address: "192.168.1.100:9100", paperWidthMm: 80 },
   });
   // Its own device (DEC-25): the second till must not receipt under POS-001's serial.
+  // No credentials: invented ones would reach the real gateway (D284), so this
+  // till reads «بيانات الجهاز ناقصة» until the owner registers it.
   await step(app, "POST", "/pos/terminals", {
     code: "POS-002",
     name: "كاشير ٢ — الفرع الرئيسي",
@@ -86,8 +88,6 @@ async function run(app: App): Promise<void> {
     defaultMethodId: POS_CASH_METHOD_ID,
     printer: { kind: "system", address: null, paperWidthMm: 80 },
     etaDeviceSerial: "MEZAN-POS-0002",
-    etaPosClientId: "mezan-demo-pos-client-2",
-    etaPosClientSecret: "demo-pos-2-secret-never-returned",
   });
   // Disabled, so the list's «غير نشط» filter and the readiness column have a row to show.
   await step(app, "POST", "/pos/terminals", {

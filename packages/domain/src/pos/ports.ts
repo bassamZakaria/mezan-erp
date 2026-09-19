@@ -7,11 +7,12 @@ export interface PosTerminalRepository {
   list(): Promise<readonly PosTerminal[]>;
   findById(id: string): Promise<PosTerminal | null>;
   findByCode(code: string): Promise<PosTerminal | null>;
-  /** Writes everything but the sealed secret and the receipt counter. */
+  /** Writes everything but the sealed secrets and the receipt counter; a new serial clears both secrets. */
   save(terminal: PosTerminal): Promise<void>;
   setEtaPosClientSecret(terminalId: string, secret: string): Promise<void>;
-  /** SECURITY: the only reader of the sealed secret — for the ETA transmit leg, never for a response. */
-  readEtaPosClientSecret(terminalId: string): Promise<string | null>;
+  setEtaPosPresharedKey(terminalId: string, key: string): Promise<void>;
+  /** SECURITY: the only reader of the sealed secrets — for the ETA transmit leg, never for a response. */
+  readEtaDeviceSecrets(terminalId: string): Promise<{ readonly clientSecret: string | null; readonly presharedKey: string | null }>;
   /** Advances and returns the terminal's receipt counter in one statement. */
   nextReceiptSeq(terminalId: string): Promise<number>;
 }

@@ -96,7 +96,7 @@ export function createPosTerminalsRoutes(deps: PosTerminalsRoutesDeps, resolveAu
         active: terminal.active,
         drawerTreasuryAccountId: terminal.drawerTreasuryAccountId,
         etaDeviceSerial: terminal.etaDeviceSerial,
-        etaPosClientSecretChanged: secretChanged,
+        etaDeviceSecretsChanged: secretChanged,
         ...(before
           ? {
               previousDrawerTreasuryAccountId: before.drawerTreasuryAccountId,
@@ -130,17 +130,17 @@ export function createPosTerminalsRoutes(deps: PosTerminalsRoutesDeps, resolveAu
   app.post("/", gate("pos.terminal.manage"), async (c) => {
     const parsed = createPosTerminalSchema.safeParse(await readJson(c));
     if (!parsed.success) return validationError(c, parsed.error);
-    const { etaPosClientSecret, ...input } = parsed.data;
+    const { etaPosClientSecret, etaPosPresharedKey, ...input } = parsed.data;
     try {
       const terminal = buildPosTerminal(randomUUID(), input);
-      if (secretWithoutDevice(terminal, etaPosClientSecret)) return refuseSecretWithoutDevice(c);
+      if (secretWithoutDevice(terminal, etaPosClientSecret, etaPosPresharedKey)) return refuseSecretWithoutDevice(c);
       if (!branchInScope(c, terminal.branchId)) return refuseBranch(c);
       if (await deps.terminals.findByCode(terminal.code)) {
         return c.json({ error: "DUPLICATE_POS_TERMINAL_CODE", message: `كود الجهاز «${terminal.code}» مستخدم بالفعل` }, 409);
       }
       await checkReferences(terminal);
       await deps.terminals.save(terminal);
-      const secretChanged = await storeSecret(terminal, etaPosClientSecret);
+      const secretChanged = await storeSecrets(terminal, etaPosClientSecret, etaPosPresharedKey);
       await record(c, terminal, "CREATE", secretChanged);
       const saved = (await deps.terminals.findById(terminal.id)) ?? terminal;
       const [dto] = await serialize([saved]);
@@ -157,17 +157,17 @@ export function createPosTerminalsRoutes(deps: PosTerminalsRoutesDeps, resolveAu
     }
     const parsed = updatePosTerminalSchema.safeParse(await readJson(c));
     if (!parsed.success) return validationError(c, parsed.error);
-    const { etaPosClientSecret, ...input } = parsed.data;
+    const { etaPosClientSecret, etaPosPresharedKey, ...input } = parsed.data;
     try {
       const next = buildPosTerminal(current.id, input, current);
-      if (secretWithoutDevice(next, etaPosClientSecret)) return refuseSecretWithoutDevice(c);
+      if (secretWithoutDevice(next, etaPosClientSecret, etaPosPresharedKey)) return refuseSecretWithoutDevice(c);
       if (!branchInScope(c, next.branchId)) return refuseBranch(c);
       if (next.code !== current.code && (await deps.terminals.findByCode(next.code))) {
         return c.json({ error: "DUPLICATE_POS_TERMINAL_CODE", message: `كود الجهاز «${next.code}» مستخدم بالفعل` }, 409);
       }
       await checkReferences(next);
       await deps.terminals.save(next);
-      const secretChanged = await storeSecret(next, etaPosClientSecret);
+      const secretChanged = await storeSecrets(next, etaPosClientSecret, etaPosPresharedKey);
       await record(c, next, "UPDATE", secretChanged, current);
       const saved = (await deps.terminals.findById(next.id)) ?? next;
       const [dto] = await serialize([saved]);
@@ -186,23 +186,31 @@ export function createPosTerminalsRoutes(deps: PosTerminalsRoutesDeps, resolveAu
     return c.json({ error: "BRANCH_OUT_OF_SCOPE", message: "لا يمكنك إضافة جهاز في فرع خارج نطاق صلاحياتك" }, 403);
   }
 
-  function secretWithoutDevice(terminal: PosTerminal, secret: string | undefined): boolean {
-    return (secret?.trim() ?? "") !== "" && terminal.etaDeviceSerial === null;
+  function secretWithoutDevice(terminal: PosTerminal, ...secrets: (string | undefined)[]): boolean {
+    return terminal.etaDeviceSerial === null && secrets.some((v) => (v?.trim() ?? "") !== "");
   }
 
   function refuseSecretWithoutDevice(c: Context): Response {
     return c.json(
-      { error: "INVALID_POS_TERMINAL", message: "سر عميل نقطة البيع لا يُحفظ إلا مع الرقم التسلسلي للجهاز" },
+      { error: "INVALID_POS_TERMINAL", message: "أسرار جهاز الفاتورة الإلكترونية لا تُحفظ إلا مع الرقم التسلسلي للجهاز" },
       422,
     );
   }
 
-  async function storeSecret(terminal: PosTerminal, secret: string | undefined): Promise<boolean> {
-    const value = secret?.trim() ?? "";
-    if (value === "" || terminal.etaDeviceSerial === null) return false;
-    await deps.terminals.setEtaPosClientSecret(terminal.id, value);
-    return true;
+  async function storeSecrets(terminal: PosTerminal, secret: string | undefined, presharedKey: string | undefined): Promise<boolean> {
+    if (terminal.etaDeviceSerial === null) return false;
+    let changed = false;
+    if ((secret?.trim() ?? "") !== "") {
+      await deps.terminals.setEtaPosClientSecret(terminal.id, (secret as string).trim());
+      changed = true;
+    }
+    if ((presharedKey?.trim() ?? "") !== "") {
+      await deps.terminals.setEtaPosPresharedKey(terminal.id, (presharedKey as string).trim());
+      changed = true;
+    }
+    return changed;
   }
+
 
   return app;
 }

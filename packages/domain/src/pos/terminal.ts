@@ -42,8 +42,12 @@ export interface PosTerminal {
    */
   readonly etaDeviceSerial: string | null;
   readonly etaPosClientId: string | null;
-  /** The sealed secret is write-only; this flag is all that is ever read back. */
+  /** `pososversion` / `posmodelframework`: sent as headers with every receipt from this device. */
+  readonly etaPosOsVersion: string | null;
+  readonly etaPosModelFramework: string | null;
+  /** The sealed secret and pre-shared key are write-only; these flags are all that is ever read back. */
   readonly hasEtaPosClientSecret: boolean;
+  readonly hasEtaPosPresharedKey: boolean;
   readonly active: boolean;
   /** Advanced only by the receipt counter in the store, never by a caller. */
   readonly lastReceiptSeq: number;
@@ -70,6 +74,8 @@ export interface PosTerminalInput {
   readonly printer?: PosPrinterConfig;
   readonly etaDeviceSerial?: string | null;
   readonly etaPosClientId?: string | null;
+  readonly etaPosOsVersion?: string | null;
+  readonly etaPosModelFramework?: string | null;
   readonly active?: boolean;
 }
 
@@ -136,12 +142,15 @@ export function buildPosTerminal(id: string, input: PosTerminalInput, current?: 
     reasons.push("الرقم التسلسلي لجهاز نقطة البيع حروف لاتينية وأرقام فقط");
   }
   const etaPosClientId = blankToNull(input.etaPosClientId);
-  if (etaPosClientId !== null && etaDeviceSerial === null) {
-    reasons.push("معرّف عميل نقطة البيع لا يُسجَّل إلا مع الرقم التسلسلي للجهاز");
+  const etaPosOsVersion = blankToNull(input.etaPosOsVersion);
+  const etaPosModelFramework = blankToNull(input.etaPosModelFramework);
+  if ((etaPosClientId ?? etaPosOsVersion ?? etaPosModelFramework) !== null && etaDeviceSerial === null) {
+    reasons.push("بيانات جهاز الفاتورة الإلكترونية لا تُسجَّل إلا مع الرقم التسلسلي للجهاز");
   }
 
   const printer = normalizePrinter(input.printer ?? current?.printer, reasons);
   if (reasons.length > 0) throw new InvalidPosTerminalError(reasons);
+  const sameDevice = etaDeviceSerial !== null && current?.etaDeviceSerial === etaDeviceSerial;
 
   return {
     id,
@@ -157,8 +166,11 @@ export function buildPosTerminal(id: string, input: PosTerminalInput, current?: 
     printer,
     etaDeviceSerial,
     etaPosClientId,
-    // The credentials belong to one device: a new serial drops the stored secret (the store does the same).
-    hasEtaPosClientSecret: etaDeviceSerial !== null && current?.etaDeviceSerial === etaDeviceSerial && current.hasEtaPosClientSecret,
+    etaPosOsVersion,
+    etaPosModelFramework,
+    // The credentials belong to one device: a new serial drops the stored secrets (the store does the same).
+    hasEtaPosClientSecret: sameDevice && (current?.hasEtaPosClientSecret ?? false),
+    hasEtaPosPresharedKey: sameDevice && (current?.hasEtaPosPresharedKey ?? false),
     active: input.active ?? current?.active ?? true,
     lastReceiptSeq: current?.lastReceiptSeq ?? 0,
   };
@@ -262,6 +274,9 @@ export interface BranchEtaDevice {
   readonly deviceSerialNumber: string | null;
   readonly posClientId: string | null;
   readonly hasPosClientSecret: boolean;
+  readonly posOsVersion?: string | null;
+  readonly posModelFramework?: string | null;
+  readonly hasPosPresharedKey?: boolean;
 }
 
 export interface EffectiveEtaDevice {
@@ -269,6 +284,8 @@ export interface EffectiveEtaDevice {
   readonly serial: string;
   readonly posClientId: string | null;
   readonly hasSecret: boolean;
+  /** All four device headers plus the token credentials — the transmit leg sends nothing without them. */
+  readonly complete: boolean;
 }
 
 /** DEC-25: the terminal's own device, else the branch's, else none. */
@@ -279,6 +296,12 @@ export function effectiveEtaDevice(terminal: PosTerminal, branch: BranchEtaDevic
       serial: terminal.etaDeviceSerial,
       posClientId: terminal.etaPosClientId,
       hasSecret: terminal.hasEtaPosClientSecret,
+      complete:
+        terminal.etaPosClientId !== null &&
+        terminal.hasEtaPosClientSecret &&
+        terminal.etaPosOsVersion !== null &&
+        terminal.etaPosModelFramework !== null &&
+        terminal.hasEtaPosPresharedKey,
     };
   }
   if (branch?.deviceSerialNumber) {
@@ -287,6 +310,12 @@ export function effectiveEtaDevice(terminal: PosTerminal, branch: BranchEtaDevic
       serial: branch.deviceSerialNumber,
       posClientId: branch.posClientId,
       hasSecret: branch.hasPosClientSecret,
+      complete:
+        !!branch.posClientId &&
+        branch.hasPosClientSecret &&
+        !!branch.posOsVersion &&
+        !!branch.posModelFramework &&
+        branch.hasPosPresharedKey === true,
     };
   }
   return null;
@@ -300,6 +329,6 @@ export function posTerminalIssues(terminal: PosTerminal, branch: BranchEtaDevice
   if (!terminal.active) issues.push("inactive");
   const device = effectiveEtaDevice(terminal, branch);
   if (device === null) issues.push("eta_device_missing");
-  else if (device.posClientId === null || !device.hasSecret) issues.push("eta_credentials_missing");
+  else if (!device.complete) issues.push("eta_credentials_missing");
   return issues;
 }

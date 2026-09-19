@@ -3978,6 +3978,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     sessions,
     hasher,
     audit: auditSink,
+    etaReceipts,
     stores: {
       settings,
       branches,

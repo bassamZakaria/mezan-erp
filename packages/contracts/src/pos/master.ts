@@ -68,12 +68,21 @@ export const posTerminalSchema = z.object({
   printer: posPrinterConfigSchema,
   etaDeviceSerial: z.string().nullable(),
   etaPosClientId: z.string().nullable(),
+  etaPosOsVersion: z.string().nullable(),
+  etaPosModelFramework: z.string().nullable(),
   hasEtaPosClientSecret: z.boolean(),
+  hasEtaPosPresharedKey: z.boolean(),
   active: z.boolean(),
   lastReceiptSeq: z.number().int(),
   /** The device the authority will see on this till's receipts — its own, or the branch's (DEC-25). */
   etaDevice: z
-    .object({ source: z.enum(["terminal", "branch"]), serial: z.string(), posClientId: z.string().nullable(), hasSecret: z.boolean() })
+    .object({
+      source: z.enum(["terminal", "branch"]),
+      serial: z.string(),
+      posClientId: z.string().nullable(),
+      hasSecret: z.boolean(),
+      complete: z.boolean(),
+    })
     .nullable(),
   issues: z.array(posTerminalIssueSchema),
 });
@@ -91,8 +100,11 @@ const terminalBody = {
   printer: posPrinterConfigSchema.optional(),
   etaDeviceSerial: optionalText,
   etaPosClientId: optionalText,
-  /** Write-only. Omitted or empty keeps the stored secret. */
+  etaPosOsVersion: optionalText,
+  etaPosModelFramework: optionalText,
+  /** Write-only. Omitted or empty keeps the stored value. */
   etaPosClientSecret: z.string().max(500).optional(),
+  etaPosPresharedKey: z.string().max(500).optional(),
   active: z.boolean().optional(),
 };
 

@@ -1,5 +1,6 @@
 import type Database from "better-sqlite3";
 import type { App, AuthContextResolver, SessionRegistry } from "@mezan/api";
+import type { EtaReceiptIssuer } from "./eta-receipts.js";
 import type { AuditSink, UnitOfWork } from "@mezan/domain";
 import type {
   createScryptHasher,
@@ -64,6 +65,8 @@ export interface BackendModuleContext {
   readonly sessions: SessionRegistry;
   readonly hasher: ReturnType<typeof createScryptHasher>;
   readonly audit: AuditSink;
+  /** Issues a sale's e-receipt synchronously with the terminal's serial and tender (D283). */
+  readonly etaReceipts: EtaReceiptIssuer;
   readonly stores: BackendStores;
   readonly addCloser: (closer: { close(): void }) => void;
 }

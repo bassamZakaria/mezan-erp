@@ -30,7 +30,7 @@ smoke, check:seed, e2e, every-screen and the phone checks.
 |---|---|
 | Audit is written after the entity write and outside its transaction: a sink failure answers 500 with the change already saved, and a crash between the two leaves an unrecorded change. Same for every `recordAdminEvent` caller | `packages/api/src/admin-audit.ts` (E1-05) |
 | Still unaudited writers of audited entities: CRM lead→customer conversion (`crm-routes.ts`), the POS walk-in customer bootstrap (`backend/src/pos/master.ts`), item brand/season edits, cost-centre and fiscal-period masters | E1-05 follow-up |
-| The price-list `linePrice` change names the line by raw `itemId|unit|minQty`; the history panel does not resolve the item name | `apps/web/src/screens/enh/audit-ledger/audit-changes.tsx` (E1-05) |
+| The price-list `linePrice` change names the line by raw `itemId\|unit\|minQty`; the history panel does not resolve the item name | `apps/web/src/screens/enh/audit-ledger/audit-changes.tsx` (E1-05) |
 | Card checkout has no server-side reconciliation (Paymob transaction inquiry): a callback that never arrives leaves the checkout `pending` until someone looks. Build a sweep over old pending checkouts once live keys exist | `apps/server/src/card-checkout.ts` (1C) |
 | Manual `recordPayment` still renews the subscription and saves the payment as two writes; a crash between them renews without a payment row. Card settlement no longer uses it (one transaction in `settlePaid`) | `packages/domain/src/platform/payment.ts` (1C) |
 | HMAC of a callback whose signed field is `null` (e.g. `source_data.pan` for a wallet) is built with an empty string; Paymob does not document null handling — confirm on the first live wallet/card callback | `packages/domain/src/platform/paymob.ts` (1C) |

@@ -266,6 +266,9 @@ import type {
   AttendanceSummaryDTO,
   RecordAttendanceDTO,
   CorrectAttendanceDTO,
+  AttendanceImportRequestDTO,
+  AttendanceImportPreviewDTO,
+  AttendanceImportCommitResultDTO,
   LeavePolicyDTO,
   CreateLeavePolicyDTO,
   UpdateLeavePolicyDTO,
@@ -7387,6 +7390,37 @@ export function useCorrectAttendance() {
       const res = await request(`/hr/attendance/${id}`, { method: "PUT", body: JSON.stringify(body) });
       if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theAttendanceRecordCouldNot2"), t));
       return res.json<AttendanceEntryDTO>();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["hr-attendance"] });
+      queryClient.invalidateQueries({ queryKey: ["hr-attendance-summary"] });
+    },
+  });
+}
+
+/** Pure dry-run over an uploaded attendance-device CSV — no persistence at all. */
+export function useAttendanceImportPreview() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  return useMutation<AttendanceImportPreviewDTO, ApiError, AttendanceImportRequestDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/hr/attendance/import/preview", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("attendance.import.previewFailed"), t));
+      return res.json<AttendanceImportPreviewDTO>();
+    },
+  });
+}
+
+/** Commits every ready group from the last preview — idempotent per (employee, date). */
+export function useAttendanceImportCommit() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<AttendanceImportCommitResultDTO, ApiError, AttendanceImportRequestDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/hr/attendance/import/commit", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("attendance.import.commitFailed"), t));
+      return res.json<AttendanceImportCommitResultDTO>();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["hr-attendance"] });

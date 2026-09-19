@@ -119,6 +119,7 @@ interface EmployeeDraft {
   priorServiceYears: number;
   requireSelfieAtClockIn: boolean;
   requireBiometricAtClockIn: boolean;
+  deviceBadgeId: string;
   hasPensionEntitlement: "" | "yes" | "no";
   taxDisabilityExemption: boolean;
   street: string;
@@ -156,6 +157,7 @@ function blankDraft(): EmployeeDraft {
     priorServiceYears: 0,
     requireSelfieAtClockIn: false,
     requireBiometricAtClockIn: false,
+    deviceBadgeId: "",
     hasPensionEntitlement: "",
     taxDisabilityExemption: false,
     street: "",
@@ -288,6 +290,44 @@ function PensionEntitlementControl({ employeeId, value }: { employeeId: string; 
           { value: "yes", label: t("employees.pensionYes") },
         ]}
       />
+      {error ? <p className="mt-[4px] text-[11.5px] text-danger-ink">{error}</p> : null}
+    </div>
+  );
+}
+
+/** The badge/employee-code a fingerprint device reports — set at create time or here, since IT usually enrols the device after HR creates the record. */
+function DeviceBadgeControl({ employeeId, value }: { employeeId: string; value: string | null }) {
+  const { t } = useAppTranslation();
+  const update = useUpdateEmployee();
+  const [draft, setDraft] = useState(value ?? "");
+  const [error, setError] = useState<string | null>(null);
+  const dirty = draft.trim() !== (value ?? "");
+  return (
+    <div>
+      <div className="flex items-end gap-[8px]">
+        <div className="flex-1">
+          <TextField
+            label={t("employees.deviceBadgeId")}
+            value={draft}
+            onChange={setDraft}
+            hint={t("employees.deviceBadgeIdHint")}
+            disabled={update.isPending}
+          />
+        </div>
+        <Button
+          size="sm"
+          disabled={!dirty || update.isPending}
+          onClick={() => {
+            setError(null);
+            update.mutate(
+              { id: employeeId, body: { deviceBadgeId: draft.trim() === "" ? null : draft.trim() } },
+              { onError: (err) => setError(err.message) },
+            );
+          }}
+        >
+          {t("common.save")}
+        </Button>
+      </div>
       {error ? <p className="mt-[4px] text-[11.5px] text-danger-ink">{error}</p> : null}
     </div>
   );
@@ -434,6 +474,7 @@ export function EmployeesScreen() {
         priorServiceYears: draft.priorServiceYears,
         requireSelfieAtClockIn: draft.requireSelfieAtClockIn,
         requireBiometricAtClockIn: draft.requireBiometricAtClockIn,
+        deviceBadgeId: draft.deviceBadgeId.trim() === "" ? null : draft.deviceBadgeId.trim(),
         hasPensionEntitlement: draft.hasPensionEntitlement === "" ? null : draft.hasPensionEntitlement === "yes",
         taxDisabilityExemption: draft.taxDisabilityExemption,
         address: hasAddress
@@ -600,6 +641,12 @@ export function EmployeesScreen() {
                 <dt className="text-ink-faint">{t("employees.pensionEntitlement")}</dt>
                 <dd className="text-ink">
                   <PensionEntitlementControl employeeId={selected.id} value={selected.hasPensionEntitlement} />
+                </dd>
+              </div>
+              <div>
+                <dt className="text-ink-faint">{t("employees.deviceBadgeId")}</dt>
+                <dd className="text-ink">
+                  <DeviceBadgeControl employeeId={selected.id} value={selected.deviceBadgeId} />
                 </dd>
               </div>
               <div>
@@ -1101,6 +1148,12 @@ export function EmployeesScreen() {
             label={t("employees.requireFingerprintVerificationWhenClocking")}
             checked={draft.requireBiometricAtClockIn}
             onChange={(v) => setDraft((d) => ({ ...d, requireBiometricAtClockIn: v }))}
+          />
+          <TextField
+            label={t("employees.deviceBadgeId")}
+            value={draft.deviceBadgeId}
+            onChange={(v) => setDraft((d) => ({ ...d, deviceBadgeId: v }))}
+            hint={t("employees.deviceBadgeIdHint")}
           />
           <SelectField
             label={t("employees.pensionEntitlement")}

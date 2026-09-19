@@ -46,6 +46,8 @@ import {
   provisionRetryRequestSchema,
   startSubscriptionRequestSchema,
   changePlanRequestSchema,
+  subscriptionSuspendRequestSchema,
+  subscriptionResumeRequestSchema,
   recordPaymentRequestSchema,
   planCreateRequestSchema,
   planUpdateRequestSchema,
@@ -360,12 +362,14 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
   });
 
   app.post("/tenants/:id/subscription/suspend", requireOwner, async (c) => {
+    const parsed = subscriptionSuspendRequestSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     try {
       const tenant = await requireTenant(c.req.param("id"));
       const subscription = await requireLiveSubscription(tenant);
       await suspendSubscription({ id: subscription.id, now: nowIso() }, platform.stores.subscriptions);
       invalidateEntitlements(tenant.code);
-      await audit(c, "SUBSCRIPTION_SUSPENDED", tenant.id, {});
+      await audit(c, "SUBSCRIPTION_SUSPENDED", tenant.id, { reason: parsed.data.reason });
       return c.json(await tenantSummary(platform, tenant, nowIso()));
     } catch (err) {
       return domainErrorResponse(c, err);
@@ -373,12 +377,14 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
   });
 
   app.post("/tenants/:id/subscription/resume", requireOwner, async (c) => {
+    const parsed = subscriptionResumeRequestSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     try {
       const tenant = await requireTenant(c.req.param("id"));
       const subscription = await requireLiveSubscription(tenant);
       await resumeSubscription({ id: subscription.id, now: nowIso() }, platform.stores.subscriptions);
       invalidateEntitlements(tenant.code);
-      await audit(c, "SUBSCRIPTION_RESUMED", tenant.id, {});
+      await audit(c, "SUBSCRIPTION_RESUMED", tenant.id, { reason: parsed.data.reason });
       return c.json(await tenantSummary(platform, tenant, nowIso()));
     } catch (err) {
       return domainErrorResponse(c, err);

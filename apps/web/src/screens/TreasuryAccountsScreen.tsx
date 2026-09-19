@@ -4,7 +4,7 @@ import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { DocumentList, EmptyState, Money as MoneyDisplay, StatusPill, Chip, Card, Button, RowMenu, SidePanel, MoneyInput, TextInput, useFormat, type DocumentListColumn, type PillTone } from "@mezan/ui";
 import { TREASURY_ACCOUNT_TYPE_DEFINITIONS, getTreasuryAccountTypeLabel, type TreasuryAccountType as DomainTreasuryAccountType } from "@mezan/domain";
 import type { BranchDTO, ListCountsDTO, TreasuryAccountDTO, TreasuryAccountStatusDTO, TreasuryAccountTypeDTO } from "@mezan/contracts";
-import { ApiError, useAccountLedger, useBranches, useCreateJournalEntry, useCreateTreasuryAccount, useTreasuryAccounts, useUpdateTreasuryAccount,
+import { ApiError, loaderError, useAccountLedger, useBranches, useCreateJournalEntry, useCreateTreasuryAccount, useTreasuryAccounts, useUpdateTreasuryAccount,
   useTreasuryAccountStats,
 } from "../data/hooks";
 import { useApi } from "../data/ApiContext";
@@ -36,7 +36,7 @@ function useTreasuryAccountCounts(search: string): UseQueryResult<ListCountsDTO,
       if (search.trim()) params.set("search", search.trim());
       const qs = params.toString();
       const res = await request(`/treasury-accounts/counts${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, t("treasuryAcc.treasuryAccountsCouldNotBe"));
+      if (!res.ok) throw await loaderError(res, t("treasuryAcc.treasuryAccountsCouldNotBe"), t);
       return res.json<ListCountsDTO>();
     },
   });

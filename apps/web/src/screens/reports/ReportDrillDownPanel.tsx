@@ -3,7 +3,7 @@ import { Link } from "react-router";
 import type { ReportDrillDownDTO } from "@mezan/contracts";
 import { Money, SidePanel, type ReportRunnerEntityRef } from "@mezan/ui";
 import { useApi } from "../../data/ApiContext";
-import { ApiError } from "../../data/hooks";
+import { ApiError, loaderError } from "../../data/hooks";
 import { useAppTranslation, type AppTranslationKey } from "../../i18n";
 import { WEB_TRANSLATION_KEYS } from "../../i18n/catalog";
 import { pathForRoute } from "../../routing";
@@ -34,7 +34,7 @@ function useDrillDown(entity: ReportRunnerEntityRef | null) {
     enabled: session !== null && entity !== null,
     queryFn: async () => {
       const res = await request(`/reports/drill-down/${entity?.kind}/${encodeURIComponent(entity?.id ?? "")}`);
-      if (!res.ok) throw new ApiError(res.status, t("reportDrill.failed"));
+      if (!res.ok) throw await loaderError(res, t("reportDrill.failed"), t);
       return res.json<ReportDrillDownDTO>();
     },
   });

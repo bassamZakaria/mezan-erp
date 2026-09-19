@@ -14,7 +14,7 @@ import type {
   VariationOrderDTO,
   WorksContractDTO,
 } from "@mezan/contracts";
-import { ApiError } from "./hooks";
+import { ApiError, loaderError } from "./hooks";
 import { useApi } from "./ApiContext";
 import { useAppTranslation } from "../i18n";
 
@@ -55,7 +55,7 @@ export function useWorksContracts(filter: WorksContractFilter = {}): UseQueryRes
     enabled: session !== null,
     queryFn: async () => {
       const res = await request(`/contracting/contracts${suffix}`);
-      if (!res.ok) throw new ApiError(res.status, t("worksContracts.loadFailed"));
+      if (!res.ok) throw await loaderError(res, t("worksContracts.loadFailed"), t);
       return res.json<WorksContractDTO[]>();
     },
   });
@@ -69,7 +69,7 @@ export function useWorksContract(id: string | null): UseQueryResult<WorksContrac
     enabled: session !== null && id !== null,
     queryFn: async () => {
       const res = await request(`/contracting/contracts/${encodeURIComponent(id ?? "")}`);
-      if (!res.ok) throw new ApiError(res.status, t("worksContracts.loadFailed"));
+      if (!res.ok) throw await loaderError(res, t("worksContracts.loadFailed"), t);
       return res.json<WorksContractDTO>();
     },
   });
@@ -88,7 +88,7 @@ export function useContractBoq(id: string | null): UseQueryResult<BoqResponse, A
     enabled: session !== null && id !== null,
     queryFn: async () => {
       const res = await request(`/contracting/contracts/${encodeURIComponent(id ?? "")}/boq`);
-      if (!res.ok) throw new ApiError(res.status, t("boq.loadFailed"));
+      if (!res.ok) throw await loaderError(res, t("boq.loadFailed"), t);
       return res.json<BoqResponse>();
     },
   });
@@ -111,7 +111,7 @@ export function useContractedQuantities(
     queryFn: async () => {
       const suffix = asOfDate === "" ? "" : `?asOfDate=${encodeURIComponent(asOfDate)}`;
       const res = await request(`/contracting/contracts/${encodeURIComponent(id ?? "")}/boq/contracted-qty${suffix}`);
-      if (!res.ok) throw new ApiError(res.status, t("boq.loadFailed"));
+      if (!res.ok) throw await loaderError(res, t("boq.loadFailed"), t);
       return res.json<ContractedQtyResponse>();
     },
   });
@@ -241,7 +241,7 @@ export function useVariationOrders(filter: VariationOrderFilter = {}): UseQueryR
     enabled: session !== null,
     queryFn: async () => {
       const res = await request(`/contracting/variation-orders${suffix}`);
-      if (!res.ok) throw new ApiError(res.status, t("variationOrders.loadFailed"));
+      if (!res.ok) throw await loaderError(res, t("variationOrders.loadFailed"), t);
       return res.json<VariationOrderDTO[]>();
     },
   });

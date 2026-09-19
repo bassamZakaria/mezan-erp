@@ -6,6 +6,8 @@ import type {
   ProvisionResultDTO,
   ProvisionRetryRequestDTO,
   RecordPaymentRequestDTO,
+  SubscriptionResumeRequestDTO,
+  SubscriptionSuspendRequestDTO,
   TenantSummaryDTO,
 } from "@mezan/contracts";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
@@ -129,6 +131,22 @@ export function useChangePlanMutation() {
 
 export function useCancelSubscriptionMutation() {
   return useSummaryMutation<string>((tenantId) => `/tenants/${tenantId}/subscription/cancel`, () => undefined, "platform.tenantDetail.cancelSubscription");
+}
+
+export function useSuspendSubscriptionMutation() {
+  return useSummaryMutation<{ tenantId: string; body: SubscriptionSuspendRequestDTO }>(
+    ({ tenantId }) => `/tenants/${tenantId}/subscription/suspend`,
+    ({ body }) => body,
+    "platform.tenantDetail.suspendSubscription",
+  );
+}
+
+export function useResumeSubscriptionMutation() {
+  return useSummaryMutation<{ tenantId: string; body: SubscriptionResumeRequestDTO }>(
+    ({ tenantId }) => `/tenants/${tenantId}/subscription/resume`,
+    ({ body }) => body,
+    "platform.tenantDetail.resumeSubscription",
+  );
 }
 
 export function useRecordPaymentMutation() {

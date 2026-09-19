@@ -12,7 +12,9 @@ import {
   persistScopeSelection,
   persistSession,
   persistTenantCode,
+  rememberTenantCodeForEmail,
   sessionExpiredPending,
+  tenantCodeForEmail,
   type ScopeSelection,
   type Session,
 } from "./session";
@@ -155,6 +157,43 @@ describe("tenant code", () => {
     persistTenantCode("cyag");
     persistSession(null);
     expect(loadTenantCode()).toBe("cyag");
+  });
+});
+
+describe("per-operator tenant memory", () => {
+  it("returns null for an email nobody has signed in with", () => {
+    expect(tenantCodeForEmail("nobody@example.com")).toBeNull();
+  });
+
+  it("remembers a code under the operator's own (normalized) email", () => {
+    rememberTenantCodeForEmail(" Sara@Example.com ", " Cyag ");
+    expect(tenantCodeForEmail("sara@example.com")).toBe("cyag");
+    expect(tenantCodeForEmail("  SARA@EXAMPLE.COM  ")).toBe("cyag");
+  });
+
+  it("keeps two different operators' companies apart on the same shared browser", () => {
+    rememberTenantCodeForEmail("a@acme.example", "acme");
+    rememberTenantCodeForEmail("b@nile.example", "nile");
+    expect(tenantCodeForEmail("a@acme.example")).toBe("acme");
+    expect(tenantCodeForEmail("b@nile.example")).toBe("nile");
+  });
+
+  it("the most recent sign-in for an operator overwrites their own earlier one", () => {
+    rememberTenantCodeForEmail("a@example.com", "old-co");
+    rememberTenantCodeForEmail("a@example.com", "new-co");
+    expect(tenantCodeForEmail("a@example.com")).toBe("new-co");
+  });
+
+  it("ignores a blank email or code", () => {
+    rememberTenantCodeForEmail("  ", "cyag");
+    rememberTenantCodeForEmail("sara@example.com", "  ");
+    expect(tenantCodeForEmail("sara@example.com")).toBeNull();
+  });
+
+  it("survives a logout, same as the single browser-wide tenant code — Slack/Zoho keep a browser's remembered workspaces across sign-out", () => {
+    rememberTenantCodeForEmail("sara@example.com", "cyag");
+    persistSession(null);
+    expect(tenantCodeForEmail("sara@example.com")).toBe("cyag");
   });
 });
 

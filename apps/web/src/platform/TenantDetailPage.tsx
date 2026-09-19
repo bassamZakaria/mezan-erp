@@ -5,7 +5,7 @@ import { MODULES } from "@mezan/domain";
 import type { BillingCycleDTO, ProvisionResultDTO, SubscriptionStatusDTO } from "@mezan/contracts";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { moduleLabel } from "../domain-labels";
-import { SelectField, ToggleField } from "../settings/form-controls";
+import { SelectField, TextAreaField, ToggleField } from "../settings/form-controls";
 import { LicenseStateChip, TenantStatusChip } from "./chips";
 import { PlatformApiError, usePlatformApi } from "./api";
 import { RecordPaymentDialog } from "./RecordPaymentDialog";
@@ -14,8 +14,10 @@ import {
   useCancelSubscriptionMutation,
   useChangePlanMutation,
   usePlansQuery,
+  useResumeSubscriptionMutation,
   useResumeTenantMutation,
   useRetryProvisionMutation,
+  useSuspendSubscriptionMutation,
   useSuspendTenantMutation,
   useTenantQuery,
 } from "./hooks";
@@ -43,12 +45,18 @@ function canResumeTenant(status: string): boolean {
 function canArchiveTenant(status: string): boolean {
   return status === "active" || status === "suspended";
 }
-/** Mirrors `changePlan`/`cancelSubscription` in `packages/domain/src/platform/subscription.ts`. */
+/** Mirrors `changePlan`/`cancelSubscription`/`suspendSubscription`/`resumeSubscription` in `packages/domain/src/platform/subscription.ts`. */
 function canChangePlan(status: SubscriptionStatusDTO): boolean {
   return status === "trialing" || status === "active" || status === "past_due";
 }
 function canCancelSubscription(status: SubscriptionStatusDTO): boolean {
   return status !== "cancelled";
+}
+function canSuspendSubscription(status: SubscriptionStatusDTO): boolean {
+  return status === "active" || status === "past_due";
+}
+function canResumeSubscription(status: SubscriptionStatusDTO): boolean {
+  return status === "suspended";
 }
 
 /** `MODULE_CATALOG`/entitlement ids are the permission catalog's `MODULES` ids, except its one differing entry (`financial_papers` → `cheques`) — mirrors `PlanEditor.tsx`'s own mapping. */
@@ -75,11 +83,17 @@ export function TenantDetailPage() {
   const archiveTenant = useArchiveTenantMutation();
   const changePlan = useChangePlanMutation();
   const cancelSubscription = useCancelSubscriptionMutation();
+  const suspendSubscription = useSuspendSubscriptionMutation();
+  const resumeSubscription = useResumeSubscriptionMutation();
   const retryProvision = useRetryProvisionMutation();
 
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
   const [confirmArchive, setConfirmArchive] = useState(false);
   const [confirmCancel, setConfirmCancel] = useState(false);
+  const [confirmSuspendSubscription, setConfirmSuspendSubscription] = useState(false);
+  const [confirmResumeSubscription, setConfirmResumeSubscription] = useState(false);
+  const [suspendSubscriptionReason, setSuspendSubscriptionReason] = useState("");
+  const [resumeSubscriptionReason, setResumeSubscriptionReason] = useState("");
   const [planPickerId, setPlanPickerId] = useState("");
   const [retryResult, setRetryResult] = useState<ProvisionResultDTO | null>(null);
   const [retryError, setRetryError] = useState<string | null>(null);
@@ -279,6 +293,32 @@ export function TenantDetailPage() {
                     </Button>
                   </>
                 ) : null}
+                {canSuspendSubscription(subscription.status) ? (
+                  <Button
+                    variant="default"
+                    size="sm"
+                    disabled={suspendSubscription.isPending}
+                    onClick={() => {
+                      setSuspendSubscriptionReason("");
+                      setConfirmSuspendSubscription(true);
+                    }}
+                  >
+                    {t("platform.tenantDetail.suspendSubscription")}
+                  </Button>
+                ) : null}
+                {canResumeSubscription(subscription.status) ? (
+                  <Button
+                    variant="default"
+                    size="sm"
+                    disabled={resumeSubscription.isPending}
+                    onClick={() => {
+                      setResumeSubscriptionReason("");
+                      setConfirmResumeSubscription(true);
+                    }}
+                  >
+                    {t("platform.tenantDetail.resumeSubscription")}
+                  </Button>
+                ) : null}
                 {canCancelSubscription(subscription.status) ? (
                   <Button variant="danger-outline" size="sm" disabled={cancelSubscription.isPending} onClick={() => setConfirmCancel(true)}>
                     {t("platform.tenantDetail.cancelSubscription")}
@@ -372,6 +412,59 @@ export function TenantDetailPage() {
           cancelSubscription.mutate(tenant.id, { onError: onMutationError });
         }}
         onCancel={() => setConfirmCancel(false)}
+      />
+      <ConfirmDialog
+        open={confirmSuspendSubscription}
+        title={t("platform.tenantDetail.confirmSuspendSubscription.title")}
+        consequence={
+          <div className="flex flex-col gap-[10px]">
+            <p>{t("platform.tenantDetail.confirmSuspendSubscription.consequence")}</p>
+            <TextAreaField
+              label={t("platform.tenantDetail.reason")}
+              value={suspendSubscriptionReason}
+              onChange={setSuspendSubscriptionReason}
+              placeholder={t("platform.tenantDetail.reasonHint")}
+              rows={2}
+            />
+          </div>
+        }
+        confirmLabel={t("platform.tenantDetail.suspendSubscription")}
+        tone="danger"
+        confirmDisabled={suspendSubscriptionReason.trim() === ""}
+        onConfirm={() => {
+          const reason = suspendSubscriptionReason.trim();
+          if (reason === "") return;
+          setConfirmSuspendSubscription(false);
+          setMutationError(null);
+          suspendSubscription.mutate({ tenantId: tenant.id, body: { reason } }, { onError: onMutationError });
+        }}
+        onCancel={() => setConfirmSuspendSubscription(false)}
+      />
+      <ConfirmDialog
+        open={confirmResumeSubscription}
+        title={t("platform.tenantDetail.confirmResumeSubscription.title")}
+        consequence={
+          <div className="flex flex-col gap-[10px]">
+            <p>{t("platform.tenantDetail.confirmResumeSubscription.consequence")}</p>
+            <TextAreaField
+              label={t("platform.tenantDetail.reason")}
+              value={resumeSubscriptionReason}
+              onChange={setResumeSubscriptionReason}
+              placeholder={t("platform.tenantDetail.reasonHint")}
+              rows={2}
+            />
+          </div>
+        }
+        confirmLabel={t("platform.tenantDetail.resumeSubscription")}
+        confirmDisabled={resumeSubscriptionReason.trim() === ""}
+        onConfirm={() => {
+          const reason = resumeSubscriptionReason.trim();
+          if (reason === "") return;
+          setConfirmResumeSubscription(false);
+          setMutationError(null);
+          resumeSubscription.mutate({ tenantId: tenant.id, body: { reason } }, { onError: onMutationError });
+        }}
+        onCancel={() => setConfirmResumeSubscription(false)}
       />
     </div>
   );

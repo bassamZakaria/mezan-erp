@@ -17,7 +17,7 @@ import type {
   UpdateSubcontractDTO,
   UpdateSubCertificateDTO,
 } from "@mezan/contracts";
-import { ApiError } from "./hooks";
+import { ApiError, loaderError } from "./hooks";
 import { useApi } from "./ApiContext";
 import { useAppTranslation } from "../i18n";
 
@@ -77,7 +77,7 @@ export function useSubcontracts(filter: SubcontractFilter = {}): UseQueryResult<
     enabled: session !== null,
     queryFn: async () => {
       const res = await request(`/contracting/subcontracts${suffix}`);
-      if (!res.ok) throw new ApiError(res.status, t("subcontracts.loadFailed"));
+      if (!res.ok) throw await loaderError(res, t("subcontracts.loadFailed"), t);
       return res.json<SubcontractDTO[]>();
     },
   });
@@ -91,7 +91,7 @@ export function useSubcontract(id: string | null): UseQueryResult<SubcontractDTO
     enabled: session !== null && id !== null,
     queryFn: async () => {
       const res = await request(`/contracting/subcontracts/${encodeURIComponent(id ?? "")}`);
-      if (!res.ok) throw new ApiError(res.status, t("subcontracts.loadFailed"));
+      if (!res.ok) throw await loaderError(res, t("subcontracts.loadFailed"), t);
       return res.json<SubcontractDTO>();
     },
   });
@@ -105,7 +105,7 @@ export function useSubcontractRetention(id: string | null): UseQueryResult<Subco
     enabled: session !== null && id !== null,
     queryFn: async () => {
       const res = await request(`/contracting/subcontracts/${encodeURIComponent(id ?? "")}/retention`);
-      if (!res.ok) throw new ApiError(res.status, t("subcontracts.retentionLoadFailed"));
+      if (!res.ok) throw await loaderError(res, t("subcontracts.retentionLoadFailed"), t);
       return res.json<SubcontractRetentionDTO>();
     },
   });
@@ -244,7 +244,7 @@ export function useSubCertificates(filter: SubCertificateFilter = {}): UseQueryR
     enabled: session !== null,
     queryFn: async () => {
       const res = await request(`/contracting/subcontract-certificates${suffix}`);
-      if (!res.ok) throw new ApiError(res.status, t("subCertificates.loadFailed"));
+      if (!res.ok) throw await loaderError(res, t("subCertificates.loadFailed"), t);
       return res.json<SubCertificateDTO[]>();
     },
   });
@@ -258,7 +258,7 @@ export function useSubCertificate(id: string | null): UseQueryResult<SubCertific
     enabled: session !== null && id !== null,
     queryFn: async () => {
       const res = await request(`/contracting/subcontract-certificates/${encodeURIComponent(id ?? "")}`);
-      if (!res.ok) throw new ApiError(res.status, t("subCertificates.loadFailed"));
+      if (!res.ok) throw await loaderError(res, t("subCertificates.loadFailed"), t);
       return res.json<SubCertificateDTO>();
     },
   });

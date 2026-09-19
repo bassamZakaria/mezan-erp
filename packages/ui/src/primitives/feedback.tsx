@@ -269,6 +269,8 @@ export interface ConfirmDialogProps {
   confirmLabel: string;
   cancelLabel?: string;
   tone?: ConfirmDialogTone;
+  /** Disables the confirm button — e.g. a required reason field embedded in `consequence` that is still empty. */
+  confirmDisabled?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
 }
@@ -280,6 +282,7 @@ export function ConfirmDialog({
   confirmLabel,
   cancelLabel,
   tone = "default",
+  confirmDisabled = false,
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
@@ -328,7 +331,7 @@ export function ConfirmDialog({
             <Button ref={cancelRef} variant="default" onClick={onCancel}>
               {cancelLabel ?? t("ui.confirm.cancel")}
             </Button>
-            <Button ref={confirmRef} variant={tone === "danger" ? "danger-outline" : "primary"} onClick={onConfirm}>
+            <Button ref={confirmRef} variant={tone === "danger" ? "danger-outline" : "primary"} disabled={confirmDisabled} onClick={onConfirm}>
               {confirmLabel}
             </Button>
           </div>

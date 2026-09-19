@@ -3,7 +3,16 @@ import { useQueryClient } from "@tanstack/react-query";
 import { BrandMark, Button, Copyright, TextInput, cn } from "@mezan/ui";
 import { useLogin, usePlatformResolve, useTenantInfo } from "../data/hooks";
 import { useAppVersion } from "../data/hub-hooks";
-import { clearSessionExpired, clearTenantCode, loadTenantCode, persistTenantCode, sessionExpiredPending } from "../data/session";
+import {
+  clearSessionExpired,
+  clearTenantCode,
+  forgetTenantCodeForEmail,
+  loadTenantCode,
+  persistTenantCode,
+  rememberTenantCodeForEmail,
+  sessionExpiredPending,
+  tenantCodeForEmail,
+} from "../data/session";
 import { useAppTranslation } from "../i18n";
 import { displayName } from "../display-name";
 import { readDeviceUsers, rememberDeviceUser, type DeviceUser } from "./device-users";
@@ -75,6 +84,18 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
   const [username, setUsername] = useState(remembered[0]?.email ?? DEFAULT_USERNAME);
 
   /**
+   * Whether the OPERATOR NOW AT THE MACHINE has explicitly confirmed a
+   * company code this visit (typed it and blurred the field), as opposed to
+   * it simply being whatever a previous visit — anyone's — left in storage.
+   * `handleEmailBlur` below must never override a code the person in front
+   * of the screen just chose on purpose: an implementation consultant who
+   * signs the same email into two different client tenants would otherwise
+   * be corrected straight back to whichever one they used last, and could
+   * never reach the second (security review, item 3 finding 1).
+   */
+  const codeConfirmedThisVisitRef = useRef(false);
+
+  /**
    * A different company's rows must never survive a tenant switch on the
    * SAME browser tab: a "code" tenant shares one origin (and so one
    * `QueryClient` cache) across every company, so clearing it — and
@@ -82,6 +103,13 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
    * `persistTenantCode`/`clearTenantCode` to a DIFFERENT value must do.
    * Skipped when the code is unchanged, so a mere re-blur doesn't wipe the
    * cache the screen just warmed up.
+   *
+   * The face-picker identity (`selected`/`typing`/`username`) is reset to
+   * the NEW tenant's own default only while the operator is still choosing
+   * a face (`!typing`) — never while they are mid-typing an email, so a
+   * deliberate company switch never wipes out what they just typed (the
+   * other half of the same finding above). `remembered` is refreshed
+   * unconditionally either way, so a rival company's face can never show.
    */
   function switchTenantCode(apply: () => void) {
     const before = loadTenantCode();
@@ -90,9 +118,11 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
     queryClient.clear();
     const list = readDeviceUsers();
     setRemembered(list);
-    setSelected(list[0] ?? null);
-    setTyping(list.length === 0);
-    setUsername(list[0]?.email ?? DEFAULT_USERNAME);
+    if (!typing) {
+      setSelected(list[0] ?? null);
+      setTyping(list.length === 0);
+      setUsername(list[0]?.email ?? DEFAULT_USERNAME);
+    }
     setPinDigits(Array(PIN_LENGTH).fill(""));
     setError(null);
   }
@@ -105,18 +135,66 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
     if (tenantCode === "") {
       switchTenantCode(clearTenantCode);
       setResolvedCode("");
+      codeConfirmedThisVisitRef.current = false;
       return;
     }
     if (tenantCodeInvalid) return;
     switchTenantCode(() => persistTenantCode(tenantCode));
     setResolvedCode(tenantCode);
+    codeConfirmedThisVisitRef.current = true;
   }
 
   function handleChangeTenant() {
     switchTenantCode(clearTenantCode);
     setTenantCode("");
     setResolvedCode("");
+    codeConfirmedThisVisitRef.current = false;
   }
+
+  /**
+   * Corrects a STALE company code once a returning operator identifies
+   * themselves by typing their own email — the face row can never be wrong
+   * this way (it only ever lists people already remembered under the code
+   * that is currently loaded), but manual email entry has no such guarantee:
+   * a shared "code" origin can otherwise carry operator A's leftover company
+   * straight into operator B's sign-in attempt.
+   *
+   * Never overrides a code the operator explicitly confirmed THIS visit
+   * (`codeConfirmedThisVisitRef`) — only a silent leftover from storage is
+   * fair game, so an operator who deliberately types their SECOND company's
+   * code and then their (shared) email is never bounced back to the first.
+   *
+   * Deliberately lighter than `switchTenantCode`: it still clears the
+   * query cache (the same cross-company invariant), but does NOT reset the
+   * identity fields the operator is mid-typing — only a manual "change
+   * company" action should do that.
+   */
+  function handleEmailBlur() {
+    if (tenantMode !== "code" || codeConfirmedThisVisitRef.current) return;
+    const mapped = tenantCodeForEmail(username);
+    if (!mapped || mapped === resolvedCode) return;
+    const before = loadTenantCode();
+    persistTenantCode(mapped);
+    if (loadTenantCode() === before) return;
+    queryClient.clear();
+    setTenantCode(mapped);
+    setResolvedCode(mapped);
+    setRemembered(readDeviceUsers());
+  }
+
+  /**
+   * A per-operator remembered code that stops resolving (the tenant was
+   * archived, or never existed) must not keep correcting the screen BACK to
+   * a dead end on every later visit — only forgotten when it was actually
+   * the source of the current (not-found) code, so an unrelated typo never
+   * wipes a good mapping.
+   */
+  useEffect(() => {
+    if (!tenantNotFound) return;
+    const identity = username.trim();
+    if (identity !== "" && tenantCodeForEmail(identity) === resolvedCode) forgetTenantCodeForEmail(identity);
+  }, [tenantNotFound, username, resolvedCode]);
+
   const [pinDigits, setPinDigits] = useState<string[]>(Array(PIN_LENGTH).fill(""));
   // Pure read at mount, cleared in the effect below — see `session.ts` for why
   // the two are not one call.
@@ -162,7 +240,10 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
     login.mutate(
       { username: identity, pin },
       {
-        onSuccess: (session) => rememberDeviceUser(session),
+        onSuccess: (session) => {
+          rememberDeviceUser(session);
+          if (tenantMode === "code" && resolvedCode !== "") rememberTenantCodeForEmail(session.email, resolvedCode);
+        },
         onError: (err) => {
           setError(err.message || t("login.error.generic"));
           if (err.status === 429 && typeof err.retryAfterSeconds === "number") {
@@ -246,9 +327,6 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
     ? t("login.pin")
     : t("login.who.pinFor", { name: selected ? displayName(selected, locale) : "" });
 
-  const resolvedTenant = platformResolve.data?.tenant;
-  const tenantDisplayName = resolvedTenant ? (locale === "en" && resolvedTenant.nameEn ? resolvedTenant.nameEn : resolvedTenant.nameAr) : null;
-
   return (
     <div className="flex min-h-screen items-center justify-center bg-bg p-[24px]">
       {/* The mark, oversized and barely there, anchors the empty quadrant
@@ -268,10 +346,6 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
           <span className="mz-disp text-[17px] font-bold text-ink">{t("shell.brand.name")}</span>
           <span className="ms-auto text-2xs text-ink-faint">{t("login.branchHint")}</span>
         </div>
-
-        {tenantMode === "subdomain" && tenantDisplayName ? (
-          <p className="mt-[4px] text-xs font-semibold text-ink">{tenantDisplayName}</p>
-        ) : null}
 
         {platformResolve.isLoading ? (
           <p className="mt-[4px] text-2xs text-ink-faint">{t("login.platformChecking")}</p>
@@ -376,9 +450,14 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
               <p role="alert" className="text-2xs font-semibold text-danger-ink">
                 {t("login.tenantCodeInvalid")}
               </p>
-            ) : resolvedCode !== "" && tenantInfo.data ? (
+            ) : resolvedCode !== "" && tenantInfo.isSuccess ? (
+              // The tenant's real name is shown only after sign-in — pre-auth
+              // this echoes back the code the person typed, per the
+              // `/platform/resolve` name-leak fix (never a name lookup here).
               <div className="flex items-center justify-between gap-[8px]">
-                <span className="text-2xs text-ink-muted">{tenantInfo.data.name}</span>
+                <span className="mz-lat text-2xs text-ink-muted" dir="ltr">
+                  {t("login.tenantResolved", { code: resolvedCode })}
+                </span>
                 <button type="button" onClick={handleChangeTenant} className="text-2xs text-ink-muted hover:underline">
                   {t("login.changeTenant")}
                 </button>
@@ -403,6 +482,7 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
               autoComplete="username"
               className="mz-lat"
               onChange={(e) => setUsername(e.target.value)}
+              onBlur={handleEmailBlur}
             />
           </label>
         ) : null}

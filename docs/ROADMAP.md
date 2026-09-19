@@ -573,15 +573,61 @@ and label a purchase return correctly.
 The build plan for the deferred areas — HR/Payroll (27 tasks), POS (26 tasks) and the
 Cloud/SaaS edition (20 tasks) — is `archive/plan.md` §9. It is not repeated here.
 
-SaaS follow-ups after the 2026-09-14 browser run (none blocks a sale): subscription-level
-suspend/resume has API routes but no console button; `GET /platform/resolve` answers a tenant's
-name to anyone who knows its code; a generated platform-owner password is printed to the server
-log once by design (set `MEZAN_PLATFORM_OWNER_PASSWORD` to avoid it); the console's remembered
-tenant is per browser, not per operator; screens with their own loader (the HR dashboard,
-reached only by URL now that the rail hides the module) still show a generic load error on a
-403 `MODULE_NOT_LICENSED` instead of the server's Arabic refusal. Test-only gaps recorded by the reviewers: no end-to-end
-cloud-app → router → gate test, no test that a sign-out clears cached tenant data, plan-editor
-decimal-price body and 422 rendering, tenants-list loading/failed states.
+SaaS follow-ups after the 2026-09-14 browser run (none blocks a sale). Lane 0C (2026-09-19,
+`fix/saas-followups`) closed four of them:
+
+- **`GET /platform/resolve` name leak — fixed.** It now answers only `{mode, exists}`
+  (`apps/server/src/tenant-router.ts`), never a tenant's `nameAr`/`nameEn`, matching the
+  Slack/Zoho norm of never revealing a workspace name unauthenticated. The login screen
+  (`apps/web/src/login/LoginScreen.tsx`) shows a resolved tenant's name only after sign-in; in
+  "code" mode it echoes the code the operator typed (`login.tenantResolved`) instead, and in
+  "subdomain" mode it shows nothing pre-auth.
+- **Subscription suspend/resume console button — fixed.** `TenantDetailPage.tsx` now has
+  suspend/resume buttons beside change-plan/cancel, each behind a bilingual `ConfirmDialog`
+  that requires a typed reason (`confirmDisabled` until non-empty); the reason is posted to
+  `POST /tenants/:id/subscription/{suspend,resume}` (now `{reason}`-bodied,
+  `packages/contracts/src/platform.ts`) and lands in the audit row's `details`.
+- **Per-operator remembered tenant — fixed.** `mezan.tenantCode` (`apps/web/src/data/session.ts`)
+  stays as the single browser-wide default (unchanged, since "code" mode needs a value before
+  anyone identifies themselves), but a new `mezan.tenantCodeByEmail` map now remembers each
+  signed-in operator's own last-used tenant. The login screen records it on every successful
+  sign-in and, when an operator manually types their OWN email, corrects a stale/leftover
+  tenant code back to theirs before they submit — so operator B's login attempt on a shared
+  "code" machine can no longer ride on operator A's leftover company. Not cleared on sign-out,
+  matching Slack/Zoho (both keep a browser's remembered workspace list across a sign-out). A
+  `security-officer` review of this and the resolve fix (below) found one functional bug in the
+  first cut — an operator signed into two different tenants under the SAME email (e.g. an
+  implementation consultant) was corrected back to whichever tenant they used last and could
+  never reach the second, and a per-operator mapping to an archived tenant looped on
+  "company not found" — both fixed: the correction never overrides a code the operator
+  explicitly confirmed this visit (`codeConfirmedThisVisitRef`), a company switch no longer
+  wipes an in-progress typed email, and a mapping that 404s is forgotten
+  (`forgetTenantCodeForEmail`).
+- **`MODULE_NOT_LICENSED` on own-loader screens — fixed** for the remaining 31 generic loaders
+  in `apps/web/src/data/contracting-*-hooks.ts` plus `TreasuryAccountsScreen.tsx` and
+  `reports/ReportDrillDownPanel.tsx`; all now go through the unified `loaderError`
+  (`apps/web/src/data/hooks.ts`), so a 403 shows the server's Arabic refusal instead of a
+  generic "could not load" sentence.
+
+Residual gaps the same review flagged as out of this lane's literal scope, left for a
+deliberate call rather than fixed silently: **`GET /tenant`** (`packages/backend/src/auth-routes.ts`)
+is still unauthenticated and still returns the tenant's real `name` to anyone who sends a
+guessed `x-mezan-tenant` header — the same vulnerability class `/platform/resolve` just closed,
+reached through a different route. `FirstRunWizard.tsx` is the only remaining consumer of that
+name pre-claim; a proper fix means gating `/tenant` behind either a session or the
+not-yet-claimed state, and sourcing the wizard's header from `/bootstrap/admin`'s own response
+instead. Separately, a shared "code"-mode machine's login screen still opens on WHATEVER
+operator's face row was last active (the device-user list itself is deliberately not a security
+promise — see `device-users.ts`'s own comment — but the STALE tenant it is keyed on is this
+lane's concern, and it is only corrected once someone types an email, not on first paint).
+Neither blocks a sale; both are tracked here for the next SaaS-hardening pass.
+
+Still open: a generated platform-owner password printed to the server log once by design (set
+`MEZAN_PLATFORM_OWNER_PASSWORD` to avoid it — by-design, not a defect). Test-only gaps recorded
+by the reviewers, deferred by owner decision (features first): no end-to-end cloud-app → router
+→ gate test, no test that a sign-out clears cached tenant data, plan-editor decimal-price body
+and 422 rendering, tenants-list loading/failed states (this last one is already covered per
+`TenantsPage.test.tsx`).
 
 Cloud-1 #6–8 (models only) and Cloud-3 #13 landed 2026-09-13 as `packages/domain/src/platform`,
 `packages/persistence/src/platform-store.ts` and `createPlatform` in `packages/backend`: tenant,

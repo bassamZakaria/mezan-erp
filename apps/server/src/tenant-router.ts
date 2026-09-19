@@ -124,12 +124,20 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
     return c.json({ error: "INTERNAL", message: "حدث خطأ غير متوقع" }, 500);
   });
 
+  /**
+   * Answers ONLY whether a tenant is usable — never its name. This is an
+   * unauthenticated lookup anyone who knows (or guesses) a code can call, so
+   * it must not become a name-enumeration oracle (Slack/Zoho workspace
+   * lookup never reveals the workspace name pre-auth either). The login
+   * screen shows the resolved tenant's name only after sign-in; before that
+   * it echoes back the code the person typed.
+   */
   app.get("/platform/resolve", async (c) => {
     const mode = hostMatchesTenantDomain(c.req.raw, resolverOptions) ? "subdomain" : "code";
     const code = resolveTenantCode(c.req.raw, resolverOptions);
     const tenant = code ? await options.platform.stores.tenants.findByCode(code) : null;
-    const usable = tenant && (tenant.status === "active" || tenant.status === "suspended");
-    return c.json({ mode, tenant: usable ? { code: tenant.code, nameAr: tenant.nameAr, nameEn: tenant.nameEn } : null });
+    const exists = Boolean(tenant && (tenant.status === "active" || tenant.status === "suspended"));
+    return c.json({ mode, exists });
   });
 
   /** `c.req.path`/`routePath` stay undecoded, unlike `c.req.param`, so an encoded segment (e.g. `%2F`) survives the forward. */

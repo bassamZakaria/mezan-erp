@@ -115,6 +115,15 @@ export const changePlanRequestSchema = z.object({
   planId: z.string().min(1),
 });
 
+/** A subscription-level suspend/resume is a deliberate, audited act — the console requires a reason, not a bare confirm click. */
+export const subscriptionSuspendRequestSchema = z.object({
+  reason: z.string().trim().min(1),
+});
+
+export const subscriptionResumeRequestSchema = z.object({
+  reason: z.string().trim().min(1),
+});
+
 export const recordPaymentRequestSchema = z.object({
   amount: strictlyPositiveDecimalString,
   reference: z.string().min(1),
@@ -242,6 +251,8 @@ export type ProvisionRetryRequestDTO = z.infer<typeof provisionRetryRequestSchem
 export type ProvisionResultDTO = z.infer<typeof provisionResultSchema>;
 export type StartSubscriptionRequestDTO = z.infer<typeof startSubscriptionRequestSchema>;
 export type ChangePlanRequestDTO = z.infer<typeof changePlanRequestSchema>;
+export type SubscriptionSuspendRequestDTO = z.infer<typeof subscriptionSuspendRequestSchema>;
+export type SubscriptionResumeRequestDTO = z.infer<typeof subscriptionResumeRequestSchema>;
 export type RecordPaymentRequestDTO = z.infer<typeof recordPaymentRequestSchema>;
 export type SubscriptionStatusDTO = z.infer<typeof subscriptionStatusSchema>;
 export type SubscriptionDTO = z.infer<typeof subscriptionSchema>;

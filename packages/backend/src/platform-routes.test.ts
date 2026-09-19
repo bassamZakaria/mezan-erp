@@ -219,17 +219,39 @@ describe("createPlatformRoutes", () => {
     expect(changeRes.status).toBe(200);
     expect(((await json(changeRes)) as { subscription: { planId: string } }).subscription.planId).toBe(businessPlan.id);
 
-    const suspendRes = await rig.app.fetch(req(`/tenants/${id}/subscription/suspend`, rig.ownerToken, { method: "POST" }));
+    const suspendRes = await rig.app.fetch(
+      req(`/tenants/${id}/subscription/suspend`, rig.ownerToken, { method: "POST", body: JSON.stringify({ reason: "non-payment" }) }),
+    );
     expect(suspendRes.status).toBe(200);
     expect(((await json(suspendRes)) as { subscription: { status: string } }).subscription.status).toBe("suspended");
 
-    const resumeRes = await rig.app.fetch(req(`/tenants/${id}/subscription/resume`, rig.ownerToken, { method: "POST" }));
+    const resumeRes = await rig.app.fetch(
+      req(`/tenants/${id}/subscription/resume`, rig.ownerToken, { method: "POST", body: JSON.stringify({ reason: "payment received" }) }),
+    );
     expect(resumeRes.status).toBe(200);
     expect(((await json(resumeRes)) as { subscription: { status: string } }).subscription.status).toBe("active");
+
+    const rows = await rig.platform.audit.query("security");
+    expect(rows.find((r) => r.action === "SUBSCRIPTION_SUSPENDED")?.details).toMatchObject({ reason: "non-payment" });
+    expect(rows.find((r) => r.action === "SUBSCRIPTION_RESUMED")?.details).toMatchObject({ reason: "payment received" });
 
     const cancelRes = await rig.app.fetch(req(`/tenants/${id}/subscription/cancel`, rig.ownerToken, { method: "POST" }));
     expect(cancelRes.status).toBe(200);
     expect(((await json(cancelRes)) as { subscription: unknown }).subscription).toBeNull();
+  });
+
+  it("refuses a subscription suspend/resume with no reason", async () => {
+    const rig = await buildRig();
+    const { body } = await provisionOne(rig);
+    const id = body.tenant.id;
+
+    const suspendRes = await rig.app.fetch(req(`/tenants/${id}/subscription/suspend`, rig.ownerToken, { method: "POST", body: JSON.stringify({}) }));
+    expect(suspendRes.status).toBe(400);
+    expect(await json(suspendRes)).toMatchObject({ error: "VALIDATION_ERROR" });
+
+    const resumeRes = await rig.app.fetch(req(`/tenants/${id}/subscription/resume`, rig.ownerToken, { method: "POST", body: JSON.stringify({ reason: "  " }) }));
+    expect(resumeRes.status).toBe(400);
+    expect(await json(resumeRes)).toMatchObject({ error: "VALIDATION_ERROR" });
   });
 
   it("404s subscription mutations when the tenant has no live subscription", async () => {

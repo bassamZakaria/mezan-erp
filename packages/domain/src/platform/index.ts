@@ -47,3 +47,7 @@ export {
   cardCheckoutAmount, CardCheckoutUnavailableError,
   type CardCheckout, type CardCheckoutStatus, type CardCheckoutRepository, type CardCheckoutSettlement,
 } from "./card-checkout.js";
+export {
+  startSignup, verifySignup, isDisposableEmailDomain, DISPOSABLE_EMAIL_DOMAINS, SignupRequestStatus,
+  type SignupRequest, type SignupRequestRepository, type StartSignupCommand,
+} from "./signup.js";

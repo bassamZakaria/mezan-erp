@@ -10,6 +10,7 @@ import { TenantNotFoundError } from "@mezan/domain";
 import type { CreateTenantRequestDTO, ProvisionResultDTO, ProvisionRetryRequestDTO } from "@mezan/contracts";
 import { createTenantRouter, requireOriginSecret, type TenantRouter } from "./tenant-router.js";
 import { provisionTenant, PlanRequiredError } from "./provision-tenant.js";
+import { createSignupRoutes } from "./signup-routes.js";
 import { provisionDemoTenant } from "./demo-tenant.js";
 import { startDunningTimer } from "./dunning.js";
 import { createBackupScheduler } from "./backup-scheduler.js";
@@ -198,6 +199,7 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
   // otherwise swallow the console's routes first.
   root.route("/api/platform", platformApp);
   root.route("/api/billing", createTenantBillingRoutes({ platform, router, env, service: checkoutService }));
+  root.route("/api/signup", createSignupRoutes({ platform, router, env, now }));
   root.route("/api", router.app);
 
   if (checkoutService && testProvider) {

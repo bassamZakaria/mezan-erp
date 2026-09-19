@@ -22,7 +22,7 @@ import { resolveTenantCode } from "./tenant-resolver.js";
 export const PAYMOB_WEBHOOK_PATH = "/api/billing/paymob/webhook";
 const MAX_WEBHOOK_BYTES = 256 * 1024;
 
-function forwardedOrigin(request: Request, trustProxy: boolean): string {
+export function forwardedOrigin(request: Request, trustProxy: boolean): string {
   const url = new URL(request.url);
   if (!trustProxy) return url.origin;
   const host = request.headers.get("x-forwarded-host")?.split(",")[0]?.trim();

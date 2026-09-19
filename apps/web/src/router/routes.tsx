@@ -8,6 +8,7 @@ import { routePathForScreen } from "../routing";
 import { listLoader } from "./loader";
 import { customerFilterFromUrl, customersQuery } from "../data/list-queries";
 import { PlatformApp } from "../platform/PlatformApp";
+import { SignupApp } from "../signup/SignupApp";
 
 /**
  * The route table, derived from the nav tree rather than written out.
@@ -78,6 +79,12 @@ export const routes: RouteObject[] = [
    * `platform/PlatformApp.tsx`) rather than nesting under `AppLayout`.
    */
   { path: "/platform/*", Component: PlatformApp },
+  /**
+   * The public self-serve signup flow — also a sibling, also outside the
+   * gate: it runs before any tenant exists, so a LAN-host check or a tenant
+   * session would both be nonsensical here.
+   */
+  { path: "/signup/*", Component: SignupApp },
   /**
    * PAIRING SITS OUTSIDE THE SHELL, and outside the gate, deliberately: it is
    * the screen you reach BECAUSE there is no session and no reachable host, so

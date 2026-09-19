@@ -53,6 +53,20 @@ export class InMemoryBankStatementRepository implements BankStatementRepository 
     }
     return counts;
   }
+  async replaceLineMatches(line: StatementLine, _treasuryAccountId: string, entryIds: readonly string[]): Promise<void> {
+    const current = this.lines.get(line.id);
+    if (current) this.lines.set(line.id, { ...current, matchedEntryIds: entryIds });
+  }
+  async matchedEntryIdsForAccount(treasuryAccountId: string): Promise<ReadonlySet<string>> {
+    const statementIds = new Set([...this.statements.values()].filter((s) => s.treasuryAccountId === treasuryAccountId).map((s) => s.id));
+    const ids = new Set<string>();
+    for (const line of this.lines.values()) {
+      if (!statementIds.has(line.statementId) || line.status !== "matched") continue;
+      for (const id of line.matchedEntryIds ?? []) ids.add(id);
+      if (line.matchedEntryId) ids.add(line.matchedEntryId);
+    }
+    return ids;
+  }
   async transaction<T>(fn: () => Promise<T>): Promise<T> {
     return fn();
   }

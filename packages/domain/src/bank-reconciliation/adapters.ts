@@ -5,34 +5,67 @@
  * ledger or treasury-account engines directly.
  */
 
-import type { AccountLedgerLine, LedgerRepository } from "../gl/ledger.js";
+import type { LedgerRepository } from "../gl/ledger.js";
+import { Money } from "../money/index.js";
 import type { TreasuryAccountRepository } from "../treasury-accounts/treasury-account.js";
+import { VoucherService, type VoucherServiceDeps } from "../vouchers/voucher-service.js";
+import { voucherLine, type VoucherDocument } from "../vouchers/voucher-document.js";
 import type { TreasuryLedgerCandidate, TreasuryLedgerReader } from "./matching.js";
+import { BankEntryKind, type BankEntryPoster } from "./entry-poster.js";
 
 export interface TreasuryLedgerReaderDeps {
   readonly treasuryAccounts: Pick<TreasuryAccountRepository, "findById">;
-  readonly ledger: Pick<LedgerRepository, "accountLedger" | "findById">;
+  readonly ledger: Pick<LedgerRepository, "accountLedger" | "findById"> & Partial<Pick<LedgerRepository, "accountBalance">>;
+  /** The voucher behind an entry, for its cheque/reference number and its party. */
+  readonly vouchers?: { findById(id: string): Promise<VoucherDocument | null> };
+  readonly partyName?: (kind: "customer" | "supplier", id: string) => Promise<string | null>;
 }
 
-function toCandidate(line: AccountLedgerLine): TreasuryLedgerCandidate {
-  return {
-    entryId: line.entryId,
-    entryNo: line.entryNo,
-    date: line.date,
-    // Treasury (cash/bank) accounts are debit-natural: a debit is money IN.
-    amount: line.debit.add(line.credit.negate()),
-    description: line.memo,
-  };
+interface Enrichment {
+  readonly docNo: string | null;
+  readonly reference: string | null;
+  readonly counterparty: string | null;
 }
 
 /** Bind the GL ledger + treasury-account lookup behind `TreasuryLedgerReader`. */
 export function createTreasuryLedgerReader(deps: TreasuryLedgerReaderDeps): TreasuryLedgerReader {
+  async function glAccountOf(treasuryAccountId: string): Promise<string | null> {
+    const account = await deps.treasuryAccounts.findById(treasuryAccountId);
+    return account?.glAccountId ?? null;
+  }
+
+  async function enrich(entryId: string): Promise<Enrichment> {
+    const entry = await deps.ledger.findById(entryId);
+    const voucher = deps.vouchers ? await deps.vouchers.findById(entry?.sourceDocId ?? entryId) : null;
+    if (!voucher) return { docNo: entry?.sourceDocNumber ?? null, reference: null, counterparty: null };
+    const line = voucherLine(voucher);
+    let counterparty: string | null = null;
+    if (deps.partyName) {
+      if (line.customerId) counterparty = await deps.partyName("customer", line.customerId);
+      else if (line.supplierId) counterparty = await deps.partyName("supplier", line.supplierId);
+    }
+    return { docNo: voucher.docNo ?? entry?.sourceDocNumber ?? null, reference: line.referenceNo ?? null, counterparty };
+  }
+
   return {
     async entriesForTreasuryAccount(treasuryAccountId, fromDate, toDate) {
-      const account = await deps.treasuryAccounts.findById(treasuryAccountId);
-      if (!account?.glAccountId) return [];
-      const lines = await deps.ledger.accountLedger(account.glAccountId, toDate);
-      return lines.filter((l) => l.date >= fromDate).map(toCandidate);
+      const glAccountId = await glAccountOf(treasuryAccountId);
+      if (!glAccountId) return [];
+      const lines = (await deps.ledger.accountLedger(glAccountId, toDate)).filter((l) => l.date >= fromDate);
+      const byEntry = new Map<string, { entryNo: string | null; date: string; memo: string | null; amount: Money }>();
+      for (const line of lines) {
+        const amount = line.debit.add(line.credit.negate());
+        const existing = byEntry.get(line.entryId);
+        if (existing) existing.amount = existing.amount.add(amount);
+        else byEntry.set(line.entryId, { entryNo: line.entryNo, date: line.date, memo: line.memo, amount });
+      }
+      const candidates: TreasuryLedgerCandidate[] = [];
+      for (const [entryId, row] of byEntry) {
+        if (row.amount.scaled === 0n) continue;
+        const extra = await enrich(entryId);
+        candidates.push({ entryId, entryNo: row.entryNo, date: row.date, amount: row.amount, description: row.memo, ...extra });
+      }
+      return candidates;
     },
 
     async entryNumbersByIds(entryIds) {
@@ -43,6 +76,82 @@ export function createTreasuryLedgerReader(deps: TreasuryLedgerReaderDeps): Trea
         if (entry?.entryNo) byId.set(entry.id, entry.entryNo);
       }
       return byId;
+    },
+
+    async entryAmountsOnTreasuryAccount(treasuryAccountId, entryIds) {
+      const result = new Map<string, TreasuryLedgerCandidate>();
+      const glAccountId = await glAccountOf(treasuryAccountId);
+      if (!glAccountId) return result;
+      for (const id of new Set(entryIds)) {
+        const entry = await deps.ledger.findById(id);
+        if (!entry || (entry.status !== "posted" && entry.status !== "reversed")) continue;
+        const onAccount = entry.lines.filter((l) => l.accountId === glAccountId);
+        if (onAccount.length === 0) continue;
+        const amount = Money.sum(onAccount.map((l) => l.debit.add(l.credit.negate())));
+        const extra = await enrich(id);
+        result.set(id, { entryId: id, entryNo: entry.entryNo ?? null, date: entry.date, amount, description: entry.memo ?? null, ...extra });
+      }
+      return result;
+    },
+
+    async bookBalance(treasuryAccountId, asOfDate) {
+      const glAccountId = await glAccountOf(treasuryAccountId);
+      if (!glAccountId || !deps.ledger.accountBalance) return Money.zero();
+      return (await deps.ledger.accountBalance(glAccountId, asOfDate)).balance;
+    },
+  };
+}
+
+export type VoucherBankEntryPosterDeps = Omit<VoucherServiceDeps, "actor" | "actorRoles">;
+
+/**
+ * Posts a statement line's missing entry as a real treasury voucher —
+ * «مصروف آخر» for a bank charge, «إيراد آخر» for interest — so it takes the
+ * voucher's numbering, cash policy, approval chain, audit and period gate
+ * like every other bank movement. Create and confirm are one transaction: a
+ * refused posting leaves no draft behind.
+ */
+export function createVoucherBankEntryPoster(deps: VoucherBankEntryPosterDeps): BankEntryPoster {
+  return {
+    async post(input) {
+      const treasury = await deps.treasuryAccounts.findById(input.treasuryAccountId);
+      if (!treasury?.glAccountId) throw new Error(`Treasury account ${input.treasuryAccountId} has no GL account.`);
+      const service = new VoucherService({ ...deps, actor: input.actor, actorRoles: input.actorRoles });
+
+      let voucherId = input.voucherId;
+      let existing = await deps.documents.findById(voucherId);
+      for (let attempt = 2; existing && (existing.status === "cancelled" || existing.status === "reversed"); attempt += 1) {
+        voucherId = `${input.voucherId}-${attempt}`;
+        existing = await deps.documents.findById(voucherId);
+      }
+      if (existing?.status === "pending") return { held: true, voucherId: existing.id, voucherNo: existing.docNo };
+      if (existing?.status === "confirmed") {
+        return { held: false, voucherId: existing.id, voucherNo: existing.docNo, entryId: existing.journalEntryId ?? existing.id };
+      }
+
+      return deps.documents.transaction(async () => {
+        if (!existing) {
+          await service.createVoucher({
+            id: voucherId,
+            date: input.date,
+            memo: input.memo,
+            voucherType: input.kind === BankEntryKind.BankCharge ? "other_expense" : "other_income",
+            amount: input.amount,
+            currency: treasury.currency,
+            branchId: treasury.branchId,
+            paymentMethod: "bank",
+            treasuryAccountId: treasury.id,
+            treasuryGlAccountId: treasury.glAccountId!,
+            counterpartyGlAccountId: input.counterAccountId,
+            costCenterId: input.costCenterId,
+            referenceNo: input.reference,
+          });
+        }
+        const result = await service.confirmVoucher(voucherId, { actor: input.actor, actorRoles: input.actorRoles });
+        const doc = result.document;
+        if (result.held) return { held: true as const, voucherId: doc.id, voucherNo: doc.docNo };
+        return { held: false as const, voucherId: doc.id, voucherNo: doc.docNo, entryId: doc.journalEntryId ?? doc.id };
+      });
     },
   };
 }

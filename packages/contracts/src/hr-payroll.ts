@@ -19,6 +19,20 @@ export const advanceInstallmentSchema = z.object({
   recovered: z.string(),
 });
 
+export const advanceRepaymentSchema = z.object({
+  id: z.string().min(1),
+  date: z.string().min(1),
+  amount: z.string(),
+  paymentMethod: z.string().min(1),
+  treasuryAccountId: z.string().min(1),
+  voucherId: z.string().min(1),
+  voucherNo: z.string().nullable(),
+  journalEntryId: z.string().nullable(),
+  note: z.string().nullable(),
+  recordedBy: z.string().min(1),
+  recordedAt: z.string().min(1),
+});
+
 export const employeeAdvanceSchema = z.object({
   id: z.string().min(1),
   number: z.string().min(1),
@@ -40,6 +54,7 @@ export const employeeAdvanceSchema = z.object({
   disbursementJournalEntryId: z.string().nullable(),
   repaidAt: z.string().nullable(),
   createdAt: z.string().min(1),
+  repayments: z.array(advanceRepaymentSchema).optional(),
 });
 
 export const createEmployeeAdvanceSchema = z.object({
@@ -59,6 +74,20 @@ export const treasuryDisbursementSchema = z.object({
   date: isoDateOrInstant.optional(),
   paymentMethod: z.enum(["cash", "bank", "cheque", "card", "wallet"]).optional(),
   referenceNo: z.string().nullable().optional(),
+});
+
+/** «سداد نقدي» — repaying an advance outside payroll. `repaymentId` is the idempotency key a retry must reuse. */
+export const repayEmployeeAdvanceSchema = treasuryDisbursementSchema.extend({
+  repaymentId: z.string().min(1).max(100),
+  amount: moneyString,
+  note: z.string().max(500).nullable().optional(),
+});
+
+export const employeeAdvanceRepayableSchema = z.object({
+  advanceId: z.string().min(1),
+  outstanding: z.string(),
+  pendingPayrollRecovery: z.string(),
+  repayable: z.string(),
 });
 
 export const employeeAdvanceBalanceSchema = z.object({
@@ -185,6 +214,9 @@ export type EmployeeAdvanceDTO = z.infer<typeof employeeAdvanceSchema>;
 export type CreateEmployeeAdvanceDTO = z.infer<typeof createEmployeeAdvanceSchema>;
 export type TreasuryDisbursementDTO = z.infer<typeof treasuryDisbursementSchema>;
 export type EmployeeAdvanceBalanceDTO = z.infer<typeof employeeAdvanceBalanceSchema>;
+export type AdvanceRepaymentDTO = z.infer<typeof advanceRepaymentSchema>;
+export type RepayEmployeeAdvanceDTO = z.infer<typeof repayEmployeeAdvanceSchema>;
+export type EmployeeAdvanceRepayableDTO = z.infer<typeof employeeAdvanceRepayableSchema>;
 export type PayrollRunStatusDTO = z.infer<typeof payrollRunStatusSchema>;
 export type PayslipLineKindDTO = z.infer<typeof payslipLineKindSchema>;
 export type PayslipLineSourceDTO = z.infer<typeof payslipLineSourceSchema>;

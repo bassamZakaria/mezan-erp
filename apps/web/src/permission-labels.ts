@@ -74,6 +74,11 @@ const ACTION_KEYS = [
   "prepare",
   "certify",
   "release",
+  "leave",
+  "payslip",
+  "advance",
+  "attendance",
+  "clock",
 ] as const;
 
 const KNOWN_ACTIONS: ReadonlySet<string> = new Set<string>([...ACTION_KEYS, ...POS_PERMISSION_ACTIONS, ...ENH_PERMISSION_ACTIONS]);

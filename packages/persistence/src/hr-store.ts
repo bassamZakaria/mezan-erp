@@ -1,6 +1,7 @@
 import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
 import {
+  DuplicateDeviceBadgeError,
   Money,
   type Department,
   type DepartmentRepository,
@@ -420,6 +421,15 @@ class SqliteEmployeeRepository implements EmployeeRepository {
   }
 
   private write(employee: Employee): void {
+    try {
+      this.writeRow(employee);
+    } catch (err) {
+      if (employee.deviceBadgeId && isDeviceBadgeClash(err)) throw new DuplicateDeviceBadgeError(employee.deviceBadgeId, null);
+      throw err;
+    }
+  }
+
+  private writeRow(employee: Employee): void {
     this.upsert.run({
       id: employee.id,
       code: employee.code,
@@ -456,6 +466,12 @@ class SqliteEmployeeRepository implements EmployeeRepository {
       created_at: employee.createdAt,
     });
   }
+}
+
+function isDeviceBadgeClash(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const code = (err as { code?: string }).code;
+  return code === "SQLITE_CONSTRAINT_UNIQUE" && err.message.includes("device_badge_id");
 }
 
 // --- Contract --------------------------------------------------------------
@@ -854,6 +870,18 @@ export function createSqliteJobTitleRepository(path: SqliteConnectionInput = ":m
   return Object.assign(repo, { close: () => { if (owned) sqlite.close(); } }) as SqliteJobTitleRepositoryHandle;
 }
 
+/**
+ * A books file that already holds two employees on one badge cannot take the
+ * index; it is skipped there and the routes' own check still refuses a new clash.
+ */
+function ensureDeviceBadgeIndex(sqlite: Database.Database): void {
+  const clash = sqlite
+    .prepare(`SELECT device_badge_id FROM hr_employee WHERE device_badge_id IS NOT NULL GROUP BY device_badge_id HAVING COUNT(*) > 1 LIMIT 1`)
+    .get();
+  if (clash) return;
+  sqlite.exec(`CREATE UNIQUE INDEX IF NOT EXISTS ux_hr_employee_device_badge ON hr_employee (device_badge_id) WHERE device_badge_id IS NOT NULL`);
+}
+
 /** Open a SQLite-backed EmployeeRepository. ":memory:" for tests, a path (or shared connection) for real. */
 export function createSqliteEmployeeRepository(path: SqliteConnectionInput = ":memory:"): SqliteEmployeeRepositoryHandle {
   const { sqlite, owned } = openSqliteConnection(path);
@@ -863,6 +891,7 @@ export function createSqliteEmployeeRepository(path: SqliteConnectionInput = ":m
   if (!columns.has("has_pension_entitlement")) sqlite.exec("ALTER TABLE hr_employee ADD COLUMN has_pension_entitlement INTEGER");
   if (!columns.has("tax_disability_exemption")) sqlite.exec("ALTER TABLE hr_employee ADD COLUMN tax_disability_exemption INTEGER NOT NULL DEFAULT 0");
   if (!columns.has("device_badge_id")) sqlite.exec("ALTER TABLE hr_employee ADD COLUMN device_badge_id TEXT");
+  ensureDeviceBadgeIndex(sqlite);
   const repo = new SqliteEmployeeRepository(sqlite);
   return Object.assign(repo, { close: () => { if (owned) sqlite.close(); } }) as SqliteEmployeeRepositoryHandle;
 }

@@ -45,3 +45,22 @@ export async function tenantDay(c: Context, value: string | undefined): Promise<
 export async function tenantToday(c: Context, override?: () => string): Promise<string> {
   return override ? override() : tenantDay(c, new Date().toISOString());
 }
+
+/** The tenant's wall clock now — the only time a self-service punch may carry. */
+export async function tenantClock(c: Context, at: Date = new Date()): Promise<{ date: string; time: string; yesterday: string }> {
+  const resolve = (c as unknown as Context<TenantDayEnv>).get(KEY);
+  const timeZone = (await resolve?.()) ?? DEFAULT_TIME_ZONE;
+  const parts = (zone: string) =>
+    new Intl.DateTimeFormat("en-CA", { timeZone: zone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(at);
+  let read: Intl.DateTimeFormatPart[];
+  try {
+    read = parts(timeZone);
+  } catch {
+    read = parts(DEFAULT_TIME_ZONE);
+  }
+  const part = (type: Intl.DateTimeFormatPartTypes) => read.find((p) => p.type === type)?.value ?? "00";
+  const date = `${part("year")}-${part("month")}-${part("day")}`;
+  const previous = new Date(`${date}T00:00:00Z`);
+  previous.setUTCDate(previous.getUTCDate() - 1);
+  return { date, time: `${part("hour")}:${part("minute")}`, yesterday: previous.toISOString().slice(0, 10) };
+}

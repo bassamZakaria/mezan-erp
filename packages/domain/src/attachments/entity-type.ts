@@ -43,4 +43,5 @@ export const ATTACHMENT_ENTITY_PERMISSIONS: Record<AttachmentEntityType, Attachm
   "stock-transfer": { viewAny: ["inventory.transfer.view"], manage: "inventory.transfer.create" },
   "work-order": { viewAny: ["manufacturing.wo.view"], manage: "manufacturing.wo.create" },
   voucher: { viewAny: ["treasury.cash_voucher.view"], manage: "treasury.cash_voucher.create" },
+  attendance: { viewAny: ["hr.attendance.view"], manage: "hr.attendance.edit" },
 };

@@ -518,3 +518,58 @@ export class EmployeeStillEmployedError extends Error {
     this.name = "EmployeeStillEmployedError";
   }
 }
+
+export class DuplicateDeviceBadgeError extends Error {
+  readonly code = "DUPLICATE_DEVICE_BADGE";
+  readonly messageEn: string;
+  constructor(
+    readonly deviceBadgeId: string,
+    readonly holderCode: string | null,
+  ) {
+    super(
+      holderCode
+        ? `رقم بطاقة جهاز البصمة "${deviceBadgeId}" مستخدم بالفعل للموظف ${holderCode}.`
+        : `رقم بطاقة جهاز البصمة "${deviceBadgeId}" مستخدم بالفعل لموظف آخر.`,
+    );
+    this.messageEn = holderCode
+      ? `Device badge "${deviceBadgeId}" is already assigned to employee ${holderCode}.`
+      : `Device badge "${deviceBadgeId}" is already assigned to another employee.`;
+    this.name = "DuplicateDeviceBadgeError";
+  }
+}
+
+export class AdvanceRepaymentExceedsOutstandingError extends Error {
+  readonly code = "ADVANCE_REPAYMENT_EXCEEDS_OUTSTANDING";
+  readonly messageEn: string;
+  constructor(
+    readonly requested: string,
+    readonly repayable: string,
+    readonly pendingPayrollRecovery: string | null,
+  ) {
+    const pendingAr = pendingPayrollRecovery === null ? "" : ` (بعد ${pendingPayrollRecovery} يستردها مسيّر رواتب محتسب لم يُعتمد بعد)`;
+    const pendingEn = pendingPayrollRecovery === null ? "" : ` (after ${pendingPayrollRecovery} a calculated, not yet approved payroll run already recovers)`;
+    super(`مبلغ السداد ${requested} يتجاوز الممكن سداده على السلفة ${repayable}${pendingAr}.`);
+    this.messageEn = `The repayment ${requested} exceeds what can still be repaid on the advance, ${repayable}${pendingEn}.`;
+    this.name = "AdvanceRepaymentExceedsOutstandingError";
+  }
+}
+
+export class InvalidAdvanceRepaymentError extends Error {
+  readonly code = "INVALID_ADVANCE_REPAYMENT";
+  readonly messageEn: string;
+  constructor(reasonAr: string, reasonEn: string) {
+    super(reasonAr);
+    this.messageEn = reasonEn;
+    this.name = "InvalidAdvanceRepaymentError";
+  }
+}
+
+export class PendingAdvanceExistsError extends Error {
+  readonly code = "PENDING_ADVANCE_EXISTS";
+  readonly messageEn: string;
+  constructor(readonly advanceNumber: string) {
+    super(`لديك طلب سلفة ${advanceNumber} في انتظار الاعتماد بالفعل.`);
+    this.messageEn = `You already have advance request ${advanceNumber} awaiting approval.`;
+    this.name = "PendingAdvanceExistsError";
+  }
+}

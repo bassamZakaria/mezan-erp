@@ -101,7 +101,7 @@ export interface HrTimeLeaveRoutesDeps {
   readonly audit?: AuditSink;
 }
 
-function serializeAttendance(e: AttendanceEntry) {
+export function serializeAttendance(e: AttendanceEntry) {
   return {
     id: e.id,
     employeeId: e.employeeId,

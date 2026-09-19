@@ -228,6 +228,9 @@ const coreNavItemIcons: Readonly<Record<string, LucideIcon>> = {
   "leave-accrual-batches": Layers,
   "leave-policies": BookMarked,
   "my-leave": CalendarDays,
+  "my-attendance": CalendarCheck,
+  "my-payslips": Coins,
+  "my-advances": HandCoins,
 
   projects: FolderKanban,
   subcontracts: Users,

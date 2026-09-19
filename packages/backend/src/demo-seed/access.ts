@@ -47,6 +47,9 @@ const VAN_WAREHOUSE_ID = "WH-DEMO-VAN";
  * against those two role CODES, and until now no account held either — every
  * gated document went to an inbox no one who could sign in was able to clear.
  */
+/** Every employee's own tier; each role below that a person with an HR file holds carries it too. */
+const SELF_SERVICE = ["hr.self.leave", "hr.self.payslip", "hr.self.advance", "hr.self.attendance", "hr.self.clock"] as const;
+
 const ROLES = [
   {
     code: "ACCOUNTANT",
@@ -266,6 +269,7 @@ const ROLES = [
       "hr.job_title.edit",
       "hr.leave_policy.view",
       "hr.leave_policy.edit",
+      ...SELF_SERVICE,
     ],
   },
   {
@@ -283,6 +287,7 @@ const ROLES = [
       "hr.leave.view",
       "accounting.reports.view",
       "treasury.cash_voucher.view",
+      ...SELF_SERVICE,
     ],
   },
   {
@@ -325,6 +330,7 @@ const ROLES = [
       // `admin.users.edit`, so this does not also hand over every colleague's
       // PIN.
       "admin.users.unlock",
+      ...SELF_SERVICE,
     ],
   },
   {
@@ -400,7 +406,18 @@ const ROLES = [
       "inventory.stock.view",
       "treasury.cash_voucher.view",
       "treasury.cash_voucher.create",
+      ...SELF_SERVICE,
     ],
+  },
+  /**
+   * الموظف — the basic employee who holds nothing but their own records: the
+   * self-service tier, and no `hr.employee.view`, so every colleague stays out of reach.
+   */
+  {
+    code: "EMPLOYEE",
+    name: "موظف",
+    description: "يرى حضوره ورواتبه وسلفه وإجازاته فقط، ويسجّل حضوره من الويب.",
+    permissions: [...SELF_SERVICE],
   },
   /**
    * المقاولات — four roles, because the certificate's preparer, certifier,
@@ -564,6 +581,11 @@ const PEOPLE: readonly Person[] = [
   // carries seeded invoices as their salesperson — and this is that person's
   // login, scoped to the van she loads from.
   { nameAr: "سلمى فؤاد", nameEn: "Salma Fouad", local: "salma.fouad", role: "VAN_SALES", status: "active", warehouseScope: [VAN_WAREHOUSE_ID], employeeId: "EMP-DEMO-2" },
+
+  // A basic employee: EMP-DEMO-5 (created by the HR profile later — the link
+  // is a plain id, not validated at user creation), holding only the
+  // self-service tier, with a camera selfie required at the web clock.
+  { nameAr: "أحمد الشناوي", nameEn: "Ahmed El-Shennawy", local: "ahmed.shennawy", role: "EMPLOYEE", status: "active", employeeId: "EMP-DEMO-5" },
 ];
 
 interface SeededRole {

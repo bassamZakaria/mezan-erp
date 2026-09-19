@@ -65,7 +65,7 @@ const CORE_MODULES: readonly ModuleDef[] = [
   { id: "accounting", labelAr: "المحاسبة", count: 16 },
   { id: "treasury", labelAr: "الخزينة", count: 19 },
   { id: "workflow", labelAr: "سير العمل", count: 5 },
-  { id: "hr", labelAr: "الموارد البشرية", count: 32 },
+  { id: "hr", labelAr: "الموارد البشرية", count: 37 },
   { id: "crm", labelAr: "إدارة العملاء", count: 13 },
   { id: "installments", labelAr: "الأقساط", count: 7 },
   { id: "cheques", labelAr: "الأوراق المالية", count: 5 },
@@ -252,7 +252,7 @@ const ROWS: readonly Row[] = [
   ["workflow.config.view"],
   ["workflow.config.manage", "workflow.config.view"],
 
-  // 8. hr — 32
+  // 8. hr — 37
   ["hr.employee.view"],
   ["hr.employee.create", "hr.employee.view"],
   ["hr.employee.edit", "hr.employee.view"],
@@ -285,6 +285,12 @@ const ROWS: readonly Row[] = [
   ["hr.leave_policy.edit", "hr.leave_policy.view"],
   ["hr.leave_policy.apply_preset", "hr.leave_policy.edit"],
   ["hr.leave_accrual.run", "hr.leave_policy.view"],
+  // Self-service: every route under /hr/self reads the CALLER's linked employee and nobody else's.
+  ["hr.self.leave"],
+  ["hr.self.payslip"],
+  ["hr.self.advance"],
+  ["hr.self.attendance"],
+  ["hr.self.clock", "hr.self.attendance"],
 
   // 10. crm — 13
   ["crm.lead.view"],

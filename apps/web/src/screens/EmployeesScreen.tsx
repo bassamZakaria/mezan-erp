@@ -38,6 +38,7 @@ import {
 } from "../data/hooks";
 import { useEmployeeAdvances, useEmployeePayslips, useEndOfServiceSettlement, usePayrollStatutoryFlag } from "../data/hr-payroll-hooks";
 import { ATTENDANCE_STATUS_KEY, LEAVE_STATUS_KEY, LEAVE_STATUS_TONE, LEAVE_TYPE_KEY } from "./hr-leave-labels";
+import { useClockCredentialStatus, useResetClockCredential } from "../data/hr-self-hooks";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { bilingualName, employeeDisplayName } from "./hr-employee-name";
 import { EMPTY } from "../lib/empty";
@@ -327,6 +328,37 @@ function DeviceBadgeControl({ employeeId, value }: { employeeId: string; value: 
         >
           {t("common.save")}
         </Button>
+      </div>
+      {error ? <p className="mt-[4px] text-[11.5px] text-danger-ink">{error}</p> : null}
+    </div>
+  );
+}
+
+/** The one device an employee's web clock-in is bound to; HR resets it when a phone is lost or replaced. */
+function ClockDeviceControl({ employeeId }: { employeeId: string }) {
+  const { t } = useAppTranslation();
+  const status = useClockCredentialStatus(employeeId);
+  const reset = useResetClockCredential();
+  const [error, setError] = useState<string | null>(null);
+  const registered = status.data?.registered === true;
+  return (
+    <div>
+      <div className="flex items-center justify-between gap-[8px]">
+        <span className="mz-num text-ink">
+          {registered ? t("self.clockDeviceRegistered", { date: (status.data?.createdAt ?? "").slice(0, 10) }) : t("self.clockDeviceNone")}
+        </span>
+        {registered ? (
+          <Button
+            size="sm"
+            disabled={reset.isPending}
+            onClick={() => {
+              setError(null);
+              reset.mutate(employeeId, { onError: (err) => setError(err.message) });
+            }}
+          >
+            {t("self.resetDevice")}
+          </Button>
+        ) : null}
       </div>
       {error ? <p className="mt-[4px] text-[11.5px] text-danger-ink">{error}</p> : null}
     </div>
@@ -647,6 +679,12 @@ export function EmployeesScreen() {
                 <dt className="text-ink-faint">{t("employees.deviceBadgeId")}</dt>
                 <dd className="text-ink">
                   <DeviceBadgeControl employeeId={selected.id} value={selected.deviceBadgeId} />
+                </dd>
+              </div>
+              <div>
+                <dt className="text-ink-faint">{t("self.clockDevice")}</dt>
+                <dd className="text-ink">
+                  <ClockDeviceControl employeeId={selected.id} />
                 </dd>
               </div>
               <div>

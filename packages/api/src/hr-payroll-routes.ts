@@ -14,6 +14,10 @@ import {
   updatePayrollComponent,
   disburseEmployeeAdvance,
   disbursePayrollRun,
+  repayEmployeeAdvance,
+  AdvanceRepaymentExceedsOutstandingError,
+  InvalidAdvanceRepaymentError,
+  PendingAdvanceExistsError,
   employeeOutstandingBalance,
   rejectEmployeeAdvance,
   requestEmployeeAdvance,
@@ -91,6 +95,7 @@ import {
   upsertSocialInsuranceYearSchema,
   updatePayrollComponentSchema,
   treasuryDisbursementSchema,
+  repayEmployeeAdvanceSchema,
 } from "@mezan/contracts";
 import { createPermissionGate, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
 import { recordAdminEvent } from "./admin-audit.js";
@@ -166,7 +171,7 @@ export interface HrPayrollRoutesDeps {
   readonly idGen?: () => string;
 }
 
-function serializeAdvance(a: EmployeeAdvance) {
+export function serializeAdvance(a: EmployeeAdvance) {
   return {
     id: a.id,
     number: a.number,
@@ -193,10 +198,23 @@ function serializeAdvance(a: EmployeeAdvance) {
     disbursementJournalEntryId: a.disbursementJournalEntryId,
     repaidAt: a.repaidAt,
     createdAt: a.createdAt,
+    repayments: (a.repayments ?? []).map((r) => ({
+      id: r.id,
+      date: r.date,
+      amount: r.amount.toString(),
+      paymentMethod: r.paymentMethod,
+      treasuryAccountId: r.treasuryAccountId,
+      voucherId: r.voucherId,
+      voucherNo: r.voucherNo,
+      journalEntryId: r.journalEntryId,
+      note: r.note,
+      recordedBy: r.recordedBy,
+      recordedAt: r.recordedAt,
+    })),
   };
 }
 
-function serializePayslip(p: Payslip) {
+export function serializePayslip(p: Payslip) {
   return {
     id: p.id,
     number: p.number,
@@ -263,7 +281,7 @@ function serializeGarnishment(g: GarnishmentRecord) {
   };
 }
 
-function serializeRun(r: PayrollRun) {
+export function serializeRun(r: PayrollRun) {
   return {
     id: r.id,
     number: r.number,
@@ -315,7 +333,13 @@ function handleDomainError(c: Context, err: unknown): Response {
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, currency: err.currency, date: err.asOfDate }, 422);
   }
   if (err instanceof TreasuryDisbursementHeldError) {
-    return c.json({ error: err.code, message: err.message, voucherId: err.voucherId }, 409);
+    return c.json({ error: err.code, message: err.message, messageEn: "The voucher is awaiting approval — the payment is not complete until it is approved.", voucherId: err.voucherId }, 409);
+  }
+  if (err instanceof AdvanceRepaymentExceedsOutstandingError || err instanceof PendingAdvanceExistsError) {
+    return c.json(withMessageEn(err), 409);
+  }
+  if (err instanceof InvalidAdvanceRepaymentError) {
+    return c.json(withMessageEn(err), 422);
   }
   if (
     err instanceof CashBalanceWouldGoNegativeError ||
@@ -519,6 +543,91 @@ export function createHrPayrollRoutes(deps: HrPayrollRoutesDeps, resolveAuthCont
         accounts: deps.accounts,
         idGen,
       });
+      return c.json(serializeAdvance(advance));
+    } catch (err) {
+      return handleDomainError(c, err);
+    }
+  });
+
+  const advanceLocks = new Map<string, Promise<unknown>>();
+  async function withAdvanceLock<T>(advanceId: string, work: () => Promise<T>): Promise<T> {
+    const previous = advanceLocks.get(advanceId) ?? Promise.resolve();
+    const run = previous.catch(() => undefined).then(work);
+    advanceLocks.set(advanceId, run);
+    try {
+      return await run;
+    } finally {
+      if (advanceLocks.get(advanceId) === run) advanceLocks.delete(advanceId);
+    }
+  }
+
+  async function pendingPayrollRecovery(advanceId: string): Promise<Money> {
+    const calculated = (await deps.runs.list()).filter((r) => r.status === "calculated");
+    let scaled = 0n;
+    for (const run of calculated) {
+      for (const payslip of await deps.payslips.listByRunId(run.id)) {
+        for (const line of payslip.lines) {
+          if (line.source === "advance_recovery" && line.referenceId === advanceId) scaled += line.amount.scaled;
+        }
+      }
+    }
+    return Money.fromScaled(scaled);
+  }
+
+  app.get("/advances/:id/repayable", gate("hr.advance.view"), async (c) => {
+    const advance = await deps.advances.findById(c.req.param("id"));
+    if (!advance) return c.json({ error: "EMPLOYEE_ADVANCE_NOT_FOUND" }, 404);
+    const outstanding = advanceOutstanding(advance);
+    const pending = await pendingPayrollRecovery(advance.id);
+    const repayable = outstanding.scaled > pending.scaled ? Money.fromScaled(outstanding.scaled - pending.scaled) : Money.zero();
+    return c.json({ advanceId: advance.id, outstanding: outstanding.toString(), pendingPayrollRecovery: pending.toString(), repayable: repayable.toString() });
+  });
+
+  app.post("/advances/:id/repay", gate("hr.advance.approve"), async (c) => {
+    const parsed = repayEmployeeAdvanceSchema.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    const advanceId = c.req.param("id");
+    try {
+      const before = await deps.advances.findById(advanceId);
+      const advance = await withAdvanceLock(advanceId, async () =>
+        repayEmployeeAdvance(
+          advanceId,
+          {
+            treasuryAccountId: parsed.data.treasuryAccountId,
+            branchId: parsed.data.branchId,
+            date: await tenantDay(c, parsed.data.date),
+            paymentMethod: parsed.data.paymentMethod,
+            referenceNo: parsed.data.referenceNo ?? null,
+            repaymentId: parsed.data.repaymentId,
+            amount: Money.fromMajor(parsed.data.amount),
+            note: parsed.data.note ?? null,
+            recordedBy: actorOf(c),
+          },
+          { advances: deps.advances, treasury: deps.treasury, accounts: deps.accounts, pendingPayrollRecovery },
+        ),
+      );
+      const recorded = advance.repayments?.find((r) => r.id === parsed.data.repaymentId);
+      const newlyRecorded = recorded !== undefined && !(before?.repayments ?? []).some((r) => r.id === parsed.data.repaymentId);
+      if (newlyRecorded) {
+        await recordAdminEvent(deps.audit, c, {
+          module: "hr",
+          entityType: "employee_advance",
+          entityId: advance.id,
+          action: "manual_repayment",
+          details: {
+            advanceNumber: advance.number,
+            employeeId: advance.employeeId,
+            repaymentId: recorded.id,
+            amount: recorded.amount.toString(),
+            paymentMethod: recorded.paymentMethod,
+            treasuryAccountId: recorded.treasuryAccountId,
+            voucherId: recorded.voucherId,
+            voucherNo: recorded.voucherNo,
+            outstandingAfter: advanceOutstanding(advance).toString(),
+            status: advance.status,
+          },
+        });
+      }
       return c.json(serializeAdvance(advance));
     } catch (err) {
       return handleDomainError(c, err);

@@ -25,6 +25,7 @@ export const attachmentEntityTypeSchema = z.enum([
   "stock-transfer",
   "work-order",
   "voucher",
+  "attendance",
 ]);
 
 export const attachmentSchema = z.object({

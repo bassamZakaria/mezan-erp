@@ -62,6 +62,21 @@ export interface EmployeeAdvance {
   readonly disbursementJournalEntryId: string | null;
   readonly repaidAt: string | null;
   readonly createdAt: string;
+  readonly repayments?: readonly AdvanceRepayment[];
+}
+
+export interface AdvanceRepayment {
+  readonly id: string;
+  readonly date: string;
+  readonly amount: Money;
+  readonly paymentMethod: string;
+  readonly treasuryAccountId: string;
+  readonly voucherId: string;
+  readonly voucherNo: string | null;
+  readonly journalEntryId: string | null;
+  readonly note: string | null;
+  readonly recordedBy: string;
+  readonly recordedAt: string;
 }
 
 /** Persistence port for employee advances. The domain depends on this interface only. */
@@ -270,4 +285,10 @@ export function applyAdvanceRecovery(advance: EmployeeAdvance, amount: Money, no
 
   const next: EmployeeAdvance = { ...advance, installments };
   return advanceOutstanding(next).scaled <= 0n ? { ...next, status: "repaid", repaidAt: now } : next;
+}
+
+/** Records a cash/bank repayment outside payroll: fills the oldest open instalments exactly as payroll recovery does. */
+export function applyManualAdvanceRepayment(advance: EmployeeAdvance, repayment: AdvanceRepayment): EmployeeAdvance {
+  const recovered = applyAdvanceRecovery(advance, repayment.amount, repayment.recordedAt);
+  return { ...recovered, repayments: [...(advance.repayments ?? []), repayment] };
 }

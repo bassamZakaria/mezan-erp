@@ -1,7 +1,16 @@
-import type { Money } from "../money/index.js";
-import { canTransitionAdvance, markEmployeeAdvanceDisbursed, type EmployeeAdvance, type EmployeeAdvanceRepository } from "./advance.js";
+import { Money } from "../money/index.js";
+import {
+  advanceOutstanding,
+  applyManualAdvanceRepayment,
+  canTransitionAdvance,
+  markEmployeeAdvanceDisbursed,
+  type EmployeeAdvance,
+  type EmployeeAdvanceRepository,
+} from "./advance.js";
 import { canTransitionPayrollRun, type PayrollGlAccounts, type PayrollRun, type PayrollRunRepository } from "./payroll-run.js";
 import {
+  AdvanceRepaymentExceedsOutstandingError,
+  InvalidAdvanceRepaymentError,
   EmployeeAdvanceNotFoundError,
   InvalidEmployeeAdvanceError,
   InvalidEmployeeAdvanceTransitionError,
@@ -46,6 +55,8 @@ export interface TreasuryDisbursementResult {
 
 export interface TreasuryDisbursementPort {
   disburse(request: TreasuryDisbursementRequest): Promise<TreasuryDisbursementResult>;
+  /** Money coming IN through a receipt voucher: Dr treasury / Cr the counterparty account. */
+  receive?(request: TreasuryDisbursementRequest): Promise<TreasuryDisbursementResult>;
 }
 
 export interface DisbursementInput {
@@ -163,4 +174,83 @@ export async function disbursePayrollRun(
   };
   await deps.runs.update(disbursed);
   return disbursed;
+}
+
+function toPiasters(amount: Money): string {
+  const [whole, fraction = ""] = amount.toString().split(".");
+  return `${whole}.${fraction.slice(0, 2).padEnd(2, "0")}`;
+}
+
+export interface AdvanceRepaymentInput extends DisbursementInput {
+  /** Caller-chosen idempotency key: a retry after a held voucher is approved must not repay twice. */
+  readonly repaymentId: string;
+  readonly amount: Money;
+  readonly note?: string | null;
+  readonly recordedBy: string;
+}
+
+export interface RepayAdvanceDeps {
+  readonly advances: EmployeeAdvanceRepository;
+  readonly treasury?: TreasuryDisbursementPort;
+  readonly accounts: Pick<PayrollGlAccounts, "employeeAdvanceAccountId">;
+  /** What calculated-but-unapproved payroll runs already deduct from this advance; approval re-applies it and must not exceed the balance. */
+  readonly pendingPayrollRecovery?: (advanceId: string) => Promise<Money>;
+  readonly now?: () => string;
+}
+
+/** Repays part or all of a disbursed advance in cash or by bank, outside payroll, through a receipt voucher (Dr treasury / Cr 1160). */
+export async function repayEmployeeAdvance(advanceId: string, input: AdvanceRepaymentInput, deps: RepayAdvanceDeps): Promise<EmployeeAdvance> {
+  const advance = await deps.advances.findById(advanceId);
+  if (!advance) throw new EmployeeAdvanceNotFoundError(advanceId);
+  if ((advance.repayments ?? []).some((r) => r.id === input.repaymentId)) return advance;
+  if (advance.status !== "disbursed") throw new InvalidEmployeeAdvanceTransitionError(advance.status, "repaid");
+  validateInput(input);
+  if (input.amount.scaled <= 0n) {
+    throw new InvalidAdvanceRepaymentError("مبلغ السداد يجب أن يكون أكبر من صفر.", "The repayment amount must be greater than zero.");
+  }
+
+  const outstanding = advanceOutstanding(advance);
+  const pending = (await deps.pendingPayrollRecovery?.(advance.id)) ?? Money.zero();
+  const repayable = Money.fromScaled(outstanding.scaled - pending.scaled > 0n ? outstanding.scaled - pending.scaled : 0n);
+  if (input.amount.scaled > repayable.scaled) {
+    throw new AdvanceRepaymentExceedsOutstandingError(
+      toPiasters(input.amount),
+      toPiasters(repayable),
+      pending.scaled > 0n ? toPiasters(pending) : null,
+    );
+  }
+
+  const treasury = requirePort(deps.treasury);
+  if (!treasury.receive) throw new TreasuryDisbursementUnavailableError();
+  const now = deps.now?.() ?? new Date().toISOString();
+  const date = input.date ?? now.slice(0, 10);
+  const result = await treasury.receive({
+    id: `ADV-RV:${advance.id}:${input.repaymentId}`,
+    date,
+    memo: `سداد سلفة ${advance.number} خارج الرواتب`,
+    amount: input.amount,
+    counterpartyGlAccountId: deps.accounts.employeeAdvanceAccountId,
+    treasuryAccountId: input.treasuryAccountId,
+    branchId: input.branchId,
+    paymentMethod: input.paymentMethod ?? "cash",
+    referenceNo: input.referenceNo ?? advance.number,
+  });
+
+  const current = (await deps.advances.findById(advanceId)) ?? advance;
+  if ((current.repayments ?? []).some((r) => r.id === input.repaymentId)) return current;
+  const next = applyManualAdvanceRepayment(current, {
+    id: input.repaymentId,
+    date,
+    amount: input.amount,
+    paymentMethod: input.paymentMethod ?? "cash",
+    treasuryAccountId: input.treasuryAccountId,
+    voucherId: result.voucherId,
+    voucherNo: result.voucherNo,
+    journalEntryId: result.journalEntryId,
+    note: input.note?.trim() ? input.note.trim() : null,
+    recordedBy: input.recordedBy,
+    recordedAt: now,
+  });
+  await deps.advances.update(next);
+  return next;
 }

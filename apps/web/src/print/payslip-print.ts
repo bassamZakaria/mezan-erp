@@ -1,7 +1,6 @@
 import { amountInWords } from "@mezan/domain";
 import type { PrintDocumentLine, PrintDocumentModel } from "@mezan/ui";
 import type { PayslipDTO, PayrollRunDTO } from "@mezan/contracts";
-import type { TenantSettingsDTO } from "@mezan/contracts";
 import { majorOf } from "../lib/money";
 
 /**
@@ -24,6 +23,15 @@ import { majorOf } from "../lib/money";
  * had been charged for them.
  */
 
+export interface PayslipLetterhead {
+  readonly companyName: string;
+  readonly address: string | null;
+  readonly phone: string | null;
+  readonly email: string | null;
+  readonly taxRegistrationNumber: string | null;
+  readonly commercialRegistrationNumber: string | null;
+}
+
 /** The employee's own details, resolved by the caller against the real register. */
 export interface PayslipPrintEmployee {
   readonly code: string;
@@ -36,7 +44,7 @@ export interface PayslipPrintContext {
   readonly payslip: PayslipDTO;
   readonly run: Pick<PayrollRunDTO, "number" | "year" | "month" | "periodStart" | "periodEnd">;
   readonly employee: PayslipPrintEmployee;
-  readonly settings: TenantSettingsDTO | null;
+  readonly settings: PayslipLetterhead | null;
   readonly branchName?: string;
   readonly currencyLabel: string;
   readonly documentTypeLabel: string;

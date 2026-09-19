@@ -15,7 +15,7 @@ describe("landed-cost errors", () => {
     const err = new ZeroLandedCostWeightError("BY_QUANTITY");
     expect(err.code).toBe("ZERO_LANDED_COST_WEIGHT");
     expect(err.method).toBe("BY_QUANTITY");
-    expect(err.message).toBe("تعذّر توزيع التكلفة الإضافية بطريقة BY_QUANTITY: كل بنود الهدف وزنها صفر.");
+    expect(err.message).toBe('تعذّر توزيع التكلفة الإضافية بطريقة "حسب الكمية": كل بنود الهدف وزنها صفر.');
     expect(err.messageEn).toBe("Cannot distribute landed cost BY_QUANTITY: every target line has a zero weight.");
   });
 });

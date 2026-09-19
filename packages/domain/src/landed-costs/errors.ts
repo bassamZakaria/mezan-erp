@@ -1,5 +1,15 @@
 /** Errors raised by the landed-cost allocation math (docs/archive/catalog/02 §"التكاليف الإضافية"). */
 
+const LANDED_COST_METHOD_AR: Readonly<Record<string, string>> = {
+  BY_VALUE: "حسب القيمة",
+  BY_QUANTITY: "حسب الكمية",
+  BY_WEIGHT: "حسب الوزن",
+};
+
+function landedCostMethodAr(method: string): string {
+  return LANDED_COST_METHOD_AR[method] ?? method;
+}
+
 export class EmptyLandedCostTargetsError extends Error {
   readonly code = "EMPTY_LANDED_COST_TARGETS";
   readonly messageEn: string;
@@ -15,7 +25,7 @@ export class ZeroLandedCostWeightError extends Error {
   readonly code = "ZERO_LANDED_COST_WEIGHT";
   readonly messageEn: string;
   constructor(readonly method: string) {
-    super(`تعذّر توزيع التكلفة الإضافية بطريقة ${method}: كل بنود الهدف وزنها صفر.`);
+    super(`تعذّر توزيع التكلفة الإضافية بطريقة "${landedCostMethodAr(method)}": كل بنود الهدف وزنها صفر.`);
     this.messageEn = `Cannot distribute landed cost ${method}: every target line has a zero weight.`;
     this.name = "ZeroLandedCostWeightError";
   }

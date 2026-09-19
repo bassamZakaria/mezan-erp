@@ -37,7 +37,7 @@ describe("DuplicateDocumentError", () => {
   it("carries the doc type/id", () => {
     const err = new DuplicateDocumentError("JOURNAL_ENTRY", "j-1");
     expect(err.code).toBe("DUPLICATE_DOCUMENT");
-    expect(err.message).toBe("المستند JOURNAL_ENTRY/j-1 موجود بالفعل.");
+    expect(err.message).toBe('المستند "JOURNAL_ENTRY/j-1" موجود بالفعل.');
     expect(err.messageEn).toBe("Document JOURNAL_ENTRY/j-1 already exists.");
   });
 });

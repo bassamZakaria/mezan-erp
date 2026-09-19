@@ -33,7 +33,7 @@ export class DuplicateDocumentError extends Error {
     readonly docType: string,
     readonly docId: string,
   ) {
-    super(`المستند ${docType}/${docId} موجود بالفعل.`);
+    super(`المستند "${docType}/${docId}" موجود بالفعل.`);
     this.messageEn = `Document ${docType}/${docId} already exists.`;
     this.name = "DuplicateDocumentError";
   }
@@ -52,7 +52,7 @@ export class MissingHookError extends Error {
     readonly docType: string,
     readonly hook: "numbering" | "gl" | "stock" | "workflow",
   ) {
-    super(`نوع المستند "${docType}" يتطلب ربط الخطاف "${hook}"، ولم يُربط في DocumentService.`);
+    super(`نوع المستند "${docType}" يتطلب ربط الخطاف "${hook}"، ولم يُربط في "DocumentService".`);
     this.messageEn = `Document type "${docType}" requires the ${hook} hook, but none was wired into the DocumentService.`;
     this.name = "MissingHookError";
   }

@@ -1,6 +1,6 @@
 import type Database from "better-sqlite3";
 import { createRecurringJournalRoutes } from "@mezan/api";
-import { createRecurringJournalCommitmentSource, routedAccountId, type PartyControlKind, type RecurringJournalCommitmentSource } from "@mezan/domain";
+import { createRecurringJournalCommitmentSource, routedAccountId, type PartyControlKind, type CommitmentSource } from "@mezan/domain";
 import {
   createSqliteAccountRoutingStore,
   createSqliteAssetRepository,
@@ -9,6 +9,7 @@ import {
   createSqliteRecurringJournalTemplateRepository,
 } from "@mezan/persistence";
 import type { BackendArea, BackendModuleContext } from "../module-context.js";
+import { registerCashCommitmentSource } from "./e1-02.js";
 
 /**
  * Recurring & template journal automation (ENH-E2-02). Mounted under
@@ -18,19 +19,9 @@ import type { BackendArea, BackendModuleContext } from "../module-context.js";
  * rather than opening a second one.
  */
 
-const commitmentSourceRegistry = new WeakMap<Database.Database, RecurringJournalCommitmentSource>();
+const commitmentSourceRegistry = new WeakMap<Database.Database, CommitmentSource>();
 
-/**
- * Exported for E1-02's cash-forecast area to pick up once it lands on `main`
- * (it is a PARALLEL lane, not merged as of this branch — see
- * `packages/domain/src/recurring-journals/commitment-source.ts`). That area's
- * `mount` would call:
- *
- *   registerCashCommitmentSource(ctx.sqlite, getRecurringJournalCommitmentSource(ctx.sqlite)!)
- *
- * after this area has mounted. Nothing here depends on E1-02's code existing.
- */
-export function getRecurringJournalCommitmentSource(sqlite: Database.Database): RecurringJournalCommitmentSource | undefined {
+export function getRecurringJournalCommitmentSource(sqlite: Database.Database): CommitmentSource | undefined {
   return commitmentSourceRegistry.get(sqlite);
 }
 
@@ -82,10 +73,9 @@ export const area: BackendArea = {
       ),
     );
 
-    commitmentSourceRegistry.set(
-      ctx.sqlite,
-      createRecurringJournalCommitmentSource({ templates, runs }),
-    );
+    const commitmentSource = createRecurringJournalCommitmentSource({ templates, runs });
+    commitmentSourceRegistry.set(ctx.sqlite, commitmentSource);
+    registerCashCommitmentSource(ctx.sqlite, commitmentSource);
 
     ctx.addCloser(templates);
     ctx.addCloser(runs);

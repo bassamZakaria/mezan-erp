@@ -14,7 +14,7 @@ export {
 } from "./plan.js";
 export {
   DEFAULT_GRACE_DAYS,
-  startSubscription, renewSubscription, changePlan, markPastDue,
+  startSubscription, renewSubscription, applyRenewal, changePlan, markPastDue,
   suspendSubscription, resumeSubscription, cancelSubscription,
   type Subscription, type SubscriptionStatus, type BillingCycle, type SubscriptionRepository,
   type StartSubscriptionCommand, type SubscriptionCommand, type ChangePlanCommand,
@@ -39,7 +39,7 @@ export type {
   ProviderTransactionOutcome, VerifiedProviderTransaction,
 } from "./payment-provider.js";
 export {
-  PAYMOB_TRANSACTION_HMAC_FIELDS, paymobTransactionHmacMessage, parsePaymobTransaction,
+  PAYMOB_TRANSACTION_HMAC_FIELDS, paymobTransactionHmacMessage, hasPaymobSignedShape, parsePaymobTransaction,
   classifyPaymobTransaction, moneyToPaymobCents, paymobCentsToMoney,
   type PaymobTransactionObject, type ParsedPaymobTransaction,
 } from "./paymob.js";

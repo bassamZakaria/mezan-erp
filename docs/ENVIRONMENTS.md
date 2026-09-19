@@ -99,8 +99,15 @@ buttons that simulate a successful or a declined card. They do not mark
 anything paid themselves: they sign a Paymob-shaped callback with a per-process
 secret and send it through the same webhook handler a live payment uses. The dev
 entrypoint (`pnpm server`, `pnpm dev`) and `pnpm env:testing|staging` enable it by
-default; the deployed `cloud.ts` enables it only with `MEZAN_PAYMOB_TEST_MODE=1`,
-so a production host without keys has card checkout off rather than free.
+default; the deployed `cloud.ts` enables it only with `MEZAN_PAYMOB_TEST_MODE=1`
+and refuses to start with that flag unless `MEZAN_SEED_DEMO=1`, so a production
+host without keys has card checkout off rather than free.
+
+A checkout's amount is fixed when it opens. If the plan or its price changed
+before the payment arrives, the payment is kept but marked «بحاجة لمراجعة»
+(`PRICE_CHANGED`) instead of renewing at the old price. Refunds and voids are
+audited (`CARD_WEBHOOK_NON_PAYMENT`) and never reverse a renewal on their own;
+reverse by hand.
 
 Before the first live payment, in the Paymob dashboard: create the card
 integration, note its id, and copy the four secrets above. The callback URL is

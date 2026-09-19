@@ -47,6 +47,37 @@ function hmacPart(value: unknown): string {
   return "";
 }
 
+const SIGNED_BOOLEANS = [
+  "error_occured", "has_parent_transaction", "is_3d_secure", "is_auth", "is_capture", "is_refunded",
+  "is_standalone_payment", "is_voided", "pending", "success",
+] as const;
+const SIGNED_INTEGERS = ["amount_cents", "id", "integration_id", "order.id", "owner"] as const;
+const SIGNED_TEXT_OR_NULL = ["source_data.pan", "source_data.sub_type", "source_data.type"] as const;
+
+function isSafeNonNegativeInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+
+/**
+ * The signed string joins values with no separator and cannot tell `true`
+ * from `"true"` or `123` from `"123"`, so a genuine signature stays valid when
+ * a field's JSON type is changed or two adjacent numbers are re-split. Every
+ * signed field must therefore carry exactly the JSON type Paymob sends before
+ * the signature is even computed.
+ */
+export function hasPaymobSignedShape(obj: PaymobTransactionObject): boolean {
+  for (const key of SIGNED_BOOLEANS) if (typeof readPath(obj, key) !== "boolean") return false;
+  for (const key of SIGNED_INTEGERS) if (!isSafeNonNegativeInteger(readPath(obj, key))) return false;
+  for (const key of SIGNED_TEXT_OR_NULL) {
+    const value = readPath(obj, key);
+    if (value !== null && value !== undefined && typeof value !== "string") return false;
+  }
+  const currency = readPath(obj, "currency");
+  const createdAt = readPath(obj, "created_at");
+  return typeof currency === "string" && /^[A-Z]{3}$/.test(currency)
+    && typeof createdAt === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(createdAt);
+}
+
 /** The exact string Paymob signs for a Transaction Processed callback's `obj`. */
 export function paymobTransactionHmacMessage(obj: PaymobTransactionObject): string {
   return PAYMOB_TRANSACTION_HMAC_FIELDS.map((field) => hmacPart(readPath(obj, field))).join("");
@@ -86,6 +117,7 @@ export function classifyPaymobTransaction(obj: PaymobTransactionObject): Provide
 }
 
 export interface ParsedPaymobTransaction {
+  readonly integrationId: number;
   readonly providerRef: string;
   readonly providerOrderRef: string;
   readonly merchantRef: string | null;
@@ -111,7 +143,10 @@ export function parsePaymobTransaction(obj: PaymobTransactionObject): ParsedPaym
   const amount = paymobCentsToMoney(cents);
   if (!amount) return null;
   const merchant = readPath(obj, "order.merchant_order_id") ?? readPath(obj, "merchant_order_id");
+  const integrationId = readPath(obj, "integration_id");
+  if (!isSafeNonNegativeInteger(integrationId)) return null;
   return {
+    integrationId,
     providerRef,
     providerOrderRef,
     merchantRef: typeof merchant === "string" && merchant !== "" ? merchant : null,

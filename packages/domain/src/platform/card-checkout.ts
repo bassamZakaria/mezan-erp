@@ -2,6 +2,7 @@ import type { Money } from "../money/money.js";
 import type { PaymentProviderId } from "./payment-provider.js";
 import type { Plan } from "./plan.js";
 import type { Subscription } from "./subscription.js";
+import type { Payment } from "./payment.js";
 import { moneyToPaymobCents } from "./paymob.js";
 
 export type CardCheckoutStatus = "pending" | "paid" | "failed" | "unapplied";
@@ -38,13 +39,34 @@ export interface CardCheckoutRepository {
   findByProviderOrder(provider: PaymentProviderId, providerOrderRef: string): Promise<CardCheckout | null>;
   listByTenant(tenantId: string): Promise<CardCheckout[]>;
   attachSession(id: string, providerOrderRef: string, checkoutUrl: string, now: string): Promise<void>;
-  /** Compare-and-set: moves the row only while its status is one of `from`; false when another settlement got there first. */
-  settle(id: string, from: readonly CardCheckoutStatus[], to: CardCheckoutSettlement): Promise<boolean>;
-  /** Undoes a `paid` settlement whose payment could not be written, so the provider's retry can settle it again. */
-  reopen(id: string, now: string): Promise<boolean>;
-  /** Inserts the provider's transaction id under a unique key; false when it was already claimed. */
-  claimProviderEvent(provider: PaymentProviderId, providerRef: string, now: string): Promise<boolean>;
-  releaseProviderEvent(provider: PaymentProviderId, providerRef: string): Promise<void>;
+  /**
+   * Claims the provider's transaction id and, when `settle` is given, moves the
+   * checkout by compare-and-set — both in ONE transaction. `duplicate` means the
+   * transaction id was already processed and nothing changed.
+   */
+  recordOutcome(input: {
+    readonly provider: PaymentProviderId;
+    readonly providerRef: string;
+    readonly now: string;
+    readonly settle?: { readonly checkoutId: string; readonly from: readonly CardCheckoutStatus[]; readonly to: CardCheckoutSettlement };
+  }): Promise<"duplicate" | "settled" | "unchanged">;
+  /** Moves a checkout that never reached the provider; no transaction id is involved. */
+  abandon(checkoutId: string, failureReason: string, now: string): Promise<void>;
+  /**
+   * Settles a paid checkout atomically: claims the transaction id, moves the
+   * checkout to `paid`, writes the renewed subscription (compare-and-set on its
+   * `updatedAt`) and inserts the payment. Either all of it commits or none of it.
+   */
+  settlePaid(input: {
+    readonly provider: PaymentProviderId;
+    readonly providerRef: string;
+    readonly now: string;
+    readonly checkoutId: string;
+    readonly from: readonly CardCheckoutStatus[];
+    readonly subscriptionBefore: Subscription;
+    readonly subscriptionAfter: Subscription;
+    readonly payment: Payment;
+  }): Promise<"duplicate" | "already-settled" | "subscription-changed" | "paid">;
 }
 
 export class CardCheckoutUnavailableError extends Error {

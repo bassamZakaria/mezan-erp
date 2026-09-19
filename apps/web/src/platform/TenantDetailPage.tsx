@@ -66,6 +66,7 @@ const FAILURE_REASON_KEY: Readonly<Record<string, AppTranslationKey>> = {
   DECLINED: "platform.cardCheckout.reason.DECLINED",
   PROVIDER_ERROR: "platform.cardCheckout.reason.PROVIDER_ERROR",
   AMOUNT_MISMATCH: "platform.cardCheckout.reason.AMOUNT_MISMATCH",
+  PRICE_CHANGED: "platform.cardCheckout.reason.PRICE_CHANGED",
   SUBSCRIPTION_NOT_RENEWABLE: "platform.cardCheckout.reason.SUBSCRIPTION_NOT_RENEWABLE",
 };
 

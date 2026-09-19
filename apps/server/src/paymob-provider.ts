@@ -1,5 +1,6 @@
 import { createHmac, randomBytes, randomInt, timingSafeEqual } from "node:crypto";
 import {
+  hasPaymobSignedShape,
   moneyToPaymobCents,
   parsePaymobTransaction,
   paymobTransactionHmacMessage,
@@ -39,7 +40,12 @@ function signatureMatches(expectedHex: string, providedRaw: string): boolean {
   return timingSafeEqual(Buffer.from(expectedHex, "hex"), Buffer.from(provided, "hex"));
 }
 
-function verifyPaymobCallback(hmacSecret: string, rawBody: string, signature: string): VerifiedProviderTransaction | null {
+function verifyPaymobCallback(
+  hmacSecret: string,
+  integrationIds: readonly number[],
+  rawBody: string,
+  signature: string,
+): VerifiedProviderTransaction | null {
   let body: unknown;
   try {
     body = JSON.parse(rawBody);
@@ -50,8 +56,11 @@ function verifyPaymobCallback(hmacSecret: string, rawBody: string, signature: st
   const { type, obj } = body as { type?: unknown; obj?: unknown };
   if (type !== "TRANSACTION" || obj === null || typeof obj !== "object" || Array.isArray(obj)) return null;
   const transaction = obj as PaymobTransactionObject;
+  if (!hasPaymobSignedShape(transaction)) return null;
   if (!signatureMatches(paymobSignature(hmacSecret, transaction), signature)) return null;
-  return parsePaymobTransaction(transaction);
+  const parsed = parsePaymobTransaction(transaction);
+  if (!parsed || !integrationIds.includes(parsed.integrationId)) return null;
+  return parsed;
 }
 
 function splitName(name: string): { first: string; last: string } {
@@ -122,10 +131,12 @@ export function createPaymobProvider(config: PaymobLiveConfig, fetchImpl: typeof
       return { url, providerOrderRef: String(orderId) };
     },
     async verifyWebhook(rawBody, signature) {
-      return verifyPaymobCallback(config.hmacSecret, rawBody, signature);
+      return verifyPaymobCallback(config.hmacSecret, config.integrationIds, rawBody, signature);
     },
   };
 }
+
+const TEST_INTEGRATION_ID = 1;
 
 export interface PaymobTestProvider extends PaymentProvider {
   readonly testMode: true;
@@ -155,7 +166,7 @@ export function createPaymobTestProvider(): PaymobTestProvider {
       };
     },
     async verifyWebhook(rawBody, signature) {
-      return verifyPaymobCallback(hmacSecret, rawBody, signature);
+      return verifyPaymobCallback(hmacSecret, [TEST_INTEGRATION_ID], rawBody, signature);
     },
     returnUrlFor(checkoutId) {
       return returnUrls.get(checkoutId) ?? null;
@@ -175,13 +186,13 @@ export function createPaymobTestProvider(): PaymobTestProvider {
         is_voided: false,
         is_refunded: false,
         is_3d_secure: true,
-        integration_id: 0,
+        integration_id: TEST_INTEGRATION_ID,
         has_parent_transaction: false,
         order: { id: Number(checkout.providerOrderRef), merchant_order_id: checkout.id },
         created_at: new Date().toISOString().replace("Z", ""),
         currency: checkout.currency,
         error_occured: !success,
-        owner: 0,
+        owner: 1,
         source_data: { pan: success ? "2346" : "0002", type: "card", sub_type: "MasterCard" },
       };
       return { rawBody: JSON.stringify({ type: "TRANSACTION", obj }), signature: paymobSignature(hmacSecret, obj) };

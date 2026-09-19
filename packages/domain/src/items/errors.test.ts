@@ -32,10 +32,13 @@ describe("items errors", () => {
   });
 
   it("InvalidItemError joins every reason", () => {
-    const err = new InvalidItemError(["nameAr is required", "taxRatePercent must be zero or a positive number"]);
+    const err = new InvalidItemError(["اسم الصنف بالعربية مطلوب", "نسبة الضريبة يجب أن تكون صفرًا أو رقمًا موجبًا"]);
     expect(err.code).toBe("INVALID_ITEM");
     expect(err.reasons).toHaveLength(2);
-    expect(err.message).toBe("Invalid item: nameAr is required; taxRatePercent must be zero or a positive number");
+    expect(err.message).toBe("بيانات الصنف غير صالحة: اسم الصنف بالعربية مطلوب، نسبة الضريبة يجب أن تكون صفرًا أو رقمًا موجبًا");
+    expect(err.messageEn).toBe(
+      "Invalid item: اسم الصنف بالعربية مطلوب; نسبة الضريبة يجب أن تكون صفرًا أو رقمًا موجبًا",
+    );
   });
 
   it("DuplicateItemUnitCodeError names the code", () => {
@@ -50,9 +53,10 @@ describe("items errors", () => {
   });
 
   it("InvalidItemUnitError joins reasons", () => {
-    const err = new InvalidItemUnitError(["bad unit"]);
+    const err = new InvalidItemUnitError(["وحدة غير صالحة"]);
     expect(err.code).toBe("INVALID_ITEM_UNIT");
-    expect(err.message).toBe("Invalid item unit: bad unit");
+    expect(err.message).toBe("بيانات وحدة الصنف غير صالحة: وحدة غير صالحة");
+    expect(err.messageEn).toBe("Invalid item unit: وحدة غير صالحة");
   });
 
   it("ItemUnitInUseError names the code and reference count", () => {

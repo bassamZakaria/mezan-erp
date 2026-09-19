@@ -148,15 +148,20 @@ function serialize(quote: SalesQuote, totals: SalesQuoteTotals) {
   };
 }
 
+function withMessageEn(err: { code: string; message: string }) {
+  const messageEn = (err as { messageEn?: string }).messageEn;
+  return { error: err.code, message: err.message, ...(messageEn ? { messageEn } : {}) };
+}
+
 function handleDomainError(c: Context, err: unknown): Response {
   if (err instanceof InvalidSalesQuoteError) {
-    return c.json({ error: err.code, message: err.message, reasons: err.reasons }, 422);
+    return c.json({ ...withMessageEn(err), reasons: err.reasons }, 422);
   }
   if (err instanceof SalesQuoteNotFoundError) {
-    return c.json({ error: err.code, message: err.message }, 404);
+    return c.json(withMessageEn(err), 404);
   }
   if (err instanceof DuplicateSalesQuoteError || err instanceof InvalidSalesQuoteTransitionError) {
-    return c.json({ error: err.code, message: err.message }, 409);
+    return c.json(withMessageEn(err), 409);
   }
   throw err;
 }
@@ -562,10 +567,10 @@ export function createSalesQuotesRoutes(
       );
     } catch (err) {
       if (err instanceof InvalidSalesInvoiceError) {
-        return c.json({ error: err.code, message: err.message, reasons: err.reasons }, 422);
+        return c.json({ ...withMessageEn(err), reasons: err.reasons }, 422);
       }
       if (err instanceof DuplicateSalesInvoiceError) {
-        return c.json({ error: err.code, message: err.message }, 409);
+        return c.json(withMessageEn(err), 409);
       }
       return handleDomainError(c, err);
     }

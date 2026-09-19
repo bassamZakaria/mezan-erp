@@ -352,12 +352,17 @@ function serialize(
   };
 }
 
+function withMessageEn(err: { code: string; message: string }) {
+  const messageEn = (err as { messageEn?: string }).messageEn;
+  return { error: err.code, message: err.message, ...(messageEn ? { messageEn } : {}) };
+}
+
 function handleDomainError(c: Context, err: unknown): Response {
   if (err instanceof InvalidSalesInvoiceError) {
-    return c.json({ error: err.code, message: err.message, reasons: err.reasons }, 422);
+    return c.json({ ...withMessageEn(err), reasons: err.reasons }, 422);
   }
   if (err instanceof SalesInvoiceNotFoundError || err instanceof JournalEntryNotFoundError) {
-    return c.json({ error: err.code, message: err.message }, 404);
+    return c.json(withMessageEn(err), 404);
   }
   if (
     err instanceof DuplicateSalesInvoiceError ||
@@ -367,7 +372,7 @@ function handleDomainError(c: Context, err: unknown): Response {
     err instanceof JournalEntryAlreadyReversedError ||
     err instanceof JournalEntryNotPostedError
   ) {
-    return c.json({ error: err.code, message: err.message }, 409);
+    return c.json(withMessageEn(err), 409);
   }
   if (err instanceof InvalidSalesInvoicePaymentError) {
     return c.json({ error: err.code, message: err.message }, 422);

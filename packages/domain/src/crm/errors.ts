@@ -2,8 +2,10 @@ import { getLeadStatusLabel, type LeadStatus } from "./lead.js";
 /** Raised when an operation references a lead id that does not exist. */
 export class LeadNotFoundError extends Error {
   readonly code = "LEAD_NOT_FOUND";
+  readonly messageEn: string;
   constructor(readonly leadId: string) {
-    super(`Lead "${leadId}" was not found.`);
+    super(`العميل المحتمل "${leadId}" غير موجود.`);
+    this.messageEn = `Lead "${leadId}" was not found.`;
     this.name = "LeadNotFoundError";
   }
 }
@@ -41,8 +43,10 @@ export class InvalidOpportunityError extends Error {
 /** Raised when converting a lead that is not currently "qualified". */
 export class LeadNotConvertibleError extends Error {
   readonly code = "LEAD_NOT_CONVERTIBLE";
+  readonly messageEn: string;
   constructor(readonly leadId: string) {
-    super(`Lead "${leadId}" is not convertible (must be "qualified").`);
+    super(`لا يمكن تحويل العميل المحتمل "${leadId}" إلا إذا كانت حالته «مؤهل».`);
+    this.messageEn = `Lead "${leadId}" is not convertible (must be "qualified").`;
     this.name = "LeadNotConvertibleError";
   }
 }
@@ -50,8 +54,10 @@ export class LeadNotConvertibleError extends Error {
 /** Raised when more than one active pipeline stage is flagged as the win stage. */
 export class DuplicatePipelineStageWinError extends Error {
   readonly code = "DUPLICATE_PIPELINE_STAGE_WIN";
+  readonly messageEn: string;
   constructor() {
-    super("Only one active pipeline stage may be flagged as the win stage.");
+    super("لا يمكن تحديد أكثر من مرحلة فوز نشطة واحدة في مسار المبيعات؛ مرحلة الفوز واحدة فقط.");
+    this.messageEn = "Only one active pipeline stage may be flagged as the win stage.";
     this.name = "DuplicatePipelineStageWinError";
   }
 }
@@ -59,8 +65,10 @@ export class DuplicatePipelineStageWinError extends Error {
 /** Raised when an operation references a pipeline-stage id that does not exist. */
 export class PipelineStageNotFoundError extends Error {
   readonly code = "PIPELINE_STAGE_NOT_FOUND";
+  readonly messageEn: string;
   constructor(readonly stageId: string) {
-    super(`Pipeline stage "${stageId}" was not found.`);
+    super(`مرحلة مسار المبيعات "${stageId}" غير موجودة.`);
+    this.messageEn = `Pipeline stage "${stageId}" was not found.`;
     this.name = "PipelineStageNotFoundError";
   }
 }
@@ -68,8 +76,10 @@ export class PipelineStageNotFoundError extends Error {
 /** Raised when an operation references an opportunity id that does not exist. */
 export class OpportunityNotFoundError extends Error {
   readonly code = "OPPORTUNITY_NOT_FOUND";
+  readonly messageEn: string;
   constructor(readonly opportunityId: string) {
-    super(`Opportunity "${opportunityId}" was not found.`);
+    super(`الفرصة البيعية "${opportunityId}" غير موجودة.`);
+    this.messageEn = `Opportunity "${opportunityId}" was not found.`;
     this.name = "OpportunityNotFoundError";
   }
 }
@@ -77,8 +87,10 @@ export class OpportunityNotFoundError extends Error {
 /** Raised when an operation references an activity id that does not exist. */
 export class ActivityNotFoundError extends Error {
   readonly code = "ACTIVITY_NOT_FOUND";
+  readonly messageEn: string;
   constructor(readonly activityId: string) {
-    super(`Activity "${activityId}" was not found.`);
+    super(`النشاط "${activityId}" غير موجود.`);
+    this.messageEn = `Activity "${activityId}" was not found.`;
     this.name = "ActivityNotFoundError";
   }
 }
@@ -95,8 +107,10 @@ export class InvalidActivityError extends Error {
 /** Raised when completing/cancelling an activity that is not currently "pending". */
 export class ActivityNotPendingError extends Error {
   readonly code = "ACTIVITY_NOT_PENDING";
+  readonly messageEn: string;
   constructor(readonly activityId: string) {
-    super(`Activity "${activityId}" is not pending.`);
+    super(`النشاط "${activityId}" ليس بانتظار التنفيذ.`);
+    this.messageEn = `Activity "${activityId}" is not pending.`;
     this.name = "ActivityNotPendingError";
   }
 }

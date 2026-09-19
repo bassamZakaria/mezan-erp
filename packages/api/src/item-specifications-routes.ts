@@ -45,13 +45,13 @@ function serialize(specification: ItemSpecification, usageCount: number) {
 
 function handleDomainError(c: Context, err: unknown) {
   if (err instanceof ItemSpecificationNotFoundError) {
-    return c.json({ error: err.code, message: err.message }, 404);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 404);
   }
   if (err instanceof DuplicateItemSpecificationCodeError || err instanceof ItemSpecificationInUseError) {
-    return c.json({ error: err.code, message: err.message }, 409);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
   }
   if (err instanceof InvalidItemSpecificationError) {
-    return c.json({ error: err.code, message: err.message, reasons: err.reasons }, 422);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, reasons: err.reasons }, 422);
   }
   throw err;
 }

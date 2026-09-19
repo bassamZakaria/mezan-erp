@@ -84,40 +84,50 @@ export interface ItemCategoryRepository {
 
 export class DuplicateItemUnitCodeError extends Error {
   readonly code = "DUPLICATE_ITEM_UNIT_CODE";
+  readonly messageEn: string;
   constructor(readonly unitCode: string) {
-    super(`Unit code "${unitCode}" already exists.`);
+    super(`كود وحدة الصنف "${unitCode}" مستخدم من قبل.`);
+    this.messageEn = `Unit code "${unitCode}" already exists.`;
     this.name = "DuplicateItemUnitCodeError";
   }
 }
 
 export class ItemUnitNotFoundError extends Error {
   readonly code = "ITEM_UNIT_NOT_FOUND";
+  readonly messageEn: string;
   constructor(readonly unitCode: string) {
-    super(`Unit "${unitCode}" was not found.`);
+    super(`وحدة الصنف "${unitCode}" غير موجودة.`);
+    this.messageEn = `Unit "${unitCode}" was not found.`;
     this.name = "ItemUnitNotFoundError";
   }
 }
 
 export class DuplicateItemCategoryError extends Error {
   readonly code = "DUPLICATE_ITEM_CATEGORY";
+  readonly messageEn: string;
   constructor(readonly categoryId: string) {
-    super(`Item category "${categoryId}" already exists.`);
+    super(`فئة الصنف "${categoryId}" مستخدمة من قبل.`);
+    this.messageEn = `Item category "${categoryId}" already exists.`;
     this.name = "DuplicateItemCategoryError";
   }
 }
 
 export class ItemCategoryNotFoundError extends Error {
   readonly code = "ITEM_CATEGORY_NOT_FOUND";
+  readonly messageEn: string;
   constructor(readonly categoryId: string) {
-    super(`Item category "${categoryId}" was not found.`);
+    super(`فئة الصنف "${categoryId}" غير موجودة.`);
+    this.messageEn = `Item category "${categoryId}" was not found.`;
     this.name = "ItemCategoryNotFoundError";
   }
 }
 
 export class InvalidItemCategoryError extends Error {
   readonly code = "INVALID_ITEM_CATEGORY";
-  constructor(message: string) {
-    super(message);
+  readonly messageEn: string;
+  constructor(messageAr: string, messageEn: string) {
+    super(messageAr);
+    this.messageEn = messageEn;
     this.name = "InvalidItemCategoryError";
   }
 }
@@ -179,7 +189,8 @@ async function assertParentResolves(
   repo: ItemCategoryRepository,
 ): Promise<void> {
   if (parentId === null) return;
-  if (parentId === categoryId) throw new InvalidItemCategoryError("A category cannot be its own parent.");
+  if (parentId === categoryId)
+    throw new InvalidItemCategoryError("لا يمكن أن تكون الفئة أباً لنفسها.", "A category cannot be its own parent.");
   if (!(await repo.findById(parentId))) throw new ItemCategoryNotFoundError(parentId);
 }
 

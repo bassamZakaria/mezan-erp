@@ -87,13 +87,13 @@ function toAlternateUnits(value: AlternateUnit[] | undefined): AlternateUnit[] |
 
 function handleDomainError(c: Context, err: unknown) {
   if (err instanceof ItemNotFoundError) {
-    return c.json({ error: err.code, message: err.message }, 404);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 404);
   }
   if (err instanceof DuplicateItemCodeError) {
     return c.json({ error: err.code, message: err.message }, 409);
   }
   if (err instanceof InvalidItemError) {
-    return c.json({ error: err.code, message: err.message, reasons: err.reasons }, 422);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, reasons: err.reasons }, 422);
   }
   throw err;
 }

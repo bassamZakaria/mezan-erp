@@ -132,9 +132,14 @@ function serializeVan(van: Van) {
   };
 }
 
+function withMessageEn(err: { code: string; message: string }) {
+  const messageEn = (err as { messageEn?: string }).messageEn;
+  return { error: err.code, message: err.message, ...(messageEn ? { messageEn } : {}) };
+}
+
 function handleDomainError(c: Context, err: unknown) {
   if (err instanceof VanTripNotFoundError || err instanceof VanNotFoundError) {
-    return c.json({ error: err.code, message: err.message }, 404);
+    return c.json(withMessageEn(err), 404);
   }
   if (
     err instanceof InvalidVanTripError ||
@@ -142,10 +147,10 @@ function handleDomainError(c: Context, err: unknown) {
     err instanceof InvalidVanError ||
     err instanceof VanCascadeMismatchError
   ) {
-    return c.json({ error: err.code, message: err.message }, 422);
+    return c.json(withMessageEn(err), 422);
   }
   if (err instanceof VanTripNotOngoingError) {
-    return c.json({ error: err.code, message: err.message }, 409);
+    return c.json(withMessageEn(err), 409);
   }
   throw err;
 }

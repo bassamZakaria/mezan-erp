@@ -314,6 +314,6 @@ export async function importHistoricalPurchaseDocuments(
 /** Row-shape guard used by API/CSV parsing layers before building {@link HistoricalImportRowInput}. */
 export function assertHistoricalImportBatchNotEmpty(rows: readonly unknown[]): void {
   if (rows.length === 0) {
-    throw new InvalidPurchaseDocumentError(["the import file has no rows"]);
+    throw new InvalidPurchaseDocumentError(["ملف الاستيراد لا يحتوي على أي صفوف"]);
   }
 }

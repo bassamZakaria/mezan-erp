@@ -40,6 +40,20 @@ const CAPABILITIES: Readonly<Record<ItemType, ItemTypeCapabilities>> = {
 
 export const ITEM_TYPES: readonly ItemType[] = Object.keys(CAPABILITIES) as ItemType[];
 
+const ITEM_TYPE_LABELS_AR: Readonly<Record<ItemType, string>> = {
+  stock: "منتج",
+  service: "خدمة",
+  raw_material: "مادة خام",
+  finished_good: "منتج تام",
+  consumable: "مستهلك",
+  recipe: "وصفة",
+};
+
+/** Arabic label for an item type, for messages the user actually reads. Falls back to the raw code for an unknown value. */
+export function itemTypeLabelAr(type: string): string {
+  return ITEM_TYPE_LABELS_AR[type as ItemType] ?? type;
+}
+
 export function itemTypeCapabilities(type: ItemType): ItemTypeCapabilities {
   return CAPABILITIES[type];
 }

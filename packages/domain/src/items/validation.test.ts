@@ -81,13 +81,13 @@ describe("validateAlternateUnits — unit conversion rules", () => {
 
   it("rejects a blank unit code", () => {
     expect(validateAlternateUnits("PCS", [{ code: "  ", name: "x", factor: 1 }])).toEqual([
-      "alternate unit code is required",
+      "كود الوحدة البديلة مطلوب",
     ]);
   });
 
   it("rejects an alternate unit that repeats the base unit code", () => {
     expect(validateAlternateUnits("PCS", [{ code: "PCS", name: "قطعة", factor: 1 }])).toEqual([
-      'alternate unit "PCS" cannot repeat the base unit',
+      'الوحدة البديلة "PCS" لا يمكن أن تكرر الوحدة الأساسية',
     ]);
   });
 
@@ -96,24 +96,24 @@ describe("validateAlternateUnits — unit conversion rules", () => {
       { code: "CTN", name: "كرتونة", factor: 24 },
       { code: "CTN", name: "كرتونة كبيرة", factor: 48 },
     ]);
-    expect(reasons).toContain('alternate unit code "CTN" is duplicated');
+    expect(reasons).toContain('كود الوحدة البديلة "CTN" مكرر');
   });
 
   it("rejects a zero conversion factor", () => {
     expect(validateAlternateUnits("PCS", [{ code: "CTN", name: "كرتونة", factor: 0 }])).toEqual([
-      'alternate unit "CTN" must have a positive conversion factor',
+      'الوحدة البديلة "CTN" يجب أن يكون لها معامل تحويل موجب',
     ]);
   });
 
   it("rejects a negative conversion factor", () => {
     expect(validateAlternateUnits("PCS", [{ code: "CTN", name: "كرتونة", factor: -5 }])).toEqual([
-      'alternate unit "CTN" must have a positive conversion factor',
+      'الوحدة البديلة "CTN" يجب أن يكون لها معامل تحويل موجب',
     ]);
   });
 
   it("rejects a non-finite conversion factor", () => {
     expect(validateAlternateUnits("PCS", [{ code: "CTN", name: "كرتونة", factor: Infinity }])).toEqual([
-      'alternate unit "CTN" must have a positive conversion factor',
+      'الوحدة البديلة "CTN" يجب أن يكون لها معامل تحويل موجب',
     ]);
   });
 
@@ -141,7 +141,7 @@ describe("validateGlAccountRefs", () => {
       { revenueAccountId: "9999", cogsAccountId: null, inventoryAccountId: null },
       [POSTABLE_ACCOUNT],
     );
-    expect(reasons).toEqual(['حساب الإيراد: account "9999" was not found']);
+    expect(reasons).toEqual(['حساب الإيراد: الحساب "9999" غير موجود']);
   });
 
   it("rejects a mapping pointing at a header (non-postable) account", () => {
@@ -149,7 +149,7 @@ describe("validateGlAccountRefs", () => {
       { revenueAccountId: null, cogsAccountId: null, inventoryAccountId: "1000" },
       [POSTABLE_ACCOUNT, HEADER_ACCOUNT],
     );
-    expect(reasons).toEqual(['حساب المخزون: account "1000" is not a postable detail account']);
+    expect(reasons).toEqual(['حساب المخزون: الحساب "1000" ليس حسابًا تفصيليًا قابلاً للترحيل']);
   });
 
   it("skips fields left null", () => {
@@ -178,55 +178,55 @@ describe("collectItemFieldErrors", () => {
   });
 
   it("rejects a blank Arabic name", () => {
-    expect(collectItemFieldErrors(baseItem({ nameAr: "  " }))).toContain("nameAr is required");
+    expect(collectItemFieldErrors(baseItem({ nameAr: "  " }))).toContain("اسم الصنف بالعربية مطلوب");
   });
 
   it("rejects a blank base unit code", () => {
-    expect(collectItemFieldErrors(baseItem({ baseUnitCode: " " }))).toContain("baseUnitCode is required");
+    expect(collectItemFieldErrors(baseItem({ baseUnitCode: " " }))).toContain("الوحدة الأساسية مطلوبة");
   });
 
   it("rejects a type that cannot track stock but is asked to (asked as a capability, not a literal type check)", () => {
     const reasons = collectItemFieldErrors(baseItem({ type: "recipe", trackInventory: true }));
-    expect(reasons).toContain("an item of type recipe cannot track inventory");
+    expect(reasons).toContain('لا يمكن لصنف من نوع "وصفة" أن يتتبع المخزون');
   });
 
   it("rejects batch/expiry tracking without trackInventory", () => {
     expect(collectItemFieldErrors(baseItem({ trackInventory: false, trackBatches: true }))).toContain(
-      "batch/expiry tracking requires trackInventory",
+      "تتبع الدفعات/الصلاحية يتطلب تفعيل تتبع المخزون",
     );
     expect(collectItemFieldErrors(baseItem({ trackInventory: false, trackExpiry: true }))).toContain(
-      "batch/expiry tracking requires trackInventory",
+      "تتبع الدفعات/الصلاحية يتطلب تفعيل تتبع المخزون",
     );
   });
 
   it("rejects a negative tax rate but accepts zero", () => {
     expect(collectItemFieldErrors(baseItem({ taxRatePercent: -1 }))).toContain(
-      "taxRatePercent must be zero or a positive number",
+      "نسبة الضريبة يجب أن تكون صفرًا أو رقمًا موجبًا",
     );
     expect(collectItemFieldErrors(baseItem({ taxRatePercent: 0 }))).toEqual([]);
   });
 
   it("rejects a negative reorderPoint or reorderQty", () => {
-    expect(collectItemFieldErrors(baseItem({ reorderPoint: -1 }))).toContain("reorderPoint cannot be negative");
-    expect(collectItemFieldErrors(baseItem({ reorderQty: -1 }))).toContain("reorderQty cannot be negative");
+    expect(collectItemFieldErrors(baseItem({ reorderPoint: -1 }))).toContain("حد إعادة الطلب لا يمكن أن يكون سالبًا");
+    expect(collectItemFieldErrors(baseItem({ reorderQty: -1 }))).toContain("كمية إعادة الطلب لا يمكن أن تكون سالبة");
   });
 
   it("rejects a negative salePrice or costPrice", () => {
     expect(collectItemFieldErrors(baseItem({ salePrice: Money.fromMajor("-1") }))).toContain(
-      "salePrice cannot be negative",
+      "سعر البيع لا يمكن أن يكون سالبًا",
     );
     expect(collectItemFieldErrors(baseItem({ costPrice: Money.fromMajor("-1") }))).toContain(
-      "costPrice cannot be negative",
+      "سعر التكلفة لا يمكن أن يكون سالبًا",
     );
   });
 
   it("rejects a blank barcode", () => {
-    expect(collectItemFieldErrors(baseItem({ barcodes: [""] }))).toContain("barcode cannot be blank");
+    expect(collectItemFieldErrors(baseItem({ barcodes: [""] }))).toContain("الباركود لا يمكن أن يكون فارغًا");
   });
 
   it("rejects duplicate barcodes on the same item", () => {
     const reasons = collectItemFieldErrors(baseItem({ barcodes: ["6221234567890", "6221234567890"] }));
-    expect(reasons).toContain('barcode "6221234567890" is duplicated');
+    expect(reasons).toContain('الباركود "6221234567890" مكرر');
   });
 
   it("accepts several distinct barcodes", () => {
@@ -237,7 +237,7 @@ describe("collectItemFieldErrors", () => {
     const reasons = collectItemFieldErrors(
       baseItem({ alternateUnits: [{ code: "PCS", name: "قطعة", factor: 1 }] }),
     );
-    expect(reasons).toContain('alternate unit "PCS" cannot repeat the base unit');
+    expect(reasons).toContain('الوحدة البديلة "PCS" لا يمكن أن تكرر الوحدة الأساسية');
   });
 
   it("accumulates every violation at once, not just the first", () => {

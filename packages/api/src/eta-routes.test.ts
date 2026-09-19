@@ -673,6 +673,9 @@ describe("eta router — branch codes", () => {
         deviceSerialNumber: null,
         posClientId: null,
         hasPosClientSecret: false,
+        posOsVersion: null,
+        posModelFramework: null,
+        hasPosPresharedKey: false,
       },
     ]);
 
@@ -731,6 +734,28 @@ describe("eta router — branch codes", () => {
     const rows = (await (await app.fetch(req("/branch-codes", { permissions: VIEW }))).json()) as Record<string, unknown>[];
     expect(rows[0]).toMatchObject({ deviceSerialNumber: "POS-0001", posClientId: "pos-client", hasPosClientSecret: true });
     expect(JSON.stringify(rows)).not.toContain("s3cr3t");
+  });
+
+  it("registers the device's pososversion/posmodelframework and seals its pre-shared key (D284)", async () => {
+    const { app, branches } = await fullDeps();
+    await branches.save(createBranch({ id: "b1", code: "MAIN", name: "الفرع الرئيسي" }));
+    const put = await app.fetch(
+      req("/branch-codes/b1", {
+        method: "PUT",
+        permissions: SUBMIT,
+        body: JSON.stringify({
+          etaBranchCode: "1",
+          deviceSerialNumber: "POS-0001",
+          posOsVersion: "windows",
+          posModelFramework: "1",
+          posPresharedKey: "psk-never-returned",
+        }),
+      }),
+    );
+    expect(put.status).toBe(200);
+    const rows = (await (await app.fetch(req("/branch-codes", { permissions: VIEW }))).json()) as Record<string, unknown>[];
+    expect(rows[0]).toMatchObject({ posOsVersion: "windows", posModelFramework: "1", hasPosPresharedKey: true });
+    expect(JSON.stringify(rows)).not.toContain("psk-never-returned");
   });
 
   it("keeps the registered device when a later PUT only changes the branch code", async () => {
@@ -945,8 +970,17 @@ async function receiptApp(uuid?: EtaReceiptUuidPort, deviceSerialNumber: string 
     posClientId: null,
     hasPosClientSecret: false,
   });
+  await store.config.save({
+    ...(await store.config.get()),
+    taxRegistrationNumber: "123456789",
+    activityCode: "4711",
+    address: { governorate: "القاهرة", city: "مدينة نصر", street: "شارع", buildingNumber: "1", postalCode: null },
+  });
   return {
-    app: createEtaRoutes({ service, branchCodes: store.branchCodes }, insecureHeaderAuthContextResolver),
+    app: createEtaRoutes(
+      { service, branchCodes: store.branchCodes, companyTradeName: async () => "متجر الاختبار" },
+      insecureHeaderAuthContextResolver,
+    ),
     service,
     store,
   };
@@ -1000,6 +1034,25 @@ describe("eta router — receipts", () => {
     expect(body.qrValue).toContain("/receipts/search/uuid-1/share/");
     expect(body.submission.documentType).toBe("receipt");
     expect(body.submission.status).toBe("ready");
+  });
+
+  it("chains receipts from the device's own chain and ignores a caller-stated previousUuid (D283)", async () => {
+    const { app } = await receiptApp(countingUuidPort());
+    const first = (await (await app.fetch(issue())).json()) as { uuid: string; receiptNo: string };
+    expect(first.receiptNo).toBe("RCP-000001");
+    const res = await app.fetch(issue({ ...receiptBody, internalId: "RCP-000002", previousUuid: "forged" }));
+    expect(res.status).toBe(200);
+    const printed = (await (await app.fetch(req("/receipts/RCP-000002", { permissions: VIEW }))).json()) as {
+      submission: { payload: { header: { previousUUID: string } } };
+    };
+    expect(printed.submission.payload.header.previousUUID).toBe(first.uuid);
+  });
+
+  it("refuses a refund receipt that names no sale receipt (D282)", async () => {
+    const { app } = await receiptApp(countingUuidPort());
+    const res = await app.fetch(issue({ ...receiptBody, receiptType: "refund" }));
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: string }).error).toBe("ETA_REFUND_REFERENCE_REQUIRED");
   });
 
   it("reprints the same UUID and QR instead of minting a second submission", async () => {

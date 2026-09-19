@@ -2,7 +2,9 @@ import { describe, it, expect } from "vitest";
 import { DEFAULT_ETA_CONFIG, type EtaConfig, type EtaConfigRepository } from "./config.js";
 import type { EtaSubmission, EtaSubmissionRepository, EtaSubmissionStatus } from "./submission.js";
 import { EtaService } from "./service.js";
+import { EtaOfflineError } from "./errors.js";
 import { EtaReceiptUuidUnavailableError, type EtaReceiptInput, type EtaReceiptUuidPort } from "./receipt.js";
+import { createInMemoryEtaReceiptChain, type EtaReceiptChainRepository } from "./receipt-chain.js";
 
 class MemConfig implements EtaConfigRepository {
   constructor(private cfg: EtaConfig) {}
@@ -51,13 +53,21 @@ function countingUuidPort(): CountingPort {
 }
 
 let ids = 0;
+
+/** A tenant whose registration is complete, so a receipt is not refused as not-ready. */
+const READY: EtaConfig = {
+  ...DEFAULT_ETA_CONFIG,
+  taxRegistrationNumber: "123456789",
+  activityCode: "4711",
+  address: { governorate: "القاهرة", city: "مدينة نصر", street: "شارع", buildingNumber: "1", postalCode: null },
+};
 type CountingPort = EtaReceiptUuidPort & { calls: number };
 
 function service(overrides: { config?: Partial<EtaConfig>; uuid?: CountingPort; now?: string } = {}) {
   const submissions = new MemSubmissions();
   const uuid = overrides.uuid ?? countingUuidPort();
   const svc = new EtaService({
-    config: new MemConfig({ ...DEFAULT_ETA_CONFIG, ...overrides.config }),
+    config: new MemConfig({ ...READY, ...overrides.config }),
     submissions,
     receiptUuid: uuid,
     now: () => overrides.now ?? "2026-09-01T10:00:00.000Z",
@@ -71,7 +81,7 @@ const receipt: EtaReceiptInput = {
   issueDateTime: "2026-09-01T10:00:00.000Z",
   receiptType: "sale",
   previousUuid: null,
-  seller: { deviceSerialNumber: "POS-0001", branchCode: "1" },
+  seller: { deviceSerialNumber: "POS-0001", branchCode: "1", companyTradeName: "متجر" },
   buyer: { type: "P", id: null, name: null },
   paymentMethod: "cash",
   lines: [
@@ -116,17 +126,18 @@ describe("enqueueReceipt", () => {
     expect(payload.header.uuid).toBe("uuid-1");
   });
 
-  it("builds the QR from the assigned UUID and the sale moment", async () => {
-    const { svc } = service({ config: { environment: "production" } });
+  it("builds the QR from the assigned UUID, the sale moment, the total and the issuer's RIN", async () => {
+    const { svc } = service({ config: { environment: "production", taxRegistrationNumber: "674859545" } });
     const printed = await svc.enqueueReceipt(receipt);
     expect(printed.qrValue).toBe(
-      "https://invoicing.eta.gov.eg/receipts/search/uuid-1/share/2026-09-01T10%3A00%3A00.000Z",
+      "https://invoicing.eta.gov.eg/receipts/search/uuid-1/share/2026-09-01T10:00:00Z#Total:57.00000,IssuerRIN:674859545",
     );
+    expect(printed.receiptNo).toBe("RCP-000001");
   });
 
   it("refuses when no UUID port is wired rather than printing a QR that resolves to nothing", async () => {
     const submissions = new MemSubmissions();
-    const svc = new EtaService({ config: new MemConfig(DEFAULT_ETA_CONFIG), submissions });
+    const svc = new EtaService({ config: new MemConfig(READY), submissions });
     await expect(svc.enqueueReceipt(receipt)).rejects.toBeInstanceOf(EtaReceiptUuidUnavailableError);
     expect(submissions.rows.size).toBe(0);
   });
@@ -219,7 +230,7 @@ describe("the e-seal never gates a consumer receipt", () => {
   it("reaches مرسل on an eseal tenant once the gateway answers", async () => {
     const submissions = new MemSubmissions();
     const svc = new EtaService({
-      config: new MemConfig({ ...DEFAULT_ETA_CONFIG, signingMethod: "eseal" }),
+      config: new MemConfig({ ...READY, signingMethod: "eseal" }),
       submissions,
       receiptUuid: countingUuidPort(),
       transmit: {
@@ -259,5 +270,123 @@ describe("a receipt is refused rather than reported with a blank device serial",
       svc.enqueueReceipt({ ...receipt, seller: { deviceSerialNumber: "  ", branchCode: "1" } }),
     ).rejects.toMatchObject({ code: "ETA_DEVICE_SERIAL_NOT_REGISTERED" });
     expect(submissions.rows.size).toBe(0);
+  });
+});
+
+describe("the per-device receipt chain (D283, DEC-25)", () => {
+  const numbered = (n: number, serial = "POS-0001"): EtaReceiptInput => ({
+    ...receipt,
+    internalId: `RCP-${serial}-${n}`,
+    seller: { deviceSerialNumber: serial, branchCode: "1", companyTradeName: "متجر" },
+  });
+  const header = (p: { submission: { payload: unknown } }) =>
+    (p.submission.payload as { header: { uuid: string; previousUUID: string } }).header;
+
+  it("chains each receipt onto the device's previous one, starting from an empty previousUUID", async () => {
+    const { svc } = service();
+    const first = await svc.enqueueReceipt(numbered(1));
+    const second = await svc.enqueueReceipt(numbered(2));
+    expect(header(first).previousUUID).toBe("");
+    expect(header(second).previousUUID).toBe(first.uuid);
+    expect(second.submission.receiptSeq).toBe(2);
+    expect(await svc.receiptChainHead("POS-0001")).toMatchObject({ lastUuid: second.uuid, lastSeq: 2 });
+  });
+
+  it("keeps the order when sales are issued concurrently — no two receipts claim the same predecessor", async () => {
+    const { svc } = service();
+    const printed = await Promise.all([1, 2, 3, 4, 5, 6].map((n) => svc.enqueueReceipt(numbered(n))));
+    const bySeq = [...printed].sort((a, b) => (a.submission.receiptSeq ?? 0) - (b.submission.receiptSeq ?? 0));
+    expect(bySeq.map((p) => p.submission.receiptSeq)).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(new Set(printed.map((p) => header(p).previousUUID)).size).toBe(6);
+    bySeq.forEach((p, i) => expect(header(p).previousUUID).toBe(i === 0 ? "" : bySeq[i - 1]!.uuid));
+  });
+
+  it("keeps one chain per serial — two tills never link into each other", async () => {
+    const { svc } = service();
+    const [a1, b1, a2, b2] = await Promise.all([
+      svc.enqueueReceipt(numbered(1, "POS-A")),
+      svc.enqueueReceipt(numbered(1, "POS-B")),
+      svc.enqueueReceipt(numbered(2, "POS-A")),
+      svc.enqueueReceipt(numbered(2, "POS-B")),
+    ]);
+    expect(header(a1!).previousUUID).toBe("");
+    expect(header(b1!).previousUUID).toBe("");
+    expect(header(a2!).previousUUID).toBe(a1!.uuid);
+    expect(header(b2!).previousUUID).toBe(b1!.uuid);
+    expect((await svc.receiptChainHead("POS-A"))?.lastSeq).toBe(2);
+    expect((await svc.receiptChainHead("POS-B"))?.lastSeq).toBe(2);
+  });
+
+  it("ignores a caller-stated previousUuid — the chain row is the only source of the head", async () => {
+    const { svc } = service();
+    const first = await svc.enqueueReceipt(numbered(1));
+    const second = await svc.enqueueReceipt({ ...numbered(2), previousUuid: "forged" } as EtaReceiptInput);
+    expect(header(second).previousUUID).toBe(first.uuid);
+  });
+
+  it("does not advance the chain on a reprint", async () => {
+    const { svc } = service();
+    const first = await svc.enqueueReceipt(numbered(1));
+    await svc.enqueueReceipt(numbered(1));
+    expect(await svc.receiptChainHead("POS-0001")).toMatchObject({ lastUuid: first.uuid, lastSeq: 1 });
+  });
+
+  it("rebuilds on the new head when another writer advanced the chain between read and write", async () => {
+    const submissions = new MemSubmissions();
+    const inner = createInMemoryEtaReceiptChain(submissions);
+    let raced = false;
+    const chain: EtaReceiptChainRepository = {
+      head: (serial) => inner.head(serial),
+      list: () => inner.list(),
+      async append(entry) {
+        if (!raced) {
+          raced = true;
+          await inner.append({
+            serial: entry.serial,
+            expectedPreviousUuid: null,
+            submission: { ...entry.submission, id: "elsewhere", internalId: "RCP-ELSEWHERE", etaUuid: "uuid-elsewhere" },
+          });
+        }
+        return inner.append(entry);
+      },
+    };
+    const svc = new EtaService({
+      config: new MemConfig(READY),
+      submissions,
+      receiptUuid: countingUuidPort(),
+      receiptChain: chain,
+      newId: () => `eta-${++ids}`,
+    });
+    const printed = await svc.enqueueReceipt(numbered(1));
+    expect(header(printed).previousUUID).toBe("uuid-elsewhere");
+    expect(printed.submission.receiptSeq).toBe(2);
+  });
+});
+
+describe("submitReadyReceipts — reported device by device, in chain order", () => {
+  it("sends each device's receipts oldest link first and stops a device at its first offline refusal", async () => {
+    const sent: string[] = [];
+    let clock = 0;
+    const submissions = new MemSubmissions();
+    const svc = new EtaService({
+      config: new MemConfig(READY),
+      submissions,
+      receiptUuid: countingUuidPort(),
+      now: () => new Date(Date.UTC(2026, 8, 1, 10, 0, clock++)).toISOString(),
+      newId: () => `eta-${++ids}`,
+      transmit: {
+        async transmit(submission) {
+          if (submission.receiptSerial === "POS-OFF") throw new EtaOfflineError();
+          sent.push(submission.internalId);
+          return { ok: true, etaUuid: submission.etaUuid ?? undefined };
+        },
+      },
+    });
+    for (const [n, serial] of [[1, "POS-A"], [1, "POS-OFF"], [2, "POS-A"], [2, "POS-OFF"], [3, "POS-A"]] as const) {
+      await svc.enqueueReceipt({ ...receipt, internalId: `${serial}-${n}`, seller: { deviceSerialNumber: serial, branchCode: "1", companyTradeName: "متجر" } });
+    }
+    const result = await svc.submitReadyReceipts();
+    expect(sent).toEqual(["POS-A-1", "POS-A-2", "POS-A-3"]);
+    expect(result.queued).toHaveLength(2);
   });
 });

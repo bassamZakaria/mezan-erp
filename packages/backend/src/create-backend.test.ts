@@ -1371,6 +1371,23 @@ describe("createBackend — a return of a VAT invoice credits the VAT (B-3)", ()
 });
 
 /**
+ * What a consumer receipt needs registered before it can be issued: the
+ * seller's RIN, activity and address, the item's EGS code and the unit's
+ * authority code — without them the receipt is refused as not ready.
+ */
+async function completeEtaRegistration(app: App) {
+  const put = (path: string, body: unknown) =>
+    app.fetch(new Request(`http://local${path}`, { method: "PUT", headers: { ...admin(app), "content-type": "application/json" }, body: JSON.stringify(body) }));
+  expect((await put("/eta/config", {
+    taxRegistrationNumber: "123456789",
+    activityCode: "4711",
+    address: { governorate: "القاهرة", city: "مدينة نصر", street: "شارع", buildingNumber: "1", postalCode: null },
+  })).status).toBe(200);
+  expect((await put("/eta/item-mappings/SVC-1", { etaCodeType: "EGS", etaItemCode: "EG-100200300-9001" })).status).toBe(200);
+  expect((await put("/eta/unit-mappings/PCS", { etaUnitCode: "EA" })).status).toBe(200);
+}
+
+/**
  * The ETA enqueue bridge (`createEtaEnqueueBridge`) is fanned into the
  * SALES_INVOICE document type's own events (`salesInvoiceEvents`) but NOT
  * into `returnsEventBridge`, which is all `salesReturns`/`purchaseReturns`
@@ -1423,6 +1440,7 @@ describe("createBackend — ETA enqueue bridge (D122)", () => {
       }),
     );
     expect(res.status).toBe(200);
+    await completeEtaRegistration(app);
   }
 
   it("a CONSUMER sale is reported as an e-receipt, not as an invoice with buyer type P", async () => {
@@ -1518,6 +1536,236 @@ describe("createBackend — ETA enqueue bridge (D122)", () => {
     expect(note?.documentType).toBe("credit_note");
     // And the invoice's own submission is still there, untouched.
     expect(rows.some((r) => r.internalId === invoice.docNo && r.documentType === "invoice")).toBe(true);
+  });
+});
+
+/**
+ * The e-receipt path end to end (D282–D284): the till gets its receipt from
+ * the confirm itself, a consumer return is a refund receipt that references
+ * the sale receipt, and reporting goes to the receipt endpoint as the device.
+ */
+describe("createBackend — the e-receipt path (D282–D284)", () => {
+  type Printed = { receiptNo: string; uuid: string; qrValue: string };
+  type Receipt = {
+    uuid: string;
+    submission: {
+      status: string;
+      payload: {
+        header: { previousUUID: string; referenceUUID?: string; receiptNumber: string };
+        documentType: { receiptType: string; typeVersion: string };
+        seller: { deviceSerialNumber: string };
+        paymentMethod: string;
+        totalAmount: string;
+      };
+    };
+  };
+
+  async function registerDevice(app: App, extra: Record<string, unknown> = {}) {
+    const res = await app.fetch(
+      new Request("http://local/eta/branch-codes/BR-MAIN", {
+        method: "PUT",
+        headers: { ...admin(app), "content-type": "application/json" },
+        body: JSON.stringify({ etaBranchCode: "1", deviceSerialNumber: "POS-0001", ...extra }),
+      }),
+    );
+    expect(res.status).toBe(200);
+    await completeEtaRegistration(app);
+  }
+
+  async function consumerSale(app: App, id: string, customerId: string) {
+    const create = await authedPost(app, "/sales-invoices", {
+      ...invoiceBody(id, customerId, "100"),
+      branchId: "BR-MAIN",
+      lines: [{ ...invoiceBody(id, customerId, "100").lines[0], qty: "2", taxRatePercent: 14 }],
+    });
+    expect(create.status).toBe(201);
+    const confirm = await authedPost(app, `/sales-invoices/${id}/confirm`, {});
+    expect(confirm.status).toBe(200);
+    return (await confirm.json()) as { id: string; docNo: string; etaReceipt: Printed | null };
+  }
+
+  async function receipt(app: App, receiptNo: string): Promise<Receipt> {
+    const res = await app.fetch(new Request(`http://local/eta/receipts/${encodeURIComponent(receiptNo)}`, { headers: admin(app) }));
+    expect(res.status).toBe(200);
+    return (await res.json()) as Receipt;
+  }
+
+  async function setAutoSubmit(app: App, on: boolean) {
+    const res = await app.fetch(
+      new Request("http://local/eta/config", {
+        method: "PUT",
+        headers: { ...admin(app), "content-type": "application/json" },
+        body: JSON.stringify({ autoSubmitOnConfirm: on, taxRegistrationNumber: "123456789" }),
+      }),
+    );
+    expect(res.status).toBe(200);
+  }
+
+  it("the confirm itself hands the till its receipt number, UUID and QR — no waiting on a background job (D283)", async () => {
+    const app = await newBackend();
+    await createServiceItem(app);
+    await registerDevice(app);
+    await createCustomer(app, "cust-r-1", "0");
+    const sale = await consumerSale(app, "inv-r-1", "cust-r-1");
+
+    expect(sale.etaReceipt).not.toBeNull();
+    expect(sale.etaReceipt!.receiptNo).toBe(sale.docNo);
+    expect(sale.etaReceipt!.uuid).toMatch(/^[0-9a-f]{64}$/);
+    expect(sale.etaReceipt!.qrValue).toContain(`/receipts/search/${sale.etaReceipt!.uuid}/share/`);
+    expect(sale.etaReceipt!.qrValue).toContain("#Total:228.00000,IssuerRIN:");
+
+    // The reprint is that same receipt, not a second one.
+    const stored = await receipt(app, sale.docNo);
+    expect(stored.uuid).toBe(sale.etaReceipt!.uuid);
+    expect(stored.submission.payload.documentType).toEqual({ receiptType: "s", typeVersion: "1.2" });
+    expect(stored.submission.payload.seller.deviceSerialNumber).toBe("POS-0001");
+    // Nothing was collected at the confirm, so no tender is claimed.
+    expect(stored.submission.payload.paymentMethod).toBe("O");
+  });
+
+  it("issues the receipt with الإرسال التلقائي OFF — the till still prints; only reporting waits (D283)", async () => {
+    const app = await newBackend();
+    await createServiceItem(app);
+    await registerDevice(app);
+    await setAutoSubmit(app, false);
+    await createCustomer(app, "cust-r-2", "0");
+    const sale = await consumerSale(app, "inv-r-2", "cust-r-2");
+    expect(sale.etaReceipt?.uuid).toMatch(/^[0-9a-f]{64}$/);
+    expect((await receipt(app, sale.docNo)).submission.status).toBe("ready");
+  });
+
+  it("chains consecutive sales on the device: each receipt names the one before it", async () => {
+    const app = await newBackend();
+    await createServiceItem(app);
+    await registerDevice(app);
+    await createCustomer(app, "cust-r-3", "0");
+    const first = await consumerSale(app, "inv-r-3a", "cust-r-3");
+    const second = await consumerSale(app, "inv-r-3b", "cust-r-3");
+    expect((await receipt(app, first.docNo)).submission.payload.header.previousUUID).toBe("");
+    expect((await receipt(app, second.docNo)).submission.payload.header.previousUUID).toBe(first.etaReceipt!.uuid);
+  });
+
+  it("files a consumer RETURN as a refund receipt referencing the sale receipt, never as a credit note (D282)", async () => {
+    const app = await newBackend();
+    await createServiceItem(app);
+    await registerDevice(app);
+    await createCustomer(app, "cust-r-4", "0");
+    const sale = await consumerSale(app, "inv-r-4", "cust-r-4");
+
+    const draft = await post(app, "/sales-returns/from-invoice", {
+      id: "sr-r-4",
+      date: "2026-08-23",
+      memo: "مرتجع",
+      warehouseId: "WH1",
+      sourceInvoiceId: sale.id,
+      reason: "DEFECTIVE",
+      requested: [{ itemId: "SVC-1", qty: "1" }],
+    }, admin(app));
+    expect(draft.status).toBe(201);
+    const confirmed = await post(app, "/sales-returns/sr-r-4/confirm", {}, admin(app));
+    expect(confirmed.status).toBe(200);
+    const { document } = (await confirmed.json()) as { document: { docNo: string } };
+
+    let refund: Receipt | null = null;
+    for (let i = 0; i < 40 && !refund; i += 1) {
+      const res = await app.fetch(new Request(`http://local/eta/receipts/${encodeURIComponent(document.docNo)}`, { headers: admin(app) }));
+      if (res.status === 200) refund = (await res.json()) as Receipt;
+      else await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    expect(refund, "the return was not receipted").not.toBeNull();
+    expect(refund!.submission.payload.documentType).toEqual({ receiptType: "r", typeVersion: "1.2" });
+    expect(refund!.submission.payload.header.referenceUUID).toBe(sale.etaReceipt!.uuid);
+    // On the refunding device's chain, right after the sale.
+    expect(refund!.submission.payload.header.previousUUID).toBe(sale.etaReceipt!.uuid);
+    expect(refund!.submission.payload.totalAmount).toBe("114.00000");
+
+    const queue = (await (await app.fetch(new Request("http://local/eta/submissions", { headers: admin(app) }))).json()) as {
+      internalId: string;
+      documentType: string;
+    }[];
+    expect(queue.filter((s) => s.documentType === "credit_note")).toEqual([]);
+  });
+
+  it("takes the payment method from the tender actually collected", async () => {
+    const handle = await createBackend({ dbPath: ":memory:" });
+    const app = keep(handle);
+    await createServiceItem(app);
+    await createCustomer(app, "cust-r-5", "0");
+    const treasury = await post(
+      app,
+      "/treasury-accounts",
+      { id: "ta-card", code: "ta-card", name: "نقاط البيع", branchId: "BR-MAIN", glAccountId: "1300-1", type: "cash", currency: "EGP", openingBalance: "0" },
+      admin(app),
+    );
+    expect(treasury.status).toBe(201);
+    // No device yet: the confirm cannot receipt, and says so without failing the sale.
+    const create = await authedPost(app, "/sales-invoices", { ...invoiceBody("inv-r-5", "cust-r-5", "100"), branchId: "BR-MAIN" });
+    expect(create.status).toBe(201);
+    const confirm = await authedPost(app, "/sales-invoices/inv-r-5/confirm", {});
+    expect(confirm.status).toBe(200);
+    const confirmed = (await confirm.json()) as { etaReceipt: null; etaReceiptError: { code: string } };
+    expect(confirmed.etaReceipt).toBeNull();
+    expect(confirmed.etaReceiptError.code).toBe("ETA_DEVICE_SERIAL_NOT_REGISTERED");
+
+    const paid = await post(app, "/sales-invoices/inv-r-5/payments", { amount: "100.00", treasuryAccountId: "ta-card", paymentMethod: "card" }, admin(app));
+    expect(paid.status).toBe(200);
+    await registerDevice(app);
+    const issued = await handle.etaReceipts!.issueInvoiceReceipt("inv-r-5");
+    expect(issued).not.toBeNull();
+    expect((await receipt(app, issued!.receiptNo)).submission.payload.paymentMethod).toBe("V");
+  });
+
+  it("refuses a serial no device registered, rather than filing it", async () => {
+    const handle = await createBackend({ dbPath: ":memory:" });
+    const app = keep(handle);
+    await createServiceItem(app);
+    await createCustomer(app, "cust-r-6", "0");
+    await authedPost(app, "/sales-invoices", { ...invoiceBody("inv-r-6", "cust-r-6", "100"), branchId: "BR-MAIN" });
+    expect((await authedPost(app, "/sales-invoices/inv-r-6/confirm", {})).status).toBe(200);
+    await registerDevice(app);
+    await expect(handle.etaReceipts!.issueInvoiceReceipt("inv-r-6", { serial: "NOT-A-TILL" })).rejects.toMatchObject({
+      code: "ETA_DEVICE_SERIAL_UNKNOWN",
+    });
+    const issued = await handle.etaReceipts!.issueInvoiceReceipt("inv-r-6", { serial: "POS-0001" });
+    expect((await receipt(app, issued!.receiptNo)).submission.payload.seller.deviceSerialNumber).toBe("POS-0001");
+  });
+
+  it("reports the receipt to /receiptsubmissions as the DEVICE when الإرسال التلقائي is on (D284)", async () => {
+    const seen: { url: string; headers: Readonly<Record<string, string>>; body?: string }[] = [];
+    const handle = await createBackend({
+      dbPath: ":memory:",
+      etaHttpClient: async (request) => {
+        seen.push(request);
+        if (request.url.endsWith("/connect/token")) {
+          return { status: 200, body: JSON.stringify({ access_token: "device-token", expires_in: 3600 }) };
+        }
+        const sent = JSON.parse(request.body ?? "{}") as { receipts?: { header: { uuid: string; receiptNumber: string } }[] };
+        const doc = sent.receipts?.[0]?.header;
+        return {
+          status: 202,
+          body: JSON.stringify({ submissionUUID: "SUB-R", acceptedDocuments: [{ uuid: doc?.uuid, receiptNumber: doc?.receiptNumber }], rejectedDocuments: [] }),
+        };
+      },
+    });
+    const app = keep(handle);
+    await createServiceItem(app);
+    await registerDevice(app, { posClientId: "pos-cid", posClientSecret: "pos-secret", posOsVersion: "windows", posModelFramework: "1", posPresharedKey: "psk" });
+    await setAutoSubmit(app, true);
+    await createCustomer(app, "cust-r-7", "0");
+    const sale = await consumerSale(app, "inv-r-7", "cust-r-7");
+
+    let status = "";
+    for (let i = 0; i < 60 && status !== "submitted"; i += 1) {
+      status = (await receipt(app, sale.docNo)).submission.status;
+      if (status !== "submitted") await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    expect(status).toBe("submitted");
+    const token = seen.find((r) => r.url.endsWith("/connect/token"))!;
+    expect(token.headers).toMatchObject({ posserial: "POS-0001", pososversion: "windows", posmodelframework: "1", presharedkey: "psk" });
+    expect(new URLSearchParams(token.body).get("client_id")).toBe("pos-cid");
+    const submit = seen.find((r) => !r.url.endsWith("/connect/token"))!;
+    expect(submit.url).toMatch(/\/api\/v1\/receiptsubmissions$/);
+    expect(seen.some((r) => r.url.includes("documentsubmissions"))).toBe(false);
   });
 });
 

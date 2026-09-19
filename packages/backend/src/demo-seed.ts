@@ -593,11 +593,11 @@ export async function seedDemoTenant(app: App, session: { token: string; mint: S
   // it, are seeded BEFORE any sale is confirmed: a consumer sale is reported as
   // an e-receipt, and the authority identifies the issuing till by the serial
   // registered here — a branch with no registered device cannot receipt at all.
+  // No POS credentials: with any on file, الإرسال التلقائي would report every
+  // seeded receipt to the authority's real gateway, where invented ones fail.
   await step(app, "PUT", `/eta/branch-codes/${BRANCH_ID}`, {
     etaBranchCode: "1",
     deviceSerialNumber: "MEZAN-POS-0001",
-    posClientId: "mezan-demo-pos-client",
-    posClientSecret: "demo-pos-secret-never-returned",
   });
 
   await seedHistory(app);

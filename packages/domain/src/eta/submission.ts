@@ -92,6 +92,10 @@ export interface EtaSubmission {
   readonly signature: string | null;
   /** Every request/response of every attempt, oldest first. */
   readonly transmitLog: readonly EtaTransmitLogEntry[];
+  /** e-receipt only: the POS device serial whose chain this receipt is a link of. */
+  readonly receiptSerial?: string | null;
+  /** e-receipt only: the receipt's position on that device's chain, from 1. */
+  readonly receiptSeq?: number | null;
 }
 
 /** Persistence port for the submission queue. */

@@ -220,37 +220,25 @@ import {
   createEtaHttpTransmitPort,
   createExternalCommandSigner,
   fetchEtaHttpClient,
-  DuplicateEtaSubmissionError,
-  resolveEtaVatSubType,
-  findLineTaxRate,
   convertToBase,
   createDefaultSettings,
   NotificationDispatcher,
   type NotificationTransport,
-  type EtaBranchCode,
-  type EtaBranchCodeRepository,
   type EtaCommandResult,
   type EtaCommandRunner,
   type EtaHttpClient,
-  type EtaReceiptLineInput,
-  type EtaUnitMappingRepository,
-  type SalesInvoice,
-  type SalesInvoiceTotals,
-  type SalesInvoiceLineTotals,
-  type TaxRate,
-  type SalesInvoiceRepository,
-  type SalesReturnLine,
   type DocumentRepository,
   type FrameworkDocument,
-  type SalesInvoiceLine,
-  type CustomerRepository,
-  type Item,
-  type ItemRepository,
-  type TaxRateRepository,
   extend as extendQtyByPrice,
   unitCostOf,
 } from "@mezan/domain";
 import { runExternalSigningCommand } from "./eta-signing-command.js";
+import {
+  createEtaEnqueueBridge,
+  createEtaReceiptIssuer,
+  createReturnEtaEnqueueBridge,
+  type EtaReceiptIssuer,
+} from "./eta-receipts.js";
 import { createAuthRoutes } from "./auth-routes.js";
 import { createDashboardRoutes } from "./dashboard-routes.js";
 import { createPreferencesRoutes } from "./preferences-routes.js";
@@ -469,312 +457,6 @@ function createDocumentEventBridge(
   };
 }
 
-/**
- * The producer the ETA queue never had (D5): a confirmed sales invoice is built
- * into an ETA submission in status جاهز, ready for the e-invoicing screen to
- * submit. `EtaService.enqueue` and the whole submission lifecycle existed
- * already — no route and no event bridge ever called it, so `/eta/submissions`
- * could not have a row no matter what the user did, and الإرسال التلقائي عند
- * التأكيد was a setting nothing read.
- *
- * The payload carries the registered codes, not the tenant's own: the item's
- * EGS/GPC code, the unit's mapped code, the branch's code with the authority
- * and the tax rate's VAT sub-type. An unregistered record falls back to the
- * tenant's own value, which is what the readiness checklist is counting.
- *
- * Deliberately fire-and-forget, like the notification bridge: a
- * queueing failure must never fail the confirm that emitted it. A document
- * already queued (a re-confirm after an approval) is not an error.
- *
- * WHICH DOCUMENT gets built is decided by the customer, not by a setting: a
- * customer with a tax registration number is a B2B sale and becomes an
- * e-invoice; one without is a consumer sale and becomes an e-RECEIPT, which is
- * a separate authority mandate with its own payload, its own post-sale
- * reporting window and no e-seal. Filing a consumer sale as an invoice with
- * receiver type "P" reported it as something it is not, and meant the receipt
- * path — built in full — had no producer at all.
- */
-function createEtaEnqueueBridge(deps: {
-  readonly eta: EtaService;
-  readonly invoices: Pick<SalesInvoiceRepository, "findById">;
-  readonly customers: Pick<CustomerRepository, "findById">;
-  readonly items: Pick<ItemRepository, "findById">;
-  readonly taxRates: Pick<TaxRateRepository, "list">;
-  readonly branchCodes: EtaBranchCodeRepository;
-  readonly unitMappings: EtaUnitMappingRepository;
-}): DocumentEventPublisher {
-  return {
-    publish(event) {
-      if (event.type !== "DOCUMENT_CONFIRMED" || event.docType !== "SALES_INVOICE") return;
-      void (async () => {
-        const config = await deps.eta.getConfig();
-        if (!config.autoSubmitOnConfirm) return;
-        const invoice = await deps.invoices.findById(event.docId);
-        if (!invoice) return;
-        const customer = await deps.customers.findById(invoice.customerId);
-        const totals = salesInvoiceTotals(invoice);
-        const lineTotals = new Map(totals.lines.map((l) => [l.lineId, l]));
-        const [taxRates, branchCodes, unitMappings] = await Promise.all([
-          deps.taxRates.list(),
-          deps.branchCodes.list(),
-          deps.unitMappings.list(),
-        ]);
-        const unitByCode = new Map(unitMappings.map((m) => [m.unitCode, m.etaUnitCode]));
-        const lineItems = await Promise.all(invoice.lines.map((line: SalesInvoiceLine) => deps.items.findById(line.itemId)));
-        const branchMapping = branchCodes.find((b) => b.branchId === invoice.branchId) ?? null;
-
-        if (!customer?.taxNumber) {
-          await enqueueSalesInvoiceAsReceipt({
-            eta: deps.eta,
-            invoice,
-            totals,
-            lineTotals,
-            lineItems,
-            taxRates,
-            unitByCode,
-            branchMapping,
-            issueDateTime: event.occurredAt,
-          });
-          return;
-        }
-
-        await deps.eta.enqueue({
-          internalId: invoice.docNo ?? invoice.id,
-          documentType: "invoice",
-          issueDateTime: event.occurredAt,
-          branchCode: branchMapping?.etaBranchCode ?? null,
-          receiver: {
-            registrationNumber: customer.taxNumber,
-            name: invoice.customerNameAr,
-            type: "B",
-          },
-          // The document's OWN currency and the rate it was booked at. Filing
-          // every line as EGP misstated a foreign invoice to the authority
-          // (D78), and the payload refuses a foreign document with no rate
-          // rather than sending one at par.
-          currency: invoice.currency,
-          exchangeRate: invoice.fxRate ?? null,
-          lines: invoice.lines.map((line: SalesInvoiceLine, index: number) => {
-            const lt = lineTotals.get(line.lineId);
-            const item = lineItems[index] ?? null;
-            // The unit the LINE was priced in, not the item's base unit: the
-            // quantity and unit price below are both per entered unit, so
-            // filing the base unit code would misstate the quantity sold.
-            const unitCode = line.unitCode !== "" ? line.unitCode : (item?.baseUnitCode ?? "");
-            const taxRate = findLineTaxRate(taxRates, line.taxRatePercent);
-            return {
-              description: line.itemNameAr,
-              itemCode: item?.etaItemCode ?? item?.code ?? line.itemId,
-              quantity: line.qty.toString(),
-              unitType: unitByCode.get(unitCode) ?? unitCode,
-              unitPrice: line.unitPrice.toString(),
-              // On a foreign document the authority wants the sold amount AND
-              // its pound equivalent; on an EGP one they are the same number.
-              unitPriceEgp: invoice.fxRate
-                ? convertToBase(line.unitPrice, invoice.fxRate).toString()
-                : line.unitPrice.toString(),
-              netTotal: (lt?.taxableBase ?? Money.zero()).toString(),
-              taxSubType: resolveEtaVatSubType(taxRate?.etaSubType, line.taxRatePercent),
-              taxRate: String(line.taxRatePercent),
-              taxAmount: (lt?.tax ?? Money.zero()).toString(),
-            };
-          }),
-          totalNet: totals.taxableTotal.toString(),
-          totalTax: totals.taxTotal.toString(),
-          totalAmount: totals.grandTotal.toString(),
-        });
-      })().catch((error: unknown) => {
-        if (error instanceof DuplicateEtaSubmissionError) return;
-        console.error(`[eta] could not queue ${event.docType}/${event.docId}`, error);
-      });
-    },
-  };
-}
-
-/** The till a stored receipt was issued from, read back out of its payload. */
-function receiptDeviceOf(payload: unknown): string {
-  const seller = (payload as { seller?: { deviceSerialNumber?: unknown } } | null)?.seller;
-  return typeof seller?.deviceSerialNumber === "string" ? seller.deviceSerialNumber : "";
-}
-
-/**
- * A consumer sale as the authority's e-receipt.
- *
- * The device serial comes off the BRANCH's registration, never off the caller:
- * the authority binds the receipt to the till it has on file, and a branch with
- * no registered device cannot issue one — `enqueueReceipt` refuses rather than
- * reporting a blank serial.
- */
-async function enqueueSalesInvoiceAsReceipt(args: {
-  readonly eta: EtaService;
-  readonly invoice: SalesInvoice;
-  readonly totals: SalesInvoiceTotals;
-  readonly lineTotals: ReadonlyMap<string, SalesInvoiceLineTotals>;
-  readonly lineItems: readonly (Item | null)[];
-  readonly taxRates: readonly TaxRate[];
-  readonly unitByCode: ReadonlyMap<string, string>;
-  readonly branchMapping: EtaBranchCode | null;
-  readonly issueDateTime: string;
-}): Promise<void> {
-  const { invoice, totals, lineTotals, lineItems, taxRates, unitByCode, branchMapping } = args;
-
-  const lines: EtaReceiptLineInput[] = invoice.lines.map((line: SalesInvoiceLine, index: number) => {
-    const lt = lineTotals.get(line.lineId);
-    const item = lineItems[index] ?? null;
-    const unitCode = line.unitCode !== "" ? line.unitCode : (item?.baseUnitCode ?? "");
-    const taxRate = findLineTaxRate(taxRates, line.taxRatePercent);
-    const discount = (lt?.lineDiscount ?? Money.zero())
-      .add(lt?.promotionDiscount ?? Money.zero())
-      .add(lt?.invoiceDiscount ?? Money.zero());
-    return {
-      internalCode: item?.code ?? line.itemId,
-      description: line.itemNameAr,
-      // EXTERNAL CONTRACT: the authority's coding schemes on a receipt line are
-      // "EGS" and "GS1"; a GPC-coded item is the GS1 scheme under its own name.
-      itemType: item?.etaCodeType === "GPC" ? "GS1" : "EGS",
-      itemCode: item?.etaItemCode ?? item?.code ?? line.itemId,
-      unitType: unitByCode.get(unitCode) ?? unitCode,
-      quantity: line.qty.toString(),
-      unitPrice: line.unitPrice.toString(),
-      totalSale: (lt?.gross ?? Money.zero()).toString(),
-      netSale: (lt?.taxableBase ?? Money.zero()).toString(),
-      total: (lt?.total ?? Money.zero()).toString(),
-      commercialDiscount: discount.scaled === 0n ? undefined : discount.toString(),
-      taxSubType: resolveEtaVatSubType(taxRate?.etaSubType, line.taxRatePercent),
-      taxRate: String(line.taxRatePercent),
-      taxAmount: (lt?.tax ?? Money.zero()).toString(),
-    };
-  });
-
-  const totalDiscount = totals.lineDiscountTotal
-    .add(totals.promotionDiscountTotal)
-    .add(totals.invoiceDiscountTotal);
-
-  const deviceSerialNumber = branchMapping?.deviceSerialNumber ?? "";
-
-  // EXTERNAL CONTRACT: previousUUID chains the receipts OF ONE DEVICE, which is
-  // how the authority detects a receipt that was printed and never reported.
-  // Chaining across devices would make every till's chain look broken.
-  const previous = (await args.eta.list())
-    .filter((s) => s.documentType === "receipt" && s.etaUuid && receiptDeviceOf(s.payload) === deviceSerialNumber)
-    .sort((a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0))
-    .at(-1);
-
-  await args.eta.enqueueReceipt({
-    internalId: invoice.docNo ?? invoice.id,
-    issueDateTime: args.issueDateTime,
-    receiptType: "sale",
-    previousUuid: previous?.etaUuid ?? null,
-    currency: invoice.currency,
-    exchangeRate: invoice.fxRate ?? undefined,
-    seller: { deviceSerialNumber, branchCode: branchMapping?.etaBranchCode ?? null },
-    // B2C: the buyer stays anonymous — a walk-in has no registration number and
-    // the authority accepts the receipt without one.
-    buyer: { type: "P", id: null, name: invoice.customerNameAr },
-    // Mezan does not yet record HOW a sale was paid, so the only two states it
-    // can tell the authority truthfully are "settled at the till" and "not".
-    paymentMethod: invoice.status === "paid" ? "cash" : "other",
-    lines,
-    totalSales: totals.grossTotal.toString(),
-    totalCommercialDiscount: totalDiscount.scaled === 0n ? undefined : totalDiscount.toString(),
-    netAmount: totals.taxableTotal.toString(),
-    totalAmount: totals.grandTotal.toString(),
-    taxTotals: [{ taxType: "T1", amount: totals.taxTotal.toString() }],
-  });
-}
-
-/**
- * Queues a confirmed SALES RETURN to the authority as an إشعار دائن (credit
- * note) — D77/D122.
- *
- * The invoice bridge above reacts only to `docType === "SALES_INVOICE"`, so a
- * confirmed return reached the queue through nothing at all, even though the
- * queue has always handled `credit_note` correctly when fed directly. A return
- * that never reaches the authority leaves the customer's filed VAT overstated
- * by the credit, which is the half of a return that a tax inspection notices.
- *
- * ONLY sales returns. A purchase return is a credit note the SUPPLIER issues to
- * us — their filing obligation, not ours — and filing it here would declare a
- * document this company never raised.
- */
-function createReturnEtaEnqueueBridge(deps: {
-  readonly eta: EtaService;
-  readonly returns: Pick<DocumentRepository<SalesReturnLine>, "findById">;
-  readonly customers: Pick<CustomerRepository, "findById">;
-  readonly items: Pick<ItemRepository, "findById">;
-  readonly taxRates: Pick<TaxRateRepository, "list">;
-  readonly branchCodes: EtaBranchCodeRepository;
-  readonly unitMappings: EtaUnitMappingRepository;
-}): DocumentEventPublisher {
-  return {
-    publish(event) {
-      if (event.type !== "DOCUMENT_CONFIRMED" || event.docType !== "SALES_RETURN") return;
-      void (async () => {
-        const config = await deps.eta.getConfig();
-        if (!config.autoSubmitOnConfirm) return;
-        const doc = await deps.returns.findById(event.docId);
-        if (!doc || doc.lines.length === 0) return;
-
-        const first = doc.lines[0];
-        if (!first) return;
-        const customer = await deps.customers.findById(first.customerId);
-        const [taxRates, branchCodes, unitMappings] = await Promise.all([
-          deps.taxRates.list(),
-          deps.branchCodes.list(),
-          deps.unitMappings.list(),
-        ]);
-        const unitByCode = new Map(unitMappings.map((m) => [m.unitCode, m.etaUnitCode]));
-        const lineItems = await Promise.all(doc.lines.map((line) => deps.items.findById(line.itemId)));
-
-        let totalNet = Money.zero();
-        let totalTax = Money.zero();
-        const lines = doc.lines.map((line, index) => {
-          const item = lineItems[index] ?? null;
-          const net = extendQtyByPrice(line.qty, line.unitPrice);
-          const rate = line.taxRatePercent ?? 0;
-          totalNet = totalNet.add(net);
-          totalTax = totalTax.add(line.taxAmount);
-          return {
-            description: item?.nameAr ?? line.itemId,
-            itemCode: item?.etaItemCode ?? item?.code ?? line.itemId,
-            quantity: line.qty.toString(),
-            unitType: unitByCode.get(item?.baseUnitCode ?? "") ?? item?.baseUnitCode ?? "",
-            unitPrice: line.unitPrice.toString(),
-            netTotal: net.toString(),
-            taxSubType: resolveEtaVatSubType(findLineTaxRate(taxRates, rate)?.etaSubType, rate),
-            taxRate: String(rate),
-            taxAmount: line.taxAmount.toString(),
-          };
-        });
-
-        // Every line of a return belongs to one invoice (the document type
-        // enforces it), so the note references exactly that one.
-        const referenced = [...new Set(doc.lines.map((l) => l.sourceInvoiceNumber ?? l.sourceInvoiceId))];
-
-        await deps.eta.enqueue({
-          internalId: doc.docNo ?? doc.id,
-          documentType: "credit_note",
-          issueDateTime: event.occurredAt,
-          branchCode: branchCodes[0]?.etaBranchCode ?? null,
-          receiver: {
-            registrationNumber: customer?.taxNumber ?? null,
-            name: customer?.nameAr ?? first.customerId,
-            type: customer?.taxNumber ? "B" : "P",
-          },
-          referencedDocumentIds: referenced,
-          lines,
-          totalNet: totalNet.toString(),
-          totalTax: totalTax.toString(),
-          totalAmount: totalNet.add(totalTax).toString(),
-        });
-      })().catch((error: unknown) => {
-        if (error instanceof DuplicateEtaSubmissionError) return;
-        console.error(`[eta] could not queue ${event.docType}/${event.docId}`, error);
-      });
-    },
-  };
-}
-
 /** Publishes one document event to several publishers — a document type has room for exactly one. */
 function fanOutDocumentEvents(...publishers: readonly DocumentEventPublisher[]): DocumentEventPublisher {
   return {
@@ -786,6 +468,14 @@ function fanOutDocumentEvents(...publishers: readonly DocumentEventPublisher[]):
 
 export interface BackendHandle {
   readonly app: App;
+  /**
+   * الإيصال الإلكتروني — issues a consumer sale's (or return's) e-receipt
+   * synchronously, on the chain of the device serial given. The POS till calls
+   * this with its terminal serial and the tender it actually took. Optional
+   * only so hand-built test handles need not carry one; `createBackend`
+   * always does.
+   */
+  readonly etaReceipts?: EtaReceiptIssuer;
   /**
    * The live session registry.
    *
@@ -991,6 +681,9 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         return { clientId: config.clientId, clientSecret };
       },
     },
+    // The e-receipt leg authenticates as the DEVICE that issued the receipt
+    // (D284), with credentials read from the sealed branch registration.
+    posCredentials: { forSerial: (serial) => etaStore.posCredentialsForSerial(serial) },
   });
   const etaSigner = createExternalCommandSigner({
     config: () => etaStore.config.get(),
@@ -1006,6 +699,8 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     // paper is printed. Without this port no consumer sale can be receipted at
     // all — the service refuses rather than inventing an identifier.
     receiptUuid: { compute: async (canonical) => createHash("sha256").update(canonical, "utf8").digest("hex") },
+    receiptChain: etaStore.receiptChain,
+    receiptGaps: etaStore.receiptGaps,
   });
   const hasher = createScryptHasher();
 
@@ -1373,10 +1068,34 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     },
   );
 
+  /**
+   * The e-receipt producer (D283): issues synchronously for the confirm route
+   * and a future POS till, and from the confirm events for every other path.
+   */
+  const etaReceipts = createEtaReceiptIssuer({
+    eta: etaService,
+    invoices: salesInvoices,
+    returns: salesReturnStore,
+    customers,
+    items,
+    taxRates,
+    branchCodes: etaStore.branchCodes,
+    unitMappings: etaStore.unitMappings,
+    companyTradeName: async () => ((await settings.get()) ?? createDefaultSettings()).companyName,
+    tenderOf: async (invoiceId) => {
+      const allocations = (await vouchers.allocations.listByInvoice(invoiceId)).filter((a) => a.status === "active");
+      const largest = [...allocations].sort((a, b) => (b.amount.scaled > a.amount.scaled ? 1 : b.amount.scaled < a.amount.scaled ? -1 : 0))[0];
+      if (!largest) return null;
+      const voucher = await vouchers.documents.findById(largest.voucherId);
+      return voucher?.lines[0]?.paymentMethod ?? null;
+    },
+  });
+
   const salesInvoiceEvents = fanOutDocumentEvents(
     salesInvoiceEventBridge,
     createEtaEnqueueBridge({
       eta: etaService,
+      issuer: etaReceipts,
       invoices: salesInvoices,
       customers,
       items,
@@ -2067,6 +1786,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     returnsEventBridge,
     createReturnEtaEnqueueBridge({
       eta: etaService,
+      issuer: etaReceipts,
       returns: salesReturnStore,
       customers,
       items,
@@ -3468,6 +3188,12 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       // (resolvePrice) always existed and no route called it, so the whole
       // pricing order held only in the browser (D35).
       collect: collectFromCustomer,
+      issueEtaReceipt: async (invoiceId, receiptOptions) => {
+        const issued = await etaReceipts.issueInvoiceReceipt(invoiceId, receiptOptions);
+        if (issued) etaReceipts.scheduleSubmission();
+        return issued;
+      },
+      hasEtaReceipt: (invoiceId) => etaReceipts.hasInvoiceReceipt(invoiceId),
       settlementPreview: previewSettlement((message) => new InvalidSalesInvoicePaymentError(message)),
       pricing: {
         listPriceFor: async (customerId: string, itemId: string, qty: Qty) => {
@@ -3530,6 +3256,13 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       taxRates,
       branchCodes: etaStore.branchCodes,
       unitMappings: etaStore.unitMappings,
+      companyTradeName: async () => ((await settings.get()) ?? createDefaultSettings()).companyName,
+      issueDocumentReceipt: async (kind, docId) => {
+        const issued =
+          kind === "invoice" ? await etaReceipts.issueInvoiceReceipt(docId) : await etaReceipts.issueReturnReceipt(docId);
+        if (issued) etaReceipts.scheduleSubmission();
+        return issued;
+      },
     },
     reconciliation: { ledger, resolveControls: resolveReconciliationControls },
     openingBalanceDuplicates: {
@@ -4323,8 +4056,10 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   return {
     app,
     sessions,
+    etaReceipts,
     backupTo: (destination) => sqlite.backup(destination).then(() => undefined),
     close() {
+      etaReceipts.stop();
       // Every store above shares the ONE `sqlite` connection opened at the
       // top of this function, so each store's own close() is a no-op (it
       // doesn't own the connection) — this loop is harmless belt-and-braces,

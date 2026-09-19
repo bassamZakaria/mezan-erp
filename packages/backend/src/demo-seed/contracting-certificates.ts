@@ -1,5 +1,5 @@
 import type { App } from "@mezan/api";
-import { BRANCH_ID, CORE, seedActorHeaders, step } from "./shared.js";
+import { BRANCH_ID, CORE, hasHappened, seedActorHeaders, step } from "./shared.js";
 
 /**
  * المستخلصات — slice 2 of المقاولات, seeded through the real routes.
@@ -231,12 +231,16 @@ export async function seedContractingCertificates(app: App): Promise<void> {
     ],
     notes: "تشوينات حديد التسليح بمحضر معاينة مشترك رقم ٤١.",
   });
-  await stepAs(app, SURVEYOR(), "POST", "/contracting/certificates/MST-DEMO-4/measure", {
-    measuredAt: "2026-09-02",
-  });
-  await stepAs(app, CONSULTANT(), "POST", "/contracting/certificates/MST-DEMO-4/certify", {
-    certifiedAt: "2026-09-05",
-  });
+  if (hasHappened("2026-09-02")) {
+    await stepAs(app, SURVEYOR(), "POST", "/contracting/certificates/MST-DEMO-4/measure", {
+      measuredAt: "2026-09-02",
+    });
+  }
+  if (hasHappened("2026-09-05")) {
+    await stepAs(app, CONSULTANT(), "POST", "/contracting/certificates/MST-DEMO-4/certify", {
+      certifiedAt: "2026-09-05",
+    });
+  }
 
   await stepAs(app, SURVEYOR(), "POST", "/contracting/certificates", {
     id: "MST-DEMO-5",

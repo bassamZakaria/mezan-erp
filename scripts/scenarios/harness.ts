@@ -240,9 +240,27 @@ export async function boot() {
     return out;
   }
 
+  const today = String((await req("GET", "/financial-reports/trial-balance")).body?.params?.asOfDate ?? "");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(today)) throw new Error(`the server named no today: "${today}"`);
+
+  // The month-end scenarios are written in August 2026 and need today after
+  // it; on an earlier clock their dates move back to the month before today.
+  const monthsBack = today > "2026-08-31" ? 0 : 2026 * 12 + 8 - (Number(today.slice(0, 4)) * 12 + Number(today.slice(5, 7))) + 1;
+  function onCalendar(date: string): string {
+    if (monthsBack === 0) return date;
+    const index = Number(date.slice(0, 4)) * 12 + Number(date.slice(5, 7)) - 1 - monthsBack;
+    const year = Math.floor(index / 12);
+    const month = (index % 12) + 1;
+    const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+    const pad = (value: number) => String(value).padStart(2, "0");
+    return `${year}-${pad(month)}-${pad(Math.min(Number(date.slice(8, 10)), lastDay))}`;
+  }
+
   return {
     app,
     sessions,
+    today,
+    onCalendar,
     req,
     rows,
     allRows,

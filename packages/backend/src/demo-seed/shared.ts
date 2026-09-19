@@ -1,4 +1,5 @@
 import type { App } from "@mezan/api";
+import { toTenantDay } from "@mezan/domain";
 
 /**
  * Shared plumbing for the seed modules.
@@ -164,4 +165,13 @@ export function assertLocalOrTest(): void {
       `[demo-seed] refusing to seed: NODE_ENV=${env} with MEZAN_SEED_DEMO unset. Set MEZAN_SEED_DEMO=1 to seed a local database.`,
     );
   }
+}
+
+export function seedToday(): string {
+  return toTenantDay(new Date().toISOString());
+}
+
+/** A step the product refuses ahead of today is seeded only once its day has come, or the seed fails to boot on an earlier clock. */
+export function hasHappened(day: string): boolean {
+  return day <= seedToday();
 }

@@ -53,15 +53,15 @@ export function CockpitSection({ widgets, rtl }: { readonly widgets: readonly Da
       case CockpitWidgetKind.Pulse:
         return <CockpitPulse {...props} />;
       case CockpitWidgetKind.Overdue:
-        return <CockpitOverdueTile {...props} />;
+        return props.data.overdueReceivables ? <CockpitOverdueTile {...props} /> : null;
       case CockpitWidgetKind.LowStock:
-        return <CockpitLowStockTile {...props} />;
+        return props.data.lowStock ? <CockpitLowStockTile {...props} /> : null;
       case CockpitWidgetKind.Cash:
-        return <CockpitCashTile {...props} />;
+        return props.data.cash ? <CockpitCashTile {...props} /> : null;
       case CockpitWidgetKind.Movers:
-        return <CockpitMoversTile {...props} />;
+        return props.data.topMovers ? <CockpitMoversTile {...props} /> : null;
       case CockpitWidgetKind.Margin:
-        return <CockpitMarginTile {...props} />;
+        return props.data.marginTrend ? <CockpitMarginTile {...props} /> : null;
       default:
         return null;
     }

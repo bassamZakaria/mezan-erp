@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useParams } from "react-router";
+import { Link, useParams, useSearchParams } from "react-router";
 import { Button, Card, ConfirmDialog, Money, Select, StatusPill, useFormat } from "@mezan/ui";
 import { MODULES } from "@mezan/domain";
 import type { BillingCycleDTO, ProvisionResultDTO, SubscriptionStatusDTO } from "@mezan/contracts";
@@ -9,9 +9,12 @@ import { SelectField, TextAreaField, ToggleField } from "../settings/form-contro
 import { LicenseStateChip, TenantStatusChip } from "./chips";
 import { PlatformApiError, usePlatformApi } from "./api";
 import { RecordPaymentDialog } from "./RecordPaymentDialog";
+import { CardCheckoutChip, CheckoutOutcomeNotice, TestModeChip, absoluteCheckoutUrl } from "../billing/CardCheckoutStatus";
 import {
   useArchiveTenantMutation,
   useCancelSubscriptionMutation,
+  useCardCheckoutsQuery,
+  useCreateCardCheckoutMutation,
   useChangePlanMutation,
   usePlansQuery,
   useResumeSubscriptionMutation,
@@ -59,6 +62,17 @@ function canResumeSubscription(status: SubscriptionStatusDTO): boolean {
   return status === "suspended";
 }
 
+const FAILURE_REASON_KEY: Readonly<Record<string, AppTranslationKey>> = {
+  DECLINED: "platform.cardCheckout.reason.DECLINED",
+  PROVIDER_ERROR: "platform.cardCheckout.reason.PROVIDER_ERROR",
+  AMOUNT_MISMATCH: "platform.cardCheckout.reason.AMOUNT_MISMATCH",
+  SUBSCRIPTION_NOT_RENEWABLE: "platform.cardCheckout.reason.SUBSCRIPTION_NOT_RENEWABLE",
+};
+
+function failureReasonKey(reason: string): AppTranslationKey {
+  return FAILURE_REASON_KEY[reason] ?? "platform.cardCheckout.reason.other";
+}
+
 /** `MODULE_CATALOG`/entitlement ids are the permission catalog's `MODULES` ids, except its one differing entry (`financial_papers` → `cheques`) — mirrors `PlanEditor.tsx`'s own mapping. */
 const CATALOG_MODULE_ID: Readonly<Record<string, string>> = { financial_papers: "cheques" };
 
@@ -86,6 +100,12 @@ export function TenantDetailPage() {
   const suspendSubscription = useSuspendSubscriptionMutation();
   const resumeSubscription = useResumeSubscriptionMutation();
   const retryProvision = useRetryProvisionMutation();
+  const cardCheckouts = useCardCheckoutsQuery(id);
+  const createCardCheckout = useCreateCardCheckoutMutation();
+  const [searchParams] = useSearchParams();
+  const returnedCheckoutId = searchParams.get("checkout");
+  const [cardLink, setCardLink] = useState<string | null>(null);
+  const [cardLinkCopied, setCardLinkCopied] = useState(false);
 
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
   const [confirmArchive, setConfirmArchive] = useState(false);
@@ -110,6 +130,19 @@ export function TenantDetailPage() {
   }
 
   const { tenant, subscription, plan, licenseState, entitlements, payments } = summary;
+  const checkoutsData = cardCheckouts.data;
+  const returnedCheckout = returnedCheckoutId ? checkoutsData?.checkouts.find((c) => c.id === returnedCheckoutId) : undefined;
+
+  function payByCard() {
+    if (createCardCheckout.isPending) return;
+    setMutationError(null);
+    setCardLink(null);
+    setCardLinkCopied(false);
+    createCardCheckout.mutate(tenant.id, {
+      onSuccess: (checkout) => setCardLink(absoluteCheckoutUrl(checkout)),
+      onError: onMutationError,
+    });
+  }
   const planOptions = (plansQuery.data ?? [])
     .filter((p) => p.status === "active" && p.id !== subscription?.planId)
     .map((p) => ({ value: p.id, label: `${p.nameAr} — ${p.code}` }));
@@ -327,6 +360,11 @@ export function TenantDetailPage() {
                 <Button variant="primary" size="sm" onClick={() => setPaymentDialogOpen(true)}>
                   {t("platform.tenantDetail.recordPayment")}
                 </Button>
+                {checkoutsData?.cardCheckout && canChangePlan(subscription.status) ? (
+                  <Button variant="default" size="sm" disabled={createCardCheckout.isPending} onClick={payByCard}>
+                    {createCardCheckout.isPending ? t("platform.cardCheckout.creating") : t("platform.cardCheckout.payByCard")}
+                  </Button>
+                ) : null}
               </div>
             ) : null}
           </div>
@@ -334,6 +372,62 @@ export function TenantDetailPage() {
           <p className="text-[12.5px] text-ink-muted">{t("platform.tenantDetail.noSubscription")}</p>
         )}
       </Card>
+
+      {cardLink || returnedCheckoutId || (checkoutsData && checkoutsData.checkouts.length > 0) ? (
+        <Card className="p-[16px]">
+          <div className="mb-[12px] flex flex-wrap items-center gap-[8px]">
+            <h2 className="text-[13px] font-bold text-ink">{t("platform.cardCheckout.title")}</h2>
+            {checkoutsData?.testMode ? <TestModeChip /> : null}
+          </div>
+          {returnedCheckoutId ? (
+            <div className="mb-[12px] rounded-md border border-border bg-surface-2 p-[12px]">
+              <CheckoutOutcomeNotice checkout={returnedCheckout} timedOut={false} />
+            </div>
+          ) : null}
+          {cardLink ? (
+            <div className="mb-[12px] flex flex-col gap-[8px] rounded-md border border-border bg-surface-2 p-[12px]">
+              <span className="text-xs font-semibold text-ink-muted">{t("platform.cardCheckout.linkReady")}</span>
+              <code dir="ltr" className="mz-lat select-all break-all rounded-[6px] bg-surface px-[10px] py-[6px] text-[12px] text-ink">
+                {cardLink}
+              </code>
+              <div className="flex flex-wrap gap-[9px]">
+                <Button variant="primary" size="sm" onClick={() => window.open(cardLink, "_blank", "noopener")}>
+                  {t("platform.cardCheckout.open")}
+                </Button>
+                <Button
+                  variant="default"
+                  size="sm"
+                  onClick={() => {
+                    void navigator.clipboard?.writeText(cardLink).then(() => setCardLinkCopied(true));
+                  }}
+                >
+                  {cardLinkCopied ? t("platform.cardCheckout.copied") : t("platform.cardCheckout.copy")}
+                </Button>
+              </div>
+              <p className="text-[11.5px] text-ink-faint">{t("platform.cardCheckout.linkHint")}</p>
+            </div>
+          ) : null}
+          {checkoutsData && checkoutsData.checkouts.length > 0 ? (
+            <div className="flex flex-col gap-[8px]">
+              {checkoutsData.checkouts.map((c) => (
+                <div key={c.id} className="flex items-center justify-between gap-[10px] border-b border-border pb-[8px] last:border-none last:pb-0">
+                  <div className="flex flex-col gap-[3px]">
+                    <div className="flex items-center gap-[8px]">
+                      <CardCheckoutChip status={c.status} />
+                      {c.providerRef ? <span className="mz-lat text-[11.5px] text-ink-muted">PAYMOB-{c.providerRef}</span> : null}
+                    </div>
+                    <span className="text-[11px] text-ink-faint">
+                      {format.date(c.createdAt)}
+                      {c.failureReason ? ` — ${t(failureReasonKey(c.failureReason))}` : ""}
+                    </span>
+                  </div>
+                  <Money value={Number(c.amount)} />
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </Card>
+      ) : null}
 
       <Card className="p-[16px]">
         <h2 className="mb-[12px] text-[13px] font-bold text-ink">{t("platform.tenantDetail.entitlements")}</h2>

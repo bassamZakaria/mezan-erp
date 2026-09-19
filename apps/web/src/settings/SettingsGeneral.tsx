@@ -5,6 +5,7 @@ import { useSettings, useUpdateSettings, useSendTestEmail } from "../data/hooks"
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { MaintenancePanel } from "./MaintenancePanel";
 import { SupportInfoCard } from "./SupportInfoCard";
+import { SubscriptionCard } from "../billing/SubscriptionCard";
 import {
   TextField,
   NumberField,
@@ -586,6 +587,7 @@ export function SettingsGeneral() {
       <div className="mt-[16px]">
         <SupportInfoCard />
       </div>
+      <SubscriptionCard />
     </>
   );
 }

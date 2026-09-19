@@ -8,6 +8,8 @@ import {
   type LicenceCheckinOutcome,
 } from "./data/license-hooks";
 import { CopyableValue } from "./settings/SupportInfoCard";
+import { useStartRenewal, useTenantBilling } from "./billing/hooks";
+import { routePathForScreen } from "./routing";
 import { useAppTranslation, type AppTranslationKey } from "./i18n";
 
 /**
@@ -56,6 +58,8 @@ export function LicenseBanner() {
   const desktopStatus = desktop && desktop.ok ? desktop : null;
   const checkin = useLicenceCheckin();
   const importLicence = useLicenceImport();
+  const billing = useTenantBilling().data;
+  const renewal = useStartRenewal();
   const [acknowledged, setAcknowledged] = useState(false);
   const [dismissed, setDismissed] = useState(false);
 
@@ -196,6 +200,17 @@ export function LicenseBanner() {
 
   const actions = (
     <div className="mt-[10px] flex flex-wrap items-center gap-[10px]">
+      {billing?.canRenew ? (
+        <Button
+          type="button"
+          size="sm"
+          variant="primary"
+          disabled={renewal.isPending}
+          onClick={() => renewal.start(`/${routePathForScreen("settings-general")}`)}
+        >
+          {renewal.isPending ? t("billing.renew.opening") : t("billing.renew")}
+        </Button>
+      ) : null}
       {copy.showCheckin ? (
         <Button
           type="button"

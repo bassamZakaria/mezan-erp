@@ -1,5 +1,7 @@
 import { createBackend, SEED_ADMIN_EMAIL, SEED_ADMIN_PIN } from "@mezan/backend";
 import { createEntitlements, MODULE_CATALOG } from "@mezan/domain";
+import { POS_SMOKE_PATHS } from "./scenarios/pos.js";
+import { ENH_SMOKE_PATHS } from "./scenarios/enh.js";
 
 /**
  * Smoke check — "does the code still run?", not "is the business logic right?".
@@ -41,7 +43,7 @@ async function signIn(app: { fetch: (r: Request) => Promise<Response> }): Promis
 }
 
 /** Read surfaces the web app calls. A 404 here means a route is not mounted. */
-const READ_PATHS = [
+const CORE_READ_PATHS = [
   "/health",
   "/dashboard/summary",
   "/settings",
@@ -304,6 +306,8 @@ const READ_PATHS = [
   "/gl/opening-balance-duplicates",
   "/cost-centers/importable-departments",
 ];
+
+const READ_PATHS = [...CORE_READ_PATHS, ...POS_SMOKE_PATHS, ...ENH_SMOKE_PATHS];
 
 interface Failure {
   path: string;

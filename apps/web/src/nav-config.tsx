@@ -2,6 +2,9 @@ import { modKeyLabel, type CommandItem, type NavGroup, type NavItem } from "@mez
 import { isModuleLicensed, type Entitlements, type ModuleId } from "@mezan/domain";
 import type { AppTranslationKey } from "./i18n";
 import { navGroupIcon, navItemIcon } from "./nav-icons";
+import { applyNavFragments, type NavFragment, type NavGroupSpec, type NavItemAccess } from "./fragments";
+import { POS_WEB_FRAGMENTS } from "./screens/pos/nav";
+import { ENH_WEB_FRAGMENTS } from "./screens/enh/nav";
 
 /**
  * Static shell configuration — the navigation tree, its top item, and the
@@ -13,18 +16,9 @@ import { navGroupIcon, navItemIcon } from "./nav-icons";
 
 type Translate = (key: AppTranslationKey) => string;
 
-export interface NavSectionSpec {
-  readonly key: string;
-  readonly itemKeys: readonly string[];
-  readonly defaultCollapsed?: boolean;
-}
+export type { NavGroupSpec, NavSectionSpec } from "./fragments";
 
-export interface NavGroupSpec {
-  readonly key: string;
-  readonly itemKeys: readonly string[];
-  readonly sections?: readonly NavSectionSpec[];
-  readonly defaultCollapsed?: boolean;
-}
+const NAV_FRAGMENTS: readonly NavFragment[] = [...POS_WEB_FRAGMENTS, ...ENH_WEB_FRAGMENTS].map((f) => f.navFragment);
 
 /**
  * Six workspaces, named after the work rather than after the modules the
@@ -36,7 +30,7 @@ export interface NavGroupSpec {
  *
  * A group's first item is its hub, which is what the workspace header opens.
  */
-export const navGroupSpecs: readonly NavGroupSpec[] = [
+const coreNavGroupSpecs: readonly NavGroupSpec[] = [
   { key: "workflow", defaultCollapsed: true, itemKeys: ["notifications", "approvals"] },
   {
     key: "sell",
@@ -288,12 +282,15 @@ export const navGroupSpecs: readonly NavGroupSpec[] = [
   },
 ];
 
+/** The core tree plus every POS and enhancement nav fragment (`screens/{pos,enh}/nav/*`). */
+export const navGroupSpecs: readonly NavGroupSpec[] = applyNavFragments(coreNavGroupSpecs, NAV_FRAGMENTS);
+
 /**
  * Nav group key -> the entitlement module its screens require. A group with
  * no entry here (سير العمل، الإعداد) is core platform surface and always
  * shown, the same set `isModuleLicensed` treats as always-licensed.
  */
-const GROUP_MODULE: Readonly<Partial<Record<string, ModuleId>>> = {
+const CORE_GROUP_MODULE: Readonly<Partial<Record<string, ModuleId>>> = {
   sell: "sales",
   crm: "crm",
   installments: "installments",
@@ -308,10 +305,17 @@ const GROUP_MODULE: Readonly<Partial<Record<string, ModuleId>>> = {
   contracting: "projects",
 };
 
+const GROUP_MODULE: Readonly<Partial<Record<string, ModuleId>>> = Object.assign(
+  {},
+  CORE_GROUP_MODULE,
+  ...NAV_FRAGMENTS.map((f) => f.groupModules ?? {}),
+);
+
 /** Per-item overrides for a screen whose module differs from its group's — الأوراق المالية sits on the treasury shelf but is its own licensable module. */
-const ITEM_MODULE_OVERRIDE: Readonly<Partial<Record<string, ModuleId>>> = {
-  cheques: "financial_papers",
-};
+const ITEM_MODULE_OVERRIDE: Readonly<Partial<Record<string, ModuleId>>> = Object.assign(
+  { cheques: "financial_papers" },
+  ...NAV_FRAGMENTS.map((f) => f.itemModules ?? {}),
+);
 
 function moduleForNavItem(groupKey: string, itemKey: string): ModuleId | undefined {
   return ITEM_MODULE_OVERRIDE[itemKey] ?? GROUP_MODULE[groupKey];
@@ -363,7 +367,7 @@ export const PINNED_NAV_ITEM_KEYS: readonly string[] = ["notifications", "approv
  * A key with no entry is reachable by anyone signed in: the dashboard, the
  * person's own profile, their own leave.
  */
-export const NAV_ITEM_ACCESS: Readonly<Record<string, { readonly permission?: string; readonly module?: string }>> = {
+const CORE_NAV_ITEM_ACCESS: Readonly<Record<string, NavItemAccess>> = {
   dashboard: { permission: "dashboard.view" },
   notifications: { module: "notifications" },
   approvals: { permission: "workflow.view" },
@@ -514,6 +518,12 @@ export const NAV_ITEM_ACCESS: Readonly<Record<string, { readonly permission?: st
   "settings-backup": { permission: "admin.backup.view" },
   status: { permission: "admin.settings.view" },
 };
+
+export const NAV_ITEM_ACCESS: Readonly<Record<string, NavItemAccess>> = Object.assign(
+  {},
+  CORE_NAV_ITEM_ACCESS,
+  ...NAV_FRAGMENTS.map((f) => f.access ?? {}),
+);
 
 /**
  * The quick actions (R1.5). Go-to entries are NOT listed here — they are

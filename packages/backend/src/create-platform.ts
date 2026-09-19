@@ -41,7 +41,7 @@ export const PLATFORM_SEED_PLANS: readonly SeedPlan[] = [
     priceMonthly: Money.fromMajor("980"), priceYearly: Money.fromMajor("9800"), trialDays: 14, isPublic: true, sortOrder: 2,
   },
   {
-    id: "PLAN-ENTERPRISE", code: "enterprise", nameAr: "المؤسسات", nameEn: "Enterprise", modules: [...MODULE_CATALOG],
+    id: "PLAN-ENTERPRISE", code: "enterprise", nameAr: "المؤسسات", nameEn: "Enterprise", modules: MODULE_CATALOG.filter((id) => id !== "pos"),
     seatsIncluded: 25, branchesIncluded: 10, warehousesIncluded: 10,
     priceMonthly: Money.fromMajor("1960"), priceYearly: Money.fromMajor("19600"), trialDays: 14, isPublic: true, sortOrder: 3,
   },

@@ -2,16 +2,11 @@
  * Modules this build can actually serve, used as the default entitlements the
  * `/roles` route validates grants against and as what `GET /entitlements`
  * reports. Listing a module here makes its permissions grantable, so an
- * unimplemented domain must stay out. `pos`, `dashboard` and `transactions`
- * are all absent for the same reason now (DEC-14): none has a permission left
- * to license. POS has no domain, routes or persistence anywhere in this repo;
- * the dashboard is gated by being signed in; the transactions screen never
- * existed. The one code POS used to carry — the discount ceiling on a SALES
- * invoice — moved to `sales.discount.approve`, where it is grantable, because
- * under the old name it sat in a module that is deliberately never licensed
- * and so could not be granted to anyone at all. Ids are ENTITLEMENT ids, not catalog ids — the catalog's `cheques`
- * module is the `financial_papers` entitlement
- * (packages/domain/src/permissions/module-licensing.ts).
+ * unimplemented domain must stay out. `dashboard` and `transactions` stay
+ * absent (DEC-14). `pos` is licensable (DEC-23) but is kept out of the seeded
+ * SaaS plans until the POS close-out lane — see `create-platform.ts`. Ids are
+ * ENTITLEMENT ids, not catalog ids — the catalog's `cheques` module is the
+ * `financial_papers` entitlement (packages/domain/src/permissions/module-licensing.ts).
  */
 export const MODULE_CATALOG = [
   "sales",
@@ -32,6 +27,7 @@ export const MODULE_CATALOG = [
   "notifications",
   "projects",
   "contracting",
+  "pos",
 ] as const;
 
 export type ModuleId = (typeof MODULE_CATALOG)[number];

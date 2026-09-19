@@ -9,6 +9,7 @@ import { seedPurchasing } from "./demo-seed/purchasing.js";
 import { seedTreasury } from "./demo-seed/treasury.js";
 import { seedPlatform } from "./demo-seed/platform.js";
 import { seedAttachments } from "./demo-seed/attachments.js";
+import { seedFragments } from "./demo-seed/fragment-registry.js";
 import { seedHistory } from "./demo-seed/history.js";
 import { seedContracting, seedContractingProjectInvoice } from "./demo-seed/contracting.js";
 import { seedContractingContracts } from "./demo-seed/contracting-contracts.js";
@@ -703,6 +704,7 @@ export async function seedDemoTenant(app: App, session: { token: string; mint: S
   await seedContractingControls(app);
   await seedPlatform(app);
   await seedAttachments(app);
+  await seedFragments(app);
   // LAST. Everything above is dated into 2024–2026 and needs its period open
   // to post; the close is what the accountant would have done at each
   // year-end, and it has to happen after the books are written.

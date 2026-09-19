@@ -1,4 +1,6 @@
 import type { LocaleCatalogs } from "@mezan/ui";
+import { posAr, posEn } from "../screens/pos/nav";
+import { enhAr, enhEn } from "../screens/enh/nav";
 
 /**
  * The web app's own strings. Arabic is the source language and `webEn` is typed
@@ -9337,6 +9339,8 @@ const webAr = {
   "employees.taxDisabilityExemption": "إعفاء ضريبي لذوي الإعاقة",
   "employees.yes": "نعم",
   "employees.no": "لا",
+  ...posAr,
+  ...enhAr,
 } as const;
 
 export type WebTranslationKey = keyof typeof webAr;
@@ -18680,6 +18684,8 @@ const webEn: Record<WebTranslationKey, string> = {
   "employees.taxDisabilityExemption": "Disability tax exemption",
   "employees.yes": "Yes",
   "employees.no": "No",
+  ...posEn,
+  ...enhEn,
 };
 
 export const webCatalogs: LocaleCatalogs = { ar: webAr, en: webEn };

@@ -1,4 +1,6 @@
 import type { ComponentType } from "react";
+import { posScreens } from "../screens/pos/nav";
+import { enhScreens } from "../screens/enh/nav";
 
 /**
  * Every routable screen, as a lazy ROUTE MODULE rather than a React.lazy
@@ -182,6 +184,8 @@ export const SCREEN_MODULES = {
   "leave-policies": () => import("../screens/LeavePoliciesScreen").then((m) => ({ Component: m.LeavePoliciesScreen })),
   "leave-balances": () => import("../screens/LeaveBalancesScreen").then((m) => ({ Component: m.LeaveBalancesScreen })),
   "leave-accrual-batches": () => import("../screens/LeaveAccrualBatchesScreen").then((m) => ({ Component: m.LeaveAccrualBatchesScreen })),
+  ...posScreens,
+  ...enhScreens,
 } as const satisfies Record<string, ScreenModuleLoader>;
 
 /** Every nav-item key this shell routes to. */

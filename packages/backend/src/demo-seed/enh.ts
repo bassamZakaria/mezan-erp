@@ -1,0 +1,26 @@
+import type { SeedFragment } from "./fragments.js";
+import { seed as e1_01 } from "./enh-e1-01.js";
+import { seed as e1_02 } from "./enh-e1-02.js";
+import { seed as e1_03 } from "./enh-e1-03.js";
+import { seed as e1_04 } from "./enh-e1-04.js";
+import { seed as e1_05 } from "./enh-e1-05.js";
+import { seed as e1_06 } from "./enh-e1-06.js";
+import { seed as e2_01 } from "./enh-e2-01.js";
+import { seed as e2_02 } from "./enh-e2-02.js";
+import { seed as e2_03 } from "./enh-e2-03.js";
+import { seed as e2_04 } from "./enh-e2-04.js";
+import { seed as e2_08 } from "./enh-e2-08.js";
+import { seed as e2_09 } from "./enh-e2-09.js";
+import { seed as e2_10 } from "./enh-e2-10.js";
+import { seed as e2_11 } from "./enh-e2-11.js";
+import { seed as e3_01 } from "./enh-e3-01.js";
+import { seed as e3_02 } from "./enh-e3-02.js";
+import { seed as e3_03 } from "./enh-e3-03.js";
+import { seed as e3_04 } from "./enh-e3-04.js";
+import { seed as e3_06 } from "./enh-e3-06.js";
+import { seed as e3_07 } from "./enh-e3-07.js";
+import { seed as e3_08 } from "./enh-e3-08.js";
+import { seed as e3_09 } from "./enh-e3-09.js";
+import { seed as e3_10 } from "./enh-e3-10.js";
+
+export const ENH_SEED_FRAGMENTS: readonly SeedFragment[] = [e1_01, e1_02, e1_03, e1_04, e1_05, e1_06, e2_01, e2_02, e2_03, e2_04, e2_08, e2_09, e2_10, e2_11, e3_01, e3_02, e3_03, e3_04, e3_06, e3_07, e3_08, e3_09, e3_10];

@@ -1,4 +1,4 @@
-import type { PermissionDef } from "@mezan/domain";
+import { ENH_PERMISSION_ACTIONS, POS_PERMISSION_ACTIONS, type PermissionDef } from "@mezan/domain";
 import type { AppTranslationKey } from "./i18n";
 
 /**
@@ -76,7 +76,7 @@ const ACTION_KEYS = [
   "release",
 ] as const;
 
-const KNOWN_ACTIONS: ReadonlySet<string> = new Set(ACTION_KEYS);
+const KNOWN_ACTIONS: ReadonlySet<string> = new Set<string>([...ACTION_KEYS, ...POS_PERMISSION_ACTIONS, ...ENH_PERMISSION_ACTIONS]);
 
 type Translate = (key: AppTranslationKey) => string;
 

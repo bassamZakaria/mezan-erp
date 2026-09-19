@@ -243,6 +243,9 @@ import { createAuthRoutes } from "./auth-routes.js";
 import { createDashboardRoutes } from "./dashboard-routes.js";
 import { createPreferencesRoutes } from "./preferences-routes.js";
 import { seedIfEmpty, type SeedStores } from "./seed.js";
+import type { BackendModuleContext } from "./module-context.js";
+import { mountPos } from "./pos/index.js";
+import { mountEnhancements } from "./enh/index.js";
 import { seedDemoTenant } from "./demo-seed.js";
 import { createHrTreasuryDisbursementPort } from "./hr-treasury-disbursement.js";
 
@@ -3966,7 +3969,46 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     ),
   );
 
+  const areaClosers: { close(): void }[] = [];
+  const areaContext: BackendModuleContext = {
+    app,
+    sqlite,
+    uow,
+    resolveAuthContext,
+    sessions,
+    hasher,
+    audit: auditSink,
+    etaReceipts,
+    stores: {
+      settings,
+      branches,
+      warehouses,
+      accounts,
+      customers,
+      suppliers,
+      items,
+      taxRates,
+      costCenters,
+      treasuryAccounts,
+      fiscalPeriods,
+      ledger,
+      stockLedger,
+      salesInvoices,
+      vouchers,
+      priceLists,
+      promotions,
+      eta: etaStore,
+      employees: hrEmployees,
+      sequenceConfig,
+      sequenceCounters,
+    },
+    addCloser: (closer) => areaClosers.push(closer),
+  };
+  await mountPos(areaContext);
+  await mountEnhancements(areaContext);
+
   const closers = [
+    ...areaClosers,
     uow,
     settings,
     branches,

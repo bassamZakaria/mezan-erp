@@ -1,4 +1,5 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import path from "node:path";
 
 /**
  * Every permission in the catalog must have an Arabic AND an English name for
@@ -18,9 +19,29 @@ import { readFileSync } from "node:fs";
 const CATALOG = "packages/domain/src/permissions/catalog.ts";
 const LABELS = "apps/web/src/i18n/catalog.ts";
 
-const codes = [
-  ...readFileSync(CATALOG, "utf8").matchAll(/\[\s*"([a-z0-9_]+\.[a-z0-9_.]+)"/g),
-].map((m) => m[1]);
+function filesUnder(dir) {
+  let out = [];
+  let entries = [];
+  try {
+    entries = readdirSync(dir);
+  } catch {
+    return out;
+  }
+  for (const entry of entries.sort()) {
+    const full = path.join(dir, entry);
+    if (statSync(full).isDirectory()) out = out.concat(filesUnder(full));
+    else if (/\.tsx?$/.test(entry) && !/\.test\.tsx?$/.test(entry)) out.push(full);
+  }
+  return out;
+}
+
+// POS and enhancement lanes register their codes and labels in fragment files, not in the two catalogs.
+const PERMISSION_FRAGMENTS = [...filesUnder("packages/domain/src/pos/permissions"), ...filesUnder("packages/domain/src/enh/permissions")];
+const LABEL_FRAGMENTS = [...filesUnder("apps/web/src/screens/pos"), ...filesUnder("apps/web/src/screens/enh")];
+
+const codes = [CATALOG, ...PERMISSION_FRAGMENTS].flatMap((file) =>
+  [...readFileSync(file, "utf8").matchAll(/\[\s*"([a-z0-9_]+\.[a-z0-9_.]+)"/g)].map((m) => m[1]),
+);
 
 if (codes.length === 0) {
   console.error(`✖ permission labels: read no permission codes out of ${CATALOG} — the extraction is broken, not the catalog`);
@@ -35,7 +56,7 @@ const segments = new Set(
   }),
 );
 
-const labels = readFileSync(LABELS, "utf8");
+const labels = [LABELS, ...LABEL_FRAGMENTS].map((file) => readFileSync(file, "utf8")).join("\n");
 const counts = new Map();
 for (const [, segment] of labels.matchAll(/"perm\.entity\.([a-z0-9_]+)":/g)) {
   counts.set(segment, (counts.get(segment) ?? 0) + 1);

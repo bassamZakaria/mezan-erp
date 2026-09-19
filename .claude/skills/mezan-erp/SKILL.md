@@ -126,11 +126,15 @@ Apply these first — they have the highest yield per minute.
   invented number is indistinguishable from a bug.
 - **Empty states are real states.** Render zero honestly rather than something
   plausible.
-- **Verify in the running app.** Automated business-logic tests are disabled by
-  decision (`docs/TESTING.md §1`); do not add or run them. Proof is `pnpm typecheck
-  && pnpm lint && pnpm build`, then `pnpm smoke`, `pnpm check:seed` and `pnpm
-  scenarios` — plus driving the real UI on a seeded backend and reloading the page,
-  which is what catches "works until you look again".
+- **Features first, tests after.** The 2026-08-23 ban on automated tests was
+  reversed on 2026-08-30 (`docs/TESTING.md §1`): tests run again, locally, in
+  addition to live verification. During a build phase the owner's rule is to land
+  the feature first and write its tests after, so a lane may ship on `pnpm
+  typecheck && pnpm lint` and list the tests it owes. Proof of a finished slice is
+  still `pnpm typecheck && pnpm lint && pnpm build`, the unit suite, `pnpm smoke`,
+  `pnpm check:seed` and `pnpm scenarios` — plus driving the real UI on a seeded
+  backend and reloading the page, which is what catches "works until you look
+  again".
 - **The defect register is the only tracker.** Read its OPEN list before testing, and
   update it in the same commit as any fix. A fixed defect is never deleted — it is
   how its regression gets recognised.

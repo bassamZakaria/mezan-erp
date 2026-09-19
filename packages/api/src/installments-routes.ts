@@ -458,7 +458,8 @@ export function createInstallmentsRoutes(
       await deps.followUps.update(updated);
       return c.json(serializeFollowUp(updated));
     } catch (err) {
-      if (err instanceof FollowUpNotFoundError) return c.json({ error: err.code, message: err.message }, 404);
+      if (err instanceof FollowUpNotFoundError)
+        return c.json({ error: err.code, message: err.message, ...(err.messageEn ? { messageEn: err.messageEn } : {}) }, 404);
       if (err instanceof InvalidFollowUpTransitionError) return c.json({ error: err.code, message: err.message }, 409);
       throw err;
     }
@@ -472,7 +473,8 @@ export function createInstallmentsRoutes(
       await deps.followUps.update(updated);
       return c.json(serializeFollowUp(updated));
     } catch (err) {
-      if (err instanceof FollowUpNotFoundError) return c.json({ error: err.code, message: err.message }, 404);
+      if (err instanceof FollowUpNotFoundError)
+        return c.json({ error: err.code, message: err.message, ...(err.messageEn ? { messageEn: err.messageEn } : {}) }, 404);
       if (err instanceof InvalidFollowUpTransitionError) return c.json({ error: err.code, message: err.message }, 409);
       throw err;
     }

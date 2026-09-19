@@ -25,10 +25,14 @@ export function validateNewAccount(command: CreateAccountCommand, existing: read
   if (command.parentId != null) {
     const parent = existing.find((a) => a.id === command.parentId);
     if (!parent) {
-      throw new InvalidParentAccountError(`Parent account "${command.parentId}" was not found.`);
+      throw new InvalidParentAccountError(
+        `الحساب الأصل "${command.parentId}" غير موجود.`,
+        `Parent account "${command.parentId}" was not found.`,
+      );
     }
     if (!parent.isHeader) {
       throw new InvalidParentAccountError(
+        `الحساب الأصل "${command.parentId}" (${parent.code}) حساب تفصيلي، ولا يمكن أن يكون له حسابات فرعية.`,
         `Parent account "${command.parentId}" (${parent.code}) is a detail account and cannot own children.`,
       );
     }

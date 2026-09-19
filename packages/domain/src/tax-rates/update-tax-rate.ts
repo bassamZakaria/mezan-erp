@@ -27,7 +27,10 @@ export async function updateTaxRate(
 
   const nextRate = command.rate ?? current.rate;
   if (!Number.isFinite(nextRate) || nextRate < 0 || nextRate > 100) {
-    throw new InvalidTaxRateError(`Tax rate must be a number between 0 and 100, got ${nextRate}.`);
+    throw new InvalidTaxRateError(
+      `نسبة الضريبة يجب أن تكون رقماً بين 0 و100، والقيمة المُدخلة ${nextRate}.`,
+      `Tax rate must be a number between 0 and 100, got ${nextRate}.`,
+    );
   }
 
   const nextIsDefault = command.isDefault ?? current.isDefault;

@@ -67,23 +67,25 @@ function serializeLine(l: MatchedStatementLine) {
 }
 
 function handleDomainError(c: Context, err: unknown): Response {
+  const refuse = (e: Error & { code: string; messageEn?: string }, status: 404 | 409 | 422, extra: Record<string, unknown> = {}) =>
+    c.json({ error: e.code, message: e.message, ...(e.messageEn ? { messageEn: e.messageEn } : {}), ...extra }, status);
   if (err instanceof BankStatementNotFoundError || err instanceof StatementLineNotFoundError) {
-    return c.json({ error: err.code, message: err.message }, 404);
+    return refuse(err, 404);
   }
   if (err instanceof LineAlreadyMatchedError || err instanceof LineNotMatchedError || err instanceof StatementAlreadyFinalizedError) {
-    return c.json({ error: err.code, message: err.message }, 409);
+    return refuse(err, 409);
   }
   if (err instanceof StatementHasUnmatchedLinesError) {
-    return c.json({ error: err.code, message: err.message, unmatchedCount: err.unmatchedCount }, 422);
+    return refuse(err, 422, { unmatchedCount: err.unmatchedCount });
   }
   if (err instanceof FinalizeOverrideReasonRequiredError) {
-    return c.json({ error: err.code, message: err.message }, 422);
+    return refuse(err, 422);
   }
   if (err instanceof InvalidStatementFileError || err instanceof ColumnNotFoundError || err instanceof InvalidColumnMappingError) {
-    return c.json({ error: err.code, message: err.message }, 422);
+    return refuse(err, 422);
   }
   if (err instanceof InvalidStatementBalanceError) {
-    return c.json({ error: err.code, message: err.message }, 422);
+    return refuse(err, 422);
   }
   throw err;
 }

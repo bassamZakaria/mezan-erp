@@ -2,16 +2,20 @@
 
 export class BankStatementNotFoundError extends Error {
   readonly code = "BANK_STATEMENT_NOT_FOUND";
+  readonly messageEn: string;
   constructor(readonly statementId: string) {
-    super(`Bank statement "${statementId}" was not found.`);
+    super(`كشف البنك "${statementId}" غير موجود.`);
+    this.messageEn = `Bank statement "${statementId}" was not found.`;
     this.name = "BankStatementNotFoundError";
   }
 }
 
 export class StatementLineNotFoundError extends Error {
   readonly code = "STATEMENT_LINE_NOT_FOUND";
+  readonly messageEn: string;
   constructor(readonly lineId: string) {
-    super(`Statement line "${lineId}" was not found.`);
+    super(`سطر الكشف "${lineId}" غير موجود.`);
+    this.messageEn = `Statement line "${lineId}" was not found.`;
     this.name = "StatementLineNotFoundError";
   }
 }
@@ -26,16 +30,20 @@ export class StatementAlreadyFinalizedError extends Error {
 
 export class LineAlreadyMatchedError extends Error {
   readonly code = "LINE_ALREADY_MATCHED";
+  readonly messageEn: string;
   constructor(readonly lineId: string) {
-    super(`Statement line "${lineId}" is already matched.`);
+    super(`سطر الكشف "${lineId}" مطابَق بالفعل.`);
+    this.messageEn = `Statement line "${lineId}" is already matched.`;
     this.name = "LineAlreadyMatchedError";
   }
 }
 
 export class LineNotMatchedError extends Error {
   readonly code = "LINE_NOT_MATCHED";
+  readonly messageEn: string;
   constructor(readonly lineId: string) {
-    super(`Statement line "${lineId}" is not matched.`);
+    super(`سطر الكشف "${lineId}" غير مطابَق.`);
+    this.messageEn = `Statement line "${lineId}" is not matched.`;
     this.name = "LineNotMatchedError";
   }
 }
@@ -62,8 +70,10 @@ export class InvalidStatementBalanceError extends Error {
 /** Raised by the CSV parser/mapper on structurally invalid input. */
 export class InvalidStatementFileError extends Error {
   readonly code = "INVALID_STATEMENT_FILE";
-  constructor(message: string) {
+  readonly messageEn: string;
+  constructor(message: string, messageEn: string) {
     super(message);
+    this.messageEn = messageEn;
     this.name = "InvalidStatementFileError";
   }
 }
@@ -71,8 +81,10 @@ export class InvalidStatementFileError extends Error {
 /** Raised when a column mapping names a column absent from the CSV's header row. */
 export class ColumnNotFoundError extends Error {
   readonly code = "COLUMN_NOT_FOUND";
+  readonly messageEn: string;
   constructor(readonly columnName: string) {
-    super(`Column "${columnName}" was not found in the statement file's header row.`);
+    super(`العمود "${columnName}" غير موجود في صف عناوين ملف الكشف.`);
+    this.messageEn = `Column "${columnName}" was not found in the statement file's header row.`;
     this.name = "ColumnNotFoundError";
   }
 }
@@ -80,8 +92,10 @@ export class ColumnNotFoundError extends Error {
 /** Raised when a mapping sets neither `amountColumn` nor both `debitColumn`+`creditColumn`. */
 export class InvalidColumnMappingError extends Error {
   readonly code = "INVALID_COLUMN_MAPPING";
-  constructor(message: string) {
+  readonly messageEn: string;
+  constructor(message: string, messageEn: string) {
     super(message);
+    this.messageEn = messageEn;
     this.name = "InvalidColumnMappingError";
   }
 }
@@ -95,13 +109,15 @@ export class InvalidColumnMappingError extends Error {
  */
 export class StatementHasUnmatchedLinesError extends Error {
   readonly code = "STATEMENT_HAS_UNMATCHED_LINES";
+  readonly messageEn: string;
   constructor(
     readonly statementId: string,
     readonly unmatchedCount: number,
   ) {
     super(
-      `Bank statement "${statementId}" still has ${unmatchedCount} unmatched line(s); finalizing needs an explicit override with a reason.`,
+      `كشف البنك "${statementId}" ما زال به ${unmatchedCount} سطراً غير مطابَق؛ الإنهاء يتطلب تجاوزاً صريحاً مع سبب.`,
     );
+    this.messageEn = `Bank statement "${statementId}" still has ${unmatchedCount} unmatched line(s); finalizing needs an explicit override with a reason.`;
     this.name = "StatementHasUnmatchedLinesError";
   }
 }
@@ -109,8 +125,10 @@ export class StatementHasUnmatchedLinesError extends Error {
 /** Raised when the unmatched-lines override is requested without a reason to record. */
 export class FinalizeOverrideReasonRequiredError extends Error {
   readonly code = "FINALIZE_OVERRIDE_REASON_REQUIRED";
+  readonly messageEn: string;
   constructor(readonly statementId: string) {
-    super(`Finalizing bank statement "${statementId}" over unmatched lines requires a recorded reason.`);
+    super(`إنهاء كشف البنك "${statementId}" مع وجود سطور غير مطابَقة يتطلب تسجيل سبب.`);
+    this.messageEn = `Finalizing bank statement "${statementId}" over unmatched lines requires a recorded reason.`;
     this.name = "FinalizeOverrideReasonRequiredError";
   }
 }

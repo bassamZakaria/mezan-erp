@@ -237,6 +237,54 @@ export const tenantSummarySchema = z.object({
   payments: z.array(paymentSchema),
 });
 
+export const cardCheckoutStatusSchema = z.enum(["pending", "paid", "failed", "unapplied"]);
+
+export const cardCheckoutSchema = z.object({
+  id: z.string().min(1),
+  tenantId: z.string().min(1),
+  subscriptionId: z.string().min(1),
+  provider: z.enum(["paymob", "paymob-test"]),
+  testMode: z.boolean(),
+  amount: positiveDecimalString,
+  currency: z.literal("EGP"),
+  status: cardCheckoutStatusSchema,
+  checkoutUrl: z.string().nullable(),
+  providerRef: z.string().nullable(),
+  paymentId: z.string().nullable(),
+  failureReason: z.string().nullable(),
+  requestedBy: z.string().min(1),
+  createdAt: isoLikeSchema,
+  updatedAt: isoLikeSchema,
+});
+
+/** A same-origin SPA path only — the server prefixes its own trusted origin, so this can never become an open redirect. */
+export const createCardCheckoutRequestSchema = z.object({
+  returnPath: z.string().regex(/^\/(?!\/)[A-Za-z0-9/_-]{0,200}$/),
+});
+
+export const platformCardCheckoutsSchema = z.object({
+  cardCheckout: z.boolean(),
+  testMode: z.boolean(),
+  checkouts: z.array(cardCheckoutSchema),
+});
+
+export const tenantBillingSchema = z.object({
+  cardCheckout: z.boolean(),
+  testMode: z.boolean(),
+  canRenew: z.boolean(),
+  subscription: z
+    .object({
+      status: subscriptionStatusSchema,
+      billingCycle: billingCycleSchema,
+      currentPeriodEnd: z.string(),
+      planNameAr: z.string(),
+      planNameEn: z.string(),
+      amountDue: z.string(),
+    })
+    .nullable(),
+  checkouts: z.array(cardCheckoutSchema),
+});
+
 export type PlatformRoleDTO = z.infer<typeof platformRoleSchema>;
 export type PlatformUserStatusDTO = z.infer<typeof platformUserStatusSchema>;
 export type PlatformLoginRequestDTO = z.infer<typeof platformLoginRequestSchema>;
@@ -265,3 +313,8 @@ export type LicenseStateNameDTO = z.infer<typeof licenseStateNameSchema>;
 export type LicenseStateReasonDTO = z.infer<typeof licenseStateReasonSchema>;
 export type LicenseStateViewDTO = z.infer<typeof licenseStateViewSchema>;
 export type TenantSummaryDTO = z.infer<typeof tenantSummarySchema>;
+export type CardCheckoutStatusDTO = z.infer<typeof cardCheckoutStatusSchema>;
+export type CardCheckoutDTO = z.infer<typeof cardCheckoutSchema>;
+export type CreateCardCheckoutRequestDTO = z.infer<typeof createCardCheckoutRequestSchema>;
+export type TenantBillingDTO = z.infer<typeof tenantBillingSchema>;
+export type PlatformCardCheckoutsDTO = z.infer<typeof platformCardCheckoutsSchema>;

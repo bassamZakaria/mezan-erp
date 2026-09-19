@@ -40,6 +40,8 @@ import {
   type Plan,
   type Payment,
   type PlatformUser,
+  type CardCheckout,
+  CardCheckoutUnavailableError,
 } from "@mezan/domain";
 import {
   createTenantRequestSchema,
@@ -60,10 +62,18 @@ import {
   type PlanDTO,
   type PaymentDTO,
   type PlatformUserDTO,
+  type CardCheckoutDTO,
+  type PlatformCardCheckoutsDTO,
 } from "@mezan/contracts";
 import { requestOrigin } from "@mezan/api";
 import type { PlatformHandle } from "./create-platform.js";
 import type { PlatformAuth } from "./platform-auth.js";
+
+export interface PlatformCardCheckoutPort {
+  readonly testMode: boolean;
+  open(input: { readonly tenantId: string; readonly actorId: string; readonly request: Request }): Promise<CardCheckout>;
+  list(tenantId: string): Promise<CardCheckout[]>;
+}
 
 export interface CreatePlatformRoutesOptions {
   readonly platform: PlatformHandle;
@@ -75,6 +85,8 @@ export interface CreatePlatformRoutesOptions {
   readonly invalidateEntitlements: (code: string) => void;
   readonly idOf?: () => string;
   readonly onAuditError?: (err: unknown) => void;
+  /** Absent when card checkout is not configured on this deployment; the routes then answer 503. */
+  readonly cardCheckout?: PlatformCardCheckoutPort;
 }
 
 function serializeTenant(t: Tenant): TenantDTO {
@@ -98,6 +110,15 @@ function serializePayment(p: Payment): PaymentDTO {
     id: p.id, tenantId: p.tenantId, subscriptionId: p.subscriptionId, amount: p.amount.toString(),
     currency: p.currency, reference: p.reference, paidAt: p.paidAt, recordedBy: p.recordedBy,
     note: p.note, createdAt: p.createdAt,
+  };
+}
+
+export function serializeCardCheckout(c: CardCheckout): CardCheckoutDTO {
+  return {
+    id: c.id, tenantId: c.tenantId, subscriptionId: c.subscriptionId, provider: c.provider,
+    testMode: c.provider === "paymob-test", amount: c.amount.toString(), currency: c.currency, status: c.status,
+    checkoutUrl: c.status === "pending" ? c.checkoutUrl : null, providerRef: c.providerRef, paymentId: c.paymentId,
+    failureReason: c.failureReason, requestedBy: c.requestedBy, createdAt: c.createdAt, updatedAt: c.updatedAt,
   };
 }
 
@@ -153,6 +174,13 @@ function domainErrorResponse(c: Context, err: unknown): Response {
   const serverFailure = asServerDomainFailure(err);
   if (serverFailure) {
     return c.json({ error: serverFailure.code, message: serverFailure.message, ...(serverFailure.tenantId ? { tenantId: serverFailure.tenantId } : {}) }, 422);
+  }
+  if (err instanceof Error && (err as { code?: unknown }).code === "PAYMENT_PROVIDER_ERROR") {
+    console.error(err);
+    return c.json({ error: "PAYMENT_PROVIDER_ERROR", message: "تعذّر الاتصال بمزوّد الدفع، حاول مرة أخرى", messageEn: "The payment provider could not be reached; try again" }, 502);
+  }
+  if (err instanceof CardCheckoutUnavailableError) {
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
   }
   if (
     err instanceof TenantNotFoundError ||
@@ -426,6 +454,36 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
       const tenant = await requireTenant(c.req.param("id"));
       const payments = await platform.stores.payments.listByTenant(tenant.id);
       return c.json(payments.map(serializePayment));
+    } catch (err) {
+      return domainErrorResponse(c, err);
+    }
+  });
+
+  app.post("/tenants/:id/card-checkout", requireOwner, async (c) => {
+    if (!options.cardCheckout) {
+      return c.json({ error: "CARD_CHECKOUT_NOT_CONFIGURED", message: "الدفع بالبطاقة غير مُفعّل على هذا الخادم", messageEn: "Card checkout is not configured on this server" }, 503);
+    }
+    const platformUser = c.get("platformUser")!;
+    try {
+      const tenant = await requireTenant(c.req.param("id"));
+      const checkout = await options.cardCheckout.open({ tenantId: tenant.id, actorId: `platform:${platformUser.id}`, request: c.req.raw });
+      await audit(c, "CARD_CHECKOUT_REQUESTED", tenant.id, { checkoutId: checkout.id, amount: checkout.amount.toString() });
+      return c.json(serializeCardCheckout(checkout), 201);
+    } catch (err) {
+      return domainErrorResponse(c, err);
+    }
+  });
+
+  app.get("/tenants/:id/card-checkouts", requireAny, async (c) => {
+    try {
+      const tenant = await requireTenant(c.req.param("id"));
+      const checkouts = options.cardCheckout ? await options.cardCheckout.list(tenant.id) : [];
+      const body: PlatformCardCheckoutsDTO = {
+        cardCheckout: Boolean(options.cardCheckout),
+        testMode: options.cardCheckout?.testMode ?? false,
+        checkouts: checkouts.map(serializeCardCheckout),
+      };
+      return c.json(body);
     } catch (err) {
       return domainErrorResponse(c, err);
     }

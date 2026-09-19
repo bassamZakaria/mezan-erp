@@ -668,6 +668,7 @@ after (`docs/TEST-DEBT.md`); the test pass closes the build.
 | D | HR 4D employee/contract/run pages, scheduled accrual, payroll bank file · E2-03 scanner count · E2-11 provisioning · E3-03 reorder · E3-04 van reconciliation |
 | E | E3-06 CRM pipeline · E3-08 evidence pack · E3-02 owner digest · 6A cookie sessions (cloud) · 5D cloud backup export |
 | F | E3-10 health console · E3-09 integration API (cloud, DEC-27) · E3-01 glance · E3-07 funnel · open defects (D286, D288, `GET /tenant` name) |
+| POS | **Resumes here** (owner, 2026-09-19: "finish everything first and then continue working on POS") — lanes 2A–5D of the POS plan, then E2-05/06/07 and E3-05 |
 | G | Close-out: the test pass (`docs/TEST-DEBT.md`, `FULL=1`), PLT-SAAS-01..08 live, ROADMAP and TESTING updated |
 
 Done so far: wave 0 (#90, #91, #93, #95), 1A seams + POS master data (#96), 1B hourly/daily/FX pay (#94),

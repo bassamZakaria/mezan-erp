@@ -1,1 +1,1 @@
-export {};
+export * from "../cockpit-routes.js";

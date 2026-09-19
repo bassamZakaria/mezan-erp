@@ -18,7 +18,7 @@ import type Database from "better-sqlite3";
  * still go through the store's full column list.
  */
 
-const CREATE_TABLE_RE = /CREATE\s+TABLE\s+IF\s+NOT\s+EXISTS\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(([\s\S]*?)\)\s*;/gi;
+const CREATE_TABLE_RE = /CREATE\s+TABLE\s+IF\s+NOT\s+EXISTS\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(([\s\S]*?)\)\s*(?:WITHOUT\s+ROWID\s*)?;/gi;
 const COLUMN_RE = /^([A-Za-z_][A-Za-z0-9_]*)\s+(.+)$/;
 const TABLE_CONSTRAINT_RE = /^(?:PRIMARY|UNIQUE|FOREIGN|CHECK|CONSTRAINT)\b/i;
 

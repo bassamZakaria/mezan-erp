@@ -4014,6 +4014,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     sessions,
     hasher,
     audit: auditSink,
+    eventBus,
     etaReceipts,
     stores: {
       settings,

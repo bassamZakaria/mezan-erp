@@ -14,7 +14,15 @@ import { AgingMatrix, type AgingMatrixRow } from "./AgingMatrix";
 import { ExpenseDonut } from "./ExpenseDonut";
 import { TopItems, type TopItemRow } from "./TopItems";
 import { riseStyle, useReducedMotion } from "./motion";
-import { resolveDashboardWidgets, type DashboardWidgetKind } from "./widget-registry";
+import {
+  COCKPIT_PERMISSION,
+  DashboardSection,
+  cockpitLeads,
+  dashboardAudienceOf,
+  resolveDashboardWidgets,
+  type DashboardPanelKind,
+} from "./widget-registry";
+import { CockpitSection } from "./cockpit/CockpitSection";
 import {
   expenseSlices,
   periodTotals,
@@ -339,14 +347,26 @@ export function DashboardScreen() {
   const preferences = useUserPreferences().data;
   const held = useMemo(() => new Set(session?.permissions ?? []), [session]);
   const canRead = (permission: string) => held.has("*") || held.has(permission);
+  const audience = dashboardAudienceOf(session?.permissions ?? []);
   const visibleWidgets = useMemo(
-    () => resolveDashboardWidgets(preferences?.dashboard, canRead),
+    () => resolveDashboardWidgets(preferences?.dashboard, canRead, DashboardSection.Panels, audience),
     // `canRead` closes over `held`, so the identity of `held` is the real input.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [preferences?.dashboard, held],
+    [preferences?.dashboard, held, audience],
   );
+  const cockpitWidgets = useMemo(
+    () => (canRead(COCKPIT_PERMISSION) ? resolveDashboardWidgets(preferences?.dashboard, canRead, DashboardSection.Cockpit, audience) : []),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [preferences?.dashboard, held, audience],
+  );
+  const cockpitFirst = useMemo(
+    () => cockpitWidgets.length > 0 && cockpitLeads(preferences?.dashboard, canRead, audience),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [preferences?.dashboard, held, audience, cockpitWidgets.length],
+  );
+  const cockpit = cockpitWidgets.length > 0 ? <CockpitSection widgets={cockpitWidgets} rtl={rtl} /> : null;
 
-  const panelFor: Readonly<Record<DashboardWidgetKind, ReactNode>> = {
+  const panelFor: Readonly<Record<DashboardPanelKind, ReactNode>> = {
     aging: (
       <Panel title={t("dashboard.aging")} hint={t("dashboard.aging.sub")} step={5} reduced={reduced}>
           <AgingMatrix
@@ -421,6 +441,8 @@ export function DashboardScreen() {
           ))}
         </div>
       </div>
+
+      {cockpitFirst ? cockpit : null}
 
       <div className="flex flex-wrap gap-[6px]" role="radiogroup" aria-label={t("dashboard.range.legend")} style={riseStyle(1, reduced)}>
         {RANGE_OPTIONS.map((opt) => (
@@ -536,9 +558,11 @@ export function DashboardScreen() {
           (§8.7).
         */}
         {visibleWidgets.map((widget) => (
-          <Fragment key={widget.id}>{panelFor[widget.kind as DashboardWidgetKind]}</Fragment>
+          <Fragment key={widget.id}>{panelFor[widget.kind as DashboardPanelKind]}</Fragment>
         ))}
       </div>
+
+      {cockpitFirst ? null : cockpit}
 
       <div style={riseStyle(9, reduced)}>
         <div className="mb-[8px] mz-eyebrow">{t("dashboard.companyWide")}</div>

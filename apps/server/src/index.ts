@@ -15,7 +15,7 @@ const env = parseEnv({
   ...process.env,
   MEZAN_PLATFORM_DIR: process.env["MEZAN_PLATFORM_DIR"] ?? "./.data/dev-platform",
   PORT: process.env["PORT"] ?? "3000",
-});
+}, { paymobTestByDefault: true });
 
 const { root } = await createCloudApp(env);
 

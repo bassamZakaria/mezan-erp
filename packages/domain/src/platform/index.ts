@@ -14,7 +14,7 @@ export {
 } from "./plan.js";
 export {
   DEFAULT_GRACE_DAYS,
-  startSubscription, renewSubscription, changePlan, markPastDue,
+  startSubscription, renewSubscription, applyRenewal, changePlan, markPastDue,
   suspendSubscription, resumeSubscription, cancelSubscription,
   type Subscription, type SubscriptionStatus, type BillingCycle, type SubscriptionRepository,
   type StartSubscriptionCommand, type SubscriptionCommand, type ChangePlanCommand,
@@ -34,4 +34,16 @@ export {
   type Payment, type PaymentRepository,
   type RecordPaymentCommand, type RecordPaymentResult,
 } from "./payment.js";
-export type { PaymentProvider } from "./payment-provider.js";
+export type {
+  PaymentProvider, PaymentProviderId, CheckoutRequest, CheckoutSession,
+  ProviderTransactionOutcome, VerifiedProviderTransaction,
+} from "./payment-provider.js";
+export {
+  PAYMOB_TRANSACTION_HMAC_FIELDS, paymobTransactionHmacMessage, hasPaymobSignedShape, parsePaymobTransaction,
+  classifyPaymobTransaction, moneyToPaymobCents, paymobCentsToMoney,
+  type PaymobTransactionObject, type ParsedPaymobTransaction,
+} from "./paymob.js";
+export {
+  cardCheckoutAmount, CardCheckoutUnavailableError,
+  type CardCheckout, type CardCheckoutStatus, type CardCheckoutRepository, type CardCheckoutSettlement,
+} from "./card-checkout.js";

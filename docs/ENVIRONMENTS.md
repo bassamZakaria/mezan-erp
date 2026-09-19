@@ -69,6 +69,53 @@ at `/api` from the same origin. Testing and staging run that same entrypoint, so
 a same-origin bug — a wrong `/api` prefix, an SPA fallback that 404s, a static
 asset path — fails here rather than in front of a client.
 
+## Card checkout (Paymob)
+
+Subscription renewals can be paid by card through Paymob's Intention API and
+Unified Checkout. The platform owner gets «ادفع بالبطاقة» on a tenant's
+subscription in the console (a payment link to open or send), and a tenant
+admin gets «تجديد الاشتراك» on the general settings page and in the licence
+banner. A payment is recorded — and the subscription renewed, clearing dunning —
+only when Paymob's HMAC-signed transaction callback reaches
+`POST /api/billing/paymob/webhook`. The browser's return from the hosted page
+carries query parameters too; they are never read as proof of payment.
+
+| Variable | Meaning |
+| --- | --- |
+| `MEZAN_PAYMOB_SECRET_KEY` | Secret key (Dashboard → Settings → API keys). Sent as `Authorization: Token …` to `POST /v1/intention/`. |
+| `MEZAN_PAYMOB_PUBLIC_KEY` | Public key; goes in the Unified Checkout URL. |
+| `MEZAN_PAYMOB_HMAC_SECRET` | HMAC secret; verifies every transaction callback (SHA-512 over Paymob's fixed 20-field order). |
+| `MEZAN_PAYMOB_INTEGRATION_ID` | Card integration id(s), comma-separated. Test ids with test keys, live with live. |
+| `MEZAN_PAYMOB_PUBLIC_URL` | Public `https://` origin of this deployment. Required with live keys: the callback goes to `<url>/api/billing/paymob/webhook` and the customer returns to `<url>/…` (or to the tenant's own subdomain under `MEZAN_TENANT_DOMAIN`). |
+| `MEZAN_PAYMOB_BASE_URL` | Optional; default `https://accept.paymob.com` (Egypt). |
+| `MEZAN_PAYMOB_TEST_MODE` | `1` runs the local test double when no keys are set; `0` turns card checkout off in dev. |
+
+The four keys are all-or-nothing: setting some but not all refuses to start, as
+does combining them with `MEZAN_PAYMOB_TEST_MODE=1`.
+
+**With no keys** the provider is a test double. Checkout links open
+`/billing/test-checkout/<id>`, a page labelled «وضع الاختبار — TEST MODE» with
+buttons that simulate a successful or a declined card. They do not mark
+anything paid themselves: they sign a Paymob-shaped callback with a per-process
+secret and send it through the same webhook handler a live payment uses. The dev
+entrypoint (`pnpm server`, `pnpm dev`) and `pnpm env:testing|staging` enable it by
+default; the deployed `cloud.ts` enables it only with `MEZAN_PAYMOB_TEST_MODE=1`
+and refuses to start with that flag unless `MEZAN_SEED_DEMO=1`, so a production
+host without keys has card checkout off rather than free.
+
+A checkout's amount is fixed when it opens. If the plan or its price changed
+before the payment arrives, the payment is kept but marked «بحاجة لمراجعة»
+(`PRICE_CHANGED`) instead of renewing at the old price. Refunds and voids are
+audited (`CARD_WEBHOOK_NON_PAYMENT`) and never reverse a renewal on their own;
+reverse by hand.
+
+Before the first live payment, in the Paymob dashboard: create the card
+integration, note its id, and copy the four secrets above. The callback URL is
+set per intention (`notification_url`), so the integration's own callback field
+may stay empty. Run one real low-value payment and one decline, and watch the
+console's «الدفع بالبطاقة» card and the platform audit log for
+`PAYMENT_RECORDED` / `CARD_PAYMENT_DECLINED`.
+
 ## Adding a hosted testing environment later
 
 The `testing` branch already carries the `Dockerfile` and `render.yaml`, so a

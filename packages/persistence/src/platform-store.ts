@@ -2,6 +2,8 @@ import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput, type SqliteOpenOptions } from "./sqlite-connection.js";
 import {
   Money,
+  type CardCheckout, type CardCheckoutRepository, type CardCheckoutSettlement, type CardCheckoutStatus,
+  type PaymentProviderId,
   type Payment, type PaymentRepository,
   type Plan, type PlanRepository,
   type PlatformUser, type PlatformUserRepository,
@@ -89,6 +91,34 @@ CREATE TABLE IF NOT EXISTS payment (
   created_at      TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_payment_tenant ON payment(tenant_id, paid_at);
+
+CREATE TABLE IF NOT EXISTS card_checkout (
+  id                  TEXT PRIMARY KEY,
+  tenant_id           TEXT NOT NULL,
+  subscription_id     TEXT NOT NULL,
+  provider            TEXT NOT NULL,
+  amount              INTEGER NOT NULL,
+  currency            TEXT NOT NULL,
+  status              TEXT NOT NULL,
+  provider_order_ref  TEXT,
+  checkout_url        TEXT,
+  provider_ref        TEXT,
+  payment_id          TEXT,
+  failure_reason      TEXT,
+  requested_by        TEXT NOT NULL,
+  created_at          TEXT NOT NULL,
+  updated_at          TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_card_checkout_tenant ON card_checkout(tenant_id, created_at);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_card_checkout_provider_order
+  ON card_checkout(provider, provider_order_ref) WHERE provider_order_ref IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS payment_provider_event (
+  provider      TEXT NOT NULL,
+  provider_ref  TEXT NOT NULL,
+  received_at   TEXT NOT NULL,
+  PRIMARY KEY (provider, provider_ref)
+);
 `;
 
 interface TenantRow {
@@ -389,12 +419,152 @@ class SqlitePaymentStore implements PaymentRepository {
   }
 }
 
+interface CardCheckoutRow {
+  id: string; tenant_id: string; subscription_id: string; provider: PaymentProviderId; amount: number;
+  currency: CardCheckout["currency"]; status: CardCheckoutStatus; provider_order_ref: string | null;
+  checkout_url: string | null; provider_ref: string | null; payment_id: string | null;
+  failure_reason: string | null; requested_by: string; created_at: string; updated_at: string;
+}
+
+function toCardCheckout(r: CardCheckoutRow): CardCheckout {
+  return {
+    id: r.id, tenantId: r.tenant_id, subscriptionId: r.subscription_id, provider: r.provider,
+    amount: Money.fromScaled(r.amount), currency: r.currency, status: r.status,
+    providerOrderRef: r.provider_order_ref, checkoutUrl: r.checkout_url, providerRef: r.provider_ref,
+    paymentId: r.payment_id, failureReason: r.failure_reason, requestedBy: r.requested_by,
+    createdAt: r.created_at, updatedAt: r.updated_at,
+  };
+}
+
+class SqliteCardCheckoutStore implements CardCheckoutRepository {
+  private readonly insertStmt: Database.Statement;
+  private readonly byId: Database.Statement;
+  private readonly byProviderOrder: Database.Statement;
+  private readonly byTenant: Database.Statement;
+  private readonly attach: Database.Statement;
+  private readonly claim: Database.Statement;
+  private readonly renewSubscription: Database.Statement;
+  private readonly insertPayment: Database.Statement;
+
+  constructor(private readonly sqlite: Database.Database) {
+    this.insertStmt = sqlite.prepare(
+      `INSERT INTO card_checkout (id, tenant_id, subscription_id, provider, amount, currency, status, provider_order_ref,
+         checkout_url, provider_ref, payment_id, failure_reason, requested_by, created_at, updated_at)
+       VALUES (@id, @tenantId, @subscriptionId, @provider, @amount, @currency, @status, @providerOrderRef,
+         @checkoutUrl, @providerRef, @paymentId, @failureReason, @requestedBy, @createdAt, @updatedAt)`,
+    );
+    this.byId = sqlite.prepare(`SELECT * FROM card_checkout WHERE id = ?`);
+    this.byProviderOrder = sqlite.prepare(`SELECT * FROM card_checkout WHERE provider = ? AND provider_order_ref = ?`);
+    this.byTenant = sqlite.prepare(`SELECT * FROM card_checkout WHERE tenant_id = ? ORDER BY created_at DESC, id DESC`);
+    this.attach = sqlite.prepare(
+      `UPDATE card_checkout SET provider_order_ref = ?, checkout_url = ?, updated_at = ? WHERE id = ? AND provider_order_ref IS NULL`,
+    );
+    this.claim = sqlite.prepare(
+      `INSERT INTO payment_provider_event (provider, provider_ref, received_at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING`,
+    );
+    this.renewSubscription = sqlite.prepare(
+      `UPDATE subscription SET status = @status, trial_ends_at = @trialEndsAt, current_period_start = @currentPeriodStart,
+         current_period_end = @currentPeriodEnd, updated_at = @updatedAt
+       WHERE id = @id AND status = @expectedStatus AND updated_at = @expectedUpdatedAt AND current_period_end = @expectedPeriodEnd`,
+    );
+    this.insertPayment = sqlite.prepare(
+      `INSERT INTO payment (id, tenant_id, subscription_id, amount, currency, reference, paid_at, recorded_by, note, created_at)
+       VALUES (@id, @tenantId, @subscriptionId, @amount, @currency, @reference, @paidAt, @recordedBy, @note, @createdAt)`,
+    );
+  }
+
+  async insert(c: CardCheckout): Promise<void> {
+    this.insertStmt.run({
+      id: c.id, tenantId: c.tenantId, subscriptionId: c.subscriptionId, provider: c.provider,
+      amount: c.amount.toScaledNumber(), currency: c.currency, status: c.status, providerOrderRef: c.providerOrderRef,
+      checkoutUrl: c.checkoutUrl, providerRef: c.providerRef, paymentId: c.paymentId, failureReason: c.failureReason,
+      requestedBy: c.requestedBy, createdAt: c.createdAt, updatedAt: c.updatedAt,
+    });
+  }
+
+  async findById(id: string): Promise<CardCheckout | null> {
+    const row = this.byId.get(id) as CardCheckoutRow | undefined;
+    return row ? toCardCheckout(row) : null;
+  }
+
+  async findByProviderOrder(provider: PaymentProviderId, providerOrderRef: string): Promise<CardCheckout | null> {
+    const row = this.byProviderOrder.get(provider, providerOrderRef) as CardCheckoutRow | undefined;
+    return row ? toCardCheckout(row) : null;
+  }
+
+  async listByTenant(tenantId: string): Promise<CardCheckout[]> {
+    return (this.byTenant.all(tenantId) as CardCheckoutRow[]).map(toCardCheckout);
+  }
+
+  async attachSession(id: string, providerOrderRef: string, checkoutUrl: string, now: string): Promise<void> {
+    const result = this.attach.run(providerOrderRef, checkoutUrl, now, id);
+    if (result.changes !== 1) throw new Error(`card checkout ${id} already has a provider order`);
+  }
+
+  private casCheckout(id: string, from: readonly CardCheckoutStatus[], to: CardCheckoutSettlement): boolean {
+    if (from.length === 0) return false;
+    const placeholders = from.map(() => "?").join(", ");
+    return (
+      this.sqlite
+        .prepare(
+          `UPDATE card_checkout SET status = ?, provider_ref = ?, payment_id = ?, failure_reason = ?, updated_at = ?
+           WHERE id = ? AND status IN (${placeholders})`,
+        )
+        .run(to.status, to.providerRef, to.paymentId, to.failureReason, to.now, id, ...from).changes === 1
+    );
+  }
+
+  async recordOutcome(input: Parameters<CardCheckoutRepository["recordOutcome"]>[0]): Promise<"duplicate" | "settled" | "unchanged"> {
+    return this.sqlite.transaction(() => {
+      if (this.claim.run(input.provider, input.providerRef, input.now).changes !== 1) return "duplicate" as const;
+      if (!input.settle) return "unchanged" as const;
+      return this.casCheckout(input.settle.checkoutId, input.settle.from, input.settle.to) ? ("settled" as const) : ("unchanged" as const);
+    }).immediate();
+  }
+
+  async abandon(checkoutId: string, failureReason: string, now: string): Promise<void> {
+    this.casCheckout(checkoutId, ["pending"], { status: "failed", providerRef: null, paymentId: null, failureReason, now });
+  }
+
+  async settlePaid(input: Parameters<CardCheckoutRepository["settlePaid"]>[0]): Promise<"duplicate" | "already-settled" | "subscription-changed" | "paid"> {
+    const { subscriptionBefore: before, subscriptionAfter: after, payment: p } = input;
+    const run = this.sqlite.transaction((): "duplicate" | "already-settled" | "paid" => {
+      if (this.claim.run(input.provider, input.providerRef, input.now).changes !== 1) return "duplicate";
+      const moved = this.casCheckout(input.checkoutId, input.from, {
+        status: "paid", providerRef: input.providerRef, paymentId: p.id, failureReason: null, now: input.now,
+      });
+      if (!moved) return "already-settled";
+      const renewed = this.renewSubscription.run({
+        id: after.id, status: after.status, trialEndsAt: after.trialEndsAt,
+        currentPeriodStart: after.currentPeriodStart, currentPeriodEnd: after.currentPeriodEnd, updatedAt: after.updatedAt,
+        expectedStatus: before.status, expectedUpdatedAt: before.updatedAt, expectedPeriodEnd: before.currentPeriodEnd,
+      });
+      if (renewed.changes !== 1) throw new SubscriptionChanged();
+      this.insertPayment.run({
+        id: p.id, tenantId: p.tenantId, subscriptionId: p.subscriptionId, amount: p.amount.toScaledNumber(),
+        currency: p.currency, reference: p.reference, paidAt: p.paidAt, recordedBy: p.recordedBy,
+        note: p.note, createdAt: p.createdAt,
+      });
+      return "paid";
+    });
+    try {
+      return run.immediate();
+    } catch (err) {
+      if (err instanceof SubscriptionChanged) return "subscription-changed";
+      throw err;
+    }
+  }
+}
+
+class SubscriptionChanged extends Error {}
+
 export interface SqlitePlatformStoresHandle {
   readonly tenants: TenantRepository;
   readonly plans: PlanRepository;
   readonly subscriptions: SubscriptionRepository;
   readonly platformUsers: PlatformUserRepository;
   readonly payments: PaymentRepository;
+  readonly cardCheckouts: CardCheckoutRepository;
   readonly sqlite: Database.Database;
   close(): void;
 }
@@ -411,6 +581,7 @@ export function createSqlitePlatformStores(
     subscriptions: new SqliteSubscriptionStore(sqlite),
     platformUsers: new SqlitePlatformUserStore(sqlite),
     payments: new SqlitePaymentStore(sqlite),
+    cardCheckouts: new SqliteCardCheckoutStore(sqlite),
     sqlite,
     close: () => { if (owned) sqlite.close(); },
   };

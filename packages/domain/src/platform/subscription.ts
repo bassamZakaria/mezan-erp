@@ -151,13 +151,13 @@ function requireNow(cmd: SubscriptionCommand): string {
   return now;
 }
 
-export async function renewSubscription(cmd: SubscriptionCommand, repo: SubscriptionRepository): Promise<Subscription> {
-  const s = await load(cmd.id, repo);
-  const now = requireNow(cmd);
+/** The subscription one paid period later — pure, so a caller can persist it inside its own transaction. */
+export function applyRenewal(s: Subscription, nowIso: string): Subscription {
+  const now = requireNow({ id: s.id, now: nowIso });
   assertFrom(s, ["trialing", "active", "past_due"], "active");
   const lapsed = s.currentPeriodEnd < now;
   const periodStart = lapsed ? now : s.currentPeriodEnd;
-  const next: Subscription = {
+  return {
     ...s,
     status: "active",
     trialEndsAt: null,
@@ -165,6 +165,11 @@ export async function renewSubscription(cmd: SubscriptionCommand, repo: Subscrip
     currentPeriodEnd: addPeriod(periodStart, s.billingCycle),
     updatedAt: now,
   };
+}
+
+export async function renewSubscription(cmd: SubscriptionCommand, repo: SubscriptionRepository): Promise<Subscription> {
+  const s = await load(cmd.id, repo);
+  const next = applyRenewal(s, cmd.now);
   await repo.save(next);
   return next;
 }

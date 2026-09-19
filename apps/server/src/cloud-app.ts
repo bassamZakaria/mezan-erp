@@ -13,6 +13,16 @@ import { provisionTenant, PlanRequiredError } from "./provision-tenant.js";
 import { provisionDemoTenant } from "./demo-tenant.js";
 import { startDunningTimer } from "./dunning.js";
 import { createBackupScheduler } from "./backup-scheduler.js";
+import { createCardCheckoutService, type CardCheckoutService } from "./card-checkout.js";
+import { createPaymobProvider, createPaymobTestProvider, type PaymobTestProvider } from "./paymob-provider.js";
+import {
+  PAYMOB_WEBHOOK_PATH,
+  createPaymobWebhookRoutes,
+  createTenantBillingRoutes,
+  createTestCheckoutRoutes,
+  notificationUrl,
+  trustedReturnOrigin,
+} from "./billing-routes.js";
 import type { CloudEnv } from "./env.js";
 
 export interface CreateCloudAppOptions {
@@ -112,6 +122,17 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
     );
   };
 
+  let testProvider: PaymobTestProvider | null = null;
+  let cardCheckout: CardCheckoutService | null = null;
+  if (env.paymob.mode !== "off") {
+    const provider = env.paymob.mode === "live" ? createPaymobProvider(env.paymob) : (testProvider = createPaymobTestProvider());
+    cardCheckout = createCardCheckoutService({ platform, provider, now, invalidateEntitlements: router.invalidate });
+    if (testProvider) {
+      console.log("[cloud] card checkout runs in TEST MODE: no Paymob keys are set, checkouts go to a local fake page.");
+    }
+  }
+  const checkoutService = cardCheckout;
+
   const platformApp = createPlatformRoutes({
     platform,
     auth,
@@ -119,6 +140,21 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
     provisionTenant: provisionTenantForRoutes,
     provisionRetry: provisionRetryForRoutes,
     invalidateEntitlements: router.invalidate,
+    cardCheckout: checkoutService
+      ? {
+          testMode: checkoutService.provider.testMode,
+          open: ({ tenantId, actorId, request }) => {
+            const origin = trustedReturnOrigin(request, env);
+            return checkoutService.open({
+              tenantId,
+              requestedBy: actorId,
+              returnUrl: (id) => `${origin}/platform/tenants/${encodeURIComponent(tenantId)}?checkout=${encodeURIComponent(id)}`,
+              notificationUrl: notificationUrl(request, env),
+            });
+          },
+          list: (tenantId) => checkoutService.listByTenant(tenantId),
+        }
+      : undefined,
   });
 
   const dunningTimer = startDunningTimer(platform, {
@@ -146,6 +182,12 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
   // MEZAN_DEMO_PASSWORD is set.
   root.get("/healthz", (c) => c.text("ok"));
 
+  // Also above the demo basic-auth and the origin-secret gate: Paymob sends
+  // neither, and the HMAC verified inside is this route's only credential.
+  if (checkoutService) {
+    root.route(PAYMOB_WEBHOOK_PATH, createPaymobWebhookRoutes(checkoutService));
+  }
+
   if (options.authMiddleware) {
     root.use("/*", options.authMiddleware);
   }
@@ -155,7 +197,12 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
   // `/api/platform` before `/api`: the tenant router's own catch-all would
   // otherwise swallow the console's routes first.
   root.route("/api/platform", platformApp);
+  root.route("/api/billing", createTenantBillingRoutes({ platform, router, env, service: checkoutService }));
   root.route("/api", router.app);
+
+  if (checkoutService && testProvider) {
+    root.route("/billing/test-checkout", createTestCheckoutRoutes({ platform, service: checkoutService, provider: testProvider }));
+  }
 
   root.onError((err, c) => {
     console.error(err);

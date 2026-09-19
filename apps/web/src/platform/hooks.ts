@@ -1,5 +1,7 @@
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import type {
+  CardCheckoutDTO,
+  PlatformCardCheckoutsDTO,
   ChangePlanRequestDTO,
   CreateTenantRequestDTO,
   PlanDTO,
@@ -12,6 +14,7 @@ import type {
 } from "@mezan/contracts";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { PlatformApiError, readPlatformErrorMessage, usePlatformApi } from "./api";
+import { CHECKOUT_POLL_MS } from "../billing/CardCheckoutStatus";
 
 export function useTenantsQuery(): UseQueryResult<TenantSummaryDTO[], PlatformApiError> {
   const { t } = useAppTranslation();
@@ -155,4 +158,43 @@ export function useRecordPaymentMutation() {
     ({ body }) => body,
     "platform.recordPayment.error.generic",
   );
+}
+
+/** Polls while any checkout is still waiting on its webhook, so a payment made in another tab shows up here on its own. */
+export function useCardCheckoutsQuery(tenantId: string): UseQueryResult<PlatformCardCheckoutsDTO, PlatformApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = usePlatformApi();
+  const queryClient = useQueryClient();
+  return useQuery<PlatformCardCheckoutsDTO, PlatformApiError>({
+    queryKey: ["platform", "tenants", tenantId, "card-checkouts"],
+    enabled: session !== null && tenantId !== "",
+    refetchInterval: (query) => (query.state.data?.checkouts.some((c) => c.status === "pending") ? CHECKOUT_POLL_MS : false),
+    queryFn: async () => {
+      const res = await request(`/tenants/${tenantId}/card-checkouts`);
+      if (!res.ok) throw new PlatformApiError(res.status, await readPlatformErrorMessage(res, t, "platform.cardCheckout.loadFailed"));
+      const body = await res.json<PlatformCardCheckoutsDTO>();
+      const previous = queryClient.getQueryData<PlatformCardCheckoutsDTO>(["platform", "tenants", tenantId, "card-checkouts"]);
+      const newlyPaid = body.checkouts.some(
+        (c) => c.status === "paid" && previous?.checkouts.find((p) => p.id === c.id)?.status !== "paid",
+      );
+      if (newlyPaid) void queryClient.invalidateQueries({ queryKey: ["platform", "tenants", tenantId], exact: true });
+      return body;
+    },
+  });
+}
+
+export function useCreateCardCheckoutMutation() {
+  const { t } = useAppTranslation();
+  const { request } = usePlatformApi();
+  const queryClient = useQueryClient();
+  return useMutation<CardCheckoutDTO, PlatformApiError, string>({
+    mutationFn: async (tenantId) => {
+      const res = await request(`/tenants/${tenantId}/card-checkout`, { method: "POST" });
+      if (!res.ok) throw new PlatformApiError(res.status, await readPlatformErrorMessage(res, t, "platform.cardCheckout.error.generic"));
+      return res.json<CardCheckoutDTO>();
+    },
+    onSettled: (_data, _err, tenantId) => {
+      void queryClient.invalidateQueries({ queryKey: ["platform", "tenants", tenantId, "card-checkouts"] });
+    },
+  });
 }

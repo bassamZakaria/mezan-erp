@@ -31,6 +31,7 @@ import {
 } from "./payroll-run.js";
 import {
   resolveEgyptStatutoryRules,
+  tableAmount,
   formatRateBp,
   totalShareBp,
   type EgyptStatutoryRules,
@@ -497,7 +498,7 @@ export async function calculatePayrollRun(runId: string, deps: PayrollCalculatio
     const monthlyWage = contract.monthlySalary.add(Money.sum(contract.allowances.map((a) => a.amount)));
 
     if (statutory && deps.overtime) {
-      const worked = await deps.overtime.overtimeHoursFor(employee.id, run.periodStart, run.periodEnd);
+      const worked = await deps.overtime.overtimeHoursFor(employee.id, input.paidStart, input.paidEnd);
       const hours = BigInt(Math.max(Math.round((standardDailyHours ?? worked.standardDailyHours) * 1000), 1));
       const ownRates =
         contract.payBasis === "hourly"
@@ -586,13 +587,20 @@ export async function calculatePayrollRun(runId: string, deps: PayrollCalculatio
       // clamped first and the contribution prorated after; clamping a prorated
       // wage would push every mid-month joiner onto the floor. An hourly or
       // daily wage has no contractual month: the period's own earnings are the
-      // wage, and only a floor it was raised to is prorated.
-      const insurance = socialInsuranceFor(isMonthly ? monthlyWage : contractEarnings, statutory.socialInsurance);
+      // wage, clamped between a floor and ceiling prorated to the days the
+      // contract was live, and the contribution is not prorated again.
+      const limits = statutory.socialInsurance;
+      const insurance = isMonthly
+        ? socialInsuranceFor(monthlyWage, limits)
+        : socialInsuranceFor(contractEarnings, {
+            ...limits,
+            monthlyWageFloor: prorate(tableAmount(limits.monthlyWageFloor), paidDays, periodDays).toString(),
+            monthlyWageCeiling: prorate(tableAmount(limits.monthlyWageCeiling), paidDays, periodDays).toString(),
+          });
       insurableWage = insurance.insurableWage;
       insurableWageCapped = insurance.cappedByCeiling;
-      const prorateInsurance = isMonthly || insurance.raisedToFloor;
-      const employeeInsurance = prorateInsurance ? prorate(insurance.employeeTotal, paidDays, periodDays) : insurance.employeeTotal;
-      const employerInsurance = prorateInsurance ? prorate(insurance.employerTotal, paidDays, periodDays) : insurance.employerTotal;
+      const employeeInsurance = isMonthly ? prorate(insurance.employeeTotal, paidDays, periodDays) : insurance.employeeTotal;
+      const employerInsurance = isMonthly ? prorate(insurance.employerTotal, paidDays, periodDays) : insurance.employerTotal;
       if (employeeInsurance.scaled > 0n) {
         lines.push({
           id: idGen(),

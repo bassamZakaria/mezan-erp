@@ -11,6 +11,15 @@ import {
   DuplicateEtaSubmissionError,
   EtaExclusionReasonRequiredError,
   EtaDeviceSerialNotRegisteredError,
+  EtaReceiptChainConflictError,
+  EtaRefundReferenceRequiredError,
+  EtaReceiptNotReadyError,
+  EtaBuyerIdentityRequiredError,
+  EtaRefundTooLateError,
+  EtaOriginalReceiptNotFoundError,
+  EtaDeviceSerialUnknownError,
+  EtaMissingExchangeRateError,
+  ETA_RECEIPT_PAYMENT_METHODS,
   EtaOfflineError,
   EtaReceiptUuidUnavailableError,
   EtaSignerNotConfiguredError,
@@ -20,7 +29,8 @@ import {
   type EtaBranchCodeRepository,
   type EtaConfig,
   type EtaReadinessCounts,
-  type EtaReceiptInput,
+  type EtaChainedReceiptInput,
+  type EtaReceiptPaymentMethod,
   type EtaSubmission,
   type EtaSubmissionStatus,
   type EtaUnitMappingRepository,
@@ -50,6 +60,16 @@ export interface EtaRoutesDeps {
   readonly taxRates?: TaxRateRepository;
   readonly branchCodes?: EtaBranchCodeRepository;
   readonly unitMappings?: EtaUnitMappingRepository;
+  /** الاسم التجاري — the seller name every receipt must carry (tenant settings). */
+  readonly companyTradeName?: () => Promise<string>;
+  /**
+   * Re-issues the receipt of a consumer sale or return that failed to receipt
+   * (a gap), once its cause is fixed. Wired to the backend's receipt issuer.
+   */
+  readonly issueDocumentReceipt?: (
+    kind: "invoice" | "return",
+    docId: string,
+  ) => Promise<{ receiptNo: string; uuid: string; qrValue: string } | null>;
 }
 
 function itemNeedsCode(item: Item): boolean {
@@ -149,6 +169,18 @@ function handleError(c: Context, err: unknown): Response {
   // A till whose device is not registered must be told so, loudly — not have a
   // receipt filed with a blank serial the authority will not accept.
   if (err instanceof EtaDeviceSerialNotRegisteredError) return c.json({ error: err.code, message: err.message }, 409);
+  if (err instanceof EtaRefundReferenceRequiredError) return c.json({ error: err.code, message: err.message }, 400);
+  if (
+    err instanceof EtaReceiptNotReadyError ||
+    err instanceof EtaBuyerIdentityRequiredError ||
+    err instanceof EtaRefundTooLateError ||
+    err instanceof EtaOriginalReceiptNotFoundError ||
+    err instanceof EtaDeviceSerialUnknownError ||
+    err instanceof EtaMissingExchangeRateError
+  ) {
+    return c.json({ error: err.code, message: err.message }, 422);
+  }
+  if (err instanceof EtaReceiptChainConflictError) return c.json({ error: err.code, message: err.message }, 409);
   throw err;
 }
 
@@ -182,9 +214,13 @@ const issueReceiptSchema = z.object({
   internalId: z.string().min(1),
   issueDateTime: z.string().min(1),
   receiptType: z.enum(["sale", "refund"]),
-  previousUuid: z.string().nullable().default(null),
+  // No previousUuid: the device's chain supplies it (D283). A caller-stated
+  // predecessor is how two receipts end up claiming the same link.
   currency: z.string().optional(),
   exchangeRate: AMOUNT.optional(),
+  /** The sale receipt a refund returns (header.referenceUUID). */
+  referenceUuid: z.string().nullable().optional(),
+  /** Only when re-issuing a receipt the authority rejected. */
   referenceOldUuid: z.string().nullable().optional(),
   // The till identity is NOT caller-supplied: the branch says which device the
   // authority has registered, and the serial and branch code are read from it.
@@ -198,7 +234,7 @@ const issueReceiptSchema = z.object({
     name: z.string().nullable().default(null),
     mobileNumber: z.string().nullable().optional(),
   }),
-  paymentMethod: z.enum(["cash", "card", "wallet", "transfer", "other"]),
+  paymentMethod: z.enum(ETA_RECEIPT_PAYMENT_METHODS as [EtaReceiptPaymentMethod, ...EtaReceiptPaymentMethod[]]),
   lines: z.array(receiptLineSchema).min(1),
   totalSales: AMOUNT,
   totalCommercialDiscount: AMOUNT.optional(),
@@ -249,6 +285,8 @@ async function resolveReceiptDevice(
  *   GET  /tax-subtypes                 أنواع الضريبة الفرعية per tax rate
  *   GET  /receipts/summary             ما لم يُبلَّغ من الإيصالات + ما تجاوز مهلة الإبلاغ
  *   POST /receipts                     إصدار إيصال إلكتروني (idempotent — a reprint reuses the UUID)
+ *   GET  /receipts/gaps                إيصالات لم تصدر، مع السبب
+ *   POST /receipts/issue/:kind/:docId  إصدار إيصال لمستند فاتته (kind = invoice | return)
  *   GET  /receipts/:internalId         إعادة طباعة — the stored UUID and QR
  * Permissions: eta.view (reads), eta.submit (config write + submit), eta.cancel (exclude).
  */
@@ -313,6 +351,9 @@ export function createEtaRoutes(
             deviceSerialNumber: mapping?.deviceSerialNumber ?? null,
             posClientId: mapping?.posClientId ?? null,
             hasPosClientSecret: mapping?.hasPosClientSecret ?? false,
+            posOsVersion: mapping?.posOsVersion ?? null,
+            posModelFramework: mapping?.posModelFramework ?? null,
+            hasPosPresharedKey: mapping?.hasPosPresharedKey ?? false,
           };
         }),
     );
@@ -326,7 +367,7 @@ export function createEtaRoutes(
     const branch = await deps.branches.findById(branchId);
     if (!branch) return c.json({ error: "BRANCH_NOT_FOUND", message: `Branch ${branchId} does not exist` }, 404);
     const current = (await deps.branchCodes.list()).find((m) => m.branchId === branchId) ?? null;
-    const { posClientSecret, ...patch } = parsed.data;
+    const { posClientSecret, posPresharedKey, ...patch } = parsed.data;
     const etaBranchCode = patch.etaBranchCode.trim();
     const deviceSerialNumber =
       patch.deviceSerialNumber !== undefined
@@ -334,14 +375,26 @@ export function createEtaRoutes(
         : (current?.deviceSerialNumber ?? null);
     const posClientId =
       patch.posClientId !== undefined ? (patch.posClientId?.trim() || null) : (current?.posClientId ?? null);
+    const posOsVersion =
+      patch.posOsVersion !== undefined ? (patch.posOsVersion?.trim() || null) : (current?.posOsVersion ?? null);
+    const posModelFramework =
+      patch.posModelFramework !== undefined
+        ? (patch.posModelFramework?.trim() || null)
+        : (current?.posModelFramework ?? null);
     await deps.branchCodes.save({
       branchId,
       etaBranchCode,
       deviceSerialNumber,
       posClientId,
       hasPosClientSecret: current?.hasPosClientSecret ?? false,
+      posOsVersion,
+      posModelFramework,
+      hasPosPresharedKey: current?.hasPosPresharedKey ?? false,
     });
     if (posClientSecret) await deps.branchCodes.setPosClientSecret(branchId, posClientSecret);
+    if (posPresharedKey && deps.branchCodes.setPosPresharedKey) {
+      await deps.branchCodes.setPosPresharedKey(branchId, posPresharedKey);
+    }
     return c.json({
       branchId,
       branchCode: branch.code,
@@ -350,6 +403,9 @@ export function createEtaRoutes(
       deviceSerialNumber,
       posClientId,
       hasPosClientSecret: !!posClientSecret || (current?.hasPosClientSecret ?? false),
+      posOsVersion,
+      posModelFramework,
+      hasPosPresharedKey: !!posPresharedKey || (current?.hasPosPresharedKey ?? false),
     });
   });
 
@@ -503,21 +559,51 @@ export function createEtaRoutes(
     const parsed = issueReceiptSchema.safeParse(await c.req.json());
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     try {
-      const { seller, ...rest } = parsed.data;
+      // feesAmount is refused by omission: the SDK accepts only zero there.
+      const { seller, feesAmount: _fees, ...rest } = parsed.data;
       const device = await resolveReceiptDevice(deps, seller.branchId);
       const printed = await service.enqueueReceipt({
         ...rest,
         seller: {
           deviceSerialNumber: device.deviceSerialNumber,
           branchCode: device.etaBranchCode,
+          companyTradeName: deps.companyTradeName ? await deps.companyTradeName() : null,
           syndicateLicenseNumber: seller.syndicateLicenseNumber ?? null,
         },
-      } as EtaReceiptInput);
+      } as EtaChainedReceiptInput);
       return c.json({
         submission: serializeSubmission(printed.submission),
+        receiptNo: printed.receiptNo,
         uuid: printed.uuid,
         qrValue: printed.qrValue,
       });
+    } catch (err) {
+      return handleError(c, err);
+    }
+  });
+
+  /**
+   * إيصالات لم تصدر — consumer sales and returns that should have a receipt and
+   * have none, with the reason; and the action that issues one once the cause
+   * (device, registration, buyer ID) is fixed.
+   */
+  app.get("/receipts/gaps", gate("accounting.eta.view"), async (c) => {
+    return c.json(await service.listReceiptGaps());
+  });
+
+  app.post("/receipts/issue/:kind/:docId", gate("accounting.eta.submit"), async (c) => {
+    const kind = c.req.param("kind");
+    if (kind !== "invoice" && kind !== "return") return c.json({ error: "NOT_FOUND" }, 404);
+    if (!deps.issueDocumentReceipt) return c.json({ error: "NOT_CONFIGURED" }, 404);
+    try {
+      const printed = await deps.issueDocumentReceipt(kind, c.req.param("docId"));
+      if (!printed) {
+        return c.json(
+          { error: "ETA_RECEIPT_NOT_APPLICABLE", message: "المستند غير مؤكد أو ليس بيعاً لمستهلك، فلا يصدر له إيصال." },
+          422,
+        );
+      }
+      return c.json(printed);
     } catch (err) {
       return handleError(c, err);
     }
@@ -530,6 +616,7 @@ export function createEtaRoutes(
     }
     return c.json({
       submission: serializeSubmission(printed.submission, { payload: true }),
+      receiptNo: printed.receiptNo,
       uuid: printed.uuid,
       qrValue: printed.qrValue,
     });

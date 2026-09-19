@@ -54,6 +54,8 @@ import {
   type ContractBillingRoutingPort,
   type SalesInvoiceTaxPolicy,
   type UserRepository,
+  EtaReceiptedSaleVoidRefusedError,
+  type EtaReceiptPaymentMethod,
 } from "@mezan/domain";
 import {
   createSalesInvoiceSchema,
@@ -139,6 +141,18 @@ export interface SalesInvoiceRoutesDeps {
    * EAS 48 run stays the only thing that recognises. Omit and nothing moves.
    */
   readonly contractBilling?: ContractBillingRoutingPort;
+  /**
+   * الإيصال الإلكتروني — issues a consumer sale's e-receipt as part of the
+   * confirm, so the response carries the number, UUID and QR the paper needs
+   * (D283). Resolves null for a B2B sale; its refusals (no registered device)
+   * never undo a confirm that has already posted.
+   */
+  readonly issueEtaReceipt?: (
+    invoiceId: string,
+    options: { readonly paymentMethod?: EtaReceiptPaymentMethod },
+  ) => Promise<{ receiptNo: string; uuid: string; qrValue: string } | null>;
+  /** Whether the invoice has an e-receipt; a receipted sale is refused a void. */
+  readonly hasEtaReceipt?: (invoiceId: string) => Promise<boolean>;
   /**
    * Turns a collection recorded on the invoice into a real confirmed collection
    * voucher, allocated to that invoice. Without it the route refuses rather
@@ -1001,8 +1015,25 @@ export function createSalesInvoicesRoutes(
         actorRoles: gateActorRoles(c),
       });
       await stampDocumentModifier(deps.versionGuard, result.invoice.id, ctx?.userId);
+      let etaReceipt: { receiptNo: string; uuid: string; qrValue: string } | null = null;
+      let etaReceiptError: { code: string; message: string } | null = null;
+      if (!result.held && deps.issueEtaReceipt) {
+        try {
+          etaReceipt = await deps.issueEtaReceipt(result.invoice.id, {
+            paymentMethod: parsed.data.receiptPaymentMethod,
+          });
+        } catch (err) {
+          const code = (err as { code?: unknown }).code;
+          etaReceiptError = {
+            code: typeof code === "string" ? code : "ETA_RECEIPT_FAILED",
+            message: err instanceof Error ? err.message : String(err),
+          };
+        }
+      }
       return c.json({
         ...serialize(result.invoice, totalsFor(svc, result.invoice), await creditFor(result.invoice.id)),
+        etaReceipt,
+        ...(etaReceiptError ? { etaReceiptError } : {}),
         held: result.held,
         creditWarning: serializeCreditWarning(result.creditWarning),
         // Lines charged under the customer's own price list (D35). Empty when
@@ -1060,6 +1091,13 @@ export function createSalesInvoicesRoutes(
       assertSalesInvoiceTransition(invoice.id, invoice.status, "reversed");
     } catch (err) {
       return handleDomainError(c, err);
+    }
+    // A receipted consumer sale is corrected by a return (a refund receipt);
+    // the authority has no cancellation for a receipt, so a void would drop
+    // the VAT from the books while the authority keeps it.
+    if (deps.hasEtaReceipt && (await deps.hasEtaReceipt(invoice.id))) {
+      const refusal = new EtaReceiptedSaleVoidRefusedError(invoice.docNo ?? invoice.id);
+      return c.json({ error: refusal.code, message: refusal.message }, 409);
     }
 
     // The purchase side refuses when the received goods have already been

@@ -29,13 +29,20 @@ export interface EtaBranchCode {
    * itself is never read back, exactly as `EtaConfig.hasClientSecret`.
    */
   readonly hasPosClientSecret: boolean;
+  /** `pososversion` — the device's OS version as registered with the authority. */
+  readonly posOsVersion?: string | null;
+  /** `posmodelframework` — the device's model framework number as registered. */
+  readonly posModelFramework?: string | null;
+  /** True when the device's pre-shared key is on file (sealed, never read back). */
+  readonly hasPosPresharedKey?: boolean;
 }
 
 export interface EtaBranchCodeRepository {
   list(): Promise<EtaBranchCode[]>;
-  /** Writes everything but the secret — `hasPosClientSecret` is read-only. */
+  /** Writes everything but the secrets — `hasPosClientSecret` / `hasPosPresharedKey` are read-only. */
   save(mapping: EtaBranchCode): Promise<void>;
   setPosClientSecret(branchId: string, secret: string): Promise<void>;
+  setPosPresharedKey?(branchId: string, key: string): Promise<void>;
 }
 
 export interface EtaUnitMapping {

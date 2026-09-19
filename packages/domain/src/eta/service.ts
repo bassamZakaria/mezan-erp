@@ -25,7 +25,18 @@ import type {
 } from "./submission.js";
 import { canonicalEtaJson, unconfiguredEtaSigner, type EtaSignerPort } from "./signer.js";
 import {
+  createInMemoryEtaReceiptChain,
+  createInMemoryEtaReceiptGaps,
+  createKeyedSerializer,
+  EtaReceiptChainConflictError,
+  type EtaReceiptChainHead,
+  type EtaReceiptChainRepository,
+  type EtaReceiptGap,
+  type EtaReceiptGapRepository,
+} from "./receipt-chain.js";
+import {
   DuplicateEtaSubmissionError,
+  EtaDeviceSerialNotRegisteredError,
   EtaExclusionReasonRequiredError,
   EtaOfflineError,
   EtaSignerNotConfiguredError,
@@ -109,13 +120,38 @@ export interface EtaServiceDeps {
    * transmitted unsigned.
    */
   readonly signing?: EtaSigningPort;
+  /**
+   * The per-device previousUUID chain. Defaults to one held in memory over
+   * `submissions`; a persistent install passes the SQLite table so the head
+   * advances in the same transaction as the receipt row.
+   */
+  readonly receiptChain?: EtaReceiptChainRepository;
+  /** Sales and returns that should have a receipt and do not. Defaults to memory. */
+  readonly receiptGaps?: EtaReceiptGapRepository;
 }
+
+/**
+ * A receipt to issue. `previousUuid` is deliberately absent: the chain head is
+ * read from the device's own chain row inside the issue, never taken from a
+ * caller, because a caller-supplied predecessor is how two sales end up
+ * claiming the same link.
+ */
+export type EtaChainedReceiptInput = Omit<EtaReceiptInput, "previousUuid">;
 
 /** What a till needs to print (or reprint) one receipt. */
 export interface EtaReceiptPrintData {
   readonly submission: EtaSubmission;
   readonly uuid: string;
   readonly qrValue: string;
+  /** رقم الإيصال — the number printed on the paper (the submission's internalId). */
+  readonly receiptNo: string;
+}
+
+const RECEIPT_CHAIN_ATTEMPTS = 3;
+
+function queueOrder(a: EtaSubmission, b: EtaSubmission): number {
+  if (a.createdAt !== b.createdAt) return a.createdAt < b.createdAt ? -1 : 1;
+  return (a.receiptSeq ?? 0) - (b.receiptSeq ?? 0);
 }
 
 /** Input to enqueue a confirmed document. */
@@ -153,6 +189,9 @@ export class EtaService {
   private readonly signerPort: EtaSignerPort;
   private readonly receiptUuidPort: EtaReceiptUuidPort;
   private readonly signingPort: EtaSigningPort;
+  private readonly receiptChain: EtaReceiptChainRepository;
+  private readonly receiptGaps: EtaReceiptGapRepository;
+  private readonly perDevice = createKeyedSerializer();
   private readonly now: () => string;
   private readonly newId: () => string;
 
@@ -163,6 +202,8 @@ export class EtaService {
     this.now = deps.now ?? (() => new Date().toISOString());
     this.signingPort = deps.signing ?? esealPortFromExternalSigner(this.signerPort, () => this.now());
     this.newId = deps.newId ?? (() => `eta-${Math.random().toString(36).slice(2)}`);
+    this.receiptChain = deps.receiptChain ?? createInMemoryEtaReceiptChain(deps.submissions);
+    this.receiptGaps = deps.receiptGaps ?? createInMemoryEtaReceiptGaps();
   }
 
   getConfig(): Promise<EtaConfig> {
@@ -204,44 +245,77 @@ export class EtaService {
   }
 
   /**
-   * إصدار إيصال إلكتروني — queue one receipt and hand back what the paper
-   * needs. Unlike {@link enqueue} this is IDEMPOTENT: a receipt already in the
-   * queue is returned as it stands, with the UUID it was printed with the
+   * إصدار إيصال إلكتروني — issue one receipt on its device's chain and hand
+   * back what the paper needs. IDEMPOTENT: a receipt already issued under this
+   * number is returned as it stands, with the UUID it was printed with the
    * first time. A reprint is the same piece of paper, so it carries the same
    * identifier and the same QR — minting a second submission would report one
-   * sale to the authority twice.
+   * sale to the authority twice and fork the device's chain.
    *
    * The UUID is computed here, before printing, because the receipt is
    * reported AFTER the sale and the customer walks out with the QR in hand.
+   * Issues on one serial run one at a time; the head is read, the receipt
+   * built on it, and the chain advanced by compare-and-set with the insert.
    */
-  async enqueueReceipt(input: EtaReceiptInput): Promise<EtaReceiptPrintData> {
-    const config = await this.deps.config.get();
-    const existing = await this.deps.submissions.findByInternalId(input.internalId);
-    if (existing) return this.receiptPrintData(existing, config);
+  async enqueueReceipt(input: EtaChainedReceiptInput): Promise<EtaReceiptPrintData> {
+    const serial = input.seller.deviceSerialNumber.trim();
+    if (serial === "") throw new EtaDeviceSerialNotRegisteredError(input.seller.branchCode);
+    return this.perDevice(serial, async () => {
+      const config = await this.deps.config.get();
+      for (let attempt = 0; attempt < RECEIPT_CHAIN_ATTEMPTS; attempt++) {
+        const existing = await this.deps.submissions.findByInternalId(input.internalId);
+        if (existing) {
+          if (existing.documentType !== "receipt") throw new DuplicateEtaSubmissionError(input.internalId);
+          return this.receiptPrintData(existing, config);
+        }
+        const head = await this.receiptChain.head(serial);
+        const previousUuid = head?.lastUuid ?? null;
+        const payload = buildEtaReceiptPayload(
+          { ...input, seller: { ...input.seller, deviceSerialNumber: serial }, previousUuid },
+          config,
+        );
+        const uuid = await this.receiptUuidPort.compute(canonicalizeEtaDocument(payload));
+        (payload.header as Record<string, unknown>).uuid = uuid;
+        const stamp = this.now();
+        const submission: EtaSubmission = {
+          id: this.newId(),
+          internalId: input.internalId,
+          documentType: "receipt",
+          status: "ready",
+          etaUuid: uuid,
+          payload,
+          errors: [],
+          exclusionReason: null,
+          createdAt: stamp,
+          updatedAt: stamp,
+          submittedAt: null,
+          gatewaySubmissionId: null,
+          signature: null,
+          transmitLog: [],
+          receiptSerial: serial,
+          receiptSeq: (head?.lastSeq ?? 0) + 1,
+        };
+        if (await this.receiptChain.append({ serial, expectedPreviousUuid: previousUuid, submission })) {
+          await this.receiptGaps.clear(input.internalId);
+          return this.receiptPrintData(submission, config);
+        }
+      }
+      throw new EtaReceiptChainConflictError(serial);
+    });
+  }
 
-    const payload = buildEtaReceiptPayload(input, config);
-    const uuid = await this.receiptUuidPort.compute(canonicalizeEtaDocument(payload));
-    const header = payload.header as Record<string, unknown>;
-    header.uuid = uuid;
-    const stamp = this.now();
-    const submission: EtaSubmission = {
-      id: this.newId(),
-      internalId: input.internalId,
-      documentType: "receipt",
-      status: "ready",
-      etaUuid: uuid,
-      payload,
-      errors: [],
-      exclusionReason: null,
-      createdAt: stamp,
-      updatedAt: stamp,
-      submittedAt: null,
-      gatewaySubmissionId: null,
-      signature: null,
-      transmitLog: [],
-    };
-    await this.deps.submissions.create(submission);
-    return this.receiptPrintData(submission, config);
+  /** يسجّل بيعاً لم يصدر له إيصال, so the reporting-window counters include it. */
+  recordReceiptGap(gap: EtaReceiptGap): Promise<void> {
+    return this.receiptGaps.record(gap);
+  }
+
+  listReceiptGaps(): Promise<EtaReceiptGap[]> {
+    return this.receiptGaps.list();
+  }
+
+  /** رأس السلسلة — the device's last issued receipt, or null before its first. */
+  receiptChainHead(serial: string): Promise<EtaReceiptChainHead | null> {
+    return this.receiptChain.head(serial);
   }
 
   /** إعادة طباعة — the stored identifier, never a fresh one. */
@@ -257,20 +331,44 @@ export class EtaService {
    * above zero is the number a shop must act on.
    */
   async receiptQueueSummary(now?: string): Promise<EtaReceiptQueueSummary> {
-    const [all, config] = await Promise.all([this.deps.submissions.list(), this.deps.config.get()]);
-    return summarizeEtaReceiptQueue(all, now ?? this.now(), config.receiptReportingWindowHours);
+    const [all, config, gaps] = await Promise.all([
+      this.deps.submissions.list(),
+      this.deps.config.get(),
+      this.receiptGaps.list(),
+    ]);
+    // A sale that never got a receipt is as unreported as one stuck in the
+    // queue, and ages against the same window from the sale moment.
+    const unissued = gaps.map((g) => ({
+      id: `gap:${g.internalId}`,
+      internalId: g.internalId,
+      documentType: "receipt",
+      status: "error",
+      payload: { header: { dateTimeIssued: g.issuedAt } },
+      createdAt: g.recordedAt,
+    }));
+    return {
+      ...summarizeEtaReceiptQueue([...all, ...unissued], now ?? this.now(), config.receiptReportingWindowHours),
+      unissued: gaps.length,
+    };
   }
 
   private receiptPrintData(submission: EtaSubmission, config: EtaConfig): EtaReceiptPrintData {
-    const payload = submission.payload as { header?: { dateTimeIssued?: string } } | null;
+    const payload = submission.payload as {
+      header?: { dateTimeIssued?: string };
+      totalAmount?: string;
+      seller?: { rin?: string };
+    } | null;
     const uuid = submission.etaUuid ?? "";
     return {
       submission,
       uuid,
+      receiptNo: submission.internalId,
       qrValue: etaReceiptQrValue({
         uuid,
         issueDateTime: payload?.header?.dateTimeIssued ?? submission.createdAt,
         environment: config.environment,
+        totalAmount: payload?.totalAmount ?? null,
+        issuerRin: payload?.seller?.rin || config.taxRegistrationNumber,
       }),
     };
   }
@@ -370,10 +468,12 @@ export class EtaService {
     const queued: string[] = [];
     const unsigned: string[] = [];
 
+    // Oldest first, and a device's receipts in chain order: a link reported
+    // before its predecessor names a previousUUID the authority has not seen.
     const pending = [
       ...(await this.deps.submissions.list("ready")),
       ...(await this.deps.submissions.list("pending_signature")),
-    ];
+    ].sort(queueOrder);
     for (const s of pending) {
       try {
         const next = await this.submit(s.id);
@@ -401,6 +501,67 @@ export class EtaService {
     }
 
     return { submitted, accepted, rejected, queued, unsigned };
+  }
+
+  /**
+   * إرسال الإيصالات الجاهزة — report every queued receipt, device by device, in
+   * chain order. A device that is offline (no credentials, no network) keeps
+   * the rest of its chain queued rather than reporting later links first.
+   */
+  async submitReadyReceipts(): Promise<{ submitted: EtaSubmission[]; queued: string[]; rejected: EtaSubmission[] }> {
+    const all = await this.deps.submissions.list();
+    const receipts = all.filter((s) => s.documentType === "receipt");
+    const statusByUuid = new Map(receipts.filter((s) => s.etaUuid).map((s) => [s.etaUuid!, s.status]));
+    const ready = receipts
+      .filter((s) => s.status === "ready")
+      .sort((a, b) =>
+        (a.receiptSerial ?? "") !== (b.receiptSerial ?? "")
+          ? (a.receiptSerial ?? "") < (b.receiptSerial ?? "") ? -1 : 1
+          : (a.receiptSeq ?? 0) - (b.receiptSeq ?? 0) || queueOrder(a, b),
+      );
+    const submitted: EtaSubmission[] = [];
+    const queued: string[] = [];
+    const rejected: EtaSubmission[] = [];
+    const halted = new Set<string>();
+    for (const s of ready) {
+      const serial = s.receiptSerial ?? `legacy:${s.id}`;
+      // A refund names its sale receipt, which must already be with the
+      // authority — a refund on another till could otherwise overtake it.
+      const reference = (s.payload as { header?: { referenceUUID?: unknown } } | null)?.header?.referenceUUID;
+      const referenceStatus = typeof reference === "string" ? statusByUuid.get(reference) : undefined;
+      if (halted.has(serial) || (referenceStatus !== undefined && referenceStatus !== "submitted" && referenceStatus !== "accepted")) {
+        halted.add(serial);
+        queued.push(s.id);
+        continue;
+      }
+      try {
+        const next = await this.submit(s.id);
+        statusByUuid.set(next.etaUuid ?? "", next.status);
+        if (next.status === "submitted") submitted.push(next);
+        else {
+          if (next.status === "error") rejected.push(next);
+          halted.add(serial);
+        }
+      } catch (err) {
+        if (!(err instanceof EtaOfflineError)) throw err;
+        halted.add(serial);
+        queued.push(s.id);
+      }
+    }
+    // 202 is only the synchronous half of the authority's validation; a receipt
+    // can turn Invalid afterwards, and only a poll brings that back to the queue.
+    if (this.transmitPort.fetchStatus) {
+      for (const s of await this.deps.submissions.list("submitted")) {
+        if (s.documentType !== "receipt") continue;
+        try {
+          const next = await this.refreshStatus(s.id);
+          if (next.status === "error") rejected.push(next);
+        } catch (err) {
+          if (!(err instanceof EtaOfflineError)) throw err;
+        }
+      }
+    }
+    return { submitted, queued, rejected };
   }
 
   /**
@@ -466,7 +627,7 @@ export class EtaService {
    * one unreachable document doesn't abort the batch.
    */
   async submitAllReady(): Promise<{ submitted: EtaSubmission[]; queued: string[] }> {
-    const ready = await this.deps.submissions.list("ready");
+    const ready = (await this.deps.submissions.list("ready")).sort(queueOrder);
     const submitted: EtaSubmission[] = [];
     const queued: string[] = [];
     for (const s of ready) {

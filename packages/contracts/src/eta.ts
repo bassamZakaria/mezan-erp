@@ -126,6 +126,12 @@ export const etaBranchCodeRowSchema = z.object({
   posClientId: z.string().nullable(),
   /** The per-device secret is never returned — only whether one is on file. */
   hasPosClientSecret: z.boolean(),
+  /** `pososversion` — the device's OS version as registered with the authority. */
+  posOsVersion: z.string().nullable().optional(),
+  /** `posmodelframework` — the device's model framework number as registered. */
+  posModelFramework: z.string().nullable().optional(),
+  /** The pre-shared key is never returned — only whether one is on file. */
+  hasPosPresharedKey: z.boolean().optional(),
 });
 
 export const updateEtaBranchCodeSchema = z.object({
@@ -133,6 +139,9 @@ export const updateEtaBranchCodeSchema = z.object({
   deviceSerialNumber: z.string().nullable().optional(),
   posClientId: z.string().nullable().optional(),
   posClientSecret: z.string().optional(),
+  posOsVersion: z.string().max(50).nullable().optional(),
+  posModelFramework: z.string().max(10).nullable().optional(),
+  posPresharedKey: z.string().max(200).optional(),
 });
 
 export const etaItemMappingRowSchema = z.object({

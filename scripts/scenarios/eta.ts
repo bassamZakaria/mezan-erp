@@ -24,7 +24,7 @@ const TODAY = "2026-08-24";
 const VAT = 14;
 
 export async function run(ctx: Ctx): Promise<void> {
-  const { req, n, check, scenario, rows } = ctx;
+  const { req, n, check, checkEq, scenario, rows } = ctx;
 
   async function serviceInvoice(id: string, unitPrice: string) {
     const created = await req("POST", "/sales-invoices", {
@@ -223,5 +223,71 @@ export async function run(ctx: Ctx): Promise<void> {
 
     const queued = rows((await req("GET", "/eta/submissions")).body).find((s: any) => s.internalId === "SCN-E-INV-ON" || s.internalId?.startsWith("INV-"));
     check("the queued document is جاهز, awaiting submission", queued?.status === "ready", JSON.stringify(queued));
+  });
+
+  // ---------------------------------------------------------------------------
+  // e7 — a consumer sale is receipted AT the confirm, and the receipt ties to
+  // the ledger; its return is a refund receipt that ties too (D282, D283)
+  // ---------------------------------------------------------------------------
+  await scenario("e7 · a consumer sale's receipt comes back with its confirm and states what the ledger posted; its return is a refund receipt against it", async () => {
+    const WALK_IN = "SCN-E-WALKIN";
+    const SERVICE = "ITEM-DEMO-10";
+    const mapped = await req("PUT", `/eta/item-mappings/${SERVICE}`, { etaCodeType: "EGS", etaItemCode: "EG-SCN-E-0010" });
+    check("the service is registered with the authority, as a receipt line requires", mapped.status === 200, JSON.stringify(mapped.body).slice(0, 200));
+    const customer = await req("POST", "/customers", {
+      id: WALK_IN, code: WALK_IN, nameAr: "عميل نقدي (سيناريو)", paymentTermsDays: 0, currency: "EGP",
+      openingBalance: "0", active: true, creditLimit: "0", taxExempt: false, etaBuyerType: "individual",
+    });
+    check("a walk-in customer with no tax number exists", customer.status === 201, JSON.stringify(customer.body).slice(0, 200));
+
+    async function consumerSale(id: string) {
+      await req("POST", "/sales-invoices", {
+        id, date: TODAY, dueDate: TODAY, customerId: WALK_IN, customerNameAr: "عميل نقدي", warehouseId: WH, branchId: BRANCH,
+        arAccountId: AR, taxAccountId: OUTPUT_TAX,
+        lines: [{ lineId: `${id}-L1`, itemId: SERVICE, itemNameAr: "خدمة توصيل", isStock: false, qty: "2", unitPrice: "75", taxRatePercent: VAT, revenueAccountId: REVENUE }],
+      });
+      return req("POST", `/sales-invoices/${id}/confirm`, {});
+    }
+    const lineOf = (entry: any, account: string) => (entry?.lines ?? []).filter((l: any) => l.accountId === account);
+    const sum = (lines: any[], side: "debit" | "credit") => lines.reduce((s, l) => s + n(l[side]), 0);
+
+    const first = await consumerSale("SCN-E-B2C-1");
+    check("the consumer sale confirms", first.status === 200, JSON.stringify(first.body).slice(0, 200));
+    const printed = first.body?.etaReceipt;
+    check("the confirm response itself carries the receipt the till prints", /^[0-9a-f]{64}$/.test(printed?.uuid ?? ""), JSON.stringify(printed));
+    check("its QR is the authority's share link for that UUID, with the total and issuer RIN", String(printed?.qrValue ?? "").includes(`/receipts/search/${printed?.uuid}/share/`) && String(printed?.qrValue).includes("#Total:"), String(printed?.qrValue));
+
+    const stored = (await req("GET", `/eta/receipts/${encodeURIComponent(printed?.receiptNo ?? "")}`)).body;
+    const payload = stored?.submission?.payload;
+    check("it is filed as a sale receipt at version 1.2", payload?.documentType?.receiptType === "s" && payload?.documentType?.typeVersion === "1.2", JSON.stringify(payload?.documentType));
+    const entry = (await req("GET", `/gl/journal-entries/${first.body?.journalEntryId}`)).body;
+    checkEq("the receipt's total is the receivable the confirm debited", n(payload?.totalAmount), sum(lineOf(entry, AR), "debit"));
+    checkEq("its T1 total is the output VAT the confirm credited", n(payload?.taxTotals?.[0]?.amount), sum(lineOf(entry, OUTPUT_TAX), "credit"));
+    checkEq("and its net is the revenue the confirm credited", n(payload?.netAmount), sum(lineOf(entry, REVENUE), "credit"));
+
+    const second = await consumerSale("SCN-E-B2C-2");
+    const secondPayload = (await req("GET", `/eta/receipts/${encodeURIComponent(second.body?.etaReceipt?.receiptNo ?? "")}`)).body?.submission?.payload;
+    check("the next sale on the same till chains onto this receipt", secondPayload?.header?.previousUUID === printed?.uuid, `${secondPayload?.header?.previousUUID} vs ${printed?.uuid}`);
+
+    const draft = await req("POST", "/sales-returns/from-invoice", {
+      id: "SCN-E-B2C-RET", date: TODAY, memo: "مرتجع مستهلك", warehouseId: WH, sourceInvoiceId: "SCN-E-B2C-1", reason: "DEFECTIVE",
+      requested: [{ itemId: SERVICE, qty: "1" }],
+    });
+    check("a return of one unit drafts off the invoice", draft.status === 201, JSON.stringify(draft.body).slice(0, 200));
+    const returned = await req("POST", "/sales-returns/SCN-E-B2C-RET/confirm", {});
+    check("and confirms", returned.status === 200, JSON.stringify(returned.body).slice(0, 200));
+    const returnNo = returned.body?.document?.docNo;
+    let refund: any = null;
+    for (let i = 0; i < 50 && !refund; i += 1) {
+      const res = await req("GET", `/eta/receipts/${encodeURIComponent(returnNo ?? "")}`);
+      if (res.status === 200) refund = res.body;
+      else await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    check("the consumer return is a refund receipt (r), not a credit note", refund?.submission?.payload?.documentType?.receiptType === "r", JSON.stringify(refund?.submission?.payload?.documentType ?? null));
+    check("that references the sale receipt's UUID", refund?.submission?.payload?.header?.referenceUUID === printed?.uuid, JSON.stringify(refund?.submission?.payload?.header ?? null));
+    const retEntry = (await req("GET", `/gl/journal-entries/${returned.body?.document?.journalEntryId}`)).body;
+    checkEq("its total is the receivable the return credited", n(refund?.submission?.payload?.totalAmount), sum(lineOf(retEntry, AR), "credit"));
+    const credit = rows((await req("GET", "/eta/submissions")).body).find((s: any) => s.internalId === returnNo && s.documentType === "credit_note");
+    check("and no credit note was queued for it (D282)", credit === undefined, JSON.stringify(credit ?? null));
   });
 }

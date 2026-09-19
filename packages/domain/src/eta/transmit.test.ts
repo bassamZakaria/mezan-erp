@@ -262,3 +262,190 @@ describe("createEtaHttpTransmitPort", () => {
     await expect(unset.checkCredentials!(CONFIG)).resolves.toMatchObject({ ok: false, reason: "missing_credentials" });
   });
 });
+
+/**
+ * guards D284 — an e-receipt goes down the RECEIPT leg: the device's own POS
+ * credentials and headers at the identity server, then /receiptsubmissions.
+ */
+describe("createEtaHttpTransmitPort — the e-receipt leg", () => {
+  const RECEIPT_UUID = "e".repeat(64);
+  const RECEIPT: EtaSubmission = {
+    ...SUBMISSION,
+    id: "r1",
+    internalId: "INV-000099",
+    documentType: "receipt",
+    etaUuid: RECEIPT_UUID,
+    receiptSerial: "POS-0001",
+    receiptSeq: 1,
+    payload: {
+      header: { dateTimeIssued: "2026-09-01T08:00:00Z", receiptNumber: "INV-000099", uuid: RECEIPT_UUID, previousUUID: "" },
+      seller: { deviceSerialNumber: "POS-0001" },
+      totalAmount: "114.00000",
+    },
+  };
+  const device = {
+    serial: "POS-0001",
+    clientId: "pos-cid",
+    clientSecret: "pos-shh",
+    osVersion: "windows",
+    modelFramework: "1",
+    presharedKey: "psk-secret",
+  };
+  const posCredentials = { forSerial: async (serial: string) => (serial === "POS-0001" ? device : null) };
+  const accepted = () => ({
+    status: 202,
+    body: JSON.stringify({
+      submissionUUID: "SUBR-1",
+      acceptedDocuments: [{ uuid: RECEIPT_UUID, longId: "LONG", receiptNumber: "INV-000099" }],
+      rejectedDocuments: [],
+    }),
+  });
+
+  it("authenticates AS THE DEVICE — POS client id/secret in the body, posserial/pososversion/posmodelframework/presharedkey headers", async () => {
+    const { http, seen } = fakeServer((req) => (req.url.endsWith("/connect/token") ? tokenResponse() : accepted()));
+    const port = createEtaHttpTransmitPort({ http, credentials, posCredentials, now: nowStamp, sleep: noSleep });
+
+    const result = await port.transmit(RECEIPT, CONFIG);
+
+    expect(result).toMatchObject({ ok: true, etaUuid: RECEIPT_UUID, submissionId: "SUBR-1" });
+    const { identityUrl, apiBaseUrl } = resolveEtaEndpoints(CONFIG);
+    const token = seen[0]!;
+    expect(token.url).toBe(`${identityUrl}/connect/token`);
+    expect(token.headers).toMatchObject({
+      posserial: "POS-0001",
+      pososversion: "windows",
+      posmodelframework: "1",
+      presharedkey: "psk-secret",
+    });
+    const form = new URLSearchParams(token.body);
+    expect(form.get("grant_type")).toBe("client_credentials");
+    expect(form.get("client_id")).toBe("pos-cid");
+    expect(form.get("client_secret")).toBe("pos-shh");
+    // Not the company's InvoicingAPI credentials.
+    expect(token.body).not.toContain("cid=cid");
+    expect(token.body).not.toContain("shh&");
+
+    const submit = seen[1]!;
+    expect(submit.url).toBe(`${apiBaseUrl}/receiptsubmissions`);
+    expect(submit.url).not.toContain("documentsubmissions");
+    expect(submit.headers.authorization).toBe("Bearer tok");
+    expect(submit.body!.startsWith('{"receipts":[{"header":')).toBe(true);
+    expect(submit.body).toContain('"totalAmount":114.00000');
+    expect(JSON.parse(submit.body!).signatures).toEqual([]);
+  });
+
+  it("never logs the device secret or the pre-shared key", async () => {
+    const { http } = fakeServer((req) => (req.url.endsWith("/connect/token") ? tokenResponse() : accepted()));
+    const port = createEtaHttpTransmitPort({ http, credentials, posCredentials, now: nowStamp, sleep: noSleep });
+    const result = await port.transmit(RECEIPT, CONFIG);
+    const logged = JSON.stringify(result.log);
+    expect(logged).not.toContain("pos-shh");
+    expect(logged).not.toContain("psk-secret");
+  });
+
+  it("reuses the device's token until it expires rather than logging in per receipt", async () => {
+    const { http, seen } = fakeServer((req) => (req.url.endsWith("/connect/token") ? tokenResponse() : accepted()));
+    const port = createEtaHttpTransmitPort({ http, credentials, posCredentials, now: nowStamp, sleep: noSleep });
+    await port.transmit(RECEIPT, CONFIG);
+    await port.transmit({ ...RECEIPT, id: "r2" }, CONFIG);
+    expect(seen.filter((r) => r.url.endsWith("/connect/token"))).toHaveLength(1);
+  });
+
+  it("logs in again once when the authority answers 401 on a cached token", async () => {
+    let submits = 0;
+    const { http, seen } = fakeServer((req) => {
+      if (req.url.endsWith("/connect/token")) return tokenResponse();
+      submits += 1;
+      return submits === 2 ? { status: 401, body: "" } : accepted();
+    });
+    const port = createEtaHttpTransmitPort({ http, credentials, posCredentials, now: nowStamp, sleep: noSleep });
+    await port.transmit(RECEIPT, CONFIG);
+    const second = await port.transmit({ ...RECEIPT, id: "r2" }, CONFIG);
+    expect(second.ok).toBe(true);
+    expect(seen.filter((r) => r.url.endsWith("/connect/token"))).toHaveLength(2);
+  });
+
+  it("stays OFFLINE, opening no socket, when the device has no credentials on file", async () => {
+    const { http, seen } = fakeServer(() => tokenResponse());
+    const port = createEtaHttpTransmitPort({
+      http,
+      credentials,
+      posCredentials: { forSerial: async () => null },
+      now: nowStamp,
+      sleep: noSleep,
+    });
+    await expect(port.transmit(RECEIPT, CONFIG)).rejects.toBeInstanceOf(EtaOfflineError);
+    expect(seen).toHaveLength(0);
+  });
+
+  it("never sends a receipt down the invoice leg, even with company credentials on file", async () => {
+    const { http, seen } = fakeServer(() => tokenResponse());
+    const port = createEtaHttpTransmitPort({ http, credentials, now: nowStamp, sleep: noSleep });
+    await expect(port.transmit(RECEIPT, CONFIG)).rejects.toBeInstanceOf(EtaOfflineError);
+    expect(seen).toHaveLength(0);
+  });
+
+  it("reports the authority's rejection of the receipt with its details", async () => {
+    const { http } = fakeServer((req) =>
+      req.url.endsWith("/connect/token")
+        ? tokenResponse()
+        : {
+            status: 202,
+            body: JSON.stringify({
+              submissionUUID: "SUBR-2",
+              acceptedDocuments: [],
+              rejectedDocuments: [
+                {
+                  receiptNumber: "INV-000099",
+                  uuid: RECEIPT_UUID,
+                  error: { message: "Invalid receipt", details: [{ propertyPath: "header.previousUUID", message: "chain broken" }] },
+                },
+              ],
+            }),
+          },
+    );
+    const port = createEtaHttpTransmitPort({ http, credentials, posCredentials, now: nowStamp, sleep: noSleep });
+    const result = await port.transmit(RECEIPT, CONFIG);
+    expect(result.ok).toBe(false);
+    expect(result.errors).toEqual(["Invalid receipt", "header.previousUUID: chain broken"]);
+  });
+
+  it("keeps the receipt queued on 422 DuplicateSubmission — the SDK says retry after Retry-After, not that it was filed", async () => {
+    const { http } = fakeServer((req) =>
+      req.url.endsWith("/connect/token") ? tokenResponse() : { status: 422, body: JSON.stringify({ error: { code: "DuplicateSubmission" } }) },
+    );
+    const port = createEtaHttpTransmitPort({ http, credentials, posCredentials, now: nowStamp, sleep: noSleep });
+    await expect(port.transmit(RECEIPT, CONFIG)).rejects.toBeInstanceOf(EtaOfflineError);
+  });
+
+  it("reads a receipt's status from GET /receipts/{uuid}/details", async () => {
+    const { http, seen } = fakeServer((req) =>
+      req.url.endsWith("/connect/token")
+        ? tokenResponse()
+        : { status: 200, body: JSON.stringify({ receipt: { status: "Invalid", statusReason: "previousUUID mismatch" } }) },
+    );
+    const port = createEtaHttpTransmitPort({ http, credentials, posCredentials, now: nowStamp, sleep: noSleep });
+    const status = await port.fetchStatus!(RECEIPT, CONFIG);
+    expect(status).toMatchObject({ state: "rejected", errors: ["previousUUID mismatch"] });
+    const { apiBaseUrl } = resolveEtaEndpoints(CONFIG);
+    expect(seen[1]!.url.startsWith(`${apiBaseUrl}/receipts/${RECEIPT_UUID}/details`)).toBe(true);
+    expect(seen[1]!.headers.authorization).toBe("Bearer tok");
+  });
+});
+
+describe("createEtaHttpTransmitPort — an unreachable authority keeps a receipt queued", () => {
+  it("refuses OFFLINE rather than reporting an error when the network is down", async () => {
+    const http: EtaHttpClient = async () => {
+      throw new Error("ENOTFOUND id.preprod.eta.gov.eg");
+    };
+    const port = createEtaHttpTransmitPort({
+      http,
+      credentials,
+      posCredentials: { forSerial: async () => ({ serial: "POS-0001", clientId: "c", clientSecret: "s", osVersion: null, modelFramework: null, presharedKey: null }) },
+      now: nowStamp,
+      sleep: noSleep,
+    });
+    const receipt: EtaSubmission = { ...SUBMISSION, documentType: "receipt", receiptSerial: "POS-0001", etaUuid: "f".repeat(64) };
+    await expect(port.transmit(receipt, CONFIG)).rejects.toBeInstanceOf(EtaOfflineError);
+  });
+});

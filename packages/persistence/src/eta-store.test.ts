@@ -90,3 +90,79 @@ describe("SqliteEtaSubmissionRepository", () => {
     expect(JSON.stringify(await store.config.get())).not.toContain("super-secret");
   });
 });
+
+describe("SqliteEtaReceiptChainRepository — one chain per device serial (D283)", () => {
+  const receipt = (n: number, serial: string, uuid: string): EtaSubmission => ({
+    id: `r-${serial}-${n}`, internalId: `RCP-${serial}-${n}`, documentType: "receipt", status: "ready", etaUuid: uuid,
+    payload: { seller: { deviceSerialNumber: serial } }, errors: [], exclusionReason: null,
+    createdAt: `2026-09-01T10:00:0${n}.000Z`, updatedAt: `2026-09-01T10:00:0${n}.000Z`, submittedAt: null,
+    gatewaySubmissionId: null, signature: null, transmitLog: [], receiptSerial: serial, receiptSeq: n,
+  });
+
+  it("stores the receipt and advances the head in one step", async () => {
+    store = createSqliteEtaStore();
+    expect(await store.receiptChain.append({ serial: "POS-A", expectedPreviousUuid: null, submission: receipt(1, "POS-A", "u1") })).toBe(true);
+    expect(await store.receiptChain.append({ serial: "POS-A", expectedPreviousUuid: "u1", submission: receipt(2, "POS-A", "u2") })).toBe(true);
+    expect(await store.receiptChain.head("POS-A")).toMatchObject({ lastUuid: "u2", lastSeq: 2, lastReceiptNumber: "RCP-POS-A-2" });
+    expect((await store.submissions.findByInternalId("RCP-POS-A-2"))?.receiptSeq).toBe(2);
+  });
+
+  it("refuses — and writes NOTHING — when the head moved since the receipt was built", async () => {
+    store = createSqliteEtaStore();
+    await store.receiptChain.append({ serial: "POS-A", expectedPreviousUuid: null, submission: receipt(1, "POS-A", "u1") });
+    await store.receiptChain.append({ serial: "POS-A", expectedPreviousUuid: "u1", submission: receipt(2, "POS-A", "u2") });
+    const stale = await store.receiptChain.append({
+      serial: "POS-A",
+      expectedPreviousUuid: "u1",
+      submission: { ...receipt(2, "POS-A", "u2-fork"), id: "fork", internalId: "RCP-FORK" },
+    });
+    expect(stale).toBe(false);
+    expect(await store.submissions.findByInternalId("RCP-FORK")).toBeNull();
+    expect((await store.receiptChain.head("POS-A"))?.lastUuid).toBe("u2");
+    // A second "first receipt" for a device that already has one is a fork too.
+    expect(await store.receiptChain.append({ serial: "POS-A", expectedPreviousUuid: null, submission: { ...receipt(1, "POS-A", "u-again"), id: "again", internalId: "RCP-AGAIN" } })).toBe(false);
+  });
+
+  it("keeps each serial's head independent", async () => {
+    store = createSqliteEtaStore();
+    await store.receiptChain.append({ serial: "POS-A", expectedPreviousUuid: null, submission: receipt(1, "POS-A", "a1") });
+    await store.receiptChain.append({ serial: "POS-B", expectedPreviousUuid: null, submission: receipt(1, "POS-B", "b1") });
+    await store.receiptChain.append({ serial: "POS-A", expectedPreviousUuid: "a1", submission: receipt(2, "POS-A", "a2") });
+    expect((await store.receiptChain.list()).map((h) => [h.serial, h.lastUuid, h.lastSeq])).toEqual([
+      ["POS-A", "a2", 2],
+      ["POS-B", "b1", 1],
+    ]);
+  });
+
+  it("seeds each device's head from receipts already in a books file written before the table existed", async () => {
+    const Database = (await import("better-sqlite3")).default;
+    const sqlite = new Database(":memory:");
+    const first = createSqliteEtaStore(sqlite);
+    await first.submissions.create(receipt(1, "POS-A", "old-1"));
+    await first.submissions.create(receipt(2, "POS-A", "old-2"));
+    sqlite.exec("DELETE FROM eta_receipt_chain");
+    store = createSqliteEtaStore(sqlite);
+    expect(await store.receiptChain.head("POS-A")).toMatchObject({ lastUuid: "old-2", lastSeq: 2 });
+    sqlite.close();
+  });
+});
+
+describe("POS device credentials", () => {
+  it("are read back by serial for the token request only, and never through the mapping list", async () => {
+    store = createSqliteEtaStore();
+    await store.branchCodes.save({
+      branchId: "b1", etaBranchCode: "1", deviceSerialNumber: "POS-A", posClientId: "pos-cid",
+      hasPosClientSecret: false, posOsVersion: "windows", posModelFramework: "1",
+    });
+    await store.branchCodes.setPosClientSecret("b1", "pos-secret");
+    await store.branchCodes.setPosPresharedKey!("b1", "psk");
+    expect(await store.posCredentialsForSerial("POS-A")).toEqual({
+      serial: "POS-A", clientId: "pos-cid", clientSecret: "pos-secret", osVersion: "windows", modelFramework: "1", presharedKey: "psk",
+    });
+    expect(await store.posCredentialsForSerial("POS-Z")).toBeNull();
+    const listed = JSON.stringify(await store.branchCodes.list());
+    expect(listed).not.toContain("pos-secret");
+    expect(listed).not.toContain("psk\"");
+    expect(listed).toContain('"hasPosPresharedKey":true');
+  });
+});

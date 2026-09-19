@@ -18,6 +18,11 @@ import {
   type EtaUnitMapping,
   type EtaUnitMappingRepository,
   type EtaTransmitLogEntry,
+  type EtaPosCredentials,
+  type EtaReceiptChainHead,
+  type EtaReceiptChainRepository,
+  type EtaReceiptGap,
+  type EtaReceiptGapRepository,
 } from "@mezan/domain";
 
 /**
@@ -61,7 +66,9 @@ CREATE TABLE IF NOT EXISTS eta_submission (
   submitted_at     TEXT,
   gateway_submission_id TEXT,
   signature        TEXT,
-  transmit_log     TEXT
+  transmit_log     TEXT,
+  receipt_serial   TEXT,
+  receipt_seq      INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_eta_submission_status ON eta_submission(status);
 CREATE TABLE IF NOT EXISTS eta_branch_code (
@@ -69,7 +76,26 @@ CREATE TABLE IF NOT EXISTS eta_branch_code (
   eta_branch_code TEXT NOT NULL,
   device_serial_number TEXT,
   pos_client_id  TEXT,
-  pos_client_secret_enc TEXT
+  pos_client_secret_enc TEXT,
+  pos_os_version TEXT,
+  pos_model_framework TEXT,
+  pos_preshared_key_enc TEXT
+);
+CREATE TABLE IF NOT EXISTS eta_receipt_gap (
+  internal_id  TEXT PRIMARY KEY,
+  doc_type     TEXT NOT NULL,
+  doc_id       TEXT NOT NULL,
+  issued_at    TEXT NOT NULL,
+  code         TEXT NOT NULL,
+  reason       TEXT NOT NULL,
+  recorded_at  TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS eta_receipt_chain (
+  device_serial        TEXT PRIMARY KEY,
+  last_uuid            TEXT,
+  last_seq             INTEGER NOT NULL,
+  last_receipt_number  TEXT,
+  updated_at           TEXT
 );
 CREATE TABLE IF NOT EXISTS eta_unit_mapping (
   unit_code      TEXT PRIMARY KEY,
@@ -237,6 +263,8 @@ interface SubmissionRow {
   gateway_submission_id: string | null;
   signature: string | null;
   transmit_log: string | null;
+  receipt_serial: string | null;
+  receipt_seq: number | null;
 }
 
 function toSubmission(row: SubmissionRow): EtaSubmission {
@@ -255,6 +283,8 @@ function toSubmission(row: SubmissionRow): EtaSubmission {
     gatewaySubmissionId: row.gateway_submission_id,
     signature: row.signature,
     transmitLog: row.transmit_log ? (JSON.parse(row.transmit_log) as EtaTransmitLogEntry[]) : [],
+    receiptSerial: row.receipt_serial ?? null,
+    receiptSeq: row.receipt_seq ?? null,
   };
 }
 
@@ -269,10 +299,10 @@ class SqliteEtaSubmissionRepository implements EtaSubmissionRepository {
     this.upsert = sqlite.prepare(`
       INSERT INTO eta_submission
         (id, internal_id, document_type, status, eta_uuid, payload, errors, exclusion_reason, created_at, updated_at, submitted_at,
-         gateway_submission_id, signature, transmit_log)
+         gateway_submission_id, signature, transmit_log, receipt_serial, receipt_seq)
       VALUES
         (@id, @internal_id, @document_type, @status, @eta_uuid, @payload, @errors, @exclusion_reason, @created_at, @updated_at, @submitted_at,
-         @gateway_submission_id, @signature, @transmit_log)
+         @gateway_submission_id, @signature, @transmit_log, @receipt_serial, @receipt_seq)
       ON CONFLICT(id) DO UPDATE SET
         status = excluded.status,
         eta_uuid = excluded.eta_uuid,
@@ -313,7 +343,8 @@ class SqliteEtaSubmissionRepository implements EtaSubmissionRepository {
     this.write(submission);
   }
 
-  private write(s: EtaSubmission): void {
+  /** Exposed for the chain's transaction; everything else goes through `create`/`update`. */
+  write(s: EtaSubmission): void {
     this.upsert.run({
       id: s.id,
       internal_id: s.internalId,
@@ -329,7 +360,134 @@ class SqliteEtaSubmissionRepository implements EtaSubmissionRepository {
       gateway_submission_id: s.gatewaySubmissionId,
       signature: s.signature,
       transmit_log: JSON.stringify(s.transmitLog),
+      receipt_serial: s.receiptSerial ?? null,
+      receipt_seq: s.receiptSeq ?? null,
     });
+  }
+}
+
+class SqliteEtaReceiptGapRepository implements EtaReceiptGapRepository {
+  private readonly upsert: Database.Statement;
+  private readonly remove: Database.Statement;
+  private readonly selectAll: Database.Statement;
+
+  constructor(sqlite: Database.Database) {
+    this.upsert = sqlite.prepare(`
+      INSERT INTO eta_receipt_gap (internal_id, doc_type, doc_id, issued_at, code, reason, recorded_at)
+      VALUES (@internalId, @docType, @docId, @issuedAt, @code, @reason, @recordedAt)
+      ON CONFLICT(internal_id) DO UPDATE SET code = excluded.code, reason = excluded.reason, recorded_at = excluded.recorded_at
+    `);
+    this.remove = sqlite.prepare(`DELETE FROM eta_receipt_gap WHERE internal_id = ?`);
+    this.selectAll = sqlite.prepare(`SELECT * FROM eta_receipt_gap ORDER BY issued_at`);
+  }
+
+  async record(gap: EtaReceiptGap): Promise<void> {
+    this.upsert.run(gap);
+  }
+
+  async clear(internalId: string): Promise<void> {
+    this.remove.run(internalId);
+  }
+
+  async list(): Promise<EtaReceiptGap[]> {
+    return (
+      this.selectAll.all() as {
+        internal_id: string;
+        doc_type: string;
+        doc_id: string;
+        issued_at: string;
+        code: string;
+        reason: string;
+        recorded_at: string;
+      }[]
+    ).map((r) => ({
+      internalId: r.internal_id,
+      docType: r.doc_type as EtaReceiptGap["docType"],
+      docId: r.doc_id,
+      issuedAt: r.issued_at,
+      code: r.code,
+      reason: r.reason,
+      recordedAt: r.recorded_at,
+    }));
+  }
+}
+
+interface ChainRow {
+  device_serial: string;
+  last_uuid: string | null;
+  last_seq: number;
+  last_receipt_number: string | null;
+  updated_at: string | null;
+}
+
+function toChainHead(row: ChainRow): EtaReceiptChainHead {
+  return {
+    serial: row.device_serial,
+    lastUuid: row.last_uuid,
+    lastSeq: row.last_seq,
+    lastReceiptNumber: row.last_receipt_number,
+    updatedAt: row.updated_at,
+  };
+}
+
+/**
+ * The per-device receipt chain (DEC-25, D283). `append` inserts the receipt and
+ * moves the head in ONE SQLite transaction, and only when the head is still the
+ * one the receipt was built on — so a second writer, even another process on
+ * the same file, can never chain a receipt onto a predecessor already taken.
+ */
+class SqliteEtaReceiptChainRepository implements EtaReceiptChainRepository {
+  private readonly selectOne: Database.Statement;
+  private readonly selectAll: Database.Statement;
+  private readonly insertHead: Database.Statement;
+  private readonly advanceHead: Database.Statement;
+  private readonly appendTx: (entry: Parameters<EtaReceiptChainRepository["append"]>[0]) => boolean;
+
+  constructor(sqlite: Database.Database, submissions: SqliteEtaSubmissionRepository) {
+    this.selectOne = sqlite.prepare(`SELECT * FROM eta_receipt_chain WHERE device_serial = ?`);
+    this.selectAll = sqlite.prepare(`SELECT * FROM eta_receipt_chain ORDER BY device_serial`);
+    this.insertHead = sqlite.prepare(`
+      INSERT INTO eta_receipt_chain (device_serial, last_uuid, last_seq, last_receipt_number, updated_at)
+      VALUES (@serial, @uuid, @seq, @receipt_number, @at)
+      ON CONFLICT(device_serial) DO NOTHING
+    `);
+    this.advanceHead = sqlite.prepare(`
+      UPDATE eta_receipt_chain
+         SET last_uuid = @uuid, last_seq = @seq, last_receipt_number = @receipt_number, updated_at = @at
+       WHERE device_serial = @serial AND last_uuid IS @expected AND last_seq = @seq - 1
+    `);
+    this.appendTx = sqlite.transaction((entry: Parameters<EtaReceiptChainRepository["append"]>[0]): boolean => {
+      const { serial, expectedPreviousUuid, submission } = entry;
+      const seq = submission.receiptSeq ?? 1;
+      const params = {
+        serial,
+        uuid: submission.etaUuid,
+        seq,
+        receipt_number: submission.internalId,
+        at: submission.createdAt,
+        expected: expectedPreviousUuid,
+      };
+      const moved =
+        expectedPreviousUuid === null && seq === 1
+          ? this.insertHead.run(params).changes
+          : this.advanceHead.run(params).changes;
+      if (moved !== 1) return false;
+      submissions.write(submission);
+      return true;
+    });
+  }
+
+  async head(serial: string): Promise<EtaReceiptChainHead | null> {
+    const row = this.selectOne.get(serial) as ChainRow | undefined;
+    return row ? toChainHead(row) : null;
+  }
+
+  async list(): Promise<EtaReceiptChainHead[]> {
+    return (this.selectAll.all() as ChainRow[]).map(toChainHead);
+  }
+
+  async append(entry: Parameters<EtaReceiptChainRepository["append"]>[0]): Promise<boolean> {
+    return this.appendTx(entry);
   }
 }
 
@@ -339,24 +497,35 @@ interface BranchCodeRow {
   device_serial_number: string | null;
   pos_client_id: string | null;
   pos_client_secret_enc: string | null;
+  pos_os_version: string | null;
+  pos_model_framework: string | null;
+  pos_preshared_key_enc: string | null;
 }
 
 class SqliteEtaBranchCodeRepository implements EtaBranchCodeRepository {
   private readonly selectAll: Database.Statement;
   private readonly upsert: Database.Statement;
   private readonly setSecret: Database.Statement;
+  private readonly setPresharedKey: Database.Statement;
+  private readonly selectBySerial: Database.Statement;
 
   constructor(sqlite: Database.Database) {
     this.selectAll = sqlite.prepare(`SELECT * FROM eta_branch_code ORDER BY branch_id`);
     this.upsert = sqlite.prepare(`
-      INSERT INTO eta_branch_code (branch_id, eta_branch_code, device_serial_number, pos_client_id)
-      VALUES (?, ?, ?, ?)
+      INSERT INTO eta_branch_code (branch_id, eta_branch_code, device_serial_number, pos_client_id, pos_os_version, pos_model_framework)
+      VALUES (?, ?, ?, ?, ?, ?)
       ON CONFLICT(branch_id) DO UPDATE SET
         eta_branch_code = excluded.eta_branch_code,
         device_serial_number = excluded.device_serial_number,
-        pos_client_id = excluded.pos_client_id
+        pos_client_id = excluded.pos_client_id,
+        pos_os_version = excluded.pos_os_version,
+        pos_model_framework = excluded.pos_model_framework
     `);
     this.setSecret = sqlite.prepare(`UPDATE eta_branch_code SET pos_client_secret_enc = ? WHERE branch_id = ?`);
+    this.setPresharedKey = sqlite.prepare(`UPDATE eta_branch_code SET pos_preshared_key_enc = ? WHERE branch_id = ?`);
+    this.selectBySerial = sqlite.prepare(
+      `SELECT * FROM eta_branch_code WHERE device_serial_number = ? ORDER BY branch_id LIMIT 1`,
+    );
   }
 
   async list(): Promise<EtaBranchCode[]> {
@@ -367,15 +536,46 @@ class SqliteEtaBranchCodeRepository implements EtaBranchCodeRepository {
       deviceSerialNumber: r.device_serial_number,
       posClientId: r.pos_client_id,
       hasPosClientSecret: r.pos_client_secret_enc != null,
+      posOsVersion: r.pos_os_version ?? null,
+      posModelFramework: r.pos_model_framework ?? null,
+      hasPosPresharedKey: r.pos_preshared_key_enc != null,
     }));
   }
 
   async save(mapping: EtaBranchCode): Promise<void> {
-    this.upsert.run(mapping.branchId, mapping.etaBranchCode, mapping.deviceSerialNumber, mapping.posClientId);
+    this.upsert.run(
+      mapping.branchId,
+      mapping.etaBranchCode,
+      mapping.deviceSerialNumber,
+      mapping.posClientId,
+      mapping.posOsVersion ?? null,
+      mapping.posModelFramework ?? null,
+    );
   }
 
   async setPosClientSecret(branchId: string, secret: string): Promise<void> {
     this.setSecret.run(seal(secret), branchId);
+  }
+
+  async setPosPresharedKey(branchId: string, key: string): Promise<void> {
+    this.setPresharedKey.run(seal(key), branchId);
+  }
+
+  /**
+   * SECURITY: the only reader of a device's sealed secret and pre-shared key,
+   * for the receipt token request alone. Never route this into a response.
+   */
+  posCredentialsForSerial(serial: string): EtaPosCredentials | null {
+    const row = this.selectBySerial.get(serial) as BranchCodeRow | undefined;
+    if (!row?.pos_client_id || !row.pos_client_secret_enc) return null;
+    return {
+      serial,
+      clientId: row.pos_client_id,
+      clientSecret: unseal(row.pos_client_secret_enc),
+      osVersion: row.pos_os_version ?? null,
+      modelFramework: row.pos_model_framework ?? null,
+      presharedKey: row.pos_preshared_key_enc ? unseal(row.pos_preshared_key_enc) : null,
+    };
   }
 }
 
@@ -412,6 +612,10 @@ export interface SqliteEtaStoreHandle {
   readonly config: EtaConfigStore;
   readonly submissions: EtaSubmissionRepository;
   readonly branchCodes: EtaBranchCodeRepository;
+  readonly receiptChain: EtaReceiptChainRepository;
+  readonly receiptGaps: EtaReceiptGapRepository;
+  /** SECURITY: for the receipt token request only. Never route this into a response. */
+  posCredentialsForSerial(serial: string): Promise<EtaPosCredentials | null>;
   readonly unitMappings: EtaUnitMappingRepository;
   close(): void;
 }
@@ -442,6 +646,39 @@ function migrateEtaTables(sqlite: Database.Database): void {
   addColumnIfMissing(sqlite, "eta_branch_code", "device_serial_number", "device_serial_number TEXT");
   addColumnIfMissing(sqlite, "eta_branch_code", "pos_client_id", "pos_client_id TEXT");
   addColumnIfMissing(sqlite, "eta_branch_code", "pos_client_secret_enc", "pos_client_secret_enc TEXT");
+  addColumnIfMissing(sqlite, "eta_branch_code", "pos_os_version", "pos_os_version TEXT");
+  addColumnIfMissing(sqlite, "eta_branch_code", "pos_model_framework", "pos_model_framework TEXT");
+  addColumnIfMissing(sqlite, "eta_branch_code", "pos_preshared_key_enc", "pos_preshared_key_enc TEXT");
+  addColumnIfMissing(sqlite, "eta_submission", "receipt_serial", "receipt_serial TEXT");
+  addColumnIfMissing(sqlite, "eta_submission", "receipt_seq", "receipt_seq INTEGER");
+}
+
+/**
+ * A books file written before the chain table existed already holds receipts;
+ * each device's last one becomes its head, or the next receipt would restart the
+ * chain at an empty previousUUID the authority accepts only once per device.
+ */
+function seedReceiptChainFromSubmissions(sqlite: Database.Database): void {
+  const hasHeads = (sqlite.prepare(`SELECT COUNT(*) AS n FROM eta_receipt_chain`).get() as { n: number }).n > 0;
+  if (hasHeads) return;
+  const rows = sqlite
+    .prepare(`SELECT internal_id, eta_uuid, payload, created_at FROM eta_submission
+               WHERE document_type = 'receipt' AND eta_uuid IS NOT NULL ORDER BY created_at, rowid`)
+    .all() as { internal_id: string; eta_uuid: string; payload: string; created_at: string }[];
+  if (rows.length === 0) return;
+  const heads = new Map<string, { uuid: string; seq: number; receipt: string; at: string }>();
+  for (const row of rows) {
+    const serial = (JSON.parse(row.payload) as { seller?: { deviceSerialNumber?: unknown } })?.seller?.deviceSerialNumber;
+    if (typeof serial !== "string" || serial === "") continue;
+    const seq = (heads.get(serial)?.seq ?? 0) + 1;
+    heads.set(serial, { uuid: row.eta_uuid, seq, receipt: row.internal_id, at: row.created_at });
+  }
+  const insert = sqlite.prepare(
+    `INSERT INTO eta_receipt_chain (device_serial, last_uuid, last_seq, last_receipt_number, updated_at) VALUES (?, ?, ?, ?, ?)`,
+  );
+  sqlite.transaction(() => {
+    for (const [serial, h] of heads) insert.run(serial, h.uuid, h.seq, h.receipt, h.at);
+  })();
 }
 
 /** Open the SQLite-backed ETA stores. ":memory:" for tests, a path for real. */
@@ -450,10 +687,16 @@ export function createSqliteEtaStore(path: SqliteConnectionInput = ":memory:"): 
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(CREATE_TABLES);
   migrateEtaTables(sqlite);
+  const submissions = new SqliteEtaSubmissionRepository(sqlite);
+  const branchCodes = new SqliteEtaBranchCodeRepository(sqlite);
+  seedReceiptChainFromSubmissions(sqlite);
   return {
     config: new SqliteEtaConfigRepository(sqlite),
-    submissions: new SqliteEtaSubmissionRepository(sqlite),
-    branchCodes: new SqliteEtaBranchCodeRepository(sqlite),
+    submissions,
+    branchCodes,
+    receiptChain: new SqliteEtaReceiptChainRepository(sqlite, submissions),
+    receiptGaps: new SqliteEtaReceiptGapRepository(sqlite),
+    posCredentialsForSerial: async (serial) => branchCodes.posCredentialsForSerial(serial),
     unitMappings: new SqliteEtaUnitMappingRepository(sqlite),
     close: () => { if (owned) sqlite.close(); },
   };

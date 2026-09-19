@@ -16,8 +16,16 @@ export {
   type EtaConfigRepository,
 } from "./config.js";
 export {
+  ETA_RECEIPT_PAYMENT_METHODS,
+  ETA_RECEIPT_TYPE_VERSION,
   buildEtaReceiptPayload,
   canonicalizeEtaDocument,
+  etaReceiptDateTime,
+  etaReceiptDecimal,
+  etaReceiptPaymentMethodCode,
+  etaReceiptText,
+  ETA_RECEIPT_BUYER_ID_THRESHOLD_EGP,
+  serializeEtaReceiptSubmission,
   etaReceiptHoursRemaining,
   etaReceiptIssuedAt,
   etaReceiptQrValue,
@@ -39,6 +47,27 @@ export {
   type EtaReceiptUuidPort,
 } from "./receipt.js";
 export {
+  createInMemoryEtaReceiptChain,
+  createInMemoryEtaReceiptGaps,
+  createKeyedSerializer,
+  EtaReceiptChainConflictError,
+  type EtaReceiptChainAppend,
+  type EtaReceiptChainHead,
+  type EtaReceiptChainRepository,
+  type EtaReceiptGap,
+  type EtaReceiptGapRepository,
+} from "./receipt-chain.js";
+export {
+  buildPosReceiptInput,
+  buildRefundReceiptInput,
+  type EtaReceiptDevice,
+  type EtaReceiptItemCodes,
+  type EtaReceiptLookups,
+  type EtaUnchainedReceiptInput,
+  type PosReceiptBuildArgs,
+  type RefundReceiptBuildArgs,
+} from "./receipt-from-invoice.js";
+export {
   ETA_SUBMISSION_STATUSES,
   getEtaStatusLabel,
   getEtaDocumentTypeLabel,
@@ -51,6 +80,7 @@ export {
 } from "./submission.js";
 export {
   buildEtaPayload,
+  EtaMissingExchangeRateError,
   type EtaPartyInput,
   type EtaLineInput,
   type EtaDocumentInput,
@@ -66,6 +96,7 @@ export {
   type EtaServiceDeps,
   type EtaEnqueueInput,
   type EtaReceiptPrintData,
+  type EtaChainedReceiptInput,
 } from "./service.js";
 export {
   DEFAULT_ETA_RETRY,
@@ -73,6 +104,8 @@ export {
   fetchEtaHttpClient,
   type EtaCredentials,
   type EtaCredentialsPort,
+  type EtaPosCredentials,
+  type EtaPosCredentialsPort,
   type EtaHttpClient,
   type EtaHttpRequest,
   type EtaHttpResponse,
@@ -97,6 +130,13 @@ export {
   EtaSignerNotConfiguredError,
   EtaSigningFailedError,
   EtaDeviceSerialNotRegisteredError,
+  EtaDeviceSerialUnknownError,
+  EtaOriginalReceiptNotFoundError,
+  EtaRefundReferenceRequiredError,
+  EtaReceiptNotReadyError,
+  EtaBuyerIdentityRequiredError,
+  EtaRefundTooLateError,
+  EtaReceiptedSaleVoidRefusedError,
 } from "./errors.js";
 export {
   ETA_UNIT_CODES,

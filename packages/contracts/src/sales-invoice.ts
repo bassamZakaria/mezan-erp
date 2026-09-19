@@ -101,6 +101,14 @@ export const confirmSalesInvoiceSchema = z.object({
    * working; enforced whenever it is present.
    */
   expectedVersion: z.number().int().positive().optional(),
+  /**
+   * The tender taken at the counter, for a consumer sale's e-receipt — its
+   * paymentMethod is hashed into the receipt at confirm, before any collection
+   * is recorded. Omitted, the receipt states «أخرى» (O).
+   */
+  receiptPaymentMethod: z
+    .enum(["cash", "card", "wallet", "transfer", "voucher", "gift_card", "points", "other"])
+    .optional(),
 });
 
 /** Record a collection against a live invoice. */

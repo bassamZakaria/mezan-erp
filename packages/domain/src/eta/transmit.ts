@@ -8,6 +8,13 @@
  *      answering `acceptedDocuments` / `rejectedDocuments`.
  * Status afterwards comes from `GET {apiBaseUrl}/documents/{uuid}/raw`.
  *
+ * An e-RECEIPT takes a different leg entirely (SDK, eReceipt APIs — see
+ * {@link transmitReceipt}): the token is requested with the POS DEVICE's own
+ * client id/secret and its `posserial` / `pososversion` / `posmodelframework` /
+ * `presharedkey` headers, and the receipt is POSTed to `/receiptsubmissions` as
+ * `{receipts, signatures}`. Sending a receipt down the invoice leg with the
+ * company's InvoicingAPI token (D284) files nothing the receipt regime counts.
+ *
  * Everything here is a port over an injected `EtaHttpClient`, so the whole leg
  * is testable against a fake server and — the rule this module exists under —
  * NO network call happens unless the operator configured credentials. An
@@ -16,6 +23,7 @@
  */
 import { EtaOfflineError } from "./errors.js";
 import { resolveEtaEndpoints, type EtaConfig } from "./config.js";
+import { serializeEtaReceiptSubmission } from "./receipt.js";
 import type { EtaSubmission, EtaTransmitLogEntry } from "./submission.js";
 import type { EtaTransmitPort, EtaTransmitResult, EtaStatusResult, EtaConnectionCheck } from "./service.js";
 
@@ -44,6 +52,25 @@ export interface EtaCredentialsPort {
   read(): Promise<EtaCredentials | null>;
 }
 
+/**
+ * What the authority issued for ONE registered POS device. The receipt token
+ * endpoint refuses a request whose headers do not match the device it was
+ * registered as, so all of these travel together.
+ */
+export interface EtaPosCredentials {
+  readonly serial: string;
+  readonly clientId: string;
+  readonly clientSecret: string;
+  readonly osVersion: string | null;
+  readonly modelFramework: string | null;
+  readonly presharedKey: string | null;
+}
+
+/** Looks up the device a receipt was issued on. Read from the sealed store, never from a request. */
+export interface EtaPosCredentialsPort {
+  forSerial(serial: string): Promise<EtaPosCredentials | null>;
+}
+
 export interface EtaRetryPolicy {
   /** Total attempts per HTTP call, including the first. */
   readonly attempts: number;
@@ -56,6 +83,8 @@ export const DEFAULT_ETA_RETRY: EtaRetryPolicy = { attempts: 3, baseDelayMs: 500
 export interface EtaHttpTransmitDeps {
   readonly http: EtaHttpClient;
   readonly credentials: EtaCredentialsPort;
+  /** Per-device credentials for the e-receipt leg. Absent → receipts stay queued (offline). */
+  readonly posCredentials?: EtaPosCredentialsPort;
   readonly retry?: EtaRetryPolicy;
   readonly now?: () => string;
   readonly sleep?: (ms: number) => Promise<void>;
@@ -81,6 +110,18 @@ interface EtaAcceptedDocument {
   readonly longId?: string;
 }
 
+interface EtaReceiptSubmissionResponse {
+  readonly submissionUUID?: string;
+  readonly submissionId?: string;
+  readonly acceptedDocuments?: readonly { readonly uuid?: string; readonly longId?: string; readonly receiptNumber?: string }[];
+  readonly rejectedDocuments?: readonly {
+    readonly uuid?: string;
+    readonly receiptNumber?: string;
+    readonly error?: { readonly message?: string; readonly code?: string; readonly details?: readonly EtaErrorDetail[] };
+  }[];
+  readonly error?: { readonly message?: string; readonly code?: string; readonly details?: readonly EtaErrorDetail[] };
+}
+
 interface EtaSubmissionResponse {
   readonly submissionId?: string;
   readonly acceptedDocuments?: readonly EtaAcceptedDocument[];
@@ -96,7 +137,10 @@ function parseJson(body: string): unknown {
   }
 }
 
-function flattenErrors(rejected: EtaRejectedDocument | undefined, fallback: string): string[] {
+function flattenErrors(
+  rejected: { readonly error?: EtaRejectedDocument["error"] } | undefined,
+  fallback: string,
+): string[] {
   if (!rejected?.error) return [fallback];
   const head = rejected.error.message ?? rejected.error.code ?? fallback;
   const details = (rejected.error.details ?? []).map((d) =>
@@ -184,6 +228,186 @@ export function createEtaHttpTransmitPort(deps: EtaHttpTransmitDeps): EtaTransmi
     return parsed.access_token;
   }
 
+  const posTokens = new Map<string, { readonly token: string; readonly expiresAt: number }>();
+  const posTokenKey = (credentials: EtaPosCredentials, config: EtaConfig) =>
+    `${config.environment}|${credentials.serial}|${credentials.clientId}`;
+
+  /**
+   * EXTERNAL CONTRACT (SDK, Authenticate POS): `POST {identity}/connect/token`,
+   * client-credentials in the form body, and the device identified by the
+   * `posserial`, `pososversion`, `posmodelframework` and `presharedkey`
+   * headers. The token lasts `expires_in` seconds (an hour), so it is kept per
+   * device and renewed a minute early rather than requested per receipt.
+   */
+  async function posToken(
+    credentials: EtaPosCredentials,
+    config: EtaConfig,
+    log: EtaTransmitLogEntry[],
+  ): Promise<string> {
+    const cacheKey = posTokenKey(credentials, config);
+    const cached = posTokens.get(cacheKey);
+    if (cached && cached.expiresAt > Date.parse(now())) return cached.token;
+    const { identityUrl } = resolveEtaEndpoints(config);
+    const headers: Record<string, string> = {
+      "content-type": "application/x-www-form-urlencoded",
+      posserial: credentials.serial,
+    };
+    if (credentials.osVersion) headers.pososversion = credentials.osVersion;
+    if (credentials.modelFramework) headers.posmodelframework = credentials.modelFramework;
+    if (credentials.presharedKey) headers.presharedkey = credentials.presharedKey;
+    const form = new URLSearchParams({
+      grant_type: "client_credentials",
+      client_id: credentials.clientId,
+      client_secret: credentials.clientSecret,
+    });
+    const response = await call(
+      { method: "POST", url: `${identityUrl}/connect/token`, headers, body: form.toString() },
+      log,
+      // SECURITY: neither the device secret nor its pre-shared key may reach the
+      // submission log; the key travels in a header, which the log never holds.
+      `grant_type=client_credentials&client_id=${credentials.clientId}&client_secret=${REDACTED}`,
+    );
+    const parsed = parseJson(response.body) as { access_token?: string; expires_in?: number; error?: string } | null;
+    if (response.status !== 200 || !parsed?.access_token) {
+      const reason = parsed?.error ? ` — ${parsed.error}` : "";
+      throw new Error(`تعذّر الحصول على رمز دخول جهاز نقطة البيع ${credentials.serial} من مصلحة الضرائب (${response.status})${reason}.`);
+    }
+    const lifetime = typeof parsed.expires_in === "number" && parsed.expires_in > 0 ? parsed.expires_in : 3600;
+    posTokens.set(cacheKey, {
+      token: parsed.access_token,
+      expiresAt: Date.parse(now()) + Math.max(0, lifetime - 60) * 1000,
+    });
+    return parsed.access_token;
+  }
+
+  async function receiptCredentials(submission: EtaSubmission): Promise<EtaPosCredentials> {
+    const payload = submission.payload as { seller?: { deviceSerialNumber?: unknown } } | null;
+    const fromPayload = typeof payload?.seller?.deviceSerialNumber === "string" ? payload.seller.deviceSerialNumber : "";
+    const serial = (submission.receiptSerial ?? fromPayload).trim();
+    const credentials = serial !== "" ? await deps.posCredentials?.forSerial(serial) : null;
+    // The SDK's token table lists all four device headers without "optional";
+    // a device registered without them is not ready to report.
+    if (
+      !credentials?.clientId ||
+      !credentials.clientSecret ||
+      !credentials.osVersion ||
+      !credentials.modelFramework ||
+      !credentials.presharedKey
+    ) {
+      throw new EtaOfflineError();
+    }
+    return credentials;
+  }
+
+  /**
+   * EXTERNAL CONTRACT (SDK, Submit Receipt Documents): `POST
+   * {api}/receiptsubmissions`, answering 202 with `submissionUUID`,
+   * `acceptedDocuments` and `rejectedDocuments` keyed by uuid/receiptNumber.
+   * 422 is DuplicateSubmission — the identical body already reached the
+   * authority inside ten minutes — so the receipt is filed and its status is
+   * polled like any other, rather than sent a third time.
+   */
+  async function transmitReceipt(submission: EtaSubmission, config: EtaConfig): Promise<EtaTransmitResult> {
+    const credentials = await receiptCredentials(submission);
+    const log: EtaTransmitLogEntry[] = [];
+    const { apiBaseUrl } = resolveEtaEndpoints(config);
+    const body = serializeEtaReceiptSubmission([submission.payload]);
+    let response: EtaHttpResponse | null = null;
+    for (let round = 0; round < 2; round++) {
+      let accessToken: string;
+      try {
+        accessToken = await posToken(credentials, config, log);
+      } catch (err) {
+        // Unreachable is offline, not rejected: a till's receipt stays queued
+        // for the next run inside its window instead of turning into an error.
+        if (log.at(-1)?.status === null) throw new EtaOfflineError();
+        return { ok: false, errors: [err instanceof Error ? err.message : String(err)], log };
+      }
+      try {
+        response = await call(
+          {
+            method: "POST",
+            url: `${apiBaseUrl}/receiptsubmissions`,
+            headers: {
+              authorization: `Bearer ${accessToken}`,
+              "content-type": "application/json",
+              "accept-language": "ar",
+            },
+            body,
+          },
+          log,
+          body.slice(0, 8000),
+        );
+      } catch {
+        throw new EtaOfflineError();
+      }
+      if (response.status !== 401) break;
+      posTokens.delete(posTokenKey(credentials, config));
+    }
+    if (!response) return { ok: false, errors: ["فشل الإرسال"], log };
+
+    const parsed = parseJson(response.body) as EtaReceiptSubmissionResponse | null;
+    // 422 DuplicateSubmission says "retry after Retry-After", not "filed"; a
+    // throttle or an outage outlasting the retries is the same. The receipt
+    // stays queued for the next run rather than turning into an error.
+    if (response.status === 422 || response.status === 429 || response.status >= 500) throw new EtaOfflineError();
+    if (response.status >= 400 || !parsed) {
+      const message = parsed?.error?.message ?? `رفضت مصلحة الضرائب إرسال الإيصال (${response.status}).`;
+      const details = (parsed?.error?.details ?? []).map((d) => [d.propertyPath, d.message ?? d.code].filter(Boolean).join(": "));
+      return { ok: false, errors: [message, ...details].filter((m) => m.trim() !== ""), log };
+    }
+    const mine = (d: { readonly uuid?: string; readonly receiptNumber?: string }) =>
+      (!!d.uuid && d.uuid === submission.etaUuid) || (!!d.receiptNumber && d.receiptNumber === submission.internalId);
+    const accepted = parsed.acceptedDocuments?.find(mine);
+    if (accepted) {
+      return {
+        ok: true,
+        etaUuid: accepted.uuid ?? submission.etaUuid ?? undefined,
+        submissionId: parsed.submissionUUID ?? parsed.submissionId ?? null,
+        log,
+      };
+    }
+    return {
+      ok: false,
+      errors: flattenErrors(parsed.rejectedDocuments?.find(mine), "رفضت مصلحة الضرائب الإيصال دون بيان السبب."),
+      log,
+    };
+  }
+
+  /** EXTERNAL CONTRACT (SDK, Get Receipt Details): `GET {api}/receipts/{uuid}/details`, status Valid/Invalid/Cancelled. */
+  async function receiptStatus(submission: EtaSubmission, config: EtaConfig): Promise<EtaStatusResult> {
+    if (!submission.etaUuid) throw new EtaOfflineError();
+    const credentials = await receiptCredentials(submission);
+    const log: EtaTransmitLogEntry[] = [];
+    const { apiBaseUrl } = resolveEtaEndpoints(config);
+    const accessToken = await posToken(credentials, config, log);
+    const issued = (submission.payload as { header?: { dateTimeIssued?: string } } | null)?.header?.dateTimeIssued;
+    const query = issued ? `?dateTimeIssued=${encodeURIComponent(issued)}` : "";
+    const response = await call(
+      {
+        method: "GET",
+        url: `${apiBaseUrl}/receipts/${encodeURIComponent(submission.etaUuid)}/details${query}`,
+        headers: { authorization: `Bearer ${accessToken}`, "accept-language": "ar" },
+      },
+      log,
+      null,
+    );
+    const parsed = parseJson(response.body) as
+      | { status?: string; statusReason?: string; receipt?: { status?: string; statusReason?: string } }
+      | null;
+    if (response.status >= 400 || !parsed) {
+      return { state: "unknown", errors: [`تعذّرت قراءة حالة الإيصال من مصلحة الضرائب (${response.status}).`], log };
+    }
+    const status = parsed.receipt?.status ?? parsed.status ?? "";
+    const reason = parsed.receipt?.statusReason ?? parsed.statusReason ?? "";
+    const raw = status.toLowerCase();
+    if (raw === "valid") return { state: "accepted", errors: [], log };
+    if (raw === "invalid" || raw === "rejected" || raw === "cancelled") {
+      return { state: "rejected", errors: [reason || `حالة الإيصال لدى المصلحة: ${status}`], log };
+    }
+    return { state: "pending", errors: [], log };
+  }
+
   return {
     async checkCredentials(config: EtaConfig): Promise<EtaConnectionCheck> {
       const { identityUrl } = resolveEtaEndpoints(config);
@@ -214,6 +438,7 @@ export function createEtaHttpTransmitPort(deps: EtaHttpTransmitDeps): EtaTransmi
     },
 
     async transmit(submission: EtaSubmission, config: EtaConfig): Promise<EtaTransmitResult> {
+      if (submission.documentType === "receipt") return transmitReceipt(submission, config);
       const log: EtaTransmitLogEntry[] = [];
       const { apiBaseUrl } = resolveEtaEndpoints(config);
       let accessToken: string;
@@ -263,6 +488,7 @@ export function createEtaHttpTransmitPort(deps: EtaHttpTransmitDeps): EtaTransmi
     },
 
     async fetchStatus(submission: EtaSubmission, config: EtaConfig): Promise<EtaStatusResult> {
+      if (submission.documentType === "receipt") return receiptStatus(submission, config);
       if (!submission.etaUuid) throw new EtaOfflineError();
       const log: EtaTransmitLogEntry[] = [];
       const { apiBaseUrl } = resolveEtaEndpoints(config);

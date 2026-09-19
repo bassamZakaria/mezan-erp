@@ -8,6 +8,8 @@ export interface SettleVanTripCommand {
   readonly countedCash: Money;
   readonly stockCounts: readonly { itemId: string; countedQty: Qty }[];
   readonly now?: () => string;
+  /** The tenant's calendar day; without it the postings take `now`'s UTC day, the day before in Cairo until 02:00/03:00. */
+  readonly date?: string;
 }
 
 export interface SettleVanTripDeps {
@@ -64,12 +66,14 @@ export async function settleVanTrip(cmd: SettleVanTripCommand, deps: SettleVanTr
     });
   }
 
+  const day = cmd.date ?? (cmd.now?.() ?? new Date().toISOString()).slice(0, 10);
+
   // Before the transfer, so the van never has to hold cash it has already
   // handed back while the write-off is still pending.
   if (deps.recordCashVariance && cashVariance.scaled !== 0n) {
     await deps.recordCashVariance({
       tripId: trip.id,
-      date: (cmd.now?.() ?? new Date().toISOString()).slice(0, 10),
+      date: day,
       branchId: trip.branchId,
       vanTreasuryAccountId: trip.vanTreasuryAccountId,
       variance: cashVariance,
@@ -82,7 +86,7 @@ export async function settleVanTrip(cmd: SettleVanTripCommand, deps: SettleVanTr
       // A voucher's `date` is a calendar day, not an instant — a full ISO
       // timestamp here prints as one in the vouchers list and falls outside an
       // inclusive `toDate` of the very day it was settled.
-      date: (cmd.now?.() ?? new Date().toISOString()).slice(0, 10),
+      date: day,
       amount: cmd.countedCash,
       branchId: trip.branchId,
       fromTreasuryAccountId: trip.vanTreasuryAccountId,

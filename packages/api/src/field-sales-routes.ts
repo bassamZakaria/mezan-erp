@@ -35,7 +35,7 @@ import {
   type AuthContextResolver,
 } from "./permission-gate.js";
 import { can } from "@mezan/domain";
-import { tenantDay } from "./tenant-day.js";
+import { tenantDay, tenantToday } from "./tenant-day.js";
 
 /**
  * Field/Van Sales routes (docs/archive/catalog/07-mfg-projects-assets.md "رحلات
@@ -355,7 +355,7 @@ export function createFieldSalesRoutes(
           movementId,
           kind: body.kind,
           amount,
-          date: body.occurredAt.slice(0, 10),
+          date: await tenantDay(c, body.occurredAt),
           branchId: trip.branchId,
           vanTreasuryAccountId: trip.vanTreasuryAccountId,
         });
@@ -379,6 +379,7 @@ export function createFieldSalesRoutes(
           tripId: c.req.param("id"),
           countedCash: Money.fromMajor(body.countedCash),
           stockCounts: body.stockCounts.map((s) => ({ itemId: s.itemId, countedQty: Qty.fromMajor(s.countedQty) })),
+          date: await tenantToday(c),
         },
         { trips: deps.trips, treasuryTransfer: deps.treasuryTransfer, recordCashVariance: deps.recordCashVariance },
       );

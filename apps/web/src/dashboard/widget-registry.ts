@@ -65,7 +65,7 @@ const COCKPIT_WIDGETS: readonly DashboardWidgetSpec[] = [
   { kind: CockpitWidgetKind.Pulse, section: DashboardSection.Cockpit, size: "full", titleKey: "cockpit.pulse.title", permission: COCKPIT_PERMISSION },
   { kind: CockpitWidgetKind.Runway, section: DashboardSection.Cockpit, size: "sm", titleKey: "cockpit.runway.title", permission: "treasury.cash_forecast.view" },
   { kind: CockpitWidgetKind.Overdue, section: DashboardSection.Cockpit, size: "sm", titleKey: "cockpit.overdue.title", permission: COCKPIT_PERMISSION },
-  { kind: CockpitWidgetKind.LowStock, section: DashboardSection.Cockpit, size: "sm", titleKey: "cockpit.lowStock.title", permission: COCKPIT_PERMISSION },
+  { kind: CockpitWidgetKind.LowStock, section: DashboardSection.Cockpit, size: "md", titleKey: "cockpit.lowStock.title", permission: COCKPIT_PERMISSION },
   { kind: CockpitWidgetKind.Cash, section: DashboardSection.Cockpit, size: "md", titleKey: "cockpit.cash.title", permission: COCKPIT_PERMISSION },
   { kind: CockpitWidgetKind.Movers, section: DashboardSection.Cockpit, size: "md", titleKey: "cockpit.movers.title", permission: COCKPIT_PERMISSION },
   { kind: CockpitWidgetKind.Margin, section: DashboardSection.Cockpit, size: "md", titleKey: "cockpit.margin.title", permission: COCKPIT_PERMISSION },

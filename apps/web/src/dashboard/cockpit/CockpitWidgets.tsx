@@ -57,7 +57,7 @@ function percentTenths(value: string | null): bigint | null {
 }
 
 interface SparklineProps {
-  readonly values: readonly number[];
+  readonly values: readonly (number | null)[];
   readonly label: string;
   readonly rtl: boolean;
   readonly tone?: "brand" | "chart2" | "chart3";
@@ -68,23 +68,49 @@ const TONE_VAR = { brand: "var(--chart-1)", chart2: "var(--chart-2)", chart3: "v
 export function Sparkline({ values, label, rtl, tone = "brand" }: SparklineProps) {
   const width = 100;
   const height = 30;
-  const max = Math.max(0, ...values);
-  const min = Math.min(0, ...values);
+  const known = values.filter((v): v is number => v !== null);
+  const max = Math.max(0, ...known);
+  const min = Math.min(0, ...known);
   const span = max - min || 1;
   const step = values.length > 1 ? width / (values.length - 1) : width;
-  const points = values.map((value, index) => {
-    const x = rtl ? width - index * step : index * step;
-    const y = height - 2 - ((value - min) / span) * (height - 4);
-    return [x, y] as const;
+  const yOf = (value: number) => height - 2 - ((value - min) / span) * (height - 4);
+  const segments: (readonly [number, number])[][] = [];
+  let open: (readonly [number, number])[] | null = null;
+  values.forEach((value, index) => {
+    if (value === null) {
+      open = null;
+      return;
+    }
+    const point = [rtl ? width - index * step : index * step, yOf(value)] as const;
+    if (!open) {
+      open = [];
+      segments.push(open);
+    }
+    open.push(point);
   });
-  const line = points.map(([x, y]) => `${x.toFixed(2)},${y.toFixed(2)}`).join(" ");
-  const last = points[points.length - 1];
-  const zeroY = height - 2 - ((0 - min) / span) * (height - 4);
-  const area = points.length > 1 ? `${points[0]![0].toFixed(2)},${zeroY.toFixed(2)} ${line} ${last![0].toFixed(2)},${zeroY.toFixed(2)}` : "";
+  const text = (points: readonly (readonly [number, number])[]) => points.map(([x, y]) => `${x.toFixed(2)},${y.toFixed(2)}`).join(" ");
+  const whole = segments.length === 1 && segments[0]!.length === values.length && values.length > 1 ? segments[0]! : null;
+  const zeroY = yOf(0);
+  const area = whole ? `${whole[0]![0].toFixed(2)},${zeroY.toFixed(2)} ${text(whole)} ${whole[whole.length - 1]![0].toFixed(2)},${zeroY.toFixed(2)}` : "";
+  const lastSegment = segments[segments.length - 1];
+  const last = lastSegment?.[lastSegment.length - 1];
   return (
     <svg viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" role="img" aria-label={label} className="block h-[30px] w-full overflow-visible">
       {area ? <polygon points={area} fill={TONE_VAR[tone]} opacity={0.12} /> : null}
-      <polyline points={line} fill="none" stroke={TONE_VAR[tone]} strokeWidth={1.8} strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+      {segments.map((segment, index) =>
+        segment.length > 1 ? (
+          <polyline
+            key={index}
+            points={text(segment)}
+            fill="none"
+            stroke={TONE_VAR[tone]}
+            strokeWidth={1.8}
+            strokeLinejoin="round"
+            strokeLinecap="round"
+            vectorEffect="non-scaling-stroke"
+          />
+        ) : null,
+      )}
       {last ? <circle cx={last[0]} cy={last[1]} r={2.4} fill={TONE_VAR[tone]} vectorEffect="non-scaling-stroke" /> : null}
     </svg>
   );
@@ -112,7 +138,7 @@ function TileShell({ title, href, children, footer, className }: TileShellProps)
         <h3 className="min-w-0 text-xs font-semibold text-ink-muted">{title}</h3>
         <Link
           to={href}
-          className="-m-[6px] flex-none rounded-md p-[6px] text-2xs font-semibold text-brand hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand"
+          className="-m-[8px] flex-none rounded-md p-[8px] text-2xs font-semibold text-brand hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand"
           aria-label={`${t("cockpit.open")} — ${title}`}
         >
           {t("cockpit.open")}
@@ -203,7 +229,7 @@ function PulseMarginTile({ data, rtl, href }: { readonly data: CockpitDTO; reado
     const points = tenthsText(today - previous);
     delta = t("cockpit.pulse.vs", { day, value: t(today > previous ? "cockpit.pulse.pointsUp" : "cockpit.pulse.pointsDown", { value: points }) });
   }
-  const series = data.days.map((d) => (d.grossMarginPercent === null ? 0 : Number(d.grossMarginPercent)));
+  const series = data.days.map((d) => (d.grossMarginPercent === null ? null : Number(d.grossMarginPercent)));
   const sparkLabel = t("cockpit.pulse.sparkLabel", {
     metric: title,
     values: data.days.map((d) => (d.grossMarginPercent === null ? "—" : `${format.number(Number(d.grossMarginPercent))}%`)).join("، "),
@@ -284,17 +310,18 @@ export function CockpitRunway({ companyWide }: { readonly companyWide: boolean }
         <>
           <div
             className={cn(
-              "mz-num font-display text-lg font-bold tracking-tight min-[420px]:text-2xl",
+              "mz-num font-display font-bold tracking-tight",
+              data.runwayDays === null ? "text-md" : "text-lg min-[420px]:text-2xl",
               data.runwayDays === null ? "text-success-ink" : data.runwayDays <= 30 ? "text-danger-ink" : "text-warning-ink",
             )}
           >
             {data.runwayDays === null ? t("cockpit.runway.safe") : t("cockpit.runway.days", { days: format.number(data.runwayDays) })}
           </div>
           <div className="mt-[6px] text-2xs text-ink-muted">
-            {t("cockpit.runway.lowest", { amount: format.money(majorOf(data.lowest.balance)), date: data.lowest.date })}
+            {t("cockpit.runway.lowest", { amount: format.money(majorOf(data.lowest.balance)), date: format.date(data.lowest.date) })}
           </div>
           {data.firstBelowThreshold ? (
-            <div className="mt-[2px] text-2xs font-semibold text-warning-ink">{t("cockpit.runway.belowThreshold", { date: data.firstBelowThreshold })}</div>
+            <div className="mt-[2px] text-2xs font-semibold text-warning-ink">{t("cockpit.runway.belowThreshold", { date: format.date(data.firstBelowThreshold) })}</div>
           ) : null}
         </>
       )}
@@ -313,7 +340,7 @@ export function CockpitOverdueTile({ data, branchParam }: CockpitWidgetProps) {
     <TileShell
       title={t("cockpit.overdue.title")}
       href={href}
-      footer={overdue.oldestDueDate ? t("cockpit.overdue.oldest", { date: overdue.oldestDueDate }) : undefined}
+      footer={overdue.oldestDueDate ? t("cockpit.overdue.oldest", { date: format.date(overdue.oldestDueDate) }) : undefined}
     >
       {clear ? (
         <p className="text-sm font-semibold text-success-ink">{t("cockpit.overdue.clear")}</p>
@@ -443,9 +470,9 @@ export function CockpitMarginTile({ data, rtl }: CockpitWidgetProps) {
   if (!weeks) return null;
   const current = weeks[weeks.length - 1];
   const previous = weeks[weeks.length - 2];
-  const values = weeks.map((w) => (w.grossMarginPercent === null ? 0 : Number(w.grossMarginPercent)));
+  const values = weeks.map((w) => (w.grossMarginPercent === null ? null : Number(w.grossMarginPercent)));
   const label = weeks
-    .map((w) => t("cockpit.margin.weekLabel", { from: w.from, to: w.to, value: w.grossMarginPercent === null ? t("cockpit.margin.none") : `${format.number(Number(w.grossMarginPercent))}%` }))
+    .map((w) => t("cockpit.margin.weekLabel", { from: format.date(w.from), to: format.date(w.to), value: w.grossMarginPercent === null ? t("cockpit.margin.none") : `${format.number(Number(w.grossMarginPercent))}%` }))
     .join("، ");
   const pct = (value: string | null | undefined) => (value === null || value === undefined ? "—" : `${format.number(Number(value))}%`);
   return (

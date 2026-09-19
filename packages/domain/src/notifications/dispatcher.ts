@@ -4,6 +4,7 @@ import type {
   NotificationChannelStatus,
   NotificationRepository,
 } from "./types.js";
+import { CustomerMessageStatus, type CustomerMessageOutbox } from "../collections/types.js";
 
 /**
  * Drains the outbound notification queue (ROADMAP §3.3).
@@ -48,6 +49,7 @@ export type DispatchOutcome =
 export interface NotificationTransport {
   readonly channel: NotificationChannel;
   send(notification: Notification, recipientEmail: string | null): Promise<DispatchOutcome>;
+  sendTo?(address: string, message: { readonly subject: string; readonly body: string }): Promise<DispatchOutcome>;
 }
 
 export interface DispatchPolicy {
@@ -75,6 +77,8 @@ export interface NotificationDispatcherDeps {
   readonly transports: readonly NotificationTransport[];
   /** The recipient's address, or null when the user has none on file. */
   readonly recipientEmail: (userId: string) => Promise<string | null>;
+  readonly customerMessages?: CustomerMessageOutbox;
+  readonly customerEmail?: (customerId: string) => Promise<string | null>;
   readonly now?: () => string;
   readonly policy?: DispatchPolicy;
 }
@@ -153,6 +157,53 @@ export class NotificationDispatcher {
       }
     }
 
-    return { attempted, sent, stillQueued, failed, skipped };
+    const result = { attempted, sent, stillQueued, failed, skipped };
+    if (!this.deps.customerMessages) return result;
+    const customer = await this.drainCustomerMessages();
+    return {
+      attempted: result.attempted + customer.attempted,
+      sent: result.sent + customer.sent,
+      stillQueued: result.stillQueued + customer.stillQueued,
+      failed: result.failed + customer.failed,
+      skipped: result.skipped + customer.skipped,
+    };
+  }
+
+  async drainCustomerMessages(): Promise<DrainResult> {
+    const outbox = this.deps.customerMessages;
+    const result = { attempted: 0, sent: 0, stillQueued: 0, failed: 0, skipped: 0 };
+    if (!outbox) return result;
+    const policy = this.deps.policy ?? DEFAULT_DISPATCH_POLICY;
+    const now = this.deps.now?.() ?? new Date().toISOString();
+    const transport = this.deps.transports.find((t) => t.channel === "email");
+    for (const message of await outbox.listQueued(policy.batchSize)) {
+      if (hoursBetween(message.createdAt, now) > policy.maxAgeHours) {
+        await outbox.save({ ...message, status: CustomerMessageStatus.Failed, failureReason: "انتهت صلاحية الرسالة قبل إرسالها (بقيت في الطابور أكثر من المسموح)." });
+        result.failed += 1;
+        continue;
+      }
+      if (!transport?.sendTo) {
+        result.skipped += 1;
+        continue;
+      }
+      result.attempted += 1;
+      const address = (await this.deps.customerEmail?.(message.customerId)) ?? null;
+      if (!address) {
+        await outbox.save({ ...message, status: CustomerMessageStatus.Failed, failureReason: "لا يوجد بريد إلكتروني مسجَّل لهذا العميل." });
+        result.failed += 1;
+        continue;
+      }
+      const outcome = await transport.sendTo(address, { subject: message.subject, body: message.body });
+      if (outcome.kind === "sent") {
+        await outbox.save({ ...message, status: CustomerMessageStatus.Sent, sentAt: now, failureReason: null });
+        result.sent += 1;
+      } else if (outcome.kind === "rejected") {
+        await outbox.save({ ...message, status: CustomerMessageStatus.Failed, failureReason: outcome.reason });
+        result.failed += 1;
+      } else {
+        result.stillQueued += 1;
+      }
+    }
+    return result;
   }
 }

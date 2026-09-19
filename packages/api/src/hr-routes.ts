@@ -24,6 +24,7 @@ import {
   createUnpaidLeaveDaysProvider,
   advanceOutstanding,
   createOvertimeHoursProvider,
+  createWorkedTimeProvider,
   employeeOvertimePolicy,
   calculateEndOfServiceSettlement,
   EmployeeStillEmployedError,
@@ -824,6 +825,9 @@ export function createHrRoutes(deps: HrRoutesDeps, resolveAuthContext: AuthConte
           overtime:
             deps.payroll.overtime ??
             (attendanceRepo ? createOvertimeHoursProvider(attendanceRepo, resolveDerivationOptions) : undefined),
+          workedTime:
+            deps.payroll.workedTime ??
+            (attendanceRepo ? createWorkedTimeProvider(attendanceRepo, deps.leaveRequests, resolveDerivationOptions) : undefined),
           leave:
             deps.payroll.leave ?? (deps.leaveBalances && deps.leavePolicies ? { balances: deps.leaveBalances, policies: deps.leavePolicies } : undefined),
         },

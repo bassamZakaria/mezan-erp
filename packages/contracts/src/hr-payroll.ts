@@ -97,6 +97,18 @@ export const payslipLineSchema = z.object({
   capped: z.boolean().optional(),
 });
 
+/** Every figure in `contractCurrency` is for the reader; the payslip's own amounts are in the run's currency. */
+export const payslipBasisSchema = z.object({
+  payBasis: z.enum(["monthly", "hourly", "daily"]),
+  quantity: z.number().nonnegative().nullable(),
+  rate: z.string(),
+  contractCurrency: z.string().min(1),
+  fxRate: z.string().nullable(),
+  fxRateDate: z.string().nullable(),
+  grossInContractCurrency: z.string().nullable(),
+  netInContractCurrency: z.string().nullable(),
+});
+
 export const payslipSchema = z.object({
   id: z.string().min(1),
   number: z.string().min(1),
@@ -118,6 +130,8 @@ export const payslipSchema = z.object({
   annualTaxableIncome: z.string(),
   /** Null on a payslip calculated before this field existed (D191) — never "0", a fabricated employer cost. */
   totalEmployerCost: z.string().nullable(),
+  /** Null on a payslip calculated before the basis was recorded. */
+  basis: payslipBasisSchema.nullable().optional(),
   createdAt: z.string().min(1),
 });
 
@@ -176,6 +190,7 @@ export type PayslipLineKindDTO = z.infer<typeof payslipLineKindSchema>;
 export type PayslipLineSourceDTO = z.infer<typeof payslipLineSourceSchema>;
 export type PayslipLineDTO = z.infer<typeof payslipLineSchema>;
 export type PayslipDTO = z.infer<typeof payslipSchema>;
+export type PayslipBasisDTO = z.infer<typeof payslipBasisSchema>;
 export type PayrollRunDTO = z.infer<typeof payrollRunSchema>;
 export type PayrollRunDetailDTO = z.infer<typeof payrollRunDetailSchema>;
 export type CreatePayrollRunDTO = z.infer<typeof createPayrollRunSchema>;

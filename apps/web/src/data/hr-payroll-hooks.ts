@@ -25,8 +25,9 @@ import { useAppTranslation } from "../i18n";
 /* سلف الموظفين + الرواتب — docs/archive/catalog/06 (/hr/advances, /hr/payroll)  */
 /* -------------------------------------------------------------------- */
 
-async function readMessage(res: { json<T>(): Promise<T> }, fallback: string): Promise<string> {
-  const body = (await res.json<{ message?: string }>().catch(() => ({}))) as { message?: string };
+async function readMessage(res: { json<T>(): Promise<T> }, fallback: string, locale?: string): Promise<string> {
+  const body = (await res.json<{ message?: string; messageEn?: string }>().catch(() => ({}))) as { message?: string; messageEn?: string };
+  if (locale === "en" && body.messageEn) return body.messageEn;
   return body.message ?? fallback;
 }
 
@@ -158,13 +159,13 @@ export function useCreatePayrollRun() {
 }
 
 export function useCalculatePayrollRun() {
-  const { t } = useAppTranslation();
+  const { t, locale } = useAppTranslation();
   const { request } = useApi();
   const invalidate = usePayrollInvalidation();
   return useMutation<PayrollRunDetailDTO, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/hr/payroll/runs/${id}/calculate`, { method: "POST" });
-      if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("hrApi.payrollCouldNotBeCalculated")));
+      if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("hrApi.payrollCouldNotBeCalculated"), locale));
       return res.json<PayrollRunDetailDTO>();
     },
     onSuccess: invalidate,

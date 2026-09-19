@@ -3307,6 +3307,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         settings,
         statutoryOverrides: hrStatutoryOverrides,
         statutoryFlag: hrStatutoryFlag,
+        exchangeRates,
         // The leave provision compares the computed obligation against what
         // 2180 already carries, so it reads the posted ledger.
         ledger,

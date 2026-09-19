@@ -83,6 +83,7 @@ export interface Contract {
   readonly startDate: string;
   /** Null when `type === "indefinite"` (catalog: "العقد غير محدد المدة لا يحتوي على تاريخ انتهاء"). */
   readonly endDate: string | null;
+  /** The rate in the unit of `payBasis` — per month, per hour or per day — in `currency`; payroll reads it that way. */
   readonly monthlySalary: Money;
   readonly currency: string;
   readonly leaveEntitlement: LeaveEntitlementOverrides;

@@ -9,7 +9,9 @@ import {
   type PayrollRun,
   type PayrollRunRepository,
   type PayrollRunStatus,
+  type PayBasis,
   type Payslip,
+  type PayslipBasis,
   type PayslipLine,
   type PayslipLineKind,
   type PayslipLineSource,
@@ -442,6 +444,7 @@ CREATE TABLE IF NOT EXISTS hr_payslip (
   insurable_wage_capped   INTEGER NOT NULL DEFAULT 0,
   annual_taxable_income   INTEGER NOT NULL DEFAULT 0,
   total_employer_cost     INTEGER,
+  basis_json              TEXT,
   created_at              TEXT NOT NULL
 );
 `;
@@ -466,7 +469,49 @@ interface PayslipRow {
   insurable_wage_capped: number | null;
   annual_taxable_income: number | null;
   total_employer_cost: number | null;
+  basis_json: string | null;
   created_at: string;
+}
+
+interface SerializedPayslipBasis {
+  payBasis: string;
+  quantity: number | null;
+  rate: string;
+  contractCurrency: string;
+  fxRate: string | null;
+  fxRateDate: string | null;
+  grossInContractCurrency: string | null;
+  netInContractCurrency: string | null;
+}
+
+function serializeBasis(basis: PayslipBasis | null): string | null {
+  if (!basis) return null;
+  const json: SerializedPayslipBasis = {
+    payBasis: basis.payBasis,
+    quantity: basis.quantity,
+    rate: basis.rate.toString(),
+    contractCurrency: basis.contractCurrency,
+    fxRate: basis.fxRate,
+    fxRateDate: basis.fxRateDate,
+    grossInContractCurrency: basis.grossInContractCurrency?.toString() ?? null,
+    netInContractCurrency: basis.netInContractCurrency?.toString() ?? null,
+  };
+  return JSON.stringify(json);
+}
+
+function deserializeBasis(json: string | null): PayslipBasis | null {
+  if (!json) return null;
+  const b = JSON.parse(json) as SerializedPayslipBasis;
+  return {
+    payBasis: b.payBasis as PayBasis,
+    quantity: b.quantity,
+    rate: Money.fromMajor(b.rate),
+    contractCurrency: b.contractCurrency,
+    fxRate: b.fxRate,
+    fxRateDate: b.fxRateDate,
+    grossInContractCurrency: b.grossInContractCurrency === null ? null : Money.fromMajor(b.grossInContractCurrency),
+    netInContractCurrency: b.netInContractCurrency === null ? null : Money.fromMajor(b.netInContractCurrency),
+  };
 }
 
 interface SerializedPayslipLine {
@@ -531,6 +576,7 @@ function toPayslip(row: PayslipRow): Payslip {
     annualTaxableIncome: Money.fromScaled(row.annual_taxable_income ?? 0),
     // D191: as toPayrollRun above — NULL means never computed, not a genuine zero.
     totalEmployerCost: row.total_employer_cost === null ? null : Money.fromScaled(row.total_employer_cost),
+    basis: deserializeBasis(row.basis_json ?? null),
     createdAt: row.created_at,
   };
 }
@@ -547,12 +593,12 @@ class SqlitePayslipRepository implements PayslipRepository {
       INSERT INTO hr_payslip (
         id, number, run_id, employee_id, contract_id, currency, period_start, period_end, period_days, paid_days,
         lines_json, gross_earnings, total_deductions, employer_contributions, net_pay,
-        insurable_wage, insurable_wage_capped, annual_taxable_income, total_employer_cost, created_at
+        insurable_wage, insurable_wage_capped, annual_taxable_income, total_employer_cost, basis_json, created_at
       )
       VALUES (
         @id, @number, @run_id, @employee_id, @contract_id, @currency, @period_start, @period_end, @period_days, @paid_days,
         @lines_json, @gross_earnings, @total_deductions, @employer_contributions, @net_pay,
-        @insurable_wage, @insurable_wage_capped, @annual_taxable_income, @total_employer_cost, @created_at
+        @insurable_wage, @insurable_wage_capped, @annual_taxable_income, @total_employer_cost, @basis_json, @created_at
       )
       ON CONFLICT(id) DO UPDATE SET
         lines_json = excluded.lines_json,
@@ -563,7 +609,8 @@ class SqlitePayslipRepository implements PayslipRepository {
         insurable_wage = excluded.insurable_wage,
         insurable_wage_capped = excluded.insurable_wage_capped,
         annual_taxable_income = excluded.annual_taxable_income,
-        total_employer_cost = excluded.total_employer_cost
+        total_employer_cost = excluded.total_employer_cost,
+        basis_json = excluded.basis_json
     `);
     this.selectById = sqlite.prepare(`SELECT * FROM hr_payslip WHERE id = ?`);
     this.selectByRun = sqlite.prepare(`SELECT * FROM hr_payslip WHERE run_id = ? ORDER BY number`);
@@ -605,6 +652,7 @@ class SqlitePayslipRepository implements PayslipRepository {
       insurable_wage_capped: payslip.insurableWageCapped ? 1 : 0,
       annual_taxable_income: payslip.annualTaxableIncome.toScaledNumber(),
       total_employer_cost: payslip.totalEmployerCost === null ? null : payslip.totalEmployerCost.toScaledNumber(),
+      basis_json: serializeBasis(payslip.basis ?? null),
       created_at: payslip.createdAt,
     });
   }
@@ -888,6 +936,7 @@ function migratePayslipSchema(sqlite: Database.Database): void {
     ["insurable_wage_capped", "INTEGER NOT NULL DEFAULT 0"],
     ["annual_taxable_income", "INTEGER NOT NULL DEFAULT 0"],
     ["total_employer_cost", "INTEGER"],
+    ["basis_json", "TEXT"],
   ]);
 }
 

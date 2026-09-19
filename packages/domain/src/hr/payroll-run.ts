@@ -1,5 +1,6 @@
 import type { Money } from "../money/index.js";
 import type { OvertimeTable } from "./egypt-statutory.js";
+import type { PayBasis } from "./contract.js";
 
 /**
  * Payroll runs and payslips — docs/archive/catalog/06-crm-hr.md "الرواتب".
@@ -100,21 +101,9 @@ export const PAYROLL_UNIMPLEMENTED_RULES: readonly PayrollUnimplementedRule[] = 
     appliesToEveryPayslip: true,
   },
   {
-    code: "hourly_daily_basis",
-    labelAr: "الأجر بالساعة أو باليوم",
-    detailAr: "العقود بأساس دفع «بالساعة» أو «باليوم» تُستبعد من الدورة ولا يصدر لها كشف راتب.",
-    appliesToEveryPayslip: false,
-  },
-  {
     code: "pay_frequency",
     labelAr: "الدفع الأسبوعي أو نصف الشهري",
     detailAr: "يُحتسب راتب شهر كامل للفترة أياً كان تكرار الدفع المسجّل على العقد.",
-    appliesToEveryPayslip: false,
-  },
-  {
-    code: "multi_currency",
-    labelAr: "الرواتب متعددة العملات",
-    detailAr: "العقد بعملة تختلف عن عملة الدورة يُستبعد؛ لا يوجد تحويل بسعر صرف.",
     appliesToEveryPayslip: false,
   },
 ] as const;
@@ -145,21 +134,9 @@ export const PAYROLL_UNIMPLEMENTED_RULES_STATUTORY: readonly PayrollUnimplemente
     appliesToEveryPayslip: false,
   },
   {
-    code: "hourly_daily_basis",
-    labelAr: "الأجر بالساعة أو باليوم",
-    detailAr: "العقود بأساس دفع «بالساعة» أو «باليوم» تُستبعد من الدورة ولا يصدر لها كشف راتب.",
-    appliesToEveryPayslip: false,
-  },
-  {
     code: "pay_frequency",
     labelAr: "الدفع الأسبوعي أو نصف الشهري",
     detailAr: "يُحتسب راتب شهر كامل للفترة أياً كان تكرار الدفع المسجّل على العقد.",
-    appliesToEveryPayslip: false,
-  },
-  {
-    code: "multi_currency",
-    labelAr: "الرواتب متعددة العملات",
-    detailAr: "العقد بعملة تختلف عن عملة الدورة يُستبعد؛ لا يوجد تحويل بسعر صرف.",
     appliesToEveryPayslip: false,
   },
 ] as const;
@@ -273,7 +250,29 @@ export interface Payslip {
    * reports could not tell apart from a genuinely zero-cost period.
    */
   readonly totalEmployerCost: Money | null;
+  /** How the basic pay was reached and in which currency the contract is; null on a payslip calculated before this field existed. */
+  readonly basis?: PayslipBasis | null;
   readonly createdAt: string;
+}
+
+/**
+ * The contract's pay basis and currency as the payslip applied them. Every
+ * money figure on the payslip itself is in the RUN's currency (what posts);
+ * the figures here in `contractCurrency` are for the reader only.
+ */
+export interface PayslipBasis {
+  readonly payBasis: PayBasis;
+  /** Hours (hourly) or days (daily) the basic line paid for, paid leave and holidays included; null on a monthly contract. */
+  readonly quantity: number | null;
+  /** The contract's own rate, in `contractCurrency`: the month's salary, the hour's or the day's. */
+  readonly rate: Money;
+  readonly contractCurrency: string;
+  /** Run-currency units per one contract-currency unit; null when the two currencies are the same. */
+  readonly fxRate: string | null;
+  /** Effective date of the approved rate used, on or before the period end. */
+  readonly fxRateDate: string | null;
+  readonly grossInContractCurrency: Money | null;
+  readonly netInContractCurrency: Money | null;
 }
 
 export interface PayrollRun {
@@ -446,6 +445,36 @@ export interface PeriodOvertimeHours {
 /** The seam to attendance: payroll needs hours, attendance stores clock times. */
 export interface OvertimeHoursProvider {
   overtimeHoursFor(employeeId: string, periodStart: string, periodEnd: string): Promise<PeriodOvertimeHours>;
+}
+
+/**
+ * What an hourly or daily contract is paid for in a period, read from
+ * attendance and approved leave. Times are whole minutes and days are counted
+ * in HALF days, so nothing here is a float that money is multiplied by.
+ */
+export interface PeriodWorkedTime {
+  /** Ordinary time: on a working day the clocked time up to the standard day; on a rest day or holiday the APPROVED time up to it. */
+  readonly workedMinutes: number;
+  /** Days worked, in half days: a full day counts 2, a half day 1. */
+  readonly workedHalfDays: number;
+  /** Approved leave of a paid type falling on scheduled working days not worked, in half days. */
+  readonly paidLeaveHalfDays: number;
+  /** Official holidays on scheduled working days that were not worked. */
+  readonly paidHolidays: number;
+  readonly standardDailyHours: number;
+  /** Working days marked worked with no clock times: a daily wage pays them, an hourly one has no hours to pay. */
+  readonly unclockedDays: readonly string[];
+  /** Rest days or holidays with time on the clock and no approval — not paid. */
+  readonly unapprovedOffDays: readonly string[];
+}
+
+export interface WorkedTimeProvider {
+  workedTimeFor(employeeId: string, from: string, to: string): Promise<PeriodWorkedTime>;
+}
+
+/** The approved rate for `currency` effective on or before `asOfDate`. */
+export interface PayrollExchangeRates {
+  findRate(currency: string, asOfDate: string): Promise<{ readonly rate: string; readonly effectiveDate: string } | null>;
 }
 
 export interface UnpaidLeaveDaysProvider {

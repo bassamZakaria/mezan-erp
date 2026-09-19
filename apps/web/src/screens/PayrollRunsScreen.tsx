@@ -13,7 +13,7 @@ import {
   type PillTone,
   type RowMenuItem,
 } from "@mezan/ui";
-import type { PayrollRunDTO, PayrollRunStatusDTO, PayslipDTO } from "@mezan/contracts";
+import type { PayrollRunDTO, PayrollRunStatusDTO, PayslipBasisDTO, PayslipDTO } from "@mezan/contracts";
 import { STATUTORY_PAYSLIP_LINE_SOURCES, payrollUnimplementedRulesFor } from "@mezan/domain";
 import { PayslipPrintPage } from "../print/PayslipPrintPage";
 import { HrProvisionsPanel } from "./HrProvisionsPanel";
@@ -85,6 +85,57 @@ function PayrollJournalRef({ journalEntryId }: { journalEntryId: string }) {
     >
       {entryNo}
     </button>
+  );
+}
+
+const PAY_BASIS_KEY = {
+  monthly: "payroll.basis.monthly",
+  hourly: "payroll.basis.hourly",
+  daily: "payroll.basis.daily",
+} as const;
+
+function PayslipBasisSummary({ basis, runCurrency }: { basis: PayslipBasisDTO; runCurrency: string }) {
+  const { t } = useAppTranslation();
+  const foreign = basis.fxRate !== null;
+  const unit = basis.payBasis === "hourly" ? t("payroll.hours") : t("payroll.days");
+  if (basis.payBasis === "monthly" && !foreign) return null;
+  return (
+    <div className="mt-[6px] flex flex-col gap-[3px] text-[11.5px] text-ink-faint">
+      <span className="flex flex-wrap items-center gap-[4px]">
+        {t("payroll.payBasis")}: {t(PAY_BASIS_KEY[basis.payBasis])}
+        {basis.quantity !== null ? (
+          <span className="flex items-center gap-[4px]">
+            — <span className="mz-num">{basis.quantity}</span> {unit} ×
+          </span>
+        ) : (
+          <span>—</span>
+        )}
+        <MoneyDisplay value={Number(basis.rate)} currencyLabel={foreign ? basis.contractCurrency : undefined} />
+      </span>
+      {foreign ? (
+        <>
+          <span className="flex flex-wrap items-center gap-[4px]">
+            {t("payroll.contractCurrency")}: <span className="mz-num">{basis.contractCurrency}</span> · {t("payroll.fxRate")}:{" "}
+            <span className="mz-num" dir="ltr">
+              1 {basis.contractCurrency} = {basis.fxRate} {runCurrency}
+            </span>
+            {basis.fxRateDate ? <span className="mz-num">({basis.fxRateDate})</span> : null}
+          </span>
+          <span className="flex flex-wrap items-center gap-x-[16px] gap-y-[3px]">
+            {basis.grossInContractCurrency !== null ? (
+              <span className="flex items-center gap-[4px]">
+                {t("payroll.grossInContractCurrency")} <MoneyDisplay value={Number(basis.grossInContractCurrency)} currencyLabel={basis.contractCurrency} />
+              </span>
+            ) : null}
+            {basis.netInContractCurrency !== null ? (
+              <span className="flex items-center gap-[4px]">
+                {t("payroll.netInContractCurrency")} <MoneyDisplay value={Number(basis.netInContractCurrency)} currencyLabel={basis.contractCurrency} />
+              </span>
+            ) : null}
+          </span>
+        </>
+      ) : null}
+    </div>
   );
 }
 
@@ -479,6 +530,7 @@ export function PayrollRunsScreen() {
                       <div className="mz-num mt-[3px] text-[11.5px] text-ink-faint">
                         {p.paidDays} / {p.periodDays} {t("payroll.days")}
                       </div>
+                      {p.basis ? <PayslipBasisSummary basis={p.basis} runCurrency={p.currency} /> : null}
                       {statutoryRun ? (
                         <div className="mt-[6px] flex flex-wrap gap-x-[16px] gap-y-[3px] text-[11.5px] text-ink-faint">
                           <span className="flex items-center gap-[4px]">

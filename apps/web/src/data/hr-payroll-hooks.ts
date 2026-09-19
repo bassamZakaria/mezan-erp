@@ -368,7 +368,10 @@ export interface StatutoryTablesDTO {
   overtime: (StatutoryRowDTO & {
     dayPremiumPercent: string;
     nightPremiumPercent: string;
-    restDayPremiumPercent: string;
+    restDayExtraDayWagePercent: string;
+    holidayExtraDayWagePercent: string;
+    restDayReplacementWithinDays: number;
+    holidaySubstituteDayAllowed: boolean;
     standardDailyHours: number;
     standardWeeklyHours: number;
   })[];

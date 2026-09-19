@@ -24,8 +24,8 @@ import {
   createUnpaidLeaveDaysProvider,
   advanceOutstanding,
   createOvertimeHoursProvider,
+  employeeOvertimePolicy,
   calculateEndOfServiceSettlement,
-  EGYPT_OVERTIME_TABLES,
   EmployeeStillEmployedError,
   StatutoryRulesUnavailableError,
   cancelLeaveRequest,
@@ -796,17 +796,20 @@ export function createHrRoutes(deps: HrRoutesDeps, resolveAuthContext: AuthConte
 
   if (deps.payroll) {
     // Attendance turns clock times into payable overtime. The standard day, the
-    // weekend and the holiday calendar are resolved per run, not captured here.
-    const overtimeTable = EGYPT_OVERTIME_TABLES[EGYPT_OVERTIME_TABLES.length - 1];
+    // eligibility, the weekend and the holiday calendar are resolved per
+    // employee per run, not captured here; each day is priced by the table in
+    // force on that day.
     const attendanceRepo = deps.attendance;
     const holidaysRepo = deps.holidays;
     const settingsRepo = deps.payroll.settings;
-    const resolveDerivationOptions = async () => {
-      const settings = await settingsRepo?.get();
+    const resolveDerivationOptions = async (employeeId: string) => {
+      const [settings, employee, holidays] = await Promise.all([settingsRepo?.get(), deps.employees.findById(employeeId), holidaysRepo.list()]);
+      const department = employee?.departmentId ? await deps.departments.findById(employee.departmentId) : null;
       return {
-        standardDailyHours: settings?.standardDailyWorkHours ?? overtimeTable?.standardDailyHours ?? 8,
+        ...employeeOvertimePolicy(employee, department, settings?.standardDailyWorkHours ?? 8),
+        requireApproval: true,
         weeklyOffDays: settings?.weekendDays,
-        holidays: await holidaysRepo.list(),
+        holidays,
       };
     };
     app.route(
@@ -820,7 +823,7 @@ export function createHrRoutes(deps: HrRoutesDeps, resolveAuthContext: AuthConte
           unpaidLeave: deps.payroll.unpaidLeave ?? createUnpaidLeaveDaysProvider(deps.leaveRequests),
           overtime:
             deps.payroll.overtime ??
-            (attendanceRepo && overtimeTable ? createOvertimeHoursProvider(attendanceRepo, overtimeTable, resolveDerivationOptions) : undefined),
+            (attendanceRepo ? createOvertimeHoursProvider(attendanceRepo, resolveDerivationOptions) : undefined),
           leave:
             deps.payroll.leave ?? (deps.leaveBalances && deps.leavePolicies ? { balances: deps.leaveBalances, policies: deps.leavePolicies } : undefined),
         },

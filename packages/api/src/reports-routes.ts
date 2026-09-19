@@ -1,6 +1,7 @@
 import { Hono, type Context } from "hono";
 import {
   Money,
+  payrollCreditsByRunId,
   type AllocatableInvoiceRepository,
   runReport,
   createSalesByPeriodReport,
@@ -1400,13 +1401,13 @@ export function createReportsRoutes(
     });
 
     // The two statutory returns reconcile to their control account only when
-    // they cover the whole company: the account holds every branch.
+    // they cover the whole company: a run's posting holds every branch.
     async function statutoryReturnContext(c: Context, account: string) {
       const ids = await scopedEmployeeIds(c);
       const runs = await hrPayroll!.runs.list();
       const payslips = (await Promise.all(runs.map((run) => hrPayroll!.payslips.listByRunId(run.id)))).flat();
-      const glBalancesByAccountId = branchNarrowed(c, queryParams(c)) ? undefined : new Map([[account, await controlBalance(account)]]);
-      return { runs, payslips: inScope(payslips, ids), employees: await directory.list(), glBalancesByAccountId };
+      const payrollCreditsByAccountId = branchNarrowed(c, queryParams(c)) ? undefined : new Map([[account, payrollCreditsByRunId(await deps.ledger.list(), account)]]);
+      return { runs, payslips: inScope(payslips, ids), employees: await directory.list(), payrollCreditsByAccountId };
     }
 
     app.get("/hr/social-insurance-return", gate("hr.payroll.view"), async (c) => {

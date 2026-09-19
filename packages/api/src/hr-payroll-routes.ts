@@ -357,7 +357,6 @@ export function createHrPayrollRoutes(deps: HrPayrollRoutesDeps, resolveAuthCont
     return {
       ...calculationDeps,
       dayDivisorBasis: deps.dayDivisorBasis ?? settings?.payrollDayDivisorBasis ?? "FIXED_30",
-      standardDailyHours: settings?.standardDailyWorkHours,
       statutoryEnabled: flag?.enabled === true,
     };
   }
@@ -614,7 +613,10 @@ export function createHrPayrollRoutes(deps: HrPayrollRoutesDeps, resolveAuthCont
         ...provenance(t),
         dayPremiumPercent: formatRateBp(t.dayPremiumBp),
         nightPremiumPercent: formatRateBp(t.nightPremiumBp),
-        restDayPremiumPercent: formatRateBp(t.restDayPremiumBp),
+        restDayExtraDayWagePercent: formatRateBp(t.restDayExtraDayWageBp),
+        holidayExtraDayWagePercent: formatRateBp(t.holidayExtraDayWageBp),
+        restDayReplacementWithinDays: t.restDayReplacementWithinDays,
+        holidaySubstituteDayAllowed: t.holidaySubstituteDayAllowed,
         standardDailyHours: t.standardDailyHours,
         standardWeeklyHours: t.standardWeeklyHours,
       })),

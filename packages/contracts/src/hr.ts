@@ -299,7 +299,10 @@ export const decideLeaveRequestSchema = z.object({
 
 // --- Attendance ------------------------------------------------------------
 
-export const attendanceStatusSchema = z.enum(["present", "late", "half_day", "absent", "on_leave", "holiday", "weekly_off"]);
+export const attendanceStatusSchema = z.enum(["present", "late", "half_day", "absent", "on_leave", "holiday", "weekly_off", "compensatory_off"]);
+
+/** How a worked public holiday is compensated: the premium, or a substitute day on the worker's written request. */
+export const holidayWorkCompensationSchema = z.enum(["pay", "day_off"]);
 
 const timeOfDaySchema = z.string().regex(/^([01]\d|2[0-3]):([0-5]\d)$/, "HH:MM");
 const isoDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "YYYY-MM-DD");
@@ -313,6 +316,7 @@ export const attendanceEntrySchema = z.object({
   workedMinutes: z.number().int(),
   /** Null = no overtime approval recorded, which is NOT the same as an approved zero. */
   approvedOvertimeMinutes: z.number().int().nullable(),
+  holidayCompensation: holidayWorkCompensationSchema,
   status: attendanceStatusSchema,
   notes: z.string().nullable(),
   createdAt: z.string().min(1),
@@ -332,6 +336,7 @@ export const recordAttendanceSchema = z.object({
   graceMinutes: z.number().int().min(0).optional(),
   /** Overtime the manager approved for this day, in whole minutes. */
   approvedOvertimeMinutes: z.number().int().min(0).nullable().optional(),
+  holidayCompensation: holidayWorkCompensationSchema.optional(),
 });
 
 export const correctAttendanceSchema = recordAttendanceSchema.omit({ id: true, employeeId: true, date: true }).partial();
@@ -538,6 +543,7 @@ export type CreateLeaveRequestDTO = z.infer<typeof createLeaveRequestSchema>;
 export type HrDashboardSummaryDTO = z.infer<typeof hrDashboardSummarySchema>;
 export type DecideLeaveRequestDTO = z.infer<typeof decideLeaveRequestSchema>;
 export type AttendanceStatusDTO = z.infer<typeof attendanceStatusSchema>;
+export type HolidayWorkCompensationDTO = z.infer<typeof holidayWorkCompensationSchema>;
 export type AttendanceEntryDTO = z.infer<typeof attendanceEntrySchema>;
 export type RecordAttendanceDTO = z.infer<typeof recordAttendanceSchema>;
 export type CorrectAttendanceDTO = z.infer<typeof correctAttendanceSchema>;

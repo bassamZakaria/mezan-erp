@@ -13,7 +13,14 @@ import { listHolidaysForYear } from "./holiday.js";
  * present.
  */
 
-export type AttendanceStatus = "present" | "late" | "half_day" | "absent" | "on_leave" | "holiday" | "weekly_off";
+export type AttendanceStatus = "present" | "late" | "half_day" | "absent" | "on_leave" | "holiday" | "weekly_off" | "compensatory_off";
+
+/**
+ * How a worked official holiday is compensated. "pay" is the premium; "day_off"
+ * is another day off instead, which the law allows only on the worker's
+ * written request and only where the day's overtime table permits it.
+ */
+export type HolidayWorkCompensation = "pay" | "day_off";
 
 export interface AttendanceStatusDefinition {
   readonly code: AttendanceStatus;
@@ -30,6 +37,7 @@ export const ATTENDANCE_STATUS_DEFINITIONS: readonly AttendanceStatusDefinition[
   { code: "on_leave", labelAr: "في إجازة", gridCode: "L" },
   { code: "holiday", labelAr: "إجازة رسمية", gridCode: "HO" },
   { code: "weekly_off", labelAr: "إجازة أسبوعية", gridCode: "—" },
+  { code: "compensatory_off", labelAr: "راحة بديلة", gridCode: "CO" },
 ] as const;
 
 export function getAttendanceStatusLabel(status: AttendanceStatus): string {
@@ -37,7 +45,7 @@ export function getAttendanceStatusLabel(status: AttendanceStatus): string {
 }
 
 /** Statuses that consume a working day without the employee being at work. */
-export const NON_WORKING_ATTENDANCE_STATUSES: readonly AttendanceStatus[] = ["absent", "on_leave", "holiday", "weekly_off"];
+export const NON_WORKING_ATTENDANCE_STATUSES: readonly AttendanceStatus[] = ["absent", "on_leave", "holiday", "weekly_off", "compensatory_off"];
 
 export interface AttendanceEntry {
   readonly id: string;
@@ -56,6 +64,8 @@ export interface AttendanceEntry {
    * minutes here and a site with clocks approves what the clock derived.
    */
   readonly approvedOvertimeMinutes: number | null;
+  /** Read only on a worked official holiday. */
+  readonly holidayCompensation: HolidayWorkCompensation;
   readonly status: AttendanceStatus;
   readonly notes: string | null;
   readonly createdAt: string;
@@ -173,6 +183,7 @@ export interface RecordAttendanceCommand {
   readonly expectedCheckIn?: string | null;
   readonly graceMinutes?: number;
   readonly approvedOvertimeMinutes?: number | null;
+  readonly holidayCompensation?: HolidayWorkCompensation;
 }
 
 function validate(command: Pick<RecordAttendanceCommand, "employeeId" | "date" | "checkIn" | "checkOut">): string[] {
@@ -201,6 +212,7 @@ export function recordAttendance(command: RecordAttendanceCommand, now: () => st
     checkOut,
     workedMinutes: workedMinutesBetween(checkIn, checkOut),
     approvedOvertimeMinutes: normalizeOvertimeMinutes(command.approvedOvertimeMinutes),
+    holidayCompensation: command.holidayCompensation ?? "pay",
     status: command.status ?? resolveAttendanceStatus({ ...command, checkIn }),
     notes: command.notes ?? null,
     createdAt: timestamp,
@@ -220,6 +232,7 @@ export interface CorrectAttendanceCommand {
   readonly expectedCheckIn?: string | null;
   readonly graceMinutes?: number;
   readonly approvedOvertimeMinutes?: number | null;
+  readonly holidayCompensation?: HolidayWorkCompensation;
 }
 
 /** Applies a correction to an existing entry, re-deriving the duration and (unless overridden) the status. */
@@ -240,6 +253,7 @@ export function correctAttendance(
     workedMinutes: workedMinutesBetween(checkIn, checkOut),
     approvedOvertimeMinutes:
       patch.approvedOvertimeMinutes === undefined ? current.approvedOvertimeMinutes : normalizeOvertimeMinutes(patch.approvedOvertimeMinutes),
+    holidayCompensation: patch.holidayCompensation ?? current.holidayCompensation,
     status: patch.status ?? resolveAttendanceStatus({ ...patch, date: current.date, checkIn }),
     notes: patch.notes === undefined ? current.notes : patch.notes,
     updatedAt: now(),

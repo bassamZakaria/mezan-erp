@@ -4,6 +4,11 @@ import type { Payslip, PayrollRun, PayslipLineSource } from "../hr/payroll-run.j
 import type { EmployeeRef } from "../hr-shared/employee-ref.js";
 import type { ReportDefinition } from "./types.js";
 import { sumRows } from "./kpi.js";
+import { isLedgerEffective } from "./gl-shared.js";
+import type { JournalEntry } from "../journal.js";
+
+/** The `sourceDocType` a payroll run's journal entry carries (`post-payroll-run.ts`). */
+export const PAYROLL_RUN_SOURCE_DOC_TYPE = "PAYROLL_RUN";
 
 /**
  * The payroll reports (docs/archive/catalog/08-reports.md — the HR domain).
@@ -14,8 +19,8 @@ import { sumRows } from "./kpi.js";
  *   - نموذج 4 is the same payslips read as a salary-tax return.
  *
  * The two returns count only runs computed with statutory rules ON, and each
- * RECONCILES against the GL control account its own withholding credits —
- * 2192 for insurance, 2191 for tax.
+ * RECONCILES against what those same runs' postings credited to the GL control
+ * account its withholding goes to — 2192 for insurance, 2191 for tax.
  */
 
 export interface PayrollReportContext {
@@ -23,11 +28,13 @@ export interface PayrollReportContext {
   readonly payslips: readonly Payslip[];
   readonly employees: readonly EmployeeRef[];
   /**
-   * Closing balance of each payroll GL control account over the same period,
-   * keyed by account id. Absent = the reconciliation banner is not rendered
-   * rather than rendered against a zero it would always fail.
+   * What each payroll run's own posting did to each payroll GL account — net
+   * credit, keyed by account id then run id. A return compares its payslips
+   * with the postings of the SAME runs, never with the account's balance: the
+   * balance also carries every earlier month and every remittance.
+   * Absent = the reconciliation banner is not rendered.
    */
-  readonly glBalancesByAccountId?: ReadonlyMap<string, Money>;
+  readonly payrollCreditsByAccountId?: ReadonlyMap<string, ReadonlyMap<string, Money>>;
 }
 
 export interface PayrollPeriodParams {
@@ -72,6 +79,42 @@ function selectStatutoryPayslips(params: PayrollPeriodParams, ctx: PayrollReport
 function employeeLabel(employees: readonly EmployeeRef[], employeeId: string): { nameAr: string; code: string } {
   const employee = employees.find((e) => e.id === employeeId);
   return { nameAr: employee?.fullNameAr ?? employeeId, code: employee?.code ?? "" };
+}
+
+/**
+ * The return's own total and what the same runs' postings credited to its
+ * control account, both exact. Only the runs the return counts are summed.
+ */
+function exactReturnTotals(
+  params: PayrollPeriodParams,
+  ctx: PayrollReportContext,
+  sources: readonly PayslipLineSource[],
+  accountId: string,
+): { report: Money; reference: Money } {
+  const selected = selectStatutoryPayslips(params, ctx);
+  const runIds = new Set(selected.map(({ run }) => run.id));
+  const credits = ctx.payrollCreditsByAccountId?.get(accountId);
+  return {
+    report: Money.sum(selected.map(({ payslip }) => totalOf(payslip, sources))),
+    reference: Money.sum([...runIds].map((id) => credits?.get(id) ?? Money.zero())),
+  };
+}
+
+/**
+ * Net credit each payroll run's own posting — and any reversal of it — put on
+ * `accountId`, keyed by run id. A remittance out of the account is a different
+ * document and is never counted (D189).
+ */
+export function payrollCreditsByRunId(entries: readonly JournalEntry[], accountId: string): Map<string, Money> {
+  const byRun = new Map<string, bigint>();
+  for (const entry of entries) {
+    if (entry.sourceDocType !== PAYROLL_RUN_SOURCE_DOC_TYPE || !entry.sourceDocId || !isLedgerEffective(entry)) continue;
+    for (const line of entry.lines) {
+      if (line.accountId !== accountId) continue;
+      byRun.set(entry.sourceDocId, (byRun.get(entry.sourceDocId) ?? 0n) + line.credit.scaled - line.debit.scaled);
+    }
+  }
+  return new Map([...byRun].map(([runId, scaled]) => [runId, Money.fromScaled(scaled)]));
 }
 
 /** Total of the payslip lines whose source is in `sources`. */
@@ -293,12 +336,13 @@ export function createSocialInsuranceReturnReport(): ReportDefinition<PayrollPer
       },
     ],
     reconciliation: {
-      labelAr: "إجمالي الاشتراك مقابل رصيد حساب التأمينات المستحقة (2192)",
+      labelAr: "إجمالي الاشتراك مقابل ما قيّدته رواتب الفترة نفسها في حساب التأمينات المستحقة (2192)",
+      available: (ctx) => ctx.payrollCreditsByAccountId !== undefined,
       computeReportTotal: (rows) => sumRows(rows, (r) => r.totalContribution),
-      computeReferenceTotal: (_rows, ctx) => {
-        const balance = ctx.glBalancesByAccountId?.get(SOCIAL_INSURANCE_CONTROL_ACCOUNT);
-        return balance ? Number(balance.toString()) : 0;
-      },
+      computeReferenceTotal: (_rows, ctx, params) =>
+        toNumber(exactReturnTotals(params, ctx, ["social_insurance_employee", "social_insurance_employer"], SOCIAL_INSURANCE_CONTROL_ACCOUNT).reference),
+      computeExactTotals: (_rows, ctx, params) =>
+        exactReturnTotals(params, ctx, ["social_insurance_employee", "social_insurance_employer"], SOCIAL_INSURANCE_CONTROL_ACCOUNT),
     },
   };
 }
@@ -374,12 +418,11 @@ export function createSalaryTaxReturnReport(): ReportDefinition<PayrollPeriodPar
       },
     ],
     reconciliation: {
-      labelAr: "إجمالي الضريبة مقابل رصيد حساب ضريبة كسب العمل المستحقة (2191)",
+      labelAr: "إجمالي الضريبة مقابل ما قيّدته رواتب الفترة نفسها في حساب ضريبة كسب العمل المستحقة (2191)",
+      available: (ctx) => ctx.payrollCreditsByAccountId !== undefined,
       computeReportTotal: (rows) => sumRows(rows, (r) => r.taxWithheld),
-      computeReferenceTotal: (_rows, ctx) => {
-        const balance = ctx.glBalancesByAccountId?.get(SALARY_TAX_CONTROL_ACCOUNT);
-        return balance ? Number(balance.toString()) : 0;
-      },
+      computeReferenceTotal: (_rows, ctx, params) => toNumber(exactReturnTotals(params, ctx, ["income_tax"], SALARY_TAX_CONTROL_ACCOUNT).reference),
+      computeExactTotals: (_rows, ctx, params) => exactReturnTotals(params, ctx, ["income_tax"], SALARY_TAX_CONTROL_ACCOUNT),
     },
   };
 }

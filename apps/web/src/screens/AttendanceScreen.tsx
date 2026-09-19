@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { Button, Card, DocumentList, EmptyState, IconButton, SidePanel, StatusPill, type DocumentListColumn } from "@mezan/ui";
-import type { AttendanceEntryDTO, AttendanceStatusDTO } from "@mezan/contracts";
+import type { AttendanceEntryDTO, AttendanceStatusDTO, HolidayWorkCompensationDTO } from "@mezan/contracts";
 import { SelectField, TextField, ToggleField } from "../settings/form-controls";
 import {
   ApiError,
@@ -45,12 +45,13 @@ interface AttendanceDraft {
   notes: string;
   /** Blank = no approval recorded, which is NOT the same as an approved zero. */
   approvedOvertimeMinutes: string;
+  holidayCompensation: HolidayWorkCompensationDTO;
 }
 
 const PAGE_SIZES = [10, 25, 50, 100] as const;
 
 function blankDraft(employeeId: string, date: string): AttendanceDraft {
-  return { employeeId, date, checkIn: "", checkOut: "", halfDay: false, expectedCheckIn: "", status: "", notes: "", approvedOvertimeMinutes: "" };
+  return { employeeId, date, checkIn: "", checkOut: "", halfDay: false, expectedCheckIn: "", status: "", notes: "", approvedOvertimeMinutes: "", holidayCompensation: "pay" };
 }
 
 function EditIcon() {
@@ -114,6 +115,7 @@ export function AttendanceScreen() {
       status: entry.status,
       notes: entry.notes ?? "",
       approvedOvertimeMinutes: entry.approvedOvertimeMinutes === null ? "" : String(entry.approvedOvertimeMinutes),
+      holidayCompensation: entry.holidayCompensation,
     });
     setFormError(null);
     setFormOpen(true);
@@ -134,6 +136,7 @@ export function AttendanceScreen() {
       status: draft.status === "" ? null : (draft.status as AttendanceStatusDTO),
       notes: draft.notes.trim() === "" ? null : draft.notes.trim(),
       approvedOvertimeMinutes: draft.approvedOvertimeMinutes.trim() === "" ? null : Number(draft.approvedOvertimeMinutes.trim()),
+      holidayCompensation: draft.holidayCompensation,
     };
     try {
       if (editingId) {
@@ -337,6 +340,16 @@ export function AttendanceScreen() {
             onChange={(v) => setDraft((d) => ({ ...d, approvedOvertimeMinutes: v.replace(/[^0-9]/g, "") }))}
             hint={t("attendance.approvedOvertimeHint")}
             placeholder="0"
+          />
+          <SelectField
+            label={t("attendance.holidayCompensation")}
+            value={draft.holidayCompensation}
+            onChange={(v) => setDraft((d) => ({ ...d, holidayCompensation: v === "day_off" ? "day_off" : "pay" }))}
+            options={[
+              { value: "pay", label: t("attendance.holidayCompensation.pay") },
+              { value: "day_off", label: t("attendance.holidayCompensation.day_off") },
+            ]}
+            hint={t("attendance.holidayCompensationHint")}
           />
           <TextField
             label={t("attendance.shiftStart")}

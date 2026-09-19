@@ -17,6 +17,7 @@ describe("SqliteAttendanceRepository", () => {
       checkOut: "17:00",
       workedMinutes: 480,
       approvedOvertimeMinutes: null,
+      holidayCompensation: "pay" as const,
       status: "present" as const,
       notes: null,
       createdAt: "2026-01-05T17:00:00.000Z",
@@ -35,6 +36,19 @@ describe("SqliteAttendanceRepository", () => {
       const byKey = await repo.findByEmployeeAndDate("emp-1", "2026-01-05");
       expect(byKey?.id).toBe("att-1");
       expect(await repo.findByEmployeeAndDate("emp-1", "2026-02-01")).toBeNull();
+    } finally {
+      repo.close();
+    }
+  });
+
+  it("round-trips a holiday taken as a substitute day off and a راحة بديلة (D186)", async () => {
+    const repo = createSqliteAttendanceRepository();
+    try {
+      await repo.create({ ...baseEntry(), holidayCompensation: "day_off" });
+      await repo.create({ ...baseEntry(), id: "att-2", date: "2026-01-08", status: "compensatory_off", checkIn: null, checkOut: null, workedMinutes: 0 });
+      expect((await repo.findById("att-1"))?.holidayCompensation).toBe("day_off");
+      expect((await repo.findById("att-2"))?.status).toBe("compensatory_off");
+      expect((await repo.findById("att-2"))?.holidayCompensation).toBe("pay");
     } finally {
       repo.close();
     }

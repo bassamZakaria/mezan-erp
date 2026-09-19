@@ -78,6 +78,7 @@ function attendanceEntry(overrides: Partial<AttendanceEntryDTO> = {}): Attendanc
     checkOut: "17:10",
     workedMinutes: 485,
     approvedOvertimeMinutes: null,
+    holidayCompensation: "pay",
     status: "late",
     notes: null,
     createdAt: "2026-08-05T09:05:00.000Z",
@@ -214,6 +215,7 @@ describe("AttendanceScreen", () => {
     await waitFor(() => expect(screen.queryByRole("button", { name: "تسجيل" })).not.toBeInTheDocument());
     expect(posted).toEqual({
       approvedOvertimeMinutes: null,
+      holidayCompensation: "pay",
       employeeId: "emp-2",
       date: "2026-08-20",
       checkIn: "09:00",
@@ -265,6 +267,7 @@ describe("AttendanceScreen", () => {
     expect(putId).toBe("/hr/attendance/att-1");
     expect(putBody).toEqual({
       approvedOvertimeMinutes: null,
+      holidayCompensation: "pay",
       checkIn: "09:30",
       checkOut: "17:10",
       halfDay: false,

@@ -555,6 +555,7 @@ describe("attendanceStatusSchema / attendanceEntrySchema", () => {
     checkOut: "17:00",
     workedMinutes: 480,
     approvedOvertimeMinutes: null,
+    holidayCompensation: "pay" as const,
     status: "present" as const,
     notes: null,
     createdAt: "2026-08-30T09:00:00.000Z",

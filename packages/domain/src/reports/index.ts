@@ -341,6 +341,8 @@ export {
   createSalaryTaxReturnReport,
   SOCIAL_INSURANCE_CONTROL_ACCOUNT,
   SALARY_TAX_CONTROL_ACCOUNT,
+  PAYROLL_RUN_SOURCE_DOC_TYPE,
+  payrollCreditsByRunId,
   type SocialInsuranceReturnRow,
   type SalaryTaxReturnRow,
   type PayrollReportContext,

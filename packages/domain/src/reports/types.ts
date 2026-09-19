@@ -1,4 +1,5 @@
 import type { z } from "zod";
+import type { Money } from "../money/index.js";
 
 /**
  * ReportDefinition — the Tier 2 shared "report engine" abstraction
@@ -80,6 +81,12 @@ export interface ReportReconciliationSpec<Row, Ctx, TParams = unknown> {
   readonly computeReferenceTotal: (rows: readonly Row[], ctx: Ctx, params: TParams) => number;
   /** Absolute-difference tolerance before the banner flags a mismatch. Defaults to 0. */
   readonly toleranceMoney?: number;
+  /**
+   * Both totals as exact Money. When present the banner compares THESE, not
+   * the two number totals, so a mismatch is never a float artefact; the number
+   * totals are then only what the banner displays.
+   */
+  readonly computeExactTotals?: (rows: readonly Row[], ctx: Ctx, params: TParams) => { readonly report: Money; readonly reference: Money };
   /**
    * Whether the reference figure is actually available in this context.
    * Returns false and the banner is not shown at all.

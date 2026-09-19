@@ -830,6 +830,77 @@ export async function run(ctx: Ctx): Promise<void> {
     }
   });
 
+  await ctx.scenario("hr / statutory overtime — approved time only, the rest day and the holiday by the day, the replacement day tracked (D186–D189)", async () => {
+    const stamp = Date.now();
+    const dept = await ctx.req("POST", "/hr/departments", { code: `SCN-OT-NO-${stamp}`, name: "No overtime", overtimeEligible: false });
+    ctx.check("OT-01 — a department that is not overtime-eligible", dept.status === 201, `${dept.status}: ${JSON.stringify(dept.body)}`);
+    const hire = async (label: string, departmentId: string | null) => {
+      const employee = await ctx.req("POST", "/hr/employees", { firstName: label, lastName: "Overtime", firstNameAr: label, lastNameAr: "إضافي", branchId, hireDate: "2024-01-01", departmentId });
+      await ctx.req("POST", "/hr/contracts", { employeeId: employee.body.id, startDate: "2024-01-01", monthlySalary: "9000", currency: "EGP" });
+      return employee.body.id as string;
+    };
+    const eligible = await hire("Eligible", null);
+    const ineligible = await hire("Ineligible", dept.body.id);
+    const attend = (employeeId: string, date: string, body: Record<string, unknown>) => ctx.req("POST", "/hr/attendance", { employeeId, date, ...body });
+
+    await attend(eligible, "2026-11-03", { checkIn: "09:00", checkOut: "19:00" });
+    await attend(eligible, "2026-11-04", { checkIn: "09:00", checkOut: "19:00", approvedOvertimeMinutes: 120 });
+    await attend(eligible, "2026-11-06", { checkIn: "09:00", checkOut: "17:00", approvedOvertimeMinutes: 480 });
+    const holiday = await attend(eligible, "2026-11-10", { checkIn: "09:00", checkOut: "17:00", status: "holiday", approvedOvertimeMinutes: 480 });
+    ctx.check("OT-02 — attendance carries the holiday compensation choice, defaulting to pay", holiday.status === 201 && holiday.body.holidayCompensation === "pay", JSON.stringify(holiday.body));
+    await attend(ineligible, "2026-11-04", { checkIn: "09:00", checkOut: "19:00", approvedOvertimeMinutes: 120 });
+
+    await ctx.req("POST", "/hr/payroll/runs", { id: "SCN-PR-STAT-OT", year: 2026, month: 11, branchId, currency: "EGP" });
+    const first = await ctx.req("POST", "/hr/payroll/runs/SCN-PR-STAT-OT/calculate", {});
+    ctx.check("OT-03 — November calculates with the switch on", first.status === 200, `got ${first.status}: ${JSON.stringify(first.body).slice(0, 200)}`);
+    const overtimeOf = (body: any, employeeId: string) =>
+      (body.payslips.find((p: any) => p.employeeId === employeeId)?.lines ?? []).filter((l: any) => l.source === "overtime").map((l: any) => ctx.n(l.amount));
+    ctx.check(
+      "OT-04 — only the approved weekday hours pay (2h × 37.50 × 135%), the rest day earns one day's wage (300) and the holiday two (600); the clock-only day pays nothing",
+      JSON.stringify(overtimeOf(first.body, eligible)) === JSON.stringify([101.25, 300, 600]),
+      JSON.stringify(overtimeOf(first.body, eligible)),
+    );
+    ctx.check("OT-05 — every overtime line names the Law 14/2025 row", first.body.payslips.flatMap((p: any) => p.lines).filter((l: any) => l.source === "overtime").every((l: any) => l.referenceId === "EG_OVERTIME_14_2025"));
+    ctx.check("OT-06 — a department that is not eligible pays no overtime", overtimeOf(first.body, ineligible).length === 0, JSON.stringify(overtimeOf(first.body, ineligible)));
+    ctx.check("OT-07 — and the run says the approved hours went unpaid", (first.body.warnings as string[]).some((w) => w.includes("غير مستحق للأجر الإضافي")), JSON.stringify(first.body.warnings));
+    ctx.check(
+      "OT-08 — the worked rest day with no replacement day is flagged, due within the following week",
+      (first.body.warnings as string[]).some((w) => w.includes("2026-11-06") && w.includes("2026-11-13")),
+      JSON.stringify(first.body.warnings),
+    );
+
+    const off = await attend(eligible, "2026-11-11", { status: "compensatory_off" });
+    ctx.check("OT-09 — a راحة بديلة is recorded", off.status === 201 && off.body.status === "compensatory_off", JSON.stringify(off.body));
+    const elected = await ctx.req("PUT", `/hr/attendance/${holiday.body.id}`, { status: "holiday", holidayCompensation: "day_off" });
+    ctx.check("OT-10 — the worker elects a substitute day for the holiday", elected.status === 200 && elected.body.holidayCompensation === "day_off", JSON.stringify(elected.body));
+    const second = await ctx.req("POST", "/hr/payroll/runs/SCN-PR-STAT-OT/calculate", {});
+    ctx.check("OT-11 — the replacement day settles the rest day", !(second.body.warnings as string[]).some((w) => w.includes("2026-11-06")), JSON.stringify(second.body.warnings));
+    ctx.check("OT-12 — the holiday taken as a day off pays no premium", JSON.stringify(overtimeOf(second.body, eligible)) === JSON.stringify([101.25, 300]), JSON.stringify(overtimeOf(second.body, eligible)));
+    ctx.check(
+      "OT-13 — and is itself owed a replacement day, flagged until one is recorded",
+      (second.body.warnings as string[]).some((w) => w.includes("2026-11-10") && w.includes("راحة بديلة")),
+      JSON.stringify(second.body.warnings),
+    );
+
+    const approved = await ctx.req("POST", "/hr/payroll/runs/SCN-PR-STAT-OT/approve", {});
+    ctx.check("OT-14 — November approves and posts", approved.status === 200 && !!approved.body.journalEntryId, `got ${approved.status}`);
+    if (approved.body.journalEntryId) await assertBalancedEntry(ctx, "OT-15 — the November posting", approved.body.journalEntryId);
+
+    for (const [label, path] of [
+      ["social insurance", "/reports/hr/social-insurance-return?year=2026&month=11"],
+      ["salary tax", "/reports/hr/salary-tax-return?year=2026&month=11"],
+      ["social insurance (year)", "/reports/hr/social-insurance-return?year=2026"],
+      ["salary tax (year)", "/reports/hr/salary-tax-return?year=2026"],
+    ] as const) {
+      const report = (await ctx.req("GET", path)).body;
+      ctx.check(
+        `OT-16 — D189: the ${label} return ties to what the same runs posted, with an earlier month already on the account`,
+        !!report.reconciliation && report.reconciliation.withinTolerance === true && ctx.n(report.reconciliation.reportTotal) === ctx.n(report.reconciliation.referenceTotal),
+        JSON.stringify(report.reconciliation),
+      );
+    }
+  });
+
   await ctx.scenario("hr / statutory payroll — an unpublished year REFUSES, then computes at the stepped 2027 rates", async () => {
     await ctx.req("POST", "/hr/payroll/runs", { id: "SCN-PR-STAT-2027", year: 2027, month: 1, branchId, currency: "EGP" });
     const refused = await ctx.req("POST", "/hr/payroll/runs/SCN-PR-STAT-2027/calculate", {});

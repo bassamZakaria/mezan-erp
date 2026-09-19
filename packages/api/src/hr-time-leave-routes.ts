@@ -102,6 +102,7 @@ function serializeAttendance(e: AttendanceEntry) {
     checkOut: e.checkOut,
     workedMinutes: e.workedMinutes,
     approvedOvertimeMinutes: e.approvedOvertimeMinutes,
+    holidayCompensation: e.holidayCompensation,
     status: e.status,
     notes: e.notes,
     createdAt: e.createdAt,

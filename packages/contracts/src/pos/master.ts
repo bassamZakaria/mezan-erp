@@ -5,7 +5,7 @@ export const posPaymentMethodKindSchema = z.enum(["cash", "card", "wallet", "tra
 export const posPaymentAccountTypeSchema = z.enum(["cash", "bank"]);
 export const posTerminalKindSchema = z.enum(["retail", "restaurant"]);
 export const posPrinterKindSchema = z.enum(["system", "escpos-tcp"]);
-export const posTerminalIssueSchema = z.enum(["inactive", "eta_device_missing", "eta_credentials_missing"]);
+export const posTerminalIssueSchema = z.enum(["inactive", "setup_broken", "eta_device_missing", "eta_credentials_missing"]);
 
 const codeSchema = z.string().trim().min(1).max(20);
 const optionalText = z.string().nullable().optional();

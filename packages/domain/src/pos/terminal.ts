@@ -258,6 +258,10 @@ export function assertPosTerminalReferences(terminal: PosTerminal, refs: PosTerm
       if (method.accountType !== null && account.type !== method.accountType) {
         reasons.push(`«${method.nameAr}» تستقبل على حساب ${method.accountType === "bank" ? "بنكي" : "نقدي"} فقط`);
       }
+      // A bank account may be central (the acquirer settles to one company account); a cash box may not.
+      if (account.type === "cash" && account.branchId !== terminal.branchId) {
+        reasons.push(`«${method.nameAr}» تستقبل على خزينة نقدية من فرع آخر — اختر خزينة من فرع الجهاز`);
+      }
       if (accountId === terminal.drawerTreasuryAccountId) {
         reasons.push(`«${method.nameAr}» لا تُحصَّل في درج النقدية — وإلا زاد النقد المتوقع عند إقفال الوردية`);
       }
@@ -321,14 +325,39 @@ export function effectiveEtaDevice(terminal: PosTerminal, branch: BranchEtaDevic
   return null;
 }
 
-export const POS_TERMINAL_ISSUES = ["inactive", "eta_device_missing", "eta_credentials_missing"] as const;
+export const POS_TERMINAL_ISSUES = ["inactive", "setup_broken", "eta_device_missing", "eta_credentials_missing"] as const;
 export type PosTerminalIssue = (typeof POS_TERMINAL_ISSUES)[number];
 
-export function posTerminalIssues(terminal: PosTerminal, branch: BranchEtaDevice | null): PosTerminalIssue[] {
+/**
+ * Readiness is computed on every read from the records as they are NOW: a
+ * drawer or method disabled after the terminal was saved must turn it amber,
+ * not leave the green it earned at its last save.
+ */
+export function posTerminalIssues(
+  terminal: PosTerminal,
+  branch: BranchEtaDevice | null,
+  refs?: Pick<PosTerminalReferences, "accounts" | "methods">,
+): PosTerminalIssue[] {
   const issues: PosTerminalIssue[] = [];
   if (!terminal.active) issues.push("inactive");
+  if (refs && setupBroken(terminal, refs)) issues.push("setup_broken");
   const device = effectiveEtaDevice(terminal, branch);
   if (device === null) issues.push("eta_device_missing");
   else if (!device.complete) issues.push("eta_credentials_missing");
   return issues;
+}
+
+function setupBroken(terminal: PosTerminal, refs: Pick<PosTerminalReferences, "accounts" | "methods">): boolean {
+  const drawer = refs.accounts.get(terminal.drawerTreasuryAccountId);
+  if (!drawer || drawer.type !== "cash" || drawer.status !== "active") return true;
+  const defaultMethod = refs.methods.get(terminal.defaultMethodId);
+  if (!defaultMethod || !defaultMethod.active) return true;
+  return terminal.methods.some((entry) => {
+    const method = refs.methods.get(entry.methodId);
+    if (!method || !method.active) return true;
+    if (method.kind === "cash" || method.kind === "on_account") return false;
+    const accountId = resolveTerminalMethodAccount(terminal, entry, method);
+    const account = accountId === null ? undefined : refs.accounts.get(accountId);
+    return !account || account.status !== "active";
+  });
 }

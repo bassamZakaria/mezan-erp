@@ -24,9 +24,10 @@ export function createPosPaymentMethodsRoutes(deps: PosPaymentMethodsRoutesDeps,
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
 
-  async function usage(): Promise<Map<string, string[]>> {
+  async function usage(activeOnly = false): Promise<Map<string, string[]>> {
     const byMethod = new Map<string, string[]>();
     for (const terminal of await deps.terminals.list()) {
+      if (activeOnly && !terminal.active) continue;
       for (const entry of terminal.methods) byMethod.set(entry.methodId, [...(byMethod.get(entry.methodId) ?? []), terminal.code]);
     }
     return byMethod;
@@ -83,7 +84,7 @@ export function createPosPaymentMethodsRoutes(deps: PosPaymentMethodsRoutesDeps,
       const problem = await defaultAccountProblem(next);
       if (problem) return c.json({ error: "INVALID_POS_PAYMENT_METHOD", message: problem }, 422);
       if (current.active && !next.active) {
-        const usedBy = (await usage()).get(current.id) ?? [];
+        const usedBy = (await usage(true)).get(current.id) ?? [];
         if (usedBy.length > 0) {
           return c.json(
             {

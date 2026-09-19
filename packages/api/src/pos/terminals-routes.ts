@@ -48,10 +48,20 @@ export function createPosTerminalsRoutes(deps: PosTerminalsRoutesDeps, resolveAu
   const gate = createPermissionGate(resolveAuthContext);
 
   async function serialize(terminals: readonly PosTerminal[]): Promise<PosTerminalDTO[]> {
-    const devices = await deps.branchEtaDevices();
+    const [devices, accounts, methods] = await Promise.all([
+      deps.branchEtaDevices(),
+      deps.treasuryAccounts.list(),
+      deps.paymentMethods.list(),
+    ]);
+    const refs = {
+      accounts: new Map<string, PosTerminalReferenceAccount>(
+        accounts.map((a) => [a.id, { id: a.id, type: a.type, branchId: a.branchId, status: a.status }]),
+      ),
+      methods: new Map<string, PosPaymentMethod>(methods.map((m) => [m.id, m])),
+    };
     return terminals.map((t) => {
       const branch = devices.get(t.branchId) ?? null;
-      return { ...t, methods: [...t.methods], etaDevice: effectiveEtaDevice(t, branch), issues: posTerminalIssues(t, branch) };
+      return { ...t, methods: [...t.methods], etaDevice: effectiveEtaDevice(t, branch), issues: posTerminalIssues(t, branch, refs) };
     });
   }
 

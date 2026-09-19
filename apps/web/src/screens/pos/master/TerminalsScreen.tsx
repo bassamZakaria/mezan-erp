@@ -281,7 +281,7 @@ export function TerminalsScreen() {
         ) : (
           <StatusPill
             label={t(`pos.terminals.issue.${x.issues[0]}` as AppTranslationKey)}
-            tone={x.issues[0] === "inactive" ? "neutral" : "warning"}
+            tone={x.issues[0] === "inactive" ? "neutral" : x.issues[0] === "setup_broken" ? "danger" : "warning"}
           />
         ),
     },
@@ -446,7 +446,8 @@ function TerminalForm({ editing, mayManage, methods, accounts, onClose, onSave }
       (a) =>
         a.status === "active" &&
         a.id !== draft.drawerTreasuryAccountId &&
-        (method.accountType === null || a.type === method.accountType),
+        (method.accountType === null || a.type === method.accountType) &&
+        (a.type === "bank" || a.branchId === branchId),
     );
     const defaultAccount = accounts.find((a) => a.id === method.defaultTreasuryAccountId);
     return [

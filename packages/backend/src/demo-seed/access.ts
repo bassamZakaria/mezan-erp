@@ -617,6 +617,16 @@ export async function seedAccess(app: App): Promise<void> {
       name: role.name,
       description: role.description,
       permissions: [...new Set([...role.permissions, ...fragmentGrantsFor(role.code, licensing)])],
+      // ENH-051: a small shop's own roles genuinely overlap (FINANCE_MANAGER
+      // both posts journals and closes the period; TREASURY_CASHIER both
+      // writes and confirms a voucher) — that overlap is the realistic finding
+      // this seed exists to demonstrate on the SoD report, not a defect to
+      // dodge. Sent on every role, not only the ones known to conflict today:
+      // a later lane's `roleGrants` can introduce a new overlap on any role
+      // code, and the seed must never crash on the 409 that is working as
+      // designed.
+      acknowledge: true,
+      reason: "دور تجريبي — منشأة صغيرة لا تطبق فصلاً كاملاً للمهام بين كل الأدوار.",
     })) as SeededRole;
     roleIdByCode.set(role.code, created.id);
   }
@@ -647,6 +657,11 @@ export async function seedAccess(app: App): Promise<void> {
       // purpose: a demo whose logins each need a different code is a demo
       // nobody signs into twice.
       pin: "123456",
+      // ENH-051 — see the matching note on the role POST above: this seed's
+      // own roles carry a real overlap, so assigning one is expected to trip
+      // the same 409 and must carry the same override.
+      acknowledge: true,
+      reason: "دور تجريبي — منشأة صغيرة لا تطبق فصلاً كاملاً للمهام بين كل الأدوار.",
     });
   }
 }

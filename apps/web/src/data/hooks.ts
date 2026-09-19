@@ -282,6 +282,14 @@ import type {
   YearEndClosePreviewDTO,
   LanStatusDTO,
   LanSessionsListDTO,
+  CreateRecurringJournalTemplateDTO,
+  UpdateRecurringJournalTemplateDTO,
+  SetRecurringJournalTemplateStatusDTO,
+  GenerateDueRecurringJournalsDTO,
+  SaveJournalEntryAsTemplateDTO,
+  GeneratedRecurringJournalDTO,
+  RecurringJournalFrequencyDTO,
+  RecurringJournalTemplateStatusDTO,
 } from "@mezan/contracts";
 import { useApi } from "./ApiContext";
 import type { TransportResponse } from "./transport";
@@ -1497,6 +1505,215 @@ export function useReverseJournalEntry() {
       return res.json<{ original: JournalEntryDTO; reversal: JournalEntryDTO }>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["journal-entries"] }),
+  });
+}
+
+/* -------------------------------------------------------------------- */
+/* Recurring & template journal automation (ENH-E2-02, /gl/recurring)   */
+/* -------------------------------------------------------------------- */
+
+export interface RecurringJournalTemplateLineDTO {
+  readonly accountId: string;
+  readonly debit: string;
+  readonly credit: string;
+  readonly memo: string | null;
+  readonly costCenterId: string | null;
+  readonly branchId: string | null;
+  readonly partyId: string | null;
+  readonly projectId?: string | null;
+  readonly costCategory?: CostCategoryDTO | null;
+}
+
+export interface RecurringJournalTemplateDTO {
+  readonly id: string;
+  readonly nameAr: string;
+  readonly nameEn: string | null;
+  readonly memo: string;
+  readonly frequency: RecurringJournalFrequencyDTO;
+  readonly dayOfPeriod: number;
+  readonly yearlyMonth: number | null;
+  readonly startDate: string;
+  readonly endDate: string | null;
+  readonly autoReverseNextPeriod: boolean;
+  readonly status: RecurringJournalTemplateStatusDTO;
+  readonly lines: readonly RecurringJournalTemplateLineDTO[];
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+export interface RecurringJournalRunDTO {
+  readonly id: string;
+  readonly templateId: string;
+  readonly period: string;
+  readonly journalEntryId: string;
+  readonly journalEntryNo: string | null;
+  readonly reversalJournalEntryId: string | null;
+  readonly reversalJournalEntryNo: string | null;
+  readonly generatedAt: string;
+  readonly generatedBy: string;
+}
+
+export interface DueRecurringJournalDTO {
+  readonly templateId: string;
+  readonly nameAr: string;
+  readonly nameEn: string | null;
+  readonly periods: readonly string[];
+}
+
+export function useRecurringJournalTemplates(): UseQueryResult<RecurringJournalTemplateDTO[], ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<RecurringJournalTemplateDTO[], ApiError>({
+    queryKey: ["recurring-journal-templates"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/gl/recurring/templates");
+      if (!res.ok) throw await loaderError(res, t("recurringJournals.templatesCouldNotLoad"), t);
+      return res.json<RecurringJournalTemplateDTO[]>();
+    },
+  });
+}
+
+export function useRecurringJournalTemplateRuns(templateId: string | null): UseQueryResult<RecurringJournalRunDTO[], ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<RecurringJournalRunDTO[], ApiError>({
+    queryKey: ["recurring-journal-templates", templateId, "runs"],
+    enabled: session !== null && templateId !== null,
+    queryFn: async () => {
+      const res = await request(`/gl/recurring/templates/${templateId}/runs`);
+      if (!res.ok) throw await loaderError(res, t("recurringJournals.historyCouldNotLoad"), t);
+      return res.json<RecurringJournalRunDTO[]>();
+    },
+  });
+}
+
+export function useRecurringJournalRuns(limit = 200): UseQueryResult<RecurringJournalRunDTO[], ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<RecurringJournalRunDTO[], ApiError>({
+    queryKey: ["recurring-journal-runs", limit],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request(`/gl/recurring/runs?limit=${limit}`);
+      if (!res.ok) throw await loaderError(res, t("recurringJournals.historyCouldNotLoad"), t);
+      return res.json<RecurringJournalRunDTO[]>();
+    },
+  });
+}
+
+export function useDueRecurringJournals(): UseQueryResult<{ asOfDate: string; due: DueRecurringJournalDTO[] }, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<{ asOfDate: string; due: DueRecurringJournalDTO[] }, ApiError>({
+    queryKey: ["recurring-journal-due"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/gl/recurring/due");
+      if (!res.ok) throw await loaderError(res, t("recurringJournals.dueCouldNotLoad"), t);
+      return res.json<{ asOfDate: string; due: DueRecurringJournalDTO[] }>();
+    },
+  });
+}
+
+export function useDueDepreciationPeriods(): UseQueryResult<{ periods: string[] }, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<{ periods: string[] }, ApiError>({
+    queryKey: ["recurring-journal-depreciation-due"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/gl/recurring/depreciation-due");
+      if (!res.ok) throw await loaderError(res, t("recurringJournals.dueCouldNotLoad"), t);
+      return res.json<{ periods: string[] }>();
+    },
+  });
+}
+
+export function useCreateRecurringJournalTemplate() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<RecurringJournalTemplateDTO, ApiError, CreateRecurringJournalTemplateDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/gl/recurring/templates", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("recurringJournals.templateCouldNotBeSaved"), t));
+      return res.json<RecurringJournalTemplateDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["recurring-journal-templates"] }),
+  });
+}
+
+export function useUpdateRecurringJournalTemplate() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<RecurringJournalTemplateDTO, ApiError, { id: string } & UpdateRecurringJournalTemplateDTO>({
+    mutationFn: async ({ id, ...body }) => {
+      const res = await request(`/gl/recurring/templates/${id}`, { method: "PUT", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("recurringJournals.templateCouldNotBeSaved"), t));
+      return res.json<RecurringJournalTemplateDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["recurring-journal-templates"] }),
+  });
+}
+
+export function useSetRecurringJournalTemplateStatus() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<RecurringJournalTemplateDTO, ApiError, { id: string } & SetRecurringJournalTemplateStatusDTO>({
+    mutationFn: async ({ id, ...body }) => {
+      const res = await request(`/gl/recurring/templates/${id}/status`, { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("recurringJournals.templateCouldNotBeSaved"), t));
+      return res.json<RecurringJournalTemplateDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["recurring-journal-templates"] }),
+  });
+}
+
+/** "Save as template" on JournalsScreen — the lines come off the entry itself; only the schedule is asked for. */
+export function useSaveJournalEntryAsRecurringTemplate() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<RecurringJournalTemplateDTO, ApiError, { entryId: string } & SaveJournalEntryAsTemplateDTO>({
+    mutationFn: async ({ entryId, ...body }) => {
+      const res = await request(`/gl/recurring/templates/from-entry/${entryId}`, { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("recurringJournals.templateCouldNotBeSaved"), t));
+      return res.json<RecurringJournalTemplateDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["recurring-journal-templates"] }),
+  });
+}
+
+export interface FailedRecurringJournalGenerationDTO {
+  readonly templateId: string;
+  readonly templateNameAr: string;
+  readonly period: string;
+  readonly message: string;
+}
+
+export function useGenerateDueRecurringJournals() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<
+    { asOfDate: string; generated: GeneratedRecurringJournalDTO[]; failed: FailedRecurringJournalGenerationDTO[] },
+    ApiError,
+    GenerateDueRecurringJournalsDTO
+  >({
+    mutationFn: async (body) => {
+      const res = await request("/gl/recurring/generate-due", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("recurringJournals.generateFailed"), t));
+      return res.json<{ asOfDate: string; generated: GeneratedRecurringJournalDTO[]; failed: FailedRecurringJournalGenerationDTO[] }>();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["recurring-journal-due"] });
+      queryClient.invalidateQueries({ queryKey: ["recurring-journal-runs"] });
+      queryClient.invalidateQueries({ queryKey: ["recurring-journal-templates"] });
+      queryClient.invalidateQueries({ queryKey: ["journal-entries"] });
+    },
   });
 }
 

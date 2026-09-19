@@ -1,7 +1,20 @@
 import { useCallback, useEffect, useState } from "react";
-import { Button, Card, StatusPill, TextInput } from "@mezan/ui";
+import { Button, Card, StatusPill, TextInput, useFormat } from "@mezan/ui";
 import { useApi } from "../data/ApiContext";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import {
+  backupBridge,
+  daysSince,
+  DrillCheck,
+  DrillOutcome,
+  DrillTrigger,
+  isBackupFailure,
+  megabytes,
+  type BackupEntry,
+  type DrillRecord,
+  type StatusResult,
+} from "./backup-bridge";
+import { PortableImportPanel } from "./PortableImportPanel";
 
 /**
  * النسخ الاحتياطي والاستعادة — the screen a restore was missing.
@@ -24,50 +37,9 @@ import { useAppTranslation, type AppTranslationKey } from "../i18n";
  * the feature.
  */
 
-type BackupEntry = {
-  fileName: string;
-  createdAt: string;
-  appVersion: string | null;
-  reason: string | null;
-  sizeBytes: number;
-  tables: Record<string, number> | null;
-  readable: boolean;
-};
-
-type Failure = { ok: false; code: string; message: string };
-type ListResult = { backupsDir: string; entries: BackupEntry[] } | Failure;
-type CreateResult = { ok: true; entry: BackupEntry } | Failure;
-type RestoreResult =
-  | { ok: true; restoredFrom: BackupEntry; safetyBackupFileName: string | null; relaunching: boolean }
-  | Failure;
-
-type ExportResult = { ok: true; filePath: string } | Failure;
-
-interface BackupBridge {
-  list(sessionToken: string): Promise<ListResult>;
-  create(sessionToken: string): Promise<CreateResult>;
-  restore(sessionToken: string, fileName: string): Promise<RestoreResult>;
-  revertToPreUpdate?(sessionToken: string): Promise<RestoreResult>;
-  exportPortable?(sessionToken: string, passphrase: string): Promise<ExportResult>;
-}
-
-function bridge(): BackupBridge | undefined {
-  return (globalThis as { mezan?: { backup?: BackupBridge } }).mezan?.backup;
-}
-
-function isFailure(
-  result: ListResult | CreateResult | RestoreResult | ExportResult,
-): result is Failure {
-  return "ok" in result && result.ok === false;
-}
-
 /** The archive's own date, which is also what the owner has to type to confirm. */
 function archiveDate(entry: BackupEntry): string {
   return entry.createdAt.slice(0, 10);
-}
-
-function megabytes(bytes: number): string {
-  return (bytes / 1_048_576).toFixed(1);
 }
 
 /**
@@ -87,8 +59,42 @@ const REASON_KEYS: Record<string, AppTranslationKey> = {
   "pre-update": "backup.reason.preUpdate",
 };
 
+const BACKUP_STALE_AFTER_DAYS = 2;
+
+const DRILL_OUTCOME_KEYS: Record<DrillOutcome, AppTranslationKey> = {
+  [DrillOutcome.Pass]: "backupDrill.outcome.pass",
+  [DrillOutcome.Warn]: "backupDrill.outcome.warn",
+  [DrillOutcome.Fail]: "backupDrill.outcome.fail",
+};
+
+const DRILL_OUTCOME_TONES: Record<DrillOutcome, "success" | "warning" | "danger"> = {
+  [DrillOutcome.Pass]: "success",
+  [DrillOutcome.Warn]: "warning",
+  [DrillOutcome.Fail]: "danger",
+};
+
+const DRILL_CHECK_KEYS: Record<DrillCheck, AppTranslationKey> = {
+  [DrillCheck.NoArchive]: "backupDrill.check.no_archive",
+  [DrillCheck.Archive]: "backupDrill.check.archive",
+  [DrillCheck.Manifest]: "backupDrill.check.manifest",
+  [DrillCheck.Checksum]: "backupDrill.check.checksum",
+  [DrillCheck.Key]: "backupDrill.check.key",
+  [DrillCheck.Integrity]: "backupDrill.check.integrity",
+  [DrillCheck.Open]: "backupDrill.check.open",
+  [DrillCheck.Schema]: "backupDrill.check.schema",
+  [DrillCheck.RowCounts]: "backupDrill.check.row_counts",
+  [DrillCheck.Invariants]: "backupDrill.check.invariants",
+  [DrillCheck.Crashed]: "backupDrill.check.crashed",
+};
+
+const DRILL_TRIGGER_KEYS: Record<DrillTrigger, AppTranslationKey> = {
+  [DrillTrigger.Manual]: "backupDrill.trigger.manual",
+  [DrillTrigger.Scheduled]: "backupDrill.trigger.scheduled",
+};
+
 export function BackupRestorePage() {
   const { t } = useAppTranslation();
+  const fmt = useFormat();
   const { session } = useApi();
   const [entries, setEntries] = useState<BackupEntry[]>([]);
   const [backupsDir, setBackupsDir] = useState<string>("");
@@ -100,7 +106,8 @@ export function BackupRestorePage() {
   const [typedDate, setTypedDate] = useState("");
   const [passphrase, setPassphrase] = useState("");
   /** Per-action, never a page-wide flag: two buttons must not disable each other. */
-  const [running, setRunning] = useState<"revert" | "export" | null>(null);
+  const [running, setRunning] = useState<"revert" | "export" | "drill" | "target" | null>(null);
+  const [status, setStatus] = useState<Extract<StatusResult, { ok: true }> | null>(null);
 
   function reasonLabel(reason: string | null): string {
     if (reason === null) return "—";
@@ -108,20 +115,44 @@ export function BackupRestorePage() {
     return key ? t(key) : reason;
   }
 
-  const api = bridge();
+  const api = backupBridge();
   const token = session?.token ?? null;
 
   const refresh = useCallback(async () => {
     if (!api || !token) return;
-    const result = await api.list(token);
-    if (isFailure(result)) {
+    const [result, current] = await Promise.all([api.list(token), api.status?.(token)]);
+    if (isBackupFailure(result)) {
       setError(result.message);
       return;
     }
     setEntries([...result.entries]);
     setBackupsDir(result.backupsDir);
+    if (current && !isBackupFailure(current)) setStatus(current);
     setError(null);
   }, [api, token]);
+
+  function checkLabel(check: DrillCheck | null): string {
+    return check ? t(DRILL_CHECK_KEYS[check] ?? "backupDrill.check.crashed") : "—";
+  }
+
+  function drillDetail(record: DrillRecord): string {
+    if (record.outcome === DrillOutcome.Fail) return checkLabel(record.failedCheck);
+    const parts: string[] = [];
+    if (record.tables !== null && record.rows !== null) {
+      parts.push(t("backupDrill.rows", { tables: fmt.number(record.tables), rows: fmt.number(record.rows) }));
+    }
+    if (record.outcome === DrillOutcome.Warn && record.invariants) {
+      parts.push(
+        t("backupDrill.invariants", {
+          tb: record.invariants.trialBalance,
+          inv: record.invariants.inventory,
+          ap: record.invariants.payables,
+          ar: record.invariants.receivables,
+        }),
+      );
+    }
+    return parts.join(" · ") || "—";
+  }
 
   useEffect(() => {
     void refresh();
@@ -148,7 +179,7 @@ export function BackupRestorePage() {
     setError(null);
     try {
       const result = await api.create(token);
-      if (isFailure(result)) setError(result.message);
+      if (isBackupFailure(result)) setError(result.message);
       else setNotice(t("backup.created"));
       await refresh();
     } finally {
@@ -168,7 +199,7 @@ export function BackupRestorePage() {
     setError(null);
     try {
       const result = await api.revertToPreUpdate(token);
-      if (isFailure(result)) setError(result.message);
+      if (isBackupFailure(result)) setError(result.message);
       else setNotice(t("backup.restoredRelaunching"));
     } finally {
       setRunning(null);
@@ -182,11 +213,45 @@ export function BackupRestorePage() {
     setError(null);
     try {
       const result = await api.exportPortable(token, passphrase);
-      if (isFailure(result)) setError(result.message);
+      if (isBackupFailure(result)) setError(result.message);
       else {
         setNotice(t("backup.portableDone", { path: result.filePath }));
         // The passphrase leaves the screen the moment it has been used.
         setPassphrase("");
+      }
+      await refresh();
+    } finally {
+      setRunning(null);
+    }
+  }
+
+  async function handleDrill() {
+    if (!api?.drill || !token || running) return;
+    setRunning("drill");
+    setNotice(null);
+    setError(null);
+    try {
+      const result = await api.drill(token);
+      if (isBackupFailure(result)) setError(result.message);
+      else if (result.drill.outcome === DrillOutcome.Pass) setNotice(t("backupDrill.donePass"));
+      else if (result.drill.outcome === DrillOutcome.Warn) setError(t("backupDrill.doneWarn"));
+      else setError(t("backupDrill.doneFail", { check: checkLabel(result.drill.failedCheck) }));
+      await refresh();
+    } finally {
+      setRunning(null);
+    }
+  }
+
+  async function handleSecondTarget(action: "choose" | "clear") {
+    const call = action === "choose" ? api?.chooseSecondTarget : api?.clearSecondTarget;
+    if (!api || !call || !token || running) return;
+    setRunning("target");
+    setNotice(null);
+    setError(null);
+    try {
+      const result = await call.call(api, token);
+      if (isBackupFailure(result)) {
+        if (result.code !== "CANCELLED") setError(result.message);
       }
       await refresh();
     } finally {
@@ -201,7 +266,7 @@ export function BackupRestorePage() {
     setError(null);
     try {
       const result = await api.restore(token, entry.fileName);
-      if (isFailure(result)) {
+      if (isBackupFailure(result)) {
         setError(result.message);
         return;
       }
@@ -214,10 +279,21 @@ export function BackupRestorePage() {
     }
   }
 
+  const newestBackup = entries[0];
+  const newestBackupAge = newestBackup ? daysSince(newestBackup.createdAt) : null;
+  const lastGoodAge = status?.lastGoodDrillAt ? daysSince(status.lastGoodDrillAt) : null;
+  const drillStale = status !== null && (lastGoodAge === null || lastGoodAge > status.staleAfterDays);
+  const secondTarget = status?.secondTarget ?? null;
+
   return (
     <div className="p-[20px]">
       <h1 className="mb-[4px] font-display text-[18px] font-bold text-ink">{t("backup.title")}</h1>
       <p className="mb-[16px] text-[12.5px] text-ink-muted">{t("backup.hint")}</p>
+      {newestBackupAge !== null && newestBackupAge > BACKUP_STALE_AFTER_DAYS ? (
+        <p role="alert" className="mb-[12px] rounded-[8px] border border-warning bg-warning-soft p-[10px] text-[12.5px] text-warning-ink">
+          {t("backupDrill.backupStale", { days: fmt.number(newestBackupAge) })}
+        </p>
+      ) : null}
 
       <Card className="mb-[16px] p-[18px]">
         <div className="flex flex-wrap items-center justify-between gap-[12px]">
@@ -236,6 +312,112 @@ export function BackupRestorePage() {
         ) : null}
         {notice ? <p className="mt-[10px] text-[12px] text-success-ink">{notice}</p> : null}
       </Card>
+
+      {api.drill && status ? (
+        <Card className="mb-[16px] p-[18px]">
+          <div className="flex flex-wrap items-start justify-between gap-[12px]">
+            <div className="min-w-0 grow basis-[260px]">
+              <div className="text-[13px] font-semibold text-ink">{t("backupDrill.title")}</div>
+              <p className="mt-[4px] text-[12.5px] text-ink-muted">{t("backupDrill.hint")}</p>
+              <p className="mt-[8px] text-[12.5px] text-ink">
+                {status.lastGoodDrillAt && lastGoodAge !== null
+                  ? t("backupDrill.lastGood", {
+                      date: fmt.dateTime(status.lastGoodDrillAt),
+                      days: fmt.number(lastGoodAge),
+                    })
+                  : t("backupDrill.never")}
+              </p>
+            </div>
+            <Button
+              variant="primary"
+              disabled={running !== null || status.drillRunning}
+              onClick={() => void handleDrill()}
+            >
+              {running === "drill" || status.drillRunning ? t("backupDrill.running") : t("backupDrill.run")}
+            </Button>
+          </div>
+          {drillStale ? (
+            <p role="alert" className="mt-[10px] text-[12px] text-warning-ink">
+              {t("backupDrill.stale", { days: fmt.number(status.staleAfterDays) })}
+            </p>
+          ) : null}
+          <div className="mt-[14px] text-[12.5px] font-semibold text-ink">{t("backupDrill.history")}</div>
+          <div className="mt-[6px] overflow-x-auto">
+            <table className="w-full border-collapse text-[12px]">
+              <thead>
+                <tr className="border-b border-border text-ink-muted">
+                  <th className="p-[6px] text-start font-semibold">{t("backupDrill.when")}</th>
+                  <th className="p-[6px] text-start font-semibold">{t("backupDrill.trigger")}</th>
+                  <th className="p-[6px] text-start font-semibold">{t("backupDrill.result")}</th>
+                  <th className="p-[6px] text-start font-semibold">{t("backupDrill.archive")}</th>
+                  <th className="p-[6px] text-start font-semibold">{t("backupDrill.duration")}</th>
+                  <th className="p-[6px] text-start font-semibold">{t("backupDrill.detail")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {status.drills.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="p-[12px] text-center text-ink-faint">
+                      {t("backupDrill.noHistory")}
+                    </td>
+                  </tr>
+                ) : (
+                  status.drills.slice(0, 12).map((record) => (
+                    <tr key={record.id} className="border-b border-border last:border-b-0">
+                      <td className="p-[6px] mz-num text-ink">{fmt.dateTime(record.startedAt)}</td>
+                      <td className="p-[6px] text-ink-muted">
+                        {DRILL_TRIGGER_KEYS[record.trigger] ? t(DRILL_TRIGGER_KEYS[record.trigger]) : record.trigger}
+                      </td>
+                      <td className="p-[6px]">
+                        <StatusPill
+                          label={t(DRILL_OUTCOME_KEYS[record.outcome])}
+                          tone={DRILL_OUTCOME_TONES[record.outcome]}
+                        />
+                      </td>
+                      <td className="p-[6px] mz-num text-ink-muted">
+                        {record.archiveCreatedAt ? fmt.dateTime(record.archiveCreatedAt) : "—"}
+                      </td>
+                      <td className="p-[6px] mz-num text-ink-muted">
+                        {t("backupDrill.seconds", { s: fmt.number(Math.round(record.durationMs / 1000)) })}
+                      </td>
+                      <td className="p-[6px] text-ink-muted">{drillDetail(record)}</td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      ) : null}
+
+      {api.chooseSecondTarget && secondTarget ? (
+        <Card className="mb-[16px] p-[18px]">
+          <div className="text-[13px] font-semibold text-ink">{t("secondTarget.title")}</div>
+          <p className="mt-[4px] text-[12.5px] text-ink-muted">{t("secondTarget.hint")}</p>
+          <p className="mt-[8px] mz-lat break-all text-[12px] text-ink">{secondTarget.dir ?? t("secondTarget.none")}</p>
+          {secondTarget.dir && secondTarget.lastCopyAt ? (
+            secondTarget.lastCopyOk ? (
+              <p className="mt-[4px] text-[12px] text-success-ink">
+                {t("secondTarget.lastOk", { date: fmt.dateTime(secondTarget.lastCopyAt) })}
+              </p>
+            ) : (
+              <p role="alert" className="mt-[4px] text-[12px] text-danger-ink">
+                {t("secondTarget.lastFailed", { date: fmt.dateTime(secondTarget.lastCopyAt) })}
+              </p>
+            )
+          ) : null}
+          <div className="mt-[12px] flex flex-wrap items-center gap-[8px]">
+            <Button variant="default" disabled={running !== null} onClick={() => void handleSecondTarget("choose")}>
+              {secondTarget.dir ? t("secondTarget.change") : t("secondTarget.choose")}
+            </Button>
+            {secondTarget.dir && api.clearSecondTarget ? (
+              <Button variant="ghost" disabled={running !== null} onClick={() => void handleSecondTarget("clear")}>
+                {t("secondTarget.clear")}
+              </Button>
+            ) : null}
+          </div>
+        </Card>
+      ) : null}
 
       {api.revertToPreUpdate ? (
         <Card className="mb-[16px] p-[18px]">
@@ -275,6 +457,12 @@ export function BackupRestorePage() {
               {t("backup.portableExport")}
             </Button>
           </div>
+        </Card>
+      ) : null}
+
+      {api.importPortable && token ? (
+        <Card className="mb-[16px] p-[18px]">
+          <PortableImportPanel sessionToken={token} />
         </Card>
       ) : null}
 

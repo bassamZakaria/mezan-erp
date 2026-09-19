@@ -10,14 +10,20 @@ export interface RecurringJournalTemplateRepository {
 /**
  * Persistence port for generation history — the record `generate-due` checks
  * before creating anything, so the SAME (template, period) is never drafted
- * twice. Implementations enforce this with a UNIQUE(template_id, period)
- * constraint as the last line of defence against a concurrent double-call;
- * `save` is expected to no-op (never throw) on that conflict, since the caller
- * already checked `findByTemplateAndPeriod` first.
+ * twice.
+ *
+ * `findByTemplateAndPeriod` is the fast, non-claiming read used by the due
+ * worklist and by `generate-due`'s first pass. `save` is the atomic claim:
+ * implementations enforce `UNIQUE(template_id, period)` and `save` returns
+ * `false` (never throws) when another call already recorded this period —
+ * the caller (`generate-due.ts`) uses that to detect and undo a draft it
+ * created just before losing a race, so a concurrent double-call cannot leave
+ * an orphan entry with no run record pointing at it.
  */
 export interface RecurringJournalRunRepository {
   findByTemplateAndPeriod(templateId: string, period: string): Promise<RecurringJournalRun | null>;
   listByTemplate(templateId: string): Promise<readonly RecurringJournalRun[]>;
   list(limit?: number): Promise<readonly RecurringJournalRun[]>;
-  save(run: RecurringJournalRun): Promise<void>;
+  /** Returns `true` if this call recorded the run, `false` if (template, period) was already claimed. */
+  save(run: RecurringJournalRun): Promise<boolean>;
 }

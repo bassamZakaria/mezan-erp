@@ -44,7 +44,7 @@ import {
   type JournalEntryDTO,
   type JournalEntryListFilter,
 } from "../data/hooks";
-import { SelectField, TextField } from "../settings/form-controls";
+import { SelectField, TextField, ToggleField } from "../settings/form-controls";
 import { errorMessage } from "../lib/error-message";
 import { JournalEntryPrintPage } from "../print/documents";
 import { useSubPage } from "../navigation";
@@ -190,6 +190,7 @@ export function JournalsScreen() {
   const [templateNameAr, setTemplateNameAr] = useState("");
   const [templateFrequency, setTemplateFrequency] = useState<RecurringJournalFrequencyDTO>(RecurringJournalFrequencyDTO.Monthly);
   const [templateStartDate, setTemplateStartDate] = useState(todayIso());
+  const [templateAutoReverse, setTemplateAutoReverse] = useState(false);
   const [templateError, setTemplateError] = useState<string | null>(null);
   const saveAsTemplate = useSaveJournalEntryAsRecurringTemplate();
   // The open entry lives in the URL like every other document screen, so the
@@ -330,6 +331,7 @@ export function JournalsScreen() {
     setTemplateNameAr(doc.memo);
     setTemplateFrequency(RecurringJournalFrequencyDTO.Monthly);
     setTemplateStartDate(todayIso());
+    setTemplateAutoReverse(false);
     setTemplateError(null);
     setTemplateTarget(doc);
   }
@@ -349,7 +351,7 @@ export function JournalsScreen() {
         yearlyMonth: templateFrequency === RecurringJournalFrequencyDTO.Yearly ? Number(doc.date.slice(5, 7)) : null,
         startDate: templateStartDate,
         endDate: null,
-        autoReverseNextPeriod: false,
+        autoReverseNextPeriod: templateAutoReverse,
       });
       setTemplateTarget(null);
     } catch (err) {
@@ -564,6 +566,7 @@ export function JournalsScreen() {
                 ]}
               />
               <TextField label={t("recurringJournals.startDate")} value={templateStartDate} onChange={setTemplateStartDate} type="date" />
+              <ToggleField label={t("recurringJournals.autoReverse")} checked={templateAutoReverse} onChange={setTemplateAutoReverse} />
               {templateError ? <p className="text-[12.5px] text-danger-ink">{templateError}</p> : null}
             </div>
           }

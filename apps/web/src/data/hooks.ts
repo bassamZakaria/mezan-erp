@@ -1687,15 +1687,26 @@ export function useSaveJournalEntryAsRecurringTemplate() {
   });
 }
 
+export interface FailedRecurringJournalGenerationDTO {
+  readonly templateId: string;
+  readonly templateNameAr: string;
+  readonly period: string;
+  readonly message: string;
+}
+
 export function useGenerateDueRecurringJournals() {
   const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
-  return useMutation<{ asOfDate: string; generated: GeneratedRecurringJournalDTO[] }, ApiError, GenerateDueRecurringJournalsDTO>({
+  return useMutation<
+    { asOfDate: string; generated: GeneratedRecurringJournalDTO[]; failed: FailedRecurringJournalGenerationDTO[] },
+    ApiError,
+    GenerateDueRecurringJournalsDTO
+  >({
     mutationFn: async (body) => {
       const res = await request("/gl/recurring/generate-due", { method: "POST", body: JSON.stringify(body) });
       if (!res.ok) throw new ApiError(res.status, await readError(res, t("recurringJournals.generateFailed"), t));
-      return res.json<{ asOfDate: string; generated: GeneratedRecurringJournalDTO[] }>();
+      return res.json<{ asOfDate: string; generated: GeneratedRecurringJournalDTO[]; failed: FailedRecurringJournalGenerationDTO[] }>();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["recurring-journal-due"] });

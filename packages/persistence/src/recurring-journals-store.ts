@@ -255,8 +255,10 @@ class SqliteRecurringJournalRunRepository implements RecurringJournalRunReposito
     return (this.selectAll.all(limit) as RunRow[]).map(toRun);
   }
 
-  async save(run: RecurringJournalRun): Promise<void> {
-    this.insert.run({
+  async save(run: RecurringJournalRun): Promise<boolean> {
+    // `changes === 0` is exactly the ON CONFLICT DO NOTHING path: another
+    // call already claimed this (template, period) first.
+    const info = this.insert.run({
       id: run.id,
       template_id: run.templateId,
       period: run.period,
@@ -267,6 +269,7 @@ class SqliteRecurringJournalRunRepository implements RecurringJournalRunReposito
       generated_at: run.generatedAt,
       generated_by: run.generatedBy,
     });
+    return info.changes > 0;
   }
 }
 

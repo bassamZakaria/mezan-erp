@@ -432,6 +432,14 @@ function DueTab() {
           ? t("recurringJournals.generatedCount", { count: String(result.generated.length) })
           : t("recurringJournals.generatedNone"),
       );
+      // One bad template must never hide behind a silent partial success —
+      // the sweep still generates everything else, but a failed period stays
+      // due and needs a human to look at the template that produced it.
+      if (result.failed.length > 0) {
+        setError(
+          result.failed.map((f) => t("recurringJournals.generateFailedFor", { name: f.templateNameAr, period: f.period, message: f.message })).join(" — "),
+        );
+      }
     } catch (err) {
       setError(errorMessage(err, t("recurringJournals.generateFailed")));
     }

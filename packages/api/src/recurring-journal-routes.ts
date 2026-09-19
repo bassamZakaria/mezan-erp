@@ -335,11 +335,11 @@ export function createRecurringJournalRoutes(deps: RecurringJournalRoutesDeps, r
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     try {
       const asOfDate = parsed.data.asOfDate ? await tenantDay(c, parsed.data.asOfDate) : await tenantToday(c, deps.now);
-      const generated = await generateDueRecurringJournals(
+      const { generated, failed } = await generateDueRecurringJournals(
         { ...(await postingDeps(c)), templates: deps.templates, runs: deps.runs, idGen },
         { asOfDate, templateIds: parsed.data.templateIds },
       );
-      return c.json({ asOfDate, generated }, 201);
+      return c.json({ asOfDate, generated, failed }, 201);
     } catch (err) {
       return handleDomainError(c, err);
     }

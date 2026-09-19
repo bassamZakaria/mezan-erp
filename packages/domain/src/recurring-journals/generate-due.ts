@@ -1,4 +1,4 @@
-import { createJournalEntry, type JournalPostingDeps } from "../gl/index.js";
+import { createJournalEntry, deleteDraftJournalEntry, type JournalPostingDeps } from "../gl/index.js";
 import { duePeriods, journalDateForPeriod, nextPeriodFirstDate } from "./schedule.js";
 import { RecurringJournalTemplateStatus, type RecurringJournalTemplate } from "./types.js";
 import type { RecurringJournalRunRepository, RecurringJournalTemplateRepository } from "./store.js";
@@ -33,35 +33,71 @@ export interface GeneratedRecurringJournal {
   readonly reversalJournalEntryNo: string | null;
 }
 
+/** One (template, period) this sweep could not generate — a bad template must never jam every other one. */
+export interface FailedRecurringJournalGeneration {
+  readonly templateId: string;
+  readonly templateNameAr: string;
+  readonly period: string;
+  readonly message: string;
+}
+
+export interface GenerateDueRecurringJournalsResult {
+  readonly generated: readonly GeneratedRecurringJournal[];
+  readonly failed: readonly FailedRecurringJournalGeneration[];
+}
+
 /**
  * `POST /gl/recurring/generate-due` (ENH-E2-02). Idempotent per (template,
  * period): a period a `RecurringJournalRun` already covers is skipped, never
- * regenerated. Every entry this creates is a DRAFT ONLY — D226 made drafts
- * editable, so the worklist review-and-post step is a real one, not a
- * rubber stamp. No timer calls this on the tenant's behalf (ROADMAP DEC-28,
- * plan §3.3): the desktop only shows what is due, and the cloud edition calls
- * it on a schedule the TENANT opted into.
+ * regenerated — and the CLAIM on that record (see `store.ts`'s `save`) is
+ * what actually decides the race, not the fast pre-check below, which exists
+ * only to avoid drafting an entry it is about to discard. Every entry this
+ * creates is a DRAFT ONLY — D226 made drafts editable, so the worklist
+ * review-and-post step is a real one, not a rubber stamp. No timer calls this
+ * on the tenant's behalf (ROADMAP DEC-28, plan §3.3): the desktop only shows
+ * what is due, and the cloud edition calls it on a schedule the TENANT opted
+ * into.
+ *
+ * One template's failure (a deactivated account, a period whose fiscal period
+ * is now locked) is reported in `failed` and never stops the sweep: an
+ * un-caught throw here would jam every OTHER due template behind it, turning
+ * a routine close step into a support ticket.
  */
 export async function generateDueRecurringJournals(
   deps: GenerateDueRecurringJournalsDeps,
   opts: GenerateDueRecurringJournalsOptions,
-): Promise<GeneratedRecurringJournal[]> {
+): Promise<GenerateDueRecurringJournalsResult> {
   const idGen = deps.idGen;
   const templates = await deps.templates.list();
   const scope = opts.templateIds ? new Set(opts.templateIds) : null;
   const generated: GeneratedRecurringJournal[] = [];
+  const failed: FailedRecurringJournalGeneration[] = [];
 
   for (const template of templates) {
     if (template.status !== RecurringJournalTemplateStatus.Active) continue;
     if (scope && !scope.has(template.id)) continue;
     for (const period of duePeriods(template, opts.asOfDate)) {
-      // The idempotency check IS this line: a period already recorded here is
-      // never drafted twice, no matter how many times generate-due runs.
+      // The fast pre-check: a period already recorded is skipped without
+      // ever drafting anything. The actual idempotency guarantee is the
+      // atomic claim inside `generateOnePeriod`.
       if (await deps.runs.findByTemplateAndPeriod(template.id, period)) continue;
-      generated.push(await generateOnePeriod(template, period, idGen, deps));
+      try {
+        const result = await generateOnePeriod(template, period, idGen, deps);
+        if (result) generated.push(result);
+        // `result === null` means another call won the (template, period)
+        // race between the pre-check above and the claim — already
+        // generated, correctly, by that other call. Not a failure.
+      } catch (err) {
+        failed.push({
+          templateId: template.id,
+          templateNameAr: template.nameAr,
+          period,
+          message: err instanceof Error ? err.message : String(err),
+        });
+      }
     }
   }
-  return generated;
+  return { generated, failed };
 }
 
 async function generateOnePeriod(
@@ -69,7 +105,7 @@ async function generateOnePeriod(
   period: string,
   idGen: () => string,
   deps: GenerateDueRecurringJournalsDeps,
-): Promise<GeneratedRecurringJournal> {
+): Promise<GeneratedRecurringJournal | null> {
   const date = journalDateForPeriod(template, period);
   const entry = await createJournalEntry(
     {
@@ -107,7 +143,7 @@ async function generateOnePeriod(
     reversalNo = reversal.entryNo ?? null;
   }
 
-  await deps.runs.save({
+  const claimed = await deps.runs.save({
     id: idGen(),
     templateId: template.id,
     period,
@@ -118,6 +154,17 @@ async function generateOnePeriod(
     generatedAt: deps.now ? deps.now() : new Date().toISOString(),
     generatedBy: deps.actor ?? "system",
   });
+
+  if (!claimed) {
+    // Lost the race: a concurrent call recorded this (template, period)
+    // between the pre-check and this claim. The drafts just created here
+    // are orphans nothing points at — delete them rather than leave two
+    // drafts for one accrual with only one ever discoverable from the
+    // worklist's history.
+    await deleteDraftJournalEntry(entry.id, deps).catch(() => {});
+    if (reversalId) await deleteDraftJournalEntry(reversalId, deps).catch(() => {});
+    return null;
+  }
 
   return {
     templateId: template.id,

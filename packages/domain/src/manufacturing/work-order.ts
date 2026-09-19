@@ -871,6 +871,7 @@ export async function receiveWorkOrderProduct(
   producedQty: Qty,
   deps: WorkOrderReceiveDeps,
   attribution?: ShopFloorAttribution,
+  lot?: { readonly batchNo?: string | null; readonly expiryDate?: string | null },
 ): Promise<WorkOrder> {
   const order = await load(id, deps);
   if (order.stage !== "materials_issued") throw new WorkOrderStageError("receive", order.stage);
@@ -880,6 +881,11 @@ export async function receiveWorkOrderProduct(
   }
 
   const occurredAt = nowIso(deps);
+  // Checked before the consume posts: a refusal after it would strand the materials outside WIP.
+  await deps.stock.checkLots?.(
+    [{ itemId: order.productItemId, batchNo: lot?.batchNo ?? null, expiryDate: lot?.expiryDate ?? null }],
+    occurredAt.slice(0, 10),
+  );
   const consumeLines = order.materials
     .map((m) => ({ itemId: m.itemId, qty: workOrderWipQty(order, m) }))
     .filter((l) => l.qty.scaled > 0n);
@@ -919,7 +925,11 @@ export async function receiveWorkOrderProduct(
     receiptNumber: order.number,
     warehouseId: order.destinationWarehouseId,
     sourceDocType: "WORK_ORDER",
-    lines: finishedGoodsReceiptLines(order.productItemId, producedQty, wip, unitCost),
+    lines: finishedGoodsReceiptLines(order.productItemId, producedQty, wip, unitCost).map((line) => ({
+      ...line,
+      batchNo: lot?.batchNo?.trim() || null,
+      expiryDate: lot?.expiryDate?.trim() || null,
+    })),
     occurredAt: stockMomentOf(deps, occurredAt),
   });
   const cover = received.coverVariance;

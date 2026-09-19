@@ -85,6 +85,8 @@ export function createInventoryOpsStockHook(
           direction: l.direction,
           qty: l.qty,
           unitCost: l.unitCost,
+          batchNo: l.batchNo ?? null,
+          expiryDate: l.expiryDate ?? null,
         })),
         gl: (await glAccountsForReason(reason)) ?? undefined,
       });

@@ -38,6 +38,8 @@ export interface StockAdjustmentDocLine {
   readonly qty: Qty;
   /** Required for an IN line (receipt-time cost); ignored for OUT (moving average used at posting). */
   readonly unitCost?: Money;
+  readonly batchNo?: string | null;
+  readonly expiryDate?: string | null;
   /**
    * بُعد المشروع — the contracting project this adjustment belongs to (D-01).
    * One project per adjustment, carried per-line (like `warehouseId`/`reason`
@@ -137,6 +139,8 @@ export const stockAdjustmentDocumentType: DocumentTypeDefinition<StockAdjustment
         direction: l.direction,
         qty: l.qty,
         unitCost: l.unitCost,
+        batchNo: l.batchNo ?? null,
+        expiryDate: l.expiryDate ?? null,
       })),
     };
   },

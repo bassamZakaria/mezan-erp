@@ -1,3 +1,6 @@
+import type { SmtpConfig } from "@mezan/api";
+import type { SmtpSecurity } from "@mezan/domain";
+
 export type PaymobEnv =
   | {
       readonly mode: "live";
@@ -27,6 +30,13 @@ export interface CloudEnv {
   readonly analyticsToken?: string;
   readonly port: number;
   readonly paymob: PaymobEnv;
+  /**
+   * The signup flow's outbound mail — there is no tenant yet to read
+   * `TenantSettings` from, so this is its own platform-level config, built
+   * from env vars. `undefined` means dev mode: the verification link is shown
+   * on screen instead of mailed (see `signup-routes.ts`).
+   */
+  readonly platformSmtp?: SmtpConfig;
 }
 
 export interface ParseEnvOptions {
@@ -111,6 +121,35 @@ function parsePositiveInt(value: string | undefined, name: string, fallback: num
   return parsed;
 }
 
+const SMTP_SECURITIES: readonly SmtpSecurity[] = ["NONE", "STARTTLS", "TLS"];
+
+/**
+ * `MEZAN_SMTP_HOST` is the on/off switch: unset means dev mode (no outbound
+ * mail anywhere on the platform, not just signup — the verification link is
+ * shown on screen instead). Set, it needs a sender address at minimum; the
+ * rest fall back the same way the tenant email settings screen defaults them.
+ */
+function parsePlatformSmtp(env: Record<string, string | undefined>): SmtpConfig | undefined {
+  const host = trimmedOrUndefined(env["MEZAN_SMTP_HOST"]);
+  if (!host) return undefined;
+  const fromEmail = trimmedOrUndefined(env["MEZAN_SMTP_FROM_EMAIL"]);
+  if (!fromEmail) throw new Error("MEZAN_SMTP_FROM_EMAIL is required once MEZAN_SMTP_HOST is set");
+  const security = trimmedOrUndefined(env["MEZAN_SMTP_SECURITY"]) ?? "STARTTLS";
+  if (!SMTP_SECURITIES.includes(security as SmtpSecurity)) {
+    throw new Error(`MEZAN_SMTP_SECURITY must be one of ${SMTP_SECURITIES.join(", ")}, got "${security}"`);
+  }
+  return {
+    smtpEnabled: true,
+    smtpHost: host,
+    smtpPort: parsePositiveInt(env["MEZAN_SMTP_PORT"], "MEZAN_SMTP_PORT", 587),
+    smtpSecurity: security as SmtpSecurity,
+    smtpUsername: trimmedOrUndefined(env["MEZAN_SMTP_USERNAME"]) ?? "",
+    smtpPassword: env["MEZAN_SMTP_PASSWORD"] ?? "",
+    smtpFromName: trimmedOrUndefined(env["MEZAN_SMTP_FROM_NAME"]) ?? "Mezan",
+    smtpFromEmail: fromEmail,
+  };
+}
+
 export function parseEnv(env: Record<string, string | undefined> = process.env, options: ParseEnvOptions = {}): CloudEnv {
   return {
     platformDir: env["MEZAN_PLATFORM_DIR"] ?? ".data/platform",
@@ -128,5 +167,6 @@ export function parseEnv(env: Record<string, string | undefined> = process.env, 
     analyticsToken: trimmedOrUndefined(env["MEZAN_ANALYTICS_TOKEN"]),
     port: parsePositiveInt(env["PORT"], "PORT", 8080),
     paymob: parsePaymob(env, options.paymobTestByDefault ?? false),
+    platformSmtp: parsePlatformSmtp(env),
   };
 }

@@ -4,6 +4,18 @@ import type { TenantSettings } from "@mezan/domain";
 import type { TestEmailResultDTO } from "@mezan/contracts";
 
 /**
+ * The eight fields this whole file actually touches — narrower than
+ * `TenantSettings` on purpose, so a caller with no tenant yet (the platform
+ * signup flow, which mails a verification link before any tenant exists) can
+ * build one from plain server env vars instead of faking an entire tenant.
+ * Every `TenantSettings` already satisfies this structurally.
+ */
+export type SmtpConfig = Pick<
+  TenantSettings,
+  "smtpEnabled" | "smtpHost" | "smtpPort" | "smtpSecurity" | "smtpUsername" | "smtpPassword" | "smtpFromName" | "smtpFromEmail"
+>;
+
+/**
  * A deliberately small SMTP client for the البريد الإلكتروني settings tab's
  * "send a test email" action. Mezan ships offline with no mail dependency, so
  * this speaks the protocol directly over a socket: greeting, EHLO, optional
@@ -136,7 +148,7 @@ function encodeHeader(value: string): string {
   return `=?UTF-8?B?${Buffer.from(value, "utf8").toString("base64")}?=`;
 }
 
-function buildMessage(settings: TenantSettings, to: string, message?: { subject: string; body: string }): string {
+function buildMessage(settings: SmtpConfig, to: string, message?: { subject: string; body: string }): string {
   const from = settings.smtpFromName
     ? `${encodeHeader(settings.smtpFromName)} <${settings.smtpFromEmail}>`
     : settings.smtpFromEmail;
@@ -176,7 +188,7 @@ function isLoopbackHost(host: string): boolean {
 }
 
 export async function sendTestEmail(
-  settings: TenantSettings,
+  settings: SmtpConfig,
   to: string,
   message?: { subject: string; body: string },
 ): Promise<TestEmailResultDTO> {
@@ -258,7 +270,7 @@ export async function sendTestEmail(
  * them is how a queue either never drains or silently discards mail.
  */
 export async function sendNotificationEmail(
-  settings: TenantSettings,
+  settings: SmtpConfig,
   to: string,
   message: { subject: string; body: string },
 ): Promise<{ outcome: "sent" | "offline" | "rejected"; detail: string }> {

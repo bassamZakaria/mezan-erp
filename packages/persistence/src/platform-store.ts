@@ -7,6 +7,7 @@ import {
   type Payment, type PaymentRepository,
   type Plan, type PlanRepository,
   type PlatformUser, type PlatformUserRepository,
+  type SignupRequest, type SignupRequestRepository, SignupRequestStatus,
   type Subscription, type SubscriptionRepository,
   type Tenant, type TenantRepository,
 } from "@mezan/domain";
@@ -119,6 +120,24 @@ CREATE TABLE IF NOT EXISTS payment_provider_event (
   received_at   TEXT NOT NULL,
   PRIMARY KEY (provider, provider_ref)
 );
+
+CREATE TABLE IF NOT EXISTS signup_request (
+  id            TEXT PRIMARY KEY,
+  code          TEXT NOT NULL,
+  name_ar       TEXT NOT NULL,
+  name_en       TEXT,
+  owner_email   TEXT NOT NULL,
+  owner_name_ar TEXT NOT NULL,
+  plan_id       TEXT NOT NULL,
+  billing_cycle TEXT NOT NULL,
+  token_hash    TEXT NOT NULL,
+  status        TEXT NOT NULL,
+  expires_at    TEXT NOT NULL,
+  created_at    TEXT NOT NULL,
+  verified_at   TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_signup_request_token ON signup_request(token_hash);
+CREATE INDEX IF NOT EXISTS idx_signup_request_code ON signup_request(code, status, expires_at);
 `;
 
 interface TenantRow {
@@ -558,6 +577,74 @@ class SqliteCardCheckoutStore implements CardCheckoutRepository {
 
 class SubscriptionChanged extends Error {}
 
+interface SignupRequestRow {
+  id: string; code: string; name_ar: string; name_en: string | null;
+  owner_email: string; owner_name_ar: string; plan_id: string; billing_cycle: SignupRequest["billingCycle"];
+  token_hash: string; status: SignupRequest["status"]; expires_at: string; created_at: string; verified_at: string | null;
+}
+
+function toSignupRequest(r: SignupRequestRow): SignupRequest {
+  return {
+    id: r.id, code: r.code, nameAr: r.name_ar, nameEn: r.name_en,
+    ownerEmail: r.owner_email, ownerNameAr: r.owner_name_ar, planId: r.plan_id, billingCycle: r.billing_cycle,
+    tokenHash: r.token_hash, status: r.status, expiresAt: r.expires_at, createdAt: r.created_at, verifiedAt: r.verified_at,
+  };
+}
+
+class SqliteSignupRequestStore implements SignupRequestRepository {
+  private readonly upsert: Database.Statement;
+  private readonly byTokenHash: Database.Statement;
+  private readonly activeByCode: Database.Statement;
+  private readonly markVerified: Database.Statement;
+
+  constructor(sqlite: Database.Database) {
+    this.upsert = sqlite.prepare(
+      `INSERT INTO signup_request (id, code, name_ar, name_en, owner_email, owner_name_ar, plan_id, billing_cycle,
+         token_hash, status, expires_at, created_at, verified_at)
+       VALUES (@id, @code, @nameAr, @nameEn, @ownerEmail, @ownerNameAr, @planId, @billingCycle,
+         @tokenHash, @status, @expiresAt, @createdAt, @verifiedAt)
+       ON CONFLICT(id) DO UPDATE SET
+         code = @code, name_ar = @nameAr, name_en = @nameEn, owner_email = @ownerEmail, owner_name_ar = @ownerNameAr,
+         plan_id = @planId, billing_cycle = @billingCycle, token_hash = @tokenHash, status = @status,
+         expires_at = @expiresAt, created_at = @createdAt, verified_at = @verifiedAt`,
+    );
+    this.byTokenHash = sqlite.prepare(`SELECT * FROM signup_request WHERE token_hash = ?`);
+    this.activeByCode = sqlite.prepare(
+      `SELECT * FROM signup_request WHERE code = ? AND status = ? AND expires_at > ? ORDER BY created_at DESC LIMIT 1`,
+    );
+    // The conditional WHERE is the whole point: only a row still `pending`
+    // moves, so two concurrent callers can never both believe they were the
+    // one to flip it (`changes` is 1 for exactly one of them).
+    this.markVerified = sqlite.prepare(
+      `UPDATE signup_request SET status = ?, verified_at = ? WHERE token_hash = ? AND status = ?`,
+    );
+  }
+
+  async findByTokenHash(tokenHash: string): Promise<SignupRequest | null> {
+    const row = this.byTokenHash.get(tokenHash) as SignupRequestRow | undefined;
+    return row ? toSignupRequest(row) : null;
+  }
+
+  async findActiveByCode(code: string, nowIso: string): Promise<SignupRequest | null> {
+    const row = this.activeByCode.get(code, SignupRequestStatus.Pending, nowIso) as SignupRequestRow | undefined;
+    return row ? toSignupRequest(row) : null;
+  }
+
+  async tryMarkVerified(tokenHash: string, nowIso: string): Promise<SignupRequest | null> {
+    const result = this.markVerified.run(SignupRequestStatus.Verified, nowIso, tokenHash, SignupRequestStatus.Pending);
+    if (result.changes !== 1) return null;
+    return this.findByTokenHash(tokenHash);
+  }
+
+  async save(r: SignupRequest): Promise<void> {
+    this.upsert.run({
+      id: r.id, code: r.code, nameAr: r.nameAr, nameEn: r.nameEn,
+      ownerEmail: r.ownerEmail, ownerNameAr: r.ownerNameAr, planId: r.planId, billingCycle: r.billingCycle,
+      tokenHash: r.tokenHash, status: r.status, expiresAt: r.expiresAt, createdAt: r.createdAt, verifiedAt: r.verifiedAt,
+    });
+  }
+}
+
 export interface SqlitePlatformStoresHandle {
   readonly tenants: TenantRepository;
   readonly plans: PlanRepository;
@@ -565,6 +652,7 @@ export interface SqlitePlatformStoresHandle {
   readonly platformUsers: PlatformUserRepository;
   readonly payments: PaymentRepository;
   readonly cardCheckouts: CardCheckoutRepository;
+  readonly signupRequests: SignupRequestRepository;
   readonly sqlite: Database.Database;
   close(): void;
 }
@@ -582,6 +670,7 @@ export function createSqlitePlatformStores(
     platformUsers: new SqlitePlatformUserStore(sqlite),
     payments: new SqlitePaymentStore(sqlite),
     cardCheckouts: new SqliteCardCheckoutStore(sqlite),
+    signupRequests: new SqliteSignupRequestStore(sqlite),
     sqlite,
     close: () => { if (owned) sqlite.close(); },
   };

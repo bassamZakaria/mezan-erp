@@ -1716,6 +1716,21 @@ export {
   type TenantSummaryDTO,
 } from "./platform.js";
 
+export {
+  publicPlanSchema,
+  signupCheckCodeResponseSchema,
+  startSignupRequestSchema,
+  startSignupResultSchema,
+  verifySignupRequestSchema,
+  verifySignupResultSchema,
+  type PublicPlanDTO,
+  type SignupCheckCodeResponseDTO,
+  type StartSignupRequestDTO,
+  type StartSignupResultDTO,
+  type VerifySignupRequestDTO,
+  type VerifySignupResultDTO,
+} from "./signup.js";
+
 export { isoDateOrInstant, isoDay, ISO_DATE_PATTERNS } from "./iso-date.js";
 
 export {

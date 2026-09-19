@@ -8,6 +8,32 @@ export class InvalidTenantError extends Error {
   }
 }
 
+export class InvalidSignupError extends Error {
+  readonly code = "INVALID_SIGNUP";
+  readonly messageEn: string;
+  constructor(readonly reasons: string[]) {
+    super(`بيانات التسجيل غير صالحة: ${reasons.join("، ")}`);
+    this.messageEn = `Invalid signup: ${reasons.join("; ")}`;
+    this.name = "InvalidSignupError";
+  }
+}
+
+export class SignupTokenInvalidError extends Error {
+  readonly code = "SIGNUP_TOKEN_INVALID";
+  constructor() {
+    super("رابط التفعيل غير صالح");
+    this.name = "SignupTokenInvalidError";
+  }
+}
+
+export class SignupTokenExpiredError extends Error {
+  readonly code = "SIGNUP_TOKEN_EXPIRED";
+  constructor() {
+    super("انتهت صلاحية رابط التفعيل، أنشئ حسابًا جديدًا");
+    this.name = "SignupTokenExpiredError";
+  }
+}
+
 export class TenantNotFoundError extends Error {
   readonly code = "TENANT_NOT_FOUND";
   constructor(readonly id: string) {

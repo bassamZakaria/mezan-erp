@@ -287,8 +287,25 @@ export function createAuthRoutes(deps: AuthRoutesDeps) {
     return c.json({ ok: true });
   });
 
-  /** Pre-login tenant identity for the login screen / first-run wizard header. */
+  /**
+   * Pre-login tenant identity for the first-run wizard header — an
+   * UNAUTHENTICATED lookup on a code anyone can guess, exactly the shape
+   * `/platform/resolve` was fixed to stop leaking a tenant's real name
+   * pre-auth (`tenant-router.ts`). The login screen itself never reads the
+   * name back (see `login.tenantResolved`); the one real caller is the
+   * first-run wizard's greeting, and a wizard only ever runs on a tenant
+   * nobody has claimed yet.
+   *
+   * So this answers the real configured name only while the tenant is
+   * UNCLAIMED — where it is still whatever the seed left it at, not
+   * something a real owner has set. The moment someone claims the tenant
+   * (`POST /bootstrap/admin`) and later types their real trading name into
+   * Settings, this route stops echoing it: a caller who merely guessed a
+   * live tenant's code on the cloud edition, where many tenants share one
+   * host, gets the same generic placeholder a brand-new install would.
+   */
   app.get("/tenant", async (c) => {
+    if (await tenantIsClaimed()) return c.json({ name: SEED_TENANT_NAME });
     return c.json({ name: await tenantName(deps.settings) });
   });
 

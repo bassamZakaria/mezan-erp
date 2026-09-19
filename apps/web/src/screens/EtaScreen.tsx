@@ -17,18 +17,19 @@ import {
   type PillTone,
   type RowMenuItem,
 } from "@mezan/ui";
-import type {
-  EtaBranchCodeRowDTO,
-  EtaConfigDTO,
-  EtaDocumentTypeDTO,
-  EtaItemMappingRowDTO,
-  EtaPrevalidationFindingDTO,
-  EtaSubmissionDTO,
-  EtaSubmissionStatusDTO,
-  EtaTaxSubTypeRowDTO,
-  EtaUnitMappingRowDTO,
+import {
+  EtaBulkRequeueOutcome,
+  type EtaBranchCodeRowDTO,
+  type EtaConfigDTO,
+  type EtaDocumentTypeDTO,
+  type EtaItemMappingRowDTO,
+  type EtaPrevalidationFindingDTO,
+  type EtaSubmissionDTO,
+  type EtaSubmissionStatusDTO,
+  type EtaTaxSubTypeRowDTO,
+  type EtaUnitMappingRowDTO,
 } from "@mezan/contracts";
-import { ETA_RECEIPT_REPORTING_WINDOW_HOURS } from "@mezan/domain";
+import { ETA_RECEIPT_REPORTING_WINDOW_HOURS, EtaPrevalidationFixScreen, EtaPrevalidationSeverity } from "@mezan/domain";
 import {
   useApplyEtaUnitSuggestions,
   useBulkRequeueSubmitEta,
@@ -112,19 +113,19 @@ const TABS: Array<{ id: EtaTab; labelKey: AppTranslationKey }> = [
 /** Which screen a pre-validation finding's `fixScreen` opens — the ETA screen's own tabs, or another screen entirely. */
 function fixHrefFor(finding: EtaPrevalidationFindingDTO, internalId: string): string {
   switch (finding.fixScreen) {
-    case "issuer_config":
+    case EtaPrevalidationFixScreen.IssuerConfig:
       return `${pathForRoute("eta")}?tab=general`;
-    case "branch_codes":
+    case EtaPrevalidationFixScreen.BranchCodes:
       return `${pathForRoute("eta")}?tab=general`;
-    case "item_mapping":
+    case EtaPrevalidationFixScreen.ItemMapping:
       return `${pathForRoute("eta")}?tab=items`;
-    case "unit_mapping":
+    case EtaPrevalidationFixScreen.UnitMapping:
       return `${pathForRoute("eta")}?tab=units`;
-    case "tax_rates":
+    case EtaPrevalidationFixScreen.TaxRates:
       return pathForRoute("taxes");
-    case "customer":
+    case EtaPrevalidationFixScreen.Customer:
       return finding.fixRefId ? pathForRoute("customers", [finding.fixRefId]) : pathForRoute("customers");
-    case "source_document":
+    case EtaPrevalidationFixScreen.SourceDocument:
       return `${pathForRoute("sales-invoices")}?q=${encodeURIComponent(internalId)}`;
     default:
       return pathForRoute("eta");
@@ -1120,9 +1121,9 @@ function SubmissionsTab({ statusKeys }: { statusKeys: Record<EtaSubmissionStatus
     const result = await bulkMutation.mutateAsync([...selectedIds]);
     const tally = { submitted: 0, blocked: 0, queued: 0, failed: 0 };
     for (const row of result.results) {
-      if (row.outcome === "submitted") tally.submitted++;
-      else if (row.outcome === "blocked") tally.blocked++;
-      else if (row.outcome === "queued") tally.queued++;
+      if (row.outcome === EtaBulkRequeueOutcome.Submitted) tally.submitted++;
+      else if (row.outcome === EtaBulkRequeueOutcome.Blocked) tally.blocked++;
+      else if (row.outcome === EtaBulkRequeueOutcome.Queued) tally.queued++;
       else tally.failed++;
     }
     setBulkNotice(tally);
@@ -1187,7 +1188,7 @@ function SubmissionsTab({ statusKeys }: { statusKeys: Record<EtaSubmissionStatus
       render: (s) => {
         const findings = s.prevalidation ?? [];
         if (findings.length === 0) return <span className="text-ink-muted">—</span>;
-        const blocking = findings.filter((f) => f.severity === "blocking").length;
+        const blocking = findings.filter((f) => f.severity === EtaPrevalidationSeverity.Blocking).length;
         const warnings = findings.length - blocking;
         return (
           <div className="flex flex-col gap-[4px]" title={findings.map((f) => f.messageAr).join(" / ")}>
@@ -1394,8 +1395,8 @@ function ReadinessTab() {
       ) : null}
       {rows.map((s) => {
         const findings = s.prevalidation ?? [];
-        const blocking = findings.filter((f) => f.severity === "blocking");
-        const warnings = findings.filter((f) => f.severity === "warning");
+        const blocking = findings.filter((f) => f.severity === EtaPrevalidationSeverity.Blocking);
+        const warnings = findings.filter((f) => f.severity === EtaPrevalidationSeverity.Warning);
         return (
           <Card key={s.id} className="p-[14px_16px]">
             <div className="mb-[8px] flex flex-wrap items-center justify-between gap-[8px]">
@@ -1411,8 +1412,8 @@ function ReadinessTab() {
               {[...blocking, ...warnings].map((f, i) => (
                 <li key={`${f.code}-${i}`} className="flex flex-wrap items-center gap-[8px] text-[12.5px]">
                   <StatusPill
-                    label={f.severity === "blocking" ? pt("findingsBlocking") : pt("findingsWarning")}
-                    tone={f.severity === "blocking" ? "danger" : "warning"}
+                    label={f.severity === EtaPrevalidationSeverity.Blocking ? pt("findingsBlocking") : pt("findingsWarning")}
+                    tone={f.severity === EtaPrevalidationSeverity.Blocking ? "danger" : "warning"}
                   />
                   <span className="text-ink">{f.messageAr}</span>
                   <a href={fixHrefFor(f, s.internalId)} className="font-semibold text-brand hover:underline">

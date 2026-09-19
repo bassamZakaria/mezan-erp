@@ -126,11 +126,21 @@ export const etaSubmissionSchema = z.object({
 
 export const bulkRequeueSubmitSchema = z.object({ ids: z.array(z.string().min(1)).min(1) });
 
+/** One row's outcome from `POST /eta/submissions/bulk-requeue-submit`. */
+export enum EtaBulkRequeueOutcome {
+  Submitted = "submitted",
+  Queued = "queued",
+  Blocked = "blocked",
+  NotAvailable = "not_available",
+  Error = "error",
+}
+export const etaBulkRequeueOutcomeSchema = z.nativeEnum(EtaBulkRequeueOutcome);
+
 export const bulkRequeueSubmitResultSchema = z.object({
   results: z.array(
     z.object({
       id: z.string(),
-      outcome: z.enum(["submitted", "queued", "blocked", "not_available", "error"]),
+      outcome: etaBulkRequeueOutcomeSchema,
       submission: etaSubmissionSchema.optional(),
       message: z.string().optional(),
     }),

@@ -1000,6 +1000,8 @@ export {
   etaPrevalidationFixScreenSchema,
   etaPrevalidationFindingSchema,
   bulkRequeueSubmitSchema,
+  EtaBulkRequeueOutcome,
+  etaBulkRequeueOutcomeSchema,
   bulkRequeueSubmitResultSchema,
   etaRejectionReasonGroupSchema,
   etaRejectionsReportSchema,

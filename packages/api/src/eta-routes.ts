@@ -53,6 +53,7 @@ import {
   updateEtaItemMappingSchema,
   updateEtaUnitMappingSchema,
   bulkRequeueSubmitSchema,
+  EtaBulkRequeueOutcome,
 } from "@mezan/contracts";
 import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
 
@@ -769,7 +770,7 @@ export function createEtaRoutes(
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     const results: Array<{
       readonly id: string;
-      readonly outcome: "submitted" | "queued" | "blocked" | "not_available" | "error";
+      readonly outcome: EtaBulkRequeueOutcome;
       readonly submission?: ReturnType<typeof serializeSubmission>;
       readonly message?: string;
     }> = [];
@@ -777,7 +778,7 @@ export function createEtaRoutes(
       try {
         const submission = await service.findById(id);
         if (!submission) {
-          results.push({ id, outcome: "error", message: "الإرسال غير موجود." });
+          results.push({ id, outcome: EtaBulkRequeueOutcome.Error, message: "الإرسال غير موجود." });
           continue;
         }
         if (deps.rebuildSubmission) {
@@ -785,14 +786,14 @@ export function createEtaRoutes(
           if (rebuilt) await service.requeue(id, rebuilt);
         }
         const submitted = await service.submit(id);
-        results.push({ id, outcome: "submitted", submission: serializeSubmission(submitted) });
+        results.push({ id, outcome: EtaBulkRequeueOutcome.Submitted, submission: serializeSubmission(submitted) });
       } catch (err) {
         if (err instanceof EtaOfflineError) {
-          results.push({ id, outcome: "queued", message: err.message });
+          results.push({ id, outcome: EtaBulkRequeueOutcome.Queued, message: err.message });
         } else if (err instanceof EtaPrevalidationFailedError) {
-          results.push({ id, outcome: "blocked", message: err.message });
+          results.push({ id, outcome: EtaBulkRequeueOutcome.Blocked, message: err.message });
         } else if (err instanceof Error) {
-          results.push({ id, outcome: "error", message: err.message });
+          results.push({ id, outcome: EtaBulkRequeueOutcome.Error, message: err.message });
         } else {
           throw err;
         }

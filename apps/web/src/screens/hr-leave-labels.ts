@@ -61,6 +61,24 @@ export const ATTENDANCE_STATUS_TONE: Record<AttendanceStatusDTO, PillTone> = {
   compensatory_off: "neutral",
 };
 
+/**
+ * Single/double-letter grid code from the catalog legend
+ * (`packages/domain/src/hr/attendance.ts`'s `ATTENDANCE_STATUS_DEFINITIONS`,
+ * restated here so the grid never imports domain logic into the web bundle).
+ * The monthly grid pairs this with `ATTENDANCE_STATUS_TONE`'s colour on every
+ * cell — colour alone is never the only signal.
+ */
+export const ATTENDANCE_GRID_CODE: Record<AttendanceStatusDTO, string> = {
+  present: "P",
+  late: "P",
+  half_day: "H",
+  absent: "A",
+  on_leave: "L",
+  holiday: "HO",
+  weekly_off: "—",
+  compensatory_off: "CO",
+};
+
 export const ACCRUAL_FREQUENCY_KEY: Record<LeaveAccrualFrequencyDTO, AppTranslationKey> = {
   annual: "accrualFrequency.annual",
   monthly: "accrualFrequency.monthly",

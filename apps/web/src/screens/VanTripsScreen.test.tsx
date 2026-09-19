@@ -56,7 +56,7 @@ const employees: EmployeeDTO[] = [
     probationEndDate: null,
     priorServiceYears: 0,
     requireSelfieAtClockIn: false,
-    requireBiometricAtClockIn: false, hasPensionEntitlement: null, taxDisabilityExemption: false,
+    requireBiometricAtClockIn: false, deviceBadgeId: null, hasPensionEntitlement: null, taxDisabilityExemption: false,
     address: null,
     emergencyContact: null,
     status: "active",

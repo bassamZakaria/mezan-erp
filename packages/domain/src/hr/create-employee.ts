@@ -37,6 +37,7 @@ export interface CreateEmployeeCommand {
   readonly priorServiceYears?: number;
   readonly requireSelfieAtClockIn?: boolean;
   readonly requireBiometricAtClockIn?: boolean;
+  readonly deviceBadgeId?: string | null;
   readonly hasPensionEntitlement?: boolean | null;
   readonly taxDisabilityExemption?: boolean;
   readonly address?: EmployeeAddress | null;
@@ -86,6 +87,7 @@ export async function createEmployee(command: CreateEmployeeCommand, repo: Emplo
     priorServiceYears: command.priorServiceYears ?? 0,
     requireSelfieAtClockIn: command.requireSelfieAtClockIn ?? false,
     requireBiometricAtClockIn: command.requireBiometricAtClockIn ?? false,
+    deviceBadgeId: command.deviceBadgeId ?? null,
     hasPensionEntitlement: command.hasPensionEntitlement ?? null,
     taxDisabilityExemption: command.taxDisabilityExemption ?? false,
     address: command.address ?? null,

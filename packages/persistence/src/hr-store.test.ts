@@ -80,7 +80,7 @@ describe("SqliteEmployeeRepository", () => {
       probationEndDate: null,
       priorServiceYears: 2,
       requireSelfieAtClockIn: true,
-      requireBiometricAtClockIn: false, hasPensionEntitlement: null, taxDisabilityExemption: false,
+      requireBiometricAtClockIn: false, deviceBadgeId: null, hasPensionEntitlement: null, taxDisabilityExemption: false,
       address: { street: "شارع النصر", city: "القاهرة", governorate: "القاهرة", postalCode: null },
       emergencyContact: { name: "سارة", relationship: "زوجة", phone: "0100000000", altPhone: null },
       status: "active",

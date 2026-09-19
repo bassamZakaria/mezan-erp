@@ -3298,6 +3298,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       leaveBalances: hrLeaveBalances,
       leaveAccrualBatches: hrLeaveAccrualBatches,
       workflow: { configs: workflowConfigs, requests: approvalRequests },
+      audit: auditSink,
       payroll: {
         advances: hrAdvances,
         runs: hrPayrollRuns,

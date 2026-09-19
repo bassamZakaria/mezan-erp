@@ -21,7 +21,7 @@ const employees: EmployeeDTO[] = [
     departmentId: null, jobTitleId: null, managerId: null, branchId: "MAIN", hireDate: "2026-08-11",
     workerCategory: "staff", employmentType: "full_time", overtimeEligibility: "inherit_department",
     standardWorkHours: null, probationEndDate: null, priorServiceYears: 0, requireSelfieAtClockIn: false,
-    requireBiometricAtClockIn: false, hasPensionEntitlement: null, taxDisabilityExemption: false, address: null, emergencyContact: null, status: "active", terminatedAt: null,
+    requireBiometricAtClockIn: false, deviceBadgeId: null, hasPensionEntitlement: null, taxDisabilityExemption: false, address: null, emergencyContact: null, status: "active", terminatedAt: null,
     createdAt: "2026-08-11T00:00:00.000Z",
   },
 ];

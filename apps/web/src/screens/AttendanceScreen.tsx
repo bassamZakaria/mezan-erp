@@ -1,18 +1,30 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from "react";
 import { Button, Card, DocumentList, EmptyState, IconButton, SidePanel, StatusPill, type DocumentListColumn } from "@mezan/ui";
-import type { AttendanceEntryDTO, AttendanceStatusDTO, HolidayWorkCompensationDTO } from "@mezan/contracts";
+import type {
+  AttendanceEntryDTO,
+  AttendanceImportCommitResultDTO,
+  AttendanceImportIssueDTO,
+  AttendanceImportPreviewDTO,
+  AttendanceStatusDTO,
+  HolidayWorkCompensationDTO,
+} from "@mezan/contracts";
 import { SelectField, TextField, ToggleField } from "../settings/form-controls";
 import {
   ApiError,
   useAttendance,
+  useAttendanceImportCommit,
+  useAttendanceImportPreview,
   useAttendanceSummary,
+  useBranches,
   useCorrectAttendance,
+  useDepartments,
   useEmployees,
   useRecordAttendance,
 } from "../data/hooks";
 import { ATTENDANCE_STATUS_KEY, ATTENDANCE_STATUS_TONE, formatWorkedDuration } from "./hr-leave-labels";
+import { AttendanceGrid } from "./AttendanceGrid";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
-import { employeeDisplayName } from "./hr-employee-name";
+import { bilingualName, employeeDisplayName } from "./hr-employee-name";
 import { useUrlNumber } from "../lib/url-state";
 
 /** الحضور والانصراف (Attendance) — docs/archive/catalog/06 §"الحضور والانصراف". Per-employee daily check-in/out with a computed worked duration and a day status resolved against the official holiday calendar and approved leave. */
@@ -33,6 +45,13 @@ function statusOptions(t: (key: AppTranslationKey) => string): Array<{ value: st
     ...(Object.keys(ATTENDANCE_STATUS_KEY) as AttendanceStatusDTO[]).map((code) => ({ value: code, label: t(ATTENDANCE_STATUS_KEY[code]) })),
   ];
 }
+
+const IMPORT_ISSUE_KEY: Record<AttendanceImportIssueDTO, AppTranslationKey> = {
+  unmatched_badge: "attendance.import.issue.unmatched_badge",
+  odd_punch_count: "attendance.import.issue.odd_punch_count",
+  single_punch: "attendance.import.issue.single_punch",
+  already_recorded: "attendance.import.issue.already_recorded",
+};
 
 interface AttendanceDraft {
   employeeId: string;
@@ -69,19 +88,44 @@ export function AttendanceScreen() {
   const [status, setStatus] = useState("");
   const [page, setPage] = useUrlNumber("page", 1);
   const [pageSize, setPageSize] = useUrlNumber("size", 25);
+  const [viewMode, setViewMode] = useState<"list" | "grid">("list");
+  const [gridBranchFilter, setGridBranchFilter] = useState("all");
+  const [gridDepartmentFilter, setGridDepartmentFilter] = useState("all");
 
   const { from, to } = useMemo(() => monthBounds(month), [month]);
   const employeesQuery = useEmployees();
-  const employees = employeesQuery.data ?? [];
+  const employees = useMemo(() => employeesQuery.data ?? [], [employeesQuery.data]);
   const query = useAttendance({ employeeId: employeeId || null, from, to, status: status || null });
   const summaryQuery = useAttendanceSummary(employeeId || null, from, to);
   const recordAttendance = useRecordAttendance();
   const correctAttendance = useCorrectAttendance();
+  const branchesQuery = useBranches();
+  const departmentsQuery = useDepartments();
+  // The grid always shows the whole workforce for the month, independent of
+  // the list's employee/status filters — it has its own branch/department
+  // filters instead. When those list filters are blank the query key matches
+  // `query` above exactly, so React Query serves both from one fetch.
+  const gridQuery = useAttendance({ employeeId: null, from, to, status: null });
+  const gridEmployees = useMemo(() => {
+    let rows = employees;
+    if (gridBranchFilter !== "all") rows = rows.filter((e) => e.branchId === gridBranchFilter);
+    if (gridDepartmentFilter !== "all") rows = rows.filter((e) => e.departmentId === gridDepartmentFilter);
+    return rows;
+  }, [employees, gridBranchFilter, gridDepartmentFilter]);
 
   const [formOpen, setFormOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState<AttendanceDraft>(blankDraft("", `${month}-01`));
   const [formError, setFormError] = useState<string | null>(null);
+
+  const [importOpen, setImportOpen] = useState(false);
+  const [importCsv, setImportCsv] = useState<string | null>(null);
+  const [importFileName, setImportFileName] = useState("");
+  const [importFileError, setImportFileError] = useState<string | null>(null);
+  const [importResult, setImportResult] = useState<AttendanceImportPreviewDTO | AttendanceImportCommitResultDTO | null>(null);
+  const [importCommitted, setImportCommitted] = useState(false);
+  const importPreview = useAttendanceImportPreview();
+  const importCommit = useAttendanceImportCommit();
 
   const entries = query.data ?? [];
   const pageCount = Math.max(1, Math.ceil(entries.length / pageSize));
@@ -119,6 +163,66 @@ export function AttendanceScreen() {
     });
     setFormError(null);
     setFormOpen(true);
+  }
+
+  /** Grid cell click: an existing day opens the same edit form the list uses; an empty day opens it pre-filled to record one. */
+  function openGridCell(cellEmployeeId: string, date: string, entry: AttendanceEntryDTO | null) {
+    if (entry) {
+      openEdit(entry);
+      return;
+    }
+    setEditingId(null);
+    setDraft(blankDraft(cellEmployeeId, date));
+    setFormError(null);
+    setFormOpen(true);
+  }
+
+  function openImport() {
+    setImportCsv(null);
+    setImportFileName("");
+    setImportFileError(null);
+    setImportResult(null);
+    setImportCommitted(false);
+    importPreview.reset();
+    importCommit.reset();
+    setImportOpen(true);
+  }
+
+  function handleImportFile(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setImportFileError(null);
+    setImportResult(null);
+    setImportCommitted(false);
+    setImportFileName(file.name);
+    const reader = new FileReader();
+    reader.onload = () => setImportCsv(typeof reader.result === "string" ? reader.result : null);
+    reader.onerror = () => setImportFileError(t("attendance.import.fileReadFailed"));
+    reader.readAsText(file);
+  }
+
+  async function runImportPreview() {
+    if (!importCsv) return;
+    setImportFileError(null);
+    try {
+      const result = await importPreview.mutateAsync({ csv: importCsv });
+      setImportResult(result);
+      setImportCommitted(false);
+    } catch (err) {
+      setImportFileError(err instanceof ApiError ? err.message : t("attendance.import.previewFailed"));
+    }
+  }
+
+  async function runImportCommit() {
+    if (!importCsv) return;
+    setImportFileError(null);
+    try {
+      const result = await importCommit.mutateAsync({ csv: importCsv });
+      setImportResult(result);
+      setImportCommitted(true);
+    } catch (err) {
+      setImportFileError(err instanceof ApiError ? err.message : t("attendance.import.commitFailed"));
+    }
   }
 
   async function handleSubmit(event: FormEvent) {
@@ -189,6 +293,29 @@ export function AttendanceScreen() {
   ];
 
   const summary = summaryQuery.data;
+  const branches = branchesQuery.data ?? [];
+  const departments = departmentsQuery.data ?? [];
+
+  const viewToggle = (
+    <div className="inline-flex items-center gap-[4px] rounded-md border border-border p-[2px]">
+      <Button size="sm" variant={viewMode === "list" ? "primary" : "ghost"} onClick={() => setViewMode("list")}>
+        {t("attendance.viewList")}
+      </Button>
+      <Button size="sm" variant={viewMode === "grid" ? "primary" : "ghost"} onClick={() => setViewMode("grid")}>
+        {t("attendance.viewGrid")}
+      </Button>
+    </div>
+  );
+
+  const headerActions = (
+    <div className="flex flex-wrap items-center gap-[8px]">
+      {viewToggle}
+      <Button onClick={openImport}>{t("attendance.import.button")}</Button>
+      <Button variant="primary" onClick={openCreate}>
+        {t("attendance.recordAttendance")}
+      </Button>
+    </div>
+  );
 
   return (
     <div className="w-full">
@@ -201,14 +328,62 @@ export function AttendanceScreen() {
         </Card>
       ) : null}
 
+      {viewMode === "grid" ? (
+        <div className="flex flex-col gap-[14px]">
+          <div className="flex flex-wrap items-start justify-between gap-[12px]">
+            <div>
+              <h2 className="font-display text-[17px] font-bold text-ink">{t("attendance.attendance")}</h2>
+              <p className="mt-[2px] text-[12.5px] text-ink-muted">{t("attendance.theDailyAttendanceRecordPer")}</p>
+            </div>
+            {headerActions}
+          </div>
+          <div className="flex flex-wrap items-end gap-[10px]">
+            <div className="min-w-[150px]">
+              <TextField label={t("attendance.month")} value={month} onChange={setMonth} placeholder="YYYY-MM" />
+            </div>
+            <div className="min-w-[170px]">
+              <SelectField
+                label={t("attendance.grid.branch")}
+                value={gridBranchFilter}
+                onChange={setGridBranchFilter}
+                options={[{ value: "all", label: t("attendance.grid.allBranches") }, ...branches.map((b) => ({ value: b.id, label: b.name }))]}
+              />
+            </div>
+            <div className="min-w-[170px]">
+              <SelectField
+                label={t("attendance.grid.department")}
+                value={gridDepartmentFilter}
+                onChange={setGridDepartmentFilter}
+                options={[
+                  { value: "all", label: t("attendance.grid.allDepartments") },
+                  ...departments.map((d) => ({ value: d.id, label: bilingualName(d, locale) })),
+                ]}
+              />
+            </div>
+          </div>
+          {gridQuery.isError ? (
+            <Card className="p-[18px_20px]">
+              <p className="text-[13px] font-semibold text-danger-ink">{gridQuery.error?.message ?? t("attendance.theAttendanceRecordCouldNot")}</p>
+              <Button size="sm" className="mt-[10px]" onClick={() => gridQuery.refetch()}>
+                {t("common.retry")}
+              </Button>
+            </Card>
+          ) : (
+            <AttendanceGrid
+              month={month}
+              employees={gridEmployees}
+              entries={gridQuery.data ?? []}
+              loading={employeesQuery.isLoading || gridQuery.isLoading}
+              onCellClick={openGridCell}
+            />
+          )}
+        </div>
+      ) : (
+        <>
       <DocumentList<AttendanceEntryDTO>
         title={t("attendance.attendance")}
         description={t("attendance.theDailyAttendanceRecordPer")}
-        actions={
-          <Button variant="primary" onClick={openCreate}>
-            {t("attendance.recordAttendance")}
-          </Button>
-        }
+        actions={headerActions}
         listKey="attendance"
         statsCollapsible
         stats={[
@@ -303,6 +478,8 @@ export function AttendanceScreen() {
           </div>
         </Card>
       ) : null}
+        </>
+      )}
 
       <SidePanel
         open={formOpen}
@@ -382,6 +559,137 @@ export function AttendanceScreen() {
             </Button>
           </div>
         </form>
+      </SidePanel>
+
+      <SidePanel open={importOpen} onClose={() => setImportOpen(false)} title={t("attendance.import.title")}>
+        <div className="flex flex-col gap-[14px]">
+          <p className="text-[12.5px] text-ink-muted">{t("attendance.import.description")}</p>
+
+          {importFileError ? (
+            <div role="alert" className="rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
+              {importFileError}
+            </div>
+          ) : null}
+
+          <div>
+            <label className="mb-[6px] block text-[12.5px] font-semibold text-ink">{t("attendance.import.chooseFile")}</label>
+            <input type="file" accept=".csv,text/csv" onChange={handleImportFile} className="block w-full text-[12.5px] text-ink" />
+            <p className="mt-[4px] text-[11.5px] text-ink-faint">{importFileName || t("attendance.import.noFileChosen")}</p>
+          </div>
+
+          <div className="flex justify-end gap-[9px]">
+            <Button type="button" onClick={() => setImportOpen(false)}>
+              {t("common.cancel")}
+            </Button>
+            <Button type="button" disabled={!importCsv || importPreview.isPending} onClick={runImportPreview}>
+              {importPreview.isPending ? t("common.loading") : t("attendance.import.preview")}
+            </Button>
+            <Button
+              type="button"
+              variant="primary"
+              disabled={!importResult || importResult.readyCount === 0 || importCommitted || importCommit.isPending}
+              onClick={runImportCommit}
+            >
+              {importCommit.isPending ? t("common.loading") : t("attendance.import.commit")}
+            </Button>
+          </div>
+
+          {importResult ? (
+            <div className="flex flex-col gap-[10px]">
+              <div className="grid grid-cols-2 gap-[10px] text-[12.5px] sm:grid-cols-4">
+                <div>
+                  <dt className="text-ink-faint">{t("attendance.import.totalPunches")}</dt>
+                  <dd className="mz-num font-semibold text-ink">{importResult.totalPunches}</dd>
+                </div>
+                <div>
+                  <dt className="text-ink-faint">{t("attendance.import.matchedGroups")}</dt>
+                  <dd className="mz-num font-semibold text-ink">{importResult.matchedGroupCount}</dd>
+                </div>
+                <div>
+                  <dt className="text-ink-faint">{t("attendance.import.readyCount")}</dt>
+                  <dd className="mz-num font-semibold text-ink">{importResult.readyCount}</dd>
+                </div>
+                {"createdCount" in importResult ? (
+                  <div>
+                    <dt className="text-ink-faint">{t("attendance.import.createdCount")}</dt>
+                    <dd className="mz-num font-semibold text-success-ink">{importResult.createdCount}</dd>
+                  </div>
+                ) : null}
+              </div>
+
+              {"createdCount" in importResult ? (
+                <div role="status" className="rounded-md border border-success bg-success-soft px-[12px] py-[10px] text-[12.5px] text-success-ink">
+                  {t("attendance.import.commitSuccess", {
+                    created: String(importResult.createdCount),
+                    skipped: String(importResult.skippedAlreadyRecordedCount),
+                  })}
+                </div>
+              ) : null}
+
+              {importResult.unmatchedBadges.length > 0 ? (
+                <div role="alert" className="rounded-md border border-warning bg-warning-soft px-[12px] py-[10px] text-[12.5px] text-warning-ink">
+                  {t("attendance.import.unmatchedBadges")}: {importResult.unmatchedBadges.join("، ")}
+                </div>
+              ) : null}
+
+              {importResult.parseErrors.length > 0 ? (
+                <div role="alert" className="rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
+                  <p className="font-semibold">{t("attendance.import.parseErrors")}</p>
+                  <ul className="mt-[4px] list-inside list-disc">
+                    {importResult.parseErrors.map((e) => (
+                      <li key={e.rowNumber}>
+                        {e.rowNumber}: {e.reasons.join("، ")}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+
+              {importResult.groups.length === 0 ? (
+                <p className="text-[12.5px] text-ink-muted">{t("attendance.import.noGroupsYet")}</p>
+              ) : (
+                <div className="max-w-full overflow-x-auto">
+                  <table className="w-full min-w-max border-collapse text-[12px]">
+                    <thead>
+                      <tr className="border-b border-border text-ink-faint">
+                        <th className="px-[8px] py-[6px] text-start font-semibold">{t("attendance.import.tableBadge")}</th>
+                        <th className="px-[8px] py-[6px] text-start font-semibold">{t("attendance.import.tableEmployee")}</th>
+                        <th className="px-[8px] py-[6px] text-start font-semibold">{t("attendance.import.tableDate")}</th>
+                        <th className="px-[8px] py-[6px] text-start font-semibold">{t("attendance.import.tableCheckIn")}</th>
+                        <th className="px-[8px] py-[6px] text-start font-semibold">{t("attendance.import.tableCheckOut")}</th>
+                        <th className="px-[8px] py-[6px] text-start font-semibold">{t("attendance.import.tablePunches")}</th>
+                        <th className="px-[8px] py-[6px] text-start font-semibold">{t("attendance.import.tableStatus")}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {importResult.groups.map((group, index) => (
+                        <tr key={`${group.badgeId}-${group.date}-${index}`} className="border-b border-border last:border-b-0">
+                          <td className="mz-num px-[8px] py-[5px] text-ink">{group.badgeId}</td>
+                          <td className="px-[8px] py-[5px] text-ink">{group.employeeId ? employeeName(group.employeeId) : t("attendance.import.unknownEmployee")}</td>
+                          <td className="mz-num px-[8px] py-[5px] text-ink">{group.date}</td>
+                          <td className="mz-num px-[8px] py-[5px] text-ink">{group.checkIn ?? "—"}</td>
+                          <td className="mz-num px-[8px] py-[5px] text-ink">{group.checkOut ?? "—"}</td>
+                          <td className="mz-num px-[8px] py-[5px] text-ink">{group.punchCount}</td>
+                          <td className="px-[8px] py-[5px]">
+                            {group.issues.length === 0 ? (
+                              <StatusPill label={t("attendance.import.ready")} tone="success" />
+                            ) : (
+                              <div className="flex flex-wrap gap-[4px]">
+                                {group.issues.map((issue) => (
+                                  <StatusPill key={issue} label={t(IMPORT_ISSUE_KEY[issue])} tone={issue === "already_recorded" ? "neutral" : "warning"} />
+                                ))}
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          ) : null}
+        </div>
       </SidePanel>
     </div>
   );

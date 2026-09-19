@@ -108,6 +108,16 @@ export {
 } from "./attendance.js";
 
 export type {
+  AttendanceImportRowError,
+  AttendanceDevicePunch,
+  AttendanceImportParseResult,
+  AttendanceImportIssueCode,
+  AttendanceImportDayGroup,
+  AttendanceImportPreview,
+} from "./attendance-import.js";
+export { parseAttendanceDeviceCsv, buildAttendanceImportPreview } from "./attendance-import.js";
+
+export type {
   LeavePolicy,
   LeavePolicyRepository,
   LeavePolicyPatch,

@@ -118,6 +118,8 @@ export const employeeSchema = z.object({
   priorServiceYears: z.number(),
   requireSelfieAtClockIn: z.boolean(),
   requireBiometricAtClockIn: z.boolean(),
+  /** Badge/employee-code on a fingerprint-device export; null until set. */
+  deviceBadgeId: z.string().nullable(),
   /** Null = never answered; end-of-service gratuity is not computed until it is. */
   hasPensionEntitlement: z.boolean().nullable(),
   taxDisabilityExemption: z.boolean(),
@@ -153,6 +155,7 @@ export const createEmployeeSchema = z.object({
   priorServiceYears: z.number().optional(),
   requireSelfieAtClockIn: z.boolean().optional(),
   requireBiometricAtClockIn: z.boolean().optional(),
+  deviceBadgeId: z.string().nullable().optional(),
   hasPensionEntitlement: z.boolean().nullable().optional(),
   taxDisabilityExemption: z.boolean().optional(),
   address: employeeAddressSchema.nullable().optional(),
@@ -340,6 +343,48 @@ export const recordAttendanceSchema = z.object({
 });
 
 export const correctAttendanceSchema = recordAttendanceSchema.omit({ id: true, employeeId: true, date: true }).partial();
+
+// --- Attendance-device CSV import -------------------------------------------
+
+/** Raw CSV text, exactly as the browser read the uploaded file — parsing happens server-side. */
+export const attendanceImportRequestSchema = z.object({
+  csv: z.string().min(1),
+});
+
+export const attendanceImportIssueSchema = z.enum(["unmatched_badge", "odd_punch_count", "single_punch", "already_recorded"]);
+
+export const attendanceImportRowErrorSchema = z.object({
+  rowNumber: z.number().int().nonnegative(),
+  reasons: z.array(z.string()),
+});
+
+export const attendanceImportGroupSchema = z.object({
+  badgeId: z.string(),
+  /** Null = no employee carries this badge as its device badge id. */
+  employeeId: z.string().nullable(),
+  date: isoDateSchema,
+  checkIn: z.string().nullable(),
+  checkOut: z.string().nullable(),
+  punchCount: z.number().int(),
+  device: z.string().nullable(),
+  issues: z.array(attendanceImportIssueSchema),
+  readyToCommit: z.boolean(),
+});
+
+export const attendanceImportPreviewSchema = z.object({
+  groups: z.array(attendanceImportGroupSchema),
+  parseErrors: z.array(attendanceImportRowErrorSchema),
+  totalPunches: z.number().int(),
+  matchedGroupCount: z.number().int(),
+  unmatchedBadges: z.array(z.string()),
+  readyCount: z.number().int(),
+});
+
+/** Preview shape plus what committing actually did — idempotent, so re-committing the same file reports skips, not errors. */
+export const attendanceImportCommitResultSchema = attendanceImportPreviewSchema.extend({
+  createdCount: z.number().int(),
+  skippedAlreadyRecordedCount: z.number().int(),
+});
 
 export const attendanceSummarySchema = z.object({
   /** Null = the whole workforce, not one employee. */
@@ -548,6 +593,12 @@ export type AttendanceEntryDTO = z.infer<typeof attendanceEntrySchema>;
 export type RecordAttendanceDTO = z.infer<typeof recordAttendanceSchema>;
 export type CorrectAttendanceDTO = z.infer<typeof correctAttendanceSchema>;
 export type AttendanceSummaryDTO = z.infer<typeof attendanceSummarySchema>;
+export type AttendanceImportRequestDTO = z.infer<typeof attendanceImportRequestSchema>;
+export type AttendanceImportIssueDTO = z.infer<typeof attendanceImportIssueSchema>;
+export type AttendanceImportRowErrorDTO = z.infer<typeof attendanceImportRowErrorSchema>;
+export type AttendanceImportGroupDTO = z.infer<typeof attendanceImportGroupSchema>;
+export type AttendanceImportPreviewDTO = z.infer<typeof attendanceImportPreviewSchema>;
+export type AttendanceImportCommitResultDTO = z.infer<typeof attendanceImportCommitResultSchema>;
 export type LeaveAccrualFrequencyDTO = z.infer<typeof leaveAccrualFrequencySchema>;
 export type LeavePolicyDTO = z.infer<typeof leavePolicySchema>;
 export type CreateLeavePolicyDTO = z.infer<typeof createLeavePolicySchema>;

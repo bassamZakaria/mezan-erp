@@ -9,7 +9,7 @@ import type {
   UpdateGuaranteeDTO,
 } from "@mezan/contracts";
 import { useApi } from "./ApiContext";
-import { ApiError } from "./hooks";
+import { ApiError, loaderError } from "./hooks";
 import { useAppTranslation } from "../i18n";
 
 /**
@@ -51,7 +51,7 @@ export function useGuarantees(query: GuaranteeListQuery = {}): UseQueryResult<Gu
     enabled: session !== null,
     queryFn: async () => {
       const res = await request(`${ROOT}${toQueryString(query)}`);
-      if (!res.ok) throw new ApiError(res.status, t("guarantees.api.listFailed"));
+      if (!res.ok) throw await loaderError(res, t("guarantees.api.listFailed"), t);
       return res.json<GuaranteeDTO[]>();
     },
   });
@@ -65,7 +65,7 @@ export function useGuaranteeSummary(): UseQueryResult<GuaranteeSummaryDTO, ApiEr
     enabled: session !== null,
     queryFn: async () => {
       const res = await request(`${ROOT}/summary`);
-      if (!res.ok) throw new ApiError(res.status, t("guarantees.api.summaryFailed"));
+      if (!res.ok) throw await loaderError(res, t("guarantees.api.summaryFailed"), t);
       return res.json<GuaranteeSummaryDTO>();
     },
   });
@@ -80,7 +80,7 @@ export function useGuarantee(idOrDocNo: string | null): UseQueryResult<Guarantee
     enabled: session !== null && idOrDocNo !== null,
     queryFn: async () => {
       const res = await request(`${ROOT}/${encodeURIComponent(idOrDocNo as string)}`);
-      if (!res.ok) throw new ApiError(res.status, t("guarantees.api.oneFailed"));
+      if (!res.ok) throw await loaderError(res, t("guarantees.api.oneFailed"), t);
       return res.json<GuaranteeDTO>();
     },
   });

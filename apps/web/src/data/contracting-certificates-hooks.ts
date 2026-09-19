@@ -12,7 +12,7 @@ import type {
   ProgressCertificatePreviewDTO,
   UpdateProgressCertificateDTO,
 } from "@mezan/contracts";
-import { ApiError } from "./hooks";
+import { ApiError, loaderError } from "./hooks";
 import { useApi } from "./ApiContext";
 import { useAppTranslation } from "../i18n";
 
@@ -63,7 +63,7 @@ export function useProgressCertificates(
     enabled: session !== null,
     queryFn: async () => {
       const res = await request(`/contracting/certificates${suffix}`);
-      if (!res.ok) throw new ApiError(res.status, t("certificates.loadFailed"));
+      if (!res.ok) throw await loaderError(res, t("certificates.loadFailed"), t);
       return res.json<ProgressCertificateDTO[]>();
     },
   });
@@ -77,7 +77,7 @@ export function useProgressCertificate(id: string | null): UseQueryResult<Progre
     enabled: session !== null && id !== null,
     queryFn: async () => {
       const res = await request(`/contracting/certificates/${encodeURIComponent(id ?? "")}`);
-      if (!res.ok) throw new ApiError(res.status, t("certificates.loadFailed"));
+      if (!res.ok) throw await loaderError(res, t("certificates.loadFailed"), t);
       return res.json<ProgressCertificateDTO>();
     },
   });
@@ -119,7 +119,7 @@ export function useInternalCertificate(
       const res = await request(
         `/contracting/certificates/internal?contractId=${encodeURIComponent(contractId ?? "")}`,
       );
-      if (!res.ok) throw new ApiError(res.status, t("internalCertificate.loadFailed"));
+      if (!res.ok) throw await loaderError(res, t("internalCertificate.loadFailed"), t);
       return res.json<InternalCertificateDTO>();
     },
   });

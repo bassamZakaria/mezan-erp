@@ -16,6 +16,7 @@ import type {
   SiteReceiptDTO,
 } from "@mezan/contracts";
 import { useApi } from "./ApiContext";
+import { loaderError } from "./hooks";
 import { useAppTranslation } from "../i18n";
 
 /**
@@ -67,7 +68,7 @@ export function useSiteIssues(filter: SiteIssueFilter = {}): UseQueryResult<Site
     enabled: session !== null,
     queryFn: async () => {
       const res = await request(`/contracting/site/issues${queryString({ projectId: filter.projectId, status: filter.status })}`);
-      if (!res.ok) throw new ApiError(res.status, t("siteApi.issuesLoadFailed"));
+      if (!res.ok) throw await loaderError(res, t("siteApi.issuesLoadFailed"), t);
       return res.json<SiteIssueDTO[]>();
     },
   });
@@ -81,7 +82,7 @@ export function useSiteIssue(id: string | null): UseQueryResult<SiteIssueDetailD
     enabled: session !== null && id !== null,
     queryFn: async () => {
       const res = await request(`/contracting/site/issues/${encodeURIComponent(id as string)}`);
-      if (!res.ok) throw new ApiError(res.status, t("siteApi.issuesLoadFailed"));
+      if (!res.ok) throw await loaderError(res, t("siteApi.issuesLoadFailed"), t);
       return res.json<SiteIssueDetailDTO>();
     },
   });
@@ -127,7 +128,7 @@ export function useSiteReceipts(filter: { projectId?: string; issueId?: string }
     enabled: session !== null,
     queryFn: async () => {
       const res = await request(`/contracting/site/receipts${queryString(filter)}`);
-      if (!res.ok) throw new ApiError(res.status, t("siteApi.receiptsLoadFailed"));
+      if (!res.ok) throw await loaderError(res, t("siteApi.receiptsLoadFailed"), t);
       return res.json<SiteReceiptDTO[]>();
     },
   });
@@ -183,7 +184,7 @@ export function useSiteUnreceived(filter: UnreceivedFilter = {}) {
         olderThanDays: filter.olderThanDays ? String(filter.olderThanDays) : undefined,
       });
       const res = await request(`/contracting/site/unreceived${qs}`);
-      if (!res.ok) throw new ApiError(res.status, t("siteApi.unreceivedLoadFailed"));
+      if (!res.ok) throw await loaderError(res, t("siteApi.unreceivedLoadFailed"), t);
       return res.json<
         {
           issueId: string;
@@ -209,7 +210,7 @@ export function useMaterialConsumptions(filter: { projectId?: string; warehouseI
     enabled: session !== null,
     queryFn: async () => {
       const res = await request(`/contracting/site/consumptions${queryString(filter)}`);
-      if (!res.ok) throw new ApiError(res.status, t("siteApi.consumptionsLoadFailed"));
+      if (!res.ok) throw await loaderError(res, t("siteApi.consumptionsLoadFailed"), t);
       return res.json<MaterialConsumptionDTO[]>();
     },
   });
@@ -255,7 +256,7 @@ export function useConsumptionByBoqLine(projectId: string | null): UseQueryResul
     enabled: session !== null && projectId !== null,
     queryFn: async () => {
       const res = await request(`/contracting/site/consumption-by-boq-line?projectId=${encodeURIComponent(projectId as string)}`);
-      if (!res.ok) throw new ApiError(res.status, t("siteApi.consumptionsLoadFailed"));
+      if (!res.ok) throw await loaderError(res, t("siteApi.consumptionsLoadFailed"), t);
       return res.json<ConsumptionByBoqLineRowDTO[]>();
     },
   });
@@ -269,7 +270,7 @@ export function useCustodyItems(filter: { projectId?: string; warehouseId?: stri
     enabled: session !== null,
     queryFn: async () => {
       const res = await request(`/contracting/site/custody${queryString(filter)}`);
-      if (!res.ok) throw new ApiError(res.status, t("siteApi.custodyLoadFailed"));
+      if (!res.ok) throw await loaderError(res, t("siteApi.custodyLoadFailed"), t);
       return res.json<CustodyItemDTO[]>();
     },
   });
@@ -314,7 +315,7 @@ export function useEquipmentLogs(filter: { projectId?: string; assetId?: string 
     enabled: session !== null,
     queryFn: async () => {
       const res = await request(`/contracting/site/equipment-logs${queryString(filter)}`);
-      if (!res.ok) throw new ApiError(res.status, t("siteApi.equipmentLogsLoadFailed"));
+      if (!res.ok) throw await loaderError(res, t("siteApi.equipmentLogsLoadFailed"), t);
       return res.json<EquipmentLogDTO[]>();
     },
   });
@@ -360,7 +361,7 @@ export function useEquipmentHours(projectId: string | null): UseQueryResult<Equi
     enabled: session !== null && projectId !== null,
     queryFn: async () => {
       const res = await request(`/contracting/site/equipment-hours?projectId=${encodeURIComponent(projectId as string)}`);
-      if (!res.ok) throw new ApiError(res.status, t("siteApi.equipmentLogsLoadFailed"));
+      if (!res.ok) throw await loaderError(res, t("siteApi.equipmentLogsLoadFailed"), t);
       return res.json<EquipmentHoursRowDTO[]>();
     },
   });

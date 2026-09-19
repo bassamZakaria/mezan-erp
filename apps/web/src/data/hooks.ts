@@ -430,9 +430,14 @@ export function useTenantInfo(
   });
 }
 
+/**
+ * Deliberately name-free: this is an unauthenticated lookup anyone who knows
+ * (or guesses) a tenant code can call, so it must never become a
+ * name-enumeration oracle (see `tenant-router.ts`'s `/platform/resolve`).
+ */
 export interface PlatformResolveDTO {
   readonly mode: "subdomain" | "code";
-  readonly tenant: { readonly code: string; readonly nameAr: string; readonly nameEn: string | null } | null;
+  readonly exists: boolean;
 }
 
 export function usePlatformResolve(): UseQueryResult<PlatformResolveDTO, ApiError> {

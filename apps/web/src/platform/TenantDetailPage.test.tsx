@@ -181,6 +181,8 @@ describe("TenantDetailPage", () => {
     expect(screen.queryByRole("button", { name: "أرشفة المنشأة" })).not.toBeInTheDocument();
     expect(screen.queryByRole("combobox", { name: "تغيير الباقة" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "إلغاء الاشتراك" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "إيقاف الاشتراك" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "استئناف الاشتراك" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "تسجيل دفعة" })).not.toBeInTheDocument();
   });
 
@@ -258,6 +260,64 @@ describe("TenantDetailPage", () => {
     fireEvent.click(within(confirmDialog).getByRole("button", { name: "إلغاء الاشتراك" }));
     expect(await screen.findByText("ملغى")).toBeInTheDocument();
     expect(cancelled).toBe(true);
+  });
+
+  it("suspending the subscription requires a reason, and confirming sends it to the server", async () => {
+    let suspendedBody: unknown = null;
+    const summary = makeSummary();
+    const suspended = { ...summary.subscription!, status: "suspended" as const };
+    const transport = stubPlatformTransport({
+      "GET /tenants/tenant-1": () => ({ body: suspendedBody ? { ...summary, subscription: suspended } : summary }),
+      "GET /plans": () => ({ body: [plan, plan2] }),
+      "POST /tenants/tenant-1/subscription/suspend": (init) => {
+        suspendedBody = JSON.parse(String(init?.body));
+        return { body: { ...summary, subscription: suspended } };
+      },
+    });
+    renderDetail({ transport, session: testPlatformSession });
+
+    fireEvent.click(await screen.findByRole("button", { name: "إيقاف الاشتراك" }));
+    const confirmDialog = screen.getByRole("dialog");
+    expect(within(confirmDialog).getByText("إيقاف الاشتراك؟")).toBeInTheDocument();
+
+    const confirmButton = within(confirmDialog).getByRole("button", { name: "إيقاف الاشتراك" });
+    expect(confirmButton).toBeDisabled();
+
+    fireEvent.change(within(confirmDialog).getByLabelText("السبب"), { target: { value: "توقف عن السداد" } });
+    expect(confirmButton).toBeEnabled();
+    fireEvent.click(confirmButton);
+
+    expect(await screen.findByText("موقوف")).toBeInTheDocument();
+    expect(suspendedBody).toEqual({ reason: "توقف عن السداد" });
+  });
+
+  it("resuming a suspended subscription requires a reason, and confirming sends it to the server", async () => {
+    let resumedBody: unknown = null;
+    const summary = makeSummary({}, { status: "suspended" });
+    const resumed = { ...summary.subscription!, status: "active" as const };
+    const transport = stubPlatformTransport({
+      "GET /tenants/tenant-1": () => ({ body: resumedBody ? { ...summary, subscription: resumed } : summary }),
+      "GET /plans": () => ({ body: [plan, plan2] }),
+      "POST /tenants/tenant-1/subscription/resume": (init) => {
+        resumedBody = JSON.parse(String(init?.body));
+        return { body: { ...summary, subscription: resumed } };
+      },
+    });
+    renderDetail({ transport, session: testPlatformSession });
+
+    fireEvent.click(await screen.findByRole("button", { name: "استئناف الاشتراك" }));
+    const confirmDialog = screen.getByRole("dialog");
+    expect(within(confirmDialog).getByText("استئناف الاشتراك؟")).toBeInTheDocument();
+
+    const confirmButton = within(confirmDialog).getByRole("button", { name: "استئناف الاشتراك" });
+    expect(confirmButton).toBeDisabled();
+
+    fireEvent.change(within(confirmDialog).getByLabelText("السبب"), { target: { value: "تمت التسوية" } });
+    expect(confirmButton).toBeEnabled();
+    fireEvent.click(confirmButton);
+
+    expect(await screen.findByText("نشط")).toBeInTheDocument();
+    expect(resumedBody).toEqual({ reason: "تمت التسوية" });
   });
 
   it("«تسجيل دفعة» posts the payment and refreshes the tenant summary", async () => {

@@ -143,6 +143,83 @@ export function clearTenantCode(): void {
   storage.removeItem(TENANT_CODE_STORAGE_KEY);
 }
 
+const TENANT_CODE_BY_EMAIL_STORAGE_KEY = "mezan.tenantCodeByEmail";
+/** Bounds the per-operator map on a long-lived shared machine; oldest entries fall off first. */
+const TENANT_CODE_BY_EMAIL_LIMIT = 20;
+
+function normalizeEmail(email: string): string {
+  return email.trim().toLowerCase();
+}
+
+function readTenantCodeByEmail(): Record<string, string> {
+  const storage = getSessionStorage();
+  if (!storage) return {};
+  try {
+    const raw = storage.getItem(TENANT_CODE_BY_EMAIL_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return {};
+    const out: Record<string, string> = {};
+    for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+      if (typeof value === "string") out[key] = value;
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * A shared machine's ONE `mezan.tenantCode` used to be the sole memory of
+ * "which company", so whichever operator signed in last silently became the
+ * default company — and, worse, the default FACE ROW — for the next person
+ * who opened the login screen, on a different tenant entirely. This map is
+ * the per-operator memory the login screen consults once it knows WHO is
+ * typing (their email), so operator B typing their own address is corrected
+ * back to operator B's own company rather than quietly submitting against
+ * operator A's leftover one.
+ *
+ * Deliberately NOT cleared on sign-out (`AppLayout.tsx`'s `signOut`): Slack
+ * and Zoho both keep a browser's remembered-workspace list across a sign-out
+ * — only the session/token is revoked — so a returning operator does not
+ * retype their company code every single time. The same norm applies here.
+ */
+export function tenantCodeForEmail(email: string): string | null {
+  const key = normalizeEmail(email);
+  if (key === "") return null;
+  return readTenantCodeByEmail()[key] ?? null;
+}
+
+export function rememberTenantCodeForEmail(email: string, code: string): void {
+  const storage = getSessionStorage();
+  if (!storage) return;
+  const key = normalizeEmail(email);
+  const value = code.trim().toLowerCase().replace(/[^a-z0-9-]/g, "");
+  if (key === "" || value === "") return;
+  const map = readTenantCodeByEmail();
+  delete map[key];
+  const entries = [[key, value] as const, ...Object.entries(map)].slice(0, TENANT_CODE_BY_EMAIL_LIMIT);
+  storage.setItem(TENANT_CODE_BY_EMAIL_STORAGE_KEY, JSON.stringify(Object.fromEntries(entries)));
+}
+
+/**
+ * Drops one operator's remembered code once it has proven stale (the tenant
+ * it named no longer resolves — archived, or never existed) — otherwise an
+ * operator whose company was archived keeps getting corrected BACK to a
+ * "company not found" screen on every visit, with no way out short of
+ * noticing and manually retyping a different code.
+ */
+export function forgetTenantCodeForEmail(email: string): void {
+  const storage = getSessionStorage();
+  if (!storage) return;
+  const key = normalizeEmail(email);
+  if (key === "") return;
+  const map = readTenantCodeByEmail();
+  if (!(key in map)) return;
+  delete map[key];
+  storage.setItem(TENANT_CODE_BY_EMAIL_STORAGE_KEY, JSON.stringify(map));
+}
+
 /**
  * Turns the authenticated {@link Session} into the exact headers the API's
  * permission gate reads (`headerAuthContextResolver` in

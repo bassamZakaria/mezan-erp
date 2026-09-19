@@ -17,7 +17,7 @@ import type {
   UpdateRetentionReleaseDTO,
 } from "@mezan/contracts";
 import { useApi } from "./ApiContext";
-import { ApiError } from "./hooks";
+import { ApiError, loaderError } from "./hooks";
 import { useAppTranslation } from "../i18n";
 
 /**
@@ -95,7 +95,7 @@ export function useContractingExceptionSummary(enabled = true): UseQueryResult<C
     enabled: session !== null && enabled,
     queryFn: async () => {
       const res = await request(`${REPORTS}/summary`);
-      if (!res.ok) throw new ApiError(res.status, t("contractingReports.loadFailed"));
+      if (!res.ok) throw await loaderError(res, t("contractingReports.loadFailed"), t);
       return res.json<ContractingExceptionSummaryDTO>();
     },
   });
@@ -110,7 +110,7 @@ export function useRetentionCalendar(asOfDate: string | null): UseQueryResult<Re
     queryFn: async () => {
       const search = asOfDate ? `?asOfDate=${encodeURIComponent(asOfDate)}` : "";
       const res = await request(`${RETENTION}/calendar${search}`);
-      if (!res.ok) throw new ApiError(res.status, t("retention.api.calendarFailed"));
+      if (!res.ok) throw await loaderError(res, t("retention.api.calendarFailed"), t);
       return res.json<RetentionCalendarDTO>();
     },
   });
@@ -125,7 +125,7 @@ export function useRetentionReleases(contractId?: string | null): UseQueryResult
     queryFn: async () => {
       const search = contractId ? `?contractId=${encodeURIComponent(contractId)}` : "";
       const res = await request(`${RETENTION}/releases${search}`);
-      if (!res.ok) throw new ApiError(res.status, t("retention.api.releasesFailed"));
+      if (!res.ok) throw await loaderError(res, t("retention.api.releasesFailed"), t);
       return res.json<RetentionReleaseDTO[]>();
     },
   });
@@ -139,7 +139,7 @@ export function useRetentionRelease(idOrDocNo: string | null): UseQueryResult<Re
     enabled: session !== null && idOrDocNo !== null,
     queryFn: async () => {
       const res = await request(`${RETENTION}/releases/${encodeURIComponent(idOrDocNo as string)}`);
-      if (!res.ok) throw new ApiError(res.status, t("retention.api.releaseFailed"));
+      if (!res.ok) throw await loaderError(res, t("retention.api.releaseFailed"), t);
       return res.json<RetentionReleaseDTO>();
     },
   });

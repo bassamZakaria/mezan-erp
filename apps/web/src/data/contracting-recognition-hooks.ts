@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import type { PostRecognitionRunDTO, RecognitionPreviewDTO, RecognitionRunDTO } from "@mezan/contracts";
 import { useApi } from "./ApiContext";
-import { ApiError } from "./hooks";
+import { ApiError, loaderError } from "./hooks";
 import { useAppTranslation } from "../i18n";
 
 /**
@@ -71,7 +71,7 @@ export function useRecognitionRuns(contractId: string | null): UseQueryResult<Re
     queryFn: async () => {
       const search = contractId ? `?contractId=${encodeURIComponent(contractId)}` : "";
       const res = await request(`${ROOT}/runs${search}`);
-      if (!res.ok) throw new ApiError(res.status, t("revenueRecognition.api.runsFailed"));
+      if (!res.ok) throw await loaderError(res, t("revenueRecognition.api.runsFailed"), t);
       return res.json<RecognitionRunDTO[]>();
     },
   });
@@ -86,7 +86,7 @@ export function useRecognitionRun(idOrDocNo: string | null): UseQueryResult<Reco
     enabled: session !== null && idOrDocNo !== null,
     queryFn: async () => {
       const res = await request(`${ROOT}/runs/${encodeURIComponent(idOrDocNo as string)}`);
-      if (!res.ok) throw new ApiError(res.status, t("revenueRecognition.api.runFailed"));
+      if (!res.ok) throw await loaderError(res, t("revenueRecognition.api.runFailed"), t);
       return res.json<RecognitionRunDTO>();
     },
   });

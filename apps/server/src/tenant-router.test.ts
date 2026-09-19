@@ -128,38 +128,42 @@ async function bootstrapAdmin(router: TenantRouter, code: string): Promise<strin
 
 describe("createTenantRouter", () => {
   describe("GET /platform/resolve", () => {
-    it("reports mode subdomain and the tenant when the host names it", async () => {
+    it("reports mode subdomain and exists true when the host names a live tenant — never its name", async () => {
       const platform = await seedPlatform();
       const { router } = newRouter(platform, { tenantDomain: "mezan.test" });
       const res = await router.app.fetch(new Request("http://ignored/platform/resolve", { headers: { host: "cyag.mezan.test" } }));
       expect(res.status).toBe(200);
-      expect(await res.json()).toEqual({ mode: "subdomain", tenant: { code: "cyag", nameAr: "سياج", nameEn: null } });
+      const body = await res.text();
+      expect(JSON.parse(body)).toEqual({ mode: "subdomain", exists: true });
+      expect(body).not.toContain("سياج");
     });
 
-    it("reports mode code and no tenant when the host does not name one and no header is sent", async () => {
+    it("reports mode code and exists false when the host does not name one and no header is sent", async () => {
       const platform = await seedPlatform();
       const { router } = newRouter(platform, { tenantDomain: "mezan.test" });
       const res = await router.app.fetch(new Request("http://ignored/platform/resolve", { headers: { host: "localhost" } }));
       expect(res.status).toBe(200);
-      expect(await res.json()).toEqual({ mode: "code", tenant: null });
+      expect(await res.json()).toEqual({ mode: "code", exists: false });
     });
 
-    it("reports the tenant named by the header", async () => {
+    it("reports exists true for the tenant named by the header — never its name", async () => {
       const platform = await seedPlatform();
       const { router } = newRouter(platform, { tenantDomain: "mezan.test" });
       const res = await router.app.fetch(
         new Request("http://ignored/platform/resolve", { headers: { host: "localhost", [TENANT_HEADER]: "nile" } }),
       );
       expect(res.status).toBe(200);
-      expect(await res.json()).toEqual({ mode: "code", tenant: { code: "nile", nameAr: "النيل", nameEn: null } });
+      const body = await res.text();
+      expect(JSON.parse(body)).toEqual({ mode: "code", exists: true });
+      expect(body).not.toContain("النيل");
     });
 
-    it.each(["new", "old"])("gives tenant null for %s (provisioning/archived) even though the code is valid", async (code) => {
+    it.each(["new", "old"])("gives exists false for %s (provisioning/archived) even though the code is valid", async (code) => {
       const platform = await seedPlatform();
       const { router } = newRouter(platform);
       const res = await router.app.fetch(new Request("http://ignored/platform/resolve", { headers: { [TENANT_HEADER]: code } }));
       expect(res.status).toBe(200);
-      expect(((await res.json()) as { tenant: unknown }).tenant).toBeNull();
+      expect(((await res.json()) as { exists: unknown }).exists).toBe(false);
     });
   });
 

@@ -356,29 +356,29 @@ export class BankReconciliationService {
    * is never offered again for the same line.
    */
   async autoMatch(statementId: string, opts: { actor?: string | null } = {}): Promise<{ matchedCount: number; suggestedCount: number }> {
-    const statement = await this.require(statementId);
-    this.assertNotFinalized(statement);
-    const lines = await this.deps.statements.listLines(statementId);
-    const taken = await this.deps.statements.matchedEntryIdsForAccount(statement.treasuryAccountId);
-    const candidates = (
-      await this.deps.ledgerReader.entriesForTreasuryAccount(
-        statement.treasuryAccountId,
-        shiftDays(statement.periodStart, -MANUAL_MATCH_SLACK_DAYS),
-        shiftDays(statement.periodEnd, MANUAL_MATCH_SLACK_DAYS),
-      )
-    ).filter((c) => !taken.has(c.entryId));
-    const previous = this.deps.suggestions ? await this.deps.suggestions.listByStatement(statementId) : [];
-    const rejected = new Set(
-      previous.filter((s) => s.status === SuggestionStatus.Rejected).map((s) => suggestionKey(s.lineId, s.entryIds)),
-    );
-    const built = buildSuggestions(lines, candidates, { excluded: rejected });
-    const byId = new Map(lines.map((l) => [l.id, l]));
-    const byEntry = new Map(candidates.map((c) => [c.entryId, c]));
-    const stamp = this.now();
-    let matchedCount = 0;
-    let suggestedCount = 0;
+    return this.deps.statements.transaction(async () => {
+      const statement = await this.require(statementId);
+      this.assertNotFinalized(statement);
+      const lines = await this.deps.statements.listLines(statementId);
+      const taken = await this.deps.statements.matchedEntryIdsForAccount(statement.treasuryAccountId);
+      const candidates = (
+        await this.deps.ledgerReader.entriesForTreasuryAccount(
+          statement.treasuryAccountId,
+          shiftDays(statement.periodStart, -MANUAL_MATCH_SLACK_DAYS),
+          shiftDays(statement.periodEnd, MANUAL_MATCH_SLACK_DAYS),
+        )
+      ).filter((c) => !taken.has(c.entryId));
+      const previous = this.deps.suggestions ? await this.deps.suggestions.listByStatement(statementId) : [];
+      const rejected = new Set(
+        previous.filter((s) => s.status === SuggestionStatus.Rejected).map((s) => suggestionKey(s.lineId, s.entryIds)),
+      );
+      const built = buildSuggestions(lines, candidates, { excluded: rejected });
+      const byId = new Map(lines.map((l) => [l.id, l]));
+      const byEntry = new Map(candidates.map((c) => [c.entryId, c]));
+      const stamp = this.now();
+      let matchedCount = 0;
+      let suggestedCount = 0;
 
-    await this.deps.statements.transaction(async () => {
       await this.deps.suggestions?.deletePending(statementId);
       const records: MatchSuggestionRecord[] = [];
       const applied = new Set<string>();
@@ -400,8 +400,8 @@ export class BankReconciliationService {
       if (matchedCount > 0 && statement.status === "imported") {
         await this.deps.statements.update({ ...statement, status: "in_progress" });
       }
+      return { matchedCount, suggestedCount };
     });
-    return { matchedCount, suggestedCount };
   }
 
   private toRecord(
@@ -448,24 +448,24 @@ export class BankReconciliationService {
     source: MatchSource = MatchSource.Manual,
     acceptedSuggestion?: { readonly id: string; readonly actor: string | null },
   ): Promise<StatementLine> {
-    const statement = await this.require(statementId);
-    this.assertNotFinalized(statement);
-    const line = await this.requireLineOf(statementId, lineId);
-    if (line.status === "matched") throw new LineAlreadyMatchedError(lineId);
     const unique = [...new Set(entryIds.map((id) => id.trim()).filter((id) => id !== ""))];
     if (unique.length === 0) throw new NoEntriesSelectedError(lineId);
-
-    const entries = await this.entriesOnAccount(statement, unique);
-    for (const id of unique) if (!entries.has(id)) throw new EntryNotOnTreasuryAccountError(id);
-    const taken = await this.deps.statements.matchedEntryIdsForAccount(statement.treasuryAccountId);
-    for (const id of unique) if (taken.has(id)) throw new EntryAlreadyMatchedError(id);
-    const total = Money.sum(unique.map((id) => entries.get(id)!.amount));
-    if (!total.equals(line.amount)) {
-      throw new MatchAmountMismatchError(lineId, displayAmount(line.amount), displayAmount(total));
-    }
-
-    const stamp = this.now();
     return this.deps.statements.transaction(async () => {
+      const statement = await this.require(statementId);
+      this.assertNotFinalized(statement);
+      const line = await this.requireLineOf(statementId, lineId);
+      if (line.status === "matched") throw new LineAlreadyMatchedError(lineId);
+
+      const entries = await this.entriesOnAccount(statement, unique);
+      for (const id of unique) if (!entries.has(id)) throw new EntryNotOnTreasuryAccountError(id);
+      const taken = await this.deps.statements.matchedEntryIdsForAccount(statement.treasuryAccountId);
+      for (const id of unique) if (taken.has(id)) throw new EntryAlreadyMatchedError(id);
+      const total = Money.sum(unique.map((id) => entries.get(id)!.amount));
+      if (!total.equals(line.amount)) {
+        throw new MatchAmountMismatchError(lineId, displayAmount(line.amount), displayAmount(total));
+      }
+
+      const stamp = this.now();
       const updated = await this.writeMatch(statement, line, unique, source, stamp);
       if (acceptedSuggestion && this.deps.suggestions) {
         const record = await this.deps.suggestions.findById(acceptedSuggestion.id);

@@ -94,7 +94,7 @@ export function AttendanceScreen() {
 
   const { from, to } = useMemo(() => monthBounds(month), [month]);
   const employeesQuery = useEmployees();
-  const employees = employeesQuery.data ?? [];
+  const employees = useMemo(() => employeesQuery.data ?? [], [employeesQuery.data]);
   const query = useAttendance({ employeeId: employeeId || null, from, to, status: status || null });
   const summaryQuery = useAttendanceSummary(employeeId || null, from, to);
   const recordAttendance = useRecordAttendance();

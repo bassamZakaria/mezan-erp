@@ -1,7 +1,8 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
+import { applyNavFragments, type NavFragment, type NavGroupSpec } from "../../apps/web/src/fragments";
 
 export interface ScreenEntry {
   readonly key: string;
@@ -77,8 +78,29 @@ function bareKeys(source: ts.SourceFile): string[] {
   return keys;
 }
 
+function sourcesUnder(dir: string): string[] {
+  const full = path.join(WEB_SRC, dir);
+  let entries: string[];
+  try {
+    entries = readdirSync(full).sort();
+  } catch {
+    return [];
+  }
+  return entries.flatMap((entry) => {
+    const rel = path.join(dir, entry);
+    if (statSync(path.join(WEB_SRC, rel)).isDirectory()) return sourcesUnder(rel);
+    return /\.tsx?$/.test(entry) && !/\.test\.tsx?$/.test(entry) ? [rel] : [];
+  });
+}
+
+// The POS and enhancement lanes register nav, screens and labels in fragment files (apps/web/src/fragments.ts).
+const NAV_FRAGMENT_FILES = [...sourcesUnder("screens/pos/nav"), ...sourcesUnder("screens/enh/nav")].filter(
+  (file) => path.basename(file, path.extname(file)) !== "index",
+);
+const LABEL_SOURCES = ["i18n/catalog.ts", ...sourcesUnder("screens/pos"), ...sourcesUnder("screens/enh")];
+
 function arabicLabels(kind: "item" | "group"): Map<string, string> {
-  const catalog = readFileSync(path.join(WEB_SRC, "i18n/catalog.ts"), "utf8");
+  const catalog = LABEL_SOURCES.map((file) => readFileSync(path.join(WEB_SRC, file), "utf8")).join("\n");
   const labels = new Map<string, string>();
   for (const m of catalog.matchAll(new RegExp(`"nav\\.${kind}\\.([a-z0-9-]+)":\\s*"([^"]*)"`, "g"))) {
     if (!labels.has(m[1]!)) labels.set(m[1]!, m[2]!);
@@ -86,19 +108,18 @@ function arabicLabels(kind: "item" | "group"): Map<string, string> {
   return labels;
 }
 
-interface NavGroupSpecLiteral {
-  key: string;
-  itemKeys: string[];
-  sections?: { key: string; itemKeys: string[] }[];
-}
 
 // Must stay in step with apps/web/src/routing.ts, which builds the real route table the same way.
 export function loadScreenCatalog(): ScreenEntry[] {
-  const groups = literal(findVariable(parse("nav-config.tsx"), "navGroupSpecs")) as NavGroupSpecLiteral[];
+  const fragments = NAV_FRAGMENT_FILES.map((file) => literal(findVariable(parse(file), "navFragment")) as NavFragment);
+  const groups = applyNavFragments(literal(findVariable(parse("nav-config.tsx"), "coreNavGroupSpecs")) as NavGroupSpec[], fragments);
   const routing = parse("routing.ts");
   const unlisted = literal(findVariable(routing, "UNLISTED_SCREEN_GROUP")) as Record<string, string>;
   const bare = bareKeys(routing);
-  const routedKeys = new Set(objectKeys(findVariable(parse("router/screens.ts"), "SCREEN_MODULES")));
+  const routedKeys = new Set([
+    ...objectKeys(findVariable(parse("router/screens.ts"), "SCREEN_MODULES")),
+    ...NAV_FRAGMENT_FILES.flatMap((file) => objectKeys(findVariable(parse(file), "screens"))),
+  ]);
   for (const k of ["users", "roles", "role-editor"]) routedKeys.add(k);
   const labels = arabicLabels("item");
   const groupLabels = arabicLabels("group");

@@ -364,3 +364,6 @@ export {
   type DocumentVersionRow,
   type DocumentVersionStore,
 } from "./document-version.js";
+
+export * from "./pos/index.js";
+export * from "./enh/index.js";

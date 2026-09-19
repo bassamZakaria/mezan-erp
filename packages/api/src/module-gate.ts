@@ -1,5 +1,7 @@
 import type { Context, MiddlewareHandler } from "hono";
 import { hasModule, MODULES, type Entitlements } from "@mezan/domain";
+import { POS_MODULE_ROUTES } from "./pos/route-prefixes.js";
+import { ENH_MODULE_ROUTES } from "./enh/route-prefixes.js";
 
 declare module "hono" {
   interface ContextVariableMap {
@@ -21,7 +23,7 @@ export type EntitlementsResolver = (
 ) => Entitlements | null | undefined | Promise<Entitlements | null | undefined>;
 
 /** Arabic name of each licensable module, so a refusal names what was bought. */
-const MODULE_NAME_AR: Readonly<Record<string, string>> = {
+const CORE_MODULE_NAME_AR: Readonly<Record<string, string>> = {
   sales: "المبيعات",
   purchases: "المشتريات",
   inventory: "المخازن",
@@ -38,6 +40,12 @@ const MODULE_NAME_AR: Readonly<Record<string, string>> = {
   notifications: "التنبيهات",
 };
 
+const MODULE_NAME_AR: Readonly<Record<string, string>> = {
+  ...CORE_MODULE_NAME_AR,
+  ...POS_MODULE_ROUTES.namesAr,
+  ...ENH_MODULE_ROUTES.namesAr,
+};
+
 /**
  * Which mounted route prefix belongs to which licensable module.
  *
@@ -47,7 +55,7 @@ const MODULE_NAME_AR: Readonly<Record<string, string>> = {
  * and out of the screen that explains why. Ids are ENTITLEMENT ids
  * (packages/domain/src/permissions/module-licensing.ts).
  */
-export const MODULE_ROUTE_PREFIXES: ReadonlyArray<readonly [string, string]> = [
+const CORE_MODULE_ROUTE_PREFIXES: ReadonlyArray<readonly [string, string]> = [
   ["/sales-invoices", "sales"],
   ["/sales-quotes", "sales"],
   ["/sales-returns", "sales"],
@@ -94,6 +102,12 @@ export const MODULE_ROUTE_PREFIXES: ReadonlyArray<readonly [string, string]> = [
   ["/projects", "projects"],
   ["/notifications", "notifications"],
   ["/notification-rules", "notifications"],
+];
+
+export const MODULE_ROUTE_PREFIXES: ReadonlyArray<readonly [string, string]> = [
+  ...CORE_MODULE_ROUTE_PREFIXES,
+  ...POS_MODULE_ROUTES.prefixes,
+  ...ENH_MODULE_ROUTES.prefixes,
 ];
 
 /**

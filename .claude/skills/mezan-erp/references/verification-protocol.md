@@ -1,13 +1,13 @@
 # Verification protocol
 
-Automated business-logic tests are **disabled by decision** (`docs/TESTING.md §1`):
-do not write, repair or run test files; `pnpm test` and `pnpm test:e2e` are stubs that
-print the policy. The reason is measured — a live click-through found five user-facing
-defects that 2,080 passing unit tests missed, because each test asserted its own
-component's contract rather than anything a user can do. The accepted risk is that the
-49 domain modules (GL balancing, WAC, landed cost, period gates, permission
-resolution) are unguarded against regression; if you change that arithmetic, prove it
-by driving documents through the running app and reading the resulting balances.
+The 2026-08-23 ban on automated tests was **reversed on 2026-08-30** (`docs/TESTING.md
+§1`): the unit suite, the scenarios and the e2e specs run again, locally, in addition
+to live verification — never instead of it. During a build phase the owner's rule is
+**features first, tests after**: a lane may land on `pnpm typecheck && pnpm lint` and
+must list the tests it owes. The lesson behind the old ban still stands — a live
+click-through found five user-facing defects that 2,080 passing unit tests missed,
+because each test asserted its own component's contract rather than anything a user
+can do — so a test that only restates a prop proves nothing; test the user path.
 
 ## Always-on gates
 

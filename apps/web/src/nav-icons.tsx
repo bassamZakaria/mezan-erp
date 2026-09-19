@@ -127,8 +127,12 @@ import {
   Wrench,
   type LucideIcon,
 } from "lucide-react";
+import { POS_WEB_FRAGMENTS } from "./screens/pos/nav";
+import { ENH_WEB_FRAGMENTS } from "./screens/enh/nav";
 
-const navItemIcons: Readonly<Record<string, LucideIcon>> = {
+const ICON_FRAGMENTS = [...POS_WEB_FRAGMENTS, ...ENH_WEB_FRAGMENTS].map((f) => f.icons);
+
+const coreNavItemIcons: Readonly<Record<string, LucideIcon>> = {
   dashboard: LayoutDashboard,
 
   notifications: Inbox,
@@ -295,7 +299,7 @@ const navItemIcons: Readonly<Record<string, LucideIcon>> = {
   status: Activity,
 };
 
-const navGroupIcons: Readonly<Record<string, LucideIcon>> = {
+const coreNavGroupIcons: Readonly<Record<string, LucideIcon>> = {
   workflow: Workflow,
   sell: Store,
   buy: ShoppingCart,
@@ -322,6 +326,18 @@ const navGroupIcons: Readonly<Record<string, LucideIcon>> = {
   settings: Settings,
   system: Activity,
 };
+
+const navItemIcons: Readonly<Record<string, LucideIcon>> = Object.assign(
+  {},
+  coreNavItemIcons,
+  ...ICON_FRAGMENTS.map((f) => f.items ?? {}),
+);
+
+const navGroupIcons: Readonly<Record<string, LucideIcon>> = Object.assign(
+  {},
+  coreNavGroupIcons,
+  ...ICON_FRAGMENTS.map((f) => f.groups ?? {}),
+);
 
 /**
  * Icons whose meaning POINTS, and therefore have to flip under RTL (§8.8).

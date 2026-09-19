@@ -26,6 +26,10 @@
  * against the counts the catalog documents.
  */
 
+import type { PermissionRow } from "./fragment.js";
+import { POS_PERMISSION_MODULES, POS_PERMISSION_ROWS } from "../pos/permissions.js";
+import { ENH_PERMISSION_MODULES, ENH_PERMISSION_ROWS } from "../enh/permissions.js";
+
 /** The three-tier visibility model: own records / all-in-branch / all-cross-branch. */
 export type VisibilityTier = "view" | "view_own" | "view_all";
 
@@ -53,7 +57,7 @@ export interface ModuleDef {
 /** Bump when the catalog shape or contents change in a breaking way. */
 export const CATALOG_VERSION = 3 as const;
 
-export const MODULES: readonly ModuleDef[] = [
+const CORE_MODULES: readonly ModuleDef[] = [
   { id: "sales", labelAr: "المبيعات", count: 28 },
   { id: "purchases", labelAr: "المشتريات", count: 31 },
   { id: "inventory", labelAr: "المخزون", count: 20 },
@@ -86,7 +90,7 @@ export const MODULES: readonly ModuleDef[] = [
  *   flags   — "s" sensitive, "p" platform-admin-only, "sp" both.
  * Expanded into `PermissionDef` below. Grouped by module, in matrix order.
  */
-type Row = readonly [code: string, deps?: string, flags?: "s" | "p" | "sp"];
+type Row = PermissionRow;
 
 const ROWS: readonly Row[] = [
   // 1. sales — 27
@@ -409,7 +413,18 @@ function expand(row: Row): PermissionDef {
   };
 }
 
-export const PERMISSIONS: readonly PermissionDef[] = ROWS.map(expand);
+const FRAGMENT_ROWS: readonly Row[] = [...POS_PERMISSION_ROWS, ...ENH_PERMISSION_ROWS];
+
+function fragmentRowCount(moduleId: string): number {
+  return FRAGMENT_ROWS.filter((row) => expand(row).module === moduleId).length;
+}
+
+export const MODULES: readonly ModuleDef[] = [
+  ...CORE_MODULES.map((m) => ({ ...m, count: m.count + fragmentRowCount(m.id) })),
+  ...[...POS_PERMISSION_MODULES, ...ENH_PERMISSION_MODULES].map((m) => ({ ...m, count: fragmentRowCount(m.id) })),
+];
+
+export const PERMISSIONS: readonly PermissionDef[] = [...ROWS, ...FRAGMENT_ROWS].map(expand);
 
 const BY_CODE: ReadonlyMap<string, PermissionDef> = new Map(
   PERMISSIONS.map((p) => [p.code, p]),

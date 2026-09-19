@@ -1,5 +1,7 @@
 import type { App } from "@mezan/api";
 import { step } from "./shared.js";
+import type { SeedPerson } from "./fragments.js";
+import { FRAGMENT_PEOPLE, FRAGMENT_ROLES, fragmentGrantsFor } from "./fragment-registry.js";
 
 /**
  * Seed profile module — see `./shared.ts`. Local and test environments only.
@@ -37,7 +39,8 @@ const VAN_WAREHOUSE_ID = "WH-DEMO-VAN";
  * `saveRole` rejects an unknown code (`UNKNOWN_PERMISSION`) and one whose
  * module the tenant is not licensed for (`UNLICENSED_PERMISSION`), so a typo
  * below fails the seed rather than quietly producing a role that cannot do its
- * job. `pos.*` is the one module this tenant does not hold.
+ * job. POS roles and grants come from the POS seed fragments
+ * (`demo-seed/pos-*.ts`), folded in below.
  *
  * SUPERVISOR and FINANCE_MANAGER are not decoration: `platform.ts` configures
  * the approval chains for SALES_INVOICE_CONFIRM and PURCHASE_INVOICE_CONFIRM
@@ -516,18 +519,7 @@ const ROLES = [
  * real `/hr/employees` record, which is what gives that person an HR file,
  * their own leave queue and a name on the commission report.
  */
-interface Person {
-  readonly nameAr: string;
-  readonly nameEn: string;
-  /** Local part of the login email, and the suffix of the demo password. */
-  readonly local: string;
-  /** Role code from ROLES above, or null for a company admin. */
-  readonly role: string | null;
-  readonly status: "active" | "inactive";
-  readonly branchScope?: readonly string[];
-  readonly warehouseScope?: readonly string[];
-  readonly employeeId?: string;
-}
+type Person = SeedPerson;
 
 const PEOPLE: readonly Person[] = [
   { nameAr: "منى عبد الرحمن", nameEn: "Mona Abdelrahman", local: "mona.abdelrahman", role: "ACCOUNTANT", status: "active" },
@@ -595,18 +587,18 @@ export async function seedAccess(app: App): Promise<void> {
 
   // --- الأدوار ---
   const roleIdByCode = new Map<string, string>();
-  for (const role of ROLES) {
+  for (const role of [...ROLES, ...FRAGMENT_ROLES]) {
     const created = (await step(app, "POST", "/roles", {
       code: role.code,
       name: role.name,
       description: role.description,
-      permissions: [...role.permissions],
+      permissions: [...new Set([...role.permissions, ...fragmentGrantsFor(role.code)])],
     })) as SeededRole;
     roleIdByCode.set(role.code, created.id);
   }
 
   // --- المستخدمون ---
-  for (const person of PEOPLE) {
+  for (const person of [...PEOPLE, ...FRAGMENT_PEOPLE]) {
     // Exactly one of roleId / isCompanyAdmin, which is what the wire schema
     // refines on. All but one person here holds a ROLE: an admin bypasses the
     // permission matrix entirely, so a tenant where everyone is one proves

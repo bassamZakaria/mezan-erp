@@ -29,6 +29,9 @@ import { run as salesParity } from "./scenarios/sales-parity.js";
 import { run as itemsForms } from "./scenarios/items-forms.js";
 import { run as security } from "./scenarios/security.js";
 import { run as securityUnits } from "./scenarios/security-units.js";
+import { POS_SCENARIOS } from "./scenarios/pos.js";
+import { ENH_SCENARIOS } from "./scenarios/enh.js";
+import type { Ctx } from "./scenarios/harness.js";
 
 /**
  * `pnpm scenarios` — the executable half of docs/TESTING.md §2 Phase 3.
@@ -64,13 +67,21 @@ if (!only.size || only.has("reports")) {
   console.log(` ${ctx.passes.length + ctx.failures.length - before} assertions`);
 }
 
-for (const [name, fn] of [
+const fragmentSuites = [...POS_SCENARIOS, ...ENH_SCENARIOS].flatMap(([name, scenario]) =>
+  scenario.run ? [[name, scenario.run] as const] : [],
+);
+
+const suites: readonly (readonly [string, (ctx: Ctx) => Promise<unknown>])[] = [
   ["security-units", securityUnits], ["security", security], ["shell", shell], ["items-forms", itemsForms], ["accounting", accounting], ["crm", crm], ["platform", platform], ["eta", eta],
   ["hr", hr], ["inventory", inventory], ["purchases", purchases], ["sales", sales], ["reports", reports],
   ["sales-parity", salesParity],
+  ...fragmentSuites,
   ["cross-module", crossModule], ["seams", seams],
-] as const) {
-  if (only.size && !only.has(name)) continue;
+];
+
+for (const [name, fn] of suites) {
+  const family = name.startsWith("pos-") ? "pos" : name.startsWith("enh-") ? "enh" : null;
+  if (only.size && !only.has(name) && !(family && only.has(family))) continue;
   process.stdout.write(`  ${name}…`);
   const before = ctx.passes.length + ctx.failures.length;
   await fn(ctx);

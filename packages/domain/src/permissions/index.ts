@@ -16,6 +16,8 @@ export {
   type VisibilityTier,
 } from "./catalog.js";
 
+export type { PermissionFragment, PermissionModuleFragment, PermissionRow } from "./fragment.js";
+
 export { resolvePermissions, dependenciesOf } from "./resolve.js";
 
 export {

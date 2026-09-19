@@ -171,7 +171,7 @@ describe("attachments router — create validation (domain errors)", () => {
     expect(res.status).toBe(422);
     const body = (await json(res)) as { error: string; reasons: string[] };
     expect(body.error).toBe("INVALID_ATTACHMENT");
-    expect(body.reasons.some((r) => r.includes("byte limit"))).toBe(true);
+    expect(body.reasons.some((r) => r.includes("يتجاوز"))).toBe(true);
     expect(await repo.listAll()).toHaveLength(0);
   });
 

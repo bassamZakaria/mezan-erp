@@ -1,28 +1,46 @@
-import type { EtaSubmissionStatus } from "./submission.js";
+import { getEtaStatusLabel, type EtaSubmissionStatus } from "./submission.js";
+
+const ETA_ACTION_AR: Readonly<Record<string, string>> = {
+  submit: "إرسال",
+  refresh: "تحديث حالة",
+  accept: "قبول",
+  reject: "رفض",
+  exclude: "استبعاد",
+};
+
+function etaActionAr(action: string): string {
+  return ETA_ACTION_AR[action] ?? action;
+}
 
 export class EtaSubmissionNotFoundError extends Error {
   readonly code = "ETA_SUBMISSION_NOT_FOUND";
+  readonly messageEn: string;
   constructor(readonly id: string) {
-    super(`ETA submission "${id}" not found.`);
+    super(`تقديم الفاتورة الإلكترونية "${id}" غير موجود.`);
+    this.messageEn = `ETA submission "${id}" not found.`;
     this.name = "EtaSubmissionNotFoundError";
   }
 }
 
 export class DuplicateEtaSubmissionError extends Error {
   readonly code = "ETA_SUBMISSION_DUPLICATE";
+  readonly messageEn: string;
   constructor(readonly internalId: string) {
-    super(`ETA submission for document "${internalId}" already exists.`);
+    super(`يوجد بالفعل تقديم للفاتورة الإلكترونية للمستند "${internalId}".`);
+    this.messageEn = `ETA submission for document "${internalId}" already exists.`;
     this.name = "DuplicateEtaSubmissionError";
   }
 }
 
 export class InvalidEtaTransitionError extends Error {
   readonly code = "ETA_INVALID_TRANSITION";
+  readonly messageEn: string;
   constructor(
     readonly from: EtaSubmissionStatus,
     readonly action: string,
   ) {
-    super(`Cannot ${action} an ETA submission in status "${from}".`);
+    super(`لا يمكن ${etaActionAr(action)} تقديمًا للفاتورة الإلكترونية في حالة "${getEtaStatusLabel(from)}".`);
+    this.messageEn = `Cannot ${action} an ETA submission in status "${from}".`;
     this.name = "InvalidEtaTransitionError";
   }
 }
@@ -30,8 +48,10 @@ export class InvalidEtaTransitionError extends Error {
 /** The ONLINE transmit path is a stub in this build — it is refused offline. */
 export class EtaOfflineError extends Error {
   readonly code = "ETA_OFFLINE";
+  readonly messageEn: string;
   constructor() {
-    super("ETA transmission is online-only and is stubbed in this build; the document was queued.");
+    super("إرسال الفاتورة الإلكترونية يتطلب اتصالاً بالإنترنت وهو معطّل تجريبيًا في هذا الإصدار؛ تم وضع المستند في قائمة الانتظار.");
+    this.messageEn = "ETA transmission is online-only and is stubbed in this build; the document was queued.";
     this.name = "EtaOfflineError";
   }
 }
@@ -57,8 +77,10 @@ export class EtaDeviceSerialNotRegisteredError extends Error {
 
 export class EtaExclusionReasonRequiredError extends Error {
   readonly code = "ETA_EXCLUSION_REASON_REQUIRED";
+  readonly messageEn: string;
   constructor() {
-    super("Excluding a document from ETA submission requires a reason.");
+    super("استبعاد مستند من التقديم للفاتورة الإلكترونية يتطلب سببًا.");
+    this.messageEn = "Excluding a document from ETA submission requires a reason.";
     this.name = "EtaExclusionReasonRequiredError";
   }
 }

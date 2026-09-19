@@ -134,13 +134,21 @@ function serializeSubmission(s: EtaSubmission, opts: { payload?: boolean } = {})
 }
 
 function handleError(c: Context, err: unknown): Response {
-  if (err instanceof EtaSubmissionNotFoundError) return c.json({ error: err.code, message: err.message }, 404);
-  if (err instanceof DuplicateEtaSubmissionError) return c.json({ error: err.code, message: err.message }, 409);
-  if (err instanceof InvalidEtaTransitionError) return c.json({ error: err.code, message: err.message }, 422);
-  if (err instanceof EtaExclusionReasonRequiredError) return c.json({ error: err.code, message: err.message }, 400);
+  if (err instanceof EtaSubmissionNotFoundError) {
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 404);
+  }
+  if (err instanceof DuplicateEtaSubmissionError) {
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
+  }
+  if (err instanceof InvalidEtaTransitionError) {
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 422);
+  }
+  if (err instanceof EtaExclusionReasonRequiredError) {
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 400);
+  }
   // Not configured for the network yet: the document stays queued, which is a
   // state, not a failure.
-  if (err instanceof EtaOfflineError) return c.json({ error: err.code, message: err.message }, 202);
+  if (err instanceof EtaOfflineError) return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 202);
   if (err instanceof EtaSignerNotConfiguredError) return c.json({ error: err.code, message: err.message }, 422);
   if (err instanceof EtaSigningFailedError) return c.json({ error: err.code, message: err.message }, 422);
   // No UUID service means no receipt can be issued at all — a configuration

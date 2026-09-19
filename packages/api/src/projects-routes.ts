@@ -45,12 +45,17 @@ function serialize(project: Project) {
   };
 }
 
+function withMessageEn(err: { readonly code: string; readonly message: string }) {
+  const messageEn = (err as { readonly messageEn?: string }).messageEn;
+  return { error: err.code, message: err.message, ...(messageEn ? { messageEn } : {}) };
+}
+
 function handleDomainError(c: Context, err: unknown) {
   if (err instanceof ProjectNotFoundError) {
-    return c.json({ error: err.code, message: err.message }, 404);
+    return c.json(withMessageEn(err), 404);
   }
   if (err instanceof DuplicateProjectCodeError || err instanceof DuplicateCostCenterCodeError) {
-    return c.json({ error: err.code, message: err.message }, 409);
+    return c.json(withMessageEn(err), 409);
   }
   if (err instanceof InvalidProjectError) {
     return c.json({ error: err.code, message: err.message, reasons: err.reasons }, 422);

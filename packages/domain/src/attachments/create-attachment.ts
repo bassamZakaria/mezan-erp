@@ -36,12 +36,12 @@ export function sanitizeAttachmentFileName(raw: string): string {
 
 export function collectAttachmentErrors(command: CreateAttachmentCommand): string[] {
   const reasons: string[] = [];
-  if (!isAttachmentEntityType(command.entityType)) reasons.push(`unknown entityType '${command.entityType}'`);
-  if (!command.entityId.trim()) reasons.push("entityId is required");
-  if (!sanitizeAttachmentFileName(command.fileName)) reasons.push("fileName is required");
-  if (command.bytes.byteLength === 0) reasons.push("an empty file cannot be attached");
+  if (!isAttachmentEntityType(command.entityType)) reasons.push(`نوع الكيان غير معروف '${command.entityType}'`);
+  if (!command.entityId.trim()) reasons.push("معرّف الكيان مطلوب");
+  if (!sanitizeAttachmentFileName(command.fileName)) reasons.push("اسم الملف مطلوب");
+  if (command.bytes.byteLength === 0) reasons.push("لا يمكن إرفاق ملف فارغ");
   if (command.bytes.byteLength > ATTACHMENT_MAX_BYTES) {
-    reasons.push(`file is ${command.bytes.byteLength} bytes, over the ${ATTACHMENT_MAX_BYTES} byte limit`);
+    reasons.push(`حجم الملف ${command.bytes.byteLength} بايت، يتجاوز الحد الأقصى ${ATTACHMENT_MAX_BYTES} بايت`);
   }
   return reasons;
 }

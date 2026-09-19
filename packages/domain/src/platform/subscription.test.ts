@@ -107,7 +107,7 @@ describe("startSubscription", () => {
   it("accumulates every validation reason at once, rather than failing on the first", async () => {
     await expect(startSubscription({ ...base, addOnModules: ["pos"], extraSeats: -1 }, subs(), plans(plan())))
       .rejects.toMatchObject({ reasons: expect.arrayContaining([
-        expect.stringContaining("pos"), expect.stringContaining("extraSeats"),
+        expect.stringContaining("pos"), expect.stringContaining("المقاعد الإضافية"),
       ]) });
   });
 

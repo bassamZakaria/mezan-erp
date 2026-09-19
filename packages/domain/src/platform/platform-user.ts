@@ -40,12 +40,12 @@ export async function createPlatformUser(
   const email = normalizeEmail(cmd.email);
   const now = isoTimestamp(cmd.now);
   const reasons: string[] = [];
-  if (cmd.id.trim() === "") reasons.push("id is required");
-  if (email === "") reasons.push("email is required");
+  if (cmd.id.trim() === "") reasons.push("المعرّف مطلوب");
+  if (email === "") reasons.push("البريد الإلكتروني مطلوب");
   if (cmd.password.length < MIN_PLATFORM_PASSWORD_LENGTH) {
-    reasons.push(`password must be at least ${MIN_PLATFORM_PASSWORD_LENGTH} characters`);
+    reasons.push(`كلمة المرور يجب ألا تقل عن ${MIN_PLATFORM_PASSWORD_LENGTH} حرفًا`);
   }
-  if (!now) reasons.push("now must be an ISO-8601 timestamp");
+  if (!now) reasons.push("الطابع الزمني الحالي غير صالح (يجب أن يكون بصيغة ISO-8601)");
   if (!now || reasons.length > 0) throw new InvalidPlatformUserError(reasons);
   if (await repo.findByEmail(email)) throw new PlatformUserEmailTakenError(email);
   const user: PlatformUser = {

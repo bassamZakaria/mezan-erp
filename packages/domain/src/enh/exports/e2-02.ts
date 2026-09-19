@@ -1,1 +1,2 @@
-export {};
+export * from "../../recurring-journals/index.js";
+

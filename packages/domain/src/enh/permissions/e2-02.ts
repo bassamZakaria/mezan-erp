@@ -1,3 +1,9 @@
 import type { PermissionFragment } from "../../permissions/fragment.js";
 
-export const fragment: PermissionFragment = { rows: [] };
+/** ENH-E2-02 recurring journals — a lane on the existing accounting module, so no new module fragment. */
+export const fragment: PermissionFragment = {
+  rows: [
+    ["accounting.recurring.view", "accounting.journal.view"],
+    ["accounting.recurring.manage", "accounting.recurring.view,accounting.journal.create"],
+  ],
+};

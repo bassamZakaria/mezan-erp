@@ -45,7 +45,7 @@ competitor study (§8), and the deferred HR/POS/Cloud build plans (§9).
 |---|---|
 | **Parity (§2.2, P0–P6)** | Complete but for one cluster — row menus on 17 read-only surfaces, which is a question rather than a backlog item |
 | **Open now (§3)** | **Nothing.** Row menus answered (no), contracting complete, outbound notification delivery landed 2026-09-14 |
-| **Deferred by decision (§4)** | **Un-deferred 2026-09-19 (DEC-23)** — POS, HR depth, the cloud extras and all 27 §7 enhancements are being built, in waves, per `superpowers/plans/2026-09-19-deferred-build-pos-hr-cloud.md` and `2026-09-19-enhancements-e1-e3.md`; the combined schedule is §4.5. Statutory payroll figures stay «غير مُتحقَّق منه» until a محاسب قانوني signs them (DEC-12) |
+| **Deferred by decision (§4)** | **POS deferred again (DEC-29); the rest un-deferred 2026-09-19 (DEC-23)** — HR depth, the cloud extras and all 27 §7 enhancements are being built, in waves, per `superpowers/plans/2026-09-19-deferred-build-pos-hr-cloud.md` and `2026-09-19-enhancements-e1-e3.md`; the combined schedule is §4.5. Statutory payroll figures stay «غير مُتحقَّق منه» until a محاسب قانوني signs them (DEC-12) |
 | **Defects (§5)** | **2 open** of the 181 filed (D66–D230, D240–D242, D260, D265, D270, D275, D280–D288) — D286, the customer and supplier drill-downs answering a different figure from the report row they open from, and D288, routes and contracting services that still default "today" to the UTC day. D186–D189 (HR, 14/2025), D280 (bilingual domain errors), D281 (drill-down bounded like the trial balance), D282–D284 (the e-receipt path), D285 and D287 (Cairo-day dating) are fixed. |
 | **Desktop audit (2026-09-07)** | The thirty-two findings of the full desktop audit (`artifacts/audit-2026-09-07.md`, filed as D145–D176 on that branch; its first four are renumbered D177–D180 because main had already used D145–D148 — see §6.4 D-D) came in with PR #55: licence, update, LAN, books, performance and security. All fixed on that branch, including Q-1, which moved the desktop backend off the Electron main process into a `utilityProcess` |
 | **Compliance (§5.4)** | The B2C e-receipt, the e-seal seam and نموذج 41 landed 2026-09-07 — but nothing *called* the receipt path until DEC-9 wired the producer on 2026-09-14. Law 6/2025's simplified regime is built and deliberately unclaimed (DEC-13) |
@@ -649,37 +649,33 @@ they still need a live-browser pass before this slice is called proven.
 ---
 
 
-## 4.5 The deferred build — combined schedule (DEC-23, 2026-09-19)
+## 4.5 The deferred build — schedule without POS (DEC-23, revised by DEC-29, 2026-09-19)
 
-Two plans, one queue. At most five agents run at once; lanes in one wave never edit the same file.
-The seams lane (1A) is the only one that touches the shared registries (`create-backend.ts`,
-`nav-config.tsx`, `router/screens.ts`, the permission and i18n catalogs, `run-scenarios.ts`,
-`smoke.ts`, `screen-catalog.ts`) — it gives every later POS and enhancement lane its own fragment file.
+**POS is deferred again (DEC-29).** What is already on `main` stays: the seams, POS master data
+(terminals, payment methods, POS settings — licensable, in no seeded plan, so no tenant sees it), and
+shift templates, which HR uses. The session, sale and print lanes stopped mid-build and their work is
+parked on `feat/pos-sessions`, `feat/pos-sales` and `feat/pos-print`, unmerged. The four POS-dependent
+enhancements (E2-05, E2-06, E2-07, E3-05) are deferred with it.
+
+At most five agents run at once; lanes in one wave never edit the same file. Features first, tests
+after (`docs/TEST-DEBT.md`); the test pass closes the build.
 
 | Wave | Lanes |
 |---|---|
-| 0 | D281/D280 · 0B HR D186–D189 · 0C SaaS follow-ups · 0D e-receipt path D282–D284 |
-| 1 | 1A seams + POS master data + `/settings/shifts` · 1B hourly/daily and FX pay · 1C card checkout (Paymob, sandbox) · 1D attendance grid + device import |
-| 2 | POS 2A shifts/cash drawer (E2-05's till, E3-05) · 2B sale posting + receipts · 2C thermal print · 2D HR self-service |
-| 3 | ENH E1-05 audit ledger · E1-06 backup drills + portable import · E1-02 cash runway · E1-03 bank reconciliation |
-| 4 | POS 3A selling screen (E2-05, E2-07) · 3B refunds · 3C in-till discount approval (E2-06) · 3D self-serve signup |
-| 5 | ENH E1-01 cockpit · E2-02 recurring journals · E2-01 ETA pre-validation · E2-10 segregation of duties |
-| 6 | POS 4A offline till · 4B POS reports/hub · 4C tables/reservations · 4D HR pages, accrual, bank file |
-| 7 | ENH E1-04 guided close · E2-08 price floor · E2-04 expiry/FEFO · E2-09 AR dunning |
-| 8 | POS 5A kitchen display · 5B deliveries/loyalty · 5C hardware + two-machine proof · 5D cloud backup export |
-| 9 | ENH E2-03 scanner count · E2-11 provisioning · E3-03 reorder · E3-04 van reconciliation |
-| 10 | ENH E3-06 CRM pipeline · E3-08 evidence pack · E3-02 digest · 6A cookie sessions |
-| 11 | ENH E3-10 health console · E3-09 integration API (cloud, = 6B) · E3-01 glance · E3-07 funnel |
-| 12 | 6C S3/server PDF (only with a consumer) · 6D close-out: POS in plans, strings folded, PLT-SAAS + POS/HR live pass |
+| A | ENH E1-05 audit ledger · HR 1D attendance grid + device import · E1-06 backup drills + portable import · E1-02 cash runway · E1-03 bank reconciliation |
+| B | HR 2D self-service, clock-in, advance repayment · 3D self-serve signup · E1-01 owner cockpit · E2-02 recurring journals · E2-01 ETA pre-validation |
+| C | E2-10 segregation of duties · E1-04 guided close · E2-08 price floor · E2-04 expiry/FEFO · E2-09 AR dunning |
+| D | HR 4D employee/contract/run pages, scheduled accrual, payroll bank file · E2-03 scanner count · E2-11 provisioning · E3-03 reorder · E3-04 van reconciliation |
+| E | E3-06 CRM pipeline · E3-08 evidence pack · E3-02 owner digest · 6A cookie sessions (cloud) · 5D cloud backup export |
+| F | E3-10 health console · E3-09 integration API (cloud, DEC-27) · E3-01 glance · E3-07 funnel · open defects (D286, D288, `GET /tenant` name) |
+| G | Close-out: the test pass (`docs/TEST-DEBT.md`, `FULL=1`), PLT-SAAS-01..08 live, ROADMAP and TESTING updated |
 
-Every lane's done-definition: typecheck, lint, the related unit tests, scenarios with the four
-invariants exactly 0, smoke and check:seed, every-screen and the phone checks, and a read-only review
-by the personas the plan names. A wave merges only when its combined tree passes the full gates.
+Done so far: wave 0 (#90, #91, #93, #95), 1A seams + POS master data (#96), 1B hourly/daily/FX pay (#94),
+1C Paymob card checkout (#97).
 
-**Needs the owner** (the build proceeds against sandboxes and test doubles meanwhile): a Paymob
-merchant account; the AWS apply (domain, account, secrets); Render dashboard variables; SMTP
-credentials; an ETA pre-production POS device registration; test hardware (80 mm printer, cash
-drawer, scanner); an SMS/WhatsApp provider if wanted; a chartered accountant's sign-off (DEC-12).
+**Needs the owner** (the build proceeds against test doubles meanwhile): Paymob merchant keys; the AWS
+apply; Render dashboard variables; SMTP credentials; an SMS/WhatsApp provider if wanted; a chartered
+accountant's sign-off (DEC-12).
 
 ---
 
@@ -694,7 +690,7 @@ and each of them is a promise the buyer will hold us to.
 | **E-invoicing compliance** | **Do not claim it.** B2B invoices are prepared but never filed to production until the customer's own e-seal is connected through a signing agent that is not shipped. Say the sentence recorded in §6.4 DEC-10 — in writing, on the rollout sheet, before contract. Every such invoice shows «في انتظار الختم الإلكتروني» and is not filed. |
 | **E-receipt compliance** | **Claim it** — the B2C receipt regime requires no seal, and this is precisely what unblocks retail, pharmacy and restaurants. |
 | **Contracting as a Daftra gap** | **Do not.** Daftra ships مستخلصات المقاولات and خصم ضمان الأعمال. Contracting is a genuine strength of this build (§3.2) but it is not a hole in the incumbent, and a buyer who checks will find that out. |
-| **POS** | **Until POS wave 5 closes (§4.5), unchanged:** state the absence in the first sales conversation, not the fifth. After it closes, claim POS with e-receipts only once D284's receipt path has filed a real receipt in ETA pre-production. "Mezan runs the books, stock and branches behind your existing till; every consumer sale it records is an e-receipt." An unstated "no POS" becomes the most common refund request. |
+| **POS** | **Deferred again (DEC-29):** state the absence in the first sales conversation, not the fifth. "Mezan runs the books, stock and branches behind your existing till; every consumer sale it records is an e-receipt." An unstated "no POS" becomes the most common refund request. |
 | **An API / webhooks** | **Say "integrations arrive with the cloud edition."** The back end is being removed (DEC-17): on desktop the only network surface is the LAN socket, which allow-lists five routes, and nothing authenticates by API key. The comparison-grid row will read "API: no", and that is the accepted price. |
 | **Statutory payroll** | Employees, contracts, attendance, leave and advances are real and licensable. **Net pay is not computed.** Say both halves. |
 | **Law 6/2025 simplified regime** | **Built, not claimed** (DEC-13). Do not market it until a محاسب قانوني has signed off on the turnover base. A regime computation with the wrong base is the buyer's tax exposure. |
@@ -2238,6 +2234,15 @@ DEC-17 removed the desktop API; it stands for the desktop. ENH-E3-09 is built as
 signed webhooks. A guard test proves `createBackend` exposes none of it and the LAN allow-list is
 unchanged. **What others do:** Daftra (REST + Zapier), QuickBooks Online and Xero (REST + webhooks) — all
 cloud. §4.4's "API: no" row changes to "cloud edition: yes" when the lane ships, not before.
+
+#### DEC-29 — POS is deferred again; everything else is finished first
+
+The owner, 2026-09-19, mid-build: "defer POS and finalize everything else". DEC-23 stands for HR depth,
+the cloud extras and the 23 non-POS enhancements; POS and its four enhancements (E2-05, E2-06, E2-07,
+E3-05) return to deferred. What already landed stays — it is inert without the `pos` module, which no
+seeded plan grants — and the stopped lanes' branches are kept unmerged so the work can resume. §4.1's
+original deferral and §4.4's POS claim ("state the absence in the first sales conversation") apply again.
+**Reversal cost:** low — three parked branches rebase onto the seams they were built on.
 
 #### DEC-28 — Scheduled sending: opt-in in the cloud, operator-sent on the desktop
 

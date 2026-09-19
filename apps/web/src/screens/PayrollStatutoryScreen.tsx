@@ -326,7 +326,16 @@ export function PayrollStatutoryScreen() {
                 {t("statutory.nightPremium")}: <span className="mz-num font-semibold">{table.nightPremiumPercent}%</span>
               </li>
               <li>
-                {t("statutory.restDayPremium")}: <span className="mz-num font-semibold">{table.restDayPremiumPercent}%</span>
+                {t("statutory.restDayPremium")}: <span className="mz-num font-semibold">{table.restDayExtraDayWagePercent}%</span> {t("statutory.ofDayWage")}
+              </li>
+              <li>
+                {t("statutory.holidayPremium")}: <span className="mz-num font-semibold">{table.holidayExtraDayWagePercent}%</span> {t("statutory.ofDayWage")}
+              </li>
+              <li>
+                {t("statutory.replacementRestDayWithin")}: <span className="mz-num font-semibold">{table.restDayReplacementWithinDays}</span>
+              </li>
+              <li>
+                {t("statutory.holidaySubstituteDay")}: <span className="font-semibold">{t(table.holidaySubstituteDayAllowed ? "statutory.allowed" : "statutory.notAllowed")}</span>
               </li>
               <li>
                 {t("statutory.standardHours")}: <span className="mz-num font-semibold">{table.standardDailyHours}</span> /{" "}

@@ -1,4 +1,5 @@
 import type { Money } from "../money/index.js";
+import type { OvertimeTable } from "./egypt-statutory.js";
 
 /**
  * Payroll runs and payslips — docs/archive/catalog/06-crm-hr.md "الرواتب".
@@ -407,11 +408,39 @@ export function payrollDayDivisor(basis: PayrollDayDivisorBasis, periodDays: num
  * day count. Until an implementation is bound, `PayrollCalculationDeps.unpaidLeave`
  * is undefined and every run records `unpaidLeaveSource: "none"`.
  */
-/** Overtime hours worked in a period, split by the statutory premium each hour attracts. */
-export interface PeriodOvertimeHours {
+/** Overtime worked under ONE dated overtime table: hours at the day/night premiums, and whole rest days and holidays worked. */
+export interface OvertimeWorkedUnderTable {
+  readonly table: OvertimeTable;
   readonly day: number;
   readonly night: number;
-  readonly restDay: number;
+  readonly restDays: number;
+  readonly holidays: number;
+}
+
+/** A worked rest day, or a holiday taken as a day off, with no راحة بديلة recorded against it. */
+export interface OutstandingReplacementDay {
+  readonly workedOn: string;
+  readonly kind: "rest_day" | "holiday";
+  /** The last day the law allows for the replacement; null where it sets no deadline. */
+  readonly dueBy: string | null;
+}
+
+/**
+ * A period's overtime, grouped by the table in force on each day it was
+ * worked, so a period that straddles a change in the law prices each day by
+ * the law of its own date.
+ */
+export interface PeriodOvertimeHours {
+  readonly byTable: readonly OvertimeWorkedUnderTable[];
+  /** The employee's own standard day (employee → department → company), the divisor of the hourly rate. */
+  readonly standardDailyHours: number;
+  readonly overtimeEligible: boolean;
+  /** Approved hours beyond the standard day that were NOT paid because the employee is not eligible for overtime. */
+  readonly ineligibleHours: number;
+  readonly holidaysTakenAsDayOff: number;
+  /** Holidays whose worker asked for a day off where the day's law does not allow it; paid the premium instead. */
+  readonly substituteDayRefusedOn: readonly string[];
+  readonly outstandingReplacementDays: readonly OutstandingReplacementDay[];
 }
 
 /** The seam to attendance: payroll needs hours, attendance stores clock times. */

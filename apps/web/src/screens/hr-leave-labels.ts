@@ -47,6 +47,7 @@ export const ATTENDANCE_STATUS_KEY: Record<AttendanceStatusDTO, AppTranslationKe
   on_leave: "attendanceStatus.on_leave",
   holiday: "attendanceStatus.holiday",
   weekly_off: "attendanceStatus.weekly_off",
+  compensatory_off: "attendanceStatus.compensatory_off",
 };
 
 export const ATTENDANCE_STATUS_TONE: Record<AttendanceStatusDTO, PillTone> = {
@@ -57,6 +58,7 @@ export const ATTENDANCE_STATUS_TONE: Record<AttendanceStatusDTO, PillTone> = {
   on_leave: "info",
   holiday: "info",
   weekly_off: "neutral",
+  compensatory_off: "neutral",
 };
 
 export const ACCRUAL_FREQUENCY_KEY: Record<LeaveAccrualFrequencyDTO, AppTranslationKey> = {

@@ -8,6 +8,7 @@ import type {
   ReportKpiResult,
 } from "./types.js";
 import { sumRows } from "./kpi.js";
+import { Money } from "../money/index.js";
 
 /** Validates raw (untyped, e.g. straight off a form) params against a report's zod schema. */
 export function validateReportParams<TParams>(
@@ -103,10 +104,24 @@ export function computeReconciliation<TParams, Row, Ctx>(
   if (!definition.reconciliation) return null;
   const { labelAr, computeReportTotal, computeReferenceTotal, toleranceMoney = 0, available } = definition.reconciliation;
   if (available && !available(ctx)) return null;
+  const items = (definition.reconciliation.reconcilingItems?.(ctx, params) ?? []).filter((item) => item.amount !== 0);
+  const exact = definition.reconciliation.computeExactTotals?.(rows, ctx, params);
+  if (exact) {
+    const diff = exact.report.add(exact.reference.negate());
+    const tolerance = Money.fromMajor(String(toleranceMoney));
+    const absDiff = diff.scaled < 0n ? -diff.scaled : diff.scaled;
+    return {
+      labelAr,
+      reportTotal: Number(exact.report.toString()),
+      referenceTotal: Number(exact.reference.toString()),
+      diff: Number(diff.toString()),
+      withinTolerance: absDiff <= tolerance.scaled,
+      ...(items.length > 0 ? { reconcilingItems: items } : {}),
+    };
+  }
   const reportTotal = computeReportTotal(rows);
   const referenceTotal = computeReferenceTotal(rows, ctx, params);
   const diff = reportTotal - referenceTotal;
-  const items = (definition.reconciliation.reconcilingItems?.(ctx, params) ?? []).filter((item) => item.amount !== 0);
   return {
     labelAr,
     reportTotal,

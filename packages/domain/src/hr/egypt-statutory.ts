@@ -239,8 +239,23 @@ export interface OvertimeTable extends StatutoryProvenance {
   /** Premium ON TOP of the normal hourly rate: 3500 bp = paid at 135%. */
   readonly dayPremiumBp: BasisPoints;
   readonly nightPremiumBp: BasisPoints;
-  readonly restDayPremiumBp: BasisPoints;
-  /** Hours from this (inclusive) to `nightEndHour` (exclusive) count as night work. */
+  /**
+   * Extra pay for working the weekly rest day, in day's wages ON TOP of the
+   * rest day's own pay (already inside the monthly wage): 10000 bp = one more
+   * day's wage, «مثل أجره تعويضاً عن هذا اليوم».
+   */
+  readonly restDayExtraDayWageBp: BasisPoints;
+  /** As `restDayExtraDayWageBp`, for an official holiday: 20000 bp = «مثلي هذا الأجر» on top of the day's own pay. */
+  readonly holidayExtraDayWageBp: BasisPoints;
+  /** A worked rest day must be followed by a replacement rest day within this many days («خلال الأسبوع التالي»). */
+  readonly restDayReplacementWithinDays: number;
+  /** Whether a worker may take another day off INSTEAD of the holiday premium, on their written request. */
+  readonly holidaySubstituteDayAllowed: boolean;
+  /**
+   * Hours from this (inclusive) to `nightEndHour` (exclusive) count as night
+   * work. The law defines night as sunset to sunrise; a fixed clock window is
+   * this table's approximation of it.
+   */
   readonly nightStartHour: number;
   readonly nightEndHour: number;
   readonly standardDailyHours: number;
@@ -252,12 +267,16 @@ export const EGYPT_OVERTIME_TABLES: readonly OvertimeTable[] = [
     code: "EG_OVERTIME_12_2003",
     effectiveFrom: "2003-07-08",
     effectiveTo: "2025-08-31",
-    citationAr: "قانون العمل 12 لسنة 2003 — 35% نهاراً و70% ليلاً، ويوم الراحة بالمثل",
-    source: "Labour Law 12/2003",
+    citationAr:
+      "قانون العمل 12 لسنة 2003 — المادة 80: ثماني ساعات يومياً وثمانٍ وأربعون أسبوعياً؛ المادة 85: أجر الساعة مضافاً إليه 35% نهاراً و70% ليلاً، «فإذا وقع التشغيل في يوم الراحة استحق العامل مثل أجره تعويضاً عن هذا اليوم، ويمنحه صاحب العمل يوماً آخر عوضاً عنه خلال الأسبوع التالي»؛ المادة 52: العمل في الأعياد «يستحق العامل في هذه الحالة بالإضافة إلى أجره عن هذا اليوم مثلي هذا الأجر»؛ المادة 1: الليل ما بين غروب الشمس وشروقها (يُقرَّب هنا إلى 19:00–07:00). أُلغي بالمادة 12 من مواد إصدار القانون 14 لسنة 2025 اعتباراً من 1 سبتمبر 2025",
+    source: "Labour Law 12/2003 Arts. 1, 52, 80, 85 (text: https://qadaya.net/?p=5300); repealed by Law 14/2025 issuance Art. 12",
     verified: false,
     dayPremiumBp: 3500,
     nightPremiumBp: 7000,
-    restDayPremiumBp: 10_000,
+    restDayExtraDayWageBp: 10_000,
+    holidayExtraDayWageBp: 20_000,
+    restDayReplacementWithinDays: 7,
+    holidaySubstituteDayAllowed: false,
     nightStartHour: 19,
     nightEndHour: 7,
     standardDailyHours: 8,
@@ -267,12 +286,17 @@ export const EGYPT_OVERTIME_TABLES: readonly OvertimeTable[] = [
     code: "EG_OVERTIME_14_2025",
     effectiveFrom: "2025-09-01",
     effectiveTo: null,
-    citationAr: "قانون العمل 14 لسنة 2025 — 35% نهاراً و70% ليلاً، ويوم الراحة بالمثل؛ ساعات العمل 8 يومياً و48 أسبوعياً",
-    source: "Labour Law 14/2025",
+    citationAr:
+      "قانون العمل 14 لسنة 2025 (الجريدة الرسمية العدد 18 تابع، 3 مايو 2025؛ نافذ من 1 سبتمبر 2025 بالمادة 13 من مواد الإصدار) — المادة 117: ثماني ساعات يومياً وثمانٍ وأربعون أسبوعياً؛ المادة 121: أجر الساعة الأصلية مضافاً إليه 35% نهاراً و70% ليلاً، «فإذا وقع التشغيل في يوم الراحة استحق العامل مثل أجره تعويضاً عن هذا اليوم، ويمنحه صاحب العمل يوماً آخر عوضاً عنه خلال الأسبوع التالي»؛ المادة 129: العمل في العطلات والأعياد «يستحق العامل في هذه الحالة بالإضافة إلى أجره عن هذا اليوم مثلي هذا الأجر أو أن يمنح العامل يوماً آخر عوضاً عنه بناءً على طلب كتابي من العامل يودع بالملف الخاص به»؛ المادة 1: الليل ما بين غروب الشمس وشروقها (يُقرَّب هنا إلى 19:00–07:00)",
+    source:
+      "Labour Law 14/2025 Arts. 1, 117, 121, 129; issuance Arts. 12-13 (Official Gazette No. 18 bis, 3 May 2025; bilingual text: https://sadanykhalifa.com/uploads/Laws/Egyptian%20Labor%20Law%20no.%2014%20of%202025.pdf; English: https://eg.andersen.com/wp-content/uploads/2025/05/Translation-of-Labor-law-No.-14-of-2025.pdf)",
     verified: false,
     dayPremiumBp: 3500,
     nightPremiumBp: 7000,
-    restDayPremiumBp: 10_000,
+    restDayExtraDayWageBp: 10_000,
+    holidayExtraDayWageBp: 20_000,
+    restDayReplacementWithinDays: 7,
+    holidaySubstituteDayAllowed: true,
     nightStartHour: 19,
     nightEndHour: 7,
     standardDailyHours: 8,
@@ -437,6 +461,13 @@ export function resolveEgyptStatutoryRules(onDate: string, overrides: readonly S
   }
 
   return { onDate, incomeTax, socialInsurance, levies, overtime, endOfService };
+}
+
+/** The overtime row in force on one attendance day; each worked day is priced by the law of its own date. */
+export function resolveOvertimeTable(onDate: string, tables: readonly OvertimeTable[] = EGYPT_OVERTIME_TABLES): OvertimeTable {
+  const table = inForce(tables, onDate);
+  if (!table) throw new StatutoryRulesUnavailableError(onDate, ["معاملات الأجر الإضافي"]);
+  return table;
 }
 
 /** The end-of-service row in force on a date; a settlement needs only this one. */

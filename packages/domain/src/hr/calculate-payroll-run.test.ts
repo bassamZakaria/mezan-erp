@@ -25,6 +25,9 @@ import {
   PayrollRunNotFoundError,
   StatutoryRulesUnavailableError,
 } from "./errors.js";
+import type { AttendanceEntry, AttendanceRepository } from "./attendance.js";
+import { createOvertimeHoursProvider } from "./attendance-overtime.js";
+import { EGYPT_OVERTIME_TABLES, resolveOvertimeTable, type OvertimeTable } from "./egypt-statutory.js";
 
 function createInMemoryPayrollRunRepository(): PayrollRunRepository {
   const rows = new Map<string, PayrollRun>();
@@ -1056,5 +1059,85 @@ describe("calculatePayrollRun — statutory computation is gated by the tenant s
     await calculatePayrollRun(run.id, { ...h.deps, statutoryEnabled: true });
     const [payslip] = await h.payslips.listByRunId(run.id);
     expect(payslip!.lines.find((l) => l.source === "income_tax")!.amount.toString()).toBe("425.830000");
+  });
+});
+
+describe("calculatePayrollRun — overtime from attendance with the statutory switch on (D186–D188)", () => {
+  function attendanceRows(rows: AttendanceEntry[]): Pick<AttendanceRepository, "list"> {
+    return {
+      async list(filter) {
+        return rows.filter((r) => r.employeeId === filter?.employeeId && (!filter?.from || r.date >= filter.from) && (!filter?.to || r.date <= filter.to));
+      },
+    };
+  }
+
+  function worked(date: string, overrides: Partial<AttendanceEntry> = {}): AttendanceEntry {
+    return {
+      id: `att-${date}`,
+      employeeId: "emp-1",
+      date,
+      checkIn: "09:00",
+      checkOut: "17:00",
+      workedMinutes: 480,
+      approvedOvertimeMinutes: null,
+      holidayCompensation: "pay",
+      status: "present",
+      notes: null,
+      createdAt: `${date}T17:00:00.000Z`,
+      updatedAt: `${date}T17:00:00.000Z`,
+      ...overrides,
+    };
+  }
+
+  it("prices each day by the table in force on it, names that table on the line, and records every table used", async () => {
+    const h = await harness();
+    const run = await createPayrollRun({ id: "r1", year: 2026, month: 6 }, h.deps);
+    await employeeWithContract(h, { id: "emp-1", monthlySalary: "9000.00" });
+    const base = EGYPT_OVERTIME_TABLES[1]!;
+    const tables: OvertimeTable[] = [
+      { ...base, code: "TEST_BEFORE", effectiveFrom: "2026-01-01", effectiveTo: "2026-06-14" },
+      { ...base, code: "TEST_AFTER", effectiveFrom: "2026-06-15", effectiveTo: null, dayPremiumBp: 5000 },
+    ];
+    const overtime = createOvertimeHoursProvider(
+      attendanceRows([worked("2026-06-10", { approvedOvertimeMinutes: 60 }), worked("2026-06-17", { approvedOvertimeMinutes: 60 })]),
+      () => ({ standardDailyHours: 8, weeklyOffDays: [5, 6], tableFor: (date) => resolveOvertimeTable(date, tables) }),
+    );
+    const calculated = await calculatePayrollRun(run.id, { ...h.deps, statutoryEnabled: true, overtime });
+    const [payslip] = await h.payslips.listByRunId(run.id);
+    const lines = payslip!.lines.filter((l) => l.source === "overtime");
+    expect(lines.map((l) => [l.referenceId, l.amount.toString()])).toEqual([
+      ["TEST_BEFORE", "50.630000"],
+      ["TEST_AFTER", "56.250000"],
+    ]);
+    expect(calculated.statutoryTableCodes).toEqual(expect.arrayContaining(["TEST_BEFORE", "TEST_AFTER"]));
+  });
+
+  it("a rest day and a holiday are paid by the day, and the missing replacement rest day is a warning on the run", async () => {
+    const h = await harness();
+    const run = await createPayrollRun({ id: "r1", year: 2026, month: 6 }, h.deps);
+    await employeeWithContract(h, { id: "emp-1", monthlySalary: "9000.00" });
+    const holidays = [{ id: "h1", date: "2026-06-10", nameEn: "Holiday", nameAr: "عطلة", recurringAnnual: false, createdAt: "2026-01-01T00:00:00.000Z" }];
+    const overtime = createOvertimeHoursProvider(
+      attendanceRows([worked("2026-06-05", { approvedOvertimeMinutes: 480 }), worked("2026-06-10", { approvedOvertimeMinutes: 480 }), worked("2026-06-16", { checkOut: "19:00", workedMinutes: 600 })]),
+      () => ({ standardDailyHours: 8, weeklyOffDays: [5, 6], holidays }),
+    );
+    const calculated = await calculatePayrollRun(run.id, { ...h.deps, statutoryEnabled: true, overtime });
+    const [payslip] = await h.payslips.listByRunId(run.id);
+    expect(payslip!.lines.filter((l) => l.source === "overtime").map((l) => l.amount.toString())).toEqual(["300.000000", "600.000000"]);
+    expect(calculated.warnings.some((w) => w.includes("2026-06-05") && w.includes("راحة بديلة") && w.includes("2026-06-12"))).toBe(true);
+  });
+
+  it("an ineligible employee's approved hours are reported, not paid", async () => {
+    const h = await harness();
+    const run = await createPayrollRun({ id: "r1", year: 2026, month: 6 }, h.deps);
+    await employeeWithContract(h, { id: "emp-1", monthlySalary: "9000.00" });
+    const overtime = createOvertimeHoursProvider(attendanceRows([worked("2026-06-16", { approvedOvertimeMinutes: 120 })]), () => ({
+      standardDailyHours: 8,
+      overtimeEligible: false,
+    }));
+    const calculated = await calculatePayrollRun(run.id, { ...h.deps, statutoryEnabled: true, overtime });
+    const [payslip] = await h.payslips.listByRunId(run.id);
+    expect(payslip!.lines.some((l) => l.source === "overtime")).toBe(false);
+    expect(calculated.warnings.some((w) => w.includes("غير مستحق للأجر الإضافي"))).toBe(true);
   });
 });

@@ -31,7 +31,7 @@ import {
   type EgyptStatutoryRules,
   type StatutoryOverrideRepository,
 } from "./egypt-statutory.js";
-import { hourlyRate, monthlyIncomeTax, overtimePay, payrollLevies, socialInsuranceFor } from "./statutory-payroll.js";
+import { monthlyIncomeTax, overtimePay, payrollLevies, socialInsuranceFor } from "./statutory-payroll.js";
 import {
   DuplicatePayrollPeriodError,
   InvalidPayrollRunError,
@@ -107,8 +107,6 @@ export interface PayrollCalculationDeps {
   readonly statutoryOverrides?: Pick<StatutoryOverrideRepository, "list">;
   /** Bound by attendance; read only when statutory computation is on. */
   readonly overtime?: OvertimeHoursProvider;
-  /** Standard contracted hours in a working day; falls back to the statutory table's. */
-  readonly standardDailyHours?: number;
   readonly idGen?: () => string;
   readonly now?: () => string;
 }
@@ -322,6 +320,7 @@ export async function calculatePayrollRun(runId: string, deps: PayrollCalculatio
   const components = (await deps.payrollComponents?.list()) ?? [];
 
   const payslips: Payslip[] = [];
+  const overtimeTableCodes = new Set<string>();
   for (const { employee, contract, paidDays } of inputs) {
     const lines: PayslipLine[] = [];
 
@@ -352,9 +351,9 @@ export async function calculatePayrollRun(runId: string, deps: PayrollCalculatio
     const monthlyWage = contract.monthlySalary.add(Money.sum(contract.allowances.map((a) => a.amount)));
 
     if (statutory && deps.overtime) {
-      const hours = await deps.overtime.overtimeHoursFor(employee.id, run.periodStart, run.periodEnd);
-      const rate = hourlyRate(monthlyWage, divisor, deps.standardDailyHours ?? statutory.overtime.standardDailyHours);
-      for (const line of overtimePay(rate, hours, statutory.overtime)) {
+      const worked = await deps.overtime.overtimeHoursFor(employee.id, run.periodStart, run.periodEnd);
+      for (const line of overtimePay({ monthlyWage, dayDivisor: divisor, standardDailyHours: worked.standardDailyHours }, worked)) {
+        overtimeTableCodes.add(line.tableCode);
         lines.push({
           id: idGen(),
           kind: "earning",
@@ -362,9 +361,26 @@ export async function calculatePayrollRun(runId: string, deps: PayrollCalculatio
           nameAr: line.labelAr,
           amount: line.amount,
           glAccountId: null,
-          referenceId: statutory.overtime.code,
+          referenceId: line.tableCode,
           capped: false,
         });
+      }
+      const who = `${employee.fullNameAr} (${employee.code})`;
+      if (worked.ineligibleHours > 0) {
+        warnings.push(`${who}: غير مستحق للأجر الإضافي — لم تُصرف ${worked.ineligibleHours} ساعة إضافية معتمدة.`);
+      }
+      if (worked.holidaysTakenAsDayOff > 0) {
+        warnings.push(`${who}: ${worked.holidaysTakenAsDayOff} يوم عمل في عطلة رسمية عُوِّض بيوم بديل بطلب كتابي من العامل بدلاً من مثلي الأجر.`);
+      }
+      for (const date of worked.substituteDayRefusedOn) {
+        warnings.push(`${who}: طلب يوم بديل عن العمل في عطلة ${date} لا يجيزه القانون الساري في ذلك اليوم — صُرف مثلا الأجر.`);
+      }
+      for (const due of worked.outstandingReplacementDays) {
+        warnings.push(
+          due.kind === "rest_day"
+            ? `${who}: عمل في يوم الراحة ${due.workedOn} ولم تُسجَّل له راحة بديلة — مستحقة حتى ${due.dueBy}.`
+            : `${who}: اختار يوماً بديلاً عن العمل في عطلة ${due.workedOn} ولم تُسجَّل له راحة بديلة بعد.`,
+        );
       }
     }
 
@@ -674,7 +690,7 @@ export async function calculatePayrollRun(runId: string, deps: PayrollCalculatio
     unpaidLeaveSource: deps.unpaidLeave ? "provider" : "none",
     overtimeSource: statutory && deps.overtime ? "provider" : "none",
     statutoryTableCodes: statutory
-      ? [statutory.incomeTax.code, statutory.socialInsurance.code, statutory.levies.code, statutory.overtime.code, statutory.endOfService.code]
+      ? [...new Set([statutory.incomeTax.code, statutory.socialInsurance.code, statutory.levies.code, statutory.overtime.code, ...overtimeTableCodes, statutory.endOfService.code])]
       : [],
     warnings,
     calculatedAt: now,

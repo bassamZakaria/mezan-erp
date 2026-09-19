@@ -12,6 +12,7 @@ import {
   type PayrollLevyTable,
   type ResolvedSocialInsuranceTable,
 } from "./egypt-statutory.js";
+import type { PeriodOvertimeHours } from "./payroll-run.js";
 
 /**
  * The statutory calculators. Pure functions over the dated tables in
@@ -241,21 +242,15 @@ export function payrollLevies(gross: Money, insurable: Money, table: PayrollLevy
 
 // --- Overtime ---------------------------------------------------------------
 
-export type OvertimeKind = "day" | "night" | "rest_day";
-
-export interface OvertimeHours {
-  readonly day: number;
-  readonly night: number;
-  readonly restDay: number;
-}
-
-export const NO_OVERTIME_HOURS: OvertimeHours = { day: 0, night: 0, restDay: 0 };
+export type OvertimeKind = "day" | "night" | "rest_day" | "holiday";
 
 export interface OvertimeLine {
   readonly kind: OvertimeKind;
   readonly labelAr: string;
-  readonly hours: number;
-  readonly premiumBp: BasisPoints;
+  /** Hours for day/night overtime; whole days for a rest day or a holiday. */
+  readonly quantity: number;
+  /** The dated overtime row the line was priced by. */
+  readonly tableCode: string;
   readonly amount: Money;
 }
 
@@ -274,39 +269,72 @@ export function hourlyRate(monthlySalary: Money, dayDivisor: number, dailyHours:
 const OVERTIME_LABELS: Record<OvertimeKind, string> = {
   day: "أجر إضافي نهاري",
   night: "أجر إضافي ليلي",
-  rest_day: "أجر إضافي في يوم الراحة",
+  rest_day: "تعويض العمل في يوم الراحة الأسبوعية",
+  holiday: "تعويض العمل في عطلة رسمية",
 };
 
-/** Overtime pay per kind: hours × hourly rate × (100% + the kind's statutory premium). */
-export function overtimePay(rate: Money, hours: OvertimeHours, table: OvertimeTable): readonly OvertimeLine[] {
-  const entries: readonly { kind: OvertimeKind; hours: number; premiumBp: BasisPoints }[] = [
-    { kind: "day", hours: hours.day, premiumBp: table.dayPremiumBp },
-    { kind: "night", hours: hours.night, premiumBp: table.nightPremiumBp },
-    { kind: "rest_day", hours: hours.restDay, premiumBp: table.restDayPremiumBp },
-  ];
-  return entries
-    .filter((e) => e.hours > 0)
-    .map((e) => {
-      const hourUnits = BigInt(Math.round(e.hours * 1000));
-      const base = (rate.scaled * hourUnits) / 1000n;
-      const withPremium = base + divRoundHalfUp(base * BigInt(e.premiumBp), BP);
-      return {
-        kind: e.kind,
-        labelAr: `${OVERTIME_LABELS[e.kind]} (${formatHours(e.hours)} ساعة)`,
-        hours: e.hours,
-        premiumBp: e.premiumBp,
+function formatQuantity(value: number): string {
+  return Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/\.?0+$/, "");
+}
+
+export interface OvertimePayInput {
+  readonly monthlyWage: Money;
+  /** The payroll day basis — the same divisor the hourly rate and unpaid leave use. */
+  readonly dayDivisor: number;
+  /** The employee's standard day; the hourly rate is the day's wage over it. */
+  readonly standardDailyHours: number;
+}
+
+/**
+ * Overtime pay, one line per kind per dated table:
+ *
+ *   - day / night: hours × hourly rate × (100% + the table's premium);
+ *   - rest day / holiday: days × the day's wage × the table's extra-day
+ *     multiple — the day's own pay is already inside the monthly wage.
+ */
+export function overtimePay(input: OvertimePayInput, worked: Pick<PeriodOvertimeHours, "byTable">): readonly OvertimeLine[] {
+  const rate = hourlyRate(input.monthlyWage, input.dayDivisor, input.standardDailyHours);
+  const lines: OvertimeLine[] = [];
+  for (const { table, day, night, restDays, holidays } of worked.byTable) {
+    for (const [kind, hours, premiumBp] of [
+      ["day", day, table.dayPremiumBp],
+      ["night", night, table.nightPremiumBp],
+    ] as const) {
+      if (hours <= 0) continue;
+      const base = (rate.scaled * BigInt(Math.round(hours * 1000))) / 1000n;
+      const withPremium = base + divRoundHalfUp(base * BigInt(premiumBp), BP);
+      lines.push({
+        kind,
+        labelAr: `${OVERTIME_LABELS[kind]} (${formatQuantity(hours)} ساعة، +${formatPercentBp(premiumBp)}%)`,
+        quantity: hours,
+        tableCode: table.code,
         amount: roundMoney(Money.fromScaled(withPremium), STATUTORY_DECIMALS, "HALF_UP"),
-      };
-    });
+      });
+    }
+    for (const [kind, days, multipleBp] of [
+      ["rest_day", restDays, table.restDayExtraDayWageBp],
+      ["holiday", holidays, table.holidayExtraDayWageBp],
+    ] as const) {
+      if (days <= 0 || input.dayDivisor <= 0) continue;
+      const amount = divRoundHalfUp(input.monthlyWage.scaled * BigInt(days) * BigInt(multipleBp), BigInt(Math.round(input.dayDivisor)) * BP);
+      lines.push({
+        kind,
+        labelAr: `${OVERTIME_LABELS[kind]} (${formatQuantity(days)} يوم × ${formatQuantity(multipleBp / BASIS_POINTS_PER_UNIT)} أجر يوم)`,
+        quantity: days,
+        tableCode: table.code,
+        amount: roundMoney(Money.fromScaled(amount), STATUTORY_DECIMALS, "HALF_UP"),
+      });
+    }
+  }
+  return lines;
 }
 
-function formatHours(hours: number): string {
-  return Number.isInteger(hours) ? String(hours) : hours.toFixed(2).replace(/\.?0+$/, "");
+function formatPercentBp(bp: BasisPoints): string {
+  return formatQuantity(bp / 100);
 }
 
-/** Which statutory premium a worked hour attracts, from the clock time it was worked at. */
-export function overtimeKindForHour(hourOfDay: number, isRestDay: boolean, table: OvertimeTable): OvertimeKind {
-  if (isRestDay) return "rest_day";
+/** Whether an hour of overtime on a working day is day or night work, from the clock time it was worked at. */
+export function overtimeKindForHour(hourOfDay: number, table: OvertimeTable): "day" | "night" {
   const night = table.nightStartHour > table.nightEndHour ? hourOfDay >= table.nightStartHour || hourOfDay < table.nightEndHour : hourOfDay >= table.nightStartHour && hourOfDay < table.nightEndHour;
   return night ? "night" : "day";
 }

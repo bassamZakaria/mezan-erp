@@ -83,6 +83,7 @@ export type {
   AttendanceEntry,
   AttendanceRepository,
   AttendanceStatus,
+  HolidayWorkCompensation,
   AttendanceStatusDefinition,
   AttendanceFilter,
   AttendanceSummary,
@@ -203,6 +204,8 @@ export type {
   PayslipLineSourceDefinition,
   OvertimeHoursProvider,
   PeriodOvertimeHours,
+  OvertimeWorkedUnderTable,
+  OutstandingReplacementDay,
 } from "./payroll-run.js";
 export {
   PAYROLL_RUN_STATUS_DEFINITIONS,
@@ -345,6 +348,7 @@ export {
   EGYPT_END_OF_SERVICE_TABLES,
   resolveEgyptStatutoryRules,
   resolveEndOfServiceTable,
+  resolveOvertimeTable,
   listEgyptStatutoryTables,
   unverifiedStatutoryTableCodes,
   totalShareBp,
@@ -359,7 +363,7 @@ export type {
   MonthlyIncomeTaxInput,
   LevyLine,
   OvertimeKind,
-  OvertimeHours,
+  OvertimePayInput,
   OvertimeLine,
   EndOfServiceResult,
   EndOfServiceEligibilityInput,
@@ -378,11 +382,10 @@ export {
   endOfServiceEligibility,
   ageOn,
   serviceYearsBetween,
-  NO_OVERTIME_HOURS,
 } from "./statutory-payroll.js";
 
-export type { OvertimeDerivationOptions } from "./attendance-overtime.js";
-export { overtimeMinutesForEntry, summarizeOvertime, createOvertimeHoursProvider } from "./attendance-overtime.js";
+export type { OvertimeDerivationOptions, OvertimeDayType } from "./attendance-overtime.js";
+export { overtimeMinutesForEntry, summarizeOvertime, createOvertimeHoursProvider, employeeOvertimePolicy } from "./attendance-overtime.js";
 
 export type { EndOfServiceSettlement, EndOfServiceSettlementInput } from "./end-of-service.js";
 export { calculateEndOfServiceSettlement } from "./end-of-service.js";

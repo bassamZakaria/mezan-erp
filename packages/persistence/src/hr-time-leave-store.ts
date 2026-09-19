@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS hr_attendance (
   check_out      TEXT,
   worked_minutes INTEGER NOT NULL,
   approved_overtime_minutes INTEGER,
+  holiday_compensation TEXT NOT NULL DEFAULT 'pay',
   status         TEXT NOT NULL,
   notes          TEXT,
   created_at     TEXT NOT NULL,
@@ -55,6 +56,7 @@ interface AttendanceRow {
   check_out: string | null;
   worked_minutes: number;
   approved_overtime_minutes: number | null;
+  holiday_compensation: string | null;
   status: string;
   notes: string | null;
   created_at: string;
@@ -70,6 +72,7 @@ function toAttendance(row: AttendanceRow): AttendanceEntry {
     checkOut: row.check_out,
     workedMinutes: row.worked_minutes,
     approvedOvertimeMinutes: row.approved_overtime_minutes ?? null,
+    holidayCompensation: row.holiday_compensation === "day_off" ? "day_off" : "pay",
     status: row.status as AttendanceStatus,
     notes: row.notes,
     createdAt: row.created_at,
@@ -84,13 +87,14 @@ class SqliteAttendanceRepository implements AttendanceRepository {
 
   constructor(private readonly sqlite: Database.Database) {
     this.upsert = sqlite.prepare(`
-      INSERT INTO hr_attendance (id, employee_id, date, check_in, check_out, worked_minutes, approved_overtime_minutes, status, notes, created_at, updated_at)
-      VALUES (@id, @employee_id, @date, @check_in, @check_out, @worked_minutes, @approved_overtime_minutes, @status, @notes, @created_at, @updated_at)
+      INSERT INTO hr_attendance (id, employee_id, date, check_in, check_out, worked_minutes, approved_overtime_minutes, holiday_compensation, status, notes, created_at, updated_at)
+      VALUES (@id, @employee_id, @date, @check_in, @check_out, @worked_minutes, @approved_overtime_minutes, @holiday_compensation, @status, @notes, @created_at, @updated_at)
       ON CONFLICT(id) DO UPDATE SET
         check_in = excluded.check_in,
         check_out = excluded.check_out,
         worked_minutes = excluded.worked_minutes,
         approved_overtime_minutes = excluded.approved_overtime_minutes,
+        holiday_compensation = excluded.holiday_compensation,
         status = excluded.status,
         notes = excluded.notes,
         updated_at = excluded.updated_at
@@ -150,6 +154,7 @@ class SqliteAttendanceRepository implements AttendanceRepository {
       check_out: entry.checkOut,
       worked_minutes: entry.workedMinutes,
       approved_overtime_minutes: entry.approvedOvertimeMinutes,
+      holiday_compensation: entry.holidayCompensation,
       status: entry.status,
       notes: entry.notes,
       created_at: entry.createdAt,
@@ -541,6 +546,9 @@ export function createSqliteAttendanceRepository(path: SqliteConnectionInput = "
   // which is deliberately distinct from an approved zero.
   if (!(sqlite.pragma(`table_info(hr_attendance)`) as { name: string }[]).some((c) => c.name === "approved_overtime_minutes")) {
     sqlite.exec(`ALTER TABLE hr_attendance ADD COLUMN approved_overtime_minutes INTEGER`);
+  }
+  if (!(sqlite.pragma(`table_info(hr_attendance)`) as { name: string }[]).some((c) => c.name === "holiday_compensation")) {
+    sqlite.exec(`ALTER TABLE hr_attendance ADD COLUMN holiday_compensation TEXT NOT NULL DEFAULT 'pay'`);
   }
   const repo = new SqliteAttendanceRepository(sqlite);
   return Object.assign(repo, { close: () => { if (owned) sqlite.close(); } }) as SqliteAttendanceRepositoryHandle;

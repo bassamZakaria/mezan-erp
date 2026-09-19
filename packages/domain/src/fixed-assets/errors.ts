@@ -1,10 +1,26 @@
-/** Fixed-assets domain errors (Asset Register, Asset Categories, Depreciation Runs). Stable `code`s so the api/UI can branch. */
+/**
+ * Fixed-assets domain errors (Asset Register, Asset Categories, Depreciation Runs). Stable `code`s so the api/UI can branch.
+ * `message` is Arabic because the client shows it verbatim (D280); `messageEn` carries the English.
+ */
+
+const RUN_STATUS_AR: Readonly<Record<string, string>> = {
+  draft: "مسودة",
+  posted: "مُرحَّل",
+  reversed: "معكوس",
+  cancelled: "ملغى",
+};
+
+function runStatusAr(status: string): string {
+  return RUN_STATUS_AR[status] ?? status;
+}
 
 /** Raised when an asset-category code already exists (codes are unique across categories). */
 export class DuplicateAssetCategoryCodeError extends Error {
   readonly code = "DUPLICATE_ASSET_CATEGORY_CODE";
+  readonly messageEn: string;
   constructor(readonly categoryCode: string) {
-    super(`Asset category code "${categoryCode}" already exists.`);
+    super(`كود فئة الأصول "${categoryCode}" مستخدم من قبل.`);
+    this.messageEn = `Asset category code "${categoryCode}" already exists.`;
     this.name = "DuplicateAssetCategoryCodeError";
   }
 }
@@ -12,8 +28,10 @@ export class DuplicateAssetCategoryCodeError extends Error {
 /** Raised when a new/updated asset category fails validation (e.g. salvage % out of range, useful life <= 0). */
 export class InvalidAssetCategoryError extends Error {
   readonly code = "INVALID_ASSET_CATEGORY";
+  readonly messageEn: string;
   constructor(readonly reasons: readonly string[]) {
-    super(reasons.join("، "));
+    super(`بيانات فئة الأصول غير صالحة: ${reasons.join("، ")}`);
+    this.messageEn = `Invalid asset category: ${reasons.join("; ")}`;
     this.name = "InvalidAssetCategoryError";
   }
 }
@@ -21,8 +39,10 @@ export class InvalidAssetCategoryError extends Error {
 /** Raised when an operation references an asset-category id that does not exist. */
 export class AssetCategoryNotFoundError extends Error {
   readonly code = "ASSET_CATEGORY_NOT_FOUND";
+  readonly messageEn: string;
   constructor(readonly categoryId: string) {
-    super(`Asset category "${categoryId}" was not found.`);
+    super(`فئة الأصول "${categoryId}" غير موجودة.`);
+    this.messageEn = `Asset category "${categoryId}" was not found.`;
     this.name = "AssetCategoryNotFoundError";
   }
 }
@@ -30,8 +50,10 @@ export class AssetCategoryNotFoundError extends Error {
 /** Raised when an asset code already exists (codes are unique across assets). */
 export class DuplicateAssetCodeError extends Error {
   readonly code = "DUPLICATE_ASSET_CODE";
+  readonly messageEn: string;
   constructor(readonly assetCode: string) {
-    super(`Asset code "${assetCode}" already exists.`);
+    super(`كود الأصل "${assetCode}" مستخدم من قبل.`);
+    this.messageEn = `Asset code "${assetCode}" already exists.`;
     this.name = "DuplicateAssetCodeError";
   }
 }
@@ -39,8 +61,10 @@ export class DuplicateAssetCodeError extends Error {
 /** Raised when a new asset fails validation (e.g. a branch/warehouse-scoped asset with no branch/warehouse). */
 export class InvalidAssetError extends Error {
   readonly code = "INVALID_ASSET";
+  readonly messageEn: string;
   constructor(readonly reasons: readonly string[]) {
-    super(reasons.join("، "));
+    super(`بيانات الأصل غير صالحة: ${reasons.join("، ")}`);
+    this.messageEn = `Invalid asset: ${reasons.join("; ")}`;
     this.name = "InvalidAssetError";
   }
 }
@@ -48,8 +72,10 @@ export class InvalidAssetError extends Error {
 /** Raised when an operation references an asset id that does not exist. */
 export class AssetNotFoundError extends Error {
   readonly code = "ASSET_NOT_FOUND";
+  readonly messageEn: string;
   constructor(readonly assetId: string) {
-    super(`Asset "${assetId}" was not found.`);
+    super(`الأصل "${assetId}" غير موجود.`);
+    this.messageEn = `Asset "${assetId}" was not found.`;
     this.name = "AssetNotFoundError";
   }
 }
@@ -57,8 +83,10 @@ export class AssetNotFoundError extends Error {
 /** Raised when an operation references a depreciation-run id that does not exist. */
 export class DepreciationRunNotFoundError extends Error {
   readonly code = "DEPRECIATION_RUN_NOT_FOUND";
+  readonly messageEn: string;
   constructor(readonly runId: string) {
-    super(`Depreciation run "${runId}" was not found.`);
+    super(`تشغيل الإهلاك "${runId}" غير موجود.`);
+    this.messageEn = `Depreciation run "${runId}" was not found.`;
     this.name = "DepreciationRunNotFoundError";
   }
 }
@@ -66,11 +94,13 @@ export class DepreciationRunNotFoundError extends Error {
 /** Raised when trying to post a depreciation run that is not in the draft state. */
 export class DepreciationRunNotDraftError extends Error {
   readonly code = "DEPRECIATION_RUN_NOT_DRAFT";
+  readonly messageEn: string;
   constructor(
     readonly runId: string,
     readonly status: string,
   ) {
-    super(`Depreciation run "${runId}" is "${status}", not a draft, and cannot be posted.`);
+    super(`لا يمكن ترحيل تشغيل الإهلاك "${runId}" لأن حالته «${runStatusAr(status)}» وليست مسودة.`);
+    this.messageEn = `Depreciation run "${runId}" is "${status}", not a draft, and cannot be posted.`;
     this.name = "DepreciationRunNotDraftError";
   }
 }
@@ -78,11 +108,13 @@ export class DepreciationRunNotDraftError extends Error {
 /** Raised when reversing a depreciation run that was never posted (or has already been reversed). */
 export class DepreciationRunNotPostedError extends Error {
   readonly code = "DEPRECIATION_RUN_NOT_POSTED";
+  readonly messageEn: string;
   constructor(
     readonly runId: string,
     readonly status: string,
   ) {
-    super(`Depreciation run "${runId}" is "${status}", not posted, and cannot be reversed.`);
+    super(`لا يمكن عكس تشغيل الإهلاك "${runId}" لأن حالته «${runStatusAr(status)}» وليس مُرحَّلاً.`);
+    this.messageEn = `Depreciation run "${runId}" is "${status}", not posted, and cannot be reversed.`;
     this.name = "DepreciationRunNotPostedError";
   }
 }
@@ -90,13 +122,13 @@ export class DepreciationRunNotPostedError extends Error {
 /** Raised when a depreciation run already exists for a given period + branch (and isn't cancelled). */
 export class DuplicateDepreciationPeriodError extends Error {
   readonly code = "DUPLICATE_DEPRECIATION_PERIOD";
+  readonly messageEn: string;
   constructor(
     readonly period: string,
     readonly branchId: string | null,
   ) {
-    super(
-      `A depreciation run for period "${period}"${branchId ? ` / branch "${branchId}"` : ""} already exists.`,
-    );
+    super(`يوجد تشغيل إهلاك للفترة "${period}"${branchId ? ` للفرع "${branchId}"` : ""} من قبل.`);
+    this.messageEn = `A depreciation run for period "${period}"${branchId ? ` / branch "${branchId}"` : ""} already exists.`;
     this.name = "DuplicateDepreciationPeriodError";
   }
 }
@@ -104,8 +136,10 @@ export class DuplicateDepreciationPeriodError extends Error {
 /** Raised when a new depreciation run would contain zero lines (no eligible asset has anything due for the period). */
 export class NoDepreciableAssetsError extends Error {
   readonly code = "NO_DEPRECIABLE_ASSETS";
+  readonly messageEn: string;
   constructor(readonly period: string) {
-    super(`No eligible assets have any depreciation due for period "${period}".`);
+    super(`لا توجد أصول مستحق عليها إهلاك للفترة "${period}".`);
+    this.messageEn = `No eligible assets have any depreciation due for period "${period}".`;
     this.name = "NoDepreciableAssetsError";
   }
 }

@@ -94,6 +94,22 @@ await build({
   logLevel: "info",
 });
 
+// The restore drill runs in its own forked process too: it restores an archive
+// into a sandbox and boots a whole backend over it, which must not share a loop
+// with the window.
+await build({
+  entryPoints: [path.join(appDir, "src/backup/drill-worker.ts")],
+  outfile: path.join(appDir, "dist/main/drill-worker.cjs"),
+  bundle: true,
+  platform: "node",
+  format: "cjs",
+  target: "node20",
+  external,
+  define: vendorDefine,
+  sourcemap: true,
+  logLevel: "info",
+});
+
 // The process that owns SQLite (docs/artifacts/audit-2026-09-07.md Q-1):
 // forked as an Electron `utilityProcess`, so — like the backup worker above —
 // it needs its own entry point rather than riding along inside index.cjs.

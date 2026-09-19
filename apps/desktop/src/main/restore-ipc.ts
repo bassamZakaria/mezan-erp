@@ -1,15 +1,36 @@
+import { dialog } from "electron";
 import { handleGuarded } from "./ipc-guard.js";
-import { mkdir, readFile, rm, stat } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { mkdir, mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { tmpdir } from "node:os";
 import { extract as tarExtract } from "tar";
 import type Database from "better-sqlite3";
 import type { SessionLookup } from "./backend-bridge.js";
 import { createAuditEvent } from "@mezan/domain";
-import { createSqliteAuditSink, deriveAuditChainKey, openSqliteConnection } from "@mezan/persistence";
 import {
+  CURRENT_SCHEMA_VERSION,
+  createSqliteAuditSink,
+  deriveAuditChainKey,
+  openSqliteConnection,
+} from "@mezan/persistence";
+import {
+  copyToSecondTarget,
   createBackup,
+  decryptFile,
+  DRILL_STALE_AFTER_DAYS,
   exportPortableBackup,
+  isDrillRunning,
+  lastGoodDrill,
+  readDrillHistory,
+  readSecondTarget,
+  runRestoreDrill,
+  setSecondTargetDir,
+  verifyArchive,
+  withBackupLock,
+  SchemaTooNewForRestoreError,
+  PORTABLE_FILE_EXTENSION,
+  type SecondTargetState,
   isPreUpdateArchive,
   listBackups,
   parseManifest,
@@ -22,12 +43,25 @@ import {
   type BackupManifest,
   type RestoreCipher,
 } from "../backup/index.js";
+import { encryptPlaintextDatabase } from "./encrypted-database.js";
 import {
+  DrillTrigger,
   MEZAN_BACKUP_CREATE_CHANNEL,
+  MEZAN_BACKUP_DRILL_CHANNEL,
   MEZAN_BACKUP_EXPORT_PORTABLE_CHANNEL,
+  MEZAN_BACKUP_IMPORT_PORTABLE_CHANNEL,
   MEZAN_BACKUP_LIST_CHANNEL,
+  MEZAN_BACKUP_PICK_PORTABLE_CHANNEL,
   MEZAN_BACKUP_RESTORE_CHANNEL,
   MEZAN_BACKUP_REVERT_CHANNEL,
+  MEZAN_BACKUP_SECOND_TARGET_CHOOSE_CHANNEL,
+  MEZAN_BACKUP_SECOND_TARGET_CLEAR_CHANNEL,
+  MEZAN_BACKUP_STATUS_CHANNEL,
+  type BackupDrillResult,
+  type BackupPickPortableResult,
+  type BackupSecondTargetResult,
+  type BackupStatusResult,
+  type SecondTargetStatusDTO,
   type BackupCreateResult,
   type BackupEntryDTO,
   type BackupExportResult,
@@ -109,6 +143,39 @@ export interface RestoreIpcDeps {
   readonly relaunch: () => void;
   /** Reads the caller's grant from the live session registry (api/session-auth.ts). */
   readonly sessions: SessionLookup;
+  /**
+   * Lets the portable import run with no session only while nobody has claimed
+   * the tenant — the first-run screen on replacement hardware, where no account
+   * exists yet. Omitted, a session is always required.
+   */
+  readonly tenantIsClaimed?: () => Promise<boolean>;
+}
+
+enum RestoreSource {
+  Archive = "archive",
+  PreUpdate = "pre-update",
+  Portable = "portable",
+}
+
+const PICK_TTL_MS = 30 * 60 * 1000;
+const picks = new Map<string, { readonly path: string; readonly fileName: string; readonly at: number }>();
+
+function rememberPick(filePath: string): string {
+  const now = Date.now();
+  for (const [id, pick] of picks) if (now - pick.at > PICK_TTL_MS) picks.delete(id);
+  const id = randomUUID();
+  picks.set(id, { path: filePath, fileName: path.basename(filePath), at: now });
+  return id;
+}
+
+function secondTargetDto(state: SecondTargetState): SecondTargetStatusDTO {
+  return {
+    dir: state.dir,
+    lastCopyAt: state.lastCopyAt,
+    lastCopyOk: state.lastCopyOk,
+    lastCopyFile: state.lastCopyFile,
+    lastCopyError: state.lastCopyError,
+  };
 }
 
 function failure(code: BackupFailure["code"], message: string): BackupFailure {
@@ -140,6 +207,7 @@ async function recordRestoredEvent(
   archiveFileName: string,
   manifestCreatedAt: string,
   safetyBackupFileName: string | null,
+  source: RestoreSource,
 ): Promise<void> {
   let sqlite: Database.Database | undefined;
   try {
@@ -166,6 +234,7 @@ async function recordRestoredEvent(
           archiveCreatedAt: manifestCreatedAt,
           safetyBackup: safetyBackupFileName,
           appVersion: deps.appVersion,
+          source,
         },
       }),
     );
@@ -228,6 +297,18 @@ async function authorize(
  * in the renderer nominate any file on the machine to be opened,
  * integrity-checked and copied over the company's database.
  */
+async function authorizeOrFirstRun(
+  deps: RestoreIpcDeps,
+  token: unknown,
+): Promise<{ denied: BackupFailure | null; actor: string }> {
+  if (typeof token === "string" && token !== "") {
+    const denied = await authorize(deps, token, RESTORE_PERMISSION);
+    return { denied, actor: denied ? "unknown" : await actorOf(deps, token) };
+  }
+  const claimed = deps.tenantIsClaimed ? await deps.tenantIsClaimed().catch(() => true) : true;
+  return claimed ? { denied: UNAUTHORIZED, actor: "unknown" } : { denied: null, actor: "first-run" };
+}
+
 function resolveArchivePath(backupsDir: string, fileName: unknown): string | null {
   if (typeof fileName !== "string" || fileName === "") return null;
   if (fileName !== path.basename(fileName)) return null;
@@ -314,13 +395,17 @@ export function registerRestoreOverIpc(deps: RestoreIpcDeps): void {
       }
 
       try {
-        const result = await createBackup({
-          sqlite,
-          backupsDir: deps.backupsDir,
-          appVersion: deps.appVersion,
-          reason: "manual",
-          encrypted: deps.cipher !== undefined,
-        });
+        const result = await withBackupLock(() =>
+          createBackup({
+            sqlite,
+            backupsDir: deps.backupsDir,
+            appVersion: deps.appVersion,
+            reason: "manual",
+            encrypted: deps.cipher !== undefined,
+            cipher: deps.cipher ? { key: deps.cipher.key } : undefined,
+          }),
+        );
+        await copyToSecondTarget(deps.backupsDir, result.archivePath);
         return { ok: true, entry: await describeArchive(result.archivePath, new Date()) };
       } catch (err) {
         console.error("[backup] manual backup failed", err);
@@ -342,7 +427,7 @@ export function registerRestoreOverIpc(deps: RestoreIpcDeps): void {
       if (!(await stat(archivePath).catch(() => null))) {
         return failure("NOT_FOUND", "ملف النسخة الاحتياطية غير موجود. حدّث القائمة وحاول مرة أخرى.");
       }
-      return performRestore(deps, archivePath, await actorOf(deps, sessionToken));
+      return performRestore(deps, archivePath, await actorOf(deps, sessionToken), RestoreSource.Archive);
     },
   );
 
@@ -372,7 +457,7 @@ export function registerRestoreOverIpc(deps: RestoreIpcDeps): void {
           "لا توجد نسخة محفوظة قبل التحديث على هذا الجهاز. تُؤخذ هذه النسخة تلقائياً عند أول تشغيل بعد تحديث يغيّر قاعدة البيانات.",
         );
       }
-      return performRestore(deps, newest.path, await actorOf(deps, sessionToken));
+      return performRestore(deps, newest.path, await actorOf(deps, sessionToken), RestoreSource.PreUpdate);
     },
   );
 
@@ -426,6 +511,178 @@ export function registerRestoreOverIpc(deps: RestoreIpcDeps): void {
       }
     },
   );
+
+  handleGuarded(
+    MEZAN_BACKUP_DRILL_CHANNEL,
+    async (_event, sessionToken: unknown): Promise<BackupDrillResult> => {
+      const denied = await authorize(deps, sessionToken, VIEW_PERMISSION);
+      if (denied) return denied;
+      try {
+        const drill = await runRestoreDrill({
+          backupsDir: deps.backupsDir,
+          cipherKey: deps.cipher?.key ?? null,
+          appSchemaVersion: CURRENT_SCHEMA_VERSION,
+          trigger: DrillTrigger.Manual,
+        });
+        return { ok: true, drill };
+      } catch (err) {
+        console.error("[backup] restore drill could not run", err);
+        return failure("FAILED", "تعذّر تشغيل اختبار الاستعادة. تأكد من وجود مساحة كافية على القرص.");
+      }
+    },
+  );
+
+  handleGuarded(
+    MEZAN_BACKUP_STATUS_CHANNEL,
+    async (_event, sessionToken: unknown): Promise<BackupStatusResult | BackupFailure> => {
+      const denied = await authorize(deps, sessionToken, VIEW_PERMISSION);
+      if (denied) return denied;
+      const drills = await readDrillHistory(deps.backupsDir);
+      return {
+        ok: true,
+        drills,
+        lastGoodDrillAt: lastGoodDrill(drills)?.startedAt ?? null,
+        staleAfterDays: DRILL_STALE_AFTER_DAYS,
+        drillRunning: isDrillRunning(),
+        secondTarget: secondTargetDto(await readSecondTarget(deps.backupsDir)),
+      };
+    },
+  );
+
+  handleGuarded(
+    MEZAN_BACKUP_SECOND_TARGET_CHOOSE_CHANNEL,
+    async (_event, sessionToken: unknown): Promise<BackupSecondTargetResult> => {
+      const denied = await authorize(deps, sessionToken, RESTORE_PERMISSION);
+      if (denied) return denied;
+      let chosen: string | undefined;
+      try {
+        const picked = await dialog.showOpenDialog({
+          title: "اختر مجلداً ثانياً للنسخ الاحتياطية",
+          properties: ["openDirectory", "createDirectory"],
+        });
+        if (picked.canceled) return failure("CANCELLED", "لم يتم اختيار أي مجلد.");
+        chosen = picked.filePaths[0];
+      } catch (err) {
+        console.error("[backup] the folder picker could not be opened", err);
+        return failure("FAILED", "تعذّر فتح نافذة اختيار المجلد.");
+      }
+      if (!chosen) return failure("CANCELLED", "لم يتم اختيار أي مجلد.");
+      try {
+        await setSecondTargetDir(deps.backupsDir, chosen);
+      } catch {
+        return failure("INVALID_NAME", "لا يمكن أن يكون المجلد الثاني هو مجلد النسخ نفسه. اختر فلاشة أو مجلداً على جهاز آخر.");
+      }
+      console.log(`[backup] second backup target set to ${chosen}`);
+      const newest = (await listBackups(deps.backupsDir)).sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0];
+      const state = newest
+        ? await withBackupLock(() => copyToSecondTarget(deps.backupsDir, newest.path))
+        : await readSecondTarget(deps.backupsDir);
+      return { ok: true, secondTarget: secondTargetDto(state) };
+    },
+  );
+
+  handleGuarded(
+    MEZAN_BACKUP_SECOND_TARGET_CLEAR_CHANNEL,
+    async (_event, sessionToken: unknown): Promise<BackupSecondTargetResult> => {
+      const denied = await authorize(deps, sessionToken, RESTORE_PERMISSION);
+      if (denied) return denied;
+      console.log("[backup] second backup target cleared");
+      return { ok: true, secondTarget: secondTargetDto(await setSecondTargetDir(deps.backupsDir, null)) };
+    },
+  );
+
+  handleGuarded(
+    MEZAN_BACKUP_PICK_PORTABLE_CHANNEL,
+    async (_event, sessionToken: unknown): Promise<BackupPickPortableResult> => {
+      const { denied } = await authorizeOrFirstRun(deps, sessionToken);
+      if (denied) return denied;
+      let chosen: string | undefined;
+      try {
+        const picked = await dialog.showOpenDialog({
+          title: "اختر ملف النسخة القابلة للنقل",
+          properties: ["openFile"],
+          filters: [{ name: "Mezan portable backup", extensions: ["enc"] }],
+        });
+        if (picked.canceled) return failure("CANCELLED", "لم يتم اختيار أي ملف.");
+        chosen = picked.filePaths[0];
+      } catch (err) {
+        console.error("[backup] the file picker could not be opened", err);
+        return failure("FAILED", "تعذّر فتح نافذة اختيار الملف.");
+      }
+      if (!chosen) return failure("CANCELLED", "لم يتم اختيار أي ملف.");
+      if (!chosen.endsWith(PORTABLE_FILE_EXTENSION)) {
+        return failure("INVALID_NAME", `هذا ليس ملف نسخة قابلة للنقل من ميزان (${PORTABLE_FILE_EXTENSION}).`);
+      }
+      const size = await stat(chosen).then((s) => s.size).catch(() => null);
+      if (size === null) return failure("NOT_FOUND", "تعذّرت قراءة الملف المختار.");
+      return { ok: true, pickId: rememberPick(chosen), fileName: path.basename(chosen), sizeBytes: size };
+    },
+  );
+
+  /**
+   * The only route by which a portable archive becomes the books again — and so
+   * the only answer to a dead machine whose key card was never kept (ROADMAP
+   * §5.2). Decrypt and verify BEFORE anything live is touched: a wrong
+   * passphrase or a damaged file must leave the running install exactly as it
+   * was, not closed and relaunching.
+   */
+  handleGuarded(
+    MEZAN_BACKUP_IMPORT_PORTABLE_CHANNEL,
+    async (_event, sessionToken: unknown, pickId: unknown, passphrase: unknown): Promise<BackupRestoreResult> => {
+      const { denied, actor } = await authorizeOrFirstRun(deps, sessionToken);
+      if (denied) return denied;
+      const pick = typeof pickId === "string" ? picks.get(pickId) : undefined;
+      if (!pick || Date.now() - pick.at > PICK_TTL_MS) {
+        return failure("NOT_FOUND", "اختر ملف النسخة مرة أخرى.");
+      }
+      if (typeof passphrase !== "string" || passphrase === "") {
+        return failure("WRONG_PASSPHRASE", "اكتب كلمة سر النسخة المنقولة.");
+      }
+
+      const tmpRoot = path.join(deps.backupsDir, ".tmp");
+      await mkdir(tmpRoot, { recursive: true, mode: 0o700 });
+      const importDir = await mkdtemp(path.join(tmpRoot, "import-"));
+      const decrypted = path.join(importDir, `portable-import${BACKUP_FILE_EXTENSION}`);
+      try {
+        try {
+          await decryptFile(pick.path, decrypted, passphrase);
+        } catch (err) {
+          if (err instanceof Error && err.message === "Not a Mezan portable archive.") {
+            return failure("INVALID_NAME", "هذا الملف ليس نسخة قابلة للنقل من ميزان، أو أنه تالف.");
+          }
+          return failure(
+            "WRONG_PASSPHRASE",
+            "كلمة السر غير صحيحة، أو أن الملف تالف. لم يتغيّر شيء في بياناتك.",
+          );
+        }
+        try {
+          await verifyArchive({
+            archivePath: decrypted,
+            workDir: importDir,
+            cipher: deps.cipher,
+            maxSchemaVersion: CURRENT_SCHEMA_VERSION,
+          });
+        } catch (err) {
+          console.error("[backup] portable archive failed verification", err);
+          if (err instanceof SchemaTooNewForRestoreError) {
+            return failure(
+              "VERIFICATION_FAILED",
+              "هذه النسخة أُخذت بإصدار أحدث من ميزان. حدّث البرنامج على هذا الجهاز أولاً ثم أعد الاستيراد. لم يتغيّر شيء في بياناتك.",
+            );
+          }
+          return failure(
+            "VERIFICATION_FAILED",
+            "فُكّ تشفير الملف لكن قاعدة البيانات بداخله لم تجتز التحقق. لم يتغيّر شيء في بياناتك.",
+          );
+        }
+        picks.delete(pickId as string);
+        console.log(`[backup] importing portable archive ${pick.fileName}`);
+        return await performRestore(deps, decrypted, actor, RestoreSource.Portable);
+      } finally {
+        await rm(importDir, { recursive: true, force: true }).catch(() => undefined);
+      }
+    },
+  );
 }
 
 /**
@@ -437,6 +694,7 @@ async function performRestore(
   deps: RestoreIpcDeps,
   archivePath: string,
   actor: string,
+  source: RestoreSource,
 ): Promise<BackupRestoreResult> {
   // The safety copy comes FIRST, and from the live connection, because after
   // the next few lines there is no live connection to take one from.
@@ -446,13 +704,16 @@ async function performRestore(
   const sqlite = deps.sqlite();
   if (sqlite) {
     try {
-      const safety = await createBackup({
-        sqlite,
-        backupsDir: deps.backupsDir,
-        appVersion: deps.appVersion,
-        reason: "manual",
-        encrypted: deps.cipher !== undefined,
-      });
+      const safety = await withBackupLock(() =>
+        createBackup({
+          sqlite,
+          backupsDir: deps.backupsDir,
+          appVersion: deps.appVersion,
+          reason: "manual",
+          encrypted: deps.cipher !== undefined,
+          cipher: deps.cipher ? { key: deps.cipher.key } : undefined,
+        }),
+      );
       safetyBackupFileName = path.basename(safety.archivePath);
     } catch (err) {
       console.error("[backup] safety backup before restore failed", err);
@@ -472,7 +733,16 @@ async function performRestore(
       targetDbPath: deps.dbPath,
       workDir: path.dirname(deps.dbPath),
       cipher: deps.cipher,
+      maxSchemaVersion: CURRENT_SCHEMA_VERSION,
     });
+    if (source === RestoreSource.Portable && deps.cipher) {
+      // A portable archive is plaintext once decrypted. Re-keyed here, before
+      // relaunch, so the next launch's conversion never writes its plaintext
+      // safety copy of the books into the backups folder.
+      await encryptPlaintextDatabase({ dbPath: deps.dbPath, key: deps.cipher.key, driver: deps.cipher.driver }).catch(
+        (err: unknown) => console.error("[backup] could not re-key the imported database; the next launch converts it", err),
+      );
+    }
     console.log(
       `[backup] restored ${path.basename(archivePath)} ` +
         `(taken ${restored.manifest.createdAt} by app ${restored.manifest.appVersion})`,
@@ -487,6 +757,7 @@ async function performRestore(
       path.basename(archivePath),
       restored.manifest.createdAt,
       safetyBackupFileName,
+      source,
     );
     // Scheduled, not awaited: `app.exit()` kills the process, and the reply
     // to this invoke has not reached the renderer yet. The screen gets its
@@ -503,6 +774,12 @@ async function performRestore(
     // A foreign key is not a damaged file, and saying so would send an
     // owner to delete a backup that is intact and restorable — it just
     // needs the key card from the machine that wrote it.
+    if (err instanceof SchemaTooNewForRestoreError) {
+      return failure(
+        "VERIFICATION_FAILED",
+        "هذه النسخة أُخذت بإصدار أحدث من ميزان، ولا يستطيع هذا الإصدار فتحها. حدّث البرنامج ثم أعد المحاولة. لم تتغيّر بياناتك.",
+      );
+    }
     if (err instanceof BackupKeyMismatchError) {
       return failure(
         "VERIFICATION_FAILED",
@@ -543,4 +820,10 @@ export function registerClientBackupRefusalsOverIpc(hostUrl: string): void {
   handleGuarded(MEZAN_BACKUP_RESTORE_CHANNEL, () => refusal);
   handleGuarded(MEZAN_BACKUP_REVERT_CHANNEL, () => refusal);
   handleGuarded(MEZAN_BACKUP_EXPORT_PORTABLE_CHANNEL, () => refusal);
+  handleGuarded(MEZAN_BACKUP_DRILL_CHANNEL, () => refusal);
+  handleGuarded(MEZAN_BACKUP_STATUS_CHANNEL, () => refusal);
+  handleGuarded(MEZAN_BACKUP_PICK_PORTABLE_CHANNEL, () => refusal);
+  handleGuarded(MEZAN_BACKUP_IMPORT_PORTABLE_CHANNEL, () => refusal);
+  handleGuarded(MEZAN_BACKUP_SECOND_TARGET_CHOOSE_CHANNEL, () => refusal);
+  handleGuarded(MEZAN_BACKUP_SECOND_TARGET_CLEAR_CHANNEL, () => refusal);
 }

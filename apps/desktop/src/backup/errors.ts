@@ -55,3 +55,13 @@ export class BackupKeyMismatchError extends Error {
     this.name = "BackupKeyMismatchError";
   }
 }
+
+export class SchemaTooNewForRestoreError extends Error {
+  constructor(
+    readonly fileVersion: number,
+    readonly appVersion: number,
+  ) {
+    super(`The archive's database schema (${fileVersion}) is newer than this build understands (${appVersion}).`);
+    this.name = "SchemaTooNewForRestoreError";
+  }
+}

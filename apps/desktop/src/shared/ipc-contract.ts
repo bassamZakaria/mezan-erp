@@ -137,6 +137,9 @@ export type BackupFailureCode =
   | "NOT_FOUND"
   | "INVALID_NAME"
   | "VERIFICATION_FAILED"
+  | "WRONG_PASSPHRASE"
+  | "CANCELLED"
+  | "BUSY"
   | "FAILED";
 
 export interface BackupFailure {
@@ -166,6 +169,111 @@ export type BackupExportResult =
       readonly filePath: string;
     }
   | BackupFailure;
+
+export const MEZAN_BACKUP_DRILL_CHANNEL = "mezan:backup:drill";
+export const MEZAN_BACKUP_STATUS_CHANNEL = "mezan:backup:status";
+export const MEZAN_BACKUP_PICK_PORTABLE_CHANNEL = "mezan:backup:pickPortable";
+/**
+ * The path of the portable archive never crosses the bridge: `pickPortable`
+ * opens the OS picker in the main process and hands back an opaque id, and
+ * `importPortable` takes that id. A renderer that could name a path could have
+ * any file on the machine decrypted and mounted as the company's books.
+ */
+export const MEZAN_BACKUP_IMPORT_PORTABLE_CHANNEL = "mezan:backup:importPortable";
+export const MEZAN_BACKUP_SECOND_TARGET_CHOOSE_CHANNEL = "mezan:backup:secondTarget:choose";
+export const MEZAN_BACKUP_SECOND_TARGET_CLEAR_CHANNEL = "mezan:backup:secondTarget:clear";
+
+export enum DrillOutcome {
+  Pass = "pass",
+  Warn = "warn",
+  Fail = "fail",
+}
+
+export enum DrillCheck {
+  NoArchive = "no_archive",
+  Archive = "archive",
+  Manifest = "manifest",
+  Checksum = "checksum",
+  Key = "key",
+  Integrity = "integrity",
+  Open = "open",
+  Schema = "schema",
+  RowCounts = "row_counts",
+  Invariants = "invariants",
+  Crashed = "crashed",
+}
+
+export enum DrillTrigger {
+  Manual = "manual",
+  Scheduled = "scheduled",
+}
+
+export interface DrillStepDTO {
+  readonly check: DrillCheck;
+  readonly ok: boolean;
+  readonly ms: number;
+}
+
+export interface DrillInvariantsDTO {
+  readonly trialBalance: string;
+  readonly inventory: string;
+  readonly payables: string;
+  readonly receivables: string;
+}
+
+export interface DrillRowMismatchDTO {
+  readonly table: string;
+  readonly manifest: number | null;
+  readonly restored: number | null;
+}
+
+export interface DrillRecordDTO {
+  readonly id: string;
+  readonly trigger: DrillTrigger;
+  readonly startedAt: string;
+  readonly durationMs: number;
+  readonly outcome: DrillOutcome;
+  /** Null on a pass. On a warn it is always `invariants`: the archive restores, the books in it do not tie. */
+  readonly failedCheck: DrillCheck | null;
+  /** English machine detail for the log and support; the screen maps `failedCheck` to Arabic. */
+  readonly detail: string | null;
+  readonly archive: string | null;
+  readonly archiveCreatedAt: string | null;
+  readonly archiveBytes: number | null;
+  readonly schemaVersion: { readonly file: number; readonly manifest: number; readonly app: number } | null;
+  readonly tables: number | null;
+  readonly rows: number | null;
+  readonly rowMismatches: readonly DrillRowMismatchDTO[];
+  readonly invariants: DrillInvariantsDTO | null;
+  readonly steps: readonly DrillStepDTO[];
+}
+
+export interface SecondTargetStatusDTO {
+  readonly dir: string | null;
+  readonly lastCopyAt: string | null;
+  readonly lastCopyOk: boolean | null;
+  readonly lastCopyFile: string | null;
+  readonly lastCopyError: string | null;
+}
+
+export interface BackupStatusResult {
+  readonly ok: true;
+  /** Newest first. */
+  readonly drills: readonly DrillRecordDTO[];
+  /** The newest drill whose archive restored (pass or warn). */
+  readonly lastGoodDrillAt: string | null;
+  readonly staleAfterDays: number;
+  readonly drillRunning: boolean;
+  readonly secondTarget: SecondTargetStatusDTO;
+}
+
+export type BackupDrillResult = { readonly ok: true; readonly drill: DrillRecordDTO } | BackupFailure;
+
+export type BackupPickPortableResult =
+  | { readonly ok: true; readonly pickId: string; readonly fileName: string; readonly sizeBytes: number }
+  | BackupFailure;
+
+export type BackupSecondTargetResult = { readonly ok: true; readonly secondTarget: SecondTargetStatusDTO } | BackupFailure;
 
 /**
  * LICENCE HEALTH AND THE LAN ADDRESS, over IPC.
@@ -653,6 +761,13 @@ export interface MezanBridge {
     revertToPreUpdate(sessionToken: string): Promise<BackupRestoreResult>;
     /** Writes one passphrase-encrypted archive that restores on other hardware. */
     exportPortable(sessionToken: string, passphrase: string): Promise<BackupExportResult>;
+    drill(sessionToken: string): Promise<BackupDrillResult>;
+    status(sessionToken: string): Promise<BackupStatusResult | BackupFailure>;
+    /** An empty token is accepted only while the tenant is unclaimed (the first-run screen). */
+    pickPortable(sessionToken: string): Promise<BackupPickPortableResult>;
+    importPortable(sessionToken: string, pickId: string, passphrase: string): Promise<BackupRestoreResult>;
+    chooseSecondTarget(sessionToken: string): Promise<BackupSecondTargetResult>;
+    clearSecondTarget(sessionToken: string): Promise<BackupSecondTargetResult>;
   };
   /** Drives a user-initiated update action; resolves with the resulting status. */
   update(action: UpdateAction): Promise<UpdateStatus>;

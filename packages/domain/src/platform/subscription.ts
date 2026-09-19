@@ -74,11 +74,11 @@ export interface StartSubscriptionCommand {
 
 function validateExtras(s: Pick<Subscription, "addOnModules" | "extraSeats" | "extraBranches" | "extraWarehouses" | "graceDays">): string[] {
   const reasons: string[] = [];
-  for (const m of s.addOnModules) if (!isKnownModule(m)) reasons.push(`unknown add-on module "${m}"`);
-  if (!isCount(s.extraSeats, 0)) reasons.push("extraSeats must be an integer of at least 0");
-  if (!isCount(s.extraBranches, 0)) reasons.push("extraBranches must be an integer of at least 0");
-  if (!isCount(s.extraWarehouses, 0)) reasons.push("extraWarehouses must be an integer of at least 0");
-  if (!isCount(s.graceDays, 0)) reasons.push("graceDays must be an integer of at least 0");
+  for (const m of s.addOnModules) if (!isKnownModule(m)) reasons.push(`وحدة إضافية غير معروفة "${m}"`);
+  if (!isCount(s.extraSeats, 0)) reasons.push("عدد المقاعد الإضافية يجب أن يكون رقمًا صحيحًا لا يقل عن 0");
+  if (!isCount(s.extraBranches, 0)) reasons.push("عدد الفروع الإضافية يجب أن يكون رقمًا صحيحًا لا يقل عن 0");
+  if (!isCount(s.extraWarehouses, 0)) reasons.push("عدد المخازن الإضافية يجب أن يكون رقمًا صحيحًا لا يقل عن 0");
+  if (!isCount(s.graceDays, 0)) reasons.push("أيام السماح يجب أن تكون رقمًا صحيحًا لا يقل عن 0");
   return reasons;
 }
 
@@ -101,8 +101,8 @@ export async function startSubscription(
   const extraWarehouses = cmd.extraWarehouses ?? 0;
   const graceDays = cmd.graceDays ?? DEFAULT_GRACE_DAYS;
   const reasons: string[] = [];
-  if (cmd.id.trim() === "" || cmd.tenantId.trim() === "") reasons.push("id and tenantId are required");
-  if (!now) reasons.push("now must be an ISO-8601 timestamp");
+  if (cmd.id.trim() === "" || cmd.tenantId.trim() === "") reasons.push("المعرّف ومعرّف المنشأة مطلوبان");
+  if (!now) reasons.push("الطابع الزمني الحالي غير صالح (يجب أن يكون بصيغة ISO-8601)");
   reasons.push(...validateExtras({ addOnModules, extraSeats, extraBranches, extraWarehouses, graceDays }));
   if (!now || reasons.length > 0) throw new InvalidSubscriptionError(reasons);
   const plan = await activePlan(cmd.planId, plans);
@@ -147,7 +147,7 @@ function assertFrom(s: Subscription, allowed: readonly SubscriptionStatus[], to:
 
 function requireNow(cmd: SubscriptionCommand): string {
   const now = isoTimestamp(cmd.now);
-  if (!now) throw new InvalidSubscriptionError(["now must be an ISO-8601 timestamp"]);
+  if (!now) throw new InvalidSubscriptionError(["الطابع الزمني الحالي غير صالح (يجب أن يكون بصيغة ISO-8601)"]);
   return now;
 }
 
@@ -174,7 +174,7 @@ export async function markPastDue(cmd: SubscriptionCommand, repo: SubscriptionRe
   const now = requireNow(cmd);
   assertFrom(s, ["active"], "past_due");
   if (now < s.currentPeriodEnd) {
-    throw new InvalidSubscriptionError([`period has not ended (ends ${s.currentPeriodEnd})`]);
+    throw new InvalidSubscriptionError([`الفترة الحالية لم تنتهِ بعد (تنتهي في ${s.currentPeriodEnd})`]);
   }
   const next: Subscription = { ...s, status: "past_due", updatedAt: now };
   await repo.save(next);

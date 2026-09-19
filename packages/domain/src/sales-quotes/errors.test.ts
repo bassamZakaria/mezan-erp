@@ -12,7 +12,8 @@ describe("InvalidSalesQuoteError", () => {
     expect(err.code).toBe("INVALID_SALES_QUOTE");
     expect(err.name).toBe("InvalidSalesQuoteError");
     expect(err.reasons).toEqual(["العميل مطلوب.", "الفرع مطلوب."]);
-    expect(err.message).toBe("Invalid sales quote: العميل مطلوب.; الفرع مطلوب.");
+    expect(err.message).toBe("عرض السعر غير صالح: العميل مطلوب.، الفرع مطلوب.");
+    expect(err.messageEn).toBe("Invalid sales quote: العميل مطلوب.; الفرع مطلوب.");
     expect(err).toBeInstanceOf(Error);
   });
 });
@@ -23,7 +24,8 @@ describe("SalesQuoteNotFoundError", () => {
     expect(err.code).toBe("SALES_QUOTE_NOT_FOUND");
     expect(err.name).toBe("SalesQuoteNotFoundError");
     expect(err.quoteId).toBe("qt-99");
-    expect(err.message).toBe('Sales quote "qt-99" was not found.');
+    expect(err.message).toBe('عرض السعر "qt-99" غير موجود.');
+    expect(err.messageEn).toBe('Sales quote "qt-99" was not found.');
   });
 });
 
@@ -33,7 +35,8 @@ describe("DuplicateSalesQuoteError", () => {
     expect(err.code).toBe("DUPLICATE_SALES_QUOTE");
     expect(err.name).toBe("DuplicateSalesQuoteError");
     expect(err.quoteId).toBe("qt-1");
-    expect(err.message).toBe('Sales quote "qt-1" already exists.');
+    expect(err.message).toBe('عرض السعر "qt-1" موجود بالفعل.');
+    expect(err.messageEn).toBe('Sales quote "qt-1" already exists.');
   });
 });
 

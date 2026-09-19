@@ -1,3 +1,5 @@
+// Must stay the first import: it moves the clock before any module reads it.
+import "./fake-clock.js";
 import { serve } from "@hono/node-server";
 import { takeSeededAdminSecrets } from "@mezan/backend";
 import { parseEnv } from "./env.js";

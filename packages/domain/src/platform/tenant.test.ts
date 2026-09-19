@@ -45,7 +45,7 @@ describe("createTenant", () => {
       .rejects.toThrow(InvalidTenantError);
     await expect(createTenant({ ...cmd, code: "Cy ag", nameAr: " ", ownerEmail: "" }, memoryRepo()))
       .rejects.toMatchObject({ reasons: expect.arrayContaining([
-        expect.stringContaining("code"), expect.stringContaining("nameAr"), expect.stringContaining("ownerEmail"),
+        expect.stringContaining("الرمز"), expect.stringContaining("الاسم بالعربية"), expect.stringContaining("بريد المالك"),
       ]) });
   });
 

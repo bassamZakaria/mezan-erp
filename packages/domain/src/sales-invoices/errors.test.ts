@@ -13,7 +13,8 @@ describe("InvalidSalesInvoiceError", () => {
     expect(err.code).toBe("INVALID_SALES_INVOICE");
     expect(err.name).toBe("InvalidSalesInvoiceError");
     expect(err.reasons).toEqual(["العميل مطلوب.", "المستودع مطلوب."]);
-    expect(err.message).toBe("Invalid sales invoice: العميل مطلوب.; المستودع مطلوب.");
+    expect(err.message).toBe("فاتورة المبيعات غير صالحة: العميل مطلوب.، المستودع مطلوب.");
+    expect(err.messageEn).toBe("Invalid sales invoice: العميل مطلوب.; المستودع مطلوب.");
     expect(err).toBeInstanceOf(Error);
   });
 });
@@ -24,7 +25,8 @@ describe("SalesInvoiceNotFoundError", () => {
     expect(err.code).toBe("SALES_INVOICE_NOT_FOUND");
     expect(err.name).toBe("SalesInvoiceNotFoundError");
     expect(err.invoiceId).toBe("inv-99");
-    expect(err.message).toBe('Sales invoice "inv-99" was not found.');
+    expect(err.message).toBe('فاتورة المبيعات "inv-99" غير موجودة.');
+    expect(err.messageEn).toBe('Sales invoice "inv-99" was not found.');
   });
 });
 
@@ -34,7 +36,8 @@ describe("DuplicateSalesInvoiceError", () => {
     expect(err.code).toBe("DUPLICATE_SALES_INVOICE");
     expect(err.name).toBe("DuplicateSalesInvoiceError");
     expect(err.invoiceId).toBe("inv-1");
-    expect(err.message).toBe('Sales invoice "inv-1" already exists.');
+    expect(err.message).toBe('فاتورة المبيعات "inv-1" موجودة بالفعل.');
+    expect(err.messageEn).toBe('Sales invoice "inv-1" already exists.');
   });
 });
 

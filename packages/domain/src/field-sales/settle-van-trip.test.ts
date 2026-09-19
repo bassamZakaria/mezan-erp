@@ -171,4 +171,17 @@ describe("settleVanTrip", () => {
       }),
     ).toThrow(VanTripNotOngoingError);
   });
+
+  it("posts the transfer and the variance on the tenant's day it is given, not the UTC day of the instant (D285)", async () => {
+    const trips = createInMemoryVanTripRepository();
+    await openBasicTrip(trips);
+    const treasuryTransfer = vi.fn().mockResolvedValue(undefined);
+    const recordCashVariance = vi.fn().mockResolvedValue(undefined);
+    await settleVanTrip(
+      { tripId: "trip1", countedCash: Money.fromMajor("400"), stockCounts: [], now: () => "2026-09-18T21:30:00.000Z", date: "2026-09-19" },
+      { trips, treasuryTransfer, recordCashVariance },
+    );
+    expect(treasuryTransfer.mock.calls[0]?.[0].date).toBe("2026-09-19");
+    expect(recordCashVariance.mock.calls[0]?.[0].date).toBe("2026-09-19");
+  });
 });

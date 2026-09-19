@@ -44,17 +44,17 @@ export function tenantDbFile(code: string): string {
 
 function validate(cmd: CreateTenantCommand): string[] {
   const reasons: string[] = [];
-  if (cmd.id.trim() === "") reasons.push("id is required");
-  if (!isValidSlug(cmd.code)) reasons.push("code must be a slug of 3 to 32 lower-case letters, digits or inner hyphens");
-  if (cmd.nameAr.trim() === "") reasons.push("nameAr is required");
-  if (normalizeEmail(cmd.ownerEmail) === "") reasons.push("ownerEmail is required");
+  if (cmd.id.trim() === "") reasons.push("المعرّف مطلوب");
+  if (!isValidSlug(cmd.code)) reasons.push("الرمز يجب أن يكون من 3 إلى 32 حرفًا إنجليزيًا صغيرًا أو رقمًا أو شرطة داخلية");
+  if (cmd.nameAr.trim() === "") reasons.push("الاسم بالعربية مطلوب");
+  if (normalizeEmail(cmd.ownerEmail) === "") reasons.push("بريد المالك مطلوب");
   return reasons;
 }
 
 export async function createTenant(cmd: CreateTenantCommand, repo: TenantRepository): Promise<Tenant> {
   const now = isoTimestamp(cmd.now);
   const reasons = validate(cmd);
-  if (!now) reasons.push("now must be an ISO-8601 timestamp");
+  if (!now) reasons.push("الطابع الزمني الحالي غير صالح (يجب أن يكون بصيغة ISO-8601)");
   if (!now || reasons.length > 0) throw new InvalidTenantError(reasons);
   if (await repo.findByCode(cmd.code)) throw new TenantCodeTakenError(cmd.code);
   const tenant: Tenant = {
@@ -91,7 +91,7 @@ async function transition(
   from?: readonly TenantStatus[],
 ): Promise<Tenant> {
   const now = isoTimestamp(cmd.now);
-  if (!now) throw new InvalidTenantError(["now must be an ISO-8601 timestamp"]);
+  if (!now) throw new InvalidTenantError(["الطابع الزمني الحالي غير صالح (يجب أن يكون بصيغة ISO-8601)"]);
   const current = await repo.findById(cmd.id);
   if (!current) throw new TenantNotFoundError(cmd.id);
   if (!TRANSITIONS[current.status].includes(to) || (from !== undefined && !from.includes(current.status))) {

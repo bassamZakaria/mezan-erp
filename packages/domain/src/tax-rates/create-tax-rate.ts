@@ -15,7 +15,10 @@ export interface CreateTaxRateCommand {
 
 function assertValidRate(rate: number): void {
   if (!Number.isFinite(rate) || rate < 0 || rate > 100) {
-    throw new InvalidTaxRateError(`Tax rate must be a number between 0 and 100, got ${rate}.`);
+    throw new InvalidTaxRateError(
+      `نسبة الضريبة يجب أن تكون رقماً بين 0 و100، والقيمة المُدخلة ${rate}.`,
+      `Tax rate must be a number between 0 and 100, got ${rate}.`,
+    );
   }
 }
 

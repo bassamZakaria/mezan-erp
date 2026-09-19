@@ -161,16 +161,16 @@ export function bomCostEstimate(bom: Bom, resolveUnitCost: (itemId: string) => M
 
 function validateLines(command: CreateBomCommand): BomLine[] {
   const reasons: string[] = [];
-  if (command.productItemId.trim() === "") reasons.push("a final product is required");
+  if (command.productItemId.trim() === "") reasons.push("المنتج النهائي مطلوب");
   if (command.standardQty.isZero() || command.standardQty.isNegative()) {
-    reasons.push("standard batch quantity must be positive");
+    reasons.push("كمية الدفعة القياسية يجب أن تكون أكبر من صفر");
   }
-  if (command.lines.length === 0) reasons.push("at least one raw-material line is required");
+  if (command.lines.length === 0) reasons.push("مطلوب سطر واحد على الأقل من المواد الخام");
   const lines = command.lines.map<BomLine>((l, i) => {
-    if (l.itemId.trim() === "") reasons.push(`line ${i}: an item is required`);
-    if (l.qty.isZero() || l.qty.isNegative()) reasons.push(`line ${i}: qty must be positive`);
+    if (l.itemId.trim() === "") reasons.push(`السطر ${i}: الصنف مطلوب`);
+    if (l.qty.isZero() || l.qty.isNegative()) reasons.push(`السطر ${i}: الكمية يجب أن تكون أكبر من صفر`);
     const waste = l.wastePercent ?? 0;
-    if (waste < 0) reasons.push(`line ${i}: waste % must not be negative`);
+    if (waste < 0) reasons.push(`السطر ${i}: نسبة الهدر يجب ألا تكون سالبة`);
     return {
       itemId: l.itemId,
       qty: l.qty,

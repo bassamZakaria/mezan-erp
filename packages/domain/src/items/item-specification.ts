@@ -84,27 +84,33 @@ function normalizeUnit(unit: string | null | undefined): string | null {
   return trimmed === "" ? null : trimmed;
 }
 
+const SPECIFICATION_TYPE_LABELS_AR: Readonly<Record<ItemSpecificationType, string>> = {
+  select: "قائمة اختيار",
+  number: "رقم",
+  text: "نص",
+};
+
 function collectErrors(specification: ItemSpecification): string[] {
   const reasons: string[] = [];
   if (!CODE_PATTERN.test(specification.code)) {
-    reasons.push("code must be 1-20 uppercase alphanumeric/-/_ characters");
+    reasons.push("الكود يجب أن يتكون من 1 إلى 20 حرفًا/رقمًا إنجليزيًا كبيرًا أو -/_");
   }
-  if (specification.nameAr.trim() === "") reasons.push("nameAr is required");
+  if (specification.nameAr.trim() === "") reasons.push("اسم المواصفة بالعربية مطلوب");
 
   if (specification.type === "select") {
     if (specification.values.length === 0) {
-      reasons.push("a select-list specification needs at least one allowed value");
+      reasons.push("مواصفة من نوع قائمة اختيار تحتاج قيمة واحدة مسموحة على الأقل");
     }
     if (new Set(specification.values).size !== specification.values.length) {
-      reasons.push("allowed values must be unique");
+      reasons.push("القيم المسموحة يجب أن تكون فريدة");
     }
-    if (specification.unit !== null) reasons.push("a select-list specification cannot carry a unit");
+    if (specification.unit !== null) reasons.push("مواصفة من نوع قائمة اختيار لا يمكن أن تحمل وحدة قياس");
   } else {
     if (specification.values.length > 0) {
-      reasons.push(`a ${specification.type} specification cannot carry allowed values`);
+      reasons.push(`مواصفة من نوع "${SPECIFICATION_TYPE_LABELS_AR[specification.type]}" لا يمكن أن تحمل قيمًا مسموحة`);
     }
     if (specification.type === "text" && specification.unit !== null) {
-      reasons.push("a text specification cannot carry a unit");
+      reasons.push("مواصفة من نوع نص لا يمكن أن تحمل وحدة قياس");
     }
   }
   return reasons;

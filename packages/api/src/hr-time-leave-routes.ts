@@ -177,6 +177,10 @@ function serializeLeaveRequest(r: LeaveRequest) {
   };
 }
 
+function withMessageEn(err: { readonly code: string; readonly message: string; readonly messageEn?: string }) {
+  return { error: err.code, message: err.message, ...(err.messageEn ? { messageEn: err.messageEn } : {}) };
+}
+
 function handleTimeLeaveError(c: Context, err: unknown): Response {
   if (
     err instanceof AttendanceEntryNotFoundError ||
@@ -184,10 +188,10 @@ function handleTimeLeaveError(c: Context, err: unknown): Response {
     err instanceof LeaveRequestNotFoundError ||
     err instanceof EmployeeNotFoundError
   ) {
-    return c.json({ error: err.code, message: err.message }, 404);
+    return c.json(withMessageEn(err), 404);
   }
   if (err instanceof DuplicateAttendanceEntryError || err instanceof DuplicateLeavePolicyError) {
-    return c.json({ error: err.code, message: err.message }, 409);
+    return c.json(withMessageEn(err), 409);
   }
   if (
     err instanceof InvalidAttendanceEntryError ||
@@ -198,7 +202,7 @@ function handleTimeLeaveError(c: Context, err: unknown): Response {
     err instanceof LeaveBalanceExceededError ||
     err instanceof UnknownLeavePolicyPresetError
   ) {
-    return c.json({ error: err.code, message: err.message }, 422);
+    return c.json(withMessageEn(err), 422);
   }
   throw err;
 }

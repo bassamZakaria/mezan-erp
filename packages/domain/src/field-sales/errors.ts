@@ -1,10 +1,12 @@
-import type { VanTripStatus } from "./van-trip.js";
+import { getVanTripStatusLabel, type VanTripStatus } from "./van-trip.js";
 
 /** Raised when an operation references a van-trip id that does not exist. */
 export class VanTripNotFoundError extends Error {
   readonly code = "VAN_TRIP_NOT_FOUND";
+  readonly messageEn: string;
   constructor(readonly tripId: string) {
-    super(`Van trip "${tripId}" was not found.`);
+    super(`رحلة التوزيع "${tripId}" غير موجودة.`);
+    this.messageEn = `Van trip "${tripId}" was not found.`;
     this.name = "VanTripNotFoundError";
   }
 }
@@ -21,11 +23,13 @@ export class InvalidVanTripError extends Error {
 /** Raised when recording a cash movement or settling a trip that is not currently "ongoing". */
 export class VanTripNotOngoingError extends Error {
   readonly code = "VAN_TRIP_NOT_ONGOING";
+  readonly messageEn: string;
   constructor(
     readonly tripId: string,
     readonly currentStatus: VanTripStatus,
   ) {
-    super(`Van trip "${tripId}" is not ongoing (current status: "${currentStatus}").`);
+    super(`رحلة التوزيع "${tripId}" ليست جارية (حالتها الحالية: «${getVanTripStatusLabel(currentStatus)}»).`);
+    this.messageEn = `Van trip "${tripId}" is not ongoing (current status: "${currentStatus}").`;
     this.name = "VanTripNotOngoingError";
   }
 }
@@ -33,8 +37,10 @@ export class VanTripNotOngoingError extends Error {
 /** Raised when a van trip's source warehouse and van warehouse are the same. */
 export class SameWarehouseVanTripError extends Error {
   readonly code = "SAME_WAREHOUSE_VAN_TRIP";
+  readonly messageEn: string;
   constructor(readonly warehouseId: string) {
-    super(`A van trip's source and van warehouse must differ ("${warehouseId}").`);
+    super(`لا بد أن يختلف مستودع المصدر عن مستودع السيارة في رحلة التوزيع ("${warehouseId}").`);
+    this.messageEn = `A van trip's source and van warehouse must differ ("${warehouseId}").`;
     this.name = "SameWarehouseVanTripError";
   }
 }

@@ -357,6 +357,10 @@ function serializeConfigInstance(i: ConfigInstance) {
   };
 }
 
+function withMessageEn(err: { readonly code: string; readonly message: string; readonly messageEn?: string }) {
+  return { error: err.code, message: err.message, ...(err.messageEn ? { messageEn: err.messageEn } : {}) };
+}
+
 function handleDomainError(c: Context, err: unknown): Response {
   if (
     err instanceof BomNotFoundError ||
@@ -364,19 +368,19 @@ function handleDomainError(c: Context, err: unknown): Response {
     err instanceof ConfigurableProductNotFoundError ||
     err instanceof ConfigInstanceNotFoundError
   ) {
-    return c.json({ error: err.code, message: err.message }, 404);
+    return c.json(withMessageEn(err), 404);
   }
   if (err instanceof DuplicateManufacturingDocumentError) {
-    return c.json({ error: err.code, message: err.message }, 409);
+    return c.json(withMessageEn(err), 409);
   }
   if (err instanceof WorkOrderStageError) {
-    return c.json({ error: err.code, message: err.message }, 409);
+    return c.json(withMessageEn(err), 409);
   }
   if (err instanceof InvalidManufacturingDocumentError) {
-    return c.json({ error: err.code, message: err.message, reasons: err.reasons }, 422);
+    return c.json({ ...withMessageEn(err), reasons: err.reasons }, 422);
   }
   if (err instanceof FormulaError) {
-    return c.json({ error: err.code, message: err.message }, 422);
+    return c.json(withMessageEn(err), 422);
   }
   throw err;
 }
@@ -398,8 +402,8 @@ async function warehouseRefusals(
   const reasons: string[] = [];
   for (const { label, id } of ids) {
     const warehouse = await registry.findById(id);
-    if (!warehouse) reasons.push(`${label} "${id}" is not a warehouse`);
-    else if (!warehouse.active) reasons.push(`${label} "${warehouse.name}" is inactive`);
+    if (!warehouse) reasons.push(`${label} "${id}" غير مسجّل كمستودع`);
+    else if (!warehouse.active) reasons.push(`${label} "${warehouse.name}" غير مفعّل`);
   }
   return reasons;
 }
@@ -743,9 +747,9 @@ export function createManufacturingRoutes(
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     try {
       const refusals = await warehouseRefusals(deps, [
-        { label: "raw-material warehouse", id: parsed.data.sourceWarehouseId },
-        { label: "work-in-process warehouse", id: parsed.data.wipWarehouseId },
-        { label: "finished-goods warehouse", id: parsed.data.destinationWarehouseId },
+        { label: "مستودع المواد الخام", id: parsed.data.sourceWarehouseId },
+        { label: "مستودع التشغيل", id: parsed.data.wipWarehouseId },
+        { label: "مستودع المنتج التام", id: parsed.data.destinationWarehouseId },
       ]);
       if (refusals.length > 0) throw new InvalidManufacturingDocumentError(refusals);
       const order = await createWorkOrder(
@@ -984,9 +988,9 @@ export function createManufacturingRoutes(
       if (!product) throw new ConfigurableProductNotFoundError(parsed.data.configurableProductId);
       const map = await costMap(product.materials.map((m) => m.itemId));
       const refusals = await warehouseRefusals(deps, [
-        { label: "raw-material warehouse", id: parsed.data.sourceWarehouseId },
-        { label: "work-in-process warehouse", id: parsed.data.wipWarehouseId },
-        { label: "finished-goods warehouse", id: parsed.data.destinationWarehouseId },
+        { label: "مستودع المواد الخام", id: parsed.data.sourceWarehouseId },
+        { label: "مستودع التشغيل", id: parsed.data.wipWarehouseId },
+        { label: "مستودع المنتج التام", id: parsed.data.destinationWarehouseId },
       ]);
       if (refusals.length > 0) throw new InvalidManufacturingDocumentError(refusals);
       const { instance } = await createConfigInstance(

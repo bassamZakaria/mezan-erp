@@ -325,7 +325,7 @@ describe("work order — stage guards", () => {
     await workOrders.update({ ...started!, wipWarehouseId: "" });
     await expect(
       issueWorkOrderMaterials(wo.id, { workOrders, stock, now }),
-    ).rejects.toThrow(/names no work-in-process warehouse/);
+    ).rejects.toThrow(/لا يحدد مستودع تشغيل/);
   });
 });
 
@@ -378,7 +378,7 @@ describe("work order — return refuses more than is outstanding", () => {
     await issueWorkOrderMaterials(wo.id, deps); // 20 of m1 issued
     await expect(
       returnWorkOrderMaterials(wo.id, [{ itemId: "m1", qty: Qty.fromMajor("20.000001") }], deps),
-    ).rejects.toThrow(/only 20\.000000 outstanding/);
+    ).rejects.toThrow(/القائم فقط 20\.000000/);
 
     const unchanged = await workOrders.findById(wo.id);
     expect(unchanged?.materialCost.toString()).toBe("250.000000");

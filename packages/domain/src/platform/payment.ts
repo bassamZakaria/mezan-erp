@@ -49,18 +49,18 @@ export async function recordPayment(
   const reference = cmd.reference.trim();
   const reasons: string[] = [];
   if (cmd.id.trim() === "" || cmd.tenantId.trim() === "" || cmd.subscriptionId.trim() === "") {
-    reasons.push("id, tenantId and subscriptionId are required");
+    reasons.push("المعرّف ومعرّف المنشأة ومعرّف الاشتراك مطلوبة");
   }
-  if (cmd.amount.scaled <= 0n) reasons.push("amount must be greater than zero");
-  if (reference === "") reasons.push("reference is required");
-  if (!paidAt) reasons.push("paidAt must be an ISO-8601 timestamp");
-  if (!now) reasons.push("now must be an ISO-8601 timestamp");
+  if (cmd.amount.scaled <= 0n) reasons.push("المبلغ يجب أن يكون أكبر من صفر");
+  if (reference === "") reasons.push("المرجع مطلوب");
+  if (!paidAt) reasons.push("تاريخ السداد غير صالح (يجب أن يكون بصيغة ISO-8601)");
+  if (!now) reasons.push("الطابع الزمني الحالي غير صالح (يجب أن يكون بصيغة ISO-8601)");
   if (!now || !paidAt || reasons.length > 0) throw new InvalidPaymentError(reasons);
 
   const subscription = await subscriptions.findById(cmd.subscriptionId);
   if (!subscription) throw new SubscriptionNotFoundError(cmd.subscriptionId);
   if (subscription.tenantId !== cmd.tenantId) {
-    throw new InvalidPaymentError([`subscription "${cmd.subscriptionId}" does not belong to tenant "${cmd.tenantId}"`]);
+    throw new InvalidPaymentError([`الاشتراك "${cmd.subscriptionId}" لا يخص المنشأة "${cmd.tenantId}"`]);
   }
 
   const renewed = await renewSubscription({ id: cmd.subscriptionId, now }, subscriptions);

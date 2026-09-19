@@ -126,9 +126,14 @@ function serializeActivity(activity: Activity) {
   };
 }
 
+function withMessageEn(err: { code: string; message: string }) {
+  const messageEn = (err as { messageEn?: string }).messageEn;
+  return { error: err.code, message: err.message, ...(messageEn ? { messageEn } : {}) };
+}
+
 function handleDomainError(c: Context, err: unknown): Response {
   if (err instanceof LeadNotFoundError || err instanceof OpportunityNotFoundError || err instanceof PipelineStageNotFoundError || err instanceof ActivityNotFoundError) {
-    return c.json({ error: err.code, message: err.message }, 404);
+    return c.json(withMessageEn(err), 404);
   }
   if (
     err instanceof InvalidLeadError ||
@@ -140,7 +145,7 @@ function handleDomainError(c: Context, err: unknown): Response {
     err instanceof ActivityNotPendingError ||
     err instanceof InvalidCustomerError
   ) {
-    return c.json({ error: err.code, message: err.message }, 422);
+    return c.json(withMessageEn(err), 422);
   }
   throw err;
 }

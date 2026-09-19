@@ -38,6 +38,7 @@ import {
   StockLedgerService,
 } from "@mezan/domain";
 import { createReportsRoutes, type ReportsRoutesDeps } from "./reports-routes.js";
+import { createFinancialReportsRoutes } from "./financial-reports-routes.js";
 
 import { insecureHeaderAuthContextResolver } from "./permission-gate.js";
 const handles: { close(): void }[] = [];
@@ -2048,6 +2049,112 @@ describe("reports routes — drill-down/account/:id", () => {
     expect(body.facts.find((f) => f.key === "balance")?.value).toBe("120.00");
     // All three postings touched this account: the original, its reversal, and the unrelated one.
     expect(body.documentCount).toBe(3);
+  });
+});
+
+/** guards D281 — the account panel answers for the statement figure it was opened from. */
+describe("reports routes — drill-down/account/:id reconciles to the statement it came from (D281)", () => {
+  async function seedAccount() {
+    const { app, deps } = await newApp();
+    const statements = createFinancialReportsRoutes({ ledger: deps.ledger, accounts: deps.accounts, today: deps.today }, insecureHeaderAuthContextResolver);
+    for (const [id, code, type, naturalBalance] of [
+      ["acct-cash", "1110", "asset", "debit"],
+      ["acct-rev", "4100", "revenue", "credit"],
+      ["acct-re", "3200", "equity", "credit"],
+    ] as const) {
+      await deps.accounts.create({ id, code, nameAr: id, nameEn: null, type, naturalBalance, parentId: null, isHeader: false, status: "active" });
+    }
+    const post = (id: string, date: string, amount: string, branchId: string) =>
+      deps.ledger.save({
+        id,
+        date,
+        memo: id,
+        status: "posted",
+        source: "system",
+        lines: [
+          { accountId: "acct-cash", debit: Money.fromMajor(amount), credit: Money.zero(), branchId },
+          { accountId: "acct-rev", debit: Money.zero(), credit: Money.fromMajor(amount), branchId },
+        ],
+      });
+    await post("je-past", "2026-08-10", "300.00", "BR-1");
+    await post("je-other-branch", "2026-08-12", "20.00", "BR-2");
+    // Dated after `today` (2026-08-22): the trial balance leaves it out, so the panel must too.
+    await post("je-future", "2026-09-15", "50.00", "BR-1");
+    return { app, statements, deps };
+  }
+
+  const balanceOf = (body: { facts: { key: string; value: string }[] }) => body.facts.find((f) => f.key === "balance")?.value;
+  async function tbRow(statements: { fetch: (r: Request) => Response | Promise<Response> }, query: string) {
+    const res = await statements.fetch(req(`/trial-balance${query}`, "accounting.reports.view"));
+    const body = (await res.json()) as { params: { asOfDate: string }; rows: { accountId: string; debit: number; credit: number }[] };
+    const row = body.rows.find((r) => r.accountId === "acct-cash")!;
+    return { asOfDate: body.params.asOfDate, net: (row.debit - row.credit).toFixed(2) };
+  }
+
+  it("defaults to the trial balance's own as-of day and leaves out an entry dated after it", async () => {
+    const { app, statements } = await seedAccount();
+    const tb = await tbRow(statements, "");
+    const res = await app.fetch(req("/drill-down/account/acct-cash", "accounting.reports.view"));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { facts: { key: string; value: string }[]; documents: { id: string }[]; documentCount: number };
+    expect(tb).toEqual({ asOfDate: "2026-08-22", net: "320.00" });
+    expect(balanceOf(body)).toBe(tb.net);
+    expect(body.facts.find((f) => f.key === "asOfDate")?.value).toBe("2026-08-22");
+    expect(body.documents.map((d) => d.id)).not.toContain("je-future");
+    expect(body.documentCount).toBe(2);
+  });
+
+  it("honours an explicit asOfDate, landing on the trial balance's row for that day", async () => {
+    const { app, statements } = await seedAccount();
+    for (const asOfDate of ["2026-08-11", "2026-09-30"]) {
+      const tb = await tbRow(statements, `?asOfDate=${asOfDate}`);
+      const res = await app.fetch(req(`/drill-down/account/acct-cash?asOfDate=${asOfDate}`, "accounting.reports.view"));
+      expect(balanceOf((await res.json()) as { facts: { key: string; value: string }[] })).toBe(tb.net);
+    }
+    expect((await tbRow(statements, "?asOfDate=2026-09-30")).net).toBe("370.00");
+  });
+
+  it("narrows to the statement's branch, as the trial balance does, and never widens past the caller's scope", async () => {
+    const { app, statements } = await seedAccount();
+    const tb = await tbRow(statements, "?asOfDate=2026-09-30&branchId=BR-1");
+    const res = await app.fetch(req("/drill-down/account/acct-cash?asOfDate=2026-09-30&branchId=BR-1", "accounting.reports.view"));
+    expect(tb.net).toBe("350.00");
+    expect(balanceOf((await res.json()) as { facts: { key: string; value: string }[] })).toBe(tb.net);
+    const scoped = await app.fetch(
+      new Request("http://local/drill-down/account/acct-cash?asOfDate=2026-09-30", {
+        headers: { "x-permissions": "accounting.reports.view", "x-branch-scope": "BR-2" },
+      }),
+    );
+    expect(balanceOf((await scoped.json()) as { facts: { key: string; value: string }[] })).toBe("20.00");
+  });
+
+  it("answers a period's activity for the income statement, without the year-end close", async () => {
+    const { app, statements, deps } = await seedAccount();
+    await deps.ledger.save({
+      id: "je-close",
+      date: "2026-09-30",
+      memo: "year-end close",
+      status: "posted",
+      source: "system",
+      sourceDocType: "YEAR_END_CLOSE",
+      lines: [
+        { accountId: "acct-rev", debit: Money.fromMajor("370.00"), credit: Money.zero() },
+        { accountId: "acct-re", debit: Money.zero(), credit: Money.fromMajor("370.00") },
+      ],
+    });
+    const is = await statements.fetch(req("/income-statement?periodFrom=2026-08-11&periodTo=2026-09-30", "accounting.reports.view"));
+    const row = ((await is.json()) as { rows: { accountId: string; amount: number }[] }).rows.find((r) => r.accountId === "acct-rev")!;
+    const res = await app.fetch(req("/drill-down/account/acct-rev?fromDate=2026-08-11&asOfDate=2026-09-30", "accounting.reports.view"));
+    const body = (await res.json()) as { facts: { key: string; value: string }[] };
+    expect(row.amount).toBe(70);
+    expect(balanceOf(body)).toBe("-70.00");
+    expect(body.facts.find((f) => f.key === "fromDate")?.value).toBe("2026-08-11");
+  });
+
+  it("refuses a malformed date or an inverted window rather than answering for a different one", async () => {
+    const { app } = await seedAccount();
+    expect((await app.fetch(req("/drill-down/account/acct-cash?asOfDate=2026-13-45", "accounting.reports.view"))).status).toBe(400);
+    expect((await app.fetch(req("/drill-down/account/acct-cash?fromDate=2026-09-01&asOfDate=2026-08-01", "accounting.reports.view"))).status).toBe(400);
   });
 });
 

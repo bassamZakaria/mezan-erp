@@ -26,14 +26,35 @@ const SCREEN_BY_DOC_TYPE: Readonly<Record<ReportDrillDownDTO["documents"][number
   STOCK_MOVEMENT: null,
 };
 
-function useDrillDown(entity: ReportRunnerEntityRef | null) {
+// An account panel must be asked for the window its figure was computed over,
+// as the server echoed it, or it disagrees with the row it opened from (D281).
+export function drillDownQuery(kind: string, reportParams?: Readonly<Record<string, unknown>> | null): string {
+  if (kind !== "account" || !reportParams) return "";
+  const text = (key: string): string | undefined => {
+    const value = reportParams[key];
+    return typeof value === "string" && value !== "" ? value : undefined;
+  };
+  const search = new URLSearchParams();
+  const asOfDate = text("asOfDate");
+  const fromDate = asOfDate ? undefined : text("periodFrom");
+  const toDate = asOfDate ?? text("periodTo");
+  if (fromDate) search.set("fromDate", fromDate);
+  if (toDate) search.set("asOfDate", toDate);
+  const branchId = text("branchId");
+  if (branchId) search.set("branchId", branchId);
+  const qs = search.toString();
+  return qs ? `?${qs}` : "";
+}
+
+function useDrillDown(entity: ReportRunnerEntityRef | null, reportParams?: Readonly<Record<string, unknown>> | null) {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
+  const query = entity ? drillDownQuery(entity.kind, reportParams) : "";
   return useQuery<ReportDrillDownDTO, ApiError>({
-    queryKey: ["reports", "drill-down", entity?.kind, entity?.id],
+    queryKey: ["reports", "drill-down", entity?.kind, entity?.id, query],
     enabled: session !== null && entity !== null,
     queryFn: async () => {
-      const res = await request(`/reports/drill-down/${entity?.kind}/${encodeURIComponent(entity?.id ?? "")}`);
+      const res = await request(`/reports/drill-down/${entity?.kind}/${encodeURIComponent(entity?.id ?? "")}${query}`);
       if (!res.ok) throw await loaderError(res, t("reportDrill.failed"), t);
       return res.json<ReportDrillDownDTO>();
     },
@@ -48,12 +69,14 @@ function overlay(key: string, fallback: string, t: (k: AppTranslationKey) => str
 export function ReportDrillDownPanel({
   entity,
   onClose,
+  reportParams,
 }: {
   entity: ReportRunnerEntityRef | null;
   onClose: () => void;
+  reportParams?: Readonly<Record<string, unknown>> | null;
 }) {
   const { t } = useAppTranslation();
-  const query = useDrillDown(entity);
+  const query = useDrillDown(entity, reportParams);
   const data = query.data ?? null;
 
   return (

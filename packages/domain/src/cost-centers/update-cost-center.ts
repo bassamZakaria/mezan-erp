@@ -34,7 +34,10 @@ export async function updateCostCenter(
       throw new CircularParentCostCenterError(costCenterId);
     }
     if (!existing.some((c) => c.id === nextParentId)) {
-      throw new InvalidParentCostCenterError(`Parent cost center "${nextParentId}" was not found.`);
+      throw new InvalidParentCostCenterError(
+        `مركز التكلفة الأصل "${nextParentId}" غير موجود.`,
+        `Parent cost center "${nextParentId}" was not found.`,
+      );
     }
     if (isDescendantOf(existing, nextParentId, costCenterId)) {
       throw new CircularParentCostCenterError(costCenterId);

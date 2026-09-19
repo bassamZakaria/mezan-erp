@@ -388,7 +388,10 @@ export class ChequeService {
     return this.deps.cheques.transaction(async () => {
       const cheque = await this.require(cmd.chequeId);
       if (cheque.status === "bounced" || cheque.status === "replaced") {
-        throw new InvalidChequeCommandError("لا يمكن تخصيص شيك مرتد على فاتورة.");
+        throw new InvalidChequeCommandError(
+          "لا يمكن تخصيص شيك مرتد على فاتورة.",
+          "A bounced cheque cannot be allocated to an invoice.",
+        );
       }
       const realisedFx = this.deps.realisedFx;
       // A standalone cheque credits the party in base; one a voucher raised
@@ -454,7 +457,10 @@ export class ChequeService {
 
   private allocationStore() {
     if (!this.deps.allocation) {
-      throw new InvalidChequeCommandError("تخصيص الشيكات على الفواتير غير مُفعّل على هذا الخادم.");
+      throw new InvalidChequeCommandError(
+        "تخصيص الشيكات على الفواتير غير مُفعّل على هذا الخادم.",
+        "Allocating cheques to invoices is not enabled on this server.",
+      );
     }
     return { allocations: this.deps.allocation.allocations, invoices: this.deps.allocation.invoices, returns: this.deps.allocation.returns };
   }
@@ -488,7 +494,10 @@ export class ChequeService {
     const original = await this.require(cmd.bouncedChequeId);
     assertChequeTransition(original, "replace");
     if (original.direction !== "incoming") {
-      throw new InvalidChequeCommandError(`Outgoing cheque "${original.id}" cannot be replaced via replace(); create a new cheque instead.`);
+      throw new InvalidChequeCommandError(
+        `لا يمكن استبدال الشيك الصادر "${original.id}" عبر هذه العملية؛ أنشئ شيكاً جديداً بدلاً من ذلك.`,
+        `Outgoing cheque "${original.id}" cannot be replaced via replace(); create a new cheque instead.`,
+      );
     }
     const amount = cmd.newCheque.amount ?? original.amount;
     if (!amount.equals(original.amount)) {

@@ -131,6 +131,13 @@ describe("fixed-assets router — categories", () => {
       req("/categories", { method: "POST", permissions: "assets.manage", body: JSON.stringify({ ...categoryPayload, id: "cat-2" }) }),
     );
     expect(dup.status).toBe(409);
+    // D280: the refusal the screen shows verbatim is Arabic, with the English beside it.
+    const body = (await dup.json()) as { error: string; message: string; messageEn: string };
+    expect(body).toEqual({
+      error: "DUPLICATE_ASSET_CATEGORY_CODE",
+      message: `كود فئة الأصول "${categoryPayload.code}" مستخدم من قبل.`,
+      messageEn: `Asset category code "${categoryPayload.code}" already exists.`,
+    });
   });
 
   it("GET /categories/:id 404s an unknown category", async () => {
@@ -315,6 +322,7 @@ describe("fixed-assets router — depreciation run full flow", () => {
 
     const rePost = await app.fetch(req(`/depreciation/runs/${draftRun.id}/post`, { method: "POST", permissions: "assets.depreciation.run" }));
     expect(rePost.status).toBe(409);
+    expect(((await rePost.json()) as { message: string }).message).toContain("«مُرحَّل» وليست مسودة");
 
     const dupPeriod = await app.fetch(
       req("/depreciation/runs", { method: "POST", permissions: "assets.depreciation.run", body: JSON.stringify({ period: "2026-03" }) }),

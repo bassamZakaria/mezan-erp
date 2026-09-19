@@ -87,13 +87,18 @@ function serializeVariant(variant: ProductTemplateVariant) {
   };
 }
 
+function withMessageEn(err: { code: string; message: string }) {
+  const messageEn = (err as { messageEn?: string }).messageEn;
+  return { error: err.code, message: err.message, ...(messageEn ? { messageEn } : {}) };
+}
+
 function handleDomainError(c: Context, err: unknown) {
   if (
     err instanceof ProductTemplateNotFoundError ||
     err instanceof AttributeNotFoundError ||
     err instanceof ItemSpecificationNotFoundError
   ) {
-    return c.json({ error: err.code, message: err.message }, 404);
+    return c.json(withMessageEn(err), 404);
   }
   if (
     err instanceof DuplicateProductTemplateCodeError ||
@@ -103,7 +108,7 @@ function handleDomainError(c: Context, err: unknown) {
     err instanceof AttributeInUseError ||
     err instanceof AttributeValueInUseError
   ) {
-    return c.json({ error: err.code, message: err.message }, 409);
+    return c.json(withMessageEn(err), 409);
   }
   if (
     err instanceof InvalidProductTemplateError ||
@@ -112,7 +117,7 @@ function handleDomainError(c: Context, err: unknown) {
     err instanceof EmptyVariantSelectionError ||
     err instanceof InvalidVariantSelectionError
   ) {
-    return c.json({ error: err.code, message: err.message }, 422);
+    return c.json(withMessageEn(err), 422);
   }
   throw err;
 }

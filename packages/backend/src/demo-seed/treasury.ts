@@ -1,5 +1,5 @@
 import type { App } from "@mezan/api";
-import { step, BRANCH_ID, WAREHOUSE_ID, ACCOUNTS } from "./shared.js";
+import { step, BRANCH_ID, WAREHOUSE_ID, ACCOUNTS, seedToday } from "./shared.js";
 
 /**
  * Seed profile module — see `./shared.ts`. Local and test environments only.
@@ -45,10 +45,6 @@ function addDays(iso: string, days: number): string {
   const d = new Date(`${iso}T00:00:00.000Z`);
   d.setUTCDate(d.getUTCDate() + days);
   return d.toISOString().slice(0, 10);
-}
-
-function today(): string {
-  return new Date().toISOString().slice(0, 10);
 }
 
 interface OpenInvoiceRow {
@@ -260,8 +256,8 @@ async function seedCheques(app: App): Promise<void> {
     direction: "incoming",
     chequeNumber: "0451236",
     bankName: "بنك مصر",
-    issueDate: today(),
-    dueDate: addDays(today(), 2),
+    issueDate: seedToday(),
+    dueDate: addDays(seedToday(), 2),
     branchId: BRANCH_ID,
     partyId: "CUST-DEMO-2",
     counterpartyGlAccountId: ACCOUNTS.receivable,
@@ -323,8 +319,8 @@ async function seedCheques(app: App): Promise<void> {
     direction: "outgoing",
     chequeNumber: "9002015",
     bankName: "بنك مصر",
-    issueDate: today(),
-    dueDate: addDays(today(), 1),
+    issueDate: seedToday(),
+    dueDate: addDays(seedToday(), 1),
     branchId: BRANCH_ID,
     partyId: "SUPP-DEMO-2",
     counterpartyGlAccountId: ACCOUNTS.payable,
@@ -339,7 +335,7 @@ async function seedExchangeRates(app: App): Promise<void> {
   await step(app, "POST", "/exchange-rates", { id: "FX-DEMO-2", currency: "USD", rate: "49.35", effectiveDate: "2026-08-15", status: "approved" });
   await step(app, "POST", "/exchange-rates", { id: "FX-DEMO-3", currency: "EUR", rate: "53.10", effectiveDate: "2026-08-01" });
   await step(app, "POST", "/exchange-rates", { id: "FX-DEMO-4", currency: "EUR", rate: "53.75", effectiveDate: "2026-08-15" });
-  await step(app, "POST", "/exchange-rates", { id: "FX-DEMO-5", currency: "USD", rate: "49.60", effectiveDate: today() });
+  await step(app, "POST", "/exchange-rates", { id: "FX-DEMO-5", currency: "USD", rate: "49.60", effectiveDate: seedToday() });
 }
 
 /**
@@ -370,7 +366,7 @@ async function seedInstallmentPlan(app: App): Promise<void> {
     startDate: "2026-08-18",
   });
   await step(app, "POST", "/installments/plans/IPLAN-DEMO-1/confirm", {});
-  await step(app, "POST", "/installments/plans/overdue/process", { asOfDate: today() });
+  await step(app, "POST", "/installments/plans/overdue/process", { asOfDate: seedToday() });
   await seedCollectionFollowUps(app);
 }
 
@@ -479,7 +475,7 @@ async function seedFieldSales(app: App): Promise<void> {
   await step(app, "POST", "/field/van-trips", {
     id: "seed-van-trip-b",
     tripNo: "TRIP-DEMO-2",
-    date: today(),
+    date: seedToday(),
     vanId: "VAN-DEMO-1",
     sourceWarehouseId: WAREHOUSE_ID,
     sourceTreasuryAccountId: CASH_TREASURY_ID,

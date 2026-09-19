@@ -249,19 +249,19 @@ export async function createWorkOrder(
 ): Promise<WorkOrder> {
   const reasons: string[] = [];
   if (command.plannedQty.isZero() || command.plannedQty.isNegative()) {
-    reasons.push("planned quantity must be positive");
+    reasons.push("الكمية المخططة يجب أن تكون أكبر من صفر");
   }
-  if (command.sourceWarehouseId.trim() === "") reasons.push("a raw-material warehouse is required");
-  if (command.destinationWarehouseId.trim() === "") reasons.push("a finished-goods warehouse is required");
+  if (command.sourceWarehouseId.trim() === "") reasons.push("مستودع المواد الخام مطلوب");
+  if (command.destinationWarehouseId.trim() === "") reasons.push("مستودع المنتج التام مطلوب");
   // مستودع التشغيل must be its OWN location. Pointing it at the raw store would
   // leave issued material indistinguishable from material still on the shelf,
   // and at the finished-goods store it would mix components with product — in
   // both cases the floor count this warehouse exists to make possible is lost.
-  if (command.wipWarehouseId.trim() === "") reasons.push("a work-in-process warehouse is required");
+  if (command.wipWarehouseId.trim() === "") reasons.push("مستودع التشغيل مطلوب");
   else if (command.wipWarehouseId === command.sourceWarehouseId) {
-    reasons.push("the work-in-process warehouse must differ from the raw-material warehouse");
+    reasons.push("يجب أن يختلف مستودع التشغيل عن مستودع المواد الخام");
   } else if (command.wipWarehouseId === command.destinationWarehouseId) {
-    reasons.push("the work-in-process warehouse must differ from the finished-goods warehouse");
+    reasons.push("يجب أن يختلف مستودع التشغيل عن مستودع المنتج التام");
   }
   if (reasons.length > 0) throw new InvalidManufacturingDocumentError(reasons);
 
@@ -366,7 +366,7 @@ export interface WorkOrderStockDeps {
 function wipWarehouseOf(order: WorkOrder): string {
   if (order.wipWarehouseId.trim() === "") {
     throw new InvalidManufacturingDocumentError([
-      `work order "${order.number}" names no work-in-process warehouse`,
+      `أمر التصنيع "${order.number}" لا يحدد مستودع تشغيل`,
     ]);
   }
   return order.wipWarehouseId;
@@ -446,7 +446,7 @@ export async function issueWorkOrderMaterials(
   const wipWarehouseId = wipWarehouseOf(order);
 
   const toIssue = order.materials.filter((m) => !m.optional && m.requiredQty.scaled > 0n);
-  if (toIssue.length === 0) throw new InvalidManufacturingDocumentError(["no materials to issue"]);
+  if (toIssue.length === 0) throw new InvalidManufacturingDocumentError(["لا توجد مواد لصرفها"]);
 
   const occurredAt = nowIso(deps);
   const issueId = `WO-ISSUE:${order.id}`;
@@ -504,7 +504,7 @@ export async function extraIssueWorkOrderMaterials(
   const order = await load(id, deps);
   if (order.stage !== "materials_issued") throw new WorkOrderStageError("extra-issue", order.stage);
   const wipWarehouseId = wipWarehouseOf(order);
-  if (lines.length === 0) throw new InvalidManufacturingDocumentError(["no materials to issue"]);
+  if (lines.length === 0) throw new InvalidManufacturingDocumentError(["لا توجد مواد لصرفها"]);
 
   const occurredAt = nowIso(deps);
   const issueId = `WO-XISSUE:${order.id}:${occurredAt}`;
@@ -587,7 +587,7 @@ export async function returnWorkOrderMaterials(
   const order = await load(id, deps);
   if (order.stage !== "materials_issued") throw new WorkOrderStageError("return", order.stage);
   const wipWarehouseId = wipWarehouseOf(order);
-  if (lines.length === 0) throw new InvalidManufacturingDocumentError(["no materials to return"]);
+  if (lines.length === 0) throw new InvalidManufacturingDocumentError(["لا توجد مواد لإرجاعها"]);
 
   const byItem = new Map(order.materials.map((m) => [m.itemId, m]));
   for (const l of lines) {
@@ -595,7 +595,7 @@ export async function returnWorkOrderMaterials(
     const outstanding = mat ? workOrderWipQty(order, mat) : Qty.zero();
     if (!mat || l.qty.compare(outstanding) > 0) {
       throw new InvalidManufacturingDocumentError([
-        `cannot return ${l.qty.toString()} of "${l.itemId}"; only ${outstanding.toString()} outstanding`,
+        `لا يمكن إرجاع ${l.qty.toString()} من "${l.itemId}"؛ القائم فقط ${outstanding.toString()}`,
       ]);
     }
   }
@@ -682,7 +682,7 @@ export async function logWorkOrderWaste(
     throw new WorkOrderStageError("log-waste", order.stage);
   }
   const wipWarehouseId = wipWarehouseOf(order);
-  if (entries.length === 0) throw new InvalidManufacturingDocumentError(["no waste to log"]);
+  if (entries.length === 0) throw new InvalidManufacturingDocumentError(["لا يوجد هدر لتسجيله"]);
 
   // Aggregate per item first: two lines for the same item in one call must be
   // checked against the outstanding quantity TOGETHER, or each passes alone
@@ -690,7 +690,7 @@ export async function logWorkOrderWaste(
   const wantedByItem = new Map<string, Qty>();
   for (const e of entries) {
     if (e.qty.isZero() || e.qty.isNegative()) {
-      throw new InvalidManufacturingDocumentError([`wasted quantity for "${e.itemId}" must be positive`]);
+      throw new InvalidManufacturingDocumentError([`كمية الهدر لـ "${e.itemId}" يجب أن تكون أكبر من صفر`]);
     }
     wantedByItem.set(e.itemId, (wantedByItem.get(e.itemId) ?? Qty.zero()).add(e.qty));
   }
@@ -701,7 +701,7 @@ export async function logWorkOrderWaste(
     const outstanding = mat ? workOrderWipQty(order, mat) : Qty.zero();
     if (!mat || qty.compare(outstanding) > 0) {
       throw new InvalidManufacturingDocumentError([
-        `cannot scrap ${qty.toString()} of "${itemId}"; only ${outstanding.toString()} standing in مستودع التشغيل`,
+        `لا يمكن هدر ${qty.toString()} من "${itemId}"؛ القائم فقط ${outstanding.toString()} في مستودع التشغيل`,
       ]);
     }
   }
@@ -816,7 +816,7 @@ export async function logWorkOrderCost(
     throw new WorkOrderStageError("log-cost", order.stage);
   }
   if (entry.amount.scaled <= 0n) {
-    throw new InvalidManufacturingDocumentError(["logged cost must be positive"]);
+    throw new InvalidManufacturingDocumentError(["التكلفة المسجّلة يجب أن تكون أكبر من صفر"]);
   }
   const at = nowIso(deps);
   const patch: Partial<WorkOrder> =
@@ -870,7 +870,7 @@ export async function receiveWorkOrderProduct(
   if (order.stage !== "materials_issued") throw new WorkOrderStageError("receive", order.stage);
   const wipWarehouseId = wipWarehouseOf(order);
   if (producedQty.isZero() || producedQty.isNegative()) {
-    throw new InvalidManufacturingDocumentError(["produced quantity must be positive"]);
+    throw new InvalidManufacturingDocumentError(["الكمية المنتجة يجب أن تكون أكبر من صفر"]);
   }
 
   const occurredAt = nowIso(deps);

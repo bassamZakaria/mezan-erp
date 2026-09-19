@@ -62,19 +62,19 @@ export function dedupeModules(modules: readonly string[]): string[] {
 
 function validate(plan: Omit<Plan, "status" | "createdAt">): string[] {
   const reasons: string[] = [];
-  if (plan.id.trim() === "") reasons.push("id is required");
-  if (!isValidSlug(plan.code)) reasons.push("code must be a slug of 3 to 32 lower-case letters, digits or inner hyphens");
-  if (plan.nameAr.trim() === "") reasons.push("nameAr is required");
-  if (plan.nameEn.trim() === "") reasons.push("nameEn is required");
-  if (plan.modules.length === 0) reasons.push("at least one module is required");
-  for (const m of plan.modules) if (!isKnownModule(m)) reasons.push(`unknown module "${m}"`);
-  if (!isCount(plan.seatsIncluded, 1)) reasons.push("seatsIncluded must be an integer of at least 1");
-  if (!isCount(plan.branchesIncluded, 1)) reasons.push("branchesIncluded must be an integer of at least 1");
-  if (!isCount(plan.warehousesIncluded, 1)) reasons.push("warehousesIncluded must be an integer of at least 1");
-  if (plan.priceMonthly.scaled < 0n) reasons.push("priceMonthly must not be negative");
-  if (plan.priceYearly.scaled < 0n) reasons.push("priceYearly must not be negative");
-  if (!isCount(plan.trialDays, 0)) reasons.push("trialDays must be an integer of at least 0");
-  if (!Number.isInteger(plan.sortOrder)) reasons.push("sortOrder must be an integer");
+  if (plan.id.trim() === "") reasons.push("المعرّف مطلوب");
+  if (!isValidSlug(plan.code)) reasons.push("الرمز يجب أن يكون من 3 إلى 32 حرفًا إنجليزيًا صغيرًا أو رقمًا أو شرطة داخلية");
+  if (plan.nameAr.trim() === "") reasons.push("الاسم بالعربية مطلوب");
+  if (plan.nameEn.trim() === "") reasons.push("الاسم بالإنجليزية مطلوب");
+  if (plan.modules.length === 0) reasons.push("يجب اختيار وحدة واحدة على الأقل");
+  for (const m of plan.modules) if (!isKnownModule(m)) reasons.push(`وحدة غير معروفة "${m}"`);
+  if (!isCount(plan.seatsIncluded, 1)) reasons.push("عدد المقاعد يجب أن يكون رقمًا صحيحًا لا يقل عن 1");
+  if (!isCount(plan.branchesIncluded, 1)) reasons.push("عدد الفروع يجب أن يكون رقمًا صحيحًا لا يقل عن 1");
+  if (!isCount(plan.warehousesIncluded, 1)) reasons.push("عدد المخازن يجب أن يكون رقمًا صحيحًا لا يقل عن 1");
+  if (plan.priceMonthly.scaled < 0n) reasons.push("السعر الشهري لا يمكن أن يكون سالبًا");
+  if (plan.priceYearly.scaled < 0n) reasons.push("السعر السنوي لا يمكن أن يكون سالبًا");
+  if (!isCount(plan.trialDays, 0)) reasons.push("عدد أيام التجربة يجب أن يكون رقمًا صحيحًا لا يقل عن 0");
+  if (!Number.isInteger(plan.sortOrder)) reasons.push("ترتيب العرض يجب أن يكون رقمًا صحيحًا");
   return reasons;
 }
 
@@ -97,7 +97,7 @@ export async function createPlan(cmd: CreatePlanCommand, repo: PlanRepository): 
     sortOrder: cmd.sortOrder,
   };
   const reasons = validate(draft);
-  if (!now) reasons.push("now must be an ISO-8601 timestamp");
+  if (!now) reasons.push("الطابع الزمني الحالي غير صالح (يجب أن يكون بصيغة ISO-8601)");
   if (!now || reasons.length > 0) throw new InvalidPlanError(reasons);
   if (await repo.findByCode(cmd.code)) throw new PlanCodeTakenError(cmd.code);
   const candidate: Plan = { ...draft, status: "active", createdAt: now };

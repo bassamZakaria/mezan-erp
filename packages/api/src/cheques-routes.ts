@@ -92,11 +92,13 @@ function serialize(cheque: Cheque, asOfDate: string, allocations: readonly Vouch
 }
 
 function handleDomainError(c: Context, err: unknown): Response {
+  const refuse = (e: Error & { code: string; messageEn?: string }, status: 404 | 409 | 422) =>
+    c.json({ error: e.code, message: e.message, ...(e.messageEn ? { messageEn: e.messageEn } : {}) }, status);
   if (err instanceof ChequeNotFoundError || err instanceof InvoiceNotFoundError) {
-    return c.json({ error: err.code, message: err.message }, 404);
+    return refuse(err, 404);
   }
   if (err instanceof DuplicateChequeNumberError || err instanceof InvalidChequeTransitionError) {
-    return c.json({ error: err.code, message: err.message }, 409);
+    return refuse(err, 409);
   }
   if (
     err instanceof InvalidChequeCommandError ||
@@ -111,7 +113,7 @@ function handleDomainError(c: Context, err: unknown): Response {
     err instanceof NoFiscalPeriodForDateError ||
     err instanceof PeriodNotOpenForPostingError
   ) {
-    return c.json({ error: err.code, message: err.message }, 422);
+    return refuse(err, 422);
   }
   throw err;
 }

@@ -88,7 +88,10 @@ export async function createCostCentersFromDepartments(
   const [departments, existing] = await Promise.all([deps.departments.list(), deps.costCenters.list()]);
 
   if (command.parentId != null && !existing.some((c) => c.id === command.parentId)) {
-    throw new InvalidParentCostCenterError(`Parent cost center "${command.parentId}" was not found.`);
+    throw new InvalidParentCostCenterError(
+      `مركز التكلفة الأصل "${command.parentId}" غير موجود.`,
+      `Parent cost center "${command.parentId}" was not found.`,
+    );
   }
 
   const requested = command.departmentIds?.length

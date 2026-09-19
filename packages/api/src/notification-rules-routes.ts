@@ -39,10 +39,10 @@ function serialize(rule: NotificationRule) {
 
 function handleDomainError(c: Context, err: unknown) {
   if (err instanceof InvalidNotificationRuleError) {
-    return c.json({ error: err.code, message: err.message, reasons: err.reasons }, 422);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, reasons: err.reasons }, 422);
   }
   if (err instanceof NotificationRuleNotFoundError) {
-    return c.json({ error: err.code, message: err.message }, 404);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 404);
   }
   throw err;
 }

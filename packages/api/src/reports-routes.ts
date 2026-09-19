@@ -1,4 +1,5 @@
 import { Hono, type Context } from "hono";
+import { z } from "zod";
 import {
   Money,
   payrollCreditsByRunId,
@@ -41,6 +42,10 @@ import {
   OUTPUT_VAT_ACCOUNT_ID,
   INPUT_VAT_ACCOUNT_ID,
   ACCOUNT_TYPE_LABELS,
+  accountActivity,
+  isoDateParamSchema,
+  roundMoney,
+  toTenantDay,
   SALES_INVOICE_ACTIVE_STATUSES,
   SALES_INVOICE_TERMINAL_STATUSES,
   moneyToNumber,
@@ -119,6 +124,7 @@ import {
   type SubcontractStore,
   type VoucherLine,
 } from "@mezan/domain";
+import { tenantToday } from "./tenant-day.js";
 import { branchScopeOf, createAnyPermissionGate, createPermissionGate, warehouseScopeOf, withinScope, type AuthContextResolver } from "./permission-gate.js";
 
 /**
@@ -280,11 +286,10 @@ async function contractBillingTest(deps: ReportsRoutesDeps): Promise<(accountId:
 
 function todayIso(deps: ReportsRoutesDeps): string {
   if (deps.today) return deps.today();
-  // Local calendar day, not `toISOString()`: that is UTC, so it hands back
-  // YESTERDAY for anyone east of Greenwich until the small hours — which is
-  // everyone this product ships to.
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  // The default tenant zone's day, never the process's: a UTC host would read
+  // yesterday until 02:00/03:00 Cairo, a day behind the financial statements
+  // (D287). A tenant's own configured zone is not read here yet.
+  return toTenantDay(new Date().toISOString());
 }
 
 function firstOfMonth(today: string): string {
@@ -305,11 +310,11 @@ function firstOfYear(today: string): string {
  * `financial-reports-routes.ts` loads, and the two must not diverge again —
  * they answer the same questions about the same ledger.
  */
-async function loadGlContext(deps: ReportsRoutesDeps): Promise<GlReportContext> {
+async function loadGlContext(deps: ReportsRoutesDeps, bounds: { fromDate?: string; toDate?: string } = {}): Promise<GlReportContext> {
   const [accounts, posted, reversed] = await Promise.all([
     deps.accounts.list(),
-    deps.ledger.list({ status: "posted" }),
-    deps.ledger.list({ status: "reversed" }),
+    deps.ledger.list({ ...bounds, status: "posted" }),
+    deps.ledger.list({ ...bounds, status: "reversed" }),
   ]);
   const journalEntries = [...posted, ...reversed].sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
   return { accounts, journalEntries };
@@ -417,6 +422,21 @@ async function partyControlTie(
     revaluation: moneyToNumber(Money.fromScaled(sign * revaluation.scaled)),
   };
 }
+
+function twoPlaces(amount: Money): string {
+  return roundMoney(amount, 2).toString().slice(0, -4);
+}
+
+const accountDrillWindowSchema = z
+  .object({
+    asOfDate: isoDateParamSchema,
+    fromDate: isoDateParamSchema.optional(),
+    branchId: z.string(),
+  })
+  .refine((w) => w.fromDate === undefined || w.fromDate <= w.asOfDate, {
+    message: "تاريخ البداية بعد تاريخ النهاية",
+    path: ["fromDate"],
+  });
 
 function isoDateOrUndefined(value: unknown): string | undefined {
   return typeof value === "string" && ISO_DATE.test(value) ? value : undefined;
@@ -1969,27 +1989,38 @@ export function createReportsRoutes(
     });
   });
 
+  // The panel must land on the statement figure it was opened from (D281):
+  // same default day as the trial balance, same branch rules, and a window
+  // with a `fromDate` is the income statement's, which leaves out the
+  // year-end close.
   app.get("/drill-down/account/:id", gate("accounting.reports.view"), async (c) => {
     const id = c.req.param("id");
-    const ctx = await loadGlContext(deps);
+    const parsed = accountDrillWindowSchema.safeParse({
+      asOfDate: c.req.query("asOfDate") ?? (await tenantToday(c, deps.today)),
+      fromDate: c.req.query("fromDate") || undefined,
+      branchId: c.req.query("branchId") ?? "",
+    });
+    if (!parsed.success) {
+      return c.json(
+        { error: "VALIDATION_ERROR", errors: parsed.error.issues.map((issue) => ({ field: issue.path.join(".") || "_root", message: issue.message })) },
+        400,
+      );
+    }
+    const { asOfDate, fromDate, branchId } = parsed.data;
+    const ctx = await loadGlContext(deps, { toDate: asOfDate, ...(fromDate ? { fromDate } : {}) });
     const account = ctx.accounts.find((entry) => entry.id === id);
     if (!account) return c.json({ error: "NOT_FOUND" }, 404);
-    let debit = 0n;
-    let credit = 0n;
-    const touching: { id: string; docNo: string; date: string; net: bigint }[] = [];
-    for (const entry of ctx.journalEntries) {
-      let net = 0n;
-      let touched = false;
-      for (const line of entry.lines) {
-        if (line.accountId !== id) continue;
-        touched = true;
-        debit += line.debit.scaled;
-        credit += line.credit.scaled;
-        net += line.debit.scaled - line.credit.scaled;
-      }
-      if (touched) touching.push({ id: entry.id, docNo: entry.entryNo ?? entry.id, date: entry.date, net });
-    }
-    touching.sort((a, b) => b.date.localeCompare(a.date));
+    const activity = accountActivity(
+      ctx.journalEntries,
+      id,
+      { to: asOfDate, ...(fromDate ? { from: fromDate } : {}) },
+      { branchId, branchScope: branchScopeOf(c), excludeYearEndClose: fromDate !== undefined },
+    );
+    const touching = [...activity.entries].sort((a, b) => b.entry.date.localeCompare(a.entry.date));
+    const window = [
+      ...(fromDate ? [{ key: "fromDate", labelAr: "من تاريخ", value: fromDate, format: "date" as const }] : []),
+      { key: "asOfDate", labelAr: "حتى تاريخ", value: asOfDate, format: "date" as const },
+    ];
     return c.json({
       kind: "account",
       id,
@@ -1997,17 +2028,18 @@ export function createReportsRoutes(
       subtitleAr: account.code,
       facts: [
         { key: "type", labelAr: "نوع الحساب", value: ACCOUNT_TYPE_LABELS[account.type] },
-        { key: "debit", labelAr: "إجمالي المدين", value: (Number(debit) / 1e6).toFixed(2), format: "money" },
-        { key: "credit", labelAr: "إجمالي الدائن", value: (Number(credit) / 1e6).toFixed(2), format: "money" },
-        { key: "balance", labelAr: "الرصيد", value: (Number(debit - credit) / 1e6).toFixed(2), format: "money" },
+        ...window,
+        { key: "debit", labelAr: "إجمالي المدين", value: twoPlaces(activity.debit), format: "money" },
+        { key: "credit", labelAr: "إجمالي الدائن", value: twoPlaces(activity.credit), format: "money" },
+        { key: "balance", labelAr: "الرصيد", value: twoPlaces(activity.debit.add(activity.credit.negate())), format: "money" },
       ],
-      documents: touching.slice(0, DRILL_DOWN_LIMIT).map((entry) => ({
+      documents: touching.slice(0, DRILL_DOWN_LIMIT).map(({ entry, net }) => ({
         id: entry.id,
-        docNo: entry.docNo,
+        docNo: entry.entryNo ?? entry.id,
         date: entry.date,
         type: "JOURNAL_ENTRY",
         status: "posted",
-        amount: Number(entry.net) / 1e6,
+        amount: moneyToNumber(net),
         amountFormat: "money",
       })),
       documentCount: touching.length,

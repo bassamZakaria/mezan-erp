@@ -5,24 +5,30 @@ import type { SalesInvoiceStatus } from "./sales-invoice.js";
 
 export class InvalidSalesInvoiceError extends Error {
   readonly code = "INVALID_SALES_INVOICE";
+  readonly messageEn: string;
   constructor(readonly reasons: readonly string[]) {
-    super(`Invalid sales invoice: ${reasons.join("; ")}`);
+    super(`فاتورة المبيعات غير صالحة: ${reasons.join("، ")}`);
+    this.messageEn = `Invalid sales invoice: ${reasons.join("; ")}`;
     this.name = "InvalidSalesInvoiceError";
   }
 }
 
 export class SalesInvoiceNotFoundError extends Error {
   readonly code = "SALES_INVOICE_NOT_FOUND";
+  readonly messageEn: string;
   constructor(readonly invoiceId: string) {
-    super(`Sales invoice "${invoiceId}" was not found.`);
+    super(`فاتورة المبيعات "${invoiceId}" غير موجودة.`);
+    this.messageEn = `Sales invoice "${invoiceId}" was not found.`;
     this.name = "SalesInvoiceNotFoundError";
   }
 }
 
 export class DuplicateSalesInvoiceError extends Error {
   readonly code = "DUPLICATE_SALES_INVOICE";
+  readonly messageEn: string;
   constructor(readonly invoiceId: string) {
-    super(`Sales invoice "${invoiceId}" already exists.`);
+    super(`فاتورة المبيعات "${invoiceId}" موجودة بالفعل.`);
+    this.messageEn = `Sales invoice "${invoiceId}" already exists.`;
     this.name = "DuplicateSalesInvoiceError";
   }
 }

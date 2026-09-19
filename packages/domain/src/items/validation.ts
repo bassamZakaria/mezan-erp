@@ -1,7 +1,7 @@
 import type { Account } from "../accounts/index.js";
 import { isPostable } from "../accounts/index.js";
 import type { AlternateUnit, Item } from "./item.js";
-import { itemTypeTracksStock } from "./item-type.js";
+import { itemTypeLabelAr, itemTypeTracksStock } from "./item-type.js";
 
 /**
  * Alternate-unit conversion rules (docs/archive/catalog/03 "وحدات القياس"): every
@@ -13,18 +13,18 @@ export function validateAlternateUnits(baseUnitCode: string, alternateUnits: rea
   const seen = new Set<string>();
   for (const unit of alternateUnits) {
     if (unit.code.trim() === "") {
-      reasons.push("alternate unit code is required");
+      reasons.push("كود الوحدة البديلة مطلوب");
       continue;
     }
     if (unit.code === baseUnitCode) {
-      reasons.push(`alternate unit "${unit.code}" cannot repeat the base unit`);
+      reasons.push(`الوحدة البديلة "${unit.code}" لا يمكن أن تكرر الوحدة الأساسية`);
     }
     if (seen.has(unit.code)) {
-      reasons.push(`alternate unit code "${unit.code}" is duplicated`);
+      reasons.push(`كود الوحدة البديلة "${unit.code}" مكرر`);
     }
     seen.add(unit.code);
     if (!Number.isFinite(unit.factor) || unit.factor <= 0) {
-      reasons.push(`alternate unit "${unit.code}" must have a positive conversion factor`);
+      reasons.push(`الوحدة البديلة "${unit.code}" يجب أن يكون لها معامل تحويل موجب`);
     }
   }
   return reasons;
@@ -53,11 +53,11 @@ export function validateGlAccountRefs(
     if (!id) continue;
     const account = byId.get(id);
     if (!account) {
-      reasons.push(`${label}: account "${id}" was not found`);
+      reasons.push(`${label}: الحساب "${id}" غير موجود`);
       continue;
     }
     if (!isPostable(account)) {
-      reasons.push(`${label}: account "${id}" is not a postable detail account`);
+      reasons.push(`${label}: الحساب "${id}" ليس حسابًا تفصيليًا قابلاً للترحيل`);
     }
   }
   return reasons;
@@ -67,33 +67,33 @@ export function validateGlAccountRefs(
 export function collectItemFieldErrors(item: Item): string[] {
   const reasons: string[] = [];
 
-  if (item.nameAr.trim() === "") reasons.push("nameAr is required");
-  if (item.baseUnitCode.trim() === "") reasons.push("baseUnitCode is required");
+  if (item.nameAr.trim() === "") reasons.push("اسم الصنف بالعربية مطلوب");
+  if (item.baseUnitCode.trim() === "") reasons.push("الوحدة الأساسية مطلوبة");
 
   // Asked as a capability, not as `type === "service"`: recipes cannot hold
   // stock either, and the check has to keep holding as types are added.
   if (!itemTypeTracksStock(item.type) && item.trackInventory) {
-    reasons.push(`an item of type ${item.type} cannot track inventory`);
+    reasons.push(`لا يمكن لصنف من نوع "${itemTypeLabelAr(item.type)}" أن يتتبع المخزون`);
   }
   if (!item.trackInventory && (item.trackBatches || item.trackExpiry)) {
-    reasons.push("batch/expiry tracking requires trackInventory");
+    reasons.push("تتبع الدفعات/الصلاحية يتطلب تفعيل تتبع المخزون");
   }
 
   if (!Number.isFinite(item.taxRatePercent) || item.taxRatePercent < 0) {
-    reasons.push("taxRatePercent must be zero or a positive number");
+    reasons.push("نسبة الضريبة يجب أن تكون صفرًا أو رقمًا موجبًا");
   }
-  if (item.reorderPoint !== null && item.reorderPoint < 0) reasons.push("reorderPoint cannot be negative");
-  if (item.reorderQty !== null && item.reorderQty < 0) reasons.push("reorderQty cannot be negative");
-  if (item.salePrice !== null && item.salePrice.scaled < 0n) reasons.push("salePrice cannot be negative");
-  if (item.costPrice !== null && item.costPrice.scaled < 0n) reasons.push("costPrice cannot be negative");
+  if (item.reorderPoint !== null && item.reorderPoint < 0) reasons.push("حد إعادة الطلب لا يمكن أن يكون سالبًا");
+  if (item.reorderQty !== null && item.reorderQty < 0) reasons.push("كمية إعادة الطلب لا يمكن أن تكون سالبة");
+  if (item.salePrice !== null && item.salePrice.scaled < 0n) reasons.push("سعر البيع لا يمكن أن يكون سالبًا");
+  if (item.costPrice !== null && item.costPrice.scaled < 0n) reasons.push("سعر التكلفة لا يمكن أن يكون سالبًا");
 
   const seenBarcodes = new Set<string>();
   for (const barcode of item.barcodes) {
     if (barcode.trim() === "") {
-      reasons.push("barcode cannot be blank");
+      reasons.push("الباركود لا يمكن أن يكون فارغًا");
       continue;
     }
-    if (seenBarcodes.has(barcode)) reasons.push(`barcode "${barcode}" is duplicated`);
+    if (seenBarcodes.has(barcode)) reasons.push(`الباركود "${barcode}" مكرر`);
     seenBarcodes.add(barcode);
   }
 

@@ -226,7 +226,7 @@ export function ReportScreen<TParams extends object, Row>({ definition: rawDefin
       showGrandTotal={definition.showGrandTotal ?? true}
       exportBaseFilename={definition.id}
       onEntityClick={setDrillEntity}
-      footer={<ReportDrillDownPanel entity={drillEntity} onClose={() => setDrillEntity(null)} />}
+      footer={<ReportDrillDownPanel entity={drillEntity} reportParams={raw?.params ?? null} onClose={() => setDrillEntity(null)} />}
     />
   );
 }

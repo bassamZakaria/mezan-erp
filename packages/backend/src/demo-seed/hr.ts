@@ -1,5 +1,5 @@
 import type { App } from "@mezan/api";
-import { ADMIN_HEADERS, BRANCH_ID, CORE, seedActorHeaders, step } from "./shared.js";
+import { ADMIN_HEADERS, BRANCH_ID, CORE, seedActorHeaders, seedToday, step } from "./shared.js";
 
 /**
  * Seed profile module — see `./shared.ts`. Local and test environments only.
@@ -797,7 +797,7 @@ export async function seedHr(app: App): Promise<void> {
   const fixedDays = new Set(
     ATTENDANCE_WINDOWS.flatMap((w) => eachDate(w.from, w.to).flatMap((date) => w.employeeIds.map((id) => `${id}|${date}`))),
   );
-  const rolling = rollingAttendanceWindow(new Date().toISOString().slice(0, 10));
+  const rolling = rollingAttendanceWindow(seedToday());
   const rollingDates = eachDate(rolling.from, rolling.to);
   const isHoliday = (date: string) =>
     HOLIDAYS.some((h) => h.date === date || (h.recurringAnnual && h.date.slice(5) === date.slice(5)));

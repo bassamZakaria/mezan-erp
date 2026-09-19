@@ -677,7 +677,7 @@ export function registerRestoreOverIpc(deps: RestoreIpcDeps): void {
         }
         picks.delete(pickId as string);
         console.log(`[backup] importing portable archive ${pick.fileName}`);
-        return await performRestore(deps, decrypted, actor, RestoreSource.Portable);
+        return await performRestore(deps, decrypted, actor, RestoreSource.Portable, pick.fileName);
       } finally {
         await rm(importDir, { recursive: true, force: true }).catch(() => undefined);
       }
@@ -695,6 +695,7 @@ async function performRestore(
   archivePath: string,
   actor: string,
   source: RestoreSource,
+  archiveLabel: string = path.basename(archivePath),
 ): Promise<BackupRestoreResult> {
   // The safety copy comes FIRST, and from the live connection, because after
   // the next few lines there is no live connection to take one from.
@@ -724,7 +725,7 @@ async function performRestore(
     }
   }
 
-  const restoredFrom = await describeArchive(archivePath, new Date());
+  const restoredFrom = { ...(await describeArchive(archivePath, new Date())), fileName: archiveLabel };
   await deps.closeLiveConnections();
 
   try {
@@ -744,7 +745,7 @@ async function performRestore(
       );
     }
     console.log(
-      `[backup] restored ${path.basename(archivePath)} ` +
+      `[backup] restored ${archiveLabel} ` +
         `(taken ${restored.manifest.createdAt} by app ${restored.manifest.appVersion})`,
     );
     // REQUIRED ORDERING: after the swap, into the database that just landed.
@@ -754,7 +755,7 @@ async function performRestore(
     await recordRestoredEvent(
       deps,
       actor,
-      path.basename(archivePath),
+      archiveLabel,
       restored.manifest.createdAt,
       safetyBackupFileName,
       source,

@@ -1,4 +1,5 @@
-import { appendFileSync, copyFileSync, mkdirSync, mkdtempSync, readdirSync, renameSync, rmSync } from "node:fs";
+import { appendFileSync, mkdirSync, readdirSync, renameSync, rmSync } from "node:fs";
+import { copyFile, mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { PlatformHandle } from "@mezan/backend";
@@ -55,14 +56,14 @@ async function writeOneBackup(
 }
 
 // The COPY is opened, never the backup itself: opening a SQLite file can write to it.
-export function verifyBackupFile(backupPath: string, now: Date = new Date()): BackupVerifyRecord {
+export async function verifyBackupFile(backupPath: string, now: Date = new Date()): Promise<BackupVerifyRecord> {
   const started = Date.now();
-  const sandbox = mkdtempSync(path.join(tmpdir(), "mezan-backup-verify-"));
+  const sandbox = await mkdtemp(path.join(tmpdir(), "mezan-backup-verify-"));
   let outcome = BackupVerifyOutcome.Failed;
   let report: string;
   try {
     const copy = path.join(sandbox, "restore.sqlite");
-    copyFileSync(backupPath, copy);
+    await copyFile(backupPath, copy);
     const { sqlite } = openSqliteConnection(copy);
     try {
       const rows = sqlite.pragma("integrity_check") as Array<{ integrity_check: string }>;
@@ -112,19 +113,19 @@ export async function runBackups(options: RunBackupsOptions): Promise<void> {
   const stamp = isoSafeTimestamp(now());
 
   const failures: string[] = [];
-  const verify = (file: string): void => {
-    const record = verifyBackupFile(file, now());
+  const verify = async (file: string): Promise<void> => {
+    const record = await verifyBackupFile(file, now());
     if (record.outcome !== BackupVerifyOutcome.Ok) failures.push(`${file}: ${record.report}`);
   };
 
   const platformFolder = path.join(options.dir, "backups", "platform");
-  verify(await writeOneBackup((destination) => options.platform.backupTo(destination), platformFolder, stamp));
+  await verify(await writeOneBackup((destination) => options.platform.backupTo(destination), platformFolder, stamp));
   pruneOldBackups(platformFolder, keep);
 
   for (const code of options.router.openTenants()) {
     const backend = await options.router.backendFor(code);
     const folder = path.join(options.dir, "backups", code);
-    verify(await writeOneBackup((destination) => backend.backupTo(destination), folder, stamp));
+    await verify(await writeOneBackup((destination) => backend.backupTo(destination), folder, stamp));
     pruneOldBackups(folder, keep);
   }
 

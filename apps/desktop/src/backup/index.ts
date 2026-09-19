@@ -75,6 +75,8 @@ export {
   readDrillHistory,
   lastGoodDrill,
   isDrillDue,
+  sweepBackupScratch,
+  hasArchive,
   isDrillRunning,
   abortDrill,
   DRILLS_FILE_NAME,

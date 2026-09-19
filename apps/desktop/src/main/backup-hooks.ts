@@ -5,7 +5,9 @@ import {
   abortDrill,
   copyToSecondTarget,
   createBackup,
+  hasArchive,
   isDrillDue,
+  sweepBackupScratch,
   preUpdateLabel,
   runPreMigrationBackup,
   runRestoreDrill,
@@ -144,8 +146,12 @@ export function scheduleBackups(params: {
   const backupsDir = params.backupsDir ?? defaultBackupsDir();
   const timeoutMs = params.onCloseTimeoutMs ?? ON_CLOSE_BACKUP_TIMEOUT_MS;
   let closing = false;
+  const scratchSwept = sweepBackupScratch(backupsDir).catch((err: unknown) =>
+    console.error("[backup] could not clear leftover drill/import scratch", err),
+  );
   const drillIfDue = async (): Promise<void> => {
-    if (!(await isDrillDue(backupsDir))) return;
+    await scratchSwept;
+    if (!(await hasArchive(backupsDir)) || !(await isDrillDue(backupsDir))) return;
     await runRestoreDrill({
       backupsDir,
       cipherKey: params.cipher?.key ?? null,

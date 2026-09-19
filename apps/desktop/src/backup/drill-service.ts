@@ -1,6 +1,6 @@
 import { fork, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { appendFile, copyFile, mkdir, mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { appendFile, copyFile, mkdir, mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { listBackups, resolveWorkerEntry } from "./backup-service.js";
 import { withBackupLock } from "./backup-lock.js";
@@ -61,6 +61,31 @@ export async function readDrillHistory(backupsDir: string, limit = HISTORY_LIMIT
     .filter((r): r is DrillRecordDTO => r !== null);
   records.sort((a, b) => b.startedAt.localeCompare(a.startedAt));
   return records.slice(0, limit);
+}
+
+/**
+ * Removes drill sandboxes and portable-import scratch left by a run the process
+ * died in. An import's scratch holds a DECRYPTED archive — the books in the
+ * clear — so it must not outlive a crash. Only safe before anything else in
+ * this process has started a drill or an import.
+ */
+export async function sweepBackupScratch(backupsDir: string): Promise<void> {
+  const tmpRoot = path.join(backupsDir, ".tmp");
+  let entries: string[];
+  try {
+    entries = await readdir(tmpRoot);
+  } catch {
+    return;
+  }
+  for (const entry of entries) {
+    if (entry.startsWith("drill-") || entry.startsWith("import-")) {
+      await rm(path.join(tmpRoot, entry), { recursive: true, force: true }).catch(() => undefined);
+    }
+  }
+}
+
+export async function hasArchive(backupsDir: string): Promise<boolean> {
+  return (await listBackups(backupsDir)).length > 0;
 }
 
 export function lastGoodDrill(history: readonly DrillRecordDTO[]): DrillRecordDTO | null {

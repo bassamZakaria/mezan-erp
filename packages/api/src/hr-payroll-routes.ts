@@ -276,6 +276,10 @@ function serializeRun(r: PayrollRun) {
   };
 }
 
+function withMessageEn(err: { readonly code: string; readonly message: string; readonly messageEn?: string }) {
+  return { error: err.code, message: err.message, ...(err.messageEn ? { messageEn: err.messageEn } : {}) };
+}
+
 function handleDomainError(c: Context, err: unknown): Response {
   if (
     err instanceof EmployeeAdvanceNotFoundError ||
@@ -283,7 +287,7 @@ function handleDomainError(c: Context, err: unknown): Response {
     err instanceof EmployeeNotFoundError ||
     err instanceof GarnishmentNotFoundError
   ) {
-    return c.json({ error: err.code, message: err.message }, 404);
+    return c.json(withMessageEn(err), 404);
   }
   if (err instanceof TreasuryDisbursementUnavailableError) {
     return c.json({ error: err.code, message: "لم يتم إعداد مسار الصرف من الخزينة." }, 409);
@@ -308,7 +312,7 @@ function handleDomainError(c: Context, err: unknown): Response {
     err instanceof InvalidPayrollComponentError ||
     err instanceof DuplicatePayrollComponentError
   ) {
-    return c.json({ error: err.code, message: err.message }, 422);
+    return c.json(withMessageEn(err), 422);
   }
   throw err;
 }

@@ -764,8 +764,8 @@ describe("manufacturing-routes — warehouse ids are entity references, not free
     );
     expect(res.status).toBe(422);
     const reasons = (await body(res)).reasons as string[];
-    expect(reasons.some((r) => r.includes('"GHOST-WH" is not a warehouse'))).toBe(true);
-    expect(reasons.some((r) => r.includes("is inactive"))).toBe(true); // wipWarehouseId = WIP, inactive
+    expect(reasons.some((r) => r.includes('"GHOST-WH" غير مسجّل كمستودع'))).toBe(true);
+    expect(reasons.some((r) => r.includes("غير مفعّل"))).toBe(true); // wipWarehouseId = WIP, inactive
   });
 });
 

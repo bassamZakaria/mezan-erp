@@ -11,7 +11,8 @@ describe("InvalidNotificationRuleError", () => {
     expect(err.code).toBe("INVALID_NOTIFICATION_RULE");
     expect(err.name).toBe("InvalidNotificationRuleError");
     expect(err.reasons).toEqual(["name is required", "eventCode is required"]);
-    expect(err.message).toBe("Invalid notification rule: name is required; eventCode is required");
+    expect(err.message).toBe("قاعدة الإشعار غير صالحة: name is required، eventCode is required");
+    expect(err.messageEn).toBe("Invalid notification rule: name is required; eventCode is required");
   });
 });
 
@@ -20,7 +21,8 @@ describe("NotificationRuleNotFoundError", () => {
     const err = new NotificationRuleNotFoundError("rule-1");
     expect(err.code).toBe("NOTIFICATION_RULE_NOT_FOUND");
     expect(err.id).toBe("rule-1");
-    expect(err.message).toBe('Notification rule "rule-1" not found.');
+    expect(err.message).toBe('قاعدة الإشعار "rule-1" غير موجودة.');
+    expect(err.messageEn).toBe('Notification rule "rule-1" not found.');
   });
 });
 
@@ -29,6 +31,7 @@ describe("NotificationNotFoundError", () => {
     const err = new NotificationNotFoundError("n-1");
     expect(err.code).toBe("NOTIFICATION_NOT_FOUND");
     expect(err.id).toBe("n-1");
-    expect(err.message).toBe('Notification "n-1" not found.');
+    expect(err.message).toBe('الإشعار "n-1" غير موجود.');
+    expect(err.messageEn).toBe('Notification "n-1" not found.');
   });
 });

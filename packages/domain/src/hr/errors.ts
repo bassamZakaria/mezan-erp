@@ -6,8 +6,10 @@ import { getEmployeeAdvanceStatusLabel, type EmployeeAdvanceStatus } from "./adv
 /** Raised when an operation references a department id/code that does not exist. */
 export class DepartmentNotFoundError extends Error {
   readonly code = "DEPARTMENT_NOT_FOUND";
+  readonly messageEn: string;
   constructor(readonly departmentId: string) {
-    super(`Department "${departmentId}" was not found.`);
+    super(`القسم "${departmentId}" غير موجود.`);
+    this.messageEn = `Department "${departmentId}" was not found.`;
     this.name = "DepartmentNotFoundError";
   }
 }
@@ -24,8 +26,10 @@ export class InvalidDepartmentError extends Error {
 /** Raised when an operation references a job-title id that does not exist. */
 export class JobTitleNotFoundError extends Error {
   readonly code = "JOB_TITLE_NOT_FOUND";
+  readonly messageEn: string;
   constructor(readonly jobTitleId: string) {
-    super(`Job title "${jobTitleId}" was not found.`);
+    super(`المسمى الوظيفي "${jobTitleId}" غير موجود.`);
+    this.messageEn = `Job title "${jobTitleId}" was not found.`;
     this.name = "JobTitleNotFoundError";
   }
 }
@@ -42,8 +46,10 @@ export class InvalidJobTitleError extends Error {
 /** Raised when an operation references an employee id that does not exist. */
 export class EmployeeNotFoundError extends Error {
   readonly code = "EMPLOYEE_NOT_FOUND";
+  readonly messageEn: string;
   constructor(readonly employeeId: string) {
-    super(`Employee "${employeeId}" was not found.`);
+    super(`الموظف "${employeeId}" غير موجود.`);
+    this.messageEn = `Employee "${employeeId}" was not found.`;
     this.name = "EmployeeNotFoundError";
   }
 }
@@ -72,8 +78,10 @@ export class InvalidEmployeeTransitionError extends Error {
 /** Raised when the calling user account is not linked to an employee record (My Leave self-service gate). */
 export class UserNotLinkedToEmployeeError extends Error {
   readonly code = "USER_NOT_LINKED_TO_EMPLOYEE";
+  readonly messageEn: string;
   constructor(readonly userId: string) {
-    super(`User "${userId}" is not linked to an employee record.`);
+    super(`المستخدم "${userId}" غير مرتبط بسجل موظف.`);
+    this.messageEn = `User "${userId}" is not linked to an employee record.`;
     this.name = "UserNotLinkedToEmployeeError";
   }
 }
@@ -81,8 +89,10 @@ export class UserNotLinkedToEmployeeError extends Error {
 /** Raised when an operation references a contract id that does not exist. */
 export class ContractNotFoundError extends Error {
   readonly code = "CONTRACT_NOT_FOUND";
+  readonly messageEn: string;
   constructor(readonly contractId: string) {
-    super(`Contract "${contractId}" was not found.`);
+    super(`العقد "${contractId}" غير موجود.`);
+    this.messageEn = `Contract "${contractId}" was not found.`;
     this.name = "ContractNotFoundError";
   }
 }
@@ -99,8 +109,10 @@ export class InvalidContractError extends Error {
 /** Raised when terminating a contract that is already terminated. */
 export class ContractNotActiveError extends Error {
   readonly code = "CONTRACT_NOT_ACTIVE";
+  readonly messageEn: string;
   constructor(readonly contractId: string) {
-    super(`Contract "${contractId}" is not active.`);
+    super(`العقد "${contractId}" غير ساري.`);
+    this.messageEn = `Contract "${contractId}" is not active.`;
     this.name = "ContractNotActiveError";
   }
 }
@@ -108,8 +120,10 @@ export class ContractNotActiveError extends Error {
 /** Raised when an operation references a holiday id that does not exist. */
 export class HolidayNotFoundError extends Error {
   readonly code = "HOLIDAY_NOT_FOUND";
+  readonly messageEn: string;
   constructor(readonly holidayId: string) {
-    super(`Holiday "${holidayId}" was not found.`);
+    super(`الإجازة الرسمية "${holidayId}" غير موجودة.`);
+    this.messageEn = `Holiday "${holidayId}" was not found.`;
     this.name = "HolidayNotFoundError";
   }
 }
@@ -126,8 +140,10 @@ export class InvalidHolidayError extends Error {
 /** Raised when an operation references a leave-request id that does not exist. */
 export class LeaveRequestNotFoundError extends Error {
   readonly code = "LEAVE_REQUEST_NOT_FOUND";
+  readonly messageEn: string;
   constructor(readonly leaveRequestId: string) {
-    super(`Leave request "${leaveRequestId}" was not found.`);
+    super(`طلب الإجازة "${leaveRequestId}" غير موجود.`);
+    this.messageEn = `Leave request "${leaveRequestId}" was not found.`;
     this.name = "LeaveRequestNotFoundError";
   }
 }
@@ -165,8 +181,10 @@ export class InvalidAttendanceEntryError extends Error {
 /** Raised when an operation references an attendance-entry id that does not exist. */
 export class AttendanceEntryNotFoundError extends Error {
   readonly code = "ATTENDANCE_ENTRY_NOT_FOUND";
+  readonly messageEn: string;
   constructor(readonly entryId: string) {
-    super(`Attendance entry "${entryId}" was not found.`);
+    super(`قيد الحضور "${entryId}" غير موجود.`);
+    this.messageEn = `Attendance entry "${entryId}" was not found.`;
     this.name = "AttendanceEntryNotFoundError";
   }
 }
@@ -174,11 +192,13 @@ export class AttendanceEntryNotFoundError extends Error {
 /** Raised when an employee already has an attendance entry for the same day. */
 export class DuplicateAttendanceEntryError extends Error {
   readonly code = "DUPLICATE_ATTENDANCE_ENTRY";
+  readonly messageEn: string;
   constructor(
     readonly employeeId: string,
     readonly date: string,
   ) {
-    super(`Attendance for employee "${employeeId}" on "${date}" already exists.`);
+    super(`يوجد بالفعل قيد حضور للموظف "${employeeId}" بتاريخ "${date}".`);
+    this.messageEn = `Attendance for employee "${employeeId}" on "${date}" already exists.`;
     this.name = "DuplicateAttendanceEntryError";
   }
 }
@@ -215,8 +235,10 @@ export class InvalidLeavePolicyError extends Error {
 /** Raised when an operation references a leave-policy id that does not exist. */
 export class LeavePolicyNotFoundError extends Error {
   readonly code = "LEAVE_POLICY_NOT_FOUND";
+  readonly messageEn: string;
   constructor(readonly policyId: string) {
-    super(`Leave policy "${policyId}" was not found.`);
+    super(`سياسة الإجازة "${policyId}" غير موجودة.`);
+    this.messageEn = `Leave policy "${policyId}" was not found.`;
     this.name = "LeavePolicyNotFoundError";
   }
 }
@@ -224,8 +246,10 @@ export class LeavePolicyNotFoundError extends Error {
 /** Raised when a leave policy already exists for the same leave type. */
 export class DuplicateLeavePolicyError extends Error {
   readonly code = "DUPLICATE_LEAVE_POLICY";
+  readonly messageEn: string;
   constructor(readonly leaveType: string) {
-    super(`A leave policy for "${leaveType}" already exists.`);
+    super(`توجد بالفعل سياسة إجازة لنوع "${leaveType}".`);
+    this.messageEn = `A leave policy for "${leaveType}" already exists.`;
     this.name = "DuplicateLeavePolicyError";
   }
 }
@@ -233,8 +257,10 @@ export class DuplicateLeavePolicyError extends Error {
 /** Raised when applying a preset code that is not one of the dated labour-law presets. */
 export class UnknownLeavePolicyPresetError extends Error {
   readonly code = "UNKNOWN_LEAVE_POLICY_PRESET";
+  readonly messageEn: string;
   constructor(readonly presetCode: string) {
-    super(`"${presetCode}" is not a known leave-policy preset.`);
+    super(`"${presetCode}" ليس نموذج سياسة إجازة معروفاً.`);
+    this.messageEn = `"${presetCode}" is not a known leave-policy preset.`;
     this.name = "UnknownLeavePolicyPresetError";
   }
 }
@@ -251,8 +277,10 @@ export class InvalidLeaveBalanceError extends Error {
 /** Raised when an operation references a leave-balance id that does not exist. */
 export class LeaveBalanceNotFoundError extends Error {
   readonly code = "LEAVE_BALANCE_NOT_FOUND";
+  readonly messageEn: string;
   constructor(readonly balanceId: string) {
-    super(`Leave balance "${balanceId}" was not found.`);
+    super(`رصيد الإجازة "${balanceId}" غير موجود.`);
+    this.messageEn = `Leave balance "${balanceId}" was not found.`;
     this.name = "LeaveBalanceNotFoundError";
   }
 }
@@ -269,8 +297,10 @@ export class InvalidLeaveAccrualBatchError extends Error {
 /** Raised when an operation references an employee-advance id that does not exist. */
 export class EmployeeAdvanceNotFoundError extends Error {
   readonly code = "EMPLOYEE_ADVANCE_NOT_FOUND";
+  readonly messageEn: string;
   constructor(readonly advanceId: string) {
-    super(`Employee advance "${advanceId}" was not found.`);
+    super(`سلفة الموظف "${advanceId}" غير موجودة.`);
+    this.messageEn = `Employee advance "${advanceId}" was not found.`;
     this.name = "EmployeeAdvanceNotFoundError";
   }
 }
@@ -299,8 +329,10 @@ export class InvalidEmployeeAdvanceTransitionError extends Error {
 /** Raised when an operation references a payroll-run id that does not exist. */
 export class PayrollRunNotFoundError extends Error {
   readonly code = "PAYROLL_RUN_NOT_FOUND";
+  readonly messageEn: string;
   constructor(readonly runId: string) {
-    super(`Payroll run "${runId}" was not found.`);
+    super(`مسير الرواتب "${runId}" غير موجود.`);
+    this.messageEn = `Payroll run "${runId}" was not found.`;
     this.name = "PayrollRunNotFoundError";
   }
 }
@@ -329,12 +361,14 @@ export class InvalidPayrollRunTransitionError extends Error {
 /** Raised when a non-cancelled run already covers the same period + branch scope. */
 export class DuplicatePayrollPeriodError extends Error {
   readonly code = "DUPLICATE_PAYROLL_PERIOD";
+  readonly messageEn: string;
   constructor(
     readonly year: number,
     readonly month: number,
     readonly branchId: string | null,
   ) {
-    super(`A payroll run already exists for ${year}-${String(month).padStart(2, "0")}${branchId ? ` (branch ${branchId})` : ""}.`);
+    super(`يوجد بالفعل مسير رواتب للفترة ${year}-${String(month).padStart(2, "0")}${branchId ? ` (الفرع "${branchId}")` : ""}.`);
+    this.messageEn = `A payroll run already exists for ${year}-${String(month).padStart(2, "0")}${branchId ? ` (branch ${branchId})` : ""}.`;
     this.name = "DuplicatePayrollPeriodError";
   }
 }
@@ -342,8 +376,10 @@ export class DuplicatePayrollPeriodError extends Error {
 /** Raised when a run's calculation produced no payslip at all — there is nothing to post. */
 export class NoPayableEmployeesError extends Error {
   readonly code = "NO_PAYABLE_EMPLOYEES";
+  readonly messageEn: string;
   constructor(readonly runId: string) {
-    super(`Payroll run "${runId}" produced no payslips.`);
+    super(`مسير الرواتب "${runId}" لم ينتج عنه أي إيصال راتب.`);
+    this.messageEn = `Payroll run "${runId}" produced no payslips.`;
     this.name = "NoPayableEmployeesError";
   }
 }
@@ -354,12 +390,14 @@ export class NoPayableEmployeesError extends Error {
  */
 export class NegativeNetPayError extends Error {
   readonly code = "NEGATIVE_NET_PAY";
+  readonly messageEn: string;
   constructor(
     readonly employeeId: string,
     readonly gross: string,
     readonly deductions: string,
   ) {
-    super(`Employee "${employeeId}" has deductions (${deductions}) exceeding earnings (${gross}) for the period.`);
+    super(`الموظف "${employeeId}" لديه استقطاعات (${deductions}) تتجاوز مستحقاته (${gross}) عن هذه الفترة.`);
+    this.messageEn = `Employee "${employeeId}" has deductions (${deductions}) exceeding earnings (${gross}) for the period.`;
     this.name = "NegativeNetPayError";
   }
 }
@@ -381,8 +419,10 @@ export class TreasuryDisbursementHeldError extends Error {
 /** Raised when a cash disbursement is requested but no treasury voucher path is wired. */
 export class TreasuryDisbursementUnavailableError extends Error {
   readonly code = "TREASURY_DISBURSEMENT_UNAVAILABLE";
+  readonly messageEn: string;
   constructor() {
-    super("No treasury disbursement path is configured.");
+    super("لا يوجد مسار صرف من الخزينة مُهيأ.");
+    this.messageEn = "No treasury disbursement path is configured.";
     this.name = "TreasuryDisbursementUnavailableError";
   }
 }

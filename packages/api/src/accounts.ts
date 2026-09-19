@@ -19,7 +19,7 @@ import { createAccountSchema, updateAccountSchema } from "@mezan/contracts";
 import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
 import { recordFieldChanges } from "./admin-audit.js";
 
-const AUDITED_ACCOUNT_FIELDS = ["code", "nameAr", "nameEn", "type", "naturalBalance", "parentId", "isHeader", "status"] as const;
+export const AUDITED_ACCOUNT_FIELDS = ["code", "nameAr", "nameEn", "type", "naturalBalance", "parentId", "isHeader", "status"] as const;
 
 /** Wire representation of an account — a plain JSON-safe projection. */
 function serialize(account: Account) {

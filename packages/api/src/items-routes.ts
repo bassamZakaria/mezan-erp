@@ -23,7 +23,7 @@ import { createItemSchema, updateItemSchema, pageQuerySchema, DEFAULT_PAGE_SIZE 
 import { createPermissionGate, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
 import { recordFieldChanges } from "./admin-audit.js";
 
-const AUDITED_ITEM_FIELDS = [
+export const AUDITED_ITEM_FIELDS = [
   "code",
   "nameAr",
   "nameEn",

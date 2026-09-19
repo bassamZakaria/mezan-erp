@@ -51,12 +51,15 @@ function buildAuditLabels(t: ReturnType<typeof useAppTranslation>["t"]) {
     return JSON.stringify(value);
   }
 
-  function changeLine(change: AuditFieldChangeDTO): string {
-    const name = change.key ? `${fieldLabel(change.field)} [${change.key}]` : fieldLabel(change.field);
-    return `${name}: ${valueLabel(change.from)} ${t("auditLedger.arrow")} ${valueLabel(change.to)}`;
+  function fromLabel(change: AuditFieldChangeDTO): string {
+    return change.redacted ? t("auditLedger.redacted") : valueLabel(change.from);
   }
 
-  return { fieldLabel, actionLabel, valueLabel, changeLine };
+  function toLabel(change: AuditFieldChangeDTO): string {
+    return change.redacted ? t("auditLedger.redacted") : valueLabel(change.to);
+  }
+
+  return { fieldLabel, actionLabel, valueLabel, fromLabel, toLabel };
 }
 
 export function ChangeSummary({ changes, max = 2 }: { changes: readonly AuditFieldChangeDTO[]; max?: number }) {
@@ -71,9 +74,9 @@ export function ChangeSummary({ changes, max = 2 }: { changes: readonly AuditFie
           <span className="font-semibold text-ink">{labels.fieldLabel(change.field)}</span>
           {change.key ? <span className="mz-num text-ink-faint"> [{change.key}]</span> : null}
           {": "}
-          <span className="mz-num line-through decoration-ink-faint">{labels.valueLabel(change.from)}</span>
+          <span className="mz-num line-through decoration-ink-faint">{labels.fromLabel(change)}</span>
           {` ${t("auditLedger.arrow")} `}
-          <span className="mz-num text-ink">{labels.valueLabel(change.to)}</span>
+          <span className="mz-num text-ink">{labels.toLabel(change)}</span>
         </span>
       ))}
       {changes.length > max ? (
@@ -106,8 +109,8 @@ export function ChangesTable({ changes }: { changes: readonly AuditFieldChangeDT
                 {labels.fieldLabel(change.field)}
                 {change.key ? <div className="mz-num text-[11px] font-normal text-ink-faint">{change.key}</div> : null}
               </td>
-              <td className="mz-num break-all px-[12px] py-[8px] text-ink-muted">{labels.valueLabel(change.from)}</td>
-              <td className="mz-num break-all px-[12px] py-[8px] text-ink">{labels.valueLabel(change.to)}</td>
+              <td className="mz-num break-all px-[12px] py-[8px] text-ink-muted">{labels.fromLabel(change)}</td>
+              <td className="mz-num break-all px-[12px] py-[8px] text-ink">{labels.toLabel(change)}</td>
             </tr>
           ))}
         </tbody>

@@ -1272,7 +1272,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     app.route("/reconciliation", createReconciliationRoutes(options.reconciliation, resolveAuth));
   }
   if (options.eta) {
-    app.route("/eta", createEtaRoutes(options.eta, resolveAuth));
+    app.route("/eta", createEtaRoutes(options.eta, resolveAuth, options.auditSink));
   }
   // Generic document framework (docs/archive/plan.md §3): read-only type
   // registry + pure effects computation. No persistence, so always mounted.
@@ -1612,7 +1612,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   if (options.dataMigration) {
     app.route(
       "/data-migration",
-      createDataMigrationRoutes(options.dataMigration, (options.dataMigration.resolveAuthContext ?? resolveAuth) ?? resolveAuth),
+      createDataMigrationRoutes(options.dataMigration, (options.dataMigration.resolveAuthContext ?? resolveAuth) ?? resolveAuth, options.auditSink),
     );
   }
 

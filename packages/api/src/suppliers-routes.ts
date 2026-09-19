@@ -47,7 +47,7 @@ function serialize(supplier: Supplier) {
   };
 }
 
-const AUDITED_SUPPLIER_FIELDS = [
+export const AUDITED_SUPPLIER_FIELDS = [
   "code",
   "nameAr",
   "nameEn",

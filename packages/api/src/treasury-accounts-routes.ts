@@ -34,7 +34,7 @@ function serialize(account: TreasuryAccount) {
   };
 }
 
-const AUDITED_TREASURY_ACCOUNT_FIELDS = [
+export const AUDITED_TREASURY_ACCOUNT_FIELDS = [
   "code",
   "name",
   "nameEn",

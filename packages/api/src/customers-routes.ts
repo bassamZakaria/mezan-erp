@@ -106,7 +106,7 @@ function serialize(customer: Customer) {
   };
 }
 
-const AUDITED_CUSTOMER_FIELDS = [
+export const AUDITED_CUSTOMER_FIELDS = [
   "branchId",
   "code",
   "nameAr",

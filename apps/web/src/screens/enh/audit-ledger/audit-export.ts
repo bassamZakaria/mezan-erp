@@ -83,8 +83,8 @@ export function useAuditExport(branches: readonly BranchDTO[]) {
     },
     { key: "field", header: t("auditLedger.field"), value: (r) => (r.change ? safeCell(labels.fieldLabel(r.change.field)) : "") },
     { key: "key", header: t("auditLedger.key"), value: (r) => safeCell(r.change?.key ?? "") },
-    { key: "from", header: t("auditLedger.before"), value: (r) => (r.change ? safeCell(labels.valueLabel(r.change.from)) : "") },
-    { key: "to", header: t("auditLedger.after"), value: (r) => (r.change ? safeCell(labels.valueLabel(r.change.to)) : "") },
+    { key: "from", header: t("auditLedger.before"), value: (r) => (r.change ? safeCell(labels.fromLabel(r.change)) : "") },
+    { key: "to", header: t("auditLedger.after"), value: (r) => (r.change ? safeCell(labels.toLabel(r.change)) : "") },
   ];
 
   async function run(format: ReportExportFormat, filter: AuditQueryDTO) {

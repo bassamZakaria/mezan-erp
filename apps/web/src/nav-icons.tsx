@@ -97,6 +97,7 @@ import {
   Send,
   Settings,
   ShieldAlert,
+  ShieldOff,
   ShieldCheck,
   Ship,
   ShoppingBag,
@@ -282,6 +283,7 @@ const coreNavItemIcons: Readonly<Record<string, LucideIcon>> = {
   "report-post-posting-changes": FileWarning,
   "report-after-hours": MoonStar,
   "report-new-accounts": UserPlus,
+  "report-sod-conflicts": ShieldOff,
 
   "settings-general": Settings,
   "settings-branches": GitBranch,

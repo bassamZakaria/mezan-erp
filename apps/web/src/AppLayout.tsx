@@ -44,7 +44,7 @@ import {
 } from "./data/hooks";
 import { UsersPage, type UserFormDraft } from "./pages/UsersPage";
 import { RolesPage } from "./pages/RolesPage";
-import { RoleEditorPage } from "./pages/RoleEditorPage";
+import { RoleEditorPage, type RoleEditorSaveCommand } from "./pages/RoleEditorPage";
 import { NavigationProvider, toScreenIntent, type ScreenIntent, type ScreenIntentInput } from "./navigation";
 import { groupKeyForScreen, hubScreenForGroup, parsePath, pathForRoute } from "./routing";
 import { isRoutable, type RoutableKey, type ScreenKey } from "./router/screens";
@@ -456,6 +456,7 @@ export function AppLayout() {
       // The admin's user form does not edit photos — people set their own in
       // الملف الشخصي — so this carries the stored value through untouched.
       photoUrl: draft.photoUrl ?? null,
+      ...(draft.sodAcknowledge ? { acknowledge: draft.sodAcknowledge, reason: draft.sodReason?.trim() } : {}),
     };
     try {
       const value = editingId
@@ -481,7 +482,7 @@ export function AppLayout() {
     }
   }
 
-  async function handleSaveRole(cmd: { code: string; name: string; description: string; permissions: string[] }) {
+  async function handleSaveRole(cmd: RoleEditorSaveCommand) {
     try {
       const value = editingRole ? await updateRole.mutateAsync({ id: editingRole.id, body: cmd }) : await createRole.mutateAsync(cmd);
       setActiveScreen("roles");

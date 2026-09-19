@@ -1,12 +1,17 @@
 import { Hono, type Context } from "hono";
 import {
   DEFAULT_SETTINGS,
+  detectSodConflicts,
+  getSodConflictRule,
+  SodConflictId,
   type AuditEvent,
   type AuditQueryFilter,
   type AuditQueryPort,
   type AuditSeverity,
   type AuditStream,
+  type RoleRepository,
   type SettingsRepository,
+  type SodConflictMatch,
   type User,
   type UserRepository,
 } from "@mezan/domain";
@@ -15,6 +20,7 @@ import {
   newAccountsQuerySchema,
   postPostingChangesQuerySchema,
   securityExceptionsQuerySchema,
+  sodQuerySchema,
   type AfterHoursReportDTO,
   type AfterHoursRowDTO,
   type NewAccountRowDTO,
@@ -28,6 +34,8 @@ import {
   type SecurityExceptionRowDTO,
   type SecurityExceptionsReportDTO,
   type SecurityWatchlistEntryDTO,
+  type SodConflictRowDTO,
+  type SodReportDTO,
   type WorkingHoursDTO,
 } from "@mezan/contracts";
 import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
@@ -63,6 +71,12 @@ export interface SecurityReportsRoutesDeps {
    * `reports-routes.ts` handles `boms` and `vanTrips`.
    */
   readonly users?: Pick<UserRepository, "list">;
+  /**
+   * The role register, for تعارض الفصل بين المهام (ENH-051). Optional and
+   * gated the same way as `users`: an app without it serves the other three
+   * reports and no `/sod` route, rather than one that always answers empty.
+   */
+  readonly roles?: Pick<RoleRepository, "list">;
   /**
    * Tenant settings, for the working day نشاط خارج أوقات العمل measures
    * "outside" against. Absent, the report still runs — on the documented
@@ -1148,6 +1162,296 @@ export function createSecurityReportsRoutes(
             labelAr: "حذف الحساب",
             detailAr:
               "لا يوجد حذف للمستخدمين — الإيقاف فقط — فالحساب «المتقاعد» يظهر هنا بحالة «موقوف». لا يمكن للتقرير كشف حساب حُذف من قاعدة البيانات مباشرة.",
+          },
+        ],
+      };
+      return c.json(body);
+    });
+  }
+
+  // --- 5) تعارض الفصل بين المهام (ENH-051) ------------------------------------
+  //
+  // Three sources, one row shape: a ROLE that grants both sides of a
+  // `permissions/sod.ts` pair, a USER who reaches that pair through their
+  // role, and a TRANSACTIONAL finding read off the audit trail — the same
+  // actor recorded on both sides of a pair. The generic document engine
+  // (`documents/service.ts`) audits CONFIRM/CANCEL/REVERSE but never CREATE,
+  // so most create-vs-approve pairs cannot be tied to one entity from the
+  // trail alone; that limit is named in `gaps` rather than guessed at.
+
+  const ADMIN_SOD_ACTIONS = new Set(["CREATE", "UPDATE"]);
+
+  if (deps.roles) {
+    const roles = deps.roles;
+
+    app.get("/sod", gate("audit.logs.view"), async (c) => {
+      const parsed = sodQuerySchema.safeParse(queryParams(c));
+      if (!parsed.success) return respondValidation(c, flatten(parsed.error.issues));
+
+      const fallback = defaultRange();
+      const from = parsed.data.from ?? fallback.from;
+      const to = parsed.data.to ?? fallback.to;
+      if (from > to) {
+        return respondValidation(c, [{ field: "from", message: "تاريخ البداية يجب ألا يتجاوز تاريخ النهاية." }]);
+      }
+      const bounds = utcBounds(from, to);
+
+      const allRoles = await roles.list();
+      const roleConflicts = new Map<string, readonly SodConflictMatch[]>();
+      for (const role of allRoles) {
+        roleConflicts.set(role.id, detectSodConflicts(role.permissions));
+      }
+
+      const allUsers = (await deps.users?.list()) ?? [];
+      const userLabel = new Map(allUsers.map((u: User) => [u.id, u.nameAr]));
+
+      const rows: SodConflictRowDTO[] = [];
+
+      for (const role of allRoles) {
+        for (const conflict of roleConflicts.get(role.id) ?? []) {
+          rows.push({
+            rowKey: `role|${role.id}|${conflict.ruleId}`,
+            kind: "role",
+            ruleId: conflict.ruleId,
+            conflictLabelAr: conflict.labelAr,
+            conflictLabelEn: conflict.labelEn,
+            subjectId: role.id,
+            subjectLabelAr: role.name,
+            roleId: role.id,
+            roleCode: role.code,
+            sideAPermissions: [...conflict.matchedA],
+            sideBPermissions: [...conflict.matchedB],
+            sideAActor: null,
+            sideBActor: null,
+            sideAAt: null,
+            sideBAt: null,
+            entityType: null,
+          });
+        }
+      }
+
+      for (const user of allUsers) {
+        if (!user.roleId) continue;
+        const conflicts = roleConflicts.get(user.roleId);
+        if (!conflicts || conflicts.length === 0) continue;
+        const role = allRoles.find((r) => r.id === user.roleId);
+        for (const conflict of conflicts) {
+          rows.push({
+            rowKey: `user|${user.id}|${conflict.ruleId}`,
+            kind: "user",
+            ruleId: conflict.ruleId,
+            conflictLabelAr: conflict.labelAr,
+            conflictLabelEn: conflict.labelEn,
+            subjectId: user.id,
+            subjectLabelAr: user.nameAr,
+            roleId: user.roleId,
+            roleCode: role?.code ?? null,
+            sideAPermissions: [...conflict.matchedA],
+            sideBPermissions: [...conflict.matchedB],
+            sideAActor: null,
+            sideBActor: null,
+            sideAAt: null,
+            sideBAt: null,
+            entityType: null,
+          });
+        }
+      }
+
+      // Transactional: the same actor recorded on both sides of a pair in the
+      // audit trail. Scoped to the two pairs where BOTH sides are actually
+      // written — see the gap entries below for the rest.
+      const [adminEvents, postingEvents, journalPostEvents, periodCloseEvents, periodReopenEvents] = await Promise.all([
+        collectEvents(deps.audit, { stream: "sensitive", module: "admin", ...bounds }),
+        collectEvents(deps.audit, { stream: "sensitive", ...bounds }),
+        collectEvents(deps.audit, { stream: "sensitive", module: "accounting", entityType: "JOURNAL_ENTRY", action: "POST", ...bounds }),
+        collectEvents(deps.audit, { stream: "sensitive", module: "accounting", entityType: "FISCAL_PERIOD", action: "CLOSE", ...bounds }),
+        collectEvents(deps.audit, { stream: "sensitive", module: "accounting", entityType: "FISCAL_PERIOD", action: "REOPEN", ...bounds }),
+      ]);
+
+      function earliestByActor(events: readonly AuditEvent[], filter?: (e: AuditEvent) => boolean): Map<string, string> {
+        const out = new Map<string, string>();
+        for (const event of events) {
+          if (filter && !filter(event)) continue;
+          const existing = out.get(event.actor);
+          if (!existing || event.timestamp < existing) out.set(event.actor, event.timestamp);
+        }
+        return out;
+      }
+
+      function subjectLabelOf(actor: string): string {
+        return userLabel.get(actor) ?? actor;
+      }
+
+      const adminActors = earliestByActor(
+        adminEvents.events,
+        (e) => (e.entityType === "USER" || e.entityType === "ROLE") && ADMIN_SOD_ACTIONS.has(e.action),
+      );
+      const postingActors = earliestByActor(postingEvents.events, (e) => e.action === "CONFIRM" || e.action === "POST");
+      const adminVsPostingRule = getSodConflictRule(SodConflictId.AdminVsPosting);
+      for (const [actor, adminAt] of adminActors) {
+        const postingAt = postingActors.get(actor);
+        if (!postingAt) continue;
+        rows.push({
+          rowKey: `tx|${SodConflictId.AdminVsPosting}|${actor}`,
+          kind: "transactional",
+          ruleId: SodConflictId.AdminVsPosting,
+          conflictLabelAr: adminVsPostingRule?.labelAr ?? SodConflictId.AdminVsPosting,
+          conflictLabelEn: adminVsPostingRule?.labelEn ?? SodConflictId.AdminVsPosting,
+          subjectId: actor,
+          subjectLabelAr: subjectLabelOf(actor),
+          roleId: null,
+          roleCode: null,
+          sideAPermissions: [],
+          sideBPermissions: [],
+          sideAActor: actor,
+          sideBActor: actor,
+          sideAAt: adminAt,
+          sideBAt: postingAt,
+          entityType: null,
+        });
+      }
+
+      const journalActors = earliestByActor(journalPostEvents.events);
+      const closeActors = earliestByActor(periodCloseEvents.events);
+      const reopenActors = earliestByActor(periodReopenEvents.events);
+      const journalCloseRule = getSodConflictRule(SodConflictId.JournalPostPeriodClose);
+      const journalReopenRule = getSodConflictRule(SodConflictId.JournalPostPeriodReopen);
+      for (const [actor, postedAt] of journalActors) {
+        const closedAt = closeActors.get(actor);
+        if (closedAt) {
+          rows.push({
+            rowKey: `tx|${SodConflictId.JournalPostPeriodClose}|${actor}`,
+            kind: "transactional",
+            ruleId: SodConflictId.JournalPostPeriodClose,
+            conflictLabelAr: journalCloseRule?.labelAr ?? SodConflictId.JournalPostPeriodClose,
+            conflictLabelEn: journalCloseRule?.labelEn ?? SodConflictId.JournalPostPeriodClose,
+            subjectId: actor,
+            subjectLabelAr: subjectLabelOf(actor),
+            roleId: null,
+            roleCode: null,
+            sideAPermissions: [],
+            sideBPermissions: [],
+            sideAActor: actor,
+            sideBActor: actor,
+            sideAAt: postedAt,
+            sideBAt: closedAt,
+            entityType: "JOURNAL_ENTRY / FISCAL_PERIOD",
+          });
+        }
+        const reopenedAt = reopenActors.get(actor);
+        if (reopenedAt) {
+          rows.push({
+            rowKey: `tx|${SodConflictId.JournalPostPeriodReopen}|${actor}`,
+            kind: "transactional",
+            ruleId: SodConflictId.JournalPostPeriodReopen,
+            conflictLabelAr: journalReopenRule?.labelAr ?? SodConflictId.JournalPostPeriodReopen,
+            conflictLabelEn: journalReopenRule?.labelEn ?? SodConflictId.JournalPostPeriodReopen,
+            subjectId: actor,
+            subjectLabelAr: subjectLabelOf(actor),
+            roleId: null,
+            roleCode: null,
+            sideAPermissions: [],
+            sideBPermissions: [],
+            sideAActor: actor,
+            sideBActor: actor,
+            sideAAt: postedAt,
+            sideBAt: reopenedAt,
+            entityType: "JOURNAL_ENTRY / FISCAL_PERIOD",
+          });
+        }
+      }
+
+      const byKind = new Map<string, SodConflictRowDTO[]>();
+      for (const row of rows) {
+        const bucket = byKind.get(row.kind);
+        if (bucket) bucket.push(row);
+        else byKind.set(row.kind, [row]);
+      }
+      const KIND_LABELS_AR: Record<string, string> = { role: "على مستوى الدور", user: "على مستوى المستخدم", transactional: "من سجل المراجعة" };
+      const groups = ["role", "user", "transactional"]
+        .filter((kind) => (byKind.get(kind)?.length ?? 0) > 0)
+        .map((kind) => ({
+          key: kind,
+          labelAr: KIND_LABELS_AR[kind] ?? kind,
+          rows: byKind.get(kind) ?? [],
+          totals: { count: byKind.get(kind)?.length ?? 0 },
+        }));
+
+      const grandTotals = {
+        count: rows.length,
+        roleConflicts: byKind.get("role")?.length ?? 0,
+        userConflicts: byKind.get("user")?.length ?? 0,
+        transactionalConflicts: byKind.get("transactional")?.length ?? 0,
+      };
+
+      const kpis: ReportKpiDTO[] = [
+        { key: "total", labelAr: "إجمالي حالات تعارض الفصل بين المهام", value: grandTotals.count, tone: grandTotals.count > 0 ? "warning" : "default" },
+        { key: "roles", labelAr: "أدوار متعارضة", value: grandTotals.roleConflicts, tone: grandTotals.roleConflicts > 0 ? "warning" : "default" },
+        { key: "users", labelAr: "مستخدمون بدور متعارض", value: grandTotals.userConflicts, tone: grandTotals.userConflicts > 0 ? "warning" : "default" },
+        {
+          key: "transactional",
+          labelAr: "حالات مؤكَّدة من سجل المراجعة",
+          value: grandTotals.transactionalConflicts,
+          tone: grandTotals.transactionalConflicts > 0 ? "danger" : "default",
+        },
+      ];
+
+      const columns: ReportColumnDTO[] = [
+        { key: "conflictLabelAr", labelAr: "التعارض" },
+        { key: "subjectLabelAr", labelAr: "الدور/المستخدم" },
+        { key: "roleCode", labelAr: "رمز الدور" },
+        { key: "sideAActor", labelAr: "الطرف الأول" },
+        { key: "sideBActor", labelAr: "الطرف الثاني" },
+      ];
+
+      const coverage: ReportCoverageDTO = {
+        matched:
+          adminEvents.coverage.matched +
+          postingEvents.coverage.matched +
+          journalPostEvents.coverage.matched +
+          periodCloseEvents.coverage.matched +
+          periodReopenEvents.coverage.matched,
+        scanned:
+          adminEvents.coverage.scanned +
+          postingEvents.coverage.scanned +
+          journalPostEvents.coverage.scanned +
+          periodCloseEvents.coverage.scanned +
+          periodReopenEvents.coverage.scanned,
+        truncated:
+          adminEvents.coverage.truncated ||
+          postingEvents.coverage.truncated ||
+          journalPostEvents.coverage.truncated ||
+          periodCloseEvents.coverage.truncated ||
+          periodReopenEvents.coverage.truncated,
+        scanLimit: SCAN_LIMIT,
+      };
+
+      const body: SodReportDTO = {
+        id: "security.sod",
+        titleAr: "تقرير تعارض الفصل بين المهام",
+        params: { from, to },
+        columns,
+        rows,
+        groups,
+        grandTotals,
+        kpis,
+        coverage,
+        gaps: [
+          {
+            key: "createNotAudited",
+            labelAr: "من أنشأ المستند",
+            detailAr:
+              "محرك المستندات العام يسجّل الاعتماد والإلغاء والعكس فقط، ولا يسجّل حدث إنشاء. لذلك لا يمكن كشف «نفس الشخص أنشأ واعتمد نفس السند» من سجل المراجعة لسندات الخزينة والفواتير والتسويات المخزنية — الكشف هناك يقتصر على مستوى الدور/المستخدم أعلاه.",
+          },
+          {
+            key: "bankRecMatch",
+            labelAr: "مطابقة كشف البنك",
+            detailAr: "عملية المطابقة نفسها غير مسجَّلة في سجل المراجعة، فلا يمكن ربطها بإقفال التسوية على مستوى مستند بعينه.",
+          },
+          {
+            key: "payrollRun",
+            labelAr: "احتساب واعتماد مسير الرواتب",
+            detailAr: "خطوتا الاحتساب والاعتماد على مسير رواتب بعينه غير مسجَّلتين في سجل المراجعة اليوم.",
           },
         ],
       };

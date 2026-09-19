@@ -79,7 +79,17 @@ export {
   type AfterHoursReportDTO,
   type NewAccountRowDTO,
   type NewAccountsReportDTO,
+  sodConflictKindSchema,
+  sodConflictRowSchema,
+  sodQuerySchema,
+  sodReportSchema,
+  type SodConflictKindDTO,
+  type SodConflictRowDTO,
+  type SodQueryDTO,
+  type SodReportDTO,
 } from "./security-reports.js";
+
+export { sodConflictSchema, sodAcknowledgeFields, type SodConflictDTO } from "./sod.js";
 
 export { domainEventSchema, type DomainEventDTO } from "./events.js";
 

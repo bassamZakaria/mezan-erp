@@ -280,3 +280,26 @@ Order rationale: wave 0 unblocks e-receipts (without D284 no POS receipt is ever
 - ETA pre-production registration of a POS device: serial, POS client id and secret (0D/2B live verification).
 - Hardware: an 80 mm ESC/POS printer, an RJ11 cash drawer, a USB barcode scanner, optionally a scale and a touch screen (5C).
 - A chartered accountant's row-by-row sign-off on the statutory figures (DEC-12) before anyone claims the numbers.
+
+
+## 8. Findings from the stopped wave-2 lanes (2026-09-19) — read before resuming
+
+The three lanes stopped after design, before writing code. What they found in the code:
+
+- **2B cannot post from a POS area yet.** The module context each area receives carries stores only;
+  the sales-invoice and voucher services (and the ledger/stock pieces they need) live inside
+  `create-backend.ts`. Resolve first: add a posting port to `module-context.ts` + `create-backend.ts`
+  (shared files — do it in a small seams follow-up), rather than calling the HTTP routes in-process.
+- **The ETA hand-off needs the terminal device.** The receipt issuer is never given `resolveDevice`, and
+  transmit reads branch credentials only, so a receipt on a terminal's own serial fails with
+  `EtaDeviceSerialUnknownError`. Wire both to `pos_terminal` next to the POS-invoice skip, on the confirm
+  route and on the event bridge.
+- **Credit check vs cash sale:** the confirm route counts the whole invoice as exposure before the
+  tenders are collected, so under BLOCK mode a cash sale to a named customer at their limit is refused.
+- The invoice's tax-inclusive flag comes from the tenant tax setting, not the POS setting.
+- Payment-method delete must also check sales (touches 1A's `payment-methods-routes.ts`, `backend/pos/master.ts`).
+- **2A design, ready:** a per-backend tender-source registry (tenders, change, refunds, collections per
+  session; a missing source reads zero) plus a pending-outbox-count port (DEC-26); the session number
+  (`SES-000001`) assigned inside `pos-session-store.ts` in the insert's transaction; wire enums
+  (`PosSessionStatusDTO`) beside domain enums because contracts cannot import domain;
+  `findOpenForTerminal` returns `closing` sessions too, so a sale must refuse a `closing` session.

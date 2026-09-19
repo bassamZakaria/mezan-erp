@@ -275,6 +275,7 @@ import {
   createSqliteFiscalPeriodRepository,
   createSqliteLedgerStore,
   createSqliteStockLedgerStore,
+  createSqliteBatchTrailStore,
   createSqliteSalesInvoiceStore,
   createSqlitePriceListStore,
   createSqlitePromotionStore,
@@ -423,6 +424,7 @@ import type { BackendModuleContext } from "./module-context.js";
 import { mountPos } from "./pos/index.js";
 import { ENH_EMITTED_EVENT_CODES, mountEnhancements } from "./enh/index.js";
 import { readStockLedgerDateMismatches } from "./enh/e1-04.js";
+import { EXPIRY_EVENT_CODES, lotRequirementFromItems } from "./enh/e2-04.js";
 import { seedDemoTenant } from "./demo-seed.js";
 import { ensureStandardRoles } from "./standard-roles.js";
 import { createHrTreasuryDisbursementPort } from "./hr-treasury-disbursement.js";
@@ -1432,6 +1434,8 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
     // and was never received anywhere. Without it such an issue was written at
     // zero and COGS was understated by the whole deficit (D101).
     fallbackUnitCost: async (itemId) => (await items.findById(itemId))?.costPrice ?? null,
+    lotRequirement: lotRequirementFromItems(items),
+    batchTrail: createSqliteBatchTrailStore(sqlite),
   });
   /**
    * The expense accounts a contract's التكلفة حتى تاريخه must NOT count:
@@ -5457,6 +5461,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
     emittedEventCodes: [
       ...emittedEventCodesOf(returnsEventMapping, salesInvoiceEventMapping, purchasesEventMapping, voucherEventMapping),
       ...ENH_EMITTED_EVENT_CODES,
+      ...EXPIRY_EVENT_CODES,
     ],
     notificationRepo: notifications,
     /**

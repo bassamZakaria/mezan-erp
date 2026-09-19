@@ -1,4 +1,5 @@
-import { Money, allocate } from "../money/index.js";
+import { Money, allocate, roundMoney } from "../money/index.js";
+import { convertFromBase, convertToBase, isBaseCurrency } from "../exchange-rates/convert.js";
 import type { EmployeeDirectory, EmployeeRef } from "../hr-shared/employee-ref.js";
 import { getPayBasisLabel, getPayFrequencyLabel, type Contract, type ContractRepository } from "./contract.js";
 import { componentAccountId, type PayrollComponentRepository } from "./payroll-component.js";
@@ -17,12 +18,16 @@ import {
   type GarnishmentProvider,
   type OvertimeHoursProvider,
   type PayrollDayDivisorBasis,
+  type PayrollExchangeRates,
   type PayrollRun,
   type PayrollRunRepository,
   type Payslip,
+  type PayslipBasis,
   type PayslipLine,
   type PayslipRepository,
+  type PeriodWorkedTime,
   type UnpaidLeaveDaysProvider,
+  type WorkedTimeProvider,
 } from "./payroll-run.js";
 import {
   resolveEgyptStatutoryRules,
@@ -38,6 +43,7 @@ import {
   InvalidPayrollRunTransitionError,
   NegativeNetPayError,
   NoPayableEmployeesError,
+  PayrollFxRateMissingError,
   PayrollRunNotFoundError,
 } from "./errors.js";
 
@@ -45,9 +51,14 @@ import {
  * The payroll calculation engine (docs/archive/catalog/06 "الرواتب").
  *
  * WHAT IT COMPUTES — and nothing else:
- *   - gross = the active contract's monthly salary + its allowance lines,
- *     each PRORATED by the days the contract was actually live inside the
- *     period (hire mid-month, contract start/end mid-month);
+ *   - gross = the active contract's basic pay + its allowance lines. A monthly
+ *     salary and every allowance are PRORATED by the days the contract was
+ *     live inside the period; an hourly or daily rate is multiplied by the
+ *     hours or days attendance shows within those same days;
+ *   - a contract in another currency is converted into the run's currency at
+ *     the approved rate on or before the period end, BEFORE anything else is
+ *     computed, so every line, statutory figure and posting is in the run's
+ *     currency;
  *   - deductions = an unpaid-leave deduction if and only if an unpaid-leave
  *     day source is bound (each day priced at the monthly wage over the
  *     tenant's day divisor), then wage garnishments, then the contract's own
@@ -107,6 +118,10 @@ export interface PayrollCalculationDeps {
   readonly statutoryOverrides?: Pick<StatutoryOverrideRepository, "list">;
   /** Bound by attendance; read only when statutory computation is on. */
   readonly overtime?: OvertimeHoursProvider;
+  /** Bound by attendance; absent = hourly and daily contracts are excluded with a warning. */
+  readonly workedTime?: WorkedTimeProvider;
+  /** Absent = a contract in another currency is excluded with a warning. */
+  readonly exchangeRates?: PayrollExchangeRates;
   readonly idGen?: () => string;
   readonly now?: () => string;
 }
@@ -248,8 +263,94 @@ function resolveGarnishmentWithholding(
 
 interface EmployeePayrollInput {
   readonly employee: EmployeeRef;
+  /** In the run's currency. */
   readonly contract: Contract;
+  /** As signed, in its own currency. */
+  readonly signed: Contract;
+  readonly fx: { readonly rate: string; readonly effectiveDate: string } | null;
+  readonly paidStart: string;
+  readonly paidEnd: string;
   readonly paidDays: number;
+}
+
+const PAY_DECIMALS = 2;
+
+function toPiastre(amount: Money): Money {
+  return roundMoney(amount, PAY_DECIMALS, "HALF_UP");
+}
+
+function divRoundHalfUp(numerator: bigint, denominator: bigint): bigint {
+  const q = numerator / denominator;
+  return (numerator % denominator) * 2n >= denominator ? q + 1n : q;
+}
+
+function formatAmount(amount: Money): string {
+  return toPiastre(amount).toString().slice(0, -(6 - PAY_DECIMALS));
+}
+
+function formatQuantity(value: number): string {
+  return Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/\.?0+$/, "");
+}
+
+/**
+ * The contract restated in the run's currency. Fixed monthly amounts round to
+ * the piastre here; an hourly or daily RATE keeps full scale so the rounding
+ * happens once, on the pay it is multiplied into.
+ */
+function inRunCurrency(contract: Contract, rate: string, runCurrency: string): Contract {
+  const fixed = (amount: Money) => toPiastre(convertToBase(amount, rate));
+  return {
+    ...contract,
+    currency: runCurrency,
+    monthlySalary: contract.payBasis === "monthly" ? fixed(contract.monthlySalary) : convertToBase(contract.monthlySalary, rate),
+    allowances: contract.allowances.map((a) => ({ ...a, amount: fixed(a.amount) })),
+    deductions: contract.deductions.map((d) => ({ ...d, amount: fixed(d.amount) })),
+  };
+}
+
+function rateLabel(signed: Contract, fx: EmployeePayrollInput["fx"]): string {
+  return fx ? `${formatAmount(signed.monthlySalary)} ${signed.currency} × ${fx.rate}` : formatAmount(signed.monthlySalary);
+}
+
+interface AttendancePay {
+  readonly lines: readonly { readonly nameAr: string; readonly amount: Money }[];
+  readonly quantity: number;
+}
+
+/** Basic pay of an hourly or daily contract: worked time, then paid leave and holidays at the standard day. */
+function attendancePay(input: EmployeePayrollInput, worked: PeriodWorkedTime): AttendancePay {
+  const rate = input.contract.monthlySalary.scaled;
+  const label = rateLabel(input.signed, input.fx);
+  const paidHalfDays = worked.paidLeaveHalfDays + 2 * worked.paidHolidays;
+  const paidDays = paidHalfDays / 2;
+  const lines: { nameAr: string; amount: Money }[] = [];
+  if (input.contract.payBasis === "hourly") {
+    const standardMinutes = BigInt(Math.max(Math.round(worked.standardDailyHours * 60), 0));
+    const hours = worked.workedMinutes / 60;
+    lines.push({
+      nameAr: `الأجر بالساعة (${formatQuantity(Math.round(hours * 100) / 100)} ساعة × ${label})`,
+      amount: toPiastre(Money.fromScaled(divRoundHalfUp(rate * BigInt(worked.workedMinutes), 60n))),
+    });
+    if (paidHalfDays > 0) {
+      lines.push({
+        nameAr: `إجازات وعطلات رسمية مدفوعة (${formatQuantity(paidDays)} يوم × ${formatQuantity(worked.standardDailyHours)} ساعة × ${label})`,
+        amount: toPiastre(Money.fromScaled(divRoundHalfUp(rate * standardMinutes * BigInt(paidHalfDays), 120n))),
+      });
+    }
+    return { lines, quantity: Math.round((hours + paidDays * worked.standardDailyHours) * 100) / 100 };
+  }
+  const days = worked.workedHalfDays / 2;
+  lines.push({
+    nameAr: `الأجر اليومي (${formatQuantity(days)} يوم × ${label})`,
+    amount: toPiastre(Money.fromScaled(divRoundHalfUp(rate * BigInt(worked.workedHalfDays), 2n))),
+  });
+  if (paidHalfDays > 0) {
+    lines.push({
+      nameAr: `إجازات وعطلات رسمية مدفوعة (${formatQuantity(paidDays)} يوم × ${label})`,
+      amount: toPiastre(Money.fromScaled(divRoundHalfUp(rate * BigInt(paidHalfDays), 2n))),
+    });
+  }
+  return { lines, quantity: days + paidDays };
 }
 
 /**
@@ -284,16 +385,20 @@ export async function calculatePayrollRun(runId: string, deps: PayrollCalculatio
       warnings.push(`${employee.fullNameAr} (${employee.code}): لا يوجد عقد ساري خلال الفترة — تم استبعاده.`);
       continue;
     }
-    if (contract.payBasis !== "monthly") {
-      warnings.push(`${employee.fullNameAr} (${employee.code}): أساس الدفع "${getPayBasisLabel(contract.payBasis)}" يحتاج بيانات حضور — تم استبعاده.`);
+    if (contract.payBasis !== "monthly" && !deps.workedTime) {
+      warnings.push(`${employee.fullNameAr} (${employee.code}): أساس الدفع "${getPayBasisLabel(contract.payBasis)}" يحتاج بيانات حضور ولم يُربط مصدرها — تم استبعاده.`);
       continue;
     }
-    if (contract.currency !== run.currency) {
+    if (contract.currency !== run.currency && (!deps.exchangeRates || !isBaseCurrency(run.currency))) {
       warnings.push(`${employee.fullNameAr} (${employee.code}): عملة العقد (${contract.currency}) تختلف عن عملة الدورة (${run.currency}) — تم استبعاده.`);
       continue;
     }
     if (contract.payFrequency !== "monthly") {
-      warnings.push(`${employee.fullNameAr} (${employee.code}): تكرار الدفع "${getPayFrequencyLabel(contract.payFrequency)}" — احتُسب راتب شهر كامل للفترة.`);
+      warnings.push(
+        contract.payBasis === "monthly"
+          ? `${employee.fullNameAr} (${employee.code}): تكرار الدفع "${getPayFrequencyLabel(contract.payFrequency)}" — احتُسب راتب شهر كامل للفترة.`
+          : `${employee.fullNameAr} (${employee.code}): تكرار الدفع "${getPayFrequencyLabel(contract.payFrequency)}" — احتُسب حضور الشهر كله في كشف واحد.`,
+      );
     }
     const paidStart = maxDate(maxDate(run.periodStart, contract.startDate), employee.hireDate);
     const paidEnd = minDate(run.periodEnd, contract.endDate ?? run.periodEnd);
@@ -305,7 +410,24 @@ export async function calculatePayrollRun(runId: string, deps: PayrollCalculatio
     if (paidDays < periodDays) {
       warnings.push(`${employee.fullNameAr} (${employee.code}): احتُسب ${paidDays} من ${periodDays} يوماً بالتناسب.`);
     }
-    inputs.push({ employee, contract, paidDays });
+    let fx: EmployeePayrollInput["fx"] = null;
+    if (contract.currency !== run.currency) {
+      const found = await deps.exchangeRates?.findRate(contract.currency, run.periodEnd);
+      if (!found) throw new PayrollFxRateMissingError(employee.code, contract.currency, run.periodEnd);
+      fx = { rate: found.rate, effectiveDate: found.effectiveDate };
+      warnings.push(
+        `${employee.fullNameAr} (${employee.code}): عقد بعملة ${contract.currency} — حُوِّل إلى ${run.currency} بسعر ${found.rate} المعتمد في ${found.effectiveDate}.`,
+      );
+    }
+    inputs.push({
+      employee,
+      contract: fx ? inRunCurrency(contract, fx.rate, run.currency) : contract,
+      signed: contract,
+      fx,
+      paidStart,
+      paidEnd,
+      paidDays,
+    });
   }
 
   if (inputs.length === 0) throw new NoPayableEmployeesError(runId);
@@ -321,19 +443,43 @@ export async function calculatePayrollRun(runId: string, deps: PayrollCalculatio
 
   const payslips: Payslip[] = [];
   const overtimeTableCodes = new Set<string>();
-  for (const { employee, contract, paidDays } of inputs) {
+  for (const input of inputs) {
+    const { employee, contract, signed, fx, paidDays } = input;
+    const who = `${employee.fullNameAr} (${employee.code})`;
+    const isMonthly = contract.payBasis === "monthly";
     const lines: PayslipLine[] = [];
+    let quantity: number | null = null;
+    let standardDailyHours: number | null = null;
 
-    lines.push({
-      id: idGen(),
-      kind: "earning",
-      source: "contract_basic",
-      nameAr: "الراتب الأساسي",
-      amount: prorateByDivisor(contract.monthlySalary, paidDays, periodDays, divisor),
-      glAccountId: null,
-      referenceId: null,
-      capped: false,
-    });
+    if (isMonthly) {
+      lines.push({
+        id: idGen(),
+        kind: "earning",
+        source: "contract_basic",
+        nameAr: fx ? `الراتب الأساسي (${rateLabel(signed, fx)})` : "الراتب الأساسي",
+        amount: prorateByDivisor(contract.monthlySalary, paidDays, periodDays, divisor),
+        glAccountId: null,
+        referenceId: null,
+        capped: false,
+      });
+    } else {
+      const worked = await (deps.workedTime as WorkedTimeProvider).workedTimeFor(employee.id, input.paidStart, input.paidEnd);
+      standardDailyHours = worked.standardDailyHours;
+      const pay = attendancePay(input, worked);
+      quantity = pay.quantity;
+      for (const line of pay.lines) {
+        lines.push({ id: idGen(), kind: "earning", source: "contract_basic", nameAr: line.nameAr, amount: line.amount, glAccountId: null, referenceId: null, capped: false });
+      }
+      if (contract.payBasis === "hourly" && worked.unclockedDays.length > 0) {
+        warnings.push(`${who}: ${worked.unclockedDays.length} يوم حضور بلا وقت حضور وانصراف (${worked.unclockedDays.join("، ")}) — لا ساعات تُدفع عنها.`);
+      }
+      if (worked.unapprovedOffDays.length > 0) {
+        warnings.push(`${who}: عمل في يوم راحة أو عطلة رسمية دون اعتماد (${worked.unapprovedOffDays.join("، ")}) — لم يُدفع عنه.`);
+      }
+      if (quantity === 0) {
+        warnings.push(`${who}: لا ساعات أو أيام عمل مسجلة في الحضور خلال الفترة — لا أجر أساسي.`);
+      }
+    }
     for (const allowance of contract.allowances) {
       lines.push({
         id: idGen(),
@@ -352,7 +498,14 @@ export async function calculatePayrollRun(runId: string, deps: PayrollCalculatio
 
     if (statutory && deps.overtime) {
       const worked = await deps.overtime.overtimeHoursFor(employee.id, run.periodStart, run.periodEnd);
-      for (const line of overtimePay({ monthlyWage, dayDivisor: divisor, standardDailyHours: worked.standardDailyHours }, worked)) {
+      const hours = BigInt(Math.max(Math.round((standardDailyHours ?? worked.standardDailyHours) * 1000), 1));
+      const ownRates =
+        contract.payBasis === "hourly"
+          ? { hourlyRate: contract.monthlySalary, dayWage: Money.fromScaled(divRoundHalfUp(contract.monthlySalary.scaled * hours, 1000n)) }
+          : contract.payBasis === "daily"
+            ? { hourlyRate: Money.fromScaled(divRoundHalfUp(contract.monthlySalary.scaled * 1000n, hours)), dayWage: contract.monthlySalary }
+            : {};
+      for (const line of overtimePay({ monthlyWage, dayDivisor: divisor, standardDailyHours: worked.standardDailyHours, ...ownRates }, worked)) {
         overtimeTableCodes.add(line.tableCode);
         lines.push({
           id: idGen(),
@@ -365,7 +518,6 @@ export async function calculatePayrollRun(runId: string, deps: PayrollCalculatio
           capped: false,
         });
       }
-      const who = `${employee.fullNameAr} (${employee.code})`;
       if (worked.ineligibleHours > 0) {
         warnings.push(`${who}: غير مستحق للأجر الإضافي — لم تُصرف ${worked.ineligibleHours} ساعة إضافية معتمدة.`);
       }
@@ -392,7 +544,7 @@ export async function calculatePayrollRun(runId: string, deps: PayrollCalculatio
     const grossEarnings = Money.sum(lines.filter((l) => l.kind === "earning").map((l) => l.amount));
 
     let unpaidLeaveDeduction = Money.zero();
-    if (deps.unpaidLeave) {
+    if (deps.unpaidLeave && isMonthly) {
       const reported = await deps.unpaidLeave.unpaidDaysFor(employee.id, run.periodStart, run.periodEnd);
       const unpaidDays = Math.min(Math.max(Math.round(reported), 0), paidDays);
       if (unpaidDays > 0) {
@@ -432,12 +584,15 @@ export async function calculatePayrollRun(runId: string, deps: PayrollCalculatio
 
       // The floor and ceiling are MONTHLY caps, so the full contractual wage is
       // clamped first and the contribution prorated after; clamping a prorated
-      // wage would push every mid-month joiner onto the floor.
-      const insurance = socialInsuranceFor(monthlyWage, statutory.socialInsurance);
+      // wage would push every mid-month joiner onto the floor. An hourly or
+      // daily wage has no contractual month: the period's own earnings are the
+      // wage, and only a floor it was raised to is prorated.
+      const insurance = socialInsuranceFor(isMonthly ? monthlyWage : contractEarnings, statutory.socialInsurance);
       insurableWage = insurance.insurableWage;
       insurableWageCapped = insurance.cappedByCeiling;
-      const employeeInsurance = prorate(insurance.employeeTotal, paidDays, periodDays);
-      const employerInsurance = prorate(insurance.employerTotal, paidDays, periodDays);
+      const prorateInsurance = isMonthly || insurance.raisedToFloor;
+      const employeeInsurance = prorateInsurance ? prorate(insurance.employeeTotal, paidDays, periodDays) : insurance.employeeTotal;
+      const employerInsurance = prorateInsurance ? prorate(insurance.employerTotal, paidDays, periodDays) : insurance.employerTotal;
       if (employeeInsurance.scaled > 0n) {
         lines.push({
           id: idGen(),
@@ -646,6 +801,16 @@ export async function calculatePayrollRun(runId: string, deps: PayrollCalculatio
     const totalDeductions = Money.sum(lines.filter((l) => l.kind === "deduction").map((l) => l.amount));
     const employerContributions = Money.sum(lines.filter((l) => l.kind === "employer_contribution").map((l) => l.amount));
     const netPay = Money.fromScaled(grossEarnings.scaled - totalDeductions.scaled);
+    const basis: PayslipBasis = {
+      payBasis: contract.payBasis,
+      quantity,
+      rate: signed.monthlySalary,
+      contractCurrency: signed.currency,
+      fxRate: fx?.rate ?? null,
+      fxRateDate: fx?.effectiveDate ?? null,
+      grossInContractCurrency: fx ? toPiastre(convertFromBase(grossEarnings, fx.rate)) : null,
+      netInContractCurrency: fx ? toPiastre(convertFromBase(netPay, fx.rate)) : null,
+    };
 
     payslips.push({
       id: idGen(),
@@ -667,6 +832,7 @@ export async function calculatePayrollRun(runId: string, deps: PayrollCalculatio
       insurableWageCapped,
       annualTaxableIncome,
       totalEmployerCost: Money.fromScaled(grossEarnings.scaled + employerContributions.scaled),
+      basis,
       createdAt: now,
     });
   }

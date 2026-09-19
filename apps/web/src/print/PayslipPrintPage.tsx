@@ -8,6 +8,12 @@ import { useUnverifiedStatutoryCodes } from "../data/hr-payroll-hooks";
 import { employeeDisplayName } from "../screens/hr-employee-name";
 import { EMPTY } from "../lib/empty";
 
+const PAY_BASIS_KEY = {
+  monthly: "payroll.basis.monthly",
+  hourly: "payroll.basis.hourly",
+  daily: "payroll.basis.daily",
+} as const;
+
 /**
  * كشف الراتب — the printed payslip.
  *
@@ -58,7 +64,15 @@ export function PayslipPrintPage({ payslip, run }: { payslip: PayslipDTO; run: P
           paidDays: t("payslipPrint.paidDays"),
           statutoryCapped: t("payslipPrint.statutoryCapped"),
           insurableWage: t("payslipPrint.insurableWage"),
+          payBasis: t("payroll.payBasis"),
+          basisName: payslip.basis ? t(PAY_BASIS_KEY[payslip.basis.payBasis]) : undefined,
+          quantityUnit: payslip.basis?.payBasis === "hourly" ? t("payroll.hours") : t("payroll.days"),
+          contractCurrency: t("payroll.contractCurrency"),
+          fxRate: t("payroll.fxRate"),
+          grossInContractCurrency: t("payroll.grossInContractCurrency"),
+          netInContractCurrency: t("payroll.netInContractCurrency"),
         },
+        formatAmount: (value: string) => format.money(Number(value)),
         statutory,
         statutoryNotice: !statutory
           ? t("payslipPrint.statutoryNotComputed")
@@ -66,7 +80,7 @@ export function PayslipPrintPage({ payslip, run }: { payslip: PayslipDTO; run: P
             ? t("payslipPrint.statutoryUnverified")
             : undefined,
       }),
-    [payslip, run, employee, departments, jobTitles, branches, settings, format.currencyLabel, locale, t, statutory, computedFromUnverified],
+    [payslip, run, employee, departments, jobTitles, branches, settings, format, locale, t, statutory, computedFromUnverified],
   );
 
   if (configQuery.isLoading) return null;

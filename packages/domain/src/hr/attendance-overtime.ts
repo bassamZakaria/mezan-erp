@@ -68,7 +68,7 @@ function addDays(date: string, days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-function dayTypeOf(entry: AttendanceEntry, options: OvertimeDerivationOptions): OvertimeDayType {
+export function dayTypeOf(entry: Pick<AttendanceEntry, "date" | "status">, options: Pick<OvertimeDerivationOptions, "holidays" | "weeklyOffDays">): OvertimeDayType {
   const holidays = options.holidays ?? [];
   if (entry.status === "holiday" || isHolidayDate(entry.date, holidays)) return "holiday";
   if (entry.status === "weekly_off" || isWeeklyOffDay(entry.date, options.weeklyOffDays ?? DEFAULT_WEEKLY_OFF_DAYS)) return "rest_day";

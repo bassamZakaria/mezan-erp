@@ -391,7 +391,7 @@ const CONTRACTS = [
     payFrequency: "weekly",
     startDate: "2025-11-10",
     endDate: "2026-11-09",
-    monthlySalary: "4200",
+    monthlySalary: "32",
     allowances: [],
     deductions: [],
   },

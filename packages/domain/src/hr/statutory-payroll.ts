@@ -283,6 +283,9 @@ export interface OvertimePayInput {
   readonly dayDivisor: number;
   /** The employee's standard day; the hourly rate is the day's wage over it. */
   readonly standardDailyHours: number;
+  /** An hourly or daily contract's own rates, in place of the ones derived from `monthlyWage`. */
+  readonly hourlyRate?: Money;
+  readonly dayWage?: Money;
 }
 
 /**
@@ -293,7 +296,7 @@ export interface OvertimePayInput {
  *     multiple — the day's own pay is already inside the monthly wage.
  */
 export function overtimePay(input: OvertimePayInput, worked: Pick<PeriodOvertimeHours, "byTable">): readonly OvertimeLine[] {
-  const rate = hourlyRate(input.monthlyWage, input.dayDivisor, input.standardDailyHours);
+  const rate = input.hourlyRate ?? hourlyRate(input.monthlyWage, input.dayDivisor, input.standardDailyHours);
   const lines: OvertimeLine[] = [];
   for (const { table, day, night, restDays, holidays } of worked.byTable) {
     for (const [kind, hours, premiumBp] of [
@@ -315,8 +318,11 @@ export function overtimePay(input: OvertimePayInput, worked: Pick<PeriodOvertime
       ["rest_day", restDays, table.restDayExtraDayWageBp],
       ["holiday", holidays, table.holidayExtraDayWageBp],
     ] as const) {
-      if (days <= 0 || input.dayDivisor <= 0) continue;
-      const amount = divRoundHalfUp(input.monthlyWage.scaled * BigInt(days) * BigInt(multipleBp), BigInt(Math.round(input.dayDivisor)) * BP);
+      if (days <= 0 || (input.dayWage === undefined && input.dayDivisor <= 0)) continue;
+      const amount =
+        input.dayWage !== undefined
+          ? divRoundHalfUp(input.dayWage.scaled * BigInt(days) * BigInt(multipleBp), BP)
+          : divRoundHalfUp(input.monthlyWage.scaled * BigInt(days) * BigInt(multipleBp), BigInt(Math.round(input.dayDivisor)) * BP);
       lines.push({
         kind,
         labelAr: `${OVERTIME_LABELS[kind]} (${formatQuantity(days)} يوم × ${formatQuantity(multipleBp / BASIS_POINTS_PER_UNIT)} أجر يوم)`,

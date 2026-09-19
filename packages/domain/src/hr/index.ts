@@ -206,6 +206,10 @@ export type {
   PeriodOvertimeHours,
   OvertimeWorkedUnderTable,
   OutstandingReplacementDay,
+  PayslipBasis,
+  PeriodWorkedTime,
+  WorkedTimeProvider,
+  PayrollExchangeRates,
 } from "./payroll-run.js";
 export {
   PAYROLL_RUN_STATUS_DEFINITIONS,
@@ -288,6 +292,7 @@ export {
   InvalidPayrollRunTransitionError,
   DuplicatePayrollPeriodError,
   NoPayableEmployeesError,
+  PayrollFxRateMissingError,
   NegativeNetPayError,
   InvalidGarnishmentError,
   GarnishmentNotFoundError,
@@ -385,7 +390,8 @@ export {
 } from "./statutory-payroll.js";
 
 export type { OvertimeDerivationOptions, OvertimeDayType } from "./attendance-overtime.js";
-export { overtimeMinutesForEntry, summarizeOvertime, createOvertimeHoursProvider, employeeOvertimePolicy } from "./attendance-overtime.js";
+export { overtimeMinutesForEntry, summarizeOvertime, createOvertimeHoursProvider, employeeOvertimePolicy, dayTypeOf } from "./attendance-overtime.js";
+export { summarizeWorkedTime, createWorkedTimeProvider } from "./worked-time.js";
 
 export type { EndOfServiceSettlement, EndOfServiceSettlementInput } from "./end-of-service.js";
 export { calculateEndOfServiceSettlement } from "./end-of-service.js";

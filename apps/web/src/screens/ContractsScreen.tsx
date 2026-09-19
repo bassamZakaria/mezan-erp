@@ -42,6 +42,8 @@ const TYPE_KEY: Record<ContractTypeDTO, AppTranslationKey> = {
   probationary: "contracts.type.probationary",
 };
 
+// A contract's `monthlySalary` is its rate in the unit of its pay basis: the month's, the hour's or the day's.
+const RATE_KEY: Record<Exclude<PayBasisDTO, "monthly">, AppTranslationKey> = { hourly: "contracts.rate.hourly", daily: "contracts.rate.daily" };
 const PAY_BASIS_KEY: Record<PayBasisDTO, AppTranslationKey> = { monthly: "contracts.payBasis.monthly", hourly: "contracts.payBasis.hourly", daily: "contracts.payBasis.daily" };
 const PAY_FREQUENCY_KEY: Record<PayFrequencyDTO, AppTranslationKey> = { monthly: "contracts.payFreq.monthly", biweekly: "contracts.payFreq.biweekly", weekly: "contracts.payFreq.weekly" };
 const STATUS_KEY: Record<ContractStatusDTO, AppTranslationKey> = { active: "contracts.status.active", terminated: "contracts.status.terminated" };
@@ -244,7 +246,17 @@ export function ContractsScreen() {
         </span>
       ),
     },
-    { key: "salary", header: t("contracts.basicSalary"), align: "end", render: (c) => <MoneyDisplay value={Number(c.monthlySalary)} /> },
+    {
+      key: "salary",
+      header: t("contracts.basicSalary"),
+      align: "end",
+      render: (c) => (
+        <span className="inline-flex items-baseline gap-[4px]">
+          <MoneyDisplay value={Number(c.monthlySalary)} currencyLabel={c.currency === "EGP" ? undefined : c.currency} />
+          {c.payBasis === "monthly" ? null : <span className="text-[11px] text-ink-faint">{t(c.payBasis === "hourly" ? "contracts.perHour" : "contracts.perDay")}</span>}
+        </span>
+      ),
+    },
     { key: "status", header: t("common.status"), render: (c) => <StatusPill label={t(STATUS_KEY[c.status])} tone={STATUS_TONE[c.status]} /> },
   ];
 
@@ -374,7 +386,10 @@ export function ContractsScreen() {
             </Card>
 
             <Card className="p-[13px_15px]">
-              <div className="text-[11px] font-semibold text-ink-faint">{t("contracts.monthlySalary2")}{selected.currency})</div>
+              <div className="text-[11px] font-semibold text-ink-faint">
+                {selected.payBasis === "monthly" ? t("contracts.monthlySalary2") : `${t(RATE_KEY[selected.payBasis])} (`}
+                {selected.currency})
+              </div>
               <div className="mt-[6px]">
                 <MoneyDisplay value={Number(selected.monthlySalary)} className="text-[18px] font-bold" />
               </div>
@@ -486,8 +501,14 @@ export function ContractsScreen() {
             hint={draft.type === "indefinite" ? t("contracts.anOpenEndedContractHas") : undefined}
           />
           <div>
-            <div className="mb-[6px] text-[12.5px] font-semibold text-ink">{t("contracts.monthlySalary3")}</div>
-            <MoneyInput aria-label={t("contracts.monthlySalary4")} value={draft.monthlySalary} onChange={(v) => setDraft((d) => ({ ...d, monthlySalary: v }))} />
+            <div className="mb-[6px] text-[12.5px] font-semibold text-ink">
+              {draft.payBasis === "monthly" ? t("contracts.monthlySalary3") : `${t(RATE_KEY[draft.payBasis])} *`}
+            </div>
+            <MoneyInput
+              aria-label={draft.payBasis === "monthly" ? t("contracts.monthlySalary4") : t(RATE_KEY[draft.payBasis])}
+              value={draft.monthlySalary}
+              onChange={(v) => setDraft((d) => ({ ...d, monthlySalary: v }))}
+            />
           </div>
           <SelectField
             label={t("contracts.currency")}

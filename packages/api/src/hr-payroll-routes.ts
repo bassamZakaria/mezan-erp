@@ -30,6 +30,7 @@ import {
   NegativeNetPayError,
   NoFiscalPeriodForDateError,
   NoPayableEmployeesError,
+  PayrollFxRateMissingError,
   PayrollRunNotFoundError,
   PeriodNotOpenForPostingError,
   TreasuryDisbursementHeldError,
@@ -60,6 +61,8 @@ import {
   type LeaveBalanceRepository,
   type LeavePolicyRepository,
   type OvertimeHoursProvider,
+  type PayrollExchangeRates,
+  type WorkedTimeProvider,
   type PayrollStatutoryFlagRepository,
   type SocialInsuranceYearOverride,
   type StatutoryOverrideRepository,
@@ -144,6 +147,10 @@ export interface HrPayrollRoutesDeps {
   readonly statutoryOverrides?: StatutoryOverrideRepository;
   /** Bound to attendance; read only when statutory computation is on. */
   readonly overtime?: OvertimeHoursProvider;
+  /** Bound to attendance and leave; absent = hourly and daily contracts are excluded. */
+  readonly workedTime?: WorkedTimeProvider;
+  /** The approved exchange rates; absent = a contract in another currency is excluded. */
+  readonly exchangeRates?: PayrollExchangeRates;
   /**
    * Read side of the leave provision. Supplying `ledger` and `leave` mounts the
    * provision routes: without the ledger there is no posted balance to compare
@@ -219,6 +226,18 @@ function serializePayslip(p: Payslip) {
     insurableWageCapped: p.insurableWageCapped,
     annualTaxableIncome: p.annualTaxableIncome.toString(),
     totalEmployerCost: p.totalEmployerCost === null ? null : p.totalEmployerCost.toString(),
+    basis: p.basis
+      ? {
+          payBasis: p.basis.payBasis,
+          quantity: p.basis.quantity,
+          rate: p.basis.rate.toString(),
+          contractCurrency: p.basis.contractCurrency,
+          fxRate: p.basis.fxRate,
+          fxRateDate: p.basis.fxRateDate,
+          grossInContractCurrency: p.basis.grossInContractCurrency?.toString() ?? null,
+          netInContractCurrency: p.basis.netInContractCurrency?.toString() ?? null,
+        }
+      : null,
     createdAt: p.createdAt,
   };
 }
@@ -288,6 +307,9 @@ function handleDomainError(c: Context, err: unknown): Response {
   if (err instanceof TreasuryDisbursementUnavailableError) {
     return c.json({ error: err.code, message: "لم يتم إعداد مسار الصرف من الخزينة." }, 409);
   }
+  if (err instanceof PayrollFxRateMissingError) {
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, currency: err.currency, date: err.asOfDate }, 422);
+  }
   if (err instanceof TreasuryDisbursementHeldError) {
     return c.json({ error: err.code, message: err.message, voucherId: err.voucherId }, 409);
   }
@@ -349,6 +371,8 @@ export function createHrPayrollRoutes(deps: HrPayrollRoutesDeps, resolveAuthCont
     payrollComponents: deps.payrollComponents,
     statutoryOverrides: deps.statutoryOverrides,
     overtime: deps.overtime,
+    workedTime: deps.workedTime,
+    exchangeRates: deps.exchangeRates,
     idGen,
   };
 

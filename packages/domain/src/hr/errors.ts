@@ -349,6 +349,25 @@ export class NoPayableEmployeesError extends Error {
 }
 
 /**
+ * Raised when a contract is in a currency other than the run's and no approved
+ * exchange rate exists for it on or before the period end. The run refuses
+ * rather than exclude the employee or convert at a guessed rate.
+ */
+export class PayrollFxRateMissingError extends Error {
+  readonly code = "FX_RATE_MISSING";
+  readonly messageEn: string;
+  constructor(
+    readonly employeeCode: string,
+    readonly currency: string,
+    readonly asOfDate: string,
+  ) {
+    super(`لا يوجد سعر صرف معتمد للعملة ${currency} في ${asOfDate} أو قبله؛ لا يمكن احتساب راتب ${employeeCode} المتعاقد عليه بهذه العملة. اعتمد سعر الصرف ثم أعد الاحتساب.`);
+    this.messageEn = `No approved exchange rate for ${currency} on or before ${asOfDate}; the salary of ${employeeCode}, contracted in ${currency}, cannot be calculated. Approve a rate, then recalculate.`;
+    this.name = "PayrollFxRateMissingError";
+  }
+}
+
+/**
  * Raised when an employee's deductions exceed their earnings for the period.
  * Payroll refuses to compute a negative net rather than post a wrong one.
  */

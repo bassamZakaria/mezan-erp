@@ -53,11 +53,42 @@ export interface PayslipPrintContext {
     /** Shown beside a line a statutory recovery cap reduced — the Art. 44 wage-attachment cap on a garnishment line, or the Art. 43 10% cap (D183) on an advance-recovery line. */
     readonly statutoryCapped: string;
     readonly insurableWage: string;
+    readonly payBasis?: string;
+    readonly basisName?: string;
+    readonly quantityUnit?: string;
+    readonly contractCurrency?: string;
+    readonly fxRate?: string;
+    readonly grossInContractCurrency?: string;
+    readonly netInContractCurrency?: string;
   };
+  /** Formats an API money string for the paper copy; defaults to the raw two-decimal figure. */
+  readonly formatAmount?: (value: string) => string;
   /** True when the run was computed with statutory rules on; the insurable wage is printed then. */
   readonly statutory?: boolean;
   /** What the net does NOT include, printed on the paper copy so a partial net is never read as a statutory one. */
   readonly statutoryNotice?: string;
+}
+
+function basisTerms(ctx: PayslipPrintContext): string[] {
+  const basis = ctx.payslip.basis;
+  if (!basis) return [];
+  const { labels } = ctx;
+  const amount = ctx.formatAmount ?? ((value: string) => majorOf(value).toFixed(2));
+  const foreign = basis.fxRate !== null;
+  if (basis.payBasis === "monthly" && !foreign) return [];
+  const rate = foreign ? `${amount(basis.rate)} ${basis.contractCurrency}` : amount(basis.rate);
+  const terms = [
+    basis.quantity !== null
+      ? `${labels.payBasis}: ${labels.basisName} — ${basis.quantity} ${labels.quantityUnit} × ${rate}`
+      : `${labels.payBasis}: ${labels.basisName} — ${rate}`,
+  ];
+  if (foreign) {
+    terms.push(`${labels.contractCurrency}: ${basis.contractCurrency}`);
+    terms.push(`${labels.fxRate}: 1 ${basis.contractCurrency} = ${basis.fxRate} ${ctx.payslip.currency}${basis.fxRateDate ? ` (${basis.fxRateDate})` : ""}`);
+    if (basis.grossInContractCurrency !== null) terms.push(`${labels.grossInContractCurrency}: ${amount(basis.grossInContractCurrency)} ${basis.contractCurrency}`);
+    if (basis.netInContractCurrency !== null) terms.push(`${labels.netInContractCurrency}: ${amount(basis.netInContractCurrency)} ${basis.contractCurrency}`);
+  }
+  return terms;
 }
 
 export function payslipPrintModel(ctx: PayslipPrintContext): PrintDocumentModel {
@@ -108,9 +139,11 @@ export function payslipPrintModel(ctx: PayslipPrintContext): PrintDocumentModel 
       address: employee.department,
       phone: employee.jobTitle,
     },
-    paymentTerms: ctx.statutory
-      ? `${labels.paidDays}: ${payslip.paidDays} / ${payslip.periodDays} · ${labels.insurableWage}: ${payslip.insurableWage}`
-      : `${labels.paidDays}: ${payslip.paidDays} / ${payslip.periodDays}`,
+    paymentTerms: [
+      `${labels.paidDays}: ${payslip.paidDays} / ${payslip.periodDays}`,
+      ...(ctx.statutory ? [`${labels.insurableWage}: ${payslip.insurableWage}`] : []),
+      ...basisTerms(ctx),
+    ].join(" · "),
     complianceNotice: ctx.statutoryNotice,
     lines,
     totals: {

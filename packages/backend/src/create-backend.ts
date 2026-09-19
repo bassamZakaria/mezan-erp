@@ -137,6 +137,7 @@ import {
   createSqliteFiscalPeriodRepository,
   createSqliteLedgerStore,
   createSqliteStockLedgerStore,
+  createSqliteBatchTrailStore,
   createSqliteSalesInvoiceStore,
   createSqlitePriceListStore,
   createSqlitePromotionStore,
@@ -248,6 +249,7 @@ import { seedIfEmpty, type SeedStores } from "./seed.js";
 import type { BackendModuleContext } from "./module-context.js";
 import { mountPos } from "./pos/index.js";
 import { mountEnhancements } from "./enh/index.js";
+import { EXPIRY_EVENT_CODES, lotRequirementFromItems } from "./enh/e2-04.js";
 import { seedDemoTenant } from "./demo-seed.js";
 import { createHrTreasuryDisbursementPort } from "./hr-treasury-disbursement.js";
 
@@ -970,6 +972,8 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     // and was never received anywhere. Without it such an issue was written at
     // zero and COGS was understated by the whole deficit (D101).
     fallbackUnitCost: async (itemId) => (await items.findById(itemId))?.costPrice ?? null,
+    lotRequirement: lotRequirementFromItems(items),
+    batchTrail: createSqliteBatchTrailStore(sqlite),
   });
   /**
    * The expense accounts a contract's التكلفة حتى تاريخه must NOT count:
@@ -3917,7 +3921,10 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       branchOfEntry: resolveEntryBranches,
     },
     notificationRuleRepo: notificationRules,
-    emittedEventCodes: emittedEventCodesOf(returnsEventMapping, salesInvoiceEventMapping, purchasesEventMapping, voucherEventMapping),
+    emittedEventCodes: [
+      ...emittedEventCodesOf(returnsEventMapping, salesInvoiceEventMapping, purchasesEventMapping, voucherEventMapping),
+      ...EXPIRY_EVENT_CODES,
+    ],
     notificationRepo: notifications,
     /**
      * Drains the outbound queue on an operator's request (ROADMAP §3.3).

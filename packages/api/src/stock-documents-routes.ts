@@ -27,6 +27,7 @@ import {
   type PhysicalCountStatus,
   PHYSICAL_COUNT_STATUSES,
   matchesSearch,
+  LotDetailsRequiredError,
 } from "@mezan/domain";
 import {
   createStockAdjustmentSchema,
@@ -63,6 +64,8 @@ function serializeAdjustment(doc: FrameworkDocument<StockAdjustmentDocLine>) {
       direction: l.direction,
       qty: l.qty.toString(),
       unitCost: l.unitCost ? l.unitCost.toString() : null,
+      batchNo: l.batchNo ?? null,
+      expiryDate: l.expiryDate ?? null,
     })),
     createdAt: doc.createdAt,
     confirmedAt: doc.confirmedAt,
@@ -202,6 +205,9 @@ function warehouseScopeRefusal(c: Context, warehouseIds: readonly string[]): Res
 }
 
 function handleDocumentError(c: Context, err: unknown): Response {
+  if (err instanceof LotDetailsRequiredError) {
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, issues: err.issues }, 422);
+  }
   if (err instanceof DocumentNotFoundError || err instanceof PhysicalCountNotFoundError) {
     return c.json({ error: err.code, message: err.message }, 404);
   }
@@ -258,6 +264,8 @@ export function createStockAdjustmentsRoutes(
           direction: l.direction,
           qty: Qty.fromMajor(l.qty),
           unitCost: l.unitCost ? Money.fromMajor(l.unitCost) : undefined,
+          batchNo: l.direction === "IN" ? (l.batchNo ?? null) : null,
+          expiryDate: l.direction === "IN" ? (l.expiryDate ?? null) : null,
           projectId: parsed.data.projectId ?? null,
           costCategory: parsed.data.costCategory ?? null,
         })),

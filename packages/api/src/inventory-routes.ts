@@ -24,6 +24,7 @@ import {
   availableQty,
   type StockReservationSource,
   type StockReservations,
+  LotDetailsRequiredError,
 } from "@mezan/domain";
 import {
   postAdjustmentSchema,
@@ -137,6 +138,9 @@ function serializePostedTransfer(t: PostedTransfer) {
 }
 
 function handleDomainError(c: Context, err: unknown) {
+  if (err instanceof LotDetailsRequiredError) {
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, issues: err.issues }, 422);
+  }
   if (err instanceof NegativeStockError) {
     return c.json(
       {
@@ -400,6 +404,8 @@ export function createInventoryRoutes(
           direction: l.direction,
           qty: Qty.fromMajor(l.qty),
           unitCost: l.unitCost !== undefined ? Money.fromMajor(l.unitCost) : undefined,
+          batchNo: l.batchNo ?? null,
+          expiryDate: l.expiryDate ?? null,
         })),
       });
       return c.json({ ok: true }, 201);

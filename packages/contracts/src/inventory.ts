@@ -146,6 +146,8 @@ export const adjustmentLineSchema = z.object({
   direction: stockMovementDirectionSchema,
   qty: positiveDecimalString,
   unitCost: positiveDecimalString.optional(),
+  batchNo: z.string().trim().min(1).nullish(),
+  expiryDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullish(),
 });
 
 export const postAdjustmentSchema = z.object({

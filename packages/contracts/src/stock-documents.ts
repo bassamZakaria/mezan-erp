@@ -29,6 +29,8 @@ export const stockAdjustmentDocLineSchema = z.object({
   direction: z.enum(["IN", "OUT"]),
   qty: positiveDecimalString,
   unitCost: positiveDecimalString.nullish(),
+  batchNo: z.string().trim().min(1).nullish(),
+  expiryDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullish(),
 });
 
 /** Create a stock-adjustment draft. All lines must share one warehouse + one reason. */

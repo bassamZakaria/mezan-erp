@@ -11,7 +11,7 @@
  * change so consumers can detect drift.
  */
 
-export const EVENT_CATALOG_VERSION = 1;
+export const EVENT_CATALOG_VERSION = 2;
 
 export const EVENT_CATEGORIES = [
   "workflow",
@@ -83,8 +83,10 @@ export const DOMAIN_EVENT_CATALOG = [
   { code: "POS_SESSION_CLOSED", category: "pos", labelAr: "تم إغلاق وردية نقطة بيع" },
   { code: "POS_DISCOUNT_APPROVAL_REQUESTED", category: "pos", labelAr: "طلب اعتماد خصم نقطة بيع" },
 
-  // Inventory (1)
+  // Inventory (3)
   { code: "LOW_STOCK_DETECTED", category: "inventory", labelAr: "انخفاض مخزون عن الحد الأدنى" },
+  { code: "STOCK_NEAR_EXPIRY", category: "inventory", labelAr: "تشغيلة قاربت على انتهاء الصلاحية" },
+  { code: "STOCK_EXPIRED", category: "inventory", labelAr: "تشغيلة انتهت صلاحيتها في المخزون" },
 
   // Manufacturing (2)
   { code: "WORK_ORDER_STARTED", category: "manufacturing", labelAr: "بدأ أمر التصنيع" },

@@ -1150,6 +1150,15 @@ export function createDataMigrationRoutes(
           errors.push({ rowNumber: row.rowNumber, reasons: [`الصنف بالكود "${row.itemCode}" غير موجود`] });
           continue;
         }
+        if (item.trackBatches || item.trackExpiry) {
+          errors.push({
+            rowNumber: row.rowNumber,
+            reasons: [
+              `الصنف "${row.itemCode}" يتتبع التشغيلات والصلاحية: أدخل رصيده الافتتاحي من شاشة تسويات المخزون مع رقم التشغيلة وتاريخ الصلاحية / Item "${row.itemCode}" tracks batches and expiry: enter its opening balance from the stock adjustments screen with the batch and expiry`,
+            ],
+          });
+          continue;
+        }
         lines.push({ itemId: item.id, qty: row.qty, unitCost: row.unitCost });
       }
       errors.sort((a, b) => a.rowNumber - b.rowNumber);

@@ -53,6 +53,7 @@ import {
   type ShopFloorAttribution,
   type WorkStation,
   type WorkStationRepository,
+  LotDetailsRequiredError,
 } from "@mezan/domain";
 import {
   createBomSchema,
@@ -362,6 +363,9 @@ function withMessageEn(err: { readonly code: string; readonly message: string; r
 }
 
 function handleDomainError(c: Context, err: unknown): Response {
+  if (err instanceof LotDetailsRequiredError) {
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, issues: err.issues }, 422);
+  }
   if (
     err instanceof BomNotFoundError ||
     err instanceof WorkOrderNotFoundError ||
@@ -870,6 +874,7 @@ export function createManufacturingRoutes(
         Qty.fromMajor(parsed.data.producedQty),
         stockGlDeps(),
         await resolveAttribution(parsed.data),
+        { batchNo: parsed.data.batchNo ?? null, expiryDate: parsed.data.expiryDate ?? null },
       );
       return c.json(serializeWorkOrder(order));
     } catch (err) {

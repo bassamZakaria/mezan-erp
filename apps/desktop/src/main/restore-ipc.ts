@@ -1,7 +1,7 @@
 import { dialog } from "electron";
 import { handleGuarded } from "./ipc-guard.js";
 import { randomUUID } from "node:crypto";
-import { mkdir, mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { tmpdir } from "node:os";
 import { extract as tarExtract } from "tar";
@@ -696,6 +696,35 @@ async function performRestore(
   actor: string,
   source: RestoreSource,
   archiveLabel: string = path.basename(archivePath),
+): Promise<BackupRestoreResult> {
+  if (source === RestoreSource.Portable) {
+    return performVerifiedRestore(deps, archivePath, actor, source, archiveLabel);
+  }
+  // The safety backup below prunes the backups folder by GFS retention, which
+  // can delete the very archive being restored when several share its day.
+  const tmpRoot = path.join(deps.backupsDir, ".tmp");
+  await mkdir(tmpRoot, { recursive: true, mode: 0o700 });
+  const holdDir = await mkdtemp(path.join(tmpRoot, "restore-"));
+  const held = path.join(holdDir, path.basename(archivePath));
+  try {
+    try {
+      await copyFile(archivePath, held);
+    } catch (err) {
+      console.error("[backup] could not stage the archive for restore", err);
+      return failure("FAILED", "تعذّر تجهيز ملف النسخة للاستعادة. تأكد من وجود مساحة كافية على القرص.");
+    }
+    return await performVerifiedRestore(deps, held, actor, source, archiveLabel);
+  } finally {
+    await rm(holdDir, { recursive: true, force: true }).catch(() => undefined);
+  }
+}
+
+async function performVerifiedRestore(
+  deps: RestoreIpcDeps,
+  archivePath: string,
+  actor: string,
+  source: RestoreSource,
+  archiveLabel: string,
 ): Promise<BackupRestoreResult> {
   // The safety copy comes FIRST, and from the live connection, because after
   // the next few lines there is no live connection to take one from.

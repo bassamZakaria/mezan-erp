@@ -78,7 +78,7 @@ export async function sweepBackupScratch(backupsDir: string): Promise<void> {
     return;
   }
   for (const entry of entries) {
-    if (entry.startsWith("drill-") || entry.startsWith("import-")) {
+    if (entry.startsWith("drill-") || entry.startsWith("import-") || entry.startsWith("restore-")) {
       await rm(path.join(tmpRoot, entry), { recursive: true, force: true }).catch(() => undefined);
     }
   }

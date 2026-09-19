@@ -2048,3 +2048,27 @@ export function createReportsRoutes(
 
   return app;
 }
+
+export interface OpenPartyAgingInputs {
+  readonly asOfDate: string;
+  readonly customers: AgingCustomersContext;
+  readonly suppliers: AgingSuppliersContext;
+}
+
+/** Today's open customer and supplier items with the SAME netting terms the aging ladders use (D192–D220). */
+export async function openPartyAgingInputs(deps: ReportsRoutesDeps, asOfDate: string = todayIso(deps)): Promise<OpenPartyAgingInputs> {
+  const [salesInvoices, purchaseInvoices] = await Promise.all([
+    deps.salesInvoices.list({ statusIn: [...SALES_INVOICE_ACTIVE_STATUSES], toDate: asOfDate }),
+    deps.purchaseInvoices.list({ status: "confirmed", toDate: asOfDate }),
+  ]);
+  const [customerAsOf, supplierAsOf] = await Promise.all([agingAsOf(deps, "customer", asOfDate), agingAsOf(deps, "supplier", asOfDate)]);
+  const [customerTerms, supplierTerms] = await Promise.all([
+    agingCustomersTerms(deps, salesInvoices, customerAsOf),
+    agingSuppliersTerms(deps, purchaseInvoices, supplierAsOf),
+  ]);
+  return {
+    asOfDate,
+    customers: { invoices: salesInvoices, ...customerTerms },
+    suppliers: { invoices: purchaseInvoices, ...supplierTerms },
+  };
+}

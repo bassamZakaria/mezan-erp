@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { Hono } from "hono";
 import {
+  AuditChangeAction,
   BASE_CURRENCY,
   CashForecastHorizon,
   Money,
@@ -34,7 +35,7 @@ import {
   type CashForecastOpeningAccountDTO,
 } from "@mezan/contracts";
 import { createPermissionGate, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
-import { recordAdminEvent } from "./admin-audit.js";
+import { recordFieldChanges } from "./admin-audit.js";
 import { openPartyAgingInputs, type ReportsRoutesDeps } from "./reports-routes.js";
 
 export interface CashForecastRoutesDeps {
@@ -288,15 +289,12 @@ export function createCashForecastRoutes(deps: CashForecastRoutesDeps, resolveAu
     const actor = getAuthContext(c)?.userId ?? null;
     await deps.store.setThreshold({ amount, updatedAt: at, updatedBy: actor });
     if (!previous || previous.amount.scaled !== amount.scaled) await deps.store.clearOpen(at);
-    await recordAdminEvent(deps.audit, c, {
-      module: "treasury",
-      entityType: "cash_forecast_threshold",
-      entityId: "default",
-      action: "update",
-      severity: "INFO",
-      details: {
-        changes: [{ field: "threshold", from: previous ? previous.amount.toString() : null, to: amount.toString() }],
-      },
+    await recordFieldChanges(deps.audit, c, {
+      entity: { module: "treasury", entityType: "cash_forecast_threshold", entityId: "default" },
+      action: AuditChangeAction.Update,
+      before: previous ? { threshold: previous.amount } : null,
+      after: { threshold: amount },
+      fields: ["threshold"],
     });
     return c.json({ amount: amount.toString(), updatedAt: at, updatedBy: actor });
   });

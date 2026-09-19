@@ -41,6 +41,7 @@ import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { useEntityName } from "../lib/entity-names";
 import { EMPTY } from "../lib/empty";
 import { useUrlParam, useUrlSearch } from "../lib/url-state";
+import { EntityHistoryPanel } from "./enh/audit-ledger/EntityHistoryPanel";
 
 const TYPE_KEY: Record<AccountTypeDTO, AppTranslationKey> = {
   asset: "coa.type.asset",
@@ -623,9 +624,7 @@ export function ChartOfAccountsScreen() {
               {detailTab === "movements" ? (
                 <AccountMovementsTab accountId={selectedAccount.id} />
               ) : (
-                <div className="rounded-md border border-dashed border-border p-[18px] text-center text-[12.5px] text-ink-muted">
-                  {t("coa.theAuditTrailShowsEvery")}
-                </div>
+                <EntityHistoryPanel entityType="ACCOUNT" entityId={selectedAccount.id} />
               )}
             </div>
           </div>

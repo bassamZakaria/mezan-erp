@@ -93,7 +93,7 @@ export interface AuditChainVerificationDTO {
   readonly checked: number;
   readonly unchained: number;
   readonly brokenRowId: number | null;
-  readonly reason: "OK" | "ROW_ALTERED" | "CHAIN_BROKEN" | "HEAD_MISSING" | "HEAD_ALTERED" | "TRUNCATED";
+  readonly reason: "OK" | "ROW_ALTERED" | "CHAIN_BROKEN" | "HEAD_MISSING" | "HEAD_ALTERED" | "TRUNCATED" | "INDEX_ALTERED";
 }
 
 /**
@@ -129,6 +129,8 @@ export function useAuditLog(filter: AuditQueryDTO = {}): UseQueryResult<AuditQue
       if (filter.action) params.set("action", filter.action);
       if (filter.actor) params.set("actor", filter.actor);
       if (filter.entityType) params.set("entityType", filter.entityType);
+      if (filter.entityId) params.set("entityId", filter.entityId);
+      if (filter.field) params.set("field", filter.field);
       if (filter.severity) params.set("severity", filter.severity);
       if (filter.branchId) params.set("branchId", filter.branchId);
       if (filter.from) params.set("from", filter.from);

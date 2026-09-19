@@ -7,7 +7,19 @@ import type { Money } from "../money/index.js";
  * matched (or not) against a treasury GL movement.
  */
 
-export type BankStatementSource = "csv";
+export enum BankStatementSource {
+  Csv = "csv",
+  Excel = "excel",
+  Ofx = "ofx",
+  Mt940 = "mt940",
+}
+
+export enum MatchSource {
+  Manual = "manual",
+  Auto = "auto",
+  Suggestion = "suggestion",
+  CreatedEntry = "created_entry",
+}
 export type BankStatementStatus = "imported" | "in_progress" | "completed";
 export type StatementLineStatus = "unmatched" | "matched";
 
@@ -48,6 +60,7 @@ export interface BankStatement {
   readonly unmatchedAtFinalize?: number | null;
   readonly finalizeOverrideReason?: string | null;
   readonly finalizedBy?: string | null;
+  readonly differenceAtFinalize?: Money | null;
 }
 
 /**
@@ -67,6 +80,10 @@ export interface StatementLine {
   /** The matched treasury GL entry id (`AccountLedgerLine.entryId`), or null. */
   readonly matchedEntryId: string | null;
   readonly matchedAt: string | null;
+  readonly counterparty?: string | null;
+  /** Every entry the line is matched to; one for a 1:1 match, N for a split (1:N) whose amounts sum exactly to the line. */
+  readonly matchedEntryIds?: readonly string[];
+  readonly matchSource?: MatchSource | null;
 }
 
 /**
@@ -102,6 +119,10 @@ export interface BankStatementRepository {
    * them is one query per row.
    */
   lineCounts(statementIds: readonly string[]): Promise<ReadonlyMap<string, { total: number; matched: number }>>;
+  /** Replace the entry links of one line; an empty list clears them. */
+  replaceLineMatches(line: StatementLine, treasuryAccountId: string, entryIds: readonly string[]): Promise<void>;
+  /** Entry ids matched to any line of any statement of this treasury account, legacy single-entry matches included. */
+  matchedEntryIdsForAccount(treasuryAccountId: string): Promise<ReadonlySet<string>>;
   transaction<T>(fn: () => Promise<T>): Promise<T>;
 }
 

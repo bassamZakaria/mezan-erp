@@ -3,7 +3,7 @@ import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { BankStatementDTO, BankStatementListItemDTO, StatementLineDTO, TreasuryAccountDTO } from "@mezan/contracts";
+import { StatementSourceCode, type BankStatementDTO, type BankStatementListItemDTO, type StatementLineDTO, type TreasuryAccountDTO } from "@mezan/contracts";
 import { BankReconciliationScreen } from "./BankReconciliationScreen";
 import { renderWithProviders, stubTransport, testAdminSession, type StubResult } from "../data/test-support";
 
@@ -25,7 +25,7 @@ function statement(overrides: Partial<BankStatementDTO> = {}): BankStatementDTO 
   return {
     id: "stmt-1",
     treasuryAccountId: "ta-bank1",
-    source: "csv",
+    source: StatementSourceCode.Csv,
     statementNumber: "ST-001",
     periodStart: "2026-08-01",
     periodEnd: "2026-08-31",

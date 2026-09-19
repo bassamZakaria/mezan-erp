@@ -1,12 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { Money, type BankStatement, type StatementColumnMapping, type StatementLine } from "@mezan/domain";
+import { BankStatementSource, Money, type BankStatement, type StatementColumnMapping, type StatementLine } from "@mezan/domain";
 import { createSqliteBankReconciliationStore } from "./bank-reconciliation-repository.js";
 
 function makeStatement(overrides: Partial<BankStatement> = {}): BankStatement {
   return {
     id: "stmt-1",
     treasuryAccountId: "ta-bank1",
-    source: "csv",
+    source: BankStatementSource.Csv,
     statementNumber: "ST-001",
     periodStart: "2026-08-01",
     periodEnd: "2026-08-31",

@@ -116,3 +116,31 @@ export async function parseDataMigrationFile(
 
   return { rows, errors };
 }
+
+function csvCell(value: string): string {
+  return /[",\n\r]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
+}
+
+/**
+ * The first worksheet of an Excel file as CSV text, header row included, so a
+ * bank's Excel export goes through the same column mapping as its CSV. Dates
+ * become YYYY-MM-DD; every other cell keeps its displayed text.
+ */
+export async function readSpreadsheetAsCsv(buffer: ArrayBuffer): Promise<string> {
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(buffer);
+  const sheet = workbook.worksheets[0];
+  if (!sheet) return "";
+  const lines: string[] = [];
+  let width = 0;
+  sheet.eachRow((row) => {
+    width = Math.max(width, row.cellCount);
+  });
+  sheet.eachRow({ includeEmpty: false }, (row) => {
+    const values = row.values as ExcelJS.CellValue[];
+    const cells: string[] = [];
+    for (let i = 1; i <= width; i += 1) cells.push(csvCell(cellText(values[i])));
+    if (cells.some((c) => c !== "")) lines.push(cells.join(","));
+  });
+  return lines.join("\n");
+}

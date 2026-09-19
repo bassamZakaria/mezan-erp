@@ -11,8 +11,12 @@
  * cheque entry); it never creates one.
  */
 
-import type { Money } from "../money/index.js";
+import { Money } from "../money/index.js";
+import type { AccountRepository } from "../accounts/account.js";
+import type { CostCenterRepository } from "../cost-centers/cost-center.js";
 import {
+  BankStatementSource,
+  MatchSource,
   MAX_STATEMENT_BALANCE_SCALED,
   type BankStatement,
   type BankStatementListFilter,
@@ -22,16 +26,44 @@ import {
   type StatementLine,
 } from "./bank-statement.js";
 import { mapCsvRows, parseCsv } from "./csv.js";
-import { suggestMatches, type TreasuryLedgerCandidate, type TreasuryLedgerReader } from "./matching.js";
 import {
+  buildSuggestions,
+  suggestionKey,
+  type ScoredCandidateSet,
+  type TreasuryLedgerCandidate,
+  type TreasuryLedgerReader,
+} from "./matching.js";
+import { SuggestionStatus, type MatchSuggestionRecord, type MatchSuggestionRepository } from "./suggestions.js";
+import { BankRuleDirection, BankRuleMatchType, findMatchingRule, type BankRule, type BankRuleRepository } from "./bank-rules.js";
+import { BankEntryKind, type BankEntryPoster } from "./entry-poster.js";
+import { parseOfx } from "./ofx.js";
+import { parseMt940 } from "./mt940.js";
+import { StatementFileFormat, type ParsedStatementFile } from "./statement-file.js";
+import {
+  BankRuleNotFoundError,
   BankStatementNotFoundError,
+  EntryAccountRequiredError,
+  EntryAlreadyMatchedError,
+  EntryDateBeforeLineError,
+  EntryNotOnTreasuryAccountError,
+  FinalizeOverrideReasonRequiredError,
+  InvalidBankRuleError,
+  InvalidEntryAccountError,
   InvalidStatementBalanceError,
+  InvalidStatementFileError,
   LineAlreadyMatchedError,
   LineNotMatchedError,
-  FinalizeOverrideReasonRequiredError,
+  LineNotOnStatementError,
+  MatchAmountMismatchError,
+  NoEntriesSelectedError,
   StatementAlreadyFinalizedError,
+  StatementDifferenceNotZeroError,
   StatementHasUnmatchedLinesError,
   StatementLineNotFoundError,
+  SuggestionNotFoundError,
+  SuggestionNotPendingError,
+  TreasuryAccountUnpostableError,
+  ZeroAmountLineError,
 } from "./errors.js";
 
 /**
@@ -46,8 +78,8 @@ function assertStatementBalanceBound(statementId: string, label: string, amount:
 }
 
 /**
- * Finalising over unmatched lines is a deliberate, recorded act — never a
- * default. `reason` is mandatory whenever `force` is set.
+ * Finalising over unmatched lines or a non-zero difference is a deliberate,
+ * recorded act — never a default. `reason` is mandatory whenever `force` is set.
  */
 export interface FinalizeOptions {
   readonly force?: boolean;
@@ -66,6 +98,20 @@ export interface ImportStatementCommand {
   readonly openingBalance: Money;
   readonly closingBalance: Money;
   readonly statementNumber?: string | null;
+  /** An Excel statement is converted to CSV text in the browser and arrives here as CSV; this records where it came from. */
+  readonly source?: BankStatementSource.Csv | BankStatementSource.Excel;
+}
+
+export interface ImportStatementFileCommand {
+  readonly id: string;
+  readonly treasuryAccountId: string;
+  readonly format: StatementFileFormat;
+  readonly content: string;
+  readonly periodStart?: string | null;
+  readonly periodEnd?: string | null;
+  readonly openingBalance?: Money | null;
+  readonly closingBalance?: Money | null;
+  readonly statementNumber?: string | null;
 }
 
 /**
@@ -76,6 +122,7 @@ export interface ImportStatementCommand {
  */
 export interface MatchedStatementLine extends StatementLine {
   readonly matchedEntryNo: string | null;
+  readonly matchedEntryNos: readonly (string | null)[];
 }
 
 export interface AddManualLineCommand {
@@ -94,11 +141,79 @@ export interface MatchSummary {
   readonly matchRate: number;
 }
 
+/**
+ * The statement's reconciliation position, exact to the micro-unit.
+ *
+ * `difference` is the running target (closing balance − cleared book
+ * balance): the cleared book balance is the opening balance plus every entry
+ * matched on this statement, so it reaches zero exactly when every bank line
+ * is explained by a book entry and the file's own arithmetic holds. The book
+ * figures beside it compare the statement with the whole GL at period end,
+ * where timing items (deposits in transit, cheques not yet presented) are
+ * legitimate and listed.
+ */
+export interface ReconciliationPosition {
+  readonly openingBalance: Money;
+  readonly closingBalance: Money;
+  readonly clearedBalance: Money;
+  readonly difference: Money;
+  readonly statementLinesTotal: Money;
+  readonly statementArithmeticGap: Money;
+  readonly unmatchedLines: { readonly count: number; readonly total: Money };
+  readonly bookBalance: Money | null;
+  readonly bookDifference: Money | null;
+  readonly outstandingBook: { readonly count: number; readonly total: Money; readonly items: readonly TreasuryLedgerCandidate[] };
+  readonly unexplainedBookDifference: Money | null;
+}
+
+export interface ReviewSuggestion {
+  readonly record: MatchSuggestionRecord;
+  readonly entries: readonly TreasuryLedgerCandidate[];
+}
+
+export interface ReviewItem {
+  readonly lineId: string;
+  readonly suggestions: readonly ReviewSuggestion[];
+  readonly rule: BankRule | null;
+}
+
+export interface CreateEntryCommand {
+  readonly accountId?: string | null;
+  readonly costCenterId?: string | null;
+  readonly ruleId?: string | null;
+  readonly memo?: string | null;
+  readonly date?: string | null;
+  readonly actor?: string;
+  readonly actorRoles?: readonly string[];
+}
+
+export type CreateEntryResult =
+  | { readonly held: false; readonly voucherId: string; readonly voucherNo: string | null; readonly entryId: string; readonly line: StatementLine; readonly rule: BankRule | null }
+  | { readonly held: true; readonly voucherId: string; readonly voucherNo: string | null; readonly line: StatementLine; readonly rule: BankRule | null };
+
+export interface BankRuleInput {
+  readonly name: string;
+  readonly treasuryAccountId: string | null;
+  readonly pattern: string;
+  readonly matchType: BankRuleMatchType;
+  readonly direction: BankRuleDirection;
+  readonly accountId: string;
+  readonly costCenterId: string | null;
+  readonly priority: number;
+  readonly active: boolean;
+}
+
 export interface BankReconciliationServiceDeps {
   readonly statements: BankStatementRepository;
   readonly mappings: StatementColumnMappingRepository;
   readonly ledgerReader: TreasuryLedgerReader;
   readonly now?: () => string;
+  readonly suggestions?: MatchSuggestionRepository;
+  readonly rules?: BankRuleRepository;
+  readonly entryPoster?: BankEntryPoster;
+  readonly accounts?: Pick<AccountRepository, "findById">;
+  readonly costCenters?: Pick<CostCenterRepository, "findById">;
+  readonly idGen?: () => string;
 }
 
 const MANUAL_MATCH_SLACK_DAYS = 10;
@@ -109,11 +224,25 @@ function shiftDays(iso: string, days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+export function displayAmount(amount: Money): string {
+  const text = amount.toString();
+  return text.endsWith("0000") ? text.slice(0, -4) : text;
+}
+
+const ENTRY_KIND_LABEL: Record<BankEntryKind, string> = {
+  [BankEntryKind.BankCharge]: "مصروفات بنكية",
+  [BankEntryKind.Interest]: "فوائد وإيرادات بنكية",
+};
+
 export class BankReconciliationService {
   constructor(private readonly deps: BankReconciliationServiceDeps) {}
 
   private now(): string {
     return this.deps.now ? this.deps.now() : new Date().toISOString();
+  }
+
+  private newId(): string {
+    return this.deps.idGen ? this.deps.idGen() : globalThis.crypto.randomUUID();
   }
 
   async getColumnMapping(treasuryAccountId: string): Promise<StatementColumnMapping | null> {
@@ -128,23 +257,78 @@ export class BankReconciliationService {
     const mapping: StatementColumnMapping = { ...cmd.mapping, treasuryAccountId: cmd.treasuryAccountId, updatedAt: stamp };
     const table = parseCsv(cmd.rawCsv);
     const mapped = mapCsvRows(table, mapping);
+    return this.persistImport(
+      {
+        id: cmd.id,
+        treasuryAccountId: cmd.treasuryAccountId,
+        source: cmd.source ?? BankStatementSource.Csv,
+        statementNumber: cmd.statementNumber ?? null,
+        periodStart: cmd.periodStart,
+        periodEnd: cmd.periodEnd,
+        openingBalance: cmd.openingBalance,
+        closingBalance: cmd.closingBalance,
+        status: "imported",
+        importedAt: stamp,
+        finalizedAt: null,
+      },
+      mapped.map((row) => ({ ...row, counterparty: null })),
+      mapping,
+    );
+  }
 
-    const statement: BankStatement = {
-      id: cmd.id,
-      treasuryAccountId: cmd.treasuryAccountId,
-      source: "csv",
-      statementNumber: cmd.statementNumber ?? null,
-      periodStart: cmd.periodStart,
-      periodEnd: cmd.periodEnd,
-      openingBalance: cmd.openingBalance,
-      closingBalance: cmd.closingBalance,
-      status: "imported",
-      importedAt: stamp,
-      finalizedAt: null,
-    };
-    const lines: StatementLine[] = mapped.map((row, index) => ({
-      id: `${cmd.id}:L${index}`,
-      statementId: cmd.id,
+  /**
+   * Import an OFX or MT940 statement. Balances and the period come from the
+   * file unless the caller supplies them; a file carrying only one balance
+   * derives the other from its own lines, so the statement's arithmetic
+   * always closes.
+   */
+  async importStatementFile(cmd: ImportStatementFileCommand): Promise<{ statement: BankStatement; lines: readonly StatementLine[] }> {
+    const parsed: ParsedStatementFile = cmd.format === StatementFileFormat.Ofx ? parseOfx(cmd.content) : parseMt940(cmd.content);
+    if (parsed.rows.length === 0) {
+      throw new InvalidStatementFileError("لا يحتوي ملف الكشف على أي حركة.", "The statement file contains no transactions.");
+    }
+    const linesTotal = Money.sum(parsed.rows.map((r) => r.amount));
+    let opening = cmd.openingBalance ?? parsed.openingBalance;
+    let closing = cmd.closingBalance ?? parsed.closingBalance;
+    if (opening === null && closing === null) {
+      throw new InvalidStatementFileError(
+        "لا يحمل الملف رصيداً افتتاحياً ولا ختامياً؛ أدخل أحدهما.",
+        "The file carries neither an opening nor a closing balance; enter one of them.",
+      );
+    }
+    if (opening === null) opening = closing!.add(linesTotal.negate());
+    if (closing === null) closing = opening.add(linesTotal);
+    assertStatementBalanceBound(cmd.id, "الرصيد الافتتاحي", opening);
+    assertStatementBalanceBound(cmd.id, "الرصيد الختامي", closing);
+    const dates = parsed.rows.map((r) => r.date).sort();
+    const stamp = this.now();
+    return this.persistImport(
+      {
+        id: cmd.id,
+        treasuryAccountId: cmd.treasuryAccountId,
+        source: cmd.format === StatementFileFormat.Ofx ? BankStatementSource.Ofx : BankStatementSource.Mt940,
+        statementNumber: cmd.statementNumber ?? parsed.statementNumber ?? null,
+        periodStart: cmd.periodStart ?? parsed.periodStart ?? dates[0]!,
+        periodEnd: cmd.periodEnd ?? parsed.periodEnd ?? dates[dates.length - 1]!,
+        openingBalance: opening,
+        closingBalance: closing,
+        status: "imported",
+        importedAt: stamp,
+        finalizedAt: null,
+      },
+      parsed.rows,
+      null,
+    );
+  }
+
+  private async persistImport(
+    statement: BankStatement,
+    rows: readonly { date: string; description: string; reference: string | null; amount: Money; counterparty: string | null }[],
+    mapping: StatementColumnMapping | null,
+  ): Promise<{ statement: BankStatement; lines: readonly StatementLine[] }> {
+    const lines: StatementLine[] = rows.map((row, index) => ({
+      id: `${statement.id}:L${index}`,
+      statementId: statement.id,
       date: row.date,
       description: row.description,
       reference: row.reference,
@@ -152,61 +336,224 @@ export class BankReconciliationService {
       status: "unmatched",
       matchedEntryId: null,
       matchedAt: null,
+      counterparty: row.counterparty,
+      matchedEntryIds: [],
+      matchSource: null,
     }));
-
     await this.deps.statements.transaction(async () => {
-      await this.deps.mappings.upsert(mapping);
+      if (mapping) await this.deps.mappings.upsert(mapping);
       await this.deps.statements.save(statement);
       await this.deps.statements.saveLines(lines);
     });
-
     return { statement, lines };
   }
 
-  /** Auto-suggest and directly apply exact matches (amount + date-tolerance) against the account's treasury ledger. */
-  async autoMatch(statementId: string): Promise<{ matchedCount: number }> {
-    const statement = await this.require(statementId);
-    const lines = await this.deps.statements.listLines(statementId);
-    const candidates = await this.deps.ledgerReader.entriesForTreasuryAccount(
-      statement.treasuryAccountId,
-      statement.periodStart,
-      statement.periodEnd,
-    );
-    const suggestions = suggestMatches(lines, candidates);
-    const byId = new Map(lines.map((l) => [l.id, l]));
-    const stamp = this.now();
-    for (const s of suggestions) {
-      const line = byId.get(s.lineId)!;
-      await this.deps.statements.updateLine({ ...line, status: "matched", matchedEntryId: s.entryId, matchedAt: stamp });
-    }
-    if (suggestions.length > 0 && statement.status === "imported") {
-      await this.deps.statements.update({ ...statement, status: "in_progress" });
-    }
-    return { matchedCount: suggestions.length };
+  /**
+   * Score every unmatched line against the account's book movements and store
+   * the suggestions for review. Only a match scoring ≥ 90 that no other line
+   * contests and no equal-scoring alternative rivals is applied without a
+   * human; everything else waits in «للمراجعة». A suggestion someone rejected
+   * is never offered again for the same line.
+   */
+  async autoMatch(statementId: string, opts: { actor?: string | null } = {}): Promise<{ matchedCount: number; suggestedCount: number }> {
+    return this.deps.statements.transaction(async () => {
+      const statement = await this.require(statementId);
+      this.assertNotFinalized(statement);
+      const lines = await this.deps.statements.listLines(statementId);
+      const taken = await this.deps.statements.matchedEntryIdsForAccount(statement.treasuryAccountId);
+      const candidates = (
+        await this.deps.ledgerReader.entriesForTreasuryAccount(
+          statement.treasuryAccountId,
+          shiftDays(statement.periodStart, -MANUAL_MATCH_SLACK_DAYS),
+          shiftDays(statement.periodEnd, MANUAL_MATCH_SLACK_DAYS),
+        )
+      ).filter((c) => !taken.has(c.entryId));
+      const previous = this.deps.suggestions ? await this.deps.suggestions.listByStatement(statementId) : [];
+      const rejected = new Set(
+        previous.filter((s) => s.status === SuggestionStatus.Rejected).map((s) => suggestionKey(s.lineId, s.entryIds)),
+      );
+      const built = buildSuggestions(lines, candidates, { excluded: rejected });
+      const byId = new Map(lines.map((l) => [l.id, l]));
+      const byEntry = new Map(candidates.map((c) => [c.entryId, c]));
+      const stamp = this.now();
+      let matchedCount = 0;
+      let suggestedCount = 0;
+
+      await this.deps.suggestions?.deletePending(statementId);
+      const records: MatchSuggestionRecord[] = [];
+      const applied = new Set<string>();
+      for (const item of built) {
+        if (!item.autoApply) continue;
+        const best = item.options[0]!;
+        await this.writeMatch(statement, byId.get(item.lineId)!, best.entryIds, MatchSource.Auto, stamp);
+        best.entryIds.forEach((id) => applied.add(id));
+        records.push(this.toRecord(statementId, best, 0, stamp, SuggestionStatus.Accepted, opts.actor ?? "auto"));
+        matchedCount += 1;
+      }
+      for (const item of built) {
+        if (item.autoApply) continue;
+        const open = item.options.filter((o) => o.entryIds.every((id) => byEntry.has(id) && !applied.has(id)));
+        open.forEach((option, rank) => records.push(this.toRecord(statementId, option, rank, stamp, SuggestionStatus.Pending, null)));
+        if (open.length > 0) suggestedCount += 1;
+      }
+      if (records.length > 0) await this.deps.suggestions?.saveMany(records);
+      if (matchedCount > 0 && statement.status === "imported") {
+        await this.deps.statements.update({ ...statement, status: "in_progress" });
+      }
+      return { matchedCount, suggestedCount };
+    });
+  }
+
+  private toRecord(
+    statementId: string,
+    option: ScoredCandidateSet,
+    rank: number,
+    stamp: string,
+    status: SuggestionStatus,
+    decidedBy: string | null,
+  ): MatchSuggestionRecord {
+    return {
+      id: this.newId(),
+      statementId,
+      lineId: option.lineId,
+      entryIds: option.entryIds,
+      rank,
+      score: option.score.total,
+      amountScore: option.score.amount,
+      dateScore: option.score.date,
+      referenceScore: option.score.reference,
+      counterpartyScore: option.score.counterparty,
+      dateDeltaDays: option.score.dateDeltaDays,
+      status,
+      createdAt: stamp,
+      decidedAt: status === SuggestionStatus.Pending ? null : stamp,
+      decidedBy,
+    };
   }
 
   async matchLine(statementId: string, lineId: string, entryId: string): Promise<StatementLine> {
+    return this.matchLineToEntries(statementId, lineId, [entryId]);
+  }
+
+  /**
+   * Match one statement line to one or more book entries (1:1 or a split).
+   * Every entry must move this statement's bank account, none may already be
+   * matched on any statement of the account, and together they must equal the
+   * line to the micro-unit.
+   */
+  async matchLineToEntries(
+    statementId: string,
+    lineId: string,
+    entryIds: readonly string[],
+    source: MatchSource = MatchSource.Manual,
+    acceptedSuggestion?: { readonly id: string; readonly actor: string | null },
+  ): Promise<StatementLine> {
+    const unique = [...new Set(entryIds.map((id) => id.trim()).filter((id) => id !== ""))];
+    if (unique.length === 0) throw new NoEntriesSelectedError(lineId);
+    return this.deps.statements.transaction(async () => {
+      const statement = await this.require(statementId);
+      this.assertNotFinalized(statement);
+      const line = await this.requireLineOf(statementId, lineId);
+      if (line.status === "matched") throw new LineAlreadyMatchedError(lineId);
+
+      const entries = await this.entriesOnAccount(statement, unique);
+      for (const id of unique) if (!entries.has(id)) throw new EntryNotOnTreasuryAccountError(id);
+      const taken = await this.deps.statements.matchedEntryIdsForAccount(statement.treasuryAccountId);
+      for (const id of unique) if (taken.has(id)) throw new EntryAlreadyMatchedError(id);
+      const total = Money.sum(unique.map((id) => entries.get(id)!.amount));
+      if (!total.equals(line.amount)) {
+        throw new MatchAmountMismatchError(lineId, displayAmount(line.amount), displayAmount(total));
+      }
+
+      const stamp = this.now();
+      const updated = await this.writeMatch(statement, line, unique, source, stamp);
+      if (acceptedSuggestion && this.deps.suggestions) {
+        const record = await this.deps.suggestions.findById(acceptedSuggestion.id);
+        if (record) {
+          await this.deps.suggestions.update({
+            ...record,
+            status: SuggestionStatus.Accepted,
+            decidedAt: stamp,
+            decidedBy: acceptedSuggestion.actor,
+          });
+        }
+      }
+      if (statement.status === "imported") await this.deps.statements.update({ ...statement, status: "in_progress" });
+      return updated;
+    });
+  }
+
+  private async writeMatch(
+    statement: BankStatement,
+    line: StatementLine,
+    entryIds: readonly string[],
+    source: MatchSource,
+    stamp: string,
+  ): Promise<StatementLine> {
+    const updated: StatementLine = {
+      ...line,
+      status: "matched",
+      matchedEntryId: entryIds[0] ?? null,
+      matchedEntryIds: entryIds,
+      matchSource: source,
+      matchedAt: stamp,
+    };
+    await this.deps.statements.updateLine(updated);
+    await this.deps.statements.replaceLineMatches(updated, statement.treasuryAccountId, entryIds);
+    await this.supersede(statement.id, line.id, entryIds, stamp);
+    return updated;
+  }
+
+  private async supersede(statementId: string, lineId: string, entryIds: readonly string[], stamp: string): Promise<void> {
+    if (!this.deps.suggestions) return;
+    const used = new Set(entryIds);
+    const pending = (await this.deps.suggestions.listByStatement(statementId)).filter((s) => s.status === SuggestionStatus.Pending);
+    for (const record of pending) {
+      if (record.lineId === lineId || record.entryIds.some((id) => used.has(id))) {
+        await this.deps.suggestions.update({ ...record, status: SuggestionStatus.Superseded, decidedAt: stamp, decidedBy: null });
+      }
+    }
+  }
+
+  async acceptSuggestion(statementId: string, suggestionId: string, actor: string | null = null): Promise<StatementLine> {
+    const record = await this.requireSuggestion(statementId, suggestionId);
+    return this.matchLineToEntries(statementId, record.lineId, record.entryIds, MatchSource.Suggestion, { id: record.id, actor });
+  }
+
+  async rejectSuggestion(statementId: string, suggestionId: string, actor: string | null = null): Promise<MatchSuggestionRecord> {
     const statement = await this.require(statementId);
     this.assertNotFinalized(statement);
-    const line = await this.requireLine(lineId);
-    if (line.status === "matched") throw new LineAlreadyMatchedError(lineId);
-
-    const updated: StatementLine = { ...line, status: "matched", matchedEntryId: entryId, matchedAt: this.now() };
-    await this.deps.statements.updateLine(updated);
-    if (statement.status === "imported") {
-      await this.deps.statements.update({ ...statement, status: "in_progress" });
-    }
+    const record = await this.requireSuggestion(statementId, suggestionId);
+    const updated: MatchSuggestionRecord = { ...record, status: SuggestionStatus.Rejected, decidedAt: this.now(), decidedBy: actor };
+    await this.deps.suggestions!.update(updated);
     return updated;
+  }
+
+  private async requireSuggestion(statementId: string, suggestionId: string): Promise<MatchSuggestionRecord> {
+    const record = this.deps.suggestions ? await this.deps.suggestions.findById(suggestionId) : null;
+    if (!record || record.statementId !== statementId) throw new SuggestionNotFoundError(suggestionId);
+    if (record.status !== SuggestionStatus.Pending) throw new SuggestionNotPendingError(suggestionId);
+    return record;
   }
 
   async unmatchLine(statementId: string, lineId: string): Promise<StatementLine> {
     const statement = await this.require(statementId);
     this.assertNotFinalized(statement);
-    const line = await this.requireLine(lineId);
+    const line = await this.requireLineOf(statementId, lineId);
     if (line.status === "unmatched") throw new LineNotMatchedError(lineId);
 
-    const updated: StatementLine = { ...line, status: "unmatched", matchedEntryId: null, matchedAt: null };
-    await this.deps.statements.updateLine(updated);
+    const updated: StatementLine = {
+      ...line,
+      status: "unmatched",
+      matchedEntryId: null,
+      matchedEntryIds: [],
+      matchSource: null,
+      matchedAt: null,
+    };
+    await this.deps.statements.transaction(async () => {
+      await this.deps.statements.updateLine(updated);
+      await this.deps.statements.replaceLineMatches(updated, statement.treasuryAccountId, []);
+    });
     return updated;
   }
 
@@ -224,45 +571,266 @@ export class BankReconciliationService {
       status: "unmatched",
       matchedEntryId: null,
       matchedAt: null,
+      counterparty: null,
+      matchedEntryIds: [],
+      matchSource: null,
     };
     await this.deps.statements.saveLine(line);
     return line;
   }
 
   /**
+   * Book the entry a bank line proves happened but the books never recorded —
+   * a charge or interest — as a real voucher dated the bank line's own day,
+   * then match the line to it. The counter account comes from the caller or,
+   * failing that, from the first bank rule the line satisfies. A later date may
+   * be chosen (the line's period closed, say); an earlier one never. A closed
+   * or locked period on the chosen date refuses the posting; nothing moves it.
+   * When an approval chain holds the voucher, the line stays open until it posts.
+   */
+  async createEntry(statementId: string, lineId: string, cmd: CreateEntryCommand = {}): Promise<CreateEntryResult> {
+    const poster = this.deps.entryPoster;
+    if (!poster) throw new Error("Bank reconciliation has no entry poster configured.");
+    const statement = await this.require(statementId);
+    this.assertNotFinalized(statement);
+    const line = await this.requireLineOf(statementId, lineId);
+    if (line.status === "matched") throw new LineAlreadyMatchedError(lineId);
+    if (line.amount.scaled === 0n) throw new ZeroAmountLineError(lineId);
+
+    let rule: BankRule | null = null;
+    if (cmd.ruleId) rule = await this.requireRule(cmd.ruleId);
+    else if (!cmd.accountId) rule = findMatchingRule(await this.activeRules(), line, statement.treasuryAccountId);
+    const accountId = cmd.accountId ?? rule?.accountId ?? null;
+    if (!accountId) throw new EntryAccountRequiredError(lineId);
+    const costCenterId = cmd.costCenterId !== undefined ? cmd.costCenterId : (rule?.costCenterId ?? null);
+    await this.assertEntryAccount(accountId);
+    if (costCenterId) await this.assertCostCenter(costCenterId);
+
+    const date = cmd.date ?? line.date;
+    if (date < line.date) throw new EntryDateBeforeLineError(line.date, date);
+    const kind = line.amount.scaled > 0n ? BankEntryKind.Interest : BankEntryKind.BankCharge;
+    const memo = cmd.memo?.trim() || `${ENTRY_KIND_LABEL[kind]} — ${line.description}`.trim();
+
+    return this.deps.statements.transaction(async () => {
+      const posted = await poster.post({
+        voucherId: `BR-${line.id}`,
+        kind,
+        date,
+        amount: line.amount.scaled < 0n ? line.amount.negate() : line.amount,
+        treasuryAccountId: statement.treasuryAccountId,
+        counterAccountId: accountId,
+        costCenterId,
+        memo,
+        reference: line.reference,
+        actor: cmd.actor,
+        actorRoles: cmd.actorRoles,
+      });
+      if (posted.held) return { ...posted, line, rule };
+      const matched = await this.matchLineToEntries(statementId, lineId, [posted.entryId], MatchSource.CreatedEntry);
+      return { ...posted, line: matched, rule };
+    });
+  }
+
+  private async assertEntryAccount(accountId: string): Promise<void> {
+    if (!this.deps.accounts) return;
+    const account = await this.deps.accounts.findById(accountId);
+    if (!account) {
+      throw new InvalidEntryAccountError(`الحساب "${accountId}" غير موجود في دليل الحسابات.`, `Account "${accountId}" does not exist in the chart of accounts.`);
+    }
+    if (account.status !== "active" || account.isHeader) {
+      throw new InvalidEntryAccountError(
+        `الحساب "${account.code} ${account.nameAr}" غير نشط أو رئيسي؛ اختر حساباً تفصيلياً نشطاً.`,
+        `Account "${account.code}" is inactive or a header; choose an active detail account.`,
+      );
+    }
+    if (account.type !== "expense" && account.type !== "revenue") {
+      throw new InvalidEntryAccountError(
+        `قيود البنك من الكشف تُرحَّل إلى حساب مصروف أو إيراد فقط، و"${account.code} ${account.nameAr}" ليس كذلك.`,
+        `Entries from a statement post only to an expense or revenue account; "${account.code}" is neither.`,
+      );
+    }
+  }
+
+  private async assertCostCenter(costCenterId: string): Promise<void> {
+    if (!this.deps.costCenters) return;
+    const center = await this.deps.costCenters.findById(costCenterId);
+    if (!center || center.status !== "active") {
+      throw new InvalidEntryAccountError(`مركز التكلفة "${costCenterId}" غير موجود أو غير نشط.`, `Cost centre "${costCenterId}" does not exist or is inactive.`);
+    }
+  }
+
+  async listRules(): Promise<readonly BankRule[]> {
+    if (!this.deps.rules) return [];
+    return [...(await this.deps.rules.list())].sort((a, b) => a.priority - b.priority || a.createdAt.localeCompare(b.createdAt));
+  }
+
+  private async activeRules(): Promise<readonly BankRule[]> {
+    return (await this.listRules()).filter((r) => r.active);
+  }
+
+  private async requireRule(id: string): Promise<BankRule> {
+    const rule = this.deps.rules ? await this.deps.rules.findById(id) : null;
+    if (!rule) throw new BankRuleNotFoundError(id);
+    return rule;
+  }
+
+  private async validateRule(input: BankRuleInput): Promise<BankRuleInput> {
+    const name = input.name.trim();
+    const pattern = input.pattern.trim();
+    if (name === "") throw new InvalidBankRuleError("اسم القاعدة مطلوب.", "The rule needs a name.");
+    if (pattern === "") throw new InvalidBankRuleError("نص البحث في البيان مطلوب.", "The memo pattern is required.");
+    if (pattern.length > 200) throw new InvalidBankRuleError("نص البحث أطول من 200 حرف.", "The memo pattern is longer than 200 characters.");
+    if (!Number.isInteger(input.priority) || input.priority < 0 || input.priority > 9999) {
+      throw new InvalidBankRuleError("الأولوية رقم صحيح من 0 إلى 9999.", "Priority is a whole number from 0 to 9999.");
+    }
+    await this.assertEntryAccount(input.accountId);
+    if (input.costCenterId) await this.assertCostCenter(input.costCenterId);
+    return { ...input, name, pattern };
+  }
+
+  async createRule(input: BankRuleInput, id?: string): Promise<BankRule> {
+    if (!this.deps.rules) throw new Error("Bank rules are not configured.");
+    const valid = await this.validateRule(input);
+    const stamp = this.now();
+    const rule: BankRule = { ...valid, id: id ?? this.newId(), createdAt: stamp, updatedAt: stamp };
+    await this.deps.rules.save(rule);
+    return rule;
+  }
+
+  async updateRule(id: string, input: BankRuleInput): Promise<BankRule> {
+    const existing = await this.requireRule(id);
+    const valid = await this.validateRule(input);
+    const rule: BankRule = { ...existing, ...valid, id, updatedAt: this.now() };
+    await this.deps.rules!.update(rule);
+    return rule;
+  }
+
+  async deleteRule(id: string): Promise<void> {
+    await this.requireRule(id);
+    await this.deps.rules!.delete(id);
+  }
+
+  /**
+   * «للمراجعة» — every unmatched line with its stored suggestions (best
+   * first, each with its score broken down) and the bank rule that would
+   * book it if no book entry explains it.
+   */
+  async review(statementId: string): Promise<readonly ReviewItem[]> {
+    const statement = await this.require(statementId);
+    const lines = (await this.deps.statements.listLines(statementId)).filter((l) => l.status !== "matched");
+    const records = this.deps.suggestions
+      ? (await this.deps.suggestions.listByStatement(statementId)).filter((s) => s.status === SuggestionStatus.Pending)
+      : [];
+    const entryIds = [...new Set(records.flatMap((r) => r.entryIds))];
+    const entries = entryIds.length > 0 ? await this.entriesOnAccount(statement, entryIds) : new Map<string, TreasuryLedgerCandidate>();
+    const rules = await this.activeRules();
+    return lines.map((line) => ({
+      lineId: line.id,
+      suggestions: records
+        .filter((r) => r.lineId === line.id && r.entryIds.every((id) => entries.has(id)))
+        .sort((a, b) => b.score - a.score || a.rank - b.rank)
+        .map((record) => ({ record, entries: record.entryIds.map((id) => entries.get(id)!) })),
+      rule: findMatchingRule(rules, line, statement.treasuryAccountId),
+    }));
+  }
+
+  async reconciliation(statementId: string): Promise<ReconciliationPosition> {
+    const statement = await this.require(statementId);
+    return this.positionOf(statement, await this.deps.statements.listLines(statementId));
+  }
+
+  private async positionOf(statement: BankStatement, lines: readonly StatementLine[]): Promise<ReconciliationPosition> {
+    const matched = lines.filter((l) => l.status === "matched");
+    const unmatched = lines.filter((l) => l.status !== "matched");
+    const matchedIds = [...new Set(matched.flatMap((l) => this.entryIdsOf(l)))];
+    const entries = matchedIds.length > 0 ? await this.entriesOnAccount(statement, matchedIds) : new Map<string, TreasuryLedgerCandidate>();
+    const matchedBook = Money.sum(
+      matched.flatMap((l) => {
+        const ids = this.entryIdsOf(l);
+        return ids.every((id) => entries.has(id)) ? ids.map((id) => entries.get(id)!.amount) : [l.amount];
+      }),
+    );
+    const clearedBalance = statement.openingBalance.add(matchedBook);
+    const statementLinesTotal = Money.sum(lines.map((l) => l.amount));
+    const unmatchedTotal = Money.sum(unmatched.map((l) => l.amount));
+
+    const reader = this.deps.ledgerReader;
+    const bookBalance = reader.bookBalance ? await reader.bookBalance(statement.treasuryAccountId, statement.periodEnd) : null;
+    const taken = await this.deps.statements.matchedEntryIdsForAccount(statement.treasuryAccountId);
+    const outstanding = (
+      await reader.entriesForTreasuryAccount(statement.treasuryAccountId, statement.periodStart, statement.periodEnd)
+    ).filter((c) => !taken.has(c.entryId));
+    const outstandingTotal = Money.sum(outstanding.map((c) => c.amount));
+    const bookDifference = bookBalance ? statement.closingBalance.add(bookBalance.negate()) : null;
+    return {
+      openingBalance: statement.openingBalance,
+      closingBalance: statement.closingBalance,
+      clearedBalance,
+      difference: statement.closingBalance.add(clearedBalance.negate()),
+      statementLinesTotal,
+      statementArithmeticGap: statement.closingBalance.add(statement.openingBalance.negate()).add(statementLinesTotal.negate()),
+      unmatchedLines: { count: unmatched.length, total: unmatchedTotal },
+      bookBalance,
+      bookDifference,
+      outstandingBook: { count: outstanding.length, total: outstandingTotal, items: outstanding },
+      unexplainedBookDifference: bookDifference ? bookDifference.add(unmatchedTotal.negate()).add(outstandingTotal) : null,
+    };
+  }
+
+  private entryIdsOf(line: StatementLine): readonly string[] {
+    if (line.matchedEntryIds && line.matchedEntryIds.length > 0) return line.matchedEntryIds;
+    return line.matchedEntryId ? [line.matchedEntryId] : [];
+  }
+
+  private async entriesOnAccount(statement: BankStatement, entryIds: readonly string[]): Promise<ReadonlyMap<string, TreasuryLedgerCandidate>> {
+    const reader = this.deps.ledgerReader;
+    if (reader.entryAmountsOnTreasuryAccount) return reader.entryAmountsOnTreasuryAccount(statement.treasuryAccountId, entryIds);
+    const wanted = new Set(entryIds);
+    const candidates = await reader.entriesForTreasuryAccount(
+      statement.treasuryAccountId,
+      shiftDays(statement.periodStart, -MANUAL_MATCH_SLACK_DAYS),
+      shiftDays(statement.periodEnd, MANUAL_MATCH_SLACK_DAYS),
+    );
+    return new Map(candidates.filter((c) => wanted.has(c.entryId)).map((c) => [c.entryId, c]));
+  }
+
+  /**
    * Lock the statement: قيد التسوية/مستورد → منتهية. Idempotency-guarded —
    * cannot finalize twice.
    *
-   * REFUSED while any line is still unmatched, unless the caller passes an
-   * explicit `force` WITH a reason. An unmatched line is an open difference,
-   * and a reconciliation closed over one is how that difference stops being
-   * visible (D82). The override exists because some lines are legitimately
-   * unmatchable — a bank fee the shop books next month, a duplicated import
-   * row — but it is recorded on the statement (`unmatchedAtFinalize`,
-   * `finalizeOverrideReason`, `finalizedBy`) so the next person can see the
-   * reconciliation was closed over N open lines and why.
+   * REFUSED while any line is still unmatched or the reconciliation difference
+   * is not exactly zero, unless the caller passes an explicit `force` WITH a
+   * reason (D82). The override is recorded on the statement
+   * (`unmatchedAtFinalize`, `differenceAtFinalize`, `finalizeOverrideReason`,
+   * `finalizedBy`) so the next person can see what was closed over and why.
    */
   async finalize(statementId: string, opts: FinalizeOptions = {}): Promise<BankStatement> {
     const statement = await this.require(statementId);
     this.assertNotFinalized(statement);
     const lines = await this.deps.statements.listLines(statementId);
     const unmatched = lines.filter((l) => l.status !== "matched").length;
-    if (unmatched > 0) {
-      if (!opts.force) throw new StatementHasUnmatchedLinesError(statementId, unmatched);
+    const position = await this.positionOf(statement, lines);
+    const differenceOpen = position.difference.scaled !== 0n;
+    if (unmatched > 0 || differenceOpen) {
+      if (!opts.force) {
+        if (unmatched > 0) throw new StatementHasUnmatchedLinesError(statementId, unmatched);
+        throw new StatementDifferenceNotZeroError(statementId, displayAmount(position.difference));
+      }
       if (!opts.reason || opts.reason.trim() === "") throw new FinalizeOverrideReasonRequiredError(statementId);
     }
+    const overridden = unmatched > 0 || differenceOpen;
     const updated: BankStatement = {
       ...statement,
       status: "completed",
       finalizedAt: this.now(),
       unmatchedAtFinalize: unmatched,
-      finalizeOverrideReason: unmatched > 0 ? (opts.reason as string).trim() : null,
+      differenceAtFinalize: position.difference,
+      finalizeOverrideReason: overridden ? (opts.reason as string).trim() : null,
       finalizedBy: opts.actor ?? null,
     };
     await this.deps.statements.update(updated);
     return updated;
   }
-
 
   async matchSummary(statementId: string): Promise<MatchSummary> {
     const lines = await this.deps.statements.listLines(statementId);
@@ -275,15 +843,14 @@ export class BankReconciliationService {
    * The treasury-side movements a human can manually match this statement's
    * lines against — the account's own GL ledger over the statement period,
    * widened by `MANUAL_MATCH_SLACK_DAYS` because manual matching exists
-   * precisely for the movements auto-match's ±5-day window could not reach.
+   * precisely for the movements auto-match's window could not reach.
    *
-   * Entries already matched to a line of THIS statement are excluded, so the
-   * picker cannot offer the same entry to two lines.
+   * Entries already matched on ANY statement of this account are excluded, so
+   * the picker cannot offer one bank movement to two lines.
    */
   async matchCandidates(statementId: string): Promise<readonly TreasuryLedgerCandidate[]> {
     const statement = await this.require(statementId);
-    const lines = await this.deps.statements.listLines(statementId);
-    const taken = new Set(lines.map((l) => l.matchedEntryId).filter((id): id is string => id !== null));
+    const taken = await this.deps.statements.matchedEntryIdsForAccount(statement.treasuryAccountId);
     const candidates = await this.deps.ledgerReader.entriesForTreasuryAccount(
       statement.treasuryAccountId,
       shiftDays(statement.periodStart, -MANUAL_MATCH_SLACK_DAYS),
@@ -300,14 +867,6 @@ export class BankReconciliationService {
     return this.deps.statements.listLines(statementId);
   }
 
-  /**
-   * The statement's lines, each matched one carrying the entry NUMBER it was
-   * matched to. One ledger read for the whole statement, not one per line.
-   *
-   * `matchedEntryNo` is null when the line is unmatched, and also when the
-   * entry it points at carries no number of its own (a draft) — rendering the
-   * id in that case is the caller's choice, not a silent substitution here.
-   */
   async listLinesWithEntryNumbers(statementId: string): Promise<readonly MatchedStatementLine[]> {
     const lines = await this.deps.statements.listLines(statementId);
     return this.withEntryNumbers(lines);
@@ -315,12 +874,17 @@ export class BankReconciliationService {
 
   /** Same enrichment for a handful of lines — what the match/unmatch routes return. */
   async withEntryNumbers(lines: readonly StatementLine[]): Promise<readonly MatchedStatementLine[]> {
-    const ids = lines.map((l) => l.matchedEntryId).filter((id): id is string => id !== null);
+    const ids = [...new Set(lines.flatMap((l) => this.entryIdsOf(l)))];
     const numbers = ids.length === 0 ? new Map<string, string>() : await this.deps.ledgerReader.entryNumbersByIds(ids);
-    return lines.map((line) => ({
-      ...line,
-      matchedEntryNo: line.matchedEntryId === null ? null : (numbers.get(line.matchedEntryId) ?? null),
-    }));
+    return lines.map((line) => {
+      const lineIds = this.entryIdsOf(line);
+      return {
+        ...line,
+        matchedEntryIds: lineIds,
+        matchedEntryNo: line.matchedEntryId === null ? null : (numbers.get(line.matchedEntryId) ?? null),
+        matchedEntryNos: lineIds.map((id) => numbers.get(id) ?? null),
+      };
+    });
   }
 
   async list(filter?: BankStatementListFilter): Promise<readonly BankStatement[]> {
@@ -329,9 +893,7 @@ export class BankReconciliationService {
 
   /**
    * The list plus each statement's match summary, counted in ONE query rather
-   * than one per statement. The list screen judges which statement still needs
-   * work by its match rate, and a rate it cannot compute reads as 0% — which is
-   * a number, not an absence.
+   * than one per statement.
    */
   async listWithSummaries(
     filter?: BankStatementListFilter,
@@ -357,9 +919,10 @@ export class BankReconciliationService {
     return statement;
   }
 
-  private async requireLine(id: string): Promise<StatementLine> {
-    const line = await this.deps.statements.findLineById(id);
-    if (!line) throw new StatementLineNotFoundError(id);
+  private async requireLineOf(statementId: string, lineId: string): Promise<StatementLine> {
+    const line = await this.deps.statements.findLineById(lineId);
+    if (!line) throw new StatementLineNotFoundError(lineId);
+    if (line.statementId !== statementId) throw new LineNotOnStatementError(statementId, lineId);
     return line;
   }
 }

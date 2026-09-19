@@ -1,36 +1,176 @@
 import { randomUUID } from "node:crypto";
 import { Hono, type Context } from "hono";
 import {
+  AccountNotFoundError,
+  ApprovalRequestRejectedError,
+  AuditChangeAction,
   BankReconciliationService,
-  Money,
+  BankRuleDirection,
+  BankRuleMatchType,
+  BankRuleNotFoundError,
   BankStatementNotFoundError,
+  BankStatementSource,
+  CashBalanceWouldGoNegativeError,
   ColumnNotFoundError,
+  DuplicateDocumentError,
+  EntryAccountRequiredError,
+  EntryAlreadyMatchedError,
+  EntryDateBeforeLineError,
+  EntryNotOnTreasuryAccountError,
+  FinalizeOverrideReasonRequiredError,
+  HeaderAccountNotPostableError,
+  InactiveAccountError,
+  InvalidBankRuleError,
   InvalidColumnMappingError,
+  InvalidDocumentError,
+  InvalidDocumentTransitionError,
+  InvalidEntryAccountError,
   InvalidStatementBalanceError,
   InvalidStatementFileError,
   LineAlreadyMatchedError,
   LineNotMatchedError,
-  FinalizeOverrideReasonRequiredError,
+  LineNotOnStatementError,
+  MatchAmountMismatchError,
+  Money,
+  NoEntriesSelectedError,
+  NoFiscalPeriodForDateError,
+  PeriodNotOpenForPostingError,
   StatementAlreadyFinalizedError,
+  StatementDifferenceNotZeroError,
+  StatementFileFormat,
   StatementHasUnmatchedLinesError,
   StatementLineNotFoundError,
+  SuggestionNotFoundError,
+  SuggestionNotPendingError,
+  TreasuryAccountUnpostableError,
+  UnbalancedEntryError,
+  ZeroAmountLineError,
+  type AuditSink,
+  type BankRule,
+  type BankRuleInput,
   type BankStatement,
   type BankReconciliationServiceDeps,
   type MatchedStatementLine,
+  type ReconciliationPosition,
+  type ReviewItem,
   type StatementLine,
+  type TreasuryLedgerCandidate,
 } from "@mezan/domain";
 import {
   importBankStatementSchema,
+  importStatementFileSchema,
   matchStatementLineSchema,
+  matchManyEntriesSchema,
+  createEntryFromLineSchema,
+  finalizeStatementSchema,
+  bankRuleInputSchema,
   addManualLineSchema,
   bankStatementListQuerySchema,
+  StatementFileFormatCode,
+  StatementSourceCode,
 } from "@mezan/contracts";
-import { callerUserId, createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
+import { callerRoleCodes, callerUserId, createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
+import { recordAdminEvent, recordFieldChanges } from "./admin-audit.js";
 
 export type BankReconciliationRoutesDeps = BankReconciliationServiceDeps & {
   /** Generates ids (statement id, statement-line id) when the request omits them. Defaults to a UUID. */
   readonly idGen?: () => string;
+  readonly audit?: AuditSink;
 };
+
+const RULE_AUDIT_FIELDS = [
+  "name",
+  "treasuryAccountId",
+  "pattern",
+  "matchType",
+  "direction",
+  "accountId",
+  "costCenterId",
+  "priority",
+  "active",
+] as const satisfies readonly (keyof BankRule)[];
+
+const ruleEntity = (id: string) => ({ module: "treasury", entityType: "bank_rule", entityId: id });
+
+function asEnum<T extends string>(values: Record<string, T>, value: string): T {
+  const found = Object.values(values).find((v) => v === value);
+  if (found === undefined) throw new RangeError(`Unknown value "${value}"`);
+  return found;
+}
+
+function money(value: Money | null): string | null {
+  return value === null ? null : value.toString();
+}
+
+function serializeCandidate(c: TreasuryLedgerCandidate) {
+  return {
+    entryId: c.entryId,
+    entryNo: c.entryNo,
+    docNo: c.docNo ?? null,
+    date: c.date,
+    amount: c.amount.toString(),
+    description: c.description,
+    reference: c.reference ?? null,
+    counterparty: c.counterparty ?? null,
+  };
+}
+
+function serializeRule(r: BankRule) {
+  return {
+    id: r.id,
+    name: r.name,
+    treasuryAccountId: r.treasuryAccountId,
+    pattern: r.pattern,
+    matchType: r.matchType,
+    direction: r.direction,
+    accountId: r.accountId,
+    costCenterId: r.costCenterId,
+    priority: r.priority,
+    active: r.active,
+    createdAt: r.createdAt,
+    updatedAt: r.updatedAt,
+  };
+}
+
+function serializePosition(p: ReconciliationPosition) {
+  return {
+    openingBalance: p.openingBalance.toString(),
+    closingBalance: p.closingBalance.toString(),
+    clearedBalance: p.clearedBalance.toString(),
+    difference: p.difference.toString(),
+    statementLinesTotal: p.statementLinesTotal.toString(),
+    statementArithmeticGap: p.statementArithmeticGap.toString(),
+    unmatchedLines: { count: p.unmatchedLines.count, total: p.unmatchedLines.total.toString() },
+    bookBalance: money(p.bookBalance),
+    bookDifference: money(p.bookDifference),
+    outstandingBook: {
+      count: p.outstandingBook.count,
+      total: p.outstandingBook.total.toString(),
+      items: p.outstandingBook.items.map(serializeCandidate),
+    },
+    unexplainedBookDifference: money(p.unexplainedBookDifference),
+  };
+}
+
+function serializeReviewItem(item: ReviewItem) {
+  return {
+    lineId: item.lineId,
+    suggestions: item.suggestions.map(({ record, entries }) => ({
+      id: record.id,
+      lineId: record.lineId,
+      entryIds: record.entryIds,
+      entries: entries.map(serializeCandidate),
+      score: record.score,
+      amountScore: record.amountScore,
+      dateScore: record.dateScore,
+      referenceScore: record.referenceScore,
+      counterpartyScore: record.counterpartyScore,
+      dateDeltaDays: record.dateDeltaDays,
+      status: record.status,
+    })),
+    rule: item.rule ? serializeRule(item.rule) : null,
+  };
+}
 
 function serializeStatement(s: BankStatement) {
   return {
@@ -48,6 +188,7 @@ function serializeStatement(s: BankStatement) {
     unmatchedAtFinalize: s.unmatchedAtFinalize ?? null,
     finalizeOverrideReason: s.finalizeOverrideReason ?? null,
     finalizedBy: s.finalizedBy ?? null,
+    differenceAtFinalize: s.differenceAtFinalize ? s.differenceAtFinalize.toString() : null,
   };
 }
 
@@ -63,46 +204,127 @@ function serializeLine(l: MatchedStatementLine) {
     matchedEntryId: l.matchedEntryId,
     matchedEntryNo: l.matchedEntryNo,
     matchedAt: l.matchedAt,
+    counterparty: l.counterparty ?? null,
+    matchedEntryIds: l.matchedEntryIds ?? [],
+    matchedEntryNos: l.matchedEntryNos,
+    matchSource: l.matchSource ?? null,
   };
 }
 
 function handleDomainError(c: Context, err: unknown): Response {
   const refuse = (e: Error & { code: string; messageEn?: string }, status: 404 | 409 | 422, extra: Record<string, unknown> = {}) =>
     c.json({ error: e.code, message: e.message, ...(e.messageEn ? { messageEn: e.messageEn } : {}), ...extra }, status);
-  if (err instanceof BankStatementNotFoundError || err instanceof StatementLineNotFoundError) {
+  if (
+    err instanceof BankStatementNotFoundError ||
+    err instanceof StatementLineNotFoundError ||
+    err instanceof SuggestionNotFoundError ||
+    err instanceof BankRuleNotFoundError
+  ) {
     return refuse(err, 404);
   }
-  if (err instanceof LineAlreadyMatchedError || err instanceof LineNotMatchedError || err instanceof StatementAlreadyFinalizedError) {
+  if (
+    err instanceof LineAlreadyMatchedError ||
+    err instanceof LineNotMatchedError ||
+    err instanceof StatementAlreadyFinalizedError ||
+    err instanceof EntryAlreadyMatchedError ||
+    err instanceof SuggestionNotPendingError ||
+    err instanceof DuplicateDocumentError ||
+    err instanceof InvalidDocumentTransitionError ||
+    err instanceof ApprovalRequestRejectedError
+  ) {
     return refuse(err, 409);
   }
   if (err instanceof StatementHasUnmatchedLinesError) {
     return refuse(err, 422, { unmatchedCount: err.unmatchedCount });
   }
-  if (err instanceof FinalizeOverrideReasonRequiredError) {
-    return refuse(err, 422);
+  if (err instanceof StatementDifferenceNotZeroError) {
+    return refuse(err, 422, { difference: err.difference });
   }
-  if (err instanceof InvalidStatementFileError || err instanceof ColumnNotFoundError || err instanceof InvalidColumnMappingError) {
-    return refuse(err, 422);
-  }
-  if (err instanceof InvalidStatementBalanceError) {
-    return refuse(err, 422);
+  if (
+    err instanceof FinalizeOverrideReasonRequiredError ||
+    err instanceof InvalidStatementFileError ||
+    err instanceof ColumnNotFoundError ||
+    err instanceof InvalidColumnMappingError ||
+    err instanceof InvalidStatementBalanceError ||
+    err instanceof LineNotOnStatementError ||
+    err instanceof EntryNotOnTreasuryAccountError ||
+    err instanceof MatchAmountMismatchError ||
+    err instanceof NoEntriesSelectedError ||
+    err instanceof InvalidBankRuleError ||
+    err instanceof EntryAccountRequiredError ||
+    err instanceof InvalidEntryAccountError ||
+    err instanceof EntryDateBeforeLineError ||
+    err instanceof ZeroAmountLineError ||
+    err instanceof TreasuryAccountUnpostableError ||
+    err instanceof CashBalanceWouldGoNegativeError ||
+    err instanceof InvalidDocumentError ||
+    err instanceof UnbalancedEntryError ||
+    err instanceof AccountNotFoundError ||
+    err instanceof HeaderAccountNotPostableError ||
+    err instanceof InactiveAccountError ||
+    err instanceof NoFiscalPeriodForDateError ||
+    err instanceof PeriodNotOpenForPostingError
+  ) {
+    return refuse(err as Error & { code: string; messageEn?: string }, 422);
   }
   throw err;
+}
+
+function ruleInputOf(d: {
+  name: string;
+  treasuryAccountId: string | null;
+  pattern: string;
+  matchType: string;
+  direction: string;
+  accountId: string;
+  costCenterId: string | null;
+  priority: number;
+  active: boolean;
+}): BankRuleInput {
+  return {
+    name: d.name,
+    treasuryAccountId: d.treasuryAccountId,
+    pattern: d.pattern,
+    matchType: asEnum(BankRuleMatchType, d.matchType),
+    direction: asEnum(BankRuleDirection, d.direction),
+    accountId: d.accountId,
+    costCenterId: d.costCenterId,
+    priority: d.priority,
+    active: d.active,
+  };
+}
+
+async function readJson(c: Context): Promise<unknown> {
+  try {
+    return (await c.req.json()) ?? {};
+  } catch {
+    return {};
+  }
 }
 
 /**
  * Bank reconciliation routes (docs/archive/catalog/04 §"تسوية كشوف البنك"), mounted
  * under `/bank-statements`:
- *   GET  /bank-statements                          list                       reconciliation.view
- *   GET  /bank-statements/:id                       one + lines + match summary reconciliation.view
- *   GET  /bank-statements/column-mapping/:accountId the account's saved mapping reconciliation.view
- *   GET  /bank-statements/:id/candidates            matchable GL movements     reconciliation.view
- *   POST /bank-statements/import                    import a CSV statement     reconciliation.import
- *   POST /bank-statements/:id/auto-match             auto-suggest & apply       reconciliation.match
- *   POST /bank-statements/:id/lines/:lineId/match    manual match               reconciliation.match
- *   POST /bank-statements/:id/lines/:lineId/unmatch  manual unmatch             reconciliation.match
- *   POST /bank-statements/:id/lines                  add a line the CSV missed  reconciliation.create
- *   POST /bank-statements/:id/finalize               lock the statement         reconciliation.finalize
+ *   GET    /bank-statements                                       list                         reconciliation.view
+ *   GET    /bank-statements/rules                                 bank rules                   reconciliation.view
+ *   POST   /bank-statements/rules                                 add a rule                   reconciliation.manage
+ *   PUT    /bank-statements/rules/:ruleId                         edit a rule                  reconciliation.manage
+ *   DELETE /bank-statements/rules/:ruleId                         delete a rule                reconciliation.manage
+ *   GET    /bank-statements/:id                                   one + lines + position       reconciliation.view
+ *   GET    /bank-statements/:id/review                            «للمراجعة» + position         reconciliation.view
+ *   GET    /bank-statements/column-mapping/:accountId             the account's saved mapping  reconciliation.view
+ *   GET    /bank-statements/:id/candidates                        matchable GL movements       reconciliation.view
+ *   POST   /bank-statements/import                                import CSV / Excel-as-CSV    reconciliation.import
+ *   POST   /bank-statements/import-file                           import OFX / MT940           reconciliation.import
+ *   POST   /bank-statements/:id/auto-match                        score, suggest, apply ≥ 90   reconciliation.match
+ *   POST   /bank-statements/:id/suggestions/:sid/accept           accept a suggestion          reconciliation.match
+ *   POST   /bank-statements/:id/suggestions/:sid/reject           reject a suggestion          reconciliation.match
+ *   POST   /bank-statements/:id/lines/:lineId/match               manual 1:1 match             reconciliation.match
+ *   POST   /bank-statements/:id/lines/:lineId/match-many          1:N match (exact sum)        reconciliation.match
+ *   POST   /bank-statements/:id/lines/:lineId/unmatch             manual unmatch               reconciliation.match
+ *   POST   /bank-statements/:id/lines/:lineId/create-entry        book a charge / interest     reconciliation.post_entry
+ *   POST   /bank-statements/:id/lines                             add a line the file missed   reconciliation.create
+ *   POST   /bank-statements/:id/finalize                          lock the statement           reconciliation.finalize
  */
 export function createBankReconciliationRoutes(
   deps: BankReconciliationRoutesDeps,
@@ -121,6 +343,9 @@ export function createBankReconciliationRoutes(
   const one = async (line: StatementLine): Promise<MatchedStatementLine> =>
     (await service.withEntryNumbers([line]))[0] as MatchedStatementLine;
 
+  const validation = (c: Context, error: { flatten(): unknown }) =>
+    c.json({ error: "VALIDATION_ERROR", details: error.flatten() }, 400);
+
   app.get("/", gate("treasury.reconciliation.view"), async (c) => {
     const parsed = bankStatementListQuerySchema.safeParse({
       treasuryAccountId: c.req.query("treasuryAccountId"),
@@ -128,11 +353,66 @@ export function createBankReconciliationRoutes(
       fromDate: c.req.query("fromDate"),
       toDate: c.req.query("toDate"),
     });
-    if (!parsed.success) {
-      return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
-    }
+    if (!parsed.success) return validation(c, parsed.error);
     const rows = await service.listWithSummaries(parsed.data);
     return c.json(rows.map(({ statement, summary }) => ({ ...serializeStatement(statement), matchSummary: summary })));
+  });
+
+  app.get("/rules", gate("treasury.reconciliation.view"), async (c) => {
+    return c.json((await service.listRules()).map(serializeRule));
+  });
+
+  app.post("/rules", gate("treasury.reconciliation.manage"), async (c) => {
+    const parsed = bankRuleInputSchema.safeParse(await readJson(c));
+    if (!parsed.success) return validation(c, parsed.error);
+    try {
+      const rule = await service.createRule(ruleInputOf(parsed.data), idGen());
+      await recordFieldChanges(deps.audit, c, {
+        entity: ruleEntity(rule.id),
+        action: AuditChangeAction.Create,
+        before: null,
+        after: rule,
+        fields: RULE_AUDIT_FIELDS,
+      });
+      return c.json(serializeRule(rule), 201);
+    } catch (err) {
+      return handleDomainError(c, err);
+    }
+  });
+
+  app.put("/rules/:ruleId", gate("treasury.reconciliation.manage"), async (c) => {
+    const parsed = bankRuleInputSchema.safeParse(await readJson(c));
+    if (!parsed.success) return validation(c, parsed.error);
+    try {
+      const before = (await service.listRules()).find((r) => r.id === c.req.param("ruleId")) ?? null;
+      const rule = await service.updateRule(c.req.param("ruleId"), ruleInputOf(parsed.data));
+      await recordFieldChanges(deps.audit, c, {
+        entity: ruleEntity(rule.id),
+        action: AuditChangeAction.Update,
+        before,
+        after: rule,
+        fields: RULE_AUDIT_FIELDS,
+        warnOn: ["accountId", "active"],
+      });
+      return c.json(serializeRule(rule));
+    } catch (err) {
+      return handleDomainError(c, err);
+    }
+  });
+
+  app.delete("/rules/:ruleId", gate("treasury.reconciliation.manage"), async (c) => {
+    try {
+      const before = (await service.listRules()).find((r) => r.id === c.req.param("ruleId")) ?? null;
+      await service.deleteRule(c.req.param("ruleId"));
+      await recordAdminEvent(deps.audit, c, {
+        ...ruleEntity(c.req.param("ruleId")),
+        action: "DELETE",
+        details: before ? { rule: serializeRule(before) } : null,
+      });
+      return c.json({ deleted: true });
+    } catch (err) {
+      return handleDomainError(c, err);
+    }
   });
 
   app.get("/column-mapping/:treasuryAccountId", gate("treasury.reconciliation.view"), async (c) => {
@@ -150,15 +430,17 @@ export function createBankReconciliationRoutes(
   app.get("/:id/candidates", gate("treasury.reconciliation.view"), async (c) => {
     try {
       const candidates = await service.matchCandidates(c.req.param("id"));
-      return c.json(
-        candidates.map((candidate) => ({
-          entryId: candidate.entryId,
-          entryNo: candidate.entryNo,
-          date: candidate.date,
-          amount: candidate.amount.toString(),
-          description: candidate.description,
-        })),
-      );
+      return c.json(candidates.map(serializeCandidate));
+    } catch (err) {
+      return handleDomainError(c, err);
+    }
+  });
+
+  app.get("/:id/review", gate("treasury.reconciliation.view"), async (c) => {
+    try {
+      const id = c.req.param("id");
+      const [position, items] = [await service.reconciliation(id), await service.review(id)];
+      return c.json({ position: serializePosition(position), items: items.map(serializeReviewItem) });
     } catch (err) {
       return handleDomainError(c, err);
     }
@@ -169,14 +451,18 @@ export function createBankReconciliationRoutes(
     if (!statement) return c.json({ error: "NOT_FOUND" }, 404);
     const lines = await service.listLinesWithEntryNumbers(statement.id);
     const summary = await service.matchSummary(statement.id);
-    return c.json({ ...serializeStatement(statement), lines: lines.map(serializeLine), matchSummary: summary });
+    const position = await service.reconciliation(statement.id);
+    return c.json({
+      ...serializeStatement(statement),
+      lines: lines.map(serializeLine),
+      matchSummary: summary,
+      position: serializePosition(position),
+    });
   });
 
   app.post("/import", gate("treasury.reconciliation.import"), async (c) => {
-    const parsed = importBankStatementSchema.safeParse(await c.req.json());
-    if (!parsed.success) {
-      return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
-    }
+    const parsed = importBankStatementSchema.safeParse(await readJson(c));
+    if (!parsed.success) return validation(c, parsed.error);
     const d = parsed.data;
     try {
       const { statement, lines } = await service.importStatement({
@@ -197,6 +483,30 @@ export function createBankReconciliationRoutes(
         openingBalance: Money.fromMajor(d.openingBalance),
         closingBalance: Money.fromMajor(d.closingBalance),
         statementNumber: d.statementNumber ?? null,
+        source: d.source === StatementSourceCode.Excel ? BankStatementSource.Excel : BankStatementSource.Csv,
+      });
+      const withNumbers = await service.withEntryNumbers(lines);
+      return c.json({ ...serializeStatement(statement), lines: withNumbers.map(serializeLine) }, 201);
+    } catch (err) {
+      return handleDomainError(c, err);
+    }
+  });
+
+  app.post("/import-file", gate("treasury.reconciliation.import"), async (c) => {
+    const parsed = importStatementFileSchema.safeParse(await readJson(c));
+    if (!parsed.success) return validation(c, parsed.error);
+    const d = parsed.data;
+    try {
+      const { statement, lines } = await service.importStatementFile({
+        id: d.id ?? idGen(),
+        treasuryAccountId: d.treasuryAccountId,
+        format: d.format === StatementFileFormatCode.Ofx ? StatementFileFormat.Ofx : StatementFileFormat.Mt940,
+        content: d.content,
+        periodStart: d.periodStart ?? null,
+        periodEnd: d.periodEnd ?? null,
+        openingBalance: d.openingBalance ? Money.fromMajor(d.openingBalance) : null,
+        closingBalance: d.closingBalance ? Money.fromMajor(d.closingBalance) : null,
+        statementNumber: d.statementNumber ?? null,
       });
       const withNumbers = await service.withEntryNumbers(lines);
       return c.json({ ...serializeStatement(statement), lines: withNumbers.map(serializeLine) }, 201);
@@ -207,20 +517,46 @@ export function createBankReconciliationRoutes(
 
   app.post("/:id/auto-match", gate("treasury.reconciliation.match"), async (c) => {
     try {
-      const result = await service.autoMatch(c.req.param("id"));
-      return c.json(result);
+      return c.json(await service.autoMatch(c.req.param("id"), { actor: callerUserId(c) ?? null }));
+    } catch (err) {
+      return handleDomainError(c, err);
+    }
+  });
+
+  app.post("/:id/suggestions/:suggestionId/accept", gate("treasury.reconciliation.match"), async (c) => {
+    try {
+      const line = await service.acceptSuggestion(c.req.param("id"), c.req.param("suggestionId"), callerUserId(c) ?? null);
+      return c.json(serializeLine(await one(line)));
+    } catch (err) {
+      return handleDomainError(c, err);
+    }
+  });
+
+  app.post("/:id/suggestions/:suggestionId/reject", gate("treasury.reconciliation.match"), async (c) => {
+    try {
+      const record = await service.rejectSuggestion(c.req.param("id"), c.req.param("suggestionId"), callerUserId(c) ?? null);
+      return c.json({ id: record.id, status: record.status, decidedAt: record.decidedAt, decidedBy: record.decidedBy });
     } catch (err) {
       return handleDomainError(c, err);
     }
   });
 
   app.post("/:id/lines/:lineId/match", gate("treasury.reconciliation.match"), async (c) => {
-    const parsed = matchStatementLineSchema.safeParse(await c.req.json());
-    if (!parsed.success) {
-      return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
-    }
+    const parsed = matchStatementLineSchema.safeParse(await readJson(c));
+    if (!parsed.success) return validation(c, parsed.error);
     try {
       const line = await service.matchLine(c.req.param("id"), c.req.param("lineId"), parsed.data.entryId);
+      return c.json(serializeLine(await one(line)));
+    } catch (err) {
+      return handleDomainError(c, err);
+    }
+  });
+
+  app.post("/:id/lines/:lineId/match-many", gate("treasury.reconciliation.match"), async (c) => {
+    const parsed = matchManyEntriesSchema.safeParse(await readJson(c));
+    if (!parsed.success) return validation(c, parsed.error);
+    try {
+      const line = await service.matchLineToEntries(c.req.param("id"), c.req.param("lineId"), parsed.data.entryIds);
       return c.json(serializeLine(await one(line)));
     } catch (err) {
       return handleDomainError(c, err);
@@ -236,11 +572,43 @@ export function createBankReconciliationRoutes(
     }
   });
 
-  app.post("/:id/lines", gate("treasury.reconciliation.create"), async (c) => {
-    const parsed = addManualLineSchema.safeParse(await c.req.json());
-    if (!parsed.success) {
-      return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+  /**
+   * Books the line as a bank-charge or interest voucher dated the line's own
+   * day (a later `date` is allowed, an earlier one refused), then matches the
+   * line to it. 202 when an approval chain holds the voucher: the line stays
+   * open until the voucher posts.
+   */
+  app.post("/:id/lines/:lineId/create-entry", gate("treasury.reconciliation.post_entry"), async (c) => {
+    const parsed = createEntryFromLineSchema.safeParse(await readJson(c));
+    if (!parsed.success) return validation(c, parsed.error);
+    const d = parsed.data;
+    try {
+      const result = await service.createEntry(c.req.param("id"), c.req.param("lineId"), {
+        accountId: d.accountId ?? null,
+        ...(d.costCenterId !== undefined ? { costCenterId: d.costCenterId } : {}),
+        ruleId: d.ruleId ?? null,
+        memo: d.memo ?? null,
+        date: d.date ?? null,
+        actor: callerUserId(c),
+        actorRoles: callerRoleCodes(c),
+      });
+      const body = {
+        held: result.held,
+        voucherId: result.voucherId,
+        voucherNo: result.voucherNo,
+        entryId: result.held ? null : result.entryId,
+        line: serializeLine(await one(result.line)),
+        ruleId: result.rule?.id ?? null,
+      };
+      return c.json(body, result.held ? 202 : 201);
+    } catch (err) {
+      return handleDomainError(c, err);
     }
+  });
+
+  app.post("/:id/lines", gate("treasury.reconciliation.create"), async (c) => {
+    const parsed = addManualLineSchema.safeParse(await readJson(c));
+    if (!parsed.success) return validation(c, parsed.error);
     const d = parsed.data;
     try {
       const line = await service.addManualLine({
@@ -258,23 +626,33 @@ export function createBankReconciliationRoutes(
   });
 
   /**
-   * Refused with 422 while any line is still unmatched. `{ "force": true,
-   * "reason": "..." }` closes it anyway and records both on the statement —
-   * a reconciliation locked over open differences must say so (D82).
+   * Refused with 422 while any line is unmatched or the difference is not
+   * zero. `{ "force": true, "reason": "..." }` closes it anyway and records the
+   * override on the statement (D82).
    */
   app.post("/:id/finalize", gate("treasury.reconciliation.finalize"), async (c) => {
-    let body: { force?: boolean; reason?: string } = {};
-    try {
-      body = ((await c.req.json()) ?? {}) as { force?: boolean; reason?: string };
-    } catch {
-      body = {};
-    }
+    const parsed = finalizeStatementSchema.safeParse(await readJson(c));
+    if (!parsed.success) return validation(c, parsed.error);
     try {
       const statement = await service.finalize(c.req.param("id"), {
-        force: body.force === true,
-        reason: body.reason,
+        force: parsed.data.force === true,
+        reason: parsed.data.reason,
         actor: callerUserId(c),
       });
+      if (statement.finalizeOverrideReason) {
+        await recordAdminEvent(deps.audit, c, {
+          module: "treasury",
+          entityType: "bank_statement",
+          entityId: statement.id,
+          action: "FINALIZE_OVERRIDE",
+          severity: "WARNING",
+          details: {
+            reason: statement.finalizeOverrideReason,
+            unmatchedAtFinalize: statement.unmatchedAtFinalize ?? 0,
+            differenceAtFinalize: statement.differenceAtFinalize?.toString() ?? null,
+          },
+        });
+      }
       return c.json(serializeStatement(statement));
     } catch (err) {
       return handleDomainError(c, err);

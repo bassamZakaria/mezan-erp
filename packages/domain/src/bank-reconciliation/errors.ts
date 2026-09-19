@@ -22,8 +22,10 @@ export class StatementLineNotFoundError extends Error {
 
 export class StatementAlreadyFinalizedError extends Error {
   readonly code = "STATEMENT_ALREADY_FINALIZED";
+  readonly messageEn: string;
   constructor(readonly statementId: string) {
-    super(`Bank statement "${statementId}" is already منتهية (completed).`);
+    super(`كشف البنك "${statementId}" منتهٍ بالفعل؛ لا يمكن تعديله.`);
+    this.messageEn = `Bank statement "${statementId}" is already completed.`;
     this.name = "StatementAlreadyFinalizedError";
   }
 }
@@ -130,5 +132,204 @@ export class FinalizeOverrideReasonRequiredError extends Error {
     super(`إنهاء كشف البنك "${statementId}" مع وجود سطور غير مطابَقة يتطلب تسجيل سبب.`);
     this.messageEn = `Finalizing bank statement "${statementId}" over unmatched lines requires a recorded reason.`;
     this.name = "FinalizeOverrideReasonRequiredError";
+  }
+}
+
+function bilingual<T extends Error & { messageEn: string }>(err: T, ar: string, en: string, name: string): void {
+  err.message = ar;
+  err.messageEn = en;
+  err.name = name;
+}
+
+export class StatementDifferenceNotZeroError extends Error {
+  readonly code = "STATEMENT_DIFFERENCE_NOT_ZERO";
+  messageEn = "";
+  constructor(
+    readonly statementId: string,
+    readonly difference: string,
+  ) {
+    super();
+    bilingual(
+      this,
+      `فرق التسوية لكشف البنك "${statementId}" ليس صفراً (${difference})؛ الإنهاء يتطلب تجاوزاً صريحاً مع سبب.`,
+      `Bank statement "${statementId}" still has a reconciliation difference of ${difference}; finalizing needs an explicit override with a reason.`,
+      "StatementDifferenceNotZeroError",
+    );
+  }
+}
+
+export class LineNotOnStatementError extends Error {
+  readonly code = "LINE_NOT_ON_STATEMENT";
+  messageEn = "";
+  constructor(
+    readonly statementId: string,
+    readonly lineId: string,
+  ) {
+    super();
+    bilingual(
+      this,
+      `السطر "${lineId}" لا يخص كشف البنك "${statementId}".`,
+      `Line "${lineId}" does not belong to bank statement "${statementId}".`,
+      "LineNotOnStatementError",
+    );
+  }
+}
+
+export class EntryNotOnTreasuryAccountError extends Error {
+  readonly code = "ENTRY_NOT_ON_TREASURY_ACCOUNT";
+  messageEn = "";
+  constructor(readonly entryId: string) {
+    super();
+    bilingual(
+      this,
+      `القيد "${entryId}" لا يحرّك حساب البنك الخاص بهذا الكشف.`,
+      `Entry "${entryId}" does not move this statement's bank account.`,
+      "EntryNotOnTreasuryAccountError",
+    );
+  }
+}
+
+export class EntryAlreadyMatchedError extends Error {
+  readonly code = "ENTRY_ALREADY_MATCHED";
+  messageEn = "";
+  constructor(readonly entryId: string) {
+    super();
+    bilingual(
+      this,
+      `القيد "${entryId}" مطابَق بالفعل مع سطر آخر من كشوف هذا الحساب.`,
+      `Entry "${entryId}" is already matched to another statement line of this account.`,
+      "EntryAlreadyMatchedError",
+    );
+  }
+}
+
+export class MatchAmountMismatchError extends Error {
+  readonly code = "MATCH_AMOUNT_MISMATCH";
+  messageEn = "";
+  constructor(
+    readonly lineId: string,
+    readonly lineAmount: string,
+    readonly entriesAmount: string,
+  ) {
+    super();
+    bilingual(
+      this,
+      `مبلغ السطر (${lineAmount}) لا يساوي مجموع القيود المختارة (${entriesAmount}) بالضبط.`,
+      `The line amount (${lineAmount}) does not equal the selected entries' total (${entriesAmount}) exactly.`,
+      "MatchAmountMismatchError",
+    );
+  }
+}
+
+export class NoEntriesSelectedError extends Error {
+  readonly code = "NO_ENTRIES_SELECTED";
+  messageEn = "";
+  constructor(readonly lineId: string) {
+    super();
+    bilingual(this, "اختر قيداً واحداً على الأقل للمطابقة.", "Select at least one entry to match.", "NoEntriesSelectedError");
+  }
+}
+
+export class SuggestionNotFoundError extends Error {
+  readonly code = "SUGGESTION_NOT_FOUND";
+  messageEn = "";
+  constructor(readonly suggestionId: string) {
+    super();
+    bilingual(this, `اقتراح المطابقة "${suggestionId}" غير موجود.`, `Match suggestion "${suggestionId}" was not found.`, "SuggestionNotFoundError");
+  }
+}
+
+export class SuggestionNotPendingError extends Error {
+  readonly code = "SUGGESTION_NOT_PENDING";
+  messageEn = "";
+  constructor(readonly suggestionId: string) {
+    super();
+    bilingual(
+      this,
+      `اقتراح المطابقة "${suggestionId}" تم البت فيه بالفعل.`,
+      `Match suggestion "${suggestionId}" has already been decided.`,
+      "SuggestionNotPendingError",
+    );
+  }
+}
+
+export class BankRuleNotFoundError extends Error {
+  readonly code = "BANK_RULE_NOT_FOUND";
+  messageEn = "";
+  constructor(readonly ruleId: string) {
+    super();
+    bilingual(this, `قاعدة البنك "${ruleId}" غير موجودة.`, `Bank rule "${ruleId}" was not found.`, "BankRuleNotFoundError");
+  }
+}
+
+export class InvalidBankRuleError extends Error {
+  readonly code = "INVALID_BANK_RULE";
+  messageEn = "";
+  constructor(message: string, messageEn: string) {
+    super();
+    bilingual(this, message, messageEn, "InvalidBankRuleError");
+  }
+}
+
+export class EntryAccountRequiredError extends Error {
+  readonly code = "ENTRY_ACCOUNT_REQUIRED";
+  messageEn = "";
+  constructor(readonly lineId: string) {
+    super();
+    bilingual(
+      this,
+      "لا توجد قاعدة بنك تنطبق على هذا السطر؛ اختر الحساب المقابل للقيد.",
+      "No bank rule applies to this line; choose the counter account for the entry.",
+      "EntryAccountRequiredError",
+    );
+  }
+}
+
+export class InvalidEntryAccountError extends Error {
+  readonly code = "INVALID_ENTRY_ACCOUNT";
+  messageEn = "";
+  constructor(message: string, messageEn: string) {
+    super();
+    bilingual(this, message, messageEn, "InvalidEntryAccountError");
+  }
+}
+
+export class EntryDateBeforeLineError extends Error {
+  readonly code = "ENTRY_DATE_BEFORE_LINE";
+  messageEn = "";
+  constructor(
+    readonly lineDate: string,
+    readonly date: string,
+  ) {
+    super();
+    bilingual(
+      this,
+      `لا يمكن تأريخ القيد (${date}) قبل تاريخ حركة البنك (${lineDate}).`,
+      `The entry date (${date}) cannot be earlier than the bank line's date (${lineDate}).`,
+      "EntryDateBeforeLineError",
+    );
+  }
+}
+
+export class ZeroAmountLineError extends Error {
+  readonly code = "ZERO_AMOUNT_LINE";
+  messageEn = "";
+  constructor(readonly lineId: string) {
+    super();
+    bilingual(this, "سطر بمبلغ صفر لا يُنشأ له قيد.", "A zero-amount line cannot create an entry.", "ZeroAmountLineError");
+  }
+}
+
+export class TreasuryAccountUnpostableError extends Error {
+  readonly code = "TREASURY_ACCOUNT_UNPOSTABLE";
+  messageEn = "";
+  constructor(readonly treasuryAccountId: string) {
+    super();
+    bilingual(
+      this,
+      `حساب الخزينة "${treasuryAccountId}" غير موجود أو غير مربوط بحساب في دليل الحسابات.`,
+      `Treasury account "${treasuryAccountId}" does not exist or has no linked GL account.`,
+      "TreasuryAccountUnpostableError",
+    );
   }
 }

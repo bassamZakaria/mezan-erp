@@ -6,8 +6,7 @@ import {
   DocumentList,
   EmptyState,
   EntityPicker,
-  formatMoney,
-  Money as MoneyDisplay,
+  readSpreadsheetAsCsv,
   RowMenu,
   SidePanel,
   StatusPill,
@@ -17,26 +16,22 @@ import {
   type PillTone,
 } from "@mezan/ui";
 import { BANK_STATEMENT_STATUS_DEFINITIONS, getBankStatementStatusLabel, parseCsv } from "@mezan/domain";
-import type {
-  BankStatementListItemDTO,
-  BankStatementStatusDTO,
-  MatchCandidateDTO,
-  StatementDateFormatDTO,
-  StatementLineDTO,
+import {
+  StatementFileFormatCode,
+  StatementSourceCode,
+  type BankStatementListItemDTO,
+  type BankStatementStatusDTO,
+  type StatementDateFormatDTO,
 } from "@mezan/contracts";
 import { SelectField, TextField } from "../settings/form-controls";
 import {
-  useAutoMatchStatement,
-  useBankStatement,
   useBankStatements,
-  useFinalizeBankStatement,
   useImportBankStatement,
-  useMatchStatementLine,
   useStatementColumnMapping,
-  useStatementMatchCandidates,
   useTreasuryAccounts,
-  useUnmatchStatementLine,
 } from "../data/hooks";
+import { useImportStatementFile } from "../data/bank-rec-hooks";
+import { formatExactMoney, StatementWorkspace } from "./BankReconciliationWorkspace";
 import { useAppTranslation } from "../i18n";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 
@@ -65,6 +60,20 @@ function formatPercent(rate: number): string {
 }
 
 const PAGE_SIZES = [10, 25, 50, 100] as const;
+
+const SOURCE_OPTIONS: readonly StatementSourceCode[] = [
+  StatementSourceCode.Csv,
+  StatementSourceCode.Excel,
+  StatementSourceCode.Ofx,
+  StatementSourceCode.Mt940,
+];
+
+const FILE_ACCEPT: Record<StatementSourceCode, string> = {
+  [StatementSourceCode.Csv]: ".csv,text/csv",
+  [StatementSourceCode.Excel]: ".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  [StatementSourceCode.Ofx]: ".ofx,.qfx,.xml",
+  [StatementSourceCode.Mt940]: ".sta,.mt940,.940,.txt",
+};
 
 export function BankReconciliationScreen() {
   const { t } = useAppTranslation();
@@ -98,8 +107,6 @@ export function BankReconciliationScreen() {
     const map = new Map((treasuryQuery.data ?? []).map((account) => [account.id, account.name]));
     return (id: string) => map.get(id) ?? id;
   }, [treasuryQuery.data]);
-
-  const detail = useBankStatement(openStatementId);
 
   const rows = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -167,8 +174,8 @@ export function BankReconciliationScreen() {
         </span>
       ),
     },
-    { key: "opening", header: t("bankRec.openingBalance"), align: "end", render: (s) => <MoneyDisplay value={Number(s.openingBalance)} /> },
-    { key: "closing", header: t("bankRec.closingBalance"), align: "end", render: (s) => <MoneyDisplay value={Number(s.closingBalance)} /> },
+    { key: "opening", header: t("bankRec.openingBalance"), align: "end", render: (s) => <span dir="ltr" className="mz-num">{formatExactMoney(s.openingBalance)}</span> },
+    { key: "closing", header: t("bankRec.closingBalance"), align: "end", render: (s) => <span dir="ltr" className="mz-num">{formatExactMoney(s.closingBalance)}</span> },
     {
       key: "matchRate",
       header: t("bankRec.matched"),
@@ -295,7 +302,7 @@ export function BankReconciliationScreen() {
 
       <ImportStatementDialog open={importOpen} onClose={() => setImportOpen(false)} onImported={(id) => setOpenStatementId(id)} />
 
-      <StatementMatchingPanel statementId={openStatementId} onClose={() => setOpenStatementId(null)} accountName={accountName} />
+      <StatementWorkspace statementId={openStatementId} onClose={() => setOpenStatementId(null)} accountName={accountName} />
     </div>
   );
 }
@@ -335,6 +342,7 @@ function ImportStatementDialog({
 }) {
   const { t } = useAppTranslation();
   const [treasuryAccountId, setTreasuryAccountId] = useState("");
+  const [source, setSource] = useState<StatementSourceCode>(StatementSourceCode.Csv);
   const [fileName, setFileName] = useState("");
   const [rawCsv, setRawCsv] = useState("");
   const [headers, setHeaders] = useState<string[]>([]);
@@ -357,6 +365,8 @@ function ImportStatementDialog({
 
   const savedMapping = useStatementColumnMapping(treasuryAccountId === "" ? null : treasuryAccountId);
   const importStatement = useImportBankStatement();
+  const importFile = useImportStatementFile();
+  const structured = source === StatementSourceCode.Ofx || source === StatementSourceCode.Mt940;
 
   // Prefill from the account's saved mapping ("يحفظ التعيين لكل حساب") so a
   // repeat import of the same bank's format needs no re-mapping.
@@ -376,6 +386,7 @@ function ImportStatementDialog({
 
   function reset() {
     setTreasuryAccountId("");
+    setSource(StatementSourceCode.Csv);
     setFileName("");
     setRawCsv("");
     setHeaders([]);
@@ -394,9 +405,21 @@ function ImportStatementDialog({
     if (!file) return;
     setError(null);
     setFileName(file.name);
-    const text = await file.text();
-    setRawCsv(text);
+    setHeaders([]);
+    setRawCsv("");
     try {
+      if (source === StatementSourceCode.Ofx || source === StatementSourceCode.Mt940) {
+        setRawCsv(await file.text());
+        return;
+      }
+      let text: string;
+      try {
+        text = source === StatementSourceCode.Excel ? await readSpreadsheetAsCsv(await file.arrayBuffer()) : await file.text();
+      } catch {
+        setError(t("bankRecX.excelReadFailed"));
+        return;
+      }
+      setRawCsv(text);
       setHeaders([...parseCsv(text).headers]);
     } catch (err) {
       setHeaders([]);
@@ -404,27 +427,45 @@ function ImportStatementDialog({
     }
   }
 
-  const hasFile = rawCsv !== "" && headers.length > 0;
+  const hasFile = rawCsv !== "" && (structured || headers.length > 0);
   const mappingComplete =
     mapping.dateColumn !== "" &&
     mapping.descriptionColumn !== "" &&
     (mapping.amountColumn !== "" || (mapping.debitColumn !== "" && mapping.creditColumn !== ""));
 
-  const canImport =
-    treasuryAccountId !== "" &&
-    hasFile &&
-    periodStart !== "" &&
-    periodEnd !== "" &&
-    openingBalance !== "" &&
-    closingBalance !== "" &&
-    mappingComplete &&
-    !importStatement.isPending;
+  const canImport = structured
+    ? treasuryAccountId !== "" && hasFile && !importFile.isPending
+    : treasuryAccountId !== "" &&
+      hasFile &&
+      periodStart !== "" &&
+      periodEnd !== "" &&
+      openingBalance !== "" &&
+      closingBalance !== "" &&
+      mappingComplete &&
+      !importStatement.isPending;
 
   async function submit() {
     if (!canImport) return;
     setError(null);
     try {
+      if (structured) {
+        const result = await importFile.mutateAsync({
+          treasuryAccountId,
+          format: source === StatementSourceCode.Ofx ? StatementFileFormatCode.Ofx : StatementFileFormatCode.Mt940,
+          content: rawCsv,
+          periodStart: periodStart === "" ? null : periodStart,
+          periodEnd: periodEnd === "" ? null : periodEnd,
+          openingBalance: openingBalance === "" ? null : openingBalance,
+          closingBalance: closingBalance === "" ? null : closingBalance,
+          statementNumber: statementNumber.trim() === "" ? null : statementNumber.trim(),
+        });
+        onImported(result.id);
+        reset();
+        onClose();
+        return;
+      }
       const result = await importStatement.mutateAsync({
+        source: source === StatementSourceCode.Excel ? StatementSourceCode.Excel : StatementSourceCode.Csv,
         treasuryAccountId,
         rawCsv,
         mapping: {
@@ -466,14 +507,30 @@ function ImportStatementDialog({
           />
         </div>
 
-        <SelectField label={t("bankRec.source")} value="csv" onChange={() => undefined} options={[{ value: "csv", label: t("bankRec.csvFile") }]} />
+        <SelectField
+          label={t("bankRec.source")}
+          value={source}
+          onChange={(v) => {
+            setSource(SOURCE_OPTIONS.find((o) => o === v) ?? StatementSourceCode.Csv);
+            setRawCsv("");
+            setHeaders([]);
+            setFileName("");
+            if (fileInputRef.current) fileInputRef.current.value = "";
+          }}
+          options={[
+            { value: StatementSourceCode.Csv, label: t("bankRec.csvFile") },
+            { value: StatementSourceCode.Excel, label: t("bankRecX.sourceExcel") },
+            { value: StatementSourceCode.Ofx, label: t("bankRecX.sourceOfx") },
+            { value: StatementSourceCode.Mt940, label: t("bankRecX.sourceMt940") },
+          ]}
+        />
 
         <div>
           <div className="mb-[6px] text-[12.5px] font-semibold text-ink">{t("bankRec.statementFile")}</div>
           <input
             ref={fileInputRef}
             type="file"
-            accept=".csv,text/csv"
+            accept={FILE_ACCEPT[source]}
             aria-label={t("bankRec.statementFile2")}
             onChange={onFileChange}
             className="w-full rounded-[8px] border border-border bg-surface px-3 py-2 text-[12.5px] text-ink"
@@ -481,12 +538,13 @@ function ImportStatementDialog({
           {fileName !== "" ? <div className="mt-[6px] text-[11.5px] text-ink-muted">{fileName}</div> : null}
         </div>
 
-        <TextField label={t("bankRec.periodStart")} value={periodStart} onChange={setPeriodStart} placeholder="YYYY-MM-DD" />
-        <TextField label={t("bankRec.periodEnd")} value={periodEnd} onChange={setPeriodEnd} placeholder="YYYY-MM-DD" />
-        <TextField label={t("bankRec.openingBalance2")} value={openingBalance} onChange={setOpeningBalance} placeholder="0.00" />
-        <TextField label={t("bankRec.closingBalance2")} value={closingBalance} onChange={setClosingBalance} placeholder="0.00" />
+        <TextField label={t("bankRec.periodStart")} value={periodStart} onChange={setPeriodStart} placeholder="YYYY-MM-DD" hint={structured ? t("bankRecX.fromFileHint") : undefined} />
+        <TextField label={t("bankRec.periodEnd")} value={periodEnd} onChange={setPeriodEnd} placeholder="YYYY-MM-DD" hint={structured ? t("bankRecX.fromFileHint") : undefined} />
+        <TextField label={t("bankRec.openingBalance2")} value={openingBalance} onChange={setOpeningBalance} placeholder="0.00" hint={structured ? t("bankRecX.fromFileHint") : undefined} />
+        <TextField label={t("bankRec.closingBalance2")} value={closingBalance} onChange={setClosingBalance} placeholder="0.00" hint={structured ? t("bankRecX.fromFileHint") : undefined} />
         <TextField label={t("bankRec.statementNumber")} value={statementNumber} onChange={setStatementNumber} />
 
+        {structured ? null : (
         <Card className="flex flex-col gap-[12px] p-[14px]">
           <div className="flex items-center justify-between gap-2">
             <h3 className="font-display text-[13px] font-bold text-ink">{t("bankRec.columnMapping")}</h3>
@@ -546,6 +604,7 @@ function ImportStatementDialog({
             </div>
           ) : null}
         </Card>
+        )}
 
         {error ? <div role="alert" className="rounded-[8px] bg-danger-soft px-3 py-2 text-[12.5px] text-danger">{error}</div> : null}
 
@@ -557,239 +616,5 @@ function ImportStatementDialog({
         </div>
       </div>
     </SidePanel>
-  );
-}
-
-/* -------------------------------------------------------------------- */
-/* Statement detail — line-by-line matching                             */
-/* -------------------------------------------------------------------- */
-
-function StatementMatchingPanel({
-  statementId,
-  onClose,
-  accountName,
-}: {
-  statementId: string | null;
-  onClose: () => void;
-  accountName: (id: string) => string;
-}) {
-  const { t } = useAppTranslation();
-  const detail = useBankStatement(statementId);
-  const autoMatch = useAutoMatchStatement();
-  const matchLine = useMatchStatementLine();
-  const unmatchLine = useUnmatchStatementLine();
-  const finalize = useFinalizeBankStatement();
-
-  const candidates = useStatementMatchCandidates(statementId);
-
-  const [error, setError] = useState<string | null>(null);
-  const [pendingLineId, setPendingLineId] = useState<string | null>(null);
-  const [entryIdDraft, setEntryIdDraft] = useState<Record<string, string>>({});
-
-  const statement = detail.data ?? null;
-  const locked = statement?.status === "completed";
-
-  async function run(lineId: string, fn: () => Promise<unknown>) {
-    if (pendingLineId) return;
-    setPendingLineId(lineId);
-    setError(null);
-    try {
-      await fn();
-    } catch (err) {
-      setError(errorMessage(err, t("common.failed")));
-    } finally {
-      setPendingLineId(null);
-    }
-  }
-
-  async function runStatementAction(fn: () => Promise<unknown>) {
-    setError(null);
-    try {
-      await fn();
-    } catch (err) {
-      setError(errorMessage(err, t("common.failed")));
-    }
-  }
-
-  return (
-    <SidePanel
-      open={statementId !== null}
-      onClose={onClose}
-      title={statement ? t("bankRec.reconcileNamed", { account: accountName(statement.treasuryAccountId) }) : t("bankRec.reconcileABankStatement")}
-    >
-      {detail.isLoading ? <div className="p-5 text-[12.5px] text-ink-muted">{t("common.loading")}</div> : null}
-      {statement ? (
-        <div className="flex flex-col gap-4 p-5">
-          <div className="flex flex-wrap items-center gap-[10px]">
-            <StatusPill label={getBankStatementStatusLabel(statement.status)} tone={STATUS_TONE[statement.status]} />
-            <span className="mz-num text-[12px] text-ink-muted">
-              {statement.periodStart} — {statement.periodEnd}
-            </span>
-          </div>
-
-          <div className="grid grid-cols-2 gap-2 text-[12.5px]">
-            <div className="rounded-[8px] border border-border px-3 py-2">
-              <div className="text-ink-muted">{t("bankRec.openingBalance")}</div>
-              <MoneyDisplay value={Number(statement.openingBalance)} />
-            </div>
-            <div className="rounded-[8px] border border-border px-3 py-2">
-              <div className="text-ink-muted">{t("bankRec.closingBalance")}</div>
-              <MoneyDisplay value={Number(statement.closingBalance)} />
-            </div>
-            <div className="rounded-[8px] border border-border px-3 py-2">
-              <div className="text-ink-muted">{t("bankRec.matched2")}</div>
-              <span className="mz-num">
-                {statement.matchSummary.matched} / {statement.matchSummary.total}
-              </span>
-            </div>
-            <div className="rounded-[8px] border border-border px-3 py-2">
-              <div className="text-ink-muted">{t("bankRec.matched")}</div>
-              <span className="mz-num">{formatPercent(statement.matchSummary.matchRate)}</span>
-            </div>
-          </div>
-
-          {error ? <div role="alert" className="rounded-[8px] bg-danger-soft px-3 py-2 text-[12.5px] text-danger">{error}</div> : null}
-
-          <div className="flex flex-wrap gap-2">
-            <Button
-              variant="primary"
-              disabled={locked || autoMatch.isPending}
-              onClick={() => runStatementAction(() => autoMatch.mutateAsync(statement.id))}
-            >
-              {t("bankRec.matchAutomatically")}
-            </Button>
-            <Button
-              variant="default"
-              disabled={locked || finalize.isPending}
-              onClick={() => runStatementAction(() => finalize.mutateAsync(statement.id))}
-            >
-              {t("bankRec.finishReconciliation")}
-            </Button>
-          </div>
-
-          <div className="flex flex-col gap-2">
-            {statement.lines.length === 0 ? (
-              <div className="rounded-[8px] border border-border px-3 py-4 text-center text-[12.5px] text-ink-muted">
-                {t("bankRec.thisStatementHasNoLines")}
-              </div>
-            ) : (
-              statement.lines.map((line) => (
-                <StatementLineRow
-                  key={line.id}
-                  line={line}
-                  locked={locked}
-                  pending={pendingLineId === line.id}
-                  candidates={candidates.data ?? []}
-                  entryIdDraft={entryIdDraft[line.id] ?? ""}
-                  onEntryIdChange={(v) => setEntryIdDraft((prev) => ({ ...prev, [line.id]: v }))}
-                  onMatch={() =>
-                    run(line.id, () =>
-                      matchLine.mutateAsync({ statementId: statement.id, lineId: line.id, entryId: (entryIdDraft[line.id] ?? "").trim() }),
-                    )
-                  }
-                  onUnmatch={() => run(line.id, () => unmatchLine.mutateAsync({ statementId: statement.id, lineId: line.id }))}
-                />
-              ))
-            )}
-          </div>
-        </div>
-      ) : null}
-    </SidePanel>
-  );
-}
-
-function StatementLineRow({
-  line,
-  locked,
-  pending,
-  candidates,
-  entryIdDraft,
-  onEntryIdChange,
-  onMatch,
-  onUnmatch,
-}: {
-  line: StatementLineDTO;
-  locked: boolean;
-  pending: boolean;
-  candidates: readonly MatchCandidateDTO[];
-  entryIdDraft: string;
-  onEntryIdChange: (value: string) => void;
-  onMatch: () => void;
-  onUnmatch: () => void;
-}) {
-  const { t } = useAppTranslation();
-  const matched = line.status === "matched";
-
-  /**
-   * The same-amount movements come first: manual matching exists for the lines
-   * auto-match could not reach, and on a real statement that is nearly always a
-   * date gap rather than an amount gap, so the right entry is the one whose
-   * amount already agrees.
-   */
-  const options: EntityPickerOption[] = useMemo(() => {
-    const lineAmount = line.amount;
-    return [...candidates]
-      .sort((a, b) => {
-        const exact = Number(b.amount === lineAmount) - Number(a.amount === lineAmount);
-        return exact !== 0 ? exact : a.date.localeCompare(b.date);
-      })
-      .map((candidate) => ({
-        id: candidate.entryId,
-        label: candidate.description ?? candidate.entryNo ?? candidate.entryId,
-        sublabel: `${candidate.date} · ${formatMoney(Number(candidate.amount))}${candidate.entryNo ? ` · ${candidate.entryNo}` : ""}`,
-      }));
-  }, [candidates, line.amount]);
-  return (
-    <div className="flex flex-col gap-2 rounded-[10px] border border-border p-3">
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <div className="truncate text-[13px] text-ink">{line.description}</div>
-          <div className="mz-num mt-[2px] text-[11px] text-ink-faint">
-            {line.date}
-            {line.reference ? ` · ${line.reference}` : ""}
-          </div>
-        </div>
-        <div className="flex flex-none flex-col items-end gap-1">
-          <span className={Number(line.amount) < 0 ? "text-danger-ink" : "text-success-ink"}>
-            <MoneyDisplay value={Number(line.amount)} />
-          </span>
-          <StatusPill label={matched ? t("bankRec.matched2") : t("bankRec.unmatched")} tone={matched ? "success" : "neutral"} />
-        </div>
-      </div>
-
-      {matched ? (
-        <div className="flex items-center justify-between gap-2">
-          {/*
-            The entry NUMBER, and the id only when the entry has no number yet
-            — a draft. Printing the raw UUID where JE-000038 belongs told the
-            operator nothing they could look up, and the picker they chose it
-            from had shown them the number a moment earlier.
-          */}
-          <span className="mz-num truncate text-[11.5px] text-ink-muted">
-            {t("bankRec.entry")} {line.matchedEntryNo ?? line.matchedEntryId}
-          </span>
-          <Button size="sm" variant="danger-outline" disabled={locked || pending} onClick={onUnmatch}>
-            {t("bankRec.unmatch")}
-          </Button>
-        </div>
-      ) : (
-        <div className="flex items-end gap-2">
-          <div className="flex-1">
-            <EntityPicker
-              label={t("bankRec.matchAgainstEntry")}
-              value={options.find((option) => option.id === entryIdDraft) ?? null}
-              onChange={(option) => onEntryIdChange(option?.id ?? "")}
-              options={options}
-              disabled={locked}
-              placeholder={t("bankRec.chooseATreasuryMovement")}
-              emptyMessage={t("bankRec.noMatchableMovements")}
-            />
-          </div>
-          <Button size="sm" variant="primary" disabled={locked || pending || entryIdDraft.trim() === ""} onClick={onMatch}>
-            {t("bankRec.match")}
-          </Button>
-        </div>
-      )}
-    </div>
   );
 }

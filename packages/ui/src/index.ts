@@ -247,6 +247,7 @@ export {
 export {
   buildDataMigrationTemplate,
   parseDataMigrationFile,
+  readSpreadsheetAsCsv,
   type DataMigrationColumn,
   type DataMigrationStepSpec,
   type DataMigrationParseError,

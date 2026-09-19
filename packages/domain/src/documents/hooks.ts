@@ -113,6 +113,8 @@ export interface DocumentStockLine {
   readonly qty: Qty;
   /** Required for an IN line (receipt cost); ignored for OUT (moving average used). */
   readonly unitCost?: Money;
+  readonly batchNo?: string | null;
+  readonly expiryDate?: string | null;
 }
 
 export interface DocumentStockPlan {

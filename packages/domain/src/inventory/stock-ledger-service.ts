@@ -40,6 +40,8 @@ import {
   type PostedTransferFilter,
 } from "./posted-stock-documents.js";
 import { getAdjustmentReasonDefinition, type AdjustmentReason } from "./reasons.js";
+import { assertLotDetails } from "../expiry/lot-tracking.js";
+import type { BatchTrailRecorder, LotRequirementLookup } from "../expiry/types.js";
 import type { CostCategory } from "../contracting/cost-category.js";
 import { extend, unitCostOf } from "./wac-math.js";
 import { replay, checkDrift, emptyPosition, type WacPosition, type DriftReport } from "./wac.js";
@@ -113,6 +115,8 @@ export interface StockLedgerServiceDeps {
    * such an issue is refused rather than written at zero (D101).
    */
   readonly fallbackUnitCost?: (itemId: string) => Promise<Money | null> | Money | null;
+  readonly lotRequirement?: LotRequirementLookup;
+  readonly batchTrail?: BatchTrailRecorder;
 }
 
 export interface AdjustmentLine {
@@ -121,6 +125,8 @@ export interface AdjustmentLine {
   readonly qty: Qty;
   /** Required for an IN line (receipt-time cost); ignored for an OUT line. */
   readonly unitCost?: Money;
+  readonly batchNo?: string | null;
+  readonly expiryDate?: string | null;
 }
 
 export interface PostAdjustmentCommand {
@@ -538,6 +544,23 @@ export class StockLedgerService {
       }
     } else {
       consumed = await this.consumeLayers(input.itemId, input.warehouseId, input.qty);
+      const traced = consumed.filter((slice) => slice.batchNo !== null || slice.expiryDate !== null);
+      if (this.deps.batchTrail && traced.length > 0) {
+        await this.deps.batchTrail.record(
+          traced.map((slice) => ({
+            movementId: input.movementId,
+            itemId: input.itemId,
+            warehouseId: input.warehouseId,
+            sourceDocType: input.sourceDocType,
+            sourceDocId: input.sourceDocId,
+            sourceDocNumber: input.sourceDocNumber,
+            batchNo: slice.batchNo,
+            expiryDate: slice.expiryDate,
+            qty: slice.qty,
+            occurredAt: input.occurredAt,
+          })),
+        );
+      }
     }
 
     const averageCost = unitCostOf(newTotalValue, newOnHand);
@@ -619,6 +642,13 @@ export class StockLedgerService {
   async postAdjustment(command: PostAdjustmentCommand): Promise<void> {
     this.validateAdjustment(command);
     const occurredAt = command.occurredAt ?? this.now();
+    // A count gain has no batch to name; every other stock IN of a tracked item must carry one.
+    if (command.reason !== "PHYSICAL_COUNT") {
+      await assertLotDetails(
+        command.lines.filter((l) => l.direction === "IN"),
+        this.deps.lotRequirement,
+      );
+    }
 
     await this.runInTransaction(async () => {
       const movementIds: string[] = [];
@@ -640,6 +670,8 @@ export class StockLedgerService {
           sourceDocNumber: command.adjustmentNumber ?? null,
           reason: command.reason,
           occurredAt,
+          batchNo: line.direction === "IN" ? (line.batchNo ?? null) : null,
+          expiryDate: line.direction === "IN" ? (line.expiryDate ?? null) : null,
         });
         valueDelta = valueDelta.add(signedValue);
       }
@@ -736,6 +768,13 @@ export class StockLedgerService {
 
       return { totalCost, lines: lineCosts };
     });
+  }
+
+  async checkLots(
+    lines: readonly { itemId: string; batchNo?: string | null; expiryDate?: string | null }[],
+    receivedOn?: string | null,
+  ): Promise<void> {
+    await assertLotDetails(lines, this.deps.lotRequirement, { receivedOn: receivedOn ?? null });
   }
 
   /** Opening balance — a specialised INITIAL_STOCK adjustment (docs/archive/catalog/03). */
@@ -850,6 +889,7 @@ export class StockLedgerService {
       }
     }
     const occurredAt = command.occurredAt ?? this.now();
+    await assertLotDetails(command.lines, this.deps.lotRequirement, { receivedOn: occurredAt.slice(0, 10) });
 
     await this.runInTransaction(async () => {
       for (let i = 0; i < command.lines.length; i++) {

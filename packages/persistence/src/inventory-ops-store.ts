@@ -27,6 +27,8 @@ interface AdjustmentLineWire {
   unitCost: string | null;
   projectId: string | null;
   costCategory: string | null;
+  batchNo?: string | null;
+  expiryDate?: string | null;
 }
 
 function adjustmentLineToWire(line: StockAdjustmentDocLine): AdjustmentLineWire {
@@ -39,6 +41,8 @@ function adjustmentLineToWire(line: StockAdjustmentDocLine): AdjustmentLineWire 
     unitCost: line.unitCost ? line.unitCost.toString() : null,
     projectId: line.projectId ?? null,
     costCategory: line.costCategory ?? null,
+    batchNo: line.batchNo ?? null,
+    expiryDate: line.expiryDate ?? null,
   };
 }
 
@@ -53,6 +57,8 @@ function adjustmentLineFromWire(wire: unknown): StockAdjustmentDocLine {
     unitCost: w.unitCost !== null ? Money.fromMajor(w.unitCost) : undefined,
     projectId: w.projectId ?? null,
     costCategory: (w.costCategory as StockAdjustmentDocLine["costCategory"]) ?? null,
+    batchNo: w.batchNo ?? null,
+    expiryDate: w.expiryDate ?? null,
   };
 }
 

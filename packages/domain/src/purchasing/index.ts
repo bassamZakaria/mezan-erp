@@ -74,6 +74,8 @@ export {
   confirmGoodsReceipt,
   cancelGoodsReceipt,
   markGoodsReceiptInvoiced,
+  setGoodsReceiptLots,
+  type GoodsReceiptLotInput,
   buildReceiptLinesFromOrder,
   goodsReceiptTotalCost,
   type GoodsReceipt,

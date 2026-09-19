@@ -10,7 +10,7 @@
 import { recordSensitiveEvent, type AuditSink } from "../audit/index.js";
 
 export type PurchaseAuditEntityType = "PURCHASE_ORDER" | "GOODS_RECEIPT" | "PURCHASE_INVOICE";
-export type PurchaseAuditAction = "CONFIRM" | "CANCEL";
+export type PurchaseAuditAction = "CONFIRM" | "CANCEL" | "UPDATE_LOTS";
 
 export interface PurchaseAuditDeps {
   /** Omit and nothing is recorded — the flow behaves exactly as before. */

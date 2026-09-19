@@ -3,6 +3,7 @@ import { Hono, type Context } from "hono";
 import {
   AccountNotFoundError,
   ApprovalRequestRejectedError,
+  AuditChangeAction,
   BankReconciliationService,
   BankRuleDirection,
   BankRuleMatchType,
@@ -44,6 +45,7 @@ import {
   TreasuryAccountUnpostableError,
   UnbalancedEntryError,
   ZeroAmountLineError,
+  type AuditSink,
   type BankRule,
   type BankRuleInput,
   type BankStatement,
@@ -68,11 +70,27 @@ import {
   StatementSourceCode,
 } from "@mezan/contracts";
 import { callerRoleCodes, callerUserId, createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
+import { recordAdminEvent, recordFieldChanges } from "./admin-audit.js";
 
 export type BankReconciliationRoutesDeps = BankReconciliationServiceDeps & {
   /** Generates ids (statement id, statement-line id) when the request omits them. Defaults to a UUID. */
   readonly idGen?: () => string;
+  readonly audit?: AuditSink;
 };
+
+const RULE_AUDIT_FIELDS = [
+  "name",
+  "treasuryAccountId",
+  "pattern",
+  "matchType",
+  "direction",
+  "accountId",
+  "costCenterId",
+  "priority",
+  "active",
+] as const satisfies readonly (keyof BankRule)[];
+
+const ruleEntity = (id: string) => ({ module: "treasury", entityType: "bank_rule", entityId: id });
 
 function asEnum<T extends string>(values: Record<string, T>, value: string): T {
   const found = Object.values(values).find((v) => v === value);
@@ -348,7 +366,15 @@ export function createBankReconciliationRoutes(
     const parsed = bankRuleInputSchema.safeParse(await readJson(c));
     if (!parsed.success) return validation(c, parsed.error);
     try {
-      return c.json(serializeRule(await service.createRule(ruleInputOf(parsed.data), idGen())), 201);
+      const rule = await service.createRule(ruleInputOf(parsed.data), idGen());
+      await recordFieldChanges(deps.audit, c, {
+        entity: ruleEntity(rule.id),
+        action: AuditChangeAction.Create,
+        before: null,
+        after: rule,
+        fields: RULE_AUDIT_FIELDS,
+      });
+      return c.json(serializeRule(rule), 201);
     } catch (err) {
       return handleDomainError(c, err);
     }
@@ -358,7 +384,17 @@ export function createBankReconciliationRoutes(
     const parsed = bankRuleInputSchema.safeParse(await readJson(c));
     if (!parsed.success) return validation(c, parsed.error);
     try {
-      return c.json(serializeRule(await service.updateRule(c.req.param("ruleId"), ruleInputOf(parsed.data))));
+      const before = (await service.listRules()).find((r) => r.id === c.req.param("ruleId")) ?? null;
+      const rule = await service.updateRule(c.req.param("ruleId"), ruleInputOf(parsed.data));
+      await recordFieldChanges(deps.audit, c, {
+        entity: ruleEntity(rule.id),
+        action: AuditChangeAction.Update,
+        before,
+        after: rule,
+        fields: RULE_AUDIT_FIELDS,
+        warnOn: ["accountId", "active"],
+      });
+      return c.json(serializeRule(rule));
     } catch (err) {
       return handleDomainError(c, err);
     }
@@ -366,7 +402,13 @@ export function createBankReconciliationRoutes(
 
   app.delete("/rules/:ruleId", gate("treasury.reconciliation.manage"), async (c) => {
     try {
+      const before = (await service.listRules()).find((r) => r.id === c.req.param("ruleId")) ?? null;
       await service.deleteRule(c.req.param("ruleId"));
+      await recordAdminEvent(deps.audit, c, {
+        ...ruleEntity(c.req.param("ruleId")),
+        action: "DELETE",
+        details: before ? { rule: serializeRule(before) } : null,
+      });
       return c.json({ deleted: true });
     } catch (err) {
       return handleDomainError(c, err);
@@ -597,6 +639,20 @@ export function createBankReconciliationRoutes(
         reason: parsed.data.reason,
         actor: callerUserId(c),
       });
+      if (statement.finalizeOverrideReason) {
+        await recordAdminEvent(deps.audit, c, {
+          module: "treasury",
+          entityType: "bank_statement",
+          entityId: statement.id,
+          action: "FINALIZE_OVERRIDE",
+          severity: "WARNING",
+          details: {
+            reason: statement.finalizeOverrideReason,
+            unmatchedAtFinalize: statement.unmatchedAtFinalize ?? 0,
+            differenceAtFinalize: statement.differenceAtFinalize?.toString() ?? null,
+          },
+        });
+      }
       return c.json(serializeStatement(statement));
     } catch (err) {
       return handleDomainError(c, err);

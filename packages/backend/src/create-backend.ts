@@ -3231,6 +3231,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       mappings: bankStatements.mappings,
       suggestions: bankStatements.suggestions,
       rules: bankStatements.rules,
+      audit: auditSink,
       accounts,
       costCenters,
       ledgerReader: createTreasuryLedgerReader({

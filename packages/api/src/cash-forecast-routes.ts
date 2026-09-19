@@ -88,9 +88,9 @@ interface OpeningCash {
   readonly accounts: CashForecastOpeningAccountDTO[];
 }
 
-async function openingCash(deps: CashForecastRoutesDeps, today: string): Promise<OpeningCash> {
+async function openingCash(deps: CashForecastRoutesDeps, today: string, chequeAccountIds: ReadonlySet<string>): Promise<OpeningCash> {
   const accounts = [...(await deps.treasuryAccounts.list())].sort((a, b) => a.code.localeCompare(b.code));
-  const seen = new Set<string>();
+  const seen = new Set<string>(chequeAccountIds);
   const rows: CashForecastOpeningAccountDTO[] = [];
   let total = 0n;
   for (const account of accounts) {
@@ -108,8 +108,8 @@ async function openingCash(deps: CashForecastRoutesDeps, today: string): Promise
   return { total: Money.fromScaled(total), accounts: rows };
 }
 
-async function chequeItems(deps: CashForecastRoutesDeps): Promise<CashForecastItem[]> {
-  const cheques = ((await deps.reports.cheques?.list()) ?? []).filter((c) => c.status === "pending" || c.status === "deposited");
+async function chequeItems(deps: CashForecastRoutesDeps, all: readonly Cheque[]): Promise<CashForecastItem[]> {
+  const cheques = all.filter((c) => c.status === "pending" || c.status === "deposited");
   if (cheques.length === 0) return [];
   const accountIds = [...new Set(cheques.map((c) => c.controlAccounts.underCollectionAccountId))];
   const lines = (await deps.reports.ledger.listLines?.({ accountIds })) ?? [];
@@ -147,11 +147,11 @@ async function commitmentItems(deps: CashForecastRoutesDeps, today: string): Pro
   return out;
 }
 
-async function forecastItems(deps: CashForecastRoutesDeps, today: string): Promise<CashForecastItem[]> {
+async function forecastItems(deps: CashForecastRoutesDeps, today: string, allCheques: readonly Cheque[]): Promise<CashForecastItem[]> {
   const [aging, plans, cheques, commitments] = await Promise.all([
     openPartyAgingInputs(deps.reports, today),
     deps.reports.installmentPlans.list(),
-    chequeItems(deps),
+    chequeItems(deps, allCheques),
     commitmentItems(deps, today),
   ]);
   return [
@@ -204,7 +204,13 @@ export function createCashForecastRoutes(deps: CashForecastRoutesDeps, resolveAu
     const day = today();
     const horizon = parsed.data.horizon as unknown as CashForecastHorizon;
     const overdue = parsed.data.overdue as unknown as OverdueTreatment;
-    const [opening, items, thresholdRecord] = await Promise.all([openingCash(deps, day), forecastItems(deps, day), deps.store.getThreshold()]);
+    const allCheques = (await deps.reports.cheques?.list()) ?? [];
+    const chequeAccountIds = new Set(allCheques.map((cheque) => cheque.controlAccounts.underCollectionAccountId));
+    const [opening, items, thresholdRecord] = await Promise.all([
+      openingCash(deps, day, chequeAccountIds),
+      forecastItems(deps, day, allCheques),
+      deps.store.getThreshold(),
+    ]);
     const threshold = thresholdRecord?.amount ?? Money.zero();
     const base = { today: day, openingCash: opening.total, threshold, items };
     const forecast = buildCashForecast({ ...base, horizon, overdueReceivables: overdue });

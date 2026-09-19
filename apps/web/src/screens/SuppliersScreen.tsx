@@ -38,6 +38,7 @@ import { useNavigation } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 import { EMPTY } from "../lib/empty";
+import { EntityHistoryPanel } from "./enh/audit-ledger/EntityHistoryPanel";
 
 /**
  * الموردون (Suppliers) — docs/archive/catalog/02-purchases.md "الموردون". The mirror
@@ -357,6 +358,7 @@ function SupplierDetail({ supplier, onBack, onEdit }: { supplier: SupplierDTO; o
               <SupplierAgingCard supplierId={supplier.id} />
             </div>
           ), },
+        { key: "history", label: t("auditLedger.history.title"), content: <EntityHistoryPanel entityType="SUPPLIER" entityId={supplier.id} /> },
       ]}
     />
   );

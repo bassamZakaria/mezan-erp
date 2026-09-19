@@ -9,6 +9,9 @@ import {
   DuplicatePriceListError,
   InvalidPriceListError,
   PriceListNotFoundError,
+  AuditChangeAction,
+  diffAuditCollection,
+  type AuditSink,
   type PriceList,
   type PriceListLine,
   type PriceListRepository,
@@ -20,6 +23,16 @@ import {
   type PriceListLineDTO,
 } from "@mezan/contracts";
 import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
+import { recordFieldChanges } from "./admin-audit.js";
+
+const AUDITED_PRICE_LIST_FIELDS = ["code", "nameAr", "nameEn", "description", "isBase", "active"] as const;
+
+type SerializedPriceList = ReturnType<typeof serialize>;
+type SerializedPriceListLine = SerializedPriceList["lines"][number];
+
+function priceListLineKey(line: SerializedPriceListLine): string {
+  return `${line.itemId}|${line.unitCode ?? ""}|${line.minQty}`;
+}
 
 /** Resolves a customer's assigned price list, so the resolve route can answer by customer as well as by list. */
 export interface PriceListCustomerLookup {
@@ -76,9 +89,24 @@ export function createPriceListsRoutes(
   repo: PriceListRepository,
   resolveAuthContext: AuthContextResolver,
   customers?: PriceListCustomerLookup,
+  audit?: AuditSink,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
+
+  function auditPriceList(c: Context, action: AuditChangeAction, before: PriceList | null, after: PriceList) {
+    const from = before ? serialize(before) : null;
+    const to = serialize(after);
+    return recordFieldChanges(audit, c, {
+      entity: { module: "sales", entityType: "PRICE_LIST", entityId: after.id },
+      action,
+      before: from,
+      after: to,
+      fields: AUDITED_PRICE_LIST_FIELDS,
+      warnOn: ["linePrice", "active", "isBase"],
+      extraChanges: diffAuditCollection("linePrice", from?.lines, to.lines, priceListLineKey, (line) => line.price),
+    });
+  }
 
   app.get("/", gate("sales.price_list.view"), async (c) => {
     const activeParam = c.req.query("active");
@@ -146,6 +174,7 @@ export function createPriceListsRoutes(
         },
         repo,
       );
+      await auditPriceList(c, AuditChangeAction.Create, null, priceList);
       return c.json(serialize(priceList), 201);
     } catch (err) {
       return handleDomainError(c, err);
@@ -164,6 +193,7 @@ export function createPriceListsRoutes(
           throw new DuplicatePriceListError(parsed.data.code);
         }
       }
+      const before = await repo.findById(c.req.param("id"));
       const priceList = await updatePriceList(
         c.req.param("id"),
         {
@@ -177,6 +207,7 @@ export function createPriceListsRoutes(
         },
         repo,
       );
+      await auditPriceList(c, AuditChangeAction.Update, before, priceList);
       return c.json(serialize(priceList));
     } catch (err) {
       return handleDomainError(c, err);
@@ -185,7 +216,9 @@ export function createPriceListsRoutes(
 
   app.post("/:id/deactivate", gate("sales.price_list.manage"), async (c) => {
     try {
+      const before = await repo.findById(c.req.param("id"));
       const priceList = await updatePriceList(c.req.param("id"), { active: false }, repo);
+      await auditPriceList(c, AuditChangeAction.Deactivate, before, priceList);
       return c.json(serialize(priceList));
     } catch (err) {
       return handleDomainError(c, err);
@@ -194,7 +227,9 @@ export function createPriceListsRoutes(
 
   app.post("/:id/activate", gate("sales.price_list.manage"), async (c) => {
     try {
+      const before = await repo.findById(c.req.param("id"));
       const priceList = await updatePriceList(c.req.param("id"), { active: true }, repo);
+      await auditPriceList(c, AuditChangeAction.Activate, before, priceList);
       return c.json(serialize(priceList));
     } catch (err) {
       return handleDomainError(c, err);

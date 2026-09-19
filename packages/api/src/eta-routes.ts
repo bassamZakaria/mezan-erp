@@ -39,7 +39,10 @@ import {
   type ItemUnitRepository,
   type BranchRepository,
   type TaxRateRepository,
+  AuditChangeAction,
+  type AuditSink,
 } from "@mezan/domain";
+import { recordFieldChanges } from "./admin-audit.js";
 import {
   updateEtaConfigSchema,
   excludeEtaSubmissionSchema,
@@ -301,6 +304,7 @@ async function resolveReceiptDevice(
 export function createEtaRoutes(
   deps: EtaRoutesDeps,
   resolveAuthContext: AuthContextResolver,
+  audit?: AuditSink,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
@@ -463,6 +467,15 @@ export function createEtaRoutes(
       gpcCode: patch.gpcCode !== undefined ? (patch.gpcCode?.trim() || null) : item.gpcCode,
     };
     await deps.items.update(next);
+    await recordFieldChanges(audit, c, {
+      entity: { module: "inventory", entityType: "ITEM", entityId: next.id },
+      action: AuditChangeAction.Update,
+      before: item,
+      after: next,
+      fields: ["etaCodeType", "etaItemCode", "gpcCode"],
+      severity: "WARNING",
+      details: { code: next.code, nameAr: next.nameAr, source: "eta-item-mapping" },
+    });
     return c.json({
       itemId: next.id,
       code: next.code,

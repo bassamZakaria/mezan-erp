@@ -7,6 +7,8 @@ import { branchName } from "../settings/branch-name";
 import { SelectField, TextField } from "../settings/form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { useUrlNumber } from "../lib/url-state";
+import { AUDIT_FIELD_NAMES, ChangeSummary, ChangesTable, auditChangesOfEvent, useAuditLabels } from "./enh/audit-ledger/audit-changes";
+import { useAuditExport } from "./enh/audit-ledger/audit-export";
 
 /**
  * سجل المراجعة (Audit Log Viewer) — `/audit`. Read-only over the real,
@@ -60,6 +62,7 @@ interface Filters {
   action: string;
   actor: string;
   entityType: string;
+  field: string;
   severity: "" | AuditSeverityDTO;
   branchId: string;
   from: string;
@@ -72,6 +75,7 @@ const BLANK_FILTERS: Filters = {
   action: "",
   actor: "",
   entityType: "",
+  field: "",
   severity: "",
   branchId: "",
   from: "",
@@ -87,22 +91,35 @@ export function AuditLogScreen() {
   const [pageSize, setPageSize] = useUrlNumber("size", 25);
   const [selected, setSelected] = useState<AuditEventDTO | null>(null);
   const verify = useVerifyAuditChain();
+  const labels = useAuditLabels();
+  const exporter = useAuditExport(branches);
+  const fieldOptions = useMemo(
+    () =>
+      AUDIT_FIELD_NAMES.map((name) => ({ value: name, label: labels.fieldLabel(name) })).sort((a, b) =>
+        a.label.localeCompare(b.label, locale),
+      ),
+    [labels, locale],
+  );
 
   function updateFilters(patch: Partial<Filters>) {
     setFilters((f) => ({ ...f, ...patch }));
     setPage(1);
   }
 
-  const listQuery = useAuditLog({
+  const queryFilter = {
     stream: filters.stream === "all" ? undefined : filters.stream,
     module: filters.module.trim() || undefined,
     action: filters.action.trim() || undefined,
     actor: filters.actor.trim() || undefined,
     entityType: filters.entityType.trim() || undefined,
+    field: filters.field || undefined,
     severity: filters.severity || undefined,
     branchId: filters.branchId || undefined,
     from: filters.from.trim() || undefined,
     to: filters.to.trim() || undefined,
+  };
+  const listQuery = useAuditLog({
+    ...queryFilter,
     limit: pageSize,
     offset: (page - 1) * pageSize,
   });
@@ -123,6 +140,7 @@ export function AuditLogScreen() {
     (filters.module.trim() === "" ? 0 : 1) +
     (filters.action.trim() === "" ? 0 : 1) +
     (filters.entityType.trim() === "" ? 0 : 1) +
+    (filters.field === "" ? 0 : 1) +
     (filters.severity === "" ? 0 : 1) +
     (filters.branchId === "" ? 0 : 1) +
     (filters.from.trim() === "" ? 0 : 1) +
@@ -142,7 +160,8 @@ export function AuditLogScreen() {
       },
       { key: "module", header: t("audit.module"), render: (e) => <span className="text-ink">{e.module}</span> },
       { key: "entityType", header: t("audit.entity"), render: (e) => <span className="mz-num text-ink-muted">{e.entityType}</span> },
-      { key: "action", header: t("audit.action"), render: (e) => <span className="font-semibold text-ink">{e.action}</span> },
+      { key: "action", header: t("audit.action"), render: (e) => <span className="font-semibold text-ink">{labels.actionLabel(e.action)}</span> },
+      { key: "changes", header: t("auditLedger.changes"), render: (e) => <ChangeSummary changes={auditChangesOfEvent(e)} /> },
       { key: "actor", header: t("audit.user"), render: (e) => <span className="text-ink-muted">{e.actor}</span> },
       {
         key: "branchId",
@@ -157,7 +176,7 @@ export function AuditLogScreen() {
         render: (e) => <StatusPill label={t(SEVERITY_KEY[e.severity])} tone={SEVERITY_TONE[e.severity]} />,
       },
     ],
-    [branches, locale, t],
+    [branches, labels, locale, t],
   );
 
   return (
@@ -176,6 +195,15 @@ export function AuditLogScreen() {
           <Button size="sm" className="mt-[10px]" onClick={() => listQuery.refetch()}>
             {t("common.retry")}
           </Button>
+        </Card>
+      ) : null}
+
+      {exporter.error !== null || (exporter.outcome !== null && exporter.outcome.exported < exporter.outcome.total) ? (
+        <Card className="mb-[18px] p-[18px_20px]">
+          <p role="status" className={exporter.error !== null ? "text-[13px] font-semibold text-danger-ink" : "text-[13px] text-ink-muted"}>
+            {exporter.error ??
+              t("auditLedger.exportTruncated", { count: exporter.outcome?.exported ?? 0, total: exporter.outcome?.total ?? 0 })}
+          </p>
         </Card>
       ) : null}
 
@@ -215,9 +243,17 @@ export function AuditLogScreen() {
         description={t("audit.aRecordOfSecurityEvents")}
         listKey="audit-log"
         actions={
-          <Button onClick={() => verify.mutate()} disabled={verify.isPending}>
-            {verify.isPending ? t("audit.verifyChecking") : t("audit.verify")}
-          </Button>
+          <div className="flex flex-wrap gap-[8px]">
+            <Button onClick={() => exporter.run("csv", queryFilter)} disabled={exporter.busy !== null || total === 0}>
+              {exporter.busy === "csv" ? t("auditLedger.exporting") : t("auditLedger.exportCsv")}
+            </Button>
+            <Button onClick={() => exporter.run("xlsx", queryFilter)} disabled={exporter.busy !== null || total === 0}>
+              {exporter.busy === "xlsx" ? t("auditLedger.exporting") : t("auditLedger.exportExcel")}
+            </Button>
+            <Button onClick={() => verify.mutate()} disabled={verify.isPending}>
+              {verify.isPending ? t("audit.verifyChecking") : t("audit.verify")}
+            </Button>
+          </div>
         }
         statsCollapsible
         stats={[
@@ -247,6 +283,14 @@ export function AuditLogScreen() {
             </div>
             <div className="w-[150px]">
               <TextField label={t("audit.entity")} value={filters.entityType} onChange={(v) => updateFilters({ entityType: v })} />
+            </div>
+            <div className="w-[190px]">
+              <SelectField
+                label={t("auditLedger.fieldFilter")}
+                value={filters.field}
+                onChange={(v) => updateFilters({ field: v })}
+                options={[{ value: "", label: t("auditLedger.allFields") }, ...fieldOptions]}
+              />
             </div>
             <div className="w-[170px]">
               <SelectField
@@ -329,7 +373,7 @@ export function AuditLogScreen() {
               </div>
               <div className="flex items-center justify-between">
                 <dt className="text-ink-muted">{t("audit.action")}</dt>
-                <dd className="font-semibold text-ink">{selected.action}</dd>
+                <dd className="font-semibold text-ink">{labels.actionLabel(selected.action)}</dd>
               </div>
               <div className="flex items-center justify-between">
                 <dt className="text-ink-muted">{t("audit.user")}</dt>
@@ -350,6 +394,10 @@ export function AuditLogScreen() {
                 <dd><StatusPill label={t(SEVERITY_KEY[selected.severity])} tone={SEVERITY_TONE[selected.severity]} /></dd>
               </div>
             </dl>
+            <div>
+              <h4 className="mb-[6px] text-[12.5px] font-semibold text-ink">{t("auditLedger.changes")}</h4>
+              <ChangesTable changes={auditChangesOfEvent(selected)} />
+            </div>
             <div>
               <h4 className="mb-[6px] text-[12.5px] font-semibold text-ink">{t("audit.furtherDetails")}</h4>
               {selected.details === null ? (

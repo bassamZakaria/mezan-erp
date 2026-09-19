@@ -9,12 +9,17 @@ import {
   CircularParentAccountError,
   HeaderAccountHasChildrenError,
   AccountHasPostingsError,
+  AuditChangeAction,
   type Account,
   type AccountRepository,
+  type AuditSink,
   type PostedAccountLookup,
 } from "@mezan/domain";
 import { createAccountSchema, updateAccountSchema } from "@mezan/contracts";
 import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
+import { recordFieldChanges } from "./admin-audit.js";
+
+export const AUDITED_ACCOUNT_FIELDS = ["code", "nameAr", "nameEn", "type", "naturalBalance", "parentId", "isHeader", "status"] as const;
 
 /** Wire representation of an account — a plain JSON-safe projection. */
 function serialize(account: Account) {
@@ -65,6 +70,7 @@ export function createAccountsRouter(
    * Omit it and the chart is editable with no regard for what has been posted.
    */
   ledger?: PostedAccountLookup,
+  audit?: AuditSink,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
@@ -100,6 +106,13 @@ export function createAccountsRouter(
     }
     try {
       const account = await createAccount(parsed.data, repo);
+      await recordFieldChanges(audit, c, {
+        entity: { module: "accounting", entityType: "ACCOUNT", entityId: account.id },
+        action: AuditChangeAction.Create,
+        before: null,
+        after: serialize(account),
+        fields: AUDITED_ACCOUNT_FIELDS,
+      });
       return c.json(serialize(account), 201);
     } catch (err) {
       return handleDomainError(c, err);
@@ -112,7 +125,16 @@ export function createAccountsRouter(
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
     try {
+      const before = await repo.findById(c.req.param("id"));
       const account = await updateAccount(c.req.param("id"), parsed.data, repo, ledger);
+      await recordFieldChanges(audit, c, {
+        entity: { module: "accounting", entityType: "ACCOUNT", entityId: account.id },
+        action: AuditChangeAction.Update,
+        before: before ? serialize(before) : null,
+        after: serialize(account),
+        fields: AUDITED_ACCOUNT_FIELDS,
+        warnOn: ["type", "naturalBalance", "parentId", "isHeader", "status"],
+      });
       return c.json(serialize(account));
     } catch (err) {
       return handleDomainError(c, err);

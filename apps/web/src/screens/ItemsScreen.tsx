@@ -41,7 +41,6 @@ import {
   usePriceLists,
   useSuppliers,
   useWarehouses,
-  useEntityAudit,
   useItemMovements,
   useUpdatePriceList,
 } from "../data/hooks";
@@ -58,6 +57,7 @@ import { sumMajor } from "../lib/money";
 import { useNavigation, useSubPage } from "../navigation";
 import { EMPTY } from "../lib/empty";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
+import { EntityHistoryPanel } from "./enh/audit-ledger/EntityHistoryPanel";
 
 const TYPE_KEY: Record<ItemTypeDTO, AppTranslationKey> = {
   stock: "items.stockProduct",
@@ -608,34 +608,7 @@ function ItemMovementsTab({ itemId }: { itemId: string }) {
 }
 
 function ItemAuditTab({ itemId }: { itemId: string }) {
-  const { t } = useAppTranslation();
-  const query = useEntityAudit("ITEM", itemId);
-  const events = query.data ?? [];
-  if (events.length === 0) {
-    return <p className="p-[18px] text-center text-[12.5px] text-ink-muted">{t("items.audit.empty")}</p>;
-  }
-  return (
-    <div className="overflow-x-auto">
-      <table className="w-full min-w-[520px] border-collapse text-[13px]">
-        <thead>
-          <tr className="border-b border-border text-[11px] uppercase text-ink-muted">
-            <th className="px-[12px] py-[9px] text-start">{t("audit.dateAndTime")}</th>
-            <th className="px-[12px] py-[9px] text-start">{t("audit.action")}</th>
-            <th className="px-[12px] py-[9px] text-start">{t("audit.user")}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {events.map((e, i) => (
-            <tr key={i} className="border-b border-border last:border-b-0">
-              <td className="mz-num px-[12px] py-[10px]">{e.timestamp}</td>
-              <td className="px-[12px] py-[10px]">{e.action}</td>
-              <td className="px-[12px] py-[10px]">{e.actor}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
+  return <EntityHistoryPanel entityType="ITEM" entityId={itemId} />;
 }
 
 function ItemCostLayersTab({ itemId }: { itemId: string }) {

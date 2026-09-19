@@ -37,6 +37,7 @@ export const auditQuerySchema = z.object({
   actor: z.string().min(1).optional(),
   entityType: z.string().min(1).optional(),
   entityId: z.string().min(1).optional(),
+  field: z.string().min(1).max(120).optional(),
   severity: auditSeveritySchema.optional(),
   from: z.string().min(1).optional(),
   to: z.string().min(1).optional(),

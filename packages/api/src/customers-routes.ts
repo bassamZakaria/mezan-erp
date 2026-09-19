@@ -11,7 +11,7 @@ import {
   Money,
   NoFiscalPeriodForDateError,
   PeriodNotOpenForPostingError,
-  recordSensitiveEvent,
+  AuditChangeAction,
   VatPeriodAlreadyFiledError,
   type AuditSink,
   type Customer,
@@ -22,10 +22,10 @@ import { createCustomerSchema, updateCustomerSchema } from "@mezan/contracts";
 import {
   branchScopeOf,
   createPermissionGate,
-  getAuthContext,
   withinScope,
   type AuthContextResolver,
 } from "./permission-gate.js";
+import { recordFieldChanges } from "./admin-audit.js";
 
 /** Resolves a price list by id, so `priceListId` can be checked against the real resource. */
 export interface CustomerPriceListLookup {
@@ -106,6 +106,30 @@ function serialize(customer: Customer) {
   };
 }
 
+export const AUDITED_CUSTOMER_FIELDS = [
+  "branchId",
+  "code",
+  "nameAr",
+  "nameEn",
+  "phone",
+  "email",
+  "contactPerson",
+  "taxNumber",
+  "category",
+  "notes",
+  "paymentTermsDays",
+  "currency",
+  "openingBalance",
+  "active",
+  "priceListId",
+  "creditLimit",
+  "taxExempt",
+  "etaBuyerType",
+  "commercialRegistrationNumber",
+  "address",
+  "nationalId",
+] as const;
+
 function handleDomainError(c: Context, err: unknown) {
   if (err instanceof InvalidCustomerError) {
     return c.json({ error: err.code, message: err.message, reasons: err.reasons }, 422);
@@ -159,21 +183,15 @@ export function createCustomersRouter(
    * through. `details` records the before and after so the change is readable
    * without replaying anything.
    */
-  async function record(c: Context, customer: Customer, action: "CREATE" | "UPDATE", before?: Customer) {
-    if (!audit) return;
-    await recordSensitiveEvent(audit, {
-      module: "sales",
-      entityType: "CUSTOMER",
-      entityId: customer.id,
+  function record(c: Context, customer: Customer, action: AuditChangeAction, before?: Customer) {
+    return recordFieldChanges(audit, c, {
+      entity: { module: "sales", entityType: "CUSTOMER", entityId: customer.id },
       action,
-      actor: getAuthContext(c)?.userId ?? "system",
-      severity: before && before.creditLimit.scaled !== customer.creditLimit.scaled ? "WARNING" : "INFO",
-      details: {
-        code: customer.code,
-        nameAr: customer.nameAr,
-        creditLimit: customer.creditLimit.toString(),
-        ...(before ? { previousCreditLimit: before.creditLimit.toString(), previousCode: before.code } : {}),
-      },
+      before: before ? serialize(before) : null,
+      after: serialize(customer),
+      fields: AUDITED_CUSTOMER_FIELDS,
+      warnOn: ["creditLimit", "openingBalance", "priceListId", "taxNumber", "taxExempt", "active"],
+      details: { code: customer.code, nameAr: customer.nameAr },
     });
   }
 
@@ -368,7 +386,7 @@ export function createCustomersRouter(
       // carrying an opening balance the control account never heard about.
       await postOpeningBalance(customer, openingBalanceDate);
       await repo.save(customer);
-      await record(c, customer, "CREATE");
+      await record(c, customer, AuditChangeAction.Create);
       return c.json(serialize(customer), 201);
     } catch (err) {
       return handleDomainError(c, err);
@@ -426,7 +444,7 @@ export function createCustomersRouter(
         await postOpeningBalance(next, openingBalanceDate);
       }
       await repo.save(next);
-      await record(c, next, "UPDATE", current);
+      await record(c, next, AuditChangeAction.Update, current);
       return c.json(serialize(next));
     } catch (err) {
       return handleDomainError(c, err);

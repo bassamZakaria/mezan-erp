@@ -1,7 +1,10 @@
 import { Hono } from "hono";
-import type { ExchangeRate, ExchangeRateRepository } from "@mezan/domain";
+import { AuditChangeAction, type AuditSink, type ExchangeRate, type ExchangeRateRepository } from "@mezan/domain";
 import { createExchangeRateSchema } from "@mezan/contracts";
 import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
+import { recordFieldChanges } from "./admin-audit.js";
+
+const AUDITED_EXCHANGE_RATE_FIELDS = ["currency", "rate", "effectiveDate", "rateType", "source", "status"] as const;
 
 function serialize(rate: ExchangeRate) {
   return {
@@ -24,6 +27,7 @@ function serialize(rate: ExchangeRate) {
 export function createExchangeRatesRoutes(
   repo: ExchangeRateRepository,
   resolveAuthContext: AuthContextResolver,
+  audit?: AuditSink,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
@@ -54,6 +58,13 @@ export function createExchangeRatesRoutes(
       status: parsed.data.status ?? "pending",
     };
     await repo.create(rate);
+    await recordFieldChanges(audit, c, {
+      entity: { module: "accounting", entityType: "EXCHANGE_RATE", entityId: rate.id },
+      action: AuditChangeAction.Create,
+      before: null,
+      after: serialize(rate),
+      fields: AUDITED_EXCHANGE_RATE_FIELDS,
+    });
     return c.json(serialize(rate), 201);
   });
 
@@ -67,6 +78,14 @@ export function createExchangeRatesRoutes(
     }
     const next: ExchangeRate = { ...rate, status: "approved" };
     await repo.update(next);
+    await recordFieldChanges(audit, c, {
+      entity: { module: "accounting", entityType: "EXCHANGE_RATE", entityId: next.id },
+      action: AuditChangeAction.Approve,
+      before: serialize(rate),
+      after: serialize(next),
+      fields: AUDITED_EXCHANGE_RATE_FIELDS,
+      severity: "WARNING",
+    });
     return c.json(serialize(next));
   });
 
@@ -75,6 +94,14 @@ export function createExchangeRatesRoutes(
     if (!rate) return c.json({ error: "NOT_FOUND" }, 404);
     const next: ExchangeRate = { ...rate, status: "locked" };
     await repo.update(next);
+    await recordFieldChanges(audit, c, {
+      entity: { module: "accounting", entityType: "EXCHANGE_RATE", entityId: next.id },
+      action: AuditChangeAction.Lock,
+      before: serialize(rate),
+      after: serialize(next),
+      fields: AUDITED_EXCHANGE_RATE_FIELDS,
+      severity: "WARNING",
+    });
     return c.json(serialize(next));
   });
 

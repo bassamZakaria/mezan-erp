@@ -99,6 +99,7 @@ export interface AuditQueryFilter {
   readonly actor?: string;
   readonly entityType?: string;
   readonly entityId?: string;
+  readonly field?: string;
   readonly severity?: AuditSeverity;
   readonly from?: string;
   readonly to?: string;

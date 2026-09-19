@@ -10,7 +10,7 @@ import {
   InvalidItemError,
   ItemNotFoundError,
   type Item,
-  recordSensitiveEvent,
+  AuditChangeAction,
   type AuditSink,
   type ItemRepository,
   type AlternateUnit,
@@ -21,6 +21,40 @@ import {
   matchesSearch } from "@mezan/domain";
 import { createItemSchema, updateItemSchema, pageQuerySchema, DEFAULT_PAGE_SIZE } from "@mezan/contracts";
 import { createPermissionGate, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
+import { recordFieldChanges } from "./admin-audit.js";
+
+export const AUDITED_ITEM_FIELDS = [
+  "code",
+  "nameAr",
+  "nameEn",
+  "type",
+  "baseUnitCode",
+  "alternateUnits",
+  "barcodes",
+  "categoryId",
+  "brandId",
+  "description",
+  "defaultSupplierId",
+  "seasonId",
+  "specifications",
+  "costingMethod",
+  "salePrice",
+  "costPrice",
+  "taxRatePercent",
+  "trackInventory",
+  "trackBatches",
+  "trackExpiry",
+  "reorderPoint",
+  "imageAttachmentId",
+  "reorderQty",
+  "revenueAccountId",
+  "cogsAccountId",
+  "inventoryAccountId",
+  "etaCodeType",
+  "etaItemCode",
+  "gpcCode",
+  "status",
+] as const;
 
 /** Wire representation of an item — money as decimal strings, byte-stable. */
 /**
@@ -123,27 +157,15 @@ export function createItemsRouter(
    * decide the margin every invoice line books, and a quiet edit to either
    * restates profitability on documents nobody re-opened.
    */
-  async function record(c: Context, item: Item, action: "CREATE" | "UPDATE", before?: Item) {
-    if (!audit) return;
-    const priceMoved =
-      before !== undefined &&
-      (before.salePrice?.scaled !== item.salePrice?.scaled || before.costPrice?.scaled !== item.costPrice?.scaled);
-    await recordSensitiveEvent(audit, {
-      module: "inventory",
-      entityType: "ITEM",
-      entityId: item.id,
+  function record(c: Context, item: Item, action: AuditChangeAction, before?: Item) {
+    return recordFieldChanges(audit, c, {
+      entity: { module: "inventory", entityType: "ITEM", entityId: item.id },
       action,
-      actor: getAuthContext(c)?.userId ?? "system",
-      severity: priceMoved ? "WARNING" : "INFO",
-      details: {
-        code: item.code,
-        nameAr: item.nameAr,
-        salePrice: item.salePrice?.toString() ?? null,
-        costPrice: item.costPrice?.toString() ?? null,
-        ...(before
-          ? { previousSalePrice: before.salePrice?.toString() ?? null, previousCostPrice: before.costPrice?.toString() ?? null }
-          : {}),
-      },
+      before: before ? serialize(before) : null,
+      after: serialize(item),
+      fields: AUDITED_ITEM_FIELDS,
+      warnOn: ["salePrice", "costPrice", "taxRatePercent", "costingMethod", "revenueAccountId", "cogsAccountId", "inventoryAccountId", "status"],
+      details: { code: item.code, nameAr: item.nameAr },
     });
   }
 
@@ -382,7 +404,7 @@ export function createItemsRouter(
         },
         repo,
       );
-      await record(c, item, "CREATE");
+      await record(c, item, AuditChangeAction.Create);
       return c.json(serialize(item), 201);
     } catch (err) {
       return handleDomainError(c, err);
@@ -406,7 +428,7 @@ export function createItemsRouter(
         },
         repo,
       );
-      await record(c, item, "UPDATE", before ?? undefined);
+      await record(c, item, AuditChangeAction.Update, before ?? undefined);
       return c.json(serialize(item));
     } catch (err) {
       return handleDomainError(c, err);

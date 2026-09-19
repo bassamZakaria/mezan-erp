@@ -1016,11 +1016,11 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   if (options.accounts) {
     app.route(
       "/accounts",
-      createAccountsRouter(options.accounts.repo, options.accounts.resolveAuthContext ?? resolveAuth, options.gl?.ledger),
+      createAccountsRouter(options.accounts.repo, options.accounts.resolveAuthContext ?? resolveAuth, options.gl?.ledger, options.auditSink),
     );
   }
   if (options.taxRateRepo) {
-    app.route("/tax-rates", createTaxRatesRoutes(options.taxRateRepo, resolveAuth));
+    app.route("/tax-rates", createTaxRatesRoutes(options.taxRateRepo, resolveAuth, options.auditSink));
     if (options.taxGroupRepo) {
       app.route("/tax-groups", createTaxGroupsRoutes(options.taxGroupRepo, options.taxRateRepo, resolveAuth));
     }
@@ -1194,7 +1194,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     );
   }
   if (options.priceListRepo) {
-    app.route("/price-lists", createPriceListsRoutes(options.priceListRepo, resolveAuth, options.customerStore));
+    app.route("/price-lists", createPriceListsRoutes(options.priceListRepo, resolveAuth, options.customerStore, options.auditSink));
   }
   if (options.promotionRepo) {
     app.route(
@@ -1202,7 +1202,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
       createPromotionsRoutes(options.promotionRepo, resolveAuth, {
         salesInvoices: options.salesInvoices?.repo,
         salesReturns: options.salesReturns?.service,
-      }),
+      }, options.auditSink),
     );
   }
   if (options.notificationRuleRepo) {
@@ -1260,7 +1260,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     app.route("/installments", createInstallmentsRoutes(options.installments, (options.installments.resolveAuthContext ?? resolveAuth)));
   }
   if (options.exchangeRateRepo) {
-    app.route("/exchange-rates", createExchangeRatesRoutes(options.exchangeRateRepo, resolveAuth));
+    app.route("/exchange-rates", createExchangeRatesRoutes(options.exchangeRateRepo, resolveAuth, options.auditSink));
   }
   if (options.costCenterPl) {
     app.route("/cost-center-pl", createCostCenterPnLRoutes(options.costCenterPl, resolveAuth));
@@ -1272,7 +1272,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     app.route("/reconciliation", createReconciliationRoutes(options.reconciliation, resolveAuth));
   }
   if (options.eta) {
-    app.route("/eta", createEtaRoutes(options.eta, resolveAuth));
+    app.route("/eta", createEtaRoutes(options.eta, resolveAuth, options.auditSink));
   }
   // Generic document framework (docs/archive/plan.md §3): read-only type
   // registry + pure effects computation. No persistence, so always mounted.
@@ -1612,7 +1612,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   if (options.dataMigration) {
     app.route(
       "/data-migration",
-      createDataMigrationRoutes(options.dataMigration, (options.dataMigration.resolveAuthContext ?? resolveAuth) ?? resolveAuth),
+      createDataMigrationRoutes(options.dataMigration, (options.dataMigration.resolveAuthContext ?? resolveAuth) ?? resolveAuth, options.auditSink),
     );
   }
 

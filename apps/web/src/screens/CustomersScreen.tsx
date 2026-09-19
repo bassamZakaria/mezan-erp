@@ -30,11 +30,11 @@ import {
   useSalesInvoices,
   useSalesReturns,
   useInstallmentPlans,
-  useEntityAudit,
   useUpdateCustomer,
 } from "../data/hooks";
 import { AttachmentsTab } from "../attachments/AttachmentsTab";
 import { PartyStatementTab } from "./PartyStatementTab";
+import { EntityHistoryPanel } from "./enh/audit-ledger/EntityHistoryPanel";
 import { useAttachments } from "../data/attachment-hooks";
 import {
   moneyToNumber,
@@ -211,33 +211,7 @@ function CustomerReturnsTab({ customerId }: { customerId: string }) {
 }
 
 function CustomerAuditTab({ customerId }: { customerId: string }) {
-  const { t } = useAppTranslation();
-  const query = useEntityAudit("CUSTOMER", customerId);
-  const events = query.data ?? [];
-  if (query.isError) return <TabError message={t("api.auditCouldNotBeLoaded")} onRetry={() => query.refetch()} />;
-  if (events.length === 0) return <TabMessage title={t("customers.tab.audit")} body={t("customers.audit.empty")} />;
-  return (
-    <div className="overflow-x-auto">
-      <table className="w-full min-w-[520px] border-collapse text-[13px]">
-        <thead>
-          <tr className="border-b border-border text-[11px] uppercase text-ink-muted">
-            <th className="px-[12px] py-[9px] text-start">{t("audit.dateAndTime")}</th>
-            <th className="px-[12px] py-[9px] text-start">{t("audit.action")}</th>
-            <th className="px-[12px] py-[9px] text-start">{t("audit.user")}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {events.map((e, i) => (
-            <tr key={i} className="border-b border-border last:border-b-0">
-              <td className="mz-num px-[12px] py-[10px]">{e.timestamp}</td>
-              <td className="px-[12px] py-[10px]">{e.action}</td>
-              <td className="px-[12px] py-[10px]">{e.actor}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
+  return <EntityHistoryPanel entityType="CUSTOMER" entityId={customerId} />;
 }
 
 function CustomerInvoicesTab({ customerId }: { customerId: string }) {

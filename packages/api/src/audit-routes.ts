@@ -1,8 +1,23 @@
 import { Hono } from "hono";
-import type { AuditQueryPort } from "@mezan/domain";
+import { can, type AuditEvent, type AuditQueryPort } from "@mezan/domain";
 import type { AuditChainVerifyPort } from "@mezan/persistence";
 import { auditQuerySchema } from "@mezan/contracts";
-import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
+import { createPermissionGate, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
+
+const COST_FIELDS: ReadonlySet<string> = new Set(["costPrice"]);
+
+function redactCost(event: AuditEvent): AuditEvent {
+  const changes = event.details?.["changes"];
+  if (!Array.isArray(changes)) return event;
+  let touched = false;
+  const redacted = changes.map((change: unknown) => {
+    const field = (change as { field?: unknown } | null)?.field;
+    if (typeof field !== "string" || !COST_FIELDS.has(field)) return change;
+    touched = true;
+    return { ...(change as object), from: null, to: null, redacted: true };
+  });
+  return touched ? { ...event, details: { ...event.details, changes: redacted } } : event;
+}
 
 /**
  * Read-only query surface over the append-only audit trail (`/audit`,
@@ -54,6 +69,7 @@ export function createAuditRoutes(
       actor: c.req.query("actor"),
       entityType: c.req.query("entityType"),
       entityId: c.req.query("entityId"),
+      field: c.req.query("field"),
       severity: c.req.query("severity"),
       from: c.req.query("from"),
       to: c.req.query("to"),
@@ -64,7 +80,9 @@ export function createAuditRoutes(
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
     const result = await store.queryEvents(parsed.data);
-    return c.json(result);
+    const ctx = getAuthContext(c);
+    if (ctx && can(ctx, "sales.invoice.view_cost")) return c.json(result);
+    return c.json({ ...result, events: result.events.map(redactCost) });
   });
 
   return app;

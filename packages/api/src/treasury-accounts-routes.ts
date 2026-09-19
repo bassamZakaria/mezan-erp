@@ -8,13 +8,14 @@ import {
   InvalidOpeningBalanceError,
   NegativeCashBalanceError,
   TreasuryAccountNotFoundError,
+  AuditChangeAction,
   type AuditSink,
   type TreasuryAccount,
   type TreasuryAccountRepository,
 } from "@mezan/domain";
 import { createTreasuryAccountSchema, updateTreasuryAccountSchema } from "@mezan/contracts";
 import { createPermissionGate, type AuthContextResolver, branchScopeOf, withinScope } from "./permission-gate.js";
-import { recordAdminEvent } from "./admin-audit.js";
+import { recordFieldChanges } from "./admin-audit.js";
 
 function serialize(account: TreasuryAccount) {
   return {
@@ -32,6 +33,20 @@ function serialize(account: TreasuryAccount) {
     status: account.status,
   };
 }
+
+export const AUDITED_TREASURY_ACCOUNT_FIELDS = [
+  "code",
+  "name",
+  "nameEn",
+  "type",
+  "currency",
+  "branchId",
+  "glAccountId",
+  "openingBalance",
+  "openingBalanceDate",
+  "guaranteeFacilityLimit",
+  "status",
+] as const;
 
 function handleDomainError(c: Context, err: unknown) {
   const refuse = (e: Error & { code: string; messageEn?: string }, status: 404 | 409 | 422) =>
@@ -78,24 +93,15 @@ export function createTreasuryAccountsRoutes(
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
 
-  function auditAccount(
-    c: Context,
-    account: TreasuryAccount,
-    action: "CREATE" | "UPDATE",
-    before?: TreasuryAccount | null,
-  ) {
-    return recordAdminEvent(audit, c, {
-      module: "treasury",
-      entityType: "TREASURY_ACCOUNT",
-      entityId: account.id,
+  function auditAccount(c: Context, account: TreasuryAccount, action: AuditChangeAction, before?: TreasuryAccount | null) {
+    return recordFieldChanges(audit, c, {
+      entity: { module: "treasury", entityType: "TREASURY_ACCOUNT", entityId: account.id },
       action,
-      severity: before && before.glAccountId !== account.glAccountId ? "WARNING" : "INFO",
-      details: {
-        code: account.code,
-        name: account.name,
-        glAccountId: account.glAccountId,
-        ...(before ? { previousGlAccountId: before.glAccountId, previousCode: before.code } : {}),
-      },
+      before: before ? serialize(before) : null,
+      after: serialize(account),
+      fields: AUDITED_TREASURY_ACCOUNT_FIELDS,
+      warnOn: ["glAccountId", "openingBalance", "openingBalanceDate", "currency", "branchId", "guaranteeFacilityLimit", "status"],
+      details: { code: account.code, name: account.name },
     });
   }
 
@@ -233,7 +239,7 @@ export function createTreasuryAccountsRoutes(
     }
     try {
       const account = await createTreasuryAccount(parsed.data, repo);
-      await auditAccount(c, account, "CREATE");
+      await auditAccount(c, account, AuditChangeAction.Create);
       return c.json(serialize(account), 201);
     } catch (err) {
       return handleDomainError(c, err);
@@ -248,7 +254,7 @@ export function createTreasuryAccountsRoutes(
     try {
       const before = await repo.findById(c.req.param("id"));
       const account = await updateTreasuryAccount(c.req.param("id"), parsed.data, repo);
-      await auditAccount(c, account, "UPDATE", before);
+      await auditAccount(c, account, AuditChangeAction.Update, before);
       return c.json(serialize(account));
     } catch (err) {
       return handleDomainError(c, err);

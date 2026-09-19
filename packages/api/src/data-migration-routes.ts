@@ -55,9 +55,19 @@ import {
   type HistoricalImportGlPostingPort,
   type HistoricalImportGlAccounts,
   type HistoricalImportRowInput,
+  AuditChangeAction,
+  type AuditSink,
 } from "@mezan/domain";
 import { openingBalanceImportBatchSchema, type OpeningBalanceImportRowDTO } from "@mezan/contracts";
 import { tenantDay } from "./tenant-day.js";
+import { recordFieldChanges } from "./admin-audit.js";
+import { AUDITED_CUSTOMER_FIELDS } from "./customers-routes.js";
+import { AUDITED_SUPPLIER_FIELDS } from "./suppliers-routes.js";
+import { AUDITED_ITEM_FIELDS } from "./items-routes.js";
+import { AUDITED_TREASURY_ACCOUNT_FIELDS } from "./treasury-accounts-routes.js";
+import { AUDITED_ACCOUNT_FIELDS } from "./accounts.js";
+
+const MIGRATION_AUDIT_DETAILS = { source: "data-migration" } as const;
 
 /**
  * Commit must be all-or-nothing, so the route needs a transaction boundary it
@@ -274,6 +284,7 @@ async function resolveDefaultBranchId(branches: BranchRepository, branchCode: st
 export function createDataMigrationRoutes(
   deps: DataMigrationRoutesDeps,
   resolveAuthContext: AuthContextResolver,
+  audit?: AuditSink,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
@@ -426,7 +437,15 @@ export function createDataMigrationRoutes(
         };
       },
       async (item) => {
-        await createTreasuryAccount(item, deps.treasuryAccounts);
+        const account = await createTreasuryAccount(item, deps.treasuryAccounts);
+        await recordFieldChanges(audit, c, {
+          entity: { module: "treasury", entityType: "TREASURY_ACCOUNT", entityId: account.id },
+          action: AuditChangeAction.Create,
+          before: null,
+          after: account,
+          fields: AUDITED_TREASURY_ACCOUNT_FIELDS,
+          details: MIGRATION_AUDIT_DETAILS,
+        });
       },
       commit,
     );
@@ -473,6 +492,14 @@ export function createDataMigrationRoutes(
       },
       async (item) => {
         await deps.suppliers.save(item);
+        await recordFieldChanges(audit, c, {
+          entity: { module: "purchases", entityType: "SUPPLIER", entityId: item.id },
+          action: AuditChangeAction.Create,
+          before: null,
+          after: item,
+          fields: AUDITED_SUPPLIER_FIELDS,
+          details: MIGRATION_AUDIT_DETAILS,
+        });
       },
       commit,
     );
@@ -520,6 +547,14 @@ export function createDataMigrationRoutes(
       },
       async (item) => {
         await deps.customers.save(item);
+        await recordFieldChanges(audit, c, {
+          entity: { module: "sales", entityType: "CUSTOMER", entityId: item.id },
+          action: AuditChangeAction.Create,
+          before: null,
+          after: item,
+          fields: AUDITED_CUSTOMER_FIELDS,
+          details: MIGRATION_AUDIT_DETAILS,
+        });
       },
       commit,
     );
@@ -575,7 +610,15 @@ export function createDataMigrationRoutes(
         }
       },
       async (item) => {
-        await createItem(item, deps.items);
+        const created = await createItem(item, deps.items);
+        await recordFieldChanges(audit, c, {
+          entity: { module: "inventory", entityType: "ITEM", entityId: created.id },
+          action: AuditChangeAction.Create,
+          before: null,
+          after: created,
+          fields: AUDITED_ITEM_FIELDS,
+          details: MIGRATION_AUDIT_DETAILS,
+        });
       },
       commit,
     );
@@ -624,7 +667,16 @@ export function createDataMigrationRoutes(
       const createdIds: string[] = [];
       for (const [itemCode, additions] of pendingByItemCode) {
         const item = byCode.get(itemCode)!;
-        await deps.items.update({ ...item, alternateUnits: [...item.alternateUnits, ...additions] });
+        const next = { ...item, alternateUnits: [...item.alternateUnits, ...additions] };
+        await deps.items.update(next);
+        await recordFieldChanges(audit, c, {
+          entity: { module: "inventory", entityType: "ITEM", entityId: item.id },
+          action: AuditChangeAction.Update,
+          before: item,
+          after: next,
+          fields: AUDITED_ITEM_FIELDS,
+          details: MIGRATION_AUDIT_DETAILS,
+        });
         createdIds.push(...additions.map((a) => `${itemCode}:${a.code}`));
       }
       return c.json({ validCount: result.validCount, errors: [], createdIds }, 201);
@@ -777,6 +829,18 @@ export function createDataMigrationRoutes(
         else await write();
       } catch (err) {
         return c.json({ validCount: preview.valid.length, errors: [{ rowNumber: 0, reasons: [errorMessage(err)] }] }, 422);
+      }
+      for (const id of createdIds) {
+        const account = await coaAccounts!.findById(id);
+        if (!account) continue;
+        await recordFieldChanges(audit, c, {
+          entity: { module: "accounting", entityType: "ACCOUNT", entityId: account.id },
+          action: AuditChangeAction.Create,
+          before: null,
+          after: account,
+          fields: AUDITED_ACCOUNT_FIELDS,
+          details: MIGRATION_AUDIT_DETAILS,
+        });
       }
       return c.json({ validCount: preview.valid.length, errors: [], createdIds }, 201);
     }

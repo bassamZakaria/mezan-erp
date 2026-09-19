@@ -1,9 +1,9 @@
 import { Hono, type Context } from "hono";
-import { createSupplier, updateSupplier, InvalidSupplierError, Money, type AuditSink, type Supplier, type SupplierRepository, matchesSearch } from "@mezan/domain";
+import { createSupplier, updateSupplier, InvalidSupplierError, Money, AuditChangeAction, type AuditSink, type Supplier, type SupplierRepository, matchesSearch } from "@mezan/domain";
 import { nextMasterCode } from "./master-code.js";
 import { createSupplierSchema, updateSupplierSchema } from "@mezan/contracts";
 import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
-import { recordAdminEvent } from "./admin-audit.js";
+import { recordFieldChanges } from "./admin-audit.js";
 import type { PartyOpeningBalancePoster } from "./customers-routes.js";
 
 /**
@@ -47,6 +47,26 @@ function serialize(supplier: Supplier) {
   };
 }
 
+export const AUDITED_SUPPLIER_FIELDS = [
+  "code",
+  "nameAr",
+  "nameEn",
+  "phone",
+  "email",
+  "contactPerson",
+  "taxNumber",
+  "category",
+  "notes",
+  "paymentTermsDays",
+  "currency",
+  "openingBalance",
+  "active",
+  "addressCity",
+  "addressDistrict",
+  "addressStreet",
+  "bankAccount",
+] as const;
+
 function handleDomainError(c: Context, err: unknown) {
   if (err instanceof InvalidSupplierError) {
     return c.json({ error: err.code, message: err.message, reasons: err.reasons }, 422);
@@ -76,37 +96,15 @@ export function createSuppliersRouter(
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
 
-  function auditSupplier(c: Context, supplier: Supplier, action: "CREATE" | "UPDATE", before?: Supplier) {
-    return recordAdminEvent(audit, c, {
-      module: "purchases",
-      entityType: "SUPPLIER",
-      entityId: supplier.id,
+  function auditSupplier(c: Context, supplier: Supplier, action: AuditChangeAction, before?: Supplier) {
+    return recordFieldChanges(audit, c, {
+      entity: { module: "purchases", entityType: "SUPPLIER", entityId: supplier.id },
       action,
-      severity:
-        before &&
-        (before.openingBalance.scaled !== supplier.openingBalance.scaled ||
-          before.bankAccount !== supplier.bankAccount ||
-          before.taxNumber !== supplier.taxNumber)
-          ? "WARNING"
-          : "INFO",
-      details: {
-        code: supplier.code,
-        nameAr: supplier.nameAr,
-        openingBalance: supplier.openingBalance.toString(),
-        // WHERE the money goes and WHOSE tax number it is paid against. A
-        // supplier's bank account changed between the invoice and the payment
-        // is the classic diversion, and the trail recorded neither side of it.
-        bankAccount: supplier.bankAccount,
-        taxNumber: supplier.taxNumber,
-        ...(before
-          ? {
-              previousOpeningBalance: before.openingBalance.toString(),
-              previousCode: before.code,
-              previousBankAccount: before.bankAccount,
-              previousTaxNumber: before.taxNumber,
-            }
-          : {}),
-      },
+      before: before ? serialize(before) : null,
+      after: serialize(supplier),
+      fields: AUDITED_SUPPLIER_FIELDS,
+      warnOn: ["openingBalance", "bankAccount", "taxNumber", "active"],
+      details: { code: supplier.code, nameAr: supplier.nameAr },
     });
   }
 
@@ -220,7 +218,7 @@ export function createSuppliersRouter(
       // account never heard about.
       await openingBalances?.post(supplier);
       await repo.save(supplier);
-      await auditSupplier(c, supplier, "CREATE");
+      await auditSupplier(c, supplier, AuditChangeAction.Create);
       return c.json(serialize(supplier), 201);
     } catch (err) {
       return handleDomainError(c, err);
@@ -257,7 +255,7 @@ export function createSuppliersRouter(
         await openingBalances?.post(next);
       }
       await repo.save(next);
-      await auditSupplier(c, next, "UPDATE", current);
+      await auditSupplier(c, next, AuditChangeAction.Update, current);
       return c.json(serialize(next));
     } catch (err) {
       return handleDomainError(c, err);

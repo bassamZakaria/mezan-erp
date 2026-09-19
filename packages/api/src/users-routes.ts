@@ -6,6 +6,8 @@ import {
   targetOutranksCaller,
   ungrantablePermissions,
   ungrantableScopes,
+  detectSodConflicts,
+  WILDCARD_PERMISSION,
   type AccountAuthority,
   InvalidUserError,
   DuplicateUserEmailError,
@@ -14,6 +16,7 @@ import {
   UserNotFoundError,
   LastCompanyAdminError,
   type AuditSink,
+  type SodConflictMatch,
   type User,
   type UnitOfWork,
   type ScopeSelection,
@@ -258,6 +261,51 @@ export function createUsersRoutes(
     );
   }
 
+  /**
+   * ENH-051 — the role a user is being given grants both sides of a
+   * `permissions/sod.ts` pair. Refused unless the caller acknowledges it with
+   * a reason; the acknowledgement is then audited on the user, so putting a
+   * specific person into a conflicted seat is a decision on record even when
+   * the role itself was saved (and acknowledged) long before.
+   */
+  function refuseSodConflicts(c: Context, conflicts: readonly SodConflictMatch[]) {
+    return c.json(
+      {
+        error: "SOD_CONFLICT",
+        conflicts,
+        message:
+          "الدور المطلوب إسناده يجمع بين طرفي فصل مهام لا يجوز الجمع بينهما لهذا المستخدم. أرسل acknowledge مع سبب لحفظه رغم ذلك.",
+      },
+      409,
+    );
+  }
+
+  /**
+   * `isCompanyAdmin` grants the wildcard just as surely as a role listing
+   * `"*"` does — `authorityOf` above already treats it that way for the
+   * outrank/escalation checks — so it is checked here too. Without this, the
+   * quickest way past every SoD gate in the product was the flag this route
+   * exists to set: `isCompanyAdmin: true`, no role, nothing to look up.
+   */
+  async function sodConflictsOfGrant(grant: { roleId: string | null; isCompanyAdmin: boolean }): Promise<readonly SodConflictMatch[]> {
+    if (grant.isCompanyAdmin) return detectSodConflicts([WILDCARD_PERMISSION]);
+    if (!grant.roleId) return [];
+    const role = await uow.roles.findById(grant.roleId);
+    if (!role) return [];
+    return detectSodConflicts(role.permissions);
+  }
+
+  function auditSodOverride(c: Context, user: User, conflicts: readonly SodConflictMatch[], reason: string) {
+    return recordAdminEvent(audit, c, {
+      module: "admin",
+      entityType: "USER",
+      entityId: user.id,
+      action: "SOD_OVERRIDE",
+      severity: "WARNING",
+      details: { roleId: user.roleId, reason, conflicts: conflicts.map((cf) => cf.ruleId) },
+    });
+  }
+
   function refuseOutranked(c: Context) {
     return c.json(
       {
@@ -359,6 +407,10 @@ export function createUsersRoutes(
     }
     const escalation = await refuseIfEscalating(c, parsed.data, null);
     if (escalation) return escalation;
+    const conflicts = await sodConflictsOfGrant(parsed.data);
+    if (conflicts.length > 0 && !(parsed.data.acknowledge && parsed.data.reason)) {
+      return refuseSodConflicts(c, conflicts);
+    }
     const overCap = await refuseIfOverSeatCap(c);
     if (overCap) return overCap;
     try {
@@ -369,6 +421,7 @@ export function createUsersRoutes(
         await saveOptions(),
       );
       await auditUser(c, user, "CREATE", null, credentialChange(parsed.data));
+      if (conflicts.length > 0) await auditSodOverride(c, user, conflicts, parsed.data.reason ?? "");
       return c.json(serializeUser(user), 201);
     } catch (err) {
       return userErrorResponse(c, err);
@@ -390,6 +443,16 @@ export function createUsersRoutes(
     if (outranked) return outranked;
     const escalation = await refuseIfEscalating(c, parsed.data, id);
     if (escalation) return escalation;
+    // The check runs only when the GRANT itself is changing — role OR the
+    // admin flag, since either one decides which side(s) of a rule this
+    // account reaches. An unrelated edit (phone number, branch scope) to an
+    // account already sitting in a conflicted seat must not re-block on every
+    // save of a decision nobody is making right now.
+    const grantChanged = before.roleId !== parsed.data.roleId || before.isCompanyAdmin !== parsed.data.isCompanyAdmin;
+    const conflicts = grantChanged ? await sodConflictsOfGrant(parsed.data) : [];
+    if (conflicts.length > 0 && !(parsed.data.acknowledge && parsed.data.reason)) {
+      return refuseSodConflicts(c, conflicts);
+    }
     // Reactivation is a seat grant like any other: a PUT that flips a
     // deactivated account back to `active` must stop at the same cap
     // `POST /` and `/activate` do, or the cap is only a suggestion.
@@ -418,6 +481,7 @@ export function createUsersRoutes(
       });
       await auditUser(c, user, "UPDATE", before, change);
       await auditCredentialReset(c, user, change);
+      if (conflicts.length > 0) await auditSodOverride(c, user, conflicts, parsed.data.reason ?? "");
       // A grant is snapshotted into the session at login. Anything that changes
       // what this account is worth — its role, its admin flag, its scope, its
       // credential — has to end the sessions carrying the old answer, or every

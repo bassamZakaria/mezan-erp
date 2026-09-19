@@ -1336,7 +1336,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     app.route(
       "/security-reports",
       createSecurityReportsRoutes(
-        { audit: options.audit.store, users: uow.users, settings: options.settingsStore },
+        { audit: options.audit.store, users: uow.users, roles: uow.roles, settings: options.settingsStore },
         auditAuth,
       ),
     );

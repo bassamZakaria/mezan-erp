@@ -6,7 +6,7 @@ import { useAppTranslation, type AppTranslationKey } from "../../i18n";
 import { tryReportLabel } from "../../report-labels";
 
 /** One of the four exception reports this shell renders, keyed the way `securityReports.<report>.*` i18n keys are. */
-export type SecurityReportKey = "exceptions" | "postPosting" | "afterHours" | "newAccounts";
+export type SecurityReportKey = "exceptions" | "postPosting" | "afterHours" | "newAccounts" | "sod";
 
 /**
  * Overlays the server's raw `labelAr` (KPI, gap, gap-detail and column labels

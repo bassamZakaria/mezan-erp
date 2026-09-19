@@ -13,7 +13,7 @@ import {
   type EntityPickerOption,
   type PillTone,
 } from "@mezan/ui";
-import { ALL_SCOPE, type ScopeSelection } from "@mezan/domain";
+import { ALL_SCOPE, detectSodConflicts, WILDCARD_PERMISSION, type ScopeSelection, type SodConflictMatch } from "@mezan/domain";
 import type { RoleDTO, ScopeSelectionDTO, UserDTO, UserStatusDTO } from "@mezan/contracts";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { useUrlParam } from "../lib/url-state";
@@ -59,6 +59,9 @@ export interface UserFormDraft {
   status: UserStatusDTO;
   /** Carried through the admin form untouched; people set their own photo in الملف الشخصي. */
   photoUrl?: string | null;
+  /** ENH-051 — set together, only when assigning a role trips a conflict. */
+  sodAcknowledge?: boolean;
+  sodReason?: string;
 }
 
 const STATUS_KEY: Record<UserStatusDTO, AppTranslationKey> = { active: "common.active", inactive: "common.inactive" };
@@ -123,6 +126,19 @@ export function UsersPage({ users, roles, branches, warehouses, employees, onSav
   const [unlockingId, setUnlockingId] = useState<string | null>(null);
 
   const roleById = useMemo(() => new Map(roles.map((r) => [r.id, r])), [roles]);
+
+  /**
+   * ENH-051 — live, as a role is picked: the same rule set the server
+   * enforces. Company-admin is checked too — it grants the wildcard exactly
+   * as a role listing `"*"` would, so it is the single largest conflict this
+   * screen can create, not an exemption from the check.
+   */
+  const sodConflicts: readonly SodConflictMatch[] = useMemo(() => {
+    if (draft.isCompanyAdmin) return detectSodConflicts([WILDCARD_PERMISSION]);
+    if (!draft.roleId) return [];
+    const role = roleById.get(draft.roleId);
+    return role ? detectSodConflicts(role.permissions) : [];
+  }, [draft.isCompanyAdmin, draft.roleId, roleById]);
   const allBranchIds = useMemo(() => branches.map((b) => b.id), [branches]);
   const allWarehouseIds = useMemo(() => warehouses.map((w) => w.id), [warehouses]);
 
@@ -165,6 +181,10 @@ export function UsersPage({ users, roles, branches, warehouses, employees, onSav
     }
     if (draft.email.trim() === "") {
       setFormError(t("users.theEmailAddressIsRequired"));
+      return;
+    }
+    if (sodConflicts.length > 0 && (!draft.sodAcknowledge || !draft.sodReason?.trim())) {
+      setFormError(t("users.sod.acknowledgeRequired"));
       return;
     }
     setSaving(true);
@@ -344,7 +364,15 @@ export function UsersPage({ users, roles, branches, warehouses, employees, onSav
             <div className="rounded-md border border-border bg-surface px-[12px] py-[10px]">
               <Checkbox
                 checked={draft.isCompanyAdmin}
-                onChange={(e) => setDraft((d) => ({ ...d, isCompanyAdmin: e.target.checked, roleId: e.target.checked ? null : d.roleId }))}
+                onChange={(e) =>
+                  setDraft((d) => ({
+                    ...d,
+                    isCompanyAdmin: e.target.checked,
+                    roleId: e.target.checked ? null : d.roleId,
+                    sodAcknowledge: false,
+                    sodReason: "",
+                  }))
+                }
                 label={
                   <>
                     <span className="block text-[12.5px] font-semibold text-ink">{t("users.companyAdministratorRights")}</span>
@@ -357,10 +385,33 @@ export function UsersPage({ users, roles, branches, warehouses, employees, onSav
               <EntityPicker
                 label={t("users.role2")}
                 value={roleOptions.find((o) => o.id === draft.roleId) ?? null}
-                onChange={(o) => setDraft((d) => ({ ...d, roleId: o?.id ?? null }))}
+                onChange={(o) => setDraft((d) => ({ ...d, roleId: o?.id ?? null, sodAcknowledge: false, sodReason: "" }))}
                 options={roleOptions}
                 placeholder={t("users.chooseARole")}
               />
+            ) : null}
+            {sodConflicts.length > 0 ? (
+              <div className="rounded-md border border-warning bg-warning-soft px-[12px] py-[10px]">
+                <div className="mb-[6px] text-[12.5px] font-bold text-warning-ink">{t("users.sod.title")}</div>
+                <ul className="mb-[10px] grid gap-[5px] text-[12px] text-ink">
+                  {sodConflicts.map((conflict) => (
+                    <li key={conflict.ruleId}>{conflict.labelAr}</li>
+                  ))}
+                </ul>
+                <Checkbox
+                  checked={draft.sodAcknowledge ?? false}
+                  onChange={(e) => setDraft((d) => ({ ...d, sodAcknowledge: e.target.checked }))}
+                  label={<span className="text-[12.5px] text-ink">{t("users.sod.acknowledge")}</span>}
+                />
+                <div className="mt-[8px]">
+                  <TextField
+                    label={t("users.sod.reasonLabel")}
+                    value={draft.sodReason ?? ""}
+                    onChange={(v) => setDraft((d) => ({ ...d, sodReason: v }))}
+                    placeholder={t("users.sod.reasonPlaceholder")}
+                  />
+                </div>
+              </div>
             ) : null}
             <EntityPicker
               label={t("users.linkedEmployeeOptional")}

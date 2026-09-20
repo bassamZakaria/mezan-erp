@@ -47,3 +47,12 @@ export {
 } from "./module-licensing.js";
 
 export { togglePermission, toggleAll } from "./role-editor.js";
+
+export {
+  SodConflictId,
+  SOD_CONFLICT_RULES,
+  detectSodConflicts,
+  getSodConflictRule,
+  type SodConflictRule,
+  type SodConflictMatch,
+} from "./sod.js";

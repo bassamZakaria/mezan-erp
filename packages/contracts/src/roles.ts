@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { sodAcknowledgeFields } from "./sod.js";
 
 /** `"*"` (all) or an explicit allow-list of branch/warehouse ids. */
 export const scopeSelectionSchema = z.union([z.literal("*"), z.array(z.string().min(1))]);
@@ -22,6 +23,7 @@ export const createRoleSchema = z.object({
   name: roleSchema.shape.name,
   description: z.string().default(""),
   permissions: z.array(z.string().min(1)).default([]),
+  ...sodAcknowledgeFields,
 });
 
 export const updateRoleSchema = createRoleSchema;

@@ -3,6 +3,7 @@ import {
   saveRole,
   deleteRole,
   ungrantablePermissions,
+  detectSodConflicts,
   UnknownPermissionError,
   UnlicensedPermissionError,
   PlatformOnlyPermissionError,
@@ -13,6 +14,7 @@ import {
   RoleInUseError,
   type AuditSink,
   type Role,
+  type SodConflictMatch,
   type UnitOfWork,
 } from "@mezan/domain";
 import { createRoleSchema, updateRoleSchema } from "@mezan/contracts";
@@ -117,6 +119,18 @@ export function createRolesRoutes(
     });
   }
 
+  /** ENH-051 — a role saved WITH an acknowledged SoD conflict, and why. */
+  function auditSodOverride(c: Context, role: Role, conflicts: readonly SodConflictMatch[], reason: string) {
+    return recordAdminEvent(audit, c, {
+      module: "admin",
+      entityType: "ROLE",
+      entityId: role.id,
+      action: "SOD_OVERRIDE",
+      severity: "WARNING",
+      details: { code: role.code, reason, conflicts: conflicts.map((cf) => cf.ruleId) },
+    });
+  }
+
   /**
    * A role is a bundle of authority, so writing one is a GRANT. `admin.roles.manage`
    * says the caller may curate roles; it does not say which permissions they may
@@ -163,6 +177,10 @@ export function createRolesRoutes(
     }
     const escalation = refuseUngrantable(c, parsed.data.permissions);
     if (escalation) return escalation;
+    const conflicts = detectSodConflicts(parsed.data.permissions);
+    if (conflicts.length > 0 && !(parsed.data.acknowledge && parsed.data.reason)) {
+      return refuseSodConflicts(c, conflicts);
+    }
     const actor = getAuthContext(c);
     if (!actor) return refuseUnauthenticated(c);
     const entitlements = await resolveEntitlements(c);
@@ -175,11 +193,30 @@ export function createRolesRoutes(
         actor,
       );
       await auditRole(c, role, "CREATE");
+      if (conflicts.length > 0) await auditSodOverride(c, role, conflicts, parsed.data.reason ?? "");
       return c.json(serializeRole(role), 201);
     } catch (err) {
       return roleErrorResponse(c, err);
     }
   });
+
+  /**
+   * ENH-051 — a role that grants both sides of a `permissions/sod.ts` pair
+   * is refused unless the caller explicitly acknowledges it with a reason.
+   * The override itself is audited, so a saved conflict is a decision on
+   * record, never a silent gap.
+   */
+  function refuseSodConflicts(c: Context, conflicts: readonly SodConflictMatch[]) {
+    return c.json(
+      {
+        error: "SOD_CONFLICT",
+        conflicts,
+        message:
+          "هذا الدور يجمع بين طرفي فصل مهام لا يجوز الجمع بينهما. أرسل acknowledge مع سبب لحفظه رغم ذلك.",
+      },
+      409,
+    );
+  }
 
   /** The refusal for a role an approval chain depends on. */
   function refuseWorkflowDependency(c: Context, code: string, actionTypes: readonly string[]) {
@@ -201,6 +238,10 @@ export function createRolesRoutes(
     }
     const escalation = refuseUngrantable(c, parsed.data.permissions);
     if (escalation) return escalation;
+    const conflicts = detectSodConflicts(parsed.data.permissions);
+    if (conflicts.length > 0 && !(parsed.data.acknowledge && parsed.data.reason)) {
+      return refuseSodConflicts(c, conflicts);
+    }
     const actor = getAuthContext(c);
     if (!actor) return refuseUnauthenticated(c);
     const entitlements = await resolveEntitlements(c);
@@ -229,6 +270,7 @@ export function createRolesRoutes(
         actor,
       );
       await auditRole(c, role, "UPDATE", before);
+      if (conflicts.length > 0) await auditSodOverride(c, role, conflicts, parsed.data.reason ?? "");
       return c.json(serializeRole(role));
     } catch (err) {
       return roleErrorResponse(c, err);

@@ -363,6 +363,72 @@ export const newAccountsReportSchema = z.object({
   gaps: z.array(reportGapSchema),
 });
 
+/**
+ * تعارض الفصل بين المهام — the wire contract for `GET /security-reports/sod`
+ * (ENH-051). One row shape covers all three sources this report reads: a
+ * ROLE definition that grants both sides of a `permissions/sod.ts` pair, a
+ * USER who reaches that same pair through their role, and a TRANSACTIONAL
+ * finding — the same actor recorded on both sides of a rule in the audit
+ * trail itself. `kind` tells the screen which it is; the columns that do not
+ * apply to a kind are null on that row rather than omitted, so the table
+ * stays one shape.
+ */
+export const sodConflictKindSchema = z.enum(["role", "user", "transactional"]);
+
+export const sodConflictRowSchema = z.object({
+  rowKey: z.string().min(1),
+  kind: sodConflictKindSchema,
+  ruleId: z.string().min(1),
+  conflictLabelAr: z.string().min(1),
+  conflictLabelEn: z.string().min(1),
+  subjectId: z.string().min(1),
+  subjectLabelAr: z.string().min(1),
+  roleId: z.string().nullable(),
+  roleCode: z.string().nullable(),
+  sideAPermissions: z.array(z.string()),
+  sideBPermissions: z.array(z.string()),
+  sideAActor: z.string().nullable(),
+  sideBActor: z.string().nullable(),
+  sideAAt: z.string().nullable(),
+  sideBAt: z.string().nullable(),
+  entityType: z.string().nullable(),
+});
+
+export const sodQuerySchema = z.object({
+  from: isoDateSchema.optional(),
+  to: isoDateSchema.optional(),
+});
+
+export const sodReportSchema = z.object({
+  id: z.literal("security.sod"),
+  titleAr: z.string().min(1),
+  params: z.object({ from: isoDateSchema, to: isoDateSchema }),
+  columns: z.array(reportColumnSchema),
+  rows: z.array(sodConflictRowSchema),
+  groups: z.array(
+    z.object({
+      key: z.string().min(1),
+      labelAr: z.string().min(1),
+      rows: z.array(sodConflictRowSchema),
+      totals: z.object({ count: z.number().int().nonnegative() }),
+    }),
+  ),
+  grandTotals: z.object({
+    count: z.number().int().nonnegative(),
+    roleConflicts: z.number().int().nonnegative(),
+    userConflicts: z.number().int().nonnegative(),
+    transactionalConflicts: z.number().int().nonnegative(),
+  }),
+  kpis: z.array(reportKpiSchema),
+  coverage: reportCoverageSchema,
+  gaps: z.array(reportGapSchema),
+});
+
+export type SodConflictKindDTO = z.infer<typeof sodConflictKindSchema>;
+export type SodConflictRowDTO = z.infer<typeof sodConflictRowSchema>;
+export type SodQueryDTO = z.infer<typeof sodQuerySchema>;
+export type SodReportDTO = z.infer<typeof sodReportSchema>;
+
 export type SecurityExceptionsQueryDTO = z.infer<typeof securityExceptionsQuerySchema>;
 export type PostPostingChangesQueryDTO = z.infer<typeof postPostingChangesQuerySchema>;
 export type AfterHoursQueryDTO = z.infer<typeof afterHoursQuerySchema>;

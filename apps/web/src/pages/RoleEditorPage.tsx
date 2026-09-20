@@ -2,12 +2,14 @@ import { useMemo, useState } from "react";
 import {
   Button,
   Card,
+  Checkbox,
   PermissionMatrix,
   TextInput,
   type PermissionMatrixItem,
   type PermissionMatrixModule,
 } from "@mezan/ui";
 import {
+  detectSodConflicts,
   getPermission,
   isPlatformAdminOnly,
   isSensitive,
@@ -16,12 +18,23 @@ import {
   toggleAll,
   togglePermission,
   type Entitlements,
+  type SodConflictMatch,
 } from "@mezan/domain";
 import type { RoleDTO as Role } from "@mezan/contracts";
 import { entitySegment, permissionLabel, subgroupLabel } from "../permission-labels";
 import { moduleLabel } from "../domain-labels";
 import type { StoreResult } from "./UsersPage";
 import { useAppTranslation } from "../i18n";
+
+export interface RoleEditorSaveCommand {
+  code: string;
+  name: string;
+  description: string;
+  permissions: string[];
+  /** ENH-051 — required together, once `sodConflicts` is non-empty. */
+  acknowledge?: boolean;
+  reason?: string;
+}
 
 export interface RoleEditorPageProps {
   role: Role | null;
@@ -32,7 +45,7 @@ export interface RoleEditorPageProps {
    */
   template?: Role | null;
   entitlements: Entitlements;
-  onSave: (cmd: { code: string; name: string; description: string; permissions: string[] }) => Promise<StoreResult<Role>>;
+  onSave: (cmd: RoleEditorSaveCommand) => Promise<StoreResult<Role>>;
   onCancel: () => void;
 }
 
@@ -47,6 +60,11 @@ export function RoleEditorPage({ role, template, entitlements, onSave, onCancel 
   const [search, setSearch] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [sodAcknowledge, setSodAcknowledge] = useState(false);
+  const [sodReason, setSodReason] = useState("");
+
+  /** ENH-051 — live, as the matrix is ticked: the same rule set the server enforces. */
+  const sodConflicts: readonly SodConflictMatch[] = useMemo(() => detectSodConflicts(selected), [selected]);
 
   const matrixModules: PermissionMatrixModule[] = useMemo(() => {
     const mods = licensedModules(entitlements);
@@ -128,8 +146,18 @@ export function RoleEditorPage({ role, template, entitlements, onSave, onCancel 
       setFormError(t("roles.editor.nameAndCodeRequired"));
       return;
     }
+    if (sodConflicts.length > 0 && (!sodAcknowledge || !sodReason.trim())) {
+      setFormError(t("roles.editor.sod.acknowledgeRequired"));
+      return;
+    }
     setSaving(true);
-    const result = await onSave({ code: code.trim(), name: name.trim(), description, permissions: Array.from(selected) });
+    const result = await onSave({
+      code: code.trim(),
+      name: name.trim(),
+      description,
+      permissions: Array.from(selected),
+      ...(sodConflicts.length > 0 ? { acknowledge: sodAcknowledge, reason: sodReason.trim() } : {}),
+    });
     setSaving(false);
     if (!result.ok) setFormError(result.error ?? t("roles.editor.saveFailed"));
   }
@@ -197,6 +225,28 @@ export function RoleEditorPage({ role, template, entitlements, onSave, onCancel 
               <SummaryStat label={t("roles.editor.stat.sensitive")} value={summary.sensitiveCount} tone={summary.sensitiveCount > 0 ? "warning" : undefined} />
             </div>
           </Card>
+          {sodConflicts.length > 0 ? (
+            <Card className="border-warning bg-warning-soft p-[15px]">
+              <h3 className="mb-[8px] text-[12.5px] font-bold text-warning-ink">{t("roles.editor.sod.title")}</h3>
+              <ul className="mb-[10px] grid gap-[6px] text-[12px] text-ink">
+                {sodConflicts.map((conflict) => (
+                  <li key={conflict.ruleId}>{conflict.labelAr}</li>
+                ))}
+              </ul>
+              <Checkbox
+                checked={sodAcknowledge}
+                onChange={(e) => setSodAcknowledge(e.target.checked)}
+                label={<span className="text-[12.5px] text-ink">{t("roles.editor.sod.acknowledge")}</span>}
+              />
+              <TextInput
+                className="mt-[8px]"
+                value={sodReason}
+                onChange={(e) => setSodReason(e.target.value)}
+                placeholder={t("roles.editor.sod.reasonPlaceholder")}
+                disabled={!sodAcknowledge}
+              />
+            </Card>
+          ) : null}
           {summary.perModule.size > 0 ? (
             <Card className="p-[15px]">
               <h3 className="mb-[10px] text-[11px] font-bold uppercase tracking-[0.4px] text-ink-faint">{t("roles.editor.moduleHeading")}</h3>

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { scopeSelectionSchema } from "./roles.js";
+import { sodAcknowledgeFields } from "./sod.js";
 
 export const userStatusSchema = z.enum(["active", "inactive"]);
 
@@ -67,6 +68,7 @@ export const createUserSchema = z
     ...userBaseFields,
     password: z.string().min(8, "Password must be at least 8 characters"),
     pin: pinSchema.nullable().optional(),
+    ...sodAcknowledgeFields,
   })
   .refine((v) => v.isCompanyAdmin !== (v.roleId !== null), {
     message: "Provide exactly one of: roleId, or isCompanyAdmin",
@@ -78,6 +80,7 @@ export const updateUserSchema = z
     ...userBaseFields,
     password: z.string().min(8, "Password must be at least 8 characters").optional(),
     pin: pinSchema.nullable().optional(),
+    ...sodAcknowledgeFields,
   })
   .refine((v) => v.isCompanyAdmin !== (v.roleId !== null), {
     message: "Provide exactly one of: roleId, or isCompanyAdmin",

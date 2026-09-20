@@ -110,6 +110,7 @@ export const SCREEN_MODULES = {
   "report-post-posting-changes": () => import("../screens/reports/PostPostingChangesReportScreen").then((m) => ({ Component: m.PostPostingChangesReportScreen })),
   "report-after-hours": () => import("../screens/reports/AfterHoursReportScreen").then((m) => ({ Component: m.AfterHoursReportScreen })),
   "report-new-accounts": () => import("../screens/reports/NewAccountsReportScreen").then((m) => ({ Component: m.NewAccountsReportScreen })),
+  "report-sod-conflicts": () => import("../screens/reports/SodReportScreen").then((m) => ({ Component: m.SodReportScreen })),
   "tax-simplified-regime": () => import("../screens/tax/SimplifiedRegimeScreen").then((m) => ({ Component: m.SimplifiedRegimeScreen })),
   "report-returns-fx-face-value": () => import("../screens/reports/ReturnsFxFaceValueReportScreen").then((m) => ({ Component: m.ReturnsFxFaceValueReportScreen })),
   "report-simplified-regime-comparison": () => import("../screens/tax/SimplifiedRegimeComparisonScreen").then((m) => ({ Component: m.SimplifiedRegimeComparisonScreen })),

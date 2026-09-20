@@ -245,6 +245,43 @@ async function recordRestoredEvent(
   }
 }
 
+/**
+ * Records a change to where the second-copy backups land (audit S-3's
+ * twin for the second target). This is exactly the change an auditor needs
+ * to see: it decides which machine or share a copy of the books is written
+ * to next, unlike the console.log the two channels below used to settle for.
+ *
+ * Written against the LIVE connection (unlike `recordRestoredEvent`, nothing
+ * here swaps the database file) and never fails the request it follows — a
+ * shop owner picking a USB drive must not be blocked by an audit-trail glitch.
+ */
+async function recordSecondTargetEvent(
+  deps: RestoreIpcDeps,
+  actor: string,
+  action: "backup.secondTarget.set" | "backup.secondTarget.cleared",
+  dir: string | null,
+): Promise<void> {
+  const sqlite = deps.sqlite();
+  if (!sqlite) return;
+  try {
+    const sink = createSqliteAuditSink(sqlite, deps.cipher ? { chainKey: deriveAuditChainKey(deps.cipher.key) } : {});
+    await sink.append(
+      createAuditEvent({
+        stream: "security",
+        module: "backup",
+        entityType: "BACKUP_SECOND_TARGET",
+        entityId: null,
+        action,
+        actor,
+        severity: "WARNING",
+        details: { dir },
+      }),
+    );
+  } catch (err) {
+    console.error("[backup] could not record the second-target change in the audit trail", err);
+  }
+}
+
 const UNAUTHORIZED = failure(
   "UNAUTHORIZED",
   "لا تملك صلاحية إدارة النسخ الاحتياطية. راجع مدير النظام.",
@@ -573,6 +610,7 @@ export function registerRestoreOverIpc(deps: RestoreIpcDeps): void {
         return failure("INVALID_NAME", "لا يمكن أن يكون المجلد الثاني هو مجلد النسخ نفسه. اختر فلاشة أو مجلداً على جهاز آخر.");
       }
       console.log(`[backup] second backup target set to ${chosen}`);
+      await recordSecondTargetEvent(deps, await actorOf(deps, sessionToken), "backup.secondTarget.set", chosen);
       const newest = (await listBackups(deps.backupsDir)).sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0];
       const state = newest
         ? await withBackupLock(() => copyToSecondTarget(deps.backupsDir, newest.path))
@@ -587,7 +625,9 @@ export function registerRestoreOverIpc(deps: RestoreIpcDeps): void {
       const denied = await authorize(deps, sessionToken, RESTORE_PERMISSION);
       if (denied) return denied;
       console.log("[backup] second backup target cleared");
-      return { ok: true, secondTarget: secondTargetDto(await setSecondTargetDir(deps.backupsDir, null)) };
+      const state = await setSecondTargetDir(deps.backupsDir, null);
+      await recordSecondTargetEvent(deps, await actorOf(deps, sessionToken), "backup.secondTarget.cleared", null);
+      return { ok: true, secondTarget: secondTargetDto(state) };
     },
   );
 

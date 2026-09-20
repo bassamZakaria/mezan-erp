@@ -1022,7 +1022,11 @@ export class BankReconciliationService {
   }
 
   async findById(id: string): Promise<BankStatement | null> {
-    return this.deps.statements.findById(id);
+    const statement = await this.deps.statements.findById(id);
+    if (statement && !withinBranchScope(statement.branchId, this.deps.branchScope)) {
+      throw new StatementOutOfBranchScopeError(id);
+    }
+    return statement;
   }
 
   async listLines(statementId: string): Promise<readonly StatementLine[]> {

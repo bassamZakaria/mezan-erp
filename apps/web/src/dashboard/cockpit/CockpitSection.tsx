@@ -6,7 +6,7 @@ import { useBranches } from "../../data/hooks";
 import { useUrlParam } from "../../lib/url-state";
 import { majorOf, scaledOf } from "../../lib/money";
 import { CockpitWidgetKind } from "../widget-registry";
-import { useBookVersionWatch, useCockpit } from "./cockpit-hooks";
+import { useCockpit } from "./cockpit-hooks";
 import {
   CockpitCashTile,
   CockpitLowStockTile,
@@ -27,12 +27,20 @@ const SPAN: Readonly<Record<DashboardWidget["size"], string>> = {
 
 const ALL_BRANCHES = "all";
 
-export function CockpitSection({ widgets, rtl }: { readonly widgets: readonly DashboardWidget[]; readonly rtl: boolean }) {
+export function CockpitSection({
+  widgets,
+  rtl,
+  live,
+}: {
+  readonly widgets: readonly DashboardWidget[];
+  readonly rtl: boolean;
+  /** Whether the dashboard's book-version watch is answering; it is mounted by the screen, not here. */
+  readonly live: boolean;
+}) {
   const { t } = useAppTranslation();
   const format = useFormat();
   const [branchParam, setBranchParam] = useUrlParam("branch", "");
   const cockpit = useCockpit(branchParam, true);
-  const watch = useBookVersionWatch(true, cockpit.data?.bookVersion ?? null);
   const branchRows = useBranches().data;
   const data = cockpit.data;
 
@@ -83,11 +91,11 @@ export function CockpitSection({ widgets, rtl }: { readonly widgets: readonly Da
             <span
               className={cn(
                 "inline-flex items-center gap-[5px] rounded-full px-[8px] py-[2px] text-2xs font-semibold",
-                watch.isError ? "bg-warning-soft text-warning-ink" : "bg-success-soft text-success-ink",
+                live ? "bg-success-soft text-success-ink" : "bg-warning-soft text-warning-ink",
               )}
               title={t("cockpit.liveHint")}
             >
-              <span aria-hidden className={cn("h-[6px] w-[6px] rounded-full", watch.isError ? "bg-warning" : "bg-success")} />
+              <span aria-hidden className={cn("h-[6px] w-[6px] rounded-full", live ? "bg-success" : "bg-warning")} />
               {t("cockpit.live")}
             </span>
           </div>

@@ -19,6 +19,7 @@ import {
   salesInvoiceBaseGrandTotal,
   salesInvoiceTotals,
   salesReturnCreditByInvoice,
+  salesReturnLineBase,
   toTenantDay,
   UNATTRIBUTED_BRANCH_ID,
   withinBranchScope,
@@ -51,7 +52,15 @@ import {
   type CockpitTreasuryDTO,
   type CockpitVersionDTO,
 } from "@mezan/contracts";
-import { branchScopeOf, createPermissionGate, getAuthContext, warehouseScopeOf, withinScope, type AuthContextResolver } from "./permission-gate.js";
+import {
+  branchScopeOf,
+  createAuthenticatedGate,
+  createPermissionGate,
+  getAuthContext,
+  warehouseScopeOf,
+  withinScope,
+  type AuthContextResolver,
+} from "./permission-gate.js";
 
 export const COCKPIT_PERMISSION = "accounting.cockpit.view";
 
@@ -128,24 +137,43 @@ function dayDTO(flow: CockpitDayFlow, withCost: boolean): CockpitDayDTO {
 async function cashByTreasury(
   deps: CockpitRoutesDeps,
   c: Context,
-  view: CockpitBranchView,
+  view: CockpitBranchView & { readonly narrowed: boolean },
   treasury: readonly TreasuryAccount[],
   cheques: readonly Cheque[],
   today: string,
 ): Promise<CockpitCashDTO> {
   const underCollection = new Set(cheques.map((cheque) => cheque.controlAccounts.underCollectionAccountId));
+  // Two branches may hold treasury accounts pointing at ONE GL account, and
+  // that account's balance is then a company-wide figure. Answering it under a
+  // branch filter is the defect: it is not that branch's cash.
+  const branchesPerGl = new Map<string, Set<string>>();
+  for (const account of treasury) {
+    if (!account.glAccountId) continue;
+    const branches = branchesPerGl.get(account.glAccountId) ?? new Set<string>();
+    branches.add(account.branchId);
+    branchesPerGl.set(account.glAccountId, branches);
+  }
   const scoped = withinScope(treasury, branchScopeOf(c), (t) => t.branchId).filter(
     (t) => view.branchId === "" || t.branchId === view.branchId,
   );
   const seen = new Set<string>(underCollection);
   const rows: CockpitTreasuryDTO[] = [];
   let total = 0n;
+  const branchAttributed = async (glAccountId: string): Promise<Money> => {
+    const lines = (await deps.ledger.listLines?.({ accountIds: [glAccountId], toDate: today })) ?? [];
+    return Money.fromScaled(
+      lines
+        .filter((line) => cockpitLineInView(line.branchId, view))
+        .reduce((sum, line) => sum + line.debit.scaled - line.credit.scaled, 0n),
+    );
+  };
   for (const account of [...scoped].sort((a, b) => a.code.localeCompare(b.code))) {
     let balance: string | null = null;
     const gl = account.glAccountId;
+    const shared = gl !== null && (branchesPerGl.get(gl)?.size ?? 0) > 1;
     if (gl && !seen.has(gl)) {
       seen.add(gl);
-      const held = (await deps.ledger.accountBalance(gl, today)).balance;
+      const held = view.narrowed && shared ? await branchAttributed(gl) : (await deps.ledger.accountBalance(gl, today)).balance;
       total += held.scaled;
       balance = held.toString();
     }
@@ -159,6 +187,7 @@ async function cashByTreasury(
       branchId: account.branchId,
       glAccountId: gl,
       balance,
+      sharedAcrossBranches: shared,
     });
   }
   return { total: Money.fromScaled(total).toString(), accounts: rows };
@@ -241,6 +270,26 @@ async function moversSection(
       lines.push({ itemId: line.itemId, date: invoice.date, amount: base.scaled });
     });
   }
+
+  // A sold-then-returned item moved nothing. Netting the return at the date it
+  // happened is what keeps it out of the movers list, and what puts a genuine
+  // wave of returns into it as a faller.
+  const invoiceIds = invoices.map((invoice) => invoice.id);
+  const returns = invoiceIds.length === 0
+    ? []
+    : deps.salesReturns.listByLineRef
+      ? await deps.salesReturns.listByLineRef("sourceInvoiceId", invoiceIds, { status: "confirmed" })
+      : await deps.salesReturns.list({ status: "confirmed" });
+  const soldInvoice = new Set(invoiceIds);
+  for (const doc of returns) {
+    if (doc.status !== "confirmed") continue;
+    if (doc.date < previousFrom || doc.date > today) continue;
+    for (const line of doc.lines) {
+      if (!soldInvoice.has(line.sourceInvoiceId)) continue;
+      lines.push({ itemId: line.itemId, date: doc.date, amount: -salesReturnLineBase(line).revenue.scaled });
+    }
+  }
+
   const byId = new Map(items.map((item) => [item.id, item]));
   return cockpitTopMovers(lines, { from: currentFrom, to: today }, { from: previousFrom, to: previousTo }).map((mover) => {
     const item = byId.get(mover.itemId);
@@ -263,7 +312,15 @@ export function createCockpitRoutes(deps: CockpitRoutesDeps, resolveAuthContext:
   const todayOf = () => (deps.today ? deps.today() : toTenantDay(new Date().toISOString()));
   const nowOf = () => (deps.now ? deps.now() : new Date().toISOString());
 
-  app.get("/version", gate(COCKPIT_PERMISSION), (c) => {
+  /**
+   * The books' opaque change counter, polled by every dashboard so its panels
+   * refresh when something is posted.
+   *
+   * Gated on the SESSION, not on `accounting.cockpit.view`: it carries no
+   * business figure, and gating it on the cockpit's permission left everyone
+   * else's dashboard frozen until they reloaded the page by hand.
+   */
+  app.get("/version", createAuthenticatedGate(resolveAuthContext), (c) => {
     const body: CockpitVersionDTO = { bookVersion: deps.bookVersion() };
     return c.json(body);
   });

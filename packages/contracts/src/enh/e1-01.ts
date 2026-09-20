@@ -73,6 +73,12 @@ export const cockpitTreasurySchema = z.object({
   branchId: z.string(),
   glAccountId: z.string().nullable(),
   balance: moneyString.nullable(),
+  /**
+   * True when more than one branch's treasury account points at this GL
+   * account. Under a branch filter the balance is then the branch-attributed
+   * movement, not the account's company-wide total — the screen says so.
+   */
+  sharedAcrossBranches: z.boolean(),
 });
 export type CockpitTreasuryDTO = z.infer<typeof cockpitTreasurySchema>;
 

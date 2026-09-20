@@ -9,7 +9,20 @@ export const COCKPIT_POLL_MS = 15_000;
 
 const COCKPIT_KEY = "cockpit";
 
-const LIVE_FAMILIES = new Set([COCKPIT_KEY, "dashboard", "cash-forecast", "reports", "financial-reports", "sales-invoices"]);
+/**
+ * Every react-query family a dashboard panel reads. A family missing here is a
+ * panel that never refreshes when the books move — which is the whole point of
+ * the watch.
+ */
+const LIVE_FAMILIES = new Set([
+  COCKPIT_KEY,
+  "dashboard",
+  "cash-forecast",
+  "reports",
+  "financial-reports",
+  "sales-invoices",
+  "treasury-accounts",
+]);
 
 export function useCockpit(branchId: string, enabled: boolean): UseQueryResult<CockpitDTO, ApiError> {
   const { t } = useAppTranslation();
@@ -30,6 +43,11 @@ export function useCockpit(branchId: string, enabled: boolean): UseQueryResult<C
  * Polls the book version and refetches every dashboard figure on screen when it
  * moves. A poll rather than a push: the desktop shell talks to the backend over
  * IPC, where a server-sent stream has nowhere to land.
+ *
+ * Mounted by the DASHBOARD, not by the cockpit section: the cockpit renders
+ * only for a user who holds `accounting.cockpit.view` and has cockpit widgets
+ * configured, so mounting it there left the classic panels frozen for everyone
+ * else until they reloaded the page.
  */
 export function useBookVersionWatch(enabled: boolean, baseline: string | null): UseQueryResult<CockpitVersionDTO, ApiError> {
   const { t } = useAppTranslation();

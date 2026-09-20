@@ -407,7 +407,12 @@ export function CockpitCashTile({ data }: CockpitWidgetProps) {
                 to={drillHref("treasury-accounts", { q: account.code })}
                 className="flex min-w-0 items-center justify-between gap-[10px] py-[7px] text-sm hover:bg-surface-2"
               >
-                <span className="min-w-0 truncate text-ink">{entityName({ nameAr: account.name, nameEn: account.nameEn }, locale)}</span>
+                <span className="min-w-0 truncate text-ink">
+                  {entityName({ nameAr: account.name, nameEn: account.nameEn }, locale)}
+                  {data.branchNarrowed && account.sharedAcrossBranches ? (
+                    <span className="ms-[6px] text-2xs text-ink-faint">{t("cockpit.cash.sharedAcrossBranches")}</span>
+                  ) : null}
+                </span>
                 {account.balance === null ? (
                   <span className="flex-none text-2xs text-ink-faint">{t("cockpit.cash.unlinked")}</span>
                 ) : (

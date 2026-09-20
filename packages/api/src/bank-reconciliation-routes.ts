@@ -389,7 +389,11 @@ export function createBankReconciliationRoutes(
 
   app.get("/rules", gate("treasury.reconciliation.view"), async (c) => {
     const service = serviceFor(c);
-    return c.json((await service.listRules()).map(serializeRule));
+    try {
+      return c.json((await service.listRules()).map(serializeRule));
+    } catch (err) {
+      return handleDomainError(c, err);
+    }
   });
 
   app.post("/rules", gate("treasury.reconciliation.manage"), async (c) => {
@@ -450,9 +454,13 @@ export function createBankReconciliationRoutes(
 
   app.get("/column-mapping/:treasuryAccountId", gate("treasury.reconciliation.view"), async (c) => {
     const service = serviceFor(c);
-    const mapping = await service.getColumnMapping(c.req.param("treasuryAccountId"));
-    if (!mapping) return c.json({ error: "NOT_FOUND" }, 404);
-    return c.json(mapping);
+    try {
+      const mapping = await service.getColumnMapping(c.req.param("treasuryAccountId"));
+      if (!mapping) return c.json({ error: "NOT_FOUND" }, 404);
+      return c.json(mapping);
+    } catch (err) {
+      return handleDomainError(c, err);
+    }
   });
 
   /**
@@ -484,17 +492,21 @@ export function createBankReconciliationRoutes(
 
   app.get("/:id", gate("treasury.reconciliation.view"), async (c) => {
     const service = serviceFor(c);
-    const statement = await service.findById(c.req.param("id"));
-    if (!statement) return c.json({ error: "NOT_FOUND" }, 404);
-    const lines = await service.listLinesWithEntryNumbers(statement.id);
-    const summary = await service.matchSummary(statement.id);
-    const position = await service.reconciliation(statement.id);
-    return c.json({
-      ...serializeStatement(statement),
-      lines: lines.map(serializeLine),
-      matchSummary: summary,
-      position: serializePosition(position),
-    });
+    try {
+      const statement = await service.findById(c.req.param("id"));
+      if (!statement) return c.json({ error: "NOT_FOUND" }, 404);
+      const lines = await service.listLinesWithEntryNumbers(statement.id);
+      const summary = await service.matchSummary(statement.id);
+      const position = await service.reconciliation(statement.id);
+      return c.json({
+        ...serializeStatement(statement),
+        lines: lines.map(serializeLine),
+        matchSummary: summary,
+        position: serializePosition(position),
+      });
+    } catch (err) {
+      return handleDomainError(c, err);
+    }
   });
 
   app.post("/import", gate("treasury.reconciliation.import"), async (c) => {

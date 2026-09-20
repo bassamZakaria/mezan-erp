@@ -172,6 +172,21 @@ export function seedToday(): string {
   return toTenantDay(new Date().toISOString());
 }
 
+let bankTransferSequence = 0;
+
+/**
+ * The next outgoing-transfer reference — the number the treasurer gives the
+ * bank and writes on the voucher, so the statement line and the book movement
+ * carry the same handle. Sequential and process-local rather than random: the
+ * reconciliation this seed demonstrates depends on the two sides agreeing, and
+ * a reference drawn from the seed's PRNG would move every other figure in the
+ * generated history with it.
+ */
+export function nextBankTransferReference(): string {
+  bankTransferSequence += 1;
+  return `TRF${String(bankTransferSequence).padStart(6, "0")}`;
+}
+
 /** A step the product refuses ahead of today is seeded only once its day has come, or the seed fails to boot on an earlier clock. */
 export function hasHappened(day: string): boolean {
   return day <= seedToday();

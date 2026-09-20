@@ -5,7 +5,10 @@ import {
   createSessionAuthContextResolver,
   createSessionRegistry,
   createSimplifiedRegimeRoutes,
+  MasterDataKind,
+  type MasterDataChecks,
   type App,
+  type ConfigTransactor,
   type PermissionRefusal,
   type CreateAppOptions,
   type InstallmentCollectPort,
@@ -123,6 +126,7 @@ import {
 } from "@mezan/domain";
 import {
   openSqliteConnection,
+  withSqliteTransaction,
   type SqliteOpenOptions,
   createSqliteUnitOfWork,
   createSqliteAccountRepository,
@@ -655,6 +659,10 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const barcodeConfig = createSqliteBarcodeConfigStore(sqlite);
   const userPreferences = createSqliteUserPreferencesStore(sqlite);
   const dataMigrationTransactor = createDataMigrationTransactor(sqlite);
+  // The boundary a route-level config write shares with its audit row (D298).
+  // Same shared connection the audit sink writes on, so the append nests as a
+  // SAVEPOINT rather than opening a second transaction.
+  const configTransactor: ConfigTransactor = { run: (fn) => withSqliteTransaction(sqlite, fn) };
   const labelLayouts = createSqliteLabelLayoutStore(sqlite);
 
   const uow = createSqliteUnitOfWork(sqlite);
@@ -674,6 +682,13 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const attachments = createSqliteAttachmentRepository(sqlite);
   const taxRates = createSqliteTaxRateRepository(sqlite);
   const costCenters = createSqliteCostCenterRepository(sqlite);
+  const masterDataChecks: MasterDataChecks = {
+    [MasterDataKind.Customer]: customers,
+    [MasterDataKind.Supplier]: suppliers,
+    [MasterDataKind.Warehouse]: warehouses,
+    [MasterDataKind.Branch]: branches,
+    [MasterDataKind.CostCenter]: costCenters,
+  };
   const treasuryAccounts = createSqliteTreasuryAccountRepository(sqlite);
   const fiscalPeriods = createSqliteFiscalPeriodRepository(sqlite);
   const ledger = createSqliteLedgerStore(sqlite, sequenceConfig);
@@ -2995,7 +3010,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     },
     attachments: { repo: attachments },
     labelLayouts: { repo: labelLayouts },
-    sequences: { counters: sequenceCounters, config: sequenceConfig, audit: auditSink },
+    sequences: { counters: sequenceCounters, config: sequenceConfig, audit: auditSink, transactor: configTransactor },
     audit: { store: auditSink },
     auditSink,
     barcodeConfigStore: barcodeConfig,
@@ -3054,6 +3069,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       baseCurrency: async () => ((await settings.get()) ?? createDefaultSettings()).currency,
     },
     vouchers: {
+      masterData: masterDataChecks,
       audit: auditSink,
       // A configured TREASURY_VOUCHER_CONFIRM chain used to be ignored
       // outright: without these two the gate resolved every config to null and
@@ -3098,6 +3114,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     },
     purchases: {
       itemCheck: items,
+      masterData: masterDataChecks,
       orders: purchaseOrders,
       receipts: goodsReceipts,
       invoices: purchaseInvoices,
@@ -3182,6 +3199,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       repo: salesInvoices,
       versionGuard: { versions: salesInvoices.versions, displayNameOf },
       itemCheck: items,
+      masterData: masterDataChecks,
       numbering: { next: (opts) => ledger.numbering.next("SALES_INVOICE", { branchId: opts?.branchId }) },
       gl: createSalesInvoiceGlHook(salesInvoiceGl),
       // "السماح بالبيع من مستودع آخر": only when the document's warehouse holds
@@ -3292,6 +3310,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       repo: salesQuotes,
       versionGuard: { versions: salesQuotes.versions, displayNameOf },
       itemCheck: items,
+      masterData: masterDataChecks,
       numbering: { next: (opts) => ledger.numbering.next("SALES_QUOTE", { branchId: opts?.branchId }) },
     },
     // --- phase9/accounting-depth ---
@@ -3350,6 +3369,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       resolveContext: resolveOpeningBalanceDuplicatesContext,
       repair: repairOpeningBalanceDuplicate,
       audit: auditSink,
+      transactor: configTransactor,
     },
     // --- phase4/inventory-ops ---
     stockAdjustments: { service: stockAdjustments },

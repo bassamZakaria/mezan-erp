@@ -53,6 +53,7 @@ import {
   type VoucherListQueryDTO,
 } from "@mezan/contracts";
 import { type AuthContextResolver, branchScopeOf, callerRoleCodes, createAnyPermissionGate, createPermissionGate, getAuthContext, withinScope } from "./permission-gate.js";
+import { MasterDataKind, refuseUnknownMasterData, type MasterDataChecks } from "./master-data-check.js";
 import { tenantDay } from "./tenant-day.js";
 
 /** The register port moved into the domain with the call that uses it (D196). */
@@ -76,6 +77,8 @@ export type VoucherRoutesDeps = Omit<VoucherServiceDeps, "events"> & {
    * refused, which is the behaviour for every tenant outside the regime.
    */
   readonly simplifiedRegimeActiveOn?: (day: string) => Promise<boolean>;
+  /** Refuses a voucher naming a customer, supplier, branch or cost centre no master record holds (D310). */
+  readonly masterData?: MasterDataChecks;
 };
 
 function serialize(doc: VoucherDocument) {
@@ -539,6 +542,13 @@ export function createVouchersRoutes(
     const d = parsed.data;
     const refusal = refuseVoucherType(c, voucherPermissions("create", d.voucherType, d.projectId));
     if (refusal) return refusal;
+    const partyRefusal = await refuseUnknownMasterData(c, deps.masterData, [
+      { kind: MasterDataKind.Customer, ids: [d.customerId] },
+      { kind: MasterDataKind.Supplier, ids: [d.supplierId] },
+      { kind: MasterDataKind.Branch, ids: [d.branchId] },
+      { kind: MasterDataKind.CostCenter, ids: [d.costCenterId] },
+    ]);
+    if (partyRefusal) return partyRefusal;
     /*
      * Law 6/2025 exempts a taxpayer inside the simplified regime from
      * withholding tax. Accepting a withholding amount anyway would post a

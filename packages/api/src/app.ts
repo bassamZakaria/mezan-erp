@@ -613,6 +613,8 @@ export interface CreateAppOptions {
   readonly purchases?: {
     /** Refuses a line naming an item the catalogue does not hold (D38's twin). */
     readonly itemCheck?: ItemCatalogCheck;
+    /** Refuses a document naming a supplier, branch or warehouse no master record holds (D310). */
+    readonly masterData?: PurchasesRoutesDeps["masterData"];
     readonly orders: PurchaseOrderRepository;
     readonly receipts: GoodsReceiptRepository;
     readonly invoices: PurchaseInvoiceRepository;
@@ -1431,6 +1433,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
       createPurchasesRoutes(
         {
           itemCheck: purchases.itemCheck,
+          masterData: purchases.masterData,
           orders: purchases.orders,
           receipts: purchases.receipts,
           invoices: purchases.invoices,

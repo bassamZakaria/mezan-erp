@@ -68,6 +68,7 @@ import {
 import type { CurrencyCheck } from "./currency-policy.js";
 import { recordAdminEvent } from "./admin-audit.js";
 import { refuseUnknownItems, type ItemCatalogCheck } from "./item-check.js";
+import { MasterDataKind, refuseUnknownMasterData, type MasterDataChecks } from "./master-data-check.js";
 import { type AuthContextResolver, branchScopeOf, callerRoleCodes, createAnyPermissionGate, createPermissionGate, getAuthContext, moduleRefusalFor, warehouseScopeOf } from "./permission-gate.js";
 import { tenantDay, tenantToday } from "./tenant-day.js";
 import {
@@ -105,6 +106,8 @@ export interface SalesInvoiceRoutesDeps {
   readonly pricing?: SalesInvoicePricingDeps;
   /** Refuses a line naming an item the catalogue does not hold (D38); omit for no check. */
   readonly itemCheck?: ItemCatalogCheck;
+  /** Refuses an invoice naming a customer, warehouse, branch or cost centre no master record holds (D310). */
+  readonly masterData?: MasterDataChecks;
   /** The tenant's VAT rules (settings §"الضريبة"), stamped onto a draft when it is raised. */
   readonly taxPolicy?: () => Promise<SalesInvoiceTaxPolicy> | SalesInvoiceTaxPolicy;
   /**
@@ -616,6 +619,13 @@ export function createSalesInvoicesRoutes(
       ...cmd.lines.flatMap((l) => [l.revenueAccountId, l.cogsAccountId, l.inventoryAccountId]),
     ]);
     if (accountRefusal) return accountRefusal;
+    const partyRefusal = await refuseUnknownMasterData(c, deps.masterData, [
+      { kind: MasterDataKind.Customer, ids: [cmd.customerId] },
+      { kind: MasterDataKind.Warehouse, ids: [cmd.warehouseId] },
+      { kind: MasterDataKind.Branch, ids: [cmd.branchId] },
+      { kind: MasterDataKind.CostCenter, ids: cmd.lines.map((l) => l.costCenterId) },
+    ]);
+    if (partyRefusal) return partyRefusal;
     const discountRefusal = await refuseUnapprovedDiscount(c, d);
     if (discountRefusal) return discountRefusal;
 

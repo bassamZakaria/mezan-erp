@@ -88,6 +88,7 @@ import { createPermissionGate, getAuthContext, type AuthContextResolver, branchS
 import { createHrTimeLeaveRoutes, type HrTimeLeaveRoutesDeps } from "./hr-time-leave-routes.js";
 import { createHrPayrollRoutes, type HrPayrollRoutesDeps } from "./hr-payroll-routes.js";
 import { createHrSelfRoutes } from "./hr-self-routes.js";
+import { tenantToday } from "./tenant-day.js";
 
 /**
  * The hr/time-leave stores are OPTIONAL here so the composition root can adopt
@@ -318,7 +319,11 @@ export function createHrRoutes(deps: HrRoutesDeps, resolveAuthContext: AuthConte
   app.get("/dashboard", gate("hr.employee.view"), async (c) => {
     const [employees, departments, contracts] = await Promise.all([deps.employees.list(), deps.departments.list(), deps.contracts.list()]);
     const now = new Date();
-    const monthPrefix = now.toISOString().slice(0, 7);
+    // The tenant's own month and day, never the host's UTC (D288): between
+    // midnight and 02:00/03:00 Cairo the UTC day is yesterday, and on the 1st
+    // of a month that is the month before.
+    const todayIso = await tenantToday(c);
+    const monthPrefix = todayIso.slice(0, 7);
 
     const activeEmployees = employees.filter((e) => e.status === "active").length;
     const onLeave = employees.filter((e) => e.status === "on_leave").length;
@@ -388,8 +393,8 @@ export function createHrRoutes(deps: HrRoutesDeps, resolveAuthContext: AuthConte
     }
 
     const attendanceWindowDays = 30;
-    const windowEnd = now.toISOString().slice(0, 10);
-    const windowStart = new Date(now.getTime() - attendanceWindowDays * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const windowEnd = todayIso;
+    const windowStart = new Date(Date.parse(`${todayIso}T00:00:00Z`) - attendanceWindowDays * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
     const attendanceEntries = (await deps.attendance?.list({ from: windowStart, to: windowEnd })) ?? [];
     const attendance = summarizeWorkforceAttendance(windowStart, windowEnd, attendanceEntries);
 
@@ -579,7 +584,7 @@ export function createHrRoutes(deps: HrRoutesDeps, resolveAuthContext: AuthConte
     const contract = [...contracts].sort((a, b) => (a.startDate < b.startDate ? 1 : a.startDate > b.startDate ? -1 : 0))[0];
     if (!contract) return c.json({ error: "CONTRACT_NOT_FOUND", message: "لا يوجد عقد لهذا الموظف." }, 404);
 
-    const lastWorkingDay = c.req.query("lastWorkingDay") ?? employee.terminatedAt?.slice(0, 10) ?? new Date().toISOString().slice(0, 10);
+    const lastWorkingDay = c.req.query("lastWorkingDay") ?? employee.terminatedAt?.slice(0, 10) ?? (await tenantToday(c));
 
     const payableBalances = [];
     if (deps.leaveBalances && deps.leavePolicies) {

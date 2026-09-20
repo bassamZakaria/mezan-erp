@@ -48,6 +48,7 @@ import {
   type AuthContextResolver,
   branchScopeOf,
   withinScope,} from "./permission-gate.js";
+import { tenantDay } from "./tenant-day.js";
 
 /**
  * External dependencies the sales-quote routes bind the domain service to.
@@ -302,8 +303,9 @@ export function createSalesQuotesRoutes(
     };
   }
 
-  function today(): string {
-    return (deps.now?.() ?? new Date().toISOString()).slice(0, 10);
+  /** The tenant's calendar day, never the host's UTC one (D288). */
+  function today(c: Context): Promise<string> {
+    return tenantDay(c, deps.now?.() ?? new Date().toISOString());
   }
 
   /**
@@ -332,7 +334,7 @@ export function createSalesQuotesRoutes(
       );
     }
     if (status === "expired") {
-      const asOf = today();
+      const asOf = await today(c);
       rows = rows.filter((q) => isQuoteExpired(q, asOf));
     }
     return rows;
@@ -364,7 +366,7 @@ export function createSalesQuotesRoutes(
     const svc = service(c);
     const { status: _ignored, ...withoutStatus } = parsed.filter;
     const quotes = await listFilteredQuotes(svc, c, withoutStatus);
-    const asOf = today();
+    const asOf = await today(c);
     const counts: Record<string, number> = {
       all: quotes.length,
       draft: 0,

@@ -119,6 +119,7 @@ import {
   purchaseReturnCreditByInvoice,
   type OpeningBalanceDuplicatesContext,
   type OpeningBalanceEntryRef,
+  tenantTodayIso,
 } from "@mezan/domain";
 import {
   openSqliteConnection,
@@ -2053,7 +2054,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     const open = (await fiscalPeriods.list())
       .filter((p) => p.status === "open")
       .sort((a, b) => a.startDate.localeCompare(b.startDate));
-    return open[0]?.startDate ?? new Date().toISOString().slice(0, 10);
+    return open[0]?.startDate ?? tenantTodayIso();
   }
 
   function openingEntryId(kind: "customer" | "supplier", partyId: string, generation: number): string {

@@ -30,6 +30,7 @@ import {
 } from "@mezan/domain";
 import { recordSimplifiedRegimeSchema } from "@mezan/contracts";
 import { branchScopeOf, createPermissionGate, withinScope, type AuthContextResolver } from "./permission-gate.js";
+import { tenantDay } from "./tenant-day.js";
 
 /**
  * النظام الضريبي المبسط (قانون 6 لسنة 2025) — `/tax/simplified-regime`.
@@ -57,8 +58,9 @@ export interface SimplifiedRegimeRoutesDeps {
   readonly scheduleOn?: (day: string) => SimplifiedRegimeSchedule | null;
 }
 
-function todayIso(deps: SimplifiedRegimeRoutesDeps): string {
-  return (deps.now?.() ?? new Date().toISOString()).slice(0, 10);
+/** The tenant's calendar day, never the host's UTC one (D288). */
+async function todayIso(c: Context, deps: SimplifiedRegimeRoutesDeps): Promise<string> {
+  return tenantDay(c, deps.now?.() ?? new Date().toISOString());
 }
 
 /** The window the estimate is computed over — the calendar year `periodTo` falls in by default. */
@@ -122,7 +124,7 @@ export function createSimplifiedRegimeRoutes(
   }
 
   app.get("/", gate("admin.settings.view"), async (c) => {
-    const today = todayIso(deps);
+    const today = await todayIso(c, deps);
     const window = windowOf(c, today);
     const election: SimplifiedRegimeElection = (await deps.regime.get()) ?? NO_SIMPLIFIED_REGIME;
     const schedule = scheduleOn(window.periodTo) ?? scheduleOn(today);
@@ -189,7 +191,7 @@ export function createSimplifiedRegimeRoutes(
           recordedBy: ctx.userId ?? "system",
           recordedAt: deps.now?.(),
         },
-        scheduleOn(parsed.data.electedOn ?? todayIso(deps)),
+        scheduleOn(parsed.data.electedOn ?? await todayIso(c, deps)),
       );
       await deps.regime.save(election);
       return c.json(election);
@@ -202,7 +204,7 @@ export function createSimplifiedRegimeRoutes(
   });
 
   app.get("/comparison", gate("admin.settings.view"), async (c) => {
-    const today = todayIso(deps);
+    const today = await todayIso(c, deps);
     const window = windowOf(c, today);
     const definition = createSimplifiedRegimeComparisonReport(window.periodFrom, window.periodTo, scheduleOn);
     const params: Record<string, string> = {};

@@ -75,6 +75,7 @@ import {
   warehouseScopeOf,
   withinScope,
 } from "./permission-gate.js";
+import { tenantDay } from "./tenant-day.js";
 
 /**
  * Permission-gated routes for the manufacturing module (docs/archive/catalog/07),
@@ -664,7 +665,7 @@ export function createManufacturingRoutes(
   /** The KPI strip, over the whole filtered set rather than the page the screen happens to hold. */
   app.get("/work-orders/stats", gate("manufacturing.wo.view"), async (c) => {
     const orders = await listFilteredWorkOrders(c, parseWorkOrderListQuery(c));
-    const today = (deps.now?.() ?? new Date().toISOString()).slice(0, 10);
+    const today = (await tenantDay(c, deps.now?.() ?? new Date().toISOString()));
     let planned = 0;
     let inProgress = 0;
     let overdue = 0;

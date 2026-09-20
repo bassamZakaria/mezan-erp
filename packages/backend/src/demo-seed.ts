@@ -601,6 +601,53 @@ export async function seedDemoTenant(app: App, session: { token: string; mint: S
     deviceSerialNumber: "MEZAN-POS-0001",
   });
 
+  /*
+   * The tenant's e-invoicing registration, seeded BEFORE THE FIRST SALE of the
+   * whole run — the history's included.
+   *
+   * It used to sit below, after `seedHistory`, next to the hand-authored 2026
+   * invoices it said it preceded. But a consumer sale issues its e-receipt in
+   * its own confirm, and the payload carries whatever is registered AT THAT
+   * MOMENT, so two and a half years of trading confirmed against an
+   * unregistered tenant and every one of those receipts was lost with
+   * `ETA_RECEIPT_NOT_READY` on the way out. The registration belongs with the
+   * branch code above, for the same reason the branch code is up there.
+   *
+   * No POS credentials: with any on file, الإرسال التلقائي would report every
+   * seeded receipt to the authority's real gateway, where invented ones fail.
+   */
+  await step(app, "PUT", "/eta/config", {
+    environment: "preproduction",
+    taxRegistrationNumber: "100200300",
+    activityCode: "4610",
+    address: {
+      governorate: "القاهرة",
+      city: "مدينة نصر",
+      street: "شارع عباس العقاد",
+      buildingNumber: "27",
+      postalCode: "11765",
+    },
+    buyerDataThreshold: 25000,
+    documentVersion: "1.0",
+    autoSubmitOnConfirm: true,
+    signingMethod: "none",
+    clientId: "mezan-demo-client",
+    clientSecret: "demo-secret-never-returned",
+  });
+  // Every item in this catalogue sells in PCS, and a line the authority cannot
+  // read a unit for cannot be receipted at all — so the base unit is mapped
+  // here. الكرتونة stays unmapped on purpose: it is a real alternate unit on
+  // the shelf, so ربط الوحدات and تطبيق الاقتراحات still open on a row that
+  // needs a decision.
+  await step(app, "PUT", "/eta/unit-mappings/PCS", { etaUnitCode: "EA" });
+  for (const mapping of ETA_ITEM_CODES) {
+    await step(app, "PUT", `/eta/item-mappings/${mapping.itemId}`, {
+      etaCodeType: "EGS",
+      etaItemCode: mapping.etaItemCode,
+      gpcCode: mapping.gpcCode,
+    });
+  }
+
   await seedHistory(app);
 
   for (const invoice of [...PURCHASE_INVOICES, ...PERISHABLE_PURCHASE_INVOICES]) {
@@ -621,38 +668,6 @@ export async function seedDemoTenant(app: App, session: { token: string; mint: S
   }
 
   await seedConfigurableProduct(app);
-
-  // The tenant's e-invoicing registration, seeded BEFORE the sales invoices
-  // below: a confirm queues its ETA submission there and then, and the payload
-  // it builds carries whatever codes are registered at that moment. Deliberately
-  // partial — four items carry an EGS code and the rest do not, no unit is
-  // mapped yet, and the VAT rate is still on "auto" — so the readiness meter,
-  // the "unmapped" filter and تطبيق الاقتراحات all have something real to act on.
-  await step(app, "PUT", "/eta/config", {
-    environment: "preproduction",
-    taxRegistrationNumber: "100200300",
-    activityCode: "4610",
-    address: {
-      governorate: "القاهرة",
-      city: "مدينة نصر",
-      street: "شارع عباس العقاد",
-      buildingNumber: "27",
-      postalCode: "11765",
-    },
-    buyerDataThreshold: 25000,
-    documentVersion: "1.0",
-    autoSubmitOnConfirm: true,
-    signingMethod: "none",
-    clientId: "mezan-demo-client",
-    clientSecret: "demo-secret-never-returned",
-  });
-  for (const mapping of ETA_ITEM_CODES) {
-    await step(app, "PUT", `/eta/item-mappings/${mapping.itemId}`, {
-      etaCodeType: "EGS",
-      etaItemCode: mapping.etaItemCode,
-      gpcCode: mapping.gpcCode,
-    });
-  }
 
   for (const invoice of SALES_INVOICES) {
     await step(app, "POST", "/sales-invoices", {

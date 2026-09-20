@@ -291,6 +291,46 @@ describe("sales-invoices routes", () => {
     expect(collection.lines.find((l: any) => l.accountId === TREASURY_GL)?.debit.toString()).toBe("100.000000");
   });
 
+  it("dates a collection with no date on the TENANT'S today, not on the invoice's date (D288)", async () => {
+    // A collection inherited the invoice's date, so a receipt taken today was
+    // booked on the day the invoice was raised — it moved cash on a day the
+    // treasury did not have it, aged the customer wrong, and on a real books
+    // file was refused outright into a closed period.
+    const { app, ledger } = await harness({ now: "2026-08-28T10:00:00.000Z" });
+    const create = await app.fetch(req("/", { method: "POST", body: JSON.stringify(draftBody), permissions: "sales.invoice.create" }));
+    const { id } = (await create.json()) as any;
+    await app.fetch(req(`/${id}/confirm`, { method: "POST", body: JSON.stringify({}), permissions: "sales.invoice.confirm" }));
+
+    const pay = await app.fetch(
+      req(`/${id}/payments`, {
+        method: "POST",
+        body: JSON.stringify({ amount: "100", treasuryAccountId: TREASURY_ACCOUNT }),
+        permissions: "sales.invoice.edit",
+      }),
+    );
+    expect(pay.status).toBe(200);
+    const paid = (await pay.json()) as any;
+    expect(paid.date).toBe("2026-08-22");
+    expect((await ledger.findById(paid.voucherId))?.date).toBe("2026-08-28");
+  });
+
+  it("still honours a collection date the caller gives", async () => {
+    const { app, ledger } = await harness({ now: "2026-08-28T10:00:00.000Z" });
+    const create = await app.fetch(req("/", { method: "POST", body: JSON.stringify(draftBody), permissions: "sales.invoice.create" }));
+    const { id } = (await create.json()) as any;
+    await app.fetch(req(`/${id}/confirm`, { method: "POST", body: JSON.stringify({}), permissions: "sales.invoice.confirm" }));
+
+    const pay = await app.fetch(
+      req(`/${id}/payments`, {
+        method: "POST",
+        body: JSON.stringify({ amount: "100", date: "2026-08-25", treasuryAccountId: TREASURY_ACCOUNT }),
+        permissions: "sales.invoice.edit",
+      }),
+    );
+    expect(pay.status).toBe(200);
+    expect((await ledger.findById(((await pay.json()) as any).voucherId))?.date).toBe("2026-08-25");
+  });
+
   it("refuses a collection that names no treasury account — money must land somewhere", async () => {
     const { app } = await harness();
     const create = await app.fetch(req("/", { method: "POST", body: JSON.stringify(draftBody), permissions: "sales.invoice.create" }));

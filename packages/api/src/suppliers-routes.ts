@@ -5,6 +5,7 @@ import { createSupplierSchema, updateSupplierSchema } from "@mezan/contracts";
 import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
 import { recordFieldChanges } from "./admin-audit.js";
 import type { PartyOpeningBalancePoster } from "./customers-routes.js";
+import { tenantToday } from "./tenant-day.js";
 
 /**
  * What is still owed to each supplier — the supplier aging ladder's row, which
@@ -20,7 +21,8 @@ import type { PartyOpeningBalancePoster } from "./customers-routes.js";
  * of confirmed invoices (D39).
  */
 export interface SupplierPayablesSource {
-  outstandingBySupplier(): Promise<ReadonlyMap<string, Money>>;
+  /** `today` is the TENANT's calendar day, resolved at the route (D288). */
+  outstandingBySupplier(today: string): Promise<ReadonlyMap<string, Money>>;
 }
 
 /** Wire representation of a supplier — a plain JSON-safe projection with Money as decimal strings. */
@@ -140,8 +142,8 @@ export function createSuppliersRouter(
    * opening balance, invoices at their base total, returns, payments and
    * cheques — so the screen never derives a second figure (D201).
    */
-  async function withOwed(rows: readonly Supplier[]) {
-    const outstanding = payables ? await payables.outstandingBySupplier() : null;
+  async function withOwed(c: Context, rows: readonly Supplier[]) {
+    const outstanding = payables ? await payables.outstandingBySupplier(await tenantToday(c)) : null;
     return rows.map((supplier) => ({
       ...serialize(supplier),
       owed: outstanding ? (outstanding.get(supplier.id) ?? Money.zero()).toString() : null,
@@ -149,7 +151,7 @@ export function createSuppliersRouter(
   }
 
   app.get("/", gate("purchases.supplier.view"), async (c) => {
-    return c.json(await withOwed(await listFilteredSuppliers(parseSupplierListQuery(c))));
+    return c.json(await withOwed(c, await listFilteredSuppliers(parseSupplierListQuery(c))));
   });
 
   /**
@@ -173,7 +175,7 @@ export function createSuppliersRouter(
    */
   app.get("/stats", gate("purchases.supplier.view"), async (c) => {
     const suppliers = await listFilteredSuppliers(parseSupplierListQuery(c));
-    const outstanding = (await payables?.outstandingBySupplier()) ?? new Map<string, Money>();
+    const outstanding = (await payables?.outstandingBySupplier(await tenantToday(c))) ?? new Map<string, Money>();
     let active = 0;
     let payable = Money.zero();
     for (const supplier of suppliers) {
@@ -190,7 +192,7 @@ export function createSuppliersRouter(
   app.get("/:id", gate("purchases.supplier.view"), async (c) => {
     const supplier = await repo.findById(c.req.param("id"));
     if (!supplier) return c.json({ error: "NOT_FOUND" }, 404);
-    const [row] = await withOwed([supplier]);
+    const [row] = await withOwed(c, [supplier]);
     return c.json(row);
   });
 

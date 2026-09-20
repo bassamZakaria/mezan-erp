@@ -80,6 +80,7 @@ import {
   RetentionReleaseExceedsBalanceError,
   RetentionReleaseNotFoundError,
 } from "./errors.js";
+import { tenantTodayIso } from "../../dates.js";
 
 /**
  * تقارير الاستثناءات والإفراج عن المحتجزات — slice 5B (design §06).
@@ -388,7 +389,7 @@ export class ControlsService {
   constructor(private readonly deps: ControlsServiceDeps) {}
 
   private today(): string {
-    return this.deps.today ? this.deps.today() : new Date().toISOString().slice(0, 10);
+    return this.deps.today ? this.deps.today() : tenantTodayIso();
   }
 
   private async routed(key: string, fallback: string): Promise<string> {

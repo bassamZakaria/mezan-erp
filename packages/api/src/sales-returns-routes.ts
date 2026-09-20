@@ -26,7 +26,7 @@ import {
 import type { z } from "zod";
 import { type AuthContextResolver, callerUserId, createAnyPermissionGate, createPermissionGate, getAuthContext, warehouseScopeOf, withinScope } from "./permission-gate.js";
 import { handleDocumentError } from "./document-error-handling.js";
-import { tenantDay } from "./tenant-day.js";
+import { tenantDay, tenantToday } from "./tenant-day.js";
 
 type CreateSalesReturnLineInput = z.infer<typeof createSalesReturnSchema>["lines"][number];
 
@@ -478,7 +478,9 @@ export function createSalesReturnsRoutes(
         amount,
         treasuryAccountId: parsed.data.treasuryAccountId,
         paymentMethod: parsed.data.paymentMethod ?? "cash",
-        date: (await tenantDay(c, parsed.data.date)) ?? doc.date,
+        // A refund is paid on the day it is paid, not on the return's date —
+        // the same rule as the collection it mirrors.
+        date: (await tenantDay(c, parsed.data.date)) ?? (await tenantToday(c)),
         memo: parsed.data.notes ?? `استرداد على المرتجع ${doc.docNo ?? doc.id}`,
         referenceNo: parsed.data.referenceNo ?? null,
         actor: callerUserId(c),

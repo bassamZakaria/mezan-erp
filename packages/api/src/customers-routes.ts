@@ -26,6 +26,7 @@ import {
   type AuthContextResolver,
 } from "./permission-gate.js";
 import { recordFieldChanges } from "./admin-audit.js";
+import { tenantToday } from "./tenant-day.js";
 
 /** Resolves a price list by id, so `priceListId` can be checked against the real resource. */
 export interface CustomerPriceListLookup {
@@ -45,7 +46,8 @@ export interface CustomerPriceListLookup {
  * evaluate.
  */
 export interface CustomerReceivablesSource {
-  outstandingByCustomer(): Promise<ReadonlyMap<string, Money>>;
+  /** `today` is the TENANT's calendar day, resolved at the route (D288). */
+  outstandingByCustomer(today: string): Promise<ReadonlyMap<string, Money>>;
 }
 
 /**
@@ -211,8 +213,8 @@ export function createCustomersRouter(
     };
   }
 
-  async function outstandingByCustomer(): Promise<ReadonlyMap<string, Money>> {
-    return (await receivables?.outstandingByCustomer()) ?? new Map<string, Money>();
+  async function outstandingByCustomer(c: Context): Promise<ReadonlyMap<string, Money>> {
+    return (await receivables?.outstandingByCustomer(await tenantToday(c))) ?? new Map<string, Money>();
   }
 
   /** The customer's aging row, which carries the opening balance itself (D204) — one definition, used by both the filter and the KPI. */
@@ -220,8 +222,8 @@ export function createCustomersRouter(
     return outstanding.get(customer.id) ?? Money.zero();
   }
 
-  async function withOwed(rows: readonly Customer[]) {
-    const outstanding = receivables ? await outstandingByCustomer() : null;
+  async function withOwed(c: Context, rows: readonly Customer[]) {
+    const outstanding = receivables ? await outstandingByCustomer(c) : null;
     return rows.map((customer) => ({
       ...serialize(customer),
       owed: outstanding ? owedBy(customer, outstanding).toString() : null,
@@ -256,7 +258,7 @@ export function createCustomersRouter(
     else if (filter.status === "inactive") rows = rows.filter((customer) => !customer.active);
     if (filter.priceListId) rows = rows.filter((customer) => customer.priceListId === filter.priceListId);
     if (filter.overLimit) {
-      const outstanding = await outstandingByCustomer();
+      const outstanding = await outstandingByCustomer(c);
       rows = rows.filter(
         (customer) =>
           customer.creditLimit.scaled > 0n && owedBy(customer, outstanding).scaled > customer.creditLimit.scaled,
@@ -297,7 +299,7 @@ export function createCustomersRouter(
     const unavailable = receivablesMissing(c, filter);
     if (unavailable) return unavailable;
     const rows = await listFilteredCustomers(c, filter);
-    return c.json(await withOwed(rows));
+    return c.json(await withOwed(c, rows));
   });
 
   /**
@@ -327,7 +329,7 @@ export function createCustomersRouter(
     const unavailable = receivablesMissing(c, filter);
     if (unavailable) return unavailable;
     const customers = await listFilteredCustomers(c, filter);
-    const outstanding = await outstandingByCustomer();
+    const outstanding = await outstandingByCustomer(c);
     let active = 0;
     let creditLimits = Money.zero();
     let toCollect = Money.zero();
@@ -352,7 +354,7 @@ export function createCustomersRouter(
     if (withinScope([customer], branchScopeOf(c), (row) => row.branchId).length === 0) {
       return c.json({ error: "NOT_FOUND" }, 404);
     }
-    return c.json((await withOwed([customer]))[0]);
+    return c.json((await withOwed(c, [customer]))[0]);
   });
 
   app.post("/", gate("sales.customer.create"), async (c) => {

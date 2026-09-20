@@ -3083,10 +3083,15 @@ describe("createBackend — the reconciliation tie at a NON-ZERO balance", () =>
       admin(app),
     );
     expect(ta.status).toBe(201);
+    // The collection carries its OWN date, as the screen sends it. It used to
+    // be left off and inherit the invoice's (D288's twin), so the cash that
+    // funds the payment below landed on 2026-08-22 by accident; a collection
+    // with no date now takes today, and the guard would read an empty till on
+    // the voucher's day.
     const fund = await post(
       app,
       "/sales-invoices/inv-fund-ap/payments",
-      { amount: "1000.00", treasuryAccountId: "ta-payacct", paymentMethod: "cash" },
+      { amount: "1000.00", date: "2026-08-22", treasuryAccountId: "ta-payacct", paymentMethod: "cash" },
       admin(app),
     );
     expect(fund.status).toBe(200);

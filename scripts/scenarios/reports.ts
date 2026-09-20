@@ -211,11 +211,14 @@ async function aFilterMovesBothRowsAndKpi_R212(ctx: Ctx): Promise<void> {
 
 async function drillDownAnswersFromTheSourceDocuments_A5(ctx: Ctx): Promise<void> {
   await ctx.scenario("A5 — a drill-down answers from the posted documents, not the loaded page", async () => {
+    // A panel is asked for the window its row was computed over, as the screen
+    // asks for it (D281, D286) — the report echoes its own params back.
+    const allTime = "fromDate=2000-01-01&asOfDate=2099-12-31";
     const bySupplier = await ctx.req("GET", "/reports/purchases/by-supplier?dateFrom=2000-01-01&dateTo=2099-12-31");
     const supplierRow = (bySupplier.body?.rows ?? [])[0];
     ctx.check("a supplier report row to drill into", Boolean(supplierRow?.supplierId), JSON.stringify(supplierRow).slice(0, 120));
     if (supplierRow?.supplierId) {
-      const panel = await ctx.req("GET", `/reports/drill-down/supplier/${supplierRow.supplierId}`);
+      const panel = await ctx.req("GET", `/reports/drill-down/supplier/${supplierRow.supplierId}?${allTime}`);
       ctx.check("supplier drill-down responds", panel.status === 200, `status ${panel.status}`);
       const billed = ctx.n((panel.body?.facts ?? []).find((f: any) => f.key === "billed")?.value);
       // Two independent paths to one number: the report aggregates invoices,
@@ -240,7 +243,7 @@ async function drillDownAnswersFromTheSourceDocuments_A5(ctx: Ctx): Promise<void
     const byCustomer = await ctx.req("GET", "/reports/sales/by-customer?dateFrom=2000-01-01&dateTo=2099-12-31");
     const customerRow = (byCustomer.body?.rows ?? [])[0];
     if (customerRow?.customerId) {
-      const panel = await ctx.req("GET", `/reports/drill-down/customer/${customerRow.customerId}`);
+      const panel = await ctx.req("GET", `/reports/drill-down/customer/${customerRow.customerId}?${allTime}`);
       ctx.check("customer drill-down responds", panel.status === 200, `status ${panel.status}`);
       const billed = ctx.n((panel.body?.facts ?? []).find((f: any) => f.key === "billed")?.value);
       ctx.checkEq("customer drill-down's إجمالي المفوتر equals the report row's revenue", billed, ctx.n(customerRow.total));
@@ -296,6 +299,60 @@ async function drillDownAnswersFromTheSourceDocuments_A5(ctx: Ctx): Promise<void
       if (panel.status !== 200 || balance === null || balance !== expected) incomeDrift.push(`${row.code} ${balance} vs ${expected}`);
     }
     ctx.check("every income-statement account drill-down equals its row for the period", incomeDrift.length === 0, incomeDrift.slice(0, 5).join("; "));
+
+    // D286 — the non-GL twin of D281: a panel must land on the aging ladder
+    // row, the period row and the warehouse-filtered stock row it was opened
+    // from, not on an all-time, all-branch, all-warehouse reading of its own.
+    const ladderDrift: string[] = [];
+    for (const kind of ["customers", "suppliers"] as const) {
+      const ladder = await ctx.req("GET", `/reports/aging/${kind}`);
+      const ladderAsOf = String(ladder.body?.params?.asOfDate ?? "");
+      const entity = kind === "customers" ? "customer" : "supplier";
+      const idKey = kind === "customers" ? "customerId" : "supplierId";
+      ctx.check(`the ${entity} ladder names the day it was computed for`, /^\d{4}-\d{2}-\d{2}$/.test(ladderAsOf), ladderAsOf);
+      ctx.check(`the ${entity} ladder has rows to drill into`, (ladder.body?.rows ?? []).length > 0);
+      for (const row of ladder.body?.rows ?? []) {
+        const panel = await ctx.req("GET", `/reports/drill-down/${entity}/${encodeURIComponent(row[idKey])}?asOfDate=${ladderAsOf}`);
+        const owed = ctx.scaled((panel.body?.facts ?? []).find((f: any) => f.key === "outstanding")?.value);
+        const expected = ctx.scaled(ctx.n(row.total).toFixed(2));
+        if (panel.status !== 200 || owed === null || owed !== expected) ladderDrift.push(`${row[idKey]} ${owed} vs ${expected}`);
+      }
+    }
+    ctx.check("every aging drill-down's المستحق equals the ladder's own row", ladderDrift.length === 0, ladderDrift.slice(0, 5).join("; "));
+
+    const monthFrom = `${asOfDate.slice(0, 7)}-01`;
+    const periodDrift: string[] = [];
+    for (const [report, entity, idKey, extra] of [
+      ["sales/by-customer", "customer", "customerId", "&taxMode=inc"],
+      ["purchases/by-supplier", "supplier", "supplierId", ""],
+    ] as const) {
+      const run = await ctx.req("GET", `/reports/${report}?dateFrom=${monthFrom}&dateTo=${asOfDate}${extra}`);
+      for (const row of run.body?.rows ?? []) {
+        const panel = await ctx.req("GET", `/reports/drill-down/${entity}/${encodeURIComponent(row[idKey])}?fromDate=${monthFrom}&asOfDate=${asOfDate}`);
+        const billed = ctx.scaled((panel.body?.facts ?? []).find((f: any) => f.key === "billed")?.value);
+        const expected = ctx.scaled(ctx.n(row.total).toFixed(2));
+        if (panel.status !== 200 || billed === null || billed !== expected) periodDrift.push(`${row[idKey]} ${billed} vs ${expected}`);
+      }
+    }
+    ctx.check("every period drill-down's total equals its row over the SAME period", periodDrift.length === 0, periodDrift.slice(0, 5).join("; "));
+
+    const warehouses = ctx.rows((await ctx.req("GET", "/warehouses")).body).map((w: any) => w.id);
+    const stockDrift: string[] = [];
+    for (const warehouseId of warehouses) {
+      const run = await ctx.req("GET", `/reports/inventory/valuation?warehouseId=${encodeURIComponent(warehouseId)}`);
+      for (const row of run.body?.rows ?? []) {
+        const panel = await ctx.req("GET", `/reports/drill-down/item/${encodeURIComponent(row.itemId)}?warehouseId=${encodeURIComponent(warehouseId)}`);
+        const value = ctx.scaled((panel.body?.facts ?? []).find((f: any) => f.key === "value")?.value);
+        const expected = ctx.scaled(ctx.n(row.totalValue).toFixed(2));
+        if (panel.status !== 200 || value === null || value !== expected) stockDrift.push(`${warehouseId}/${row.itemId} ${value} vs ${expected}`);
+      }
+    }
+    ctx.check("every item drill-down's value equals its row in the SAME warehouse", stockDrift.length === 0, stockDrift.slice(0, 5).join("; "));
+
+    const inverted = await ctx.req("GET", `/reports/drill-down/customer/${customerRow?.customerId ?? "CUST-DEMO-1"}?fromDate=${asOfDate}&asOfDate=${monthFrom}`);
+    ctx.check("an inverted drill-down window is refused", inverted.status === 400, `status ${inverted.status}`);
+    const malformed = await ctx.req("GET", "/reports/drill-down/item/ITEM-DEMO-1?asOfDate=19-09-2026");
+    ctx.check("a malformed drill-down date is refused", malformed.status === 400, `status ${malformed.status}`);
 
     const valuation = await ctx.req("GET", "/reports/inventory/valuation");
     const itemRow = (valuation.body?.rows ?? [])[0];

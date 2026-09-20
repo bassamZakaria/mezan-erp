@@ -265,12 +265,13 @@ describe("createBackup — weekly integrity-check cadence", () => {
     const stateAfterSecond = await readIntegrityState(backupsDir);
     expect(stateAfterSecond.lastIntegrityCheckAt).toBe(day1.toISOString());
 
-    // Both archives are still individually openable — the cheaper proof
-    // (extract + checksum) ran on both, full-check cadence or not.
-    for (const archivePath of [first.archivePath, second.archivePath]) {
-      const extracted = await extractArchive(archivePath, path.join(dir, `verify-${path.basename(archivePath)}`));
-      expect(parseManifest(extracted.manifestJson).checksum).toHaveLength(64);
-    }
+    // Same UTC day, so the second archive represents the day, week and month
+    // buckets alike and retention prunes the first. The cheaper proof (extract
+    // + checksum) still ran on it first, full-check cadence or not, and the
+    // survivor is openable.
+    expect(second.removed).toEqual([first.archivePath]);
+    const extracted = await extractArchive(second.archivePath, path.join(dir, "verify-second"));
+    expect(parseManifest(extracted.manifestJson).checksum).toHaveLength(64);
 
     const day9 = new Date(day1.getTime() + INTEGRITY_CHECK_INTERVAL_MS + 60_000);
     const third = await createBackup({ sqlite: db, backupsDir, appVersion: "1.0.0", reason: "scheduled", now: day9 });

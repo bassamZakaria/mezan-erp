@@ -76,6 +76,31 @@ describe("applyRetention (GFS)", () => {
     expect(keep.map((c) => c.id)).toEqual(["old"]);
   });
 
+  it("no tier rescues a backup its own bucket already superseded", () => {
+    // Four archives on one UTC day — the D291 shape: three copies plus a
+    // restore-safety one. Day, week and month are all represented by the
+    // newest, so the older three are kept by nothing.
+    const candidates: RetentionCandidate[] = [
+      { id: "a", createdAt: new Date("2026-08-22T01:00:00.000Z") },
+      { id: "b", createdAt: new Date("2026-08-22T02:00:00.000Z") },
+      { id: "c", createdAt: new Date("2026-08-22T03:00:00.000Z") },
+      { id: "safety", createdAt: new Date("2026-08-22T04:00:00.000Z") },
+    ];
+    const { keep, remove } = applyRetention(candidates);
+    expect(keep.map((c) => c.id)).toEqual(["safety"]);
+    expect(remove.map((c) => c.id)).toEqual(["c", "b", "a"]);
+  });
+
+  it("a weekly bucket the daily tier already covers keeps no extra backup", () => {
+    // 2026-08-22 is a Saturday, so the 7 daily picks span ISO weeks W34 and
+    // W33. One weekly slot resolves to W34, whose newest member (2026-08-22)
+    // the daily tier holds — the tier is satisfied, not slid onto W33.
+    const candidates = dailyCandidates(now, 14);
+    const { keep, remove } = applyRetention(candidates, { daily: 7, weekly: 1, monthly: 0 });
+    expect(keep.map((c) => c.id)).toEqual(candidates.slice(0, 7).map((c) => c.id));
+    expect(remove).toHaveLength(7);
+  });
+
   it("keep + remove partitions the full input with no overlap", () => {
     const candidates = dailyCandidates(now, 90);
     const { keep, remove } = applyRetention(candidates);

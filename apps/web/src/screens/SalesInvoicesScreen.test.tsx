@@ -115,7 +115,7 @@ const accounts: AccountDTO[] = [
 
 function invoiceLine(overrides: Partial<SalesInvoiceDTO["lines"][number]> = {}): SalesInvoiceDTO["lines"][number] {
   return {
-    lineId: "l1", itemId: "item-rice", itemNameAr: "أرز أبيض مصري 5 كجم", isStock: true, qty: "1.000000", unitPrice: "185.000000",
+    unitCode: "", unitFactor: 1, discountType: "percent", discountAmount: "0.000000", costCenterId: null, baseQty: "1.000000", lineId: "l1", itemId: "item-rice", itemNameAr: "أرز أبيض مصري 5 كجم", isStock: true, qty: "1.000000", unitPrice: "185.000000",
     discountPercent: 0, taxRatePercent: 14, revenueAccountId: "4100", cogsAccountId: "5100", inventoryAccountId: "1200", unitCost: "150.000000",
     ...overrides,
   };
@@ -152,9 +152,12 @@ function invoice(overrides: Partial<SalesInvoiceDTO> = {}): SalesInvoiceDTO {
     workflowRequestId: null,
     createdAt: "2026-08-20T09:00:00.000Z",
     confirmedAt: "2026-08-20T09:00:00.000Z",
+    projectId: null,
+    fxRate: null,
     lines: [invoiceLine()],
-    totals: { grossTotal: "185.00", lineDiscountTotal: "0.00", promotionDiscountTotal: "0.00", invoiceDiscountTotal: "0.00", subtotal: "185.00", taxableTotal: "185.00", taxTotal: "25.90", grandTotal: "210.90" },
+    totals: { taxInclusive: false, grossTotal: "185.00", lineDiscountTotal: "0.00", promotionDiscountTotal: "0.00", invoiceDiscountTotal: "0.00", subtotal: "185.00", taxableTotal: "185.00", taxTotal: "25.90", grandTotal: "210.90" },
     ...overrides,
+    baseGrandTotal: overrides.baseGrandTotal ?? overrides.totals?.grandTotal ?? "210.90",
   };
 }
 
@@ -270,7 +273,7 @@ describe("SalesInvoicesScreen — a foreign invoice's base figures carry the bas
     remainingBalance: "4800.000000",
     journalEntryId: "je-usd",
     lines: [invoiceLine({ unitPrice: "100.000000", taxRatePercent: 0, unitCost: "3000.000000" })],
-    totals: { grossTotal: "100.00", lineDiscountTotal: "0.00", promotionDiscountTotal: "0.00", invoiceDiscountTotal: "0.00", subtotal: "100.00", taxableTotal: "100.00", taxTotal: "0.00", grandTotal: "100.00" },
+    totals: { taxInclusive: false, grossTotal: "100.00", lineDiscountTotal: "0.00", promotionDiscountTotal: "0.00", invoiceDiscountTotal: "0.00", subtotal: "100.00", taxableTotal: "100.00", taxTotal: "0.00", grandTotal: "100.00" },
   });
   const usdEntry: JournalEntryDTO = {
     ...journalEntry,

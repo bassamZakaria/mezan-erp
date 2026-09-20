@@ -29,6 +29,7 @@ import {
   createSalesQuoteSchema,
   salesQuoteListQuerySchema,
   convertSalesQuoteToInvoiceSchema,
+  salesQuoteSchema,
   type SalesQuoteDiscountDTO,
 } from "@mezan/contracts";
 import { refuseUnknownItems, type ItemCatalogCheck } from "./item-check.js";
@@ -268,7 +269,7 @@ export function createSalesQuotesRoutes(
     const svc = service(c);
     try {
       const quote = await svc.createDraft(cmd);
-      return c.json(serialize(quote, totalsFor(svc, quote)), 201);
+      return c.json(salesQuoteSchema.parse(serialize(quote, totalsFor(svc, quote))), 201);
     } catch (err) {
       return handleDomainError(c, err);
     }

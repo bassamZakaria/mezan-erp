@@ -183,6 +183,34 @@ export const postTransferSchema = z.object({
   occurredAt: z.string().min(1).optional(),
 });
 
+/** One warehouse's holding of a single item — `GET /inventory/items/:itemId/stock`. */
+export const itemStockPositionSchema = z.object({
+  warehouseId: z.string().min(1),
+  onHand: decimalString,
+  reserved: decimalString,
+  available: decimalString,
+  totalValue: decimalString,
+  averageCost: decimalString,
+});
+
+/** One immutable WAC cost layer behind that holding. */
+export const itemStockLayerSchema = z.object({
+  id: z.string().min(1),
+  warehouseId: z.string().min(1),
+  unitCost: decimalString,
+  originalQty: decimalString,
+  remainingQty: decimalString,
+  sourceDocType: stockSourceDocTypeSchema,
+  sourceDocNumber: z.string().nullable(),
+  createdAt: z.string().min(1),
+});
+
+/** `GET /inventory/items/:itemId/stock` — where one item's stock sits and what it cost. */
+export const itemStockSchema = z.object({
+  positions: z.array(itemStockPositionSchema),
+  layers: z.array(itemStockLayerSchema),
+});
+
 export type StockMovementDirectionDTO = z.infer<typeof stockMovementDirectionSchema>;
 export type AdjustmentReasonDTO = z.infer<typeof adjustmentReasonSchema>;
 export type StockSourceDocTypeDTO = z.infer<typeof stockSourceDocTypeSchema>;
@@ -201,3 +229,6 @@ export type AdjustmentLineDTO = z.infer<typeof adjustmentLineSchema>;
 export type PostAdjustmentDTO = z.infer<typeof postAdjustmentSchema>;
 export type TransferLineDTO = z.infer<typeof transferLineSchema>;
 export type PostTransferDTO = z.infer<typeof postTransferSchema>;
+export type ItemStockPositionDTO = z.infer<typeof itemStockPositionSchema>;
+export type ItemStockLayerDTO = z.infer<typeof itemStockLayerSchema>;
+export type ItemStockDTO = z.infer<typeof itemStockSchema>;

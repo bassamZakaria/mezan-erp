@@ -36,7 +36,7 @@ function baseInvoice(overrides: Partial<SalesInvoiceDTO> = {}): SalesInvoiceDTO 
     confirmedAt: "2026-03-01T00:00:00.000Z",
     lines: [
       {
-        lineId: "L1",
+        unitFactor: 1, discountAmount: "0.000000", costCenterId: null, baseQty: "1", lineId: "L1",
         itemId: "I1",
         itemNameAr: "قهوة عربية",
         isStock: true,
@@ -51,7 +51,7 @@ function baseInvoice(overrides: Partial<SalesInvoiceDTO> = {}): SalesInvoiceDTO 
       } as never,
     ],
     totals: {
-      grossTotal: "100.00",
+      taxInclusive: false, grossTotal: "100.00",
       lineDiscountTotal: "0.00",
       promotionDiscountTotal: "0.00",
       invoiceDiscountTotal: "0.00",

@@ -62,6 +62,7 @@ import {
   confirmSalesInvoiceSchema,
   salesInvoicePaymentSchema,
   salesInvoiceListQuerySchema,
+  salesInvoiceSchema,
   type SalesInvoiceListQueryDTO,
   type SalesInvoiceDiscountDTO,
 } from "@mezan/contracts";
@@ -632,7 +633,7 @@ export function createSalesInvoicesRoutes(
     const svc = service(c);
     try {
       const invoice = await svc.createDraft(cmd);
-      return c.json(serialize(invoice, totalsFor(svc, invoice)), 201);
+      return c.json(salesInvoiceSchema.parse(serialize(invoice, totalsFor(svc, invoice))), 201);
     } catch (err) {
       return handleDomainError(c, err);
     }

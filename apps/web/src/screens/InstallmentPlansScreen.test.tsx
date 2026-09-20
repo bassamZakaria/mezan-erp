@@ -38,15 +38,18 @@ function salesInvoice(overrides: Partial<SalesInvoiceDTO> = {}): SalesInvoiceDTO
     workflowRequestId: null,
     createdAt: "2026-08-10T09:00:00.000Z",
     confirmedAt: "2026-08-10T09:05:00.000Z",
+    projectId: null,
+    fxRate: null,
     lines: [
       {
-        lineId: "l1", itemId: "item-cement", itemNameAr: "أسمنت بورتلاندي", isStock: true, qty: "10.000000",
+        unitCode: "", unitFactor: 1, discountType: "percent", discountAmount: "0.000000", costCenterId: null, baseQty: "10.000000", lineId: "l1", itemId: "item-cement", itemNameAr: "أسمنت بورتلاندي", isStock: true, qty: "10.000000",
         unitPrice: "60.000000", discountPercent: 0, taxRatePercent: 0, revenueAccountId: "acc-rev",
         cogsAccountId: "acc-cogs", inventoryAccountId: "acc-inv", unitCost: "50.000000",
       },
     ],
-    totals: { grossTotal: "600.000000", lineDiscountTotal: "0", promotionDiscountTotal: "0", invoiceDiscountTotal: "0", subtotal: "600.000000", taxableTotal: "600.000000", taxTotal: "0", grandTotal: "600.000000" },
+    totals: { taxInclusive: false, grossTotal: "600.000000", lineDiscountTotal: "0", promotionDiscountTotal: "0", invoiceDiscountTotal: "0", subtotal: "600.000000", taxableTotal: "600.000000", taxTotal: "0", grandTotal: "600.000000" },
     ...overrides,
+    baseGrandTotal: overrides.baseGrandTotal ?? overrides.totals?.grandTotal ?? "600.000000",
   };
 }
 

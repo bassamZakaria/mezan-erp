@@ -13,7 +13,12 @@ import {
   dashboardSummarySchema,
   decideApprovalRequestSchema,
   itemSchema,
+  itemStockSchema,
   openInvoiceSchema,
+  salesInvoiceSchema,
+  salesQuoteSchema,
+  selfClockPunchResultSchema,
+  selfClockStatusSchema,
   treasuryAccountSchema,
   voucherAllocationSchema,
   voucherSchema,
@@ -30,8 +35,13 @@ import {
   type DashboardSummaryDTO,
   type DecideApprovalRequestDTO,
   type ItemDTO,
+  type ItemStockDTO,
   type OpenInvoiceDTO,
+  type SalesInvoiceDTO,
+  type SalesQuoteDTO,
   type SelfClockPunchDTO,
+  type SelfClockPunchResultResponseDTO,
+  type SelfClockStatusResponseDTO,
   type TreasuryAccountDTO,
   type VoucherAllocationDTO,
   type VoucherDTO,
@@ -40,18 +50,6 @@ import {
 import { useSession } from "@/session/SessionProvider";
 import { HttpMethod } from "./client";
 import type { ApiError } from "./errors";
-import {
-  itemStockSchema,
-  salesInvoiceResultSchema,
-  salesQuoteResultSchema,
-  selfClockPunchResultSchema,
-  selfClockStatusSchema,
-  type ItemStockDTO,
-  type SalesInvoiceResultDTO,
-  type SalesQuoteResultDTO,
-  type SelfClockPunchResultResponseDTO,
-  type SelfClockStatusResponseDTO,
-} from "./local-schemas";
 
 export enum QueryKey {
   DashboardSummary = "dashboard-summary",
@@ -174,38 +172,38 @@ export function useOpenInvoices(kind: "sales" | "purchase", partyId: string | nu
   });
 }
 
-export function useCreateSalesInvoice(): UseMutationResult<SalesInvoiceResultDTO, ApiError, CreateSalesInvoiceDTO> {
+export function useCreateSalesInvoice(): UseMutationResult<SalesInvoiceDTO, ApiError, CreateSalesInvoiceDTO> {
   const { request } = useSession();
   const queryClient = useQueryClient();
-  return useMutation<SalesInvoiceResultDTO, ApiError, CreateSalesInvoiceDTO>({
+  return useMutation<SalesInvoiceDTO, ApiError, CreateSalesInvoiceDTO>({
     mutationFn: (body) =>
-      request("/sales-invoices", { method: HttpMethod.Post, body, schema: salesInvoiceResultSchema }),
+      request("/sales-invoices", { method: HttpMethod.Post, body, schema: salesInvoiceSchema }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: [QueryKey.DashboardSummary] }),
   });
 }
 
 export function useConfirmSalesInvoice(): UseMutationResult<
-  SalesInvoiceResultDTO,
+  SalesInvoiceDTO,
   ApiError,
   { id: string; body?: ConfirmSalesInvoiceDTO }
 > {
   const { request } = useSession();
   const queryClient = useQueryClient();
-  return useMutation<SalesInvoiceResultDTO, ApiError, { id: string; body?: ConfirmSalesInvoiceDTO }>({
+  return useMutation<SalesInvoiceDTO, ApiError, { id: string; body?: ConfirmSalesInvoiceDTO }>({
     mutationFn: ({ id, body }) =>
       request(`/sales-invoices/${encodeURIComponent(id)}/confirm`, {
         method: HttpMethod.Post,
         body: body ?? {},
-        schema: salesInvoiceResultSchema,
+        schema: salesInvoiceSchema,
       }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: [QueryKey.DashboardSummary] }),
   });
 }
 
-export function useCreateSalesQuote(): UseMutationResult<SalesQuoteResultDTO, ApiError, CreateSalesQuoteDTO> {
+export function useCreateSalesQuote(): UseMutationResult<SalesQuoteDTO, ApiError, CreateSalesQuoteDTO> {
   const { request } = useSession();
-  return useMutation<SalesQuoteResultDTO, ApiError, CreateSalesQuoteDTO>({
-    mutationFn: (body) => request("/sales-quotes", { method: HttpMethod.Post, body, schema: salesQuoteResultSchema }),
+  return useMutation<SalesQuoteDTO, ApiError, CreateSalesQuoteDTO>({
+    mutationFn: (body) => request("/sales-quotes", { method: HttpMethod.Post, body, schema: salesQuoteSchema }),
   });
 }
 

@@ -29,7 +29,7 @@ function TestNavigation({ navigate, children }: { navigate: (screen: string, int
 
 function invoiceLine(): SalesInvoiceDTO["lines"][number] {
   return {
-    lineId: "l1", itemId: "item-1", itemNameAr: "أرز أبيض", isStock: true, qty: "1.000000", unitPrice: "185.000000",
+    unitCode: "", unitFactor: 1, discountType: "percent", discountAmount: "0.000000", costCenterId: null, baseQty: "1.000000", lineId: "l1", itemId: "item-1", itemNameAr: "أرز أبيض", isStock: true, qty: "1.000000", unitPrice: "185.000000",
     discountPercent: 0, taxRatePercent: 14, revenueAccountId: "4100", cogsAccountId: "5100", inventoryAccountId: "1200", unitCost: "150.000000",
   };
 }
@@ -42,9 +42,12 @@ function invoice(overrides: Partial<SalesInvoiceDTO> = {}): SalesInvoiceDTO {
     currency: "EGP", notes: null, internalNotes: null, discount: { type: "amount", amount: "0.000000" },
     arAccountId: "1105", taxAccountId: "2200", amountPaid: "0.000000", returnedCredit: "0.000000", remainingBalance: "1210.900000",
     journalEntryId: "je-1", workflowRequestId: null, createdAt: "2026-08-20T09:00:00.000Z", confirmedAt: "2026-08-20T09:00:00.000Z",
+    projectId: null,
+    fxRate: null,
     lines: [invoiceLine()],
-    totals: { grossTotal: "185.00", lineDiscountTotal: "0.00", promotionDiscountTotal: "0.00", invoiceDiscountTotal: "0.00", subtotal: "185.00", taxableTotal: "185.00", taxTotal: "25.90", grandTotal: "1310.900000" },
+    totals: { taxInclusive: false, grossTotal: "185.00", lineDiscountTotal: "0.00", promotionDiscountTotal: "0.00", invoiceDiscountTotal: "0.00", subtotal: "185.00", taxableTotal: "185.00", taxTotal: "25.90", grandTotal: "1310.900000" },
     ...overrides,
+    baseGrandTotal: overrides.baseGrandTotal ?? overrides.totals?.grandTotal ?? "1310.900000",
   };
 }
 

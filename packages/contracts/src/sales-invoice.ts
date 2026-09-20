@@ -21,6 +21,8 @@ export const salesInvoiceStatusSchema = z.enum([
   "reversed",
 ]);
 
+export const salesInvoiceLineDiscountTypeSchema = z.enum(["percent", "amount"]);
+
 export const salesInvoiceDiscountSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("percent"), percent: z.number().min(0).max(100) }),
   z.object({ type: z.literal("amount"), amount: z.string() }),
@@ -46,7 +48,7 @@ export const createSalesInvoiceLineSchema = z.object({
   unitFactor: z.number().positive().nullish(),
   unitPrice: moneyString,
   /** Whether `discountPercent` or `discountAmount` is the live field. */
-  discountType: z.enum(["percent", "amount"]).optional(),
+  discountType: salesInvoiceLineDiscountTypeSchema.optional(),
   discountPercent: z.number().min(0).max(100).optional(),
   /** Fixed line discount as an exact decimal string; capped at the line's gross. */
   discountAmount: moneyString.optional(),
@@ -215,3 +217,101 @@ export const salesInvoiceStatsSchema = z.object({
 export type PromotionUsageRowDTO = z.infer<typeof promotionUsageRowSchema>;
 export type SalesInvoiceStatsDTO = z.infer<typeof salesInvoiceStatsSchema>;
 export type SalesInvoiceFilterKeyDTO = z.infer<typeof salesInvoiceFilterKeySchema>;
+
+/**
+ * The wire shape the API actually serves — `packages/api/src/sales-invoices-routes.ts`
+ * `serialize()`. Declared here, not re-declared per client: `apps/web` carried a
+ * bare TS interface and `apps/mobile` a second hand-written zod copy, and the
+ * two had already drifted from the serializer (D312).
+ */
+export const salesInvoiceLineRowSchema = z.object({
+  lineId: z.string().min(1),
+  itemId: z.string().min(1),
+  itemNameAr: z.string(),
+  isStock: z.boolean(),
+  /** As entered, in `unitCode` — the figure `unitPrice` multiplies. */
+  qty: moneyString,
+  /** "" on a line raised before per-line units, meaning the item's base unit. */
+  unitCode: z.string(),
+  unitFactor: z.number(),
+  /** qty × unitFactor — what the stock ledger actually moved. */
+  baseQty: moneyString,
+  unitPrice: moneyString,
+  discountType: salesInvoiceLineDiscountTypeSchema,
+  discountPercent: z.number(),
+  discountAmount: moneyString,
+  taxRatePercent: z.number(),
+  revenueAccountId: z.string().min(1),
+  cogsAccountId: z.string().nullable(),
+  inventoryAccountId: z.string().nullable(),
+  costCenterId: z.string().nullable(),
+  /**
+   * OMITTED, not nulled, for a caller without `sales.invoice.view_cost` — a
+   * null would still disclose that the field exists (D31). Optional here for
+   * exactly that reason; it is never absent for a caller that may see cost.
+   */
+  unitCost: moneyString.nullable().optional(),
+});
+
+export const salesInvoiceTotalsSchema = z.object({
+  taxInclusive: z.boolean(),
+  grossTotal: moneyString,
+  lineDiscountTotal: moneyString,
+  promotionDiscountTotal: moneyString,
+  invoiceDiscountTotal: moneyString,
+  subtotal: moneyString,
+  taxableTotal: moneyString,
+  taxTotal: moneyString,
+  grandTotal: moneyString,
+});
+
+export const salesInvoiceSchema = z.object({
+  id: z.string().min(1),
+  docType: z.string().min(1),
+  docNo: z.string().nullable(),
+  status: salesInvoiceStatusSchema,
+  date: z.string().min(1),
+  dueDate: z.string().min(1),
+  customerId: z.string().min(1),
+  customerNameAr: z.string(),
+  customerTaxExempt: z.boolean(),
+  taxInclusive: z.boolean(),
+  warehouseId: z.string().min(1),
+  branchId: z.string().min(1),
+  salespersonId: z.string().nullable(),
+  salespersonNameAr: z.string().nullable(),
+  projectId: z.string().nullable(),
+  currency: z.string().min(1),
+  /** The rate the invoice confirmed at; null for a base-currency or unconfirmed invoice. */
+  fxRate: z.string().nullable(),
+  couponCode: z.string().nullable(),
+  appliedPromotion: appliedSalesInvoicePromotionSchema.nullable(),
+  notes: z.string().nullable(),
+  internalNotes: z.string().nullable(),
+  discount: salesInvoiceDiscountSchema,
+  arAccountId: z.string().min(1),
+  taxAccountId: z.string().min(1),
+  /**
+   * `totals.grandTotal` in BASE currency at `fxRate` — what GL 1105 holds.
+   * `amountPaid`, `returnedCredit` and `remainingBalance` are base figures
+   * measured against this, never against `totals.grandTotal` (D202).
+   */
+  baseGrandTotal: moneyString,
+  amountPaid: moneyString,
+  /** Confirmed returns credited against this invoice — already netted out of `remainingBalance`. */
+  returnedCredit: moneyString,
+  remainingBalance: moneyString,
+  journalEntryId: z.string().nullable(),
+  workflowRequestId: z.string().nullable(),
+  createdAt: z.string().min(1),
+  confirmedAt: z.string().nullable(),
+  lines: z.array(salesInvoiceLineRowSchema),
+  totals: salesInvoiceTotalsSchema,
+  /** N-9 — the row version a list/detail read serves; absent on the create response. */
+  version: z.number().int().positive().optional(),
+});
+
+export type SalesInvoiceLineDiscountTypeDTO = z.infer<typeof salesInvoiceLineDiscountTypeSchema>;
+export type SalesInvoiceLineRowDTO = z.infer<typeof salesInvoiceLineRowSchema>;
+export type SalesInvoiceTotalsDTO = z.infer<typeof salesInvoiceTotalsSchema>;
+export type SalesInvoiceDTO = z.infer<typeof salesInvoiceSchema>;

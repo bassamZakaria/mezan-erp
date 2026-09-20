@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "ميزان",
+    "name": "\u0645\u064a\u0632\u0627\u0646",
     "slug": "mezan",
     "scheme": "mezan",
     "version": "2026.9.0",
@@ -17,8 +17,8 @@
       "bundleIdentifier": "app.mezan.mobile",
       "infoPlist": {
         "CFBundleAllowMixedLocalizations": true,
-        "NSCameraUsageDescription": "تُستخدم الكاميرا لالتقاط صورة عند تسجيل الحضور ولقراءة الباركود.",
-        "NSFaceIDUsageDescription": "يُستخدم التعرّف على الوجه لفتح التطبيق وتأكيد تسجيل الحضور."
+        "NSCameraUsageDescription": "\u062a\u064f\u0633\u062a\u062e\u062f\u0645 \u0627\u0644\u0643\u0627\u0645\u064a\u0631\u0627 \u0644\u0627\u0644\u062a\u0642\u0627\u0637 \u0635\u0648\u0631\u0629 \u0639\u0646\u062f \u062a\u0633\u062c\u064a\u0644 \u0627\u0644\u062d\u0636\u0648\u0631 \u0648\u0644\u0642\u0631\u0627\u0621\u0629 \u0627\u0644\u0628\u0627\u0631\u0643\u0648\u062f.",
+        "NSFaceIDUsageDescription": "\u064a\u064f\u0633\u062a\u062e\u062f\u0645 \u0627\u0644\u062a\u0639\u0631\u0651\u0641 \u0639\u0644\u0649 \u0627\u0644\u0648\u062c\u0647 \u0644\u0641\u062a\u062d \u0627\u0644\u062a\u0637\u0628\u064a\u0642 \u0648\u062a\u0623\u0643\u064a\u062f \u062a\u0633\u062c\u064a\u0644 \u0627\u0644\u062d\u0636\u0648\u0631."
       }
     },
     "android": {
@@ -41,16 +41,20 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "تُستخدم الكاميرا لالتقاط صورة عند تسجيل الحضور ولقراءة الباركود.",
+          "cameraPermission": "\u062a\u064f\u0633\u062a\u062e\u062f\u0645 \u0627\u0644\u0643\u0627\u0645\u064a\u0631\u0627 \u0644\u0627\u0644\u062a\u0642\u0627\u0637 \u0635\u0648\u0631\u0629 \u0639\u0646\u062f \u062a\u0633\u062c\u064a\u0644 \u0627\u0644\u062d\u0636\u0648\u0631 \u0648\u0644\u0642\u0631\u0627\u0621\u0629 \u0627\u0644\u0628\u0627\u0631\u0643\u0648\u062f.",
           "recordAudioAndroid": false
         }
       ],
       [
         "expo-local-authentication",
         {
-          "faceIDPermission": "يُستخدم التعرّف على الوجه لفتح التطبيق وتأكيد تسجيل الحضور."
+          "faceIDPermission": "\u064a\u064f\u0633\u062a\u062e\u062f\u0645 \u0627\u0644\u062a\u0639\u0631\u0651\u0641 \u0639\u0644\u0649 \u0627\u0644\u0648\u062c\u0647 \u0644\u0641\u062a\u062d \u0627\u0644\u062a\u0637\u0628\u064a\u0642 \u0648\u062a\u0623\u0643\u064a\u062f \u062a\u0633\u062c\u064a\u0644 \u0627\u0644\u062d\u0636\u0648\u0631."
         }
       ]
+    ],
+    "platforms": [
+      "ios",
+      "android"
     ]
   }
 }

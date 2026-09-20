@@ -1205,7 +1205,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     );
   }
   if (options.priceListRepo) {
-    app.route("/price-lists", createPriceListsRoutes(options.priceListRepo, resolveAuth, options.customerStore, options.auditSink));
+    app.route("/price-lists", createPriceListsRoutes(options.priceListRepo, resolveAuth, options.customerStore, options.auditSink, options.items?.repo));
   }
   if (options.promotionRepo) {
     app.route(

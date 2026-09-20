@@ -34,6 +34,25 @@ function priceListLineKey(line: SerializedPriceListLine): string {
   return `${line.itemId}|${line.unitCode ?? ""}|${line.minQty}`;
 }
 
+/**
+ * Names the item a price change belongs to. The history screen renders the key
+ * when nothing names it, and a key is an item id — «سجل التغييرات» showed a row
+ * of raw ids nobody could read. The name is captured at record time, so the
+ * history still reads correctly after the item is renamed or deleted.
+ */
+export interface PriceListItemLookup {
+  findById(id: string): Promise<{ readonly nameAr: string; readonly code?: string } | null>;
+}
+
+function priceListLineLabel(line: SerializedPriceListLine, names: ReadonlyMap<string, string>): string | null {
+  const name = names.get(line.itemId);
+  if (!name) return null;
+  const parts = [name];
+  if (line.unitCode) parts.push(line.unitCode);
+  parts.push(`≥ ${line.minQty}`);
+  return parts.join(" · ");
+}
+
 /** Resolves a customer's assigned price list, so the resolve route can answer by customer as well as by list. */
 export interface PriceListCustomerLookup {
   findById(id: string): Promise<{ priceListId: string | null } | null>;
@@ -90,13 +109,25 @@ export function createPriceListsRoutes(
   resolveAuthContext: AuthContextResolver,
   customers?: PriceListCustomerLookup,
   audit?: AuditSink,
+  items?: PriceListItemLookup,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
 
-  function auditPriceList(c: Context, action: AuditChangeAction, before: PriceList | null, after: PriceList) {
+  async function itemNames(lines: readonly SerializedPriceListLine[][]): Promise<ReadonlyMap<string, string>> {
+    const names = new Map<string, string>();
+    if (!items) return names;
+    for (const id of new Set(lines.flat().map((line) => line.itemId))) {
+      const item = await items.findById(id);
+      if (item) names.set(id, item.code ? `${item.nameAr} (${item.code})` : item.nameAr);
+    }
+    return names;
+  }
+
+  async function auditPriceList(c: Context, action: AuditChangeAction, before: PriceList | null, after: PriceList) {
     const from = before ? serialize(before) : null;
     const to = serialize(after);
+    const names = await itemNames([from?.lines ?? [], to.lines]);
     return recordFieldChanges(audit, c, {
       entity: { module: "sales", entityType: "PRICE_LIST", entityId: after.id },
       action,
@@ -104,7 +135,14 @@ export function createPriceListsRoutes(
       after: to,
       fields: AUDITED_PRICE_LIST_FIELDS,
       warnOn: ["linePrice", "active", "isBase"],
-      extraChanges: diffAuditCollection("linePrice", from?.lines, to.lines, priceListLineKey, (line) => line.price),
+      extraChanges: diffAuditCollection(
+        "linePrice",
+        from?.lines,
+        to.lines,
+        priceListLineKey,
+        (line) => line.price,
+        (line) => priceListLineLabel(line, names),
+      ),
     });
   }
 

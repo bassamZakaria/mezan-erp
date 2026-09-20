@@ -16,33 +16,49 @@ import {
 } from "./index.js";
 
 describe("permission catalog", () => {
-  it("carries only what the product enforces — 231 permissions across 18 modules (DEC-14)", () => {
+  it("carries only what the product enforces — 247 permissions across 19 modules (DEC-14, DEC-23)", () => {
     // 298 → 231. DEC-14 removed the 67 codes that named nothing the server
     // checks: the `dashboard` and `transactions` modules, per-voucher-type
     // `.view` tiers over a single voucher list, print rights that are
     // renderer-side, and the approvals DEC-2 made ROLE-based so a permission
-    // code could never honour them.
+    // code could never honour them. The POS module went with them, all
+    // thirty-eight codes — thirty-seven named a till the build did not have,
+    // and the thirty-eighth guarded the discount ceiling on a SALES invoice,
+    // so it moved to `sales.discount.approve`.
     //
-    // The POS module went with them, all thirty-eight codes. Thirty-seven named
-    // a till this build does not have. The thirty-eighth was checked — but it
-    // guards the discount ceiling on a SALES invoice, so it moved to
-    // `sales.discount.approve` rather than keeping a module alive around it.
+    // 231 → 247 since. DEC-23 un-deferred POS and the module came back with
+    // the four codes its routes gate on (`packages/domain/src/pos/permissions/master.ts`,
+    // `packages/api/src/pos/*-routes.ts`) — including a till-side
+    // `pos.discount.approve` that is NOT the invoice ceiling beside it. The
+    // other twelve are the HR self-service set (`hr.self.*`, five), the
+    // cockpit and cash-forecast reads (`packages/domain/src/enh/permissions/`),
+    // and the rest of the ENH lanes' own gates.
     //
     // Pinned deliberately. A code added without a route to check it, or a route
     // deleted while its code stays, moves one of these numbers — which is the
     // whole point of asserting them.
-    expect(PERMISSIONS).toHaveLength(231);
-    expect(MODULES).toHaveLength(18);
+    expect(PERMISSIONS).toHaveLength(247);
+    expect(MODULES).toHaveLength(19);
     const summed = MODULES.reduce((n, m) => n + m.count, 0);
-    expect(summed).toBe(231);
+    expect(summed).toBe(247);
   });
 
-  it("has no `pos` module left, and the one code that was real lives under sales", () => {
-    // Keeping it as `pos.discount.approve` kept it UNGRANTABLE: `pos` is
-    // excluded from MODULE_CATALOG on purpose, and the role editor renders only
-    // licensed modules, so the only way to hold it was the `*` wildcard.
-    expect(PERMISSIONS.filter((p) => p.module === "pos")).toEqual([]);
+  it("carries a `pos` module again, and the INVOICE discount ceiling still lives under sales", () => {
+    // DEC-14 deleted the module because nothing checked it; DEC-23 brought it
+    // back with routes that do. Every code it carries is gated
+    // (`packages/api/src/pos/terminals-routes.ts`, `settings-routes.ts`,
+    // `payment-methods-routes.ts`), and the module is in MODULE_CATALOG, so an
+    // administrator can grant them without the `*` wildcard.
+    expect(PERMISSIONS.filter((p) => p.module === "pos").map((p) => p.code)).toEqual([
+      "pos.terminal.view",
+      "pos.terminal.manage",
+      "pos.settings.edit",
+      "pos.discount.approve",
+    ]);
+    // Two ceilings, two codes: the till's and the sales invoice's. Collapsing
+    // them would let a POS supervisor discount an invoice they never see.
     expect(getPermission("sales.discount.approve")?.module).toBe("sales");
+    expect(getPermission("pos.discount.approve")?.module).toBe("pos");
   });
 
   it("has no module left whose permissions are all gone", () => {
@@ -63,11 +79,16 @@ describe("permission catalog", () => {
     expect(isSensitive("contracting.retention.release")).toBe(true);
     expect(isSensitive("contracting.guarantee.release")).toBe(true);
     expect(isSensitive("contracting.guarantee.manage")).toBe(false);
-    // Five, not seven: `hr.employee.view_personal` and `pos.delivery.cancel`
-    // went with DEC-14 — no route filtered personal fields, and the POS
-    // delivery screen does not exist.
+    // Five under DEC-14 (`hr.employee.view_personal` and `pos.delivery.cancel`
+    // went with it — no route filtered personal fields, and the POS delivery
+    // screen did not exist). Eight now: the till discount ceiling came back
+    // with the POS module, and the cockpit and cash-forecast reads are both
+    // flagged because each shows the whole company's money to whoever holds it.
+    expect(isSensitive("pos.discount.approve")).toBe(true);
+    expect(isSensitive("accounting.cockpit.view")).toBe(true);
+    expect(isSensitive("treasury.cash_forecast.view")).toBe(true);
     const sensitiveCount = PERMISSIONS.filter((p) => p.sensitive).length;
-    expect(sensitiveCount).toBe(5);
+    expect(sensitiveCount).toBe(8);
   });
 
   it("marks the one platform-admin-only permission", () => {

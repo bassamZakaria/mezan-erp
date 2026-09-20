@@ -117,14 +117,19 @@ describe("the permission catalogue against the routes that check it", () => {
     expect(UNGATED.length).toBeLessThanOrEqual(13);
   });
 
-  it("has no POS code left — the one that was real is now `sales.discount.approve`", () => {
-    // The whole module was catalogued and had no route at all, which is why
-    // DEC-14 deleted it. One of the thirty-eight WAS checked — but on the SALES
-    // invoice discount ceiling, not a till, and keeping it under the POS name
-    // kept it ungrantable: `pos` is deliberately absent from MODULE_CATALOG, so
-    // the role editor never rendered it and only the `*` wildcard could hold
-    // it. It moved to `sales`, where an administrator can tick it.
-    expect(ALL_PERMISSION_CODES.filter((code) => code.startsWith("pos."))).toEqual([]);
+  it("every POS code the catalogue carries is checked by a POS route — the module came back with its gates", () => {
+    // DEC-14 deleted all thirty-eight POS codes because none had a route.
+    // DEC-23 brought the module back, and it may only carry codes the server
+    // enforces: three gate routes outright, and `pos.discount.approve` is an
+    // inline `can()` on the till's discount ceiling for the same reason
+    // `sales.discount.approve` is one — the ceiling is only known once the
+    // ticket is in hand (pos/settings-routes.ts, sales-invoices-routes.ts).
+    for (const code of ["pos.terminal.view", "pos.terminal.manage", "pos.settings.edit"]) {
+      expect(GATED.has(code), `${code} must gate a route`).toBe(true);
+    }
+    expect(ALL_PERMISSION_CODES).toContain("pos.discount.approve");
+    // The invoice ceiling stayed under `sales` when the till one came back:
+    // two ceilings, two codes.
     expect(ALL_PERMISSION_CODES).toContain("sales.discount.approve");
   });
 

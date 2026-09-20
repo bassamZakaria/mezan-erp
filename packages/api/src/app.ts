@@ -1441,6 +1441,9 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
           numbering: purchases.numbering,
           stock: purchases.stock,
           gl: glPort,
+          // The same boundary the confirm uses, for every other purchase action:
+          // the audit row and the writes it describes commit together.
+          transactor: { transaction: (fn) => purchases.gl.ledger.transaction(fn) },
           glReverse: purchases.layers ? glReversePort : undefined,
           accounts: purchases.accounts,
           allocatable: purchases.allocatable,

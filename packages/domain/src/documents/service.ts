@@ -215,10 +215,10 @@ export class DocumentService<Line> {
         workflowRequestId: null,
       };
       await this.deps.repo.update(next);
+      await this.recordAudit("CONFIRM", next, "INFO");
       return next;
     });
 
-    await this.recordAudit("CONFIRM", confirmed, "INFO");
     this.emit("DOCUMENT_CONFIRMED", confirmed);
     return { document: confirmed, held: false };
   }
@@ -249,8 +249,10 @@ export class DocumentService<Line> {
       lines: cancelledLines,
       workflowRequestId: null,
     };
-    await this.deps.repo.update(cancelled);
-    await this.recordAudit("CANCEL", cancelled, "WARNING");
+    await this.deps.repo.transaction(async () => {
+      await this.deps.repo.update(cancelled);
+      await this.recordAudit("CANCEL", cancelled, "WARNING");
+    });
     this.emit("DOCUMENT_CANCELLED", cancelled);
     return cancelled;
   }

@@ -442,10 +442,11 @@ export async function postJournalEntry(
       reversedByEntryId: null,
     };
     await deps.ledger.save(posted);
+    await recordPosted(posted, totalDebit, deps);
     return posted;
   });
 
-  await emitPosted(entry, totalDebit, totalCredit, deps);
+  publishPosted(entry, totalDebit, totalCredit, deps);
   return entry;
 }
 
@@ -482,10 +483,11 @@ export async function postDraftJournalEntry(
       postedAt: nowIso(deps),
     };
     await deps.ledger.update(posted);
+    await recordPosted(posted, totalDebit, deps);
     return posted;
   });
 
-  await emitPosted(entry, totalDebit, totalCredit, deps);
+  publishPosted(entry, totalDebit, totalCredit, deps);
   return entry;
 }
 
@@ -538,19 +540,20 @@ export async function replaceDraftJournalEntry(
     lines: cmd.lines.map(toLine),
   };
 
-  await deps.ledger.transaction(() => deps.ledger.replaceDraft(entry));
-
-  if (deps.audit) {
-    await recordSensitiveEvent(deps.audit, {
-      module: "accounting",
-      entityType: "JOURNAL_ENTRY",
-      entityId: entry.id,
-      action: "UPDATE",
-      actor: deps.actor ?? "system",
-      severity: "INFO",
-      details: { entryId: entry.id, date: entry.date, lineCount: entry.lines.length },
-    });
-  }
+  await deps.ledger.transaction(async () => {
+    await deps.ledger.replaceDraft(entry);
+    if (deps.audit) {
+      await recordSensitiveEvent(deps.audit, {
+        module: "accounting",
+        entityType: "JOURNAL_ENTRY",
+        entityId: entry.id,
+        action: "UPDATE",
+        actor: deps.actor ?? "system",
+        severity: "INFO",
+        details: { entryId: entry.id, date: entry.date, lineCount: entry.lines.length },
+      });
+    }
+  });
 
   return entry;
 }
@@ -570,45 +573,54 @@ export async function deleteDraftJournalEntry(
     throw new JournalEntryNotDraftError(entryId, existing.status);
   }
 
-  await deps.ledger.transaction(() => deps.ledger.deleteDraft(entryId));
-
-  if (deps.audit) {
-    await recordSensitiveEvent(deps.audit, {
-      module: "accounting",
-      entityType: "JOURNAL_ENTRY",
-      entityId: entryId,
-      action: "DELETE",
-      actor: deps.actor ?? "system",
-      severity: "WARNING",
-      details: { entryId, date: existing.date, memo: existing.memo },
-    });
-  }
+  await deps.ledger.transaction(async () => {
+    await deps.ledger.deleteDraft(entryId);
+    if (deps.audit) {
+      await recordSensitiveEvent(deps.audit, {
+        module: "accounting",
+        entityType: "JOURNAL_ENTRY",
+        entityId: entryId,
+        action: "DELETE",
+        actor: deps.actor ?? "system",
+        severity: "WARNING",
+        details: { entryId, date: existing.date, memo: existing.memo },
+      });
+    }
+  });
 }
 
-async function emitPosted(
+/**
+ * The audit row belongs to the posting's OWN transaction: recorded after the
+ * commit, a crash between the two left a posted entry nobody appended a record
+ * for, and a rolled-back posting could still leave the record behind.
+ */
+async function recordPosted(entry: JournalEntry, totalDebit: Money, deps: JournalPostingDeps): Promise<void> {
+  if (!deps.audit) return;
+  await recordSensitiveEvent(deps.audit, {
+    module: "accounting",
+    entityType: "JOURNAL_ENTRY",
+    entityId: entry.id,
+    action: "POST",
+    actor: deps.actor ?? "system",
+    severity: "INFO",
+    details: {
+      entryId: entry.id,
+      entryNo: entry.entryNo,
+      date: entry.date,
+      source: entry.source ?? "manual",
+      totalDebit: totalDebit.toString(),
+      lineCount: entry.lines.length,
+    },
+  });
+}
+
+/** Outside the transaction on purpose: a subscriber that throws must not roll the posting back. */
+function publishPosted(
   entry: JournalEntry,
   totalDebit: Money,
   totalCredit: Money,
   deps: JournalPostingDeps,
-): Promise<void> {
-  if (deps.audit) {
-    await recordSensitiveEvent(deps.audit, {
-      module: "accounting",
-      entityType: "JOURNAL_ENTRY",
-      entityId: entry.id,
-      action: "POST",
-      actor: deps.actor ?? "system",
-      severity: "INFO",
-      details: {
-        entryId: entry.id,
-        entryNo: entry.entryNo,
-        date: entry.date,
-        source: entry.source ?? "manual",
-        totalDebit: totalDebit.toString(),
-        lineCount: entry.lines.length,
-      },
-    });
-  }
+): void {
   deps.events?.publish({
     type: "JOURNAL_ENTRY_POSTED",
     entryId: entry.id,

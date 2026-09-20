@@ -120,27 +120,30 @@ export async function reverseJournalEntry(
     };
     await deps.ledger.update(reversedOriginal);
 
+    // The audit row rides in the reversal's own transaction: recorded after the
+    // commit it could be lost on a crash, and a rolled-back reversal could still
+    // leave a record claiming the entry was reversed.
+    if (deps.audit) {
+      await recordSensitiveEvent(deps.audit, {
+        module: "accounting",
+        entityType: "JOURNAL_ENTRY",
+        entityId: original.id,
+        action: "REVERSE",
+        actor: deps.actor ?? "system",
+        severity: "WARNING",
+        details: {
+          entryId: original.id,
+          entryNo: original.entryNo,
+          reversalId: reversal.id,
+          reversalNo: reversal.entryNo,
+          date: reversalDate,
+          totalDebit: totalDebit.toString(),
+        },
+      });
+    }
+
     return { original: reversedOriginal, reversal };
   });
-
-  if (deps.audit) {
-    await recordSensitiveEvent(deps.audit, {
-      module: "accounting",
-      entityType: "JOURNAL_ENTRY",
-      entityId: original.id,
-      action: "REVERSE",
-      actor: deps.actor ?? "system",
-      severity: "WARNING",
-      details: {
-        entryId: original.id,
-        entryNo: original.entryNo,
-        reversalId: result.reversal.id,
-        reversalNo: result.reversal.entryNo,
-        date: reversalDate,
-        totalDebit: totalDebit.toString(),
-      },
-    });
-  }
   deps.events?.publish({
     type: "JOURNAL_ENTRY_REVERSED",
     entryId: result.reversal.id,

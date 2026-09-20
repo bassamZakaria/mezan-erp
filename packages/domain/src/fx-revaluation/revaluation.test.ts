@@ -10,7 +10,8 @@ import {
 } from "../gl/test-helpers/in-memory-ledger-repository.js";
 import type { JournalPostingDeps } from "../gl/post.js";
 import { FxRateMissingError } from "../exchange-rates/convert.js";
-import { computeFxRevaluation, postFxRevaluation, nextDay, fxRevaluationNet, type OpenFxBalance, type FxRevaluationConfig } from "./revaluation.js";
+import type { PostedLine } from "../gl/ledger.js";
+import { computeFxRevaluation, deriveOpenFxBalances, postFxRevaluation, nextDay, fxRevaluationNet, type OpenFxBalance, type FxRevaluationConfig } from "./revaluation.js";
 
 function account(id: string, overrides: Partial<Account> = {}): Account {
   return { id, code: id, nameAr: id, nameEn: null, type: "asset", naturalBalance: "debit", parentId: null, isHeader: false, status: "active", ...overrides };
@@ -182,5 +183,66 @@ describe("fxRevaluationNet", () => {
   it("ignores a manual journal that happens to reuse the memo", () => {
     const lines = [{ accountId: "1100", memo: "إعادة تقييم عملات أجنبية", source: "manual" as const, debit: Money.fromMajor("9"), credit: Money.zero() }];
     expect(fxRevaluationNet(lines, "1100").toString()).toBe(Money.zero().toString());
+  });
+});
+
+/**
+ * guards D322 — a foreign receipt credits its revenue account once, at the spot
+ * rate of the day the income was earned, and `deriveOpenFxBalances` collected
+ * that line as an open position: the seeded USD receipt put GL 4910 إيرادات
+ * أخرى in the preview as USD 1,200.00 booked at 58,680.00 and restated the
+ * whole tenant by 540.00 every month end, for income settled the day it was
+ * booked.
+ */
+describe("deriveOpenFxBalances — only a monetary item is an open FX position (IAS 21 ¶23)", () => {
+  const accounts: Account[] = [
+    account("1105", { nameAr: "ذمم عملاء تجارية" }),
+    account("2100", { type: "liability", naturalBalance: "credit", nameAr: "ذمم موردين" }),
+    account("1310", { nameAr: "بنك بالدولار" }),
+    account("4910", { type: "revenue", naturalBalance: "credit", nameAr: "إيرادات أخرى" }),
+    account("5910", { type: "expense", naturalBalance: "debit", nameAr: "مصروفات أخرى" }),
+    account("3100", { type: "equity", naturalBalance: "credit", nameAr: "رأس المال" }),
+    account("9100", { type: "memorandum", naturalBalance: "debit", nameAr: "حسابات نظامية" }),
+  ];
+
+  function line(accountId: string, debit: string, credit: string): PostedLine {
+    return {
+      entryId: `je-${accountId}`,
+      entryNo: null,
+      date: "2026-09-01",
+      source: "system",
+      accountId,
+      costCenterId: null,
+      projectId: null,
+      costCategory: null,
+      branchId: null,
+      currency: "USD",
+      fxRate: "48.90",
+      memo: null,
+      debit: Money.fromMajor(debit),
+      credit: Money.fromMajor(credit),
+    };
+  }
+
+  it("ignores the revenue leg of a foreign receipt that settled the day it was booked", () => {
+    const open = deriveOpenFxBalances([line("4910", "0", "58680.00")], accounts);
+    expect(open).toEqual([]);
+  });
+
+  it("ignores expense, equity and memorandum accounts too", () => {
+    const open = deriveOpenFxBalances(
+      [line("5910", "4890.00", "0"), line("3100", "0", "4890.00"), line("9100", "4890.00", "0")],
+      accounts,
+    );
+    expect(open).toEqual([]);
+  });
+
+  it("still collects the receivable, the payable and the foreign bank account", () => {
+    const open = deriveOpenFxBalances(
+      [line("1105", "48900.00", "0"), line("2100", "0", "24450.00"), line("1310", "9780.00", "0"), line("4910", "0", "58680.00")],
+      accounts,
+    );
+    expect(open.map((b) => b.accountId)).toEqual(["1105", "1310", "2100"]);
+    expect(open.map((b) => b.foreignAmount.toString())).toEqual(["1000.000000", "200.000000", "500.000000"]);
   });
 });

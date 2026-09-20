@@ -2,6 +2,7 @@ export {
   computeFxRevaluation,
   postFxRevaluation,
   deriveOpenFxBalances,
+  isMonetaryAccountType,
   nextDay,
   fxRevaluationNet,
   FX_REVALUATION_LINE_MEMO,

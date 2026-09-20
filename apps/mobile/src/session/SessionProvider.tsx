@@ -2,6 +2,7 @@ import Constants from "expo-constants";
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { loginResponseSchema, type SessionDTO } from "@mezan/contracts";
 import { ApiError, ApiFailure } from "@/api/errors";
+import { forgetCachedReads } from "@/api/query-cache";
 import { HttpMethod, apiRequest, ScopeAll, type ApiCredentials, type RequestOptions } from "@/api/client";
 import { clearSession, loadConnection, loadSession, saveConnection, saveSession, type Connection } from "./storage";
 
@@ -68,6 +69,7 @@ export function SessionProvider({ children }: { children: ReactNode }): ReactNod
   const signOut = useCallback(async () => {
     setSession(null);
     await clearSession();
+    await forgetCachedReads();
   }, []);
 
   const request = useCallback(
@@ -85,6 +87,8 @@ export function SessionProvider({ children }: { children: ReactNode }): ReactNod
 
   const signIn = useCallback(async (input: SignInInput) => {
     const next: Connection = { baseUrl: input.baseUrl, tenantCode: input.tenantCode, email: input.email };
+    // Whoever signs in next must never be served the last session's figures.
+    await forgetCachedReads();
     const signedIn = await apiRequest(
       {
         baseUrl: next.baseUrl,

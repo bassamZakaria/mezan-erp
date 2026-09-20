@@ -32,6 +32,7 @@ import {
 } from "@mezan/contracts";
 import { type AuthContextResolver, callerUserId, createPermissionGate } from "./permission-gate.js";
 import { handleDocumentError } from "./document-error-handling.js";
+import { MasterDataKind, refuseUnknownMasterData, type MasterDataChecks } from "./master-data-check.js";
 import { tenantDay } from "./tenant-day.js";
 
 function serializePlanLine(l: InstallmentLine) {
@@ -84,6 +85,8 @@ function serializeFollowUp(f: CollectionFollowUp) {
 }
 
 export interface InstallmentsRoutesDeps {
+  /** Refuses a plan naming a customer or a collection naming a branch no master record holds (D310). */
+  readonly masterData?: MasterDataChecks;
   readonly plans: DocumentService<InstallmentLine>;
   /** Direct repo access for the overdue batch, which rewrites line statuses in place rather than transitioning the document's own status (see `overdue.ts`). */
   readonly plansRepo: DocumentRepository<InstallmentLine>;
@@ -244,6 +247,10 @@ export function createInstallmentsRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
+    const planPartyRefusal = await refuseUnknownMasterData(c, deps.masterData, [
+      { kind: MasterDataKind.Customer, ids: [parsed.data.customerId] },
+    ]);
+    if (planPartyRefusal) return planPartyRefusal;
     try {
       const schedule = generateInstallmentSchedule({
         invoiceTotal: Money.fromMajor(parsed.data.invoiceTotal),
@@ -298,6 +305,10 @@ export function createInstallmentsRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
+    const collectBranchRefusal = await refuseUnknownMasterData(c, deps.masterData, [
+      { kind: MasterDataKind.Branch, ids: [parsed.data.branchId] },
+    ]);
+    if (collectBranchRefusal) return collectBranchRefusal;
     if (!deps.collect) {
       return c.json(
         { error: "INSTALLMENT_COLLECTION_UNAVAILABLE", message: "تحصيل الأقساط غير متاح — الخزينة غير موصولة." },

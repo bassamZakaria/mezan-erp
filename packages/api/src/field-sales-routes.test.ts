@@ -15,6 +15,8 @@ import {
 // store file directly by relative path.
 import { createSqliteVanTripRepository, type SqliteVanTripRepositoryHandle } from "../../persistence/src/van-trip-store.js";
 import { createFieldSalesRoutes, type FieldSalesRoutesDeps } from "./field-sales-routes.js";
+import { createVansRoutes } from "./field-sales-routes.js";
+import { MasterDataKind, type MasterDataChecks, type MasterRecordCheck } from "./master-data-check.js";
 
 import { insecureHeaderAuthContextResolver } from "./permission-gate.js";
 /**
@@ -360,5 +362,85 @@ describe("D70: a view_own van-sales rep reads their own trips, narrowed by scope
       req("/", { permissions: "field.van_trip.view", headers: { "x-branch-scope": "OTHER-BRANCH" } }),
     );
     expect((await res.json()) as unknown[]).toEqual([]);
+  });
+});
+
+function roster(...ids: readonly string[]): MasterRecordCheck {
+  const held = new Set(ids);
+  return { findById: async (id) => (held.has(id) ? { id } : null) };
+}
+
+describe("D310 — a van and a trip may not name a branch or warehouse that does not exist", () => {
+  const MASTER_DATA: MasterDataChecks = {
+    [MasterDataKind.Branch]: roster("MAIN"),
+    [MasterDataKind.Warehouse]: roster("VAN-WH", "MAIN-WH"),
+  };
+
+  it("refuses a trip whose branch or van warehouse has no master record", async () => {
+    const { app } = newApp({ masterData: MASTER_DATA });
+    const branch = await app.fetch(
+      req("/", {
+        method: "POST",
+        permissions: "field.van_trip.open",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ...openPayload, branchId: "BR-PHANTOM" }),
+      }),
+    );
+    expect(branch.status).toBe(422);
+    expect(((await branch.json()) as { error: string }).error).toBe("BRANCH_NOT_FOUND");
+
+    const warehouse = await app.fetch(
+      req("/", {
+        method: "POST",
+        permissions: "field.van_trip.open",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ...openPayload, id: "trip-wh", vanWarehouseId: "WH-PHANTOM" }),
+      }),
+    );
+    expect(warehouse.status).toBe(422);
+    const body = (await warehouse.json()) as { error: string; warehouseIds: string[]; messageEn: string };
+    expect(body.error).toBe("WAREHOUSE_NOT_FOUND");
+    expect(body.warehouseIds).toEqual(["WH-PHANTOM"]);
+    expect(body.messageEn).toContain("WH-PHANTOM");
+  });
+
+  it("still opens a trip whose every id is real", async () => {
+    const { app } = newApp({ masterData: MASTER_DATA });
+    const res = await app.fetch(
+      req("/", {
+        method: "POST",
+        permissions: "field.van_trip.open",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(openPayload),
+      }),
+    );
+    expect(res.status).toBe(201);
+  });
+
+  it("refuses a van registered into a branch or warehouse that does not exist", async () => {
+    const vans = {
+      list: async () => [],
+      findById: async () => null,
+      save: async () => {},
+    };
+    const app = createVansRoutes(vans, insecureHeaderAuthContextResolver, MASTER_DATA);
+    const res = await app.fetch(
+      req("/", {
+        method: "POST",
+        permissions: "field.van_trip.open",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          id: "van-phantom",
+          code: "VAN-99",
+          nameAr: "مركبة",
+          plateNumber: "أ ب ج 9999",
+          branchId: "BR-PHANTOM",
+          warehouseId: "VAN-WH",
+          treasuryAccountId: "VAN-TREAS",
+        }),
+      }),
+    );
+    expect(res.status).toBe(422);
+    expect(((await res.json()) as { error: string }).error).toBe("BRANCH_NOT_FOUND");
   });
 });

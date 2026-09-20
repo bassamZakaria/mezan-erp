@@ -58,6 +58,7 @@ import {
 } from "./permission-gate.js";
 import { recordAdminEvent } from "./admin-audit.js";
 import { tenantDay } from "./tenant-day.js";
+import { MasterDataKind, refuseUnknownMasterData, type MasterDataChecks } from "./master-data-check.js";
 
 /**
  * Fixed Assets routes (docs/archive/catalog/07-mfg-projects-assets.md "الأصول
@@ -66,6 +67,8 @@ import { tenantDay } from "./tenant-day.js";
  * mounts this whole router under `/assets`.
  */
 export interface FixedAssetsRoutesDeps {
+  /** Refuses an asset or a depreciation run naming a branch or warehouse no master record holds (D310). */
+  readonly masterData?: MasterDataChecks;
   readonly categories: AssetCategoryRepository;
   readonly assets: AssetRepository;
   readonly runs: DepreciationRunRepository;
@@ -323,6 +326,11 @@ export function createFixedAssetsRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
+    const assetPlaceRefusal = await refuseUnknownMasterData(c, deps.masterData, [
+      { kind: MasterDataKind.Branch, ids: [parsed.data.branchId] },
+      { kind: MasterDataKind.Warehouse, ids: [parsed.data.warehouseId] },
+    ]);
+    if (assetPlaceRefusal) return assetPlaceRefusal;
     try {
       const asset = await createAsset(
         {
@@ -506,6 +514,10 @@ export function createFixedAssetsRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
+    const runBranchRefusal = await refuseUnknownMasterData(c, deps.masterData, [
+      { kind: MasterDataKind.Branch, ids: [parsed.data.branchId] },
+    ]);
+    if (runBranchRefusal) return runBranchRefusal;
     try {
       const settings = deps.settings ? ((await deps.settings.get()) ?? createDefaultSettings()) : null;
       const run = await createDepreciationRun(

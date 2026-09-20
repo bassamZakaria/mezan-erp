@@ -17,6 +17,7 @@ import {
 import type { WacSnapshotRepository, StockLedgerRepository } from "@mezan/domain";
 import { createWritedownRunSchema } from "@mezan/contracts";
 import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
+import { MasterDataKind, refuseUnknownMasterData, type MasterDataChecks } from "./master-data-check.js";
 
 /**
  * Inventory aging-based write-down batch routes (docs/archive/phase-backlog.md Phase 4
@@ -25,6 +26,8 @@ import { createPermissionGate, type AuthContextResolver } from "./permission-gat
  * this router under `/inventory/writedown-runs`.
  */
 export interface InventoryWritedownRoutesDeps {
+  /** Refuses a run naming a warehouse no master record holds (D310). */
+  readonly masterData?: MasterDataChecks;
   readonly runs: WritedownRunRepository;
   readonly wacSnapshots: WacSnapshotRepository;
   readonly stockLedger: StockLedgerRepository;
@@ -96,6 +99,10 @@ export function createInventoryWritedownRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
+    const warehouseRefusal = await refuseUnknownMasterData(c, deps.masterData, [
+      { kind: MasterDataKind.Warehouse, ids: [parsed.data.warehouseId] },
+    ]);
+    if (warehouseRefusal) return warehouseRefusal;
     const period = parsed.data.period;
     let policy = undefined;
     if (deps.settings) {

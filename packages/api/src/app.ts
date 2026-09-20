@@ -670,6 +670,8 @@ export interface CreateAppOptions {
    * Omit it and the app behaves exactly as before (no `/manufacturing` routes).
    */
   readonly manufacturing?: {
+    /** Refuses a configured order naming a customer no master record holds (D310). */
+    readonly masterData?: ManufacturingRoutesDeps["masterData"];
     readonly boms: BomRepository;
     readonly workOrders: WorkOrderRepository;
     readonly configurableProducts: ConfigurableProductRepository;
@@ -1114,7 +1116,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     // gets both the list the trip form picks from and the cascade the trip
     // route enforces — never one without the other.
     if (options.fieldSales.vans) {
-      app.route("/field/vans", createVansRoutes(options.fieldSales.vans, resolveAuth));
+      app.route("/field/vans", createVansRoutes(options.fieldSales.vans, resolveAuth, options.fieldSales.masterData));
     }
   }
   if (options.salesInvoices) {
@@ -1514,6 +1516,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
       "/manufacturing",
       createManufacturingRoutes(
         {
+          masterData: mfg.masterData,
           boms: mfg.boms,
           workOrders: mfg.workOrders,
           configurableProducts: mfg.configurableProducts,

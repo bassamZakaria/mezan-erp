@@ -12,6 +12,7 @@ import {
   createStandaloneSqliteFollowUpStore,
 } from "@mezan/persistence";
 import { createInstallmentsRoutes, type InstallmentsRoutesDeps } from "./installments-routes.js";
+import { MasterDataKind, type MasterDataChecks, type MasterRecordCheck } from "./master-data-check.js";
 
 import { insecureHeaderAuthContextResolver } from "./permission-gate.js";
 const closers: Array<{ close(): void }> = [];
@@ -927,5 +928,62 @@ describe("installments plan router — تحصيل قسط (D119)", () => {
     const body = (await res.json()) as { remaining: string; lines: { no: number; outstanding: string }[] };
     expect(Number(body.lines.find((l) => l.no === 1)?.outstanding)).toBe(0);
     expect(Number(body.remaining)).toBeCloseTo(10000 - Number(due), 2);
+  });
+});
+
+function roster(...ids: readonly string[]): MasterRecordCheck {
+  const held = new Set(ids);
+  return { findById: async (id) => (held.has(id) ? { id } : null) };
+}
+
+describe("D310 — an instalment plan may not name a master record that does not exist", () => {
+  const MASTER_DATA: MasterDataChecks = {
+    [MasterDataKind.Customer]: roster("CUST1"),
+    [MasterDataKind.Branch]: roster("BR-MAIN"),
+  };
+
+  async function guardedApp() {
+    return createInstallmentsRoutes({ ...(await buildDeps()), masterData: MASTER_DATA }, insecureHeaderAuthContextResolver);
+  }
+
+  it("refuses a plan whose customer has no master record — the phantom would otherwise stand in the AR ladder", async () => {
+    const app = await guardedApp();
+    const res = await app.fetch(
+      req("/plans", { method: "POST", permissions: CREATE, body: JSON.stringify({ ...planPayload, customerId: "CUST-PHANTOM" }) }),
+    );
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as { error: string; customerIds: string[]; message: string; messageEn: string };
+    expect(body.error).toBe("CUSTOMER_NOT_FOUND");
+    expect(body.customerIds).toEqual(["CUST-PHANTOM"]);
+    expect(body.message).toContain("CUST-PHANTOM");
+    expect(body.messageEn).toContain("CUST-PHANTOM");
+  });
+
+  it("refuses a collection whose branch has no master record", async () => {
+    const app = await guardedApp();
+    await app.fetch(req("/plans", { method: "POST", permissions: CREATE, body: JSON.stringify(planPayload) }));
+    await app.fetch(req("/plans/IP1/confirm", { method: "POST", permissions: CREATE }));
+    const res = await app.fetch(
+      req("/plans/IP1/collect", {
+        method: "POST",
+        permissions: "installments.collect",
+        body: JSON.stringify({
+          installmentNo: 1,
+          amount: "100.00",
+          branchId: "BR-PHANTOM",
+          treasuryAccountId: "TR-1",
+          paymentMethod: "cash",
+          date: "2026-09-01",
+        }),
+      }),
+    );
+    expect(res.status).toBe(422);
+    expect(((await res.json()) as { error: string }).error).toBe("BRANCH_NOT_FOUND");
+  });
+
+  it("still accepts a plan whose customer is real", async () => {
+    const app = await guardedApp();
+    const res = await app.fetch(req("/plans", { method: "POST", permissions: CREATE, body: JSON.stringify(planPayload) }));
+    expect(res.status).toBe(201);
   });
 });

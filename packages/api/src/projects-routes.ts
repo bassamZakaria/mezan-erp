@@ -27,6 +27,7 @@ import {
 import { createProjectSchema, updateProjectSchema } from "@mezan/contracts";
 import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
 import { tenantToday } from "./tenant-day.js";
+import { MasterDataKind, refuseUnknownMasterData, type MasterDataChecks } from "./master-data-check.js";
 
 function serialize(project: Project) {
   return {
@@ -68,6 +69,8 @@ function handleDomainError(c: Context, err: unknown) {
 }
 
 export interface ProjectsRoutesDeps {
+  /** Refuses a project naming a customer no master record holds (D310). */
+  readonly masterData?: MasterDataChecks;
   readonly projects: ProjectRepository;
   readonly costCenters: CostCenterRepository;
   /** The posted ledger and its accounts, for the project P&L. Omitted, the report answers with no rows. */
@@ -222,6 +225,10 @@ export function createProjectsRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
+    const customerRefusal = await refuseUnknownMasterData(c, deps.masterData, [
+      { kind: MasterDataKind.Customer, ids: [parsed.data.customerId] },
+    ]);
+    if (customerRefusal) return customerRefusal;
     try {
       const { budget, ...rest } = parsed.data;
       const project = await createProject(

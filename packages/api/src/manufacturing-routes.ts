@@ -76,6 +76,7 @@ import {
   withinScope,
 } from "./permission-gate.js";
 import { tenantDay } from "./tenant-day.js";
+import { MasterDataKind, refuseUnknownMasterData, type MasterDataChecks } from "./master-data-check.js";
 
 /**
  * Permission-gated routes for the manufacturing module (docs/archive/catalog/07),
@@ -112,6 +113,8 @@ export interface WorkOrderAuditView {
 }
 
 export interface ManufacturingRoutesDeps {
+  /** Refuses a configured order naming a customer no master record holds (D310). */
+  readonly masterData?: MasterDataChecks;
   readonly boms: BomRepository;
   readonly workOrders: WorkOrderRepository;
   /** محطات العمل — the registry a shop-floor action's `stationId` is resolved against (R9.1). */
@@ -984,6 +987,10 @@ export function createManufacturingRoutes(
   app.post("/config-instances", gate("manufacturing.wo.create"), async (c) => {
     const parsed = createConfigInstanceSchema.safeParse(await c.req.json());
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    const customerRefusal = await refuseUnknownMasterData(c, deps.masterData, [
+      { kind: MasterDataKind.Customer, ids: [parsed.data.customerId] },
+    ]);
+    if (customerRefusal) return customerRefusal;
     try {
       const product = await deps.configurableProducts.findById(parsed.data.configurableProductId);
       if (!product) throw new ConfigurableProductNotFoundError(parsed.data.configurableProductId);

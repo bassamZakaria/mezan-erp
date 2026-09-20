@@ -3257,6 +3257,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       },
     },
     cheques: {
+      masterData: masterDataChecks,
       cheques,
       gl: salesInvoiceGl,
       // A cheque applied against an invoice lives in the same allocation
@@ -3421,6 +3422,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       numbering: ledger.numbering,
     },
     projects: {
+      masterData: masterDataChecks,
       projects,
       costCenters,
       ledger,
@@ -3496,6 +3498,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       contracts: { exists: async (id) => (await worksContracts.findContractById(id)) !== null },
     },
     fixedAssets: {
+      masterData: masterDataChecks,
       categories: assetCategories,
       assets,
       rateHistory: assetRateHistory,
@@ -3506,6 +3509,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       audit: auditSink,
     },
     inventoryWritedown: {
+      masterData: masterDataChecks,
       runs: writedownRuns,
       wacSnapshots: stockLedger.snapshots,
       stockLedger: stockLedger.ledger,
@@ -3520,6 +3524,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       specifications: itemSpecifications,
     },
     fieldSales: {
+      masterData: masterDataChecks,
       trips: vanTrips,
       // The registry the van→warehouse→treasury cascade resolves against, and
       // the check that a crew member is a real employee: the trip form took a
@@ -3533,6 +3538,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       numbering: { next: (opts) => ledger.numbering.next("VAN_TRIP", { branchId: opts?.branchId }) },
     },
     manufacturing: {
+      masterData: masterDataChecks,
       boms: manufacturing.boms,
       workOrders: manufacturing.workOrders,
       configurableProducts: manufacturing.configurableProducts,
@@ -3922,6 +3928,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     },
     landedCosts: { documents: landedCostDocuments, service: landedCosts },
     installments: {
+      masterData: masterDataChecks,
       plans: installmentPlanDocuments,
       plansRepo: installmentPlans,
       followUps,

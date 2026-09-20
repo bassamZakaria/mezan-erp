@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { screen, fireEvent, within, waitFor } from "@testing-library/react";
 import type { ReportDrillDownDTO } from "@mezan/contracts";
 import type { ReportRunnerEntityRef } from "@mezan/ui";
-import { ReportDrillDownPanel } from "./ReportDrillDownPanel";
+import { ReportDrillDownPanel, drillDownQuery } from "./ReportDrillDownPanel";
 import { renderWithProviders, stubTransport, testAdminSession } from "../../data/test-support";
 import { pathForRoute } from "../../routing";
 
@@ -35,6 +35,36 @@ function drillDown(overrides: Partial<ReportDrillDownDTO> = {}): ReportDrillDown
     ...overrides,
   };
 }
+
+describe("drillDownQuery — a panel is asked for the window its row was computed over (D281, D286)", () => {
+  it("sends the as-of ladder's own day and branch to every entity panel", () => {
+    const params = { asOfDate: "2026-09-19", branchId: "BR-1" };
+    for (const kind of ["customer", "supplier", "item", "account"]) {
+      expect(drillDownQuery(kind, params)).toBe("?asOfDate=2026-09-19&branchId=BR-1");
+    }
+  });
+
+  it("reads the period under whichever of the three names the report gave it", () => {
+    expect(drillDownQuery("customer", { dateFrom: "2026-09-01", dateTo: "2026-09-19", taxMode: "inc", branchId: "" })).toBe(
+      "?fromDate=2026-09-01&asOfDate=2026-09-19",
+    );
+    expect(drillDownQuery("supplier", { fromDate: "2026-01-01", toDate: "2026-03-31" })).toBe("?fromDate=2026-01-01&asOfDate=2026-03-31");
+    expect(drillDownQuery("account", { periodFrom: "2026-01-01", periodTo: "2026-09-19", branchId: "" })).toBe(
+      "?fromDate=2026-01-01&asOfDate=2026-09-19",
+    );
+  });
+
+  it("passes the stock report's warehouse to the item panel and to no other", () => {
+    const params = { warehouseId: "WH-MAIN", search: "", branchId: "" };
+    expect(drillDownQuery("item", params)).toBe("?warehouseId=WH-MAIN");
+    expect(drillDownQuery("customer", params)).toBe("");
+  });
+
+  it("sends nothing when the report ran with no window at all", () => {
+    expect(drillDownQuery("customer", {})).toBe("");
+    expect(drillDownQuery("customer", null)).toBe("");
+  });
+});
 
 describe("ReportDrillDownPanel", () => {
   it("renders closed and fires no fetch when entity is null", () => {

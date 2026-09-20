@@ -236,6 +236,13 @@ describe("UsersPage", () => {
     expect(screen.getByRole("checkbox", { name: "الفرع الرئيسي" })).not.toBeChecked();
     expect(screen.getByRole("checkbox", { name: "فرع الإسكندرية" })).toBeChecked();
 
+    // This row is a company admin, so the screen holds the save until the
+    // segregation-of-duties conflict is acknowledged with a reason (ENH-051).
+    // The branch edit is what is under test; the acknowledgement is the price
+    // of saving ANY edit on this row, and the panel refuses without it.
+    fireEvent.click(screen.getByRole("checkbox", { name: "أعتمد إسناد هذا الدور رغم التعارض" }));
+    fireEvent.change(screen.getByLabelText("سبب الاستثناء"), { target: { value: "مدير المنشأة" } });
+
     fireEvent.click(screen.getByRole("button", { name: "حفظ المستخدم" }));
     expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ branchIds: ["BRANCH2"] }), "user-all");
   });

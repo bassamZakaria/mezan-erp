@@ -111,6 +111,12 @@ export async function run(ctx: Ctx): Promise<void> {
     check("nor does a bare name that is not an address", (await attempt("admin")) === 401, String(await attempt("admin")));
 
     // --- the allowed-domain policy -------------------------------------
+    // `isCompanyAdmin: true` trips every segregation-of-duties rule at once
+    // (ENH-E2-10): the flag IS the wildcard, so one person holds both sides of
+    // all fourteen maker-checker pairs. That is not a reason to refuse the
+    // tenant's own admin seat — it is a decision to put on record — so the
+    // grant carries the acknowledgement the gate asks for, and the SoD gate
+    // itself is asserted on its own below rather than through these.
     const newUser = (email: string, id: string) => ({
       nameAr: "مستخدم نطاق", nameEn: null,
       email,
@@ -122,6 +128,8 @@ export async function run(ctx: Ctx): Promise<void> {
       warehouseScope: "*",
       status: "active",
       password: "SCN-password-1",
+      acknowledge: true,
+      reason: "مدير المنشأة — صاحب الحساب الأول",
       id,
     });
 
@@ -155,6 +163,65 @@ export async function run(ctx: Ctx): Promise<void> {
       "and is stored normalised, so no case variant can become a second account",
       inside.body?.email === "ops@mezan.com",
       String(inside.body?.email),
+    );
+
+    // --- the segregation-of-duties gate on the same route ---------------
+    // The grant, not the person: an account that reaches both sides of a
+    // maker-checker pair is refused UNTIL someone records why. Asserted here
+    // because it is this route's gate, and because the domain checks above
+    // would otherwise be the only thing exercising it — silently, by
+    // acknowledging it away.
+    const unacknowledged = await req("POST", "/users", {
+      ...newUser("sod@mezan.com", "SCN-U-SOD-1"),
+      acknowledge: undefined,
+      reason: undefined,
+    });
+    check(
+      "a company-admin grant is refused until the conflict is acknowledged",
+      unacknowledged.status === 409 && unacknowledged.body?.error === "SOD_CONFLICT",
+      `${unacknowledged.status}: ${JSON.stringify(unacknowledged.body).slice(0, 120)}`,
+    );
+    check(
+      "and the refusal names the pairs it tripped, in Arabic, not just a code",
+      Array.isArray(unacknowledged.body?.conflicts) &&
+        unacknowledged.body.conflicts.length > 0 &&
+        unacknowledged.body.conflicts.every((cf: any) => typeof cf.labelAr === "string" && cf.labelAr.trim() !== ""),
+      JSON.stringify((unacknowledged.body?.conflicts ?? []).map((cf: any) => cf.ruleId)),
+    );
+
+    const acknowledgedWithoutReason = await req("POST", "/users", {
+      ...newUser("sod2@mezan.com", "SCN-U-SOD-2"),
+      reason: undefined,
+    });
+    check(
+      "a tick with no reason is not an acknowledgement — the reason is the record",
+      acknowledgedWithoutReason.status === 409,
+      `${acknowledgedWithoutReason.status}`,
+    );
+
+    const acknowledged = await req("POST", "/users", newUser("sod3@mezan.com", "SCN-U-SOD-3"));
+    check("acknowledged with a reason, the seat is granted", acknowledged.status === 201, `${acknowledged.status}: ${JSON.stringify(acknowledged.body).slice(0, 160)}`);
+    // The account's id is the SERVER's — `POST /users` mints its own and
+    // ignores the one in the body — so the trail is read by what came back.
+    const overrides = rows((await req("GET", `/audit?entityId=${acknowledged.body?.id}`)).body);
+    check(
+      "and the override is on the audit trail with the reason that bought it",
+      overrides.some((e: any) => e.action === "SOD_OVERRIDE" && String(e.details?.reason ?? "").includes("مدير المنشأة")),
+      JSON.stringify(overrides.map((e: any) => e.action)),
+    );
+
+    // An address the policy refuses is refused BEFORE the conflict the caller
+    // could acknowledge away: a 409 asking for an override, in front of a 422
+    // no override can satisfy, buys an audited override for nothing.
+    const bothWrong = await req("POST", "/users", {
+      ...newUser("outside@gmail.com", "SCN-U-SOD-4"),
+      acknowledge: undefined,
+      reason: undefined,
+    });
+    check(
+      "a refusal nobody can acknowledge past comes before one they can",
+      bothWrong.status === 422 && bothWrong.body?.error === "EMAIL_DOMAIN_NOT_ALLOWED",
+      `${bothWrong.status}: ${JSON.stringify(bothWrong.body).slice(0, 120)}`,
     );
 
     // Restore what the seed configured, so later scenarios see the tenant as
@@ -387,15 +454,29 @@ export async function run(ctx: Ctx): Promise<void> {
     // by default (Q-8), and a truncated count compared against the queue reads
     // as a missing credit note rather than as a missing page.
     const confirmedReturns = (await ctx.allRows("/sales-returns", {})).filter((r: any) => r.status === "confirmed");
+    // A consumer return is a REFUND RECEIPT, not a credit note (D282,
+    // `createReturnEtaEnqueueBridge` in packages/backend/src/eta-receipts.ts):
+    // the note is raised only for a buyer who carries a tax registration
+    // number. Both are `documentType: "receipt"` on the queue, so the two
+    // halves are told apart by the document each row is keyed to — exactly as
+    // the invoice/receipt split above is.
+    const isKeyedTo = (docs: any[], s: any) => docs.some((d: any) => (d.docNo ?? d.id) === s.internalId);
+    const saleReceipts = queuedReceipts.filter((s: any) => isKeyedTo(confirmed, s));
+    const refundReceipts = queuedReceipts.filter((s: any) => isKeyedTo(confirmedReturns, s));
 
-    check("D5 — every live sales invoice is queued exactly once, as an invoice or as a receipt", queuedInvoices.length + queuedReceipts.length === confirmed.length, `invoices=${queuedInvoices.length} receipts=${queuedReceipts.length} live invoices=${confirmed.length}`);
-    check("D5 — the B2C half of the queue is not empty: consumer sales really do produce receipts", queuedReceipts.length > 0, `receipts=${queuedReceipts.length}`);
-    check("D5 — every confirmed sales return is queued as a credit note", queuedNotes.length === confirmedReturns.length, `notes=${queuedNotes.length} confirmed returns=${confirmedReturns.length}`);
+    check("D5 — every live sales invoice is queued exactly once, as an invoice or as a receipt", queuedInvoices.length + saleReceipts.length === confirmed.length, `invoices=${queuedInvoices.length} receipts=${saleReceipts.length} live invoices=${confirmed.length}`);
+    check("D5 — the B2C half of the queue is not empty: consumer sales really do produce receipts", saleReceipts.length > 0, `receipts=${saleReceipts.length}`);
+    check(
+      "D5 — every confirmed sales return is queued: a credit note for a registered buyer, a refund receipt for a consumer",
+      queuedNotes.length + refundReceipts.length === confirmedReturns.length,
+      `notes=${queuedNotes.length} refund receipts=${refundReceipts.length} confirmed returns=${confirmedReturns.length}`,
+    );
     check("D5 — nothing else is in the queue", queuedInvoices.length + queuedReceipts.length + queuedNotes.length === queued.length, JSON.stringify(queued.map((s: any) => s.documentType)));
     check("D5 — a queued submission starts جاهز", queued.every((s: any) => s.status === "ready"), JSON.stringify(queued.map((s: any) => s.status)));
-    check("D5 — the queue keys each invoice row by the invoice's own document number", [...queuedInvoices, ...queuedReceipts].every((s: any) => confirmed.some((i: any) => (i.docNo ?? i.id) === s.internalId)), JSON.stringify(queuedInvoices.map((s: any) => s.internalId)));
+    check("D5 — the queue keys each invoice row by the invoice's own document number", [...queuedInvoices, ...saleReceipts].every((s: any) => isKeyedTo(confirmed, s)), JSON.stringify(queuedInvoices.map((s: any) => s.internalId)));
     check("D5 — every queued receipt carries the identifier its printed QR encodes", queuedReceipts.every((s: any) => typeof s.etaUuid === "string" && /^[0-9a-f]{64}$/.test(s.etaUuid)), JSON.stringify(queuedReceipts.slice(0, 5).map((s: any) => s.etaUuid)));
-    check("D5 — the queue keys each credit note by the return's own document number", queuedNotes.every((s: any) => confirmedReturns.some((r: any) => (r.docNo ?? r.id) === s.internalId)), JSON.stringify(queuedNotes.map((s: any) => s.internalId)));
+    check("D5 — the queue keys each credit note by the return's own document number", queuedNotes.every((s: any) => isKeyedTo(confirmedReturns, s)), JSON.stringify(queuedNotes.map((s: any) => s.internalId)));
+    check("D5 — nothing on the queue is keyed to neither an invoice nor a return", saleReceipts.length + refundReceipts.length === queuedReceipts.length, JSON.stringify(queuedReceipts.filter((s: any) => !isKeyedTo(confirmed, s) && !isKeyedTo(confirmedReturns, s)).map((s: any) => s.internalId)));
   });
 
   // ---------------------------------------------------------------------

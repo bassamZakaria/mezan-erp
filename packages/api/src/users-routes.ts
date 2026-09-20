@@ -7,6 +7,7 @@ import {
   ungrantablePermissions,
   ungrantableScopes,
   detectSodConflicts,
+  emailDomainRefusal,
   WILDCARD_PERMISSION,
   type AccountAuthority,
   InvalidUserError,
@@ -295,6 +296,18 @@ export function createUsersRoutes(
     return detectSodConflicts(role.permissions);
   }
 
+  /**
+   * INVARIANT: every refusal the caller CANNOT argue with is evaluated before
+   * `SOD_CONFLICT`, which they can. A 409 that says «أرسل acknowledge مع سبب»
+   * ahead of a 422 the acknowledgement will never satisfy asks an admin to put
+   * an override on record as the price of finding out the address was never
+   * allowed. Keep the acknowledgeable gate last.
+   */
+  async function refuseIfDomainNotAllowed(c: Context, email: string) {
+    const refusal = emailDomainRefusal(email, (await saveOptions()).allowedEmailDomains);
+    return refusal ? userErrorResponse(c, refusal) : null;
+  }
+
   function auditSodOverride(c: Context, user: User, conflicts: readonly SodConflictMatch[], reason: string) {
     return recordAdminEvent(audit, c, {
       module: "admin",
@@ -407,6 +420,8 @@ export function createUsersRoutes(
     }
     const escalation = await refuseIfEscalating(c, parsed.data, null);
     if (escalation) return escalation;
+    const domainRefusal = await refuseIfDomainNotAllowed(c, parsed.data.email);
+    if (domainRefusal) return domainRefusal;
     const conflicts = await sodConflictsOfGrant(parsed.data);
     if (conflicts.length > 0 && !(parsed.data.acknowledge && parsed.data.reason)) {
       return refuseSodConflicts(c, conflicts);
@@ -448,6 +463,8 @@ export function createUsersRoutes(
     // account reaches. An unrelated edit (phone number, branch scope) to an
     // account already sitting in a conflicted seat must not re-block on every
     // save of a decision nobody is making right now.
+    const domainRefusal = await refuseIfDomainNotAllowed(c, parsed.data.email);
+    if (domainRefusal) return domainRefusal;
     const grantChanged = before.roleId !== parsed.data.roleId || before.isCompanyAdmin !== parsed.data.isCompanyAdmin;
     const conflicts = grantChanged ? await sodConflictsOfGrant(parsed.data) : [];
     if (conflicts.length > 0 && !(parsed.data.acknowledge && parsed.data.reason)) {

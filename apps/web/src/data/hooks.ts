@@ -39,6 +39,7 @@ import type {
   CollectionFollowUpDTO,
   CompleteFollowUpDTO,
   ConfigInputDTO,
+  ConfirmSalesInvoiceDTO,
   ConfirmVoucherDTO,
   ConvertLeadDTO,
   ConvertRfqDTO,
@@ -3032,14 +3033,29 @@ export function useCreateSalesInvoice() {
   });
 }
 
+/**
+ * B3 — a plain id or `{id, expectedVersion}` still works (every existing
+ * caller), and `receiptPaymentMethod` lets a back-office confirm (no till in
+ * hand) state the tender for the consumer sale's e-receipt. Left out, the
+ * backend derives it honestly on its own (till tender, then the settling
+ * collection voucher, then «أخرى»).
+ */
+export type ConfirmSalesInvoiceAct =
+  | string
+  | ({ readonly id: string; readonly expectedVersion?: number } & Pick<ConfirmSalesInvoiceDTO, "receiptPaymentMethod">);
+
 export function useConfirmSalesInvoice() {
   const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
-  return useMutation<SalesInvoiceDTO & { held: boolean }, ApiError, DocumentAct>({
+  return useMutation<SalesInvoiceDTO & { held: boolean }, ApiError, ConfirmSalesInvoiceAct>({
     mutationFn: async (input) => {
-      const { id, body } = actOf(input);
-      const res = await request(`/sales-invoices/${id}/confirm`, { method: "POST", body });
+      const id = typeof input === "string" ? input : input.id;
+      const dto: ConfirmSalesInvoiceDTO = typeof input === "string" ? {} : {
+        ...(input.expectedVersion === undefined ? {} : { expectedVersion: input.expectedVersion }),
+        ...(input.receiptPaymentMethod === undefined ? {} : { receiptPaymentMethod: input.receiptPaymentMethod }),
+      };
+      const res = await request(`/sales-invoices/${id}/confirm`, { method: "POST", body: JSON.stringify(dto) });
       if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theInvoiceCouldNotBe2"), t));
       return res.json<SalesInvoiceDTO & { held: boolean }>();
     },

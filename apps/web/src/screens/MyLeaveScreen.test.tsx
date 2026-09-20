@@ -11,7 +11,10 @@ function renderScreen(initial: MyLeaveDTO) {
   let current = { ...initial, requests: [...initial.requests] };
   const transport = stubTransport({
     "GET /hr/leave-requests/me": () => ({ body: current }),
-    "POST /hr/leave-requests": (init) => {
+    // Self-service writes go to `/hr/self/*` (gated on `hr.self.leave`), not
+    // to the manager-side `/hr/leave-requests` — an employee filing their own
+    // leave must not need the HR creation permission.
+    "POST /hr/self/leave-requests": (init) => {
       const body = JSON.parse((init?.body as string) ?? "{}");
       const created: LeaveRequestDTO = {
         id: "lr-new",
@@ -31,7 +34,7 @@ function renderScreen(initial: MyLeaveDTO) {
       current = { ...current, requests: [...current.requests, created] };
       return { status: 201, body: created };
     },
-    "POST /hr/leave-requests/lr-1/cancel": () => {
+    "POST /hr/self/leave-requests/lr-1/cancel": () => {
       const updated: LeaveRequestDTO = { ...current.requests[0]!, status: "cancelled" };
       current = { ...current, requests: [updated, ...current.requests.slice(1)] };
       return { body: updated };

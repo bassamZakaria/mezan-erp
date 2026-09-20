@@ -1,7 +1,7 @@
 /**
  * Mezan permission catalog — a versioned TS data manifest.
  *
- * Single source of truth for the 231 permissions across 19 modules the product
+ * Single source of truth for the 247 permissions across 19 modules the product
  * actually enforces, descended from the matrix in
  * `docs/archive/catalog/09-settings-dashboard-ux.md` §permission matrix and mandated as
  * "data (a versioned TS manifest)" by `docs/archive/plan.md` §5.2. The role editor, the

@@ -250,7 +250,10 @@ describe("Leave Requests — My Leave self-service", () => {
   it("gates /leave-requests/me on the caller's linked employee, returning employeeId: null when unlinked", async () => {
     const user = fakeUser({ id: "user-1", employeeId: null });
     const { app } = newApp([user]);
-    const res = await app.fetch(req("/leave-requests/me", { permissions: "hr.leave.view", userId: "user-1" }));
+    // `/leave-requests/me` is a self-service read of the CALLER's own leave,
+    // so it gates on `hr.self.leave` — not on `hr.leave.view`, which is the
+    // manager right over everybody's requests.
+    const res = await app.fetch(req("/leave-requests/me", { permissions: "hr.self.leave", userId: "user-1" }));
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ employeeId: null, requests: [] });
   });
@@ -270,7 +273,7 @@ describe("Leave Requests — My Leave self-service", () => {
     expect(created.days).toBe(3);
     expect(created.status).toBe("pending");
 
-    const me = await app.fetch(req("/leave-requests/me", { permissions: "hr.leave.view", userId: "user-1" }));
+    const me = await app.fetch(req("/leave-requests/me", { permissions: "hr.self.leave", userId: "user-1" }));
     const body = (await me.json()) as { employeeId: string; requests: unknown[] };
     expect(body.employeeId).toBe("emp-1");
     expect(body.requests).toHaveLength(1);

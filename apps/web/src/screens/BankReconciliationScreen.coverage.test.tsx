@@ -3,8 +3,20 @@ import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { StatementSourceCode, type BankStatementDTO, type BankStatementListItemDTO, type StatementLineDTO, type TreasuryAccountDTO } from "@mezan/contracts";
+import {
+  MatchSourceCode,
+  StatementSourceCode,
+  type BankStatementDTO,
+  type BankStatementListItemDTO,
+  type BankStatementReviewDTO,
+  type MatchCandidateDTO,
+  type ReconciliationPositionDTO,
+  type StatementLineDTO,
+  type TreasuryAccountDTO,
+} from "@mezan/contracts";
 import { BankReconciliationScreen } from "./BankReconciliationScreen";
+import { scaledOf, sumScaled } from "../lib/money";
+import type { Transport } from "../data/transport";
 import { renderWithProviders, stubTransport, testAdminSession, type StubResult } from "../data/test-support";
 
 const BANK_ACCOUNT: TreasuryAccountDTO = {
@@ -68,14 +80,85 @@ function matchSummaryFor(lines: readonly StatementLineDTO[]) {
   };
 }
 
-function detail(overrides: { statement?: Partial<BankStatementDTO>; lines?: StatementLineDTO[] } = {}) {
-  const lines = overrides.lines ?? [line()];
+const STAMP = "2026-08-22T10:00:00.000Z";
+
+/** A scale-1e-6 decimal string, the only money form that crosses the wire. */
+function exact(scaled: bigint): string {
+  const negative = scaled < 0n;
+  const abs = negative ? -scaled : scaled;
+  return `${negative ? "-" : ""}${abs / 1_000_000n}.${(abs % 1_000_000n).toString().padStart(6, "0")}`;
+}
+
+function matchedTo(entryId: string, entryNo: string, overrides: Partial<StatementLineDTO> = {}): StatementLineDTO {
+  return line({
+    status: "matched",
+    matchedEntryId: entryId,
+    matchedEntryNo: entryNo,
+    matchedEntryIds: [entryId],
+    matchedEntryNos: [entryNo],
+    matchSource: MatchSourceCode.Manual,
+    matchedAt: STAMP,
+    ...overrides,
+  });
+}
+
+function positionFor(base: BankStatementDTO, lines: readonly StatementLineDTO[]): ReconciliationPositionDTO {
+  const opening = scaledOf(base.openingBalance);
+  const closing = scaledOf(base.closingBalance);
+  const linesTotal = sumScaled(lines.map((l) => l.amount));
+  const open = lines.filter((l) => l.status !== "matched");
+  const cleared = opening + sumScaled(lines.filter((l) => l.status === "matched").map((l) => l.amount));
   return {
-    ...statement(overrides.statement),
-    lines,
-    matchSummary: matchSummaryFor(lines),
+    openingBalance: base.openingBalance,
+    closingBalance: base.closingBalance,
+    clearedBalance: exact(cleared),
+    difference: exact(closing - cleared),
+    statementLinesTotal: exact(linesTotal),
+    statementArithmeticGap: exact(closing - opening - linesTotal),
+    unmatchedLines: { count: open.length, total: exact(sumScaled(open.map((l) => l.amount))) },
+    bookBalance: exact(cleared),
+    bookDifference: "0.000000",
+    outstandingBook: { count: 0, total: "0.000000", items: [] },
+    unexplainedBookDifference: "0.000000",
   };
 }
+
+function detail(overrides: { statement?: Partial<BankStatementDTO>; lines?: StatementLineDTO[] } = {}) {
+  const lines = overrides.lines ?? [line()];
+  const openingBalance = overrides.statement?.openingBalance ?? "0.000000";
+  const base = statement({
+    openingBalance,
+    closingBalance: exact(scaledOf(openingBalance) + sumScaled(lines.map((l) => l.amount))),
+    ...overrides.statement,
+  });
+  return { ...base, lines, matchSummary: matchSummaryFor(lines), position: positionFor(base, lines) };
+}
+
+function reviewOf(overrides: { statement?: Partial<BankStatementDTO>; lines?: StatementLineDTO[] } = {}): BankStatementReviewDTO {
+  const d = detail(overrides);
+  return {
+    position: d.position,
+    items: d.lines.filter((l) => l.status !== "matched").map((l) => ({ lineId: l.id, suggestions: [], rule: null })),
+  };
+}
+
+const DEPOSIT_CANDIDATE: MatchCandidateDTO = {
+  entryId: "je-1",
+  entryNo: "JE-000010",
+  date: "2026-08-01",
+  amount: "1000.000000",
+  description: "إيداع نقدي - سند قبض",
+  currency: "EGP",
+};
+
+const CHARGE_CANDIDATE: MatchCandidateDTO = {
+  entryId: "je-2",
+  entryNo: "JE-000020",
+  date: "2026-08-01",
+  amount: "-20.000000",
+  description: "مصروف بنكي",
+  currency: "EGP",
+};
 
 function listItem(base: BankStatementDTO, lines: readonly StatementLineDTO[] = [line()]): BankStatementListItemDTO {
   return { ...base, matchSummary: matchSummaryFor(lines) };
@@ -93,11 +176,23 @@ async function pickColumn(user: ReturnType<typeof userEvent.setup>, dialog: HTML
   fireEvent.mouseDown(await screen.findByRole("option", { name: optionLabel }));
 }
 
-async function openStatement(handlers: Record<string, (init?: RequestInit) => StubResult>, statements: BankStatementDTO[] = [statement()]) {
+async function openStatement(
+  handlers: Record<string, (init?: RequestInit) => StubResult>,
+  statements: BankStatementDTO[] = [statement()],
+  wrap: (transport: Transport) => Transport = (transport) => transport,
+) {
   const user = userEvent.setup();
   renderWithProviders(<BankReconciliationScreen />, {
     initialSession: testAdminSession,
-    transport: stubTransport({ ...baseHandlers(statements), ...handlers }),
+    transport: wrap(
+      stubTransport({
+        ...baseHandlers(statements),
+        "GET /bank-statements/rules": () => ({ body: [] }),
+        "GET /accounts": () => ({ body: [] }),
+        "GET /cost-centers": () => ({ body: [] }),
+        ...handlers,
+      }),
+    ),
   });
   const row = (await screen.findByText(statements[0]!.statementNumber ?? statements[0]!.id)).closest("tr") as HTMLElement;
   await user.click(within(row).getByRole("button", { name: `إجراءات ${statements[0]!.statementNumber ?? statements[0]!.id}` }));
@@ -334,85 +429,119 @@ describe("BankReconciliationScreen — import dialog", () => {
 
 describe("BankReconciliationScreen — matching", () => {
   it("shows a statement that has no lines yet", async () => {
-    const { panel } = await openStatement({
+    const { user, panel } = await openStatement({
       "GET /bank-statements/stmt-1": () => ({ body: detail({ lines: [] }) }),
+      "GET /bank-statements/stmt-1/review": () => ({ body: reviewOf({ lines: [] }) }),
+      "GET /bank-statements/stmt-1/candidates": () => ({ body: [] }),
     });
-    expect(await within(panel).findByText("لا توجد سطور في هذا الكشف")).toBeInTheDocument();
+
+    expect(await within(panel).findByRole("tab", { name: "للمراجعة (0)" })).toBeInTheDocument();
+    expect(within(panel).getByText("لا توجد سطور تنتظر المراجعة.")).toBeInTheDocument();
+    // an empty statement is empty, not broken: no error and nothing left to reconcile
+    expect(within(panel).queryByRole("alert")).not.toBeInTheDocument();
+    expect(within(panel).getByText("متوازن")).toBeInTheDocument();
+
+    await user.click(within(panel).getByRole("tab", { name: "مطابَقة (0)" }));
+    expect(await within(panel).findByText("لم تُطابَق أي سطور بعد.")).toBeInTheDocument();
   });
 
   it("ignores a second match click on a different line while the first is still in flight", async () => {
-    let matchedL0 = false;
     const calls: Record<string, number> = {};
-    const { panel } = await openStatement({
-      "GET /bank-statements/stmt-1": () => ({
-        body: detail({
-          lines: [
-            matchedL0 ? line({ status: "matched", matchedEntryId: "je-1", matchedEntryNo: "JE-01" }) : line(),
-            line({ id: "stmt-1:L1", description: "سطر ثانٍ", amount: "-20.000000", reference: null }),
-          ],
-        }),
-      }),
-      "GET /bank-statements/stmt-1/candidates": () => ({
-        body: [
-          { entryId: "je-1", entryNo: "JE-01", date: "2026-08-01", amount: "1000.000000", description: "إيداع نقدي - سند قبض" },
-          { entryId: "je-2", entryNo: "JE-02", date: "2026-08-01", amount: "-20.000000", description: "مصروف بنكي" },
-        ],
-      }),
-      "POST /bank-statements/stmt-1/lines/stmt-1:L0/match": () => {
-        calls["L0"] = (calls["L0"] ?? 0) + 1;
-        matchedL0 = true;
-        return { body: line({ status: "matched", matchedEntryId: "je-1", matchedEntryNo: "JE-01" }) };
-      },
-      "POST /bank-statements/stmt-1/lines/stmt-1:L1/match": () => {
-        calls["L1"] = (calls["L1"] ?? 0) + 1;
-        return { body: line({ id: "stmt-1:L1", status: "matched", matchedEntryId: "je-2" }) };
-      },
+    let matchedFirst = false;
+    let releaseFirst: (() => void) | null = null;
+    const firstInFlight = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
     });
+    const lines = () => [
+      matchedFirst ? matchedTo("je-1", "JE-000010") : line(),
+      line({ id: "stmt-1:L1", description: "سطر ثانٍ", reference: null, amount: "-20.000000" }),
+    ];
+    const { user, panel } = await openStatement(
+      {
+        "GET /bank-statements/stmt-1": () => ({ body: detail({ lines: lines() }) }),
+        "GET /bank-statements/stmt-1/review": () => ({ body: reviewOf({ lines: lines() }) }),
+        "GET /bank-statements/stmt-1/candidates": () => ({ body: [DEPOSIT_CANDIDATE, CHARGE_CANDIDATE] }),
+        "POST /bank-statements/stmt-1/lines/stmt-1:L0/match-many": () => {
+          matchedFirst = true;
+          return { body: lines()[0]! };
+        },
+        "POST /bank-statements/stmt-1/lines/stmt-1:L1/match-many": () => ({
+          body: matchedTo("je-2", "JE-000020", { id: "stmt-1:L1", description: "سطر ثانٍ", reference: null, amount: "-20.000000" }),
+        }),
+      },
+      [statement()],
+      (transport) => async (path, init) => {
+        if ((init?.method ?? "GET").toUpperCase() === "POST" && path.endsWith("/match-many")) {
+          const key = path.includes("stmt-1:L0") ? "L0" : "L1";
+          calls[key] = (calls[key] ?? 0) + 1;
+          if (key === "L0") await firstInFlight;
+        }
+        return transport(path, init);
+      },
+    );
 
     await within(panel).findByText("إيداع نقدي");
-    const pickers = within(panel).getAllByLabelText("طابِق مع حركة خزينة");
-    fireEvent.focus(pickers[0]!);
-    fireEvent.mouseDown(await within(panel).findByText("إيداع نقدي - سند قبض"));
-    fireEvent.focus(pickers[1]!);
-    fireEvent.mouseDown(await within(panel).findByText("مصروف بنكي"));
+    const openManual = within(panel).getAllByRole("button", { name: "مطابقة يدوية" });
+    await user.click(openManual[0]!);
+    await user.click(openManual[1]!);
+    // A checkbox's accessible name trims each span, so « · » loses its leading space.
+    await user.click(await within(panel).findByRole("checkbox", { name: "JE-000010· 2026-08-01· إيداع نقدي - سند قبض" }));
+    await user.click(within(panel).getByRole("checkbox", { name: "JE-000020· 2026-08-01· مصروف بنكي" }));
 
-    const matchButtons = within(panel).getAllByRole("button", { name: "مطابقة" });
+    const matchButtons = within(panel).getAllByRole("button", { name: "مطابقة المحدد" });
     fireEvent.click(matchButtons[0]!);
     fireEvent.click(matchButtons[1]!);
 
     await waitFor(() => expect(calls["L0"]).toBe(1));
+    expect(calls["L1"]).toBeUndefined();
+    // only the acting row goes busy — the second line keeps its own controls live
+    expect(matchButtons[0]!).toBeDisabled();
+    expect(matchButtons[1]!).toBeEnabled();
+    expect(openManual[1]!).toBeEnabled();
+
+    releaseFirst!();
+    expect(await within(panel).findByRole("tab", { name: "مطابَقة (1)" })).toBeInTheDocument();
     expect(calls["L1"]).toBeUndefined();
   });
 
   it("reports a server error when automatic matching is rejected", async () => {
     const { user, panel } = await openStatement({
       "GET /bank-statements/stmt-1": () => ({ body: detail() }),
+      "GET /bank-statements/stmt-1/review": () => ({ body: reviewOf() }),
+      "GET /bank-statements/stmt-1/candidates": () => ({ body: [] }),
       "POST /bank-statements/stmt-1/auto-match": () => ({
         status: 500,
         body: { error: "INTERNAL", message: "تعذّر تشغيل المطابقة التلقائية." },
       }),
     });
-    await within(panel).findByText("غير مطابَق");
-    await user.click(within(panel).getByRole("button", { name: "مطابقة تلقائية" }));
+
+    await within(panel).findByRole("tab", { name: "للمراجعة (1)" });
+    await user.click(within(panel).getByRole("button", { name: "اقتراح المطابقات" }));
     expect(await within(panel).findByRole("alert")).toHaveTextContent("تعذّر تشغيل المطابقة التلقائية.");
   });
 
   it("shows fallback labels for a line with no reference and match candidates missing a description or entry number", async () => {
+    const lines = [line({ reference: null })];
     const { user, panel } = await openStatement({
-      "GET /bank-statements/stmt-1": () => ({ body: detail({ lines: [line({ reference: null })] }) }),
+      "GET /bank-statements/stmt-1": () => ({ body: detail({ lines }) }),
+      "GET /bank-statements/stmt-1/review": () => ({ body: reviewOf({ lines }) }),
       "GET /bank-statements/stmt-1/candidates": () => ({
         body: [
-          { entryId: "je-numbered", entryNo: "JE-99", date: "2026-08-01", amount: "1000.000000", description: null },
-          { entryId: "je-bare", entryNo: null, date: "2026-08-02", amount: "500.000000", description: null },
-        ],
+          DEPOSIT_CANDIDATE,
+          { entryId: "je-numbered", entryNo: "JE-000099", date: "2026-08-01", amount: "1000.000000", description: null, currency: "EGP" },
+          { entryId: "je-bare", entryNo: null, date: "2026-08-02", amount: "500.000000", description: null, currency: "EGP" },
+        ] satisfies MatchCandidateDTO[],
       }),
     });
+
     await within(panel).findByText("إيداع نقدي");
+    // with no reference the line's meta row is its date alone, with no dangling separator
     expect(within(panel).getByText("2026-08-01")).toBeInTheDocument();
 
-    await user.click(within(panel).getByLabelText("طابِق مع حركة خزينة"));
-    // An option's accessible name runs its label straight into its sublabel.
-    expect(await screen.findByRole("option", { name: /^JE-99/ })).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: /^je-bare/ })).toBeInTheDocument();
+    await user.click(within(panel).getByRole("button", { name: "مطابقة يدوية" }));
+    // A checkbox's accessible name trims each span, so « · » loses its leading space.
+    expect(await within(panel).findByRole("checkbox", { name: "JE-000010· 2026-08-01· إيداع نقدي - سند قبض" })).toBeInTheDocument();
+    expect(within(panel).getByRole("checkbox", { name: "JE-000099· 2026-08-01" })).toBeInTheDocument();
+    expect(within(panel).getByRole("checkbox", { name: "je-bare· 2026-08-02" })).toBeInTheDocument();
   });
 });

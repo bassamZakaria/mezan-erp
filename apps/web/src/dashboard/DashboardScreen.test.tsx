@@ -103,9 +103,13 @@ describe.each(["light", "dark"] as const)("DashboardScreen (%s theme)", (theme) 
         },
       }),
     );
-    expect(await screen.findByText("تعذّر تحميل بيانات لوحة التحكم.")).toBeInTheDocument();
+    const failure = await screen.findByText("تعذّر تحميل بيانات لوحة التحكم.");
 
-    fireEvent.click(screen.getByRole("button", { name: "إعادة المحاولة" }));
+    // The owner cockpit sits on the same page with its own error card and its
+    // own «إعادة المحاولة», so the retry has to be taken from the summary
+    // panel that failed rather than from the page.
+    const card = failure.parentElement as HTMLElement;
+    fireEvent.click(within(card).getByRole("button", { name: "إعادة المحاولة" }));
     expect(await screen.findAllByText("86,240.00")).not.toHaveLength(0);
   });
 });

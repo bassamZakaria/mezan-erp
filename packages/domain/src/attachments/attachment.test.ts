@@ -20,8 +20,13 @@ describe("isAttachmentEntityType", () => {
     expect(isAttachmentEntityType("Item")).toBe(false);
   });
 
-  it("catalogues 14 entity types with no duplicates", () => {
-    expect(ATTACHMENT_ENTITY_TYPES).toHaveLength(14);
-    expect(new Set(ATTACHMENT_ENTITY_TYPES).size).toBe(14);
+  it("catalogues 15 entity types with no duplicates", () => {
+    // 14 → 15 when HR attendance gained attachments (the web clock's selfie
+    // rides on an attendance entry). The count is pinned so a type added
+    // without a route that accepts it, or a type deleted while its uploads
+    // stay, has to be noticed here.
+    expect(ATTACHMENT_ENTITY_TYPES).toHaveLength(15);
+    expect(new Set(ATTACHMENT_ENTITY_TYPES).size).toBe(15);
+    expect(ATTACHMENT_ENTITY_TYPES).toContain("attendance");
   });
 });

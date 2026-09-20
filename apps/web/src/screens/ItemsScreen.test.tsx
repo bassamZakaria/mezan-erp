@@ -305,7 +305,8 @@ function renderScreen(
     },
     "GET /audit": (_init, path) => {
       const entityId = new URL(path, "http://x").searchParams.get("entityId") ?? "";
-      return { body: opts.auditEventsByItem?.[entityId] ?? [] };
+      const events = opts.auditEventsByItem?.[entityId] ?? [];
+      return { body: { events, total: events.length } };
     },
     "POST /items": (init) => {
       const body = JSON.parse((init?.body as string) ?? "{}");

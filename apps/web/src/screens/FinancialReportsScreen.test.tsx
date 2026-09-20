@@ -90,7 +90,10 @@ describe("FinancialReportsScreen (real GL API wiring)", () => {
   it("switches to the balance sheet tab and shows the A = L + E check from the server", async () => {
     renderWithProviders(<FinancialReportsScreen />, { transport: fullTransport(), initialSession: testAdminSession });
     fireEvent.click(screen.getByRole("tab", { name: "الميزانية العمومية" }));
-    expect(screen.getByRole("heading", { name: "الميزانية العمومية" })).toBeInTheDocument();
+    // The active tab lives in the address (`useUrlParam`), and `useUrlPatch`
+    // flushes the write in a microtask so a handler's two URL writes merge
+    // into one — so the switch is never visible in the same tick as the click.
+    expect(await screen.findByRole("heading", { name: "الميزانية العمومية" })).toBeInTheDocument();
     await waitFor(() => expect(screen.getByText("الأصول = الالتزامات + حقوق الملكية")).toBeInTheDocument());
   });
 
@@ -114,7 +117,7 @@ describe("FinancialReportsScreen (real GL API wiring)", () => {
     renderWithProviders(<FinancialReportsScreen />, { transport: fullTransport(capture), initialSession: testAdminSession });
     fireEvent.click(screen.getByRole("tab", { name: "دفتر الأستاذ العام" }));
     // Placeholder until run — no request fired yet.
-    expect(screen.getByText(/اضغط .عرض التقرير./)).toBeInTheDocument();
+    expect(await screen.findByText(/اضغط .عرض التقرير./)).toBeInTheDocument();
     expect(capture.paths.some((p) => p.includes("/financial-reports/general-ledger"))).toBe(false);
 
     fireEvent.click(screen.getByRole("button", { name: "عرض التقرير" }));
@@ -168,6 +171,12 @@ describe("FinancialReportsScreen — drilling into an account answers for the fi
     const drillPaths: string[] = [];
     renderWithProviders(<FinancialReportsScreen />, { transport: drillTransport(drillPaths), initialSession: testAdminSession });
     fireEvent.click(screen.getByRole("tab", { name: "قائمة الدخل" }));
+    // The tab lives in the address and `useUrlPatch` flushes in a microtask,
+    // so for one tick the TRIAL BALANCE is still mounted — and it renders a
+    // «النقدية» row of its own. Clicking before the switch lands drills with
+    // the trial balance's as-of date instead of the income statement's period,
+    // which is what made this test pass about one run in eight.
+    await waitFor(() => expect(screen.getByRole("tab", { name: "قائمة الدخل" })).toHaveAttribute("aria-selected", "true"));
     fireEvent.click(await screen.findByRole("button", { name: "النقدية" }));
     await waitFor(() =>
       expect(drillPaths).toEqual(["/reports/drill-down/account/1100?fromDate=2026-01-01&asOfDate=2026-08-24&branchId=BR-1"]),

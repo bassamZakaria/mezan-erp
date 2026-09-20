@@ -23,7 +23,9 @@ describe("createPlatform", () => {
       expect(p.createdAt).toBe("2026-01-01T00:00:00.000Z");
     }
     const enterprise = plans[2]!;
-    expect([...enterprise.modules].sort()).toEqual([...MODULE_CATALOG].sort());
+    // `pos` is licensable (DEC-23) but deliberately stays out of the seeded
+    // SaaS plans until the POS close-out lane — see `create-platform.ts`.
+    expect([...enterprise.modules].sort()).toEqual([...MODULE_CATALOG].filter((id) => id !== "pos").sort());
     const business = plans[1]!;
     expect(business.modules).not.toContain("hr");
     expect(business.modules).not.toContain("manufacturing");

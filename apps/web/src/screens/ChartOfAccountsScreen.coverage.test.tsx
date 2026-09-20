@@ -3,7 +3,7 @@ import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
 import { screen, within, fireEvent, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { AccountDTO } from "@mezan/contracts";
+import type { AccountDTO, AuditEventDTO } from "@mezan/contracts";
 import { ChartOfAccountsScreen } from "./ChartOfAccountsScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
 
@@ -37,6 +37,7 @@ interface RenderOptions {
   patchStatus?: (id: string) => { status?: number; body: unknown } | undefined;
   createStatus?: () => { status?: number; body: unknown } | undefined;
   ledger?: { lines: unknown[]; balance: unknown };
+  auditEventsByAccount?: Record<string, AuditEventDTO[]>;
 }
 
 function renderScreen(opts: RenderOptions = {}) {
@@ -46,6 +47,11 @@ function renderScreen(opts: RenderOptions = {}) {
     "GET /gl/accounts/*/ledger": () => {
       if (opts.ledger) return { body: opts.ledger };
       return { status: 404, body: { error: "NOT_FOUND" } };
+    },
+    "GET /audit": (_init, path) => {
+      const entityId = new URL(path, "http://test").searchParams.get("entityId") ?? "";
+      const events = opts.auditEventsByAccount?.[entityId] ?? [];
+      return { body: { events, total: events.length } };
     },
     "POST /accounts": (init) => {
       const overridden = opts.createStatus?.();
@@ -224,6 +230,22 @@ describe("ChartOfAccountsScreen — account movements", () => {
         ],
         balance: { accountId: "1300-1", debit: "100.000000", credit: "40.000000", balance: "60.000000" },
       },
+      auditEventsByAccount: {
+        "1300-1": [
+          {
+            stream: "sensitive",
+            module: "accounting",
+            entityType: "ACCOUNT",
+            entityId: "1300-1",
+            action: "UPDATE",
+            actor: "محمد الشهابي",
+            branchId: null,
+            timestamp: "2026-08-15T10:00:00.000Z",
+            severity: "INFO",
+            details: null,
+          },
+        ],
+      },
     });
     await user.click(await screen.findByText("درج الفرع الرئيسي"));
     const dialog = screen.getByRole("dialog");
@@ -231,7 +253,12 @@ describe("ChartOfAccountsScreen — account movements", () => {
     expect(within(dialog).getAllByText("—").length).toBeGreaterThan(0);
 
     await user.click(within(dialog).getByRole("tab", { name: "سجل التدقيق" }));
-    expect(within(dialog).getByText("سجل التدقيق يعرض كل تعديل على الحساب بالتاريخ والمستخدم.")).toBeInTheDocument();
+    // The tab used to be a sentence promising a trail nobody had wired. It
+    // reads `GET /audit` for this account now, so the account's own events are
+    // what has to be on screen — and the ledger movements must not be.
+    const history = await within(dialog).findByRole("region", { name: "سجل التغييرات" });
+    expect(within(history).getByText("تعديل")).toBeInTheDocument();
+    expect(within(history).getByText("محمد الشهابي")).toBeInTheDocument();
     expect(within(dialog).queryByText("JE-000010")).not.toBeInTheDocument();
   });
 });

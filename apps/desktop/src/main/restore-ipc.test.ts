@@ -352,13 +352,13 @@ describe("an encrypted install", () => {
   const cipher: TenantCipher = { driver: cipherDriver, key: KEY };
   const SQLITE_HEADER = Buffer.from("SQLite format 3\0", "latin1");
 
-  async function encryptedLive(): Promise<void> {
+  async function encryptedLive(key: TenantCipher = cipher): Promise<void> {
     live.close();
     rmSync(dbPath, { force: true });
-    live = openTenantConnection(dbPath, cipher);
+    live = openTenantConnection(dbPath, key);
     live.exec("CREATE TABLE invoice (id TEXT PRIMARY KEY, memo TEXT NOT NULL)");
     live.prepare("INSERT INTO invoice VALUES (?, ?)").run("INV-1", "فاتورة أولى");
-    await register(ADMIN, cipher);
+    await register(ADMIN, key);
   }
 
   it("writes an archive nobody can read off a USB stick", async () => {
@@ -410,9 +410,13 @@ describe("an encrypted install", () => {
       "good-token",
     );
 
-    // Same install, different key — what an archive carried over from the
-    // machine that died looks like from here.
-    await register(ADMIN, { driver: cipherDriver, key: "d".repeat(64) });
+    // Different hardware: THIS machine's books are keyed with its own key and
+    // are perfectly readable — it is the imported archive that is not. Only
+    // re-keying the live database too makes the install self-consistent;
+    // swapping the registered key alone leaves the shell holding a connection
+    // it can no longer read, and the pre-restore safety copy fails first, on
+    // an unrelated error.
+    await encryptedLive({ driver: cipherDriver, key: "d".repeat(64) });
     const failed = await call<BackupFailure>(
       MEZAN_BACKUP_RESTORE_CHANNEL,
       "good-token",

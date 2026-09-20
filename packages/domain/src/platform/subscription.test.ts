@@ -100,14 +100,14 @@ describe("startSubscription", () => {
   });
 
   it("refuses an unknown add-on and negative capacity", async () => {
-    await expect(startSubscription({ ...base, addOnModules: ["pos"] }, subs(), plans(plan()))).rejects.toThrow(InvalidSubscriptionError);
+    await expect(startSubscription({ ...base, addOnModules: ["telepathy"] }, subs(), plans(plan()))).rejects.toThrow(InvalidSubscriptionError);
     await expect(startSubscription({ ...base, extraSeats: -1 }, subs(), plans(plan()))).rejects.toThrow(InvalidSubscriptionError);
   });
 
   it("accumulates every validation reason at once, rather than failing on the first", async () => {
-    await expect(startSubscription({ ...base, addOnModules: ["pos"], extraSeats: -1 }, subs(), plans(plan())))
+    await expect(startSubscription({ ...base, addOnModules: ["telepathy"], extraSeats: -1 }, subs(), plans(plan())))
       .rejects.toMatchObject({ reasons: expect.arrayContaining([
-        expect.stringContaining("pos"), expect.stringContaining("المقاعد الإضافية"),
+        expect.stringContaining("telepathy"), expect.stringContaining("المقاعد الإضافية"),
       ]) });
   });
 

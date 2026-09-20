@@ -496,6 +496,34 @@ describe("createBackend — cheques + bank reconciliation (phase7/treasury-compl
 
   it("mounts /bank-statements and imports a CSV statement with its per-account column mapping", async () => {
     const app = await newBackend();
+    // The statement is imported against a REAL treasury account: the import
+    // reads its branch and currency off the account, and refuses an id that
+    // resolves to nothing (D315/D316).
+    const account = await post(
+      app,
+      "/treasury-accounts",
+      { id: "ta-bank1", code: "TA-BANK1", name: "بنك مصر — الحساب الجاري", type: "bank", branchId: "BR-MAIN", glAccountId: "1310", openingBalance: "0" },
+      admin(app),
+    );
+    expect(account.status).toBe(201);
+    // And the match needs a book entry that actually MOVES that bank account
+    // (D313) — matching a line to an entry that never touched the account is
+    // what the guard exists to refuse.
+    const deposit = await post(
+      app,
+      "/gl/journal-entries",
+      {
+        id: "je-1",
+        date: "2026-08-01",
+        memo: "إيداع نقدي",
+        lines: [
+          { accountId: "1310", debit: "100.00", credit: "0" },
+          { accountId: "4100", debit: "0", credit: "100.00" },
+        ],
+      },
+      admin(app),
+    );
+    expect(deposit.status).toBe(201);
     const res = await post(
       app,
       "/bank-statements/import",

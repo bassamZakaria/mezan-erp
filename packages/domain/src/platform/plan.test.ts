@@ -36,7 +36,7 @@ describe("createPlan", () => {
   });
 
   it("refuses an unknown module, an empty bundle, zero seats, a negative price and a bad code", async () => {
-    await expect(createPlan({ ...cmd, modules: ["pos"] }, memoryRepo())).rejects.toThrow(InvalidPlanError);
+    await expect(createPlan({ ...cmd, modules: ["telepathy"] }, memoryRepo())).rejects.toThrow(InvalidPlanError);
     await expect(createPlan({ ...cmd, modules: [] }, memoryRepo())).rejects.toThrow(InvalidPlanError);
     await expect(createPlan({ ...cmd, seatsIncluded: 0 }, memoryRepo())).rejects.toThrow(InvalidPlanError);
     await expect(createPlan({ ...cmd, priceMonthly: Money.fromMajor("-1") }, memoryRepo())).rejects.toThrow(InvalidPlanError);

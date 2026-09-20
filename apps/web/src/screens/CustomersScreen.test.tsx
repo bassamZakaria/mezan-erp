@@ -385,7 +385,11 @@ function renderScreen(
     "GET /audit": (_init, path) => {
       if (opts.failAudit) return { status: 500, body: { error: "INTERNAL" } };
       const entityId = new URL(path, "http://test").searchParams.get("entityId") ?? "";
-      return { body: opts.auditEventsByCustomer?.[entityId] ?? [] };
+      const events = opts.auditEventsByCustomer?.[entityId] ?? [];
+      // `GET /audit` answers `{ events, total }` (auditQueryResponseSchema) —
+      // a bare array reads back as zero events and the panel shows its empty
+      // state, which is exactly what made this fixture stop proving anything.
+      return { body: { events, total: events.length } };
     },
     "GET /attachments": (_init, path) => {
       const entityId = new URL(path, "http://test").searchParams.get("entityId") ?? "";
@@ -761,7 +765,7 @@ describe("CustomersScreen", () => {
     fireEvent.click(await screen.findByText("شركة الأمل للتجارة"));
     fireEvent.click(screen.getByRole("tab", { name: "سجل التدقيق" }));
 
-    expect(await screen.findByText("تعذّر تحميل سجل التدقيق")).toBeInTheDocument();
+    expect(await screen.findByText("تعذّر تحميل سجل المراجعة. (رمز 500)")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "إعادة المحاولة" })).toBeInTheDocument();
   });
 

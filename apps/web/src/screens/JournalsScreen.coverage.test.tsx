@@ -231,7 +231,15 @@ describe("JournalsScreen — deep links and load failures", () => {
   });
 
   it("keeps the register on a valid page when the address points past the end of a filtered result", async () => {
-    renderScreen({ route: "/?page=99" });
+    const listPath = { current: "" };
+    renderScreen({ route: "/?page=99", listPath });
+    // The register fetches page 99, learns the filtered set is one page long,
+    // clamps back to page 1 and fetches AGAIN — and `page` is part of the
+    // query key, so between the two requests there are no cached rows and the
+    // row is briefly absent from the DOM. Waiting for the clamped request is
+    // what makes this deterministic; asserting the row straight after the
+    // render was a race with the second fetch that the full parallel run lost.
+    await waitFor(() => expect(listPath.current).not.toContain("page=99"));
     expect(await screen.findByText("JE-000001")).toBeInTheDocument();
   });
 });

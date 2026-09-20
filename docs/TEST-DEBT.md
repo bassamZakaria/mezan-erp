@@ -8,6 +8,14 @@ smoke, check:seed, e2e, every-screen and the phone checks.
 
 ## Known red on main (fix in the test pass)
 
+**Closed 2026-09-20 on `fix/b8-unit-suite` (D327).** Both gates the `pre-push` hook runs are
+green: `pnpm vitest run` is **11,461 passed / 0 failed over 934 files** (was 43 failed / 11,399
+passed over 23 files on `main` at `16b3746e`), and `pnpm scenarios` is **5,248 passed / 0
+failed** with all four invariants at exactly 0. `pnpm smoke` boots and answers 267 read
+surfaces; `pnpm typecheck && pnpm lint && pnpm build` pass. The rows below are kept as the
+record of what each lane found; every one of them is now green. The per-cluster verdict —
+product defect or stale assertion — is in [the table under this one](#what-the-43-were-d327).
+
 | Where | Reading | Found |
 |---|---|---|
 | `pnpm scenarios` — installments | `lines #2-6 are still 'pending'` — reproduces on main without any lane's change; looks date-dependent, like D281 | lane 0C, 2026-09-19 |
@@ -15,6 +23,29 @@ smoke, check:seed, e2e, every-screen and the phone checks.
 | `pnpm vitest run packages/api/src/users-routes.test.ts packages/api/src/privilege-escalation.security.test.ts packages/api/src/permission-catalog-coverage.test.ts` | 20 failures, reproduced in isolation against the unmodified files (no B5-operations file touches any of them) — mostly `409 SOD_CONFLICT` where `200`/`201` was expected; looks like ENH-E2-10's segregation-of-duties rules tripping these suites' own fixture roles/permission combinations, landed in the same merge this worktree branched from (`fc7f8f2f`) | found by lane B5-operations, 2026-09-20 |
 | `pnpm vitest run packages/api/src/bank-reconciliation-routes.test.ts packages/backend/src/create-backend.test.ts packages/backend/src/create-platform.test.ts packages/domain/src/hr/payroll-run.test.ts packages/api/src/hr-routes.test.ts apps/server/src/env.test.ts apps/desktop/src/backup/backup-service.test.ts apps/desktop/src/main/restore-ipc.test.ts` | ~17 more failures across unrelated domains (bank-rec matching, ETA credit-note queuing, the `pos` module missing from `MODULE_CATALOG`, payroll unimplemented-rule codes, `/hr/leave-requests/me` employee linking, `parseEnv`'s `paymob`/`platformSmtp` fields, a stray `.tmp`-cleanup assertion, a `VERIFICATION_FAILED` vs `FAILED` code) — none touch a B5-operations file; each reproduced identically against the unmodified file where checked | found by lane B5-operations, 2026-09-20 |
 | `pnpm scenarios` — SoD, ETA queue counts, payroll scope notice, statutory payroll | 22 failures, none naming recurring journals, backups, WebAuthn or the second backup target — same SoD/payroll pattern as above | found by lane B5-operations, 2026-09-20 |
+
+### What the 43 were (D327)
+
+One rule ran through the whole pass: never weaken an assertion to get green. Where the product
+moved deliberately, the assertion was rewritten to the new contract and the reason recorded;
+where the product was wrong, the product was fixed.
+
+| Cluster | n | Verdict | What it was |
+|---|---|---|---|
+| POS / permissions / platform | 9 | stale assertion | DEC-23 un-deferred POS: the catalogue is 247 codes over 19 modules (was 231/18), `pos` is back in `MODULE_CATALOG` with four gated codes, and eight codes are sensitive (was five). `plan.test.ts` and `subscription.test.ts` used `"pos"` as their stand-in for an *unknown* module, which it no longer is. The coverage test now asserts every POS code is enforced instead of asserting the module is absent |
+| Bank reconciliation — the screen | 9 | stale assertion | ENH-E1-03 (`3e140044`) replaced the flat match panel with `BankReconciliationWorkspace`: two tabs, per-line cards, suggestions, a position card, and `match-many` in place of `match`. The tests stubbed only the old routes, so the panel rendered «تعذّر تحميل قائمة المراجعة». The D313–D316 domain fixtures the lane was warned about had **already** been brought to the new contract by lane B3 — nothing in `packages/domain/src/bank-reconciliation` or `bank-reconciliation-routes.test.ts` was still red |
+| Backup / restore | 7 | **1 product defect**, 6 stale | `createBackup` deleted its temp snapshot and not the `-wal`/`-shm` sidecars that opening it materialises, so every backup of a WAL-mode book leaked two files into `.tmp` — fixed in `backup-service.ts`. The rest: `verify.jsonl` is written beside the archives and `pruneOldBackups` already filters to `.sqlite`, so the retention tests now count the same set (and assert the log survives the prune); `BackupRestorePage` grew a standing staleness banner with `role="alert"`, so a bare `findByRole("alert")` matched two. The `'FAILED'` vs `'VERIFICATION_FAILED'` lead was a **false alarm** — both are distinct, correctly-used members of `BackupFailureCode`; the real cause was a test that re-keyed the registered cipher while keeping a connection open under the old key, an install that cannot exist, so the pre-restore safety copy failed first on an unrelated error |
+| Audit tabs | 5 | stale assertion | ENH-E1-05 swapped the ad-hoc tabs for `EntityHistoryPanel`/`useAuditLog`, which reads `GET /audit`'s `{ events, total }`; the Customers and Items stubs still answered a bare array, so the panel rendered its empty state while the test claimed to prove the trail. The chart-of-accounts tab was a static sentence nobody had wired at all — it asserts real events now |
+| Reports / journals | 3 (+1 flake not in the 43) | stale assertion (both named flakes) | The active tab and the page live in the address and `useUrlPatch` flushes in a microtask, so a tab switch is never visible in the tick of the click. The income-statement drill clicked «النقدية» while the trial balance was still mounted with a «النقدية» of its own and drilled with the wrong period; it waits for the tab now (8 runs green). The journals deep link past the last page clamps and refetches, and `page` is part of the query key, so the row is briefly absent between the two requests; it waits for the clamped request now. **Neither flake was papered over** |
+| `apps/server/src/env.test.ts` | 2 | stale assertion | `parseEnv` gained `paymob` and `platformSmtp`; "reads every variable when set" set neither, so it no longer kept its own promise. Both are set and asserted now |
+| My Leave | 3 | stale assertion | Self-service moved to `/hr/self/leave-requests` and `GET /leave-requests/me` gates on `hr.self.leave` — an employee filing their own leave no longer needs the HR manager rights. The stubs and the fixture permission still named the manager-side route |
+| Dashboard | 2 | stale assertion | The owner cockpit (ENH-E1-01) sits on the same screen with its own error card and its own «إعادة المحاولة», so a page-wide `getByRole` matched two |
+| `create-backend` bank statement | 1 | stale fixture | The import named `ta-bank1`, which nothing in the file ever created; D315/D316 gave the import a real account lookup, so it 404s. The test creates the account and the deposit entry the match needs (D313) |
+| `create-platform` | 1 | stale assertion | `pos` is licensable but deliberately excluded from the seeded SaaS plans (`create-platform.ts:44`) |
+| Attachments | 1 | stale assertion | 14 → 15 entity types when HR attendance gained attachments |
+
+Still open, unchanged by this lane: `pnpm check:seed` reports one empty surface,
+`/security-reports/after-hours` — the ENH-E2-10 seed gap already filed below.
 
 ## Owed, per lane
 
@@ -40,6 +71,9 @@ smoke, check:seed, e2e, every-screen and the phone checks.
 
 | Gap | Where |
 |---|---|
+| A candidate checkbox's accessible name reads `JE-000010· 2026-08-01· إيداع نقدي` — `dom-accessibility-api` trims each `<span>`, so the space before every « · » is lost and a screen reader runs the number into the date. Cosmetic, but it is what the assistive tree actually says | `apps/web/src/screens/BankReconciliationWorkspace.tsx` candidate list (B8, 2026-09-20 — found, not fixed) |
+| `bankRec.thisStatementHasNoLines` («لا توجد سطور في هذا الكشف») is dead: a statement with no lines and a statement whose lines are all matched now read the same «لا توجد سطور تنتظر المراجعة.» Honest, one degree less specific | `apps/web/src/i18n/catalog.ts` (B8, 2026-09-20 — found, not fixed) |
+| `BackupRestorePage.test.tsx` fixtures date their archives `2026-08-14` and the page's staleness banner is computed against the real clock, so the banner's presence depends on the day the suite runs. The assertions no longer assume one alert, but the fixture should carry a relative date | `apps/web/src/settings/BackupRestorePage.test.tsx` (B8, 2026-09-20) |
 | ~~A paused-then-resumed recurring journal template has no way to permanently skip one specific due period~~ — fixed 2026-09-20 (lane B5-operations): `skipRecurringJournalOccurrence` (`packages/domain/src/recurring-journals/skip.ts`) claims a `recurring_journal_skip` row per (template, period), refused if a run already covers the period; `generate-due.ts` and `/gl/recurring/due` both exclude a skipped period, and `recurringJournalCommitments` (cash forecast) excludes it too — the twin this fix's grep found. `POST /templates/:id/skip` writes a `sensitive`-stream audit event (`RECURRING_JOURNAL_OCCURRENCE_SKIPPED`); the Due tab shows a per-period «تخطّي» action and the History tab merges skip rows into the generation log with a kind badge. Domain logic covered by `skip.test.ts`; still owed: route-level tests (`recurring-journal-routes.ts` `/skip`/`/skips` 404/409 bodies), `generate-due.test.ts`/`commitment-source.test.ts` proving a skipped period is excluded (currently proven only by code review + type-checked call sites, no suite exists for E2-02 at all — see the E2-02 row above), and `RecurringJournalsScreen` skip-button/dialog browser coverage | `packages/domain/src/recurring-journals/skip.ts`, `generate-due.ts`, `commitment-source.ts`, `packages/api/src/recurring-journal-routes.ts`, `packages/persistence/src/recurring-journals-store.ts`, `apps/web/src/screens/enh/recurring-journals/RecurringJournalsScreen.tsx` (B5-operations, 2026-09-20) |
 | Top movers read sales invoices only; POS tickets reach the pulse (GL) but not the movers list, and returns are not netted out of the movers | `packages/api/src/cockpit-routes.ts` (E1-01) |
 | Cash by treasury under a branch filter shows each treasury's whole GL balance; when two branches' drawers share one GL account the balance is company-wide, not the branch's | `packages/api/src/cockpit-routes.ts` `cashByTreasury` (E1-01) |

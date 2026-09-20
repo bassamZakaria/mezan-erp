@@ -19,6 +19,10 @@ describe("parseEnv", () => {
       demoPassword: undefined,
       analyticsToken: undefined,
       port: 8080,
+      // No Paymob keys and no MEZAN_SMTP_HOST: card checkout is off and the
+      // platform sends no mail, which is what the dev entrypoint expects.
+      paymob: { mode: "off" },
+      platformSmtp: undefined,
     });
   });
 
@@ -38,6 +42,18 @@ describe("parseEnv", () => {
       MEZAN_DEMO_PASSWORD: "demo-pass",
       MEZAN_ANALYTICS_TOKEN: "token-123",
       PORT: "9090",
+      MEZAN_PAYMOB_SECRET_KEY: "sk-live",
+      MEZAN_PAYMOB_PUBLIC_KEY: "pk-live",
+      MEZAN_PAYMOB_HMAC_SECRET: "hmac-live",
+      MEZAN_PAYMOB_INTEGRATION_ID: "101,102",
+      MEZAN_PAYMOB_PUBLIC_URL: "https://pay.mezan.test",
+      MEZAN_SMTP_HOST: "smtp.mezan.test",
+      MEZAN_SMTP_PORT: "465",
+      MEZAN_SMTP_SECURITY: "TLS",
+      MEZAN_SMTP_USERNAME: "mailer",
+      MEZAN_SMTP_PASSWORD: "mail-pass",
+      MEZAN_SMTP_FROM_NAME: "ميزان",
+      MEZAN_SMTP_FROM_EMAIL: "no-reply@mezan.test",
     });
     expect(env).toEqual({
       platformDir: "/data",
@@ -54,6 +70,25 @@ describe("parseEnv", () => {
       demoPassword: "demo-pass",
       analyticsToken: "token-123",
       port: 9090,
+      paymob: {
+        mode: "live",
+        baseUrl: "https://accept.paymob.com",
+        secretKey: "sk-live",
+        publicKey: "pk-live",
+        hmacSecret: "hmac-live",
+        integrationIds: [101, 102],
+        publicUrl: "https://pay.mezan.test",
+      },
+      platformSmtp: {
+        smtpEnabled: true,
+        smtpHost: "smtp.mezan.test",
+        smtpPort: 465,
+        smtpSecurity: "TLS",
+        smtpUsername: "mailer",
+        smtpPassword: "mail-pass",
+        smtpFromName: "ميزان",
+        smtpFromEmail: "no-reply@mezan.test",
+      },
     });
   });
 

@@ -14,6 +14,7 @@ import {
   type RunReportOutcome,
 } from "@mezan/domain";
 import { createPermissionGate, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
+import { atomically, type ConfigTransactor } from "./config-transactor.js";
 
 export interface OpeningBalanceDuplicatesRoutesDeps {
   readonly resolveContext: () => Promise<OpeningBalanceDuplicatesContext>;
@@ -27,6 +28,13 @@ export interface OpeningBalanceDuplicatesRoutesDeps {
    */
   readonly repair: (kind: "customer" | "supplier", partyId: string) => Promise<boolean | null>;
   readonly audit?: AuditSink;
+  /**
+   * The boundary the audit row shares with the reversal it records — see
+   * {@link ConfigTransactor}. The poster opens its own transaction, which
+   * nests as a SAVEPOINT inside this one, so the reversing entry and the row
+   * that names who ordered it commit together or not at all.
+   */
+  readonly transactor?: ConfigTransactor;
 }
 
 function respond(c: Context, outcome: RunReportOutcome<unknown, unknown>): Response {
@@ -94,19 +102,23 @@ export function createOpeningBalanceDuplicatesRoutes(
     }
     const partyId = c.req.param("partyId");
     try {
-      const repaired = await deps.repair(kind, partyId);
+      const repaired = await atomically(deps.transactor, async () => {
+        const outcome = await deps.repair(kind, partyId);
+        if (outcome === null) return null;
+        if (deps.audit) {
+          await recordSensitiveEvent(deps.audit, {
+            module: "accounting",
+            entityType: kind === "customer" ? "CUSTOMER" : "SUPPLIER",
+            entityId: partyId,
+            action: "REPAIR_DUPLICATE_OPENING_BALANCE",
+            actor: getAuthContext(c)?.userId ?? "system",
+            severity: "WARNING",
+            details: { kind, partyId, repaired: outcome },
+          });
+        }
+        return outcome;
+      });
       if (repaired === null) return c.json({ error: "NOT_FOUND" }, 404);
-      if (deps.audit) {
-        await recordSensitiveEvent(deps.audit, {
-          module: "accounting",
-          entityType: kind === "customer" ? "CUSTOMER" : "SUPPLIER",
-          entityId: partyId,
-          action: "REPAIR_DUPLICATE_OPENING_BALANCE",
-          actor: getAuthContext(c)?.userId ?? "system",
-          severity: "WARNING",
-          details: { kind, partyId, repaired },
-        });
-      }
       return c.json({ kind, partyId, repaired });
     } catch (err) {
       return handleDomainError(c, err);

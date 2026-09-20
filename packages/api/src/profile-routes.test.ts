@@ -346,3 +346,53 @@ describe("profile router — GET /activity", () => {
     expect(await json(res)).toEqual([]);
   });
 });
+
+describe("profile router — the audit row rides in the credential change's transaction (D298)", () => {
+  function failingAuditApp() {
+    const uow = createSqliteUnitOfWork();
+    handles.push(uow);
+    const audit: AuditSink = {
+      async append() {
+        throw new Error("audit sink is down");
+      },
+      async query() {
+        return [];
+      },
+    };
+    return { app: createProfileRoutes(uow, hasher, insecureHeaderAuthContextResolver, audit), uow };
+  }
+
+  it("a password change whose audit append fails leaves the OLD password in force", async () => {
+    const { app, uow } = failingAuditApp();
+    await seedUser(uow);
+    const before = (await uow.users.findById("u1"))!.passwordHash;
+
+    const res = await app.fetch(
+      req("/change-password", {
+        method: "POST",
+        userId: "u1",
+        body: JSON.stringify({ currentPassword: CURRENT_PASSWORD, newPassword: "BrandNewPass1" }),
+      }),
+    );
+
+    expect(res.status).toBe(500);
+    expect((await uow.users.findById("u1"))!.passwordHash).toBe(before);
+    expect(await hasher.verify(CURRENT_PASSWORD, (await uow.users.findById("u1"))!.passwordHash)).toBe(true);
+  });
+
+  it("a PIN change whose audit append fails leaves no PIN set", async () => {
+    const { app, uow } = failingAuditApp();
+    await seedUser(uow);
+
+    const res = await app.fetch(
+      req("/change-pin", {
+        method: "POST",
+        userId: "u1",
+        body: JSON.stringify({ currentPassword: CURRENT_PASSWORD, newPin: "4321" }),
+      }),
+    );
+
+    expect(res.status).toBe(500);
+    expect((await uow.users.findById("u1"))!.pinHash).toBeNull();
+  });
+});

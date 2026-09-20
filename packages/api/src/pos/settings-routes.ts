@@ -14,6 +14,7 @@ import {
 } from "@mezan/domain";
 import { updatePosSettingsSchema, type PosDiscountLimitDTO, type PosSettingsDTO } from "@mezan/contracts";
 import { createPermissionGate, getAuthContext, type AuthContextResolver } from "../permission-gate.js";
+import { atomically, type ConfigTransactor } from "../config-transactor.js";
 import { posDomainError, readJson, validationError } from "./http.js";
 
 export interface PosSettingsRoutesDeps {
@@ -21,6 +22,8 @@ export interface PosSettingsRoutesDeps {
   /** Creates the seeded «زبون عابر» when it is missing and returns its id. */
   readonly ensureWalkInCustomer: () => Promise<string>;
   readonly audit?: AuditSink;
+  /** The boundary the audit row shares with the write it records — see {@link ConfigTransactor}. */
+  readonly transactor?: ConfigTransactor;
 }
 
 function limitToWire(limit: PosDiscountLimit): PosDiscountLimitDTO {
@@ -100,8 +103,10 @@ export function createPosSettingsRoutes(deps: PosSettingsRoutesDeps, resolveAuth
         ...(cashierDiscountLimit ? { cashierDiscountLimit: limitFromWire(cashierDiscountLimit) } : {}),
         ...(managerDiscountLimit ? { managerDiscountLimit: limitFromWire(managerDiscountLimit) } : {}),
       });
-      await deps.settings.save(next);
-      await record(c, before, next);
+      await atomically(deps.transactor, async () => {
+        await deps.settings.save(next);
+        await record(c, before, next);
+      });
       return c.json(toWire(next));
     } catch (err) {
       return posDomainError(c, err);

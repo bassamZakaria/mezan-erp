@@ -349,6 +349,11 @@ describe("a moved token is recorded", () => {
       fromAddress(OTHER_TILL),
     );
     expect(res.status).toBe(200);
+    // AND THE REVOCATION STANDS (D298). The registry is in-memory and the
+    // forensic row is best-effort, so this pair is deliberately NOT atomic: an
+    // audit failure that rolled the revocation back would hand the moved token
+    // straight back to whoever presented it.
+    expect(sessions.find(token, TILL)).toBeNull();
   });
 
   it("lets a re-login through on the same request path a stale token arrives on", async () => {

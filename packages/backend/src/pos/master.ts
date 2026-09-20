@@ -3,6 +3,7 @@ import {
   createPosSettingsRoutes,
   createPosTerminalsRoutes,
   createShiftTemplatesRoutes,
+  type ConfigTransactor,
 } from "@mezan/api";
 import {
   AuditChangeAction,
@@ -51,6 +52,8 @@ export const area: BackendArea = {
     const store = createSqlitePosStore(ctx.sqlite);
     ctx.addCloser(store);
     const { branches, warehouses, treasuryAccounts, eta } = ctx.stores;
+    // The boundary a config write shares with its audit row (D298).
+    const transactor: ConfigTransactor = { run: (fn) => withSqliteTransaction(ctx.sqlite, fn) };
 
     ctx.app.route(
       "/pos/terminals",
@@ -64,6 +67,7 @@ export const area: BackendArea = {
           branchEtaDevices: async () =>
             new Map<string, BranchEtaDevice>((await eta.branchCodes.list()).map((b) => [b.branchId, b])),
           audit: ctx.audit,
+          transactor,
         },
         ctx.resolveAuthContext,
       ),
@@ -78,7 +82,7 @@ export const area: BackendArea = {
     ctx.app.route(
       "/pos/settings",
       createPosSettingsRoutes(
-        { settings: store.settings, ensureWalkInCustomer: () => ensureWalkInCustomer(ctx), audit: ctx.audit },
+        { settings: store.settings, ensureWalkInCustomer: () => ensureWalkInCustomer(ctx), audit: ctx.audit, transactor },
         ctx.resolveAuthContext,
       ),
     );

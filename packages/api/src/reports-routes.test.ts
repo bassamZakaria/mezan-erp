@@ -2078,6 +2078,49 @@ describe("a customer, supplier or item drill-down reconciles to the row it opene
     expect(fact(asOf, "billed")).toBe("200.00");
   });
 
+  /**
+   * The half of D286 that was still open after the first fix: both surfaces
+   * called their figure «المستحق» while the row nets only the period's own
+   * invoices and the panel carried the whole ladder balance. Measured on the
+   * seeded tenant over 2026-09-01..2026-09-20: SUPP-DEMO-1's row said 2,300.00
+   * and its own panel said 1,455,097.00.
+   */
+  it("answers the by-supplier row's «المتبقي من فواتير الفترة», not the ladder balance", async () => {
+    const { app } = await seedParties();
+    const row = await rowOf(app, "/purchases/by-supplier?dateFrom=2026-08-01&dateTo=2026-08-22&branchId=", "purchases.invoice.view", "supplierId", "sup-286");
+    const panel = await json(await app.fetch(req("/drill-down/supplier/sup-286?fromDate=2026-08-01&asOfDate=2026-08-22", "purchases.supplier.view")));
+    // The period's two invoices, 100 each.
+    expect(Number(row?.outstanding).toFixed(2)).toBe("200.00");
+    expect(fact(panel, "periodOutstanding")).toBe("200.00");
+    // And the ladder balance is still there, under the label that means it:
+    // the same 200 plus the 70.00 opening balance no period row can carry.
+    const ladder = await rowOf(app, "/aging/suppliers?asOfDate=2026-08-22&branchId=", "purchases.invoice.view", "supplierId", "sup-286");
+    expect(fact(panel, "outstanding")).toBe(Number(ladder?.total).toFixed(2));
+    expect(fact(panel, "outstanding")).toBe("270.00");
+  });
+
+  it("answers the by-customer row's «المتبقي من فواتير الفترة», not the ladder balance", async () => {
+    const { app } = await seedParties();
+    const row = await rowOf(app, "/sales/by-customer?dateFrom=2026-08-01&dateTo=2026-08-22&taxMode=inc&branchId=", "sales.invoice.view", "customerId", "cust-286");
+    const panel = await json(await app.fetch(req("/drill-down/customer/cust-286?fromDate=2026-08-01&asOfDate=2026-08-22", "sales.customer.view")));
+    expect(Number(row?.outstanding).toFixed(2)).toBe("300.00");
+    expect(fact(panel, "periodOutstanding")).toBe("300.00");
+    // The ladder's own row: the same 300 plus the 400.00 opening balance.
+    const ladder = await rowOf(app, "/aging/customers?asOfDate=2026-08-22&branchId=", "sales.invoice.view", "customerId", "cust-286");
+    expect(fact(panel, "outstanding")).toBe(Number(ladder?.total).toFixed(2));
+    expect(fact(panel, "outstanding")).toBe("700.00");
+  });
+
+  it("carries no period figure when the panel was opened from an as-of ladder", async () => {
+    const { app } = await seedParties();
+    for (const [entity, permission] of [["customer", "sales.customer.view"], ["supplier", "purchases.supplier.view"]] as const) {
+      const id = entity === "customer" ? "cust-286" : "sup-286";
+      const panel = await json(await app.fetch(req(`/drill-down/${entity}/${id}?asOfDate=2026-08-22`, permission)));
+      expect(fact(panel, "periodOutstanding")).toBeUndefined();
+      expect(fact(panel, "outstanding")).toBeDefined();
+    }
+  });
+
   it("narrows the item panel to the report's warehouse, and to the caller's warehouse scope", async () => {
     const { app, deps } = await newApp();
     await deps.warehouses.save({

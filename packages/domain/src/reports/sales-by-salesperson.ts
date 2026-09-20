@@ -87,7 +87,7 @@ export function createSalesBySalespersonReport(
       { key: "count", header: "عدد الفواتير", format: "qty", align: "end", total: true, value: (row) => row.count },
       { key: "total", header: "الإجمالي", format: "money", align: "end", total: true, value: (row) => row.total },
       { key: "promotionDiscount", header: "خصم العروض", format: "money", align: "end", total: true, value: (row) => row.promotionDiscount },
-      { key: "outstanding", header: "المستحق", format: "money", align: "end", total: true, value: (row) => row.outstanding },
+      { key: "outstanding", header: "المتبقي من فواتير الفترة", format: "money", align: "end", total: true, value: (row) => row.outstanding },
       { key: "contributionPercent", header: "نسبة المساهمة", format: "share", align: "end", value: (row) => row.contributionPercent },
     ],
     chart: {
@@ -98,7 +98,7 @@ export function createSalesBySalespersonReport(
     },
     kpis: [
       { key: "total", labelAr: "إجمالي المبيعات", format: "money", value: (rows) => sumRows(rows, (r) => r.total) },
-      { key: "outstanding", labelAr: "المستحق", format: "money", value: (rows) => sumRows(rows, (r) => r.outstanding), tone: (value) => (value > 0 ? "danger" : "default") },
+      { key: "outstanding", labelAr: "المتبقي من فواتير الفترة", format: "money", value: (rows) => sumRows(rows, (r) => r.outstanding), tone: (value) => (value > 0 ? "danger" : "default") },
       { key: "promotionDiscount", labelAr: "خصم العروض", format: "money", value: (rows) => sumRows(rows, (r) => r.promotionDiscount) },
       { key: "salespersonCount", labelAr: "عدد المندوبين", format: "qty", value: (rows) => rows.length },
     ],

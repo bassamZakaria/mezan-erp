@@ -9,10 +9,12 @@ import {
   createSalesByItemReport,
   creditedRevenueAccountIds,
   createSalesByCustomerReport,
+  salesRemainingOverPeriod,
   createSalesBySalespersonReport,
   createTopProductsReport,
   createPurchasesByPeriodReport,
   createPurchasesBySupplierReport,
+  purchasesRemainingOverPeriod,
   createPurchasesByItemReport,
   createInventoryStockLevelsReport,
   createGoodsInTransitReport,
@@ -1970,6 +1972,14 @@ export function createReportsRoutes(
       .sort((a, b) => b.date.localeCompare(a.date));
     let billed = Money.zero();
     for (const invoice of own) billed = billed.add(salesInvoiceBaseGrandTotal(salesInvoiceTotals(invoice), invoice.fxRate));
+    // A window with a `fromDate` is a PERIOD report's — المبيعات حسب العميل —
+    // whose own «المتبقي من فواتير الفترة» column is what that period's
+    // invoices still owe, a different fact from the ladder balance above. The
+    // panel answered the ladder's figure to a row showing this one (D286), so
+    // it now carries the row's figure too, computed through the report's own
+    // per-invoice term, under the label the row uses.
+    const periodRemaining =
+      fromDate === undefined ? null : salesRemainingOverPeriod(own, await salesReturnCreditsByInvoiceId(deps));
     return c.json({
       kind: "customer",
       id,
@@ -1980,6 +1990,9 @@ export function createReportsRoutes(
         { key: "creditLimit", labelAr: "حد الائتمان", value: customer.creditLimit.toString(), format: "money" },
         ...drillWindowFacts(parsed.window),
         { key: "billed", labelAr: "إجمالي المفوتر", value: twoPlaces(billed), format: "money" },
+        ...(periodRemaining === null
+          ? []
+          : [{ key: "periodOutstanding", labelAr: "المتبقي من فواتير الفترة", value: twoPlaces(periodRemaining), format: "money" as const }]),
         { key: "outstanding", labelAr: "المستحق", value: twoPlaces(outstanding), format: "money" },
       ],
       documents: own.slice(0, DRILL_DOWN_LIMIT).map((invoice) => ({
@@ -2015,6 +2028,15 @@ export function createReportsRoutes(
     const aging = await supplierAgingSet(c, asOfDate);
     const row = supplierAgingBalances({ asOfDate, branchId }, { invoices: aging.invoices, ...aging.terms }).get(id);
     const outstanding = row ? supplierAgingTotal(row) : Money.zero();
+    // The customer panel's twin, and the defect that was measured: a window
+    // with a `fromDate` is المشتريات حسب المورد's, whose «المتبقي من فواتير
+    // الفترة» column nets only that period's invoices, while the ladder above
+    // carries the supplier's whole balance. SUPP-DEMO-1 read 2,300.00 on the
+    // row and 1,455,097.00 on the panel, both labelled «المستحق» (D286).
+    const periodRemaining =
+      fromDate === undefined
+        ? null
+        : purchasesRemainingOverPeriod(own, await settledByInvoiceId(deps, own), await purchaseReturnsByInvoiceId(deps));
     return c.json({
       kind: "supplier",
       id,
@@ -2025,6 +2047,9 @@ export function createReportsRoutes(
         { key: "paymentTermsDays", labelAr: "مهلة السداد (يوم)", value: String(supplier.paymentTermsDays), format: "qty" },
         ...drillWindowFacts(parsed.window),
         { key: "billed", labelAr: "إجمالي المشتريات", value: twoPlaces(billed), format: "money" },
+        ...(periodRemaining === null
+          ? []
+          : [{ key: "periodOutstanding", labelAr: "المتبقي من فواتير الفترة", value: twoPlaces(periodRemaining), format: "money" as const }]),
         { key: "outstanding", labelAr: "المستحق", value: twoPlaces(outstanding), format: "money" },
         { key: "invoiceCount", labelAr: "عدد الفواتير", value: String(own.length), format: "qty" },
       ],

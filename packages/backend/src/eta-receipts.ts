@@ -99,6 +99,13 @@ export interface EtaReceiptIssuer {
    * drains on its own once the connection returns.
    */
   scheduleSubmission(): void;
+  /**
+   * Resolves once the submission run in flight has settled — what a caller
+   * awaits before closing the backend, so the run is not cut off mid-read.
+   */
+  settle(): Promise<void>;
+  /** Whether a submission run is in flight right now. */
+  pending(): boolean;
   /** Whether an e-receipt exists for this invoice — a receipted sale cannot be voided, only returned. */
   hasInvoiceReceipt(invoiceId: string): Promise<boolean>;
   /** Cancels a pending retry; the backend's close() calls it. */
@@ -211,6 +218,8 @@ export function createEtaReceiptIssuer(deps: EtaReceiptIssuerDeps): EtaReceiptIs
   let draining = false;
   let again = false;
   let retry: ReturnType<typeof setTimeout> | null = null;
+  let stopped = false;
+  let running: Promise<void> | null = null;
   const retryMs = deps.retryMs ?? 5 * 60_000;
 
   async function drain(): Promise<void> {
@@ -224,13 +233,16 @@ export function createEtaReceiptIssuer(deps: EtaReceiptIssuerDeps): EtaReceiptIs
       do {
         again = false;
         const config = await deps.eta.getConfig();
-        if (!config.autoSubmitOnConfirm) return;
+        // INVARIANT: re-checked after every await. `submitReadyReceipts` reads
+        // the store, and this run outlives whatever scheduled it, so resuming
+        // past `stop()` reads a closed connection.
+        if (stopped || !config.autoSubmitOnConfirm) return;
         queued = (await deps.eta.submitReadyReceipts()).queued.length;
       } while (again);
     } finally {
       draining = false;
     }
-    if (queued > 0 && retry === null) {
+    if (queued > 0 && retry === null && !stopped) {
       retry = setTimeout(() => {
         retry = null;
         schedule();
@@ -239,10 +251,20 @@ export function createEtaReceiptIssuer(deps: EtaReceiptIssuerDeps): EtaReceiptIs
     }
   }
 
+  /**
+   * INVARIANT: nothing may touch the store after `stop()`. `stop()` runs inside
+   * `BackendHandle.close()`, immediately before the shared SQLite connection is
+   * closed, so a retry armed after it would resume against a closed handle.
+   */
   function schedule(): void {
-    void drain().catch((error: unknown) => {
+    if (stopped) return;
+    const run = drain().catch((error: unknown) => {
       if (error instanceof EtaOfflineError) return;
       console.error("[eta] receipt submission run failed", error);
+    });
+    running = run;
+    void run.finally(() => {
+      if (running === run) running = null;
     });
   }
 
@@ -371,7 +393,14 @@ export function createEtaReceiptIssuer(deps: EtaReceiptIssuerDeps): EtaReceiptIs
 
     scheduleSubmission: schedule,
 
+    async settle() {
+      while (running !== null) await running;
+    },
+
+    pending: () => running !== null,
+
     stop() {
+      stopped = true;
       if (retry !== null) clearTimeout(retry);
       retry = null;
     },
@@ -406,7 +435,21 @@ function receiptPaymentMethodOf(payload: unknown): EtaReceiptPaymentMethod {
  * Fire-and-forget: a queueing failure must never fail the confirm that emitted
  * it. The confirm route issues the receipt synchronously as well, and issuing
  * is idempotent, so whichever runs second returns the first one's receipt.
+ *
+ * Fire-and-forget still has a lifecycle. Each task outlives the confirm that
+ * started it — it parks 50 ms on purpose — so the bridge tracks what is still
+ * running (`drain`) and refuses to touch the store once the backend has begun
+ * closing (`stop`). Without those, the demo seed's own confirms resumed after
+ * `backend.close()` and every consumer receipt was lost to a swallowed
+ * "database connection is not open": 10 of them on a clean boot.
  */
+export interface EtaEnqueueBridge extends DocumentEventPublisher {
+  /** Resolves once every task this bridge has started has settled. */
+  drain(): Promise<void>;
+  /** No further task starts, and no running task touches the store again. */
+  stop(): void;
+}
+
 export function createEtaEnqueueBridge(deps: {
   readonly eta: EtaService;
   readonly issuer: EtaReceiptIssuer;
@@ -416,11 +459,14 @@ export function createEtaEnqueueBridge(deps: {
   readonly taxRates: Pick<TaxRateRepository, "list">;
   readonly branchCodes: EtaBranchCodeRepository;
   readonly unitMappings: EtaUnitMappingRepository;
-}): DocumentEventPublisher {
+}): EtaEnqueueBridge {
+  const inFlight = new Set<Promise<void>>();
+  let stopped = false;
   return {
     publish(event) {
       if (event.type !== "DOCUMENT_CONFIRMED" || event.docType !== "SALES_INVOICE") return;
-      void (async () => {
+      if (stopped) return;
+      const task = (async () => {
         const invoice = await deps.invoices.findById(event.docId);
         if (!invoice) return;
         const customer = await deps.customers.findById(invoice.customerId);
@@ -429,16 +475,32 @@ export function createEtaEnqueueBridge(deps: {
           // till reports; waiting a beat lets it win, and this call then only
           // covers confirms from other paths (approvals, conversions).
           await new Promise((resolve) => setTimeout(resolve, ROUTE_FIRST_MS));
+          // INVARIANT: every resumption after an await re-checks `stopped`.
+          // This task outlives the confirm that started it, and `stop()` runs
+          // immediately before the shared SQLite connection closes — resuming
+          // past it touched a closed handle and lost the receipt behind a
+          // swallowed "database connection is not open".
+          if (stopped) return;
           if (await deps.issuer.issueInvoiceReceipt(invoice.id)) deps.issuer.scheduleSubmission();
           return;
         }
         const config = await deps.eta.getConfig();
-        if (!config.autoSubmitOnConfirm) return;
+        if (!config.autoSubmitOnConfirm || stopped) return;
         await enqueueInvoice(deps, invoice, customer.taxNumber, event.occurredAt);
       })().catch((error: unknown) => {
         if (error instanceof DuplicateEtaSubmissionError) return;
         console.error(`[eta] could not queue ${event.docType}/${event.docId}`, error);
       });
+      inFlight.add(task);
+      void task.finally(() => inFlight.delete(task));
+    },
+
+    async drain() {
+      while (inFlight.size > 0) await Promise.all([...inFlight]);
+    },
+
+    stop() {
+      stopped = true;
     },
   };
 }

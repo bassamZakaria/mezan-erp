@@ -1,8 +1,9 @@
 import type { App } from "@mezan/api";
-import { SUPPORTED_CURRENCY_CODES } from "@mezan/domain";
+import { SUPPORTED_CURRENCY_CODES, type AuditSink } from "@mezan/domain";
 import { ADMIN_HEADERS, assertLocalOrTest, setSeedSessionToken, type SeedSessionMinter } from "./demo-seed/shared.js";
 import { seedHr } from "./demo-seed/hr.js";
 import { seedAccess } from "./demo-seed/access.js";
+import { seedAfterHoursActivity } from "./demo-seed/security-activity.js";
 import { seedCrm } from "./demo-seed/crm.js";
 import { seedInventoryOps } from "./demo-seed/inventory-ops.js";
 import { seedPurchasing } from "./demo-seed/purchasing.js";
@@ -452,7 +453,10 @@ async function alreadySeeded(app: App): Promise<boolean> {
   return res.ok;
 }
 
-export async function seedDemoTenant(app: App, session: { token: string; mint: SeedSessionMinter }): Promise<void> {
+export async function seedDemoTenant(
+  app: App,
+  session: { token: string; mint: SeedSessionMinter; audit: AuditSink },
+): Promise<void> {
   assertLocalOrTest();
   // Every module below calls the real routes, and those routes now resolve
   // their caller from the server's session registry rather than from headers.
@@ -750,6 +754,7 @@ export async function seedDemoTenant(app: App, session: { token: string; mint: S
   await seedPlatform(app);
   await seedAttachments(app);
   await seedFragments(app);
+  await seedAfterHoursActivity(app, session.audit);
   // LAST. Everything above is dated into 2024–2026 and needs its period open
   // to post; the close is what the accountant would have done at each
   // year-end, and it has to happen after the books are written.

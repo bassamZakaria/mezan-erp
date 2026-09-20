@@ -19,7 +19,7 @@ import {
 } from "@/api/queries";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { useStrings } from "@/i18n";
-import { formatAmountWithCurrency, isPositiveDecimal } from "@/money";
+import { formatAmountWithCurrency, isPositiveDecimal, toAmountInput } from "@/money";
 import { DEFAULT_GL_ACCOUNTS } from "@/domain/accounts";
 import { todayIso } from "@/domain/dates";
 import { AllocationInvoiceKind, CollectPaymentMethod, VoucherTypeCode } from "@/domain/enums";
@@ -166,7 +166,7 @@ export function Collect() {
         onSelect={(option) => {
           const found = openInvoicesQuery.data?.find((i) => i.id === option.id) ?? null;
           setInvoice(found);
-          setAmount(found ? found.outstanding : "");
+          setAmount(found ? toAmountInput(found.outstanding) : "");
         }}
         options={filterPickerOptions((openInvoicesQuery.data ?? []).map(invoiceOption), invoiceQuery)}
         placeholder={strings.collect.invoicePlaceholder}

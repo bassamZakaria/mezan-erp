@@ -37,6 +37,7 @@ import {
   type VoucherDTO,
   type WarehouseDTO,
 } from "@mezan/contracts";
+import { AllocationInvoiceKind } from "@/domain/enums";
 import { useSession } from "@/session/SessionProvider";
 import { HttpMethod } from "./client";
 import type { ApiError } from "./errors";
@@ -161,7 +162,7 @@ export function useItemStock(itemId: string | null): UseQueryResult<ItemStockDTO
   });
 }
 
-export function useOpenInvoices(kind: "sales" | "purchase", partyId: string | null): UseQueryResult<OpenInvoiceDTO[], ApiError> {
+export function useOpenInvoices(kind: AllocationInvoiceKind, partyId: string | null): UseQueryResult<OpenInvoiceDTO[], ApiError> {
   const { request, session } = useSession();
   return useQuery<OpenInvoiceDTO[], ApiError>({
     queryKey: [QueryKey.OpenInvoices, kind, partyId],

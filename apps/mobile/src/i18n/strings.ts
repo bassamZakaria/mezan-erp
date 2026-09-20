@@ -26,12 +26,13 @@ export interface Strings {
     readonly bank: string;
     readonly receivables: string;
     readonly payables: string;
-    readonly salesToday: string;
+    readonly netProfit: string;
     readonly approvalsWaiting: string;
     readonly recentActivity: string;
     readonly asOf: string;
   };
   readonly customer: {
+    readonly title: string;
     readonly creditLimit: string;
     readonly paymentTerms: string;
     readonly currency: string;
@@ -48,6 +49,7 @@ export interface Strings {
   readonly picker: {
     readonly search: string;
     readonly empty: string;
+    readonly searchHint: string;
   };
   readonly sell: {
     readonly title: string;
@@ -137,6 +139,7 @@ export interface Strings {
     readonly clockedOutAt: string;
     readonly noPermission: string;
     readonly serverTime: string;
+    readonly cameraPermission: string;
   };
   readonly approvals: {
     readonly title: string;
@@ -204,12 +207,13 @@ const AR: Strings = {
     bank: "أرصدة البنوك",
     receivables: "مديونية العملاء",
     payables: "مستحقات الموردين",
-    salesToday: "مبيعات اليوم",
+    netProfit: "صافي الربح",
     approvalsWaiting: "بانتظار اعتمادك",
     recentActivity: "آخر الحركات",
     asOf: "حتى",
   },
   customer: {
+    title: "بيانات العميل",
     creditLimit: "الحد الائتماني",
     paymentTerms: "مدة السداد (يوم)",
     currency: "العملة",
@@ -226,6 +230,7 @@ const AR: Strings = {
   picker: {
     search: "بحث",
     empty: "لا توجد نتائج",
+    searchHint: "اكتب حرفين على الأقل للبحث",
   },
   sell: {
     title: "بيع",
@@ -289,9 +294,9 @@ const AR: Strings = {
     closeScan: "إغلاق الماسح",
     cameraPermission: "تحتاج إذن الكاميرا لمسح الباركود.",
     grantPermission: "السماح باستخدام الكاميرا",
-    onHand: "المتاح",
+    onHand: "الرصيد",
     reserved: "محجوز",
-    available: "قابل للبيع",
+    available: "المتاح",
     warehouse: "المستودع",
     noResults: "لا توجد أصناف مطابقة",
     noPermission: "لا تملك صلاحية عرض أرصدة المخزون.",
@@ -316,6 +321,7 @@ const AR: Strings = {
     clockedOutAt: "الانصراف",
     noPermission: "لا تملك صلاحية تسجيل الحضور من هنا.",
     serverTime: "بتوقيت الخادم",
+    cameraPermission: "تحتاج إذن الكاميرا لالتقاط صورة الحضور.",
   },
   approvals: {
     title: "الموافقات",
@@ -383,12 +389,13 @@ const EN: Strings = {
     bank: "Bank balances",
     receivables: "Receivables",
     payables: "Payables",
-    salesToday: "Sales today",
+    netProfit: "Net profit",
     approvalsWaiting: "Waiting on you",
     recentActivity: "Recent activity",
     asOf: "as of",
   },
   customer: {
+    title: "Customer",
     creditLimit: "Credit limit",
     paymentTerms: "Payment terms (days)",
     currency: "Currency",
@@ -405,6 +412,7 @@ const EN: Strings = {
   picker: {
     search: "Search",
     empty: "No results",
+    searchHint: "Type at least two characters to search",
   },
   sell: {
     title: "Sell",
@@ -495,6 +503,7 @@ const EN: Strings = {
     clockedOutAt: "Out",
     noPermission: "You do not hold the right to clock in from here.",
     serverTime: "server time",
+    cameraPermission: "Camera access is needed to take the attendance photo.",
   },
   approvals: {
     title: "Approvals",

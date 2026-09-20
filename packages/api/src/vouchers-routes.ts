@@ -19,6 +19,7 @@ import {
   InactiveAccountError,
   NoFiscalPeriodForDateError,
   PeriodNotOpenForPostingError,
+  AdvanceDisbursementNotReversibleError,
   CashBalanceWouldGoNegativeError,
   VoucherNotAllocatableError,
   VoucherNotConfirmedError,
@@ -159,6 +160,9 @@ function handleDomainError(c: Context, err: unknown): Response {
     return refuse(err, 422);
   }
   if (err instanceof ReversalDateBeforeOriginalError) {
+    return refuse(err, 422);
+  }
+  if (err instanceof AdvanceDisbursementNotReversibleError) {
     return refuse(err, 422);
   }
   if (

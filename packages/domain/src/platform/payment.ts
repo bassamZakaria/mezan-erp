@@ -20,6 +20,13 @@ export interface PaymentRepository {
   findById(id: string): Promise<Payment | null>;
   listByTenant(tenantId: string): Promise<Payment[]>;
   save(payment: Payment): Promise<void>;
+  /**
+   * Renewing the subscription and recording the payment that bought the renewal
+   * are ONE act — the card path already settles them in a single transaction
+   * (`SqliteCardCheckoutStore.settlePaid`). Omitted, the manual path behaves as
+   * before: unatomically.
+   */
+  transaction?<T>(fn: () => Promise<T>): Promise<T>;
 }
 
 export interface RecordPaymentCommand {
@@ -63,21 +70,24 @@ export async function recordPayment(
     throw new InvalidPaymentError([`الاشتراك "${cmd.subscriptionId}" لا يخص المنشأة "${cmd.tenantId}"`]);
   }
 
-  const renewed = await renewSubscription({ id: cmd.subscriptionId, now }, subscriptions);
-
-  const payment: Payment = {
-    id: cmd.id,
-    tenantId: cmd.tenantId,
-    subscriptionId: cmd.subscriptionId,
-    amount: cmd.amount,
-    currency: "EGP",
-    reference,
-    paidAt,
-    recordedBy: cmd.recordedBy,
-    note: cmd.note ?? null,
-    createdAt: now,
+  const run = async (): Promise<RecordPaymentResult> => {
+    const renewed = await renewSubscription({ id: cmd.subscriptionId, now }, subscriptions);
+    const payment: Payment = {
+      id: cmd.id,
+      tenantId: cmd.tenantId,
+      subscriptionId: cmd.subscriptionId,
+      amount: cmd.amount,
+      currency: "EGP",
+      reference,
+      paidAt,
+      recordedBy: cmd.recordedBy,
+      note: cmd.note ?? null,
+      createdAt: now,
+    };
+    // A duplicate id rejects HERE, after the renewal — two separate writes meant
+    // the tenant kept a period it never paid for.
+    await payments.save(payment);
+    return { payment, subscription: renewed };
   };
-  await payments.save(payment);
-
-  return { payment, subscription: renewed };
+  return payments.transaction ? payments.transaction(run) : run();
 }

@@ -10,6 +10,8 @@ import {
   CostCenterNotFoundError,
   DuplicateCostCenterCodeError,
   InvalidParentCostCenterError,
+  AuditChangeAction,
+  type AuditSink,
   type CostCenter,
   type CostCenterRepository,
   type DepartmentRepository,
@@ -20,6 +22,9 @@ import {
   createCostCentersFromDepartmentsSchema,
 } from "@mezan/contracts";
 import { createPermissionGate, type AuthContextResolver, branchScopeOf, withinScope } from "./permission-gate.js";
+import { recordFieldChanges } from "./admin-audit.js";
+
+const AUDITED_COST_CENTER_FIELDS = ["code", "nameAr", "nameEn", "type", "departmentId", "branchId", "parentId", "status"] as const;
 
 function serialize(costCenter: CostCenter) {
   return {
@@ -72,9 +77,26 @@ export function createCostCentersRoutes(
    * empty list rather than 404ing a control the screen would still render.
    */
   departments?: Pick<DepartmentRepository, "list">,
+  /**
+   * A cost centre is the dimension every P&L by centre is grouped on, so
+   * re-parenting or renaming one silently rewrites what past spending reads as.
+   * It was the one piece of accounting master data that left no record at all.
+   */
+  audit?: AuditSink,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
+
+  function auditCostCenter(c: Context, action: AuditChangeAction, before: CostCenter | null, after: CostCenter) {
+    return recordFieldChanges(audit, c, {
+      entity: { module: "accounting", entityType: "COST_CENTER", entityId: after.id },
+      action,
+      before: before ? serialize(before) : null,
+      after: serialize(after),
+      fields: AUDITED_COST_CENTER_FIELDS,
+      warnOn: ["parentId", "branchId", "status"],
+    });
+  }
 
   /**
    * The departments that have no cost centre yet. Listed BEFORE `/:id`, or
@@ -103,6 +125,7 @@ export function createCostCentersRoutes(
         },
         { departments, costCenters: repo },
       );
+      for (const created of result.created) await auditCostCenter(c, AuditChangeAction.Create, null, created);
       return c.json({ created: result.created.map(serialize), skipped: result.skipped }, 201);
     } catch (err) {
       return handleDomainError(c, err);
@@ -141,6 +164,7 @@ export function createCostCentersRoutes(
     }
     try {
       const costCenter = await createCostCenter(parsed.data, repo);
+      await auditCostCenter(c, AuditChangeAction.Create, null, costCenter);
       return c.json(serialize(costCenter), 201);
     } catch (err) {
       return handleDomainError(c, err);
@@ -153,7 +177,9 @@ export function createCostCentersRoutes(
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
     try {
+      const before = await repo.findById(c.req.param("id"));
       const costCenter = await updateCostCenter(c.req.param("id"), parsed.data, repo);
+      await auditCostCenter(c, AuditChangeAction.Update, before, costCenter);
       return c.json(serialize(costCenter));
     } catch (err) {
       return handleDomainError(c, err);

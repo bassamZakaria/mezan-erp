@@ -93,8 +93,17 @@ export class InMemoryLedgerRepository implements LedgerRepository {
     return out.sort((a, b) => (a.date === b.date ? a.entryId.localeCompare(b.entryId) : a.date.localeCompare(b.date)));
   }
 
+  /** True while `transaction()` is running, so a test can prove a write lands inside it. */
+  inTransaction = false;
+
   async transaction<T>(fn: () => Promise<T>): Promise<T> {
-    return fn();
+    const outer = this.inTransaction;
+    this.inTransaction = true;
+    try {
+      return await fn();
+    } finally {
+      this.inTransaction = outer;
+    }
   }
 }
 

@@ -58,6 +58,7 @@ import {
   type PurchaseInvoiceRepository,
   type PurchaseGlAccounts,
   type PurchaseGlPostingPort,
+  type PurchaseTransactor,
   type PurchaseGlReversalPort,
   type PurchasePolicy,
   type PurchaseStockPostingPort,
@@ -129,6 +130,11 @@ export interface PurchasesRoutesDeps {
   readonly numbering: NextNumberService;
   readonly stock: PurchaseStockPostingPort;
   readonly gl: PurchaseGlPostingPort;
+  /**
+   * One transaction per purchase action, so the audit row and the writes it
+   * describes commit together. Omitted, every flow behaves exactly as before.
+   */
+  readonly transactor?: PurchaseTransactor;
   readonly accounts: PurchaseGlAccounts;
   readonly allocatable?: AllocatableInvoiceRepository;
   /**
@@ -573,6 +579,7 @@ export function createPurchasesRoutes(
     try {
       const order = await confirmPurchaseOrder(c.req.param("id"), {
         orders: deps.orders,
+        transactor: deps.transactor,
         audit: audit(c),
         actor: actor(c),
       });
@@ -590,6 +597,7 @@ export function createPurchasesRoutes(
     try {
       const order = await cancelPurchaseOrder(c.req.param("id"), {
         orders: deps.orders,
+        transactor: deps.transactor,
         audit: audit(c),
         actor: actor(c),
       });
@@ -751,6 +759,7 @@ export function createPurchasesRoutes(
         stock: deps.stock,
         gl: deps.gl,
         accounts: deps.accounts,
+        transactor: deps.transactor,
         audit: audit(c),
         actor: actor(c),
         now: deps.now,
@@ -772,6 +781,7 @@ export function createPurchasesRoutes(
           stock: deps.stock,
           layers,
           policy: await resolvePolicy(),
+          transactor: deps.transactor,
           audit: audit(c),
           actor: actor(c),
           now: deps.now,
@@ -1344,6 +1354,7 @@ export function createPurchasesRoutes(
           glReverse,
           layers,
           policy: await resolvePolicy(),
+          transactor: deps.transactor,
           audit: audit(c),
           actor: actor(c),
           now: deps.now,

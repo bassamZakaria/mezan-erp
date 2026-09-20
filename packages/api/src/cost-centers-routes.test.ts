@@ -1,6 +1,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { createSqliteCostCenterRepository, type SqliteCostCenterRepositoryHandle } from "@mezan/persistence";
 import { createCostCentersRoutes } from "./cost-centers-routes.js";
+import { AuditChangeAction, auditChangesOf, type AuditEvent, type AuditSink, type AuditStream } from "@mezan/domain";
 
 import { insecureHeaderAuthContextResolver } from "./permission-gate.js";
 const handles: SqliteCostCenterRepositoryHandle[] = [];
@@ -116,5 +117,39 @@ describe("cost-centers router — CRUD", () => {
     const tree = (await res.json()) as Array<{ id: string; children: unknown[] }>;
     expect(tree.map((n) => n.id)).toEqual(["cc1"]);
     expect(tree[0]?.children).toHaveLength(1);
+  });
+});
+
+describe("cost-centre changes leave a trail", () => {
+  class MemorySink implements AuditSink {
+    readonly events: AuditEvent[] = [];
+    async append(event: AuditEvent) {
+      this.events.push(event);
+    }
+    async query(stream: AuditStream, limit = 100) {
+      return this.events.filter((e) => e.stream === stream).slice(-limit).reverse();
+    }
+  }
+
+  function auditedApp() {
+    const repo = createSqliteCostCenterRepository();
+    handles.push(repo);
+    const audit = new MemorySink();
+    return { app: createCostCentersRoutes(repo, insecureHeaderAuthContextResolver, undefined, audit), audit };
+  }
+
+  it("records the create and the edit, with the field that moved", async () => {
+    const { app, audit } = auditedApp();
+    await app.fetch(
+      req("/", { method: "POST", permissions: "*", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) }),
+    );
+    await app.fetch(
+      req("/cc1", { method: "PATCH", permissions: "*", headers: { "content-type": "application/json" }, body: JSON.stringify({ nameAr: "إدارة المبيعات" }) }),
+    );
+
+    expect(audit.events.map((e) => e.action)).toEqual([AuditChangeAction.Create, AuditChangeAction.Update]);
+    expect(audit.events.every((e) => e.entityType === "COST_CENTER" && e.entityId === "cc1")).toBe(true);
+    const changes = auditChangesOf(audit.events[1]!.details);
+    expect(changes).toEqual([{ field: "nameAr", from: "الإدارة العامة", to: "إدارة المبيعات" }]);
   });
 });

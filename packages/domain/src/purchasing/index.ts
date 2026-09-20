@@ -21,7 +21,9 @@ export {
 
 export {
   recordPurchaseAudit,
+  atomically,
   type PurchaseAuditDeps,
+  type PurchaseTransactor,
   type PurchaseAuditAction,
   type PurchaseAuditEntityType,
 } from "./audit.js";

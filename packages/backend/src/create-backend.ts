@@ -108,6 +108,8 @@ import {
   type EventCode,
   createProductTemplateSpecificationUsage,
   recordSecurityEvent,
+  unwindAdvanceVoucher,
+  type VoucherAdvanceUnwindPort,
   type Entitlements,
   type RealisedFxPort,
   type FxDifferenceAccounts,
@@ -850,6 +852,9 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const hrLeaveBalances = createSqliteLeaveBalanceRepository(sqlite);
   const hrLeaveAccrualBatches = createSqliteLeaveAccrualBatchRepository(sqlite);
   const hrAdvances = createSqliteEmployeeAdvanceRepository(sqlite);
+  const advanceVoucherUnwind: VoucherAdvanceUnwindPort = {
+    onVoucherReversed: (voucherId) => unwindAdvanceVoucher(voucherId, { advances: hrAdvances }),
+  };
   const hrClockCredentials = createSqliteClockCredentialRepository(sqlite);
   const hrPayrollRuns = createSqlitePayrollRunRepository(sqlite);
   const hrPayslips = createSqlitePayslipRepository(sqlite);
@@ -3071,6 +3076,10 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       cheques: voucherCheques,
       realisedFx,
       returns: invoiceReturnCredits,
+      // Reversing an ADV-CV/ADV-RV voucher mirrors GL 1160 سلف الموظفين; without
+      // this the advance record kept the disbursement (or the repayment) and the
+      // two sides parted company.
+      advanceSubLedger: advanceVoucherUnwind,
       // Law 6/2025 exempts a regime taxpayer from withholding, so the route
       // refuses a voucher that withholds rather than posting a liability the
       // authority does not recognise (DEC-13).

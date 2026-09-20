@@ -18,6 +18,13 @@ export type AuditFieldValue =
 export interface AuditFieldChange {
   readonly field: string;
   readonly key?: string;
+  /**
+   * What the `key` NAMES, captured when the change was recorded. A per-item key
+   * is an id, and an id on a history screen tells a reader nothing; resolving it
+   * at read time would show today's name for yesterday's change, or nothing at
+   * all once the item is gone.
+   */
+  readonly label?: string;
   readonly from: AuditFieldValue;
   readonly to: AuditFieldValue;
 }
@@ -59,17 +66,26 @@ export function diffAuditCollection<T>(
   after: readonly T[],
   keyOf: (item: T) => string,
   valueOf: (item: T) => unknown,
+  labelOf?: (item: T) => string | null,
 ): AuditFieldChange[] {
-  const previous = new Map((before ?? []).map((item) => [keyOf(item), auditFieldValue(valueOf(item))] as const));
+  const previous = new Map(
+    (before ?? []).map((item) => [keyOf(item), { value: auditFieldValue(valueOf(item)), label: labelOf?.(item) ?? null }] as const),
+  );
   const changes: AuditFieldChange[] = [];
   for (const item of after) {
     const key = keyOf(item);
     const to = auditFieldValue(valueOf(item));
-    const from = previous.has(key) ? (previous.get(key) ?? null) : null;
+    const seen = previous.get(key);
+    const from = seen ? seen.value : null;
     previous.delete(key);
-    if (JSON.stringify(from) !== JSON.stringify(to)) changes.push({ field, key, from, to });
+    const label = labelOf?.(item) ?? seen?.label ?? null;
+    if (JSON.stringify(from) !== JSON.stringify(to)) {
+      changes.push({ field, key, ...(label ? { label } : {}), from, to });
+    }
   }
-  for (const [key, from] of previous) changes.push({ field, key, from, to: null });
+  for (const [key, seen] of previous) {
+    changes.push({ field, key, ...(seen.label ? { label: seen.label } : {}), from: seen.value, to: null });
+  }
   return changes;
 }
 
@@ -82,9 +98,11 @@ export function auditChangesOf(details: Readonly<Record<string, unknown>> | null
     const field = (entry as { field?: unknown }).field;
     if (typeof field !== "string" || field === "") continue;
     const key = (entry as { key?: unknown }).key;
+    const label = (entry as { label?: unknown }).label;
     out.push({
       field,
       ...(typeof key === "string" ? { key } : {}),
+      ...(typeof label === "string" && label !== "" ? { label } : {}),
       from: auditFieldValue((entry as { from?: unknown }).from),
       to: auditFieldValue((entry as { to?: unknown }).to),
     });

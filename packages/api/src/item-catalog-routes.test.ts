@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { ALL_SCOPE } from "@mezan/domain";
+import { ALL_SCOPE, AuditChangeAction, auditChangesOf, type AuditEvent, type AuditSink, type AuditStream } from "@mezan/domain";
 import { createSqliteItemCatalogStore, type SqliteItemCatalogStoreHandle } from "@mezan/persistence";
 import {
   createItemUnitsRoutes,
@@ -337,5 +337,52 @@ describe("item seasons routes", () => {
 
     const list = await app.fetch(req("/", { permissions: "inventory.item.view" }));
     expect(((await list.json()) as { status: string }[])[0]?.status).toBe("inactive");
+  });
+});
+
+describe("brands and seasons leave a trail", () => {
+  class MemorySink implements AuditSink {
+    readonly events: AuditEvent[] = [];
+    async append(event: AuditEvent) {
+      this.events.push(event);
+    }
+    async query(stream: AuditStream, limit = 100) {
+      return this.events.filter((e) => e.stream === stream).slice(-limit).reverse();
+    }
+  }
+
+  it("records the brand create and the rename that follows it", async () => {
+    const store = newStore();
+    const sessions = createSessionRegistry();
+    const audit = new MemorySink();
+    const app = createItemBrandsRoutes(store.brands, createSessionAuthContextResolver(sessions), audit);
+    const req = reqFactory(sessions);
+
+    await app.fetch(req("/", { method: "POST", permissions: "*", body: JSON.stringify({ id: "b9", code: "NESTLE", nameAr: "نستله" }) }));
+    await app.fetch(req("/b9", { method: "PUT", permissions: "*", body: JSON.stringify({ code: "NESTLE", nameAr: "نستله مصر" }) }));
+
+    expect(audit.events.map((e) => e.action)).toEqual([AuditChangeAction.Create, AuditChangeAction.Update]);
+    expect(audit.events[0]!.entityType).toBe("ITEM_BRAND");
+    expect(auditChangesOf(audit.events[1]!.details)).toEqual([{ field: "nameAr", from: "نستله", to: "نستله مصر" }]);
+  });
+
+  it("records the season create and the window that moved", async () => {
+    const store = newStore();
+    const sessions = createSessionRegistry();
+    const audit = new MemorySink();
+    const app = createItemSeasonsRoutes(store.seasons, createSessionAuthContextResolver(sessions), audit);
+    const req = reqFactory(sessions);
+
+    await app.fetch(
+      req("/", { method: "POST", permissions: "*", body: JSON.stringify({ id: "s9", code: "W26", nameAr: "شتاء ٢٦", startDate: "2026-12-01", endDate: "2027-02-28" }) }),
+    );
+    await app.fetch(
+      req("/s9", { method: "PUT", permissions: "*", body: JSON.stringify({ code: "W26", nameAr: "شتاء ٢٦", startDate: "2026-11-15", endDate: "2027-02-28" }) }),
+    );
+
+    expect(audit.events[0]!.entityType).toBe("ITEM_SEASON");
+    expect(auditChangesOf(audit.events[1]!.details)).toEqual([
+      { field: "startDate", from: "2026-12-01", to: "2026-11-15" },
+    ]);
   });
 });

@@ -100,6 +100,7 @@ import {
 import { createPermissionGate, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
 import { recordAdminEvent } from "./admin-audit.js";
 import { tenantDay } from "./tenant-day.js";
+import { tenantToday } from "./tenant-day.js";
 
 /**
  * Payroll + employee-advance routes (docs/archive/catalog/06-crm-hr.md "الرواتب" and
@@ -900,7 +901,7 @@ export function createHrPayrollRoutes(deps: HrPayrollRoutesDeps, resolveAuthCont
     app.get("/payroll/provisions/:kind/preview", gate("hr.payroll.view"), async (c) => {
       const kind = parseKind(c.req.param("kind"));
       if (!kind) return c.json({ error: "UNKNOWN_PROVISION", message: "نوع المخصص غير معروف." }, 404);
-      const asOfDate = c.req.query("asOfDate") ?? new Date().toISOString().slice(0, 10);
+      const asOfDate = c.req.query("asOfDate") ?? (await tenantToday(c));
       if (!/^\d{4}-\d{2}-\d{2}$/.test(asOfDate)) return c.json({ error: "VALIDATION_ERROR", message: "تاريخ غير صالح." }, 400);
       const { definition, postedBalance, computedTotal } = await provisionState(kind, asOfDate);
       return c.json({
@@ -919,7 +920,7 @@ export function createHrPayrollRoutes(deps: HrPayrollRoutesDeps, resolveAuthCont
       const kind = parseKind(c.req.param("kind"));
       if (!kind) return c.json({ error: "UNKNOWN_PROVISION", message: "نوع المخصص غير معروف." }, 404);
       const body = (await c.req.json().catch(() => ({}))) as { asOfDate?: string };
-      const asOfDate = body.asOfDate ?? new Date().toISOString().slice(0, 10);
+      const asOfDate = body.asOfDate ?? (await tenantToday(c));
       if (!/^\d{4}-\d{2}-\d{2}$/.test(asOfDate)) return c.json({ error: "VALIDATION_ERROR", message: "تاريخ غير صالح." }, 400);
       const { definition, postedBalance, computedTotal } = await provisionState(kind, asOfDate);
       try {

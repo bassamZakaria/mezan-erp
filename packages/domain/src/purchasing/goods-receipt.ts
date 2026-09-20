@@ -19,7 +19,7 @@ import {
   type PurchaseOrder,
   type PurchaseOrderRepository,
 } from "./purchase-order.js";
-import { recordPurchaseAudit, type PurchaseAuditDeps } from "./audit.js";
+import { atomically, recordPurchaseAudit, type PurchaseAuditDeps } from "./audit.js";
 import {
   DEFAULT_PURCHASE_POLICY,
   type GoodsReceiptStatus,
@@ -404,6 +404,7 @@ export async function confirmGoodsReceipt(
     throw new PurchaseDocumentNotDraftError(id, receipt.status);
   }
 
+  return atomically(deps, async () => {
   await deps.stock.postReceipt({
     receiptId: receipt.id,
     receiptNumber: receipt.number,
@@ -453,6 +454,7 @@ export async function confirmGoodsReceipt(
     totalCost: goodsReceiptTotalCost(confirmed).toString(),
   }, confirmed.id);
   return confirmed;
+  });
 }
 
 /**
@@ -475,6 +477,7 @@ export async function cancelGoodsReceipt(
   }
   if (receipt.invoiced) throw new GoodsReceiptAlreadyInvoicedError(id);
 
+  return atomically(deps, async () => {
   if (receipt.status === "confirmed") {
     if (policy.trackSoldPurchaseItems) {
       for (const line of receipt.lines) {
@@ -518,6 +521,7 @@ export async function cancelGoodsReceipt(
     previousStatus: receipt.status,
   }, cancelled.id);
   return cancelled;
+  });
 }
 
 /** Mark a receipt as invoiced (called when a purchase invoice confirms against it). */

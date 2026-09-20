@@ -58,6 +58,7 @@ import {
   type PurchaseInvoiceRepository,
   type PurchaseGlAccounts,
   type PurchaseGlPostingPort,
+  type PurchaseTransactor,
   type PurchaseGlReversalPort,
   type PurchasePolicy,
   type PurchaseStockPostingPort,
@@ -129,6 +130,11 @@ export interface PurchasesRoutesDeps {
   readonly numbering: NextNumberService;
   readonly stock: PurchaseStockPostingPort;
   readonly gl: PurchaseGlPostingPort;
+  /**
+   * One transaction per purchase action, so the audit row and the writes it
+   * describes commit together. Omitted, every flow behaves exactly as before.
+   */
+  readonly transactor?: PurchaseTransactor;
   readonly accounts: PurchaseGlAccounts;
   readonly allocatable?: AllocatableInvoiceRepository;
   /**
@@ -573,6 +579,7 @@ export function createPurchasesRoutes(
     try {
       const order = await confirmPurchaseOrder(c.req.param("id"), {
         orders: deps.orders,
+        transactor: deps.transactor,
         audit: audit(c),
         actor: actor(c),
       });
@@ -590,6 +597,7 @@ export function createPurchasesRoutes(
     try {
       const order = await cancelPurchaseOrder(c.req.param("id"), {
         orders: deps.orders,
+        transactor: deps.transactor,
         audit: audit(c),
         actor: actor(c),
       });
@@ -751,6 +759,7 @@ export function createPurchasesRoutes(
         stock: deps.stock,
         gl: deps.gl,
         accounts: deps.accounts,
+        transactor: deps.transactor,
         audit: audit(c),
         actor: actor(c),
         now: deps.now,
@@ -772,6 +781,7 @@ export function createPurchasesRoutes(
           stock: deps.stock,
           layers,
           policy: await resolvePolicy(),
+          transactor: deps.transactor,
           audit: audit(c),
           actor: actor(c),
           now: deps.now,
@@ -906,7 +916,7 @@ export function createPurchasesRoutes(
       returnedByInvoice(rows.map((i) => i.id)),
     ]);
     if (status && status !== "all") {
-      const today = (deps.now?.() ?? new Date().toISOString()).slice(0, 10);
+      const today = (await tenantDay(c, deps.now?.() ?? new Date().toISOString()));
       const horizon = paymentHorizon(today);
       rows = rows.filter((inv) => {
         const state = paymentStateOf(inv, allocations.get(inv.id) ?? Money.zero(), returns.get(inv.id) ?? Money.zero(), today, horizon);
@@ -955,7 +965,7 @@ export function createPurchasesRoutes(
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     const { status: _ignored, ...withoutStatus } = parsed.data;
     const { rows, allocations, returns } = await listFilteredInvoices(c, withoutStatus);
-    const today = (deps.now?.() ?? new Date().toISOString()).slice(0, 10);
+    const today = (await tenantDay(c, deps.now?.() ?? new Date().toISOString()));
     const horizon = paymentHorizon(today);
 
     const counts: Record<string, number> = {
@@ -1139,7 +1149,7 @@ export function createPurchasesRoutes(
     const returned = (await returnedByInvoice([invoice.id])).get(invoice.id) ?? Money.zero();
     // A payment happens when it happens — dating it back to the invoice
     // would measure the treasury's balance on the wrong day.
-    const date = (await tenantDay(c, parsed.data.date)) ?? (deps.now?.() ?? new Date().toISOString()).slice(0, 10);
+    const date = (await tenantDay(c, parsed.data.date)) ?? (await tenantDay(c, deps.now?.() ?? new Date().toISOString()));
     let capacity = purchaseInvoiceBaseTotal(invoice).scaled - allocated.scaled - returned.scaled;
     if (invoice.fxRate && deps.settlementPreview) {
       try {
@@ -1344,6 +1354,7 @@ export function createPurchasesRoutes(
           glReverse,
           layers,
           policy: await resolvePolicy(),
+          transactor: deps.transactor,
           audit: audit(c),
           actor: actor(c),
           now: deps.now,

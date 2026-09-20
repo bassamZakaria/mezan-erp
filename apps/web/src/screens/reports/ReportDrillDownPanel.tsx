@@ -26,22 +26,39 @@ const SCREEN_BY_DOC_TYPE: Readonly<Record<ReportDrillDownDTO["documents"][number
   STOCK_MOVEMENT: null,
 };
 
-// An account panel must be asked for the window its figure was computed over,
-// as the server echoed it, or it disagrees with the row it opened from (D281).
+/**
+ * A panel must be asked for the window its figure was computed over, as the
+ * server echoed it, or it disagrees with the row it opened from — the account
+ * panel against the statements (D281), the customer, supplier and item panels
+ * against the ladders, the by-supplier/by-customer periods and the stock
+ * reports (D286).
+ *
+ * Reports name the same two bounds differently: `asOfDate` alone on an as-of
+ * ladder, `periodFrom`/`periodTo` on the income statement, `dateFrom`/`dateTo`
+ * on the sales and purchases periods, `fromDate`/`toDate` on the withholding
+ * return.
+ */
 export function drillDownQuery(kind: string, reportParams?: Readonly<Record<string, unknown>> | null): string {
-  if (kind !== "account" || !reportParams) return "";
-  const text = (key: string): string | undefined => {
-    const value = reportParams[key];
-    return typeof value === "string" && value !== "" ? value : undefined;
+  if (!reportParams) return "";
+  const text = (...keys: readonly string[]): string | undefined => {
+    for (const key of keys) {
+      const value = reportParams[key];
+      if (typeof value === "string" && value !== "") return value;
+    }
+    return undefined;
   };
   const search = new URLSearchParams();
   const asOfDate = text("asOfDate");
-  const fromDate = asOfDate ? undefined : text("periodFrom");
-  const toDate = asOfDate ?? text("periodTo");
+  const fromDate = asOfDate ? undefined : text("periodFrom", "dateFrom", "fromDate");
+  const toDate = asOfDate ?? text("periodTo", "dateTo", "toDate");
   if (fromDate) search.set("fromDate", fromDate);
   if (toDate) search.set("asOfDate", toDate);
   const branchId = text("branchId");
   if (branchId) search.set("branchId", branchId);
+  // Only the item panel narrows by warehouse; the stock reports are the only
+  // ones that carry the parameter.
+  const warehouseId = kind === "item" ? text("warehouseId") : undefined;
+  if (warehouseId) search.set("warehouseId", warehouseId);
   const qs = search.toString();
   return qs ? `?${qs}` : "";
 }

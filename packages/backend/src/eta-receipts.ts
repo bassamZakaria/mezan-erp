@@ -1,4 +1,5 @@
 import {
+  buildEtaPayload,
   buildPosReceiptInput,
   buildRefundReceiptInput,
   convertToBase,
@@ -11,6 +12,7 @@ import {
   extend as extendQtyByPrice,
   findLineTaxRate,
   Money,
+  prevalidateEtaInvoice,
   resolveEtaVatSubType,
   SALES_INVOICE_ACTIVE_STATUSES,
   salesInvoiceTotals,
@@ -18,6 +20,9 @@ import {
   type DocumentEventPublisher,
   type DocumentRepository,
   type EtaBranchCodeRepository,
+  type EtaEnqueueInput,
+  type EtaPrevalidationFinding,
+  type EtaPrevalidationLineInput,
   type EtaReceiptBuyerInput,
   type EtaReceiptDevice,
   type EtaReceiptItemCodes,
@@ -78,6 +83,16 @@ export interface EtaReceiptIssuer {
   issueInvoiceReceipt(invoiceId: string, options?: IssueEtaReceiptOptions): Promise<IssuedEtaReceipt | null>;
   /** إيصال مرتجع for a confirmed consumer return. Null for a B2B return (that is a credit note). */
   issueReturnReceipt(returnId: string, options?: IssueEtaReceiptOptions): Promise<IssuedEtaReceipt | null>;
+  /**
+   * تصحيح إيصال بيع مرفوض وإعادة إصداره (D-B4) — rebuilds the invoice's e-receipt
+   * with a new receipt number and reports it referencing the rejected one's
+   * UUID (header.referenceOldUUID), inside the authority's 96-hour correction
+   * window. Null when the invoice has no e-receipt the authority actually
+   * rejected — nothing to correct.
+   */
+  reissueInvoiceReceipt(invoiceId: string, options?: IssueEtaReceiptOptions): Promise<IssuedEtaReceipt | null>;
+  /** The refund-receipt mirror of {@link reissueInvoiceReceipt}, for a confirmed consumer return's rejected receipt. */
+  reissueReturnReceipt(returnId: string, options?: IssueEtaReceiptOptions): Promise<IssuedEtaReceipt | null>;
   /**
    * Reports queued receipts when الإرسال التلقائي is on; one run at a time.
    * While a device is offline the run repeats every `retryMs`, so the queue
@@ -181,6 +196,18 @@ export function createEtaReceiptIssuer(deps: EtaReceiptIssuerDeps): EtaReceiptIs
     }
   }
 
+  /**
+   * D-B4 — a corrected receipt is a NEW document on the device's chain, so it
+   * needs its own رقم إيصال. `-R2`, `-R3`, … so the paper still reads as a
+   * correction of the same sale rather than an unrelated new receipt.
+   */
+  async function nextReissueNumber(base: string): Promise<string> {
+    for (let n = 2; ; n++) {
+      const candidate = `${base}-R${n}`;
+      if (!(await deps.eta.findByInternalId(candidate))) return candidate;
+    }
+  }
+
   let draining = false;
   let again = false;
   let retry: ReturnType<typeof setTimeout> | null = null;
@@ -279,6 +306,63 @@ export function createEtaReceiptIssuer(deps: EtaReceiptIssuerDeps): EtaReceiptIs
       });
     },
 
+    async reissueInvoiceReceipt(invoiceId, options = {}) {
+      const invoice = await deps.invoices.findById(invoiceId);
+      if (!invoice || !SALES_INVOICE_ACTIVE_STATUSES.has(invoice.status)) return null;
+      const { b2b, buyer } = await buyerOf(invoice.customerId);
+      if (b2b) return null;
+      const receiptNo = invoice.docNo ?? invoice.id;
+      const rejected = await deps.eta.findByInternalId(receiptNo);
+      // Nothing to correct unless the authority actually rejected this sale's
+      // receipt — `EtaService.reissueReceipt` refuses anything else anyway,
+      // but resolving it here lets the route answer 404-shaped null cleanly.
+      if (!rejected || rejected.documentType !== "receipt" || rejected.status !== "error") return null;
+      const issuedAt = now();
+      const corrected = buildPosReceiptInput({
+        invoice,
+        receiptNumber: await nextReissueNumber(receiptNo),
+        issuedAt,
+        device: await device(invoice.branchId, options.serial),
+        paymentMethod: await tender(invoice.id, options.paymentMethod),
+        buyer,
+        lookups: await lookups(invoice.lines.map((l) => l.itemId)),
+      });
+      const printed = await deps.eta.reissueReceipt(receiptNo, corrected);
+      return { receiptNo: printed.receiptNo, uuid: printed.uuid, qrValue: printed.qrValue };
+    },
+
+    async reissueReturnReceipt(returnId, options = {}) {
+      const doc = await deps.returns.findById(returnId);
+      const first = doc?.lines[0];
+      if (!doc || !first || doc.status !== "confirmed") return null;
+      const invoice = await deps.invoices.findById(first.sourceInvoiceId);
+      if (!invoice) return null;
+      const { b2b, buyer } = await buyerOf(first.customerId);
+      if (b2b) return null;
+      const receiptNo = doc.docNo ?? doc.id;
+      const rejected = await deps.eta.findByInternalId(receiptNo);
+      if (!rejected || rejected.documentType !== "receipt" || rejected.status !== "error") return null;
+      const original = await deps.eta.findByInternalId(invoice.docNo ?? invoice.id);
+      if (!original || original.documentType !== "receipt" || !original.etaUuid) {
+        throw new EtaOriginalReceiptNotFoundError(invoice.docNo ?? invoice.id);
+      }
+      const issuedAt = now();
+      const corrected = buildRefundReceiptInput({
+        invoice,
+        returnLines: doc.lines,
+        receiptNumber: await nextReissueNumber(receiptNo),
+        issuedAt,
+        device: await device(invoice.branchId, options.serial),
+        referenceUuid: original.etaUuid,
+        referenceIssuedAt: etaReceiptIssuedAt(original),
+        paymentMethod: options.paymentMethod ?? receiptPaymentMethodOf(original.payload),
+        buyer,
+        lookups: await lookups(doc.lines.map((l) => l.itemId)),
+      });
+      const printed = await deps.eta.reissueReceipt(receiptNo, corrected);
+      return { receiptNo: printed.receiptNo, uuid: printed.uuid, qrValue: printed.qrValue };
+    },
+
     async hasInvoiceReceipt(invoiceId) {
       const invoice = await deps.invoices.findById(invoiceId);
       if (!invoice) return false;
@@ -359,67 +443,158 @@ export function createEtaEnqueueBridge(deps: {
   };
 }
 
-async function enqueueInvoice(
-  deps: {
-    readonly eta: EtaService;
-    readonly items: Pick<ItemRepository, "findById">;
-    readonly taxRates: Pick<TaxRateRepository, "list">;
-    readonly branchCodes: EtaBranchCodeRepository;
-    readonly unitMappings: EtaUnitMappingRepository;
-  },
+export interface EtaInvoicePrevalidationDeps {
+  readonly eta: EtaService;
+  readonly items: Pick<ItemRepository, "findById">;
+  readonly taxRates: Pick<TaxRateRepository, "list">;
+  readonly branchCodes: EtaBranchCodeRepository;
+  readonly unitMappings: EtaUnitMappingRepository;
+}
+
+/**
+ * Builds BOTH the ETA payload input and the ENH-011b pre-validation input
+ * from the same source-document read, so the two can never disagree about
+ * which item/unit/tax-rate a line resolved against. Shared by the
+ * confirm-time enqueue (`enqueueInvoice`) and the fix-and-requeue rebuild
+ * (`rebuildEtaInvoiceSubmission`) — a requeue reads the SAME masters again,
+ * which is the entire point: it picks up whatever the accountant just fixed.
+ */
+async function buildInvoiceEtaInputs(
+  deps: EtaInvoicePrevalidationDeps,
   invoice: SalesInvoice,
   taxNumber: string,
   occurredAt: string,
-): Promise<void> {
+): Promise<{ readonly enqueueInput: EtaEnqueueInput; readonly prevalidation: readonly EtaPrevalidationFinding[] }> {
   const totals = salesInvoiceTotals(invoice);
   const lineTotals = new Map(totals.lines.map((l) => [l.lineId, l]));
-  const [taxRates, branchCodes, unitMappings] = await Promise.all([
+  const [taxRates, branchCodes, unitMappings, config] = await Promise.all([
     deps.taxRates.list(),
     deps.branchCodes.list(),
     deps.unitMappings.list(),
+    deps.eta.getConfig(),
   ]);
   const unitByCode = new Map(unitMappings.map((m) => [m.unitCode, m.etaUnitCode]));
   const lineItems = await Promise.all(invoice.lines.map((line: SalesInvoiceLine) => deps.items.findById(line.itemId)));
   const branchMapping = branchCodes.find((b) => b.branchId === invoice.branchId) ?? null;
-  await deps.eta.enqueue({
-    internalId: invoice.docNo ?? invoice.id,
-    documentType: "invoice",
-    issueDateTime: occurredAt,
-    branchCode: branchMapping?.etaBranchCode ?? null,
-    receiver: { registrationNumber: taxNumber, name: invoice.customerNameAr, type: "B" },
-    // The document's OWN currency and the rate it was booked at. Filing
-    // every line as EGP misstated a foreign invoice to the authority
-    // (D78), and the payload refuses a foreign document with no rate
-    // rather than sending one at par.
-    currency: invoice.currency,
-    exchangeRate: invoice.fxRate ?? null,
-    lines: invoice.lines.map((line: SalesInvoiceLine, index: number) => {
-      const lt = lineTotals.get(line.lineId);
-      const item = lineItems[index] ?? null;
-      // The unit the LINE was priced in, not the item's base unit: the
-      // quantity and unit price below are both per entered unit, so
-      // filing the base unit code would misstate the quantity sold.
-      const unitCode = line.unitCode !== "" ? line.unitCode : (item?.baseUnitCode ?? "");
-      const taxRate = findLineTaxRate(taxRates, line.taxRatePercent);
-      return {
-        description: line.itemNameAr,
-        itemCode: item?.etaItemCode ?? item?.code ?? line.itemId,
-        quantity: line.qty.toString(),
-        unitType: unitByCode.get(unitCode) ?? unitCode,
-        unitPrice: line.unitPrice.toString(),
-        // On a foreign document the authority wants the sold amount AND
-        // its pound equivalent; on an EGP one they are the same number.
-        unitPriceEgp: invoice.fxRate ? convertToBase(line.unitPrice, invoice.fxRate).toString() : line.unitPrice.toString(),
-        netTotal: (lt?.taxableBase ?? Money.zero()).toString(),
-        taxSubType: resolveEtaVatSubType(taxRate?.etaSubType, line.taxRatePercent),
-        taxRate: String(line.taxRatePercent),
-        taxAmount: (lt?.tax ?? Money.zero()).toString(),
-      };
-    }),
-    totalNet: totals.taxableTotal.toString(),
-    totalTax: totals.taxTotal.toString(),
-    totalAmount: totals.grandTotal.toString(),
+
+  const prevalidationLines: EtaPrevalidationLineInput[] = [];
+  const payloadLines = invoice.lines.map((line: SalesInvoiceLine, index: number) => {
+    const lt = lineTotals.get(line.lineId);
+    const item = lineItems[index] ?? null;
+    // The unit the LINE was priced in, not the item's base unit: the
+    // quantity and unit price below are both per entered unit, so
+    // filing the base unit code would misstate the quantity sold.
+    const unitCode = line.unitCode !== "" ? line.unitCode : (item?.baseUnitCode ?? "");
+    const taxRate = findLineTaxRate(taxRates, line.taxRatePercent);
+    const netTotal = (lt?.taxableBase ?? Money.zero()).toString();
+    const taxAmount = (lt?.tax ?? Money.zero()).toString();
+    prevalidationLines.push({
+      itemId: line.itemId,
+      itemLabel: line.itemNameAr,
+      itemCode: item?.etaItemCode ?? null,
+      itemCodeType: item?.etaCodeType ?? null,
+      unitCode,
+      etaUnitCode: unitByCode.get(unitCode) ?? null,
+      taxRatePercent: line.taxRatePercent,
+      etaTaxSubType: taxRate?.etaSubType ?? null,
+      netTotal,
+      taxAmount,
+    });
+    return {
+      description: line.itemNameAr,
+      // A fallback to the internal code is fine for FILING (the authority is
+      // told SOMETHING) but is exactly what `ItemCodeMissing` above flags as
+      // not registered — the two must read the same underlying fact.
+      itemCode: item?.etaItemCode ?? item?.code ?? line.itemId,
+      quantity: line.qty.toString(),
+      unitType: unitByCode.get(unitCode) ?? unitCode,
+      unitPrice: line.unitPrice.toString(),
+      // On a foreign document the authority wants the sold amount AND
+      // its pound equivalent; on an EGP one they are the same number.
+      unitPriceEgp: invoice.fxRate ? convertToBase(line.unitPrice, invoice.fxRate).toString() : line.unitPrice.toString(),
+      netTotal,
+      taxSubType: resolveEtaVatSubType(taxRate?.etaSubType, line.taxRatePercent),
+      taxRate: String(line.taxRatePercent),
+      taxAmount,
+    };
   });
+
+  const prevalidation = prevalidateEtaInvoice(
+    {
+      branchCode: branchMapping?.etaBranchCode ?? null,
+      receiver: { type: "B", registrationNumber: taxNumber, customerId: invoice.customerId },
+      lines: prevalidationLines,
+      totalNet: totals.taxableTotal.toString(),
+      totalTax: totals.taxTotal.toString(),
+      totalAmount: totals.grandTotal.toString(),
+    },
+    config,
+  );
+
+  return {
+    enqueueInput: {
+      internalId: invoice.docNo ?? invoice.id,
+      documentType: "invoice",
+      issueDateTime: occurredAt,
+      branchCode: branchMapping?.etaBranchCode ?? null,
+      receiver: { registrationNumber: taxNumber, name: invoice.customerNameAr, type: "B" },
+      // The document's OWN currency and the rate it was booked at. Filing
+      // every line as EGP misstated a foreign invoice to the authority
+      // (D78), and the payload refuses a foreign document with no rate
+      // rather than sending one at par.
+      currency: invoice.currency,
+      exchangeRate: invoice.fxRate ?? null,
+      lines: payloadLines,
+      totalNet: totals.taxableTotal.toString(),
+      totalTax: totals.taxTotal.toString(),
+      totalAmount: totals.grandTotal.toString(),
+    },
+    prevalidation,
+  };
+}
+
+async function enqueueInvoice(
+  deps: EtaInvoicePrevalidationDeps,
+  invoice: SalesInvoice,
+  taxNumber: string,
+  occurredAt: string,
+): Promise<void> {
+  const { enqueueInput, prevalidation } = await buildInvoiceEtaInputs(deps, invoice, taxNumber, occurredAt);
+  await deps.eta.enqueue(enqueueInput, prevalidation);
+}
+
+/**
+ * إصلاح وإعادة الطابور (WF-04 step 4) — rebuild ONE queued invoice
+ * submission's payload and pre-validation from the CURRENT state of the
+ * source invoice and its masters, after a fix (an item code registered, a
+ * customer's TIN entered, …). Returns null when the submission's internal id
+ * no longer resolves to a live B2B invoice — `requeue` has nothing to rebuild
+ * from and the route reports it rather than filing a stale payload.
+ */
+export function createEtaInvoiceRequeueRebuilder(
+  deps: EtaInvoicePrevalidationDeps & {
+    readonly invoices: Pick<SalesInvoiceRepository, "findByDocNo">;
+    readonly customers: Pick<CustomerRepository, "findById">;
+  },
+): (submission: { readonly internalId: string; readonly documentType: string }) => Promise<{
+  readonly payload: unknown;
+  readonly prevalidation: readonly EtaPrevalidationFinding[];
+} | null> {
+  return async (submission) => {
+    if (submission.documentType !== "invoice") return null;
+    const invoice = await deps.invoices.findByDocNo(submission.internalId);
+    if (!invoice) return null;
+    const customer = await deps.customers.findById(invoice.customerId);
+    if (!customer?.taxNumber) return null;
+    const { enqueueInput, prevalidation } = await buildInvoiceEtaInputs(
+      deps,
+      invoice,
+      customer.taxNumber,
+      invoice.confirmedAt ?? new Date().toISOString(),
+    );
+    const config = await deps.eta.getConfig();
+    return { payload: buildEtaPayload(enqueueInput, config), prevalidation };
+  };
 }
 
 /**
@@ -469,20 +644,36 @@ export function createReturnEtaEnqueueBridge(deps: {
 
         let totalNet = Money.zero();
         let totalTax = Money.zero();
+        const branchCode = branchCodes[0]?.etaBranchCode ?? null;
+        const prevalidationLines: EtaPrevalidationLineInput[] = [];
         const lines = doc.lines.map((line, index) => {
           const item = lineItems[index] ?? null;
           const net = extendQtyByPrice(line.qty, line.unitPrice);
           const rate = line.taxRatePercent ?? 0;
+          const taxRate = findLineTaxRate(taxRates, rate);
+          const unitCode = item?.baseUnitCode ?? "";
           totalNet = totalNet.add(net);
           totalTax = totalTax.add(line.taxAmount);
+          prevalidationLines.push({
+            itemId: line.itemId,
+            itemLabel: item?.nameAr ?? line.itemId,
+            itemCode: item?.etaItemCode ?? null,
+            itemCodeType: item?.etaCodeType ?? null,
+            unitCode,
+            etaUnitCode: unitByCode.get(unitCode) ?? null,
+            taxRatePercent: rate,
+            etaTaxSubType: taxRate?.etaSubType ?? null,
+            netTotal: net.toString(),
+            taxAmount: line.taxAmount.toString(),
+          });
           return {
             description: item?.nameAr ?? line.itemId,
             itemCode: item?.etaItemCode ?? item?.code ?? line.itemId,
             quantity: line.qty.toString(),
-            unitType: unitByCode.get(item?.baseUnitCode ?? "") ?? item?.baseUnitCode ?? "",
+            unitType: unitByCode.get(unitCode) ?? unitCode,
             unitPrice: line.unitPrice.toString(),
             netTotal: net.toString(),
-            taxSubType: resolveEtaVatSubType(findLineTaxRate(taxRates, rate)?.etaSubType, rate),
+            taxSubType: resolveEtaVatSubType(taxRate?.etaSubType, rate),
             taxRate: String(rate),
             taxAmount: line.taxAmount.toString(),
           };
@@ -491,19 +682,34 @@ export function createReturnEtaEnqueueBridge(deps: {
         // Every line of a return belongs to one invoice (the document type
         // enforces it), so the note references exactly that one.
         const referenced = [...new Set(doc.lines.map((l) => l.sourceInvoiceNumber ?? l.sourceInvoiceId))];
+        const totalAmount = totalNet.add(totalTax);
+        const prevalidation = prevalidateEtaInvoice(
+          {
+            branchCode,
+            receiver: { type: "B", registrationNumber: customer.taxNumber, customerId: first.customerId },
+            lines: prevalidationLines,
+            totalNet: totalNet.toString(),
+            totalTax: totalTax.toString(),
+            totalAmount: totalAmount.toString(),
+          },
+          config,
+        );
 
-        await deps.eta.enqueue({
-          internalId: doc.docNo ?? doc.id,
-          documentType: "credit_note",
-          issueDateTime: event.occurredAt,
-          branchCode: branchCodes[0]?.etaBranchCode ?? null,
-          receiver: { registrationNumber: customer.taxNumber, name: customer.nameAr, type: "B" },
-          referencedDocumentIds: referenced,
-          lines,
-          totalNet: totalNet.toString(),
-          totalTax: totalTax.toString(),
-          totalAmount: totalNet.add(totalTax).toString(),
-        });
+        await deps.eta.enqueue(
+          {
+            internalId: doc.docNo ?? doc.id,
+            documentType: "credit_note",
+            issueDateTime: event.occurredAt,
+            branchCode,
+            receiver: { registrationNumber: customer.taxNumber, name: customer.nameAr, type: "B" },
+            referencedDocumentIds: referenced,
+            lines,
+            totalNet: totalNet.toString(),
+            totalTax: totalTax.toString(),
+            totalAmount: totalAmount.toString(),
+          },
+          prevalidation,
+        );
       })().catch((error: unknown) => {
         if (error instanceof DuplicateEtaSubmissionError) return;
         console.error(`[eta] could not queue ${event.docType}/${event.docId}`, error);

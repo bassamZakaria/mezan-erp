@@ -1,14 +1,18 @@
 import { Money } from "../money/index.js";
 import {
   advanceOutstanding,
+  advanceRecovered,
   applyManualAdvanceRepayment,
   canTransitionAdvance,
   markEmployeeAdvanceDisbursed,
+  reverseManualAdvanceRepayment,
+  revertEmployeeAdvanceDisbursement,
   type EmployeeAdvance,
   type EmployeeAdvanceRepository,
 } from "./advance.js";
 import { canTransitionPayrollRun, type PayrollGlAccounts, type PayrollRun, type PayrollRunRepository } from "./payroll-run.js";
 import {
+  AdvanceDisbursementNotReversibleError,
   AdvanceRepaymentExceedsOutstandingError,
   InvalidAdvanceRepaymentError,
   EmployeeAdvanceNotFoundError,
@@ -253,4 +257,38 @@ export async function repayEmployeeAdvance(advanceId: string, input: AdvanceRepa
   });
   await deps.advances.update(next);
   return next;
+}
+
+export interface UnwindAdvanceVoucherDeps {
+  readonly advances: EmployeeAdvanceRepository;
+}
+
+/**
+ * Undoes what a reversed treasury voucher did to the employee-advance
+ * sub-ledger, so it keeps agreeing with GL 1160 سلف الموظفين.
+ *
+ * Reversing the voucher mirrors the GL entry — the 1160 debit of a
+ * disbursement, the 1160 credit of a manual repayment — and without this the
+ * advance record kept the disbursement (an employee owing money the safe never
+ * paid out) or kept the repayment (an employee credited for money the safe
+ * gave back). Returns true when it recognised and unwound the voucher.
+ */
+export async function unwindAdvanceVoucher(voucherId: string, deps: UnwindAdvanceVoucherDeps): Promise<boolean> {
+  const advances = await deps.advances.list();
+
+  const repaid = advances.find((a) => (a.repayments ?? []).some((r) => r.voucherId === voucherId));
+  if (repaid) {
+    const repayment = (repaid.repayments ?? []).find((r) => r.voucherId === voucherId)!;
+    await deps.advances.update(reverseManualAdvanceRepayment(repaid, repayment.id));
+    return true;
+  }
+
+  const disbursed = advances.find((a) => a.disbursementVoucherId === voucherId);
+  if (!disbursed) return false;
+  const recovered = advanceRecovered(disbursed);
+  if (recovered.scaled > 0n) {
+    throw new AdvanceDisbursementNotReversibleError(disbursed.number, toPiasters(recovered));
+  }
+  await deps.advances.update(revertEmployeeAdvanceDisbursement(disbursed));
+  return true;
 }

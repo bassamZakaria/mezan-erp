@@ -431,6 +431,79 @@ describe("createEtaHttpTransmitPort — the e-receipt leg", () => {
     expect(seen[1]!.url.startsWith(`${apiBaseUrl}/receipts/${RECEIPT_UUID}/details`)).toBe(true);
     expect(seen[1]!.headers.authorization).toBe("Bearer tok");
   });
+
+  describe("transmitReceiptBatch — up to 500 receipts of ONE device in one call (D-B4)", () => {
+    const RECEIPT_UUID_2 = "b".repeat(64);
+    const RECEIPT_UUID_3 = "c".repeat(64);
+    const receiptN = (n: number, uuid: string): EtaSubmission => ({
+      ...RECEIPT,
+      id: `r${n}`,
+      internalId: `INV-0000${n}`,
+      etaUuid: uuid,
+      receiptSeq: n,
+      payload: {
+        ...(RECEIPT.payload as Record<string, unknown>),
+        header: { dateTimeIssued: "2026-09-01T08:00:00Z", receiptNumber: `INV-0000${n}`, uuid, previousUUID: "" },
+      },
+    });
+    const batch = [RECEIPT, receiptN(2, RECEIPT_UUID_2), receiptN(3, RECEIPT_UUID_3)];
+
+    it("sends every receipt of the batch in ONE POST body and maps each outcome by uuid/receiptNumber, keeping the accepted half of a partial rejection", async () => {
+      const { http, seen } = fakeServer((req) =>
+        req.url.endsWith("/connect/token")
+          ? tokenResponse()
+          : {
+              status: 202,
+              body: JSON.stringify({
+                submissionUUID: "SUBR-BATCH",
+                acceptedDocuments: [
+                  { uuid: RECEIPT_UUID, receiptNumber: "INV-000099" },
+                  { uuid: RECEIPT_UUID_3, receiptNumber: "INV-00003" },
+                ],
+                rejectedDocuments: [{ uuid: RECEIPT_UUID_2, receiptNumber: "INV-00002", error: { message: "chain broken" } }],
+              }),
+            },
+      );
+      const port = createEtaHttpTransmitPort({ http, credentials, posCredentials, now: nowStamp, sleep: noSleep });
+      const result = await port.transmitReceiptBatch!(batch, CONFIG);
+
+      const submit = seen[1]!;
+      const sentBody = JSON.parse(submit.body!) as { receipts: unknown[] };
+      expect(sentBody.receipts).toHaveLength(3);
+
+      expect(result.submissionUUID).toBe("SUBR-BATCH");
+      expect(result.outcomes).toEqual([
+        { submissionId: "r1", ok: true, etaUuid: RECEIPT_UUID },
+        { submissionId: "r2", ok: false, errors: ["chain broken"], errorCodes: [null] },
+        { submissionId: "r3", ok: true, etaUuid: RECEIPT_UUID_3 },
+      ]);
+    });
+
+    it("refuses a batch over the 500-receipt cap rather than sending it", async () => {
+      const { http } = fakeServer(() => tokenResponse());
+      const port = createEtaHttpTransmitPort({ http, credentials, posCredentials, now: nowStamp, sleep: noSleep });
+      const oversized = Array.from({ length: 501 }, (_, i) => receiptN(i, "d".repeat(64)));
+      await expect(port.transmitReceiptBatch!(oversized, CONFIG)).rejects.toBeInstanceOf(RangeError);
+    });
+
+    it("a call-level rejection (not per-document) refuses every receipt of the batch with the same reason", async () => {
+      const { http } = fakeServer((req) =>
+        req.url.endsWith("/connect/token") ? tokenResponse() : { status: 400, body: JSON.stringify({ error: { message: "طلب غير صالح" } }) },
+      );
+      const port = createEtaHttpTransmitPort({ http, credentials, posCredentials, now: nowStamp, sleep: noSleep });
+      const result = await port.transmitReceiptBatch!(batch, CONFIG);
+      expect(result.outcomes).toHaveLength(3);
+      expect(result.outcomes.every((o) => o.ok === false && o.errors?.[0] === "طلب غير صالح")).toBe(true);
+    });
+
+    it("queues the whole batch on 422 DuplicateSubmission rather than resolving any one receipt", async () => {
+      const { http } = fakeServer((req) =>
+        req.url.endsWith("/connect/token") ? tokenResponse() : { status: 422, body: JSON.stringify({ error: { code: "DuplicateSubmission" } }) },
+      );
+      const port = createEtaHttpTransmitPort({ http, credentials, posCredentials, now: nowStamp, sleep: noSleep });
+      await expect(port.transmitReceiptBatch!(batch, CONFIG)).rejects.toBeInstanceOf(EtaOfflineError);
+    });
+  });
 });
 
 describe("createEtaHttpTransmitPort — an unreachable authority keeps a receipt queued", () => {

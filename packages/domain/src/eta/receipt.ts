@@ -518,6 +518,26 @@ export function etaReceiptReportingDeadline(
   return new Date(Date.parse(issuedAt) + windowHours * HOUR_MS).toISOString();
 }
 
+/**
+ * EXTERNAL CONTRACT (SDK, Receipt Issuance FAQ): a receipt the authority
+ * REJECTED may be corrected and re-issued, referencing header.referenceOldUUID
+ * at the rejected receipt's own UUID, only within 96 hours of that rejected
+ * receipt's own issuance. Past the window the correction is refused —
+ * {@link EtaService.reissueReceipt} is the enforcement point.
+ */
+export const ETA_RECEIPT_REISSUE_WINDOW_HOURS = 96;
+
+export function etaReceiptReissueDeadline(issuedAt: string): string {
+  return new Date(Date.parse(issuedAt) + ETA_RECEIPT_REISSUE_WINDOW_HOURS * HOUR_MS).toISOString();
+}
+
+/**
+ * SDK, Submit Receipt Documents: `/receiptsubmissions` accepts at most 500
+ * receipts per call. {@link EtaService.submitReadyReceipts} chunks a device's
+ * queue to this size.
+ */
+export const ETA_RECEIPT_BATCH_MAX = 500;
+
 /** Hours remaining before the window closes; negative once it has passed. */
 export function etaReceiptHoursRemaining(
   issuedAt: string,

@@ -9,7 +9,7 @@
 import { Money, Qty } from "../money/index.js";
 import { extend } from "../inventory/index.js";
 import { NextNumberService } from "../numbering/index.js";
-import { recordPurchaseAudit, type PurchaseAuditDeps } from "./audit.js";
+import { atomically, recordPurchaseAudit, type PurchaseAuditDeps } from "./audit.js";
 import type { PurchaseOrderStatus } from "./types.js";
 import {
   DuplicatePurchaseDocumentError,
@@ -81,7 +81,7 @@ export interface PurchaseOrderDeps extends PurchaseAuditDeps {
   readonly now?: () => string;
 }
 
-export type ConfirmPurchaseOrderDeps = Pick<PurchaseOrderDeps, "orders" | "audit" | "actor">;
+export type ConfirmPurchaseOrderDeps = Pick<PurchaseOrderDeps, "orders" | "audit" | "actor" | "transactor">;
 export type CancelPurchaseOrderDeps = ConfirmPurchaseOrderDeps;
 
 function nowIso(deps: { now?: () => string }): string {
@@ -200,15 +200,17 @@ export async function confirmPurchaseOrder(
     ]);
   }
   const sent: PurchaseOrder = { ...order, status: "sent" };
-  await deps.orders.update(sent);
-  await recordPurchaseAudit(deps, "PURCHASE_ORDER", "CONFIRM", {
-    orderId: sent.id,
-    number: sent.number,
-    supplierId: sent.supplierId,
-    status: sent.status,
-    total: purchaseOrderTotal(sent).toString(),
-  }, sent.id);
-  return sent;
+  return atomically(deps, async () => {
+    await deps.orders.update(sent);
+    await recordPurchaseAudit(deps, "PURCHASE_ORDER", "CONFIRM", {
+      orderId: sent.id,
+      number: sent.number,
+      supplierId: sent.supplierId,
+      status: sent.status,
+      total: purchaseOrderTotal(sent).toString(),
+    }, sent.id);
+    return sent;
+  });
 }
 
 /** إلغاء (Cancel): a draft or sent order → ملغي. */
@@ -224,15 +226,17 @@ export async function cancelPurchaseOrder(
     ]);
   }
   const cancelled: PurchaseOrder = { ...order, status: "cancelled" };
-  await deps.orders.update(cancelled);
-  await recordPurchaseAudit(deps, "PURCHASE_ORDER", "CANCEL", {
-    orderId: cancelled.id,
-    number: cancelled.number,
-    supplierId: cancelled.supplierId,
-    status: cancelled.status,
-    previousStatus: order.status,
-  }, cancelled.id);
-  return cancelled;
+  return atomically(deps, async () => {
+    await deps.orders.update(cancelled);
+    await recordPurchaseAudit(deps, "PURCHASE_ORDER", "CANCEL", {
+      orderId: cancelled.id,
+      number: cancelled.number,
+      supplierId: cancelled.supplierId,
+      status: cancelled.status,
+      previousStatus: order.status,
+    }, cancelled.id);
+    return cancelled;
+  });
 }
 
 /**

@@ -1,5 +1,5 @@
 import Database from "better-sqlite3";
-import { openSqliteConnection, type SqliteConnectionInput, type SqliteOpenOptions } from "./sqlite-connection.js";
+import { openSqliteConnection, withSqliteTransaction, type SqliteConnectionInput, type SqliteOpenOptions } from "./sqlite-connection.js";
 import {
   Money,
   type CardCheckout, type CardCheckoutRepository, type CardCheckoutSettlement, type CardCheckoutStatus,
@@ -410,7 +410,7 @@ class SqlitePaymentStore implements PaymentRepository {
   private readonly byId: Database.Statement;
   private readonly byTenant: Database.Statement;
 
-  constructor(sqlite: Database.Database) {
+  constructor(private readonly sqlite: Database.Database) {
     /** Payments are append-only: no ON CONFLICT — a reused id is a bug and must reject, never silently overwrite the row it is renewing a subscription against. */
     this.insert = sqlite.prepare(
       `INSERT INTO payment (id, tenant_id, subscription_id, amount, currency, reference, paid_at, recorded_by, note, created_at)
@@ -435,6 +435,11 @@ class SqlitePaymentStore implements PaymentRepository {
       currency: p.currency, reference: p.reference, paidAt: p.paidAt, recordedBy: p.recordedBy,
       note: p.note, createdAt: p.createdAt,
     });
+  }
+
+  /** The subscription store shares this connection, so the renewal rolls back with the payment. */
+  async transaction<T>(fn: () => Promise<T>): Promise<T> {
+    return withSqliteTransaction(this.sqlite, fn, "BEGIN IMMEDIATE");
   }
 }
 

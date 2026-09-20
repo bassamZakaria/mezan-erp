@@ -99,6 +99,15 @@ export function createFiscalPeriodsRoutes(
     }
     try {
       const periods = await generateFiscalYear(parsed.data.year, repo);
+      // The year's twelve periods are what every posting gate reads; creating
+      // them was the one lifecycle act here that wrote nothing.
+      await recordAdminEvent(audit, c, {
+        module: "accounting",
+        entityType: "FISCAL_YEAR",
+        entityId: String(parsed.data.year),
+        action: "GENERATE",
+        details: { year: parsed.data.year, periodCount: periods.length },
+      });
       return c.json(periods.map(serialize), 201);
     } catch (err) {
       return handleDomainError(c, err);

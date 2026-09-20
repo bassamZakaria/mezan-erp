@@ -2,7 +2,7 @@ import { Money } from "../money/index.js";
 import { CashFlowDirection, type CashCommitment, type CommitmentSource, type CommitmentWindow } from "../cash-forecast/types.js";
 import { duePeriods, journalDateForPeriod } from "./schedule.js";
 import { RecurringJournalTemplateStatus, type RecurringJournalTemplate } from "./types.js";
-import type { RecurringJournalRunRepository, RecurringJournalTemplateRepository } from "./store.js";
+import type { RecurringJournalRunRepository, RecurringJournalSkipRepository, RecurringJournalTemplateRepository } from "./store.js";
 
 function netDirectionAndAmount(template: RecurringJournalTemplate): { direction: CashFlowDirection; amount: Money } | null {
   // A template nets to a cash-forecast commitment only through the lines that
@@ -37,9 +37,15 @@ function templateBranch(template: RecurringJournalTemplate): string | null {
 export interface RecurringJournalCommitmentDeps {
   readonly templates: Pick<RecurringJournalTemplateRepository, "list">;
   readonly runs: Pick<RecurringJournalRunRepository, "findByTemplateAndPeriod">;
+  /**
+   * A period the operator skipped is not a future cash movement either — the
+   * forecast fed on the run repository alone (D... ENH-E2-02) and would keep
+   * projecting a rent accrual the owner had already waived.
+   */
+  readonly skips: Pick<RecurringJournalSkipRepository, "findByTemplateAndPeriod">;
 }
 
-/** Every future occurrence, of every active template, inside `window` — skipping periods already posted as a run. */
+/** Every future occurrence, of every active template, inside `window` — skipping periods already posted as a run OR deliberately skipped. */
 export async function recurringJournalCommitments(
   deps: RecurringJournalCommitmentDeps,
   window: CommitmentWindow,
@@ -54,6 +60,7 @@ export async function recurringJournalCommitments(
       const date = journalDateForPeriod(template, period);
       if (date < window.from || date > window.to) continue;
       if (await deps.runs.findByTemplateAndPeriod(template.id, period)) continue;
+      if (await deps.skips.findByTemplateAndPeriod(template.id, period)) continue;
       out.push({
         id: `recurring-journal:${template.id}:${period}`,
         date,

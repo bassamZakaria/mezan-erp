@@ -293,6 +293,7 @@ export {
   type SqlitePayrollComponentRepositoryHandle,
 } from "./hr-payroll-store.js";
 export { createSqliteClockCredentialRepository, type SqliteClockCredentialRepositoryHandle } from "./hr-self-store.js";
+export { createSqliteWebauthnChallengeRepository, type SqliteWebauthnChallengeRepositoryHandle } from "./webauthn-challenge-store.js";
 export {
   createSqliteWritedownRunRepository,
   type SqliteWritedownRunRepositoryHandle,

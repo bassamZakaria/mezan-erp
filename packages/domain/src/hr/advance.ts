@@ -292,3 +292,59 @@ export function applyManualAdvanceRepayment(advance: EmployeeAdvance, repayment:
   const recovered = applyAdvanceRecovery(advance, repayment.amount, repayment.recordedAt);
   return { ...recovered, repayments: [...(advance.repayments ?? []), repayment] };
 }
+
+/**
+ * Un-applies `amount` from the recovery schedule, newest-filled instalment
+ * first — the exact inverse of {@link applyAdvanceRecovery}, which fills
+ * oldest-first. Used when the treasury voucher that carried the money is
+ * reversed, so the advance sub-ledger and GL 1160 move together.
+ */
+export function reverseAdvanceRecovery(advance: EmployeeAdvance, amount: Money): EmployeeAdvance {
+  if (amount.scaled <= 0n) return advance;
+  if (amount.scaled > advanceRecovered(advance).scaled) {
+    throw new InvalidEmployeeAdvanceError([
+      `مبلغ عكس الاسترداد (${amount.toString()}) يتجاوز ما تم استرداده من السلفة (${advanceRecovered(advance).toString()}).`,
+    ]);
+  }
+  let remaining = amount.scaled;
+  const installments = [...advance.installments];
+  for (let i = installments.length - 1; i >= 0 && remaining > 0n; i -= 1) {
+    const installment = installments[i]!;
+    const filled = installment.recovered.scaled;
+    if (filled <= 0n) continue;
+    const give = filled < remaining ? filled : remaining;
+    remaining -= give;
+    installments[i] = { ...installment, recovered: Money.fromScaled(filled - give) };
+  }
+  return { ...advance, installments, status: "disbursed", repaidAt: null };
+}
+
+/**
+ * Removes a manual repayment and the recovery it applied. The repayment's
+ * voucher has been reversed, so the credit to 1160 is gone and the employee
+ * owes the money again.
+ */
+export function reverseManualAdvanceRepayment(advance: EmployeeAdvance, repaymentId: string): EmployeeAdvance {
+  const repayment = (advance.repayments ?? []).find((r) => r.id === repaymentId);
+  if (!repayment) return advance;
+  const restored = reverseAdvanceRecovery(advance, repayment.amount);
+  return { ...restored, repayments: (advance.repayments ?? []).filter((r) => r.id !== repaymentId) };
+}
+
+/**
+ * Puts a disbursed advance back to "معتمدة" because its disbursement voucher
+ * was reversed: the cash never left, so neither may the receivable stay. The
+ * caller must refuse this while any of it has been recovered — reversing the
+ * loan under a recovery that already credited 1160 would leave the account
+ * negative by the recovered amount.
+ */
+export function revertEmployeeAdvanceDisbursement(advance: EmployeeAdvance): EmployeeAdvance {
+  return {
+    ...advance,
+    status: "approved",
+    disbursedAt: null,
+    disbursementVoucherId: null,
+    disbursementJournalEntryId: null,
+    repaidAt: null,
+  };
+}

@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { DEFAULT_ETA_CONFIG, type EtaConfig, type EtaConfigRepository } from "./config.js";
 import type { EtaSubmission, EtaSubmissionRepository, EtaSubmissionStatus } from "./submission.js";
 import { EtaService } from "./service.js";
-import { EtaOfflineError } from "./errors.js";
+import { EtaOfflineError, EtaReissueNotRejectedError, EtaReissueSameInternalIdError, EtaReissueWindowExpiredError } from "./errors.js";
 import { EtaReceiptUuidUnavailableError, type EtaReceiptInput, type EtaReceiptUuidPort } from "./receipt.js";
 import { createInMemoryEtaReceiptChain, type EtaReceiptChainRepository } from "./receipt-chain.js";
 
@@ -388,5 +388,115 @@ describe("submitReadyReceipts — reported device by device, in chain order", ()
     const result = await svc.submitReadyReceipts();
     expect(sent).toEqual(["POS-A-1", "POS-A-2", "POS-A-3"]);
     expect(result.queued).toHaveLength(2);
+  });
+
+  it("reports a device's ready receipts in ONE /receiptsubmissions call when the port batches (D-B4), mapping acceptedDocuments/rejectedDocuments back onto each submission — a rejection inside the batch does not lose the accepted receipts beside it", async () => {
+    const batches: string[][] = [];
+    let clock = 0;
+    const submissions = new MemSubmissions();
+    const svc = new EtaService({
+      config: new MemConfig(READY),
+      submissions,
+      receiptUuid: countingUuidPort(),
+      now: () => new Date(Date.UTC(2026, 8, 1, 10, 0, clock++)).toISOString(),
+      newId: () => `eta-${++ids}`,
+      transmit: {
+        async transmit() {
+          throw new Error("the batch leg should have been used instead of one-at-a-time submit");
+        },
+        async transmitReceiptBatch(batch) {
+          batches.push(batch.map((s) => s.internalId));
+          return {
+            submissionUUID: "SUB-BATCH-1",
+            outcomes: batch.map((s, i) =>
+              i === 1
+                ? { submissionId: s.id, ok: false, errors: ["رفضت المصلحة هذا الإيصال"], errorCodes: ["E1"] }
+                : { submissionId: s.id, ok: true, etaUuid: s.etaUuid ?? undefined },
+            ),
+          };
+        },
+      },
+    });
+    for (const n of [1, 2, 3]) {
+      await svc.enqueueReceipt({ ...receipt, internalId: `RCP-BATCH-${n}` });
+    }
+    const result = await svc.submitReadyReceipts();
+    expect(batches).toEqual([["RCP-BATCH-1", "RCP-BATCH-2", "RCP-BATCH-3"]]);
+    expect(result.submitted.map((s) => s.internalId)).toEqual(["RCP-BATCH-1", "RCP-BATCH-3"]);
+    expect(result.rejected.map((s) => s.internalId)).toEqual(["RCP-BATCH-2"]);
+    expect(result.submitted.every((s) => s.status === "submitted")).toBe(true);
+    expect(result.rejected[0]?.errors).toEqual(["رفضت المصلحة هذا الإيصال"]);
+  });
+});
+
+describe("reissueReceipt — correcting and re-issuing a REJECTED receipt (D-B4)", () => {
+  const header = (p: { submission: { payload: unknown } }) =>
+    (p.submission.payload as { header: { uuid: string; previousUUID: string; referenceOldUUID?: string } }).header;
+
+  it("refuses to correct a receipt the authority never rejected", async () => {
+    const { svc } = service();
+    await svc.enqueueReceipt(receipt);
+    await expect(svc.reissueReceipt(receipt.internalId, { ...receipt, internalId: "RCP-000001-R2" })).rejects.toThrow(
+      EtaReissueNotRejectedError,
+    );
+  });
+
+  it("refuses a correction that reuses the rejected receipt's own number", async () => {
+    const submissions = new MemSubmissions();
+    const svc = new EtaService({
+      config: new MemConfig(READY),
+      submissions,
+      receiptUuid: countingUuidPort(),
+      now: () => "2026-09-01T10:00:00.000Z",
+      newId: () => `eta-${++ids}`,
+    });
+    const original = await svc.enqueueReceipt(receipt);
+    submissions.rows.set(original.submission.id, { ...original.submission, status: "error", errors: ["رفضت المصلحة"] });
+    await expect(svc.reissueReceipt(receipt.internalId, { ...receipt, internalId: receipt.internalId })).rejects.toThrow(
+      EtaReissueSameInternalIdError,
+    );
+  });
+
+  it("re-issues within the 96-hour window, referencing the rejected receipt's UUID via header.referenceOldUUID and chaining right after it", async () => {
+    let clock = "2026-09-01T10:00:00.000Z";
+    const submissions = new MemSubmissions();
+    const svc = new EtaService({
+      config: new MemConfig(READY),
+      submissions,
+      receiptUuid: countingUuidPort(),
+      now: () => clock,
+      newId: () => `eta-${++ids}`,
+    });
+    const original = await svc.enqueueReceipt(receipt);
+    submissions.rows.set(original.submission.id, { ...original.submission, status: "error", errors: ["رفضت المصلحة"] });
+
+    clock = "2026-09-05T09:00:00.000Z"; // 95 hours later — inside the window
+    const corrected = await svc.reissueReceipt(receipt.internalId, { ...receipt, internalId: "RCP-000001-R2" });
+    expect(header(corrected).referenceOldUUID).toBe(original.uuid);
+    // The correction is a NEW receipt on the same device's chain, right after
+    // the rejected one — the CAS honours the chain exactly as any other issue.
+    expect(header(corrected).previousUUID).toBe(original.uuid);
+    expect(corrected.submission.status).toBe("ready");
+    expect(await svc.receiptChainHead("POS-0001")).toMatchObject({ lastUuid: corrected.uuid, lastSeq: 2 });
+  });
+
+  it("refuses past the 96-hour correction window, bilingually", async () => {
+    let clock = "2026-09-01T10:00:00.000Z";
+    const submissions = new MemSubmissions();
+    const svc = new EtaService({
+      config: new MemConfig(READY),
+      submissions,
+      receiptUuid: countingUuidPort(),
+      now: () => clock,
+      newId: () => `eta-${++ids}`,
+    });
+    const original = await svc.enqueueReceipt(receipt);
+    submissions.rows.set(original.submission.id, { ...original.submission, status: "error", errors: ["رفضت المصلحة"] });
+
+    clock = "2026-09-05T11:00:00.000Z"; // 97 hours later — past the window
+    const attempt = svc.reissueReceipt(receipt.internalId, { ...receipt, internalId: "RCP-000001-R2" });
+    await expect(attempt).rejects.toThrow(EtaReissueWindowExpiredError);
+    await expect(attempt).rejects.toMatchObject({ code: "ETA_REISSUE_WINDOW_EXPIRED" });
+    await expect(attempt).rejects.toMatchObject({ messageEn: expect.stringContaining("96 hours") });
   });
 });

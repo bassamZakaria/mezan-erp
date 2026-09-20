@@ -317,3 +317,18 @@ describe("reverseJournalEntry — the filed-VAT lock", () => {
     expect(reversal.date).toBe("2026-09-01");
   });
 });
+
+describe("the REVERSE audit row is written inside the reversal's own transaction", () => {
+  it("records while the transaction is still open", async () => {
+    const { deps, ledger, audit } = await harness();
+    await postJournalEntry(entryCmd, deps);
+    const where: string[] = [];
+    const append = audit.append.bind(audit);
+    audit.append = async (event) => {
+      if (event.action === "REVERSE") where.push(ledger.inTransaction ? "inside" : "outside");
+      await append(event);
+    };
+    await reverseJournalEntry("je-1", deps, { reversalId: "je-1-rev" });
+    expect(where).toEqual(["inside"]);
+  });
+});

@@ -27,6 +27,7 @@ import {
   InvalidGuaranteeError,
   InvalidGuaranteeTransitionError,
 } from "./errors.js";
+import { tenantTodayIso } from "../../dates.js";
 
 /**
  * سجل خطابات الضمان — the register's use cases and the ledger behind them
@@ -126,7 +127,7 @@ export class GuaranteeService {
   constructor(private readonly deps: GuaranteeServiceDeps) {}
 
   private today(): string {
-    return this.deps.today ? this.deps.today() : new Date().toISOString().slice(0, 10);
+    return this.deps.today ? this.deps.today() : tenantTodayIso();
   }
 
   private async routed(key: string, fallback: string): Promise<string> {

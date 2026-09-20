@@ -1965,6 +1965,7 @@ describe("reports routes — drill-down/item/:id", () => {
     await stockService.recordOpeningBalance({
       adjustmentId: "adj-dd",
       warehouseId: "wh-1",
+      occurredAt: "2026-08-01T09:00:00.000Z",
       lines: [{ itemId: "item-dd", qty: Qty.fromMajor("40"), unitCost: Money.fromMajor("25.00") }],
     });
 
@@ -1980,6 +1981,156 @@ describe("reports routes — drill-down/item/:id", () => {
     expect(body.facts.find((f) => f.key === "onHand")?.value).toBe("40");
     expect(body.facts.find((f) => f.key === "value")?.value).toBe("1000.00");
     expect(body.documentCount).toBe(1);
+  });
+});
+
+describe("a customer, supplier or item drill-down reconciles to the row it opened from (D286)", () => {
+  const fact = (body: { facts: { key: string; value: string }[] }, key: string) => body.facts.find((f) => f.key === key)?.value;
+  const json = async (res: Response) => (await res.json()) as { facts: { key: string; value: string }[]; documentCount: number };
+  const rowOf = async (
+    app: { fetch: (r: Request) => Response | Promise<Response> },
+    path: string,
+    permission: string,
+    idKey: string,
+    id: string,
+  ) => {
+    const res = await app.fetch(req(path, permission));
+    const body = (await res.json()) as { rows: Record<string, number | string>[] };
+    return body.rows.find((r) => r[idKey] === id);
+  };
+
+  /**
+   * One customer and one supplier, each carrying the terms the panel used to
+   * ignore: an opening balance, and an invoice dated after the report's day.
+   */
+  async function seedParties() {
+    const harness = await newApp();
+    const { deps } = harness;
+    await deps.warehouses.save({
+      id: "wh-1", code: "WH-1", name: "مخزن القاهرة", nameEn: null, branchId: "br-1", type: "MAIN", isDefault: true, active: true, projectId: null, custodianUserId: null,
+    });
+    await deps.customers.save(makeCustomer({ id: "cust-286", code: "C-286", nameAr: "عميل المطابقة", openingBalance: Money.fromMajor("400.00") }));
+    await deps.suppliers.save(makeSupplier({ id: "sup-286", code: "S-286", nameAr: "مورد المطابقة", openingBalance: Money.fromMajor("70.00") }));
+    await deps.salesInvoices.save(
+      makeInvoice({ id: "inv-286-a", docNo: "INV-286-A", date: "2026-08-10", customerId: "cust-286", branchId: "br-1", arAccountId: "1105", lines: [makeInvoiceLine({ unitPrice: Money.fromMajor("200.00"), qty: Qty.fromMajor("1") })] }),
+    );
+    await deps.salesInvoices.save(
+      makeInvoice({ id: "inv-286-b", docNo: "INV-286-B", date: "2026-08-20", customerId: "cust-286", branchId: "br-2", arAccountId: "1105", lines: [makeInvoiceLine({ unitPrice: Money.fromMajor("100.00"), qty: Qty.fromMajor("1") })] }),
+    );
+    // Dated after `today` (2026-08-22): the ladder and the period row leave it
+    // out, so the panel must too.
+    await deps.salesInvoices.save(
+      makeInvoice({ id: "inv-286-later", docNo: "INV-286-L", date: "2026-09-15", customerId: "cust-286", branchId: "br-1", arAccountId: "1105", lines: [makeInvoiceLine({ unitPrice: Money.fromMajor("777.00"), qty: Qty.fromMajor("1") })] }),
+    );
+    await deps.purchaseInvoices.create(makePurchaseInvoice({ id: "pi-286-a", number: "PI-286-A", supplierId: "sup-286", date: "2026-08-10", branchId: "br-1" }));
+    await deps.purchaseInvoices.create(makePurchaseInvoice({ id: "pi-286-b", number: "PI-286-B", supplierId: "sup-286", date: "2026-08-20", branchId: "br-2" }));
+    await deps.purchaseInvoices.create(makePurchaseInvoice({ id: "pi-286-later", number: "PI-286-L", supplierId: "sup-286", date: "2026-09-15", branchId: "br-1" }));
+    return harness;
+  }
+
+  it("takes «المستحق» from the aging ladder's own row, opening balance and all", async () => {
+    const { app } = await seedParties();
+    const ladder = await rowOf(app, "/aging/customers?asOfDate=2026-08-22&branchId=", "sales.invoice.view", "customerId", "cust-286");
+    const panel = await json(await app.fetch(req("/drill-down/customer/cust-286?asOfDate=2026-08-22", "sales.customer.view")));
+    // 200 + 100 invoiced, plus the 400.00 opening balance the panel never saw.
+    expect(Number(ladder?.total).toFixed(2)).toBe("700.00");
+    expect(fact(panel, "outstanding")).toBe("700.00");
+    expect(fact(panel, "asOfDate")).toBe("2026-08-22");
+  });
+
+  it("narrows «المستحق» to the ladder's branch, and never past the caller's scope", async () => {
+    const { app } = await seedParties();
+    const ladder = await rowOf(app, "/aging/customers?asOfDate=2026-08-22&branchId=br-1", "sales.invoice.view", "customerId", "cust-286");
+    const panel = await json(await app.fetch(req("/drill-down/customer/cust-286?asOfDate=2026-08-22&branchId=br-1", "sales.customer.view")));
+    expect(Number(ladder?.total).toFixed(2)).toBe("200.00");
+    expect(fact(panel, "outstanding")).toBe("200.00");
+    const scoped = await json(
+      await app.fetch(
+        new Request("http://local/drill-down/customer/cust-286?asOfDate=2026-08-22", {
+          headers: { "x-permissions": "sales.customer.view", "x-branch-scope": "br-2" },
+        }),
+      ),
+    );
+    expect(fact(scoped, "billed")).toBe("100.00");
+  });
+
+  it("bills «إجمالي المفوتر» over the same period the by-customer row covers", async () => {
+    const { app } = await seedParties();
+    const row = await rowOf(app, "/sales/by-customer?dateFrom=2026-08-01&dateTo=2026-08-15&taxMode=inc&branchId=", "sales.invoice.view", "customerId", "cust-286");
+    const panel = await json(await app.fetch(req("/drill-down/customer/cust-286?fromDate=2026-08-01&asOfDate=2026-08-15", "sales.customer.view")));
+    expect(Number(row?.total).toFixed(2)).toBe("200.00");
+    expect(fact(panel, "billed")).toBe("200.00");
+    expect(fact(panel, "fromDate")).toBe("2026-08-01");
+    expect(panel.documentCount).toBe(1);
+  });
+
+  it("bills «إجمالي المشتريات» over the by-supplier row's period, and owes the supplier ladder's row", async () => {
+    const { app } = await seedParties();
+    const period = await rowOf(app, "/purchases/by-supplier?dateFrom=2026-08-01&dateTo=2026-08-15&branchId=", "purchases.invoice.view", "supplierId", "sup-286");
+    const ladder = await rowOf(app, "/aging/suppliers?asOfDate=2026-08-22&branchId=", "purchases.invoice.view", "supplierId", "sup-286");
+    const windowed = await json(await app.fetch(req("/drill-down/supplier/sup-286?fromDate=2026-08-01&asOfDate=2026-08-15", "purchases.supplier.view")));
+    const asOf = await json(await app.fetch(req("/drill-down/supplier/sup-286?asOfDate=2026-08-22", "purchases.supplier.view")));
+    expect(Number(period?.total).toFixed(2)).toBe("100.00");
+    expect(fact(windowed, "billed")).toBe("100.00");
+    // 100 + 100 payable plus the 70.00 opening balance; the later invoice is out.
+    expect(Number(ladder?.total).toFixed(2)).toBe("270.00");
+    expect(fact(asOf, "outstanding")).toBe("270.00");
+    expect(fact(asOf, "billed")).toBe("200.00");
+  });
+
+  it("narrows the item panel to the report's warehouse, and to the caller's warehouse scope", async () => {
+    const { app, deps } = await newApp();
+    await deps.warehouses.save({
+      id: "wh-1", code: "WH-1", name: "مخزن القاهرة", nameEn: null, branchId: "br-1", type: "MAIN", isDefault: true, active: true, projectId: null, custodianUserId: null,
+    });
+    await deps.warehouses.save({
+      id: "wh-2", code: "WH-2", name: "مخزن الجيزة", nameEn: null, branchId: "br-2", type: "MAIN", isDefault: false, active: true, projectId: null, custodianUserId: null,
+    });
+    await deps.items.create(makeItem({ id: "item-286", code: "ITEM-286", nameAr: "صنف المطابقة", baseUnitCode: "PCS" }));
+    const stock = new StockLedgerService({
+      ledger: deps.stockLedger,
+      layers: deps.costLayers,
+      snapshots: deps.wacSnapshots,
+      policy: { allowNegativeStock: false },
+      transaction: async (fn) => fn(),
+    });
+    for (const [adjustmentId, warehouseId, qty] of [["adj-286-1", "wh-1", "40"], ["adj-286-2", "wh-2", "10"]] as const) {
+      await stock.recordOpeningBalance({
+        adjustmentId,
+        warehouseId,
+        occurredAt: "2026-08-01T09:00:00.000Z",
+        lines: [{ itemId: "item-286", qty: Qty.fromMajor(qty), unitCost: Money.fromMajor("25.00") }],
+      });
+    }
+    const row = await rowOf(app, "/inventory/valuation?warehouseId=wh-1&search=&branchId=", "inventory.valuation.view", "itemId", "item-286");
+    const panel = await json(await app.fetch(req("/drill-down/item/item-286?warehouseId=wh-1", "inventory.item.view")));
+    expect(Number(row?.totalValue).toFixed(2)).toBe("1000.00");
+    expect(fact(panel, "value")).toBe("1000.00");
+    expect(fact(panel, "onHand")).toBe("40");
+    expect(fact(panel, "warehouseCount")).toBe("1");
+    expect(panel.documentCount).toBe(1);
+    const both = await json(await app.fetch(req("/drill-down/item/item-286", "inventory.item.view")));
+    expect(fact(both, "value")).toBe("1250.00");
+    const scoped = await json(
+      await app.fetch(
+        new Request("http://local/drill-down/item/item-286", {
+          headers: { "x-permissions": "inventory.item.view", "x-warehouse-scope": "wh-2" },
+        }),
+      ),
+    );
+    expect(fact(scoped, "value")).toBe("250.00");
+  });
+
+  it("refuses a malformed date or an inverted window on every entity panel", async () => {
+    const { app } = await seedParties();
+    for (const [path, permission] of [
+      ["/drill-down/customer/cust-286", "sales.customer.view"],
+      ["/drill-down/supplier/sup-286", "purchases.supplier.view"],
+      ["/drill-down/item/item-286", "inventory.item.view"],
+    ] as const) {
+      expect((await app.fetch(req(`${path}?asOfDate=22-08-2026`, permission))).status).toBe(400);
+      expect((await app.fetch(req(`${path}?fromDate=2026-08-22&asOfDate=2026-08-01`, permission))).status).toBe(400);
+    }
   });
 });
 

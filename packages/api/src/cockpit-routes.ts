@@ -61,6 +61,7 @@ import {
   withinScope,
   type AuthContextResolver,
 } from "./permission-gate.js";
+import { tenantToday } from "./tenant-day.js";
 
 export const COCKPIT_PERMISSION = "accounting.cockpit.view";
 
@@ -309,7 +310,7 @@ async function moversSection(
 export function createCockpitRoutes(deps: CockpitRoutesDeps, resolveAuthContext: AuthContextResolver): Hono {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
-  const todayOf = () => (deps.today ? deps.today() : toTenantDay(new Date().toISOString()));
+  const todayOf = (c: Context) => tenantToday(c, deps.today);
   const nowOf = () => (deps.now ? deps.now() : new Date().toISOString());
 
   /**
@@ -331,7 +332,7 @@ export function createCockpitRoutes(deps: CockpitRoutesDeps, resolveAuthContext:
       return c.json({ error: "INVALID_QUERY", message: "معايير لوحة المالك غير صالحة.", messageEn: "Invalid cockpit parameters.", issues: parsed.error.issues }, 400);
     }
     const bookVersion = deps.bookVersion();
-    const today = todayOf();
+    const today = await todayOf(c);
     const compareDate = cockpitAddDays(today, -COCKPIT_SPARK_DAYS);
     const sparkFrom = cockpitAddDays(today, -(COCKPIT_SPARK_DAYS - 1));
     const trendFrom = cockpitAddDays(today, -(COCKPIT_SPARK_DAYS * COCKPIT_MARGIN_WEEKS - 1));

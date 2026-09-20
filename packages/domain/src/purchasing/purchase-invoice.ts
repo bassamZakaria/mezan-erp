@@ -19,7 +19,7 @@ import { convertToBase } from "../exchange-rates/convert.js";
 import { NextNumberService } from "../numbering/index.js";
 import type { GoodsReceipt, GoodsReceiptRepository } from "./goods-receipt.js";
 import { markGoodsReceiptInvoiced } from "./goods-receipt.js";
-import { recordPurchaseAudit, type PurchaseAuditDeps } from "./audit.js";
+import { atomically, recordPurchaseAudit, type PurchaseAuditDeps } from "./audit.js";
 import {
   DEFAULT_PURCHASE_POLICY,
   type PurchaseGlAccounts,
@@ -686,17 +686,17 @@ export async function confirmPurchaseInvoice(
         allocated: Money.zero(),
       });
     }
+    await recordPurchaseAudit(deps, "PURCHASE_INVOICE", "CONFIRM", {
+      invoiceId: next.id,
+      number: next.number,
+      supplierId: next.supplierId,
+      receiptId: next.receiptId,
+      status: next.status,
+      total: purchaseInvoiceTotal(next).toString(),
+    }, next.id);
     return next;
   });
 
-  await recordPurchaseAudit(deps, "PURCHASE_INVOICE", "CONFIRM", {
-    invoiceId: confirmed.id,
-    number: confirmed.number,
-    supplierId: confirmed.supplierId,
-    receiptId: confirmed.receiptId,
-    status: confirmed.status,
-    total: purchaseInvoiceTotal(confirmed).toString(),
-  }, confirmed.id);
 
   return { invoice: confirmed, posting };
 }
@@ -723,6 +723,7 @@ export async function cancelPurchaseInvoice(
     throw new PurchaseDocumentNotDraftError(id, invoice.status);
   }
 
+  return atomically(deps, async () => {
   if (invoice.status === "confirmed") {
     const inventoryLines = invoice.lines.filter((l) => l.kind === "inventory" && l.itemId !== null);
     if (policy.trackSoldPurchaseItems) {
@@ -768,4 +769,5 @@ export async function cancelPurchaseInvoice(
     total: purchaseInvoiceTotal(cancelled).toString(),
   }, cancelled.id);
   return cancelled;
+  });
 }

@@ -34,6 +34,7 @@ import {
   type Activity,
   type ActivityRepository,
   type CustomerRepository,
+  type AuditSink,
 } from "@mezan/domain";
 import {
   createLeadSchema,
@@ -46,6 +47,7 @@ import {
 } from "@mezan/contracts";
 import { branchScopeOf, createPermissionGate, withinScope, type AuthContextResolver } from "./permission-gate.js";
 import { nextMasterCode } from "./master-code.js";
+import { recordAdminEvent } from "./admin-audit.js";
 
 /**
  * CRM routes (docs/archive/catalog/06-crm-hr.md "العملاء المحتملون / الفرص / خط
@@ -58,6 +60,12 @@ export interface CrmRoutesDeps {
   readonly pipelineStages: PipelineStageRepository;
   readonly activities: ActivityRepository;
   readonly customers: Pick<CustomerRepository, "save" | "findAll">;
+  /**
+   * Converting a lead MINTS A CUSTOMER — a party every invoice, allocation and
+   * receivable then hangs off — and it was the one master-data creation path in
+   * the product that left no trail of who created the party or from what.
+   */
+  readonly audit?: AuditSink;
 }
 
 const movePipelineStageSchema = z.object({
@@ -243,6 +251,19 @@ export function createCrmRoutes(deps: CrmRoutesDeps, resolveAuthContext: AuthCon
         },
         { leads: deps.leads, customers: deps.customers, opportunities: deps.opportunities },
       );
+      await recordAdminEvent(deps.audit, c, {
+        module: "crm",
+        entityType: "LEAD",
+        entityId: result.lead.id,
+        action: "CONVERT",
+        details: {
+          leadId: result.lead.id,
+          leadName: result.lead.name,
+          customerId: result.customerId,
+          customerCode: customer?.code ?? null,
+          opportunityId: result.opportunityId,
+        },
+      });
       return c.json({
         lead: serializeLead(result.lead),
         customerId: result.customerId,

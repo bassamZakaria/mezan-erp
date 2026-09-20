@@ -53,6 +53,7 @@ import {
   LaterCertificateExistsError,
   ProgressCertificateNotFoundError,
 } from "./errors.js";
+import { tenantTodayIso } from "../../dates.js";
 
 /**
  * المستخلص — the use cases and the ledger behind them (design §04).
@@ -374,7 +375,7 @@ export class CertificateService {
   constructor(private readonly deps: CertificateServiceDeps) {}
 
   private today(): string {
-    return this.deps.today ? this.deps.today() : new Date().toISOString().slice(0, 10);
+    return this.deps.today ? this.deps.today() : tenantTodayIso();
   }
 
   private async routed(key: string, fallback: string): Promise<string> {

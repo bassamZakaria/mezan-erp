@@ -89,3 +89,10 @@ export const generatedRecurringJournalSchema = z.object({
   reversalJournalEntryNo: z.string().nullable(),
 });
 export type GeneratedRecurringJournalDTO = z.infer<typeof generatedRecurringJournalSchema>;
+
+/** "Skip this occurrence" — `POST /gl/recurring/templates/:id/skip`. `period` is the same key `/due` reports back. */
+export const skipRecurringJournalOccurrenceSchema = z.object({
+  period: z.string().min(1),
+  note: z.string().trim().min(1).nullish(),
+});
+export type SkipRecurringJournalOccurrenceDTO = z.infer<typeof skipRecurringJournalOccurrenceSchema>;

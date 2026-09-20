@@ -114,3 +114,55 @@ describe("recordPayment", () => {
     expect(payments.rows.size).toBe(0);
   });
 });
+
+describe("a manual payment renews and records as one act", () => {
+  /** Rolls back the subscription rows when the body throws, like the SQLite store does. */
+  function transactional(payments: PaymentRepository, subscriptions: ReturnType<typeof memorySubscriptions>) {
+    return {
+      ...payments,
+      async transaction<T>(fn: () => Promise<T>): Promise<T> {
+        const snapshot = new Map(subscriptions.rows);
+        try {
+          return await fn();
+        } catch (err) {
+          subscriptions.rows.clear();
+          for (const [k, v] of snapshot) subscriptions.rows.set(k, v);
+          throw err;
+        }
+      },
+    } satisfies PaymentRepository;
+  }
+
+  const cmd = {
+    id: "PMT-1",
+    tenantId: "T1",
+    subscriptionId: "S1",
+    amount: Money.fromMajor("2500.00"),
+    reference: "TRF-9001",
+    paidAt: NOW,
+    recordedBy: "admin",
+    now: NOW,
+  };
+
+  it("leaves the subscription un-renewed when the payment row cannot be written", async () => {
+    const subscriptions = memorySubscriptions([sub]);
+    const payments = transactional(
+      { ...memoryPayments(), async save() { throw new Error("duplicate payment id"); } },
+      subscriptions,
+    );
+
+    await expect(recordPayment(cmd, payments, subscriptions)).rejects.toThrow("duplicate payment id");
+    // The tenant must not keep a period nothing paid for.
+    expect(subscriptions.rows.get("S1")!.currentPeriodEnd).toBe(sub.currentPeriodEnd);
+  });
+
+  it("commits the renewal and the payment together on success", async () => {
+    const subscriptions = memorySubscriptions([sub]);
+    const store = memoryPayments();
+    const result = await recordPayment(cmd, transactional(store, subscriptions), subscriptions);
+
+    expect(store.rows.get("PMT-1")!.reference).toBe("TRF-9001");
+    expect(subscriptions.rows.get("S1")!.currentPeriodEnd).toBe(result.subscription.currentPeriodEnd);
+    expect(result.subscription.currentPeriodEnd).not.toBe(sub.currentPeriodEnd);
+  });
+});

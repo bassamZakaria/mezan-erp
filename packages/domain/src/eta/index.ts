@@ -18,6 +18,8 @@ export {
 export {
   ETA_RECEIPT_PAYMENT_METHODS,
   ETA_RECEIPT_TYPE_VERSION,
+  ETA_RECEIPT_REISSUE_WINDOW_HOURS,
+  ETA_RECEIPT_BATCH_MAX,
   buildEtaReceiptPayload,
   canonicalizeEtaDocument,
   etaReceiptDateTime,
@@ -30,6 +32,7 @@ export {
   etaReceiptIssuedAt,
   etaReceiptQrValue,
   etaReceiptReportingDeadline,
+  etaReceiptReissueDeadline,
   getEtaReceiptPaymentMethodLabel,
   getEtaReceiptTypeLabel,
   summarizeEtaReceiptQueue,
@@ -97,6 +100,8 @@ export {
   type EtaEnqueueInput,
   type EtaReceiptPrintData,
   type EtaChainedReceiptInput,
+  type EtaReceiptBatchOutcome,
+  type EtaReceiptBatchResult,
 } from "./service.js";
 export {
   DEFAULT_ETA_RETRY,
@@ -137,6 +142,9 @@ export {
   EtaBuyerIdentityRequiredError,
   EtaRefundTooLateError,
   EtaReceiptedSaleVoidRefusedError,
+  EtaReissueNotRejectedError,
+  EtaReissueWindowExpiredError,
+  EtaReissueSameInternalIdError,
 } from "./errors.js";
 export {
   ETA_UNIT_CODES,
@@ -164,3 +172,16 @@ export {
   type EtaSigningPort,
 } from "./signing.js";
 export { resolveEtaVatSubType, findLineTaxRate, ZERO_RATED_SUBTYPES } from "./tax-subtype.js";
+export {
+  EtaPrevalidationFailedError,
+  EtaPrevalidationFixScreen,
+  EtaPrevalidationRuleCode,
+  EtaPrevalidationSeverity,
+  hasBlockingEtaFindings,
+  prevalidateEtaInvoice,
+  type EtaPrevalidationFinding,
+  type EtaPrevalidationInput,
+  type EtaPrevalidationLineInput,
+  type EtaPrevalidationReceiverInput,
+} from "./prevalidate.js";
+export { summarizeEtaRejections, type EtaRejectionReasonGroup, type EtaRejectionsReport } from "./rejections-report.js";

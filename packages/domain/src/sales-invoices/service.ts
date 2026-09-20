@@ -405,25 +405,29 @@ export class SalesInvoiceService {
         workflowRequestId: null,
       };
       await this.deps.repo.update(next);
+
+      // The allocation sub-ledger row and the audit row are part of the confirm,
+      // not a follow-up: written after the commit, a failure between them left a
+      // confirmed invoice that `/open-invoices` could not see and no record of
+      // who confirmed it.
+      if (this.deps.allocatable) {
+        await this.deps.allocatable.save({
+          id: next.id,
+          invoiceNo: next.docNo ?? next.id,
+          kind: "sales",
+          partyId: next.customerId,
+          date: next.date,
+          // BASE currency: a voucher settles in base, and the control account
+          // holds base — comparing a USD figure against either reads adrift by
+          // the whole rate (D24).
+          total: salesInvoiceBaseGrandTotal(totals, next.fxRate),
+          allocated: Money.zero(),
+        });
+      }
+      await this.recordAudit("CONFIRM", next, "INFO");
       return next;
     });
 
-    if (this.deps.allocatable) {
-      await this.deps.allocatable.save({
-        id: confirmed.id,
-        invoiceNo: confirmed.docNo ?? confirmed.id,
-        kind: "sales",
-        partyId: confirmed.customerId,
-        date: confirmed.date,
-        // BASE currency: a voucher settles in base, and the control account
-        // holds base — comparing a USD figure against either reads adrift by
-        // the whole rate (D24).
-        total: salesInvoiceBaseGrandTotal(totals, confirmed.fxRate),
-        allocated: Money.zero(),
-      });
-    }
-
-    await this.recordAudit("CONFIRM", confirmed, "INFO");
     this.emit("DOCUMENT_CONFIRMED", confirmed);
     return { invoice: confirmed, held: false, creditWarning, pricingVariances };
   }
@@ -508,8 +512,10 @@ export class SalesInvoiceService {
     const existing = await this.require(id);
     assertTransition(id, existing.status, "cancelled");
     const cancelled: SalesInvoice = { ...existing, status: "cancelled", workflowRequestId: null };
-    await this.deps.repo.update(cancelled);
-    await this.recordAudit("CANCEL", cancelled, "WARNING");
+    await this.deps.repo.transaction(async () => {
+      await this.deps.repo.update(cancelled);
+      await this.recordAudit("CANCEL", cancelled, "WARNING");
+    });
     this.emit("DOCUMENT_CANCELLED", cancelled);
     return cancelled;
   }

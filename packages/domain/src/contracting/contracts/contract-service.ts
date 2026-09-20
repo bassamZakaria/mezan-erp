@@ -45,6 +45,7 @@ import {
   SelfApprovalError,
   VariationOrderNotFoundError,
 } from "./errors.js";
+import { tenantTodayIso } from "../../dates.js";
 
 const PERCENT_RE = /^\d+(\.\d{1,6})?$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -434,7 +435,7 @@ export class WorksContractService {
         if (!cmd.reason || cmd.reason.trim().length === 0) reasons.push("تغيير التكلفة التقديرية يتطلب ذكر السبب");
         else {
           revisions.push({
-            date: new Date().toISOString().slice(0, 10),
+            date: this.today(),
             previousValue: current.estimatedTotalCost,
             newValue: next,
             reason: cmd.reason.trim(),
@@ -776,7 +777,7 @@ export class WorksContractService {
   // ----- internals ---------------------------------------------------------
 
   private today(): string {
-    return this.deps.today ? this.deps.today() : new Date().toISOString().slice(0, 10);
+    return this.deps.today ? this.deps.today() : tenantTodayIso();
   }
 
   private async require(idOrDocNo: string): Promise<WorksContract> {

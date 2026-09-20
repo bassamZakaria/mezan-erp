@@ -69,7 +69,7 @@ import type { CurrencyCheck } from "./currency-policy.js";
 import { recordAdminEvent } from "./admin-audit.js";
 import { refuseUnknownItems, type ItemCatalogCheck } from "./item-check.js";
 import { type AuthContextResolver, branchScopeOf, callerRoleCodes, createAnyPermissionGate, createPermissionGate, getAuthContext, moduleRefusalFor, warehouseScopeOf } from "./permission-gate.js";
-import { tenantDay } from "./tenant-day.js";
+import { tenantDay, tenantToday } from "./tenant-day.js";
 import {
   documentVersionOf,
   documentVersionsOf,
@@ -846,7 +846,7 @@ export function createSalesInvoicesRoutes(
     const allocations = await allocatedByInvoice(rows.map((inv) => inv.id));
 
     if (derived) {
-      const today = (deps.now?.() ?? new Date().toISOString()).slice(0, 10);
+      const today = (await tenantDay(c, deps.now?.() ?? new Date().toISOString()));
       rows = rows.filter((inv) => {
         const remaining = remainingOf(inv, totalsFor(svc, inv), credits.get(inv.id));
         if (!isOpen(inv, remaining)) return false;
@@ -906,7 +906,7 @@ export function createSalesInvoicesRoutes(
     const svc = service(c);
     const { status: _ignored, ...withoutStatus } = parsed.data;
     const byStatus = await svc.countByStatus(await repoFilterFor(c, withoutStatus));
-    const today = (deps.now?.() ?? new Date().toISOString()).slice(0, 10);
+    const today = (await tenantDay(c, deps.now?.() ?? new Date().toISOString()));
 
     let all = 0;
     const counts: Record<string, number> = {
@@ -1159,7 +1159,7 @@ export function createSalesInvoicesRoutes(
       );
     }
 
-    const date = (deps.now?.() ?? new Date().toISOString()).slice(0, 10);
+    const date = (await tenantDay(c, deps.now?.() ?? new Date().toISOString()));
     try {
       const reversal = await deps.gl.reverse(invoice.journalEntryId, {
         reversalId: `${invoice.id}:void`,
@@ -1230,7 +1230,12 @@ export function createSalesInvoicesRoutes(
     try {
       const id = c.req.param("id");
       const existing = await svc.findById(id);
-      const date = (await tenantDay(c, parsed.data.date)) ?? existing?.date ?? "";
+      // A collection happens when it happens. Defaulting to the INVOICE's
+      // date backdated every receipt to the day the invoice was raised — it
+      // moved cash on a day the treasury did not have it, aged the customer
+      // wrong and could post into a closed period. The purchase side already
+      // takes today; this is its twin.
+      const date = (await tenantDay(c, parsed.data.date)) ?? (await tenantDay(c, deps.now?.() ?? new Date().toISOString()));
       let relief = amount;
       if (existing?.fxRate && deps.settlementPreview && amount.scaled > 0n) {
         const preview = await deps.settlementPreview(id, amount, date);

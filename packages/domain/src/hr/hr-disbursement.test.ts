@@ -1,15 +1,25 @@
 import { describe, it, expect } from "vitest";
 import { Money } from "../money/index.js";
-import { requestEmployeeAdvance, approveEmployeeAdvance, type EmployeeAdvance, type EmployeeAdvanceRepository } from "./advance.js";
+import {
+  requestEmployeeAdvance,
+  approveEmployeeAdvance,
+  applyAdvanceRecovery,
+  applyManualAdvanceRepayment,
+  advanceOutstanding,
+  type EmployeeAdvance,
+  type EmployeeAdvanceRepository,
+} from "./advance.js";
 import type { PayrollRun, PayrollRunRepository } from "./payroll-run.js";
 import {
   disburseEmployeeAdvance,
   disbursePayrollRun,
+  unwindAdvanceVoucher,
   type TreasuryDisbursementPort,
   type TreasuryDisbursementRequest,
   type TreasuryDisbursementResult,
 } from "./hr-disbursement.js";
 import {
+  AdvanceDisbursementNotReversibleError,
   EmployeeAdvanceNotFoundError,
   InvalidEmployeeAdvanceError,
   InvalidPayrollRunError,
@@ -258,5 +268,74 @@ describe("disbursePayrollRun", () => {
       date: run.periodEnd,
     });
     expect(calls[0]!.amount.toString()).toBe(run.totalNet.toString());
+  });
+});
+
+describe("unwindAdvanceVoucher — the advance record follows GL 1160 when a voucher is reversed", () => {
+  async function disbursedAdvance(): Promise<{ advance: EmployeeAdvance; repo: EmployeeAdvanceRepository }> {
+    const repo = createInMemoryEmployeeAdvanceRepository();
+    const requested = await requestEmployeeAdvance(
+      { id: "adv-9", number: "ADV-000009", employeeId: "emp-9", amount: Money.fromMajor("900.00"), installmentCount: 3, firstDeductionDate: "2026-02-01" },
+      repo,
+    );
+    await repo.update(approveEmployeeAdvance(requested, "user-1"));
+    const { port } = recordingTreasuryPort({ voucherId: "ADV-CV:adv-9" });
+    const advance = await disburseEmployeeAdvance(
+      "adv-9",
+      { treasuryAccountId: "1010", branchId: "MAIN" },
+      { advances: repo, treasury: port, accounts: { employeeAdvanceAccountId: "1160" } },
+    );
+    return { advance, repo };
+  }
+
+  it("puts a disbursed advance back to «معتمدة» when its disbursement voucher is reversed", async () => {
+    const { repo } = await disbursedAdvance();
+    expect(await unwindAdvanceVoucher("ADV-CV:adv-9", { advances: repo })).toBe(true);
+    const after = (await repo.findById("adv-9"))!;
+    expect(after.status).toBe("approved");
+    expect(after.disbursementVoucherId).toBeNull();
+    expect(after.disbursedAt).toBeNull();
+    expect(advanceOutstanding(after).toString()).toBe("900.000000");
+  });
+
+  it("refuses to reverse a disbursement payroll has already recovered against", async () => {
+    const { advance, repo } = await disbursedAdvance();
+    await repo.update(applyAdvanceRecovery(advance, Money.fromMajor("300.00")));
+    await expect(unwindAdvanceVoucher("ADV-CV:adv-9", { advances: repo })).rejects.toThrow(
+      AdvanceDisbursementNotReversibleError,
+    );
+    expect((await repo.findById("adv-9"))!.status).toBe("disbursed");
+  });
+
+  it("takes a manual repayment back off the schedule when its receipt voucher is reversed", async () => {
+    const { advance, repo } = await disbursedAdvance();
+    await repo.update(
+      applyManualAdvanceRepayment(advance, {
+        id: "rep-1",
+        date: "2026-03-01",
+        amount: Money.fromMajor("900.00"),
+        paymentMethod: "cash",
+        treasuryAccountId: "1010",
+        voucherId: "ADV-RV:adv-9:rep-1",
+        voucherNo: "RV-000001",
+        journalEntryId: "je-2",
+        note: null,
+        recordedBy: "user-1",
+        recordedAt: "2026-03-01T00:00:00.000Z",
+      }),
+    );
+    expect((await repo.findById("adv-9"))!.status).toBe("repaid");
+
+    expect(await unwindAdvanceVoucher("ADV-RV:adv-9:rep-1", { advances: repo })).toBe(true);
+    const after = (await repo.findById("adv-9"))!;
+    expect(after.status).toBe("disbursed");
+    expect(after.repayments ?? []).toEqual([]);
+    // The employee owes the whole advance again, exactly as GL 1160 now reads.
+    expect(advanceOutstanding(after).toString()).toBe("900.000000");
+  });
+
+  it("ignores a voucher that belongs to no advance", async () => {
+    const { repo } = await disbursedAdvance();
+    expect(await unwindAdvanceVoucher("CV-999", { advances: repo })).toBe(false);
   });
 });

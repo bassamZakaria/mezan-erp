@@ -12,6 +12,8 @@
  * window — see receipt.ts. It shares this queue because the queue is what
  * makes both work offline, not because the documents are alike.
  */
+import type { EtaPrevalidationFinding } from "./prevalidate.js";
+
 export type EtaDocumentType = "invoice" | "credit_note" | "debit_note" | "receipt";
 
 export type EtaSubmissionStatus =
@@ -96,6 +98,18 @@ export interface EtaSubmission {
   readonly receiptSerial?: string | null;
   /** e-receipt only: the receipt's position on that device's chain, from 1. */
   readonly receiptSeq?: number | null;
+  /**
+   * فحص مسبق (ENH-011b) — every rule finding as of the last enqueue/requeue.
+   * Never blocks the confirm that produced it; `EtaService.submit` refuses to
+   * transmit while a `Blocking`-severity finding remains.
+   */
+  readonly prevalidation?: readonly EtaPrevalidationFinding[];
+  /**
+   * One authority error code per entry of {@link errors} (same index), when the
+   * rejection carried one — null where it did not. Powers the rejections
+   * report's grouping; `errors` alone is prose, not a stable key.
+   */
+  readonly rejectionCodes?: readonly (string | null)[];
 }
 
 /** Persistence port for the submission queue. */

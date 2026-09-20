@@ -211,6 +211,18 @@ export interface VoucherServiceDeps {
    * return already cleared (D242). Omit it and outstanding ignores returns.
    */
   readonly returns?: InvoiceReturnCreditPort;
+  /**
+   * The employee-advance sub-ledger. Reversing the voucher that paid an advance
+   * out — or that took a repayment back in — mirrors the GL entry on 1160 سلف
+   * الموظفين, and without this hook only the GL side moved: the advance record
+   * kept a receivable the safe never funded.
+   */
+  readonly advanceSubLedger?: VoucherAdvanceUnwindPort;
+}
+
+export interface VoucherAdvanceUnwindPort {
+  /** Undoes what this voucher did to the advance record. `false` = not an advance voucher. */
+  onVoucherReversed(voucherId: string): Promise<boolean>;
 }
 
 /** All the fields needed to open a new voucher draft (one economic line + envelope). */
@@ -440,20 +452,23 @@ export class VoucherService {
         "الشيك المرتبط بهذا السند ما زال قائماً في سجل الشيكات؛ ارتداد الشيك هو ما يعكس السند.",
       );
     }
-    const result = await this.service.reverse(id, opts);
-    const active = (await this.deps.allocations.listByVoucher(id)).filter((a) => a.status === "active");
-    for (const alloc of active) {
-      const undoneOn = await allocationUndoDay(alloc, result.reversal.date, this.deps.ledger);
-      await reverseRealisedFx(alloc, this.glDeps, undoneOn);
-      const undone = await reverseAllocationFn(
-        alloc.id,
-        this.now(),
-        { allocations: this.deps.allocations, invoices: this.deps.invoices },
-        undoneOn,
-      );
-      await this.projectSettlement(undone.invoice);
-    }
-    return result;
+    return this.deps.documents.transaction(async () => {
+      const result = await this.service.reverse(id, opts);
+      const active = (await this.deps.allocations.listByVoucher(id)).filter((a) => a.status === "active");
+      for (const alloc of active) {
+        const undoneOn = await allocationUndoDay(alloc, result.reversal.date, this.deps.ledger);
+        await reverseRealisedFx(alloc, this.glDeps, undoneOn);
+        const undone = await reverseAllocationFn(
+          alloc.id,
+          this.now(),
+          { allocations: this.deps.allocations, invoices: this.deps.invoices },
+          undoneOn,
+        );
+        await this.projectSettlement(undone.invoice);
+      }
+      await this.deps.advanceSubLedger?.onVoucherReversed(id);
+      return result;
+    });
   }
 
   async allocate(

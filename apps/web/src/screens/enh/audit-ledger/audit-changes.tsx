@@ -72,7 +72,7 @@ export function ChangeSummary({ changes, max = 2 }: { changes: readonly AuditFie
       {shown.map((change, i) => (
         <span key={`${change.field}-${change.key ?? ""}-${i}`} className="text-ink-muted">
           <span className="font-semibold text-ink">{labels.fieldLabel(change.field)}</span>
-          {change.key ? <span className="mz-num text-ink-faint"> [{change.key}]</span> : null}
+          {change.label ?? change.key ? <span className="text-ink-faint"> [{change.label ?? change.key}]</span> : null}
           {": "}
           <span className="mz-num line-through decoration-ink-faint">{labels.fromLabel(change)}</span>
           {` ${t("auditLedger.arrow")} `}
@@ -107,7 +107,9 @@ export function ChangesTable({ changes }: { changes: readonly AuditFieldChangeDT
             <tr key={`${change.field}-${change.key ?? ""}-${i}`} className="border-t border-border align-top">
               <td className="px-[12px] py-[8px] font-semibold text-ink">
                 {labels.fieldLabel(change.field)}
-                {change.key ? <div className="mz-num text-[11px] font-normal text-ink-faint">{change.key}</div> : null}
+                {change.label ?? change.key ? (
+                  <div className="text-[11px] font-normal text-ink-faint">{change.label ?? change.key}</div>
+                ) : null}
               </td>
               <td className="mz-num break-all px-[12px] py-[8px] text-ink-muted">{labels.fromLabel(change)}</td>
               <td className="mz-num break-all px-[12px] py-[8px] text-ink">{labels.toLabel(change)}</td>

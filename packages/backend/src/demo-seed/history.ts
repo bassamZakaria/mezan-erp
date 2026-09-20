@@ -171,6 +171,7 @@ export async function seedHistory(app: App): Promise<void> {
   await seedExpenseAccounts(app);
   await seedParties(app);
   await seedItems(app);
+  await seedEtaItemCodes(app);
   await seedFoundingCapital(app);
   await seedTrading(app);
 }
@@ -269,6 +270,31 @@ async function seedItems(app: App): Promise<void> {
  * first two years of purchases and overheads disburse from an account that was
  * never funded, and every cash figure on the dashboard reads negative (D17).
  */
+/**
+ * The authority's EGS code for every history item, registered BEFORE the first
+ * sale confirms.
+ *
+ * Without it a consumer sale cannot be receipted — `buildPosReceiptInput`
+ * refuses with `ETA_RECEIPT_NOT_READY` naming every «كود الصنف لدى المصلحة»
+ * it could not find — so the whole e-receipt path was unreachable from the
+ * seed and each of those confirms logged the refusal instead. The items the
+ * bootstrap seed creates and never sells stay unmapped, so the readiness
+ * meter, the «غير مرتبط» filter and تطبيق الاقتراحات still open on real rows.
+ *
+ * Two consumer sales still cannot be receipted, and that is the point: each is
+ * EGP 150,000 or more to a شخص طبيعي the shop never took a national ID from,
+ * which the regime refuses. They are the rows «إيصالات لم تصدر» exists to
+ * show, not a seeding gap.
+ */
+async function seedEtaItemCodes(app: App): Promise<void> {
+  for (const item of HISTORY_ITEMS) {
+    await step(app, "PUT", `/eta/item-mappings/${item.id}`, {
+      etaCodeType: "EGS",
+      etaItemCode: `EG-100200300-${item.code}`,
+    });
+  }
+}
+
 async function seedFoundingCapital(app: App): Promise<void> {
   await step(app, "POST", "/gl/journal-entries", {
     id: "JE-HIST-FOUNDING-CAPITAL",

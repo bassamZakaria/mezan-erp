@@ -17,6 +17,8 @@ import {
   type ItemBrandRepository,
   type ItemSeason,
   type ItemSeasonRepository,
+  AuditChangeAction,
+  type AuditSink,
 } from "@mezan/domain";
 import {
   createItemUnitSchema,
@@ -27,6 +29,10 @@ import {
   upsertItemSeasonSchema,
 } from "@mezan/contracts";
 import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
+import { recordFieldChanges } from "./admin-audit.js";
+
+const AUDITED_BRAND_FIELDS = ["code", "nameAr", "nameEn", "status"] as const;
+const AUDITED_SEASON_FIELDS = ["code", "nameAr", "nameEn", "startDate", "endDate", "status"] as const;
 
 /**
  * Item master-data catalogs (docs/archive/catalog/03 §"وحدة القياس" / §"تصنيفات
@@ -159,9 +165,21 @@ function serializeSeason(season: ItemSeason) {
 export function createItemBrandsRoutes(
   repo: ItemBrandRepository,
   resolveAuthContext: AuthContextResolver,
+  audit?: AuditSink,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
+
+  function auditBrand(c: Context, action: AuditChangeAction, before: ItemBrand | null, after: ItemBrand) {
+    return recordFieldChanges(audit, c, {
+      entity: { module: "inventory", entityType: "ITEM_BRAND", entityId: after.id },
+      action,
+      before: before ? serializeBrand(before) : null,
+      after: serializeBrand(after),
+      fields: AUDITED_BRAND_FIELDS,
+      warnOn: ["status"],
+    });
+  }
 
   app.get("/", gate("inventory.item.view"), async (c) => c.json((await repo.list()).map(serializeBrand)));
 
@@ -177,6 +195,7 @@ export function createItemBrandsRoutes(
     if (await repo.findById(parsed.data.id)) return c.json({ error: "ALREADY_EXISTS" }, 409);
     const brand: ItemBrand = { ...parsed.data, nameEn: parsed.data.nameEn ?? null, status: parsed.data.status ?? "active" };
     await repo.create(brand);
+    await auditBrand(c, AuditChangeAction.Create, null, brand);
     return c.json(serializeBrand(brand), 201);
   });
 
@@ -187,6 +206,7 @@ export function createItemBrandsRoutes(
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     const brand: ItemBrand = { ...parsed.data, nameEn: parsed.data.nameEn ?? null, status: parsed.data.status ?? existing.status };
     await repo.update(brand);
+    await auditBrand(c, AuditChangeAction.Update, existing, brand);
     return c.json(serializeBrand(brand));
   });
 
@@ -196,9 +216,21 @@ export function createItemBrandsRoutes(
 export function createItemSeasonsRoutes(
   repo: ItemSeasonRepository,
   resolveAuthContext: AuthContextResolver,
+  audit?: AuditSink,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
+
+  function auditSeason(c: Context, action: AuditChangeAction, before: ItemSeason | null, after: ItemSeason) {
+    return recordFieldChanges(audit, c, {
+      entity: { module: "inventory", entityType: "ITEM_SEASON", entityId: after.id },
+      action,
+      before: before ? serializeSeason(before) : null,
+      after: serializeSeason(after),
+      fields: AUDITED_SEASON_FIELDS,
+      warnOn: ["status"],
+    });
+  }
 
   app.get("/", gate("inventory.item.view"), async (c) => c.json((await repo.list()).map(serializeSeason)));
 
@@ -220,6 +252,7 @@ export function createItemSeasonsRoutes(
       status: parsed.data.status ?? "active",
     };
     await repo.create(season);
+    await auditSeason(c, AuditChangeAction.Create, null, season);
     return c.json(serializeSeason(season), 201);
   });
 
@@ -236,6 +269,7 @@ export function createItemSeasonsRoutes(
       status: parsed.data.status ?? existing.status,
     };
     await repo.update(season);
+    await auditSeason(c, AuditChangeAction.Update, existing, season);
     return c.json(serializeSeason(season));
   });
 

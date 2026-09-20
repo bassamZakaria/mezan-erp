@@ -812,7 +812,7 @@ async function attachmentsRoundTripAndAreGated_R14(ctx: Ctx): Promise<void> {
     const receive = await ctx.req("POST", "/purchases/receipts", {
       id: "SCN-RCP-BATCH",
       date: "2026-08-01",
-      supplierId: "SUP-DEMO-1",
+      supplierId: "SUPP-DEMO-1",
       warehouseId: "WH-MAIN",
       lines: [{ itemId: "ITEM-DEMO-4", qty: "10", unitCost: "100", batchNo: "SCN-LOT-A", expiryDate: "2027-06-30" }],
     });
@@ -825,7 +825,7 @@ async function attachmentsRoundTripAndAreGated_R14(ctx: Ctx): Promise<void> {
       id: "SCN-PINV-BATCH",
       date: "2026-08-01",
       receiptId: "SCN-RCP-BATCH",
-      supplierId: "SUP-DEMO-1",
+      supplierId: "SUPP-DEMO-1",
       branchId: "BR-MAIN",
       warehouseId: "WH-MAIN",
       currency: "EGP",
@@ -852,7 +852,7 @@ async function attachmentsRoundTripAndAreGated_R14(ctx: Ctx): Promise<void> {
     await ctx.req("POST", "/purchases/receipts", {
       id: "SCN-RCP-EXPIRED",
       date: "2026-08-01",
-      supplierId: "SUP-DEMO-1",
+      supplierId: "SUPP-DEMO-1",
       warehouseId: "WH-DEMO-2",
       lines: [{ itemId: "ITEM-DEMO-4", qty: "5", unitCost: "100", batchNo: "SCN-LOT-OLD", expiryDate: "2026-01-31" }],
     });
@@ -861,7 +861,7 @@ async function attachmentsRoundTripAndAreGated_R14(ctx: Ctx): Promise<void> {
       id: "SCN-PINV-EXPIRED",
       date: "2026-08-01",
       receiptId: "SCN-RCP-EXPIRED",
-      supplierId: "SUP-DEMO-1",
+      supplierId: "SUPP-DEMO-1",
       branchId: "BR-MAIN",
       warehouseId: "WH-DEMO-2",
       currency: "EGP",

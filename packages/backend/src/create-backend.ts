@@ -108,6 +108,8 @@ import {
   type EventCode,
   createProductTemplateSpecificationUsage,
   recordSecurityEvent,
+  unwindAdvanceVoucher,
+  type VoucherAdvanceUnwindPort,
   type Entitlements,
   type RealisedFxPort,
   type FxDifferenceAccounts,
@@ -117,6 +119,7 @@ import {
   purchaseReturnCreditByInvoice,
   type OpeningBalanceDuplicatesContext,
   type OpeningBalanceEntryRef,
+  tenantTodayIso,
 } from "@mezan/domain";
 import {
   openSqliteConnection,
@@ -191,6 +194,7 @@ import {
   createSqliteAttendanceRepository,
   createSqliteEmployeeAdvanceRepository,
   createSqliteClockCredentialRepository,
+  createSqliteWebauthnChallengeRepository,
   createSqliteLeaveAccrualBatchRepository,
   createSqliteLeaveBalanceRepository,
   createSqliteLeavePolicyRepository,
@@ -237,6 +241,7 @@ import {
 import { runExternalSigningCommand } from "./eta-signing-command.js";
 import {
   createEtaEnqueueBridge,
+  createEtaInvoiceRequeueRebuilder,
   createEtaReceiptIssuer,
   createReturnEtaEnqueueBridge,
   type EtaReceiptIssuer,
@@ -850,7 +855,11 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const hrLeaveBalances = createSqliteLeaveBalanceRepository(sqlite);
   const hrLeaveAccrualBatches = createSqliteLeaveAccrualBatchRepository(sqlite);
   const hrAdvances = createSqliteEmployeeAdvanceRepository(sqlite);
+  const advanceVoucherUnwind: VoucherAdvanceUnwindPort = {
+    onVoucherReversed: (voucherId) => unwindAdvanceVoucher(voucherId, { advances: hrAdvances }),
+  };
   const hrClockCredentials = createSqliteClockCredentialRepository(sqlite);
+  const hrChallenges = createSqliteWebauthnChallengeRepository(sqlite);
   const hrPayrollRuns = createSqlitePayrollRunRepository(sqlite);
   const hrPayslips = createSqlitePayslipRepository(sqlite);
   const hrPayrollComponents = createSqlitePayrollComponentRepository(sqlite);
@@ -2045,7 +2054,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     const open = (await fiscalPeriods.list())
       .filter((p) => p.status === "open")
       .sort((a, b) => a.startDate.localeCompare(b.startDate));
-    return open[0]?.startDate ?? new Date().toISOString().slice(0, 10);
+    return open[0]?.startDate ?? tenantTodayIso();
   }
 
   function openingEntryId(kind: "customer" | "supplier", partyId: string, generation: number): string {
@@ -3071,6 +3080,10 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       cheques: voucherCheques,
       realisedFx,
       returns: invoiceReturnCredits,
+      // Reversing an ADV-CV/ADV-RV voucher mirrors GL 1160 سلف الموظفين; without
+      // this the advance record kept the disbursement (or the repayment) and the
+      // two sides parted company.
+      advanceSubLedger: advanceVoucherUnwind,
       // Law 6/2025 exempts a regime taxpayer from withholding, so the route
       // refuses a voucher that withholds rather than posting a liability the
       // authority does not recognise (DEC-13).
@@ -3297,9 +3310,31 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       branchCodes: etaStore.branchCodes,
       unitMappings: etaStore.unitMappings,
       companyTradeName: async () => ((await settings.get()) ?? createDefaultSettings()).companyName,
+      // ENH-011b "Fix & Requeue" (WF-04 step 4): rebuilds the payload and the
+      // pre-validation from the CURRENT masters, so a fixed item code or
+      // customer TIN actually clears the finding that blocked submit.
+      rebuildSubmission: createEtaInvoiceRequeueRebuilder({
+        eta: etaService,
+        items,
+        taxRates,
+        branchCodes: etaStore.branchCodes,
+        unitMappings: etaStore.unitMappings,
+        invoices: salesInvoices,
+        customers,
+      }),
       issueDocumentReceipt: async (kind, docId) => {
         const issued =
           kind === "invoice" ? await etaReceipts.issueInvoiceReceipt(docId) : await etaReceipts.issueReturnReceipt(docId);
+        if (issued) etaReceipts.scheduleSubmission();
+        return issued;
+      },
+      // D-B4 — corrects and re-issues a REJECTED receipt inside the authority's
+      // 96-hour window, referencing the rejected one via header.referenceOldUUID.
+      reissueDocumentReceipt: async (kind, docId) => {
+        const issued =
+          kind === "invoice"
+            ? await etaReceipts.reissueInvoiceReceipt(docId)
+            : await etaReceipts.reissueReturnReceipt(docId);
         if (issued) etaReceipts.scheduleSubmission();
         return issued;
       },
@@ -3337,6 +3372,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       workflow: { configs: workflowConfigs, requests: approvalRequests },
       audit: auditSink,
       clockCredentials: hrClockCredentials,
+      challenges: hrChallenges,
       payroll: {
         advances: hrAdvances,
         runs: hrPayrollRuns,

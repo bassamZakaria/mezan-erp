@@ -12,7 +12,7 @@ import {
   // edited centrally elsewhere to avoid concurrent-edit conflicts across
   // agents), so this test imports the new store module by relative path.
 } from "../../persistence/src/crm-store.js";
-import type { CustomerRepository, Customer } from "@mezan/domain";
+import type { AuditEvent, AuditSink, AuditStream, CustomerRepository, Customer } from "@mezan/domain";
 import { createCrmRoutes } from "./crm-routes.js";
 
 import { insecureHeaderAuthContextResolver } from "./permission-gate.js";
@@ -212,5 +212,46 @@ describe("crm router — activities", () => {
     const res = await app.fetch(req("/activities/act1/cancel", { method: "POST", permissions: "crm.activity.edit" }));
     expect(res.status).toBe(200);
     expect(((await res.json()) as { status: string }).status).toBe("cancelled");
+  });
+});
+
+describe("converting a lead leaves a record of the customer it minted", () => {
+  class MemorySink implements AuditSink {
+    readonly events: AuditEvent[] = [];
+    async append(event: AuditEvent) {
+      this.events.push(event);
+    }
+    async query(stream: AuditStream, limit = 100) {
+      return this.events.filter((e) => e.stream === stream).slice(-limit).reverse();
+    }
+  }
+
+  it("records CONVERT with the lead, the new customer id and its code", async () => {
+    const leads = createSqliteLeadRepository();
+    const opportunities = createSqliteOpportunityRepository();
+    const pipelineStages = createSqlitePipelineStageRepository();
+    const activities = createSqliteActivityRepository();
+    handles.push(leads, opportunities, pipelineStages, activities);
+    const audit = new MemorySink();
+    const app = createCrmRoutes(
+      { leads, opportunities, pipelineStages, activities, customers: inMemoryCustomers(), audit },
+      insecureHeaderAuthContextResolver,
+    );
+
+    await app.fetch(jsonReq("/leads", "crm.lead.create", { id: "lead9", name: "سلمى" }));
+    await app.fetch(jsonReq("/leads/lead9/transition", "crm.lead.edit", { status: "contacted" }));
+    await app.fetch(jsonReq("/leads/lead9/transition", "crm.lead.edit", { status: "qualified" }));
+    const res = await app.fetch(
+      jsonReq("/leads/lead9/convert", "crm.lead.convert", { createCustomer: true, customer: { id: "cust9", code: "C-0009" }, createOpportunity: false }),
+    );
+    expect(res.status).toBe(200);
+
+    expect(audit.events).toHaveLength(1);
+    const event = audit.events[0]!;
+    expect(event.stream).toBe("sensitive");
+    expect(event.entityType).toBe("LEAD");
+    expect(event.entityId).toBe("lead9");
+    expect(event.action).toBe("CONVERT");
+    expect(event.details).toMatchObject({ customerId: "cust9", customerCode: "C-0009", leadName: "سلمى" });
   });
 });

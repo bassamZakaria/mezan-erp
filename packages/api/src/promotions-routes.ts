@@ -26,6 +26,7 @@ import {
 import { createPromotionSchema, evaluatePromotionsQuerySchema, updatePromotionSchema } from "@mezan/contracts";
 import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
 import { recordFieldChanges } from "./admin-audit.js";
+import { tenantClock, tenantToday } from "./tenant-day.js";
 
 const AUDITED_PROMOTION_FIELDS = [
   "code",
@@ -65,7 +66,7 @@ const PROMOTION_WARN_FIELDS = [
   "active",
 ] as const;
 
-function serialize(promotion: Promotion) {
+function serialize(promotion: Promotion, today: string) {
   return {
     id: promotion.id,
     code: promotion.code,
@@ -89,7 +90,7 @@ function serialize(promotion: Promotion) {
     endDate: promotion.endDate,
     active: promotion.active,
     createdAt: promotion.createdAt,
-    status: promotionStatus(promotion, new Date().toISOString().slice(0, 10)),
+    status: promotionStatus(promotion, today),
   };
 }
 
@@ -146,12 +147,13 @@ export function createPromotionsRoutes(
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
 
-  function auditPromotion(c: Context, action: AuditChangeAction, before: Promotion | null, after: Promotion) {
+  async function auditPromotion(c: Context, action: AuditChangeAction, before: Promotion | null, after: Promotion) {
+    const today = await tenantToday(c);
     return recordFieldChanges(audit, c, {
       entity: { module: "sales", entityType: "PROMOTION", entityId: after.id },
       action,
-      before: before ? serialize(before) : null,
-      after: serialize(after),
+      before: before ? serialize(before, today) : null,
+      after: serialize(after, today),
       fields: AUDITED_PROMOTION_FIELDS,
       warnOn: PROMOTION_WARN_FIELDS,
     });
@@ -161,7 +163,8 @@ export function createPromotionsRoutes(
     const activeParam = c.req.query("active");
     const filter = activeParam === undefined ? undefined : { active: activeParam === "true" };
     const promotions = await repo.list(filter);
-    return c.json(promotions.map(serialize));
+    const today = await tenantToday(c);
+    return c.json(promotions.map((promotion) => serialize(promotion, today)));
   });
 
   /**
@@ -236,7 +239,7 @@ export function createPromotionsRoutes(
   app.get("/:id", gate("sales.promotion.view"), async (c) => {
     const promotion = await repo.findById(c.req.param("id"));
     if (!promotion) return c.json({ error: "NOT_FOUND" }, 404);
-    return c.json(serialize(promotion));
+    return c.json(serialize(promotion, await tenantToday(c)));
   });
 
   app.post("/", gate("sales.promotion.manage"), async (c) => {
@@ -273,7 +276,7 @@ export function createPromotionsRoutes(
         repo,
       );
       await auditPromotion(c, AuditChangeAction.Create, null, promotion);
-      return c.json(serialize(promotion), 201);
+      return c.json(serialize(promotion, await tenantToday(c)), 201);
     } catch (err) {
       return handleDomainError(c, err);
     }
@@ -313,7 +316,7 @@ export function createPromotionsRoutes(
         repo,
       );
       await auditPromotion(c, AuditChangeAction.Update, before, promotion);
-      return c.json(serialize(promotion));
+      return c.json(serialize(promotion, await tenantToday(c)));
     } catch (err) {
       return handleDomainError(c, err);
     }
@@ -324,7 +327,7 @@ export function createPromotionsRoutes(
       const before = await repo.findById(c.req.param("id"));
       const promotion = await updatePromotion(c.req.param("id"), { active: false }, repo);
       await auditPromotion(c, AuditChangeAction.Deactivate, before, promotion);
-      return c.json(serialize(promotion));
+      return c.json(serialize(promotion, await tenantToday(c)));
     } catch (err) {
       return handleDomainError(c, err);
     }
@@ -338,9 +341,11 @@ export function createPromotionsRoutes(
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
 
-    const now = new Date();
-    const date = parsed.data.date ?? now.toISOString().slice(0, 10);
-    const hour = parsed.data.hour ?? now.getUTCHours();
+    // The day AND the hour a «ساعات/أيام العرض» restriction is judged on are
+    // the tenant's wall clock, never the host's UTC (D288).
+    const clock = await tenantClock(c);
+    const date = parsed.data.date ?? clock.date;
+    const hour = parsed.data.hour ?? Number(clock.time.slice(0, 2));
     const dayOfWeek = new Date(`${date}T00:00:00Z`).getUTCDay();
 
     const lines: PromotionLineInput[] = parsed.data.lines.map((l) => {
@@ -372,7 +377,7 @@ export function createPromotionsRoutes(
 
     return c.json({
       applicable: true,
-      promotion: serialize(result.promotion),
+      promotion: serialize(result.promotion, date),
       discountTotal: result.discountTotal.toString(),
       lineDiscounts: result.lineDiscounts.map((d) => ({ lineId: d.lineId, amount: d.amount.toString() })),
       freeGoods: result.freeGoods.map((g) => ({ itemId: g.itemId, qty: g.qty.toString() })),

@@ -4,7 +4,7 @@ import { Card } from "@/components/card";
 import { StatTile } from "@/components/stat-tile";
 import { Button, ButtonTone } from "@/components/button";
 import { useDashboardSummary } from "@/api/queries";
-import { describeApiError } from "@/api/errors";
+import { ApiFailure, describeApiError } from "@/api/errors";
 import { useStrings } from "@/i18n";
 import { useSession } from "@/session/SessionProvider";
 import { SPACE, TYPE, useTheme } from "@/theme";
@@ -15,6 +15,10 @@ export function Home() {
   const insets = useSafeAreaInsets();
   const { session, signOut } = useSession();
   const summary = useDashboardSummary();
+  // Only a dead connection makes the figures on screen "the last ones that
+  // arrived". A refusal is the server answering, and saying otherwise sends
+  // the user looking for a signal they already have.
+  const unreachable = summary.isError && summary.error?.failure === ApiFailure.Network;
 
   return (
     <ScrollView
@@ -50,14 +54,14 @@ export function Home() {
 
       {summary.data === undefined ? null : (
         <>
-          {summary.isStale && summary.isError ? (
+          {unreachable ? (
             <Text style={[styles.stale, { color: theme.warning }]}>{strings.common.offline}</Text>
           ) : null}
           <View style={styles.tiles}>
             <StatTile label={strings.home.cash} amount={summary.data.gl.cash} />
             <StatTile label={strings.home.receivables} amount={summary.data.gl.receivables} />
             <StatTile label={strings.home.payables} amount={summary.data.gl.payables} />
-            <StatTile amount={summary.data.gl.netProfit} emphasiseNegative label={strings.home.salesToday} />
+            <StatTile amount={summary.data.gl.netProfit} emphasiseNegative label={strings.home.netProfit} />
           </View>
 
           <Card title={strings.home.recentActivity}>

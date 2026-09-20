@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatAmountWithCurrency, formatMoney, isNegative, isPositiveDecimal } from "./money";
+import { formatAmountWithCurrency, formatMoney, isNegative, isPositiveDecimal, toAmountInput } from "./money";
 
 describe("formatMoney", () => {
   it("groups thousands and keeps two decimals", () => {
@@ -51,5 +51,18 @@ describe("isPositiveDecimal", () => {
     expect(isPositiveDecimal("")).toBe(false);
     expect(isPositiveDecimal("1e3")).toBe(false);
     expect(isPositiveDecimal("abc")).toBe(false);
+  });
+});
+
+describe("toAmountInput", () => {
+  it("cuts a wire decimal to the two places a person types, without rounding", () => {
+    expect(toAmountInput("615.600000")).toBe("615.60");
+    expect(toAmountInput("180.000000")).toBe("180.00");
+    expect(toAmountInput("42")).toBe("42.00");
+  });
+
+  it("keeps every digit when the tail is not all zeros, so nothing is posted rounded", () => {
+    expect(toAmountInput("440.483808")).toBe("440.483808");
+    expect(toAmountInput("")).toBe("");
   });
 });

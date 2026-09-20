@@ -72,3 +72,17 @@ export function isPositiveDecimal(value: string): boolean {
   if (!POSITIVE_DECIMAL.test(trimmed)) return false;
   return !/^0+(\.0+)?$/.test(trimmed);
 }
+
+/**
+ * A wire decimal as a figure a person edits: `615.600000` → `615.60`.
+ * EXACT, never rounded — digits past the second place are dropped only when
+ * every one of them is a zero, because this string is posted as the amount.
+ */
+export function toAmountInput(value: string): string {
+  const trimmed = value.trim();
+  if (trimmed === "") return "";
+  const parts = splitDecimal(trimmed);
+  if (!/^\d+$/.test(parts.whole) || !/^\d*$/.test(parts.fraction)) return trimmed;
+  if (/[1-9]/.test(parts.fraction.slice(DISPLAY_DECIMALS))) return trimmed;
+  return `${parts.sign}${parts.whole}.${parts.fraction.slice(0, DISPLAY_DECIMALS).padEnd(DISPLAY_DECIMALS, "0")}`;
+}

@@ -19,7 +19,7 @@ import {
 } from "@/api/queries";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { useStrings } from "@/i18n";
-import { formatAmountWithCurrency, isPositiveDecimal } from "@/money";
+import { formatAmountWithCurrency, isPositiveDecimal, toAmountInput } from "@/money";
 import { DEFAULT_GL_ACCOUNTS } from "@/domain/accounts";
 import { addDaysIso, todayIso } from "@/domain/dates";
 import { DocumentKind, ItemType } from "@/domain/enums";
@@ -362,13 +362,13 @@ function LineRow({
         {removable ? <Button label={strings.sell.removeLine} onPress={onRemove} tone={ButtonTone.Quiet} /> : null}
       </View>
       <EntityPicker
-        emptyLabel={strings.picker.empty}
+        emptyLabel={debouncedItemQuery.trim().length < 2 ? strings.picker.searchHint : strings.picker.empty}
         label={strings.sell.item}
         loading={itemsQuery.isLoading}
         onQueryChange={setItemQuery}
         onSelect={(option) => {
           const found = itemsQuery.data?.find((i) => i.id === option.id) ?? null;
-          onChange({ item: found, unitPrice: found?.salePrice ?? "" });
+          onChange({ item: found, unitPrice: toAmountInput(found?.salePrice ?? "") });
         }}
         options={options}
         placeholder={strings.sell.itemPlaceholder}

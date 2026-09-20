@@ -150,7 +150,7 @@ export function Clock() {
             <CameraView facing="front" ref={cameraRef} style={styles.camera} />
           ) : (
             <View style={[styles.centre, { backgroundColor: theme.background }]}>
-              <Text style={[styles.notice, { color: theme.text }]}>{strings.stock.cameraPermission}</Text>
+              <Text style={[styles.notice, { color: theme.text }]}>{strings.clock.cameraPermission}</Text>
               <Button
                 label={strings.stock.grantPermission}
                 onPress={() => {
@@ -160,12 +160,14 @@ export function Clock() {
             </View>
           )}
           <View style={styles.cameraActions}>
-            <Button
-              label={strings.clock.takeSelfie}
-              onPress={() => {
-                void capture();
-              }}
-            />
+            {permission?.granted ? (
+              <Button
+                label={strings.clock.takeSelfie}
+                onPress={() => {
+                  void capture();
+                }}
+              />
+            ) : null}
             <Button label={strings.common.cancel} onPress={() => setCameraOpen(false)} tone={ButtonTone.Quiet} />
           </View>
         </View>

@@ -16,7 +16,12 @@ export function StatTile({ label, amount, emphasiseNegative = false }: StatTileP
       <Text style={[styles.label, { color: theme.textMuted }]} numberOfLines={1}>
         {label}
       </Text>
-      <Text style={[styles.amount, { color: negative ? theme.negative : theme.text }]} numberOfLines={1}>
+      <Text
+        adjustsFontSizeToFit
+        minimumFontScale={0.6}
+        numberOfLines={1}
+        style={[styles.amount, { color: negative ? theme.negative : theme.text }]}
+      >
         {formatAmountWithCurrency(amount)}
       </Text>
     </View>

@@ -21,6 +21,9 @@ export default function TabsLayout() {
     >
       <Tabs.Screen name="index" options={{ title: strings.tabs.home }} />
       <Tabs.Screen name="customers" options={{ title: strings.tabs.customers }} />
+      <Tabs.Screen name="sell" options={{ title: strings.tabs.sell }} />
+      <Tabs.Screen name="stock" options={{ title: strings.tabs.stock }} />
+      <Tabs.Screen name="more" options={{ title: strings.tabs.more }} />
     </Tabs>
   );
 }

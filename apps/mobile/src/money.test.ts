@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatAmountWithCurrency, formatMoney, isNegative } from "./money";
+import { formatAmountWithCurrency, formatMoney, isNegative, isPositiveDecimal } from "./money";
 
 describe("formatMoney", () => {
   it("groups thousands and keeps two decimals", () => {
@@ -34,5 +34,22 @@ describe("isNegative", () => {
   it("does not call -0.000000 negative", () => {
     expect(isNegative("-0.000000")).toBe(false);
     expect(isNegative("-0.01")).toBe(true);
+  });
+});
+
+describe("isPositiveDecimal", () => {
+  it("accepts a plain positive amount", () => {
+    expect(isPositiveDecimal("12")).toBe(true);
+    expect(isPositiveDecimal("12.5")).toBe(true);
+    expect(isPositiveDecimal("  3.25  ")).toBe(true);
+  });
+
+  it("refuses zero, negatives, blanks and non-decimal shapes", () => {
+    expect(isPositiveDecimal("0")).toBe(false);
+    expect(isPositiveDecimal("0.00")).toBe(false);
+    expect(isPositiveDecimal("-5")).toBe(false);
+    expect(isPositiveDecimal("")).toBe(false);
+    expect(isPositiveDecimal("1e3")).toBe(false);
+    expect(isPositiveDecimal("abc")).toBe(false);
   });
 });

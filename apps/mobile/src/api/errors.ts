@@ -43,3 +43,14 @@ export function describeApiError(error: unknown, strings: Strings): string {
       return error.serverMessageEn ?? strings.errors.server;
   }
 }
+
+/**
+ * Writes are online-only (no write queue): a network failure on a write is
+ * never "try again later", it is "this did not happen". Every mutation
+ * screen shows this sentence instead of the generic network message so a
+ * rep does not walk away believing a document was saved.
+ */
+export function describeWriteError(error: unknown, strings: Strings): string {
+  if (error instanceof ApiError && error.failure === ApiFailure.Network) return strings.common.offlineWrite;
+  return describeApiError(error, strings);
+}

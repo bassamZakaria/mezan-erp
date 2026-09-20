@@ -58,3 +58,17 @@ export function formatAmountWithCurrency(value: string, currencySymbol = "ج.م"
 export function isNegative(value: string): boolean {
   return value.startsWith("-") && /[1-9]/.test(value);
 }
+
+const POSITIVE_DECIMAL = /^\d+(\.\d+)?$/;
+
+/**
+ * A plain, strictly-positive decimal string — the client-side gate on a
+ * quantity or a price field before it is sent as-is on the wire. Never
+ * routes the value through `Number()`; a string that fails this is refused
+ * without ever being parsed as a float.
+ */
+export function isPositiveDecimal(value: string): boolean {
+  const trimmed = value.trim();
+  if (!POSITIVE_DECIMAL.test(trimmed)) return false;
+  return !/^0+(\.0+)?$/.test(trimmed);
+}

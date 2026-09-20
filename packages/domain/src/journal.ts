@@ -146,8 +146,10 @@ export interface UnitOfWork {
  * document's type rather than stored twice: a module recorded separately from
  * the document type is a second source of truth that can disagree with it.
  *
- * `manual` covers an entry a person typed; `unknown` is honest about an entry
- * whose document type predates this field rather than guessing a module.
+ * `manual` covers an entry a person typed; `accounting` covers an entry the GL
+ * itself posts on a schedule or at year end, which no operational module owns;
+ * `unknown` is honest about an entry whose document type predates this field
+ * rather than guessing a module.
  */
 export type JournalSourceModule =
   | "sales"
@@ -158,6 +160,7 @@ export type JournalSourceModule =
   | "payroll"
   | "assets"
   | "contracting"
+  | "accounting"
   | "manual"
   | "unknown";
 
@@ -200,6 +203,14 @@ const MODULE_BY_DOC_TYPE: Readonly<Record<string, JournalSourceModule>> = {
   MATERIAL_CONSUMPTION: "contracting",
   EQUIPMENT_LOG: "contracting",
   JOURNAL_ENTRY: "manual",
+  HISTORICAL_SALES_IMPORT: "sales",
+  HISTORICAL_PURCHASE_IMPORT: "purchases",
+  VOUCHER: "treasury",
+  CHEQUE_RECEIPT: "treasury",
+  HR_LEAVE_PROVISION: "payroll",
+  RECURRING_JOURNAL_TEMPLATE: "accounting",
+  RECURRING_JOURNAL_REVERSAL: "accounting",
+  YEAR_END_CLOSE: "accounting",
 };
 
 /**

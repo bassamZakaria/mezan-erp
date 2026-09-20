@@ -50,8 +50,18 @@ function put(path: string, body: unknown) {
   return new Request(`http://x${path}`, init);
 }
 
+/**
+ * Both fixtures carry the ENH-051 acknowledgement. A wildcard role — and
+ * `isCompanyAdmin`, which IS the wildcard — holds both sides of every
+ * maker-checker pair, so the save is refused 409 until someone records why.
+ * These tests are about ESCALATION, which is checked first and refuses 403
+ * before the conflict is ever looked at; the acknowledgement only stops the
+ * gate from standing in for the answer they are actually asserting.
+ */
+const SOD_ACK = { acknowledge: true, reason: "دور إداري في بيئة اختبار" };
+
 async function makeRole(app: App, code: string, permissions: string[]) {
-  const res = await app.fetch(post("/roles", { code, name: code, permissions }));
+  const res = await app.fetch(post("/roles", { code, name: code, permissions, ...SOD_ACK }));
   expect(res.status).toBe(201);
   return (await res.json()) as { id: string; permissions: string[] };
 }
@@ -68,6 +78,7 @@ function newUser(email: string, roleId: string | null, isCompanyAdmin: boolean) 
     employeeId: null,
     branchScope: "*",
     warehouseScope: "*",
+    ...SOD_ACK,
   };
 }
 

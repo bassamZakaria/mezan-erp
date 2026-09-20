@@ -404,24 +404,6 @@ export class PayrollFxRateMissingError extends Error {
 }
 
 /**
- * Raised when an employee's deductions exceed their earnings for the period.
- * Payroll refuses to compute a negative net rather than post a wrong one.
- */
-export class NegativeNetPayError extends Error {
-  readonly code = "NEGATIVE_NET_PAY";
-  readonly messageEn: string;
-  constructor(
-    readonly employeeId: string,
-    readonly gross: string,
-    readonly deductions: string,
-  ) {
-    super(`الموظف "${employeeId}" لديه استقطاعات (${deductions}) تتجاوز مستحقاته (${gross}) عن هذه الفترة.`);
-    this.messageEn = `Employee "${employeeId}" has deductions (${deductions}) exceeding earnings (${gross}) for the period.`;
-    this.name = "NegativeNetPayError";
-  }
-}
-
-/**
  * Raised when the disbursement's treasury voucher is held بانتظار الموافقة by a
  * configured TREASURY_VOUCHER_CONFIRM chain. The advance / payroll run must NOT
  * be marked صرف: no cash has moved and no journal entry exists yet. Approving

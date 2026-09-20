@@ -127,9 +127,7 @@ describe("PAYROLL_UNIMPLEMENTED_RULES", () => {
       "seniority_bonus",
       "overtime",
       "end_of_service",
-      "hourly_daily_basis",
       "pay_frequency",
-      "multi_currency",
     ]);
   });
 
@@ -138,8 +136,17 @@ describe("PAYROLL_UNIMPLEMENTED_RULES", () => {
     expect(alwaysOn).toEqual(["income_tax", "social_insurance", "seniority_bonus", "overtime", "end_of_service"]);
   });
 
-  it("flags hourly/daily basis, pay frequency and multi-currency as conditional gaps — garnishments are deducted, so they are no longer one", () => {
+  /**
+   * 5fb1be83 pays hourly and daily contracts from attendance and converts a
+   * foreign-currency contract at the run date, so `hourly_daily_basis` and
+   * `multi_currency` were deleted from the list — which is what deleting an
+   * entry is for. Only the pay CYCLE is still folded into one monthly payslip.
+   */
+  it("leaves the pay CYCLE as the one conditional gap — hourly/daily basis, multi-currency and garnishments are all computed now", () => {
     const conditional = PAYROLL_UNIMPLEMENTED_RULES.filter((r) => !r.appliesToEveryPayslip).map((r) => r.code);
-    expect(conditional).toEqual(["hourly_daily_basis", "pay_frequency", "multi_currency"]);
+    expect(conditional).toEqual(["pay_frequency"]);
+    for (const gone of ["hourly_daily_basis", "multi_currency", "loans_garnishments"]) {
+      expect(PAYROLL_UNIMPLEMENTED_RULES.some((r) => r.code === gone)).toBe(false);
+    }
   });
 });

@@ -84,7 +84,6 @@ import {
   PayrollRunNotFoundError,
   DuplicatePayrollPeriodError,
   NoPayableEmployeesError,
-  NegativeNetPayError,
   TreasuryDisbursementUnavailableError,
 } from "./hr/errors.js";
 import {
@@ -235,7 +234,6 @@ describe("domain errors are bilingual (D280)", () => {
     ["PayrollRunNotFoundError", new PayrollRunNotFoundError("PR-1")],
     ["DuplicatePayrollPeriodError", new DuplicatePayrollPeriodError(2026, 9, "MAIN")],
     ["NoPayableEmployeesError", new NoPayableEmployeesError("PR-1")],
-    ["NegativeNetPayError", new NegativeNetPayError("EMP-1", "5000.00", "6000.00")],
     ["TreasuryDisbursementUnavailableError", new TreasuryDisbursementUnavailableError()],
     // manufacturing
     ["BomNotFoundError", new BomNotFoundError("BOM-1")],

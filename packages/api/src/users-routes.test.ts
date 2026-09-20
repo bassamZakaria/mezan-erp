@@ -1,9 +1,9 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { createApp } from "./app.js";
-import { createSqliteUnitOfWork, type SqliteUnitOfWorkHandle } from "@mezan/persistence";
-import { createAuthContext, createEntitlements, ALL_SCOPE } from "@mezan/domain";
+import { createSqliteUnitOfWork, createSqliteSettingsStore, type SqliteSettingsStoreHandle, type SqliteUnitOfWorkHandle } from "@mezan/persistence";
+import { createAuthContext, createDefaultSettings, createEntitlements, ALL_SCOPE } from "@mezan/domain";
 
-const handles: SqliteUnitOfWorkHandle[] = [];
+const handles: (SqliteUnitOfWorkHandle | SqliteSettingsStoreHandle)[] = [];
 afterEach(() => {
   for (const h of handles.splice(0)) h.close();
 });
@@ -38,6 +38,12 @@ async function json(res: Response) {
   return res.json();
 }
 
+/**
+ * A company-admin grant IS the wildcard, so it trips every segregation-of-duties
+ * pair at once (ENH-051) and the route refuses it until someone records why.
+ * These tests are about the seat, not about the gate — the gate has its own
+ * describe below — so they carry the acknowledgement a real admin would tick.
+ */
 const newUserBody = {
   nameAr: "محمد الشهابي",
     nameEn: null,
@@ -49,6 +55,8 @@ const newUserBody = {
   employeeId: null,
   branchScope: "*",
   warehouseScope: "*",
+  acknowledge: true,
+  reason: "مدير المنشأة",
 };
 
 describe("users routes", () => {
@@ -539,7 +547,7 @@ describe("who may make themselves a company admin (D86 — closed by PR #54, S2)
       new Request("http://x/users/u-next", {
         method: "PUT",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ ...clerk, email: "next@cyag.test", roleId: null, isCompanyAdmin: true }),
+        body: JSON.stringify({ ...clerk, email: "next@cyag.test", roleId: null, isCompanyAdmin: true, acknowledge: true, reason: "مدير المنشأة" }),
       }),
     );
 
@@ -893,5 +901,56 @@ describe("scope self-widening and the last admin (D118, D117)", () => {
 
     expect(res.status).toBe(200);
     expect((await users.findById("u-old-admin"))?.isCompanyAdmin).toBe(false);
+  });
+});
+
+describe("ENH-051 — the segregation-of-duties gate on a user's grant", () => {
+  const adminGrant = { ...newUserBody, acknowledge: undefined, reason: undefined };
+
+  function post(app: ReturnType<typeof newApp>, body: unknown) {
+    return app.fetch(
+      new Request("http://x/users", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }),
+    );
+  }
+
+  it("refuses a company-admin grant with 409 SOD_CONFLICT, naming every pair it trips in Arabic", async () => {
+    const res = await post(newApp(), adminGrant);
+    expect(res.status).toBe(409);
+    const body = (await json(res)) as { error: string; conflicts: { ruleId: string; labelAr: string }[] };
+    expect(body.error).toBe("SOD_CONFLICT");
+    expect(body.conflicts.length).toBeGreaterThan(0);
+    expect(body.conflicts.every((c) => c.labelAr.trim() !== "")).toBe(true);
+  });
+
+  it("treats a tick with no reason as no acknowledgement — the reason IS the record", async () => {
+    const res = await post(newApp(), { ...adminGrant, acknowledge: true });
+    expect(res.status).toBe(409);
+  });
+
+  it("grants the seat once the conflict is acknowledged with a reason", async () => {
+    const res = await post(newApp(), newUserBody);
+    expect(res.status).toBe(201);
+  });
+
+  /**
+   * INVARIANT the route depends on: a refusal the caller CAN acknowledge past
+   * must never come first. A 409 asking for an override, in front of a 422 no
+   * override can satisfy, makes an audited override the price of discovering
+   * the address was never allowed.
+   */
+  it("answers the domain policy before the conflict, when a request breaks both", async () => {
+    const uow = createSqliteUnitOfWork(":memory:");
+    const settingsStore = createSqliteSettingsStore() as SqliteSettingsStoreHandle;
+    handles.push(uow, settingsStore);
+    await settingsStore.save(createDefaultSettings({ allowedEmailDomains: ["cyag.test"] }));
+    const ctx = createAuthContext({ userId: "u1", permissions: ["*"], branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
+    const app = createApp(uow, { settingsStore, resolveAuthContext: () => ctx });
+
+    const outside = await post(app, { ...adminGrant, email: "someone@gmail.com" });
+    expect(outside.status).toBe(422);
+    expect(((await json(outside)) as { error: string }).error).toBe("EMAIL_DOMAIN_NOT_ALLOWED");
+
+    const inside = await post(app, newUserBody);
+    expect(inside.status).toBe(201);
   });
 });

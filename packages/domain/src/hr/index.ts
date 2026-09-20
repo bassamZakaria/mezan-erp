@@ -310,7 +310,6 @@ export {
   DuplicatePayrollPeriodError,
   NoPayableEmployeesError,
   PayrollFxRateMissingError,
-  NegativeNetPayError,
   InvalidGarnishmentError,
   GarnishmentNotFoundError,
   StatutoryRulesUnavailableError,

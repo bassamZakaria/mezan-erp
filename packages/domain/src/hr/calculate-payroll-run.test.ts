@@ -20,7 +20,6 @@ import {
   DuplicatePayrollPeriodError,
   InvalidPayrollRunError,
   InvalidPayrollRunTransitionError,
-  NegativeNetPayError,
   NoPayableEmployeesError,
   PayrollRunNotFoundError,
   StatutoryRulesUnavailableError,
@@ -358,11 +357,23 @@ describe("calculatePayrollRun", () => {
     await expect(calculatePayrollRun(run.id, h.deps)).rejects.toThrow(NoPayableEmployeesError);
   });
 
-  it("throws NegativeNetPayError when fixed deductions exceed gross earnings, and posts nothing", async () => {
+  it("excludes the one employee whose deductions exceed their dues, naming them, and pays everyone else", async () => {
     const h = await harness();
     const run = await createPayrollRun({ id: "r1", year: 2026, month: 1 }, h.deps);
     await employeeWithContract(h, { id: "emp-1", monthlySalary: "1000.00", deductions: [{ name: "خصم كبير", amount: "1000.01" }] });
-    await expect(calculatePayrollRun(run.id, h.deps)).rejects.toThrow(NegativeNetPayError);
+    await employeeWithContract(h, { id: "emp-2", monthlySalary: "1000.00" });
+    const calculated = await calculatePayrollRun(run.id, h.deps);
+    const payslips = await h.payslips.listByRunId(run.id);
+    expect(payslips.map((p) => p.employeeId)).toEqual(["emp-2"]);
+    expect(calculated.employeeCount).toBe(1);
+    expect(calculated.warnings.some((w) => w.includes("تتجاوز المستحقات") && w.includes("تم استبعاده"))).toBe(true);
+  });
+
+  it("refuses the run outright when the exclusion leaves nobody to pay, rather than calculating an empty one", async () => {
+    const h = await harness();
+    const run = await createPayrollRun({ id: "r1", year: 2026, month: 1 }, h.deps);
+    await employeeWithContract(h, { id: "emp-1", monthlySalary: "1000.00", deductions: [{ name: "خصم كبير", amount: "1000.01" }] });
+    await expect(calculatePayrollRun(run.id, h.deps)).rejects.toThrow(NoPayableEmployeesError);
   });
 
   it("accepts deductions exactly equal to gross earnings (net pay of exactly zero, boundary)", async () => {
@@ -824,14 +835,17 @@ describe("calculatePayrollRun — D182: court orders rank ahead of contract dedu
     expect(payslip!.netPay.toString()).toBe("1400.000000"); // 2000 - 300 - 300
   });
 
-  it("protects the court order's (capped) share ahead of a voluntary contract deduction — the run refuses rather than shorting the order", async () => {
+  it("protects the court order's (capped) share ahead of a voluntary contract deduction — the employee is excluded rather than the order shorted", async () => {
     const h = await harness();
     const run = await createPayrollRun({ id: "r1", year: 2026, month: 1 }, h.deps);
     // 25% ceiling = 250.00, so the order takes 250.00 (capped from its own
     // 300.00 instalment) BEFORE the 800.00 contract deduction is even
     // considered — leaving only 750.00 for a deduction that needs 800.00.
     await employeeWithContract(h, { id: "emp-1", monthlySalary: "1000.00", deductions: [{ name: "قسط قرض", amount: "800.00" }] });
-    await expect(calculatePayrollRun(run.id, { ...h.deps, garnishments: provider([order()]) })).rejects.toThrow(NegativeNetPayError);
+    await employeeWithContract(h, { id: "emp-2", monthlySalary: "1000.00" });
+    const calculated = await calculatePayrollRun(run.id, { ...h.deps, garnishments: provider([order()]) });
+    expect((await h.payslips.listByRunId(run.id)).map((p) => p.employeeId)).toEqual(["emp-2"]);
+    expect(calculated.warnings.some((w) => w.includes("تتجاوز المستحقات"))).toBe(true);
   });
 });
 

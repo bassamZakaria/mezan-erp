@@ -119,6 +119,24 @@ function isScopeEmpty(scope: ScopeSelection): boolean {
  * hashed through the injected `SecretHasher` port, never touched in the clear
  * beyond this function's stack frame.
  */
+/**
+ * The allowed-domain policy as a pure check, so a route can apply it in the
+ * ORDER it needs rather than only wherever `saveUser` happens to reach it.
+ *
+ * An empty allowlist is no policy at all, not a policy that forbids everyone:
+ * a company must not be locked out of creating its first users by a rule
+ * nobody has configured yet.
+ */
+export function emailDomainRefusal(
+  rawEmail: string,
+  allowedEmailDomains: readonly string[] | undefined,
+): EmailDomainNotAllowedError | null {
+  const email = normalizeEmail(rawEmail);
+  const allowed = (allowedEmailDomains ?? []).map(normalizeEmailDomain).filter((d) => d !== "");
+  if (allowed.length === 0 || allowed.includes(emailDomain(email))) return null;
+  return new EmailDomainNotAllowedError(email, allowed);
+}
+
 export interface SaveUserOptions {
   /**
    * Domains the email may belong to. Empty (or omitted) means no restriction —
@@ -160,13 +178,8 @@ export async function saveUser(
   if (!EMAIL_PATTERN.test(email)) {
     throw new InvalidUserError("البريد الإلكتروني غير صالح.");
   }
-  // An empty allowlist is no policy at all, not a policy that forbids
-  // everyone: a company must not be locked out of creating its first users by
-  // a rule nobody has configured yet.
-  const allowedDomains = (opts?.allowedEmailDomains ?? []).map(normalizeEmailDomain).filter((d) => d !== "");
-  if (allowedDomains.length > 0 && !allowedDomains.includes(emailDomain(email))) {
-    throw new EmailDomainNotAllowedError(email, allowedDomains);
-  }
+  const domainRefusal = emailDomainRefusal(email, opts?.allowedEmailDomains);
+  if (domainRefusal) throw domainRefusal;
   if (cmd.isCompanyAdmin === (cmd.roleId !== null)) {
     throw new InvalidUserError(
       "يجب أن يكون للمستخدم دور واحد فقط أو صلاحية مدير الشركة، وليس كليهما.",

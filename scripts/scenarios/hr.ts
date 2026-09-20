@@ -80,9 +80,17 @@ export async function run(ctx: Ctx): Promise<void> {
       universal.length === 5 && universalCodes.every((code) => universal.some((r) => r.code === code)),
       universal.map((r) => r.code).join(", "),
     );
+    // Was "exactly 3 (hourly/daily basis, pay frequency, multi-currency)".
+    // 5fb1be83 pays hourly and daily contracts from attendance and converts a
+    // foreign-currency contract at the run date, so two of those three stopped
+    // being gaps and were deleted from the list — which is what deleting an
+    // entry is FOR. Only the weekly/semi-monthly cycle is still folded into one
+    // monthly payslip.
     ctx.check(
-      "PR-10 — exactly 3 situational scope gaps (hourly/daily basis, pay frequency, multi-currency); garnishments are deducted now",
-      situational.length === 3 && !situational.some((r) => r.code === "loans_garnishments"),
+      "PR-10 — one situational scope gap is left: the pay CYCLE. Hourly/daily basis, multi-currency and garnishments are all computed now",
+      situational.length === 1 &&
+        situational[0]!.code === "pay_frequency" &&
+        !["hourly_daily_basis", "multi_currency", "loans_garnishments"].some((code) => PAYROLL_UNIMPLEMENTED_RULES.some((r) => r.code === code)),
       situational.map((r) => r.code).join(", "),
     );
 
@@ -92,15 +100,26 @@ export async function run(ctx: Ctx): Promise<void> {
     for (const runId of ["PR-DEMO-1", "PR-DEMO-2", "PR-DEMO-3"]) {
       const run = (await ctx.req("GET", `/hr/payroll/runs/${runId}`)).body;
       ctx.checkEq(`${runId} — the count in the scope notice equals the run's actual employeeCount`, run.employeeCount, run.payslips.length);
-      ctx.check(`PR-04 ${runId} — employeeCount excludes the hourly contract (7, not 8 or 9)`, run.employeeCount === 7, `got ${run.employeeCount}`);
+      // Was 7 — the hourly contract used to be excluded for want of a worked-time
+      // source. It is bound now (5fb1be83), so عمرو الديب is paid from his
+      // attendance and counts like everyone else.
+      ctx.check(`PR-04 ${runId} — employeeCount includes the hourly contract, now paid from attendance (8)`, run.employeeCount === 8, `got ${run.employeeCount}`);
 
       const hourlyWarning = (run.warnings as string[]).find((w) => w.includes(amrName) && w.includes(amr.code));
       ctx.check(
-        `PR-08/D15 ${runId} — hourly employee excluded with a NAMED warning that reads in Arabic, not the raw code "hourly"`,
-        !!hourlyWarning && hourlyWarning.includes("بالساعة") && !hourlyWarning.includes("hourly"),
+        `PR-08/D15 ${runId} — the hourly employee's remaining gap is NAMED in Arabic: a weekly cycle paid as one monthly slip, never the raw code "weekly"`,
+        !!hourlyWarning && hourlyWarning.includes("تكرار الدفع") && hourlyWarning.includes("أسبوعي") && !/weekly|hourly/.test(hourlyWarning),
         hourlyWarning ?? "no warning found naming the employee",
       );
-      ctx.check(`PR-08 ${runId} — no payslip issued for the excluded hourly employee (not a zero payslip, not a blank row)`, !run.payslips.some((p: any) => p.employeeId === "EMP-DEMO-8"));
+      const amrSlip = run.payslips.find((p: any) => p.employeeId === "EMP-DEMO-8");
+      ctx.check(`PR-08 ${runId} — a payslip IS issued for the hourly employee`, !!amrSlip, JSON.stringify(run.payslips.map((p: any) => p.employeeId)));
+      if (amrSlip) {
+        ctx.check(
+          `PR-08 ${runId} — and it is priced off attendance: an hourly basis with the hours it paid for, not a month's salary`,
+          amrSlip.basis?.payBasis === "hourly" && typeof amrSlip.basis?.quantity === "number",
+          JSON.stringify(amrSlip.basis),
+        );
+      }
       ctx.check(
         `PR-13 ${runId} — no payslip line ever names tax/insurance/seniority/overtime/end-of-service`,
         run.payslips.every((p: any) => p.lines.every((l: any) => !/ضريبة|تأمين|أقدمية|إضافي|نهاية خدمة/.test(l.nameAr))),
@@ -768,6 +787,11 @@ export async function run(ctx: Ctx): Promise<void> {
     ctx.check("STAT-10 — a run opens for October 2026", created.status === 201, `got ${created.status}`);
     const calculated = await ctx.req("POST", "/hr/payroll/runs/SCN-PR-STAT-1/calculate", {});
     ctx.check("STAT-11 — it calculates with the switch on", calculated.status === 200, `got ${calculated.status}: ${JSON.stringify(calculated.body).slice(0, 200)}`);
+    // A refusal answers an error body, not a run. Reading through it turned one
+    // named failure into an unexplained `Cannot read properties of undefined`
+    // that took every assertion after it down with it — so the rest of this
+    // scenario is skipped deliberately, and says so.
+    if (calculated.status !== 200) return;
     const run = calculated.body;
     ctx.check("STAT-12 — the run records the dated tables it used", (run.statutoryTableCodes as string[]).includes("EG_SOCIAL_INSURANCE_2026") && (run.statutoryTableCodes as string[]).includes("EG_SALARY_TAX_2024"));
 
@@ -853,6 +877,9 @@ export async function run(ctx: Ctx): Promise<void> {
     await ctx.req("POST", "/hr/payroll/runs", { id: "SCN-PR-STAT-OT", year: 2026, month: 11, branchId, currency: "EGP" });
     const first = await ctx.req("POST", "/hr/payroll/runs/SCN-PR-STAT-OT/calculate", {});
     ctx.check("OT-03 — November calculates with the switch on", first.status === 200, `got ${first.status}: ${JSON.stringify(first.body).slice(0, 200)}`);
+    // Same reason as STAT-11: a 422 body has no `payslips`, and every check
+    // below reads one. Stop on the named failure instead of crashing past it.
+    if (first.status !== 200) return;
     const overtimeOf = (body: any, employeeId: string) =>
       (body.payslips.find((p: any) => p.employeeId === employeeId)?.lines ?? []).filter((l: any) => l.source === "overtime").map((l: any) => ctx.n(l.amount));
     ctx.check(

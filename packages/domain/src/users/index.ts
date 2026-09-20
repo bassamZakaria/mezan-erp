@@ -11,6 +11,7 @@ export {
   normalizeEmail,
   normalizeEmailDomain,
   emailDomain,
+  emailDomainRefusal,
   InvalidUserError,
   DuplicateUserEmailError,
   EmailDomainNotAllowedError,

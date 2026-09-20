@@ -3692,6 +3692,12 @@ describe("createBackend — «مرتجع من فاتورة» restocks at cost, n
  * queue through nothing at all — the enqueue bridge matched only
  * `docType === "SALES_INVOICE"` — so the customer's filed VAT stayed overstated
  * by the credit (D77/D122).
+ *
+ * The buyer here carries a tax registration number on purpose. Since D282 the
+ * note is the B2B half only: a return by a consumer is a refund RECEIPT on the
+ * device's own chain, a different mandate, and `createReturnEtaEnqueueBridge`
+ * branches on exactly that number. Without it this describe was testing the
+ * receipt path under the credit note's name.
  */
 describe("createBackend — a confirmed sales return is queued to ETA as a credit note (D77/D122)", () => {
   async function soldAndReturned(app: Awaited<ReturnType<typeof newBackend>>) {
@@ -3720,7 +3726,7 @@ describe("createBackend — a confirmed sales return is queued to ETA as a credi
         )
       ).status,
     ).toBe(201);
-    await createCustomer(app, "cust-eta-ret", "0");
+    await createCustomer(app, "cust-eta-ret", "0", "100200300");
     expect(
       (
         await post(

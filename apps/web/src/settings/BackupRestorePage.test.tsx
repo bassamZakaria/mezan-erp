@@ -152,7 +152,14 @@ describe("BackupRestorePage", () => {
     await user.type(screen.getByLabelText("اكتب تاريخ النسخة للتأكيد"), "2026-08-14");
     await user.click(screen.getByRole("button", { name: "استعادة واستبدال البيانات" }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("فشل التحقق من سلامة الملف.");
+    // The page also carries a standing «خذ نسخة الآن» staleness banner with
+    // role="alert", so the refusal has to be picked out of the alerts on
+    // screen rather than assumed to be the only one.
+    await waitFor(() =>
+      expect(screen.getAllByRole("alert").map((el) => el.textContent ?? "")).toContainEqual(
+        expect.stringContaining("فشل التحقق من سلامة الملف."),
+      ),
+    );
     await waitFor(() => expect(screen.queryByText(/VERIFICATION_FAILED/)).not.toBeInTheDocument());
     expect(bridge.restore).toHaveBeenCalledTimes(1);
   });
@@ -219,7 +226,11 @@ describe("BackupRestorePage — revert and portable export", () => {
 
     await userEvent.click(await screen.findByRole("button", { name: "استعادة نسخة ما قبل التحديث" }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("لا توجد نسخة محفوظة قبل التحديث");
+    await waitFor(() =>
+      expect(screen.getAllByRole("alert").map((el) => el.textContent ?? "")).toContainEqual(
+        expect.stringContaining("لا توجد نسخة محفوظة قبل التحديث"),
+      ),
+    );
   });
 
   it("will not export a portable copy without a passphrase", async () => {

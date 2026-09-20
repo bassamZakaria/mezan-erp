@@ -478,7 +478,15 @@ export async function createBackup(params: {
 
     return { archivePath, manifest: result.manifest, removed };
   } finally {
-    await rm(tmpDbPath, { force: true });
+    // The snapshot inherits the live database's journal mode, so a WAL source
+    // yields a WAL snapshot — and merely OPENING that file (the worker counts
+    // its rows read-only) materialises `-wal`/`-shm` beside it. Deleting the
+    // snapshot alone left both sidecars in `.tmp` after every single backup.
+    await Promise.all([
+      rm(tmpDbPath, { force: true }),
+      rm(`${tmpDbPath}-wal`, { force: true }),
+      rm(`${tmpDbPath}-shm`, { force: true }),
+    ]);
   }
 }
 

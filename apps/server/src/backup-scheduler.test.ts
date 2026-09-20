@@ -117,12 +117,18 @@ describe("runBackups", () => {
       clock += 60_000;
     }
 
-    const files = readdirSync(path.join(dir, "backups", "platform")).sort();
+    // `verify.jsonl` lives beside the archives and is deliberately NOT a
+    // backup: `pruneOldBackups` filters to `.sqlite` before it deletes
+    // anything, so retention is counted over the same set here.
+    const folder = path.join(dir, "backups", "platform");
+    const files = readdirSync(folder).filter((f) => f.endsWith(".sqlite")).sort();
     expect(files).toHaveLength(2);
     expect(files).toEqual([
       "2026-01-15T00-02-00.000Z.sqlite",
       "2026-01-15T00-03-00.000Z.sqlite",
     ]);
+    // Retention must never carry the verification log away with the archives.
+    expect(readdirSync(folder)).toContain("verify.jsonl");
   });
 
   it("defaults keep to 12", async () => {
@@ -136,7 +142,7 @@ describe("runBackups", () => {
       clock += 60_000;
     }
 
-    const files = readdirSync(path.join(dir, "backups", "platform"));
+    const files = readdirSync(path.join(dir, "backups", "platform")).filter((f) => f.endsWith(".sqlite"));
     expect(files).toHaveLength(12);
   });
 
@@ -148,7 +154,7 @@ describe("runBackups", () => {
     await runBackups({ platform, router, dir, now: () => new Date(T) });
 
     const files = readdirSync(path.join(dir, "backups", "platform"));
-    expect(files.every((f) => f.endsWith(".sqlite"))).toBe(true);
+    expect(files.every((f) => !f.endsWith(".tmp"))).toBe(true);
   });
 });
 

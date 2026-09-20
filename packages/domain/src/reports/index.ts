@@ -48,6 +48,8 @@ export {
 } from "./sales-by-item.js";
 export {
   createSalesByCustomerReport,
+  salesInvoiceRemaining,
+  salesRemainingOverPeriod,
   type SalesByCustomerContext,
   type SalesByCustomerParams,
   type SalesByCustomerRow,
@@ -76,6 +78,8 @@ export {
 } from "./purchases-by-period.js";
 export {
   createPurchasesBySupplierReport,
+  purchaseInvoiceRemaining,
+  purchasesRemainingOverPeriod,
   type PurchasesBySupplierContext,
   type PurchasesBySupplierParams,
   type PurchasesBySupplierRow,

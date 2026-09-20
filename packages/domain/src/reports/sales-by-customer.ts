@@ -10,12 +10,19 @@ import { BRANCH_PARAM_FIELD, branchIdParamSchema, matchesBranch } from "./branch
 
 /**
  * المبيعات حسب العميل — Sales by Customer (docs/archive/catalog/08-reports.md): top
- * customers by revenue and outstanding balance. Revenue is tax-inclusive
- * (`grandTotal`, in base currency) per the catalog's "عرض الإيرادات: شامل/غير شامل الضريبة"
- * toggle; outstanding is the invoice's own `total − amountPaid − returns`,
- * the figure the invoice screen shows as remaining (D219); `amountPaid` is
- * what `applyAllocatedSettlement` maintains from the allocation sub-ledger.
- * An invoice returned beyond what it still owed counts as nothing owed.
+ * customers by revenue and by what the period's invoices still owe. Revenue is
+ * tax-inclusive (`grandTotal`, in base currency) per the catalog's
+ * "عرض الإيرادات: شامل/غير شامل الضريبة" toggle; «المتبقي من فواتير الفترة» is the
+ * invoice's own `total − amountPaid − returns`, the figure the invoice screen
+ * shows as remaining (D219); `amountPaid` is what `applyAllocatedSettlement`
+ * maintains from the allocation sub-ledger. An invoice returned beyond what it
+ * still owed counts as nothing owed.
+ *
+ * It is NOT «المستحق»: the customer's balance is the aging ladder's own row —
+ * every open invoice whatever its date, its on-account receipts, its cheques and
+ * its opening balance. The two were both labelled «المستحق» and the drill-down
+ * panel answered the ladder's figure to a row that showed this one (D286:
+ * CUST-DEMO-2 row 5,000.00 vs panel 1,044,981.71). Two facts, two labels.
  */
 
 export interface SalesByCustomerContext {
@@ -28,6 +35,33 @@ export interface SalesByCustomerContext {
   readonly customers?: readonly { readonly id: string; readonly nameEn: string | null }[];
   /** Confirmed sales-return credit per SOURCE invoice, in base; outstanding nets it (D219). */
   readonly returnsByInvoiceId?: ReadonlyMap<string, Money>;
+}
+
+/**
+ * What ONE active sales invoice still owes: base grand total, less what the
+ * allocation sub-ledger settled onto it, less its confirmed returns, floored at
+ * nothing owed.
+ *
+ * Exported because the customer drill-down panel has to answer the very figure
+ * the row it was opened from shows, and a second implementation is how the two
+ * drifted apart (D286).
+ */
+export function salesInvoiceRemaining(invoice: SalesInvoice, returned: Money): Money {
+  const base = salesInvoiceBaseTotals(salesInvoiceTotals(invoice), invoice.fxRate);
+  const remaining = Money.fromScaled(base.grandTotal.scaled - invoice.amountPaid.scaled - returned.scaled);
+  return remaining.scaled > 0n ? remaining : Money.zero();
+}
+
+/** {@link salesInvoiceRemaining} summed over a set of invoices the caller has already filtered. */
+export function salesRemainingOverPeriod(
+  invoices: readonly SalesInvoice[],
+  returnsByInvoiceId?: ReadonlyMap<string, Money>,
+): Money {
+  let total = Money.zero();
+  for (const invoice of invoices) {
+    total = total.add(salesInvoiceRemaining(invoice, returnsByInvoiceId?.get(invoice.id) ?? Money.zero()));
+  }
+  return total;
 }
 
 export interface SalesByCustomerParams {
@@ -83,7 +117,7 @@ export function createSalesByCustomerReport(
       { key: "customerNameAr", header: "اسم العميل", format: "text", value: (row) => row.customerNameAr, entity: { kind: "customer", id: (row) => row.customerId } },
       { key: "count", header: "عدد المبيعات", format: "qty", align: "end", total: true, value: (row) => row.count },
       { key: "total", header: "الإجمالي", format: "money", align: "end", total: true, value: (row) => row.total },
-      { key: "outstanding", header: "المستحق", format: "money", align: "end", total: true, value: (row) => row.outstanding },
+      { key: "outstanding", header: "المتبقي من فواتير الفترة", format: "money", align: "end", total: true, value: (row) => row.outstanding },
       { key: "contributionPercent", header: "نسبة المساهمة", format: "share", align: "end", value: (row) => row.contributionPercent },
     ],
     chart: {
@@ -94,7 +128,7 @@ export function createSalesByCustomerReport(
     },
     kpis: [
       { key: "total", labelAr: "إجمالي الإيرادات", format: "money", value: (rows) => sumRows(rows, (r) => r.total) },
-      { key: "outstanding", labelAr: "المستحق على العملاء", format: "money", value: (rows) => sumRows(rows, (r) => r.outstanding), tone: (value) => (value > 0 ? "danger" : "default") },
+      { key: "outstanding", labelAr: "المتبقي من فواتير الفترة", format: "money", value: (rows) => sumRows(rows, (r) => r.outstanding), tone: (value) => (value > 0 ? "danger" : "default") },
       { key: "customerCount", labelAr: "عدد العملاء", format: "qty", value: (rows) => rows.length },
       { key: "avgPerCustomer", labelAr: "متوسط الإيراد لكل عميل", hintAr: "الإيراد ÷ عدد العملاء", format: "money", value: (rows) => averageOf(sumRows(rows, (r) => r.total), rows.length) },
     ],
@@ -111,8 +145,7 @@ export function createSalesByCustomerReport(
         const totals = salesInvoiceTotals(invoice);
         const base = salesInvoiceBaseTotals(totals, invoice.fxRate);
         const revenue = params.taxMode === "inc" ? base.grandTotal : base.taxableTotal;
-        const returned = ctx.returnsByInvoiceId?.get(invoice.id) ?? Money.zero();
-        const outstanding = Money.fromScaled(base.grandTotal.scaled - invoice.amountPaid.scaled - returned.scaled);
+        const remaining = salesInvoiceRemaining(invoice, ctx.returnsByInvoiceId?.get(invoice.id) ?? Money.zero());
         const existing = byCustomer.get(invoice.customerId) ?? {
           customerNameAr: invoice.customerNameAr,
           count: 0,
@@ -123,7 +156,7 @@ export function createSalesByCustomerReport(
           customerNameAr: invoice.customerNameAr,
           count: existing.count + 1,
           total: existing.total.add(revenue),
-          outstanding: existing.outstanding.add(outstanding.scaled > 0n ? outstanding : Money.zero()),
+          outstanding: existing.outstanding.add(remaining),
         });
       }
       const rows = [...byCustomer.entries()].map(([customerId, agg]) => ({

@@ -322,6 +322,11 @@ async function drillDownAnswersFromTheSourceDocuments_A5(ctx: Ctx): Promise<void
 
     const monthFrom = `${asOfDate.slice(0, 7)}-01`;
     const periodDrift: string[] = [];
+    // The check that was missing when D286 was believed closed: it compared
+    // only «إجمالي المفوتر» against the row's total, so the panel answering the
+    // aging ladder's balance to a period row's «المتبقي» went unseen —
+    // SUPP-DEMO-1 read 2,300.00 on the row and 1,455,097.00 on its own panel.
+    const remainingDrift: string[] = [];
     for (const [report, entity, idKey, extra] of [
       ["sales/by-customer", "customer", "customerId", "&taxMode=inc"],
       ["purchases/by-supplier", "supplier", "supplierId", ""],
@@ -329,12 +334,23 @@ async function drillDownAnswersFromTheSourceDocuments_A5(ctx: Ctx): Promise<void
       const run = await ctx.req("GET", `/reports/${report}?dateFrom=${monthFrom}&dateTo=${asOfDate}${extra}`);
       for (const row of run.body?.rows ?? []) {
         const panel = await ctx.req("GET", `/reports/drill-down/${entity}/${encodeURIComponent(row[idKey])}?fromDate=${monthFrom}&asOfDate=${asOfDate}`);
-        const billed = ctx.scaled((panel.body?.facts ?? []).find((f: any) => f.key === "billed")?.value);
+        const facts = panel.body?.facts ?? [];
+        const billed = ctx.scaled(facts.find((f: any) => f.key === "billed")?.value);
         const expected = ctx.scaled(ctx.n(row.total).toFixed(2));
         if (panel.status !== 200 || billed === null || billed !== expected) periodDrift.push(`${row[idKey]} ${billed} vs ${expected}`);
+        const remaining = ctx.scaled(facts.find((f: any) => f.key === "periodOutstanding")?.value);
+        const expectedRemaining = ctx.scaled(ctx.n(row.outstanding).toFixed(2));
+        if (panel.status !== 200 || remaining === null || remaining !== expectedRemaining) {
+          remainingDrift.push(`${row[idKey]} ${remaining} vs ${expectedRemaining}`);
+        }
       }
     }
     ctx.check("every period drill-down's total equals its row over the SAME period", periodDrift.length === 0, periodDrift.slice(0, 5).join("; "));
+    ctx.check(
+      "every period drill-down's المتبقي من فواتير الفترة equals its row's own column",
+      remainingDrift.length === 0,
+      remainingDrift.slice(0, 5).join("; "),
+    );
 
     const warehouses = ctx.rows((await ctx.req("GET", "/warehouses")).body).map((w: any) => w.id);
     const stockDrift: string[] = [];

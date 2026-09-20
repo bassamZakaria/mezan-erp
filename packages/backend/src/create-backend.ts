@@ -503,6 +503,14 @@ export interface BackendHandle {
    * pausing the connection.
    */
   backupTo(destination: string): Promise<void>;
+  /**
+   * Resolves once the confirm-time e-receipt tasks still in flight have
+   * settled. Those tasks deliberately outlive the confirm that started them,
+   * so a caller that closes the backend right after doing work — the
+   * demo-tenant provisioner does exactly that — must await this first, or
+   * they resume against a closed connection and their receipts are lost.
+   */
+  drain(): Promise<void>;
   close(): void;
 }
 
@@ -1106,19 +1114,17 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     },
   });
 
-  const salesInvoiceEvents = fanOutDocumentEvents(
-    salesInvoiceEventBridge,
-    createEtaEnqueueBridge({
-      eta: etaService,
-      issuer: etaReceipts,
-      invoices: salesInvoices,
-      customers,
-      items,
-      taxRates,
-      branchCodes: etaStore.branchCodes,
-      unitMappings: etaStore.unitMappings,
-    }),
-  );
+  const etaEnqueueBridge = createEtaEnqueueBridge({
+    eta: etaService,
+    issuer: etaReceipts,
+    invoices: salesInvoices,
+    customers,
+    items,
+    taxRates,
+    branchCodes: etaStore.branchCodes,
+    unitMappings: etaStore.unitMappings,
+  });
+  const salesInvoiceEvents = fanOutDocumentEvents(salesInvoiceEventBridge, etaEnqueueBridge);
 
   /**
    * D-03's billing arrow, enforced on EVERY sales invoice and not just the ones
@@ -4180,7 +4186,25 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     sessions,
     etaReceipts,
     backupTo: (destination) => sqlite.backup(destination).then(() => undefined),
+    async drain() {
+      // The bridge's tasks call `scheduleSubmission()`, and a submission run
+      // can queue more work, so neither one alone is "nothing left" — loop
+      // until both are idle.
+      let settled = false;
+      while (!settled) {
+        await etaEnqueueBridge.drain();
+        await etaReceipts.settle();
+        settled = true;
+        await etaEnqueueBridge.drain();
+        if (etaReceipts.pending()) settled = false;
+      }
+    },
     close() {
+      // ORDER MATTERS: both stops must land before `sqlite.close()`, or a
+      // parked e-receipt task resumes against a closed connection. `drain()`
+      // is the caller's chance to let that work FINISH first — `close()`
+      // alone only makes it stop quietly.
+      etaEnqueueBridge.stop();
       etaReceipts.stop();
       // Every store above shares the ONE `sqlite` connection opened at the
       // top of this function, so each store's own close() is a no-op (it

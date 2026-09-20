@@ -1,54 +1,28 @@
 import { describe, expect, it } from "vitest";
 import { Money } from "../money/index.js";
 import { createTreasuryLedgerReader } from "./adapters.js";
-import type { AccountLedgerLine, LedgerRepository, PostedLine } from "../gl/ledger.js";
+import type { AccountLedgerLine, LedgerRepository } from "../gl/ledger.js";
 import type { JournalEntry } from "../journal.js";
 import type { TreasuryAccount, TreasuryAccountRepository } from "../treasury-accounts/treasury-account.js";
 
 function fakeLedger(
   lines: AccountLedgerLine[],
-  posted: PostedLine[] = [],
-): Pick<LedgerRepository, "accountLedger" | "findById"> & Partial<Pick<LedgerRepository, "listLines">> {
+  entryFx: Record<string, { currency: string; fxRate: string }> = {},
+): Pick<LedgerRepository, "accountLedger" | "findById"> {
   return {
     async accountLedger(accountId, asOfDate) {
       return lines.filter((l) => (asOfDate ? l.date <= asOfDate : true));
     },
     async findById(id) {
       const line = lines.find((l) => l.entryId === id);
-      return line ? ({ id: line.entryId, entryNo: line.entryNo } as unknown as JournalEntry) : null;
+      if (!line) return null;
+      const fx = entryFx[id];
+      return {
+        id: line.entryId,
+        entryNo: line.entryNo,
+        lines: fx ? [{ accountId: "4910", currency: fx.currency, fxRate: fx.fxRate }] : [],
+      } as unknown as JournalEntry;
     },
-    ...(posted.length > 0
-      ? {
-          async listLines(filter) {
-            return posted.filter(
-              (l) =>
-                (!filter?.fromDate || l.date >= filter.fromDate) &&
-                (!filter?.toDate || l.date <= filter.toDate) &&
-                (!filter?.accountIds || filter.accountIds.includes(l.accountId)),
-            );
-          },
-        }
-      : {}),
-  };
-}
-
-function postedLine(overrides: Partial<PostedLine> = {}): PostedLine {
-  return {
-    entryId: "je-1",
-    entryNo: "JE-1",
-    date: "2026-08-01",
-    source: "system",
-    accountId: "1310",
-    costCenterId: null,
-    projectId: null,
-    costCategory: null,
-    branchId: "b1",
-    currency: null,
-    fxRate: null,
-    memo: null,
-    debit: Money.zero(),
-    credit: Money.zero(),
-    ...overrides,
   };
 }
 
@@ -89,28 +63,28 @@ describe("createTreasuryLedgerReader", () => {
     ]);
   });
 
-  it("states a foreign account's candidates in the account's own currency, recovered from each line's booking rate", async () => {
-    const usd: TreasuryAccount = { ...BANK_ACCOUNT, id: "ta-usd", currency: "USD", glAccountId: "1315" };
-    const posted = [
-      postedLine({ entryId: "je-fx", accountId: "1315", currency: "USD", fxRate: "49.60", debit: Money.fromMajor("4960"), memo: "wire in" }),
+  it("states a foreign account's candidates in the account's own currency, at the rate the entry was booked at", async () => {
+    const usd: TreasuryAccount = { ...BANK_ACCOUNT, id: "ta-usd", currency: "USD", glAccountId: "1310-USD" };
+    const lines: AccountLedgerLine[] = [
+      { entryId: "je-fx", entryNo: "JE-9", date: "2026-08-05", memo: "wire in", debit: Money.fromMajor("4960"), credit: Money.zero() },
     ];
     const reader = createTreasuryLedgerReader({
       treasuryAccounts: fakeTreasuryAccounts([usd]),
-      ledger: fakeLedger([], posted),
+      ledger: fakeLedger(lines, { "je-fx": { currency: "USD", fxRate: "49.60" } }),
     });
     const [candidate] = await reader.entriesForTreasuryAccount("ta-usd", "2026-08-01", "2026-08-31");
     expect(candidate?.amount).toEqual(Money.fromMajor("100"));
     expect(candidate?.currency).toBe("USD");
     expect(candidate?.baseAmount).toEqual(Money.fromMajor("4960"));
+    expect(await reader.bookBalance!("ta-usd", "2026-08-31")).toEqual(Money.fromMajor("100"));
   });
 
   it("leaves a rate-less posting on a foreign account in the base currency, so nothing offers it as a foreign match", async () => {
-    const usd: TreasuryAccount = { ...BANK_ACCOUNT, id: "ta-usd", currency: "USD", glAccountId: "1315" };
-    const posted = [postedLine({ entryId: "je-plain", accountId: "1315", debit: Money.fromMajor("500") })];
-    const reader = createTreasuryLedgerReader({
-      treasuryAccounts: fakeTreasuryAccounts([usd]),
-      ledger: fakeLedger([], posted),
-    });
+    const usd: TreasuryAccount = { ...BANK_ACCOUNT, id: "ta-usd", currency: "USD", glAccountId: "1310-USD" };
+    const lines: AccountLedgerLine[] = [
+      { entryId: "je-plain", entryNo: "JE-8", date: "2026-08-05", memo: null, debit: Money.fromMajor("500"), credit: Money.zero() },
+    ];
+    const reader = createTreasuryLedgerReader({ treasuryAccounts: fakeTreasuryAccounts([usd]), ledger: fakeLedger(lines) });
     const [candidate] = await reader.entriesForTreasuryAccount("ta-usd", "2026-08-01", "2026-08-31");
     expect(candidate?.currency).toBe("EGP");
     expect(candidate?.amount).toEqual(Money.fromMajor("500"));

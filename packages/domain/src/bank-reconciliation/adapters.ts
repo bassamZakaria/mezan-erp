@@ -17,8 +17,7 @@ import { BankEntryKind, type BankEntryPoster } from "./entry-poster.js";
 
 export interface TreasuryLedgerReaderDeps {
   readonly treasuryAccounts: Pick<TreasuryAccountRepository, "findById">;
-  readonly ledger: Pick<LedgerRepository, "accountLedger" | "findById"> &
-    Partial<Pick<LedgerRepository, "accountBalance" | "listLines">>;
+  readonly ledger: Pick<LedgerRepository, "accountLedger" | "findById"> & Partial<Pick<LedgerRepository, "accountBalance">>;
   /** The voucher behind an entry, for its cheque/reference number and its party. */
   readonly vouchers?: { findById(id: string): Promise<VoucherDocument | null> };
   readonly partyName?: (kind: "customer" | "supplier", id: string) => Promise<string | null>;
@@ -38,14 +37,6 @@ interface AccountBinding {
   readonly foreign: boolean;
 }
 
-/** The foreign amount a posted line represents, or null when it carries no rate to recover it with. */
-function foreignOf(
-  line: { currency?: string | null; fxRate?: string | null; debit: Money; credit: Money },
-  currency: string,
-): Money | null {
-  if (line.currency !== currency || !line.fxRate) return null;
-  return convertFromBase(line.debit.add(line.credit.negate()), line.fxRate);
-}
 
 /** Bind the GL ledger + treasury-account lookup behind `TreasuryLedgerReader`. */
 export function createTreasuryLedgerReader(deps: TreasuryLedgerReaderDeps): TreasuryLedgerReader {
@@ -55,6 +46,34 @@ export function createTreasuryLedgerReader(deps: TreasuryLedgerReaderDeps): Trea
     const account = await deps.treasuryAccounts.findById(treasuryAccountId);
     if (!account?.glAccountId) return null;
     return { glAccountId: account.glAccountId, currency: account.currency, foreign: account.currency !== base };
+  }
+
+  /**
+   * The rate this entry was booked at, read off whichever of its own lines
+   * carries the currency and the rate.
+   *
+   * A foreign bank account's GL lines are base-currency figures: the voucher
+   * engine tags only the counterparty leg with the currency and rate, on the
+   * reasoning that every treasury account is base-currency — which is exactly
+   * what a foreign bank account is not. The rate belongs to the entry, not to
+   * one of its legs, so it is read from the entry.
+   */
+  async function rateOf(entryId: string, currency: string): Promise<string | null> {
+    const entry = await deps.ledger.findById(entryId);
+    const tagged = entry?.lines.find((l) => l.currency === currency && l.fxRate);
+    return tagged?.fxRate ?? null;
+  }
+
+  /** One entry's movement on the account, in the account's own currency when the books can say what that was. */
+  async function statedIn(
+    binding: AccountBinding,
+    entryId: string,
+    baseAmount: Money,
+  ): Promise<{ amount: Money; currency: string }> {
+    if (!binding.foreign) return { amount: baseAmount, currency: binding.currency };
+    const rate = await rateOf(entryId, binding.currency);
+    if (!rate) return { amount: baseAmount, currency: base };
+    return { amount: convertFromBase(baseAmount, rate), currency: binding.currency };
   }
 
   async function enrich(entryId: string): Promise<Enrichment> {
@@ -74,57 +93,26 @@ export function createTreasuryLedgerReader(deps: TreasuryLedgerReaderDeps): Trea
     async entriesForTreasuryAccount(treasuryAccountId, fromDate, toDate) {
       const binding = await bindingOf(treasuryAccountId);
       if (!binding) return [];
-      const posted = binding.foreign && deps.ledger.listLines
-        ? await deps.ledger.listLines({ accountIds: [binding.glAccountId], fromDate, toDate })
-        : null;
-      const byEntry = new Map<
-        string,
-        { entryNo: string | null; date: string; memo: string | null; base: Money; foreign: Money; rated: boolean }
-      >();
-      const add = (
-        entryId: string,
-        row: { entryNo: string | null; date: string; memo: string | null },
-        amount: Money,
-        foreign: Money | null,
-      ) => {
-        const existing = byEntry.get(entryId);
-        if (existing) {
-          existing.base = existing.base.add(amount);
-          existing.foreign = existing.foreign.add(foreign ?? amount);
-          existing.rated = existing.rated && foreign !== null;
-          return;
-        }
-        byEntry.set(entryId, { ...row, base: amount, foreign: foreign ?? amount, rated: foreign !== null });
-      };
-      if (posted) {
-        for (const line of posted) {
-          add(
-            line.entryId,
-            { entryNo: line.entryNo, date: line.date, memo: line.memo },
-            line.debit.add(line.credit.negate()),
-            foreignOf(line, binding.currency),
-          );
-        }
-      } else {
-        const lines = (await deps.ledger.accountLedger(binding.glAccountId, toDate)).filter((l) => l.date >= fromDate);
-        for (const line of lines) {
-          add(line.entryId, { entryNo: line.entryNo, date: line.date, memo: line.memo }, line.debit.add(line.credit.negate()), null);
-        }
+      const lines = (await deps.ledger.accountLedger(binding.glAccountId, toDate)).filter((l) => l.date >= fromDate);
+      const byEntry = new Map<string, { entryNo: string | null; date: string; memo: string | null; amount: Money }>();
+      for (const line of lines) {
+        const amount = line.debit.add(line.credit.negate());
+        const existing = byEntry.get(line.entryId);
+        if (existing) existing.amount = existing.amount.add(amount);
+        else byEntry.set(line.entryId, { entryNo: line.entryNo, date: line.date, memo: line.memo, amount });
       }
       const candidates: TreasuryLedgerCandidate[] = [];
       for (const [entryId, row] of byEntry) {
-        const rated = binding.foreign && row.rated;
-        const amount = rated ? row.foreign : row.base;
-        if (amount.scaled === 0n) continue;
-        const extra = await enrich(entryId);
+        if (row.amount.scaled === 0n) continue;
+        const [extra, stated] = await Promise.all([enrich(entryId), statedIn(binding, entryId, row.amount)]);
         candidates.push({
           entryId,
           entryNo: row.entryNo,
           date: row.date,
-          amount,
+          amount: stated.amount,
           description: row.memo,
-          currency: rated ? binding.currency : base,
-          baseAmount: row.base,
+          currency: stated.currency,
+          baseAmount: row.amount,
           ...extra,
         });
       }
@@ -151,17 +139,14 @@ export function createTreasuryLedgerReader(deps: TreasuryLedgerReaderDeps): Trea
         const onAccount = entry.lines.filter((l) => l.accountId === binding.glAccountId);
         if (onAccount.length === 0) continue;
         const baseAmount = Money.sum(onAccount.map((l) => l.debit.add(l.credit.negate())));
-        const foreignParts = onAccount.map((l) => foreignOf(l, binding.currency));
-        const rated = binding.foreign && foreignParts.every((part) => part !== null);
-        const amount = rated ? Money.sum(foreignParts as Money[]) : baseAmount;
-        const extra = await enrich(id);
+        const [extra, stated] = await Promise.all([enrich(id), statedIn(binding, id, baseAmount)]);
         result.set(id, {
           entryId: id,
           entryNo: entry.entryNo ?? null,
           date: entry.date,
-          amount,
+          amount: stated.amount,
           description: entry.memo ?? null,
-          currency: rated ? binding.currency : base,
+          currency: stated.currency,
           baseAmount,
           ...extra,
         });
@@ -172,12 +157,18 @@ export function createTreasuryLedgerReader(deps: TreasuryLedgerReaderDeps): Trea
     async bookBalance(treasuryAccountId, asOfDate) {
       const binding = await bindingOf(treasuryAccountId);
       if (!binding) return Money.zero();
-      if (binding.foreign && deps.ledger.listLines) {
-        const lines = await deps.ledger.listLines({ accountIds: [binding.glAccountId], toDate: asOfDate });
-        return Money.sum(lines.map((line) => foreignOf(line, binding.currency) ?? line.debit.add(line.credit.negate())));
+      if (!binding.foreign) {
+        if (!deps.ledger.accountBalance) return Money.zero();
+        return (await deps.ledger.accountBalance(binding.glAccountId, asOfDate)).balance;
       }
-      if (!deps.ledger.accountBalance) return Money.zero();
-      return (await deps.ledger.accountBalance(binding.glAccountId, asOfDate)).balance;
+      const lines = await deps.ledger.accountLedger(binding.glAccountId, asOfDate);
+      const byEntry = new Map<string, Money>();
+      for (const line of lines) {
+        const amount = line.debit.add(line.credit.negate());
+        byEntry.set(line.entryId, (byEntry.get(line.entryId) ?? Money.zero()).add(amount));
+      }
+      const stated = await Promise.all([...byEntry].map(([entryId, amount]) => statedIn(binding, entryId, amount)));
+      return Money.sum(stated.map((s) => s.amount));
     },
   };
 }

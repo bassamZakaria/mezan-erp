@@ -1,0 +1,56 @@
+{
+  "expo": {
+    "name": "ميزان",
+    "slug": "mezan",
+    "scheme": "mezan",
+    "version": "2026.9.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "backgroundColor": "#ffffff",
+    "primaryColor": "#003ce1",
+    "extra": {
+      "apiBaseUrl": "https://demo.mezan.app"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "app.mezan.mobile",
+      "infoPlist": {
+        "CFBundleAllowMixedLocalizations": true,
+        "NSCameraUsageDescription": "تُستخدم الكاميرا لالتقاط صورة عند تسجيل الحضور ولقراءة الباركود.",
+        "NSFaceIDUsageDescription": "يُستخدم التعرّف على الوجه لفتح التطبيق وتأكيد تسجيل الحضور."
+      }
+    },
+    "android": {
+      "package": "app.mezan.mobile",
+      "adaptiveIcon": {
+        "backgroundColor": "#003ce1",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "locales": {
+      "ar": "./src/i18n/ios-ar.json"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-localization",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "تُستخدم الكاميرا لالتقاط صورة عند تسجيل الحضور ولقراءة الباركود.",
+          "recordAudioAndroid": false
+        }
+      ],
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "يُستخدم التعرّف على الوجه لفتح التطبيق وتأكيد تسجيل الحضور."
+        }
+      ]
+    ]
+  }
+}

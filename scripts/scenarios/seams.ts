@@ -205,7 +205,7 @@ export async function run(ctx: Ctx): Promise<void> {
     // `totalLoss` is a claim about global state and breaks the moment the seed
     // gains another foreign position (the demo's USD bank receipt did exactly
     // that). The requirement being asserted is about this liability.
-    check("a liability that grew in base currency is a LOSS, never a gain", detail?.gainLoss === "loss", JSON.stringify(detail));
+    check("a liability that grew in base currency is a LOSS, never a gain", n(detail?.gainLoss) === -4000, `gainLoss=${detail?.gainLoss}`);
     check("and this position puts nothing on the gain side", n(preview.body?.totalLoss) >= 4000 && n(preview.body?.totalGain) === 0,
       `loss=${n(preview.body?.totalLoss)} gain=${n(preview.body?.totalGain)}`);
 

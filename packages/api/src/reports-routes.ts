@@ -123,6 +123,8 @@ import {
   type VoucherAllocation,
   type SubcontractStore,
   type VoucherLine,
+  matchesBranch,
+  branchOfWarehouse,
 } from "@mezan/domain";
 import { tenantToday } from "./tenant-day.js";
 import { branchScopeOf, createAnyPermissionGate, createPermissionGate, warehouseScopeOf, withinScope, type AuthContextResolver } from "./permission-gate.js";
@@ -427,16 +429,39 @@ function twoPlaces(amount: Money): string {
   return roundMoney(amount, 2).toString().slice(0, -4);
 }
 
-const accountDrillWindowSchema = z
+/** A quantity as its exact decimal with trailing zeros dropped — never through a float. */
+function qtyText(qty: Money): string {
+  const trimmed = qty.toString().replace(/0+$/, "").replace(/\.$/, "");
+  return trimmed === "" || trimmed === "-" ? "0" : trimmed;
+}
+
+/**
+ * The window a drill-down panel answers over — the one its report row was
+ * computed from (D281, D286). Every panel takes it, so a row and the panel
+ * opened from it cannot count different facts. `warehouseId` is read by the
+ * item panel alone; the others ignore it.
+ */
+const drillWindowSchema = z
   .object({
     asOfDate: isoDateParamSchema,
     fromDate: isoDateParamSchema.optional(),
     branchId: z.string(),
+    warehouseId: z.string(),
   })
   .refine((w) => w.fromDate === undefined || w.fromDate <= w.asOfDate, {
     message: "تاريخ البداية بعد تاريخ النهاية",
     path: ["fromDate"],
   });
+
+type DrillWindow = z.infer<typeof drillWindowSchema>;
+
+/** The window facts every panel prints, so the reader can see what it covers. */
+function drillWindowFacts(window: DrillWindow) {
+  return [
+    ...(window.fromDate ? [{ key: "fromDate", labelAr: "من تاريخ", value: window.fromDate, format: "date" as const }] : []),
+    { key: "asOfDate", labelAr: "حتى تاريخ", value: window.asOfDate, format: "date" as const },
+  ];
+}
 
 function isoDateOrUndefined(value: unknown): string | undefined {
   return typeof value === "string" && ISO_DATE.test(value) ? value : undefined;
@@ -983,6 +1008,61 @@ export function createReportsRoutes(
     );
   }
 
+  /**
+   * The window this drill-down answers over, defaulted and validated once.
+   *
+   * `asOfDate` falls back to the SAME tenant calendar day every as-of report
+   * defaults to, so a panel opened without params still lands on the row it
+   * came from (D281, D286).
+   */
+  async function drillWindow(c: Context): Promise<{ ok: true; window: DrillWindow } | { ok: false; response: Response }> {
+    const parsed = drillWindowSchema.safeParse({
+      asOfDate: c.req.query("asOfDate") ?? (await tenantToday(c, deps.today)),
+      fromDate: c.req.query("fromDate") || undefined,
+      branchId: c.req.query("branchId") ?? "",
+      warehouseId: c.req.query("warehouseId") ?? "",
+    });
+    if (parsed.success) return { ok: true, window: parsed.data };
+    return {
+      ok: false,
+      response: c.json(
+        { error: "VALIDATION_ERROR", errors: parsed.error.issues.map((issue) => ({ field: issue.path.join(".") || "_root", message: issue.message })) },
+        400,
+      ),
+    };
+  }
+
+  /**
+   * Exactly the invoice set and netting terms the customer aging ladder ages
+   * on a given day, for this caller's own branch scope.
+   *
+   * The ONE place that set is built: the ladder route and the customer
+   * drill-down both read it, so the row and its panel cannot count different
+   * invoices (D286 — the non-GL twin of D281).
+   */
+  async function customerAgingSet(c: Context, asOfDate: string) {
+    const live = await scopedSalesInvoices(c, { statusIn: [...SALES_INVOICE_ACTIVE_STATUSES], toDate: asOfDate });
+    const asOf = await agingAsOf(deps, "customer", asOfDate);
+    const voided = liveOnTheDay(
+      await scopedSalesInvoices(c, { statusIn: [...SALES_INVOICE_TERMINAL_STATUSES], toDate: asOfDate }),
+      asOf,
+    ).map((invoice) => ({ ...invoice, status: "confirmed" as const }));
+    const invoices = [...live, ...voided];
+    return { invoices, asOf, terms: await agingCustomersTerms(deps, invoices, asOf) };
+  }
+
+  /** The supplier ladder's twin of {@link customerAgingSet}. */
+  async function supplierAgingSet(c: Context, asOfDate: string) {
+    const live = await scopedPurchaseInvoices(c, { status: "confirmed" as const, toDate: asOfDate });
+    const asOf = await agingAsOf(deps, "supplier", asOfDate);
+    const cancelled = liveOnTheDay(
+      await scopedPurchaseInvoices(c, { status: "cancelled" as const, toDate: asOfDate }),
+      asOf,
+    ).map((invoice) => ({ ...invoice, status: "confirmed" as const }));
+    const invoices = [...live, ...cancelled];
+    return { invoices, asOf, terms: await agingSuppliersTerms(deps, invoices, asOf) };
+  }
+
   // --- المبيعات ------------------------------------------------------
 
   app.get("/sales/by-period", gate("sales.invoice.view"), async (c) => {
@@ -1505,14 +1585,7 @@ export function createReportsRoutes(
     // the snapshot, so both bounds belong in SQL rather than in a fold over the
     // whole table (Q-6). The set here must stay exactly the report's own.
     const asOfDate = isoDateOrUndefined(params.asOfDate) ?? todayIso(deps);
-    const live = await scopedSalesInvoices(c, { statusIn: [...SALES_INVOICE_ACTIVE_STATUSES], toDate: asOfDate });
-    const asOf = await agingAsOf(deps, "customer", asOfDate);
-    const voided = liveOnTheDay(
-      await scopedSalesInvoices(c, { statusIn: [...SALES_INVOICE_TERMINAL_STATUSES], toDate: asOfDate }),
-      asOf,
-    ).map((invoice) => ({ ...invoice, status: "confirmed" as const }));
-    const invoices = [...live, ...voided];
-    const terms = await agingCustomersTerms(deps, invoices, asOf);
+    const { invoices, terms } = await customerAgingSet(c, asOfDate);
     // The ladder walks invoices; 1105 holds what those invoices, their
     // collections and their returns actually posted. Two independent paths to
     // one number — a difference means one of them is wrong (D112).
@@ -1536,14 +1609,7 @@ export function createReportsRoutes(
     // Same two bounds as the customer ladder, and the same rule: the SQL set
     // must be exactly what the report itself would have kept (Q-6).
     const asOfDate = isoDateOrUndefined(params.asOfDate) ?? todayIso(deps);
-    const live = await scopedPurchaseInvoices(c, { status: "confirmed" as const, toDate: asOfDate });
-    const asOf = await agingAsOf(deps, "supplier", asOfDate);
-    const cancelled = liveOnTheDay(
-      await scopedPurchaseInvoices(c, { status: "cancelled" as const, toDate: asOfDate }),
-      asOf,
-    ).map((invoice) => ({ ...invoice, status: "confirmed" as const }));
-    const invoices = [...live, ...cancelled];
-    const terms = await agingSuppliersTerms(deps, invoices, asOf);
+    const { invoices, terms } = await supplierAgingSet(c, asOfDate);
     const payablesControl = branchNarrowed(c, params)
       ? undefined
       : await partyControlTie(deps, PAYABLES_CONTROL_ACCOUNT_ID, "credit", isoDateOrUndefined(params.asOfDate));
@@ -1873,20 +1939,24 @@ export function createReportsRoutes(
 
   app.get("/drill-down/customer/:id", gate("sales.customer.view"), async (c) => {
     const id = c.req.param("id");
-    const [customers, invoices, returned] = await Promise.all([deps.customers.findAll(), scopedSalesInvoices(c), salesReturnCreditsByInvoiceId(deps)]);
+    const parsed = await drillWindow(c);
+    if (!parsed.ok) return parsed.response;
+    const { asOfDate, fromDate, branchId } = parsed.window;
+    const customers = await deps.customers.findAll();
     const customer = customers.find((entry) => entry.id === id);
     if (!customer) return c.json({ error: "NOT_FOUND" }, 404);
-    const own = invoices
-      .filter((invoice) => invoice.customerId === id && SALES_INVOICE_ACTIVE_STATUSES.has(invoice.status))
+    // «المستحق» is the aging ladder's OWN row for this customer on this day,
+    // built from the ladder's own set and terms — not a second reading of the
+    // invoices, which left cheques, on-account receipts and opening balances
+    // out and disagreed with the row the panel was opened from (D286).
+    const aging = await customerAgingSet(c, asOfDate);
+    const row = customerAgingBalances({ asOfDate, branchId }, { invoices: aging.invoices, ...aging.terms }).get(id);
+    const outstanding = row ? agingBucketsTotal(row) : Money.zero();
+    const own = (await scopedSalesInvoices(c, { statusIn: [...SALES_INVOICE_ACTIVE_STATUSES], toDate: asOfDate, ...(fromDate ? { fromDate } : {}) }))
+      .filter((invoice) => invoice.customerId === id && matchesBranch(invoice.branchId, branchId))
       .sort((a, b) => b.date.localeCompare(a.date));
-    let outstanding = 0n;
-    let billed = 0n;
-    for (const invoice of own) {
-      const total = salesInvoiceBaseGrandTotal(salesInvoiceTotals(invoice), invoice.fxRate);
-      billed += total.scaled;
-      const balance = total.scaled - invoice.amountPaid.scaled - (returned.get(invoice.id)?.scaled ?? 0n);
-      if (balance > 0n) outstanding += balance;
-    }
+    let billed = Money.zero();
+    for (const invoice of own) billed = billed.add(salesInvoiceBaseGrandTotal(salesInvoiceTotals(invoice), invoice.fxRate));
     return c.json({
       kind: "customer",
       id,
@@ -1895,8 +1965,9 @@ export function createReportsRoutes(
       facts: [
         { key: "phone", labelAr: "الهاتف", value: customer.phone ?? "—" },
         { key: "creditLimit", labelAr: "حد الائتمان", value: customer.creditLimit.toString(), format: "money" },
-        { key: "billed", labelAr: "إجمالي المفوتر", value: (Number(billed) / 1e6).toFixed(2), format: "money" },
-        { key: "outstanding", labelAr: "المستحق", value: (Number(outstanding) / 1e6).toFixed(2), format: "money" },
+        ...drillWindowFacts(parsed.window),
+        { key: "billed", labelAr: "إجمالي المفوتر", value: twoPlaces(billed), format: "money" },
+        { key: "outstanding", labelAr: "المستحق", value: twoPlaces(outstanding), format: "money" },
       ],
       documents: own.slice(0, DRILL_DOWN_LIMIT).map((invoice) => ({
         id: invoice.id,
@@ -1913,14 +1984,24 @@ export function createReportsRoutes(
 
   app.get("/drill-down/supplier/:id", gate("purchases.supplier.view"), async (c) => {
     const id = c.req.param("id");
-    const [suppliers, invoices] = await Promise.all([deps.suppliers.findAll(), scopedPurchaseInvoices(c)]);
+    const parsed = await drillWindow(c);
+    if (!parsed.ok) return parsed.response;
+    const { asOfDate, fromDate, branchId } = parsed.window;
+    const suppliers = await deps.suppliers.findAll();
     const supplier = suppliers.find((entry) => entry.id === id);
     if (!supplier) return c.json({ error: "NOT_FOUND" }, 404);
-    const own = invoices
-      .filter((invoice) => invoice.supplierId === id && invoice.status === "confirmed")
+    // «إجمالي المشتريات» over the window the purchases-by-supplier row covers —
+    // it was all-time against a row that defaults to the current month (D286).
+    const own = (await scopedPurchaseInvoices(c, { status: "confirmed" as const, toDate: asOfDate, ...(fromDate ? { fromDate } : {}) }))
+      .filter((invoice) => invoice.supplierId === id && matchesBranch(invoice.branchId, branchId))
       .sort((a, b) => b.date.localeCompare(a.date));
-    let billed = 0n;
-    for (const invoice of own) billed += purchaseInvoiceBaseTotal(invoice).scaled;
+    let billed = Money.zero();
+    for (const invoice of own) billed = billed.add(purchaseInvoiceBaseTotal(invoice));
+    // «المستحق» is the supplier ladder's own row, the same way the customer
+    // panel takes the customer ladder's.
+    const aging = await supplierAgingSet(c, asOfDate);
+    const row = supplierAgingBalances({ asOfDate, branchId }, { invoices: aging.invoices, ...aging.terms }).get(id);
+    const outstanding = row ? supplierAgingTotal(row) : Money.zero();
     return c.json({
       kind: "supplier",
       id,
@@ -1929,7 +2010,9 @@ export function createReportsRoutes(
       facts: [
         { key: "phone", labelAr: "الهاتف", value: supplier.phone ?? "—" },
         { key: "paymentTermsDays", labelAr: "مهلة السداد (يوم)", value: String(supplier.paymentTermsDays), format: "qty" },
-        { key: "billed", labelAr: "إجمالي المشتريات", value: (Number(billed) / 1e6).toFixed(2), format: "money" },
+        ...drillWindowFacts(parsed.window),
+        { key: "billed", labelAr: "إجمالي المشتريات", value: twoPlaces(billed), format: "money" },
+        { key: "outstanding", labelAr: "المستحق", value: twoPlaces(outstanding), format: "money" },
         { key: "invoiceCount", labelAr: "عدد الفواتير", value: String(own.length), format: "qty" },
       ],
       documents: own.slice(0, DRILL_DOWN_LIMIT).map((invoice) => ({
@@ -1947,23 +2030,36 @@ export function createReportsRoutes(
 
   app.get("/drill-down/item/:id", gate("inventory.item.view"), async (c) => {
     const id = c.req.param("id");
-    const [items, snapshots] = await Promise.all([deps.items.list(), deps.wacSnapshots.list()]);
+    const parsed = await drillWindow(c);
+    if (!parsed.ok) return parsed.response;
+    const { asOfDate, fromDate, branchId, warehouseId } = parsed.window;
+    const [items, snapshots, warehouses] = await Promise.all([deps.items.list(), deps.wacSnapshots.list(), deps.warehouses.findAll()]);
     const item = items.find((entry) => entry.id === id);
     if (!item) return c.json({ error: "NOT_FOUND" }, 404);
     const stockScope = await stockScopeOf(c);
+    // The stock reports narrow a position by its warehouse and by that
+    // warehouse's branch; the panel had ignored both and answered for the
+    // whole company (D286).
+    const branchOf = branchOfWarehouse(warehouses);
+    const keeps = (positionWarehouseId: string) =>
+      (warehouseId === "" || positionWarehouseId === warehouseId) && matchesBranch(branchOf(positionWarehouseId), branchId);
     const positions = withinScope(
-      snapshots.filter((snapshot) => snapshot.itemId === id),
+      snapshots.filter((snapshot) => snapshot.itemId === id && keeps(snapshot.warehouseId)),
       stockScope,
       (snapshot) => snapshot.warehouseId,
     );
-    let onHand = 0n;
-    let value = 0n;
+    let onHand = Money.zero();
+    let value = Money.zero();
     for (const position of positions) {
-      onHand += position.onHand.scaled;
-      value += position.totalValue.scaled;
+      onHand = onHand.add(position.onHand);
+      value = value.add(position.totalValue);
     }
     const movements = withinScope(await loadAllMovements(deps), stockScope, (movement) => movement.warehouseId)
-      .filter((movement) => movement.itemId === id)
+      .filter((movement) => movement.itemId === id && keeps(movement.warehouseId))
+      .filter((movement) => {
+        const day = movement.occurredAt.slice(0, 10);
+        return day <= asOfDate && (fromDate === undefined || day >= fromDate);
+      })
       .sort((a, b) => b.occurredAt.localeCompare(a.occurredAt));
     return c.json({
       kind: "item",
@@ -1972,8 +2068,9 @@ export function createReportsRoutes(
       subtitleAr: item.code,
       facts: [
         { key: "unit", labelAr: "الوحدة", value: item.baseUnitCode },
-        { key: "onHand", labelAr: "المخزون الحالي", value: (Number(onHand) / 1e6).toString(), format: "qty" },
-        { key: "value", labelAr: "قيمة المخزون", value: (Number(value) / 1e6).toFixed(2), format: "money" },
+        ...drillWindowFacts(parsed.window),
+        { key: "onHand", labelAr: "المخزون الحالي", value: qtyText(onHand), format: "qty" },
+        { key: "value", labelAr: "قيمة المخزون", value: twoPlaces(value), format: "money" },
         { key: "warehouseCount", labelAr: "عدد المستودعات", value: String(positions.length), format: "qty" },
       ],
       documents: movements.slice(0, DRILL_DOWN_LIMIT).map((movement) => ({
@@ -1995,18 +2092,9 @@ export function createReportsRoutes(
   // year-end close.
   app.get("/drill-down/account/:id", gate("accounting.reports.view"), async (c) => {
     const id = c.req.param("id");
-    const parsed = accountDrillWindowSchema.safeParse({
-      asOfDate: c.req.query("asOfDate") ?? (await tenantToday(c, deps.today)),
-      fromDate: c.req.query("fromDate") || undefined,
-      branchId: c.req.query("branchId") ?? "",
-    });
-    if (!parsed.success) {
-      return c.json(
-        { error: "VALIDATION_ERROR", errors: parsed.error.issues.map((issue) => ({ field: issue.path.join(".") || "_root", message: issue.message })) },
-        400,
-      );
-    }
-    const { asOfDate, fromDate, branchId } = parsed.data;
+    const parsed = await drillWindow(c);
+    if (!parsed.ok) return parsed.response;
+    const { asOfDate, fromDate, branchId } = parsed.window;
     const ctx = await loadGlContext(deps, { toDate: asOfDate, ...(fromDate ? { fromDate } : {}) });
     const account = ctx.accounts.find((entry) => entry.id === id);
     if (!account) return c.json({ error: "NOT_FOUND" }, 404);
@@ -2017,10 +2105,7 @@ export function createReportsRoutes(
       { branchId, branchScope: branchScopeOf(c), excludeYearEndClose: fromDate !== undefined },
     );
     const touching = [...activity.entries].sort((a, b) => b.entry.date.localeCompare(a.entry.date));
-    const window = [
-      ...(fromDate ? [{ key: "fromDate", labelAr: "من تاريخ", value: fromDate, format: "date" as const }] : []),
-      { key: "asOfDate", labelAr: "حتى تاريخ", value: asOfDate, format: "date" as const },
-    ];
+    const window = drillWindowFacts(parsed.window);
     return c.json({
       kind: "account",
       id,

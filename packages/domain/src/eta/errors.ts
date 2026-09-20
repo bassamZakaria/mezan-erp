@@ -172,6 +172,42 @@ export class EtaReceiptedSaleVoidRefusedError extends Error {
   }
 }
 
+/** Only a receipt the authority REJECTED (أخطاء) can be corrected and re-issued. */
+export class EtaReissueNotRejectedError extends Error {
+  readonly code = "ETA_REISSUE_NOT_REJECTED";
+  readonly messageEn: string;
+  constructor(readonly internalId: string) {
+    super(`لا يمكن إعادة إصدار الإيصال "${internalId}" لأن المصلحة لم ترفضه.`);
+    this.messageEn = `Receipt "${internalId}" cannot be re-issued because the authority has not rejected it.`;
+    this.name = "EtaReissueNotRejectedError";
+  }
+}
+
+/** SDK Receipt Issuance FAQ: a rejected receipt may be corrected and re-issued only within 96 hours of its own issuance. */
+export class EtaReissueWindowExpiredError extends Error {
+  readonly code = "ETA_REISSUE_WINDOW_EXPIRED";
+  readonly messageEn: string;
+  constructor(
+    readonly issuedAt: string,
+    readonly windowHours: number,
+  ) {
+    super(`لا يمكن إعادة إصدار الإيصال المرفوض بعد مرور ${windowHours} ساعة على إصداره (${issuedAt}).`);
+    this.messageEn = `A rejected receipt cannot be re-issued more than ${windowHours} hours after it was issued (${issuedAt}).`;
+    this.name = "EtaReissueWindowExpiredError";
+  }
+}
+
+/** The corrected receipt is a NEW document on the device's chain; it cannot reuse the rejected receipt's own number. */
+export class EtaReissueSameInternalIdError extends Error {
+  readonly code = "ETA_REISSUE_SAME_INTERNAL_ID";
+  readonly messageEn: string;
+  constructor(readonly internalId: string) {
+    super(`لا يمكن إعادة إصدار الإيصال "${internalId}" بنفس رقمه — يجب أن يحمل التصحيح رقم إيصال جديداً.`);
+    this.messageEn = `The corrected receipt cannot reuse rejected receipt "${internalId}"'s own number — it needs a new receipt number.`;
+    this.name = "EtaReissueSameInternalIdError";
+  }
+}
+
 export class EtaExclusionReasonRequiredError extends Error {
   readonly code = "ETA_EXCLUSION_REASON_REQUIRED";
   readonly messageEn: string;

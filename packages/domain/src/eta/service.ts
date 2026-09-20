@@ -3,9 +3,13 @@ import { buildEtaPayload, type EtaDocumentInput } from "./payload.js";
 import {
   buildEtaReceiptPayload,
   canonicalizeEtaDocument,
+  etaReceiptIssuedAt,
   etaReceiptQrValue,
+  etaReceiptReissueDeadline,
   summarizeEtaReceiptQueue,
   unavailableEtaReceiptUuidPort,
+  ETA_RECEIPT_BATCH_MAX,
+  ETA_RECEIPT_REISSUE_WINDOW_HOURS,
   type EtaReceiptInput,
   type EtaReceiptQueueSummary,
   type EtaReceiptUuidPort,
@@ -40,6 +44,9 @@ import {
   EtaDeviceSerialNotRegisteredError,
   EtaExclusionReasonRequiredError,
   EtaOfflineError,
+  EtaReissueNotRejectedError,
+  EtaReissueSameInternalIdError,
+  EtaReissueWindowExpiredError,
   EtaSignerNotConfiguredError,
   EtaSigningFailedError,
   EtaSubmissionNotFoundError,
@@ -77,6 +84,24 @@ export interface EtaStatusResult {
   readonly log?: readonly EtaTransmitLogEntry[];
 }
 
+/** One receipt's outcome inside a batch `/receiptsubmissions` call. */
+export interface EtaReceiptBatchOutcome {
+  readonly submissionId: string;
+  readonly ok: boolean;
+  readonly etaUuid?: string;
+  readonly errors?: readonly string[];
+  /** One authority error code per entry of {@link errors} (same index), null where none was sent. */
+  readonly errorCodes?: readonly (string | null)[];
+}
+
+/** Result of reporting up to {@link ETA_RECEIPT_BATCH_MAX} receipts of ONE device in a single call. */
+export interface EtaReceiptBatchResult {
+  readonly submissionUUID?: string | null;
+  /** One outcome per submission handed in, same order. */
+  readonly outcomes: readonly EtaReceiptBatchOutcome[];
+  readonly log?: readonly EtaTransmitLogEntry[];
+}
+
 /** Port for the ONLINE transmit step. See {@link stubOnlineTransmitPort} and `createEtaHttpTransmitPort`. */
 export interface EtaTransmitPort {
   transmit(submission: EtaSubmission, config: EtaConfig): Promise<EtaTransmitResult>;
@@ -84,6 +109,13 @@ export interface EtaTransmitPort {
   fetchStatus?(submission: EtaSubmission, config: EtaConfig): Promise<EtaStatusResult>;
   /** اختبار الاتصال — a real token request against the identity server. */
   checkCredentials?(config: EtaConfig): Promise<EtaConnectionCheck>;
+  /**
+   * D-B4 — reports every submission in ONE `/receiptsubmissions` call (at most
+   * {@link ETA_RECEIPT_BATCH_MAX}, all of the same device). Absent on a port
+   * with no batch leg — `submitReadyReceipts` then falls back to one `submit()`
+   * per receipt, exactly as before this lane.
+   */
+  transmitReceiptBatch?(submissions: readonly EtaSubmission[], config: EtaConfig): Promise<EtaReceiptBatchResult>;
 }
 
 /** The honest answer to اختبار الاتصال: what was tried, and what came back. */
@@ -163,6 +195,13 @@ const RECEIPT_CHAIN_ATTEMPTS = 3;
 function queueOrder(a: EtaSubmission, b: EtaSubmission): number {
   if (a.createdAt !== b.createdAt) return a.createdAt < b.createdAt ? -1 : 1;
   return (a.receiptSeq ?? 0) - (b.receiptSeq ?? 0);
+}
+
+/** An in-bounds index into `arr` — `noUncheckedIndexedAccess` cannot see the loop invariant that guarantees this. */
+function at<T>(arr: readonly T[], index: number): T {
+  const value = arr[index];
+  if (value === undefined) throw new Error(`Index ${index} out of bounds (length ${arr.length}).`);
+  return value;
 }
 
 /** Input to enqueue a confirmed document. */
@@ -359,6 +398,33 @@ export class EtaService {
       }
       throw new EtaReceiptChainConflictError(serial);
     });
+  }
+
+  /**
+   * تصحيح إيصال مرفوض وإعادة إصداره (D-B4) — the authority lets a receipt it
+   * REJECTED be corrected and re-submitted, referencing header.referenceOldUUID
+   * at the rejected receipt's own UUID, but only within 96 hours of that
+   * rejected receipt's own issuance (SDK Receipt Issuance FAQ). `corrected` is
+   * a fresh receipt built by the caller from the now-fixed source document —
+   * it MUST carry a new `internalId` (a corrected receipt is a new document on
+   * the chain, not an edit of the old one) — and is issued through the exact
+   * same per-device chain compare-and-set as any other receipt: this method
+   * only enforces the window and the reference, then delegates to
+   * {@link enqueueReceipt}.
+   */
+  async reissueReceipt(rejectedInternalId: string, corrected: EtaChainedReceiptInput): Promise<EtaReceiptPrintData> {
+    const rejected = await this.deps.submissions.findByInternalId(rejectedInternalId);
+    if (!rejected || rejected.documentType !== "receipt" || rejected.status !== "error" || !rejected.etaUuid) {
+      throw new EtaReissueNotRejectedError(rejectedInternalId);
+    }
+    if (corrected.internalId === rejectedInternalId) {
+      throw new EtaReissueSameInternalIdError(rejectedInternalId);
+    }
+    const issuedAt = etaReceiptIssuedAt(rejected);
+    if (Date.parse(this.now()) > Date.parse(etaReceiptReissueDeadline(issuedAt))) {
+      throw new EtaReissueWindowExpiredError(issuedAt, ETA_RECEIPT_REISSUE_WINDOW_HOURS);
+    }
+    return this.enqueueReceipt({ ...corrected, referenceOldUuid: rejected.etaUuid });
   }
 
   /** يسجّل بيعاً لم يصدر له إيصال, so the reporting-window counters include it. */
@@ -575,8 +641,12 @@ export class EtaService {
 
   /**
    * إرسال الإيصالات الجاهزة — report every queued receipt, device by device, in
-   * chain order. A device that is offline (no credentials, no network) keeps
-   * the rest of its chain queued rather than reporting later links first.
+   * chain order, in calls of at most {@link ETA_RECEIPT_BATCH_MAX} (D-B4). A
+   * device that is offline (no credentials, no network) keeps the rest of its
+   * chain queued rather than reporting later links first; a chunk with any
+   * rejection halts the rest of ITS device's queue the same way, but the
+   * receipts the authority DID accept inside that same chunk stay accepted —
+   * a partially rejected batch never loses the accepted half.
    */
   async submitReadyReceipts(): Promise<{ submitted: EtaSubmission[]; queued: string[]; rejected: EtaSubmission[] }> {
     const all = await this.deps.submissions.list();
@@ -593,29 +663,56 @@ export class EtaService {
     const queued: string[] = [];
     const rejected: EtaSubmission[] = [];
     const halted = new Set<string>();
-    for (const s of ready) {
-      const serial = s.receiptSerial ?? `legacy:${s.id}`;
+    const referenceStatusOf = (s: EtaSubmission): string | undefined => {
       // A refund names its sale receipt, which must already be with the
       // authority — a refund on another till could otherwise overtake it.
       const reference = (s.payload as { header?: { referenceUUID?: unknown } } | null)?.header?.referenceUUID;
-      const referenceStatus = typeof reference === "string" ? statusByUuid.get(reference) : undefined;
-      if (halted.has(serial) || (referenceStatus !== undefined && referenceStatus !== "submitted" && referenceStatus !== "accepted")) {
+      return typeof reference === "string" ? statusByUuid.get(reference) : undefined;
+    };
+    const referenceReady = (s: EtaSubmission): boolean => {
+      const status = referenceStatusOf(s);
+      return status === undefined || status === "submitted" || status === "accepted";
+    };
+
+    let index = 0;
+    while (index < ready.length) {
+      const s = at(ready, index);
+      const serial = s.receiptSerial ?? `legacy:${s.id}`;
+      if (halted.has(serial) || !referenceReady(s)) {
         halted.add(serial);
         queued.push(s.id);
+        index++;
         continue;
       }
+      // A run of the SAME device's queue, chain order already guaranteeing
+      // it is consecutive here, stops at the batch cap or at the first
+      // receipt whose reference is not yet clear to report.
+      const chunk: EtaSubmission[] = [s];
+      let j = index + 1;
+      while (j < ready.length && chunk.length < ETA_RECEIPT_BATCH_MAX) {
+        const next = at(ready, j);
+        if ((next.receiptSerial ?? `legacy:${next.id}`) !== serial || !referenceReady(next)) break;
+        chunk.push(next);
+        j++;
+      }
+      index = j;
+
       try {
-        const next = await this.submit(s.id);
-        statusByUuid.set(next.etaUuid ?? "", next.status);
-        if (next.status === "submitted") submitted.push(next);
-        else {
-          if (next.status === "error") rejected.push(next);
-          halted.add(serial);
+        const outcomes = await this.submitReceiptChunk(chunk);
+        let chunkFailed = false;
+        for (const next of outcomes) {
+          statusByUuid.set(next.etaUuid ?? "", next.status);
+          if (next.status === "submitted") submitted.push(next);
+          else if (next.status === "error") {
+            rejected.push(next);
+            chunkFailed = true;
+          }
         }
+        if (chunkFailed) halted.add(serial);
       } catch (err) {
         if (!(err instanceof EtaOfflineError)) throw err;
         halted.add(serial);
-        queued.push(s.id);
+        for (const queuedSubmission of chunk) queued.push(queuedSubmission.id);
       }
     }
     // 202 is only the synchronous half of the authority's validation; a receipt
@@ -632,6 +729,63 @@ export class EtaService {
       }
     }
     return { submitted, queued, rejected };
+  }
+
+  /**
+   * Reports one device's chunk (≤ {@link ETA_RECEIPT_BATCH_MAX}) in a single
+   * `/receiptsubmissions` call when the transmit port supports it, mapping
+   * `acceptedDocuments`/`rejectedDocuments` back onto each submission; falls
+   * back to one {@link submit} per receipt on a port with no batch leg.
+   */
+  private async submitReceiptChunk(chunk: readonly EtaSubmission[]): Promise<EtaSubmission[]> {
+    if (!this.transmitPort.transmitReceiptBatch) {
+      const out: EtaSubmission[] = [];
+      for (const s of chunk) out.push(await this.submit(s.id));
+      return out;
+    }
+    const config = await this.deps.config.get();
+    const result = await this.transmitPort.transmitReceiptBatch(chunk, config);
+    const byId = new Map(result.outcomes.map((o) => [o.submissionId, o]));
+    const out: EtaSubmission[] = [];
+    for (const s of chunk) {
+      const outcome = byId.get(s.id) ?? {
+        submissionId: s.id,
+        ok: false,
+        errors: ["لم يرد رد من مصلحة الضرائب لهذا الإيصال ضمن الدفعة."],
+      };
+      out.push(await this.applyReceiptOutcome(s, outcome, result.log, result.submissionUUID ?? null));
+    }
+    return out;
+  }
+
+  private async applyReceiptOutcome(
+    submission: EtaSubmission,
+    outcome: {
+      readonly ok: boolean;
+      readonly etaUuid?: string;
+      readonly errors?: readonly string[];
+      readonly errorCodes?: readonly (string | null)[];
+    },
+    log: readonly EtaTransmitLogEntry[] | undefined,
+    gatewaySubmissionId: string | null,
+  ): Promise<EtaSubmission> {
+    const withLog = this.appendLog(submission, log);
+    if (outcome.ok) {
+      return this.persist({
+        ...withLog,
+        status: "submitted",
+        errors: [],
+        etaUuid: outcome.etaUuid ?? withLog.etaUuid,
+        gatewaySubmissionId: gatewaySubmissionId ?? withLog.gatewaySubmissionId,
+        submittedAt: this.now(),
+      });
+    }
+    return this.persist({
+      ...withLog,
+      status: "error",
+      errors: outcome.errors && outcome.errors.length > 0 ? outcome.errors : ["فشل الإرسال"],
+      rejectionCodes: outcome.errorCodes ?? [],
+    });
   }
 
   /**

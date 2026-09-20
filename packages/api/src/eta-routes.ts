@@ -19,6 +19,9 @@ import {
   EtaOriginalReceiptNotFoundError,
   EtaDeviceSerialUnknownError,
   EtaMissingExchangeRateError,
+  EtaReissueNotRejectedError,
+  EtaReissueWindowExpiredError,
+  EtaReissueSameInternalIdError,
   ETA_RECEIPT_PAYMENT_METHODS,
   EtaOfflineError,
   EtaPrevalidationFailedError,
@@ -75,6 +78,15 @@ export interface EtaRoutesDeps {
    * (a gap), once its cause is fixed. Wired to the backend's receipt issuer.
    */
   readonly issueDocumentReceipt?: (
+    kind: "invoice" | "return",
+    docId: string,
+  ) => Promise<{ receiptNo: string; uuid: string; qrValue: string } | null>;
+  /**
+   * D-B4 — corrects and re-issues a receipt the authority REJECTED, inside its
+   * 96-hour correction window, referencing the rejected receipt's own UUID.
+   * Null when the document's receipt was never rejected — nothing to correct.
+   */
+  readonly reissueDocumentReceipt?: (
     kind: "invoice" | "return",
     docId: string,
   ) => Promise<{ receiptNo: string; uuid: string; qrValue: string } | null>;
@@ -199,6 +211,14 @@ function handleError(c: Context, err: unknown): Response {
   // receipt filed with a blank serial the authority will not accept.
   if (err instanceof EtaDeviceSerialNotRegisteredError) return c.json({ error: err.code, message: err.message }, 409);
   if (err instanceof EtaRefundReferenceRequiredError) return c.json({ error: err.code, message: err.message }, 400);
+  // D-B4 — a rejected receipt corrected too late, twice, or not rejected at all.
+  if (
+    err instanceof EtaReissueWindowExpiredError ||
+    err instanceof EtaReissueNotRejectedError ||
+    err instanceof EtaReissueSameInternalIdError
+  ) {
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 422);
+  }
   if (
     err instanceof EtaReceiptNotReadyError ||
     err instanceof EtaBuyerIdentityRequiredError ||
@@ -321,6 +341,7 @@ async function resolveReceiptDevice(
  *   POST /receipts                     إصدار إيصال إلكتروني (idempotent — a reprint reuses the UUID)
  *   GET  /receipts/gaps                إيصالات لم تصدر، مع السبب
  *   POST /receipts/issue/:kind/:docId  إصدار إيصال لمستند فاتته (kind = invoice | return)
+ *   POST /receipts/reissue/:kind/:docId تصحيح إيصال مرفوض وإعادة إصداره خلال 96 ساعة (kind = invoice | return)
  *   GET  /receipts/:internalId         إعادة طباعة — the stored UUID and QR
  * Permissions: eta.view (reads), eta.submit (config write + submit), eta.cancel (exclude).
  */
@@ -644,6 +665,24 @@ export function createEtaRoutes(
       if (!printed) {
         return c.json(
           { error: "ETA_RECEIPT_NOT_APPLICABLE", message: "المستند غير مؤكد أو ليس بيعاً لمستهلك، فلا يصدر له إيصال." },
+          422,
+        );
+      }
+      return c.json(printed);
+    } catch (err) {
+      return handleError(c, err);
+    }
+  });
+
+  app.post("/receipts/reissue/:kind/:docId", gate("accounting.eta.submit"), async (c) => {
+    const kind = c.req.param("kind");
+    if (kind !== "invoice" && kind !== "return") return c.json({ error: "NOT_FOUND" }, 404);
+    if (!deps.reissueDocumentReceipt) return c.json({ error: "NOT_CONFIGURED" }, 404);
+    try {
+      const printed = await deps.reissueDocumentReceipt(kind, c.req.param("docId"));
+      if (!printed) {
+        return c.json(
+          { error: "ETA_RECEIPT_NOT_APPLICABLE", message: "لا يوجد لهذا المستند إيصال رفضته المصلحة، فلا يوجد ما يُصحَّح." },
           422,
         );
       }

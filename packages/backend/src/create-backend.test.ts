@@ -1551,7 +1551,7 @@ describe("createBackend — the e-receipt path (D282–D284)", () => {
     submission: {
       status: string;
       payload: {
-        header: { previousUUID: string; referenceUUID?: string; receiptNumber: string };
+        header: { previousUUID: string; referenceUUID?: string; referenceOldUUID?: string; receiptNumber: string };
         documentType: { receiptType: string; typeVersion: string };
         seller: { deviceSerialNumber: string };
         paymentMethod: string;
@@ -1766,6 +1766,92 @@ describe("createBackend — the e-receipt path (D282–D284)", () => {
     const submit = seen.find((r) => !r.url.endsWith("/connect/token"))!;
     expect(submit.url).toMatch(/\/api\/v1\/receiptsubmissions$/);
     expect(seen.some((r) => r.url.includes("documentsubmissions"))).toBe(false);
+  });
+
+  it("states the tender directly on a back-office confirm — no till, no collection yet, so the receipt would otherwise default to «أخرى»", async () => {
+    const app = await newBackend();
+    await createServiceItem(app);
+    await registerDevice(app);
+    await createCustomer(app, "cust-r-8", "0");
+    const create = await authedPost(app, "/sales-invoices", { ...invoiceBody("inv-r-8", "cust-r-8", "100"), branchId: "BR-MAIN" });
+    expect(create.status).toBe(201);
+    const confirm = await authedPost(app, "/sales-invoices/inv-r-8/confirm", { receiptPaymentMethod: "cash" });
+    expect(confirm.status).toBe(200);
+    const confirmed = (await confirm.json()) as { docNo: string };
+    expect((await receipt(app, confirmed.docNo)).submission.payload.paymentMethod).toBe("C");
+  });
+
+  /**
+   * إعادة إصدار إيصال مرفوض (D-B4) — the authority lets a rejected receipt be
+   * corrected and re-submitted within 96 hours, referencing the rejected
+   * one's UUID via header.referenceOldUUID. Guarded end to end: the receipt
+   * really is rejected by a fake gateway, then really re-issued as a new
+   * document on the same device chain.
+   */
+  describe("reissuing a rejected receipt (D-B4)", () => {
+    function rejectingHttpClient(seen: { url: string; body?: string }[]) {
+      return async (request: { url: string; body?: string; headers: Readonly<Record<string, string>> }) => {
+        seen.push(request);
+        if (request.url.endsWith("/connect/token")) {
+          return { status: 200, body: JSON.stringify({ access_token: "device-token", expires_in: 3600 }) };
+        }
+        const sent = JSON.parse(request.body ?? "{}") as { receipts?: { header: { uuid: string; receiptNumber: string } }[] };
+        const rejectedDocuments = (sent.receipts ?? []).map((r) => ({
+          uuid: r.header.uuid,
+          receiptNumber: r.header.receiptNumber,
+          error: { message: "رقم الفرع لدى المصلحة غير صحيح" },
+        }));
+        return { status: 202, body: JSON.stringify({ submissionUUID: "SUB-REJ", acceptedDocuments: [], rejectedDocuments }) };
+      };
+    }
+
+    it("corrects and re-issues a rejected receipt with a new number, referencing the rejected one's UUID and chaining right after it", async () => {
+      const seen: { url: string; body?: string }[] = [];
+      const handle = await createBackend({ dbPath: ":memory:", etaHttpClient: rejectingHttpClient(seen) });
+      const app = keep(handle);
+      await createServiceItem(app);
+      await registerDevice(app, { posClientId: "pos-cid", posClientSecret: "pos-secret", posOsVersion: "windows", posModelFramework: "1", posPresharedKey: "psk" });
+      await setAutoSubmit(app, true);
+      await createCustomer(app, "cust-reissue-1", "0");
+      const sale = await consumerSale(app, "inv-reissue-1", "cust-reissue-1");
+
+      let rejected: Receipt | null = null;
+      for (let i = 0; i < 60 && rejected?.submission.status !== "error"; i += 1) {
+        rejected = await receipt(app, sale.docNo);
+        if (rejected.submission.status !== "error") await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+      expect(rejected?.submission.status).toBe("error");
+
+      // The fake gateway rejects everything it is handed — turn auto-submit
+      // off so the reissue's own re-submission does not immediately flip the
+      // freshly corrected receipt back to error before this asserts its
+      // freshly-issued جاهز state.
+      await setAutoSubmit(app, false);
+      const reissue = await post(app, `/eta/receipts/reissue/invoice/${sale.id}`, {}, admin(app));
+      expect(reissue.status).toBe(200);
+      const printed = (await reissue.json()) as Printed;
+      expect(printed.receiptNo).toBe(`${sale.docNo}-R2`);
+      expect(printed.uuid).not.toBe(sale.etaReceipt!.uuid);
+
+      const corrected = await receipt(app, printed.receiptNo);
+      expect(corrected.submission.payload.header.referenceOldUUID).toBe(rejected!.uuid);
+      expect(corrected.submission.payload.header.previousUUID).toBe(rejected!.uuid);
+      expect(corrected.submission.status).toBe("ready");
+    });
+
+    it("refuses to correct a receipt the authority has not rejected", async () => {
+      const app = await newBackend();
+      await createServiceItem(app);
+      await registerDevice(app);
+      await setAutoSubmit(app, false);
+      await createCustomer(app, "cust-reissue-2", "0");
+      const sale = await consumerSale(app, "inv-reissue-2", "cust-reissue-2");
+      expect((await receipt(app, sale.docNo)).submission.status).toBe("ready");
+
+      const reissue = await post(app, `/eta/receipts/reissue/invoice/${sale.id}`, {}, admin(app));
+      expect(reissue.status).toBe(422);
+      expect((await reissue.json()) as { error: string }).toMatchObject({ error: "ETA_RECEIPT_NOT_APPLICABLE" });
+    });
   });
 });
 

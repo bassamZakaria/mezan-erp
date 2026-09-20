@@ -84,6 +84,16 @@ export interface EtaReceiptIssuer {
   /** إيصال مرتجع for a confirmed consumer return. Null for a B2B return (that is a credit note). */
   issueReturnReceipt(returnId: string, options?: IssueEtaReceiptOptions): Promise<IssuedEtaReceipt | null>;
   /**
+   * تصحيح إيصال بيع مرفوض وإعادة إصداره (D-B4) — rebuilds the invoice's e-receipt
+   * with a new receipt number and reports it referencing the rejected one's
+   * UUID (header.referenceOldUUID), inside the authority's 96-hour correction
+   * window. Null when the invoice has no e-receipt the authority actually
+   * rejected — nothing to correct.
+   */
+  reissueInvoiceReceipt(invoiceId: string, options?: IssueEtaReceiptOptions): Promise<IssuedEtaReceipt | null>;
+  /** The refund-receipt mirror of {@link reissueInvoiceReceipt}, for a confirmed consumer return's rejected receipt. */
+  reissueReturnReceipt(returnId: string, options?: IssueEtaReceiptOptions): Promise<IssuedEtaReceipt | null>;
+  /**
    * Reports queued receipts when الإرسال التلقائي is on; one run at a time.
    * While a device is offline the run repeats every `retryMs`, so the queue
    * drains on its own once the connection returns.
@@ -186,6 +196,18 @@ export function createEtaReceiptIssuer(deps: EtaReceiptIssuerDeps): EtaReceiptIs
     }
   }
 
+  /**
+   * D-B4 — a corrected receipt is a NEW document on the device's chain, so it
+   * needs its own رقم إيصال. `-R2`, `-R3`, … so the paper still reads as a
+   * correction of the same sale rather than an unrelated new receipt.
+   */
+  async function nextReissueNumber(base: string): Promise<string> {
+    for (let n = 2; ; n++) {
+      const candidate = `${base}-R${n}`;
+      if (!(await deps.eta.findByInternalId(candidate))) return candidate;
+    }
+  }
+
   let draining = false;
   let again = false;
   let retry: ReturnType<typeof setTimeout> | null = null;
@@ -282,6 +304,63 @@ export function createEtaReceiptIssuer(deps: EtaReceiptIssuerDeps): EtaReceiptIs
         );
         return { receiptNo: printed.receiptNo, uuid: printed.uuid, qrValue: printed.qrValue };
       });
+    },
+
+    async reissueInvoiceReceipt(invoiceId, options = {}) {
+      const invoice = await deps.invoices.findById(invoiceId);
+      if (!invoice || !SALES_INVOICE_ACTIVE_STATUSES.has(invoice.status)) return null;
+      const { b2b, buyer } = await buyerOf(invoice.customerId);
+      if (b2b) return null;
+      const receiptNo = invoice.docNo ?? invoice.id;
+      const rejected = await deps.eta.findByInternalId(receiptNo);
+      // Nothing to correct unless the authority actually rejected this sale's
+      // receipt — `EtaService.reissueReceipt` refuses anything else anyway,
+      // but resolving it here lets the route answer 404-shaped null cleanly.
+      if (!rejected || rejected.documentType !== "receipt" || rejected.status !== "error") return null;
+      const issuedAt = now();
+      const corrected = buildPosReceiptInput({
+        invoice,
+        receiptNumber: await nextReissueNumber(receiptNo),
+        issuedAt,
+        device: await device(invoice.branchId, options.serial),
+        paymentMethod: await tender(invoice.id, options.paymentMethod),
+        buyer,
+        lookups: await lookups(invoice.lines.map((l) => l.itemId)),
+      });
+      const printed = await deps.eta.reissueReceipt(receiptNo, corrected);
+      return { receiptNo: printed.receiptNo, uuid: printed.uuid, qrValue: printed.qrValue };
+    },
+
+    async reissueReturnReceipt(returnId, options = {}) {
+      const doc = await deps.returns.findById(returnId);
+      const first = doc?.lines[0];
+      if (!doc || !first || doc.status !== "confirmed") return null;
+      const invoice = await deps.invoices.findById(first.sourceInvoiceId);
+      if (!invoice) return null;
+      const { b2b, buyer } = await buyerOf(first.customerId);
+      if (b2b) return null;
+      const receiptNo = doc.docNo ?? doc.id;
+      const rejected = await deps.eta.findByInternalId(receiptNo);
+      if (!rejected || rejected.documentType !== "receipt" || rejected.status !== "error") return null;
+      const original = await deps.eta.findByInternalId(invoice.docNo ?? invoice.id);
+      if (!original || original.documentType !== "receipt" || !original.etaUuid) {
+        throw new EtaOriginalReceiptNotFoundError(invoice.docNo ?? invoice.id);
+      }
+      const issuedAt = now();
+      const corrected = buildRefundReceiptInput({
+        invoice,
+        returnLines: doc.lines,
+        receiptNumber: await nextReissueNumber(receiptNo),
+        issuedAt,
+        device: await device(invoice.branchId, options.serial),
+        referenceUuid: original.etaUuid,
+        referenceIssuedAt: etaReceiptIssuedAt(original),
+        paymentMethod: options.paymentMethod ?? receiptPaymentMethodOf(original.payload),
+        buyer,
+        lookups: await lookups(doc.lines.map((l) => l.itemId)),
+      });
+      const printed = await deps.eta.reissueReceipt(receiptNo, corrected);
+      return { receiptNo: printed.receiptNo, uuid: printed.uuid, qrValue: printed.qrValue };
     },
 
     async hasInvoiceReceipt(invoiceId) {

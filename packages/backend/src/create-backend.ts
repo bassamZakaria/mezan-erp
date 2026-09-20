@@ -3313,6 +3313,16 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         if (issued) etaReceipts.scheduleSubmission();
         return issued;
       },
+      // D-B4 — corrects and re-issues a REJECTED receipt inside the authority's
+      // 96-hour window, referencing the rejected one via header.referenceOldUUID.
+      reissueDocumentReceipt: async (kind, docId) => {
+        const issued =
+          kind === "invoice"
+            ? await etaReceipts.reissueInvoiceReceipt(docId)
+            : await etaReceipts.reissueReturnReceipt(docId);
+        if (issued) etaReceipts.scheduleSubmission();
+        return issued;
+      },
     },
     reconciliation: { ledger, resolveControls: resolveReconciliationControls },
     openingBalanceDuplicates: {

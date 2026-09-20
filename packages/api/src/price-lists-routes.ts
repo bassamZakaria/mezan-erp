@@ -44,12 +44,19 @@ export interface PriceListItemLookup {
   findById(id: string): Promise<{ readonly nameAr: string; readonly code?: string } | null>;
 }
 
+/** "1.000000" reads as "1" on a history row; string surgery, never a float. */
+function trimScale(value: string): string {
+  if (!/^-?\d+\.\d+$/.test(value)) return value;
+  const trimmed = value.replace(/0+$/, "").replace(/\.$/, "");
+  return trimmed === "" || trimmed === "-" ? value : trimmed;
+}
+
 function priceListLineLabel(line: SerializedPriceListLine, names: ReadonlyMap<string, string>): string | null {
   const name = names.get(line.itemId);
   if (!name) return null;
   const parts = [name];
   if (line.unitCode) parts.push(line.unitCode);
-  parts.push(`≥ ${line.minQty}`);
+  parts.push(`≥ ${trimScale(line.minQty)}`);
   return parts.join(" · ");
 }
 

@@ -724,3 +724,53 @@ describe("replaceDraftJournalEntry / deleteDraftJournalEntry — editing and dis
     expect(audit.events.every((e) => e.entityType === "JOURNAL_ENTRY")).toBe(true);
   });
 });
+
+/**
+ * Every audit row in the GL used to be appended after its transaction closed,
+ * so a crash between the two lost the record of a posting that had happened —
+ * and a rolled-back write could leave a record of one that had not. These pin
+ * the boundary rather than the mere presence of a row.
+ */
+describe("the audit row is written inside the write's own transaction", () => {
+  function witness(h: Harness): string[] {
+    const inside: string[] = [];
+    const sink = h.deps.audit!;
+    const append = sink.append.bind(sink);
+    sink.append = async (event) => {
+      inside.push(h.ledger.inTransaction ? "inside" : "outside");
+      await append(event);
+    };
+    return inside;
+  }
+
+  it("postJournalEntry", async () => {
+    const h = await harness();
+    const where = witness(h);
+    await postJournalEntry(cashSale, h.deps);
+    expect(where).toEqual(["inside"]);
+  });
+
+  it("postDraftJournalEntry", async () => {
+    const h = await harness();
+    await createJournalEntry(cashSale, h.deps);
+    const where = witness(h);
+    await postDraftJournalEntry("je-1", h.deps);
+    expect(where).toEqual(["inside"]);
+  });
+
+  it("replaceDraftJournalEntry", async () => {
+    const h = await harness();
+    await createJournalEntry(cashSale, h.deps);
+    const where = witness(h);
+    await replaceDraftJournalEntry("je-1", { date: cashSale.date, memo: "edited", lines: cashSale.lines }, h.deps);
+    expect(where).toEqual(["inside"]);
+  });
+
+  it("deleteDraftJournalEntry", async () => {
+    const h = await harness();
+    await createJournalEntry(cashSale, h.deps);
+    const where = witness(h);
+    await deleteDraftJournalEntry("je-1", h.deps);
+    expect(where).toEqual(["inside"]);
+  });
+});

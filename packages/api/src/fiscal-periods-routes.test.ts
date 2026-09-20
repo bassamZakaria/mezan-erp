@@ -1,6 +1,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { createSqliteFiscalPeriodRepository, type SqliteFiscalPeriodRepositoryHandle } from "@mezan/persistence";
 import { createFiscalPeriodsRoutes } from "./fiscal-periods-routes.js";
+import type { AuditEvent, AuditSink, AuditStream } from "@mezan/domain";
 
 import { insecureHeaderAuthContextResolver } from "./permission-gate.js";
 const handles: SqliteFiscalPeriodRepositoryHandle[] = [];
@@ -114,5 +115,33 @@ describe("fiscal-periods router — lifecycle actions", () => {
     const { app } = newApp();
     const res = await app.fetch(req("/nope/close", { method: "POST", permissions: "accounting.period.close" }));
     expect(res.status).toBe(404);
+  });
+});
+
+describe("generating a fiscal year leaves a record", () => {
+  class MemorySink implements AuditSink {
+    readonly events: AuditEvent[] = [];
+    async append(event: AuditEvent) {
+      this.events.push(event);
+    }
+    async query(stream: AuditStream, limit = 100) {
+      return this.events.filter((e) => e.stream === stream).slice(-limit).reverse();
+    }
+  }
+
+  it("records GENERATE with the year and how many periods it opened", async () => {
+    const repo = createSqliteFiscalPeriodRepository();
+    handles.push(repo);
+    const audit = new MemorySink();
+    const app = createFiscalPeriodsRoutes(repo, insecureHeaderAuthContextResolver, audit);
+
+    expect((await generateYear(app, 2027)).status).toBe(201);
+    expect(audit.events).toHaveLength(1);
+    expect(audit.events[0]).toMatchObject({
+      entityType: "FISCAL_YEAR",
+      entityId: "2027",
+      action: "GENERATE",
+    });
+    expect(audit.events[0]!.details).toMatchObject({ year: 2027, periodCount: 12 });
   });
 });

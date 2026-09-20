@@ -1,6 +1,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { createSqlitePriceListStore, type SqlitePriceListStoreHandle } from "@mezan/persistence";
 import { createPriceListsRoutes } from "./price-lists-routes.js";
+import { auditChangesOf, type AuditEvent, type AuditSink, type AuditStream } from "@mezan/domain";
 
 import { insecureHeaderAuthContextResolver } from "./permission-gate.js";
 const handles: SqlitePriceListStoreHandle[] = [];
@@ -242,5 +243,75 @@ describe("POST /resolve-price — applying a price list to a line", () => {
       }),
     );
     expect(((await res.json()) as { price: string }).price).toBe("100.000000");
+  });
+});
+
+describe("price-list history names the item a price change belongs to", () => {
+  class MemorySink implements AuditSink {
+    readonly events: AuditEvent[] = [];
+    async append(event: AuditEvent) {
+      this.events.push(event);
+    }
+    async query(stream: AuditStream, limit = 100) {
+      return this.events.filter((e) => e.stream === stream).slice(-limit).reverse();
+    }
+  }
+
+  function appWithItems() {
+    const repo = createSqlitePriceListStore();
+    handles.push(repo);
+    const audit = new MemorySink();
+    const items = {
+      async findById(id: string) {
+        return id === "item-1" ? { nameAr: "لابتوب ديل", code: "IT-001" } : null;
+      },
+    };
+    return { app: createPriceListsRoutes(repo, insecureHeaderAuthContextResolver, undefined, audit, items), audit };
+  }
+
+  const line = { itemId: "item-1", unitCode: "PCS", minQty: "1", price: "1500.00" };
+
+  it("labels the linePrice change with the item's name, not its raw id", async () => {
+    const { app, audit } = appWithItems();
+    await app.fetch(
+      req("/", {
+        method: "POST",
+        permissions: "*",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ...payload, lines: [line] }),
+      }),
+    );
+    await app.fetch(
+      req("/pl1", {
+        method: "PATCH",
+        permissions: "*",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ lines: [{ ...line, price: "1650.00" }] }),
+      }),
+    );
+
+    const changes = auditChangesOf(audit.events.at(-1)!.details).filter((c) => c.field === "linePrice");
+    expect(changes).toHaveLength(1);
+    expect(changes[0]!.key).toBe("item-1|PCS|1.000000");
+    expect(changes[0]!.label).toBe("لابتوب ديل (IT-001) · PCS · ≥ 1");
+    expect(changes[0]!.from).toBe("1500.000000");
+    expect(changes[0]!.to).toBe("1650.000000");
+  });
+
+  it("leaves the label off when the item register is not wired, rather than inventing one", async () => {
+    const repo = createSqlitePriceListStore();
+    handles.push(repo);
+    const audit = new MemorySink();
+    const app = createPriceListsRoutes(repo, insecureHeaderAuthContextResolver, undefined, audit);
+    await app.fetch(
+      req("/", {
+        method: "POST",
+        permissions: "*",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ...payload, lines: [line] }),
+      }),
+    );
+    const changes = auditChangesOf(audit.events.at(-1)!.details).filter((c) => c.field === "linePrice");
+    expect(changes[0]!.label).toBeUndefined();
   });
 });

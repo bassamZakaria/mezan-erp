@@ -1,4 +1,4 @@
-import type { RecurringJournalRun, RecurringJournalTemplate } from "./types.js";
+import type { RecurringJournalRun, RecurringJournalSkip, RecurringJournalTemplate } from "./types.js";
 
 /** Persistence port for templates. The domain depends on this interface only — no SQL, no driver. */
 export interface RecurringJournalTemplateRepository {
@@ -26,4 +26,18 @@ export interface RecurringJournalRunRepository {
   list(limit?: number): Promise<readonly RecurringJournalRun[]>;
   /** Returns `true` if this call recorded the run, `false` if (template, period) was already claimed. */
   save(run: RecurringJournalRun): Promise<boolean>;
+}
+
+/**
+ * Persistence port for "skip this occurrence" — the same idempotent-claim
+ * shape as {@link RecurringJournalRunRepository}, over its own table. A period
+ * is claimed by EITHER a run or a skip, never both, so `generate-due` and the
+ * due worklist both have to consult this port alongside the run repository.
+ */
+export interface RecurringJournalSkipRepository {
+  findByTemplateAndPeriod(templateId: string, period: string): Promise<RecurringJournalSkip | null>;
+  listByTemplate(templateId: string): Promise<readonly RecurringJournalSkip[]>;
+  list(limit?: number): Promise<readonly RecurringJournalSkip[]>;
+  /** Returns `true` if this call recorded the skip, `false` if (template, period) was already claimed. */
+  save(skip: RecurringJournalSkip): Promise<boolean>;
 }

@@ -12,15 +12,19 @@ import {
   NoFiscalPeriodForDateError,
   PartyRequiredOnControlAccountError,
   PeriodNotOpenForPostingError,
+  RecurringJournalPeriodAlreadyGeneratedError,
+  RecurringJournalPeriodAlreadySkippedError,
   RecurringJournalTemplateNotFoundError,
   RecurringJournalTemplateStatus,
   UnbalancedEntryError,
   type RecurringJournalFrequency,
+  type RecurringJournalSkip,
   createRecurringJournalTemplate,
   dueDepreciationPeriods,
   duePeriods,
   generateDueRecurringJournals,
   setRecurringJournalTemplateStatus,
+  skipRecurringJournalOccurrence,
   updateRecurringJournalTemplate,
   type AccountRepository,
   type AuditSink,
@@ -31,6 +35,7 @@ import {
   type NextNumberService,
   type PartyControlKind,
   type RecurringJournalRunRepository,
+  type RecurringJournalSkipRepository,
   type RecurringJournalTemplate,
   type RecurringJournalTemplateLine,
   type RecurringJournalTemplateRepository,
@@ -40,6 +45,7 @@ import {
   generateDueRecurringJournalsSchema,
   saveJournalEntryAsTemplateSchema,
   setRecurringJournalTemplateStatusSchema,
+  skipRecurringJournalOccurrenceSchema,
   updateRecurringJournalTemplateSchema,
   type RecurringJournalFrequencyDTO,
   type RecurringJournalTemplateStatusDTO,
@@ -50,6 +56,7 @@ import { createPermissionGate, getAuthContext, type AuthContextResolver } from "
 export interface RecurringJournalRoutesDeps {
   readonly templates: RecurringJournalTemplateRepository;
   readonly runs: RecurringJournalRunRepository;
+  readonly skips: RecurringJournalSkipRepository;
   readonly ledger: LedgerRepository;
   readonly accounts: Pick<AccountRepository, "findById">;
   readonly periods: Pick<FiscalPeriodRepository, "findByDate">;
@@ -80,6 +87,17 @@ function serializeLine(line: RecurringJournalTemplateLine) {
     partyId: line.partyId ?? null,
     projectId: line.projectId ?? null,
     costCategory: line.costCategory ?? null,
+  };
+}
+
+function serializeSkip(skip: RecurringJournalSkip) {
+  return {
+    id: skip.id,
+    templateId: skip.templateId,
+    period: skip.period,
+    note: skip.note,
+    skippedAt: skip.skippedAt,
+    skippedBy: skip.skippedBy,
   };
 }
 
@@ -138,6 +156,9 @@ function handleDomainError(c: Context, err: unknown): Response {
   }
   if (err instanceof InvalidRecurringJournalScheduleError || err instanceof InvalidJournalEntryError) {
     return c.json({ error: err.code, message: err.message }, 400);
+  }
+  if (err instanceof RecurringJournalPeriodAlreadyGeneratedError || err instanceof RecurringJournalPeriodAlreadySkippedError) {
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
   }
   if (err instanceof UnbalancedEntryError) {
     return c.json({ error: err.code, message: err.message, totalDebit: err.totalDebit.toString(), totalCredit: err.totalCredit.toString() }, 422);
@@ -308,7 +329,7 @@ export function createRecurringJournalRoutes(deps: RecurringJournalRoutesDeps, r
     }
   });
 
-  /** The worklist: every active template's outstanding periods as of `asOfDate` (default: today). */
+  /** The worklist: every active template's outstanding periods as of `asOfDate` (default: today) — a skipped period is not outstanding. */
   app.get("/due", gate("accounting.recurring.view"), async (c) => {
     const asOfDate = await tenantDay(c, c.req.query("asOfDate")) ?? (await tenantToday(c, deps.now));
     const templates = await deps.templates.list();
@@ -317,7 +338,9 @@ export function createRecurringJournalRoutes(deps: RecurringJournalRoutesDeps, r
       if (template.status !== RecurringJournalTemplateStatus.Active) continue;
       const outstanding: string[] = [];
       for (const period of duePeriods(template, asOfDate)) {
-        if (!(await deps.runs.findByTemplateAndPeriod(template.id, period))) outstanding.push(period);
+        if (await deps.runs.findByTemplateAndPeriod(template.id, period)) continue;
+        if (await deps.skips.findByTemplateAndPeriod(template.id, period)) continue;
+        outstanding.push(period);
       }
       if (outstanding.length > 0) due.push({ templateId: template.id, nameAr: template.nameAr, nameEn: template.nameEn, periods: outstanding });
     }
@@ -336,7 +359,7 @@ export function createRecurringJournalRoutes(deps: RecurringJournalRoutesDeps, r
     try {
       const asOfDate = parsed.data.asOfDate ? await tenantDay(c, parsed.data.asOfDate) : await tenantToday(c, deps.now);
       const { generated, failed } = await generateDueRecurringJournals(
-        { ...(await postingDeps(c)), templates: deps.templates, runs: deps.runs, idGen },
+        { ...(await postingDeps(c)), templates: deps.templates, runs: deps.runs, skips: deps.skips, idGen },
         { asOfDate, templateIds: parsed.data.templateIds },
       );
       return c.json({ asOfDate, generated, failed }, 201);
@@ -349,6 +372,47 @@ export function createRecurringJournalRoutes(deps: RecurringJournalRoutesDeps, r
     const limitParam = c.req.query("limit");
     const limit = limitParam ? Number(limitParam) : undefined;
     return c.json(await deps.runs.list(Number.isFinite(limit) ? limit : undefined));
+  });
+
+  /**
+   * "Skip this occurrence" — the operator's answer to a period they never
+   * want drafted (a waived rent month, a depreciation run handled by hand).
+   * Refuses a period a run already covers (409) and a period already skipped
+   * (409, the atomic claim losing a race); both are reported, never silently
+   * swallowed, so a double-click never reads as success twice.
+   */
+  app.post("/templates/:id/skip", gate("accounting.recurring.manage"), async (c) => {
+    const parsed = skipRecurringJournalOccurrenceSchema.safeParse(await c.req.json());
+    if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    try {
+      const skip = await skipRecurringJournalOccurrence(
+        c.req.param("id"),
+        parsed.data.period,
+        parsed.data.note ?? null,
+        {
+          templates: deps.templates,
+          runs: deps.runs,
+          skips: deps.skips,
+          audit: deps.audit,
+          now: deps.now,
+          actor: getAuthContext(c)?.userId ?? "system",
+          idGen,
+        },
+      );
+      return c.json(serializeSkip(skip), 201);
+    } catch (err) {
+      return handleDomainError(c, err);
+    }
+  });
+
+  app.get("/templates/:id/skips", gate("accounting.recurring.view"), async (c) => {
+    return c.json((await deps.skips.listByTemplate(c.req.param("id"))).map(serializeSkip));
+  });
+
+  app.get("/skips", gate("accounting.recurring.view"), async (c) => {
+    const limitParam = c.req.query("limit");
+    const limit = limitParam ? Number(limitParam) : undefined;
+    return c.json((await deps.skips.list(Number.isFinite(limit) ? limit : undefined)).map(serializeSkip));
   });
 
   /** Due depreciation runs, cross-linked into DepreciationRunsScreen — not a second depreciation engine. */

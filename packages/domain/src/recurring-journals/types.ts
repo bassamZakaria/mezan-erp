@@ -87,6 +87,23 @@ export interface RecurringJournalRun {
   readonly generatedBy: string;
 }
 
+/**
+ * One (template, period) an operator deliberately chose NOT to generate — the
+ * landlord waived a month, a depreciation run is being handled by hand this
+ * once. Its own table, its own `UNIQUE(template_id, period)` claim, so the
+ * period is exactly as unavailable to a later `generate-due` sweep as a real
+ * run would leave it, without inventing a journal entry that never happened.
+ */
+export interface RecurringJournalSkip {
+  readonly id: string;
+  readonly templateId: string;
+  /** Same period-key shape as {@link RecurringJournalRun.period}. */
+  readonly period: string;
+  readonly note: string | null;
+  readonly skippedAt: string;
+  readonly skippedBy: string;
+}
+
 export class RecurringJournalTemplateNotFoundError extends Error {
   readonly code = "RECURRING_JOURNAL_TEMPLATE_NOT_FOUND";
   constructor(readonly templateId: string) {
@@ -98,5 +115,27 @@ export class InvalidRecurringJournalScheduleError extends Error {
   readonly code = "INVALID_RECURRING_JOURNAL_SCHEDULE";
   constructor(message: string) {
     super(message);
+  }
+}
+
+/** Raised when "skip this occurrence" is asked for a (template, period) that already has a generated journal entry. */
+export class RecurringJournalPeriodAlreadyGeneratedError extends Error {
+  readonly code = "RECURRING_JOURNAL_PERIOD_ALREADY_GENERATED";
+  readonly messageEn: string;
+  constructor(readonly templateId: string, readonly period: string) {
+    super(`تم بالفعل توليد قيد لهذه الفترة "${period}"، فلا يمكن تخطّيها.`);
+    this.messageEn = `A journal entry was already generated for period "${period}"; it cannot be skipped.`;
+    this.name = "RecurringJournalPeriodAlreadyGeneratedError";
+  }
+}
+
+/** Raised when "skip this occurrence" is asked twice for the same (template, period) — the atomic claim lost the race or the caller retried. */
+export class RecurringJournalPeriodAlreadySkippedError extends Error {
+  readonly code = "RECURRING_JOURNAL_PERIOD_ALREADY_SKIPPED";
+  readonly messageEn: string;
+  constructor(readonly templateId: string, readonly period: string) {
+    super(`تم تخطّي هذه الفترة "${period}" من قبل.`);
+    this.messageEn = `Period "${period}" was already skipped.`;
+    this.name = "RecurringJournalPeriodAlreadySkippedError";
   }
 }

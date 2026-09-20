@@ -13,6 +13,7 @@ const BANK_ACCOUNT: TreasuryAccountDTO = {
   name: "بنك مصر — الحساب الجاري", nameEn: null,
   type: "bank",
   currency: "EGP",
+  bankAccountNumber: null,
   branchId: "BR1",
   glAccountId: "1310",
   openingBalance: "0.000000",
@@ -25,6 +26,8 @@ function statement(overrides: Partial<BankStatementDTO> = {}): BankStatementDTO 
   return {
     id: "stmt-1",
     treasuryAccountId: "ta-bank1",
+    branchId: "BR1",
+    currency: "EGP",
     source: StatementSourceCode.Csv,
     statementNumber: "ST-001",
     periodStart: "2026-08-01",

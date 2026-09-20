@@ -25,6 +25,7 @@ function serialize(account: TreasuryAccount) {
     nameEn: account.nameEn,
     type: account.type,
     currency: account.currency,
+    bankAccountNumber: account.bankAccountNumber,
     branchId: account.branchId,
     glAccountId: account.glAccountId,
     openingBalance: account.openingBalance.toString(),
@@ -40,6 +41,7 @@ export const AUDITED_TREASURY_ACCOUNT_FIELDS = [
   "nameEn",
   "type",
   "currency",
+  "bankAccountNumber",
   "branchId",
   "glAccountId",
   "openingBalance",
@@ -100,7 +102,7 @@ export function createTreasuryAccountsRoutes(
       before: before ? serialize(before) : null,
       after: serialize(account),
       fields: AUDITED_TREASURY_ACCOUNT_FIELDS,
-      warnOn: ["glAccountId", "openingBalance", "openingBalanceDate", "currency", "branchId", "guaranteeFacilityLimit", "status"],
+      warnOn: ["glAccountId", "openingBalance", "openingBalanceDate", "currency", "bankAccountNumber", "branchId", "guaranteeFacilityLimit", "status"],
       details: { code: account.code, name: account.name },
     });
   }

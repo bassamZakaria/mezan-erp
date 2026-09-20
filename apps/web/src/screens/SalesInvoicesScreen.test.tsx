@@ -85,6 +85,7 @@ const customers: CustomerDTO[] = [
 const treasuryAccounts: TreasuryAccountDTO[] = [
   {
     id: "tr-cash-main", code: "TR-01", name: "خزينة الفرع الرئيسي", nameEn: null, type: "cash", currency: "EGP",
+    bankAccountNumber: null,
     branchId: "MAIN", glAccountId: null, openingBalance: "0", openingBalanceDate: null, guaranteeFacilityLimit: null, status: "active",
   },
 ];

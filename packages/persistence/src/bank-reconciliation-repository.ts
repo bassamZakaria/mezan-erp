@@ -1,6 +1,7 @@
 import Database from "better-sqlite3";
 import { openSqliteConnection, withSqliteTransaction, type SqliteConnectionInput } from "./sqlite-connection.js";
 import {
+  BASE_CURRENCY,
   Money,
   type BankRuleDirection,
   type BankRuleMatchType,
@@ -32,6 +33,9 @@ const CREATE_TABLES = `
 CREATE TABLE IF NOT EXISTS bank_statement (
   id                  TEXT PRIMARY KEY,
   treasury_account_id TEXT NOT NULL,
+  branch_id           TEXT,
+  currency            TEXT,
+  import_fingerprint  TEXT,
   source              TEXT NOT NULL,
   statement_number    TEXT,
   period_start        TEXT NOT NULL,
@@ -47,6 +51,9 @@ CREATE TABLE IF NOT EXISTS bank_statement (
 );
 CREATE INDEX IF NOT EXISTS idx_bank_statement_account ON bank_statement(treasury_account_id);
 CREATE INDEX IF NOT EXISTS idx_bank_statement_status ON bank_statement(status);
+CREATE INDEX IF NOT EXISTS idx_bank_statement_branch ON bank_statement(branch_id);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_bank_statement_fingerprint ON bank_statement(treasury_account_id, import_fingerprint)
+  WHERE import_fingerprint IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS statement_line (
   id               TEXT PRIMARY KEY,
@@ -121,6 +128,9 @@ CREATE TABLE IF NOT EXISTS statement_column_mapping (
 interface StatementRow {
   id: string;
   treasury_account_id: string;
+  branch_id: string | null;
+  currency: string | null;
+  import_fingerprint: string | null;
   source: string;
   statement_number: string | null;
   period_start: string;
@@ -140,6 +150,9 @@ function toStatement(row: StatementRow): BankStatement {
   return {
     id: row.id,
     treasuryAccountId: row.treasury_account_id,
+    branchId: row.branch_id,
+    currency: row.currency ?? BASE_CURRENCY,
+    importFingerprint: row.import_fingerprint,
     source: row.source as BankStatementSource,
     statementNumber: row.statement_number,
     periodStart: row.period_start,
@@ -160,6 +173,9 @@ function statementParams(s: BankStatement) {
   return {
     id: s.id,
     treasury_account_id: s.treasuryAccountId,
+    branch_id: s.branchId,
+    currency: s.currency,
+    import_fingerprint: s.importFingerprint,
     source: s.source,
     statement_number: s.statementNumber,
     period_start: s.periodStart,
@@ -227,6 +243,7 @@ class SqliteBankStatementRepository implements BankStatementRepository {
   private readonly insertStatement: Database.Statement;
   private readonly updateStatement: Database.Statement;
   private readonly selectStatementById: Database.Statement;
+  private readonly selectStatementByFingerprint: Database.Statement;
   private readonly insertLine: Database.Statement;
   private readonly updateLineStmt: Database.Statement;
   private readonly selectLineById: Database.Statement;
@@ -240,11 +257,11 @@ class SqliteBankStatementRepository implements BankStatementRepository {
   constructor(private readonly sqlite: Database.Database) {
     this.insertStatement = sqlite.prepare(`
       INSERT INTO bank_statement (
-        id, treasury_account_id, source, statement_number, period_start, period_end,
+        id, treasury_account_id, branch_id, currency, import_fingerprint, source, statement_number, period_start, period_end,
         opening_balance, closing_balance, status, imported_at, finalized_at,
         unmatched_at_finalize, finalize_override_reason, finalized_by, difference_at_finalize
       ) VALUES (
-        @id, @treasury_account_id, @source, @statement_number, @period_start, @period_end,
+        @id, @treasury_account_id, @branch_id, @currency, @import_fingerprint, @source, @statement_number, @period_start, @period_end,
         @opening_balance, @closing_balance, @status, @imported_at, @finalized_at,
         @unmatched_at_finalize, @finalize_override_reason, @finalized_by, @difference_at_finalize
       )
@@ -258,6 +275,9 @@ class SqliteBankStatementRepository implements BankStatementRepository {
       WHERE id = @id
     `);
     this.selectStatementById = sqlite.prepare(`SELECT * FROM bank_statement WHERE id = ?`).safeIntegers();
+    this.selectStatementByFingerprint = sqlite
+      .prepare(`SELECT * FROM bank_statement WHERE treasury_account_id = ? AND import_fingerprint = ?`)
+      .safeIntegers();
 
     this.insertLine = sqlite.prepare(`
       INSERT INTO statement_line (id, statement_id, date, description, reference, amount, status, matched_entry_id, matched_at, counterparty, match_source)
@@ -293,6 +313,10 @@ class SqliteBankStatementRepository implements BankStatementRepository {
     const row = this.selectStatementById.get(id) as StatementRow | undefined;
     return row ? toStatement(row) : null;
   }
+  async findByFingerprint(treasuryAccountId: string, fingerprint: string): Promise<BankStatement | null> {
+    const row = this.selectStatementByFingerprint.get(treasuryAccountId, fingerprint) as StatementRow | undefined;
+    return row ? toStatement(row) : null;
+  }
   async list(filter: BankStatementListFilter = {}): Promise<readonly BankStatement[]> {
     const clauses: string[] = [];
     const params: unknown[] = [];
@@ -311,6 +335,13 @@ class SqliteBankStatementRepository implements BankStatementRepository {
     if (filter.toDate) {
       clauses.push("period_end <= ?");
       params.push(filter.toDate);
+    }
+    if (filter.branchIds) {
+      // A statement carrying no branch is not attributable, so it stays
+      // visible under a narrowed scope — the same rule `withinScope` applies.
+      const placeholders = filter.branchIds.map(() => "?").join(", ");
+      clauses.push(`(branch_id IS NULL OR branch_id IN (${placeholders || "NULL"}))`);
+      params.push(...filter.branchIds);
     }
     const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
     const rows = this.sqlite
@@ -650,9 +681,16 @@ export function createSqliteBankReconciliationStore(path: SqliteConnectionInput 
     ["finalize_override_reason", "TEXT"],
     ["finalized_by", "TEXT"],
     ["difference_at_finalize", "INTEGER"],
+    ["branch_id", "TEXT"],
+    ["currency", "TEXT"],
+    ["import_fingerprint", "TEXT"],
   ] as const) {
     if (!statementColumns.has(name)) sqlite.exec(`ALTER TABLE bank_statement ADD COLUMN ${name} ${type}`);
   }
+  sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_bank_statement_branch ON bank_statement(branch_id)`);
+  sqlite.exec(
+    `CREATE UNIQUE INDEX IF NOT EXISTS ux_bank_statement_fingerprint ON bank_statement(treasury_account_id, import_fingerprint) WHERE import_fingerprint IS NOT NULL`,
+  );
   const lineColumns = new Set(
     (sqlite.prepare(`PRAGMA table_info(statement_line)`).all() as { name: string }[]).map((c) => c.name),
   );

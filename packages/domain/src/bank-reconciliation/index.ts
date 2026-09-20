@@ -16,9 +16,12 @@ export {
   type StatementLineStatus,
 } from "./bank-statement.js";
 
+export { statementFingerprint, type FingerprintInput, type FingerprintRow } from "./fingerprint.js";
+
 export {
   BankRuleNotFoundError,
   BankStatementNotFoundError,
+  DuplicateStatementImportError,
   ColumnNotFoundError,
   EntryAccountRequiredError,
   EntryAlreadyMatchedError,
@@ -34,13 +37,19 @@ export {
   LineNotMatchedError,
   LineNotOnStatementError,
   MatchAmountMismatchError,
+  MatchCurrencyMismatchError,
   NoEntriesSelectedError,
+  StatementAccountMismatchError,
   StatementAlreadyFinalizedError,
+  StatementCurrencyMismatchError,
   StatementDifferenceNotZeroError,
   StatementHasUnmatchedLinesError,
   StatementLineNotFoundError,
+  StatementOutOfBranchScopeError,
   SuggestionNotFoundError,
   SuggestionNotPendingError,
+  TreasuryAccountNumberMissingError,
+  TreasuryAccountOutOfBranchScopeError,
   TreasuryAccountUnpostableError,
   ZeroAmountLineError,
 } from "./errors.js";

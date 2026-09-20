@@ -188,6 +188,7 @@ async function voucherHarness() {
     nameEn: null,
     type: "cash",
     currency: "EGP",
+    bankAccountNumber: null,
     branchId: "b1",
     glAccountId: CASH,
     openingBalance: Money.zero(),

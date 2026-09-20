@@ -67,6 +67,7 @@ interface TreasuryAccountDraft {
   nameEn: string;
   type: TreasuryAccountTypeDTO;
   currency: string;
+  bankAccountNumber: string;
   branchId: string;
   glAccountId: string;
   openingBalance: number | null;
@@ -82,6 +83,7 @@ function blankDraft(branches: BranchDTO[]): TreasuryAccountDraft {
     nameEn: "",
     type: "cash",
     currency: "EGP",
+    bankAccountNumber: "",
     branchId: branches[0]?.id ?? "",
     glAccountId: "",
     openingBalance: 0,
@@ -98,6 +100,7 @@ function draftFromAccount(account: TreasuryAccountDTO): TreasuryAccountDraft {
     nameEn: account.nameEn ?? "",
     type: account.type,
     currency: account.currency,
+    bankAccountNumber: account.bankAccountNumber ?? "",
     branchId: account.branchId,
     glAccountId: account.glAccountId ?? "",
     openingBalance: toMajor(account.openingBalance),
@@ -220,6 +223,7 @@ export function TreasuryAccountsScreen() {
       nameEn: draft.nameEn.trim() === "" ? null : draft.nameEn.trim(),
       type: draft.type,
       currency: draft.currency,
+      bankAccountNumber: draft.bankAccountNumber.trim() === "" ? null : draft.bankAccountNumber.trim(),
       branchId: draft.branchId,
       glAccountId: draft.glAccountId.trim() === "" ? null : draft.glAccountId.trim(),
       openingBalance: (draft.openingBalance ?? 0).toFixed(6),
@@ -488,6 +492,14 @@ export function TreasuryAccountsScreen() {
             options={TREASURY_ACCOUNT_TYPE_DEFINITIONS.map((d) => ({ value: d.code, label: d.labelAr }))}
           />
           <TextField label={t("treasuryAcc.currency2")} value={draft.currency} onChange={(v) => setDraft((d) => ({ ...d, currency: v.toUpperCase() }))} />
+          {draft.type === "bank" ? (
+            <TextField
+              label={t("treasuryAcc.bankAccountNumber")}
+              value={draft.bankAccountNumber}
+              onChange={(v) => setDraft((d) => ({ ...d, bankAccountNumber: v }))}
+              placeholder="EG380003000100000000263180002"
+            />
+          ) : null}
           <SelectField
             label={t("treasuryAcc.branch")}
             value={draft.branchId}

@@ -42,6 +42,26 @@ export function getBankStatementStatusLabel(status: BankStatementStatus): string
 export interface BankStatement {
   readonly id: string;
   readonly treasuryAccountId: string;
+  /**
+   * The branch that owns the reconciled treasury account, stamped server-side
+   * at import. Null on statements imported before the field existed; those
+   * stay visible under every scope, exactly as `withinScope` keeps an
+   * unattributable row visible.
+   */
+  readonly branchId: string | null;
+  /**
+   * The currency every amount on this statement is expressed in — the treasury
+   * account's own currency at import. A book entry posted in another currency
+   * can never equal a line here, so the match refuses instead of comparing a
+   * foreign figure with a base one.
+   */
+  readonly currency: string;
+  /**
+   * A deterministic digest of what was imported (account, period, balances and
+   * every row). Re-importing the same file produces the same value, which is
+   * what lets the second import be recognised rather than duplicated.
+   */
+  readonly importFingerprint: string | null;
   readonly source: BankStatementSource;
   readonly statementNumber: string | null;
   readonly periodStart: string;
@@ -100,6 +120,12 @@ export interface BankStatementListFilter {
   readonly status?: BankStatementStatus;
   readonly fromDate?: string;
   readonly toDate?: string;
+  /**
+   * The caller's own branch authority. Undefined means every branch; a list
+   * narrowed by it also keeps statements carrying no branch, which is the same
+   * rule `withinScope` applies everywhere else.
+   */
+  readonly branchIds?: readonly string[];
 }
 
 /** Persistence port for bank statements + their lines. */
@@ -107,6 +133,8 @@ export interface BankStatementRepository {
   save(statement: BankStatement): Promise<void>;
   update(statement: BankStatement): Promise<void>;
   findById(id: string): Promise<BankStatement | null>;
+  /** The statement a previous import of the same file produced, if there is one. */
+  findByFingerprint(treasuryAccountId: string, fingerprint: string): Promise<BankStatement | null>;
   list(filter?: BankStatementListFilter): Promise<readonly BankStatement[]>;
   saveLines(lines: readonly StatementLine[]): Promise<void>;
   saveLine(line: StatementLine): Promise<void>;

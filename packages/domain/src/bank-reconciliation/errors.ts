@@ -333,3 +333,118 @@ export class TreasuryAccountUnpostableError extends Error {
     );
   }
 }
+
+export class DuplicateStatementImportError extends Error {
+  readonly code = "DUPLICATE_STATEMENT_IMPORT";
+  messageEn = "";
+  constructor(
+    readonly existingStatementId: string,
+    readonly existingStatementNumber: string | null,
+  ) {
+    super();
+    const label = existingStatementNumber ? `«${existingStatementNumber}»` : `"${existingStatementId}"`;
+    bilingual(
+      this,
+      `سبق استيراد هذا الكشف بالكامل؛ افتح الكشف ${label} بدلاً من استيراده مرة أخرى.`,
+      `This statement was already imported; open statement ${label} instead of importing it again.`,
+      "DuplicateStatementImportError",
+    );
+  }
+}
+
+export class StatementCurrencyMismatchError extends Error {
+  readonly code = "STATEMENT_CURRENCY_MISMATCH";
+  messageEn = "";
+  constructor(
+    readonly fileCurrency: string,
+    readonly accountCurrency: string,
+  ) {
+    super();
+    bilingual(
+      this,
+      `عملة الملف (${fileCurrency}) تختلف عن عملة حساب الخزينة (${accountCurrency})؛ اختر الحساب الصحيح.`,
+      `The file's currency (${fileCurrency}) differs from the treasury account's currency (${accountCurrency}); choose the right account.`,
+      "StatementCurrencyMismatchError",
+    );
+  }
+}
+
+export class StatementAccountMismatchError extends Error {
+  readonly code = "STATEMENT_ACCOUNT_MISMATCH";
+  messageEn = "";
+  constructor(
+    readonly fileAccountNumber: string,
+    readonly accountNumber: string,
+  ) {
+    super();
+    bilingual(
+      this,
+      `رقم الحساب في الملف (${fileAccountNumber}) لا يطابق رقم حساب الخزينة (${accountNumber}).`,
+      `The account number in the file (${fileAccountNumber}) does not match the treasury account's number (${accountNumber}).`,
+      "StatementAccountMismatchError",
+    );
+  }
+}
+
+export class TreasuryAccountNumberMissingError extends Error {
+  readonly code = "TREASURY_ACCOUNT_NUMBER_MISSING";
+  messageEn = "";
+  constructor(
+    readonly treasuryAccountId: string,
+    readonly fileAccountNumber: string,
+  ) {
+    super();
+    bilingual(
+      this,
+      `الملف يخص الحساب البنكي ${fileAccountNumber}، ولا يحمل حساب الخزينة رقم حساب بنكي يُقارن به؛ سجّل رقم الحساب البنكي أولاً.`,
+      `The file belongs to bank account ${fileAccountNumber}, and the treasury account carries no bank account number to check it against; record the bank account number first.`,
+      "TreasuryAccountNumberMissingError",
+    );
+  }
+}
+
+export class MatchCurrencyMismatchError extends Error {
+  readonly code = "MATCH_CURRENCY_MISMATCH";
+  messageEn = "";
+  constructor(
+    readonly entryId: string,
+    readonly entryCurrency: string,
+    readonly statementCurrency: string,
+  ) {
+    super();
+    bilingual(
+      this,
+      `القيد "${entryId}" مُرحَّل بعملة ${entryCurrency} بينما الكشف بعملة ${statementCurrency}؛ لا يمكن مطابقته دون سعر صرف مُسجَّل على القيد.`,
+      `Entry "${entryId}" is posted in ${entryCurrency} while the statement is in ${statementCurrency}; it cannot be matched without a rate recorded on the posting.`,
+      "MatchCurrencyMismatchError",
+    );
+  }
+}
+
+export class StatementOutOfBranchScopeError extends Error {
+  readonly code = "STATEMENT_OUT_OF_BRANCH_SCOPE";
+  messageEn = "";
+  constructor(readonly statementId: string) {
+    super();
+    bilingual(
+      this,
+      "كشف البنك يخص فرعاً خارج نطاق صلاحيتك.",
+      "This bank statement belongs to a branch outside your authority.",
+      "StatementOutOfBranchScopeError",
+    );
+  }
+}
+
+export class TreasuryAccountOutOfBranchScopeError extends Error {
+  readonly code = "TREASURY_ACCOUNT_OUT_OF_BRANCH_SCOPE";
+  messageEn = "";
+  constructor(readonly treasuryAccountId: string) {
+    super();
+    bilingual(
+      this,
+      "حساب الخزينة يخص فرعاً خارج نطاق صلاحيتك.",
+      "This treasury account belongs to a branch outside your authority.",
+      "TreasuryAccountOutOfBranchScopeError",
+    );
+  }
+}

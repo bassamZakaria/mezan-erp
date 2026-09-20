@@ -19,6 +19,8 @@ export interface UpdateTreasuryAccountCommand {
   readonly name?: string;
   readonly type?: TreasuryAccountType;
   readonly currency?: string;
+  /** رقم الحساب البنكي / IBAN; null clears it. */
+  readonly bankAccountNumber?: string | null;
   readonly branchId?: string;
   readonly glAccountId?: string | null;
   /** Exact decimal string — parsed via `Money.fromMajor`. Use "إضافة رصيد افتتاحي" semantics: this replaces the stored opening balance. */
@@ -87,6 +89,8 @@ export async function updateTreasuryAccount(
     nameEn: command.nameEn !== undefined ? command.nameEn : current.nameEn,
     type: nextType,
     currency: command.currency ?? current.currency,
+    bankAccountNumber:
+      command.bankAccountNumber !== undefined ? (command.bankAccountNumber?.trim() || null) : current.bankAccountNumber,
     branchId: command.branchId ?? current.branchId,
     glAccountId: command.glAccountId !== undefined ? command.glAccountId : current.glAccountId,
     openingBalance: nextOpeningBalance,

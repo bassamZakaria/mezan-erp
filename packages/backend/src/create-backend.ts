@@ -3236,8 +3236,11 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       audit: auditSink,
       accounts,
       costCenters,
+      treasuryAccounts,
+      baseCurrency: "EGP",
       ledgerReader: createTreasuryLedgerReader({
         treasuryAccounts,
+        baseCurrency: "EGP",
         ledger,
         vouchers: vouchers.documents,
         partyName: async (kind, id) => {

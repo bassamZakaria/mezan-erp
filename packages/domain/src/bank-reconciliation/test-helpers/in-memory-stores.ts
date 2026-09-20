@@ -22,12 +22,20 @@ export class InMemoryBankStatementRepository implements BankStatementRepository 
   async findById(id: string): Promise<BankStatement | null> {
     return this.statements.get(id) ?? null;
   }
+  async findByFingerprint(treasuryAccountId: string, fingerprint: string): Promise<BankStatement | null> {
+    return (
+      [...this.statements.values()].find(
+        (s) => s.treasuryAccountId === treasuryAccountId && s.importFingerprint === fingerprint,
+      ) ?? null
+    );
+  }
   async list(filter: BankStatementListFilter = {}): Promise<readonly BankStatement[]> {
     return [...this.statements.values()]
       .filter((s) => (filter.treasuryAccountId ? s.treasuryAccountId === filter.treasuryAccountId : true))
       .filter((s) => (filter.status ? s.status === filter.status : true))
       .filter((s) => (filter.fromDate ? s.periodStart >= filter.fromDate : true))
       .filter((s) => (filter.toDate ? s.periodEnd <= filter.toDate : true))
+      .filter((s) => (filter.branchIds ? s.branchId === null || filter.branchIds.includes(s.branchId) : true))
       .sort((a, b) => b.importedAt.localeCompare(a.importedAt));
   }
   async saveLines(lines: readonly StatementLine[]): Promise<void> {

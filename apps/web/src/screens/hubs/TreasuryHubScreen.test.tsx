@@ -28,8 +28,8 @@ function TestNavigation({ navigate, children }: { navigate: (screen: string, int
 }
 
 const accounts: TreasuryAccountDTO[] = [
-  { id: "ta-1", code: "CASH-001", name: "صندوق نقدي", nameEn: null, type: "cash", currency: "EGP", branchId: "b1", glAccountId: null, openingBalance: "0.000000", openingBalanceDate: null, guaranteeFacilityLimit: null, status: "active" },
-  { id: "ta-2", code: "CASH-002", name: "صندوق موقوف", nameEn: null, type: "cash", currency: "EGP", branchId: "b1", glAccountId: null, openingBalance: "0.000000", openingBalanceDate: null, guaranteeFacilityLimit: null, status: "inactive" },
+  { id: "ta-1", code: "CASH-001", name: "صندوق نقدي", nameEn: null, type: "cash", currency: "EGP", bankAccountNumber: null, branchId: "b1", glAccountId: null, openingBalance: "0.000000", openingBalanceDate: null, guaranteeFacilityLimit: null, status: "active" },
+  { id: "ta-2", code: "CASH-002", name: "صندوق موقوف", nameEn: null, type: "cash", currency: "EGP", bankAccountNumber: null, branchId: "b1", glAccountId: null, openingBalance: "0.000000", openingBalanceDate: null, guaranteeFacilityLimit: null, status: "inactive" },
 ];
 
 function voucher(overrides: Partial<VoucherRowDTO> = {}): VoucherRowDTO {

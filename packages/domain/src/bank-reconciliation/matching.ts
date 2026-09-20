@@ -16,6 +16,17 @@ export interface TreasuryLedgerCandidate {
   readonly docNo?: string | null;
   readonly reference?: string | null;
   readonly counterparty?: string | null;
+  /**
+   * The currency `amount` is expressed in. A treasury account in a foreign
+   * currency posts base-currency debits and credits to the GL, so the reader
+   * recovers the foreign figure from each line's own booking rate; an entry
+   * whose lines carry no rate cannot be expressed in the account's currency
+   * and reports the base code instead, which is what refuses the match rather
+   * than comparing a base figure with a bank line in another currency.
+   */
+  readonly currency?: string;
+  /** The base-currency figure the books actually hold, whatever `amount` is expressed in. */
+  readonly baseAmount?: Money;
 }
 
 /** Reads the candidate treasury-side movements for one treasury account over a period. */

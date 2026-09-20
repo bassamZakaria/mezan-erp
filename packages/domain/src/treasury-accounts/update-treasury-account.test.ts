@@ -61,6 +61,7 @@ function bankAccount() {
     nameEn: null,
     type: "bank" as const,
     currency: "EGP",
+    bankAccountNumber: null,
     branchId: "b1",
     glAccountId: "1310",
     openingBalance: Money.zero(),

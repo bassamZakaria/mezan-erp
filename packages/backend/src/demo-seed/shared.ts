@@ -68,6 +68,7 @@ export const ACCOUNTS = {
   inventory: "1200",
   cash: "1300-1",
   bank: "1310",
+  bankUsd: "1310-USD",
   inputVat: "1400",
   payable: "2100",
   outputVat: "2200",

@@ -12,9 +12,9 @@ const sampleBranches: BranchDTO[] = [
 ];
 
 const sampleAccounts: TreasuryAccountDTO[] = [
-  { id: "ta-cash1", code: "CASH-001", name: "صندوق نقدي", nameEn: null, type: "cash", currency: "EGP", branchId: "b1", glAccountId: null, openingBalance: "0.000000", openingBalanceDate: null, guaranteeFacilityLimit: null, status: "active" },
-  { id: "ta-cash2", code: "CASH-002", name: "صندوق نقدي الفرع الرئيسي", nameEn: null, type: "cash", currency: "EGP", branchId: "b1", glAccountId: "1300-1", openingBalance: "238.000000", openingBalanceDate: "2026-08-01", guaranteeFacilityLimit: null, status: "active" },
-  { id: "ta-bank1", code: "BANK-001", name: "البنك الأهلي المصري — جاري", nameEn: null, type: "bank", currency: "EGP", branchId: "b1", glAccountId: "1310", openingBalance: "50000.000000", openingBalanceDate: "2026-01-01", guaranteeFacilityLimit: null, status: "active" },
+  { id: "ta-cash1", code: "CASH-001", name: "صندوق نقدي", nameEn: null, type: "cash", currency: "EGP", bankAccountNumber: null, branchId: "b1", glAccountId: null, openingBalance: "0.000000", openingBalanceDate: null, guaranteeFacilityLimit: null, status: "active" },
+  { id: "ta-cash2", code: "CASH-002", name: "صندوق نقدي الفرع الرئيسي", nameEn: null, type: "cash", currency: "EGP", bankAccountNumber: null, branchId: "b1", glAccountId: "1300-1", openingBalance: "238.000000", openingBalanceDate: "2026-08-01", guaranteeFacilityLimit: null, status: "active" },
+  { id: "ta-bank1", code: "BANK-001", name: "البنك الأهلي المصري — جاري", nameEn: null, type: "bank", currency: "EGP", bankAccountNumber: null, branchId: "b1", glAccountId: "1310", openingBalance: "50000.000000", openingBalanceDate: "2026-01-01", guaranteeFacilityLimit: null, status: "active" },
 ];
 
 /** `TextField` renders a plain `<label>` with no `for`/`aria-labelledby`, so

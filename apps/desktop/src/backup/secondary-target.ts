@@ -11,6 +11,17 @@ export interface SecondTargetState {
   readonly lastCopyOk: boolean | null;
   readonly lastCopyFile: string | null;
   readonly lastCopyError: string | null;
+  /**
+   * Filenames THIS machine copied into `dir` that retention has not yet
+   * removed — stored locally, beside `backupsDir` (never inside the shared
+   * `dir` itself), so it never travels to another machine. A second target is
+   * commonly a network share or a USB stick several machines write to; without
+   * this ledger, retention would enumerate every `.sqlite` file it finds there
+   * and prune by GFS bucket across ALL of them, deleting a sibling machine's
+   * still-needed backups. Retention only ever touches a file whose name is in
+   * this list — a file it did not write is invisible to it.
+   */
+  readonly ownFiles: readonly string[];
 }
 
 const EMPTY: SecondTargetState = {
@@ -19,6 +30,7 @@ const EMPTY: SecondTargetState = {
   lastCopyOk: null,
   lastCopyFile: null,
   lastCopyError: null,
+  ownFiles: [],
 };
 
 function settingsPath(backupsDir: string): string {
@@ -27,6 +39,10 @@ function settingsPath(backupsDir: string): string {
 
 function asString(value: unknown): string | null {
   return typeof value === "string" && value !== "" ? value : null;
+}
+
+function asStringArray(value: unknown): readonly string[] {
+  return Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : [];
 }
 
 export async function readSecondTarget(backupsDir: string): Promise<SecondTargetState> {
@@ -38,6 +54,7 @@ export async function readSecondTarget(backupsDir: string): Promise<SecondTarget
       lastCopyOk: typeof raw["lastCopyOk"] === "boolean" ? raw["lastCopyOk"] : null,
       lastCopyFile: asString(raw["lastCopyFile"]),
       lastCopyError: asString(raw["lastCopyError"]),
+      ownFiles: asStringArray(raw["ownFiles"]),
     };
   } catch {
     return EMPTY;
@@ -60,9 +77,11 @@ export async function setSecondTargetDir(backupsDir: string, dir: string | null)
 
 /**
  * Copies one sealed archive to the operator's second folder (a USB stick or a
- * share) and prunes that folder with the same GFS policy. Never throws: a
- * missing stick must not fail the backup it follows. The outcome is kept so the
- * screen can say the last copy failed instead of letting a silent gap grow.
+ * share) and prunes THIS MACHINE'S OWN files there with the same GFS policy —
+ * never a file another machine wrote, even if it sits in the same folder (see
+ * {@link SecondTargetState.ownFiles}). Never throws: a missing stick must not
+ * fail the backup it follows. The outcome is kept so the screen can say the
+ * last copy failed instead of letting a silent gap grow.
  */
 export async function copyToSecondTarget(backupsDir: string, archivePath: string, now = new Date()): Promise<SecondTargetState> {
   const current = await readSecondTarget(backupsDir);
@@ -80,13 +99,23 @@ export async function copyToSecondTarget(backupsDir: string, archivePath: string
       throw new Error(`copied ${copied.size} of ${source.size} bytes`);
     }
     await rename(partial, target);
+    const ownAfterCopy = new Set([...current.ownFiles, fileName]);
     const existing = await listBackups(current.dir);
-    const { remove } = applyRetention(
-      existing.map((b) => ({ id: b.path, createdAt: b.createdAt })),
+    const ownCandidates = existing.filter((b) => ownAfterCopy.has(path.basename(b.path)));
+    const { remove, keep } = applyRetention(
+      ownCandidates.map((b) => ({ id: b.path, createdAt: b.createdAt })),
       DEFAULT_RETENTION_POLICY,
     );
     for (const r of remove) await rm(r.id, { force: true });
-    next = { ...current, lastCopyAt: now.toISOString(), lastCopyOk: true, lastCopyFile: fileName, lastCopyError: null };
+    const survivingOwnFiles = keep.map((k) => path.basename(k.id));
+    next = {
+      ...current,
+      ownFiles: survivingOwnFiles,
+      lastCopyAt: now.toISOString(),
+      lastCopyOk: true,
+      lastCopyFile: fileName,
+      lastCopyError: null,
+    };
   } catch (err) {
     await rm(partial, { force: true }).catch(() => undefined);
     next = {

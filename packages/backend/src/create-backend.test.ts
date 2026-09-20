@@ -215,8 +215,8 @@ function invoiceBody(id: string, customerId: string, unitPrice: string) {
     dueDate: "2026-09-21",
     customerId,
     customerNameAr: `عميل ${customerId}`,
-    warehouseId: "WH1",
-    branchId: "BR1",
+    warehouseId: "WH-MAIN",
+    branchId: "BR-MAIN",
     arAccountId: "1105",
     taxAccountId: "2200",
     lines: [
@@ -280,7 +280,7 @@ describe("createBackend — sales-quotes, price-lists, promotions, credit contro
       expiryDate: "2026-09-22",
       customerId: "cust-q1",
       customerNameAr: "عميل cust-q1",
-      branchId: "BR1",
+      branchId: "BR-MAIN",
       lines: [
         {
           lineId: "L1",
@@ -305,7 +305,7 @@ describe("createBackend — sales-quotes, price-lists, promotions, credit contro
       id: "conv-inv-1",
       date: "2026-08-22",
       dueDate: "2026-09-21",
-      warehouseId: "WH1",
+      warehouseId: "WH-MAIN",
       arAccountId: "1105",
       taxAccountId: "2200",
       lines: [{ lineId: "L1", isStock: false, revenueAccountId: "4100" }],
@@ -394,7 +394,7 @@ describe("createBackend — cheques + bank reconciliation (phase7/treasury-compl
         amount: "1000.00",
         issueDate: new Date().toISOString().slice(0, 10),
         dueDate: new Date().toISOString().slice(0, 10),
-        branchId: "BR1",
+        branchId: "BR-MAIN",
         partyId: "cust-1",
         counterpartyGlAccountId: "1105",
         controlAccounts: { underCollectionAccountId: "1320", bouncedAccountId: "1360" },
@@ -426,7 +426,7 @@ describe("createBackend — cheques + bank reconciliation (phase7/treasury-compl
         amount: "500.00",
         issueDate: new Date().toISOString().slice(0, 10),
         dueDate: new Date().toISOString().slice(0, 10),
-        branchId: "BR1",
+        branchId: "BR-MAIN",
         partyId: "sup-1",
         counterpartyGlAccountId: "2100",
         controlAccounts: { underCollectionAccountId: "2150" },
@@ -456,7 +456,7 @@ describe("createBackend — cheques + bank reconciliation (phase7/treasury-compl
         amount: "1750.00",
         issueDate: "2026-08-22",
         dueDate: "2026-08-30",
-        branchId: "BR1",
+        branchId: "BR-MAIN",
         partyId: "cust-chq",
         counterpartyGlAccountId: "1105",
         controlAccounts: { underCollectionAccountId: "1320", bouncedAccountId: "1360" },
@@ -1340,7 +1340,7 @@ describe("createBackend — a return of a VAT invoice credits the VAT (B-3)", ()
       id: "sr-vat-1",
       date: "2026-08-23",
       memo: "مرتجع بضاعة",
-      warehouseId: "WH1",
+      warehouseId: "WH-MAIN",
       sourceInvoiceId: "inv-vat-1",
       reason: "OTHER",
       requested: [{ itemId: "SVC-1", qty: "1" }],
@@ -1507,7 +1507,7 @@ describe("createBackend — ETA enqueue bridge (D122)", () => {
       lines: [
         {
           itemId: "SVC-1",
-          warehouseId: "WH1",
+          warehouseId: "WH-MAIN",
           customerId: "cust-eta-2",
           sourceInvoiceId: invoice.id,
           sourceInvoiceNumber: invoice.docNo,
@@ -1656,7 +1656,7 @@ describe("createBackend — the e-receipt path (D282–D284)", () => {
       id: "sr-r-4",
       date: "2026-08-23",
       memo: "مرتجع",
-      warehouseId: "WH1",
+      warehouseId: "WH-MAIN",
       sourceInvoiceId: sale.id,
       reason: "DEFECTIVE",
       requested: [{ itemId: "SVC-1", qty: "1" }],
@@ -1867,7 +1867,7 @@ describe("createBackend — تحصيل من عميل (collect) posts a real bala
     const res = await post(
       app,
       "/treasury-accounts",
-      { id, code: id, name: "الخزينة الرئيسية", branchId: "BR1", glAccountId: "1300-1", type: "cash", currency: "EGP", openingBalance },
+      { id, code: id, name: "الخزينة الرئيسية", branchId: "BR-MAIN", glAccountId: "1300-1", type: "cash", currency: "EGP", openingBalance },
       admin(app),
     );
     expect(res.status).toBe(201);
@@ -3002,7 +3002,7 @@ describe("createBackend — the reconciliation tie at a NON-ZERO balance", () =>
     const ta = await post(
       app,
       "/treasury-accounts",
-      { id: "ta-onacct", code: "TA-ONACCT", name: "خزينة", branchId: "BR1", glAccountId: "1300-1" },
+      { id: "ta-onacct", code: "TA-ONACCT", name: "خزينة", branchId: "BR-MAIN", glAccountId: "1300-1" },
       admin(app),
     );
     expect(ta.status).toBe(201);
@@ -3015,7 +3015,7 @@ describe("createBackend — the reconciliation tie at a NON-ZERO balance", () =>
         date: "2026-08-22",
         voucherType: "customer_collection",
         amount: "300.00",
-        branchId: "BR1",
+        branchId: "BR-MAIN",
         paymentMethod: "cash",
         treasuryAccountId: "ta-onacct",
         treasuryGlAccountId: "1300-1",
@@ -3054,7 +3054,7 @@ describe("createBackend — the reconciliation tie at a NON-ZERO balance", () =>
         amount: "250.00",
         issueDate: "2026-08-22",
         dueDate: "2026-08-22",
-        branchId: "BR1",
+        branchId: "BR-MAIN",
         partyId: "cust-chq-recon",
         counterpartyGlAccountId: "1105",
         controlAccounts: { underCollectionAccountId: "1320", bouncedAccountId: "1360" },
@@ -3079,7 +3079,7 @@ describe("createBackend — the reconciliation tie at a NON-ZERO balance", () =>
     const ta = await post(
       app,
       "/treasury-accounts",
-      { id: "ta-payacct", code: "TA-PAYACCT", name: "خزينة", branchId: "BR1", glAccountId: "1300-1" },
+      { id: "ta-payacct", code: "TA-PAYACCT", name: "خزينة", branchId: "BR-MAIN", glAccountId: "1300-1" },
       admin(app),
     );
     expect(ta.status).toBe(201);
@@ -3121,7 +3121,7 @@ describe("createBackend — the reconciliation tie at a NON-ZERO balance", () =>
         date: "2026-08-22",
         voucherType: "supplier_payment",
         amount: "200.00",
-        branchId: "BR1",
+        branchId: "BR-MAIN",
         paymentMethod: "cash",
         treasuryAccountId: "ta-payacct",
         treasuryGlAccountId: "1300-1",
@@ -3211,10 +3211,10 @@ describe("createBackend — a purchase invoice nets its confirmed returns (D216,
   }
   async function cashTreasury(app: App) {
     expect(
-      (await post(app, "/treasury-accounts", { id: "ta-cash", code: "TA-CASH", name: "الخزينة", branchId: "BR1", glAccountId: "1300-1", openingBalance: "0" }, admin(app))).status,
+      (await post(app, "/treasury-accounts", { id: "ta-cash", code: "TA-CASH", name: "الخزينة", branchId: "BR-MAIN", glAccountId: "1300-1", openingBalance: "0" }, admin(app))).status,
     ).toBe(201);
     const fund = {
-      id: "v-fund", date: "2026-08-22", voucherType: "capital_injection", amount: "5000", branchId: "BR1", paymentMethod: "cash",
+      id: "v-fund", date: "2026-08-22", voucherType: "capital_injection", amount: "5000", branchId: "BR-MAIN", paymentMethod: "cash",
       treasuryAccountId: "ta-cash", treasuryGlAccountId: "1300-1", counterpartyGlAccountId: "3100",
     };
     expect((await post(app, "/vouchers", fund, admin(app))).status).toBe(201);
@@ -3498,7 +3498,7 @@ describe("createBackend — استرداد للعميل: refunding a confirmed s
     const ta = await post(
       app,
       "/treasury-accounts",
-      { id: "ta-refund", code: "TA-REFUND", name: "خزينة", branchId: "BR1", glAccountId: "1300-1", openingBalance: "1000" },
+      { id: "ta-refund", code: "TA-REFUND", name: "خزينة", branchId: "BR-MAIN", glAccountId: "1300-1", openingBalance: "1000" },
       admin(app),
     );
     expect(ta.status).toBe(201);
@@ -3527,7 +3527,7 @@ describe("createBackend — استرداد للعميل: refunding a confirmed s
         lines: [
           {
             itemId: "SVC-1",
-            warehouseId: "WH1",
+            warehouseId: "WH-MAIN",
             customerId: "cust-refund",
             sourceInvoiceId: invoice.id,
             sourceInvoiceNumber: invoice.docNo,
@@ -3987,6 +3987,12 @@ describe("createBackend — the purchasing policy toggles are enforced (D72)", (
     ).toBe(201);
   }
 
+  async function seedSupplier(app: Awaited<ReturnType<typeof newBackend>>, id: string) {
+    expect(
+      (await post(app, "/suppliers", { id, code: id, nameAr: "مورد", openingBalance: "0" }, admin(app))).status,
+    ).toBe(201);
+  }
+
   function adHocReceipt(id: string, itemId: string) {
     return {
       id,
@@ -4001,6 +4007,7 @@ describe("createBackend — the purchasing policy toggles are enforced (D72)", (
   it("allows an ad-hoc goods receipt while requirePoForGrn is off", async () => {
     const app = await newBackend();
     await seedItem(app, "item-d72a");
+    await seedSupplier(app, "SUP-1");
     const res = await post(app, "/purchases/receipts", adHocReceipt("grn-d72a", "item-d72a"), admin(app));
     expect(res.status).toBe(201);
   });
@@ -4438,7 +4445,7 @@ describe("createBackend — FX aging, the customers screen and cheque vouchers (
     const res = await post(
       app,
       "/treasury-accounts",
-      { id: "ta-cash", code: "TA-CASH", name: "الخزينة", branchId: "BR1", glAccountId: "1300-1", openingBalance: "0" },
+      { id: "ta-cash", code: "TA-CASH", name: "الخزينة", branchId: "BR-MAIN", glAccountId: "1300-1", openingBalance: "0" },
       admin(app),
     );
     expect(res.status).toBe(201);
@@ -4449,7 +4456,7 @@ describe("createBackend — FX aging, the customers screen and cheque vouchers (
       date: "2026-08-22",
       voucherType: "customer_collection",
       amount,
-      branchId: "BR1",
+      branchId: "BR-MAIN",
       paymentMethod: "cash",
       treasuryAccountId: "ta-cash",
       treasuryGlAccountId: "1300-1",
@@ -4531,8 +4538,8 @@ describe("createBackend — FX aging, the customers screen and cheque vouchers (
         supplierId: "sup-sar",
         date: "2026-08-22",
         dueDate: "2026-09-21",
-        branchId: "BR1",
-        warehouseId: "WH1",
+        branchId: "BR-MAIN",
+        warehouseId: "WH-MAIN",
         currency: "SAR",
         lines: [{ description: "خدمة بالريال", kind: "expense", qty: "1", unitCost: "100", taxRatePercent: 0 }],
       },
@@ -4645,7 +4652,7 @@ describe("createBackend — FX aging, the customers screen and cheque vouchers (
     const replaced = await post(
       app,
       "/cheques/v-chq/replace",
-      { newCheque: { id: "chq-196-b", chequeNumber: "CHQ-196-B", bankName: "بنك مصر", issueDate: "2026-08-26", dueDate: "2026-09-10", branchId: "BR1" } },
+      { newCheque: { id: "chq-196-b", chequeNumber: "CHQ-196-B", bankName: "بنك مصر", issueDate: "2026-08-26", dueDate: "2026-09-10", branchId: "BR-MAIN" } },
       admin(app),
     );
     expect(replaced.status).toBe(201);
@@ -4667,7 +4674,7 @@ describe("createBackend — FX aging, the customers screen and cheque vouchers (
       date: "2026-08-22",
       voucherType: "supplier_payment",
       amount: "300",
-      branchId: "BR1",
+      branchId: "BR-MAIN",
       paymentMethod: "cheque",
       treasuryAccountId: "ta-cash",
       treasuryGlAccountId: "1300-1",
@@ -4697,7 +4704,7 @@ describe("createBackend — party balances no invoice carries, and one figure pe
     const res = await post(
       app,
       "/treasury-accounts",
-      { id: "ta-cash", code: "TA-CASH", name: "الخزينة", branchId: "BR1", glAccountId: "1300-1", openingBalance: "0" },
+      { id: "ta-cash", code: "TA-CASH", name: "الخزينة", branchId: "BR-MAIN", glAccountId: "1300-1", openingBalance: "0" },
       admin(app),
     );
     expect(res.status).toBe(201);
@@ -4831,7 +4838,7 @@ describe("createBackend — party balances no invoice carries, and one figure pe
     }));
     expect((await post(app, "/suppliers", { id: "sup-sar", code: "sup-sar", nameAr: "مورد بالريال", currency: "SAR", openingBalance: "0" }, admin(app))).status).toBe(201);
     const bill = await post(app, "/purchases/invoices", {
-      id: "pi-sar", supplierId: "sup-sar", date: "2026-08-22", dueDate: "2026-09-21", branchId: "BR1", warehouseId: "WH1", currency: "SAR",
+      id: "pi-sar", supplierId: "sup-sar", date: "2026-08-22", dueDate: "2026-09-21", branchId: "BR-MAIN", warehouseId: "WH-MAIN", currency: "SAR",
       lines: [{ description: "خدمة بالريال", kind: "expense", qty: "1", unitCost: "100", taxRatePercent: 0 }],
     }, admin(app));
     expect(bill.status).toBe(201);
@@ -4848,14 +4855,14 @@ describe("createBackend — party balances no invoice carries, and one figure pe
     const app = await newBackend();
     await cashTreasury(app);
     const fund = {
-      id: "v-fund", date: "2026-08-22", voucherType: "capital_injection", amount: "5000", branchId: "BR1", paymentMethod: "cash",
+      id: "v-fund", date: "2026-08-22", voucherType: "capital_injection", amount: "5000", branchId: "BR-MAIN", paymentMethod: "cash",
       treasuryAccountId: "ta-cash", treasuryGlAccountId: "1300-1", counterpartyGlAccountId: "3100",
     };
     expect((await post(app, "/vouchers", fund, admin(app))).status).toBe(201);
     expect((await post(app, "/vouchers/v-fund/confirm", {}, admin(app))).status).toBe(200);
     expect((await post(app, "/suppliers", { id: "sup-wht", code: "sup-wht", nameAr: "مورد خاضع", openingBalance: "0" }, admin(app))).status).toBe(201);
     const voucher = await post(app, "/vouchers", {
-      id: "v-wht", date: "2026-08-22", voucherType: "supplier_payment", amount: "1000", branchId: "BR1", paymentMethod: "cash",
+      id: "v-wht", date: "2026-08-22", voucherType: "supplier_payment", amount: "1000", branchId: "BR-MAIN", paymentMethod: "cash",
       treasuryAccountId: "ta-cash", treasuryGlAccountId: "1300-1", counterpartyGlAccountId: "2100", supplierId: "sup-wht",
       withholdingRatePercent: 3, withholdingAmount: "30", withholdingGlAccountId: "2210",
     }, admin(app));
@@ -5018,7 +5025,7 @@ describe("createBackend — foreign documents settle and return in base (D202, D
     );
     expect(put.status).toBe(200);
     expect(
-      (await post(app, "/treasury-accounts", { id: "ta-cash", code: "TA-CASH", name: "الخزينة", branchId: "BR1", glAccountId: "1300-1", openingBalance: "0" }, admin(app))).status,
+      (await post(app, "/treasury-accounts", { id: "ta-cash", code: "TA-CASH", name: "الخزينة", branchId: "BR-MAIN", glAccountId: "1300-1", openingBalance: "0" }, admin(app))).status,
     ).toBe(201);
   }
 
@@ -5060,8 +5067,8 @@ describe("createBackend — foreign documents settle and return in base (D202, D
         supplierId: "sup-sar",
         date: "2026-08-22",
         dueDate: "2026-09-21",
-        branchId: "BR1",
-        warehouseId: "WH1",
+        branchId: "BR-MAIN",
+        warehouseId: "WH-MAIN",
         currency: "SAR",
         lines: [{ description: "خدمة بالريال", kind: "expense", qty: "1", unitCost: "100", taxRatePercent: 0 }],
       },
@@ -5092,7 +5099,7 @@ describe("createBackend — foreign documents settle and return in base (D202, D
     expect((await authedPost(app, "/sales-invoices/inv-ret/confirm", {})).status).toBe(200);
     expect((await post(app, "/sales-invoices/inv-ret/payments", { amount: "200", treasuryAccountId: "ta-cash", date: "2026-08-22" }, admin(app))).status).toBe(200);
     expect((await post(app, "/sales-returns/from-invoice", {
-      id: "sr-ret", date: "2026-08-23", memo: "", warehouseId: "WH1", sourceInvoiceId: "inv-ret", reason: "OTHER", requested: [{ itemId: "SVC-1", qty: "1" }],
+      id: "sr-ret", date: "2026-08-23", memo: "", warehouseId: "WH-MAIN", sourceInvoiceId: "inv-ret", reason: "OTHER", requested: [{ itemId: "SVC-1", qty: "1" }],
     }, admin(app))).status).toBe(201);
     expect((await post(app, "/sales-returns/sr-ret/confirm", {}, admin(app))).status).toBe(200);
     expect((await get(app, "/sales-invoices/inv-ret")).remainingBalance).toBe("300.000000");
@@ -5124,7 +5131,7 @@ describe("createBackend — foreign documents settle and return in base (D202, D
     expect(await glBalance(app, "1105")).toBe(9600);
 
     const fromInvoice = await post(app, "/sales-returns/from-invoice", {
-      id: "sr-usd", date: "2026-08-23", memo: "", warehouseId: "WH1", sourceInvoiceId: "inv-usd", reason: "OTHER", requested: [{ itemId: "SVC-1", qty: "1" }],
+      id: "sr-usd", date: "2026-08-23", memo: "", warehouseId: "WH-MAIN", sourceInvoiceId: "inv-usd", reason: "OTHER", requested: [{ itemId: "SVC-1", qty: "1" }],
     }, admin(app));
     expect(fromInvoice.status).toBe(201);
     expect((await post(app, "/sales-returns/sr-usd/confirm", {}, admin(app))).status).toBe(200);
@@ -5138,7 +5145,7 @@ describe("createBackend — foreign documents settle and return in base (D202, D
     const raw = await post(app, "/sales-returns", {
       id: "sr-usd2", date: "2026-08-23", memo: "",
       lines: [{
-        itemId: "SVC-1", warehouseId: "WH1", customerId: "cust-usd", sourceInvoiceId: "inv-usd2", sourceInvoiceNumber: null, reason: "OTHER",
+        itemId: "SVC-1", warehouseId: "WH-MAIN", customerId: "cust-usd", sourceInvoiceId: "inv-usd2", sourceInvoiceNumber: null, reason: "OTHER",
         availableQty: "1", qty: "1", unitPrice: "100", unitCost: "0", taxAmount: "0", fxRate: "1", currency: "EGP",
       }],
     }, admin(app));
@@ -5195,7 +5202,7 @@ describe("createBackend — foreign documents settle and return in base (D202, D
     await multiCurrency(app);
     expect((await post(app, "/suppliers", { id: "sup-sar", code: "sup-sar", nameAr: "مورد بالريال", currency: "SAR", openingBalance: "0" }, admin(app))).status).toBe(201);
     expect((await post(app, "/purchases/invoices", {
-      id: "pi-sar", supplierId: "sup-sar", date: "2026-08-22", dueDate: "2026-09-21", branchId: "BR1", warehouseId: "WH1", currency: "SAR",
+      id: "pi-sar", supplierId: "sup-sar", date: "2026-08-22", dueDate: "2026-09-21", branchId: "BR-MAIN", warehouseId: "WH-MAIN", currency: "SAR",
       lines: [{ description: "خدمة بالريال", kind: "expense", qty: "1", unitCost: "100", taxRatePercent: 0 }],
     }, admin(app))).status).toBe(201);
     expect((await post(app, "/purchases/invoices/pi-sar/confirm", {}, admin(app))).status).toBe(200);
@@ -5208,7 +5215,7 @@ describe("createBackend — foreign documents settle and return in base (D202, D
     }, admin(app))).status).toBeLessThan(300);
 
     expect((await post(app, "/vouchers", {
-      id: "v-sar", date: "2026-08-26", voucherType: "supplier_payment", amount: "100", currency: "SAR", branchId: "BR1", paymentMethod: "cash",
+      id: "v-sar", date: "2026-08-26", voucherType: "supplier_payment", amount: "100", currency: "SAR", branchId: "BR-MAIN", paymentMethod: "cash",
       treasuryAccountId: "ta-cash", treasuryGlAccountId: "1300-1", counterpartyGlAccountId: "2100", supplierId: "sup-sar",
     }, admin(app))).status).toBe(201);
     expect((await post(app, "/vouchers/v-sar/confirm", {}, admin(app))).status).toBe(200);
@@ -5246,7 +5253,7 @@ describe("createBackend — foreign documents settle and return in base (D202, D
     expect((await authedPost(app, "/sales-invoices", { ...invoiceBody("inv-usd", "cust-usd", "100"), currency: "USD" })).status).toBe(201);
     expect((await authedPost(app, "/sales-invoices/inv-usd/confirm", {})).status).toBe(200);
     expect((await post(app, "/vouchers", {
-      id: "v-early", date: "2026-07-15", voucherType: "customer_collection", amount: "4800", branchId: "BR1", paymentMethod: "cash",
+      id: "v-early", date: "2026-07-15", voucherType: "customer_collection", amount: "4800", branchId: "BR-MAIN", paymentMethod: "cash",
       treasuryAccountId: "ta-cash", treasuryGlAccountId: "1300-1", counterpartyGlAccountId: "1105", customerId: "cust-usd",
     }, admin(app))).status).toBe(201);
     expect((await post(app, "/vouchers/v-early/confirm", {}, admin(app))).status).toBe(200);
@@ -5268,13 +5275,13 @@ describe("createBackend — foreign documents settle and return in base (D202, D
     const open = async () => (await get(app, "/open-invoices?kind=sales&partyId=cust-ret")) as { id: string; outstanding: string; returned: string }[];
     expect((await open()).map((row) => row.outstanding)).toEqual(["1000.000000"]);
     expect((await post(app, "/sales-returns/from-invoice", {
-      id: "sr-ret", date: "2026-08-23", memo: "", warehouseId: "WH1", sourceInvoiceId: "inv-ret", reason: "OTHER", requested: [{ itemId: "SVC-1", qty: "1" }],
+      id: "sr-ret", date: "2026-08-23", memo: "", warehouseId: "WH-MAIN", sourceInvoiceId: "inv-ret", reason: "OTHER", requested: [{ itemId: "SVC-1", qty: "1" }],
     }, admin(app))).status).toBe(201);
     expect((await post(app, "/sales-returns/sr-ret/confirm", {}, admin(app))).status).toBe(200);
     expect(await open()).toEqual([]);
 
     expect((await post(app, "/vouchers", {
-      id: "v-ret", date: "2026-08-24", voucherType: "customer_collection", amount: "1000", branchId: "BR1", paymentMethod: "cash",
+      id: "v-ret", date: "2026-08-24", voucherType: "customer_collection", amount: "1000", branchId: "BR-MAIN", paymentMethod: "cash",
       treasuryAccountId: "ta-cash", treasuryGlAccountId: "1300-1", counterpartyGlAccountId: "1105", customerId: "cust-ret",
     }, admin(app))).status).toBe(201);
     expect((await post(app, "/vouchers/v-ret/confirm", {}, admin(app))).status).toBe(200);
@@ -5293,7 +5300,7 @@ describe("createBackend — foreign documents settle and return in base (D202, D
     expect((await authedPost(app, "/sales-invoices", { ...body, lines: body.lines.map((line) => ({ ...line, qty: "2" })) })).status).toBe(201);
     expect((await authedPost(app, "/sales-invoices/inv-usd/confirm", {})).status).toBe(200);
     expect((await post(app, "/sales-returns/from-invoice", {
-      id: "sr-half", date: "2026-08-23", memo: "", warehouseId: "WH1", sourceInvoiceId: "inv-usd", reason: "OTHER", requested: [{ itemId: "SVC-1", qty: "1" }],
+      id: "sr-half", date: "2026-08-23", memo: "", warehouseId: "WH-MAIN", sourceInvoiceId: "inv-usd", reason: "OTHER", requested: [{ itemId: "SVC-1", qty: "1" }],
     }, admin(app))).status).toBe(201);
     expect((await post(app, "/sales-returns/sr-half/confirm", {}, admin(app))).status).toBe(200);
     expect(await glBalance(app, "1105")).toBe(2400);
@@ -5427,7 +5434,7 @@ describe("createBackend — foreign documents settle and return in base (D202, D
     expect((await post(app, "/items", { id: "item-prj", code: "ITEM-PRJ", nameAr: "حديد", type: "stock", baseUnitCode: "PCS", costingMethod: "WAC" }, admin(app))).status).toBe(201);
     expect((await post(app, "/suppliers", { id: "sup-prj", code: "sup-prj", nameAr: "مورد المشروع", openingBalance: "0" }, admin(app))).status).toBe(201);
     expect((await post(app, "/purchases/invoices", {
-      id: "pi-prj", supplierId: "sup-prj", date: "2026-08-22", dueDate: "2026-09-21", branchId: "BR1", warehouseId: "WH1", projectId: "proj-1",
+      id: "pi-prj", supplierId: "sup-prj", date: "2026-08-22", dueDate: "2026-09-21", branchId: "BR-MAIN", warehouseId: "WH-MAIN", projectId: "proj-1",
       lines: [{ itemId: "item-prj", description: "حديد", kind: "inventory", qty: "10", unitCost: "20", taxRatePercent: 14, costCategory: "materials" }],
     }, admin(app))).status).toBe(201);
     expect((await post(app, "/purchases/invoices/pi-prj/confirm", {}, admin(app))).status).toBe(200);
@@ -5435,7 +5442,7 @@ describe("createBackend — foreign documents settle and return in base (D202, D
     const created = await post(app, "/purchase-returns", {
       id: "pr-prj", date: "2026-08-23", memo: "",
       lines: [{
-        itemId: "item-prj", warehouseId: "WH1", supplierId: "sup-prj", sourceInvoiceId: "pi-prj", sourceInvoiceNumber: null, reason: "DEFECTIVE",
+        itemId: "item-prj", warehouseId: "WH-MAIN", supplierId: "sup-prj", sourceInvoiceId: "pi-prj", sourceInvoiceNumber: null, reason: "DEFECTIVE",
         availableQty: "10", qty: "2", unitCost: "20", taxAmount: "5.60", taxRatePercent: 14,
       }],
     }, admin(app));
@@ -5452,7 +5459,7 @@ describe("createBackend — foreign documents settle and return in base (D202, D
     expect((await post(app, "/items", { id: "item-sar", code: "ITEM-SAR", nameAr: "صنف بالريال", type: "stock", baseUnitCode: "PCS", costingMethod: "WAC" }, admin(app))).status).toBe(201);
     expect((await post(app, "/suppliers", { id: "sup-sar", code: "sup-sar", nameAr: "مورد بالريال", currency: "SAR", openingBalance: "0" }, admin(app))).status).toBe(201);
     const bill = await post(app, "/purchases/invoices", {
-      id: "pi-sar", supplierId: "sup-sar", date: "2026-08-22", dueDate: "2026-09-21", branchId: "BR1", warehouseId: "WH1", currency: "SAR",
+      id: "pi-sar", supplierId: "sup-sar", date: "2026-08-22", dueDate: "2026-09-21", branchId: "BR-MAIN", warehouseId: "WH-MAIN", currency: "SAR",
       lines: [{ itemId: "item-sar", description: "صنف بالريال", kind: "inventory", qty: "10", unitCost: "20", taxRatePercent: 14 }],
     }, admin(app));
     expect(bill.status).toBe(201);
@@ -5462,7 +5469,7 @@ describe("createBackend — foreign documents settle and return in base (D202, D
     const created = await post(app, "/purchase-returns", {
       id: "pr-sar", date: "2026-08-23", memo: "",
       lines: [{
-        itemId: "item-sar", warehouseId: "WH1", supplierId: "sup-sar", sourceInvoiceId: "pi-sar", sourceInvoiceNumber: confirmed.number, reason: "DEFECTIVE",
+        itemId: "item-sar", warehouseId: "WH-MAIN", supplierId: "sup-sar", sourceInvoiceId: "pi-sar", sourceInvoiceNumber: confirmed.number, reason: "DEFECTIVE",
         availableQty: "10", qty: "3", unitCost: "20", taxAmount: "8.40", taxRatePercent: 14, fxRate: "1", currency: "EGP",
       }],
     }, admin(app));
@@ -5521,7 +5528,7 @@ describe("createBackend — foreign documents settle and return in base (D202, D
     await approvedRate(app, "fx-usd-50", "USD", "50.00", "2026-08-25");
     await approvedRate(app, "fx-usd-47", "USD", "47.00", "2026-08-30");
     expect((await post(app, "/vouchers", {
-      id: "v-half", date: "2026-08-26", voucherType: "customer_collection", amount: "2500", branchId: "BR1", paymentMethod: "cash",
+      id: "v-half", date: "2026-08-26", voucherType: "customer_collection", amount: "2500", branchId: "BR-MAIN", paymentMethod: "cash",
       treasuryAccountId: "ta-cash", treasuryGlAccountId: "1300-1", counterpartyGlAccountId: "1105", customerId: "cust-usd",
     }, admin(app))).status).toBe(201);
     expect((await post(app, "/vouchers/v-half/confirm", {}, admin(app))).status).toBe(200);
@@ -5554,7 +5561,7 @@ describe("createBackend — foreign documents settle and return in base (D202, D
     await multiCurrency(app);
     expect((await post(app, "/suppliers", { id: "sup-usd", code: "sup-usd", nameAr: "مورد بالدولار", currency: "USD", openingBalance: "0" }, admin(app))).status).toBe(201);
     expect((await post(app, "/purchases/invoices", {
-      id: "pi-usd", supplierId: "sup-usd", date: "2026-08-22", dueDate: "2026-09-21", branchId: "BR1", warehouseId: "WH1", currency: "USD",
+      id: "pi-usd", supplierId: "sup-usd", date: "2026-08-22", dueDate: "2026-09-21", branchId: "BR-MAIN", warehouseId: "WH-MAIN", currency: "USD",
       lines: [{ description: "خدمة بالدولار", kind: "expense", qty: "1", unitCost: "100", taxRatePercent: 0 }],
     }, admin(app))).status).toBe(201);
     expect((await post(app, "/purchases/invoices/pi-usd/confirm", {}, admin(app))).status).toBe(200);
@@ -5567,7 +5574,7 @@ describe("createBackend — foreign documents settle and return in base (D202, D
     await approvedRate(app, "fx-usd-50", "USD", "50.00", "2026-08-25");
     await approvedRate(app, "fx-usd-47", "USD", "47.00", "2026-08-30");
     expect((await post(app, "/vouchers", {
-      id: "v-chq", date: "2026-08-26", voucherType: "supplier_payment", amount: "5000", branchId: "BR1", paymentMethod: "cheque", referenceNo: "OUT-260",
+      id: "v-chq", date: "2026-08-26", voucherType: "supplier_payment", amount: "5000", branchId: "BR-MAIN", paymentMethod: "cheque", referenceNo: "OUT-260",
       treasuryAccountId: "ta-cash", treasuryGlAccountId: "1300-1", counterpartyGlAccountId: "2100", supplierId: "sup-usd",
     }, admin(app))).status).toBe(201);
     expect((await post(app, "/vouchers/v-chq/confirm", {}, admin(app))).status).toBe(200);
@@ -5622,7 +5629,7 @@ describe("createBackend — foreign documents settle and return in base (D202, D
     expect((await authedPost(app, "/sales-invoices/inv-usd/confirm", {})).status).toBe(200);
     await approvedRate(app, "fx-usd-50", "USD", "50.00", "2026-08-25");
     expect((await post(app, "/vouchers", {
-      id: "v-half", date: "2026-08-26", voucherType: "customer_collection", amount: "2500", branchId: "BR1", paymentMethod: "cash",
+      id: "v-half", date: "2026-08-26", voucherType: "customer_collection", amount: "2500", branchId: "BR-MAIN", paymentMethod: "cash",
       treasuryAccountId: "ta-cash", treasuryGlAccountId: "1300-1", counterpartyGlAccountId: "1105", customerId: "cust-usd",
     }, admin(app))).status).toBe(201);
     expect((await post(app, "/vouchers/v-half/confirm", {}, admin(app))).status).toBe(200);
@@ -5683,10 +5690,10 @@ describe("createBackend — a ladder run as of a past day ties to its control ac
   }
   async function fundedCash(app: App) {
     expect(
-      (await post(app, "/treasury-accounts", { id: "ta-cash", code: "TA-CASH", name: "الخزينة", branchId: "BR1", glAccountId: "1300-1", openingBalance: "0" }, admin(app))).status,
+      (await post(app, "/treasury-accounts", { id: "ta-cash", code: "TA-CASH", name: "الخزينة", branchId: "BR-MAIN", glAccountId: "1300-1", openingBalance: "0" }, admin(app))).status,
     ).toBe(201);
     expect((await post(app, "/vouchers", {
-      id: "v-fund", date: "2026-08-01", voucherType: "capital_injection", amount: "50000", branchId: "BR1", paymentMethod: "cash",
+      id: "v-fund", date: "2026-08-01", voucherType: "capital_injection", amount: "50000", branchId: "BR-MAIN", paymentMethod: "cash",
       treasuryAccountId: "ta-cash", treasuryGlAccountId: "1300-1", counterpartyGlAccountId: "3100",
     }, admin(app))).status).toBe(201);
     expect((await post(app, "/vouchers/v-fund/confirm", {}, admin(app))).status).toBe(200);
@@ -5709,11 +5716,11 @@ describe("createBackend — a ladder run as of a past day ties to its control ac
     expect((await authedPost(app, "/sales-invoices/inv-v/confirm", {})).status).toBe(200);
     expect((await post(app, "/sales-invoices/inv-a/payments", { amount: "400", treasuryAccountId: "ta-cash", date: "2026-08-10" }, admin(app))).status).toBe(200);
     expect((await post(app, "/sales-returns/from-invoice", {
-      id: "sr-asof", date: "2026-08-12", memo: "", warehouseId: "WH1", sourceInvoiceId: "inv-a", reason: "OTHER", requested: [{ itemId: "SVC-1", qty: "1" }],
+      id: "sr-asof", date: "2026-08-12", memo: "", warehouseId: "WH-MAIN", sourceInvoiceId: "inv-a", reason: "OTHER", requested: [{ itemId: "SVC-1", qty: "1" }],
     }, admin(app))).status).toBe(201);
     expect((await post(app, "/sales-returns/sr-asof/confirm", {}, admin(app))).status).toBe(200);
     const receipt = (id: string, date: string, amount: string) => ({
-      id, date, voucherType: "customer_collection", amount, branchId: "BR1", paymentMethod: "cash",
+      id, date, voucherType: "customer_collection", amount, branchId: "BR-MAIN", paymentMethod: "cash",
       treasuryAccountId: "ta-cash", treasuryGlAccountId: "1300-1", counterpartyGlAccountId: "1105", customerId: "cust-asof",
     });
     for (const [id, date, amount] of [["v-oa", "2026-08-15", "100"], ["v-rev", "2026-08-20", "50"]] as const) {
@@ -5723,7 +5730,7 @@ describe("createBackend — a ladder run as of a past day ties to its control ac
     expect((await post(app, "/vouchers/v-rev/reverse", { date: "2026-08-25" }, admin(app))).status).toBe(201);
     expect((await post(app, "/cheques", {
       id: "chq-asof", direction: "incoming", chequeNumber: "770001", bankName: "بنك القاهرة", amount: "70.00", issueDate: "2026-08-18", dueDate: "2026-08-19",
-      branchId: "BR1", partyId: "cust-asof", counterpartyGlAccountId: "1105", controlAccounts: { underCollectionAccountId: "1320", bouncedAccountId: "1360" },
+      branchId: "BR-MAIN", partyId: "cust-asof", counterpartyGlAccountId: "1105", controlAccounts: { underCollectionAccountId: "1320", bouncedAccountId: "1360" },
     }, admin(app))).status).toBe(201);
     expect((await post(app, "/cheques/chq-asof/deposit", { bankTreasuryAccountId: "ta-bank1" }, admin(app))).status).toBe(200);
     expect((await post(app, "/cheques/chq-asof/bounce", { date: "2026-08-28" }, admin(app))).status).toBe(200);

@@ -112,7 +112,11 @@ describe("AuditLogScreen — list", () => {
     expect(screen.getByText("حرج")).toBeInTheDocument(); // CRITICAL severity pill
     expect(screen.getByText("معلومة")).toBeInTheDocument(); // INFO severity pill
     expect(screen.getByText("الفرع الرئيسي")).toBeInTheDocument(); // resolved branch name
-    expect(screen.getByText("—")).toBeInTheDocument(); // null branchId
+    // Scoped to the row: the register now also carries a «التغييرات» column,
+    // and an event with no field diff renders its own «—» there, so a
+    // page-wide match no longer identifies the branch cell.
+    const reversalRow = screen.getByText("reverse").closest("tr") as HTMLElement;
+    expect(within(reversalRow).getAllByText("—")).toHaveLength(2); // null branchId + no field changes
 
     await waitFor(() => expect(paths.some((p) => p.startsWith("/audit?limit=25"))).toBe(true));
     // the two independent stream-count lookups hit the same route with their own filter

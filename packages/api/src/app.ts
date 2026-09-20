@@ -1028,7 +1028,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   if (options.costCenterRepo) {
     app.route(
       "/cost-centers",
-      createCostCentersRoutes(options.costCenterRepo, resolveAuth, options.hr?.departments),
+      createCostCentersRoutes(options.costCenterRepo, resolveAuth, options.hr?.departments, options.auditSink),
     );
   }
   if (options.treasuryAccountRepo) {
@@ -1057,7 +1057,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     app.route("/bank-statements", createBankReconciliationRoutes(options.bankReconciliation, resolveAuth));
   }
   if (options.crm) {
-    app.route("/crm", createCrmRoutes(options.crm, resolveAuth));
+    app.route("/crm", createCrmRoutes({ ...options.crm, audit: options.crm.audit ?? options.auditSink }, resolveAuth));
   }
   if (options.hr) {
     app.route(
@@ -1308,10 +1308,10 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
       createItemCategoriesRoutes(options.itemCatalog.categories, (options.itemCatalog.resolveAuthContext ?? resolveAuth)),
     );
     if (options.itemCatalog.brands) {
-      app.route("/item-brands", createItemBrandsRoutes(options.itemCatalog.brands, (options.itemCatalog.resolveAuthContext ?? resolveAuth)));
+      app.route("/item-brands", createItemBrandsRoutes(options.itemCatalog.brands, options.itemCatalog.resolveAuthContext ?? resolveAuth, options.auditSink));
     }
     if (options.itemCatalog.seasons) {
-      app.route("/item-seasons", createItemSeasonsRoutes(options.itemCatalog.seasons, (options.itemCatalog.resolveAuthContext ?? resolveAuth)));
+      app.route("/item-seasons", createItemSeasonsRoutes(options.itemCatalog.seasons, options.itemCatalog.resolveAuthContext ?? resolveAuth, options.auditSink));
     }
   }
   if (options.itemSpecifications) {

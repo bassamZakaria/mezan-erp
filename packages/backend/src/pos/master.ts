@@ -5,28 +5,43 @@ import {
   createShiftTemplatesRoutes,
 } from "@mezan/api";
 import {
+  AuditChangeAction,
   POS_WALK_IN_CUSTOMER_CODE,
   POS_WALK_IN_CUSTOMER_ID,
   createCustomer,
+  recordSensitiveEvent,
   type BranchEtaDevice,
 } from "@mezan/domain";
-import { createSqlitePosStore } from "@mezan/persistence";
+import { createSqlitePosStore, withSqliteTransaction } from "@mezan/persistence";
 import type { BackendArea, BackendModuleContext } from "../module-context.js";
 
 async function ensureWalkInCustomer(ctx: BackendModuleContext): Promise<string> {
   const customers = ctx.stores.customers;
   if (await customers.findById(POS_WALK_IN_CUSTOMER_ID)) return POS_WALK_IN_CUSTOMER_ID;
   const clash = await customers.findByCode(POS_WALK_IN_CUSTOMER_CODE);
-  await customers.save(
-    createCustomer({
-      id: POS_WALK_IN_CUSTOMER_ID,
-      code: clash ? `${POS_WALK_IN_CUSTOMER_CODE}-POS` : POS_WALK_IN_CUSTOMER_CODE,
-      nameAr: "زبون عابر",
-      nameEn: "Walk-in customer",
-      paymentTermsDays: 0,
-      notes: "عميل نقاط البيع الافتراضي — تُصدر له فواتير البيع التي لا تحمل اسم مشترٍ.",
-    }),
-  );
+  const walkIn = createCustomer({
+    id: POS_WALK_IN_CUSTOMER_ID,
+    code: clash ? `${POS_WALK_IN_CUSTOMER_CODE}-POS` : POS_WALK_IN_CUSTOMER_CODE,
+    nameAr: "زبون عابر",
+    nameEn: "Walk-in customer",
+    paymentTermsDays: 0,
+    notes: "عميل نقاط البيع الافتراضي — تُصدر له فواتير البيع التي لا تحمل اسم مشترٍ.",
+  });
+  // Every counter sale that names no buyer hangs off this party, so it carries
+  // real receivables — and it was the one customer the product created with no
+  // record of when or why it appeared in the register.
+  await withSqliteTransaction(ctx.sqlite, async () => {
+    await customers.save(walkIn);
+    await recordSensitiveEvent(ctx.audit, {
+      module: "pos",
+      entityType: "CUSTOMER",
+      entityId: walkIn.id,
+      action: AuditChangeAction.Create,
+      actor: "system",
+      severity: "INFO",
+      details: { customerId: walkIn.id, code: walkIn.code, nameAr: walkIn.nameAr, reason: "POS_WALK_IN" },
+    });
+  });
   return POS_WALK_IN_CUSTOMER_ID;
 }
 

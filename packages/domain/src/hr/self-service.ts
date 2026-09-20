@@ -200,3 +200,33 @@ export interface ClockCredentialRepository {
   recordUse(id: string, signCount: number, usedAt: string): Promise<void>;
   deleteByEmployeeId(employeeId: string): Promise<number>;
 }
+
+/** A WebAuthn ceremony's ID stays valid this long, matching the industry-normal window for a challenge/response round trip. */
+export const WEBAUTHN_CHALLENGE_TTL_MS = 120_000;
+
+/** One outstanding WebAuthn challenge — the fingerprint clock-in's register/assert ceremony. */
+export interface PendingWebauthnChallenge {
+  readonly challenge: string;
+  readonly purpose: string;
+  readonly rpId: string;
+  readonly expiresAt: number;
+}
+
+/**
+ * Persistence port for WebAuthn challenges (D289's cloud twin). Held in the
+ * database rather than process memory: a multi-server cloud deployment has no
+ * guarantee that the request which ISSUES a challenge and the request that
+ * CONSUMES it land on the same server instance, and an in-memory `Map` on one
+ * instance is invisible to the others.
+ *
+ * `issue` replaces any prior pending challenge for that user (at most one
+ * outstanding challenge per user, matching the WebAuthn ceremony's own
+ * one-at-a-time shape). `consume` is single-use: an implementation deletes the
+ * row on ANY call, whether or not the purpose matches or the challenge has
+ * expired, so a mismatched or expired attempt still burns it rather than
+ * leaving it available to a second guess.
+ */
+export interface WebauthnChallengeRepository {
+  issue(userId: string, purpose: string, rpId: string, now?: number): Promise<string>;
+  consume(userId: string, purpose: string, now?: number): Promise<PendingWebauthnChallenge | null>;
+}

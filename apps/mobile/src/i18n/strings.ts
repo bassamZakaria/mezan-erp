@@ -31,6 +31,13 @@ export interface Strings {
     readonly recentActivity: string;
     readonly asOf: string;
   };
+  readonly customer: {
+    readonly creditLimit: string;
+    readonly paymentTerms: string;
+    readonly currency: string;
+    readonly phone: string;
+    readonly taxNumber: string;
+  };
   readonly tabs: {
     readonly home: string;
     readonly customers: string;
@@ -85,6 +92,13 @@ const AR: Strings = {
     recentActivity: "آخر الحركات",
     asOf: "حتى",
   },
+  customer: {
+    creditLimit: "الحد الائتماني",
+    paymentTerms: "مدة السداد (يوم)",
+    currency: "العملة",
+    phone: "الهاتف",
+    taxNumber: "الرقم الضريبي",
+  },
   tabs: {
     home: "الرئيسية",
     customers: "العملاء",
@@ -138,6 +152,13 @@ const EN: Strings = {
     approvalsWaiting: "Waiting on you",
     recentActivity: "Recent activity",
     asOf: "as of",
+  },
+  customer: {
+    creditLimit: "Credit limit",
+    paymentTerms: "Payment terms (days)",
+    currency: "Currency",
+    phone: "Phone",
+    taxNumber: "Tax number",
   },
   tabs: {
     home: "Home",

@@ -140,6 +140,7 @@ export const journalSourceModuleSchema = z.enum([
   "payroll",
   "assets",
   "contracting",
+  "accounting",
   "manual",
   "unknown",
 ]);

@@ -464,12 +464,40 @@ export async function run(ctx: Ctx): Promise<void> {
     const saleReceipts = queuedReceipts.filter((s: any) => isKeyedTo(confirmed, s));
     const refundReceipts = queuedReceipts.filter((s: any) => isKeyedTo(confirmedReturns, s));
 
-    check("D5 — every live sales invoice is queued exactly once, as an invoice or as a receipt", queuedInvoices.length + saleReceipts.length === confirmed.length, `invoices=${queuedInvoices.length} receipts=${saleReceipts.length} live invoices=${confirmed.length}`);
+    // A consumer sale CAN legitimately fail to receipt — a شخص طبيعي buying
+    // 150,000+ with no national ID on file, an item with no authority code yet
+    // — and the product does not drop it: `recordReceiptGap` files it in
+    // «إيصالات لم تصدر» with its own code and an Arabic reason. So the
+    // requirement is not "everything is queued", which would be false by
+    // design; it is that every live document is ACCOUNTED FOR exactly once —
+    // queued, or on the gap register.
+    const gapsRes = await req("GET", "/eta/receipts/gaps");
+    check("D5 — the unissued-receipt register answers", gapsRes.status === 200, `${gapsRes.status}`);
+    const gaps = rows(gapsRes.body);
+    const accountedFor = (doc: any, gapDocType: "invoice" | "return", queues: any[][]) => {
+      const key = doc.docNo ?? doc.id;
+      const onQueue = queues.some((q) => q.some((s: any) => s.internalId === key));
+      const onRegister = gaps.some((g: any) => g.docType === gapDocType && (g.docId === doc.id || g.internalId === key));
+      return onQueue !== onRegister;
+    };
+    const strayInvoices = confirmed.filter((i: any) => !accountedFor(i, "invoice", [queuedInvoices, saleReceipts]));
+    const strayReturns = confirmedReturns.filter((r: any) => !accountedFor(r, "return", [queuedNotes, refundReceipts]));
+
+    check(
+      "D5 — every live sales invoice is accounted for exactly once: queued as an invoice or a receipt, or on the unissued register",
+      strayInvoices.length === 0,
+      `invoices=${queuedInvoices.length} receipts=${saleReceipts.length} gaps=${gaps.filter((g: any) => g.docType === "invoice").length} live invoices=${confirmed.length} unaccounted=${JSON.stringify(strayInvoices.slice(0, 5).map((i: any) => i.docNo ?? i.id))}`,
+    );
     check("D5 — the B2C half of the queue is not empty: consumer sales really do produce receipts", saleReceipts.length > 0, `receipts=${saleReceipts.length}`);
     check(
-      "D5 — every confirmed sales return is queued: a credit note for a registered buyer, a refund receipt for a consumer",
-      queuedNotes.length + refundReceipts.length === confirmedReturns.length,
-      `notes=${queuedNotes.length} refund receipts=${refundReceipts.length} confirmed returns=${confirmedReturns.length}`,
+      "D5 — every confirmed sales return is accounted for too: a credit note for a registered buyer, a refund receipt for a consumer, or the register",
+      strayReturns.length === 0,
+      `notes=${queuedNotes.length} refund receipts=${refundReceipts.length} gaps=${gaps.filter((g: any) => g.docType === "return").length} confirmed returns=${confirmedReturns.length} unaccounted=${JSON.stringify(strayReturns.map((r: any) => r.docNo ?? r.id))}`,
+    );
+    check(
+      "D5 — nothing sits on the register without a code and an Arabic reason a clerk can act on",
+      gaps.length > 0 && gaps.every((g: any) => typeof g.code === "string" && g.code !== "" && /[\u0600-\u06FF]/.test(String(g.reason ?? ""))),
+      JSON.stringify(gaps.slice(0, 3).map((g: any) => [g.internalId, g.code])),
     );
     check("D5 — nothing else is in the queue", queuedInvoices.length + queuedReceipts.length + queuedNotes.length === queued.length, JSON.stringify(queued.map((s: any) => s.documentType)));
     check("D5 — a queued submission starts جاهز", queued.every((s: any) => s.status === "ready"), JSON.stringify(queued.map((s: any) => s.status)));

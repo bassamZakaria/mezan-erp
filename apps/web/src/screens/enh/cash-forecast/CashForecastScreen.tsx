@@ -15,7 +15,7 @@ import {
   useFormat,
   type DocumentListColumn,
 } from "@mezan/ui";
-import { can, createAuthContext } from "@mezan/domain";
+import { can, createAuthContext, UNATTRIBUTED_BRANCH_ID } from "@mezan/domain";
 import {
   CashForecastDirectionDTO,
   CashForecastHorizonDTO,
@@ -26,6 +26,7 @@ import {
   type CashForecastItemDTO,
 } from "@mezan/contracts";
 import { useApi } from "../../../data/ApiContext";
+import { useBranches } from "../../../data/hooks";
 import { useAppTranslation, type AppTranslationKey } from "../../../i18n";
 import { useNavigation } from "../../../navigation";
 import { pathForRoute } from "../../../routing";
@@ -41,6 +42,8 @@ enum ChartView {
   Chart = "chart",
   Table = "table",
 }
+
+const ALL_BRANCHES = "all";
 
 const HORIZONS: readonly CashForecastHorizonDTO[] = [CashForecastHorizonDTO.Days30, CashForecastHorizonDTO.Days60, CashForecastHorizonDTO.Days90];
 
@@ -93,15 +96,23 @@ export function CashForecastScreen() {
     branchScope: "*",
     warehouseScope: "*",
   });
+  const format = useFormat();
   const mayView = can(auth, "treasury.cash_forecast.view");
   const mayManage = can(auth, "treasury.cash_forecast.manage");
 
   const [horizonParam, setHorizonParam] = useUrlParam("horizon", CashForecastHorizonDTO.Days30);
   const [overdueParam, setOverdueParam] = useUrlParam("overdue", CashForecastOverdueDTO.Today);
+  const [branchParam, setBranchParam] = useUrlParam("branch", "");
   const horizon = isHorizon(horizonParam) ? horizonParam : CashForecastHorizonDTO.Days30;
   const overdue = isOverdue(overdueParam) ? overdueParam : CashForecastOverdueDTO.Today;
-  const query = useCashForecast(horizon, overdue);
+  const query = useCashForecast(horizon, overdue, branchParam);
   const forecast = query.data ?? null;
+  const branchRows = useBranches().data;
+  const branchOptions = [
+    { value: ALL_BRANCHES, label: t("cashForecast.branch.all") },
+    ...(branchRows ?? []).map((branch) => ({ value: branch.id, label: branch.name })),
+    { value: UNATTRIBUTED_BRANCH_ID, label: t("cashForecast.branch.unattributed") },
+  ];
 
   if (!mayView) {
     return <EmptyState title={t("cashForecast.noAccessTitle")} description={t("cashForecast.noAccessBody")} />;
@@ -120,6 +131,13 @@ export function CashForecastScreen() {
             options={HORIZONS.map((h) => ({ key: h, label: t("cashForecast.horizonDays", { days: h }) }))}
             value={horizon}
             onChange={(key) => setHorizonParam(key)}
+          />
+          <Select
+            size="sm"
+            aria-label={t("cashForecast.branch.label")}
+            value={branchParam === "" ? ALL_BRANCHES : branchParam}
+            onChange={(value) => setBranchParam(value === ALL_BRANCHES ? "" : value)}
+            options={branchOptions}
           />
           <Select<CashForecastOverdueDTO>
             size="sm"
@@ -144,6 +162,16 @@ export function CashForecastScreen() {
       ) : null}
 
       {query.isLoading ? <Card className="p-[18px_20px] text-[13px] text-ink-muted">{t("cashForecast.loading")}</Card> : null}
+
+      {forecast && forecast.branchNarrowed && forecast.unattributed.count > 0 ? (
+        <Card className="mb-[14px] p-[10px_14px] text-[12px] text-ink-muted">
+          {t("cashForecast.branch.unattributedNote", {
+            count: forecast.unattributed.count,
+            inflows: format.money(majorOf(forecast.unattributed.inflows)),
+            outflows: format.money(majorOf(forecast.unattributed.outflows)),
+          })}
+        </Card>
+      ) : null}
 
       {forecast ? <ForecastBody forecast={forecast} mayManage={mayManage} /> : null}
     </div>

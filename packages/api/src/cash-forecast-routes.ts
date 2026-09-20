@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import {
   AuditChangeAction,
   BASE_CURRENCY,
+  CashFlowDirection,
   CashForecastHorizon,
   Money,
   OverdueTreatment,
@@ -14,6 +15,9 @@ import {
   receivableForecastItems,
   toTenantDay,
   addDaysIso,
+  matchesStatementBranch,
+  withinBranchScope,
+  UNATTRIBUTED_BRANCH_ID,
   horizonDays,
   CASH_FORECAST_MAX_HORIZON,
   type AuditSink,
@@ -34,7 +38,7 @@ import {
   type CashForecastItemDTO,
   type CashForecastOpeningAccountDTO,
 } from "@mezan/contracts";
-import { createPermissionGate, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
+import { branchScopeOf, createPermissionGate, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
 import { recordFieldChanges } from "./admin-audit.js";
 import { openPartyAgingInputs, type ReportsRoutesDeps } from "./reports-routes.js";
 
@@ -52,6 +56,35 @@ export interface CashForecastRoutesDeps {
 
 const ALERT_HISTORY = 10;
 
+/**
+ * الفرع the reader asked for, inside the branch authority the server resolved.
+ *
+ * The scope is the caller's own and narrows unconditionally; `branchId` is a
+ * presentation filter on top of it and can never widen past it — a request for
+ * a branch outside the grant yields an empty view rather than that branch.
+ */
+interface BranchView {
+  readonly branchId: string;
+  readonly scope: readonly string[] | undefined;
+  readonly narrowed: boolean;
+  readonly empty: boolean;
+}
+
+function viewOf(c: Context, requested: string): BranchView {
+  const scope = branchScopeOf(c);
+  const outOfScope = requested !== "" && requested !== UNATTRIBUTED_BRANCH_ID && scope !== undefined && !scope.includes(requested);
+  return { branchId: requested, scope, narrowed: scope !== undefined || requested !== "", empty: outOfScope };
+}
+
+function inView(branchId: string | null | undefined, view: BranchView): boolean {
+  return withinBranchScope(branchId, view.scope) && matchesStatementBranch(branchId, view.branchId);
+}
+
+/** Inside the caller's authority but attributable to no branch — what a narrowed total leaves out. */
+function unattributedInView(branchId: string | null | undefined, view: BranchView): boolean {
+  return (branchId == null || branchId === "") && withinBranchScope(branchId, view.scope);
+}
+
 function itemDTO(item: ScheduledCashItem): CashForecastItemDTO {
   return {
     id: item.id,
@@ -67,6 +100,7 @@ function itemDTO(item: ScheduledCashItem): CashForecastItemDTO {
     reference: item.reference,
     documentId: item.documentId,
     currency: item.currency,
+    branchId: item.branchId,
     detail: item.detail,
   };
 }
@@ -89,8 +123,15 @@ interface OpeningCash {
   readonly accounts: CashForecastOpeningAccountDTO[];
 }
 
-async function openingCash(deps: CashForecastRoutesDeps, today: string, chequeAccountIds: ReadonlySet<string>): Promise<OpeningCash> {
-  const accounts = [...(await deps.treasuryAccounts.list())].sort((a, b) => a.code.localeCompare(b.code));
+async function openingCash(
+  deps: CashForecastRoutesDeps,
+  today: string,
+  chequeAccountIds: ReadonlySet<string>,
+  view: BranchView,
+): Promise<OpeningCash> {
+  const accounts = (view.empty ? [] : await deps.treasuryAccounts.list())
+    .filter((account) => inView(account.branchId, view))
+    .sort((a, b) => a.code.localeCompare(b.code));
   const seen = new Set<string>(chequeAccountIds);
   const rows: CashForecastOpeningAccountDTO[] = [];
   let total = 0n;
@@ -104,7 +145,15 @@ async function openingCash(deps: CashForecastRoutesDeps, today: string, chequeAc
       balance = held.toString();
     }
     if (account.status !== "active" && balance === null) continue;
-    rows.push({ treasuryAccountId: account.id, name: account.name, nameEn: account.nameEn, type: account.type, glAccountId, balance });
+    rows.push({
+      treasuryAccountId: account.id,
+      name: account.name,
+      nameEn: account.nameEn,
+      type: account.type,
+      branchId: account.branchId,
+      glAccountId,
+      balance,
+    });
   }
   return { total: Money.fromScaled(total), accounts: rows };
 }
@@ -205,28 +254,44 @@ export function createCashForecastRoutes(deps: CashForecastRoutesDeps, resolveAu
     const day = today();
     const horizon = parsed.data.horizon as unknown as CashForecastHorizon;
     const overdue = parsed.data.overdue as unknown as OverdueTreatment;
+    const view = viewOf(c, parsed.data.branchId);
     const allCheques = (await deps.reports.cheques?.list()) ?? [];
     const chequeAccountIds = new Set(allCheques.map((cheque) => cheque.controlAccounts.underCollectionAccountId));
-    const [opening, items, thresholdRecord] = await Promise.all([
-      openingCash(deps, day, chequeAccountIds),
+    const [opening, everyItem, thresholdRecord, tenantOpening] = await Promise.all([
+      openingCash(deps, day, chequeAccountIds, view),
       forecastItems(deps, day, allCheques),
       deps.store.getThreshold(),
+      openingCash(deps, day, chequeAccountIds, { branchId: "", scope: undefined, narrowed: false, empty: false }),
     ]);
+    const items = view.empty ? [] : everyItem.filter((item) => inView(item.branchId, view));
+    const unattributed = view.narrowed ? everyItem.filter((item) => unattributedInView(item.branchId, view)) : [];
     const threshold = thresholdRecord?.amount ?? Money.zero();
     const base = { today: day, openingCash: opening.total, threshold, items };
     const forecast = buildCashForecast({ ...base, horizon, overdueReceivables: overdue });
-    const full =
-      horizon === CASH_FORECAST_MAX_HORIZON && overdue === OverdueTreatment.Today
-        ? forecast
-        : buildCashForecast({ ...base, horizon: CASH_FORECAST_MAX_HORIZON, overdueReceivables: OverdueTreatment.Today });
+    // The threshold and its alert are tenant state: they are evaluated on the
+    // whole tenant's cash, never on whatever branch this reader is looking at,
+    // or a narrowed view would open and clear a company-wide alert.
+    const full = buildCashForecast({
+      today: day,
+      openingCash: tenantOpening.total,
+      threshold,
+      items: everyItem,
+      horizon: CASH_FORECAST_MAX_HORIZON,
+      overdueReceivables: OverdueTreatment.Today,
+    });
     const alert = await reconcileAlert(deps, full, now());
     const history = await deps.store.listAlerts(ALERT_HISTORY);
+    const unattributedIn = Money.sum(unattributed.filter((i) => i.direction === CashFlowDirection.Inflow).map((i) => i.amount));
+    const unattributedOut = Money.sum(unattributed.filter((i) => i.direction === CashFlowDirection.Outflow).map((i) => i.amount));
 
     const body: CashForecastDTO = {
       today: forecast.today,
       horizon: parsed.data.horizon,
       endDate: forecast.endDate,
       overdue: parsed.data.overdue,
+      branchId: view.branchId,
+      branchNarrowed: view.narrowed,
+      unattributed: { inflows: unattributedIn.toString(), outflows: unattributedOut.toString(), count: unattributed.length },
       openingCash: forecast.openingCash.toString(),
       openingAccounts: opening.accounts,
       threshold: {

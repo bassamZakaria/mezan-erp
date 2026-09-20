@@ -296,7 +296,7 @@ export function CockpitPulse({ data, rtl, branchParam }: CockpitWidgetProps) {
 export function CockpitRunway({ companyWide }: { readonly companyWide: boolean }) {
   const { t } = useAppTranslation();
   const format = useFormat();
-  const forecast = useCashForecast(CashForecastHorizonDTO.Days90, CashForecastOverdueDTO.Today);
+  const forecast = useCashForecast(CashForecastHorizonDTO.Days90, CashForecastOverdueDTO.Today, "");
   const title = t("cockpit.runway.title");
   const href = drillHref("cash-forecast", { horizon: CashForecastHorizonDTO.Days90 });
   const data = forecast.data;

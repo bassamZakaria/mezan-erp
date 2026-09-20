@@ -22,6 +22,7 @@ interface OpenPiece {
   readonly reference: string | null;
   readonly documentId: string | null;
   readonly currency: string | null;
+  readonly branchId: string | null;
   readonly detail: string | null;
   remaining: bigint;
 }
@@ -88,6 +89,7 @@ function openItemPieces(
       reference: item.reference ?? null,
       documentId: null,
       currency: null,
+      branchId: item.branchId ?? null,
       detail: item.source,
       remaining: item.amount.scaled,
     });
@@ -108,6 +110,7 @@ function toItems(pieces: readonly OpenPiece[], direction: CashFlowDirection, nam
     reference: piece.reference,
     documentId: piece.documentId,
     currency: piece.currency,
+    branchId: piece.branchId,
     detail: piece.detail,
   }));
 }
@@ -183,6 +186,7 @@ export function receivableForecastItems(input: ReceivableSourcesInput): CashFore
       reference: invoice.docNo ?? invoice.id,
       documentId: invoice.id,
       currency: invoice.fxRate ? invoice.currency : null,
+      branchId: invoice.branchId ?? null,
       detail: null,
       remaining: balance,
     });
@@ -227,6 +231,7 @@ export function payableForecastItems(input: PayableSourcesInput): CashForecastIt
       reference: invoice.number,
       documentId: invoice.id,
       currency: invoice.fxRate ? invoice.currency : null,
+      branchId: invoice.branchId ?? null,
       detail: invoice.supplierInvoiceNumber,
       remaining: outstanding,
     });
@@ -265,6 +270,7 @@ export function chequeForecastItems(sources: readonly ChequeForecastSource[]): C
       reference: cheque.chequeNumber,
       documentId: cheque.id,
       currency: cheque.currency,
+      branchId: cheque.branchId ?? null,
       detail: cheque.bankName,
     });
   }
@@ -286,6 +292,7 @@ export function commitmentForecastItems(sourceId: string, commitments: readonly 
       reference: commitment.reference ?? null,
       documentId: commitment.documentId ?? null,
       currency: null,
+      branchId: commitment.branchId ?? null,
       detail: sourceId,
     }));
 }

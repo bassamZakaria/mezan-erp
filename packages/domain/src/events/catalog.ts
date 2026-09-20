@@ -7,11 +7,12 @@
  * mode to avoid.
  *
  * These are the 39 notification-rule trigger events from docs/archive/catalog/09
- * (قواعد الإشعارات, `/notifications/rules`). Bump EVENT_CATALOG_VERSION on any
- * change so consumers can detect drift.
+ * (قواعد الإشعارات, `/notifications/rules`), plus CASH_FORECAST_LOW, which the
+ * cash-runway feature raises. Bump EVENT_CATALOG_VERSION on any change so
+ * consumers can detect drift.
  */
 
-export const EVENT_CATALOG_VERSION = 1;
+export const EVENT_CATALOG_VERSION = 2;
 
 export const EVENT_CATEGORIES = [
   "workflow",
@@ -58,10 +59,11 @@ export const DOMAIN_EVENT_CATALOG = [
   { code: "PURCHASE_RETURN_CONFIRMED", category: "purchases", labelAr: "تم تأكيد مردود مشتريات" },
   { code: "PURCHASE_RETURN_VOIDED", category: "purchases", labelAr: "تم إلغاء مردود مشتريات" },
 
-  // Treasury / cash (3)
+  // Treasury / cash (4)
   { code: "CASH_VOUCHER_CONFIRMED", category: "treasury", labelAr: "تم تأكيد سند نقدي" },
   { code: "CASH_VOUCHER_VOIDED", category: "treasury", labelAr: "تم إلغاء سند نقدي" },
   { code: "PAYMENT_RECEIPT_CONFIRMED", category: "treasury", labelAr: "تم تحصيل دفعة" },
+  { code: "CASH_FORECAST_LOW", category: "treasury", labelAr: "تنبيه سيولة: الرصيد المتوقع أقل من الحد" },
 
   // Installments (4)
   { code: "INSTALLMENT_OVERDUE", category: "installments", labelAr: "قسط متأخر عن السداد" },

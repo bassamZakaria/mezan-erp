@@ -9,17 +9,18 @@ import {
 } from "./catalog.js";
 
 describe("domain event catalog", () => {
-  it("encodes exactly the 39 notification events from catalog 09", () => {
-    expect(DOMAIN_EVENT_CATALOG).toHaveLength(39);
+  it("encodes the 39 notification events from catalog 09 plus the cash-runway alert", () => {
+    expect(DOMAIN_EVENT_CATALOG).toHaveLength(40);
+    expect(isEventCode("CASH_FORECAST_LOW")).toBe(true);
   });
 
-  it("is versioned", () => {
-    expect(EVENT_CATALOG_VERSION).toBe(1);
+  it("is versioned, and the version moved when the catalog gained an event", () => {
+    expect(EVENT_CATALOG_VERSION).toBe(2);
   });
 
   it("has unique codes", () => {
     const codes = new Set(DOMAIN_EVENT_CATALOG.map((e) => e.code));
-    expect(codes.size).toBe(39);
+    expect(codes.size).toBe(40);
   });
 
   it("matches the catalog's per-category counts", () => {
@@ -40,7 +41,7 @@ describe("domain event catalog", () => {
       workflow: 4,
       sales: 7,
       purchases: 7,
-      treasury: 3,
+      treasury: 4,
       installments: 4,
       cheques: 5,
       pos: 5,
@@ -48,8 +49,8 @@ describe("domain event catalog", () => {
       manufacturing: 2,
       platform: 1,
     });
-    // Categories sum back to 39.
-    expect(Object.values(counts).reduce((a, b) => a + b, 0)).toBe(39);
+    // Categories sum back to the whole catalog.
+    expect(Object.values(counts).reduce((a, b) => a + b, 0)).toBe(40);
   });
 
   it("every event uses a declared category", () => {

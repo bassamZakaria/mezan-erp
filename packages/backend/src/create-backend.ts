@@ -247,7 +247,7 @@ import { createPreferencesRoutes } from "./preferences-routes.js";
 import { seedIfEmpty, type SeedStores } from "./seed.js";
 import type { BackendModuleContext } from "./module-context.js";
 import { mountPos } from "./pos/index.js";
-import { mountEnhancements } from "./enh/index.js";
+import { ENH_EMITTED_EVENT_CODES, mountEnhancements } from "./enh/index.js";
 import { seedDemoTenant } from "./demo-seed.js";
 import { createHrTreasuryDisbursementPort } from "./hr-treasury-disbursement.js";
 
@@ -3920,7 +3920,10 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       branchOfEntry: resolveEntryBranches,
     },
     notificationRuleRepo: notificationRules,
-    emittedEventCodes: emittedEventCodesOf(returnsEventMapping, salesInvoiceEventMapping, purchasesEventMapping, voucherEventMapping),
+    emittedEventCodes: [
+      ...emittedEventCodesOf(returnsEventMapping, salesInvoiceEventMapping, purchasesEventMapping, voucherEventMapping),
+      ...ENH_EMITTED_EVENT_CODES,
+    ],
     notificationRepo: notifications,
     /**
      * Drains the outbound queue on an operator's request (ROADMAP §3.3).

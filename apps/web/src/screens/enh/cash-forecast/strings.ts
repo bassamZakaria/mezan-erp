@@ -15,6 +15,11 @@ export const ar = {
   "cashForecast.overdue.today": "المتأخر من العملاء يُحصَّل اليوم",
   "cashForecast.overdue.exclude": "استبعاد المتأخر من العملاء",
   "cashForecast.overdueTag": "متأخر",
+  "cashForecast.branch.label": "الفرع",
+  "cashForecast.branch.all": "كل الفروع",
+  "cashForecast.branch.unattributed": "غير مخصص",
+  "cashForecast.branch.unattributedNote":
+    "خارج هذا الفرع: {count} بند غير مخصص لأي فرع ({inflows} وارد، {outflows} صادر) غير مُدرج في الأرقام أعلاه.",
 
   "cashForecast.banner.below": "يُتوقع أن ينخفض الرصيد عن حد التنبيه ({threshold} ج.م) يوم {date}.",
   "cashForecast.banner.lowest": "أدنى رصيد متوقع {amount} ج.م يوم {date}.",
@@ -119,6 +124,11 @@ export const en: Record<keyof typeof ar, string> = {
   "cashForecast.overdue.today": "Overdue customer items collected today",
   "cashForecast.overdue.exclude": "Leave out overdue customer items",
   "cashForecast.overdueTag": "Overdue",
+  "cashForecast.branch.label": "Branch",
+  "cashForecast.branch.all": "All branches",
+  "cashForecast.branch.unattributed": "Unattributed",
+  "cashForecast.branch.unattributedNote":
+    "Outside this branch: {count} item(s) attributed to no branch ({inflows} in, {outflows} out) are not in the figures above.",
 
   "cashForecast.banner.below": "Cash is expected to fall below the alert threshold ({threshold}) on {date}.",
   "cashForecast.banner.lowest": "Lowest expected balance is {amount} on {date}.",

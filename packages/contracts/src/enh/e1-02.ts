@@ -31,6 +31,8 @@ export enum CashForecastDirectionDTO {
 export const cashForecastQuerySchema = z.object({
   horizon: z.nativeEnum(CashForecastHorizonDTO).default(CashForecastHorizonDTO.Days30),
   overdue: z.nativeEnum(CashForecastOverdueDTO).default(CashForecastOverdueDTO.Today),
+  /** One branch, the unattributed bucket, or "" for every branch the caller may see. Never widens the caller's scope. */
+  branchId: z.string().trim().max(120).default(""),
 });
 export type CashForecastQueryDTO = z.infer<typeof cashForecastQuerySchema>;
 
@@ -53,6 +55,7 @@ export const cashForecastItemSchema = z.object({
   reference: z.string().nullable(),
   documentId: z.string().nullable(),
   currency: z.string().nullable(),
+  branchId: z.string().nullable(),
   detail: z.string().nullable(),
 });
 export type CashForecastItemDTO = z.infer<typeof cashForecastItemSchema>;
@@ -81,6 +84,7 @@ export const cashForecastOpeningAccountSchema = z.object({
   name: z.string(),
   nameEn: z.string().nullable(),
   type: z.string(),
+  branchId: z.string(),
   glAccountId: z.string().nullable(),
   balance: moneyString.nullable(),
 });
@@ -105,11 +109,22 @@ export const cashForecastAlertSchema = z.object({
 });
 export type CashForecastAlertDTO = z.infer<typeof cashForecastAlertSchema>;
 
+/** What a branch-narrowed forecast leaves out, so the reader is never shown a partial total as the whole. */
+export const cashForecastUnattributedSchema = z.object({
+  inflows: moneyString,
+  outflows: moneyString,
+  count: z.number().int(),
+});
+export type CashForecastUnattributedDTO = z.infer<typeof cashForecastUnattributedSchema>;
+
 export const cashForecastSchema = z.object({
   today: z.string(),
   horizon: z.nativeEnum(CashForecastHorizonDTO),
   endDate: z.string(),
   overdue: z.nativeEnum(CashForecastOverdueDTO),
+  branchId: z.string(),
+  branchNarrowed: z.boolean(),
+  unattributed: cashForecastUnattributedSchema,
   openingCash: moneyString,
   openingAccounts: z.array(cashForecastOpeningAccountSchema),
   threshold: cashForecastThresholdSchema,

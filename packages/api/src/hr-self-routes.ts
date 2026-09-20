@@ -47,6 +47,7 @@ import {
   type StatutoryOverrideRepository,
   type User,
   type UserRepository,
+  type WebauthnChallengeRepository,
 } from "@mezan/domain";
 import {
   ClockChallengePurposeDTO,
@@ -65,7 +66,7 @@ import { serializeAttendance } from "./hr-time-leave-routes.js";
 import { serializeAdvance, serializePayslip } from "./hr-payroll-routes.js";
 import { tenantClock } from "./tenant-day.js";
 import {
-  ChallengeStore,
+  InMemoryChallengeStore,
   CHALLENGE_TTL_MS,
   WEBAUTHN_ALGORITHMS,
   assertionSignatureValid,
@@ -93,6 +94,8 @@ export interface HrSelfRoutesDeps {
   readonly payslips?: Pick<PayslipRepository, "findById" | "listByEmployeeId">;
   readonly attachments?: AttachmentRepository;
   readonly clockCredentials?: ClockCredentialRepository;
+  /** DB-backed by default (`create-backend.ts`); a caller with no persistence at hand may omit it, falling back to an in-process store. */
+  readonly challenges?: WebauthnChallengeRepository;
   readonly printTemplates?: Pick<PrintTemplateConfigRepository, "get">;
   readonly tenantSettings?: Pick<SettingsRepository, "get">;
   readonly statutoryOverrides?: Pick<StatutoryOverrideRepository, "list">;
@@ -132,7 +135,7 @@ export function createHrSelfRoutes(deps: HrSelfRoutesDeps, resolveAuthContext: A
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
   const gateAny = createAnyPermissionGate(resolveAuthContext);
-  const challenges = new ChallengeStore();
+  const challenges: WebauthnChallengeRepository = deps.challenges ?? new InMemoryChallengeStore();
 
   async function caller(c: Context): Promise<{ user: User; employee: Employee } | null> {
     const ctx = getAuthContext(c);
@@ -371,7 +374,7 @@ export function createHrSelfRoutes(deps: HrSelfRoutesDeps, resolveAuthContext: A
     if (parsed.data.purpose === ClockChallengePurposeDTO.Assert && !credential) {
       return refusal(c, new ClockPunchRefusedError(ClockRefusalCode.BiometricNotRegistered));
     }
-    const challenge = challenges.issue(me.user.id, parsed.data.purpose, party.rpId);
+    const challenge = await challenges.issue(me.user.id, parsed.data.purpose, party.rpId);
     const settings = await deps.tenantSettings?.get();
     return c.json({
       challenge,
@@ -393,7 +396,7 @@ export function createHrSelfRoutes(deps: HrSelfRoutesDeps, resolveAuthContext: A
     const store = deps.clockCredentials;
     if (!store) return refusal(c, new ClockPunchRefusedError(ClockRefusalCode.StorageUnavailable));
     if (await store.findByEmployeeId(me.employee.id)) return refusal(c, new ClockPunchRefusedError(ClockRefusalCode.BiometricAlreadyRegistered));
-    const pending = challenges.consume(me.user.id, ClockChallengePurposeDTO.Register);
+    const pending = await challenges.consume(me.user.id, ClockChallengePurposeDTO.Register);
     if (!pending) return refusal(c, new ClockPunchRefusedError(ClockRefusalCode.BiometricChallengeExpired));
     const party = relyingPartyOf(c.req.header("origin"));
     const authData = readAuthenticatorData(fromBase64Url(parsed.data.authenticatorData));
@@ -437,7 +440,7 @@ export function createHrSelfRoutes(deps: HrSelfRoutesDeps, resolveAuthContext: A
     if (!body.biometric) throw new ClockPunchRefusedError(ClockRefusalCode.BiometricRequired);
     const credential = await store.findByEmployeeId(me.employee.id);
     if (!credential) throw new ClockPunchRefusedError(ClockRefusalCode.BiometricNotRegistered);
-    const pending = challenges.consume(me.user.id, ClockChallengePurposeDTO.Assert);
+    const pending = await challenges.consume(me.user.id, ClockChallengePurposeDTO.Assert);
     if (!pending) throw new ClockPunchRefusedError(ClockRefusalCode.BiometricChallengeExpired);
     const party = relyingPartyOf(c.req.header("origin"));
     const authDataBytes = fromBase64Url(body.biometric.authenticatorData);

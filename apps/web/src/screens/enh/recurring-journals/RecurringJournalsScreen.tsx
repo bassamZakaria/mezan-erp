@@ -20,6 +20,7 @@ import { Money } from "@mezan/domain";
 import { RecurringJournalFrequencyDTO, RecurringJournalTemplateStatusDTO } from "@mezan/contracts";
 import {
   useAccounts,
+  useAllRecurringJournalSkips,
   useBranches,
   useCostCenters,
   useCreateRecurringJournalTemplate,
@@ -29,10 +30,15 @@ import {
   useGenerateDueRecurringJournals,
   usePartyControlAccounts,
   useRecurringJournalRuns,
+  useRecurringJournalSkips,
   useRecurringJournalTemplates,
   useSetRecurringJournalTemplateStatus,
+  useSkipRecurringJournalOccurrence,
   useSuppliers,
   useUpdateRecurringJournalTemplate,
+  type DueRecurringJournalDTO,
+  type RecurringJournalRunDTO,
+  type RecurringJournalSkipDTO,
   type RecurringJournalTemplateDTO,
   type RecurringJournalTemplateLineDTO,
 } from "../../../data/hooks";
@@ -411,6 +417,83 @@ function TemplatesTab() {
 /* Due tab                                                                */
 /* -------------------------------------------------------------------- */
 
+/** One template's due periods, each individually skippable, plus the periods already skipped for it. */
+function TemplateDueCard({ entry }: { entry: DueRecurringJournalDTO }) {
+  const { t } = useAppTranslation();
+  const skipsQuery = useRecurringJournalSkips(entry.templateId);
+  const skipMutation = useSkipRecurringJournalOccurrence();
+  const [skipTarget, setSkipTarget] = useState<string | null>(null);
+  const [note, setNote] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  const skipped = skipsQuery.data ?? EMPTY;
+
+  function openSkip(period: string) {
+    setSkipTarget(period);
+    setNote("");
+    setError(null);
+  }
+
+  async function confirmSkip() {
+    if (!skipTarget) return;
+    try {
+      await skipMutation.mutateAsync({ templateId: entry.templateId, period: skipTarget, note: note.trim() === "" ? null : note.trim() });
+      setSkipTarget(null);
+    } catch (err) {
+      setError(errorMessage(err, t("recurringJournals.skipFailed")));
+    }
+  }
+
+  return (
+    <div className="p-[14px_16px]">
+      <div className="font-semibold text-ink">{entry.nameAr}</div>
+      <div className="mt-[6px] flex flex-wrap gap-[8px]">
+        {entry.periods.map((period) => (
+          <span key={period} className="inline-flex items-center gap-[6px] rounded-full border border-border bg-surface-2 px-[10px] py-[4px] text-[11.5px]">
+            <span className="mz-num text-ink">{period}</span>
+            <button
+              type="button"
+              className="text-brand underline"
+              onClick={() => openSkip(period)}
+            >
+              {t("recurringJournals.skip")}
+            </button>
+          </span>
+        ))}
+      </div>
+      {skipped.length > 0 ? (
+        <div className="mt-[8px] text-[11.5px] text-ink-muted">
+          {t("recurringJournals.skippedPeriods")}: <span className="mz-num">{skipped.map((s) => s.period).join("، ")}</span>
+        </div>
+      ) : null}
+      {error ? (
+        <div role="alert" className="mt-[8px] rounded-md border border-danger bg-danger-soft px-[10px] py-[8px] text-[11.5px] text-danger-ink">
+          {error}
+        </div>
+      ) : null}
+      <ConfirmDialog
+        open={skipTarget !== null}
+        title={t("recurringJournals.skipConfirmTitle")}
+        consequence={
+          <div className="flex flex-col gap-[10px]">
+            <p>{t("recurringJournals.skipConfirmBody", { period: skipTarget ?? "", name: entry.nameAr })}</p>
+            <TextInput
+              aria-label={t("recurringJournals.skipNote")}
+              placeholder={t("recurringJournals.skipNote")}
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+            />
+          </div>
+        }
+        confirmLabel={t("recurringJournals.skip")}
+        confirmDisabled={skipMutation.isPending}
+        onConfirm={() => void confirmSkip()}
+        onCancel={() => setSkipTarget(null)}
+      />
+    </div>
+  );
+}
+
 function DueTab() {
   const { t } = useAppTranslation();
   const query = useDueRecurringJournals();
@@ -471,12 +554,7 @@ function DueTab() {
       ) : (
         <Card className="divide-y divide-border overflow-hidden">
           {due.map((entry) => (
-            <div key={entry.templateId} className="flex items-center justify-between p-[14px_16px]">
-              <div>
-                <div className="font-semibold text-ink">{entry.nameAr}</div>
-                <div className="mt-[2px] text-[11.5px] text-ink-muted">{t("recurringJournals.periodsDue")}: <span className="mz-num">{entry.periods.join("، ")}</span></div>
-              </div>
-            </div>
+            <TemplateDueCard key={entry.templateId} entry={entry} />
           ))}
         </Card>
       )}
@@ -496,52 +574,107 @@ function DueTab() {
 /* History tab                                                           */
 /* -------------------------------------------------------------------- */
 
+enum RecurringJournalHistoryKind {
+  Generated = "generated",
+  Skipped = "skipped",
+}
+
+interface RecurringJournalHistoryRow {
+  readonly key: string;
+  readonly kind: RecurringJournalHistoryKind;
+  readonly templateId: string;
+  readonly period: string;
+  readonly at: string;
+  readonly run: RecurringJournalRunDTO | null;
+  readonly skip: RecurringJournalSkipDTO | null;
+}
+
 function HistoryTab() {
   const { t } = useAppTranslation();
   const runsQuery = useRecurringJournalRuns();
+  const skipsQuery = useAllRecurringJournalSkips();
   const templatesQuery = useRecurringJournalTemplates();
   const nav = useNavigation();
   const [page, setPage] = useState(1);
   const runs = runsQuery.data ?? EMPTY;
+  const skips = skipsQuery.data ?? EMPTY;
   const nameById = useMemo(() => new Map((templatesQuery.data ?? []).map((tpl) => [tpl.id, tpl.nameAr])), [templatesQuery.data]);
-  const pageCount = Math.max(1, Math.ceil(runs.length / PAGE_SIZE));
-  const pageRows = runs.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
-  const columns: DocumentListColumn<(typeof runs)[number]>[] = [
+  const rows: RecurringJournalHistoryRow[] = useMemo(() => {
+    const generated = runs.map((run) => ({
+      key: `run:${run.id}`,
+      kind: RecurringJournalHistoryKind.Generated,
+      templateId: run.templateId,
+      period: run.period,
+      at: run.generatedAt,
+      run,
+      skip: null,
+    }));
+    const skipped = skips.map((skip) => ({
+      key: `skip:${skip.id}`,
+      kind: RecurringJournalHistoryKind.Skipped,
+      templateId: skip.templateId,
+      period: skip.period,
+      at: skip.skippedAt,
+      run: null,
+      skip,
+    }));
+    return [...generated, ...skipped].sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
+  }, [runs, skips]);
+
+  const pageCount = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+  const pageRows = rows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
+  const columns: DocumentListColumn<RecurringJournalHistoryRow>[] = [
     { key: "templateId", header: t("recurringJournals.name"), render: (row) => nameById.get(row.templateId) ?? row.templateId },
     { key: "period", header: t("recurringJournals.period"), render: (row) => <span className="mz-num">{row.period}</span> },
     {
+      key: "kind",
+      header: t("recurringJournals.kind"),
+      render: (row) => (
+        <StatusPill
+          label={t(`recurringJournals.kind.${row.kind}`)}
+          tone={row.kind === RecurringJournalHistoryKind.Generated ? "success" : "neutral"}
+        />
+      ),
+    },
+    {
       key: "journalEntryId",
       header: t("recurringJournals.entry"),
-      render: (row) => (
-        <button type="button" className="text-brand underline" onClick={() => nav.openScreenAt("journals", [row.journalEntryNo ?? row.journalEntryId])}>
-          {row.journalEntryNo ?? row.journalEntryId}
-        </button>
-      ),
+      render: (row) => {
+        const run = row.run;
+        if (!run) return <span className="text-ink-faint">{row.skip?.note ?? "—"}</span>;
+        return (
+          <button type="button" className="text-brand underline" onClick={() => nav.openScreenAt("journals", [run.journalEntryNo ?? run.journalEntryId])}>
+            {run.journalEntryNo ?? run.journalEntryId}
+          </button>
+        );
+      },
     },
     {
       key: "reversalJournalEntryId",
       header: t("recurringJournals.reversalEntry"),
-      render: (row) =>
-        row.reversalJournalEntryId ? (
-          <button type="button" className="text-brand underline" onClick={() => nav.openScreenAt("journals", [row.reversalJournalEntryNo ?? row.reversalJournalEntryId ?? ""])}>
-            {row.reversalJournalEntryNo ?? row.reversalJournalEntryId}
+      render: (row) => {
+        const run = row.run;
+        if (!run?.reversalJournalEntryId) return <span className="text-ink-faint">—</span>;
+        return (
+          <button type="button" className="text-brand underline" onClick={() => nav.openScreenAt("journals", [run.reversalJournalEntryNo ?? run.reversalJournalEntryId ?? ""])}>
+            {run.reversalJournalEntryNo ?? run.reversalJournalEntryId}
           </button>
-        ) : (
-          <span className="text-ink-faint">—</span>
-        ),
+        );
+      },
     },
-    { key: "generatedAt", header: t("recurringJournals.generatedAt"), render: (row) => <span className="mz-num text-ink-muted">{row.generatedAt.slice(0, 10)}</span> },
+    { key: "at", header: t("recurringJournals.generatedAt"), render: (row) => <span className="mz-num text-ink-muted">{row.at.slice(0, 10)}</span> },
   ];
 
   return (
-    <DocumentList<(typeof runs)[number]>
+    <DocumentList<RecurringJournalHistoryRow>
       title={t("recurringJournals.tab.history")}
       columns={columns}
       rows={pageRows}
-      rowKey={(row) => row.id}
-      loading={runsQuery.isLoading}
-      loadFailed={runsQuery.isError}
+      rowKey={(row) => row.key}
+      loading={runsQuery.isLoading || skipsQuery.isLoading}
+      loadFailed={runsQuery.isError || skipsQuery.isError}
       page={page}
       pageCount={pageCount}
       onPageChange={setPage}

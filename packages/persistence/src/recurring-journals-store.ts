@@ -7,6 +7,8 @@ import {
   type CostCategory,
   type RecurringJournalRun,
   type RecurringJournalRunRepository,
+  type RecurringJournalSkip,
+  type RecurringJournalSkipRepository,
   type RecurringJournalTemplate,
   type RecurringJournalTemplateLine,
   type RecurringJournalTemplateRepository,
@@ -53,6 +55,19 @@ CREATE TABLE IF NOT EXISTS recurring_journal_run (
   UNIQUE(template_id, period)
 );
 CREATE INDEX IF NOT EXISTS idx_recurring_journal_run_template ON recurring_journal_run(template_id);
+`;
+
+const CREATE_SKIP = `
+CREATE TABLE IF NOT EXISTS recurring_journal_skip (
+  id           TEXT PRIMARY KEY,
+  template_id  TEXT NOT NULL,
+  period       TEXT NOT NULL,
+  note         TEXT,
+  skipped_at   TEXT NOT NULL,
+  skipped_by   TEXT NOT NULL,
+  UNIQUE(template_id, period)
+);
+CREATE INDEX IF NOT EXISTS idx_recurring_journal_skip_template ON recurring_journal_skip(template_id);
 `;
 
 interface TemplateLineWire {
@@ -296,5 +311,89 @@ export function createSqliteRecurringJournalRunRepository(
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.exec(CREATE_RUN);
   const repo = new SqliteRecurringJournalRunRepository(sqlite);
+  return Object.assign(repo, { close: () => { if (owned) sqlite.close(); } });
+}
+
+interface SkipRow {
+  id: string;
+  template_id: string;
+  period: string;
+  note: string | null;
+  skipped_at: string;
+  skipped_by: string;
+}
+
+function toSkip(row: SkipRow): RecurringJournalSkip {
+  return {
+    id: row.id,
+    templateId: row.template_id,
+    period: row.period,
+    note: row.note,
+    skippedAt: row.skipped_at,
+    skippedBy: row.skipped_by,
+  };
+}
+
+class SqliteRecurringJournalSkipRepository implements RecurringJournalSkipRepository {
+  private readonly insert: Database.Statement;
+  private readonly selectByTemplateAndPeriod: Database.Statement;
+  private readonly selectByTemplate: Database.Statement;
+  private readonly selectAll: Database.Statement;
+
+  constructor(private readonly sqlite: Database.Database) {
+    // ON CONFLICT DO NOTHING mirrors the run repository's claim: a concurrent
+    // double-call for the same (template, period) leaves only the first skip.
+    this.insert = sqlite.prepare(`
+      INSERT INTO recurring_journal_skip
+        (id, template_id, period, note, skipped_at, skipped_by)
+      VALUES
+        (@id, @template_id, @period, @note, @skipped_at, @skipped_by)
+      ON CONFLICT(template_id, period) DO NOTHING
+    `);
+    this.selectByTemplateAndPeriod = sqlite.prepare(
+      `SELECT * FROM recurring_journal_skip WHERE template_id = ? AND period = ?`,
+    );
+    this.selectByTemplate = sqlite.prepare(
+      `SELECT * FROM recurring_journal_skip WHERE template_id = ? ORDER BY period DESC`,
+    );
+    this.selectAll = sqlite.prepare(`SELECT * FROM recurring_journal_skip ORDER BY skipped_at DESC LIMIT ?`);
+  }
+
+  async findByTemplateAndPeriod(templateId: string, period: string): Promise<RecurringJournalSkip | null> {
+    const row = this.selectByTemplateAndPeriod.get(templateId, period) as SkipRow | undefined;
+    return row ? toSkip(row) : null;
+  }
+
+  async listByTemplate(templateId: string): Promise<readonly RecurringJournalSkip[]> {
+    return (this.selectByTemplate.all(templateId) as SkipRow[]).map(toSkip);
+  }
+
+  async list(limit = 200): Promise<readonly RecurringJournalSkip[]> {
+    return (this.selectAll.all(limit) as SkipRow[]).map(toSkip);
+  }
+
+  async save(skip: RecurringJournalSkip): Promise<boolean> {
+    const info = this.insert.run({
+      id: skip.id,
+      template_id: skip.templateId,
+      period: skip.period,
+      note: skip.note,
+      skipped_at: skip.skippedAt,
+      skipped_by: skip.skippedBy,
+    });
+    return info.changes > 0;
+  }
+}
+
+export interface SqliteRecurringJournalSkipRepositoryHandle extends RecurringJournalSkipRepository {
+  close(): void;
+}
+
+export function createSqliteRecurringJournalSkipRepository(
+  path: SqliteConnectionInput = ":memory:",
+): SqliteRecurringJournalSkipRepositoryHandle {
+  const { sqlite, owned } = openSqliteConnection(path);
+  sqlite.exec(CREATE_SKIP);
+  const repo = new SqliteRecurringJournalSkipRepository(sqlite);
   return Object.assign(repo, { close: () => { if (owned) sqlite.close(); } });
 }

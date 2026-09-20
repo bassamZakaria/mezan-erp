@@ -1,4 +1,9 @@
 import { createHash, createPublicKey, randomBytes, verify as verifySignature, type KeyObject } from "node:crypto";
+import {
+  WEBAUTHN_CHALLENGE_TTL_MS,
+  type PendingWebauthnChallenge,
+  type WebauthnChallengeRepository,
+} from "@mezan/domain";
 
 /**
  * The server half of WebAuthn for the web clock (D289). Registration takes the
@@ -9,7 +14,7 @@ import { createHash, createPublicKey, randomBytes, verify as verifySignature, ty
  */
 
 export const WEBAUTHN_ALGORITHMS: readonly number[] = [-7, -257];
-export const CHALLENGE_TTL_MS = 120_000;
+export const CHALLENGE_TTL_MS = WEBAUTHN_CHALLENGE_TTL_MS;
 
 const FLAG_USER_PRESENT = 0x01;
 const FLAG_USER_VERIFIED = 0x04;
@@ -110,25 +115,27 @@ export function relyingPartyOf(originHeader: string | undefined): { origin: stri
   }
 }
 
-interface PendingChallenge {
-  readonly challenge: string;
-  readonly purpose: string;
-  readonly rpId: string;
-  readonly expiresAt: number;
-}
+export type { PendingWebauthnChallenge, WebauthnChallengeRepository } from "@mezan/domain";
 
-/** Single-use, short-lived, per user. Held in process memory: a restart only voids challenges in flight. */
-export class ChallengeStore {
-  private readonly pending = new Map<string, PendingChallenge>();
+/**
+ * In-process fallback — used only where no database-backed
+ * `WebauthnChallengeRepository` is supplied (a caller with no persistence at
+ * hand, or a test). Production wiring (`create-backend.ts`) always injects
+ * `createSqliteWebauthnChallengeRepository`: this class's whole limitation —
+ * a challenge issued on one process is invisible to another — is exactly what
+ * that DB-backed store exists to fix for a multi-server cloud deployment.
+ */
+export class InMemoryChallengeStore implements WebauthnChallengeRepository {
+  private readonly pending = new Map<string, PendingWebauthnChallenge>();
 
-  issue(userId: string, purpose: string, rpId: string, now = Date.now()): string {
+  async issue(userId: string, purpose: string, rpId: string, now = Date.now()): Promise<string> {
     for (const [key, value] of this.pending) if (value.expiresAt <= now) this.pending.delete(key);
     const challenge = newChallenge();
     this.pending.set(userId, { challenge, purpose, rpId, expiresAt: now + CHALLENGE_TTL_MS });
     return challenge;
   }
 
-  consume(userId: string, purpose: string, now = Date.now()): PendingChallenge | null {
+  async consume(userId: string, purpose: string, now = Date.now()): Promise<PendingWebauthnChallenge | null> {
     const found = this.pending.get(userId);
     this.pending.delete(userId);
     if (!found || found.purpose !== purpose || found.expiresAt <= now) return null;

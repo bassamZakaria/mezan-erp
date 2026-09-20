@@ -293,6 +293,7 @@ import type {
   GeneratedRecurringJournalDTO,
   RecurringJournalFrequencyDTO,
   RecurringJournalTemplateStatusDTO,
+  SkipRecurringJournalOccurrenceDTO,
 } from "@mezan/contracts";
 import { useApi } from "./ApiContext";
 import type { TransportResponse } from "./transport";
@@ -1563,6 +1564,15 @@ export interface DueRecurringJournalDTO {
   readonly periods: readonly string[];
 }
 
+export interface RecurringJournalSkipDTO {
+  readonly id: string;
+  readonly templateId: string;
+  readonly period: string;
+  readonly note: string | null;
+  readonly skippedAt: string;
+  readonly skippedBy: string;
+}
+
 export function useRecurringJournalTemplates(): UseQueryResult<RecurringJournalTemplateDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
@@ -1629,6 +1639,52 @@ export function useDueDepreciationPeriods(): UseQueryResult<{ periods: string[] 
       const res = await request("/gl/recurring/depreciation-due");
       if (!res.ok) throw await loaderError(res, t("recurringJournals.dueCouldNotLoad"), t);
       return res.json<{ periods: string[] }>();
+    },
+  });
+}
+
+export function useRecurringJournalSkips(templateId: string | null): UseQueryResult<RecurringJournalSkipDTO[], ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<RecurringJournalSkipDTO[], ApiError>({
+    queryKey: ["recurring-journal-templates", templateId, "skips"],
+    enabled: session !== null && templateId !== null,
+    queryFn: async () => {
+      const res = await request(`/gl/recurring/templates/${templateId}/skips`);
+      if (!res.ok) throw await loaderError(res, t("recurringJournals.historyCouldNotLoad"), t);
+      return res.json<RecurringJournalSkipDTO[]>();
+    },
+  });
+}
+
+export function useAllRecurringJournalSkips(limit = 200): UseQueryResult<RecurringJournalSkipDTO[], ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<RecurringJournalSkipDTO[], ApiError>({
+    queryKey: ["recurring-journal-skips", limit],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request(`/gl/recurring/skips?limit=${limit}`);
+      if (!res.ok) throw await loaderError(res, t("recurringJournals.historyCouldNotLoad"), t);
+      return res.json<RecurringJournalSkipDTO[]>();
+    },
+  });
+}
+
+export function useSkipRecurringJournalOccurrence() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<RecurringJournalSkipDTO, ApiError, { templateId: string } & SkipRecurringJournalOccurrenceDTO>({
+    mutationFn: async ({ templateId, ...body }) => {
+      const res = await request(`/gl/recurring/templates/${templateId}/skip`, { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("recurringJournals.skipFailed"), t));
+      return res.json<RecurringJournalSkipDTO>();
+    },
+    onSuccess: (_data, { templateId }) => {
+      queryClient.invalidateQueries({ queryKey: ["recurring-journal-due"] });
+      queryClient.invalidateQueries({ queryKey: ["recurring-journal-skips"] });
+      queryClient.invalidateQueries({ queryKey: ["recurring-journal-templates", templateId, "skips"] });
     },
   });
 }

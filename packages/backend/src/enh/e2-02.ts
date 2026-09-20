@@ -6,6 +6,7 @@ import {
   createSqliteAssetRepository,
   createSqliteDepreciationRunRepository,
   createSqliteRecurringJournalRunRepository,
+  createSqliteRecurringJournalSkipRepository,
   createSqliteRecurringJournalTemplateRepository,
 } from "@mezan/persistence";
 import type { BackendArea, BackendModuleContext } from "../module-context.js";
@@ -31,6 +32,7 @@ export const area: BackendArea = {
   mount(ctx: BackendModuleContext) {
     const templates = createSqliteRecurringJournalTemplateRepository(ctx.sqlite);
     const runs = createSqliteRecurringJournalRunRepository(ctx.sqlite);
+    const skips = createSqliteRecurringJournalSkipRepository(ctx.sqlite);
     const accountRouting = createSqliteAccountRoutingStore(ctx.sqlite);
     const assets = createSqliteAssetRepository(ctx.sqlite);
     const depreciationRuns = createSqliteDepreciationRunRepository(ctx.sqlite);
@@ -54,6 +56,7 @@ export const area: BackendArea = {
         {
           templates,
           runs,
+          skips,
           ledger: ctx.stores.ledger,
           accounts: ctx.stores.accounts,
           periods: ctx.stores.fiscalPeriods,
@@ -73,12 +76,13 @@ export const area: BackendArea = {
       ),
     );
 
-    const commitmentSource = createRecurringJournalCommitmentSource({ templates, runs });
+    const commitmentSource = createRecurringJournalCommitmentSource({ templates, runs, skips });
     commitmentSourceRegistry.set(ctx.sqlite, commitmentSource);
     registerCashCommitmentSource(ctx.sqlite, commitmentSource);
 
     ctx.addCloser(templates);
     ctx.addCloser(runs);
+    ctx.addCloser(skips);
     ctx.addCloser(assets);
     ctx.addCloser(depreciationRuns);
   },

@@ -193,6 +193,7 @@ import {
   createSqliteAttendanceRepository,
   createSqliteEmployeeAdvanceRepository,
   createSqliteClockCredentialRepository,
+  createSqliteWebauthnChallengeRepository,
   createSqliteLeaveAccrualBatchRepository,
   createSqliteLeaveBalanceRepository,
   createSqliteLeavePolicyRepository,
@@ -857,6 +858,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     onVoucherReversed: (voucherId) => unwindAdvanceVoucher(voucherId, { advances: hrAdvances }),
   };
   const hrClockCredentials = createSqliteClockCredentialRepository(sqlite);
+  const hrChallenges = createSqliteWebauthnChallengeRepository(sqlite);
   const hrPayrollRuns = createSqlitePayrollRunRepository(sqlite);
   const hrPayslips = createSqlitePayslipRepository(sqlite);
   const hrPayrollComponents = createSqlitePayrollComponentRepository(sqlite);
@@ -3366,6 +3368,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       workflow: { configs: workflowConfigs, requests: approvalRequests },
       audit: auditSink,
       clockCredentials: hrClockCredentials,
+      challenges: hrChallenges,
       payroll: {
         advances: hrAdvances,
         runs: hrPayrollRuns,

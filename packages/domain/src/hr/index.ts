@@ -424,12 +424,20 @@ export { HR_PROVISION_DEFINITIONS, getHrProvisionDefinition, hrProvisionMovement
 export type { PayrollStatutoryFlag, PayrollStatutoryFlagRepository } from "./statutory-flag.js";
 export { PAYROLL_STATUTORY_FLAG_CODE, DEFAULT_PAYROLL_STATUTORY_FLAG } from "./statutory-flag.js";
 
-export type { ClockCredential, ClockCredentialRepository, ClockPunchPlan, TenantClockReading } from "./self-service.js";
+export type {
+  ClockCredential,
+  ClockCredentialRepository,
+  ClockPunchPlan,
+  TenantClockReading,
+  PendingWebauthnChallenge,
+  WebauthnChallengeRepository,
+} from "./self-service.js";
 export {
   SelfClockAction,
   ClockRefusalCode,
   ClockPunchRefusedError,
   SELFIE_MIME_TYPES,
+  WEBAUTHN_CHALLENGE_TTL_MS,
   assertMayClock,
   planClockPunch,
   selfieBytesMatchMime,

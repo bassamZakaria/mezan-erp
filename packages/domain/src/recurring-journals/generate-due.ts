@@ -1,11 +1,13 @@
 import { createJournalEntry, deleteDraftJournalEntry, type JournalPostingDeps } from "../gl/index.js";
 import { duePeriods, journalDateForPeriod, nextPeriodFirstDate } from "./schedule.js";
 import { RecurringJournalTemplateStatus, type RecurringJournalTemplate } from "./types.js";
-import type { RecurringJournalRunRepository, RecurringJournalTemplateRepository } from "./store.js";
+import type { RecurringJournalRunRepository, RecurringJournalSkipRepository, RecurringJournalTemplateRepository } from "./store.js";
 
 export interface GenerateDueRecurringJournalsDeps extends JournalPostingDeps {
   readonly templates: Pick<RecurringJournalTemplateRepository, "list">;
   readonly runs: RecurringJournalRunRepository;
+  /** A period an operator skipped is exactly as unavailable to this sweep as one a run already covers. */
+  readonly skips: Pick<RecurringJournalSkipRepository, "findByTemplateAndPeriod">;
   /**
    * No ambient `node:crypto` default here — a `@mezan/domain` barrel export
    * reaches the browser bundle (this package has no server/client split), and
@@ -81,6 +83,10 @@ export async function generateDueRecurringJournals(
       // ever drafting anything. The actual idempotency guarantee is the
       // atomic claim inside `generateOnePeriod`.
       if (await deps.runs.findByTemplateAndPeriod(template.id, period)) continue;
+      // A period an operator deliberately skipped is never drafted either —
+      // "skip this occurrence" would be decorative if the next sweep drafted
+      // it anyway.
+      if (await deps.skips.findByTemplateAndPeriod(template.id, period)) continue;
       try {
         const result = await generateOnePeriod(template, period, idGen, deps);
         if (result) generated.push(result);

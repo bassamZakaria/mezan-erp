@@ -63,6 +63,7 @@ import {
   type UserRepository,
   type AttachmentRepository,
   type ClockCredentialRepository,
+  type WebauthnChallengeRepository,
   type PrintTemplateConfigRepository,
   type SettingsRepository,
   DuplicateDeviceBadgeError,
@@ -127,6 +128,8 @@ export interface HrRoutesDeps extends Partial<HrTimeLeaveDeps> {
   readonly numbering: { next(code: string): Promise<{ readonly formatted: string }> };
   /** Self-service (/hr/self): the web clock's device credentials, its selfie store, and the letterhead a printed payslip needs. */
   readonly clockCredentials?: ClockCredentialRepository;
+  /** DB-backed WebAuthn challenge storage (create-backend.ts); omitted only where no persistence is available. */
+  readonly challenges?: WebauthnChallengeRepository;
   readonly attachments?: AttachmentRepository;
   readonly printTemplates?: Pick<PrintTemplateConfigRepository, "get">;
   readonly tenantSettings?: Pick<SettingsRepository, "get">;
@@ -835,6 +838,7 @@ export function createHrRoutes(deps: HrRoutesDeps, resolveAuthContext: AuthConte
         payslips: deps.payroll?.payslips,
         attachments: deps.attachments,
         clockCredentials: deps.clockCredentials,
+        challenges: deps.challenges,
         printTemplates: deps.printTemplates,
         tenantSettings: deps.tenantSettings ?? deps.payroll?.settings,
         statutoryOverrides: deps.payroll?.statutoryOverrides,

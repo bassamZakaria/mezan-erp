@@ -1,5 +1,5 @@
 import type { App } from "@mezan/api";
-import { ACCOUNTS, BRANCH_ID, VAT_PERCENT, WAREHOUSE_ID, call, step } from "./shared.js";
+import { ACCOUNTS, BRANCH_ID, VAT_PERCENT, WAREHOUSE_ID, call, nextBankTransferReference, step } from "./shared.js";
 import {
   EXPENSE_ACCOUNTS,
   HISTORY_CUSTOMERS,
@@ -592,6 +592,11 @@ async function settleSupplier(
     treasuryAccountId: BANK_TREASURY_ID,
     paymentMethod: "bank",
     date: paidOn,
+    // The treasurer instructs the transfer and writes its reference on the
+    // voucher, so the bank's own statement line and the books name the SAME
+    // movement. `demo-seed/treasury.ts` builds the seeded statement on that,
+    // and auto-match clears the 90 threshold only because of it (D323).
+    referenceNo: nextBankTransferReference(),
     notes: share >= 1 ? "سداد كامل للمورد" : "سداد جزئي للمورد",
   });
 }

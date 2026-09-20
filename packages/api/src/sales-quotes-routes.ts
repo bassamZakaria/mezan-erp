@@ -29,9 +29,11 @@ import {
   createSalesQuoteSchema,
   salesQuoteListQuerySchema,
   convertSalesQuoteToInvoiceSchema,
+  salesQuoteSchema,
   type SalesQuoteDiscountDTO,
 } from "@mezan/contracts";
 import { refuseUnknownItems, type ItemCatalogCheck } from "./item-check.js";
+import { MasterDataKind, refuseUnknownMasterData, type MasterDataChecks } from "./master-data-check.js";
 import {
   documentVersionOf,
   documentVersionsOf,
@@ -67,6 +69,8 @@ export interface SalesQuoteRoutesDeps {
   readonly versionGuard?: DocumentVersionGuard;
   /** Refuses a line naming an item the catalogue does not hold (D38); omit for no check. */
   readonly itemCheck?: ItemCatalogCheck;
+  /** Refuses a quote naming a customer, warehouse or branch no master record holds (D310). */
+  readonly masterData?: MasterDataChecks;
   readonly numbering: DocumentNumberingHook;
   readonly now?: () => string;
   /** Generates a quote id when the request omits one. Defaults to a UUID. */
@@ -256,11 +260,16 @@ export function createSalesQuotesRoutes(
     };
     const refusal = await refuseUnknownItems(c, deps.itemCheck, cmd.lines.map((l) => l.itemId));
     if (refusal) return refusal;
+    const partyRefusal = await refuseUnknownMasterData(c, deps.masterData, [
+      { kind: MasterDataKind.Customer, ids: [cmd.customerId] },
+      { kind: MasterDataKind.Branch, ids: [cmd.branchId] },
+    ]);
+    if (partyRefusal) return partyRefusal;
 
     const svc = service(c);
     try {
       const quote = await svc.createDraft(cmd);
-      return c.json(serialize(quote, totalsFor(svc, quote)), 201);
+      return c.json(salesQuoteSchema.parse(serialize(quote, totalsFor(svc, quote))), 201);
     } catch (err) {
       return handleDomainError(c, err);
     }
@@ -501,6 +510,10 @@ export function createSalesQuotesRoutes(
         409,
       );
     }
+    const convertWarehouseRefusal = await refuseUnknownMasterData(c, deps.masterData, [
+      { kind: MasterDataKind.Warehouse, ids: [d.warehouseId] },
+    ]);
+    if (convertWarehouseRefusal) return convertWarehouseRefusal;
     const byLineId = new Map(d.lines.map((l) => [l.lineId, l]));
     const missing = quote.lines.filter((l) => !byLineId.has(l.lineId));
     if (missing.length > 0) {

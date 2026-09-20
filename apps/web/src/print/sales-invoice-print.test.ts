@@ -5,7 +5,7 @@ import { salesInvoicePrintModel, type SalesInvoicePrintContext } from "./sales-i
 
 function line(overrides: Partial<SalesInvoiceLineRowDTO>): SalesInvoiceLineRowDTO {
   return {
-    lineId: "L1",
+    unitFactor: 1, discountAmount: "0.000000", costCenterId: null, baseQty: "1", lineId: "L1",
     itemId: "I1",
     itemNameAr: "قهوة عربية",
     isStock: true,
@@ -50,7 +50,7 @@ function invoice(lines: SalesInvoiceLineRowDTO[], overrides: Partial<SalesInvoic
     confirmedAt: "2026-03-01T00:00:00.000Z",
     lines,
     totals: {
-      grossTotal: "0.00",
+      taxInclusive: false, grossTotal: "0.00",
       lineDiscountTotal: "0.00",
       promotionDiscountTotal: "0.00",
       invoiceDiscountTotal: "0.00",

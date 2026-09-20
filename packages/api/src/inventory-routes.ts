@@ -30,6 +30,7 @@ import {
   postTransferSchema,
   postedAdjustmentListQuerySchema,
   postedTransferListQuerySchema,
+  itemStockSchema,
 } from "@mezan/contracts";
 import { createPermissionGate, warehouseScopeOf, withinScope, type AuthContextResolver } from "./permission-gate.js";
 
@@ -310,7 +311,7 @@ export function createInventoryRoutes(
     const positions = withinScope(await service.getItemPositions(itemId), warehouseScopeOf(c), (p) => p.warehouseId);
     const layers = withinScope(await service.getItemCostLayers(itemId), warehouseScopeOf(c), (l) => l.warehouseId);
     const reserved = await currentReservations();
-    return c.json({
+    return c.json(itemStockSchema.parse({
       positions: positions.map((p) => {
         const held = reserved.forPosition(itemId, p.warehouseId);
         return {
@@ -334,7 +335,7 @@ export function createInventoryRoutes(
         sourceDocNumber: l.sourceDocNumber,
         createdAt: l.createdAt,
       })),
-    });
+    }));
   });
 
   app.get("/drift", gate("inventory.valuation.view"), async (c) => {

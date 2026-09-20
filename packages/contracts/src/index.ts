@@ -348,6 +348,9 @@ export {
   postAdjustmentSchema,
   transferLineSchema,
   postTransferSchema,
+  itemStockPositionSchema,
+  itemStockLayerSchema,
+  itemStockSchema,
   type StockMovementDirectionDTO,
   type AdjustmentReasonDTO,
   type StockSourceDocTypeDTO,
@@ -366,6 +369,9 @@ export {
   type PostAdjustmentDTO,
   type TransferLineDTO,
   type PostTransferDTO,
+  type ItemStockPositionDTO,
+  type ItemStockLayerDTO,
+  type ItemStockDTO,
 } from "./inventory.js";
 
 export {
@@ -650,6 +656,10 @@ export {
 export {
   salesInvoiceStatusSchema,
   salesInvoiceDiscountSchema,
+  salesInvoiceLineDiscountTypeSchema,
+  salesInvoiceLineRowSchema,
+  salesInvoiceTotalsSchema,
+  salesInvoiceSchema,
   createSalesInvoiceLineSchema,
   createSalesInvoiceSchema,
   confirmSalesInvoiceSchema,
@@ -670,6 +680,10 @@ export {
   type SalesInvoiceListQueryDTO,
   type SalesInvoiceStatsDTO,
   type SalesInvoiceFilterKeyDTO,
+  type SalesInvoiceLineDiscountTypeDTO,
+  type SalesInvoiceLineRowDTO,
+  type SalesInvoiceTotalsDTO,
+  type SalesInvoiceDTO,
 } from "./sales-invoice.js";
 
 export {
@@ -745,6 +759,9 @@ export {
 export {
   salesQuoteStatusSchema,
   salesQuoteDiscountSchema,
+  salesQuoteLineRowSchema,
+  salesQuoteTotalsSchema,
+  salesQuoteSchema,
   createSalesQuoteLineSchema,
   createSalesQuoteSchema,
   salesQuoteListQuerySchema,
@@ -757,6 +774,9 @@ export {
   type SalesQuoteListQueryDTO,
   type ConvertSalesQuoteLineDTO,
   type ConvertSalesQuoteToInvoiceDTO,
+  type SalesQuoteLineRowDTO,
+  type SalesQuoteTotalsDTO,
+  type SalesQuoteDTO,
 } from "./sales-quote.js";
 
 export {
@@ -1464,6 +1484,8 @@ export {
   clockCredentialRegistrationSchema,
   selfCreateAdvanceSchema,
   selfCreateLeaveRequestSchema,
+  selfClockStatusSchema,
+  selfClockPunchResultSchema,
   type SelfClockPunchDTO,
   type SelfieUploadDTO,
   type BiometricAssertionDTO,
@@ -1481,6 +1503,8 @@ export {
   type SelfPayslipsDTO,
   type SelfPayslipPrintDTO,
   type SelfAdvancesDTO,
+  type SelfClockStatusResponseDTO,
+  type SelfClockPunchResultResponseDTO,
 } from "./hr-self.js";
 
 export {

@@ -38,6 +38,7 @@ import {
 import { createPermissionGate, getAuthContext, type AuthContextResolver, branchScopeOf, withinScope } from "./permission-gate.js";
 import { recordAdminEvent } from "./admin-audit.js";
 import { tenantDay } from "./tenant-day.js";
+import { MasterDataKind, refuseUnknownMasterData, type MasterDataChecks } from "./master-data-check.js";
 
 export type ChequeRoutesDeps = ChequeServiceDeps & {
   /** Generates ids (cheque id, journal-entry id) when the request omits them. Defaults to a UUID. */
@@ -49,6 +50,8 @@ export type ChequeRoutesDeps = ChequeServiceDeps & {
    * storage does not carry the per-transition actor columns yet.
    */
   readonly audit?: AuditSink;
+  /** Refuses a cheque naming a branch no master record holds (D310). */
+  readonly masterData?: MasterDataChecks;
 };
 
 function serialize(cheque: Cheque, asOfDate: string, allocations: readonly VoucherAllocation[] = []) {
@@ -318,6 +321,10 @@ export function createChequesRoutes(deps: ChequeRoutesDeps, resolveAuthContext: 
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
     const d = parsed.data;
+    const branchRefusal = await refuseUnknownMasterData(c, deps.masterData, [
+      { kind: MasterDataKind.Branch, ids: [d.branchId] },
+    ]);
+    if (branchRefusal) return branchRefusal;
     try {
       const cheque = await service.createCheque({
         id: d.id ?? idGen(),
@@ -414,6 +421,10 @@ export function createChequesRoutes(deps: ChequeRoutesDeps, resolveAuthContext: 
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
     const d = parsed.data;
+    const replacementBranchRefusal = await refuseUnknownMasterData(c, deps.masterData, [
+      { kind: MasterDataKind.Branch, ids: [d.newCheque.branchId] },
+    ]);
+    if (replacementBranchRefusal) return replacementBranchRefusal;
     try {
       const result = await service.replace({
         bouncedChequeId: c.req.param("id"),

@@ -21,6 +21,7 @@ import {
 } from "../../domain/src/manufacturing/test-helpers.js";
 
 import { insecureHeaderAuthContextResolver } from "./permission-gate.js";
+import { MasterDataKind, type MasterDataChecks, type MasterRecordCheck } from "./master-data-check.js";
 class InMemoryWorkStations implements WorkStationRepository {
   readonly rows = new Map<string, WorkStation>();
   async findById(id: string): Promise<WorkStation | null> {
@@ -65,7 +66,7 @@ function account(id: string, overrides: Partial<Account> = {}): Account {
   };
 }
 
-async function newApp() {
+async function newApp(masterData?: MasterDataChecks) {
   const uow = createSqliteUnitOfWork();
   const ledger = createSqliteLedgerStore();
   const accounts = createSqliteAccountRepository();
@@ -105,6 +106,7 @@ async function newApp() {
 
   const app = createApp(uow, {
     manufacturing: {
+      ...(masterData ? { masterData } : {}),
       boms: mfg.boms,
       workOrders: mfg.workOrders,
       configurableProducts: mfg.configurableProducts,
@@ -1061,5 +1063,88 @@ describe("manufacturing-routes — dashboard next-action per stage", () => {
     expect(nextActionOf("wo-started")).toBe("issue");
     expect(nextActionOf("wo-issued")).toBe("receive");
     expect(nextActionOf("wo-received")).toBe("complete");
+  });
+});
+
+function roster(...ids: readonly string[]): MasterRecordCheck {
+  const held = new Set(ids);
+  return { findById: async (id) => (held.has(id) ? { id } : null) };
+}
+
+describe("D310 — a configured manufacturing order may not name a customer that does not exist", () => {
+  const MASTER_DATA: MasterDataChecks = { [MasterDataKind.Customer]: roster("cust-1") };
+
+  const productBody = {
+    id: "cp-1",
+    code: "WINDOW",
+    nameAr: "نافذة",
+    outputItemId: "FG",
+    unit: "PCS",
+    inputs: [
+      { id: "width", labelAr: "العرض", min: 1, max: 100 },
+      { id: "height", labelAr: "الطول", min: 1, max: 100 },
+    ],
+    materials: [
+      { itemId: "m1", qtyFormula: "2*(width+height)/100" },
+      { itemId: "m2", qtyFormula: "width" },
+    ],
+    pricingMethod: "formula",
+    priceFormula: "width*height*3.5",
+    laborFormula: "2*width",
+    overheadFormula: "width",
+  };
+
+  async function seededProduct() {
+    const h = await newApp(MASTER_DATA);
+    await h.app.fetch(req("/manufacturing/configurable-products", { method: "POST", permissions: ADMIN, body: JSON.stringify(productBody) }));
+    return h.app;
+  }
+
+  it("refuses an order whose customer has no master record", async () => {
+    const app = await seededProduct();
+    const res = await app.fetch(
+      req("/manufacturing/config-instances", {
+        method: "POST",
+        permissions: ADMIN,
+        body: JSON.stringify({
+          id: "ci-phantom",
+          configurableProductId: "cp-1",
+          spec: { width: "10", height: "20" },
+          qty: "1",
+          customerId: "CUST-PHANTOM",
+          sourceWarehouseId: RAW,
+          wipWarehouseId: WIP,
+          destinationWarehouseId: FG,
+          scheduledStartDate: "2026-08-22",
+        }),
+      }),
+    );
+    expect(res.status).toBe(422);
+    const b = (await res.json()) as { error: string; customerIds: string[]; messageEn: string };
+    expect(b.error).toBe("CUSTOMER_NOT_FOUND");
+    expect(b.customerIds).toEqual(["CUST-PHANTOM"]);
+    expect(b.messageEn).toContain("CUST-PHANTOM");
+  });
+
+  it("still accepts an order whose customer is real", async () => {
+    const app = await seededProduct();
+    const res = await app.fetch(
+      req("/manufacturing/config-instances", {
+        method: "POST",
+        permissions: ADMIN,
+        body: JSON.stringify({
+          id: "ci-real",
+          configurableProductId: "cp-1",
+          spec: { width: "10", height: "20" },
+          qty: "1",
+          customerId: "cust-1",
+          sourceWarehouseId: RAW,
+          wipWarehouseId: WIP,
+          destinationWarehouseId: FG,
+          scheduledStartDate: "2026-08-22",
+        }),
+      }),
+    );
+    expect(res.status).toBe(201);
   });
 });

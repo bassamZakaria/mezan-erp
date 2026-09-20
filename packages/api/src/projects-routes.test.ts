@@ -9,6 +9,7 @@ import {
   type SqliteProjectRepositoryHandle,
 } from "../../persistence/src/project-repository.js";
 import { createProjectsRoutes } from "./projects-routes.js";
+import { MasterDataKind, type MasterDataChecks, type MasterRecordCheck } from "./master-data-check.js";
 
 import { insecureHeaderAuthContextResolver } from "./permission-gate.js";
 const projectHandles: SqliteProjectRepositoryHandle[] = [];
@@ -19,12 +20,12 @@ afterEach(() => {
   for (const h of costCenterHandles.splice(0)) h.close();
 });
 
-function newApp() {
+function newApp(masterData?: MasterDataChecks) {
   const projects = createSqliteProjectRepository();
   const costCenters = createSqliteCostCenterRepository();
   projectHandles.push(projects);
   costCenterHandles.push(costCenters);
-  const app = createProjectsRoutes({ projects, costCenters }, insecureHeaderAuthContextResolver);
+  const app = createProjectsRoutes({ projects, costCenters, ...(masterData ? { masterData } : {}) }, insecureHeaderAuthContextResolver);
   return { app, projects, costCenters };
 }
 
@@ -135,5 +136,44 @@ describe("projects router — CRUD", () => {
       req("/nope", { method: "PATCH", permissions: "projects.project.manage", headers: { "content-type": "application/json" }, body: JSON.stringify({ status: "active" }) }),
     );
     expect(res.status).toBe(404);
+  });
+});
+
+function roster(...ids: readonly string[]): MasterRecordCheck {
+  const held = new Set(ids);
+  return { findById: async (id) => (held.has(id) ? { id } : null) };
+}
+
+describe("D310 — a project may not name a customer that does not exist", () => {
+  const MASTER_DATA: MasterDataChecks = { [MasterDataKind.Customer]: roster("CUST-1") };
+
+  it("refuses a project whose customer has no master record", async () => {
+    const { app } = newApp(MASTER_DATA);
+    const res = await app.fetch(
+      req("/", {
+        method: "POST",
+        permissions: "projects.project.manage",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ...payload, customerId: "CUST-PHANTOM" }),
+      }),
+    );
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as { error: string; customerIds: string[]; messageEn: string };
+    expect(body.error).toBe("CUSTOMER_NOT_FOUND");
+    expect(body.customerIds).toEqual(["CUST-PHANTOM"]);
+    expect(body.messageEn).toContain("CUST-PHANTOM");
+  });
+
+  it("still creates a project whose customer is real", async () => {
+    const { app } = newApp(MASTER_DATA);
+    const res = await app.fetch(
+      req("/", {
+        method: "POST",
+        permissions: "projects.project.manage",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ...payload, customerId: "CUST-1" }),
+      }),
+    );
+    expect(res.status).toBe(201);
   });
 });

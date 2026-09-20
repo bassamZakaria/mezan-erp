@@ -77,6 +77,7 @@ import {
   type PurchaseInvoiceListQueryDTO,
 } from "@mezan/contracts";
 import { refuseUnknownItems, type ItemCatalogCheck } from "./item-check.js";
+import { MasterDataKind, refuseUnknownMasterData, type MasterDataChecks } from "./master-data-check.js";
 import {
   documentVersionOf,
   documentVersionsOf,
@@ -116,6 +117,8 @@ import {
 export interface PurchasesRoutesDeps {
   /** Refuses a line naming an item the catalogue does not hold — D38's twin on the purchase side. */
   readonly itemCheck?: ItemCatalogCheck;
+  /** Refuses a document naming a supplier, branch or warehouse no master record holds (D310). */
+  readonly masterData?: MasterDataChecks;
   readonly orders: PurchaseOrderRepository;
   readonly receipts: GoodsReceiptRepository;
   readonly invoices: PurchaseInvoiceRepository;
@@ -539,6 +542,12 @@ export function createPurchasesRoutes(
     if (orderCurrencyRefusal) return c.json({ error: "CURRENCY_NOT_ALLOWED", message: orderCurrencyRefusal }, 422);
     const orderItemRefusal = await refuseUnknownItems(c, deps.itemCheck, parsed.data.lines.map((l) => l.itemId));
     if (orderItemRefusal) return orderItemRefusal;
+    const orderPartyRefusal = await refuseUnknownMasterData(c, deps.masterData, [
+      { kind: MasterDataKind.Supplier, ids: [parsed.data.supplierId] },
+      { kind: MasterDataKind.Branch, ids: [parsed.data.branchId] },
+      { kind: MasterDataKind.Warehouse, ids: [parsed.data.warehouseId] },
+    ]);
+    if (orderPartyRefusal) return orderPartyRefusal;
     try {
       const order = await createPurchaseOrder(
         {
@@ -715,6 +724,11 @@ export function createPurchasesRoutes(
     }
     const receiptItemRefusal = await refuseUnknownItems(c, deps.itemCheck, (parsed.data.lines ?? []).map((l) => l.itemId));
     if (receiptItemRefusal) return receiptItemRefusal;
+    const receiptPartyRefusal = await refuseUnknownMasterData(c, deps.masterData, [
+      { kind: MasterDataKind.Supplier, ids: [parsed.data.supplierId] },
+      { kind: MasterDataKind.Warehouse, ids: [parsed.data.warehouseId] },
+    ]);
+    if (receiptPartyRefusal) return receiptPartyRefusal;
     try {
       const receipt = await createGoodsReceipt(
         {
@@ -1200,6 +1214,12 @@ export function createPurchasesRoutes(
       (parsed.data.lines ?? []).map((l) => l.itemId).filter((id): id is string => typeof id === "string" && id !== ""),
     );
     if (invoiceItemRefusal) return invoiceItemRefusal;
+    const invoicePartyRefusal = await refuseUnknownMasterData(c, deps.masterData, [
+      { kind: MasterDataKind.Supplier, ids: [parsed.data.supplierId] },
+      { kind: MasterDataKind.Branch, ids: [parsed.data.branchId] },
+      { kind: MasterDataKind.Warehouse, ids: [parsed.data.warehouseId] },
+    ]);
+    if (invoicePartyRefusal) return invoicePartyRefusal;
     try {
       // create-from-receipt: auto-fill lines from a confirmed receipt when omitted.
       let lines: PurchaseInvoiceLine[] | undefined;

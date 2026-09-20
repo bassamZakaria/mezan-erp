@@ -1,5 +1,5 @@
 import { Money } from "../money/index.js";
-import type { Account, NaturalBalance } from "../accounts/account.js";
+import type { Account, AccountType, NaturalBalance } from "../accounts/account.js";
 import type { JournalEntry } from "../journal.js";
 import type { PostedLine } from "../gl/ledger.js";
 import type { JournalLineInput, JournalPostingDeps } from "../gl/post.js";
@@ -135,6 +135,27 @@ export function computeFxRevaluation(
 }
 
 /**
+ * Account types whose balance is a **monetary item** under IAS 21 ¶8 — a right
+ * to receive or an obligation to pay a fixed number of currency units, which
+ * ¶23(a) retranslates at each closing rate: receivables, payables, cash, bank
+ * and loans.
+ *
+ * Revenue, expense and equity are not. A foreign receipt credits its revenue
+ * account once, at the spot rate of the day the income was earned (¶21), and
+ * that entry is final — ¶23(b) leaves a non-monetary item at its historical
+ * rate. Collecting one as an open position put GL 4910 إيرادات أخرى in the
+ * preview as USD 1,200.00 booked at 58,680.00 and restated the whole tenant by
+ * 540.00 every month end, for income settled the day it was booked (D322).
+ * A memorandum account is off balance sheet and never restated at all.
+ */
+const MONETARY_ACCOUNT_TYPES: ReadonlySet<AccountType> = new Set<AccountType>(["asset", "liability"]);
+
+/** Whether a balance on this account is a monetary item an FX revaluation restates. */
+export function isMonetaryAccountType(type: AccountType): boolean {
+  return MONETARY_ACCOUNT_TYPES.has(type);
+}
+
+/**
  * Recover the open foreign-currency balances from posted ledger lines. Each FX
  * line (one carrying a non-base currency + booking rate) contributes its base
  * amount and the foreign amount that base+rate represent; amounts are grouped
@@ -142,7 +163,8 @@ export function computeFxRevaluation(
  * account's natural side, ready for {@link computeFxRevaluation}. Base amounts
  * are summed per rate before converting, so lines that close each other at the
  * same rate — an invoice and the settlement that relieved it (D260) — close to
- * the micro-unit. Pure.
+ * the micro-unit. Only a monetary account contributes — see
+ * {@link MONETARY_ACCOUNT_TYPES}. Pure.
  */
 export function deriveOpenFxBalances(
   lines: readonly PostedLine[],
@@ -156,7 +178,8 @@ export function deriveOpenFxBalances(
     if (isBaseCurrency(line.currency) || !line.fxRate) continue;
     const currency = line.currency as string;
     if (currencyFilter && !currencyFilter.has(currency)) continue;
-    if (!accountById.has(line.accountId)) continue;
+    const lineAccount = accountById.get(line.accountId);
+    if (!lineAccount || !isMonetaryAccountType(lineAccount.type)) continue;
     const key = `${line.accountId} ${currency}`;
     const group = groups.get(key) ?? { accountId: line.accountId, currency, baseSum: 0n, baseByRate: new Map() };
     const baseDelta = line.debit.scaled - line.credit.scaled;

@@ -12,6 +12,7 @@ import {
 import { createFixedAssetsRoutes, type FixedAssetsRoutesDeps } from "./fixed-assets-routes.js";
 
 import { insecureHeaderAuthContextResolver } from "./permission-gate.js";
+import { MasterDataKind, type MasterDataChecks, type MasterRecordCheck } from "./master-data-check.js";
 const closers: { close(): void }[] = [];
 afterEach(() => {
   for (const h of closers.splice(0)) h.close();
@@ -23,7 +24,7 @@ function account(id: string, overrides: Partial<Account> = {}): Account {
 
 let idSeq = 0;
 
-async function newApp() {
+async function newApp(masterData?: MasterDataChecks) {
   const categories = createSqliteAssetCategoryRepository();
   const assets = createSqliteAssetRepository();
   const rateHistory = createSqliteAssetInternalRateHistoryRepository();
@@ -72,6 +73,7 @@ async function newApp() {
     defaultAccounts: { depreciationExpenseAccountId: "5499", accumulatedDepreciationAccountId: "1599" },
     idGen: () => `run-${++idSeq}`,
     audit,
+    ...(masterData ? { masterData } : {}),
   };
 
   return {
@@ -1000,5 +1002,78 @@ describe("fixed-assets router — depreciation runs list, counts and stats", () 
     const res = await app.fetch(req(`/depreciation/runs/${created.id}`, { permissions: "assets.depreciation.view" }));
     expect(res.status).toBe(200);
     expect(((await res.json()) as { id: string }).id).toBe(created.id);
+  });
+});
+
+function roster(...ids: readonly string[]): MasterRecordCheck {
+  const held = new Set(ids);
+  return { findById: async (id) => (held.has(id) ? { id } : null) };
+}
+
+describe("D310 — an asset and a depreciation run may not name a branch that does not exist", () => {
+  const MASTER_DATA: MasterDataChecks = {
+    [MasterDataKind.Branch]: roster("BR-MAIN"),
+    [MasterDataKind.Warehouse]: roster("WH-MAIN"),
+  };
+
+  it("refuses an asset registered into a branch with no master record", async () => {
+    const { app } = await newApp(MASTER_DATA);
+    await app.fetch(req("/categories", { method: "POST", permissions: "assets.manage", body: JSON.stringify(categoryPayload) }));
+    const res = await app.fetch(
+      req("/", {
+        method: "POST",
+        permissions: "assets.create",
+        body: JSON.stringify({
+          id: "a-phantom",
+          code: "PH-01",
+          nameAr: "أصل وهمي",
+          categoryId: "cat-1",
+          scope: "branch",
+          branchId: "BR-PHANTOM",
+          acquisitionDate: "2025-01-01",
+          acquisitionCost: "1000.00",
+        }),
+      }),
+    );
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as { error: string; branchIds: string[]; messageEn: string };
+    expect(body.error).toBe("BRANCH_NOT_FOUND");
+    expect(body.branchIds).toEqual(["BR-PHANTOM"]);
+    expect(body.messageEn).toContain("BR-PHANTOM");
+  });
+
+  it("refuses a depreciation run scoped to a branch with no master record", async () => {
+    const { app } = await newApp(MASTER_DATA);
+    const res = await app.fetch(
+      req("/depreciation/runs", {
+        method: "POST",
+        permissions: "assets.depreciation.run",
+        body: JSON.stringify({ period: "2026-03", branchId: "BR-PHANTOM" }),
+      }),
+    );
+    expect(res.status).toBe(422);
+    expect(((await res.json()) as { error: string }).error).toBe("BRANCH_NOT_FOUND");
+  });
+
+  it("still registers an asset whose branch is real", async () => {
+    const { app } = await newApp(MASTER_DATA);
+    await app.fetch(req("/categories", { method: "POST", permissions: "assets.manage", body: JSON.stringify(categoryPayload) }));
+    const res = await app.fetch(
+      req("/", {
+        method: "POST",
+        permissions: "assets.create",
+        body: JSON.stringify({
+          id: "a-real",
+          code: "RE-01",
+          nameAr: "أصل حقيقي",
+          categoryId: "cat-1",
+          scope: "branch",
+          branchId: "BR-MAIN",
+          acquisitionDate: "2025-01-01",
+          acquisitionCost: "1000.00",
+        }),
+      }),
+    );
+    expect(res.status).toBe(201);
   });
 });

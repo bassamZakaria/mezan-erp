@@ -1,5 +1,5 @@
 import type { App } from "@mezan/api";
-import { step, BRANCH_ID, WAREHOUSE_ID, ACCOUNTS, seedToday } from "./shared.js";
+import { call, step, BRANCH_ID, WAREHOUSE_ID, ACCOUNTS, seedToday } from "./shared.js";
 
 /**
  * Seed profile module — see `./shared.ts`. Local and test environments only.
@@ -508,11 +508,14 @@ const STATEMENT_PERIOD_START = "2026-08-01";
 const STATEMENT_PERIOD_END = "2026-08-31";
 
 /** The bank's own wording for a movement — a real statement never repeats the voucher's memo. */
-function bankNarrative(index: number, moneyIn: boolean): string {
-  const inbound = ["إيداع نقدي بالفرع", "تحويل وارد", "إيداع شيك محصّل", "تحويل وارد - انستاباي"];
-  const outbound = ["تحويل صادر", "سحب نقدي", "شيك مصروف", "تحويل صادر - انستاباي"];
-  const pool = moneyIn ? inbound : outbound;
-  return pool[index % pool.length]!;
+enum BankNarrative {
+  CashDeposit = "إيداع نقدي بالفرع",
+  TransferOut = "تحويل صادر",
+}
+
+/** Money reaches this account over the counter and leaves it by transfer, which is how the tenant trades. */
+function bankNarrative(moneyIn: boolean): BankNarrative {
+  return moneyIn ? BankNarrative.CashDeposit : BankNarrative.TransferOut;
 }
 
 interface LedgerLineRow {
@@ -523,17 +526,45 @@ interface LedgerLineRow {
 }
 
 /**
+ * The reference the books hold for the movement behind a GL line — the transfer
+ * reference the treasurer wrote on the voucher, when there is one.
+ *
+ * This is what auto-match scores on: amount (50) + same day (25) + reference
+ * (15) is exactly the 90 it needs, and a CSV carries no counterparty to make up
+ * the difference. Quoting a reference the books do not hold would be a bank
+ * statement nobody could reconcile; quoting none, which is what this seed did
+ * before D323, made every one of the 16 lines stop at 75.
+ */
+async function bookReferenceOf(app: App, entryId: string): Promise<string | null> {
+  const entry = (await step(app, "GET", `/gl/journal-entries/${encodeURIComponent(entryId)}`)) as {
+    readonly sourceDocId?: string | null;
+  };
+  if (!entry.sourceDocId) return null;
+  const res = await call(app, "GET", `/vouchers/${encodeURIComponent(entry.sourceDocId)}`);
+  if (!res.ok) return null;
+  const voucher = (await res.json()) as { readonly referenceNo?: string | null };
+  return voucher.referenceNo ?? null;
+}
+
+/**
  * كشف حساب بنكي واحد لشهر أغسطس 2026 — the bank-reconciliation workflow had a
  * screen, routes and an engine and no data at all: `/bank-statements` returned
  * an empty list on every seeded tenant, so import → match → finalize had never
  * once run end to end.
  *
  * The statement is DERIVED from the bank GL account's own posted movements, not
- * invented, so auto-match has real entries to find. Three deliberate differences
- * make the reconciliation a reconciliation rather than a formality:
+ * invented, so auto-match has real entries to find, and each line quotes the
+ * transfer reference the books hold for that movement where there is one.
+ * What clears and what does not is decided by the books, not by the fixture:
  *
+ *   - the supplier transfers the purchasing screen recorded a reference for
+ *     carry it on both sides and auto-apply — amount (50) + same day (25) +
+ *     reference (15) is exactly the 90 the threshold asks of a CSV, which
+ *     carries no counterparty to make up any shortfall;
+ *   - the counter deposits and the vouchers written without a reference stop
+ *     at 75 and are matched by hand;
  *   - two movements carry the bank's value date, two days after the book date,
- *     so they match through the ±5-day tolerance rather than trivially;
+ *     which costs them their date score as well;
  *   - two charges the books have never seen (service fee, transfer fee) stay
  *     unmatched — the "شوف الفروقات" step needs something to show;
  *   - the last book movement is left OFF the statement, the uncleared-payment
@@ -568,17 +599,19 @@ async function seedBankStatement(app: App): Promise<void> {
   const onStatement = inPeriod.slice(0, -1);
   const lagged = new Set(onStatement.slice(-2).map((line) => line.entryId));
 
-  const rows = onStatement.map((line, index) => {
+  const rows: { date: string; description: string; debit: string; credit: string; reference: string }[] = [];
+  for (const [index, line] of onStatement.entries()) {
     const moneyIn = toCents(line.debit) > 0;
     const amount = moneyIn ? line.debit : line.credit;
-    return {
+    const bookReference = await bookReferenceOf(app, line.entryId);
+    rows.push({
       date: lagged.has(line.entryId) ? addDays(line.date, 2) : line.date,
-      description: bankNarrative(index, moneyIn),
+      description: bankNarrative(moneyIn),
       debit: moneyIn ? "" : amount,
       credit: moneyIn ? amount : "",
-      reference: `TRX${String(index + 1).padStart(6, "0")}`,
-    };
-  });
+      reference: bookReference ?? `TRX${String(index + 1).padStart(6, "0")}`,
+    });
+  }
 
   const CHARGES = [
     { date: "2026-08-28", description: "مصاريف خدمات بنكية", amount: "85.00", reference: "FEE000041" },
@@ -616,10 +649,21 @@ async function seedBankStatement(app: App): Promise<void> {
     closingBalance: money(closingCents),
   });
 
-  // Left at "قيد التسوية" with the two fees outstanding, not finalized: a
+  // Left at "قيد التسوية": auto-match clears the referenced transfers and
+  // leaves the lagged, the teller deposits and the two fees for a human. A
   // statement seeded as منتهية would leave the match/unmatch/finalize controls
   // with nothing to act on, which is the state this seed exists to end.
-  await step(app, "POST", "/bank-statements/BSTMT-DEMO-1/auto-match", {});
+  const autoMatch = (await step(app, "POST", "/bank-statements/BSTMT-DEMO-1/auto-match", {})) as {
+    readonly matchedCount: number;
+  };
+  // A statement where nothing cleared is what D323 was: every line stuck at 75
+  // because no book reference reached it. It reads as "قيد التسوية" either way,
+  // which is how it went unnoticed, so the seed checks rather than assumes.
+  if (autoMatch.matchedCount === 0) {
+    throw new Error(
+      "[demo-seed] auto-match cleared none of the seeded bank statement; the book movements have lost the transfer reference their statement lines quote (D323).",
+    );
+  }
 }
 
 /**

@@ -131,8 +131,8 @@ describe("notification-rules engine — real end-to-end wiring", () => {
         dueDate: "2026-09-21",
         customerId: "cust-notif-1",
         customerNameAr: "شركة الأمل للتجارة",
-        warehouseId: "WH1",
-        branchId: "BR1",
+        warehouseId: "WH-MAIN",
+        branchId: "BR-MAIN",
         arAccountId: "1105",
         taxAccountId: "2200",
         lines: [
@@ -233,8 +233,8 @@ describe("notification-rules engine — real end-to-end wiring", () => {
         dueDate: "2026-09-21",
         customerId: "cust-notif-2",
         customerNameAr: "عميل صغير",
-        warehouseId: "WH1",
-        branchId: "BR1",
+        warehouseId: "WH-MAIN",
+        branchId: "BR-MAIN",
         arAccountId: "1105",
         taxAccountId: "2200",
         lines: [

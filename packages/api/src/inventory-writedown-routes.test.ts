@@ -9,6 +9,7 @@ import {
   createSqliteStockLedgerStore,
 } from "@mezan/persistence";
 import { createInventoryWritedownRoutes, type InventoryWritedownRoutesDeps } from "./inventory-writedown-routes.js";
+import { MasterDataKind, type MasterDataChecks, type MasterRecordCheck } from "./master-data-check.js";
 
 import { insecureHeaderAuthContextResolver } from "./permission-gate.js";
 const closers: { close(): void }[] = [];
@@ -37,7 +38,7 @@ function snapshot(overrides: Partial<WacSnapshot> & Pick<WacSnapshot, "itemId" |
   return { onHand: Qty.fromMajor("20"), totalValue: Money.fromMajor("2000.00"), averageCost: Money.fromMajor("100.00"), ...overrides };
 }
 
-async function newApp() {
+async function newApp(masterData?: MasterDataChecks) {
   const runs = createSqliteWritedownRunRepository();
   const stockLedger = createSqliteStockLedgerStore();
   const ledger = createSqliteLedgerStore();
@@ -68,6 +69,7 @@ async function newApp() {
       let n = 0;
       return () => `run-${++n}`;
     })(),
+    ...(masterData ? { masterData } : {}),
   };
 
   return { app: createInventoryWritedownRoutes(deps, insecureHeaderAuthContextResolver), runs, stockLedger, ledger };
@@ -156,5 +158,42 @@ describe("inventory-writedown router — full flow", () => {
 
     const rePost = await h.app.fetch(req(`/${draft.id}/post`, { method: "POST", permissions: "inventory.writedown.run" }));
     expect(rePost.status).toBe(409);
+  });
+});
+
+function roster(...ids: readonly string[]): MasterRecordCheck {
+  const held = new Set(ids);
+  return { findById: async (id) => (held.has(id) ? { id } : null) };
+}
+
+describe("D310 — a write-down run may not name a warehouse that does not exist", () => {
+  const MASTER_DATA: MasterDataChecks = { [MasterDataKind.Warehouse]: roster("WH-MAIN") };
+
+  it("refuses a run whose warehouse has no master record, rather than answering «no slow-moving stock»", async () => {
+    const h = await newApp(MASTER_DATA);
+    const res = await h.app.fetch(
+      req("/", { method: "POST", permissions: "inventory.writedown.run", body: JSON.stringify({ period: "2026-03", warehouseId: "WH-PHANTOM" }) }),
+    );
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as { error: string; warehouseIds: string[]; messageEn: string };
+    expect(body.error).toBe("WAREHOUSE_NOT_FOUND");
+    expect(body.warehouseIds).toEqual(["WH-PHANTOM"]);
+    expect(body.messageEn).toContain("WH-PHANTOM");
+  });
+
+  it("lets a run with no warehouse at all past the guard — the whole tenant is the default scope", async () => {
+    const h = await newApp(MASTER_DATA);
+    const res = await h.app.fetch(req("/", { method: "POST", permissions: "inventory.writedown.run", body: JSON.stringify({ period: "2026-03" }) }));
+    expect(((await res.json()) as { error?: string }).error).not.toBe("WAREHOUSE_NOT_FOUND");
+  });
+
+  it("still runs against a warehouse that is real", async () => {
+    const h = await newApp(MASTER_DATA);
+    await h.stockLedger.ledger.append(movement({ id: "m-1", itemId: "item-1", warehouseId: "WH-MAIN", occurredAt: "2025-01-10T00:00:00.000Z" }));
+    await h.stockLedger.snapshots.save(snapshot({ itemId: "item-1", warehouseId: "WH-MAIN" }));
+    const res = await h.app.fetch(
+      req("/", { method: "POST", permissions: "inventory.writedown.run", body: JSON.stringify({ period: "2026-03", warehouseId: "WH-MAIN" }) }),
+    );
+    expect(res.status).toBe(201);
   });
 });

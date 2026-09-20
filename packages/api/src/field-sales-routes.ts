@@ -36,6 +36,7 @@ import {
 } from "./permission-gate.js";
 import { can } from "@mezan/domain";
 import { tenantDay, tenantToday } from "./tenant-day.js";
+import { MasterDataKind, refuseUnknownMasterData, type MasterDataChecks } from "./master-data-check.js";
 
 /**
  * Field/Van Sales routes (docs/archive/catalog/07-mfg-projects-assets.md "رحلات
@@ -43,6 +44,8 @@ import { tenantDay, tenantToday } from "./tenant-day.js";
  * `/field/van-trips`.
  */
 export interface FieldSalesRoutesDeps {
+  /** Refuses a van or a trip naming a branch or warehouse no master record holds (D310). */
+  readonly masterData?: MasterDataChecks;
   readonly trips: VanTripRepository;
   /**
    * المركبات — the registry the van→warehouse→treasury cascade resolves
@@ -163,6 +166,7 @@ function handleDomainError(c: Context, err: unknown) {
 export function createVansRoutes(
   vans: VanRepository,
   resolveAuthContext: AuthContextResolver,
+  masterData?: MasterDataChecks,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
@@ -185,6 +189,11 @@ export function createVansRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
+    const vanPlaceRefusal = await refuseUnknownMasterData(c, masterData, [
+      { kind: MasterDataKind.Branch, ids: [parsed.data.branchId] },
+      { kind: MasterDataKind.Warehouse, ids: [parsed.data.warehouseId] },
+    ]);
+    if (vanPlaceRefusal) return vanPlaceRefusal;
     try {
       const van = createVan({
         id: parsed.data.id ?? randomUUID(),
@@ -294,6 +303,11 @@ export function createFieldSalesRoutes(
           422,
         );
       }
+      const tripPlaceRefusal = await refuseUnknownMasterData(c, deps.masterData, [
+        { kind: MasterDataKind.Branch, ids: [branchId] },
+        { kind: MasterDataKind.Warehouse, ids: [vanWarehouseId, body.sourceWarehouseId] },
+      ]);
+      if (tripPlaceRefusal) return tripPlaceRefusal;
 
       const trip = await openVanTrip(
         {

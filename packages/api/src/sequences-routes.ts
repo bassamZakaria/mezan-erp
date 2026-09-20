@@ -10,6 +10,7 @@ import {
 } from "@mezan/domain";
 import { sequenceOverrideSchema, resetSequenceCounterSchema, type SequenceListItemDTO } from "@mezan/contracts";
 import { createPermissionGate, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
+import { atomically, type ConfigTransactor } from "./config-transactor.js";
 
 /**
  * Read/config surface for the numbering engine (`/settings/sequences`,
@@ -35,6 +36,8 @@ export interface SequencesRoutesDeps {
   readonly counters: SequenceCounterPort;
   readonly config: SequenceConfigPort;
   readonly audit?: AuditSink;
+  /** The boundary the audit row shares with the write it records — see {@link ConfigTransactor}. */
+  readonly transactor?: ConfigTransactor;
   readonly definitions?: readonly SequenceDefinition[];
   readonly now?: () => Date;
 }
@@ -109,18 +112,20 @@ export function createSequencesRoutes(
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
 
-    await deps.config.upsertOverride(code, parsed.data);
-    if (deps.audit) {
-      await recordSensitiveEvent(deps.audit, {
-        module: "admin",
-        entityType: "SEQUENCE",
-        entityId: code,
-        action: "SEQUENCE_CONFIG_UPDATED",
-        actor: actorOf(c),
-        severity: "WARNING",
-        details: { code, patch: parsed.data },
-      });
-    }
+    await atomically(deps.transactor, async () => {
+      await deps.config.upsertOverride(code, parsed.data);
+      if (deps.audit) {
+        await recordSensitiveEvent(deps.audit, {
+          module: "admin",
+          entityType: "SEQUENCE",
+          entityId: code,
+          action: "SEQUENCE_CONFIG_UPDATED",
+          actor: actorOf(c),
+          severity: "WARNING",
+          details: { code, patch: parsed.data },
+        });
+      }
+    });
 
     const now = deps.now?.() ?? new Date();
     const override = await deps.config.getOverride(code);
@@ -160,18 +165,20 @@ export function createSequencesRoutes(
       );
     }
 
-    await deps.counters.setCounter(effective.code, period, parsed.data.value);
-    if (deps.audit) {
-      await recordSensitiveEvent(deps.audit, {
-        module: "admin",
-        entityType: "SEQUENCE",
-        entityId: code,
-        action: "SEQUENCE_COUNTER_ADJUSTED",
-        actor: actorOf(c),
-        severity: "CRITICAL",
-        details: { code, from: current, to: parsed.data.value },
-      });
-    }
+    await atomically(deps.transactor, async () => {
+      await deps.counters.setCounter(effective.code, period, parsed.data.value);
+      if (deps.audit) {
+        await recordSensitiveEvent(deps.audit, {
+          module: "admin",
+          entityType: "SEQUENCE",
+          entityId: code,
+          action: "SEQUENCE_COUNTER_ADJUSTED",
+          actor: actorOf(c),
+          severity: "CRITICAL",
+          details: { code, from: current, to: parsed.data.value },
+        });
+      }
+    });
 
     return c.json(await toListItem(def, override ?? undefined, deps, now));
   });

@@ -114,17 +114,19 @@ export function createProfileRoutes(
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
     try {
-      await changeOwnPassword(callerId, parsed.data, uow, hasher);
-      if (audit) {
-        await recordSecurityEvent(audit, {
-          module: "profile",
-          entityType: "USER",
-          entityId: callerId,
-          action: "PASSWORD_CHANGED",
-          actor: callerId,
-          severity: "WARNING",
-        });
-      }
+      await uow.transaction(async (tx) => {
+        await changeOwnPassword(callerId, parsed.data, tx, hasher);
+        if (audit) {
+          await recordSecurityEvent(audit, {
+            module: "profile",
+            entityType: "USER",
+            entityId: callerId,
+            action: "PASSWORD_CHANGED",
+            actor: callerId,
+            severity: "WARNING",
+          });
+        }
+      });
       return c.body(null, 204);
     } catch (err) {
       return profileErrorResponse(c, err);
@@ -138,17 +140,19 @@ export function createProfileRoutes(
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
     try {
-      await changeOwnPin(callerId, parsed.data, uow, hasher);
-      if (audit) {
-        await recordSecurityEvent(audit, {
-          module: "profile",
-          entityType: "USER",
-          entityId: callerId,
-          action: pinChangeAction(parsed.data.newPin),
-          actor: callerId,
-          severity: "WARNING",
-        });
-      }
+      await uow.transaction(async (tx) => {
+        await changeOwnPin(callerId, parsed.data, tx, hasher);
+        if (audit) {
+          await recordSecurityEvent(audit, {
+            module: "profile",
+            entityType: "USER",
+            entityId: callerId,
+            action: pinChangeAction(parsed.data.newPin),
+            actor: callerId,
+            severity: "WARNING",
+          });
+        }
+      });
       return c.body(null, 204);
     } catch (err) {
       return profileErrorResponse(c, err);

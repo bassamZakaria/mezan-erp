@@ -2,6 +2,8 @@ import { describe, it, expect, afterEach } from "vitest";
 import {
   createSqliteSequenceStore,
   createSqliteSequenceConfigStore,
+  openSqliteConnection,
+  withSqliteTransaction,
   type SqliteSequenceStoreHandle,
   type SqliteSequenceConfigStoreHandle,
 } from "@mezan/persistence";
@@ -348,5 +350,56 @@ describe("sequences router — atomic draws never collide", () => {
     // Gap-free: the values are exactly 1..25 in some order.
     expect([...unique].sort((a, b) => a - b)).toEqual(Array.from({ length: 25 }, (_, i) => i + 1));
     expect(await counters.peek("SALES_INVOICE", null)).toBe(25);
+  });
+});
+
+describe("sequences router — the audit row rides in the config write's transaction (D298)", () => {
+  function sharedApp() {
+    const { sqlite } = openSqliteConnection(":memory:");
+    const counters = createSqliteSequenceStore(sqlite);
+    const config = createSqliteSequenceConfigStore(sqlite);
+    handles.push(counters, config, { close: () => sqlite.close() });
+    const audit: AuditSink = {
+      async append() {
+        throw new Error("audit sink is down");
+      },
+      async query() {
+        return [];
+      },
+    };
+    const deps: SequencesRoutesDeps = {
+      counters,
+      config,
+      audit,
+      transactor: { run: (fn) => withSqliteTransaction(sqlite, fn) },
+    };
+    return { app: createSequencesRoutes(deps, insecureHeaderAuthContextResolver), counters, config };
+  }
+
+  it("rolls the override back when the audit append fails", async () => {
+    const { app, config } = sharedApp();
+    const res = await app.fetch(
+      req("/SALES_INVOICE", {
+        method: "PATCH",
+        permissions: "admin.sequences.edit",
+        body: JSON.stringify({ prefix: "ZZZ-" }),
+      }),
+    );
+    expect(res.status).toBe(500);
+    expect(await config.getOverride("SALES_INVOICE")).toBeNull();
+  });
+
+  it("rolls the counter adjustment back when the audit append fails", async () => {
+    const { app, counters } = sharedApp();
+    await counters.increment("SALES_INVOICE", null);
+    const res = await app.fetch(
+      req("/SALES_INVOICE/counter", {
+        method: "POST",
+        permissions: "admin.sequences.reset",
+        body: JSON.stringify({ value: 900, confirm: true }),
+      }),
+    );
+    expect(res.status).toBe(500);
+    expect(await counters.peek("SALES_INVOICE", null)).toBe(1);
   });
 });

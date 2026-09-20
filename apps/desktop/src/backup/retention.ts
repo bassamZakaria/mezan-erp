@@ -51,18 +51,19 @@ function monthKey(d: Date): string {
 
 /**
  * Picks the single newest candidate per bucket key, in bucket-recency order,
- * up to `limit` buckets. Candidates already kept (by id) are skipped so the
- * same backup can't be double-counted across the daily/weekly/monthly tiers.
+ * up to `limit` buckets. Every tier resolves its buckets over the WHOLE
+ * candidate set: a bucket whose newest member a finer tier already kept is
+ * satisfied by that same file. Hiding kept ids here instead would promote the
+ * bucket's runner-up — a backup this tier's own rule had superseded — and the
+ * tiers would stop being a union of one-per-bucket (D306).
  */
 function pickNewestPerBucket(
   candidates: readonly RetentionCandidate[],
   keyOf: (d: Date) => string,
   limit: number,
-  alreadyKept: Set<string>,
 ): RetentionCandidate[] {
   const byBucket = new Map<string, RetentionCandidate>();
   for (const c of candidates) {
-    if (alreadyKept.has(c.id)) continue;
     const key = keyOf(c.createdAt);
     const existing = byBucket.get(key);
     if (!existing || c.createdAt > existing.createdAt) {
@@ -94,8 +95,9 @@ export function applyRetention(
     { keyOf: weekKey, limit: policy.weekly },
     { keyOf: monthKey, limit: policy.monthly },
   ]) {
-    const picked = pickNewestPerBucket(sorted, tier.keyOf, tier.limit, kept);
+    const picked = pickNewestPerBucket(sorted, tier.keyOf, tier.limit);
     for (const c of picked) {
+      if (kept.has(c.id)) continue;
       kept.add(c.id);
       keep.push(c);
     }

@@ -541,9 +541,9 @@ export async function run(ctx: Ctx): Promise<void> {
     },
   );
 
-  // --- 7. D10 — hardcoded branch/warehouse ids -----------------------------
+  // --- 7. D10/D310 — a document may not name a branch or warehouse that does not exist ---
   await scenario(
-    "purchases: D10 — RFQ/PO/invoice create silently accept the UI's hardcoded branchId 'MAIN'/warehouseId 'MAIN-WH', ids that do not exist in this tenant (real ids BR-MAIN/WH-MAIN)",
+    "purchases: D310 — PO and invoice create refuse the UI's hardcoded branchId 'MAIN'/warehouseId 'MAIN-WH', ids that do not exist in this tenant (real ids BR-MAIN/WH-MAIN); RFQ still accepts them (D10, open)",
     async () => {
       const rfq = await req("POST", "/rfqs", {
         id: "SCN-RFQ-D10",
@@ -553,7 +553,7 @@ export async function run(ctx: Ctx): Promise<void> {
         lines: [{ itemId: "ITEM-DEMO-3", qty: "5", notes: null }],
       });
       check(
-        "D10: RFQ create with the UI's hardcoded 'MAIN'/'MAIN-WH' succeeds silently — no FK check anywhere rejects a non-existent branch/warehouse",
+        "D10 (still open): RFQ create with the UI's hardcoded 'MAIN'/'MAIN-WH' succeeds silently — the RFQ route has no master-data check",
         rfq.status === 201,
         `status ${rfq.status}`,
       );
@@ -566,7 +566,12 @@ export async function run(ctx: Ctx): Promise<void> {
         warehouseId: "MAIN-WH",
         lines: [{ itemId: "ITEM-DEMO-3", qty: "5", unitPrice: "32" }],
       });
-      check("D10: PO create with 'MAIN'/'MAIN-WH' also succeeds silently", po.status === 201, `status ${po.status}`);
+      check("D310: PO create with 'MAIN'/'MAIN-WH' is refused 422", po.status === 422, `status ${po.status}`);
+      check(
+        "D310: the PO refusal names the branch, in Arabic and English",
+        po.body?.error === "BRANCH_NOT_FOUND" && typeof po.body?.message === "string" && typeof po.body?.messageEn === "string",
+        JSON.stringify(po.body),
+      );
 
       const invoice = await req("POST", "/purchases/invoices", {
         id: "SCN-PI-D10",
@@ -576,7 +581,28 @@ export async function run(ctx: Ctx): Promise<void> {
         warehouseId: "MAIN-WH",
         lines: [{ itemId: "ITEM-DEMO-3", kind: "inventory", qty: "5", unitCost: "32", taxRatePercent: VAT }],
       });
-      check("D10: manual invoice create with 'MAIN'/'MAIN-WH' also succeeds silently (left as draft, not confirmed)", invoice.status === 201, `status ${invoice.status}`);
+      check("D310: manual invoice create with 'MAIN'/'MAIN-WH' is refused 422", invoice.status === 422, `status ${invoice.status}`);
+
+      const phantomSupplier = await req("POST", "/purchases/invoices", {
+        id: "SCN-PI-D310",
+        supplierId: "SUP-DEMO-1",
+        date: "2026-08-24",
+        branchId: "BR-MAIN",
+        warehouseId: "WH-MAIN",
+        lines: [{ itemId: "ITEM-DEMO-3", kind: "inventory", qty: "5", unitCost: "32", taxRatePercent: VAT }],
+      });
+      check(
+        "D310: an invoice naming a supplier with no master record is refused 422, not posted into the aging ladder",
+        phantomSupplier.status === 422 && phantomSupplier.body?.error === "SUPPLIER_NOT_FOUND",
+        `status ${phantomSupplier.status} ${JSON.stringify(phantomSupplier.body)}`,
+      );
+
+      const aging = await req("GET", "/reports/aging/suppliers");
+      check(
+        "D310: the supplier aging ladder carries no row for the phantom supplier",
+        !JSON.stringify(aging.body).includes('"SUP-DEMO-1"'),
+        JSON.stringify(aging.body).slice(0, 200),
+      );
     },
   );
 

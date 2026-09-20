@@ -113,9 +113,11 @@ function salesInvoice(overrides: Partial<SalesInvoiceDTO> = {}): SalesInvoiceDTO
     workflowRequestId: null,
     createdAt: "2026-08-01T09:00:00.000Z",
     confirmedAt: "2026-08-01T09:00:00.000Z",
+    projectId: null,
+    fxRate: null,
     lines: [],
     totals: {
-      grossTotal: "0.00",
+      taxInclusive: false, grossTotal: "0.00",
       lineDiscountTotal: "0.00",
       promotionDiscountTotal: "0.00",
       invoiceDiscountTotal: "0.00",
@@ -125,6 +127,7 @@ function salesInvoice(overrides: Partial<SalesInvoiceDTO> = {}): SalesInvoiceDTO
       grandTotal: "0.00",
     },
     ...overrides,
+    baseGrandTotal: overrides.baseGrandTotal ?? overrides.totals?.grandTotal ?? "0.00",
   };
 }
 

@@ -25,6 +25,7 @@ import {
   withinScope,
   type AuthContextResolver,
 } from "../permission-gate.js";
+import { atomically, type ConfigTransactor } from "../config-transactor.js";
 import { posDomainError, readJson, validationError } from "./http.js";
 
 export interface PosTerminalsRoutesDeps {
@@ -36,6 +37,13 @@ export interface PosTerminalsRoutesDeps {
   /** The branch's registered device (the ETA branch mapping), the fallback DEC-25 keeps. */
   readonly branchEtaDevices: () => Promise<ReadonlyMap<string, BranchEtaDevice>>;
   readonly audit?: AuditSink;
+  /**
+   * The boundary the audit row shares with the write it records — see
+   * {@link ConfigTransactor}. The terminal row, its ETA device secrets and
+   * the audit row are one change: a secret stored without the row that says
+   * whose till now talks to the tax authority is exactly what this covers.
+   */
+  readonly transactor?: ConfigTransactor;
 }
 
 /**
@@ -149,9 +157,11 @@ export function createPosTerminalsRoutes(deps: PosTerminalsRoutesDeps, resolveAu
         return c.json({ error: "DUPLICATE_POS_TERMINAL_CODE", message: `كود الجهاز «${terminal.code}» مستخدم بالفعل` }, 409);
       }
       await checkReferences(terminal);
-      await deps.terminals.save(terminal);
-      const secretChanged = await storeSecrets(terminal, etaPosClientSecret, etaPosPresharedKey);
-      await record(c, terminal, "CREATE", secretChanged);
+      await atomically(deps.transactor, async () => {
+        await deps.terminals.save(terminal);
+        const secretChanged = await storeSecrets(terminal, etaPosClientSecret, etaPosPresharedKey);
+        await record(c, terminal, "CREATE", secretChanged);
+      });
       const saved = (await deps.terminals.findById(terminal.id)) ?? terminal;
       const [dto] = await serialize([saved]);
       return c.json(dto, 201);
@@ -176,9 +186,11 @@ export function createPosTerminalsRoutes(deps: PosTerminalsRoutesDeps, resolveAu
         return c.json({ error: "DUPLICATE_POS_TERMINAL_CODE", message: `كود الجهاز «${next.code}» مستخدم بالفعل` }, 409);
       }
       await checkReferences(next);
-      await deps.terminals.save(next);
-      const secretChanged = await storeSecrets(next, etaPosClientSecret, etaPosPresharedKey);
-      await record(c, next, "UPDATE", secretChanged, current);
+      await atomically(deps.transactor, async () => {
+        await deps.terminals.save(next);
+        const secretChanged = await storeSecrets(next, etaPosClientSecret, etaPosPresharedKey);
+        await record(c, next, "UPDATE", secretChanged, current);
+      });
       const saved = (await deps.terminals.findById(next.id)) ?? next;
       const [dto] = await serialize([saved]);
       return c.json(dto);

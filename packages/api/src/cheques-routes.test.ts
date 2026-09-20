@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach } from "vitest";
 import type { Account, AuditEvent, AuditSink, AuditStream } from "@mezan/domain";
 import { createSqliteLedgerStore, createSqliteAccountRepository, createSqliteFiscalPeriodRepository, createSqliteChequeRepository } from "@mezan/persistence";
 import { createChequesRoutes, type ChequeRoutesDeps } from "./cheques-routes.js";
+import { MasterDataKind, type MasterDataChecks, type MasterRecordCheck } from "./master-data-check.js";
 
 import { insecureHeaderAuthContextResolver } from "./permission-gate.js";
 const closers: Array<{ close(): void }> = [];
@@ -21,7 +22,7 @@ class MemAudit implements AuditSink {
   async query(stream: AuditStream) { return this.events.filter((e) => e.stream === stream); }
 }
 
-async function newApp() {
+async function newApp(masterData?: MasterDataChecks) {
   const ledger = createSqliteLedgerStore();
   const accounts = createSqliteAccountRepository();
   const periods = createSqliteFiscalPeriodRepository();
@@ -44,6 +45,7 @@ async function newApp() {
     now: () => "2026-08-22T10:00:00.000Z",
     idGen: () => `gen-${++idSeq}`,
     audit,
+    ...(masterData ? { masterData } : {}),
   };
   return { app: createChequesRoutes(deps, insecureHeaderAuthContextResolver), ledger, audit };
 }
@@ -239,5 +241,49 @@ describe("cheques routes", () => {
     const res = await app.fetch(req("/?direction=outgoing"));
     const body = (await res.json()) as any[];
     expect(body.map((c) => c.id)).toEqual(["chq-2"]);
+  });
+});
+
+function roster(...ids: readonly string[]): MasterRecordCheck {
+  const held = new Set(ids);
+  return { findById: async (id) => (held.has(id) ? { id } : null) };
+}
+
+describe("D310 — a cheque may not name a branch that does not exist", () => {
+  const MASTER_DATA: MasterDataChecks = { [MasterDataKind.Branch]: roster("b1") };
+
+  it("refuses a cheque recorded into a branch with no master record", async () => {
+    const { app } = await newApp(MASTER_DATA);
+    const res = await app.fetch(req("/", { method: "POST", body: JSON.stringify({ ...INCOMING, branchId: "BR-PHANTOM" }) }));
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as { error: string; branchIds: string[]; message: string; messageEn: string };
+    expect(body.error).toBe("BRANCH_NOT_FOUND");
+    expect(body.branchIds).toEqual(["BR-PHANTOM"]);
+    expect(body.message).toContain("BR-PHANTOM");
+    expect(body.messageEn).toContain("BR-PHANTOM");
+  });
+
+  it("refuses a replacement cheque recorded into a branch with no master record", async () => {
+    const { app } = await newApp(MASTER_DATA);
+    await app.fetch(req("/", { method: "POST", body: JSON.stringify(INCOMING) }));
+    await app.fetch(req("/chq-1/deposit", { method: "POST", body: JSON.stringify({ date: "2026-08-10", bankTreasuryAccountId: "tr-1" }) }));
+    await app.fetch(req("/chq-1/bounce", { method: "POST", body: JSON.stringify({ date: "2026-08-21", reason: "رصيد غير كاف" }) }));
+    const res = await app.fetch(
+      req("/chq-1/replace", {
+        method: "POST",
+        body: JSON.stringify({
+          date: "2026-08-22",
+          newCheque: { chequeNumber: "CHQ-5002", bankName: "بنك مصر", issueDate: "2026-08-22", dueDate: "2026-09-22", branchId: "BR-PHANTOM" },
+        }),
+      }),
+    );
+    expect(res.status).toBe(422);
+    expect(((await res.json()) as { error: string }).error).toBe("BRANCH_NOT_FOUND");
+  });
+
+  it("still records a cheque whose branch is real", async () => {
+    const { app } = await newApp(MASTER_DATA);
+    const res = await app.fetch(req("/", { method: "POST", body: JSON.stringify(INCOMING) }));
+    expect(res.status).toBe(201);
   });
 });

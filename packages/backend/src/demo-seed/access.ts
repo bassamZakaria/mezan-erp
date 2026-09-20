@@ -24,6 +24,11 @@ import { fragmentGrantsFor, fragmentPeople, fragmentRoles, seedLicensing } from 
 /** The seeded tenant is "Cyag", so its people are at cyag.example (RFC 2606). */
 const TENANT_DOMAIN = "cyag.example";
 
+const TREASURY_CASHIER_LOCAL = "youssef.badr";
+
+/** أمين الخزنة — the account `demo-seed/security-activity.ts` attributes the seeded night shift to. */
+export const SEED_TREASURY_CASHIER_EMAIL = `${TREASURY_CASHIER_LOCAL}@${TENANT_DOMAIN}`;
+
 /** Scope targets. `WH-DEMO-2` is Giza and `WH-DEMO-VAN` the delivery van. */
 const BRANCH_ID = "BR-MAIN";
 const GIZA_WAREHOUSE_ID = "WH-DEMO-2";
@@ -554,7 +559,7 @@ const PEOPLE: readonly Person[] = [
   { nameAr: "طارق منصور", nameEn: "Tarek Mansour", local: "tarek.mansour", role: "FINANCE_MANAGER", status: "active" },
   { nameAr: "عمر هلال", nameEn: "Omar Hilal", local: "omar.hilal", role: "SUPERVISOR", status: "active" },
   { nameAr: "رانيا عادل", nameEn: "Rania Adel", local: "rania.adel", role: "PURCHASING_OFFICER", status: "active" },
-  { nameAr: "يوسف بدر", nameEn: "Youssef Badr", local: "youssef.badr", role: "TREASURY_CASHIER", status: "active" },
+  { nameAr: "يوسف بدر", nameEn: "Youssef Badr", local: TREASURY_CASHIER_LOCAL, role: "TREASURY_CASHIER", status: "active" },
   { nameAr: "داليا سعيد", nameEn: "Dalia Saeed", local: "dalia.saeed", role: "HR_OFFICER", status: "active" },
   { nameAr: "أمير زكي", nameEn: "Amir Zaki", local: "amir.zaki", role: "PAYROLL_OFFICER", status: "active" },
   { nameAr: "ليلى إبراهيم", nameEn: "Laila Ibrahim", local: "laila.ibrahim", role: "AUDITOR", status: "active" },

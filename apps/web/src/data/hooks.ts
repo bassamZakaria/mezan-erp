@@ -195,6 +195,9 @@ import type {
   RfqQuoteDTO,
   RoleDTO,
   SalesInvoiceDiscountDTO,
+  SalesInvoiceDTO,
+  SalesInvoiceLineRowDTO,
+  SalesInvoiceTotalsDTO,
   AppliedSalesInvoicePromotionDTO,
   PromotionUsageRowDTO,
   SalesInvoiceListQueryDTO,
@@ -2883,90 +2886,7 @@ export function useConfirmPurchaseInvoice() {
   });
 }
 
-/** Wire shape of a sales invoice with its server-computed totals (packages/api/src/sales-invoices-routes.ts `serialize`) — no dedicated response DTO ships from @mezan/contracts yet. */
-export interface SalesInvoiceLineRowDTO {
-  readonly lineId: string;
-  readonly itemId: string;
-  readonly itemNameAr: string;
-  readonly isStock: boolean;
-  /** As entered, in `unitCode` — the figure `unitPrice` multiplies. */
-  readonly qty: string;
-  /** The unit the line was entered in; "" on invoices raised before per-line units (R2.4). */
-  readonly unitCode?: string;
-  /** Base units per one `unitCode`. */
-  readonly unitFactor?: number;
-  /** qty × unitFactor — what the stock ledger actually moved. */
-  readonly baseQty?: string;
-  readonly unitPrice: string;
-  /** Whether `discountPercent` or `discountAmount` is the live field (R2.5). */
-  readonly discountType?: "percent" | "amount";
-  readonly discountPercent: number;
-  readonly discountAmount?: string;
-  readonly taxRatePercent: number;
-  readonly revenueAccountId: string;
-  readonly cogsAccountId: string | null;
-  readonly inventoryAccountId: string | null;
-  readonly unitCost: string | null;
-}
-
-export interface SalesInvoiceTotalsDTO {
-  readonly grossTotal: string;
-  readonly lineDiscountTotal: string;
-  readonly promotionDiscountTotal: string;
-  readonly invoiceDiscountTotal: string;
-  readonly subtotal: string;
-  readonly taxableTotal: string;
-  readonly taxTotal: string;
-  readonly grandTotal: string;
-}
-
-export interface SalesInvoiceDTO {
-  /** N-9 — the row version the detail read serves; sent back as `expectedVersion` on the next act. */
-  readonly version?: number;
-  readonly id: string;
-  readonly docType: string;
-  readonly docNo: string | null;
-  readonly status: "draft" | "pending" | "confirmed" | "partially_paid" | "paid" | "cancelled" | "reversed";
-  readonly date: string;
-  readonly dueDate: string;
-  readonly customerId: string;
-  readonly customerNameAr: string;
-  readonly customerTaxExempt: boolean;
-  /** Whether this invoice's prices already contained the tax when it was raised. */
-  readonly taxInclusive: boolean;
-  readonly warehouseId: string;
-  readonly branchId: string;
-  readonly salespersonId: string | null;
-  readonly salespersonNameAr: string | null;
-  /** بُعد المشروع — the contracting project this invoice's revenue and COGS belong to. */
-  readonly projectId?: string | null;
-  readonly currency: string;
-  readonly couponCode: string | null;
-  readonly appliedPromotion: AppliedSalesInvoicePromotionDTO | null;
-  readonly notes: string | null;
-  readonly internalNotes: string | null;
-  readonly discount: SalesInvoiceDiscountDTO;
-  readonly arAccountId: string;
-  readonly taxAccountId: string;
-  /** The rate the invoice confirmed at; null for a base-currency or unconfirmed invoice. */
-  readonly fxRate?: string | null;
-  /**
-   * `totals.grandTotal` in BASE currency at `fxRate` — what GL 1105 holds.
-   * `amountPaid`, `returnedCredit` and `remainingBalance` are base figures
-   * measured against this, never against `totals.grandTotal` (D202).
-   */
-  readonly baseGrandTotal?: string;
-  readonly amountPaid: string;
-  /** Confirmed returns credited against this invoice — already netted out of `remainingBalance`. */
-  readonly returnedCredit: string;
-  readonly remainingBalance: string;
-  readonly journalEntryId: string | null;
-  readonly workflowRequestId: string | null;
-  readonly createdAt: string;
-  readonly confirmedAt: string | null;
-  readonly lines: readonly SalesInvoiceLineRowDTO[];
-  readonly totals: SalesInvoiceTotalsDTO;
-}
+export type { SalesInvoiceLineRowDTO, SalesInvoiceTotalsDTO, SalesInvoiceDTO };
 
 /** فواتير المبيعات (docs/archive/catalog/01) — list, create, confirm, record a payment. */
 export function useSalesInvoices(filter: Partial<SalesInvoiceListQueryDTO> = {}): UseQueryResult<SalesInvoiceDTO[], ApiError> {

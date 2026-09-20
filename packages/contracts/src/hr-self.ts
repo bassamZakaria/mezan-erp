@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { moneyString } from "./money-string.js";
-import { createLeaveRequestSchema, type AttendanceEntryDTO, type EmployeeStatusDTO } from "./hr.js";
+import { attendanceEntrySchema, createLeaveRequestSchema, type AttendanceEntryDTO, type EmployeeStatusDTO } from "./hr.js";
 import type { EmployeeAdvanceDTO, PayrollRunStatusDTO, PayslipDTO } from "./hr-payroll.js";
 
 /**
@@ -68,6 +68,25 @@ export const selfCreateAdvanceSchema = z.object({
 });
 
 export const selfCreateLeaveRequestSchema = createLeaveRequestSchema.omit({ employeeId: true });
+
+/** `GET /hr/self/clock` — `packages/api/src/hr-self-routes.ts`. */
+export const selfClockStatusSchema = z.object({
+  employeeId: z.string().nullable(),
+  today: z.string(),
+  serverTime: z.string(),
+  todayEntry: attendanceEntrySchema.nullable(),
+  openEntry: attendanceEntrySchema.nullable(),
+  requireSelfie: z.boolean(),
+  requireBiometric: z.boolean(),
+  biometricRegistered: z.boolean(),
+  storageAvailable: z.boolean(),
+});
+
+/** `POST /hr/self/clock` response. */
+export const selfClockPunchResultSchema = z.object({
+  entry: attendanceEntrySchema,
+  selfieAttachmentId: z.string().nullable(),
+});
 
 export type SelfClockPunchDTO = z.infer<typeof selfClockPunchSchema>;
 export type SelfieUploadDTO = z.infer<typeof selfieUploadSchema>;
@@ -172,3 +191,5 @@ export interface SelfAdvancesDTO {
   readonly employeeId: string | null;
   readonly advances: readonly EmployeeAdvanceDTO[];
 }
+export type SelfClockStatusResponseDTO = z.infer<typeof selfClockStatusSchema>;
+export type SelfClockPunchResultResponseDTO = z.infer<typeof selfClockPunchResultSchema>;

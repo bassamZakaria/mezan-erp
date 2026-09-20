@@ -81,15 +81,18 @@ function salesInvoice(overrides: Partial<SalesInvoiceDTO> = {}): SalesInvoiceDTO
     workflowRequestId: null,
     createdAt: "2026-08-10T09:00:00.000Z",
     confirmedAt: "2026-08-10T09:05:00.000Z",
+    projectId: null,
+    fxRate: null,
     lines: [
       {
-        lineId: "l1", itemId: "item-cement", itemNameAr: "أسمنت بورتلاندي", isStock: true, qty: "10.000000",
+        unitCode: "", unitFactor: 1, discountType: "percent", discountAmount: "0.000000", costCenterId: null, baseQty: "10.000000", lineId: "l1", itemId: "item-cement", itemNameAr: "أسمنت بورتلاندي", isStock: true, qty: "10.000000",
         unitPrice: "100.000000", discountPercent: 0, taxRatePercent: 14, revenueAccountId: "acc-rev",
         cogsAccountId: "acc-cogs", inventoryAccountId: "acc-inv", unitCost: "85.000000",
       },
     ],
-    totals: { grossTotal: "1000.000000", lineDiscountTotal: "0", promotionDiscountTotal: "0", invoiceDiscountTotal: "0", subtotal: "1000.000000", taxableTotal: "1000.000000", taxTotal: "140.000000", grandTotal: "1140.000000" },
+    totals: { taxInclusive: false, grossTotal: "1000.000000", lineDiscountTotal: "0", promotionDiscountTotal: "0", invoiceDiscountTotal: "0", subtotal: "1000.000000", taxableTotal: "1000.000000", taxTotal: "140.000000", grandTotal: "1140.000000" },
     ...overrides,
+    baseGrandTotal: overrides.baseGrandTotal ?? overrides.totals?.grandTotal ?? "1140.000000",
   };
 }
 
@@ -99,7 +102,7 @@ const serviceInvoice = salesInvoice({
   docNo: null,
   lines: [
     {
-      lineId: "s1", itemId: "item-cement", itemNameAr: "أسمنت بورتلاندي", isStock: false, qty: "1.000000",
+      unitCode: "", unitFactor: 1, discountType: "percent", discountAmount: "0.000000", costCenterId: null, baseQty: "1.000000", lineId: "s1", itemId: "item-cement", itemNameAr: "أسمنت بورتلاندي", isStock: false, qty: "1.000000",
       unitPrice: "300.000000", discountPercent: 0, taxRatePercent: 14, revenueAccountId: "acc-rev",
       cogsAccountId: null, inventoryAccountId: null, unitCost: null,
     },

@@ -2368,6 +2368,57 @@ audit's are cited only here, and its code refers to the audit's own tags (L-1…
 
 ---
 
+#### DEC-30 — A phone app for the field, not a second ERP. Expo + React Native, writes online-only, offline deferred to its own slice.
+
+**Taken 2026-09-20**, owner-delegated. Asked for as "an app for iOS and Android, React Native".
+
+**Who it is for, in the order the module earns its keep:** the **مندوب** (creating the quote,
+the invoice and the collection voucher at the customer's counter instead of re-keying at 6pm),
+the **owner** (cash, receivables and the approvals waiting on them, from anywhere), any
+**employee** (clock-in with the phone's own camera and fingerprint — the two capabilities the
+web clock has to beg the browser for), and the **أمين مخزن** (barcode lookup at the bay).
+The **accountant is deliberately not a mobile user**: they have a desk, two monitors and a
+keyboard, and an app that tries to be the whole ERP on a 5-inch screen is how ERP mobile apps
+become unused.
+
+**Three options were drawn** (the diagrams are in `docs/mobile/2026-09-20-mobile-app-design.md`):
+a read-only companion; a field app that writes online; an offline-first field app with a local
+mirror and a write queue. **The difference that decided it is how many writers the ledger has.**
+In the first two the server is the only thing that ever writes, so the fiscal-period lock, the
+transactional document counter, the credit limit and the stock-availability check each exist
+once. In the third the phone has to make provisional versions of all four and then reconcile
+them — which turns a number the client supplied into a number the books trust, the exact shape
+of the worst defect this codebase has ever had (the caller-supplied `availableQty`).
+
+**Chosen: the field app that writes online.** Reads are cached so the app still opens and still
+shows yesterday's figures on a dead signal; a write with no connection is refused in Arabic and
+says so. **Offline writing is a later slice with its own decision, not a feature smuggled in
+under a spinner.** The price, stated rather than hidden: a rep with no signal cannot invoice.
+
+**It is one more client of the same API.** `apps/mobile` signs in at the same `POST /auth/login`
+with the same email + 6-digit PIN, carries the same `Bearer` token, `x-mezan-tenant` and scope
+headers, and parses every response against the same `@mezan/contracts` zod schema the server
+validated it with. No second API, no second contract, no second money type — money stays an
+exact decimal string and is formatted by string arithmetic, never through `Number()`. The server
+decides what is allowed; the session's permissions only hide controls.
+
+**Cloud edition first.** The desktop edition's LAN socket allow-lists five routes and is not a
+general API, so the phone talks to the hosted edition. A desktop shop reaches the app when it
+takes the cloud edition — that sentence goes on the sales sheet rather than being discovered.
+
+**Delivery** is EAS Build for the `.ipa` and the `.aab` and EAS Update for JavaScript fixes
+without a store review. The Apple membership, the Play listing and the store accounts are the
+owner's to provide; the build runs against the simulator until they exist.
+
+**Three workspace facts this uncovered, all now fixed:** React 19 (which SDK 56 requires) hoisted
+over the web client's React 18 and broke **every** web test and typecheck until React and its
+types were pinned at the root and `@types/react` was unhoisted in `.npmrc`; Metro could not
+resolve `@mezan/contracts`' NodeNext `./x.js` specifiers without a resolver shim in
+`metro.config.js`; and `eslint` had been walking into `.claude/worktrees/**` and linting every
+worktree's copy of the app.
+
+---
+
 ### Taken earlier
 
 | # | Decision | Taken |

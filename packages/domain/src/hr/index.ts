@@ -193,6 +193,9 @@ export {
   amountDueBy,
   applyAdvanceRecovery,
   applyManualAdvanceRepayment,
+  reverseAdvanceRecovery,
+  reverseManualAdvanceRepayment,
+  revertEmployeeAdvanceDisbursement,
 } from "./advance.js";
 
 export type {
@@ -269,7 +272,7 @@ export type {
   AdvanceRepaymentInput,
   RepayAdvanceDeps,
 } from "./hr-disbursement.js";
-export { disburseEmployeeAdvance, disbursePayrollRun, repayEmployeeAdvance } from "./hr-disbursement.js";
+export { disburseEmployeeAdvance, disbursePayrollRun, repayEmployeeAdvance, unwindAdvanceVoucher } from "./hr-disbursement.js";
 
 export {
   DepartmentNotFoundError,
@@ -320,6 +323,7 @@ export {
   DuplicatePayrollComponentError,
   DuplicateDeviceBadgeError,
   AdvanceRepaymentExceedsOutstandingError,
+  AdvanceDisbursementNotReversibleError,
   InvalidAdvanceRepaymentError,
   PendingAdvanceExistsError,
 } from "./errors.js";

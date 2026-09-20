@@ -85,6 +85,7 @@ export {
   type VoucherServiceDeps,
   type VoucherChequeRegistration,
   type VoucherChequeRegistrationPort,
+  type VoucherAdvanceUnwindPort,
   type CreateVoucherCommand,
   type ConfirmVoucherOptions,
 } from "./voucher-service.js";

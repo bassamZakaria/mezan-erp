@@ -573,3 +573,15 @@ export class PendingAdvanceExistsError extends Error {
     this.name = "PendingAdvanceExistsError";
   }
 }
+
+export class AdvanceDisbursementNotReversibleError extends Error {
+  readonly code = "ADVANCE_DISBURSEMENT_NOT_REVERSIBLE";
+  readonly messageEn: string;
+  constructor(readonly advanceNumber: string, readonly recovered: string) {
+    super(
+      `لا يمكن عكس سند صرف السلفة ${advanceNumber}: تم استرداد ${recovered} منها بالفعل. اعكس الاسترداد أولاً.`,
+    );
+    this.messageEn = `The disbursement voucher of advance ${advanceNumber} cannot be reversed: ${recovered} has already been recovered. Reverse the recovery first.`;
+    this.name = "AdvanceDisbursementNotReversibleError";
+  }
+}

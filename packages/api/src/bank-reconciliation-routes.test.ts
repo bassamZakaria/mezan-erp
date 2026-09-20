@@ -70,6 +70,9 @@ async function newApp() {
   const deps: BankReconciliationRoutesDeps = {
     statements: bankStatements.statements,
     mappings: bankStatements.mappings,
+    suggestions: bankStatements.suggestions,
+    rules: bankStatements.rules,
+    treasuryAccounts,
     ledgerReader: createTreasuryLedgerReader({ treasuryAccounts, ledger }),
     now: () => "2026-08-22T10:00:00.000Z",
     idGen: () => `gen-${++idSeq}`,
@@ -78,6 +81,29 @@ async function newApp() {
     app: createBankReconciliationRoutes(deps, insecureHeaderAuthContextResolver),
     gl: { ledger, accounts, periods, numbering: ledger.numbering, now: () => "2026-08-22T10:00:00.000Z" },
   };
+}
+
+/**
+ * The two bank movements the statement's first two lines correspond to: a
+ * 1,000 deposit on the day of TX1 and a 400 withdrawal on the day of TX2.
+ * `sourceDocNumber` carries the bank reference, because a match scored on
+ * amount and date alone reaches 75 of the 90 an unattended auto-apply needs.
+ */
+async function postMovements(gl: Parameters<typeof postJournalEntry>[1], opts: { withReference: boolean }) {
+  await postJournalEntry(
+    { id: "je-in", date: "2026-08-01", memo: "إيداع", source: "system", ...(opts.withReference ? { sourceDocNumber: "TX1" } : {}), lines: [
+      { accountId: "1310", debit: Money.fromMajor("1000"), credit: Money.zero() },
+      { accountId: "1100", debit: Money.zero(), credit: Money.fromMajor("1000") },
+    ] },
+    gl,
+  );
+  await postJournalEntry(
+    { id: "je-out", date: "2026-08-03", memo: "سحب", source: "system", ...(opts.withReference ? { sourceDocNumber: "TX2" } : {}), lines: [
+      { accountId: "1100", debit: Money.fromMajor("400"), credit: Money.zero() },
+      { accountId: "1310", debit: Money.zero(), credit: Money.fromMajor("400") },
+    ] },
+    gl,
+  );
 }
 
 function req(path: string, init: RequestInit & { permissions?: string } = {}) {
@@ -207,14 +233,15 @@ describe("bank reconciliation routes — listing", () => {
 
 describe("bank reconciliation routes — matching", () => {
   it("matches a line manually, moving the statement to قيد التسوية, then unmatches it", async () => {
-    const { app } = await newApp();
+    const { app, gl } = await newApp();
+    await postMovements(gl, { withReference: false });
     await app.fetch(importReq());
 
-    const matched = await app.fetch(req("/stmt-1/lines/stmt-1:L0/match", { method: "POST", body: JSON.stringify({ entryId: "je-1" }) }));
+    const matched = await app.fetch(req("/stmt-1/lines/stmt-1:L0/match", { method: "POST", body: JSON.stringify({ entryId: "je-in" }) }));
     expect(matched.status).toBe(200);
     const line = (await matched.json()) as any;
     expect(line.status).toBe("matched");
-    expect(line.matchedEntryId).toBe("je-1");
+    expect(line.matchedEntryId).toBe("je-in");
     expect(line.matchedAt).toBe("2026-08-22T10:00:00.000Z");
 
     const statement = (await (await app.fetch(req("/stmt-1"))).json()) as any;
@@ -227,11 +254,12 @@ describe("bank reconciliation routes — matching", () => {
   });
 
   it("rejects re-matching a matched line and unmatching an unmatched one with 409", async () => {
-    const { app } = await newApp();
+    const { app, gl } = await newApp();
+    await postMovements(gl, { withReference: false });
     await app.fetch(importReq());
-    await app.fetch(req("/stmt-1/lines/stmt-1:L0/match", { method: "POST", body: JSON.stringify({ entryId: "je-1" }) }));
+    await app.fetch(req("/stmt-1/lines/stmt-1:L0/match", { method: "POST", body: JSON.stringify({ entryId: "je-in" }) }));
 
-    const remat = await app.fetch(req("/stmt-1/lines/stmt-1:L0/match", { method: "POST", body: JSON.stringify({ entryId: "je-2" }) }));
+    const remat = await app.fetch(req("/stmt-1/lines/stmt-1:L0/match", { method: "POST", body: JSON.stringify({ entryId: "je-out" }) }));
     expect(remat.status).toBe(409);
     expect(((await remat.json()) as any).error).toBe("LINE_ALREADY_MATCHED");
 
@@ -247,29 +275,32 @@ describe("bank reconciliation routes — matching", () => {
     expect(res.status).toBe(404);
   });
 
-  it("auto-matches lines against the treasury account's real posted GL movements", async () => {
+  it("offers a bare GL movement for review rather than booking it — amount and date alone are two coincidences", async () => {
     const { app, gl } = await newApp();
-    // A 1000 deposit into the bank GL account on the same day as the statement's first line,
-    // and a 400 withdrawal two days after its second — inside the matcher's date tolerance.
-    await postJournalEntry(
-      { id: "je-in", date: "2026-08-01", memo: "إيداع", source: "system", lines: [
-        { accountId: "1310", debit: Money.fromMajor("1000"), credit: Money.zero() },
-        { accountId: "1100", debit: Money.zero(), credit: Money.fromMajor("1000") },
-      ] },
-      gl,
-    );
-    await postJournalEntry(
-      { id: "je-out", date: "2026-08-05", memo: "سحب", source: "system", lines: [
-        { accountId: "1100", debit: Money.fromMajor("400"), credit: Money.zero() },
-        { accountId: "1310", debit: Money.zero(), credit: Money.fromMajor("400") },
-      ] },
-      gl,
-    );
-
+    await postMovements(gl, { withReference: false });
     await app.fetch(importReq());
+
     const res = await app.fetch(req("/stmt-1/auto-match", { method: "POST" }));
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ matchedCount: 2 });
+    expect(await res.json()).toEqual({ matchedCount: 0, suggestedCount: 2 });
+
+    const statement = (await (await app.fetch(req("/stmt-1"))).json()) as any;
+    expect(statement.status).toBe("imported");
+    expect(statement.matchSummary.matched).toBe(0);
+
+    const review = (await (await app.fetch(req("/stmt-1/review"))).json()) as any;
+    const offered = review.items.filter((i: any) => i.suggestions.length > 0);
+    expect(offered).toHaveLength(2);
+  });
+
+  it("auto-matches the movements that also carry the statement line's own reference", async () => {
+    const { app, gl } = await newApp();
+    await postMovements(gl, { withReference: true });
+    await app.fetch(importReq());
+
+    const res = await app.fetch(req("/stmt-1/auto-match", { method: "POST" }));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ matchedCount: 2, suggestedCount: 0 });
 
     const statement = (await (await app.fetch(req("/stmt-1"))).json()) as any;
     expect(statement.status).toBe("in_progress");

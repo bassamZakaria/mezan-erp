@@ -23,6 +23,17 @@ function netDirectionAndAmount(template: RecurringJournalTemplate): { direction:
   return { direction: negative ? CashFlowDirection.Inflow : CashFlowDirection.Outflow, amount: negative ? net.negate() : net };
 }
 
+/**
+ * A template's branch is the branch its lines agree on. Lines that disagree, or
+ * carry none, leave the commitment unattributed — a branch-narrowed forecast
+ * then reports it as such rather than charging it to one branch.
+ */
+function templateBranch(template: RecurringJournalTemplate): string | null {
+  const branches = new Set(template.lines.map((line) => line.branchId ?? null));
+  if (branches.size !== 1) return null;
+  return [...branches][0] ?? null;
+}
+
 export interface RecurringJournalCommitmentDeps {
   readonly templates: Pick<RecurringJournalTemplateRepository, "list">;
   readonly runs: Pick<RecurringJournalRunRepository, "findByTemplateAndPeriod">;
@@ -57,6 +68,7 @@ export async function recurringJournalCommitments(
         amount: netted.amount,
         label: template.nameAr,
         documentId: template.id,
+        branchId: templateBranch(template),
       });
     }
   }

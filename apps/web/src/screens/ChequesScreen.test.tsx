@@ -126,6 +126,7 @@ const BANK_ACCOUNT: TreasuryAccountDTO = {
   name: "بنك مصر — الحساب الجاري", nameEn: null,
   type: "bank",
   currency: "EGP",
+  bankAccountNumber: null,
   branchId: "BR1",
   glAccountId: "1310",
   openingBalance: "0.000000",

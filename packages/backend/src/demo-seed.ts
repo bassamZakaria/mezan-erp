@@ -44,6 +44,7 @@ const ACCOUNTS = {
   inventory: "1200",
   cash: "1300-1",
   bank: "1310",
+  bankUsd: "1310-USD",
   inputVat: "1400",
   payable: "2100",
   outputVat: "2200",
@@ -284,8 +285,27 @@ const OPENING_BALANCE_DATE = "2026-07-01";
 const OPENING_BANK_BALANCE = "250000";
 
 const TREASURY_ACCOUNTS = [
-  { id: "TR-DEMO-CASH", code: "CASH-001", name: "الخزينة الرئيسية", nameEn: "Main Cash Drawer", type: "cash", glAccountId: ACCOUNTS.cash },
-  { id: "TR-DEMO-BANK", code: "BANK-001", name: "البنك الأهلي — جاري", nameEn: "National Bank — Current", type: "bank", glAccountId: ACCOUNTS.bank },
+  { id: "TR-DEMO-CASH", code: "CASH-001", name: "الخزينة الرئيسية", nameEn: "Main Cash Drawer", type: "cash", currency: "EGP", bankAccountNumber: null, glAccountId: ACCOUNTS.cash },
+  {
+    id: "TR-DEMO-BANK",
+    code: "BANK-001",
+    name: "البنك الأهلي — جاري",
+    nameEn: "National Bank — Current",
+    type: "bank",
+    currency: "EGP",
+    bankAccountNumber: "EG380003000100000000263180002",
+    glAccountId: ACCOUNTS.bank,
+  },
+  {
+    id: "TR-DEMO-BANK-USD",
+    code: "BANK-USD",
+    name: "البنك الأهلي — دولار",
+    nameEn: "National Bank — USD",
+    type: "bank",
+    currency: "USD",
+    bankAccountNumber: "EG380003000100000000263180777",
+    glAccountId: ACCOUNTS.bankUsd,
+  },
 ];
 
 /** Purchases run first: sales cannot issue stock the warehouse never received. */
@@ -564,8 +584,18 @@ export async function seedDemoTenant(app: App, session: { token: string; mint: S
   for (const costCenter of COST_CENTERS) {
     await step(app, "POST", "/cost-centers", { ...costCenter, branchId: BRANCH_ID });
   }
+  await step(app, "POST", "/accounts", {
+    id: ACCOUNTS.bankUsd,
+    code: ACCOUNTS.bankUsd,
+    nameAr: "حساب بنكي بالدولار",
+    nameEn: "USD Bank Account",
+    type: "asset",
+    naturalBalance: "debit",
+    parentId: "1300",
+    isHeader: false,
+  });
   for (const account of TREASURY_ACCOUNTS) {
-    await step(app, "POST", "/treasury-accounts", { ...account, currency: "EGP", branchId: BRANCH_ID });
+    await step(app, "POST", "/treasury-accounts", { ...account, branchId: BRANCH_ID });
   }
 
   // The tenant's opening capital. Without it the bank account was never funded

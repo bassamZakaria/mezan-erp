@@ -76,6 +76,10 @@ export const columnMappingInputSchema = z.object({
 export const bankStatementSchema = z.object({
   id: z.string().min(1),
   treasuryAccountId: z.string(),
+  /** The branch owning the reconciled account, stamped server-side at import; null on statements imported before it existed. */
+  branchId: z.string().nullable(),
+  /** The currency every amount on the statement is expressed in — the account's own. */
+  currency: z.string().min(1),
   source: z.nativeEnum(StatementSourceCode),
   statementNumber: z.string().nullable(),
   periodStart: z.string(),
@@ -217,6 +221,8 @@ export const matchCandidateSchema = z.object({
   date: z.string(),
   amount: moneyString,
   description: z.string().nullable(),
+  /** The currency `amount` is expressed in; a candidate is only offered in the statement's own currency. */
+  currency: z.string().nullable(),
 });
 
 export const reviewEntrySchema = z.object({
@@ -228,6 +234,9 @@ export const reviewEntrySchema = z.object({
   description: z.string().nullable(),
   reference: z.string().nullable(),
   counterparty: z.string().nullable(),
+  /** The currency `amount` is expressed in, and the base figure the books hold when they differ. */
+  currency: z.string().nullable(),
+  baseAmount: moneyString.nullable(),
 });
 
 export const matchSuggestionSchema = z.object({

@@ -45,6 +45,12 @@ export interface CashForecastItem {
   readonly reference: string | null;
   readonly documentId: string | null;
   readonly currency: string | null;
+  /**
+   * الفرع the item belongs to, or null when nothing on its source carries one.
+   * A branch-narrowed forecast reports the unattributable remainder separately
+   * rather than folding it into whichever branch was asked for.
+   */
+  readonly branchId: string | null;
   readonly detail: string | null;
 }
 
@@ -56,6 +62,7 @@ export interface CashCommitment {
   readonly label: string;
   readonly reference?: string | null;
   readonly documentId?: string | null;
+  readonly branchId?: string | null;
 }
 
 export interface CommitmentWindow {

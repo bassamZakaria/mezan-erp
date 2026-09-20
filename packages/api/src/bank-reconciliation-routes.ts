@@ -13,6 +13,7 @@ import {
   CashBalanceWouldGoNegativeError,
   ColumnNotFoundError,
   DuplicateDocumentError,
+  DuplicateStatementImportError,
   EntryAccountRequiredError,
   EntryAlreadyMatchedError,
   EntryDateBeforeLineError,
@@ -31,17 +32,24 @@ import {
   LineNotMatchedError,
   LineNotOnStatementError,
   MatchAmountMismatchError,
+  MatchCurrencyMismatchError,
   Money,
   NoEntriesSelectedError,
   NoFiscalPeriodForDateError,
   PeriodNotOpenForPostingError,
+  StatementAccountMismatchError,
   StatementAlreadyFinalizedError,
+  StatementCurrencyMismatchError,
   StatementDifferenceNotZeroError,
   StatementFileFormat,
   StatementHasUnmatchedLinesError,
   StatementLineNotFoundError,
+  StatementOutOfBranchScopeError,
   SuggestionNotFoundError,
   SuggestionNotPendingError,
+  TreasuryAccountNotFoundError,
+  TreasuryAccountNumberMissingError,
+  TreasuryAccountOutOfBranchScopeError,
   TreasuryAccountUnpostableError,
   UnbalancedEntryError,
   ZeroAmountLineError,
@@ -69,7 +77,7 @@ import {
   StatementFileFormatCode,
   StatementSourceCode,
 } from "@mezan/contracts";
-import { callerRoleCodes, callerUserId, createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
+import { branchScopeOf, callerRoleCodes, callerUserId, createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
 import { recordAdminEvent, recordFieldChanges } from "./admin-audit.js";
 
 export type BankReconciliationRoutesDeps = BankReconciliationServiceDeps & {
@@ -112,6 +120,8 @@ function serializeCandidate(c: TreasuryLedgerCandidate) {
     description: c.description,
     reference: c.reference ?? null,
     counterparty: c.counterparty ?? null,
+    currency: c.currency ?? null,
+    baseAmount: c.baseAmount ? c.baseAmount.toString() : null,
   };
 }
 
@@ -176,6 +186,8 @@ function serializeStatement(s: BankStatement) {
   return {
     id: s.id,
     treasuryAccountId: s.treasuryAccountId,
+    branchId: s.branchId,
+    currency: s.currency,
     source: s.source,
     statementNumber: s.statementNumber,
     periodStart: s.periodStart,
@@ -212,13 +224,14 @@ function serializeLine(l: MatchedStatementLine) {
 }
 
 function handleDomainError(c: Context, err: unknown): Response {
-  const refuse = (e: Error & { code: string; messageEn?: string }, status: 404 | 409 | 422, extra: Record<string, unknown> = {}) =>
+  const refuse = (e: Error & { code: string; messageEn?: string }, status: 403 | 404 | 409 | 422, extra: Record<string, unknown> = {}) =>
     c.json({ error: e.code, message: e.message, ...(e.messageEn ? { messageEn: e.messageEn } : {}), ...extra }, status);
   if (
     err instanceof BankStatementNotFoundError ||
     err instanceof StatementLineNotFoundError ||
     err instanceof SuggestionNotFoundError ||
-    err instanceof BankRuleNotFoundError
+    err instanceof BankRuleNotFoundError ||
+    err instanceof TreasuryAccountNotFoundError
   ) {
     return refuse(err, 404);
   }
@@ -233,6 +246,12 @@ function handleDomainError(c: Context, err: unknown): Response {
     err instanceof ApprovalRequestRejectedError
   ) {
     return refuse(err, 409);
+  }
+  if (err instanceof DuplicateStatementImportError) {
+    return refuse(err, 409, { existingStatementId: err.existingStatementId, existingStatementNumber: err.existingStatementNumber });
+  }
+  if (err instanceof StatementOutOfBranchScopeError || err instanceof TreasuryAccountOutOfBranchScopeError) {
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 403);
   }
   if (err instanceof StatementHasUnmatchedLinesError) {
     return refuse(err, 422, { unmatchedCount: err.unmatchedCount });
@@ -249,6 +268,10 @@ function handleDomainError(c: Context, err: unknown): Response {
     err instanceof LineNotOnStatementError ||
     err instanceof EntryNotOnTreasuryAccountError ||
     err instanceof MatchAmountMismatchError ||
+    err instanceof MatchCurrencyMismatchError ||
+    err instanceof StatementCurrencyMismatchError ||
+    err instanceof StatementAccountMismatchError ||
+    err instanceof TreasuryAccountNumberMissingError ||
     err instanceof NoEntriesSelectedError ||
     err instanceof InvalidBankRuleError ||
     err instanceof EntryAccountRequiredError ||
@@ -333,20 +356,28 @@ export function createBankReconciliationRoutes(
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
   const idGen = deps.idGen ?? (() => randomUUID());
-  const service = new BankReconciliationService(deps);
+
+  /**
+   * One service per request, carrying the CALLER's own branch authority. A
+   * single shared instance has no caller, so every statement of every branch
+   * was reachable by anyone holding the permission.
+   */
+  const serviceFor = (c: Context): BankReconciliationService =>
+    new BankReconciliationService({ ...deps, branchScope: branchScopeOf(c) });
 
   /**
    * Resolve one line's matched entry number. The routes that return a SINGLE
    * line carry it too, so the screen shows «القيد: JE-000038» the moment a
    * match is made rather than a UUID until the next full refetch.
    */
-  const one = async (line: StatementLine): Promise<MatchedStatementLine> =>
+  const one = async (service: BankReconciliationService, line: StatementLine): Promise<MatchedStatementLine> =>
     (await service.withEntryNumbers([line]))[0] as MatchedStatementLine;
 
   const validation = (c: Context, error: { flatten(): unknown }) =>
     c.json({ error: "VALIDATION_ERROR", details: error.flatten() }, 400);
 
   app.get("/", gate("treasury.reconciliation.view"), async (c) => {
+    const service = serviceFor(c);
     const parsed = bankStatementListQuerySchema.safeParse({
       treasuryAccountId: c.req.query("treasuryAccountId"),
       status: c.req.query("status"),
@@ -359,10 +390,16 @@ export function createBankReconciliationRoutes(
   });
 
   app.get("/rules", gate("treasury.reconciliation.view"), async (c) => {
-    return c.json((await service.listRules()).map(serializeRule));
+    const service = serviceFor(c);
+    try {
+      return c.json((await service.listRules()).map(serializeRule));
+    } catch (err) {
+      return handleDomainError(c, err);
+    }
   });
 
   app.post("/rules", gate("treasury.reconciliation.manage"), async (c) => {
+    const service = serviceFor(c);
     const parsed = bankRuleInputSchema.safeParse(await readJson(c));
     if (!parsed.success) return validation(c, parsed.error);
     try {
@@ -381,6 +418,7 @@ export function createBankReconciliationRoutes(
   });
 
   app.put("/rules/:ruleId", gate("treasury.reconciliation.manage"), async (c) => {
+    const service = serviceFor(c);
     const parsed = bankRuleInputSchema.safeParse(await readJson(c));
     if (!parsed.success) return validation(c, parsed.error);
     try {
@@ -401,6 +439,7 @@ export function createBankReconciliationRoutes(
   });
 
   app.delete("/rules/:ruleId", gate("treasury.reconciliation.manage"), async (c) => {
+    const service = serviceFor(c);
     try {
       const before = (await service.listRules()).find((r) => r.id === c.req.param("ruleId")) ?? null;
       await service.deleteRule(c.req.param("ruleId"));
@@ -416,9 +455,14 @@ export function createBankReconciliationRoutes(
   });
 
   app.get("/column-mapping/:treasuryAccountId", gate("treasury.reconciliation.view"), async (c) => {
-    const mapping = await service.getColumnMapping(c.req.param("treasuryAccountId"));
-    if (!mapping) return c.json({ error: "NOT_FOUND" }, 404);
-    return c.json(mapping);
+    const service = serviceFor(c);
+    try {
+      const mapping = await service.getColumnMapping(c.req.param("treasuryAccountId"));
+      if (!mapping) return c.json({ error: "NOT_FOUND" }, 404);
+      return c.json(mapping);
+    } catch (err) {
+      return handleDomainError(c, err);
+    }
   });
 
   /**
@@ -428,6 +472,7 @@ export function createBankReconciliationRoutes(
    * entity, so a typo matched a line to an id that does not exist.
    */
   app.get("/:id/candidates", gate("treasury.reconciliation.view"), async (c) => {
+    const service = serviceFor(c);
     try {
       const candidates = await service.matchCandidates(c.req.param("id"));
       return c.json(candidates.map(serializeCandidate));
@@ -437,6 +482,7 @@ export function createBankReconciliationRoutes(
   });
 
   app.get("/:id/review", gate("treasury.reconciliation.view"), async (c) => {
+    const service = serviceFor(c);
     try {
       const id = c.req.param("id");
       const [position, items] = [await service.reconciliation(id), await service.review(id)];
@@ -447,20 +493,26 @@ export function createBankReconciliationRoutes(
   });
 
   app.get("/:id", gate("treasury.reconciliation.view"), async (c) => {
-    const statement = await service.findById(c.req.param("id"));
-    if (!statement) return c.json({ error: "NOT_FOUND" }, 404);
-    const lines = await service.listLinesWithEntryNumbers(statement.id);
-    const summary = await service.matchSummary(statement.id);
-    const position = await service.reconciliation(statement.id);
-    return c.json({
-      ...serializeStatement(statement),
-      lines: lines.map(serializeLine),
-      matchSummary: summary,
-      position: serializePosition(position),
-    });
+    const service = serviceFor(c);
+    try {
+      const statement = await service.findById(c.req.param("id"));
+      if (!statement) return c.json({ error: "NOT_FOUND" }, 404);
+      const lines = await service.listLinesWithEntryNumbers(statement.id);
+      const summary = await service.matchSummary(statement.id);
+      const position = await service.reconciliation(statement.id);
+      return c.json({
+        ...serializeStatement(statement),
+        lines: lines.map(serializeLine),
+        matchSummary: summary,
+        position: serializePosition(position),
+      });
+    } catch (err) {
+      return handleDomainError(c, err);
+    }
   });
 
   app.post("/import", gate("treasury.reconciliation.import"), async (c) => {
+    const service = serviceFor(c);
     const parsed = importBankStatementSchema.safeParse(await readJson(c));
     if (!parsed.success) return validation(c, parsed.error);
     const d = parsed.data;
@@ -493,6 +545,7 @@ export function createBankReconciliationRoutes(
   });
 
   app.post("/import-file", gate("treasury.reconciliation.import"), async (c) => {
+    const service = serviceFor(c);
     const parsed = importStatementFileSchema.safeParse(await readJson(c));
     if (!parsed.success) return validation(c, parsed.error);
     const d = parsed.data;
@@ -516,6 +569,7 @@ export function createBankReconciliationRoutes(
   });
 
   app.post("/:id/auto-match", gate("treasury.reconciliation.match"), async (c) => {
+    const service = serviceFor(c);
     try {
       return c.json(await service.autoMatch(c.req.param("id"), { actor: callerUserId(c) ?? null }));
     } catch (err) {
@@ -524,15 +578,17 @@ export function createBankReconciliationRoutes(
   });
 
   app.post("/:id/suggestions/:suggestionId/accept", gate("treasury.reconciliation.match"), async (c) => {
+    const service = serviceFor(c);
     try {
       const line = await service.acceptSuggestion(c.req.param("id"), c.req.param("suggestionId"), callerUserId(c) ?? null);
-      return c.json(serializeLine(await one(line)));
+      return c.json(serializeLine(await one(service, line)));
     } catch (err) {
       return handleDomainError(c, err);
     }
   });
 
   app.post("/:id/suggestions/:suggestionId/reject", gate("treasury.reconciliation.match"), async (c) => {
+    const service = serviceFor(c);
     try {
       const record = await service.rejectSuggestion(c.req.param("id"), c.req.param("suggestionId"), callerUserId(c) ?? null);
       return c.json({ id: record.id, status: record.status, decidedAt: record.decidedAt, decidedBy: record.decidedBy });
@@ -542,31 +598,34 @@ export function createBankReconciliationRoutes(
   });
 
   app.post("/:id/lines/:lineId/match", gate("treasury.reconciliation.match"), async (c) => {
+    const service = serviceFor(c);
     const parsed = matchStatementLineSchema.safeParse(await readJson(c));
     if (!parsed.success) return validation(c, parsed.error);
     try {
       const line = await service.matchLine(c.req.param("id"), c.req.param("lineId"), parsed.data.entryId);
-      return c.json(serializeLine(await one(line)));
+      return c.json(serializeLine(await one(service, line)));
     } catch (err) {
       return handleDomainError(c, err);
     }
   });
 
   app.post("/:id/lines/:lineId/match-many", gate("treasury.reconciliation.match"), async (c) => {
+    const service = serviceFor(c);
     const parsed = matchManyEntriesSchema.safeParse(await readJson(c));
     if (!parsed.success) return validation(c, parsed.error);
     try {
       const line = await service.matchLineToEntries(c.req.param("id"), c.req.param("lineId"), parsed.data.entryIds);
-      return c.json(serializeLine(await one(line)));
+      return c.json(serializeLine(await one(service, line)));
     } catch (err) {
       return handleDomainError(c, err);
     }
   });
 
   app.post("/:id/lines/:lineId/unmatch", gate("treasury.reconciliation.match"), async (c) => {
+    const service = serviceFor(c);
     try {
       const line = await service.unmatchLine(c.req.param("id"), c.req.param("lineId"));
-      return c.json(serializeLine(await one(line)));
+      return c.json(serializeLine(await one(service, line)));
     } catch (err) {
       return handleDomainError(c, err);
     }
@@ -579,6 +638,7 @@ export function createBankReconciliationRoutes(
    * open until the voucher posts.
    */
   app.post("/:id/lines/:lineId/create-entry", gate("treasury.reconciliation.post_entry"), async (c) => {
+    const service = serviceFor(c);
     const parsed = createEntryFromLineSchema.safeParse(await readJson(c));
     if (!parsed.success) return validation(c, parsed.error);
     const d = parsed.data;
@@ -597,7 +657,7 @@ export function createBankReconciliationRoutes(
         voucherId: result.voucherId,
         voucherNo: result.voucherNo,
         entryId: result.held ? null : result.entryId,
-        line: serializeLine(await one(result.line)),
+        line: serializeLine(await one(service, result.line)),
         ruleId: result.rule?.id ?? null,
       };
       return c.json(body, result.held ? 202 : 201);
@@ -607,6 +667,7 @@ export function createBankReconciliationRoutes(
   });
 
   app.post("/:id/lines", gate("treasury.reconciliation.create"), async (c) => {
+    const service = serviceFor(c);
     const parsed = addManualLineSchema.safeParse(await readJson(c));
     if (!parsed.success) return validation(c, parsed.error);
     const d = parsed.data;
@@ -619,7 +680,7 @@ export function createBankReconciliationRoutes(
         reference: d.reference ?? null,
         amount: Money.fromMajor(d.amount),
       });
-      return c.json(serializeLine(await one(line)), 201);
+      return c.json(serializeLine(await one(service, line)), 201);
     } catch (err) {
       return handleDomainError(c, err);
     }
@@ -631,6 +692,7 @@ export function createBankReconciliationRoutes(
    * override on the statement (D82).
    */
   app.post("/:id/finalize", gate("treasury.reconciliation.finalize"), async (c) => {
+    const service = serviceFor(c);
     const parsed = finalizeStatementSchema.safeParse(await readJson(c));
     if (!parsed.success) return validation(c, parsed.error);
     try {

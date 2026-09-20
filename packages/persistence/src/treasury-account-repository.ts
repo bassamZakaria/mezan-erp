@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS treasury_account (
   name_en               TEXT,
   type                  TEXT NOT NULL,
   currency              TEXT NOT NULL,
+  bank_account_number   TEXT,
   branch_id             TEXT NOT NULL,
   gl_account_id         TEXT,
   opening_balance       INTEGER NOT NULL,
@@ -28,6 +29,7 @@ interface TreasuryAccountRow {
   name_en: string | null;
   type: string;
   currency: string;
+  bank_account_number: string | null;
   branch_id: string;
   gl_account_id: string | null;
   opening_balance: number;
@@ -44,6 +46,7 @@ function toTreasuryAccount(row: TreasuryAccountRow): TreasuryAccount {
     nameEn: row.name_en,
     type: row.type as TreasuryAccountType,
     currency: row.currency,
+    bankAccountNumber: row.bank_account_number ?? null,
     branchId: row.branch_id,
     glAccountId: row.gl_account_id,
     openingBalance: Money.fromScaled(row.opening_balance),
@@ -61,14 +64,15 @@ class SqliteTreasuryAccountRepository implements TreasuryAccountRepository {
 
   constructor(private readonly sqlite: Database.Database) {
     this.upsert = sqlite.prepare(`
-      INSERT INTO treasury_account (id, code, name, name_en, type, currency, branch_id, gl_account_id, opening_balance, opening_balance_date, guarantee_facility_limit, status)
-      VALUES (@id, @code, @name, @name_en, @type, @currency, @branch_id, @gl_account_id, @opening_balance, @opening_balance_date, @guarantee_facility_limit, @status)
+      INSERT INTO treasury_account (id, code, name, name_en, type, currency, bank_account_number, branch_id, gl_account_id, opening_balance, opening_balance_date, guarantee_facility_limit, status)
+      VALUES (@id, @code, @name, @name_en, @type, @currency, @bank_account_number, @branch_id, @gl_account_id, @opening_balance, @opening_balance_date, @guarantee_facility_limit, @status)
       ON CONFLICT(id) DO UPDATE SET
         code = excluded.code,
         name = excluded.name,
         name_en = excluded.name_en,
         type = excluded.type,
         currency = excluded.currency,
+        bank_account_number = excluded.bank_account_number,
         branch_id = excluded.branch_id,
         gl_account_id = excluded.gl_account_id,
         opening_balance = excluded.opening_balance,
@@ -112,6 +116,7 @@ class SqliteTreasuryAccountRepository implements TreasuryAccountRepository {
       name_en: account.nameEn,
       type: account.type,
       currency: account.currency,
+      bank_account_number: account.bankAccountNumber,
       branch_id: account.branchId,
       gl_account_id: account.glAccountId,
       opening_balance: account.openingBalance.toScaledNumber(),
@@ -129,6 +134,9 @@ function migrateTreasuryAccountSchema(sqlite: Database.Database): void {
   );
   if (!columns.has("guarantee_facility_limit")) {
     sqlite.exec(`ALTER TABLE treasury_account ADD COLUMN guarantee_facility_limit INTEGER`);
+  }
+  if (!columns.has("bank_account_number")) {
+    sqlite.exec(`ALTER TABLE treasury_account ADD COLUMN bank_account_number TEXT`);
   }
 }
 

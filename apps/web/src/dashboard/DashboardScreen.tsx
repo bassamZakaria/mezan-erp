@@ -23,6 +23,7 @@ import {
   type DashboardPanelKind,
 } from "./widget-registry";
 import { CockpitSection } from "./cockpit/CockpitSection";
+import { useBookVersionWatch } from "./cockpit/cockpit-hooks";
 import {
   expenseSlices,
   periodTotals,
@@ -128,6 +129,10 @@ export function DashboardScreen() {
 
   const query = useDashboardSummary(dates);
   const summary = query.data;
+  // Mounted here, not inside the cockpit section: the cockpit renders only for
+  // a user who holds its permission and has its widgets on, and every classic
+  // panel below was frozen until a manual reload for everyone else.
+  const liveWatch = useBookVersionWatch(true, null);
   const currentIncome = useIncomeStatement(window);
   const priorIncome = useIncomeStatement(priorWindow);
   const customerAging = useCustomerAging();
@@ -364,7 +369,7 @@ export function DashboardScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [preferences?.dashboard, held, audience, cockpitWidgets.length],
   );
-  const cockpit = cockpitWidgets.length > 0 ? <CockpitSection widgets={cockpitWidgets} rtl={rtl} /> : null;
+  const cockpit = cockpitWidgets.length > 0 ? <CockpitSection widgets={cockpitWidgets} rtl={rtl} live={!liveWatch.isError} /> : null;
 
   const panelFor: Readonly<Record<DashboardPanelKind, ReactNode>> = {
     aging: (

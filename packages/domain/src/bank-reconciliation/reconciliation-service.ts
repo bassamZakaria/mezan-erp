@@ -14,6 +14,11 @@
 import { Money } from "../money/index.js";
 import type { AccountRepository } from "../accounts/account.js";
 import type { CostCenterRepository } from "../cost-centers/cost-center.js";
+import { BASE_CURRENCY } from "../exchange-rates/exchange-rate.js";
+import { withinBranchScope } from "../reports/branch-filter.js";
+import { TreasuryAccountNotFoundError } from "../treasury-accounts/errors.js";
+import type { TreasuryAccount, TreasuryAccountRepository } from "../treasury-accounts/treasury-account.js";
+import { statementFingerprint, type FingerprintRow } from "./fingerprint.js";
 import {
   BankStatementSource,
   MatchSource,
@@ -42,6 +47,7 @@ import { StatementFileFormat, type ParsedStatementFile } from "./statement-file.
 import {
   BankRuleNotFoundError,
   BankStatementNotFoundError,
+  DuplicateStatementImportError,
   EntryAccountRequiredError,
   EntryAlreadyMatchedError,
   EntryDateBeforeLineError,
@@ -55,14 +61,19 @@ import {
   LineNotMatchedError,
   LineNotOnStatementError,
   MatchAmountMismatchError,
+  MatchCurrencyMismatchError,
   NoEntriesSelectedError,
+  StatementAccountMismatchError,
   StatementAlreadyFinalizedError,
+  StatementCurrencyMismatchError,
   StatementDifferenceNotZeroError,
   StatementHasUnmatchedLinesError,
   StatementLineNotFoundError,
+  StatementOutOfBranchScopeError,
   SuggestionNotFoundError,
   SuggestionNotPendingError,
-  TreasuryAccountUnpostableError,
+  TreasuryAccountNumberMissingError,
+  TreasuryAccountOutOfBranchScopeError,
   ZeroAmountLineError,
 } from "./errors.js";
 
@@ -205,6 +216,18 @@ export interface BankRuleInput {
 
 export interface BankReconciliationServiceDeps {
   readonly statements: BankStatementRepository;
+  /**
+   * The reconciled account itself: its branch, its currency and the bank
+   * account number an imported file is checked against. Absent, a statement is
+   * imported without any of the three and nothing can be enforced.
+   */
+  readonly treasuryAccounts?: Pick<TreasuryAccountRepository, "findById">;
+  /**
+   * The CALLER's own branch authority, resolved server-side. Never a value the
+   * client supplied; a route builds one service per request with it.
+   */
+  readonly branchScope?: readonly string[];
+  readonly baseCurrency?: string;
   readonly mappings: StatementColumnMappingRepository;
   readonly ledgerReader: TreasuryLedgerReader;
   readonly now?: () => string;
@@ -222,6 +245,11 @@ function shiftDays(iso: string, days: number): string {
   const d = new Date(`${iso}T00:00:00.000Z`);
   d.setUTCDate(d.getUTCDate() + days);
   return d.toISOString().slice(0, 10);
+}
+
+/** Bank account numbers travel with spaces, dashes and an IBAN prefix; compare only the alphanumerics. */
+function normalizeAccountNumber(value: string): string {
+  return value.replace(/[^0-9A-Za-z]/g, "").toUpperCase();
 }
 
 export function displayAmount(amount: Money): string {
@@ -245,7 +273,31 @@ export class BankReconciliationService {
     return this.deps.idGen ? this.deps.idGen() : globalThis.crypto.randomUUID();
   }
 
+  private baseCurrency(): string {
+    return this.deps.baseCurrency ?? BASE_CURRENCY;
+  }
+
+  /**
+   * The account being reconciled, refused when it is outside the caller's own
+   * branch authority. Import is the one place a branch reaches a statement, so
+   * the check has to happen before anything is written.
+   */
+  private async requireAccount(treasuryAccountId: string): Promise<TreasuryAccount | null> {
+    if (!this.deps.treasuryAccounts) return null;
+    const account = await this.deps.treasuryAccounts.findById(treasuryAccountId);
+    if (!account) throw new TreasuryAccountNotFoundError(treasuryAccountId);
+    if (!withinBranchScope(account.branchId, this.deps.branchScope)) {
+      throw new TreasuryAccountOutOfBranchScopeError(treasuryAccountId);
+    }
+    return account;
+  }
+
+  async assertAccountInScope(treasuryAccountId: string): Promise<void> {
+    await this.requireAccount(treasuryAccountId);
+  }
+
   async getColumnMapping(treasuryAccountId: string): Promise<StatementColumnMapping | null> {
+    await this.requireAccount(treasuryAccountId);
     return this.deps.mappings.findByTreasuryAccount(treasuryAccountId);
   }
 
@@ -253,15 +305,28 @@ export class BankReconciliationService {
   async importStatement(cmd: ImportStatementCommand): Promise<{ statement: BankStatement; lines: readonly StatementLine[] }> {
     assertStatementBalanceBound(cmd.id, "الرصيد الافتتاحي", cmd.openingBalance);
     assertStatementBalanceBound(cmd.id, "الرصيد الختامي", cmd.closingBalance);
+    const account = await this.requireAccount(cmd.treasuryAccountId);
     const stamp = this.now();
     const mapping: StatementColumnMapping = { ...cmd.mapping, treasuryAccountId: cmd.treasuryAccountId, updatedAt: stamp };
     const table = parseCsv(cmd.rawCsv);
     const mapped = mapCsvRows(table, mapping);
+    const rows = mapped.map((row) => ({ ...row, counterparty: null }));
+    const source = cmd.source ?? BankStatementSource.Csv;
     return this.persistImport(
       {
         id: cmd.id,
         treasuryAccountId: cmd.treasuryAccountId,
-        source: cmd.source ?? BankStatementSource.Csv,
+        branchId: account?.branchId ?? null,
+        currency: account?.currency ?? this.baseCurrency(),
+        importFingerprint: this.fingerprintOf(cmd.treasuryAccountId, source, {
+          periodStart: cmd.periodStart,
+          periodEnd: cmd.periodEnd,
+          openingBalance: cmd.openingBalance,
+          closingBalance: cmd.closingBalance,
+          statementNumber: cmd.statementNumber ?? null,
+          rows,
+        }),
+        source,
         statementNumber: cmd.statementNumber ?? null,
         periodStart: cmd.periodStart,
         periodEnd: cmd.periodEnd,
@@ -271,9 +336,50 @@ export class BankReconciliationService {
         importedAt: stamp,
         finalizedAt: null,
       },
-      mapped.map((row) => ({ ...row, counterparty: null })),
+      rows,
       mapping,
     );
+  }
+
+  private fingerprintOf(
+    treasuryAccountId: string,
+    source: BankStatementSource,
+    input: {
+      periodStart: string;
+      periodEnd: string;
+      openingBalance: Money;
+      closingBalance: Money;
+      statementNumber: string | null;
+      rows: readonly FingerprintRow[];
+    },
+  ): string {
+    return statementFingerprint({ treasuryAccountId, source, ...input });
+  }
+
+  /**
+   * Refuse a second import of a file already imported in full. The caller is
+   * pointed at the statement that already holds these rows rather than being
+   * handed a duplicate whose lines would double every figure on the account.
+   */
+  private async assertNotAlreadyImported(treasuryAccountId: string, fingerprint: string): Promise<void> {
+    const existing = await this.deps.statements.findByFingerprint(treasuryAccountId, fingerprint);
+    if (existing) throw new DuplicateStatementImportError(existing.id, existing.statementNumber);
+  }
+
+  /** The file states which bank account and currency it belongs to; both must be the account being reconciled. */
+  private assertFileMatchesAccount(account: TreasuryAccount | null, parsed: ParsedStatementFile): void {
+    if (!account) return;
+    if (parsed.currency && parsed.currency.toUpperCase() !== account.currency.toUpperCase()) {
+      throw new StatementCurrencyMismatchError(parsed.currency.toUpperCase(), account.currency);
+    }
+    if (!parsed.accountNumber) return;
+    const fileNumber = normalizeAccountNumber(parsed.accountNumber);
+    if (fileNumber === "") return;
+    if (!account.bankAccountNumber) throw new TreasuryAccountNumberMissingError(account.id, parsed.accountNumber);
+    const accountNumber = normalizeAccountNumber(account.bankAccountNumber);
+    if (fileNumber !== accountNumber && !fileNumber.endsWith(accountNumber) && !accountNumber.endsWith(fileNumber)) {
+      throw new StatementAccountMismatchError(parsed.accountNumber, account.bankAccountNumber);
+    }
   }
 
   /**
@@ -284,6 +390,8 @@ export class BankReconciliationService {
    */
   async importStatementFile(cmd: ImportStatementFileCommand): Promise<{ statement: BankStatement; lines: readonly StatementLine[] }> {
     const parsed: ParsedStatementFile = cmd.format === StatementFileFormat.Ofx ? parseOfx(cmd.content) : parseMt940(cmd.content);
+    const account = await this.requireAccount(cmd.treasuryAccountId);
+    this.assertFileMatchesAccount(account, parsed);
     if (parsed.rows.length === 0) {
       throw new InvalidStatementFileError("لا يحتوي ملف الكشف على أي حركة.", "The statement file contains no transactions.");
     }
@@ -302,14 +410,28 @@ export class BankReconciliationService {
     assertStatementBalanceBound(cmd.id, "الرصيد الختامي", closing);
     const dates = parsed.rows.map((r) => r.date).sort();
     const stamp = this.now();
+    const source = cmd.format === StatementFileFormat.Ofx ? BankStatementSource.Ofx : BankStatementSource.Mt940;
+    const statementNumber = cmd.statementNumber ?? parsed.statementNumber ?? null;
+    const periodStart = cmd.periodStart ?? parsed.periodStart ?? dates[0]!;
+    const periodEnd = cmd.periodEnd ?? parsed.periodEnd ?? dates[dates.length - 1]!;
     return this.persistImport(
       {
         id: cmd.id,
         treasuryAccountId: cmd.treasuryAccountId,
-        source: cmd.format === StatementFileFormat.Ofx ? BankStatementSource.Ofx : BankStatementSource.Mt940,
-        statementNumber: cmd.statementNumber ?? parsed.statementNumber ?? null,
-        periodStart: cmd.periodStart ?? parsed.periodStart ?? dates[0]!,
-        periodEnd: cmd.periodEnd ?? parsed.periodEnd ?? dates[dates.length - 1]!,
+        branchId: account?.branchId ?? null,
+        currency: account?.currency ?? parsed.currency ?? this.baseCurrency(),
+        importFingerprint: this.fingerprintOf(cmd.treasuryAccountId, source, {
+          periodStart,
+          periodEnd,
+          openingBalance: opening,
+          closingBalance: closing,
+          statementNumber,
+          rows: parsed.rows,
+        }),
+        source,
+        statementNumber,
+        periodStart,
+        periodEnd,
         openingBalance: opening,
         closingBalance: closing,
         status: "imported",
@@ -341,6 +463,9 @@ export class BankReconciliationService {
       matchSource: null,
     }));
     await this.deps.statements.transaction(async () => {
+      if (statement.importFingerprint) {
+        await this.assertNotAlreadyImported(statement.treasuryAccountId, statement.importFingerprint);
+      }
       if (mapping) await this.deps.mappings.upsert(mapping);
       await this.deps.statements.save(statement);
       await this.deps.statements.saveLines(lines);
@@ -367,7 +492,7 @@ export class BankReconciliationService {
           shiftDays(statement.periodStart, -MANUAL_MATCH_SLACK_DAYS),
           shiftDays(statement.periodEnd, MANUAL_MATCH_SLACK_DAYS),
         )
-      ).filter((c) => !taken.has(c.entryId));
+      ).filter((c) => !taken.has(c.entryId) && this.sameCurrency(statement, c));
       const previous = this.deps.suggestions ? await this.deps.suggestions.listByStatement(statementId) : [];
       const rejected = new Set(
         previous.filter((s) => s.status === SuggestionStatus.Rejected).map((s) => suggestionKey(s.lineId, s.entryIds)),
@@ -458,10 +583,22 @@ export class BankReconciliationService {
 
       const entries = await this.entriesOnAccount(statement, unique);
       for (const id of unique) if (!entries.has(id)) throw new EntryNotOnTreasuryAccountError(id);
+      for (const id of unique) {
+        const entry = entries.get(id)!;
+        if (!this.sameCurrency(statement, entry)) {
+          throw new MatchCurrencyMismatchError(id, entry.currency ?? statement.currency, statement.currency);
+        }
+      }
       const taken = await this.deps.statements.matchedEntryIdsForAccount(statement.treasuryAccountId);
       for (const id of unique) if (taken.has(id)) throw new EntryAlreadyMatchedError(id);
       const total = Money.sum(unique.map((id) => entries.get(id)!.amount));
-      if (!total.equals(line.amount)) {
+      // A foreign account's entry amount is recovered from a base figure and
+      // its booking rate, so the round trip may land one micro-unit — far
+      // below a piastre — from the bank's own figure. Base-currency
+      // statements stay exact to the micro-unit.
+      const tolerance = statement.currency === this.baseCurrency() ? 0n : 1n;
+      const drift = total.add(line.amount.negate()).scaled;
+      if ((drift < 0n ? -drift : drift) > tolerance) {
         throw new MatchAmountMismatchError(lineId, displayAmount(line.amount), displayAmount(total));
       }
 
@@ -661,7 +798,20 @@ export class BankReconciliationService {
 
   async listRules(): Promise<readonly BankRule[]> {
     if (!this.deps.rules) return [];
-    return [...(await this.deps.rules.list())].sort((a, b) => a.priority - b.priority || a.createdAt.localeCompare(b.createdAt));
+    const sorted = [...(await this.deps.rules.list())].sort(
+      (a, b) => a.priority - b.priority || a.createdAt.localeCompare(b.createdAt),
+    );
+    if (!this.deps.branchScope || !this.deps.treasuryAccounts) return sorted;
+    const visible: BankRule[] = [];
+    for (const rule of sorted) {
+      if (rule.treasuryAccountId === null) {
+        visible.push(rule);
+        continue;
+      }
+      const account = await this.deps.treasuryAccounts.findById(rule.treasuryAccountId);
+      if (withinBranchScope(account?.branchId ?? null, this.deps.branchScope)) visible.push(rule);
+    }
+    return visible;
   }
 
   private async activeRules(): Promise<readonly BankRule[]> {
@@ -671,10 +821,12 @@ export class BankReconciliationService {
   private async requireRule(id: string): Promise<BankRule> {
     const rule = this.deps.rules ? await this.deps.rules.findById(id) : null;
     if (!rule) throw new BankRuleNotFoundError(id);
+    if (rule.treasuryAccountId) await this.requireAccount(rule.treasuryAccountId);
     return rule;
   }
 
   private async validateRule(input: BankRuleInput): Promise<BankRuleInput> {
+    if (input.treasuryAccountId) await this.requireAccount(input.treasuryAccountId);
     const name = input.name.trim();
     const pattern = input.pattern.trim();
     if (name === "") throw new InvalidBankRuleError("اسم القاعدة مطلوب.", "The rule needs a name.");
@@ -759,7 +911,7 @@ export class BankReconciliationService {
     const taken = await this.deps.statements.matchedEntryIdsForAccount(statement.treasuryAccountId);
     const outstanding = (
       await reader.entriesForTreasuryAccount(statement.treasuryAccountId, statement.periodStart, statement.periodEnd)
-    ).filter((c) => !taken.has(c.entryId));
+    ).filter((c) => !taken.has(c.entryId) && this.sameCurrency(statement, c));
     const outstandingTotal = Money.sum(outstanding.map((c) => c.amount));
     const bookDifference = bookBalance ? statement.closingBalance.add(bookBalance.negate()) : null;
     return {
@@ -780,6 +932,16 @@ export class BankReconciliationService {
   private entryIdsOf(line: StatementLine): readonly string[] {
     if (line.matchedEntryIds && line.matchedEntryIds.length > 0) return line.matchedEntryIds;
     return line.matchedEntryId ? [line.matchedEntryId] : [];
+  }
+
+  /**
+   * Whether a book entry is denominated in the same currency as the statement.
+   * A foreign bank account's GL debits and credits are base-currency figures,
+   * so an entry posted without its rate cannot be compared with a bank line at
+   * all — offering it would invite a match between USD and EGP digits.
+   */
+  private sameCurrency(statement: BankStatement, candidate: TreasuryLedgerCandidate): boolean {
+    return (candidate.currency ?? statement.currency) === statement.currency;
   }
 
   private async entriesOnAccount(statement: BankStatement, entryIds: readonly string[]): Promise<ReadonlyMap<string, TreasuryLedgerCandidate>> {
@@ -856,11 +1018,15 @@ export class BankReconciliationService {
       shiftDays(statement.periodStart, -MANUAL_MATCH_SLACK_DAYS),
       shiftDays(statement.periodEnd, MANUAL_MATCH_SLACK_DAYS),
     );
-    return candidates.filter((c) => !taken.has(c.entryId));
+    return candidates.filter((c) => !taken.has(c.entryId) && this.sameCurrency(statement, c));
   }
 
   async findById(id: string): Promise<BankStatement | null> {
-    return this.deps.statements.findById(id);
+    const statement = await this.deps.statements.findById(id);
+    if (statement && !withinBranchScope(statement.branchId, this.deps.branchScope)) {
+      throw new StatementOutOfBranchScopeError(id);
+    }
+    return statement;
   }
 
   async listLines(statementId: string): Promise<readonly StatementLine[]> {
@@ -888,7 +1054,11 @@ export class BankReconciliationService {
   }
 
   async list(filter?: BankStatementListFilter): Promise<readonly BankStatement[]> {
-    return this.deps.statements.list(filter);
+    return this.deps.statements.list(this.scoped(filter));
+  }
+
+  private scoped(filter?: BankStatementListFilter): BankStatementListFilter {
+    return { ...filter, ...(this.deps.branchScope ? { branchIds: this.deps.branchScope } : {}) };
   }
 
   /**
@@ -898,7 +1068,7 @@ export class BankReconciliationService {
   async listWithSummaries(
     filter?: BankStatementListFilter,
   ): Promise<readonly { statement: BankStatement; summary: MatchSummary }[]> {
-    const statements = await this.deps.statements.list(filter);
+    const statements = await this.deps.statements.list(this.scoped(filter));
     const counts = await this.deps.statements.lineCounts(statements.map((s) => s.id));
     return statements.map((statement) => {
       const { total, matched } = counts.get(statement.id) ?? { total: 0, matched: 0 };
@@ -916,6 +1086,7 @@ export class BankReconciliationService {
   private async require(id: string): Promise<BankStatement> {
     const statement = await this.deps.statements.findById(id);
     if (!statement) throw new BankStatementNotFoundError(id);
+    if (!withinBranchScope(statement.branchId, this.deps.branchScope)) throw new StatementOutOfBranchScopeError(id);
     return statement;
   }
 

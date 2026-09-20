@@ -68,7 +68,7 @@ async function newApp() {
   await accounts.create(account("5900", { type: "expense", naturalBalance: "debit" }));
   await accounts.create(account("3100", { type: "equity", naturalBalance: "credit" }));
   await periods.create({ id: "fp-2026-08", year: 2026, periodNumber: 8, startDate: "2026-08-01", endDate: "2026-08-31", status: "open" });
-  await treasury.create({ id: "ta-cash1", code: "CASH-001", name: "صندوق", nameEn: null, type: "cash", currency: "EGP", branchId: "b1", glAccountId: "1300-1", openingBalance: (await import("@mezan/domain")).Money.zero(), openingBalanceDate: null, guaranteeFacilityLimit: null, status: "active" });
+  await treasury.create({ id: "ta-cash1", code: "CASH-001", name: "صندوق", nameEn: null, type: "cash", currency: "EGP", bankAccountNumber: null, branchId: "b1", glAccountId: "1300-1", openingBalance: (await import("@mezan/domain")).Money.zero(), openingBalanceDate: null, guaranteeFacilityLimit: null, status: "active" });
   await store.invoices.save({ id: "inv1", invoiceNo: "INV-000001", kind: "sales", partyId: "cust-1", date: "2026-08-10", total: (await import("@mezan/domain")).Money.fromMajor("200"), allocated: (await import("@mezan/domain")).Money.zero() });
   await projects.create({
     id: "proj-1",
@@ -329,8 +329,8 @@ async function newClosedPeriodApp() {
   await accounts.create(account("5900", { type: "expense", naturalBalance: "debit" }));
   await periods.create({ id: "fp-2026-07", year: 2026, periodNumber: 7, startDate: "2026-07-01", endDate: "2026-07-31", status: "closed" });
   await periods.create({ id: "fp-2026-08", year: 2026, periodNumber: 8, startDate: "2026-08-01", endDate: "2026-08-31", status: "open" });
-  await treasury.create({ id: "ta-cash1", code: "CASH-001", name: "الخزينة الرئيسية", nameEn: null, type: "cash", currency: "EGP", branchId: "b1", glAccountId: "1300-1", openingBalance: Money.zero(), openingBalanceDate: null, guaranteeFacilityLimit: null, status: "active" });
-  await treasury.create({ id: "ta-bank1", code: "BANK-001", name: "البنك الأهلي", nameEn: null, type: "bank", currency: "EGP", branchId: "b1", glAccountId: "1310", openingBalance: Money.zero(), openingBalanceDate: null, guaranteeFacilityLimit: null, status: "active" });
+  await treasury.create({ id: "ta-cash1", code: "CASH-001", name: "الخزينة الرئيسية", nameEn: null, type: "cash", currency: "EGP", bankAccountNumber: null, branchId: "b1", glAccountId: "1300-1", openingBalance: Money.zero(), openingBalanceDate: null, guaranteeFacilityLimit: null, status: "active" });
+  await treasury.create({ id: "ta-bank1", code: "BANK-001", name: "البنك الأهلي", nameEn: null, type: "bank", currency: "EGP", bankAccountNumber: null, branchId: "b1", glAccountId: "1310", openingBalance: Money.zero(), openingBalanceDate: null, guaranteeFacilityLimit: null, status: "active" });
   await store.invoices.save({ id: "inv1", invoiceNo: "INV-000001", kind: "sales", partyId: "cust-1", date: "2026-08-10", total: Money.fromMajor("200"), allocated: Money.zero() });
 
   idSeq = 0;
@@ -449,7 +449,7 @@ async function newGatedApp(opts: { gate?: GateConfig; withRegister?: boolean } =
   await accounts.create(account("1320"));
   await accounts.create(account("1360"));
   await periods.create({ id: "fp-2026-08", year: 2026, periodNumber: 8, startDate: "2026-08-01", endDate: "2026-08-31", status: "open" });
-  await treasury.create({ id: "ta-cash1", code: "CASH-001", name: "صندوق", nameEn: null, type: "cash", currency: "EGP", branchId: "b1", glAccountId: "1300-1", openingBalance: Money.zero(), openingBalanceDate: null, guaranteeFacilityLimit: null, status: "active" });
+  await treasury.create({ id: "ta-cash1", code: "CASH-001", name: "صندوق", nameEn: null, type: "cash", currency: "EGP", bankAccountNumber: null, branchId: "b1", glAccountId: "1300-1", openingBalance: Money.zero(), openingBalanceDate: null, guaranteeFacilityLimit: null, status: "active" });
 
   const gl = { ledger, accounts, periods, numbering: ledger.numbering, now: () => "2026-08-22T10:00:00.000Z" };
   const register = new ChequeService({ cheques: chequeRepo, gl, now: () => "2026-08-22T10:00:00.000Z" });
@@ -618,6 +618,7 @@ async function newReversalApp(periodRows: ReadonlyArray<{ id: string; year: numb
   for (const p of periodRows) await periods.create(p);
   await treasury.create({
     id: "ta-cash1", code: "CASH-001", name: "الخزينة الرئيسية", nameEn: null, type: "cash", currency: "EGP",
+    bankAccountNumber: null,
     branchId: "b1", glAccountId: "1300-1", openingBalance: Money.zero(), openingBalanceDate: null, guaranteeFacilityLimit: null, status: "active",
   });
 

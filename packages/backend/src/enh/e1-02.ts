@@ -3,6 +3,7 @@ import { createCashForecastRoutes, type CashForecastRoutesDeps } from "@mezan/ap
 import {
   resolvePermissions,
   type CashForecastAlertRecord,
+  type EventCode,
   type CommitmentSource,
   type Money,
   type Notification,
@@ -23,7 +24,8 @@ import { randomUUID } from "node:crypto";
 import type { BackendArea, BackendModuleContext } from "../module-context.js";
 
 export const CASH_FORECAST_PERMISSION = "treasury.cash_forecast.view";
-export const CASH_FORECAST_ALERT_EVENT = "CASH_FORECAST_LOW";
+export const CASH_FORECAST_ALERT_EVENT = "CASH_FORECAST_LOW" satisfies EventCode;
+const CASH_FORECAST_LINK = "/treasury/cash-forecast";
 
 const commitmentRegistry = new WeakMap<Database.Database, CommitmentSource[]>();
 
@@ -98,6 +100,25 @@ export const area: BackendArea = {
       const body =
         `يُتوقع أن ينخفض رصيد النقدية عن ${majorLabel(alert.threshold)} ج.م يوم ${alert.crossingDate}، ` +
         `وأدنى رصيد متوقع ${majorLabel(alert.lowestBalance)} ج.م يوم ${alert.lowestDate}.`;
+      // Published as well as delivered: the direct write guarantees the people
+      // who hold the permission are told, and the event is what a tenant's own
+      // notification rule can subscribe to. A subscriber that throws is
+      // reported by the bus and never fails the forecast request.
+      ctx.eventBus.publish(
+        CASH_FORECAST_ALERT_EVENT,
+        {
+          alertId: alert.id,
+          crossingDate: alert.crossingDate,
+          threshold: majorLabel(alert.threshold),
+          lowestDate: alert.lowestDate,
+          lowestBalance: majorLabel(alert.lowestBalance),
+          detectedAt: alert.detectedAt,
+          title,
+          body,
+          link: CASH_FORECAST_LINK,
+        },
+        alert.detectedAt,
+      );
       for (const userId of userIds) {
         const notification: Notification = {
           id: randomUUID(),
@@ -116,7 +137,7 @@ export const area: BackendArea = {
             threshold: alert.threshold.toString(),
             lowestDate: alert.lowestDate,
             lowestBalance: alert.lowestBalance.toString(),
-            link: "/treasury/cash-forecast",
+            link: CASH_FORECAST_LINK,
           },
           createdAt: alert.detectedAt,
           readAt: null,

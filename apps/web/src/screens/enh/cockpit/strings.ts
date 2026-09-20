@@ -57,6 +57,7 @@ export const ar = {
   "cockpit.cash.title": "النقدية حسب الخزينة",
   "cockpit.cash.total": "الإجمالي",
   "cockpit.cash.unlinked": "غير مرتبط بحساب أستاذ",
+  "cockpit.cash.sharedAcrossBranches": "(حساب مشترك بين الفروع — الرصيد المعروض هو حركة هذا الفرع فقط)",
   "cockpit.cash.empty": "لا توجد خزائن أو حسابات بنكية.",
 
   "cockpit.movers.title": "الأصناف الأكثر تغيّراً",
@@ -131,6 +132,7 @@ export const en: Record<keyof typeof ar, string> = {
   "cockpit.cash.title": "Cash by treasury",
   "cockpit.cash.total": "Total",
   "cockpit.cash.unlinked": "Not linked to a ledger account",
+  "cockpit.cash.sharedAcrossBranches": "(shared across branches — this is the branch's own movement)",
   "cockpit.cash.empty": "No cash boxes or bank accounts yet.",
 
   "cockpit.movers.title": "Top movers",

@@ -16,6 +16,9 @@ import { step, BRANCH_ID, WAREHOUSE_ID, ACCOUNTS, seedToday } from "./shared.js"
  */
 const CASH_TREASURY_ID = "TR-DEMO-CASH";
 const BANK_TREASURY_ID = "TR-DEMO-BANK";
+const USD_BANK_TREASURY_ID = "TR-DEMO-BANK-USD";
+const USD_BANK_ACCOUNT_NUMBER = "EG380003000100000000263180777";
+const SUNDRY_INCOME_GL = "4910";
 const VAN_TREASURY_ID = "TR-DEMO-VAN";
 
 const VAN_WAREHOUSE_ID = "WH-DEMO-VAN";
@@ -619,6 +622,54 @@ async function seedBankStatement(app: App): Promise<void> {
   await step(app, "POST", "/bank-statements/BSTMT-DEMO-1/auto-match", {});
 }
 
+/**
+ * A foreign-currency bank account, one USD receipt posted on it, and the OFX
+ * statement the bank sends for it.
+ *
+ * The GL holds the receipt in pounds at the day's approved rate; the statement
+ * states dollars. Without the reader recovering the foreign figure from the
+ * posting's own rate there is no candidate a USD line can equal, and the
+ * account cannot be reconciled at all.
+ */
+async function seedForeignCurrencyBankStatement(app: App): Promise<void> {
+  await step(app, "POST", "/vouchers", {
+    id: "VCH-DEMO-USD-1",
+    date: "2026-08-05",
+    memo: "تحصيل تصدير بالدولار",
+    voucherType: "other_income",
+    amount: "1200.00",
+    currency: "USD",
+    branchId: BRANCH_ID,
+    paymentMethod: "bank",
+    treasuryAccountId: USD_BANK_TREASURY_ID,
+    treasuryGlAccountId: ACCOUNTS.bankUsd,
+    counterpartyGlAccountId: SUNDRY_INCOME_GL,
+    referenceNo: "USD000001",
+  });
+  await step(app, "POST", "/vouchers/VCH-DEMO-USD-1/confirm", {});
+
+  const ofx = [
+    "<OFX><BANKMSGSRSV1><STMTTRNRS><STMTRS>",
+    "<CURDEF>USD</CURDEF>",
+    `<BANKACCTFROM><ACCTID>${USD_BANK_ACCOUNT_NUMBER}</ACCTID></BANKACCTFROM>`,
+    "<BANKTRANLIST><DTSTART>20260801</DTSTART><DTEND>20260831</DTEND>",
+    "<STMTTRN><TRNTYPE>CREDIT</TRNTYPE><DTPOSTED>20260805</DTPOSTED><TRNAMT>1200.00</TRNAMT><CHECKNUM>USD000001</CHECKNUM><FITID>USD000001</FITID><NAME>EXPORT SETTLEMENT</NAME><MEMO>تحصيل تصدير بالدولار</MEMO></STMTTRN>",
+    "<STMTTRN><TRNTYPE>DEBIT</TRNTYPE><DTPOSTED>20260828</DTPOSTED><TRNAMT>-25.00</TRNAMT><FITID>USD000002</FITID><NAME>SWIFT FEE</NAME><MEMO>رسوم تحويل بالدولار</MEMO></STMTTRN>",
+    "</BANKTRANLIST><LEDGERBAL><BALAMT>1175.00</BALAMT></LEDGERBAL>",
+    "</STMTRS></STMTTRNRS></BANKMSGSRSV1></OFX>",
+  ].join("\n");
+
+  await step(app, "POST", "/bank-statements/import-file", {
+    id: "BSTMT-DEMO-USD-1",
+    treasuryAccountId: USD_BANK_TREASURY_ID,
+    format: "ofx",
+    content: ofx,
+    statementNumber: "BS-USD-2026-08",
+    openingBalance: "0.00",
+  });
+  await step(app, "POST", "/bank-statements/BSTMT-DEMO-USD-1/auto-match", {});
+}
+
 export async function seedTreasury(app: App): Promise<void> {
   await seedGlAccounts(app);
   await seedTreasuryAccountAndWarehouse(app);
@@ -629,4 +680,5 @@ export async function seedTreasury(app: App): Promise<void> {
   await seedFieldSales(app);
   await seedVatFiling(app);
   await seedBankStatement(app);
+  await seedForeignCurrencyBankStatement(app);
 }

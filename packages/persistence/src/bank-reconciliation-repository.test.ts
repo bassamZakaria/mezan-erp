@@ -6,6 +6,9 @@ function makeStatement(overrides: Partial<BankStatement> = {}): BankStatement {
   return {
     id: "stmt-1",
     treasuryAccountId: "ta-bank1",
+    branchId: "BR-MAIN",
+    currency: "EGP",
+    importFingerprint: null,
     source: BankStatementSource.Csv,
     statementNumber: "ST-001",
     periodStart: "2026-08-01",

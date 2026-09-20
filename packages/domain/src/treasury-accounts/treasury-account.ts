@@ -37,6 +37,14 @@ export interface TreasuryAccount {
   readonly nameEn: string | null;
   readonly type: TreasuryAccountType;
   readonly currency: string;
+  /**
+   * رقم الحساب البنكي / IBAN as the bank itself states it. Null on cash
+   * drawers and on records created before the field existed. An imported OFX
+   * or MT940 file names the account it belongs to, and this is the only thing
+   * that can be checked against it — without it a statement can be reconciled
+   * into the wrong bank account and nothing refuses.
+   */
+  readonly bankAccountNumber: string | null;
   readonly branchId: string;
   /** Null = auto-selected by the system based on `type` (docs/archive/catalog/04's add-dialog helper text). */
   readonly glAccountId: string | null;

@@ -51,6 +51,7 @@ async function newApp(contracts?: { exists(id: string): Promise<boolean> }) {
     nameEn: null,
     type: "bank",
     currency: "EGP",
+    bankAccountNumber: null,
     branchId: "b1",
     glAccountId: "1310",
     openingBalance: Money.zero(),

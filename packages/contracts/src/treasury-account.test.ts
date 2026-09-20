@@ -26,6 +26,7 @@ describe("treasuryAccountSchema", () => {
     nameEn: null,
     type: "cash" as const,
     currency: "EGP",
+    bankAccountNumber: null,
     branchId: "branch-1",
     glAccountId: null,
     openingBalance: "10000.123456",

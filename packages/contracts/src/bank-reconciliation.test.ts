@@ -66,6 +66,8 @@ describe("bankStatementSchema", () => {
   const statement = {
     id: "stmt-1",
     treasuryAccountId: "acc-1",
+    branchId: "BR-MAIN",
+    currency: "EGP",
     source: "csv" as const,
     statementNumber: null,
     periodStart: "2026-08-01",
@@ -83,9 +85,17 @@ describe("bankStatementSchema", () => {
     if (result.success) expect(result.data).toEqual(statement);
   });
 
-  it("rejects a source other than the literal csv", () => {
-    const result = bankStatementSchema.safeParse({ ...statement, source: "ofx" });
-    expect(result.success).toBe(false);
+  it("accepts every source the importers actually produce, and nothing else", () => {
+    for (const source of ["csv", "excel", "ofx", "mt940"]) {
+      expect(bankStatementSchema.safeParse({ ...statement, source }).success).toBe(true);
+    }
+    expect(bankStatementSchema.safeParse({ ...statement, source: "pdf" }).success).toBe(false);
+  });
+
+  it("requires the currency its amounts are stated in — a foreign statement is not base-currency by default", () => {
+    const { currency, ...withoutCurrency } = statement;
+    expect(bankStatementSchema.safeParse(withoutCurrency).success).toBe(false);
+    expect(bankStatementSchema.safeParse({ ...statement, currency: "USD" }).success).toBe(true);
   });
 
   it("never coerces openingBalance to a float — high-precision decimal string survives verbatim", () => {
@@ -216,6 +226,8 @@ describe("bankStatementListItemSchema", () => {
     const item = {
       id: "stmt-1",
       treasuryAccountId: "acc-1",
+      branchId: "BR-MAIN",
+      currency: "EGP",
       source: "csv" as const,
       statementNumber: null,
       periodStart: "2026-08-01",
@@ -235,6 +247,8 @@ describe("bankStatementListItemSchema", () => {
     const item = {
       id: "stmt-1",
       treasuryAccountId: "acc-1",
+      branchId: "BR-MAIN",
+      currency: "EGP",
       source: "csv" as const,
       statementNumber: null,
       periodStart: "2026-08-01",
@@ -251,7 +265,14 @@ describe("bankStatementListItemSchema", () => {
 });
 
 describe("matchCandidateSchema", () => {
-  const candidate = { entryId: "je-1", entryNo: "JE-2026-001", date: "2026-08-15", amount: "1000.000000", description: "customer transfer" };
+  const candidate = {
+    entryId: "je-1",
+    entryNo: "JE-2026-001",
+    date: "2026-08-15",
+    amount: "1000.000000",
+    description: "customer transfer",
+    currency: "EGP",
+  };
 
   it("accepts a minimal valid candidate and preserves every field verbatim", () => {
     const result = matchCandidateSchema.safeParse(candidate);

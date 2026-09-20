@@ -200,13 +200,23 @@ export async function run(ctx: Ctx): Promise<void> {
     checkEq("the foreign amount is recomputed from the booked base and its rate: 48,000 ÷ 48 = 1,000 USD", n(detail?.foreignAmount), 1000);
     checkEq("revalued at the closing 52.00 the same debt is worth 52,000", n(detail?.revaluedBase), 52000);
     checkEq("so the restatement is exactly 1,000 × (52 − 48)", Math.abs(n(detail?.delta)), 4000);
-    checkEq("a liability that grew in base currency is a LOSS, never a gain", n(preview.body?.totalLoss), 4000);
-    checkEq("and nothing on the gain side", n(preview.body?.totalGain), 0);
+    // Scoped to THIS position, not to the tenant's total: the preview revalues
+    // every open USD balance in the seeded tenant, so a claim about
+    // `totalLoss` is a claim about global state and breaks the moment the seed
+    // gains another foreign position (the demo's USD bank receipt did exactly
+    // that). The requirement being asserted is about this liability.
+    check("a liability that grew in base currency is a LOSS, never a gain", detail?.gainLoss === "loss", JSON.stringify(detail));
+    check("and this position puts nothing on the gain side", n(preview.body?.totalLoss) >= 4000 && n(preview.body?.totalGain) === 0,
+      `loss=${n(preview.body?.totalLoss)} gain=${n(preview.body?.totalGain)}`);
 
     const posted = await req("POST", "/revaluation/post", { date: MONTH_END, currencies: ["USD"], autoReverse: true });
     check("posting the revaluation succeeds", posted.status === 200 || posted.status === 201, `status ${posted.status} ${JSON.stringify(posted.body).slice(0, 250)}`);
     const entry = await journalOf(posted.body?.entry?.id ?? posted.body?.entryId ?? "");
-    checkEq("the unrealised FX loss account 5940 takes the whole restatement (D229)", n(entry.lines.find((l: any) => l.accountId === FX_LOSS)?.debit), 4000);
+    check(
+      "the unrealised FX loss account 5940 takes the whole restatement, this position's 4,000 included (D229)",
+      n(entry.lines.find((l: any) => l.accountId === FX_LOSS)?.debit) >= 4000,
+      `5940 debit=${n(entry.lines.find((l: any) => l.accountId === FX_LOSS)?.debit)}`,
+    );
     check("and عجز الصندوق 5900 takes none of it (D229)", !entry.lines.some((l: any) => l.accountId === "5900"), JSON.stringify(entry.lines.map((l: any) => l.accountId)));
     checkEq("and the liability itself is written up by exactly the same 4,000 — the two sides of one restatement", n(entry.lines.find((l: any) => l.accountId === USD_LIABILITY)?.credit), 4000);
     checkEq("GL 1200 does not move — a revaluation restates a debt, it is never a cost of inventory", await gl(INVENTORY), inventoryBefore);
@@ -214,7 +224,7 @@ export async function run(ctx: Ctx): Promise<void> {
     const reversalId = posted.body?.reversal?.id ?? posted.body?.reversalId ?? "";
     const reversal = await journalOf(reversalId);
     check("an auto-reversal exists, so next month's books do not open holding a rate that has already moved", reversal.lines.length > 0, `reversalId=${reversalId || "(none)"}`);
-    checkEq("the reversal mirrors the restatement exactly", reversal.credit, 4000);
+    checkEq("the reversal mirrors the restatement exactly", reversal.credit, entry.debit);
     checkEq(
       "and because it reverses on the first of the next month, the liability's live balance is back at what was actually booked — the restatement lives in the month it belongs to and nowhere else",
       (await creditBalance(USD_LIABILITY)) - liabilityBefore,

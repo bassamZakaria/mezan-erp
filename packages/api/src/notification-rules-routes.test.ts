@@ -135,13 +135,14 @@ describe("notification-rules router — CRUD", () => {
     expect((await res.json()) as { error: string }).toMatchObject({ error: "INVALID_NOTIFICATION_RULE" });
   });
 
-  it("exposes the full 39-event catalog at GET /events", async () => {
+  it("exposes the whole event catalog at GET /events", async () => {
     const { app } = newApp();
     const res = await app.fetch(req("/events", { permissions: "notifications.rule.view" }));
     expect(res.status).toBe(200);
     const events = (await res.json()) as { code: string }[];
-    expect(events.length).toBe(39);
+    expect(events.length).toBe(40);
     expect(events.map((e) => e.code)).toContain("SALES_INVOICE_CONFIRMED");
+    expect(events.map((e) => e.code)).toContain("CASH_FORECAST_LOW");
   });
 
   it("filters list by active and eventCode query params", async () => {

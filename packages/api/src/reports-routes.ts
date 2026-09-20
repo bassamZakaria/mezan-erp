@@ -286,11 +286,17 @@ async function contractBillingTest(deps: ReportsRoutesDeps): Promise<(accountId:
   };
 }
 
+/**
+ * "Today" where no request context is in reach — the DEFAULT tenant zone's
+ * day, never the process's (D287).
+ *
+ * Every route reads `tenantToday(c, deps.today)` instead, which resolves the
+ * tenant's OWN configured timezone (D288); this is the fallback the exported
+ * helpers take when their caller passes no day, and the clock override still
+ * wins over both.
+ */
 function todayIso(deps: ReportsRoutesDeps): string {
   if (deps.today) return deps.today();
-  // The default tenant zone's day, never the process's: a UTC host would read
-  // yesterday until 02:00/03:00 Cairo, a day behind the financial statements
-  // (D287). A tenant's own configured zone is not read here yet.
   return toTenantDay(new Date().toISOString());
 }
 
@@ -683,6 +689,7 @@ async function partyOpenItems(
   deps: ReportsRoutesDeps,
   asOf: AgingAsOf,
   parties: readonly { readonly id: string; readonly openingBalance?: Money; readonly branchId?: string | null }[],
+  today: string,
 ): Promise<AgingOpenItem[]> {
   const { kind, controlId } = asOf;
   const sign = kind === "customer" ? 1n : -1n;
@@ -732,7 +739,7 @@ async function partyOpenItems(
     }
     const opening = party.openingBalance ?? Money.zero();
     if (opening.scaled === 0n) continue;
-    items.push({ partyId: party.id, source: "opening", date: todayIso(deps), amount: opening, branchId: party.branchId ?? null });
+    items.push({ partyId: party.id, source: "opening", date: today, amount: opening, branchId: party.branchId ?? null });
   }
   const archives =
     kind === "customer"
@@ -787,8 +794,9 @@ async function agingCustomersTerms(
   deps: ReportsRoutesDeps,
   invoices: readonly { readonly id: string }[],
   given?: AgingAsOf,
+  today: string = todayIso(deps),
 ): Promise<Omit<AgingCustomersContext, "invoices" | "receivablesControlBalance" | "fxRevaluationOnControl">> {
-  const asOf = given ?? (await agingAsOf(deps, "customer", todayIso(deps)));
+  const asOf = given ?? (await agingAsOf(deps, "customer", today));
   const asOfDate = asOf.asOfDate;
   const [returns, terms, customers, allocatedByInvoiceId] = await Promise.all([
     returnsByInvoiceId(deps, asOfDate),
@@ -796,7 +804,7 @@ async function agingCustomersTerms(
     deps.customers.findAll(),
     settledByInvoiceId(deps, invoices),
   ]);
-  const openItems = await partyOpenItems(deps, asOf, customers);
+  const openItems = await partyOpenItems(deps, asOf, customers, today);
   return {
     customers,
     allocatedByInvoiceId,
@@ -807,11 +815,15 @@ async function agingCustomersTerms(
   };
 }
 
-/** Each customer's row total on today's customer aging ladder, every branch (D195). */
-export async function customerAgingOwed(deps: ReportsRoutesDeps): Promise<ReadonlyMap<string, Money>> {
-  const asOfDate = todayIso(deps);
+/**
+ * Each customer's row total on the customer aging ladder for a given day,
+ * every branch (D195). The caller passes the TENANT's day; the clock override
+ * still wins over it, and the default tenant zone is the last resort (D288).
+ */
+export async function customerAgingOwed(deps: ReportsRoutesDeps, today?: string): Promise<ReadonlyMap<string, Money>> {
+  const asOfDate = deps.today ? deps.today() : (today ?? todayIso(deps));
   const invoices = await deps.salesInvoices.list({ statusIn: [...SALES_INVOICE_ACTIVE_STATUSES], toDate: asOfDate });
-  const balances = customerAgingBalances({ asOfDate, branchId: "" }, { invoices, ...(await agingCustomersTerms(deps, invoices, await agingAsOf(deps, "customer", asOfDate))) });
+  const balances = customerAgingBalances({ asOfDate, branchId: "" }, { invoices, ...(await agingCustomersTerms(deps, invoices, await agingAsOf(deps, "customer", asOfDate), asOfDate)) });
   return new Map([...balances].map(([customerId, row]) => [customerId, agingBucketsTotal(row)]));
 }
 
@@ -820,8 +832,9 @@ async function agingSuppliersTerms(
   deps: ReportsRoutesDeps,
   invoices: readonly { readonly id: string }[],
   given?: AgingAsOf,
+  today: string = todayIso(deps),
 ): Promise<Omit<AgingSuppliersContext, "invoices" | "payablesControlBalance" | "fxRevaluationOnControl">> {
-  const asOf = given ?? (await agingAsOf(deps, "supplier", todayIso(deps)));
+  const asOf = given ?? (await agingAsOf(deps, "supplier", today));
   const asOfDate = asOf.asOfDate;
   const [suppliers, returns, terms, allocatedByInvoiceId] = await Promise.all([
     deps.suppliers.findAll(),
@@ -829,7 +842,7 @@ async function agingSuppliersTerms(
     unappliedPartyTerms(deps, asOf),
     settledByInvoiceId(deps, invoices),
   ]);
-  const openItems = await partyOpenItems(deps, asOf, suppliers);
+  const openItems = await partyOpenItems(deps, asOf, suppliers, today);
   return {
     suppliers,
     allocatedByInvoiceId,
@@ -840,11 +853,11 @@ async function agingSuppliersTerms(
   };
 }
 
-/** Each supplier's row total on today's supplier aging ladder, every branch — what the suppliers screen shows as owed (D201). */
-export async function supplierAgingOwed(deps: ReportsRoutesDeps): Promise<ReadonlyMap<string, Money>> {
-  const asOfDate = todayIso(deps);
+/** The supplier twin of {@link customerAgingOwed} — what the suppliers screen shows as owed (D201). */
+export async function supplierAgingOwed(deps: ReportsRoutesDeps, today?: string): Promise<ReadonlyMap<string, Money>> {
+  const asOfDate = deps.today ? deps.today() : (today ?? todayIso(deps));
   const invoices = await deps.purchaseInvoices.list({ status: "confirmed", toDate: asOfDate });
-  const balances = supplierAgingBalances({ asOfDate, branchId: "" }, { invoices, ...(await agingSuppliersTerms(deps, invoices, await agingAsOf(deps, "supplier", asOfDate))) });
+  const balances = supplierAgingBalances({ asOfDate, branchId: "" }, { invoices, ...(await agingSuppliersTerms(deps, invoices, await agingAsOf(deps, "supplier", asOfDate), asOfDate)) });
   return new Map([...balances].map(([supplierId, row]) => [supplierId, supplierAgingTotal(row)]));
 }
 
@@ -1048,7 +1061,7 @@ export function createReportsRoutes(
       asOf,
     ).map((invoice) => ({ ...invoice, status: "confirmed" as const }));
     const invoices = [...live, ...voided];
-    return { invoices, asOf, terms: await agingCustomersTerms(deps, invoices, asOf) };
+    return { invoices, asOf, terms: await agingCustomersTerms(deps, invoices, asOf, await tenantToday(c, deps.today)) };
   }
 
   /** The supplier ladder's twin of {@link customerAgingSet}. */
@@ -1060,13 +1073,13 @@ export function createReportsRoutes(
       asOf,
     ).map((invoice) => ({ ...invoice, status: "confirmed" as const }));
     const invoices = [...live, ...cancelled];
-    return { invoices, asOf, terms: await agingSuppliersTerms(deps, invoices, asOf) };
+    return { invoices, asOf, terms: await agingSuppliersTerms(deps, invoices, asOf, await tenantToday(c, deps.today)) };
   }
 
   // --- المبيعات ------------------------------------------------------
 
   app.get("/sales/by-period", gate("sales.invoice.view"), async (c) => {
-    const today = todayIso(deps);
+    const today = await tenantToday(c, deps.today);
     const definition = createSalesByPeriodReport(firstOfMonth(today), today);
     const invoices = await scopedSalesInvoices(c);
     const allocatedByInvoiceId = await settledByInvoiceId(deps, invoices);
@@ -1077,7 +1090,7 @@ export function createReportsRoutes(
   });
 
   app.get("/sales/by-item", gate("sales.invoice.view"), async (c) => {
-    const today = todayIso(deps);
+    const today = await tenantToday(c, deps.today);
     const definition = createSalesByItemReport(firstOfMonth(today), today);
     const [invoices, items, isContractBilling] = await Promise.all([
       scopedSalesInvoices(c),
@@ -1112,21 +1125,21 @@ export function createReportsRoutes(
   });
 
   app.get("/sales/by-customer", gate("sales.invoice.view"), async (c) => {
-    const today = todayIso(deps);
+    const today = await tenantToday(c, deps.today);
     const definition = createSalesByCustomerReport(firstOfMonth(today), today);
     const [invoices, customers, returnsByInvoiceId] = await Promise.all([scopedSalesInvoices(c), deps.customers.findAll(), salesReturnCreditsByInvoiceId(deps)]);
     return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { invoices, customers, returnsByInvoiceId }));
   });
 
   app.get("/sales/by-salesperson", gate("sales.invoice.view"), async (c) => {
-    const today = todayIso(deps);
+    const today = await tenantToday(c, deps.today);
     const definition = createSalesBySalespersonReport(firstOfMonth(today), today);
     const [invoices, returnsByInvoiceId] = await Promise.all([scopedSalesInvoices(c), salesReturnCreditsByInvoiceId(deps)]);
     return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { invoices, returnsByInvoiceId }));
   });
 
   app.get("/sales/top-products", gate("sales.invoice.view"), async (c) => {
-    const today = todayIso(deps);
+    const today = await tenantToday(c, deps.today);
     const definition = createTopProductsReport(firstOfMonth(today), today);
     const [invoices, items, isContractBilling] = await Promise.all([
       scopedSalesInvoices(c),
@@ -1160,7 +1173,7 @@ export function createReportsRoutes(
    * response boundary.
    */
   app.get("/sales/offers", gateAny("sales.promotion.view", "sales.invoice.view"), async (c) => {
-    const today = todayIso(deps);
+    const today = await tenantToday(c, deps.today);
     const params = { dateFrom: firstOfMonth(today), dateTo: today, ...queryParams(c) };
     if (!ISO_DATE.test(params.dateFrom) || !ISO_DATE.test(params.dateTo)) {
       return c.json(
@@ -1279,14 +1292,14 @@ export function createReportsRoutes(
   // --- المشتريات -----------------------------------------------------
 
   app.get("/purchases/by-period", gate("purchases.invoice.view"), async (c) => {
-    const today = todayIso(deps);
+    const today = await tenantToday(c, deps.today);
     const definition = createPurchasesByPeriodReport(firstOfMonth(today), today);
     const invoices = await scopedPurchaseInvoices(c);
     return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { invoices }));
   });
 
   app.get("/purchases/by-supplier", gate("purchases.invoice.view"), async (c) => {
-    const today = todayIso(deps);
+    const today = await tenantToday(c, deps.today);
     const definition = createPurchasesBySupplierReport(firstOfMonth(today), today);
     const [invoices, suppliers] = await Promise.all([scopedPurchaseInvoices(c), deps.suppliers.findAll()]);
     const [allocatedByInvoiceId, returnsByInvoiceId] = await Promise.all([settledByInvoiceId(deps, invoices), purchaseReturnsByInvoiceId(deps)]);
@@ -1297,7 +1310,7 @@ export function createReportsRoutes(
   });
 
   app.get("/purchases/by-item", gate("purchases.invoice.view"), async (c) => {
-    const today = todayIso(deps);
+    const today = await tenantToday(c, deps.today);
     const definition = createPurchasesByItemReport(firstOfMonth(today), today);
     const [invoices, items] = await Promise.all([scopedPurchaseInvoices(c), deps.items.list()]);
     const params = { ...definition.defaultParams, ...queryParams(c) };
@@ -1331,7 +1344,7 @@ export function createReportsRoutes(
   });
 
   app.get("/inventory/movement", gate("inventory.stock.view"), async (c) => {
-    const today = todayIso(deps);
+    const today = await tenantToday(c, deps.today);
     const definition = createInventoryMovementReport(firstOfMonth(today), today);
     const [allMovements, items, warehouses] = await Promise.all([loadAllMovements(deps), deps.items.list(), deps.warehouses.findAll()]);
     const movements = withinScope(allMovements, await stockScopeOf(c), (m) => m.warehouseId);
@@ -1368,21 +1381,21 @@ export function createReportsRoutes(
   });
 
   app.get("/inventory/aging", gate("inventory.stock.view"), async (c) => {
-    const definition = createInventoryAgingReport(todayIso(deps));
+    const definition = createInventoryAgingReport(await tenantToday(c, deps.today));
     const [items, warehouses, allLayers] = await Promise.all([deps.items.list(), deps.warehouses.findAll(), loadAllLayers(deps)]);
     const layers = withinScope(allLayers, await stockScopeOf(c), (layer) => layer.warehouseId);
     return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { items, warehouses, layers }));
   });
 
   app.get("/inventory/expiring", gate("inventory.stock.view"), async (c) => {
-    const definition = createInventoryExpiringReport(todayIso(deps));
+    const definition = createInventoryExpiringReport(await tenantToday(c, deps.today));
     const [items, warehouses, allLayers] = await Promise.all([deps.items.list(), deps.warehouses.findAll(), loadAllLayers(deps)]);
     const layers = withinScope(allLayers, await stockScopeOf(c), (layer) => layer.warehouseId);
     return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { items, warehouses, layers }));
   });
 
   app.get("/inventory/slow-moving", gate("inventory.stock.view"), async (c) => {
-    const definition = createInventorySlowMovingReport(todayIso(deps));
+    const definition = createInventorySlowMovingReport(await tenantToday(c, deps.today));
     const [items, allSnapshots, invoices, warehouses] = await Promise.all([
       deps.items.list(),
       deps.wacSnapshots.list(),
@@ -1542,7 +1555,7 @@ export function createReportsRoutes(
   if (hrContracts && hrLeave && hrEmployees) {
     app.get("/hr/leave-liability", gate("hr.leave.view"), async (c) => {
       const definition = createLeaveLiabilityReport();
-      const params = { ...definition.defaultParams, asOfDate: todayIso(deps), ...queryParams(c) };
+      const params = { ...definition.defaultParams, asOfDate: await tenantToday(c, deps.today), ...queryParams(c) };
       const ids = await scopedEmployeeIds(c);
       const [employees, contracts, balances, policies] = await Promise.all([
         hrEmployees.list(),
@@ -1579,12 +1592,12 @@ export function createReportsRoutes(
   // --- أعمار الديون ---------------------------------------------------
 
   app.get("/aging/customers", gate("sales.invoice.view"), async (c) => {
-    const definition = createAgingCustomersReport(todayIso(deps));
+    const definition = createAgingCustomersReport(await tenantToday(c, deps.today));
     const params = { ...definition.defaultParams, ...queryParams(c) };
     // The ladder drops every invoice that is not live and every one dated after
     // the snapshot, so both bounds belong in SQL rather than in a fold over the
     // whole table (Q-6). The set here must stay exactly the report's own.
-    const asOfDate = isoDateOrUndefined(params.asOfDate) ?? todayIso(deps);
+    const asOfDate = isoDateOrUndefined(params.asOfDate) ?? await tenantToday(c, deps.today);
     const { invoices, terms } = await customerAgingSet(c, asOfDate);
     // The ladder walks invoices; 1105 holds what those invoices, their
     // collections and their returns actually posted. Two independent paths to
@@ -1604,11 +1617,11 @@ export function createReportsRoutes(
   });
 
   app.get("/aging/suppliers", gate("purchases.invoice.view"), async (c) => {
-    const definition = createAgingSuppliersReport(todayIso(deps));
+    const definition = createAgingSuppliersReport(await tenantToday(c, deps.today));
     const params = { ...definition.defaultParams, ...queryParams(c) };
     // Same two bounds as the customer ladder, and the same rule: the SQL set
     // must be exactly what the report itself would have kept (Q-6).
-    const asOfDate = isoDateOrUndefined(params.asOfDate) ?? todayIso(deps);
+    const asOfDate = isoDateOrUndefined(params.asOfDate) ?? await tenantToday(c, deps.today);
     const { invoices, terms } = await supplierAgingSet(c, asOfDate);
     const payablesControl = branchNarrowed(c, params)
       ? undefined
@@ -1701,12 +1714,12 @@ export function createReportsRoutes(
     if (!customer || withinScope([customer], branchScopeOf(c), (row) => row.branchId).length === 0) {
       return c.json({ error: "NOT_FOUND" }, 404);
     }
-    const asOfDate = todayIso(deps);
+    const asOfDate = await tenantToday(c, deps.today);
     const invoices = (await scopedSalesInvoices(c, { statusIn: [...SALES_INVOICE_ACTIVE_STATUSES], toDate: asOfDate })).filter(
       (invoice) => invoice.customerId === id,
     );
     const asOf = await agingAsOf(deps, "customer", asOfDate);
-    const terms = await agingCustomersTerms(deps, invoices, asOf);
+    const terms = await agingCustomersTerms(deps, invoices, asOf, asOfDate);
     const invoiceRefs = new Map(invoices.map((invoice) => [invoice.id, invoice.docNo ?? invoice.id]));
     const entries: PartyStatementEntry[] = invoices.map((invoice) => ({
       key: `inv-${invoice.id}`,
@@ -1773,12 +1786,12 @@ export function createReportsRoutes(
     if (!supplier || withinScope([supplier], branchScopeOf(c), (row) => row.branchId).length === 0) {
       return c.json({ error: "NOT_FOUND" }, 404);
     }
-    const asOfDate = todayIso(deps);
+    const asOfDate = await tenantToday(c, deps.today);
     const invoices = (await scopedPurchaseInvoices(c, { status: "confirmed", toDate: asOfDate })).filter(
       (invoice) => invoice.supplierId === id,
     );
     const asOf = await agingAsOf(deps, "supplier", asOfDate);
-    const terms = await agingSuppliersTerms(deps, invoices, asOf);
+    const terms = await agingSuppliersTerms(deps, invoices, asOf, asOfDate);
     const invoiceRefs = new Map(invoices.map((invoice) => [invoice.id, invoice.number ?? invoice.id]));
     const entries: PartyStatementEntry[] = invoices.map((invoice) => ({
       key: `inv-${invoice.id}`,
@@ -1851,14 +1864,14 @@ export function createReportsRoutes(
   // --- الأقساط ---------------------------------------------------------
 
   app.get("/installments/overview", gate("installments.plan.view"), async (c) => {
-    const definition = createInstallmentsOverviewReport(todayIso(deps));
+    const definition = createInstallmentsOverviewReport(await tenantToday(c, deps.today));
     const [allPlans, customers] = await Promise.all([deps.installmentPlans.list(), deps.customers.findAll()]);
     const plans = await scopedPlans(c, allPlans);
     return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { plans, customers }));
   });
 
   app.get("/installments/overdue", gate("installments.plan.view"), async (c) => {
-    const definition = createInstallmentsOverdueReport(todayIso(deps));
+    const definition = createInstallmentsOverdueReport(await tenantToday(c, deps.today));
     const [allPlans, customers] = await Promise.all([deps.installmentPlans.list(), deps.customers.findAll()]);
     const plans = await scopedPlans(c, allPlans);
     return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { plans, customers }));
@@ -1869,7 +1882,7 @@ export function createReportsRoutes(
   if (deps.vanTrips) {
     const vanTrips = deps.vanTrips;
     app.get("/field/van-sales", gate("field.van_trip.view"), async (c) => {
-      const today = todayIso(deps);
+      const today = await tenantToday(c, deps.today);
       const definition = createVanSalesReport(firstOfMonth(today), today);
       const [allTrips, employees] = await Promise.all([vanTrips.list(), deps.employees?.list() ?? []]);
       const trips = withinScope(allTrips, branchScopeOf(c), (trip) => trip.branchId);
@@ -1883,7 +1896,7 @@ export function createReportsRoutes(
   // screen renders through, so params/columns/reconciliation can never drift.
 
   app.get("/tax/withholding", gate("accounting.reports.view"), async (c) => {
-    const today = todayIso(deps);
+    const today = await tenantToday(c, deps.today);
     const definition = createWithholdingTaxReport(firstOfYear(today), today);
     const [allVouchers, suppliers] = await Promise.all([
       deps.voucherDocuments?.list({ status: "confirmed" }) ?? Promise.resolve([]),
@@ -2142,14 +2155,15 @@ export interface OpenPartyAgingInputs {
 
 /** Today's open customer and supplier items with the SAME netting terms the aging ladders use (D192–D220). */
 export async function openPartyAgingInputs(deps: ReportsRoutesDeps, asOfDate: string = todayIso(deps)): Promise<OpenPartyAgingInputs> {
+  const today = deps.today ? deps.today() : asOfDate;
   const [salesInvoices, purchaseInvoices] = await Promise.all([
     deps.salesInvoices.list({ statusIn: [...SALES_INVOICE_ACTIVE_STATUSES], toDate: asOfDate }),
     deps.purchaseInvoices.list({ status: "confirmed", toDate: asOfDate }),
   ]);
   const [customerAsOf, supplierAsOf] = await Promise.all([agingAsOf(deps, "customer", asOfDate), agingAsOf(deps, "supplier", asOfDate)]);
   const [customerTerms, supplierTerms] = await Promise.all([
-    agingCustomersTerms(deps, salesInvoices, customerAsOf),
-    agingSuppliersTerms(deps, purchaseInvoices, supplierAsOf),
+    agingCustomersTerms(deps, salesInvoices, customerAsOf, today),
+    agingSuppliersTerms(deps, purchaseInvoices, supplierAsOf, today),
   ]);
   return {
     asOfDate,

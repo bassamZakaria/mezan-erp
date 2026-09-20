@@ -26,6 +26,7 @@ import {
 } from "@mezan/domain";
 import { createProjectSchema, updateProjectSchema } from "@mezan/contracts";
 import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
+import { tenantToday } from "./tenant-day.js";
 
 function serialize(project: Project) {
   return {
@@ -170,7 +171,7 @@ export function createProjectsRoutes(
         contractValue: contractValueAsOf(boqLines, orders, "9999-12-31"),
       });
     }
-    const today = deps.today ? deps.today() : new Date().toISOString().slice(0, 10);
+    const today = await tenantToday(c, deps.today);
     const flagsByProject: ReadonlyMap<string, readonly ProjectStatusFlag[]> = deriveProjectStatusFlags(flagInputs, today);
 
     const report = computeProjectPnL(lines, accounts, projects, {

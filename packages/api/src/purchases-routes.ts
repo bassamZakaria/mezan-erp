@@ -906,7 +906,7 @@ export function createPurchasesRoutes(
       returnedByInvoice(rows.map((i) => i.id)),
     ]);
     if (status && status !== "all") {
-      const today = (deps.now?.() ?? new Date().toISOString()).slice(0, 10);
+      const today = (await tenantDay(c, deps.now?.() ?? new Date().toISOString()));
       const horizon = paymentHorizon(today);
       rows = rows.filter((inv) => {
         const state = paymentStateOf(inv, allocations.get(inv.id) ?? Money.zero(), returns.get(inv.id) ?? Money.zero(), today, horizon);
@@ -955,7 +955,7 @@ export function createPurchasesRoutes(
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     const { status: _ignored, ...withoutStatus } = parsed.data;
     const { rows, allocations, returns } = await listFilteredInvoices(c, withoutStatus);
-    const today = (deps.now?.() ?? new Date().toISOString()).slice(0, 10);
+    const today = (await tenantDay(c, deps.now?.() ?? new Date().toISOString()));
     const horizon = paymentHorizon(today);
 
     const counts: Record<string, number> = {
@@ -1139,7 +1139,7 @@ export function createPurchasesRoutes(
     const returned = (await returnedByInvoice([invoice.id])).get(invoice.id) ?? Money.zero();
     // A payment happens when it happens — dating it back to the invoice
     // would measure the treasury's balance on the wrong day.
-    const date = (await tenantDay(c, parsed.data.date)) ?? (deps.now?.() ?? new Date().toISOString()).slice(0, 10);
+    const date = (await tenantDay(c, parsed.data.date)) ?? (await tenantDay(c, deps.now?.() ?? new Date().toISOString()));
     let capacity = purchaseInvoiceBaseTotal(invoice).scaled - allocated.scaled - returned.scaled;
     if (invoice.fxRate && deps.settlementPreview) {
       try {

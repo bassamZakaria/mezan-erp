@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import {
   AuditChangeAction,
   BASE_CURRENCY,
@@ -37,6 +37,7 @@ import {
 import { createPermissionGate, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
 import { recordFieldChanges } from "./admin-audit.js";
 import { openPartyAgingInputs, type ReportsRoutesDeps } from "./reports-routes.js";
+import { tenantToday } from "./tenant-day.js";
 
 export interface CashForecastRoutesDeps {
   readonly reports: ReportsRoutesDeps;
@@ -194,7 +195,7 @@ async function reconcileAlert(
 export function createCashForecastRoutes(deps: CashForecastRoutesDeps, resolveAuthContext: AuthContextResolver): Hono {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
-  const today = () => (deps.today ? deps.today() : toTenantDay(new Date().toISOString()));
+  const today = (c: Context) => tenantToday(c, deps.today);
   const now = () => (deps.now ? deps.now() : new Date().toISOString());
 
   app.get("/", gate("treasury.cash_forecast.view"), async (c) => {
@@ -202,7 +203,7 @@ export function createCashForecastRoutes(deps: CashForecastRoutesDeps, resolveAu
     if (!parsed.success) {
       return c.json({ error: "INVALID_QUERY", message: "معايير التوقع غير صالحة.", messageEn: "Invalid forecast parameters.", issues: parsed.error.issues }, 400);
     }
-    const day = today();
+    const day = await today(c);
     const horizon = parsed.data.horizon as unknown as CashForecastHorizon;
     const overdue = parsed.data.overdue as unknown as OverdueTreatment;
     const allCheques = (await deps.reports.cheques?.list()) ?? [];

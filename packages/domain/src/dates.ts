@@ -74,3 +74,19 @@ export function toTenantDay(value: string, timeZone: string = DEFAULT_TIME_ZONE)
     return calendarDay(value);
   }
 }
+
+/**
+ * The tenant's calendar day RIGHT NOW — the only honest default for "today".
+ *
+ * `new Date().toISOString().slice(0, 10)` is the UTC day, so between midnight
+ * and 02:00/03:00 Cairo it answers yesterday: a certificate measured today
+ * would be refused as dated in the future, a payroll run would take the wrong
+ * as-of day, a promotion would still read as scheduled (D285, D287, D288).
+ *
+ * A route that can reach the request should read the tenant's OWN configured
+ * zone (`tenantToday` in the API package); this is what a service constructed
+ * once, outside any request, can honestly know.
+ */
+export function tenantTodayIso(timeZone: string = DEFAULT_TIME_ZONE): string {
+  return toTenantDay(new Date().toISOString(), timeZone);
+}

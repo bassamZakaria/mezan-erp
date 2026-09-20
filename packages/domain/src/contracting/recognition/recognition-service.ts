@@ -37,6 +37,7 @@ import {
   RecognitionRunNotFoundError,
   RecognitionRunNotLatestError,
 } from "./errors.js";
+import { tenantTodayIso } from "../../dates.js";
 
 /** The numbering sequence a run draws its `RR-…` number from. */
 const RECOGNITION_SEQUENCE = "REVENUE_RECOGNITION_RUN";
@@ -197,7 +198,7 @@ export class RecognitionService {
   constructor(private readonly deps: RecognitionServiceDeps) {}
 
   private today(): string {
-    return this.deps.today ? this.deps.today() : new Date().toISOString().slice(0, 10);
+    return this.deps.today ? this.deps.today() : tenantTodayIso();
   }
 
   private now(): string {

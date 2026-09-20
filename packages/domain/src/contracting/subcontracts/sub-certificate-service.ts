@@ -44,6 +44,7 @@ import {
 } from "./sub-certificate.js";
 import { payabilityRefusals } from "./subcontract-service.js";
 import type { Subcontract, SubcontractLine } from "./subcontract.js";
+import { tenantTodayIso } from "../../dates.js";
 
 /**
  * مستخلص مقاول باطن — the use cases and the ledger behind them (design §03
@@ -191,7 +192,7 @@ export class SubCertificateService {
   constructor(private readonly deps: SubCertificateServiceDeps) {}
 
   private today(): string {
-    return this.deps.today ? this.deps.today() : new Date().toISOString().slice(0, 10);
+    return this.deps.today ? this.deps.today() : tenantTodayIso();
   }
 
   private async routed(key: string): Promise<string> {

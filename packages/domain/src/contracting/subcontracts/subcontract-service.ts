@@ -38,6 +38,7 @@ import {
   type SubcontractRetentionReleaseKind,
   type SubcontractStatus,
 } from "./subcontract.js";
+import { tenantTodayIso } from "../../dates.js";
 
 /**
  * عقد الباطن — the use cases and the ledger behind the two that post
@@ -210,7 +211,7 @@ export class SubcontractService {
   constructor(private readonly deps: SubcontractServiceDeps) {}
 
   private today(): string {
-    return this.deps.today ? this.deps.today() : new Date().toISOString().slice(0, 10);
+    return this.deps.today ? this.deps.today() : tenantTodayIso();
   }
 
   private async routed(key: string): Promise<string> {

@@ -982,12 +982,12 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   /** The customer aging ladder's own row totals — never a second derivation beside it (D195). */
   const reportsDeps = options.reports;
   const customerReceivables: CustomerReceivablesSource | undefined = reportsDeps
-    ? { outstandingByCustomer: () => customerAgingOwed(reportsDeps) }
+    ? { outstandingByCustomer: (today) => customerAgingOwed(reportsDeps, today) }
     : undefined;
 
   /** The supplier aging ladder's own row totals, as the customer side does (D201). */
   const supplierPayables: SupplierPayablesSource | undefined = reportsDeps
-    ? { outstandingBySupplier: () => supplierAgingOwed(reportsDeps) }
+    ? { outstandingBySupplier: (today) => supplierAgingOwed(reportsDeps, today) }
     : undefined;
 
   if (options.customerStore) {

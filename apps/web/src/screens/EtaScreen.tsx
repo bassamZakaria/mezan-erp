@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import {
   Button,
   Card,
+  Checkbox,
   Chip,
   DocumentList,
   EmptyState,
@@ -16,28 +17,33 @@ import {
   type PillTone,
   type RowMenuItem,
 } from "@mezan/ui";
-import type {
-  EtaBranchCodeRowDTO,
-  EtaConfigDTO,
-  EtaDocumentTypeDTO,
-  EtaItemMappingRowDTO,
-  EtaSubmissionDTO,
-  EtaSubmissionStatusDTO,
-  EtaTaxSubTypeRowDTO,
-  EtaUnitMappingRowDTO,
+import {
+  EtaBulkRequeueOutcome,
+  type EtaBranchCodeRowDTO,
+  type EtaConfigDTO,
+  type EtaDocumentTypeDTO,
+  type EtaItemMappingRowDTO,
+  type EtaPrevalidationFindingDTO,
+  type EtaSubmissionDTO,
+  type EtaSubmissionStatusDTO,
+  type EtaTaxSubTypeRowDTO,
+  type EtaUnitMappingRowDTO,
 } from "@mezan/contracts";
-import { ETA_RECEIPT_REPORTING_WINDOW_HOURS } from "@mezan/domain";
+import { ETA_RECEIPT_REPORTING_WINDOW_HOURS, EtaPrevalidationFixScreen, EtaPrevalidationSeverity } from "@mezan/domain";
 import {
   useApplyEtaUnitSuggestions,
+  useBulkRequeueSubmitEta,
   useEtaActivityCodes,
   useEtaBranchCodes,
   useEtaConfig,
   useEtaItemMappings,
+  useEtaRejectionsReport,
   useEtaSubmissions,
   useEtaTaxSubTypes,
   useEtaUnitCodes,
   useEtaUnitMappings,
   useExcludeEtaSubmission,
+  useRequeueEtaSubmission,
   useSaveEtaBranchCode,
   useSaveEtaItemMapping,
   useSaveEtaUnitMapping,
@@ -48,7 +54,9 @@ import {
   useUpdateEtaConfig,
 } from "../data/hooks";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { pathForRoute } from "../routing";
 import { useEtaReceiptQueue } from "./eta/receipt-queue";
+import { useEtaPrevalidationStrings } from "./eta/prevalidate-strings";
 import { useEtaStrings } from "./eta/strings";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 
@@ -93,7 +101,7 @@ const STATUS_TABS: Array<EtaSubmissionStatusDTO | "all"> = ["all", "ready", "pen
 
 const PAGE_SIZES = [10, 25, 50, 100] as const;
 
-type EtaTab = "general" | "credentials" | "items" | "units" | "submissions";
+type EtaTab = "general" | "credentials" | "items" | "units" | "submissions" | "readiness" | "rejections";
 const TABS: Array<{ id: EtaTab; labelKey: AppTranslationKey }> = [
   { id: "general", labelKey: "eta.tabGeneral" },
   { id: "credentials", labelKey: "eta.tabCredentials" },
@@ -101,6 +109,28 @@ const TABS: Array<{ id: EtaTab; labelKey: AppTranslationKey }> = [
   { id: "units", labelKey: "eta.tabUnits" },
   { id: "submissions", labelKey: "eta.tabSubmissions" },
 ];
+
+/** Which screen a pre-validation finding's `fixScreen` opens — the ETA screen's own tabs, or another screen entirely. */
+function fixHrefFor(finding: EtaPrevalidationFindingDTO, internalId: string): string {
+  switch (finding.fixScreen) {
+    case EtaPrevalidationFixScreen.IssuerConfig:
+      return `${pathForRoute("eta")}?tab=general`;
+    case EtaPrevalidationFixScreen.BranchCodes:
+      return `${pathForRoute("eta")}?tab=general`;
+    case EtaPrevalidationFixScreen.ItemMapping:
+      return `${pathForRoute("eta")}?tab=items`;
+    case EtaPrevalidationFixScreen.UnitMapping:
+      return `${pathForRoute("eta")}?tab=units`;
+    case EtaPrevalidationFixScreen.TaxRates:
+      return pathForRoute("taxes");
+    case EtaPrevalidationFixScreen.Customer:
+      return finding.fixRefId ? pathForRoute("customers", [finding.fixRefId]) : pathForRoute("customers");
+    case EtaPrevalidationFixScreen.SourceDocument:
+      return `${pathForRoute("sales-invoices")}?q=${encodeURIComponent(internalId)}`;
+    default:
+      return pathForRoute("eta");
+  }
+}
 
 /**
  * الفاتورة الإلكترونية (ETA) — e-invoicing (docs/archive/catalog/04). The readiness
@@ -111,9 +141,14 @@ const TABS: Array<{ id: EtaTab; labelKey: AppTranslationKey }> = [
  * أخطاء/مستبعد. All on the real `/eta/*` routes; the online transmit is
  * STUBBED server-side, so submitting offline keeps the document queued (202).
  */
+const ETA_TAB_VALUES = new Set<EtaTab>(["general", "credentials", "items", "units", "submissions", "readiness", "rejections"]);
+
 export function EtaScreen() {
   const { t } = useAppTranslation();
-  const [tab, setTab] = useState<EtaTab>("general");
+  const pt = useEtaPrevalidationStrings();
+  const [rawTab, setRawTab] = useUrlParam("tab", "general");
+  const tab: EtaTab = ETA_TAB_VALUES.has(rawTab as EtaTab) ? (rawTab as EtaTab) : "general";
+  const setTab = (next: EtaTab) => setRawTab(next);
   const configQuery = useEtaConfig();
   const submissionsQuery = useEtaSubmissions();
 
@@ -183,6 +218,23 @@ export function EtaScreen() {
             {t(entry.labelKey)}
           </button>
         ))}
+        {(
+          [
+            { id: "readiness", label: pt("tabReadiness") },
+            { id: "rejections", label: pt("tabRejections") },
+          ] as const
+        ).map((entry) => (
+          <button
+            key={entry.id}
+            type="button"
+            role="tab"
+            aria-selected={tab === entry.id}
+            onClick={() => setTab(entry.id)}
+            className={`-mb-px border-b-2 px-3 py-[9px] text-[12.5px] font-semibold transition-colors ${tab === entry.id ? "border-brand text-brand" : "border-transparent text-ink-muted hover:text-ink"}`}
+          >
+            {entry.label}
+          </button>
+        ))}
       </div>
 
       {tab === "general" ? <GeneralTab config={config} /> : null}
@@ -190,6 +242,8 @@ export function EtaScreen() {
       {tab === "items" ? <ItemMappingTab /> : null}
       {tab === "units" ? <UnitMappingTab /> : null}
       {tab === "submissions" ? <SubmissionsTab statusKeys={STATUS_KEYS} /> : null}
+      {tab === "readiness" ? <ReadinessTab /> : null}
+      {tab === "rejections" ? <RejectionsTab /> : null}
     </div>
   );
 }
@@ -942,6 +996,7 @@ function ReceiptQueueCard() {
 function SubmissionsTab({ statusKeys }: { statusKeys: Record<EtaSubmissionStatusDTO, AppTranslationKey> }) {
   const { t } = useAppTranslation();
   const et = useEtaStrings();
+  const pt = useEtaPrevalidationStrings();
   const configQuery = useEtaConfig();
   const config = configQuery.data?.config ?? null;
   const submissionsQuery = useEtaSubmissions();
@@ -953,16 +1008,25 @@ function SubmissionsTab({ statusKeys }: { statusKeys: Record<EtaSubmissionStatus
   const submitAllMutation = useSubmitAllReadyEta();
   const processMutation = useProcessEtaQueue();
   const excludeMutation = useExcludeEtaSubmission();
+  const requeueMutation = useRequeueEtaSubmission();
+  const bulkMutation = useBulkRequeueSubmitEta();
   const [notice, setNotice] = useState<
     | { kind: "offline" }
     | { kind: "queued"; count: number }
     | { kind: "processed"; submitted: number; accepted: number; rejected: number; queued: number; unsigned: number }
     | null
   >(null);
+  const [bulkNotice, setBulkNotice] = useState<{
+    submitted: number;
+    blocked: number;
+    queued: number;
+    failed: number;
+  } | null>(null);
   const [excludingId, setExcludingId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [reason, setReason] = useState("");
   const [pendingId, setPendingId] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(new Set());
   const [page, setPage] = useUrlNumber("page", 1);
   const [pageSize, setPageSize] = useUrlNumber("size", 25);
 
@@ -1028,7 +1092,73 @@ function SubmissionsTab({ statusKeys }: { statusKeys: Record<EtaSubmissionStatus
     }
   }
 
+  async function requeueOne(id: string) {
+    if (pendingId !== null) return;
+    setActionError(null);
+    setPendingId(id);
+    try {
+      await requeueMutation.mutateAsync(id);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : t("api.thatActionCouldNotBe"));
+    } finally {
+      setPendingId(null);
+    }
+  }
+
+  function toggleSelected(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  async function bulkFixAndSubmit() {
+    if (selectedIds.size === 0 || bulkMutation.isPending) return;
+    setBulkNotice(null);
+    setActionError(null);
+    const result = await bulkMutation.mutateAsync([...selectedIds]);
+    const tally = { submitted: 0, blocked: 0, queued: 0, failed: 0 };
+    for (const row of result.results) {
+      if (row.outcome === EtaBulkRequeueOutcome.Submitted) tally.submitted++;
+      else if (row.outcome === EtaBulkRequeueOutcome.Blocked) tally.blocked++;
+      else if (row.outcome === EtaBulkRequeueOutcome.Queued) tally.queued++;
+      else tally.failed++;
+    }
+    setBulkNotice(tally);
+    setSelectedIds(new Set());
+  }
+
+  const pageSelectable = pageRows.filter((s) => actionable(s.status));
+  const allPageSelected = pageSelectable.length > 0 && pageSelectable.every((s) => selectedIds.has(s.id));
+
   const columns: DocumentListColumn<EtaSubmissionDTO>[] = [
+    {
+      key: "select",
+      header: (
+        <Checkbox
+          aria-label={pt("selectAll")}
+          checked={allPageSelected}
+          onChange={() => {
+            setSelectedIds((prev) => {
+              const next = new Set(prev);
+              if (allPageSelected) pageSelectable.forEach((s) => next.delete(s.id));
+              else pageSelectable.forEach((s) => next.add(s.id));
+              return next;
+            });
+          }}
+        />
+      ),
+      render: (s) =>
+        actionable(s.status) ? (
+          <Checkbox
+            aria-label={t("common.rowActionsFor", { name: s.internalId })}
+            checked={selectedIds.has(s.id)}
+            onChange={() => toggleSelected(s.id)}
+          />
+        ) : null,
+    },
     { key: "internal", header: t("eta.internalId"), render: (s) => <span className="mz-num font-semibold text-ink">{s.internalId}</span> },
     {
       key: "type",
@@ -1052,6 +1182,28 @@ function SubmissionsTab({ statusKeys }: { statusKeys: Record<EtaSubmissionStatus
     },
     { key: "uuid", header: t("eta.authorityId"), render: (s) => <span className="mz-num text-ink-muted">{s.etaUuid ?? "—"}</span> },
     { key: "errors", header: t("eta.errors"), render: (s) => <span className="text-danger-ink">{s.errors.length > 0 ? s.errors.join(t("dataMigration.reasonSeparator")) : "—"}</span> },
+    {
+      key: "findings",
+      header: pt("findingsColumn"),
+      render: (s) => {
+        const findings = s.prevalidation ?? [];
+        if (findings.length === 0) return <span className="text-ink-muted">—</span>;
+        const blocking = findings.filter((f) => f.severity === EtaPrevalidationSeverity.Blocking).length;
+        const warnings = findings.length - blocking;
+        return (
+          <div className="flex flex-col gap-[4px]" title={findings.map((f) => f.messageAr).join(" / ")}>
+            {blocking > 0 ? <StatusPill label={`${pt("findingsBlocking")} (${blocking})`} tone="danger" /> : null}
+            {warnings > 0 ? <StatusPill label={`${pt("findingsWarning")} (${warnings})`} tone="warning" /> : null}
+            <a
+              href={fixHrefFor(findings[0]!, s.internalId)}
+              className="text-[11.5px] font-semibold text-brand hover:underline"
+            >
+              {pt("fixLink")}
+            </a>
+          </div>
+        );
+      },
+    },
   ];
 
   const unsealed = allSubs.filter((s) => s.status === "pending_signature").length;
@@ -1073,10 +1225,27 @@ function SubmissionsTab({ statusKeys }: { statusKeys: Record<EtaSubmissionStatus
 
       <ReceiptQueueCard />
 
-      <div className="mb-[12px] flex flex-wrap justify-end gap-[8px]">
+      <div className="mb-[12px] flex flex-wrap items-center justify-end gap-[8px]">
+        {selectedIds.size > 0 ? (
+          <span className="text-[12.5px] text-ink-muted">{pt("selectedCount", { count: String(selectedIds.size) })}</span>
+        ) : null}
+        <Button onClick={() => void bulkFixAndSubmit()} disabled={selectedIds.size === 0 || bulkMutation.isPending}>
+          {pt("bulkRequeueSubmit")}
+        </Button>
         <Button onClick={processQueue} disabled={processMutation.isPending}>{t("eta.processQueue")}</Button>
         <Button variant="primary" onClick={submitAll} disabled={submitAllMutation.isPending}>{t("eta.submitEverythingReady")}</Button>
       </div>
+
+      {bulkNotice ? (
+        <div role="status" className="mb-[14px] rounded-md border border-warning bg-warning-soft px-[12px] py-[10px] text-[12.5px] text-warning-ink">
+          {pt("bulkSummary", {
+            submitted: String(bulkNotice.submitted),
+            blocked: String(bulkNotice.blocked),
+            queued: String(bulkNotice.queued),
+            failed: String(bulkNotice.failed),
+          })}
+        </div>
+      ) : null}
 
       {notice ? (
         <div role="status" className="mb-[14px] rounded-md border border-warning bg-warning-soft px-[12px] py-[10px] text-[12.5px] text-warning-ink">
@@ -1136,15 +1305,26 @@ function SubmissionsTab({ statusKeys }: { statusKeys: Record<EtaSubmissionStatus
         loading={submissionsQuery.isLoading}
         rowKey={(s) => s.id}
         rowAction={(s) => {
-          if (!actionable(s.status)) return null;
-          const items: RowMenuItem[] = [
-            {
+          if (!actionable(s.status) && s.status !== "excluded") return null;
+          const items: RowMenuItem[] = [];
+          if (actionable(s.status)) {
+            items.push({
               key: "submit",
               label: t("eta.submit"),
               disabled: pendingId === s.id,
               onSelect: () => void submitOne(s.id),
-            },
-            {
+            });
+          }
+          if ((s.prevalidation ?? []).length > 0 || s.status === "error" || s.status === "excluded") {
+            items.push({
+              key: "requeue",
+              label: pt("requeue"),
+              disabled: pendingId === s.id,
+              onSelect: () => void requeueOne(s.id),
+            });
+          }
+          if (actionable(s.status)) {
+            items.push({
               key: "exclude",
               label: t("eta.exclude"),
               tone: "danger",
@@ -1155,8 +1335,8 @@ function SubmissionsTab({ statusKeys }: { statusKeys: Record<EtaSubmissionStatus
                 setExcludingId(s.id);
                 setReason("");
               },
-            },
-          ];
+            });
+          }
           return <RowMenu items={items} label={t("common.rowActionsFor", { name: s.internalId })} />;
         }}
         page={page}
@@ -1172,5 +1352,120 @@ function SubmissionsTab({ statusKeys }: { statusKeys: Record<EtaSubmissionStatus
         emptyState={<EmptyState title={t("eta.noDocumentsInThisState")} />}
       />
     </div>
+  );
+}
+
+/**
+ * الجاهزية والفحص المسبق (ENH-011b) — every queued document that has at least
+ * one pre-validation finding, listed with its own fix links, so an
+ * accountant works down one worklist instead of opening every submission.
+ */
+function ReadinessTab() {
+  const { t } = useAppTranslation();
+  const pt = useEtaPrevalidationStrings();
+  const submissionsQuery = useEtaSubmissions();
+  const requeueMutation = useRequeueEtaSubmission();
+  const [pendingId, setPendingId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  const rows = (submissionsQuery.data ?? []).filter((s) => (s.prevalidation ?? []).length > 0);
+
+  async function requeueOne(id: string) {
+    if (pendingId !== null) return;
+    setActionError(null);
+    setPendingId(id);
+    try {
+      await requeueMutation.mutateAsync(id);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : t("api.thatActionCouldNotBe"));
+    } finally {
+      setPendingId(null);
+    }
+  }
+
+  if (submissionsQuery.isLoading) return <Card className="p-[16px_18px] text-[12.5px] text-ink-muted">{t("common.loading")}</Card>;
+  if (rows.length === 0) return <EmptyState title={pt("findingsNone")} />;
+
+  return (
+    <div className="flex flex-col gap-[12px]">
+      {actionError ? (
+        <div role="alert" className="rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
+          {actionError}
+        </div>
+      ) : null}
+      {rows.map((s) => {
+        const findings = s.prevalidation ?? [];
+        const blocking = findings.filter((f) => f.severity === EtaPrevalidationSeverity.Blocking);
+        const warnings = findings.filter((f) => f.severity === EtaPrevalidationSeverity.Warning);
+        return (
+          <Card key={s.id} className="p-[14px_16px]">
+            <div className="mb-[8px] flex flex-wrap items-center justify-between gap-[8px]">
+              <div className="flex items-center gap-[8px]">
+                <span className="mz-num font-semibold text-ink">{s.internalId}</span>
+                <span className="text-[12px] text-ink-muted">{t(TYPE_KEYS[s.documentType])}</span>
+              </div>
+              <Button size="sm" onClick={() => void requeueOne(s.id)} disabled={pendingId === s.id}>
+                {pt("requeue")}
+              </Button>
+            </div>
+            <ul className="flex flex-col gap-[6px]">
+              {[...blocking, ...warnings].map((f, i) => (
+                <li key={`${f.code}-${i}`} className="flex flex-wrap items-center gap-[8px] text-[12.5px]">
+                  <StatusPill
+                    label={f.severity === EtaPrevalidationSeverity.Blocking ? pt("findingsBlocking") : pt("findingsWarning")}
+                    tone={f.severity === EtaPrevalidationSeverity.Blocking ? "danger" : "warning"}
+                  />
+                  <span className="text-ink">{f.messageAr}</span>
+                  <a href={fixHrefFor(f, s.internalId)} className="font-semibold text-brand hover:underline">
+                    {pt("fixLink")}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </Card>
+        );
+      })}
+    </div>
+  );
+}
+
+/** تقرير أسباب الرفض — rejections grouped by the authority's own error code. */
+function RejectionsTab() {
+  const { t } = useAppTranslation();
+  const pt = useEtaPrevalidationStrings();
+  const reportQuery = useEtaRejectionsReport();
+  const report = reportQuery.data ?? null;
+
+  if (reportQuery.isLoading) return <Card className="p-[16px_18px] text-[12.5px] text-ink-muted">{t("common.loading")}</Card>;
+  if (!report || report.totalRejected === 0) return <EmptyState title={pt("rejectionsNone")} />;
+
+  return (
+    <Card className="p-[16px_18px]">
+      <div className="mb-[10px] text-[13px] font-semibold text-ink">
+        {pt("rejectionsTitle")} — <span className="mz-num">{pt("rejectionsTotal", { count: String(report.totalRejected) })}</span>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-[12.5px]">
+          <thead>
+            <tr className="border-b border-border text-ink-muted">
+              <th className="p-[6px_8px] text-start font-semibold">{pt("rejectionsCode")}</th>
+              <th className="p-[6px_8px] text-start font-semibold">{pt("rejectionsCount")}</th>
+              <th className="p-[6px_8px] text-start font-semibold">{pt("rejectionsSample")}</th>
+              <th className="p-[6px_8px] text-start font-semibold">{pt("rejectionsExamples")}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {report.groups.map((g) => (
+              <tr key={g.code} className="border-b border-border">
+                <td className="p-[6px_8px] font-semibold text-ink">{g.code === "UNKNOWN" ? pt("rejectionsUnknown") : g.code}</td>
+                <td className="p-[6px_8px] mz-num text-ink">{g.count}</td>
+                <td className="p-[6px_8px] text-ink-muted">{g.sampleMessage || "—"}</td>
+                <td className="p-[6px_8px] mz-num text-ink-muted">{g.exampleInternalIds.join(", ")}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Card>
   );
 }

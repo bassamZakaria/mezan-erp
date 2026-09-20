@@ -239,6 +239,7 @@ import {
 import { runExternalSigningCommand } from "./eta-signing-command.js";
 import {
   createEtaEnqueueBridge,
+  createEtaInvoiceRequeueRebuilder,
   createEtaReceiptIssuer,
   createReturnEtaEnqueueBridge,
   type EtaReceiptIssuer,
@@ -3303,9 +3304,31 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       branchCodes: etaStore.branchCodes,
       unitMappings: etaStore.unitMappings,
       companyTradeName: async () => ((await settings.get()) ?? createDefaultSettings()).companyName,
+      // ENH-011b "Fix & Requeue" (WF-04 step 4): rebuilds the payload and the
+      // pre-validation from the CURRENT masters, so a fixed item code or
+      // customer TIN actually clears the finding that blocked submit.
+      rebuildSubmission: createEtaInvoiceRequeueRebuilder({
+        eta: etaService,
+        items,
+        taxRates,
+        branchCodes: etaStore.branchCodes,
+        unitMappings: etaStore.unitMappings,
+        invoices: salesInvoices,
+        customers,
+      }),
       issueDocumentReceipt: async (kind, docId) => {
         const issued =
           kind === "invoice" ? await etaReceipts.issueInvoiceReceipt(docId) : await etaReceipts.issueReturnReceipt(docId);
+        if (issued) etaReceipts.scheduleSubmission();
+        return issued;
+      },
+      // D-B4 — corrects and re-issues a REJECTED receipt inside the authority's
+      // 96-hour window, referencing the rejected one via header.referenceOldUUID.
+      reissueDocumentReceipt: async (kind, docId) => {
+        const issued =
+          kind === "invoice"
+            ? await etaReceipts.reissueInvoiceReceipt(docId)
+            : await etaReceipts.reissueReturnReceipt(docId);
         if (issued) etaReceipts.scheduleSubmission();
         return issued;
       },

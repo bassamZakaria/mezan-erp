@@ -23,9 +23,15 @@
  */
 import { EtaOfflineError } from "./errors.js";
 import { resolveEtaEndpoints, type EtaConfig } from "./config.js";
-import { serializeEtaReceiptSubmission } from "./receipt.js";
+import { ETA_RECEIPT_BATCH_MAX, serializeEtaReceiptSubmission } from "./receipt.js";
 import type { EtaSubmission, EtaTransmitLogEntry } from "./submission.js";
-import type { EtaTransmitPort, EtaTransmitResult, EtaStatusResult, EtaConnectionCheck } from "./service.js";
+import type {
+  EtaTransmitPort,
+  EtaTransmitResult,
+  EtaStatusResult,
+  EtaConnectionCheck,
+  EtaReceiptBatchResult,
+} from "./service.js";
 
 export interface EtaHttpRequest {
   readonly method: "GET" | "POST";
@@ -137,17 +143,25 @@ function parseJson(body: string): unknown {
   }
 }
 
-function flattenErrors(
+/** One rejection line, paired with the authority's own error code when it sent one — see `EtaSubmission.rejectionCodes`. */
+interface EtaFlattenedError {
+  readonly message: string;
+  readonly code: string | null;
+}
+
+function flattenErrorEntries(
   rejected: { readonly error?: EtaRejectedDocument["error"] } | undefined,
   fallback: string,
-): string[] {
-  if (!rejected?.error) return [fallback];
-  const head = rejected.error.message ?? rejected.error.code ?? fallback;
-  const details = (rejected.error.details ?? []).map((d) =>
-    [d.propertyPath, d.message ?? d.code].filter(Boolean).join(": "),
-  );
-  return [head, ...details].filter((s) => s.trim() !== "");
+): EtaFlattenedError[] {
+  if (!rejected?.error) return [{ message: fallback, code: null }];
+  const head = { message: rejected.error.message ?? rejected.error.code ?? fallback, code: rejected.error.code ?? null };
+  const details = (rejected.error.details ?? []).map((d) => ({
+    message: [d.propertyPath, d.message ?? d.code].filter(Boolean).join(": "),
+    code: d.code ?? null,
+  }));
+  return [head, ...details].filter((e) => e.message.trim() !== "");
 }
+
 
 /** Retry only what a retry can fix: a transport failure, a rate limit, or the authority's own 5xx. */
 function retryable(status: number | null): boolean {
@@ -301,27 +315,41 @@ export function createEtaHttpTransmitPort(deps: EtaHttpTransmitDeps): EtaTransmi
 
   /**
    * EXTERNAL CONTRACT (SDK, Submit Receipt Documents): `POST
-   * {api}/receiptsubmissions`, answering 202 with `submissionUUID`,
-   * `acceptedDocuments` and `rejectedDocuments` keyed by uuid/receiptNumber.
-   * 422 is DuplicateSubmission — the identical body already reached the
-   * authority inside ten minutes — so the receipt is filed and its status is
+   * {api}/receiptsubmissions` takes `{receipts, signatures}` for up to 500
+   * receipts of ONE device, answering 202 with `submissionUUID`,
+   * `acceptedDocuments` and `rejectedDocuments` keyed by uuid/receiptNumber —
+   * so a partially rejected batch still names which half was accepted. 422 is
+   * DuplicateSubmission — the identical body already reached the authority
+   * inside ten minutes — so the batch is filed and its receipts' status is
    * polled like any other, rather than sent a third time.
    */
-  async function transmitReceipt(submission: EtaSubmission, config: EtaConfig): Promise<EtaTransmitResult> {
-    const credentials = await receiptCredentials(submission);
+  async function transmitReceiptBatch(
+    submissions: readonly EtaSubmission[],
+    config: EtaConfig,
+  ): Promise<EtaReceiptBatchResult> {
+    const [first] = submissions;
+    if (!first) return { outcomes: [] };
+    if (submissions.length > ETA_RECEIPT_BATCH_MAX) {
+      throw new RangeError(`ETA receipt batch too large (${submissions.length} > ${ETA_RECEIPT_BATCH_MAX}).`);
+    }
+    const credentials = await receiptCredentials(first);
     const log: EtaTransmitLogEntry[] = [];
     const { apiBaseUrl } = resolveEtaEndpoints(config);
-    const body = serializeEtaReceiptSubmission([submission.payload]);
+    const body = serializeEtaReceiptSubmission(submissions.map((s) => s.payload));
     let response: EtaHttpResponse | null = null;
     for (let round = 0; round < 2; round++) {
       let accessToken: string;
       try {
         accessToken = await posToken(credentials, config, log);
       } catch (err) {
-        // Unreachable is offline, not rejected: a till's receipt stays queued
-        // for the next run inside its window instead of turning into an error.
+        // Unreachable is offline, not rejected: the batch stays queued for the
+        // next run instead of turning into an error. A real rejection from the
+        // identity server (wrong device credentials) is not offline — every
+        // receipt of the batch is refused with that reason instead of being
+        // retried forever.
         if (log.at(-1)?.status === null) throw new EtaOfflineError();
-        return { ok: false, errors: [err instanceof Error ? err.message : String(err)], log };
+        const message = err instanceof Error ? err.message : String(err);
+        return { outcomes: submissions.map((submission) => ({ submissionId: submission.id, ok: false, errors: [message] })), log };
       }
       try {
         response = await call(
@@ -344,34 +372,61 @@ export function createEtaHttpTransmitPort(deps: EtaHttpTransmitDeps): EtaTransmi
       if (response.status !== 401) break;
       posTokens.delete(posTokenKey(credentials, config));
     }
-    if (!response) return { ok: false, errors: ["فشل الإرسال"], log };
+    if (!response) {
+      return { outcomes: submissions.map((submission) => ({ submissionId: submission.id, ok: false, errors: ["فشل الإرسال"] })), log };
+    }
 
     const parsed = parseJson(response.body) as EtaReceiptSubmissionResponse | null;
-    // 422 DuplicateSubmission says "retry after Retry-After", not "filed"; a
-    // throttle or an outage outlasting the retries is the same. The receipt
-    // stays queued for the next run rather than turning into an error.
+    // 422 DuplicateSubmission, 429 and a 5xx apply to the WHOLE call, before
+    // the authority evaluated any one receipt in it — the entire batch stays
+    // queued for the next run rather than reporting every receipt in it as
+    // individually rejected on a guess.
     if (response.status === 422 || response.status === 429 || response.status >= 500) throw new EtaOfflineError();
     if (response.status >= 400 || !parsed) {
-      const message = parsed?.error?.message ?? `رفضت مصلحة الضرائب إرسال الإيصال (${response.status}).`;
+      // A rejection at the CALL level (not per-document) — every receipt of
+      // the batch is refused with the same reason, and the accepted half of a
+      // LATER call is unaffected.
+      const message = parsed?.error?.message ?? `رفضت مصلحة الضرائب إرسال الإيصالات (${response.status}).`;
       const details = (parsed?.error?.details ?? []).map((d) => [d.propertyPath, d.message ?? d.code].filter(Boolean).join(": "));
-      return { ok: false, errors: [message, ...details].filter((m) => m.trim() !== ""), log };
-    }
-    const mine = (d: { readonly uuid?: string; readonly receiptNumber?: string }) =>
-      (!!d.uuid && d.uuid === submission.etaUuid) || (!!d.receiptNumber && d.receiptNumber === submission.internalId);
-    const accepted = parsed.acceptedDocuments?.find(mine);
-    if (accepted) {
+      const errors = [message, ...details].filter((m) => m.trim() !== "");
       return {
-        ok: true,
-        etaUuid: accepted.uuid ?? submission.etaUuid ?? undefined,
-        submissionId: parsed.submissionUUID ?? parsed.submissionId ?? null,
+        outcomes: submissions.map((submission) => ({ submissionId: submission.id, ok: false, errors })),
         log,
       };
     }
-    return {
-      ok: false,
-      errors: flattenErrors(parsed.rejectedDocuments?.find(mine), "رفضت مصلحة الضرائب الإيصال دون بيان السبب."),
-      log,
-    };
+
+    const mineOf = (submission: EtaSubmission) => (d: { readonly uuid?: string; readonly receiptNumber?: string }) =>
+      (!!d.uuid && d.uuid === submission.etaUuid) || (!!d.receiptNumber && d.receiptNumber === submission.internalId);
+    const outcomes = submissions.map((submission) => {
+      const mine = mineOf(submission);
+      const accepted = parsed.acceptedDocuments?.find(mine);
+      if (accepted) {
+        return {
+          submissionId: submission.id,
+          ok: true,
+          etaUuid: accepted.uuid ?? submission.etaUuid ?? undefined,
+        };
+      }
+      const rejectedEntries = flattenErrorEntries(
+        parsed.rejectedDocuments?.find(mine),
+        "رفضت مصلحة الضرائب الإيصال دون بيان السبب.",
+      );
+      return {
+        submissionId: submission.id,
+        ok: false,
+        errors: rejectedEntries.map((e) => e.message),
+        errorCodes: rejectedEntries.map((e) => e.code),
+      };
+    });
+    return { submissionUUID: parsed.submissionUUID ?? parsed.submissionId ?? null, outcomes, log };
+  }
+
+  async function transmitReceipt(submission: EtaSubmission, config: EtaConfig): Promise<EtaTransmitResult> {
+    const { submissionUUID, outcomes, log } = await transmitReceiptBatch([submission], config);
+    const [outcome] = outcomes;
+    if (!outcome) return { ok: false, errors: ["فشل الإرسال"], log };
+    if (outcome.ok) return { ok: true, etaUuid: outcome.etaUuid, submissionId: submissionUUID ?? null, log };
+    return { ok: false, errors: outcome.errors, errorCodes: outcome.errorCodes, log };
   }
 
   /** EXTERNAL CONTRACT (SDK, Get Receipt Details): `GET {api}/receipts/{uuid}/details`, status Valid/Invalid/Cancelled. */
@@ -480,9 +535,11 @@ export function createEtaHttpTransmitPort(deps: EtaHttpTransmitDeps): EtaTransmi
       const rejected = parsed.rejectedDocuments?.find(
         (d) => !d.internalId || d.internalId === submission.internalId,
       );
+      const rejectedEntries = flattenErrorEntries(rejected, "رفضت مصلحة الضرائب المستند دون بيان السبب.");
       return {
         ok: false,
-        errors: flattenErrors(rejected, "رفضت مصلحة الضرائب المستند دون بيان السبب."),
+        errors: rejectedEntries.map((e) => e.message),
+        errorCodes: rejectedEntries.map((e) => e.code),
         log,
       };
     },
@@ -503,7 +560,13 @@ export function createEtaHttpTransmitPort(deps: EtaHttpTransmitDeps): EtaTransmi
         null,
       );
       const parsed = parseJson(response.body) as
-        | { status?: string; validationResults?: { status?: string; validationSteps?: readonly { status?: string; error?: { message?: string } }[] } }
+        | {
+            status?: string;
+            validationResults?: {
+              status?: string;
+              validationSteps?: readonly { status?: string; error?: { message?: string; code?: string } }[];
+            };
+          }
         | null;
       if (response.status >= 400 || !parsed) {
         return { state: "unknown", errors: [`تعذّرت قراءة حالة المستند من مصلحة الضرائب (${response.status}).`], log };
@@ -511,15 +574,22 @@ export function createEtaHttpTransmitPort(deps: EtaHttpTransmitDeps): EtaTransmi
       const raw = (parsed.status ?? "").toLowerCase();
       if (raw === "valid") return { state: "accepted", errors: [], log };
       if (raw === "invalid" || raw === "rejected" || raw === "cancelled") {
-        const steps = parsed.validationResults?.validationSteps ?? [];
-        const errors = steps
+        const failing = (parsed.validationResults?.validationSteps ?? [])
           .filter((s) => (s.status ?? "").toLowerCase() !== "valid")
-          .map((s) => s.error?.message ?? "")
-          .filter((m) => m.trim() !== "");
-        return { state: "rejected", errors: errors.length > 0 ? errors : [`حالة المستند لدى المصلحة: ${parsed.status}`], log };
+          .filter((s) => (s.error?.message ?? "").trim() !== "");
+        const errors = failing.map((s) => s.error!.message!);
+        const errorCodes = failing.map((s) => s.error?.code ?? null);
+        return {
+          state: "rejected",
+          errors: errors.length > 0 ? errors : [`حالة المستند لدى المصلحة: ${parsed.status}`],
+          errorCodes: errors.length > 0 ? errorCodes : [null],
+          log,
+        };
       }
       return { state: "pending", errors: [], log };
     },
+
+    transmitReceiptBatch,
   };
 }
 

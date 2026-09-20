@@ -33,6 +33,8 @@ import {
   resolveUnitFactor,
   toBaseQty,
   SALES_INVOICE_STATUS_LABELS_AR,
+  ETA_RECEIPT_PAYMENT_METHODS,
+  type EtaReceiptPaymentMethod,
   type SalesInvoiceLine,
   type SalesInvoiceDiscount,
   type SalesInvoiceDiscountType,
@@ -79,7 +81,7 @@ import { useNavigation, useScreenIntent, useSubPage } from "../navigation";
 import { AttachmentsTab } from "../attachments/AttachmentsTab";
 import { salesInvoiceStatusLabel } from "../domain-labels";
 import { documentStatusLabel } from "../doc-status";
-import { useAppTranslation } from "../i18n";
+import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { todayIso } from "../lib/dates";
 import { EMPTY } from "../lib/empty";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
@@ -106,6 +108,24 @@ const STATUS_TONE: Record<SalesInvoiceStatusDTO, PillTone> = {
 };
 
 const LIST_STATUSES: SalesInvoiceStatusDTO[] = ["draft", "confirmed", "partially_paid", "paid", "cancelled"];
+
+/**
+ * B3 — a back-office confirm has no till to state the tender, so the receipt
+ * fell back to «أخرى» even for a plain cash sale. `receiptPaymentMethod` on
+ * confirm lets the person doing the confirming state it; left unset, the
+ * backend still derives it honestly (till tender, then the collection
+ * voucher, then «أخرى»).
+ */
+const RECEIPT_PAYMENT_METHOD_LABEL_KEY: Record<EtaReceiptPaymentMethod, AppTranslationKey> = {
+  cash: "salesInvoices.receiptPaymentMethod.cash",
+  card: "salesInvoices.receiptPaymentMethod.card",
+  wallet: "salesInvoices.receiptPaymentMethod.wallet",
+  transfer: "salesInvoices.receiptPaymentMethod.transfer",
+  voucher: "salesInvoices.receiptPaymentMethod.voucher",
+  gift_card: "salesInvoices.receiptPaymentMethod.giftCard",
+  points: "salesInvoices.receiptPaymentMethod.points",
+  other: "salesInvoices.receiptPaymentMethod.other",
+};
 
 /** Projects still open for new spend/income — a finished or cancelled project cannot take new lines. */
 const OPEN_PROJECT_STATUSES = new Set<ProjectDTO["status"]>(["planned", "active", "on_hold"]);
@@ -406,6 +426,8 @@ function CreateInvoicePage({ onClose, initialCustomerId }: { onClose: () => void
   const [lines, setLines] = useState<InvoiceLineDraft[]>([blankLine()]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  /** B3 — stated only for a consumer sale confirmed with no till; "" leaves the backend's own derivation. */
+  const [receiptPaymentMethod, setReceiptPaymentMethod] = useState<EtaReceiptPaymentMethod | "">("");
 
   function resetForm() {
     // `undefined` = untouched, so a customer carried in from «إنشاء فاتورة»
@@ -426,6 +448,7 @@ function CreateInvoicePage({ onClose, initialCustomerId }: { onClose: () => void
     setDiscountValue(0);
     setLines([blankLine()]);
     setMethodChosen(false);
+    setReceiptPaymentMethod("");
     setError(null);
   }
 
@@ -536,6 +559,10 @@ function CreateInvoicePage({ onClose, initialCustomerId }: { onClose: () => void
 
   const tenantSettings = useSettings();
   const customerData = customer ? (customers.find((c) => c.id === customer.id) ?? null) : null;
+  // A customer with no tax registration number is a consumer sale — an
+  // e-receipt, not an e-invoice — and confirming it here has no till to name
+  // the tender (B3).
+  const isConsumerReceiptSale = customerData !== null && !customerData.taxNumber;
 
   const domainLines = useMemo<SalesInvoiceLine[]>(() => {
     const out: SalesInvoiceLine[] = [];
@@ -660,7 +687,13 @@ function CreateInvoicePage({ onClose, initialCustomerId }: { onClose: () => void
           inventoryAccountId: l.inventoryAccountId,
         })),
       });
-      if (shouldConfirm) await confirmInvoice.mutateAsync(created.id);
+      if (shouldConfirm) {
+        await confirmInvoice.mutateAsync(
+          isConsumerReceiptSale && receiptPaymentMethod !== ""
+            ? { id: created.id, receiptPaymentMethod }
+            : created.id,
+        );
+      }
       resetForm();
       onClose();
     } catch (err) {
@@ -1060,6 +1093,19 @@ function CreateInvoicePage({ onClose, initialCustomerId }: { onClose: () => void
           taxTotal={toMajor(totals.taxTotal.toString())}
         />
 
+        {isConsumerReceiptSale ? (
+          <SelectField
+            label={t("salesInvoices.field.receiptPaymentMethod")}
+            hint={t("salesInvoices.field.receiptPaymentMethodHint")}
+            value={receiptPaymentMethod}
+            onChange={(v) => setReceiptPaymentMethod(v as EtaReceiptPaymentMethod | "")}
+            options={[
+              { value: "", label: t("salesInvoices.receiptPaymentMethod.auto") },
+              ...ETA_RECEIPT_PAYMENT_METHODS.map((m) => ({ value: m, label: t(RECEIPT_PAYMENT_METHOD_LABEL_KEY[m]) })),
+            ]}
+          />
+        ) : null}
+
         <div className="flex justify-end gap-[9px]">
           <Button onClick={onClose}>{t("common.cancel")}</Button>
           <Button disabled={!canSubmit} onClick={() => handleSave(false)}>
@@ -1194,6 +1240,11 @@ function InvoiceDetailView({
   const { t, locale } = useAppTranslation();
   const detailConfirm = useConfirmSalesInvoice();
   const [detailConfirmError, setDetailConfirmError] = useState<string | null>(null);
+  /** B3 — stated only for a consumer sale confirmed with no till; "" leaves the backend's own derivation. */
+  const [detailReceiptPaymentMethod, setDetailReceiptPaymentMethod] = useState<EtaReceiptPaymentMethod | "">("");
+  const detailCustomersQuery = useCustomers();
+  const detailCustomer = (detailCustomersQuery.data ?? []).find((c) => c.id === invoice.customerId) ?? null;
+  const isConsumerReceiptSale = detailCustomer !== null && !detailCustomer.taxNumber;
   const format = useFormat();
   const docCurrencyLabel = currencyLabelFor(invoice.currency, locale);
   const settledInBase = Boolean(invoice.fxRate);
@@ -1407,7 +1458,13 @@ function InvoiceDetailView({
                 try {
                   // N-9: the version this screen was served. A second till that
                   // already moved this invoice gets the 409 refusal here.
-                  await detailConfirm.mutateAsync({ id: invoice.id, expectedVersion: invoice.version });
+                  await detailConfirm.mutateAsync({
+                    id: invoice.id,
+                    expectedVersion: invoice.version,
+                    ...(isConsumerReceiptSale && detailReceiptPaymentMethod !== ""
+                      ? { receiptPaymentMethod: detailReceiptPaymentMethod }
+                      : {}),
+                  });
                 } catch (err) {
                   setDetailConfirmError(errorMessage(err, t("common.failed")));
                 }
@@ -1452,6 +1509,20 @@ function InvoiceDetailView({
           label: t("salesInvoices.tab.lines"),
           content: (
             <div className="flex flex-col gap-[14px]">
+            {invoice.status === "draft" && isConsumerReceiptSale ? (
+              <Card className="p-[14px_16px]">
+                <SelectField
+                  label={t("salesInvoices.field.receiptPaymentMethod")}
+                  hint={t("salesInvoices.field.receiptPaymentMethodHint")}
+                  value={detailReceiptPaymentMethod}
+                  onChange={(v) => setDetailReceiptPaymentMethod(v as EtaReceiptPaymentMethod | "")}
+                  options={[
+                    { value: "", label: t("salesInvoices.receiptPaymentMethod.auto") },
+                    ...ETA_RECEIPT_PAYMENT_METHODS.map((m) => ({ value: m, label: t(RECEIPT_PAYMENT_METHOD_LABEL_KEY[m]) })),
+                  ]}
+                />
+              </Card>
+            ) : null}
             <InvoiceEffectCards
               stockBaseQty={stockBaseQty}
               baseUnitLabel={stockBaseUnitLabel}

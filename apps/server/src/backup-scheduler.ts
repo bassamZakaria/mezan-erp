@@ -1,27 +1,98 @@
-import { appendFileSync, mkdirSync, readdirSync, renameSync, rmSync } from "node:fs";
-import { copyFile, mkdtemp } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { fork, type ChildProcess } from "node:child_process";
+import { mkdirSync, readdirSync, renameSync, rmSync } from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import type { PlatformHandle } from "@mezan/backend";
-import { openSqliteConnection } from "@mezan/persistence";
 import type { TenantRouter } from "./tenant-router.js";
+import {
+  appendVerifyRecord,
+  BackupVerifyOutcome,
+  VERIFY_LOG_FILE_NAME,
+  type BackupVerifyRecord,
+} from "./backup-verify-core.js";
+import type { VerifyWorkerRequest, VerifyWorkerResponse } from "./backup-verify-worker.js";
 
-export const VERIFY_LOG_FILE_NAME = "verify.jsonl";
-
-export enum BackupVerifyOutcome {
-  Ok = "ok",
-  Failed = "failed",
-}
-
-export interface BackupVerifyRecord {
-  readonly at: string;
-  readonly file: string;
-  readonly outcome: BackupVerifyOutcome;
-  readonly ms: number;
-  readonly report: string;
-}
+export { BackupVerifyOutcome, VERIFY_LOG_FILE_NAME, type BackupVerifyRecord };
 
 const DEFAULT_KEEP = 12;
+
+// A literal filesystem path for `fork()`, not an ESM import specifier — the
+// `.ts` extension is deliberate (see the `execArgv` note below): unlike an
+// `import "./x.js"` this is never rewritten to the sibling `.ts` source.
+const VERIFY_WORKER_PATH = fileURLToPath(new URL("./backup-verify-worker.ts", import.meta.url));
+
+function failedRecord(backupPath: string, now: Date, report: string): BackupVerifyRecord {
+  return { at: now.toISOString(), file: path.basename(backupPath), outcome: BackupVerifyOutcome.Failed, ms: 0, report };
+}
+
+/**
+ * Runs `PRAGMA integrity_check` on a copy of `backupPath` in a forked child
+ * process instead of the server's main thread (docs/artifacts/audit-2026-09-07.md
+ * Q-2's cloud twin) — a full page scan of a multi-GB tenant database can take
+ * seconds, and until this moved, that ran on the SAME event loop `hono`
+ * serves every tenant's HTTP request on, so one backup cycle stalled every
+ * request in flight.
+ *
+ * A `worker_threads.Worker` was tried first and rejected: tsx's module hooks
+ * register on the worker's OWN entry file but do not reliably extend to that
+ * file's nested imports (confirmed by hand), so `verifyBackupFile`'s own
+ * `@mezan/persistence` import failed to resolve inside a Worker while
+ * resolving correctly inside a forked process. `execArgv` is explicit rather
+ * than inherited from the parent — which may be `tsx` (`pnpm exec tsx`),
+ * plain `node` (a future compiled build) or vitest's own worker pool — so
+ * `--import tsx` boots the same loader `tsx`'s own CLI uses regardless of how
+ * the server process itself was started.
+ *
+ * A child that never reports back (crash, killed process) resolves to a
+ * FAILED record rather than rejecting: `runBackups` must still see this
+ * backup as unverified and move on to the next tenant, exactly as a normal
+ * integrity-check failure does. The record is appended to the SAME
+ * `verify.jsonl` `verifyBackupFile` itself writes to, even on that crash
+ * path, so a child that dies before writing anything is still reported —
+ * "failed to even run" is not silence.
+ */
+function runVerifyOffThread(backupPath: string, now: Date): Promise<BackupVerifyRecord> {
+  return new Promise((resolve) => {
+    let settled = false;
+    let child: ChildProcess;
+    try {
+      child = fork(VERIFY_WORKER_PATH, [], { execArgv: ["--import", "tsx"], stdio: ["ignore", "inherit", "inherit", "ipc"] });
+    } catch (err) {
+      resolve(failedRecordAndLog(backupPath, now, err instanceof Error ? err.message : String(err)));
+      return;
+    }
+
+    const finish = (record: BackupVerifyRecord) => {
+      if (settled) return;
+      settled = true;
+      child.kill();
+      resolve(record);
+    };
+
+    child.once("message", (msg: VerifyWorkerResponse) => {
+      finish(msg.ok ? msg.record : failedRecordAndLog(backupPath, now, msg.error));
+    });
+    child.once("error", (err) => {
+      finish(failedRecordAndLog(backupPath, now, err instanceof Error ? err.message : String(err)));
+    });
+    child.once("exit", (code) => {
+      if (code !== 0 && code !== null) finish(failedRecordAndLog(backupPath, now, `backup verify worker exited with code ${code}`));
+    });
+
+    const request: VerifyWorkerRequest = { backupPath, now: now.toISOString() };
+    child.send(request);
+  });
+}
+
+function failedRecordAndLog(backupPath: string, now: Date, report: string): BackupVerifyRecord {
+  const record = failedRecord(backupPath, now, report);
+  try {
+    appendVerifyRecord(record, backupPath);
+  } catch (err) {
+    console.error("[backup] could not append the verify log after an off-thread failure", err);
+  }
+  return record;
+}
 
 export interface RunBackupsOptions {
   readonly platform: PlatformHandle;
@@ -55,39 +126,6 @@ async function writeOneBackup(
   return finalPath;
 }
 
-// The COPY is opened, never the backup itself: opening a SQLite file can write to it.
-export async function verifyBackupFile(backupPath: string, now: Date = new Date()): Promise<BackupVerifyRecord> {
-  const started = Date.now();
-  const sandbox = await mkdtemp(path.join(tmpdir(), "mezan-backup-verify-"));
-  let outcome = BackupVerifyOutcome.Failed;
-  let report: string;
-  try {
-    const copy = path.join(sandbox, "restore.sqlite");
-    await copyFile(backupPath, copy);
-    const { sqlite } = openSqliteConnection(copy);
-    try {
-      const rows = sqlite.pragma("integrity_check") as Array<{ integrity_check: string }>;
-      report = rows.map((r) => r.integrity_check).join("; ");
-      if (report === "ok") outcome = BackupVerifyOutcome.Ok;
-    } finally {
-      sqlite.close();
-    }
-  } catch (err) {
-    report = err instanceof Error ? err.message : String(err);
-  } finally {
-    rmSync(sandbox, { recursive: true, force: true });
-  }
-  const record: BackupVerifyRecord = {
-    at: now.toISOString(),
-    file: path.basename(backupPath),
-    outcome,
-    ms: Date.now() - started,
-    report,
-  };
-  appendFileSync(path.join(path.dirname(backupPath), VERIFY_LOG_FILE_NAME), `${JSON.stringify(record)}\n`);
-  return record;
-}
-
 /** Deletes every backup in `folder` older than the newest `keep` (by filename, which sorts with the timestamp). */
 function pruneOldBackups(folder: string, keep: number): void {
   const files = readdirSync(folder)
@@ -114,7 +152,7 @@ export async function runBackups(options: RunBackupsOptions): Promise<void> {
 
   const failures: string[] = [];
   const verify = async (file: string): Promise<void> => {
-    const record = await verifyBackupFile(file, now());
+    const record = await runVerifyOffThread(file, now());
     if (record.outcome !== BackupVerifyOutcome.Ok) failures.push(`${file}: ${record.report}`);
   };
 

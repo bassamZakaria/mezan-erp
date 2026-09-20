@@ -16,6 +16,7 @@ import type { AccountRepository } from "../accounts/account.js";
 import type { CostCenterRepository } from "../cost-centers/cost-center.js";
 import { BASE_CURRENCY } from "../exchange-rates/exchange-rate.js";
 import { withinBranchScope } from "../reports/branch-filter.js";
+import { TreasuryAccountNotFoundError } from "../treasury-accounts/errors.js";
 import type { TreasuryAccount, TreasuryAccountRepository } from "../treasury-accounts/treasury-account.js";
 import { statementFingerprint, type FingerprintRow } from "./fingerprint.js";
 import {
@@ -73,7 +74,6 @@ import {
   SuggestionNotPendingError,
   TreasuryAccountNumberMissingError,
   TreasuryAccountOutOfBranchScopeError,
-  TreasuryAccountUnpostableError,
   ZeroAmountLineError,
 } from "./errors.js";
 
@@ -285,7 +285,7 @@ export class BankReconciliationService {
   private async requireAccount(treasuryAccountId: string): Promise<TreasuryAccount | null> {
     if (!this.deps.treasuryAccounts) return null;
     const account = await this.deps.treasuryAccounts.findById(treasuryAccountId);
-    if (!account) throw new TreasuryAccountUnpostableError(treasuryAccountId);
+    if (!account) throw new TreasuryAccountNotFoundError(treasuryAccountId);
     if (!withinBranchScope(account.branchId, this.deps.branchScope)) {
       throw new TreasuryAccountOutOfBranchScopeError(treasuryAccountId);
     }

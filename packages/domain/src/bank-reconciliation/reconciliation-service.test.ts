@@ -23,7 +23,21 @@ const RAW_CSV =
   "2026-08-02,Cash Voucher: CV-2,-50.00,TX2\n" +
   "2026-08-05,Unmatched fee,-5.00,TX3\n";
 
-function buildService(candidates: TreasuryLedgerCandidate[] = []) {
+/**
+ * The book movements the seeded CSV's three lines correspond to.
+ *
+ * Each carries the reference its statement line carries: a match is scored on
+ * amount, date, reference and counterparty, and amount + date alone reach only
+ * 75 of the 90 an unattended auto-apply requires — which is the product's
+ * deliberate refusal to book a match on two coincidences, not a fixture detail.
+ */
+const CANDIDATES: TreasuryLedgerCandidate[] = [
+  { entryId: "je-1", entryNo: "JE-1", date: "2026-08-01", amount: Money.fromMajor("100"), description: "CV-1", reference: "TX1" },
+  { entryId: "je-2", entryNo: "JE-2", date: "2026-08-02", amount: Money.fromMajor("-50"), description: "CV-2", reference: "TX2" },
+  { entryId: "je-manual", entryNo: "JE-3", date: "2026-08-05", amount: Money.fromMajor("-5"), description: "fee", reference: "TX3" },
+];
+
+function buildService(candidates: TreasuryLedgerCandidate[] = CANDIDATES) {
   const statements = new InMemoryBankStatementRepository();
   const mappings = new InMemoryColumnMappingRepository();
   const ledgerReader = new FakeTreasuryLedgerReader(new Map([["ta-bank1", candidates]]));
@@ -84,15 +98,19 @@ describe("BankReconciliationService.importStatement", () => {
   it("accepts a balance at exactly the bound, and later updates (auto-match, finalize) to that same statement keep working", async () => {
     const { service, statements } = buildService();
     const atBound = Money.fromScaled(MAX_STATEMENT_BALANCE_SCALED);
+    // The three CSV lines net to +45, so the opening sits 45 below the bound
+    // and the closing ON it: the statement's own arithmetic closes and the
+    // finalise is refused for no reason but the one under test.
+    const opening = Money.fromScaled(MAX_STATEMENT_BALANCE_SCALED - 45_000_000n);
     const { statement, lines } = await service.importStatement(
-      importCmd({ openingBalance: atBound, closingBalance: atBound }),
+      importCmd({ openingBalance: opening, closingBalance: atBound }),
     );
-    expect(statement.openingBalance.scaled).toBe(MAX_STATEMENT_BALANCE_SCALED);
+    expect(statement.closingBalance.scaled).toBe(MAX_STATEMENT_BALANCE_SCALED);
 
     // finalize triggers the repository's update() path, which serializes the
     // same (already-validated) balances again — it must not throw either.
-    for (const line of lines) {
-      await statements.updateLine({ ...line, status: "matched", matchedEntryId: "je-1", matchedAt: "2026-08-22" });
+    for (const [index, line] of lines.entries()) {
+      await statements.updateLine({ ...line, status: "matched", matchedEntryId: CANDIDATES[index]!.entryId, matchedAt: "2026-08-22" });
     }
     const finalized = await service.finalize(statement.id);
     expect(finalized.status).toBe("completed");
@@ -101,11 +119,7 @@ describe("BankReconciliationService.importStatement", () => {
 
 describe("BankReconciliationService.autoMatch", () => {
   it("applies exact matches and moves the statement to in_progress", async () => {
-    const candidates: TreasuryLedgerCandidate[] = [
-      { entryId: "je-1", entryNo: "JE-1", date: "2026-08-01", amount: Money.fromMajor("100"), description: "CV-1" },
-      { entryId: "je-2", entryNo: "JE-2", date: "2026-08-02", amount: Money.fromMajor("-50"), description: "CV-2" },
-    ];
-    const { service, statements } = buildService(candidates);
+    const { service, statements } = buildService(CANDIDATES.slice(0, 2));
     await service.importStatement(importCmd());
 
     const result = await service.autoMatch("stmt-1");
@@ -121,6 +135,17 @@ describe("BankReconciliationService.autoMatch", () => {
 
     const summary = await service.matchSummary("stmt-1");
     expect(summary).toEqual({ total: 3, matched: 2, unmatched: 1, matchRate: 2 / 3 });
+  });
+
+  it("suggests, but never applies, a match that rests on amount and date alone", async () => {
+    const coincidence: TreasuryLedgerCandidate[] = [
+      { entryId: "je-x", entryNo: "JE-X", date: "2026-08-01", amount: Money.fromMajor("100"), description: "unrelated" },
+    ];
+    const { service, statements } = buildService(coincidence);
+    await service.importStatement(importCmd());
+    const result = await service.autoMatch("stmt-1");
+    expect(result.matchedCount).toBe(0);
+    expect((await statements.findById("stmt-1"))?.status).toBe("imported");
   });
 
   it("leaves the statement imported when nothing matches", async () => {
@@ -211,7 +236,7 @@ describe("BankReconciliationService.finalize", () => {
   it("finalises cleanly once every line is matched (the negative control)", async () => {
     const { service } = buildService();
     const { lines } = await service.importStatement(importCmd());
-    for (const line of lines) await service.matchLine("stmt-1", line.id, `je-${line.id}`);
+    for (const [index, line] of lines.entries()) await service.matchLine("stmt-1", line.id, CANDIDATES[index]!.entryId);
 
     const finalized = await service.finalize("stmt-1");
     expect(finalized.status).toBe("completed");

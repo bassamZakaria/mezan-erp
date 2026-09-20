@@ -47,6 +47,7 @@ import {
   StatementOutOfBranchScopeError,
   SuggestionNotFoundError,
   SuggestionNotPendingError,
+  TreasuryAccountNotFoundError,
   TreasuryAccountNumberMissingError,
   TreasuryAccountOutOfBranchScopeError,
   TreasuryAccountUnpostableError,
@@ -229,7 +230,8 @@ function handleDomainError(c: Context, err: unknown): Response {
     err instanceof BankStatementNotFoundError ||
     err instanceof StatementLineNotFoundError ||
     err instanceof SuggestionNotFoundError ||
-    err instanceof BankRuleNotFoundError
+    err instanceof BankRuleNotFoundError ||
+    err instanceof TreasuryAccountNotFoundError
   ) {
     return refuse(err, 404);
   }

@@ -83,5 +83,11 @@ export async function provisionDemoTenant(deps: ProvisionDemoTenantDeps): Promis
     resolveEntitlements: () => resolvers.resolveEntitlements(),
     resolveLicenseState: () => resolvers.resolveLicenseState(),
   });
+  // The seed's confirms queue their e-receipts on detached tasks that park a
+  // beat to let the confirm route win; closing on top of them left ten of the
+  // demo tenant's consumer receipts unqueued behind a swallowed "database
+  // connection is not open", in a database this process then hands to the
+  // router.
+  await backend.drain();
   backend.close();
 }

@@ -42,7 +42,6 @@ import {
   DuplicatePayrollPeriodError,
   InvalidPayrollRunError,
   InvalidPayrollRunTransitionError,
-  NegativeNetPayError,
   NoPayableEmployeesError,
   PayrollFxRateMissingError,
   PayrollRunNotFoundError,
@@ -749,8 +748,24 @@ export async function calculatePayrollRun(runId: string, deps: PayrollCalculatio
 
     const fixedDeductions = Money.sum(lines.filter((l) => l.kind === "deduction").map((l) => l.amount));
     available = grossEarnings.scaled - fixedDeductions.scaled;
+    /**
+     * One employee, one exclusion — never the whole run.
+     *
+     * This used to throw, so a single contract whose mandatory deductions
+     * outran a thin month (an hourly contract with few worked hours still owes
+     * the insurable-wage floor its share) refused payroll for EVERY employee in
+     * the branch. Nothing is capped to force a zero net either: the withheld
+     * share is a liability to the authority and the contract deduction is owed,
+     * and neither has a store to carry a shortfall in, so quietly withholding
+     * less would lose real money. The honest outcome is no payslip and a
+     * warning naming the person and both figures, for HR to settle before the
+     * run is approved.
+     */
     if (available < 0n) {
-      throw new NegativeNetPayError(employee.id, grossEarnings.toString(), fixedDeductions.toString());
+      warnings.push(
+        `${who}: الاستقطاعات (${fixedDeductions.toString()}) تتجاوز المستحقات (${grossEarnings.toString()}) عن هذه الفترة — تم استبعاده.`,
+      );
+      continue;
     }
 
     /**
@@ -844,6 +859,13 @@ export async function calculatePayrollRun(runId: string, deps: PayrollCalculatio
       createdAt: now,
     });
   }
+
+  // `inputs` said who was ELIGIBLE; an employee can still be excluded during
+  // computation (deductions past dues, above). A run that pays nobody is the
+  // same nothing `inputs.length === 0` refuses, and refusing it here keeps the
+  // previous calculation's payslips intact rather than deleting them for an
+  // empty one.
+  if (payslips.length === 0) throw new NoPayableEmployeesError(runId);
 
   await deps.payslips.deleteByRunId(run.id);
   for (const payslip of payslips) await deps.payslips.create(payslip);

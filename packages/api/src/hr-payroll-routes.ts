@@ -31,7 +31,6 @@ import {
   InvalidEmployeeAdvanceTransitionError,
   InvalidPayrollRunError,
   InvalidPayrollRunTransitionError,
-  NegativeNetPayError,
   NoFiscalPeriodForDateError,
   NoPayableEmployeesError,
   PayrollFxRateMissingError,
@@ -353,7 +352,6 @@ function handleDomainError(c: Context, err: unknown): Response {
     err instanceof InvalidPayrollRunTransitionError ||
     err instanceof DuplicatePayrollPeriodError ||
     err instanceof NoPayableEmployeesError ||
-    err instanceof NegativeNetPayError ||
     err instanceof StatutoryRulesUnavailableError ||
     err instanceof InvalidGarnishmentError ||
     err instanceof InvalidPayrollComponentError ||

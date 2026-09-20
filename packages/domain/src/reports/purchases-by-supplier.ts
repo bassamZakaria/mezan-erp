@@ -10,13 +10,19 @@ import { BRANCH_PARAM_FIELD, branchIdParamSchema, matchesBranch } from "./branch
 
 /**
  * المشتريات حسب المورد — Purchases by Supplier (docs/archive/catalog/08-reports.md):
- * supplier concentration and outstanding payables. المستحق is what each of the
- * period's confirmed invoices still owes — its BASE total less what the
- * allocation sub-ledger settled and less its confirmed returns — the same
- * per-invoice term the supplier aging ladder ages (D217). An invoice returned
- * beyond what it still owed counts as nothing owed, not as a credit: its
- * refund is not in the period's invoice set, so netting it would leave a
- * refunded supplier reading as owing us forever.
+ * supplier concentration and what the period's purchases still owe. «المتبقي من
+ * فواتير الفترة» is what each of the period's confirmed invoices still owes —
+ * its BASE total less what the allocation sub-ledger settled and less its
+ * confirmed returns — the same per-invoice term the supplier aging ladder ages
+ * (D217). An invoice returned beyond what it still owed counts as nothing owed,
+ * not as a credit: its refund is not in the period's invoice set, so netting it
+ * would leave a refunded supplier reading as owing us forever.
+ *
+ * It is NOT «المستحق»: the supplier's balance is the aging ladder's own row —
+ * every open invoice whatever its date, its on-account payments and its opening
+ * balance. The two were both labelled «المستحق» and the drill-down panel
+ * answered the ladder's figure to a row that showed this one (D286: SUPP-DEMO-1
+ * row 2,300.00 vs panel 1,455,097.00). Two facts, two labels.
  */
 
 export interface PurchasesBySupplierContext {
@@ -26,6 +32,39 @@ export interface PurchasesBySupplierContext {
   readonly allocatedByInvoiceId?: ReadonlyMap<string, Money>;
   /** Confirmed purchase-return debit per SOURCE invoice, in base. */
   readonly returnsByInvoiceId?: ReadonlyMap<string, Money>;
+}
+
+/**
+ * What ONE confirmed purchase invoice still owes: base total, less the
+ * allocation sub-ledger's settlement, less its confirmed returns, floored at
+ * nothing owed.
+ *
+ * Exported because the supplier drill-down panel has to answer the very figure
+ * the row it was opened from shows, and a second implementation is how the two
+ * drifted apart (D286).
+ */
+export function purchaseInvoiceRemaining(invoice: PurchaseInvoice, settled: Money, returned: Money): Money {
+  const remaining = Money.fromScaled(purchaseInvoiceBaseTotal(invoice).scaled - settled.scaled - returned.scaled);
+  return remaining.scaled > 0n ? remaining : Money.zero();
+}
+
+/** {@link purchaseInvoiceRemaining} summed over a set of invoices the caller has already filtered. */
+export function purchasesRemainingOverPeriod(
+  invoices: readonly PurchaseInvoice[],
+  allocatedByInvoiceId?: ReadonlyMap<string, Money>,
+  returnsByInvoiceId?: ReadonlyMap<string, Money>,
+): Money {
+  let total = Money.zero();
+  for (const invoice of invoices) {
+    total = total.add(
+      purchaseInvoiceRemaining(
+        invoice,
+        allocatedByInvoiceId?.get(invoice.id) ?? Money.zero(),
+        returnsByInvoiceId?.get(invoice.id) ?? Money.zero(),
+      ),
+    );
+  }
+  return total;
 }
 
 export interface PurchasesBySupplierParams {
@@ -67,7 +106,7 @@ export function createPurchasesBySupplierReport(
       { key: "supplierNameAr", header: "اسم المورد", format: "text", value: (row) => row.supplierNameAr, entity: { kind: "supplier", id: (row) => row.supplierId } },
       { key: "count", header: "عدد الفواتير", format: "qty", align: "end", total: true, value: (row) => row.count },
       { key: "total", header: "الإجمالي", format: "money", align: "end", total: true, value: (row) => row.total },
-      { key: "outstanding", header: "المستحق", format: "money", align: "end", total: true, value: (row) => row.outstanding },
+      { key: "outstanding", header: "المتبقي من فواتير الفترة", format: "money", align: "end", total: true, value: (row) => row.outstanding },
       { key: "contributionPercent", header: "نسبة المساهمة", format: "share", align: "end", value: (row) => row.contributionPercent },
     ],
     chart: {
@@ -78,7 +117,7 @@ export function createPurchasesBySupplierReport(
     },
     kpis: [
       { key: "total", labelAr: "إجمالي المشتريات", format: "money", value: (rows) => sumRows(rows, (r) => r.total) },
-      { key: "outstanding", labelAr: "المستحق للموردين", format: "money", value: (rows) => sumRows(rows, (r) => r.outstanding), tone: (value) => (value > 0 ? "danger" : "default") },
+      { key: "outstanding", labelAr: "المتبقي من فواتير الفترة", format: "money", value: (rows) => sumRows(rows, (r) => r.outstanding), tone: (value) => (value > 0 ? "danger" : "default") },
       { key: "supplierCount", labelAr: "عدد الموردين", format: "qty", value: (rows) => rows.length },
       { key: "topShare", labelAr: "حصة أكبر مورد", format: "percent", value: (rows) => rows[0]?.contributionPercent ?? 0 },
     ],
@@ -91,14 +130,16 @@ export function createPurchasesBySupplierReport(
         if (!withinDateRange(invoice.date, params.dateFrom, params.dateTo)) continue;
         if (!matchesBranch(invoice.branchId, params.branchId)) continue;
         const total = purchaseInvoiceBaseTotal(invoice);
-        const settled = ctx.allocatedByInvoiceId?.get(invoice.id) ?? Money.zero();
-        const returned = ctx.returnsByInvoiceId?.get(invoice.id) ?? Money.zero();
-        const outstanding = Money.fromScaled(total.scaled - settled.scaled - returned.scaled);
+        const remaining = purchaseInvoiceRemaining(
+          invoice,
+          ctx.allocatedByInvoiceId?.get(invoice.id) ?? Money.zero(),
+          ctx.returnsByInvoiceId?.get(invoice.id) ?? Money.zero(),
+        );
         const existing = bySupplier.get(invoice.supplierId) ?? { count: 0, total: Money.zero(), outstanding: Money.zero() };
         bySupplier.set(invoice.supplierId, {
           count: existing.count + 1,
           total: existing.total.add(total),
-          outstanding: existing.outstanding.add(outstanding.scaled > 0n ? outstanding : Money.zero()),
+          outstanding: existing.outstanding.add(remaining),
         });
       }
       const rows = [...bySupplier.entries()].map(([supplierId, agg]) => ({

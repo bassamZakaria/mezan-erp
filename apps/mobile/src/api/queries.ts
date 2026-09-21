@@ -277,18 +277,19 @@ export function useCockpit(enabled: boolean): UseQueryResult<CockpitDTO, ApiErro
 }
 
 /**
- * The customer aging ladder's rows. The route answers with JSON NUMBERS for
- * its buckets, not decimal strings; `decimalFromWireNumber` turns them back
- * before anything formats them.
+ * The customer aging ladder's rows. Until D345 is fixed the route answers with
+ * JSON NUMBERS for its buckets; once it is, with money strings. Both are
+ * accepted, and `formatWireAmount` never routes either through arithmetic.
  */
+const agingAmount = z.union([z.string(), z.number()]);
 const customerAgingRowSchema = z.object({
   customerId: z.string(),
-  current: z.number(),
-  d31to60: z.number(),
-  d61to90: z.number(),
-  d91to120: z.number(),
-  over120: z.number(),
-  total: z.number(),
+  current: agingAmount,
+  d31to60: agingAmount,
+  d61to90: agingAmount,
+  d91to120: agingAmount,
+  over120: agingAmount,
+  total: agingAmount,
 });
 const customerAgingReportSchema = z.object({ rows: z.array(customerAgingRowSchema) });
 export type CustomerAgingRow = z.infer<typeof customerAgingRowSchema>;

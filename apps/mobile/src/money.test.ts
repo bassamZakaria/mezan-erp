@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decimalFromWireNumber, formatAmountWithCurrency, formatWireNumber, formatMoney, isNegative, isPositiveDecimal, sumDecimals, toAmountInput } from "./money";
+import { decimalFromWireNumber, formatAmountWithCurrency, formatWireAmount, formatMoney, isNegative, isPositiveDecimal, sumDecimals, toAmountInput } from "./money";
 
 describe("formatMoney", () => {
   it("groups thousands and keeps two decimals", () => {
@@ -88,13 +88,14 @@ describe("decimalFromWireNumber", () => {
     expect(decimalFromWireNumber(218568.26)).toEqual({ decimal: "218568.26", exact: true });
     expect(decimalFromWireNumber(1e21)).toEqual({ decimal: "1000000000000000000000", exact: false });
     expect(decimalFromWireNumber(-2.5e-7)).toEqual({ decimal: "-0.00000025", exact: false });
-    expect(formatWireNumber(60250.15)).toBe("60,250.15 ج.م");
+    expect(formatWireAmount(60250.15)).toBe("60,250.15 ج.م");
+    expect(formatWireAmount("60250.150000")).toBe("60,250.15 ج.م");
   });
 
   it("does not pass a figure a double may already have changed through the formatter's rounding", () => {
     const wide = 1234567890123.4567;
     const converted = decimalFromWireNumber(wide);
     expect(converted.exact).toBe(false);
-    expect(formatWireNumber(wide)).toBe(`${String(wide)} ج.م`);
+    expect(formatWireAmount(wide)).toBe(`${String(wide)} ج.م`);
   });
 });

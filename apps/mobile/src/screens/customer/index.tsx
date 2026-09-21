@@ -3,7 +3,7 @@ import { Card } from "@/components/card";
 import { describeApiError } from "@/api/errors";
 import { useCustomer, useCustomerAging, useCustomerInvoices, type CustomerAgingRow } from "@/api/queries";
 import { useStrings, type Strings } from "@/i18n";
-import { formatAmountWithCurrency, formatWireNumber } from "@/money";
+import { formatAmountWithCurrency, formatWireAmount } from "@/money";
 import { useSession } from "@/session/SessionProvider";
 import { SPACE, TYPE, useTheme } from "@/theme";
 
@@ -17,7 +17,7 @@ function Row({ label, value, strong = false }: { label: string; value: string; s
   );
 }
 
-function agingBuckets(row: CustomerAgingRow, strings: Strings): { label: string; amount: number }[] {
+function agingBuckets(row: CustomerAgingRow, strings: Strings): { label: string; amount: string | number }[] {
   return [
     { label: strings.customer.agingCurrent, amount: row.current },
     { label: strings.customer.aging31to60, amount: row.d31to60 },
@@ -74,9 +74,9 @@ export function Customer({ id }: { id: string }) {
           ) : aging.data ? (
             <>
               {agingBuckets(aging.data, strings).map((bucket) => (
-                <Row key={bucket.label} label={bucket.label} value={formatWireNumber(bucket.amount)} />
+                <Row key={bucket.label} label={bucket.label} value={formatWireAmount(bucket.amount)} />
               ))}
-              <Row label={strings.customer.agingTotal} strong value={formatWireNumber(aging.data.total)} />
+              <Row label={strings.customer.agingTotal} strong value={formatWireAmount(aging.data.total)} />
             </>
           ) : (
             <Text style={[styles.notice, { color: theme.textMuted }]}>{strings.customer.noDebt}</Text>

@@ -143,7 +143,8 @@ export function decimalFromWireNumber(value: number): WireNumberDecimal {
   return { decimal, exact: fraction.length <= WIRE_SCALE && significant <= MAX_EXACT_SIGNIFICANT_DIGITS };
 }
 
-export function formatWireNumber(value: number, currencySymbol = "ج.م"): string {
+export function formatWireAmount(value: string | number, currencySymbol = "ج.م"): string {
+  if (typeof value === "string") return formatAmountWithCurrency(value, currencySymbol);
   const converted = decimalFromWireNumber(value);
   if (!converted.exact) return `${converted.decimal} ${currencySymbol}`;
   return formatAmountWithCurrency(converted.decimal, currencySymbol);

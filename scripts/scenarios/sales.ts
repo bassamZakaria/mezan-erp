@@ -1034,4 +1034,65 @@ export async function run(ctx: Ctx): Promise<void> {
       check("whose own tax number is available for the buyer block", customer !== null && customer !== undefined, String(full?.customerId));
     }
   });
+
+  await scenario("D338 — a collection is created, confirmed and allocated in one transaction, in its treasury account's currency", async () => {
+    const open = rows((await req("GET", "/open-invoices?kind=sales&partyId=CUST-H-22")).body);
+    const invoice = open.find((row: any) => n(row.outstanding) > 1000);
+    check("an open EGP invoice exists for the collection", invoice !== undefined, JSON.stringify(open.slice(0, 2)));
+    if (!invoice) return;
+    const before = await ctx.invariants();
+    const failed = await req("POST", "/vouchers/collections", {
+      id: "SCN-D338-FAIL",
+      customerId: "CUST-H-22",
+      branchId: "BR-MAIN",
+      treasuryAccountId: "TR-DEMO-CASH",
+      amount: "100",
+      paymentMethod: "cash",
+      allocations: [{ invoiceId: invoice.id, amount: "999999" }],
+    });
+    check("an allocation that fails after the confirm refuses the whole collection 422", failed.status === 422 && failed.body?.error === "ALLOCATION_EXCEEDS", `status ${failed.status} ${JSON.stringify(failed.body)}`);
+    check("and leaves no confirmed, unallocated voucher behind", (await req("GET", "/vouchers/SCN-D338-FAIL")).status === 404);
+    const mixed = await req("POST", "/vouchers/collections", {
+      id: "SCN-D338-USD",
+      customerId: "CUST-H-22",
+      branchId: "BR-MAIN",
+      treasuryAccountId: "TR-DEMO-BANK-USD",
+      amount: "10",
+      paymentMethod: "bank",
+      allocations: [{ invoiceId: invoice.id }],
+    });
+    check(
+      "a USD treasury account cannot settle an EGP invoice — refused, not mixed",
+      mixed.status === 422 && mixed.body?.error === "ALLOCATION_CURRENCY_MISMATCH" && typeof mixed.body?.messageEn === "string",
+      `status ${mixed.status} ${JSON.stringify(mixed.body)}`,
+    );
+    check("and the refused USD voucher is gone with it", (await req("GET", "/vouchers/SCN-D338-USD")).status === 404);
+    const viaInvoice = await req("POST", `/sales-invoices/${invoice.id}/payments`, { amount: "10", treasuryAccountId: "TR-DEMO-BANK-USD", paymentMethod: "bank" });
+    check("the invoice's own collection refuses a foreign treasury account instead of posting base money into it", viaInvoice.status === 422, `status ${viaInvoice.status}`);
+    const after = await ctx.invariants();
+    checkEq("the refused attempts moved no receivable", after.ar, before.ar, 0);
+    checkEq("and left the trial balance where it was", after.tb, before.tb, 0);
+
+    const done = await req("POST", "/vouchers/collections", {
+      id: "SCN-D338-OK",
+      customerId: "CUST-H-22",
+      branchId: "BR-MAIN",
+      treasuryAccountId: "TR-DEMO-CASH",
+      amount: "250.50",
+      paymentMethod: "cash",
+      allocations: [{ invoiceId: invoice.id }],
+    });
+    check("one call answers 201 with a confirmed voucher", done.status === 201 && done.body?.voucher?.status === "confirmed" && done.body?.held === false, `status ${done.status} ${JSON.stringify(done.body)}`);
+    check("the voucher carries its treasury account's currency", done.body?.voucher?.currency === "EGP", String(done.body?.voucher?.currency));
+    check(
+      "and its whole amount is allocated to the invoice",
+      done.body?.allocations?.length === 1 && done.body.allocations[0].amount === "250.500000" && done.body.allocations[0].invoiceId === invoice.id,
+      JSON.stringify(done.body?.allocations),
+    );
+    const reread = rows((await req("GET", "/open-invoices?kind=sales&partyId=CUST-H-22")).body).find((row: any) => row.id === invoice.id);
+    checkEq("the invoice's outstanding fell by exactly the collection", n(invoice.outstanding) - n(reread?.outstanding ?? invoice.outstanding), 250.5, 0);
+    const settled = await ctx.invariants();
+    checkEq("AR still ties to its control account", settled.ar, 0, 0);
+    checkEq("the trial balance still balances", settled.tb, 0, 0);
+  });
 }

@@ -123,6 +123,7 @@ import {
   type OpeningBalanceDuplicatesContext,
   type OpeningBalanceEntryRef,
   tenantTodayIso,
+  BASE_CURRENCY,
 } from "@mezan/domain";
 import {
   openSqliteConnection,
@@ -2926,10 +2927,15 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
    * allocation. It used to increment amountPaid and post nothing (D1). Shared
    * by the sales invoice screen and the instalment collection route.
    */
+  const baseTreasuryOnlyAr = (currency: string) =>
+    `حساب الخزينة بعملة ${currency}، والتحصيل والسداد من الفاتورة بالعملة الأساسية؛ اختر حساب خزينة بالعملة الأساسية أو سجّل سنداً بعملة الحساب.`;
   const collectFromCustomer: InstallmentCollectPort = async (input) => {
     const treasury = await treasuryAccounts.findById(input.treasuryAccountId);
     if (!treasury?.glAccountId) {
       throw new InvalidSalesInvoicePaymentError("حساب الخزينة غير موجود أو بلا حساب دفتري.");
+    }
+    if (treasury.currency !== BASE_CURRENCY) {
+      throw new InvalidSalesInvoicePaymentError(baseTreasuryOnlyAr(treasury.currency));
     }
     const voucherId = `COLL:${input.invoiceId}:${randomUUID()}`;
     const service = new VoucherService({
@@ -2950,27 +2956,24 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       realisedFx,
       returns: invoiceReturnCredits,
     });
-    await service.createVoucher({
-      id: voucherId,
-      date: input.date,
-      memo: input.memo ?? undefined,
-      voucherType: "customer_collection",
-      amount: input.amount,
-      branchId: input.branchId,
-      paymentMethod: input.paymentMethod,
-      treasuryAccountId: input.treasuryAccountId,
-      treasuryGlAccountId: treasury.glAccountId,
-      counterpartyGlAccountId: "1105",
-      customerId: input.customerId,
-      referenceNo: input.referenceNo ?? null,
-    });
-    await service.confirmVoucher(voucherId);
-    await service.allocate(voucherId, {
-      allocationId: `${voucherId}:A1`,
-      invoiceId: input.invoiceId,
-      amount: input.amount,
-      date: input.date,
-    });
+    await service.createConfirmAndAllocate(
+      {
+        id: voucherId,
+        date: input.date,
+        memo: input.memo ?? undefined,
+        voucherType: "customer_collection",
+        amount: input.amount,
+        currency: treasury.currency,
+        branchId: input.branchId,
+        paymentMethod: input.paymentMethod,
+        treasuryAccountId: input.treasuryAccountId,
+        treasuryGlAccountId: treasury.glAccountId,
+        counterpartyGlAccountId: "1105",
+        customerId: input.customerId,
+        referenceNo: input.referenceNo ?? null,
+      },
+      [{ allocationId: `${voucherId}:A1`, invoiceId: input.invoiceId, amount: input.amount }],
+    );
     return { voucherId };
   };
 
@@ -3069,6 +3072,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       baseCurrency: async () => ((await settings.get()) ?? createDefaultSettings()).currency,
     },
     vouchers: {
+      receivableAccountId: CERTIFICATE_AR_ACCOUNT_ID,
       masterData: masterDataChecks,
       audit: auditSink,
       // A configured TREASURY_VOUCHER_CONFIRM chain used to be ignored
@@ -3145,6 +3149,9 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         if (!treasury?.glAccountId) {
           throw new InvalidPurchaseDocumentError(["حساب الخزينة غير موجود أو بلا حساب دفتري."]);
         }
+        if (treasury.currency !== BASE_CURRENCY) {
+          throw new InvalidPurchaseDocumentError([baseTreasuryOnlyAr(treasury.currency)]);
+        }
         const voucherId = `PAY:${input.invoiceId}:${randomUUID()}`;
         const service = new VoucherService({
           documents: vouchers.documents,
@@ -3163,27 +3170,24 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
           realisedFx,
           returns: invoiceReturnCredits,
         });
-        await service.createVoucher({
-          id: voucherId,
-          date: input.date,
-          memo: input.memo,
-          voucherType: "supplier_payment",
-          amount: input.amount,
-          branchId: input.branchId,
-          paymentMethod: input.paymentMethod,
-          treasuryAccountId: input.treasuryAccountId,
-          treasuryGlAccountId: treasury.glAccountId,
-          counterpartyGlAccountId: PURCHASE_GL_ACCOUNTS.payableAccountId,
-          supplierId: input.supplierId,
-          referenceNo: input.referenceNo,
-        });
-        await service.confirmVoucher(voucherId);
-        await service.allocate(voucherId, {
-          allocationId: `${voucherId}:A1`,
-          invoiceId: input.invoiceId,
-          amount: input.amount,
-          date: input.date,
-        });
+        await service.createConfirmAndAllocate(
+          {
+            id: voucherId,
+            date: input.date,
+            memo: input.memo,
+            voucherType: "supplier_payment",
+            amount: input.amount,
+            currency: treasury.currency,
+            branchId: input.branchId,
+            paymentMethod: input.paymentMethod,
+            treasuryAccountId: input.treasuryAccountId,
+            treasuryGlAccountId: treasury.glAccountId,
+            counterpartyGlAccountId: PURCHASE_GL_ACCOUNTS.payableAccountId,
+            supplierId: input.supplierId,
+            referenceNo: input.referenceNo,
+          },
+          [{ allocationId: `${voucherId}:A1`, invoiceId: input.invoiceId, amount: input.amount }],
+        );
         // The number is stamped by the confirm, not the create — read it back so
         // the screen can name the voucher instead of showing its internal id.
         const posted = await vouchers.documents.findById(voucherId);

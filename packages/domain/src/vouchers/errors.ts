@@ -1,3 +1,5 @@
+import { InvalidDocumentError } from "../documents/errors.js";
+
 /**
  * Messages here reach the UI verbatim: the api serves `message: err.message`
  * and screens render it directly, so every message must be Arabic.
@@ -76,10 +78,34 @@ export class AllocationNotFoundError extends Error {
 
 /** Raised when the invoice's kind (sales/purchase) or party does not match the voucher. */
 export class AllocationMismatchError extends Error {
-  readonly code = "ALLOCATION_MISMATCH";
+  readonly code: string = "ALLOCATION_MISMATCH";
   constructor(message: string) {
     super(message);
     this.name = "AllocationMismatchError";
+  }
+}
+
+export class AllocationCurrencyMismatchError extends AllocationMismatchError {
+  override readonly code: string = "ALLOCATION_CURRENCY_MISMATCH";
+  readonly messageEn: string;
+  constructor(
+    readonly voucherId: string,
+    readonly invoiceId: string,
+    readonly voucherCurrency: string,
+    readonly invoiceCurrency: string,
+  ) {
+    super(`السند بعملة ${voucherCurrency} والفاتورة بعملة ${invoiceCurrency}؛ لا يُخصَّص سند على فاتورة بعملة أخرى.`);
+    this.name = "AllocationCurrencyMismatchError";
+    this.messageEn = `The voucher is in ${voucherCurrency} and the invoice in ${invoiceCurrency}; a voucher cannot settle an invoice in another currency.`;
+  }
+}
+
+export class VoucherTreasuryCurrencyMismatchError extends InvalidDocumentError {
+  readonly messageEn: string;
+  constructor(voucherId: string, readonly treasuryAccountId: string, readonly treasuryCurrency: string, readonly voucherCurrency: string) {
+    super("TREASURY_VOUCHER", voucherId, `حساب الخزينة بعملة ${treasuryCurrency} والسند بعملة ${voucherCurrency}؛ السند يأخذ عملة حساب الخزينة.`);
+    this.name = "VoucherTreasuryCurrencyMismatchError";
+    this.messageEn = `The treasury account is in ${treasuryCurrency} and the voucher in ${voucherCurrency}; a voucher carries its treasury account's currency.`;
   }
 }
 

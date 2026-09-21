@@ -58,7 +58,13 @@ import {
   type SettlementSplit,
   type VoucherAllocation,
 } from "./allocation.js";
-import { InvoiceNotFoundError, VoucherNotAllocatableError, VoucherNotConfirmedError } from "./errors.js";
+import {
+  AllocationCurrencyMismatchError,
+  InvoiceNotFoundError,
+  VoucherNotAllocatableError,
+  VoucherNotConfirmedError,
+  VoucherTreasuryCurrencyMismatchError,
+} from "./errors.js";
 import { allocationUndoDay, postRealisedFx, reverseRealisedFx, settlementRatesFor, type RealisedFxPort, type SettlingMoney } from "./realised-fx.js";
 import { Money } from "../money/index.js";
 
@@ -251,6 +257,18 @@ export interface CreateVoucherCommand {
   readonly withholdingGlAccountId?: string | null;
 }
 
+export interface CollectionAllocationRequest {
+  readonly allocationId: string;
+  readonly invoiceId: string;
+  readonly amount?: import("../money/money.js").Money;
+}
+
+export interface CollectionResult {
+  readonly document: VoucherDocument;
+  readonly held: boolean;
+  readonly allocations: readonly VoucherAllocation[];
+}
+
 export interface ConfirmVoucherOptions {
   readonly actor?: string;
   readonly actorRoles?: readonly string[];
@@ -298,11 +316,16 @@ export class VoucherService {
   /** Open a new مسودة (draft) voucher. */
   async createVoucher(cmd: CreateVoucherCommand): Promise<VoucherDocument> {
     const def = getVoucherTypeDefinition(cmd.voucherType);
+    const treasury = await this.deps.treasuryAccounts.findById(cmd.treasuryAccountId);
+    const currency = cmd.currency ?? treasury?.currency ?? this.deps.baseCurrency ?? BASE_CURRENCY;
+    if (treasury?.currency && treasury.currency !== currency) {
+      throw new VoucherTreasuryCurrencyMismatchError(cmd.id, cmd.treasuryAccountId, treasury.currency, currency);
+    }
     const line: VoucherLine = {
       voucherType: cmd.voucherType,
       direction: def.direction,
       amount: cmd.amount,
-      currency: cmd.currency ?? "EGP",
+      currency,
       branchId: cmd.branchId,
       paymentMethod: cmd.paymentMethod,
       treasuryAccountId: cmd.treasuryAccountId,
@@ -487,6 +510,18 @@ export class VoucherService {
     const partyId = (line.customerId ?? line.supplierId)!;
     const realisedFx = this.deps.realisedFx;
     const money: SettlingMoney = { currency: line.currency, fxRate: line.fxRate, date: doc.date };
+    if (realisedFx) {
+      const base = this.deps.baseCurrency ?? BASE_CURRENCY;
+      const voucherCurrency = line.currency || base;
+      if (voucherCurrency !== base) {
+        const invoice = await this.deps.invoices.findById(input.invoiceId);
+        const booked = invoice ? await realisedFx.invoiceFx(invoice.id, invoice.kind) : null;
+        const invoiceCurrency = booked?.currency ?? base;
+        if (invoice && invoiceCurrency !== voucherCurrency) {
+          throw new AllocationCurrencyMismatchError(voucherId, input.invoiceId, voucherCurrency, invoiceCurrency);
+        }
+      }
+    }
     const run = async () => {
       const result = await allocateFn(
         {
@@ -537,6 +572,37 @@ export class VoucherService {
     // The realised-FX entry and the allocation are one act: a posted
     // difference with no allocation behind it would sit on the party forever.
     return realisedFx ? this.deps.documents.transaction(run) : run();
+  }
+
+  /**
+   * Create, confirm and allocate as ONE transaction (D338): three separate
+   * calls left a confirmed, unallocated voucher behind whenever the third
+   * failed. A voucher held for approval commits as a pending draft with no
+   * allocation, since nothing may settle an invoice before the money posts.
+   */
+  async createConfirmAndAllocate(
+    cmd: CreateVoucherCommand,
+    allocations: readonly CollectionAllocationRequest[],
+    opts: ConfirmVoucherOptions = {},
+  ): Promise<CollectionResult> {
+    return this.deps.documents.transaction(async () => {
+      await this.createVoucher(cmd);
+      const confirmed = await this.confirmVoucher(cmd.id, opts);
+      if (confirmed.held) return { document: confirmed.document, held: true, allocations: [] };
+      const made: VoucherAllocation[] = [];
+      for (const request of allocations) {
+        const used = made.reduce((sum, a) => sum + a.amount.scaled, 0n);
+        const amount = request.amount ?? Money.fromScaled(voucherBaseAmount(voucherLine(confirmed.document)).scaled - used);
+        const { allocation } = await this.allocate(cmd.id, {
+          allocationId: request.allocationId,
+          invoiceId: request.invoiceId,
+          amount,
+          date: cmd.date,
+        });
+        made.push(allocation);
+      }
+      return { document: (await this.service.findById(cmd.id)) ?? confirmed.document, held: false, allocations: made };
+    });
   }
 
   /**

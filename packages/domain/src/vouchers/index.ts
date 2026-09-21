@@ -88,6 +88,8 @@ export {
   type VoucherAdvanceUnwindPort,
   type CreateVoucherCommand,
   type ConfirmVoucherOptions,
+  type CollectionAllocationRequest,
+  type CollectionResult,
 } from "./voucher-service.js";
 
 export {
@@ -98,6 +100,8 @@ export {
   InvoiceNotFoundError,
   AllocationNotFoundError,
   AllocationMismatchError,
+  AllocationCurrencyMismatchError,
+  VoucherTreasuryCurrencyMismatchError,
   AllocationExceedsError,
   AllocationAlreadyReversedError,
 } from "./errors.js";

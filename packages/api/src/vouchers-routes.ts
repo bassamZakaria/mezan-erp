@@ -46,6 +46,7 @@ import {
 } from "@mezan/domain";
 import {
   createVoucherSchema,
+  createCollectionSchema,
   confirmVoucherSchema,
   reverseVoucherSchema,
   createAllocationSchema,
@@ -79,6 +80,7 @@ export type VoucherRoutesDeps = Omit<VoucherServiceDeps, "events"> & {
   readonly simplifiedRegimeActiveOn?: (day: string) => Promise<boolean>;
   /** Refuses a voucher naming a customer, supplier, branch or cost centre no master record holds (D310). */
   readonly masterData?: MasterDataChecks;
+  readonly receivableAccountId?: string;
 };
 
 function serialize(doc: VoucherDocument) {
@@ -594,6 +596,94 @@ export function createVouchersRoutes(
     }
     },
   );
+
+  app.post("/collections", gateAny("treasury.cash_voucher.create", CERTIFICATE_COLLECT), async (c) => {
+    const parsed = createCollectionSchema.safeParse(await c.req.json());
+    if (!parsed.success) {
+      return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    }
+    const d = parsed.data;
+    const voucherType = "customer_collection";
+    for (const action of ["create", "confirm"] as const) {
+      const refusal = refuseVoucherType(c, voucherPermissions(action, voucherType, d.projectId));
+      if (refusal) return refusal;
+    }
+    const ctx = getAuthContext(c);
+    if (d.allocations.length > 0 && !(ctx && can(ctx, "treasury.allocation.manage"))) {
+      return c.json(permissionDeniedBody("treasury.allocation.manage"), 403);
+    }
+    const partyRefusal = await refuseUnknownMasterData(c, deps.masterData, [
+      { kind: MasterDataKind.Customer, ids: [d.customerId] },
+      { kind: MasterDataKind.Branch, ids: [d.branchId] },
+      { kind: MasterDataKind.CostCenter, ids: [d.costCenterId] },
+    ]);
+    if (partyRefusal) return partyRefusal;
+    if (!deps.receivableAccountId) {
+      return c.json({ error: "COLLECTION_UNAVAILABLE", message: "حساب ذمم العملاء غير مهيأ.", messageEn: "The receivables control account is not configured." }, 503);
+    }
+    const treasury = await deps.treasuryAccounts.findById(d.treasuryAccountId);
+    if (!treasury || treasury.status !== "active" || !treasury.glAccountId) {
+      return c.json(
+        {
+          error: "TREASURY_ACCOUNT_NOT_FOUND",
+          message: "حساب الخزينة غير موجود أو غير نشط أو بلا حساب دفتري.",
+          messageEn: "The treasury account does not exist, is inactive, or has no ledger account.",
+        },
+        422,
+      );
+    }
+    const date = await tenantDay(c, d.date ?? (deps.now ? deps.now() : new Date().toISOString()));
+    if (d.withholdingAmount && Money.fromMajor(d.withholdingAmount).scaled !== 0n && deps.simplifiedRegimeActiveOn) {
+      if (await deps.simplifiedRegimeActiveOn(date)) {
+        return c.json(
+          {
+            error: "WITHHOLDING_NOT_ALLOWED_UNDER_SIMPLIFIED_REGIME",
+            message:
+              "المنشأة مسجّلة في النظام الضريبي المبسط (قانون ٦ لسنة ٢٠٢٥) وهي معفاة من الخصم والتحصيل، فلا يجوز خصم ضريبة على هذا السند.",
+          },
+          422,
+        );
+      }
+    }
+    try {
+      const id = d.id ?? idGen();
+      const result = await serviceFor(c).createConfirmAndAllocate(
+        {
+          id,
+          date,
+          memo: d.memo,
+          voucherType,
+          amount: Money.fromMajor(d.amount),
+          currency: treasury.currency,
+          branchId: d.branchId,
+          paymentMethod: d.paymentMethod,
+          treasuryAccountId: treasury.id,
+          treasuryGlAccountId: treasury.glAccountId,
+          counterpartyGlAccountId: deps.receivableAccountId,
+          customerId: d.customerId,
+          referenceNo: d.referenceNo ?? null,
+          costCenterId: d.costCenterId ?? null,
+          projectId: d.projectId ?? null,
+          costCategory: d.costCategory ?? null,
+          withholdingAmount: d.withholdingAmount ? Money.fromMajor(d.withholdingAmount) : null,
+          withholdingRatePercent: d.withholdingRatePercent ?? null,
+          withholdingGlAccountId: d.withholdingGlAccountId ?? null,
+        },
+        d.allocations.map((a, i) => ({
+          allocationId: a.allocationId ?? `${id}:A${i + 1}`,
+          invoiceId: a.invoiceId,
+          ...(a.amount ? { amount: Money.fromMajor(a.amount) } : {}),
+        })),
+        { requestId: d.requestId, actor: ctx?.userId, actorRoles: gateActorRoles(c) },
+      );
+      return c.json(
+        { voucher: serialize(result.document), held: result.held, allocations: result.allocations.map(serializeAllocation) },
+        201,
+      );
+    } catch (err) {
+      return handleDomainError(c, err);
+    }
+  });
 
   /**
    * The per-type refusal for a voucher already in the store: `confirm`,

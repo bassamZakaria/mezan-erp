@@ -81,14 +81,18 @@ function sourceFiles(dir, extensions) {
   return out;
 }
 
-function grepFiles(files, pattern, { skipTests = false } = {}) {
+const STRING_LITERAL = /(["'`])(?:\\.|(?!\1)[^\\])*\1/g;
+
+function grepFiles(files, pattern, { skipTests = false, literalsOnly = false } = {}) {
   const hits = [];
   for (const file of files) {
     if (skipTests && /\.test\.tsx?$/.test(file)) continue;
+    const scanLiterals = literalsOnly && /\.tsx?$/.test(file);
     readFileSync(file, "utf8")
       .split("\n")
       .forEach((line, index) => {
-        if (pattern.test(line)) hits.push(`${relative(repoRoot, file)}:${index + 1}: ${line.trim().slice(0, 120)}`);
+        const haystack = scanLiterals ? (line.match(STRING_LITERAL) ?? []).join(" ") : line;
+        if (pattern.test(haystack)) hits.push(`${relative(repoRoot, file)}:${index + 1}: ${line.trim().slice(0, 120)}`);
       });
   }
   return hits;
@@ -199,7 +203,9 @@ const CHECKS = [
     status: Status.Active,
     run() {
       const files = sourceFiles(MOBILE_SRC, new Set([".ts", ".tsx", ".json"]));
-      return PURCHASE_PATTERNS.flatMap((pattern) => grepFiles(files, pattern, { skipTests: true }));
+      // Code identifiers are not what a reviewer reads: `const subscription = AppState.addEventListener(...)`
+      // is an event subscription, not a sale. Only string literals (copy, URLs, route names) can be a purchase path.
+      return PURCHASE_PATTERNS.flatMap((pattern) => grepFiles(files, pattern, { skipTests: true, literalsOnly: true }));
     },
   },
   {

@@ -516,6 +516,10 @@ const ATTENDANCE_WINDOWS = [
  */
 const ROLLING_ATTENDANCE_EMPLOYEES = ["EMP-DEMO-1", "EMP-DEMO-2", "EMP-DEMO-3", "EMP-DEMO-5", "EMP-DEMO-6"];
 
+// Employees with a login (the admin, linked through the leave requests, and أحمد الشناوي) keep the seed's
+// own day unpunched: a complete day hides the clock's punch, so the clock could never be exercised (D337).
+const UNPUNCHED_ON_SEED_DAY: ReadonlySet<string> = new Set(["EMP-DEMO-3", "EMP-DEMO-5"]);
+
 /** Nth working day of the rolling window → the day that breaks the shift. */
 const ROLLING_ATTENDANCE_EXCEPTIONS: readonly {
   workingDay: number;
@@ -807,7 +811,8 @@ export async function seedHr(app: App): Promise<void> {
   const fixedDays = new Set(
     ATTENDANCE_WINDOWS.flatMap((w) => eachDate(w.from, w.to).flatMap((date) => w.employeeIds.map((id) => `${id}|${date}`))),
   );
-  const rolling = rollingAttendanceWindow(seedToday());
+  const seedDay = seedToday();
+  const rolling = rollingAttendanceWindow(seedDay);
   const rollingDates = eachDate(rolling.from, rolling.to);
   const isHoliday = (date: string) =>
     HOLIDAYS.some((h) => h.date === date || (h.recurringAnnual && h.date.slice(5) === date.slice(5)));
@@ -815,6 +820,7 @@ export async function seedHr(app: App): Promise<void> {
   for (const date of rollingDates) {
     for (const employeeId of ROLLING_ATTENDANCE_EMPLOYEES) {
       if (fixedDays.has(`${employeeId}|${date}`)) continue;
+      if (date === seedDay && UNPUNCHED_ON_SEED_DAY.has(employeeId)) continue;
       const exception = ROLLING_ATTENDANCE_EXCEPTIONS.find(
         (e) => e.employeeId === employeeId && workingDates[e.workingDay] === date,
       );

@@ -56,3 +56,14 @@ export {
   type SodConflictRule,
   type SodConflictMatch,
 } from "./sod.js";
+
+export {
+  PermissionLabelLocale,
+  PERMISSION_ACTION_LABELS,
+  PERMISSION_ENTITY_LABELS,
+  permissionLabelTranslations,
+  permissionEntitySegment,
+  permissionHumanLabel,
+  type PermissionLabel,
+  type PermissionLabelTranslations,
+} from "./labels.js";

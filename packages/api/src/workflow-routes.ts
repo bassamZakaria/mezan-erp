@@ -23,7 +23,7 @@ import {
   type WorkflowConfigRepository,
 } from "@mezan/domain";
 import { createWorkflowConfigSchema, updateWorkflowConfigSchema, submitApprovalRequestSchema, decideApprovalRequestSchema } from "@mezan/contracts";
-import { type AuthContextResolver, callerRoleCodes, createPermissionGate, getAuthContext, roleCodesOf } from "./permission-gate.js";
+import { type AuthContextResolver, callerRoleCodes, createPermissionGate, getAuthContext, permissionDeniedBody, roleCodesOf } from "./permission-gate.js";
 import { recordAdminEvent } from "./admin-audit.js";
 
 /**
@@ -309,7 +309,7 @@ export function createWorkflowRoutes(
     if (!ctx) return c.json({ error: "UNAUTHENTICATED" }, 401);
     const requiredPermission = parsed.data.decision === "reject" ? "workflow.reject" : "workflow.approve";
     if (!can(ctx, requiredPermission)) {
-      return c.json({ error: "PERMISSION_DENIED", permission: requiredPermission }, 403);
+      return c.json(permissionDeniedBody(requiredPermission), 403);
     }
     try {
       const record = await decideApproval(

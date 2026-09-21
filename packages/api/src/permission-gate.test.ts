@@ -39,6 +39,23 @@ describe("permission gate middleware", () => {
     expect(res.status).toBe(403);
     expect(await res.json()).toMatchObject({ error: "PERMISSION_DENIED", permission: "admin.settings.view" });
   });
+
+  it("D339: names the permission in words and keeps the code out of the sentence", async () => {
+    const ctx = createAuthContext({ userId: "u1", permissions: [], branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
+    const app = new Hono();
+    app.get("/journal", createPermissionGate(() => ctx)("accounting.journal.view"), (c) => c.json({ ok: true }));
+    app.get("/any", createAnyPermissionGate(() => ctx)("accounting.journal.view", "accounting.journal.create"), (c) => c.json({ ok: true }));
+    for (const path of ["/journal", "/any"]) {
+      const res = await app.fetch(new Request(`http://x${path}`));
+      expect(res.status).toBe(403);
+      const body = (await res.json()) as { permission: string; message: string; messageEn: string };
+      expect(body.permission).toBe("accounting.journal.view");
+      expect(body.message).toContain("عرض — قيد يومية");
+      expect(body.messageEn).toContain("View — Journal entry");
+      expect(body.message).not.toMatch(/[a-z]+\.[a-z_]+/);
+      expect(body.messageEn).not.toContain("accounting.journal");
+    }
+  });
 });
 
 describe("module refusal reaches the bound reporter", () => {

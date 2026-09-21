@@ -52,7 +52,7 @@ import {
   voucherListQuerySchema,
   type VoucherListQueryDTO,
 } from "@mezan/contracts";
-import { type AuthContextResolver, branchScopeOf, callerRoleCodes, createAnyPermissionGate, createPermissionGate, getAuthContext, withinScope } from "./permission-gate.js";
+import { type AuthContextResolver, branchScopeOf, callerRoleCodes, createAnyPermissionGate, createPermissionGate, getAuthContext, permissionDeniedBody, withinScope } from "./permission-gate.js";
 import { MasterDataKind, refuseUnknownMasterData, type MasterDataChecks } from "./master-data-check.js";
 import { tenantDay } from "./tenant-day.js";
 
@@ -285,14 +285,7 @@ function voucherPermissions(
 function refuseVoucherType(c: Context, permissions: readonly string[]): Response | null {
   const ctx = getAuthContext(c);
   if (ctx && permissions.some((permission) => can(ctx, permission))) return null;
-  return c.json(
-    {
-      error: "PERMISSION_DENIED",
-      permission: permissions[permissions.length - 1],
-      message: `هذا الإجراء يتطلب صلاحية «${permissions[permissions.length - 1]}» غير المتاحة لحسابك.`,
-    },
-    403,
-  );
+  return c.json(permissionDeniedBody(permissions[permissions.length - 1] ?? ""), 403);
 }
 
 export function createVouchersRoutes(

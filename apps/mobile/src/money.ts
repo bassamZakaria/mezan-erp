@@ -86,3 +86,33 @@ export function toAmountInput(value: string): string {
   if (/[1-9]/.test(parts.fraction.slice(DISPLAY_DECIMALS))) return trimmed;
   return `${parts.sign}${parts.whole}.${parts.fraction.slice(0, DISPLAY_DECIMALS).padEnd(DISPLAY_DECIMALS, "0")}`;
 }
+
+const WIRE_SCALE = 6;
+
+function toScaled(value: string): bigint {
+  const parts = splitDecimal(value.trim());
+  const fraction = (parts.fraction + "0".repeat(WIRE_SCALE)).slice(0, WIRE_SCALE);
+  const magnitude = BigInt(`${parts.whole === "" ? "0" : parts.whole}${fraction}`);
+  return parts.sign ? -magnitude : magnitude;
+}
+
+function fromScaled(scaled: bigint): string {
+  const negative = scaled < 0n;
+  const digits = (negative ? -scaled : scaled).toString().padStart(WIRE_SCALE + 1, "0");
+  const cut = digits.length - WIRE_SCALE;
+  return `${negative ? "-" : ""}${digits.slice(0, cut)}.${digits.slice(cut)}`;
+}
+
+/** Exact sum of wire decimals at the wire's own scale, through BigInt — never a float. */
+export function sumDecimals(values: readonly string[]): string {
+  return fromScaled(values.reduce((total, value) => total + toScaled(value), 0n));
+}
+
+/**
+ * A figure some report routes still send as a JSON number, turned into the
+ * decimal string every formatter here expects. `toFixed` at the wire scale
+ * never produces exponent notation below 1e21, which `String(n)` does.
+ */
+export function decimalFromWireNumber(value: number): string {
+  return value.toFixed(WIRE_SCALE);
+}

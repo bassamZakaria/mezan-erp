@@ -4,7 +4,8 @@ import { StatusBar } from "expo-status-bar";
 import { useEffect } from "react";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { CACHE_LIFETIME_MS, queryClient, queryPersister } from "@/api/query-cache";
-import { SessionProvider } from "@/session/SessionProvider";
+import { UnlockOverlay } from "@/components/unlock-overlay";
+import { SessionProvider, useSession } from "@/session/SessionProvider";
 import { useStrings } from "@/i18n";
 import { applyLayoutDirection } from "@/rtl";
 import { useTheme } from "@/theme";
@@ -38,8 +39,14 @@ export default function RootLayout() {
             <Stack.Screen name="sign-in" options={{ headerShown: false }} />
             <Stack.Screen name="(tabs)" options={{ headerShown: false, title: strings.appName }} />
           </Stack>
+          <DeviceLock />
         </SafeAreaProvider>
       </SessionProvider>
     </PersistQueryClientProvider>
   );
+}
+
+function DeviceLock() {
+  const { session, locked } = useSession();
+  return session !== null && locked ? <UnlockOverlay /> : null;
 }

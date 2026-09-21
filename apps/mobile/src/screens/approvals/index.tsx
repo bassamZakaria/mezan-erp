@@ -6,7 +6,8 @@ import { Button, ButtonTone } from "@/components/button";
 import { Card } from "@/components/card";
 import { TextField } from "@/components/text-field";
 import { describeApiError, describeWriteError } from "@/api/errors";
-import { useDecideApproval, usePendingApprovals } from "@/api/queries";
+import { useDecideApproval, usePendingApprovals, useUser } from "@/api/queries";
+import { OfflineNotice } from "@/components/offline-notice";
 import { useStrings } from "@/i18n";
 import { ApprovalDecision } from "@/domain/enums";
 import { useSession } from "@/session/SessionProvider";
@@ -84,6 +85,9 @@ export function Approvals() {
   return (
     <View style={[styles.flex, { backgroundColor: theme.background, paddingTop: insets.top + SPACE.md }]}>
       <Text style={[styles.title, { color: theme.text }]}>{strings.approvals.title}</Text>
+      <View style={styles.padded}>
+        <OfflineNotice />
+      </View>
 
       {pending.isError ? (
         <Text style={[styles.notice, { color: theme.negative }]}>{describeApiError(pending.error, strings)}</Text>
@@ -103,7 +107,7 @@ export function Approvals() {
             <Card>
               <Text style={[styles.rowLabel, { color: theme.text }]}>{item.entityLabel ?? item.actionType}</Text>
               <Text style={[styles.rowMeta, { color: theme.textMuted }]}>
-                {strings.approvals.submittedBy} {item.submittedBy} · {strings.approvals.step} {item.currentStep + 1}/{item.steps.length}
+                {strings.approvals.submittedBy} <Submitter userId={item.submittedBy} /> · {strings.approvals.step} {item.currentStep + 1}/{item.steps.length}
               </Text>
 
               {rowError && rowError.id === item.id ? (
@@ -162,7 +166,21 @@ export function Approvals() {
   );
 }
 
+/**
+ * The approval carries only the submitter's id. `GET /users/:id` is the one
+ * route that names a user, and it is gated on `admin.users.view`: without that
+ * right, or when the id names no user, the id itself is shown — never a guess.
+ */
+function Submitter({ userId }: { userId: string }) {
+  const { session, can } = useSession();
+  const own = session?.userId === userId;
+  const user = useUser(userId, !own && can("admin.users.view"));
+  if (own) return <>{session.nameAr}</>;
+  return <>{user.data?.nameAr ?? userId}</>;
+}
+
 const styles = StyleSheet.create({
+  padded: { paddingHorizontal: SPACE.lg },
   flex: { flex: 1 },
   centre: { flex: 1, alignItems: "center", justifyContent: "center", padding: SPACE.lg },
   title: { fontSize: TYPE.display, fontWeight: "800", paddingHorizontal: SPACE.lg, marginBottom: SPACE.sm },

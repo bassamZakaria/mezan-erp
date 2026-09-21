@@ -1,4 +1,4 @@
-import { StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import { formatAmountWithCurrency, isNegative } from "@/money";
 import { RADIUS, SPACE, TYPE, useTheme } from "@/theme";
 
@@ -25,6 +25,22 @@ export function StatTile({ label, amount, emphasiseNegative = false }: StatTileP
         {formatAmountWithCurrency(amount)}
       </Text>
     </View>
+  );
+}
+
+export function CountTile({ label, count, onPress }: { label: string; count: number; onPress: () => void }) {
+  const theme = useTheme();
+  return (
+    <Pressable
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({ pressed }) => [styles.tile, { backgroundColor: theme.surface, borderColor: theme.border, opacity: pressed ? 0.85 : 1 }]}
+    >
+      <Text style={[styles.label, { color: theme.textMuted }]} numberOfLines={1}>
+        {label}
+      </Text>
+      <Text style={[styles.amount, { color: count > 0 ? theme.brand : theme.text }]}>{count}</Text>
+    </Pressable>
   );
 }
 

@@ -1,10 +1,11 @@
 import { SelfClockActionDTO } from "@mezan/contracts";
-import { CameraView, useCameraPermissions } from "expo-camera";
+import { CameraView } from "expo-camera";
 import { useRef, useState } from "react";
 import { Image, Modal, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Button, ButtonTone } from "@/components/button";
 import { Card } from "@/components/card";
+import { CameraAccess, CameraPermissionPrompt, useCameraAccess } from "@/components/camera-permission";
 import { describeWriteError } from "@/api/errors";
 import { useSelfClockPunch, useSelfClockStatus } from "@/api/queries";
 import { useStrings } from "@/i18n";
@@ -28,7 +29,7 @@ export function Clock() {
 
   const [selfie, setSelfie] = useState<Selfie | null>(null);
   const [cameraOpen, setCameraOpen] = useState(false);
-  const [permission, requestPermission] = useCameraPermissions();
+  const camera = useCameraAccess();
   const cameraRef = useRef<CameraView>(null);
 
   const [error, setError] = useState<string | null>(null);
@@ -146,21 +147,13 @@ export function Clock() {
 
       <Modal animationType="slide" onRequestClose={() => setCameraOpen(false)} visible={cameraOpen}>
         <View style={styles.cameraWrap}>
-          {permission?.granted ? (
+          {camera.access === CameraAccess.Granted ? (
             <CameraView facing="front" ref={cameraRef} style={styles.camera} />
           ) : (
-            <View style={[styles.centre, { backgroundColor: theme.background }]}>
-              <Text style={[styles.notice, { color: theme.text }]}>{strings.clock.cameraPermission}</Text>
-              <Button
-                label={strings.stock.grantPermission}
-                onPress={() => {
-                  void requestPermission();
-                }}
-              />
-            </View>
+            <CameraPermissionPrompt access={camera.access} reason={strings.clock.cameraPermission} request={camera.request} />
           )}
           <View style={styles.cameraActions}>
-            {permission?.granted ? (
+            {camera.access === CameraAccess.Granted ? (
               <Button
                 label={strings.clock.takeSelfie}
                 onPress={() => {

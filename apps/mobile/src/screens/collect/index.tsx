@@ -5,7 +5,7 @@ import type { BranchDTO, CustomerDTO, OpenInvoiceDTO, TreasuryAccountDTO } from 
 import { Button } from "@/components/button";
 import { Card } from "@/components/card";
 import { EntityPicker, filterPickerOptions, type PickerOption } from "@/components/entity-picker";
-import { Segmented } from "@/components/segmented";
+import { OfflineNotice } from "@/components/offline-notice";
 import { TextField } from "@/components/text-field";
 import { describeWriteError } from "@/api/errors";
 import {
@@ -15,6 +15,7 @@ import {
   useCreateVoucher,
   useCustomers,
   useOpenInvoices,
+  useSalesInvoice,
   useTreasuryAccounts,
 } from "@/api/queries";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
@@ -22,7 +23,7 @@ import { useStrings } from "@/i18n";
 import { formatAmountWithCurrency, isPositiveDecimal, toAmountInput } from "@/money";
 import { DEFAULT_GL_ACCOUNTS } from "@/domain/accounts";
 import { todayIso } from "@/domain/dates";
-import { AllocationInvoiceKind, CollectPaymentMethod, VoucherTypeCode } from "@/domain/enums";
+import { AllocationInvoiceKind, CollectPaymentMethod, TreasuryAccountStatus, VoucherTypeCode } from "@/domain/enums";
 import { resolveDefaultBranch } from "@/domain/working-location";
 import { useSession } from "@/session/SessionProvider";
 import { SPACE, TYPE, useTheme } from "@/theme";
@@ -59,8 +60,10 @@ export function Collect() {
   const [invoiceQuery, setInvoiceQuery] = useState("");
   const openInvoicesQuery = useOpenInvoices(AllocationInvoiceKind.Sales, customer?.id ?? null);
 
+  const invoiceDetail = useSalesInvoice(invoice?.id ?? null);
+  const invoiceCurrency = invoiceDetail.data?.currency ?? null;
+
   const [amount, setAmount] = useState("");
-  const [paymentMethod, setPaymentMethod] = useState<CollectPaymentMethod>(CollectPaymentMethod.Cash);
   const [referenceNo, setReferenceNo] = useState("");
 
   const branchesQuery = useBranches();
@@ -75,6 +78,16 @@ export function Collect() {
   const treasuryQuery = useTreasuryAccounts();
   const [treasuryAccount, setTreasuryAccount] = useState<TreasuryAccountDTO | null>(null);
   const [treasuryAccountQuery, setTreasuryAccountQuery] = useState("");
+  const treasuryInCurrency = (treasuryQuery.data ?? []).filter(
+    (account) => account.status === TreasuryAccountStatus.Active && account.currency === invoiceCurrency,
+  );
+
+  // The open-invoice figure is in BASE currency, so it is only a valid voucher
+  // amount when the invoice itself is in base currency (no confirm-time rate).
+  useEffect(() => {
+    if (!invoice || !invoiceDetail.data || invoiceDetail.data.id !== invoice.id) return;
+    setAmount(invoiceDetail.data.fxRate === null ? toAmountInput(invoice.outstanding) : "");
+  }, [invoice, invoiceDetail.data]);
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -94,6 +107,10 @@ export function Collect() {
       setError(strings.collect.detailsRequired);
       return;
     }
+    if (invoiceCurrency === null || treasuryAccount.currency !== invoiceCurrency) {
+      setError(strings.collect.currencyUnknown);
+      return;
+    }
     if (!treasuryAccount.glAccountId) {
       setError(strings.collect.missingGlAccount);
       return;
@@ -105,8 +122,9 @@ export function Collect() {
         date: todayIso(),
         voucherType: VoucherTypeCode.CustomerCollection,
         amount: amount.trim(),
+        currency: invoiceCurrency,
         branchId: branch.id,
-        paymentMethod,
+        paymentMethod: CollectPaymentMethod.Cash,
         treasuryAccountId: treasuryAccount.id,
         treasuryGlAccountId: treasuryAccount.glAccountId,
         counterpartyGlAccountId: DEFAULT_GL_ACCOUNTS.accountsReceivable,
@@ -132,6 +150,7 @@ export function Collect() {
       style={{ backgroundColor: theme.background }}
     >
       <Text style={[styles.title, { color: theme.text }]}>{strings.collect.title}</Text>
+      <OfflineNotice />
 
       {allowed ? null : (
         <Card>
@@ -148,6 +167,7 @@ export function Collect() {
           const found = customersQuery.data?.find((c) => c.id === option.id) ?? null;
           setCustomer(found);
           setInvoice(null);
+          setTreasuryAccount(null);
           setAmount("");
         }}
         options={(customersQuery.data ?? []).filter((c) => c.active).map(customerOption)}
@@ -166,7 +186,8 @@ export function Collect() {
         onSelect={(option) => {
           const found = openInvoicesQuery.data?.find((i) => i.id === option.id) ?? null;
           setInvoice(found);
-          setAmount(found ? toAmountInput(found.outstanding) : "");
+          setAmount("");
+          setTreasuryAccount(null);
         }}
         options={filterPickerOptions((openInvoicesQuery.data ?? []).map(invoiceOption), invoiceQuery)}
         placeholder={strings.collect.invoicePlaceholder}
@@ -177,25 +198,18 @@ export function Collect() {
 
       <TextField keyboardType="decimal-pad" label={strings.collect.amount} onChangeText={setAmount} value={amount} />
 
-      <Segmented
-        label={strings.collect.paymentMethod}
-        onChange={setPaymentMethod}
-        options={[
-          { value: CollectPaymentMethod.Cash, label: strings.collect.cash },
-          { value: CollectPaymentMethod.Cheque, label: strings.collect.cheque },
-        ]}
-        value={paymentMethod}
-      />
+      {invoiceDetail.isError ? <Text style={[styles.notice, { color: theme.negative }]}>{strings.collect.currencyUnknown}</Text> : null}
 
       <EntityPicker
-        emptyLabel={strings.picker.empty}
-        label={strings.collect.treasuryAccount}
+        disabled={invoiceCurrency === null}
+        emptyLabel={strings.collect.treasuryAccountEmpty}
+        label={invoiceCurrency === null ? strings.collect.treasuryAccount : `${strings.collect.treasuryAccount} · ${invoiceCurrency}`}
         onQueryChange={setTreasuryAccountQuery}
         onSelect={(option) => {
           const found = treasuryQuery.data?.find((a) => a.id === option.id) ?? null;
           setTreasuryAccount(found);
         }}
-        options={filterPickerOptions((treasuryQuery.data ?? []).map(treasuryOption), treasuryAccountQuery)}
+        options={filterPickerOptions(treasuryInCurrency.map(treasuryOption), treasuryAccountQuery)}
         placeholder={strings.collect.treasuryAccountPlaceholder}
         query={treasuryAccountQuery}
         searchLabel={strings.picker.search}

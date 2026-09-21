@@ -20,7 +20,6 @@ export enum ItemType {
 
 export enum CollectPaymentMethod {
   Cash = "cash",
-  Cheque = "cheque",
 }
 
 export enum VoucherTypeCode {
@@ -34,4 +33,20 @@ export enum ApprovalDecision {
 
 export enum AllocationInvoiceKind {
   Sales = "sales",
+}
+
+export enum SalesInvoiceSort {
+  DocNo = "docNo",
+}
+
+export enum SortDirection {
+  Desc = "desc",
+}
+
+export enum TreasuryAccountStatus {
+  Active = "active",
+}
+
+export enum TreasuryAccountType {
+  Bank = "bank",
 }

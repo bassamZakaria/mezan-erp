@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addDaysIso, todayIso } from "./dates";
+import { addDaysIso, formatAsOf, todayIso } from "./dates";
 
 describe("todayIso", () => {
   it("returns a calendar day, not an instant", () => {
@@ -22,5 +22,16 @@ describe("addDaysIso", () => {
 
   it("accepts zero days as a no-op", () => {
     expect(addDaysIso("2026-09-20", 0)).toBe("2026-09-20");
+  });
+});
+
+describe("formatAsOf", () => {
+  it("renders the instant in local time", () => {
+    const local = new Date(2026, 8, 21, 9, 5);
+    expect(formatAsOf(local.toISOString())).toBe("2026-09-21 09:05");
+  });
+
+  it("returns an unparseable value unchanged rather than inventing a time", () => {
+    expect(formatAsOf("not-a-date")).toBe("not-a-date");
   });
 });

@@ -35,18 +35,20 @@ appId: app.mezan.mobile
 - tapOn:
     id: tab-customers
 - extendedWaitUntil:
-    visible: ${CUSTOMER}
+    visible: ".*${CUSTOMER}.*"
     timeout: 20000
 - takeScreenshot: 03-customers
-- tapOn: ${CUSTOMER}
+- tapOn: ".*${CUSTOMER}.*"
 - extendedWaitUntil:
     visible: ${L_AGING}
     timeout: 20000
 - waitForAnimationToEnd
 - takeScreenshot: 04-customer
-- back
+- tapOn:
+    id: BackButton
 - tapOn:
     id: tab-sell
+- assertVisible: ".*${C_CUSTOMER_PLACEHOLDER}.*"
 - waitForAnimationToEnd
 - takeScreenshot: 05-sell
 - tapOn:
@@ -57,22 +59,27 @@ appId: app.mezan.mobile
 - inputText: ${ITEM_QUERY}
 - pressKey: Enter
 - extendedWaitUntil:
-    visible: ${ITEM}
+    visible: ".*${ITEM}.*"
     timeout: 20000
 - waitForAnimationToEnd
 - takeScreenshot: 06-stock
 - tapOn:
     id: tab-more
+- assertVisible: ".*${M_CLOCK}.*"
 - waitForAnimationToEnd
 - takeScreenshot: 07-more
-- tapOn: ${M_COLLECT}
+- tapOn: ".*${M_COLLECT}.*"
+- assertVisible: ${C_SUBMIT}
 - waitForAnimationToEnd
 - takeScreenshot: 08-collect
-- back
-- tapOn: ${M_CLOCK}
+- tapOn:
+    id: BackButton
+- tapOn: ".*${M_CLOCK}.*"
 - waitForAnimationToEnd
 - takeScreenshot: 09-clock
-- back
-- tapOn: ${M_APPROVALS}
+- tapOn:
+    id: BackButton
+- tapOn: ".*${M_APPROVALS}.*"
+- assertVisible: ${APPROVALS_ASSERT}
 - waitForAnimationToEnd
 - takeScreenshot: 10-approvals

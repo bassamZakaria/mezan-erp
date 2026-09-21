@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { ScrollView, StyleSheet, Text } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { BranchDTO, CustomerDTO, OpenInvoiceDTO, TreasuryAccountDTO } from "@mezan/contracts";
 import { Button } from "@/components/button";
 import { Card } from "@/components/card";
@@ -44,7 +43,6 @@ function invoiceOption(invoice: OpenInvoiceDTO): PickerOption {
 export function Collect() {
   const strings = useStrings();
   const theme = useTheme();
-  const insets = useSafeAreaInsets();
   const { can } = useSession();
   const allowed = can("treasury.cash_voucher.create");
 
@@ -133,6 +131,7 @@ export function Collect() {
       setAmount("");
       setReferenceNo("");
       setInvoice(null);
+      setTreasuryAccount(null);
     } catch (err) {
       setError(describeWriteError(err, strings));
     } finally {
@@ -142,10 +141,9 @@ export function Collect() {
 
   return (
     <ScrollView
-      contentContainerStyle={[styles.content, { paddingTop: insets.top + SPACE.lg, paddingBottom: SPACE.xxl }]}
+      contentContainerStyle={[styles.content, { paddingTop: SPACE.lg, paddingBottom: SPACE.xxl }]}
       style={{ backgroundColor: theme.background }}
     >
-      <Text style={[styles.title, { color: theme.text }]}>{strings.collect.title}</Text>
       <OfflineNotice />
 
       {allowed ? null : (
@@ -246,6 +244,5 @@ export function Collect() {
 
 const styles = StyleSheet.create({
   content: { paddingHorizontal: SPACE.lg, gap: SPACE.lg },
-  title: { fontSize: TYPE.display, fontWeight: "800" },
   notice: { fontSize: TYPE.label, fontWeight: "600" },
 });

@@ -31,4 +31,11 @@ args=()
 while IFS='=' read -r key value; do
   [ -n "$key" ] && args+=(-e "$key=$value")
 done < "$HERE/$LANG_CODE.env"
-maestro --device "$UDID" test --test-output-dir "$OUT" "${args[@]}" -e "SERVER=$SERVER" -e "TENANT=$TENANT" -e "EMAIL=$EMAIL" -e "PIN=$PIN" "$HERE/walk.yaml"
+flows=("$HERE/walk.yaml")
+if [ -n "${COLLECT_INVOICE:-}" ]; then
+  flows+=("$HERE/collect.yaml")
+  args+=(-e "COLLECT_INVOICE=$COLLECT_INVOICE")
+fi
+for flow in "${flows[@]}"; do
+  maestro --device "$UDID" test --test-output-dir "$OUT" "${args[@]}" -e "SERVER=$SERVER" -e "TENANT=$TENANT" -e "EMAIL=$EMAIL" -e "PIN=$PIN" "$flow"
+done

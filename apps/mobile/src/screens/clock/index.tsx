@@ -2,7 +2,6 @@ import { SelfClockActionDTO } from "@mezan/contracts";
 import { CameraView } from "expo-camera";
 import { useRef, useState } from "react";
 import { Image, Modal, ScrollView, StyleSheet, Text, View } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Button, ButtonTone } from "@/components/button";
 import { Card } from "@/components/card";
 import { CameraAccess, CameraPermissionPrompt, useCameraAccess } from "@/components/camera-permission";
@@ -20,7 +19,6 @@ interface Selfie {
 export function Clock() {
   const strings = useStrings();
   const theme = useTheme();
-  const insets = useSafeAreaInsets();
   const { can } = useSession();
   const allowed = can("hr.self.clock");
 
@@ -63,7 +61,7 @@ export function Clock() {
 
   if (!allowed) {
     return (
-      <View style={[styles.centre, { backgroundColor: theme.background, paddingTop: insets.top }]}>
+      <View style={[styles.centre, { backgroundColor: theme.background }]}>
         <Text style={[styles.notice, { color: theme.negative }]}>{strings.clock.noPermission}</Text>
       </View>
     );
@@ -71,7 +69,7 @@ export function Clock() {
 
   if (status.isLoading) {
     return (
-      <View style={[styles.centre, { backgroundColor: theme.background, paddingTop: insets.top }]}>
+      <View style={[styles.centre, { backgroundColor: theme.background }]}>
         <Text style={[styles.notice, { color: theme.textMuted }]}>{strings.common.loading}</Text>
       </View>
     );
@@ -79,7 +77,7 @@ export function Clock() {
 
   if (status.data === undefined || status.data.employeeId === null) {
     return (
-      <View style={[styles.centre, { backgroundColor: theme.background, paddingTop: insets.top }]}>
+      <View style={[styles.centre, { backgroundColor: theme.background }]}>
         <Text style={[styles.notice, { color: theme.textMuted }]}>{strings.clock.notLinked}</Text>
       </View>
     );
@@ -93,10 +91,9 @@ export function Clock() {
 
   return (
     <ScrollView
-      contentContainerStyle={[styles.content, { paddingTop: insets.top + SPACE.lg, paddingBottom: SPACE.xxl }]}
+      contentContainerStyle={[styles.content, { paddingTop: SPACE.lg, paddingBottom: SPACE.xxl }]}
       style={{ backgroundColor: theme.background }}
     >
-      <Text style={[styles.title, { color: theme.text }]}>{strings.clock.title}</Text>
 
       <Card>
         <Text style={[styles.row, { color: theme.text }]}>
@@ -172,7 +169,6 @@ export function Clock() {
 const styles = StyleSheet.create({
   content: { paddingHorizontal: SPACE.lg, gap: SPACE.lg },
   centre: { flex: 1, alignItems: "center", justifyContent: "center", padding: SPACE.lg, gap: SPACE.md },
-  title: { fontSize: TYPE.display, fontWeight: "800" },
   row: { fontSize: TYPE.body, fontWeight: "600" },
   hint: { fontSize: TYPE.caption },
   notice: { fontSize: TYPE.label, fontWeight: "600" },

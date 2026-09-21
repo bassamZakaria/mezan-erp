@@ -14,7 +14,7 @@ secret and is never committed.
 | Company code | `{REVIEW_TENANT_CODE}` (the runbook's default is `review`) |
 | Email | `admin@cyag.example` |
 | PIN | `{REVIEW_PIN}` — read from SSM `/mezan/review/review-pin` |
-| Second account, for clock-in with a photo | `ahmed.shennawy@cyag.example`, same PIN |
+| Second account, for clock-in with a photo | `ahmed.shennawy@cyag.example`, same PIN (the seed records a full day for this employee on the date the tenant is seeded, so the photo path opens from the next day — D337) |
 
 Google: App access → "All or some functionality is restricted" → add the
 instructions below; the company code goes in "Any other instructions", since
@@ -39,11 +39,11 @@ the sign-in has three fields.
 > barcode with the camera), and under More: Collect (a collection voucher),
 > Clock (attendance) and Approvals.
 >
-> The administrator account is not linked to an employee record, so Clock
-> shows "not linked". To test clock-in with a photo, sign out (Overview → Sign out)
-> and sign in as `ahmed.shennawy@cyag.example` with the same PIN; that
-> employee's record requires a photo, which is taken with the front camera
-> only when you tap "Take a selfie".
+> Clock: the administrator account is linked to an employee record, so
+> "Clock in" and "Clock out" work from it directly. To see the clock-in photo,
+> sign out (Overview → Sign out) and sign in as `ahmed.shennawy@cyag.example`
+> with the same PIN; that employee's record requires a photo, taken with the
+> front camera only when you tap "Take a selfie".
 >
 > Camera: used for the clock-in photo and for barcode scanning. Face ID: used
 > only to unlock the app on the device; no biometric data leaves the phone.

@@ -23,6 +23,10 @@ export interface Strings {
     readonly unlockWithPin: string;
     readonly unlockFailed: string;
   };
+  readonly legal: {
+    readonly privacy: string;
+    readonly accountDeletion: string;
+  };
   readonly home: {
     readonly title: string;
     readonly cash: string;
@@ -30,6 +34,7 @@ export interface Strings {
     readonly receivables: string;
     readonly payables: string;
     readonly netProfit: string;
+    readonly salesToday: string;
     readonly approvalsWaiting: string;
     readonly recentActivity: string;
     readonly asOf: string;
@@ -111,6 +116,7 @@ export interface Strings {
     readonly referenceNo: string;
     readonly submit: string;
     readonly success: string;
+    readonly held: string;
     readonly noPermission: string;
     readonly missingGlAccount: string;
     readonly invoiceRequired: string;
@@ -214,6 +220,10 @@ const AR: Strings = {
     unlockWithPin: "الدخول بالرقم السري بدلًا من ذلك",
     unlockFailed: "لم يتم التأكيد. حاول مرة أخرى، أو ادخل بالرقم السري.",
   },
+  legal: {
+    privacy: "سياسة الخصوصية",
+    accountDeletion: "طلب حذف الحساب",
+  },
   home: {
     title: "نظرة عامة",
     cash: "النقدية بالخزائن",
@@ -221,6 +231,7 @@ const AR: Strings = {
     receivables: "مديونية العملاء",
     payables: "مستحقات الموردين",
     netProfit: "صافي الربح",
+    salesToday: "مبيعات اليوم",
     approvalsWaiting: "بانتظار اعتمادك",
     recentActivity: "آخر الحركات",
     asOf: "حتى",
@@ -302,6 +313,7 @@ const AR: Strings = {
     referenceNo: "رقم مرجعي (اختياري)",
     submit: "تسجيل التحصيل",
     success: "تم تسجيل التحصيل وتخصيصه على الفاتورة",
+    held: "سُجّل سند التحصيل وهو بانتظار الاعتماد؛ لم يُرحَّل ولم يُخصَّص على الفاتورة بعد",
     noPermission: "لا تملك صلاحية تسجيل سندات التحصيل.",
     missingGlAccount: "حساب الخزينة المختار غير مربوط بحساب دفتر أستاذ؛ راجع الإعدادات على سطح المكتب.",
     invoiceRequired: "اختر عميلًا ثم فاتورة مفتوحة له.",
@@ -406,6 +418,10 @@ const EN: Strings = {
     unlockWithPin: "Sign in with the PIN instead",
     unlockFailed: "Not confirmed. Try again, or sign in with the PIN.",
   },
+  legal: {
+    privacy: "Privacy policy",
+    accountDeletion: "Request account deletion",
+  },
   home: {
     title: "Overview",
     cash: "Cash on hand",
@@ -413,6 +429,7 @@ const EN: Strings = {
     receivables: "Receivables",
     payables: "Payables",
     netProfit: "Net profit",
+    salesToday: "Today's sales",
     approvalsWaiting: "Waiting on you",
     recentActivity: "Recent activity",
     asOf: "as of",
@@ -494,6 +511,7 @@ const EN: Strings = {
     referenceNo: "Reference (optional)",
     submit: "Record collection",
     success: "Collection recorded and allocated to the invoice",
+    held: "The collection voucher is recorded and waiting for approval; it is not posted or allocated to the invoice yet",
     noPermission: "You do not hold the right to record collection vouchers.",
     missingGlAccount: "The chosen treasury account has no ledger account linked; check the desktop settings.",
     invoiceRequired: "Choose a customer, then one of their open invoices.",

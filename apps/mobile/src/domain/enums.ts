@@ -22,10 +22,6 @@ export enum CollectPaymentMethod {
   Cash = "cash",
 }
 
-export enum VoucherTypeCode {
-  CustomerCollection = "customer_collection",
-}
-
 export enum ApprovalDecision {
   Approve = "approve",
   Reject = "reject",

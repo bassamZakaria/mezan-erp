@@ -1,4 +1,4 @@
-import Constants from "expo-constants";
+import { DEFAULT_BASE_URL } from "@/config";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AppState } from "react-native";
 import { loginResponseSchema, type SessionDTO } from "@mezan/contracts";
@@ -7,9 +7,6 @@ import { forgetCachedReads } from "@/api/query-cache";
 import { HttpMethod, apiRequest, ScopeAll, type ApiCredentials, type RequestOptions } from "@/api/client";
 import { confirmDeviceOwner, deviceCanConfirmOwner } from "./device-lock";
 import { clearSession, loadConnection, loadSession, saveConnection, saveSession, type Connection } from "./storage";
-
-const DEFAULT_BASE_URL =
-  (Constants.expoConfig?.extra as { apiBaseUrl?: string } | undefined)?.apiBaseUrl ?? "https://demo.mezan.app";
 
 export interface SignInInput {
   readonly baseUrl: string;

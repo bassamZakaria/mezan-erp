@@ -10,7 +10,7 @@ secret and is never committed.
 
 | Field | Value |
 |---|---|
-| Server address | prefilled by the app — `https://{REVIEW_HOST}/api` |
+| Server address | prefilled by the app — `https://review.mezan.app/api` |
 | Company code | `{REVIEW_TENANT_CODE}` (the runbook's default is `review`) |
 | Email | `admin@cyag.example` |
 | PIN | `{REVIEW_PIN}` — read from SSM `/mezan/review/review-pin` |
@@ -48,8 +48,8 @@ the sign-in has three fields.
 > Camera: used for the clock-in photo and for barcode scanning. Face ID: used
 > only to unlock the app on the device; no biometric data leaves the phone.
 >
-> Privacy policy: https://{REVIEW_HOST}/legal/privacy?lang=en
-> Account deletion: https://{REVIEW_HOST}/legal/account-deletion?lang=en
+> Privacy policy: https://review.mezan.app/legal/privacy?lang=en
+> Account deletion: https://review.mezan.app/legal/account-deletion?lang=en
 >
 > Sign in with Apple is not offered because the app signs in only with the
 > company's own account system for existing business accounts (Guideline 4.8).
@@ -68,7 +68,7 @@ the sign-in has three fields.
 
 ## Before pasting — verify on the day
 
-1. `curl -sS -o /dev/null -w '%{http_code}\n' https://{REVIEW_HOST}/healthz` → `200`.
+1. `curl -sS -o /dev/null -w '%{http_code}\n' https://review.mezan.app/healthz` → `200`.
 2. Sign in on a release build with the credentials above; walk every tab.
 3. Sign in as the employee; confirm the clock-in button is enabled today (the
    seed records a full day for the seeding date only).

@@ -108,11 +108,43 @@ export function sumDecimals(values: readonly string[]): string {
   return fromScaled(values.reduce((total, value) => total + toScaled(value), 0n));
 }
 
+const MAX_EXACT_SIGNIFICANT_DIGITS = 15;
+
+export interface WireNumberDecimal {
+  readonly decimal: string;
+  readonly exact: boolean;
+}
+
+function expandExponent(text: string): string {
+  const match = /^(-?)(\d+)(?:\.(\d+))?e([+-]\d+)$/i.exec(text);
+  if (!match) return text;
+  const [, sign = "", whole = "", fraction = "", exponentText = "0"] = match;
+  const digits = whole + fraction;
+  const point = whole.length + Number.parseInt(exponentText, 10);
+  if (point <= 0) return `${sign}0.${"0".repeat(-point)}${digits}`;
+  if (point >= digits.length) return `${sign}${digits}${"0".repeat(point - digits.length)}`;
+  return `${sign}${digits.slice(0, point)}.${digits.slice(point)}`;
+}
+
 /**
- * A figure some report routes still send as a JSON number, turned into the
- * decimal string every formatter here expects. `toFixed` at the wire scale
- * never produces exponent notation below 1e21, which `String(n)` does.
+ * A money figure a report route still sends as a JSON number (D345), turned
+ * into a decimal string by TEXT, never by arithmetic: `String(n)` is the
+ * shortest decimal that round-trips to the double, which is exactly the text
+ * JSON.stringify put on the wire. It is `exact` only when that text can be the
+ * true figure — at most six decimals and fifteen significant digits, beyond
+ * which a double may already have dropped a cent. An inexact figure is shown
+ * as it arrived, never rounded.
  */
-export function decimalFromWireNumber(value: number): string {
-  return value.toFixed(WIRE_SCALE);
+export function decimalFromWireNumber(value: number): WireNumberDecimal {
+  if (!Number.isFinite(value)) return { decimal: String(value), exact: false };
+  const decimal = expandExponent(String(value));
+  const { whole, fraction } = splitDecimal(decimal);
+  const significant = (whole + fraction).replace(/^0+/, "").length;
+  return { decimal, exact: fraction.length <= WIRE_SCALE && significant <= MAX_EXACT_SIGNIFICANT_DIGITS };
+}
+
+export function formatWireNumber(value: number, currencySymbol = "ج.م"): string {
+  const converted = decimalFromWireNumber(value);
+  if (!converted.exact) return `${converted.decimal} ${currencySymbol}`;
+  return formatAmountWithCurrency(converted.decimal, currencySymbol);
 }

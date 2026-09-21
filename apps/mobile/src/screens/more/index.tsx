@@ -1,6 +1,7 @@
 import { useRouter } from "expo-router";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { LegalLinks } from "@/components/legal-links";
 import { useStrings } from "@/i18n";
 import { RADIUS, SPACE, TYPE, useTheme } from "@/theme";
 
@@ -41,6 +42,7 @@ export function More() {
           </Pressable>
         ))}
       </View>
+      <LegalLinks />
     </View>
   );
 }

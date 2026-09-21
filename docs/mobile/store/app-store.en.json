@@ -9,8 +9,8 @@
   "secondaryCategory": "Productivity",
   "copyright": "2026 Cyag",
   "urls": {
-    "support": "https://{REVIEW_HOST}/legal/account-deletion?lang=en",
+    "support": "https://review.mezan.app/legal/account-deletion?lang=en",
     "marketing": "https://{MARKETING_HOST}",
-    "privacyPolicy": "https://{REVIEW_HOST}/legal/privacy?lang=en"
+    "privacyPolicy": "https://review.mezan.app/legal/privacy?lang=en"
   }
 }

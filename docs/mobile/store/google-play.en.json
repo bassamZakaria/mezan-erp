@@ -7,6 +7,6 @@
   "tags": ["Accounting", "Business management", "Invoicing"],
   "contactEmail": "{SUPPORT_EMAIL}",
   "website": "https://{MARKETING_HOST}",
-  "privacyPolicyUrl": "https://{REVIEW_HOST}/legal/privacy?lang=en",
-  "accountDeletionUrl": "https://{REVIEW_HOST}/legal/account-deletion?lang=en"
+  "privacyPolicyUrl": "https://review.mezan.app/legal/privacy?lang=en",
+  "accountDeletionUrl": "https://review.mezan.app/legal/account-deletion?lang=en"
 }

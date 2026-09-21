@@ -5,11 +5,9 @@ import {
   branchSchema,
   cockpitSchema,
   confirmSalesInvoiceSchema,
-  confirmVoucherSchema,
-  createAllocationSchema,
+  collectionResultSchema,
   createSalesInvoiceSchema,
   createSalesQuoteSchema,
-  createVoucherSchema,
   customerSchema,
   dashboardSummarySchema,
   decideApprovalRequestSchema,
@@ -22,18 +20,15 @@ import {
   selfClockStatusSchema,
   treasuryAccountSchema,
   userSchema,
-  voucherAllocationSchema,
-  voucherSchema,
   warehouseSchema,
   type ApprovalRequestDTO,
   type BranchDTO,
   type CockpitDTO,
   type ConfirmSalesInvoiceDTO,
-  type ConfirmVoucherDTO,
-  type CreateAllocationDTO,
+  type CollectionResultDTO,
+  type CreateCollectionDTO,
   type CreateSalesInvoiceDTO,
   type CreateSalesQuoteDTO,
-  type CreateVoucherDTO,
   type CustomerDTO,
   type DashboardSummaryDTO,
   type DecideApprovalRequestDTO,
@@ -47,8 +42,6 @@ import {
   type SelfClockStatusResponseDTO,
   type TreasuryAccountDTO,
   type UserDTO,
-  type VoucherAllocationDTO,
-  type VoucherDTO,
   type WarehouseDTO,
 } from "@mezan/contracts";
 import { AllocationInvoiceKind, SalesInvoiceSort, SortDirection } from "@/domain/enums";
@@ -219,34 +212,15 @@ export function useCreateSalesQuote(): UseMutationResult<SalesQuoteDTO, ApiError
   });
 }
 
-export function useCreateVoucher(): UseMutationResult<VoucherDTO, ApiError, CreateVoucherDTO> {
+/**
+ * Create, confirm and allocate a customer collection as ONE server transaction
+ * (D338). The server resolves the GL accounts; a workflow may hold the confirm,
+ * in which case nothing is allocated (D344).
+ */
+export function useCreateCollection(): UseMutationResult<CollectionResultDTO, ApiError, CreateCollectionDTO> {
   const { request } = useSession();
-  return useMutation<VoucherDTO, ApiError, CreateVoucherDTO>({
-    mutationFn: (body) => request("/vouchers", { method: HttpMethod.Post, body, schema: voucherSchema }),
-  });
-}
-
-export function useConfirmVoucher(): UseMutationResult<VoucherDTO, ApiError, { id: string; body?: ConfirmVoucherDTO }> {
-  const { request } = useSession();
-  return useMutation<VoucherDTO, ApiError, { id: string; body?: ConfirmVoucherDTO }>({
-    mutationFn: ({ id, body }) =>
-      request(`/vouchers/${encodeURIComponent(id)}/confirm`, { method: HttpMethod.Post, body: body ?? {}, schema: voucherSchema }),
-  });
-}
-
-export function useCreateAllocation(): UseMutationResult<
-  VoucherAllocationDTO,
-  ApiError,
-  { voucherId: string; body: CreateAllocationDTO }
-> {
-  const { request } = useSession();
-  return useMutation<VoucherAllocationDTO, ApiError, { voucherId: string; body: CreateAllocationDTO }>({
-    mutationFn: ({ voucherId, body }) =>
-      request(`/vouchers/${encodeURIComponent(voucherId)}/allocations`, {
-        method: HttpMethod.Post,
-        body,
-        schema: voucherAllocationSchema,
-      }),
+  return useMutation<CollectionResultDTO, ApiError, CreateCollectionDTO>({
+    mutationFn: (body) => request("/vouchers/collections", { method: HttpMethod.Post, body, schema: collectionResultSchema }),
   });
 }
 

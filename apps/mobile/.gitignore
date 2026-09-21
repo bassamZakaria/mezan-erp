@@ -42,3 +42,6 @@ yarn-error.*
 
 .expo/
 expo-env.d.ts
+
+# Play Console service account key for eas submit
+google-play-service-account.json

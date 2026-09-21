@@ -3,7 +3,7 @@ import { Card } from "@/components/card";
 import { describeApiError } from "@/api/errors";
 import { useCustomer, useCustomerAging, useCustomerInvoices, type CustomerAgingRow } from "@/api/queries";
 import { useStrings, type Strings } from "@/i18n";
-import { decimalFromWireNumber, formatAmountWithCurrency } from "@/money";
+import { formatAmountWithCurrency, formatWireNumber } from "@/money";
 import { useSession } from "@/session/SessionProvider";
 import { SPACE, TYPE, useTheme } from "@/theme";
 
@@ -74,9 +74,9 @@ export function Customer({ id }: { id: string }) {
           ) : aging.data ? (
             <>
               {agingBuckets(aging.data, strings).map((bucket) => (
-                <Row key={bucket.label} label={bucket.label} value={formatAmountWithCurrency(decimalFromWireNumber(bucket.amount))} />
+                <Row key={bucket.label} label={bucket.label} value={formatWireNumber(bucket.amount)} />
               ))}
-              <Row label={strings.customer.agingTotal} strong value={formatAmountWithCurrency(decimalFromWireNumber(aging.data.total))} />
+              <Row label={strings.customer.agingTotal} strong value={formatWireNumber(aging.data.total)} />
             </>
           ) : (
             <Text style={[styles.notice, { color: theme.textMuted }]}>{strings.customer.noDebt}</Text>

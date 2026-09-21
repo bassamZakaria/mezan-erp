@@ -1,7 +1,34 @@
 import { Redirect, Tabs } from "expo-router";
-import { useStrings } from "@/i18n";
+import { SymbolView, type SymbolViewProps } from "expo-symbols";
+import { useStrings, type Strings } from "@/i18n";
 import { useSession } from "@/session/SessionProvider";
 import { useTheme } from "@/theme";
+
+enum TabRoute {
+  Home = "index",
+  Customers = "customers",
+  Sell = "sell",
+  Stock = "stock",
+  More = "more",
+}
+
+interface TabSpec {
+  readonly route: TabRoute;
+  readonly title: (strings: Strings) => string;
+  readonly icon: SymbolViewProps["name"];
+}
+
+/**
+ * Every glyph here is symbolic, not directional, so none of them mirrors in
+ * RTL. A tab that ever takes an arrow or a chevron needs the RTL variant.
+ */
+const TABS: readonly TabSpec[] = [
+  { route: TabRoute.Home, title: (s) => s.tabs.home, icon: { ios: "house", android: "home", web: "home" } },
+  { route: TabRoute.Customers, title: (s) => s.tabs.customers, icon: { ios: "person.2", android: "group", web: "group" } },
+  { route: TabRoute.Sell, title: (s) => s.tabs.sell, icon: { ios: "doc.text", android: "receipt_long", web: "receipt_long" } },
+  { route: TabRoute.Stock, title: (s) => s.tabs.stock, icon: { ios: "shippingbox", android: "inventory_2", web: "inventory_2" } },
+  { route: TabRoute.More, title: (s) => s.tabs.more, icon: { ios: "ellipsis.circle", android: "more_horiz", web: "more_horiz" } },
+];
 
 export default function TabsLayout() {
   const strings = useStrings();
@@ -19,11 +46,16 @@ export default function TabsLayout() {
         tabBarStyle: { backgroundColor: theme.surface, borderTopColor: theme.border },
       }}
     >
-      <Tabs.Screen name="index" options={{ title: strings.tabs.home }} />
-      <Tabs.Screen name="customers" options={{ title: strings.tabs.customers }} />
-      <Tabs.Screen name="sell" options={{ title: strings.tabs.sell }} />
-      <Tabs.Screen name="stock" options={{ title: strings.tabs.stock }} />
-      <Tabs.Screen name="more" options={{ title: strings.tabs.more }} />
+      {TABS.map((tab) => (
+        <Tabs.Screen
+          key={tab.route}
+          name={tab.route}
+          options={{
+            title: tab.title(strings),
+            tabBarIcon: ({ color, size }) => <SymbolView name={tab.icon} size={size} tintColor={color} />,
+          }}
+        />
+      ))}
     </Tabs>
   );
 }

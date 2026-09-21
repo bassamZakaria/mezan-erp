@@ -71,6 +71,18 @@ export async function run(ctx: Ctx): Promise<void> {
   const branchId = await branchIdOf(ctx);
   const treasury = await bankTreasuryAccount(ctx);
 
+  await ctx.scenario("D337 — the seed leaves a linked employee unpunched today, so the clock can be exercised", async () => {
+    const status = await ctx.req("GET", "/hr/self/clock");
+    const today = status.body?.today as string | undefined;
+    ctx.check("the admin's linked employee has no entry on the seed's own day", status.status === 200 && status.body?.todayEntry === null, JSON.stringify(status.body).slice(0, 200));
+    const ahmed = ctx.rows((await ctx.req("GET", `/hr/attendance?employeeId=EMP-DEMO-5&from=${today}&to=${today}`)).body);
+    ctx.check("nor does أحمد الشناوي's, the self-service login", ahmed.length === 0, JSON.stringify(ahmed));
+    const punchIn = await ctx.req("POST", "/hr/self/clock", { action: "in" });
+    ctx.check("the punch-in lands", punchIn.status === 200 || punchIn.status === 201, `status ${punchIn.status} ${JSON.stringify(punchIn.body)}`);
+    const open = await ctx.req("GET", "/hr/self/clock");
+    ctx.check("the day then reads clocked-in and still open for a punch-out", open.body?.todayEntry?.checkIn != null && open.body?.todayEntry?.checkOut === null, JSON.stringify(open.body?.todayEntry));
+  });
+
   await ctx.scenario("hr / payroll scope notice — unimplemented-rule set matches employee count", async () => {
     const universal = PAYROLL_UNIMPLEMENTED_RULES.filter((r) => r.appliesToEveryPayslip);
     const situational = PAYROLL_UNIMPLEMENTED_RULES.filter((r) => !r.appliesToEveryPayslip);

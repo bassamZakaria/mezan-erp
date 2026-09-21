@@ -16,7 +16,6 @@ export const icons: NavIconFragment = {
 };
 
 export const ar = {
-  "perm.entity.recurring": "القيود المتكررة",
   "nav.item.recurring-journals": "القيود المتكررة",
   "recurringJournals.title": "القيود المتكررة والقوالب",
   "recurringJournals.subtitle": "قوالب الإيجار والإهلاك والاستحقاقات الشهرية — بدون إعادة كتابتها كل شهر",
@@ -88,7 +87,6 @@ export const ar = {
 } as const;
 
 export const en: Record<keyof typeof ar, string> = {
-  "perm.entity.recurring": "Recurring journals",
   "nav.item.recurring-journals": "Recurring journals",
   "recurringJournals.title": "Recurring journals & templates",
   "recurringJournals.subtitle": "Rent, depreciation and monthly accruals — without re-keying them every month",

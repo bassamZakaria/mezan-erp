@@ -48,6 +48,7 @@ import {
 import { branchScopeOf, createPermissionGate, withinScope, type AuthContextResolver } from "./permission-gate.js";
 import { nextMasterCode } from "./master-code.js";
 import { recordAdminEvent } from "./admin-audit.js";
+import { MasterDataKind, refuseUnknownMasterData, type MasterDataChecks } from "./master-data-check.js";
 
 /**
  * CRM routes (docs/archive/catalog/06-crm-hr.md "العملاء المحتملون / الفرص / خط
@@ -66,6 +67,7 @@ export interface CrmRoutesDeps {
    * the product that left no trail of who created the party or from what.
    */
   readonly audit?: AuditSink;
+  readonly masterData?: MasterDataChecks;
 }
 
 const movePipelineStageSchema = z.object({
@@ -221,6 +223,10 @@ export function createCrmRoutes(deps: CrmRoutesDeps, resolveAuthContext: AuthCon
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
+    const branchRefusal = await refuseUnknownMasterData(c, deps.masterData, [
+      { kind: MasterDataKind.Branch, ids: [parsed.data.opportunity?.branchId] },
+    ]);
+    if (branchRefusal) return branchRefusal;
     let customer: { id: string; code: string } | undefined;
     if (parsed.data.createCustomer) {
       const existing = (await deps.customers.findAll()).map((row) => row.code);
@@ -290,6 +296,11 @@ export function createCrmRoutes(deps: CrmRoutesDeps, resolveAuthContext: AuthCon
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
+    const partyRefusal = await refuseUnknownMasterData(c, deps.masterData, [
+      { kind: MasterDataKind.Customer, ids: [parsed.data.customerId] },
+      { kind: MasterDataKind.Branch, ids: [parsed.data.branchId] },
+    ]);
+    if (partyRefusal) return partyRefusal;
     try {
       const opportunity = await createOpportunity(
         {

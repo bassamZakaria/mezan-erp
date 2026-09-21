@@ -1,4 +1,4 @@
-import { ENH_PERMISSION_ACTIONS, POS_PERMISSION_ACTIONS, type PermissionDef } from "@mezan/domain";
+import { PERMISSION_ACTION_LABELS, type PermissionDef } from "@mezan/domain";
 import type { AppTranslationKey } from "./i18n";
 
 /**
@@ -15,73 +15,8 @@ import type { AppTranslationKey } from "./i18n";
  * render an empty checkbox.
  */
 
-const ACTION_KEYS = [
-  "view",
-  "view_own",
-  "view_all",
-  "view_cost",
-  "view_salary",
-  "view_personal",
-  "create",
-  "edit",
-  "edit_cost",
-  "delete_draft",
-  "confirm",
-  "void",
-  "cancel",
-  "approve",
-  "reject",
-  "manage",
-  "print",
-  "merge",
-  "close",
-  "reopen",
-  "run",
-  "deactivate",
-  "assign",
-  "convert",
-  "override",
-  "rebuild",
-  "open",
-  "open_session",
-  "close_session",
-  "settle",
-  "terminate",
-  "apply_preset",
-  "calculate",
-  "pay",
-  "dispose",
-  "submit",
-  "import",
-  "match",
-  "finalize",
-  "force_close",
-  "set_priority",
-  "discount",
-  "refund",
-  "suspend",
-  "resume",
-  "collect",
-  "bounce",
-  "deposit",
-  "migrate_open",
-  "year_end",
-  "order",
-  "operate",
-  "recall",
-  "manage_own",
-  "execute",
-  "prepare",
-  "certify",
-  "release",
-  "leave",
-  "payslip",
-  "advance",
-  "attendance",
-  "clock",
-] as const;
 
-const KNOWN_ACTIONS: ReadonlySet<string> = new Set<string>([...ACTION_KEYS, ...POS_PERMISSION_ACTIONS, ...ENH_PERMISSION_ACTIONS]);
+const KNOWN_ACTIONS: ReadonlySet<string> = new Set<string>(Object.keys(PERMISSION_ACTION_LABELS));
 
 type Translate = (key: AppTranslationKey) => string;
 

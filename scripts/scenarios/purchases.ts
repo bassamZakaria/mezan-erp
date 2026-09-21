@@ -543,7 +543,7 @@ export async function run(ctx: Ctx): Promise<void> {
 
   // --- 7. D10/D310 — a document may not name a branch or warehouse that does not exist ---
   await scenario(
-    "purchases: D310 — PO and invoice create refuse the UI's hardcoded branchId 'MAIN'/warehouseId 'MAIN-WH', ids that do not exist in this tenant (real ids BR-MAIN/WH-MAIN); RFQ still accepts them (D10, open)",
+    "purchases: D310 — PO and invoice create refuse the UI's hardcoded branchId 'MAIN'/warehouseId 'MAIN-WH', ids that do not exist in this tenant (real ids BR-MAIN/WH-MAIN); so do the RFQ, its quote and convert, a CRM opportunity and a payroll run",
     async () => {
       const rfq = await req("POST", "/rfqs", {
         id: "SCN-RFQ-D10",
@@ -553,9 +553,64 @@ export async function run(ctx: Ctx): Promise<void> {
         lines: [{ itemId: "ITEM-DEMO-3", qty: "5", notes: null }],
       });
       check(
-        "D10 (still open): RFQ create with the UI's hardcoded 'MAIN'/'MAIN-WH' succeeds silently — the RFQ route has no master-data check",
-        rfq.status === 201,
-        `status ${rfq.status}`,
+        "D310: RFQ create with 'MAIN'/'MAIN-WH' is refused 422 BRANCH_NOT_FOUND",
+        rfq.status === 422 && rfq.body?.error === "BRANCH_NOT_FOUND",
+        `status ${rfq.status} ${JSON.stringify(rfq.body)}`,
+      );
+      const rfqWarehouse = await req("POST", "/rfqs", {
+        id: "SCN-RFQ-D310-WH",
+        date: "2026-08-24",
+        branchId: "BR-MAIN",
+        warehouseId: "MAIN-WH",
+        lines: [{ itemId: "ITEM-DEMO-3", qty: "5", notes: null }],
+      });
+      check(
+        "D310: RFQ create naming a phantom warehouse is refused 422 WAREHOUSE_NOT_FOUND",
+        rfqWarehouse.status === 422 && rfqWarehouse.body?.error === "WAREHOUSE_NOT_FOUND",
+        `status ${rfqWarehouse.status} ${JSON.stringify(rfqWarehouse.body)}`,
+      );
+      const realRfq = await req("POST", "/rfqs", {
+        id: "SCN-RFQ-D310",
+        date: "2026-08-24",
+        branchId: "BR-MAIN",
+        warehouseId: "WH-MAIN",
+        lines: [{ itemId: "ITEM-DEMO-3", qty: "5", notes: null }],
+      });
+      check("D310: an RFQ naming the real BR-MAIN/WH-MAIN is created", realRfq.status === 201, `status ${realRfq.status}`);
+      await req("POST", "/rfqs/SCN-RFQ-D310/send", {});
+      const phantomQuote = await req("POST", "/rfqs/SCN-RFQ-D310/quotes", {
+        id: "SCN-RFQ-D310-Q",
+        supplierId: "SUP-DEMO-1",
+        lines: [{ itemId: "ITEM-DEMO-3", unitPrice: "30" }],
+      });
+      check(
+        "D310: an RFQ quote from a supplier with no master record is refused 422",
+        phantomQuote.status === 422 && phantomQuote.body?.error === "SUPPLIER_NOT_FOUND",
+        `status ${phantomQuote.status} ${JSON.stringify(phantomQuote.body)}`,
+      );
+      const phantomConvert = await req("POST", "/rfqs/SCN-RFQ-D310/convert", { purchaseOrderId: "SCN-PO-D310-RFQ", supplierId: "SUP-DEMO-1" });
+      check(
+        "D310: converting an RFQ to a PO for a phantom supplier is refused 422, and no PO is written",
+        phantomConvert.status === 422 && (await req("GET", "/purchases/orders/SCN-PO-D310-RFQ")).status === 404,
+        `status ${phantomConvert.status} ${JSON.stringify(phantomConvert.body)}`,
+      );
+      const phantomOpportunity = await req("POST", "/crm/opportunities", {
+        title: "SCN D310",
+        customerId: "CUST-PHANTOM-D310",
+        stageId: "STAGE-LEAD",
+        expectedValue: "100",
+        probability: 10,
+      });
+      check(
+        "D310: a CRM opportunity for a customer with no master record is refused 422",
+        phantomOpportunity.status === 422 && phantomOpportunity.body?.error === "CUSTOMER_NOT_FOUND",
+        `status ${phantomOpportunity.status} ${JSON.stringify(phantomOpportunity.body)}`,
+      );
+      const phantomRun = await req("POST", "/hr/payroll/runs", { year: 2031, month: 1, branchId: "MAIN", currency: "EGP" });
+      check(
+        "D310: a payroll run for a branch with no master record is refused 422",
+        phantomRun.status === 422 && phantomRun.body?.error === "BRANCH_NOT_FOUND",
+        `status ${phantomRun.status} ${JSON.stringify(phantomRun.body)}`,
       );
 
       const po = await req("POST", "/purchases/orders", {

@@ -135,7 +135,7 @@ describe("VoucherService — a foreign-currency voucher", () => {
     currency: "USD",
     branchId: "b1",
     paymentMethod: "cash" as const,
-    treasuryAccountId: "ta-cash1",
+    treasuryAccountId: "ta-cash-usd",
     treasuryGlAccountId: "1300-1",
     counterpartyGlAccountId: "1100",
     customerId: "cust-1",
@@ -219,7 +219,7 @@ describe("VoucherService — a foreign-currency voucher", () => {
 
   it("leaves a base-currency voucher exactly as it was", async () => {
     const h = buildTestService();
-    await h.service.createVoucher({ ...usdCollection, id: "v-egp", currency: "EGP" });
+    await h.service.createVoucher({ ...usdCollection, id: "v-egp", currency: "EGP", treasuryAccountId: "ta-cash1" });
     const { document } = await h.service.confirmVoucher("v-egp");
     expect(voucherLine(document).fxRate ?? null).toBeNull();
     expect((await h.ledger.accountBalance("1300-1")).balance.toString()).toBe("1000.000000");
@@ -295,7 +295,7 @@ describe("VoucherService — a settled foreign invoice leaves the FX open positi
       currency: "USD",
       branchId: "b1",
       paymentMethod: "cash",
-      treasuryAccountId: "ta-cash1",
+      treasuryAccountId: "ta-cash-usd",
       treasuryGlAccountId: "1300-1",
       counterpartyGlAccountId: "1100",
       customerId: "cust-1",
@@ -314,5 +314,48 @@ describe("VoucherService — a settled foreign invoice leaves the FX open positi
     });
     expect(result.hasImpact).toBe(false);
     expect(result.totalGain.toString()).toBe("0.000000");
+  });
+});
+
+describe("VoucherService — D338: the voucher takes its treasury account's currency", () => {
+  const collection = {
+    id: "v-d338",
+    date: "2026-08-22",
+    voucherType: "customer_collection" as const,
+    amount: Money.fromMajor("100"),
+    branchId: "b1",
+    paymentMethod: "cash" as const,
+    treasuryGlAccountId: "1300-1",
+    counterpartyGlAccountId: "1100",
+    customerId: "cust-1",
+  };
+
+  it("a voucher with no stated currency takes the treasury account's", async () => {
+    const h = buildTestService({ rates: { USD: "49.35" } });
+    const doc = await h.service.createVoucher({ ...collection, treasuryAccountId: "ta-cash-usd" });
+    expect(voucherLine(doc).currency).toBe("USD");
+  });
+
+  it("a stated currency the treasury account does not hold is refused, and nothing is written", async () => {
+    const h = buildTestService();
+    await expect(h.service.createVoucher({ ...collection, treasuryAccountId: "ta-cash-usd", currency: "EGP" })).rejects.toMatchObject({
+      messageEn: expect.stringContaining("treasury account is in USD"),
+    });
+    expect(await h.service.findById("v-d338")).toBeNull();
+  });
+
+  it("createConfirmAndAllocate confirms and allocates the unallocated remainder in one call", async () => {
+    const h = buildTestService({
+      invoices: [
+        { id: "inv-d338", invoiceNo: "SI-D338", kind: "sales", partyId: "cust-1", date: "2026-08-01", total: Money.fromMajor("500"), allocated: Money.zero() },
+      ],
+    });
+    const result = await h.service.createConfirmAndAllocate({ ...collection, treasuryAccountId: "ta-cash1" }, [
+      { allocationId: "a-d338", invoiceId: "inv-d338" },
+    ]);
+    expect(result.held).toBe(false);
+    expect(result.document.status).toBe("confirmed");
+    expect(result.allocations.map((a) => a.amount.toString())).toEqual(["100.000000"]);
+    expect((await h.invoices.findById("inv-d338"))!.allocated.toString()).toBe("100.000000");
   });
 });

@@ -14,7 +14,7 @@ import {
   type AuthContext,
 } from "@mezan/domain";
 import { createAttachmentSchema } from "@mezan/contracts";
-import { moduleRefusalFor, type AuthContextResolver } from "./permission-gate.js";
+import { moduleRefusalFor, permissionDeniedBody, type AuthContextResolver } from "./permission-gate.js";
 
 /**
  * المرفقات — `/attachments`. Files hang off a document (invoice, voucher, work
@@ -55,7 +55,7 @@ function manageModuleRefusal(c: Context, entityType: AttachmentEntityType): Resp
 }
 
 function denied(c: Context, permission: string) {
-  return c.json({ error: "PERMISSION_DENIED", permission, message: `Missing permission '${permission}'.` }, 403);
+  return c.json(permissionDeniedBody(permission), 403);
 }
 
 function serialize(attachment: Attachment) {

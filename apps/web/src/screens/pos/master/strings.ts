@@ -7,7 +7,6 @@ export const ar = {
   "nav.item.pos-payment-methods": "طرق الدفع",
   "nav.item.pos-settings": "إعدادات نقطة البيع",
   "nav.item.settings-shifts": "الورديات",
-  "perm.entity.terminal": "جهاز نقطة البيع",
 
   "pos.common.noAccessTitle": "لا تملك صلاحية عرض هذه الشاشة",
   "pos.common.noAccessBody": "اطلب من مدير النظام صلاحية «عرض — جهاز نقطة البيع».",
@@ -206,7 +205,6 @@ export const en: Record<keyof typeof ar, string> = {
   "nav.item.pos-payment-methods": "Payment methods",
   "nav.item.pos-settings": "POS settings",
   "nav.item.settings-shifts": "Shifts",
-  "perm.entity.terminal": "POS terminal",
 
   "pos.common.noAccessTitle": "You cannot view this screen",
   "pos.common.noAccessBody": "Ask an administrator for the «View — POS terminal» permission.",

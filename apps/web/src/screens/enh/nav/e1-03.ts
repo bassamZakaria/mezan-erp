@@ -5,7 +5,6 @@ export const screens = {} satisfies ScreenLoaderFragment;
 export const icons: NavIconFragment = {};
 
 export const ar = {
-  "perm.action.post_entry": "ترحيل قيد من الكشف",
   "bankRecX.reviewLoadFailed": "تعذّر تحميل قائمة المراجعة.",
   "bankRecX.rulesLoadFailed": "تعذّر تحميل قواعد البنك.",
   "bankRecX.suggestFailed": "تعذّر اقتراح المطابقات.",
@@ -105,7 +104,6 @@ export const ar = {
 } as const;
 
 export const en: Record<keyof typeof ar, string> = {
-  "perm.action.post_entry": "Post entry from statement",
   "bankRecX.reviewLoadFailed": "The review list could not be loaded.",
   "bankRecX.rulesLoadFailed": "Bank rules could not be loaded.",
   "bankRecX.suggestFailed": "Matches could not be suggested.",

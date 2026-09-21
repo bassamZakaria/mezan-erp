@@ -49,6 +49,7 @@ import {
   useConfirmVoucher,
   useCreateAllocation,
   useCreateVoucher,
+  useCreateCollection,
   useCustomers,
   useOpenInvoices,
   useProjects,
@@ -966,6 +967,7 @@ function CreateVoucherView({
   const { label: voucherLabel, subtitle: voucherSubtitle } = useDomainLabels();
   const createVoucher = useCreateVoucher();
   const confirmVoucher = useConfirmVoucher();
+  const createCollection = useCreateCollection();
   const branchesQuery = useBranches();
   const costCentersQuery = useCostCenters();
   const projectsQuery = useProjects();
@@ -1041,7 +1043,7 @@ function CreateVoucherView({
       voucherType: type,
       direction: def.direction,
       amount,
-      currency: "EGP",
+      currency: treasuryAccounts.find((account) => account.id === draft.treasuryAccountId)?.currency ?? "EGP",
       branchId: workingLocation.branchId ?? branchesQuery.data?.[0]?.id ?? "",
       paymentMethod: draft.paymentMethod,
       treasuryAccountId: draft.treasuryAccountId,
@@ -1060,7 +1062,7 @@ function CreateVoucherView({
     // `workingLocation` and the branch list are real inputs: the line's branch
     // is resolved from them, and leaving them out let the effects preview keep
     // showing the branch that was current when the form opened.
-  }, [type, def, draft, workingLocation.branchId, branchesQuery.data, treasuryGlOf, counterpartyGl]);
+  }, [type, def, draft, workingLocation.branchId, branchesQuery.data, treasuryGlOf, counterpartyGl, treasuryAccounts]);
 
   // A preview document for the live effects panel — a pure client-side computation, no network call.
   const previewEffects = useMemo(() => {
@@ -1086,6 +1088,31 @@ function CreateVoucherView({
     setBusy(true);
     setError(null);
     try {
+      if (line.voucherType === "customer_collection" && line.customerId) {
+        const collected = await createCollection.mutateAsync({
+          date: draft.date,
+          memo: draft.memo || voucherLabel(def),
+          customerId: line.customerId,
+          branchId: line.branchId,
+          treasuryAccountId: line.treasuryAccountId,
+          amount: line.amount.toString(),
+          paymentMethod: line.paymentMethod,
+          referenceNo: line.referenceNo,
+          costCenterId: line.costCenterId ?? null,
+          projectId: line.projectId ?? null,
+          costCategory: line.costCategory ?? null,
+          withholdingAmount: line.withholdingAmount ? line.withholdingAmount.toString() : null,
+          withholdingRatePercent: line.withholdingRatePercent ?? null,
+          withholdingGlAccountId: line.withholdingGlAccountId ?? null,
+          allocations: [],
+        });
+        if (collected.held) {
+          setHeldVoucher({ docNo: collected.voucher.docNo ?? "" });
+          return;
+        }
+        onDone();
+        return;
+      }
       const created = await createVoucher.mutateAsync({
         date: draft.date,
         memo: draft.memo || voucherLabel(def),

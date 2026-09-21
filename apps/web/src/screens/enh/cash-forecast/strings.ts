@@ -1,6 +1,5 @@
 export const ar = {
   "nav.item.cash-forecast": "توقع السيولة",
-  "perm.entity.cash_forecast": "توقع السيولة",
 
   "cashForecast.title": "توقع السيولة (مدى النقدية)",
   "cashForecast.subtitle":
@@ -109,7 +108,6 @@ export const ar = {
 
 export const en: Record<keyof typeof ar, string> = {
   "nav.item.cash-forecast": "Cash runway",
-  "perm.entity.cash_forecast": "cash forecast",
 
   "cashForecast.title": "Cash runway forecast",
   "cashForecast.subtitle":

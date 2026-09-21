@@ -1,5 +1,4 @@
 export const ar = {
-  "perm.entity.cockpit": "لوحة المالك",
 
   "cockpit.title": "لوحة المالك",
   "cockpit.subtitle": "مبيعات اليوم وتحصيلاته وهامشه مقارنة بنفس اليوم من الأسبوع الماضي، من القيود المرحّلة مباشرة.",
@@ -74,7 +73,6 @@ export const ar = {
 } as const;
 
 export const en: Record<keyof typeof ar, string> = {
-  "perm.entity.cockpit": "owner cockpit",
 
   "cockpit.title": "Owner cockpit",
   "cockpit.subtitle": "Today's sales, collections and margin against the same day last week, straight from the posted ledger.",

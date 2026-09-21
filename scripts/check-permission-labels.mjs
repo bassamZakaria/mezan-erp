@@ -17,7 +17,7 @@ import path from "node:path";
  */
 
 const CATALOG = "packages/domain/src/permissions/catalog.ts";
-const LABELS = "apps/web/src/i18n/catalog.ts";
+const LABELS = "packages/domain/src/permissions/labels.ts";
 
 function filesUnder(dir) {
   let out = [];
@@ -37,7 +37,6 @@ function filesUnder(dir) {
 
 // POS and enhancement lanes register their codes and labels in fragment files, not in the two catalogs.
 const PERMISSION_FRAGMENTS = [...filesUnder("packages/domain/src/pos/permissions"), ...filesUnder("packages/domain/src/enh/permissions")];
-const LABEL_FRAGMENTS = [...filesUnder("apps/web/src/screens/pos"), ...filesUnder("apps/web/src/screens/enh")];
 
 const codes = [CATALOG, ...PERMISSION_FRAGMENTS].flatMap((file) =>
   [...readFileSync(file, "utf8").matchAll(/\[\s*"([a-z0-9_]+\.[a-z0-9_.]+)"/g)].map((m) => m[1]),
@@ -56,21 +55,32 @@ const segments = new Set(
   }),
 );
 
-const labels = [LABELS, ...LABEL_FRAGMENTS].map((file) => readFileSync(file, "utf8")).join("\n");
-const counts = new Map();
-for (const [, segment] of labels.matchAll(/"perm\.entity\.([a-z0-9_]+)":/g)) {
-  counts.set(segment, (counts.get(segment) ?? 0) + 1);
+function labelTable(name) {
+  const block = labelsSource.match(new RegExp(`export const ${name} = \\{([\\s\\S]*?)\\n\\} as const`));
+  if (!block) {
+    console.error(`✖ permission labels: found no ${name} in ${LABELS} — the extraction is broken, not the labels`);
+    process.exit(1);
+  }
+  return new Map(
+    [...block[1].matchAll(/^\s+([a-z0-9_]+): \{ ar: "((?:[^"\\]|\\.)*)", en: "((?:[^"\\]|\\.)*)" \},?$/gm)].map((m) => [m[1], { ar: m[2], en: m[3] }]),
+  );
 }
 
-const missing = [...segments].filter((s) => !counts.has(s)).sort();
-// Two locales, so exactly two occurrences per key: one in webAr, one in webEn.
-const oneLocaleOnly = [...segments].filter((s) => counts.get(s) === 1).sort();
-const stale = [...counts.keys()].filter((s) => !segments.has(s)).sort();
+const labelsSource = readFileSync(LABELS, "utf8");
+const entityLabels = labelTable("PERMISSION_ENTITY_LABELS");
+const actionLabels = labelTable("PERMISSION_ACTION_LABELS");
+const actions = new Set(codes.map((code) => code.split(".").at(-1)));
+
+const missing = [...segments].filter((s) => !entityLabels.has(s)).sort();
+const oneLocaleOnly = [...entityLabels].filter(([, l]) => l.ar.trim() === "" || l.en.trim() === "").map(([s]) => s).sort();
+const stale = [...entityLabels.keys()].filter((s) => !segments.has(s)).sort();
+const missingActions = [...actions].filter((a) => !actionLabels.has(a)).sort();
 
 const problems = [];
 if (missing.length > 0) problems.push(`missing perm.entity.* for: ${missing.join(", ")}`);
 if (oneLocaleOnly.length > 0) problems.push(`translated in only one locale: ${oneLocaleOnly.join(", ")}`);
 if (stale.length > 0) problems.push(`perm.entity.* with no permission left in the catalog: ${stale.join(", ")}`);
+if (missingActions.length > 0) problems.push(`missing action label for: ${missingActions.join(", ")}`);
 
 if (problems.length > 0) {
   console.error("✖ permission labels:");

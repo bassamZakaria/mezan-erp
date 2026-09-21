@@ -1,5 +1,14 @@
 import type { Context, MiddlewareHandler } from "hono";
-import { ALL_SCOPE, can, createAuthContext, getPermission, isModuleLicensed, type AuthContext } from "@mezan/domain";
+import {
+  ALL_SCOPE,
+  can,
+  createAuthContext,
+  getPermission,
+  isModuleLicensed,
+  PermissionLabelLocale,
+  permissionHumanLabel,
+  type AuthContext,
+} from "@mezan/domain";
 import { moduleRefusal } from "./module-gate.js";
 
 /** Resolves the calling {@link AuthContext} for one request. */
@@ -176,6 +185,22 @@ export function createAuthenticatedGate(resolveAuthContext: AuthContextResolver)
   };
 }
 
+export interface PermissionDeniedBody {
+  readonly error: "PERMISSION_DENIED";
+  readonly permission: string;
+  readonly message: string;
+  readonly messageEn: string;
+}
+
+export function permissionDeniedBody(permission: string): PermissionDeniedBody {
+  return {
+    error: "PERMISSION_DENIED",
+    permission,
+    message: `هذا الإجراء يتطلب صلاحية «${permissionHumanLabel(permission, PermissionLabelLocale.Ar)}» غير المتاحة لحسابك.`,
+    messageEn: `This action needs the “${permissionHumanLabel(permission, PermissionLabelLocale.En)}” permission, which your account does not have.`,
+  };
+}
+
 export function createPermissionGate(resolveAuthContext: AuthContextResolver) {
   return function gate(permission: string): MiddlewareHandler {
     return async function permissionGate(c, next) {
@@ -188,14 +213,7 @@ export function createPermissionGate(resolveAuthContext: AuthContextResolver) {
       }
       if (!can(ctx, permission)) {
         refuse(c, ctx, permission);
-        return c.json(
-          {
-            error: "PERMISSION_DENIED",
-            permission,
-            message: `هذا الإجراء يتطلب صلاحية «${permission}» غير المتاحة لحسابك.`,
-          },
-          403,
-        );
+        return c.json(permissionDeniedBody(permission), 403);
       }
       c.set(AUTH_CONTEXT_KEY, ctx);
       await next();
@@ -225,14 +243,7 @@ export function createAnyPermissionGate(resolveAuthContext: AuthContextResolver)
       }
       if (!permissions.some((permission) => can(ctx, permission))) {
         refuse(c, ctx, permissions[0] ?? "");
-        return c.json(
-          {
-            error: "PERMISSION_DENIED",
-            permission: permissions[0],
-            message: `Missing any of '${permissions.join("', '")}'.`,
-          },
-          403,
-        );
+        return c.json(permissionDeniedBody(permissions[0] ?? ""), 403);
       }
       c.set(AUTH_CONTEXT_KEY, ctx);
       await next();

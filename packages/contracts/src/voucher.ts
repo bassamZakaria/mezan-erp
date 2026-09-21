@@ -158,6 +158,47 @@ export const createAllocationSchema = z.object({
   amount: moneyString,
 });
 
+/**
+ * «تحصيل» in one call (D338): create, confirm and allocate a customer
+ * collection atomically. The voucher takes the treasury account's currency;
+ * `amount` is in that currency. Each allocation's `amount` is in BASE, as on
+ * `POST /vouchers/:id/allocations`; omitted, it takes what is left of the
+ * voucher.
+ */
+export const createCollectionSchema = z.object({
+  id: z.string().min(1).optional(),
+  date: isoDateOrInstant.optional(),
+  memo: z.string().optional(),
+  customerId: z.string().min(1),
+  branchId: z.string().min(1),
+  treasuryAccountId: z.string().min(1),
+  amount: moneyString,
+  paymentMethod: voucherPaymentMethodSchema,
+  referenceNo: z.string().nullish(),
+  costCenterId: z.string().nullish(),
+  projectId: z.string().nullish(),
+  costCategory: costCategorySchema.nullish(),
+  withholdingAmount: moneyString.nullish(),
+  withholdingRatePercent: z.number().min(0).max(100).nullish(),
+  withholdingGlAccountId: z.string().nullish(),
+  requestId: z.string().min(1).optional(),
+  allocations: z
+    .array(
+      z.object({
+        allocationId: z.string().min(1).optional(),
+        invoiceId: z.string().min(1),
+        amount: moneyString.optional(),
+      }),
+    )
+    .default([]),
+});
+
+export const collectionResultSchema = z.object({
+  voucher: voucherSchema,
+  held: z.boolean(),
+  allocations: z.array(voucherAllocationSchema),
+});
+
 /** The allocation summary returned alongside a voucher. */
 export const allocationSummarySchema = z.object({
   voucherAmount: z.string(),
@@ -201,4 +242,6 @@ export type OpenInvoiceDTO = z.infer<typeof openInvoiceSchema>;
 export type VoucherAllocationDTO = z.infer<typeof voucherAllocationSchema>;
 export type CreateAllocationDTO = z.infer<typeof createAllocationSchema>;
 export type AllocationSummaryDTO = z.infer<typeof allocationSummarySchema>;
+export type CreateCollectionDTO = z.input<typeof createCollectionSchema>;
+export type CollectionResultDTO = z.infer<typeof collectionResultSchema>;
 export type VoucherListQueryDTO = z.infer<typeof voucherListQuerySchema>;

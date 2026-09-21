@@ -102,6 +102,8 @@ import type {
   CreateTreasuryAccountDTO,
   CreateUserDTO,
   CreateVoucherDTO,
+  CreateCollectionDTO,
+  CollectionResultDTO,
   CreateWarehouseDTO,
   CreateWorkOrderDTO,
   CreateWritedownRunDTO,
@@ -2478,6 +2480,24 @@ export function useCreateVoucher() {
       return res.json<VoucherDTO>();
     },
     onSuccess: () => invalidateVouchers(queryClient),
+  });
+}
+
+export function useCreateCollection() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<CollectionResultDTO, ApiError, CreateCollectionDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/vouchers/collections", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theVoucherCouldNotBe2"), t));
+      return res.json<CollectionResultDTO>();
+    },
+    onSuccess: () => {
+      invalidateVouchers(queryClient);
+      queryClient.invalidateQueries({ queryKey: ["open-invoices"] });
+      queryClient.invalidateQueries({ queryKey: ["treasury-accounts"] });
+    },
   });
 }
 

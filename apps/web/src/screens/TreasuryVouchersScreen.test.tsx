@@ -153,6 +153,7 @@ function renderScreen({ heldOnConfirm = false, allocations = seededAllocations }
   let nextSeq = 5;
   const allocationsByVoucher = { ...allocations };
   const reverseRequests: { date?: string }[] = [];
+  const collectionRequests: Record<string, unknown>[] = [];
   const transport = stubTransport({
     "GET /vouchers": (_init, path) => {
       const params = new URLSearchParams(path.split("?")[1] ?? "");
@@ -191,6 +192,22 @@ function renderScreen({ heldOnConfirm = false, allocations = seededAllocations }
       current = [...current, { ...created, allocatable: false, allocationSummary: { voucherAmount: created.amount, allocated: "0", unallocated: created.amount, fullyAllocated: false, needsAllocation: false } }];
       return { status: 201, body: created };
     },
+    "POST /vouchers/collections": (init) => {
+      const body = JSON.parse((init?.body as string) ?? "{}");
+      collectionRequests.push(body);
+      const docNo = `CV-${String(nextSeq).padStart(6, "0")}`;
+      const created = voucher({
+        ...body,
+        voucherType: "customer_collection",
+        id: `cv-${nextSeq}`,
+        docNo,
+        status: heldOnConfirm ? "draft" : "confirmed",
+        confirmedAt: heldOnConfirm ? null : "2026-08-22T10:00:00.000Z",
+      });
+      nextSeq += 1;
+      current = [...current, { ...created, allocatable: true, allocationSummary: { voucherAmount: created.amount, allocated: "0", unallocated: created.amount, fullyAllocated: false, needsAllocation: !heldOnConfirm } }];
+      return { status: 201, body: { voucher: created, held: heldOnConfirm, allocations: [] } };
+    },
     "POST /vouchers/cv-5/confirm": () => {
       const docNo = `CV-${String(nextSeq).padStart(6, "0")}`;
       nextSeq += 1;
@@ -228,7 +245,7 @@ function renderScreen({ heldOnConfirm = false, allocations = seededAllocations }
     </TestNavigation>,
     { transport, initialSession: testAdminSession },
   );
-  return { ...result, reverseRequests };
+  return { ...result, reverseRequests, collectionRequests };
 }
 
 describe("TreasuryVouchersScreen — list", () => {
@@ -272,8 +289,8 @@ describe("TreasuryVouchersScreen — list", () => {
 });
 
 describe("TreasuryVouchersScreen — create + confirm", () => {
-  it("creates and confirms a customer collection, adding a CV- numbered row", async () => {
-    renderScreen();
+  it("D338: creates and confirms a customer collection in one call, adding a CV- numbered row", async () => {
+    const { collectionRequests } = renderScreen();
     await screen.findByText("CV-000001");
     fireEvent.click(screen.getByRole("button", { name: "سند جديد" }));
 
@@ -291,6 +308,8 @@ describe("TreasuryVouchersScreen — create + confirm", () => {
     await waitFor(() => expect(screen.getByRole("heading", { name: "السندات النقدية" })).toBeInTheDocument());
     // Continues the sequence from CV-000004 → CV-000005.
     expect(await screen.findByText("CV-000005")).toBeInTheDocument();
+    expect(collectionRequests).toHaveLength(1);
+    expect(collectionRequests[0]).toMatchObject({ amount: "300.000000", allocations: [] });
   });
 
   /**

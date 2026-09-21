@@ -35,6 +35,7 @@ import {
   type AuthContextResolver,
   branchScopeOf,
   withinScope,} from "./permission-gate.js";
+import { MasterDataKind, refuseUnknownMasterData, type MasterDataChecks } from "./master-data-check.js";
 
 /**
  * Permission-gated routes for طلبات عروض الأسعار (RFQs, docs/archive/catalog/02),
@@ -60,6 +61,7 @@ export interface RfqRoutesDeps {
   readonly orders: PurchaseOrderRepository;
   readonly numbering: NextNumberService;
   readonly now?: () => string;
+  readonly masterData?: MasterDataChecks;
 }
 
 function serializeRfq(r: PurchaseRfq) {
@@ -210,6 +212,11 @@ export function createRfqRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
+    const partyRefusal = await refuseUnknownMasterData(c, deps.masterData, [
+      { kind: MasterDataKind.Branch, ids: [parsed.data.branchId] },
+      { kind: MasterDataKind.Warehouse, ids: [parsed.data.warehouseId] },
+    ]);
+    if (partyRefusal) return partyRefusal;
     try {
       const rfq = await createRfq(
         {
@@ -263,6 +270,8 @@ export function createRfqRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
+    const supplierRefusal = await refuseUnknownMasterData(c, deps.masterData, [{ kind: MasterDataKind.Supplier, ids: [parsed.data.supplierId] }]);
+    if (supplierRefusal) return supplierRefusal;
     try {
       const quote = await recordRfqQuote(
         {
@@ -311,6 +320,8 @@ export function createRfqRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
+    const convertRefusal = await refuseUnknownMasterData(c, deps.masterData, [{ kind: MasterDataKind.Supplier, ids: [parsed.data.supplierId] }]);
+    if (convertRefusal) return convertRefusal;
     try {
       const result = await convertRfqToPurchaseOrder(
         {

@@ -105,7 +105,9 @@ function localeInfoPlist(config, locale) {
   const path = config.locales?.[locale];
   if (typeof path !== "string") return null;
   const full = join(MOBILE, path);
-  return existsSync(full) ? readJson(full) : null;
+  if (!existsSync(full)) return null;
+  const parsed = readJson(full);
+  return parsed.ios ?? parsed;
 }
 
 function defaultApiHosts() {

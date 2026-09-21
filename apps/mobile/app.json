@@ -81,8 +81,8 @@
       ]
     },
     "locales": {
-      "ar": "./src/i18n/ios-ar.json",
-      "en": "./src/i18n/ios-en.json"
+      "ar": "./src/i18n/locale-ar.json",
+      "en": "./src/i18n/locale-en.json"
     },
     "plugins": [
       "expo-router",

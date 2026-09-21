@@ -237,7 +237,8 @@ export function Segmented({ options, value, onChange, className, ...props }: Seg
 /* ------------------------------------------------------------------ */
 
 export interface MoneyProps {
-  value: number;
+  /** A number, or the exact decimal string the API carries (D126). */
+  value: number | string;
   /** Overrides useFormat()'s default currency label (ج.م). */
   currencyLabel?: string;
   showUnit?: boolean;

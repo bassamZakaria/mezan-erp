@@ -1,3 +1,5 @@
+import { Money } from "../money/index.js";
+
 /**
  * The arithmetic behind a report's summary strip (R21.2).
  *
@@ -83,3 +85,20 @@ export function averageOf(total: number, count: number): number {
   if (divisor === 0n) return 0;
   return Number((BigInt(Math.round(total * 1e6)) * 1_000_000n) / divisor) / 1e6;
 }
+
+/** The exact sum of money figures carried as decimal strings, as a decimal string (D345). */
+export function sumMoneyStrings<Row>(rows: readonly Row[], pick: (row: Row) => readonly string[]): string {
+  let scaled = 0n;
+  for (const row of rows) for (const figure of pick(row)) scaled += Money.fromMajor(figure).scaled;
+  return Money.fromScaled(scaled).toString();
+}
+
+/** {@link percentOf} over two exact decimal strings, dividing in scaled integers. */
+export function percentOfMoneyStrings(part: string, whole: string): number {
+  const w = Money.fromMajor(whole).scaled;
+  if (w === 0n) return 0;
+  const p = Money.fromMajor(part).scaled;
+  const basisPoints = (p * 20_000n + w) / (2n * w);
+  return Number(basisPoints) / 100;
+}
+

@@ -24,8 +24,8 @@ describe("createAgingSuppliersReport", () => {
     const outcome = runReport(definition, { asOfDate: "2026-06-05" }, { invoices: [pinvoice()], suppliers: [supplier()] });
     expect(outcome.ok).toBe(true);
     if (!outcome.ok) return;
-    expect(outcome.rows[0]?.current).toBe(300);
-    expect(outcome.rows[0]?.total).toBe(300);
+    expect(outcome.rows[0]?.current).toBe("300.000000");
+    expect(outcome.rows[0]?.total).toBe("300.000000");
   });
 
   it("falls back to the invoice date when dueDate is null", () => {
@@ -37,7 +37,7 @@ describe("createAgingSuppliersReport", () => {
     );
     expect(outcome.ok).toBe(true);
     if (!outcome.ok) return;
-    expect(outcome.rows[0]?.d61to90).toBe(300);
+    expect(outcome.rows[0]?.d61to90).toBe("300.000000");
   });
 
   it("excludes draft purchase invoices", () => {
@@ -69,13 +69,13 @@ describe("createAgingSuppliersReport — the tie to the AP control account (D112
     const outcome = runReport(
       definition,
       { asOfDate: "2026-08-22" },
-      { invoices: twoInvoices, suppliers, payablesControlBalance: () => 4650.5 },
+      { invoices: twoInvoices, suppliers, payablesControlBalance: () => Money.fromMajor("4650.5") },
     );
     expect(outcome.ok).toBe(true);
     if (!outcome.ok) return;
 
-    expect(outcome.reconciliation?.reportTotal).toBe(4650.5);
-    expect(outcome.reconciliation?.referenceTotal).toBe(4650.5);
+    expect(outcome.reconciliation?.reportTotal).toBe("4650.500000");
+    expect(outcome.reconciliation?.referenceTotal).toBe("4650.500000");
     expect(outcome.reconciliation?.withinTolerance).toBe(true);
   });
 
@@ -83,12 +83,12 @@ describe("createAgingSuppliersReport — the tie to the AP control account (D112
     const outcome = runReport(
       definition,
       { asOfDate: "2026-08-22" },
-      { invoices: twoInvoices, suppliers, payablesControlBalance: () => 4000 },
+      { invoices: twoInvoices, suppliers, payablesControlBalance: () => Money.fromMajor("4000") },
     );
     expect(outcome.ok).toBe(true);
     if (!outcome.ok) return;
 
-    expect(outcome.reconciliation?.diff).toBe(650.5);
+    expect(outcome.reconciliation?.diff).toBe("650.500000");
     expect(outcome.reconciliation?.withinTolerance).toBe(false);
   });
 });
@@ -100,10 +100,10 @@ describe("createAgingSuppliersReport — foreign invoices and leftover debits (D
     const outcome = runReport(
       definition,
       { asOfDate: "2026-06-05" },
-      { invoices: [pinvoice({ currency: "SAR", fxRate: "13.20", lines: [pline({ kind: "expense", itemId: null, unitCost: Money.fromMajor("100") })] })], suppliers: [supplier()], payablesControlBalance: () => 1320 },
+      { invoices: [pinvoice({ currency: "SAR", fxRate: "13.20", lines: [pline({ kind: "expense", itemId: null, unitCost: Money.fromMajor("100") })] })], suppliers: [supplier()], payablesControlBalance: () => Money.fromMajor("1320") },
     );
     if (!outcome.ok) throw new Error("report failed");
-    expect(outcome.rows[0]?.total).toBe(1320);
+    expect(outcome.rows[0]?.total).toBe("1320.000000");
     expect(outcome.reconciliation?.withinTolerance).toBe(true);
   });
 
@@ -115,12 +115,12 @@ describe("createAgingSuppliersReport — foreign invoices and leftover debits (D
         invoices: [pinvoice()],
         suppliers: [supplier(), supplier({ id: "sup-2", nameAr: "مورد ب" })],
         unappliedDebitsBySupplierId: new Map([["sup-1", Money.fromMajor("350")], ["sup-2", Money.fromMajor("40")]]),
-        payablesControlBalance: () => -90,
+        payablesControlBalance: () => Money.fromMajor("-90"),
       },
     );
     if (!outcome.ok) throw new Error("report failed");
-    expect(outcome.rows.find((r) => r.supplierId === "sup-1")).toMatchObject({ current: -50, total: -50 });
-    expect(outcome.rows.find((r) => r.supplierId === "sup-2")).toMatchObject({ current: -40, total: -40 });
+    expect(outcome.rows.find((r) => r.supplierId === "sup-1")).toMatchObject({ current: "-50.000000", total: "-50.000000" });
+    expect(outcome.rows.find((r) => r.supplierId === "sup-2")).toMatchObject({ current: "-40.000000", total: "-40.000000" });
     expect(outcome.reconciliation?.withinTolerance).toBe(true);
   });
 
@@ -128,10 +128,10 @@ describe("createAgingSuppliersReport — foreign invoices and leftover debits (D
     const outcome = runReport(
       definition,
       { asOfDate: "2026-06-05" },
-      { invoices: [pinvoice()], suppliers: [supplier()], payablesControlBalance: () => 300, fxRevaluationOnControl: () => 30 },
+      { invoices: [pinvoice()], suppliers: [supplier()], payablesControlBalance: () => Money.fromMajor("300"), fxRevaluationOnControl: () => Money.fromMajor("30") },
     );
     if (!outcome.ok) throw new Error("report failed");
-    expect(outcome.reconciliation?.reconcilingItems).toEqual([expect.objectContaining({ key: "fxRevaluation", amount: 30 })]);
+    expect(outcome.reconciliation?.reconcilingItems).toEqual([expect.objectContaining({ key: "fxRevaluation", amount: "30.000000" })]);
   });
 });
 

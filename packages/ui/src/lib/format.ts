@@ -57,13 +57,33 @@ export interface FormatMoneyOptions extends FormatNumberOptions {
   maximumFractionDigits?: number;
 }
 
-/** Formats a monetary amount with 2 decimal places by default. */
-export function formatMoney(value: number, options: FormatMoneyOptions = {}): string {
-  return formatNumber(value, {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-    ...options,
-  });
+/**
+ * Formats a monetary amount with 2 decimal places by default. An exact decimal
+ * string — money as the wire carries it (D126) — is rounded and grouped by
+ * string arithmetic, never through a float.
+ */
+export function formatMoney(value: number | string, options: FormatMoneyOptions = {}): string {
+  const merged = { minimumFractionDigits: 2, maximumFractionDigits: 2, ...options };
+  if (typeof value === "string") return formatDecimalString(value, merged);
+  return formatNumber(value, merged);
+}
+
+const DECIMAL_STRING = /^(-?)(\d+)(?:\.(\d+))?$/;
+
+function formatDecimalString(value: string, options: FormatNumberOptions): string {
+  const { numerals = "western", minimumFractionDigits = 0, maximumFractionDigits = 2 } = options;
+  const match = DECIMAL_STRING.exec(value.trim());
+  if (!match) return value;
+  const [, sign = "", whole = "0", fraction = ""] = match;
+  const scale = 10n ** BigInt(maximumFractionDigits);
+  const digits = BigInt(whole + fraction.padEnd(maximumFractionDigits, "0").slice(0, maximumFractionDigits));
+  const roundUp = fraction.length > maximumFractionDigits && Number(fraction[maximumFractionDigits]) >= 5;
+  const scaled = digits + (roundUp ? 1n : 0n);
+  const intPart = (scaled / scale).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  let fracPart = maximumFractionDigits > 0 ? (scaled % scale).toString().padStart(maximumFractionDigits, "0") : "";
+  while (fracPart.length > minimumFractionDigits && fracPart.endsWith("0")) fracPart = fracPart.slice(0, -1);
+  const formatted = applyNumerals(fracPart ? `${intPart}.${fracPart}` : intPart, numerals);
+  return sign === "-" && scaled !== 0n ? `-${formatted}` : formatted;
 }
 
 /**

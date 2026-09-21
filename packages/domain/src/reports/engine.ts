@@ -6,9 +6,20 @@ import type {
   ReportValidationError,
   RunReportOutcome,
   ReportKpiResult,
+  ReportFigure,
 } from "./types.js";
 import { sumRows } from "./kpi.js";
 import { Money } from "../money/index.js";
+
+const DECIMAL_FIGURE = /^-?\d+(\.\d{1,6})?$/;
+
+function isDecimalFigure(raw: string | number | null): raw is string {
+  return typeof raw === "string" && DECIMAL_FIGURE.test(raw);
+}
+
+function signOf(scaled: bigint): number {
+  return scaled > 0n ? 1 : scaled < 0n ? -1 : 0;
+}
 
 /** Validates raw (untyped, e.g. straight off a form) params against a report's zod schema. */
 export function validateReportParams<TParams>(
@@ -39,15 +50,24 @@ export function validateReportParams<TParams>(
  * the piastre came out as 681,214.3999999999 against 681,214.4, so
  * "debit = credit" read FALSE on books that balance.
  */
-function sumColumn<Row>(rows: readonly Row[], column: ReportColumn<Row>): number {
+function sumColumn<Row>(rows: readonly Row[], column: ReportColumn<Row>): ReportFigure {
+  const values = rows.map((row) => column.value(row));
+  if (values.some(isDecimalFigure)) {
+    let scaled = 0n;
+    for (const raw of values) {
+      if (isDecimalFigure(raw)) scaled += Money.fromMajor(raw).scaled;
+      else if (typeof raw === "number" && Number.isFinite(raw)) scaled += BigInt(Math.round(raw * 1e6));
+    }
+    return Money.fromScaled(scaled).toString();
+  }
   return sumRows(rows, (row) => {
     const raw = column.value(row);
     return typeof raw === "number" ? raw : null;
   });
 }
 
-function computeTotals<Row>(rows: readonly Row[], totalColumns: readonly ReportColumn<Row>[]): Record<string, number> {
-  const totals: Record<string, number> = {};
+function computeTotals<Row>(rows: readonly Row[], totalColumns: readonly ReportColumn<Row>[]): Record<string, ReportFigure> {
+  const totals: Record<string, ReportFigure> = {};
   for (const column of totalColumns) totals[column.key] = sumColumn(rows, column);
   return totals;
 }
@@ -61,7 +81,7 @@ function computeTotals<Row>(rows: readonly Row[], totalColumns: readonly ReportC
 export function computeReportGroups<Row>(
   definition: Pick<ReportDefinition<unknown, Row>, "columns" | "group">,
   rows: readonly Row[],
-): { groups: ReportGroupResult<Row>[]; grandTotals: Record<string, number> } {
+): { groups: ReportGroupResult<Row>[]; grandTotals: Record<string, ReportFigure> } {
   const totalColumns = definition.columns.filter((c) => c.total);
   const grandTotals = computeTotals(rows, totalColumns);
   for (const column of totalColumns) {
@@ -104,7 +124,9 @@ export function computeReconciliation<TParams, Row, Ctx>(
   if (!definition.reconciliation) return null;
   const { labelAr, computeReportTotal, computeReferenceTotal, toleranceMoney = 0, available } = definition.reconciliation;
   if (available && !available(ctx)) return null;
-  const items = (definition.reconciliation.reconcilingItems?.(ctx, params) ?? []).filter((item) => item.amount !== 0);
+  const items = (definition.reconciliation.reconcilingItems?.(ctx, params) ?? []).filter((item) =>
+    typeof item.amount === "string" ? Money.fromMajor(item.amount).scaled !== 0n : item.amount !== 0,
+  );
   const exact = definition.reconciliation.computeExactTotals?.(rows, ctx, params);
   if (exact) {
     const diff = exact.report.add(exact.reference.negate());
@@ -112,13 +134,14 @@ export function computeReconciliation<TParams, Row, Ctx>(
     const absDiff = diff.scaled < 0n ? -diff.scaled : diff.scaled;
     return {
       labelAr,
-      reportTotal: Number(exact.report.toString()),
-      referenceTotal: Number(exact.reference.toString()),
-      diff: Number(diff.toString()),
+      reportTotal: exact.report.toString(),
+      referenceTotal: exact.reference.toString(),
+      diff: diff.toString(),
       withinTolerance: absDiff <= tolerance.scaled,
       ...(items.length > 0 ? { reconcilingItems: items } : {}),
     };
   }
+  if (!computeReportTotal || !computeReferenceTotal) return null;
   const reportTotal = computeReportTotal(rows);
   const referenceTotal = computeReferenceTotal(rows, ctx, params);
   const diff = reportTotal - referenceTotal;
@@ -148,7 +171,7 @@ export function computeReconciliation<TParams, Row, Ctx>(
 function defaultReportKpis<TParams, Row, Ctx>(
   definition: ReportDefinition<TParams, Row, Ctx>,
   rows: readonly Row[],
-  grandTotals: Readonly<Record<string, number>>,
+  grandTotals: Readonly<Record<string, ReportFigure>>,
 ): ReportKpiResult[] {
   const kpis: ReportKpiResult[] = [
     { key: "rowCount", labelAr: "عدد السطور", format: "qty", value: rows.length },
@@ -167,7 +190,7 @@ function computeReportKpis<TParams, Row, Ctx>(
   definition: ReportDefinition<TParams, Row, Ctx>,
   params: TParams,
   rows: readonly Row[],
-  grandTotals: Readonly<Record<string, number>>,
+  grandTotals: Readonly<Record<string, ReportFigure>>,
 ): ReportKpiResult[] {
   if (!definition.kpis) return defaultReportKpis(definition, rows, grandTotals);
   return definition.kpis.map((spec) => {
@@ -178,7 +201,7 @@ function computeReportKpis<TParams, Row, Ctx>(
       hintAr: spec.hintAr,
       format: spec.format,
       value,
-      tone: spec.tone?.(value),
+      tone: spec.tone?.(typeof value === "string" ? signOf(Money.fromMajor(value).scaled) : value),
     };
   });
 }

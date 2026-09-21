@@ -18,7 +18,7 @@ interface Kpi {
   readonly key: string;
   readonly labelAr: string;
   readonly format?: string;
-  readonly value: number;
+  readonly value: number | string;
 }
 
 function kpi(body: any, key: string): number {
@@ -78,8 +78,12 @@ async function everyReportCarriesAKpiStrip_R212(ctx: Ctx): Promise<void> {
       const kpis = (res.body?.kpis ?? []) as Kpi[];
       ctx.check(`${label} carries KPIs`, kpis.length >= 3, `${kpis.length} kpis`);
       ctx.check(
-        `${label} KPI values are all real numbers`,
-        kpis.every((entry) => typeof entry.value === "number" && Number.isFinite(entry.value)),
+        `${label} KPI values are all real figures — a number, or an exact decimal string for money (D345)`,
+        kpis.every((entry) =>
+          typeof entry.value === "number"
+            ? Number.isFinite(entry.value)
+            : typeof entry.value === "string" && entry.format === "money" && /^-?\d+\.\d{6}$/.test(entry.value),
+        ),
         JSON.stringify(kpis).slice(0, 200),
       );
       ctx.check(

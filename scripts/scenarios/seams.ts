@@ -848,7 +848,7 @@ export async function run(ctx: Ctx): Promise<void> {
     check("the same line naming the customer posts", named.status === 201 && named.body?.lines?.[0]?.partyId === CUSTOMER, `status ${named.status} ${JSON.stringify(named.body).slice(0, 250)}`);
     const ladderAfter = await rowOf("customers", CUSTOMER);
     check("it lands on the customer's aging row as an open debit", ladderAfter.row! - ladderBefore.row! === 1_140_000_000n, `${ladderBefore.row} → ${ladderAfter.row}`);
-    check("the customer ladder still ties to 1105 exactly", ladderAfter.tie?.diff === 0, JSON.stringify(ladderAfter.tie));
+    check("the customer ladder still ties to 1105 exactly", ladderAfter.tie?.diff === "0.000000", JSON.stringify(ladderAfter.tie));
     check("what the customers screen says they owe moved by the same 1,140.00", (await owedOf("customers", CUSTOMER))! - owedBefore! === 1_140_000_000n);
     const statement = await statementOf("customers", CUSTOMER);
     check(
@@ -867,7 +867,7 @@ export async function run(ctx: Ctx): Promise<void> {
     check("a 2100 line naming the supplier posts", credit.status === 201, `status ${credit.status}`);
     const supplierAfter = await rowOf("suppliers", SUPPLIER);
     check("it raises what the supplier is owed on their aging row", supplierAfter.row! - supplierBefore.row! === 300_000_000n, `${supplierBefore.row} → ${supplierAfter.row}`);
-    check("the supplier ladder still ties to 2100 exactly", supplierAfter.tie?.diff === 0, JSON.stringify(supplierAfter.tie));
+    check("the supplier ladder still ties to 2100 exactly", supplierAfter.tie?.diff === "0.000000", JSON.stringify(supplierAfter.tie));
     check("the suppliers screen's owed figure is that row", (await owedOf("suppliers", SUPPLIER)) === supplierAfter.row);
 
     const reversed = await req("POST", "/gl/journal-entries/SCN-S-JE-AP-PARTY/reverse", { reversalId: "SCN-S-JE-AP-PARTY-REV" });

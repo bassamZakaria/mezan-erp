@@ -22,7 +22,7 @@ describe("createAgingCustomersReport", () => {
     const outcome = runReport(definition, { asOfDate: "2026-06-05" }, { invoices: [invoice()] }); // asOf before dueDate
     expect(outcome.ok).toBe(true);
     if (!outcome.ok) return;
-    expect(outcome.rows[0]?.current).toBe(200);
+    expect(outcome.rows[0]?.current).toBe("200.000000");
   });
 
   it("buckets 68 days past due into 61-90", () => {
@@ -31,9 +31,9 @@ describe("createAgingCustomersReport", () => {
     const outcome = runReport(definition, { asOfDate: "2026-08-22" }, { invoices: [invoice()] });
     expect(outcome.ok).toBe(true);
     if (!outcome.ok) return;
-    expect(outcome.rows[0]?.d61to90).toBe(200);
-    expect(outcome.rows[0]?.current).toBe(0);
-    expect(outcome.rows[0]?.total).toBe(200);
+    expect(outcome.rows[0]?.d61to90).toBe("200.000000");
+    expect(outcome.rows[0]?.current).toBe("0.000000");
+    expect(outcome.rows[0]?.total).toBe("200.000000");
   });
 
   it("buckets 130 days past due as over120", () => {
@@ -41,7 +41,7 @@ describe("createAgingCustomersReport", () => {
     const outcome = runReport(definition, { asOfDate: "2026-10-23" }, { invoices: [invoice()] }); // 2026-06-15 -> 2026-10-23 = 130 days
     expect(outcome.ok).toBe(true);
     if (!outcome.ok) return;
-    expect(outcome.rows[0]?.over120).toBe(200);
+    expect(outcome.rows[0]?.over120).toBe("200.000000");
   });
 
   it("subtracts amountPaid from the outstanding balance", () => {
@@ -74,7 +74,7 @@ describe("createAgingCustomersReport", () => {
     expect(outcome.ok).toBe(true);
     if (!outcome.ok) return;
     expect(outcome.rows).toHaveLength(1);
-    expect(outcome.rows[0]?.total).toBe(400);
+    expect(outcome.rows[0]?.total).toBe("400.000000");
   });
 });
 
@@ -95,14 +95,14 @@ describe("createAgingCustomersReport — the tie to the AR control account (D112
     const outcome = runReport(
       definition,
       { asOfDate: "2026-08-22" },
-      { invoices: twoInvoices, receivablesControlBalance: () => 4650.5 },
+      { invoices: twoInvoices, receivablesControlBalance: () => Money.fromMajor("4650.5") },
     );
     expect(outcome.ok).toBe(true);
     if (!outcome.ok) return;
 
-    expect(outcome.reconciliation?.reportTotal).toBe(4650.5);
-    expect(outcome.reconciliation?.referenceTotal).toBe(4650.5);
-    expect(outcome.reconciliation?.diff).toBe(0);
+    expect(outcome.reconciliation?.reportTotal).toBe("4650.500000");
+    expect(outcome.reconciliation?.referenceTotal).toBe("4650.500000");
+    expect(outcome.reconciliation?.diff).toBe("0.000000");
     expect(outcome.reconciliation?.withinTolerance).toBe(true);
   });
 
@@ -113,14 +113,14 @@ describe("createAgingCustomersReport — the tie to the AR control account (D112
     const outcome = runReport(
       definition,
       { asOfDate: "2026-08-22" },
-      { invoices: twoInvoices, receivablesControlBalance: () => 3650.5 },
+      { invoices: twoInvoices, receivablesControlBalance: () => Money.fromMajor("3650.5") },
     );
     expect(outcome.ok).toBe(true);
     if (!outcome.ok) return;
 
-    expect(outcome.reconciliation?.reportTotal).toBe(4650.5);
-    expect(outcome.reconciliation?.referenceTotal).toBe(3650.5);
-    expect(outcome.reconciliation?.diff).toBe(1000);
+    expect(outcome.reconciliation?.reportTotal).toBe("4650.500000");
+    expect(outcome.reconciliation?.referenceTotal).toBe("3650.500000");
+    expect(outcome.reconciliation?.diff).toBe("1000.000000");
     expect(outcome.reconciliation?.withinTolerance).toBe(false);
   });
 
@@ -135,7 +135,7 @@ describe("createAgingCustomersReport — the tie to the AR control account (D112
         invoices: twoInvoices,
         receivablesControlBalance: (params) => {
           seen.push(params.asOfDate);
-          return 4650.5;
+          return Money.fromMajor("4650.5");
         },
       },
     );
@@ -152,7 +152,7 @@ describe("a reconciliation whose reference is not wired shows no banner (D112)",
     const outcome = runReport(definition, { asOfDate: "2026-08-22" }, { invoices: [invoice()] });
     expect(outcome.ok).toBe(true);
     if (!outcome.ok) return;
-    expect(outcome.rows[0]?.total).toBe(200);
+    expect(outcome.rows[0]?.total).toBe("200.000000");
     expect(outcome.reconciliation).toBeNull();
   });
 });
@@ -164,10 +164,10 @@ describe("createAgingCustomersReport — foreign invoices and leftover credits (
     const outcome = runReport(
       definition,
       { asOfDate: "2026-06-05" },
-      { invoices: [invoice({ currency: "USD", fxRate: "48.00", lines: [line({ unitPrice: Money.fromMajor("100") })] })], receivablesControlBalance: () => 4800 },
+      { invoices: [invoice({ currency: "USD", fxRate: "48.00", lines: [line({ unitPrice: Money.fromMajor("100") })] })], receivablesControlBalance: () => Money.fromMajor("4800") },
     );
     if (!outcome.ok) throw new Error("report failed");
-    expect(outcome.rows[0]?.total).toBe(4800);
+    expect(outcome.rows[0]?.total).toBe("4800.000000");
     expect(outcome.reconciliation?.withinTolerance).toBe(true);
   });
 
@@ -179,12 +179,12 @@ describe("createAgingCustomersReport — foreign invoices and leftover credits (
         invoices: [invoice()],
         customers: [{ id: "c1", nameEn: null }, { id: "c2", nameAr: "عميل ب", nameEn: null }],
         unappliedCreditsByCustomerId: new Map([["c1", Money.fromMajor("250")], ["c2", Money.fromMajor("30")]]),
-        receivablesControlBalance: () => -80,
+        receivablesControlBalance: () => Money.fromMajor("-80"),
       },
     );
     if (!outcome.ok) throw new Error("report failed");
-    expect(outcome.rows.find((r) => r.customerId === "c1")).toMatchObject({ current: -50, total: -50 });
-    expect(outcome.rows.find((r) => r.customerId === "c2")).toMatchObject({ customerNameAr: "عميل ب", total: -30 });
+    expect(outcome.rows.find((r) => r.customerId === "c1")).toMatchObject({ current: "-50.000000", total: "-50.000000" });
+    expect(outcome.rows.find((r) => r.customerId === "c2")).toMatchObject({ customerNameAr: "عميل ب", total: "-30.000000" });
     expect(outcome.reconciliation?.withinTolerance).toBe(true);
   });
 
@@ -204,14 +204,14 @@ describe("createAgingCustomersReport — foreign invoices and leftover credits (
     const outcome = runReport(definition, { asOfDate: "2026-08-22" }, ctx);
     if (!outcome.ok) throw new Error("report failed");
     expect(agingBucketsTotal(balances.get("c1")!).toString()).toBe("100.000000");
-    expect(outcome.rows[0]?.total).toBe(100);
+    expect(outcome.rows[0]?.total).toBe("100.000000");
   });
 
   it("names the FX revaluation it excluded from the reference, and omits the item when there is none", () => {
-    const withItem = runReport(definition, { asOfDate: "2026-06-05" }, { invoices: [invoice()], receivablesControlBalance: () => 200, fxRevaluationOnControl: () => 12.5 });
-    const without = runReport(definition, { asOfDate: "2026-06-05" }, { invoices: [invoice()], receivablesControlBalance: () => 200 });
+    const withItem = runReport(definition, { asOfDate: "2026-06-05" }, { invoices: [invoice()], receivablesControlBalance: () => Money.fromMajor("200"), fxRevaluationOnControl: () => Money.fromMajor("12.5") });
+    const without = runReport(definition, { asOfDate: "2026-06-05" }, { invoices: [invoice()], receivablesControlBalance: () => Money.fromMajor("200") });
     if (!withItem.ok || !without.ok) throw new Error("report failed");
-    expect(withItem.reconciliation?.reconcilingItems).toEqual([expect.objectContaining({ key: "fxRevaluation", amount: 12.5 })]);
+    expect(withItem.reconciliation?.reconcilingItems).toEqual([expect.objectContaining({ key: "fxRevaluation", amount: "12.500000" })]);
     expect(without.reconciliation).not.toHaveProperty("reconcilingItems");
   });
 });

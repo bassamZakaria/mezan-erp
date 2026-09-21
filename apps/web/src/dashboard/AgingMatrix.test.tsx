@@ -18,8 +18,8 @@ function withProviders(ui: ReactElement) {
 
 const bucketLabels = ["حتى 30", "31-60", "61-90", "91-120", "أكثر من 120"];
 const rows: AgingMatrixRow[] = [
-  { key: "c1", label: "عميل الشرق", buckets: [1000, 0, 500, 0, 0] },
-  { key: "c2", label: "عميل الغرب", buckets: [0, 0, 0, 0, 0] },
+  { key: "c1", label: "عميل الشرق", buckets: ["1000", "0", "500", "0", "0"] },
+  { key: "c2", label: "عميل الغرب", buckets: ["0", "0", "0", "0", "0"] },
 ];
 
 describe("AgingMatrix", () => {
@@ -70,7 +70,7 @@ describe("AgingMatrix", () => {
         <AgingMatrix
           partyHeader="العميل"
           bucketLabels={bucketLabels}
-          rows={[{ key: "c3", label: "عميل الجنوب", buckets: [250, 0, 0, 0, 0] }]}
+          rows={[{ key: "c3", label: "عميل الجنوب", buckets: ["250", "0", "0", "0", "0"] }]}
           emptyLabel="لا توجد أرصدة متأخرة"
         />,
       ),

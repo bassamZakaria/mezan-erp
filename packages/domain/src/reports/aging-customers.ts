@@ -4,7 +4,7 @@ import { Money } from "../money/index.js";
 import { salesInvoiceBaseGrandTotal, salesInvoiceTotals } from "../sales-invoices/totals.js";
 import { SALES_INVOICE_ACTIVE_STATUSES, type SalesInvoice } from "../sales-invoices/sales-invoice.js";
 import type { ReportDefinition } from "./types.js";
-import { sumRows, percentOf } from "./kpi.js";
+import { sumMoneyStrings, percentOfMoneyStrings } from "./kpi.js";
 import { BRANCH_PARAM_FIELD, branchIdParamSchema, matchesBranch } from "./branch-filter.js";
 import type { AgingOpenItem } from "./aging-open-items.js";
 
@@ -66,14 +66,14 @@ export interface AgingCustomersContext {
    * with itself. Optional: omit it and the report still runs, it simply makes
    * no claim to tie to the ledger.
    */
-  readonly receivablesControlBalance?: (params: AgingCustomersParams) => number;
+  readonly receivablesControlBalance?: (params: AgingCustomersParams) => Money;
   /**
    * What FX revaluation has posted to the control account and not yet
    * reversed as of `asOfDate`. The ladder ages every invoice at the rate it
    * was booked at, so this is the one amount 1105 holds that no invoice does;
    * `receivablesControlBalance` is already net of it.
    */
-  readonly fxRevaluationOnControl?: (params: AgingCustomersParams) => number;
+  readonly fxRevaluationOnControl?: (params: AgingCustomersParams) => Money;
 }
 
 export interface AgingCustomersParams {
@@ -86,12 +86,12 @@ export interface AgingCustomersRow {
   readonly customerNameAr: string;
   /** The English name, so the report can be read in English (D57). Null when the record has none. */
   readonly customerNameEn: string | null;
-  readonly current: number;
-  readonly d31to60: number;
-  readonly d61to90: number;
-  readonly d91to120: number;
-  readonly over120: number;
-  readonly total: number;
+  readonly current: string;
+  readonly d31to60: string;
+  readonly d61to90: string;
+  readonly d91to120: string;
+  readonly over120: string;
+  readonly total: string;
 }
 
 const paramsSchema = z.object({
@@ -168,13 +168,15 @@ export function createAgingCustomersReport(
     ],
     reconciliation: {
       labelAr: "إجمالي أعمار الديون مقابل حساب العملاء في دفتر الأستاذ",
-      computeReportTotal: (rows) => sumRows(rows, (row) => row.total),
-      computeReferenceTotal: (_rows, ctx, params) => ctx.receivablesControlBalance?.(params) ?? 0,
+      computeExactTotals: (rows, ctx, params) => ({
+        report: Money.fromMajor(sumMoneyStrings(rows, (row) => [row.total])),
+        reference: ctx.receivablesControlBalance?.(params) ?? Money.zero(),
+      }),
       available: (ctx) => ctx.receivablesControlBalance !== undefined,
       toleranceMoney: 0.01,
       reconcilingItems: (ctx, params) => {
-        const revalued = ctx.fxRevaluationOnControl?.(params) ?? 0;
-        return [{ key: "fxRevaluation", labelAr: "إعادة تقييم العملات المرحّلة على الحساب (مستبعدة من المطابقة)", amount: revalued }];
+        const revalued = ctx.fxRevaluationOnControl?.(params) ?? Money.zero();
+        return [{ key: "fxRevaluation", labelAr: "إعادة تقييم العملات المرحّلة على الحساب (مستبعدة من المطابقة)", amount: revalued.toString() }];
       },
     },
     chart: {
@@ -184,9 +186,9 @@ export function createAgingCustomersReport(
       captionAr: "العملاء مرتبون حسب إجمالي المتأخر عليهم.",
     },
     kpis: [
-      { key: "total", labelAr: "إجمالي المديونية", format: "money", value: (rows) => sumRows(rows, (r) => r.total) },
-      { key: "over90", labelAr: "متأخر أكثر من 90 يوم", format: "money", value: (rows) => sumRows(rows, (r) => r.d91to120 + r.over120), tone: (value) => (value > 0 ? "danger" : "success") },
-      { key: "over90Percent", labelAr: "نسبة المتأخر", format: "percent", value: (rows) => percentOf(sumRows(rows, (r) => r.d91to120 + r.over120), sumRows(rows, (r) => r.total)) },
+      { key: "total", labelAr: "إجمالي المديونية", format: "money", value: (rows) => sumMoneyStrings(rows, (r) => [r.total]) },
+      { key: "over90", labelAr: "متأخر أكثر من 90 يوم", format: "money", value: (rows) => sumMoneyStrings(rows, (r) => [r.d91to120, r.over120]), tone: (value) => (value > 0 ? "danger" : "success") },
+      { key: "over90Percent", labelAr: "نسبة المتأخر", format: "percent", value: (rows) => percentOfMoneyStrings(sumMoneyStrings(rows, (r) => [r.d91to120, r.over120]), sumMoneyStrings(rows, (r) => [r.total])) },
       { key: "customerCount", labelAr: "عدد العملاء المدينين", format: "qty", value: (rows) => rows.length },
     ],
     run: (params, ctx) =>
@@ -194,12 +196,12 @@ export function createAgingCustomersReport(
         customerId,
         customerNameAr: agg.customerNameAr,
         customerNameEn: agg.customerNameEn,
-        current: Number(agg.current.toString()),
-        d31to60: Number(agg.d31to60.toString()),
-        d61to90: Number(agg.d61to90.toString()),
-        d91to120: Number(agg.d91to120.toString()),
-        over120: Number(agg.over120.toString()),
-        total: Number(agingBucketsTotal(agg).toString()),
+        current: agg.current.toString(),
+        d31to60: agg.d31to60.toString(),
+        d61to90: agg.d61to90.toString(),
+        d91to120: agg.d91to120.toString(),
+        over120: agg.over120.toString(),
+        total: agingBucketsTotal(agg).toString(),
       })),
   };
 }

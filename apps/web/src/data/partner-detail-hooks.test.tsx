@@ -82,12 +82,13 @@ describe("scaled-decimal money arithmetic", () => {
 
 describe("agingBucketsFor", () => {
   it("returns the row's buckets when present", () => {
-    const row = { current: 100, d31to60: 50, d61to90: 20, d91to120: 10, over120: 5, total: 185 } as never;
-    expect(agingBucketsFor(row)).toEqual({ current: 100, d31to60: 50, d61to90: 20, d91to120: 10, over120: 5, total: 185 });
+    const row = { current: "100.000000", d31to60: "50.000000", d61to90: "20.000000", d91to120: "10.000000", over120: "5.000000", total: "185.000000" } as never;
+    expect(agingBucketsFor(row)).toEqual({ current: "100.000000", d31to60: "50.000000", d61to90: "20.000000", d91to120: "10.000000", over120: "5.000000", total: "185.000000" });
   });
 
-  it("defaults every bucket to 0 when the row is undefined", () => {
-    expect(agingBucketsFor(undefined)).toEqual({ current: 0, d31to60: 0, d61to90: 0, d91to120: 0, over120: 0, total: 0 });
+  it("defaults every bucket to an exact zero when the row is undefined", () => {
+    const zero = "0.000000";
+    expect(agingBucketsFor(undefined)).toEqual({ current: zero, d31to60: zero, d61to90: zero, d91to120: zero, over120: zero, total: zero });
   });
 });
 

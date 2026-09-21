@@ -37,6 +37,7 @@ import {
   type FrameworkDocument,
   StockLedgerService,
 } from "@mezan/domain";
+import { agingCustomersReportSchema, agingSuppliersReportSchema, reportDrillDownSchema } from "@mezan/contracts";
 import { createReportsRoutes, type ReportsRoutesDeps } from "./reports-routes.js";
 import { createFinancialReportsRoutes } from "./financial-reports-routes.js";
 
@@ -259,11 +260,28 @@ describe("reports routes — real SQLite data", () => {
     );
     const res = await app.fetch(req("/aging/customers?asOfDate=2026-08-22", "sales.invoice.view"));
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { rows: { d61to90: number; total: number }[] };
+    const body = (await res.json()) as { rows: { d61to90: string; total: string }[] };
     expect(body.rows).toHaveLength(1);
     // dueDate 2026-06-15 -> asOfDate 2026-08-22 is 68 days past due (61-90 bucket).
-    expect(body.rows[0]?.d61to90).toBe(150); // 200 total - 50 paid
-    expect(body.rows[0]?.total).toBe(150);
+    expect(body.rows[0]?.d61to90).toBe("150.000000"); // 200 total - 50 paid
+    expect(body.rows[0]?.total).toBe("150.000000");
+  });
+
+  it("D345: both aging ladders parse against their shared contract — every money figure an exact decimal string", async () => {
+    const { app, deps } = await newApp();
+    await deps.salesInvoices.save(
+      makeInvoice({ id: "inv-d345", docNo: "INV-D345", date: "2026-06-01", dueDate: "2026-06-15", amountPaid: Money.fromMajor("50.00") }),
+    );
+    await deps.purchaseInvoices.create(makePurchaseInvoice({ id: "pi-d345", number: "PI-D345", supplierId: "sup-d345", date: "2026-01-01", dueDate: "2026-01-01" }));
+    const customers = agingCustomersReportSchema.parse(await (await app.fetch(req("/aging/customers?asOfDate=2026-08-22", "sales.invoice.view"))).json());
+    expect(customers.grandTotals.total).toBe("150.000000");
+    expect(customers.grandTotals.d61to90).toBe("150.000000");
+    expect(customers.groups[0]?.totals.total).toBe("150.000000");
+    expect(customers.kpis.find((kpi) => kpi.key === "total")?.value).toBe("150.000000");
+    expect(customers.kpis.find((kpi) => kpi.key === "over90")).toMatchObject({ value: "0.000000", tone: "success" });
+    const suppliers = agingSuppliersReportSchema.parse(await (await app.fetch(req("/aging/suppliers?asOfDate=2026-08-22", "purchases.invoice.view"))).json());
+    expect(suppliers.rows.every((row) => typeof row.total === "string")).toBe(true);
+    expect(suppliers.kpis.find((kpi) => kpi.key === "over60")?.tone).toBe("danger");
   });
 
   it("/installments/overview returns an empty result when no plans are seeded", async () => {
@@ -472,11 +490,11 @@ describe("reports routes — allocatable/cheques/voucherDocuments/salesReturnDoc
     // `allocatable`, restates the fully-settled invoice as outstanding (D66).
     const unwiredApp = createReportsRoutes({ ...deps, allocatable: undefined }, insecureHeaderAuthContextResolver);
     const unwired = (await (await unwiredApp.fetch(req("/aging/suppliers?asOfDate=2026-08-22", "purchases.invoice.view"))).json()) as {
-      rows: { supplierId: string; total: number }[];
+      rows: { supplierId: string; total: string }[];
     };
     const row = unwired.rows.find((r) => r.supplierId === "sup-d66");
     expect(row).toBeDefined();
-    expect(row?.total).toBe(100);
+    expect(row?.total).toBe("100.000000");
   });
 
   it("D37 regression: an unmatched incoming cheque against 1105 nets out of customer aging", async () => {
@@ -494,21 +512,21 @@ describe("reports routes — allocatable/cheques/voucherDocuments/salesReturnDoc
     await cheques.save(makeCheque({ id: "chq-d37", partyId: "cust-d37", amount: Money.fromMajor("400.00"), dueDate: "2026-01-01", issueDate: "2026-01-01" }));
 
     const wired = (await (await app.fetch(req("/aging/customers?asOfDate=2026-08-22", "sales.invoice.view"))).json()) as {
-      rows: { customerId: string; over120: number; total: number }[];
+      rows: { customerId: string; over120: string; total: string }[];
     };
     const row = wired.rows.find((r) => r.customerId === "cust-d37");
     expect(row).toBeDefined();
     // 233 days past due (2026-01-01 -> 2026-08-22): squarely in the over-120 bucket.
-    expect(row?.over120).toBe(600); // 1000 invoiced - 400 unapplied cheque credit
-    expect(row?.total).toBe(600);
+    expect(row?.over120).toBe("600.000000"); // 1000 invoiced - 400 unapplied cheque credit
+    expect(row?.total).toBe("600.000000");
 
     // Prove the regression: without `cheques` wired, the same collection is
     // invisible to aging and the customer reads as owing the full 1000 (D37).
     const unwiredApp = createReportsRoutes({ ...deps, cheques: undefined }, insecureHeaderAuthContextResolver);
     const unwired = (await (await unwiredApp.fetch(req("/aging/customers?asOfDate=2026-08-22", "sales.invoice.view"))).json()) as {
-      rows: { customerId: string; total: number }[];
+      rows: { customerId: string; total: string }[];
     };
-    expect(unwired.rows.find((r) => r.customerId === "cust-d37")?.total).toBe(1000);
+    expect(unwired.rows.find((r) => r.customerId === "cust-d37")?.total).toBe("1000.000000");
   });
 
   it("a bounced incoming cheque does NOT net out of customer aging (the debt still stands)", async () => {
@@ -526,9 +544,9 @@ describe("reports routes — allocatable/cheques/voucherDocuments/salesReturnDoc
     await cheques.save(makeCheque({ id: "chq-bounced", status: "bounced", partyId: "cust-bounced", amount: Money.fromMajor("400.00"), dueDate: "2026-01-01", issueDate: "2026-01-01" }));
 
     const body = (await (await app.fetch(req("/aging/customers?asOfDate=2026-08-22", "sales.invoice.view"))).json()) as {
-      rows: { customerId: string; total: number }[];
+      rows: { customerId: string; total: string }[];
     };
-    expect(body.rows.find((r) => r.customerId === "cust-bounced")?.total).toBe(1000);
+    expect(body.rows.find((r) => r.customerId === "cust-bounced")?.total).toBe("1000.000000");
   });
 
   it("an on-account customer-collection voucher's unallocated remainder nets out of customer aging", async () => {
@@ -577,11 +595,11 @@ describe("reports routes — allocatable/cheques/voucherDocuments/salesReturnDoc
     });
 
     const body = (await (await app.fetch(req("/aging/customers?asOfDate=2026-08-22", "sales.invoice.view"))).json()) as {
-      rows: { customerId: string; over120: number; total: number }[];
+      rows: { customerId: string; over120: string; total: string }[];
     };
     const row = body.rows.find((r) => r.customerId === "cust-oncollect");
     expect(row).toBeDefined();
-    expect(row?.total).toBe(700); // 1000 invoiced - 300 unallocated collection
+    expect(row?.total).toBe("700.000000"); // 1000 invoiced - 300 unallocated collection
   });
 
   it("a confirmed sales return credits off the source invoice's outstanding balance in aging", async () => {
@@ -658,7 +676,7 @@ describe("reports routes — aging bucket boundaries, exactly at the day", () =>
     }
 
     const body = (await (await app.fetch(req(`/aging/suppliers?asOfDate=${asOfDate}`, "purchases.invoice.view"))).json()) as {
-      rows: Array<{ supplierId: string; current: number; d31to60: number; d61to90: number; d91to120: number; over120: number; total: number }>;
+      rows: Array<{ supplierId: string; current: string; d31to60: number; d61to90: string; d91to120: number; over120: string; total: string }>;
     };
 
     const ALL_BUCKETS = ["current", "d31to60", "d61to90", "d91to120", "over120"] as const;
@@ -666,9 +684,9 @@ describe("reports routes — aging bucket boundaries, exactly at the day", () =>
       const row = body.rows.find((r) => r.supplierId === `sup-${days}`);
       expect(row, `days=${days}`).toBeDefined();
       for (const bucket of ALL_BUCKETS) {
-        expect(row?.[bucket], `days=${days} bucket=${bucket}`).toBe(bucket === expectedBucket ? 100 : 0);
+        expect(row?.[bucket], `days=${days} bucket=${bucket}`).toBe(bucket === expectedBucket ? "100.000000" : "0.000000");
       }
-      expect(row?.total, `days=${days}`).toBe(100);
+      expect(row?.total, `days=${days}`).toBe("100.000000");
     }
 
     // guards Q-8: the store now pages the purchase-invoice list, and a page
@@ -895,7 +913,7 @@ describe("reports routes — D112: the aging reports tie to the AR/AP control ac
 
     const asOfDate = "2026-08-22";
     const body = (await (await app.fetch(req(`/aging/customers?asOfDate=${asOfDate}`, "sales.invoice.view"))).json()) as {
-      rows: { customerId: string; total: number }[];
+      rows: { customerId: string; total: string }[];
     };
     const row = body.rows.find((r) => r.customerId === "cust-tie");
     expect(row).toBeDefined();
@@ -906,9 +924,9 @@ describe("reports routes — D112: the aging reports tie to the AR/AP control ac
     // 1000 invoiced, less 300 returned, less 100 collected via the cheque.
     const controlBalance = await deps.ledger.accountBalance("1105", asOfDate);
     expect(Number(controlBalance.balance.toString())).toBe(700 - 100);
-    expect(reportTotal).toBe(600);
-    expect(reportTotal).not.toBe(0);
-    expect(reportTotal).toBe(Number(controlBalance.balance.toString()));
+    expect(reportTotal).toBe("600.000000");
+    expect(reportTotal).not.toBe("0.000000");
+    expect(reportTotal).toBe(controlBalance.balance.toString());
   });
 
   it("aging/suppliers' grand total EQUALS the AP (2100) control account balance", async () => {
@@ -933,7 +951,7 @@ describe("reports routes — D112: the aging reports tie to the AR/AP control ac
 
     const asOfDate = "2026-08-22";
     const body = (await (await app.fetch(req(`/aging/suppliers?asOfDate=${asOfDate}`, "purchases.invoice.view"))).json()) as {
-      rows: { supplierId: string; total: number }[];
+      rows: { supplierId: string; total: string }[];
     };
     const row = body.rows.find((r) => r.supplierId === "sup-tie");
     expect(row).toBeDefined();
@@ -942,7 +960,7 @@ describe("reports routes — D112: the aging reports tie to the AR/AP control ac
     const owed = -Number(controlBalance.balance.toString());
     expect(owed).toBe(100);
     expect(owed).not.toBe(0);
-    expect(row!.total).toBe(owed);
+    expect(row!.total).toBe(controlBalance.balance.negate().toString());
   });
 });
 
@@ -1150,14 +1168,14 @@ describe("reports routes — D111: the actor's branch scope, and the branchId pa
   it("/aging/customers: the ladder is branch-scoped, figures and all", async () => {
     const { app } = await twoBranches();
 
-    async function ladder(request: Request): Promise<Record<string, number>> {
-      const body = (await (await app.fetch(request)).json()) as { rows: { customerId: string; total: number }[] };
+    async function ladder(request: Request): Promise<Record<string, string>> {
+      const body = (await (await app.fetch(request)).json()) as { rows: { customerId: string; total: string }[] };
       return Object.fromEntries(body.rows.map((r) => [r.customerId, r.total]));
     }
 
-    expect(await ladder(scopedReq("/aging/customers?asOfDate=2026-08-22", "sales.invoice.view"))).toEqual({ "cust-br1": 200, "cust-br2": 400 });
-    expect(await ladder(scopedReq("/aging/customers?asOfDate=2026-08-22", "sales.invoice.view", "br-1"))).toEqual({ "cust-br1": 200 });
-    expect(await ladder(scopedReq("/aging/customers?asOfDate=2026-08-22&branchId=br-2", "sales.invoice.view"))).toEqual({ "cust-br2": 400 });
+    expect(await ladder(scopedReq("/aging/customers?asOfDate=2026-08-22", "sales.invoice.view"))).toEqual({ "cust-br1": "200.000000", "cust-br2": "400.000000" });
+    expect(await ladder(scopedReq("/aging/customers?asOfDate=2026-08-22", "sales.invoice.view", "br-1"))).toEqual({ "cust-br1": "200.000000" });
+    expect(await ladder(scopedReq("/aging/customers?asOfDate=2026-08-22&branchId=br-2", "sales.invoice.view"))).toEqual({ "cust-br2": "400.000000" });
     expect(await ladder(scopedReq("/aging/customers?asOfDate=2026-08-22&branchId=br-2", "sales.invoice.view", "br-1"))).toEqual({});
   });
 
@@ -1234,13 +1252,13 @@ describe("reports routes — D112: the reconciliation banner renders in the runn
     });
 
     const agreed = (await (await app.fetch(req("/aging/customers?asOfDate=2026-08-22", "sales.invoice.view"))).json()) as {
-      reconciliation: { labelAr: string; reportTotal: number; referenceTotal: number; diff: number; withinTolerance: boolean } | null;
+      reconciliation: { labelAr: string; reportTotal: string; referenceTotal: string; diff: string; withinTolerance: boolean } | null;
     };
     // The banner is the point: before D112 was fixed this was null on every run.
     expect(agreed.reconciliation).not.toBeNull();
-    expect(agreed.reconciliation!.reportTotal).toBe(1000);
-    expect(agreed.reconciliation!.referenceTotal).toBe(1000);
-    expect(agreed.reconciliation!.referenceTotal).not.toBe(0);
+    expect(agreed.reconciliation!.reportTotal).toBe("1000.000000");
+    expect(agreed.reconciliation!.referenceTotal).toBe("1000.000000");
+    expect(agreed.reconciliation!.referenceTotal).not.toBe("0.000000");
     expect(agreed.reconciliation!.withinTolerance).toBe(true);
 
     // A posting the sub-ledger knows nothing about: the control account now
@@ -1257,11 +1275,11 @@ describe("reports routes — D112: the reconciliation banner renders in the runn
       ],
     });
     const diverged = (await (await app.fetch(req("/aging/customers?asOfDate=2026-08-22", "sales.invoice.view"))).json()) as {
-      reconciliation: { reportTotal: number; referenceTotal: number; diff: number; withinTolerance: boolean };
+      reconciliation: { reportTotal: string; referenceTotal: string; diff: string; withinTolerance: boolean };
     };
-    expect(diverged.reconciliation.reportTotal).toBe(1000);
-    expect(diverged.reconciliation.referenceTotal).toBe(1150);
-    expect(diverged.reconciliation.diff).toBe(-150);
+    expect(diverged.reconciliation.reportTotal).toBe("1000.000000");
+    expect(diverged.reconciliation.referenceTotal).toBe("1150.000000");
+    expect(diverged.reconciliation.diff).toBe("-150.000000");
     expect(diverged.reconciliation.withinTolerance).toBe(false);
   });
 
@@ -1285,12 +1303,12 @@ describe("reports routes — D112: the reconciliation banner renders in the runn
     });
 
     const body = (await (await app.fetch(req("/aging/suppliers?asOfDate=2026-08-22", "purchases.invoice.view"))).json()) as {
-      reconciliation: { reportTotal: number; referenceTotal: number; withinTolerance: boolean } | null;
+      reconciliation: { reportTotal: string; referenceTotal: string; withinTolerance: boolean } | null;
     };
     expect(body.reconciliation).not.toBeNull();
-    expect(body.reconciliation!.reportTotal).toBe(100);
+    expect(body.reconciliation!.reportTotal).toBe("100.000000");
     // A credit-natural control account: 100 owed reads as +100 here, not −100.
-    expect(body.reconciliation!.referenceTotal).toBe(100);
+    expect(body.reconciliation!.referenceTotal).toBe("100.000000");
     expect(body.reconciliation!.withinTolerance).toBe(true);
   });
 
@@ -1368,9 +1386,9 @@ describe("reports routes — D112: the reconciliation banner renders in the runn
     });
 
     const wide = (await (await app.fetch(scopedReq("/aging/customers?asOfDate=2026-08-22", "sales.invoice.view"))).json()) as {
-      reconciliation: { referenceTotal: number } | null;
+      reconciliation: { referenceTotal: string } | null;
     };
-    expect(wide.reconciliation?.referenceTotal).toBe(600);
+    expect(wide.reconciliation?.referenceTotal).toBe("600.000000");
 
     const scoped = (await (await app.fetch(scopedReq("/aging/customers?asOfDate=2026-08-22", "sales.invoice.view", "br-1"))).json()) as {
       reconciliation: unknown;
@@ -1896,12 +1914,7 @@ describe("reports routes — drill-down/customer/:id", () => {
 
     const res = await app.fetch(req("/drill-down/customer/cust-dd", "sales.customer.view"));
     expect(res.status).toBe(200);
-    const body = (await res.json()) as {
-      titleAr: string;
-      facts: { key: string; value: string }[];
-      documents: { id: string; amount: number }[];
-      documentCount: number;
-    };
+    const body = reportDrillDownSchema.parse(await res.json());
     expect(body.titleAr).toBe("عميل التفاصيل");
     const billed = body.facts.find((f) => f.key === "billed");
     const outstanding = body.facts.find((f) => f.key === "outstanding");
@@ -1912,6 +1925,7 @@ describe("reports routes — drill-down/customer/:id", () => {
     expect(body.documentCount).toBe(2);
     // Newest first.
     expect(body.documents.map((d) => d.id)).toEqual(["inv-dd-2", "inv-dd-1"]);
+    expect(body.documents.map((d) => d.amount)).toEqual(["100.000000", "200.000000"]);
   });
 });
 

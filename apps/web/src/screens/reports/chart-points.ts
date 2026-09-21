@@ -14,6 +14,14 @@ export interface ChartPointSource<Row> {
   readonly groups: readonly ReportGroupResult<Row>[];
 }
 
+/**
+ * A chart point is a bar length, not a figure anyone reads off: an exact
+ * decimal string (D345) becomes a number only here, for geometry.
+ */
+function chartValue(raw: string | number): number {
+  return typeof raw === "number" ? raw : Number(raw);
+}
+
 export function reportChartPoints<Row>(
   chart: ReportChartSpec | undefined,
   columns: readonly ReportColumn<Row>[],
@@ -35,7 +43,7 @@ export function reportChartPoints<Row>(
     return take(
       result.groups
         .filter((group) => group.label !== "")
-        .map((group) => ({ key: group.key, label: group.label, value: group.totals[chart.valueColumn] ?? 0 })),
+        .map((group) => ({ key: group.key, label: group.label, value: chartValue(group.totals[chart.valueColumn] ?? 0) })),
     );
   }
 
@@ -55,7 +63,7 @@ export function reportChartPoints<Row>(
       label,
       value: sumRows(rows, (row) => {
         const raw = valueColumn.value(row);
-        return typeof raw === "number" ? raw : null;
+        return raw === null ? null : chartValue(raw);
       }),
     }));
     // Ordered by magnitude: a chart of the eight largest is only the eight
@@ -68,7 +76,7 @@ export function reportChartPoints<Row>(
     result.rows.map((row, index) => ({
       key: `${rowKey(row)}-${index}`,
       label: String(labelColumn.value(row) ?? ""),
-      value: Number(valueColumn.value(row) ?? 0),
+      value: chartValue(valueColumn.value(row) ?? 0),
     })),
   );
 }

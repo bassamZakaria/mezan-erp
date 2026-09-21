@@ -66,7 +66,7 @@ describe("reportDrillDownDocumentSchema", () => {
     date: "2026-08-30",
     type: "SALES_INVOICE" as const,
     status: "posted",
-    amount: 1500.5,
+    amount: "1500.500000",
     amountFormat: "money" as const,
   };
 
@@ -88,8 +88,8 @@ describe("reportDrillDownDocumentSchema", () => {
     expect(result.success).toBe(false);
   });
 
-  it("rejects amount sent as a string — this schema uses a plain number, unlike ledger money fields", () => {
-    const result = reportDrillDownDocumentSchema.safeParse({ ...doc, amount: "1500.50" });
+  it("rejects amount sent as a JSON number — it is an exact decimal string like every other figure (D345)", () => {
+    const result = reportDrillDownDocumentSchema.safeParse({ ...doc, amount: 1500.5 });
     expect(result.success).toBe(false);
   });
 });
@@ -108,7 +108,7 @@ describe("reportDrillDownSchema", () => {
         date: "2026-08-30",
         type: "SALES_INVOICE" as const,
         status: "posted",
-        amount: 1500.5,
+        amount: "1500.500000",
         amountFormat: "money" as const,
       },
     ],

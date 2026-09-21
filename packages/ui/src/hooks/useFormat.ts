@@ -33,7 +33,7 @@ export interface UseFormatOptions {
 export interface UseFormatResult {
   numerals: NumeralSystem;
   /** Figure only, e.g. "1,150.00" — wrap in <Money> to get the .mz-num isolation + currency label. */
-  money: (value: number) => string;
+  money: (value: number | string) => string;
   /** Figure only, e.g. "86,240" — wrap in <span className="mz-num"> for RTL-safe rendering. */
   number: (value: number) => string;
   /** Quantity, trailing zeros trimmed — the API carries six decimal places. */
@@ -57,7 +57,7 @@ export function useFormat(options: UseFormatOptions = {}): UseFormatResult {
   const { t, locale } = useUiTranslation();
   const currencyLabel = options.currencyLabel ?? t("ui.currency");
 
-  const money = useCallback((value: number) => formatMoney(value, { numerals }), [numerals]);
+  const money = useCallback((value: number | string) => formatMoney(value, { numerals }), [numerals]);
   const number = useCallback((value: number) => formatNumber(value, { numerals }), [numerals]);
   const qty = useCallback((value: number) => formatQty(value, { numerals }), [numerals]);
   const date = useCallback(

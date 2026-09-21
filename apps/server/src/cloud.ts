@@ -38,6 +38,16 @@ if (env.paymob.mode === "test" && !env.seedDemo) {
 }
 
 /**
+ * REFUSES TO START a reviewer tenant without a support mailbox: it is the
+ * account-deletion channel the store listing points at. (`parseEnv` already
+ * refuses a reviewer tenant next to the basic-auth demo.)
+ */
+if (env.reviewTenant && !env.supportEmail) {
+  console.error("[cloud] REFUSING TO START: a reviewer tenant needs MEZAN_SUPPORT_EMAIL for the account-deletion page.");
+  process.exit(1);
+}
+
+/**
  * REFUSES TO START a seeded demo without a shared credential.
  *
  * The demo tenant's personas all sign in with the published `123456`, so on

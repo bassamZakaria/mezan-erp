@@ -23,7 +23,34 @@ describe("parseEnv", () => {
       // platform sends no mail, which is what the dev entrypoint expects.
       paymob: { mode: "off" },
       platformSmtp: undefined,
+      supportEmail: undefined,
+      reviewTenant: undefined,
     });
+  });
+
+  it("reads the reviewer tenant and the support mailbox", () => {
+    const env = parseEnv({
+      MEZAN_REVIEW_TENANT_CODE: "review",
+      MEZAN_REVIEW_PIN: "482913",
+      MEZAN_SUPPORT_EMAIL: "support@mezan.test",
+    });
+    expect(env.reviewTenant).toEqual({ code: "review", pin: "482913" });
+    expect(env.supportEmail).toBe("support@mezan.test");
+  });
+
+  it("refuses a reviewer tenant that is half-configured, on the published PIN, named demo, or next to the basic-auth demo", () => {
+    expect(() => parseEnv({ MEZAN_REVIEW_TENANT_CODE: "review" })).toThrow(/set together/);
+    expect(() => parseEnv({ MEZAN_REVIEW_PIN: "482913" })).toThrow(/set together/);
+    expect(() => parseEnv({ MEZAN_REVIEW_TENANT_CODE: "review", MEZAN_REVIEW_PIN: "123456" })).toThrow(/published/);
+    expect(() => parseEnv({ MEZAN_REVIEW_TENANT_CODE: "review", MEZAN_REVIEW_PIN: "4829" })).toThrow(/six digits/);
+    expect(() => parseEnv({ MEZAN_REVIEW_TENANT_CODE: "demo", MEZAN_REVIEW_PIN: "482913" })).toThrow(/not "demo"/);
+    expect(() =>
+      parseEnv({ MEZAN_REVIEW_TENANT_CODE: "review", MEZAN_REVIEW_PIN: "482913", MEZAN_SEED_DEMO: "1" }),
+    ).toThrow(/MEZAN_SEED_DEMO/);
+  });
+
+  it("refuses a support mailbox that is not an address", () => {
+    expect(() => parseEnv({ MEZAN_SUPPORT_EMAIL: "support" })).toThrow(/MEZAN_SUPPORT_EMAIL/);
   });
 
   it("reads every variable when set", () => {

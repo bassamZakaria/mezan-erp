@@ -3383,6 +3383,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       pipelineStages,
       activities,
       customers,
+      masterData: masterDataChecks,
     },
     // --- hr/master-data ---
     hr: {
@@ -3401,6 +3402,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       clockCredentials: hrClockCredentials,
       challenges: hrChallenges,
       payroll: {
+        masterData: masterDataChecks,
         advances: hrAdvances,
         runs: hrPayrollRuns,
         payslips: hrPayslips,
@@ -3611,6 +3613,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       quotes: rfqStores.quotes,
       orders: purchaseOrders,
       numbering: ledger.numbering,
+      masterData: masterDataChecks,
     },
     historicalImport: {
       archives: historicalImportArchives,

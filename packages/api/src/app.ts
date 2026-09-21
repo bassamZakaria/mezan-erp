@@ -146,6 +146,7 @@ import { createDocumentsRoutes } from "./documents-routes.js";
 import { createPurchasesRoutes, type PurchasesRoutesDeps } from "./purchases-routes.js";
 import { createManufacturingRoutes, type ManufacturingRoutesDeps } from "./manufacturing-routes.js";
 import { createRfqRoutes } from "./rfq-routes.js";
+import type { MasterDataChecks } from "./master-data-check.js";
 import { createHistoricalImportRoutes } from "./historical-import-routes.js";
 import { createPrintTemplateConfigRoutes } from "./print-template-config-routes.js";
 import { createDataMigrationRoutes, type DataMigrationRoutesDeps, type DataMigrationTransactor } from "./data-migration-routes.js";
@@ -709,6 +710,7 @@ export interface CreateAppOptions {
     readonly numbering: NextNumberService;
     readonly resolveAuthContext?: AuthContextResolver;
     readonly now?: () => string;
+    readonly masterData?: MasterDataChecks;
   };
   /**
    * Mounts the historical purchase-document import (docs/archive/catalog/02 §"استيراد

@@ -100,6 +100,7 @@ import { createPermissionGate, getAuthContext, type AuthContextResolver } from "
 import { recordAdminEvent } from "./admin-audit.js";
 import { tenantDay } from "./tenant-day.js";
 import { tenantToday } from "./tenant-day.js";
+import { MasterDataKind, refuseUnknownMasterData, type MasterDataChecks } from "./master-data-check.js";
 
 /**
  * Payroll + employee-advance routes (docs/archive/catalog/06-crm-hr.md "الرواتب" and
@@ -110,6 +111,7 @@ import { tenantToday } from "./tenant-day.js";
  * `packages/domain/src/permissions/catalog.ts`.
  */
 export interface HrPayrollRoutesDeps {
+  readonly masterData?: MasterDataChecks;
   readonly advances: EmployeeAdvanceRepository;
   readonly runs: PayrollRunRepository;
   readonly payslips: PayslipRepository;
@@ -535,6 +537,8 @@ export function createHrPayrollRoutes(deps: HrPayrollRoutesDeps, resolveAuthCont
   app.post("/advances/:id/disburse", gate("hr.advance.approve"), async (c) => {
     const parsed = treasuryDisbursementSchema.safeParse(await c.req.json());
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    const disburseBranchRefusal = await refuseUnknownMasterData(c, deps.masterData, [{ kind: MasterDataKind.Branch, ids: [parsed.data.branchId] }]);
+    if (disburseBranchRefusal) return disburseBranchRefusal;
     try {
       const advance = await disburseEmployeeAdvance(c.req.param("id"), { ...parsed.data, date: await tenantDay(c, parsed.data.date) }, {
         advances: deps.advances,
@@ -586,6 +590,8 @@ export function createHrPayrollRoutes(deps: HrPayrollRoutesDeps, resolveAuthCont
     const parsed = repayEmployeeAdvanceSchema.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     const advanceId = c.req.param("id");
+    const repayBranchRefusal = await refuseUnknownMasterData(c, deps.masterData, [{ kind: MasterDataKind.Branch, ids: [parsed.data.branchId] }]);
+    if (repayBranchRefusal) return repayBranchRefusal;
     try {
       const before = await deps.advances.findById(advanceId);
       const advance = await withAdvanceLock(advanceId, async () =>
@@ -973,6 +979,8 @@ export function createHrPayrollRoutes(deps: HrPayrollRoutesDeps, resolveAuthCont
   app.post("/payroll/runs", gate("hr.payroll.create"), async (c) => {
     const parsed = createPayrollRunSchema.safeParse(await c.req.json());
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    const runBranchRefusal = await refuseUnknownMasterData(c, deps.masterData, [{ kind: MasterDataKind.Branch, ids: [parsed.data.branchId] }]);
+    if (runBranchRefusal) return runBranchRefusal;
     try {
       const run = await createPayrollRun(
         {
@@ -1020,6 +1028,8 @@ export function createHrPayrollRoutes(deps: HrPayrollRoutesDeps, resolveAuthCont
   app.post("/payroll/runs/:id/disburse", gate("hr.payroll.pay"), async (c) => {
     const parsed = treasuryDisbursementSchema.safeParse(await c.req.json());
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    const disburseBranchRefusal = await refuseUnknownMasterData(c, deps.masterData, [{ kind: MasterDataKind.Branch, ids: [parsed.data.branchId] }]);
+    if (disburseBranchRefusal) return disburseBranchRefusal;
     try {
       const run = await disbursePayrollRun(c.req.param("id"), { ...parsed.data, date: await tenantDay(c, parsed.data.date) }, {
         runs: deps.runs,

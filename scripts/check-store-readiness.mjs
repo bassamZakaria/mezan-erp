@@ -34,6 +34,7 @@ const BLOCKED_ANDROID_PERMISSIONS = [
   "android.permission.ACCESS_COARSE_LOCATION",
   "android.permission.ACCESS_BACKGROUND_LOCATION",
   "android.permission.SYSTEM_ALERT_WINDOW",
+  "android.permission.VIBRATE",
 ];
 
 const MIN_EXPO_SDK_FOR_PLAY_TARGET = 56;

@@ -49,14 +49,19 @@ export function SessionProvider({ children }: { children: ReactNode }): ReactNod
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      const [stored, storedConnection] = await Promise.all([loadSession(), loadConnection()]);
-      if (cancelled) return;
-      const gate = stored !== null && (await deviceCanConfirmOwner());
-      if (cancelled) return;
-      if (storedConnection) setConnection(storedConnection);
-      setSession(stored);
-      setLocked(gate);
-      setReady(true);
+      try {
+        const [stored, storedConnection] = await Promise.all([loadSession(), loadConnection()]);
+        if (cancelled) return;
+        const gate = stored !== null && (await deviceCanConfirmOwner());
+        if (cancelled) return;
+        if (storedConnection) setConnection(storedConnection);
+        setSession(stored);
+        setLocked(gate);
+      } catch (error: unknown) {
+        console.warn("[mezan] the stored session could not be read", error);
+      } finally {
+        if (!cancelled) setReady(true);
+      }
     })();
     return () => {
       cancelled = true;

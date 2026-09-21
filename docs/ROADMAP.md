@@ -553,6 +553,31 @@ Its first run found D328–D343; the defects still open are D335–D343, with tw
 | Signed release builds: `eas build --profile production` for the `.ipa` and the `.aab`, `eas submit` to TestFlight and the Play internal track first | both | **blocked on S4** |
 | No crash, no dead control, no placeholder text on any screen, in Arabic and English, light and dark | both | D335–D343 open; the full walk is re-run on the release build, not the dev build |
 
+### Status after phase A — 2026-09-21
+
+Phase A (everything that did not touch the app itself) landed on `main` from
+`feat/m3-store-readiness`; D335–D343 closed the same day, which also clears **S3**. Each decision
+below was taken against the current published rule, quoted in the lane's report.
+
+| Row | State | Evidence |
+|---|---|---|
+| **S1** reviewer environment | **prepared, not deployed — needs the owner** | Infrastructure lives in `cyag-devops`, not here: branch `feat/mezan-review-env` adds `apps/mezan/envs/review.tfvars` — always-on Fargate, EFS storage, no basic auth, a generated reviewer PIN in SSM, `/legal/*` routed to the server; `terraform validate` passes, nothing applied. In this repo, `MEZAN_REVIEW_TENANT_CODE`/`MEZAN_REVIEW_PIN` seed the demo once and move every account onto the private PIN (measured locally: the reviewer PIN 200, `123456` 401), and the runbook is `docs/DEPLOY-REVIEW.md` |
+| **S2** privacy policy | **built, draft — needs legal sign-off** | `/legal/privacy` and `/legal/account-deletion`, served by `apps/server` before any auth and outside `/api`, Arabic by default and English with `?lang=en`, headed «مسودة — تحتاج مراجعة قانونية». Written from what the code actually collects |
+| Account deletion | **built — needs a commitment** | The page lists only channels that reach someone (the company admin; a support mailbox if configured; a form only when SMTP is configured, recorded in the platform security audit). Apple 5.1.1(v) applies only to apps that support account creation, which this one does not; Google's policy also reaches an app that *directs* users to an account-creation flow outside it, so the readiness check fails the build on any `/signup` link in the app. **There is no erasure tool — only deactivation (D348)** |
+| IPv6 | **met on the AWS path; the §3.5 row above was wrong** | CloudFront has IPv6 on and every alias gets an AAAA record. `mezan-demo.onrender.com` publishes **no** AAAA record at all — one more reason it cannot be the reviewer host |
+| Target API level | **met** | Google: new apps and updates from 31 August 2026 must target API 36; Expo SDK 56 defaults to 36. Enforced by the readiness check |
+| No purchase path | **met, enforced** | Apple 3.1.3(f) — a companion app needs no in-app purchase provided there is no purchasing, or call to action to purchase, inside it. The check scans string literals, not identifiers (it first flagged an `AppState` subscription as a sale — fixed) |
+| Metadata, Arabic + English | **written** | `docs/mobile/store/`: both stores' listings in both languages, the privacy answers (each quoting the policy sentence it rests on), the age rating and the review notes. Nothing claims e-invoicing, POS or pricing |
+| Readiness check | **built** — `pnpm lint:store`, part of `pnpm lint` | Enforced now: target API, no purchase path, no `http://`, no IPv4 literal, the EAS production profile, listing length limits. **Pending until phase B:** the privacy manifest, export compliance, usage strings, the Android permission blocklist, the default API host, in-app legal links, and the listing's placeholder URLs. `--strict` enforces everything |
+| Usage strings | **the row above said done; it is not** | There is no English locale — D349 |
+| Privacy manifest | **phase B** | Declare the app's own required-reason APIs only. `0A2A.1` and `C56D.1` may be declared only by third-party SDKs, whatever Expo's guide suggests about copying library manifests |
+
+**Two risks the owner should weigh before submission:**
+- **Apple 3.1.3(c)** says consumer, single-user or family sales must use in-app purchase. The web's self-serve sign-up lets an individual buy a plan, which weakens a submission resting on the enterprise clause. The submission rests on **3.1.3(f)** instead; keeping the web sign-up open to individuals is a business call with a review consequence.
+- **Google's 12-tester rule** is stated for *personal* accounts created after 13 November 2023; Google's own page does not say organisation accounts are exempt. Enrol as the company and expect the question.
+
+**What the owner must provide or decide**, all blocking submission: legal sign-off on the policy and deletion text and the operating company's legal name; the deletion commitment (a manual erasure process, or D348 built first); the review domain, support mailbox, marketing URL and state bucket, then `terraform apply` of `envs/review.tfvars` and the GitHub secret and variables in `docs/DEPLOY-REVIEW.md`; optionally SMTP, which turns the deletion form on; the Apple Developer (organisation, with a D-U-N-S number) and Play Console accounts; and whether the web sign-up stays open to individuals.
+
 **Order of work:** finish D335–D343 → S1 and S2 (the reviewer environment and the privacy
 policy, which need an owner decision each) → the manifest, permissions and export-compliance
 settings → a release build walked end to end on the reviewer tenant → metadata and screenshots →

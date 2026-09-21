@@ -89,6 +89,30 @@ describe("SqliteVoucherStore — documents", () => {
     expect(loaded!.journalEntryId).toBe("je-9");
   });
 
+  it("carries a held collection's requested allocations exactly, and clears them (D344)", async () => {
+    handle = createSqliteVoucherStore();
+    await handle.documents.save(voucherDoc("v4", "pending", "500"));
+    const pending = await handle.documents.findById("v4");
+    await handle.documents.update({
+      ...pending!,
+      lines: [{
+        ...pending!.lines[0]!,
+        heldAllocations: [
+          { allocationId: "v4:A1", invoiceId: "inv-1", amount: Money.fromMajor("123.456789") },
+          { allocationId: "v4:A2", invoiceId: "inv-2", amount: null },
+        ],
+      }],
+    });
+    const carried = (await handle.documents.findById("v4"))!.lines[0]!.heldAllocations!;
+    expect(carried.map((a) => [a.allocationId, a.invoiceId, a.amount?.toString() ?? null])).toEqual([
+      ["v4:A1", "inv-1", "123.456789"],
+      ["v4:A2", "inv-2", null],
+    ]);
+    const reloaded = (await handle.documents.findById("v4"))!;
+    await handle.documents.update({ ...reloaded, lines: [{ ...reloaded.lines[0]!, heldAllocations: null }] });
+    expect((await handle.documents.findById("v4"))!.lines[0]!.heldAllocations).toBeNull();
+  });
+
   it("filters by status in list()", async () => {
     handle = createSqliteVoucherStore();
     await handle.documents.save(voucherDoc("v1", "confirmed", "100"));

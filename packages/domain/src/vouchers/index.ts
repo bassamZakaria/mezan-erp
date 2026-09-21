@@ -22,6 +22,7 @@ export {
 export {
   type VoucherLine,
   type VoucherDocument,
+  type HeldAllocationRequest,
   VOUCHER_DOC_TYPE,
   voucherDocumentType,
   voucherLine,
@@ -104,4 +105,6 @@ export {
   VoucherTreasuryCurrencyMismatchError,
   AllocationExceedsError,
   AllocationAlreadyReversedError,
+  HeldAllocationRefusal,
+  HeldAllocationRefusedError,
 } from "./errors.js";

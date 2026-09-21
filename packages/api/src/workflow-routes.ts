@@ -334,6 +334,8 @@ export function createWorkflowRoutes(
             {
               error: "HELD_DOCUMENT_NOT_RESOLVED",
               message: err instanceof Error ? err.message : String(err),
+              ...(err instanceof Error && "messageEn" in err && typeof err.messageEn === "string" ? { messageEn: err.messageEn } : {}),
+              ...(err instanceof Error && "code" in err && typeof err.code === "string" ? { reason: err.code } : {}),
               request: serializeRequest(record),
             },
             409,

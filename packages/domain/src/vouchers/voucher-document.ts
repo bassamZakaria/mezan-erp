@@ -91,6 +91,19 @@ export interface VoucherLine {
   readonly withholdingAmount?: Money | null;
   readonly withholdingRatePercent?: number | null;
   readonly withholdingGlAccountId?: string | null;
+  /**
+   * The invoice allocations a collection asked for while the workflow held its
+   * confirm. They are applied in the same transaction as the approved confirm
+   * and cleared once applied (D344).
+   */
+  readonly heldAllocations?: readonly HeldAllocationRequest[] | null;
+}
+
+export interface HeldAllocationRequest {
+  readonly allocationId: string;
+  readonly invoiceId: string;
+  /** In BASE; null takes what is left of the voucher. */
+  readonly amount: Money | null;
 }
 
 export type VoucherDocument = FrameworkDocument<VoucherLine>;

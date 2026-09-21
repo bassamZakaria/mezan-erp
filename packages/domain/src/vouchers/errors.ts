@@ -129,3 +129,50 @@ export class AllocationAlreadyReversedError extends Error {
     this.name = "AllocationAlreadyReversedError";
   }
 }
+
+export enum HeldAllocationRefusal {
+  InvoiceMissing = "invoice_missing",
+  InvoiceMismatch = "invoice_mismatch",
+  NothingLeft = "nothing_left",
+  ExceedsInvoice = "exceeds_invoice",
+}
+
+/**
+ * An allocation carried with a held collection no longer fits the invoice it
+ * named (D344): paid elsewhere, returned, or gone. The approved confirm is
+ * refused as a whole rather than settling more than the invoice still owes.
+ */
+export class HeldAllocationRefusedError extends AllocationMismatchError {
+  override readonly code: string = "HELD_ALLOCATION_REFUSED";
+  readonly messageEn: string;
+  constructor(
+    readonly voucherId: string,
+    readonly invoiceId: string,
+    readonly reason: HeldAllocationRefusal,
+    readonly requested: string,
+    readonly capacity: string,
+    whileHeld: boolean,
+  ) {
+    const ar: Record<HeldAllocationRefusal, string> = {
+      [HeldAllocationRefusal.InvoiceMissing]: `الفاتورة "${invoiceId}" لم تعد مفتوحة`,
+      [HeldAllocationRefusal.InvoiceMismatch]: `الفاتورة "${invoiceId}" لا تخص عميل السند`,
+      [HeldAllocationRefusal.NothingLeft]: `لم يتبقَّ من السند ما يُخصَّص على الفاتورة "${invoiceId}"`,
+      [HeldAllocationRefusal.ExceedsInvoice]: `التخصيص المطلوب (${requested}) يتجاوز المتبقي على الفاتورة "${invoiceId}" الآن (${capacity})`,
+    };
+    const en: Record<HeldAllocationRefusal, string> = {
+      [HeldAllocationRefusal.InvoiceMissing]: `invoice "${invoiceId}" is no longer open`,
+      [HeldAllocationRefusal.InvoiceMismatch]: `invoice "${invoiceId}" does not belong to the voucher's customer`,
+      [HeldAllocationRefusal.NothingLeft]: `nothing is left of the voucher to apply to invoice "${invoiceId}"`,
+      [HeldAllocationRefusal.ExceedsInvoice]: `the requested allocation (${requested}) exceeds what invoice "${invoiceId}" still owes (${capacity})`,
+    };
+    super(
+      whileHeld
+        ? `تغيّرت الفاتورة منذ تعليق السند للموافقة: ${ar[reason]}. لم يُرحَّل السند؛ ألغِه وسجّل التحصيل من جديد.`
+        : `لا يمكن تعليق التحصيل بهذا التخصيص: ${ar[reason]}.`,
+    );
+    this.name = "HeldAllocationRefusedError";
+    this.messageEn = whileHeld
+      ? `The invoice changed while the voucher awaited approval: ${en[reason]}. The voucher was not posted; cancel it and record the collection again.`
+      : `The collection cannot be held with this allocation: ${en[reason]}.`;
+  }
+}

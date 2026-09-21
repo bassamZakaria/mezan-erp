@@ -1095,4 +1095,107 @@ export async function run(ctx: Ctx): Promise<void> {
     checkEq("AR still ties to its control account", settled.ar, 0, 0);
     checkEq("the trial balance still balances", settled.tb, 0, 0);
   });
+
+  await scenario("D344 — a collection held by an approval carries its allocations and the approved confirm applies them", async () => {
+    const cfg = await req("POST", "/workflow/configs", {
+      actionType: "TREASURY_VOUCHER_CONFIRM",
+      steps: [{ role: "FINANCE_MANAGER", description: "مراجعة تحصيل" }],
+    });
+    check("a TREASURY_VOUCHER_CONFIRM chain configures", cfg.status === 201, `status ${cfg.status} ${JSON.stringify(cfg.body)}`);
+    const clerk = {
+      "x-user-id": "SCN-USER-CLERK",
+      "x-permissions": "treasury.cash_voucher.create,treasury.cash_voucher.confirm,treasury.allocation.manage,treasury.allocation.view,treasury.cash_voucher.view",
+      "x-role-codes": "CASHIER",
+    };
+    const manager = { "x-user-id": "SCN-USER-MANAGER", "x-permissions": "workflow.view,workflow.approve,workflow.reject", "x-role-codes": "FINANCE_MANAGER" };
+    try {
+      const open = rows((await req("GET", "/open-invoices?kind=sales&partyId=CUST-H-22")).body).filter((row: any) => n(row.outstanding) > 500);
+      check("two open invoices exist for the held collections", open.length >= 2, JSON.stringify(open.map((r: any) => r.outstanding)));
+      if (open.length < 2) return;
+      const [target, stale] = open;
+      const before = await ctx.invariants();
+
+      const held = await req("POST", "/vouchers/collections", {
+        id: "SCN-D344-HELD",
+        customerId: "CUST-H-22",
+        branchId: "BR-MAIN",
+        treasuryAccountId: "TR-DEMO-CASH",
+        amount: "300",
+        paymentMethod: "cash",
+        allocations: [{ invoiceId: target.id, amount: "300" }],
+      }, clerk);
+      check(
+        "the gated collection is held with no allocation made yet",
+        held.status === 201 && held.body?.held === true && held.body?.voucher?.status === "pending" && held.body?.allocations?.length === 0,
+        `status ${held.status} ${JSON.stringify(held.body)}`,
+      );
+      check(
+        "and it carries the requested allocation",
+        held.body?.heldAllocations?.length === 1 && held.body.heldAllocations[0].invoiceId === target.id && held.body.heldAllocations[0].amount === "300.000000",
+        JSON.stringify(held.body?.heldAllocations),
+      );
+      const heldInv = await ctx.invariants();
+      checkEq("holding it moved no receivable", heldInv.ar, before.ar, 0);
+
+      const approve = await req("POST", "/workflow/requests/SCN-D344-HELD:confirm/decide", { decision: "approve" }, manager);
+      check("a different holder of the step's role approves it", approve.status === 200 && approve.body?.status === "approved", `status ${approve.status} ${JSON.stringify(approve.body)}`);
+      const posted = await req("GET", "/vouchers/SCN-D344-HELD");
+      check("the approved voucher is confirmed", posted.body?.status === "confirmed", JSON.stringify(posted.body?.status));
+      check("and its carried allocations are spent", (posted.body?.heldAllocations ?? []).length === 0, JSON.stringify(posted.body?.heldAllocations));
+      const allocations: any[] = (await req("GET", "/vouchers/SCN-D344-HELD/allocations")).body?.allocations ?? [];
+      check(
+        "and it is allocated to the invoice it named, in the same act",
+        allocations.length === 1 && allocations[0].invoiceId === target.id && allocations[0].amount === "300.000000" && allocations[0].status === "active",
+        JSON.stringify(allocations),
+      );
+      const reread = rows((await req("GET", "/open-invoices?kind=sales&partyId=CUST-H-22")).body).find((row: any) => row.id === target.id);
+      checkEq("the invoice's outstanding fell by exactly the collection", n(target.outstanding) - n(reread?.outstanding ?? target.outstanding), 300, 0);
+      const settled = await ctx.invariants();
+      checkEq("the AR sub-ledger still ties to GL 1105", settled.ar, 0, 0);
+      checkEq("and the trial balance balances", settled.tb, 0, 0);
+
+      const staleHeld = await req("POST", "/vouchers/collections", {
+        id: "SCN-D344-STALE",
+        customerId: "CUST-H-22",
+        branchId: "BR-MAIN",
+        treasuryAccountId: "TR-DEMO-CASH",
+        amount: stale.outstanding,
+        paymentMethod: "cash",
+        allocations: [{ invoiceId: stale.id }],
+      }, clerk);
+      check("a second collection for a whole invoice is held", staleHeld.status === 201 && staleHeld.body?.held === true, `status ${staleHeld.status} ${JSON.stringify(staleHeld.body)}`);
+      const paidElsewhere = await req("POST", "/vouchers/collections", {
+        id: "SCN-D344-ELSEWHERE",
+        customerId: "CUST-H-22",
+        branchId: "BR-MAIN",
+        treasuryAccountId: "TR-DEMO-CASH",
+        amount: "100",
+        paymentMethod: "cash",
+        allocations: [{ invoiceId: stale.id }],
+      });
+      check("meanwhile the invoice is part-paid by another collection", paidElsewhere.status === 201 && paidElsewhere.body?.held === false, `status ${paidElsewhere.status} ${JSON.stringify(paidElsewhere.body)}`);
+      const beforeStale = await ctx.invariants();
+      const refused = await req("POST", "/workflow/requests/SCN-D344-STALE:confirm/decide", { decision: "approve" }, manager);
+      check(
+        "approving the stale collection refuses its allocation instead of over-allocating",
+        refused.status === 409 && refused.body?.error === "HELD_DOCUMENT_NOT_RESOLVED" && refused.body?.reason === "HELD_ALLOCATION_REFUSED",
+        `status ${refused.status} ${JSON.stringify(refused.body)}`,
+      );
+      check(
+        "and says why in Arabic and in English",
+        /[\u0600-\u06FF]/.test(String(refused.body?.message)) && /exceeds what invoice/.test(String(refused.body?.messageEn)),
+        JSON.stringify(refused.body),
+      );
+      const stillHeld = await req("GET", "/vouchers/SCN-D344-STALE");
+      check("the refused voucher posted nothing and stays held", stillHeld.body?.status === "pending" && !stillHeld.body?.journalEntryId, JSON.stringify(stillHeld.body));
+      const afterStale = await ctx.invariants();
+      checkEq("the refusal moved no receivable", afterStale.ar, beforeStale.ar, 0);
+      checkEq("and left the trial balance where it was", afterStale.tb, beforeStale.tb, 0);
+      const cancel = await req("POST", "/vouchers/SCN-D344-STALE/cancel", {});
+      check("the stale voucher can still be cancelled", cancel.status === 200, `status ${cancel.status} ${JSON.stringify(cancel.body)}`);
+    } finally {
+      const del = await req("DELETE", `/workflow/configs/${cfg.body?.id}`);
+      check("scenario TREASURY_VOUCHER_CONFIRM config deleted", del.status === 204, `status ${del.status}`);
+    }
+  });
 }

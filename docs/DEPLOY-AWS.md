@@ -64,3 +64,6 @@ aws cloudfront create-invalidation \
 
 Then dispatch the infrastructure apply yourself, or push to `main` and let
 the workflow do it.
+
+The store reviewers' environment is a second stack of the same root; see
+`docs/DEPLOY-REVIEW.md`.

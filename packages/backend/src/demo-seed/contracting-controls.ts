@@ -1,5 +1,5 @@
 import type { App } from "@mezan/api";
-import { CORE, seedActorHeaders, step } from "./shared.js";
+import { CORE, SeedPerson, seedActorHeaders, seededUserId, step } from "./shared.js";
 
 /**
  * تقارير الاستثناءات الستة، الإفراج عن المحتجزات وتقويم المحتجزات — slice 5B
@@ -22,8 +22,8 @@ const RETENTION_RELEASE = "contracting.retention.release";
  * Seeding all three from one admin would leave the rule untested in the one
  * place a person can see it.
  */
-function retentionActor(userId: string): Record<string, string> {
-  return seedActorHeaders(userId, [RETENTION_VIEW, RETENTION_RELEASE], null);
+function retentionActor(person: SeedPerson): Record<string, string> {
+  return seedActorHeaders(seededUserId(person), [RETENTION_VIEW, RETENTION_RELEASE], null);
 }
 
 async function stepAs(
@@ -123,7 +123,7 @@ export async function seedContractingControls(app: App): Promise<void> {
    * 2026-09-01 against a provisional handover of 2027-03-31, it is early,
    * flagged, and lands in report 6.
    */
-  await stepAs(app, retentionActor("USER-DEMO-CERT-FINANCE"), "POST", "/contracting/retention/releases", {
+  await stepAs(app, retentionActor(SeedPerson.ContractingFinance), "POST", "/contracting/retention/releases", {
     id: "RET-DEMO-1",
     contractId: TOWER_CONTRACT,
     kind: "provisional",
@@ -133,9 +133,9 @@ export async function seedContractingControls(app: App): Promise<void> {
   });
   await stepAs(
     app,
-    retentionActor("USER-DEMO-TREASURER"),
+    retentionActor(SeedPerson.TreasuryCashier),
     "POST",
     "/contracting/retention/releases/RET-DEMO-1/release",
-    { approvedBy: "USER-DEMO-CFO" },
+    { approvedBy: seededUserId(SeedPerson.FinanceManager) },
   );
 }

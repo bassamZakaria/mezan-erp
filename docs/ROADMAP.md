@@ -44,9 +44,9 @@ competitor study (§8), and the deferred HR/POS/Cloud build plans (§9).
 | Track | State |
 |---|---|
 | **Parity (§2.2, P0–P6)** | Complete but for one cluster — row menus on 17 read-only surfaces, which is a question rather than a backlog item |
-| **Open now (§3)** | **Nothing.** Row menus answered (no), contracting complete, outbound notification delivery landed 2026-09-14 |
+| **Open now (§3)** | **Mezan Mobile to the App Store and Google Play (§3.5).** The app is built (DEC-30) and runs as a dev build on an iOS simulator against a seeded backend; it is not yet submittable — four blockers, three of them the owner's, are listed there |
 | **Deferred by decision (§4)** | **POS deferred again (DEC-29); the rest un-deferred 2026-09-19 (DEC-23)** — HR depth, the cloud extras and all 27 §7 enhancements are being built, in waves, per `superpowers/plans/2026-09-19-deferred-build-pos-hr-cloud.md` and `2026-09-19-enhancements-e1-e3.md`; the combined schedule is §4.5. Statutory payroll figures stay «غير مُتحقَّق منه» until a محاسب قانوني signs them (DEC-12) |
-| **Defects (§5)** | **2 open** of the 181 filed (D66–D230, D240–D242, D260, D265, D270, D275, D280–D288) — D286, the customer and supplier drill-downs answering a different figure from the report row they open from, and D288, routes and contracting services that still default "today" to the UTC day. D186–D189 (HR, 14/2025), D280 (bilingual domain errors), D281 (drill-down bounded like the trial balance), D282–D284 (the e-receipt path), D285 and D287 (Cairo-day dating) are fixed. |
+| **Defects (§5)** | **9 open (D335–D343), all from the first run of the mobile app on 2026-09-20, with two lanes on them.** The B-lane sweep of 2026-09-20 filed D293–D343 and closed every server-side defect it found; D286 and D288 are fixed. Every gate on `main` is green: `pnpm vitest run` 11,503/0, `pnpm scenarios` 5,251/0, typecheck, lint, build, smoke, `check:seed` |
 | **Desktop audit (2026-09-07)** | The thirty-two findings of the full desktop audit (`artifacts/audit-2026-09-07.md`, filed as D145–D176 on that branch; its first four are renumbered D177–D180 because main had already used D145–D148 — see §6.4 D-D) came in with PR #55: licence, update, LAN, books, performance and security. All fixed on that branch, including Q-1, which moved the desktop backend off the Electron main process into a `utilityProcess` |
 | **Compliance (§5.4)** | The B2C e-receipt, the e-seal seam and نموذج 41 landed 2026-09-07 — but nothing *called* the receipt path until DEC-9 wired the producer on 2026-09-14. Law 6/2025's simplified regime is built and deliberately unclaimed (DEC-13) |
 | **Decisions (§6)** | **None open.** All fourteen taken 2026-09-14 against the persona panel and recorded in §6.4 with the option chosen, what other platforms do, who dissented, and the cost of reversal. Three scope questions remain in §6.3 — they are pricing calls, not code |
@@ -508,6 +508,58 @@ on screen — an empty report whose rule is printed is not a defect.
       wire; a channel with no transport is skipped rather than failed, because push is a
       channel this build does not have and failing it would tell the tenant their message
       was rejected. `POST /notifications/drain`, gated on `admin.settings.edit`.
+
+## 3.5 Mezan Mobile — passing App Store and Google Play review
+
+**Asked for 2026-09-21:** the phone app (DEC-30) must pass Apple's and Google's review. Stated
+honestly first: review is a human decision on each side and nobody can guarantee its outcome. What
+this section commits to is narrower and checkable — **the app meets every published requirement
+both stores enforce, and the submission package is complete before anything is sent.** A
+rejection after that is a reviewer's reading we answer in the resolution centre, not a gap we
+shipped.
+
+**Where it stands.** Built, merged, and running as a real dev build on an iPhone 17 Pro / iOS 26.5
+simulator against a seeded backend (2026-09-20): all nine screens render and load real data, three
+writes posted end to end with balanced journal entries, and every picker stores a real entity id.
+Its first run found D328–D343; the defects still open are D335–D343, with two lanes on them.
+
+### Blockers — any one of these is a certain rejection
+
+| # | Blocker | Why a reviewer rejects it | Owner |
+|---|---|---|---|
+| S1 | **A reviewer cannot reach a server.** The app's compiled default, `https://demo.mezan.app`, answers **530** — there is nothing behind it. The real demo, `https://mezan-demo.onrender.com`, sits behind HTTP basic auth (which the app does not send), keeps its data in `/tmp/platform` (wiped on every restart), and runs on a free tier that sleeps and cold-starts. A reviewer opens the app, signs in, and gets nothing | Apple 2.1 (App Completeness) and Google Play's App Access requirement: the reviewer must be able to use every feature with the credentials supplied | **needs a decision + deploy**: a persistent, always-on reviewer environment with its own tenant and credentials, no basic auth in front of the API, and the app's default host pointing at it |
+| S2 | **No privacy policy exists anywhere** — not in the repo, not on a public URL | Both stores require a privacy-policy URL in the listing and reachable from the app; Google also requires the Data safety form to match it | build (a public page served without sign-in) + **owner/legal review of the text** |
+| S3 | **Placeholder UI** — the tab bar is five identical `⏷` glyphs (D335), and a denied camera leaves a dead button (D336) | Apple 2.1 / 4.0: incomplete or placeholder interface | in progress (lane M2) |
+| S4 | **No store accounts.** Nothing can be submitted without them | — | **owner**: Apple Developer Program (organisation enrolment needs a D-U-N-S number), Google Play Console. A *personal* Play account created since late 2023 must run a closed test with at least 12 testers for 14 days before production access; an **organisation** account is exempt — enrol as the company |
+
+### Requirements, and whether we meet them
+
+| Requirement | Store | State |
+|---|---|---|
+| Demo credentials and review notes: tenant code, email, PIN, and a sentence that this is a B2B app whose accounts are created by the company's own administrator | both | **to write** — depends on S1 |
+| Account deletion: Apple requires in-app deletion only for apps that let a user *create* an account; Mezan does not (the company admin provisions users). Google requires a deletion path for apps with accounts. Offer a public deletion-request URL either way, and state the admin-provisioning model in review notes | both | **to build** — confirm against the current text of Apple 5.1.1(v) and Google's account-deletion policy before submission |
+| Privacy manifest (`PrivacyInfo.xcprivacy`) declaring required-reason APIs — AsyncStorage reaches `UserDefaults`, and Expo modules touch file timestamps and disk space | Apple | **to build** — via `ios.privacyManifests` in `app.json`, checked against what each Expo module already ships |
+| App Privacy "nutrition label" and Google's Data safety form: what is collected (email, name, a selfie at clock-in, business records), that it is linked to the user, not used for tracking, encrypted in transit | both | **to write** — must match S2 word for word |
+| Export compliance: HTTPS only, no custom cryptography → `ITSAppUsesNonExemptEncryption: false` | Apple | **to set** |
+| Usage strings for camera and Face ID, in Arabic and English | Apple | done; the system alert chrome renders in English on an Arabic device until `CFBundleDevelopmentRegion` is `ar` (D343, in progress) |
+| No purchasing inside the app, and no link to buy — the subscription is sold outside it (Paymob, web). Apple 3.1.1/3.1.3: a B2B service paid elsewhere may be used in-app provided the app neither sells nor points to a purchase | Apple | **to verify** — grep the app for any pricing, upgrade or checkout link |
+| Sign in with Apple is required only when an app offers third-party social login; Mezan signs in with its own email + PIN | Apple | not required — say so in review notes if asked |
+| iPad: `supportsTablet: true` means the reviewer may test on an iPad and every screen must hold up there, with iPad screenshots in the listing | Apple | **decide**: test and screenshot on iPad, or set `supportsTablet: false` for v1 |
+| IPv6-only networks: Apple reviews on one | Apple | **to verify** — the server must be reachable over IPv6 (Render and AWS both are; a raw IPv4 literal anywhere would fail) |
+| Android permissions: request only what is used — camera yes, `RECORD_AUDIO` no (already off), no storage or location unless a screen uses them; audit the merged manifest `expo prebuild` generates | Google | **to audit** |
+| Target API level at or above Google Play's current minimum | Google | **to verify** against Expo SDK 56's default before building |
+| Store listing in **Arabic and English**: name, subtitle/short description, full description, keywords, category (Business), support URL, marketing URL, age rating questionnaire | both | **to write** |
+| Screenshots: iPhone 6.9" (and iPad 13" if tablet stays on); Play phone screenshots plus a 1024×500 feature graphic — taken from the real app on the reviewer tenant, never mocked | both | **to produce** — the simulator screenshots from 2026-09-20 prove the pipeline works headlessly |
+| Signed release builds: `eas build --profile production` for the `.ipa` and the `.aab`, `eas submit` to TestFlight and the Play internal track first | both | **blocked on S4** |
+| No crash, no dead control, no placeholder text on any screen, in Arabic and English, light and dark | both | D335–D343 open; the full walk is re-run on the release build, not the dev build |
+
+**Order of work:** finish D335–D343 → S1 and S2 (the reviewer environment and the privacy
+policy, which need an owner decision each) → the manifest, permissions and export-compliance
+settings → a release build walked end to end on the reviewer tenant → metadata and screenshots →
+TestFlight and the Play internal track → submission. Each row above flips to *done* only with
+evidence: a screenshot, a manifest excerpt, or a response code.
+
+---
 
 ## 3.4 Recently settled — no longer open
 

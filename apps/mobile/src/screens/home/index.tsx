@@ -30,6 +30,11 @@ export function Home() {
     .filter((account) => account.type === TreasuryAccountType.Bank && account.balance !== null)
     .map((account) => account.balance as string);
 
+  const bankTile =
+    bankBalances === undefined || bankBalances.length === 0 ? null : (
+      <StatTile label={strings.home.bank} amount={sumDecimals(bankBalances)} />
+    );
+
   const refresh = () => {
     void summary.refetch();
     if (cockpit.isFetched) void cockpit.refetch();
@@ -66,40 +71,44 @@ export function Home() {
         </Card>
       ) : null}
 
+      {offline ? <Text style={[styles.stale, { color: theme.warning }]}>{strings.common.offline}</Text> : null}
       {summary.data === undefined ? null : (
-        <>
-          {offline ? <Text style={[styles.stale, { color: theme.warning }]}>{strings.common.offline}</Text> : null}
-          <Text style={[styles.asOf, { color: theme.textMuted }]}>
-            {strings.home.asOf} {formatAsOf(summary.data.generatedAt)}
-          </Text>
-          <View style={styles.tiles}>
+        <Text style={[styles.asOf, { color: theme.textMuted }]}>
+          {strings.home.asOf} {formatAsOf(summary.data.generatedAt)}
+        </Text>
+      )}
+
+      <View style={styles.tiles}>
+        {summary.data === undefined ? null : (
+          <>
             <StatTile label={strings.home.cash} amount={summary.data.gl.cash} />
-            {bankBalances === undefined || bankBalances.length === 0 ? null : (
-              <StatTile label={strings.home.bank} amount={sumDecimals(bankBalances)} />
-            )}
+            {bankTile}
             <StatTile label={strings.home.receivables} amount={summary.data.gl.receivables} />
             <StatTile label={strings.home.payables} amount={summary.data.gl.payables} />
             <StatTile amount={summary.data.gl.netProfit} emphasiseNegative label={strings.home.netProfit} />
-            {canSeeApprovals && approvals.data !== undefined ? (
-              <CountTile count={approvals.data.length} label={strings.home.approvalsWaiting} onPress={() => router.push("/approvals")} />
-            ) : null}
-          </View>
+          </>
+        )}
+        {summary.data === undefined ? bankTile : null}
+        {canSeeApprovals && approvals.data !== undefined ? (
+          <CountTile count={approvals.data.length} label={strings.home.approvalsWaiting} onPress={() => router.push("/approvals")} />
+        ) : null}
+      </View>
 
-          <Card title={strings.home.recentActivity}>
-            {summary.data.recentActivity.length === 0 ? (
-              <Text style={[styles.empty, { color: theme.textMuted }]}>{strings.common.empty}</Text>
-            ) : (
-              summary.data.recentActivity.map((row) => (
-                <View key={row.id} style={styles.activityRow}>
-                  <Text style={[styles.activityMemo, { color: theme.text }]} numberOfLines={1}>
-                    {row.memo}
-                  </Text>
-                  <Text style={[styles.activityDate, { color: theme.textMuted }]}>{row.date}</Text>
-                </View>
-              ))
-            )}
-          </Card>
-        </>
+      {summary.data === undefined ? null : (
+        <Card title={strings.home.recentActivity}>
+          {summary.data.recentActivity.length === 0 ? (
+            <Text style={[styles.empty, { color: theme.textMuted }]}>{strings.common.empty}</Text>
+          ) : (
+            summary.data.recentActivity.map((row) => (
+              <View key={row.id} style={styles.activityRow}>
+                <Text style={[styles.activityMemo, { color: theme.text }]} numberOfLines={1}>
+                  {row.memo}
+                </Text>
+                <Text style={[styles.activityDate, { color: theme.textMuted }]}>{row.date}</Text>
+              </View>
+            ))
+          )}
+        </Card>
       )}
 
       <Button

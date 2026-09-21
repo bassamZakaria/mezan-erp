@@ -586,6 +586,17 @@ evidence: a screenshot, a manifest excerpt, or a response code.
 
 ---
 
+## 3.6 Free trial and freemium (DEC-31)
+
+Asked for 2026-09-21. Built in lane `feat/trial-freemium`: the reverse trial, the Free plan with
+usage quotas, per-module trials, read-only modules instead of forbidden ones, quota enforcement at
+creation only, the web billing screen and the platform console's plan editor. The phone shows
+trial state without any purchase path, after lane M3 lands. Done means: a tenant signed up
+through the real sign-up flow walks day 1 → day 15 (by `MEZAN_FAKE_TODAY`) → Free → a module
+trial → over a quota, and every step is proven at the API and in the running web app.
+
+---
+
 ## 3.4 Recently settled — no longer open
 
 ### Desktop packaging — closed 2026-08-27
@@ -2500,6 +2511,40 @@ filed as D145–D148 on the #55 branch, are **D177–D180**. §5.1 assigns an id
 register on `main`, so a number is the next free integer at the moment it lands there — main's four
 landed first. Main's are also cited in 16 places in code and tests and in DEC-7, DEC-9 and §6.3; the
 audit's are cited only here, and its code refers to the audit's own tags (L-1…S-*).
+
+---
+
+#### DEC-31 — Free trial and freemium: a reverse trial that lands on a real Free plan. The books are never held hostage.
+
+**Taken 2026-09-21**, owner-delegated. Asked for as "allow a free trial and a freemium option for
+features". The full design, with the three options drawn, is
+`docs/superpowers/specs/2026-09-21-trial-and-freemium-design.md`.
+
+**What existed:** a plan-level `trialDays` (14 on all three seeded plans), and a trial that ended
+by turning the **whole tenant read-only** (`TRIAL_ENDED`) — the owner could read their books and
+could not record a sale until they paid. No free plan (the cheapest was 490 EGP a month), no usage
+quotas, and a locked module refused even reads.
+
+**Options:** (A) keep trial → paywall and add a free plan by hand; (B) freemium for ever plus
+per-module trials; (C) a **reverse trial** — 14 days on the top plan, then an automatic drop to a
+real Free plan that still works. **Chosen: C, with B's per-module trials on top.** What decided it
+is day 15: in A an ERP locks the owner out of their own legal records, in B nobody discovers the
+paid modules, in C the owner has used everything and is never locked out. Zoho Books and Odoo's
+"one app free" are the market references; the reverse trial is where Notion and Canva went.
+
+**The rules:** sign-up starts 14 days on the top public plan, no card; day 15 drops to Free, not
+read-only; Free is a plan the console can edit, starting at core modules, 2 users, 1 branch,
+1 warehouse and 100 sales invoices a month (initial values, a business call); any locked module
+can be tried for 14 days once per tenant; **nothing is deleted and nothing recorded is hidden** —
+a module that leaves the plan goes read-only, not forbidden, and exports always work; **limits
+apply to creating new things, never to finishing old ones** — a return, a void, a collection on
+an existing invoice, the e-receipt of a recorded sale and a period close are never blocked; every
+refusal names its limit in both languages; **the phone never sells** (Apple 3.1.3(f)).
+
+**Dissent recorded:** freemium strengthens the Apple 3.1.3(c) reading that an individual buying
+on the web is a consumer sale (§3.5). Kept, with the phone showing trial state and "ask your
+administrator" only. Over-limit seats after a trial are the abuse path; answered by the admin
+choosing which users stay active within the free seat count.
 
 ---
 

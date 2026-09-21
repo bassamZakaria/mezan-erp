@@ -1,4 +1,5 @@
 import { DEFAULT_PAGE_SIZE } from "../../packages/contracts/src/paging.js";
+import { salesInvoiceSchema } from "../../packages/contracts/src/sales-invoice.js";
 import type { Ctx } from "./harness.js";
 
 /**
@@ -1197,5 +1198,16 @@ export async function run(ctx: Ctx): Promise<void> {
       const del = await req("DELETE", `/workflow/configs/${cfg.body?.id}`);
       check("scenario TREASURY_VOUCHER_CONFIRM config deleted", del.status === 204, `status ${del.status}`);
     }
+  });
+
+  await scenario("D346 — the sales-invoice list parses against the shared sales-invoice contract, lines and all", async () => {
+    const page = await req("GET", "/sales-invoices?status=confirmed&pageSize=50");
+    const list = rows(page.body);
+    check("the list returns invoices with lines", page.status === 200 && list.length > 0 && list.every((row: any) => Array.isArray(row.lines) && row.lines.length > 0), `status ${page.status} rows ${list.length}`);
+    const failures = list
+      .map((row: any) => ({ id: row.id, parsed: salesInvoiceSchema.safeParse(row) }))
+      .filter((entry: any) => !entry.parsed.success)
+      .map((entry: any) => `${entry.id}: ${entry.parsed.error.issues.slice(0, 2).map((i: any) => `${i.path.join(".")} ${i.message}`).join("; ")}`);
+    check("every listed invoice parses with salesInvoiceSchema", failures.length === 0, failures.slice(0, 3).join(" | "));
   });
 }

@@ -110,6 +110,14 @@ describe("SqliteSalesInvoiceStore — round trip", () => {
 });
 
 describe("SqliteSalesInvoiceStore — list with filter", () => {
+  it("hydrates each line's cost centre on a listed page exactly as findById does (D346)", async () => {
+    const repo = store();
+    await repo.save(invoice({ id: "inv-cc", lines: [line({ costCenterId: "CC-1" }), line({ lineId: "line-2", itemId: "item-2" })] }));
+    const listed = (await repo.list()).find((i) => i.id === "inv-cc");
+    expect(listed?.lines.map((l) => l.costCenterId)).toEqual(["CC-1", null]);
+    expect(listed?.lines).toEqual((await repo.findById("inv-cc"))?.lines);
+  });
+
   it("filters by status, customerId, and date range", async () => {
     const repo = store();
     await repo.save(invoice({ id: "inv-1", customerId: "cust-1", status: "draft", date: "2026-08-01" }));

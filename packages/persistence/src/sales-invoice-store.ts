@@ -524,7 +524,7 @@ class SqliteSalesInvoiceRepository implements SalesInvoiceRepository {
       columns:
         "invoice_id, line_id, item_id, item_name_ar, is_stock, qty, unit_code, unit_factor, base_qty, " +
         "unit_price, line_discount_type, line_discount_amount, discount_percent, tax_rate_percent, " +
-        "revenue_account_id, cogs_account_id, inventory_account_id, unit_cost",
+        "revenue_account_id, cogs_account_id, inventory_account_id, unit_cost, cost_center_id",
       safeIntegers: true,
     });
     return rows.map((row) => this.hydrate(row, linesByInvoice.get(row.id) ?? []));

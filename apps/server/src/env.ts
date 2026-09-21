@@ -1,5 +1,6 @@
 import type { SmtpConfig } from "@mezan/api";
 import type { SmtpSecurity } from "@mezan/domain";
+import type { ReviewTenantConfig } from "./review-tenant.js";
 
 export type PaymobEnv =
   | {
@@ -37,6 +38,8 @@ export interface CloudEnv {
    * on screen instead of mailed (see `signup-routes.ts`).
    */
   readonly platformSmtp?: SmtpConfig;
+  readonly supportEmail?: string;
+  readonly reviewTenant?: ReviewTenantConfig;
 }
 
 export interface ParseEnvOptions {
@@ -150,6 +153,36 @@ function parsePlatformSmtp(env: Record<string, string | undefined>): SmtpConfig 
   };
 }
 
+const EMAIL_PATTERN = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+const TENANT_CODE_PATTERN = /^[a-z0-9][a-z0-9-]{1,39}$/;
+const PUBLISHED_DEMO_PIN = "123456";
+const DEMO_TENANT_CODE = "demo";
+
+function parseSupportEmail(value: string | undefined): string | undefined {
+  const email = trimmedOrUndefined(value);
+  if (email === undefined) return undefined;
+  if (!EMAIL_PATTERN.test(email)) throw new Error(`MEZAN_SUPPORT_EMAIL must be an e-mail address, got "${email}"`);
+  return email;
+}
+
+function parseReviewTenant(env: Record<string, string | undefined>): ReviewTenantConfig | undefined {
+  const code = trimmedOrUndefined(env["MEZAN_REVIEW_TENANT_CODE"]);
+  const pin = trimmedOrUndefined(env["MEZAN_REVIEW_PIN"]);
+  if (code === undefined && pin === undefined) return undefined;
+  if (code === undefined || pin === undefined) {
+    throw new Error("MEZAN_REVIEW_TENANT_CODE and MEZAN_REVIEW_PIN are set together or not at all");
+  }
+  if (!TENANT_CODE_PATTERN.test(code) || code === DEMO_TENANT_CODE) {
+    throw new Error(`MEZAN_REVIEW_TENANT_CODE must be 2-40 lower-case letters, digits or hyphens and not "${DEMO_TENANT_CODE}", got "${code}"`);
+  }
+  if (!/^\d{6}$/.test(pin)) throw new Error("MEZAN_REVIEW_PIN must be exactly six digits");
+  if (pin === PUBLISHED_DEMO_PIN) throw new Error("MEZAN_REVIEW_PIN must not be the PIN published in this repository");
+  if (flag(env["MEZAN_SEED_DEMO"])) {
+    throw new Error("MEZAN_REVIEW_TENANT_CODE cannot be combined with MEZAN_SEED_DEMO=1: the demo's basic auth would block the reviewer's app");
+  }
+  return { code, pin };
+}
+
 export function parseEnv(env: Record<string, string | undefined> = process.env, options: ParseEnvOptions = {}): CloudEnv {
   return {
     platformDir: env["MEZAN_PLATFORM_DIR"] ?? ".data/platform",
@@ -168,5 +201,7 @@ export function parseEnv(env: Record<string, string | undefined> = process.env, 
     port: parsePositiveInt(env["PORT"], "PORT", 8080),
     paymob: parsePaymob(env, options.paymobTestByDefault ?? false),
     platformSmtp: parsePlatformSmtp(env),
+    supportEmail: parseSupportEmail(env["MEZAN_SUPPORT_EMAIL"]),
+    reviewTenant: parseReviewTenant(env),
   };
 }

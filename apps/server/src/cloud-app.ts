@@ -12,6 +12,8 @@ import { createTenantRouter, requireOriginSecret, type TenantRouter } from "./te
 import { provisionTenant, PlanRequiredError } from "./provision-tenant.js";
 import { createSignupRoutes } from "./signup-routes.js";
 import { provisionDemoTenant } from "./demo-tenant.js";
+import { provisionReviewTenant } from "./review-tenant.js";
+import { createLegalRoutes, LEGAL_BASE_PATH } from "./legal-routes.js";
 import { startDunningTimer } from "./dunning.js";
 import { createBackupScheduler } from "./backup-scheduler.js";
 import { createCardCheckoutService, type CardCheckoutService } from "./card-checkout.js";
@@ -96,6 +98,11 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
 
   if (env.seedDemo) {
     await (options.seedDemo ?? provisionDemoTenant)({ platform, router, env });
+  }
+
+  if (env.reviewTenant) {
+    const created = await provisionReviewTenant({ platform, router, env, now }, env.reviewTenant);
+    if (created) console.log(`[cloud] reviewer tenant "${env.reviewTenant.code}" seeded; every login uses MEZAN_REVIEW_PIN.`);
   }
 
   const provisionTenantForRoutes = (cmd: CreateTenantRequestDTO & { actorId: string }): Promise<ProvisionResultDTO> =>
@@ -188,6 +195,18 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
   if (checkoutService) {
     root.route(PAYMOB_WEBHOOK_PATH, createPaymobWebhookRoutes(checkoutService));
   }
+
+  // Above the demo basic-auth: a store reviewer opens these signed out.
+  root.route(
+    LEGAL_BASE_PATH,
+    createLegalRoutes({
+      platform,
+      supportEmail: env.supportEmail,
+      platformSmtp: env.platformSmtp,
+      trustProxy: env.trustProxy,
+      now,
+    }),
+  );
 
   if (options.authMiddleware) {
     root.use("/*", options.authMiddleware);

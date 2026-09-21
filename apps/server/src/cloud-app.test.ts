@@ -115,6 +115,19 @@ describe("createCloudApp", () => {
     expect(res.status).toBe(200);
   });
 
+  it("serves the privacy and account-deletion pages signed out, before authMiddleware and outside the SPA", async () => {
+    const authMiddleware = async (c: Context) => c.text("Unauthorized", 401);
+    const app = await boot(testEnv({ webDist: webDistFixture(), supportEmail: "support@mezan.test" }), { authMiddleware });
+    for (const path of ["/legal/privacy", "/legal/privacy?lang=en", "/legal/account-deletion", "/legal/account-deletion?lang=en"]) {
+      const res = await app.root.fetch(new Request(`http://cloud.internal${path}`));
+      expect(res.status).toBe(200);
+      const html = await res.text();
+      expect(html).toContain("support@mezan.test");
+      expect(html).not.toContain("مزان</body>");
+    }
+    expect((await app.root.fetch(new Request("http://cloud.internal/"))).status).toBe(401);
+  });
+
   it("answers /healthz before authMiddleware runs, even with a password configured", async () => {
     const authMiddleware = async (c: Context) => c.text("Unauthorized", 401);
     const app = await boot(testEnv(), { authMiddleware });

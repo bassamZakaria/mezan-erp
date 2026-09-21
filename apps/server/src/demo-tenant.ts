@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { createTenant, activateTenant, startSubscription } from "@mezan/domain";
-import { createBackend, SEED_ADMIN_PIN, type PlatformHandle } from "@mezan/backend";
+import { createBackend, SEED_ADMIN_PIN, type BackendHandle, type PlatformHandle } from "@mezan/backend";
 import { createTenantResolvers } from "./tenant-entitlements.js";
 import { tenantDbPath, type TenantRouter } from "./tenant-router.js";
 import type { CloudEnv } from "./env.js";
@@ -44,15 +44,27 @@ export interface ProvisionDemoTenantDeps {
  * seeded.
  */
 export async function provisionDemoTenant(deps: ProvisionDemoTenantDeps): Promise<void> {
+  await provisionSeededTenant(deps, { code: DEMO_TENANT_CODE, nameAr: DEMO_NAME_AR, adminPin: SEED_ADMIN_PIN });
+}
+
+export interface SeededTenantSpec {
+  readonly code: string;
+  readonly nameAr: string;
+  readonly adminPin: string;
+  readonly afterSeed?: (backend: BackendHandle) => Promise<void>;
+}
+
+/** Returns false when a tenant with `spec.code` already exists and nothing was done. */
+export async function provisionSeededTenant(deps: ProvisionDemoTenantDeps, spec: SeededTenantSpec): Promise<boolean> {
   const now = deps.now ?? (() => new Date());
-  if (await deps.platform.stores.tenants.findByCode(DEMO_TENANT_CODE)) return;
+  if (await deps.platform.stores.tenants.findByCode(spec.code)) return false;
 
   const nowIso = now().toISOString();
   const tenant = await createTenant(
     {
       id: randomUUID(),
-      code: DEMO_TENANT_CODE,
-      nameAr: DEMO_NAME_AR,
+      code: spec.code,
+      nameAr: spec.nameAr,
       ownerEmail: "admin@cyag.example",
       now: nowIso,
     },
@@ -74,12 +86,12 @@ export async function provisionDemoTenant(deps: ProvisionDemoTenantDeps): Promis
 
   const dbPath = tenantDbPath(deps.env.platformDir, activated.dbFile);
   mkdirSync(path.dirname(dbPath), { recursive: true });
-  const resolvers = createTenantResolvers(deps.platform, DEMO_TENANT_CODE, { now });
+  const resolvers = createTenantResolvers(deps.platform, spec.code, { now });
   const backend = await createBackend({
     dbPath,
     connection: { exclusive: deps.env.sqliteExclusive },
     seedDemoData: true,
-    seedAdminPin: SEED_ADMIN_PIN,
+    seedAdminPin: spec.adminPin,
     resolveEntitlements: () => resolvers.resolveEntitlements(),
     resolveLicenseState: () => resolvers.resolveLicenseState(),
   });
@@ -88,6 +100,12 @@ export async function provisionDemoTenant(deps: ProvisionDemoTenantDeps): Promis
   // demo tenant's consumer receipts unqueued behind a swallowed "database
   // connection is not open", in a database this process then hands to the
   // router.
-  await backend.drain();
-  backend.close();
+  try {
+    await backend.drain();
+    await spec.afterSeed?.(backend);
+    await backend.drain();
+  } finally {
+    backend.close();
+  }
+  return true;
 }

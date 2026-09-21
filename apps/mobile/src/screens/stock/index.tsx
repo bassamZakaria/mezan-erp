@@ -1,10 +1,11 @@
-import { CameraView, useCameraPermissions, type BarcodeScanningResult, type BarcodeType } from "expo-camera";
+import { CameraView, type BarcodeScanningResult, type BarcodeType } from "expo-camera";
 import { useMemo, useState } from "react";
 import { FlatList, Modal, Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { ItemDTO } from "@mezan/contracts";
 import { Button, ButtonTone } from "@/components/button";
 import { Card } from "@/components/card";
+import { CameraAccess, CameraPermissionPrompt, useCameraAccess } from "@/components/camera-permission";
 import { TextField } from "@/components/text-field";
 import { describeApiError } from "@/api/errors";
 import { useItemSearch, useItemStock, useWarehouses } from "@/api/queries";
@@ -26,7 +27,7 @@ export function Stock() {
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebouncedValue(search);
   const [scannerOpen, setScannerOpen] = useState(false);
-  const [permission, requestPermission] = useCameraPermissions();
+  const camera = useCameraAccess();
   const [selectedItem, setSelectedItem] = useState<ItemDTO | null>(null);
 
   const itemsQuery = useItemSearch(debouncedSearch, canSearch && debouncedSearch.trim().length >= 2);
@@ -132,22 +133,14 @@ export function Stock() {
 
       <Modal animationType="slide" onRequestClose={() => setScannerOpen(false)} visible={scannerOpen}>
         <View style={styles.scannerWrap}>
-          {permission?.granted ? (
+          {camera.access === CameraAccess.Granted ? (
             <CameraView
               barcodeScannerSettings={{ barcodeTypes: STOCK_BARCODE_TYPES as unknown as BarcodeType[] }}
               onBarcodeScanned={onScanned}
               style={styles.camera}
             />
           ) : (
-            <View style={[styles.permissionWrap, { backgroundColor: theme.background }]}>
-              <Text style={[styles.notice, { color: theme.text }]}>{strings.stock.cameraPermission}</Text>
-              <Button
-                label={strings.stock.grantPermission}
-                onPress={() => {
-                  void requestPermission();
-                }}
-              />
-            </View>
+            <CameraPermissionPrompt access={camera.access} reason={strings.stock.cameraPermission} request={camera.request} />
           )}
           <Button label={strings.stock.closeScan} onPress={() => setScannerOpen(false)} tone={ButtonTone.Quiet} />
         </View>
@@ -187,5 +180,4 @@ const styles = StyleSheet.create({
   figureValue: { fontSize: TYPE.body, fontWeight: "700" },
   scannerWrap: { flex: 1, backgroundColor: "#000000" },
   camera: { flex: 1 },
-  permissionWrap: { flex: 1, alignItems: "center", justifyContent: "center", gap: SPACE.md, padding: SPACE.lg },
 });

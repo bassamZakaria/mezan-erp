@@ -5,6 +5,7 @@ import type { BranchDTO, CustomerDTO, ItemDTO, WarehouseDTO } from "@mezan/contr
 import { Button, ButtonTone } from "@/components/button";
 import { Card } from "@/components/card";
 import { EntityPicker, filterPickerOptions, type PickerOption } from "@/components/entity-picker";
+import { OfflineNotice } from "@/components/offline-notice";
 import { Segmented } from "@/components/segmented";
 import { TextField } from "@/components/text-field";
 import { describeWriteError } from "@/api/errors";
@@ -224,6 +225,7 @@ export function Sell() {
       style={{ backgroundColor: theme.background }}
     >
       <Text style={[styles.title, { color: theme.text }]}>{strings.sell.title}</Text>
+      <OfflineNotice />
 
       <Segmented
         label={strings.sell.documentType}

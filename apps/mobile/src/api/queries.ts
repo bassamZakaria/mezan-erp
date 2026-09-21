@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   approvalRequestSchema,
   branchSchema,
+  cockpitSchema,
   confirmSalesInvoiceSchema,
   confirmVoucherSchema,
   createAllocationSchema,
@@ -20,11 +21,13 @@ import {
   selfClockPunchResultSchema,
   selfClockStatusSchema,
   treasuryAccountSchema,
+  userSchema,
   voucherAllocationSchema,
   voucherSchema,
   warehouseSchema,
   type ApprovalRequestDTO,
   type BranchDTO,
+  type CockpitDTO,
   type ConfirmSalesInvoiceDTO,
   type ConfirmVoucherDTO,
   type CreateAllocationDTO,
@@ -43,11 +46,12 @@ import {
   type SelfClockPunchResultResponseDTO,
   type SelfClockStatusResponseDTO,
   type TreasuryAccountDTO,
+  type UserDTO,
   type VoucherAllocationDTO,
   type VoucherDTO,
   type WarehouseDTO,
 } from "@mezan/contracts";
-import { AllocationInvoiceKind } from "@/domain/enums";
+import { AllocationInvoiceKind, SalesInvoiceSort, SortDirection } from "@/domain/enums";
 import { useSession } from "@/session/SessionProvider";
 import { HttpMethod } from "./client";
 import type { ApiError } from "./errors";
@@ -64,7 +68,14 @@ export enum QueryKey {
   OpenInvoices = "open-invoices",
   SelfClockStatus = "self-clock-status",
   PendingApprovals = "pending-approvals",
+  Cockpit = "cockpit",
+  CustomerAging = "customer-aging",
+  CustomerInvoices = "customer-invoices",
+  SalesInvoice = "sales-invoice",
+  User = "user",
 }
+
+const LATEST_INVOICES = 5;
 
 const customerListSchema = z.array(customerSchema);
 
@@ -258,11 +269,11 @@ export function useSelfClockPunch(): UseMutationResult<SelfClockPunchResultRespo
   });
 }
 
-export function usePendingApprovals(): UseQueryResult<ApprovalRequestDTO[], ApiError> {
+export function usePendingApprovals(enabled = true): UseQueryResult<ApprovalRequestDTO[], ApiError> {
   const { request, session } = useSession();
   return useQuery<ApprovalRequestDTO[], ApiError>({
     queryKey: [QueryKey.PendingApprovals],
-    enabled: session !== null,
+    enabled: session !== null && enabled,
     queryFn: () => request("/workflow/requests/pending", { schema: pendingApprovalListSchema }),
   });
 }
@@ -278,5 +289,97 @@ export function useDecideApproval(): UseMutationResult<ApprovalRequestDTO, ApiEr
         schema: approvalRequestSchema,
       }),
     onSettled: () => queryClient.invalidateQueries({ queryKey: [QueryKey.PendingApprovals] }),
+  });
+}
+
+/** The owner cockpit: its `cash` section carries each treasury account's ledger balance, `null` when the caller may not see treasury. */
+export function useCockpit(enabled: boolean): UseQueryResult<CockpitDTO, ApiError> {
+  const { request, session } = useSession();
+  return useQuery<CockpitDTO, ApiError>({
+    queryKey: [QueryKey.Cockpit],
+    enabled: session !== null && enabled,
+    queryFn: () => request("/dashboard/cockpit", { schema: cockpitSchema }),
+  });
+}
+
+/**
+ * The customer aging ladder's rows. The route answers with JSON NUMBERS for
+ * its buckets, not decimal strings; `decimalFromWireNumber` turns them back
+ * before anything formats them.
+ */
+const customerAgingRowSchema = z.object({
+  customerId: z.string(),
+  current: z.number(),
+  d31to60: z.number(),
+  d61to90: z.number(),
+  d91to120: z.number(),
+  over120: z.number(),
+  total: z.number(),
+});
+const customerAgingReportSchema = z.object({ rows: z.array(customerAgingRowSchema) });
+export type CustomerAgingRow = z.infer<typeof customerAgingRowSchema>;
+
+export function useCustomerAging(customerId: string, enabled: boolean): UseQueryResult<CustomerAgingRow | null, ApiError> {
+  const { request, session } = useSession();
+  return useQuery<CustomerAgingRow | null, ApiError>({
+    queryKey: [QueryKey.CustomerAging, customerId],
+    enabled: session !== null && enabled && customerId !== "",
+    queryFn: async () => {
+      const report = await request("/reports/aging/customers", { schema: customerAgingReportSchema });
+      return report.rows.find((row) => row.customerId === customerId) ?? null;
+    },
+  });
+}
+
+/**
+ * The list route serialises its lines without `costCenterId`, which the full
+ * contract requires, so the whole row fails to parse. The 360 shows only the
+ * header, so it parses only the header — still against the shared contract.
+ */
+const invoiceHeaderSchema = salesInvoiceSchema.pick({
+  id: true,
+  docNo: true,
+  date: true,
+  currency: true,
+  baseGrandTotal: true,
+  remainingBalance: true,
+});
+export type InvoiceHeader = z.infer<typeof invoiceHeaderSchema>;
+const invoiceHeaderListSchema = z.array(invoiceHeaderSchema);
+
+export function useCustomerInvoices(customerId: string, enabled: boolean): UseQueryResult<InvoiceHeader[], ApiError> {
+  const { request, session } = useSession();
+  return useQuery<InvoiceHeader[], ApiError>({
+    queryKey: [QueryKey.CustomerInvoices, customerId],
+    enabled: session !== null && enabled && customerId !== "",
+    queryFn: () => {
+      const params = new URLSearchParams({
+        customerId,
+        pageSize: String(LATEST_INVOICES),
+        sort: SalesInvoiceSort.DocNo,
+        sortDir: SortDirection.Desc,
+      });
+      return request(`/sales-invoices?${params.toString()}`, { schema: invoiceHeaderListSchema });
+    },
+  });
+}
+
+export function useSalesInvoice(id: string | null): UseQueryResult<SalesInvoiceDTO, ApiError> {
+  const { request, session } = useSession();
+  return useQuery<SalesInvoiceDTO, ApiError>({
+    queryKey: [QueryKey.SalesInvoice, id],
+    enabled: session !== null && id !== null,
+    queryFn: () => request(`/sales-invoices/${encodeURIComponent(id!)}`, { schema: salesInvoiceSchema }),
+  });
+}
+
+/** `GET /users/:id` is gated on `admin.users.view`; a caller without it gets no name, never a guessed one. */
+export function useUser(id: string, enabled: boolean): UseQueryResult<UserDTO, ApiError> {
+  const { request, session } = useSession();
+  return useQuery<UserDTO, ApiError>({
+    queryKey: [QueryKey.User, id],
+    enabled: session !== null && enabled && id !== "",
+    retry: false,
+    queryFn: () => request(`/users/${encodeURIComponent(id)}`, { schema: userSchema }),
   });
 }

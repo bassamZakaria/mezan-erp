@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatAmountWithCurrency, formatMoney, isNegative, isPositiveDecimal, toAmountInput } from "./money";
+import { decimalFromWireNumber, formatAmountWithCurrency, formatMoney, isNegative, isPositiveDecimal, sumDecimals, toAmountInput } from "./money";
 
 describe("formatMoney", () => {
   it("groups thousands and keeps two decimals", () => {
@@ -64,5 +64,28 @@ describe("toAmountInput", () => {
   it("keeps every digit when the tail is not all zeros, so nothing is posted rounded", () => {
     expect(toAmountInput("440.483808")).toBe("440.483808");
     expect(toAmountInput("")).toBe("");
+  });
+});
+
+describe("sumDecimals", () => {
+  it("adds wire decimals exactly", () => {
+    expect(sumDecimals(["4765094.009600", "58680.000000"])).toBe("4823774.009600");
+  });
+
+  it("keeps digits a float would lose", () => {
+    expect(sumDecimals(["9007199254740993.45", "0.01"])).toBe("9007199254740993.460000");
+  });
+
+  it("handles negatives and an empty list", () => {
+    expect(sumDecimals(["-10.5", "3"])).toBe("-7.500000");
+    expect(sumDecimals([])).toBe("0.000000");
+  });
+});
+
+describe("decimalFromWireNumber", () => {
+  it("never renders exponent notation", () => {
+    expect(decimalFromWireNumber(0.000001)).toBe("0.000001");
+    expect(decimalFromWireNumber(218568.26)).toBe("218568.260000");
+    expect(formatMoney(decimalFromWireNumber(60250.15))).toBe("60,250.15");
   });
 });

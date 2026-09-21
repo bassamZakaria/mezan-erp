@@ -18,7 +18,10 @@ export interface Strings {
     readonly submitting: string;
     readonly unlockWithBiometrics: string;
     readonly unlockPrompt: string;
-    readonly signedOut: string;
+    readonly unlockTitle: string;
+    readonly unlockExplainer: string;
+    readonly unlockWithPin: string;
+    readonly unlockFailed: string;
   };
   readonly home: {
     readonly title: string;
@@ -38,6 +41,17 @@ export interface Strings {
     readonly currency: string;
     readonly phone: string;
     readonly taxNumber: string;
+    readonly aging: string;
+    readonly agingCurrent: string;
+    readonly aging31to60: string;
+    readonly aging61to90: string;
+    readonly aging91to120: string;
+    readonly agingOver120: string;
+    readonly agingTotal: string;
+    readonly noDebt: string;
+    readonly lastInvoices: string;
+    readonly remaining: string;
+    readonly noInvoices: string;
   };
   readonly tabs: {
     readonly home: string;
@@ -62,7 +76,6 @@ export interface Strings {
     readonly branchPlaceholder: string;
     readonly warehouse: string;
     readonly warehousePlaceholder: string;
-    readonly date: string;
     readonly dueDate: string;
     readonly expiryDate: string;
     readonly lines: string;
@@ -75,7 +88,6 @@ export interface Strings {
     readonly notes: string;
     readonly submitQuote: string;
     readonly submitInvoice: string;
-    readonly submitting: string;
     readonly quoteCreated: string;
     readonly invoiceCreated: string;
     readonly noPermission: string;
@@ -91,15 +103,13 @@ export interface Strings {
     readonly invoicePlaceholder: string;
     readonly invoiceEmpty: string;
     readonly amount: string;
-    readonly paymentMethod: string;
-    readonly cash: string;
-    readonly cheque: string;
     readonly treasuryAccount: string;
     readonly treasuryAccountPlaceholder: string;
+    readonly treasuryAccountEmpty: string;
+    readonly currencyUnknown: string;
     readonly branch: string;
     readonly referenceNo: string;
     readonly submit: string;
-    readonly submitting: string;
     readonly success: string;
     readonly noPermission: string;
     readonly missingGlAccount: string;
@@ -112,11 +122,9 @@ export interface Strings {
     readonly scan: string;
     readonly closeScan: string;
     readonly cameraPermission: string;
-    readonly grantPermission: string;
     readonly onHand: string;
     readonly reserved: string;
     readonly available: string;
-    readonly warehouse: string;
     readonly noResults: string;
     readonly noPermission: string;
     readonly searchHint: string;
@@ -126,10 +134,8 @@ export interface Strings {
     readonly clockIn: string;
     readonly clockOut: string;
     readonly dayComplete: string;
-    readonly working: string;
     readonly notLinked: string;
     readonly needsSelfie: string;
-    readonly needsBiometric: string;
     readonly takeSelfie: string;
     readonly retake: string;
     readonly biometricBlocked: string;
@@ -140,6 +146,11 @@ export interface Strings {
     readonly noPermission: string;
     readonly serverTime: string;
     readonly cameraPermission: string;
+  };
+  readonly camera: {
+    readonly grant: string;
+    readonly denied: string;
+    readonly openSettings: string;
   };
   readonly approvals: {
     readonly title: string;
@@ -172,8 +183,6 @@ export interface Strings {
     readonly offlineWrite: string;
     readonly search: string;
     readonly cancel: string;
-    readonly save: string;
-    readonly confirm: string;
   };
   readonly errors: {
     readonly network: string;
@@ -199,7 +208,11 @@ const AR: Strings = {
     submitting: "جارٍ الدخول…",
     unlockWithBiometrics: "الدخول ببصمة الجهاز",
     unlockPrompt: "أكّد هويتك لفتح ميزان",
-    signedOut: "انتهت الجلسة. سجّل الدخول مرة أخرى.",
+    unlockTitle: "ميزان مقفل",
+    unlockExplainer:
+      "البصمة هنا تفتح الجلسة المحفوظة على هذا الهاتف فقط. لا يتحقق منها الخادم، ولا تُعد بصمة حضور.",
+    unlockWithPin: "الدخول بالرقم السري بدلًا من ذلك",
+    unlockFailed: "لم يتم التأكيد. حاول مرة أخرى، أو ادخل بالرقم السري.",
   },
   home: {
     title: "نظرة عامة",
@@ -219,6 +232,17 @@ const AR: Strings = {
     currency: "العملة",
     phone: "الهاتف",
     taxNumber: "الرقم الضريبي",
+    aging: "أعمار الديون",
+    agingCurrent: "جاري",
+    aging31to60: "31–60 يوم",
+    aging61to90: "61–90 يوم",
+    aging91to120: "91–120 يوم",
+    agingOver120: "أكثر من 120 يوم",
+    agingTotal: "الإجمالي",
+    noDebt: "لا مديونية مستحقة على هذا العميل",
+    lastInvoices: "آخر الفواتير",
+    remaining: "المتبقي",
+    noInvoices: "لا توجد فواتير لهذا العميل",
   },
   tabs: {
     home: "الرئيسية",
@@ -243,7 +267,6 @@ const AR: Strings = {
     branchPlaceholder: "اختر فرعًا",
     warehouse: "المستودع",
     warehousePlaceholder: "اختر مستودعًا",
-    date: "التاريخ",
     dueDate: "تاريخ الاستحقاق",
     expiryDate: "تاريخ انتهاء العرض",
     lines: "الأصناف",
@@ -256,7 +279,6 @@ const AR: Strings = {
     notes: "ملاحظات",
     submitQuote: "إنشاء عرض السعر",
     submitInvoice: "إنشاء الفاتورة وتأكيدها",
-    submitting: "جارٍ الحفظ…",
     quoteCreated: "تم إنشاء عرض السعر",
     invoiceCreated: "تم إنشاء الفاتورة وتأكيدها",
     noPermission: "لا تملك صلاحية إنشاء مستندات البيع.",
@@ -271,16 +293,14 @@ const AR: Strings = {
     invoice: "الفاتورة",
     invoicePlaceholder: "اختر فاتورة مفتوحة",
     invoiceEmpty: "لا توجد فواتير مفتوحة لهذا العميل",
-    amount: "المبلغ",
-    paymentMethod: "طريقة الدفع",
-    cash: "نقدًا",
-    cheque: "شيك",
+    amount: "المبلغ النقدي",
     treasuryAccount: "حساب الخزينة",
     treasuryAccountPlaceholder: "اختر حساب خزينة",
+    treasuryAccountEmpty: "لا يوجد حساب خزينة بعملة هذه الفاتورة",
+    currencyUnknown: "تعذّر معرفة عملة الفاتورة، فلا يمكن اختيار حساب الخزينة.",
     branch: "الفرع",
-    referenceNo: "رقم مرجعي (رقم الشيك مثلًا)",
+    referenceNo: "رقم مرجعي (اختياري)",
     submit: "تسجيل التحصيل",
-    submitting: "جارٍ التسجيل…",
     success: "تم تسجيل التحصيل وتخصيصه على الفاتورة",
     noPermission: "لا تملك صلاحية تسجيل سندات التحصيل.",
     missingGlAccount: "حساب الخزينة المختار غير مربوط بحساب دفتر أستاذ؛ راجع الإعدادات على سطح المكتب.",
@@ -293,11 +313,9 @@ const AR: Strings = {
     scan: "مسح الباركود",
     closeScan: "إغلاق الماسح",
     cameraPermission: "تحتاج إذن الكاميرا لمسح الباركود.",
-    grantPermission: "السماح باستخدام الكاميرا",
     onHand: "الرصيد",
     reserved: "محجوز",
     available: "المتاح",
-    warehouse: "المستودع",
     noResults: "لا توجد أصناف مطابقة",
     noPermission: "لا تملك صلاحية عرض أرصدة المخزون.",
     searchHint: "اكتب حرفين على الأقل أو امسح الباركود",
@@ -307,10 +325,8 @@ const AR: Strings = {
     clockIn: "تسجيل حضور",
     clockOut: "تسجيل انصراف",
     dayComplete: "اكتمل يوم اليوم",
-    working: "جارٍ التسجيل…",
     notLinked: "حسابك غير مرتبط بسجل موظف.",
     needsSelfie: "يتطلب صورة",
-    needsBiometric: "يتطلب بصمة معتمدة",
     takeSelfie: "التقاط صورة",
     retake: "إعادة الالتقاط",
     biometricBlocked:
@@ -322,6 +338,11 @@ const AR: Strings = {
     noPermission: "لا تملك صلاحية تسجيل الحضور من هنا.",
     serverTime: "بتوقيت الخادم",
     cameraPermission: "تحتاج إذن الكاميرا لالتقاط صورة الحضور.",
+  },
+  camera: {
+    grant: "السماح باستخدام الكاميرا",
+    denied: "رُفض إذن الكاميرا من قبل، ولا يستطيع التطبيق طلبه مرة أخرى. افتح الإعدادات وفعّل الكاميرا لميزان.",
+    openSettings: "فتح الإعدادات",
   },
   approvals: {
     title: "الموافقات",
@@ -354,8 +375,6 @@ const AR: Strings = {
     offlineWrite: "لا يوجد اتصال. لا يمكن حفظ مستند بدون اتصال بالخادم.",
     search: "بحث",
     cancel: "إلغاء",
-    save: "حفظ",
-    confirm: "تأكيد",
   },
   errors: {
     network: "تعذّر الوصول إلى الخادم. تحقّق من الاتصال ومن عنوان الخادم.",
@@ -381,7 +400,11 @@ const EN: Strings = {
     submitting: "Signing in…",
     unlockWithBiometrics: "Unlock with the device",
     unlockPrompt: "Confirm it is you to open Mezan",
-    signedOut: "The session ended. Sign in again.",
+    unlockTitle: "Mezan is locked",
+    unlockExplainer:
+      "This unlocks the session saved on this phone only. The server does not verify it, and it is not an attendance biometric.",
+    unlockWithPin: "Sign in with the PIN instead",
+    unlockFailed: "Not confirmed. Try again, or sign in with the PIN.",
   },
   home: {
     title: "Overview",
@@ -401,6 +424,17 @@ const EN: Strings = {
     currency: "Currency",
     phone: "Phone",
     taxNumber: "Tax number",
+    aging: "Debt aging",
+    agingCurrent: "Current",
+    aging31to60: "31–60 days",
+    aging61to90: "61–90 days",
+    aging91to120: "91–120 days",
+    agingOver120: "Over 120 days",
+    agingTotal: "Total",
+    noDebt: "Nothing is owed by this customer",
+    lastInvoices: "Latest invoices",
+    remaining: "Remaining",
+    noInvoices: "No invoices for this customer",
   },
   tabs: {
     home: "Home",
@@ -425,7 +459,6 @@ const EN: Strings = {
     branchPlaceholder: "Choose a branch",
     warehouse: "Warehouse",
     warehousePlaceholder: "Choose a warehouse",
-    date: "Date",
     dueDate: "Due date",
     expiryDate: "Expiry date",
     lines: "Lines",
@@ -438,7 +471,6 @@ const EN: Strings = {
     notes: "Notes",
     submitQuote: "Create quote",
     submitInvoice: "Create and confirm invoice",
-    submitting: "Saving…",
     quoteCreated: "Quote created",
     invoiceCreated: "Invoice created and confirmed",
     noPermission: "You do not hold the right to create sales documents.",
@@ -453,16 +485,14 @@ const EN: Strings = {
     invoice: "Invoice",
     invoicePlaceholder: "Choose an open invoice",
     invoiceEmpty: "No open invoices for this customer",
-    amount: "Amount",
-    paymentMethod: "Payment method",
-    cash: "Cash",
-    cheque: "Cheque",
+    amount: "Cash amount",
     treasuryAccount: "Treasury account",
     treasuryAccountPlaceholder: "Choose a treasury account",
+    treasuryAccountEmpty: "No treasury account in this invoice's currency",
+    currencyUnknown: "The invoice's currency could not be read, so no treasury account can be chosen.",
     branch: "Branch",
-    referenceNo: "Reference (e.g. cheque number)",
+    referenceNo: "Reference (optional)",
     submit: "Record collection",
-    submitting: "Recording…",
     success: "Collection recorded and allocated to the invoice",
     noPermission: "You do not hold the right to record collection vouchers.",
     missingGlAccount: "The chosen treasury account has no ledger account linked; check the desktop settings.",
@@ -475,11 +505,9 @@ const EN: Strings = {
     scan: "Scan barcode",
     closeScan: "Close scanner",
     cameraPermission: "Camera access is needed to scan a barcode.",
-    grantPermission: "Allow camera access",
     onHand: "On hand",
     reserved: "Reserved",
     available: "Available",
-    warehouse: "Warehouse",
     noResults: "No matching items",
     noPermission: "You do not hold the right to view stock balances.",
     searchHint: "Type at least two characters, or scan a barcode",
@@ -489,10 +517,8 @@ const EN: Strings = {
     clockIn: "Clock in",
     clockOut: "Clock out",
     dayComplete: "Today is complete",
-    working: "Recording…",
     notLinked: "Your account is not linked to an employee record.",
     needsSelfie: "Needs a selfie",
-    needsBiometric: "Needs a registered biometric",
     takeSelfie: "Take a selfie",
     retake: "Retake",
     biometricBlocked:
@@ -504,6 +530,11 @@ const EN: Strings = {
     noPermission: "You do not hold the right to clock in from here.",
     serverTime: "server time",
     cameraPermission: "Camera access is needed to take the attendance photo.",
+  },
+  camera: {
+    grant: "Allow camera access",
+    denied: "Camera access was refused earlier, and the app cannot ask again. Open Settings and turn the camera on for Mezan.",
+    openSettings: "Open Settings",
   },
   approvals: {
     title: "Approvals",
@@ -536,8 +567,6 @@ const EN: Strings = {
     offlineWrite: "Offline. A document cannot be saved without a connection.",
     search: "Search",
     cancel: "Cancel",
-    save: "Save",
-    confirm: "Confirm",
   },
   errors: {
     network: "The server could not be reached. Check the connection and the server address.",

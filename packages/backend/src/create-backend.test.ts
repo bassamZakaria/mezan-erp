@@ -5242,9 +5242,10 @@ describe("createBackend — foreign documents settle and return in base (D202, D
       ],
     }, admin(app))).status).toBeLessThan(300);
 
+    expect((await post(app, "/treasury-accounts", { id: "ta-cash-sar", code: "TA-CASH-SAR", name: "خزينة الريال", currency: "SAR", branchId: "BR-MAIN", glAccountId: "1300-1", openingBalance: "0" }, admin(app))).status).toBe(201);
     expect((await post(app, "/vouchers", {
       id: "v-sar", date: "2026-08-26", voucherType: "supplier_payment", amount: "100", currency: "SAR", branchId: "BR-MAIN", paymentMethod: "cash",
-      treasuryAccountId: "ta-cash", treasuryGlAccountId: "1300-1", counterpartyGlAccountId: "2100", supplierId: "sup-sar",
+      treasuryAccountId: "ta-cash-sar", treasuryGlAccountId: "1300-1", counterpartyGlAccountId: "2100", supplierId: "sup-sar",
     }, admin(app))).status).toBe(201);
     expect((await post(app, "/vouchers/v-sar/confirm", {}, admin(app))).status).toBe(200);
     const allocated = await post(app, "/vouchers/v-sar/allocations", { allocationId: "al-sar", invoiceId: "pi-sar", amount: "1350" }, admin(app));

@@ -43,6 +43,7 @@ export const PERMISSION_ACTION_LABELS = {
   reopen: { ar: "إعادة فتح", en: "Reopen" },
   run: { ar: "تشغيل", en: "Run" },
   deactivate: { ar: "تعطيل", en: "Deactivate" },
+  erase_personal: { ar: "محو البيانات الشخصية", en: "Erase personal data" },
   assign: { ar: "إسناد", en: "Assign" },
   convert: { ar: "تحويل", en: "Convert" },
   override: { ar: "تجاوز", en: "Override" },

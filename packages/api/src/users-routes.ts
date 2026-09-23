@@ -16,6 +16,11 @@ import {
   UnknownRoleError,
   UserNotFoundError,
   LastCompanyAdminError,
+  UserErasureRefusedError,
+  assertUserErasable,
+  erasedUser,
+  isErasedUser,
+  type Employee,
   type AuditSink,
   type SodConflictMatch,
   type User,
@@ -23,7 +28,7 @@ import {
   type ScopeSelection,
   type SecretHasher,
 } from "@mezan/domain";
-import { createUserSchema, updateUserSchema } from "@mezan/contracts";
+import { ErasureRetention, createUserSchema, eraseUserSchema, updateUserSchema } from "@mezan/contracts";
 import {
   createPermissionGate,
   getAuthContext,
@@ -50,6 +55,7 @@ function serializeUser(user: User) {
     photoUrl: user.photoUrl,
     lastLoginAt: user.lastLoginAt,
     createdAt: user.createdAt,
+    erasedAt: user.erasedAt ?? null,
   };
 }
 
@@ -73,6 +79,9 @@ function userErrorResponse(c: Context, err: unknown) {
   // deactivate users — it is the tenant's state that forbids this one (D117).
   if (err instanceof LastCompanyAdminError) {
     return c.json({ error: err.code, message: err.message }, 409);
+  }
+  if (err instanceof UserErasureRefusedError) {
+    return c.json({ error: err.code, reason: err.reason, message: err.message, messageEn: err.messageEn }, 409);
   }
   throw err;
 }
@@ -99,7 +108,41 @@ export interface UsersRoutesOptions {
   readonly sessions?: SessionRegistry;
   /** The SAME throttle `/auth/login` counts against, so an admin can clear a lockout. */
   readonly loginThrottle?: LoginThrottle;
+  /** The person's data held outside the user row. Omit it and `POST /:id/erase` is not mounted. */
+  readonly erasure?: UserErasurePort;
 }
+
+export interface UserErasureCounts {
+  readonly employee: boolean;
+  readonly clockInSelfies: number;
+  readonly webauthnCredentials: number;
+  readonly webauthnChallenges: number;
+  readonly attendanceLocations: number;
+}
+
+/**
+ * Runs inside the erasure's transaction, over the stores the user row does not
+ * cover: the linked HR employee, its clock-in selfies and attendance
+ * locations, and its WebAuthn keys.
+ */
+export interface UserErasurePort {
+  linkedEmployee(employeeId: string): Promise<Employee | null>;
+  eraseLinkedPersonalData(input: { readonly userId: string; readonly employee: Employee | null }): Promise<UserErasureCounts>;
+}
+
+/**
+ * What an erasure keeps, sent with every result so the screen and the person
+ * asking can be told. Each rests on a legal retention duty a lawyer still has
+ * to confirm for the tenant (D348).
+ */
+const ERASURE_RETAINS: readonly ErasureRetention[] = [
+  ErasureRetention.PostedJournalEntries,
+  ErasureRetention.AuditTrail,
+  ErasureRetention.ApprovalDecisions,
+  ErasureRetention.NamesPrintedOnPostedDocuments,
+  ErasureRetention.PayrollRecords,
+  ErasureRetention.AttendanceHours,
+];
 
 /**
  * Users CRUD — every route is permission-gated (docs/archive/catalog/09 §المستخدمون).
@@ -111,7 +154,7 @@ export function createUsersRoutes(
   resolveAuthContext: AuthContextResolver,
   options: UsersRoutesOptions = {},
 ) {
-  const { readAllowedEmailDomains, audit, sessions, loginThrottle } = options;
+  const { readAllowedEmailDomains, audit, sessions, loginThrottle, erasure } = options;
   const gate = createPermissionGate(resolveAuthContext);
   const app = new Hono();
 
@@ -402,6 +445,18 @@ export function createUsersRoutes(
     return null;
   }
 
+  function refuseErased(c: Context, user: User | null) {
+    if (!user || !isErasedUser(user)) return null;
+    return c.json(
+      {
+        error: "USER_ERASED",
+        message: "محيت بيانات هذا المستخدم الشخصية؛ لا يمكن تعديله أو تفعيله. أنشئ حسابًا جديدًا إن عاد.",
+        messageEn: "This user's personal data was erased; the account cannot be edited or reactivated. Create a new account if they return.",
+      },
+      409,
+    );
+  }
+
   app.get("/", gate("admin.users.view"), async (c) => {
     const users = await uow.users.list();
     return c.json(users.map(serializeUser));
@@ -454,6 +509,8 @@ export function createUsersRoutes(
     // A PUT is an EDIT. Letting an unknown id fall through created the account
     // instead, so a caller-chosen id was a second, unaudited create route.
     if (!before) return c.json({ error: "USER_NOT_FOUND", message: "المستخدم غير موجود." }, 404);
+    const erasedRefusal = refuseErased(c, before);
+    if (erasedRefusal) return erasedRefusal;
     const outranked = await refuseIfTargetOutranks(c, id);
     if (outranked) return outranked;
     const escalation = await refuseIfEscalating(c, parsed.data, id);
@@ -541,6 +598,8 @@ export function createUsersRoutes(
     const outranked = await refuseIfTargetOutranks(c, id);
     if (outranked) return outranked;
     const target = await uow.users.findById(id);
+    const erasedRefusal = refuseErased(c, target);
+    if (erasedRefusal) return erasedRefusal;
     if (target?.status === "inactive") {
       const overCap = await refuseIfOverSeatCap(c);
       if (overCap) return overCap;
@@ -583,6 +642,63 @@ export function createUsersRoutes(
     });
     return c.json({ ok: true, userId: user.id });
   });
+
+  if (erasure) {
+    const port = erasure;
+    app.post("/:id/erase", gate("admin.users.erase_personal"), async (c) => {
+      const parsed = eraseUserSchema.safeParse(await c.req.json().catch(() => ({})));
+      if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+      const id = c.req.param("id");
+      const ctx = getAuthContext(c);
+      if (!ctx) return c.json({ error: "UNAUTHENTICATED" }, 401);
+      const outranked = await refuseIfTargetOutranks(c, id);
+      if (outranked) return outranked;
+      const target = await uow.users.findById(id);
+      if (!target) return c.json({ error: "USER_NOT_FOUND", message: "المستخدم غير موجود." }, 404);
+      if (!isErasedUser(target) && parsed.data.confirmEmail.toLowerCase() !== target.email) {
+        return c.json(
+          {
+            error: "ERASURE_CONFIRMATION_MISMATCH",
+            message: "البريد المكتوب للتأكيد لا يطابق بريد هذا المستخدم.",
+            messageEn: "The confirmation email does not match this user's email.",
+          },
+          422,
+        );
+      }
+      const unusableHash = await hasher.hash(`${crypto.randomUUID()}${crypto.randomUUID()}`);
+      try {
+        const result = await uow.transaction(async (tx) => {
+          const current = await tx.users.findById(id);
+          if (!current) throw new UserNotFoundError(id);
+          const employee = current.employeeId ? await port.linkedEmployee(current.employeeId) : null;
+          assertUserErasable(current, { actorId: ctx.userId, users: await tx.users.list(), employee });
+          const erased = erasedUser(current, new Date().toISOString(), unusableHash);
+          await tx.users.save(erased);
+          const counts = await port.eraseLinkedPersonalData({ userId: current.id, employee });
+          // The actor and the reason travel; the erased person's name and email
+          // must not, or the erasure itself becomes a copy of what it removed.
+          await recordSecurityAdminEvent(audit, c, {
+            module: "admin",
+            entityType: "USER",
+            entityId: current.id,
+            action: "PERSONAL_DATA_ERASED",
+            severity: "CRITICAL",
+            details: { reason: parsed.data.reason, employeeId: current.employeeId, ...counts, retained: ERASURE_RETAINS },
+          });
+          return { erased, counts, previousEmail: current.email };
+        });
+        sessions?.revokeUser(id);
+        loginThrottle?.succeed(result.previousEmail);
+        return c.json({
+          user: serializeUser(result.erased),
+          erased: { ...result.counts, sessionsRevoked: sessions !== undefined },
+          retained: ERASURE_RETAINS,
+        });
+      } catch (err) {
+        return userErrorResponse(c, err);
+      }
+    });
+  }
 
   return app;
 }

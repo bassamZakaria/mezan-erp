@@ -76,6 +76,9 @@ class SqliteWebauthnChallengeRepository implements WebauthnChallengeRepository {
     if (pending.purpose !== purpose || pending.expiresAt <= now) return null;
     return pending;
   }
+  async deleteByUserId(userId: string): Promise<number> {
+    return this.deleteByUser.run(userId).changes;
+  }
 }
 
 function randomChallenge(): string {

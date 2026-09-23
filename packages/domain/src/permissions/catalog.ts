@@ -348,6 +348,7 @@ const ROWS: readonly Row[] = [
   // manager standing next to it, and giving them `.edit` to do it would also
   // give them every colleague's PIN.
   ["admin.users.unlock", "admin.users.view"],
+  ["admin.users.erase_personal", "admin.users.view"],
   ["admin.roles.view"],
   ["admin.roles.manage", "admin.roles.view"],
   ["admin.settings.view"],

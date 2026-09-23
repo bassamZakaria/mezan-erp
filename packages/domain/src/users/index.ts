@@ -21,3 +21,19 @@ export {
   type SaveUserCommand,
   type SaveUserOptions,
 } from "./save-user.js";
+export {
+  ERASED_USER_NAME_AR,
+  ERASED_USER_NAME_EN,
+  ERASED_EMPLOYEE_FIRST_NAME_AR,
+  ERASED_EMPLOYEE_LAST_NAME_AR,
+  ERASED_EMPLOYEE_FIRST_NAME_EN,
+  ERASED_EMPLOYEE_LAST_NAME_EN,
+  UserErasureRefusal,
+  UserErasureRefusedError,
+  assertUserErasable,
+  erasedEmployee,
+  erasedUser,
+  erasedUserEmail,
+  isErasedUser,
+  scrubAttendanceNote,
+} from "./erase-user.js";

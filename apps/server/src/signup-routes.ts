@@ -8,6 +8,7 @@ import {
   SignupTokenExpiredError,
   SignupTokenInvalidError,
   startSignup,
+  topPublicPaidPlan,
   TenantCodeTakenError,
   verifySignup,
   type Plan,
@@ -198,6 +199,12 @@ export function createSignupRoutes(options: SignupRoutesOptions): Hono {
       return c.json({ error: "DISPOSABLE_EMAIL", message: "لا يمكن استخدام بريد إلكتروني مؤقّت للتسجيل" }, 400);
     }
 
+    // DEC-31 rule 1 — every sign-up is a reverse trial on the TOP public paid
+    // plan, whatever plan the form named. The plan the visitor browsed is a
+    // shop window; the 14 days are always on everything, and day 15 lands on
+    // Free. Resolved here rather than trusted from the request so a crafted
+    // body cannot pick its own trial plan.
+    const trialPlan = topPublicPaidPlan(await platform.stores.plans.list());
     const token = randomBytes(32).toString("base64url");
     try {
       await startSignup(
@@ -208,7 +215,7 @@ export function createSignupRoutes(options: SignupRoutesOptions): Hono {
           nameEn: body.nameEn,
           ownerEmail: body.ownerEmail,
           ownerNameAr: body.ownerNameAr,
-          planId: body.planId,
+          planId: trialPlan?.id ?? body.planId,
           billingCycle: body.billingCycle,
           tokenHash: hashToken(token),
           now: now().toISOString(),

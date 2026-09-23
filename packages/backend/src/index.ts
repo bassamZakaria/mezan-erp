@@ -22,3 +22,4 @@ export { createHrTreasuryDisbursementPort } from "./hr-treasury-disbursement.js"
 export { createPlatform, PLATFORM_SEED_PLANS, type CreatePlatformOptions, type PlatformHandle } from "./create-platform.js";
 export { createPlatformAuth, type PlatformAuth, type PlatformAuthDeps } from "./platform-auth.js";
 export { createPlatformRoutes, serializeCardCheckout, type CreatePlatformRoutesOptions, type PlatformCardCheckoutPort } from "./platform-routes.js";
+export { materialiseEndedTrial, resolveTenantPlan, type TenantPlanView } from "./reverse-trial.js";

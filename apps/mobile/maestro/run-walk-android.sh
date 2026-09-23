@@ -20,10 +20,9 @@ case "$THEME" in
   *) echo "theme must be light or dark" >&2; exit 2 ;;
 esac
 
-# user_rotation: 0 is the natural orientation, 1 is 90° counter-clockwise.
 case "$ROTATION" in
-  portrait) USER_ROTATION=0; ORIENTATION=PORTRAIT ;;
-  landscape) USER_ROTATION=1; ORIENTATION=LANDSCAPE_LEFT ;;
+  portrait) ORIENTATION=PORTRAIT ;;
+  landscape) ORIENTATION=LANDSCAPE_LEFT ;;
   *) echo "orientation must be portrait or landscape" >&2; exit 2 ;;
 esac
 
@@ -39,6 +38,16 @@ if [ "$current" != "$SYSTEM_LOCALE" ]; then
 fi
 
 adb -s "$SERIAL" shell cmd uimode night "$NIGHT" >/dev/null
+
+# user_rotation 0 is the panel's NATURAL orientation, and a tablet's natural
+# orientation is landscape — so 0 is not "portrait" on every device. Which
+# rotation is portrait has to be read off the panel.
+panel=$(adb -s "$SERIAL" shell wm size | tr -d '\r' | sed -n 's/.*: *\([0-9]*\)x\([0-9]*\).*/\1 \2/p' | tail -1)
+panel_w=${panel% *}
+panel_h=${panel#* }
+if [ "$panel_w" -gt "$panel_h" ]; then natural=landscape; else natural=portrait; fi
+if [ "$ROTATION" = "$natural" ]; then USER_ROTATION=0; else USER_ROTATION=1; fi
+
 adb -s "$SERIAL" shell settings put system accelerometer_rotation 0
 adb -s "$SERIAL" shell settings put system user_rotation "$USER_ROTATION"
 adb -s "$SERIAL" shell settings put global sysui_demo_allowed 1 >/dev/null 2>&1 || true
@@ -47,6 +56,10 @@ adb -s "$SERIAL" shell am broadcast -a com.android.systemui.demo -e command cloc
 adb -s "$SERIAL" shell am broadcast -a com.android.systemui.demo -e command battery -e level 100 -e plugged false >/dev/null 2>&1 || true
 adb -s "$SERIAL" shell am broadcast -a com.android.systemui.demo -e command network -e wifi show -e level 4 >/dev/null 2>&1 || true
 adb -s "$SERIAL" shell am broadcast -a com.android.systemui.demo -e command notifications -e visible false >/dev/null 2>&1 || true
+
+# Installing and launching maestro's instrumentation driver takes minutes on a
+# headless emulator sharing a loaded machine, and the default wait is shorter.
+export MAESTRO_DRIVER_STARTUP_TIMEOUT="${MAESTRO_DRIVER_STARTUP_TIMEOUT:-300000}"
 
 mkdir -p "$OUT"
 args=()

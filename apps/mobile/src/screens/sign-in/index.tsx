@@ -7,7 +7,7 @@ import { LegalLinks } from "@/components/legal-links";
 import { TextField } from "@/components/text-field";
 import { describeApiError } from "@/api/errors";
 import { useStrings } from "@/i18n";
-import { useFormWidth, useSafeHorizontalPadding } from "@/layout";
+import { useFormPadding } from "@/layout";
 import { useSession } from "@/session/SessionProvider";
 import { SPACE, TYPE, useTheme } from "@/theme";
 
@@ -19,8 +19,7 @@ export function SignIn() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { connection, signIn } = useSession();
-  const formWidth = useFormWidth();
-  const sidePadding = useSafeHorizontalPadding();
+  const formPadding = useFormPadding();
 
   const [baseUrl, setBaseUrl] = useState(connection.baseUrl);
   const [tenantCode, setTenantCode] = useState(connection.tenantCode ?? "");
@@ -61,12 +60,8 @@ export function SignIn() {
       <ScrollView
         contentContainerStyle={[
           styles.content,
-          formWidth,
-          {
-            paddingTop: insets.top + SPACE.xxl,
-            paddingBottom: insets.bottom + SPACE.xxl,
-            paddingHorizontal: SPACE.lg + sidePadding,
-          },
+          formPadding,
+          { paddingTop: insets.top + SPACE.xxl, paddingBottom: insets.bottom + SPACE.xxl },
         ]}
         keyboardShouldPersistTaps="handled"
       >

@@ -3,7 +3,6 @@ import { Card } from "@/components/card";
 import { describeApiError } from "@/api/errors";
 import { useCustomer, useCustomerAging, useCustomerInvoices, type CustomerAgingRow } from "@/api/queries";
 import { useStrings, type Strings } from "@/i18n";
-import { useFormWidth } from "@/layout";
 import { formatAmountWithCurrency, formatWireAmount } from "@/money";
 import { useSession } from "@/session/SessionProvider";
 import { SPACE, TYPE, useTheme } from "@/theme";
@@ -32,8 +31,7 @@ export function Customer({ id }: { id: string }) {
   const strings = useStrings();
   const theme = useTheme();
   const { can } = useSession();
-  const formWidth = useFormWidth();
-  const customer = useCustomer(id);
+    const customer = useCustomer(id);
   const aging = useCustomerAging(id, can("sales.invoice.view"));
   const invoices = useCustomerInvoices(
     id,
@@ -58,7 +56,7 @@ export function Customer({ id }: { id: string }) {
 
   const row = customer.data;
   return (
-    <ScrollView contentContainerStyle={[styles.content, formWidth]} style={{ backgroundColor: theme.background }}>
+    <ScrollView contentContainerStyle={styles.content} style={{ backgroundColor: theme.background }}>
       <Text style={[styles.title, { color: theme.text }]}>{row.nameAr}</Text>
       <Card>
         <Row label={strings.home.receivables} value={row.owed == null ? "—" : formatAmountWithCurrency(row.owed)} />

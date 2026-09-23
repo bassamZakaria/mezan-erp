@@ -20,7 +20,7 @@ import {
 } from "@/api/queries";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { useStrings } from "@/i18n";
-import { useFormWidth, useSafeHorizontalPadding } from "@/layout";
+import { useFormPadding } from "@/layout";
 import { formatAmountWithCurrency, isPositiveDecimal, toAmountInput } from "@/money";
 import { DEFAULT_GL_ACCOUNTS } from "@/domain/accounts";
 import { addDaysIso, todayIso } from "@/domain/dates";
@@ -68,8 +68,7 @@ export function Sell() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const { can } = useSession();
-  const formWidth = useFormWidth();
-  const sidePadding = useSafeHorizontalPadding();
+  const formPadding = useFormPadding();
 
   const [kind, setKind] = useState<DocumentKind>(DocumentKind.Invoice);
 
@@ -226,8 +225,8 @@ export function Sell() {
     <ScrollView
       contentContainerStyle={[
         styles.content,
-        formWidth,
-        { paddingTop: insets.top + SPACE.lg, paddingBottom: SPACE.xxl, paddingHorizontal: SPACE.lg + sidePadding },
+        formPadding,
+        { paddingTop: insets.top + SPACE.lg, paddingBottom: SPACE.xxl },
       ]}
       style={{ backgroundColor: theme.background }}
     >

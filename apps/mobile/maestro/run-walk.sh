@@ -32,6 +32,10 @@ osascript -e 'tell application "Simulator" to quit' >/dev/null 2>&1 || true
 xcrun simctl ui "$UDID" appearance "$THEME"
 xcrun simctl status_bar "$UDID" override --time 9:41 --batteryState charged --batteryLevel 100 --cellularBars 4 --wifiBars 3 --dataNetwork wifi || true
 
+# Building and launching the XCUITest runner takes minutes on a loaded machine,
+# and maestro's default wait is far shorter than that.
+export MAESTRO_DRIVER_STARTUP_TIMEOUT="${MAESTRO_DRIVER_STARTUP_TIMEOUT:-300000}"
+
 mkdir -p "$OUT"
 args=()
 while IFS='=' read -r key value; do

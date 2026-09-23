@@ -3,7 +3,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { LegalLinks } from "@/components/legal-links";
 import { useStrings } from "@/i18n";
-import { useFormWidth, useSafeHorizontalPadding } from "@/layout";
+import { useFormPadding } from "@/layout";
 import { RADIUS, SPACE, TYPE, useTheme } from "@/theme";
 
 interface MenuEntry {
@@ -17,8 +17,7 @@ export function More() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const formWidth = useFormWidth();
-  const sidePadding = useSafeHorizontalPadding();
+  const formPadding = useFormPadding();
 
   const entries: MenuEntry[] = [
     { title: strings.more.collect, subtitle: strings.more.collectSubtitle, href: "/collect" },
@@ -30,11 +29,12 @@ export function More() {
     <View
       style={[
         styles.flex,
-        { backgroundColor: theme.background, paddingTop: insets.top + SPACE.lg, paddingHorizontal: sidePadding },
+        formPadding,
+        { backgroundColor: theme.background, paddingTop: insets.top + SPACE.lg },
       ]}
     >
-      <Text style={[styles.title, formWidth, { color: theme.text }]}>{strings.more.title}</Text>
-      <View style={[styles.list, formWidth]}>
+      <Text style={[styles.title, { color: theme.text }]}>{strings.more.title}</Text>
+      <View style={styles.list}>
         {entries.map((entry) => (
           <Pressable
             accessibilityRole="button"
@@ -50,17 +50,15 @@ export function More() {
           </Pressable>
         ))}
       </View>
-      <View style={formWidth}>
-        <LegalLinks />
-      </View>
+      <LegalLinks />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  title: { fontSize: TYPE.display, fontWeight: "800", paddingHorizontal: SPACE.lg, marginBottom: SPACE.md },
-  list: { paddingHorizontal: SPACE.lg, gap: SPACE.md },
+  title: { fontSize: TYPE.display, fontWeight: "800", marginBottom: SPACE.md },
+  list: { gap: SPACE.md },
   row: { borderWidth: 1, borderRadius: RADIUS.lg, padding: SPACE.lg, gap: SPACE.xs, minHeight: 64 },
   rowTitle: { fontSize: TYPE.body, fontWeight: "700" },
   rowSubtitle: { fontSize: TYPE.caption },

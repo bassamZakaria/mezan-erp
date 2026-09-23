@@ -9,7 +9,7 @@ import { describeApiError, describeWriteError } from "@/api/errors";
 import { useDecideApproval, usePendingApprovals, useUser } from "@/api/queries";
 import { OfflineNotice } from "@/components/offline-notice";
 import { useStrings, type Strings } from "@/i18n";
-import { useFormWidth, useIsSplit, useSafeHorizontalPadding } from "@/layout";
+import { useFormPadding, useIsSplit, useSafeHorizontalPadding } from "@/layout";
 import { ApprovalDecision } from "@/domain/enums";
 import { useSession } from "@/session/SessionProvider";
 import { RADIUS, SPACE, TYPE, useTheme } from "@/theme";
@@ -21,7 +21,7 @@ export function Approvals() {
   const allowed = can("workflow.view");
   const split = useIsSplit();
   const sidePadding = useSafeHorizontalPadding();
-  const formWidth = useFormWidth();
+  const formPadding = useFormPadding();
 
   const pending = usePendingApprovals();
   const decide = useDecideApproval();
@@ -128,7 +128,7 @@ export function Approvals() {
       ) : null}
 
       <FlatList
-        contentContainerStyle={[styles.list, split ? null : formWidth]}
+        contentContainerStyle={[styles.list, split ? null : formPadding]}
         data={requests}
         keyExtractor={(row) => row.id}
         ListEmptyComponent={

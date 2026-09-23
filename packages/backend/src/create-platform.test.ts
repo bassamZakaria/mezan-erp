@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, it, expect } from "vitest";
-import { MODULE_CATALOG, Money, PlanKind, type Plan } from "@mezan/domain";
+import { MODULE_CATALOG, Money, PlanKind, QuotaKind, type Plan } from "@mezan/domain";
 import { createSqlitePlatformStores, openSqliteConnection } from "@mezan/persistence";
 import { createPlatform, PLATFORM_SEED_PLANS } from "./create-platform.js";
 
@@ -17,24 +17,31 @@ describe("createPlatform", () => {
     expect(plans.map((p) => p.priceMonthly.toString())).toEqual(["0.000000", "490.000000", "980.000000", "1960.000000"]);
     expect(plans.map((p) => p.priceYearly.toString())).toEqual(["0.000000", "4900.000000", "9800.000000", "19600.000000"]);
     for (const p of plans) {
-      expect(p.trialDays).toBe(14);
+      // The free plan has nothing to trial — it IS where a trial lands.
+      expect(p.trialDays).toBe(p.code === "free" ? 0 : 14);
       expect(p.status).toBe("active");
       expect(p.isPublic).toBe(true);
       expect(p.createdAt).toBe("2026-01-01T00:00:00.000Z");
     }
-    const enterprise = plans[2]!;
+    const free = plans[0]!;
+    expect(free.kind).toBe(PlanKind.Free);
+    // DEC-31 §3.3 — core modules, 2 users, 1 branch, 1 warehouse, 100 invoices
+    // a month. Business call, editable in the console, seeded here.
+    expect(free.quotas).toEqual({ [QuotaKind.SalesInvoicesPerMonth]: 100 });
+    expect([...free.modules].sort()).toEqual(["accounting", "inventory", "purchases", "sales", "treasury"]);
+    const enterprise = plans[3]!;
     // `pos` is licensable (DEC-23) but deliberately stays out of the seeded
     // SaaS plans until the POS close-out lane — see `create-platform.ts`.
     expect([...enterprise.modules].sort()).toEqual([...MODULE_CATALOG].filter((id) => id !== "pos").sort());
-    const business = plans[1]!;
+    const business = plans[2]!;
     expect(business.modules).not.toContain("hr");
     expect(business.modules).not.toContain("manufacturing");
     expect(business.modules).toContain("crm");
     // 15, down from 17: DEC-14 deleted every `dashboard.*` and
     // `transactions.*` permission, so neither is a module a plan can sell.
     expect(business.modules).toHaveLength(15);
-    const core = plans[0]!;
-    expect(core.modules).toEqual(PLATFORM_SEED_PLANS[0]!.modules);
+    const core = plans[1]!;
+    expect(core.modules).toEqual(PLATFORM_SEED_PLANS[1]!.modules);
     expect(core.modules).toHaveLength(9);
     platform.close();
   });

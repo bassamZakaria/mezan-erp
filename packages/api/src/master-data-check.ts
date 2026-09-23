@@ -1,4 +1,6 @@
 import type { Context } from "hono";
+import { LimitKind } from "@mezan/domain";
+import { refuseOverLimitLocation } from "./plan-locations.js";
 
 /**
  * Refuses a document that names a master record the tenant does not hold (D310).
@@ -95,6 +97,20 @@ export async function refuseUnknownMasterData(
   checks: MasterDataChecks | undefined,
   refs: readonly MasterDataRef[],
 ): Promise<Response | null> {
+  // The plan-limit check runs even with no master-data checks wired: it is a
+  // licence rule, not a referential one, and every route that names a branch
+  // or a warehouse on a write already calls through here.
+  for (const ref of refs) {
+    const kind =
+      ref.kind === MasterDataKind.Branch
+        ? LimitKind.Branches
+        : ref.kind === MasterDataKind.Warehouse
+          ? LimitKind.Warehouses
+          : null;
+    if (!kind) continue;
+    const overLimit = await refuseOverLimitLocation(c, kind, ref.ids);
+    if (overLimit) return overLimit;
+  }
   if (!checks) return null;
   for (const ref of refs) {
     const check = checks[ref.kind];

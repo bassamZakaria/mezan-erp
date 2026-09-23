@@ -1,12 +1,12 @@
 import { describe, it, expect } from "vitest";
 import { Money } from "../money/money.js";
-import type { Plan } from "./plan.js";
+import { PlanKind, type Plan } from "./plan.js";
 import type { Subscription } from "./subscription.js";
 import type { Tenant } from "./tenant.js";
 import { deriveEntitlements, subscriptionLicenseState } from "./derive.js";
 
 const plan: Plan = {
-  id: "P1", code: "core", nameAr: "الأساسية", nameEn: "Core", modules: ["accounting", "sales"],
+  id: "P1", code: "core", nameAr: "الأساسية", nameEn: "Core", kind: PlanKind.Paid, quotas: {}, modules: ["accounting", "sales"],
   features: { "reports.export": true }, seatsIncluded: 3, branchesIncluded: 1, warehousesIncluded: 1,
   priceMonthly: Money.fromMajor("490"), priceYearly: Money.fromMajor("4900"), trialDays: 14,
   isPublic: true, sortOrder: 1, status: "active", createdAt: "2026-01-01T00:00:00.000Z",
@@ -17,6 +17,7 @@ const sub: Subscription = {
   addOnModules: ["hr", "sales"], extraSeats: 2, extraBranches: 0, extraWarehouses: 0,
   currentPeriodStart: "2026-09-01T00:00:00.000Z", currentPeriodEnd: "2026-10-01T00:00:00.000Z",
   trialEndsAt: null, graceDays: 7, cancelledAt: null,
+  previousPlanId: null,
   createdAt: "2026-09-01T00:00:00.000Z", updatedAt: "2026-09-01T00:00:00.000Z",
 };
 

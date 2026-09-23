@@ -38,7 +38,7 @@ const NOW = "2026-09-14T10:00:00.000Z";
 const sub: Subscription = {
   id: "S1", tenantId: "T1", planId: "P1", status: "active", billingCycle: "monthly", addOnModules: [],
   extraSeats: 0, extraBranches: 0, extraWarehouses: 0, currentPeriodStart: "2026-08-14T10:00:00.000Z",
-  currentPeriodEnd: "2026-09-14T10:00:00.000Z", trialEndsAt: null, graceDays: 7, cancelledAt: null,
+  currentPeriodEnd: "2026-09-14T10:00:00.000Z", trialEndsAt: null, previousPlanId: null, graceDays: 7, cancelledAt: null,
   createdAt: "2026-08-14T10:00:00.000Z", updatedAt: "2026-08-14T10:00:00.000Z",
 };
 

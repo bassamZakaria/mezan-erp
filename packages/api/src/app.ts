@@ -138,6 +138,9 @@ import { createInventoryRoutes } from "./inventory-routes.js";
 import { createGlRoutes, type GlRoutesDeps } from "./gl-routes.js";
 import { createVouchersRoutes, createAllocationRoutes, type VoucherRoutesDeps } from "./vouchers-routes.js";
 import { createSalesInvoicesRoutes, type SalesInvoiceRoutesDeps } from "./sales-invoices-routes.js";
+import { createSalesInvoiceQuota } from "./plan-quota-wiring.js";
+import { createPlanUsageRoutes } from "./plan-usage-routes.js";
+import { planLocationsBinding } from "./plan-locations.js";
 import { createSalesReturnsRoutes } from "./sales-returns-routes.js";
 import { createPurchaseReturnsRoutes } from "./purchase-returns-routes.js";
 import { createLandedCostsRoutes } from "./landed-costs-routes.js";
@@ -931,6 +934,9 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   // refuse an unlicensed module (permission-gate.ts) — the module gate was
   // exported and unit-tested but never wired to a route until this mount.
   app.use("*", entitlementsBinding(resolveEntitlements));
+  // Must sit BELOW the entitlements binding: the over-limit sets are a function
+  // of the limits that binding publishes.
+  app.use("*", planLocationsBinding({ branches: options.branchStore, warehouses: options.warehouseStore }));
 
   // A session token presented from an address it was not issued to. The
   // REFUSAL happens in session-auth.ts regardless of this mount (the resolver
@@ -1161,6 +1167,13 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
           ...salesInvoices,
           creditControl,
           promotions,
+          // DEC-31 rule 6 — the monthly invoice quota, counted from the stored
+          // rows of the tenant's own calendar month and re-counted inside the
+          // write transaction. Auto-wired so a composition cannot mount the
+          // create route with the limit quietly missing.
+          quota:
+            salesInvoices.quota ??
+            createSalesInvoiceQuota(salesInvoices.repo, (fn) => uow.transaction(fn)),
           // `view_own` narrows on `salespersonId`, which holds an Employee id.
           // Without this port it would be compared against a user id and match
           // nothing, so a real rep would see no invoices at all (D147).
@@ -1246,6 +1259,9 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
             numbering: options.salesInvoices.numbering,
             gl: options.salesInvoices.gl,
             stock: options.salesInvoices.stock,
+            quota:
+              options.salesInvoices.quota ??
+              createSalesInvoiceQuota(options.salesInvoices.repo, (fn) => uow.transaction(fn)),
           }
         : undefined);
     app.route("/sales-quotes", createSalesQuotesRoutes({ ...salesQuotes, invoice }, resolveAuth));
@@ -1591,6 +1607,26 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
    * exposed so the role editor offers exactly the licensed modules/permissions
    * the server would accept, instead of its own client-side copy.
    */
+  /**
+   * What this tenant has used against its plan's quotas and limits, on its own
+   * calendar day (DEC-31 rule 7). Mounted unconditionally: a tenant with no
+   * quotas answers an empty list rather than a 404 the screen has to guess at.
+   */
+  app.route(
+    "/plan-usage",
+    createPlanUsageRoutes(
+      {
+        quota: options.salesInvoices
+          ? createSalesInvoiceQuota(options.salesInvoices.repo, (fn) => uow.transaction(fn))
+          : undefined,
+        users: uow.users,
+        branches: options.branchStore,
+        warehouses: options.warehouseStore,
+      },
+      resolveAuth,
+    ),
+  );
+
   app.get("/entitlements", async (c) => {
     const entitlements = await resolveEntitlements(c);
     if (!entitlements) return c.json({ error: "ENTITLEMENTS_UNAVAILABLE" }, 500);

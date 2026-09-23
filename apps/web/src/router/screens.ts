@@ -116,6 +116,7 @@ export const SCREEN_MODULES = {
   "report-simplified-regime-comparison": () => import("../screens/tax/SimplifiedRegimeComparisonScreen").then((m) => ({ Component: m.SimplifiedRegimeComparisonScreen })),
   "financial-reports": () => import("../screens/FinancialReportsScreen").then((m) => ({ Component: m.FinancialReportsScreen })),
   "settings-general": () => import("../settings/SettingsGeneral").then((m) => ({ Component: m.SettingsGeneral })),
+  "settings-billing": () => import("../billing/BillingScreen").then((m) => ({ Component: m.BillingScreen })),
   "settings-branches": () => import("../settings/BranchesPage").then((m) => ({ Component: m.BranchesPage })),
   "settings-warehouses": () => import("../settings/WarehousesPage").then((m) => ({ Component: m.WarehousesPage })),
   "settings-print": () => import("../settings/PrintTemplatesPage").then((m) => ({ Component: m.PrintTemplatesPage })),

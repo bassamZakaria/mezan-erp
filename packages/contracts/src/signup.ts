@@ -19,6 +19,7 @@ export const publicPlanSchema = planSchema.pick({
   code: true,
   nameAr: true,
   nameEn: true,
+  kind: true,
   modules: true,
   seatsIncluded: true,
   branchesIncluded: true,

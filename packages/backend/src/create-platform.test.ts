@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, it, expect } from "vitest";
-import { MODULE_CATALOG, Money, type Plan } from "@mezan/domain";
+import { MODULE_CATALOG, Money, PlanKind, type Plan } from "@mezan/domain";
 import { createSqlitePlatformStores, openSqliteConnection } from "@mezan/persistence";
 import { createPlatform, PLATFORM_SEED_PLANS } from "./create-platform.js";
 
@@ -54,6 +54,8 @@ describe("createPlatform", () => {
       code: "core",
       nameAr: PLATFORM_SEED_PLANS[0]!.nameAr,
       nameEn: PLATFORM_SEED_PLANS[0]!.nameEn,
+      kind: PlanKind.Paid,
+      quotas: {},
       modules: PLATFORM_SEED_PLANS[0]!.modules,
       features: {},
       seatsIncluded: PLATFORM_SEED_PLANS[0]!.seatsIncluded,

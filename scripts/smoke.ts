@@ -197,6 +197,7 @@ const CORE_READ_PATHS = [
   "/manufacturing/config-instances",
   "/roles",
   "/entitlements",
+  "/plan-usage",
   "/users",
   "/reports/sales/by-period",
   "/reports/sales/by-item",

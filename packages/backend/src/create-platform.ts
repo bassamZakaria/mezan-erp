@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { createPlan, createPlatformUser, MODULE_CATALOG, Money, type AuditSink, type CreatePlanCommand, type SecretHasher } from "@mezan/domain";
+import { createPlan, createPlatformUser, MODULE_CATALOG, Money, PlanKind, QuotaKind, type AuditSink, type CreatePlanCommand, type SecretHasher } from "@mezan/domain";
 import {
   createSqlitePlatformStores, createSqliteAuditSink, createScryptHasher,
   type SqlitePlatformStoresHandle, type SqliteConnectionInput, type SqliteOpenOptions,
@@ -25,11 +25,19 @@ export interface PlatformHandle {
 }
 
 const CORE_MODULES = ["accounting", "sales", "purchases", "inventory", "treasury", "workflow", "audit", "admin", "notifications"];
+/** DEC-31 §3.3 — the Free plan's modules. Business call, editable in the platform console. */
+const FREE_MODULES = ["accounting", "sales", "purchases", "inventory", "treasury"];
 const BUSINESS_MODULES = [...CORE_MODULES, "crm", "installments", "financial_papers", "field", "assets", "projects"];
 
 type SeedPlan = Omit<CreatePlanCommand, "now">;
 
 export const PLATFORM_SEED_PLANS: readonly SeedPlan[] = [
+  {
+    id: "PLAN-FREE", code: "free", nameAr: "المجانية", nameEn: "Free", kind: PlanKind.Free, modules: FREE_MODULES,
+    seatsIncluded: 2, branchesIncluded: 1, warehousesIncluded: 1,
+    quotas: { [QuotaKind.SalesInvoicesPerMonth]: 100 },
+    priceMonthly: Money.fromMajor("0"), priceYearly: Money.fromMajor("0"), trialDays: 0, isPublic: true, sortOrder: 0,
+  },
   {
     id: "PLAN-CORE", code: "core", nameAr: "الأساسية", nameEn: "Core", modules: CORE_MODULES,
     seatsIncluded: 3, branchesIncluded: 1, warehousesIncluded: 1,

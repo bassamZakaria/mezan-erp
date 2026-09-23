@@ -37,3 +37,34 @@ const KNOWN = new Set<string>(MODULE_CATALOG);
 export function isKnownModule(id: string): id is ModuleId {
   return KNOWN.has(id);
 }
+
+export interface ModuleName {
+  readonly ar: string;
+  readonly en: string;
+}
+
+export const MODULE_NAMES: Readonly<Record<ModuleId, ModuleName>> = {
+  sales: { ar: "المبيعات", en: "Sales" },
+  purchases: { ar: "المشتريات", en: "Purchases" },
+  inventory: { ar: "المخزون", en: "Inventory" },
+  accounting: { ar: "المحاسبة", en: "Accounting" },
+  treasury: { ar: "الخزينة", en: "Treasury" },
+  installments: { ar: "الأقساط", en: "Instalments" },
+  financial_papers: { ar: "الأوراق المالية", en: "Cheques" },
+  crm: { ar: "إدارة العملاء", en: "CRM" },
+  hr: { ar: "الموارد البشرية", en: "HR" },
+  manufacturing: { ar: "التصنيع", en: "Manufacturing" },
+  assets: { ar: "الأصول الثابتة", en: "Fixed assets" },
+  field: { ar: "المبيعات الميدانية", en: "Field sales" },
+  workflow: { ar: "سير العمل", en: "Workflow" },
+  audit: { ar: "المراجعة", en: "Audit" },
+  admin: { ar: "الإدارة", en: "Administration" },
+  notifications: { ar: "الإشعارات", en: "Notifications" },
+  projects: { ar: "المشروعات", en: "Projects" },
+  contracting: { ar: "المقاولات", en: "Contracting" },
+  pos: { ar: "نقاط البيع", en: "Point of sale" },
+};
+
+export function moduleName(id: string): ModuleName {
+  return isKnownModule(id) ? MODULE_NAMES[id] : { ar: id, en: id };
+}

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { Money } from "../money/money.js";
-import type { Plan, PlanRepository } from "./plan.js";
+import { PlanKind, type Plan, type PlanRepository } from "./plan.js";
 import {
   addPeriod, startSubscription, renewSubscription, changePlan, markPastDue,
   suspendSubscription, resumeSubscription, cancelSubscription,
@@ -15,7 +15,7 @@ const NOW = "2026-01-31T10:00:00.000Z";
 
 function plan(overrides: Partial<Plan> = {}): Plan {
   return {
-    id: "P1", code: "core", nameAr: "الأساسية", nameEn: "Core", modules: ["accounting", "sales"], features: {},
+    id: "P1", code: "core", nameAr: "الأساسية", nameEn: "Core", kind: PlanKind.Paid, quotas: {}, modules: ["accounting", "sales"], features: {},
     seatsIncluded: 3, branchesIncluded: 1, warehousesIncluded: 1,
     priceMonthly: Money.fromMajor("490"), priceYearly: Money.fromMajor("4900"),
     trialDays: 14, isPublic: true, sortOrder: 1, status: "active", createdAt: NOW, ...overrides,

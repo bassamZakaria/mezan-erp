@@ -15,6 +15,8 @@ const starterPlan: PlanDTO = {
   nameEn: "Starter",
   modules: ["sales"],
   features: {},
+  kind: "paid",
+  quotas: {},
   seatsIncluded: 5,
   branchesIncluded: 1,
   warehousesIncluded: 1,

@@ -24,7 +24,9 @@ import {
   type SalesInvoiceRepository,
   type SalesInvoiceStockHook,
   type CreateSalesInvoiceCommand,
+  QuotaKind,
 } from "@mezan/domain";
+import { withQuota, quotaRefusalResponse, type QuotaEnforcement } from "./plan-quota.js";
 import {
   createSalesQuoteSchema,
   salesQuoteListQuerySchema,
@@ -89,6 +91,12 @@ export interface SalesQuoteRoutesDeps {
     readonly numbering: DocumentNumberingHook;
     readonly gl: DocumentGlHook;
     readonly stock: SalesInvoiceStockHook;
+    /**
+     * The same monthly invoice quota `POST /sales-invoices` applies. Converting
+     * a quote raises a NEW sale, so it counts; without this the limit is one
+     * screen away from being free to walk around.
+     */
+    readonly quota?: QuotaEnforcement;
   };
 }
 
@@ -570,7 +578,11 @@ export function createSalesQuotesRoutes(
     };
 
     try {
-      const invoice = await invoiceSvc.createDraft(cmd);
+      const { refusal, value } = await withQuota(c, deps.invoice?.quota, QuotaKind.SalesInvoicesPerMonth, () =>
+        invoiceSvc.createDraft(cmd),
+      );
+      if (refusal) return quotaRefusalResponse(c, refusal);
+      const invoice = value!;
       const converted = await quoteSvc.markConverted(quote.id, invoice.id);
       return c.json(
         {

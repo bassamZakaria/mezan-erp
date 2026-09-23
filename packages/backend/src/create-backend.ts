@@ -4059,7 +4059,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       schemaVersion: CURRENT_SCHEMA_VERSION,
     }),
   );
-  app.route("/", createAuthRoutes({ uow, hasher, settings, seedStores, sessions, loginThrottle, audit: auditSink }));
+  app.route("/", createAuthRoutes({ uow, hasher, settings, seedStores, sessions, loginThrottle, audit: auditSink, resolveEntitlements: options.resolveEntitlements }));
   app.route(
     "/",
     createDashboardRoutes({

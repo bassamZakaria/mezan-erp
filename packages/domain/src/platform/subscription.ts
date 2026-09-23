@@ -11,6 +11,16 @@ import {
 } from "./errors.js";
 
 export type SubscriptionStatus = "trialing" | "active" | "past_due" | "suspended" | "cancelled";
+
+export enum SubscriptionTransition {
+  TrialEndedToFree = "TRIAL_ENDED_TO_FREE",
+  ModuleTrialStarted = "MODULE_TRIAL_STARTED",
+  SeatsSelected = "SEATS_SELECTED",
+}
+
+export enum PlanChangeActor {
+  ReverseTrial = "reverse-trial",
+}
 export type BillingCycle = "monthly" | "yearly";
 
 export interface Subscription {
@@ -26,6 +36,16 @@ export interface Subscription {
   readonly currentPeriodStart: string;
   readonly currentPeriodEnd: string;
   readonly trialEndsAt: string | null;
+  /**
+   * The plan this subscription was on before its last plan change.
+   *
+   * WITHOUT THIS THE DROP TO FREE ERASES ITS OWN HISTORY: the row is rewritten
+   * in place, so after day 15 nothing in the platform database says the tenant
+   * ever held the top plan — and DEC-31 rule 5 ("a module that leaves the plan
+   * becomes read-only, not forbidden") has nothing to read. Every module the
+   * tenant may still READ is derived from this.
+   */
+  readonly previousPlanId: string | null;
   readonly graceDays: number;
   readonly cancelledAt: string | null;
   readonly createdAt: string;
@@ -42,6 +62,17 @@ export interface SubscriptionRepository {
   save(subscription: Subscription): Promise<void>;
 }
 
+export interface SubscriptionTransitionRepository extends SubscriptionRepository {
+  /** Every live subscription still `trialing` whose trial ended at or before `nowIso`. */
+  listEndedTrials(nowIso: string): Promise<Subscription[]>;
+  /**
+   * Writes `after` only if the stored row still equals `before` (status, plan and
+   * `updatedAt`), then runs `sideEffect` in the SAME transaction. False when
+   * another writer moved the row first; nothing is written then.
+   */
+  compareAndSet(before: Subscription, after: Subscription, sideEffect: () => Promise<void>): Promise<boolean>;
+}
+
 export const DEFAULT_GRACE_DAYS = 7;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -56,6 +87,49 @@ export function addPeriod(startIso: string, cycle: BillingCycle): string {
 
 export function addDays(iso: string, days: number): string {
   return new Date(new Date(iso).getTime() + days * DAY_MS).toISOString();
+}
+
+export function trialHasEnded(s: Subscription, nowIso: string): boolean {
+  return s.status === "trialing" && s.trialEndsAt !== null && s.trialEndsAt <= nowIso;
+}
+
+/** The subscription after a reverse trial lands on the Free plan. Pure; the caller persists it with `compareAndSet`. */
+export function applyTrialEndToFree(s: Subscription, freePlanId: string, nowIso: string): Subscription {
+  if (!trialHasEnded(s, nowIso)) throw new InvalidSubscriptionTransitionError(s.status, "active");
+  const endedAt = s.trialEndsAt!;
+  return {
+    ...s,
+    planId: freePlanId,
+    previousPlanId: s.planId,
+    status: "active",
+    trialEndsAt: null,
+    billingCycle: "monthly",
+    currentPeriodStart: endedAt,
+    currentPeriodEnd: addPeriod(endedAt, "monthly"),
+    updatedAt: nowIso,
+  };
+}
+
+/**
+ * INVARIANT — every reader of a subscription must go through this before deriving
+ * entitlements or a licence state. The drop to Free is materialised lazily, so the
+ * stored row can still say `trialing` after the trial ended; this function is the
+ * single definition of what the subscription IS at `nowIso`, and persisting the
+ * move is only caching what it already returns. A reader that skipped it would
+ * hand a lapsed trial the top plan's modules.
+ */
+export function effectiveSubscription(
+  s: Subscription | null,
+  freePlanId: string | null,
+  nowIso: string,
+): Subscription | null {
+  if (!s || freePlanId === null || !trialHasEnded(s, nowIso)) return s;
+  return applyTrialEndToFree(s, freePlanId, nowIso);
+}
+
+/** True when the stored row still has to be written back to match `effectiveSubscription`. */
+export function needsTrialEndMaterialised(s: Subscription | null, freePlanId: string | null, nowIso: string): boolean {
+  return s !== null && freePlanId !== null && trialHasEnded(s, nowIso);
 }
 
 export interface StartSubscriptionCommand {
@@ -121,6 +195,7 @@ export async function startSubscription(
     currentPeriodStart: now,
     currentPeriodEnd: addPeriod(now, cmd.billingCycle),
     trialEndsAt: trial ? addDays(now, plan.trialDays) : null,
+    previousPlanId: null,
     graceDays,
     cancelledAt: null,
     createdAt: now,
@@ -229,6 +304,7 @@ export async function changePlan(
   const next: Subscription = {
     ...s,
     planId: plan.id,
+    previousPlanId: plan.id === s.planId ? s.previousPlanId : s.planId,
     status: s.status === "trialing" ? "active" : s.status,
     trialEndsAt: null,
     updatedAt: now,

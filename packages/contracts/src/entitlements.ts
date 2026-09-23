@@ -15,6 +15,12 @@ export const entitlementLimitsSchema = z.object({
   warehouses: z.number().int().nonnegative(),
 });
 
+export const entitlementModuleTrialSchema = z.object({
+  module: z.string().min(1),
+  startedAt: z.string().min(1),
+  endsAt: z.string().min(1),
+});
+
 export const entitlementsSchema = z.object({
   plan: z.string().min(1),
   activeModules: z.array(z.string().min(1)),
@@ -22,6 +28,16 @@ export const entitlementsSchema = z.object({
   seats: z.number().int().nonnegative(),
   expiresAt: z.string().datetime().nullable(),
   limits: entitlementLimitsSchema.optional(),
+  /** DEC-31 — modules the tenant once held: read and export, never write. */
+  readOnlyModules: z.array(z.string().min(1)).optional(),
+  /** Usage quotas keyed by `QuotaKind`; an absent key is unlimited. */
+  quotas: z.record(z.string(), z.number().int().nonnegative()).optional(),
+  moduleTrials: z.array(entitlementModuleTrialSchema).optional(),
+  planNameAr: z.string().optional(),
+  planNameEn: z.string().optional(),
+  planKind: z.string().optional(),
+  /** When the reverse trial ends; null or absent when the tenant is not on one. */
+  trialEndsAt: z.string().nullable().optional(),
 });
 
 /** The signed inner payload of a `license.mezan` file. */
@@ -44,4 +60,5 @@ export const licensePayloadSchema = z.object({
 });
 
 export type EntitlementsDTO = z.infer<typeof entitlementsSchema>;
+export type EntitlementModuleTrialDTO = z.infer<typeof entitlementModuleTrialSchema>;
 export type LicensePayloadDTO = z.infer<typeof licensePayloadSchema>;

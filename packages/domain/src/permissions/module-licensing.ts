@@ -11,7 +11,7 @@
  * `cheques` module is the `financial_papers` entitlement).
  */
 
-import { hasModule, type Entitlements } from "../entitlements/entitlements.js";
+import { hasModule, hasReadOnlyModule, type Entitlements } from "../entitlements/entitlements.js";
 import { MODULES, PERMISSIONS, type ModuleDef, type PermissionDef } from "./catalog.js";
 
 /** Catalog module ids that are core platform surface, never entitlement-gated. */
@@ -36,6 +36,17 @@ export function isModuleLicensed(moduleId: string, entitlements: Entitlements): 
   if (ALWAYS_LICENSED_MODULES.has(moduleId)) return true;
   const entitlementModule = CATALOG_TO_ENTITLEMENT_MODULE[moduleId] ?? moduleId;
   return hasModule(entitlements, entitlementModule);
+}
+
+/** The entitlement module id a catalog module is licensed under. */
+export function entitlementModuleOf(moduleId: string): string {
+  return CATALOG_TO_ENTITLEMENT_MODULE[moduleId] ?? moduleId;
+}
+
+/** True when `moduleId` (a catalog module) left the tenant's entitlements but its data stays readable. */
+export function isModuleReadOnly(moduleId: string, entitlements: Entitlements): boolean {
+  if (ALWAYS_LICENSED_MODULES.has(moduleId)) return false;
+  return hasReadOnlyModule(entitlements, entitlementModuleOf(moduleId));
 }
 
 /** Catalog modules visible under `entitlements`, in catalog order. */

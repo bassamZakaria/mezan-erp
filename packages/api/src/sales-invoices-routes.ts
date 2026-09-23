@@ -3,6 +3,7 @@ import { Hono, type Context } from "hono";
 import {
   type AllocatableInvoiceRepository,
   ApprovalRequestRejectedError,
+  QuotaKind,
   Money,
   salesReturnCreditByInvoice,
   type SalesReturnDocument,
@@ -72,6 +73,7 @@ import { refuseUnknownItems, type ItemCatalogCheck } from "./item-check.js";
 import { MasterDataKind, refuseUnknownMasterData, type MasterDataChecks } from "./master-data-check.js";
 import { type AuthContextResolver, branchScopeOf, callerRoleCodes, createAnyPermissionGate, createPermissionGate, getAuthContext, moduleRefusalFor, warehouseScopeOf } from "./permission-gate.js";
 import { tenantDay, tenantToday } from "./tenant-day.js";
+import { withQuota, quotaRefusalResponse, type QuotaEnforcement } from "./plan-quota.js";
 import {
   documentVersionOf,
   documentVersionsOf,
@@ -89,6 +91,12 @@ import {
  */
 export interface SalesInvoiceRoutesDeps {
   readonly repo: SalesInvoiceRepository;
+  /**
+   * The plan's monthly invoice quota (DEC-31 rule 6). Applies to `POST /` only:
+   * a return, a void, a collection, an e-receipt and every read stay open at
+   * the limit, because none of them goes through it.
+   */
+  readonly quota?: QuotaEnforcement;
   /**
    * N-9 — optimistic concurrency. Omit it and the routes behave exactly as
    * before; supply it and a caller holding a stale `expectedVersion` is refused
@@ -632,7 +640,14 @@ export function createSalesInvoicesRoutes(
 
     const svc = service(c);
     try {
-      const invoice = await svc.createDraft(cmd);
+      const { refusal, value } = await withQuota(
+        c,
+        deps.quota,
+        QuotaKind.SalesInvoicesPerMonth,
+        () => svc.createDraft(cmd),
+      );
+      if (refusal) return quotaRefusalResponse(c, refusal);
+      const invoice = value!;
       return c.json(salesInvoiceSchema.parse(serialize(invoice, totalsFor(svc, invoice))), 201);
     } catch (err) {
       return handleDomainError(c, err);

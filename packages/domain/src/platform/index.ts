@@ -51,3 +51,22 @@ export {
   startSignup, verifySignup, isDisposableEmailDomain, DISPOSABLE_EMAIL_DOMAINS, SignupRequestStatus,
   type SignupRequest, type SignupRequestRepository, type StartSignupCommand,
 } from "./signup.js";
+export {
+  PlanKind, QuotaKind, QUOTA_KINDS, normalizeQuotas, isFreePlan, topPublicPaidPlan, defaultFreePlan,
+  type PlanQuotas,
+} from "./plan.js";
+export {
+  SubscriptionTransition, PlanChangeActor, trialHasEnded, applyTrialEndToFree, effectiveSubscription,
+  needsTrialEndMaterialised, type SubscriptionTransitionRepository,
+} from "./subscription.js";
+export { MODULE_NAMES, moduleName, type ModuleName } from "./module-catalog.js";
+export {
+  MODULE_TRIAL_DAYS, ModuleTrialState, moduleTrialState, liveTrialModules, startModuleTrial,
+  type ModuleTrial, type ModuleTrialRepository, type StartModuleTrialCommand,
+} from "./module-trial.js";
+export type { DeriveEntitlementsContext } from "./derive.js";
+export {
+  LimitKind, LIMIT_OF_QUOTA, UsageRefusalCode, limitRefusal, moduleReadOnlyRefusal, locationOverLimitRefusal,
+  seatsOverLimitRefusal, tenantMonthOf,
+  type LimitRefusal, type ModuleReadOnlyRefusal, type LocationOverLimitRefusal, type SeatsOverLimitRefusal, type PlanLabel,
+} from "./usage-limits.js";

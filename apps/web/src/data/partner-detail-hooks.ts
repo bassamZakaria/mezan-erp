@@ -64,13 +64,14 @@ export const MONEY_RECONCILIATION_TOLERANCE = MONEY_SCALE_FACTOR / 100n;
 /* Partner aging                                                        */
 /* ------------------------------------------------------------------ */
 
+/** Exact decimal strings, as `/reports/aging/*` sends them (D345). */
 export interface AgingBuckets {
-  readonly current: number;
-  readonly d31to60: number;
-  readonly d61to90: number;
-  readonly d91to120: number;
-  readonly over120: number;
-  readonly total: number;
+  readonly current: string;
+  readonly d31to60: string;
+  readonly d61to90: string;
+  readonly d91to120: string;
+  readonly over120: string;
+  readonly total: string;
 }
 
 /**
@@ -92,14 +93,16 @@ export function useSupplierAging(): UseQueryResult<ReportResult<AgingSuppliersRo
   return useReport<AgingSuppliersRow>("aging.suppliers", "/aging/suppliers", {});
 }
 
+const ZERO_MONEY = "0.000000";
+
 export function agingBucketsFor(row: AgingCustomersRow | AgingSuppliersRow | undefined): AgingBuckets {
   return {
-    current: row?.current ?? 0,
-    d31to60: row?.d31to60 ?? 0,
-    d61to90: row?.d61to90 ?? 0,
-    d91to120: row?.d91to120 ?? 0,
-    over120: row?.over120 ?? 0,
-    total: row?.total ?? 0,
+    current: row?.current ?? ZERO_MONEY,
+    d31to60: row?.d31to60 ?? ZERO_MONEY,
+    d61to90: row?.d61to90 ?? ZERO_MONEY,
+    d91to120: row?.d91to120 ?? ZERO_MONEY,
+    over120: row?.over120 ?? ZERO_MONEY,
+    total: row?.total ?? ZERO_MONEY,
   };
 }
 

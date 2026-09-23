@@ -58,6 +58,36 @@ export function seedActorHeaders(userId: string, permissions: readonly string[] 
   };
 }
 
+export const SEED_TENANT_DOMAIN = "cyag.example";
+
+/** The seeded people another module acts as, by the email local part `seedAccess` gives them. */
+export enum SeedPerson {
+  SalesRep = "karim.fouad",
+  VanSales = "salma.fouad",
+  Purchasing = "rania.adel",
+  FinanceManager = "tarek.mansour",
+  Supervisor = "omar.hilal",
+  TechnicalOffice = "sherif.elgendy",
+  ConsultantQs = "manar.abdelaziz",
+  ContractingFinance = "nourhan.samir",
+  TreasuryCashier = "youssef.badr",
+}
+
+const seededUserIds = new Map<string, string>();
+
+/** Reads the users `seedAccess` created, so later modules act as real people rather than invented ids (D347). */
+export async function loadSeededUsers(app: App): Promise<void> {
+  const users = (await step(app, "GET", "/users")) as readonly { id: string; email: string }[];
+  for (const user of users) seededUserIds.set(user.email, user.id);
+}
+
+export function seededUserId(person: SeedPerson): string {
+  const email = `${person}@${SEED_TENANT_DOMAIN}`;
+  const id = seededUserIds.get(email);
+  if (!id) throw new Error(`[demo-seed] no seeded user "${email}" — loadSeededUsers runs at the end of seedAccess`);
+  return id;
+}
+
 export const BRANCH_ID = "BR-MAIN";
 export const WAREHOUSE_ID = "WH-MAIN";
 export const VAT_PERCENT = 14;

@@ -316,10 +316,10 @@ describe("useAttentionData", () => {
   it("sums low-stock rows and aged-payables buckets past 30 days", async () => {
     const transport = transportFor({
       stockRows: [{ status: "low", itemNameAr: "صنف منخفض", itemNameEn: "Low item" }],
-      supplierRows: [{ d31to60: 100, d61to90: 50, d91to120: 25, over120: 10 }],
+      supplierRows: [{ d31to60: "100.000000", d61to90: "50.000000", d91to120: "25.000000", over120: "10.000000" }],
     });
     const { result } = renderHook(() => useAttentionData(window, today), { wrapper: makeWrapper(transport).Wrapper });
     await waitFor(() => expect(result.current.lowStockCount).toBe(1));
-    expect(result.current.agedPayables).toBe(185);
+    expect(result.current.agedPayables).toBe("185.000000");
   });
 });

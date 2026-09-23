@@ -22,6 +22,9 @@ import { useElectronSavePdf } from "../print/useElectronSavePdf";
  * upstream and handed this component render-ready `result`.
  */
 
+/** A figure as the report carries it: a number, or an exact decimal string for money (D345). */
+export type ReportRunnerFigure = number | string;
+
 export type ReportRunnerColumnFormat = "text" | "money" | "qty" | "date" | "percent" | "variance" | "share";
 
 export interface ReportRunnerColumn<Row> {
@@ -56,17 +59,17 @@ export interface ReportRunnerGroup<Row> {
   readonly key: string;
   readonly label: string;
   readonly rows: readonly Row[];
-  readonly totals: Readonly<Record<string, number>>;
+  readonly totals: Readonly<Record<string, ReportRunnerFigure>>;
 }
 
 export interface ReportRunnerReconciliation {
   readonly labelAr: string;
-  readonly reportTotal: number;
-  readonly referenceTotal: number;
-  readonly diff: number;
+  readonly reportTotal: ReportRunnerFigure;
+  readonly referenceTotal: ReportRunnerFigure;
+  readonly diff: ReportRunnerFigure;
   readonly withinTolerance: boolean;
   /** Ledger amounts the reference already excludes, named so the tie can be followed. */
-  readonly reconcilingItems?: readonly { readonly key: string; readonly labelAr: string; readonly amount: number }[];
+  readonly reconcilingItems?: readonly { readonly key: string; readonly labelAr: string; readonly amount: ReportRunnerFigure }[];
 }
 
 /**
@@ -77,7 +80,7 @@ export interface ReportRunnerReconciliation {
 export interface ReportRunnerKpi {
   readonly key: string;
   readonly label: string;
-  readonly value: number;
+  readonly value: ReportRunnerFigure;
   readonly format?: ReportRunnerColumnFormat;
   readonly tone?: "default" | "success" | "danger";
   /** Shown under the figure — what it means, not what it is called. */
@@ -102,7 +105,7 @@ export interface ReportRunnerSummary {
 export interface ReportRunnerResult<Row> {
   readonly rows: readonly Row[];
   readonly groups: readonly ReportRunnerGroup<Row>[];
-  readonly grandTotals: Readonly<Record<string, number>>;
+  readonly grandTotals: Readonly<Record<string, ReportRunnerFigure>>;
   readonly reconciliation: ReportRunnerReconciliation | null;
   /** Computed server-side over the whole result, not the visible page. */
   readonly summary?: ReportRunnerSummary | null;
@@ -219,15 +222,21 @@ function summaryHeadline(kpis: readonly ReportRunnerKpi[], fmt: ReturnType<typeo
   return kpis
     .slice(0, 2)
     .map((kpi) => {
-      const value = kpi.format === "qty" || kpi.format === "percent" ? fmt.number(kpi.value) : fmt.money(kpi.value);
+      const value = (kpi.format === "qty" || kpi.format === "percent") && typeof kpi.value === "number" ? fmt.number(kpi.value) : fmt.money(kpi.value);
       return `${kpi.label}: ${value}`;
     })
     .join(" · ");
 }
 
+const DECIMAL_FIGURE = /^-?\d+(\.\d+)?$/;
+
+function absoluteFigure(value: ReportRunnerFigure): ReportRunnerFigure {
+  return typeof value === "number" ? Math.abs(value) : value.replace(/^-/, "");
+}
+
 function formatCell(value: string | number | null, format: ReportRunnerColumnFormat | undefined, fmt: ReturnType<typeof useFormat>): ReactNode {
   if (value === null) return "—";
-  if (format === "money" && typeof value === "number") return <Money value={value} currencyLabel={fmt.currencyLabel} />;
+  if (format === "money" && (typeof value === "number" || DECIMAL_FIGURE.test(value))) return <Money value={value} currencyLabel={fmt.currencyLabel} />;
   if (format === "qty" && typeof value === "number") return <span className="mz-num">{fmt.number(value)}</span>;
   if (format === "percent" && typeof value === "number") return <span className="mz-num">{fmt.number(value)}%</span>;
   if (format === "share" && typeof value === "number") {
@@ -506,7 +515,7 @@ export function ReportRunner<Row>({
                 <span aria-hidden>{result.reconciliation.withinTolerance ? "=" : "≠"}</span>
                 <span>{fmt.money(result.reconciliation.referenceTotal)}</span>
                 {!result.reconciliation.withinTolerance ? (
-                  <span className="font-semibold text-danger-ink">{t("ui.report.difference", { amount: fmt.money(Math.abs(result.reconciliation.diff)) })}</span>
+                  <span className="font-semibold text-danger-ink">{t("ui.report.difference", { amount: fmt.money(absoluteFigure(result.reconciliation.diff)) })}</span>
                 ) : null}
               </span>
               {result.reconciliation.reconcilingItems?.map((item) => (

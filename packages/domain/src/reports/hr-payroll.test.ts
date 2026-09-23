@@ -87,18 +87,18 @@ function reconciliation(report: "tax" | "insurance", params: { year: number; mon
 describe("D189 — the statutory returns compare with the SAME runs' postings, not the account's all-time balance", () => {
   it("the second month ties to its own run's credit, not to both months' credits less the remittance", () => {
     const tax = reconciliation("tax", { year: 2026, month: 2 });
-    expect(tax.reportTotal).toBe(605.2);
-    expect(tax.referenceTotal).toBe(605.2);
+    expect(tax.reportTotal).toBe("605.200000");
+    expect(tax.referenceTotal).toBe("605.200000");
     expect(tax.withinTolerance).toBe(true);
     const insurance = reconciliation("insurance", { year: 2026, month: 2 });
-    expect(insurance.referenceTotal).toBe(2975.2);
+    expect(insurance.referenceTotal).toBe("2975.200000");
     expect(insurance.withinTolerance).toBe(true);
   });
 
   it("the whole year ties to both runs' credits although January's liability was remitted in between", () => {
     const tax = reconciliation("tax", { year: 2026, month: null });
-    expect(tax.referenceTotal).toBe(1197.3);
-    expect(tax.diff).toBe(0);
+    expect(tax.referenceTotal).toBe("1197.300000");
+    expect(tax.diff).toBe("0.000000");
     expect(tax.withinTolerance).toBe(true);
     expect(reconciliation("insurance", { year: 2026, month: null }).withinTolerance).toBe(true);
   });
@@ -109,7 +109,7 @@ describe("D189 — the statutory returns compare with the SAME runs' postings, n
     );
     const tax = reconciliation("tax", { year: 2026, month: 2 }, context(short));
     expect(tax.withinTolerance).toBe(false);
-    expect(tax.diff).toBe(0.01);
+    expect(tax.diff).toBe("0.010000");
   });
 
   it("a reversed run posting nets to nothing, so the return no longer ties", () => {

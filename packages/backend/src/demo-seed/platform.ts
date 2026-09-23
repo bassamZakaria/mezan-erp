@@ -1,5 +1,5 @@
 import type { App } from "@mezan/api";
-import { CORE, VAT_PERCENT, WAREHOUSE_ID, seedActorHeaders, step } from "./shared.js";
+import { CORE, SeedPerson, VAT_PERCENT, WAREHOUSE_ID, seedActorHeaders, seededUserId, step } from "./shared.js";
 
 /**
  * Seed profile module — see `./shared.ts`. Local and test environments only.
@@ -51,14 +51,6 @@ async function stepAs(app: App, method: string, path: string, actor: ActorOption
   return res.status === 204 ? undefined : await res.json();
 }
 
-/**
- * `shared.step`'s ADMIN_HEADERS attributes writes to "SEED-ADMIN", a synthetic
- * seeder identity — fine for most modules, but the writes below are
- * audited (`recordSensitiveEvent`) and `/profile/activity` shows only the
- * CALLING user's own trail. Attributing these to the real bootstrapped tenant
- * admin (USER-ADMIN — see `backend/src/seed.ts`) is both more realistic and
- * the only way that admin's own activity feed has anything in it.
- */
 const PLATFORM_ADMIN: ActorOptions = { userId: "USER-ADMIN", permissions: "*" };
 
 interface EventTrigger {
@@ -66,7 +58,23 @@ interface EventTrigger {
   readonly emitted: boolean;
 }
 
+/**
+ * The approvals inbox names who submitted and who decided each request, and a
+ * screen resolves those ids through `GET /users/:id`, so they are real seeded
+ * users (D347).
+ */
+function inboxPeople() {
+  return {
+    salesRep: seededUserId(SeedPerson.SalesRep),
+    vanSales: seededUserId(SeedPerson.VanSales),
+    purchasing: seededUserId(SeedPerson.Purchasing),
+    financeManager: seededUserId(SeedPerson.FinanceManager),
+    supervisor: seededUserId(SeedPerson.Supervisor),
+  };
+}
+
 export async function seedPlatform(app: App): Promise<void> {
+  const people = inboxPeople();
   // --- إعدادات الموافقات (workflow configs) — chains a later request can reference. ---
   await step(app, "POST", "/workflow/configs", {
     actionType: "SALES_INVOICE_CONFIRM",
@@ -82,7 +90,7 @@ export async function seedPlatform(app: App): Promise<void> {
     app,
     "POST",
     "/workflow/requests",
-    { userId: "USER-SALES-REP-1", permissions: "sales.invoice.create" },
+    { userId: people.salesRep, permissions: "sales.invoice.create" },
     {
       requestId: "APR-DEMO-1",
       actionType: "SALES_INVOICE_CONFIRM",
@@ -94,7 +102,7 @@ export async function seedPlatform(app: App): Promise<void> {
     app,
     "POST",
     "/workflow/requests",
-    { userId: "USER-PURCHASING-1", permissions: "purchases.invoice.create" },
+    { userId: people.purchasing, permissions: "purchases.invoice.create" },
     {
       requestId: "APR-DEMO-2",
       actionType: "PURCHASE_INVOICE_CONFIRM",
@@ -105,7 +113,7 @@ export async function seedPlatform(app: App): Promise<void> {
     app,
     "POST",
     "/workflow/requests/APR-DEMO-2/decide",
-    { userId: "USER-FINANCE-MGR", permissions: "workflow.approve", roles: "FINANCE_MANAGER" },
+    { userId: people.financeManager, permissions: "workflow.approve", roles: "FINANCE_MANAGER" },
     { decision: "approve", comment: "المستندات مكتملة والمبلغ ضمن حدود الميزانية." },
   );
 
@@ -113,7 +121,7 @@ export async function seedPlatform(app: App): Promise<void> {
     app,
     "POST",
     "/workflow/requests",
-    { userId: "USER-SALES-REP-2", permissions: "sales.invoice.create" },
+    { userId: people.vanSales, permissions: "sales.invoice.create" },
     {
       requestId: "APR-DEMO-3",
       actionType: "SALES_INVOICE_CONFIRM",
@@ -124,7 +132,7 @@ export async function seedPlatform(app: App): Promise<void> {
     app,
     "POST",
     "/workflow/requests/APR-DEMO-3/decide",
-    { userId: "USER-SUPERVISOR-1", permissions: "workflow.reject", roles: "SUPERVISOR" },
+    { userId: people.supervisor, permissions: "workflow.reject", roles: "SUPERVISOR" },
     { decision: "reject", comment: "تم الرفض: تجاوز الفاتورة الحد الائتماني المسموح للعميل." },
   );
 

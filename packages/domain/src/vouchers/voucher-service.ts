@@ -32,6 +32,7 @@ import {
   voucherBaseAmount,
   voucherDocumentType,
   voucherLine,
+  type HeldAllocationRequest,
   type VoucherDocument,
   type VoucherLine,
 } from "./voucher-document.js";
@@ -60,6 +61,8 @@ import {
 } from "./allocation.js";
 import {
   AllocationCurrencyMismatchError,
+  HeldAllocationRefusal,
+  HeldAllocationRefusedError,
   InvoiceNotFoundError,
   VoucherNotAllocatableError,
   VoucherNotConfirmedError,
@@ -267,6 +270,7 @@ export interface CollectionResult {
   readonly document: VoucherDocument;
   readonly held: boolean;
   readonly allocations: readonly VoucherAllocation[];
+  readonly heldAllocations: readonly HeldAllocationRequest[];
 }
 
 export interface ConfirmVoucherOptions {
@@ -371,6 +375,7 @@ export class VoucherService {
    */
   async confirmVoucher(id: string, opts: ConfirmVoucherOptions = {}) {
     const existing = await this.service.findById(id);
+    let carried: readonly HeldAllocationRequest[] = [];
     if (existing) {
       // The rate is resolved and STAMPED before anything is posted, exactly as
       // `confirmPurchaseInvoice` does it, so the GL amount, the treasury guard
@@ -381,15 +386,24 @@ export class VoucherService {
         ledger: this.deps.ledger,
         ...(await this.cashPolicy()),
       }, stamped.date);
+      carried = voucherLine(stamped).heldAllocations ?? [];
+      if (carried.length > 0) await this.assertAllocationsFit(stamped, carried, true);
     }
     const cheques = this.deps.cheques;
-    if (!cheques) return this.service.confirm(id, opts);
-    // The posting and the register row are one act: a «شيك» voucher that
-    // posted while its cheque failed to register is exactly the gap D81 filed.
+    if (!cheques && carried.length === 0) return this.service.confirm(id, opts);
+    // The posting, the register row and the carried allocations are one act: a
+    // «شيك» voucher that posted while its cheque failed to register is the gap
+    // D81 filed, and an approved collection left unallocated is D344.
     return this.deps.documents.transaction(async () => {
       const result = await this.service.confirm(id, opts);
-      if (!result.held) await this.registerCheque(cheques, result.document, opts.actor);
-      return result;
+      if (result.held) return result;
+      if (cheques) await this.registerCheque(cheques, result.document, opts.actor);
+      if (carried.length === 0) return result;
+      await this.applyAllocations(id, carried, result.document);
+      const current = (await this.service.findById(id)) ?? result.document;
+      const cleared: VoucherDocument = { ...current, lines: [{ ...voucherLine(current), heldAllocations: null }] };
+      await this.deps.documents.update(cleared);
+      return { ...result, document: cleared };
     });
   }
 
@@ -575,34 +589,104 @@ export class VoucherService {
   }
 
   /**
-   * Create, confirm and allocate as ONE transaction (D338): three separate
-   * calls left a confirmed, unallocated voucher behind whenever the third
-   * failed. A voucher held for approval commits as a pending draft with no
-   * allocation, since nothing may settle an invoice before the money posts.
+   * Create, confirm and allocate as ONE transaction (D338). A voucher held for
+   * approval commits as a pending draft carrying its requested allocations,
+   * since nothing may settle an invoice before the money posts; the approved
+   * confirm applies them (D344).
    */
   async createConfirmAndAllocate(
     cmd: CreateVoucherCommand,
     allocations: readonly CollectionAllocationRequest[],
     opts: ConfirmVoucherOptions = {},
   ): Promise<CollectionResult> {
+    const requests: HeldAllocationRequest[] = allocations.map((a) => ({
+      allocationId: a.allocationId,
+      invoiceId: a.invoiceId,
+      amount: a.amount ?? null,
+    }));
     return this.deps.documents.transaction(async () => {
       await this.createVoucher(cmd);
       const confirmed = await this.confirmVoucher(cmd.id, opts);
-      if (confirmed.held) return { document: confirmed.document, held: true, allocations: [] };
-      const made: VoucherAllocation[] = [];
-      for (const request of allocations) {
-        const used = made.reduce((sum, a) => sum + a.amount.scaled, 0n);
-        const amount = request.amount ?? Money.fromScaled(voucherBaseAmount(voucherLine(confirmed.document)).scaled - used);
-        const { allocation } = await this.allocate(cmd.id, {
-          allocationId: request.allocationId,
-          invoiceId: request.invoiceId,
-          amount,
-          date: cmd.date,
-        });
-        made.push(allocation);
+      if (confirmed.held) {
+        if (requests.length === 0) return { document: confirmed.document, held: true, allocations: [], heldAllocations: [] };
+        await this.assertAllocationsFit(confirmed.document, requests, false);
+        const carrying: VoucherDocument = {
+          ...confirmed.document,
+          lines: [{ ...voucherLine(confirmed.document), heldAllocations: requests }],
+        };
+        await this.deps.documents.update(carrying);
+        return { document: carrying, held: true, allocations: [], heldAllocations: requests };
       }
-      return { document: (await this.service.findById(cmd.id)) ?? confirmed.document, held: false, allocations: made };
+      const made = await this.applyAllocations(cmd.id, requests, confirmed.document, cmd.date);
+      return {
+        document: (await this.service.findById(cmd.id)) ?? confirmed.document,
+        held: false,
+        allocations: made,
+        heldAllocations: [],
+      };
     });
+  }
+
+  private async applyAllocations(
+    voucherId: string,
+    requests: readonly HeldAllocationRequest[],
+    confirmed: VoucherDocument,
+    date: string = confirmed.date,
+  ): Promise<VoucherAllocation[]> {
+    const made: VoucherAllocation[] = [];
+    const total = voucherBaseAmount(voucherLine(confirmed)).scaled;
+    for (const request of requests) {
+      const used = made.reduce((sum, a) => sum + a.amount.scaled, 0n);
+      const { allocation } = await this.allocate(voucherId, {
+        allocationId: request.allocationId,
+        invoiceId: request.invoiceId,
+        amount: request.amount ?? Money.fromScaled(total - used),
+        date,
+      });
+      made.push(allocation);
+    }
+    return made;
+  }
+
+  /**
+   * Checks the requested allocations against the invoices as they stand NOW,
+   * before anything posts, so an approval never settles more than an invoice
+   * still owes after it was paid, returned or reassigned meanwhile.
+   */
+  private async assertAllocationsFit(
+    doc: VoucherDocument,
+    requests: readonly HeldAllocationRequest[],
+    whileHeld: boolean,
+  ): Promise<void> {
+    const line = voucherLine(doc);
+    const def = getVoucherTypeDefinition(line.voucherType);
+    const partyId = line.customerId ?? line.supplierId;
+    const total = voucherBaseAmount(line).scaled;
+    const fmt = (scaled: bigint) => Money.fromScaled(scaled).toString();
+    const claimed = new Map<string, bigint>();
+    let used = 0n;
+    for (const request of requests) {
+      const amount = request.amount?.scaled ?? total - used;
+      const refuse = (reason: HeldAllocationRefusal, capacity: bigint) =>
+        new HeldAllocationRefusedError(doc.id, request.invoiceId, reason, fmt(amount), fmt(capacity), whileHeld);
+      const invoice = await this.deps.invoices.findById(request.invoiceId);
+      if (!invoice) throw refuse(HeldAllocationRefusal.InvoiceMissing, 0n);
+      if (invoice.kind !== def.allocationKind || invoice.partyId !== partyId) {
+        throw refuse(HeldAllocationRefusal.InvoiceMismatch, 0n);
+      }
+      if (amount <= 0n || used + amount > total) throw refuse(HeldAllocationRefusal.NothingLeft, total - used);
+      const preview = await this.settlementPreview(invoice.id, {
+        amount: Money.fromScaled(amount),
+        currency: line.currency,
+        fxRate: line.fxRate,
+        date: doc.date,
+      });
+      const already = claimed.get(invoice.id) ?? 0n;
+      const capacity = preview.capacity.scaled - already;
+      if (amount > capacity) throw refuse(HeldAllocationRefusal.ExceedsInvoice, capacity > 0n ? capacity : 0n);
+      claimed.set(invoice.id, already + amount);
+      used += amount;
+    }
   }
 
   /**

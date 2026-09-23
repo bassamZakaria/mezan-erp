@@ -481,8 +481,8 @@ describe("createBackend — cheques + bank reconciliation (phase7/treasury-compl
 
     const aging = await get("/reports/aging/customers?asOfDate=2026-09-30");
     expect(aging.reconciliation).toMatchObject({ withinTolerance: true });
-    expect(aging.grandTotals.total).toBe(await ar());
-    expect(aging.rows.find((row: { customerId: string }) => row.customerId === "cust-chq")?.total).toBe(5335.2);
+    expect(Number(aging.grandTotals.total)).toBe(await ar());
+    expect(aging.rows.find((row: { customerId: string }) => row.customerId === "cust-chq")?.total).toBe("5335.200000");
   });
 
   it("gates /cheques behind cheques.view", async () => {
@@ -3275,7 +3275,7 @@ describe("createBackend — a purchase invoice nets its confirmed returns (D216,
     const invoice = await get(app, "/purchases/invoices/pi-d216");
     expect(invoice).toMatchObject({ baseTotal: "200.000000", amountPaid: "0.000000", returnedCredit: "60.000000", remainingBalance: "140.000000" });
     const ladder = await get(app, "/reports/aging/suppliers");
-    expect(ladder.rows.find((r: { supplierId: string }) => r.supplierId === "sup-d216")?.total).toBe(140);
+    expect(ladder.rows.find((r: { supplierId: string }) => r.supplierId === "sup-d216")?.total).toBe("140.000000");
     const bySupplier = await get(app, "/reports/purchases/by-supplier?dateFrom=2026-08-01&dateTo=2026-08-31");
     expect(bySupplier.rows.find((r: { supplierId: string }) => r.supplierId === "sup-d216")?.outstanding).toBe(140);
 
@@ -4515,7 +4515,7 @@ describe("createBackend — FX aging, the customers screen and cheque vouchers (
     expect(await glBalance(app, "1105")).toBe(1000);
     expect(await reconDiff(app, "ar")).toBe(0);
     const aging = await get(app, "/reports/aging/customers?asOfDate=2026-09-30");
-    expect(aging.grandTotals.total).toBe(1000);
+    expect(aging.grandTotals.total).toBe("1000.000000");
     expect(aging.reconciliation).toMatchObject({ withinTolerance: true });
   });
 
@@ -4578,11 +4578,11 @@ describe("createBackend — FX aging, the customers screen and cheque vouchers (
     expect(-(await glBalance(app, "2100"))).toBe(1320);
 
     const customers = await get(app, "/reports/aging/customers?asOfDate=2026-08-31");
-    expect(customers.rows.find((row: { customerId: string }) => row.customerId === "cust-usd")?.total).toBe(4800);
-    expect(customers.reconciliation).toMatchObject({ reportTotal: 4800, referenceTotal: 4800, withinTolerance: true });
+    expect(customers.rows.find((row: { customerId: string }) => row.customerId === "cust-usd")?.total).toBe("4800.000000");
+    expect(customers.reconciliation).toMatchObject({ reportTotal: "4800.000000", referenceTotal: "4800.000000", withinTolerance: true });
     const suppliers = await get(app, "/reports/aging/suppliers?asOfDate=2026-08-31");
-    expect(suppliers.rows.find((row: { supplierId: string }) => row.supplierId === "sup-sar")?.total).toBe(1320);
-    expect(suppliers.reconciliation).toMatchObject({ reportTotal: 1320, referenceTotal: 1320, withinTolerance: true });
+    expect(suppliers.rows.find((row: { supplierId: string }) => row.supplierId === "sup-sar")?.total).toBe("1320.000000");
+    expect(suppliers.reconciliation).toMatchObject({ reportTotal: "1320.000000", referenceTotal: "1320.000000", withinTolerance: true });
 
     // A month-end revaluation that is NOT auto-reversed restates both control
     // accounts and touches no invoice: the ladders stay at the booked rate and
@@ -4595,18 +4595,18 @@ describe("createBackend — FX aging, the customers screen and cheque vouchers (
     expect(-(await glBalance(app, "2100"))).toBe(1350);
 
     const customersAfter = await get(app, "/reports/aging/customers?asOfDate=2026-08-31");
-    expect(customersAfter.grandTotals.total).toBe(4800);
+    expect(customersAfter.grandTotals.total).toBe("4800.000000");
     expect(customersAfter.reconciliation).toMatchObject({
-      referenceTotal: 4800,
+      referenceTotal: "4800.000000",
       withinTolerance: true,
-      reconcilingItems: [{ key: "fxRevaluation", amount: 200 }],
+      reconcilingItems: [{ key: "fxRevaluation", amount: "200.000000" }],
     });
     const suppliersAfter = await get(app, "/reports/aging/suppliers?asOfDate=2026-08-31");
-    expect(suppliersAfter.grandTotals.total).toBe(1320);
+    expect(suppliersAfter.grandTotals.total).toBe("1320.000000");
     expect(suppliersAfter.reconciliation).toMatchObject({
-      referenceTotal: 1320,
+      referenceTotal: "1320.000000",
       withinTolerance: true,
-      reconcilingItems: [{ key: "fxRevaluation", amount: 30 }],
+      reconcilingItems: [{ key: "fxRevaluation", amount: "30.000000" }],
     });
     expect(await reconDiff(app, "ar")).toBe(0);
     expect(await reconDiff(app, "ap")).toBe(0);
@@ -4626,10 +4626,10 @@ describe("createBackend — FX aging, the customers screen and cheque vouchers (
     }
 
     const aging = await get(app, "/reports/aging/customers");
-    const row = (id: string) => aging.rows.find((r: { customerId: string }) => r.customerId === id)?.total;
+    const row = (id: string) => Number(aging.rows.find((r: { customerId: string }) => r.customerId === id)?.total);
     expect(row("cust-owe")).toBe(900);
     expect(row("cust-credit")).toBe(-50);
-    expect(aging.grandTotals.total).toBe(await glBalance(app, "1105"));
+    expect(Number(aging.grandTotals.total)).toBe(await glBalance(app, "1105"));
 
     expect((await get(app, "/customers/cust-owe")).owed).toBe("900.000000");
     expect((await get(app, "/customers/cust-credit")).owed).toBe("-50.000000");
@@ -4658,7 +4658,7 @@ describe("createBackend — FX aging, the customers screen and cheque vouchers (
     expect(await glBalance(app, "1300-1")).toBe(0);
     expect(await reconDiff(app, "ar")).toBe(0);
     const aging = await get(app, "/reports/aging/customers?asOfDate=2026-09-30");
-    expect(aging.grandTotals.total).toBe(600);
+    expect(aging.grandTotals.total).toBe("600.000000");
     expect(aging.reconciliation).toMatchObject({ withinTolerance: true });
 
     expect((await post(app, "/vouchers/v-chq/allocations", { invoiceId: "inv-chq", amount: "400.00" }, admin(app))).status).toBe(201);
@@ -4674,7 +4674,7 @@ describe("createBackend — FX aging, the customers screen and cheque vouchers (
     expect(await glBalance(app, "1300-1")).toBe(0);
     expect(await reconDiff(app, "ar")).toBe(0);
     const bounced = await get(app, "/reports/aging/customers?asOfDate=2026-09-30");
-    expect(bounced.grandTotals.total).toBe(1000);
+    expect(bounced.grandTotals.total).toBe("1000.000000");
     expect(bounced.reconciliation).toMatchObject({ withinTolerance: true });
 
     const replaced = await post(
@@ -4781,8 +4781,8 @@ describe("createBackend — party balances no invoice carries, and one figure pe
 
     expect(await reconDiffs(app)).toEqual({ ar: "0.000000", ap: "0.000000" });
     const aging = await get(app, "/reports/aging/customers?asOfDate=2026-08-31");
-    expect(aging.rows.find((r: { customerId: string }) => r.customerId === "cust-je")?.total).toBe(1000);
-    expect(aging.reconciliation).toMatchObject({ reportTotal: 1000, referenceTotal: 1000 });
+    expect(aging.rows.find((r: { customerId: string }) => r.customerId === "cust-je")?.total).toBe("1000.000000");
+    expect(aging.reconciliation).toMatchObject({ reportTotal: "1000.000000", referenceTotal: "1000.000000" });
     expect((await get(app, "/customers/cust-je")).owed).toBe("1000.000000");
     const statement = await get(app, "/reports/statements/customers/cust-je");
     expect(statement.lines.map((l: { kind: string; increase: string; decrease: string }) => [l.kind, l.increase, l.decrease])).toEqual([
@@ -4841,14 +4841,14 @@ describe("createBackend — party balances no invoice carries, and one figure pe
     expect((await post(app, "/suppliers", { id: "sup-ob", code: "sup-ob", nameAr: "مورد برصيد", openingBalance: "300" }, admin(app))).status).toBe(201);
 
     const customers = await get(app, "/reports/aging/customers");
-    expect(customers.rows.find((r: { customerId: string }) => r.customerId === "cust-ob")?.total).toBe(750);
-    expect(customers.reconciliation).toMatchObject({ reportTotal: 750, referenceTotal: 750 });
+    expect(customers.rows.find((r: { customerId: string }) => r.customerId === "cust-ob")?.total).toBe("750.000000");
+    expect(customers.reconciliation).toMatchObject({ reportTotal: "750.000000", referenceTotal: "750.000000" });
     expect((await get(app, "/customers/cust-ob")).owed).toBe("750.000000");
     expect((await get(app, "/reports/statements/customers/cust-ob")).lines[0]).toMatchObject({ kind: "opening", increase: "750.000000" });
 
     const suppliers = await get(app, "/reports/aging/suppliers");
-    expect(suppliers.rows.find((r: { supplierId: string }) => r.supplierId === "sup-ob")?.total).toBe(300);
-    expect(suppliers.reconciliation).toMatchObject({ reportTotal: 300, referenceTotal: 300 });
+    expect(suppliers.rows.find((r: { supplierId: string }) => r.supplierId === "sup-ob")?.total).toBe("300.000000");
+    expect(suppliers.reconciliation).toMatchObject({ reportTotal: "300.000000", referenceTotal: "300.000000" });
     expect((await get(app, "/suppliers/sup-ob")).owed).toBe("300.000000");
     expect((await get(app, "/suppliers/stats")).payable).toBe("300.000000");
   });
@@ -5009,7 +5009,7 @@ describe("createBackend — a legacy draft with no party becomes postable throug
 
     expect(await arDiff(app)).toBe("0.000000");
     const aging = await get(app, "/reports/aging/customers?asOfDate=2026-08-31");
-    expect(aging.rows.find((r: { customerId: string }) => r.customerId === "cust-legacy")?.total).toBe(500);
+    expect(aging.rows.find((r: { customerId: string }) => r.customerId === "cust-legacy")?.total).toBe("500.000000");
     expect((await get(app, "/customers/cust-legacy")).owed).toBe("500.000000");
   });
 
@@ -5646,7 +5646,7 @@ describe("createBackend — foreign documents settle and return in base (D202, D
       position: await position(app, date, "1105"),
       gain: Number(await balanceOn(app, "4920", date)),
       control: Number(await balanceOn(app, "1105", date)),
-      ladderRow: row?.total ?? 0,
+      ladderRow: Number(row?.total ?? 0),
       ladderTies: ladder.reconciliation.reportTotal === ladder.reconciliation.referenceTotal,
     };
   }
@@ -5730,7 +5730,7 @@ describe("createBackend — a ladder run as of a past day ties to its control ac
   async function ladderAt(app: App, kind: "customers" | "suppliers", date: string, partyId: string) {
     const report = await get(app, `/reports/aging/${kind}?asOfDate=${date}`);
     const row = report.rows.find((r: { customerId?: string; supplierId?: string }) => (r.customerId ?? r.supplierId) === partyId);
-    return { row: row?.total ?? 0, reportTotal: report.reconciliation.reportTotal, referenceTotal: report.reconciliation.referenceTotal };
+    return { row: Number(row?.total ?? 0), reportTotal: Number(report.reconciliation.reportTotal), referenceTotal: Number(report.reconciliation.referenceTotal) };
   }
 
   it("D220: collections, returns, cheques, reversals and voids dated after the day are not netted on the customer ladder", async () => {
@@ -5775,7 +5775,7 @@ describe("createBackend — a ladder run as of a past day ties to its control ac
     }
     const today = await get(app, "/reports/aging/customers");
     expect(today.reconciliation.reportTotal).toBe(today.reconciliation.referenceTotal);
-    expect(today.rows.find((r: { customerId: string }) => r.customerId === "cust-asof")?.total ?? 0).toBe(0);
+    expect(today.rows.find((r: { customerId: string }) => r.customerId === "cust-asof")?.total ?? "0.000000").toBe("0.000000");
   });
 
   it("D220: payments, returns and cancellations dated after the day are not netted on the supplier ladder", async () => {
@@ -5832,7 +5832,7 @@ describe("createBackend — a ladder run as of a past day ties to its control ac
       expect(await ladderAt(app, "suppliers", day, "sup-old")).toEqual({ row: 300, reportTotal: 300, referenceTotal: 300 });
       const later = new Date(Date.parse(`${day}T00:00:00Z`) + 200 * 86_400_000).toISOString().slice(0, 10);
       const aged = (await get(app, `/reports/aging/customers?asOfDate=${later}`)).rows.find((r: { customerId: string }) => r.customerId === "cust-old");
-      expect(aged?.over120).toBe(750);
+      expect(aged?.over120).toBe("750.000000");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

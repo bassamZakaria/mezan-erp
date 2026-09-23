@@ -1,5 +1,5 @@
 import type { App } from "@mezan/api";
-import { step } from "./shared.js";
+import { loadSeededUsers, step } from "./shared.js";
 import type { SeedPerson } from "./fragments.js";
 import { fragmentGrantsFor, fragmentPeople, fragmentRoles, seedLicensing } from "./fragment-registry.js";
 
@@ -669,4 +669,5 @@ export async function seedAccess(app: App): Promise<void> {
       reason: "دور تجريبي — منشأة صغيرة لا تطبق فصلاً كاملاً للمهام بين كل الأدوار.",
     });
   }
+  await loadSeededUsers(app);
 }

@@ -16,9 +16,9 @@ describe("AgingReportsScreens (each a real ReportScreen over its own /reports/ag
         requestedPath = path;
         return {
           body: {
-            rows: [{ customerId: "cust-1", customerNameAr: "عميل تجريبي", current: 1000, d31to60: 0, d61to90: 0, over90: 0 }],
-            groups: [{ key: "_all", label: "", rows: [{ customerId: "cust-1", customerNameAr: "عميل تجريبي", current: 1000, d31to60: 0, d61to90: 0, over90: 0 }], totals: { current: 1000 } }],
-            grandTotals: { current: 1000 },
+            rows: [{ customerId: "cust-1", customerNameAr: "عميل تجريبي", current: "1000.000000", d31to60: "0.000000", d61to90: "0.000000", over90: "0.000000" }],
+            groups: [{ key: "_all", label: "", rows: [{ customerId: "cust-1", customerNameAr: "عميل تجريبي", current: "1000.000000", d31to60: "0.000000", d61to90: "0.000000", over90: "0.000000" }], totals: { current: "1000.000000" } }],
+            grandTotals: { current: "1000.000000" },
             reconciliation: null,
           },
         };
@@ -47,9 +47,9 @@ describe("AgingReportsScreens (each a real ReportScreen over its own /reports/ag
         requestedPath = path;
         return {
           body: {
-            rows: [{ supplierId: "sup-1", supplierNameAr: "مورد تجريبي", current: 500, d31to60: 0, d61to90: 0, over90: 0 }],
-            groups: [{ key: "_all", label: "", rows: [{ supplierId: "sup-1", supplierNameAr: "مورد تجريبي", current: 500, d31to60: 0, d61to90: 0, over90: 0 }], totals: { current: 500 } }],
-            grandTotals: { current: 500 },
+            rows: [{ supplierId: "sup-1", supplierNameAr: "مورد تجريبي", current: "500.000000", d31to60: "0.000000", d61to90: "0.000000", over90: "0.000000" }],
+            groups: [{ key: "_all", label: "", rows: [{ supplierId: "sup-1", supplierNameAr: "مورد تجريبي", current: "500.000000", d31to60: "0.000000", d61to90: "0.000000", over90: "0.000000" }], totals: { current: "500.000000" } }],
+            grandTotals: { current: "500.000000" },
             reconciliation: null,
           },
         };

@@ -39,6 +39,7 @@ import {
   branchScopedAuditSink,
   can,
   type VoucherServiceDeps,
+  type HeldAllocationRequest,
   type VoucherDocument,
   type VoucherAllocation,
   type AllocatableInvoice,
@@ -116,7 +117,12 @@ function serialize(doc: VoucherDocument) {
     journalEntryId: doc.journalEntryId,
     confirmedAt: doc.confirmedAt,
     reversesDocId: doc.reversesDocId ?? null,
+    heldAllocations: (line.heldAllocations ?? []).map(serializeHeldAllocation),
   };
+}
+
+function serializeHeldAllocation(a: HeldAllocationRequest) {
+  return { allocationId: a.allocationId, invoiceId: a.invoiceId, amount: a.amount ? a.amount.toString() : null };
 }
 
 function serializeAllocation(a: VoucherAllocation) {
@@ -677,7 +683,12 @@ export function createVouchersRoutes(
         { requestId: d.requestId, actor: ctx?.userId, actorRoles: gateActorRoles(c) },
       );
       return c.json(
-        { voucher: serialize(result.document), held: result.held, allocations: result.allocations.map(serializeAllocation) },
+        {
+          voucher: serialize(result.document),
+          held: result.held,
+          allocations: result.allocations.map(serializeAllocation),
+          heldAllocations: result.heldAllocations.map(serializeHeldAllocation),
+        },
         201,
       );
     } catch (err) {

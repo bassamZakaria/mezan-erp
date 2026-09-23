@@ -1678,6 +1678,7 @@ export {
   reportDrillDownKindSchema,
   reportDrillDownDocTypeSchema,
   reportDrillDownFactSchema,
+  ReportDrillDownFactFormat,
   reportDrillDownDocumentSchema,
   reportDrillDownSchema,
   type ReportDrillDownKindDTO,
@@ -1686,6 +1687,21 @@ export {
   type ReportDrillDownDocumentDTO,
   type ReportDrillDownDTO,
 } from "./report-drill-down.js";
+
+export {
+  agingCustomersRowSchema,
+  agingSuppliersRowSchema,
+  agingTotalsSchema,
+  agingReconciliationSchema,
+  agingKpiSchema,
+  agingCustomersReportSchema,
+  agingSuppliersReportSchema,
+  AgingKpiFormat,
+  type AgingCustomersRowDTO,
+  type AgingSuppliersRowDTO,
+  type AgingCustomersReportDTO,
+  type AgingSuppliersReportDTO,
+} from "./aging.js";
 
 export {
   partyCurrencyBalanceSchema,

@@ -1,3 +1,4 @@
+import { Money as ExactMoney } from "@mezan/domain";
 import { Fragment, useMemo, useState, type ReactNode } from "react";
 import { Button, Card, Chip, Money, StatCard, useFormat } from "@mezan/ui";
 import { useApi } from "../data/ApiContext";
@@ -288,10 +289,10 @@ export function DashboardScreen() {
     {
       key: "payables",
       kind: "payables",
-      tone: attention.agedPayables > 0 ? "warning" : "clear",
+      tone: ExactMoney.fromMajor(attention.agedPayables).scaled > 0n ? "warning" : "clear",
       title: t("dashboard.attention.payables"),
       detail:
-        attention.agedPayables > 0 ? (
+        ExactMoney.fromMajor(attention.agedPayables).scaled > 0n ? (
           <span className="mz-num">{format.money(attention.agedPayables)}</span>
         ) : (
           t("dashboard.attention.payables.clear")
@@ -308,11 +309,11 @@ export function DashboardScreen() {
       key: "customers",
       label: t("dashboard.aging.customers"),
       buckets: [
-        customerTotals.current ?? 0,
-        customerTotals.d31to60 ?? 0,
-        customerTotals.d61to90 ?? 0,
-        customerTotals.d91to120 ?? 0,
-        customerTotals.over120 ?? 0,
+        String(customerTotals.current ?? "0"),
+        String(customerTotals.d31to60 ?? "0"),
+        String(customerTotals.d61to90 ?? "0"),
+        String(customerTotals.d91to120 ?? "0"),
+        String(customerTotals.over120 ?? "0"),
       ],
     });
   }
@@ -322,11 +323,11 @@ export function DashboardScreen() {
       key: "suppliers",
       label: t("dashboard.aging.suppliers"),
       buckets: [
-        supplierTotals.current ?? 0,
-        supplierTotals.d31to60 ?? 0,
-        supplierTotals.d61to90 ?? 0,
-        supplierTotals.d91to120 ?? 0,
-        supplierTotals.over120 ?? 0,
+        String(supplierTotals.current ?? "0"),
+        String(supplierTotals.d31to60 ?? "0"),
+        String(supplierTotals.d61to90 ?? "0"),
+        String(supplierTotals.d91to120 ?? "0"),
+        String(supplierTotals.over120 ?? "0"),
       ],
     });
   }

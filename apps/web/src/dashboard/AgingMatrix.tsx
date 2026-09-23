@@ -1,3 +1,4 @@
+import { Money } from "@mezan/domain";
 import { useFormat } from "@mezan/ui";
 
 /**
@@ -13,7 +14,8 @@ const BUCKET_MAX_MIX = [13, 19, 25, 32, 40] as const;
 export interface AgingMatrixRow {
   readonly key: string;
   readonly label: string;
-  readonly buckets: readonly number[];
+  /** Exact decimal strings, as the aging ladders send them (D345). */
+  readonly buckets: readonly string[];
 }
 
 export interface AgingMatrixProps {
@@ -25,7 +27,11 @@ export interface AgingMatrixProps {
 
 export function AgingMatrix({ partyHeader, bucketLabels, rows, emptyLabel }: AgingMatrixProps) {
   const format = useFormat();
-  const peak = Math.max(0, ...rows.flatMap((row) => row.buckets.map((value) => Math.abs(value))));
+  const magnitude = (value: string) => {
+    const scaled = Money.fromMajor(value).scaled;
+    return scaled < 0n ? -scaled : scaled;
+  };
+  const peak = rows.flatMap((row) => row.buckets.map(magnitude)).reduce((max, value) => (value > max ? value : max), 0n);
 
   if (rows.length === 0) {
     return <p className="text-sm text-ink-muted">{emptyLabel}</p>;
@@ -53,9 +59,9 @@ export function AgingMatrix({ partyHeader, bucketLabels, rows, emptyLabel }: Agi
                 {row.label}
               </th>
               {row.buckets.map((value, index) => {
-                const share = peak > 0 ? Math.abs(value) / peak : 0;
+                const share = peak > 0n ? Number((magnitude(value) * 1000n) / peak) / 1000 : 0;
                 const mix = (0.4 + 0.6 * share) * (BUCKET_MAX_MIX[index] ?? 40);
-                const hot = value !== 0;
+                const hot = magnitude(value) !== 0n;
                 return (
                   <td key={bucketLabels[index] ?? index} className="p-[3px]">
                     <span

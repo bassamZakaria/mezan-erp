@@ -10,6 +10,7 @@ import {
   type EntityPickerOption,
 } from "@mezan/ui";
 import type { ItemDTO } from "@mezan/contracts";
+import { Money } from "@mezan/domain";
 import { NumberField, SectionCard, SelectField, TextAreaField, TextField } from "../../settings/form-controls";
 import {
   useBranches,
@@ -99,7 +100,7 @@ export function QuoteFormView({ onClose, initialCustomerId = "" }: { onClose: ()
   const amountOwed = useMemo(() => {
     if (!customer) return null;
     const row = agingQuery.data?.rows.find((r) => r.customerId === customer.id);
-    return row ? row.total : 0;
+    return row ? row.total : "0.000000";
   }, [customer, agingQuery.data]);
 
   const customerOptions = useMemo<EntityPickerOption[]>(
@@ -214,7 +215,7 @@ export function QuoteFormView({ onClose, initialCustomerId = "" }: { onClose: ()
               {customer && amountOwed !== null ? (
                 <div className="flex items-center gap-2 rounded-[8px] border border-border px-3 py-2 text-[12.5px]">
                   <span className="text-ink-muted">{t("quotes.amountOwed")}</span>
-                  <span className={amountOwed > 0 ? "font-semibold text-danger" : "font-semibold text-ink"}>
+                  <span className={Money.fromMajor(amountOwed).scaled > 0n ? "font-semibold text-danger" : "font-semibold text-ink"}>
                     <MoneyDisplay value={amountOwed} />
                   </span>
                 </div>

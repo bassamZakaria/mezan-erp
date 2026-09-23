@@ -30,6 +30,14 @@ describe("formatNumber", () => {
 });
 
 describe("formatMoney", () => {
+  it("formats an exact decimal string by string arithmetic, never through a float (D345)", () => {
+    expect(formatMoney("1150.000000")).toBe("1,150.00");
+    expect(formatMoney("9007199254740993.125000")).toBe("9,007,199,254,740,993.13");
+    expect(formatMoney("-0.004999")).toBe("0.00");
+    expect(formatMoney("-1234.505")).toBe("-1,234.51");
+    expect(formatMoney("12.5", { numerals: "arabic" })).toBe("١٢.٥٠");
+  });
+
   it("always shows exactly two fraction digits", () => {
     expect(formatMoney(1150)).toBe("1,150.00");
   });

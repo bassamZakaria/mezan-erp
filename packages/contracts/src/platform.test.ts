@@ -208,6 +208,7 @@ describe("planSchema", () => {
   const plan = {
     id: "p1", code: "core", nameAr: "الأساسية", nameEn: "Core", modules: ["accounting", "sales"],
     features: { "reports.export": true }, seatsIncluded: 3, branchesIncluded: 1, warehousesIncluded: 1,
+    kind: "paid" as const, quotas: { sales_invoices_per_month: 100 },
     priceMonthly: "490.00", priceYearly: "4900.00", trialDays: 14, isPublic: true, sortOrder: 1,
     status: "active" as const, createdAt: "2026-09-01T00:00:00.000Z",
   };

@@ -29,8 +29,12 @@ const tenant: Tenant = {
 describe("deriveEntitlements", () => {
   it("unions modules, sums seats, passes features, expires at period end", () => {
     expect(deriveEntitlements(plan, sub)).toEqual({
-      plan: "core", activeModules: ["accounting", "sales", "hr"], features: { "reports.export": true },
+      plan: "core", planNameAr: "الأساسية", planNameEn: "Core", planKind: PlanKind.Paid,
+      activeModules: ["accounting", "sales", "hr"], features: { "reports.export": true },
       seats: 5, expiresAt: "2026-10-01T00:00:00.000Z", limits: { branches: 1, warehouses: 1 },
+      // DEC-31: what the plan allows and what the tenant may still READ travel
+      // with the entitlements, so the gate and the billing screen read one source.
+      quotas: {}, readOnlyModules: [], moduleTrials: [], trialEndsAt: null,
     });
   });
 

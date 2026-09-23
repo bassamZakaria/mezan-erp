@@ -72,6 +72,13 @@ describe("PlanEditor", () => {
       trialDays: 0,
       isPublic: true,
       sortOrder: 0,
+      // DEC-31: the console decides whether a plan is the free one and what it
+      // caps, so both travel on every save — never inferred from the price.
+      kind: "paid",
+      // Untouched, so no quota key is sent at all — an absent key is
+      // "unlimited", and posting a 0 the operator never typed would cap the
+      // plan at zero invoices a month.
+      quotas: {},
     }));
   });
 

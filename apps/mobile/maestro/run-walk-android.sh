@@ -27,6 +27,13 @@ case "$ROTATION" in
 esac
 
 adb -s "$SERIAL" root >/dev/null 2>&1 || true
+# adb root restarts adbd; the shell that follows can land before the system
+# server is reachable again, and `cmd uimode` then reports no such service.
+adb -s "$SERIAL" wait-for-device
+for _ in $(seq 1 30); do
+  [ "$(adb -s "$SERIAL" shell getprop sys.boot_completed | tr -d '\r')" = "1" ] && break
+  sleep 2
+done
 current=$(adb -s "$SERIAL" shell getprop persist.sys.locale | tr -d '\r')
 if [ "$current" != "$SYSTEM_LOCALE" ]; then
   adb -s "$SERIAL" shell setprop persist.sys.locale "$SYSTEM_LOCALE"
@@ -37,7 +44,10 @@ if [ "$current" != "$SYSTEM_LOCALE" ]; then
   sleep 5
 fi
 
-adb -s "$SERIAL" shell cmd uimode night "$NIGHT" >/dev/null
+for _ in $(seq 1 30); do
+  adb -s "$SERIAL" shell cmd uimode night "$NIGHT" >/dev/null 2>&1 && break
+  sleep 2
+done
 
 # user_rotation 0 is the panel's NATURAL orientation, and a tablet's natural
 # orientation is landscape — so 0 is not "portrait" on every device. Which
@@ -56,6 +66,13 @@ adb -s "$SERIAL" shell am broadcast -a com.android.systemui.demo -e command cloc
 adb -s "$SERIAL" shell am broadcast -a com.android.systemui.demo -e command battery -e level 100 -e plugged false >/dev/null 2>&1 || true
 adb -s "$SERIAL" shell am broadcast -a com.android.systemui.demo -e command network -e wifi show -e level 4 >/dev/null 2>&1 || true
 adb -s "$SERIAL" shell am broadcast -a com.android.systemui.demo -e command notifications -e visible false >/dev/null 2>&1 || true
+
+# An emulator reaches the host's loopback through adb reverse, and a framework
+# restart or `adb root` drops every forward it had — which shows up in the app
+# as "the server could not be reached", not as a broken test.
+SERVER_PORT=$(printf '%s' "$SERVER" | sed -n 's|.*://[^:/]*:\([0-9]*\).*|\1|p')
+[ -n "$SERVER_PORT" ] && adb -s "$SERIAL" reverse "tcp:$SERVER_PORT" "tcp:$SERVER_PORT" >/dev/null
+adb -s "$SERIAL" reverse tcp:8081 tcp:8081 >/dev/null
 
 # Installing and launching maestro's instrumentation driver takes minutes on a
 # headless emulator sharing a loaded machine, and the default wait is shorter.

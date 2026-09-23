@@ -37,27 +37,66 @@ appId: app.mezan.mobile
     id: sign-in-server
 - eraseText: 30
 - inputText: ${SERVER}
-- scrollUntilVisible:
-    element:
-      id: sign-in-tenant
-    direction: DOWN
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      - scrollUntilVisible:
+          element:
+            id: sign-in-tenant
+          direction: DOWN
+          visibilityPercentage: 40
+          centerElement: true
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      - swipe:
+          start: 50%, 45%
+          end: 50%, 12%
 - tapOn:
     id: sign-in-tenant
 - inputText: ${TENANT}
-- scrollUntilVisible:
-    element:
-      id: sign-in-email
-    direction: DOWN
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      - scrollUntilVisible:
+          element:
+            id: sign-in-email
+          direction: DOWN
+          visibilityPercentage: 40
+          centerElement: true
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      - swipe:
+          start: 50%, 45%
+          end: 50%, 12%
 - tapOn:
     id: sign-in-email
 - inputText: ${EMAIL}
 # On a phone in landscape the keyboard covers the bottom of the form, so the
 # PIN field and the button have to be scrolled to — they are reachable, but
 # not on screen.
-- scrollUntilVisible:
-    element:
-      id: sign-in-pin
-    direction: DOWN
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      - scrollUntilVisible:
+          element:
+            id: sign-in-pin
+          direction: DOWN
+          visibilityPercentage: 40
+          centerElement: true
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      - swipe:
+          start: 50%, 45%
+          end: 50%, 12%
 - tapOn:
     id: sign-in-pin
 - waitForAnimationToEnd
@@ -65,10 +104,24 @@ appId: app.mezan.mobile
 - tapOn:
     text: ${L_SERVER}
     index: 0
-- scrollUntilVisible:
-    element:
-      id: sign-in-submit
-    direction: DOWN
+    optional: true
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      - scrollUntilVisible:
+          element:
+            id: sign-in-submit
+          direction: DOWN
+          visibilityPercentage: 40
+          centerElement: true
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      - swipe:
+          start: 50%, 45%
+          end: 50%, 12%
 - tapOn:
     id: sign-in-submit
 - extendedWaitUntil:
@@ -89,9 +142,28 @@ appId: app.mezan.mobile
     timeout: 20000
 - waitForAnimationToEnd
 - takeScreenshot: 04-customer
-- tapOn:
-    id: BackButton
-    optional: true
+# The detail is PUSHED on a narrow screen and sits beside the list on a wide
+# one, so there is only something to go back from when the tab bar is gone.
+- runFlow:
+    when:
+      notVisible:
+        id: tab-sell
+    commands:
+      # maestro's `back` is an edge swipe on iOS, and the edge it swipes from
+      # is the wrong one once the app is right-to-left; the header button is
+      # not mirrored away.
+      - runFlow:
+          when:
+            platform: iOS
+          commands:
+            - tapOn:
+                id: BackButton
+      - runFlow:
+          when:
+            platform: Android
+          commands:
+            - back
+      - waitForAnimationToEnd
 - tapOn:
     id: tab-sell
 - assertVisible: ".*${C_CUSTOMER_PLACEHOLDER}.*"
@@ -124,15 +196,53 @@ appId: app.mezan.mobile
     timeout: 20000
 - waitForAnimationToEnd
 - takeScreenshot: 08-collect
-- tapOn:
-    id: BackButton
-    optional: true
+# The detail is PUSHED on a narrow screen and sits beside the list on a wide
+# one, so there is only something to go back from when the tab bar is gone.
+- runFlow:
+    when:
+      notVisible:
+        id: tab-sell
+    commands:
+      # maestro's `back` is an edge swipe on iOS, and the edge it swipes from
+      # is the wrong one once the app is right-to-left; the header button is
+      # not mirrored away.
+      - runFlow:
+          when:
+            platform: iOS
+          commands:
+            - tapOn:
+                id: BackButton
+      - runFlow:
+          when:
+            platform: Android
+          commands:
+            - back
+      - waitForAnimationToEnd
 - tapOn: ".*${M_CLOCK}.*"
 - waitForAnimationToEnd
 - takeScreenshot: 09-clock
-- tapOn:
-    id: BackButton
-    optional: true
+# The detail is PUSHED on a narrow screen and sits beside the list on a wide
+# one, so there is only something to go back from when the tab bar is gone.
+- runFlow:
+    when:
+      notVisible:
+        id: tab-sell
+    commands:
+      # maestro's `back` is an edge swipe on iOS, and the edge it swipes from
+      # is the wrong one once the app is right-to-left; the header button is
+      # not mirrored away.
+      - runFlow:
+          when:
+            platform: iOS
+          commands:
+            - tapOn:
+                id: BackButton
+      - runFlow:
+          when:
+            platform: Android
+          commands:
+            - back
+      - waitForAnimationToEnd
 - tapOn: ".*${M_APPROVALS}.*"
 - tapOn:
     id: approval-summary

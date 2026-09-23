@@ -1,6 +1,6 @@
 import { useRouter } from "expo-router";
 import { Children, useState, type ReactNode } from "react";
-import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } from "react-native";
+import { KeyboardAvoidingView, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Button } from "@/components/button";
 import { LegalLinks } from "@/components/legal-links";
@@ -55,7 +55,15 @@ export function SignIn() {
 
   return (
     <KeyboardAvoidingView
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
+      /**
+       * "padding" on BOTH platforms. Android 15 draws every app edge to edge,
+       * and an edge-to-edge window is no longer resized by
+       * android:windowSoftInputMode="adjustResize" — so with the keyboard up
+       * the form did not shrink, did not scroll, and the PIN field and the
+       * sign-in button could not be reached at all. Measured on a 360x640dp
+       * emulator.
+       */
+      behavior="padding"
       style={[styles.flex, { backgroundColor: theme.background }]}
     >
       <ScrollView

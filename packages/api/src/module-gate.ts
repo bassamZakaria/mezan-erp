@@ -1,5 +1,8 @@
 import type { Context, MiddlewareHandler } from "hono";
-import { hasModule, MODULES, type Entitlements } from "@mezan/domain";
+import {
+  hasModule, hasReadOnlyModule, moduleReadOnlyRefusal, MODULES,
+  type Entitlements, type ModuleReadOnlyRefusal, type PlanLabel,
+} from "@mezan/domain";
 import { POS_MODULE_ROUTES } from "./pos/route-prefixes.js";
 import { ENH_MODULE_ROUTES } from "./enh/route-prefixes.js";
 
@@ -128,6 +131,39 @@ export function entitlementsBinding(resolve: EntitlementsResolver): MiddlewareHa
   };
 }
 
+/**
+ * Methods that only READ. DEC-31 rule 5: a module that has left the plan keeps
+ * answering these — its data and its exports are the tenant's own records and
+ * are never withheld — and refuses everything else with a reason, not a 403
+ * that pretends the module was never there.
+ */
+const SAFE_METHODS: ReadonlySet<string> = new Set(["GET", "HEAD", "OPTIONS"]);
+
+function planLabelOf(entitlements: Entitlements): PlanLabel & { readonly code: string } {
+  return {
+    code: entitlements.plan,
+    nameAr: entitlements.planNameAr ?? entitlements.plan,
+    nameEn: entitlements.planNameEn ?? entitlements.plan,
+  };
+}
+
+/**
+ * How a module that left the tenant's entitlements answers, by method.
+ *
+ * `null` means "let the request through". Only a module the tenant never held
+ * — not in any plan it ever had, never add-on, never trialled — reaches the
+ * plain `MODULE_NOT_LICENSED` 403 above it.
+ */
+export function readOnlyModuleOutcome(
+  entitlements: Entitlements,
+  entitlementModuleId: string,
+  method: string,
+): ModuleReadOnlyRefusal | null | undefined {
+  if (!hasReadOnlyModule(entitlements, entitlementModuleId)) return undefined;
+  if (SAFE_METHODS.has(method.toUpperCase())) return null;
+  return moduleReadOnlyRefusal(entitlementModuleId, planLabelOf(entitlements));
+}
+
 /** The 403 body a permission gate answers with when its permission's module isn't licensed. */
 export function moduleRefusal(moduleId: string): { error: "MODULE_NOT_LICENSED"; module: string; message: string } {
   const labelAr = MODULES.find((m) => m.id === moduleId)?.labelAr ?? moduleId;
@@ -149,6 +185,11 @@ export function createModuleGate(resolveEntitlements: EntitlementsResolver) {
   return function gate(moduleId: string): MiddlewareHandler {
     return async function moduleGate(c, next) {
       const entitlements = await resolveEntitlements(c);
+      if (entitlements && !hasModule(entitlements, moduleId)) {
+        const readOnly = readOnlyModuleOutcome(entitlements, moduleId, c.req.method);
+        if (readOnly === null) return next();
+        if (readOnly) return c.json(readOnly, 403);
+      }
       if (!entitlements || !hasModule(entitlements, moduleId)) {
         const nameAr = MODULE_NAME_AR[moduleId] ?? moduleId;
         return c.json(

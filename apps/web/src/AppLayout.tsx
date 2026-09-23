@@ -50,6 +50,7 @@ import { groupKeyForScreen, hubScreenForGroup, parsePath, pathForRoute } from ".
 import { isRoutable, type RoutableKey, type ScreenKey } from "./router/screens";
 import { Breadcrumbs, parentSegments } from "./Breadcrumbs";
 import { LicenseBanner } from "./LicenseBanner";
+import { TrialBanner } from "./billing/TrialBanner";
 import { UpdateBanner } from "./UpdateBanner";
 import { useGlobalShortcuts } from "./keyboard/useGlobalShortcuts";
 import { ShortcutsOverlay } from "./keyboard/ShortcutsOverlay";
@@ -617,6 +618,7 @@ export function AppLayout() {
         sees none of them.
       */}
       <LicenseBanner />
+      <TrialBanner />
       <UpdateBanner />
       <LicenceStatusNotice />
       <Breadcrumbs screen={activeScreen} />

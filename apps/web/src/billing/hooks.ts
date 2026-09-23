@@ -1,5 +1,10 @@
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
-import type { CardCheckoutDTO, CreateCardCheckoutRequestDTO, TenantBillingDTO } from "@mezan/contracts";
+import type {
+  CardCheckoutDTO,
+  CreateCardCheckoutRequestDTO,
+  StartModuleTrialRequestDTO,
+  TenantBillingDTO,
+} from "@mezan/contracts";
 import { useApi } from "../data/ApiContext";
 import { ApiError, readError } from "../data/hooks";
 import { useAppTranslation } from "../i18n";
@@ -81,6 +86,28 @@ export function useTenantCheckout(id: string | null, startedAt: number): UseQuer
         void queryClient.invalidateQueries({ queryKey: ["license-state"] });
       }
       return checkout;
+    },
+  });
+}
+
+/**
+ * «جرّب هذه الوحدة» — one 14-day trial per module per tenant. The second
+ * attempt comes back 409 with the server's own Arabic sentence, which
+ * `readError` prefers over any wording this file could invent.
+ */
+export function useStartModuleTrial() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<{ module: string; endsAt: string }, ApiError, StartModuleTrialRequestDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/billing/module-trials", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("plan.modules.failed"), t));
+      return res.json<{ module: string; endsAt: string }>();
+    },
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: ["billing", "subscription"] });
+      void queryClient.invalidateQueries({ queryKey: ["entitlements"] });
     },
   });
 }

@@ -3,7 +3,14 @@ import { useNavigate, useParams } from "react-router";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button, Field, TextInput } from "@mezan/ui";
 import { MODULE_CATALOG, MODULES } from "@mezan/domain";
-import type { PlanCreateRequestDTO, PlanDTO, PlanUpdateRequestDTO } from "@mezan/contracts";
+import type {
+  PlanCreateRequestDTO,
+  PlanDTO,
+  PlanKindDTO,
+  PlanQuotasDTO,
+  PlanUpdateRequestDTO,
+  QuotaKindDTO,
+} from "@mezan/contracts";
 import {
   FormColumns,
   FormError,
@@ -33,6 +40,14 @@ function moduleOptions(t: (key: AppTranslationKey) => string) {
   });
 }
 
+/** The quotas the console can edit. Mirrors `QuotaKind`; a key left out is unlimited. */
+const QUOTA_FIELDS: ReadonlyArray<{ readonly kind: QuotaKindDTO; readonly label: AppTranslationKey }> = [
+  { kind: "sales_invoices_per_month", label: "platform.plans.editor.field.quotaSalesInvoices" },
+];
+
+const FREE: PlanKindDTO = "free";
+const PAID: PlanKindDTO = "paid";
+
 interface Draft {
   code: string;
   nameAr: string;
@@ -46,6 +61,8 @@ interface Draft {
   trialDays: number;
   isPublic: boolean;
   sortOrder: number;
+  kind: PlanKindDTO;
+  quotas: PlanQuotasDTO;
 }
 
 function blankDraft(): Draft {
@@ -62,6 +79,8 @@ function blankDraft(): Draft {
     trialDays: 0,
     isPublic: true,
     sortOrder: 0,
+    kind: PAID,
+    quotas: {},
   };
 }
 
@@ -79,6 +98,8 @@ function draftOf(plan: PlanDTO): Draft {
     trialDays: plan.trialDays,
     isPublic: plan.isPublic,
     sortOrder: plan.sortOrder,
+    kind: plan.kind,
+    quotas: { ...plan.quotas },
   };
 }
 
@@ -91,6 +112,12 @@ function validate(draft: Draft, isNew: boolean): AppTranslationKey | null {
   if (!PRICE_PATTERN.test(draft.priceMonthly) || !PRICE_PATTERN.test(draft.priceYearly)) {
     return "platform.plans.editor.priceRequired";
   }
+  // The domain refuses these too; saying so here spares a round trip that
+  // comes back with a reason the form cannot point at a field.
+  if (draft.kind === FREE && (Number(draft.priceMonthly) !== 0 || Number(draft.priceYearly) !== 0)) {
+    return "platform.plans.editor.freeMustBeZero";
+  }
+  if (draft.kind === FREE && draft.trialDays !== 0) return "platform.plans.editor.freeHasNoTrial";
   return null;
 }
 
@@ -185,6 +212,8 @@ export function PlanEditor() {
       trialDays: draft.trialDays,
       isPublic: draft.isPublic,
       sortOrder: draft.sortOrder,
+      kind: draft.kind,
+      quotas: draft.quotas,
     };
     try {
       if (editingId) {
@@ -287,6 +316,18 @@ export function PlanEditor() {
               disabled={readOnly}
               onChange={(v) => setDraft((d) => ({ ...d, isPublic: v }))}
             />
+            <ToggleField
+              label={t("platform.plans.editor.field.free")}
+              checked={draft.kind === FREE}
+              disabled={readOnly}
+              onChange={(v) =>
+                setDraft((d) =>
+                  v
+                    ? { ...d, kind: FREE, priceMonthly: "0", priceYearly: "0", trialDays: 0 }
+                    : { ...d, kind: PAID },
+                )
+              }
+            />
           </SectionCard>
         }
       >
@@ -334,6 +375,19 @@ export function PlanEditor() {
             disabled={readOnly}
             onChange={(v) => setDraft((d) => ({ ...d, warehousesIncluded: v }))}
           />
+        </SectionCard>
+
+        <SectionCard title={t("platform.plans.editor.section.quotas")}>
+          {QUOTA_FIELDS.map((q) => (
+            <NumberField
+              key={q.kind}
+              label={t(q.label)}
+              value={draft.quotas[q.kind] ?? 0}
+              min={0}
+              disabled={readOnly}
+              onChange={(v) => setDraft((d) => ({ ...d, quotas: { ...d.quotas, [q.kind]: v } }))}
+            />
+          ))}
         </SectionCard>
 
         <SectionCard title={t("platform.plans.editor.field.modules")} columns={1}>

@@ -286,6 +286,7 @@ const coreNavItemIcons: Readonly<Record<string, LucideIcon>> = {
   "report-sod-conflicts": ShieldOff,
 
   "settings-general": Settings,
+  "settings-billing": CreditCard,
   "settings-branches": GitBranch,
   "settings-warehouses": Warehouse,
   "settings-print": Printer,

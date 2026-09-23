@@ -140,6 +140,7 @@ import { createVouchersRoutes, createAllocationRoutes, type VoucherRoutesDeps } 
 import { createSalesInvoicesRoutes, type SalesInvoiceRoutesDeps } from "./sales-invoices-routes.js";
 import { createSalesInvoiceQuota } from "./plan-quota-wiring.js";
 import { createPlanUsageRoutes } from "./plan-usage-routes.js";
+import { planLocationsBinding } from "./plan-locations.js";
 import { createSalesReturnsRoutes } from "./sales-returns-routes.js";
 import { createPurchaseReturnsRoutes } from "./purchase-returns-routes.js";
 import { createLandedCostsRoutes } from "./landed-costs-routes.js";
@@ -933,6 +934,9 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   // refuse an unlicensed module (permission-gate.ts) — the module gate was
   // exported and unit-tested but never wired to a route until this mount.
   app.use("*", entitlementsBinding(resolveEntitlements));
+  // Must sit BELOW the entitlements binding: the over-limit sets are a function
+  // of the limits that binding publishes.
+  app.use("*", planLocationsBinding({ branches: options.branchStore, warehouses: options.warehouseStore }));
 
   // A session token presented from an address it was not issued to. The
   // REFUSAL happens in session-auth.ts regardless of this mount (the resolver

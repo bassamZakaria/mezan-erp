@@ -244,7 +244,7 @@ const coreNavGroupSpecs: readonly NavGroupSpec[] = [
      * account, not an administrator's shelf, so it sits beside عام rather than
      * inside المنشأة or الصلاحيات — the avatar menu still reaches it too.
      */
-    itemKeys: ["settings-general", "settings-profile"],
+    itemKeys: ["settings-general", "settings-billing", "settings-profile"],
     sections: [
       {
         key: "company",
@@ -502,6 +502,7 @@ const CORE_NAV_ITEM_ACCESS: Readonly<Record<string, NavItemAccess>> = {
   projects: { permission: "projects.project.view", module: "projects" },
 
   "settings-general": { permission: "admin.settings.view" },
+  "settings-billing": { permission: "admin.settings.view" },
   "settings-profile": {},
   "settings-branches": { permission: "admin.branches.view" },
   "settings-warehouses": { permission: "admin.warehouses.view" },

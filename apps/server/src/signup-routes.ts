@@ -49,6 +49,7 @@ function toPublicPlan(plan: Plan): PublicPlanDTO {
     code: plan.code,
     nameAr: plan.nameAr,
     nameEn: plan.nameEn,
+    kind: plan.kind,
     modules: [...plan.modules],
     seatsIncluded: plan.seatsIncluded,
     branchesIncluded: plan.branchesIncluded,

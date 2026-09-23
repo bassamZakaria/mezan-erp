@@ -1,5 +1,5 @@
 import type { App } from "@mezan/api";
-import { BRANCH_ID, CORE, hasHappened, seedActorHeaders, step } from "./shared.js";
+import { BRANCH_ID, CORE, SeedPerson, hasHappened, seedActorHeaders, seededUserId, step } from "./shared.js";
 
 /**
  * المستخلصات — slice 2 of المقاولات, seeded through the real routes.
@@ -26,12 +26,12 @@ const BANK_TREASURY_ID = "TR-DEMO-BANK";
 const BANK_GL = "1310";
 
 const VIEW = "contracting.certificate.view";
-const SURVEYOR = seedActor("USER-DEMO-SURVEYOR", ["contracting.certificate.prepare", VIEW]);
-const CONSULTANT = seedActor("USER-DEMO-CONSULTANT", ["contracting.certificate.certify", VIEW]);
-const EMPLOYER_FINANCE = seedActor("USER-DEMO-CERT-FINANCE", ["contracting.certificate.approve", VIEW]);
+const SURVEYOR = seedActor(SeedPerson.TechnicalOffice, ["contracting.certificate.prepare", VIEW]);
+const CONSULTANT = seedActor(SeedPerson.ConsultantQs, ["contracting.certificate.certify", VIEW]);
+const EMPLOYER_FINANCE = seedActor(SeedPerson.ContractingFinance, ["contracting.certificate.approve", VIEW]);
 
-function seedActor(userId: string, permissions: readonly string[]) {
-  return () => seedActorHeaders(userId, permissions, null);
+function seedActor(person: SeedPerson, permissions: readonly string[]) {
+  return () => seedActorHeaders(seededUserId(person), permissions, null);
 }
 
 async function stepAs(

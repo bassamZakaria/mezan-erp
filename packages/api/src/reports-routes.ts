@@ -422,14 +422,14 @@ async function partyControlTie(
   accountId: string,
   naturalSide: "debit" | "credit",
   asOfDate?: string,
-): Promise<{ readonly balance: number; readonly revaluation: number }> {
+): Promise<{ readonly balance: Money; readonly revaluation: Money }> {
   const { balance } = await deps.ledger.accountBalance(accountId, asOfDate);
   const lines = (await deps.ledger.listLines?.({ accountIds: [accountId], ...(asOfDate ? { toDate: asOfDate } : {}) })) ?? [];
   const revaluation = fxRevaluationNet(lines, accountId);
   const sign = naturalSide === "debit" ? 1n : -1n;
   return {
-    balance: moneyToNumber(Money.fromScaled(sign * (balance.scaled - revaluation.scaled))),
-    revaluation: moneyToNumber(Money.fromScaled(sign * revaluation.scaled)),
+    balance: Money.fromScaled(sign * (balance.scaled - revaluation.scaled)),
+    revaluation: Money.fromScaled(sign * revaluation.scaled),
   };
 }
 
@@ -2001,7 +2001,7 @@ export function createReportsRoutes(
         date: invoice.date,
         type: "SALES_INVOICE",
         status: invoice.status,
-        amount: moneyToNumber(salesInvoiceBaseGrandTotal(salesInvoiceTotals(invoice), invoice.fxRate)),
+        amount: salesInvoiceBaseGrandTotal(salesInvoiceTotals(invoice), invoice.fxRate).toString(),
         amountFormat: "money",
       })),
       documentCount: own.length,
@@ -2059,7 +2059,7 @@ export function createReportsRoutes(
         date: invoice.date,
         type: "PURCHASE_INVOICE",
         status: invoice.status,
-        amount: moneyToNumber(purchaseInvoiceBaseTotal(invoice)),
+        amount: purchaseInvoiceBaseTotal(invoice).toString(),
         amountFormat: "money",
       })),
       documentCount: own.length,
@@ -2117,7 +2117,7 @@ export function createReportsRoutes(
         date: movement.occurredAt.slice(0, 10),
         type: "STOCK_MOVEMENT",
         status: movement.direction,
-        amount: Number(movement.qty.toString()),
+        amount: movement.qty.toString(),
         amountFormat: "qty",
       })),
       documentCount: movements.length,
@@ -2162,7 +2162,7 @@ export function createReportsRoutes(
         date: entry.date,
         type: "JOURNAL_ENTRY",
         status: "posted",
-        amount: moneyToNumber(net),
+        amount: net.toString(),
         amountFormat: "money",
       })),
       documentCount: touching.length,

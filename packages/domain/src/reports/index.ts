@@ -9,6 +9,7 @@ export type {
   ReportParamField,
   ReportReconciliationResult,
   ReportKpiResult,
+  ReportFigure,
   ReportKpiSpec,
   ReportChartSpec,
   ReportReconciliationSpec,

@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { ScrollView, StyleSheet, Text } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { BranchDTO, CustomerDTO, OpenInvoiceDTO, TreasuryAccountDTO } from "@mezan/contracts";
 import { Button } from "@/components/button";
 import { Card } from "@/components/card";
@@ -10,9 +9,7 @@ import { TextField } from "@/components/text-field";
 import { describeWriteError } from "@/api/errors";
 import {
   useBranches,
-  useConfirmVoucher,
-  useCreateAllocation,
-  useCreateVoucher,
+  useCreateCollection,
   useCustomers,
   useOpenInvoices,
   useSalesInvoice,
@@ -21,9 +18,8 @@ import {
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { useStrings } from "@/i18n";
 import { formatAmountWithCurrency, isPositiveDecimal, toAmountInput } from "@/money";
-import { DEFAULT_GL_ACCOUNTS } from "@/domain/accounts";
 import { todayIso } from "@/domain/dates";
-import { AllocationInvoiceKind, CollectPaymentMethod, TreasuryAccountStatus, VoucherTypeCode } from "@/domain/enums";
+import { AllocationInvoiceKind, CollectPaymentMethod, TreasuryAccountStatus } from "@/domain/enums";
 import { resolveDefaultBranch } from "@/domain/working-location";
 import { useSession } from "@/session/SessionProvider";
 import { SPACE, TYPE, useTheme } from "@/theme";
@@ -47,7 +43,6 @@ function invoiceOption(invoice: OpenInvoiceDTO): PickerOption {
 export function Collect() {
   const strings = useStrings();
   const theme = useTheme();
-  const insets = useSafeAreaInsets();
   const { can } = useSession();
   const allowed = can("treasury.cash_voucher.create");
 
@@ -93,9 +88,7 @@ export function Collect() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
-  const createVoucher = useCreateVoucher();
-  const confirmVoucher = useConfirmVoucher();
-  const createAllocation = useCreateAllocation();
+  const createCollection = useCreateCollection();
 
   async function submit() {
     setNotice(null);
@@ -107,7 +100,7 @@ export function Collect() {
       setError(strings.collect.detailsRequired);
       return;
     }
-    if (invoiceCurrency === null || treasuryAccount.currency !== invoiceCurrency) {
+    if (invoiceCurrency === null || !invoiceDetail.data || treasuryAccount.currency !== invoiceCurrency) {
       setError(strings.collect.currencyUnknown);
       return;
     }
@@ -115,28 +108,30 @@ export function Collect() {
       setError(strings.collect.missingGlAccount);
       return;
     }
+    const voucherAmount = amount.trim();
+    const inBaseCurrency = invoiceDetail.data.fxRate === null;
     setBusy(true);
     setError(null);
     try {
-      const voucher = await createVoucher.mutateAsync({
+      const result = await createCollection.mutateAsync({
         date: todayIso(),
-        voucherType: VoucherTypeCode.CustomerCollection,
-        amount: amount.trim(),
-        currency: invoiceCurrency,
-        branchId: branch.id,
-        paymentMethod: CollectPaymentMethod.Cash,
-        treasuryAccountId: treasuryAccount.id,
-        treasuryGlAccountId: treasuryAccount.glAccountId,
-        counterpartyGlAccountId: DEFAULT_GL_ACCOUNTS.accountsReceivable,
         customerId: customer.id,
+        branchId: branch.id,
+        treasuryAccountId: treasuryAccount.id,
+        amount: voucherAmount,
+        paymentMethod: CollectPaymentMethod.Cash,
         referenceNo: referenceNo.trim() === "" ? null : referenceNo.trim(),
+        // The allocation is in base currency. Only a base-currency collection
+        // can name it from the typed figure; a foreign one lets the server
+        // allocate the voucher's base amount at its own approved rate.
+        allocations: [inBaseCurrency ? { invoiceId: invoice.id, amount: voucherAmount } : { invoiceId: invoice.id }],
       });
-      const confirmed = await confirmVoucher.mutateAsync({ id: voucher.id });
-      await createAllocation.mutateAsync({ voucherId: confirmed.id, body: { invoiceId: invoice.id, amount: amount.trim() } });
-      setNotice(`${strings.collect.success} ${invoice.invoiceNo} — ${confirmed.docNo ?? confirmed.id}`);
+      const docNo = result.voucher.docNo ?? result.voucher.id;
+      setNotice(result.held ? `${strings.collect.held} — ${docNo}` : `${strings.collect.success} ${invoice.invoiceNo} — ${docNo}`);
       setAmount("");
       setReferenceNo("");
       setInvoice(null);
+      setTreasuryAccount(null);
     } catch (err) {
       setError(describeWriteError(err, strings));
     } finally {
@@ -146,10 +141,9 @@ export function Collect() {
 
   return (
     <ScrollView
-      contentContainerStyle={[styles.content, { paddingTop: insets.top + SPACE.lg, paddingBottom: SPACE.xxl }]}
+      contentContainerStyle={[styles.content, { paddingTop: SPACE.lg, paddingBottom: SPACE.xxl }]}
       style={{ backgroundColor: theme.background }}
     >
-      <Text style={[styles.title, { color: theme.text }]}>{strings.collect.title}</Text>
       <OfflineNotice />
 
       {allowed ? null : (
@@ -250,6 +244,5 @@ export function Collect() {
 
 const styles = StyleSheet.create({
   content: { paddingHorizontal: SPACE.lg, gap: SPACE.lg },
-  title: { fontSize: TYPE.display, fontWeight: "800" },
   notice: { fontSize: TYPE.label, fontWeight: "600" },
 });

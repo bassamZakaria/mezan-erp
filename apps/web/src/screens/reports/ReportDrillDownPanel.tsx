@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router";
-import type { ReportDrillDownDTO } from "@mezan/contracts";
-import { Money, SidePanel, type ReportRunnerEntityRef } from "@mezan/ui";
+import { ReportDrillDownFactFormat, reportDrillDownSchema, type ReportDrillDownDTO } from "@mezan/contracts";
+import { Money, Qty, SidePanel, type ReportRunnerEntityRef } from "@mezan/ui";
 import { useApi } from "../../data/ApiContext";
 import { ApiError, loaderError } from "../../data/hooks";
 import { useAppTranslation, type AppTranslationKey } from "../../i18n";
@@ -73,7 +73,7 @@ function useDrillDown(entity: ReportRunnerEntityRef | null, reportParams?: Reado
     queryFn: async () => {
       const res = await request(`/reports/drill-down/${entity?.kind}/${encodeURIComponent(entity?.id ?? "")}${query}`);
       if (!res.ok) throw await loaderError(res, t("reportDrill.failed"), t);
-      return res.json<ReportDrillDownDTO>();
+      return reportDrillDownSchema.parse(await res.json());
     },
   });
 }
@@ -118,7 +118,7 @@ export function ReportDrillDownPanel({
                   {overlay(`reportDrill.fact.${fact.key}`, fact.labelAr, t)}
                 </dt>
                 <dd className="text-[13.5px] font-semibold text-ink">
-                  {fact.format === "money" ? <Money value={Number(fact.value)} currencyLabel={t("ui.currency")} /> : <span className="mz-num">{fact.value}</span>}
+                  {fact.format === ReportDrillDownFactFormat.Money ? <Money value={fact.value} currencyLabel={t("ui.currency")} /> : <span className="mz-num">{fact.value}</span>}
                 </dd>
               </div>
             ))}
@@ -143,7 +143,7 @@ export function ReportDrillDownPanel({
                         </span>
                       </span>
                       <span className="mz-num shrink-0 text-[12.5px] font-semibold text-ink">
-                        {doc.amountFormat === "money" ? <Money value={doc.amount} currencyLabel={t("ui.currency")} /> : doc.amount}
+                        {doc.amountFormat === "money" ? <Money value={doc.amount} currencyLabel={t("ui.currency")} /> : <Qty value={doc.amount} />}
                       </span>
                     </>
                   );

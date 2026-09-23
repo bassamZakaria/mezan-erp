@@ -17,6 +17,13 @@ import type { Money } from "../money/index.js";
  * A contribution column is read by comparing rows, and a column of bare
  * numbers makes the reader do that comparison in their head.
  */
+/**
+ * A figure a report emits: a number, or — for money a report computes exactly —
+ * an exact decimal string (D126, D345). A column whose values are strings is
+ * totalled exactly and its totals are strings too.
+ */
+export type ReportFigure = number | string;
+
 export type ReportColumnFormat = "text" | "money" | "qty" | "date" | "percent" | "variance" | "share";
 
 export interface ReportColumn<Row> {
@@ -72,19 +79,19 @@ export type ReportParamField =
  */
 export interface ReportReconciliationSpec<Row, Ctx, TParams = unknown> {
   readonly labelAr: string;
-  readonly computeReportTotal: (rows: readonly Row[]) => number;
+  readonly computeReportTotal?: (rows: readonly Row[]) => number;
   /**
    * `params` are the ones the report actually RAN with, not its defaults —
    * a reference total computed over the default period would silently stop
    * matching the moment the user changed the date range.
    */
-  readonly computeReferenceTotal: (rows: readonly Row[], ctx: Ctx, params: TParams) => number;
+  readonly computeReferenceTotal?: (rows: readonly Row[], ctx: Ctx, params: TParams) => number;
   /** Absolute-difference tolerance before the banner flags a mismatch. Defaults to 0. */
   readonly toleranceMoney?: number;
   /**
-   * Both totals as exact Money. When present the banner compares THESE, not
-   * the two number totals, so a mismatch is never a float artefact; the number
-   * totals are then only what the banner displays.
+   * Both totals as exact Money. When present the banner compares and sends
+   * THESE, as exact decimal strings, and the two number totals are not read;
+   * a mismatch is then never a float artefact (D345).
    */
   readonly computeExactTotals?: (rows: readonly Row[], ctx: Ctx, params: TParams) => { readonly report: Money; readonly reference: Money };
   /**
@@ -104,7 +111,7 @@ export interface ReportReconciliationSpec<Row, Ctx, TParams = unknown> {
 export interface ReportReconcilingItem {
   readonly key: string;
   readonly labelAr: string;
-  readonly amount: number;
+  readonly amount: ReportFigure;
 }
 
 export interface ReportDefinition<TParams, Row, Ctx = unknown> {
@@ -159,7 +166,8 @@ export interface ReportKpiSpec<Row, TParams> {
   readonly labelAr: string;
   readonly hintAr?: string;
   readonly format?: ReportColumnFormat;
-  readonly value: (rows: readonly Row[], params: TParams) => number;
+  readonly value: (rows: readonly Row[], params: TParams) => ReportFigure;
+  /** Handed a string figure's SIGN (-1, 0 or 1), never a float of it. */
   readonly tone?: (value: number) => "default" | "success" | "danger";
 }
 
@@ -168,7 +176,7 @@ export interface ReportKpiResult {
   readonly labelAr: string;
   readonly hintAr?: string;
   readonly format?: ReportColumnFormat;
-  readonly value: number;
+  readonly value: ReportFigure;
   readonly tone?: "default" | "success" | "danger";
 }
 
@@ -217,14 +225,14 @@ export interface ReportGroupResult<Row> {
   readonly key: string;
   readonly label: string;
   readonly rows: readonly Row[];
-  readonly totals: Readonly<Record<string, number>>;
+  readonly totals: Readonly<Record<string, ReportFigure>>;
 }
 
 export interface ReportReconciliationResult {
   readonly labelAr: string;
-  readonly reportTotal: number;
-  readonly referenceTotal: number;
-  readonly diff: number;
+  readonly reportTotal: ReportFigure;
+  readonly referenceTotal: ReportFigure;
+  readonly diff: ReportFigure;
   readonly withinTolerance: boolean;
   /** Present only when at least one item is non-zero. */
   readonly reconcilingItems?: readonly ReportReconcilingItem[];
@@ -236,7 +244,7 @@ export type RunReportOutcome<TParams, Row> =
       readonly params: TParams;
       readonly rows: readonly Row[];
       readonly groups: readonly ReportGroupResult<Row>[];
-      readonly grandTotals: Readonly<Record<string, number>>;
+      readonly grandTotals: Readonly<Record<string, ReportFigure>>;
       readonly reconciliation: ReportReconciliationResult | null;
       readonly kpis: readonly ReportKpiResult[];
     }

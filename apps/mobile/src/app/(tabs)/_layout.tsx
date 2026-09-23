@@ -52,6 +52,7 @@ export default function TabsLayout() {
           name={tab.route}
           options={{
             title: tab.title(strings),
+            tabBarButtonTestID: `tab-${tab.route}`,
             tabBarIcon: ({ color, size }) => <SymbolView name={tab.icon} size={size} tintColor={color} />,
           }}
         />

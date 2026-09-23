@@ -35,6 +35,9 @@ export function Home() {
       <StatTile label={strings.home.bank} amount={sumDecimals(bankBalances)} />
     );
 
+  const salesTodayTile =
+    cockpit.data === undefined ? null : <StatTile label={strings.home.salesToday} amount={cockpit.data.pulse.sales.today} />;
+
   const refresh = () => {
     void summary.refetch();
     if (cockpit.isFetched) void cockpit.refetch();
@@ -79,6 +82,7 @@ export function Home() {
       )}
 
       <View style={styles.tiles}>
+        {salesTodayTile}
         {summary.data === undefined ? null : (
           <>
             <StatTile label={strings.home.cash} amount={summary.data.gl.cash} />

@@ -2,7 +2,7 @@
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it, vi } from "vitest";
 import { screen, fireEvent, within, waitFor } from "@testing-library/react";
-import type { ReportDrillDownDTO } from "@mezan/contracts";
+import { ReportDrillDownFactFormat, type ReportDrillDownDTO } from "@mezan/contracts";
 import type { ReportRunnerEntityRef } from "@mezan/ui";
 import { ReportDrillDownPanel, drillDownQuery } from "./ReportDrillDownPanel";
 import { renderWithProviders, stubTransport, testAdminSession } from "../../data/test-support";
@@ -24,12 +24,12 @@ function drillDown(overrides: Partial<ReportDrillDownDTO> = {}): ReportDrillDown
     titleAr: "عميل تجريبي",
     subtitleAr: "شركة تجريبية",
     facts: [
-      { key: "balance", labelAr: "الرصيد", value: "1500.00", format: "money" },
+      { key: "balance", labelAr: "الرصيد", value: "1500.00", format: ReportDrillDownFactFormat.Money },
       { key: "invoiceCount", labelAr: "عدد الفواتير", value: "3", format: undefined },
     ],
     documents: [
-      { id: "si-1", docNo: "SI-000001", date: "2026-08-20", type: "SALES_INVOICE", status: "confirmed", amount: 500, amountFormat: "money" },
-      { id: "mv-1", docNo: "MV-000001", date: "2026-08-20", type: "STOCK_MOVEMENT", status: "posted", amount: 10, amountFormat: "qty" },
+      { id: "si-1", docNo: "SI-000001", date: "2026-08-20", type: "SALES_INVOICE", status: "confirmed", amount: "500.000000", amountFormat: "money" },
+      { id: "mv-1", docNo: "MV-000001", date: "2026-08-20", type: "STOCK_MOVEMENT", status: "posted", amount: "10.000000", amountFormat: "qty" },
     ],
     documentCount: 5,
     ...overrides,

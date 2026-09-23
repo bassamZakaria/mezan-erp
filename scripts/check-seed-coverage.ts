@@ -1,6 +1,8 @@
 import { createBackend } from "../packages/backend/src/create-backend.js";
 import { SEED_ADMIN_EMAIL, SEED_ADMIN_PIN } from "../packages/backend/src/seed.js";
 import { createEntitlements, MODULE_CATALOG } from "../packages/domain/src/index.js";
+import { openSqliteConnection } from "../packages/persistence/src/index.js";
+import { danglingSeedReferences } from "./seed-reference-guard.js";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -125,7 +127,8 @@ async function main() {
   // allow (A3's SEAT_LIMIT_REACHED); this stand-in resolver keeps every cap off.
   const resolveEntitlements = () =>
     createEntitlements({ plan: "DEMO", activeModules: MODULE_CATALOG, features: {}, seats: 50, expiresAt: null });
-  const { app } = await createBackend({ dbPath: join(dir, "coverage.db"), seedDemoData: true, resolveEntitlements });
+  const dbPath = join(dir, "coverage.db");
+  const { app } = await createBackend({ dbPath, seedDemoData: true, resolveEntitlements });
   const HEADERS = await signIn(app);
 
   const source = await (await import("node:fs/promises")).readFile(new URL("./smoke.ts", import.meta.url), "utf8");
@@ -158,8 +161,16 @@ async function main() {
     for (const p of empty) console.log(`  ${p}${p in ALLOWED_EMPTY ? `   — allowed: ${ALLOWED_EMPTY[p]}` : ""}`);
   }
 
-  if (unexplained.length || failed.length) {
-    console.error(`\n✖ ${unexplained.length} surface(s) return no rows and ${failed.length} did not succeed.`);
+  const dangling = danglingSeedReferences(openSqliteConnection(dbPath).sqlite);
+  if (dangling.length) {
+    console.log("\nseeded rows naming an id that does not exist (D347):");
+    for (const d of dangling) console.log(`  ${d.table}.${d.column} → ${d.entity} "${d.value}" on ${d.rows} row(s)`);
+  } else {
+    console.log("every user, customer, supplier, item, branch and warehouse id the seed wrote resolves to a real row");
+  }
+
+  if (unexplained.length || failed.length || dangling.length) {
+    console.error(`\n✖ ${unexplained.length} surface(s) return no rows, ${failed.length} did not succeed, and ${dangling.length} seeded reference(s) dangle.`);
     console.error("  Seed them in packages/backend/src/demo-seed/ — testing a screen with no rows proves nothing.");
     process.exit(1);
   }

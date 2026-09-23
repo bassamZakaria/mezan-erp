@@ -19,13 +19,31 @@ export const reportDrillDownDocTypeSchema = z.enum([
   "JOURNAL_ENTRY",
 ]);
 
-export const reportDrillDownFactSchema = z.object({
-  /** Translation key suffix — `reportDrill.fact.<key>` on the client. */
-  key: z.string(),
-  labelAr: z.string(),
-  value: moneyString,
-  format: z.enum(["text", "money", "qty", "date"]).optional(),
-});
+export enum ReportDrillDownFactFormat {
+  Text = "text",
+  Money = "money",
+  Qty = "qty",
+  Date = "date",
+}
+
+/**
+ * A fact's `value` is text unless its `format` says it is a figure: a phone
+ * number or a date is not an amount, and declaring every value a money string
+ * meant no real panel ever parsed (D345).
+ */
+export const reportDrillDownFactSchema = z
+  .object({
+    /** Translation key suffix — `reportDrill.fact.<key>` on the client. */
+    key: z.string(),
+    labelAr: z.string(),
+    value: z.string(),
+    format: z.nativeEnum(ReportDrillDownFactFormat).optional(),
+  })
+  .superRefine((fact, ctx) => {
+    if (fact.format !== ReportDrillDownFactFormat.Money && fact.format !== ReportDrillDownFactFormat.Qty) return;
+    const parsed = moneyString.safeParse(fact.value);
+    if (!parsed.success) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["value"], message: parsed.error.issues[0]?.message ?? "not an exact decimal" });
+  });
 
 export const reportDrillDownDocumentSchema = z.object({
   id: z.string(),
@@ -34,7 +52,8 @@ export const reportDrillDownDocumentSchema = z.object({
   type: reportDrillDownDocTypeSchema,
   /** Domain status/direction code — `reportDrill.status.<status>` on the client. */
   status: z.string(),
-  amount: z.number(),
+  /** An exact decimal string, like every other figure on the wire (D126, D345): money, or a stock quantity when `amountFormat` is `qty`. */
+  amount: moneyString,
   /** `money` for a value, `qty` for a stock movement. */
   amountFormat: z.enum(["money", "qty"]),
 });

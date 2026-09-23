@@ -32,6 +32,13 @@ export const allocationInvoiceKindSchema = z.enum(["sales", "purchase"]);
 export const allocationStatusSchema = z.enum(["active", "reversed"]);
 
 /** A voucher as it crosses the wire. */
+/** An allocation requested with a collection the workflow held; `amount` null takes the voucher's remainder. */
+export const heldAllocationSchema = z.object({
+  allocationId: z.string(),
+  invoiceId: z.string(),
+  amount: moneyString.nullable(),
+});
+
 export const voucherSchema = z.object({
   id: z.string().min(1),
   docNo: z.string().nullable(),
@@ -79,6 +86,8 @@ export const voucherSchema = z.object({
    * skip it (D197, D200). Optional so older payloads still parse.
    */
   reversesDocId: z.string().nullish(),
+  /** Allocations a collection carries while held for approval; the approved confirm applies them (D344). */
+  heldAllocations: z.array(heldAllocationSchema).optional(),
 });
 
 /** Create a voucher draft. */
@@ -197,6 +206,7 @@ export const collectionResultSchema = z.object({
   voucher: voucherSchema,
   held: z.boolean(),
   allocations: z.array(voucherAllocationSchema),
+  heldAllocations: z.array(heldAllocationSchema).optional(),
 });
 
 /** The allocation summary returned alongside a voucher. */

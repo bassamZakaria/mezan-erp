@@ -536,7 +536,7 @@ describe("SuppliersScreen", () => {
         { kind: "payment", reference: "PV-000001", increase: "0.000000", decrease: "700.000000", allocations: [{ invoiceRef: "PINV-000001", amount: "600.000000" }] },
         { kind: "journal", reference: "JE-000003", increase: "80.000000", decrease: "0.000000" },
       ]),
-    }), [{ supplierId: "sup-1", supplierNameAr: "جاري", supplierNameEn: null, current: 3900, d31to60: 0, d61to90: 0, d91to120: 0, over120: 0, total: 3900 }]);
+    }), [{ supplierId: "sup-1", supplierNameAr: "جاري", supplierNameEn: null, current: "3900.000000", d31to60: "0.000000", d61to90: "0.000000", d91to120: "0.000000", over120: "0.000000", total: "3900.000000" }]);
     renderWithProviders(<SuppliersScreen />, { transport, initialSession: testAdminSession });
     expect(await screen.findByText("3,900.00")).toBeInTheDocument();
     fireEvent.click(await screen.findByText("جاري"));

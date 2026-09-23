@@ -254,7 +254,7 @@ import {
 import { createAuthRoutes } from "./auth-routes.js";
 import { createDashboardRoutes } from "./dashboard-routes.js";
 import { createPreferencesRoutes } from "./preferences-routes.js";
-import { seedIfEmpty, type SeedStores } from "./seed.js";
+import { SEED_ADMIN_USER_ID, seedIfEmpty, type SeedStores } from "./seed.js";
 import type { BackendModuleContext } from "./module-context.js";
 import { mountPos } from "./pos/index.js";
 import { ENH_EMITTED_EVENT_CODES, mountEnhancements } from "./enh/index.js";
@@ -4204,7 +4204,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   if (options.seedDemoData) {
     await seedDemoTenant(app, {
       token: sessions.issue({
-        userId: "SEED-ADMIN",
+        userId: SEED_ADMIN_USER_ID,
         permissions: ["*"],
         roleCode: null,
         branchScope: ALL_SCOPE,

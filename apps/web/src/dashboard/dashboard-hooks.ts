@@ -9,7 +9,7 @@ import type {
   TopProductsRow,
   VatReturnRow,
 } from "@mezan/domain";
-import { vatNetPayable } from "@mezan/domain";
+import { Money, vatNetPayable } from "@mezan/domain";
 import { useFinancialReport, type FinancialReportResult } from "../data/financial-reports-hooks";
 import { useReport, type ReportResult } from "../data/reports-hooks";
 import { useSalesInvoices } from "../data/hooks";
@@ -152,7 +152,8 @@ export interface AttentionData {
   readonly taxDue: number;
   readonly lowStockCount: number;
   readonly lowStockFirstName: string | null;
-  readonly agedPayables: number;
+  /** An exact decimal string: supplier ladder buckets past 30 days (D345). */
+  readonly agedPayables: string;
 }
 
 const DUE_SOON_DAYS = 30;
@@ -191,10 +192,12 @@ export function useAttentionData(window: ReportWindow, today = new Date()): Atte
       return days >= 0 && days <= DUE_SOON_DAYS;
     });
     const low = (stock.data?.rows ?? []).filter((row) => row.status === "low");
-    const agedPayables = (suppliers.data?.rows ?? []).reduce(
-      (sum, row) => sum + row.d31to60 + row.d61to90 + row.d91to120 + row.over120,
-      0,
-    );
+    const agedPayables = (suppliers.data?.rows ?? [])
+      .reduce(
+        (sum, row) => sum.add(Money.fromMajor(row.d31to60)).add(Money.fromMajor(row.d61to90)).add(Money.fromMajor(row.d91to120)).add(Money.fromMajor(row.over120)),
+        Money.zero(),
+      )
+      .toString();
 
     return {
       overdueCount: overdue.length,

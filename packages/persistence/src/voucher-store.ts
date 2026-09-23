@@ -13,6 +13,7 @@ import {
   type DocumentRepository,
   type DocumentStatus,
   type FrameworkDocument,
+  type HeldAllocationRequest,
   type VoucherAllocation,
   type VoucherDirection,
   type VoucherLine,
@@ -61,6 +62,7 @@ CREATE TABLE IF NOT EXISTS voucher (
   withholding_amount             INTEGER,
   withholding_rate_percent       REAL,
   withholding_gl_account_id      TEXT,
+  held_allocations               TEXT,
   created_at                     TEXT NOT NULL,
   confirmed_at                   TEXT,
   reverses_doc_id                TEXT,
@@ -108,6 +110,7 @@ const ADDED_VOUCHER_COLUMNS: readonly [string, string][] = [
   ["fx_rate", "TEXT"],
   ["project_id", "TEXT"],
   ["cost_category", "TEXT"],
+  ["held_allocations", "TEXT"],
 ];
 
 /** Allocation columns added after the table shipped (D221: a foreign invoice relieved at its booked rate). */
@@ -157,12 +160,32 @@ interface VoucherRow {
   withholding_amount: number | null;
   withholding_rate_percent: number | null;
   withholding_gl_account_id: string | null;
+  held_allocations: string | null;
   created_at: string;
   confirmed_at: string | null;
   reverses_doc_id: string | null;
   reversed_by_doc_id: string | null;
   workflow_request_id: string | null;
   journal_entry_id: string | null;
+}
+
+interface StoredHeldAllocation {
+  allocationId: string;
+  invoiceId: string;
+  amountScaled: string | null;
+}
+
+function toStoredHeldAllocation(a: HeldAllocationRequest): StoredHeldAllocation {
+  return { allocationId: a.allocationId, invoiceId: a.invoiceId, amountScaled: a.amount ? a.amount.scaled.toString() : null };
+}
+
+function parseHeldAllocations(raw: string | null): readonly HeldAllocationRequest[] | null {
+  if (!raw) return null;
+  return (JSON.parse(raw) as StoredHeldAllocation[]).map((a) => ({
+    allocationId: a.allocationId,
+    invoiceId: a.invoiceId,
+    amount: a.amountScaled === null ? null : Money.fromScaled(BigInt(a.amountScaled)),
+  }));
 }
 
 function toDocument(row: VoucherRow): FrameworkDocument<VoucherLine> {
@@ -188,6 +211,7 @@ function toDocument(row: VoucherRow): FrameworkDocument<VoucherLine> {
     withholdingAmount: row.withholding_amount === null ? null : Money.fromScaled(row.withholding_amount),
     withholdingRatePercent: row.withholding_rate_percent,
     withholdingGlAccountId: row.withholding_gl_account_id,
+    heldAllocations: parseHeldAllocations(row.held_allocations),
   };
   return {
     id: row.id,
@@ -237,6 +261,7 @@ function docParams(doc: FrameworkDocument<VoucherLine>) {
     withholding_amount: line.withholdingAmount ? line.withholdingAmount.toScaledNumber() : null,
     withholding_rate_percent: line.withholdingRatePercent ?? null,
     withholding_gl_account_id: line.withholdingGlAccountId ?? null,
+    held_allocations: line.heldAllocations?.length ? JSON.stringify(line.heldAllocations.map(toStoredHeldAllocation)) : null,
     created_at: doc.createdAt,
     confirmed_at: doc.confirmedAt,
     reverses_doc_id: doc.reversesDocId,
@@ -258,14 +283,14 @@ class SqliteVoucherRepository implements DocumentRepository<VoucherLine> {
         branch_id, payment_method, treasury_account_id, treasury_gl_account_id,
         counterparty_gl_account_id, counter_treasury_account_id, counter_treasury_gl_account_id,
         customer_id, supplier_id, reference_no, cost_center_id, project_id, cost_category,
-        withholding_amount, withholding_rate_percent, withholding_gl_account_id, created_at, confirmed_at,
+        withholding_amount, withholding_rate_percent, withholding_gl_account_id, held_allocations, created_at, confirmed_at,
         reverses_doc_id, reversed_by_doc_id, workflow_request_id, journal_entry_id
       ) VALUES (
         @id, @doc_no, @doc_type, @date, @memo, @status, @voucher_type, @direction, @amount, @currency, @fx_rate,
         @branch_id, @payment_method, @treasury_account_id, @treasury_gl_account_id,
         @counterparty_gl_account_id, @counter_treasury_account_id, @counter_treasury_gl_account_id,
         @customer_id, @supplier_id, @reference_no, @cost_center_id, @project_id, @cost_category,
-        @withholding_amount, @withholding_rate_percent, @withholding_gl_account_id, @created_at, @confirmed_at,
+        @withholding_amount, @withholding_rate_percent, @withholding_gl_account_id, @held_allocations, @created_at, @confirmed_at,
         @reverses_doc_id, @reversed_by_doc_id, @workflow_request_id, @journal_entry_id
       )
     `);
@@ -280,6 +305,7 @@ class SqliteVoucherRepository implements DocumentRepository<VoucherLine> {
         withholding_amount = @withholding_amount,
         withholding_rate_percent = @withholding_rate_percent,
         withholding_gl_account_id = @withholding_gl_account_id,
+        held_allocations = @held_allocations,
         confirmed_at = @confirmed_at, reverses_doc_id = @reverses_doc_id,
         reversed_by_doc_id = @reversed_by_doc_id, workflow_request_id = @workflow_request_id,
         journal_entry_id = @journal_entry_id

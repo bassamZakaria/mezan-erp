@@ -217,6 +217,37 @@ describe("Contracts", () => {
     expect(await byEmployee.json()).toHaveLength(1);
   });
 
+  it("withholds every pay figure — basic, allowances AND deductions — from a caller without hr.employee.view_salary (D31 regression)", async () => {
+    const { app } = newApp();
+    const emp = (await (
+      await app.fetch(jsonReq("/employees", "hr.employee.create", { firstName: "A", lastName: "B", branchId: "MAIN", hireDate: "2026-01-01" }))
+    ).json()) as { id: string };
+    await app.fetch(
+      jsonReq("/contracts", "hr.contract.create", {
+        employeeId: emp.id,
+        startDate: "2026-01-01",
+        monthlySalary: "14000.00",
+        allowances: [{ name: "بدل سكن", amount: "1500.00" }],
+        deductions: [{ name: "اشتراك صندوق الزمالة", amount: "50.00" }],
+      }),
+    );
+
+    const denied = (await (await app.fetch(req("/contracts", { permissions: "hr.contract.view" }))).json()) as Record<string, unknown>[];
+    expect(denied).toHaveLength(1);
+    const withheld = denied[0]!;
+    expect(withheld).not.toHaveProperty("monthlySalary");
+    expect(withheld).not.toHaveProperty("allowances");
+    expect(withheld).not.toHaveProperty("deductions");
+
+    const allowed = (await (
+      await app.fetch(req("/contracts", { permissions: "hr.contract.view,hr.employee.view_salary" }))
+    ).json()) as { monthlySalary: string; allowances: { componentId: string | null }[] }[];
+    const shown = allowed[0]!;
+    expect(shown.monthlySalary).toBe("14000.000000");
+    expect(shown.allowances).toHaveLength(1);
+    expect(shown.allowances[0]).toHaveProperty("componentId");
+  });
+
   it("rejects an indefinite contract with an end date (422)", async () => {
     const { app } = newApp();
     const emp = (await (

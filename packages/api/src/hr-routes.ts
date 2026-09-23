@@ -269,14 +269,12 @@ function serializeContract(c: Contract, withSalary = true) {
     ...(withSalary
       ? {
           monthlySalary: c.monthlySalary.toString(),
-          allowances: c.allowances.map((a) => ({ id: a.id, name: a.name, amount: a.amount.toString() })),
-          deductions: c.deductions.map((d) => ({ id: d.id, name: d.name, amount: d.amount.toString() })),
+          allowances: c.allowances.map((a) => ({ id: a.id, name: a.name, amount: a.amount.toString(), componentId: a.componentId })),
+          deductions: c.deductions.map((d) => ({ id: d.id, name: d.name, amount: d.amount.toString(), componentId: d.componentId })),
         }
       : {}),
     currency: c.currency,
     leaveEntitlement: c.leaveEntitlement,
-    allowances: c.allowances.map((a) => ({ id: a.id, name: a.name, amount: a.amount.toString(), componentId: a.componentId })),
-    deductions: c.deductions.map((d) => ({ id: d.id, name: d.name, amount: d.amount.toString(), componentId: d.componentId })),
     status: c.status,
     /** Derived server-side so the 30-day window lives in one place (domain `CONTRACT_EXPIRING_SOON_WINDOW_DAYS`). */
     expiringSoon: isContractExpiringSoon(c),

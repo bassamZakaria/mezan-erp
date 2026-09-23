@@ -16,7 +16,7 @@ import { loginAsDemoUser } from "./support/auth";
 test.describe("الباقة والاستخدام — plan and usage", () => {
   test.beforeEach(async ({ page }) => {
     await loginAsDemoUser(page);
-    await page.goto("/settings/settings-billing");
+    await page.goto("/setup/settings-billing");
     await page.locator("main").first().waitFor({ state: "visible" });
   });
 

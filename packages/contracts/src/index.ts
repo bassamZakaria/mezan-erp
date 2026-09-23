@@ -98,6 +98,8 @@ export {
   entitlementsSchema,
   licensePayloadSchema,
   type EntitlementsDTO,
+  entitlementModuleTrialSchema,
+  type EntitlementModuleTrialDTO,
   type LicensePayloadDTO,
 } from "./entitlements.js";
 
@@ -1740,6 +1742,12 @@ export {
   subscriptionStatusSchema,
   subscriptionSchema,
   planStatusSchema,
+  planKindSchema,
+  quotaKindSchema,
+  planQuotasSchema,
+  type PlanKindDTO,
+  type QuotaKindDTO,
+  type PlanQuotasDTO,
   planSchema,
   planCreateRequestSchema,
   planUpdateRequestSchema,

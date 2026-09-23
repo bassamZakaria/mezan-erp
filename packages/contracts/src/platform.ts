@@ -152,6 +152,12 @@ export const subscriptionSchema = z.object({
   updatedAt: isoLikeSchema,
 });
 
+/** Mirrors the domain's `PlanKind`; `@mezan/contracts` may not import `@mezan/domain`. */
+export const planKindSchema = z.enum(["paid", "free"]);
+/** Mirrors the domain's `QuotaKind`. An absent key is unlimited. */
+export const quotaKindSchema = z.enum(["sales_invoices_per_month"]);
+export const planQuotasSchema = z.record(quotaKindSchema, z.number().int().nonnegative());
+
 export const planStatusSchema = z.enum(["active", "retired"]);
 
 export const planSchema = z.object({
@@ -164,6 +170,8 @@ export const planSchema = z.object({
   seatsIncluded: z.number().int().min(1),
   branchesIncluded: z.number().int().min(1),
   warehousesIncluded: z.number().int().min(1),
+  kind: planKindSchema,
+  quotas: planQuotasSchema,
   priceMonthly: positiveDecimalString,
   priceYearly: positiveDecimalString,
   trialDays: z.number().int().nonnegative(),
@@ -182,6 +190,8 @@ export const planCreateRequestSchema = z.object({
   seatsIncluded: z.number().int().min(1),
   branchesIncluded: z.number().int().min(1),
   warehousesIncluded: z.number().int().min(1),
+  kind: planKindSchema.optional(),
+  quotas: planQuotasSchema.optional(),
   priceMonthly: positiveDecimalString,
   priceYearly: positiveDecimalString,
   trialDays: z.number().int().nonnegative(),
@@ -305,6 +315,9 @@ export type RecordPaymentRequestDTO = z.infer<typeof recordPaymentRequestSchema>
 export type SubscriptionStatusDTO = z.infer<typeof subscriptionStatusSchema>;
 export type SubscriptionDTO = z.infer<typeof subscriptionSchema>;
 export type PlanStatusDTO = z.infer<typeof planStatusSchema>;
+export type PlanKindDTO = z.infer<typeof planKindSchema>;
+export type QuotaKindDTO = z.infer<typeof quotaKindSchema>;
+export type PlanQuotasDTO = z.infer<typeof planQuotasSchema>;
 export type PlanDTO = z.infer<typeof planSchema>;
 export type PlanCreateRequestDTO = z.infer<typeof planCreateRequestSchema>;
 export type PlanUpdateRequestDTO = z.infer<typeof planUpdateRequestSchema>;

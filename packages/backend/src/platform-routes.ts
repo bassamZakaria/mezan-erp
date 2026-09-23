@@ -25,6 +25,7 @@ import {
   InvalidTenantTransitionError,
   InvalidPlanError,
   PlanNotFoundError,
+  PlanKind,
   PlanCodeTakenError,
   PlanRetiredError,
   PlanInUseError,
@@ -60,6 +61,7 @@ import {
   type TenantSummaryDTO,
   type TenantDTO,
   type PlanDTO,
+  type PlanKindDTO,
   type PaymentDTO,
   type PlatformUserDTO,
   type CardCheckoutDTO,
@@ -96,11 +98,17 @@ function serializeTenant(t: Tenant): TenantDTO {
   };
 }
 
+/** The wire enum is a zod literal (`@mezan/contracts` may not import the domain); this is the one place it becomes `PlanKind`. */
+function planKindOf(kind: PlanKindDTO | undefined): PlanKind | undefined {
+  return kind === undefined ? undefined : kind === "free" ? PlanKind.Free : PlanKind.Paid;
+}
+
 function serializePlan(p: Plan): PlanDTO {
   return {
     id: p.id, code: p.code, nameAr: p.nameAr, nameEn: p.nameEn, modules: [...p.modules],
     features: { ...p.features }, seatsIncluded: p.seatsIncluded, branchesIncluded: p.branchesIncluded,
-    warehousesIncluded: p.warehousesIncluded, priceMonthly: p.priceMonthly.toString(), priceYearly: p.priceYearly.toString(),
+    warehousesIncluded: p.warehousesIncluded, kind: p.kind, quotas: { ...p.quotas },
+    priceMonthly: p.priceMonthly.toString(), priceYearly: p.priceYearly.toString(),
     trialDays: p.trialDays, isPublic: p.isPublic, sortOrder: p.sortOrder, status: p.status, createdAt: p.createdAt,
   };
 }
@@ -511,6 +519,8 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
           warehousesIncluded: parsed.data.warehousesIncluded,
           priceMonthly: Money.fromMajor(parsed.data.priceMonthly),
           priceYearly: Money.fromMajor(parsed.data.priceYearly),
+          kind: planKindOf(parsed.data.kind),
+          quotas: parsed.data.quotas,
           trialDays: parsed.data.trialDays,
           isPublic: parsed.data.isPublic,
           sortOrder: parsed.data.sortOrder,
@@ -529,12 +539,13 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
   app.put("/plans/:id", requireOwner, async (c) => {
     const parsed = planUpdateRequestSchema.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
-    const { priceMonthly, priceYearly, ...rest } = parsed.data;
+    const { priceMonthly, priceYearly, kind, ...rest } = parsed.data;
     try {
       const plan = await updatePlan(
         {
           id: c.req.param("id"),
           ...rest,
+          kind: planKindOf(kind),
           priceMonthly: Money.fromMajor(priceMonthly),
           priceYearly: Money.fromMajor(priceYearly),
         },

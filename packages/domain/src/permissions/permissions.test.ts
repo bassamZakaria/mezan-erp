@@ -16,7 +16,7 @@ import {
 } from "./index.js";
 
 describe("permission catalog", () => {
-  it("carries only what the product enforces — 247 permissions across 19 modules (DEC-14, DEC-23)", () => {
+  it("carries only what the product enforces — 248 permissions across 19 modules (DEC-14, DEC-23)", () => {
     // 298 → 231. DEC-14 removed the 67 codes that named nothing the server
     // checks: the `dashboard` and `transactions` modules, per-voucher-type
     // `.view` tiers over a single voucher list, print rights that are
@@ -34,13 +34,17 @@ describe("permission catalog", () => {
     // cockpit and cash-forecast reads (`packages/domain/src/enh/permissions/`),
     // and the rest of the ENH lanes' own gates.
     //
+    // 247 → 248. D348 added `admin.users.erase_personal`, gated on
+    // `POST /users/:id/erase` (`packages/api/src/users-routes.ts`) — the
+    // personal-data erasure the store listings promise a path for.
+    //
     // Pinned deliberately. A code added without a route to check it, or a route
     // deleted while its code stays, moves one of these numbers — which is the
     // whole point of asserting them.
-    expect(PERMISSIONS).toHaveLength(247);
+    expect(PERMISSIONS).toHaveLength(248);
     expect(MODULES).toHaveLength(19);
     const summed = MODULES.reduce((n, m) => n + m.count, 0);
-    expect(summed).toBe(247);
+    expect(summed).toBe(248);
   });
 
   it("carries a `pos` module again, and the INVOICE discount ceiling still lives under sales", () => {

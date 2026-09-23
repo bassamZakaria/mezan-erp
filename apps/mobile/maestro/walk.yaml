@@ -1,34 +1,52 @@
 appId: app.mezan.mobile
 ---
+# A fresh install flips the native layout direction to match the locale and
+# RELAUNCHES once (DEC-30 §7). Letting that happen, then starting the app
+# again, is what stops the relaunch landing in the middle of the sign-in form
+# and emptying it — which it did, in English, on every device.
 - launchApp:
     clearState: true
     clearKeychain: true
-- setOrientation: ${ORIENTATION}
 - extendedWaitUntil:
     visible: ${L_SUBMIT}
     timeout: 30000
+- stopApp
+- launchApp
+- extendedWaitUntil:
+    visible: ${L_SUBMIT}
+    timeout: 30000
+- setOrientation: ${ORIENTATION}
+- waitForAnimationToEnd
 - takeScreenshot: 01-sign-in
+# Measured on the simulator: one eraseText stops a few characters short and
+# leaves the cursor at position 0, so the next backspaces are no-ops and the
+# typed URL ends up with the old tail glued to it. Re-tapping puts the cursor
+# back at the end of what is left.
 - tapOn:
-    text: ${L_SERVER}
-    index: 1
+    id: sign-in-server
 - eraseText: 60
+- tapOn:
+    id: sign-in-server
+- eraseText: 30
+- tapOn:
+    id: sign-in-server
+- eraseText: 30
 - inputText: ${SERVER}
 - tapOn:
-    text: ${L_TENANT}
-    index: 1
+    id: sign-in-tenant
 - inputText: ${TENANT}
 - tapOn:
-    text: ${L_EMAIL}
-    index: 1
+    id: sign-in-email
 - inputText: ${EMAIL}
 - tapOn:
-    text: ${L_PIN}
-    index: 1
+    id: sign-in-pin
+- waitForAnimationToEnd
 - inputText: ${PIN}
 - tapOn:
     text: ${L_SERVER}
     index: 0
-- tapOn: ${L_SUBMIT}
+- tapOn:
+    id: sign-in-submit
 - extendedWaitUntil:
     visible: ${T_SALES_TODAY}
     timeout: 30000
@@ -57,8 +75,7 @@ appId: app.mezan.mobile
 - tapOn:
     id: tab-stock
 - tapOn:
-    text: ${L_STOCK_SEARCH}
-    index: 1
+    id: stock-search
 - inputText: ${ITEM_QUERY}
 - pressKey: Enter
 - extendedWaitUntil:

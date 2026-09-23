@@ -14,9 +14,10 @@ interface ButtonProps {
   readonly disabled?: boolean;
   readonly busy?: boolean;
   readonly style?: ViewStyle;
+  readonly testID?: string;
 }
 
-export function Button({ label, onPress, tone = ButtonTone.Brand, disabled, busy, style }: ButtonProps) {
+export function Button({ label, onPress, tone = ButtonTone.Brand, disabled, busy, style, testID }: ButtonProps) {
   const theme = useTheme();
   const background =
     tone === ButtonTone.Brand ? theme.brand : tone === ButtonTone.Danger ? theme.negative : theme.surfaceMuted;
@@ -29,6 +30,7 @@ export function Button({ label, onPress, tone = ButtonTone.Brand, disabled, busy
       accessibilityState={{ disabled: inactive, busy: busy === true }}
       disabled={inactive}
       onPress={onPress}
+      testID={testID}
       style={({ pressed }) => [
         styles.base,
         { backgroundColor: background, opacity: inactive ? 0.55 : pressed ? 0.85 : 1 },

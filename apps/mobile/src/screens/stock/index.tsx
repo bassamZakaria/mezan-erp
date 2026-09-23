@@ -54,7 +54,7 @@ export function Stock() {
     <View style={styles.flex}>
       <View style={styles.searchRow}>
         <View style={styles.searchField}>
-          <TextField label={strings.stock.search} onChangeText={setSearch} placeholder={strings.stock.search} value={search} />
+          <TextField label={strings.stock.search} onChangeText={setSearch} placeholder={strings.stock.search} testID="stock-search" value={search} />
         </View>
         <Button
           disabled={!canSearch}

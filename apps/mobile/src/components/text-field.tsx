@@ -12,6 +12,7 @@ interface TextFieldProps {
   readonly maxLength?: number;
   readonly autoCapitalize?: "none" | "sentences" | "words" | "characters";
   readonly editable?: boolean;
+  readonly testID?: string;
 }
 
 export function TextField({
@@ -25,6 +26,7 @@ export function TextField({
   maxLength,
   autoCapitalize = "none",
   editable = true,
+  testID,
 }: TextFieldProps) {
   const theme = useTheme();
   return (
@@ -41,6 +43,7 @@ export function TextField({
         placeholder={placeholder}
         placeholderTextColor={theme.textMuted}
         secureTextEntry={secureTextEntry}
+        testID={testID}
         style={[
           styles.input,
           { backgroundColor: theme.surface, borderColor: theme.border, color: theme.text, textAlign: "auto" },

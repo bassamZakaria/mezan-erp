@@ -76,18 +76,21 @@ export function SignIn() {
           keyboardType="url"
           label={strings.signIn.serverLabel}
           onChangeText={setBaseUrl}
+          testID="sign-in-server"
           value={baseUrl}
         />
         <TextField
           hint={strings.signIn.tenantHint}
           label={strings.signIn.tenantLabel}
           onChangeText={setTenantCode}
+          testID="sign-in-tenant"
           value={tenantCode}
         />
         <TextField
           keyboardType="email-address"
           label={strings.signIn.emailLabel}
           onChangeText={setEmail}
+          testID="sign-in-email"
           value={email}
         />
         <TextField
@@ -98,12 +101,19 @@ export function SignIn() {
             setPin(next.replace(/\D/g, ""));
           }}
           secureTextEntry
+          testID="sign-in-pin"
           value={pin}
         />
 
         {failure === null ? null : <Text style={[styles.failure, { color: theme.negative }]}>{failure}</Text>}
 
-        <Button busy={busy} disabled={!complete} label={busy ? strings.signIn.submitting : strings.signIn.submit} onPress={submit} />
+        <Button
+          busy={busy}
+          disabled={!complete}
+          label={busy ? strings.signIn.submitting : strings.signIn.submit}
+          onPress={submit}
+          testID="sign-in-submit"
+        />
         <LegalLinks />
       </ScrollView>
     </KeyboardAvoidingView>

@@ -1,5 +1,6 @@
 import type { Entitlements } from "../entitlements/entitlements.js";
-import { dedupeModules, type Plan } from "./plan.js";
+import { dedupeModules, isFreePlan, type Plan } from "./plan.js";
+import { liveTrialModules, type ModuleTrial } from "./module-trial.js";
 import { addDays, type Subscription } from "./subscription.js";
 import type { Tenant } from "./tenant.js";
 import { isoTimestamp } from "./validation.js";
@@ -8,17 +9,37 @@ export function subscriptionExpiresAt(s: Subscription): string {
   return s.status === "trialing" && s.trialEndsAt ? s.trialEndsAt : s.currentPeriodEnd;
 }
 
-export function deriveEntitlements(plan: Plan, subscription: Subscription): Entitlements {
+export interface DeriveEntitlementsContext {
+  readonly moduleTrials?: readonly ModuleTrial[];
+  /** Every module this tenant has ever been entitled to. One that is no longer active stays readable. */
+  readonly everEntitled?: readonly string[];
+  readonly now?: string;
+}
+
+export function deriveEntitlements(plan: Plan, subscription: Subscription, context: DeriveEntitlementsContext = {}): Entitlements {
+  const trials = context.moduleTrials ?? [];
+  const now = context.now ?? new Date().toISOString();
+  const activeModules = dedupeModules([...plan.modules, ...subscription.addOnModules, ...liveTrialModules(trials, now)]);
+  const readOnlyModules = dedupeModules([...(context.everEntitled ?? []), ...trials.map((t) => t.module)]).filter(
+    (m) => !activeModules.includes(m),
+  );
   return {
     plan: plan.code,
-    activeModules: dedupeModules([...plan.modules, ...subscription.addOnModules]),
+    planNameAr: plan.nameAr,
+    planNameEn: plan.nameEn,
+    planKind: plan.kind,
+    trialEndsAt: subscription.status === "trialing" ? subscription.trialEndsAt : null,
+    activeModules,
+    readOnlyModules,
     features: { ...plan.features },
     seats: plan.seatsIncluded + subscription.extraSeats,
-    expiresAt: subscriptionExpiresAt(subscription),
+    expiresAt: isFreePlan(plan) ? null : subscriptionExpiresAt(subscription),
     limits: {
       branches: plan.branchesIncluded + subscription.extraBranches,
       warehouses: plan.warehousesIncluded + subscription.extraWarehouses,
     },
+    quotas: { ...plan.quotas },
+    moduleTrials: trials.map((t) => ({ module: t.module, startedAt: t.startedAt, endsAt: t.endsAt })),
   };
 }
 
@@ -30,7 +51,6 @@ export type SubscriptionLicenseReason =
   | "TENANT_SUSPENDED"
   | "SUBSCRIPTION_CANCELLED"
   | "SUBSCRIPTION_SUSPENDED"
-  | "TRIAL_ENDED"
   | "GRACE_ENDED"
   | "INVALID_CLOCK";
 
@@ -48,6 +68,7 @@ export function subscriptionLicenseState(
   tenant: Tenant,
   subscription: Subscription | null,
   now: string,
+  plan?: Pick<Plan, "kind"> | null,
 ): SubscriptionLicenseState {
   const licensee = tenant.nameAr;
   const at = isoTimestamp(now);
@@ -71,9 +92,10 @@ export function subscriptionLicenseState(
     return { state: "READ_ONLY", canWrite: false, usable: true, licensee, expiresAt, reason: "SUBSCRIPTION_SUSPENDED" };
   }
   if (subscription.status === "trialing") {
-    return at < expiresAt
-      ? { state: "ACTIVE", canWrite: true, usable: true, licensee, expiresAt }
-      : { state: "READ_ONLY", canWrite: false, usable: true, licensee, expiresAt, reason: "TRIAL_ENDED" };
+    return { state: "ACTIVE", canWrite: true, usable: true, licensee, expiresAt };
+  }
+  if (plan && isFreePlan(plan) && subscription.status === "active") {
+    return { state: "ACTIVE", canWrite: true, usable: true, licensee };
   }
   if (at < subscription.currentPeriodEnd) {
     return { state: "ACTIVE", canWrite: true, usable: true, licensee, expiresAt };

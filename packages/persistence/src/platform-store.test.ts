@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import Database from "better-sqlite3";
-import { Money, type Plan, type Subscription, type Tenant, type PlatformUser, type Payment } from "@mezan/domain";
+import { Money, PlanKind, type Plan, type Subscription, type Tenant, type PlatformUser, type Payment } from "@mezan/domain";
 import { createSqlitePlatformStores } from "./platform-store.js";
 
 const NOW = "2026-09-13T10:00:00.000Z";
@@ -10,7 +10,7 @@ const tenant: Tenant = {
   dbFile: "tenants/cyag.db", createdAt: NOW, updatedAt: NOW,
 };
 const plan: Plan = {
-  id: "P1", code: "core", nameAr: "الأساسية", nameEn: "Core", modules: ["accounting", "sales"],
+  id: "P1", code: "core", nameAr: "الأساسية", nameEn: "Core", kind: PlanKind.Paid, quotas: {}, modules: ["accounting", "sales"],
   features: { "reports.export": true }, seatsIncluded: 3, branchesIncluded: 1, warehousesIncluded: 1,
   priceMonthly: Money.fromMajor("490.50"), priceYearly: Money.fromMajor("4900"), trialDays: 14,
   isPublic: true, sortOrder: 1, status: "active", createdAt: NOW,

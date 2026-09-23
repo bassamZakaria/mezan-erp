@@ -2,20 +2,35 @@ import { Money } from "../money/money.js";
 import { isKnownModule } from "./module-catalog.js";
 import { isValidSlug } from "./slug.js";
 import { isCount, isoTimestamp } from "./validation.js";
-import { InvalidPlanError, PlanCodeTakenError, PlanInUseError, PlanNotFoundError } from "./errors.js";
+import { FreePlanRequiredError, InvalidPlanError, PlanCodeTakenError, PlanInUseError, PlanNotFoundError } from "./errors.js";
 
 export type PlanStatus = "active" | "retired";
+
+export enum PlanKind {
+  Paid = "paid",
+  Free = "free",
+}
+
+export enum QuotaKind {
+  SalesInvoicesPerMonth = "sales_invoices_per_month",
+}
+
+export const QUOTA_KINDS: readonly QuotaKind[] = Object.values(QuotaKind);
+
+export type PlanQuotas = Readonly<Partial<Record<QuotaKind, number>>>;
 
 export interface Plan {
   readonly id: string;
   readonly code: string;
   readonly nameAr: string;
   readonly nameEn: string;
+  readonly kind: PlanKind;
   readonly modules: readonly string[];
   readonly features: Readonly<Record<string, boolean>>;
   readonly seatsIncluded: number;
   readonly branchesIncluded: number;
   readonly warehousesIncluded: number;
+  readonly quotas: PlanQuotas;
   readonly priceMonthly: Money;
   readonly priceYearly: Money;
   readonly trialDays: number;
@@ -37,11 +52,13 @@ export interface CreatePlanCommand {
   readonly code: string;
   readonly nameAr: string;
   readonly nameEn: string;
+  readonly kind?: PlanKind;
   readonly modules: readonly string[];
   readonly features?: Readonly<Record<string, boolean>>;
   readonly seatsIncluded: number;
   readonly branchesIncluded: number;
   readonly warehousesIncluded: number;
+  readonly quotas?: PlanQuotas;
   readonly priceMonthly: Money;
   readonly priceYearly: Money;
   readonly trialDays: number;
@@ -51,13 +68,41 @@ export interface CreatePlanCommand {
 }
 
 export type UpdatePlanCommand = { readonly id: string } & Partial<
-  Pick<Plan, "nameAr" | "nameEn" | "modules" | "features" | "seatsIncluded" | "branchesIncluded" | "warehousesIncluded" | "priceMonthly" | "priceYearly" | "trialDays" | "isPublic" | "sortOrder">
+  Pick<Plan, "nameAr" | "nameEn" | "kind" | "modules" | "features" | "seatsIncluded" | "branchesIncluded" | "warehousesIncluded" | "quotas" | "priceMonthly" | "priceYearly" | "trialDays" | "isPublic" | "sortOrder">
 >;
 
 export type HasLiveSubscribers = (planId: string) => Promise<boolean>;
 
 export function dedupeModules(modules: readonly string[]): string[] {
   return [...new Set(modules)];
+}
+
+export function normalizeQuotas(quotas: PlanQuotas | undefined): PlanQuotas {
+  const out: Partial<Record<QuotaKind, number>> = {};
+  for (const kind of QUOTA_KINDS) {
+    const value = quotas?.[kind];
+    if (value !== undefined && value !== null) out[kind] = value;
+  }
+  return out;
+}
+
+export function isFreePlan(plan: Pick<Plan, "kind">): boolean {
+  return plan.kind === PlanKind.Free;
+}
+
+function offered(plan: Plan): boolean {
+  return plan.status === "active" && plan.isPublic;
+}
+
+export function topPublicPaidPlan(plans: readonly Plan[]): Plan | null {
+  const paid = plans.filter((p) => offered(p) && p.kind === PlanKind.Paid && p.trialDays > 0);
+  return paid.reduce<Plan | null>((best, p) => (best === null || p.sortOrder > best.sortOrder ? p : best), null);
+}
+
+export function defaultFreePlan(plans: readonly Plan[]): Plan | null {
+  const free = plans.filter((p) => p.status === "active" && p.kind === PlanKind.Free);
+  const pick = (list: Plan[]) => list.reduce<Plan | null>((best, p) => (best === null || p.sortOrder < best.sortOrder ? p : best), null);
+  return pick(free.filter((p) => p.isPublic)) ?? pick(free);
 }
 
 function validate(plan: Omit<Plan, "status" | "createdAt">): string[] {
@@ -75,6 +120,15 @@ function validate(plan: Omit<Plan, "status" | "createdAt">): string[] {
   if (plan.priceYearly.scaled < 0n) reasons.push("السعر السنوي لا يمكن أن يكون سالبًا");
   if (!isCount(plan.trialDays, 0)) reasons.push("عدد أيام التجربة يجب أن يكون رقمًا صحيحًا لا يقل عن 0");
   if (!Number.isInteger(plan.sortOrder)) reasons.push("ترتيب العرض يجب أن يكون رقمًا صحيحًا");
+  if (!Object.values(PlanKind).includes(plan.kind)) reasons.push("نوع الباقة غير معروف");
+  for (const [kind, value] of Object.entries(plan.quotas)) {
+    if (!QUOTA_KINDS.includes(kind as QuotaKind)) reasons.push(`حد استخدام غير معروف "${kind}"`);
+    else if (!isCount(value as number, 0)) reasons.push("حد الاستخدام يجب أن يكون رقمًا صحيحًا لا يقل عن 0");
+  }
+  if (plan.kind === PlanKind.Free) {
+    if (plan.priceMonthly.scaled !== 0n || plan.priceYearly.scaled !== 0n) reasons.push("الباقة المجانية سعرها صفر");
+    if (plan.trialDays !== 0) reasons.push("الباقة المجانية لا تحتاج أيام تجربة");
+  }
   return reasons;
 }
 
@@ -85,11 +139,13 @@ export async function createPlan(cmd: CreatePlanCommand, repo: PlanRepository): 
     code: cmd.code,
     nameAr: cmd.nameAr.trim(),
     nameEn: cmd.nameEn.trim(),
+    kind: cmd.kind ?? PlanKind.Paid,
     modules: dedupeModules(cmd.modules),
     features: { ...(cmd.features ?? {}) },
     seatsIncluded: cmd.seatsIncluded,
     branchesIncluded: cmd.branchesIncluded,
     warehousesIncluded: cmd.warehousesIncluded,
+    quotas: normalizeQuotas(cmd.quotas),
     priceMonthly: cmd.priceMonthly,
     priceYearly: cmd.priceYearly,
     trialDays: cmd.trialDays,
@@ -116,11 +172,13 @@ export async function updatePlan(
     ...current,
     nameAr: (cmd.nameAr ?? current.nameAr).trim(),
     nameEn: (cmd.nameEn ?? current.nameEn).trim(),
+    kind: cmd.kind ?? current.kind,
     modules: dedupeModules(cmd.modules ?? current.modules),
     features: { ...(cmd.features ?? current.features) },
     seatsIncluded: cmd.seatsIncluded ?? current.seatsIncluded,
     branchesIncluded: cmd.branchesIncluded ?? current.branchesIncluded,
     warehousesIncluded: cmd.warehousesIncluded ?? current.warehousesIncluded,
+    quotas: normalizeQuotas(cmd.quotas ?? current.quotas),
     priceMonthly: cmd.priceMonthly ?? current.priceMonthly,
     priceYearly: cmd.priceYearly ?? current.priceYearly,
     trialDays: cmd.trialDays ?? current.trialDays,
@@ -141,6 +199,10 @@ export async function retirePlan(cmd: { readonly id: string }, repo: PlanReposit
   const current = await repo.findById(cmd.id);
   if (!current) throw new PlanNotFoundError(cmd.id);
   if (current.status === "retired") return current;
+  if (current.kind === PlanKind.Free) {
+    const otherFree = (await repo.list()).some((p) => p.id !== current.id && p.kind === PlanKind.Free && p.status === "active");
+    if (!otherFree) throw new FreePlanRequiredError(current.id);
+  }
   const next: Plan = { ...current, status: "retired" };
   await repo.save(next);
   return next;

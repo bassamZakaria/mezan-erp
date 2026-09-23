@@ -11,6 +11,12 @@ import {
 } from "./errors.js";
 
 export type SubscriptionStatus = "trialing" | "active" | "past_due" | "suspended" | "cancelled";
+
+export enum SubscriptionTransition {
+  TrialEndedToFree = "TRIAL_ENDED_TO_FREE",
+  ModuleTrialStarted = "MODULE_TRIAL_STARTED",
+  SeatsSelected = "SEATS_SELECTED",
+}
 export type BillingCycle = "monthly" | "yearly";
 
 export interface Subscription {
@@ -42,6 +48,17 @@ export interface SubscriptionRepository {
   save(subscription: Subscription): Promise<void>;
 }
 
+export interface SubscriptionTransitionRepository extends SubscriptionRepository {
+  /** Every live subscription still `trialing` whose trial ended at or before `nowIso`. */
+  listEndedTrials(nowIso: string): Promise<Subscription[]>;
+  /**
+   * Writes `after` only if the stored row still equals `before` (status, plan and
+   * `updatedAt`), then runs `sideEffect` in the SAME transaction. False when
+   * another writer moved the row first; nothing is written then.
+   */
+  compareAndSet(before: Subscription, after: Subscription, sideEffect: () => Promise<void>): Promise<boolean>;
+}
+
 export const DEFAULT_GRACE_DAYS = 7;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -56,6 +73,26 @@ export function addPeriod(startIso: string, cycle: BillingCycle): string {
 
 export function addDays(iso: string, days: number): string {
   return new Date(new Date(iso).getTime() + days * DAY_MS).toISOString();
+}
+
+export function trialHasEnded(s: Subscription, nowIso: string): boolean {
+  return s.status === "trialing" && s.trialEndsAt !== null && s.trialEndsAt <= nowIso;
+}
+
+/** The subscription after a reverse trial lands on the Free plan. Pure; the caller persists it with `compareAndSet`. */
+export function applyTrialEndToFree(s: Subscription, freePlanId: string, nowIso: string): Subscription {
+  if (!trialHasEnded(s, nowIso)) throw new InvalidSubscriptionTransitionError(s.status, "active");
+  const endedAt = s.trialEndsAt!;
+  return {
+    ...s,
+    planId: freePlanId,
+    status: "active",
+    trialEndsAt: null,
+    billingCycle: "monthly",
+    currentPeriodStart: endedAt,
+    currentPeriodEnd: addPeriod(endedAt, "monthly"),
+    updatedAt: nowIso,
+  };
 }
 
 export interface StartSubscriptionCommand {

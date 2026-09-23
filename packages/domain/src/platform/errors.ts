@@ -169,3 +169,33 @@ export class PlatformUserNotFoundError extends Error {
     this.name = "PlatformUserNotFoundError";
   }
 }
+
+export class FreePlanRequiredError extends Error {
+  readonly code = "FREE_PLAN_REQUIRED";
+  readonly messageEn: string;
+  constructor(readonly id: string) {
+    super(`لا يمكن إيقاف الباقة المجانية الوحيدة "${id}": كل تجربة تنتهي إليها`);
+    this.messageEn = `The only free plan "${id}" cannot be retired: every trial ends on it`;
+    this.name = "FreePlanRequiredError";
+  }
+}
+
+export class ModuleTrialUnavailableError extends Error {
+  readonly code = "MODULE_TRIAL_UNAVAILABLE";
+  readonly messageEn: string;
+  constructor(readonly module: string, reasonAr: string, reasonEn: string) {
+    super(reasonAr);
+    this.messageEn = reasonEn;
+    this.name = "ModuleTrialUnavailableError";
+  }
+}
+
+export class ModuleTrialAlreadyUsedError extends Error {
+  readonly code = "MODULE_TRIAL_ALREADY_USED";
+  readonly messageEn: string;
+  constructor(readonly module: string, moduleNameAr: string, moduleNameEn: string, readonly endedAt: string) {
+    super(`سبق تجربة وحدة ${moduleNameAr} لهذه المنشأة، والتجربة متاحة مرة واحدة لكل وحدة. للاستمرار اشترك في باقة تشملها.`);
+    this.messageEn = `The ${moduleNameEn} module has already been tried by this company; each module can be tried once. Subscribe to a plan that includes it to keep using it.`;
+    this.name = "ModuleTrialAlreadyUsedError";
+  }
+}

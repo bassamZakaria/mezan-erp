@@ -11,10 +11,27 @@ export interface EntitlementLimits {
   readonly warehouses: number;
 }
 
+export interface EntitlementModuleTrial {
+  readonly module: string;
+  readonly startedAt: string;
+  readonly endsAt: string;
+}
+
 export interface Entitlements {
   readonly plan: string;
   /** Per-tenant module toggle list gating the whole nav (recon §tenant payload). */
   readonly activeModules: readonly string[];
+  /** Modules the tenant once had and no longer does: reads and exports still answer, writes are refused. */
+  readonly readOnlyModules?: readonly string[];
+  /** Usage quotas keyed by `QuotaKind`; an absent key is unlimited. */
+  readonly quotas?: Readonly<Record<string, number>>;
+  readonly moduleTrials?: readonly EntitlementModuleTrial[];
+  readonly planNameAr?: string;
+  readonly planNameEn?: string;
+  /** `PlanKind` of the plan these entitlements come from. */
+  readonly planKind?: string;
+  /** When the tenant's reverse trial ends; null or absent when it is not on one. */
+  readonly trialEndsAt?: string | null;
   /** Finer-grained per-capability flags layered under module activation. */
   readonly features: Readonly<Record<string, boolean>>;
   readonly seats: number;
@@ -30,6 +47,10 @@ export interface EntitlementsView extends Entitlements {
 
 export function hasModule(ent: Entitlements, module: string): boolean {
   return ent.activeModules.includes(module);
+}
+
+export function hasReadOnlyModule(ent: Entitlements, module: string): boolean {
+  return !hasModule(ent, module) && (ent.readOnlyModules ?? []).includes(module);
 }
 
 export function hasFeature(ent: Entitlements, flag: string): boolean {
@@ -48,6 +69,13 @@ export function createEntitlements(data: Entitlements): EntitlementsView {
     seats: data.seats,
     expiresAt: data.expiresAt,
     ...(data.limits !== undefined ? { limits: data.limits } : {}),
+    ...(data.readOnlyModules !== undefined ? { readOnlyModules: data.readOnlyModules } : {}),
+    ...(data.quotas !== undefined ? { quotas: data.quotas } : {}),
+    ...(data.moduleTrials !== undefined ? { moduleTrials: data.moduleTrials } : {}),
+    ...(data.planNameAr !== undefined ? { planNameAr: data.planNameAr } : {}),
+    ...(data.planNameEn !== undefined ? { planNameEn: data.planNameEn } : {}),
+    ...(data.planKind !== undefined ? { planKind: data.planKind } : {}),
+    ...(data.trialEndsAt !== undefined ? { trialEndsAt: data.trialEndsAt } : {}),
     has(module: string) {
       return hasModule(data, module);
     },

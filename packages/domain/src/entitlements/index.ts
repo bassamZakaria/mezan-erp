@@ -9,3 +9,4 @@ export {
   type EntitlementsView,
   type EntitlementLimits,
 } from "./entitlements.js";
+export { hasReadOnlyModule, type EntitlementModuleTrial } from "./entitlements.js";

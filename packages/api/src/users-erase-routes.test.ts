@@ -368,6 +368,23 @@ describe("POST /users/:id/erase — personal-data erasure (D348)", () => {
     );
     expect(activate.status).toBe(409);
     expect(((await activate.json()) as { error: string }).error).toBe("USER_ERASED");
+
+    // Unlock means "this account may sign in again", which an erased one never can.
+    const unlock = await h.app.fetch(
+      new Request("http://x/users/u-1/unlock", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" }),
+    );
+    expect(unlock.status).toBe(409);
+    expect(((await unlock.json()) as { error: string }).error).toBe("USER_ERASED");
+
+    const edit = await h.app.fetch(
+      new Request("http://x/users/u-1", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ nameAr: "عودة الاسم", email: "back@cyag.test", pin: "1111" }),
+      }),
+    );
+    expect(edit.status).toBe(409);
+    expect(((await edit.json()) as { error: string }).error).toBe("USER_ERASED");
   });
 
   it("is gated on admin.users.erase_personal", async () => {

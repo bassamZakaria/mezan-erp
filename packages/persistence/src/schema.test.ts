@@ -63,7 +63,8 @@ describe("drizzle schema", () => {
         status TEXT NOT NULL,
         photo_url TEXT,
         last_login_at TEXT,
-        created_at TEXT NOT NULL
+        created_at TEXT NOT NULL,
+        erased_at TEXT
       );
     `);
   }

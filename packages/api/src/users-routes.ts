@@ -618,6 +618,8 @@ export function createUsersRoutes(
   app.post("/:id/unlock", gate("admin.users.unlock"), async (c) => {
     const user = await uow.users.findById(c.req.param("id"));
     if (!user) return c.json({ error: "USER_NOT_FOUND", message: "المستخدم غير موجود." }, 404);
+    const erasedRefusal = refuseErased(c, user);
+    if (erasedRefusal) return erasedRefusal;
     const outranked = await refuseIfTargetOutranks(c, c.req.param("id"));
     if (outranked) return outranked;
     loginThrottle?.succeed(user.email.trim().toLowerCase());

@@ -14,7 +14,7 @@ import {
   type PillTone,
 } from "@mezan/ui";
 import { ALL_SCOPE, detectSodConflicts, WILDCARD_PERMISSION, type ScopeSelection, type SodConflictMatch } from "@mezan/domain";
-import type { RoleDTO, ScopeSelectionDTO, UserDTO, UserStatusDTO } from "@mezan/contracts";
+import { ErasureRetention, type EraseUserDTO, type RoleDTO, type ScopeSelectionDTO, type UserDTO, type UserErasureResultDTO, type UserStatusDTO } from "@mezan/contracts";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { useUrlParam } from "../lib/url-state";
 
@@ -42,6 +42,12 @@ export interface UsersPageProps {
    * accident of the implementation and took the whole shop offline to use.
    */
   onUnlock?: (userId: string) => Promise<StoreResult<unknown>>;
+  /**
+   * «محو البيانات الشخصية» (D348). Optional so a caller that has not wired it
+   * simply shows no button — deactivation alone is what the store listings
+   * were promising a deletion path for.
+   */
+  onErase?: (userId: string, body: EraseUserDTO) => Promise<StoreResult<UserErasureResultDTO>>;
 }
 
 export interface UserFormDraft {
@@ -65,6 +71,15 @@ export interface UserFormDraft {
 }
 
 const STATUS_KEY: Record<UserStatusDTO, AppTranslationKey> = { active: "common.active", inactive: "common.inactive" };
+const RETENTION_KEY: Record<ErasureRetention, AppTranslationKey> = {
+  [ErasureRetention.PostedJournalEntries]: "users.erase.retained.posted_journal_entries",
+  [ErasureRetention.AuditTrail]: "users.erase.retained.audit_trail",
+  [ErasureRetention.ApprovalDecisions]: "users.erase.retained.approval_decisions",
+  [ErasureRetention.NamesPrintedOnPostedDocuments]: "users.erase.retained.names_printed_on_posted_documents",
+  [ErasureRetention.PayrollRecords]: "users.erase.retained.payroll_records",
+  [ErasureRetention.AttendanceHours]: "users.erase.retained.attendance_hours",
+  [ErasureRetention.EmployeeDocumentAttachments]: "users.erase.retained.employee_document_attachments",
+};
 const STATUS_TONE: Record<UserStatusDTO, PillTone> = { active: "success", inactive: "neutral" };
 
 function emptyDraft(): UserFormDraft {
@@ -106,7 +121,7 @@ function userToDraft(user: UserDTO, allBranchIds: string[], allWarehouseIds: str
   };
 }
 
-export function UsersPage({ users, roles, branches, warehouses, employees, onSave, onToggleStatus, onUnlock }: UsersPageProps) {
+export function UsersPage({ users, roles, branches, warehouses, employees, onSave, onToggleStatus, onUnlock, onErase }: UsersPageProps) {
   const { t } = useAppTranslation();
   const [statusFilter, setStatusFilter] = useUrlParam("status", "all") as [
     UserStatusDTO | "all",
@@ -124,6 +139,12 @@ export function UsersPage({ users, roles, branches, warehouses, employees, onSav
    * row acts, and this list is read at a counter with a queue behind it.
    */
   const [unlockingId, setUnlockingId] = useState<string | null>(null);
+  const [eraseTarget, setEraseTarget] = useState<UserDTO | null>(null);
+  const [eraseEmail, setEraseEmail] = useState("");
+  const [eraseReason, setEraseReason] = useState("");
+  const [eraseError, setEraseError] = useState<string | null>(null);
+  const [eraseNotice, setEraseNotice] = useState<string | null>(null);
+  const [erasingId, setErasingId] = useState<string | null>(null);
 
   const roleById = useMemo(() => new Map(roles.map((r) => [r.id, r])), [roles]);
 
@@ -197,6 +218,32 @@ export function UsersPage({ users, roles, branches, warehouses, employees, onSav
     }
   }
 
+  function openErase(user: UserDTO) {
+    setEraseTarget(user);
+    setEraseEmail("");
+    setEraseReason("");
+    setEraseError(null);
+    setEraseNotice(null);
+  }
+
+  async function handleErase() {
+    if (!onErase || !eraseTarget) return;
+    setEraseError(null);
+    if (eraseEmail.trim().toLowerCase() !== eraseTarget.email.toLowerCase() || eraseReason.trim().length < 3) {
+      setEraseError(t("users.erase.confirmRequired"));
+      return;
+    }
+    setErasingId(eraseTarget.id);
+    const result = await onErase(eraseTarget.id, { confirmEmail: eraseEmail.trim(), reason: eraseReason.trim() });
+    setErasingId(null);
+    if (!result.ok) {
+      setEraseError(result.error ?? t("users.erase.failed"));
+      return;
+    }
+    setEraseNotice(result.value?.alreadyErased ? t("users.erase.alreadyErased") : t("users.erase.done"));
+    setEraseTarget(null);
+  }
+
   const roleOptions: EntityPickerOption[] = roles.map((r) => ({ id: r.id, label: r.name, sublabel: r.code }));
   const employeeOptions: EntityPickerOption[] = employees.map((e) => ({ id: e.id, label: e.name, sublabel: e.position }));
 
@@ -211,7 +258,10 @@ export function UsersPage({ users, roles, branches, warehouses, employees, onSav
             {initials(row.nameAr)}
           </span>
           <div>
-            <div className="font-semibold text-ink">{row.nameAr}</div>
+            <div className="flex items-center gap-[6px]">
+              <span className="font-semibold text-ink">{row.nameAr}</span>
+              {row.erasedAt ? <StatusPill label={t("users.erased")} tone="danger" /> : null}
+            </div>
             {row.nameEn ? <div className="mz-lat text-[11.5px] text-ink-faint">{row.nameEn}</div> : null}
             <div className="mz-lat text-[11px] text-ink-faint">{row.email}</div>
           </div>
@@ -255,7 +305,20 @@ export function UsersPage({ users, roles, branches, warehouses, employees, onSav
       align: "end",
       render: (row) => (
         <div className="flex items-center justify-end gap-[6px]">
-          {onUnlock && row.status === "active" ? (
+          {onErase && !row.erasedAt ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={erasingId === row.id}
+              onClick={(e) => {
+                e.stopPropagation();
+                openErase(row);
+              }}
+            >
+              {t("users.erase.action")}
+            </Button>
+          ) : null}
+          {onUnlock && row.status === "active" && !row.erasedAt ? (
             <Button
               size="sm"
               variant="ghost"
@@ -272,16 +335,18 @@ export function UsersPage({ users, roles, branches, warehouses, employees, onSav
               {unlockingId === row.id ? t("common.loading") : t("users.unlock")}
             </Button>
           ) : null}
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={(e) => {
-              e.stopPropagation();
-              void onToggleStatus(row.id, row.status === "active" ? "inactive" : "active");
-            }}
-          >
-            {row.status === "active" ? t("users.disable") : t("users.enable")}
-          </Button>
+          {row.erasedAt ? null : (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={(e) => {
+                e.stopPropagation();
+                void onToggleStatus(row.id, row.status === "active" ? "inactive" : "active");
+              }}
+            >
+              {row.status === "active" ? t("users.disable") : t("users.enable")}
+            </Button>
+          )}
         </div>
       ),
     },
@@ -314,7 +379,7 @@ export function UsersPage({ users, roles, branches, warehouses, employees, onSav
         columns={columns}
         rows={filtered}
         rowKey={(row) => row.id}
-        onRowClick={openEdit}
+        onRowClick={(row) => { if (!row.erasedAt) openEdit(row); }}
         page={1}
         pageCount={1}
         pageSummary={<>{t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{users.length}</span> {t("users.user")}</>}
@@ -445,6 +510,50 @@ export function UsersPage({ users, roles, branches, warehouses, employees, onSav
           </div>
         </div>
       </SidePanel>
+
+      <SidePanel
+        open={eraseTarget !== null}
+        onClose={() => setEraseTarget(null)}
+        title={t("users.erase.title")}
+        description={eraseTarget ? t("users.erase.subject", { name: eraseTarget.nameAr, email: eraseTarget.email }) : ""}
+      >
+        <div className="flex flex-col gap-[14px]">
+          {eraseError ? (
+            <div className="rounded-md border border-danger bg-danger-soft px-[12px] py-[9px] text-[12.5px] text-danger-ink">{eraseError}</div>
+          ) : null}
+          <p className="text-[12.5px] leading-[1.9] text-ink-muted">{t("users.erase.explain")}</p>
+          <Card className="p-[15px]">
+            <h3 className="mb-[10px] text-[12.5px] font-bold text-ink">{t("users.erase.retainedTitle")}</h3>
+            <ul className="grid gap-[6px] text-[12px] leading-[1.8] text-ink-muted">
+              {Object.values(ErasureRetention).map((kept) => (
+                <li key={kept}>{t(RETENTION_KEY[kept])}</li>
+              ))}
+            </ul>
+          </Card>
+          <TextField label={t("users.erase.confirmEmailLabel")} value={eraseEmail} onChange={setEraseEmail} placeholder={eraseTarget?.email} />
+          <TextField
+            label={t("users.erase.reasonLabel")}
+            value={eraseReason}
+            onChange={setEraseReason}
+            placeholder={t("users.erase.reasonPlaceholder")}
+          />
+          <div className="flex justify-end gap-[9px] border-t border-border pt-[14px]">
+            <Button variant="ghost" onClick={() => setEraseTarget(null)}>{t("common.cancel")}</Button>
+            <Button variant="danger-outline" disabled={erasingId !== null} onClick={() => void handleErase()}>
+              {erasingId !== null ? t("users.erase.working") : t("users.erase.submit")}
+            </Button>
+          </div>
+        </div>
+      </SidePanel>
+
+      {eraseNotice ? (
+        <div className="fixed bottom-[18px] start-[18px] z-50 flex items-center gap-[10px] rounded-md border border-border bg-surface px-[14px] py-[10px] text-[12.5px] text-ink shadow-lg">
+          <span>{eraseNotice}</span>
+          <Button size="sm" variant="ghost" onClick={() => setEraseNotice(null)}>
+            {t("common.cancel")}
+          </Button>
+        </div>
+      ) : null}
     </>
   );
 }

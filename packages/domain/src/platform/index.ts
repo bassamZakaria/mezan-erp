@@ -55,7 +55,10 @@ export {
   PlanKind, QuotaKind, QUOTA_KINDS, normalizeQuotas, isFreePlan, topPublicPaidPlan, defaultFreePlan,
   type PlanQuotas,
 } from "./plan.js";
-export { SubscriptionTransition, trialHasEnded, applyTrialEndToFree, type SubscriptionTransitionRepository } from "./subscription.js";
+export {
+  SubscriptionTransition, PlanChangeActor, trialHasEnded, applyTrialEndToFree, effectiveSubscription,
+  needsTrialEndMaterialised, type SubscriptionTransitionRepository,
+} from "./subscription.js";
 export { MODULE_NAMES, moduleName, type ModuleName } from "./module-catalog.js";
 export {
   MODULE_TRIAL_DAYS, ModuleTrialState, moduleTrialState, liveTrialModules, startModuleTrial,

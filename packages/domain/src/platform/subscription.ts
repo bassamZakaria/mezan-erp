@@ -17,6 +17,10 @@ export enum SubscriptionTransition {
   ModuleTrialStarted = "MODULE_TRIAL_STARTED",
   SeatsSelected = "SEATS_SELECTED",
 }
+
+export enum PlanChangeActor {
+  ReverseTrial = "reverse-trial",
+}
 export type BillingCycle = "monthly" | "yearly";
 
 export interface Subscription {
@@ -93,6 +97,28 @@ export function applyTrialEndToFree(s: Subscription, freePlanId: string, nowIso:
     currentPeriodEnd: addPeriod(endedAt, "monthly"),
     updatedAt: nowIso,
   };
+}
+
+/**
+ * INVARIANT — every reader of a subscription must go through this before deriving
+ * entitlements or a licence state. The drop to Free is materialised lazily, so the
+ * stored row can still say `trialing` after the trial ended; this function is the
+ * single definition of what the subscription IS at `nowIso`, and persisting the
+ * move is only caching what it already returns. A reader that skipped it would
+ * hand a lapsed trial the top plan's modules.
+ */
+export function effectiveSubscription(
+  s: Subscription | null,
+  freePlanId: string | null,
+  nowIso: string,
+): Subscription | null {
+  if (!s || freePlanId === null || !trialHasEnded(s, nowIso)) return s;
+  return applyTrialEndToFree(s, freePlanId, nowIso);
+}
+
+/** True when the stored row still has to be written back to match `effectiveSubscription`. */
+export function needsTrialEndMaterialised(s: Subscription | null, freePlanId: string | null, nowIso: string): boolean {
+  return s !== null && freePlanId !== null && trialHasEnded(s, nowIso);
 }
 
 export interface StartSubscriptionCommand {

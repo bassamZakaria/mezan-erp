@@ -51,6 +51,7 @@ export type SubscriptionLicenseReason =
   | "TENANT_SUSPENDED"
   | "SUBSCRIPTION_CANCELLED"
   | "SUBSCRIPTION_SUSPENDED"
+  | "TRIAL_ENDED"
   | "GRACE_ENDED"
   | "INVALID_CLOCK";
 
@@ -91,11 +92,18 @@ export function subscriptionLicenseState(
   if (subscription.status === "suspended") {
     return { state: "READ_ONLY", canWrite: false, usable: true, licensee, expiresAt, reason: "SUBSCRIPTION_SUSPENDED" };
   }
-  if (subscription.status === "trialing") {
-    return { state: "ACTIVE", canWrite: true, usable: true, licensee, expiresAt };
-  }
-  if (plan && isFreePlan(plan) && subscription.status === "active") {
+  // A free plan never lapses: no period end, no grace, no read-only. Checked
+  // before every date comparison below, which is the whole point of DEC-31 —
+  // the tenant's own books must never be held behind a renewal.
+  if (plan && isFreePlan(plan) && subscription.status !== "past_due") {
     return { state: "ACTIVE", canWrite: true, usable: true, licensee };
+  }
+  if (subscription.status === "trialing") {
+    // Reached only when the deployment has no active free plan to land on;
+    // `effectiveSubscription` has already moved every other lapsed trial.
+    return at < expiresAt
+      ? { state: "ACTIVE", canWrite: true, usable: true, licensee, expiresAt }
+      : { state: "READ_ONLY", canWrite: false, usable: true, licensee, expiresAt, reason: "TRIAL_ENDED" };
   }
   if (at < subscription.currentPeriodEnd) {
     return { state: "ACTIVE", canWrite: true, usable: true, licensee, expiresAt };

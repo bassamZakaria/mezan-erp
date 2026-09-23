@@ -5,10 +5,12 @@ import {
   type CardCheckout, type CardCheckoutRepository, type CardCheckoutSettlement, type CardCheckoutStatus,
   type PaymentProviderId,
   type Payment, type PaymentRepository,
-  type Plan, type PlanRepository,
+  type Plan, type PlanRepository, type PlanQuotas, PlanKind,
+  type ModuleTrial, type ModuleTrialRepository,
+  type SubscriptionTransitionRepository,
   type PlatformUser, type PlatformUserRepository,
   type SignupRequest, type SignupRequestRepository, SignupRequestStatus,
-  type Subscription, type SubscriptionRepository,
+  type Subscription,
   type Tenant, type TenantRepository,
 } from "@mezan/domain";
 
@@ -36,6 +38,8 @@ CREATE TABLE IF NOT EXISTS plan (
   seats_included       INTEGER NOT NULL,
   branches_included    INTEGER NOT NULL,
   warehouses_included  INTEGER NOT NULL,
+  kind                 TEXT NOT NULL DEFAULT 'paid',
+  quotas               TEXT NOT NULL DEFAULT '{}',
   price_monthly        INTEGER NOT NULL,
   price_yearly         INTEGER NOT NULL,
   trial_days           INTEGER NOT NULL,
@@ -138,7 +142,34 @@ CREATE TABLE IF NOT EXISTS signup_request (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_signup_request_token ON signup_request(token_hash);
 CREATE INDEX IF NOT EXISTS idx_signup_request_code ON signup_request(code, status, expires_at);
+
+CREATE TABLE IF NOT EXISTS module_trial (
+  id          TEXT PRIMARY KEY,
+  tenant_id   TEXT NOT NULL,
+  module      TEXT NOT NULL,
+  started_at  TEXT NOT NULL,
+  ends_at     TEXT NOT NULL,
+  started_by  TEXT NOT NULL
+);
+-- Once per module per tenant is enforced HERE, not by a prior read: two
+-- simultaneous "try this module" clicks must not both open a trial.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_module_trial_once ON module_trial(tenant_id, module);
 `;
+
+/** Columns added after the first release; an existing platform database is migrated in place. */
+const ADDED_PLAN_COLUMNS: ReadonlyArray<readonly [string, string]> = [
+  ["kind", "TEXT NOT NULL DEFAULT 'paid'"],
+  ["quotas", "TEXT NOT NULL DEFAULT '{}'"],
+];
+
+function addMissingPlanColumns(sqlite: Database.Database): void {
+  const existing = new Set(
+    (sqlite.prepare(`PRAGMA table_info(plan)`).all() as { name: string }[]).map((c) => c.name),
+  );
+  for (const [name, ddl] of ADDED_PLAN_COLUMNS) {
+    if (!existing.has(name)) sqlite.exec(`ALTER TABLE plan ADD COLUMN ${name} ${ddl}`);
+  }
+}
 
 interface TenantRow {
   id: string; code: string; name_ar: string; name_en: string | null; owner_email: string;
@@ -196,6 +227,7 @@ class SqliteTenantStore implements TenantRepository {
 interface PlanRow {
   id: string; code: string; name_ar: string; name_en: string; modules: string; features: string;
   seats_included: number; branches_included: number; warehouses_included: number;
+  kind: string; quotas: string;
   price_monthly: number; price_yearly: number; trial_days: number; is_public: number;
   sort_order: number; status: Plan["status"]; created_at: string;
 }
@@ -206,6 +238,8 @@ function toPlan(r: PlanRow): Plan {
     modules: JSON.parse(r.modules) as string[],
     features: JSON.parse(r.features) as Record<string, boolean>,
     seatsIncluded: r.seats_included, branchesIncluded: r.branches_included, warehousesIncluded: r.warehouses_included,
+    kind: r.kind === PlanKind.Free ? PlanKind.Free : PlanKind.Paid,
+    quotas: JSON.parse(r.quotas || "{}") as PlanQuotas,
     priceMonthly: Money.fromScaled(r.price_monthly), priceYearly: Money.fromScaled(r.price_yearly),
     trialDays: r.trial_days, isPublic: r.is_public === 1, sortOrder: r.sort_order,
     status: r.status, createdAt: r.created_at,
@@ -221,12 +255,13 @@ class SqlitePlanStore implements PlanRepository {
   constructor(sqlite: Database.Database) {
     this.upsert = sqlite.prepare(
       `INSERT INTO plan (id, code, name_ar, name_en, modules, features, seats_included, branches_included,
-         warehouses_included, price_monthly, price_yearly, trial_days, is_public, sort_order, status, created_at)
+         warehouses_included, kind, quotas, price_monthly, price_yearly, trial_days, is_public, sort_order, status, created_at)
        VALUES (@id, @code, @nameAr, @nameEn, @modules, @features, @seatsIncluded, @branchesIncluded,
-         @warehousesIncluded, @priceMonthly, @priceYearly, @trialDays, @isPublic, @sortOrder, @status, @createdAt)
+         @warehousesIncluded, @kind, @quotas, @priceMonthly, @priceYearly, @trialDays, @isPublic, @sortOrder, @status, @createdAt)
        ON CONFLICT(id) DO UPDATE SET
          code = @code, name_ar = @nameAr, name_en = @nameEn, modules = @modules, features = @features,
          seats_included = @seatsIncluded, branches_included = @branchesIncluded, warehouses_included = @warehousesIncluded,
+         kind = @kind, quotas = @quotas,
          price_monthly = @priceMonthly, price_yearly = @priceYearly, trial_days = @trialDays, is_public = @isPublic,
          sort_order = @sortOrder, status = @status, created_at = @createdAt`,
     );
@@ -254,6 +289,7 @@ class SqlitePlanStore implements PlanRepository {
       id: p.id, code: p.code, nameAr: p.nameAr, nameEn: p.nameEn,
       modules: JSON.stringify(p.modules), features: JSON.stringify(p.features),
       seatsIncluded: p.seatsIncluded, branchesIncluded: p.branchesIncluded, warehousesIncluded: p.warehousesIncluded,
+      kind: p.kind, quotas: JSON.stringify(p.quotas),
       priceMonthly: p.priceMonthly.toScaledNumber(), priceYearly: p.priceYearly.toScaledNumber(),
       trialDays: p.trialDays, isPublic: p.isPublic ? 1 : 0, sortOrder: p.sortOrder,
       status: p.status, createdAt: p.createdAt,
@@ -280,15 +316,19 @@ function toSubscription(r: SubscriptionRow): Subscription {
   };
 }
 
-class SqliteSubscriptionStore implements SubscriptionRepository {
+class SqliteSubscriptionStore implements SubscriptionTransitionRepository {
+  private readonly sqlite: Database.Database;
   private readonly upsert: Database.Statement;
   private readonly byId: Database.Statement;
   private readonly liveByTenant: Database.Statement;
   private readonly byTenant: Database.Statement;
   private readonly liveByPlan: Database.Statement;
   private readonly listLiveByPlan: Database.Statement;
+  private readonly endedTrials: Database.Statement;
+  private readonly conditionalUpdate: Database.Statement;
 
   constructor(sqlite: Database.Database) {
+    this.sqlite = sqlite;
     this.upsert = sqlite.prepare(
       `INSERT INTO subscription (id, tenant_id, plan_id, status, billing_cycle, add_on_modules, extra_seats,
          extra_branches, extra_warehouses, current_period_start, current_period_end, trial_ends_at, grace_days,
@@ -308,6 +348,19 @@ class SqliteSubscriptionStore implements SubscriptionRepository {
     this.byTenant = sqlite.prepare(`SELECT * FROM subscription WHERE tenant_id = ? ORDER BY created_at, id`);
     this.liveByPlan = sqlite.prepare(`SELECT 1 FROM subscription WHERE plan_id = ? AND status <> 'cancelled' LIMIT 1`);
     this.listLiveByPlan = sqlite.prepare(`SELECT * FROM subscription WHERE plan_id = ? AND status <> 'cancelled' ORDER BY created_at, id`);
+    this.endedTrials = sqlite.prepare(
+      `SELECT * FROM subscription WHERE status = 'trialing' AND trial_ends_at IS NOT NULL AND trial_ends_at <= ? ORDER BY trial_ends_at, id`,
+    );
+    // The WHERE clause is the concurrency guard: only the row still in the
+    // state the caller read moves, so exactly one of two racing readers gets
+    // `changes === 1` and writes the audit row.
+    this.conditionalUpdate = sqlite.prepare(
+      `UPDATE subscription
+          SET plan_id = @planId, status = @status, billing_cycle = @billingCycle,
+              current_period_start = @currentPeriodStart, current_period_end = @currentPeriodEnd,
+              trial_ends_at = @trialEndsAt, updated_at = @updatedAt
+        WHERE id = @id AND plan_id = @beforePlanId AND status = @beforeStatus AND updated_at = @beforeUpdatedAt`,
+    );
   }
 
   async findById(id: string): Promise<Subscription | null> {
@@ -332,6 +385,28 @@ class SqliteSubscriptionStore implements SubscriptionRepository {
     return (this.listLiveByPlan.all(planId) as SubscriptionRow[]).map(toSubscription);
   }
 
+  async listEndedTrials(nowIso: string): Promise<Subscription[]> {
+    return (this.endedTrials.all(nowIso) as SubscriptionRow[]).map(toSubscription);
+  }
+
+  async compareAndSet(before: Subscription, after: Subscription, sideEffect: () => Promise<void>): Promise<boolean> {
+    return withSqliteTransaction(
+      this.sqlite,
+      async () => {
+        const result = this.conditionalUpdate.run({
+          id: after.id, planId: after.planId, status: after.status, billingCycle: after.billingCycle,
+          currentPeriodStart: after.currentPeriodStart, currentPeriodEnd: after.currentPeriodEnd,
+          trialEndsAt: after.trialEndsAt, updatedAt: after.updatedAt,
+          beforePlanId: before.planId, beforeStatus: before.status, beforeUpdatedAt: before.updatedAt,
+        });
+        if (result.changes !== 1) return false;
+        await sideEffect();
+        return true;
+      },
+      "BEGIN IMMEDIATE",
+    );
+  }
+
   async save(s: Subscription): Promise<void> {
     this.upsert.run({
       id: s.id, tenantId: s.tenantId, planId: s.planId, status: s.status, billingCycle: s.billingCycle,
@@ -340,6 +415,41 @@ class SqliteSubscriptionStore implements SubscriptionRepository {
       trialEndsAt: s.trialEndsAt, graceDays: s.graceDays, cancelledAt: s.cancelledAt,
       createdAt: s.createdAt, updatedAt: s.updatedAt,
     });
+  }
+}
+
+interface ModuleTrialRow {
+  id: string; tenant_id: string; module: string; started_at: string; ends_at: string; started_by: string;
+}
+
+function toModuleTrial(r: ModuleTrialRow): ModuleTrial {
+  return {
+    id: r.id, tenantId: r.tenant_id, module: r.module,
+    startedAt: r.started_at, endsAt: r.ends_at, startedBy: r.started_by,
+  };
+}
+
+class SqliteModuleTrialStore implements ModuleTrialRepository {
+  private readonly insert: Database.Statement;
+  private readonly byTenant: Database.Statement;
+
+  constructor(sqlite: Database.Database) {
+    this.insert = sqlite.prepare(
+      `INSERT OR IGNORE INTO module_trial (id, tenant_id, module, started_at, ends_at, started_by)
+       VALUES (@id, @tenantId, @module, @startedAt, @endsAt, @startedBy)`,
+    );
+    this.byTenant = sqlite.prepare(`SELECT * FROM module_trial WHERE tenant_id = ? ORDER BY started_at, module`);
+  }
+
+  async listByTenant(tenantId: string): Promise<ModuleTrial[]> {
+    return (this.byTenant.all(tenantId) as ModuleTrialRow[]).map(toModuleTrial);
+  }
+
+  async insertIfFirst(trial: ModuleTrial): Promise<boolean> {
+    return this.insert.run({
+      id: trial.id, tenantId: trial.tenantId, module: trial.module,
+      startedAt: trial.startedAt, endsAt: trial.endsAt, startedBy: trial.startedBy,
+    }).changes === 1;
   }
 }
 
@@ -653,11 +763,12 @@ class SqliteSignupRequestStore implements SignupRequestRepository {
 export interface SqlitePlatformStoresHandle {
   readonly tenants: TenantRepository;
   readonly plans: PlanRepository;
-  readonly subscriptions: SubscriptionRepository;
+  readonly subscriptions: SubscriptionTransitionRepository;
   readonly platformUsers: PlatformUserRepository;
   readonly payments: PaymentRepository;
   readonly cardCheckouts: CardCheckoutRepository;
   readonly signupRequests: SignupRequestRepository;
+  readonly moduleTrials: ModuleTrialRepository;
   readonly sqlite: Database.Database;
   close(): void;
 }
@@ -668,6 +779,7 @@ export function createSqlitePlatformStores(
 ): SqlitePlatformStoresHandle {
   const { sqlite, owned } = openSqliteConnection(path, options);
   sqlite.exec(CREATE_TABLES);
+  addMissingPlanColumns(sqlite);
   return {
     tenants: new SqliteTenantStore(sqlite),
     plans: new SqlitePlanStore(sqlite),
@@ -676,6 +788,7 @@ export function createSqlitePlatformStores(
     payments: new SqlitePaymentStore(sqlite),
     cardCheckouts: new SqliteCardCheckoutStore(sqlite),
     signupRequests: new SqliteSignupRequestStore(sqlite),
+    moduleTrials: new SqliteModuleTrialStore(sqlite),
     sqlite,
     close: () => { if (owned) sqlite.close(); },
   };

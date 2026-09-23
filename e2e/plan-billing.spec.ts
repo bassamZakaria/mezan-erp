@@ -32,15 +32,19 @@ test.describe("الباقة والاستخدام — plan and usage", () => {
     for (const label of ["المستخدمون النشطون", "الفروع", "المخازن"]) {
       await expect(page.getByText(label, { exact: true }).first()).toBeVisible();
     }
-    // «١٠٠ من ١٠٠» — used of allowed, and never a bare figure.
-    await expect(page.getByText(/\d+\s*من\s*\d+/).first()).toBeVisible();
+    // «٢٢ من ٢٥» — used of allowed, and never a bare figure.
+    await expect(page.locator("main").getByText(/\d+\s*من\s*\d+/).first()).toBeVisible();
     await expect(page.getByText(/الحدود تسري على إنشاء مستندات جديدة فقط/)).toBeVisible();
   });
 
   test("lists every module with its state, and the one on trial says so", async ({ page }) => {
     await expect(page.getByRole("heading", { name: "الوحدات" })).toBeVisible();
-    await expect(page.getByText("نقاط البيع", { exact: true })).toBeVisible();
-    await expect(page.getByText("تجربة جارية", { exact: true }).first()).toBeVisible();
+    // Scoped to the card and scrolled to: «نقاط البيع» is also a nav group,
+    // and the module list is long enough that POS starts below the fold.
+    const pos = page.locator("main li").filter({ hasText: "نقاط البيع" }).first();
+    await pos.scrollIntoViewIfNeeded();
+    await expect(pos).toBeVisible();
+    await expect(pos.getByText("تجربة جارية", { exact: true })).toBeVisible();
   });
 
   test("offers the plans, with the Free plan's own limits on it", async ({ page }) => {

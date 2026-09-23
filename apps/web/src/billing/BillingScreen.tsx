@@ -175,8 +175,14 @@ function UsageRow({ label, used, allowed }: { label: string; used: number; allow
   return (
     <div className="flex items-center justify-between gap-[10px] text-[12.5px]">
       <span className="text-ink-muted">{label}</span>
-      <span className={`mz-num font-semibold ${over ? "text-danger-ink" : "text-ink"}`}>
-        {t("plan.usage.ofLimit", { used: String(used), allowed: String(allowed) })}
+      {/*
+        BIDI: «من» stays OUTSIDE the numeric runs. Putting the Arabic word
+        inside one `mz-num` span with both figures reorders them on screen —
+        "22 من 25" rendered as "22 25 من" — and a usage figure that reads
+        backwards is worse than no figure at all.
+      */}
+      <span className={`font-semibold ${over ? "text-danger-ink" : "text-ink"}`}>
+        <span className="mz-num">{used}</span> {t("plan.usage.of")} <span className="mz-num">{allowed}</span>
       </span>
     </div>
   );
@@ -205,12 +211,18 @@ function PlanOffer({
           {t("plan.offers.monthly")}
           <Money value={Number(plan.priceMonthly)} />
         </span>
-        <span className="mz-num">{t("plan.limit.seats")}: {plan.seatsIncluded}</span>
-        <span className="mz-num">{t("plan.limit.branches")}: {plan.branchesIncluded}</span>
-        <span className="mz-num">{t("plan.limit.warehouses")}: {plan.warehousesIncluded}</span>
+        <span>
+          {t("plan.limit.seats")}: <span className="mz-num">{plan.seatsIncluded}</span>
+        </span>
+        <span>
+          {t("plan.limit.branches")}: <span className="mz-num">{plan.branchesIncluded}</span>
+        </span>
+        <span>
+          {t("plan.limit.warehouses")}: <span className="mz-num">{plan.warehousesIncluded}</span>
+        </span>
         {invoiceQuota !== undefined ? (
-          <span className="mz-num">
-            {t("plan.quota.salesInvoicesPerMonth")}: {invoiceQuota}
+          <span>
+            {t("plan.quota.salesInvoicesPerMonth")}: <span className="mz-num">{invoiceQuota}</span>
           </span>
         ) : null}
       </div>

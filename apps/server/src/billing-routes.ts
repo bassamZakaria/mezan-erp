@@ -1,18 +1,38 @@
+import { randomUUID } from "node:crypto";
 import { Hono, type Context } from "hono";
 import {
   can,
   cardCheckoutAmount,
   createAuthContext,
   CardCheckoutUnavailableError,
+  isFreePlan,
+  liveTrialModules,
+  moduleName,
+  MODULE_TRIAL_DAYS,
+  ModuleTrialAlreadyUsedError,
+  ModuleTrialUnavailableError,
+  PlanKind,
+  recordSecurityEvent,
+  startModuleTrial,
   SubscriptionNotFoundError,
+  SubscriptionTransition,
   TenantNotFoundError,
   PlanNotFoundError,
   type CardCheckout,
+  type ModuleTrial,
+  type Plan,
   type Tenant,
 } from "@mezan/domain";
-import { createCardCheckoutRequestSchema, type TenantBillingDTO } from "@mezan/contracts";
+import {
+  createCardCheckoutRequestSchema,
+  startModuleTrialRequestSchema,
+  type BillingLimitDTO,
+  type BillingModuleDTO,
+  type BillingQuotaDTO,
+  type TenantBillingDTO,
+} from "@mezan/contracts";
 import { readSessionToken, type SessionGrant } from "@mezan/api";
-import { serializeCardCheckout, type PlatformHandle } from "@mezan/backend";
+import { resolveTenantPlan, serializeCardCheckout, type PlatformHandle } from "@mezan/backend";
 import type { CardCheckoutService } from "./card-checkout.js";
 import type { PaymobTestProvider } from "./paymob-provider.js";
 import type { CloudEnv } from "./env.js";
@@ -73,6 +93,8 @@ export function createPaymobWebhookRoutes(service: CardCheckoutService): Hono {
 interface Caller {
   readonly tenant: Tenant;
   readonly grant: SessionGrant;
+  /** The caller's own bearer token, so the tenant-side usage read is made AS them. */
+  readonly token: string;
 }
 
 function allowed(grant: SessionGrant, permission: string): boolean {
@@ -99,11 +121,64 @@ function unavailable(c: Context, err: unknown): Response {
   throw err;
 }
 
+interface PlanUsage {
+  readonly today: string | null;
+  readonly month: string | null;
+  readonly quotas: readonly BillingQuotaDTO[];
+  readonly limits: readonly BillingLimitDTO[];
+}
+
+/**
+ * Days left on the TENANT's calendar, not on a UTC instant: a trial ending at
+ * 21:00 UTC has a day left in Cairo, and a banner that said "0" would be
+ * telling the owner they are out of time while they still are not.
+ */
+function trialDaysLeft(trialEndsAt: string | null | undefined, today: string | null): number | null {
+  if (!trialEndsAt || !today) return null;
+  const end = Date.parse(`${trialEndsAt.slice(0, 10)}T00:00:00Z`);
+  const from = Date.parse(`${today}T00:00:00Z`);
+  if (Number.isNaN(end) || Number.isNaN(from)) return null;
+  return Math.max(0, Math.round((end - from) / (24 * 60 * 60 * 1000)));
+}
+
+function moduleRows(
+  plan: Plan,
+  trials: readonly ModuleTrial[],
+  everEntitled: readonly string[],
+  nowIso: string,
+): BillingModuleDTO[] {
+  const live = new Set(liveTrialModules(trials, nowIso));
+  const tried = new Set(trials.map((t) => t.module));
+  const inPlan = new Set(plan.modules);
+  const readable = new Set(everEntitled);
+  const ids = [...new Set([...inPlan, ...tried, ...readable])].sort();
+  return ids.map((id) => {
+    const name = moduleName(id);
+    const state: BillingModuleDTO["state"] = inPlan.has(id)
+      ? "active"
+      : live.has(id)
+        ? "trialing"
+        : readable.has(id) || tried.has(id)
+          ? "read_only"
+          : "locked";
+    return {
+      id,
+      nameAr: name.ar,
+      nameEn: name.en,
+      state,
+      trialEndsAt: trials.find((t) => t.module === id && live.has(id))?.endsAt ?? null,
+      trialUsed: tried.has(id),
+      canTrial: !inPlan.has(id) && !tried.has(id),
+    };
+  });
+}
+
 export interface TenantBillingRoutesOptions {
   readonly platform: PlatformHandle;
   readonly router: TenantRouter;
   readonly env: CloudEnv;
   readonly service: CardCheckoutService | null;
+  readonly now?: () => Date;
 }
 
 /**
@@ -114,6 +189,7 @@ export interface TenantBillingRoutesOptions {
  */
 export function createTenantBillingRoutes(options: TenantBillingRoutesOptions): Hono {
   const { platform, router, env, service } = options;
+  const now = options.now ?? (() => new Date());
   const app = new Hono();
 
   async function resolveCaller(c: Context): Promise<Caller | Response> {
@@ -132,28 +208,42 @@ export function createTenantBillingRoutes(options: TenantBillingRoutesOptions): 
     // mismatched lookup here would not just fail, it would REVOKE the session.
     const grant = backend.sessions.find(token, null);
     if (!grant) return c.json({ error: "UNAUTHENTICATED", message: "انتهت الجلسة، سجّل الدخول مرة أخرى" }, 401);
-    return { tenant, grant };
+    return { tenant, grant, token };
   }
 
   const forbidden = (c: Context) => c.json({ error: "FORBIDDEN", message: "ليست لديك صلاحية إدارة الاشتراك" }, 403);
+
+  /** What this tenant's own backend counts against its plan, on its own day. Forwarded with the caller's token, so it is the caller's own read. */
+  async function planUsage(code: string, token: string): Promise<PlanUsage> {
+    const backend = await router.backendFor(code);
+    const res = await backend.app.fetch(
+      new Request("http://tenant/plan-usage", { headers: { authorization: `Bearer ${token}` } }),
+    );
+    if (!res.ok) return { today: null, month: null, quotas: [], limits: [] };
+    return (await res.json()) as PlanUsage;
+  }
 
   app.get("/subscription", async (c) => {
     const caller = await resolveCaller(c);
     if (caller instanceof Response) return caller;
     if (!allowed(caller.grant, "admin.settings.view")) return forbidden(c);
-    const subscription = await platform.stores.subscriptions.findLiveByTenant(caller.tenant.id);
-    const plan = subscription ? await platform.stores.plans.findById(subscription.planId) : null;
+    const nowIso = now().toISOString();
+    const view = await resolveTenantPlan(platform, caller.tenant.id, nowIso);
+    const { subscription, plan } = view;
     let renewable = false;
     let amountDue: string | null = null;
     if (subscription && plan) {
       try {
         amountDue = cardCheckoutAmount(plan, subscription).toString();
-        renewable = true;
+        renewable = !isFreePlan(plan);
       } catch {
         amountDue = (subscription.billingCycle === "yearly" ? plan.priceYearly : plan.priceMonthly).toString();
       }
     }
+    const usage = await planUsage(caller.tenant.code, caller.token);
+    const plans = (await platform.stores.plans.list()).filter((p) => p.status === "active" && p.isPublic);
     const checkouts: CardCheckout[] = service ? (await service.listByTenant(caller.tenant.id)).slice(0, 10) : [];
+
     const body: TenantBillingDTO = {
       cardCheckout: service !== null,
       testMode: service?.provider.testMode ?? false,
@@ -167,11 +257,85 @@ export function createTenantBillingRoutes(options: TenantBillingRoutesOptions): 
               planNameAr: plan.nameAr,
               planNameEn: plan.nameEn,
               amountDue,
+              planKind: plan.kind === PlanKind.Free ? "free" : "paid",
             }
           : null,
+      today: usage.today,
+      month: usage.month,
+      trialEndsAt: subscription?.status === "trialing" ? subscription.trialEndsAt : null,
+      trialDaysLeft: trialDaysLeft(subscription?.status === "trialing" ? subscription.trialEndsAt : null, usage.today),
+      moduleTrialDays: MODULE_TRIAL_DAYS,
+      quotas: usage.quotas as BillingQuotaDTO[],
+      limits: usage.limits as BillingLimitDTO[],
+      modules: plan ? moduleRows(plan, view.moduleTrials, view.everEntitled, nowIso) : [],
+      plans: plans
+        .sort((a, b) => a.sortOrder - b.sortOrder)
+        .map((p) => ({
+          id: p.id, code: p.code, nameAr: p.nameAr, nameEn: p.nameEn,
+          kind: p.kind === PlanKind.Free ? ("free" as const) : ("paid" as const),
+          modules: [...p.modules], seatsIncluded: p.seatsIncluded, branchesIncluded: p.branchesIncluded,
+          warehousesIncluded: p.warehousesIncluded, quotas: { ...p.quotas },
+          priceMonthly: p.priceMonthly.toString(), priceYearly: p.priceYearly.toString(),
+          trialDays: p.trialDays, current: p.id === plan?.id,
+        })),
       checkouts: checkouts.map(serializeCardCheckout),
     };
     return c.json(body);
+  });
+
+  /**
+   * «جرّب هذه الوحدة» — 14 days, once per module per tenant (DEC-31 rule 4).
+   * The second attempt is refused bilingually by the domain, on the unique
+   * (tenant, module) key rather than on a prior read, so two simultaneous
+   * clicks cannot both open a trial.
+   */
+  app.post("/module-trials", async (c) => {
+    const caller = await resolveCaller(c);
+    if (caller instanceof Response) return caller;
+    if (!allowed(caller.grant, "admin.settings.edit")) return forbidden(c);
+    const parsed = startModuleTrialRequestSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    const nowIso = now().toISOString();
+    const view = await resolveTenantPlan(platform, caller.tenant.id, nowIso);
+    if (!view.plan) return c.json({ error: "SUBSCRIPTION_NOT_FOUND", message: "لا يوجد اشتراك فعّال لهذه المنشأة" }, 404);
+    const entitled = [
+      ...view.plan.modules,
+      ...(view.subscription?.addOnModules ?? []),
+      ...liveTrialModules(view.moduleTrials, nowIso),
+    ];
+    try {
+      const trial = await startModuleTrial(
+        {
+          id: randomUUID(),
+          tenantId: caller.tenant.id,
+          module: parsed.data.module,
+          startedBy: `tenant:${caller.tenant.code}:${caller.grant.userId}`,
+          entitledModules: entitled,
+          now: nowIso,
+        },
+        platform.stores.moduleTrials,
+      );
+      await recordSecurityEvent(platform.audit, {
+        module: "platform",
+        entityType: "MODULE_TRIAL",
+        entityId: trial.id,
+        action: SubscriptionTransition.ModuleTrialStarted,
+        actor: trial.startedBy,
+        severity: "INFO",
+        timestamp: nowIso,
+        details: { tenantId: caller.tenant.id, module: trial.module, endsAt: trial.endsAt },
+      });
+      router.invalidate(caller.tenant.code);
+      return c.json({ module: trial.module, startedAt: trial.startedAt, endsAt: trial.endsAt }, 201);
+    } catch (err) {
+      if (err instanceof ModuleTrialAlreadyUsedError) {
+        return c.json({ error: err.code, module: err.module, message: err.message, messageEn: err.messageEn }, 409);
+      }
+      if (err instanceof ModuleTrialUnavailableError) {
+        return c.json({ error: err.code, module: err.module, message: err.message, messageEn: err.messageEn }, 409);
+      }
+      throw err;
+    }
   });
 
   app.post("/checkout", async (c) => {

@@ -278,6 +278,41 @@ export const platformCardCheckoutsSchema = z.object({
   checkouts: z.array(cardCheckoutSchema),
 });
 
+/** How a module stands for this tenant right now (DEC-31 rules 3 and 5). */
+export const billingModuleStateSchema = z.enum(["active", "trialing", "read_only", "locked"]);
+
+export const billingModuleSchema = z.object({
+  id: z.string().min(1),
+  nameAr: z.string().min(1),
+  nameEn: z.string().min(1),
+  state: billingModuleStateSchema,
+  /** When a live module trial on this module ends; null when none is running. */
+  trialEndsAt: z.string().nullable(),
+  /** This tenant has already spent its one trial of this module. */
+  trialUsed: z.boolean(),
+  canTrial: z.boolean(),
+});
+
+export const billingQuotaSchema = z.object({
+  kind: quotaKindSchema,
+  allowed: z.number().int().nonnegative(),
+  used: z.number().int().nonnegative(),
+});
+
+export const billingLimitSchema = z.object({
+  limit: z.enum(["seats", "branches", "warehouses"]),
+  allowed: z.number().int().nonnegative(),
+  used: z.number().int().nonnegative(),
+});
+
+export const billingPlanOfferSchema = planSchema
+  .pick({
+    id: true, code: true, nameAr: true, nameEn: true, kind: true, modules: true,
+    seatsIncluded: true, branchesIncluded: true, warehousesIncluded: true, quotas: true,
+    priceMonthly: true, priceYearly: true, trialDays: true,
+  })
+  .extend({ current: z.boolean() });
+
 export const tenantBillingSchema = z.object({
   cardCheckout: z.boolean(),
   testMode: z.boolean(),
@@ -290,10 +325,24 @@ export const tenantBillingSchema = z.object({
       planNameAr: z.string(),
       planNameEn: z.string(),
       amountDue: z.string(),
+      planKind: planKindSchema,
     })
     .nullable(),
+  /** The tenant's own calendar day and month — every days-left and quota figure is read on these. */
+  today: z.string().nullable(),
+  month: z.string().nullable(),
+  /** The reverse trial's end, and how many of the tenant's own days are left. */
+  trialEndsAt: z.string().nullable(),
+  trialDaysLeft: z.number().int().nullable(),
+  moduleTrialDays: z.number().int().nonnegative(),
+  quotas: z.array(billingQuotaSchema),
+  limits: z.array(billingLimitSchema),
+  modules: z.array(billingModuleSchema),
+  plans: z.array(billingPlanOfferSchema),
   checkouts: z.array(cardCheckoutSchema),
 });
+
+export const startModuleTrialRequestSchema = z.object({ module: z.string().min(1) });
 
 export type PlatformRoleDTO = z.infer<typeof platformRoleSchema>;
 export type PlatformUserStatusDTO = z.infer<typeof platformUserStatusSchema>;
@@ -330,4 +379,10 @@ export type CardCheckoutStatusDTO = z.infer<typeof cardCheckoutStatusSchema>;
 export type CardCheckoutDTO = z.infer<typeof cardCheckoutSchema>;
 export type CreateCardCheckoutRequestDTO = z.infer<typeof createCardCheckoutRequestSchema>;
 export type TenantBillingDTO = z.infer<typeof tenantBillingSchema>;
+export type BillingModuleStateDTO = z.infer<typeof billingModuleStateSchema>;
+export type BillingModuleDTO = z.infer<typeof billingModuleSchema>;
+export type BillingQuotaDTO = z.infer<typeof billingQuotaSchema>;
+export type BillingLimitDTO = z.infer<typeof billingLimitSchema>;
+export type BillingPlanOfferDTO = z.infer<typeof billingPlanOfferSchema>;
+export type StartModuleTrialRequestDTO = z.infer<typeof startModuleTrialRequestSchema>;
 export type PlatformCardCheckoutsDTO = z.infer<typeof platformCardCheckoutsSchema>;

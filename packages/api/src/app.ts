@@ -1255,6 +1255,9 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
             numbering: options.salesInvoices.numbering,
             gl: options.salesInvoices.gl,
             stock: options.salesInvoices.stock,
+            quota:
+              options.salesInvoices.quota ??
+              createSalesInvoiceQuota(options.salesInvoices.repo, (fn) => uow.transaction(fn)),
           }
         : undefined);
     app.route("/sales-quotes", createSalesQuotesRoutes({ ...salesQuotes, invoice }, resolveAuth));

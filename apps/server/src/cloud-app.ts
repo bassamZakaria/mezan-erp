@@ -217,7 +217,7 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
   // `/api/platform` before `/api`: the tenant router's own catch-all would
   // otherwise swallow the console's routes first.
   root.route("/api/platform", platformApp);
-  root.route("/api/billing", createTenantBillingRoutes({ platform, router, env, service: checkoutService }));
+  root.route("/api/billing", createTenantBillingRoutes({ platform, router, env, service: checkoutService, now }));
   root.route("/api/signup", createSignupRoutes({ platform, router, env, now }));
   root.route("/api", router.app);
 

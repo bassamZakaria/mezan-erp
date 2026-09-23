@@ -6,7 +6,9 @@ import {
   InvalidUserError,
   DuplicateUserEmailError,
   recordSecurityEvent,
+  seatsOverLimitRefusal,
   type AuditSink,
+  type Entitlements,
   type UnitOfWork,
   type SecretHasher,
   type SettingsRepository,
@@ -42,6 +44,12 @@ export interface AuthRoutesDeps {
    * establish that a session had existed, only what it went on to do.
    */
   readonly audit?: AuditSink;
+  /**
+   * The tenant's live entitlements, so a sign-in can be refused when the
+   * tenant is over its seat count (DEC-31 rule 6). Omit it — desktop, the
+   * scenario rigs — and no seat check happens at all.
+   */
+  readonly resolveEntitlements?: (c: Context) => Promise<Entitlements | null | undefined> | Entitlements | null | undefined;
 }
 
 async function tenantName(settings: SettingsRepository): Promise<string> {
@@ -251,6 +259,27 @@ export function createAuthRoutes(deps: AuthRoutesDeps) {
       }
       await security(c, "LOGIN_FAILED", "WARNING", { username: needle });
       return c.json({ error: "INVALID_CREDENTIALS", message: "اسم المستخدم أو رمز PIN غير صحيح." }, 401);
+    }
+    /**
+     * OVER THE SEAT COUNT — the reverse trial's drop to Free can leave a tenant
+     * with more active users than the Free plan allows. DEC-31 rule 6: nothing
+     * is deleted and nobody is deactivated automatically; only a company admin
+     * can sign in, so that a human decides who stays. Checked AFTER the
+     * credential, so it can never tell an outsider how many users a tenant has.
+     */
+    if (!user.isCompanyAdmin) {
+      const entitlements = await deps.resolveEntitlements?.(c);
+      if (entitlements) {
+        const active = (await deps.uow.users.list()).filter((u) => u.status === "active").length;
+        if (active > entitlements.seats) {
+          const refusal = seatsOverLimitRefusal(entitlements.seats, active, {
+            nameAr: entitlements.planNameAr ?? entitlements.plan,
+            nameEn: entitlements.planNameEn ?? entitlements.plan,
+          });
+          await security(c, "LOGIN_REFUSED_SEATS", "WARNING", { userId: user.id, seats: entitlements.seats, active });
+          return c.json(refusal, 403);
+        }
+      }
     }
     throttle.succeed(key);
     const at = new Date().toISOString();

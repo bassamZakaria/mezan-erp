@@ -34,6 +34,7 @@ const BLOCKED_ANDROID_PERMISSIONS = [
   "android.permission.ACCESS_COARSE_LOCATION",
   "android.permission.ACCESS_BACKGROUND_LOCATION",
   "android.permission.SYSTEM_ALERT_WINDOW",
+  "android.permission.VIBRATE",
 ];
 
 const MIN_EXPO_SDK_FOR_PLAY_TARGET = 56;
@@ -104,15 +105,18 @@ function localeInfoPlist(config, locale) {
   const path = config.locales?.[locale];
   if (typeof path !== "string") return null;
   const full = join(MOBILE, path);
-  return existsSync(full) ? readJson(full) : null;
+  if (!existsSync(full)) return null;
+  const parsed = readJson(full);
+  return parsed.ios ?? parsed;
 }
 
 function defaultApiHosts() {
   const hosts = [];
   const configured = expo().extra?.apiBaseUrl;
   if (typeof configured === "string") hosts.push(["app.json extra.apiBaseUrl", configured]);
-  const provider = readFileSync(join(MOBILE_SRC, "session", "SessionProvider.tsx"), "utf8");
-  for (const match of provider.matchAll(/"(https?:\/\/[^"]+)"/g)) hosts.push(["SessionProvider fallback", match[1]]);
+  const config = readFileSync(join(MOBILE_SRC, "config.ts"), "utf8");
+  const fallback = /DEFAULT_BASE_URL\s*=[^;]*?"(https?:\/\/[^"]+)"/.exec(config);
+  hosts.push(["src/config.ts fallback", fallback ? fallback[1] : "(none)"]);
   return hosts;
 }
 
@@ -120,7 +124,7 @@ const CHECKS = [
   {
     id: "privacy-manifest",
     title: "ios.privacyManifests declares every required-reason API the build uses, and no tracking",
-    status: Status.Pending,
+    status: Status.Active,
     run() {
       const manifest = expo().ios?.privacyManifests;
       if (!manifest) return ["app.json has no expo.ios.privacyManifests"];
@@ -143,7 +147,7 @@ const CHECKS = [
   {
     id: "export-compliance",
     title: "ITSAppUsesNonExemptEncryption is false (HTTPS and the OS keychain only)",
-    status: Status.Pending,
+    status: Status.Active,
     run() {
       const ios = expo().ios ?? {};
       const viaConfig = ios.config?.usesNonExemptEncryption;
@@ -154,7 +158,7 @@ const CHECKS = [
   {
     id: "usage-strings",
     title: "Camera and Face ID usage strings exist in Arabic and in English",
-    status: Status.Pending,
+    status: Status.Active,
     run() {
       const config = expo();
       const failures = [];
@@ -177,7 +181,7 @@ const CHECKS = [
   {
     id: "android-permissions",
     title: "android.blockedPermissions removes every permission no screen uses",
-    status: Status.Pending,
+    status: Status.Active,
     run() {
       const blocked = new Set(expo().android?.blockedPermissions ?? []);
       return BLOCKED_ANDROID_PERMISSIONS.filter((p) => !blocked.has(p)).map((p) => `${p} is not blocked`);
@@ -235,7 +239,7 @@ const CHECKS = [
   {
     id: "default-api-host",
     title: "The compiled default API host is the reviewer environment, not the dead demo.mezan.app, and ends in /api",
-    status: Status.Pending,
+    status: Status.Active,
     run() {
       const failures = [];
       for (const [where, url] of defaultApiHosts()) {
@@ -256,11 +260,51 @@ const CHECKS = [
   {
     id: "in-app-legal-links",
     title: "The privacy policy and the account-deletion page are linked from inside the app",
-    status: Status.Pending,
+    status: Status.Active,
     run() {
       const files = sourceFiles(MOBILE_SRC, new Set([".ts", ".tsx"]));
       const text = files.filter((f) => !/\.test\.tsx?$/.test(f)).map((f) => readFileSync(f, "utf8")).join("\n");
       return LEGAL_PATHS.filter((path) => !text.includes(path)).map((path) => `no link to ${path}`);
+    },
+  },
+  {
+    id: "legal-site-origin",
+    title: "The in-app legal links open on the same host the app signs in to",
+    status: Status.Active,
+    run() {
+      const extra = expo().extra ?? {};
+      try {
+        const api = new URL(extra.apiBaseUrl);
+        const site = new URL(extra.publicSiteUrl);
+        return api.origin === site.origin ? [] : [`publicSiteUrl ${site.origin} is not the API's origin ${api.origin}`];
+      } catch {
+        return ["expo.extra.apiBaseUrl and expo.extra.publicSiteUrl must both be URLs"];
+      }
+    },
+  },
+  {
+    id: "listing-legal-urls",
+    title: "The listings' privacy and deletion URLs are on the host the app links to",
+    status: Status.Active,
+    run() {
+      const site = new URL(expo().extra?.publicSiteUrl ?? "https://invalid.invalid").origin;
+      const failures = [];
+      for (const file of Object.keys(STORE_LIMITS)) {
+        const path = join(STORE_DOCS, file);
+        if (!existsSync(path)) continue;
+        for (const match of readFileSync(path, "utf8").matchAll(/https:\/\/[^"\s]+\/legal\/[a-z-]+/g)) {
+          if (new URL(match[0]).origin !== site) failures.push(`${file}: ${match[0]} is not on ${site}`);
+        }
+      }
+      return failures;
+    },
+  },
+  {
+    id: "tablet-decision",
+    title: "supportsTablet is false for v1 (portrait-only phone layouts; no iPad screenshots are produced)",
+    status: Status.Active,
+    run() {
+      return expo().ios?.supportsTablet === false ? [] : ["ios.supportsTablet must be false until every screen is walked and screenshotted on an iPad"];
     },
   },
   {

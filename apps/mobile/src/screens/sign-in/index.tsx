@@ -3,6 +3,7 @@ import { useState } from "react";
 import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Button } from "@/components/button";
+import { LegalLinks } from "@/components/legal-links";
 import { TextField } from "@/components/text-field";
 import { describeApiError } from "@/api/errors";
 import { useStrings } from "@/i18n";
@@ -97,6 +98,7 @@ export function SignIn() {
         {failure === null ? null : <Text style={[styles.failure, { color: theme.negative }]}>{failure}</Text>}
 
         <Button busy={busy} disabled={!complete} label={busy ? strings.signIn.submitting : strings.signIn.submit} onPress={submit} />
+        <LegalLinks />
       </ScrollView>
     </KeyboardAvoidingView>
   );

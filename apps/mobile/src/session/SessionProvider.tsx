@@ -1,4 +1,4 @@
-import Constants from "expo-constants";
+import { DEFAULT_BASE_URL } from "@/config";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AppState } from "react-native";
 import { loginResponseSchema, type SessionDTO } from "@mezan/contracts";
@@ -7,9 +7,6 @@ import { forgetCachedReads } from "@/api/query-cache";
 import { HttpMethod, apiRequest, ScopeAll, type ApiCredentials, type RequestOptions } from "@/api/client";
 import { confirmDeviceOwner, deviceCanConfirmOwner } from "./device-lock";
 import { clearSession, loadConnection, loadSession, saveConnection, saveSession, type Connection } from "./storage";
-
-const DEFAULT_BASE_URL =
-  (Constants.expoConfig?.extra as { apiBaseUrl?: string } | undefined)?.apiBaseUrl ?? "https://demo.mezan.app";
 
 export interface SignInInput {
   readonly baseUrl: string;
@@ -52,14 +49,19 @@ export function SessionProvider({ children }: { children: ReactNode }): ReactNod
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      const [stored, storedConnection] = await Promise.all([loadSession(), loadConnection()]);
-      if (cancelled) return;
-      const gate = stored !== null && (await deviceCanConfirmOwner());
-      if (cancelled) return;
-      if (storedConnection) setConnection(storedConnection);
-      setSession(stored);
-      setLocked(gate);
-      setReady(true);
+      try {
+        const [stored, storedConnection] = await Promise.all([loadSession(), loadConnection()]);
+        if (cancelled) return;
+        const gate = stored !== null && (await deviceCanConfirmOwner());
+        if (cancelled) return;
+        if (storedConnection) setConnection(storedConnection);
+        setSession(stored);
+        setLocked(gate);
+      } catch (error: unknown) {
+        console.warn("[mezan] the stored session could not be read", error);
+      } finally {
+        if (!cancelled) setReady(true);
+      }
     })();
     return () => {
       cancelled = true;

@@ -45,7 +45,7 @@ History (item and customer searches are requests to the company's own records,
 declared under Other User Content), Identifiers → Device ID, Purchases, Usage
 Data, Diagnostics, Other Data.
 
-**Privacy policy URL:** `https://{REVIEW_HOST}/legal/privacy?lang=en` (Arabic:
+**Privacy policy URL:** `https://review.mezan.app/legal/privacy?lang=en` (Arabic:
 `/legal/privacy`).
 
 ## Google — Data safety
@@ -56,7 +56,7 @@ Data, Diagnostics, Other Data.
 Policy: "Every connection between the app and the server is encrypted (HTTPS)."
 
 **Do you provide a way for users to request that their data is deleted?** Yes —
-`https://{REVIEW_HOST}/legal/account-deletion?lang=en`.
+`https://review.mezan.app/legal/account-deletion?lang=en`.
 
 **Account creation.** Choose the option that the app does not allow users to
 create an account (the company administrator creates it — policy: "You cannot

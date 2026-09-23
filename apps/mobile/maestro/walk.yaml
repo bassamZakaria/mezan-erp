@@ -1,0 +1,85 @@
+appId: app.mezan.mobile
+---
+- launchApp:
+    clearState: true
+    clearKeychain: true
+- extendedWaitUntil:
+    visible: ${L_SUBMIT}
+    timeout: 30000
+- takeScreenshot: 01-sign-in
+- tapOn:
+    point: "92%,26%"
+- eraseText: 60
+- inputText: ${SERVER}
+- tapOn:
+    text: ${L_TENANT}
+    index: 1
+- inputText: ${TENANT}
+- tapOn:
+    text: ${L_EMAIL}
+    index: 1
+- inputText: ${EMAIL}
+- tapOn:
+    text: ${L_PIN}
+    index: 1
+- inputText: ${PIN}
+- tapOn:
+    text: ${L_SERVER}
+    index: 0
+- tapOn: ${L_SUBMIT}
+- extendedWaitUntil:
+    visible: ${T_SALES_TODAY}
+    timeout: 30000
+- waitForAnimationToEnd
+- takeScreenshot: 02-home
+- tapOn:
+    id: tab-customers
+- extendedWaitUntil:
+    visible: ".*${CUSTOMER}.*"
+    timeout: 20000
+- takeScreenshot: 03-customers
+- tapOn: ".*${CUSTOMER}.*"
+- extendedWaitUntil:
+    visible: ${L_AGING}
+    timeout: 20000
+- waitForAnimationToEnd
+- takeScreenshot: 04-customer
+- tapOn:
+    id: BackButton
+- tapOn:
+    id: tab-sell
+- assertVisible: ".*${C_CUSTOMER_PLACEHOLDER}.*"
+- waitForAnimationToEnd
+- takeScreenshot: 05-sell
+- tapOn:
+    id: tab-stock
+- tapOn:
+    text: ${L_STOCK_SEARCH}
+    index: 1
+- inputText: ${ITEM_QUERY}
+- pressKey: Enter
+- extendedWaitUntil:
+    visible: ".*${ITEM}.*"
+    timeout: 20000
+- waitForAnimationToEnd
+- takeScreenshot: 06-stock
+- tapOn:
+    id: tab-more
+- assertVisible: ".*${M_CLOCK}.*"
+- waitForAnimationToEnd
+- takeScreenshot: 07-more
+- tapOn: ".*${M_COLLECT}.*"
+- assertVisible: ${C_SUBMIT}
+- waitForAnimationToEnd
+- takeScreenshot: 08-collect
+- tapOn:
+    id: BackButton
+- tapOn: ".*${M_CLOCK}.*"
+- waitForAnimationToEnd
+- takeScreenshot: 09-clock
+- tapOn:
+    id: BackButton
+- tapOn: ".*${M_APPROVALS}.*"
+- assertVisible: ${APPROVALS_ASSERT}
+- waitForAnimationToEnd
+- takeScreenshot: 10-approvals

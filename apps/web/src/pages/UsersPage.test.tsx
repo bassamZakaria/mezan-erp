@@ -271,3 +271,66 @@ describe("UsersPage", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 });
+
+describe("UsersPage — personal-data erasure (D348)", () => {
+  const erasedUser: UserDTO = {
+    ...user,
+    id: "user-3",
+    nameAr: "مستخدم محذوف",
+    nameEn: "Deleted user",
+    email: "erased-user-3@erased.invalid",
+    isCompanyAdmin: false,
+    roleId: "role-1",
+    status: "inactive",
+    erasedAt: "2026-09-23T10:00:00.000Z",
+  };
+
+  it("shows no erase control until a caller wires one", () => {
+    renderPage();
+    expect(screen.queryByRole("button", { name: "محو البيانات الشخصية" })).not.toBeInTheDocument();
+  });
+
+  it("names the account and what is kept, and refuses to submit until the email is typed back exactly", async () => {
+    const onErase = vi.fn().mockResolvedValue({ ok: true, value: { alreadyErased: false } });
+    renderPage({ onErase });
+
+    fireEvent.click(screen.getAllByRole("button", { name: "محو البيانات الشخصية" })[0]!);
+    expect(await screen.findByText(/الحساب: محمد الشهابي/)).toBeInTheDocument();
+    expect(screen.getByText(/القيود المرحّلة/)).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("اكتب بريد الحساب للتأكيد"), { target: { value: "wrong@cyag.test" } });
+    fireEvent.change(screen.getByLabelText(/سبب المحو/), { target: { value: "طلب صاحب البيانات" } });
+    fireEvent.click(screen.getByRole("button", { name: "محو البيانات" }));
+    expect(await screen.findByText(/اكتب بريد الحساب بالضبط/)).toBeInTheDocument();
+    expect(onErase).not.toHaveBeenCalled();
+
+    fireEvent.change(screen.getByLabelText("اكتب بريد الحساب للتأكيد"), { target: { value: "mohamed@cyag.test" } });
+    fireEvent.click(screen.getByRole("button", { name: "محو البيانات" }));
+    await waitFor(() =>
+      expect(onErase).toHaveBeenCalledWith("user-1", { confirmEmail: "mohamed@cyag.test", reason: "طلب صاحب البيانات" }),
+    );
+  });
+
+  it("surfaces a refusal from the server instead of closing", async () => {
+    const onErase = vi.fn().mockResolvedValue({ ok: false, error: "لا يمكن محو بيانات آخر مدير شركة نشط." });
+    renderPage({ onErase });
+
+    fireEvent.click(screen.getAllByRole("button", { name: "محو البيانات الشخصية" })[0]!);
+    fireEvent.change(screen.getByLabelText("اكتب بريد الحساب للتأكيد"), { target: { value: "mohamed@cyag.test" } });
+    fireEvent.change(screen.getByLabelText(/سبب المحو/), { target: { value: "طلب صاحب البيانات" } });
+    fireEvent.click(screen.getByRole("button", { name: "محو البيانات" }));
+
+    expect(await screen.findByText("لا يمكن محو بيانات آخر مدير شركة نشط.")).toBeInTheDocument();
+  });
+
+  it("renders an erased row as the placeholder and offers no edit, enable or erase on it", () => {
+    const onErase = vi.fn();
+    renderPage({ users: [erasedUser], onErase, onUnlock: vi.fn() });
+
+    expect(screen.getByText("مستخدم محذوف")).toBeInTheDocument();
+    expect(screen.getByText("محيت بياناته")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "محو البيانات الشخصية" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "تفعيل" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "فكّ القفل" })).not.toBeInTheDocument();
+  });
+});

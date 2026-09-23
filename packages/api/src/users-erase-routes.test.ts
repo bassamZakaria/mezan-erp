@@ -116,7 +116,7 @@ async function harness(actorId = "admin-1") {
       clockCredentials,
       challenges,
     },
-  } as Parameters<typeof createApp>[1]);
+  } as unknown as Parameters<typeof createApp>[1]);
 
   return { app, uow, employees, attendance, attachments, clockCredentials, challenges, audit, sessions };
 }
@@ -394,7 +394,7 @@ describe("POST /users/:id/erase — personal-data erasure (D348)", () => {
         users: uow.users,
         numbering: { next: async () => ({ formatted: "EMP-0002" }) },
       },
-    } as Parameters<typeof createApp>[1]);
+    } as unknown as Parameters<typeof createApp>[1]);
 
     const res = await erase(app, "u-1", { confirmEmail: "mohamed@cyag.test", reason: "طلب صاحب البيانات" });
     expect(res.status).toBe(403);

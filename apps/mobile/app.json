@@ -4,7 +4,7 @@
     "slug": "mezan",
     "scheme": "mezan",
     "version": "2026.9.0",
-    "orientation": "portrait",
+    "orientation": "default",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
     "backgroundColor": "#ffffff",
@@ -15,7 +15,8 @@
       "supportsRTL": true
     },
     "ios": {
-      "supportsTablet": false,
+      "supportsTablet": true,
+      "requireFullScreen": false,
       "bundleIdentifier": "app.mezan.mobile",
       "infoPlist": {
         "CFBundleDevelopmentRegion": "ar",
@@ -102,7 +103,8 @@
           "faceIDPermission": "\u064a\u064f\u0633\u062a\u062e\u062f\u0645 \u0627\u0644\u062a\u0639\u0631\u0651\u0641 \u0639\u0644\u0649 \u0627\u0644\u0648\u062c\u0647 \u0644\u0641\u062a\u062d \u062c\u0644\u0633\u0629 \u0645\u064a\u0632\u0627\u0646 \u0627\u0644\u0645\u062d\u0641\u0648\u0638\u0629 \u0639\u0644\u0649 \u0647\u0630\u0627 \u0627\u0644\u062c\u0647\u0627\u0632."
         }
       ],
-      "./plugins/with-pod-deployment-target"
+      "./plugins/with-pod-deployment-target",
+      "./plugins/with-android-large-screen"
     ],
     "platforms": [
       "ios",

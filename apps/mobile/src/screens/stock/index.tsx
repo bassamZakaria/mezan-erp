@@ -1,6 +1,6 @@
 import { CameraView, type BarcodeScanningResult, type BarcodeType } from "expo-camera";
 import { useMemo, useState } from "react";
-import { FlatList, Modal, Pressable, StyleSheet, Text, View } from "react-native";
+import { FlatList, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { ItemDTO } from "@mezan/contracts";
 import { Button, ButtonTone } from "@/components/button";
@@ -10,7 +10,9 @@ import { TextField } from "@/components/text-field";
 import { describeApiError } from "@/api/errors";
 import { useItemSearch, useItemStock, useWarehouses } from "@/api/queries";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
+import { SplitPlaceholder, SplitView } from "@/components/split-view";
 import { useStrings } from "@/i18n";
+import { useIsSplit, useSafeHorizontalPadding } from "@/layout";
 import { formatMoney } from "@/money";
 import { STOCK_BARCODE_TYPES } from "@/domain/barcode";
 import { useSession } from "@/session/SessionProvider";
@@ -23,6 +25,8 @@ export function Stock() {
   const { can } = useSession();
   const canSearch = can("inventory.item.view");
   const canSeeStock = can("inventory.stock.view");
+  const split = useIsSplit();
+  const sidePadding = useSafeHorizontalPadding();
 
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebouncedValue(search);
@@ -46,18 +50,8 @@ export function Stock() {
     setSelectedItem(null);
   }
 
-  return (
-    <View style={[styles.flex, { backgroundColor: theme.background, paddingTop: insets.top + SPACE.md }]}>
-      <Text style={[styles.title, { color: theme.text }]}>{strings.stock.title}</Text>
-
-      {canSearch ? null : (
-        <View style={styles.padded}>
-          <Card>
-            <Text style={[styles.notice, { color: theme.negative }]}>{strings.stock.noPermission}</Text>
-          </Card>
-        </View>
-      )}
-
+  const listPane = (
+    <View style={styles.flex}>
       <View style={styles.searchRow}>
         <View style={styles.searchField}>
           <TextField label={strings.stock.search} onChangeText={setSearch} placeholder={strings.stock.search} value={search} />
@@ -71,8 +65,7 @@ export function Stock() {
         />
       </View>
 
-      {selectedItem === null ? (
-        <FlatList
+      <FlatList
           contentContainerStyle={styles.list}
           data={itemsQuery.data ?? []}
           keyExtractor={(item) => item.id}
@@ -100,9 +93,15 @@ export function Stock() {
               </Text>
             </Pressable>
           )}
-        />
-      ) : (
-        <View style={styles.detail}>
+      />
+    </View>
+  );
+
+  const detailPane =
+    selectedItem === null ? (
+      <SplitPlaceholder label={debouncedSearch.trim().length < 2 ? strings.stock.searchHint : strings.stock.noResults} />
+    ) : (
+      <ScrollView contentContainerStyle={styles.detail}>
           <Card>
             <View style={styles.detailHeader}>
               <Text style={[styles.rowLabel, { color: theme.text }]}>{selectedItem.nameAr}</Text>
@@ -128,8 +127,27 @@ export function Stock() {
           ) : (
             <Text style={[styles.notice, { color: theme.negative }]}>{strings.stock.noPermission}</Text>
           )}
+      </ScrollView>
+    );
+
+  return (
+    <View
+      style={[
+        styles.flex,
+        { backgroundColor: theme.background, paddingTop: insets.top + SPACE.md, paddingHorizontal: sidePadding },
+      ]}
+    >
+      <Text style={[styles.title, { color: theme.text }]}>{strings.stock.title}</Text>
+
+      {canSearch ? null : (
+        <View style={styles.padded}>
+          <Card>
+            <Text style={[styles.notice, { color: theme.negative }]}>{strings.stock.noPermission}</Text>
+          </Card>
         </View>
       )}
+
+      {split ? <SplitView detail={detailPane} list={listPane} /> : selectedItem === null ? listPane : detailPane}
 
       <Modal animationType="slide" onRequestClose={() => setScannerOpen(false)} visible={scannerOpen}>
         <View style={styles.scannerWrap}>

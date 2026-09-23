@@ -11,6 +11,7 @@ import { TreasuryAccountType } from "@/domain/enums";
 import { useOffline } from "@/hooks/use-offline";
 import { sumDecimals } from "@/money";
 import { useStrings } from "@/i18n";
+import { useSafeHorizontalPadding, useTileBasis } from "@/layout";
 import { useSession } from "@/session/SessionProvider";
 import { SPACE, TYPE, useTheme } from "@/theme";
 
@@ -25,6 +26,8 @@ export function Home() {
   const canSeeApprovals = can("workflow.view");
   const approvals = usePendingApprovals(canSeeApprovals);
   const offline = useOffline();
+  const sidePadding = useSafeHorizontalPadding();
+  const tileBasis = useTileBasis();
 
   const bankBalances = cockpit.data?.cash?.accounts
     .filter((account) => account.type === TreasuryAccountType.Bank && account.balance !== null)
@@ -32,11 +35,11 @@ export function Home() {
 
   const bankTile =
     bankBalances === undefined || bankBalances.length === 0 ? null : (
-      <StatTile label={strings.home.bank} amount={sumDecimals(bankBalances)} />
+      <StatTile basis={tileBasis} label={strings.home.bank} amount={sumDecimals(bankBalances)} />
     );
 
   const salesTodayTile =
-    cockpit.data === undefined ? null : <StatTile label={strings.home.salesToday} amount={cockpit.data.pulse.sales.today} />;
+    cockpit.data === undefined ? null : <StatTile basis={tileBasis} label={strings.home.salesToday} amount={cockpit.data.pulse.sales.today} />;
 
   const refresh = () => {
     void summary.refetch();
@@ -46,7 +49,10 @@ export function Home() {
 
   return (
     <ScrollView
-      contentContainerStyle={[styles.content, { paddingTop: insets.top + SPACE.lg, paddingBottom: SPACE.xxl }]}
+      contentContainerStyle={[
+        styles.content,
+        { paddingTop: insets.top + SPACE.lg, paddingBottom: SPACE.xxl, paddingHorizontal: SPACE.lg + sidePadding },
+      ]}
       refreshControl={
         <RefreshControl
           refreshing={summary.isRefetching}
@@ -85,16 +91,21 @@ export function Home() {
         {salesTodayTile}
         {summary.data === undefined ? null : (
           <>
-            <StatTile label={strings.home.cash} amount={summary.data.gl.cash} />
+            <StatTile basis={tileBasis} label={strings.home.cash} amount={summary.data.gl.cash} />
             {bankTile}
-            <StatTile label={strings.home.receivables} amount={summary.data.gl.receivables} />
-            <StatTile label={strings.home.payables} amount={summary.data.gl.payables} />
-            <StatTile amount={summary.data.gl.netProfit} emphasiseNegative label={strings.home.netProfit} />
+            <StatTile basis={tileBasis} label={strings.home.receivables} amount={summary.data.gl.receivables} />
+            <StatTile basis={tileBasis} label={strings.home.payables} amount={summary.data.gl.payables} />
+            <StatTile amount={summary.data.gl.netProfit} basis={tileBasis} emphasiseNegative label={strings.home.netProfit} />
           </>
         )}
         {summary.data === undefined ? bankTile : null}
         {canSeeApprovals && approvals.data !== undefined ? (
-          <CountTile count={approvals.data.length} label={strings.home.approvalsWaiting} onPress={() => router.push("/approvals")} />
+          <CountTile
+            basis={tileBasis}
+            count={approvals.data.length}
+            label={strings.home.approvalsWaiting}
+            onPress={() => router.push("/approvals")}
+          />
         ) : null}
       </View>
 
@@ -127,7 +138,7 @@ export function Home() {
 }
 
 const styles = StyleSheet.create({
-  content: { paddingHorizontal: SPACE.lg, gap: SPACE.lg },
+  content: { gap: SPACE.lg },
   header: { gap: SPACE.xs },
   title: { fontSize: TYPE.display, fontWeight: "800" },
   tenant: { fontSize: TYPE.label },

@@ -189,6 +189,8 @@ export interface Strings {
     readonly offlineWrite: string;
     readonly search: string;
     readonly cancel: string;
+    readonly selectCustomerToView: string;
+    readonly selectRequestToView: string;
   };
   readonly errors: {
     readonly network: string;
@@ -387,6 +389,8 @@ const AR: Strings = {
     offlineWrite: "لا يوجد اتصال. لا يمكن حفظ مستند بدون اتصال بالخادم.",
     search: "بحث",
     cancel: "إلغاء",
+    selectCustomerToView: "اختر عميلًا من القائمة لعرض ملفه",
+    selectRequestToView: "اختر طلبًا من القائمة لمراجعته",
   },
   errors: {
     network: "تعذّر الوصول إلى الخادم. تحقّق من الاتصال ومن عنوان الخادم.",
@@ -585,6 +589,8 @@ const EN: Strings = {
     offlineWrite: "Offline. A document cannot be saved without a connection.",
     search: "Search",
     cancel: "Cancel",
+    selectCustomerToView: "Pick a customer from the list to see their file",
+    selectRequestToView: "Pick a request from the list to review it",
   },
   errors: {
     network: "The server could not be reached. Check the connection and the server address.",

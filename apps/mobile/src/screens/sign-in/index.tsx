@@ -7,6 +7,7 @@ import { LegalLinks } from "@/components/legal-links";
 import { TextField } from "@/components/text-field";
 import { describeApiError } from "@/api/errors";
 import { useStrings } from "@/i18n";
+import { useFormWidth, useSafeHorizontalPadding } from "@/layout";
 import { useSession } from "@/session/SessionProvider";
 import { SPACE, TYPE, useTheme } from "@/theme";
 
@@ -18,6 +19,8 @@ export function SignIn() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { connection, signIn } = useSession();
+  const formWidth = useFormWidth();
+  const sidePadding = useSafeHorizontalPadding();
 
   const [baseUrl, setBaseUrl] = useState(connection.baseUrl);
   const [tenantCode, setTenantCode] = useState(connection.tenantCode ?? "");
@@ -56,7 +59,15 @@ export function SignIn() {
       style={[styles.flex, { backgroundColor: theme.background }]}
     >
       <ScrollView
-        contentContainerStyle={[styles.content, { paddingTop: insets.top + SPACE.xxl, paddingBottom: insets.bottom + SPACE.xxl }]}
+        contentContainerStyle={[
+          styles.content,
+          formWidth,
+          {
+            paddingTop: insets.top + SPACE.xxl,
+            paddingBottom: insets.bottom + SPACE.xxl,
+            paddingHorizontal: SPACE.lg + sidePadding,
+          },
+        ]}
         keyboardShouldPersistTaps="handled"
       >
         <View style={styles.header}>
@@ -106,7 +117,7 @@ export function SignIn() {
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  content: { paddingHorizontal: SPACE.lg, gap: SPACE.lg },
+  content: { gap: SPACE.lg },
   header: { gap: SPACE.xs, marginBottom: SPACE.md },
   brand: { fontSize: TYPE.display, fontWeight: "800" },
   title: { fontSize: TYPE.title, fontWeight: "700" },

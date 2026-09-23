@@ -39,6 +39,9 @@ const BLOCKED_ANDROID_PERMISSIONS = [
 
 const MIN_EXPO_SDK_FOR_PLAY_TARGET = 56;
 
+const ORIENTATION_DEFAULT = "default";
+const ANDROID_LARGE_SCREEN_PLUGIN = "./plugins/with-android-large-screen";
+
 const LEGAL_PATHS = ["/legal/privacy", "/legal/account-deletion"];
 
 const PURCHASE_PATTERNS = [
@@ -301,10 +304,23 @@ const CHECKS = [
   },
   {
     id: "tablet-decision",
-    title: "supportsTablet is false for v1 (portrait-only phone layouts; no iPad screenshots are produced)",
+    title: "Tablets are supported on both platforms: iPad on, no full-screen requirement, no locked orientation, a resizeable Android activity",
     status: Status.Active,
     run() {
-      return expo().ios?.supportsTablet === false ? [] : ["ios.supportsTablet must be false until every screen is walked and screenshotted on an iPad"];
+      const config = expo();
+      const failures = [];
+      if (config.ios?.supportsTablet !== true) failures.push("ios.supportsTablet must be true — the owner asked for tablets on 2026-09-23");
+      // requireFullScreen true opts the app out of iPad Slide Over and Split View.
+      if (config.ios?.requireFullScreen === true) failures.push("ios.requireFullScreen must not be true — it opts the app out of iPad multitasking");
+      if (config.ios?.isTabletOnly === true) failures.push("ios.isTabletOnly must not be true — the app ships to phones as well");
+      // Expo writes android:screenOrientation from this key; "default" becomes "unspecified".
+      if (config.orientation !== ORIENTATION_DEFAULT) {
+        failures.push(`orientation must be "${ORIENTATION_DEFAULT}", not "${config.orientation}" — a locked orientation letterboxes on a large screen`);
+      }
+      // Expo's app config has no android:resizeableActivity key, so a plugin sets it.
+      const plugins = (config.plugins ?? []).map((p) => (Array.isArray(p) ? p[0] : p));
+      if (!plugins.includes(ANDROID_LARGE_SCREEN_PLUGIN)) failures.push(`${ANDROID_LARGE_SCREEN_PLUGIN} is not in expo.plugins`);
+      return failures;
     },
   },
   {

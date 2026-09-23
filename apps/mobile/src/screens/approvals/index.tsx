@@ -141,6 +141,7 @@ export function Approvals() {
             <Pressable
               accessibilityRole="button"
               accessibilityState={{ selected: isSelected }}
+              testID="approval-summary"
               onPress={() => {
                 setSelectedId(item.id);
                 setRejectingId(null);

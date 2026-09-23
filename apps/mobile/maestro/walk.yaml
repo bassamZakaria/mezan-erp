@@ -3,12 +3,14 @@ appId: app.mezan.mobile
 - launchApp:
     clearState: true
     clearKeychain: true
+- setOrientation: ${ORIENTATION}
 - extendedWaitUntil:
     visible: ${L_SUBMIT}
     timeout: 30000
 - takeScreenshot: 01-sign-in
 - tapOn:
-    point: "92%,26%"
+    text: ${L_SERVER}
+    index: 1
 - eraseText: 60
 - inputText: ${SERVER}
 - tapOn:
@@ -46,6 +48,7 @@ appId: app.mezan.mobile
 - takeScreenshot: 04-customer
 - tapOn:
     id: BackButton
+    optional: true
 - tapOn:
     id: tab-sell
 - assertVisible: ".*${C_CUSTOMER_PLACEHOLDER}.*"
@@ -63,6 +66,9 @@ appId: app.mezan.mobile
     timeout: 20000
 - waitForAnimationToEnd
 - takeScreenshot: 06-stock
+- tapOn: ".*${ITEM}.*"
+- waitForAnimationToEnd
+- takeScreenshot: 06b-stock-item
 - tapOn:
     id: tab-more
 - assertVisible: ".*${M_CLOCK}.*"
@@ -74,12 +80,18 @@ appId: app.mezan.mobile
 - takeScreenshot: 08-collect
 - tapOn:
     id: BackButton
+    optional: true
 - tapOn: ".*${M_CLOCK}.*"
 - waitForAnimationToEnd
 - takeScreenshot: 09-clock
 - tapOn:
     id: BackButton
+    optional: true
 - tapOn: ".*${M_APPROVALS}.*"
+- tapOn:
+    id: approval-summary
+    index: 0
+    optional: true
 - assertVisible: ${APPROVALS_ASSERT}
 - waitForAnimationToEnd
 - takeScreenshot: 10-approvals

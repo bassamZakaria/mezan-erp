@@ -1,7 +1,6 @@
 import type { ApprovalRequestDTO } from "@mezan/contracts";
 import { useState } from "react";
 import { FlatList, StyleSheet, Text, View } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Button, ButtonTone } from "@/components/button";
 import { Card } from "@/components/card";
 import { TextField } from "@/components/text-field";
@@ -16,7 +15,6 @@ import { SPACE, TYPE, useTheme } from "@/theme";
 export function Approvals() {
   const strings = useStrings();
   const theme = useTheme();
-  const insets = useSafeAreaInsets();
   const { can } = useSession();
   const allowed = can("workflow.view");
 
@@ -76,15 +74,14 @@ export function Approvals() {
 
   if (!allowed) {
     return (
-      <View style={[styles.centre, { backgroundColor: theme.background, paddingTop: insets.top }]}>
+      <View style={[styles.centre, { backgroundColor: theme.background }]}>
         <Text style={[styles.notice, { color: theme.negative }]}>{strings.approvals.noPermission}</Text>
       </View>
     );
   }
 
   return (
-    <View style={[styles.flex, { backgroundColor: theme.background, paddingTop: insets.top + SPACE.md }]}>
-      <Text style={[styles.title, { color: theme.text }]}>{strings.approvals.title}</Text>
+    <View style={[styles.flex, { backgroundColor: theme.background, paddingTop: SPACE.md }]}>
       <View style={styles.padded}>
         <OfflineNotice />
       </View>
@@ -183,7 +180,6 @@ const styles = StyleSheet.create({
   padded: { paddingHorizontal: SPACE.lg },
   flex: { flex: 1 },
   centre: { flex: 1, alignItems: "center", justifyContent: "center", padding: SPACE.lg },
-  title: { fontSize: TYPE.display, fontWeight: "800", paddingHorizontal: SPACE.lg, marginBottom: SPACE.sm },
   list: { paddingHorizontal: SPACE.lg, paddingBottom: SPACE.xxl, gap: SPACE.md },
   rowLabel: { fontSize: TYPE.body, fontWeight: "700" },
   rowMeta: { fontSize: TYPE.caption },

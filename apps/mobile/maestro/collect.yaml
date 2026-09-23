@@ -1,0 +1,27 @@
+appId: app.mezan.mobile
+---
+- launchApp
+- tapOn:
+    id: tab-more
+- tapOn: ".*${M_COLLECT}.*"
+- tapOn: ".*${C_CUSTOMER_PLACEHOLDER}.*"
+- tapOn:
+    text: ${L_PICKER_SEARCH}
+    index: 1
+- inputText: ${COLLECT_CUSTOMER_QUERY}
+- tapOn:
+    text: ${L_PICKER_SEARCH}
+    index: 0
+- tapOn: ".*${CUSTOMER}.*"
+- tapOn: ".*${C_INVOICE_PLACEHOLDER}.*"
+- tapOn: ".*${COLLECT_INVOICE}.*"
+- tapOn: ".*${C_TREASURY_PLACEHOLDER}.*"
+- tapOn: ".*${COLLECT_TREASURY}.*"
+- scrollUntilVisible:
+    element: ${C_SUBMIT}
+- takeScreenshot: 11-collect-filled
+- tapOn: ${C_SUBMIT}
+- extendedWaitUntil:
+    visible: ".*${C_SUCCESS}.*${COLLECT_INVOICE}.*"
+    timeout: 20000
+- takeScreenshot: 12-collect-posted

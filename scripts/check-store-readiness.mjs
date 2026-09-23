@@ -42,6 +42,48 @@ const MIN_EXPO_SDK_FOR_PLAY_TARGET = 56;
 const ORIENTATION_DEFAULT = "default";
 const ANDROID_LARGE_SCREEN_PLUGIN = "./plugins/with-android-large-screen";
 
+const SCREENSHOTS = join(STORE_DOCS, "screenshots");
+
+/**
+ * App Store Connect's accepted pixel sizes for the two display classes a
+ * universal app must supply, portrait and landscape. A 13" iPad set stops
+ * being optional the moment ios.supportsTablet is true.
+ */
+const APPLE_SCREENSHOT_SETS = [
+  { dir: "iphone-6.9", minimum: 3, sizes: [[1320, 2868], [1290, 2796]] },
+  { dir: "ipad-13", minimum: 3, sizes: [[2064, 2752], [2048, 2732]] },
+];
+
+/**
+ * Google Play: "For Chromebook and tablets, you can add a minimum of 4
+ * screenshots", "Upload screenshots between 1,080 and 7,680px", "Use a 16:9
+ * aspect ratio for landscape and a 9:16 aspect ratio for portrait."
+ */
+const PLAY_SCREENSHOT_SETS = [
+  { dir: "android-phone", minimum: 4 },
+  { dir: "android-tablet", minimum: 4 },
+];
+const PLAY_MIN_PX = 1080;
+const PLAY_MAX_PX = 7680;
+const PLAY_RATIO = 16 / 9;
+const PLAY_RATIO_TOLERANCE = 0.01;
+
+/** Width and height out of a PNG's IHDR, which is always the first chunk. */
+function pngSize(path) {
+  const header = readFileSync(path).subarray(0, 24);
+  if (header.length < 24 || header.readUInt32BE(0) !== 0x89504e47) return null;
+  return [header.readUInt32BE(16), header.readUInt32BE(20)];
+}
+
+function screenshotsIn(dir) {
+  const full = join(SCREENSHOTS, dir);
+  if (!existsSync(full)) return null;
+  return readdirSync(full)
+    .filter((entry) => extname(entry).toLowerCase() === ".png")
+    .sort()
+    .map((entry) => [entry, join(full, entry)]);
+}
+
 const LEGAL_PATHS = ["/legal/privacy", "/legal/account-deletion"];
 
 const PURCHASE_PATTERNS = [
@@ -304,7 +346,7 @@ const CHECKS = [
   },
   {
     id: "tablet-decision",
-    title: "Tablets are supported on both platforms: iPad on, no full-screen requirement, no locked orientation, a resizeable Android activity",
+    title: "Tablets are supported on both platforms, and the iPad 13\" and Android tablet screenshot sets exist at a size each store accepts",
     status: Status.Active,
     run() {
       const config = expo();
@@ -320,6 +362,48 @@ const CHECKS = [
       // Expo's app config has no android:resizeableActivity key, so a plugin sets it.
       const plugins = (config.plugins ?? []).map((p) => (Array.isArray(p) ? p[0] : p));
       if (!plugins.includes(ANDROID_LARGE_SCREEN_PLUGIN)) failures.push(`${ANDROID_LARGE_SCREEN_PLUGIN} is not in expo.plugins`);
+
+      for (const set of APPLE_SCREENSHOT_SETS) {
+        const shots = screenshotsIn(set.dir);
+        if (shots === null) {
+          failures.push(`docs/mobile/store/screenshots/${set.dir}/ is missing`);
+          continue;
+        }
+        if (shots.length < set.minimum) failures.push(`${set.dir}: ${shots.length} screenshot(s), fewer than ${set.minimum}`);
+        for (const [name, path] of shots) {
+          const size = pngSize(path);
+          if (size === null) {
+            failures.push(`${set.dir}/${name} is not a PNG`);
+            continue;
+          }
+          const accepted = set.sizes.some(([w, h]) => (size[0] === w && size[1] === h) || (size[0] === h && size[1] === w));
+          if (!accepted) failures.push(`${set.dir}/${name} is ${size[0]}x${size[1]}, not a size App Store Connect accepts`);
+        }
+      }
+
+      for (const set of PLAY_SCREENSHOT_SETS) {
+        const shots = screenshotsIn(set.dir);
+        if (shots === null) {
+          failures.push(`docs/mobile/store/screenshots/${set.dir}/ is missing`);
+          continue;
+        }
+        if (shots.length < set.minimum) failures.push(`${set.dir}: ${shots.length} screenshot(s), fewer than Play's ${set.minimum}`);
+        for (const [name, path] of shots) {
+          const size = pngSize(path);
+          if (size === null) {
+            failures.push(`${set.dir}/${name} is not a PNG`);
+            continue;
+          }
+          const [short, long] = size[0] <= size[1] ? size : [size[1], size[0]];
+          if (short < PLAY_MIN_PX || long > PLAY_MAX_PX) {
+            failures.push(`${set.dir}/${name} is ${size[0]}x${size[1]}, outside Play's ${PLAY_MIN_PX}-${PLAY_MAX_PX}px`);
+          }
+          if (Math.abs(long / short - PLAY_RATIO) > PLAY_RATIO_TOLERANCE) {
+            failures.push(`${set.dir}/${name} is ${size[0]}x${size[1]}, not the 16:9 or 9:16 Play asks for`);
+          }
+        }
+      }
+
       return failures;
     },
   },

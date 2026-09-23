@@ -38,7 +38,7 @@ describe("runDunningSweep", () => {
     expect(freshSub?.status).toBe("active");
   });
 
-  it("lands an ended trial on Free (DEC-31) and leaves a suspended or cancelled subscription alone", async () => {
+  it("lands an ended trial on Free, and leaves a suspended or cancelled subscription alone", async () => {
     const platform = await newPlatform();
 
     const trialing = await createTenant({ id: "t-trial", code: "trial", nameAr: "تجريبية", ownerEmail: "c@x.example", now: T }, platform.stores.tenants);
@@ -57,10 +57,15 @@ describe("runDunningSweep", () => {
 
     const result = await runDunningSweep(platform, () => new Date(PAST_END));
 
+    // DEC-31: a trial whose 14 days ran out is not "left alone" — it lands on
+    // the Free plan, active and writable. It is never dunned, because there is
+    // nothing owed; `marked` stays 0 and `landedOnFree` counts it instead.
     expect(result).toEqual({ marked: 0, failed: 0, landedOnFree: 1 });
     const landed = await platform.stores.subscriptions.findById("sub-trial");
     expect(landed?.status).toBe("active");
     expect(landed?.planId).toBe("PLAN-FREE");
+    // And the plan it came from is remembered, so every module it just lost
+    // stays readable rather than going 403.
     expect(landed?.previousPlanId).toBe("PLAN-CORE");
     expect((await platform.stores.subscriptions.findById("sub-susp"))?.status).toBe("suspended");
     expect((await platform.stores.subscriptions.findById("sub-cancel"))?.status).toBe("cancelled");

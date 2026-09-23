@@ -9,21 +9,26 @@ import { createPlatform, PLATFORM_SEED_PLANS } from "./create-platform.js";
 const FIXED_NOW = () => new Date("2026-01-01T00:00:00Z");
 
 describe("createPlatform", () => {
-  it("seeds free, core, business and enterprise once, in order, at their EGP prices", async () => {
+  it("seeds core, business and enterprise once, in order, at their EGP prices", async () => {
     const platform = await createPlatform({ dbPath: ":memory:", now: FIXED_NOW });
     const plans = await platform.stores.plans.list();
     expect(plans.map((p) => p.code)).toEqual(["free", "core", "business", "enterprise"]);
     expect(plans.map((p) => p.seatsIncluded)).toEqual([2, 3, 10, 25]);
     expect(plans.map((p) => p.priceMonthly.toString())).toEqual(["0.000000", "490.000000", "980.000000", "1960.000000"]);
     expect(plans.map((p) => p.priceYearly.toString())).toEqual(["0.000000", "4900.000000", "9800.000000", "19600.000000"]);
-    expect(plans.map((p) => p.trialDays)).toEqual([0, 14, 14, 14]);
-    expect(plans.map((p) => p.kind)).toEqual([PlanKind.Free, PlanKind.Paid, PlanKind.Paid, PlanKind.Paid]);
-    expect(plans[0]!.quotas).toEqual({ [QuotaKind.SalesInvoicesPerMonth]: 100 });
     for (const p of plans) {
+      // The free plan has nothing to trial — it IS where a trial lands.
+      expect(p.trialDays).toBe(p.code === "free" ? 0 : 14);
       expect(p.status).toBe("active");
       expect(p.isPublic).toBe(true);
       expect(p.createdAt).toBe("2026-01-01T00:00:00.000Z");
     }
+    const free = plans[0]!;
+    expect(free.kind).toBe(PlanKind.Free);
+    // DEC-31 §3.3 — core modules, 2 users, 1 branch, 1 warehouse, 100 invoices
+    // a month. Business call, editable in the console, seeded here.
+    expect(free.quotas).toEqual({ [QuotaKind.SalesInvoicesPerMonth]: 100 });
+    expect([...free.modules].sort()).toEqual(["accounting", "inventory", "purchases", "sales", "treasury"]);
     const enterprise = plans[3]!;
     // `pos` is licensable (DEC-23) but deliberately stays out of the seeded
     // SaaS plans until the POS close-out lane — see `create-platform.ts`.

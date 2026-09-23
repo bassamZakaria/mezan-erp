@@ -42,6 +42,8 @@ export const userSchema = z.object({
   photoUrl: z.string().nullable(),
   lastLoginAt: z.string().nullable(),
   createdAt: z.string(),
+  /** When the person's data was erased (D348); the row then carries only placeholders. */
+  erasedAt: z.string().nullable().optional(),
 });
 
 const userBaseFields = {
@@ -87,7 +89,44 @@ export const updateUserSchema = z
     path: ["roleId"],
   });
 
+/** Records an erasure deliberately keeps. Disclosed on every result; each needs a lawyer's confirmation of its basis for the tenant. */
+export enum ErasureRetention {
+  PostedJournalEntries = "posted_journal_entries",
+  AuditTrail = "audit_trail",
+  ApprovalDecisions = "approval_decisions",
+  NamesPrintedOnPostedDocuments = "names_printed_on_posted_documents",
+  PayrollRecords = "payroll_records",
+  AttendanceHours = "attendance_hours",
+  EmployeeDocumentAttachments = "employee_document_attachments",
+}
+
+/**
+ * «محو البيانات الشخصية» — the admin types the account's current email to
+ * confirm which person is being erased, and records the request it answers.
+ */
+export const eraseUserSchema = z.object({
+  confirmEmail: z.string().trim().min(1),
+  reason: z.string().trim().min(3).max(500),
+});
+
+export const userErasureResultSchema = z.object({
+  user: userSchema,
+  erased: z.object({
+    employee: z.boolean(),
+    clockInSelfies: z.number().int().nonnegative(),
+    webauthnCredentials: z.number().int().nonnegative(),
+    webauthnChallenges: z.number().int().nonnegative(),
+    attendanceLocations: z.number().int().nonnegative(),
+    sessionsRevoked: z.boolean(),
+  }),
+  /** True when the account was already erased and this call changed nothing — the retry of a deletion request is not a failure. */
+  alreadyErased: z.boolean(),
+  retained: z.array(z.nativeEnum(ErasureRetention)),
+});
+
 export type UserDTO = z.infer<typeof userSchema>;
+export type EraseUserDTO = z.infer<typeof eraseUserSchema>;
+export type UserErasureResultDTO = z.infer<typeof userErasureResultSchema>;
 export type UserStatusDTO = z.infer<typeof userStatusSchema>;
 export type CreateUserDTO = z.infer<typeof createUserSchema>;
 export type UpdateUserDTO = z.infer<typeof updateUserSchema>;

@@ -33,6 +33,13 @@ export { createItemsRouter } from "./items-routes.js";
 export { createLabelLayoutsRouter } from "./label-routes.js";
 export { createRolesRoutes } from "./roles-routes.js";
 export { createUsersRoutes } from "./users-routes.js";
+export {
+  createUserErasurePort,
+  EMPTY_ERASURE_COUNTS,
+  type UserErasureCounts,
+  type UserErasureDeps,
+  type UserErasurePort,
+} from "./user-erasure.js";
 export { createTaxRatesRoutes } from "./tax-rates-routes.js";
 export { createCostCentersRoutes } from "./cost-centers-routes.js";
 export { createTreasuryAccountsRoutes } from "./treasury-accounts-routes.js";

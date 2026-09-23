@@ -48,6 +48,8 @@ export interface User {
   readonly status: UserStatus;
   readonly lastLoginAt: string | null;
   readonly createdAt: string;
+  /** Set once the person's data was erased (D348); the anonymised row stays because immutable records name its id. */
+  readonly erasedAt?: string | null;
 }
 
 /** Persistence port for users. The domain depends on this interface only. */

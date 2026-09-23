@@ -229,4 +229,5 @@ export interface PendingWebauthnChallenge {
 export interface WebauthnChallengeRepository {
   issue(userId: string, purpose: string, rpId: string, now?: number): Promise<string>;
   consume(userId: string, purpose: string, now?: number): Promise<PendingWebauthnChallenge | null>;
+  deleteByUserId?(userId: string): Promise<number>;
 }

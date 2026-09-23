@@ -244,6 +244,8 @@ import type {
   AllowedCurrenciesDTO,
   UpdateTreasuryAccountDTO,
   UpdateUserDTO,
+  EraseUserDTO,
+  UserErasureResultDTO,
   UpdateWarehouseDTO,
   UpsertConfigurableProductDTO,
   UserDTO,
@@ -6942,6 +6944,29 @@ export function useUnlockUser() {
     },
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: ["users"] });
+    },
+  });
+}
+
+/**
+ * «محو البيانات الشخصية» (D348) — the erasure the store listings promise.
+ *
+ * The response says what was kept and why, so the screen can tell the person
+ * who asked rather than implying the account vanished.
+ */
+export function useEraseUser() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<UserErasureResultDTO, ApiError, { id: string; body: EraseUserDTO }>({
+    mutationFn: async ({ id, body }) => {
+      const res = await request(`/users/${encodeURIComponent(id)}/erase`, { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("users.erase.failed"), t));
+      return res.json<UserErasureResultDTO>();
+    },
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: ["users"] });
+      void queryClient.invalidateQueries({ queryKey: ["employees"] });
     },
   });
 }

@@ -1,7 +1,7 @@
 /**
  * Mezan permission catalog — a versioned TS data manifest.
  *
- * Single source of truth for the 247 permissions across 19 modules the product
+ * Single source of truth for the 248 permissions across 19 modules the product
  * actually enforces, descended from the matrix in
  * `docs/archive/catalog/09-settings-dashboard-ux.md` §permission matrix and mandated as
  * "data (a versioned TS manifest)" by `docs/archive/plan.md` §5.2. The role editor, the
@@ -71,7 +71,7 @@ const CORE_MODULES: readonly ModuleDef[] = [
   { id: "cheques", labelAr: "الأوراق المالية", count: 5 },
   { id: "manufacturing", labelAr: "التصنيع", count: 5 },
   { id: "assets", labelAr: "الأصول", count: 6 },
-  { id: "admin", labelAr: "الإدارة", count: 23 },
+  { id: "admin", labelAr: "الإدارة", count: 24 },
   { id: "notifications", labelAr: "الإشعارات", count: 2 },
   { id: "audit", labelAr: "المراجعة", count: 1 },
   // --- phase11/crm-projects-assets-field — Projects & Contracting isn't part of
@@ -348,6 +348,7 @@ const ROWS: readonly Row[] = [
   // manager standing next to it, and giving them `.edit` to do it would also
   // give them every colleague's PIN.
   ["admin.users.unlock", "admin.users.view"],
+  ["admin.users.erase_personal", "admin.users.view"],
   ["admin.roles.view"],
   ["admin.roles.manage", "admin.roles.view"],
   ["admin.settings.view"],

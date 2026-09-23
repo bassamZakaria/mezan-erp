@@ -101,6 +101,7 @@ export const user = sqliteTable("user", {
   photoUrl: text("photo_url"),
   lastLoginAt: text("last_login_at"),
   createdAt: text("created_at").notNull(),
+  erasedAt: text("erased_at"),
 });
 
 export const schema = {

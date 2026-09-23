@@ -3,7 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Outlet, useLocation, useNavigate } from "react-router";
 import { AppShell, SkeletonTable, filterNavGroups, navGroupItems, type NavGroup, type NavItem } from "@mezan/ui";
 import { ALL_SCOPE } from "@mezan/domain";
-import type { BranchDTO, RoleDTO, ScopeSelectionDTO } from "@mezan/contracts";
+import type { BranchDTO, EraseUserDTO, RoleDTO, ScopeSelectionDTO } from "@mezan/contracts";
 import { TenantPreferences } from "./settings/TenantPreferences";
 
 import { useScopeSelector } from "./data/hub-hooks";
@@ -38,6 +38,7 @@ import {
   useSetUserStatus,
   useUpdateRole,
   useUnlockUser,
+  useEraseUser,
   useUpdateUser,
   useUsers,
   useWarehouses,
@@ -130,6 +131,7 @@ export function AppLayout() {
   // the login form or the first-run wizard. Ungated, like `/tenant`.
   const bootstrapStatus = useBootstrapStatus();
   const unlockUser = useUnlockUser();
+  const eraseUser = useEraseUser();
 
   /*
    * The URL is the source of truth for which screen and sub-page is on
@@ -483,6 +485,15 @@ export function AppLayout() {
     }
   }
 
+  async function handleEraseUser(userId: string, body: EraseUserDTO) {
+    try {
+      const value = await eraseUser.mutateAsync({ id: userId, body });
+      return { ok: true as const, value };
+    } catch (err) {
+      return { ok: false as const, error: err instanceof Error ? err.message : t("users.erase.failed") };
+    }
+  }
+
   async function handleSaveRole(cmd: RoleEditorSaveCommand) {
     try {
       const value = editingRole ? await updateRole.mutateAsync({ id: editingRole.id, body: cmd }) : await createRole.mutateAsync(cmd);
@@ -648,6 +659,7 @@ export function AppLayout() {
           onSave={handleSaveUser}
           onToggleStatus={handleToggleUserStatus}
           onUnlock={handleUnlockUser}
+          onErase={handleEraseUser}
         />
       ) : null}
 

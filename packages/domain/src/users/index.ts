@@ -31,9 +31,11 @@ export {
   UserErasureRefusal,
   UserErasureRefusedError,
   assertUserErasable,
+  attendanceNoteCarriesLocation,
   erasedEmployee,
   erasedUser,
   erasedUserEmail,
   isErasedUser,
   scrubAttendanceNote,
+  type UserErasureContext,
 } from "./erase-user.js";

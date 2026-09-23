@@ -129,6 +129,7 @@ import { createAttachmentsRoutes } from "./attachments-routes.js";
 import { createAccountRoutingRoutes } from "./account-routing-routes.js";
 import { createRolesRoutes } from "./roles-routes.js";
 import { createUsersRoutes } from "./users-routes.js";
+import { createUserErasurePort } from "./user-erasure.js";
 import { createTaxRatesRoutes } from "./tax-rates-routes.js";
 import { createTaxGroupsRoutes } from "./tax-groups-routes.js";
 import { createCostCentersRoutes } from "./cost-centers-routes.js";
@@ -1622,6 +1623,15 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
       audit: options.auditSink,
       sessions: options.security?.sessions,
       loginThrottle: options.security?.loginThrottle,
+      erasure: options.hr
+        ? createUserErasurePort({
+            employees: options.hr.employees,
+            attendance: options.hr.attendance,
+            attachments: options.hr.attachments ?? options.attachments?.repo,
+            clockCredentials: options.hr.clockCredentials,
+            challenges: options.hr.challenges,
+          })
+        : undefined,
     }),
   );
   app.route("/profile", createProfileRoutes(uow, hasher, resolveAuth, options.auditSink));

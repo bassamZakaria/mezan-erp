@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { Hono, type Context } from "hono";
 import {
   saveUser,
@@ -20,7 +21,6 @@ import {
   assertUserErasable,
   erasedUser,
   isErasedUser,
-  type Employee,
   type AuditSink,
   type SodConflictMatch,
   type User,
@@ -29,6 +29,7 @@ import {
   type SecretHasher,
 } from "@mezan/domain";
 import { ErasureRetention, createUserSchema, eraseUserSchema, updateUserSchema } from "@mezan/contracts";
+import { EMPTY_ERASURE_COUNTS, type UserErasurePort } from "./user-erasure.js";
 import {
   createPermissionGate,
   getAuthContext,
@@ -108,32 +109,19 @@ export interface UsersRoutesOptions {
   readonly sessions?: SessionRegistry;
   /** The SAME throttle `/auth/login` counts against, so an admin can clear a lockout. */
   readonly loginThrottle?: LoginThrottle;
-  /** The person's data held outside the user row. Omit it and `POST /:id/erase` is not mounted. */
+  /**
+   * The person's data held outside the user row. `POST /:id/erase` is mounted
+   * only with BOTH this and `audit`: an erasure nobody can prove happened is
+   * worse than none, so the absence of the sink removes the route rather than
+   * quietly skipping the record.
+   */
   readonly erasure?: UserErasurePort;
 }
 
-export interface UserErasureCounts {
-  readonly employee: boolean;
-  readonly clockInSelfies: number;
-  readonly webauthnCredentials: number;
-  readonly webauthnChallenges: number;
-  readonly attendanceLocations: number;
-}
-
 /**
- * Runs inside the erasure's transaction, over the stores the user row does not
- * cover: the linked HR employee, its clock-in selfies and attendance
- * locations, and its WebAuthn keys.
- */
-export interface UserErasurePort {
-  linkedEmployee(employeeId: string): Promise<Employee | null>;
-  eraseLinkedPersonalData(input: { readonly userId: string; readonly employee: Employee | null }): Promise<UserErasureCounts>;
-}
-
-/**
- * What an erasure keeps, sent with every result so the screen and the person
- * asking can be told. Each rests on a legal retention duty a lawyer still has
- * to confirm for the tenant (D348).
+ * What an erasure keeps, sent with every result so the screen — and the person
+ * who asked — can be told. Each rests on a retention duty a lawyer still has
+ * to confirm for the tenant (D348); none of it is a claim of compliance.
  */
 const ERASURE_RETAINS: readonly ErasureRetention[] = [
   ErasureRetention.PostedJournalEntries,
@@ -142,6 +130,7 @@ const ERASURE_RETAINS: readonly ErasureRetention[] = [
   ErasureRetention.NamesPrintedOnPostedDocuments,
   ErasureRetention.PayrollRecords,
   ErasureRetention.AttendanceHours,
+  ErasureRetention.EmployeeDocumentAttachments,
 ];
 
 /**
@@ -643,8 +632,17 @@ export function createUsersRoutes(
     return c.json({ ok: true, userId: user.id });
   });
 
-  if (erasure) {
+  if (erasure && audit) {
     const port = erasure;
+    /**
+     * «محو البيانات الشخصية» (D348) — the erasure the store listings promise.
+     *
+     * IDEMPOTENT BY DESIGN: a second call on an already-erased account is a
+     * 200 with `alreadyErased: true` and no second write. A deletion request
+     * that 409s on the retry is a deletion request the requester reasonably
+     * reads as failed, and the retry must not re-run the linked-data sweep
+     * against records the first pass already anonymised.
+     */
     app.post("/:id/erase", gate("admin.users.erase_personal"), async (c) => {
       const parsed = eraseUserSchema.safeParse(await c.req.json().catch(() => ({})));
       if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
@@ -655,7 +653,15 @@ export function createUsersRoutes(
       if (outranked) return outranked;
       const target = await uow.users.findById(id);
       if (!target) return c.json({ error: "USER_NOT_FOUND", message: "المستخدم غير موجود." }, 404);
-      if (!isErasedUser(target) && parsed.data.confirmEmail.toLowerCase() !== target.email) {
+      if (isErasedUser(target)) {
+        return c.json({
+          user: serializeUser(target),
+          erased: { ...EMPTY_ERASURE_COUNTS, sessionsRevoked: false },
+          alreadyErased: true,
+          retained: ERASURE_RETAINS,
+        });
+      }
+      if (parsed.data.confirmEmail.trim().toLowerCase() !== target.email) {
         return c.json(
           {
             error: "ERASURE_CONFIRMATION_MISMATCH",
@@ -665,18 +671,21 @@ export function createUsersRoutes(
           422,
         );
       }
-      const unusableHash = await hasher.hash(`${crypto.randomUUID()}${crypto.randomUUID()}`);
+      const unusableHash = await hasher.hash(`${randomUUID()}${randomUUID()}`);
       try {
         const result = await uow.transaction(async (tx) => {
           const current = await tx.users.findById(id);
           if (!current) throw new UserNotFoundError(id);
+          if (isErasedUser(current)) return null;
           const employee = current.employeeId ? await port.linkedEmployee(current.employeeId) : null;
           assertUserErasable(current, { actorId: ctx.userId, users: await tx.users.list(), employee });
           const erased = erasedUser(current, new Date().toISOString(), unusableHash);
           await tx.users.save(erased);
           const counts = await port.eraseLinkedPersonalData({ userId: current.id, employee });
-          // The actor and the reason travel; the erased person's name and email
-          // must not, or the erasure itself becomes a copy of what it removed.
+          // The actor, the subject id and the reason travel; the erased person's
+          // NAME AND EMAIL must not, or the audit row becomes a surviving copy
+          // of exactly what the erasure removed. It is awaited inside the
+          // transaction, so a sink that cannot record rolls the erasure back.
           await recordSecurityAdminEvent(audit, c, {
             module: "admin",
             entityType: "USER",
@@ -687,11 +696,21 @@ export function createUsersRoutes(
           });
           return { erased, counts, previousEmail: current.email };
         });
+        if (!result) {
+          const now = await uow.users.findById(id);
+          return c.json({
+            user: serializeUser(now ?? target),
+            erased: { ...EMPTY_ERASURE_COUNTS, sessionsRevoked: false },
+            alreadyErased: true,
+            retained: ERASURE_RETAINS,
+          });
+        }
         sessions?.revokeUser(id);
         loginThrottle?.succeed(result.previousEmail);
         return c.json({
           user: serializeUser(result.erased),
           erased: { ...result.counts, sessionsRevoked: sessions !== undefined },
+          alreadyErased: false,
           retained: ERASURE_RETAINS,
         });
       } catch (err) {

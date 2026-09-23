@@ -89,7 +89,7 @@ export const updateUserSchema = z
     path: ["roleId"],
   });
 
-/** Personal data held for an erased person that the erasure deliberately keeps, and why a lawyer must confirm it. */
+/** Records an erasure deliberately keeps. Disclosed on every result; each needs a lawyer's confirmation of its basis for the tenant. */
 export enum ErasureRetention {
   PostedJournalEntries = "posted_journal_entries",
   AuditTrail = "audit_trail",
@@ -97,6 +97,7 @@ export enum ErasureRetention {
   NamesPrintedOnPostedDocuments = "names_printed_on_posted_documents",
   PayrollRecords = "payroll_records",
   AttendanceHours = "attendance_hours",
+  EmployeeDocumentAttachments = "employee_document_attachments",
 }
 
 /**
@@ -118,6 +119,8 @@ export const userErasureResultSchema = z.object({
     attendanceLocations: z.number().int().nonnegative(),
     sessionsRevoked: z.boolean(),
   }),
+  /** True when the account was already erased and this call changed nothing — the retry of a deletion request is not a failure. */
+  alreadyErased: z.boolean(),
   retained: z.array(z.nativeEnum(ErasureRetention)),
 });
 

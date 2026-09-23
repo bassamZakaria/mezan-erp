@@ -134,6 +134,37 @@ export async function run(ctx: Ctx): Promise<void> {
     const hrWriteOnTrial = await api("POST", "/hr/departments", { id: "DEPT-1", code: "D1", name: "Trial Department", nameAr: "قسم التجربة" });
     check("and HR accepts a write during the trial", hrWriteOnTrial.status === 201, `status ${hrWriteOnTrial.status}`);
 
+    // The abuse §4 names: hire twenty people on the trial, then drop to Free
+    // and keep them. Two extra clerks is enough to be over the free seat count.
+    const madeRole = await api("POST", "/roles", {
+      code: "CLERK",
+      name: "كاتب مبيعات",
+      permissions: ["sales.invoice.view"],
+    });
+    const roles = await api("GET", "/roles");
+    const roleId = String(madeRole.body?.id ?? ctx.rows(roles.body)[0]?.id ?? "");
+    check("a role exists to hire against", roleId !== "", `${madeRole.status} ${JSON.stringify(madeRole.body).slice(0, 200)} / ${JSON.stringify(roles.body).slice(0, 160)}`);
+    const clerks: { email: string; pin: string }[] = [];
+    for (const n of [1, 2]) {
+      const email = `clerk${n}@freemium.example`;
+      const pin = `10000${n}`;
+      const res = await api("POST", "/users", {
+        nameAr: `موظف ${n}`,
+        email,
+        roleId,
+        isCompanyAdmin: false,
+        branchScope: "*",
+        warehouseScope: "*",
+        password: "clerk-password-1",
+        pin,
+      });
+      if (res.status === 201) clerks.push({ email, pin });
+      else check(`clerk ${n} is hired`, false, `status ${res.status} ${JSON.stringify(res.body).slice(0, 220)}`);
+    }
+    check("two more users are hired while the trial's 25 seats are open", clerks.length === 2, `created ${clerks.length}`);
+    const clerkLogin = await call("POST", "/api/auth/login", { username: clerks[0]?.email, pin: clerks[0]?.pin });
+    check("and a clerk can sign in during the trial", clerkLogin.status === 200, `status ${clerkLogin.status}`);
+
     // ------------------------------------------------------------------
     // 3 · Day 15 — the drop to Free, audited and idempotent.
     // ------------------------------------------------------------------
@@ -152,6 +183,21 @@ export async function run(ctx: Ctx): Promise<void> {
     await api("GET", "/billing/subscription");
     const trail = await api("GET", "/entitlements");
     check("the Free plan reports no expiry at all", trail.body?.expiresAt === null, String(trail.body?.expiresAt));
+
+    // ------------------------------------------------------------------
+    // 3b · Over the seat count: nobody is deleted, only an admin may sign in.
+    // ------------------------------------------------------------------
+    const clerkAfter = await call("POST", "/api/auth/login", { username: clerks[0]?.email, pin: clerks[0]?.pin });
+    check("a clerk cannot sign in while the tenant is over its seat count", clerkAfter.status === 403, `status ${clerkAfter.status}`);
+    check("and is told why", clerkAfter.body?.error === "SEATS_OVER_LIMIT", JSON.stringify(clerkAfter.body).slice(0, 220));
+    check("in Arabic", typeof clerkAfter.body?.message === "string" && /مدير المنشأة/.test(clerkAfter.body.message), String(clerkAfter.body?.message));
+    check("and in English", typeof clerkAfter.body?.messageEn === "string" && clerkAfter.body.messageEn.includes("administrator"), String(clerkAfter.body?.messageEn));
+
+    const adminAfter = await call("POST", "/api/auth/login", { username: adminEmail, pin: adminPin });
+    check("the company admin still can, so somebody can choose who stays", adminAfter.status === 200, `status ${adminAfter.status}`);
+    session = String(adminAfter.body?.token ?? session);
+    const stillThere = await api("GET", "/users");
+    check("and nobody was deleted", ctx.rows(stillThere.body).length >= 3, String(ctx.rows(stillThere.body).length));
 
     // ------------------------------------------------------------------
     // 4 · A module that left the plan is READ-ONLY, not forbidden.
@@ -344,6 +390,22 @@ export async function run(ctx: Ctx): Promise<void> {
 
     const exportable = await api("GET", "/sales-invoices?pageSize=5");
     check("reads and exports keep working at the quota", exportable.status === 200, `status ${exportable.status}`);
+
+    // ------------------------------------------------------------------
+    // 8b · A warehouse past the free plan's one stays readable; no new
+    //      document may be raised on it.
+    // ------------------------------------------------------------------
+    const allWarehouses = ctx.rows(warehouses.body);
+    const spare = allWarehouses[1];
+    check("the tenant kept every warehouse it had", allWarehouses.length > 1, String(allWarehouses.length));
+    if (spare) {
+      const readSpare = await api("GET", `/warehouses/${spare.id}`);
+      check("the over-limit warehouse is still readable", readSpare.status === 200, `status ${readSpare.status}`);
+      const onSpare = await api("POST", "/sales-invoices", { ...invoiceBody(300), warehouseId: spare.id });
+      check("but no new document may be raised on it", onSpare.status === 409, `status ${onSpare.status} ${JSON.stringify(onSpare.body).slice(0, 220)}`);
+      check("and the refusal names the limit", onSpare.body?.error === "LOCATION_OVER_LIMIT", JSON.stringify(onSpare.body).slice(0, 220));
+      check("in Arabic", typeof onSpare.body?.message === "string" && /المخزن/.test(onSpare.body.message), String(onSpare.body?.message));
+    }
 
     // ------------------------------------------------------------------
     // 9 · The next tenant month starts clean — the quota is per month.

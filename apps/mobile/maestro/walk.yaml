@@ -15,7 +15,12 @@ appId: app.mezan.mobile
 - extendedWaitUntil:
     visible: ${L_SUBMIT}
     timeout: 30000
-- setOrientation: ${ORIENTATION}
+# Sign in upright, then turn the device. A phone in landscape has about
+# 190dp of form left above the keyboard, so the fields below the first are
+# out of reach until the keyboard closes — which is also why a real user
+# types the PIN upright. Every screen after this one is walked in the
+# orientation under test.
+- setOrientation: PORTRAIT
 - waitForAnimationToEnd
 - takeScreenshot: 01-sign-in
 # Measured on the simulator: one eraseText stops a few characters short and
@@ -32,12 +37,27 @@ appId: app.mezan.mobile
     id: sign-in-server
 - eraseText: 30
 - inputText: ${SERVER}
+- scrollUntilVisible:
+    element:
+      id: sign-in-tenant
+    direction: DOWN
 - tapOn:
     id: sign-in-tenant
 - inputText: ${TENANT}
+- scrollUntilVisible:
+    element:
+      id: sign-in-email
+    direction: DOWN
 - tapOn:
     id: sign-in-email
 - inputText: ${EMAIL}
+# On a phone in landscape the keyboard covers the bottom of the form, so the
+# PIN field and the button have to be scrolled to — they are reachable, but
+# not on screen.
+- scrollUntilVisible:
+    element:
+      id: sign-in-pin
+    direction: DOWN
 - tapOn:
     id: sign-in-pin
 - waitForAnimationToEnd
@@ -45,11 +65,16 @@ appId: app.mezan.mobile
 - tapOn:
     text: ${L_SERVER}
     index: 0
+- scrollUntilVisible:
+    element:
+      id: sign-in-submit
+    direction: DOWN
 - tapOn:
     id: sign-in-submit
 - extendedWaitUntil:
     visible: ${T_SALES_TODAY}
     timeout: 30000
+- setOrientation: ${ORIENTATION}
 - waitForAnimationToEnd
 - takeScreenshot: 02-home
 - tapOn:
@@ -92,7 +117,11 @@ appId: app.mezan.mobile
 - waitForAnimationToEnd
 - takeScreenshot: 07-more
 - tapOn: ".*${M_COLLECT}.*"
-- assertVisible: ${C_SUBMIT}
+# The collect form is taller than a phone in landscape, so its submit button
+# is below the fold; the customer picker at the top is there in every size.
+- extendedWaitUntil:
+    visible: ".*${C_CUSTOMER_PLACEHOLDER}.*"
+    timeout: 20000
 - waitForAnimationToEnd
 - takeScreenshot: 08-collect
 - tapOn:

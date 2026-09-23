@@ -563,7 +563,7 @@ below was taken against the current published rule, quoted in the lane's report.
 |---|---|---|
 | **S1** reviewer environment | **prepared, not deployed — needs the owner** | Infrastructure lives in `cyag-devops`, not here: branch `feat/mezan-review-env` adds `apps/mezan/envs/review.tfvars` — always-on Fargate, EFS storage, no basic auth, a generated reviewer PIN in SSM, `/legal/*` routed to the server; `terraform validate` passes, nothing applied. In this repo, `MEZAN_REVIEW_TENANT_CODE`/`MEZAN_REVIEW_PIN` seed the demo once and move every account onto the private PIN (measured locally: the reviewer PIN 200, `123456` 401), and the runbook is `docs/DEPLOY-REVIEW.md` |
 | **S2** privacy policy | **built, draft — needs legal sign-off** | `/legal/privacy` and `/legal/account-deletion`, served by `apps/server` before any auth and outside `/api`, Arabic by default and English with `?lang=en`, headed «مسودة — تحتاج مراجعة قانونية». Written from what the code actually collects |
-| Account deletion | **built — needs a commitment** | The page lists only channels that reach someone (the company admin; a support mailbox if configured; a form only when SMTP is configured, recorded in the platform security audit). Apple 5.1.1(v) applies only to apps that support account creation, which this one does not; Google's policy also reaches an app that *directs* users to an account-creation flow outside it, so the readiness check fails the build on any `/signup` link in the app. **There is no erasure tool — only deactivation (D348)** |
+| Account deletion | **built — needs a commitment** | The page lists only channels that reach someone (the company admin; a support mailbox if configured; a form only when SMTP is configured, recorded in the platform security audit). Apple 5.1.1(v) applies only to apps that support account creation, which this one does not; **Corrected 2026-09-23:** the policy text is scoped to an account created *from within* the app, and does **not** reach an app that merely directs users elsewhere — the earlier claim here was wrong. The readiness check still fails the build on any `/signup` link in the app, now as an Apple 3.1.3(f) precaution rather than a Google requirement. **There is no erasure tool — only deactivation (D348)** |
 | IPv6 | **met on the AWS path; the §3.5 row above was wrong** | CloudFront has IPv6 on and every alias gets an AAAA record. `mezan-demo.onrender.com` publishes **no** AAAA record at all — one more reason it cannot be the reviewer host |
 | Target API level | **met** | Google: new apps and updates from 31 August 2026 must target API 36; Expo SDK 56 defaults to 36. Enforced by the readiness check |
 | No purchase path | **met, enforced** | Apple 3.1.3(f) — a companion app needs no in-app purchase provided there is no purchasing, or call to action to purchase, inside it. The check scans string literals, not identifiers (it first flagged an `AppState` subscription as a sale — fixed) |
@@ -586,14 +586,33 @@ evidence: a screenshot, a manifest excerpt, or a response code.
 
 ---
 
-## 3.6 Free trial and freemium (DEC-31)
+## 3.6 Free trial and freemium (DEC-31) — landed 2026-09-24
 
-Asked for 2026-09-21. Built in lane `feat/trial-freemium`: the reverse trial, the Free plan with
-usage quotas, per-module trials, read-only modules instead of forbidden ones, quota enforcement at
-creation only, the web billing screen and the platform console's plan editor. The phone shows
-trial state without any purchase path, after lane M3 lands. Done means: a tenant signed up
-through the real sign-up flow walks day 1 → day 15 (by `MEZAN_FAKE_TODAY`) → Free → a module
-trial → over a quota, and every step is proven at the API and in the running web app.
+All eight rules of the spec are built and proven at the API and in a headless browser, merged with
+every gate green (`pnpm vitest run` 11,549/0, `pnpm scenarios` 5,387/0). The DEC-31 walk
+(`scripts/scenarios/trial-freemium.ts`, 69 assertions) runs sign-up → day 1 on the top plan →
+day 15 on Free → a module read-only → a module trial → refused a second time → 99 invoices, a race
+on the last slot producing **exactly one**, the 101st refused → return, collection and confirm still
+accepted at the quota → the next tenant month clean.
+
+**The drop to Free is lazy and resolved by a pure function every reader calls**, not a scheduled
+job: the plan is a function of (subscription, plans, now), so two readers cannot disagree, and the
+daily sweep only writes down what the function already says. A scheduled-only drop would have made
+the answer depend on whether cron ran.
+
+**Two defects the verification found**, both of which would have shipped silently: the drop rewrote
+the subscription in place and erased the plan it came from, so every module the tenant lost answered
+a flat `403` instead of going read-only (fixed with a persisted `previousPlanId`); and the daily
+dunning sweep marked any active subscription past due once its period ended, so a Free tenant would
+have slid into grace and then read-only a month after landing — the exact outcome DEC-31 exists to
+prevent.
+
+**For the phone** (it shows trial state and never sells, Apple 3.1.3(f)): `GET /entitlements` carries
+`planKind`, `planNameAr/En`, `trialEndsAt`, `activeModules[]`, `readOnlyModules[]`, `quotas{}` and
+`moduleTrials[]`; `GET /api/billing/subscription` carries `trialDaysLeft`, **server-computed on the
+tenant's day — never recomputed from the device clock**. The refusals to render are
+`MODULE_NOT_LICENSED`, `MODULE_READ_ONLY`, `PLAN_LIMIT_REACHED`, `LOCATION_OVER_LIMIT` and
+`SEATS_OVER_LIMIT`. Never `plans[]`, `canRenew`, `checkouts[]` or any price field.
 
 ---
 
@@ -1234,7 +1253,7 @@ eleven defects in one pass — none of which any static gate could have caught.
 | D345 | **The aging ladder's buckets and the drill-down's document amounts travel as JSON numbers, not money strings.** Money on the wire is an exact decimal string everywhere else (D126); here `current`, `d31to60` … `total` and `documents[].amount` are floats, so any figure past 2^53 or any client that sums them loses cents. Found by lanes B10 and M2 while wiring the phone | `packages/api/src/reports-routes.ts` (aging, drill-down) | fixed 2026-09-23 on `fix/b11-followups` — the aging ladders and the drill-down's documents carry money as exact decimal strings, with a real contract in `packages/contracts/src/aging.ts`; every consumer (web hooks, scenarios, tests, the phone) reads the new shape |
 | D346 | **The sales-invoice list route leaves out a line field its own contract requires** (`costCenterId`), so a client that validates the list with the shared schema fails; the phone's customer 360 reads only invoice headers because of it | `packages/api/src/sales-invoices-routes.ts` (list) | fixed 2026-09-23 on `fix/b11-followups` — the sales-invoice list hydrates each line's `costCenterId`, so the list parses against its own shared schema |
 | D347 | **The demo seed's approval `APR-DEMO-1` is submitted by `USER-SALES-REP-1`, a user that does not exist** — a fabricated id in the seed, the same class as D310 | `packages/backend/src/demo-seed*` | fixed 2026-09-23 on `fix/b11-followups` — every actor the demo seed names is a real seeded user, and `scripts/seed-reference-guard.ts` proves it as part of `check:seed`, which is the guard that matters: it is the D310 class caught in the seed rather than in a route |
-| D348 | **There is no way to erase a user's personal data — only to deactivate the account.** The store listings promise a deletion path (Google requires one for an app with accounts); without an erasure tool, honouring a deletion request is a manual database job. Found by the store-readiness lane | `packages/domain/src/users/` | open |
+| D348 | **There is no way to erase a user's personal data — only to deactivate the account.** The store listings promise a deletion path (Google requires one for an app with accounts); without an erasure tool, honouring a deletion request is a manual database job. Found by the store-readiness lane | `packages/domain/src/users/` | fixed 2026-09-23 on `fix/b11-followups` — an admin-invoked erasure that anonymises in place: the user's name becomes «مستخدم محذوف», the email an unroutable address, and the linked employee's national id, phone, birth date, address, emergency contact and device badge go to null, while the employee's code, branch and hire date stay. Sessions are revoked, the old credentials answer 401, and the erasure is audited to the security stream carrying **neither the erased name nor the erased email**. Posted documents are byte-identical afterwards and still carry `createdBy` — a purchase order and a paid invoice were read back to prove it. **The salvaged draft did not work, in four ways**: nothing implemented the erasure port so the route never mounted; a second erasure was refused 409, which turns a retried deletion request into a failure (it is now a 200 with `alreadyErased` and no second write); it added a permission without moving the pinned module count, which threw at import for every file reaching `auth-context`; and the attendance scrub would have re-graded payroll input, because `correctAttendance` recomputes `status` when the patch omits it. Erasing the last active company admin is refused. Employee file attachments are **disclosed for manual review rather than swept** — a contract and an ID scan are indistinguishable there. Retention is disclosed on screen: posted entries and their documents, the audit trail (actor id, never the name), approval decisions, payroll runs and attendance hours, on the five-year basis of Commercial Law 17/1999 Art. 26 and PDPL 151/2020 Art. 4's «unless there is a legitimate reason to retain it, in which case the data must no longer be identifiable to the data subject». **This is not a compliance claim** — a lawyer must still confirm that keeping the actor id counts as "no longer identifiable", whether the retention list matches the tenant's obligations, and whether an admin-invoked erasure satisfies the in-app path the stores ask for |
 | D349 | **The iOS usage strings exist only in Arabic.** There is no `expo.locales.en`, so the base Info.plist strings are Arabic for every device language | `apps/mobile/app.json` | fixed 2026-09-23 on `feat/m3-store-readiness` — `apps/mobile/src/i18n/locale-en.json` beside `locale-ar.json`, split per platform so the Android release build passes lint |
 
 ## 5.1 Filing a new one

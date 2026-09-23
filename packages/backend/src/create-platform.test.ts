@@ -2,39 +2,41 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, it, expect } from "vitest";
-import { MODULE_CATALOG, Money, PlanKind, type Plan } from "@mezan/domain";
+import { MODULE_CATALOG, Money, PlanKind, QuotaKind, type Plan } from "@mezan/domain";
 import { createSqlitePlatformStores, openSqliteConnection } from "@mezan/persistence";
 import { createPlatform, PLATFORM_SEED_PLANS } from "./create-platform.js";
 
 const FIXED_NOW = () => new Date("2026-01-01T00:00:00Z");
 
 describe("createPlatform", () => {
-  it("seeds core, business and enterprise once, in order, at their EGP prices", async () => {
+  it("seeds free, core, business and enterprise once, in order, at their EGP prices", async () => {
     const platform = await createPlatform({ dbPath: ":memory:", now: FIXED_NOW });
     const plans = await platform.stores.plans.list();
-    expect(plans.map((p) => p.code)).toEqual(["core", "business", "enterprise"]);
-    expect(plans.map((p) => p.seatsIncluded)).toEqual([3, 10, 25]);
-    expect(plans.map((p) => p.priceMonthly.toString())).toEqual(["490.000000", "980.000000", "1960.000000"]);
-    expect(plans.map((p) => p.priceYearly.toString())).toEqual(["4900.000000", "9800.000000", "19600.000000"]);
+    expect(plans.map((p) => p.code)).toEqual(["free", "core", "business", "enterprise"]);
+    expect(plans.map((p) => p.seatsIncluded)).toEqual([2, 3, 10, 25]);
+    expect(plans.map((p) => p.priceMonthly.toString())).toEqual(["0.000000", "490.000000", "980.000000", "1960.000000"]);
+    expect(plans.map((p) => p.priceYearly.toString())).toEqual(["0.000000", "4900.000000", "9800.000000", "19600.000000"]);
+    expect(plans.map((p) => p.trialDays)).toEqual([0, 14, 14, 14]);
+    expect(plans.map((p) => p.kind)).toEqual([PlanKind.Free, PlanKind.Paid, PlanKind.Paid, PlanKind.Paid]);
+    expect(plans[0]!.quotas).toEqual({ [QuotaKind.SalesInvoicesPerMonth]: 100 });
     for (const p of plans) {
-      expect(p.trialDays).toBe(14);
       expect(p.status).toBe("active");
       expect(p.isPublic).toBe(true);
       expect(p.createdAt).toBe("2026-01-01T00:00:00.000Z");
     }
-    const enterprise = plans[2]!;
+    const enterprise = plans[3]!;
     // `pos` is licensable (DEC-23) but deliberately stays out of the seeded
     // SaaS plans until the POS close-out lane — see `create-platform.ts`.
     expect([...enterprise.modules].sort()).toEqual([...MODULE_CATALOG].filter((id) => id !== "pos").sort());
-    const business = plans[1]!;
+    const business = plans[2]!;
     expect(business.modules).not.toContain("hr");
     expect(business.modules).not.toContain("manufacturing");
     expect(business.modules).toContain("crm");
     // 15, down from 17: DEC-14 deleted every `dashboard.*` and
     // `transactions.*` permission, so neither is a module a plan can sell.
     expect(business.modules).toHaveLength(15);
-    const core = plans[0]!;
-    expect(core.modules).toEqual(PLATFORM_SEED_PLANS[0]!.modules);
+    const core = plans[1]!;
+    expect(core.modules).toEqual(PLATFORM_SEED_PLANS[1]!.modules);
     expect(core.modules).toHaveLength(9);
     platform.close();
   });
@@ -73,7 +75,7 @@ describe("createPlatform", () => {
 
     const platform = await createPlatform({ dbPath: db, now: FIXED_NOW });
     const plans = await platform.stores.plans.list();
-    expect(plans.map((p) => p.code).sort()).toEqual(["business", "core", "enterprise"]);
+    expect(plans.map((p) => p.code).sort()).toEqual(["business", "core", "enterprise", "free"]);
     const core = plans.find((p) => p.code === "core")!;
     expect(core.createdAt).toBe("2020-01-01T00:00:00.000Z");
     const business = plans.find((p) => p.code === "business")!;

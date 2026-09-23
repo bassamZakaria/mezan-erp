@@ -29,8 +29,10 @@ const tenant: Tenant = {
 describe("deriveEntitlements", () => {
   it("unions modules, sums seats, passes features, expires at period end", () => {
     expect(deriveEntitlements(plan, sub)).toEqual({
-      plan: "core", activeModules: ["accounting", "sales", "hr"], features: { "reports.export": true },
+      plan: "core", planNameAr: "الأساسية", planNameEn: "Core", planKind: PlanKind.Paid, trialEndsAt: null,
+      activeModules: ["accounting", "sales", "hr"], readOnlyModules: [], features: { "reports.export": true },
       seats: 5, expiresAt: "2026-10-01T00:00:00.000Z", limits: { branches: 1, warehouses: 1 },
+      quotas: {}, moduleTrials: [],
     });
   });
 

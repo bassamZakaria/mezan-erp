@@ -67,6 +67,8 @@ describe("PlanEditor", () => {
       seatsIncluded: 1,
       branchesIncluded: 1,
       warehousesIncluded: 1,
+      kind: "paid",
+      quotas: {},
       priceMonthly: "900",
       priceYearly: "9000",
       trialDays: 0,

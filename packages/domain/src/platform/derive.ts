@@ -95,7 +95,7 @@ export function subscriptionLicenseState(
   // A free plan never lapses: no period end, no grace, no read-only. Checked
   // before every date comparison below, which is the whole point of DEC-31 —
   // the tenant's own books must never be held behind a renewal.
-  if (plan && isFreePlan(plan) && subscription.status !== "past_due") {
+  if (plan && isFreePlan(plan)) {
     return { state: "ACTIVE", canWrite: true, usable: true, licensee };
   }
   if (subscription.status === "trialing") {

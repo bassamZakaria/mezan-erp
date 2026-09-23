@@ -408,9 +408,15 @@ export async function run(ctx: Ctx): Promise<void> {
     }
 
     // ------------------------------------------------------------------
-    // 9 · The next tenant month starts clean — the quota is per month.
+    // 9 · The next tenant month starts clean — the quota is per month, and a
+    //     month on Free never turns into a lapse.
     // ------------------------------------------------------------------
     moveClockTo("2026-11-02");
+    const stillFree = await api("GET", "/billing/subscription");
+    check("a month later the tenant is still on Free", stillFree.body?.subscription?.planKind === "free", JSON.stringify(stillFree.body?.subscription));
+    check("and still active, never past due", stillFree.body?.subscription?.status === "active", String(stillFree.body?.subscription?.status));
+    const stillWritable = await api("GET", "/license/state");
+    check("and still writable — a free plan does not lapse", stillWritable.body?.canWrite === true, JSON.stringify(stillWritable.body));
     const novemberToday = String((await api("GET", "/plan-usage")).body?.today ?? "");
     const november = await api("POST", "/sales-invoices", { ...invoiceBody(200), date: novemberToday, dueDate: novemberToday });
     check("a new month starts the count again", november.status === 201, `status ${november.status} ${JSON.stringify(november.body).slice(0, 200)}`);

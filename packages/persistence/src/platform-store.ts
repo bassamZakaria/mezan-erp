@@ -163,7 +163,7 @@ const ADDED_PLAN_COLUMNS: ReadonlyArray<readonly [string, string]> = [
   ["quotas", "TEXT NOT NULL DEFAULT '{}'"],
 ];
 
-function addMissingPlanColumns(sqlite: Database.Database): void {
+function addMissingColumns(sqlite: Database.Database): void {
   const existing = new Set(
     (sqlite.prepare(`PRAGMA table_info(plan)`).all() as { name: string }[]).map((c) => c.name),
   );
@@ -787,7 +787,7 @@ export function createSqlitePlatformStores(
 ): SqlitePlatformStoresHandle {
   const { sqlite, owned } = openSqliteConnection(path, options);
   sqlite.exec(CREATE_TABLES);
-  addMissingPlanColumns(sqlite);
+  addMissingColumns(sqlite);
   return {
     tenants: new SqliteTenantStore(sqlite),
     plans: new SqlitePlanStore(sqlite),

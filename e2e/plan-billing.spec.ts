@@ -24,6 +24,7 @@ test.describe("الباقة والاستخدام — plan and usage", () => {
     await expect(page.getByRole("heading", { name: "الباقة والاستخدام", level: 1 })).toBeVisible();
     await expect(page.getByRole("heading", { name: "المؤسسات", level: 2 })).toBeVisible();
     await expect(page.getByText("مدفوعة", { exact: true }).first()).toBeVisible();
+    await page.screenshot({ path: "e2e-results/plan-billing.png", fullPage: true });
   });
 
   test("shows what has been used against every seat, branch and warehouse limit", async ({ page }) => {

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useLocation } from "react-router";
-import { Button, Card, Chip, Money, StatusPill } from "@mezan/ui";
+import { Button, Card, Money, StatusPill } from "@mezan/ui";
 import type { BillingLimitDTO, BillingModuleDTO, BillingQuotaDTO, BillingPlanOfferDTO } from "@mezan/contracts";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { SubscriptionCard } from "./SubscriptionCard";
@@ -133,9 +133,7 @@ export function BillingScreen() {
                       : t("plan.modules.try", { days: String(data.moduleTrialDays) })}
                   </Button>
                 ) : m.trialUsed && m.state !== "trialing" ? (
-                  <Chip toggle disabled aria-pressed={false}>
-                    {t("plan.modules.trialUsed")}
-                  </Chip>
+                  <StatusPill label={t("plan.modules.trialUsed")} tone="neutral" />
                 ) : null}
               </li>
             ))}

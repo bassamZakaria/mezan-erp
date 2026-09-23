@@ -11,6 +11,7 @@ import { run as platform } from "./scenarios/platform.js";
 import { run as shell } from "./scenarios/shell.js";
 import { run as crossModule } from "./scenarios/cross-module.js";
 import { run as seams } from "./scenarios/seams.js";
+import { run as trialFreemium } from "./scenarios/trial-freemium.js";
 import { run as eta } from "./scenarios/eta.js";
 import {
   run as reports,
@@ -77,6 +78,9 @@ const suites: readonly (readonly [string, (ctx: Ctx) => Promise<unknown>])[] = [
   ["sales-parity", salesParity],
   ...fragmentSuites,
   ["cross-module", crossModule], ["seams", seams],
+  // LAST, and on its own cloud app: it moves the process clock forward six
+  // weeks to walk the trial, and restores it when it is done.
+  ["trial-freemium", trialFreemium],
 ];
 
 for (const [name, fn] of suites) {

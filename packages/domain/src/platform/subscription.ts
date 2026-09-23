@@ -36,6 +36,16 @@ export interface Subscription {
   readonly currentPeriodStart: string;
   readonly currentPeriodEnd: string;
   readonly trialEndsAt: string | null;
+  /**
+   * The plan this subscription was on before its last plan change.
+   *
+   * WITHOUT THIS THE DROP TO FREE ERASES ITS OWN HISTORY: the row is rewritten
+   * in place, so after day 15 nothing in the platform database says the tenant
+   * ever held the top plan — and DEC-31 rule 5 ("a module that leaves the plan
+   * becomes read-only, not forbidden") has nothing to read. Every module the
+   * tenant may still READ is derived from this.
+   */
+  readonly previousPlanId: string | null;
   readonly graceDays: number;
   readonly cancelledAt: string | null;
   readonly createdAt: string;
@@ -90,6 +100,7 @@ export function applyTrialEndToFree(s: Subscription, freePlanId: string, nowIso:
   return {
     ...s,
     planId: freePlanId,
+    previousPlanId: s.planId,
     status: "active",
     trialEndsAt: null,
     billingCycle: "monthly",
@@ -184,6 +195,7 @@ export async function startSubscription(
     currentPeriodStart: now,
     currentPeriodEnd: addPeriod(now, cmd.billingCycle),
     trialEndsAt: trial ? addDays(now, plan.trialDays) : null,
+    previousPlanId: null,
     graceDays,
     cancelledAt: null,
     createdAt: now,
@@ -292,6 +304,7 @@ export async function changePlan(
   const next: Subscription = {
     ...s,
     planId: plan.id,
+    previousPlanId: plan.id === s.planId ? s.previousPlanId : s.planId,
     status: s.status === "trialing" ? "active" : s.status,
     trialEndsAt: null,
     updatedAt: now,

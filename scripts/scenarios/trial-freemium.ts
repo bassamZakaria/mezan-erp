@@ -87,7 +87,7 @@ export async function run(ctx: Ctx): Promise<void> {
     const plans = await call("GET", "/api/signup/plans");
     const free = (plans.body as any[]).find((p) => p.code === "free");
     check("the Free plan is offered publicly", free !== undefined, JSON.stringify(plans.body).slice(0, 160));
-    check("and costs nothing", free?.priceMonthly === "0" && free?.priceYearly === "0", `${free?.priceMonthly}/${free?.priceYearly}`);
+    check("and costs nothing", Number(free?.priceMonthly) === 0 && Number(free?.priceYearly) === 0, `${free?.priceMonthly}/${free?.priceYearly}`);
     check("with 2 seats, 1 branch and 1 warehouse", free?.seatsIncluded === 2 && free?.branchesIncluded === 1 && free?.warehousesIncluded === 1, JSON.stringify(free));
 
     // ------------------------------------------------------------------
@@ -131,7 +131,7 @@ export async function run(ctx: Ctx): Promise<void> {
       (entitlementsDayOne.body?.activeModules ?? []).includes("hr"),
       JSON.stringify(entitlementsDayOne.body?.activeModules),
     );
-    const hrWriteOnTrial = await api("POST", "/hr/departments", { code: "D1", nameAr: "قسم" });
+    const hrWriteOnTrial = await api("POST", "/hr/departments", { id: "DEPT-1", code: "D1", name: "Trial Department", nameAr: "قسم التجربة" });
     check("and HR accepts a write during the trial", hrWriteOnTrial.status === 201, `status ${hrWriteOnTrial.status}`);
 
     // ------------------------------------------------------------------
@@ -158,7 +158,7 @@ export async function run(ctx: Ctx): Promise<void> {
     // ------------------------------------------------------------------
     const hrRead = await api("GET", "/hr/departments");
     check("HR still answers a read after the drop", hrRead.status === 200, `status ${hrRead.status}`);
-    const hrWrite = await api("POST", "/hr/departments", { code: "D2", nameAr: "قسم ٢" });
+    const hrWrite = await api("POST", "/hr/departments", { id: "DEPT-2", code: "D2", name: "Second", nameAr: "قسم ٢" });
     check("and refuses a write", hrWrite.status === 403, `status ${hrWrite.status}`);
     check("naming the reason, not a bare 403", hrWrite.body?.error === "MODULE_READ_ONLY", JSON.stringify(hrWrite.body).slice(0, 200));
     check("in Arabic", typeof hrWrite.body?.message === "string" && /وحدة/.test(hrWrite.body.message), String(hrWrite.body?.message));
@@ -169,7 +169,7 @@ export async function run(ctx: Ctx): Promise<void> {
     // ------------------------------------------------------------------
     const tried = await api("POST", "/billing/module-trials", { module: "hr" });
     check("a module trial can be started from the billing screen", tried.status === 201, `status ${tried.status} ${JSON.stringify(tried.body).slice(0, 200)}`);
-    const hrWriteOnModuleTrial = await api("POST", "/hr/departments", { code: "D3", nameAr: "قسم ٣" });
+    const hrWriteOnModuleTrial = await api("POST", "/hr/departments", { id: "DEPT-3", code: "D3", name: "Third", nameAr: "قسم ٣" });
     check("which makes HR writable again", hrWriteOnModuleTrial.status === 201, `status ${hrWriteOnModuleTrial.status}`);
 
     const again = await api("POST", "/billing/module-trials", { module: "hr" });
@@ -189,7 +189,7 @@ export async function run(ctx: Ctx): Promise<void> {
       ctx.rows(afterModuleTrial.body).length >= 2,
       String(ctx.rows(afterModuleTrial.body).length),
     );
-    const hrWriteAfter = await api("POST", "/hr/departments", { code: "D4", nameAr: "قسم ٤" });
+    const hrWriteAfter = await api("POST", "/hr/departments", { id: "DEPT-4", code: "D4", name: "Fourth", nameAr: "قسم ٤" });
     check("while writes are refused again", hrWriteAfter.status === 403 && hrWriteAfter.body?.error === "MODULE_READ_ONLY", `status ${hrWriteAfter.status} ${JSON.stringify(hrWriteAfter.body).slice(0, 160)}`);
 
     // ------------------------------------------------------------------
@@ -201,9 +201,19 @@ export async function run(ctx: Ctx): Promise<void> {
     check("counted in the tenant's own month", /^\d{4}-\d{2}$/.test(String(usageBefore.body?.month)), String(usageBefore.body?.month));
 
     const today = String(usageBefore.body?.today ?? "");
-    const customer = await api("POST", "/customers", { code: "C1", nameAr: "عميل التجربة", type: "individual" });
+    const customer = await api("POST", "/customers", { id: "CUST-SCN-1", code: "C1", nameAr: "عميل التجربة" });
     check("a customer can be created on Free", customer.status === 201, `status ${customer.status} ${JSON.stringify(customer.body).slice(0, 200)}`);
-    const customerId = String(customer.body?.id ?? "");
+    const customerId = String(customer.body?.id ?? "CUST-SCN-1");
+
+    const service = await api("POST", "/items", {
+      id: "ITEM-SCN-1",
+      code: "SVC1",
+      nameAr: "خدمة استشارية",
+      type: "service",
+      baseUnitCode: "PCS",
+      trackInventory: false,
+    });
+    check("an item can be created on Free", service.status === 201, `status ${service.status} ${JSON.stringify(service.body).slice(0, 200)}`);
 
     const branches = await api("GET", "/branches");
     const warehouses = await api("GET", "/warehouses");
@@ -214,6 +224,9 @@ export async function run(ctx: Ctx): Promise<void> {
     const arAccountId = accountId("1105") || accountId("1200");
     const taxAccountId = accountId("2200");
     const revenueAccountId = accountId("4100");
+    const postableCashAccountId = String(
+      ctx.rows(accounts.body).find((a: any) => !a.isHeader && String(a.code).startsWith("11") && a.status === "active")?.id ?? "",
+    );
 
     const invoiceBody = (n: number) => ({
       date: today,
@@ -230,7 +243,7 @@ export async function run(ctx: Ctx): Promise<void> {
       lines: [
         {
           lineId: `L${n}`,
-          itemId: "SERVICE",
+          itemId: "ITEM-SCN-1",
           itemNameAr: "خدمة",
           isStock: false,
           qty: "1",
@@ -245,19 +258,38 @@ export async function run(ctx: Ctx): Promise<void> {
 
     let created = 0;
     let firstInvoiceId = "";
-    let refusal: Res | null = null;
-    for (let n = 1; n <= 101; n += 1) {
+    for (let n = 1; n <= 99; n += 1) {
       const res = await api("POST", "/sales-invoices", invoiceBody(n));
-      if (res.status === 201) {
-        created += 1;
-        if (n === 1) firstInvoiceId = String(res.body?.id ?? "");
-        continue;
+      if (res.status !== 201) {
+        check("the first 99 invoices are accepted", false, `stopped at ${n}: ${res.status} ${JSON.stringify(res.body).slice(0, 200)}`);
+        break;
       }
-      refusal = res;
-      break;
+      created += 1;
+      if (n === 1) firstInvoiceId = String(res.body?.id ?? "");
     }
-    check("exactly 100 invoices are accepted", created === 100, `accepted ${created}, then ${refusal?.status} ${JSON.stringify(refusal?.body).slice(0, 200)}`);
-    check("the 101st is refused", refusal?.status === 409, `status ${refusal?.status}`);
+    check("the first 99 invoices are accepted", created === 99, `accepted ${created}`);
+
+    // TWO AT ONCE ON THE LAST SLOT. A quota checked before the write and never
+    // again lets both of these through: each reads 99, each writes, and the
+    // tenant ends the month on 101. The recount inside the write transaction is
+    // what makes exactly one of them win.
+    const [raceA, raceB] = await Promise.all([
+      api("POST", "/sales-invoices", invoiceBody(100)),
+      api("POST", "/sales-invoices", invoiceBody(101)),
+    ]);
+    const won = [raceA, raceB].filter((r) => r.status === 201).length;
+    const lost = [raceA, raceB].filter((r) => r.status === 409).length;
+    check("two simultaneous creates at 99/100 produce exactly one invoice", won === 1, `${won} accepted (${raceA.status}/${raceB.status})`);
+    check("and the other is refused by the quota", lost === 1, `${lost} refused (${raceA.status}/${raceB.status})`);
+    created += won;
+
+    const afterRace = await api("GET", "/plan-usage");
+    const raced = (afterRace.body?.quotas ?? []).find((q: any) => q.kind === "sales_invoices_per_month");
+    check("so the month never goes over the limit", raced?.used === 100, JSON.stringify(raced));
+
+    const refusal: Res | null = await api("POST", "/sales-invoices", invoiceBody(102));
+    check("exactly 100 invoices exist", created === 100, `accepted ${created}`);
+    check("the 101st is refused", refusal?.status === 409, `status ${refusal?.status} ${JSON.stringify(refusal?.body).slice(0, 200)}`);
     check("by name", refusal?.body?.error === "PLAN_LIMIT_REACHED", JSON.stringify(refusal?.body).slice(0, 200));
     check("quoting the limit it hit", refusal?.body?.allowed === 100 && refusal?.body?.used === 100, `${refusal?.body?.allowed}/${refusal?.body?.used}`);
     check("in Arabic", typeof refusal?.body?.message === "string" && /باقة/.test(refusal.body.message), String(refusal?.body?.message));
@@ -274,16 +306,16 @@ export async function run(ctx: Ctx): Promise<void> {
     check("an invoice already raised still confirms at the quota", confirmed.status === 200, `status ${confirmed.status} ${JSON.stringify(confirmed.body).slice(0, 200)}`);
 
     const treasury = await api("POST", "/treasury-accounts", {
+      id: "TRY-SCN-1",
       code: "CASH1",
-      nameAr: "الخزينة",
-      type: "CASH",
-      glAccountId: accountId("1101") || accountId("1100"),
+      name: "خزينة التجربة",
+      type: "cash",
+      glAccountId: postableCashAccountId,
       branchId,
       currency: "EGP",
-      isDefault: true,
-      active: true,
     });
-    const treasuryAccountId = String(treasury.body?.id ?? "");
+    check("a treasury account can be created on Free", treasury.status === 201, `status ${treasury.status} ${JSON.stringify(treasury.body).slice(0, 220)}`);
+    const treasuryAccountId = String(treasury.body?.id ?? "TRY-SCN-1");
     const collection = await api("POST", `/sales-invoices/${firstInvoiceId}/payments`, {
       amount: "50",
       treasuryAccountId,
@@ -297,9 +329,12 @@ export async function run(ctx: Ctx): Promise<void> {
     );
 
     const ret = await api("POST", "/sales-returns/from-invoice", {
+      id: "SRET-SCN-1",
       sourceInvoiceId: firstInvoiceId,
+      warehouseId,
       date: today,
-      lines: [{ lineId: "L1", qty: "1" }],
+      reason: "DEFECTIVE",
+      requested: [{ itemId: "ITEM-SCN-1", qty: "1" }],
     });
     check(
       "and so is a return",

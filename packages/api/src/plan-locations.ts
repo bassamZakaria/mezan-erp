@@ -64,8 +64,8 @@ export function planLocationsBinding(sources: PlanLocationSources): MiddlewareHa
         cached = null;
         return cached;
       }
-      const overflow = async (rows: readonly { id: string; nameAr: string }[] | undefined, allowed: number) =>
-        new Map((rows ?? []).slice(allowed).map((r) => [r.id, r.nameAr] as const));
+      const overflow = async (rows: readonly { id: string; name: string }[] | undefined, allowed: number) =>
+        new Map((rows ?? []).slice(allowed).map((r) => [r.id, r.name] as const));
       cached = {
         branches: await overflow(await sources.branches?.findAll(), limits.branches),
         warehouses: await overflow(await sources.warehouses?.findAll(), limits.warehouses),

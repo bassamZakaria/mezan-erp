@@ -18,7 +18,7 @@ const plan: Plan = {
 const sub: Subscription = {
   id: "S1", tenantId: "T1", planId: "P1", status: "active", billingCycle: "monthly", addOnModules: ["hr"],
   extraSeats: 2, extraBranches: 0, extraWarehouses: 0, currentPeriodStart: NOW,
-  currentPeriodEnd: "2026-10-13T10:00:00.000Z", trialEndsAt: null, graceDays: 7, cancelledAt: null,
+  currentPeriodEnd: "2026-10-13T10:00:00.000Z", trialEndsAt: null, previousPlanId: null, graceDays: 7, cancelledAt: null,
   createdAt: NOW, updatedAt: NOW,
 };
 const user: PlatformUser = { id: "U1", email: "root@mezan.app", passwordHash: "h", role: "owner", status: "active", createdAt: NOW };

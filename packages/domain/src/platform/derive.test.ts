@@ -17,6 +17,7 @@ const sub: Subscription = {
   addOnModules: ["hr", "sales"], extraSeats: 2, extraBranches: 0, extraWarehouses: 0,
   currentPeriodStart: "2026-09-01T00:00:00.000Z", currentPeriodEnd: "2026-10-01T00:00:00.000Z",
   trialEndsAt: null, graceDays: 7, cancelledAt: null,
+  previousPlanId: null,
   createdAt: "2026-09-01T00:00:00.000Z", updatedAt: "2026-09-01T00:00:00.000Z",
 };
 

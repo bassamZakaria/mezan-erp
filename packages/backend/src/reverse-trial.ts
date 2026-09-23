@@ -101,11 +101,20 @@ export async function resolveTenantPlan(
 
   const planById = new Map(plans.map((p) => [p.id, p] as const));
   const ever = new Set<string>();
+  const addPlan = (planId: string | null | undefined) => {
+    for (const m of (planId ? planById.get(planId)?.modules : undefined) ?? []) ever.add(m);
+  };
   for (const s of history) {
-    for (const m of planById.get(s.planId)?.modules ?? []) ever.add(m);
+    addPlan(s.planId);
+    // The drop to Free rewrites the row in place, so the plan it came FROM is
+    // only knowable from here — and that is exactly the set that stays readable.
+    addPlan(s.previousPlanId);
     for (const m of s.addOnModules) ever.add(m);
   }
-  if (subscription) for (const m of planById.get(subscription.planId)?.modules ?? []) ever.add(m);
+  if (subscription) {
+    addPlan(subscription.planId);
+    addPlan(subscription.previousPlanId);
+  }
   for (const t of moduleTrials) ever.add(t.module);
 
   return { subscription, plan, freePlan, moduleTrials, everEntitled: [...ever], moved };

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
-import { createTenant, activateTenant, startSubscription } from "@mezan/domain";
+import { createTenant, activateTenant, startModuleTrial, startSubscription } from "@mezan/domain";
 import { createBackend, SEED_ADMIN_PIN, type BackendHandle, type PlatformHandle } from "@mezan/backend";
 import { createTenantResolvers } from "./tenant-entitlements.js";
 import { tenantDbPath, type TenantRouter } from "./tenant-router.js";
@@ -44,7 +44,30 @@ export interface ProvisionDemoTenantDeps {
  * seeded.
  */
 export async function provisionDemoTenant(deps: ProvisionDemoTenantDeps): Promise<void> {
-  await provisionSeededTenant(deps, { code: DEMO_TENANT_CODE, nameAr: DEMO_NAME_AR, adminPin: SEED_ADMIN_PIN });
+  const created = await provisionSeededTenant(deps, {
+    code: DEMO_TENANT_CODE,
+    nameAr: DEMO_NAME_AR,
+    adminPin: SEED_ADMIN_PIN,
+  });
+  if (!created) return;
+  // DEC-31 — the billing screen's module section has to show something real.
+  // POS is the one module the enterprise plan leaves out, so a live trial on it
+  // is the only way the demo can show «تجربة جارية» without inventing data.
+  const tenant = await deps.platform.stores.tenants.findByCode(DEMO_TENANT_CODE);
+  if (!tenant) return;
+  const nowIso = (deps.now ?? (() => new Date()))().toISOString();
+  await startModuleTrial(
+    {
+      id: randomUUID(),
+      tenantId: tenant.id,
+      module: "pos",
+      startedBy: "seed",
+      entitledModules: [],
+      now: nowIso,
+    },
+    deps.platform.stores.moduleTrials,
+  );
+  deps.router.invalidate(DEMO_TENANT_CODE);
 }
 
 export interface SeededTenantSpec {

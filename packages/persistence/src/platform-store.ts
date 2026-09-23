@@ -63,6 +63,7 @@ CREATE TABLE IF NOT EXISTS subscription (
   current_period_start  TEXT NOT NULL,
   current_period_end    TEXT NOT NULL,
   trial_ends_at         TEXT,
+  previous_plan_id      TEXT,
   grace_days            INTEGER NOT NULL,
   cancelled_at          TEXT,
   created_at            TEXT NOT NULL,
@@ -169,6 +170,10 @@ function addMissingPlanColumns(sqlite: Database.Database): void {
   for (const [name, ddl] of ADDED_PLAN_COLUMNS) {
     if (!existing.has(name)) sqlite.exec(`ALTER TABLE plan ADD COLUMN ${name} ${ddl}`);
   }
+  const onSubscription = new Set(
+    (sqlite.prepare(`PRAGMA table_info(subscription)`).all() as { name: string }[]).map((c) => c.name),
+  );
+  if (!onSubscription.has("previous_plan_id")) sqlite.exec(`ALTER TABLE subscription ADD COLUMN previous_plan_id TEXT`);
 }
 
 interface TenantRow {
@@ -302,6 +307,7 @@ interface SubscriptionRow {
   billing_cycle: Subscription["billingCycle"]; add_on_modules: string;
   extra_seats: number; extra_branches: number; extra_warehouses: number;
   current_period_start: string; current_period_end: string; trial_ends_at: string | null;
+  previous_plan_id: string | null;
   grace_days: number; cancelled_at: string | null; created_at: string; updated_at: string;
 }
 
@@ -311,7 +317,7 @@ function toSubscription(r: SubscriptionRow): Subscription {
     addOnModules: JSON.parse(r.add_on_modules) as string[],
     extraSeats: r.extra_seats, extraBranches: r.extra_branches, extraWarehouses: r.extra_warehouses,
     currentPeriodStart: r.current_period_start, currentPeriodEnd: r.current_period_end,
-    trialEndsAt: r.trial_ends_at, graceDays: r.grace_days, cancelledAt: r.cancelled_at,
+    trialEndsAt: r.trial_ends_at, previousPlanId: r.previous_plan_id, graceDays: r.grace_days, cancelledAt: r.cancelled_at,
     createdAt: r.created_at, updatedAt: r.updated_at,
   };
 }
@@ -331,16 +337,17 @@ class SqliteSubscriptionStore implements SubscriptionTransitionRepository {
     this.sqlite = sqlite;
     this.upsert = sqlite.prepare(
       `INSERT INTO subscription (id, tenant_id, plan_id, status, billing_cycle, add_on_modules, extra_seats,
-         extra_branches, extra_warehouses, current_period_start, current_period_end, trial_ends_at, grace_days,
-         cancelled_at, created_at, updated_at)
+         extra_branches, extra_warehouses, current_period_start, current_period_end, trial_ends_at, previous_plan_id,
+         grace_days, cancelled_at, created_at, updated_at)
        VALUES (@id, @tenantId, @planId, @status, @billingCycle, @addOnModules, @extraSeats, @extraBranches,
-         @extraWarehouses, @currentPeriodStart, @currentPeriodEnd, @trialEndsAt, @graceDays, @cancelledAt,
+         @extraWarehouses, @currentPeriodStart, @currentPeriodEnd, @trialEndsAt, @previousPlanId, @graceDays, @cancelledAt,
          @createdAt, @updatedAt)
        ON CONFLICT(id) DO UPDATE SET
          tenant_id = @tenantId, plan_id = @planId, status = @status, billing_cycle = @billingCycle,
          add_on_modules = @addOnModules, extra_seats = @extraSeats, extra_branches = @extraBranches,
          extra_warehouses = @extraWarehouses, current_period_start = @currentPeriodStart,
-         current_period_end = @currentPeriodEnd, trial_ends_at = @trialEndsAt, grace_days = @graceDays,
+         current_period_end = @currentPeriodEnd, trial_ends_at = @trialEndsAt, previous_plan_id = @previousPlanId,
+         grace_days = @graceDays,
          cancelled_at = @cancelledAt, created_at = @createdAt, updated_at = @updatedAt`,
     );
     this.byId = sqlite.prepare(`SELECT * FROM subscription WHERE id = ?`);
@@ -356,7 +363,7 @@ class SqliteSubscriptionStore implements SubscriptionTransitionRepository {
     // `changes === 1` and writes the audit row.
     this.conditionalUpdate = sqlite.prepare(
       `UPDATE subscription
-          SET plan_id = @planId, status = @status, billing_cycle = @billingCycle,
+          SET plan_id = @planId, previous_plan_id = @previousPlanId, status = @status, billing_cycle = @billingCycle,
               current_period_start = @currentPeriodStart, current_period_end = @currentPeriodEnd,
               trial_ends_at = @trialEndsAt, updated_at = @updatedAt
         WHERE id = @id AND plan_id = @beforePlanId AND status = @beforeStatus AND updated_at = @beforeUpdatedAt`,
@@ -394,7 +401,8 @@ class SqliteSubscriptionStore implements SubscriptionTransitionRepository {
       this.sqlite,
       async () => {
         const result = this.conditionalUpdate.run({
-          id: after.id, planId: after.planId, status: after.status, billingCycle: after.billingCycle,
+          id: after.id, planId: after.planId, previousPlanId: after.previousPlanId,
+          status: after.status, billingCycle: after.billingCycle,
           currentPeriodStart: after.currentPeriodStart, currentPeriodEnd: after.currentPeriodEnd,
           trialEndsAt: after.trialEndsAt, updatedAt: after.updatedAt,
           beforePlanId: before.planId, beforeStatus: before.status, beforeUpdatedAt: before.updatedAt,
@@ -412,7 +420,7 @@ class SqliteSubscriptionStore implements SubscriptionTransitionRepository {
       id: s.id, tenantId: s.tenantId, planId: s.planId, status: s.status, billingCycle: s.billingCycle,
       addOnModules: JSON.stringify(s.addOnModules), extraSeats: s.extraSeats, extraBranches: s.extraBranches,
       extraWarehouses: s.extraWarehouses, currentPeriodStart: s.currentPeriodStart, currentPeriodEnd: s.currentPeriodEnd,
-      trialEndsAt: s.trialEndsAt, graceDays: s.graceDays, cancelledAt: s.cancelledAt,
+      trialEndsAt: s.trialEndsAt, previousPlanId: s.previousPlanId, graceDays: s.graceDays, cancelledAt: s.cancelledAt,
       createdAt: s.createdAt, updatedAt: s.updatedAt,
     });
   }

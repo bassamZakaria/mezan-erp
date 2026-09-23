@@ -380,7 +380,19 @@ describe("POST /users/:id/erase — personal-data erasure (D348)", () => {
       new Request("http://x/users/u-1", {
         method: "PUT",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ nameAr: "عودة الاسم", email: "back@cyag.test", pin: "1111" }),
+        body: JSON.stringify({
+          nameAr: "عودة الاسم",
+          nameEn: null,
+          email: "back@cyag.test",
+          phone: null,
+          roleId: "role-clerk",
+          isCompanyAdmin: false,
+          employeeId: null,
+          branchScope: "*",
+          warehouseScope: "*",
+          status: "active",
+          pin: "111111",
+        }),
       }),
     );
     expect(edit.status).toBe(409);

@@ -8,6 +8,7 @@ import { CameraAccess, CameraPermissionPrompt, useCameraAccess } from "@/compone
 import { describeWriteError } from "@/api/errors";
 import { useSelfClockPunch, useSelfClockStatus } from "@/api/queries";
 import { useStrings } from "@/i18n";
+import { useFormPadding } from "@/layout";
 import { useSession } from "@/session/SessionProvider";
 import { SPACE, TYPE, useTheme } from "@/theme";
 
@@ -21,6 +22,7 @@ export function Clock() {
   const theme = useTheme();
   const { can } = useSession();
   const allowed = can("hr.self.clock");
+  const formPadding = useFormPadding();
 
   const status = useSelfClockStatus(allowed);
   const punch = useSelfClockPunch();
@@ -91,7 +93,11 @@ export function Clock() {
 
   return (
     <ScrollView
-      contentContainerStyle={[styles.content, { paddingTop: SPACE.lg, paddingBottom: SPACE.xxl }]}
+      contentContainerStyle={[
+        styles.content,
+        formPadding,
+        { paddingTop: SPACE.lg, paddingBottom: SPACE.xxl },
+      ]}
       style={{ backgroundColor: theme.background }}
     >
 
@@ -167,7 +173,7 @@ export function Clock() {
 }
 
 const styles = StyleSheet.create({
-  content: { paddingHorizontal: SPACE.lg, gap: SPACE.lg },
+  content: { gap: SPACE.lg },
   centre: { flex: 1, alignItems: "center", justifyContent: "center", padding: SPACE.lg, gap: SPACE.md },
   row: { fontSize: TYPE.body, fontWeight: "600" },
   hint: { fontSize: TYPE.caption },

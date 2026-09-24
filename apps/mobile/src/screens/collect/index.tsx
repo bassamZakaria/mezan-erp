@@ -17,6 +17,7 @@ import {
 } from "@/api/queries";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { useStrings } from "@/i18n";
+import { useFormPadding } from "@/layout";
 import { formatAmountWithCurrency, isPositiveDecimal, toAmountInput } from "@/money";
 import { todayIso } from "@/domain/dates";
 import { AllocationInvoiceKind, CollectPaymentMethod, TreasuryAccountStatus } from "@/domain/enums";
@@ -45,6 +46,7 @@ export function Collect() {
   const theme = useTheme();
   const { can } = useSession();
   const allowed = can("treasury.cash_voucher.create");
+  const formPadding = useFormPadding();
 
   const [customerQuery, setCustomerQuery] = useState("");
   const debouncedCustomerQuery = useDebouncedValue(customerQuery);
@@ -141,7 +143,11 @@ export function Collect() {
 
   return (
     <ScrollView
-      contentContainerStyle={[styles.content, { paddingTop: SPACE.lg, paddingBottom: SPACE.xxl }]}
+      contentContainerStyle={[
+        styles.content,
+        formPadding,
+        { paddingTop: SPACE.lg, paddingBottom: SPACE.xxl },
+      ]}
       style={{ backgroundColor: theme.background }}
     >
       <OfflineNotice />
@@ -243,6 +249,6 @@ export function Collect() {
 }
 
 const styles = StyleSheet.create({
-  content: { paddingHorizontal: SPACE.lg, gap: SPACE.lg },
+  content: { gap: SPACE.lg },
   notice: { fontSize: TYPE.label, fontWeight: "600" },
 });

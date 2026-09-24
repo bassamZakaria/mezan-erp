@@ -20,6 +20,7 @@ import {
 } from "@/api/queries";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { useStrings } from "@/i18n";
+import { useFormPadding } from "@/layout";
 import { formatAmountWithCurrency, isPositiveDecimal, toAmountInput } from "@/money";
 import { DEFAULT_GL_ACCOUNTS } from "@/domain/accounts";
 import { addDaysIso, todayIso } from "@/domain/dates";
@@ -67,6 +68,7 @@ export function Sell() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const { can } = useSession();
+  const formPadding = useFormPadding();
 
   const [kind, setKind] = useState<DocumentKind>(DocumentKind.Invoice);
 
@@ -221,7 +223,11 @@ export function Sell() {
 
   return (
     <ScrollView
-      contentContainerStyle={[styles.content, { paddingTop: insets.top + SPACE.lg, paddingBottom: SPACE.xxl }]}
+      contentContainerStyle={[
+        styles.content,
+        formPadding,
+        { paddingTop: insets.top + SPACE.lg, paddingBottom: SPACE.xxl },
+      ]}
       style={{ backgroundColor: theme.background }}
     >
       <Text style={[styles.title, { color: theme.text }]}>{strings.sell.title}</Text>
@@ -401,7 +407,7 @@ function LineRow({
 }
 
 const styles = StyleSheet.create({
-  content: { paddingHorizontal: SPACE.lg, gap: SPACE.lg },
+  content: { gap: SPACE.lg },
   title: { fontSize: TYPE.display, fontWeight: "800" },
   sectionTitle: { fontSize: TYPE.title, fontWeight: "700" },
   row: { flexDirection: "row", gap: SPACE.md },

@@ -1,4 +1,4 @@
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View, type ViewStyle } from "react-native";
 import { formatAmountWithCurrency, isNegative } from "@/money";
 import { RADIUS, SPACE, TYPE, useTheme } from "@/theme";
 
@@ -6,13 +6,14 @@ interface StatTileProps {
   readonly label: string;
   readonly amount: string;
   readonly emphasiseNegative?: boolean;
+  readonly basis?: ViewStyle["flexBasis"];
 }
 
-export function StatTile({ label, amount, emphasiseNegative = false }: StatTileProps) {
+export function StatTile({ label, amount, emphasiseNegative = false, basis }: StatTileProps) {
   const theme = useTheme();
   const negative = emphasiseNegative && isNegative(amount);
   return (
-    <View style={[styles.tile, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+    <View style={[styles.tile, { backgroundColor: theme.surface, borderColor: theme.border, flexBasis: basis }]}>
       <Text style={[styles.label, { color: theme.textMuted }]} numberOfLines={1}>
         {label}
       </Text>
@@ -28,13 +29,26 @@ export function StatTile({ label, amount, emphasiseNegative = false }: StatTileP
   );
 }
 
-export function CountTile({ label, count, onPress }: { label: string; count: number; onPress: () => void }) {
+export function CountTile({
+  label,
+  count,
+  onPress,
+  basis,
+}: {
+  label: string;
+  count: number;
+  onPress: () => void;
+  basis?: ViewStyle["flexBasis"];
+}) {
   const theme = useTheme();
   return (
     <Pressable
       accessibilityRole="button"
       onPress={onPress}
-      style={({ pressed }) => [styles.tile, { backgroundColor: theme.surface, borderColor: theme.border, opacity: pressed ? 0.85 : 1 }]}
+      style={({ pressed }) => [
+        styles.tile,
+        { backgroundColor: theme.surface, borderColor: theme.border, flexBasis: basis, opacity: pressed ? 0.85 : 1 },
+      ]}
     >
       <Text style={[styles.label, { color: theme.textMuted }]} numberOfLines={1}>
         {label}

@@ -31,7 +31,7 @@ export function Customer({ id }: { id: string }) {
   const strings = useStrings();
   const theme = useTheme();
   const { can } = useSession();
-  const customer = useCustomer(id);
+    const customer = useCustomer(id);
   const aging = useCustomerAging(id, can("sales.invoice.view"));
   const invoices = useCustomerInvoices(
     id,

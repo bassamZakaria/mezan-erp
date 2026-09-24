@@ -553,6 +553,41 @@ Its first run found D328–D343; the defects still open are D335–D343, with tw
 | Signed release builds: `eas build --profile production` for the `.ipa` and the `.aab`, `eas submit` to TestFlight and the Play internal track first | both | **blocked on S4** |
 | No crash, no dead control, no placeholder text on any screen, in Arabic and English, light and dark | both | D335–D343 open; the full walk is re-run on the release build, not the dev build |
 
+### Phones and tablets, walked — 2026-09-24
+
+`ios.supportsTablet` is **true**, `requireFullScreen` false (so Slide Over and Split View work),
+orientation unlocked, and `plugins/with-android-large-screen.js` sets
+`android:resizeableActivity="true"` — Expo's config has no key for it. Apple 2.4.1 ("iPhone apps
+should run on iPad whenever possible") and Play LS-C1 ("App fills the available display area… not
+letterboxed") are the rules this answers.
+
+`src/layout/` holds one breakpoint module on Google's window size classes (600dp / 840dp).
+`SplitView` renders list-then-detail on a plain `flexDirection: "row"`, so **RTL flips it from the
+same declaration** — never `row-reverse`. Customers, stock and approvals become two columns on a
+wide screen; the home tiles reflow 2 → 3 → 4 per row.
+
+**16 walks pass end to end**, 11 screens each — iPhone 17 Pro Max, iPad Air 13", an Android phone
+and an Android tablet, each in Arabic and English, light and dark, portrait and landscape, against
+the seeded backend. Evidence: `docs/mobile/walk-2026-09-24/<device>-<locale>-<theme>-<orientation>.png`.
+
+**Four defects it found by running rather than reading**, three of which left a screen unusable:
+Android 15's edge-to-edge stops `adjustResize` resizing the window, so with the keyboard up the
+**sign-in form neither shrank nor scrolled and the PIN field and button were unreachable** on a
+360×640dp phone; a landscape phone put every field after the first under the keyboard; the More
+screen was a non-scrolling `View`, so Approvals and the legal links could not be reached in
+landscape; and `alignSelf: "center"` never centres a ScrollView's content container, so every form
+sat against the RTL start edge on iPad. **Not fixed, stated:** the Customers tab label truncates to
+«العم…» on the Android tablet tab bar.
+
+`tablet-decision` now asserts the opposite of what it did: tablet support on, no full-screen
+requirement, no orientation lock, the Android plugin present — and it **reads each screenshot's PNG
+header** so the sets in `docs/mobile/store/screenshots/` are sizes App Store Connect and Play
+accept, at least four per device class, all from the release build on seeded data.
+
+**Caveat on the evidence:** the simulator build is ad-hoc signed with a local entitlements file so
+`expo-secure-store` can reach the keychain. A real `eas build --profile production` signs properly
+and needs none of that.
+
 ### Status after phase A — 2026-09-21
 
 Phase A (everything that did not touch the app itself) landed on `main` from

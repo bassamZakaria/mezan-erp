@@ -115,6 +115,22 @@ export interface Cheque {
   readonly depositedAt: string | null;
   readonly collectedAt: string | null;
   readonly bouncedAt: string | null;
+  /**
+   * WHO moved the cheque, beside WHEN (D80). The lifecycle recorded seven
+   * states and no attribution, so a bounced customer cheque could not be
+   * traced to the clerk who took it to the bank — and «مين استلم الشيك ده؟» is
+   * the first question asked when one comes back.
+   *
+   * Optional because storage does not carry these columns yet (see
+   * `packages/persistence/src/cheque-repository.ts`); a row read back from
+   * SQLite has them absent rather than wrong.
+   */
+  readonly createdBy?: string | null;
+  readonly depositedBy?: string | null;
+  readonly collectedBy?: string | null;
+  readonly bouncedBy?: string | null;
+  /** The actor who replaced this (bounced) cheque — not to be confused with `replacedByChequeId`. */
+  readonly replacedBy?: string | null;
   /** Set when this cheque was created to replace a bounced one. */
   readonly replacesChequeId: string | null;
   /** Set on the bounced cheque once it has been replaced. */

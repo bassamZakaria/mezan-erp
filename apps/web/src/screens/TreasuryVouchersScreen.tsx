@@ -906,6 +906,7 @@ function CreateVoucherView({
   });
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [heldVoucher, setHeldVoucher] = useState<{ docNo: string } | null>(null);
 
   const def = type ? getVoucherTypeDefinition(type) : null;
 
@@ -1005,7 +1006,14 @@ function CreateVoucherView({
         withholdingRatePercent: line.withholdingRatePercent ?? null,
         withholdingGlAccountId: line.withholdingGlAccountId ?? null,
       });
-      await confirmVoucher.mutateAsync({ id: created.id });
+      const confirmed = await confirmVoucher.mutateAsync({ id: created.id });
+      // An approval gate holds the confirm: the voucher exists, nothing was
+      // posted, and closing the wizard here reported plain success for money
+      // that has not moved (D83).
+      if (confirmed.held) {
+        setHeldVoucher({ docNo: confirmed.docNo ?? created.docNo ?? "" });
+        return;
+      }
       onDone();
     } catch (err) {
       setError(err instanceof Error ? err.message : t("vouchers.theVoucherCouldNotBe3"));
@@ -1036,6 +1044,25 @@ function CreateVoucherView({
             </button>
           ))}
         </div>
+      </div>
+    );
+  }
+
+  if (heldVoucher) {
+    return (
+      <div className="w-full max-w-[560px]">
+        <h1 className="mb-[16px] mt-[5px] font-display text-2xl font-bold text-ink">{t("vouchers.heldTitle")}</h1>
+        <Card className="flex flex-col gap-[12px] p-[18px]">
+          <div role="status" className="rounded-md border border-warning bg-warning-soft px-[12px] py-[10px] text-[12.5px] text-warning-ink">
+            {t("vouchers.heldBody", { docNo: heldVoucher.docNo })}
+          </div>
+          <p className="text-[12.5px] text-ink-muted">{t("vouchers.heldNoMoneyMoved")}</p>
+          <div className="flex items-center justify-end">
+            <Button variant="primary" onClick={onDone}>
+              {t("vouchers.heldBackToList")}
+            </Button>
+          </div>
+        </Card>
       </div>
     );
   }

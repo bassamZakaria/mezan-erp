@@ -255,22 +255,17 @@ describe("SalesQuotesScreen", () => {
   });
 
   it(
-    "DEFECT: clicking the row's inline quick-action button (e.g. 'إرسال للعميل') " +
-      "also opens that row's detail view, because index.tsx's `rowAction` render " +
-      "prop — unlike PurchaseOrdersScreen/PurchaseInvoicesScreen's identical pattern " +
-      "— never wraps its buttons in `onClick={(e) => e.stopPropagation()}`. The click " +
-      "bubbles to DocumentList's own `<tr onClick={() => onRowClick(row)}>` " +
-      "(packages/ui/src/primitives/DocumentList.tsx:511), so the mutation fires AND " +
-      "the list is immediately replaced by the quote's detail — the row-level error " +
-      "banner this test originally set out to prove never gets a chance to render, " +
-      "because its container has already unmounted.",
+    "D106: an inline row action stays on the list and shows its own refusal, instead of " +
+      "bubbling to the row and navigating away mid-action",
     async () => {
       renderScreen([quote()], { extra: { "POST /sales-quotes/*/send": () => ({ status: 400, body: { message: "لا يمكن إرسال عرض بلا بنود" } }) } });
       await screen.findByText("SQ-000001");
       fireEvent.click(screen.getByRole("button", { name: "إرسال للعميل" }));
-      // The bubbled row click already navigated to the detail view.
-      expect(await screen.findByRole("heading", { name: "SQ-000001" })).toBeInTheDocument();
-      await waitFor(() => expect(screen.queryByText("لا يمكن إرسال عرض بلا بنود")).not.toBeInTheDocument());
+
+      expect(await screen.findByText("لا يمكن إرسال عرض بلا بنود")).toBeInTheDocument();
+      // Still the list: the row's own click handler never fired.
+      expect(screen.queryByRole("heading", { name: "SQ-000001" })).not.toBeInTheDocument();
+      expect(screen.getByText("SQ-000001")).toBeInTheDocument();
     },
   );
 

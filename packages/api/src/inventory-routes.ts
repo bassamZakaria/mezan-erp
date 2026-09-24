@@ -159,6 +159,29 @@ function handleDomainError(c: Context, err: unknown) {
   throw err;
 }
 
+/**
+ * The write-side counterpart of `warehouseScopeOf` (D103): every list route in
+ * this file narrows by scope while `POST /adjustments` and `POST /transfers`
+ * ignored it, so a caller scoped to one warehouse could post stock into another
+ * and move goods out of a warehouse they cannot even list. Returns the 403 to
+ * send, or `undefined` when every named warehouse is inside scope — an unscoped
+ * caller passes everything.
+ */
+function warehouseScopeRefusal(c: Context, warehouseIds: readonly string[]): Response | undefined {
+  const scope = warehouseScopeOf(c);
+  if (!scope) return undefined;
+  const offending = warehouseIds.find((id) => !scope.includes(id));
+  if (offending === undefined) return undefined;
+  return c.json(
+    {
+      error: "WAREHOUSE_OUT_OF_SCOPE",
+      warehouseId: offending,
+      message: `المستودع "${offending}" خارج نطاق المستودعات المصرّح لك بها.`,
+    },
+    403,
+  );
+}
+
 function requireQuery(c: Context, name: string): string {
   const value = c.req.query(name);
   if (!value) throw new InvalidStockMovementError([`query parameter "${name}" is required`]);
@@ -351,6 +374,8 @@ export function createInventoryRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
+    const refusal = warehouseScopeRefusal(c, [parsed.data.warehouseId]);
+    if (refusal) return refusal;
     try {
       await service.postAdjustment({
         adjustmentId: parsed.data.adjustmentId,
@@ -422,6 +447,10 @@ export function createInventoryRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
+    // BOTH ends: shipping out of a warehouse the caller cannot see is the theft
+    // path, and shipping INTO one removes the goods from their view.
+    const refusal = warehouseScopeRefusal(c, [parsed.data.fromWarehouseId, parsed.data.toWarehouseId]);
+    if (refusal) return refusal;
     try {
       await service.postTransfer({
         transferId: parsed.data.transferId,

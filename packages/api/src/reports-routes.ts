@@ -65,7 +65,7 @@ import {
   type AllocationRepository,
   type VoucherLine,
 } from "@mezan/domain";
-import { createPermissionGate, warehouseScopeOf, withinScope, type AuthContextResolver } from "./permission-gate.js";
+import { branchScopeOf, createPermissionGate, warehouseScopeOf, withinScope, type AuthContextResolver } from "./permission-gate.js";
 
 /**
  * التقارير — operational reports (docs/archive/catalog/08-reports.md), mounted under
@@ -132,6 +132,19 @@ export interface ReportsRoutesDeps {
  */
 const REVENUE_ACCOUNT_IDS = ["4100"] as const;
 const INVENTORY_ACCOUNT_IDS = ["1200"] as const;
+
+/**
+ * The GL control accounts the three sub-ledger reports tie back to (D112).
+ *
+ * Same reasoning as the two above: these are where the postings ACTUALLY went
+ * (STANDARD_COA_TEMPLATE — 1105 ذمم عملاء تجارية, 2100 ذمم موردين تجاريين,
+ * 1200 المخزون), not where a tenant's account-routing table has since decided
+ * they should go. A reconciliation against the routing table would agree with
+ * a mis-routed posting, which is the one thing it exists to catch.
+ */
+const RECEIVABLES_CONTROL_ACCOUNT_ID = "1105";
+const PAYABLES_CONTROL_ACCOUNT_ID = "2100";
+const INVENTORY_CONTROL_ACCOUNT_ID = INVENTORY_ACCOUNT_IDS[0];
 
 /**
  * How many source documents a drill-down panel carries. Fixed here, never read
@@ -221,6 +234,34 @@ async function postedGross(
     }
   }
   return total;
+}
+
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * The balance of one GL control account on its NATURAL side, as of a date —
+ * the ledger half of the reconciliation banner on أعمار ديون العملاء،
+ * أعمار ديون الموردين and تقييم المخزون (D112). Until this was wired the
+ * banner never rendered in the running product: the three reports declared a
+ * reconciliation and no caller supplied the reference.
+ *
+ * Goes through `LedgerRepository.accountBalance`, which counts posted AND
+ * reversed lines: reversal posts a mirror entry and leaves the original in
+ * place, so a posted-only sum keeps the mirror and drops what it offsets.
+ */
+async function controlAccountBalance(
+  deps: ReportsRoutesDeps,
+  accountId: string,
+  naturalSide: "debit" | "credit",
+  asOfDate?: string,
+): Promise<number> {
+  const { balance } = await deps.ledger.accountBalance(accountId, asOfDate);
+  const net = moneyToNumber(balance);
+  return naturalSide === "debit" ? net : -net;
+}
+
+function isoDateOrUndefined(value: unknown): string | undefined {
+  return typeof value === "string" && ISO_DATE.test(value) ? value : undefined;
 }
 
 function respond(c: Context, outcome: RunReportOutcome<unknown, unknown>): Response {
@@ -330,12 +371,73 @@ export function createReportsRoutes(
     return out;
   }
 
+  /**
+   * The sales invoices this caller may see (D111).
+   *
+   * `branchScopeOf` is AUTHORITY, not a presentation filter: a caller scoped
+   * to فرع القاهرة never receives another branch's figures, with or without a
+   * `branchId` parameter, and the parameter — applied inside the report's own
+   * `run` — can only narrow what is left. Asking for a branch outside the
+   * scope therefore returns that caller's own nothing rather than the other
+   * branch's numbers. Same line every list route in this package holds.
+   */
+  async function scopedSalesInvoices(c: Context) {
+    return withinScope(await deps.salesInvoices.list(), branchScopeOf(c), (invoice) => invoice.branchId);
+  }
+
+  /** The purchase invoices this caller may see. See {@link scopedSalesInvoices}. */
+  async function scopedPurchaseInvoices(c: Context) {
+    return withinScope(await deps.purchaseInvoices.list(), branchScopeOf(c), (invoice) => invoice.branchId);
+  }
+
+  /**
+   * The warehouse ids this request may see, or `undefined` for all of them.
+   *
+   * Branch scope reaches stock ONLY through the warehouse holding it — a
+   * movement, a cost layer and a WAC snapshot each carry a warehouse and never
+   * a branch — so a branch-scoped caller's stock scope is the intersection of
+   * their branches' warehouses with any warehouse scope they also carry.
+   */
+  async function stockScopeOf(c: Context): Promise<readonly string[] | undefined> {
+    const branches = branchScopeOf(c);
+    const warehouses = warehouseScopeOf(c);
+    if (!branches) return warehouses;
+    const inBranch = (await deps.warehouses.findAll())
+      .filter((warehouse) => branches.includes(warehouse.branchId))
+      .map((warehouse) => warehouse.id);
+    return warehouses ? inBranch.filter((id) => warehouses.includes(id)) : inBranch;
+  }
+
+  /**
+   * Whether this run covers fewer than all branches — because the caller is
+   * scoped, or because they asked for one branch.
+   *
+   * It decides whether the GL reconciliation reference is offered at all. A
+   * control account holds the WHOLE company, so comparing a one-branch ladder
+   * against it reports a difference on books that agree perfectly, and a
+   * banner that cries wolf on every run is one nobody reads. A branch-level
+   * control balance would need a branch on the journal entry, which the GL
+   * does not carry.
+   */
+  function branchNarrowed(c: Context, params: { readonly branchId?: unknown }): boolean {
+    return branchScopeOf(c) !== undefined || (typeof params.branchId === "string" && params.branchId !== "");
+  }
+
+  /** As {@link branchNarrowed}, plus the warehouse dimension the stock reports also narrow on. */
+  function stockNarrowed(c: Context, params: { readonly branchId?: unknown; readonly warehouseId?: unknown }): boolean {
+    return (
+      branchNarrowed(c, params) ||
+      warehouseScopeOf(c) !== undefined ||
+      (typeof params.warehouseId === "string" && params.warehouseId !== "")
+    );
+  }
+
   // --- المبيعات ------------------------------------------------------
 
   app.get("/sales/by-period", gate("sales.invoice.view"), async (c) => {
     const today = todayIso(deps);
     const definition = createSalesByPeriodReport(firstOfMonth(today), today);
-    const invoices = await deps.salesInvoices.list();
+    const invoices = await scopedSalesInvoices(c);
     const allocatedByInvoiceId = await settledByInvoiceId(deps, invoices);
     return respond(
       c,
@@ -346,31 +448,43 @@ export function createReportsRoutes(
   app.get("/sales/by-item", gate("sales.invoice.view"), async (c) => {
     const today = todayIso(deps);
     const definition = createSalesByItemReport(firstOfMonth(today), today);
-    const [invoices, items] = await Promise.all([deps.salesInvoices.list(), deps.items.list()]);
+    const [invoices, items] = await Promise.all([scopedSalesInvoices(c), deps.items.list()]);
     const allocatedByInvoiceId = await settledByInvoiceId(deps, invoices);
     const params = { ...definition.defaultParams, ...queryParams(c) };
-    const postedRevenue = await postedGross(deps, REVENUE_ACCOUNT_IDS, params as { dateFrom: string; dateTo: string }, "credit", ["SALES_INVOICE"]);
-    return respond(c, runReport(definition, params, { invoices, items, allocatedByInvoiceId, postedRevenue: () => postedRevenue }));
+    // The ledger side is company-wide, so it is only a valid reference for a
+    // company-wide run — see `branchNarrowed`.
+    const postedRevenue = branchNarrowed(c, params)
+      ? undefined
+      : await postedGross(deps, REVENUE_ACCOUNT_IDS, params as { dateFrom: string; dateTo: string }, "credit", ["SALES_INVOICE"]);
+    return respond(
+      c,
+      runReport(definition, params, {
+        invoices,
+        items,
+        allocatedByInvoiceId,
+        postedRevenue: postedRevenue === undefined ? undefined : () => postedRevenue,
+      }),
+    );
   });
 
   app.get("/sales/by-customer", gate("sales.invoice.view"), async (c) => {
     const today = todayIso(deps);
     const definition = createSalesByCustomerReport(firstOfMonth(today), today);
-    const [invoices, customers] = await Promise.all([deps.salesInvoices.list(), deps.customers.findAll()]);
+    const [invoices, customers] = await Promise.all([scopedSalesInvoices(c), deps.customers.findAll()]);
     return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { invoices, customers }));
   });
 
   app.get("/sales/by-salesperson", gate("sales.invoice.view"), async (c) => {
     const today = todayIso(deps);
     const definition = createSalesBySalespersonReport(firstOfMonth(today), today);
-    const invoices = await deps.salesInvoices.list();
+    const invoices = await scopedSalesInvoices(c);
     return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { invoices }));
   });
 
   app.get("/sales/top-products", gate("sales.invoice.view"), async (c) => {
     const today = todayIso(deps);
     const definition = createTopProductsReport(firstOfMonth(today), today);
-    const [invoices, items] = await Promise.all([deps.salesInvoices.list(), deps.items.list()]);
+    const [invoices, items] = await Promise.all([scopedSalesInvoices(c), deps.items.list()]);
     return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { invoices, items }));
   });
 
@@ -379,14 +493,14 @@ export function createReportsRoutes(
   app.get("/purchases/by-period", gate("purchases.invoice.view"), async (c) => {
     const today = todayIso(deps);
     const definition = createPurchasesByPeriodReport(firstOfMonth(today), today);
-    const invoices = await deps.purchaseInvoices.list();
+    const invoices = await scopedPurchaseInvoices(c);
     return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { invoices }));
   });
 
   app.get("/purchases/by-supplier", gate("purchases.invoice.view"), async (c) => {
     const today = todayIso(deps);
     const definition = createPurchasesBySupplierReport(firstOfMonth(today), today);
-    const [invoices, suppliers] = await Promise.all([deps.purchaseInvoices.list(), deps.suppliers.findAll()]);
+    const [invoices, suppliers] = await Promise.all([scopedPurchaseInvoices(c), deps.suppliers.findAll()]);
     const allocatedByInvoiceId = await settledByInvoiceId(deps, invoices);
     return respond(
       c,
@@ -397,67 +511,104 @@ export function createReportsRoutes(
   app.get("/purchases/by-item", gate("purchases.invoice.view"), async (c) => {
     const today = todayIso(deps);
     const definition = createPurchasesByItemReport(firstOfMonth(today), today);
-    const [invoices, items] = await Promise.all([deps.purchaseInvoices.list(), deps.items.list()]);
+    const [invoices, items] = await Promise.all([scopedPurchaseInvoices(c), deps.items.list()]);
     const params = { ...definition.defaultParams, ...queryParams(c) };
-    const postedInventory = await postedGross(deps, INVENTORY_ACCOUNT_IDS, params as { dateFrom: string; dateTo: string }, "debit", ["PURCHASE_INVOICE", "PURCHASE_RECEIPT"]);
-    return respond(c, runReport(definition, params, { invoices, items, postedInventory: () => postedInventory }));
+    const postedInventory = branchNarrowed(c, params)
+      ? undefined
+      : await postedGross(deps, INVENTORY_ACCOUNT_IDS, params as { dateFrom: string; dateTo: string }, "debit", ["PURCHASE_INVOICE", "PURCHASE_RECEIPT"]);
+    return respond(
+      c,
+      runReport(definition, params, {
+        invoices,
+        items,
+        postedInventory: postedInventory === undefined ? undefined : () => postedInventory,
+      }),
+    );
   });
 
   // --- المخزون -------------------------------------------------------
 
   app.get("/inventory/stock-levels", gate("inventory.stock.view"), async (c) => {
     const definition = createInventoryStockLevelsReport();
-    const [items, allSnapshots] = await Promise.all([deps.items.list(), deps.wacSnapshots.list()]);
-    const snapshots = withinScope(allSnapshots, warehouseScopeOf(c), (s) => s.warehouseId);
-    return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { items, snapshots }));
+    const [items, allSnapshots, warehouses] = await Promise.all([deps.items.list(), deps.wacSnapshots.list(), deps.warehouses.findAll()]);
+    const snapshots = withinScope(allSnapshots, await stockScopeOf(c), (s) => s.warehouseId);
+    return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { items, snapshots, warehouses }));
   });
 
   app.get("/inventory/movement", gate("inventory.stock.view"), async (c) => {
     const today = todayIso(deps);
     const definition = createInventoryMovementReport(firstOfMonth(today), today);
-    const [movements, items, warehouses] = await Promise.all([loadAllMovements(deps), deps.items.list(), deps.warehouses.findAll()]);
+    const [allMovements, items, warehouses] = await Promise.all([loadAllMovements(deps), deps.items.list(), deps.warehouses.findAll()]);
+    const movements = withinScope(allMovements, await stockScopeOf(c), (m) => m.warehouseId);
     return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { movements, items, warehouses }));
   });
 
   app.get("/inventory/ledger", gate("inventory.stock.view"), async (c) => {
     const definition = createInventoryLedgerReport();
-    const [movements, items, warehouses] = await Promise.all([loadAllMovements(deps), deps.items.list(), deps.warehouses.findAll()]);
+    const [allMovements, items, warehouses] = await Promise.all([loadAllMovements(deps), deps.items.list(), deps.warehouses.findAll()]);
+    const movements = withinScope(allMovements, await stockScopeOf(c), (m) => m.warehouseId);
     return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { movements, items, warehouses }));
   });
 
   app.get("/inventory/valuation", gate("inventory.valuation.view"), async (c) => {
     const definition = createInventoryValuationReport();
-    const [items, allSnapshots] = await Promise.all([deps.items.list(), deps.wacSnapshots.list()]);
-    const snapshots = withinScope(allSnapshots, warehouseScopeOf(c), (s) => s.warehouseId);
-    return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { items, snapshots }));
+    const params = { ...definition.defaultParams, ...queryParams(c) };
+    const [items, allSnapshots, warehouses] = await Promise.all([deps.items.list(), deps.wacSnapshots.list(), deps.warehouses.findAll()]);
+    const snapshots = withinScope(allSnapshots, await stockScopeOf(c), (s) => s.warehouseId);
+    // The valuation this report sums from the stock sub-ledger must equal what
+    // every receipt, issue, adjustment and landed cost posted to inventory —
+    // the single test that proves the costing engine (D112).
+    const inventoryControl = stockNarrowed(c, params)
+      ? undefined
+      : await controlAccountBalance(deps, INVENTORY_CONTROL_ACCOUNT_ID, "debit");
+    return respond(
+      c,
+      runReport(definition, params, {
+        items,
+        snapshots,
+        warehouses,
+        inventoryControlBalance: inventoryControl === undefined ? undefined : () => inventoryControl,
+      }),
+    );
   });
 
   app.get("/inventory/aging", gate("inventory.stock.view"), async (c) => {
     const definition = createInventoryAgingReport(todayIso(deps));
-    const [items, warehouses, layers] = await Promise.all([deps.items.list(), deps.warehouses.findAll(), loadAllLayers(deps)]);
+    const [items, warehouses, allLayers] = await Promise.all([deps.items.list(), deps.warehouses.findAll(), loadAllLayers(deps)]);
+    const layers = withinScope(allLayers, await stockScopeOf(c), (layer) => layer.warehouseId);
     return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { items, warehouses, layers }));
   });
 
   app.get("/inventory/expiring", gate("inventory.stock.view"), async (c) => {
     const definition = createInventoryExpiringReport(todayIso(deps));
-    const [items, warehouses, layers] = await Promise.all([deps.items.list(), deps.warehouses.findAll(), loadAllLayers(deps)]);
+    const [items, warehouses, allLayers] = await Promise.all([deps.items.list(), deps.warehouses.findAll(), loadAllLayers(deps)]);
+    const layers = withinScope(allLayers, await stockScopeOf(c), (layer) => layer.warehouseId);
     return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { items, warehouses, layers }));
   });
 
   app.get("/inventory/slow-moving", gate("inventory.stock.view"), async (c) => {
     const definition = createInventorySlowMovingReport(todayIso(deps));
-    const [items, snapshots, invoices] = await Promise.all([deps.items.list(), deps.wacSnapshots.list(), deps.salesInvoices.list()]);
-    return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { items, snapshots, invoices }));
+    const [items, allSnapshots, invoices, warehouses] = await Promise.all([
+      deps.items.list(),
+      deps.wacSnapshots.list(),
+      scopedSalesInvoices(c),
+      deps.warehouses.findAll(),
+    ]);
+    const snapshots = withinScope(allSnapshots, await stockScopeOf(c), (s) => s.warehouseId);
+    return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { items, snapshots, invoices, warehouses }));
   });
 
   app.get("/inventory/drift", gate("inventory.valuation.view"), async (c) => {
     const definition = createInventoryDriftReport();
-    const [snapshots, movements, items, warehouses] = await Promise.all([
+    const [allSnapshots, allMovements, items, warehouses] = await Promise.all([
       deps.wacSnapshots.list(),
       loadAllMovements(deps),
       deps.items.list(),
       deps.warehouses.findAll(),
     ]);
+    const stockScope = await stockScopeOf(c);
+    const snapshots = withinScope(allSnapshots, stockScope, (s) => s.warehouseId);
+    const movements = withinScope(allMovements, stockScope, (m) => m.warehouseId);
     return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { snapshots, movements, items, warehouses }));
   });
 
@@ -467,7 +618,7 @@ export function createReportsRoutes(
     const boms = deps.boms;
     app.get("/manufacturing/make-vs-buy", gate("manufacturing.bom.view"), async (c) => {
       const definition = createMakeVsBuyReport();
-      const [items, bomList, invoices] = await Promise.all([deps.items.list(), boms.list(), deps.purchaseInvoices.list()]);
+      const [items, bomList, invoices] = await Promise.all([deps.items.list(), boms.list(), scopedPurchaseInvoices(c)]);
       return respond(
         c,
         runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { items, boms: bomList, purchaseInvoices: invoices }),
@@ -479,32 +630,49 @@ export function createReportsRoutes(
 
   app.get("/aging/customers", gate("sales.invoice.view"), async (c) => {
     const definition = createAgingCustomersReport(todayIso(deps));
+    const params = { ...definition.defaultParams, ...queryParams(c) };
     const [invoices, returns, credits, customers] = await Promise.all([
-      deps.salesInvoices.list(),
+      scopedSalesInvoices(c),
       returnsByInvoiceId(deps),
       unappliedCustomerCredits(deps),
       deps.customers.findAll(),
     ]);
     const allocatedByInvoiceId = await settledByInvoiceId(deps, invoices);
+    // The ladder walks invoices; 1105 holds what those invoices, their
+    // collections and their returns actually posted. Two independent paths to
+    // one number — a difference means one of them is wrong (D112).
+    const receivablesControl = branchNarrowed(c, params)
+      ? undefined
+      : await controlAccountBalance(deps, RECEIVABLES_CONTROL_ACCOUNT_ID, "debit", isoDateOrUndefined(params.asOfDate));
     return respond(
       c,
-      runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, {
+      runReport(definition, params, {
         invoices,
         customers,
         allocatedByInvoiceId,
         returnsByInvoiceId: returns,
         unappliedCreditsByCustomerId: credits,
+        receivablesControlBalance: receivablesControl === undefined ? undefined : () => receivablesControl,
       }),
     );
   });
 
   app.get("/aging/suppliers", gate("purchases.invoice.view"), async (c) => {
     const definition = createAgingSuppliersReport(todayIso(deps));
-    const [invoices, suppliers] = await Promise.all([deps.purchaseInvoices.list(), deps.suppliers.findAll()]);
+    const params = { ...definition.defaultParams, ...queryParams(c) };
+    const [invoices, suppliers] = await Promise.all([scopedPurchaseInvoices(c), deps.suppliers.findAll()]);
     const allocatedByInvoiceId = await settledByInvoiceId(deps, invoices);
+    const payablesControl = branchNarrowed(c, params)
+      ? undefined
+      : await controlAccountBalance(deps, PAYABLES_CONTROL_ACCOUNT_ID, "credit", isoDateOrUndefined(params.asOfDate));
     return respond(
       c,
-      runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { invoices, suppliers, allocatedByInvoiceId }),
+      runReport(definition, params, {
+        invoices,
+        suppliers,
+        allocatedByInvoiceId,
+        payablesControlBalance: payablesControl === undefined ? undefined : () => payablesControl,
+      }),
     );
   });
 
@@ -529,7 +697,8 @@ export function createReportsRoutes(
     app.get("/field/van-sales", gate("field.van_trip.view"), async (c) => {
       const today = todayIso(deps);
       const definition = createVanSalesReport(firstOfMonth(today), today);
-      const [trips, employees] = await Promise.all([vanTrips.list(), deps.employees?.list() ?? []]);
+      const [allTrips, employees] = await Promise.all([vanTrips.list(), deps.employees?.list() ?? []]);
+      const trips = withinScope(allTrips, branchScopeOf(c), (trip) => trip.branchId);
       return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { trips, employees }));
     });
   }
@@ -542,10 +711,13 @@ export function createReportsRoutes(
   app.get("/tax/withholding", gate("accounting.reports.view"), async (c) => {
     const today = todayIso(deps);
     const definition = createWithholdingTaxReport(firstOfYear(today), today);
-    const [vouchers, suppliers] = await Promise.all([
+    const [allVouchers, suppliers] = await Promise.all([
       deps.voucherDocuments?.list({ status: "confirmed" }) ?? Promise.resolve([]),
       deps.suppliers.findAll(),
     ]);
+    // A voucher's branch lives on its single line (vouchers-routes.ts scopes
+    // the register the same way).
+    const vouchers = withinScope(allVouchers, branchScopeOf(c), (doc) => doc.lines[0]?.branchId);
     const supplierName = new Map(suppliers.map((s) => [s.id, s.nameAr]));
     const rows = vouchers.flatMap((doc) => {
       const line = doc.lines[0];
@@ -572,7 +744,7 @@ export function createReportsRoutes(
 
   app.get("/drill-down/customer/:id", gate("sales.customer.view"), async (c) => {
     const id = c.req.param("id");
-    const [customers, invoices] = await Promise.all([deps.customers.findAll(), deps.salesInvoices.list()]);
+    const [customers, invoices] = await Promise.all([deps.customers.findAll(), scopedSalesInvoices(c)]);
     const customer = customers.find((entry) => entry.id === id);
     if (!customer) return c.json({ error: "NOT_FOUND" }, 404);
     const own = invoices
@@ -612,7 +784,7 @@ export function createReportsRoutes(
 
   app.get("/drill-down/supplier/:id", gate("purchases.supplier.view"), async (c) => {
     const id = c.req.param("id");
-    const [suppliers, invoices] = await Promise.all([deps.suppliers.findAll(), deps.purchaseInvoices.list()]);
+    const [suppliers, invoices] = await Promise.all([deps.suppliers.findAll(), scopedPurchaseInvoices(c)]);
     const supplier = suppliers.find((entry) => entry.id === id);
     if (!supplier) return c.json({ error: "NOT_FOUND" }, 404);
     const own = invoices
@@ -649,9 +821,10 @@ export function createReportsRoutes(
     const [items, snapshots] = await Promise.all([deps.items.list(), deps.wacSnapshots.list()]);
     const item = items.find((entry) => entry.id === id);
     if (!item) return c.json({ error: "NOT_FOUND" }, 404);
+    const stockScope = await stockScopeOf(c);
     const positions = withinScope(
       snapshots.filter((snapshot) => snapshot.itemId === id),
-      warehouseScopeOf(c),
+      stockScope,
       (snapshot) => snapshot.warehouseId,
     );
     let onHand = 0n;
@@ -660,7 +833,7 @@ export function createReportsRoutes(
       onHand += position.onHand.scaled;
       value += position.totalValue.scaled;
     }
-    const movements = (await loadAllMovements(deps))
+    const movements = withinScope(await loadAllMovements(deps), stockScope, (movement) => movement.warehouseId)
       .filter((movement) => movement.itemId === id)
       .sort((a, b) => b.occurredAt.localeCompare(a.occurredAt));
     return c.json({

@@ -67,12 +67,18 @@ export interface CreateChequeCommand {
   /** Id for the creation journal entry (domain stays pure — caller supplies ids). */
   readonly journalEntryId: string;
   readonly replacesChequeId?: string | null;
+  /**
+   * The RESOLVED acting user (D80). Every transition below takes one, and it
+   * is recorded on the cheque so the register can answer who did what.
+   */
+  readonly actor?: string;
 }
 
 export interface DepositChequeCommand {
   readonly chequeId: string;
   readonly bankTreasuryAccountId: string;
   readonly date?: string;
+  readonly actor?: string;
 }
 
 export interface CollectChequeCommand {
@@ -81,12 +87,14 @@ export interface CollectChequeCommand {
   readonly bankGlAccountId: string;
   readonly journalEntryId: string;
   readonly date?: string;
+  readonly actor?: string;
 }
 
 export interface BounceChequeCommand {
   readonly chequeId: string;
   readonly journalEntryId: string;
   readonly date?: string;
+  readonly actor?: string;
 }
 
 export interface ReplaceChequeCommand {
@@ -97,6 +105,7 @@ export interface ReplaceChequeCommand {
   };
   readonly journalEntryId: string;
   readonly date?: string;
+  readonly actor?: string;
 }
 
 export interface ChequeListQuery {
@@ -113,6 +122,11 @@ export interface ChequeServiceDeps {
   readonly cheques: ChequeRepository;
   readonly gl: JournalPostingDeps;
   readonly now?: () => string;
+  /**
+   * Fallback actor for a caller that does not name one per command — the same
+   * shape `VoucherServiceDeps.actor` and `SalesInvoiceServiceDeps.actor` take.
+   */
+  readonly actor?: string;
 }
 
 export class ChequeService {
@@ -120,6 +134,15 @@ export class ChequeService {
 
   private now(): string {
     return this.deps.now ? this.deps.now() : new Date().toISOString();
+  }
+
+  /**
+   * WHO is doing this. Never a value the client named directly — the routes
+   * read it off the resolved session (cheques-routes.ts), which is what makes
+   * the attribution worth having (D80).
+   */
+  private actorOf(cmd: { readonly actor?: string }): string {
+    return cmd.actor ?? this.deps.actor ?? "system";
   }
 
   /** Record a newly received/issued cheque: status "pending", posts its creation GL entry. */
@@ -157,6 +180,11 @@ export class ChequeService {
       creationJournalEntryId: entry.id,
       collectionJournalEntryId: null,
       bounceJournalEntryId: null,
+      createdBy: this.actorOf(cmd),
+      depositedBy: null,
+      collectedBy: null,
+      bouncedBy: null,
+      replacedBy: null,
     };
     await this.deps.cheques.save(cheque);
     return cheque;
@@ -192,7 +220,13 @@ export class ChequeService {
   async deposit(cmd: DepositChequeCommand): Promise<Cheque> {
     const cheque = await this.require(cmd.chequeId);
     assertChequeTransition(cheque, "deposit");
-    const updated: Cheque = { ...cheque, status: "deposited", bankTreasuryAccountId: cmd.bankTreasuryAccountId, depositedAt: this.now() };
+    const updated: Cheque = {
+      ...cheque,
+      status: "deposited",
+      bankTreasuryAccountId: cmd.bankTreasuryAccountId,
+      depositedAt: this.now(),
+      depositedBy: this.actorOf(cmd),
+    };
     await this.deps.cheques.update(updated);
     return updated;
   }
@@ -226,7 +260,13 @@ export class ChequeService {
       this.deps.gl,
     );
 
-    const updated: Cheque = { ...cheque, status: "collected", collectedAt: this.now(), collectionJournalEntryId: entry.id };
+    const updated: Cheque = {
+      ...cheque,
+      status: "collected",
+      collectedAt: this.now(),
+      collectedBy: this.actorOf(cmd),
+      collectionJournalEntryId: entry.id,
+    };
     await this.deps.cheques.update(updated);
     return updated;
   }
@@ -265,7 +305,13 @@ export class ChequeService {
       this.deps.gl,
     );
 
-    const updated: Cheque = { ...cheque, status: "bounced", bouncedAt: this.now(), bounceJournalEntryId: entry.id };
+    const updated: Cheque = {
+      ...cheque,
+      status: "bounced",
+      bouncedAt: this.now(),
+      bouncedBy: this.actorOf(cmd),
+      bounceJournalEntryId: entry.id,
+    };
     await this.deps.cheques.update(updated);
     return updated;
   }
@@ -336,10 +382,20 @@ export class ChequeService {
       creationJournalEntryId: entry.id,
       collectionJournalEntryId: null,
       bounceJournalEntryId: null,
+      createdBy: this.actorOf(cmd),
+      depositedBy: null,
+      collectedBy: null,
+      bouncedBy: null,
+      replacedBy: null,
     };
     await this.deps.cheques.save(replacement);
 
-    const updatedOriginal: Cheque = { ...original, status: "replaced", replacedByChequeId: replacement.id };
+    const updatedOriginal: Cheque = {
+      ...original,
+      status: "replaced",
+      replacedByChequeId: replacement.id,
+      replacedBy: this.actorOf(cmd),
+    };
     await this.deps.cheques.update(updatedOriginal);
 
     return { original: updatedOriginal, replacement };

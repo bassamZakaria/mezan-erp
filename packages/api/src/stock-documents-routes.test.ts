@@ -293,18 +293,105 @@ describe("physical-counts routes — count → variance → adjustment flow over
 
     expect((await stockLedger.getBalanceDetail("I1", "W1")).onHand.toString()).toBe("8.000000");
   });
+
+  /**
+   * The twin of D103 in the same file: a count is where shrinkage is written
+   * off, and `generate-adjustment` posts a CONFIRMED adjustment — so a count
+   * in a warehouse the caller may not list is a write-off they may not see.
+   */
+  it("D103: a caller scoped to one warehouse cannot start, record, complete or write off a count in another", async () => {
+    const { adjustmentsApp, countsApp, stockLedger } = await newHarness();
+    await adjustmentsApp.fetch(
+      req("/draft", {
+        method: "POST",
+        permissions: "inventory.adjustment.create",
+        body: JSON.stringify({
+          id: "SEED-COUNT",
+          date: "2026-01-15",
+          lines: [{ itemId: "I1", warehouseId: "W1", reason: "INITIAL_STOCK", direction: "IN", qty: "10", unitCost: "5" }],
+        }),
+      }),
+    );
+    await adjustmentsApp.fetch(req("/SEED-COUNT/confirm", { method: "POST", permissions: "inventory.adjustment.confirm" }));
+
+    const scopedToW2 = { headers: { "x-warehouse-scope": "W2" } };
+
+    const start = await countsApp.fetch(
+      req("/", {
+        method: "POST",
+        permissions: "inventory.count.create",
+        ...scopedToW2,
+        body: JSON.stringify({ id: "C-OUT", warehouseId: "W1", date: "2026-01-20", itemIds: ["I1"] }),
+      }),
+    );
+    expect(start.status).toBe(403);
+    expect((await start.json()) as { error: string }).toMatchObject({ error: "WAREHOUSE_OUT_OF_SCOPE", warehouseId: "W1" });
+
+    // A count a wider-scoped colleague opened is still off limits to the write-off.
+    await countsApp.fetch(
+      req("/", {
+        method: "POST",
+        permissions: "inventory.count.create",
+        body: JSON.stringify({ id: "C-W1", warehouseId: "W1", date: "2026-01-20", itemIds: ["I1"] }),
+      }),
+    );
+    const record = await countsApp.fetch(
+      req("/C-W1/counts", {
+        method: "POST",
+        permissions: "inventory.count.create",
+        ...scopedToW2,
+        body: JSON.stringify({ entries: [{ itemId: "I1", countedQty: "8" }] }),
+      }),
+    );
+    expect(record.status).toBe(403);
+
+    const complete = await countsApp.fetch(
+      req("/C-W1/complete", { method: "POST", permissions: "inventory.count.create", ...scopedToW2 }),
+    );
+    expect(complete.status).toBe(403);
+
+    const generate = await countsApp.fetch(
+      req("/C-W1/generate-adjustment", {
+        method: "POST",
+        permissions: "inventory.count.confirm",
+        ...scopedToW2,
+        body: JSON.stringify({ adjustmentId: "ADJ-OUT" }),
+      }),
+    );
+    expect(generate.status).toBe(403);
+
+    // Nothing was written off: the position is exactly what the seed left.
+    expect((await stockLedger.getBalanceDetail("I1", "W1")).onHand.toString()).toBe("10.000000");
+  });
 });
 
-describe("warehouse scope on the WRITE path (D103)", () => {
-  const scoped = (permissions: string) => ({
+describe("stock-document write paths refuse a warehouse outside the caller's scope (D103)", () => {
+  const scoped = (permissions: string, warehouses = "W2") => ({
     permissions,
-    headers: { "x-warehouse-scope": "W2" },
+    headers: { "x-warehouse-scope": warehouses },
   });
 
-  it("LIMITATION (D103): a caller scoped to one warehouse can post an adjustment into another", async () => {
+  type AdjustmentsApp = Awaited<ReturnType<typeof newHarness>>["adjustmentsApp"];
+
+  async function seedW1(adjustmentsApp: AdjustmentsApp, id = "SEED-W1", qty = "10") {
+    await adjustmentsApp.fetch(
+      req("/draft", {
+        method: "POST",
+        permissions: "inventory.adjustment.create",
+        body: JSON.stringify({
+          id,
+          date: "2026-01-15",
+          memo: "رصيد افتتاحي",
+          lines: [{ itemId: "I1", warehouseId: "W1", reason: "INITIAL_STOCK", direction: "IN", qty, unitCost: "10" }],
+        }),
+      }),
+    );
+    await adjustmentsApp.fetch(req(`/${id}/confirm`, { method: "POST", permissions: "inventory.adjustment.confirm" }));
+  }
+
+  it("D103: refuses an adjustment draft whose line names an out-of-scope warehouse, and moves no stock", async () => {
     const { adjustmentsApp, stockLedger } = await newHarness();
 
-    // The caller may act in W2 only. The draft names W1.
     const draft = await adjustmentsApp.fetch(
       req("/draft", {
         method: "POST",
@@ -319,22 +406,43 @@ describe("warehouse scope on the WRITE path (D103)", () => {
         }),
       }),
     );
-    expect(draft.status).toBe(201);
+    expect(draft.status).toBe(403);
+    expect((await draft.json()) as unknown).toMatchObject({ error: "WAREHOUSE_OUT_OF_SCOPE", warehouseId: "W1" });
 
-    const confirm = await adjustmentsApp.fetch(
-      req("/OUT-OF-SCOPE/confirm", { method: "POST", ...scoped("inventory.adjustment.confirm") }),
+    expect((await stockLedger.getBalanceDetail("I1", "W1")).onHand.toString()).toBe("0.000000");
+    const stored = await adjustmentsApp.fetch(
+      req("/OUT-OF-SCOPE", { permissions: "inventory.adjustment.view", headers: { "x-warehouse-scope": "*" } }),
     );
-    expect(confirm.status).toBe(200);
-
-    // The goods landed in a warehouse this user may not even list.
-    const position = await stockLedger.getBalanceDetail("I1", "W1");
-    expect(position.onHand.toString()).toBe("5.000000");
-
-    // When D103 is closed, the draft or the confirm should be refused and this
-    // position should stay empty — that is the expectation to rewrite.
+    expect(stored.status).toBe(404);
   });
 
-  it("LIMITATION (D103): the same caller is correctly scoped out of the READ path", async () => {
+  it("D103: refuses confirming an adjustment a wider-scoped caller drafted, leaving the position untouched", async () => {
+    const { adjustmentsApp, stockLedger } = await newHarness();
+    await adjustmentsApp.fetch(
+      req("/draft", {
+        method: "POST",
+        permissions: "inventory.adjustment.create",
+        body: JSON.stringify({
+          id: "WIDE-DRAFT",
+          date: "2026-01-15",
+          memo: "أنشأه مستخدم أوسع نطاقاً",
+          lines: [
+            { itemId: "I1", warehouseId: "W1", reason: "INITIAL_STOCK", direction: "IN", qty: "5", unitCost: "10" },
+          ],
+        }),
+      }),
+    );
+
+    const confirm = await adjustmentsApp.fetch(
+      req("/WIDE-DRAFT/confirm", { method: "POST", ...scoped("inventory.adjustment.confirm") }),
+    );
+    expect(confirm.status).toBe(403);
+    expect((await confirm.json()) as unknown).toMatchObject({ error: "WAREHOUSE_OUT_OF_SCOPE", warehouseId: "W1" });
+
+    expect((await stockLedger.getBalanceDetail("I1", "W1")).onHand.toString()).toBe("0.000000");
+  });
+
+  it("D103: the same caller is correctly scoped out of the READ path", async () => {
     const { adjustmentsApp } = await newHarness();
     await adjustmentsApp.fetch(
       req("/draft", {
@@ -354,30 +462,12 @@ describe("warehouse scope on the WRITE path (D103)", () => {
     const listed = await adjustmentsApp.fetch(req("/", scoped("inventory.adjustment.view")));
     expect(listed.status).toBe(200);
     const rows = (await listed.json()) as unknown[];
-    // The read path filters by scope — which is exactly what makes the write
-    // path's silence a hole rather than a design decision.
     expect(rows).toEqual([]);
   });
 
-  it("LIMITATION (D103): a transfer can move goods out of a warehouse the caller may not see", async () => {
+  it("D103: refuses a transfer draft that moves goods OUT of a warehouse the caller may not see", async () => {
     const { adjustmentsApp, transfersApp, stockLedger } = await newHarness();
-    await adjustmentsApp.fetch(
-      req("/draft", {
-        method: "POST",
-        permissions: "inventory.adjustment.create",
-        body: JSON.stringify({
-          id: "SEED-W1",
-          date: "2026-01-15",
-          memo: "رصيد افتتاحي",
-          lines: [
-            { itemId: "I1", warehouseId: "W1", reason: "INITIAL_STOCK", direction: "IN", qty: "10", unitCost: "10" },
-          ],
-        }),
-      }),
-    );
-    await adjustmentsApp.fetch(
-      req("/SEED-W1/confirm", { method: "POST", permissions: "inventory.adjustment.confirm" }),
-    );
+    await seedW1(adjustmentsApp);
 
     const draft = await transfersApp.fetch(
       req("/draft", {
@@ -391,13 +481,155 @@ describe("warehouse scope on the WRITE path (D103)", () => {
         }),
       }),
     );
+    expect(draft.status).toBe(403);
+    expect((await draft.json()) as unknown).toMatchObject({ error: "WAREHOUSE_OUT_OF_SCOPE", warehouseId: "W1" });
+
+    expect((await stockLedger.getBalanceDetail("I1", "W1")).onHand.toString()).toBe("10.000000");
+    expect((await stockLedger.getBalanceDetail("I1", "W2")).onHand.toString()).toBe("0.000000");
+  });
+
+  it("D103: refuses a transfer draft that moves goods INTO a warehouse the caller may not see", async () => {
+    const { adjustmentsApp, transfersApp, stockLedger } = await newHarness();
+    await seedW1(adjustmentsApp);
+
+    const draft = await transfersApp.fetch(
+      req("/draft", {
+        method: "POST",
+        ...scoped("inventory.transfer.create", "W1"),
+        body: JSON.stringify({
+          id: "TRF-IN",
+          date: "2026-01-16",
+          memo: "نقل إلى مستودع خارج النطاق",
+          lines: [{ itemId: "I1", fromWarehouseId: "W1", toWarehouseId: "W2", qty: "4" }],
+        }),
+      }),
+    );
+    expect(draft.status).toBe(403);
+    expect((await draft.json()) as unknown).toMatchObject({ error: "WAREHOUSE_OUT_OF_SCOPE", warehouseId: "W2" });
+
+    expect((await stockLedger.getBalanceDetail("I1", "W1")).onHand.toString()).toBe("10.000000");
+    expect((await stockLedger.getBalanceDetail("I1", "W2")).onHand.toString()).toBe("0.000000");
+  });
+
+  it("D103: refuses confirming a transfer that touches an out-of-scope warehouse, leaving both positions untouched", async () => {
+    const { adjustmentsApp, transfersApp, stockLedger } = await newHarness();
+    await seedW1(adjustmentsApp);
+
+    const draft = await transfersApp.fetch(
+      req("/draft", {
+        method: "POST",
+        permissions: "inventory.transfer.create",
+        body: JSON.stringify({
+          id: "TRF-WIDE",
+          date: "2026-01-16",
+          memo: "نقل",
+          lines: [{ itemId: "I1", fromWarehouseId: "W1", toWarehouseId: "W2", qty: "4" }],
+        }),
+      }),
+    );
     expect(draft.status).toBe(201);
 
     const confirm = await transfersApp.fetch(
-      req("/TRF-OUT/confirm", { method: "POST", ...scoped("inventory.transfer.confirm") }),
+      req("/TRF-WIDE/confirm", { method: "POST", ...scoped("inventory.transfer.confirm") }),
+    );
+    expect(confirm.status).toBe(403);
+    expect((await confirm.json()) as unknown).toMatchObject({ error: "WAREHOUSE_OUT_OF_SCOPE", warehouseId: "W1" });
+
+    expect((await stockLedger.getBalanceDetail("I1", "W1")).onHand.toString()).toBe("10.000000");
+    expect((await stockLedger.getBalanceDetail("I1", "W2")).onHand.toString()).toBe("0.000000");
+  });
+
+  it("D103: a caller scoped to the warehouse they name still drafts and confirms an adjustment", async () => {
+    const { adjustmentsApp, stockLedger } = await newHarness();
+    const draft = await adjustmentsApp.fetch(
+      req("/draft", {
+        method: "POST",
+        ...scoped("inventory.adjustment.create", "W1,W2"),
+        body: JSON.stringify({
+          id: "IN-SCOPE",
+          date: "2026-01-15",
+          memo: "داخل النطاق",
+          lines: [
+            { itemId: "I1", warehouseId: "W1", reason: "INITIAL_STOCK", direction: "IN", qty: "5", unitCost: "10" },
+          ],
+        }),
+      }),
+    );
+    expect(draft.status).toBe(201);
+
+    const confirm = await adjustmentsApp.fetch(
+      req("/IN-SCOPE/confirm", { method: "POST", ...scoped("inventory.adjustment.confirm", "W1,W2") }),
+    );
+    expect(confirm.status).toBe(200);
+    expect((await stockLedger.getBalanceDetail("I1", "W1")).onHand.toString()).toBe("5.000000");
+  });
+
+  it("D103: a caller scoped to both ends still drafts and confirms a transfer", async () => {
+    const { adjustmentsApp, transfersApp, stockLedger } = await newHarness();
+    await seedW1(adjustmentsApp);
+
+    const draft = await transfersApp.fetch(
+      req("/draft", {
+        method: "POST",
+        ...scoped("inventory.transfer.create", "W1,W2"),
+        body: JSON.stringify({
+          id: "TRF-BOTH",
+          date: "2026-01-16",
+          memo: "نقل داخل النطاق",
+          lines: [{ itemId: "I1", fromWarehouseId: "W1", toWarehouseId: "W2", qty: "4" }],
+        }),
+      }),
+    );
+    expect(draft.status).toBe(201);
+
+    const confirm = await transfersApp.fetch(
+      req("/TRF-BOTH/confirm", { method: "POST", ...scoped("inventory.transfer.confirm", "W1,W2") }),
     );
     expect(confirm.status).toBe(200);
     expect((await stockLedger.getBalanceDetail("I1", "W1")).onHand.toString()).toBe("6.000000");
+    expect((await stockLedger.getBalanceDetail("I1", "W2")).onHand.toString()).toBe("4.000000");
+  });
+
+  it("D103: an unscoped caller — no x-warehouse-scope header, or \"*\" — still writes anywhere", async () => {
+    const { adjustmentsApp, transfersApp, stockLedger } = await newHarness();
+
+    const noHeader = await adjustmentsApp.fetch(
+      req("/draft", {
+        method: "POST",
+        permissions: "inventory.adjustment.create",
+        body: JSON.stringify({
+          id: "NO-HEADER",
+          date: "2026-01-15",
+          lines: [
+            { itemId: "I1", warehouseId: "W1", reason: "INITIAL_STOCK", direction: "IN", qty: "10", unitCost: "10" },
+          ],
+        }),
+      }),
+    );
+    expect(noHeader.status).toBe(201);
+    expect(
+      (await adjustmentsApp.fetch(req("/NO-HEADER/confirm", { method: "POST", permissions: "inventory.adjustment.confirm" })))
+        .status,
+    ).toBe(200);
+
+    const star = await transfersApp.fetch(
+      req("/draft", {
+        method: "POST",
+        ...scoped("inventory.transfer.create", "*"),
+        body: JSON.stringify({
+          id: "STAR",
+          date: "2026-01-16",
+          lines: [{ itemId: "I1", fromWarehouseId: "W1", toWarehouseId: "W2", qty: "4" }],
+        }),
+      }),
+    );
+    expect(star.status).toBe(201);
+    expect(
+      (await transfersApp.fetch(req("/STAR/confirm", { method: "POST", ...scoped("inventory.transfer.confirm", "*") })))
+        .status,
+    ).toBe(200);
+
+    expect((await stockLedger.getBalanceDetail("I1", "W2")).onHand.toString()).toBe("4.000000");
   });
 });
 

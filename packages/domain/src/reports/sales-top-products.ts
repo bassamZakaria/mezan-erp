@@ -3,6 +3,7 @@ import type { SalesInvoice } from "../sales-invoices/sales-invoice.js";
 import type { ReportDefinition } from "./types.js";
 import { sumRows } from "./kpi.js";
 import { aggregateItemSales } from "./sales-item-aggregation.js";
+import { BRANCH_PARAM_FIELD, branchIdParamSchema, matchesBranch } from "./branch-filter.js";
 
 /**
  * أفضل المنتجات — Top Products (docs/archive/catalog/08-reports.md): a ranked/
@@ -25,6 +26,7 @@ export interface TopProductsParams {
   readonly dateTo: string;
   readonly limit: number;
   readonly rankBy: "revenue" | "qty";
+  readonly branchId: string;
 }
 
 export interface TopProductsRow {
@@ -43,6 +45,7 @@ const paramsSchema = z.object({
   dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "تاريخ غير صالح"),
   limit: z.coerce.number().int().positive().max(500),
   rankBy: z.enum(["revenue", "qty"]),
+  branchId: branchIdParamSchema,
 });
 
 export function createTopProductsReport(
@@ -54,7 +57,7 @@ export function createTopProductsReport(
     titleAr: "أفضل المنتجات",
     descriptionAr: "أكثر المنتجات مبيعاً وكيف تتوزع الإيرادات بينها.",
     paramsSchema,
-    defaultParams: { dateFrom: defaultDateFrom, dateTo: defaultDateTo, limit: 20, rankBy: "revenue" },
+    defaultParams: { dateFrom: defaultDateFrom, dateTo: defaultDateTo, limit: 20, rankBy: "revenue", branchId: "" },
     paramFields: [
       { kind: "dateRange", fromKey: "dateFrom", toKey: "dateTo", label: "الفترة" },
       { kind: "text", key: "limit", label: "الحد الأقصى" },
@@ -67,6 +70,7 @@ export function createTopProductsReport(
           { value: "qty", label: "كمية" },
         ],
       },
+      BRANCH_PARAM_FIELD,
     ],
     rowKey: (row) => row.itemId,
     columns: [
@@ -89,7 +93,8 @@ export function createTopProductsReport(
       { key: "topShare", labelAr: "حصة المنتج الأول", format: "percent", value: (rows) => rows[0]?.contributionPercent ?? 0 },
     ],
     run: (params, ctx) => {
-      const aggregates = aggregateItemSales(ctx.invoices, params.dateFrom, params.dateTo);
+      const inBranch = ctx.invoices.filter((invoice) => matchesBranch(invoice.branchId, params.branchId));
+      const aggregates = aggregateItemSales(inBranch, params.dateFrom, params.dateTo);
       const namesEn = new Map((ctx.items ?? []).map((i) => [i.id, i.nameEn ?? null]));
       const totalRevenue = sumRows(aggregates, (a) => a.revenue);
       const ranked = aggregates

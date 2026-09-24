@@ -3,6 +3,7 @@ import { purchaseInvoiceSubtotal, purchaseInvoiceTax, purchaseInvoiceTotal, type
 import type { ReportDefinition } from "./types.js";
 import { sumRows, averageOf } from "./kpi.js";
 import { periodBucketKey, withinDateRange, type PeriodGroupBy } from "./period-bucket.js";
+import { BRANCH_PARAM_FIELD, branchIdParamSchema, matchesBranch } from "./branch-filter.js";
 
 /**
  * المشتريات حسب الفترة — Purchases by Period (docs/archive/catalog/08-reports.md):
@@ -20,6 +21,7 @@ export interface PurchasesByPeriodParams {
   readonly dateFrom: string;
   readonly dateTo: string;
   readonly groupBy: PeriodGroupBy;
+  readonly branchId: string;
 }
 
 export interface PurchasesByPeriodRow {
@@ -34,6 +36,7 @@ const paramsSchema = z.object({
   dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "تاريخ غير صالح"),
   dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "تاريخ غير صالح"),
   groupBy: z.enum(["day", "week", "month"]),
+  branchId: branchIdParamSchema,
 });
 
 export function createPurchasesByPeriodReport(
@@ -45,7 +48,7 @@ export function createPurchasesByPeriodReport(
     titleAr: "المشتريات حسب الفترة",
     descriptionAr: "كيف تغيرت تكلفة الشراء يوماً بيوم في الفترة المحددة.",
     paramsSchema,
-    defaultParams: { dateFrom: defaultDateFrom, dateTo: defaultDateTo, groupBy: "day" },
+    defaultParams: { dateFrom: defaultDateFrom, dateTo: defaultDateTo, groupBy: "day", branchId: "" },
     paramFields: [
       { kind: "dateRange", fromKey: "dateFrom", toKey: "dateTo", label: "الفترة" },
       {
@@ -58,6 +61,7 @@ export function createPurchasesByPeriodReport(
           { value: "month", label: "شهري" },
         ],
       },
+      BRANCH_PARAM_FIELD,
     ],
     rowKey: (row) => row.bucket,
     columns: [
@@ -84,6 +88,7 @@ export function createPurchasesByPeriodReport(
       for (const invoice of ctx.invoices) {
         if (invoice.status !== "confirmed") continue;
         if (!withinDateRange(invoice.date, params.dateFrom, params.dateTo)) continue;
+        if (!matchesBranch(invoice.branchId, params.branchId)) continue;
         const key = periodBucketKey(invoice.date, params.groupBy);
         const existing = buckets.get(key) ?? { bucket: key, count: 0, gross: 0, tax: 0, net: 0 };
         buckets.set(key, {

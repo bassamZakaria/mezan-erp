@@ -8,6 +8,7 @@ import type { ItemDTO, PurchaseRfqDTO, RfqQuoteDTO, SupplierDTO } from "@mezan/c
 import { RfqsScreen } from "./RfqsScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
 import { NavigationProvider } from "../navigation";
+import type { Transport } from "../data/transport";
 
 /**
  * RfqsScreen's detail and create views are sub-pages addressed via the shell's
@@ -15,8 +16,8 @@ import { NavigationProvider } from "../navigation";
  * This stands in for the shell's URL-driven one with in-memory segments — enough
  * for the screen under test to open, close and read its own sub-page.
  */
-function TestNavigation({ children }: { children: ReactNode }) {
-  const [segments, setSegments] = useState<readonly string[]>([]);
+function TestNavigation({ children, initialSegments = [] }: { children: ReactNode; initialSegments?: readonly string[] }) {
+  const [segments, setSegments] = useState<readonly string[]>(initialSegments);
   return (
     <NavigationProvider
       value={{
@@ -163,8 +164,8 @@ describe("RfqsScreen", () => {
         "GET /rfqs": () => ({ body: [rfq({ number: "RFQ-000003", status: "sent" })] }),
         "GET /suppliers": () => ({ body: [supplier()] }),
         "GET /items": () => ({ body: [item()] }),
-        "GET /rfqs/RFQ-000003/quotes": () => ({ body: [] }),
-        "GET /rfqs/RFQ-000003/comparison": () => ({
+        "GET /rfqs/rfq-1/quotes": () => ({ body: [] }),
+        "GET /rfqs/rfq-1/comparison": () => ({
           body: { rfq: rfq(), supplierIds: [], rows: [], totalsBySupplier: {} },
         }),
       }),
@@ -184,8 +185,8 @@ describe("RfqsScreen", () => {
         "GET /rfqs": () => ({ body: [current] }),
         "GET /suppliers": () => ({ body: [supplier()] }),
         "GET /items": () => ({ body: [item()] }),
-        "GET /rfqs/RFQ-000001/quotes": () => ({ body: [] }),
-        "GET /rfqs/RFQ-000001/comparison": () => ({
+        "GET /rfqs/rfq-1/quotes": () => ({ body: [] }),
+        "GET /rfqs/rfq-1/comparison": () => ({
           body: { rfq: current, supplierIds: [], rows: [], totalsBySupplier: {} },
         }),
         "POST /rfqs/rfq-1/send": () => {
@@ -209,8 +210,8 @@ describe("RfqsScreen", () => {
         "GET /rfqs": () => ({ body: [current] }),
         "GET /suppliers": () => ({ body: [supplier()] }),
         "GET /items": () => ({ body: [item()] }),
-        "GET /rfqs/RFQ-000001/quotes": () => ({ body: [] }),
-        "GET /rfqs/RFQ-000001/comparison": () => ({
+        "GET /rfqs/rfq-1/quotes": () => ({ body: [] }),
+        "GET /rfqs/rfq-1/comparison": () => ({
           body: { rfq: current, supplierIds: [], rows: [], totalsBySupplier: {} },
         }),
         "POST /rfqs/rfq-1/cancel": () => {
@@ -254,10 +255,10 @@ describe("RfqsScreen", () => {
         "GET /rfqs": () => ({ body: [current] }),
         "GET /suppliers": () => ({ body: [supplier({ id: "sup-1" }), supplier({ id: "sup-2", nameAr: "مورد آخر" })] }),
         "GET /items": () => ({ body: [item()] }),
-        "GET /rfqs/RFQ-000001/quotes": () => ({
+        "GET /rfqs/rfq-1/quotes": () => ({
           body: [quote({ id: "q1", supplierId: "sup-1" }), quote({ id: "q2", supplierId: "sup-2" })],
         }),
-        "GET /rfqs/RFQ-000001/comparison": () => ({
+        "GET /rfqs/rfq-1/comparison": () => ({
           body: {
             rfq: current,
             supplierIds: ["sup-1", "sup-2"],
@@ -298,8 +299,8 @@ describe("RfqsScreen", () => {
         "GET /rfqs": () => ({ body: [rfq({ status: "sent" })] }),
         "GET /suppliers": () => ({ body: [supplier({ id: "sup-1" }), supplier({ id: "sup-2", nameAr: "مورد آخر" })] }),
         "GET /items": () => ({ body: [item()] }),
-        "GET /rfqs/RFQ-000001/quotes": () => ({ body: [quote({ supplierId: "sup-1" })] }),
-        "GET /rfqs/RFQ-000001/comparison": () => ({
+        "GET /rfqs/rfq-1/quotes": () => ({ body: [quote({ supplierId: "sup-1" })] }),
+        "GET /rfqs/rfq-1/comparison": () => ({
           body: { rfq: rfq({ status: "sent" }), supplierIds: ["sup-1"], rows: [], totalsBySupplier: {} },
         }),
       }),
@@ -308,5 +309,85 @@ describe("RfqsScreen", () => {
     await user.click(screen.getByRole("tab", { name: "العروض (1)" }));
     expect(screen.getByText(supplier().nameAr)).toBeInTheDocument();
     expect(screen.getByText("تسجيل عرض سعر جديد")).toBeInTheDocument();
+  });
+});
+
+/**
+ * D92: `/rfqs/:id/quotes` and `/rfqs/:id/comparison` resolve by database id
+ * only, while the address a person opens (and the one a list row links to)
+ * carries the document NUMBER. The screen must translate one into the other.
+ */
+describe("RfqsScreen — supplier price comparison from either shape of address", () => {
+  function comparisonTransport(seen: string[]) {
+    const base = stubTransport({
+      "GET /rfqs": () => ({ body: [rfq({ status: "sent" })] }),
+      "GET /suppliers": () => ({ body: [supplier({ id: "sup-1" }), supplier({ id: "sup-2", nameAr: "مورد آخر" })] }),
+      "GET /items": () => ({ body: [item()] }),
+      "GET /rfqs/rfq-1/quotes": () => ({
+        body: [quote({ id: "q1", supplierId: "sup-1" }), quote({ id: "q2", supplierId: "sup-2" })],
+      }),
+      "GET /rfqs/rfq-1/comparison": () => ({
+        body: {
+          rfq: rfq({ status: "sent" }),
+          supplierIds: ["sup-1", "sup-2"],
+          rows: [
+            {
+              itemId: "item-cement",
+              qty: "200",
+              quotesBySupplier: { "sup-1": "84.50", "sup-2": "82.00" },
+              cheapestSupplierId: "sup-2",
+            },
+          ],
+          totalsBySupplier: { "sup-1": "16900.00", "sup-2": "16400.00" },
+        },
+      }),
+    });
+    const transport: Transport = (path, init) => {
+      seen.push(`${(init?.method ?? "GET").toUpperCase()} ${path.split("?")[0]}`);
+      return base(path, init);
+    };
+    return transport;
+  }
+
+  async function expectComparisonRenders(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(await screen.findByRole("tab", { name: "مقارنة العروض" }));
+    expect(await screen.findByText("82.00")).toBeInTheDocument();
+    expect(screen.getByText("84.50")).toBeInTheDocument();
+    expect(screen.getByText("16,400.00")).toBeInTheDocument();
+  }
+
+  it("resolves a NUMBER-shaped address to the database id before asking for the quotes and the comparison", async () => {
+    const user = userEvent.setup();
+    const seen: string[] = [];
+    renderWithProviders(
+      <TestNavigation initialSegments={["RFQ-000001"]}><RfqsScreen /></TestNavigation>,
+      { initialSession: testAdminSession, transport: comparisonTransport(seen) },
+    );
+
+    expect(await screen.findByRole("heading", { name: /طلب عرض سعر RFQ-000001/ })).toBeInTheDocument();
+    await waitFor(() => expect(seen).toContain("GET /rfqs/rfq-1/quotes"));
+    await waitFor(() => expect(seen).toContain("GET /rfqs/rfq-1/comparison"));
+    // Never the raw URL segment, and never a blank id while the list is still loading.
+    expect(seen).not.toContain("GET /rfqs/RFQ-000001/quotes");
+    expect(seen).not.toContain("GET /rfqs/RFQ-000001/comparison");
+    expect(seen).not.toContain("GET /rfqs//quotes");
+    expect(seen).not.toContain("GET /rfqs//comparison");
+
+    await expectComparisonRenders(user);
+  });
+
+  it("keeps working for an ID-shaped address", async () => {
+    const user = userEvent.setup();
+    const seen: string[] = [];
+    renderWithProviders(
+      <TestNavigation initialSegments={["rfq-1"]}><RfqsScreen /></TestNavigation>,
+      { initialSession: testAdminSession, transport: comparisonTransport(seen) },
+    );
+
+    expect(await screen.findByRole("heading", { name: /طلب عرض سعر RFQ-000001/ })).toBeInTheDocument();
+    await waitFor(() => expect(seen).toContain("GET /rfqs/rfq-1/quotes"));
+    await waitFor(() => expect(seen).toContain("GET /rfqs/rfq-1/comparison"));
+
+    await expectComparisonRenders(user);
   });
 });

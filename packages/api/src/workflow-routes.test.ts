@@ -223,6 +223,56 @@ describe("approval request routes", () => {
     expect((await step2.json() as { status: string }).status).toBe("approved");
   });
 
+  /**
+   * Guards DEC-2. `GateStep.role` is a ROLE code, and the two document routes
+   * that feed the gate used to hand it the caller's PERMISSION set instead, so
+   * the two sides of the same gate disagreed about what a step names. A step
+   * is satisfied by the role the session grant carries, and by nothing else
+   * that happens to be spelled the same.
+   */
+  it("matches a step's role against the caller's ROLE, never a permission of the same name", async () => {
+    const { app, req } = newApp();
+    await app.fetch(
+      req("/configs", {
+        method: "POST",
+        permissions: "workflow.config.manage",
+        body: JSON.stringify({ actionType: "SALES_INVOICE_CONFIRM", steps: [{ role: "FINANCE_MANAGER" }] }),
+      }),
+    );
+    const submit = async () =>
+      ((await (
+        await app.fetch(
+          req("/requests", { method: "POST", userId: "alice", body: JSON.stringify({ actionType: "SALES_INVOICE_CONFIRM" }) }),
+        )
+      ).json()) as { id: string }).id;
+
+    // A clerk who holds "FINANCE_MANAGER" as a PERMISSION is not the finance
+    // manager, and the step does not open for them.
+    const impostor = await app.fetch(
+      req(`/requests/${await submit()}/decide`, {
+        method: "POST",
+        userId: "clerk-1",
+        permissions: "workflow.view,workflow.approve,FINANCE_MANAGER",
+        roleCode: "CLERK",
+        body: JSON.stringify({ decision: "approve" }),
+      }),
+    );
+    expect(impostor.status).toBe(409);
+    expect(await impostor.json()).toMatchObject({ error: "WRONG_APPROVER" });
+
+    // The same step, decided by the holder of the ROLE, goes through.
+    const approver = await app.fetch(
+      req(`/requests/${await submit()}/decide`, {
+        method: "POST",
+        userId: "fin-1",
+        permissions: "workflow.view,workflow.approve",
+        roleCode: "FINANCE_MANAGER",
+        body: JSON.stringify({ decision: "approve" }),
+      }),
+    );
+    expect((await approver.json() as { status: string }).status).toBe("approved");
+  });
+
   it("requires workflow.reject to reject a request even with workflow.approve", async () => {
     const { app, req } = newApp();
     await app.fetch(

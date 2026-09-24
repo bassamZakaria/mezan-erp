@@ -116,12 +116,11 @@ function configErrorResponse(c: Context, err: unknown) {
 }
 
 /**
- * `x-role-codes` (comma-separated custom-role codes the caller holds) drives
- * the workflow gate's `actorRoles` — distinct from `x-permissions`, since a
- * gate step names an approver ROLE, not a permission code (see
- * `session.ts`'s `authHeaders`, which sends the single `x-role-code` a user's
- * one assigned role carries). A tenant admin (`"*"` in `x-permissions`)
- * bypasses every gate exactly as `gate.ts`'s `hasAdminRole` does.
+ * The custom-role codes the caller holds, resolved off the SESSION grant and
+ * never off a header, drive the workflow gate's `actorRoles` — a gate step
+ * names an approver ROLE, not a permission code, and the two vocabularies must
+ * not be fed to each other (DEC-2). A tenant admin (`"*"` in the resolved
+ * permission set) bypasses every gate exactly as `gate.ts`'s `hasAdminRole` does.
  */
 const actorRoles = callerRoleCodes;
 

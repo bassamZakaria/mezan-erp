@@ -5,6 +5,7 @@ import { SALES_INVOICE_ACTIVE_STATUSES, type SalesInvoice } from "../sales-invoi
 import type { ReportDefinition } from "./types.js";
 import { sumRows, averageOf } from "./kpi.js";
 import { withinDateRange } from "./period-bucket.js";
+import { BRANCH_PARAM_FIELD, branchIdParamSchema, matchesBranch } from "./branch-filter.js";
 
 /**
  * المبيعات حسب العميل — Sales by Customer (docs/archive/catalog/08-reports.md): top
@@ -28,6 +29,7 @@ export interface SalesByCustomerParams {
   readonly dateFrom: string;
   readonly dateTo: string;
   readonly taxMode: "inc" | "exc";
+  readonly branchId: string;
 }
 
 export interface SalesByCustomerRow {
@@ -45,6 +47,7 @@ const paramsSchema = z.object({
   dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "تاريخ غير صالح"),
   dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "تاريخ غير صالح"),
   taxMode: z.enum(["inc", "exc"]),
+  branchId: branchIdParamSchema,
 });
 
 export function createSalesByCustomerReport(
@@ -56,7 +59,7 @@ export function createSalesByCustomerReport(
     titleAr: "المبيعات حسب العميل",
     descriptionAr: "من هم أهم العملاء من حيث الإيرادات والمديونية.",
     paramsSchema,
-    defaultParams: { dateFrom: defaultDateFrom, dateTo: defaultDateTo, taxMode: "inc" },
+    defaultParams: { dateFrom: defaultDateFrom, dateTo: defaultDateTo, taxMode: "inc", branchId: "" },
     paramFields: [
       { kind: "dateRange", fromKey: "dateFrom", toKey: "dateTo", label: "الفترة" },
       {
@@ -68,6 +71,7 @@ export function createSalesByCustomerReport(
           { value: "exc", label: "غير شامل الضريبة" },
         ],
       },
+      BRANCH_PARAM_FIELD,
     ],
     rowKey: (row) => row.customerId,
     columns: [
@@ -98,6 +102,7 @@ export function createSalesByCustomerReport(
       for (const invoice of ctx.invoices) {
         if (!SALES_INVOICE_ACTIVE_STATUSES.has(invoice.status)) continue;
         if (!withinDateRange(invoice.date, params.dateFrom, params.dateTo)) continue;
+        if (!matchesBranch(invoice.branchId, params.branchId)) continue;
         const totals = salesInvoiceTotals(invoice);
         const revenue = params.taxMode === "inc" ? totals.grandTotal : totals.taxableTotal;
         const outstanding = Money.fromScaled(totals.grandTotal.scaled - invoice.amountPaid.scaled);

@@ -27,6 +27,15 @@ import { createPermissionGate, type AuthContextResolver } from "./permission-gat
  * the live posted general ledger (`LedgerRepository`) plus the tenant's chart
  * of accounts — never a fixture. All aggregation/validation lives in
  * `@mezan/domain/reports/*`; this file is wiring only.
+ *
+ * NO BRANCH DIMENSION, DELIBERATELY (D111). Every statement below aggregates
+ * `JournalEntry`, and neither an entry nor its lines carry a branch — the only
+ * dimension a posted line holds is `costCenterId`. A `branchId` parameter here
+ * would therefore filter on a field that does not exist and quietly return the
+ * whole company under a branch's name, which is worse than having no filter.
+ * The operational reports in ./reports-routes.ts read documents that DO carry
+ * a branch and are scoped and filterable there. Giving the statements a branch
+ * starts with the GL posting, not with this file.
  */
 export interface FinancialReportsRoutesDeps {
   readonly ledger: Pick<LedgerRepository, "list">;

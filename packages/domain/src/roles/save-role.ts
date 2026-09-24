@@ -1,5 +1,12 @@
-import { isKnownPermission } from "../permissions/catalog.js";
+import {
+  MODULES,
+  WILDCARD_PERMISSION,
+  isKnownPermission,
+  isPlatformAdminOnly,
+} from "../permissions/catalog.js";
 import { isModuleLicensed } from "../permissions/module-licensing.js";
+import { resolvePermissions } from "../permissions/resolve.js";
+import { can, type AuthContext } from "../permissions/auth-context.js";
 import type { Entitlements } from "../entitlements/entitlements.js";
 import type { UnitOfWork } from "../journal.js";
 import type { Role } from "./role.js";
@@ -14,9 +21,33 @@ export class UnknownPermissionError extends Error {
 
 export class UnlicensedPermissionError extends Error {
   readonly code = "UNLICENSED_PERMISSION";
-  constructor(readonly permission: string) {
-    super(`الصلاحية "${permission}" تابعة لوحدة غير مرخصة لهذا المستأجر`);
+  constructor(
+    readonly permission: string,
+    /** The catalog module that is not licensed — for `"*"`, the first one it would unlock. */
+    readonly module?: string,
+  ) {
+    super(
+      permission === WILDCARD_PERMISSION
+        ? `صلاحية المدير الكامل "*" تشمل كل الوحدات، والوحدة "${module}" غير مرخصة لهذا المستأجر`
+        : `الصلاحية "${permission}" تابعة لوحدة غير مرخصة لهذا المستأجر`,
+    );
     this.name = "UnlicensedPermissionError";
+  }
+}
+
+export class PlatformOnlyPermissionError extends Error {
+  readonly code = "PLATFORM_ONLY_PERMISSION";
+  constructor(readonly permission: string) {
+    super(`الصلاحية "${permission}" مخصصة لمدير المنصة ولا يمكن منحها من داخل المنشأة`);
+    this.name = "PlatformOnlyPermissionError";
+  }
+}
+
+export class UngrantablePermissionError extends Error {
+  readonly code = "PRIVILEGE_ESCALATION_DENIED";
+  constructor(readonly permission: string) {
+    super(`لا يمكنك منح صلاحية لا تملكها: "${permission}"`);
+    this.name = "UngrantablePermissionError";
   }
 }
 
@@ -63,10 +94,50 @@ export interface SaveRoleCommand {
 }
 
 /**
+ * True when `actor` may put `code` into a role.
+ *
+ * A `"*"` holder holds everything the tenant has — `can()` says so — EXCEPT the
+ * codes the catalog reserves for the platform operator. Those are not part of
+ * the wildcard: the operator holds them by an explicit grant, and a tenant
+ * admin who could hand them out would be minting authority over the platform
+ * that sold them the licence.
+ */
+function actorHolds(actor: AuthContext, code: string): boolean {
+  if (isPlatformAdminOnly(code)) return actor.permissions.has(code);
+  return can(actor, code);
+}
+
+/**
+ * The module a permission belongs to, refused when the tenant is not licensed
+ * for it. `"*"` is not exempt: it confers every module at once, so it is
+ * licensed only while there is no module left for it to unlock illegitimately
+ * (D85 — the exemption let a tenant licensed for nothing mint full admin).
+ */
+function assertLicensed(permission: string, entitlements: Entitlements): void {
+  if (permission === WILDCARD_PERMISSION) {
+    const unlicensed = MODULES.find((m) => !isModuleLicensed(m.id, entitlements));
+    if (unlicensed) throw new UnlicensedPermissionError(WILDCARD_PERMISSION, unlicensed.id);
+    return;
+  }
+  if (!isModuleLicensed(permissionModule(permission), entitlements)) {
+    throw new UnlicensedPermissionError(permission);
+  }
+}
+
+/**
  * Creates or updates a custom role. Validates every permission code is both
  * known to the catalog and grantable under the tenant's current entitlements
  * (reuses `isKnownPermission` + `isModuleLicensed` — no re-derivation of the
  * catalog), and that the role code stays unique. System roles are immutable.
+ *
+ * A role is a bundle of authority, so writing one is a GRANT and `actor` is
+ * therefore not optional: without it "you may not grant more than you hold"
+ * was enforced nowhere in the domain, and `"*"` — which outranks every named
+ * code — was exempt from the licence check on top of that (D85).
+ *
+ * The grant is measured against the RESOLVED closure of the submitted set, not
+ * the raw ticked boxes: granting `.confirm` implies `.view_own`, so a caller
+ * who holds neither must not hand out the implied one either.
  *
  * The permission set is stored exactly as submitted (deduplicated) — the UI
  * is expected to have already closed it over its dependency graph via
@@ -77,13 +148,21 @@ export async function saveRole(
   cmd: SaveRoleCommand,
   uow: UnitOfWork,
   entitlements: Entitlements,
+  actor: AuthContext,
 ): Promise<Role> {
   for (const permission of cmd.permissions) {
     if (!isKnownPermission(permission)) {
       throw new UnknownPermissionError(permission);
     }
-    if (permission !== "*" && !isModuleLicensed(permissionModule(permission), entitlements)) {
-      throw new UnlicensedPermissionError(permission);
+    assertLicensed(permission, entitlements);
+  }
+
+  for (const permission of resolvePermissions(cmd.permissions)) {
+    if (isPlatformAdminOnly(permission) && !actorHolds(actor, permission)) {
+      throw new PlatformOnlyPermissionError(permission);
+    }
+    if (!actorHolds(actor, permission)) {
+      throw new UngrantablePermissionError(permission);
     }
   }
 

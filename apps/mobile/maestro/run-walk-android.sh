@@ -55,8 +55,10 @@ done
 panel=$(adb -s "$SERIAL" shell wm size | tr -d '\r' | sed -n 's/.*: *\([0-9]*\)x\([0-9]*\).*/\1 \2/p' | tail -1)
 panel_w=${panel% *}
 panel_h=${panel#* }
-if [ "$panel_w" -gt "$panel_h" ]; then natural=landscape; else natural=portrait; fi
-if [ "$ROTATION" = "$natural" ]; then USER_ROTATION=0; else USER_ROTATION=1; fi
+# The device starts UPRIGHT whatever is under test: the flow signs in in
+# portrait and turns the device itself, and a phone that boots into landscape
+# has its sign-in button below the fold before the flow can rotate it.
+if [ "$panel_w" -gt "$panel_h" ]; then USER_ROTATION=1; else USER_ROTATION=0; fi
 
 adb -s "$SERIAL" shell settings put system accelerometer_rotation 0
 adb -s "$SERIAL" shell settings put system user_rotation "$USER_ROTATION"

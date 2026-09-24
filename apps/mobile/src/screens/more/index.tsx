@@ -1,5 +1,5 @@
 import { useRouter } from "expo-router";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { LegalLinks } from "@/components/legal-links";
 import { useStrings } from "@/i18n";
@@ -26,12 +26,10 @@ export function More() {
   ];
 
   return (
-    <View
-      style={[
-        styles.flex,
-        formPadding,
-        { backgroundColor: theme.background, paddingTop: insets.top + SPACE.lg },
-      ]}
+    <ScrollView
+      /** Three rows and the legal links are taller than a phone in landscape. */
+      contentContainerStyle={[formPadding, { paddingTop: insets.top + SPACE.lg, paddingBottom: SPACE.xxl }]}
+      style={[styles.flex, { backgroundColor: theme.background }]}
     >
       <Text style={[styles.title, { color: theme.text }]}>{strings.more.title}</Text>
       <View style={styles.list}>
@@ -51,7 +49,7 @@ export function More() {
         ))}
       </View>
       <LegalLinks />
-    </View>
+    </ScrollView>
   );
 }
 

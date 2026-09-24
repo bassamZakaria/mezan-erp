@@ -7,6 +7,7 @@ appId: app.mezan.mobile
 - launchApp:
     clearState: true
     clearKeychain: true
+- setOrientation: PORTRAIT
 - extendedWaitUntil:
     visible: ${L_SUBMIT}
     timeout: 30000
@@ -137,8 +138,12 @@ appId: app.mezan.mobile
     timeout: 20000
 - takeScreenshot: 03-customers
 - tapOn: ".*${CUSTOMER}.*"
-- extendedWaitUntil:
-    visible: ${L_AGING}
+# The aging ladder is below the fold on a phone in landscape.
+- scrollUntilVisible:
+    element:
+      text: ${L_AGING}
+    direction: DOWN
+    visibilityPercentage: 30
     timeout: 20000
 - waitForAnimationToEnd
 - takeScreenshot: 04-customer
@@ -243,6 +248,12 @@ appId: app.mezan.mobile
           commands:
             - back
       - waitForAnimationToEnd
+- scrollUntilVisible:
+    element:
+      text: ".*${M_APPROVALS}.*"
+    direction: DOWN
+    visibilityPercentage: 30
+    timeout: 20000
 - tapOn: ".*${M_APPROVALS}.*"
 - tapOn:
     id: approval-summary

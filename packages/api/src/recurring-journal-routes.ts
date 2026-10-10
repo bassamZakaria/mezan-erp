@@ -52,6 +52,7 @@ import {
 } from "@mezan/contracts";
 import { tenantDay, tenantToday } from "./tenant-day.js";
 import { createPermissionGate, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
+import { refuseOutOfScopeBranches } from "./branch-scope-refusal.js";
 
 export interface RecurringJournalRoutesDeps {
   readonly templates: RecurringJournalTemplateRepository;
@@ -224,6 +225,8 @@ export function createRecurringJournalRoutes(deps: RecurringJournalRoutesDeps, r
   app.post("/templates", gate("accounting.recurring.manage"), async (c) => {
     const parsed = createRecurringJournalTemplateSchema.safeParse(await c.req.json());
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    const branchRefusal = refuseOutOfScopeBranches(c, parsed.data.lines.map((line) => line.branchId));
+    if (branchRefusal) return branchRefusal;
     try {
       const template = await createRecurringJournalTemplate(
         {
@@ -250,6 +253,8 @@ export function createRecurringJournalRoutes(deps: RecurringJournalRoutesDeps, r
   app.put("/templates/:id", gate("accounting.recurring.manage"), async (c) => {
     const parsed = updateRecurringJournalTemplateSchema.safeParse(await c.req.json());
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    const branchRefusal = refuseOutOfScopeBranches(c, parsed.data.lines.map((line) => line.branchId));
+    if (branchRefusal) return branchRefusal;
     try {
       const template = await updateRecurringJournalTemplate(
         c.req.param("id"),

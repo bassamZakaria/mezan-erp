@@ -160,6 +160,24 @@ export async function run(ctx: Ctx): Promise<void> {
     const outOfScope = await req("POST", "/gl/journal-entries", journal("SCN-BR-JE-FOREIGN", MAIN), ALEX_GRANT);
     check("a scoped caller cannot post a journal line on another branch", outOfScope.status === 403 && outOfScope.body?.error === "BRANCH_OUT_OF_SCOPE", `status ${outOfScope.status} ${JSON.stringify(outOfScope.body).slice(0, 160)}`);
     check("and nothing was written", branchesOfEntry("e.id", "SCN-BR-JE-FOREIGN").length === 0);
+    const template = await req(
+      "POST",
+      "/gl/recurring/templates",
+      {
+        id: "SCN-BR-RJT-FOREIGN",
+        nameAr: "قالب على فرع آخر",
+        memo: "قالب اختبار بُعد الفرع",
+        frequency: "monthly",
+        dayOfPeriod: 1,
+        yearlyMonth: null,
+        startDate: today,
+        endDate: null,
+        autoReverseNextPeriod: false,
+        lines: journal("unused", MAIN).lines,
+      },
+      ALEX_GRANT,
+    );
+    check("nor save a recurring template that would post there every month", template.status === 403 && template.body?.error === "BRANCH_OUT_OF_SCOPE", `status ${template.status} ${JSON.stringify(template.body).slice(0, 160)}`);
     const phantom = await req("POST", "/gl/journal-entries", journal("SCN-BR-JE-PHANTOM", "BR-NOWHERE"));
     check("nobody can post a journal line on a branch that does not exist", phantom.status === 422 && phantom.body?.error === "BRANCH_NOT_FOUND", `status ${phantom.status} ${JSON.stringify(phantom.body).slice(0, 160)}`);
   });

@@ -591,8 +591,8 @@ export interface PeriodCloseCommit {
  * the checks were read and the moment `commit` runs, no row anywhere was
  * written in between, so the checklist that was judged is still the truth.
  * `commit` re-reads it, moves the period, writes the summary and the audit row
- * in a single synchronous transaction (a savepoint when one is already open),
- * and reports `Stale` — having written nothing — when anything moved.
+ * in a single synchronous transaction of its own, and reports `Stale` — having
+ * written nothing — when anything moved or another transaction is open.
  */
 export interface PeriodCloseCriticalSection {
   changeToken(): number;
@@ -615,7 +615,13 @@ function createCriticalSection(sqlite: Database.Database, summaries: SqlitePerio
     return PeriodCloseCommitOutcome.Committed;
   });
 
-  return { changeToken, commit: (input) => commit(input) };
+  return {
+    changeToken,
+    // An open transaction here belongs to ANOTHER request parked on an await:
+    // better-sqlite3 would nest this commit in it as a savepoint, and that
+    // request's rollback would undo a close already answered 200.
+    commit: (input) => (sqlite.inTransaction ? PeriodCloseCommitOutcome.Stale : commit(input)),
+  };
 }
 
 export interface SqlitePeriodCloseStoreHandle {

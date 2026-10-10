@@ -4,6 +4,7 @@ import {
   createSqliteFiscalPeriodRepository,
   createSqlitePeriodCloseStore,
   openSqliteConnection,
+  withSqliteTransaction,
   type SqliteAuditSinkHandle,
 } from "@mezan/persistence";
 import {
@@ -276,14 +277,35 @@ describe("the close is one atomic step", () => {
     expect(await closeEvents()).toEqual([]);
   });
 
-  it("runs inside a transaction the caller already holds, as a savepoint", async () => {
-    const { sqlite, periods, repo, closeEvents } = await setup();
-    sqlite.exec("BEGIN");
-    const res = await periods.fetch(post(`/${PERIOD_ID}/close`, CLOSE));
-    expect(res.status).toBe(200);
-    sqlite.exec("ROLLBACK");
+  it("never answers 200 from inside another request's open transaction: it is told to retry, and a retry after that transaction ends closes for good", async () => {
+    const { sqlite, periods, repo, store, closeEvents } = await setup();
+    let letGo!: () => void;
+    const held = new Promise<void>((resolve) => {
+      letGo = resolve;
+    });
+    const otherRequest = withSqliteTransaction(sqlite, async () => {
+      store.fxRuns.record({ asOfDate: "2026-01-31", currencies: ["USD"], entryId: null, ranBy: "other", ranAt: "2026-02-01T00:00:00.000Z" });
+      await held;
+      throw new Error("the other request fails and rolls back");
+    });
+    await Promise.resolve();
+    expect(sqlite.inTransaction).toBe(true);
+
+    const during = await periods.fetch(post(`/${PERIOD_ID}/close`, CLOSE));
+    expect(during.status).toBe(409);
+    expect(((await during.json()) as { error: string }).error).toBe("PERIOD_CLOSE_CONTENDED");
+
+    letGo();
+    await expect(otherRequest).rejects.toThrow("rolls back");
     expect(await statusOf(repo)).toBe("open");
     expect(await closeEvents()).toEqual([]);
+    expect(await store.summaries.list({ periodId: PERIOD_ID })).toEqual([]);
+
+    const after = await periods.fetch(post(`/${PERIOD_ID}/close`, CLOSE));
+    expect(after.status).toBe(200);
+    expect(await statusOf(repo)).toBe("closed");
+    expect(await closeEvents()).toHaveLength(1);
+    expect(await store.summaries.list({ periodId: PERIOD_ID })).toHaveLength(1);
   });
 });
 

@@ -479,7 +479,7 @@ export async function taxRateIdentity_D79(ctx: Ctx): Promise<void> {
     await req("POST", `/sales-invoices/${byPercent.body?.id}/cancel`, {});
   });
 
-  await scenario("d79f · the short request shapes resolve a real rate id too — a converted quote and an invoice raised from a receipt", async () => {
+  await scenario("d79f · the twins resolve a real rate id too — a quote, the invoice it converts into, and a purchase invoice", async () => {
     const quote = await req("POST", "/sales-quotes", {
       id: "SCN-D79-QT", date: TODAY, expiryDate: "2026-09-23", customerId: CUSTOMER, customerNameAr: "عميل", branchId: BRANCH,
       lines: [
@@ -506,11 +506,21 @@ export async function taxRateIdentity_D79(ctx: Ctx): Promise<void> {
     );
     await req("POST", "/sales-invoices/SCN-D79-QT-INV/cancel", {});
 
-    const fromReceipt = rows((await req("GET", "/purchases/invoices?pageSize=200")).body).find((i: any) => i.receiptId && i.lines?.length > 0);
+    const purchase = await req("POST", "/purchases/invoices", {
+      id: "SCN-D79-PI", supplierId: "SUPP-DEMO-1", date: TODAY, branchId: BRANCH, warehouseId: WH,
+      lines: [
+        { itemId: null, kind: "expense", description: "خدمة معفاة", qty: "1", unitCost: "100", taxRateId: exempt?.id },
+        { itemId: null, kind: "expense", description: "خدمة خاضعة", qty: "1", unitCost: "100", taxRatePercent: VAT },
+        { itemId: null, kind: "expense", description: "خدمة بلا ضريبة مسماة", qty: "1", unitCost: "100", taxRatePercent: 0 },
+      ],
+    });
+    check("a purchase invoice is drafted", purchase.status === 201, JSON.stringify(purchase.body).slice(0, 240));
     check(
-      "a seeded purchase invoice raised from a receipt stores the 14% rate's id on every line",
-      fromReceipt !== undefined && fromReceipt.lines.every((l: any) => l.taxRatePercent !== VAT || l.taxRateId === vat?.id),
-      JSON.stringify((fromReceipt?.lines ?? []).map((l: any) => [l.taxRatePercent, l.taxRateId])),
+      "its lines store the picked rate, the one 14% rate, and nothing for the unnamed 0% line",
+      JSON.stringify((purchase.body?.lines ?? []).map((l: any) => l.taxRateId)) === JSON.stringify([exempt?.id, vat?.id, null]),
+      JSON.stringify((purchase.body?.lines ?? []).map((l: any) => [l.taxRatePercent, l.taxRateId])),
     );
+    const cancelled = await req("POST", "/purchases/invoices/SCN-D79-PI/cancel", {});
+    check("the draft is cancelled, so nothing is left owed to the supplier", cancelled.status === 200, JSON.stringify(cancelled.body).slice(0, 200));
   });
 }

@@ -134,6 +134,7 @@ function serialize(entry: JournalEntry) {
       currency: l.currency ?? null,
       fxRate: l.fxRate ?? null,
       taxRatePercent: l.taxRatePercent ?? null,
+      taxRateId: l.taxRateId ?? null,
       projectId: l.projectId ?? null,
       costCategory: l.costCategory ?? null,
       branchId: l.branchId ?? null,

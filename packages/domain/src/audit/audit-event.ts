@@ -89,6 +89,10 @@ export interface AuditSink {
    * transaction with the writes it records leaves this out.
    */
   atomic?<T>(fn: () => Promise<T>): Promise<T>;
+  /** True when the caller is already inside a transaction this sink's appends would join. */
+  insideTransaction?(): boolean;
+  /** Resolves once no transaction is open on the connection this sink writes to. */
+  settled?(): Promise<void>;
 }
 
 /**

@@ -15,6 +15,7 @@ import {
 } from "@mezan/domain";
 import { updateProfileSchema, changePasswordSchema, changePinSchema } from "@mezan/contracts";
 import { getAuthContext, type AuthContextResolver } from "./permission-gate.js";
+import { createPrecomputingHasher } from "./precomputed-secrets.js";
 
 function serializeProfile(user: User) {
   return {
@@ -85,6 +86,15 @@ export function createProfileRoutes(
 ) {
   const app = new Hono();
   const requireAuth = requireCaller(resolveAuthContext);
+  const secrets = createPrecomputingHasher(hasher);
+
+  // scrypt must finish BEFORE the transaction opens: awaited inside it, every
+  // other request on this connection would run with the BEGIN still open.
+  async function verifiedAndHashedAhead(callerId: string, currentPassword: string, next: string | null): Promise<() => void> {
+    const user = await uow.users.findById(callerId);
+    if (!user) return () => undefined;
+    return secrets.precompute({ hash: next === null ? [] : [next], verify: [[currentPassword, user.passwordHash]] });
+  }
 
   app.get("/", requireAuth, async (c) => {
     const callerId = resolveCallerId(c);
@@ -113,9 +123,10 @@ export function createProfileRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
+    const release = await verifiedAndHashedAhead(callerId, parsed.data.currentPassword, parsed.data.newPassword);
     try {
       await uow.transaction(async (tx) => {
-        await changeOwnPassword(callerId, parsed.data, tx, hasher);
+        await changeOwnPassword(callerId, parsed.data, tx, secrets.hasher);
         if (audit) {
           await recordSecurityEvent(audit, {
             module: "profile",
@@ -130,6 +141,8 @@ export function createProfileRoutes(
       return c.body(null, 204);
     } catch (err) {
       return profileErrorResponse(c, err);
+    } finally {
+      release();
     }
   });
 
@@ -139,9 +152,10 @@ export function createProfileRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
+    const release = await verifiedAndHashedAhead(callerId, parsed.data.currentPassword, parsed.data.newPin);
     try {
       await uow.transaction(async (tx) => {
-        await changeOwnPin(callerId, parsed.data, tx, hasher);
+        await changeOwnPin(callerId, parsed.data, tx, secrets.hasher);
         if (audit) {
           await recordSecurityEvent(audit, {
             module: "profile",
@@ -156,6 +170,8 @@ export function createProfileRoutes(
       return c.body(null, 204);
     } catch (err) {
       return profileErrorResponse(c, err);
+    } finally {
+      release();
     }
   });
 

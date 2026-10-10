@@ -197,11 +197,15 @@ function stateFor(sqlite: Database.Database): ConnectionState {
  * connection its own uncommitted rows. A read issued on this connection while
  * a transaction is open therefore observes rows that may still roll back.
  *
- * It is safe TODAY for one reason only: `better-sqlite3` is fully synchronous,
- * so a `fn` that only touches the database never yields the event loop, and no
- * other request can interleave a read between the BEGIN and the COMMIT. That
- * safety is a property of what the transaction bodies happen to contain, not
- * of this function. ONE `await fetch()`, one attachment write, one `await` on
+ * It is safe ONLY for a `fn` that never yields the event loop: `better-sqlite3`
+ * is fully synchronous, so a body that only touches the database lets no other
+ * request interleave between the BEGIN and the COMMIT. That is a property of
+ * what each transaction body contains, not of this function, and it has been
+ * broken before — a password hashed with scrypt inside `uow.transaction` gave
+ * the loop away for the length of the hash. The same gap also takes WRITES: a
+ * store that writes by plain autocommit, or through better-sqlite3's own
+ * `transaction()`, lands inside the open transaction and is lost if it rolls
+ * back. ONE `await fetch()`, one attachment write, one `await` on
  * a timer inside a confirm — e.g. sales-invoices/service.ts's confirm path —
  * opens the window, and every till on the LAN can then read a half-posted
  * invoice.

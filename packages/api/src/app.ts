@@ -1,7 +1,8 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import type { ItemCatalogCheck } from "./item-check.js";
 import {
   Money,
+  can,
   SeatSessionRegistry,
   createEntitlements,
   type UnitOfWork,
@@ -219,7 +220,8 @@ import { createFinancialReportsRoutes, type FinancialReportsRoutesDeps } from ".
 import { createLabelLayoutsRouter } from "./label-routes.js";
 import { createSequencesRoutes, type SequencesRoutesDeps } from "./sequences-routes.js";
 import { createAuditRoutes } from "./audit-routes.js";
-import { AUDITED_MOUNTS, auditBoundary } from "./audit-boundary.js";
+import { AUDITED_MOUNTS, MutatingMethod, auditBoundary, connectionTurn, type BoundaryPreparation } from "./audit-boundary.js";
+import { createPrecomputingHasher } from "./precomputed-secrets.js";
 import { createSecurityReportsRoutes } from "./security-reports-routes.js";
 import { isProductionRuntime, permissionRefusalReporting, type PermissionRefusalReporter } from "./permission-gate.js";
 import { createBarcodeConfigRoutes } from "./barcode-config-routes.js";
@@ -902,7 +904,22 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   // cannot ship — it can only fail in dev, where someone will see it.
   const resolveAuth = options.resolveAuthContext ?? insecureHeaderAuthContextResolver;
   const resolveEntitlements = options.resolveEntitlements ?? defaultEntitlementsResolver();
-  const hasher = options.hasher ?? createScryptHasher();
+  const secrets = createPrecomputingHasher(options.hasher ?? createScryptHasher());
+  const hasher = secrets.hasher;
+
+  // Saving a user hashes its password and PIN, and scrypt gives the event loop
+  // away. Done here, ahead of the audit transaction, and only for a caller who
+  // may make the write at all — an anonymous request must not buy a hash.
+  async function hashUserSecretsBeforeTheTransaction(c: Context): Promise<(() => void) | void> {
+    const permission = c.req.method === MutatingMethod.Post ? "admin.users.create" : "admin.users.edit";
+    if (!can(await resolveAuth(c), permission)) return;
+    const body: unknown = await c.req.json().catch(() => null);
+    if (body === null || typeof body !== "object") return;
+    const { password, pin } = body as { password?: unknown; pin?: unknown };
+    const toHash = [password, pin].filter((secret): secret is string => typeof secret === "string" && secret !== "");
+    if (toHash.length === 0) return;
+    return secrets.precompute({ hash: toHash });
+  }
 
   const app = new Hono();
 
@@ -921,11 +938,16 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     );
   }
 
+  // FIRST, before anything reads or writes: a request waits until no
+  // transaction is open on this tenant's connection (audit-boundary.ts).
+  app.use("*", connectionTurn(options.auditSink));
+
   // Registered before every route: a mutating request under an audited mount
   // runs inside the sink's transaction, so the write and its audit event commit
   // or roll back together (audit-boundary.ts).
+  const preparations: Readonly<Record<string, BoundaryPreparation>> = { "/users": hashUserSecretsBeforeTheTransaction };
   for (const mount of AUDITED_MOUNTS) {
-    const boundary = auditBoundary(options.auditSink, mount);
+    const boundary = auditBoundary(options.auditSink, { ...mount, prepare: preparations[mount.prefix] });
     app.use(mount.prefix, boundary);
     app.use(`${mount.prefix}/*`, boundary);
   }

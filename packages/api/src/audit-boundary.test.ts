@@ -1,18 +1,16 @@
-import { readdirSync, readFileSync } from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { Hono } from "hono";
 import { afterEach, describe, expect, it } from "vitest";
 import { ALL_SCOPE, createAuthContext, type AuditEvent, type AuditSink } from "@mezan/domain";
 import {
   createSqliteAuditSink,
+  createSqliteBranchStore,
   createSqliteCostCenterRepository,
   createSqliteUnitOfWork,
   type SqliteAuditSinkHandle,
 } from "@mezan/persistence";
 import { createApp } from "./app.js";
 import { recordAdminEvent } from "./admin-audit.js";
-import { AUDITED_MOUNTS, auditBoundary } from "./audit-boundary.js";
+import { AUDITED_MOUNTS, auditBoundary, connectionTurn } from "./audit-boundary.js";
 
 type Sqlite = SqliteAuditSinkHandle["db"];
 
@@ -31,6 +29,8 @@ interface Harness {
   readonly app: ReturnType<typeof createApp>;
   readonly sink: SqliteAuditSinkHandle;
   readonly costCenters: ReturnType<typeof createSqliteCostCenterRepository>;
+  readonly branches: ReturnType<typeof createSqliteBranchStore>;
+  readonly users: ReturnType<typeof createSqliteUnitOfWork>["users"];
   failAppends(times: number): void;
   events(): number;
 }
@@ -39,6 +39,8 @@ function harness(options: { readonly atomic?: boolean } = {}): Harness {
   const sink = openSink("k".repeat(64));
   const sqlite = sink.db;
   const costCenters = createSqliteCostCenterRepository(sqlite);
+  const branches = createSqliteBranchStore(sqlite);
+  const uow = createSqliteUnitOfWork(sqlite);
   let failing = 0;
   const flaky: AuditSink = {
     async append(event: AuditEvent) {
@@ -49,18 +51,27 @@ function harness(options: { readonly atomic?: boolean } = {}): Harness {
       await sink.append(event);
     },
     query: (stream, limit) => sink.query(stream, limit),
-    ...(options.atomic === false ? {} : { atomic: <T>(fn: () => Promise<T>) => sink.atomic(fn) }),
+    ...(options.atomic === false
+      ? {}
+      : {
+          atomic: <T>(fn: () => Promise<T>) => sink.atomic(fn),
+          insideTransaction: () => sink.insideTransaction(),
+          settled: () => sink.settled(),
+        }),
   };
   const ctx = createAuthContext({ userId: "u1", permissions: ["*"], branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
-  const app = createApp(createSqliteUnitOfWork(sqlite), {
+  const app = createApp(uow, {
     resolveAuthContext: () => ctx,
     costCenterRepo: costCenters,
+    branchStore: branches,
     auditSink: flaky,
   });
   return {
     app,
     sink,
     costCenters,
+    branches,
+    users: uow.users,
     failAppends: (times) => {
       failing = times;
     },
@@ -126,6 +137,35 @@ describe("an audited write and its event are one transaction", () => {
     h.failAppends(1);
     const res = await h.app.fetch(new Request("http://x/cost-centers"));
     expect(res.status).toBe(200);
+  });
+
+  const newUser = {
+    nameAr: "محمد الشهابي", nameEn: null, email: "mohamed@cyag.test", phone: null, password: "TempPass123", roleId: null,
+    isCompanyAdmin: true, employeeId: null, branchScope: "*", warehouseScope: "*", acknowledge: true, reason: "مدير المنشأة",
+  };
+  const branch = { id: "B-OVERLAP", code: "OVR", name: "فرع التداخل" };
+
+  it("keeps another request's acknowledged write when an overlapping audited request rolls back", async () => {
+    const h = harness();
+    h.failAppends(1);
+
+    const rolledBack = send(h.app, "POST", "/users", newUser);
+    const overlapping = send(h.app, "POST", "/branches", branch);
+    const [userRes, branchRes] = await Promise.all([rolledBack, overlapping]);
+
+    expect(userRes.status).toBe(503);
+    expect(await h.users.list()).toHaveLength(0);
+    expect(branchRes.status).toBe(201);
+    expect(await h.branches.findById("B-OVERLAP")).not.toBeNull();
+  });
+
+  it("creates a user without giving the event loop away inside the transaction", async () => {
+    const h = harness();
+    const res = await send(h.app, "POST", "/users", { ...newUser, pin: "482913" });
+
+    expect(res.status).toBe(201);
+    expect(await h.users.list()).toHaveLength(1);
+    expect(h.events()).toBeGreaterThanOrEqual(1);
   });
 
   it("still fails the request when the sink cannot share a transaction", async () => {
@@ -205,24 +245,90 @@ describe("auditBoundary", () => {
     expect(t.sqlite.inTransaction).toBe(false);
   });
 
-  it("reports a handler that awaited real I/O inside the transaction", async () => {
+  const yieldingApp = (options: Parameters<typeof auditBoundary>[1]) => {
     const sink = openSink();
     const sqlite = sink.db;
-    const yields: string[] = [];
+    sqlite.exec("CREATE TABLE thing (id TEXT PRIMARY KEY)");
     const app = new Hono();
-    app.use("*", auditBoundary(sink, { onYield: (c) => yields.push(c.req.path) }));
+    app.use("*", auditBoundary(sink, options));
     app.post("/slow", async (c) => {
+      sqlite.prepare("INSERT INTO thing VALUES ('SLOW')").run();
       await new Promise((resolve) => setImmediate(resolve));
       return c.json({ ok: true });
     });
-    app.post("/fast", async (c) => c.json(await c.req.json()));
+    app.post("/fast", async (c) => {
+      sqlite.prepare("INSERT INTO thing VALUES ('FAST')").run();
+      return c.json(await c.req.json());
+    });
+    const ids = () => (sqlite.prepare("SELECT id FROM thing ORDER BY id").all() as { id: string }[]).map((row) => row.id);
+    return { app, ids };
+  };
 
-    await app.fetch(new Request("http://x/slow", { method: "POST" }));
-    await app.fetch(
-      new Request("http://x/fast", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ a: 1 }) }),
-    );
+  it("refuses and rolls back a handler that gives the event loop away inside the transaction", async () => {
+    const yields: string[] = [];
+    const t = yieldingApp({ failOnYield: true, onYield: (c) => yields.push(c.req.path) });
 
+    const res = await t.app.fetch(new Request("http://x/slow", { method: "POST" }));
+
+    expect(res.status).toBe(500);
+    expect(await res.json()).toMatchObject({ error: "AUDIT_BOUNDARY_YIELDED" });
+    expect(t.ids()).toEqual([]);
     expect(yields).toEqual(["/slow"]);
+  });
+
+  it("refuses a yield by default, so a test run goes red on it", async () => {
+    const t = yieldingApp({ onYield: () => undefined });
+    expect((await t.app.fetch(new Request("http://x/slow", { method: "POST" }))).status).toBe(500);
+  });
+
+  it("only counts the yield where failing is switched off, as in production", async () => {
+    const yields: string[] = [];
+    const t = yieldingApp({ failOnYield: false, onYield: (c) => yields.push(c.req.path) });
+
+    const res = await t.app.fetch(new Request("http://x/slow", { method: "POST" }));
+
+    expect(res.status).toBe(200);
+    expect(t.ids()).toEqual(["SLOW"]);
+    expect(yields).toEqual(["/slow"]);
+  });
+
+  it.each([
+    ["a JSON body", { "content-type": "application/json" }],
+    ["a body sent with no content type at all", {} as Record<string, string>],
+    ["a body mislabelled as text", { "content-type": "text/plain" }],
+  ])("reads %s before the transaction opens, so reading it is not a yield", async (_label, headers) => {
+    const t = yieldingApp({ failOnYield: true, onYield: () => undefined });
+
+    const res = await t.app.fetch(new Request("http://x/fast", { method: "POST", headers, body: JSON.stringify({ a: 1 }) }));
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ a: 1 });
+    expect(t.ids()).toEqual(["FAST"]);
+  });
+
+  it("runs a mount's preparation before the transaction and its release after the request", async () => {
+    const sink = openSink();
+    const order: string[] = [];
+    const app = new Hono();
+    app.use(
+      "*",
+      auditBoundary(sink, {
+        prepare: async () => {
+          await new Promise((resolve) => setImmediate(resolve));
+          order.push(`prepared in transaction: ${sink.db.inTransaction}`);
+          return () => order.push("released");
+        },
+      }),
+    );
+    app.post("/things", (c) => {
+      order.push(`handled in transaction: ${sink.db.inTransaction}`);
+      return c.json({});
+    });
+
+    const res = await app.fetch(new Request("http://x/things", { method: "POST" }));
+
+    expect(res.status).toBe(200);
+    expect(order).toEqual(["prepared in transaction: false", "handled in transaction: true", "released"]);
   });
 
   it("honours a mount's sub-path filter", async () => {
@@ -248,51 +354,165 @@ describe("auditBoundary", () => {
   });
 });
 
-describe("every route file that writes an audit event is under a boundary", () => {
-  const MOUNT_OF: Readonly<Record<string, readonly string[]>> = {
-    "accounts.ts": ["/accounts"],
-    "bank-reconciliation-routes.ts": ["/bank-statements"],
-    "cash-forecast-routes.ts": ["/cash-forecast"],
-    "cheques-routes.ts": ["/cheques"],
-    "cost-centers-routes.ts": ["/cost-centers"],
-    "crm-routes.ts": ["/crm"],
-    "customers-routes.ts": ["/customers"],
-    "data-migration-routes.ts": ["/data-migration"],
-    "eta-routes.ts": ["/eta"],
-    "exchange-rates-routes.ts": ["/exchange-rates"],
-    "fiscal-periods-routes.ts": ["/fiscal-periods"],
-    "fixed-assets-routes.ts": ["/assets"],
-    "hr-payroll-routes.ts": ["/hr"],
-    "hr-self-routes.ts": ["/hr"],
-    "hr-time-leave-routes.ts": ["/hr"],
-    "item-catalog-routes.ts": ["/item-brands", "/item-seasons"],
-    "items-routes.ts": ["/items"],
-    "notification-rules-routes.ts": ["/notification-rules"],
-    "price-lists-routes.ts": ["/price-lists"],
-    "promotions-routes.ts": ["/promotions"],
-    "roles-routes.ts": ["/roles"],
-    "sales-invoices-routes.ts": ["/sales-invoices"],
-    "settings-routes.ts": ["/settings"],
-    "suppliers-routes.ts": ["/suppliers"],
-    "tax-rates-routes.ts": ["/tax-rates"],
-    "treasury-accounts-routes.ts": ["/treasury-accounts"],
-    "users-routes.ts": ["/users"],
-    "workflow-routes.ts": ["/workflow"],
-  };
+describe("an audit event on a mutating request must share a transaction with its write", () => {
+  const entry = { module: "admin", entityType: "THING", entityId: "T1", action: "CREATE" };
 
-  const here = path.dirname(fileURLToPath(import.meta.url));
-  const callers = readdirSync(here, { recursive: true, encoding: "utf8" })
-    .filter((file) => file.endsWith(".ts") && !file.endsWith(".test.ts") && !["admin-audit.ts", "audit-boundary.ts"].includes(file))
-    .filter((file) => /\b(recordAdminEvent|recordFieldChanges|recordSecurityAdminEvent)\(/.test(readFileSync(path.join(here, file), "utf8")));
+  function unguarded(register: (app: Hono, sink: SqliteAuditSinkHandle) => void) {
+    const sink = openSink();
+    const errors: unknown[] = [];
+    const app = new Hono();
+    register(app, sink);
+    app.onError((err, c) => {
+      errors.push(err);
+      return c.json({ error: "INTERNAL" }, 500);
+    });
+    const events = () => (sink.db.prepare("SELECT COUNT(*) AS c FROM audit_event").get() as { c: number }).c;
+    return { app, errors, events };
+  }
 
-  it("finds the callers it is meant to guard", () => {
-    expect(callers.length).toBeGreaterThan(20);
+  it("refuses the event from a handler that sits outside every boundary, and names the route", async () => {
+    const t = unguarded((app, sink) => {
+      app.post("/assets/:id/dispose", async (c) => {
+        await recordAdminEvent(sink, c, entry);
+        return c.json({}, 201);
+      });
+    });
+
+    const res = await t.app.fetch(new Request("http://x/assets/A1/dispose", { method: "POST" }));
+
+    expect(res.status).toBe(500);
+    expect(t.events()).toBe(0);
+    expect(String(t.errors[0])).toContain("POST /assets/A1/dispose recorded an audit event outside any transaction");
   });
 
-  it.each(callers)("%s is mounted under an audited prefix", (file) => {
-    const mounts = MOUNT_OF[file];
-    expect(mounts, `${file} records audit events: add its mount to AUDITED_MOUNTS and to this map`).toBeDefined();
-    const audited = new Set(AUDITED_MOUNTS.map((mount) => mount.prefix));
-    for (const mount of mounts ?? []) expect(audited.has(mount)).toBe(true);
+  it("refuses it under a mount whose sub-path filter does not name the handler", async () => {
+    const t = unguarded((app, sink) => {
+      app.use("/assets/*", auditBoundary(sink, { prefix: "/assets", only: /^\/[^/]+\/internal-hourly-rate$/ }));
+      app.post("/assets/:id/dispose", async (c) => {
+        await recordAdminEvent(sink, c, entry);
+        return c.json({}, 201);
+      });
+    });
+
+    expect((await t.app.fetch(new Request("http://x/assets/A1/dispose", { method: "POST" }))).status).toBe(500);
+    expect(t.events()).toBe(0);
+  });
+
+  it("accepts it inside the handler's own transaction on the sink's connection", async () => {
+    const t = unguarded((app, sink) => {
+      app.post("/things", async (c) => {
+        await sink.atomic(() => recordAdminEvent(sink, c, entry));
+        return c.json({}, 201);
+      });
+    });
+
+    expect((await t.app.fetch(new Request("http://x/things", { method: "POST" }))).status).toBe(201);
+    expect(t.events()).toBe(1);
+  });
+
+  it("accepts it on a read, which changes nothing to keep in step with", async () => {
+    const t = unguarded((app, sink) => {
+      app.get("/things", async (c) => {
+        await recordAdminEvent(sink, c, entry);
+        return c.json({});
+      });
+    });
+
+    expect((await t.app.fetch(new Request("http://x/things"))).status).toBe(200);
+    expect(t.events()).toBe(1);
+  });
+
+  it("registers no mount twice", () => {
+    const prefixes = AUDITED_MOUNTS.map((mount) => mount.prefix);
+    expect(new Set(prefixes).size).toBe(prefixes.length);
+  });
+});
+
+describe("connectionTurn", () => {
+  function gated(timeoutMs?: number) {
+    const sink = openSink();
+    const sqlite = sink.db;
+    sqlite.exec("CREATE TABLE thing (id TEXT PRIMARY KEY)");
+    let finish!: () => void;
+    const held = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    const app = new Hono();
+    app.use("*", connectionTurn(sink, timeoutMs));
+    app.use("/audited/*", auditBoundary(sink, { failOnYield: false, onYield: () => undefined }));
+    app.post("/audited/slow", async (c) => {
+      sqlite.prepare("INSERT INTO thing VALUES ('UNCOMMITTED')").run();
+      await held;
+      throw new Error("rolled back after the wait");
+    });
+    app.post("/plain", (c) => {
+      sqlite.prepare("INSERT INTO thing VALUES ('ACKNOWLEDGED')").run();
+      return c.json({}, 201);
+    });
+    app.get("/things", (c) => c.json((sqlite.prepare("SELECT id FROM thing ORDER BY id").all() as { id: string }[]).map((row) => row.id)));
+    app.onError((_err, c) => c.json({ error: "INTERNAL" }, 500));
+    const post = (path: string) => Promise.resolve(app.fetch(new Request(`http://x${path}`, { method: "POST" })));
+    const list = async () => (await (await app.fetch(new Request("http://x/things"))).json()) as string[];
+    return { sink, sqlite, post, list, finish };
+  }
+
+  const nextTurn = () => new Promise((resolve) => setImmediate(resolve));
+
+  it("holds a read back until the open transaction ends, so it never lists an uncommitted row", async () => {
+    const t = gated();
+    const slow = t.post("/audited/slow");
+    await nextTurn();
+    expect(t.sqlite.inTransaction).toBe(true);
+
+    let listed: string[] | undefined;
+    const reading = t.list().then((ids) => {
+      listed = ids;
+    });
+    await nextTurn();
+    expect(listed).toBeUndefined();
+
+    t.finish();
+    await Promise.all([slow, reading]);
+    expect(listed).toEqual(["UNCOMMITTED"]);
+  });
+
+  it("holds a write back too, so it cannot land inside another request's transaction", async () => {
+    const t = gated();
+    const slow = t.post("/audited/slow");
+    await nextTurn();
+
+    const plain = t.post("/plain");
+    await nextTurn();
+    expect(await Promise.race([plain.then(() => "answered"), nextTurn().then(() => "waiting")])).toBe("waiting");
+
+    t.finish();
+    expect((await plain).status).toBe(201);
+    await slow;
+    expect(t.sqlite.prepare("SELECT COUNT(*) AS c FROM thing WHERE id = 'ACKNOWLEDGED'").get()).toEqual({ c: 1 });
+  });
+
+  it("answers 503 in Arabic and English when the transaction ahead never ends", async () => {
+    const t = gated(20);
+    const slow = t.post("/audited/slow");
+    await nextTurn();
+
+    const res = await t.post("/plain");
+
+    expect(res.status).toBe(503);
+    expect(await res.json()).toMatchObject({ error: "DATABASE_BUSY", message: expect.any(String), messageEn: expect.any(String) });
+    t.finish();
+    await slow;
+  });
+
+  it("lets a request made from inside the transaction straight through", async () => {
+    const sink = openSink();
+    const app = new Hono();
+    app.use("*", connectionTurn(sink, 20));
+    app.get("/inner", (c) => c.json({ inner: true }));
+    app.post("/outer", async (c) => c.json(await sink.atomic(async () => (await app.fetch(new Request("http://x/inner"))).json())));
+
+    const res = await app.fetch(new Request("http://x/outer", { method: "POST" }));
+
+    expect(await res.json()).toEqual({ inner: true });
   });
 });

@@ -12,7 +12,7 @@ import {
 } from "@mezan/domain";
 import { getAuthContext } from "./permission-gate.js";
 import { requestOrigin } from "./request-origin.js";
-import { markAuditFailure } from "./audit-boundary.js";
+import { assertAuditIsTransactional, markAuditFailure } from "./audit-boundary.js";
 
 /**
  * The forensic trail for administrative acts.
@@ -45,6 +45,7 @@ export async function recordAdminEvent(
   entry: AdminAuditEntry,
 ): Promise<void> {
   if (!audit) return;
+  assertAuditIsTransactional(audit, c);
   const ctx = getAuthContext(c);
   await failingTheRequest(c, recordSensitiveEvent(audit, {
     module: entry.module,
@@ -116,6 +117,7 @@ export async function recordSecurityAdminEvent(
   entry: AdminAuditEntry,
 ): Promise<void> {
   if (!audit) return;
+  assertAuditIsTransactional(audit, c);
   await failingTheRequest(c, recordSecurityEvent(audit, {
     module: entry.module,
     entityType: entry.entityType,

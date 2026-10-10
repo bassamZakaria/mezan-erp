@@ -48,7 +48,7 @@ export type {
 } from "./depreciation-run.js";
 
 export type { CreateDepreciationRunCommand, CreateDepreciationRunDeps } from "./create-depreciation-run.js";
-export { createDepreciationRun } from "./create-depreciation-run.js";
+export { createDepreciationRun, depreciationRunsCoverPeriod } from "./create-depreciation-run.js";
 
 export type { PostDepreciationRunDeps } from "./post-depreciation-run.js";
 export { postDepreciationRun } from "./post-depreciation-run.js";

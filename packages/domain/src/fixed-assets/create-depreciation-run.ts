@@ -1,5 +1,5 @@
 import { Money } from "../money/index.js";
-import type { AssetRepository } from "./asset.js";
+import type { Asset, AssetRepository } from "./asset.js";
 import type { DepreciationRun, DepreciationRunRepository } from "./depreciation-run.js";
 import { computeMonthlyDepreciation, type DepreciationPeriod } from "./depreciation.js";
 import { DuplicateDepreciationPeriodError, NoDepreciableAssetsError } from "./errors.js";
@@ -28,6 +28,23 @@ function parsePeriod(period: string): DepreciationPeriod {
     throw new RangeError(`Invalid depreciation period: "${period}"`);
   }
   return { year: Number(match[1]), month: Number(match[2]) };
+}
+
+const DEPRECIABLE_STATUSES: ReadonlySet<Asset["status"]> = new Set<Asset["status"]>(["active", "under_maintenance"]);
+
+/**
+ * Whether the period's runs account for every asset that has depreciation to
+ * charge in it. A run is scoped to a branch, so "some run exists" was true as
+ * soon as ONE branch had run and the reminder went quiet for all the others.
+ */
+export function depreciationRunsCoverPeriod(assets: readonly Asset[], runs: readonly DepreciationRun[], period: string): boolean {
+  const periodRuns = runs.filter((run) => run.period === period && run.status !== "cancelled");
+  if (periodRuns.length === 0) return false;
+  const covered = new Set(periodRuns.flatMap((run) => run.lines.map((line) => line.assetId)));
+  const month = parsePeriod(period);
+  return assets.every(
+    (asset) => covered.has(asset.id) || !DEPRECIABLE_STATUSES.has(asset.status) || computeMonthlyDepreciation(asset, month).amount.scaled === 0n,
+  );
 }
 
 /**

@@ -16,5 +16,5 @@ export {
   type BilingualText,
   type FiscalPeriodRef,
 } from "./labels.js";
-export { closeFiscalPeriod, reopenFiscalPeriod, lockFiscalPeriod } from "./actions.js";
+export { reopenFiscalPeriod } from "./actions.js";
 export { buildFiscalYearPeriods, generateFiscalYear } from "./generate-fiscal-year.js";

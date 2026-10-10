@@ -1,6 +1,6 @@
 import type Database from "better-sqlite3";
 import { createRecurringJournalRoutes } from "@mezan/api";
-import { createRecurringJournalCommitmentSource, routedAccountId, type PartyControlKind, type CommitmentSource } from "@mezan/domain";
+import { createRecurringJournalCommitmentSource, depreciationRunsCoverPeriod, routedAccountId, type PartyControlKind, type CommitmentSource } from "@mezan/domain";
 import {
   createSqliteAccountRoutingStore,
   createSqliteAssetRepository,
@@ -66,7 +66,7 @@ export const area: BackendArea = {
           audit: ctx.audit,
           dueDepreciation: {
             hasDepreciableAssets: async () => (await assets.list()).some((asset) => DEPRECIABLE_ASSET_STATUSES.has(asset.status)),
-            hasRunForPeriod: async (period) => (await depreciationRuns.list()).some((run) => run.period === period && run.status !== "cancelled"),
+            hasRunForPeriod: async (period) => depreciationRunsCoverPeriod(await assets.list(), await depreciationRuns.list(), period),
           },
         },
         ctx.resolveAuthContext,

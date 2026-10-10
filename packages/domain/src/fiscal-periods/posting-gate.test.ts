@@ -7,7 +7,7 @@ import { NextNumberService } from "../numbering/index.js";
 import { InMemoryLedgerRepository, InMemorySequenceStore } from "../gl/test-helpers/in-memory-ledger-repository.js";
 import { postJournalEntry, type JournalPostingDeps } from "../gl/post.js";
 import { assertOpenForPosting } from "./transitions.js";
-import { closeFiscalPeriod, lockFiscalPeriod } from "./actions.js";
+import { closePeriod, lockPeriod } from "./transitions.js";
 import { PeriodNotOpenForPostingError, NoFiscalPeriodForDateError } from "./errors.js";
 import type { FiscalPeriodStatus } from "./fiscal-period.js";
 
@@ -55,14 +55,13 @@ describe("fiscal-period posting gate", () => {
 
   it("blocks posting once the period is closed (the UI close action enforces this)", async () => {
     const { deps, periods } = await harness("open");
-    await closeFiscalPeriod("fp-08", periods);
+    await periods.update(closePeriod((await periods.findById("fp-08"))!));
     await expect(postJournalEntry(entry, deps)).rejects.toThrow(PeriodNotOpenForPostingError);
   });
 
   it("blocks posting once the period is locked", async () => {
     const { deps, periods } = await harness("open");
-    await closeFiscalPeriod("fp-08", periods);
-    await lockFiscalPeriod("fp-08", periods);
+    await periods.update(lockPeriod(closePeriod((await periods.findById("fp-08"))!)));
     await expect(postJournalEntry(entry, deps)).rejects.toThrow(PeriodNotOpenForPostingError);
   });
 

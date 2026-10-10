@@ -1,6 +1,12 @@
 import type { FiscalPeriod, FiscalPeriodRepository } from "./fiscal-period.js";
 import { FiscalPeriodNotFoundError } from "./errors.js";
-import { closePeriod, lockPeriod, reopenPeriod } from "./transitions.js";
+import { reopenPeriod } from "./transitions.js";
+
+/**
+ * Closing and locking are NOT here: both must pass the period-close checklist,
+ * its override rule and its audit row, which only the close guard applies. A
+ * bare `closeFiscalPeriod(id, repo)` moved the status with none of the three.
+ */
 
 /** Fetches a period by id (or throws {@link FiscalPeriodNotFoundError}), then persists a pure transition's result. */
 async function applyTransition(
@@ -15,17 +21,7 @@ async function applyTransition(
   return next;
 }
 
-/** إغلاق — closes an open fiscal period (blocks further posting into it). */
-export function closeFiscalPeriod(periodId: string, repo: FiscalPeriodRepository): Promise<FiscalPeriod> {
-  return applyTransition(periodId, repo, closePeriod);
-}
-
 /** إعادة فتح — reopens a closed fiscal period. */
 export function reopenFiscalPeriod(periodId: string, repo: FiscalPeriodRepository): Promise<FiscalPeriod> {
   return applyTransition(periodId, repo, reopenPeriod);
-}
-
-/** قفل — locks a closed fiscal period. Terminal: a locked period cannot be unlocked. */
-export function lockFiscalPeriod(periodId: string, repo: FiscalPeriodRepository): Promise<FiscalPeriod> {
-  return applyTransition(periodId, repo, lockPeriod);
 }

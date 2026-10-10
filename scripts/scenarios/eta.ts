@@ -862,23 +862,74 @@ export async function vatReturnInputBaseTiesToItsTax_D79(ctx: Ctx): Promise<void
   );
 }
 
+const BILLINGS = "2165";
+const RECLASSIFICATION_DOC_TYPES: ReadonlySet<string> = new Set(["REVENUE_RECOGNITION_RUN", "YEAR_END_CLOSE"]);
+const HALF_PIASTRE = 5_000n;
+const ONE_POUND = 1_000_000n;
+
+async function postedEntries(ctx: Ctx, toDate: string): Promise<any[]> {
+  const entries: any[] = [];
+  for (let page = 1; ; page += 1) {
+    const batch = ctx.rows((await ctx.req("GET", `/gl/journal-entries?fromDate=2020-01-01&toDate=${toDate}&page=${page}&pageSize=200`)).body);
+    entries.push(...batch.filter((e: any) => e.status === "posted" || e.status === "reversed"));
+    if (batch.length < 200) return entries;
+  }
+}
+
+/**
+ * The VAT return's OUTPUT side on the tenant the seed built, held to the
+ * ledger twice: the tax it reports is what GL 2200 moved, and the base it
+ * reports — every row, the 0% ones too — is what the revenue accounts and the
+ * contract-billings liability moved. The second is the one that catches a
+ * supply counted twice: a certificate invoice credits 2165 and the recognition
+ * run then credits the same value to revenue.
+ */
 export async function vatReturnOutputBaseTiesToItsTax_D79(ctx: Ctx): Promise<void> {
   const { req, n, check, rows, scaled } = ctx;
   const window = `periodFrom=2020-01-01&periodTo=${ctx.today}`;
   const outputRows = rows((await req("GET", `/financial-reports/vat-return?${window}`)).body).filter((r: any) => r.side === "output");
   const taxed = outputRows.filter((r: any) => n(r.rate) > 0);
   check("D79 seeded tenant · the VAT return has a taxed output row to check", taxed.length > 0, JSON.stringify(outputRows).slice(0, 200));
-  const ONE_POUND = 1_000_000n;
+
+  const entries = await postedEntries(ctx, ctx.today);
+  const accounts = rows((await req("GET", "/accounts")).body);
+  const baseAccounts = new Set<string>([BILLINGS, ...accounts.filter((a: any) => a.type === "revenue").map((a: any) => String(a.id))]);
+  check("D79 seeded tenant · the chart names its revenue accounts", baseAccounts.size > 1, `${baseAccounts.size} base accounts`);
+
+  const taxLinesByRow = new Map<string, bigint>();
+  let ledgerBase = 0n;
+  for (const entry of entries) {
+    for (const line of entry.lines ?? []) {
+      if (line.accountId === OUTPUT_TAX && line.taxRatePercent !== null) {
+        const key = `${line.taxRatePercent}|${line.taxRateId ?? ""}`;
+        taxLinesByRow.set(key, (taxLinesByRow.get(key) ?? 0n) + 1n);
+      }
+      if (RECLASSIFICATION_DOC_TYPES.has(String(entry.sourceDocType)) || !baseAccounts.has(String(line.accountId))) continue;
+      ledgerBase += (scaled(line.credit) ?? 0n) - (scaled(line.debit) ?? 0n);
+    }
+  }
+  const reportedBase = outputRows.reduce((sum: bigint, r: any) => sum + (scaled(r.base) ?? 0n), 0n);
+  check(
+    "D79 seeded tenant · the output base the return reports, 0% rows included, is exactly what revenue and the billings liability moved",
+    reportedBase === ledgerBase,
+    `return ${reportedBase} vs ledger ${ledgerBase} (scaled 1e-6), gap ${reportedBase - ledgerBase}`,
+  );
+  const recognised = entries.filter((e: any) => e.sourceDocType === "REVENUE_RECOGNITION_RUN").length;
+  check("D79 seeded tenant · and the tenant holds a recognition run, so the tie-out is exercised against one", recognised > 0, `${recognised} recognition entries`);
+
   for (const row of taxed) {
     const base = scaled(row.base);
     const tax = scaled(row.tax);
     const rateBasisPoints = BigInt(Math.round(n(row.rate) * 100));
     const expected = base === null ? null : (base * rateBasisPoints) / 10_000n;
     const gap = expected === null || tax === null ? null : expected > tax ? expected - tax : tax - expected;
+    const taxLines = taxLinesByRow.get(`${row.rate}|${row.taxRateId ?? ""}`) ?? 0n;
+    const rounding = taxLines * HALF_PIASTRE;
+    const bound = taxLines > 0n && rounding < ONE_POUND ? rounding : ONE_POUND;
     check(
-      `D79 seeded tenant · output row ${row.rowId}: base × ${row.rate}% is its tax, within the per-line rounding`,
-      base !== null && base > 0n && gap !== null && gap <= ONE_POUND,
-      `base ${row.base} × ${row.rate}% vs tax ${row.tax}`,
+      `D79 seeded tenant · output row ${row.rowId}: base × ${row.rate}% is its tax, within half a piastre for each of its ${taxLines} VAT lines and never more than a pound`,
+      base !== null && base > 0n && gap !== null && gap <= bound,
+      `base ${row.base} × ${row.rate}% vs tax ${row.tax}, gap ${gap} against ${bound} (scaled 1e-6)`,
     );
   }
   const ledger = (await req("GET", `/financial-reports/account-ledger?accountId=${OUTPUT_TAX}&${window}`)).body;

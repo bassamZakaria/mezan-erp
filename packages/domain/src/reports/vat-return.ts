@@ -1,22 +1,12 @@
 import { z } from "zod";
 import { isoDateParamSchema } from "./iso-date.js";
-import { type GlReportContext, isLedgerEffective, moneyToNumber } from "./gl-shared.js";
-import { Money } from "../money/index.js";
-import type { JournalEntry } from "../journal.js";
+import { type GlReportContext, isLedgerEffective, isYearEndClose, moneyToNumber } from "./gl-shared.js";
+import { Money, allocate } from "../money/index.js";
+import { journalSourceModule, type JournalEntry } from "../journal.js";
+import { RECOGNITION_DOC_TYPE } from "../contracting/recognition/recognition.js";
 import type { ReportDefinition } from "./types.js";
 import { diffOf, sumRows } from "./kpi.js";
 import type { TaxRate } from "../tax-rates/tax-rate.js";
-
-/**
- * إقرار ضريبة القيمة المضافة — VAT Return (docs/archive/catalog/08-reports.md).
- * Output tax (sales) vs input tax (purchases), broken down by the tax rate each
- * posted line recorded. A line that stored its `taxRateId` is grouped under
- * that rate, which is what keeps an exempt sale and a zero-rated export — both
- * 0% — on separate rows (D79). A line with a percent and no id stands on an
- * unnamed row for that percent and is never assigned to a rate at report time:
- * which rates are active changes, and a reprinted period must not. An entry
- * whose lines carry neither falls back to dividing its VAT by its base.
- */
 
 export type VatReturnTaxRate = Pick<TaxRate, "id" | "name">;
 
@@ -24,19 +14,11 @@ export interface VatReturnContext extends GlReportContext {
   readonly outputVatAccountId: string;
   readonly inputVatAccountId: string;
   readonly taxRates?: readonly VatReturnTaxRate[];
-  /**
-   * Accounts a purchase's taxable base is debited to that are neither expense
-   * nor asset: the «بضاعة واردة لم تُفوتر» liability an invoice raised from a
-   * goods receipt clears instead of debiting inventory a second time (D53).
-   * Left out, such an invoice reports input tax against no base at all.
-   */
+  // EXTERNAL CONTRACT: the composition root names every account a taxable
+  // base is posted to that the account TYPE cannot find — the received-not-
+  // invoiced liability a purchase debits, the contract-billings liability a
+  // certificate invoice credits. One left out reports its tax against no base.
   readonly inputBaseAccountIds?: readonly string[];
-  /**
-   * Accounts a sale's taxable base is credited to that are not revenue: the
-   * «فواتير مستخلصات على العقود» liability a progress-certificate invoice
-   * credits when the contract recognises revenue by percentage of completion.
-   * Left out, such an invoice reports output tax against no base at all.
-   */
   readonly outputBaseAccountIds?: readonly string[];
 }
 
@@ -66,8 +48,6 @@ const paramsSchema = z
     message: "تاريخ البداية يجب أن يسبق تاريخ النهاية",
     path: ["periodFrom"],
   });
-
-const PURCHASE_SOURCE_DOC_TYPES: ReadonlySet<string> = new Set(["PURCHASE_INVOICE", "PURCHASE_RETURN"]);
 
 const SIDE_LABELS: Record<VatSide, string> = {
   output: "ضريبة المخرجات (المبيعات)",
@@ -102,9 +82,15 @@ function lineNet(entry: JournalEntry, accountId: string): { debit: Money; credit
   return { debit, credit };
 }
 
-function creditsToTypes(entry: JournalEntry, accountsByType: (id: string) => boolean): Money {
+type PostingSide = "debit" | "credit";
+
+function sideAmount(line: JournalEntry["lines"][number], side: PostingSide): Money {
+  return side === "credit" ? line.credit.add(line.debit.negate()) : line.debit.add(line.credit.negate());
+}
+
+function netOn(entry: JournalEntry, isAccount: (id: string) => boolean, side: PostingSide): Money {
   let total = Money.zero();
-  for (const line of entry.lines) if (accountsByType(line.accountId)) total = total.add(line.credit);
+  for (const line of entry.lines) if (isAccount(line.accountId)) total = total.add(sideAmount(line, side));
   return total;
 }
 
@@ -127,7 +113,8 @@ function bump(map: Map<string, Bucket>, rate: number, taxRateId: string | null, 
  */
 function derivedRatePercent(tax: Money, base: Money): number {
   if (base.scaled === 0n) return 0;
-  const scaled = (tax.scaled * 200n) / base.scaled; // percent × 2, truncated
+  const magnitude = (value: bigint): bigint => (value < 0n ? -value : value);
+  const scaled = (magnitude(tax.scaled) * 200n) / magnitude(base.scaled); // percent × 2, truncated
   return Number((scaled + 1n) / 2n);
 }
 
@@ -139,26 +126,52 @@ export function vatNetPayable(rows: readonly VatReturnRow[]): number {
 }
 
 
-/**
- * Per-rate (base, tax) pairs read straight off an entry's tagged lines.
- *
- * Returns [] when no line of this entry carries a rate, which is the signal to
- * fall back to the per-entry division. `side` is the direction the VAT and its
- * base both move in: credit for output (revenue), debit for input (purchases).
- */
+function hasRate(line: JournalEntry["lines"][number]): boolean {
+  return line.taxRatePercent !== null && line.taxRatePercent !== undefined;
+}
+
+// INVARIANT: an entry posted when only its VAT line carried a rate still has
+// a base — on its untagged lines. It is read one way only (debits for a
+// purchase, credits for its return), because such an entry may settle in the
+// same breath and the payment leg sits on a base-typed account too.
+function withUntaggedBase(
+  entry: JournalEntry,
+  buckets: readonly Bucket[],
+  isBaseAccount: (accountId: string) => boolean,
+  side: PostingSide,
+): Bucket[] {
+  const orphans = buckets.filter((b) => b.tax.scaled !== 0n && b.base.scaled === 0n);
+  if (orphans.length === 0) return [...buckets];
+  const reversing = Money.sum(orphans.map((b) => b.tax)).scaled < 0n;
+  let untagged = Money.zero();
+  for (const line of entry.lines) {
+    if (hasRate(line) || !isBaseAccount(line.accountId)) continue;
+    const forward = side === "credit" ? line.credit : line.debit;
+    const backward = side === "credit" ? line.debit : line.credit;
+    untagged = untagged.add(reversing ? backward.negate() : forward);
+  }
+  if (untagged.scaled === 0n) return [...buckets];
+  const magnitude = (value: bigint): bigint => (value < 0n ? -value : value);
+  const weights = orphans.map((b) => (b.rate > 0 ? (magnitude(b.tax.scaled) * 10_000n) / BigInt(Math.round(b.rate * 100)) : 0n));
+  const shares = weights.some((w) => w > 0n) ? allocate(untagged, weights) : orphans.map((_, i) => (i === 0 ? untagged : Money.zero()));
+  return buckets.map((b) => {
+    const index = orphans.indexOf(b);
+    return index < 0 ? b : { ...b, base: shares[index] as Money };
+  });
+}
+
 function ratedBuckets(
   entry: JournalEntry,
   vatAccountId: string,
   isBaseAccount: (accountId: string) => boolean,
-  side: "debit" | "credit",
+  side: PostingSide,
 ): Bucket[] {
   const byRate = new Map<string, Bucket>();
   let sawRate = false;
   for (const line of entry.lines) {
-    const rate = line.taxRatePercent;
-    if (rate === null || rate === undefined) continue;
-    const amount =
-      side === "credit" ? line.credit.add(line.debit.negate()) : line.debit.add(line.credit.negate());
+    if (!hasRate(line)) continue;
+    const rate = line.taxRatePercent as number;
+    const amount = sideAmount(line, side);
     if (amount.scaled === 0n) continue;
     const taxRateId = line.taxRateId ?? null;
     const key = bucketKey(rate, taxRateId);
@@ -172,7 +185,9 @@ function ratedBuckets(
     }
   }
   if (!sawRate) return [];
-  return [...byRate.values()].filter((b) => b.base.scaled !== 0n || b.tax.scaled !== 0n);
+  return withUntaggedBase(entry, [...byRate.values()], (id) => id !== vatAccountId && isBaseAccount(id), side).filter(
+    (b) => b.base.scaled !== 0n || b.tax.scaled !== 0n,
+  );
 }
 
 export function createVatReturnReport(
@@ -235,6 +250,29 @@ export function createVatReturnReport(
       const isPurchaseBase = (id: string): boolean =>
         typeOf.get(id) === "expense" || typeOf.get(id) === "asset" || extraInputBase.has(id);
 
+      // INVARIANT: the recognition run moves revenue and the billings
+      // liability between themselves and the contract asset; the supply was
+      // the certificate invoice, already counted. The year-end close empties
+      // revenue. Neither is a sale, so neither reaches the untagged fallback.
+      const isReclassification = (entry: JournalEntry): boolean =>
+        entry.sourceDocType === RECOGNITION_DOC_TYPE || isYearEndClose(entry);
+
+      // INVARIANT: only a purchase-side entry has an input base. A sale that
+      // credits an asset — a retention release crediting «محتجزات ضمان
+      // مدينة» at 0% — would otherwise read as a negative purchase. Excluded
+      // by what makes it a sale, so a 0% purchase with no source document
+      // (a manual journal) is still a purchase.
+      const moved = (net: { debit: Money; credit: Money }): boolean => net.debit.scaled !== 0n || net.credit.scaled !== 0n;
+      const isPurchaseSide = (
+        entry: JournalEntry,
+        inVat: { debit: Money; credit: Money },
+        outVat: { debit: Money; credit: Money },
+      ): boolean => {
+        const module = journalSourceModule(entry.sourceDocType, entry.source);
+        if (moved(inVat) || module === "purchases") return true;
+        return !(module === "sales" || moved(outVat) || netOn(entry, isRevenue, "credit").scaled !== 0n);
+      };
+
       const nameOf = new Map((ctx.taxRates ?? []).map((r) => [r.id, r.name]));
 
       const outputBuckets = new Map<string, Bucket>();
@@ -246,36 +284,25 @@ export function createVatReturnReport(
 
         const outVat = lineNet(entry, ctx.outputVatAccountId);
         const outputTax = outVat.credit.add(outVat.debit.negate());
-        const revenueBase = creditsToTypes(entry, isRevenue);
-
-        // The rates the LINES recorded, when they recorded any. Dividing tax by
-        // base per entry — which is all this report could do before the ledger
-        // carried a rate — reports a 14%/5%/zero-rated invoice as a single
-        // ~6.3% bucket that was never charged to anyone (D28). Entries posted
-        // before the dimension existed carry none, and still fall back to the
-        // old derivation so history keeps reporting.
         const outputTagged = ratedBuckets(entry, ctx.outputVatAccountId, isOutputBase, "credit");
         if (outputTagged.length > 0) {
           for (const b of outputTagged) bump(outputBuckets, b.rate, b.taxRateId, b.base, b.tax);
-        } else if (revenueBase.scaled > 0n) {
-          const rate = outputTax.scaled > 0n ? derivedRatePercent(outputTax, revenueBase) : 0;
-          bump(outputBuckets, rate, null, revenueBase, outputTax.scaled > 0n ? outputTax : Money.zero());
+        } else if (!isReclassification(entry)) {
+          const untaggedBase = netOn(entry, isOutputBase, "credit");
+          if (untaggedBase.scaled !== 0n) {
+            const charged = outputTax.scaled !== 0n && outputTax.scaled > 0n === untaggedBase.scaled > 0n;
+            bump(outputBuckets, charged ? derivedRatePercent(outputTax, untaggedBase) : 0, null, untaggedBase, charged ? outputTax : Money.zero());
+          }
         }
 
         const inVat = lineNet(entry, ctx.inputVatAccountId);
         const inputTax = inVat.debit.add(inVat.credit.negate());
-        // INVARIANT: only a purchase-side entry has an input base. A sale that
-        // credits an asset — a retention release crediting «محتجزات ضمان
-        // مدينة» at 0% — would otherwise read as a negative purchase.
-        const purchaseSide =
-          inVat.debit.scaled !== 0n || inVat.credit.scaled !== 0n || PURCHASE_SOURCE_DOC_TYPES.has(entry.sourceDocType ?? "");
-        const inputTagged = purchaseSide
+        const inputTagged = isPurchaseSide(entry, inVat, outVat)
           ? ratedBuckets(entry, ctx.inputVatAccountId, (id) => id !== ctx.inputVatAccountId && isPurchaseBase(id), "debit")
           : [];
         if (inputTagged.length > 0) {
           for (const b of inputTagged) bump(inputBuckets, b.rate, b.taxRateId, b.base, b.tax);
         } else if (inputTax.scaled > 0n) {
-          // Exclude the input-VAT account itself from the base (it's an asset too).
           const purchaseBase = debitsToTypes(entry, (id) => id !== ctx.inputVatAccountId && isPurchaseBase(id));
           const rate = purchaseBase.scaled > 0n ? derivedRatePercent(inputTax, purchaseBase) : 0;
           bump(inputBuckets, rate, null, purchaseBase, inputTax);
@@ -288,6 +315,7 @@ export function createVatReturnReport(
           (a, b) => b.rate - a.rate || (a.taxRateId ?? "").localeCompare(b.taxRateId ?? ""),
         );
         for (const bucket of ordered) {
+          if (bucket.base.scaled === 0n && bucket.tax.scaled === 0n) continue;
           const { rate, taxRateId } = bucket;
           // The serialisation boundary — the ONE conversion per figure.
           rows.push({

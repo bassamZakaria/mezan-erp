@@ -205,6 +205,41 @@ describe("period-close checks read the real tables (ENH-E1-04)", () => {
     expect((await check("06", "drafts")).status).toBe("pass");
   });
 
+  const UNPOSTED_SOURCES = [
+    { kind: "progress_certificate", table: "contracting_certificate", date: "execution_date", open: ["draft", "measured", "certified"], done: "approved", fix: "certificates", extra: { doc_no: "CERT" } },
+    { kind: "subcontract_certificate", table: "subcontract_certificate", date: "execution_date", open: ["draft", "measured", "certified"], done: "approved", fix: "subcontract-certificates", extra: { doc_no: "SUBCERT" }, parent: { table: "subcontract", column: "subcontract_id" } },
+    { kind: "physical_count", table: "physical_count", date: "date", open: ["IN_PROGRESS", "COMPLETED"], done: "ADJUSTMENT_GENERATED", fix: "physical-counts", extra: {} },
+    { kind: "site_issue", table: "site_issue", date: "date", open: ["draft"], done: "issued", fix: "site-issues", extra: {} },
+    { kind: "site_receipt", table: "site_receipt", date: "date", open: ["draft"], done: "confirmed", fix: "site-issues", extra: {} },
+    { kind: "material_consumption", table: "material_consumption", date: "date", open: ["draft"], done: "confirmed", fix: "material-consumption", extra: {} },
+    { kind: "equipment_log", table: "equipment_log", date: "date", open: ["draft"], done: "confirmed", fix: "equipment-logs", extra: {} },
+  ] as const;
+
+  it.each(UNPOSTED_SOURCES)("counts an unposted $kind in the month of its own date, and not once it is posted", async (source) => {
+    const { sqlite, check } = await world();
+    const parent = "parent" in source ? source.parent : null;
+    if (parent) insert(sqlite, parent.table, { id: "parent-1", doc_no: "PARENT-1" });
+    const row = (id: string, status: string, date: string) => {
+      const extra = Object.fromEntries(Object.entries(source.extra).map(([column, value]) => [column, `${value}-${id}`]));
+      insert(sqlite, source.table, { id, status, [source.date]: date, ...extra, ...(parent ? { [parent.column]: "parent-1" } : {}) });
+    };
+    source.open.forEach((status, index) => row(`open-${index}`, status, "2026-06-30"));
+    row("posted", source.done, "2026-06-15");
+    row("next-month", source.open[0], "2026-07-01");
+
+    const june = await check("06", "drafts");
+    expect(june.status).toBe("fail");
+    expect(june.findings.map((f) => [f.ref, f.count, f.fix])).toEqual([[source.kind, source.open.length, source.fix]]);
+    expect((await check("07", "drafts")).findings.map((f) => [f.ref, f.count])).toEqual([[source.kind, 1]]);
+    expect((await check("05", "drafts")).status).toBe("pass");
+  });
+
+  it("a work order in progress is not an unposted document: each stage posts as it happens", async () => {
+    const { sqlite, check } = await world();
+    insert(sqlite, "work_order", { id: "wo-1", number: "WO-000001", scheduled_start_date: "2026-06-10", status: "in_progress", stage: "materials_issued" });
+    expect((await check("06", "drafts")).status).toBe("pass");
+  });
+
   it("a recurring entry that was posted and then reversed is not done; a posted one is", async () => {
     const { sqlite, request, check } = await world();
     const template = await request("POST", "/gl/recurring/templates", {

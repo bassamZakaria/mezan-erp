@@ -37,6 +37,12 @@ export enum PeriodCloseFixTargetDTO {
   DepreciationRuns = "depreciation-runs",
   WritedownRuns = "writedown-runs",
   Payroll = "payroll",
+  Certificates = "certificates",
+  SubcontractCertificates = "subcontract-certificates",
+  PhysicalCounts = "physical-counts",
+  SiteIssues = "site-issues",
+  MaterialConsumption = "material-consumption",
+  EquipmentLogs = "equipment-logs",
   Approvals = "approvals",
   Reconciliation = "reconciliation",
   TrialBalance = "trial-balance-report",
@@ -60,6 +66,13 @@ export enum PeriodCloseDocKindDTO {
   DepreciationRun = "depreciation_run",
   WritedownRun = "writedown_run",
   PayrollRun = "payroll_run",
+  ProgressCertificate = "progress_certificate",
+  SubcontractCertificate = "subcontract_certificate",
+  PhysicalCount = "physical_count",
+  SiteIssue = "site_issue",
+  SiteReceipt = "site_receipt",
+  MaterialConsumption = "material_consumption",
+  EquipmentLog = "equipment_log",
 }
 
 export const periodCloseDocKindSchema = z.nativeEnum(PeriodCloseDocKindDTO);

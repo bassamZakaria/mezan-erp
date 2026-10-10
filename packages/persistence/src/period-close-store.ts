@@ -184,9 +184,26 @@ interface DocSource {
   readonly table: string;
   readonly docType?: string;
   readonly byPeriodKey?: boolean;
+  readonly dateColumn?: string;
+  readonly unpostedStatuses?: readonly string[];
   readonly numberColumn?: string;
   readonly holdsForApproval?: boolean;
 }
+
+enum CertificateStatus {
+  Draft = "draft",
+  Measured = "measured",
+  Certified = "certified",
+}
+
+enum PhysicalCountStatus {
+  InProgress = "IN_PROGRESS",
+  Completed = "COMPLETED",
+}
+
+const UNAPPROVED_CERTIFICATE_STATUSES = [CertificateStatus.Draft, CertificateStatus.Measured, CertificateStatus.Certified] as const;
+const UNADJUSTED_COUNT_STATUSES = [PhysicalCountStatus.InProgress, PhysicalCountStatus.Completed] as const;
+const DEFAULT_DATE_COLUMN = "date";
 
 const DOC_SOURCES: readonly DocSource[] = [
   { kind: PeriodCloseDocKind.JournalEntry, table: "journal_entry", numberColumn: "entry_no" },
@@ -201,6 +218,13 @@ const DOC_SOURCES: readonly DocSource[] = [
   { kind: PeriodCloseDocKind.StockAdjustment, table: "stock_adjustment_document", numberColumn: "doc_no", holdsForApproval: true },
   { kind: PeriodCloseDocKind.DepreciationRun, table: "depreciation_run", byPeriodKey: true },
   { kind: PeriodCloseDocKind.WritedownRun, table: "writedown_run", byPeriodKey: true },
+  { kind: PeriodCloseDocKind.ProgressCertificate, table: "contracting_certificate", dateColumn: "execution_date", unpostedStatuses: UNAPPROVED_CERTIFICATE_STATUSES },
+  { kind: PeriodCloseDocKind.SubcontractCertificate, table: "subcontract_certificate", dateColumn: "execution_date", unpostedStatuses: UNAPPROVED_CERTIFICATE_STATUSES },
+  { kind: PeriodCloseDocKind.PhysicalCount, table: "physical_count", unpostedStatuses: UNADJUSTED_COUNT_STATUSES },
+  { kind: PeriodCloseDocKind.SiteIssue, table: "site_issue" },
+  { kind: PeriodCloseDocKind.SiteReceipt, table: "site_receipt" },
+  { kind: PeriodCloseDocKind.MaterialConsumption, table: "material_consumption" },
+  { kind: PeriodCloseDocKind.EquipmentLog, table: "equipment_log" },
 ];
 
 enum StoredStatus {
@@ -218,6 +242,8 @@ enum StoredStatus {
 }
 
 const FISCAL_PERIOD_ENTITY = "FISCAL_PERIOD";
+const DRAFT_STATUSES = [StoredStatus.Draft] as const;
+const PENDING_STATUSES = [StoredStatus.Pending] as const;
 const UNPOSTED_PAYROLL_STATUSES = [StoredStatus.Draft, StoredStatus.Calculated] as const;
 const LEDGER_EFFECTIVE_STATUSES = [StoredStatus.Posted, StoredStatus.Reversed] as const;
 
@@ -307,16 +333,18 @@ function placeholders(values: readonly unknown[]): string {
 
 // Table and column names below come only from DOC_SOURCES, never from a caller; every value is bound.
 function createQueries(sqlite: Database.Database): PeriodCloseQueries {
-  function countByStatus(source: DocSource, status: StoredStatus, window: PeriodCloseWindow): number {
+  function countByStatus(source: DocSource, statuses: readonly string[], window: PeriodCloseWindow): number {
     const typeClause = source.docType ? " AND doc_type = ?" : "";
     const typeParams = source.docType ? [source.docType] : [];
+    const dateColumn = source.dateColumn ?? DEFAULT_DATE_COLUMN;
+    const statusClause = `status IN (${placeholders(statuses)})`;
     const row = source.byPeriodKey
       ? sqlite
-          .prepare(`SELECT COUNT(*) AS n FROM ${source.table} WHERE status = ?${typeClause} AND period = ?`)
-          .get(status, ...typeParams, window.startDate.slice(0, 7))
+          .prepare(`SELECT COUNT(*) AS n FROM ${source.table} WHERE ${statusClause}${typeClause} AND period = ?`)
+          .get(...statuses, ...typeParams, window.startDate.slice(0, 7))
       : sqlite
-          .prepare(`SELECT COUNT(*) AS n FROM ${source.table} WHERE status = ?${typeClause} AND date >= ? AND date < ?`)
-          .get(status, ...typeParams, window.startDate, nextDay(window.endDate));
+          .prepare(`SELECT COUNT(*) AS n FROM ${source.table} WHERE ${statusClause}${typeClause} AND ${dateColumn} >= ? AND ${dateColumn} < ?`)
+          .get(...statuses, ...typeParams, window.startDate, nextDay(window.endDate));
     return (row as { n: number }).n;
   }
 
@@ -331,14 +359,14 @@ function createQueries(sqlite: Database.Database): PeriodCloseQueries {
 
   return {
     draftCounts(window) {
-      const counts = DOC_SOURCES.map((source) => ({ kind: source.kind, count: countByStatus(source, StoredStatus.Draft, window) }));
+      const counts = DOC_SOURCES.map((source) => ({ kind: source.kind, count: countByStatus(source, source.unpostedStatuses ?? DRAFT_STATUSES, window) }));
       counts.push({ kind: PeriodCloseDocKind.PayrollRun, count: unpostedPayrollRuns(window) });
       return counts;
     },
     pendingApprovalCounts(window) {
       return DOC_SOURCES.filter((source) => source.holdsForApproval).map((source) => ({
         kind: source.kind,
-        count: countByStatus(source, StoredStatus.Pending, window),
+        count: countByStatus(source, PENDING_STATUSES, window),
       }));
     },
     // The period's own documents, plus every document of the same series whose NUMBER falls between the period's

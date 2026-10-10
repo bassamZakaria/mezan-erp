@@ -87,6 +87,13 @@ const DOC_KIND_KEY: Readonly<Record<PeriodCloseDocKindDTO, AppTranslationKey>> =
   [PeriodCloseDocKindDTO.DepreciationRun]: "periodClose.doc.depreciation_run",
   [PeriodCloseDocKindDTO.WritedownRun]: "periodClose.doc.writedown_run",
   [PeriodCloseDocKindDTO.PayrollRun]: "periodClose.doc.payroll_run",
+  [PeriodCloseDocKindDTO.ProgressCertificate]: "periodClose.doc.progress_certificate",
+  [PeriodCloseDocKindDTO.SubcontractCertificate]: "periodClose.doc.subcontract_certificate",
+  [PeriodCloseDocKindDTO.PhysicalCount]: "periodClose.doc.physical_count",
+  [PeriodCloseDocKindDTO.SiteIssue]: "periodClose.doc.site_issue",
+  [PeriodCloseDocKindDTO.SiteReceipt]: "periodClose.doc.site_receipt",
+  [PeriodCloseDocKindDTO.MaterialConsumption]: "periodClose.doc.material_consumption",
+  [PeriodCloseDocKindDTO.EquipmentLog]: "periodClose.doc.equipment_log",
 };
 
 const TIE_KEY: Readonly<Record<PeriodCloseTieKeyDTO, AppTranslationKey>> = {

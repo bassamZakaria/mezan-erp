@@ -32,6 +32,13 @@ export const PERIOD_CLOSE_DOC_KIND_FIX: Readonly<Record<PeriodCloseDocKind, Peri
   [PeriodCloseDocKind.DepreciationRun]: PeriodCloseFixTarget.DepreciationRuns,
   [PeriodCloseDocKind.WritedownRun]: PeriodCloseFixTarget.WritedownRuns,
   [PeriodCloseDocKind.PayrollRun]: PeriodCloseFixTarget.Payroll,
+  [PeriodCloseDocKind.ProgressCertificate]: PeriodCloseFixTarget.Certificates,
+  [PeriodCloseDocKind.SubcontractCertificate]: PeriodCloseFixTarget.SubcontractCertificates,
+  [PeriodCloseDocKind.PhysicalCount]: PeriodCloseFixTarget.PhysicalCounts,
+  [PeriodCloseDocKind.SiteIssue]: PeriodCloseFixTarget.SiteIssues,
+  [PeriodCloseDocKind.SiteReceipt]: PeriodCloseFixTarget.SiteIssues,
+  [PeriodCloseDocKind.MaterialConsumption]: PeriodCloseFixTarget.MaterialConsumption,
+  [PeriodCloseDocKind.EquipmentLog]: PeriodCloseFixTarget.EquipmentLogs,
 };
 
 const MAX_LISTED_ITEMS = 20;

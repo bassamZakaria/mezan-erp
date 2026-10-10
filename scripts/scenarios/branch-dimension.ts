@@ -194,7 +194,7 @@ export async function run(ctx: Ctx): Promise<void> {
         .get(MAIN) as { id: string } | undefined
     )?.id;
     const copied = await req("POST", `/gl/recurring/templates/from-entry/${encodeURIComponent(mainEntryId ?? "")}`, { id: "SCN-BR-RJT-COPIED", nameAr: "قالب منسوخ من فرع آخر", ...schedule }, ALEX_GRANT);
-    check("nor copy another branch's entry into a template", mainEntryId !== undefined && copied.status === 403 && copied.body?.error === "BRANCH_OUT_OF_SCOPE", `entry ${mainEntryId} status ${copied.status} ${JSON.stringify(copied.body).slice(0, 160)}`);
+    check("nor copy another branch's entry into a template — it is absent to them, and the refusal does not name its branch", mainEntryId !== undefined && copied.status === 404 && copied.body?.error === "NOT_FOUND" && !JSON.stringify(copied.body).includes(MAIN), `entry ${mainEntryId} status ${copied.status} ${JSON.stringify(copied.body).slice(0, 160)}`);
     const phantomTemplate = await req("POST", "/gl/recurring/templates", { id: "SCN-BR-RJT-PHANTOM", nameAr: "قالب على فرع غير موجود", memo: "قالب اختبار بُعد الفرع", ...schedule, lines: journal("unused", "BR-NOWHERE").lines });
     check("and nobody can save a template on a branch that does not exist", phantomTemplate.status === 422 && phantomTemplate.body?.error === "BRANCH_NOT_FOUND", `status ${phantomTemplate.status} ${JSON.stringify(phantomTemplate.body).slice(0, 160)}`);
     const phantom = await req("POST", "/gl/journal-entries", journal("SCN-BR-JE-PHANTOM", "BR-NOWHERE"));

@@ -51,7 +51,7 @@ import {
   type RecurringJournalTemplateStatusDTO,
 } from "@mezan/contracts";
 import { tenantDay, tenantToday } from "./tenant-day.js";
-import { branchGrantOf, branchScopeOf, createPermissionGate, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
+import { branchGrantOf, branchScopeOf, createPermissionGate, getAuthContext, storedDocumentRefusal, type AuthContextResolver } from "./permission-gate.js";
 import { refuseOutOfScopeBranches } from "./branch-scope-refusal.js";
 import { MasterDataKind, refuseUnknownMasterData, type MasterDataChecks } from "./master-data-check.js";
 
@@ -224,7 +224,7 @@ export function createRecurringJournalRoutes(deps: RecurringJournalRoutesDeps, r
   /** Changing, pausing or skipping a STORED template acts on the branches its lines already carry. */
   async function refuseStoredTemplateBranches(c: Context, id: string): Promise<Response | null> {
     const stored = await deps.templates.findById(id);
-    return stored ? refuseOutOfScopeBranches(c, stored.lines.map((line) => line.branchId)) : null;
+    return stored ? storedDocumentRefusal(c, branchGrantOf(c), stored.lines.map((line) => line.branchId)) : null;
   }
   const idGen = deps.idGen ?? (() => randomUUID());
 
@@ -344,7 +344,8 @@ export function createRecurringJournalRoutes(deps: RecurringJournalRoutesDeps, r
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     const entry = await deps.ledger.findById(c.req.param("entryId"));
     if (!entry) return c.json({ error: "JOURNAL_ENTRY_NOT_FOUND" }, 404);
-    const branchRefusal = await refuseTemplateBranches(c, entry.lines.map((line) => line.branchId));
+    const entryBranches = entry.lines.map((line) => line.branchId);
+    const branchRefusal = storedDocumentRefusal(c, branchGrantOf(c), entryBranches) ?? (await refuseTemplateBranches(c, entryBranches));
     if (branchRefusal) return branchRefusal;
     try {
       const template = await createRecurringJournalTemplate(

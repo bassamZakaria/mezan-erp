@@ -636,6 +636,25 @@ describe("D111 · an id-addressed route checks the stored document's branch, not
     expect(transfers).toContain("D111-TRF-OUT");
   });
 
+  it("received-not-invoiced (GRNI): naming another branch's warehouse returns none of its receipts, counts or value", async () => {
+    const query = `invoiced=false&warehouseId=${MAIN_WAREHOUSE}`;
+    const theirs = await mainOnly("GET", `/purchases/receipts/stats?${query}`);
+    expect(theirs.status).toBe(200);
+    expect(theirs.body.count).toBeGreaterThan(0);
+
+    const rows = await alex("GET", `/purchases/receipts?${query}`);
+    expect(rows.status).toBe(200);
+    expect(rowsOf(rows.body)).toEqual([]);
+    const stats = await alex("GET", `/purchases/receipts/stats?${query}`);
+    expect(stats.body).toMatchObject({ count: 0, confirmed: 0, uninvoiced: 0 });
+    expect(Number(stats.body.value)).toBe(0);
+    const counts = await alex("GET", `/purchases/receipts/counts?${query}`);
+    expect(Object.values(counts.body as Record<string, number>).every((n) => n === 0)).toBe(true);
+
+    const unfiltered = await alex("GET", "/purchases/receipts/stats?invoiced=false");
+    expect(unfiltered.body.count).toBe(0);
+  });
+
   it("a transfer is confirmed by the branch stock leaves, never by the one it arrives in", async () => {
     const inbound = await admin("POST", "/inventory/stock-transfers/draft", {
       id: "D111-TRF-IN",

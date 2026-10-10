@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { BrandMark, Button, Copyright } from "@mezan/ui";
+import { BrandMark, Button, Copyright, useTheme } from "@mezan/ui";
 import { useAppTranslation } from "../i18n";
 
 /**
@@ -9,6 +9,7 @@ import { useAppTranslation } from "../i18n";
  */
 export function SignupLayout({ children, maxWidthClassName = "max-w-[560px]" }: { children: ReactNode; maxWidthClassName?: string }) {
   const { locale, setLocale } = useAppTranslation();
+  useTheme();
   return (
     <div className="flex min-h-screen flex-col items-center bg-bg px-[16px] py-[28px] sm:px-[24px]">
       <div className={`flex w-full ${maxWidthClassName} items-center justify-between`}>

@@ -19,7 +19,7 @@ export function PlatformShell() {
   const { session, setSession } = usePlatformApi();
 
   return (
-    <div dir="rtl" className="flex min-h-screen bg-bg">
+    <div className="flex min-h-screen bg-bg">
       <nav
         aria-label={t("platform.brand.name")}
         className={cn(

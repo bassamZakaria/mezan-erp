@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { useLocation, useNavigate } from "react-router";
+import { useTheme } from "@mezan/ui";
 import { PlatformApiProvider, usePlatformApi, type PlatformApiProviderProps } from "./api";
 import { PlatformLogin } from "./PlatformLogin";
 import { PlatformShell } from "./PlatformShell";
@@ -8,6 +9,7 @@ function PlatformDoor() {
   const { session } = usePlatformApi();
   const location = useLocation();
   const navigate = useNavigate();
+  useTheme();
 
   // A signed-in operator who lands (or is left, after login navigates away
   // and the browser back button returns) on the login path belongs in the

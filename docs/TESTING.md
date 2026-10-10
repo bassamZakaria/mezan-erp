@@ -8364,12 +8364,27 @@ section), `/platform` DOES have real URL routing (`react-router`,
 its own session in `localStorage` (`mezan.platform.session`), entirely apart
 from a tenant user's session.
 
-These eight scenarios are new with slice C's deploy and proof work and have
-not yet had their first browser pass — see the C5 task in
-`docs/superpowers/plans/2026-09-14-saas-slice-c-deploy.md`. Run them on
-`pnpm env:testing:fresh` (which seeds the platform owner and the `demo`
-tenant automatically, `scripts/env.mjs`) and tick each with the date once it
-passes, filing any deviation exactly like the rest of this document.
+These eight scenarios are guarded by an automated browser suite, `pnpm
+test:saas` (`e2e/saas/`, `playwright.saas.config.ts`), which also covers
+self-serve signup, card checkout in test mode, trial expiry, the Free invoice
+quota, the lapse of a paid period, and every SaaS screen in both locales and
+both themes. To walk them by hand, run them on `pnpm env:testing:fresh` (which
+seeds the platform owner and the `demo` tenant automatically,
+`scripts/env.mjs`) and file any deviation exactly like the rest of this
+document.
+
+`pnpm test:saas` owns four private ports and no others, and refuses to start
+if any of them already answers: **3321** (API) and **5321** (web) for the whole
+run, and **3322** (API) and **5322** (web) for the second pair that spec 06
+restarts under `MEZAN_FAKE_TODAY` — a process cannot change its clock while it
+runs, so each jump in the calendar is a restart on the same platform
+directory. Each run gets a fresh platform directory and removes it on exit. It
+boots `apps/server/src/index.ts`, not `cloud.ts` (the fake clock is refused
+under `NODE_ENV=production`), so the basic-auth gate and static serving of
+`cloud.ts` are not covered by it. Backups are switched off in the suite
+(`MEZAN_BACKUP_INTERVAL_MINUTES=0`) and there is no backup scenario below, so
+the suite says nothing about backups. Signup allows 8 requests per IP per hour
+per server process; the suite uses 2 on the main server.
 
 - **PLT-SAAS-01** — Platform owner signs in.
   **Pre**: `pnpm env:testing:fresh` running. `scripts/env.mjs` seeds the
@@ -8389,35 +8404,42 @@ passes, filing any deviation exactly like the rest of this document.
   one-time PIN (`ProvisionResultDTO.adminPin`) with a warning that it will
   never be shown again — copy it down for PLT-SAAS-03. Closing the panel
   returns to the list; `cyag` now appears with status "نشطة" and licence
-  "تجريبي" (`platform.subscriptionStatus.trialing`).
+  "تجريبي" (`platform.subscriptionStatus.trialing`) — a trial and a paid
+  period both derive an ACTIVE licence, so the list shows the trial while the
+  licence is active (D-SAAS-09). The tenant's own company name — in its
+  session, in الإعدادات العامة and on a printed document — is the name typed
+  here, not the vendor's (D-SAAS-02).
 
 - **PLT-SAAS-03** — Tenant owner signs in with the company code and the
   one-time PIN.
   **Pre**: Sign out of `/platform` (a separate session from the tenant app);
   open the ordinary login screen.
-  **Steps**: In رمز المنشأة enter `cyag`, wait for the tenant name to resolve;
-  enter the admin email from PLT-SAAS-02 and the PIN it returned.
+  **Steps**: In رمز المنشأة enter `cyag` and leave the field — the screen
+  echoes «الرمز: cyag» and never the company's name; enter the admin email
+  from PLT-SAAS-02 and the PIN it returned.
   **Assert**: Signs in to `cyag`'s own dashboard — a company with none of the
   `demo` tenant's seed data (fresh, empty lists everywhere). The company code
-  persists in `localStorage` (`login.tenantCode`) across a reload.
+  persists in `localStorage` (`mezan.tenantCode`) across a reload. The same
+  PIN and email against the `demo` code are refused with «اسم المستخدم أو رمز
+  PIN غير صحيح.» and open nothing.
 
-- **PLT-SAAS-04** — Business-plan entitlements: HR is licensed nowhere in the
-  API, but not yet hidden from the nav.
+- **PLT-SAAS-04** — Business-plan entitlements: HR and manufacturing are
+  refused by the API, hidden from the nav, and refused in Arabic on the screen.
   **Pre**: Signed in as `cyag`'s owner (PLT-SAAS-03). `cyag`'s plan
   (`BUSINESS_MODULES`, `packages/backend/src/create-platform.ts`) excludes
   `hr` and `manufacturing`.
-  **Steps**: Call `GET /api/hr/employees` (or any `/hr/*` route) with header
-  `x-mezan-tenant: cyag` and the session token — from the browser's network
-  panel, or a direct fetch.
-  **Assert**: 403 `{"error":"MODULE_NOT_LICENSED","module":"hr","message":
-  "وحدة الموارد البشرية غير مفعّلة في باقتكم"}` (`packages/api/src/
-  module-gate.ts`'s `moduleRefusal`). **Note, verified by reading the code**:
-  the sidebar itself does NOT filter by `GET /entitlements`'s modules list —
-  `AppLayout.tsx` fetches `entitlements` but never uses it to hide a nav
-  group, so الموارد البشرية still shows for a business-plan tenant and only
-  403s once clicked. If reproduced live, record this nav-vs-API mismatch as a
-  new defect rather than assuming the spec's "nav shows only business
-  modules" already holds client-side.
+  **Steps**: Call `GET /api/hr/employees` with header `x-mezan-tenant: cyag`
+  and the session token; look at the workspace rail; open `/people/employees`
+  by its address.
+  **Assert**: 403 `MODULE_NOT_LICENSED` with the message «وحدة الموارد البشرية
+  غير مُفعّلة في ترخيص هذه النسخة. تواصل مع الدعم لإضافتها إلى الاشتراك.»
+  (`packages/api/src/module-gate.ts`'s `createModuleGate`). `GET
+  /api/entitlements` lists `sales` and neither `hr` nor `manufacturing`. The
+  rail shows «البيع والتحصيل» and neither «الأشخاص» nor «التصنيع»
+  (`filterNavGroups`, `AppLayout.tsx`). The employees screen shows that same
+  sentence — not the raw code and not a generic load error. No other screen
+  asks this plan for an HR lookup or a contracting report (D-SAAS-03,
+  D-SAAS-04).
 
 - **PLT-SAAS-05** — Operator records a payment; the subscription period
   advances.
@@ -8434,10 +8456,12 @@ passes, filing any deviation exactly like the rest of this document.
 - **PLT-SAAS-06** — Operator suspends `cyag`; writes refuse in Arabic, reads
   still work.
   **Pre**: `cyag` active, from PLT-SAAS-05.
-  **Steps**: On `cyag`'s tenant detail page, click "إيقاف المنشأة". Then, as
-  `cyag`'s owner (company code `cyag`), sign in and try to save any document
-  (e.g. confirm a new sales invoice).
-  **Assert**: Tenant status flips to "موقوفة"; the owner can still sign in
+  **Steps**: On `cyag`'s tenant detail page, click "إيقاف المنشأة" — a
+  confirmation «إيقاف المنشأة؟» opens and nothing is suspended until it is
+  confirmed (D-SAAS-10); confirm it. Then, as `cyag`'s owner (company code
+  `cyag`), sign in and try to save any document (e.g. a new sales invoice).
+  **Assert**: Tenant status flips to "موقوفة"; the tenant app shows the banner
+  «الترخيص غير فعّال — وضع القراءة فقط»; the owner can still sign in
   and the tenant's lists still load — the tenant router still dispatches a
   suspended tenant (`apps/server/src/tenant-router.ts`, §1.2 of the spec); the
   write is refused with 403 `LICENSE_READ_ONLY` and the Arabic message
@@ -8466,11 +8490,15 @@ passes, filing any deviation exactly like the rest of this document.
   so `MEZAN_TENANT_DOMAIN=localhost` and `http://demo.localhost:4103` also work.
   **Steps**: Open `http://cyag.mezan.test:4103`.
   **Assert**: `GET /platform/resolve` answers
-  `{"mode":"subdomain","tenant":{"code":"cyag",...}}`; the login screen
-  renders with NO رمز المنشأة field at all (`LoginScreen.tsx`'s
-  `tenantMode === "subdomain"` branch hides it); signing in with the admin
-  email and PIN reaches `cyag` directly, the same as PLT-SAAS-03 but without
-  typing the code.
+  `{"mode":"subdomain","exists":true}` — mode and existence only, never the
+  tenant's code or name; the login screen renders with NO رمز المنشأة field at
+  all (`LoginScreen.tsx`'s `tenantMode === "subdomain"` branch hides it) and no
+  company name; signing in with the admin email and PIN reaches `cyag`
+  directly, the same as PLT-SAAS-03 but without typing the code. No response
+  before sign-in carries the company's name: `GET /api/tenant` answers
+  `{"name":"Mezan"}` for any claimed tenant, before and after its owner
+  renames the company in الإعدادات العامة (D-SAAS-07). A subdomain decides the
+  tenant whatever `x-mezan-tenant` header is sent with it.
 
 ---
 
@@ -8488,6 +8516,37 @@ passes, filing any deviation exactly like the rest of this document.
 | PLT-SAAS-08 | pass at the API | Second instance with `MEZAN_TENANT_DOMAIN=localhost` on :4103: `/api/platform/resolve` with host `demo.localhost` → subdomain mode and tenant `demo`; `POST /api/auth/login` with that host and no header succeeded and `GET /api/customers` returned 27 rows; without the host the same login answered 400 `TENANT_REQUIRED`. The code-field-hidden branch is covered by `LoginScreen.test.tsx`; the Chrome extension refuses `*.localhost` navigation, so the screen itself was not driven. |
 
 Found by the final code review the same day and fixed: cached tenant answers and the remembered-users list survived a sign-out and a code switch (cross-tenant leak in one browser); the CloudFront origin secret was never set; a failed provisioning could not be retried from the console.
+
+### Run record — 2026-10-10, `pnpm test:saas` on :3321/:5321 and :3322/:5322, Chromium
+
+Automated, Arabic, light theme, desktop unless the screen walk says otherwise.
+Run twice in a row: 56 passed, 2 parked (`test.fixme`), 0 failed, both times
+(3.8 and 4.0 minutes); spec 01 with `--repeat-each=2`: 22 passed.
+
+| ID | Result | What the suite asserts |
+|---|---|---|
+| PLT-SAAS-01 | pass | Owner signs in; the rail shows its three links; the list holds `demo` and no code the suite did not create; a wrong password answers «بيانات الدخول غير صحيحة» and stores no session. |
+| PLT-SAAS-02 | pass | Tenant created on business with a trial; PIN shown once and gone after a reload; the list marks it «تجريبي»; a second tenant on the same code answers 409 «رمز المنشأة "…" مستخدم بالفعل» and creates nothing. |
+| PLT-SAAS-03 | pass | Code, email and PIN reach an empty tenant; the code survives a reload; the same PIN against `demo` answers 401 «اسم المستخدم أو رمز PIN غير صحيح.». |
+| PLT-SAAS-04 | pass | 403 `MODULE_NOT_LICENSED` with its exact sentence; the rail hides «الأشخاص» and «التصنيع»; the screen shows the same sentence. |
+| PLT-SAAS-05 | pass | One payment recorded; status becomes «نشط»; the period end moves by exactly one billing month from the previous period end; a payment with no amount is refused on the form. |
+| PLT-SAAS-06 | pass | Suspend asks first; then `POST /customers` and `POST /sales-invoices` answer 403 `LICENSE_READ_ONLY` with the exact sentence, reads answer 200, the tenant app shows the read-only banner and refuses a customer on screen; resume restores writing. |
+| PLT-SAAS-07 | pass | A's customer is absent from B on screen and by API; B's token with A's header, A's subdomain with B's header and token, a tenant token on `/api/platform/*`, a platform token on the tenant API and A's record by id from B are all refused; the two database files exist on disk and A's customer is in A's only. |
+| PLT-SAAS-08 | pass | Resolve answers mode and existence only; code mode and subdomain mode carry no company name in any response before sign-in; `GET /api/tenant` answers the placeholder before and after a rename; a shared device opens neutral and keeps a company confirmed this visit. |
+
+Beyond the eight: signup to first sign-in, with the company name in the
+session, in settings and on a printed invoice; a forged success callback for a
+real pending checkout answers 401 `INVALID_SIGNATURE`, pays nothing and renews
+nothing; the day after a trial the tenant is on Free with HR read-only; the
+invoice screen refuses the 101st invoice of the month with the plan's own
+sentence; a paid period left unpaid is marked past due and keeps writing
+through its seven days of grace, is read-only after them, and is restored by a
+recorded payment.
+
+Parked, each as a `test.fixme` asserting the required behaviour: D-SAAS-06
+(the sign-in screen asks for `/api/bootstrap/status` and `/api/entitlements`
+before a company is known) and D-SAAS-12 (the platform console does not fit a
+390px phone).
 
 # 12. Shell, dashboard and reports
 

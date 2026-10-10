@@ -93,6 +93,12 @@ export interface AuditSink {
   insideTransaction?(): boolean;
   /** Resolves once no transaction is open on the connection this sink writes to. */
   settled?(): Promise<void>;
+  /**
+   * Runs `fn` as the only writer on the connection this sink writes to, from its
+   * first statement to its last. Called from inside a turn or a transaction the
+   * caller already holds, it runs `fn` straight through.
+   */
+  turn?<T>(fn: () => Promise<T>): Promise<T>;
 }
 
 /**

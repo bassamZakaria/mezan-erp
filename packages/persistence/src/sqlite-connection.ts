@@ -156,14 +156,41 @@ interface ConnectionState {
   readonly nesting: AsyncLocalStorage<true>;
   /** Tail of the serialization queue — see `withSqliteTransaction` below. */
   queue: Promise<void>;
+  /** The request-long hold on that queue an async chain is running under — see `withSqliteTurn`. */
+  readonly turn: AsyncLocalStorage<TurnScope>;
+  /** Resolves when the outermost transaction now open ends; null while none is. */
+  transaction: Promise<void> | null;
+}
+
+interface Lane {
+  queue: Promise<void>;
+}
+
+interface TurnScope extends Lane {
+  active: boolean;
 }
 
 const connectionStates = new WeakMap<Database.Database, ConnectionState>();
 
+function heldTurn(state: ConnectionState): TurnScope | undefined {
+  const scope = state.turn.getStore();
+  return scope?.active ? scope : undefined;
+}
+
+async function enter(lane: Lane): Promise<() => void> {
+  const previous = lane.queue;
+  let release!: () => void;
+  lane.queue = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await previous;
+  return release;
+}
+
 function stateFor(sqlite: Database.Database): ConnectionState {
   let state = connectionStates.get(sqlite);
   if (!state) {
-    state = { nesting: new AsyncLocalStorage<true>(), queue: Promise.resolve() };
+    state = { nesting: new AsyncLocalStorage<true>(), queue: Promise.resolve(), turn: new AsyncLocalStorage<TurnScope>(), transaction: null };
     connectionStates.set(sqlite, state);
   }
   return state;
@@ -240,17 +267,18 @@ export async function withSqliteTransaction<T>(
   }
 
   // Outermost call: claim this connection's mutex — wait for whatever
-  // outermost transaction (if any) is currently running to finish first.
-  const previous = state.queue;
-  let release!: () => void;
-  state.queue = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  await previous;
+  // outermost transaction (if any) is currently running to finish first. A
+  // chain already holding the connection's turn queues on its own lane instead:
+  // the shared queue is the one it is holding, and waiting on it would deadlock.
+  const release = await enter(heldTurn(state) ?? state);
+  let ended!: () => void;
 
   try {
     return await state.nesting.run(true, async () => {
       sqlite.exec(beginStatement);
+      state.transaction = new Promise<void>((resolve) => {
+        ended = resolve;
+      });
       try {
         const result = await fn();
         sqlite.exec("COMMIT");
@@ -258,6 +286,9 @@ export async function withSqliteTransaction<T>(
       } catch (err) {
         sqlite.exec("ROLLBACK");
         throw err;
+      } finally {
+        state.transaction = null;
+        ended();
       }
     });
   } finally {
@@ -283,15 +314,46 @@ export async function withSqliteRead<T>(sqlite: Database.Database, fn: () => T |
   const state = stateFor(sqlite);
   if (state.nesting.getStore()) return fn();
 
-  const previous = state.queue;
-  let release!: () => void;
-  state.queue = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  await previous;
+  const release = await enter(heldTurn(state) ?? state);
   try {
     return await fn();
   } finally {
     release();
   }
+}
+
+// THE WHOLE OF A MUTATING REQUEST RUNS UNDER ONE TURN. Every store shares this
+// connection and most of them write by plain autocommit, so a write issued
+// while another chain's BEGIN is open lands inside that transaction and is
+// lost if it rolls back. Waiting only at the door does not close that: a
+// request that got in before the BEGIN and then awaited would still write into
+// it. Holding the queue from the first statement to the last does.
+// The scope goes inactive BEFORE the queue is released, and the lane is drained
+// first: a task the request left running keeps this async context, and must
+// neither skip the shared queue once the turn is over nor still be mid-
+// transaction when the next holder issues its BEGIN.
+export async function withSqliteTurn<T>(sqlite: Database.Database, fn: () => Promise<T>): Promise<T> {
+  const state = stateFor(sqlite);
+  if (state.nesting.getStore() || heldTurn(state)) return fn();
+
+  const release = await enter(state);
+  const scope: TurnScope = { queue: Promise.resolve(), active: true };
+  try {
+    return await state.turn.run(scope, fn);
+  } finally {
+    scope.active = false;
+    let seen: Promise<void> | undefined;
+    while (seen !== scope.queue) {
+      seen = scope.queue;
+      await seen;
+    }
+    release();
+  }
+}
+
+/** Resolves once no transaction is open on this connection; at once for the chain that owns the open one. */
+export async function sqliteTransactionsSettled(sqlite: Database.Database): Promise<void> {
+  const state = stateFor(sqlite);
+  if (state.nesting.getStore()) return;
+  while (state.transaction) await state.transaction;
 }

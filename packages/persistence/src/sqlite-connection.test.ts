@@ -1,6 +1,13 @@
 import { describe, it, expect } from "vitest";
 import Database from "better-sqlite3";
-import { openSqliteConnection, withSqliteRead, withSqliteTransaction, type SqliteDriver } from "./sqlite-connection.js";
+import {
+  openSqliteConnection,
+  sqliteTransactionsSettled,
+  withSqliteRead,
+  withSqliteTransaction,
+  withSqliteTurn,
+  type SqliteDriver,
+} from "./sqlite-connection.js";
 
 describe("openSqliteConnection", () => {
   it("opens and owns a fresh connection for a string path, with WAL + busy_timeout set", () => {
@@ -345,5 +352,145 @@ describe("withSqliteTransaction — the dirty-read invariant", () => {
       return withSqliteRead(sqlite, () => rows(sqlite));
     });
     expect(inside).toEqual(["a"]);
+  });
+});
+
+describe("withSqliteTurn", () => {
+  const open = () => {
+    const sqlite = new Database(":memory:");
+    sqlite.exec("CREATE TABLE t (v TEXT)");
+    return sqlite;
+  };
+  const values = (sqlite: Database.Database) => (sqlite.prepare("SELECT v FROM t ORDER BY rowid").all() as { v: string }[]).map((r) => r.v);
+  const tick = () => new Promise((resolve) => setImmediate(resolve));
+  const insert = (sqlite: Database.Database, v: string) => sqlite.prepare("INSERT INTO t VALUES (?)").run(v);
+
+  it("keeps another chain's transaction from opening until the holder is done, even across a wait", async () => {
+    const sqlite = open();
+    const order: string[] = [];
+    const holder = withSqliteTurn(sqlite, async () => {
+      await tick();
+      insert(sqlite, "holder");
+      order.push("holder wrote");
+    });
+    const other = withSqliteTransaction(sqlite, async () => {
+      order.push("other began");
+      insert(sqlite, "other");
+      throw new Error("rolled back");
+    }).catch(() => undefined);
+
+    await Promise.all([holder, other]);
+
+    expect(order).toEqual(["holder wrote", "other began"]);
+    expect(values(sqlite)).toEqual(["holder"]);
+    sqlite.close();
+  });
+
+  it("lets the holder open transactions without waiting on the queue it holds, one at a time", async () => {
+    const sqlite = open();
+    await withSqliteTurn(sqlite, async () => {
+      await Promise.all(
+        ["a", "b"].map((v) =>
+          withSqliteTransaction(sqlite, async () => {
+            await tick();
+            insert(sqlite, v);
+          }),
+        ),
+      );
+      await withSqliteRead(sqlite, () => undefined);
+      await withSqliteTurn(sqlite, async () => insert(sqlite, "c"));
+    });
+
+    expect(values(sqlite)).toEqual(["a", "b", "c"]);
+    expect(sqlite.inTransaction).toBe(false);
+    sqlite.close();
+  });
+
+  it("sends a task the holder left running back to the shared queue once the turn is over", async () => {
+    const sqlite = open();
+    let detached!: Promise<void>;
+    let letGo!: () => void;
+    const lingering = new Promise<void>((resolve) => {
+      letGo = resolve;
+    });
+    await withSqliteTurn(sqlite, async () => {
+      detached = (async () => {
+        await lingering;
+        await withSqliteTransaction(sqlite, async () => insert(sqlite, "detached"));
+      })();
+    });
+
+    let finishNext!: () => void;
+    const nextHolder = withSqliteTransaction(sqlite, async () => {
+      insert(sqlite, "next");
+      await new Promise<void>((resolve) => {
+        finishNext = resolve;
+      });
+    });
+    await tick();
+    letGo();
+    await tick();
+    expect(values(sqlite)).toEqual(["next"]);
+
+    finishNext();
+    await Promise.all([nextHolder, detached]);
+    expect(values(sqlite)).toEqual(["next", "detached"]);
+    sqlite.close();
+  });
+
+  it("does not hand the connection on while a transaction the holder started is still open", async () => {
+    const sqlite = open();
+    let finishInner!: () => void;
+    let inner!: Promise<void>;
+    const holder = withSqliteTurn(sqlite, async () => {
+      inner = withSqliteTransaction(sqlite, async () => {
+        insert(sqlite, "inner");
+        await new Promise<void>((resolve) => {
+          finishInner = resolve;
+        });
+      });
+      await tick();
+    });
+    const next = withSqliteTransaction(sqlite, async () => insert(sqlite, "next"));
+
+    await tick();
+    await tick();
+    expect(values(sqlite)).toEqual(["inner"]);
+
+    finishInner();
+    await Promise.all([holder, inner, next]);
+    expect(values(sqlite)).toEqual(["inner", "next"]);
+    sqlite.close();
+  });
+});
+
+describe("sqliteTransactionsSettled", () => {
+  it("waits for an open transaction, and not for a turn that has none open", async () => {
+    const sqlite = new Database(":memory:");
+    let finish!: () => void;
+    const turn = withSqliteTurn(sqlite, async () => {
+      await sqliteTransactionsSettled(sqlite);
+      await withSqliteTransaction(sqlite, async () => {
+        await sqliteTransactionsSettled(sqlite);
+        await new Promise<void>((resolve) => {
+          finish = resolve;
+        });
+      });
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(sqlite.inTransaction).toBe(true);
+
+    let settled = false;
+    const waiting = sqliteTransactionsSettled(sqlite).then(() => {
+      settled = true;
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(settled).toBe(false);
+
+    finish();
+    await Promise.all([turn, waiting]);
+    expect(settled).toBe(true);
+    expect(sqlite.inTransaction).toBe(false);
+    sqlite.close();
   });
 });

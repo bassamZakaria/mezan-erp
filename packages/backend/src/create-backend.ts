@@ -2978,6 +2978,21 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   };
 
   const app = createApp(uow, {
+    /**
+     * The one route a till can call before it trusts anything else, and the ONLY
+     * place host/client version skew is detectable.
+     *
+     * It used to answer `{ok:true}`, and the client compared nothing — so a till
+     * left on an old build after the host was updated kept talking to a schema it
+     * did not match, and the first symptom was wrong data rather than a refusal.
+     * EXTERNAL CONTRACT: main/lan-client.ts reads both fields at startup and
+     * blocks the client on a mismatch. Do not rename them.
+     */
+    health: () => ({
+      ok: true,
+      version: process.env["MEZAN_APP_VERSION"] ?? "0.0.0",
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+    }),
     resolveAuthContext,
     security: { sessions, loginThrottle },
     onPermissionRefused,
@@ -4042,23 +4057,6 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     workflow: { configs: workflowConfigs, requests: approvalRequests },
   });
 
-  /**
-   * The one route a till can call before it trusts anything else, and the ONLY
-   * place host/client version skew is detectable.
-   *
-   * It used to answer `{ok:true}`, and the client compared nothing — so a till
-   * left on an old build after the host was updated kept talking to a schema it
-   * did not match, and the first symptom was wrong data rather than a refusal.
-   * EXTERNAL CONTRACT: main/lan-client.ts reads both fields at startup and
-   * blocks the client on a mismatch. Do not rename them.
-   */
-  app.get("/health", (c) =>
-    c.json({
-      ok: true,
-      version: process.env["MEZAN_APP_VERSION"] ?? "0.0.0",
-      schemaVersion: CURRENT_SCHEMA_VERSION,
-    }),
-  );
   app.route("/", createAuthRoutes({ uow, hasher, settings, seedStores, sessions, loginThrottle, audit: auditSink, resolveEntitlements: options.resolveEntitlements }));
   app.route(
     "/",

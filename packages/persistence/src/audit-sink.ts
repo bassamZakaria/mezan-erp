@@ -5,7 +5,8 @@ import path from "node:path";
 import {
   insideSqliteTransaction,
   openSqliteConnection,
-  withSqliteRead,
+  sqliteTransactionsSettled,
+  withSqliteTurn,
   withSqliteTransaction,
   type SqliteConnectionInput,
 } from "./sqlite-connection.js";
@@ -342,7 +343,11 @@ class SqliteAuditSink implements AuditSink, AuditQueryPort, AuditChainVerifyPort
   }
 
   settled(): Promise<void> {
-    return withSqliteRead(this.sqlite, () => undefined);
+    return sqliteTransactionsSettled(this.sqlite);
+  }
+
+  turn<T>(fn: () => Promise<T>): Promise<T> {
+    return withSqliteTurn(this.sqlite, fn);
   }
 
   private findIndexFault(rows: readonly { id: number; details: string | null }[]): number | null {
@@ -483,6 +488,7 @@ export interface SqliteAuditSinkHandle extends AuditSink, AuditQueryPort, AuditC
   atomic<T>(fn: () => Promise<T>): Promise<T>;
   insideTransaction(): boolean;
   settled(): Promise<void>;
+  turn<T>(fn: () => Promise<T>): Promise<T>;
   close(): void;
   /** The raw connection, for tests asserting the append-only triggers fire. */
   readonly db: Database.Database;

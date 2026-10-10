@@ -220,7 +220,7 @@ import { createFinancialReportsRoutes, type FinancialReportsRoutesDeps } from ".
 import { createLabelLayoutsRouter } from "./label-routes.js";
 import { createSequencesRoutes, type SequencesRoutesDeps } from "./sequences-routes.js";
 import { createAuditRoutes } from "./audit-routes.js";
-import { AUDITED_MOUNTS, MutatingMethod, auditBoundary, connectionTurn, type BoundaryPreparation } from "./audit-boundary.js";
+import { AUDITED_MOUNTS, MutatingMethod, auditBoundary, beforeTheTurn, connectionTurn, type BoundaryPreparation } from "./audit-boundary.js";
 import { createPrecomputingHasher } from "./precomputed-secrets.js";
 import { createSecurityReportsRoutes } from "./security-reports-routes.js";
 import { isProductionRuntime, permissionRefusalReporting, type PermissionRefusalReporter } from "./permission-gate.js";
@@ -258,6 +258,9 @@ export type InstallmentCollectPort = (input: {
 }) => Promise<{ voucherId: string }>;
 
 export interface CreateAppOptions {
+  // EXTERNAL CONTRACT: the body of `GET /health`, which main/lan-client.ts reads
+  // at startup to detect host/client version skew.
+  readonly health?: () => Readonly<Record<string, unknown>>;
   /**
    * Mounts `/lan/*` (docs/archive/plan.md §2.6/§6.3.3) on this same app instance when
    * present. Desktop passes this so the SAME app answers both over IPC
@@ -938,16 +941,28 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     );
   }
 
-  // FIRST, before anything reads or writes: a request waits until no
-  // transaction is open on this tenant's connection (audit-boundary.ts).
+  // Ahead of the connection's turn on purpose: liveness must answer while the
+  // database is busy, and it reads nothing from it.
+  const health = options.health;
+  if (health) app.get("/health", (c) => c.json(health()));
+
+  const preparations: Readonly<Record<string, BoundaryPreparation>> = { "/users": hashUserSecretsBeforeTheTransaction };
+  for (const [prefix, prepare] of Object.entries(preparations)) {
+    const prepared = beforeTheTurn(prepare);
+    app.use(prefix, prepared);
+    app.use(`${prefix}/*`, prepared);
+  }
+
+  // Before anything reads or writes: a mutating request holds this tenant's
+  // connection for its whole length, and a read waits out an open transaction
+  // (audit-boundary.ts).
   app.use("*", connectionTurn(options.auditSink));
 
   // Registered before every route: a mutating request under an audited mount
   // runs inside the sink's transaction, so the write and its audit event commit
   // or roll back together (audit-boundary.ts).
-  const preparations: Readonly<Record<string, BoundaryPreparation>> = { "/users": hashUserSecretsBeforeTheTransaction };
   for (const mount of AUDITED_MOUNTS) {
-    const boundary = auditBoundary(options.auditSink, { ...mount, prepare: preparations[mount.prefix] });
+    const boundary = auditBoundary(options.auditSink, mount);
     app.use(mount.prefix, boundary);
     app.use(`${mount.prefix}/*`, boundary);
   }

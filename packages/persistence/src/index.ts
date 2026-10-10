@@ -10,8 +10,10 @@ export {
 } from "./schema-sync.js";
 export {
   openSqliteConnection,
+  sqliteTransactionsSettled,
   withSqliteRead,
   withSqliteTransaction,
+  withSqliteTurn,
   type SqliteConnectionInput,
   type OpenedSqliteConnection,
   type SqliteDriver,

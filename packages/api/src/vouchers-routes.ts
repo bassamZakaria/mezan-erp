@@ -844,8 +844,17 @@ export function createAllocationRoutes(
   resolveAuthContext: AuthContextResolver,
 ) {
   const app = new Hono();
-  const gate = createPermissionGate(resolveAuthContext);
   const service = () => new VoucherService(deps);
+  /** An allocation is its voucher's: reversing one restores that voucher's remainder. */
+  const gate = createPermissionGate(resolveAuthContext, {
+    storedBranches: storedBranchesById(
+      async (id) => {
+        const allocation = await deps.allocations.findById(id);
+        return allocation ? service().findById(allocation.voucherId) : null;
+      },
+      (doc) => [voucherLine(doc).branchId],
+    ),
+  });
 
   app.post("/allocations/:id/reverse", gate("treasury.allocation.manage"), async (c) => {
     try {

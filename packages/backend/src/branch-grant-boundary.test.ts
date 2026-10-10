@@ -517,6 +517,15 @@ const STORED_DOCUMENT_CASES: readonly StoredDocumentCase[] = [
     state: row("cheque", "CHQ-DEMO-1"),
   },
   {
+    label: "work order",
+    read: "/manufacturing/work-orders/WO-DEMO-1",
+    writes: [
+      ["POST", "/manufacturing/work-orders/WO-DEMO-1/start", {}],
+      ["POST", "/manufacturing/work-orders/WO-DEMO-1/cancel", {}],
+    ],
+    state: row("work_order", "WO-DEMO-1"),
+  },
+  {
     label: "stock adjustment",
     arrange: () =>
       admin("POST", "/inventory/stock-adjustments/draft", {
@@ -572,6 +581,32 @@ describe("D111 · an id-addressed route checks the stored document's branch, not
       }
     });
   }
+
+  it("fixed asset and depreciation run: another branch's are absent by id and refuse every action", async () => {
+    const assetState = row("asset", "ASSET-DEMO-2", "status, internal_hourly_rate");
+    const before = assetState();
+    expect((await mainOnly("GET", "/assets/ASSET-DEMO-2")).status).toBe(200);
+    expect((await alex("GET", "/assets/ASSET-DEMO-2")).status).toBe(404);
+    expectRefusedInArabic(await alex("PATCH", "/assets/ASSET-DEMO-2/internal-hourly-rate", { internalHourlyRate: "1.00", effectiveFrom: TODAY }));
+    expectRefusedInArabic(await alex("POST", "/assets/ASSET-DEMO-2/dispose", { date: TODAY, proceeds: "0" }));
+    expect(assetState()).toEqual(before);
+
+    const draft = one<{ id: string }>("SELECT id FROM depreciation_run WHERE branch_id = ? AND status = 'draft' LIMIT 1", MAIN)!;
+    const posted = one<{ id: string }>("SELECT id FROM depreciation_run WHERE branch_id = ? AND status = 'posted' LIMIT 1", MAIN)!;
+    expect((await alex("GET", `/assets/depreciation/runs/${draft.id}`)).status).toBe(404);
+    expectRefusedInArabic(await alex("POST", `/assets/depreciation/runs/${draft.id}/post`, {}));
+    expectRefusedInArabic(await alex("POST", `/assets/depreciation/runs/${posted.id}/reverse`, {}));
+    expect(all("SELECT id, status FROM depreciation_run WHERE id IN (?, ?) ORDER BY id", draft.id, posted.id).map((r) => r.status).sort()).toEqual(["draft", "posted"]);
+  });
+
+  it("allocation: another branch's voucher allocation cannot be reversed by id", async () => {
+    const allocation = one<{ id: string }>(
+      "SELECT a.id AS id FROM voucher_allocation a JOIN voucher v ON v.id = a.voucher_id WHERE a.status = 'active' AND v.branch_id = ? LIMIT 1",
+      MAIN,
+    )!;
+    expectRefusedInArabic(await alex("POST", `/allocations/${encodeURIComponent(allocation.id)}/reverse`, {}));
+    expect(one("SELECT status FROM voucher_allocation WHERE id = ?", allocation.id)?.status).toBe("active");
+  });
 
   it("the same actions pass for the branch's own user (the guard is the branch, not the route)", async () => {
     const confirm = await mainOnly("POST", "/sales-invoices/D111-MAIN-INV/confirm", {});

@@ -57,6 +57,8 @@ import {
   branchScopeOf,
   withinScope,
 } from "./permission-gate.js";
+import type { StoredBranchesResolver } from "./permission-gate.js";
+import { documentBranches } from "./stored-branches.js";
 import { recordAdminEvent } from "./admin-audit.js";
 import { tenantDay } from "./tenant-day.js";
 import { MasterDataKind, refuseUnknownMasterData, type MasterDataChecks } from "./master-data-check.js";
@@ -212,7 +214,25 @@ export function createFixedAssetsRoutes(
   resolveAuthContext: AuthContextResolver,
 ) {
   const app = new Hono();
-  const gate = createPermissionGate(resolveAuthContext);
+  /**
+   * A run for one branch is that branch's; a company-wide run posts on every
+   * asset it depreciates, so it is judged by the branches of those assets.
+   */
+  const storedBranches: StoredBranchesResolver = async (c) => {
+    const id = c.req.param("id");
+    if (!id || c.req.path.includes("/categories/")) return null;
+    const assetBranches = async (assetIds: readonly string[]) => {
+      const assets = await Promise.all(assetIds.map((assetId) => deps.assets.findById(assetId)));
+      return (await Promise.all(assets.map((asset) => (asset ? documentBranches(c, [asset.branchId], [asset.warehouseId]) : [])))).flat();
+    };
+    if (c.req.path.includes("/depreciation/runs/")) {
+      const run = await deps.runs.findById(id);
+      if (!run) return null;
+      return run.branchId ? [run.branchId] : assetBranches(run.lines.map((line) => line.assetId));
+    }
+    return assetBranches([id]);
+  };
+  const gate = createPermissionGate(resolveAuthContext, { storedBranches });
   const idGen = deps.idGen ?? randomUUID;
 
   app.get("/categories", gate("assets.view"), async (c) => {

@@ -268,10 +268,12 @@ export function branchesOutsideGrantRefusal(
 async function refuseBodyBranchesOutsideGrant(c: Context, ctx: AuthContext): Promise<Response | null> {
   if (ctx.branchGrant === ALL_SCOPE || isTenantAdmin(ctx)) return null;
   if (c.req.method === "GET" || c.req.method === "HEAD") return null;
-  if (!(c.req.header("content-type") ?? "").includes("application/json")) return null;
+  // SECURITY: read whatever the declared content type. Every route parses its
+  // body with `c.req.json()`, which ignores the header — so trusting the
+  // header here let `content-type: text/plain` carry a foreign branch past.
   let body: unknown;
   try {
-    body = await c.req.json();
+    body = JSON.parse(await c.req.text());
   } catch {
     return null;
   }
@@ -283,7 +285,70 @@ async function refuseBodyBranchesOutsideGrant(c: Context, ctx: AuthContext): Pro
   ]);
 }
 
-export function createPermissionGate(resolveAuthContext: AuthContextResolver) {
+/**
+ * The branches of the STORED document a request addresses by id, or null when
+ * it addresses none (a list, a create, an id nothing holds).
+ */
+export type StoredBranchesResolver = (c: Context) => Promise<readonly (string | null | undefined)[] | null>;
+
+export interface PermissionGateOptions {
+  readonly storedBranches?: StoredBranchesResolver;
+}
+
+export interface StoredDocumentRefusalBody {
+  readonly error: "NOT_FOUND" | "BRANCH_OUT_OF_SCOPE";
+  readonly message: string;
+  readonly messageEn: string;
+}
+
+const STORED_DOCUMENT_ABSENT: StoredDocumentRefusalBody = {
+  error: "NOT_FOUND",
+  message: "المستند غير موجود أو يخص فرعًا خارج صلاحيتك.",
+  messageEn: "This document does not exist or belongs to a branch outside the branches granted to you.",
+};
+
+const STORED_DOCUMENT_PARTLY_FOREIGN: StoredDocumentRefusalBody = {
+  error: "BRANCH_OUT_OF_SCOPE",
+  message: "لا يمكنك تنفيذ هذا الإجراء: المستند يمس فرعًا خارج صلاحيتك.",
+  messageEn: "You cannot act on this document: it touches a branch outside the branches granted to you.",
+};
+
+/**
+ * The refusal for a stored document whose branches lie outside `grant`, or
+ * null. A document none of whose branches the caller holds answers 404 on
+ * every method — the lists already hide it, so a 403 would confirm it exists
+ * (D130) — and the body never names the branch that owns it. One the caller
+ * holds only in part stays readable (the handler cuts it to the caller's
+ * lines) and refuses a write, which would act on the foreign lines too.
+ */
+export function storedDocumentRefusal(
+  c: Context,
+  grant: ScopeSelection | undefined,
+  branchIds: readonly (string | null | undefined)[],
+): Response | null {
+  if (!grant || grant === ALL_SCOPE) return null;
+  const attributed = branchIds.filter((id): id is string => typeof id === "string" && id !== "");
+  const foreign = attributed.filter((id) => !grant.includes(id));
+  if (foreign.length === 0) return null;
+  if (foreign.length === attributed.length) return c.json(STORED_DOCUMENT_ABSENT, 404);
+  if (c.req.method === "GET" || c.req.method === "HEAD") return null;
+  return c.json(STORED_DOCUMENT_PARTLY_FOREIGN, 403);
+}
+
+/**
+ * INVARIANT: an id-addressed route is checked against the STORED document's
+ * branch here, not only its list. The body scan above cannot see this — a
+ * confirm, void or reversal names no branch at all — so a route file hands its
+ * gate one resolver and every `/:id` route it mounts, present or future, is
+ * covered by it.
+ */
+async function refuseStoredBranchesOutsideGrant(c: Context, ctx: AuthContext, options: PermissionGateOptions | undefined): Promise<Response | null> {
+  if (!options?.storedBranches || ctx.branchGrant === ALL_SCOPE || isTenantAdmin(ctx)) return null;
+  const branchIds = await options.storedBranches(c);
+  return branchIds ? storedDocumentRefusal(c, ctx.branchGrant, branchIds) : null;
+}
+
+export function createPermissionGate(resolveAuthContext: AuthContextResolver, options?: PermissionGateOptions) {
   return function gate(permission: string): MiddlewareHandler {
     return async function permissionGate(c, next) {
       const ctx = await resolveAuthContext(c);
@@ -297,7 +362,7 @@ export function createPermissionGate(resolveAuthContext: AuthContextResolver) {
         refuse(c, ctx, permission);
         return c.json(permissionDeniedBody(permission), 403);
       }
-      const outOfGrant = await refuseBodyBranchesOutsideGrant(c, ctx);
+      const outOfGrant = (await refuseBodyBranchesOutsideGrant(c, ctx)) ?? (await refuseStoredBranchesOutsideGrant(c, ctx, options));
       if (outOfGrant) return outOfGrant;
       c.set(AUTH_CONTEXT_KEY, ctx);
       await next();
@@ -314,7 +379,7 @@ export function createPermissionGate(resolveAuthContext: AuthContextResolver) {
  * who could confirm invoices could not open the list to find one (D31). The
  * route gates on the weakest tier that should see anything, then NARROWS.
  */
-export function createAnyPermissionGate(resolveAuthContext: AuthContextResolver) {
+export function createAnyPermissionGate(resolveAuthContext: AuthContextResolver, options?: PermissionGateOptions) {
   return function gateAny(...permissions: string[]): MiddlewareHandler {
     return async function anyPermissionGate(c, next) {
       const ctx = await resolveAuthContext(c);
@@ -329,7 +394,7 @@ export function createAnyPermissionGate(resolveAuthContext: AuthContextResolver)
         refuse(c, ctx, permissions[0] ?? "");
         return c.json(permissionDeniedBody(permissions[0] ?? ""), 403);
       }
-      const outOfGrant = await refuseBodyBranchesOutsideGrant(c, ctx);
+      const outOfGrant = (await refuseBodyBranchesOutsideGrant(c, ctx)) ?? (await refuseStoredBranchesOutsideGrant(c, ctx, options));
       if (outOfGrant) return outOfGrant;
       c.set(AUTH_CONTEXT_KEY, ctx);
       await next();

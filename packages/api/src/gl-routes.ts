@@ -64,12 +64,17 @@ import {
 } from "@mezan/contracts";
 import {
   createPermissionGate,
+  branchGrantOf,
   getAuthContext,
+  storedDocumentRefusal,
   type AuthContextResolver,
 } from "./permission-gate.js";
 import { refuseBranchScopedCaller, refuseOutOfScopeBranches } from "./branch-scope-refusal.js";
-import { branchLineViewOf, entriesInView, entryInView, isWholeLedgerView, lineInView, type BranchLineView } from "./branch-view.js";
+import { branchLineViewOf, canSeeUnattributed, entriesInView, entryInView, isWholeLedgerView, lineInView, type BranchLineView } from "./branch-view.js";
 import { MasterDataKind, refuseUnknownMasterData, type MasterDataChecks } from "./master-data-check.js";
+
+/** Stands in for the branch of a line the caller may not read; never a real id, so never inside a grant. */
+const UNREADABLE_BRANCH = "\u0000unattributed";
 
 /** External dependencies the GL routes bind the posting engine to. */
 export interface GlRoutesDeps {
@@ -329,11 +334,15 @@ export function createGlRoutes(
   /**
    * Acting on a STORED entry — post, replace, delete, reverse — acts on the
    * branches its lines already carry, which the request body never names: a
-   * reversal mirrors them, a replace discards them.
+   * reversal mirrors them, a replace discards them. A line with no branch
+   * counts as foreign to a session that may not read «غير مخصص»: what it
+   * cannot see by id it cannot reverse by id.
    */
   async function refuseStoredEntryBranches(c: Context, entryId: string): Promise<Response | null> {
     const stored = await deps.ledger.findById(entryId);
-    return stored ? refuseOutOfScopeBranches(c, stored.lines.map((line) => line.branchId)) : null;
+    if (!stored) return null;
+    const unattributed = canSeeUnattributed(c) ? null : UNREADABLE_BRANCH;
+    return storedDocumentRefusal(c, branchGrantOf(c), stored.lines.map((line) => line.branchId ?? unattributed));
   }
 
   app.get("/party-control-accounts", gate("accounting.journal.view"), async (c) => {

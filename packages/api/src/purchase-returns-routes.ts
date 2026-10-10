@@ -12,6 +12,7 @@ import {
 } from "@mezan/domain";
 import { createPurchaseReturnSchema } from "@mezan/contracts";
 import { type AuthContextResolver, branchScopeOf, callerUserId, createPermissionGate, warehouseScopeOf, withinScope } from "./permission-gate.js";
+import { documentBranches, storedBranchesById } from "./stored-branches.js";
 import { handleDocumentError } from "./document-error-handling.js";
 import { refuseOutOfScopeBranches } from "./branch-scope-refusal.js";
 import { tenantDay } from "./tenant-day.js";
@@ -69,7 +70,12 @@ export function createPurchaseReturnsRoutes(
   invoices?: PurchaseInvoiceLookupPort,
 ) {
   const app = new Hono();
-  const gate = createPermissionGate(resolveAuthContext);
+  const gate = createPermissionGate(resolveAuthContext, {
+    storedBranches: storedBranchesById(
+      (id) => service.findById(id),
+      (doc, c) => documentBranches(c, doc.lines.map((line) => line.branchId), doc.lines.map((line) => line.warehouseId)),
+    ),
+  });
 
   type SourceInvoice = Awaited<ReturnType<PurchaseInvoiceLookupPort["findConfirmedInvoice"]>>;
   // Scoped to ONE request: `alreadyReturnedQty` moves every time a return

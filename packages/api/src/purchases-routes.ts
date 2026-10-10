@@ -96,7 +96,10 @@ import {
   type AuthContextResolver,
   branchScopeOf,
   warehouseScopeOf,
-  withinScope,} from "./permission-gate.js";
+  withinScope,
+  type StoredBranchesResolver,
+} from "./permission-gate.js";
+import { branchesOfWarehouses, documentBranches, withinBranchGrant } from "./stored-branches.js";
 
 /**
  * Permission-gated routes for the purchase chain (docs/archive/catalog/02), mounted
@@ -388,8 +391,27 @@ export function createPurchasesRoutes(
   resolveAuthContext: AuthContextResolver,
 ) {
   const app = new Hono();
-  const gate = createPermissionGate(resolveAuthContext);
-  const gateAny = createAnyPermissionGate(resolveAuthContext);
+  /** One gate serves three stored documents, so the path says which one `:id` addresses. */
+  const storedBranches: StoredBranchesResolver = async (c) => {
+    const id = c.req.param("id");
+    if (!id) return null;
+    const path = c.req.path;
+    if (path.includes("/orders/")) {
+      const order = await deps.orders.findById(id);
+      return order ? documentBranches(c, [order.branchId], [order.warehouseId]) : null;
+    }
+    if (path.includes("/receipts/")) {
+      const receipt = await deps.receipts.findById(id);
+      return receipt ? branchesOfWarehouses(c, [receipt.warehouseId]) : null;
+    }
+    if (path.includes("/invoices/")) {
+      const invoice = await deps.invoices.findById(id);
+      return invoice ? documentBranches(c, [invoice.branchId], [invoice.warehouseId]) : null;
+    }
+    return null;
+  };
+  const gate = createPermissionGate(resolveAuthContext, { storedBranches });
+  const gateAny = createAnyPermissionGate(resolveAuthContext, { storedBranches });
   /**
    * D70 — the `purchases.invoice.view_own` tier, enforced.
    *
@@ -651,7 +673,9 @@ export function createPurchasesRoutes(
    * selector must reach here as a `warehouseId`.
    */
   async function listFilteredReceipts(c: Context, filter: ReceiptListFilter): Promise<readonly GoodsReceipt[]> {
-    let rows = withinScope(await deps.receipts.list(), warehouseScopeOf(c), (r) => r.warehouseId);
+    let rows = await withinBranchGrant(c, withinScope(await deps.receipts.list(), warehouseScopeOf(c), (r) => r.warehouseId), (r) =>
+      branchesOfWarehouses(c, [r.warehouseId]),
+    );
     if (filter.status) rows = rows.filter((r) => r.status === filter.status);
     if (filter.supplierId) rows = rows.filter((r) => r.supplierId === filter.supplierId);
     if (filter.fromDate) rows = rows.filter((r) => r.date >= filter.fromDate!);

@@ -52,6 +52,7 @@ import {
   type AuthContextResolver,
   branchScopeOf,
   withinScope,} from "./permission-gate.js";
+import { storedBranchesById } from "./stored-branches.js";
 import { tenantDay } from "./tenant-day.js";
 
 /**
@@ -199,8 +200,9 @@ export function createSalesQuotesRoutes(
   resolveAuthContext: AuthContextResolver,
 ) {
   const app = new Hono();
-  const gate = createPermissionGate(resolveAuthContext);
-  const gateAny = createAnyPermissionGate(resolveAuthContext);
+  const storedBranches = storedBranchesById((id) => deps.repo.findById(id), (quote) => [quote.branchId]);
+  const gate = createPermissionGate(resolveAuthContext, { storedBranches });
+  const gateAny = createAnyPermissionGate(resolveAuthContext, { storedBranches });
 
   /*
    * A quote records no author, so `sales.quote.view_own` cannot be evaluated by

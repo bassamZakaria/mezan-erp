@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import {
   Money,
   Qty,
@@ -14,6 +14,7 @@ import {
 } from "@mezan/domain";
 import { createLandedCostSchema } from "@mezan/contracts";
 import { type AuthContextResolver, callerUserId, createPermissionGate } from "./permission-gate.js";
+import { documentBranches, storedBranchesById, withinBranchGrant } from "./stored-branches.js";
 import { handleDocumentError } from "./document-error-handling.js";
 import { refuseOutOfScopeBranches } from "./branch-scope-refusal.js";
 import { tenantDay } from "./tenant-day.js";
@@ -73,11 +74,15 @@ export function createLandedCostsRoutes(
   warehouses?: WarehouseBranchLookup,
 ) {
   const app = new Hono();
-  const gate = createPermissionGate(resolveAuthContext);
+  const branchesOf = (c: Context, doc: { readonly lines: readonly LandedCostLine[] }) =>
+    documentBranches(c, doc.lines.map((line) => line.branchId), doc.lines.map((line) => line.warehouseId));
+  const gate = createPermissionGate(resolveAuthContext, {
+    storedBranches: storedBranchesById((id) => documents.findById(id), (doc, c) => branchesOf(c, doc)),
+  });
 
   app.get("/", gate("purchases.landed_cost.view"), async (c) => {
     const status = c.req.query("status");
-    const list = await documents.list({ status: status as never });
+    const list = await withinBranchGrant(c, await documents.list({ status: status as never }), (doc) => branchesOf(c, doc));
     return c.json(list.map(serialize));
   });
 

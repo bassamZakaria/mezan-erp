@@ -36,6 +36,7 @@ import {
   generateAdjustmentFromCountSchema,
 } from "@mezan/contracts";
 import { createPermissionGate, warehouseScopeOf, withinScope, type AuthContextResolver } from "./permission-gate.js";
+import { branchesOfWarehouses, storedBranchesById, withinBranchGrant } from "./stored-branches.js";
 import { tenantDay } from "./tenant-day.js";
 
 /**
@@ -239,7 +240,12 @@ export function createStockAdjustmentsRoutes(
   resolveAuthContext: AuthContextResolver,
 ) {
   const app = new Hono();
-  const gate = createPermissionGate(resolveAuthContext);
+  const gate = createPermissionGate(resolveAuthContext, {
+    storedBranches: storedBranchesById(
+      (id) => service.findById(id),
+      (doc, c) => branchesOfWarehouses(c, doc.lines.map((line) => line.warehouseId)),
+    ),
+  });
 
   app.post("/draft", gate("inventory.adjustment.create"), async (c) => {
     const parsed = createStockAdjustmentSchema.safeParse(await c.req.json());
@@ -311,7 +317,11 @@ export function createStockAdjustmentsRoutes(
     // transfers screens actually call — the raw-engine routes were scoped
     // first and these were missed, so the selector still did nothing here.
     const scope = warehouseScopeOf(c);
-    let visible = !scope ? docs : docs.filter((d) => d.lines.some((l) => scope.includes(l.warehouseId)));
+    let visible = await withinBranchGrant(
+      c,
+      !scope ? docs : docs.filter((d) => d.lines.some((l) => scope.includes(l.warehouseId))),
+      (d) => branchesOfWarehouses(c, d.lines.map((l) => l.warehouseId)),
+    );
 
     // The reason lives on the lines too, and every line of one adjustment
     // carries the same one — the reason is picked before the form opens
@@ -369,7 +379,23 @@ export function createStockTransfersRoutes(
   resolveAuthContext: AuthContextResolver,
 ) {
   const app = new Hono();
-  const gate = createPermissionGate(resolveAuthContext);
+  /**
+   * SECURITY: a write is judged by the warehouses stock LEAVES — sending to
+   * another branch is a branch user's own act, drawing from one is not. A read
+   * sees both ends, as the list does.
+   */
+  const gate = createPermissionGate(resolveAuthContext, {
+    storedBranches: storedBranchesById(
+      (id) => service.findById(id),
+      (doc, c) =>
+        branchesOfWarehouses(
+          c,
+          doc.lines.flatMap((line) =>
+            c.req.method === "GET" || c.req.method === "HEAD" ? [line.fromWarehouseId, line.toWarehouseId] : [line.fromWarehouseId],
+          ),
+        ),
+    ),
+  });
 
   app.post("/draft", gate("inventory.transfer.create"), async (c) => {
     const parsed = createStockTransferSchema.safeParse(await c.req.json());
@@ -434,9 +460,11 @@ export function createStockTransfersRoutes(
       toDate: filter.toDate,
     });
     const scope = warehouseScopeOf(c);
-    let visible = !scope
-      ? docs
-      : docs.filter((d) => d.lines.some((l) => scope.includes(l.fromWarehouseId) || scope.includes(l.toWarehouseId)));
+    let visible = await withinBranchGrant(
+      c,
+      !scope ? docs : docs.filter((d) => d.lines.some((l) => scope.includes(l.fromWarehouseId) || scope.includes(l.toWarehouseId))),
+      (d) => branchesOfWarehouses(c, d.lines.flatMap((l) => [l.fromWarehouseId, l.toWarehouseId])),
+    );
     if (filter.warehouseId) {
       visible = visible.filter((d) =>
         d.lines.some((l) => l.fromWarehouseId === filter.warehouseId || l.toWarehouseId === filter.warehouseId),
@@ -490,7 +518,9 @@ export function createPhysicalCountsRoutes(
   resolveAuthContext: AuthContextResolver,
 ) {
   const app = new Hono();
-  const gate = createPermissionGate(resolveAuthContext);
+  const gate = createPermissionGate(resolveAuthContext, {
+    storedBranches: storedBranchesById((id) => service.findById(id), (count, c) => branchesOfWarehouses(c, [count.warehouseId])),
+  });
 
   app.post("/", gate("inventory.count.create"), async (c) => {
     const parsed = startPhysicalCountSchema.safeParse(await c.req.json());
@@ -591,10 +621,10 @@ export function createPhysicalCountsRoutes(
    */
   async function listFilteredCounts(c: Context, filter: CountListFilter): Promise<readonly PhysicalCount[]> {
     const status = filter.status && filter.status !== "all" ? (filter.status as PhysicalCountStatus) : undefined;
-    const rows = withinScope(
-      await service.list({ status, warehouseId: filter.warehouseId }),
-      warehouseScopeOf(c),
-      (count) => count.warehouseId,
+    const rows = await withinBranchGrant(
+      c,
+      withinScope(await service.list({ status, warehouseId: filter.warehouseId }), warehouseScopeOf(c), (count) => count.warehouseId),
+      (count) => branchesOfWarehouses(c, [count.warehouseId]),
     );
     if (!filter.search) return rows;
     return rows.filter((count) => matchesSearch(filter.search, count.countNo, count.memo));

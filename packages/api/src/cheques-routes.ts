@@ -36,6 +36,7 @@ import {
   type ChequeListQueryDTO,
 } from "@mezan/contracts";
 import { createPermissionGate, getAuthContext, type AuthContextResolver, branchScopeOf, withinScope } from "./permission-gate.js";
+import { storedBranchesById } from "./stored-branches.js";
 import { recordAdminEvent } from "./admin-audit.js";
 import { tenantDay } from "./tenant-day.js";
 import { MasterDataKind, refuseUnknownMasterData, type MasterDataChecks } from "./master-data-check.js";
@@ -143,9 +144,11 @@ function handleDomainError(c: Context, err: unknown): Response {
  */
 export function createChequesRoutes(deps: ChequeRoutesDeps, resolveAuthContext: AuthContextResolver) {
   const app = new Hono();
-  const gate = createPermissionGate(resolveAuthContext);
-  const idGen = deps.idGen ?? (() => randomUUID());
   const service = new ChequeService(deps);
+  const gate = createPermissionGate(resolveAuthContext, {
+    storedBranches: storedBranchesById((id) => service.findById(id), (cheque) => [cheque.branchId]),
+  });
+  const idGen = deps.idGen ?? (() => randomUUID());
   const asOf = () => (deps.now ? deps.now() : new Date().toISOString()).slice(0, 10);
   /**
    * WHO. Read off the resolved session, never `x-user-id` — an actor the

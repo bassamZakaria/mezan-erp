@@ -25,6 +25,7 @@ import {
 } from "@mezan/contracts";
 import type { z } from "zod";
 import { type AuthContextResolver, branchScopeOf, callerUserId, createAnyPermissionGate, createPermissionGate, getAuthContext, warehouseScopeOf, withinScope } from "./permission-gate.js";
+import { documentBranches, storedBranchesById } from "./stored-branches.js";
 import { handleDocumentError } from "./document-error-handling.js";
 import { refuseOutOfScopeBranches } from "./branch-scope-refusal.js";
 import { tenantDay, tenantToday } from "./tenant-day.js";
@@ -105,8 +106,12 @@ export function createSalesReturnsRoutes(
   refunds?: SalesReturnRefundPort,
 ) {
   const app = new Hono();
-  const gate = createPermissionGate(resolveAuthContext);
-  const gateAny = createAnyPermissionGate(resolveAuthContext);
+  const storedBranches = storedBranchesById(
+    (id) => service.findById(id),
+    (doc, c) => documentBranches(c, doc.lines.map((line) => line.branchId), doc.lines.map((line) => line.warehouseId)),
+  );
+  const gate = createPermissionGate(resolveAuthContext, { storedBranches });
+  const gateAny = createAnyPermissionGate(resolveAuthContext, { storedBranches });
 
   /*
    * D70 — the `sales.return.view_own` tier, enforced.

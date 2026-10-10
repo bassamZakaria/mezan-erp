@@ -3,12 +3,14 @@ import { expect, type APIRequestContext, type BrowserContext, type Page } from "
 import {
   ApiError,
   BillingCycle,
+  HttpMethod,
   Locale,
   PLATFORM_OWNER_EMAIL,
   PLATFORM_OWNER_PASSWORD,
   PlanId,
   SAAS_API_URL,
   StorageKey,
+  TENANT_HEADER,
   Theme,
   WALK_DIR,
 } from "./env";
@@ -64,7 +66,7 @@ export async function createTenantInConsole(page: Page, input: NewTenantInput): 
   const trial = dialog.getByRole("switch", { name: "فترة تجريبية" });
   if ((await trial.getAttribute("aria-checked")) !== String(input.trial)) await trial.click();
   const created = page.waitForResponse(
-    (r) => new URL(r.url()).pathname === "/api/platform/tenants" && r.request().method() === "POST",
+    (r) => new URL(r.url()).pathname === "/api/platform/tenants" && r.request().method() === HttpMethod.Post,
   );
   await dialog.getByRole("button", { name: "إنشاء المنشأة" }).click();
   const response = await created;
@@ -96,15 +98,41 @@ export async function enterTenantCode(page: Page, code: string): Promise<void> {
   await expect(page.getByRole("button", { name: "تغيير المنشأة" })).toBeVisible();
 }
 
+export async function enterCredentials(page: Page, email: string, pin: string): Promise<void> {
+  const field = page.getByRole("textbox", { name: "البريد الإلكتروني" });
+  if (!(await field.isVisible())) await page.getByRole("button", { name: "آخر", exact: true }).click();
+  await field.fill(email);
+  await fillPin(page, pin);
+}
+
 export async function tenantSignIn(page: Page, tenant: TenantLogin, baseUrl = ""): Promise<void> {
   await page.goto(`${baseUrl}/`);
   await enterTenantCode(page, tenant.code);
-  const email = page.getByRole("textbox", { name: "البريد الإلكتروني" });
-  if (!(await email.isVisible())) await page.getByRole("button", { name: "آخر", exact: true }).click();
-  await email.fill(tenant.adminEmail);
-  await fillPin(page, tenant.adminPin);
+  await enterCredentials(page, tenant.adminEmail, tenant.adminPin);
   await expect(page.locator("main").first()).toBeVisible();
   await expect(page.getByRole("button", { name: "تسجيل الخروج" })).toBeVisible();
+}
+
+export interface StoredSession {
+  readonly token: string;
+  readonly tenantName: string;
+}
+
+export async function storedSession(page: Page): Promise<StoredSession | null> {
+  return page.evaluate((key) => {
+    const raw = window.localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as { token: string; tenantName: string }) : null;
+  }, StorageKey.Session);
+}
+
+export async function addCustomer(page: Page, name: string, baseUrl = ""): Promise<number> {
+  await page.goto(`${baseUrl}/sell/customers`);
+  await page.getByRole("button", { name: "إضافة عميل" }).first().click();
+  const dialog = page.getByRole("dialog", { name: "إضافة عميل" });
+  await dialog.getByLabel("اسم العميل").fill(name);
+  const answered = page.waitForResponse((r) => new URL(r.url()).pathname === "/api/customers" && r.request().method() === HttpMethod.Post);
+  await dialog.getByRole("button", { name: "إضافة عميل" }).click();
+  return (await answered).status();
 }
 
 export async function tenantSignOut(page: Page): Promise<void> {
@@ -149,7 +177,7 @@ export async function tenantApiLogin(
   apiUrl = SAAS_API_URL,
 ): Promise<TenantApi> {
   const response = await request.post(`${apiUrl}/api/auth/login`, {
-    headers: { "x-mezan-tenant": tenant.code },
+    headers: { [TENANT_HEADER]: tenant.code },
     data: { username: tenant.adminEmail, pin: tenant.adminPin },
   });
   expect(response.status(), await response.text()).toBe(200);
@@ -164,14 +192,15 @@ export interface ApiAnswer {
 export async function tenantCall(
   request: APIRequestContext,
   api: TenantApi,
-  method: "GET" | "POST",
+  method: HttpMethod,
   path: string,
   data?: unknown,
   apiUrl = SAAS_API_URL,
+  extraHeaders: Record<string, string> = {},
 ): Promise<ApiAnswer> {
   const response = await request.fetch(`${apiUrl}/api${path}`, {
     method,
-    headers: { authorization: `Bearer ${api.token}`, "x-mezan-tenant": api.code },
+    headers: { authorization: `Bearer ${api.token}`, [TENANT_HEADER]: api.code, ...extraHeaders },
     data,
   });
   const text = await response.text();
@@ -188,6 +217,75 @@ export function rowsOf(body: unknown): Record<string, unknown>[] {
   if (Array.isArray(body)) return body as Record<string, unknown>[];
   const items = (body as { items?: unknown; rows?: unknown } | null)?.items ?? (body as { rows?: unknown } | null)?.rows;
   return Array.isArray(items) ? (items as Record<string, unknown>[]) : [];
+}
+
+export interface InvoiceDrafts {
+  readonly itemName: string;
+  readonly customerName: string;
+  draft(sequence: number): Record<string, unknown>;
+}
+
+export interface InvoiceDraftsInput {
+  readonly customerId: string;
+  readonly customerName: string;
+  readonly itemId: string;
+  readonly itemName: string;
+  readonly today: string;
+}
+
+/** Service lines only: a stock line would need a funded warehouse before it could be saved. */
+export async function invoiceDrafts(request: APIRequestContext, api: TenantApi, input: InvoiceDraftsInput, apiUrl = SAAS_API_URL): Promise<InvoiceDrafts> {
+  const item = await tenantCall(
+    request,
+    api,
+    HttpMethod.Post,
+    "/items",
+    { id: input.itemId, code: input.itemId, nameAr: input.itemName, type: "service", baseUnitCode: "PCS", trackInventory: false, salePrice: "100" },
+    apiUrl,
+  );
+  expect(item.status, JSON.stringify(item.body)).toBe(201);
+  const branchId = String(rowsOf((await tenantCall(request, api, HttpMethod.Get, "/branches", undefined, apiUrl)).body)[0]?.["id"]);
+  const warehouseId = String(rowsOf((await tenantCall(request, api, HttpMethod.Get, "/warehouses", undefined, apiUrl)).body)[0]?.["id"]);
+  const accounts = rowsOf((await tenantCall(request, api, HttpMethod.Get, "/accounts?pageSize=500", undefined, apiUrl)).body);
+  const accountId = (code: string): string => String(accounts.find((account) => account["code"] === code)?.["id"] ?? "");
+  return {
+    itemName: input.itemName,
+    customerName: input.customerName,
+    draft: (sequence) => ({
+      date: input.today,
+      dueDate: input.today,
+      customerId: input.customerId,
+      customerNameAr: input.customerName,
+      customerTaxExempt: false,
+      warehouseId,
+      branchId,
+      currency: "EGP",
+      discount: { type: "percent", percent: 0 },
+      arAccountId: accountId("1105") || accountId("1200"),
+      taxAccountId: accountId("2200"),
+      lines: [
+        {
+          lineId: `L${sequence}`,
+          itemId: input.itemId,
+          itemNameAr: input.itemName,
+          isStock: false,
+          qty: "1",
+          unitPrice: "100",
+          discountType: "percent",
+          discountPercent: 0,
+          taxRatePercent: 0,
+          revenueAccountId: accountId("4100"),
+        },
+      ],
+    }),
+  };
+}
+
+export async function pickEntity(page: Page, label: string, query: string): Promise<void> {
+  const input = page.getByLabel(label);
+  await input.click();
+  await input.fill(query);
+  await page.getByRole("button", { name: query }).first().click();
 }
 
 export function errorOf(answer: ApiAnswer): { error?: string; message?: string } {

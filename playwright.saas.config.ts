@@ -1,18 +1,19 @@
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { defineConfig, devices } from "@playwright/test";
-import {
-  PLATFORM_OWNER_EMAIL,
-  PLATFORM_OWNER_PASSWORD,
-  SAAS_API_PORT,
-  SAAS_API_URL,
-  SAAS_WEB_PORT,
-  SAAS_WEB_URL,
-  TENANT_DOMAIN,
-} from "./e2e/saas/support/env";
+import { PLATFORM_DIR_ENV, SAAS_API_PORT, SAAS_API_URL, SAAS_WEB_PORT, SAAS_WEB_URL } from "./e2e/saas/support/env";
+import { API_SERVER_COMMAND, apiServerEnv } from "./e2e/saas/support/servers";
 
-const platformDir = mkdtempSync(path.join(tmpdir(), "mezan-saas-e2e-platform-"));
+// Playwright evaluates this file again in every worker. Only the runner creates the
+// directory; workers inherit it through the environment, so a spec that inspects the
+// tenant files on disk looks at the directory the server was actually given.
+const inherited = process.env[PLATFORM_DIR_ENV];
+const platformDir = inherited ?? mkdtempSync(path.join(tmpdir(), "mezan-saas-e2e-platform-"));
+if (!inherited) {
+  process.env[PLATFORM_DIR_ENV] = platformDir;
+  process.on("exit", () => rmSync(platformDir, { recursive: true, force: true }));
+}
 
 export default defineConfig({
   testDir: "./e2e/saas",
@@ -31,22 +32,13 @@ export default defineConfig({
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
   webServer: [
     {
-      command: "pnpm exec tsx apps/server/src/index.ts",
+      command: API_SERVER_COMMAND,
       url: `${SAAS_API_URL}/healthz`,
       reuseExistingServer: false,
       timeout: 120_000,
       stdout: "pipe",
       stderr: "pipe",
-      env: {
-        PORT: String(SAAS_API_PORT),
-        MEZAN_PLATFORM_DIR: platformDir,
-        MEZAN_SEED_DEMO: "1",
-        MEZAN_PLATFORM_OWNER_EMAIL: PLATFORM_OWNER_EMAIL,
-        MEZAN_PLATFORM_OWNER_PASSWORD: PLATFORM_OWNER_PASSWORD,
-        MEZAN_PAYMOB_TEST_MODE: "1",
-        MEZAN_TENANT_DOMAIN: TENANT_DOMAIN,
-        MEZAN_TRUST_PROXY: "1",
-      },
+      env: apiServerEnv({ port: SAAS_API_PORT, platformDir, seedDemo: true }),
     },
     {
       command: `cd apps/web && pnpm exec vite --config vite.saas.config.ts --port ${SAAS_WEB_PORT} --strictPort --host 127.0.0.1`,

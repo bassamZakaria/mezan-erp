@@ -1,10 +1,28 @@
-import { test, expect, type Page } from "@playwright/test";
-import { ApiError, DEMO_TENANT_CODE, PlanId, StorageKey, uniqueCode } from "./support/env";
+import { test, expect, type APIRequestContext, type Page } from "@playwright/test";
 import {
+  ApiError,
+  CodePrefix,
+  DEMO_TENANT_CODE,
+  HttpMethod,
+  INVALID_CREDENTIALS_SENTENCE,
+  LICENSE_READ_ONLY_SENTENCE,
+  Module,
+  PlanId,
+  SAAS_API_URL,
+  SUITE_TENANT_CODE,
+  StorageKey,
+  SubscriptionStatus,
+  tenantCodeTakenSentence,
+  uniqueCode,
+} from "./support/env";
+import {
+  addCustomer,
   createTenantInConsole,
+  enterCredentials,
   errorOf,
   openTenantDetail,
   platformSignIn,
+  platformToken,
   rowsOf,
   tenantApiLogin,
   tenantCall,
@@ -12,12 +30,24 @@ import {
   type TenantLogin,
 } from "./support/saas";
 
-const TENANT_CODE = uniqueCode("cyag");
+const TENANT_CODE = uniqueCode(CodePrefix.Console);
 const TENANT_NAME = "شركة سياج";
 const PAYMENT_REFERENCE = `INSTAPAY-${TENANT_CODE}`;
+const PAYMENT_AMOUNT = "980";
 const CUSTOMER_NAME = `عميل ${TENANT_CODE}`;
-const HR_REFUSAL = /وحدة الموارد البشرية غير/;
-const READ_ONLY_REFUSAL = /وضع القراءة فقط/;
+const HR_REFUSAL = "وحدة الموارد البشرية غير مُفعّلة في ترخيص هذه النسخة. تواصل مع الدعم لإضافتها إلى الاشتراك.";
+const READ_ONLY_BANNER = "الترخيص غير فعّال — وضع القراءة فقط";
+const SUSPEND_QUESTION = "إيقاف المنشأة؟";
+
+interface PlatformSubscription {
+  readonly status: string;
+  readonly currentPeriodEnd: string;
+}
+
+interface PlatformPayment {
+  readonly amount: string;
+  readonly reference: string;
+}
 
 let tenant: TenantLogin;
 
@@ -29,27 +59,42 @@ async function periodEnd(page: Page): Promise<Date> {
   return new Date(Date.UTC(Number(year), Number(month) - 1, Number(day)));
 }
 
-async function addCustomer(page: Page, name: string): Promise<void> {
-  await page.goto("/sell/customers");
-  await page.getByRole("button", { name: "إضافة عميل" }).first().click();
-  const dialog = page.getByRole("dialog", { name: "إضافة عميل" });
-  await dialog.getByLabel("اسم العميل").fill(name);
-  await dialog.getByRole("button", { name: "إضافة عميل" }).click();
+async function platformGet<T>(request: APIRequestContext, path: string): Promise<T> {
+  const token = await platformToken(request);
+  const response = await request.get(`${SAAS_API_URL}/api/platform${path}`, { headers: { authorization: `Bearer ${token}` } });
+  expect(response.status()).toBe(200);
+  return (await response.json()) as T;
+}
+
+async function subscriptionOf(request: APIRequestContext, tenantId: string): Promise<PlatformSubscription> {
+  return (await platformGet<{ subscription: PlatformSubscription }>(request, `/tenants/${tenantId}`)).subscription;
+}
+
+function oneBillingMonthAfter(iso: string): string {
+  const start = new Date(iso);
+  const lastDayOfNextMonth = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 2, 0)).getUTCDate();
+  const end = new Date(start);
+  end.setUTCDate(1);
+  end.setUTCMonth(start.getUTCMonth() + 1);
+  end.setUTCDate(Math.min(start.getUTCDate(), lastDayOfNextMonth));
+  return end.toISOString();
 }
 
 test.describe.configure({ mode: "serial" });
 
 test.describe("PLT-SAAS-01..06 — the platform console and the tenant it creates", () => {
-  test("PLT-SAAS-01 the platform owner signs in and sees only the seeded demo tenant", async ({ page }) => {
+  test("PLT-SAAS-01 the platform owner signs in and sees the seeded demo tenant and nothing this suite did not create", async ({ page }) => {
     await platformSignIn(page);
     const rail = page.getByRole("navigation", { name: "منصة Mezan" });
     for (const label of ["المنشآت", "الباقات", "المشغّلون"]) {
       await expect(rail.getByRole("link", { name: label, exact: true })).toBeVisible();
     }
     await expect(rail.getByRole("button", { name: "تسجيل الخروج" })).toBeVisible();
-    const rows = page.getByRole("table").getByRole("row");
-    await expect(rows).toHaveCount(2);
-    await expect(rows.nth(1).getByRole("cell").first()).toHaveText(DEMO_TENANT_CODE);
+    const table = page.getByRole("table");
+    await expect(table.getByRole("row").filter({ has: page.getByRole("cell", { name: DEMO_TENANT_CODE, exact: true }) })).toHaveCount(1);
+    const codes = await table.locator("tbody tr td:first-child").allInnerTexts();
+    expect(codes).toContain(DEMO_TENANT_CODE);
+    expect(codes.filter((code) => code !== DEMO_TENANT_CODE && !SUITE_TENANT_CODE.test(code))).toEqual([]);
   });
 
   test("PLT-SAAS-01 a wrong password is refused in Arabic and opens nothing", async ({ page }) => {
@@ -93,13 +138,14 @@ test.describe("PLT-SAAS-01..06 — the platform console and the tenant it create
     await expect(page.locator("main")).toContainText(/نهاية الفترة التجريبية\s*\d{2}\/\d{2}\/\d{4}/);
   });
 
-  test.fixme(
-    "PLT-SAAS-02 the tenants list marks a trialing tenant as تجريبي [D-SAAS-09: the licence column shows «الترخيص نشط» for a tenant on trial — TenantsPage.tsx renders licenseState only, so an operator cannot tell a trial from a paying tenant without opening it]",
-    async ({ page }) => {
-      await platformSignIn(page);
-      await expect(page.getByRole("row").filter({ hasText: TENANT_CODE }).getByText("تجريبي", { exact: true })).toBeVisible();
-    },
-  );
+  test("PLT-SAAS-02 the tenants list marks the trialing tenant as تجريبي, not as a paid licence [guards D-SAAS-09]", async ({ page }) => {
+    await platformSignIn(page);
+    const row = page.getByRole("row").filter({ hasText: TENANT_CODE });
+    await expect(row.getByText("تجريبي", { exact: true })).toBeVisible();
+    await expect(row.getByText("الترخيص نشط", { exact: true })).toHaveCount(0);
+    const demo = page.getByRole("row").filter({ has: page.getByRole("cell", { name: DEMO_TENANT_CODE, exact: true }) });
+    await expect(demo.getByText("تجريبي", { exact: true })).toHaveCount(0);
+  });
 
   test("PLT-SAAS-02 a second tenant cannot take the same code", async ({ page }) => {
     await platformSignIn(page);
@@ -111,11 +157,16 @@ test.describe("PLT-SAAS-01..06 — the platform console and the tenant it create
     await dialog.getByLabel("البريد الإلكتروني لمالك الحساب").fill("other@dup.example");
     await dialog.getByRole("combobox", { name: "الباقة" }).click();
     await page.getByRole("option", { name: /core$/ }).click();
-    const refused = page.waitForResponse((r) => new URL(r.url()).pathname === "/api/platform/tenants" && r.request().method() === "POST");
+    const refused = page.waitForResponse((r) => new URL(r.url()).pathname === "/api/platform/tenants" && r.request().method() === HttpMethod.Post);
     await dialog.getByRole("button", { name: "إنشاء المنشأة" }).click();
-    expect((await refused).status()).toBe(409);
-    await expect(dialog.getByRole("alert")).toContainText(/[؀-ۿ]/);
-    await expect(dialog.getByRole("alert")).not.toContainText(/[A-Z]{2,}_[A-Z_]{2,}/);
+    const response = await refused;
+    expect(response.status()).toBe(409);
+    expect(((await response.json()) as { error: string }).error).toBe(ApiError.TenantCodeTaken);
+    await expect(dialog.getByRole("alert")).toHaveText(tenantCodeTakenSentence(TENANT_CODE));
+
+    await page.reload();
+    await expect(page.getByRole("row").filter({ hasText: TENANT_CODE })).toHaveCount(1);
+    await expect(page.getByText("منشأة مكررة")).toHaveCount(0);
   });
 
   test("PLT-SAAS-03 the tenant owner signs in with company code, email and the one-time PIN", async ({ page }) => {
@@ -139,31 +190,26 @@ test.describe("PLT-SAAS-01..06 — the platform console and the tenant it create
     await field.fill(DEMO_TENANT_CODE);
     await field.blur();
     await expect(page.getByRole("button", { name: "تغيير المنشأة" })).toBeVisible();
-    const email = page.getByRole("textbox", { name: "البريد الإلكتروني" });
-    if (!(await email.isVisible())) await page.getByRole("button", { name: "آخر", exact: true }).click();
-    await email.fill(tenant.adminEmail);
     const refused = page.waitForResponse((r) => new URL(r.url()).pathname === "/api/auth/login");
-    for (const [index, digit] of [...tenant.adminPin].entries()) {
-      await page.getByLabel(`رمز PIN رقم ${index + 1}`).fill(digit);
-    }
+    await enterCredentials(page, tenant.adminEmail, tenant.adminPin);
     expect((await refused).status()).toBe(401);
-    await expect(page.getByRole("alert")).toContainText(/[؀-ۿ]/);
+    await expect(page.getByRole("alert")).toHaveText(INVALID_CREDENTIALS_SENTENCE);
     await expect(page.getByLabel("رمز PIN رقم 1")).toBeVisible();
+    expect(await page.evaluate((key) => window.localStorage.getItem(key), StorageKey.Session)).toBeNull();
   });
 
   test("PLT-SAAS-04 a module outside the plan is refused with the server's Arabic sentence", async ({ page, request }) => {
     const api = await tenantApiLogin(request, tenant);
-    const refusal = await tenantCall(request, api, "GET", "/hr/employees");
+    const refusal = await tenantCall(request, api, HttpMethod.Get, "/hr/employees");
     expect(refusal.status).toBe(403);
     expect(errorOf(refusal).error).toBe(ApiError.ModuleNotLicensed);
-    const sentence = errorOf(refusal).message ?? "";
-    expect(sentence).toMatch(HR_REFUSAL);
+    expect(errorOf(refusal).message).toBe(HR_REFUSAL);
 
-    const entitlements = await tenantCall(request, api, "GET", "/entitlements");
+    const entitlements = await tenantCall(request, api, HttpMethod.Get, "/entitlements");
     const active = (entitlements.body as { activeModules: string[] }).activeModules;
-    expect(active).not.toContain("hr");
-    expect(active).not.toContain("manufacturing");
-    expect(active).toContain("sales");
+    expect(active).not.toContain(Module.Hr);
+    expect(active).not.toContain(Module.Manufacturing);
+    expect(active).toContain(Module.Sales);
 
     await tenantSignIn(page, tenant);
     const rail = page.getByRole("navigation", { name: "التنقل بين مساحات العمل" });
@@ -173,21 +219,25 @@ test.describe("PLT-SAAS-01..06 — the platform console and the tenant it create
 
     await page.goto("/people/employees");
     const main = page.locator("main");
-    await expect(main.getByText(sentence, { exact: true })).toBeVisible();
+    await expect(main.getByText(HR_REFUSAL, { exact: true })).toBeVisible();
     await expect(main).not.toContainText(ApiError.ModuleNotLicensed);
     await expect(main).not.toContainText("تعذّر تحميل");
   });
 
-  test("PLT-SAAS-05 the operator records a payment and the period extends", async ({ page }) => {
+  test("PLT-SAAS-05 the operator records a payment and the period extends by exactly one billing month", async ({ page, request }) => {
+    const subscriptionBefore = await subscriptionOf(request, tenant.id);
+    expect(subscriptionBefore.status).toBe(SubscriptionStatus.Trialing);
+    expect(await platformGet<PlatformPayment[]>(request, `/tenants/${tenant.id}/payments`)).toEqual([]);
+
     await platformSignIn(page);
     await openTenantDetail(page, TENANT_CODE);
-    const before = await periodEnd(page);
+    const shownBefore = await periodEnd(page);
 
     await page.getByRole("button", { name: "تسجيل دفعة" }).click();
     const dialog = page.getByRole("dialog", { name: "تسجيل دفعة" });
-    await dialog.getByLabel("المبلغ").fill("980");
+    await dialog.getByLabel("المبلغ").fill(PAYMENT_AMOUNT);
     await dialog.getByLabel("المرجع").fill(PAYMENT_REFERENCE);
-    const recorded = page.waitForResponse((r) => /\/api\/platform\/tenants\/[^/]+\/payments$/.test(new URL(r.url()).pathname) && r.request().method() === "POST");
+    const recorded = page.waitForResponse((r) => /\/api\/platform\/tenants\/[^/]+\/payments$/.test(new URL(r.url()).pathname) && r.request().method() === HttpMethod.Post);
     await dialog.getByRole("button", { name: "تسجيل الدفعة" }).click();
     expect((await recorded).status()).toBe(201);
     await expect(dialog).toBeHidden();
@@ -195,12 +245,23 @@ test.describe("PLT-SAAS-01..06 — the platform console and the tenant it create
     const main = page.locator("main");
     await expect(main.getByText(PAYMENT_REFERENCE)).toBeVisible();
     await expect(main).toContainText(/حالة الاشتراك\s*نشط/);
-    expect((await periodEnd(page)).getTime()).toBeGreaterThan(before.getTime());
+
+    const subscriptionAfter = await subscriptionOf(request, tenant.id);
+    expect(subscriptionAfter.status).toBe(SubscriptionStatus.Active);
+    expect(subscriptionAfter.currentPeriodEnd).toBe(oneBillingMonthAfter(subscriptionBefore.currentPeriodEnd));
+    const payments = await platformGet<PlatformPayment[]>(request, `/tenants/${tenant.id}/payments`);
+    expect(payments).toHaveLength(1);
+    expect(payments[0]?.reference).toBe(PAYMENT_REFERENCE);
+    expect(Number(payments[0]?.amount)).toBe(Number(PAYMENT_AMOUNT));
+
+    const shownAfter = await periodEnd(page);
+    expect(shownAfter.getUTCMonth()).toBe((shownBefore.getUTCMonth() + 1) % 12);
+    expect(shownAfter.getUTCDate()).toBe(shownBefore.getUTCDate());
 
     await page.reload();
     await expect(main.getByText(PAYMENT_REFERENCE)).toBeVisible();
     await expect(main).toContainText(/حالة الاشتراك\s*نشط/);
-    expect((await periodEnd(page)).getTime()).toBeGreaterThan(before.getTime());
+    expect((await periodEnd(page)).getTime()).toBe(shownAfter.getTime());
   });
 
   test("PLT-SAAS-05 a payment with no amount is refused before it reaches the server", async ({ page }) => {
@@ -214,46 +275,61 @@ test.describe("PLT-SAAS-01..06 — the platform console and the tenant it create
     await expect(dialog).toBeVisible();
   });
 
-  test("PLT-SAAS-06 suspending refuses writes in Arabic, keeps reads, and resume restores", async ({ page, request, browser }) => {
+  test("PLT-SAAS-06 suspending asks first, then refuses writes in Arabic, keeps reads, and resume restores [guards D-SAAS-10]", async ({ page, request, browser }) => {
     await platformSignIn(page);
     await openTenantDetail(page, TENANT_CODE);
+    const main = page.locator("main");
+
     await page.getByRole("button", { name: "إيقاف المنشأة" }).click();
-    await expect(page.locator("main").getByText("موقوفة", { exact: true })).toBeVisible();
+    const question = page.getByRole("dialog", { name: SUSPEND_QUESTION });
+    await expect(question).toBeVisible();
+    await expect(main.getByText("نشطة", { exact: true })).toBeVisible();
+    await question.getByRole("button", { name: "رجوع" }).click();
+    await expect(question).toBeHidden();
+    const stillWritable = await tenantApiLogin(request, tenant);
+    expect((await tenantCall(request, stillWritable, HttpMethod.Get, "/license/state")).body).toMatchObject({ canWrite: true });
+
+    await page.getByRole("button", { name: "إيقاف المنشأة" }).click();
+    await page.getByRole("dialog", { name: SUSPEND_QUESTION }).getByRole("button", { name: "إيقاف المنشأة" }).click();
+    await expect(main.getByText("موقوفة", { exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "استئناف المنشأة" })).toBeVisible();
 
     const api = await tenantApiLogin(request, tenant);
-    const write = await tenantCall(request, api, "POST", "/customers", { nameAr: "عميل مرفوض" });
-    expect(write.status).toBe(403);
-    expect(errorOf(write).error).toBe(ApiError.LicenseReadOnly);
-    expect(errorOf(write).message ?? "").toMatch(READ_ONLY_REFUSAL);
-    const read = await tenantCall(request, api, "GET", "/customers");
+    for (const refusedWrite of ["/customers", "/sales-invoices"]) {
+      const write = await tenantCall(request, api, HttpMethod.Post, refusedWrite, { nameAr: "مرفوض" });
+      expect(write.status, refusedWrite).toBe(403);
+      expect(errorOf(write).error, refusedWrite).toBe(ApiError.LicenseReadOnly);
+      expect(errorOf(write).message, refusedWrite).toBe(LICENSE_READ_ONLY_SENTENCE);
+    }
+    const read = await tenantCall(request, api, HttpMethod.Get, "/customers");
     expect(read.status).toBe(200);
+    expect(rowsOf(read.body)).toEqual([]);
+    expect((await tenantCall(request, api, HttpMethod.Get, "/sales-invoices")).status).toBe(200);
 
     const tenantContext = await browser.newContext();
     const tenantPage = await tenantContext.newPage();
     await tenantSignIn(tenantPage, tenant);
-    const refused = tenantPage.waitForResponse((r) => new URL(r.url()).pathname === "/api/customers" && r.request().method() === "POST");
-    await addCustomer(tenantPage, "عميل أثناء الإيقاف");
-    expect((await refused).status()).toBe(403);
+    await expect(tenantPage.getByRole("alert").filter({ hasText: READ_ONLY_BANNER })).toBeVisible();
+    expect(await addCustomer(tenantPage, "عميل أثناء الإيقاف")).toBe(403);
     const dialog = tenantPage.getByRole("dialog", { name: "إضافة عميل" });
-    await expect(dialog.getByText(READ_ONLY_REFUSAL)).toBeVisible();
+    await expect(dialog.getByText(LICENSE_READ_ONLY_SENTENCE)).toBeVisible();
     await expect(dialog).not.toContainText(ApiError.LicenseReadOnly);
     await tenantPage.reload();
     await expect(tenantPage.getByRole("heading", { name: "العملاء", level: 1 })).toBeVisible();
+    await expect(tenantPage.getByText(/عرض 0 من 0 عميل/)).toBeVisible();
     await expect(tenantPage.getByText("عميل أثناء الإيقاف")).toHaveCount(0);
 
     await page.getByRole("button", { name: "استئناف المنشأة" }).click();
-    await expect(page.locator("main").getByText("نشطة", { exact: true })).toBeVisible();
+    await expect(main.getByText("نشطة", { exact: true })).toBeVisible();
     await page.reload();
-    await expect(page.locator("main").getByText("نشطة", { exact: true })).toBeVisible();
+    await expect(main.getByText("نشطة", { exact: true })).toBeVisible();
 
-    const created = tenantPage.waitForResponse((r) => new URL(r.url()).pathname === "/api/customers" && r.request().method() === "POST");
-    await addCustomer(tenantPage, CUSTOMER_NAME);
-    expect((await created).status()).toBe(201);
+    expect(await addCustomer(tenantPage, CUSTOMER_NAME)).toBe(201);
     await tenantPage.reload();
     await expect(tenantPage.getByRole("cell", { name: CUSTOMER_NAME }).first()).toBeVisible();
-    const after = await tenantCall(request, api, "GET", "/customers");
-    expect(rowsOf(after.body).map((row) => row["nameAr"])).toContain(CUSTOMER_NAME);
+    await expect(tenantPage.getByRole("alert").filter({ hasText: READ_ONLY_BANNER })).toHaveCount(0);
+    const after = await tenantCall(request, api, HttpMethod.Get, "/customers");
+    expect(rowsOf(after.body).map((row) => row["nameAr"])).toEqual([CUSTOMER_NAME]);
     await tenantContext.close();
   });
 });

@@ -44,8 +44,15 @@ describe("decidePeriodClose", () => {
     const override = { ...LOCK, blocking: BLOCKING, overrideReason: REASON, canOverride: true };
     expect(decidePeriodClose({ ...override, closedBy: "U-1" })).toBe(PeriodCloseDecision.LockOverrideNeedsSecondPerson);
     expect(decidePeriodClose({ ...override, closedBy: "U-2" })).toBe(PeriodCloseDecision.Overridden);
-    expect(decidePeriodClose({ ...override, closedBy: null })).toBe(PeriodCloseDecision.LockOverrideNeedsSecondPerson);
     expect(decidePeriodClose({ ...override, closedBy: "U-1", canOverride: false })).toBe(PeriodCloseDecision.OverrideNotPermitted);
+  });
+
+  it("a period nobody is on record as closing can be locked over a failing check, but only with a permitted override reason", () => {
+    const unknownCloser = { ...LOCK, blocking: BLOCKING, closedBy: null };
+    expect(decidePeriodClose({ ...unknownCloser, overrideReason: REASON, canOverride: true })).toBe(PeriodCloseDecision.Overridden);
+    expect(decidePeriodClose({ ...unknownCloser, overrideReason: null, canOverride: true })).toBe(PeriodCloseDecision.Blocked);
+    expect(decidePeriodClose({ ...unknownCloser, overrideReason: REASON, canOverride: false })).toBe(PeriodCloseDecision.OverrideNotPermitted);
+    expect(lockedUnderSingleOperatorWaiver({ ...unknownCloser, overrideReason: REASON, canOverride: true, singleOperatorMode: true, wildcardAdmin: true })).toBe(false);
   });
 
   it("the single-operator switch lets the closer lock over a failing check only when the closer is the wildcard admin", () => {

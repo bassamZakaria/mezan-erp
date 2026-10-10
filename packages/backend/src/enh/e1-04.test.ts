@@ -4,7 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { ALL_SCOPE } from "@mezan/domain";
 import { openSqliteConnection } from "@mezan/persistence";
-import type { PeriodCloseCheckDTO, PeriodCloseChecklistDTO } from "@mezan/contracts";
+import { PeriodCloseCheckStatusDTO, type PeriodCloseCheckDTO, type PeriodCloseChecklistDTO } from "@mezan/contracts";
 import { createBackend, type BackendHandle } from "../create-backend.js";
 
 type Sqlite = ReturnType<typeof openSqliteConnection>["sqlite"];
@@ -34,11 +34,24 @@ async function world() {
   async function check(month: string, code: string): Promise<PeriodCloseCheckDTO> {
     const res = await request("GET", `/period-close/fp-2026-${month}/checks`);
     expect(res.status).toBe(200);
-    const found = ((await res.json()) as PeriodCloseChecklistDTO).checks.find((c) => c.code === code);
+    const { checks } = (await res.json()) as PeriodCloseChecklistDTO;
+    expect(checks.filter((c) => c.status === PeriodCloseCheckStatusDTO.Unavailable).map((c) => c.code)).toEqual([]);
+    const found = checks.find((c) => c.code === code);
     if (!found) throw new Error(`check ${code} is missing from the checklist`);
     return found;
   }
-  return { sqlite, request, check };
+  function requestAs(userId: string, permissions: readonly string[]) {
+    const userToken = backend.sessions.issue({ userId, permissions: [...permissions], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
+    return async (method: string, url: string, body?: unknown): Promise<Response> =>
+      backend.app.fetch(
+        new Request(`http://local${url}`, {
+          method,
+          headers: { authorization: `Bearer ${userToken}`, "content-type": "application/json" },
+          body: body === undefined ? undefined : JSON.stringify(body),
+        }),
+      );
+  }
+  return { sqlite, request, check, requestAs };
 }
 
 // Fills every NOT NULL column the caller did not name, so a test states only the columns its check reads — on the REAL table.
@@ -49,7 +62,7 @@ function insert(sqlite: Sqlite, table: string, values: Record<string, string | n
   for (const column of columns) {
     if (column.name in values) row[column.name] = values[column.name] ?? null;
     else if (column.notnull === 1 && column.dflt_value === null && !(column.pk === 1 && column.type === "INTEGER")) {
-      row[column.name] = /INT|REAL|NUM/i.test(column.type) ? 0 : "";
+      row[column.name] = /INT|REAL|NUM/i.test(column.type) ? 0 : column.name.endsWith("_json") ? "[]" : "";
     }
   }
   const unknown = Object.keys(values).filter((name) => !columns.some((column) => column.name === name));
@@ -402,4 +415,33 @@ describe("period-close checks read the real tables (ENH-E1-04)", () => {
     expect((await check("07", "drafts")).status).toBe("pass");
     await expectCloseRefused(request, "06", "drafts");
   });
+
+  it("a month closed before the checklist existed can be locked over a failing check with a reason; one whose close is in the audit trail still needs a second person", async () => {
+    const { sqlite, requestAs } = await world();
+    const PERMISSIONS = ["accounting.period.view", "accounting.period.close", "accounting.period.lock", "accounting.period.override_close"];
+    const closer = requestAs("U-CLOSER", PERMISSIONS);
+    const reason = { overrideReason: "قفل نهائي باعتماد المدير المالي بعد المراجعة" };
+    const lockEvents = (month: string) =>
+      sqlite.prepare(`SELECT actor, json_extract(details, '$.reason') AS reason FROM audit_event WHERE entity_type = 'FISCAL_PERIOD' AND entity_id = ? AND action = 'LOCK'`).all(`fp-2026-${month}`);
+    const statusOf = (month: string) => (sqlite.prepare(`SELECT status FROM fiscal_period WHERE id = ?`).get(`fp-2026-${month}`) as { status: string }).status;
+    for (const month of ["02", "03"]) {
+      journal(sqlite, `draft-${month}`, null, `2026-${month}-10`, "draft");
+      sqlite.prepare(`UPDATE fiscal_period SET status = 'closed' WHERE id = ?`).run(`fp-2026-${month}`);
+    }
+    insert(sqlite, "audit_event", { stream: "sensitive", module: "accounting", entity_type: "FISCAL_PERIOD", entity_id: "fp-2026-03", action: "CLOSE", actor: "U-CLOSER", timestamp: "2026-04-02T09:00:00.000Z", severity: "WARNING" });
+
+    expect((await closer("POST", "/fiscal-periods/fp-2026-02/lock", {})).status).toBe(409);
+    expect(statusOf("02")).toBe("closed");
+    expect((await closer("POST", "/fiscal-periods/fp-2026-02/lock", reason)).status).toBe(200);
+    expect(statusOf("02")).toBe("locked");
+    expect(lockEvents("02")).toEqual([{ actor: "U-CLOSER", reason: reason.overrideReason }]);
+
+    const sameUser = await closer("POST", "/fiscal-periods/fp-2026-03/lock", reason);
+    expect(((await sameUser.json()) as { error: string }).error).toBe("PERIOD_LOCK_OVERRIDE_SAME_USER");
+    expect(statusOf("03")).toBe("closed");
+    expect((await requestAs("U-CONTROLLER", PERMISSIONS)("POST", "/fiscal-periods/fp-2026-03/lock", reason)).status).toBe(200);
+    expect(statusOf("03")).toBe("locked");
+    expect(lockEvents("03")).toEqual([{ actor: "U-CONTROLLER", reason: reason.overrideReason }]);
+  });
 });
+

@@ -243,6 +243,7 @@ enum StoredStatus {
 }
 
 const FISCAL_PERIOD_ENTITY = "FISCAL_PERIOD";
+const FISCAL_PERIOD_CLOSE_ACTION = "CLOSE";
 const ASSET_DISPOSAL_DOC_TYPE = "ASSET_DISPOSAL";
 const DRAFT_STATUSES = [StoredStatus.Draft] as const;
 const PENDING_STATUSES = [StoredStatus.Pending] as const;
@@ -328,6 +329,7 @@ export interface PeriodCloseQueries {
   etaErrorIds(window: PeriodCloseWindow): string[];
   assetDisposalDates(): { assetId: string; date: string }[];
   auditedSeals(periodId: string): string[];
+  lastAuditedCloser(periodId: string): string | null;
 }
 
 function placeholders(values: readonly unknown[]): string {
@@ -539,6 +541,12 @@ function createQueries(sqlite: Database.Database): PeriodCloseQueries {
         )
         .all(FISCAL_PERIOD_ENTITY, periodId) as { seal: string }[];
       return rows.map((row) => row.seal);
+    },
+    lastAuditedCloser(periodId) {
+      const row = sqlite
+        .prepare(`SELECT actor FROM audit_event WHERE entity_type = ? AND entity_id = ? AND action = ? ORDER BY id DESC LIMIT 1`)
+        .get(FISCAL_PERIOD_ENTITY, periodId, FISCAL_PERIOD_CLOSE_ACTION) as { actor: string } | undefined;
+      return row?.actor ?? null;
     },
   };
 }

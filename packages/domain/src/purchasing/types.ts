@@ -105,6 +105,7 @@ export interface PurchaseGlPosting {
   readonly date: string;
   readonly memo: string;
   readonly lines: readonly PurchaseGlPostingLine[];
+  readonly warehouseId?: string | null;
 }
 
 export interface PurchaseGlPostingPort {

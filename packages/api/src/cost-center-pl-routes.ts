@@ -1,11 +1,12 @@
 import { Hono } from "hono";
 import {
   computeCostCenterPnL,
+  withinBranchScope,
   type AccountRepository,
   type CostCenterRepository,
   type LedgerRepository,
 } from "@mezan/domain";
-import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
+import { branchScopeOf, createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
 
 export interface CostCenterPnLRoutesDeps {
   readonly ledger: Pick<LedgerRepository, "listLines">;
@@ -28,7 +29,10 @@ export function createCostCenterPnLRoutes(
   app.get("/", gate("accounting.reports.view"), async (c) => {
     const fromDate = c.req.query("fromDate");
     const toDate = c.req.query("toDate");
-    const lines = (await deps.ledger.listLines?.({ fromDate, toDate })) ?? [];
+    const scope = branchScopeOf(c);
+    const lines = ((await deps.ledger.listLines?.({ fromDate, toDate })) ?? []).filter((line) =>
+      withinBranchScope(line.branchId, scope),
+    );
     const [accounts, costCenters] = await Promise.all([deps.accounts.list(), deps.costCenters.list()]);
     const report = computeCostCenterPnL(lines, accounts, costCenters);
     return c.json({

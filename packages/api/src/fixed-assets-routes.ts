@@ -447,6 +447,7 @@ export function createFixedAssetsRoutes(
                     credit: l.credit,
                     projectId: l.projectId ?? null,
                     costCategory: l.costCategory ?? null,
+                    branchId: l.branchId ?? null,
                   })),
                 },
                 deps.gl,

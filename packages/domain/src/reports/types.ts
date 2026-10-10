@@ -70,7 +70,14 @@ export type ReportParamField =
   | { readonly kind: "date"; readonly key: string; readonly label: string }
   | { readonly kind: "dateRange"; readonly fromKey: string; readonly toKey: string; readonly label: string }
   | { readonly kind: "select"; readonly key: string; readonly label: string; readonly options: readonly { value: string; label: string }[] }
-  | { readonly kind: "text"; readonly key: string; readonly label: string; readonly placeholder?: string };
+  | { readonly kind: "text"; readonly key: string; readonly label: string; readonly placeholder?: string }
+  /**
+   * الفرع — a picker over the branch register, resolved by the client against
+   * the branches the SESSION may see. The value sent is the real branch id.
+   * `allowUnattributed` adds the «غير مخصص» bucket (DEC-20) for reports that
+   * read the posted journal line.
+   */
+  | { readonly kind: "branch"; readonly key: string; readonly label: string; readonly allowUnattributed: boolean };
 
 /**
  * A GL-reconciliation banner (docs/archive/catalog/08-reports.md: five reports

@@ -18,6 +18,7 @@ import {
   type VatReturnContext,
 } from "@mezan/domain";
 import { branchScopeOf, createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
+import { refuseBranchScopedCaller } from "./branch-scope-refusal.js";
 import { tenantToday } from "./tenant-day.js";
 
 /**
@@ -209,6 +210,8 @@ export function createFinancialReportsRoutes(
   // --- إقرار ضريبة القيمة المضافة ------------------------------------------
 
   app.get("/vat-return", gate("accounting.reports.view"), async (c) => {
+    const refusal = refuseBranchScopedCaller(c);
+    if (refusal) return refusal;
     const today = await tenantToday(c, deps.today);
     const definition = createVatReturnReport({ periodFrom: firstOfMonth(today), periodTo: today });
     const params = mergeParams(c, definition.defaultParams);

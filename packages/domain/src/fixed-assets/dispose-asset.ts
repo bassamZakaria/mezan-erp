@@ -36,6 +36,7 @@ export interface DisposeAssetPostingLine {
   readonly credit: Money;
   readonly projectId?: string | null;
   readonly costCategory?: CostCategory | null;
+  readonly branchId?: string | null;
 }
 
 export interface DisposeAssetPosting {
@@ -131,18 +132,19 @@ export async function disposeAsset(
     const accounts = resolveAccounts(asset, category, deps.accounts);
     const zero = Money.zero();
     const projectId = asset.projectId;
+    const branchId = asset.branchId;
     const lines: DisposeAssetPostingLine[] = [];
     if (asset.accumulatedDepreciation.scaled > 0n) {
-      lines.push({ accountId: accounts.accumulatedDepreciationAccountId, debit: asset.accumulatedDepreciation, credit: zero, projectId });
+      lines.push({ accountId: accounts.accumulatedDepreciationAccountId, debit: asset.accumulatedDepreciation, credit: zero, projectId, branchId });
     }
     if (proceeds.scaled > 0n) {
-      lines.push({ accountId: cmd.proceedsAccountId as string, debit: proceeds, credit: zero, projectId });
+      lines.push({ accountId: cmd.proceedsAccountId as string, debit: proceeds, credit: zero, projectId, branchId });
     }
-    lines.push({ accountId: accounts.assetAccountId, debit: zero, credit: asset.acquisitionCost, projectId });
+    lines.push({ accountId: accounts.assetAccountId, debit: zero, credit: asset.acquisitionCost, projectId, branchId });
     if (gainOrLoss.scaled > 0n) {
-      lines.push({ accountId: deps.accounts.gainAccountId, debit: zero, credit: gainOrLoss, projectId });
+      lines.push({ accountId: deps.accounts.gainAccountId, debit: zero, credit: gainOrLoss, projectId, branchId });
     } else if (gainOrLoss.scaled < 0n) {
-      lines.push({ accountId: deps.accounts.lossAccountId, debit: Money.fromScaled(-gainOrLoss.scaled), credit: zero, projectId });
+      lines.push({ accountId: deps.accounts.lossAccountId, debit: Money.fromScaled(-gainOrLoss.scaled), credit: zero, projectId, branchId });
     }
     await deps.gl.post({
       sourceDocType: "ASSET_DISPOSAL",

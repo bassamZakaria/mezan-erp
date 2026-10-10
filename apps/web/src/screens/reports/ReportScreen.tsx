@@ -1,8 +1,8 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { ReportChart, ReportRunner, type ReportRunnerEntityRef } from "@mezan/ui";
 import type { ReportChartSpec, ReportColumn, ReportParamField } from "@mezan/domain";
 import { useReport } from "../../data/reports-hooks";
-import { useScopeSelector } from "../../data/hub-hooks";
+import { useBranchParamFields } from "./branch-param";
 import { localizeGroupLabel, localizeReportDefinition, tryReportLabel } from "../../report-labels";
 import { useAppTranslation, type AppTranslationKey } from "../../i18n";
 import { reportChartPoints } from "./chart-points";
@@ -66,30 +66,7 @@ export function ReportScreen<TParams extends object, Row>({ definition: rawDefin
   const [hasRun, setHasRun] = useState<boolean>(!onDemand);
   const [drillEntity, setDrillEntity] = useState<ReportRunnerEntityRef | null>(null);
 
-  /**
-   * الفرع (P-7). The list is the branches this SESSION may see, not every
-   * branch: the picker narrows what the server already scopes, and can never
-   * widen it — a branchId outside the session's scope returns nothing.
-   */
-  const { branchOptions } = useScopeSelector();
-  const paramFields = useMemo(
-    () =>
-      branchOptions.length > 1
-        ? [
-            ...definition.paramFields,
-            {
-              kind: "select" as const,
-              key: "branchId",
-              label: t("reports.branchFilter"),
-              options: [
-                { value: "", label: t("reports.allBranches") },
-                ...branchOptions.map((b) => ({ value: b.id, label: b.label })),
-              ],
-            },
-          ]
-        : definition.paramFields,
-    [branchOptions, definition.paramFields, t],
-  );
+  const paramFields = useBranchParamFields(definition.paramFields);
 
   const query = useReport<Row>(definition.id, apiPath, params, { enabled: hasRun, apiRoot });
 

@@ -45,6 +45,7 @@ export function buildPurchaseReturnLinesFromInvoice(
       // each line's costCategory (D-01) — the invoice is the only place these
       // are stated, and a return that drops them loses the project's cost.
       projectId: invoice.projectId ?? null,
+      branchId: invoice.branchId ?? null,
       costCategory: invLine.costCategory ?? null,
       ...(invoice.fxRate ? { currency: invoice.currency ?? null, fxRate: invoice.fxRate } : {}),
     });

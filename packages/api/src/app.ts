@@ -34,6 +34,7 @@ import {
   type FiscalPeriodRepository,
   type StockLedgerService,
   type StockReservationSource,
+  branchOfPostingWarehouse,
   postJournalEntry,
   type NextNumberService,
   type JournalPostingDeps,
@@ -1399,6 +1400,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     // by the SAME deterministic id the posting adapter used.
     const glPort: PurchaseGlPostingPort = {
       post: async (posting: PurchaseGlPosting) => {
+        const warehouseBranchId = await branchOfPostingWarehouse(options.warehouseStore, posting.warehouseId);
         await postJournalEntry(
           {
             id: `PI-JE:${posting.sourceDocId}`,
@@ -1420,7 +1422,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
               taxRatePercent: l.taxRatePercent ?? null,
               projectId: l.projectId ?? null,
               costCategory: l.costCategory ?? null,
-              branchId: l.branchId ?? null,
+              branchId: l.branchId ?? warehouseBranchId,
             })),
           },
           purchases.gl,
@@ -1507,6 +1509,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     // journal entry, posted through the GL engine (atomic JE numbering).
     const glPort: ManufacturingGlPostingPort = {
       post: async (posting: ManufacturingGlPosting) => {
+        const branchId = await branchOfPostingWarehouse(options.warehouseStore, posting.warehouseId);
         await postJournalEntry(
           {
             id: posting.entryRef ?? `WO-JE:${posting.sourceDocId}`,
@@ -1525,6 +1528,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
               credit: l.credit,
               projectId: l.projectId ?? null,
               costCategory: l.costCategory ?? null,
+              branchId,
             })),
           },
           mfg.gl,

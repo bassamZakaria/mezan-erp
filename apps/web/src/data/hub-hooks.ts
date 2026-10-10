@@ -210,6 +210,8 @@ export interface UseScopeSelectorResult {
   readonly branchOptions: readonly ScopeOption[];
   readonly warehouseOptions: readonly ScopeOption[];
   readonly selection: ScopeSelection;
+  /** Whether the session is limited to specific branches rather than all of them. */
+  readonly isBranchScoped: boolean;
   setBranch(branchId: string | null): void;
   setWarehouse(warehouseId: string | null): void;
 }
@@ -282,7 +284,14 @@ export function useScopeSelector(): UseScopeSelectorResult {
     setScopeSelection({ ...scopeSelection, warehouseId });
   }
 
-  return { branchOptions, warehouseOptions, selection: scopeSelection, setBranch, setWarehouse };
+  return {
+    branchOptions,
+    warehouseOptions,
+    selection: scopeSelection,
+    isBranchScoped: allowedBranchIds !== null,
+    setBranch,
+    setWarehouse,
+  };
 }
 
 export interface WorkingLocation {

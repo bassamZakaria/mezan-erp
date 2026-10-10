@@ -30,6 +30,7 @@ export interface SourcePurchaseInvoice {
   readonly lines: readonly SourcePurchaseInvoiceLine[];
   /** بُعد المشروع — a return built from this invoice inherits it (D-01). */
   readonly projectId?: string | null;
+  readonly branchId?: string | null;
   /** The invoice's currency and the rate it confirmed at; a return reverses at this rate (D203). */
   readonly currency?: string | null;
   readonly fxRate?: string | null;

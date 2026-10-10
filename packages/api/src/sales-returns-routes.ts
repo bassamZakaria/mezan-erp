@@ -45,6 +45,7 @@ function serializeLine(l: SalesReturnLine) {
     taxAmount: l.taxAmount.toString(),
     taxRatePercent: l.taxRatePercent ?? null,
     projectId: l.projectId ?? null,
+    branchId: l.branchId ?? null,
     currency: l.currency ?? null,
     fxRate: l.fxRate ?? null,
     baseCredit: salesReturnLineCredit(l).toString(),

@@ -793,6 +793,7 @@ export async function logWorkOrderWaste(
       // waste id (which is already unique per call) rather than the order's.
       entryRef: `WO-WASTE-JE:${wasteId}`,
       lines: glLines,
+      warehouseId: order.destinationWarehouseId,
     });
   }
 
@@ -931,6 +932,7 @@ export async function receiveWorkOrderProduct(
       memo: `تحميل الفاقد الطبيعي على المنتج — أمر التصنيع ${order.number}`,
       // Once per order: the stage guard admits exactly one receipt.
       entryRef: `WO-RECEIVE-JE:${order.id}`,
+      warehouseId: order.destinationWarehouseId,
       lines: [
         { accountId: deps.accounts.rawInventoryAccountId, debit: parkedWaste, credit: Money.zero() },
         { accountId: deps.accounts.wipAccountId, debit: Money.zero(), credit: parkedWaste },
@@ -1044,6 +1046,7 @@ export function buildWorkOrderGlPosting(
     date,
     memo: `إكمال أمر التصنيع ${order.number}`,
     lines,
+    warehouseId: order.destinationWarehouseId,
   };
 }
 

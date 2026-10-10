@@ -75,6 +75,7 @@ import {
   stockTransferDocumentType,
   createInventoryOpsStockHook,
   createInventoryGlPostingHook,
+  branchOfPostingWarehouse,
   PAYROLL_GL_ACCOUNTS,
   PhysicalCountService,
   SALES_INVOICE_ACTIVE_STATUSES,
@@ -998,7 +999,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     // reason (createInventoryOpsStockHook below); every other stock
     // hook (sales invoices, purchases, manufacturing, transfers) posts its own GL
     // through a separate path and never passes `command.gl`, so this is additive.
-    gl: createInventoryGlPostingHook(salesInvoiceGl),
+    gl: createInventoryGlPostingHook(salesInvoiceGl, warehouses),
     // The last-resort cost for an issue out of a position that holds nothing
     // and was never received anywhere. Without it such an issue was written at
     // zero and COGS was understated by the whole deficit (D101).
@@ -1528,6 +1529,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
             taxRatePercent: l.taxRatePercent ?? null,
             projectId: l.projectId ?? null,
             costCategory: l.costCategory ?? null,
+            branchId: l.branchId ?? null,
           })),
         },
         salesInvoiceGl,
@@ -1777,7 +1779,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   };
 
 
-  const documentGl = createJournalGlHook(salesInvoiceGl);
+  const documentGl = createJournalGlHook(salesInvoiceGl, warehouses);
   const documentWorkflowGate = createDocumentWorkflowGate(
     (actionType) => workflowConfigs.resolveSync(actionType),
     approvalRequests,
@@ -1892,6 +1894,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   });
   const landedCosts = new LandedCostService(landedCostDocuments, stockService, {
     postUnabsorbed: async (posting) => {
+      const branchId = await branchOfPostingWarehouse(warehouses, posting.warehouseId);
       await postJournalEntry(
         {
           id: posting.entryId,
@@ -1906,11 +1909,13 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
               accountId: LANDED_COST_GL_ACCOUNTS.unabsorbedCostAccountId,
               debit: posting.amount,
               credit: Money.zero(),
+              branchId,
             },
             {
               accountId: LANDED_COST_GL_ACCOUNTS.inventoryAccountId,
               debit: Money.zero(),
               credit: posting.amount,
+              branchId,
             },
           ],
         },
@@ -3057,6 +3062,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     gl: {
       ledger,
       accounts,
+      masterData: masterDataChecks,
       periods: fiscalPeriods,
       numbering: ledger.numbering,
       projects,
@@ -3520,6 +3526,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       wacSnapshots: stockLedger.snapshots,
       stockLedger: stockLedger.ledger,
       gl: salesInvoiceGl,
+      warehouses,
       accounts: INVENTORY_WRITEDOWN_GL_ACCOUNTS,
       settings,
     },
@@ -3790,6 +3797,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
             number: invoice.docNo ?? invoice.id,
             customerId: invoice.customerId,
             warehouseId: invoice.warehouseId,
+            branchId: invoice.branchId,
             projectId: invoice.projectId,
             currency: invoice.currency,
             fxRate: invoice.fxRate ?? null,
@@ -3907,6 +3915,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
             number: invoice.number ?? invoice.id,
             supplierId: invoice.supplierId,
             warehouseId: invoice.warehouseId,
+            branchId: invoice.branchId,
             // A return inherits the invoice's project and each line's cost
             // category (D-01); leaving them off here dropped both (D215).
             projectId: invoice.projectId ?? null,

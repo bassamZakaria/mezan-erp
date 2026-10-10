@@ -17,10 +17,10 @@ import type { ReportParamField } from "./types.js";
  * must say so out loud ({@link UNATTRIBUTED_BRANCH_LABEL}).
  */
 export const BRANCH_PARAM_FIELD: ReportParamField = {
-  kind: "text",
+  kind: "branch",
   key: "branchId",
   label: "الفرع",
-  placeholder: "معرف الفرع (اتركه فارغاً لكل الفروع)",
+  allowUnattributed: false,
 };
 
 /**
@@ -63,10 +63,10 @@ export const UNATTRIBUTED_BRANCH_LABEL = "غير مخصص";
  * branch, or the «غير مخصص» bucket on its own.
  */
 export const BRANCH_STATEMENT_PARAM_FIELD: ReportParamField = {
-  kind: "text",
+  kind: "branch",
   key: "branchId",
   label: "الفرع",
-  placeholder: `معرف الفرع، أو ${UNATTRIBUTED_BRANCH_ID} لغير المخصص (اتركه فارغاً لكل الفروع)`,
+  allowUnattributed: true,
 };
 
 /**

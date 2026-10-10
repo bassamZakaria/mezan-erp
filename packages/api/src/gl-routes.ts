@@ -67,6 +67,8 @@ import {
   getAuthContext,
   type AuthContextResolver,
 } from "./permission-gate.js";
+import { refuseOutOfScopeBranches } from "./branch-scope-refusal.js";
+import { MasterDataKind, refuseUnknownMasterData, type MasterDataChecks } from "./master-data-check.js";
 
 /** External dependencies the GL routes bind the posting engine to. */
 export interface GlRoutesDeps {
@@ -94,6 +96,8 @@ export interface GlRoutesDeps {
   readonly audit?: AuditSink;
   readonly events?: GlEventPublisher;
   readonly now?: () => string;
+  /** Refuses a hand-written line naming a branch no master record holds. */
+  readonly masterData?: MasterDataChecks;
   /** Generates a reversing-entry id when the request body omits one. Defaults to a UUID. */
   readonly idGen?: () => string;
   /**
@@ -306,6 +310,21 @@ export function createGlRoutes(
    * supplier (D205), so the journal screen can ask for the party before the
    * post is refused.
    */
+  /**
+   * A hand-written line's branch is the caller's to state, so it is checked
+   * here: inside the caller's own branch scope, and a branch that exists.
+   */
+  async function refuseLineBranches(
+    c: Context,
+    lines: readonly { readonly branchId?: string | null }[],
+  ): Promise<Response | null> {
+    const branchIds = lines.map((line) => line.branchId);
+    return (
+      refuseOutOfScopeBranches(c, branchIds) ??
+      (await refuseUnknownMasterData(c, deps.masterData, [{ kind: MasterDataKind.Branch, ids: branchIds }]))
+    );
+  }
+
   app.get("/party-control-accounts", gate("accounting.journal.view"), async (c) => {
     const controls = (await deps.resolvePartyControlAccounts?.()) ?? new Map<string, PartyControlKind>();
     return c.json([...controls].map(([accountId, partyKind]) => ({ accountId, partyKind })));
@@ -316,6 +335,8 @@ export function createGlRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
+    const branchRefusal = await refuseLineBranches(c, parsed.data.lines);
+    if (branchRefusal) return branchRefusal;
     try {
       const entry = await postJournalEntry(
         {
@@ -486,6 +507,8 @@ export function createGlRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
+    const branchRefusal = await refuseLineBranches(c, parsed.data.lines);
+    if (branchRefusal) return branchRefusal;
     try {
       const entry = await createJournalEntry(
         {
@@ -537,6 +560,8 @@ export function createGlRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
+    const branchRefusal = await refuseLineBranches(c, parsed.data.lines);
+    if (branchRefusal) return branchRefusal;
     try {
       const entry = await replaceDraftJournalEntry(
         c.req.param("id"),

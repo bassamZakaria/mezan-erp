@@ -7651,6 +7651,8 @@ const webAr = {
   "eta.processedNotice": "أُرسل {submitted}، قُبل {accepted}، رُفض {rejected}، بقي في الانتظار {queued}، بلا توقيع {unsigned}.",
   "reports.branchFilter": "الفرع",
   "reports.allBranches": "كل الفروع",
+  "reports.allMyBranches": "كل فروعي",
+  "reports.unattributedBranch": "غير مخصص",
 
   "backup.reason.preUpdate": "قبل تحديث البرنامج",
   // updates, the pre-update backup and the portable export (audit §2 U-5/U-8/U-9, N-11)
@@ -17076,6 +17078,8 @@ const webEn: Record<WebTranslationKey, string> = {
   "eta.processedNotice": "Sent {submitted}, accepted {accepted}, rejected {rejected}, still queued {queued}, unsigned {unsigned}.",
   "reports.branchFilter": "Branch",
   "reports.allBranches": "All branches",
+  "reports.allMyBranches": "All my branches",
+  "reports.unattributedBranch": "Unattributed",
 
   "backup.reason.preUpdate": "Before an app update",
   // updates, the pre-update backup and the portable export (audit §2 U-5/U-8/U-9, N-11)

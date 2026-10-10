@@ -513,6 +513,7 @@ export class SiteService {
       // stock sub-ledger permanently (D47).
       let journalEntryId: string | null = null;
       if (result.totalCost.scaled !== 0n) {
+        const branchId = (await this.deps.warehouses.findById(consumption.warehouseId))?.branchId ?? null;
         const entry = await postJournalEntry(
           {
             id: consumption.id,
@@ -529,12 +530,14 @@ export class SiteService {
                 credit: Money.zero(),
                 projectId: consumption.projectId,
                 costCategory: "materials",
+                branchId,
               },
               {
                 accountId: inventoryAccountId,
                 debit: Money.zero(),
                 credit: result.totalCost,
                 projectId: consumption.projectId,
+                branchId,
               },
             ],
           },

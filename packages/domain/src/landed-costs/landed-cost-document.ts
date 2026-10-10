@@ -45,6 +45,11 @@ export interface LandedCostGlAccounts {
   readonly accruedLandedCostPayableId: string;
 }
 
+export function landedCostWarehouseId(lines: readonly LandedCostLine[]): string | null {
+  const first = lines[0]?.warehouseId ?? null;
+  return first !== null && lines.every((line) => line.warehouseId === first) ? first : null;
+}
+
 function totalAllocated(lines: readonly LandedCostLine[]): Money {
   return Money.sum(lines.map((l) => l.allocatedAmount));
 }
@@ -101,6 +106,7 @@ export function createLandedCostDocumentType(
         sourceDocNumber: doc.docNo,
         date: doc.date,
         memo: doc.memo || `تكلفة إضافية ${doc.docNo ?? doc.id}`,
+        warehouseId: landedCostWarehouseId(doc.lines),
         lines: [
           {
             accountId: accounts.inventoryAccountId,

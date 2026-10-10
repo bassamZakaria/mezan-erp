@@ -87,6 +87,7 @@ export interface DocumentGlPosting {
   readonly date: string;
   readonly memo: string;
   readonly lines: readonly DocumentGlPostingLine[];
+  readonly warehouseId?: string | null;
 }
 
 /**

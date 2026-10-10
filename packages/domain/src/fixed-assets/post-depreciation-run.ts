@@ -48,8 +48,8 @@ async function resolveAccounts(asset: Asset, deps: PostDepreciationRunDeps): Pro
   };
 }
 
-function pairKey(accounts: ResolvedAccounts, projectId: string | null): string {
-  return `${accounts.depreciationExpenseAccountId}::${accounts.accumulatedDepreciationAccountId}::${projectId ?? ""}`;
+function pairKey(accounts: ResolvedAccounts, projectId: string | null, branchId: string | null): string {
+  return `${accounts.depreciationExpenseAccountId}::${accounts.accumulatedDepreciationAccountId}::${projectId ?? ""}::${branchId ?? ""}`;
 }
 
 /**
@@ -74,7 +74,7 @@ export async function postDepreciationRun(runId: string, deps: PostDepreciationR
 
   const totalsByPair = new Map<
     string,
-    { accounts: ResolvedAccounts; projectId: string | null; total: Money }
+    { accounts: ResolvedAccounts; projectId: string | null; branchId: string | null; total: Money }
   >();
   for (const line of run.lines) {
     const asset = assetsById.get(line.assetId)!;
@@ -83,28 +83,32 @@ export async function postDepreciationRun(runId: string, deps: PostDepreciationR
     // captured — an asset reassigned between drafting and posting the run
     // should post equipment cost to the project it belongs to today.
     const projectId = asset.projectId;
-    const key = pairKey(accounts, projectId);
+    const branchId = asset.branchId;
+    const key = pairKey(accounts, projectId, branchId);
     const existing = totalsByPair.get(key);
     totalsByPair.set(key, {
       accounts,
       projectId,
+      branchId,
       total: existing ? existing.total.add(line.amount) : line.amount,
     });
   }
 
-  const journalLines = [...totalsByPair.values()].flatMap(({ accounts, projectId, total }) => [
+  const journalLines = [...totalsByPair.values()].flatMap(({ accounts, projectId, branchId, total }) => [
     {
       accountId: accounts.depreciationExpenseAccountId,
       debit: total,
       credit: Money.zero(),
       projectId,
       costCategory: projectId ? ("equipment" as const) : null,
+      branchId,
     },
     {
       accountId: accounts.accumulatedDepreciationAccountId,
       debit: Money.zero(),
       credit: total,
       projectId,
+      branchId,
     },
   ]);
 

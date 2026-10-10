@@ -62,6 +62,8 @@ export interface PurchaseReturnLine {
   readonly projectId?: string | null;
   /** فئة التكلفة — only meaningful with `projectId`. */
   readonly costCategory?: CostCategory | null;
+  /** بُعد الفرع (DEC-20) — the source invoice's branch, stamped by the server from that invoice and never from the caller. */
+  readonly branchId?: string | null;
   /**
    * The source invoice's currency and the rate it confirmed at, stamped by the
    * server from that invoice — never from the caller. `unitCost` and
@@ -293,7 +295,7 @@ export function createPurchaseReturnDocumentType(
               ? [{ accountId: accounts.priceVarianceAccountId, debit: Money.zero(), credit: share, taxRatePercent: rate }]
               : [{ accountId: accounts.priceVarianceAccountId, debit: share.negate(), credit: Money.zero(), taxRatePercent: rate }];
           }),
-        ].map((l) => ({ ...l, projectId })),
+        ].map((l) => ({ ...l, projectId, branchId: doc.lines[0]?.branchId ?? null })),
       };
     },
 

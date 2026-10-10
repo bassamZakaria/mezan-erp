@@ -716,6 +716,7 @@ export class StockLedgerService {
           sourceDocNumber: command.sourceDocNumber ?? null,
           date: occurredAt.slice(0, 10),
           memo: `Stock issue ${command.sourceDocNumber ?? command.sourceDocId}`,
+          warehouseId: command.warehouseId,
           lines: [
             {
               accountId: command.gl.cogsAccountId,
@@ -1291,5 +1292,6 @@ function buildAdjustmentPosting(
     date,
     memo: `Stock adjustment ${command.adjustmentNumber ?? command.adjustmentId} (${command.reason})`,
     lines,
+    warehouseId: command.warehouseId,
   };
 }

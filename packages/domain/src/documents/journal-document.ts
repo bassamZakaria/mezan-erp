@@ -16,7 +16,13 @@ import type { CostCategory } from "../contracting/cost-category.js";
  */
 
 import { Money } from "../money/index.js";
-import { postJournalEntry, reverseJournalEntry, type JournalPostingDeps } from "../gl/index.js";
+import {
+  branchOfPostingWarehouse,
+  postJournalEntry,
+  reverseJournalEntry,
+  type JournalPostingDeps,
+  type WarehouseBranchLookup,
+} from "../gl/index.js";
 import {
   ApprovalRequestRejectedError,
   resubmitApproval,
@@ -142,9 +148,10 @@ export const journalDocumentType: DocumentTypeDefinition<JournalDocLine> = {
  * entry id equals the document id (`posting.sourceDocId`), so the ledger entry
  * and the document share one identity and one JE- number.
  */
-export function createJournalGlHook(deps: JournalPostingDeps): DocumentGlHook {
+export function createJournalGlHook(deps: JournalPostingDeps, warehouses?: WarehouseBranchLookup): DocumentGlHook {
   return {
     async post(posting) {
+      const warehouseBranchId = await branchOfPostingWarehouse(warehouses, posting.warehouseId);
       const entry = await postJournalEntry(
         {
           id: posting.sourceDocId,
@@ -167,7 +174,7 @@ export function createJournalGlHook(deps: JournalPostingDeps): DocumentGlHook {
             taxRatePercent: l.taxRatePercent ?? null,
             projectId: l.projectId ?? null,
             costCategory: l.costCategory ?? null,
-            branchId: l.branchId ?? null,
+            branchId: l.branchId ?? warehouseBranchId,
             currency: l.currency ?? null,
             fxRate: l.fxRate ?? null,
           })),

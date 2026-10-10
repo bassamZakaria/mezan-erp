@@ -387,6 +387,7 @@ export function buildGoodsReceiptPosting(
     sourceDocNumber: receipt.number,
     date: receipt.date,
     memo: `إذن استلام ${receipt.number}`,
+    warehouseId: receipt.warehouseId,
     lines: [
       ...debitLines,
       { accountId: accounts.goodsReceivedNotInvoicedAccountId, debit: Money.zero(), credit: value, projectId },

@@ -36,6 +36,7 @@ export {
   assertProjectRequired,
   assertPartyLines,
 } from "./post.js";
+export { branchOfPostingWarehouse, type WarehouseBranchLookup } from "./warehouse-branch.js";
 export {
   reverseJournalEntry,
   type ReverseJournalEntryOptions,

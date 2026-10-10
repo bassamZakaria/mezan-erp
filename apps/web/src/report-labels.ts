@@ -35,6 +35,7 @@ function tryTranslate(key: string, fallback: string, t: Translate): string {
 }
 
 function localizeParamField(id: string, field: ReportParamField, t: Translate): ReportParamField {
+  if (field.kind === "branch") return field;
   const label = tryTranslate(`report.${id}.param.${paramKeyOf(field)}`, field.label, t);
   if (field.kind === "text") {
     const placeholder = field.placeholder ? tryTranslate(`report.${id}.ph.${field.key}`, field.placeholder, t) : field.placeholder;

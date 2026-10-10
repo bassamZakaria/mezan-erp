@@ -12,6 +12,7 @@ import {
   type WritedownRun,
   type WritedownRunRepository,
   type JournalPostingDeps,
+  type WarehouseBranchLookup,
   type SettingsRepository,
 } from "@mezan/domain";
 import type { WacSnapshotRepository, StockLedgerRepository } from "@mezan/domain";
@@ -32,6 +33,7 @@ export interface InventoryWritedownRoutesDeps {
   readonly wacSnapshots: WacSnapshotRepository;
   readonly stockLedger: StockLedgerRepository;
   readonly gl: JournalPostingDeps;
+  readonly warehouses?: WarehouseBranchLookup;
   readonly accounts: {
     readonly writedownExpenseAccountId: string;
     readonly provisionAccountId: string;
@@ -140,6 +142,7 @@ export function createInventoryWritedownRoutes(
       const run = await postWritedownRun(c.req.param("id"), {
         runs: deps.runs,
         gl: deps.gl,
+        warehouses: deps.warehouses,
         accounts: deps.accounts,
       });
       return c.json(serializeRun(run));

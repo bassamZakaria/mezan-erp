@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { isoDateParamSchema } from "./iso-date.js";
-import { type GlReportContext, accountNet, isLedgerEffective, moneyToNumber, netBalancesByAccount } from "./gl-shared.js";
+import { type GlReportContext, accountNet, isLedgerEffective, lineInBranchView, moneyToNumber, netBalancesByAccount } from "./gl-shared.js";
+import { BRANCH_STATEMENT_PARAM_FIELD, branchIdParamSchema } from "./branch-filter.js";
 import { Money } from "../money/index.js";
 import type { Account } from "../accounts/account.js";
 import type { ReportDefinition } from "./types.js";
@@ -19,6 +20,7 @@ export interface AccountLedgerParams {
   readonly accountId: string;
   readonly periodFrom: string;
   readonly periodTo: string;
+  readonly branchId?: string;
 }
 
 export interface AccountLedgerRow {
@@ -34,6 +36,7 @@ export interface AccountLedgerRow {
   /** The account + period-end this statement was run for — used to cross-check the running balance. */
   readonly accountId: string;
   readonly periodTo: string;
+  readonly branchId?: string;
 }
 
 const DATE = isoDateParamSchema;
@@ -44,6 +47,7 @@ function buildParamsSchema(accountIds: readonly string[]): z.ZodType<AccountLedg
       accountId: z.string().refine((id) => accountIds.includes(id), { message: "اختر حساباً" }),
       periodFrom: DATE,
       periodTo: DATE,
+      branchId: branchIdParamSchema,
     })
     .refine((p) => p.periodFrom <= p.periodTo, {
       message: "تاريخ البداية يجب أن يسبق تاريخ النهاية",
@@ -74,6 +78,7 @@ export function createAccountLedgerReport(
     paramFields: [
       { kind: "select", key: "accountId", label: "الحساب", options },
       { kind: "dateRange", fromKey: "periodFrom", toKey: "periodTo", label: "الفترة" },
+      BRANCH_STATEMENT_PARAM_FIELD,
     ],
     onDemand: true,
     rowKey: (row) => row.rowId,
@@ -93,7 +98,7 @@ export function createAccountLedgerReport(
       computeReferenceTotal: (rows, ctx) => {
         const first = rows[0];
         if (!first) return 0;
-        return accountNet(ctx.journalEntries, first.accountId, { to: first.periodTo });
+        return accountNet(ctx.journalEntries, first.accountId, { to: first.periodTo }, { branchScope: ctx.branchScope, branchId: first.branchId });
       },
       toleranceMoney: 0.01,
     },
@@ -111,11 +116,12 @@ export function createAccountLedgerReport(
       captionAr: "الرصيد الجاري بعد كل حركة من آخر اثنتي عشرة حركة في الفترة.",
     },
     run: (params, ctx) => {
+      const branchView = { branchScope: ctx.branchScope, branchId: params.branchId };
       // The running balance is carried in `Money` and converted once per row
       // (C-10): a float running total drifts down a long account ledger, and
       // the closing balance is the figure a reconciliation is judged on.
       const openingMoney =
-        netBalancesByAccount(ctx.journalEntries, { to: dayBefore(params.periodFrom) }).get(params.accountId) ??
+        netBalancesByAccount(ctx.journalEntries, { to: dayBefore(params.periodFrom) }, branchView).get(params.accountId) ??
         Money.zero();
       const opening = moneyToNumber(openingMoney);
       const rows: AccountLedgerRow[] = [
@@ -130,6 +136,7 @@ export function createAccountLedgerReport(
           isOpening: true,
           accountId: params.accountId,
           periodTo: params.periodTo,
+          branchId: params.branchId,
         },
       ];
 
@@ -137,13 +144,13 @@ export function createAccountLedgerReport(
       let seq = 0;
       const inPeriod = ctx.journalEntries
         .filter(
-          (e) => isLedgerEffective(e) && e.date >= params.periodFrom && e.date <= params.periodTo && e.lines.some((l) => l.accountId === params.accountId),
+          (e) => isLedgerEffective(e) && e.date >= params.periodFrom && e.date <= params.periodTo && e.lines.some((l) => l.accountId === params.accountId && lineInBranchView(l, branchView)),
         )
         .sort((a, b) => a.date.localeCompare(b.date) || (a.entryNo ?? a.id).localeCompare(b.entryNo ?? b.id));
 
       for (const entry of inPeriod) {
         for (const line of entry.lines) {
-          if (line.accountId !== params.accountId) continue;
+          if (line.accountId !== params.accountId || !lineInBranchView(line, branchView)) continue;
           running = running.add(line.debit).add(line.credit.negate());
           seq += 1;
           rows.push({
@@ -157,6 +164,7 @@ export function createAccountLedgerReport(
             isOpening: false,
             accountId: params.accountId,
             periodTo: params.periodTo,
+            branchId: params.branchId,
           });
         }
       }

@@ -266,7 +266,7 @@ export class ChequeService {
         sourceDocType: "CHEQUE",
         sourceDocId: cmd.id,
         sourceDocNumber: cmd.chequeNumber,
-        lines,
+        lines: lines.map((line) => ({ ...line, branchId: cmd.branchId })),
       },
       this.deps.gl,
     );
@@ -311,7 +311,7 @@ export class ChequeService {
         sourceDocType: "CHEQUE",
         sourceDocId: cheque.id,
         sourceDocNumber: cheque.chequeNumber,
-        lines,
+        lines: lines.map((line) => ({ ...line, branchId: cheque.branchId })),
       },
       this.deps.gl,
     );
@@ -358,7 +358,7 @@ export class ChequeService {
           sourceDocType: "CHEQUE",
           sourceDocId: cheque.id,
           sourceDocNumber: cheque.chequeNumber,
-          lines,
+          lines: lines.map((line) => ({ ...line, branchId: cheque.branchId })),
         },
         this.deps.gl,
       );
@@ -521,8 +521,8 @@ export class ChequeService {
         source: "system",
         sourceDocType: "CHEQUE",
         lines: [
-          { accountId: original.controlAccounts.underCollectionAccountId, debit: amount, credit: Money.zero() },
-          { accountId: counterpartyGlAccountId, debit: Money.zero(), credit: amount },
+          { accountId: original.controlAccounts.underCollectionAccountId, debit: amount, credit: Money.zero(), branchId: cmd.newCheque.branchId },
+          { accountId: counterpartyGlAccountId, debit: Money.zero(), credit: amount, branchId: cmd.newCheque.branchId },
         ],
       },
       this.deps.gl,

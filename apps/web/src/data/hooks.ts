@@ -4536,15 +4536,22 @@ export function useGenerateFiscalYear() {
   });
 }
 
-function useFiscalPeriodTransition(action: "close" | "reopen" | "lock", fallbackMessage: string) {
+enum FiscalPeriodTransitionAction {
+  Close = "close",
+  Reopen = "reopen",
+  Lock = "lock",
+}
+
+function useFiscalPeriodTransition(action: FiscalPeriodTransitionAction, fallbackMessage: string) {
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<FiscalPeriodDTO, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/fiscal-periods/${id}/${action}`, { method: "POST" });
       if (!res.ok) {
-        const refusal = (await res.json<{ error?: string }>().catch(() => ({}))) as { error?: string };
-        throw new ApiError(res.status, await readError(res, fallbackMessage), undefined, undefined, refusal.error);
+        // Read ONCE: over HTTP the body is a stream, and a second read rejects.
+        const refusal = (await res.json<{ error?: string; message?: string }>().catch(() => ({}))) as { error?: string; message?: string };
+        throw new ApiError(res.status, refusal.message ? refusal.message : fallbackMessage, undefined, undefined, refusal.error);
       }
       return res.json<FiscalPeriodDTO>();
     },
@@ -4555,17 +4562,17 @@ function useFiscalPeriodTransition(action: "close" | "reopen" | "lock", fallback
 /** إغلاق الفترة (مفتوحة → مغلقة). */
 export function useClosePeriod() {
   const { t } = useAppTranslation();
-  return useFiscalPeriodTransition("close", t("api.thePeriodCouldNotBe"));
+  return useFiscalPeriodTransition(FiscalPeriodTransitionAction.Close, t("api.thePeriodCouldNotBe"));
 }
 /** إعادة فتح الفترة (مغلقة → مفتوحة). */
 export function useReopenPeriod() {
   const { t } = useAppTranslation();
-  return useFiscalPeriodTransition("reopen", t("api.thePeriodCouldNotBe2"));
+  return useFiscalPeriodTransition(FiscalPeriodTransitionAction.Reopen, t("api.thePeriodCouldNotBe2"));
 }
 /** قفل الفترة (مغلقة → مقفلة، نهائي). */
 export function useLockPeriod() {
   const { t } = useAppTranslation();
-  return useFiscalPeriodTransition("lock", t("api.thePeriodCouldNotBe3"));
+  return useFiscalPeriodTransition(FiscalPeriodTransitionAction.Lock, t("api.thePeriodCouldNotBe3"));
 }
 
 /**

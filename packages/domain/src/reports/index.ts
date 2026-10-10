@@ -305,6 +305,7 @@ export {
   type GeneralLedgerRow,
 } from "./general-ledger.js";
 export {
+  accountLedgerBranchCaveat,
   createAccountLedgerReport,
   type AccountLedgerParams,
   type AccountLedgerRow,
@@ -339,8 +340,11 @@ export {
   BRANCH_STATEMENT_PARAM_FIELD,
   UNATTRIBUTED_BRANCH_ID,
   UNATTRIBUTED_BRANCH_LABEL,
+  BranchCaveatCode,
+  includesUnattributedCaveat,
   matchesStatementBranch,
   withinBranchScope,
+  type BranchCaveat,
 } from "./branch-filter.js";
 export { isoDateParamSchema, isRealIsoDate } from "./iso-date.js";
 export {

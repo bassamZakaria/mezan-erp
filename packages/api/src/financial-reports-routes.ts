@@ -1,6 +1,8 @@
 import { Hono, type Context } from "hono";
 import {
+  accountLedgerBranchCaveat,
   createAccountLedgerReport,
+  type BranchCaveat,
   createBalanceSheetReport,
   createCashFlowReport,
   createGeneralLedgerReport,
@@ -90,7 +92,11 @@ function firstOfMonth(today: string): string {
   return `${today.slice(0, 7)}-01`;
 }
 
-function respond(c: Context, outcome: RunReportOutcome<unknown, unknown>): Response {
+function respond<TParams>(
+  c: Context,
+  outcome: RunReportOutcome<TParams, unknown>,
+  branchCaveatOf?: (params: TParams) => BranchCaveat | null,
+): Response {
   if (!outcome.ok) {
     return c.json({ error: "VALIDATION_ERROR", errors: outcome.errors }, 400);
   }
@@ -101,6 +107,7 @@ function respond(c: Context, outcome: RunReportOutcome<unknown, unknown>): Respo
     grandTotals: outcome.grandTotals,
     reconciliation: outcome.reconciliation,
     kpis: outcome.kpis,
+    ...(branchCaveatOf ? { branchCaveat: branchCaveatOf(outcome.params) } : {}),
   });
 }
 
@@ -274,7 +281,7 @@ export function createFinancialReportsRoutes(
     const params = mergeParams(c, definition.defaultParams);
     // The opening balance needs every entry before periodFrom.
     const ctx = await loadGlContext(c, { toDate: isoDateOrUndefined(params.periodTo) }, accounts);
-    return respond(c, runReport(definition, params, ctx));
+    return respond(c, runReport(definition, params, ctx), (ran) => accountLedgerBranchCaveat(ran, ctx));
   });
 
   return app;

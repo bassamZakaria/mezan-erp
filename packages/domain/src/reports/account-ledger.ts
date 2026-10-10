@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { isoDateParamSchema } from "./iso-date.js";
-import { type GlReportContext, accountNet, isLedgerEffective, lineInBranchView, moneyToNumber, netBalancesByAccount } from "./gl-shared.js";
-import { BRANCH_STATEMENT_PARAM_FIELD, branchIdParamSchema } from "./branch-filter.js";
+import { type GlReportContext, accountActivity, accountNet, isLedgerEffective, lineInBranchView, moneyToNumber, netBalancesByAccount } from "./gl-shared.js";
+import { BRANCH_STATEMENT_PARAM_FIELD, UNATTRIBUTED_BRANCH_ID, branchIdParamSchema, includesUnattributedCaveat, type BranchCaveat } from "./branch-filter.js";
 import { Money } from "../money/index.js";
 import type { Account } from "../accounts/account.js";
 import type { ReportDefinition } from "./types.js";
@@ -61,6 +61,22 @@ function dayBefore(date: string): string {
   const d = new Date(`${date}T00:00:00Z`);
   d.setUTCDate(d.getUTCDate() - 1);
   return d.toISOString().slice(0, 10);
+}
+
+/**
+ * The caveat a scoped account statement carries: with no single branch picked,
+ * its balance is the caller's branches PLUS every unattributed posting on the
+ * account. Null when the view is the whole company, one named bucket, or the
+ * account holds no unattributed line the caller can read.
+ */
+export function accountLedgerBranchCaveat(
+  params: Pick<AccountLedgerParams, "accountId" | "periodTo" | "branchId">,
+  ctx: Pick<GlReportContext, "journalEntries" | "branchScope">,
+): BranchCaveat | null {
+  if (!ctx.branchScope || (params.branchId ?? "") !== "") return null;
+  const unattributed = accountActivity(ctx.journalEntries, params.accountId, { to: params.periodTo }, { branchId: UNATTRIBUTED_BRANCH_ID });
+  if (unattributed.entries.length === 0) return null;
+  return includesUnattributedCaveat(unattributed.debit.add(unattributed.credit.negate()));
 }
 
 export function createAccountLedgerReport(

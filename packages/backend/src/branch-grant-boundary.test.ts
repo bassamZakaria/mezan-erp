@@ -728,3 +728,72 @@ describe("D111 · what hangs off a document is no more readable than the documen
     expect((await mainOnly("GET", "/attachments/D111-ATT-OWN/content")).status).toBe(404);
   });
 });
+
+describe("D111 · a branch-filtered statement says when its balance includes unattributed postings", () => {
+  const PERIOD = `periodFrom=2020-01-01&periodTo=${TODAY}`;
+  const unattributedNet = (accountId: string) =>
+    one<{ net: number; n: number }>(
+      "SELECT COALESCE(SUM(l.debit - l.credit), 0) AS net, COUNT(*) AS n FROM journal_line l JOIN journal_entry e ON e.id = l.entry_id WHERE l.account_id = ? AND l.branch_id IS NULL AND e.status IN ('posted', 'reversed') AND e.date <= ?",
+      accountId,
+      TODAY,
+    )!;
+  const scaled = (money: string) => BigInt(money.replace(".", ""));
+
+  it("account ledger: names the unattributed amount inside a branch-granted balance, exactly", async () => {
+    const accountId = one<{ id: string }>(
+      "SELECT l.account_id AS id FROM journal_line l JOIN journal_entry e ON e.id = l.entry_id WHERE l.branch_id IS NULL AND e.status = 'posted' AND l.account_id IN (SELECT account_id FROM journal_line WHERE branch_id = ?) GROUP BY l.account_id HAVING SUM(l.debit - l.credit) <> 0 LIMIT 1",
+      ALEX,
+    )!.id;
+    const expected = unattributedNet(accountId);
+    expect(expected.n).toBeGreaterThan(0);
+
+    const res = await alexWithUnattributed("GET", `/financial-reports/account-ledger?accountId=${accountId}&${PERIOD}`);
+    expect(res.status).toBe(200);
+    expect(res.body.branchCaveat).toMatchObject({ code: "INCLUDES_UNATTRIBUTED" });
+    expect(res.body.branchCaveat.message).toMatch(ARABIC);
+    expect(scaled(res.body.branchCaveat.unattributedNet)).toBe(BigInt(expected.net));
+
+    const withoutPermission = await alex("GET", `/financial-reports/account-ledger?accountId=${accountId}&${PERIOD}`);
+    expect(withoutPermission.body.branchCaveat).toBeNull();
+    const oneBranch = await alexWithUnattributed("GET", `/financial-reports/account-ledger?accountId=${accountId}&${PERIOD}&branchId=${ALEX}`);
+    expect(oneBranch.body.branchCaveat).toBeNull();
+    const wholeCompany = await admin("GET", `/financial-reports/account-ledger?accountId=${accountId}&${PERIOD}`);
+    expect(wholeCompany.body.branchCaveat).toBeNull();
+    const narrowedInShell = await admin("GET", `/financial-reports/account-ledger?accountId=${accountId}&${PERIOD}`, undefined, { "x-branch-scope": ALEX });
+    expect(narrowedInShell.body.branchCaveat).toMatchObject({ code: "INCLUDES_UNATTRIBUTED" });
+  });
+
+  for (const [kind, listPath] of [["customers", "/customers"], ["suppliers", "/suppliers"]] as const) {
+    it(`${kind} statement: a branch-filtered view names the unattributed opening and journal items it carries`, async () => {
+      const inMain = { "x-branch-scope": MAIN };
+      const control = kind === "customers" ? { accountId: "1105", partyId: "CUST-DEMO-1" } : { accountId: "2100", partyId: "SUPP-DEMO-1" };
+      const posted = await admin("POST", "/gl/journal-entries", {
+        id: `D111-JE-PARTY-${kind}`,
+        date: TODAY,
+        memo: "تسوية على حساب الطرف بلا فرع",
+        source: "manual",
+        lines: [
+          { accountId: control.accountId, debit: "50.00", credit: "0", partyId: control.partyId },
+          { accountId: "2190", debit: "0", credit: "50.00" },
+        ],
+      });
+      expect(posted.status, JSON.stringify(posted.body).slice(0, 300)).toBe(201);
+      let found: { id: string; net: bigint } | null = null;
+      for (const party of rowsOf((await admin("GET", `${listPath}?pageSize=200`)).body)) {
+        const statement = await admin("GET", `/reports/statements/${kind}/${party.id}`, undefined, inMain);
+        if (statement.status !== 200) continue;
+        const loose = statement.body.lines.filter((line: any) => ["opening", "journal", "imported"].includes(line.kind));
+        if (loose.length === 0) continue;
+        found = { id: party.id, net: loose.reduce((net: bigint, line: any) => net + scaled(line.increase) - scaled(line.decrease), 0n) };
+        expect(statement.body.branchCaveat).toMatchObject({ code: "INCLUDES_UNATTRIBUTED" });
+        expect(statement.body.branchCaveat.message).toMatch(ARABIC);
+        expect(scaled(statement.body.branchCaveat.unattributedNet)).toBe(found.net);
+        break;
+      }
+      expect(found, `the seed must hold a ${kind} party with an opening balance, or this proves nothing`).not.toBeNull();
+      const whole = await admin("GET", `/reports/statements/${kind}/${found!.id}`);
+      expect(whole.status).toBe(200);
+      expect(whole.body.branchCaveat).toBeNull();
+    });
+  }
+});

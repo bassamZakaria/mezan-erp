@@ -196,6 +196,7 @@ function statementOf(partyId: string, lines: StatementLine[], agingTotal?: strin
   return {
     partyId,
     asOfDate: "2026-08-31",
+    branchCaveat: null,
     lines: built,
     totalIncrease: increase.toFixed(6),
     totalDecrease: decrease.toFixed(6),

@@ -45,6 +45,8 @@ import {
   INPUT_VAT_ACCOUNT_ID,
   ACCOUNT_TYPE_LABELS,
   accountActivity,
+  includesUnattributedCaveat,
+  type BranchCaveat,
   isoDateParamSchema,
   roundMoney,
   toTenantDay,
@@ -1694,10 +1696,24 @@ export function createReportsRoutes(
       }));
   }
 
-  function serializeStatement(partyId: string, asOfDate: string, statement: PartyStatement, agingTotal: Money) {
+  /**
+   * The items of a party's statement that sit on the control account with no
+   * branch of their own: an opening balance (posted unattributed by decision,
+   * whatever branch the party belongs to) and any other item carrying none.
+   */
+  function partyBranchCaveat(c: Context, items: readonly AgingOpenItem[], partyId: string, asOfDate: string): BranchCaveat | null {
+    if (!branchScopeOf(c)) return null;
+    const unattributed = items.filter(
+      (item) => item.partyId === partyId && item.date <= asOfDate && (item.source === "opening" || item.branchId == null),
+    );
+    return unattributed.length === 0 ? null : includesUnattributedCaveat(Money.sum(unattributed.map((item) => item.amount)));
+  }
+
+  function serializeStatement(partyId: string, asOfDate: string, statement: PartyStatement, agingTotal: Money, branchCaveat: BranchCaveat | null) {
     return {
       partyId,
       asOfDate,
+      branchCaveat,
       lines: statement.lines.map((line) => ({
         key: line.key,
         date: line.date,
@@ -1784,7 +1800,15 @@ export function createReportsRoutes(
     entries.push(...openItemEntries(terms.openItems ?? [], id, asOfDate));
     entries.push(...(await realisedFxEntries(RECEIVABLES_CONTROL_ACCOUNT_ID, id, asOfDate, 1n)));
     const row = customerAgingBalances({ asOfDate, branchId: "" }, { invoices, ...terms }).get(id);
-    return c.json(serializeStatement(id, asOfDate, buildPartyStatement(entries), row ? agingBucketsTotal(row) : Money.zero()));
+    return c.json(
+      serializeStatement(
+        id,
+        asOfDate,
+        buildPartyStatement(entries),
+        row ? agingBucketsTotal(row) : Money.zero(),
+        partyBranchCaveat(c, terms.openItems ?? [], id, asOfDate),
+      ),
+    );
   });
 
   app.get("/statements/suppliers/:id", gate("purchases.supplier.view"), async (c) => {
@@ -1865,7 +1889,15 @@ export function createReportsRoutes(
     entries.push(...openItemEntries(terms.openItems ?? [], id, asOfDate));
     entries.push(...(await realisedFxEntries(PAYABLES_CONTROL_ACCOUNT_ID, id, asOfDate, -1n)));
     const row = supplierAgingBalances({ asOfDate, branchId: "" }, { invoices, ...terms }).get(id);
-    return c.json(serializeStatement(id, asOfDate, buildPartyStatement(entries), row ? supplierAgingTotal(row) : Money.zero()));
+    return c.json(
+      serializeStatement(
+        id,
+        asOfDate,
+        buildPartyStatement(entries),
+        row ? supplierAgingTotal(row) : Money.zero(),
+        partyBranchCaveat(c, terms.openItems ?? [], id, asOfDate),
+      ),
+    );
   });
 
   // --- الأقساط ---------------------------------------------------------

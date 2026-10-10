@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { Money } from "../money/index.js";
 import type { ReportParamField } from "./types.js";
 import { ReportParamKind } from "./types.js";
 
@@ -128,4 +129,32 @@ export function branchOfWarehouse(
 ): (warehouseId: string) => string | null {
   const index = new Map((warehouses ?? []).map((warehouse) => [warehouse.id, warehouse.branchId]));
   return (warehouseId) => index.get(warehouseId) ?? null;
+}
+
+export enum BranchCaveatCode {
+  IncludesUnattributed = "INCLUDES_UNATTRIBUTED",
+}
+
+/**
+ * What a branch-filtered statement owes its reader when its balance is not the
+ * branches' alone: opening balances and company-level entries post with no
+ * branch (DEC-20), stay inside a scoped view, and are otherwise
+ * indistinguishable from the branch's own movement.
+ */
+export interface BranchCaveat {
+  readonly code: BranchCaveatCode;
+  readonly message: string;
+  readonly messageEn: string;
+  /** Net of the unattributed postings inside the balance shown, as an exact decimal. */
+  readonly unattributedNet: string;
+}
+
+export function includesUnattributedCaveat(unattributedNet: Money): BranchCaveat {
+  return {
+    code: BranchCaveatCode.IncludesUnattributed,
+    message: `العرض مقيَّد بفروعك، لكن الرصيد يشمل حركات «${UNATTRIBUTED_BRANCH_LABEL}» لفرع — أرصدة افتتاحية وقيود على مستوى المنشأة — فهو ليس رصيد فروعك وحدها.`,
+    messageEn:
+      "This view is limited to your branches, but the balance includes postings assigned to no branch — opening balances and company-level entries — so it is not your branches' balance alone.",
+    unattributedNet: unattributedNet.toString(),
+  };
 }

@@ -120,6 +120,8 @@ export interface ReportRunnerResult<Row> {
 export interface ReportRunnerProps<Row> {
   title: string;
   description?: string;
+  /** A caveat about the figures themselves; shown above them and printed with them. */
+  notice?: ReactNode;
   paramFields: readonly ReportRunnerParamField[];
   /** Raw (untyped) param form state — keyed by each field's `key`/`fromKey`/`toKey`. */
   params: Record<string, string>;
@@ -331,6 +333,7 @@ function ParamField({
 export function ReportRunner<Row>({
   title,
   description,
+  notice,
   paramFields,
   params,
   onParamsChange,
@@ -435,6 +438,8 @@ export function ReportRunner<Row>({
           </Button>
         </div>
       </div>
+
+      {notice ? <div className="mb-[12px]">{notice}</div> : null}
 
       {pdfNotice ? (
         <p role="status" className="mb-[12px] text-[12px] text-ink-muted print:hidden">

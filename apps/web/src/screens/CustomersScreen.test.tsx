@@ -16,6 +16,7 @@ import type {
   SalesReturnLineDTO,
   VoucherAllocationDTO,
 } from "@mezan/contracts";
+import { BranchCaveatCodeDTO } from "@mezan/contracts";
 import type { VoucherRowDTO, SalesInvoiceDTO } from "../data/hooks";
 import { CustomersScreen } from "./CustomersScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
@@ -423,6 +424,7 @@ function statementOf(partyId: string, lines: StatementLine[], agingTotal?: strin
   return {
     partyId,
     asOfDate: "2026-08-31",
+    branchCaveat: null,
     lines: built,
     totalIncrease: increase.toFixed(6),
     totalDecrease: decrease.toFixed(6),
@@ -1149,6 +1151,39 @@ describe("CustomersScreen", () => {
     fireEvent.click(screen.getByRole("tab", { name: "كشف حساب" }));
 
     expect(await screen.findByText("يختلف عن تقرير أعمار الديون")).toBeInTheDocument();
+  });
+
+  it("prints the server's caveat above a branch-filtered statement whose balance carries unattributed postings", async () => {
+    renderScreen([customer({ id: "cust-1" })], {
+      statement: (id) => ({
+        body: {
+          ...statementOf(id, [{ kind: "opening", reference: "", increase: "250.000000", decrease: "0.000000" }]),
+          branchCaveat: {
+            code: BranchCaveatCodeDTO.IncludesUnattributed,
+            message: "العرض مقيَّد بفروعك، لكن الرصيد يشمل حركات غير مخصصة لفرع.",
+            messageEn: "Limited to your branches, but the balance includes unattributed postings.",
+            unattributedNet: "250.000000",
+          },
+        },
+      }),
+    });
+    fireEvent.click(await screen.findByText("شركة الأمل للتجارة"));
+    fireEvent.click(screen.getByRole("tab", { name: "كشف حساب" }));
+
+    const note = await screen.findByRole("note");
+    expect(note).toHaveTextContent("العرض مقيَّد بفروعك، لكن الرصيد يشمل حركات غير مخصصة لفرع.");
+    expect(note).toHaveTextContent("صافي غير المخصص ضمن الرصيد: 250.00");
+  });
+
+  it("prints no caveat when the server sends none", async () => {
+    renderScreen([customer({ id: "cust-1" })], {
+      statement: (id) => ({ body: statementOf(id, [{ kind: "opening", reference: "", increase: "250.000000", decrease: "0.000000" }]) }),
+    });
+    fireEvent.click(await screen.findByText("شركة الأمل للتجارة"));
+    fireEvent.click(screen.getByRole("tab", { name: "كشف حساب" }));
+
+    expect(await screen.findByText("الرصيد الختامي")).toBeInTheDocument();
+    expect(screen.queryByRole("note")).not.toBeInTheDocument();
   });
 
   it("recovers the statement tab via retry after its request fails once", async () => {

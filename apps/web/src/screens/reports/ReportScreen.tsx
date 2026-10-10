@@ -3,6 +3,7 @@ import { ReportChart, ReportRunner, type ReportRunnerEntityRef } from "@mezan/ui
 import type { ReportChartSpec, ReportColumn, ReportParamField } from "@mezan/domain";
 import { useReport } from "../../data/reports-hooks";
 import { useBranchParam } from "./branch-param";
+import { BranchCaveatNote } from "./BranchCaveatNote";
 import { localizeGroupLabel, localizeReportDefinition, tryReportLabel } from "../../report-labels";
 import { useAppTranslation, type AppTranslationKey } from "../../i18n";
 import { reportChartPoints } from "./chart-points";
@@ -171,6 +172,7 @@ export function ReportScreen<TParams extends object, Row>({ definition: rawDefin
     <ReportRunner
       title={definition.titleAr}
       description={caveat ? [definition.descriptionAr, caveat].filter(Boolean).join(" ") : definition.descriptionAr}
+      notice={query.data?.branchCaveat ? <BranchCaveatNote caveat={query.data.branchCaveat} /> : undefined}
       paramFields={paramFields}
       params={params}
       onParamsChange={setParams}

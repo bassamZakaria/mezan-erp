@@ -229,6 +229,8 @@ export async function run(ctx: Ctx): Promise<void> {
   // plant asset — and the totals below are exact.
 
   await scenario("fixed-assets · depreciation run matches each asset's category method/life; posting balances the GL", async () => {
+    const accumulatedBefore = n((await req("GET", "/assets/ASSET-DEMO-1")).body.accumulatedDepreciation);
+    checkEq("AST-0001 enters with the seeded months already depreciated: 68,980.645161", accumulatedBefore, 68980.645161);
     const run = await req("POST", "/assets/depreciation/runs", { period: "2026-08" });
     checkEq("run created", run.status, 201);
     check("starts 'draft'", run.body.status === "draft");
@@ -275,10 +277,14 @@ export async function run(ctx: Ctx): Promise<void> {
     checkEq("the entry balances: debit == credit",
       n(debitLine.debit) + n(plantDebit.debit), n(creditLine.credit) + n(plantCredit.credit));
 
+    // The demo now carries a posted run for every month from the asset's first (2024-03, prorated 17/31 days)
+    // through 2026-04 — 1,480.645161 + 25 × 2,700.00 = 68,980.645161 — so this run ADDS its 2,700.00 to that.
     const asset1 = await req("GET", "/assets/ASSET-DEMO-1");
-    checkEq("AST-0001's accumulated depreciation now 2,700.00", n(asset1.body.accumulatedDepreciation), 2700);
-    checkEq("AST-0001's book value == cost − accumulated == 177,300.00",
-      n(asset1.body.acquisitionCost) - n(asset1.body.accumulatedDepreciation), 177300);
+    checkEq("this run added exactly its own 2,700.00 to AST-0001's accumulated depreciation",
+      n(asset1.body.accumulatedDepreciation) - accumulatedBefore, 2700);
+    checkEq("AST-0001's accumulated depreciation is now 71,680.645161", n(asset1.body.accumulatedDepreciation), 71680.645161);
+    checkEq("AST-0001's book value == cost − accumulated == 108,319.354839",
+      n(asset1.body.acquisitionCost) - n(asset1.body.accumulatedDepreciation), 108319.354839);
   });
 
   // --- Fixed Assets: category + register creation validation (after the priority-3 run, so it can't add extra eligible lines) ---

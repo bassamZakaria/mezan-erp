@@ -181,7 +181,7 @@ function buildSources(ctx: BackendModuleContext, store: ReturnType<typeof create
       const groups = new Map<string | null, { dueAssets: number; uncoveredAssets: number }>();
       for (const asset of allAssets) {
         const due =
-          covered.has(asset.id) || (asset.status === SourceStatus.Active && computeMonthlyDepreciation(asset, period, "DAILY").amount.scaled > 0n);
+          covered.has(asset.id) || (asset.status === SourceStatus.Active && computeMonthlyDepreciation(asset, period).amount.scaled > 0n);
         if (!due) continue;
         const branchId = depreciationBranch(asset);
         const group = groups.get(branchId) ?? { dueAssets: 0, uncoveredAssets: 0 };

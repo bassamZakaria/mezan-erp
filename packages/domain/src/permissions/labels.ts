@@ -81,6 +81,7 @@ export const PERMISSION_ACTION_LABELS = {
   certify: { ar: "اعتماد الاستشاري", en: "Certify" },
   release: { ar: "إفراج", en: "Release" },
   post_entry: { ar: "ترحيل قيد من الكشف", en: "Post entry from statement" },
+  override_close: { ar: "تجاوز فحوص الإقفال", en: "Override close checks" },
 } as const satisfies Record<string, PermissionLabel>;
 
 export const PERMISSION_ENTITY_LABELS = {

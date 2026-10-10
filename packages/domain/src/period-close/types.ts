@@ -2,7 +2,9 @@ import type { Money } from "../money/index.js";
 
 export enum PeriodCloseCheckCode {
   Drafts = "drafts",
+  PendingApprovals = "pending_approvals",
   SubledgerTies = "subledger_ties",
+  TrialBalance = "trial_balance",
   BankStatements = "bank_statements",
   FxRevaluation = "fx_revaluation",
   RecurringJournals = "recurring_journals",
@@ -32,10 +34,9 @@ export enum PeriodCloseFixTarget {
   DepreciationRuns = "depreciation-runs",
   WritedownRuns = "writedown-runs",
   Payroll = "payroll",
+  Approvals = "approvals",
   Reconciliation = "reconciliation",
   TrialBalance = "trial-balance-report",
-  AgingCustomers = "report-aging-customers",
-  AgingSuppliers = "report-aging-suppliers",
   BankReconciliation = "bank-reconciliation",
   Revaluation = "revaluation",
   RecurringJournals = "recurring-journals",
@@ -58,17 +59,12 @@ export enum PeriodCloseDocKind {
   PayrollRun = "payroll_run",
 }
 
-export enum PeriodCloseTieKey {
-  Receivables = "receivables",
-  Payables = "payables",
-  Inventory = "inventory",
-  TrialBalance = "trial_balance",
-}
-
 export enum PeriodCloseFindingKind {
   Drafts = "drafts",
+  PendingApproval = "pending_approval",
   Tie = "tie",
-  BankAccount = "bank_account",
+  TrialBalance = "trial_balance",
+  BankStatement = "bank_statement",
   ForeignCurrency = "foreign_currency",
   RecurringTemplate = "recurring_template",
   DepreciationRun = "depreciation_run",
@@ -80,9 +76,9 @@ export enum PeriodCloseFindingState {
   Ok = "ok",
   Missing = "missing",
   Draft = "draft",
+  Pending = "pending",
   NotFinalized = "not_finalized",
   Mismatch = "mismatch",
-  Unavailable = "unavailable",
 }
 
 export enum PeriodCloseEntryState {
@@ -109,7 +105,6 @@ export interface PeriodCloseCheckResult {
   readonly status: PeriodCloseCheckStatus;
   readonly fix: PeriodCloseFixTarget | null;
   readonly findings: readonly PeriodCloseFinding[];
-  readonly message: string | null;
 }
 
 export interface PeriodCloseWindow {
@@ -126,23 +121,30 @@ export interface PeriodCloseEvaluation extends PeriodCloseWindow {
   readonly blocking: readonly PeriodCloseCheckCode[];
 }
 
-export interface PeriodCloseDraftCount {
+export interface PeriodCloseDocCount {
   readonly kind: PeriodCloseDocKind;
   readonly count: number;
 }
 
 export interface PeriodCloseTie {
-  readonly key: PeriodCloseTieKey;
-  readonly difference: Money | null;
+  readonly key: string;
+  readonly label: string;
+  readonly controlAccountId: string;
+  readonly difference: Money;
   readonly asOfDate: string;
-  readonly unavailableReason: string | null;
 }
 
-export interface PeriodCloseBankAccount {
-  readonly treasuryAccountId: string;
+export interface PeriodCloseTrialBalance {
+  readonly debit: Money;
+  readonly credit: Money;
+  readonly asOfDate: string;
+}
+
+export interface PeriodCloseBankStatement {
+  readonly statementId: string;
   readonly label: string;
-  readonly finalizedThrough: string | null;
-  readonly hasActivity: boolean;
+  readonly periodEnd: string;
+  readonly finalized: boolean;
 }
 
 export interface PeriodCloseRecurringDue {
@@ -168,9 +170,11 @@ export interface PeriodCloseEtaError {
 }
 
 export interface PeriodCloseSources {
-  draftCounts(window: PeriodCloseWindow): Promise<readonly PeriodCloseDraftCount[]>;
+  draftCounts(window: PeriodCloseWindow): Promise<readonly PeriodCloseDocCount[]>;
+  pendingApprovalCounts(window: PeriodCloseWindow): Promise<readonly PeriodCloseDocCount[]>;
   subledgerTies(window: PeriodCloseWindow): Promise<readonly PeriodCloseTie[]>;
-  bankAccounts(window: PeriodCloseWindow): Promise<readonly PeriodCloseBankAccount[]>;
+  trialBalance(window: PeriodCloseWindow): Promise<PeriodCloseTrialBalance>;
+  bankStatements(window: PeriodCloseWindow): Promise<readonly PeriodCloseBankStatement[]>;
   foreignCurrencies(window: PeriodCloseWindow): Promise<readonly string[]>;
   fxRevaluationPosted(window: PeriodCloseWindow): Promise<boolean>;
   recurringDue(window: PeriodCloseWindow): Promise<readonly PeriodCloseRecurringDue[]>;
@@ -179,8 +183,17 @@ export interface PeriodCloseSources {
   etaErrors(window: PeriodCloseWindow): Promise<readonly PeriodCloseEtaError[]>;
 }
 
+export type PeriodCloseCheckOutcome = Pick<PeriodCloseCheckResult, "status" | "findings">;
+
 export interface PeriodCloseCheckDefinition {
   readonly code: PeriodCloseCheckCode;
   readonly fix: PeriodCloseFixTarget | null;
-  evaluate(window: PeriodCloseWindow, sources: PeriodCloseSources): Promise<Omit<PeriodCloseCheckResult, "code" | "fix" | "message">>;
+  evaluate(window: PeriodCloseWindow, sources: PeriodCloseSources): Promise<PeriodCloseCheckOutcome>;
 }
+
+export interface PeriodCloseCheckFailure {
+  readonly code: PeriodCloseCheckCode;
+  readonly error: unknown;
+}
+
+export type PeriodCloseFailureReporter = (failure: PeriodCloseCheckFailure) => void;

@@ -6,10 +6,12 @@ import {
   PeriodCloseFindingKind,
   PeriodCloseFindingState,
   PeriodCloseFixTarget,
-  PeriodCloseTieKey,
   type PeriodCloseCheckDefinition,
+  type PeriodCloseCheckOutcome,
   type PeriodCloseCheckResult,
+  type PeriodCloseDocCount,
   type PeriodCloseEvaluation,
+  type PeriodCloseFailureReporter,
   type PeriodCloseFinding,
   type PeriodCloseSources,
   type PeriodCloseWindow,
@@ -31,32 +33,39 @@ export const PERIOD_CLOSE_DOC_KIND_FIX: Readonly<Record<PeriodCloseDocKind, Peri
   [PeriodCloseDocKind.PayrollRun]: PeriodCloseFixTarget.Payroll,
 };
 
-export const PERIOD_CLOSE_TIE_FIX: Readonly<Record<PeriodCloseTieKey, PeriodCloseFixTarget>> = {
-  [PeriodCloseTieKey.Receivables]: PeriodCloseFixTarget.AgingCustomers,
-  [PeriodCloseTieKey.Payables]: PeriodCloseFixTarget.AgingSuppliers,
-  [PeriodCloseTieKey.Inventory]: PeriodCloseFixTarget.Reconciliation,
-  [PeriodCloseTieKey.TrialBalance]: PeriodCloseFixTarget.TrialBalance,
-};
+const MAX_LISTED_ITEMS = 20;
 
-function finding(partial: Pick<PeriodCloseFinding, "kind" | "ref" | "state" | "passed" | "fix"> & Partial<PeriodCloseFinding>): PeriodCloseFinding {
-  return {
-    label: null,
-    count: null,
-    amount: null,
-    asOfDate: null,
-    items: [],
-    ...partial,
-  };
+type FindingInput = Pick<PeriodCloseFinding, "kind" | "ref" | "state" | "passed" | "fix"> & Partial<PeriodCloseFinding>;
+
+function finding(partial: FindingInput): PeriodCloseFinding {
+  return { label: null, count: null, amount: null, asOfDate: null, items: [], ...partial };
 }
 
-function statusOf(findings: readonly PeriodCloseFinding[], applicable = true): PeriodCloseCheckStatus {
-  if (!applicable) return PeriodCloseCheckStatus.NotApplicable;
-  if (findings.some((f) => f.state === PeriodCloseFindingState.Unavailable)) return PeriodCloseCheckStatus.Unavailable;
-  return findings.every((f) => f.passed) ? PeriodCloseCheckStatus.Pass : PeriodCloseCheckStatus.Fail;
+function outcome(findings: readonly PeriodCloseFinding[], applicable = true): PeriodCloseCheckOutcome {
+  if (!applicable) return { status: PeriodCloseCheckStatus.NotApplicable, findings };
+  const status = findings.every((f) => f.passed) ? PeriodCloseCheckStatus.Pass : PeriodCloseCheckStatus.Fail;
+  return { status, findings };
 }
 
 function periodMonthKey(window: PeriodCloseWindow): string {
   return window.startDate.slice(0, 7);
+}
+
+function entryFindingState(entry: PeriodCloseEntryState): PeriodCloseFindingState {
+  if (entry === PeriodCloseEntryState.Posted) return PeriodCloseFindingState.Ok;
+  if (entry === PeriodCloseEntryState.Draft) return PeriodCloseFindingState.Draft;
+  return PeriodCloseFindingState.Missing;
+}
+
+function docCountFindings(
+  counts: readonly PeriodCloseDocCount[],
+  kind: PeriodCloseFindingKind,
+  state: PeriodCloseFindingState,
+  fixOf: (docKind: PeriodCloseDocKind) => PeriodCloseFixTarget,
+): PeriodCloseFinding[] {
+  return counts
+    .filter((c) => c.count > 0)
+    .map((c) => finding({ kind, ref: c.kind, state, passed: false, fix: fixOf(c.kind), count: c.count }));
 }
 
 const draftsCheck: PeriodCloseCheckDefinition = {
@@ -64,19 +73,16 @@ const draftsCheck: PeriodCloseCheckDefinition = {
   fix: PeriodCloseFixTarget.Journals,
   async evaluate(window, sources) {
     const counts = await sources.draftCounts(window);
-    const findings = counts
-      .filter((c) => c.count > 0)
-      .map((c) =>
-        finding({
-          kind: PeriodCloseFindingKind.Drafts,
-          ref: c.kind,
-          state: PeriodCloseFindingState.Draft,
-          passed: false,
-          fix: PERIOD_CLOSE_DOC_KIND_FIX[c.kind],
-          count: c.count,
-        }),
-      );
-    return { status: statusOf(findings), findings };
+    return outcome(docCountFindings(counts, PeriodCloseFindingKind.Drafts, PeriodCloseFindingState.Draft, (k) => PERIOD_CLOSE_DOC_KIND_FIX[k]));
+  },
+};
+
+const pendingApprovalsCheck: PeriodCloseCheckDefinition = {
+  code: PeriodCloseCheckCode.PendingApprovals,
+  fix: PeriodCloseFixTarget.Approvals,
+  async evaluate(window, sources) {
+    const counts = await sources.pendingApprovalCounts(window);
+    return outcome(docCountFindings(counts, PeriodCloseFindingKind.PendingApproval, PeriodCloseFindingState.Pending, () => PeriodCloseFixTarget.Approvals));
   },
 };
 
@@ -86,29 +92,40 @@ const tiesCheck: PeriodCloseCheckDefinition = {
   async evaluate(window, sources) {
     const ties = await sources.subledgerTies(window);
     const findings = ties.map((tie) => {
-      if (tie.difference === null) {
-        return finding({
-          kind: PeriodCloseFindingKind.Tie,
-          ref: tie.key,
-          state: PeriodCloseFindingState.Unavailable,
-          passed: false,
-          fix: PERIOD_CLOSE_TIE_FIX[tie.key],
-          asOfDate: tie.asOfDate,
-          label: tie.unavailableReason,
-        });
-      }
       const tied = tie.difference.scaled === 0n;
       return finding({
         kind: PeriodCloseFindingKind.Tie,
         ref: tie.key,
+        label: `${tie.label} (${tie.controlAccountId})`,
         state: tied ? PeriodCloseFindingState.Ok : PeriodCloseFindingState.Mismatch,
         passed: tied,
-        fix: PERIOD_CLOSE_TIE_FIX[tie.key],
+        fix: PeriodCloseFixTarget.Reconciliation,
         amount: tie.difference,
         asOfDate: tie.asOfDate,
       });
     });
-    return { status: statusOf(findings), findings };
+    return outcome(findings, findings.length > 0);
+  },
+};
+
+const trialBalanceCheck: PeriodCloseCheckDefinition = {
+  code: PeriodCloseCheckCode.TrialBalance,
+  fix: PeriodCloseFixTarget.TrialBalance,
+  async evaluate(window, sources) {
+    const totals = await sources.trialBalance(window);
+    const difference = totals.debit.add(totals.credit.negate());
+    const balanced = difference.scaled === 0n;
+    return outcome([
+      finding({
+        kind: PeriodCloseFindingKind.TrialBalance,
+        ref: PeriodCloseCheckCode.TrialBalance,
+        state: balanced ? PeriodCloseFindingState.Ok : PeriodCloseFindingState.Mismatch,
+        passed: balanced,
+        fix: PeriodCloseFixTarget.TrialBalance,
+        amount: difference,
+        asOfDate: totals.asOfDate,
+      }),
+    ]);
   },
 };
 
@@ -116,20 +133,19 @@ const bankCheck: PeriodCloseCheckDefinition = {
   code: PeriodCloseCheckCode.BankStatements,
   fix: PeriodCloseFixTarget.BankReconciliation,
   async evaluate(window, sources) {
-    const accounts = (await sources.bankAccounts(window)).filter((a) => a.hasActivity || a.finalizedThrough !== null);
-    const findings = accounts.map((a) => {
-      const through = a.finalizedThrough !== null && a.finalizedThrough >= window.endDate;
-      return finding({
-        kind: PeriodCloseFindingKind.BankAccount,
-        ref: a.treasuryAccountId,
-        label: a.label,
-        state: through ? PeriodCloseFindingState.Ok : PeriodCloseFindingState.NotFinalized,
-        passed: through,
+    const statements = await sources.bankStatements(window);
+    const findings = statements.map((s) =>
+      finding({
+        kind: PeriodCloseFindingKind.BankStatement,
+        ref: s.statementId,
+        label: s.label,
+        state: s.finalized ? PeriodCloseFindingState.Ok : PeriodCloseFindingState.NotFinalized,
+        passed: s.finalized,
         fix: PeriodCloseFixTarget.BankReconciliation,
-        asOfDate: a.finalizedThrough,
-      });
-    });
-    return { status: statusOf(findings, findings.length > 0), findings };
+        asOfDate: s.periodEnd,
+      }),
+    );
+    return outcome(findings, findings.length > 0);
   },
 };
 
@@ -138,20 +154,20 @@ const fxCheck: PeriodCloseCheckDefinition = {
   fix: PeriodCloseFixTarget.Revaluation,
   async evaluate(window, sources) {
     const currencies = await sources.foreignCurrencies(window);
-    if (currencies.length === 0) return { status: PeriodCloseCheckStatus.NotApplicable, findings: [] };
+    if (currencies.length === 0) return outcome([], false);
     const posted = await sources.fxRevaluationPosted(window);
-    const findings = [
+    return outcome([
       finding({
         kind: PeriodCloseFindingKind.ForeignCurrency,
         ref: currencies.join(","),
         state: posted ? PeriodCloseFindingState.Ok : PeriodCloseFindingState.Missing,
         passed: posted,
         fix: PeriodCloseFixTarget.Revaluation,
+        count: currencies.length,
         items: currencies,
         asOfDate: window.endDate,
       }),
-    ];
-    return { status: statusOf(findings), findings };
+    ]);
   },
 };
 
@@ -160,19 +176,18 @@ const recurringCheck: PeriodCloseCheckDefinition = {
   fix: PeriodCloseFixTarget.RecurringJournals,
   async evaluate(window, sources) {
     const due = await sources.recurringDue(window);
-    const findings = due.map((d) => {
-      const posted = d.entry === PeriodCloseEntryState.Posted;
-      return finding({
+    const findings = due.map((d) =>
+      finding({
         kind: PeriodCloseFindingKind.RecurringTemplate,
-        ref: d.templateId,
+        ref: `${d.templateId}:${d.periodKey}`,
         label: d.label,
-        state: posted ? PeriodCloseFindingState.Ok : d.entry === PeriodCloseEntryState.Draft ? PeriodCloseFindingState.Draft : PeriodCloseFindingState.Missing,
-        passed: posted,
+        state: entryFindingState(d.entry),
+        passed: d.entry === PeriodCloseEntryState.Posted,
         fix: d.entry === PeriodCloseEntryState.Draft ? PeriodCloseFixTarget.Journals : PeriodCloseFixTarget.RecurringJournals,
         items: [d.periodKey],
-      });
-    });
-    return { status: statusOf(findings, findings.length > 0), findings };
+      }),
+    );
+    return outcome(findings, findings.length > 0);
   },
 };
 
@@ -181,19 +196,17 @@ const depreciationCheck: PeriodCloseCheckDefinition = {
   fix: PeriodCloseFixTarget.DepreciationRuns,
   async evaluate(window, sources) {
     const state = await sources.depreciation(window);
-    if (state.depreciableAssets === 0) return { status: PeriodCloseCheckStatus.NotApplicable, findings: [] };
-    const posted = state.run === PeriodCloseEntryState.Posted;
-    const findings = [
+    if (state.depreciableAssets === 0) return outcome([], false);
+    return outcome([
       finding({
         kind: PeriodCloseFindingKind.DepreciationRun,
         ref: periodMonthKey(window),
-        state: posted ? PeriodCloseFindingState.Ok : state.run === PeriodCloseEntryState.Draft ? PeriodCloseFindingState.Draft : PeriodCloseFindingState.Missing,
-        passed: posted,
+        state: entryFindingState(state.run),
+        passed: state.run === PeriodCloseEntryState.Posted,
         fix: PeriodCloseFixTarget.DepreciationRuns,
         count: state.depreciableAssets,
       }),
-    ];
-    return { status: statusOf(findings), findings };
+    ]);
   },
 };
 
@@ -207,16 +220,16 @@ const sequenceCheck: PeriodCloseCheckDefinition = {
       .map((g) =>
         finding({
           kind: PeriodCloseFindingKind.SequenceGap,
-          ref: g.source,
+          ref: `${g.source}:${g.series}`,
           label: g.series,
           state: PeriodCloseFindingState.Missing,
           passed: false,
           fix: PERIOD_CLOSE_DOC_KIND_FIX[g.source],
           count: g.missing.length,
-          items: g.missing.slice(0, 20),
+          items: g.missing.slice(0, MAX_LISTED_ITEMS),
         }),
       );
-    return { status: statusOf(findings), findings };
+    return outcome(findings);
   },
 };
 
@@ -225,27 +238,26 @@ const etaCheck: PeriodCloseCheckDefinition = {
   fix: PeriodCloseFixTarget.Eta,
   async evaluate(window, sources) {
     const errors = await sources.etaErrors(window);
-    const findings =
-      errors.length === 0
-        ? []
-        : [
-            finding({
-              kind: PeriodCloseFindingKind.EtaSubmission,
-              ref: "error",
-              state: PeriodCloseFindingState.Missing,
-              passed: false,
-              fix: PeriodCloseFixTarget.Eta,
-              count: errors.length,
-              items: errors.slice(0, 20).map((e) => e.internalId),
-            }),
-          ];
-    return { status: statusOf(findings), findings };
+    if (errors.length === 0) return outcome([]);
+    return outcome([
+      finding({
+        kind: PeriodCloseFindingKind.EtaSubmission,
+        ref: PeriodCloseCheckCode.EtaErrors,
+        state: PeriodCloseFindingState.Missing,
+        passed: false,
+        fix: PeriodCloseFixTarget.Eta,
+        count: errors.length,
+        items: errors.slice(0, MAX_LISTED_ITEMS).map((e) => e.internalId),
+      }),
+    ]);
   },
 };
 
 export const PERIOD_CLOSE_CHECKS: readonly PeriodCloseCheckDefinition[] = [
   draftsCheck,
+  pendingApprovalsCheck,
   tiesCheck,
+  trialBalanceCheck,
   bankCheck,
   fxCheck,
   recurringCheck,
@@ -258,31 +270,33 @@ export function isBlockingCheck(result: Pick<PeriodCloseCheckResult, "status">):
   return result.status === PeriodCloseCheckStatus.Fail || result.status === PeriodCloseCheckStatus.Unavailable;
 }
 
+export interface EvaluatePeriodCloseOptions {
+  readonly now: string;
+  readonly checks?: readonly PeriodCloseCheckDefinition[];
+  readonly onCheckFailure?: PeriodCloseFailureReporter;
+}
+
+// A check that cannot be computed must BLOCK the close: reading "could not tell" as "nothing wrong" is the defect this gate exists to remove.
 export async function evaluatePeriodClose(
   window: PeriodCloseWindow,
   sources: PeriodCloseSources,
-  now: string,
-  checks: readonly PeriodCloseCheckDefinition[] = PERIOD_CLOSE_CHECKS,
+  options: EvaluatePeriodCloseOptions,
 ): Promise<PeriodCloseEvaluation> {
+  const checks = options.checks ?? PERIOD_CLOSE_CHECKS;
   const results = await Promise.all(
     checks.map(async (check): Promise<PeriodCloseCheckResult> => {
       try {
-        const outcome = await check.evaluate(window, sources);
-        return { code: check.code, fix: check.fix, message: null, ...outcome };
-      } catch (err) {
-        return {
-          code: check.code,
-          fix: check.fix,
-          status: PeriodCloseCheckStatus.Unavailable,
-          findings: [],
-          message: err instanceof Error ? err.message : String(err),
-        };
+        const result = await check.evaluate(window, sources);
+        return { code: check.code, fix: check.fix, ...result };
+      } catch (error) {
+        options.onCheckFailure?.({ code: check.code, error });
+        return { code: check.code, fix: check.fix, status: PeriodCloseCheckStatus.Unavailable, findings: [] };
       }
     }),
   );
   return {
     ...window,
-    evaluatedAt: now,
+    evaluatedAt: options.now,
     checks: results,
     blocking: results.filter(isBlockingCheck).map((r) => r.code),
   };

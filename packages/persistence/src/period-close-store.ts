@@ -1,12 +1,13 @@
 import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
 import {
+  FX_REVALUATION_DOC_TYPE,
   Money,
   PeriodCloseDocKind,
   type NumberedDocument,
   type PeriodCloseCheckCode,
   type PeriodCloseCheckResult,
-  type PeriodCloseDraftCount,
+  type PeriodCloseDocCount,
   type PeriodCloseFinding,
   type PeriodCloseSummary,
   type PeriodCloseSummaryRepository,
@@ -170,107 +171,133 @@ class SqlitePeriodCloseSummaryRepository implements PeriodCloseSummaryRepository
   }
 }
 
-interface DraftSource {
+interface DocSource {
   readonly kind: PeriodCloseDocKind;
   readonly table: string;
-  readonly where: string;
+  readonly docType?: string;
   readonly byPeriodKey?: boolean;
+  readonly numberColumn?: string;
+  readonly holdsForApproval?: boolean;
 }
 
-const DRAFT_SOURCES: readonly DraftSource[] = [
-  { kind: PeriodCloseDocKind.JournalEntry, table: "journal_entry", where: "status IN ('draft','pending')" },
-  { kind: PeriodCloseDocKind.SalesInvoice, table: "sales_invoice", where: "status IN ('draft','pending')" },
-  { kind: PeriodCloseDocKind.PurchaseInvoice, table: "purchase_invoice", where: "status = 'draft'" },
-  { kind: PeriodCloseDocKind.GoodsReceipt, table: "goods_receipt", where: "status = 'draft'" },
-  { kind: PeriodCloseDocKind.Voucher, table: "voucher", where: "status IN ('draft','pending')" },
-  { kind: PeriodCloseDocKind.SalesReturn, table: "framework_document", where: "doc_type = 'SALES_RETURN' AND status IN ('draft','pending')" },
-  { kind: PeriodCloseDocKind.PurchaseReturn, table: "framework_document", where: "doc_type = 'PURCHASE_RETURN' AND status IN ('draft','pending')" },
-  { kind: PeriodCloseDocKind.LandedCost, table: "framework_document", where: "doc_type = 'LANDED_COST' AND status IN ('draft','pending')" },
-  { kind: PeriodCloseDocKind.StockTransfer, table: "stock_transfer_document", where: "status IN ('draft','pending')" },
-  { kind: PeriodCloseDocKind.StockAdjustment, table: "stock_adjustment_document", where: "status IN ('draft','pending')" },
-  { kind: PeriodCloseDocKind.DepreciationRun, table: "depreciation_run", where: "status = 'draft'", byPeriodKey: true },
-  { kind: PeriodCloseDocKind.WritedownRun, table: "writedown_run", where: "status = 'draft'", byPeriodKey: true },
+const DOC_SOURCES: readonly DocSource[] = [
+  { kind: PeriodCloseDocKind.JournalEntry, table: "journal_entry", numberColumn: "entry_no" },
+  { kind: PeriodCloseDocKind.SalesInvoice, table: "sales_invoice", numberColumn: "doc_no", holdsForApproval: true },
+  { kind: PeriodCloseDocKind.PurchaseInvoice, table: "purchase_invoice", numberColumn: "number" },
+  { kind: PeriodCloseDocKind.GoodsReceipt, table: "goods_receipt", numberColumn: "number" },
+  { kind: PeriodCloseDocKind.Voucher, table: "voucher", numberColumn: "doc_no", holdsForApproval: true },
+  { kind: PeriodCloseDocKind.SalesReturn, table: "framework_document", docType: "SALES_RETURN", numberColumn: "doc_no", holdsForApproval: true },
+  { kind: PeriodCloseDocKind.PurchaseReturn, table: "framework_document", docType: "PURCHASE_RETURN", numberColumn: "doc_no", holdsForApproval: true },
+  { kind: PeriodCloseDocKind.LandedCost, table: "framework_document", docType: "LANDED_COST", numberColumn: "doc_no", holdsForApproval: true },
+  { kind: PeriodCloseDocKind.StockTransfer, table: "stock_transfer_document", numberColumn: "doc_no", holdsForApproval: true },
+  { kind: PeriodCloseDocKind.StockAdjustment, table: "stock_adjustment_document", numberColumn: "doc_no", holdsForApproval: true },
+  { kind: PeriodCloseDocKind.DepreciationRun, table: "depreciation_run", byPeriodKey: true },
+  { kind: PeriodCloseDocKind.WritedownRun, table: "writedown_run", byPeriodKey: true },
 ];
 
-interface NumberSource {
-  readonly kind: PeriodCloseDocKind;
-  readonly table: string;
-  readonly column: string;
-  readonly where?: string;
-}
-
-const NUMBER_SOURCES: readonly NumberSource[] = [
-  { kind: PeriodCloseDocKind.JournalEntry, table: "journal_entry", column: "entry_no" },
-  { kind: PeriodCloseDocKind.SalesInvoice, table: "sales_invoice", column: "doc_no" },
-  { kind: PeriodCloseDocKind.PurchaseInvoice, table: "purchase_invoice", column: "number" },
-  { kind: PeriodCloseDocKind.GoodsReceipt, table: "goods_receipt", column: "number" },
-  { kind: PeriodCloseDocKind.Voucher, table: "voucher", column: "doc_no" },
-  { kind: PeriodCloseDocKind.SalesReturn, table: "framework_document", column: "doc_no", where: "doc_type = 'SALES_RETURN'" },
-  { kind: PeriodCloseDocKind.PurchaseReturn, table: "framework_document", column: "doc_no", where: "doc_type = 'PURCHASE_RETURN'" },
-  { kind: PeriodCloseDocKind.LandedCost, table: "framework_document", column: "doc_no", where: "doc_type = 'LANDED_COST'" },
-  { kind: PeriodCloseDocKind.StockTransfer, table: "stock_transfer_document", column: "doc_no" },
-  { kind: PeriodCloseDocKind.StockAdjustment, table: "stock_adjustment_document", column: "doc_no" },
-];
+const DRAFT_STATUS = "draft";
+const PENDING_STATUS = "pending";
+const UNPOSTED_PAYROLL_STATUSES = ["draft", "calculated"] as const;
+const LEDGER_EFFECTIVE_STATUSES = ["posted", "reversed"] as const;
+const ETA_ERROR_STATUS = "error";
 
 export interface PeriodCloseQueries {
-  draftCounts(window: PeriodCloseWindow): PeriodCloseDraftCount[];
-  numberedDocuments(): { kind: PeriodCloseDocKind; documents: NumberedDocument[] }[];
-  unpostedPayrollRuns(window: PeriodCloseWindow): number;
+  draftCounts(window: PeriodCloseWindow): PeriodCloseDocCount[];
+  pendingApprovalCounts(window: PeriodCloseWindow): PeriodCloseDocCount[];
+  numberedDocuments(window: PeriodCloseWindow): { kind: PeriodCloseDocKind; documents: NumberedDocument[] }[];
   fxRevaluationEntries(window: PeriodCloseWindow): number;
   journalEntryStatus(id: string): string | null;
+  etaErrorIds(window: PeriodCloseWindow): string[];
 }
 
+function placeholders(values: readonly unknown[]): string {
+  return values.map(() => "?").join(", ");
+}
+
+function dayAfter(isoDay: string): string {
+  const next = new Date(`${isoDay}T00:00:00Z`);
+  next.setUTCDate(next.getUTCDate() + 1);
+  return next.toISOString().slice(0, 10);
+}
+
+// Table and column names below come only from DOC_SOURCES, never from a caller; every value is bound.
 function createQueries(sqlite: Database.Database): PeriodCloseQueries {
-  const tableExists = (name: string): boolean =>
-    sqlite.prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`).get(name) !== undefined;
+  function countByStatus(source: DocSource, status: string, window: PeriodCloseWindow): number {
+    const typeClause = source.docType ? " AND doc_type = ?" : "";
+    const typeParams = source.docType ? [source.docType] : [];
+    const row = source.byPeriodKey
+      ? sqlite
+          .prepare(`SELECT COUNT(*) AS n FROM ${source.table} WHERE status = ?${typeClause} AND period = ?`)
+          .get(status, ...typeParams, window.startDate.slice(0, 7))
+      : sqlite
+          .prepare(`SELECT COUNT(*) AS n FROM ${source.table} WHERE status = ?${typeClause} AND date >= ? AND date < ?`)
+          .get(status, ...typeParams, window.startDate, dayAfter(window.endDate));
+    return (row as { n: number }).n;
+  }
+
+  function unpostedPayrollRuns(window: PeriodCloseWindow): number {
+    const row = sqlite
+      .prepare(
+        `SELECT COUNT(*) AS n FROM hr_payroll_run WHERE status IN (${placeholders(UNPOSTED_PAYROLL_STATUSES)}) AND period_end >= ? AND period_end <= ?`,
+      )
+      .get(...UNPOSTED_PAYROLL_STATUSES, window.startDate, window.endDate) as { n: number };
+    return row.n;
+  }
 
   return {
     draftCounts(window) {
-      const counts: PeriodCloseDraftCount[] = [];
-      for (const source of DRAFT_SOURCES) {
-        if (!tableExists(source.table)) continue;
-        const row = source.byPeriodKey
-          ? (sqlite.prepare(`SELECT COUNT(*) AS n FROM ${source.table} WHERE ${source.where} AND period = ?`).get(window.startDate.slice(0, 7)) as { n: number })
-          : (sqlite
-              .prepare(`SELECT COUNT(*) AS n FROM ${source.table} WHERE ${source.where} AND date >= ? AND date <= ?`)
-              .get(window.startDate, `${window.endDate}￿`) as { n: number });
-        counts.push({ kind: source.kind, count: row.n });
-      }
-      const payroll = this.unpostedPayrollRuns(window);
-      counts.push({ kind: PeriodCloseDocKind.PayrollRun, count: payroll });
+      const counts = DOC_SOURCES.map((source) => ({ kind: source.kind, count: countByStatus(source, DRAFT_STATUS, window) }));
+      counts.push({ kind: PeriodCloseDocKind.PayrollRun, count: unpostedPayrollRuns(window) });
       return counts;
     },
-    unpostedPayrollRuns(window) {
-      if (!tableExists("hr_payroll_run")) return 0;
-      const row = sqlite
-        .prepare(`SELECT COUNT(*) AS n FROM hr_payroll_run WHERE status IN ('draft','calculated') AND period_end >= ? AND period_end <= ?`)
-        .get(window.startDate, window.endDate) as { n: number };
-      return row.n;
+    pendingApprovalCounts(window) {
+      return DOC_SOURCES.filter((source) => source.holdsForApproval).map((source) => ({
+        kind: source.kind,
+        count: countByStatus(source, PENDING_STATUS, window),
+      }));
     },
-    numberedDocuments() {
-      const out: { kind: PeriodCloseDocKind; documents: NumberedDocument[] }[] = [];
-      for (const source of NUMBER_SOURCES) {
-        if (!tableExists(source.table)) continue;
-        const rows = sqlite
+    // Every document whose number falls between the period's lowest and highest number, whatever its date:
+    // a number used by a document dated in another month is not a gap in this one.
+    numberedDocuments(window) {
+      const from = window.startDate;
+      const before = dayAfter(window.endDate);
+      return DOC_SOURCES.flatMap((source) => {
+        const column = source.numberColumn;
+        if (!column) return [];
+        const typeClause = source.docType ? " AND doc_type = ?" : "";
+        const typeParams = source.docType ? [source.docType] : [];
+        const numbered = `${column} IS NOT NULL AND ${column} <> ''${typeClause}`;
+        const inWindow = `FROM ${source.table} WHERE ${numbered} AND date >= ? AND date < ?`;
+        const documents = sqlite
           .prepare(
-            `SELECT ${source.column} AS number, substr(date, 1, 10) AS date FROM ${source.table} WHERE ${source.column} IS NOT NULL AND ${source.column} <> ''${source.where ? ` AND ${source.where}` : ""}`,
+            `SELECT ${column} AS number, substr(date, 1, 10) AS date FROM ${source.table}
+              WHERE ${numbered}
+                AND ${column} >= (SELECT MIN(${column}) ${inWindow})
+                AND ${column} <= (SELECT MAX(${column}) ${inWindow})`,
           )
-          .all() as NumberedDocument[];
-        out.push({ kind: source.kind, documents: rows });
-      }
-      return out;
+          .all(...typeParams, ...typeParams, from, before, ...typeParams, from, before) as NumberedDocument[];
+        return [{ kind: source.kind, documents }];
+      });
     },
     fxRevaluationEntries(window) {
       const row = sqlite
         .prepare(
-          `SELECT COUNT(*) AS n FROM journal_entry WHERE source_doc_type = 'FX_REVALUATION' AND reverses_entry_id IS NULL AND status IN ('posted','reversed') AND date >= ? AND date <= ?`,
+          `SELECT COUNT(*) AS n FROM journal_entry WHERE source_doc_type = ? AND reverses_entry_id IS NULL AND status IN (${placeholders(LEDGER_EFFECTIVE_STATUSES)}) AND date >= ? AND date < ?`,
         )
-        .get(window.startDate, `${window.endDate}￿`) as { n: number };
+        .get(FX_REVALUATION_DOC_TYPE, ...LEDGER_EFFECTIVE_STATUSES, window.startDate, dayAfter(window.endDate)) as { n: number };
       return row.n;
     },
     journalEntryStatus(id) {
       const row = sqlite.prepare(`SELECT status FROM journal_entry WHERE id = ?`).get(id) as { status: string } | undefined;
       return row?.status ?? null;
+    },
+    etaErrorIds(window) {
+      const rows = sqlite
+        .prepare(
+          `SELECT internal_id FROM eta_submission WHERE status = ? AND created_at >= ? AND created_at < ? ORDER BY internal_id`,
+        )
+        .all(ETA_ERROR_STATUS, window.startDate, dayAfter(window.endDate)) as { internal_id: string }[];
+      return rows.map((r) => r.internal_id);
     },
   };
 }

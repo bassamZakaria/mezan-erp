@@ -4121,6 +4121,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       sequenceConfig,
       sequenceCounters,
     },
+    reconciliationControls: resolveReconciliationControls,
     addCloser: (closer) => areaClosers.push(closer),
   };
   await mountPos(areaContext);

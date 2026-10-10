@@ -5,6 +5,7 @@ import {
   findUnlinkedControlLines,
   type LedgerRepository,
   type NaturalBalance,
+  type ReconciliationSummary,
 } from "@mezan/domain";
 import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
 
@@ -25,6 +26,31 @@ export interface ReconciliationRoutesDeps {
 }
 
 /**
+ * The one place a sub-ledger balance is set against its GL control account.
+ * `/reconciliation` and the period-close checklist both call this, so the two
+ * can never state different differences for the same control.
+ */
+export async function reconcileControls(
+  ledger: Pick<LedgerRepository, "accountBalance">,
+  controls: readonly ReconciliationControl[],
+): Promise<ReconciliationSummary> {
+  const comparisons = await Promise.all(
+    controls.map(async (control) => {
+      const bal = await ledger.accountBalance(control.controlAccountId);
+      const glBalance = control.naturalBalance === "debit" ? bal.balance : Money.fromScaled(-bal.balance.scaled);
+      return {
+        key: control.key,
+        label: control.label,
+        controlAccountId: control.controlAccountId,
+        subLedgerBalance: control.subLedgerBalance,
+        glBalance,
+      };
+    }),
+  );
+  return computeBalanceReconciliation(comparisons);
+}
+
+/**
  * مطابقة الأرصدة — Balance Reconciliation (docs/archive/catalog/04), mounted under
  * `/reconciliation`. `GET /` returns the summary (sub-ledger vs GL control
  * account) and the القيود غير المرتبطة (unlinked control-account lines).
@@ -39,21 +65,7 @@ export function createReconciliationRoutes(
 
   app.get("/", gate("accounting.reports.view"), async (c) => {
     const controls = await deps.resolveControls();
-    const comparisons = await Promise.all(
-      controls.map(async (control) => {
-        const bal = await deps.ledger.accountBalance(control.controlAccountId);
-        // accountBalance.balance is debit − credit; present it on the natural side.
-        const glBalance = control.naturalBalance === "debit" ? bal.balance : Money.fromScaled(-bal.balance.scaled);
-        return {
-          key: control.key,
-          label: control.label,
-          controlAccountId: control.controlAccountId,
-          subLedgerBalance: control.subLedgerBalance,
-          glBalance,
-        };
-      }),
-    );
-    const summary = computeBalanceReconciliation(comparisons);
+    const summary = await reconcileControls(deps.ledger, controls);
 
     const controlIds = new Set(controls.map((x) => x.controlAccountId));
     const lines = (await deps.ledger.listLines?.()) ?? [];

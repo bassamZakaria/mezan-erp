@@ -1,8 +1,10 @@
 import { Hono, type Context } from "hono";
 import {
   closeFiscalPeriod,
+  closePeriod,
   reopenFiscalPeriod,
   lockFiscalPeriod,
+  lockPeriod,
   generateFiscalYear,
   DuplicateFiscalPeriodError,
   FiscalPeriodNotFoundError,
@@ -14,6 +16,26 @@ import {
 import { generateFiscalYearSchema } from "@mezan/contracts";
 import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
 import { recordAdminEvent } from "./admin-audit.js";
+import { callerUserId } from "./permission-gate.js";
+import { PeriodCloseVerdictKind, judgePeriodClose, periodCloseGuardFor } from "./period-close-routes.js";
+
+enum GuardedPeriodAction {
+  Close = "CLOSE",
+  Lock = "LOCK",
+}
+
+const GUARDED_TRANSITIONS: Readonly<
+  Record<
+    GuardedPeriodAction,
+    {
+      readonly validate: (period: FiscalPeriod) => FiscalPeriod;
+      readonly apply: (periodId: string, repo: FiscalPeriodRepository) => Promise<FiscalPeriod>;
+    }
+  >
+> = {
+  [GuardedPeriodAction.Close]: { validate: closePeriod, apply: closeFiscalPeriod },
+  [GuardedPeriodAction.Lock]: { validate: lockPeriod, apply: lockFiscalPeriod },
+};
 
 function serialize(period: FiscalPeriod) {
   return {
@@ -114,16 +136,57 @@ export function createFiscalPeriodsRoutes(
     }
   });
 
-  app.post("/:id/close", gate("accounting.period.close"), async (c) => {
+  /**
+   * Close and lock share one gate: a lock is terminal, so it must not be a way
+   * around the checks a close refused. The transition's own legality is
+   * settled FIRST, so a locked period answers "locked", never a checklist.
+   */
+  async function guardedTransition(c: Context, action: GuardedPeriodAction) {
+    const transition = GUARDED_TRANSITIONS[action];
+    const periodId = c.req.param("id") ?? "";
     try {
-      const before = await repo.findById(c.req.param("id"));
-      const period = await closeFiscalPeriod(c.req.param("id"), repo);
-      await auditPeriod(c, period, "CLOSE", before?.status ?? null);
+      const before = await repo.findById(periodId);
+      if (!before) throw new FiscalPeriodNotFoundError(periodId);
+      transition.validate(before);
+
+      const verdict = await judgePeriodClose(c, repo, before);
+      if (verdict.kind === PeriodCloseVerdictKind.InvalidRequest) {
+        return c.json({ error: "VALIDATION_ERROR", details: verdict.details }, 400);
+      }
+      if (verdict.kind === PeriodCloseVerdictKind.Refuse) return c.json(verdict.body, verdict.status);
+
+      const period = await transition.apply(before.id, repo);
+      await auditPeriod(c, period, action, before.status);
+      if (verdict.overrideReason !== null) {
+        await recordAdminEvent(audit, c, {
+          module: "accounting",
+          entityType: "FISCAL_PERIOD",
+          entityId: period.id,
+          action: `${action}_OVERRIDE`,
+          severity: "WARNING",
+          details: {
+            year: period.year,
+            periodNumber: period.periodNumber,
+            failedChecks: verdict.overriddenChecks,
+            reason: verdict.overrideReason,
+          },
+        });
+      }
+      if (action === GuardedPeriodAction.Close && verdict.evaluation) {
+        await periodCloseGuardFor(repo)?.recordClose({
+          period,
+          evaluation: verdict.evaluation,
+          closedBy: callerUserId(c) ?? "system",
+          overrideReason: verdict.overrideReason,
+        });
+      }
       return c.json(serialize(period));
     } catch (err) {
       return handleDomainError(c, err);
     }
-  });
+  }
+
+  app.post("/:id/close", gate("accounting.period.close"), (c) => guardedTransition(c, GuardedPeriodAction.Close));
 
   app.post("/:id/reopen", gate("accounting.period.reopen"), async (c) => {
     try {
@@ -136,16 +199,7 @@ export function createFiscalPeriodsRoutes(
     }
   });
 
-  app.post("/:id/lock", gate("accounting.period.close"), async (c) => {
-    try {
-      const before = await repo.findById(c.req.param("id"));
-      const period = await lockFiscalPeriod(c.req.param("id"), repo);
-      await auditPeriod(c, period, "LOCK", before?.status ?? null);
-      return c.json(serialize(period));
-    } catch (err) {
-      return handleDomainError(c, err);
-    }
-  });
+  app.post("/:id/lock", gate("accounting.period.close"), (c) => guardedTransition(c, GuardedPeriodAction.Lock));
 
   return app;
 }

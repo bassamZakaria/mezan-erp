@@ -144,14 +144,19 @@ export function clearTenantCode(): void {
 }
 
 const TENANT_CODE_CONFIRMED_KEY = "mezan.tenantCodeConfirmed";
+// Not a secret, only a name for this page load. `crypto.randomUUID` is absent on
+// the plain-http LAN origin a till runs on, and would stop the app loading there.
+const PAGE_LOAD_ID = `${Date.now()}:${Math.random()}`;
 
 /**
  * The company code the operator now at the machine typed and confirmed on the
- * sign-in screen. Per tab and ended by a sign-in, so it never outlives the
- * person it describes: the next operator still gets a neutral screen.
+ * sign-in screen. It holds for this page load only and is ended by a sign-in:
+ * a reload, or the next operator, gets a neutral screen again. Kept in tab
+ * storage with the load's id rather than in a module variable so nothing has
+ * to be reset between two mounts of the screen.
  */
 export function markTenantCodeConfirmed(code: string): void {
-  getTabStorage()?.setItem(TENANT_CODE_CONFIRMED_KEY, code);
+  getTabStorage()?.setItem(TENANT_CODE_CONFIRMED_KEY, JSON.stringify({ code, load: PAGE_LOAD_ID }));
 }
 
 export function clearTenantCodeConfirmed(): void {
@@ -159,8 +164,14 @@ export function clearTenantCodeConfirmed(): void {
 }
 
 export function tenantCodeConfirmedThisVisit(): boolean {
-  const confirmed = getTabStorage()?.getItem(TENANT_CODE_CONFIRMED_KEY) ?? null;
-  return confirmed !== null && confirmed === loadTenantCode();
+  const raw = getTabStorage()?.getItem(TENANT_CODE_CONFIRMED_KEY) ?? null;
+  if (raw === null) return false;
+  try {
+    const confirmed = JSON.parse(raw) as { code?: unknown; load?: unknown };
+    return confirmed.load === PAGE_LOAD_ID && confirmed.code === loadTenantCode();
+  } catch {
+    return false;
+  }
 }
 
 const TENANT_CODE_BY_EMAIL_STORAGE_KEY = "mezan.tenantCodeByEmail";

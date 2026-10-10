@@ -21,6 +21,12 @@ test.describe("Self-serve signup — form, verification link, first sign-in", ()
       expect(mounted.status(), route).toBe(400);
       expect(((await mounted.json()) as { error: string }).error, route).toBe(ApiError.ValidationError);
     }
+    const code = uniqueCode(CodePrefix.Crafted);
+    const withSlash = await request.post(`${SAAS_API_URL}/api/signup/`, {
+      data: { code, nameAr: "منشأة الشرطة", ownerEmail: `owner@${code}.example`, ownerNameAr: "مالك", planId: PlanId.Core, billingCycle: BillingCycle.Monthly },
+    });
+    expect(withSlash.status(), await withSlash.text()).toBe(201);
+    expect(((await withSlash.json()) as { devVerifyUrl: string }).devVerifyUrl).toContain("/signup/verify?token=");
   });
 
   test("a visitor signs up and is shown the verification link in dev mode", async ({ page }) => {

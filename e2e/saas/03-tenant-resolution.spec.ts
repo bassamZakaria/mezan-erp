@@ -216,6 +216,12 @@ test.describe("PLT-SAAS-08 — resolving a tenant reveals nothing before sign-in
     await expect(page.getByLabel("رمز PIN رقم 1")).toBeVisible();
     await expect(page.getByText(`الرمز: ${tenant.code}`)).toBeVisible();
     expect(await page.evaluate((key) => window.localStorage.getItem(key), StorageKey.TenantCode)).toBe(tenant.code);
+
+    await page.reload();
+    await expect(page.getByRole("textbox", { name: "رمز المنشأة" })).toHaveValue("");
+    await expect(page.getByRole("radiogroup")).toHaveCount(0);
+
+    await enterTenantCode(page, tenant.code);
     await enterCredentials(page, tenant.adminEmail, tenant.adminPin);
     await expect(page.getByRole("heading", { level: 1 })).toContainText("وليد");
   });

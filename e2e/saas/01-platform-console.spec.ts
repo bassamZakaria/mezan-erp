@@ -255,8 +255,7 @@ test.describe("PLT-SAAS-01..06 — the platform console and the tenant it create
     expect(Number(payments[0]?.amount)).toBe(Number(PAYMENT_AMOUNT));
 
     const shownAfter = await periodEnd(page);
-    expect(shownAfter.getUTCMonth()).toBe((shownBefore.getUTCMonth() + 1) % 12);
-    expect(shownAfter.getUTCDate()).toBe(shownBefore.getUTCDate());
+    expect(shownAfter.toISOString()).toBe(oneBillingMonthAfter(shownBefore.toISOString()));
 
     await page.reload();
     await expect(main.getByText(PAYMENT_REFERENCE)).toBeVisible();

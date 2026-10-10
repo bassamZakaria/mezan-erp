@@ -140,6 +140,26 @@ describe("self-serve signup routes", () => {
     expect(((await res.json()) as { error: string }).error).toBe("VALIDATION_ERROR");
   });
 
+  it("carries the body of a signup posted with a trailing slash through to a real signup", async () => {
+    const app = await boot();
+    const started = await post(app, "/api/signup/", {
+      code: "slashed",
+      nameAr: "متجر الشرطة",
+      ownerEmail: "owner@slashed.example",
+      ownerNameAr: "سلمى",
+      planId: "PLAN-CORE",
+      billingCycle: "monthly",
+    });
+    expect(started.status).toBe(201);
+    const { devVerifyUrl } = (await started.json()) as { devVerifyUrl: string };
+    const token = new URL(devVerifyUrl).searchParams.get("token") ?? "";
+
+    const verified = await post(app, "/api/signup/verify", { token });
+
+    expect(verified.status).toBe(200);
+    expect(((await verified.json()) as VerifyBody).tenant).toMatchObject({ code: "slashed", status: "active" });
+  });
+
   it("provisions once when the same link is posted twice at the same moment, and never tells the owner their code is taken", async () => {
     const app = await boot();
     const token = await startAndReadToken(app, "yasmin");

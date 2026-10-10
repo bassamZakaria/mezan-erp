@@ -407,6 +407,20 @@ describe("LoginScreen — SaaS company code", () => {
     expect(localStorage.getItem("mezan.tenantCode")).toBe("acme");
   });
 
+  it("drops a company confirmed on an earlier page load — a reload on a shared device opens neutral again", async () => {
+    rememberTenantCodeForEmail("a@acme.example", "acme");
+    rememberTenantCodeForEmail("b@nile.example", "nile");
+    localStorage.setItem("mezan.tenantCode", "acme");
+    sessionStorage.setItem("mezan.tenantCodeConfirmed", JSON.stringify({ code: "acme", load: "an-earlier-page-load" }));
+
+    renderWithProviders(<LoginScreen onStartWizard={() => {}} />, {
+      transport: stubTransport({ ...preAuth, "GET /platform/resolve": () => ({ body: { mode: "code", exists: true } }) }),
+    });
+
+    expect(await screen.findByLabelText("رمز المنشأة")).toHaveValue("");
+    expect(localStorage.getItem("mezan.tenantCode")).toBeNull();
+  });
+
   it("does not let a remembered email pull the screen off the company confirmed before it mounted again", async () => {
     rememberTenantCodeForEmail("a@acme.example", "acme");
     rememberTenantCodeForEmail("b@nile.example", "nile");

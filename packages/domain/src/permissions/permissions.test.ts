@@ -16,7 +16,7 @@ import {
 } from "./index.js";
 
 describe("permission catalog", () => {
-  it("carries only what the product enforces — 248 permissions across 19 modules (DEC-14, DEC-23)", () => {
+  it("carries only what the product enforces — 249 permissions across 19 modules (DEC-14, DEC-23)", () => {
     // 298 → 231. DEC-14 removed the 67 codes that named nothing the server
     // checks: the `dashboard` and `transactions` modules, per-voucher-type
     // `.view` tiers over a single voucher list, print rights that are
@@ -38,13 +38,18 @@ describe("permission catalog", () => {
     // `POST /users/:id/erase` (`packages/api/src/users-routes.ts`) — the
     // personal-data erasure the store listings promise a path for.
     //
+    // 248 → 249. ENH-E1-04 added `accounting.period.override_close`, read by
+    // `POST /fiscal-periods/:id/close` and `/lock` (`packages/api/src/
+    // period-close-routes.ts`) — closing or locking over a failed pre-close
+    // check is a separate authority from closing a clean month.
+    //
     // Pinned deliberately. A code added without a route to check it, or a route
     // deleted while its code stays, moves one of these numbers — which is the
     // whole point of asserting them.
-    expect(PERMISSIONS).toHaveLength(248);
+    expect(PERMISSIONS).toHaveLength(249);
     expect(MODULES).toHaveLength(19);
     const summed = MODULES.reduce((n, m) => n + m.count, 0);
-    expect(summed).toBe(248);
+    expect(summed).toBe(249);
   });
 
   it("carries a `pos` module again, and the INVOICE discount ceiling still lives under sales", () => {
@@ -91,8 +96,11 @@ describe("permission catalog", () => {
     expect(isSensitive("pos.discount.approve")).toBe(true);
     expect(isSensitive("accounting.cockpit.view")).toBe(true);
     expect(isSensitive("treasury.cash_forecast.view")).toBe(true);
+    // Nine: overriding the pre-close checks closes a month the books say is not ready (ENH-E1-04).
+    expect(isSensitive("accounting.period.override_close")).toBe(true);
+    expect(isSensitive("accounting.period.close")).toBe(false);
     const sensitiveCount = PERMISSIONS.filter((p) => p.sensitive).length;
-    expect(sensitiveCount).toBe(8);
+    expect(sensitiveCount).toBe(9);
   });
 
   it("marks the one platform-admin-only permission", () => {

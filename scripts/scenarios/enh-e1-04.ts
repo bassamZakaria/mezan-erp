@@ -1,6 +1,8 @@
 import type { ScenarioFragment } from "./fragments.js";
 
-const PERIOD = "fp-2026-06";
+const SEEDED_PERIOD = "fp-2026-06";
+const YEAR = 2019;
+const DRAFT_DATE = `${YEAR}-06-15`;
 const DRAFT_ID = "SCN-PC-DRAFT-1";
 const OVERRIDE_DRAFT_ID = "SCN-PC-DRAFT-2";
 const REASON = "SCN-PC: إقفال يونيو قبل ترحيل قيد التسوية باعتماد المدير المالي";
@@ -8,16 +10,27 @@ const CLOSER_ONLY = { "x-user-id": "SCN-PC-CLOSER", "x-permissions": "accounting
 
 /**
  * Guided month-end close (ENH-E1-04, D176 C-3), through the routes the close
- * workspace calls. June is borrowed and handed back open; the one seeded draft
- * the scenario has to post to clear the month is reversed again at the end, so
- * every balance finishes where it started.
+ * workspace calls.
+ *
+ * It runs in a fiscal year of its own, generated here and older than anything
+ * the tenant holds. Every 2026 month already fails a check or two on the demo
+ * (a recurring draft, no depreciation run) and other suites leave their own
+ * drafts behind, so "allowed after fixing" can only be proven in a month whose
+ * ONLY failing check is the one this scenario creates. The year stays behind,
+ * as seams' 2027 does; its June is handed back open.
  */
 export const scenario: ScenarioFragment = {
-  smokePaths: [`/period-close/${PERIOD}/checks`, `/period-close/${PERIOD}/summaries`],
+  smokePaths: [`/period-close/${SEEDED_PERIOD}/checks`, `/period-close/${SEEDED_PERIOD}/summaries`],
 
   async run(ctx) {
     const { scenario: it, req, rows, n, check, checkEq } = ctx;
     const same = (label: string, actual: unknown, expected: unknown) => check(label, actual === expected, `${JSON.stringify(actual)} ≠ ${JSON.stringify(expected)}`);
+
+    const generated = await req("POST", "/fiscal-periods/generate-year", { year: YEAR });
+    const june = rows((await req("GET", `/fiscal-periods?year=${YEAR}`)).body).find((p: any) => p.periodNumber === 6);
+    check(`fiscal year ${YEAR} exists for this suite`, (generated.status === 201 || generated.status === 409) && Boolean(june?.id), `status ${generated.status}`);
+    if (!june?.id) return;
+    const PERIOD: string = june.id;
 
     const checklist = async () => (await req("GET", `/period-close/${PERIOD}/checks`)).body;
     const checkOf = (body: any, code: string) => (body?.checks ?? []).find((c: any) => c.code === code);
@@ -26,17 +39,24 @@ export const scenario: ScenarioFragment = {
     const draftJournal = (id: string) =>
       req("POST", "/gl/journal-entries/draft", {
         id,
-        date: "2026-06-15",
+        date: DRAFT_DATE,
         memo: "SCN-PC قيد تسوية لم يُرحَّل",
         lines: [
           { accountId: "5910", debit: "75.00", credit: "0.00" },
           { accountId: "2170", debit: "0.00", credit: "75.00" },
         ],
       });
-    const postedToClear: string[] = [];
 
     await it("guided close · the checklist is computed by the server and a failing check refuses the close", async () => {
+      const seeded = (await req("GET", `/period-close/${SEEDED_PERIOD}/checks`)).body;
+      check(
+        "on the demo tenant a real month shows failing and passing checks side by side",
+        (seeded?.blocking ?? []).length > 0 && (seeded?.checks ?? []).some((c: any) => c.status === "pass"),
+        JSON.stringify(seeded?.blocking),
+      );
+
       const before = await checklist();
+      check("the borrowed month starts with nothing blocking it", (before?.blocking ?? ["?"]).length === 0, JSON.stringify(before?.blocking));
       same("June starts open", await periodStatus(), "open");
       checkEq("the checklist covers all ten checks", (before?.checks ?? []).length, 10);
       check("the trial balance check passes on posted data", checkOf(before, "trial_balance")?.status === "pass", JSON.stringify(checkOf(before, "trial_balance")));
@@ -77,15 +97,6 @@ export const scenario: ScenarioFragment = {
 
     await it("guided close · the close is allowed once the failing checks are fixed, and leaves a sealed summary", async () => {
       checkEq("the scenario's own draft is deleted", (await req("DELETE", `/gl/journal-entries/${DRAFT_ID}`)).status < 300 ? 1 : 0, 1);
-      const seededDrafts = rows((await req("GET", "/gl/journal-entries?status=draft&fromDate=2026-06-01&toDate=2026-06-30&pageSize=100")).body).filter(
-        (e: any) => e.status === "draft" && String(e.date).slice(0, 7) === "2026-06",
-      );
-      for (const draft of seededDrafts) {
-        const posted = await req("POST", `/gl/journal-entries/${draft.id}/post`, {});
-        check(`the remaining June draft ${draft.id} posts`, posted.status === 200, `status ${posted.status} ${JSON.stringify(posted.body).slice(0, 120)}`);
-        if (posted.status === 200) postedToClear.push(draft.id);
-      }
-
       const clear = await checklist();
       check("nothing blocks June any more", (clear?.blocking ?? ["?"]).length === 0, JSON.stringify(clear?.blocking));
       same("the drafts check is green", checkOf(clear, "drafts")?.status, "pass");
@@ -134,10 +145,6 @@ export const scenario: ScenarioFragment = {
       const reopened = await req("POST", `/fiscal-periods/${PERIOD}/reopen`, {});
       check("June is reopened", reopened.status === 200 && reopened.body?.status === "open", `status ${reopened.status}`);
       checkEq("the override scenario's draft is deleted", (await req("DELETE", `/gl/journal-entries/${OVERRIDE_DRAFT_ID}`)).status < 300 ? 1 : 0, 1);
-      for (const id of postedToClear) {
-        const reversed = await req("POST", `/gl/journal-entries/${id}/reverse`, { date: "2026-06-30" });
-        check(`the entry posted to clear June (${id}) is reversed`, reversed.status < 300, `status ${reversed.status} ${JSON.stringify(reversed.body).slice(0, 160)}`);
-      }
       same("June ends open", await periodStatus(), "open");
     });
   },

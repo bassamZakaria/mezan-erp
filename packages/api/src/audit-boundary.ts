@@ -136,11 +136,11 @@ function subPath(c: Context, prefix: string | undefined): string {
 // Read BEFORE the connection is taken, whatever the content type says: the body
 // arrives over the socket, and a handler awaiting it with the turn held keeps
 // every other request of the tenant waiting on a slow client. Hono serves later
-// reads from this cache.
+// reads from this cache — as bytes, so a body that is not text survives it.
 async function preloadBody(c: Context): Promise<void> {
   const type = (c.req.header("content-type") ?? "").toLowerCase();
   const isForm = type.includes("multipart/form-data") || type.includes("application/x-www-form-urlencoded");
-  await (isForm ? c.req.formData() : c.req.text()).catch(() => undefined);
+  await (isForm ? c.req.formData() : c.req.arrayBuffer()).catch(() => undefined);
 }
 
 function defaultOnYield(c: Context): void {

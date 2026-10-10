@@ -742,6 +742,20 @@ describe("connectionTurn", () => {
     expect(reported[0]).toBe("POST /audited/slow");
   });
 
+  it("hands a handler the bytes it was sent, though the body was read before the connection was taken", async () => {
+    const sink = openSink();
+    const app = new Hono();
+    app.use("*", connectionTurn(sink));
+    app.post("/upload", async (c) => c.json([...new Uint8Array(await c.req.arrayBuffer())]));
+    const bytes = [0, 255, 128, 13, 10, 254];
+
+    const res = await app.fetch(
+      new Request("http://x/upload", { method: "POST", headers: { "content-type": "application/octet-stream" }, body: new Uint8Array(bytes) }),
+    );
+
+    expect(await res.json()).toEqual(bytes);
+  });
+
   it("lets a request made from inside the transaction straight through", async () => {
     const sink = openSink();
     const app = new Hono();

@@ -38,6 +38,8 @@ export interface CardCheckoutRepository {
   findById(id: string): Promise<CardCheckout | null>;
   findByProviderOrder(provider: PaymentProviderId, providerOrderRef: string): Promise<CardCheckout | null>;
   listByTenant(tenantId: string): Promise<CardCheckout[]>;
+  /** Checkouts still `pending` that were opened at or before `openedAtOrBefore`, oldest first. */
+  listPending(openedAtOrBefore: string, limit: number): Promise<CardCheckout[]>;
   attachSession(id: string, providerOrderRef: string, checkoutUrl: string, now: string): Promise<void>;
   /**
    * Claims the provider's transaction id and, when `settle` is given, moves the
@@ -60,6 +62,12 @@ export interface CardCheckoutRepository {
   settlePaid(input: {
     readonly provider: PaymentProviderId;
     readonly providerRef: string;
+    /**
+     * What is claimed as "already processed". Defaults to `providerRef`; an
+     * operator applying an `unapplied` payment by hand claims its own key,
+     * because the provider's transaction id was claimed when it first arrived.
+     */
+    readonly claimRef?: string;
     readonly now: string;
     readonly checkoutId: string;
     readonly from: readonly CardCheckoutStatus[];
@@ -76,6 +84,16 @@ export class CardCheckoutUnavailableError extends Error {
     super(`تعذّر بدء الدفع بالبطاقة: ${reasons.join("، ")}`);
     this.messageEn = `Card checkout unavailable: ${reasonsEn.join("; ")}`;
     this.name = "CardCheckoutUnavailableError";
+  }
+}
+
+export class CardPaymentNotApplicableError extends Error {
+  readonly code = "CARD_PAYMENT_NOT_APPLICABLE";
+  readonly messageEn: string;
+  constructor(readonly reasons: string[], reasonsEn: string[]) {
+    super(`تعذّر تطبيق دفعة البطاقة: ${reasons.join("، ")}`);
+    this.messageEn = `The card payment cannot be applied: ${reasonsEn.join("; ")}`;
+    this.name = "CardPaymentNotApplicableError";
   }
 }
 

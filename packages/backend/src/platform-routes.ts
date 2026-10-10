@@ -44,6 +44,7 @@ import {
   type PlatformUser,
   type CardCheckout,
   CardCheckoutUnavailableError,
+  CardPaymentNotApplicableError,
 } from "@mezan/domain";
 import {
   createTenantRequestSchema,
@@ -53,6 +54,7 @@ import {
   subscriptionSuspendRequestSchema,
   subscriptionResumeRequestSchema,
   recordPaymentRequestSchema,
+  applyCardCheckoutRequestSchema,
   planCreateRequestSchema,
   planUpdateRequestSchema,
   createPlatformUserRequestSchema,
@@ -66,6 +68,7 @@ import {
   type PaymentDTO,
   type PlatformUserDTO,
   type CardCheckoutDTO,
+  type CardCheckoutSweepResultDTO,
   type PlatformCardCheckoutsDTO,
 } from "@mezan/contracts";
 import { requestOrigin } from "@mezan/api";
@@ -76,6 +79,16 @@ export interface PlatformCardCheckoutPort {
   readonly testMode: boolean;
   open(input: { readonly tenantId: string; readonly actorId: string; readonly request: Request }): Promise<CardCheckout>;
   list(tenantId: string): Promise<CardCheckout[]>;
+  /** Reconciles checkouts whose callback never arrived against the provider; the same pass the server timer runs. */
+  sweep(): Promise<CardCheckoutSweepResultDTO>;
+  /** Applies an `unapplied` card payment to the subscription; writes its own audit event in the same transaction. */
+  applyUnapplied(input: {
+    readonly tenantId: string;
+    readonly checkoutId: string;
+    readonly amount: Money;
+    readonly reason: string;
+    readonly actorId: string;
+  }): Promise<CardCheckout>;
 }
 
 export interface CreatePlatformRoutesOptions {
@@ -188,7 +201,7 @@ function domainErrorResponse(c: Context, err: unknown): Response {
     console.error(err);
     return c.json({ error: "PAYMENT_PROVIDER_ERROR", message: "تعذّر الاتصال بمزوّد الدفع، حاول مرة أخرى", messageEn: "The payment provider could not be reached; try again" }, 502);
   }
-  if (err instanceof CardCheckoutUnavailableError) {
+  if (err instanceof CardCheckoutUnavailableError || err instanceof CardPaymentNotApplicableError) {
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
   }
   if (
@@ -499,6 +512,36 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
         checkouts: checkouts.map(serializeCardCheckout),
       };
       return c.json(body);
+    } catch (err) {
+      return domainErrorResponse(c, err);
+    }
+  });
+
+  const cardCheckoutNotConfigured = (c: Context) =>
+    c.json({ error: "CARD_CHECKOUT_NOT_CONFIGURED", message: "الدفع بالبطاقة غير مُفعّل على هذا الخادم", messageEn: "Card checkout is not configured on this server" }, 503);
+
+  app.post("/card-checkouts/sweep", requireOwner, async (c) => {
+    if (!options.cardCheckout) return cardCheckoutNotConfigured(c);
+    const result = await options.cardCheckout.sweep();
+    await audit(c, "CARD_CHECKOUT_SWEEP_RUN", null, { ...result });
+    return c.json(result);
+  });
+
+  app.post("/tenants/:id/card-checkouts/:checkoutId/apply", requireOwner, async (c) => {
+    if (!options.cardCheckout) return cardCheckoutNotConfigured(c);
+    const parsed = applyCardCheckoutRequestSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    const platformUser = c.get("platformUser")!;
+    try {
+      const tenant = await requireTenant(c.req.param("id"));
+      const checkout = await options.cardCheckout.applyUnapplied({
+        tenantId: tenant.id,
+        checkoutId: c.req.param("checkoutId"),
+        amount: Money.fromMajor(parsed.data.amount),
+        reason: parsed.data.reason,
+        actorId: platformUser.id,
+      });
+      return c.json(serializeCardCheckout(checkout));
     } catch (err) {
       return domainErrorResponse(c, err);
     }

@@ -2,13 +2,14 @@ import { useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
 import { Button, Card, ConfirmDialog, Money, Select, StatusPill, useFormat } from "@mezan/ui";
 import { MODULES } from "@mezan/domain";
-import type { BillingCycleDTO, ProvisionResultDTO, SubscriptionStatusDTO } from "@mezan/contracts";
+import type { BillingCycleDTO, CardCheckoutDTO, ProvisionResultDTO, SubscriptionStatusDTO } from "@mezan/contracts";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { moduleLabel } from "../domain-labels";
 import { SelectField, TextAreaField, ToggleField } from "../settings/form-controls";
 import { LicenseStateChip, TenantStatusChip } from "./chips";
 import { PlatformApiError, usePlatformApi } from "./api";
 import { RecordPaymentDialog } from "./RecordPaymentDialog";
+import { ApplyCardPaymentDialog } from "./ApplyCardPaymentDialog";
 import { CardCheckoutChip, CheckoutOutcomeNotice, TestModeChip, absoluteCheckoutUrl } from "../billing/CardCheckoutStatus";
 import {
   useArchiveTenantMutation,
@@ -22,6 +23,7 @@ import {
   useRetryProvisionMutation,
   useSuspendSubscriptionMutation,
   useSuspendTenantMutation,
+  useSweepCardCheckoutsMutation,
   useTenantQuery,
 } from "./hooks";
 
@@ -68,6 +70,7 @@ const FAILURE_REASON_KEY: Readonly<Record<string, AppTranslationKey>> = {
   AMOUNT_MISMATCH: "platform.cardCheckout.reason.AMOUNT_MISMATCH",
   PRICE_CHANGED: "platform.cardCheckout.reason.PRICE_CHANGED",
   SUBSCRIPTION_NOT_RENEWABLE: "platform.cardCheckout.reason.SUBSCRIPTION_NOT_RENEWABLE",
+  EXPIRED: "platform.cardCheckout.reason.EXPIRED",
 };
 
 function failureReasonKey(reason: string): AppTranslationKey {
@@ -103,6 +106,8 @@ export function TenantDetailPage() {
   const retryProvision = useRetryProvisionMutation();
   const cardCheckouts = useCardCheckoutsQuery(id);
   const createCardCheckout = useCreateCardCheckoutMutation();
+  const sweepCardCheckouts = useSweepCardCheckoutsMutation();
+  const [applyTarget, setApplyTarget] = useState<CardCheckoutDTO | null>(null);
   const [searchParams] = useSearchParams();
   const returnedCheckoutId = searchParams.get("checkout");
   const [cardLink, setCardLink] = useState<string | null>(null);
@@ -379,7 +384,43 @@ export function TenantDetailPage() {
           <div className="mb-[12px] flex flex-wrap items-center gap-[8px]">
             <h2 className="text-[13px] font-bold text-ink">{t("platform.cardCheckout.title")}</h2>
             {checkoutsData?.testMode ? <TestModeChip /> : null}
+            {isOwner && checkoutsData?.cardCheckout ? (
+              <Button
+                className="ms-auto"
+                variant="default"
+                size="sm"
+                title={t("platform.cardCheckout.sweep.hint")}
+                disabled={sweepCardCheckouts.isPending}
+                onClick={() => {
+                  setMutationError(null);
+                  sweepCardCheckouts.mutate(undefined, { onError: onMutationError });
+                }}
+              >
+                {sweepCardCheckouts.isPending ? t("platform.cardCheckout.sweep.running") : t("platform.cardCheckout.sweep.run")}
+              </Button>
+            ) : null}
           </div>
+          {sweepCardCheckouts.data ? (
+            <div role="status" className="mb-[12px] rounded-md border border-border bg-surface-2 p-[12px] text-[12px] text-ink">
+              <p>
+                {t("platform.cardCheckout.sweep.result", {
+                  examined: sweepCardCheckouts.data.examined,
+                  paid: sweepCardCheckouts.data.paid,
+                  declined: sweepCardCheckouts.data.declined,
+                  unapplied: sweepCardCheckouts.data.unapplied,
+                  expired: sweepCardCheckouts.data.expired,
+                  stillPending: sweepCardCheckouts.data.stillPending,
+                })}
+              </p>
+              {sweepCardCheckouts.data.unavailable + sweepCardCheckouts.data.failed > 0 ? (
+                <p className="mt-[4px] text-warning-ink">
+                  {t("platform.cardCheckout.sweep.unavailable", {
+                    count: sweepCardCheckouts.data.unavailable + sweepCardCheckouts.data.failed,
+                  })}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
           {returnedCheckoutId ? (
             <div className="mb-[12px] rounded-md border border-border bg-surface-2 p-[12px]">
               <CheckoutOutcomeNotice checkout={returnedCheckout} timedOut={false} />
@@ -422,7 +463,14 @@ export function TenantDetailPage() {
                       {c.failureReason ? ` — ${t(failureReasonKey(c.failureReason))}` : ""}
                     </span>
                   </div>
-                  <Money value={Number(c.amount)} />
+                  <div className="flex items-center gap-[10px]">
+                    {isOwner && c.status === "unapplied" && c.providerRef ? (
+                      <Button variant="default" size="sm" onClick={() => setApplyTarget(c)}>
+                        {t("platform.cardCheckout.apply.action")}
+                      </Button>
+                    ) : null}
+                    <Money value={Number(c.amount)} />
+                  </div>
                 </div>
               ))}
             </div>
@@ -481,6 +529,12 @@ export function TenantDetailPage() {
       </Card>
 
       <RecordPaymentDialog open={paymentDialogOpen} onClose={() => setPaymentDialogOpen(false)} tenantId={tenant.id} />
+      <ApplyCardPaymentDialog
+        key={applyTarget?.id ?? "closed"}
+        checkout={applyTarget}
+        onClose={() => setApplyTarget(null)}
+        tenantId={tenant.id}
+      />
 
       <ConfirmDialog
         open={confirmArchive}

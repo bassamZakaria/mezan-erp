@@ -1,10 +1,18 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { createSessionRegistry } from "@mezan/api";
-import { createPlatformUser, createTenant, activateTenant, startSubscription } from "@mezan/domain";
+import {
+  activateTenant,
+  CardPaymentNotApplicableError,
+  createPlatformUser,
+  createTenant,
+  Money,
+  startSubscription,
+  type CardCheckout,
+} from "@mezan/domain";
 import type { CreateTenantRequestDTO, ProvisionResultDTO, ProvisionRetryRequestDTO } from "@mezan/contracts";
 import { createPlatform, type PlatformHandle } from "./create-platform.js";
 import { createPlatformAuth, type PlatformAuth } from "./platform-auth.js";
-import { createPlatformRoutes } from "./platform-routes.js";
+import { createPlatformRoutes, type PlatformCardCheckoutPort } from "./platform-routes.js";
 
 const FIXED_NOW = () => new Date("2026-01-01T00:00:00Z");
 
@@ -606,5 +614,130 @@ describe("createPlatformRoutes", () => {
 
     const res = await unwiredApp.fetch(req(`/tenants/${tenant.id}/provision`, rig.ownerToken, { method: "POST" }));
     expect(res.status).toBe(500);
+  });
+});
+
+describe("createPlatformRoutes — card checkout operator actions", () => {
+  const swept = { examined: 3, paid: 1, declined: 0, unapplied: 0, expired: 1, stillPending: 1, alreadySettled: 0, unavailable: 0, failed: 0 };
+
+  async function withCardCheckout(port: Partial<PlatformCardCheckoutPort> = {}) {
+    const rig = await buildRig();
+    const calls: { sweeps: number; applied: unknown[] } = { sweeps: 0, applied: [] };
+    const app = createPlatformRoutes({
+      platform: rig.platform,
+      auth: rig.auth,
+      now: FIXED_NOW,
+      provisionTenant: async () => { throw new Error("not used in this test"); },
+      invalidateEntitlements: () => undefined,
+      cardCheckout: {
+        testMode: true,
+        open: async () => { throw new Error("not used in this test"); },
+        list: async () => [],
+        sweep: async () => { calls.sweeps += 1; return swept; },
+        applyUnapplied: async (input) => {
+          calls.applied.push({ ...input, amount: input.amount.toString() });
+          return checkout({ id: input.checkoutId, tenantId: input.tenantId, status: "paid" });
+        },
+        ...port,
+      },
+    });
+    const nowIso = FIXED_NOW().toISOString();
+    const tenant = await createTenant(
+      { id: "T-CARD", code: "card", nameAr: "بطاقة", ownerEmail: "card@example.com", now: nowIso },
+      rig.platform.stores.tenants,
+    );
+    return { rig, app, calls, tenant };
+  }
+
+  function checkout(overrides: Partial<CardCheckout>): CardCheckout {
+    return {
+      id: "CHK-1", tenantId: "T-CARD", subscriptionId: "S1", provider: "paymob-test", amount: Money.fromMajor("490.50"), currency: "EGP",
+      status: "unapplied", providerOrderRef: "1", checkoutUrl: null, providerRef: "2", paymentId: null, failureReason: null,
+      requestedBy: "tester", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z", ...overrides,
+    };
+  }
+
+  it("runs the sweep for an owner, returns its tally and audits who ran it", async () => {
+    const { rig, app, calls } = await withCardCheckout();
+
+    const res = await app.fetch(req("/card-checkouts/sweep", rig.ownerToken, { method: "POST" }));
+
+    expect(res.status).toBe(200);
+    expect(await json(res)).toEqual(swept);
+    expect(calls.sweeps).toBe(1);
+    const run = (await rig.platform.audit.query("security")).find((r) => r.action === "CARD_CHECKOUT_SWEEP_RUN");
+    expect(run?.actor).toBe("PU-OWNER");
+    expect(run?.details).toMatchObject({ examined: 3, paid: 1, expired: 1 });
+  });
+
+  it("refuses the sweep and the manual application to support staff and to anonymous callers", async () => {
+    const { rig, app, calls, tenant } = await withCardCheckout();
+    const body = JSON.stringify({ amount: "490.50", reason: "checked the dashboard" });
+
+    const responses = await Promise.all([
+      app.fetch(req("/card-checkouts/sweep", rig.supportToken, { method: "POST" })),
+      app.fetch(req(`/tenants/${tenant.id}/card-checkouts/CHK-1/apply`, rig.supportToken, { method: "POST", body })),
+      app.fetch(new Request("http://x/card-checkouts/sweep", { method: "POST" })),
+      app.fetch(new Request(`http://x/tenants/${tenant.id}/card-checkouts/CHK-1/apply`, { method: "POST", body, headers: { "content-type": "application/json" } })),
+    ]);
+
+    expect(responses.map((res) => res.status)).toEqual([403, 403, 401, 401]);
+    expect(calls).toEqual({ sweeps: 0, applied: [] });
+  });
+
+  it("applies an unapplied payment as the signed-in owner, never as an actor named in the body", async () => {
+    const { rig, app, calls, tenant } = await withCardCheckout();
+
+    const res = await app.fetch(
+      req(`/tenants/${tenant.id}/card-checkouts/CHK-1/apply`, rig.ownerToken, {
+        method: "POST",
+        body: JSON.stringify({ amount: "480.00", reason: "  matched the bank statement  ", actorId: "someone-else", tenantId: "T-OTHER" }),
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    expect(await json(res)).toMatchObject({ id: "CHK-1", status: "paid" });
+    expect(calls.applied).toEqual([
+      { tenantId: tenant.id, checkoutId: "CHK-1", amount: "480.000000", reason: "matched the bank statement", actorId: "PU-OWNER" },
+    ]);
+  });
+
+  it.each([
+    ["no reason", { amount: "480.00" }],
+    ["a reason too short to mean anything", { amount: "480.00", reason: "ok" }],
+    ["no amount", { reason: "matched the bank statement" }],
+    ["a zero amount", { amount: "0", reason: "matched the bank statement" }],
+    ["a negative amount", { amount: "-5.00", reason: "matched the bank statement" }],
+    ["a numeric amount", { amount: 480, reason: "matched the bank statement" }],
+  ])("400s a manual application with %s", async (_label, body) => {
+    const { rig, app, calls, tenant } = await withCardCheckout();
+    const res = await app.fetch(
+      req(`/tenants/${tenant.id}/card-checkouts/CHK-1/apply`, rig.ownerToken, { method: "POST", body: JSON.stringify(body) }),
+    );
+    expect(res.status).toBe(400);
+    expect(calls.applied).toEqual([]);
+  });
+
+  it("answers 409 in Arabic and English when the payment cannot be applied, and 404 for an unknown tenant", async () => {
+    const { rig, app } = await withCardCheckout({
+      applyUnapplied: async () => { throw new CardPaymentNotApplicableError(["حالة عملية الدفع ليست «غير مطبّقة»"], ["checkout is not unapplied"]); },
+    });
+    const body = JSON.stringify({ amount: "480.00", reason: "matched the bank statement" });
+
+    const refused = await app.fetch(req("/tenants/T-CARD/card-checkouts/CHK-1/apply", rig.ownerToken, { method: "POST", body }));
+    const unknown = await app.fetch(req("/tenants/T-NOBODY/card-checkouts/CHK-1/apply", rig.ownerToken, { method: "POST", body }));
+
+    expect(refused.status).toBe(409);
+    expect(await json(refused)).toMatchObject({ error: "CARD_PAYMENT_NOT_APPLICABLE", messageEn: expect.stringContaining("not unapplied") });
+    expect(unknown.status).toBe(404);
+  });
+
+  it("answers 503 for both actions when card checkout is not configured", async () => {
+    const rig = await buildRig();
+    const sweep = await rig.app.fetch(req("/card-checkouts/sweep", rig.ownerToken, { method: "POST" }));
+    const apply = await rig.app.fetch(
+      req("/tenants/T-X/card-checkouts/CHK-1/apply", rig.ownerToken, { method: "POST", body: JSON.stringify({ amount: "1.00", reason: "matched" }) }),
+    );
+    expect([sweep.status, apply.status]).toEqual([503, 503]);
   });
 });

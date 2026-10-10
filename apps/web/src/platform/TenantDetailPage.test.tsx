@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { beforeEach, describe, expect, it } from "vitest";
-import { fireEvent, screen, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { Route, Routes } from "react-router";
-import type { PlanDTO, TenantSummaryDTO } from "@mezan/contracts";
+import type { CardCheckoutDTO, PlanDTO, TenantSummaryDTO } from "@mezan/contracts";
 import { TenantDetailPage } from "./TenantDetailPage";
 import { renderWithPlatformProviders, stubPlatformTransport, testPlatformSession } from "./test-support";
 import type { PlatformSession } from "./session";
@@ -364,5 +364,129 @@ describe("TenantDetailPage", () => {
     expect(await screen.findByText("REF-1")).toBeInTheDocument();
     expect(posted).toMatchObject({ amount: "500.00", reference: "REF-1" });
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  describe("card checkouts — operator actions", () => {
+    const unapplied: CardCheckoutDTO = {
+      id: "chk-1", tenantId: "tenant-1", subscriptionId: "sub-1", provider: "paymob", testMode: false, amount: "500.000000",
+      currency: "EGP", status: "unapplied", checkoutUrl: null, providerRef: "574588", paymentId: null, failureReason: "AMOUNT_MISMATCH",
+      requestedBy: "tenant:acme:u1", createdAt: "2026-09-10T00:00:00.000Z", updatedAt: "2026-09-10T00:00:00.000Z",
+    };
+    const expired: CardCheckoutDTO = { ...unapplied, id: "chk-2", status: "failed", providerRef: null, failureReason: "EXPIRED" };
+
+    function checkoutsTransport(handlers: Parameters<typeof stubPlatformTransport>[0] = {}, checkouts: CardCheckoutDTO[] = [unapplied]) {
+      return stubPlatformTransport({
+        "GET /tenants/tenant-1": () => ({ body: makeSummary() }),
+        "GET /plans": () => ({ body: [plan, plan2] }),
+        "GET /tenants/tenant-1/card-checkouts": () => ({ body: { cardCheckout: true, testMode: false, checkouts } }),
+        ...handlers,
+      });
+    }
+
+    it("applies an unapplied payment with the amount and reason the owner typed", async () => {
+      let posted: unknown = null;
+      const transport = checkoutsTransport({
+        "POST /tenants/tenant-1/card-checkouts/chk-1/apply": (init) => {
+          posted = JSON.parse(String(init?.body));
+          return { body: { ...unapplied, status: "paid" } };
+        },
+      });
+      renderDetail({ transport, session: testPlatformSession });
+
+      fireEvent.click(await screen.findByRole("button", { name: "تطبيق على الاشتراك" }));
+      const dialog = screen.getByRole("dialog");
+      const amount = within(dialog).getByLabelText("المبلغ المحصَّل فعلًا (جنيه)");
+      expect(amount).toHaveValue("500.00");
+      fireEvent.change(amount, { target: { value: "480.50" } });
+      fireEvent.change(within(dialog).getByLabelText("سبب التطبيق اليدوي"), { target: { value: "  طابقت كشف البنك  " } });
+      fireEvent.click(within(dialog).getByRole("button", { name: "تطبيق الدفعة" }));
+
+      await waitFor(() => expect(posted).toEqual({ amount: "480.50", reason: "طابقت كشف البنك" }));
+      await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    });
+
+    it.each([
+      ["no reason", "480.50", "", "اكتب سبب التطبيق اليدوي (ثلاثة أحرف على الأقل)."],
+      ["a zero amount", "0.00", "طابقت كشف البنك", "أدخل مبلغًا أكبر من صفر بحد أقصى خانتين عشريتين."],
+      ["an amount that is not a number", "12,5", "طابقت كشف البنك", "أدخل مبلغًا أكبر من صفر بحد أقصى خانتين عشريتين."],
+      ["three decimal places", "480.505", "طابقت كشف البنك", "أدخل مبلغًا أكبر من صفر بحد أقصى خانتين عشريتين."],
+    ])("refuses %s before anything is posted", async (_label, amount, reason, message) => {
+      let posts = 0;
+      const transport = checkoutsTransport({
+        "POST /tenants/tenant-1/card-checkouts/chk-1/apply": () => {
+          posts += 1;
+          return { body: unapplied };
+        },
+      });
+      renderDetail({ transport, session: testPlatformSession });
+
+      fireEvent.click(await screen.findByRole("button", { name: "تطبيق على الاشتراك" }));
+      const dialog = screen.getByRole("dialog");
+      fireEvent.change(within(dialog).getByLabelText("المبلغ المحصَّل فعلًا (جنيه)"), { target: { value: amount } });
+      fireEvent.change(within(dialog).getByLabelText("سبب التطبيق اليدوي"), { target: { value: reason } });
+      fireEvent.click(within(dialog).getByRole("button", { name: "تطبيق الدفعة" }));
+
+      expect(await within(dialog).findByText(message)).toBeInTheDocument();
+      expect(posts).toBe(0);
+    });
+
+    it("keeps the dialog open and shows the server's refusal", async () => {
+      const transport = checkoutsTransport({
+        "POST /tenants/tenant-1/card-checkouts/chk-1/apply": () => ({
+          status: 409,
+          body: { error: "CARD_PAYMENT_NOT_APPLICABLE", message: "تعذّر تطبيق دفعة البطاقة: المرجع مسجَّل كدفعة من قبل" },
+        }),
+      });
+      renderDetail({ transport, session: testPlatformSession });
+
+      fireEvent.click(await screen.findByRole("button", { name: "تطبيق على الاشتراك" }));
+      const dialog = screen.getByRole("dialog");
+      fireEvent.change(within(dialog).getByLabelText("سبب التطبيق اليدوي"), { target: { value: "طابقت كشف البنك" } });
+      fireEvent.click(within(dialog).getByRole("button", { name: "تطبيق الدفعة" }));
+
+      expect(await within(dialog).findByText("تعذّر تطبيق دفعة البطاقة: المرجع مسجَّل كدفعة من قبل")).toBeInTheDocument();
+    });
+
+    it("offers neither action to a support operator, and no apply button on a checkout that is not unapplied", async () => {
+      renderDetail({ transport: checkoutsTransport({}, [unapplied, expired]), session: supportSession });
+
+      expect(await screen.findByText(/انتهت المهلة دون أن يؤكّد مزوّد الدفع أي عملية/)).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "تطبيق على الاشتراك" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "مطابقة العمليات المعلّقة مع Paymob" })).not.toBeInTheDocument();
+    });
+
+    it("shows one apply button per unapplied checkout only", async () => {
+      renderDetail({ transport: checkoutsTransport({}, [unapplied, expired]), session: testPlatformSession });
+
+      expect(await screen.findAllByRole("button", { name: "تطبيق على الاشتراك" })).toHaveLength(1);
+    });
+
+    it("runs the sweep and reports what it did, including what could not be asked", async () => {
+      let sweeps = 0;
+      const transport = checkoutsTransport({
+        "POST /card-checkouts/sweep": () => {
+          sweeps += 1;
+          return { body: { examined: 4, paid: 1, declined: 0, unapplied: 0, expired: 1, stillPending: 1, alreadySettled: 0, unavailable: 1, failed: 0 } };
+        },
+      });
+      renderDetail({ transport, session: testPlatformSession });
+
+      fireEvent.click(await screen.findByRole("button", { name: "مطابقة العمليات المعلّقة مع Paymob" }));
+
+      expect(await screen.findByText("رُوجعت 4 عملية: مدفوعة 1، مرفوضة 0، غير مطبّقة 0، منتهية 1، ما زالت معلّقة 1.")).toBeInTheDocument();
+      expect(screen.getByText("تعذّر سؤال مزوّد الدفع عن 1 عملية، فتُركت كما هي.")).toBeInTheDocument();
+      expect(sweeps).toBe(1);
+    });
+
+    it("shows the server's message when the sweep fails", async () => {
+      const transport = checkoutsTransport({
+        "POST /card-checkouts/sweep": () => ({ status: 503, body: { error: "CARD_CHECKOUT_NOT_CONFIGURED", message: "الدفع بالبطاقة غير مُفعّل على هذا الخادم" } }),
+      });
+      renderDetail({ transport, session: testPlatformSession });
+
+      fireEvent.click(await screen.findByRole("button", { name: "مطابقة العمليات المعلّقة مع Paymob" }));
+
+      expect(await screen.findByText("الدفع بالبطاقة غير مُفعّل على هذا الخادم")).toBeInTheDocument();
+    });
   });
 });

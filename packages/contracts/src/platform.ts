@@ -278,6 +278,25 @@ export const platformCardCheckoutsSchema = z.object({
   checkouts: z.array(cardCheckoutSchema),
 });
 
+/** What one reconciliation pass over stuck card checkouts did; every figure is a count of checkouts. */
+export const cardCheckoutSweepResultSchema = z.object({
+  examined: z.number().int().nonnegative(),
+  paid: z.number().int().nonnegative(),
+  declined: z.number().int().nonnegative(),
+  unapplied: z.number().int().nonnegative(),
+  expired: z.number().int().nonnegative(),
+  stillPending: z.number().int().nonnegative(),
+  alreadySettled: z.number().int().nonnegative(),
+  unavailable: z.number().int().nonnegative(),
+  failed: z.number().int().nonnegative(),
+});
+
+/** `amount` is what the operator confirmed the provider collected: it is what the payment records, not the checkout's expected figure. */
+export const applyCardCheckoutRequestSchema = z.object({
+  amount: strictlyPositiveDecimalString,
+  reason: z.string().trim().min(3).max(500),
+});
+
 /** How a module stands for this tenant right now (DEC-31 rules 3 and 5). */
 export const billingModuleStateSchema = z.enum(["active", "trialing", "read_only", "locked"]);
 
@@ -386,3 +405,5 @@ export type BillingLimitDTO = z.infer<typeof billingLimitSchema>;
 export type BillingPlanOfferDTO = z.infer<typeof billingPlanOfferSchema>;
 export type StartModuleTrialRequestDTO = z.infer<typeof startModuleTrialRequestSchema>;
 export type PlatformCardCheckoutsDTO = z.infer<typeof platformCardCheckoutsSchema>;
+export type CardCheckoutSweepResultDTO = z.infer<typeof cardCheckoutSweepResultSchema>;
+export type ApplyCardCheckoutRequestDTO = z.infer<typeof applyCardCheckoutRequestSchema>;

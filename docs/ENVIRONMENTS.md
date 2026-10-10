@@ -87,6 +87,7 @@ carries query parameters too; they are never read as proof of payment.
 | `MEZAN_PAYMOB_HMAC_SECRET` | HMAC secret; verifies every transaction callback (SHA-512 over Paymob's fixed 20-field order). |
 | `MEZAN_PAYMOB_INTEGRATION_ID` | Card integration id(s), comma-separated. Test ids with test keys, live with live. |
 | `MEZAN_PAYMOB_PUBLIC_URL` | Public `https://` origin of this deployment. Required with live keys: the callback goes to `<url>/api/billing/paymob/webhook` and the customer returns to `<url>/…` (or to the tenant's own subdomain under `MEZAN_TENANT_DOMAIN`). |
+| `MEZAN_PAYMOB_API_KEY` | Optional; the dashboard **API key** (Settings → Account Info) — a different credential from the secret key. It buys the bearer token (`POST /api/auth/tokens`, 60 min) that `POST /api/ecommerce/orders/transaction_inquiry` needs. Without it the reconciliation sweep cannot ask Paymob about a checkout whose callback never arrived, so it settles and expires nothing and reports every checkout as `unavailable`. |
 | `MEZAN_PAYMOB_BASE_URL` | Optional; default `https://accept.paymob.com` (Egypt). |
 | `MEZAN_PAYMOB_TEST_MODE` | `1` runs the local test double when no keys are set; `0` turns card checkout off in dev. |
 

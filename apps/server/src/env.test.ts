@@ -144,4 +144,21 @@ describe("parseEnv", () => {
     expect(() => parseEnv({ PORT: "0" })).toThrow(/PORT/);
     expect(() => parseEnv({ PORT: "abc" })).toThrow(/PORT/);
   });
+
+  const livePaymob = {
+    MEZAN_PAYMOB_SECRET_KEY: "sk-live",
+    MEZAN_PAYMOB_PUBLIC_KEY: "pk-live",
+    MEZAN_PAYMOB_HMAC_SECRET: "hmac-live",
+    MEZAN_PAYMOB_INTEGRATION_ID: "101",
+    MEZAN_PAYMOB_PUBLIC_URL: "https://pay.mezan.test",
+  };
+
+  it("reads the optional Paymob inquiry API key alongside the live keys", () => {
+    expect(parseEnv({ ...livePaymob, MEZAN_PAYMOB_API_KEY: " dashboard-key " }).paymob).toMatchObject({ mode: "live", apiKey: "dashboard-key" });
+    expect(parseEnv(livePaymob).paymob).not.toHaveProperty("apiKey");
+  });
+
+  it("refuses a Paymob inquiry API key with no live keys to go with it", () => {
+    expect(() => parseEnv({ MEZAN_PAYMOB_API_KEY: "dashboard-key" })).toThrow(/MEZAN_PAYMOB_API_KEY/);
+  });
 });

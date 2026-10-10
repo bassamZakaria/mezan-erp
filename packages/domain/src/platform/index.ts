@@ -34,9 +34,11 @@ export {
   type Payment, type PaymentRepository,
   type RecordPaymentCommand, type RecordPaymentResult,
 } from "./payment.js";
-export type {
-  PaymentProvider, PaymentProviderId, CheckoutRequest, CheckoutSession,
-  ProviderTransactionOutcome, VerifiedProviderTransaction,
+export {
+  ProviderInquiryStatus,
+  type PaymentProvider, type PaymentProviderId, type CheckoutRequest, type CheckoutSession,
+  type ProviderTransactionOutcome, type VerifiedProviderTransaction,
+  type ProviderInquiry, type ProviderInquiryRequest,
 } from "./payment-provider.js";
 export {
   PAYMOB_TRANSACTION_HMAC_FIELDS, paymobTransactionHmacMessage, hasPaymobSignedShape, parsePaymobTransaction,
@@ -44,7 +46,7 @@ export {
   type PaymobTransactionObject, type ParsedPaymobTransaction,
 } from "./paymob.js";
 export {
-  cardCheckoutAmount, CardCheckoutUnavailableError,
+  cardCheckoutAmount, CardCheckoutUnavailableError, CardPaymentNotApplicableError,
   type CardCheckout, type CardCheckoutStatus, type CardCheckoutRepository, type CardCheckoutSettlement,
 } from "./card-checkout.js";
 export {

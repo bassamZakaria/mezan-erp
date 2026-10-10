@@ -11,6 +11,8 @@ export type PaymobEnv =
       readonly hmacSecret: string;
       readonly integrationIds: readonly number[];
       readonly publicUrl: string;
+      /** The dashboard API key the transaction-inquiry API authenticates with. Without it, stuck checkouts cannot be reconciled. */
+      readonly apiKey?: string;
     }
   | { readonly mode: "test"; readonly publicUrl?: string }
   | { readonly mode: "off" };
@@ -69,6 +71,8 @@ function parsePaymob(env: Record<string, string | undefined>, testByDefault: boo
   const values = PAYMOB_LIVE_VARS.map((name) => trimmedOrUndefined(env[name]));
   const present = values.filter((v) => v !== undefined).length;
   const testFlag = env["MEZAN_PAYMOB_TEST_MODE"];
+  const apiKey = trimmedOrUndefined(env["MEZAN_PAYMOB_API_KEY"]);
+  if (apiKey && present === 0) throw new Error("MEZAN_PAYMOB_API_KEY is set without the live Paymob keys it belongs to");
   const publicUrlRaw = trimmedOrUndefined(env["MEZAN_PAYMOB_PUBLIC_URL"]);
   const publicUrl = publicUrlRaw ? parseOrigin(publicUrlRaw, "MEZAN_PAYMOB_PUBLIC_URL") : undefined;
   if (present > 0 && present < PAYMOB_LIVE_VARS.length) {
@@ -91,6 +95,7 @@ function parsePaymob(env: Record<string, string | undefined>, testByDefault: boo
       hmacSecret: hmacSecret!,
       integrationIds,
       publicUrl,
+      ...(apiKey ? { apiKey } : {}),
     };
   }
   const test = testFlag === "1" || (testByDefault && testFlag !== "0");

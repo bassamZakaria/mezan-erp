@@ -116,6 +116,7 @@ CREATE TABLE IF NOT EXISTS card_checkout (
   updated_at          TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_card_checkout_tenant ON card_checkout(tenant_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_card_checkout_status ON card_checkout(status, created_at);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_card_checkout_provider_order
   ON card_checkout(provider, provider_order_ref) WHERE provider_order_ref IS NOT NULL;
 
@@ -592,6 +593,7 @@ class SqliteCardCheckoutStore implements CardCheckoutRepository {
   private readonly byId: Database.Statement;
   private readonly byProviderOrder: Database.Statement;
   private readonly byTenant: Database.Statement;
+  private readonly pendingBefore: Database.Statement;
   private readonly attach: Database.Statement;
   private readonly claim: Database.Statement;
   private readonly renewSubscription: Database.Statement;
@@ -607,6 +609,9 @@ class SqliteCardCheckoutStore implements CardCheckoutRepository {
     this.byId = sqlite.prepare(`SELECT * FROM card_checkout WHERE id = ?`);
     this.byProviderOrder = sqlite.prepare(`SELECT * FROM card_checkout WHERE provider = ? AND provider_order_ref = ?`);
     this.byTenant = sqlite.prepare(`SELECT * FROM card_checkout WHERE tenant_id = ? ORDER BY created_at DESC, id DESC`);
+    this.pendingBefore = sqlite.prepare(
+      `SELECT * FROM card_checkout WHERE status = 'pending' AND created_at <= ? ORDER BY created_at ASC, id ASC LIMIT ?`,
+    );
     this.attach = sqlite.prepare(
       `UPDATE card_checkout SET provider_order_ref = ?, checkout_url = ?, updated_at = ? WHERE id = ? AND provider_order_ref IS NULL`,
     );
@@ -647,6 +652,10 @@ class SqliteCardCheckoutStore implements CardCheckoutRepository {
     return (this.byTenant.all(tenantId) as CardCheckoutRow[]).map(toCardCheckout);
   }
 
+  async listPending(openedAtOrBefore: string, limit: number): Promise<CardCheckout[]> {
+    return (this.pendingBefore.all(openedAtOrBefore, limit) as CardCheckoutRow[]).map(toCardCheckout);
+  }
+
   async attachSession(id: string, providerOrderRef: string, checkoutUrl: string, now: string): Promise<void> {
     const result = this.attach.run(providerOrderRef, checkoutUrl, now, id);
     if (result.changes !== 1) throw new Error(`card checkout ${id} already has a provider order`);
@@ -680,7 +689,7 @@ class SqliteCardCheckoutStore implements CardCheckoutRepository {
   async settlePaid(input: Parameters<CardCheckoutRepository["settlePaid"]>[0]): Promise<"duplicate" | "already-settled" | "subscription-changed" | "paid"> {
     const { subscriptionBefore: before, subscriptionAfter: after, payment: p } = input;
     const run = this.sqlite.transaction((): "duplicate" | "already-settled" | "paid" => {
-      if (this.claim.run(input.provider, input.providerRef, input.now).changes !== 1) return "duplicate";
+      if (this.claim.run(input.provider, input.claimRef ?? input.providerRef, input.now).changes !== 1) return "duplicate";
       const moved = this.casCheckout(input.checkoutId, input.from, {
         status: "paid", providerRef: input.providerRef, paymentId: p.id, failureReason: null, now: input.now,
       });

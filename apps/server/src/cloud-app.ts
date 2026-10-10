@@ -17,6 +17,7 @@ import { createLegalRoutes, LEGAL_BASE_PATH } from "./legal-routes.js";
 import { startDunningTimer } from "./dunning.js";
 import { createBackupScheduler } from "./backup-scheduler.js";
 import { createCardCheckoutService, type CardCheckoutService } from "./card-checkout.js";
+import { startCardCheckoutSweepTimer } from "./card-checkout-sweep.js";
 import { createPaymobProvider, createPaymobTestProvider, type PaymobTestProvider } from "./paymob-provider.js";
 import {
   PAYMOB_WEBHOOK_PATH,
@@ -161,6 +162,8 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
             });
           },
           list: (tenantId) => checkoutService.listByTenant(tenantId),
+          sweep: () => checkoutService.sweepPending(),
+          applyUnapplied: async (input) => (await checkoutService.applyUnapplied(input)).checkout,
         }
       : undefined,
   });
@@ -169,6 +172,12 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
     now,
     onError: (err) => console.error("[cloud] dunning sweep failed", err),
   });
+
+  const checkoutSweepTimer = checkoutService
+    ? startCardCheckoutSweepTimer(checkoutService, {
+        onError: (err) => console.error("[cloud] card checkout sweep failed", err),
+      })
+    : null;
 
   const backups = options.backups ?? createBackupScheduler({
     platform,
@@ -249,6 +258,7 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
       closed = true;
       stopBackups?.();
       dunningTimer.stop();
+      checkoutSweepTimer?.stop();
       await router.close();
       platform.close();
     },

@@ -1,6 +1,8 @@
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import type {
+  ApplyCardCheckoutRequestDTO,
   CardCheckoutDTO,
+  CardCheckoutSweepResultDTO,
   PlatformCardCheckoutsDTO,
   ChangePlanRequestDTO,
   CreateTenantRequestDTO,
@@ -195,6 +197,46 @@ export function useCreateCardCheckoutMutation() {
     },
     onSettled: (_data, _err, tenantId) => {
       void queryClient.invalidateQueries({ queryKey: ["platform", "tenants", tenantId, "card-checkouts"] });
+    },
+  });
+}
+
+export interface ApplyCardCheckoutVariables {
+  readonly tenantId: string;
+  readonly checkoutId: string;
+  readonly body: ApplyCardCheckoutRequestDTO;
+}
+
+/** Applying renews the subscription, so the tenant summary (period end, payments) is refetched along with the checkouts. */
+export function useApplyCardCheckoutMutation() {
+  const { t } = useAppTranslation();
+  const { request } = usePlatformApi();
+  const queryClient = useQueryClient();
+  return useMutation<CardCheckoutDTO, PlatformApiError, ApplyCardCheckoutVariables>({
+    mutationFn: async ({ tenantId, checkoutId, body }) => {
+      const res = await request(`/tenants/${tenantId}/card-checkouts/${checkoutId}/apply`, { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new PlatformApiError(res.status, await readPlatformErrorMessage(res, t, "platform.cardCheckout.apply.error.generic"));
+      return res.json<CardCheckoutDTO>();
+    },
+    onSettled: (_data, _err, { tenantId }) => {
+      void queryClient.invalidateQueries({ queryKey: ["platform", "tenants", tenantId] });
+    },
+  });
+}
+
+/** One pass over every tenant's stuck checkouts, so anything it settled can change any tenant's summary. */
+export function useSweepCardCheckoutsMutation() {
+  const { t } = useAppTranslation();
+  const { request } = usePlatformApi();
+  const queryClient = useQueryClient();
+  return useMutation<CardCheckoutSweepResultDTO, PlatformApiError, void>({
+    mutationFn: async () => {
+      const res = await request("/card-checkouts/sweep", { method: "POST" });
+      if (!res.ok) throw new PlatformApiError(res.status, await readPlatformErrorMessage(res, t, "platform.cardCheckout.sweep.error"));
+      return res.json<CardCheckoutSweepResultDTO>();
+    },
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: ["platform", "tenants"] });
     },
   });
 }

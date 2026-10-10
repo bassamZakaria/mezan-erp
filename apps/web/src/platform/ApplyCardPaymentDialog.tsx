@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Button, SidePanel } from "@mezan/ui";
 import type { CardCheckoutDTO } from "@mezan/contracts";
 import { useAppTranslation } from "../i18n";
-import { FormError, TextAreaField, TextField } from "../settings/form-controls";
+import { FormError, TextAreaField, TextField, ToggleField } from "../settings/form-controls";
 import { PlatformApiError } from "./api";
 import { useApplyCardCheckoutMutation } from "./hooks";
 
@@ -15,11 +15,20 @@ export interface ApplyCardPaymentDialogProps {
 
 const AMOUNT_PATTERN = /^\d{1,12}(\.\d{1,2})?$/;
 const MIN_REASON_LENGTH = 3;
+const ARABIC_INDIC_ZERO = 0x0660;
+const EXTENDED_ARABIC_INDIC_ZERO = 0x06f0;
 
 /** The wire amount carries six decimals; the operator reads and types piasters. Cut as text — a money figure never passes through a float here. */
 function toPiasters(amount: string): string {
   const [whole = "0", fraction = ""] = amount.split(".");
   return `${whole}.${fraction.padEnd(2, "0").slice(0, 2)}`;
+}
+
+function westernDigits(value: string): string {
+  return value
+    .replace(/[٠-٩]/g, (digit) => String(digit.charCodeAt(0) - ARABIC_INDIC_ZERO))
+    .replace(/[۰-۹]/g, (digit) => String(digit.charCodeAt(0) - EXTENDED_ARABIC_INDIC_ZERO))
+    .replace(/٫/g, ".");
 }
 
 function isPositiveAmount(value: string): boolean {
@@ -28,19 +37,26 @@ function isPositiveAmount(value: string): boolean {
 
 export function ApplyCardPaymentDialog({ checkout, onClose, tenantId }: ApplyCardPaymentDialogProps) {
   const { t } = useAppTranslation();
-  const expected = checkout ? toPiasters(checkout.amount) : "";
-  const [amount, setAmount] = useState(expected);
+  const captured = checkout?.capturedAmount ? toPiasters(checkout.capturedAmount) : null;
+  const [amount, setAmount] = useState(captured ?? "");
+  const [overrideConfirmed, setOverrideConfirmed] = useState(false);
   const [reason, setReason] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
   const applyCardCheckout = useApplyCardCheckoutMutation();
 
+  const typedAmount = westernDigits(amount.trim());
+  const differsFromCaptured = captured === null || !isPositiveAmount(typedAmount) || toPiasters(typedAmount) !== captured;
+
   function handleSubmit() {
     if (!checkout || applyCardCheckout.isPending) return;
     setFormError(null);
-    const typedAmount = amount.trim();
     const typedReason = reason.trim();
     if (!isPositiveAmount(typedAmount)) {
       setFormError(t("platform.cardCheckout.apply.error.amount"));
+      return;
+    }
+    if (differsFromCaptured && !overrideConfirmed) {
+      setFormError(t("platform.cardCheckout.apply.error.override"));
       return;
     }
     if (typedReason.length < MIN_REASON_LENGTH) {
@@ -48,7 +64,11 @@ export function ApplyCardPaymentDialog({ checkout, onClose, tenantId }: ApplyCar
       return;
     }
     applyCardCheckout.mutate(
-      { tenantId, checkoutId: checkout.id, body: { amount: typedAmount, reason: typedReason } },
+      {
+        tenantId,
+        checkoutId: checkout.id,
+        body: differsFromCaptured ? { amount: typedAmount, overrideAmount: true, reason: typedReason } : { reason: typedReason },
+      },
       {
         onSuccess: () => onClose(),
         onError: (err) => setFormError(err instanceof PlatformApiError ? err.message : t("platform.cardCheckout.apply.error.generic")),
@@ -66,9 +86,21 @@ export function ApplyCardPaymentDialog({ checkout, onClose, tenantId }: ApplyCar
           label={t("platform.cardCheckout.apply.amount")}
           value={amount}
           onChange={setAmount}
-          hint={t("platform.cardCheckout.apply.amountHint", { expected })}
+          hint={
+            captured === null
+              ? t("platform.cardCheckout.apply.amountHintUnknown")
+              : t("platform.cardCheckout.apply.amountHint", { captured, expected: checkout ? toPiasters(checkout.amount) : "" })
+          }
           autoComplete="off"
         />
+        {differsFromCaptured ? (
+          <ToggleField
+            label={t("platform.cardCheckout.apply.override")}
+            hint={t("platform.cardCheckout.apply.overrideHint")}
+            checked={overrideConfirmed}
+            onChange={setOverrideConfirmed}
+          />
+        ) : null}
         <TextAreaField
           label={t("platform.cardCheckout.apply.reason")}
           value={reason}

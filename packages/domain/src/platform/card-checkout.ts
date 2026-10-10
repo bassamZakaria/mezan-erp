@@ -7,6 +7,14 @@ import { moneyToPaymobCents } from "./paymob.js";
 
 export type CardCheckoutStatus = "pending" | "paid" | "failed" | "unapplied";
 
+export enum CardCheckoutFailureReason {
+  ProviderError = "PROVIDER_ERROR",
+  Declined = "DECLINED",
+  Expired = "EXPIRED",
+  /** Still `pending`: the provider's answer about it could not be read past the expiry threshold, so a person has to look. */
+  NeedsAttention = "NEEDS_ATTENTION",
+}
+
 export interface CardCheckout {
   readonly id: string;
   readonly tenantId: string;
@@ -20,6 +28,8 @@ export interface CardCheckout {
   readonly providerRef: string | null;
   readonly paymentId: string | null;
   readonly failureReason: string | null;
+  /** What the provider actually collected, kept when the payment could not be applied so a later manual application has the real figure. */
+  readonly capturedAmount: Money | null;
   readonly requestedBy: string;
   readonly createdAt: string;
   readonly updatedAt: string;
@@ -30,6 +40,7 @@ export interface CardCheckoutSettlement {
   readonly providerRef: string | null;
   readonly paymentId: string | null;
   readonly failureReason: string | null;
+  readonly capturedAmount?: Money | null;
   readonly now: string;
 }
 
@@ -38,8 +49,15 @@ export interface CardCheckoutRepository {
   findById(id: string): Promise<CardCheckout | null>;
   findByProviderOrder(provider: PaymentProviderId, providerOrderRef: string): Promise<CardCheckout | null>;
   listByTenant(tenantId: string): Promise<CardCheckout[]>;
-  /** Checkouts still `pending` that were opened at or before `openedAtOrBefore`, oldest first. */
-  listPending(openedAtOrBefore: string, limit: number): Promise<CardCheckout[]>;
+  /**
+   * What a reconciliation pass must ask the provider about, oldest first:
+   * every `pending` checkout opened at or before `openedAtOrBefore`, plus the
+   * declined ones opened after `declinedOpenedAfter` — a customer can retry a
+   * declined order and succeed, and that callback can be lost too.
+   */
+  listSweepable(openedAtOrBefore: string, declinedOpenedAfter: string, limit: number): Promise<CardCheckout[]>;
+  /** Marks a still-`pending` checkout as needing a person; false when it was already marked or is no longer pending. */
+  flagNeedsAttention(checkoutId: string, now: string): Promise<boolean>;
   attachSession(id: string, providerOrderRef: string, checkoutUrl: string, now: string): Promise<void>;
   /**
    * Claims the provider's transaction id and, when `settle` is given, moves the

@@ -423,6 +423,116 @@ describe("card checkout — sweeping checkouts whose callback never arrived", ()
     expect((await reload(r, second)).status).toBe("paid");
   });
 
+  it("carries on past checkouts whose answer cannot be read, however many there are, and settles the one behind them", async () => {
+    let inquiries = 0;
+    const r = await rig((provider) => ({
+      ...provider,
+      inquireTransaction: async (request) => {
+        inquiries += 1;
+        const answer = await provider.inquireTransaction(request);
+        return answer.status === ProviderInquiryStatus.Found
+          ? answer
+          : { status: ProviderInquiryStatus.Unreadable, reason: "the transaction belongs to another integration" };
+      },
+    }));
+    for (const code of ["shop1", "shop2", "shop3", "shop4"]) {
+      await addTenant(r.platform, code);
+      await r.open(`t-${code}`);
+      r.advance(1000);
+    }
+    await addTenant(r.platform, "payer");
+    const paid = await r.open("t-payer");
+    r.provider.simulateCallback(paid, "success");
+    r.advance(SWEEP_PENDING_AFTER_MS + MINUTE);
+
+    expect(await r.service.sweepPending()).toMatchObject({ examined: 5, stillPending: 4, paid: 1, unavailable: 0, needsAttention: 0 });
+    expect(inquiries).toBe(5);
+    expect((await reload(r, paid)).status).toBe("paid");
+  });
+
+  it("flags an unreadable checkout for a person past the expiry threshold, once, and never expires it", async () => {
+    const r = await rig((provider) => ({
+      ...provider,
+      inquireTransaction: async () => ({ status: ProviderInquiryStatus.Unreadable, reason: "the inquiry answer is not a transaction" }),
+    }));
+    const before = await r.periodEnd();
+    const checkout = await r.open();
+    r.advance(SWEEP_EXPIRE_AFTER_MS + MINUTE);
+
+    expect(await r.service.sweepPending()).toMatchObject({ examined: 1, needsAttention: 1, expired: 0 });
+    expect(await r.service.sweepPending()).toMatchObject({ examined: 1, needsAttention: 1, expired: 0 });
+
+    const flagged = await reload(r, checkout);
+    expect(flagged.status).toBe("pending");
+    expect(flagged.failureReason).toBe("NEEDS_ATTENTION");
+    expect(await r.periodEnd()).toBe(before);
+    expect(await r.details("CARD_CHECKOUT_NEEDS_ATTENTION")).toEqual([
+      expect.objectContaining({ checkoutId: checkout.id, why: "the inquiry answer is not a transaction" }),
+    ]);
+    expect(await r.details("CARD_CHECKOUT_EXPIRED")).toEqual([]);
+
+    expect(await deliver(r, checkout)).toMatchObject({ detail: SettlementDetail.Paid });
+    expect((await reload(r, checkout)).status).toBe("paid");
+  });
+
+  it("finds the successful retry of a declined checkout whose callback was lost", async () => {
+    const r = await rig();
+    const before = await r.periodEnd();
+    const checkout = await r.open();
+    await deliver(r, checkout, "failure");
+    expect((await reload(r, checkout)).status).toBe("failed");
+    r.provider.simulateCallback(checkout, "success");
+    r.advance(SWEEP_PENDING_AFTER_MS + MINUTE);
+
+    expect(await r.service.sweepPending()).toMatchObject({ examined: 1, paid: 1 });
+    expect((await reload(r, checkout)).status).toBe("paid");
+    expect(await r.periodEnd()).not.toBe(before);
+    expect(await r.payments()).toBe(1);
+  });
+
+  it("keeps asking about a declined checkout without touching it, and stops once the expiry threshold passes", async () => {
+    const r = await rig();
+    const checkout = await r.open();
+    await deliver(r, checkout, "failure");
+    r.advance(SWEEP_PENDING_AFTER_MS + MINUTE);
+
+    expect(await r.service.sweepPending()).toMatchObject({ examined: 1, alreadySettled: 1, declined: 0, expired: 0 });
+    expect((await reload(r, checkout)).failureReason).toBe("DECLINED");
+
+    r.advance(SWEEP_EXPIRE_AFTER_MS);
+    expect(await r.service.sweepPending()).toMatchObject({ examined: 0 });
+  });
+
+  it("stops at its time budget and reports what it left for the next pass", async () => {
+    let r!: Rig;
+    r = await rig((provider) => ({
+      ...provider,
+      inquireTransaction: async (request) => {
+        r.advance(8_000);
+        return provider.inquireTransaction(request);
+      },
+    }));
+    for (const code of ["shop1", "shop2", "shop3", "shop4", "shop5"]) {
+      await addTenant(r.platform, code);
+      const opened = await r.open(`t-${code}`);
+      r.provider.simulateCallback(opened, "success");
+      r.advance(1000);
+    }
+    r.advance(SWEEP_PENDING_AFTER_MS + MINUTE);
+
+    expect(await r.service.sweepPending({ budgetMs: 20_000 })).toMatchObject({ examined: 3, paid: 3, deferred: 2 });
+    expect(await r.service.sweepPending()).toMatchObject({ examined: 2, paid: 2, deferred: 0 });
+  });
+
+  it("says whether a pass is running", async () => {
+    const r = await rig();
+    expect(r.service.sweepRunning()).toBe(false);
+    const pass = r.service.sweepPending();
+    expect(r.service.sweepRunning()).toBe(true);
+    await pass;
+    expect(r.service.sweepRunning()).toBe(false);
+  });
+
   it("stops asking a provider that keeps failing and leaves the rest of the batch untouched", async () => {
     let inquiries = 0;
     const r = await rig((provider) => ({
@@ -470,10 +580,56 @@ describe("card checkout — applying an unapplied payment by hand", () => {
   }
   const apply = (r: Rig, checkout: CardCheckout, overrides: Partial<Parameters<CardCheckoutService["applyUnapplied"]>[0]> = {}) =>
     r.service.applyUnapplied({
-      tenantId: "t-acme", checkoutId: checkout.id, amount: Money.fromMajor("1.00"), reason: "راجعت لوحة بيموب", actorId: "PU-OWNER", ...overrides,
+      tenantId: "t-acme", checkoutId: checkout.id, overrideAmount: false, reason: "راجعت لوحة بيموب", actorId: "PU-OWNER", ...overrides,
     });
+  const appliedEvent = async (r: Rig) =>
+    (await r.platform.audit.query("security", 200)).find((event) => event.action === "CARD_PAYMENT_APPLIED_MANUALLY");
 
-  it("renews, records the amount the operator confirmed, and audits who applied it and why", async () => {
+  it("keeps the amount the provider collected on the unapplied checkout", async () => {
+    const r = await rig();
+    const checkout = await unapplied(r);
+
+    expect(checkout.capturedAmount?.equals(Money.fromMajor("1.00"))).toBe(true);
+    expect(checkout.amount.equals(Money.fromMajor("1.00"))).toBe(false);
+  });
+
+  it("refuses an amount other than the one the provider collected unless the override is confirmed", async () => {
+    const r = await rig();
+    const before = await r.periodEnd();
+    const checkout = await unapplied(r);
+
+    await expect(apply(r, checkout, { amount: Money.fromMajor("490.50") })).rejects.toMatchObject({
+      code: "CARD_PAYMENT_NOT_APPLICABLE",
+      messageEn: expect.stringContaining("is not what the provider collected (1.000000)"),
+    });
+    expect(await r.periodEnd()).toBe(before);
+    expect(await r.payments()).toBe(0);
+  });
+
+  it("records an overridden amount when the override is confirmed, and audits it as an override", async () => {
+    const r = await rig();
+    const checkout = await unapplied(r);
+
+    const result = await apply(r, checkout, { amount: Money.fromMajor("490.50"), overrideAmount: true });
+
+    expect(result.payment.amount.equals(Money.fromMajor("490.50"))).toBe(true);
+    expect((await appliedEvent(r))?.details).toMatchObject({ amount: "490.500000", captured: "1.000000", amountOverridden: true });
+  });
+
+  it("demands an explicit amount and override for a checkout that carries no collected amount", async () => {
+    const r = await rig();
+    const checkout = await unapplied(r);
+    r.platform.stores.sqlite.prepare("UPDATE card_checkout SET captured_amount = NULL WHERE id = ?").run(checkout.id);
+
+    await expect(apply(r, checkout)).rejects.toBeInstanceOf(CardPaymentNotApplicableError);
+    await expect(apply(r, checkout, { amount: Money.fromMajor("1.00") })).rejects.toBeInstanceOf(CardPaymentNotApplicableError);
+    const result = await apply(r, checkout, { amount: Money.fromMajor("1.00"), overrideAmount: true });
+
+    expect(result.checkout.status).toBe("paid");
+    expect((await appliedEvent(r))?.details).toMatchObject({ captured: null, amountOverridden: true });
+  });
+
+  it("renews, records the amount the provider collected, and audits who applied it and why", async () => {
     const r = await rig();
     const before = await r.periodEnd();
     const checkout = await unapplied(r);
@@ -487,9 +643,11 @@ describe("card checkout — applying an unapplied payment by hand", () => {
     expect(result.payment.recordedBy).toBe("PU-OWNER");
     expect(await r.periodEnd()).not.toBe(before);
     expect(r.invalidated).toEqual(["acme"]);
-    const applied = (await r.platform.audit.query("security", 200)).find((event) => event.action === "CARD_PAYMENT_APPLIED_MANUALLY");
+    const applied = await appliedEvent(r);
     expect(applied?.actor).toBe("PU-OWNER");
-    expect(applied?.details).toMatchObject({ checkoutId: checkout.id, reason: "راجعت لوحة بيموب", was: "AMOUNT_MISMATCH" });
+    expect(applied?.details).toMatchObject({
+      checkoutId: checkout.id, reason: "راجعت لوحة بيموب", was: "AMOUNT_MISMATCH", captured: "1.000000", amountOverridden: false,
+    });
   });
 
   it("refuses a second application of the same checkout", async () => {

@@ -218,10 +218,24 @@ describe("a manual subscription payment on SQLite", () => {
     insert.run("A", NOW, NOW);
     insert.run("B", NOW, NOW);
 
-    const stores = createSqlitePlatformStores(sqlite);
+    const warnings: string[] = [];
+    const warn = console.warn;
+    console.warn = (message: string) => {
+      warnings.push(message);
+    };
+    let stores: ReturnType<typeof createSqlitePlatformStores>;
+    try {
+      stores = createSqlitePlatformStores(sqlite);
+    } finally {
+      console.warn = warn;
+    }
 
     expect((await stores.payments.listByTenant("T1")).length).toBe(2);
     expect((await stores.payments.findByReference("T1", "DUP"))?.id).toBe("A");
+    expect(warnings.join("\n")).toContain("T1/DUP/A, T1/DUP/B");
+
+    await stores.payments.save({ ...payment, id: "NEW-1", reference: "FRESH" });
+    await expect(stores.payments.save({ ...payment, id: "NEW-2", reference: "FRESH" })).rejects.toThrow(/UNIQUE/);
     sqlite.close();
   });
 });

@@ -52,10 +52,20 @@ export interface RecordPaymentResult {
   readonly replayed: boolean;
 }
 
+export interface RecordPaymentHooks {
+  /**
+   * Runs inside the payment's transaction, after the renewal and the payment row
+   * and never on a replay. Throwing rolls both back — which is how a payment is
+   * kept from existing without the audit event that records it.
+   */
+  readonly onRecorded?: (recorded: { readonly payment: Payment; readonly subscription: Subscription }) => Promise<void>;
+}
+
 export async function recordPayment(
   cmd: RecordPaymentCommand,
   payments: PaymentRepository,
   subscriptions: SubscriptionRepository,
+  hooks: RecordPaymentHooks = {},
 ): Promise<RecordPaymentResult> {
   const now = isoTimestamp(cmd.now);
   const paidAt = isoTimestamp(cmd.paidAt);
@@ -99,6 +109,7 @@ export async function recordPayment(
       createdAt: now,
     };
     await payments.save(payment);
+    await hooks.onRecorded?.({ payment, subscription: renewed });
     return { payment, subscription: renewed, replayed: false };
   };
   return payments.transaction ? payments.transaction(run) : run();

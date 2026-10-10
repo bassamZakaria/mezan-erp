@@ -75,17 +75,27 @@ import { requestOrigin } from "@mezan/api";
 import type { PlatformHandle } from "./create-platform.js";
 import type { PlatformAuth } from "./platform-auth.js";
 
+export enum PlatformCardCheckoutRefusal {
+  NotConfigured = "CARD_CHECKOUT_NOT_CONFIGURED",
+  SweepRunning = "CARD_CHECKOUT_SWEEP_RUNNING",
+}
+
+export enum PlatformCardCheckoutAuditAction {
+  SweepRun = "CARD_CHECKOUT_SWEEP_RUN",
+}
+
 export interface PlatformCardCheckoutPort {
   readonly testMode: boolean;
   open(input: { readonly tenantId: string; readonly actorId: string; readonly request: Request }): Promise<CardCheckout>;
   list(tenantId: string): Promise<CardCheckout[]>;
-  /** Reconciles checkouts whose callback never arrived against the provider; the same pass the server timer runs. */
-  sweep(): Promise<CardCheckoutSweepResultDTO>;
+  /** Reconciles checkouts whose callback never arrived against the provider, within a bounded time. `null` when a pass is already running. */
+  sweep(): Promise<CardCheckoutSweepResultDTO | null>;
   /** Applies an `unapplied` card payment to the subscription; writes its own audit event in the same transaction. */
   applyUnapplied(input: {
     readonly tenantId: string;
     readonly checkoutId: string;
-    readonly amount: Money;
+    readonly amount?: Money;
+    readonly overrideAmount: boolean;
     readonly reason: string;
     readonly actorId: string;
   }): Promise<CardCheckout>;
@@ -140,7 +150,7 @@ export function serializeCardCheckout(c: CardCheckout): CardCheckoutDTO {
     id: c.id, tenantId: c.tenantId, subscriptionId: c.subscriptionId, provider: c.provider,
     testMode: c.provider === "paymob-test", amount: c.amount.toString(), currency: c.currency, status: c.status,
     checkoutUrl: c.status === "pending" ? c.checkoutUrl : null, providerRef: c.providerRef, paymentId: c.paymentId,
-    failureReason: c.failureReason, requestedBy: c.requestedBy, createdAt: c.createdAt, updatedAt: c.updatedAt,
+    failureReason: c.failureReason, capturedAmount: c.capturedAmount?.toString() ?? null, requestedBy: c.requestedBy, createdAt: c.createdAt, updatedAt: c.updatedAt,
   };
 }
 
@@ -192,7 +202,20 @@ function asServerDomainFailure(err: unknown): { readonly code: string; readonly 
   return { code: shape.code, message: err.message, ...(typeof shape.tenantId === "string" ? { tenantId: shape.tenantId } : {}) };
 }
 
+class PlatformAuditUnavailableError extends Error {
+  readonly code = "AUDIT_UNAVAILABLE";
+  constructor(cause: unknown) {
+    super("تعذّر تسجيل العملية في سجل التدقيق، فلم يُحفظ أي تغيير. حاول مرة أخرى.", { cause });
+    this.name = "PlatformAuditUnavailableError";
+  }
+  readonly messageEn = "The audit log could not record this action, so nothing was saved. Try again.";
+}
+
 function domainErrorResponse(c: Context, err: unknown): Response {
+  if (err instanceof PlatformAuditUnavailableError) {
+    console.error(err.cause);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 503);
+  }
   const serverFailure = asServerDomainFailure(err);
   if (serverFailure) {
     return c.json({ error: serverFailure.code, message: serverFailure.message, ...(serverFailure.tenantId ? { tenantId: serverFailure.tenantId } : {}) }, 422);
@@ -465,12 +488,24 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
         },
         platform.stores.payments,
         platform.stores.subscriptions,
+        {
+          onRecorded: ({ payment }) =>
+            recordSecurityEvent(platform.audit, {
+              module: "platform",
+              entityType: "PLATFORM",
+              entityId: tenant.id,
+              action: "PAYMENT_RECORDED",
+              actor: platformUser.id,
+              severity: "INFO",
+              timestamp: nowIso(),
+              details: { paymentId: payment.id, amount: parsed.data.amount, reference: payment.reference, origin: requestOrigin(c) ?? "host" },
+            }).catch((cause: unknown) => {
+              throw new PlatformAuditUnavailableError(cause);
+            }),
+        },
       );
       if (result.replayed) return c.json(await tenantSummary(platform, tenant, nowIso()), 200);
       invalidateEntitlements(tenant.code);
-      await audit(c, "PAYMENT_RECORDED", tenant.id, {
-        paymentId: result.payment.id, amount: parsed.data.amount, reference: result.payment.reference,
-      });
       return c.json(await tenantSummary(platform, tenant, nowIso()), 201);
     } catch (err) {
       return domainErrorResponse(c, err);
@@ -518,12 +553,22 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
   });
 
   const cardCheckoutNotConfigured = (c: Context) =>
-    c.json({ error: "CARD_CHECKOUT_NOT_CONFIGURED", message: "الدفع بالبطاقة غير مُفعّل على هذا الخادم", messageEn: "Card checkout is not configured on this server" }, 503);
+    c.json({ error: PlatformCardCheckoutRefusal.NotConfigured, message: "الدفع بالبطاقة غير مُفعّل على هذا الخادم", messageEn: "Card checkout is not configured on this server" }, 503);
 
   app.post("/card-checkouts/sweep", requireOwner, async (c) => {
     if (!options.cardCheckout) return cardCheckoutNotConfigured(c);
     const result = await options.cardCheckout.sweep();
-    await audit(c, "CARD_CHECKOUT_SWEEP_RUN", null, { ...result });
+    if (!result) {
+      return c.json(
+        {
+          error: PlatformCardCheckoutRefusal.SweepRunning,
+          message: "مطابقة العمليات المعلّقة جارية بالفعل، انتظر انتهاءها ثم أعد المحاولة",
+          messageEn: "A reconciliation pass is already running; try again when it finishes",
+        },
+        409,
+      );
+    }
+    await audit(c, PlatformCardCheckoutAuditAction.SweepRun, null, { ...result });
     return c.json(result);
   });
 
@@ -537,7 +582,8 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
       const checkout = await options.cardCheckout.applyUnapplied({
         tenantId: tenant.id,
         checkoutId: c.req.param("checkoutId"),
-        amount: Money.fromMajor(parsed.data.amount),
+        ...(parsed.data.amount === undefined ? {} : { amount: Money.fromMajor(parsed.data.amount) }),
+        overrideAmount: parsed.data.overrideAmount === true,
         reason: parsed.data.reason,
         actorId: platformUser.id,
       });

@@ -2,7 +2,13 @@ import { useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
 import { Button, Card, ConfirmDialog, Money, Select, StatusPill, useFormat } from "@mezan/ui";
 import { MODULES } from "@mezan/domain";
-import type { BillingCycleDTO, CardCheckoutDTO, ProvisionResultDTO, SubscriptionStatusDTO } from "@mezan/contracts";
+import type {
+  BillingCycleDTO,
+  CardCheckoutDTO,
+  CardCheckoutSweepResultDTO,
+  ProvisionResultDTO,
+  SubscriptionStatusDTO,
+} from "@mezan/contracts";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { moduleLabel } from "../domain-labels";
 import { SelectField, TextAreaField, ToggleField } from "../settings/form-controls";
@@ -71,6 +77,7 @@ const FAILURE_REASON_KEY: Readonly<Record<string, AppTranslationKey>> = {
   PRICE_CHANGED: "platform.cardCheckout.reason.PRICE_CHANGED",
   SUBSCRIPTION_NOT_RENEWABLE: "platform.cardCheckout.reason.SUBSCRIPTION_NOT_RENEWABLE",
   EXPIRED: "platform.cardCheckout.reason.EXPIRED",
+  NEEDS_ATTENTION: "platform.cardCheckout.reason.NEEDS_ATTENTION",
 };
 
 function failureReasonKey(reason: string): AppTranslationKey {
@@ -400,27 +407,7 @@ export function TenantDetailPage() {
               </Button>
             ) : null}
           </div>
-          {sweepCardCheckouts.data ? (
-            <div role="status" className="mb-[12px] rounded-md border border-border bg-surface-2 p-[12px] text-[12px] text-ink">
-              <p>
-                {t("platform.cardCheckout.sweep.result", {
-                  examined: sweepCardCheckouts.data.examined,
-                  paid: sweepCardCheckouts.data.paid,
-                  declined: sweepCardCheckouts.data.declined,
-                  unapplied: sweepCardCheckouts.data.unapplied,
-                  expired: sweepCardCheckouts.data.expired,
-                  stillPending: sweepCardCheckouts.data.stillPending,
-                })}
-              </p>
-              {sweepCardCheckouts.data.unavailable + sweepCardCheckouts.data.failed > 0 ? (
-                <p className="mt-[4px] text-warning-ink">
-                  {t("platform.cardCheckout.sweep.unavailable", {
-                    count: sweepCardCheckouts.data.unavailable + sweepCardCheckouts.data.failed,
-                  })}
-                </p>
-              ) : null}
-            </div>
-          ) : null}
+          {sweepCardCheckouts.data ? <SweepOutcome result={sweepCardCheckouts.data} /> : null}
           {returnedCheckoutId ? (
             <div className="mb-[12px] rounded-md border border-border bg-surface-2 p-[12px]">
               <CheckoutOutcomeNotice checkout={returnedCheckout} timedOut={false} />
@@ -615,6 +602,34 @@ export function TenantDetailPage() {
         }}
         onCancel={() => setConfirmResumeSubscription(false)}
       />
+    </div>
+  );
+}
+
+function SweepOutcome({ result }: { result: CardCheckoutSweepResultDTO }) {
+  const { t } = useAppTranslation();
+  return (
+    <div role="status" className="mb-[12px] flex flex-col gap-[4px] rounded-md border border-border bg-surface-2 p-[12px] text-[12px] text-ink">
+      <p>
+        {t("platform.cardCheckout.sweep.result", {
+          examined: result.examined,
+          paid: result.paid,
+          declined: result.declined,
+          unapplied: result.unapplied,
+          expired: result.expired,
+          stillPending: result.stillPending,
+          alreadySettled: result.alreadySettled,
+        })}
+      </p>
+      {result.needsAttention > 0 ? (
+        <p className="text-warning-ink">{t("platform.cardCheckout.sweep.needsAttention", { count: result.needsAttention })}</p>
+      ) : null}
+      {result.unavailable + result.failed > 0 ? (
+        <p className="text-warning-ink">
+          {t("platform.cardCheckout.sweep.unavailable", { unavailable: result.unavailable, failed: result.failed })}
+        </p>
+      ) : null}
+      {result.deferred > 0 ? <p>{t("platform.cardCheckout.sweep.deferred", { count: result.deferred })}</p> : null}
     </div>
   );
 }

@@ -41,6 +41,10 @@ function unavailable(reason: string): ProviderInquiry {
   return { status: ProviderInquiryStatus.Unavailable, reason };
 }
 
+function unreadable(reason: string): ProviderInquiry {
+  return { status: ProviderInquiryStatus.Unreadable, reason };
+}
+
 function asTransactionObject(body: unknown): PaymobTransactionObject | null {
   if (body === null || typeof body !== "object" || Array.isArray(body)) return null;
   return body as PaymobTransactionObject;
@@ -49,7 +53,10 @@ function asTransactionObject(body: unknown): PaymobTransactionObject | null {
 /**
  * The inquiry answer carries no HMAC, so what makes it trustworthy is where it
  * came from (TLS to the configured host, our own bearer token) plus the same
- * shape, integration and order checks a callback passes.
+ * shape, integration and order checks a callback passes. Anything short of a
+ * transaction that passes them all is `Unreadable` — never "no transaction":
+ * Paymob does not document what an empty answer looks like, and guessing would
+ * expire a checkout whose money was taken.
  */
 function readInquiredTransaction(
   body: unknown,
@@ -57,14 +64,24 @@ function readInquiredTransaction(
   request: ProviderInquiryRequest,
 ): ProviderInquiry {
   const transaction = asTransactionObject(body);
-  if (!transaction) return unavailable("the inquiry answer is not a JSON object");
-  if (transaction["id"] === undefined || transaction["id"] === null) return { status: ProviderInquiryStatus.None };
-  if (!hasPaymobSignedShape(transaction)) return unavailable("the inquiry answer is not a transaction");
+  if (!transaction) return unreadable("the inquiry answer is not a JSON object");
+  if (!hasPaymobSignedShape(transaction)) return unreadable("the inquiry answer is not a transaction");
   const parsed = parsePaymobTransaction(transaction);
-  if (!parsed) return unavailable("the inquiry answer could not be read");
-  if (parsed.providerOrderRef !== request.providerOrderRef) return unavailable("the inquiry answered for another order");
-  if (!integrationIds.includes(parsed.integrationId)) return unavailable("the transaction belongs to another integration");
+  if (!parsed) return unreadable("the inquiry answer could not be read");
+  if (parsed.providerOrderRef !== request.providerOrderRef) return unreadable("the inquiry answered for another order");
+  if (!integrationIds.includes(parsed.integrationId)) return unreadable("the transaction belongs to another integration");
   return { status: ProviderInquiryStatus.Found, transaction: parsed };
+}
+
+const HTTP_NOT_FOUND = 404;
+// These say something about us or about Paymob, not about the order asked for.
+const PROVIDER_WIDE_STATUSES: ReadonlySet<number> = new Set([401, 403, 408, 429]);
+
+function readInquiryResponse(status: number): ProviderInquiry | null {
+  if (status === HTTP_NOT_FOUND) return { status: ProviderInquiryStatus.None };
+  if (status >= 500 || PROVIDER_WIDE_STATUSES.has(status)) return unavailable(`HTTP ${status}`);
+  if (status < 200 || status >= 300) return unreadable(`HTTP ${status}`);
+  return null;
 }
 
 interface PaymobInquiryClient {
@@ -110,8 +127,8 @@ function createPaymobInquiryClient(config: PaymobLiveConfig, base: string, fetch
         if (!token) return unavailable("Paymob refused the API key");
         response = await ask(token, request);
       }
-      if (response.status === 404) return { status: ProviderInquiryStatus.None };
-      if (!response.ok) return unavailable(`HTTP ${response.status}`);
+      const refused = readInquiryResponse(response.status);
+      if (refused) return refused;
       const body: unknown = await response.json().catch(() => undefined);
       return readInquiredTransaction(body, config.integrationIds, request);
     } catch (err) {
@@ -270,7 +287,9 @@ export function createPaymobTestProvider(): PaymobTestProvider {
       return verifyPaymobCallback(hmacSecret, [TEST_INTEGRATION_ID], rawBody, signature);
     },
     async inquireTransaction(request) {
-      return readInquiredTransaction(latestByOrder.get(request.providerOrderRef) ?? {}, [TEST_INTEGRATION_ID], request);
+      const latest = latestByOrder.get(request.providerOrderRef);
+      if (!latest) return { status: ProviderInquiryStatus.None };
+      return readInquiredTransaction(latest, [TEST_INTEGRATION_ID], request);
     },
     returnUrlFor(checkoutId) {
       return returnUrls.get(checkoutId) ?? null;

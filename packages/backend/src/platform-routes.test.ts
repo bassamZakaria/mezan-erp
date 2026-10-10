@@ -327,6 +327,45 @@ describe("createPlatformRoutes", () => {
     expect(recorded).toHaveLength(1);
   });
 
+  it("records no payment when its audit event cannot be written, so the retry is a first submission and not a replay", async () => {
+    const rig = await buildRig();
+    const id = (await provisionOne(rig)).body.tenant.id;
+    const before = (await json(await rig.app.fetch(req(`/tenants/${id}`, rig.ownerToken)))) as { subscription: { currentPeriodEnd: string } };
+    const pay = () =>
+      rig.app.fetch(
+        req(`/tenants/${id}/payments`, rig.ownerToken, {
+          method: "POST",
+          body: JSON.stringify({ amount: "500.00", reference: "REF-1", paidAt: "2026-01-01T00:00:00.000Z" }),
+        }),
+      );
+    const append = rig.platform.audit.append.bind(rig.platform.audit);
+    let failures = 1;
+    rig.platform.audit.append = async (event) => {
+      if (event.action === "PAYMENT_RECORDED" && failures > 0) {
+        failures -= 1;
+        throw new Error("audit sink unavailable");
+      }
+      await append(event);
+    };
+
+    const refused = await pay();
+
+    expect(refused.status).toBe(503);
+    expect(await json(refused)).toMatchObject({ error: "AUDIT_UNAVAILABLE", messageEn: expect.any(String) });
+    expect(await rig.platform.stores.payments.listByTenant(id)).toHaveLength(0);
+    const after = (await json(await rig.app.fetch(req(`/tenants/${id}`, rig.ownerToken)))) as { subscription: { currentPeriodEnd: string } };
+    expect(after.subscription.currentPeriodEnd).toBe(before.subscription.currentPeriodEnd);
+
+    const retried = await pay();
+
+    expect(retried.status).toBe(201);
+    expect(await rig.platform.stores.payments.listByTenant(id)).toHaveLength(1);
+    const recorded = (await rig.platform.audit.query("security")).filter((r) => r.action === "PAYMENT_RECORDED");
+    expect(recorded).toHaveLength(1);
+    expect(recorded[0]?.actor).toBe("PU-OWNER");
+    expect(recorded[0]?.details).toMatchObject({ reference: "REF-1" });
+  });
+
   it("409s a payment reference reused with a different amount", async () => {
     const rig = await buildRig();
     const id = (await provisionOne(rig)).body.tenant.id;
@@ -618,7 +657,10 @@ describe("createPlatformRoutes", () => {
 });
 
 describe("createPlatformRoutes — card checkout operator actions", () => {
-  const swept = { examined: 3, paid: 1, declined: 0, unapplied: 0, expired: 1, stillPending: 1, alreadySettled: 0, unavailable: 0, failed: 0 };
+  const swept = {
+    examined: 3, paid: 1, declined: 0, unapplied: 0, expired: 1, stillPending: 1, alreadySettled: 0,
+    needsAttention: 0, unavailable: 0, failed: 0, deferred: 0,
+  };
 
   async function withCardCheckout(port: Partial<PlatformCardCheckoutPort> = {}) {
     const rig = await buildRig();
@@ -635,7 +677,7 @@ describe("createPlatformRoutes — card checkout operator actions", () => {
         list: async () => [],
         sweep: async () => { calls.sweeps += 1; return swept; },
         applyUnapplied: async (input) => {
-          calls.applied.push({ ...input, amount: input.amount.toString() });
+          calls.applied.push({ ...input, amount: input.amount?.toString() ?? null });
           return checkout({ id: input.checkoutId, tenantId: input.tenantId, status: "paid" });
         },
         ...port,
@@ -653,6 +695,7 @@ describe("createPlatformRoutes — card checkout operator actions", () => {
     return {
       id: "CHK-1", tenantId: "T-CARD", subscriptionId: "S1", provider: "paymob-test", amount: Money.fromMajor("490.50"), currency: "EGP",
       status: "unapplied", providerOrderRef: "1", checkoutUrl: null, providerRef: "2", paymentId: null, failureReason: null,
+      capturedAmount: Money.fromMajor("480.00"),
       requestedBy: "tester", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z", ...overrides,
     };
   }
@@ -696,16 +739,43 @@ describe("createPlatformRoutes — card checkout operator actions", () => {
     );
 
     expect(res.status).toBe(200);
-    expect(await json(res)).toMatchObject({ id: "CHK-1", status: "paid" });
+    expect(await json(res)).toMatchObject({ id: "CHK-1", status: "paid", capturedAmount: "480.000000" });
     expect(calls.applied).toEqual([
-      { tenantId: tenant.id, checkoutId: "CHK-1", amount: "480.000000", reason: "matched the bank statement", actorId: "PU-OWNER" },
+      {
+        tenantId: tenant.id, checkoutId: "CHK-1", amount: "480.000000", overrideAmount: false,
+        reason: "matched the bank statement", actorId: "PU-OWNER",
+      },
     ]);
+  });
+
+  it("passes no amount when none is given, and the override only when it is explicitly true", async () => {
+    const { rig, app, calls, tenant } = await withCardCheckout();
+    const apply = (body: Record<string, unknown>) =>
+      app.fetch(req(`/tenants/${tenant.id}/card-checkouts/CHK-1/apply`, rig.ownerToken, { method: "POST", body: JSON.stringify(body) }));
+
+    await apply({ reason: "matched the bank statement" });
+    await apply({ reason: "matched the bank statement", amount: "500.00", overrideAmount: true });
+    await apply({ reason: "matched the bank statement", amount: "500.00", overrideAmount: "yes" });
+
+    expect(calls.applied).toEqual([
+      expect.objectContaining({ amount: null, overrideAmount: false }),
+      expect.objectContaining({ amount: "500.000000", overrideAmount: true }),
+    ]);
+  });
+
+  it("answers 409 instead of queueing behind a pass that is already running", async () => {
+    const { rig, app } = await withCardCheckout({ sweep: async () => null });
+
+    const res = await app.fetch(req("/card-checkouts/sweep", rig.ownerToken, { method: "POST" }));
+
+    expect(res.status).toBe(409);
+    expect(await json(res)).toMatchObject({ error: "CARD_CHECKOUT_SWEEP_RUNNING", messageEn: expect.any(String) });
+    expect((await rig.platform.audit.query("security")).some((r) => r.action === "CARD_CHECKOUT_SWEEP_RUN")).toBe(false);
   });
 
   it.each([
     ["no reason", { amount: "480.00" }],
     ["a reason too short to mean anything", { amount: "480.00", reason: "ok" }],
-    ["no amount", { reason: "matched the bank statement" }],
     ["a zero amount", { amount: "0", reason: "matched the bank statement" }],
     ["a negative amount", { amount: "-5.00", reason: "matched the bank statement" }],
     ["a numeric amount", { amount: 480, reason: "matched the bank statement" }],

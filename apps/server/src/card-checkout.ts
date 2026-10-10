@@ -3,6 +3,7 @@ import {
   applyRenewal,
   cardCheckoutAmount,
   recordSecurityEvent,
+  CardCheckoutFailureReason,
   CardCheckoutUnavailableError,
   CardPaymentNotApplicableError,
   ProviderInquiryStatus,
@@ -54,9 +55,19 @@ export enum SettlementSource {
   Sweep = "sweep",
 }
 
-export enum CheckoutFailureReason {
-  ProviderError = "PROVIDER_ERROR",
-  Expired = "EXPIRED",
+export enum CardCheckoutAuditAction {
+  Opened = "CARD_CHECKOUT_OPENED",
+  WebhookRejected = "CARD_WEBHOOK_REJECTED",
+  WebhookNonPayment = "CARD_WEBHOOK_NON_PAYMENT",
+  WebhookUnmatched = "CARD_WEBHOOK_UNMATCHED",
+  WebhookReferenceMismatch = "CARD_WEBHOOK_REFERENCE_MISMATCH",
+  PaymentDeclined = "CARD_PAYMENT_DECLINED",
+  PaymentUnapplied = "CARD_PAYMENT_UNAPPLIED",
+  PaymentDuplicateCharge = "CARD_PAYMENT_DUPLICATE_CHARGE",
+  PaymentRecorded = "PAYMENT_RECORDED",
+  PaymentAppliedManually = "CARD_PAYMENT_APPLIED_MANUALLY",
+  CheckoutExpired = "CARD_CHECKOUT_EXPIRED",
+  CheckoutNeedsAttention = "CARD_CHECKOUT_NEEDS_ATTENTION",
 }
 
 export const SWEEP_PENDING_AFTER_MS = 15 * 60_000;
@@ -65,10 +76,10 @@ const SWEEP_BATCH = 200;
 const SWEEP_GIVE_UP_AFTER_UNAVAILABLE = 3;
 
 export interface CardCheckoutSweepOptions {
-  /** A checkout pending for less than this is still inside the window a callback normally arrives in. */
   readonly pendingAfterMs?: number;
-  /** A checkout the provider knows nothing about is given up on after this long. */
   readonly expireAfterMs?: number;
+  /** Wall-clock budget: once spent, the rest of the batch is reported as `deferred` and left for the next pass. */
+  readonly budgetMs?: number;
 }
 
 export interface CardCheckoutSweepResult {
@@ -79,16 +90,19 @@ export interface CardCheckoutSweepResult {
   readonly expired: number;
   readonly stillPending: number;
   readonly alreadySettled: number;
-  /** The provider could not be asked; these checkouts were left exactly as they were. */
+  readonly needsAttention: number;
   readonly unavailable: number;
   readonly failed: number;
+  readonly deferred: number;
 }
 
 export interface ApplyUnappliedInput {
   readonly tenantId: string;
   readonly checkoutId: string;
-  /** What the operator confirmed the provider actually collected; it becomes the payment's amount. */
-  readonly amount: Money;
+  /** Omitted, the amount the provider reported collecting is what gets recorded. */
+  readonly amount?: Money;
+  /** Must be true to record an amount other than the one the provider reported, or when it reported none. */
+  readonly overrideAmount: boolean;
   readonly reason: string;
   readonly actorId: string;
 }
@@ -102,8 +116,8 @@ export interface CardCheckoutService {
   readonly provider: PaymentProvider;
   open(input: OpenCardCheckoutInput): Promise<CardCheckout>;
   handleWebhook(rawBody: string, signature: string): Promise<WebhookResult>;
-  /** Asks the provider about every checkout a callback should have settled by now, and settles each through the webhook's own path. */
   sweepPending(options?: CardCheckoutSweepOptions): Promise<CardCheckoutSweepResult>;
+  sweepRunning(): boolean;
   applyUnapplied(input: ApplyUnappliedInput): Promise<ApplyUnappliedResult>;
   listByTenant(tenantId: string): Promise<CardCheckout[]>;
   find(id: string): Promise<CardCheckout | null>;
@@ -127,7 +141,7 @@ export function createCardCheckoutService(options: CardCheckoutServiceOptions): 
   const checkouts = platform.stores.cardCheckouts;
   const nowIso = () => now().toISOString();
 
-  function auditEvent(action: string, entityId: string | null, details: Record<string, unknown>, severity: "INFO" | "WARNING", actor: string) {
+  function auditEvent(action: CardCheckoutAuditAction, entityId: string | null, details: Record<string, unknown>, severity: "INFO" | "WARNING", actor: string) {
     return recordSecurityEvent(platform.audit, {
       module: "platform",
       entityType: "PLATFORM",
@@ -140,7 +154,7 @@ export function createCardCheckoutService(options: CardCheckoutServiceOptions): 
     });
   }
 
-  async function audit(action: string, entityId: string | null, details: Record<string, unknown>, severity: "INFO" | "WARNING" = "INFO") {
+  async function audit(action: CardCheckoutAuditAction, entityId: string | null, details: Record<string, unknown>, severity: "INFO" | "WARNING" = "INFO") {
     await auditEvent(action, entityId, details, severity, provider.id).catch((err) => log("audit write failed", err));
   }
 
@@ -175,6 +189,7 @@ export function createCardCheckoutService(options: CardCheckoutServiceOptions): 
       providerRef: null,
       paymentId: null,
       failureReason: null,
+      capturedAmount: null,
       requestedBy: input.requestedBy,
       createdAt: stamp,
       updatedAt: stamp,
@@ -195,17 +210,17 @@ export function createCardCheckoutService(options: CardCheckoutServiceOptions): 
       });
       await checkouts.attachSession(pending.id, session.providerOrderRef, session.url, nowIso());
     } catch (err) {
-      await checkouts.abandon(pending.id, CheckoutFailureReason.ProviderError, nowIso());
+      await checkouts.abandon(pending.id, CardCheckoutFailureReason.ProviderError, nowIso());
       throw err;
     }
-    await audit("CARD_CHECKOUT_OPENED", tenant.id, { checkoutId: pending.id, amount: amount.toString(), requestedBy: input.requestedBy });
+    await audit(CardCheckoutAuditAction.Opened, tenant.id, { checkoutId: pending.id, amount: amount.toString(), requestedBy: input.requestedBy });
     return (await checkouts.findById(pending.id))!;
   }
 
   async function handleWebhook(rawBody: string, signature: string): Promise<WebhookResult> {
     const txn = await provider.verifyWebhook(rawBody, signature);
     if (!txn) {
-      await audit("CARD_WEBHOOK_REJECTED", null, { reason: "HMAC_OR_SHAPE" }, "WARNING");
+      await audit(CardCheckoutAuditAction.WebhookRejected, null, { reason: "HMAC_OR_SHAPE" }, "WARNING");
       return { status: "rejected" };
     }
     return settle(txn, SettlementSource.Webhook);
@@ -222,25 +237,25 @@ export function createCardCheckoutService(options: CardCheckoutServiceOptions): 
 
     if (txn.outcome === "not_a_payment") {
       if (source === SettlementSource.Webhook) {
-        await audit("CARD_WEBHOOK_NON_PAYMENT", checkout?.tenantId ?? null, {
+        await audit(CardCheckoutAuditAction.WebhookNonPayment, checkout?.tenantId ?? null, {
           checkoutId: checkout?.id ?? null, providerRef: txn.providerRef, providerOrderRef: txn.providerOrderRef,
         }, "WARNING");
       }
       return { status: "ok", detail: SettlementDetail.NotAPayment, ...(checkout ? { checkoutId: checkout.id } : {}) };
     }
 
-    const claimOnly = async (action: string, details: Record<string, unknown>, tenantId: string | null) => {
+    const claimOnly = async (action: CardCheckoutAuditAction, details: Record<string, unknown>, tenantId: string | null) => {
       const outcome = await checkouts.recordOutcome({ provider: provider.id, providerRef: txn.providerRef, now: nowIso() });
       if (outcome !== "duplicate") await audit(action, tenantId, { providerRef: txn.providerRef, ...details }, "WARNING");
       return outcome;
     };
 
     if (!checkout) {
-      await claimOnly("CARD_WEBHOOK_UNMATCHED", { providerOrderRef: txn.providerOrderRef }, null);
+      await claimOnly(CardCheckoutAuditAction.WebhookUnmatched, { providerOrderRef: txn.providerOrderRef }, null);
       return { status: "ok", detail: SettlementDetail.Unmatched };
     }
     if (txn.merchantRef !== null && txn.merchantRef !== checkout.id) {
-      await claimOnly("CARD_WEBHOOK_REFERENCE_MISMATCH", { checkoutId: checkout.id, merchantRef: txn.merchantRef }, checkout.tenantId);
+      await claimOnly(CardCheckoutAuditAction.WebhookReferenceMismatch, { checkoutId: checkout.id, merchantRef: txn.merchantRef }, checkout.tenantId);
       return { status: "ok", detail: SettlementDetail.ReferenceMismatch, checkoutId: checkout.id };
     }
 
@@ -248,14 +263,21 @@ export function createCardCheckoutService(options: CardCheckoutServiceOptions): 
       status: "failed" | "unapplied",
       from: readonly CardCheckout["status"][],
       failureReason: SettlementDetail,
-      action: string,
+      action: CardCheckoutAuditAction,
       details: Record<string, unknown> = {},
     ): Promise<SettlementResult> => {
       const outcome = await checkouts.recordOutcome({
         provider: provider.id,
         providerRef: txn.providerRef,
         now: nowIso(),
-        settle: { checkoutId: checkout.id, from, to: { status, providerRef: txn.providerRef, paymentId: null, failureReason, now: nowIso() } },
+        settle: {
+          checkoutId: checkout.id,
+          from,
+          to: {
+            status, providerRef: txn.providerRef, paymentId: null, failureReason, now: nowIso(),
+            capturedAmount: status === "unapplied" ? txn.amount : null,
+          },
+        },
       });
       if (outcome === "duplicate") return { status: "ok", detail: SettlementDetail.Duplicate, checkoutId: checkout.id };
       await audit(action, checkout.tenantId, {
@@ -264,10 +286,10 @@ export function createCardCheckoutService(options: CardCheckoutServiceOptions): 
       return { status: "ok", detail: failureReason, checkoutId: checkout.id };
     };
 
-    if (txn.outcome === "failed") return settleAs("failed", ["pending"], SettlementDetail.Declined, "CARD_PAYMENT_DECLINED");
+    if (txn.outcome === "failed") return settleAs("failed", ["pending"], SettlementDetail.Declined, CardCheckoutAuditAction.PaymentDeclined);
 
     if (txn.currency !== checkout.currency || !txn.amount.equals(checkout.amount)) {
-      return settleAs("unapplied", ["pending", "failed"], SettlementDetail.AmountMismatch, "CARD_PAYMENT_UNAPPLIED", {
+      return settleAs("unapplied", ["pending", "failed"], SettlementDetail.AmountMismatch, CardCheckoutAuditAction.PaymentUnapplied, {
         expected: checkout.amount.toString(), currency: txn.currency,
       });
     }
@@ -278,14 +300,14 @@ export function createCardCheckoutService(options: CardCheckoutServiceOptions): 
     try {
       if (!subscription || !plan) throw new SubscriptionNotFoundError(checkout.subscriptionId);
       if (!cardCheckoutAmount(plan, subscription).equals(checkout.amount)) {
-        return settleAs("unapplied", ["pending", "failed"], SettlementDetail.PriceChanged, "CARD_PAYMENT_UNAPPLIED", {
+        return settleAs("unapplied", ["pending", "failed"], SettlementDetail.PriceChanged, CardCheckoutAuditAction.PaymentUnapplied, {
           expected: cardCheckoutAmount(plan, subscription).toString(),
         });
       }
       renewed = applyRenewal(subscription, nowIso());
     } catch (err) {
       if (RENEWAL_REFUSALS.some((cls) => err instanceof cls)) {
-        return settleAs("unapplied", ["pending", "failed"], SettlementDetail.SubscriptionNotRenewable, "CARD_PAYMENT_UNAPPLIED", {
+        return settleAs("unapplied", ["pending", "failed"], SettlementDetail.SubscriptionNotRenewable, CardCheckoutAuditAction.PaymentUnapplied, {
           reason: err instanceof Error ? err.message : String(err),
         });
       }
@@ -321,7 +343,7 @@ export function createCardCheckoutService(options: CardCheckoutServiceOptions): 
       return { status: "retry" };
     }
     if (outcome === "already-settled") {
-      await audit("CARD_PAYMENT_DUPLICATE_CHARGE", checkout.tenantId, {
+      await audit(CardCheckoutAuditAction.PaymentDuplicateCharge, checkout.tenantId, {
         checkoutId: checkout.id, providerRef: txn.providerRef, amount: txn.amount.toString(), via: source,
       }, "WARNING");
       return { status: "ok", detail: SettlementDetail.AlreadySettled, checkoutId: checkout.id };
@@ -329,7 +351,7 @@ export function createCardCheckoutService(options: CardCheckoutServiceOptions): 
 
     const tenant = await platform.stores.tenants.findById(checkout.tenantId);
     if (tenant) options.invalidateEntitlements(tenant.code);
-    await audit("PAYMENT_RECORDED", checkout.tenantId, {
+    await audit(CardCheckoutAuditAction.PaymentRecorded, checkout.tenantId, {
       paymentId: payment.id, checkoutId: checkout.id, providerRef: txn.providerRef, amount: txn.amount.toString(), channel: provider.id, via: source,
     });
     return { status: "ok", detail: SettlementDetail.Paid, checkoutId: checkout.id };
@@ -338,42 +360,53 @@ export function createCardCheckoutService(options: CardCheckoutServiceOptions): 
   type SweepTally = { -readonly [K in keyof CardCheckoutSweepResult]: number };
 
   async function expire(checkout: CardCheckout, why: string, tally: SweepTally): Promise<void> {
-    await checkouts.abandon(checkout.id, CheckoutFailureReason.Expired, nowIso());
+    await checkouts.abandon(checkout.id, CardCheckoutFailureReason.Expired, nowIso());
     const after = await checkouts.findById(checkout.id);
-    if (after?.status !== "failed" || after.failureReason !== CheckoutFailureReason.Expired) {
+    if (after?.status !== "failed" || after.failureReason !== CardCheckoutFailureReason.Expired) {
       tally.alreadySettled += 1;
       return;
     }
     tally.expired += 1;
-    await audit("CARD_CHECKOUT_EXPIRED", checkout.tenantId, {
+    await audit(CardCheckoutAuditAction.CheckoutExpired, checkout.tenantId, {
+      checkoutId: checkout.id, providerOrderRef: checkout.providerOrderRef, openedAt: checkout.createdAt, why,
+    }, "WARNING");
+  }
+
+  // A checkout the provider knows about but whose answer we cannot read is
+  // never expired on a guess: money may have been taken. Past the threshold it
+  // is flagged for a person, once, and stays payable by a late callback.
+  async function raise(checkout: CardCheckout, why: string, tally: SweepTally): Promise<void> {
+    tally.needsAttention += 1;
+    if (!(await checkouts.flagNeedsAttention(checkout.id, nowIso()))) return;
+    await audit(CardCheckoutAuditAction.CheckoutNeedsAttention, checkout.tenantId, {
       checkoutId: checkout.id, providerOrderRef: checkout.providerOrderRef, openedAt: checkout.createdAt, why,
     }, "WARNING");
   }
 
   async function sweepOne(checkout: CardCheckout, expireBefore: string, tally: SweepTally): Promise<void> {
+    const stillOpen = checkout.status === "pending";
     const overdue = checkout.createdAt <= expireBefore;
-    if (!checkout.providerOrderRef) {
-      if (!overdue) {
-        tally.stillPending += 1;
-        return;
-      }
-      await expire(checkout, "never reached the provider", tally);
-      return;
-    }
+    const leaveOr = async (act: () => Promise<void>): Promise<void> => {
+      if (stillOpen && overdue) return act();
+      tally.stillPending += 1;
+    };
+    if (!checkout.providerOrderRef) return leaveOr(() => expire(checkout, "never reached the provider", tally));
+
     const inquiry = await provider.inquireTransaction({ providerOrderRef: checkout.providerOrderRef, merchantRef: checkout.id });
-    if (inquiry.status === ProviderInquiryStatus.Unavailable) {
-      log(`inquiry unavailable for checkout ${checkout.id}: ${inquiry.reason}`);
-      tally.unavailable += 1;
-      return;
-    }
-    if (inquiry.status === ProviderInquiryStatus.None) {
-      if (!overdue) {
-        tally.stillPending += 1;
+    switch (inquiry.status) {
+      case ProviderInquiryStatus.Unavailable:
+        log(`inquiry unavailable for checkout ${checkout.id}: ${inquiry.reason}`);
+        tally.unavailable += 1;
         return;
-      }
-      await expire(checkout, "the provider holds no transaction for the order", tally);
-      return;
+      case ProviderInquiryStatus.Unreadable:
+        log(`inquiry unreadable for checkout ${checkout.id}: ${inquiry.reason}`);
+        return leaveOr(() => raise(checkout, inquiry.reason, tally));
+      case ProviderInquiryStatus.None:
+        return leaveOr(() => expire(checkout, "the provider holds no transaction for the order", tally));
+      case ProviderInquiryStatus.Found:
+        break;
     }
+
     const result = await settle(inquiry.transaction, SettlementSource.Sweep);
     if (result.status === "retry") {
       tally.failed += 1;
@@ -401,33 +434,36 @@ export function createCardCheckoutService(options: CardCheckoutServiceOptions): 
       case SettlementDetail.NotAPayment:
       case SettlementDetail.Unmatched:
       case SettlementDetail.ReferenceMismatch:
-        if (!overdue) {
-          tally.stillPending += 1;
-          return;
-        }
-        await expire(checkout, `the provider's latest transaction for the order is ${result.detail}`, tally);
-        return;
+        return leaveOr(() => expire(checkout, `the provider's latest transaction for the order is ${result.detail}`, tally));
     }
   }
 
   let sweeping: Promise<CardCheckoutSweepResult> | null = null;
 
   async function runSweep(sweepOptions: CardCheckoutSweepOptions): Promise<CardCheckoutSweepResult> {
-    const at = now().getTime();
-    const pendingBefore = new Date(at - (sweepOptions.pendingAfterMs ?? SWEEP_PENDING_AFTER_MS)).toISOString();
-    const expireBefore = new Date(at - (sweepOptions.expireAfterMs ?? SWEEP_EXPIRE_AFTER_MS)).toISOString();
-    const due = await checkouts.listPending(pendingBefore, SWEEP_BATCH);
+    const startedAt = now().getTime();
+    const pendingBefore = new Date(startedAt - (sweepOptions.pendingAfterMs ?? SWEEP_PENDING_AFTER_MS)).toISOString();
+    const expireBefore = new Date(startedAt - (sweepOptions.expireAfterMs ?? SWEEP_EXPIRE_AFTER_MS)).toISOString();
+    const due = await checkouts.listSweepable(pendingBefore, expireBefore, SWEEP_BATCH);
     const tally: SweepTally = {
-      examined: due.length, paid: 0, declined: 0, unapplied: 0, expired: 0, stillPending: 0, alreadySettled: 0, unavailable: 0, failed: 0,
+      examined: 0, paid: 0, declined: 0, unapplied: 0, expired: 0, stillPending: 0, alreadySettled: 0,
+      needsAttention: 0, unavailable: 0, failed: 0, deferred: 0,
     };
     let unavailableInARow = 0;
-    for (const checkout of due) {
-      // A provider that has just failed several inquiries running is down or
-      // refusing our key; asking it about the rest of the batch helps nobody.
-      if (unavailableInARow >= SWEEP_GIVE_UP_AFTER_UNAVAILABLE) {
-        tally.unavailable += 1;
-        continue;
+    for (const [index, checkout] of due.entries()) {
+      if (sweepOptions.budgetMs !== undefined && now().getTime() - startedAt >= sweepOptions.budgetMs) {
+        tally.deferred = due.length - index;
+        break;
       }
+      // ONLY a provider-wide failure ends the pass early. An answer that is
+      // wrong for one order says nothing about the next, and giving up on those
+      // would let the oldest few checkouts block every pass behind them.
+      if (unavailableInARow >= SWEEP_GIVE_UP_AFTER_UNAVAILABLE) {
+        tally.unavailable += due.length - index;
+        tally.examined = due.length;
+        return tally;
+      }
+      tally.examined += 1;
       const unavailableBefore = tally.unavailable;
       try {
         await sweepOne(checkout, expireBefore, tally);
@@ -450,17 +486,34 @@ export function createCardCheckoutService(options: CardCheckoutServiceOptions): 
     return sweeping;
   }
 
+  function amountToApply(checkout: CardCheckout, input: ApplyUnappliedInput): Money {
+    const refuse = (ar: string, en: string) => new CardPaymentNotApplicableError([ar], [en]);
+    const captured = checkout.capturedAmount;
+    const amount = input.amount ?? captured;
+    if (!amount) {
+      throw refuse("مزوّد الدفع لم يسجّل مبلغًا لهذه العملية؛ أدخل المبلغ المحصَّل", "the provider recorded no amount for this checkout; enter the amount collected");
+    }
+    if (amount.scaled <= 0n) throw refuse("المبلغ يجب أن يكون أكبر من صفر", "the amount must be greater than zero");
+    if ((!captured || !amount.equals(captured)) && !input.overrideAmount) {
+      throw refuse(
+        `المبلغ ${amount.toString()} لا يطابق ما حصّله مزوّد الدفع (${captured?.toString() ?? "غير مسجَّل"})؛ أكِّد التجاوز لتسجيله`,
+        `amount ${amount.toString()} is not what the provider collected (${captured?.toString() ?? "not recorded"}); confirm the override to record it`,
+      );
+    }
+    return amount;
+  }
+
   async function applyUnapplied(input: ApplyUnappliedInput): Promise<ApplyUnappliedResult> {
     const refuse = (ar: string, en: string) => new CardPaymentNotApplicableError([ar], [en]);
     const reason = input.reason.trim();
     if (reason === "") throw refuse("سبب التطبيق مطلوب", "a reason is required");
-    if (input.amount.scaled <= 0n) throw refuse("المبلغ يجب أن يكون أكبر من صفر", "the amount must be greater than zero");
 
     const checkout = await checkouts.findById(input.checkoutId);
     if (!checkout || checkout.tenantId !== input.tenantId) throw refuse("عملية الدفع غير موجودة لهذه المنشأة", "no such checkout for this tenant");
     if (checkout.status !== "unapplied" || !checkout.providerRef) {
       throw refuse(`حالة عملية الدفع "${checkout.status}" ليست «غير مطبّقة»`, `checkout status "${checkout.status}" is not unapplied`);
     }
+    const amount = amountToApply(checkout, input);
     const reference = `PAYMOB-${checkout.providerRef}`;
     if (await platform.stores.payments.findByReference(checkout.tenantId, reference)) {
       throw refuse(`المرجع "${reference}" مسجَّل كدفعة من قبل`, `reference "${reference}" is already recorded as a payment`);
@@ -474,7 +527,7 @@ export function createCardCheckoutService(options: CardCheckoutServiceOptions): 
       id: idOf(),
       tenantId: checkout.tenantId,
       subscriptionId: checkout.subscriptionId,
-      amount: input.amount,
+      amount,
       currency: "EGP",
       reference,
       paidAt: stamp,
@@ -497,8 +550,10 @@ export function createCardCheckoutService(options: CardCheckoutServiceOptions): 
       if (outcome !== "paid") {
         throw refuse("تغيّرت عملية الدفع أو الاشتراك أثناء التطبيق، أعد المحاولة", `the checkout or subscription changed while applying (${outcome}); try again`);
       }
-      await auditEvent("CARD_PAYMENT_APPLIED_MANUALLY", checkout.tenantId, {
-        checkoutId: checkout.id, paymentId: payment.id, providerRef: checkout.providerRef, amount: input.amount.toString(),
+      await auditEvent(CardCheckoutAuditAction.PaymentAppliedManually, checkout.tenantId, {
+        checkoutId: checkout.id, paymentId: payment.id, providerRef: checkout.providerRef, amount: amount.toString(),
+        captured: checkout.capturedAmount?.toString() ?? null,
+        amountOverridden: !checkout.capturedAmount || !amount.equals(checkout.capturedAmount),
         expected: checkout.amount.toString(), was: checkout.failureReason, reason,
       }, "WARNING", input.actorId);
     };
@@ -516,6 +571,7 @@ export function createCardCheckoutService(options: CardCheckoutServiceOptions): 
     open,
     handleWebhook,
     sweepPending,
+    sweepRunning: () => sweeping !== null,
     applyUnapplied,
     listByTenant: (tenantId) => checkouts.listByTenant(tenantId),
     find: (id) => checkouts.findById(id),

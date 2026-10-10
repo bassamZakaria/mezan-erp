@@ -32,7 +32,7 @@ export {
 export {
   recordPayment,
   type Payment, type PaymentRepository,
-  type RecordPaymentCommand, type RecordPaymentResult,
+  type RecordPaymentCommand, type RecordPaymentResult, type RecordPaymentHooks,
 } from "./payment.js";
 export {
   ProviderInquiryStatus,
@@ -46,7 +46,7 @@ export {
   type PaymobTransactionObject, type ParsedPaymobTransaction,
 } from "./paymob.js";
 export {
-  cardCheckoutAmount, CardCheckoutUnavailableError, CardPaymentNotApplicableError,
+  cardCheckoutAmount, CardCheckoutUnavailableError, CardPaymentNotApplicableError, CardCheckoutFailureReason,
   type CardCheckout, type CardCheckoutStatus, type CardCheckoutRepository, type CardCheckoutSettlement,
 } from "./card-checkout.js";
 export {

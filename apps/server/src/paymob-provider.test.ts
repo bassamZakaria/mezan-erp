@@ -240,29 +240,29 @@ describe("Paymob transaction inquiry", () => {
     expect(await provider.inquireTransaction(request)).toEqual({ status: ProviderInquiryStatus.None });
   });
 
-  it("reads an answer with no transaction id as no transaction for the order", async () => {
-    const { provider } = inquiring(() => json({ detail: "no transactions" }));
-    expect(await provider.inquireTransaction(request)).toEqual({ status: ProviderInquiryStatus.None });
+  it.each([
+    ["an empty object", () => json({})],
+    ["an error carried in a 200 body", () => json({ detail: "no transactions", message: "error" })],
+    ["a transaction wrapped in an envelope", () => json({ obj: transaction() })],
+    ["a body that is not JSON", () => new Response("<html>", { status: 200 })],
+    ["a JSON array", () => json([transaction()])],
+    ["a transaction missing its signed fields", () => json({ id: 574588 })],
+    ["a transaction that belongs to another order", () => json(transaction({ order: { id: 111, merchant_order_id: "checkout-1" } }))],
+    ["a transaction from an integration that is not ours", () => json(transaction({ integration_id: 999 }))],
+    ["a 400 for this order", () => json({ message: "bad order" }, 400)],
+    ["a 422 for this order", () => new Response("", { status: 422 })],
+  ])("reads %s as unreadable for this order — never as no transaction, never as an outage", async (_label, answer) => {
+    const { provider } = inquiring(answer);
+    expect((await provider.inquireTransaction(request)).status).toBe(ProviderInquiryStatus.Unreadable);
   });
 
   it.each([
     ["a server error", () => new Response("upstream down", { status: 502 })],
     ["a rate limit", () => new Response("", { status: 429 })],
-    ["a body that is not JSON", () => new Response("<html>", { status: 200 })],
-    ["a JSON array", () => json([transaction()])],
-    ["a transaction missing its signed fields", () => json({ id: 574588 })],
-  ])("reports %s as unavailable, never as no payment", async (_label, answer) => {
+    ["a forbidden token", () => new Response("", { status: 403 })],
+    ["a request timeout", () => new Response("", { status: 408 })],
+  ])("reads %s as the provider being unavailable", async (_label, answer) => {
     const { provider } = inquiring(answer);
-    expect((await provider.inquireTransaction(request)).status).toBe(ProviderInquiryStatus.Unavailable);
-  });
-
-  it("refuses a transaction that belongs to another order", async () => {
-    const { provider } = inquiring(() => json(transaction({ order: { id: 111, merchant_order_id: "checkout-1" } })));
-    expect((await provider.inquireTransaction(request)).status).toBe(ProviderInquiryStatus.Unavailable);
-  });
-
-  it("refuses a transaction from an integration that is not ours", async () => {
-    const { provider } = inquiring(() => json(transaction({ integration_id: 999 })));
     expect((await provider.inquireTransaction(request)).status).toBe(ProviderInquiryStatus.Unavailable);
   });
 
@@ -290,7 +290,7 @@ describe("the Paymob test double", () => {
   const checkout: CardCheckout = {
     id: "checkout-1", tenantId: "t-acme", subscriptionId: "sub-acme", provider: "paymob-test", amount: Money.fromMajor("490.50"),
     currency: "EGP", status: "pending", providerOrderRef: "424242", checkoutUrl: "/billing/test-checkout/checkout-1", providerRef: null,
-    paymentId: null, failureReason: null, requestedBy: "tester", createdAt: "2026-03-01T10:00:00.000Z", updatedAt: "2026-03-01T10:00:00.000Z",
+    paymentId: null, failureReason: null, capturedAmount: null, requestedBy: "tester", createdAt: "2026-03-01T10:00:00.000Z", updatedAt: "2026-03-01T10:00:00.000Z",
   };
   const request = { providerOrderRef: "424242", merchantRef: "checkout-1" };
 

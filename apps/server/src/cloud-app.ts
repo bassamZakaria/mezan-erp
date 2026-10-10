@@ -29,6 +29,10 @@ import {
 } from "./billing-routes.js";
 import type { CloudEnv } from "./env.js";
 
+// An owner pressing the button waits on this request; whatever the pass has
+// not reached by then is reported as deferred and left to the timer.
+const OPERATOR_SWEEP_BUDGET_MS = 20_000;
+
 export interface CreateCloudAppOptions {
   readonly now?: () => Date;
   readonly authMiddleware?: MiddlewareHandler;
@@ -162,7 +166,8 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
             });
           },
           list: (tenantId) => checkoutService.listByTenant(tenantId),
-          sweep: () => checkoutService.sweepPending(),
+          sweep: async () =>
+            checkoutService.sweepRunning() ? null : checkoutService.sweepPending({ budgetMs: OPERATOR_SWEEP_BUDGET_MS }),
           applyUnapplied: async (input) => (await checkoutService.applyUnapplied(input)).checkout,
         }
       : undefined,

@@ -3,7 +3,8 @@ import type { CardCheckoutSweepResult } from "./card-checkout.js";
 import { startCardCheckoutSweepTimer } from "./card-checkout-sweep.js";
 
 const nothing: CardCheckoutSweepResult = {
-  examined: 0, paid: 0, declined: 0, unapplied: 0, expired: 0, stillPending: 0, alreadySettled: 0, unavailable: 0, failed: 0,
+  examined: 0, paid: 0, declined: 0, unapplied: 0, expired: 0, stillPending: 0, alreadySettled: 0,
+  needsAttention: 0, unavailable: 0, failed: 0, deferred: 0,
 };
 
 afterEach(() => {

@@ -32,15 +32,18 @@ export interface VerifiedProviderTransaction {
 
 export enum ProviderInquiryStatus {
   Found = "found",
-  /** The provider answered and holds no transaction for this order. */
+  /** The provider said, in so many words, that it holds no transaction for this order. Silence or an odd answer is never this. */
   None = "none",
-  /** The provider could not be asked or its answer could not be trusted; nothing may be concluded from it. */
+  /** The provider answered about THIS order and the answer cannot be read or trusted. Other orders are unaffected. */
+  Unreadable = "unreadable",
+  /** The provider itself could not be asked (network, credentials, outage); every other order would fare the same. */
   Unavailable = "unavailable",
 }
 
 export type ProviderInquiry =
   | { readonly status: ProviderInquiryStatus.Found; readonly transaction: VerifiedProviderTransaction }
   | { readonly status: ProviderInquiryStatus.None }
+  | { readonly status: ProviderInquiryStatus.Unreadable; readonly reason: string }
   | { readonly status: ProviderInquiryStatus.Unavailable; readonly reason: string };
 
 export interface ProviderInquiryRequest {
@@ -56,8 +59,8 @@ export interface PaymentProvider {
   verifyWebhook(rawBody: string, signature: string): Promise<VerifiedProviderTransaction | null>;
   /**
    * Asks the provider what became of an order, for the callback that never
-   * arrived. Never throws for a provider-side failure: that is `Unavailable`,
-   * which a caller must not read as "no payment".
+   * arrived. Never throws for a provider-side failure: that is `Unavailable`
+   * or `Unreadable`, neither of which a caller may read as "no payment".
    */
   inquireTransaction(input: ProviderInquiryRequest): Promise<ProviderInquiry>;
 }

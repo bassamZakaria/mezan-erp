@@ -262,6 +262,8 @@ export const cardCheckoutSchema = z.object({
   providerRef: z.string().nullable(),
   paymentId: z.string().nullable(),
   failureReason: z.string().nullable(),
+  /** What the provider reported collecting, when the payment could not be applied automatically. */
+  capturedAmount: z.string().nullable(),
   requestedBy: z.string().min(1),
   createdAt: isoLikeSchema,
   updatedAt: isoLikeSchema,
@@ -287,13 +289,20 @@ export const cardCheckoutSweepResultSchema = z.object({
   expired: z.number().int().nonnegative(),
   stillPending: z.number().int().nonnegative(),
   alreadySettled: z.number().int().nonnegative(),
+  needsAttention: z.number().int().nonnegative(),
   unavailable: z.number().int().nonnegative(),
   failed: z.number().int().nonnegative(),
+  deferred: z.number().int().nonnegative(),
 });
 
-/** `amount` is what the operator confirmed the provider collected: it is what the payment records, not the checkout's expected figure. */
+/**
+ * Omitted, `amount` is the figure the provider reported collecting. Any other
+ * figure — or any figure at all when the provider reported none — is refused
+ * unless `overrideAmount` is true, and is audited as an override.
+ */
 export const applyCardCheckoutRequestSchema = z.object({
-  amount: strictlyPositiveDecimalString,
+  amount: strictlyPositiveDecimalString.optional(),
+  overrideAmount: z.boolean().optional(),
   reason: z.string().trim().min(3).max(500),
 });
 

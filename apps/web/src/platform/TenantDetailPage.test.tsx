@@ -370,9 +370,15 @@ describe("TenantDetailPage", () => {
     const unapplied: CardCheckoutDTO = {
       id: "chk-1", tenantId: "tenant-1", subscriptionId: "sub-1", provider: "paymob", testMode: false, amount: "500.000000",
       currency: "EGP", status: "unapplied", checkoutUrl: null, providerRef: "574588", paymentId: null, failureReason: "AMOUNT_MISMATCH",
-      requestedBy: "tenant:acme:u1", createdAt: "2026-09-10T00:00:00.000Z", updatedAt: "2026-09-10T00:00:00.000Z",
+      capturedAmount: "480.500000", requestedBy: "tenant:acme:u1", createdAt: "2026-09-10T00:00:00.000Z", updatedAt: "2026-09-10T00:00:00.000Z",
     };
-    const expired: CardCheckoutDTO = { ...unapplied, id: "chk-2", status: "failed", providerRef: null, failureReason: "EXPIRED" };
+    const expired: CardCheckoutDTO = { ...unapplied, id: "chk-2", status: "failed", providerRef: null, failureReason: "EXPIRED", capturedAmount: null };
+    const flagged: CardCheckoutDTO = { ...expired, id: "chk-3", status: "pending", failureReason: "NEEDS_ATTENTION" };
+    const AMOUNT = "المبلغ المحصَّل فعلًا (جنيه)";
+    const REASON = "سبب التطبيق اليدوي";
+    const OVERRIDE = "أؤكّد تسجيل مبلغ يختلف عمّا سجّله مزوّد الدفع";
+    const OVERRIDE_ERROR = "المبلغ يختلف عمّا سجّله مزوّد الدفع. أكّد التجاوز أو أعِد المبلغ كما هو.";
+    const AMOUNT_ERROR = "أدخل مبلغًا أكبر من صفر بحد أقصى خانتين عشريتين.";
 
     function checkoutsTransport(handlers: Parameters<typeof stubPlatformTransport>[0] = {}, checkouts: CardCheckoutDTO[] = [unapplied]) {
       return stubPlatformTransport({
@@ -383,51 +389,93 @@ describe("TenantDetailPage", () => {
       });
     }
 
-    it("applies an unapplied payment with the amount and reason the owner typed", async () => {
-      let posted: unknown = null;
-      const transport = checkoutsTransport({
-        "POST /tenants/tenant-1/card-checkouts/chk-1/apply": (init) => {
-          posted = JSON.parse(String(init?.body));
-          return { body: { ...unapplied, status: "paid" } };
+    async function openDialog(checkouts: CardCheckoutDTO[] = [unapplied]) {
+      const posted: unknown[] = [];
+      const transport = checkoutsTransport(
+        {
+          "POST /tenants/tenant-1/card-checkouts/chk-1/apply": (init) => {
+            posted.push(JSON.parse(String(init?.body)));
+            return { body: { ...unapplied, status: "paid" } };
+          },
         },
-      });
+        checkouts,
+      );
       renderDetail({ transport, session: testPlatformSession });
-
       fireEvent.click(await screen.findByRole("button", { name: "تطبيق على الاشتراك" }));
       const dialog = screen.getByRole("dialog");
-      const amount = within(dialog).getByLabelText("المبلغ المحصَّل فعلًا (جنيه)");
-      expect(amount).toHaveValue("500.00");
-      fireEvent.change(amount, { target: { value: "480.50" } });
-      fireEvent.change(within(dialog).getByLabelText("سبب التطبيق اليدوي"), { target: { value: "  طابقت كشف البنك  " } });
-      fireEvent.click(within(dialog).getByRole("button", { name: "تطبيق الدفعة" }));
+      const type = (label: string, value: string) => fireEvent.change(within(dialog).getByLabelText(label), { target: { value } });
+      const submit = () => fireEvent.click(within(dialog).getByRole("button", { name: "تطبيق الدفعة" }));
+      return { dialog, posted, type, submit };
+    }
 
-      await waitFor(() => expect(posted).toEqual({ amount: "480.50", reason: "طابقت كشف البنك" }));
+    it("applies the amount the provider recorded, sending only the reason", async () => {
+      const { dialog, posted, type, submit } = await openDialog();
+
+      expect(within(dialog).getByLabelText(AMOUNT)).toHaveValue("480.50");
+      expect(within(dialog).getByText("سجّل مزوّد الدفع تحصيل 480.50. المتوقع كان 500.00.")).toBeInTheDocument();
+      expect(within(dialog).queryByRole("switch", { name: OVERRIDE })).not.toBeInTheDocument();
+      type(REASON, "  طابقت كشف البنك  ");
+      submit();
+
+      await waitFor(() => expect(posted).toEqual([{ reason: "طابقت كشف البنك" }]));
       await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    });
+
+    it("reads Arabic-Indic digits as the same amount", async () => {
+      const { posted, type, submit } = await openDialog();
+
+      type(AMOUNT, "٤٨٠٫٥٠");
+      type(REASON, "طابقت كشف البنك");
+      submit();
+
+      await waitFor(() => expect(posted).toEqual([{ reason: "طابقت كشف البنك" }]));
+    });
+
+    it("refuses a different amount until the override is confirmed, then sends it as an override", async () => {
+      const { dialog, posted, type, submit } = await openDialog();
+
+      type(AMOUNT, "500");
+      type(REASON, "طابقت كشف البنك");
+      submit();
+      expect(await within(dialog).findByText(OVERRIDE_ERROR)).toBeInTheDocument();
+      expect(posted).toEqual([]);
+
+      fireEvent.click(within(dialog).getByRole("switch", { name: OVERRIDE }));
+      submit();
+
+      await waitFor(() => expect(posted).toEqual([{ amount: "500", overrideAmount: true, reason: "طابقت كشف البنك" }]));
+    });
+
+    it("asks for the amount and the override when the provider recorded none", async () => {
+      const { dialog, posted, type, submit } = await openDialog([{ ...unapplied, capturedAmount: null }]);
+
+      expect(within(dialog).getByLabelText(AMOUNT)).toHaveValue("");
+      type(REASON, "طابقت كشف البنك");
+      submit();
+      expect(await within(dialog).findByText(AMOUNT_ERROR)).toBeInTheDocument();
+
+      type(AMOUNT, "480.50");
+      fireEvent.click(within(dialog).getByRole("switch", { name: OVERRIDE }));
+      submit();
+
+      await waitFor(() => expect(posted).toEqual([{ amount: "480.50", overrideAmount: true, reason: "طابقت كشف البنك" }]));
     });
 
     it.each([
       ["no reason", "480.50", "", "اكتب سبب التطبيق اليدوي (ثلاثة أحرف على الأقل)."],
-      ["a zero amount", "0.00", "طابقت كشف البنك", "أدخل مبلغًا أكبر من صفر بحد أقصى خانتين عشريتين."],
-      ["an amount that is not a number", "12,5", "طابقت كشف البنك", "أدخل مبلغًا أكبر من صفر بحد أقصى خانتين عشريتين."],
-      ["three decimal places", "480.505", "طابقت كشف البنك", "أدخل مبلغًا أكبر من صفر بحد أقصى خانتين عشريتين."],
+      ["a zero amount", "0.00", "طابقت كشف البنك", AMOUNT_ERROR],
+      ["an amount that is not a number", "12,5", "طابقت كشف البنك", AMOUNT_ERROR],
+      ["three decimal places", "480.505", "طابقت كشف البنك", AMOUNT_ERROR],
+      ["a negative amount", "-480.50", "طابقت كشف البنك", AMOUNT_ERROR],
     ])("refuses %s before anything is posted", async (_label, amount, reason, message) => {
-      let posts = 0;
-      const transport = checkoutsTransport({
-        "POST /tenants/tenant-1/card-checkouts/chk-1/apply": () => {
-          posts += 1;
-          return { body: unapplied };
-        },
-      });
-      renderDetail({ transport, session: testPlatformSession });
+      const { dialog, posted, type, submit } = await openDialog();
 
-      fireEvent.click(await screen.findByRole("button", { name: "تطبيق على الاشتراك" }));
-      const dialog = screen.getByRole("dialog");
-      fireEvent.change(within(dialog).getByLabelText("المبلغ المحصَّل فعلًا (جنيه)"), { target: { value: amount } });
-      fireEvent.change(within(dialog).getByLabelText("سبب التطبيق اليدوي"), { target: { value: reason } });
-      fireEvent.click(within(dialog).getByRole("button", { name: "تطبيق الدفعة" }));
+      type(AMOUNT, amount);
+      type(REASON, reason);
+      submit();
 
       expect(await within(dialog).findByText(message)).toBeInTheDocument();
-      expect(posts).toBe(0);
+      expect(posted).toEqual([]);
     });
 
     it("keeps the dialog open and shows the server's refusal", async () => {
@@ -441,52 +489,75 @@ describe("TenantDetailPage", () => {
 
       fireEvent.click(await screen.findByRole("button", { name: "تطبيق على الاشتراك" }));
       const dialog = screen.getByRole("dialog");
-      fireEvent.change(within(dialog).getByLabelText("سبب التطبيق اليدوي"), { target: { value: "طابقت كشف البنك" } });
+      fireEvent.change(within(dialog).getByLabelText(REASON), { target: { value: "طابقت كشف البنك" } });
       fireEvent.click(within(dialog).getByRole("button", { name: "تطبيق الدفعة" }));
 
       expect(await within(dialog).findByText("تعذّر تطبيق دفعة البطاقة: المرجع مسجَّل كدفعة من قبل")).toBeInTheDocument();
     });
 
-    it("offers neither action to a support operator, and no apply button on a checkout that is not unapplied", async () => {
-      renderDetail({ transport: checkoutsTransport({}, [unapplied, expired]), session: supportSession });
+    it("offers neither action to a support operator, and names why a checkout expired or needs review", async () => {
+      renderDetail({ transport: checkoutsTransport({}, [unapplied, expired, flagged]), session: supportSession });
 
       expect(await screen.findByText(/انتهت المهلة دون أن يؤكّد مزوّد الدفع أي عملية/)).toBeInTheDocument();
+      expect(screen.getByText(/تحتاج مراجعة: ردّ مزوّد الدفع عن هذه العملية غير مقروء/)).toBeInTheDocument();
       expect(screen.queryByRole("button", { name: "تطبيق على الاشتراك" })).not.toBeInTheDocument();
       expect(screen.queryByRole("button", { name: "مطابقة العمليات المعلّقة مع Paymob" })).not.toBeInTheDocument();
     });
 
     it("shows one apply button per unapplied checkout only", async () => {
-      renderDetail({ transport: checkoutsTransport({}, [unapplied, expired]), session: testPlatformSession });
+      renderDetail({ transport: checkoutsTransport({}, [unapplied, expired, flagged]), session: testPlatformSession });
 
       expect(await screen.findAllByRole("button", { name: "تطبيق على الاشتراك" })).toHaveLength(1);
     });
 
-    it("runs the sweep and reports what it did, including what could not be asked", async () => {
+    const tally = {
+      examined: 9, paid: 1, declined: 0, unapplied: 0, expired: 1, stillPending: 1, alreadySettled: 2,
+      needsAttention: 0, unavailable: 0, failed: 0, deferred: 0,
+    };
+
+    it("runs the sweep and reports every count, with no warning lines when nothing went wrong", async () => {
       let sweeps = 0;
       const transport = checkoutsTransport({
         "POST /card-checkouts/sweep": () => {
           sweeps += 1;
-          return { body: { examined: 4, paid: 1, declined: 0, unapplied: 0, expired: 1, stillPending: 1, alreadySettled: 0, unavailable: 1, failed: 0 } };
+          return { body: tally };
         },
       });
       renderDetail({ transport, session: testPlatformSession });
 
       fireEvent.click(await screen.findByRole("button", { name: "مطابقة العمليات المعلّقة مع Paymob" }));
 
-      expect(await screen.findByText("رُوجعت 4 عملية: مدفوعة 1، مرفوضة 0، غير مطبّقة 0، منتهية 1، ما زالت معلّقة 1.")).toBeInTheDocument();
-      expect(screen.getByText("تعذّر سؤال مزوّد الدفع عن 1 عملية، فتُركت كما هي.")).toBeInTheDocument();
+      const outcome = await screen.findByRole("status");
+      expect(outcome).toHaveTextContent("رُوجعت 9 عملية: مدفوعة 1، مرفوضة 0، غير مطبّقة 0، منتهية 1، ما زالت معلّقة 1، سبق تسويتها 2.");
+      expect(outcome.querySelectorAll("p")).toHaveLength(1);
       expect(sweeps).toBe(1);
     });
 
-    it("shows the server's message when the sweep fails", async () => {
+    it("says what the sweep could not ask, could not read and did not reach", async () => {
       const transport = checkoutsTransport({
-        "POST /card-checkouts/sweep": () => ({ status: 503, body: { error: "CARD_CHECKOUT_NOT_CONFIGURED", message: "الدفع بالبطاقة غير مُفعّل على هذا الخادم" } }),
+        "POST /card-checkouts/sweep": () => ({ body: { ...tally, needsAttention: 2, unavailable: 3, failed: 1, deferred: 4 } }),
       });
       renderDetail({ transport, session: testPlatformSession });
 
       fireEvent.click(await screen.findByRole("button", { name: "مطابقة العمليات المعلّقة مع Paymob" }));
 
-      expect(await screen.findByText("الدفع بالبطاقة غير مُفعّل على هذا الخادم")).toBeInTheDocument();
+      expect(await screen.findByText("2 عملية ردّ مزوّد الدفع عنها غير مقروء وتحتاج مراجعة في لوحة Paymob.")).toBeInTheDocument();
+      expect(screen.getByText("تعذّر سؤال مزوّد الدفع عن 3 عملية وفشلت تسوية 1، فتُركت كما هي.")).toBeInTheDocument();
+      expect(screen.getByText("4 عملية لم يصلها الدور في هذه المرة وتُراجَع في المطابقة التالية.")).toBeInTheDocument();
+    });
+
+    it("shows the server's message when a sweep is already running", async () => {
+      const transport = checkoutsTransport({
+        "POST /card-checkouts/sweep": () => ({
+          status: 409,
+          body: { error: "CARD_CHECKOUT_SWEEP_RUNNING", message: "مطابقة العمليات المعلّقة جارية بالفعل، انتظر انتهاءها ثم أعد المحاولة" },
+        }),
+      });
+      renderDetail({ transport, session: testPlatformSession });
+
+      fireEvent.click(await screen.findByRole("button", { name: "مطابقة العمليات المعلّقة مع Paymob" }));
+
+      expect(await screen.findByText("مطابقة العمليات المعلّقة جارية بالفعل، انتظر انتهاءها ثم أعد المحاولة")).toBeInTheDocument();
     });
   });
 });

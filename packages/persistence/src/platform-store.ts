@@ -2,6 +2,7 @@ import Database from "better-sqlite3";
 import { openSqliteConnection, withSqliteTransaction, type SqliteConnectionInput, type SqliteOpenOptions } from "./sqlite-connection.js";
 import {
   Money,
+  CardCheckoutFailureReason,
   type CardCheckout, type CardCheckoutRepository, type CardCheckoutSettlement, type CardCheckoutStatus,
   type PaymentProviderId,
   type Payment, type PaymentRepository,
@@ -171,6 +172,10 @@ function addMissingColumns(sqlite: Database.Database): void {
   for (const [name, ddl] of ADDED_PLAN_COLUMNS) {
     if (!existing.has(name)) sqlite.exec(`ALTER TABLE plan ADD COLUMN ${name} ${ddl}`);
   }
+  const onCheckout = new Set(
+    (sqlite.prepare(`PRAGMA table_info(card_checkout)`).all() as { name: string }[]).map((c) => c.name),
+  );
+  if (!onCheckout.has("captured_amount")) sqlite.exec(`ALTER TABLE card_checkout ADD COLUMN captured_amount INTEGER`);
   const onSubscription = new Set(
     (sqlite.prepare(`PRAGMA table_info(subscription)`).all() as { name: string }[]).map((c) => c.name),
   );
@@ -575,7 +580,7 @@ interface CardCheckoutRow {
   id: string; tenant_id: string; subscription_id: string; provider: PaymentProviderId; amount: number;
   currency: CardCheckout["currency"]; status: CardCheckoutStatus; provider_order_ref: string | null;
   checkout_url: string | null; provider_ref: string | null; payment_id: string | null;
-  failure_reason: string | null; requested_by: string; created_at: string; updated_at: string;
+  failure_reason: string | null; captured_amount: number | null; requested_by: string; created_at: string; updated_at: string;
 }
 
 function toCardCheckout(r: CardCheckoutRow): CardCheckout {
@@ -583,7 +588,9 @@ function toCardCheckout(r: CardCheckoutRow): CardCheckout {
     id: r.id, tenantId: r.tenant_id, subscriptionId: r.subscription_id, provider: r.provider,
     amount: Money.fromScaled(r.amount), currency: r.currency, status: r.status,
     providerOrderRef: r.provider_order_ref, checkoutUrl: r.checkout_url, providerRef: r.provider_ref,
-    paymentId: r.payment_id, failureReason: r.failure_reason, requestedBy: r.requested_by,
+    paymentId: r.payment_id, failureReason: r.failure_reason,
+    capturedAmount: r.captured_amount === null ? null : Money.fromScaled(r.captured_amount),
+    requestedBy: r.requested_by,
     createdAt: r.created_at, updatedAt: r.updated_at,
   };
 }
@@ -593,7 +600,8 @@ class SqliteCardCheckoutStore implements CardCheckoutRepository {
   private readonly byId: Database.Statement;
   private readonly byProviderOrder: Database.Statement;
   private readonly byTenant: Database.Statement;
-  private readonly pendingBefore: Database.Statement;
+  private readonly sweepable: Database.Statement;
+  private readonly flag: Database.Statement;
   private readonly attach: Database.Statement;
   private readonly claim: Database.Statement;
   private readonly renewSubscription: Database.Statement;
@@ -609,8 +617,15 @@ class SqliteCardCheckoutStore implements CardCheckoutRepository {
     this.byId = sqlite.prepare(`SELECT * FROM card_checkout WHERE id = ?`);
     this.byProviderOrder = sqlite.prepare(`SELECT * FROM card_checkout WHERE provider = ? AND provider_order_ref = ?`);
     this.byTenant = sqlite.prepare(`SELECT * FROM card_checkout WHERE tenant_id = ? ORDER BY created_at DESC, id DESC`);
-    this.pendingBefore = sqlite.prepare(
-      `SELECT * FROM card_checkout WHERE status = 'pending' AND created_at <= ? ORDER BY created_at ASC, id ASC LIMIT ?`,
+    this.sweepable = sqlite.prepare(
+      `SELECT * FROM card_checkout
+        WHERE created_at <= @openedAtOrBefore
+          AND (status = 'pending' OR (status = 'failed' AND failure_reason = @declined AND created_at > @declinedOpenedAfter))
+        ORDER BY created_at ASC, id ASC LIMIT @limit`,
+    );
+    this.flag = sqlite.prepare(
+      `UPDATE card_checkout SET failure_reason = @reason, updated_at = @now
+        WHERE id = @id AND status = 'pending' AND (failure_reason IS NULL OR failure_reason <> @reason)`,
     );
     this.attach = sqlite.prepare(
       `UPDATE card_checkout SET provider_order_ref = ?, checkout_url = ?, updated_at = ? WHERE id = ? AND provider_order_ref IS NULL`,
@@ -652,8 +667,13 @@ class SqliteCardCheckoutStore implements CardCheckoutRepository {
     return (this.byTenant.all(tenantId) as CardCheckoutRow[]).map(toCardCheckout);
   }
 
-  async listPending(openedAtOrBefore: string, limit: number): Promise<CardCheckout[]> {
-    return (this.pendingBefore.all(openedAtOrBefore, limit) as CardCheckoutRow[]).map(toCardCheckout);
+  async listSweepable(openedAtOrBefore: string, declinedOpenedAfter: string, limit: number): Promise<CardCheckout[]> {
+    const rows = this.sweepable.all({ openedAtOrBefore, declinedOpenedAfter, limit, declined: CardCheckoutFailureReason.Declined });
+    return (rows as CardCheckoutRow[]).map(toCardCheckout);
+  }
+
+  async flagNeedsAttention(checkoutId: string, now: string): Promise<boolean> {
+    return this.flag.run({ id: checkoutId, now, reason: CardCheckoutFailureReason.NeedsAttention }).changes === 1;
   }
 
   async attachSession(id: string, providerOrderRef: string, checkoutUrl: string, now: string): Promise<void> {
@@ -667,10 +687,12 @@ class SqliteCardCheckoutStore implements CardCheckoutRepository {
     return (
       this.sqlite
         .prepare(
-          `UPDATE card_checkout SET status = ?, provider_ref = ?, payment_id = ?, failure_reason = ?, updated_at = ?
+          `UPDATE card_checkout SET status = ?, provider_ref = ?, payment_id = ?, failure_reason = ?,
+             captured_amount = COALESCE(?, captured_amount), updated_at = ?
            WHERE id = ? AND status IN (${placeholders})`,
         )
-        .run(to.status, to.providerRef, to.paymentId, to.failureReason, to.now, id, ...from).changes === 1
+        .run(to.status, to.providerRef, to.paymentId, to.failureReason, to.capturedAmount?.toScaledNumber() ?? null, to.now, id, ...from)
+        .changes === 1
     );
   }
 
@@ -799,18 +821,35 @@ export interface SqlitePlatformStoresHandle {
   close(): void;
 }
 
+const PAYMENT_REFERENCE_INDEX = "ux_payment_tenant_reference";
+
 /**
- * One payment per (tenant, reference), enforced by the database where the file
- * allows it. A platform file that already holds a repeated reference keeps
- * booting without the index — `recordPayment` still refuses any new repeat —
- * rather than failing to open over history nobody can rewrite.
+ * One payment per (tenant, reference), enforced by the database. A platform
+ * file that already holds a repeated reference cannot carry the full index and
+ * must still open, so those rows — and only those — are left out of a partial
+ * one: every payment recorded from now on is covered, and the legacy repeats
+ * are named in the log for someone to reconcile.
  */
 function ensurePaymentReferenceIndex(sqlite: Database.Database): void {
-  const clash = sqlite
-    .prepare(`SELECT 1 FROM payment GROUP BY tenant_id, reference HAVING COUNT(*) > 1 LIMIT 1`)
-    .get();
-  if (clash) return;
-  sqlite.exec(`CREATE UNIQUE INDEX IF NOT EXISTS ux_payment_tenant_reference ON payment (tenant_id, reference)`);
+  const exists = sqlite.prepare(`SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = ?`).get(PAYMENT_REFERENCE_INDEX);
+  if (exists) return;
+  const repeated = sqlite
+    .prepare(
+      `SELECT id, tenant_id, reference FROM payment
+        WHERE (tenant_id, reference) IN (SELECT tenant_id, reference FROM payment GROUP BY tenant_id, reference HAVING COUNT(*) > 1)
+        ORDER BY tenant_id, reference, id`,
+    )
+    .all() as { id: string; tenant_id: string; reference: string }[];
+  if (repeated.length === 0) {
+    sqlite.exec(`CREATE UNIQUE INDEX ${PAYMENT_REFERENCE_INDEX} ON payment (tenant_id, reference)`);
+    return;
+  }
+  console.warn(
+    `[platform] ${repeated.length} payment rows repeat a reference within one tenant and are left out of ${PAYMENT_REFERENCE_INDEX}: ` +
+      repeated.map((row) => `${row.tenant_id}/${row.reference}/${row.id}`).join(", "),
+  );
+  const legacyIds = repeated.map((row) => `'${row.id.replaceAll("'", "''")}'`).join(", ");
+  sqlite.exec(`CREATE UNIQUE INDEX ${PAYMENT_REFERENCE_INDEX} ON payment (tenant_id, reference) WHERE id NOT IN (${legacyIds})`);
 }
 
 export function createSqlitePlatformStores(

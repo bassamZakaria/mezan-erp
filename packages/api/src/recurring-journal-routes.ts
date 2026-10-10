@@ -53,8 +53,11 @@ import {
 import { tenantDay, tenantToday } from "./tenant-day.js";
 import { createPermissionGate, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
 import { refuseOutOfScopeBranches } from "./branch-scope-refusal.js";
+import { MasterDataKind, refuseUnknownMasterData, type MasterDataChecks } from "./master-data-check.js";
 
 export interface RecurringJournalRoutesDeps {
+  /** Refuses a template line naming a branch no master record holds. */
+  readonly masterData?: MasterDataChecks;
   readonly templates: RecurringJournalTemplateRepository;
   readonly runs: RecurringJournalRunRepository;
   readonly skips: RecurringJournalSkipRepository;
@@ -189,6 +192,18 @@ function handleDomainError(c: Context, err: unknown): Response {
 export function createRecurringJournalRoutes(deps: RecurringJournalRoutesDeps, resolveAuthContext: AuthContextResolver) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
+
+  /**
+   * Every route that WRITES template lines goes through here: a template posts
+   * its lines verbatim every period, so a branch outside the author's grant, or
+   * one that does not exist, would be posted to for as long as it stays active.
+   */
+  async function refuseTemplateBranches(c: Context, branchIds: readonly (string | null | undefined)[]): Promise<Response | null> {
+    return (
+      refuseOutOfScopeBranches(c, branchIds) ??
+      (await refuseUnknownMasterData(c, deps.masterData, [{ kind: MasterDataKind.Branch, ids: branchIds }]))
+    );
+  }
   const idGen = deps.idGen ?? (() => randomUUID());
 
   async function postingDeps(c: Context): Promise<JournalPostingDeps> {
@@ -225,7 +240,7 @@ export function createRecurringJournalRoutes(deps: RecurringJournalRoutesDeps, r
   app.post("/templates", gate("accounting.recurring.manage"), async (c) => {
     const parsed = createRecurringJournalTemplateSchema.safeParse(await c.req.json());
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
-    const branchRefusal = refuseOutOfScopeBranches(c, parsed.data.lines.map((line) => line.branchId));
+    const branchRefusal = await refuseTemplateBranches(c, parsed.data.lines.map((line) => line.branchId));
     if (branchRefusal) return branchRefusal;
     try {
       const template = await createRecurringJournalTemplate(
@@ -253,7 +268,7 @@ export function createRecurringJournalRoutes(deps: RecurringJournalRoutesDeps, r
   app.put("/templates/:id", gate("accounting.recurring.manage"), async (c) => {
     const parsed = updateRecurringJournalTemplateSchema.safeParse(await c.req.json());
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
-    const branchRefusal = refuseOutOfScopeBranches(c, parsed.data.lines.map((line) => line.branchId));
+    const branchRefusal = await refuseTemplateBranches(c, parsed.data.lines.map((line) => line.branchId));
     if (branchRefusal) return branchRefusal;
     try {
       const template = await updateRecurringJournalTemplate(
@@ -301,6 +316,8 @@ export function createRecurringJournalRoutes(deps: RecurringJournalRoutesDeps, r
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     const entry = await deps.ledger.findById(c.req.param("entryId"));
     if (!entry) return c.json({ error: "JOURNAL_ENTRY_NOT_FOUND" }, 404);
+    const branchRefusal = await refuseTemplateBranches(c, entry.lines.map((line) => line.branchId));
+    if (branchRefusal) return branchRefusal;
     try {
       const template = await createRecurringJournalTemplate(
         {

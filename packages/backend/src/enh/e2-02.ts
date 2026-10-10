@@ -1,5 +1,5 @@
 import type Database from "better-sqlite3";
-import { createRecurringJournalRoutes } from "@mezan/api";
+import { createRecurringJournalRoutes, MasterDataKind } from "@mezan/api";
 import { createRecurringJournalCommitmentSource, routedAccountId, type PartyControlKind, type CommitmentSource } from "@mezan/domain";
 import {
   createSqliteAccountRoutingStore,
@@ -54,6 +54,7 @@ export const area: BackendArea = {
       "/gl/recurring",
       createRecurringJournalRoutes(
         {
+          masterData: { [MasterDataKind.Branch]: ctx.stores.branches },
           templates,
           runs,
           skips,

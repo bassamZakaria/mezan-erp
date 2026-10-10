@@ -184,6 +184,16 @@ export async function run(ctx: Ctx): Promise<void> {
       ALEX_GRANT,
     );
     check("nor save a recurring template that would post there every month", template.status === 403 && template.body?.error === "BRANCH_OUT_OF_SCOPE", `status ${template.status} ${JSON.stringify(template.body).slice(0, 160)}`);
+    const schedule = { frequency: "monthly", dayOfPeriod: 1, yearlyMonth: null, startDate: today, endDate: null, autoReverseNextPeriod: false };
+    const mainEntryId = (
+      sqlite
+        .prepare("SELECT e.id AS id FROM journal_entry e JOIN journal_line l ON l.entry_id = e.id WHERE e.status = 'posted' GROUP BY e.id HAVING COUNT(*) = SUM(CASE WHEN l.branch_id = ? THEN 1 ELSE 0 END) LIMIT 1")
+        .get(MAIN) as { id: string } | undefined
+    )?.id;
+    const copied = await req("POST", `/gl/recurring/templates/from-entry/${encodeURIComponent(mainEntryId ?? "")}`, { id: "SCN-BR-RJT-COPIED", nameAr: "قالب منسوخ من فرع آخر", ...schedule }, ALEX_GRANT);
+    check("nor copy another branch's entry into a template", mainEntryId !== undefined && copied.status === 403 && copied.body?.error === "BRANCH_OUT_OF_SCOPE", `entry ${mainEntryId} status ${copied.status} ${JSON.stringify(copied.body).slice(0, 160)}`);
+    const phantomTemplate = await req("POST", "/gl/recurring/templates", { id: "SCN-BR-RJT-PHANTOM", nameAr: "قالب على فرع غير موجود", memo: "قالب اختبار بُعد الفرع", ...schedule, lines: journal("unused", "BR-NOWHERE").lines });
+    check("and nobody can save a template on a branch that does not exist", phantomTemplate.status === 422 && phantomTemplate.body?.error === "BRANCH_NOT_FOUND", `status ${phantomTemplate.status} ${JSON.stringify(phantomTemplate.body).slice(0, 160)}`);
     const phantom = await req("POST", "/gl/journal-entries", journal("SCN-BR-JE-PHANTOM", "BR-NOWHERE"));
     check("nobody can post a journal line on a branch that does not exist", phantom.status === 422 && phantom.body?.error === "BRANCH_NOT_FOUND", `status ${phantom.status} ${JSON.stringify(phantom.body).slice(0, 160)}`);
   });

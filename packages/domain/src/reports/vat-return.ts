@@ -82,10 +82,13 @@ function lineNet(entry: JournalEntry, accountId: string): { debit: Money; credit
   return { debit, credit };
 }
 
-type PostingSide = "debit" | "credit";
+enum PostingSide {
+  Debit = "debit",
+  Credit = "credit",
+}
 
 function sideAmount(line: JournalEntry["lines"][number], side: PostingSide): Money {
-  return side === "credit" ? line.credit.add(line.debit.negate()) : line.debit.add(line.credit.negate());
+  return side === PostingSide.Credit ? line.credit.add(line.debit.negate()) : line.debit.add(line.credit.negate());
 }
 
 function netOn(entry: JournalEntry, isAccount: (id: string) => boolean, side: PostingSide): Money {
@@ -146,8 +149,8 @@ function withUntaggedBase(
   let untagged = Money.zero();
   for (const line of entry.lines) {
     if (hasRate(line) || !isBaseAccount(line.accountId)) continue;
-    const forward = side === "credit" ? line.credit : line.debit;
-    const backward = side === "credit" ? line.debit : line.credit;
+    const forward = side === PostingSide.Credit ? line.credit : line.debit;
+    const backward = side === PostingSide.Credit ? line.debit : line.credit;
     untagged = untagged.add(reversing ? backward.negate() : forward);
   }
   if (untagged.scaled === 0n) return [...buckets];
@@ -270,7 +273,7 @@ export function createVatReturnReport(
       ): boolean => {
         const module = journalSourceModule(entry.sourceDocType, entry.source);
         if (moved(inVat) || module === "purchases") return true;
-        return !(module === "sales" || moved(outVat) || netOn(entry, isRevenue, "credit").scaled !== 0n);
+        return !(module === "sales" || moved(outVat) || netOn(entry, isRevenue, PostingSide.Credit).scaled !== 0n);
       };
 
       const nameOf = new Map((ctx.taxRates ?? []).map((r) => [r.id, r.name]));
@@ -284,11 +287,11 @@ export function createVatReturnReport(
 
         const outVat = lineNet(entry, ctx.outputVatAccountId);
         const outputTax = outVat.credit.add(outVat.debit.negate());
-        const outputTagged = ratedBuckets(entry, ctx.outputVatAccountId, isOutputBase, "credit");
+        const outputTagged = ratedBuckets(entry, ctx.outputVatAccountId, isOutputBase, PostingSide.Credit);
         if (outputTagged.length > 0) {
           for (const b of outputTagged) bump(outputBuckets, b.rate, b.taxRateId, b.base, b.tax);
         } else if (!isReclassification(entry)) {
-          const untaggedBase = netOn(entry, isOutputBase, "credit");
+          const untaggedBase = netOn(entry, isOutputBase, PostingSide.Credit);
           if (untaggedBase.scaled !== 0n) {
             const charged = outputTax.scaled !== 0n && outputTax.scaled > 0n === untaggedBase.scaled > 0n;
             bump(outputBuckets, charged ? derivedRatePercent(outputTax, untaggedBase) : 0, null, untaggedBase, charged ? outputTax : Money.zero());
@@ -298,7 +301,7 @@ export function createVatReturnReport(
         const inVat = lineNet(entry, ctx.inputVatAccountId);
         const inputTax = inVat.debit.add(inVat.credit.negate());
         const inputTagged = isPurchaseSide(entry, inVat, outVat)
-          ? ratedBuckets(entry, ctx.inputVatAccountId, (id) => id !== ctx.inputVatAccountId && isPurchaseBase(id), "debit")
+          ? ratedBuckets(entry, ctx.inputVatAccountId, (id) => id !== ctx.inputVatAccountId && isPurchaseBase(id), PostingSide.Debit)
           : [];
         if (inputTagged.length > 0) {
           for (const b of inputTagged) bump(inputBuckets, b.rate, b.taxRateId, b.base, b.tax);

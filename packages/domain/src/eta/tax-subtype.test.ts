@@ -100,14 +100,22 @@ describe("findLineTaxRate — the rate value cannot decide a classification (D79
     expect(findLineTaxRate([rate("V003"), rate("V001")], 0)).toBeNull();
   });
 
-  it("still answers when several 0% rates all classify the same way — the ambiguity is only in the name", () => {
-    const found = findLineTaxRate([rate("V003"), rate("V003")], 0);
-    expect(found?.etaSubType).toBe("V003");
+  it("still answers above 0% when several rates at the percent all classify the same way — the ambiguity is only in the name", () => {
+    const found = findLineTaxRate([rate("V009", 14), rate("V009", 14)], 14);
+    expect(found?.etaSubType).toBe("V009");
+    expect(findLineTaxRate([rate("V009", 14), rate("V010", 14)], 14)).toBeNull();
   });
 
   it("ignores an inactive rate, so a retired classification cannot make the live one ambiguous", () => {
-    const found = findLineTaxRate([rate("V001", 0, "inactive"), rate("V003")], 0);
-    expect(found?.etaSubType).toBe("V003");
+    const found = findLineTaxRate([rate("V010", 14, "inactive"), rate("V009", 14)], 14);
+    expect(found?.etaSubType).toBe("V009");
+  });
+
+  it("infers nothing at 0%, even when exactly one active 0% rate exists or every 0% rate classifies the same way", () => {
+    expect(findLineTaxRate([rate("V003")], 0)).toBeNull();
+    expect(findLineTaxRate([rate("V003"), rate("V003")], 0)).toBeNull();
+    expect(findLineTaxRate([rate("V001", 0, "inactive"), rate("V003")], 0)).toBeNull();
+    expect(resolveEtaVatSubType(findLineTaxRate([rate("V003")], 0)?.etaSubType, 0)).toBe("V004");
   });
 
   it("returns null when nothing matches, rather than the nearest rate", () => {

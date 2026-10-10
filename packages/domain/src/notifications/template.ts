@@ -2,6 +2,24 @@ import type { EventDefinition } from "../events/catalog.js";
 
 const TOKEN_RE = /\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g;
 
+/** `Money.toString()` exactly: an integer part and all six fraction digits. */
+const MONEY_WIRE_RE = /^(-?)(\d+)\.(\d{6})$/;
+const DISPLAY_DECIMALS = 2;
+
+/**
+ * A payload value as a person reads it. Money arrives in its wire form
+ * (`1150.000000`); it is shown grouped at two places, by string arithmetic and
+ * only when the digits dropped are zeros — a figure is never rounded here.
+ */
+function displayValue(value: unknown): string {
+  const text = String(value);
+  const money = MONEY_WIRE_RE.exec(text);
+  if (!money) return text;
+  const [, sign = "", whole = "", fraction = ""] = money;
+  const significant = fraction.replace(/0+$/, "").padEnd(DISPLAY_DECIMALS, "0");
+  return `${sign}${whole.replace(/\B(?=(\d{3})+(?!\d))/g, ",")}.${significant}`;
+}
+
 /**
  * Renders `{{customerName}}`/`{{amount}}`/`{{documentNumber}}`-style tokens
  * (docs/archive/catalog/09 §قواعد الإشعارات) against the triggering event's payload.
@@ -11,7 +29,7 @@ const TOKEN_RE = /\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g;
 export function renderTemplate(template: string, payload: Readonly<Record<string, unknown>>): string {
   return template.replace(TOKEN_RE, (_match, key: string) => {
     const value = payload[key];
-    return value === undefined || value === null ? "" : String(value);
+    return value === undefined || value === null ? "" : displayValue(value);
   });
 }
 
@@ -37,7 +55,7 @@ export function defaultNotificationBody(
     parts.push(`العميل: ${String(payload.customerName)}`);
   }
   if (payload.amount !== undefined && payload.amount !== null) {
-    parts.push(`المبلغ: ${String(payload.amount)}`);
+    parts.push(`المبلغ: ${displayValue(payload.amount)}`);
   }
   return parts.length > 0 ? parts.join(" — ") : def.labelAr;
 }

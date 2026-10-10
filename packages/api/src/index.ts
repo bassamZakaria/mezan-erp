@@ -85,7 +85,7 @@ export {
   type SessionRefusal,
   type SessionRefusalReason,
 } from "./session-auth.js";
-export { createLoginThrottle, throttleKey, type LoginThrottle } from "./login-throttle.js";
+export { createLoginThrottle, createSourceThrottle, throttleKey, type LoginThrottle, type SourceThrottle } from "./login-throttle.js";
 export { requestOrigin } from "./request-origin.js";
 export { permissionRefusalReporting, type PermissionRefusal, type PermissionRefusalReporter } from "./permission-gate.js";
 export {
@@ -93,6 +93,8 @@ export {
   type SecurityReportsRoutesDeps,
 } from "./security-reports-routes.js";
 export { sendNotificationEmail, type SmtpConfig } from "./smtp-client.js";
+export { createPrecomputingHasher, type PrecomputingHasher, type SecretsToPrecompute } from "./precomputed-secrets.js";
+export { drainTurnYields } from "./turn-yields.js";
 export {
   createSimplifiedRegimeRoutes,
   type SimplifiedRegimeRoutesDeps,
@@ -100,4 +102,4 @@ export {
 
 export * from "./pos/index.js";
 export * from "./enh/index.js";
-export { AUDITED_MOUNTS, MutatingMethod, type AuditedMount } from "./audit-boundary.js";
+export { AUDITED_MOUNTS, MutatingMethod, type AuditedMount, type BoundaryPreparation } from "./audit-boundary.js";

@@ -14,6 +14,7 @@ import {
   type InstallmentCollectPort,
   type SessionRegistry,
   sendNotificationEmail,
+  createPrecomputingHasher,
 } from "@mezan/api";
 import {
   ALL_SCOPE,
@@ -251,7 +252,7 @@ import {
   createReturnEtaEnqueueBridge,
   type EtaReceiptIssuer,
 } from "./eta-receipts.js";
-import { createAuthRoutes } from "./auth-routes.js";
+import { createAuth } from "./auth-routes.js";
 import { createDashboardRoutes } from "./dashboard-routes.js";
 import { createPreferencesRoutes } from "./preferences-routes.js";
 import { SEED_ADMIN_USER_ID, seedIfEmpty, type SeedStores } from "./seed.js";
@@ -705,8 +706,17 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
    * the operator's own program because a CAdES-BES signature is made on the
    * taxpayer's hardware token and cannot be produced in-process.
    */
+  // EVERY PORT THAT LEAVES THE PROCESS HANDS THE CONNECTION BACK FIRST. A request
+  // holds the tenant's turn for its database work only (audit-boundary.ts): the
+  // hash, the signing program, the authority's socket and the mail server are
+  // awaited with the turn released, and the request takes it again to record
+  // what they answered.
+  const outsideTheTurn = <T>(work: () => Promise<T>): Promise<T> => auditSink.outsideTurn(work);
+  const etaHttp = options.etaHttpClient ?? fetchEtaHttpClient();
+  const etaSigningRunner = options.etaSigningRunner ?? runExternalSigningCommand;
   const etaTransmit = createEtaHttpTransmitPort({
-    http: options.etaHttpClient ?? fetchEtaHttpClient(),
+    http: (request) => outsideTheTurn(() => etaHttp(request)),
+    sleep: (ms) => outsideTheTurn(() => new Promise<void>((resolve) => setTimeout(resolve, ms))),
     credentials: {
       read: async () => {
         const config = await etaStore.config.get();
@@ -721,7 +731,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   });
   const etaSigner = createExternalCommandSigner({
     config: () => etaStore.config.get(),
-    run: options.etaSigningRunner ?? runExternalSigningCommand,
+    run: (command, args, stdin) => outsideTheTurn(() => etaSigningRunner(command, args, stdin)),
   });
   const etaService = new EtaService({
     config: etaStore.config,
@@ -736,7 +746,12 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     receiptChain: etaStore.receiptChain,
     receiptGaps: etaStore.receiptGaps,
   });
-  const hasher = createScryptHasher();
+  const scrypt = createScryptHasher();
+  const secrets = createPrecomputingHasher({
+    hash: (secret) => outsideTheTurn(() => scrypt.hash(secret)),
+    verify: (secret, hash) => outsideTheTurn(() => scrypt.verify(secret, hash)),
+  });
+  const hasher = secrets.hasher;
 
   // --- phase9/operational-reports — read-only repositories the /reports routes aggregate over,
   // shared with phase5/full-sales's sales-invoice GL/stock hooks below (same tables, one connection each). ---
@@ -2977,7 +2992,21 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     return { voucherId };
   };
 
+  const auth = createAuth({
+    uow,
+    hasher,
+    secrets,
+    settings,
+    seedStores,
+    sessions,
+    loginThrottle,
+    audit: auditSink,
+    resolveEntitlements: options.resolveEntitlements,
+  });
+
   const app = createApp(uow, {
+    secrets,
+    beforeTheTurn: auth.beforeTheTurn,
     /**
      * The one route a till can call before it trusts anything else, and the ONLY
      * place host/client version skew is detectable.
@@ -4041,10 +4070,9 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
                 // the same missing address and try forever.
                 return { kind: "rejected", reason: "لا يوجد بريد إلكتروني مسجَّل لهذا المستخدم." };
               }
-              const sent = await sendNotificationEmail(tenant, recipientEmail, {
-                subject: notification.title,
-                body: notification.body,
-              });
+              const sent = await outsideTheTurn(() =>
+                sendNotificationEmail(tenant, recipientEmail, { subject: notification.title, body: notification.body }),
+              );
               return sent.outcome === "sent"
                 ? { kind: "sent" }
                 : { kind: sent.outcome === "offline" ? "offline" : "rejected", reason: sent.detail };
@@ -4057,7 +4085,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     workflow: { configs: workflowConfigs, requests: approvalRequests },
   });
 
-  app.route("/", createAuthRoutes({ uow, hasher, settings, seedStores, sessions, loginThrottle, audit: auditSink, resolveEntitlements: options.resolveEntitlements }));
+  app.route("/", auth.routes);
   app.route(
     "/",
     createDashboardRoutes({

@@ -17,11 +17,15 @@ import {
 import { loginRequestSchema, bootstrapAdminRequestSchema, type SessionDTO } from "@mezan/contracts";
 import {
   createLoginThrottle,
+  createSourceThrottle,
   readSessionToken,
   requestOrigin,
   throttleKey,
+  type BoundaryPreparation,
   type LoginThrottle,
+  type PrecomputingHasher,
   type SessionRegistry,
+  type SourceThrottle,
 } from "@mezan/api";
 import { SEED_ADMIN_USER_ID, SEED_TENANT_NAME, currentCounts, seedIfEmpty, type SeedStores } from "./seed.js";
 
@@ -34,6 +38,14 @@ export interface AuthRoutesDeps {
   readonly sessions: SessionRegistry;
   /** Failed-attempt lockout. Defaults to a fresh in-memory throttle per app. */
   readonly loginThrottle?: LoginThrottle;
+  /** Failed sign-ins per source address, whichever accounts they named. Defaults to a fresh one per app. */
+  readonly sourceThrottle?: SourceThrottle;
+  /**
+   * The hasher `hasher` came from, so a sign-in's PIN is verified before the
+   * request takes the tenant's connection. Without it the verification still
+   * runs with the connection handed back, when `hasher` does that itself.
+   */
+  readonly secrets?: PrecomputingHasher;
   /**
    * The forensic trail for the credential boundary.
    *
@@ -132,9 +144,41 @@ function waitPhrase(seconds: number): string {
  * (apps/desktop/src/main/lan-host.ts's allow-list) — this guard is the second
  * of two, not the only one.
  */
-export function createAuthRoutes(deps: AuthRoutesDeps) {
+export interface AuthMount {
+  readonly routes: Hono;
+  /** Registered ahead of the connection's turn, keyed by the path each prepares. */
+  readonly beforeTheTurn: Readonly<Record<string, BoundaryPreparation>>;
+}
+
+export function createAuthRoutes(deps: AuthRoutesDeps): Hono {
+  return createAuth(deps).routes;
+}
+
+export function createAuth(deps: AuthRoutesDeps): AuthMount {
   const app = new Hono();
   const throttle = deps.loginThrottle ?? createLoginThrottle();
+  const sources = deps.sourceThrottle ?? createSourceThrottle();
+
+  const blockedFor = (key: string, origin: string | null): number =>
+    Math.max(throttle.retryAfter(key), origin ? sources.retryAfter(origin) : 0);
+
+  // The scrypt behind a sign-in is the slowest thing an anonymous caller can ask
+  // for. It is spent here, before the request queues for the connection, and
+  // only for a caller neither ladder is holding back; the handler below then
+  // finds the verdict waiting.
+  const verifyPinBeforeTheTurn: BoundaryPreparation = async (c) => {
+    const secrets = deps.secrets;
+    if (!secrets) return;
+    const parsed = loginRequestSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return;
+    const needle = parsed.data.username.trim().toLowerCase();
+    const origin = requestOrigin(c);
+    if (blockedFor(throttleKey(needle, origin), origin) > 0) return;
+    await deps.audit?.settled?.();
+    const user = await deps.uow.users.findByEmail(needle);
+    const hash = user && user.status === "active" && user.pinHash ? user.pinHash : await decoyHash();
+    return secrets.precompute({ verify: [[parsed.data.pin, hash]] });
+  };
 
   /**
    * A hash to verify against when the account does not exist, so a miss costs
@@ -230,9 +274,10 @@ export function createAuthRoutes(deps: AuthRoutesDeps) {
     // Remote callers are counted per (account, source); the host's own console
     // is counted per account. See login-throttle.ts — this is what stops one
     // phone on the shop wifi from taking the counter out of service.
-    const key = throttleKey(needle, requestOrigin(c));
+    const origin = requestOrigin(c);
+    const key = throttleKey(needle, origin);
 
-    const waitSeconds = throttle.retryAfter(key);
+    const waitSeconds = blockedFor(key, origin);
     if (waitSeconds > 0) {
       await security(c, "LOGIN_BLOCKED", "WARNING", { username: needle, retryAfterSeconds: waitSeconds });
       return lockedOut(c, waitSeconds);
@@ -250,7 +295,7 @@ export function createAuthRoutes(deps: AuthRoutesDeps) {
         ? await deps.hasher.verify(pin, user.pinHash)
         : (await deps.hasher.verify(pin, await decoyHash()), false);
     if (!user || !ok) {
-      const lockedFor = throttle.fail(key);
+      const lockedFor = Math.max(throttle.fail(key), origin ? sources.fail(origin) : 0);
       if (lockedFor > 0) {
         // The taxonomy in audit/audit-event.ts names account lockout as the
         // canonical CRITICAL event. It wrote nothing until now.
@@ -449,5 +494,5 @@ export function createAuthRoutes(deps: AuthRoutesDeps) {
     }
   });
 
-  return app;
+  return { routes: app, beforeTheTurn: { "/auth/login": verifyPinBeforeTheTurn } };
 }

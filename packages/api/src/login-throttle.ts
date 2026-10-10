@@ -254,3 +254,73 @@ export function createLoginThrottle(now: () => number = Date.now): LoginThrottle
     },
   };
 }
+
+/**
+ * Failures a single SOURCE may make, across every account it names, before it
+ * is made to wait.
+ *
+ * The (account, source) ladder above only bites when the attempts name the same
+ * account. A caller that names a different one each time never climbs it, so
+ * every request it sends buys a full hash and a place in the queue — an
+ * unauthenticated flood no rung ever slows. Thirty is far above what one shop's
+ * tills mistype in an hour behind one address, and far below a sweep.
+ */
+const SOURCE_FREE_ATTEMPTS = 30;
+
+export interface SourceThrottle {
+  /** Seconds this source must wait, or 0 when its attempt may proceed. */
+  retryAfter(source: string): number;
+  /** Records a failed sign-in from this source and returns the seconds it is now held for. */
+  fail(source: string): number;
+  size(): number;
+}
+
+/**
+ * Counts failed sign-ins per source alone. A success does NOT clear it: one
+ * valid account would otherwise reset the count for a sweep of every other.
+ * The host's own console has no source and is never counted here.
+ */
+export function createSourceThrottle(now: () => number = Date.now): SourceThrottle {
+  const records = new Map<string, AttemptRecord>();
+
+  function read(source: string, at: number): AttemptRecord | undefined {
+    const record = records.get(source);
+    if (record && at - record.lastFailureAt > DECAY_MS) {
+      records.delete(source);
+      return undefined;
+    }
+    return record;
+  }
+
+  function evict(at: number): void {
+    for (const [source, record] of records) {
+      if (at - record.lastFailureAt > DECAY_MS) records.delete(source);
+    }
+    if (records.size <= MAX_RECORDS) return;
+    const oldestFirst = [...records.entries()].sort((a, b) => a[1].lastFailureAt - b[1].lastFailureAt);
+    for (const [source] of oldestFirst.slice(0, records.size - MAX_RECORDS)) records.delete(source);
+  }
+
+  return {
+    retryAfter(source) {
+      const at = now();
+      const record = read(source, at);
+      return record && record.lockedUntil > at ? Math.ceil((record.lockedUntil - at) / 1000) : 0;
+    },
+    fail(source) {
+      const at = now();
+      const record = read(source, at) ?? { failures: 0, lastFailureAt: at, lockedUntil: 0 };
+      record.failures += 1;
+      record.lastFailureAt = at;
+      const doublings = record.failures - SOURCE_FREE_ATTEMPTS - 1;
+      const lock = doublings < 0 ? 0 : Math.min(BASE_LOCK_MS * 2 ** doublings, MAX_LOCK_MS);
+      record.lockedUntil = lock > 0 ? at + lock : 0;
+      records.set(source, record);
+      evict(at);
+      return Math.ceil(lock / 1000);
+    },
+    size() {
+      return records.size;
+    },
+  };
+}

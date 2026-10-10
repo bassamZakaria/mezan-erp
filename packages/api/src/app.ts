@@ -221,7 +221,7 @@ import { createLabelLayoutsRouter } from "./label-routes.js";
 import { createSequencesRoutes, type SequencesRoutesDeps } from "./sequences-routes.js";
 import { createAuditRoutes } from "./audit-routes.js";
 import { AUDITED_MOUNTS, MutatingMethod, auditBoundary, beforeTheTurn, connectionTurn, type BoundaryPreparation } from "./audit-boundary.js";
-import { createPrecomputingHasher } from "./precomputed-secrets.js";
+import { createPrecomputingHasher, type PrecomputingHasher } from "./precomputed-secrets.js";
 import { createSecurityReportsRoutes } from "./security-reports-routes.js";
 import { isProductionRuntime, permissionRefusalReporting, type PermissionRefusalReporter } from "./permission-gate.js";
 import { createBarcodeConfigRoutes } from "./barcode-config-routes.js";
@@ -816,6 +816,10 @@ export interface CreateAppOptions {
   readonly resolveEntitlements?: EntitlementsResolver;
   /** Secret hasher for `/users` password/PIN storage. Defaults to `createScryptHasher()`. */
   readonly hasher?: ReturnType<typeof createScryptHasher>;
+  /** That hasher already wrapped, when the composition shares it with routes it mounts itself. Wins over `hasher`. */
+  readonly secrets?: PrecomputingHasher;
+  /** Work other mounts do ahead of the connection's turn, keyed by path (audit-boundary.ts `beforeTheTurn`). */
+  readonly beforeTheTurn?: Readonly<Record<string, BoundaryPreparation>>;
   /**
    * Mounts `/workflow` (docs/archive/catalog/09 §سير العمل — إعدادات الموافقات
    * chain-builder + الموافقات inbox) when present: `/workflow/configs` CRUD
@@ -907,7 +911,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   // cannot ship — it can only fail in dev, where someone will see it.
   const resolveAuth = options.resolveAuthContext ?? insecureHeaderAuthContextResolver;
   const resolveEntitlements = options.resolveEntitlements ?? defaultEntitlementsResolver();
-  const secrets = createPrecomputingHasher(options.hasher ?? createScryptHasher());
+  const secrets = options.secrets ?? createPrecomputingHasher(options.hasher ?? createScryptHasher());
   const hasher = secrets.hasher;
 
   // Saving a user hashes its password and PIN, and scrypt gives the event loop
@@ -952,6 +956,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     app.use(prefix, prepared);
     app.use(`${prefix}/*`, prepared);
   }
+  for (const [path, prepare] of Object.entries(options.beforeTheTurn ?? {})) app.use(path, beforeTheTurn(prepare));
 
   // Before anything reads or writes: a mutating request holds this tenant's
   // connection for its whole length, and a read waits out an open transaction

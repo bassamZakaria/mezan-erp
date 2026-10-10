@@ -16,7 +16,7 @@ export {
   type SeedStores,
   type SeedAdminSecrets,
 } from "./seed.js";
-export { createAuthRoutes, type AuthRoutesDeps } from "./auth-routes.js";
+export { createAuth, createAuthRoutes, type AuthMount, type AuthRoutesDeps } from "./auth-routes.js";
 export { createDashboardRoutes, type DashboardDeps } from "./dashboard-routes.js";
 export { createHrTreasuryDisbursementPort } from "./hr-treasury-disbursement.js";
 export { createPlatform, PLATFORM_SEED_PLANS, type CreatePlatformOptions, type PlatformHandle } from "./create-platform.js";

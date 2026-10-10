@@ -128,6 +128,7 @@ export {
 } from "./signer.js";
 export {
   EtaSubmissionNotFoundError,
+  EtaSubmissionInFlightError,
   DuplicateEtaSubmissionError,
   InvalidEtaTransitionError,
   EtaOfflineError,

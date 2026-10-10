@@ -50,6 +50,7 @@ import {
   EtaSignerNotConfiguredError,
   EtaSigningFailedError,
   EtaSubmissionNotFoundError,
+  EtaSubmissionInFlightError,
   InvalidEtaTransitionError,
 } from "./errors.js";
 import {
@@ -242,6 +243,12 @@ export class EtaService {
   private readonly receiptChain: EtaReceiptChainRepository;
   private readonly receiptGaps: EtaReceiptGapRepository;
   private readonly perDevice = createKeyedSerializer();
+  // Signing and transmitting are awaited with the tenant's connection handed
+  // back, so another request can reach the same document meanwhile. One held
+  // here is refused to every other sender and editor until its outcome is
+  // written. In memory on purpose: a process that dies mid-flight must leave
+  // the document where it was, to be sent again.
+  private readonly inFlight = new Set<string>();
   private readonly now: () => string;
   private readonly newId: () => string;
 
@@ -504,7 +511,11 @@ export class EtaService {
    * document stays queued.
    */
   async submit(id: string): Promise<EtaSubmission> {
-    let submission = await this.require(id);
+    return this.holding([id], () => this.submitHeld(id));
+  }
+
+  private async submitHeld(id: string): Promise<EtaSubmission> {
+    let submission = await this.deps.submissions.findById(id).then((found) => found ?? this.require(id));
     if (!["ready", "pending_signature", "error"].includes(submission.status)) {
       throw new InvalidEtaTransitionError(submission.status, "submit");
     }
@@ -569,7 +580,11 @@ export class EtaService {
    * nothing.
    */
   async refreshStatus(id: string): Promise<EtaSubmission> {
-    const submission = await this.require(id);
+    return this.holding([id], () => this.refreshStatusHeld(id));
+  }
+
+  private async refreshStatusHeld(id: string): Promise<EtaSubmission> {
+    const submission = await this.deps.submissions.findById(id).then((found) => found ?? this.require(id));
     if (submission.status !== "submitted") throw new InvalidEtaTransitionError(submission.status, "refresh");
     if (!this.transmitPort.fetchStatus || !submission.etaUuid) throw new EtaOfflineError();
     const config = await this.deps.config.get();
@@ -617,7 +632,7 @@ export class EtaService {
         else if (next.status === "error") rejected.push(next);
         else if (next.status === "pending_signature") unsigned.push(s.id);
       } catch (err) {
-        if (err instanceof EtaOfflineError) queued.push(s.id);
+        if (err instanceof EtaOfflineError || err instanceof EtaSubmissionInFlightError) queued.push(s.id);
         else if (err instanceof EtaSignerNotConfiguredError || err instanceof EtaSigningFailedError) unsigned.push(s.id);
         else throw err;
       }
@@ -630,7 +645,7 @@ export class EtaService {
           if (next.status === "accepted") accepted.push(next);
           else if (next.status === "error") rejected.push(next);
         } catch (err) {
-          if (err instanceof EtaOfflineError) queued.push(s.id);
+          if (err instanceof EtaOfflineError || err instanceof EtaSubmissionInFlightError) queued.push(s.id);
           else throw err;
         }
       }
@@ -710,7 +725,7 @@ export class EtaService {
         }
         if (chunkFailed) halted.add(serial);
       } catch (err) {
-        if (!(err instanceof EtaOfflineError)) throw err;
+        if (!(err instanceof EtaOfflineError || err instanceof EtaSubmissionInFlightError)) throw err;
         halted.add(serial);
         for (const queuedSubmission of chunk) queued.push(queuedSubmission.id);
       }
@@ -724,7 +739,7 @@ export class EtaService {
           const next = await this.refreshStatus(s.id);
           if (next.status === "error") rejected.push(next);
         } catch (err) {
-          if (!(err instanceof EtaOfflineError)) throw err;
+          if (!(err instanceof EtaOfflineError || err instanceof EtaSubmissionInFlightError)) throw err;
         }
       }
     }
@@ -743,19 +758,25 @@ export class EtaService {
       for (const s of chunk) out.push(await this.submit(s.id));
       return out;
     }
-    const config = await this.deps.config.get();
-    const result = await this.transmitPort.transmitReceiptBatch(chunk, config);
-    const byId = new Map(result.outcomes.map((o) => [o.submissionId, o]));
-    const out: EtaSubmission[] = [];
-    for (const s of chunk) {
-      const outcome = byId.get(s.id) ?? {
-        submissionId: s.id,
-        ok: false,
-        errors: ["لم يرد رد من مصلحة الضرائب لهذا الإيصال ضمن الدفعة."],
-      };
-      out.push(await this.applyReceiptOutcome(s, outcome, result.log, result.submissionUUID ?? null));
-    }
-    return out;
+    const transmitBatch = this.transmitPort.transmitReceiptBatch.bind(this.transmitPort);
+    return this.holding(
+      chunk.map((s) => s.id),
+      async () => {
+        const config = await this.deps.config.get();
+        const result = await transmitBatch(chunk, config);
+        const byId = new Map(result.outcomes.map((o) => [o.submissionId, o]));
+        const out: EtaSubmission[] = [];
+        for (const s of chunk) {
+          const outcome = byId.get(s.id) ?? {
+            submissionId: s.id,
+            ok: false,
+            errors: ["لم يرد رد من مصلحة الضرائب لهذا الإيصال ضمن الدفعة."],
+          };
+          out.push(await this.applyReceiptOutcome(s, outcome, result.log, result.submissionUUID ?? null));
+        }
+        return out;
+      },
+    );
   }
 
   private async applyReceiptOutcome(
@@ -858,7 +879,7 @@ export class EtaService {
       try {
         submitted.push(await this.submit(s.id));
       } catch (err) {
-        if (err instanceof EtaOfflineError) queued.push(s.id);
+        if (err instanceof EtaOfflineError || err instanceof EtaSubmissionInFlightError) queued.push(s.id);
         else throw err;
       }
     }
@@ -879,9 +900,21 @@ export class EtaService {
   }
 
   private async require(id: string): Promise<EtaSubmission> {
+    if (this.inFlight.has(id)) throw new EtaSubmissionInFlightError(id);
     const submission = await this.deps.submissions.findById(id);
     if (!submission) throw new EtaSubmissionNotFoundError(id);
     return submission;
+  }
+
+  private async holding<T>(ids: readonly string[], send: () => Promise<T>): Promise<T> {
+    const busy = ids.find((id) => this.inFlight.has(id));
+    if (busy !== undefined) throw new EtaSubmissionInFlightError(busy);
+    for (const id of ids) this.inFlight.add(id);
+    try {
+      return await send();
+    } finally {
+      for (const id of ids) this.inFlight.delete(id);
+    }
   }
 
   /** Keeps the last 50 round trips; a submission retried nightly for a month must not become the biggest row in the file. */

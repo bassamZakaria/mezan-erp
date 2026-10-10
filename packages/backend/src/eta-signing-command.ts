@@ -9,19 +9,47 @@ import type { EtaCommandResult, EtaCommandRunner } from "@mezan/domain";
  * configured, so a signing command containing shell metacharacters cannot turn
  * into a second command. The document being signed never touches a temp file.
  */
-export const runExternalSigningCommand: EtaCommandRunner = (command, args, stdin) =>
-  new Promise<EtaCommandResult>((resolve, reject) => {
-    const child = spawn(command, [...args], { shell: false, windowsHide: true });
-    let stdout = "";
-    let stderr = "";
-    child.stdout.on("data", (chunk: Buffer) => {
-      stdout += chunk.toString("utf8");
+const SIGNING_TIMEOUT_MS = 60_000;
+const TIMED_OUT_EXIT_CODE = -1;
+
+/**
+ * A signing program that never exits — a token waiting for a PIN nobody is
+ * there to type, a hung driver — is killed at the timeout and reported as a
+ * failed signature, which parks the document in بانتظار التوقيع to be retried.
+ */
+export function createSigningCommandRunner(timeoutMs: number = SIGNING_TIMEOUT_MS): EtaCommandRunner {
+  return (command, args, stdin) =>
+    new Promise<EtaCommandResult>((resolve, reject) => {
+      const child = spawn(command, [...args], { shell: false, windowsHide: true });
+      let stdout = "";
+      let stderr = "";
+      let timedOut = false;
+      const timer = setTimeout(() => {
+        timedOut = true;
+        child.kill("SIGKILL");
+      }, timeoutMs);
+      child.stdout.on("data", (chunk: Buffer) => {
+        stdout += chunk.toString("utf8");
+      });
+      child.stderr.on("data", (chunk: Buffer) => {
+        stderr += chunk.toString("utf8");
+      });
+      child.on("error", (err) => {
+        clearTimeout(timer);
+        reject(err);
+      });
+      child.on("close", (code) => {
+        clearTimeout(timer);
+        if (timedOut) {
+          const seconds = Math.ceil(timeoutMs / 1000);
+          resolve({ code: TIMED_OUT_EXIT_CODE, stdout: "", stderr: `لم ينتهِ برنامج التوقيع خلال ${seconds} ثانية فأُوقف.` });
+          return;
+        }
+        resolve({ code: code ?? TIMED_OUT_EXIT_CODE, stdout, stderr });
+      });
+      child.stdin.on("error", () => {});
+      child.stdin.end(stdin, "utf8");
     });
-    child.stderr.on("data", (chunk: Buffer) => {
-      stderr += chunk.toString("utf8");
-    });
-    child.on("error", (err) => reject(err));
-    child.on("close", (code) => resolve({ code: code ?? -1, stdout, stderr }));
-    child.stdin.on("error", () => {});
-    child.stdin.end(stdin, "utf8");
-  });
+}
+
+export const runExternalSigningCommand: EtaCommandRunner = createSigningCommandRunner();

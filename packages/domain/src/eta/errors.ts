@@ -46,6 +46,21 @@ export class InvalidEtaTransitionError extends Error {
   }
 }
 
+/**
+ * Another request is signing or transmitting this document right now. Its
+ * outcome is about to be written, so a second sender would file it twice and
+ * any other change would be overwritten by that outcome.
+ */
+export class EtaSubmissionInFlightError extends Error {
+  readonly code = "ETA_SUBMISSION_IN_PROGRESS";
+  readonly messageEn: string;
+  constructor(readonly id: string) {
+    super("هذا المستند قيد الإرسال إلى مصلحة الضرائب الآن. انتظر حتى تنتهي المحاولة الجارية ثم حاول مرة أخرى.");
+    this.messageEn = `ETA submission "${id}" is being transmitted right now; wait for that attempt to finish.`;
+    this.name = "EtaSubmissionInFlightError";
+  }
+}
+
 /** The ONLINE transmit path is a stub in this build — it is refused offline. */
 export class EtaOfflineError extends Error {
   readonly code = "ETA_OFFLINE";

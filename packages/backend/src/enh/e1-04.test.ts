@@ -62,6 +62,28 @@ function journal(sqlite: Sqlite, id: string, entryNo: string | null, date: strin
   insert(sqlite, "journal_entry", { id, entry_no: entryNo, date, status, memo: id, source: "manual", created_at: `${date.slice(0, 10)}T08:00:00.000Z` });
 }
 
+const SCALE = 1_000_000;
+
+function post(sqlite: Sqlite, id: string, date: string, lines: readonly (readonly [accountId: string, debit: number, credit: number])[], extra: Record<string, string | number | null> = {}): void {
+  insert(sqlite, "journal_entry", { id, entry_no: null, date, status: "posted", memo: id, source: "manual", created_at: `${date}T08:00:00.000Z`, ...extra });
+  lines.forEach(([accountId, debit, credit], index) => {
+    insert(sqlite, "journal_line", { entry_id: id, line_no: index + 1, account_id: accountId, debit: debit * SCALE, credit: credit * SCALE });
+  });
+}
+
+async function expectCloseRefused(request: (method: string, url: string, body?: unknown) => Promise<Response>, month: string, code: string): Promise<void> {
+  const refused = await request("POST", `/fiscal-periods/fp-2026-${month}/close`, {});
+  expect(refused.status).toBe(409);
+  const body = (await refused.json()) as { error: string; failedChecks: string[] };
+  expect(body.error).toBe("PERIOD_CLOSE_BLOCKED");
+  expect(body.failedChecks).toContain(code);
+  expect(((await (await request("GET", `/fiscal-periods/fp-2026-${month}`)).json()) as { status: string }).status).toBe("open");
+}
+
+function tieStates(found: PeriodCloseCheckDTO): Record<string, string> {
+  return Object.fromEntries(found.findings.map((f) => [f.ref, f.state]));
+}
+
 describe("period-close checks read the real tables (ENH-E1-04)", () => {
   it("a clean month is clear on every check — each query runs against today's schema", async () => {
     const { request } = await world();
@@ -168,5 +190,74 @@ describe("period-close checks read the real tables (ENH-E1-04)", () => {
     const june = await check("06", "recurring_journals");
     expect(june.status).toBe("fail");
     expect(june.findings.map((f) => [f.state, f.passed])).toEqual([["reversed", false]]);
+  });
+  it("a direct posting to a control account fails the tie from its own month on, never an earlier one, and the close is refused", async () => {
+    const { sqlite, request, check } = await world();
+    post(sqlite, "direct-1200", "2026-07-05", [["1200", 100, 0], ["2170", 0, 100]]);
+    post(sqlite, "direct-2100", "2026-08-05", [["5910", 40, 0], ["2100", 0, 40]]);
+    post(sqlite, "direct-1105", "2026-09-05", [["1105", 25, 0], ["2170", 0, 25]]);
+
+    const june = await check("06", "subledger_ties");
+    expect(june.status).toBe("pass");
+    expect(june.findings.every((f) => f.asOfDate === "2026-06-30")).toBe(true);
+
+    const july = await check("07", "subledger_ties");
+    expect(july.status).toBe("fail");
+    expect(tieStates(july)).toMatchObject({ inventory: "mismatch", ap: "ok", ar: "ok" });
+    expect(july.findings.find((f) => f.ref === "inventory")).toMatchObject({ amount: "-100.000000", asOfDate: "2026-07-31" });
+
+    expect(tieStates(await check("08", "subledger_ties"))).toMatchObject({ inventory: "mismatch", ap: "mismatch", ar: "ok" });
+    expect(tieStates(await check("09", "subledger_ties"))).toMatchObject({ inventory: "mismatch", ap: "mismatch", ar: "mismatch" });
+
+    await expectCloseRefused(request, "07", "subledger_ties");
+  });
+
+  it("a month that did not tie at its end still fails after a later entry puts the control account back", async () => {
+    const { sqlite, check } = await world();
+    post(sqlite, "wrong-1200", "2026-07-05", [["1200", 100, 0], ["2170", 0, 100]]);
+    post(sqlite, "undo-1200", "2026-08-02", [["2170", 100, 0], ["1200", 0, 100]]);
+
+    expect((await check("07", "subledger_ties")).status).toBe("fail");
+    expect((await check("08", "subledger_ties")).status).toBe("pass");
+  });
+
+  it("an unbalanced ledger fails the trial balance from the month it happened in, and the close is refused", async () => {
+    const { sqlite, request, check } = await world();
+    post(sqlite, "one-sided", "2026-06-10", [["5910", 60, 0]]);
+
+    expect((await check("05", "trial_balance")).status).toBe("pass");
+    const june = await check("06", "trial_balance");
+    expect(june.status).toBe("fail");
+    expect(june.findings[0]).toMatchObject({ state: "mismatch", amount: "60.000000", asOfDate: "2026-06-30" });
+    await expectCloseRefused(request, "06", "trial_balance");
+  });
+
+  it("an asset in service with no depreciation run fails the month, and a posted run that covers it clears it", async () => {
+    const { sqlite, request, check } = await world();
+    insert(sqlite, "asset", {
+      id: "asset-1", code: "FA-T-1", name_ar: "رافعة شوكية", category_id: "cat-none", scope: "general",
+      acquisition_date: "2026-01-01", acquisition_cost: 120_000 * SCALE, depreciation_start_date: "2026-01-01",
+      depreciation_method: "straight_line", useful_life_months: 60, salvage_value: 0, accumulated_depreciation: 0, status: "active",
+    });
+
+    const june = await check("06", "depreciation");
+    expect(june.status).toBe("fail");
+    expect(june.findings.map((f) => [f.ref, f.state, f.count])).toEqual([["2026-06:general", "missing", 1]]);
+    await expectCloseRefused(request, "06", "depreciation");
+
+    insert(sqlite, "depreciation_run", { id: "dr-june", period: "2026-06", status: "posted", lines: JSON.stringify([{ assetId: "asset-1", amount: "2000.00" }]), created_at: "2026-07-01T08:00:00.000Z" });
+    expect((await check("06", "depreciation")).status).toBe("pass");
+    expect((await check("07", "depreciation")).status).toBe("fail");
+  });
+
+  it("a payroll run that was calculated and never approved is an unposted document of its month", async () => {
+    const { sqlite, request, check } = await world();
+    insert(sqlite, "hr_payroll_run", { id: "pr-june", number: "PAY-2026-06", year: 2026, month: 6, period_start: "2026-06-01", period_end: "2026-06-30", currency: "EGP", status: "calculated" });
+
+    const june = await check("06", "drafts");
+    expect(june.status).toBe("fail");
+    expect(june.findings.map((f) => [f.ref, f.count, f.fix])).toEqual([["payroll_run", 1, "payroll"]]);
+    expect((await check("07", "drafts")).status).toBe("pass");
+    await expectCloseRefused(request, "06", "drafts");
   });
 });

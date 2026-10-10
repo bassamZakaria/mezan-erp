@@ -71,6 +71,8 @@ const FINDING_STATE_KEY: Readonly<Record<PeriodCloseFindingStateDTO, AppTranslat
   [PeriodCloseFindingStateDTO.NotFinalized]: "periodClose.state.not_finalized",
   [PeriodCloseFindingStateDTO.Mismatch]: "periodClose.state.mismatch",
   [PeriodCloseFindingStateDTO.Reversed]: "periodClose.state.reversed",
+  [PeriodCloseFindingStateDTO.NotCovered]: "periodClose.state.not_covered",
+  [PeriodCloseFindingStateDTO.ForcedFinalization]: "periodClose.state.forced_finalization",
 };
 
 const DOC_KIND_KEY: Readonly<Record<PeriodCloseDocKindDTO, AppTranslationKey>> = {

@@ -110,6 +110,8 @@ export enum PeriodCloseFindingState {
   NotFinalized = "not_finalized",
   Mismatch = "mismatch",
   Reversed = "reversed",
+  NotCovered = "not_covered",
+  ForcedFinalization = "forced_finalization",
 }
 
 export enum PeriodCloseEntryState {
@@ -176,13 +178,18 @@ export interface PeriodCloseBankStatement {
   readonly statementId: string;
   readonly treasuryAccountId: string;
   readonly label: string;
+  readonly periodStart: string;
   readonly periodEnd: string;
   readonly finalized: boolean;
+  /** Finalized over unmatched lines or a difference that was not zero. */
+  readonly forced: boolean;
 }
 
 export interface PeriodCloseBankAccount {
   readonly treasuryAccountId: string;
   readonly label: string;
+  /** The first day in the window the account's GL moved; statements have to run unbroken from here to the window's end. */
+  readonly firstMovementDate: string;
 }
 
 export interface PeriodClosePayrollDue {

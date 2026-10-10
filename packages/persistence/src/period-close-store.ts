@@ -278,6 +278,7 @@ export interface FxRevaluationRunLog {
 export interface PeriodCloseBankAccountRow {
   readonly treasuryAccountId: string;
   readonly name: string;
+  readonly firstMovementDate: string;
 }
 
 export interface PeriodClosePayrollDueRow {
@@ -291,8 +292,10 @@ export interface PeriodCloseBankStatementRow {
   readonly treasuryAccountId: string;
   readonly statementNumber: string | null;
   readonly treasuryAccountName: string | null;
+  readonly periodStart: string;
   readonly periodEnd: string;
   readonly finalized: boolean;
+  readonly forced: boolean;
 }
 
 export interface PeriodCloseRecurringRunRow {
@@ -403,36 +406,38 @@ function createQueries(sqlite: Database.Database): PeriodCloseQueries {
     bankStatementsOverlapping(window) {
       const rows = sqlite
         .prepare(
-          `SELECT s.id, s.treasury_account_id, s.statement_number, s.period_end, s.status, ta.name AS account_name
+          `SELECT s.id, s.treasury_account_id, s.statement_number, s.period_start, s.period_end, s.status, ta.name AS account_name,
+                  (s.finalize_override_reason IS NOT NULL OR COALESCE(s.unmatched_at_finalize, 0) > 0) AS forced
              FROM bank_statement s
              LEFT JOIN treasury_account ta ON ta.id = s.treasury_account_id
             WHERE s.period_start <= ? AND s.period_end >= ?
             ORDER BY s.period_end, s.id`,
         )
-        .all(window.endDate, window.startDate) as { id: string; treasury_account_id: string; statement_number: string | null; period_end: string; status: string; account_name: string | null }[];
+        .all(window.endDate, window.startDate) as { id: string; treasury_account_id: string; statement_number: string | null; period_start: string; period_end: string; status: string; account_name: string | null; forced: number }[];
       return rows.map((row) => ({
         statementId: row.id,
         treasuryAccountId: row.treasury_account_id,
         statementNumber: row.statement_number,
         treasuryAccountName: row.account_name,
+        periodStart: row.period_start,
         periodEnd: row.period_end,
         finalized: row.status === StoredStatus.StatementCompleted,
+        forced: row.status === StoredStatus.StatementCompleted && row.forced === 1,
       }));
     },
     bankAccountsWithMovement(window) {
       const rows = sqlite
         .prepare(
-          `SELECT ta.id, ta.name
+          `SELECT ta.id, ta.name, MIN(substr(je.date, 1, 10)) AS first_movement
              FROM treasury_account ta
-            WHERE ta.type = ? AND ta.gl_account_id IS NOT NULL
-              AND EXISTS (
-                SELECT 1 FROM journal_line jl JOIN journal_entry je ON je.id = jl.entry_id
-                 WHERE jl.account_id = ta.gl_account_id AND je.status IN (${placeholders(LEDGER_EFFECTIVE_STATUSES)}) AND je.date >= ? AND je.date <= ?
-              )
+             JOIN journal_line jl ON jl.account_id = ta.gl_account_id
+             JOIN journal_entry je ON je.id = jl.entry_id
+            WHERE ta.type = ? AND je.status IN (${placeholders(LEDGER_EFFECTIVE_STATUSES)}) AND je.date >= ? AND je.date < ?
+            GROUP BY ta.id, ta.name
             ORDER BY ta.id`,
         )
-        .all(StoredStatus.BankAccountType, ...LEDGER_EFFECTIVE_STATUSES, window.startDate, window.endDate) as { id: string; name: string }[];
-      return rows.map((row) => ({ treasuryAccountId: row.id, name: row.name }));
+        .all(StoredStatus.BankAccountType, ...LEDGER_EFFECTIVE_STATUSES, window.startDate, nextDay(window.endDate)) as { id: string; name: string; first_movement: string }[];
+      return rows.map((row) => ({ treasuryAccountId: row.id, name: row.name, firstMovementDate: row.first_movement }));
     },
     payrollDue(window) {
       const year = Number(window.startDate.slice(0, 4));

@@ -7,6 +7,7 @@ import {
   PeriodCloseFindingKind,
   PeriodCloseFindingState,
   PeriodCloseFixTarget,
+  type PeriodCloseBankStatement,
   type PeriodCloseCheckDefinition,
   type PeriodCloseCheckOutcome,
   type PeriodCloseCheckResult,
@@ -17,6 +18,7 @@ import {
   type PeriodCloseSources,
   type PeriodCloseWindow,
 } from "./types.js";
+import { nextDay } from "../fx-revaluation/revaluation.js";
 
 export const PERIOD_CLOSE_DOC_KIND_FIX: Readonly<Record<PeriodCloseDocKind, PeriodCloseFixTarget>> = {
   [PeriodCloseDocKind.JournalEntry]: PeriodCloseFixTarget.Journals,
@@ -156,34 +158,53 @@ const trialBalanceCheck: PeriodCloseCheckDefinition = {
   },
 };
 
+function bankStatementState(statement: PeriodCloseBankStatement): PeriodCloseFindingState {
+  if (!statement.finalized) return PeriodCloseFindingState.NotFinalized;
+  return statement.forced ? PeriodCloseFindingState.ForcedFinalization : PeriodCloseFindingState.Ok;
+}
+
+/** The first day from `from` to `to` that no statement spans, or null when they run unbroken to `to`. */
+function firstUncoveredDay(statements: readonly PeriodCloseBankStatement[], from: string, to: string): string | null {
+  let cursor = from;
+  for (const statement of [...statements].sort((a, b) => a.periodStart.localeCompare(b.periodStart))) {
+    if (statement.periodStart > cursor) break;
+    if (statement.periodEnd >= cursor) cursor = nextDay(statement.periodEnd);
+    if (cursor > to) return null;
+  }
+  return cursor > to ? null : cursor;
+}
+
 const bankCheck: PeriodCloseCheckDefinition = {
   code: PeriodCloseCheckCode.BankStatements,
   fix: PeriodCloseFixTarget.BankReconciliation,
   async evaluate(window, sources) {
     const [statements, accounts] = await Promise.all([sources.bankStatements(window), sources.bankAccountsWithMovement(window)]);
-    const withStatement = new Set(statements.map((s) => s.treasuryAccountId));
-    const findings = statements.map((s) =>
-      finding({
+    const findings = statements.map((s) => {
+      const state = bankStatementState(s);
+      return finding({
         kind: PeriodCloseFindingKind.BankStatement,
         ref: s.statementId,
         label: s.label,
-        state: s.finalized ? PeriodCloseFindingState.Ok : PeriodCloseFindingState.NotFinalized,
-        passed: s.finalized,
+        state,
+        passed: state === PeriodCloseFindingState.Ok,
         fix: PeriodCloseFixTarget.BankReconciliation,
         asOfDate: s.periodEnd,
-      }),
-    );
+      });
+    });
     for (const account of accounts) {
-      if (withStatement.has(account.treasuryAccountId)) continue;
+      const own = statements.filter((s) => s.treasuryAccountId === account.treasuryAccountId);
+      // An unfinalized statement already fails as itself; it still spans its days, so they are not reported twice.
+      const uncovered = firstUncoveredDay(own, account.firstMovementDate, window.endDate);
+      if (uncovered === null) continue;
       findings.push(
         finding({
           kind: PeriodCloseFindingKind.BankStatement,
           ref: `${BANK_ACCOUNT_REF_PREFIX}${account.treasuryAccountId}`,
           label: account.label,
-          state: PeriodCloseFindingState.Missing,
+          state: own.length === 0 ? PeriodCloseFindingState.Missing : PeriodCloseFindingState.NotCovered,
           passed: false,
           fix: PeriodCloseFixTarget.BankReconciliation,
-          asOfDate: window.endDate,
+          asOfDate: own.length === 0 ? window.endDate : uncovered,
         }),
       );
     }

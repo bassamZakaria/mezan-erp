@@ -149,13 +149,15 @@ function buildSources(ctx: BackendModuleContext, store: ReturnType<typeof create
         statementId: statement.statementId,
         treasuryAccountId: statement.treasuryAccountId,
         label: `${statement.treasuryAccountName ?? statement.statementId} — ${statement.statementNumber ?? statement.statementId}`,
+        periodStart: statement.periodStart,
         periodEnd: statement.periodEnd,
         finalized: statement.finalized,
+        forced: statement.forced,
       }));
     },
 
     bankAccountsWithMovement: async (window) =>
-      queries.bankAccountsWithMovement(window).map((account) => ({ treasuryAccountId: account.treasuryAccountId, label: account.name })),
+      queries.bankAccountsWithMovement(window).map((account) => ({ treasuryAccountId: account.treasuryAccountId, label: account.name, firstMovementDate: account.firstMovementDate })),
     payrollDue: async (window) => queries.payrollDue(window),
 
     foreignCurrencies,

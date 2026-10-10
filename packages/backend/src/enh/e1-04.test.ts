@@ -214,6 +214,25 @@ describe("period-close checks read the real tables (ENH-E1-04)", () => {
     expect((await check("06", "bank_statements")).status).toBe("pass");
   });
 
+  it("a finalized statement for three days does not satisfy the month, and one finalized over unmatched lines is a failing finding", async () => {
+    const { sqlite, request, check } = await world();
+    insert(sqlite, "treasury_account", { id: "ta-bank", code: "BNK-T", name: "البنك الأهلي — جاري", type: "bank", currency: "EGP", branch_id: "BR-MAIN", gl_account_id: "1021", status: "active" });
+    post(sqlite, "bank-move", "2026-07-02", [["1021", 500, 0], ["2170", 0, 500]]);
+    insert(sqlite, "bank_statement", { id: "bs-3d", treasury_account_id: "ta-bank", statement_number: "ST-07A", period_start: "2026-07-01", period_end: "2026-07-03", status: "completed" });
+
+    const short = await check("07", "bank_statements");
+    expect(short.status).toBe("fail");
+    expect(short.findings.filter((f) => !f.passed).map((f) => [f.ref, f.state, f.asOfDate])).toEqual([["account:ta-bank", "not_covered", "2026-07-04"]]);
+    await expectCloseRefused(request, "07", "bank_statements");
+    expect((sqlite.prepare(`SELECT status FROM fiscal_period WHERE id = 'fp-2026-07'`).get() as { status: string }).status).toBe("open");
+
+    insert(sqlite, "bank_statement", { id: "bs-rest", treasury_account_id: "ta-bank", statement_number: "ST-07B", period_start: "2026-07-04", period_end: "2026-07-31", status: "completed", unmatched_at_finalize: 2, finalize_override_reason: "فرق عمولة بنكية لم يُسجَّل بعد" });
+    const forced = await check("07", "bank_statements");
+    expect(forced.status).toBe("fail");
+    expect(forced.findings.filter((f) => !f.passed).map((f) => [f.ref, f.state])).toEqual([["bs-rest", "forced_finalization"]]);
+    await expectCloseRefused(request, "07", "bank_statements");
+  });
+
   it("a month with staff in service at its end and no posted payroll run does not close clean", async () => {
     const { sqlite, request, check } = await world();
     const employee = (id: string, hireDate: string, extra: Record<string, string | number | null> = {}) => {

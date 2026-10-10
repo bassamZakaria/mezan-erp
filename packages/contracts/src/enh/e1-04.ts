@@ -99,6 +99,8 @@ export enum PeriodCloseFindingStateDTO {
   NotFinalized = "not_finalized",
   Mismatch = "mismatch",
   Reversed = "reversed",
+  NotCovered = "not_covered",
+  ForcedFinalization = "forced_finalization",
 }
 
 export enum PeriodCloseErrorCodeDTO {

@@ -106,24 +106,67 @@ describe("evaluatePeriodClose", () => {
   });
 
   it("blocks on a bank statement that is not finalized and passes once every one is", async () => {
-    const open = { statementId: "BS-1", treasuryAccountId: "TA-1", label: "البنك الأهلي — 06/2026", periodEnd: JUNE.endDate, finalized: false };
+    const open = { statementId: "BS-1", treasuryAccountId: "TA-1", label: "البنك الأهلي — 06/2026", periodStart: JUNE.startDate, periodEnd: JUNE.endDate, finalized: false, forced: false };
     expect((await evaluate({ bankStatements: async () => [open] })).blocking).toEqual([PeriodCloseCheckCode.BankStatements]);
     const done = await evaluate({ bankStatements: async () => [{ ...open, finalized: true }] });
     expect(checkOf(done, PeriodCloseCheckCode.BankStatements).status).toBe(PeriodCloseCheckStatus.Pass);
   });
 
   it("blocks when a bank account moved in the period and has no statement at all", async () => {
-    const account = { treasuryAccountId: "TA-1", label: "البنك الأهلي" };
+    const account = { treasuryAccountId: "TA-1", label: "البنك الأهلي", firstMovementDate: "2026-06-04" };
     const missing = await evaluate({ bankAccountsWithMovement: async () => [account] });
     expect(missing.blocking).toEqual([PeriodCloseCheckCode.BankStatements]);
     expect(checkOf(missing, PeriodCloseCheckCode.BankStatements).findings.map((f) => [f.ref, f.label, f.state])).toEqual([["account:TA-1", "البنك الأهلي", PeriodCloseFindingState.Missing]]);
 
     const covered = await evaluate({
       bankAccountsWithMovement: async () => [account],
-      bankStatements: async () => [{ statementId: "BS-1", treasuryAccountId: "TA-1", label: "البنك الأهلي — 06/2026", periodEnd: JUNE.endDate, finalized: true }],
+      bankStatements: async () => [{ statementId: "BS-1", treasuryAccountId: "TA-1", label: "البنك الأهلي — 06/2026", periodStart: JUNE.startDate, periodEnd: JUNE.endDate, finalized: true, forced: false }],
     });
     expect(checkOf(covered, PeriodCloseCheckCode.BankStatements).status).toBe(PeriodCloseCheckStatus.Pass);
     expect(checkOf(await evaluate(), PeriodCloseCheckCode.BankStatements).status).toBe(PeriodCloseCheckStatus.NotApplicable);
+  });
+
+  describe("a bank account that moved has to be covered to the last day of the month", () => {
+    const account = { treasuryAccountId: "TA-1", label: "البنك الأهلي", firstMovementDate: "2026-06-04" };
+    const statement = (id: string, periodStart: string, periodEnd: string, over: { finalized?: boolean; forced?: boolean } = {}) => ({
+      statementId: id, treasuryAccountId: "TA-1", label: `البنك الأهلي — ${id}`, periodStart, periodEnd, finalized: over.finalized ?? true, forced: over.forced ?? false,
+    });
+    const bank = async (statements: ReturnType<typeof statement>[]) =>
+      checkOf(await evaluate({ bankAccountsWithMovement: async () => [account], bankStatements: async () => statements }), PeriodCloseCheckCode.BankStatements);
+    const failing = (check: Awaited<ReturnType<typeof bank>>) => check.findings.filter((f) => !f.passed).map((f) => [f.ref, f.state, f.asOfDate]);
+
+    it("a finalized statement for three days does not satisfy the month: the first uncovered day is named", async () => {
+      const partial = await bank([statement("BS-1", "2026-06-01", "2026-06-03")]);
+      expect(partial.status).toBe(PeriodCloseCheckStatus.Fail);
+      expect(failing(partial)).toEqual([["account:TA-1", PeriodCloseFindingState.NotCovered, "2026-06-04"]]);
+    });
+
+    it("two finalized statements that meet end to end cover it; a day missing between them does not", async () => {
+      expect((await bank([statement("BS-1", "2026-06-01", "2026-06-15"), statement("BS-2", "2026-06-16", "2026-06-30")])).status).toBe(PeriodCloseCheckStatus.Pass);
+      const gap = await bank([statement("BS-1", "2026-06-01", "2026-06-15"), statement("BS-2", "2026-06-17", "2026-06-30")]);
+      expect(failing(gap)).toEqual([["account:TA-1", PeriodCloseFindingState.NotCovered, "2026-06-16"]]);
+    });
+
+    it("coverage is asked from the account's first movement in the month, and a statement running past the month end covers it", async () => {
+      expect((await bank([statement("BS-1", "2026-06-04", "2026-07-03")])).status).toBe(PeriodCloseCheckStatus.Pass);
+      expect(failing(await bank([statement("BS-1", "2026-06-05", "2026-06-30")]))).toEqual([["account:TA-1", PeriodCloseFindingState.NotCovered, "2026-06-04"]]);
+    });
+
+    it("a statement that is not finalized fails once, as itself — the days it spans are not reported a second time as uncovered", async () => {
+      const open = await bank([statement("BS-1", "2026-06-01", "2026-06-30", { finalized: false })]);
+      expect(failing(open)).toEqual([["BS-1", PeriodCloseFindingState.NotFinalized, "2026-06-30"]]);
+      const openAndShort = await bank([statement("BS-1", "2026-06-01", "2026-06-20", { finalized: false })]);
+      expect(failing(openAndShort)).toEqual([
+        ["BS-1", PeriodCloseFindingState.NotFinalized, "2026-06-20"],
+        ["account:TA-1", PeriodCloseFindingState.NotCovered, "2026-06-21"],
+      ]);
+    });
+
+    it("a statement finalized by force — unmatched lines or a difference left standing — is a failing finding of its own", async () => {
+      const forced = await bank([statement("BS-1", "2026-06-01", "2026-06-30", { forced: true })]);
+      expect(forced.status).toBe(PeriodCloseCheckStatus.Fail);
+      expect(failing(forced)).toEqual([["BS-1", PeriodCloseFindingState.ForcedFinalization, "2026-06-30"]]);
+    });
   });
 
   it("blocks a month whose employees have no posted payroll run, and says whether a run is waiting", async () => {

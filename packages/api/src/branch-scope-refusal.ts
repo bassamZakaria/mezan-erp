@@ -1,4 +1,5 @@
 import type { Context } from "hono";
+import { branchRefusal, BranchRefusalCode } from "./branch-policy.js";
 import { branchGrantOf, branchesOutsideGrantRefusal } from "./permission-gate.js";
 
 /**
@@ -12,14 +13,7 @@ import { branchGrantOf, branchesOutsideGrantRefusal } from "./permission-gate.js
  */
 export function refuseBranchScopedCaller(c: Context): Response | null {
   if (branchGrantOf(c) === undefined) return null;
-  return c.json(
-    {
-      error: "COMPANY_WIDE_REPORT",
-      message: "هذا التقرير يخص المنشأة كلها ولا يُعرض لمستخدم مقيَّد بفروع محددة.",
-      messageEn: "This report covers the whole company and is not available to a branch-scoped user.",
-    },
-    403,
-  );
+  return branchRefusal(c, BranchRefusalCode.CompanyWideOnly);
 }
 
 /** Refuses a write that names a branch outside the branches the caller's session was granted. */

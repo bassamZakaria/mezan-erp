@@ -1,8 +1,9 @@
 import type { Context } from "hono";
-import { isTenantAdmin, withinBranchScope, type JournalEntry } from "@mezan/domain";
+import { can, withinBranchScope, type JournalEntry } from "@mezan/domain";
+import { VIEW_UNATTRIBUTED_PERMISSION } from "./branch-policy.js";
 import { branchGrantOf, branchScopeOf, getAuthContext } from "./permission-gate.js";
 
-export const VIEW_UNATTRIBUTED_PERMISSION = "accounting.reports.view_unattributed";
+export { VIEW_UNATTRIBUTED_PERMISSION };
 
 /**
  * What of the posted ledger a caller may read, line by line.
@@ -22,7 +23,7 @@ export interface BranchLineView {
 export function canSeeUnattributed(c: Context): boolean {
   if (branchGrantOf(c) === undefined) return true;
   const ctx = getAuthContext(c);
-  return ctx !== undefined && (isTenantAdmin(ctx) || ctx.permissions.has(VIEW_UNATTRIBUTED_PERMISSION));
+  return ctx !== undefined && can(ctx, VIEW_UNATTRIBUTED_PERMISSION);
 }
 
 export function branchLineViewOf(c: Context): BranchLineView {

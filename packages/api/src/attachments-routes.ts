@@ -14,7 +14,7 @@ import {
   type AuthContext,
 } from "@mezan/domain";
 import { createAttachmentSchema } from "@mezan/contracts";
-import { ALL_SCOPE, isTenantAdmin } from "@mezan/domain";
+import { ALL_SCOPE } from "@mezan/domain";
 import { moduleRefusalFor, permissionDeniedBody, storedDocumentRefusal, type AuthContextResolver } from "./permission-gate.js";
 
 /**
@@ -118,7 +118,7 @@ export function createAttachmentsRoutes(
    */
   async function entityOutsideGrant(c: Context, entityType: AttachmentEntityType, entityId: string): Promise<Response | null> {
     const ctx = auth(c);
-    if (!deps.entityBranches || ctx.branchGrant === ALL_SCOPE || isTenantAdmin(ctx)) return null;
+    if (!deps.entityBranches || ctx.branchGrant === ALL_SCOPE) return null;
     const branchIds = await deps.entityBranches(c, entityType, entityId);
     return branchIds ? storedDocumentRefusal(c, ctx.branchGrant, branchIds) : null;
   }

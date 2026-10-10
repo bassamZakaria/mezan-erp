@@ -32,7 +32,7 @@ import {
   postedTransferListQuerySchema,
   itemStockSchema,
 } from "@mezan/contracts";
-import { createPermissionGate, warehouseScopeOf, withinScope, type AuthContextResolver } from "./permission-gate.js";
+import { createPermissionGate, sessionWarehouseScopeOf, warehouseScopeOf, withinScope, type AuthContextResolver } from "./permission-gate.js";
 
 /**
  * Permission-gated routes for the costing + stock-ledger engine (docs/archive/catalog/03).
@@ -173,7 +173,7 @@ function handleDomainError(c: Context, err: unknown) {
  * caller passes everything.
  */
 function warehouseScopeRefusal(c: Context, warehouseIds: readonly string[]): Response | undefined {
-  const scope = warehouseScopeOf(c);
+  const scope = sessionWarehouseScopeOf(c);
   if (!scope) return undefined;
   const offending = warehouseIds.find((id) => !scope.includes(id));
   if (offending === undefined) return undefined;

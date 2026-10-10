@@ -35,7 +35,7 @@ import {
   recordPhysicalCountEntriesSchema,
   generateAdjustmentFromCountSchema,
 } from "@mezan/contracts";
-import { createPermissionGate, warehouseScopeOf, withinScope, type AuthContextResolver } from "./permission-gate.js";
+import { createPermissionGate, sessionWarehouseScopeOf, warehouseScopeOf, withinScope, type AuthContextResolver } from "./permission-gate.js";
 import { branchesOfWarehouses, storedBranchesById, withinBranchGrant } from "./stored-branches.js";
 import { tenantDay } from "./tenant-day.js";
 
@@ -188,7 +188,7 @@ function storedStatus(status: string | undefined): DocumentStatus | undefined {
  * every named warehouse is inside scope — an unscoped caller passes everything.
  */
 function warehouseScopeRefusal(c: Context, warehouseIds: readonly string[]): Response | undefined {
-  const scope = warehouseScopeOf(c);
+  const scope = sessionWarehouseScopeOf(c);
   if (!scope) return undefined;
   const offending = warehouseIds.find((id) => !scope.includes(id));
   if (offending === undefined) return undefined;

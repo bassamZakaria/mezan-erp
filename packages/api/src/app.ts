@@ -224,6 +224,7 @@ import { createAuditRoutes } from "./audit-routes.js";
 import { branchesOfWarehouses, documentBranches } from "./stored-branches.js";
 import { createSecurityReportsRoutes } from "./security-reports-routes.js";
 import { isProductionRuntime, permissionRefusalReporting, type PermissionRefusalReporter } from "./permission-gate.js";
+import { branchPolicyEnforcement, type BranchDirectory } from "./branch-policy.js";
 import { createBarcodeConfigRoutes } from "./barcode-config-routes.js";
 import { createProfileRoutes } from "./profile-routes.js";
 
@@ -369,6 +370,7 @@ export interface CreateAppOptions {
   readonly settingsStore?: SettingsRepository;
   /** Mounts `/branches` (docs/archive/catalog/09) when present — omit it for no `/branches` route. */
   readonly branchStore?: BranchRepository;
+  readonly branchDirectory?: BranchDirectory;
   /** Mounts `/warehouses` (docs/archive/catalog/09) when present — omit it for no `/warehouses` route. */
   readonly warehouseStore?: WarehouseRepository;
   /** Mounts `/customers` (docs/archive/catalog/01 "العملاء") when present — omit it for no `/customers` route. */
@@ -891,6 +893,18 @@ function fxRatesUnder(source: FxRateSource | undefined, settingsStore: SettingsR
  *     (Electron main-process shape).
  * Routes carry no business logic — they validate, call the domain, serialize.
  */
+function oncePerRequest(resolve: AuthContextResolver): AuthContextResolver {
+  const resolved = new WeakMap<Request, ReturnType<AuthContextResolver>>();
+  return (c) => {
+    let pending = resolved.get(c.req.raw);
+    if (pending === undefined) {
+      pending = resolve(c);
+      resolved.set(c.req.raw, pending);
+    }
+    return pending;
+  };
+}
+
 /**
  * Which branch owns the document an attachment hangs off, read from the same
  * stores the document routes read — so a file is never more readable than the
@@ -964,7 +978,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   // than quietly: `insecureHeaderAuthContextResolver` throws on a packaged or
   // production build, so a composition that forgets to pass a real resolver
   // cannot ship — it can only fail in dev, where someone will see it.
-  const resolveAuth = options.resolveAuthContext ?? insecureHeaderAuthContextResolver;
+  const resolveAuth = oncePerRequest(options.resolveAuthContext ?? insecureHeaderAuthContextResolver);
   const resolveEntitlements = options.resolveEntitlements ?? defaultEntitlementsResolver();
   const hasher = options.hasher ?? createScryptHasher();
 
@@ -1003,6 +1017,9 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   // Must sit BELOW the entitlements binding: the over-limit sets are a function
   // of the limits that binding publishes.
   app.use("*", planLocationsBinding({ branches: options.branchStore, warehouses: options.warehouseStore }));
+  // SECURITY: below the warehouse binding it reads, above every route — a
+  // route mounted later (createBackend adds several) is still behind it.
+  app.use("*", branchPolicyEnforcement({ resolveAuthContext: resolveAuth, directory: options.branchDirectory }));
 
   // A session token presented from an address it was not issued to. The
   // REFUSAL happens in session-auth.ts regardless of this mount (the resolver

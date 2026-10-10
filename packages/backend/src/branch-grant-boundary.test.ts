@@ -371,12 +371,16 @@ describe("D111 round 1 · /branches/lookup and the unattributed permission", () 
     expect(unattributedAlone.size).toBeGreaterThan(0);
 
     expect(await netByAccount(alex, "")).toEqual(branchAlone);
-    expect((await netByAccount(alex, UNATTRIBUTED)).size).toBe(0);
-    expect((await netByAccount(alex, MAIN)).size).toBe(0);
+    for (const outside of [UNATTRIBUTED, MAIN]) {
+      const refused = await alex("GET", `/financial-reports/trial-balance?branchId=${outside}`);
+      expect(refused.status, outside).toBe(403);
+      expect(refused.body.error, outside).toBe("BRANCH_OUT_OF_SCOPE");
+      expect(refused.body.message).toMatch(ARABIC);
+    }
 
     expect(await netByAccount(alexWithUnattributed, UNATTRIBUTED)).toEqual(unattributedAlone);
     expect((await netByAccount(alexWithUnattributed, "")).size).toBeGreaterThan(branchAlone.size);
-    expect((await netByAccount(alexWithUnattributed, MAIN)).size).toBe(0);
+    expect((await alexWithUnattributed("GET", `/financial-reports/trial-balance?branchId=${MAIN}`)).status).toBe(403);
   });
 });
 
@@ -720,7 +724,9 @@ describe("D111 · what hangs off a document is no more readable than the documen
     expect(new Set(mine.body.events.map((event: any) => event.branchId))).toEqual(new Set([ALEX]));
 
     const asked = await alex("GET", `/audit?limit=200&branchId=${MAIN}`);
-    expect(asked.body).toMatchObject({ events: [], total: 0 });
+    expect(asked.status).toBe(403);
+    expect(asked.body.error).toBe("BRANCH_OUT_OF_SCOPE");
+    expect(asked.body.events).toBeUndefined();
     const byEntity = await alex("GET", "/audit?limit=200&entityId=INV-DEMO-1");
     expect(byEntity.body).toMatchObject({ events: [], total: 0 });
 

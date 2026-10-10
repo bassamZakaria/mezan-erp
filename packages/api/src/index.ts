@@ -87,6 +87,22 @@ export {
 } from "./session-auth.js";
 export { createLoginThrottle, throttleKey, type LoginThrottle } from "./login-throttle.js";
 export { requestOrigin } from "./request-origin.js";
+export {
+  BODY_REFERENCE_KEYS,
+  BRANCH_POLICY_TABLE,
+  BRANCH_REFUSALS,
+  BranchAccess,
+  BranchPolicy,
+  BranchRecordKind,
+  BranchRefusalCode,
+  ScopedReads,
+  branchPolicyEnforcement,
+  branchPolicyFor,
+  undeclaredPolicyOf,
+  type BranchDirectory,
+  type BranchPolicyEntry,
+  type BranchRefusalBody,
+} from "./branch-policy.js";
 export { permissionRefusalReporting, type PermissionRefusal, type PermissionRefusalReporter } from "./permission-gate.js";
 export {
   createSecurityReportsRoutes,

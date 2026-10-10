@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { can, isTenantAdmin, type AuditEvent, type AuditQueryPort } from "@mezan/domain";
+import { can, type AuditEvent, type AuditQueryPort } from "@mezan/domain";
 import type { AuditChainVerifyPort } from "@mezan/persistence";
 import { auditQuerySchema } from "@mezan/contracts";
 import { branchGrantOf, createPermissionGate, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
@@ -83,7 +83,7 @@ export function createAuditRoutes(
     // SECURITY: a branch-granted reader is held to rows stamped with its own
     // branches. A row with no branch is not shown to it — most were written by
     // an all-branches caller about some other branch's document (D30).
-    const grant = ctx && !isTenantAdmin(ctx) ? branchGrantOf(c) : undefined;
+    const grant = ctx ? branchGrantOf(c) : undefined;
     const result = await store.queryEvents(grant ? { ...parsed.data, branchIds: grant } : parsed.data);
     if (ctx && can(ctx, "sales.invoice.view_cost")) return c.json(result);
     return c.json({ ...result, events: result.events.map(redactCost) });

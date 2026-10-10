@@ -6,12 +6,12 @@ import {
   entitlementModuleOf,
   getPermission,
   isModuleLicensed,
-  isTenantAdmin,
   PermissionLabelLocale,
   permissionHumanLabel,
   type AuthContext,
   type ScopeSelection,
 } from "@mezan/domain";
+import { BRANCH_REFUSALS, BranchRefusalCode, grantedWarehouseIdsOf, type BranchRefusalBody } from "./branch-policy.js";
 import { moduleRefusal, readOnlyModuleOutcome } from "./module-gate.js";
 
 /** Resolves the calling {@link AuthContext} for one request. */
@@ -267,7 +267,7 @@ export function branchesOutsideGrantRefusal(
  * (DEC-20), so this is a ledger boundary, not a courtesy.
  */
 async function refuseBodyBranchesOutsideGrant(c: Context, ctx: AuthContext): Promise<Response | null> {
-  if (ctx.branchGrant === ALL_SCOPE || isTenantAdmin(ctx)) return null;
+  if (ctx.branchGrant === ALL_SCOPE) return null;
   if (c.req.method === "GET" || c.req.method === "HEAD") return null;
   // SECURITY: read whatever the declared content type. Every route parses its
   // body with `c.req.json()`, which ignores the header — so trusting the
@@ -296,23 +296,10 @@ export interface PermissionGateOptions {
   readonly storedBranches?: StoredBranchesResolver;
 }
 
-export interface StoredDocumentRefusalBody {
-  readonly error: "NOT_FOUND" | "BRANCH_OUT_OF_SCOPE";
-  readonly message: string;
-  readonly messageEn: string;
-}
+export type StoredDocumentRefusalBody = BranchRefusalBody;
 
-const STORED_DOCUMENT_ABSENT: StoredDocumentRefusalBody = {
-  error: "NOT_FOUND",
-  message: "المستند غير موجود أو يخص فرعًا خارج صلاحيتك.",
-  messageEn: "This document does not exist or belongs to a branch outside the branches granted to you.",
-};
-
-const STORED_DOCUMENT_PARTLY_FOREIGN: StoredDocumentRefusalBody = {
-  error: "BRANCH_OUT_OF_SCOPE",
-  message: "لا يمكنك تنفيذ هذا الإجراء: المستند يمس فرعًا خارج صلاحيتك.",
-  messageEn: "You cannot act on this document: it touches a branch outside the branches granted to you.",
-};
+const STORED_DOCUMENT_ABSENT = BRANCH_REFUSALS[BranchRefusalCode.NotFound];
+const STORED_DOCUMENT_PARTLY_FOREIGN = BRANCH_REFUSALS[BranchRefusalCode.BranchOutOfScope];
 
 /**
  * The refusal for a stored document whose branches lie outside `grant`, or
@@ -344,7 +331,7 @@ export function storedDocumentRefusal(
  * covered by it.
  */
 async function refuseStoredBranchesOutsideGrant(c: Context, ctx: AuthContext, options: PermissionGateOptions | undefined): Promise<Response | null> {
-  if (!options?.storedBranches || ctx.branchGrant === ALL_SCOPE || isTenantAdmin(ctx)) return null;
+  if (!options?.storedBranches || ctx.branchGrant === ALL_SCOPE) return null;
   const branchIds = await options.storedBranches(c);
   return branchIds ? storedDocumentRefusal(c, ctx.branchGrant, branchIds) : null;
 }
@@ -459,6 +446,17 @@ export function roleCodesOf(ctx: AuthContext | undefined): string[] {
  * widen past it.
  */
 export function warehouseScopeOf(c: Context): readonly string[] | undefined {
+  const scope = getAuthContext(c)?.warehouseScope;
+  const session = !scope || scope === ALL_SCOPE ? undefined : scope;
+  // SECURITY: a branch-restricted session sees only its branches' warehouses,
+  // whatever warehouse scope it was issued — every list that narrows by this
+  // is thereby cut to the branch grant too.
+  const granted = grantedWarehouseIdsOf(c);
+  if (!granted) return session;
+  return session ? session.filter((id) => granted.includes(id)) : granted;
+}
+
+export function sessionWarehouseScopeOf(c: Context): readonly string[] | undefined {
   const scope = getAuthContext(c)?.warehouseScope;
   return !scope || scope === ALL_SCOPE ? undefined : scope;
 }

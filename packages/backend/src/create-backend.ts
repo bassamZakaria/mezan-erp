@@ -252,6 +252,7 @@ import {
   type EtaReceiptIssuer,
 } from "./eta-receipts.js";
 import { createAuthRoutes } from "./auth-routes.js";
+import { createSqliteBranchDirectory } from "./branch-directory.js";
 import { createDashboardRoutes } from "./dashboard-routes.js";
 import { createPreferencesRoutes } from "./preferences-routes.js";
 import { SEED_ADMIN_USER_ID, seedIfEmpty, type SeedStores } from "./seed.js";
@@ -2996,6 +2997,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         : {}),
     settingsStore: settings,
     branchStore: branches,
+    branchDirectory: createSqliteBranchDirectory(sqlite),
     warehouseStore: warehouses,
     customerStore: customers,
     supplierStore: suppliers,

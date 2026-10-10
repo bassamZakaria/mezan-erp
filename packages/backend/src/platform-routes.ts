@@ -34,7 +34,8 @@ import {
   TenantAlreadySubscribedError,
   InvalidSubscriptionTransitionError,
   InvalidPaymentError,
-  PaymentReferenceConflictError,
+  PaymentIdempotencyConflictError,
+  PaymentReferenceAlreadyRecordedError,
   InvalidPlatformUserError,
   PlatformUserEmailTakenError,
   PlatformUserNotFoundError,
@@ -243,7 +244,18 @@ function domainErrorResponse(c: Context, err: unknown): Response {
   ) {
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 422);
   }
-  if (err instanceof PaymentReferenceConflictError) {
+  if (err instanceof PaymentReferenceAlreadyRecordedError) {
+    return c.json(
+      {
+        error: err.code,
+        message: err.message,
+        messageEn: err.messageEn,
+        details: { reference: err.reference, paymentId: err.recorded.id, amount: err.recorded.amount, paidAt: err.recorded.paidAt, recordedAt: err.recorded.recordedAt },
+      },
+      409,
+    );
+  }
+  if (err instanceof PaymentIdempotencyConflictError) {
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
   }
   if (
@@ -484,11 +496,13 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
           recordedBy: platformUser.id,
           note: parsed.data.note ?? null,
           now: nowIso(),
+          idempotencyKey: parsed.data.idempotencyKey,
+          confirmDuplicateReference: parsed.data.confirmDuplicateReference === true,
         },
         platform.stores.payments,
         platform.stores.subscriptions,
         {
-          onRecorded: ({ payment }) =>
+          onRecorded: ({ payment, duplicateOfPaymentId }) =>
             recordSecurityEvent(platform.audit, {
               module: "platform",
               entityType: "PLATFORM",
@@ -497,7 +511,10 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
               actor: platformUser.id,
               severity: "INFO",
               timestamp: nowIso(),
-              details: { paymentId: payment.id, amount: parsed.data.amount, reference: payment.reference, origin: requestOrigin(c) ?? "host" },
+              details: {
+                paymentId: payment.id, amount: parsed.data.amount, reference: payment.reference, origin: requestOrigin(c) ?? "host",
+                ...(duplicateOfPaymentId === null ? {} : { duplicateOfPaymentId, duplicateReferenceConfirmed: true }),
+              },
             }).catch((cause: unknown) => {
               throw new PlatformAuditUnavailableError(cause);
             }),

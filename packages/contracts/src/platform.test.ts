@@ -148,10 +148,21 @@ describe("changePlanRequestSchema", () => {
 });
 
 describe("recordPaymentRequestSchema", () => {
-  const req = { amount: "1250.50", reference: "REF-1", paidAt: "2026-09-14T00:00:00.000Z" };
+  const req = { amount: "1250.50", reference: "REF-1", paidAt: "2026-09-14T00:00:00.000Z", idempotencyKey: "0b0f5c1e-6d1b-4a55-9a43-6f0c1d2e3f40" };
 
   it("accepts a valid request", () => {
     expect(recordPaymentRequestSchema.safeParse(req).success).toBe(true);
+  });
+
+  it("refuses a request that carries no idempotency key, so a retry can never be mistaken for a second payment", () => {
+    const { idempotencyKey: _omitted, ...withoutKey } = req;
+    expect(recordPaymentRequestSchema.safeParse(withoutKey).success).toBe(false);
+    expect(recordPaymentRequestSchema.safeParse({ ...req, idempotencyKey: "short" }).success).toBe(false);
+  });
+
+  it("carries an explicit confirmation of a duplicate reference, and only as a boolean", () => {
+    expect(recordPaymentRequestSchema.safeParse({ ...req, confirmDuplicateReference: true }).success).toBe(true);
+    expect(recordPaymentRequestSchema.safeParse({ ...req, confirmDuplicateReference: "yes" }).success).toBe(false);
   });
 
   it("rejects a non-decimal amount", () => {

@@ -144,13 +144,32 @@ export class InvalidPaymentError extends Error {
   }
 }
 
-export class PaymentReferenceConflictError extends Error {
-  readonly code = "PAYMENT_REFERENCE_CONFLICT";
+export class PaymentIdempotencyConflictError extends Error {
+  readonly code = "PAYMENT_IDEMPOTENCY_CONFLICT";
   readonly messageEn: string;
-  constructor(readonly reference: string) {
-    super(`المرجع "${reference}" مسجَّل من قبل لهذه المنشأة بمبلغ أو اشتراك مختلف`);
-    this.messageEn = `Reference "${reference}" is already recorded for this tenant with a different amount or subscription`;
-    this.name = "PaymentReferenceConflictError";
+  constructor(readonly idempotencyKey: string) {
+    super("سبق تسجيل هذه العملية نفسها بمبلغ أو مرجع أو اشتراك مختلف؛ أعد فتح نموذج تسجيل الدفعة وأدخلها من جديد");
+    this.messageEn = "This same submission was already recorded with a different amount, reference or subscription; reopen the payment form and enter it again";
+    this.name = "PaymentIdempotencyConflictError";
+  }
+}
+
+export interface RecordedPaymentSummary {
+  readonly id: string;
+  readonly amount: string;
+  readonly paidAt: string;
+  readonly recordedAt: string;
+}
+
+export class PaymentReferenceAlreadyRecordedError extends Error {
+  readonly code = "PAYMENT_REFERENCE_ALREADY_RECORDED";
+  readonly messageEn: string;
+  constructor(readonly reference: string, readonly recorded: RecordedPaymentSummary) {
+    const day = recorded.recordedAt.slice(0, 10);
+    const amount = recorded.amount.replace(/(\.\d{2}\d*?)0+$/, "$1");
+    super(`المرجع "${reference}" مسجَّل من قبل لهذه المنشأة بتاريخ ${day} بمبلغ ${amount} ج.م. إن كانت هذه دفعة أخرى فعلًا فأكِّد تسجيلها`);
+    this.messageEn = `Reference "${reference}" was already recorded for this tenant on ${day} for EGP ${amount}. If this really is another payment, confirm to record it`;
+    this.name = "PaymentReferenceAlreadyRecordedError";
   }
 }
 

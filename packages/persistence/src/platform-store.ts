@@ -95,7 +95,8 @@ CREATE TABLE IF NOT EXISTS payment (
   paid_at         TEXT NOT NULL,
   recorded_by     TEXT NOT NULL,
   note            TEXT,
-  created_at      TEXT NOT NULL
+  created_at      TEXT NOT NULL,
+  idempotency_key TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_payment_tenant ON payment(tenant_id, paid_at);
 
@@ -180,6 +181,10 @@ function addMissingColumns(sqlite: Database.Database): void {
     (sqlite.prepare(`PRAGMA table_info(subscription)`).all() as { name: string }[]).map((c) => c.name),
   );
   if (!onSubscription.has("previous_plan_id")) sqlite.exec(`ALTER TABLE subscription ADD COLUMN previous_plan_id TEXT`);
+  const onPayment = new Set(
+    (sqlite.prepare(`PRAGMA table_info(payment)`).all() as { name: string }[]).map((c) => c.name),
+  );
+  if (!onPayment.has("idempotency_key")) sqlite.exec(`ALTER TABLE payment ADD COLUMN idempotency_key TEXT`);
 }
 
 interface TenantRow {
@@ -533,15 +538,17 @@ class SqlitePaymentStore implements PaymentRepository {
   private readonly insert: Database.Statement;
   private readonly byId: Database.Statement;
   private readonly byReference: Database.Statement;
+  private readonly byIdempotencyKey: Database.Statement;
   private readonly byTenant: Database.Statement;
 
   constructor(private readonly sqlite: Database.Database) {
     /** Payments are append-only: no ON CONFLICT — a reused id is a bug and must reject, never silently overwrite the row it is renewing a subscription against. */
     this.insert = sqlite.prepare(
-      `INSERT INTO payment (id, tenant_id, subscription_id, amount, currency, reference, paid_at, recorded_by, note, created_at)
-       VALUES (@id, @tenantId, @subscriptionId, @amount, @currency, @reference, @paidAt, @recordedBy, @note, @createdAt)`,
+      `INSERT INTO payment (id, tenant_id, subscription_id, amount, currency, reference, paid_at, recorded_by, note, created_at, idempotency_key)
+       VALUES (@id, @tenantId, @subscriptionId, @amount, @currency, @reference, @paidAt, @recordedBy, @note, @createdAt, @idempotencyKey)`,
     );
     this.byId = sqlite.prepare(`SELECT * FROM payment WHERE id = ?`);
+    this.byIdempotencyKey = sqlite.prepare(`SELECT * FROM payment WHERE tenant_id = ? AND idempotency_key = ?`);
     this.byReference = sqlite.prepare(
       `SELECT * FROM payment WHERE tenant_id = ? AND reference = ? ORDER BY created_at ASC, id ASC LIMIT 1`,
     );
@@ -550,6 +557,11 @@ class SqlitePaymentStore implements PaymentRepository {
 
   async findByReference(tenantId: string, reference: string): Promise<Payment | null> {
     const row = this.byReference.get(tenantId, reference) as PaymentRow | undefined;
+    return row ? toPayment(row) : null;
+  }
+
+  async findByIdempotencyKey(tenantId: string, idempotencyKey: string): Promise<Payment | null> {
+    const row = this.byIdempotencyKey.get(tenantId, idempotencyKey) as PaymentRow | undefined;
     return row ? toPayment(row) : null;
   }
 
@@ -562,11 +574,11 @@ class SqlitePaymentStore implements PaymentRepository {
     return (this.byTenant.all(tenantId) as PaymentRow[]).map(toPayment);
   }
 
-  async save(p: Payment): Promise<void> {
+  async save(p: Payment, idempotencyKey?: string): Promise<void> {
     this.insert.run({
       id: p.id, tenantId: p.tenantId, subscriptionId: p.subscriptionId, amount: p.amount.toScaledNumber(),
       currency: p.currency, reference: p.reference, paidAt: p.paidAt, recordedBy: p.recordedBy,
-      note: p.note, createdAt: p.createdAt,
+      note: p.note, createdAt: p.createdAt, idempotencyKey: idempotencyKey ?? null,
     });
   }
 
@@ -830,35 +842,22 @@ export interface SqlitePlatformStoresHandle {
   close(): void;
 }
 
-const PAYMENT_REFERENCE_INDEX = "ux_payment_tenant_reference";
+const RETIRED_PAYMENT_REFERENCE_INDEX = "ux_payment_tenant_reference";
 
-/**
- * One payment per (tenant, reference), enforced by the database. A platform
- * file that already holds a repeated reference cannot carry the full index and
- * must still open, so those rows — and only those — are left out of a partial
- * one: every payment recorded from now on is covered, and the legacy repeats
- * are named in the log for someone to reconcile.
- */
-function ensurePaymentReferenceIndex(sqlite: Database.Database): void {
-  const exists = sqlite.prepare(`SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = ?`).get(PAYMENT_REFERENCE_INDEX);
-  if (exists) return;
-  const repeated = sqlite
-    .prepare(
-      `SELECT id, tenant_id, reference FROM payment
-        WHERE (tenant_id, reference) IN (SELECT tenant_id, reference FROM payment GROUP BY tenant_id, reference HAVING COUNT(*) > 1)
-        ORDER BY tenant_id, reference, id`,
-    )
-    .all() as { id: string; tenant_id: string; reference: string }[];
-  if (repeated.length === 0) {
-    sqlite.exec(`CREATE UNIQUE INDEX ${PAYMENT_REFERENCE_INDEX} ON payment (tenant_id, reference)`);
-    return;
-  }
-  console.warn(
-    `[platform] ${repeated.length} payment rows repeat a reference within one tenant and are left out of ${PAYMENT_REFERENCE_INDEX}: ` +
-      repeated.map((row) => `${row.tenant_id}/${row.reference}/${row.id}`).join(", "),
-  );
-  const legacyIds = repeated.map((row) => `'${row.id.replaceAll("'", "''")}'`).join(", ");
-  sqlite.exec(`CREATE UNIQUE INDEX ${PAYMENT_REFERENCE_INDEX} ON payment (tenant_id, reference) WHERE id NOT IN (${legacyIds})`);
+// A reference is what the bank or the customer wrote and can legitimately
+// repeat, so it is no longer unique: the release that made it so silently
+// dropped a second genuine payment. What may never repeat is one SUBMISSION,
+// which the client's idempotency key identifies. Rows written before the key
+// existed carry NULL and are left out of the index.
+// A card payment's PAYMOB-<transaction> reference is kept single by
+// `SqliteCardCheckoutStore.settlePaid`, which checks it inside its transaction.
+function ensurePaymentIndexes(sqlite: Database.Database): void {
+  sqlite.exec(`
+    DROP INDEX IF EXISTS ${RETIRED_PAYMENT_REFERENCE_INDEX};
+    CREATE INDEX IF NOT EXISTS idx_payment_tenant_reference ON payment (tenant_id, reference);
+    CREATE UNIQUE INDEX IF NOT EXISTS ux_payment_tenant_idempotency_key
+      ON payment (tenant_id, idempotency_key) WHERE idempotency_key IS NOT NULL;
+  `);
 }
 
 export function createSqlitePlatformStores(
@@ -868,7 +867,7 @@ export function createSqlitePlatformStores(
   const { sqlite, owned } = openSqliteConnection(path, options);
   sqlite.exec(CREATE_TABLES);
   addMissingColumns(sqlite);
-  ensurePaymentReferenceIndex(sqlite);
+  ensurePaymentIndexes(sqlite);
   return {
     tenants: new SqliteTenantStore(sqlite),
     plans: new SqlitePlanStore(sqlite),

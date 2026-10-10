@@ -15,7 +15,7 @@ import type {
   TenantSummaryDTO,
 } from "@mezan/contracts";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
-import { PlatformApiError, readPlatformErrorMessage, usePlatformApi } from "./api";
+import { PlatformApiError, readPlatformError, readPlatformErrorMessage, usePlatformApi } from "./api";
 import { CHECKOUT_POLL_MS } from "../billing/CardCheckoutStatus";
 
 export function useTenantsQuery(): UseQueryResult<TenantSummaryDTO[], PlatformApiError> {
@@ -73,7 +73,10 @@ function useSummaryMutation<TVars>(
     mutationFn: async (vars) => {
       const body = buildBody(vars);
       const res = await request(buildPath(vars), { method: "POST", ...(body !== undefined ? { body: JSON.stringify(body) } : {}) });
-      if (!res.ok) throw new PlatformApiError(res.status, await readPlatformErrorMessage(res, t, errorKey));
+      if (!res.ok) {
+        const failure = await readPlatformError(res, t, errorKey);
+        throw new PlatformApiError(res.status, failure.message, failure.code);
+      }
       return res.json<TenantSummaryDTO>();
     },
     onSuccess: (summary) => {

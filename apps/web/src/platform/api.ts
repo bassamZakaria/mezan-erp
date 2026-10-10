@@ -15,6 +15,7 @@ export class PlatformApiError extends Error {
   constructor(
     readonly status: number,
     message: string,
+    readonly code?: string,
   ) {
     super(message);
     this.name = "PlatformApiError";
@@ -96,11 +97,19 @@ export async function readPlatformErrorMessage(
   t: (key: AppTranslationKey) => string,
   fallbackKey: AppTranslationKey,
 ): Promise<string> {
+  return (await readPlatformError(res, t, fallbackKey)).message;
+}
+
+export async function readPlatformError(
+  res: Pick<TransportResponse, "json">,
+  t: (key: AppTranslationKey) => string,
+  fallbackKey: AppTranslationKey,
+): Promise<{ readonly message: string; readonly code: string | undefined }> {
   const body = (await res.json<{ error?: string; message?: string }>().catch(() => ({}))) as {
     error?: string;
     message?: string;
   };
-  if (body.message) return body.message;
+  if (body.message) return { message: body.message, code: body.error };
   const key = body.error ? PLATFORM_ERROR_CODE_KEY[body.error] : undefined;
-  return t(key ?? fallbackKey);
+  return { message: t(key ?? fallbackKey), code: body.error };
 }

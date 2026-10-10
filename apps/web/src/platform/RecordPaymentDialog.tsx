@@ -1,4 +1,5 @@
 import { useId, useState } from "react";
+import { PlatformPaymentRefusal } from "@mezan/contracts";
 import { Button, Field, MoneyInput, SidePanel } from "@mezan/ui";
 import { useAppTranslation } from "../i18n";
 import { FormError, TextAreaField, TextField } from "../settings/form-controls";
@@ -24,6 +25,11 @@ export function RecordPaymentDialog({ open, onClose, tenantId }: RecordPaymentDi
   const [paidAt, setPaidAt] = useState(today);
   const [note, setNote] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
+  // ONE key per intended payment: it survives a failed attempt and the
+  // duplicate-reference confirmation, so a retry is answered with the payment
+  // already recorded, and is replaced only once that payment is saved.
+  const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
+  const [duplicateWarned, setDuplicateWarned] = useState(false);
   const recordPayment = useRecordPaymentMutation();
 
   function reset() {
@@ -31,6 +37,15 @@ export function RecordPaymentDialog({ open, onClose, tenantId }: RecordPaymentDi
     setReference("");
     setPaidAt(today());
     setNote("");
+    setFormError(null);
+    setDuplicateWarned(false);
+    setIdempotencyKey(crypto.randomUUID());
+  }
+
+  function changeReference(next: string) {
+    setReference(next);
+    if (!duplicateWarned) return;
+    setDuplicateWarned(false);
     setFormError(null);
   }
 
@@ -40,11 +55,12 @@ export function RecordPaymentDialog({ open, onClose, tenantId }: RecordPaymentDi
   }
 
   function handleSubmit() {
-    setFormError(null);
     if (amount === null || amount <= 0 || reference.trim() === "") {
+      setDuplicateWarned(false);
       setFormError(t("platform.recordPayment.error.required"));
       return;
     }
+    if (!duplicateWarned) setFormError(null);
     recordPayment.mutate(
       {
         tenantId,
@@ -53,14 +69,22 @@ export function RecordPaymentDialog({ open, onClose, tenantId }: RecordPaymentDi
           reference: reference.trim(),
           paidAt: new Date(paidAt).toISOString(),
           note: note.trim() === "" ? null : note.trim(),
+          idempotencyKey,
+          ...(duplicateWarned ? { confirmDuplicateReference: true } : {}),
         },
       },
       {
         onSuccess: () => handleClose(),
-        onError: (err) => setFormError(err instanceof PlatformApiError ? err.message : t("platform.recordPayment.error.generic")),
+        onError: (err) => {
+          const refused = err instanceof PlatformApiError;
+          setDuplicateWarned(refused && err.code === PlatformPaymentRefusal.ReferenceAlreadyRecorded);
+          setFormError(refused ? err.message : t("platform.recordPayment.error.generic"));
+        },
       },
     );
   }
+
+  const submitLabel = duplicateWarned ? t("platform.recordPayment.confirmDuplicate") : t("platform.recordPayment.submit");
 
   return (
     <SidePanel open={open} onClose={handleClose} title={t("platform.recordPayment.title")}>
@@ -69,7 +93,7 @@ export function RecordPaymentDialog({ open, onClose, tenantId }: RecordPaymentDi
         <Field label={t("platform.recordPayment.amount")} htmlFor={amountId}>
           <MoneyInput id={amountId} value={amount} onChange={setAmount} />
         </Field>
-        <TextField label={t("platform.recordPayment.reference")} value={reference} onChange={setReference} />
+        <TextField label={t("platform.recordPayment.reference")} value={reference} onChange={changeReference} />
         <TextField label={t("platform.recordPayment.paidAt")} type="date" value={paidAt} onChange={setPaidAt} />
         <TextAreaField
           label={t("platform.recordPayment.note")}
@@ -83,7 +107,7 @@ export function RecordPaymentDialog({ open, onClose, tenantId }: RecordPaymentDi
             {t("common.cancel")}
           </Button>
           <Button variant="primary" disabled={recordPayment.isPending} onClick={handleSubmit}>
-            {recordPayment.isPending ? t("platform.recordPayment.saving") : t("platform.recordPayment.submit")}
+            {recordPayment.isPending ? t("platform.recordPayment.saving") : submitLabel}
           </Button>
         </div>
       </div>

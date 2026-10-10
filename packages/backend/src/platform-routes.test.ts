@@ -283,7 +283,7 @@ describe("createPlatformRoutes", () => {
     const payRes = await rig.app.fetch(
       req(`/tenants/${id}/payments`, rig.ownerToken, {
         method: "POST",
-        body: JSON.stringify({ amount: "500.00", reference: "REF-1", paidAt: "2026-01-01T00:00:00.000Z" }),
+        body: JSON.stringify({ amount: "500.00", reference: "REF-1", paidAt: "2026-01-01T00:00:00.000Z", idempotencyKey: "KEY-0001" }),
       }),
     );
     expect(payRes.status).toBe(201);
@@ -304,19 +304,25 @@ describe("createPlatformRoutes", () => {
     expect(rig.invalidated.filter((code) => code === "acme").length).toBeGreaterThanOrEqual(2);
   });
 
-  it("answers a resubmitted payment reference without renewing or auditing again", async () => {
-    const rig = await buildRig();
-    const id = (await provisionOne(rig)).body.tenant.id;
-    const pay = (amount: string) =>
+  function payer(rig: Awaited<ReturnType<typeof buildRig>>, id: string) {
+    return (body: { amount?: string; reference?: string; idempotencyKey: string; confirmDuplicateReference?: boolean }) =>
       rig.app.fetch(
         req(`/tenants/${id}/payments`, rig.ownerToken, {
           method: "POST",
-          body: JSON.stringify({ amount, reference: "REF-1", paidAt: "2026-01-01T00:00:00.000Z" }),
+          body: JSON.stringify({ amount: "500.00", reference: "REF-1", paidAt: "2026-01-01T00:00:00.000Z", ...body }),
         }),
       );
+  }
+  const recordedEvents = async (rig: Awaited<ReturnType<typeof buildRig>>) =>
+    (await rig.platform.audit.query("security")).filter((r) => r.action === "PAYMENT_RECORDED");
 
-    const first = await pay("500.00");
-    const second = await pay("500.00");
+  it("answers a resubmission of the same payment without renewing or auditing again", async () => {
+    const rig = await buildRig();
+    const id = (await provisionOne(rig)).body.tenant.id;
+    const pay = payer(rig, id);
+
+    const first = await pay({ idempotencyKey: "KEY-0001" });
+    const second = await pay({ idempotencyKey: "KEY-0001" });
 
     expect(first.status).toBe(201);
     expect(second.status).toBe(200);
@@ -324,8 +330,61 @@ describe("createPlatformRoutes", () => {
     const secondBody = (await json(second)) as { subscription: { currentPeriodEnd: string }; payments: unknown[] };
     expect(secondBody.subscription.currentPeriodEnd).toBe(firstBody.subscription.currentPeriodEnd);
     expect(secondBody.payments).toHaveLength(1);
-    const recorded = (await rig.platform.audit.query("security")).filter((r) => r.action === "PAYMENT_RECORDED");
-    expect(recorded).toHaveLength(1);
+    expect(await recordedEvents(rig)).toHaveLength(1);
+  });
+
+  it("refuses a second, separate payment under a recorded reference instead of reporting it saved", async () => {
+    const rig = await buildRig();
+    const id = (await provisionOne(rig)).body.tenant.id;
+    const pay = payer(rig, id);
+    const first = (await json(await pay({ idempotencyKey: "KEY-0001" }))) as { subscription: { currentPeriodEnd: string }; payments: { id: string }[] };
+
+    const res = await pay({ idempotencyKey: "KEY-0002" });
+
+    expect(res.status).toBe(409);
+    expect(await json(res)).toMatchObject({
+      error: "PAYMENT_REFERENCE_ALREADY_RECORDED",
+      message: expect.stringMatching(/المرجع "REF-1" مسجَّل من قبل لهذه المنشأة بتاريخ \d{4}-\d{2}-\d{2} بمبلغ 500\.00 ج\.م/),
+      messageEn: expect.stringContaining("REF-1"),
+      details: { reference: "REF-1", paymentId: first.payments[0]!.id, amount: "500.000000", recordedAt: expect.any(String) },
+    });
+    expect(await rig.platform.stores.payments.listByTenant(id)).toHaveLength(1);
+    const after = (await json(await rig.app.fetch(req(`/tenants/${id}`, rig.ownerToken)))) as { subscription: { currentPeriodEnd: string } };
+    expect(after.subscription.currentPeriodEnd).toBe(first.subscription.currentPeriodEnd);
+    expect(await recordedEvents(rig)).toHaveLength(1);
+  });
+
+  it("records the second payment once the duplicate reference is confirmed, renews again and says so in the audit event", async () => {
+    const rig = await buildRig();
+    const id = (await provisionOne(rig)).body.tenant.id;
+    const pay = payer(rig, id);
+    const first = (await json(await pay({ idempotencyKey: "KEY-0001" }))) as { subscription: { currentPeriodEnd: string }; payments: { id: string }[] };
+    await pay({ idempotencyKey: "KEY-0002" });
+
+    const confirmed = await pay({ idempotencyKey: "KEY-0002", confirmDuplicateReference: true });
+
+    expect(confirmed.status).toBe(201);
+    const body = (await json(confirmed)) as { subscription: { currentPeriodEnd: string }; payments: unknown[] };
+    expect(body.payments).toHaveLength(2);
+    expect(body.subscription.currentPeriodEnd > first.subscription.currentPeriodEnd).toBe(true);
+    const events = await recordedEvents(rig);
+    expect(events).toHaveLength(2);
+    expect(events.some((event) => event.details?.["duplicateOfPaymentId"] === first.payments[0]!.id)).toBe(true);
+    expect((await pay({ idempotencyKey: "KEY-0002", confirmDuplicateReference: true })).status).toBe(200);
+    expect(await rig.platform.stores.payments.listByTenant(id)).toHaveLength(2);
+  });
+
+  it("400s a payment sent with no idempotency key", async () => {
+    const rig = await buildRig();
+    const id = (await provisionOne(rig)).body.tenant.id;
+    const res = await rig.app.fetch(
+      req(`/tenants/${id}/payments`, rig.ownerToken, {
+        method: "POST",
+        body: JSON.stringify({ amount: "500.00", reference: "REF-1", paidAt: "2026-01-01T00:00:00.000Z" }),
+      }),
+    );
+    expect(res.status).toBe(400);
+    expect(await rig.platform.stores.payments.listByTenant(id)).toHaveLength(0);
   });
 
   it("records no payment when its audit event cannot be written, so the retry is a first submission and not a replay", async () => {
@@ -336,7 +395,7 @@ describe("createPlatformRoutes", () => {
       rig.app.fetch(
         req(`/tenants/${id}/payments`, rig.ownerToken, {
           method: "POST",
-          body: JSON.stringify({ amount: "500.00", reference: "REF-1", paidAt: "2026-01-01T00:00:00.000Z" }),
+          body: JSON.stringify({ amount: "500.00", reference: "REF-1", paidAt: "2026-01-01T00:00:00.000Z", idempotencyKey: "KEY-0001" }),
         }),
       );
     const append = rig.platform.audit.append.bind(rig.platform.audit);
@@ -367,22 +426,16 @@ describe("createPlatformRoutes", () => {
     expect(recorded[0]?.details).toMatchObject({ reference: "REF-1" });
   });
 
-  it("409s a payment reference reused with a different amount", async () => {
+  it("409s the same submission resent with a different amount, and changes nothing", async () => {
     const rig = await buildRig();
     const id = (await provisionOne(rig)).body.tenant.id;
-    const pay = (amount: string) =>
-      rig.app.fetch(
-        req(`/tenants/${id}/payments`, rig.ownerToken, {
-          method: "POST",
-          body: JSON.stringify({ amount, reference: "REF-1", paidAt: "2026-01-01T00:00:00.000Z" }),
-        }),
-      );
-    await pay("500.00");
+    const pay = payer(rig, id);
+    await pay({ idempotencyKey: "KEY-0001" });
 
-    const res = await pay("750.00");
+    const res = await pay({ idempotencyKey: "KEY-0001", amount: "750.00" });
 
     expect(res.status).toBe(409);
-    expect(await json(res)).toMatchObject({ error: "PAYMENT_REFERENCE_CONFLICT", messageEn: expect.stringContaining("REF-1") });
+    expect(await json(res)).toMatchObject({ error: "PAYMENT_IDEMPOTENCY_CONFLICT", message: expect.any(String), messageEn: expect.any(String) });
     expect(await rig.platform.stores.payments.listByTenant(id)).toHaveLength(1);
   });
 
@@ -471,7 +524,7 @@ describe("createPlatformRoutes", () => {
       ["POST", "/tenants", JSON.stringify({ code: "zzz", nameAr: "س", ownerEmail: "z@z.com", ownerNameAr: "س", planId: "x", billingCycle: "monthly", trial: false })],
       ["POST", `/tenants/${id}/suspend`, undefined],
       ["POST", `/tenants/${id}/subscription/cancel`, undefined],
-      ["POST", `/tenants/${id}/payments`, JSON.stringify({ amount: "1.00", reference: "r", paidAt: "2026-01-01T00:00:00.000Z" })],
+      ["POST", `/tenants/${id}/payments`, JSON.stringify({ amount: "1.00", reference: "r", paidAt: "2026-01-01T00:00:00.000Z", idempotencyKey: "KEY-0001" })],
       ["POST", "/plans", JSON.stringify({ code: "x", nameAr: "س", nameEn: "x", modules: ["sales"], seatsIncluded: 1, branchesIncluded: 1, warehousesIncluded: 1, priceMonthly: "0", priceYearly: "0", trialDays: 0, isPublic: true, sortOrder: 0 })],
       ["POST", "/users", JSON.stringify({ email: "x@mezan.app", password: "correct horse battery", role: "support" })],
       ["POST", `/users/PU-SUPPORT/deactivate`, undefined],

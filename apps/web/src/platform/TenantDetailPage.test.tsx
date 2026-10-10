@@ -366,6 +366,121 @@ describe("TenantDetailPage", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
+  describe("«تسجيل دفعة» — a repeated reference is never reported as saved", () => {
+    const ALREADY_RECORDED =
+      'المرجع "REF-1" مسجَّل من قبل لهذه المنشأة بتاريخ 2026-09-15 بمبلغ 500.00 ج.م. إن كانت هذه دفعة أخرى فعلًا فأكِّد تسجيلها';
+    const paymentRow = (id: string) => ({
+      id, tenantId: "tenant-1", subscriptionId: "sub-1", amount: "500.00", currency: "EGP" as const, reference: "REF-1",
+      paidAt: "2026-09-15T00:00:00.000Z", recordedBy: testPlatformSession.user.id, note: null, createdAt: "2026-09-15T00:00:00.000Z",
+    });
+
+    interface Posted {
+      readonly amount: string;
+      readonly reference: string;
+      readonly idempotencyKey: string;
+      readonly confirmDuplicateReference?: boolean;
+    }
+
+    function console_(respond: (body: Posted, attempt: number) => { status: number; body: unknown } | "network-failure") {
+      const posts: Posted[] = [];
+      const recorded: ReturnType<typeof paymentRow>[] = [];
+      const summary = () => ({ ...makeSummary(), payments: recorded });
+      const stub = stubPlatformTransport({
+        "GET /tenants/tenant-1": () => ({ body: summary() }),
+        "GET /plans": () => ({ body: [plan, plan2] }),
+      });
+      const transport: typeof stub = (path, init) => {
+        if (path !== "/tenants/tenant-1/payments" || init?.method !== "POST") return stub(path, init);
+        const body = JSON.parse(String(init.body)) as Posted;
+        posts.push(body);
+        const answer = respond(body, posts.length);
+        if (answer === "network-failure") return Promise.reject(new Error("network down"));
+        if (answer.status === 201) recorded.push(paymentRow(`pay-${recorded.length + 1}`));
+        const payload = answer.status === 201 || answer.status === 200 ? summary() : answer.body;
+        return Promise.resolve({
+          status: answer.status,
+          ok: answer.status < 400,
+          json: <T,>() => Promise.resolve(payload as T),
+          text: () => Promise.resolve(JSON.stringify(payload)),
+        });
+      };
+      renderDetail({ transport, session: testPlatformSession });
+      return { posts, recorded };
+    }
+
+    async function fillAndSubmit(reference = "REF-1") {
+      fireEvent.click(await screen.findByRole("button", { name: "تسجيل دفعة" }));
+      const dialog = screen.getByRole("dialog");
+      fireEvent.change(within(dialog).getByLabelText("المرجع"), { target: { value: reference } });
+      const amountInput = within(dialog).getByLabelText("المبلغ");
+      fireEvent.focus(amountInput);
+      fireEvent.change(amountInput, { target: { value: "500" } });
+      fireEvent.blur(amountInput);
+      fireEvent.click(within(dialog).getByRole("button", { name: "تسجيل الدفعة" }));
+      return dialog;
+    }
+
+    const refusal = { status: 409, body: { error: "PAYMENT_REFERENCE_ALREADY_RECORDED", message: ALREADY_RECORDED } };
+
+    it("says when the reference was recorded, keeps the form open, and records nothing until the operator confirms", async () => {
+      const t = console_((body) => (body.confirmDuplicateReference ? { status: 201, body: null } : refusal));
+
+      const dialog = await fillAndSubmit();
+
+      expect(await within(dialog).findByText(ALREADY_RECORDED)).toBeInTheDocument();
+      expect(screen.getByRole("dialog")).toBeInTheDocument();
+      expect(t.recorded).toHaveLength(0);
+      expect(within(dialog).queryByRole("button", { name: "تسجيل الدفعة" })).not.toBeInTheDocument();
+
+      fireEvent.click(within(dialog).getByRole("button", { name: "نعم، دفعة أخرى — سجِّلها" }));
+
+      await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+      expect(t.recorded).toHaveLength(1);
+      expect(t.posts.map((post) => post.confirmDuplicateReference === true)).toEqual([false, true]);
+      expect(t.posts[1]!.idempotencyKey).toBe(t.posts[0]!.idempotencyKey);
+    });
+
+    it("drops the confirmation when the operator changes the reference after the warning", async () => {
+      const t = console_((body) => (body.reference === "REF-1" ? refusal : { status: 201, body: null }));
+      const dialog = await fillAndSubmit();
+      await within(dialog).findByText(ALREADY_RECORDED);
+
+      fireEvent.change(within(dialog).getByLabelText("المرجع"), { target: { value: "REF-2" } });
+
+      expect(within(dialog).queryByText(ALREADY_RECORDED)).not.toBeInTheDocument();
+      fireEvent.click(within(dialog).getByRole("button", { name: "تسجيل الدفعة" }));
+      await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+      expect(t.posts[1]).toMatchObject({ reference: "REF-2" });
+      expect(t.posts[1]!.confirmDuplicateReference).not.toBe(true);
+    });
+
+    it("resends the same key when a submission failed on the way, so the retry cannot become a second payment", async () => {
+      const t = console_((_body, attempt) => (attempt === 1 ? "network-failure" : { status: 201, body: null }));
+
+      const dialog = await fillAndSubmit();
+      expect(await within(dialog).findByText("تعذّر تسجيل الدفعة.")).toBeInTheDocument();
+      fireEvent.click(within(dialog).getByRole("button", { name: "تسجيل الدفعة" }));
+
+      await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+      expect(t.posts).toHaveLength(2);
+      expect(t.posts[0]!.idempotencyKey).toMatch(/^[0-9a-f-]{36}$/);
+      expect(t.posts[1]!.idempotencyKey).toBe(t.posts[0]!.idempotencyKey);
+    });
+
+    it("mints a new key for the next payment, so two genuine payments are two submissions", async () => {
+      const t = console_(() => ({ status: 201, body: null }));
+
+      await fillAndSubmit("REF-1");
+      await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+      await fillAndSubmit("REF-2");
+      await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+
+      expect(t.posts).toHaveLength(2);
+      expect(t.posts[1]!.idempotencyKey).not.toBe(t.posts[0]!.idempotencyKey);
+      expect(t.recorded).toHaveLength(2);
+    });
+  });
+
   describe("card checkouts — operator actions", () => {
     const unapplied: CardCheckoutDTO = {
       id: "chk-1", tenantId: "tenant-1", subscriptionId: "sub-1", provider: "paymob", testMode: false, amount: "500.000000",

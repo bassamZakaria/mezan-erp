@@ -129,7 +129,14 @@ export const recordPaymentRequestSchema = z.object({
   reference: z.string().min(1),
   paidAt: z.string().datetime(),
   note: z.string().min(1).nullable().optional(),
+  idempotencyKey: z.string().trim().min(8).max(128),
+  confirmDuplicateReference: z.boolean().optional(),
 });
+
+export enum PlatformPaymentRefusal {
+  ReferenceAlreadyRecorded = "PAYMENT_REFERENCE_ALREADY_RECORDED",
+  IdempotencyConflict = "PAYMENT_IDEMPOTENCY_CONFLICT",
+}
 
 export const subscriptionStatusSchema = z.enum(["trialing", "active", "past_due", "suspended", "cancelled"]);
 

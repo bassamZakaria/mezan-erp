@@ -1744,6 +1744,7 @@ export {
   subscriptionSuspendRequestSchema,
   subscriptionResumeRequestSchema,
   recordPaymentRequestSchema,
+  PlatformPaymentRefusal,
   subscriptionStatusSchema,
   subscriptionSchema,
   planStatusSchema,

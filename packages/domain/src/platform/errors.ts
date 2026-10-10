@@ -144,6 +144,16 @@ export class InvalidPaymentError extends Error {
   }
 }
 
+export class PaymentReferenceConflictError extends Error {
+  readonly code = "PAYMENT_REFERENCE_CONFLICT";
+  readonly messageEn: string;
+  constructor(readonly reference: string) {
+    super(`المرجع "${reference}" مسجَّل من قبل لهذه المنشأة بمبلغ أو اشتراك مختلف`);
+    this.messageEn = `Reference "${reference}" is already recorded for this tenant with a different amount or subscription`;
+    this.name = "PaymentReferenceConflictError";
+  }
+}
+
 export class InvalidPlatformUserError extends Error {
   readonly code = "INVALID_PLATFORM_USER";
   readonly messageEn: string;

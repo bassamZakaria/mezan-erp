@@ -34,6 +34,7 @@ import {
   TenantAlreadySubscribedError,
   InvalidSubscriptionTransitionError,
   InvalidPaymentError,
+  PaymentReferenceConflictError,
   InvalidPlatformUserError,
   PlatformUserEmailTakenError,
   PlatformUserNotFoundError,
@@ -206,6 +207,9 @@ function domainErrorResponse(c: Context, err: unknown): Response {
     err instanceof InvalidPlatformUserError
   ) {
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 422);
+  }
+  if (err instanceof PaymentReferenceConflictError) {
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
   }
   if (
     err instanceof InvalidTenantTransitionError ||
@@ -449,8 +453,11 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
         platform.stores.payments,
         platform.stores.subscriptions,
       );
+      if (result.replayed) return c.json(await tenantSummary(platform, tenant, nowIso()), 200);
       invalidateEntitlements(tenant.code);
-      await audit(c, "PAYMENT_RECORDED", tenant.id, { paymentId: result.payment.id, amount: parsed.data.amount });
+      await audit(c, "PAYMENT_RECORDED", tenant.id, {
+        paymentId: result.payment.id, amount: parsed.data.amount, reference: result.payment.reference,
+      });
       return c.json(await tenantSummary(platform, tenant, nowIso()), 201);
     } catch (err) {
       return domainErrorResponse(c, err);

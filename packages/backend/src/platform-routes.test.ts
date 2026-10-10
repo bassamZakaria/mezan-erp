@@ -295,6 +295,49 @@ describe("createPlatformRoutes", () => {
     expect(rig.invalidated.filter((code) => code === "acme").length).toBeGreaterThanOrEqual(2);
   });
 
+  it("answers a resubmitted payment reference without renewing or auditing again", async () => {
+    const rig = await buildRig();
+    const id = (await provisionOne(rig)).body.tenant.id;
+    const pay = (amount: string) =>
+      rig.app.fetch(
+        req(`/tenants/${id}/payments`, rig.ownerToken, {
+          method: "POST",
+          body: JSON.stringify({ amount, reference: "REF-1", paidAt: "2026-01-01T00:00:00.000Z" }),
+        }),
+      );
+
+    const first = await pay("500.00");
+    const second = await pay("500.00");
+
+    expect(first.status).toBe(201);
+    expect(second.status).toBe(200);
+    const firstBody = (await json(first)) as { subscription: { currentPeriodEnd: string } };
+    const secondBody = (await json(second)) as { subscription: { currentPeriodEnd: string }; payments: unknown[] };
+    expect(secondBody.subscription.currentPeriodEnd).toBe(firstBody.subscription.currentPeriodEnd);
+    expect(secondBody.payments).toHaveLength(1);
+    const recorded = (await rig.platform.audit.query("security")).filter((r) => r.action === "PAYMENT_RECORDED");
+    expect(recorded).toHaveLength(1);
+  });
+
+  it("409s a payment reference reused with a different amount", async () => {
+    const rig = await buildRig();
+    const id = (await provisionOne(rig)).body.tenant.id;
+    const pay = (amount: string) =>
+      rig.app.fetch(
+        req(`/tenants/${id}/payments`, rig.ownerToken, {
+          method: "POST",
+          body: JSON.stringify({ amount, reference: "REF-1", paidAt: "2026-01-01T00:00:00.000Z" }),
+        }),
+      );
+    await pay("500.00");
+
+    const res = await pay("750.00");
+
+    expect(res.status).toBe(409);
+    expect(await json(res)).toMatchObject({ error: "PAYMENT_REFERENCE_CONFLICT", messageEn: expect.stringContaining("REF-1") });
+    expect(await rig.platform.stores.payments.listByTenant(id)).toHaveLength(1);
+  });
+
   it("creates, updates (ignoring code) and retires a plan", async () => {
     const rig = await buildRig();
     const createRes = await rig.app.fetch(

@@ -2,13 +2,21 @@ import { describe, it, expect } from "vitest";
 import { Money } from "../money/money.js";
 import { recordPayment, type Payment, type PaymentRepository } from "./payment.js";
 import type { Subscription, SubscriptionRepository } from "./subscription.js";
-import { InvalidPaymentError, InvalidSubscriptionTransitionError, SubscriptionNotFoundError } from "./errors.js";
+import {
+  InvalidPaymentError,
+  InvalidSubscriptionTransitionError,
+  PaymentReferenceConflictError,
+  SubscriptionNotFoundError,
+} from "./errors.js";
 
 function memoryPayments(): PaymentRepository & { rows: Map<string, Payment> } {
   const rows = new Map<string, Payment>();
   return {
     rows,
     async findById(id) { return rows.get(id) ?? null; },
+    async findByReference(tenantId, reference) {
+      return [...rows.values()].find((p) => p.tenantId === tenantId && p.reference === reference) ?? null;
+    },
     async listByTenant(tenantId) {
       return [...rows.values()]
         .filter((p) => p.tenantId === tenantId)
@@ -164,5 +172,52 @@ describe("a manual payment renews and records as one act", () => {
     expect(store.rows.get("PMT-1")!.reference).toBe("TRF-9001");
     expect(subscriptions.rows.get("S1")!.currentPeriodEnd).toBe(result.subscription.currentPeriodEnd);
     expect(result.subscription.currentPeriodEnd).not.toBe(sub.currentPeriodEnd);
+  });
+});
+
+describe("recordPayment is idempotent on the caller's reference", () => {
+  it("answers a repeated reference with the payment already recorded and renews only once", async () => {
+    const payments = memoryPayments();
+    const subscriptions = memorySubscriptions([sub]);
+    const first = await recordPayment(cmd, payments, subscriptions);
+    const second = await recordPayment({ ...cmd, id: "PAY2", now: "2026-09-14T10:05:00.000Z" }, payments, subscriptions);
+
+    expect(first.replayed).toBe(false);
+    expect(second.replayed).toBe(true);
+    expect(second.payment.id).toBe("PAY1");
+    expect(payments.rows.size).toBe(1);
+    expect(second.subscription.currentPeriodEnd).toBe(first.subscription.currentPeriodEnd);
+    expect(subscriptions.rows.get("S1")!.currentPeriodEnd).toBe("2026-10-14T10:00:00.000Z");
+  });
+
+  it("treats surrounding whitespace as the same reference", async () => {
+    const payments = memoryPayments();
+    const subscriptions = memorySubscriptions([sub]);
+    await recordPayment(cmd, payments, subscriptions);
+    const second = await recordPayment({ ...cmd, id: "PAY2", reference: "  TRX-001 " }, payments, subscriptions);
+    expect(second.replayed).toBe(true);
+  });
+
+  it("refuses a reused reference that names a different amount, and changes nothing", async () => {
+    const payments = memoryPayments();
+    const subscriptions = memorySubscriptions([sub]);
+    const first = await recordPayment(cmd, payments, subscriptions);
+
+    await expect(
+      recordPayment({ ...cmd, id: "PAY2", amount: Money.fromMajor("500.00") }, payments, subscriptions),
+    ).rejects.toBeInstanceOf(PaymentReferenceConflictError);
+    expect(payments.rows.size).toBe(1);
+    expect(subscriptions.rows.get("S1")!.currentPeriodEnd).toBe(first.subscription.currentPeriodEnd);
+  });
+
+  it("lets two tenants use the same reference", async () => {
+    const other: Subscription = { ...sub, id: "S2", tenantId: "T2" };
+    const payments = memoryPayments();
+    const subscriptions = memorySubscriptions([sub, other]);
+    await recordPayment(cmd, payments, subscriptions);
+    const second = await recordPayment({ ...cmd, id: "PAY2", tenantId: "T2", subscriptionId: "S2" }, payments, subscriptions);
+
+    expect(second.replayed).toBe(false);
+    expect(payments.rows.size).toBe(2);
   });
 });

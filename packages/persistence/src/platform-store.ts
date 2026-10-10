@@ -526,6 +526,7 @@ function toPayment(r: PaymentRow): Payment {
 class SqlitePaymentStore implements PaymentRepository {
   private readonly insert: Database.Statement;
   private readonly byId: Database.Statement;
+  private readonly byReference: Database.Statement;
   private readonly byTenant: Database.Statement;
 
   constructor(private readonly sqlite: Database.Database) {
@@ -535,7 +536,15 @@ class SqlitePaymentStore implements PaymentRepository {
        VALUES (@id, @tenantId, @subscriptionId, @amount, @currency, @reference, @paidAt, @recordedBy, @note, @createdAt)`,
     );
     this.byId = sqlite.prepare(`SELECT * FROM payment WHERE id = ?`);
+    this.byReference = sqlite.prepare(
+      `SELECT * FROM payment WHERE tenant_id = ? AND reference = ? ORDER BY created_at ASC, id ASC LIMIT 1`,
+    );
     this.byTenant = sqlite.prepare(`SELECT * FROM payment WHERE tenant_id = ? ORDER BY paid_at DESC, id DESC`);
+  }
+
+  async findByReference(tenantId: string, reference: string): Promise<Payment | null> {
+    const row = this.byReference.get(tenantId, reference) as PaymentRow | undefined;
+    return row ? toPayment(row) : null;
   }
 
   async findById(id: string): Promise<Payment | null> {
@@ -781,6 +790,20 @@ export interface SqlitePlatformStoresHandle {
   close(): void;
 }
 
+/**
+ * One payment per (tenant, reference), enforced by the database where the file
+ * allows it. A platform file that already holds a repeated reference keeps
+ * booting without the index — `recordPayment` still refuses any new repeat —
+ * rather than failing to open over history nobody can rewrite.
+ */
+function ensurePaymentReferenceIndex(sqlite: Database.Database): void {
+  const clash = sqlite
+    .prepare(`SELECT 1 FROM payment GROUP BY tenant_id, reference HAVING COUNT(*) > 1 LIMIT 1`)
+    .get();
+  if (clash) return;
+  sqlite.exec(`CREATE UNIQUE INDEX IF NOT EXISTS ux_payment_tenant_reference ON payment (tenant_id, reference)`);
+}
+
 export function createSqlitePlatformStores(
   path: SqliteConnectionInput = ":memory:",
   options: SqliteOpenOptions = {},
@@ -788,6 +811,7 @@ export function createSqlitePlatformStores(
   const { sqlite, owned } = openSqliteConnection(path, options);
   sqlite.exec(CREATE_TABLES);
   addMissingColumns(sqlite);
+  ensurePaymentReferenceIndex(sqlite);
   return {
     tenants: new SqliteTenantStore(sqlite),
     plans: new SqlitePlanStore(sqlite),

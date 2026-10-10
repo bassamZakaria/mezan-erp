@@ -377,7 +377,7 @@ export async function taxRateIdentity_D79(ctx: Ctx): Promise<void> {
     check("the line with no stored rate keeps the old neutral V004 in the payload", subTypes[2] === "V004", JSON.stringify(subTypes));
     const classification = (queued?.prevalidation ?? []).filter((f: any) => f.code === "TAX_SUBTYPE_NOT_MAPPED");
     check(
-      "but it may not REACH the authority: with two 0% classifications on the tenant, the unnamed line is a blocking finding",
+      "but it may not REACH the authority: the tenant holds a specific 0% classification, so the unnamed line is a blocking finding",
       classification.length === 1 && classification[0]?.severity === "blocking" && queued?.hasBlockingFindings === true,
       JSON.stringify(classification).slice(0, 300),
     );
@@ -419,7 +419,7 @@ export async function taxRateIdentity_D79(ctx: Ctx): Promise<void> {
     }
   });
 
-  await scenario("d79d · a consumer e-receipt files the same three lines the same way, and the refund of the exempt line stays exempt", async () => {
+  await scenario("d79d · a consumer e-receipt files each named 0% line by its rate, is refused for a line that names none, and the refund of the exempt line stays exempt", async () => {
     const customer = await req("POST", "/customers", {
       id: CONSUMER, code: CONSUMER, nameAr: "عميل نقدي (D79)", paymentTermsDays: 0, currency: "EGP",
       openingBalance: "0", active: true, creditLimit: "0", taxExempt: false, etaBuyerType: "individual",
@@ -427,14 +427,27 @@ export async function taxRateIdentity_D79(ctx: Ctx): Promise<void> {
     check("a walk-in customer with no tax number exists", customer.status === 201, JSON.stringify(customer.body).slice(0, 200));
     await req("PUT", `/eta/item-mappings/${EXEMPT_ITEM}`, { etaCodeType: "EGS", etaItemCode: "EG-SCN-E-0010" });
 
-    await req("POST", "/sales-invoices", zeroRatedSale("SCN-D79-B2C", CONSUMER));
+    await req("POST", "/sales-invoices", zeroRatedSale("SCN-D79-B2C-UNNAMED", CONSUMER));
+    const unready = await req("POST", "/sales-invoices/SCN-D79-B2C-UNNAMED/confirm", {});
+    check("a consumer sale with an unnamed 0% line still confirms — the books are not held hostage to the filing", unready.status === 200 && unready.body?.status === "confirmed", JSON.stringify(unready.body).slice(0, 240));
+    check(
+      "but it gets NO e-receipt: the unnamed line could be exempt or export, so it is not filed as not-subject by default",
+      unready.body?.etaReceipt === null && unready.body?.etaReceiptError?.code === "ETA_RECEIPT_NOT_READY",
+      JSON.stringify({ etaReceipt: unready.body?.etaReceipt ?? null, etaReceiptError: unready.body?.etaReceiptError ?? null }).slice(0, 300),
+    );
+    check("the refusal says, in Arabic, that the 0% line names no rate", String(unready.body?.etaReceiptError?.message ?? "").includes("ضريبة البند بنسبة 0% غير مسماة"), String(unready.body?.etaReceiptError?.message ?? ""));
+    const unissued = await req("GET", `/eta/receipts/${encodeURIComponent(unready.body?.docNo ?? "")}`);
+    check("and no receipt was stored under its number", unissued.status === 404, `status ${unissued.status}`);
+
+    const named = zeroRatedSale("SCN-D79-B2C", CONSUMER);
+    await req("POST", "/sales-invoices", { ...named, lines: named.lines.slice(0, 2) });
     const confirmed = await req("POST", "/sales-invoices/SCN-D79-B2C/confirm", {});
-    check("the consumer sale confirms with its receipt", confirmed.status === 200 && Boolean(confirmed.body?.etaReceipt?.receiptNo), JSON.stringify(confirmed.body).slice(0, 240));
+    check("the consumer sale whose 0% lines each name a rate confirms with its receipt", confirmed.status === 200 && Boolean(confirmed.body?.etaReceipt?.receiptNo), JSON.stringify(confirmed.body).slice(0, 240));
     const receipt = (await req("GET", `/eta/receipts/${encodeURIComponent(confirmed.body?.etaReceipt?.receiptNo ?? "")}`)).body;
     const subTypes = subTypesOf(receipt?.submission?.payload?.itemData);
     check("the receipt files the exempt line V003", subTypes[0] === "V003", JSON.stringify(subTypes));
     check("the receipt files the export line V001", subTypes[1] === "V001", JSON.stringify(subTypes));
-    check("and the line with no stored rate V004", subTypes[2] === "V004", JSON.stringify(subTypes));
+    check("and nothing on it is filed V004", subTypes.length === 2 && !subTypes.includes("V004"), JSON.stringify(subTypes));
 
     const draft = await req("POST", "/sales-returns/from-invoice", {
       id: "SCN-D79-RET", date: TODAY, memo: "مرتجع بند معفى", warehouseId: WH, sourceInvoiceId: "SCN-D79-B2C", reason: "DEFECTIVE",
@@ -461,8 +474,8 @@ export async function taxRateIdentity_D79(ctx: Ctx): Promise<void> {
   await scenario("d79e · the VAT return reports exempt and export on their own rows, and the rate is the server's, never the request's", async () => {
     const report = (await req("GET", `/financial-reports/vat-return?periodFrom=${TODAY}&periodTo=${TODAY}`)).body;
     const row = (id: string) => rows(report).find((r: any) => r.rowId === id);
-    check("the exempt row carries what the two scenario sales and the return left at the exempt rate", n(row(`output-0-${exempt?.id}`)?.base) === 300, JSON.stringify(row(`output-0-${exempt?.id}`) ?? null));
-    check("the export row carries the two sales' export lines", n(row(`output-0-${exported?.id}`)?.base) === 600, JSON.stringify(row(`output-0-${exported?.id}`) ?? null));
+    check("the exempt row carries what the three scenario sales and the return left at the exempt rate", n(row(`output-0-${exempt?.id}`)?.base) === 500, JSON.stringify(row(`output-0-${exempt?.id}`) ?? null));
+    check("the export row carries the three sales' export lines", n(row(`output-0-${exported?.id}`)?.base) === 900, JSON.stringify(row(`output-0-${exported?.id}`) ?? null));
     check("each row is named by its rate", row(`output-0-${exempt?.id}`)?.taxRateName === exempt?.name && row(`output-0-${exported?.id}`)?.taxRateName === exported?.name);
 
     const attempt = (line: Record<string, unknown>) =>
@@ -583,7 +596,23 @@ export async function zeroPercentIsNeverInferred_D79(ctx: Ctx): Promise<void> {
     check("and the deactivated export rate cannot be put on a new line", refused.status === 422 && refused.body?.error === "TAX_RATE_INACTIVE", `${refused.status} ${JSON.stringify(refused.body).slice(0, 160)}`);
     check("the refusal names the rate, not its id", String(refused.body?.message ?? "").includes(String(exported?.name)), String(refused.body?.message));
 
-    for (const id of ["SCN-D79-ONE-EXEMPT-CUST", "SCN-D79-ONE-VAT-OFF", "SCN-D79-ONE-UNNAMED", "SCN-D79-ONE-PICKED"]) {
+    const filed = await req("POST", "/sales-invoices/SCN-D79-ONE-UNNAMED/confirm", {});
+    check("the unnamed 0% sale confirms", filed.status === 200, JSON.stringify(filed.body).slice(0, 200));
+    const queued = rows((await req("GET", "/eta/submissions")).body).find((s: any) => s.internalId === (filed.body?.invoice?.docNo ?? filed.body?.docNo));
+    const payload = queued ? (await req("GET", `/eta/submissions/${queued.id}`)).body?.payload : null;
+    check(
+      "its e-invoice does NOT file the line under the one 0% rate the tenant holds — «معفى» V003 is never read off the percent",
+      String(payload?.invoiceLines?.[0]?.taxableItems?.[0]?.subType) === "V004",
+      JSON.stringify(payload?.invoiceLines?.[0]?.taxableItems ?? null).slice(0, 200),
+    );
+    const unclassified = (queued?.prevalidation ?? []).filter((f: any) => f.code === "TAX_SUBTYPE_NOT_MAPPED");
+    check(
+      "and one specific 0% classification is enough to block it from the authority until its rate is named",
+      unclassified.length === 1 && unclassified[0]?.severity === "blocking" && queued?.hasBlockingFindings === true,
+      JSON.stringify(unclassified).slice(0, 300),
+    );
+
+    for (const id of ["SCN-D79-ONE-EXEMPT-CUST", "SCN-D79-ONE-VAT-OFF", "SCN-D79-ONE-PICKED"]) {
       await req("POST", `/sales-invoices/${id}/cancel`, {});
     }
 
@@ -679,3 +708,34 @@ export async function vatReturnInputBaseTiesToItsTax_D79(ctx: Ctx): Promise<void
     `return ${Number(reported) / 1e6} vs ledger ${debit === null || credit === null ? "?" : Number(debit - credit) / 1e6}`,
   );
 }
+
+export async function vatReturnOutputBaseTiesToItsTax_D79(ctx: Ctx): Promise<void> {
+  const { req, n, check, rows, scaled } = ctx;
+  const window = `periodFrom=2020-01-01&periodTo=${ctx.today}`;
+  const outputRows = rows((await req("GET", `/financial-reports/vat-return?${window}`)).body).filter((r: any) => r.side === "output");
+  const taxed = outputRows.filter((r: any) => n(r.rate) > 0);
+  check("D79 seeded tenant · the VAT return has a taxed output row to check", taxed.length > 0, JSON.stringify(outputRows).slice(0, 200));
+  const ONE_POUND = 1_000_000n;
+  for (const row of taxed) {
+    const base = scaled(row.base);
+    const tax = scaled(row.tax);
+    const rateBasisPoints = BigInt(Math.round(n(row.rate) * 100));
+    const expected = base === null ? null : (base * rateBasisPoints) / 10_000n;
+    const gap = expected === null || tax === null ? null : expected > tax ? expected - tax : tax - expected;
+    check(
+      `D79 seeded tenant · output row ${row.rowId}: base × ${row.rate}% is its tax, within the per-line rounding`,
+      base !== null && base > 0n && gap !== null && gap <= ONE_POUND,
+      `base ${row.base} × ${row.rate}% vs tax ${row.tax}`,
+    );
+  }
+  const ledger = (await req("GET", `/financial-reports/account-ledger?accountId=${OUTPUT_TAX}&${window}`)).body;
+  const debit = scaled(ledger?.grandTotals?.debit);
+  const credit = scaled(ledger?.grandTotals?.credit);
+  const reported = outputRows.reduce((sum: bigint, r: any) => sum + (scaled(r.tax) ?? 0n), 0n);
+  check(
+    "D79 seeded tenant · the output tax the return reports is exactly what GL 2200 moved",
+    debit !== null && credit !== null && reported === credit - debit,
+    `return ${reported} vs ledger ${debit === null || credit === null ? "?" : credit - debit} (scaled 1e-6)`,
+  );
+}
+

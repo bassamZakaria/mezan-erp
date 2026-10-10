@@ -269,6 +269,18 @@ export function createSignupRoutes(options: SignupRoutesOptions): Hono {
       const alreadyVerified = before?.status === SignupRequestStatus.Verified;
       const request = await verifySignup(tokenHash, platform.stores.signupRequests, nowIso);
 
+      // A link opened a second time must not provision again: the tenant is
+      // already claimed, and `provisionTenant` answers a claimed, active
+      // tenant with TENANT_CODE_TAKEN — which told the owner of a working
+      // account that their own code was in use. The PIN is never re-issued.
+      if (alreadyVerified) {
+        const existing = await platform.stores.tenants.findByCode(request.code);
+        if (existing && existing.status !== "provisioning" && existing.ownerEmail === request.ownerEmail) {
+          const settled: VerifySignupResultDTO = { tenant: existing, adminEmail: request.ownerEmail, adminPin: null, alreadyVerified: true };
+          return c.json(settled);
+        }
+      }
+
       const provisioned = await provisionTenant(
         {
           code: request.code,

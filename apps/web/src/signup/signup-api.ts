@@ -51,7 +51,7 @@ export async function checkCodeAvailability(code: string): Promise<boolean | nul
 }
 
 export async function startSignup(body: StartSignupRequestDTO): Promise<StartSignupResultDTO> {
-  const res = await transport("/", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  const res = await transport("", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
   if (!res.ok) throw await readError(res, "تعذّر إرسال طلب التسجيل");
   return res.json<StartSignupResultDTO>();
 }

@@ -3,6 +3,7 @@ import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-conne
 import {
   BASE_CURRENCY,
   FX_REVALUATION_ALL_CURRENCIES,
+  FX_REVALUATION_DOC_TYPE,
   Money,
   PeriodCloseCommitOutcome,
   PeriodCloseDocKind,
@@ -564,32 +565,59 @@ function createQueries(sqlite: Database.Database): PeriodCloseQueries {
 
 function createFxRunLog(sqlite: Database.Database): FxRevaluationRunLog {
   const insert = sqlite.prepare(`INSERT INTO fx_revaluation_run (as_of_date, currency, entry_id, ran_by, ran_at) VALUES (?, ?, ?, ?, ?)`);
-  const runs = sqlite.prepare(`SELECT currency, MAX(ran_at) AS ran_at FROM fx_revaluation_run WHERE as_of_date = ? GROUP BY currency ORDER BY currency`);
+  const runs = sqlite.prepare(`SELECT currency, MAX(ran_at) AS at FROM fx_revaluation_run WHERE as_of_date = ? GROUP BY currency`);
+  type Stamp = { currency: string; at: string };
   // Prepared on first use: this log is opened before the ledger store has created its tables.
+  const foreignLines = `
+       FROM journal_line jl
+       JOIN journal_entry je ON je.id = jl.entry_id
+      WHERE jl.currency IS NOT NULL AND jl.currency <> ? AND je.status IN (${placeholders(LEDGER_EFFECTIVE_STATUSES)})`;
   const lastForeignPosting = (asOfDate: string) =>
     sqlite
+      .prepare(`SELECT jl.currency AS currency, MAX(COALESCE(je.posted_at, je.created_at)) AS at ${foreignLines} AND je.date <= ? GROUP BY jl.currency`)
+      .all(BASE_CURRENCY, ...LEDGER_EFFECTIVE_STATUSES, asOfDate) as Stamp[];
+  // The entry a revaluation posted IS the revaluation: it stands in the ledger whether or not a run row was ever written for it.
+  const revaluationEntries = (asOfDate: string) =>
+    sqlite
       .prepare(
-        `SELECT jl.currency AS currency, MAX(COALESCE(je.posted_at, je.created_at)) AS at
-           FROM journal_line jl
-           JOIN journal_entry je ON je.id = jl.entry_id
-          WHERE jl.currency IS NOT NULL AND jl.currency <> ? AND je.status IN (${placeholders(LEDGER_EFFECTIVE_STATUSES)}) AND je.date <= ?
-          GROUP BY jl.currency`,
+        `SELECT jl.currency AS currency, MAX(COALESCE(je.posted_at, je.created_at)) AS at ${foreignLines} AND je.source_doc_type = ? AND substr(je.date, 1, 10) = ? GROUP BY jl.currency`,
       )
-      .all(BASE_CURRENCY, ...LEDGER_EFFECTIVE_STATUSES, asOfDate) as { currency: string; at: string }[];
+      .all(BASE_CURRENCY, ...LEDGER_EFFECTIVE_STATUSES, FX_REVALUATION_DOC_TYPE, asOfDate) as Stamp[];
+  // A foreign treasury balance whose lines carry no currency and rate: the revaluation cannot see it, so no run has revalued it.
+  const unseenTreasuryCurrencies = (asOfDate: string) =>
+    sqlite
+      .prepare(
+        `SELECT ta.currency AS currency
+           FROM treasury_account ta
+           JOIN journal_line jl ON jl.account_id = ta.gl_account_id
+           JOIN journal_entry je ON je.id = jl.entry_id
+          WHERE ta.currency <> ? AND (jl.currency IS NULL OR jl.currency <> ta.currency OR jl.fx_rate IS NULL)
+            AND je.status IN (${placeholders(LEDGER_EFFECTIVE_STATUSES)}) AND je.date < ?
+          GROUP BY ta.currency
+         HAVING SUM(jl.debit) <> SUM(jl.credit)`,
+      )
+      .all(BASE_CURRENCY, ...LEDGER_EFFECTIVE_STATUSES, nextDay(asOfDate)) as { currency: string }[];
   const recordAll = sqlite.transaction((run: FxRevaluationRunRecord) => {
     for (const currency of run.currencies) insert.run(run.asOfDate, currency, run.entryId, run.ranBy, run.ranAt);
   });
+  const later = (a: string | undefined, b: string | undefined): string | undefined => (a === undefined ? b : b === undefined || a >= b ? a : b);
   return {
     record: (run) => recordAll(run),
     currenciesRevaluedAsOf(asOfDate) {
-      const ranAt = new Map((runs.all(asOfDate) as { currency: string; ran_at: string }[]).map((row) => [row.currency, row.ran_at]));
+      const ranAt = new Map((runs.all(asOfDate) as Stamp[]).map((row) => [row.currency, row.at]));
+      const entryAt = new Map(revaluationEntries(asOfDate).map((row) => [row.currency, row.at]));
       const postedAt = new Map(lastForeignPosting(asOfDate).map((row) => [row.currency, row.at]));
+      const unseen = new Set(unseenTreasuryCurrencies(asOfDate).map((row) => row.currency));
       const allRanAt = ranAt.get(FX_REVALUATION_ALL_CURRENCIES);
-      const freshSince = (currency: string, run: string | undefined): boolean => run !== undefined && (postedAt.get(currency) ?? "") <= run;
-      if (allRanAt !== undefined && [...postedAt.keys()].every((currency) => freshSince(currency, allRanAt))) return [FX_REVALUATION_ALL_CURRENCIES];
-      const candidates = new Set([...ranAt.keys(), ...postedAt.keys()]);
+      const candidates = new Set([...ranAt.keys(), ...entryAt.keys(), ...postedAt.keys()]);
       candidates.delete(FX_REVALUATION_ALL_CURRENCIES);
-      return [...candidates].filter((currency) => freshSince(currency, ranAt.get(currency)) || freshSince(currency, allRanAt)).sort();
+      return [...candidates]
+        .filter((currency) => {
+          if (unseen.has(currency)) return false;
+          const doneAt = later(later(entryAt.get(currency), ranAt.get(currency)), allRanAt);
+          return doneAt !== undefined && (postedAt.get(currency) ?? "") <= doneAt;
+        })
+        .sort();
     },
   };
 }

@@ -427,6 +427,31 @@ describe("period-close checks read the real tables (ENH-E1-04)", () => {
     expect((await check("06", "fx_revaluation")).status).toBe("pass");
   });
 
+  it("a revaluation is read from the entry it posted, with or without a run row; a run that posted nothing counts only where there was nothing it could not see", async () => {
+    const { sqlite, check } = await world();
+    const usd = { currency: "USD", fx_rate: "50" };
+    const state = async (month: string) => (await check(month, "fx_revaluation")).findings.map((f) => [f.ref, f.state]);
+
+    post(sqlite, "usd-may", "2026-05-10", [["1105", 5000, 0, usd], ["4100", 0, 5000]], { posted_at: "2026-05-10T08:00:00.000Z" });
+    expect(await state("05")).toEqual([["USD", "missing"]]);
+    post(
+      sqlite,
+      "reval-may",
+      "2026-05-31",
+      [["1105", 100, 0, { currency: "USD", fx_rate: "51", memo: "إعادة تقييم عملات أجنبية" }], ["4100", 0, 100]],
+      { posted_at: "2026-06-01T09:00:00.000Z", source_doc_type: "FX_REVALUATION" },
+    );
+    expect(await state("05")).toEqual([["USD", "ok"]]);
+
+    insert(sqlite, "fx_revaluation_run", { as_of_date: "2026-06-30", currency: "*", entry_id: null, ran_by: "admin", ran_at: "2026-07-01T09:00:00.000Z" });
+    expect(await state("06")).toEqual([["USD", "ok"]]);
+
+    insert(sqlite, "treasury_account", { id: "ta-usd", code: "BNK-USD", name: "البنك الأهلي — دولار", type: "bank", currency: "USD", branch_id: "BR-MAIN", gl_account_id: "1021", status: "active" });
+    post(sqlite, "usd-bank", "2026-06-12", [["1021", 48000, 0], ["2170", 0, 48000]], { posted_at: "2026-06-12T08:00:00.000Z" });
+    expect(await state("06")).toEqual([["USD", "missing"]]);
+    expect(await state("05")).toEqual([["USD", "ok"]]);
+  });
+
   it("an asset that was in service all month and disposed of the month after is still due for the month", async () => {
     const { sqlite, check } = await world();
     insert(sqlite, "asset", {

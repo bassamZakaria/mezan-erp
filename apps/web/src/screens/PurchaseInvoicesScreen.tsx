@@ -59,7 +59,7 @@ import { PurchaseInvoicePrintPage } from "../print/documents";
 import { useNavigation, useScreenIntent, useSubPage } from "../navigation";
 import { AttachmentsTab } from "../attachments/AttachmentsTab";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
-import { DERIVED_TAX, TaxRateField, lineTaxPayload, type TaxChoice } from "./tax-rate-field";
+import { DERIVED_TAX, TaxRateField, lineTaxPayload, postedTaxRateLabel, type TaxChoice } from "./tax-rate-field";
 import { useEntityName } from "../lib/entity-names";
 import { itemTypeIsPurchasable ,
   findCurrency} from "@mezan/domain";
@@ -161,6 +161,7 @@ function InvoiceDetail({
   const nameOf = useEntityName();
   const { t } = useAppTranslation();
   const fulfilmentQuery = usePurchaseInvoiceFulfilment(invoice.id);
+  const detailTaxRates = useTaxRates().data ?? NO_TAX_RATES;
   const landedCostsQuery = useLandedCosts();
   const treasuryAccounts = useTreasuryAccounts().data ?? [];
   const payInvoice = usePayPurchaseInvoice();
@@ -306,7 +307,7 @@ function InvoiceDetail({
                         <td className="px-[12px] py-[10px] text-end">{stockLine && row ? <QtyDisplay value={row.consumedQty} /> : "—"}</td>
                         <td className="px-[12px] py-[10px] text-end">{stockLine && row ? <QtyDisplay value={row.remainingQty} /> : "—"}</td>
                         <td className="px-[12px] py-[10px] text-end"><MoneyValue value={num(l.unitCost)} showUnit={false} /></td>
-                        <td className="mz-num px-[12px] py-[10px] text-end">{l.taxRatePercent}</td>
+                        <td className="px-[12px] py-[10px] text-end">{postedTaxRateLabel(detailTaxRates, l, t)}</td>
                         <td className="px-[12px] py-[10px] text-end"><MoneyValue value={lineBase(l) + lineTax(l)} showUnit={false} /></td>
                       </tr>
                     );

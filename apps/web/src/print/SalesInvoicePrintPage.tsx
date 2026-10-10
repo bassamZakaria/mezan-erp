@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { EmptyState, PrintView, resolvePrintTemplateConfig, useFormat, type PrintTemplateConfig } from "@mezan/ui";
 import type { SalesInvoiceDTO } from "../data/hooks";
 import { useAppTranslation } from "../i18n";
-import { useBranches, useCustomers, useEtaSubmissions, usePrintTemplateConfig, useSettings, useWarehouses } from "../data/hooks";
+import { useBranches, useCustomers, useEtaSubmissions, usePrintTemplateConfig, useSettings, useTaxRates, useWarehouses } from "../data/hooks";
 import { salesInvoicePrintModel } from "./sales-invoice-print";
 import { useEtaReceiptPrint } from "../screens/eta/receipt-print";
 import { EMPTY } from "../lib/empty";
@@ -24,6 +24,7 @@ export function SalesInvoicePrintPage({ invoice }: { invoice: SalesInvoiceDTO })
   const settings = useSettings().data ?? null;
   const customers = useCustomers().data ?? [];
   const branches = useBranches().data ?? EMPTY;
+  const taxRates = useTaxRates().data ?? EMPTY;
   const warehouses = useWarehouses().data ?? EMPTY;
   // Only an ACCEPTED submission carries the authority's identifier; anything
   // else has no number to print and the block is left out entirely.
@@ -53,8 +54,9 @@ export function SalesInvoicePrintPage({ invoice }: { invoice: SalesInvoiceDTO })
         documentTypeLabel: t("salesInvoices.print.documentType"),
         customerRoleLabel: t("common.customer"),
         vatLabel: t("salesInvoices.print.vat"),
+        taxRates,
       }),
-    [invoice, settings, branches, warehouses, customer, accepted, etaInternalId, receipt, format.currencyLabel, t],
+    [invoice, settings, branches, warehouses, customer, accepted, etaInternalId, receipt, taxRates, format.currencyLabel, t],
   );
 
   if (configQuery.isLoading) return null;

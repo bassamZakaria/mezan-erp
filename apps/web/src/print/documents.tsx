@@ -9,13 +9,14 @@ import type {
   VoucherDTO,
 } from "@mezan/contracts";
 import { useAppTranslation } from "../i18n";
-import { useAccounts, useBranches, useCustomers, useItems, useSettings, useSuppliers, useTreasuryAccounts, useWarehouses } from "../data/hooks";
+import { useAccounts, useBranches, useCustomers, useItems, useSettings, useSuppliers, useTaxRates, useTreasuryAccounts, useWarehouses } from "../data/hooks";
 import type { JournalEntryDTO, SalesQuoteRecord } from "../data/hooks";
 import { DocumentPrintPage } from "./DocumentPrintPage";
 import { documentPrintModel, type DocumentPrintLineInput } from "./document-print";
 import { ledgerPrintModel, type LedgerPrintLabels, type LedgerPrintRowInput } from "./ledger-print";
 import { EMPTY } from "../lib/empty";
 import { scaledOf } from "../lib/money";
+import { taxRateNameOf } from "../screens/tax-rate-field";
 
 /**
  * The nine printable documents that had no compliant template (P-6): the
@@ -54,6 +55,7 @@ export function QuotePrintPage({ quote }: { quote: SalesQuoteRecord }) {
   const customers = useCustomers().data ?? EMPTY;
   const branches = useBranches().data ?? EMPTY;
   const items = useItems().data ?? EMPTY;
+  const taxRates = useTaxRates().data ?? EMPTY;
 
   const document = useMemo(() => {
     const customer = customers.find((c) => c.id === quote.customerId);
@@ -77,6 +79,7 @@ export function QuotePrintPage({ quote }: { quote: SalesQuoteRecord }) {
       // a quote that printed the item's rate would promise a price the
       // invoice will not honour.
       taxRatePercent: quote.customerTaxExempt ? 0 : (line.taxRatePercent ?? 0),
+      taxRateName: quote.customerTaxExempt ? null : taxRateNameOf(taxRates, line.taxRateId),
     }));
     return documentPrintModel({
       documentType: "SALES_QUOTE",
@@ -95,7 +98,7 @@ export function QuotePrintPage({ quote }: { quote: SalesQuoteRecord }) {
       lines,
       documentDiscount: quote.discount.type === "amount" ? quote.discount.amount : undefined,
     });
-  }, [quote, settings, customers, branches, items, format.currencyLabel, t]);
+  }, [quote, settings, customers, branches, items, taxRates, format.currencyLabel, t]);
 
   return <DocumentPrintPage document={document} />;
 }
@@ -146,6 +149,7 @@ export function PurchaseInvoicePrintPage({ invoice }: { invoice: PurchaseInvoice
   const branches = useBranches().data ?? EMPTY;
   const warehouses = useWarehouses().data ?? EMPTY;
   const items = useItems().data ?? EMPTY;
+  const taxRates = useTaxRates().data ?? EMPTY;
 
   const document = useMemo(() => {
     const supplier = suppliers.find((s) => s.id === invoice.supplierId);
@@ -172,9 +176,10 @@ export function PurchaseInvoicePrintPage({ invoice }: { invoice: PurchaseInvoice
         qty: line.qty,
         unitPrice: line.unitCost,
         taxRatePercent: line.taxRatePercent,
+        taxRateName: taxRateNameOf(taxRates, line.taxRateId),
       })),
     });
-  }, [invoice, settings, suppliers, branches, warehouses, items, format.currencyLabel, t]);
+  }, [invoice, settings, suppliers, branches, warehouses, items, taxRates, format.currencyLabel, t]);
 
   return <DocumentPrintPage document={document} />;
 }
@@ -185,6 +190,7 @@ export function SalesReturnPrintPage({ document: doc }: { document: SalesReturnD
   const settings = useSettings().data ?? null;
   const customers = useCustomers().data ?? EMPTY;
   const items = useItems().data ?? EMPTY;
+  const taxRates = useTaxRates().data ?? EMPTY;
 
   const model = useMemo(() => {
     const customerId = doc.lines[0]?.customerId;
@@ -219,9 +225,10 @@ export function SalesReturnPrintPage({ document: doc }: { document: SalesReturnD
         // credit note reverses what was charged, not what today's rate is.
         taxAmount: line.taxAmount,
         taxRatePercent: line.taxRatePercent ?? 0,
+        taxRateName: taxRateNameOf(taxRates, line.taxRateId),
       })),
     });
-  }, [doc, settings, customers, items, format.currencyLabel, t]);
+  }, [doc, settings, customers, items, taxRates, format.currencyLabel, t]);
 
   return <DocumentPrintPage document={model} />;
 }
@@ -232,6 +239,7 @@ export function PurchaseReturnPrintPage({ document: doc }: { document: PurchaseR
   const settings = useSettings().data ?? null;
   const suppliers = useSuppliers().data ?? EMPTY;
   const items = useItems().data ?? EMPTY;
+  const taxRates = useTaxRates().data ?? EMPTY;
 
   const model = useMemo(() => {
     const supplier = suppliers.find((s) => s.id === doc.lines[0]?.supplierId);
@@ -254,9 +262,10 @@ export function PurchaseReturnPrintPage({ document: doc }: { document: PurchaseR
         unitPrice: line.unitCost,
         taxAmount: line.taxAmount,
         taxRatePercent: line.taxRatePercent ?? 0,
+        taxRateName: taxRateNameOf(taxRates, line.taxRateId),
       })),
     });
-  }, [doc, settings, suppliers, items, format.currencyLabel, t]);
+  }, [doc, settings, suppliers, items, taxRates, format.currencyLabel, t]);
 
   return <DocumentPrintPage document={model} />;
 }

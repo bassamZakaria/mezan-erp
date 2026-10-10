@@ -12,6 +12,7 @@ import {
   chosenTaxRateId,
   lineTaxPayload,
   selectableTaxRates,
+  taxRateNameOf,
   type TaxChoice,
 } from "./tax-rate-field";
 
@@ -141,5 +142,23 @@ describe("TaxRateField", () => {
     fireEvent.mouseDown(screen.getByRole("option", { name: "بدون ضريبة مسماة (0٪)" }));
     expect(onChange).toHaveBeenLastCalledWith(DERIVED_TAX);
     expect(lineTaxPayload(DERIVED_TAX, ALL, 0)).toEqual({ taxRatePercent: 0 });
+  });
+});
+
+describe("taxRateNameOf — a posted line is named by the rate row it stored", () => {
+  it("reads the name off the row the id names, whichever other rates share its percent", () => {
+    expect(taxRateNameOf(ALL, "VAT-EXEMPT")).toBe("معفى");
+    expect(taxRateNameOf(ALL, "VAT-EXPORT")).toBe("تصدير");
+  });
+
+  it("still names a rate deactivated after the line was posted", () => {
+    expect(taxRateNameOf(ALL, "OLD5")).toBe("ضريبة قديمة");
+  });
+
+  it("names nothing for a line that stored no rate, or an id with no row — never the id itself, never a guess by percent", () => {
+    expect(taxRateNameOf(ALL, null)).toBeNull();
+    expect(taxRateNameOf(ALL, undefined)).toBeNull();
+    expect(taxRateNameOf(ALL, "GONE")).toBeNull();
+    expect(taxRateNameOf([], "VAT14")).toBeNull();
   });
 });

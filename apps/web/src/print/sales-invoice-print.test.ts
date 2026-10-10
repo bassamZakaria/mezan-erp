@@ -212,3 +212,25 @@ describe("salesInvoicePrintModel", () => {
     expect(model.etaUuid).toBeUndefined();
   });
 });
+
+describe("salesInvoicePrintModel — a line prints the name of the tax rate it stored (D79)", () => {
+  const rates = [
+    { id: "VAT-EXEMPT", name: "معفى" },
+    { id: "VAT-EXPORT", name: "تصدير" },
+  ];
+  const zeroRated = invoice([
+    line({ lineId: "L1", taxRatePercent: 0, taxRateId: "VAT-EXEMPT" }),
+    line({ lineId: "L2", taxRatePercent: 0, taxRateId: "VAT-EXPORT" }),
+    line({ lineId: "L3", taxRatePercent: 0, taxRateId: null }),
+  ]);
+
+  it("tells an exempt line from an export line on paper, though both print 0%", () => {
+    const model = salesInvoicePrintModel(ctx({ invoice: zeroRated, taxRates: rates }));
+    expect(model.lines.map((l) => [l.taxPercent, l.taxName])).toEqual([[0, "معفى"], [0, "تصدير"], [0, undefined]]);
+  });
+
+  it("prints the percent alone when the tax rates could not be read", () => {
+    const model = salesInvoicePrintModel(ctx({ invoice: zeroRated }));
+    expect(model.lines.map((l) => l.taxName)).toEqual([undefined, undefined, undefined]);
+  });
+});

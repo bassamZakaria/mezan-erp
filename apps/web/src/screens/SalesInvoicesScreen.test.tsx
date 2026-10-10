@@ -787,6 +787,21 @@ describe("SalesInvoicesScreen — the line's tax is a picked tax rate (D79)", ()
     expect(line).not.toHaveProperty("taxRateId");
   });
 
+  it("a posted invoice's line shows the rate it stored by name under its tax, and a line with no rate its percent alone", async () => {
+    const posted = invoice({
+      lines: [
+        invoiceLine({ lineId: "l1", taxRatePercent: 0, taxRateId: "VAT-EXEMPT" }),
+        invoiceLine({ lineId: "l2", taxRatePercent: 0, taxRateId: null }),
+      ],
+    });
+    const transport = stubTransport({ ...baseHandlers([posted]), "GET /tax-rates": () => ({ body: taxRates }) });
+    renderWithProviders(<TestNavigation><SalesInvoicesScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
+    fireEvent.click(await screen.findByText("INV-000001"));
+    expect(await screen.findByText("معفى · 0٪")).toBeInTheDocument();
+    expect(screen.getAllByText("0٪")).toHaveLength(1);
+    expect(screen.queryByText("VAT-EXEMPT")).not.toBeInTheDocument();
+  });
+
   it("…and the user settles it by picking تصدير, which is what the request then carries", async () => {
     const form = await openFormAndPick("شحن دولي");
     chooseTaxRate("تصدير · 0٪");

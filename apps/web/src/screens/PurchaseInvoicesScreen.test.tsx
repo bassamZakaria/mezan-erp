@@ -501,6 +501,20 @@ describe("PurchaseInvoicesScreen — the line's tax is a picked tax rate (D79)",
     expect(line.taxRateId).toBe("VAT-EXEMPT");
   });
 
+  it("a posted invoice's line shows the rate it stored by name, and a line with no rate its percent alone — never the raw id", async () => {
+    const posted = purchaseInvoice({
+      lines: [
+        { itemId: "item-cement", description: null, kind: "inventory", qty: "1.000000", unitCost: "100.000000", taxRatePercent: 0, taxRateId: "VAT-EXEMPT", batchNo: null, expiryDate: null },
+        { itemId: "item-cement", description: null, kind: "inventory", qty: "1.000000", unitCost: "100.000000", taxRatePercent: 0, taxRateId: null, batchNo: null, expiryDate: null },
+      ],
+    });
+    renderScreen([posted], { "GET /tax-rates": () => ({ body: taxRates }) });
+    fireEvent.click(await screen.findByText("PI-000001"));
+    expect(await screen.findByText("معفى · 0٪")).toBeInTheDocument();
+    expect(screen.getAllByText("0٪")).toHaveLength(1);
+    expect(screen.queryByText("VAT-EXEMPT")).not.toBeInTheDocument();
+  });
+
   it("an expense line falls to 0% with no rate preselected when two 0% rates exist, and sends the percent alone", async () => {
     const save = await openManualLine();
     fireEvent.click(screen.getByText("مصروف"));

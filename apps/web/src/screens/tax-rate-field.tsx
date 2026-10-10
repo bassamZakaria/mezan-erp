@@ -42,6 +42,25 @@ export function lineTaxPayload(choice: TaxChoice, taxRates: readonly TaxRateDTO[
   return taxRateId === null ? { taxRatePercent: fallbackPercent } : { taxRateId };
 }
 
+export function taxRateNameOf(
+  taxRates: readonly Pick<TaxRateDTO, "id" | "name">[],
+  taxRateId: string | null | undefined,
+): string | null {
+  if (!taxRateId) return null;
+  return taxRates.find((r) => r.id === taxRateId)?.name ?? null;
+}
+
+export function postedTaxRateLabel(
+  taxRates: readonly Pick<TaxRateDTO, "id" | "name">[],
+  line: { readonly taxRateId?: string | null; readonly taxRatePercent: number },
+  t: ReturnType<typeof useAppTranslation>["t"],
+): string {
+  const name = taxRateNameOf(taxRates, line.taxRateId);
+  return name === null
+    ? t("taxRateField.percentOnly", { percent: line.taxRatePercent })
+    : t("taxRateField.option", { name, rate: line.taxRatePercent });
+}
+
 export function selectableTaxRates(taxRates: readonly TaxRateDTO[], selectedId: string | null): TaxRateDTO[] {
   return taxRates.filter((r) => r.status === TaxRateStatusCode.Active || r.id === selectedId);
 }

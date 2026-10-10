@@ -83,7 +83,7 @@ import { AttachmentsTab } from "../attachments/AttachmentsTab";
 import { salesInvoiceStatusLabel } from "../domain-labels";
 import { documentStatusLabel } from "../doc-status";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
-import { DERIVED_TAX, TaxRateField, appliedTaxPercent, chosenTaxRateId, lineTaxPayload, type TaxChoice } from "./tax-rate-field";
+import { DERIVED_TAX, TaxRateField, appliedTaxPercent, chosenTaxRateId, lineTaxPayload, postedTaxRateLabel, type TaxChoice } from "./tax-rate-field";
 import { todayIso } from "../lib/dates";
 import { EMPTY } from "../lib/empty";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
@@ -1259,6 +1259,7 @@ function InvoiceDetailView({
   /** B3 — stated only for a consumer sale confirmed with no till; "" leaves the backend's own derivation. */
   const [detailReceiptPaymentMethod, setDetailReceiptPaymentMethod] = useState<EtaReceiptPaymentMethod | "">("");
   const detailCustomersQuery = useCustomers();
+  const detailTaxRates = useTaxRates().data ?? NO_TAX_RATES;
   const detailCustomer = (detailCustomersQuery.data ?? []).find((c) => c.id === invoice.customerId) ?? null;
   const isConsumerReceiptSale = detailCustomer !== null && !detailCustomer.taxNumber;
   const format = useFormat();
@@ -1587,7 +1588,10 @@ function InvoiceDetailView({
                           <td className="px-[15px] py-[11px] text-end">
                             {lt ? <MoneyDisplay currencyLabel={docCurrencyLabel} value={toMajor(lt.lineDiscount.toString())} /> : "—"}
                           </td>
-                          <td className="px-[15px] py-[11px] text-end">{lt ? <MoneyDisplay currencyLabel={docCurrencyLabel} value={toMajor(lt.tax.toString())} /> : "—"}</td>
+                          <td className="px-[15px] py-[11px] text-end">
+                            {lt ? <MoneyDisplay currencyLabel={docCurrencyLabel} value={toMajor(lt.tax.toString())} /> : "—"}
+                            <span className="block text-[11px] text-ink-faint">{postedTaxRateLabel(detailTaxRates, l, t)}</span>
+                          </td>
                           <td className="px-[15px] py-[11px] text-end">
                             {cost ? <MoneyDisplay currencyLabel={baseLabel} value={toMajor(cost.toString())} /> : "—"}
                           </td>

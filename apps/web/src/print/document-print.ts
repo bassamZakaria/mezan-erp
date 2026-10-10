@@ -32,6 +32,7 @@ export interface DocumentPrintLineInput {
   /** A percentage discount instead — the shape a quote line stores. */
   readonly discountPercent?: number | null;
   readonly taxRatePercent?: number | null;
+  readonly taxRateName?: string | null;
   /**
    * The tax the document itself recorded for this line, where it stores one
    * (both returns do). Given, it is used verbatim rather than recomputed —
@@ -106,6 +107,7 @@ export function documentPrintModel(input: DocumentPrintInput): PrintDocumentMode
       unitPrice: majorOf(line.unitPrice),
       discount: toMajorNumber(lineDiscountScaled(line)),
       taxPercent: line.taxRatePercent ?? undefined,
+      taxName: line.taxRateName ?? undefined,
       taxAmount: toMajorNumber(tax),
       lineTotal: toMajorNumber(net + tax),
     };

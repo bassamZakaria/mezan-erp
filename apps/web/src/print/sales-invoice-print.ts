@@ -46,6 +46,7 @@ export interface SalesInvoicePrintContext {
   readonly statusLabel?: string;
   readonly customerRoleLabel: string;
   readonly vatLabel: string;
+  readonly taxRates?: readonly { readonly id: string; readonly name: string }[];
 }
 
 function lineGrossScaled(line: SalesInvoiceLineRowDTO): bigint {
@@ -74,6 +75,7 @@ export function salesInvoicePrintModel(ctx: SalesInvoicePrintContext): PrintDocu
       unitPrice: majorOf(line.unitPrice),
       discount: toMajorNumber(lineDiscountScaled(line)),
       taxPercent: line.taxRatePercent,
+      taxName: (line.taxRateId ? ctx.taxRates?.find((r) => r.id === line.taxRateId)?.name : undefined) ?? undefined,
       taxAmount: toMajorNumber(tax),
       lineTotal: toMajorNumber(net + tax),
     };

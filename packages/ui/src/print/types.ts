@@ -211,6 +211,7 @@ export interface PrintDocumentLine {
   unitPrice: number;
   discount?: number;
   taxPercent?: number;
+  taxName?: string;
   taxAmount?: number;
   lineTotal: number;
 }

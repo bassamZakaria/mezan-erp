@@ -251,7 +251,10 @@ export function PrintView({ config, document, showToolbar = true, orientation = 
                     <td className="mz-num p-[6px_8px] text-end">{formatNumber(line.discount ?? 0, { minimumFractionDigits: 2 })}</td>
                   ) : null}
                   {columns.showLineTaxPercent ? (
-                    <td className="mz-num p-[6px_8px] text-end">{formatNumber(line.taxPercent ?? 0)}</td>
+                    <td className="p-[6px_8px] text-end">
+                      {line.taxName ? <span data-print-tax-name className="me-[6px]">{line.taxName}</span> : null}
+                      <span className="mz-num">{formatNumber(line.taxPercent ?? 0)}</span>
+                    </td>
                   ) : null}
                   {columns.showLineTaxAmount ? (
                     <td className="mz-num p-[6px_8px] text-end">{formatNumber(line.taxAmount ?? 0, { minimumFractionDigits: 2 })}</td>

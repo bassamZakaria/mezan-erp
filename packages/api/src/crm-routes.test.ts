@@ -22,7 +22,7 @@ afterEach(() => {
   for (const h of handles.splice(0)) h.close();
 });
 
-function inMemoryCustomers(): Pick<CustomerRepository, "save" | "findAll"> & { list(): Customer[] } {
+function inMemoryCustomers(): Pick<CustomerRepository, "save" | "findAll" | "findById"> & { list(): Customer[] } {
   const customers = new Map<string, Customer>();
   return {
     async save(customer) {
@@ -30,6 +30,9 @@ function inMemoryCustomers(): Pick<CustomerRepository, "save" | "findAll"> & { l
     },
     async findAll() {
       return Array.from(customers.values());
+    },
+    async findById(id) {
+      return customers.get(id) ?? null;
     },
     list: () => Array.from(customers.values()),
   };

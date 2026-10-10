@@ -62,7 +62,7 @@ export interface CrmRoutesDeps {
   readonly opportunities: OpportunityRepository;
   readonly pipelineStages: PipelineStageRepository;
   readonly activities: ActivityRepository;
-  readonly customers: Pick<CustomerRepository, "save" | "findAll">;
+  readonly customers: Pick<CustomerRepository, "save" | "findAll" | "findById">;
   /**
    * Converting a lead MINTS A CUSTOMER — a party every invoice, allocation and
    * receivable then hangs off — and it was the one master-data creation path in
@@ -259,9 +259,7 @@ export function createCrmRoutes(deps: CrmRoutesDeps, resolveAuthContext: AuthCon
         },
         { leads: deps.leads, customers: deps.customers, opportunities: deps.opportunities },
       );
-      const created = result.customerId
-        ? (await deps.customers.findAll()).find((row) => row.id === result.customerId)
-        : undefined;
+      const created = result.customerId ? await deps.customers.findById(result.customerId) : null;
       if (created) await recordCustomerChange(deps.audit, c, created, AuditChangeAction.Create);
       await recordAdminEvent(deps.audit, c, {
         module: "crm",

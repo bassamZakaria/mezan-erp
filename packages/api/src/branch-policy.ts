@@ -155,7 +155,7 @@ export const BRANCH_POLICY_TABLE: readonly BranchPolicyEntry[] = [
   own("/preferences"),
   own("/notifications"),
   own("/hr/self"),
-  own("/lan"),
+  { ...own("/lan"), companyWide: ["GET /sessions", "/sessions/:sessionId"] },
 
   readOnly("/settings"),
   readOnly("/accounting"),
@@ -435,10 +435,15 @@ export function branchPolicyFor(routePath: string, table: readonly BranchPolicyE
   return best;
 }
 
-function subPathListed(entry: BranchPolicyEntry, routePath: string, list: readonly string[] | undefined): boolean {
+function subPathListed(entry: BranchPolicyEntry, routePath: string, list: readonly string[] | undefined, method?: string): boolean {
   if (!list) return false;
   const rest = routePath.slice(entry.prefix.length);
-  return list.some((sub) => rest === sub || rest.startsWith(`${sub}/`));
+  return list.some((listed) => {
+    const [first, second] = listed.split(" ");
+    const sub = second ?? first!;
+    if (second !== undefined && first !== method) return false;
+    return rest === sub || (second === undefined && rest.startsWith(`${sub}/`));
+  });
 }
 
 export function paramNamesOf(routePath: string): string[] {
@@ -778,10 +783,10 @@ export function branchPolicyEnforcement(options: BranchPolicyEnforcementOptions)
 
     const entry = branchPolicyFor(routePath, table);
     if (!entry) return branchRefusal(c, BranchRefusalCode.PolicyUndeclared);
-    if (entry.policy === BranchPolicy.Public || entry.policy === BranchPolicy.SelfOnly) return next();
-    if (entry.policy === BranchPolicy.CompanyWide || subPathListed(entry, routePath, entry.companyWide)) {
+    if (entry.policy === BranchPolicy.CompanyWide || subPathListed(entry, routePath, entry.companyWide, c.req.method)) {
       return branchRefusal(c, BranchRefusalCode.CompanyWideOnly);
     }
+    if (entry.policy === BranchPolicy.Public || entry.policy === BranchPolicy.SelfOnly) return next();
     if (entry.policy === BranchPolicy.SharedReadOnly) {
       return isRead(c) ? next() : branchRefusal(c, BranchRefusalCode.CompanyWideOnly);
     }

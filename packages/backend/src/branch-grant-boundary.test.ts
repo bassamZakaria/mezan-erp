@@ -2,7 +2,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { ALL_PERMISSION_CODES, ALL_SCOPE, createEntitlements, MODULE_CATALOG } from "@mezan/domain";
+import { ALL_PERMISSION_CODES, ALL_SCOPE, createEntitlements, LAN_MULTI_TILL_FEATURE, MODULE_CATALOG } from "@mezan/domain";
 import { openSqliteConnection } from "@mezan/persistence";
 import { createBackend, type BackendHandle } from "./create-backend.js";
 
@@ -35,6 +35,9 @@ let admin: Caller;
 let alex: Caller;
 let alexWithUnattributed: Caller;
 let mainOnly: Caller;
+let alexStar: Caller;
+let bothBranches: Caller;
+let bothBranchesWithUnattributed: Caller;
 
 function callerFor(token: string): Caller {
   return async (method, path, body, headers = {}) => {
@@ -79,12 +82,9 @@ function expectRefusedInArabic(res: Res) {
 
 beforeAll(async () => {
   const dbPath = join(mkdtempSync(join(tmpdir(), "mezan-d111-")), "books.db");
-  handle = await createBackend({
-    dbPath,
-    seedDemoData: true,
-    resolveEntitlements: () =>
-      createEntitlements({ plan: "DEMO", activeModules: MODULE_CATALOG, features: {}, seats: 50, expiresAt: null }),
-  });
+  const resolveEntitlements = () =>
+    createEntitlements({ plan: "DEMO", activeModules: MODULE_CATALOG, features: { [LAN_MULTI_TILL_FEATURE]: true }, seats: 50, expiresAt: null });
+  handle = await createBackend({ dbPath, seedDemoData: true, lan: { resolveEntitlements }, resolveEntitlements });
   sqlite = openSqliteConnection(dbPath).sqlite;
   const everythingButUnattributed = ALL_PERMISSION_CODES.filter((code) => code !== VIEW_UNATTRIBUTED);
   const session = (userId: string, permissions: readonly string[], branchScope: typeof ALL_SCOPE | string[]) =>
@@ -93,6 +93,9 @@ beforeAll(async () => {
   alex = session("USER-D111-ALEX", everythingButUnattributed, [ALEX]);
   alexWithUnattributed = session("USER-D111-ALEX-U", [...everythingButUnattributed, VIEW_UNATTRIBUTED], [ALEX]);
   mainOnly = session("USER-D111-MAIN", everythingButUnattributed, [MAIN]);
+  alexStar = session("USER-D111-ALEX-STAR", ["*"], [ALEX]);
+  bothBranches = session("USER-D111-BOTH", everythingButUnattributed, [MAIN, ALEX]);
+  bothBranchesWithUnattributed = session("USER-D111-BOTH-U", [...everythingButUnattributed, VIEW_UNATTRIBUTED], [MAIN, ALEX]);
 }, BOOT_TIMEOUT_MS);
 
 afterAll(() => {
@@ -828,4 +831,451 @@ describe("D111 · a branch-filtered statement says when its balance includes una
       expect(whole.body.branchCaveat).toBeNull();
     });
   }
+});
+
+describe("D111 round 2 · the grant holds on every family, for a non-admin and for a `*` admin with a narrow grant", () => {
+  const restricted = (): readonly (readonly [label: string, caller: Caller])[] => [
+    ["non-admin", alex],
+    ["* admin granted one branch", alexStar],
+  ];
+  const fingerprint = (sql: string, ...params: unknown[]) => JSON.stringify(all(sql, ...params));
+  const scaled = (money: string) => BigInt(money.replace(".", ""));
+  const exists = (table: string, id: string) => (one<{ n: number }>(`SELECT COUNT(*) AS n FROM ${table} WHERE id = ?`, id)?.n ?? 0) > 0;
+
+  it("finding 1 · a warehouse or treasury account of another branch cannot be read by id or captured, and one's own cannot be moved out", async () => {
+    const state = () => fingerprint("SELECT id, branch_id FROM warehouse UNION ALL SELECT id, branch_id FROM treasury_account ORDER BY 1");
+    const before = state();
+    for (const [label, caller] of restricted()) {
+      expectRefusedInArabic(await caller("PUT", `/warehouses/${MAIN_WAREHOUSE}`, { branchId: ALEX }));
+      expectRefusedInArabic(await caller("PATCH", "/treasury-accounts/TR-DEMO-CASH", { branchId: ALEX }));
+      expect((await caller("GET", `/warehouses/${MAIN_WAREHOUSE}`)).status, label).toBe(404);
+      expect((await caller("GET", "/treasury-accounts/TR-DEMO-CASH")).status, label).toBe(404);
+      const movedOut = await caller("PUT", `/warehouses/${ALEX_WAREHOUSE}`, { branchId: MAIN });
+      expect(movedOut.status, label).toBe(403);
+      expect(movedOut.body.error).toBe("BRANCH_OUT_OF_SCOPE");
+      expect((await caller("PATCH", "/treasury-accounts/TR-DEMO-CASH-ALEX", { branchId: MAIN })).status, label).toBe(403);
+      expect(state(), label).toBe(before);
+    }
+    expect((await mainOnly("GET", `/warehouses/${MAIN_WAREHOUSE}`)).status).toBe(200);
+  });
+
+  it("finding 2 · another branch's payroll run cannot be approved or disbursed, and no money leaves its bank", async () => {
+    const state = () =>
+      fingerprint("SELECT id, status, disbursement_voucher_id FROM hr_payroll_run ORDER BY id") +
+      fingerprint("SELECT COUNT(*) AS n FROM voucher") +
+      fingerprint("SELECT COUNT(*) AS n FROM journal_entry");
+    const before = state();
+    for (const [label, caller] of restricted()) {
+      for (const run of ["PR-DEMO-2", "PR-DEMO-3"]) {
+        for (const action of ["approve", "disburse", "calculate", "cancel"]) {
+          expectRefusedInArabic(await caller("POST", `/hr/payroll/runs/${run}/${action}`, { treasuryAccountId: "TR-DEMO-BANK" }));
+        }
+        expect((await caller("GET", `/hr/payroll/runs/${run}`)).status, label).toBe(404);
+      }
+      expect(state(), label).toBe(before);
+    }
+  });
+
+  it("finding 3 · a voucher cannot be paid out of another branch's drawer, nor out of a drawer that is not the document's branch", async () => {
+    const drawer = () => fingerprint("SELECT COUNT(*) AS n FROM voucher WHERE treasury_account_id = 'TR-DEMO-CASH'") + fingerprint("SELECT COUNT(*) AS n FROM journal_entry");
+    const before = drawer();
+    for (const [label, caller] of restricted()) {
+      const res = await caller("POST", "/vouchers", voucher(`D111-R2-V-${label.length}`, ALEX, "TR-DEMO-CASH", "1300-1"));
+      expect(res.status, label).toBe(403);
+      expect(res.body.message).toMatch(ARABIC);
+      expect(exists("voucher", `D111-R2-V-${label.length}`)).toBe(false);
+    }
+    const mismatched = await bothBranches("POST", "/vouchers", voucher("D111-R2-V-MISMATCH", ALEX, "TR-DEMO-CASH", "1300-1"));
+    expect(mismatched.status).toBe(403);
+    expect(mismatched.body.error).toBe("TREASURY_BRANCH_MISMATCH");
+    expect(mismatched.body.message).toMatch(ARABIC);
+    expect(exists("voucher", "D111-R2-V-MISMATCH")).toBe(false);
+    expect(drawer()).toBe(before);
+  });
+
+  it("finding 4 · the legacy inventory routes move and show nothing of another branch", async () => {
+    const stock = () => fingerprint("SELECT COUNT(*) AS n, COALESCE(SUM(CAST(qty AS REAL)), 0) AS q FROM stock_movement WHERE warehouse_id = ?", MAIN_WAREHOUSE);
+    const before = stock();
+    for (const [label, caller] of restricted()) {
+      const moved = await caller("POST", "/inventory/transfers", {
+        transferId: `D111-R2-LEGACY-${label.length}`,
+        fromWarehouseId: MAIN_WAREHOUSE,
+        toWarehouseId: ALEX_WAREHOUSE,
+        occurredAt: TODAY,
+        lines: [{ itemId: "ITEM-DEMO-1", qty: "1" }],
+      });
+      expect(moved.status, label).toBe(403);
+      const adjusted = await caller("POST", "/inventory/adjustments", {
+        adjustmentId: `D111-R2-LEGACY-ADJ-${label.length}`,
+        warehouseId: MAIN_WAREHOUSE,
+        occurredAt: TODAY,
+        reason: "DAMAGE",
+        lines: [{ itemId: "ITEM-DEMO-1", direction: "OUT", qty: "1" }],
+      });
+      expect(adjusted.status, label).toBe(403);
+      expect(stock(), label).toBe(before);
+
+      for (const path of ["/inventory/adjustments", "/inventory/transfers", "/inventory/stock-balance", "/inventory/valuation"]) {
+        const res = await caller("GET", path);
+        expect(res.status, `${label} ${path}`).toBe(200);
+        const text = JSON.stringify(res.body);
+        expect(text, `${label} ${path}`).not.toContain(MAIN_WAREHOUSE);
+        expect(text, `${label} ${path}`).not.toContain(MAIN);
+      }
+      const foreignAdjustment = rowsOf((await admin("GET", "/inventory/adjustments")).body).find((row: any) => row.warehouseId === MAIN_WAREHOUSE);
+      const foreignTransfer = rowsOf((await admin("GET", "/inventory/transfers")).body).find(
+        (row: any) => row.fromWarehouseId !== ALEX_WAREHOUSE && row.toWarehouseId !== ALEX_WAREHOUSE,
+      );
+      expect(foreignAdjustment && foreignTransfer, "the seed must hold both").toBeTruthy();
+      expect((await caller("GET", `/inventory/adjustments/${foreignAdjustment.id}`)).status, label).toBe(404);
+      expect((await caller("GET", `/inventory/transfers/${foreignTransfer.id}`)).status, label).toBe(404);
+    }
+    const valuation = await alex("GET", "/inventory/valuation");
+    const mine = one<{ v: number }>(
+      "SELECT COUNT(*) AS v FROM wac_snapshot WHERE warehouse_id = ?",
+      ALEX_WAREHOUSE,
+    );
+    expect(rowsOf(valuation.body).length).toBeLessThanOrEqual(mine?.v ?? 0);
+    expect(rowsOf((await mainOnly("GET", "/inventory/adjustments")).body).length).toBeGreaterThan(0);
+  });
+
+  it("finding 5 · another branch's receipt cannot be invoiced, its invoice cannot be allocated onto, and the open-invoice list is the grant's", async () => {
+    const receipt = one<{ id: string }>("SELECT id FROM goods_receipt WHERE warehouse_id = ? AND status = 'confirmed' LIMIT 1", MAIN_WAREHOUSE)!.id;
+    const foreignInvoice = one<{ id: string }>("SELECT id FROM sales_invoice WHERE branch_id = ? AND status = 'confirmed' AND customer_id = 'CUST-DEMO-2' LIMIT 1", MAIN)!.id;
+    const state = () =>
+      fingerprint("SELECT COUNT(*) AS n FROM purchase_invoice") +
+      fingerprint("SELECT id, status, amount_paid FROM sales_invoice WHERE id = ?", foreignInvoice) +
+      fingerprint("SELECT allocated FROM open_invoice WHERE id = ?", foreignInvoice) +
+      fingerprint("SELECT COUNT(*) AS n FROM voucher_allocation");
+    const before = state();
+    for (const [label, caller] of restricted()) {
+      const invoiced = await caller("POST", "/purchases/invoices", { id: `D111-R2-PI-${label.length}`, receiptId: receipt });
+      expectRefusedInArabic(invoiced);
+      expect(JSON.stringify(invoiced.body), label).not.toContain("lines");
+      expectRefusedInArabic(await caller("POST", "/vouchers/VCH-DEMO-ALEX-1/allocations", { invoiceId: foreignInvoice, amount: "1.00" }));
+      expectRefusedInArabic(
+        await caller("POST", "/vouchers/collections", {
+          id: `D111-R2-COLL-${label.length}`,
+          customerId: "CUST-DEMO-2",
+          treasuryAccountId: "TR-DEMO-CASH-ALEX",
+          amount: "1.00",
+          date: TODAY,
+          allocations: [{ invoiceId: foreignInvoice, amount: "1.00" }],
+        }),
+      );
+      expect(state(), label).toBe(before);
+
+      const open = await caller("GET", "/open-invoices");
+      expect(open.status, label).toBe(200);
+      const ids: string[] = rowsOf(open.body).map((row: any) => row.id);
+      expect(ids, label).not.toContain(foreignInvoice);
+      for (const id of ids) {
+        const owner = one<{ b: string | null }>(
+          "SELECT COALESCE(branch_id, (SELECT branch_id FROM warehouse w WHERE w.id = warehouse_id)) AS b FROM sales_invoice WHERE id = ? UNION ALL SELECT COALESCE(branch_id, (SELECT branch_id FROM warehouse w WHERE w.id = warehouse_id)) FROM purchase_invoice WHERE id = ?",
+          id,
+          id,
+        );
+        expect(owner?.b, `${label} ${id}`).toBe(ALEX);
+      }
+    }
+    expect(rowsOf((await admin("GET", "/open-invoices")).body).map((row: any) => row.id)).toContain(foreignInvoice);
+  });
+
+  it("finding 6 · the dashboard is folded from the caller's own branch lines", async () => {
+    const cashOf = (where: string) =>
+      one<{ net: number }>(
+        `SELECT COALESCE(SUM(l.debit - l.credit), 0) AS net FROM journal_line l JOIN journal_entry e ON e.id = l.entry_id JOIN account a ON a.id = l.account_id WHERE e.status IN ('posted', 'reversed') AND a.type = 'asset' AND a.code LIKE '13%' AND a.is_header = 0 AND ${where}`,
+      )!.net;
+    const whole = await admin("GET", "/dashboard/summary");
+    expect(scaled(whole.body.gl.cash)).toBe(BigInt(cashOf("1 = 1")));
+    for (const [label, caller] of restricted()) {
+      const res = await caller("GET", "/dashboard/summary");
+      expect(res.status, label).toBe(200);
+      const expected = label === "non-admin" ? cashOf(`l.branch_id = '${ALEX}'`) : cashOf(`(l.branch_id = '${ALEX}' OR l.branch_id IS NULL)`);
+      expect(scaled(res.body.gl.cash), label).toBe(BigInt(expected));
+      expect(res.body.gl.revenue, label).not.toBe(whole.body.gl.revenue);
+      expect(res.body.counts.journalEntries, label).toBeLessThan(whole.body.counts.journalEntries);
+      expect(res.body.recentActivity.length, label).toBeGreaterThan(0);
+      for (const activity of res.body.recentActivity) {
+        expect((await caller("GET", `/gl/journal-entries/${activity.id}`)).status, `${label} ${activity.id}`).toBe(200);
+      }
+    }
+    const cockpit = await alex("GET", "/dashboard/cockpit");
+    expect(JSON.stringify(cockpit.body)).not.toContain(MAIN);
+  });
+
+  it("finding 8 · documents with no by-id check before now refuse another branch's row", async () => {
+    const attacks: readonly (readonly [method: string, path: string, body: unknown, stateSql: string])[] = [
+      ["POST", "/rfqs/RFQ-DEMO-2/cancel", {}, "SELECT status FROM purchase_rfq WHERE id = 'RFQ-DEMO-2'"],
+      ["POST", "/rfqs/RFQ-DEMO-2/close", {}, "SELECT status FROM purchase_rfq WHERE id = 'RFQ-DEMO-2'"],
+      ["POST", "/crm/opportunities/OPP-DEMO-7/move-stage", { stageId: "STAGE-CONTACTED" }, "SELECT stage_id FROM crm_opportunity WHERE id = 'OPP-DEMO-7'"],
+      ["POST", "/installments/plans/IPLAN-DEMO-1/cancel", {}, "SELECT status FROM framework_document WHERE id = 'IPLAN-DEMO-1'"],
+      ["POST", "/hr/employees/EMP-DEMO-1/terminate", { date: TODAY, reason: "x" }, "SELECT * FROM hr_employee WHERE id = 'EMP-DEMO-1'"],
+      ["PUT", "/hr/employees/EMP-DEMO-1", { nameAr: "مخترق" }, "SELECT * FROM hr_employee WHERE id = 'EMP-DEMO-1'"],
+      ["POST", "/hr/advances/ADV-DEMO-3/disburse", { treasuryAccountId: "TR-DEMO-CASH-ALEX" }, "SELECT status FROM hr_employee_advance WHERE id = 'ADV-DEMO-3'"],
+      ["POST", "/hr/leave-requests/LR-DEMO-2/approve", {}, "SELECT status FROM hr_leave_request WHERE id = 'LR-DEMO-2'"],
+      ["POST", "/hr/attendance", { employeeId: "EMP-DEMO-1", date: TODAY, status: "absent" }, "SELECT COUNT(*) AS n FROM hr_attendance WHERE employee_id = 'EMP-DEMO-1'"],
+    ];
+    for (const [label, caller] of restricted()) {
+      for (const [method, path, body, stateSql] of attacks) {
+        const before = fingerprint(stateSql);
+        expectRefusedInArabic(await caller(method, path, body));
+        expect(fingerprint(stateSql), `${label} ${path}`).toBe(before);
+      }
+      for (const path of ["/rfqs/RFQ-DEMO-2", "/crm/opportunities/OPP-DEMO-7", "/hr/employees/EMP-DEMO-1", "/hr/advances/ADV-DEMO-3", "/installments/plans/IPLAN-DEMO-1"]) {
+        expect((await caller("GET", path)).status, `${label} ${path}`).toBe(404);
+      }
+    }
+    expect((await mainOnly("GET", "/rfqs/RFQ-DEMO-2")).status).toBe(200);
+    expect((await mainOnly("GET", "/hr/employees/EMP-DEMO-1")).status).toBe(200);
+  });
+
+  it("finding 9 · a list shows a branch-restricted session nothing another branch's user can see, and the company-wide families refuse it", async () => {
+    const lists = [
+      "/workflow/requests",
+      "/eta/submissions",
+      "/field/vans",
+      "/field/van-trips",
+      "/hr/employees",
+      "/hr/payroll/runs",
+      "/hr/payroll/payslips",
+      "/hr/attendance",
+      "/hr/advances",
+      "/hr/leave-requests",
+      "/installments/plans",
+      "/crm/opportunities",
+      "/rfqs",
+      "/pos/terminals",
+    ];
+    for (const path of lists) {
+      const theirs: string[] = rowsOf((await mainOnly("GET", path)).body).map((row: any) => row.id);
+      expect(theirs.length, `${path} must list rows to the other branch's own user`).toBeGreaterThan(0);
+      for (const [label, caller] of restricted()) {
+        const res = await caller("GET", path);
+        expect(res.status, `${label} ${path}`).toBe(200);
+        const mine: string[] = rowsOf(res.body).map((row: any) => row.id);
+        expect(mine.filter((id) => theirs.includes(id)), `${label} ${path}`).toEqual([]);
+      }
+    }
+    for (const path of ["/gl/recurring/templates", "/gl/recurring/runs", "/inventory/writedown-runs"]) {
+      expect(rowsOf((await alex("GET", path)).body), path).toEqual([]);
+      expect(rowsOf((await alexWithUnattributed("GET", path)).body).length, path).toBeGreaterThan(0);
+    }
+    for (const path of ["/contracting/contracts", "/contracting/certificates", "/contracting/site/issues", "/projects", "/crm/leads", "/eta/receipts/summary"]) {
+      for (const [label, caller] of restricted()) {
+        const res = await caller("GET", path);
+        expect(res.status, `${label} ${path}`).toBe(403);
+        expect(res.body.error).toBe("COMPANY_WIDE_REPORT");
+        expect(res.body.message).toMatch(ARABIC);
+      }
+      expect((await admin("GET", path)).status, path).toBe(200);
+    }
+    const withholding = await alex("GET", "/reports/tax/withholding");
+    for (const row of rowsOf(withholding.body)) {
+      expect(one<{ b: string }>("SELECT branch_id AS b FROM voucher WHERE id = ?", row.voucherId)?.b, row.voucherId).toBe(ALEX);
+    }
+  });
+
+  it("finding 10 · a party statement shows no other branch's money, closes on the lines shown, and says it is limited", async () => {
+    for (const [kind, partyId, table] of [["customers", "CUST-DEMO-1", "voucher"], ["suppliers", "SUPP-DEMO-1", "voucher"]] as const) {
+      const whole = await admin("GET", `/reports/statements/${kind}/${partyId}`);
+      expect(whole.status).toBe(200);
+      expect(whole.body.lines.some((line: any) => line.key.startsWith("vch-") || line.key.startsWith("chq-")), `${kind}: the whole statement must hold receipts`).toBe(true);
+      const res = await alex("GET", `/reports/statements/${kind}/${partyId}`);
+      expect(res.status, kind).toBe(200);
+      for (const line of res.body.lines) {
+        if (line.key.startsWith("vch-")) {
+          expect(one<{ b: string }>(`SELECT branch_id AS b FROM ${table} WHERE id = ?`, line.key.slice(4))?.b, line.key).toBe(ALEX);
+        }
+        if (line.key.startsWith("chq-")) {
+          const chequeId = line.key.replace(/^chq-(back-)?/, "");
+          expect(one<{ b: string }>("SELECT branch_id AS b FROM cheque WHERE id = ?", chequeId)?.b, line.key).toBe(ALEX);
+        }
+      }
+      const shown = res.body.lines.reduce((net: bigint, line: any) => net + scaled(line.increase) - scaled(line.decrease), 0n);
+      expect(scaled(res.body.closing), kind).toBe(shown);
+      expect(res.body.branchCaveat, kind).not.toBeNull();
+      expect(res.body.branchCaveat.message).toMatch(ARABIC);
+      expect(res.body.closing, kind).not.toBe(whole.body.closing);
+    }
+  });
+
+  it("finding 11 · a document raised with no branch lands in the session's only branch, and its author can open it", async () => {
+    const posted = await alex("POST", "/gl/journal-entries", journal("D111-R2-JE-DEFAULT", null));
+    expect(posted.status, JSON.stringify(posted.body).slice(0, 200)).toBe(201);
+    expect(all("SELECT DISTINCT branch_id AS b FROM journal_line WHERE entry_id = ?", "D111-R2-JE-DEFAULT")).toEqual([{ b: ALEX }]);
+    expect((await alex("GET", "/gl/journal-entries/D111-R2-JE-DEFAULT")).status).toBe(200);
+
+    const draft = await alex("POST", "/gl/journal-entries/draft", journal("D111-R2-JE-DRAFT", null));
+    expect(draft.status, JSON.stringify(draft.body).slice(0, 200)).toBe(201);
+    expect(all("SELECT DISTINCT branch_id AS b FROM journal_line WHERE entry_id = ?", "D111-R2-JE-DRAFT")).toEqual([{ b: ALEX }]);
+
+    const several = await bothBranches("POST", "/gl/journal-entries", journal("D111-R2-JE-SEVERAL", null));
+    expect(several.status).toBe(400);
+    expect(several.body.error).toBe("BRANCH_REQUIRED");
+    expect(several.body.message).toMatch(ARABIC);
+    expect(exists("journal_entry", "D111-R2-JE-SEVERAL")).toBe(false);
+
+    const unattributed = await bothBranchesWithUnattributed("POST", "/gl/journal-entries", journal("D111-R2-JE-UNATTRIBUTED", null));
+    expect(unattributed.status, JSON.stringify(unattributed.body).slice(0, 200)).toBe(201);
+    expect(all("SELECT DISTINCT branch_id AS b FROM journal_line WHERE entry_id = ?", "D111-R2-JE-UNATTRIBUTED")).toEqual([{ b: null }]);
+
+    const { branchId: _omitted, ...headerless } = voucher("D111-R2-V-DEFAULT", ALEX, "TR-DEMO-CASH-ALEX", "1300-1");
+    const raised = await alex("POST", "/vouchers", headerless);
+    expect(raised.status, JSON.stringify(raised.body).slice(0, 200)).toBe(201);
+    expect(one<{ b: string }>("SELECT branch_id AS b FROM voucher WHERE id = ?", "D111-R2-V-DEFAULT")?.b).toBe(ALEX);
+    expect((await alex("GET", "/vouchers/D111-R2-V-DEFAULT")).status).toBe(200);
+    expect((await bothBranches("POST", "/vouchers", { ...headerless, id: "D111-R2-V-SEVERAL" })).body.error).toBe("BRANCH_REQUIRED");
+    expect(exists("voucher", "D111-R2-V-SEVERAL")).toBe(false);
+  });
+
+  it("finding 12 · an id nothing holds and an id another branch holds answer the same body", async () => {
+    const pairs: readonly (readonly [foreign: string, unknown: string])[] = [
+      ["/rfqs/RFQ-DEMO-2", "/rfqs/D111-NO-SUCH"],
+      ["/bank-statements/BSTMT-DEMO-1", "/bank-statements/D111-NO-SUCH"],
+      ["/bank-statements/BSTMT-DEMO-1/review", "/bank-statements/D111-NO-SUCH/review"],
+      ["/sales-invoices/INV-DEMO-2", "/sales-invoices/D111-NO-SUCH"],
+      ["/hr/payroll/runs/PR-DEMO-2", "/hr/payroll/runs/D111-NO-SUCH"],
+      ["/treasury-accounts/TR-DEMO-CASH", "/treasury-accounts/D111-NO-SUCH"],
+      ["/gl/journal-entries/D111-JE-MAIN", "/gl/journal-entries/D111-NO-SUCH"],
+    ];
+    for (const [foreign, unknown] of pairs) {
+      const a = await alex("GET", foreign);
+      const b = await alex("GET", unknown);
+      expect(a.status, foreign).toBe(404);
+      expect(b.status, unknown).toBe(404);
+      expect(a.body, foreign).toEqual(b.body);
+      expect(JSON.stringify(a.body)).not.toContain("OUT_OF_BRANCH_SCOPE");
+    }
+    const finalize = await alex("POST", "/bank-statements/BSTMT-DEMO-1/finalize", {});
+    expect(finalize.body).toEqual((await alex("POST", "/bank-statements/D111-NO-SUCH/finalize", {})).body);
+  });
+
+  it("finding 13 · no orphan draft out of another branch's warehouse, a query naming a foreign branch is refused, and the company-wide regime is closed", async () => {
+    const drafts = () => one<{ n: number }>("SELECT COUNT(*) AS n FROM stock_transfer_document")!.n;
+    const before = drafts();
+    const orphan = await alex("POST", "/inventory/stock-transfers/draft", {
+      id: "D111-R2-ORPHAN",
+      date: TODAY,
+      lines: [{ itemId: "ITEM-DEMO-1", fromWarehouseId: MAIN_WAREHOUSE, toWarehouseId: ALEX_WAREHOUSE, qty: "1" }],
+    });
+    expect(orphan.status).toBe(403);
+    expect(orphan.body.message).toMatch(ARABIC);
+    expect(drafts()).toBe(before);
+
+    for (const path of [
+      `/reports/sales/by-period?branchId=${MAIN}`,
+      `/reports/aging/customers?branchId=${MAIN}`,
+      `/financial-reports/income-statement?branchId=${MAIN}`,
+      `/sales-invoices?branchId=${MAIN}`,
+      `/financial-reports/balance-sheet?branchId=${UNATTRIBUTED}`,
+    ]) {
+      const res = await alex("GET", path);
+      expect(res.status, path).toBe(403);
+      expect(res.body.error, path).toBe("BRANCH_OUT_OF_SCOPE");
+      expect(res.body.message).toMatch(ARABIC);
+    }
+    expect((await alex("GET", `/reports/sales/by-period?branchId=${ALEX}`)).status).toBe(200);
+
+    for (const [method, path] of [["GET", "/tax/simplified-regime"], ["GET", "/tax/simplified-regime/comparison"], ["PUT", "/tax/simplified-regime"]] as const) {
+      const res = await alex(method, path, method === "PUT" ? {} : undefined);
+      expect(res.status, path).toBe(403);
+      expect(res.body.error).toBe("COMPANY_WIDE_REPORT");
+      expect(res.body.message).toMatch(ARABIC);
+    }
+  });
+
+  it("finding 13 · changing or deleting a role ends the sessions of the users who hold it", async () => {
+    const role = await admin("POST", "/roles", { code: "D111_R2_ROLE", name: "دور اختبار", permissions: ["sales.invoice.view"] });
+    expect(role.status, JSON.stringify(role.body).slice(0, 200)).toBe(201);
+    const holder = one<{ id: string }>("SELECT id FROM user WHERE status = 'active' AND is_company_admin = 0 LIMIT 1")!.id;
+    sqlite.prepare("UPDATE user SET role_id = ? WHERE id = ?").run(role.body.id, holder);
+    const live = callerFor(handle.sessions.issue({ userId: holder, permissions: ["sales.invoice.view"], roleCode: "D111_R2_ROLE", branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE }));
+    expect((await live("GET", "/sales-invoices")).status).toBe(200);
+
+    const sameAuthority = await admin("PUT", `/roles/${role.body.id}`, { code: "D111_R2_ROLE", name: "دور اختبار معدّل", permissions: ["sales.invoice.view"] });
+    expect(sameAuthority.status, JSON.stringify(sameAuthority.body).slice(0, 200)).toBe(200);
+    expect((await live("GET", "/sales-invoices")).status).toBe(200);
+
+    const narrowed = await admin("PUT", `/roles/${role.body.id}`, { code: "D111_R2_ROLE", name: "دور اختبار معدّل", permissions: ["sales.quote.view"] });
+    expect(narrowed.status, JSON.stringify(narrowed.body).slice(0, 200)).toBe(200);
+    expect((await live("GET", "/sales-invoices")).status).toBe(401);
+  });
+
+  it("finding 14 · a document with no branch and no warehouse is «غير مخصص»: absent without the permission, present with it", async () => {
+    const id = "OPP-DEMO-1";
+    const stage = () => one<{ stage_id: string }>("SELECT stage_id FROM crm_opportunity WHERE id = ?", id)!.stage_id;
+    const original = stage();
+    sqlite.prepare("UPDATE crm_opportunity SET branch_id = NULL WHERE id = ?").run(id);
+    try {
+      for (const caller of [alex, mainOnly]) {
+        expect((await caller("GET", `/crm/opportunities/${id}`)).status).toBe(404);
+        expectRefusedInArabic(await caller("POST", `/crm/opportunities/${id}/move-stage`, { stageId: "STAGE-CONTACTED" }));
+        expect(rowsOf((await caller("GET", "/crm/opportunities")).body).map((row: any) => row.id)).not.toContain(id);
+      }
+      expect(stage()).toBe(original);
+      expect((await alexWithUnattributed("GET", `/crm/opportunities/${id}`)).status).toBe(200);
+      expect(rowsOf((await alexWithUnattributed("GET", "/crm/opportunities")).body).map((row: any) => row.id)).toContain(id);
+      expect((await admin("GET", `/crm/opportunities/${id}`)).status).toBe(200);
+    } finally {
+      sqlite.prepare("UPDATE crm_opportunity SET branch_id = ? WHERE id = ?").run(MAIN, id);
+    }
+  });
+
+  it("finding 15 · the seed's finance manager holds the unattributed permission", () => {
+    const role = one<{ permissions: string }>("SELECT permissions FROM role WHERE code = 'FINANCE_MANAGER'");
+    expect(role?.permissions ?? "").toContain(VIEW_UNATTRIBUTED);
+  });
+
+  it("finding 16 · cost centres, POS terminals, van trips, nested lines and a body under a multipart content type are held to the grant", async () => {
+    const terminal = one<{ id: string }>("SELECT id FROM pos_terminal WHERE branch_id = ? LIMIT 1", MAIN)!.id;
+    const trip = one<{ id: string }>("SELECT id FROM van_trip WHERE branch_id = ? AND status = 'ongoing' LIMIT 1", MAIN)!.id;
+    const state = () =>
+      fingerprint("SELECT id, branch_id, name_ar FROM cost_center ORDER BY id") +
+      fingerprint("SELECT id, branch_id, warehouse_id, drawer_treasury_account_id FROM pos_terminal ORDER BY id") +
+      fingerprint("SELECT id, status FROM van_trip ORDER BY id") +
+      fingerprint("SELECT COUNT(*) AS n FROM sales_invoice") +
+      fingerprint("SELECT COUNT(*) AS n FROM voucher");
+    const before = state();
+    for (const [label, caller] of restricted()) {
+      expectRefusedInArabic(await caller("PATCH", "/cost-centers/CC-DEMO-1", { nameAr: "مخترق" }));
+      expect((await caller("POST", "/cost-centers", { id: `D111-R2-CC-${label.length}`, code: `D${label.length}`, nameAr: "مركز", branchId: MAIN })).status, label).toBe(403);
+      expect((await caller("GET", `/pos/terminals/${terminal}`)).status, label).toBe(404);
+      expectRefusedInArabic(await caller("PUT", `/pos/terminals/${terminal}`, { name: "مخترق" }));
+      expect((await caller("POST", "/pos/terminals", { code: `D111-${label.length}`, name: "نقطة", kind: "counter", branchId: MAIN, warehouseId: MAIN_WAREHOUSE })).status, label).toBe(403);
+      expect((await caller("POST", "/pos/terminals", { code: `D111-${label.length}`, name: "نقطة", kind: "counter", branchId: ALEX, warehouseId: ALEX_WAREHOUSE, drawerTreasuryAccountId: "TR-POS-DRAWER-1" })).status, label).toBe(403);
+      expect((await caller("GET", `/field/van-trips/${trip}`)).status, label).toBe(404);
+      expectRefusedInArabic(await caller("POST", `/field/van-trips/${trip}/settle`, {}));
+      expectRefusedInArabic(await caller("POST", `/field/van-trips/${trip}/cash-movements`, { amount: "1.00", direction: "in" }));
+      expectRefusedInArabic(await caller("POST", "/field/van-trips", { vanId: "VAN-DEMO-1", date: TODAY }));
+
+      const nested = salesInvoice(`D111-R2-NESTED-${label.length}`, ALEX, ALEX_WAREHOUSE);
+      const smuggled = { ...nested, lines: nested.lines.map((line) => ({ ...line, warehouseId: MAIN_WAREHOUSE })) };
+      expect((await caller("POST", "/sales-invoices", smuggled)).status, label).toBe(403);
+      const multipart = await caller("POST", "/vouchers", JSON.stringify(voucher(`D111-R2-MP-${label.length}`, ALEX, "TR-DEMO-CASH", "1300-1")), {
+        "content-type": "multipart/form-data; boundary=x",
+      });
+      expect(multipart.status, label).toBe(403);
+      expect(state(), label).toBe(before);
+    }
+  });
+
+  it("finding 16 · a LAN till holds its own seat and stream; the device register is the company's", async () => {
+    const seat = await alex("POST", "/lan/sessions", { deviceId: "D111-R2-TILL", deviceLabel: "خزينة الإسكندرية" });
+    expect(seat.status, JSON.stringify(seat.body).slice(0, 200)).toBeLessThan(300);
+    expect((await alex("GET", "/lan/status")).status).toBe(200);
+    for (const [method, path] of [["GET", "/lan/sessions"], ["DELETE", `/lan/sessions/${seat.body.sessionId ?? "x"}`]] as const) {
+      const res = await alex(method, path);
+      expect(res.status, path).toBe(403);
+      expect(res.body.error).toBe("COMPANY_WIDE_REPORT");
+    }
+    expect((await admin("GET", "/lan/sessions")).status).toBe(200);
+  });
+
+  it("an unrestricted admin is untouched by any of it", async () => {
+    expect((await admin("GET", `/warehouses/${MAIN_WAREHOUSE}`)).status).toBe(200);
+    expect((await admin("GET", "/projects")).status).toBe(200);
+    expect((await admin("GET", `/reports/sales/by-period?branchId=${MAIN}`)).status).toBe(200);
+    expect((await admin("GET", "/tax/simplified-regime")).status).toBe(200);
+  });
 });

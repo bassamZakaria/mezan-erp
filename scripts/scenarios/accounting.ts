@@ -292,7 +292,10 @@ export async function run(ctx: Ctx): Promise<void> {
         "posting into a closed period is refused with a period-specific error, not a generic failure",
         postIntoClosed.status === 422 &&
           postIntoClosed.body?.error === "PERIOD_NOT_OPEN_FOR_POSTING" &&
-          String(postIntoClosed.body?.message).includes("closed"),
+          String(postIntoClosed.body?.message).includes("مغلقة") &&
+          String(postIntoClosed.body?.message).includes(`«يناير ${jan.year}»`) &&
+          !/closed|locked/.test(String(postIntoClosed.body?.message)) &&
+          !String(postIntoClosed.body?.message).includes(jan.id),
         `status ${postIntoClosed.status} body ${JSON.stringify(postIntoClosed.body)}`,
       );
 
@@ -358,7 +361,9 @@ export async function run(ctx: Ctx): Promise<void> {
         "posting into a locked period is refused too, and the message distinguishes it from closed",
         postIntoLocked.status === 422 &&
           postIntoLocked.body?.error === "PERIOD_NOT_OPEN_FOR_POSTING" &&
-          String(postIntoLocked.body?.message).includes("locked"),
+          String(postIntoLocked.body?.message).includes("مقفلة") &&
+          !String(postIntoLocked.body?.message).includes("مغلقة") &&
+          !/closed|locked/.test(String(postIntoLocked.body?.message)),
         `status ${postIntoLocked.status} body ${JSON.stringify(postIntoLocked.body)}`,
       );
     },

@@ -78,6 +78,11 @@ export const scenario: ScenarioFragment = {
       checkEq("a bare close is refused", refused.status, 409);
       check("as a blocked close that names the drafts check", refused.body?.error === "PERIOD_CLOSE_BLOCKED" && (refused.body?.failedChecks ?? []).includes("drafts"), JSON.stringify(refused.body).slice(0, 200));
       check("in Arabic and in English", /[؀-ۿ]/.test(String(refused.body?.message)) && typeof refused.body?.messageEn === "string");
+      check(
+        "naming the month «يونيو 2019», never the period's id",
+        String(refused.body?.message).includes(`«يونيو ${YEAR}»`) && String(refused.body?.messageEn).includes(`June ${YEAR}`) && !`${refused.body?.message} ${refused.body?.messageEn}`.includes(PERIOD),
+        String(refused.body?.message),
+      );
       same("and June is still open", await periodStatus(), "open");
 
       const forged = await req("POST", `/fiscal-periods/${PERIOD}/close`, { blocking: [], failedChecks: [], checks: [] });
@@ -146,6 +151,12 @@ export const scenario: ScenarioFragment = {
       checkEq("a bare lock of the overridden month is refused — the terminal step is no way around the checks", lock.status, 409);
       const closerLocks = await req("POST", `/fiscal-periods/${PERIOD}/lock`, { overrideReason: REASON });
       checkEq("the user who closed it may not lock it over the failing check alone", closerLocks.status, 403);
+      const ties = checkOf(await checklist(), "subledger_ties");
+      check(
+        "every sub-ledger tie is stated as of the month's own last day",
+        (ties?.findings ?? []).length > 0 && ties.findings.every((f: any) => f.asOfDate === `${YEAR}-06-30`),
+        JSON.stringify((ties?.findings ?? []).map((f: any) => f.asOfDate)),
+      );
       check(
         "refused as needing a second person, in Arabic and English",
         closerLocks.body?.error === "PERIOD_LOCK_OVERRIDE_SAME_USER" && /[\u0600-\u06FF]/.test(String(closerLocks.body?.message)) && typeof closerLocks.body?.messageEn === "string",

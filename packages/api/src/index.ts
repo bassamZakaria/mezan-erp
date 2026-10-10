@@ -103,6 +103,7 @@ export {
   type BranchPolicyEntry,
   type BranchRefusalBody,
 } from "./branch-policy.js";
+export { branchLineViewOf, canSeeUnattributed, entriesInView, isWholeLedgerView, lineInView, type BranchLineView } from "./branch-view.js";
 export { permissionRefusalReporting, type PermissionRefusal, type PermissionRefusalReporter } from "./permission-gate.js";
 export {
   createSecurityReportsRoutes,

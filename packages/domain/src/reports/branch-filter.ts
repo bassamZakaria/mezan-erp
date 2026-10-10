@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { Money } from "../money/index.js";
+import { Money } from "../money/index.js";
 import type { ReportParamField } from "./types.js";
 import { ReportParamKind } from "./types.js";
 
@@ -133,6 +133,7 @@ export function branchOfWarehouse(
 
 export enum BranchCaveatCode {
   IncludesUnattributed = "INCLUDES_UNATTRIBUTED",
+  LimitedToBranches = "LIMITED_TO_BRANCHES",
 }
 
 /**
@@ -156,5 +157,15 @@ export function includesUnattributedCaveat(unattributedNet: Money): BranchCaveat
     messageEn:
       "This view is limited to your branches, but the balance includes postings assigned to no branch — opening balances and company-level entries — so it is not your branches' balance alone.",
     unattributedNet: unattributedNet.toString(),
+  };
+}
+
+export function limitedToBranchesCaveat(): BranchCaveat {
+  return {
+    code: BranchCaveatCode.LimitedToBranches,
+    message: "الكشف مقيَّد بفروعك: الرصيد هو مجموع الحركات المعروضة فقط، ولا يشمل ما قُيِّد على الطرف في فروع أخرى أو بلا فرع.",
+    messageEn:
+      "This statement is limited to your branches: the balance is the sum of the lines shown and excludes what was booked for this party in other branches or with no branch.",
+    unattributedNet: Money.zero().toString(),
   };
 }

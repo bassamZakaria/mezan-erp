@@ -342,6 +342,7 @@ export {
   UNATTRIBUTED_BRANCH_LABEL,
   BranchCaveatCode,
   includesUnattributedCaveat,
+  limitedToBranchesCaveat,
   matchesStatementBranch,
   withinBranchScope,
   type BranchCaveat,

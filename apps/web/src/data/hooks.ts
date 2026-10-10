@@ -1970,7 +1970,6 @@ export function useBranches(): UseQueryResult<BranchDTO[], ApiError> {
   });
 }
 
-/** What a branch picker may offer this session — the server's own scoped answer, open to any signed-in user. */
 export function useBranchLookup(): UseQueryResult<BranchLookupDTO, ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();

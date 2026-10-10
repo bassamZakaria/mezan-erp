@@ -99,6 +99,7 @@ export interface BranchPolicyEntry {
   readonly handlerNarrowed?: readonly string[];
   readonly companyWide?: readonly string[];
   readonly defaultsBranch?: boolean;
+  readonly defaultsLineBranch?: boolean;
   readonly exemptBodyKeys?: readonly string[];
 }
 
@@ -249,7 +250,7 @@ export const BRANCH_POLICY_TABLE: readonly BranchPolicyEntry[] = [
   handlerScoped("/financial-reports"),
   handlerScoped("/reports", { params: { id: null } }),
   handlerScoped("/attachments", { params: { id: null } }),
-  handlerScoped("/gl/journal-entries", { params: { id: K.JournalEntry }, defaultsBranch: true }),
+  handlerScoped("/gl/journal-entries", { params: { id: K.JournalEntry }, defaultsLineBranch: true }),
   handlerScoped("/gl/accounts", { params: { accountId: null } }),
   scoped("/gl/recurring/templates", K.RecurringTemplate, { params: { entryId: K.JournalEntry } }),
   scoped("/gl/recurring/runs", K.RecurringRun),
@@ -635,19 +636,38 @@ async function bodyRefusal(c: Context, session: Session, entry: BranchPolicyEntr
  * unattributed and its own author then could not open it.
  */
 function defaultBranchRefusal(c: Context, session: Session, entry: BranchPolicyEntry, routePath: string, body: unknown): Response | null {
-  if (!entry.defaultsBranch || c.req.method !== "POST" || paramNamesOf(routePath).length > 0) return null;
+  if (!entry.defaultsBranch && !entry.defaultsLineBranch) return null;
   if (body === null || typeof body !== "object" || Array.isArray(body)) return null;
   const record = body as Record<string, unknown>;
-  const statesBranch = [...DOCUMENT_BRANCH_KEYS].some((key) => typeof record[key] === "string" && record[key] !== "");
-  if (statesBranch) return null;
-  if (session.grant.length !== 1) return session.seesUnattributed ? null : branchRefusal(c, BranchRefusalCode.BranchRequired);
-  const text = JSON.stringify({ ...record, branchId: session.grant[0] });
+  const sole = session.grant.length === 1 ? session.grant[0]! : undefined;
+  let defaulted: Record<string, unknown> | undefined;
+
+  if (entry.defaultsLineBranch && Array.isArray(record["lines"])) {
+    const lines = record["lines"] as unknown[];
+    const needsBranch = (line: unknown): line is Record<string, unknown> => {
+      if (line === null || typeof line !== "object") return false;
+      const stated = (line as Record<string, unknown>)["branchId"];
+      if (typeof stated === "string" && stated !== "") return false;
+      return !(stated === null && session.seesUnattributed);
+    };
+    if (lines.some(needsBranch)) {
+      if (!sole) return session.seesUnattributed ? null : branchRefusal(c, BranchRefusalCode.BranchRequired);
+      defaulted = { ...record, lines: lines.map((line) => (needsBranch(line) ? { ...line, branchId: sole } : line)) };
+    }
+  } else if (entry.defaultsBranch && c.req.method === "POST" && paramNamesOf(routePath).length === 0) {
+    const statesBranch = [...DOCUMENT_BRANCH_KEYS].some((key) => typeof record[key] === "string" && record[key] !== "");
+    if (!statesBranch && !(record["branchId"] === null && session.seesUnattributed)) {
+      if (!sole) return session.seesUnattributed ? null : branchRefusal(c, BranchRefusalCode.BranchRequired);
+      defaulted = { ...record, branchId: sole };
+    }
+  }
+  if (!defaulted) return null;
   // Hono keeps the body it already read as a promise under `bodyCache`; the
   // handler's `c.req.json()` is served from it, which is what makes the
   // defaulted branch the one the handler stores.
   const cache = c.req.bodyCache as Record<string, unknown>;
   delete cache["json"];
-  cache["text"] = Promise.resolve(text);
+  cache["text"] = Promise.resolve(JSON.stringify(defaulted));
   return null;
 }
 

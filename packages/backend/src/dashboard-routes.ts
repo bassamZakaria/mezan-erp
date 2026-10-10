@@ -9,7 +9,9 @@ import {
 } from "@mezan/domain";
 import type { DashboardSummaryDTO } from "@mezan/contracts";
 import {
+  branchLineViewOf,
   createPermissionGate,
+  entriesInView,
   insecureHeaderAuthContextResolver,
   type AuthContextResolver,
 } from "@mezan/api";
@@ -29,7 +31,7 @@ const CUSTOMER_RECEIVABLE_ACCOUNTS = new Set(["1105", "1110", "1360"]);
 
 export interface DashboardDeps {
   readonly accounts: Pick<AccountRepository, "list">;
-  readonly ledger: Pick<LedgerRepository, "accountBalance" | "list">;
+  readonly ledger: Pick<LedgerRepository, "list">;
   readonly countCustomers: () => Promise<number>;
   readonly countSuppliers: () => Promise<number>;
   readonly countItems: () => Promise<number>;
@@ -39,26 +41,23 @@ export interface DashboardDeps {
   readonly now?: () => Date;
 }
 
-/** Cumulative natural-sign balance of one account as of a date: credit-natural accounts flip debit−credit so "more" is always positive. */
-async function naturalBalanceAsOf(
-  ledger: DashboardDeps["ledger"],
-  account: Account,
-  asOf: string | undefined,
-): Promise<Money> {
-  const b = await ledger.accountBalance(account.id, asOf);
-  return account.naturalBalance === "credit" ? b.balance.negate() : b.balance;
+function netByAccountAsOf(entries: readonly JournalEntry[], asOf: string | undefined): Map<string, Money> {
+  const net = new Map<string, Money>();
+  for (const entry of entries) {
+    if (asOf && entry.date > asOf) continue;
+    for (const line of entry.lines) {
+      net.set(line.accountId, (net.get(line.accountId) ?? Money.zero()).add(line.debit).add(line.credit.negate()));
+    }
+  }
+  return net;
 }
 
-async function sumBalanceWhere(
-  ledger: DashboardDeps["ledger"],
-  accounts: readonly Account[],
-  asOf: string | undefined,
-  predicate: (a: Account) => boolean,
-): Promise<Money> {
+function sumNaturalBalanceWhere(net: ReadonlyMap<string, Money>, accounts: readonly Account[], predicate: (a: Account) => boolean): Money {
   let total = Money.zero();
   for (const account of accounts) {
     if (account.isHeader || !predicate(account)) continue;
-    total = total.add(await naturalBalanceAsOf(ledger, account, asOf));
+    const balance = net.get(account.id) ?? Money.zero();
+    total = total.add(account.naturalBalance === "credit" ? balance.negate() : balance);
   }
   return total;
 }
@@ -101,7 +100,10 @@ export function createDashboardRoutes(
     const accounts = await deps.accounts.list();
     const typeById = new Map(accounts.map((a) => [a.id, a.type]));
 
-    const allEntries = await deps.ledger.list({});
+    // SECURITY: every figure below is folded from the lines this session may
+    // read. Asking the ledger for an account's balance answers for the whole
+    // company, which is what a branch-restricted session was being served.
+    const allEntries = entriesInView(branchLineViewOf(c), await deps.ledger.list({}));
     const posted = allEntries.filter((e) => e.status === "posted");
     // A reversed entry stays in the books beside its mirror: dropping the
     // original while keeping the mirror counted every reversal twice.
@@ -113,13 +115,14 @@ export function createDashboardRoutes(
     const otherIncome = new Set(await deps.otherIncomeExpenseAccountIds?.());
     const { revenue, expenses } = periodPnl(inRange, typeById, otherIncome);
     const netProfit = revenue.add(expenses.negate());
-    const cash = await sumBalanceWhere(deps.ledger, accounts, toDate, (a) => a.type === "asset" && a.code.startsWith("13"));
+    const net = netByAccountAsOf(onTheBooks, toDate);
+    const cash = sumNaturalBalanceWhere(net, accounts, (a) => a.type === "asset" && a.code.startsWith("13"));
     // Customer receivables only — what the aging report means by the word.
     // Summing the whole 11xx subtree swept in employee advances and an
     // inventory provision, so the tile and the report never agreed (D37).
-    const receivables = await sumBalanceWhere(deps.ledger, accounts, toDate, (a) => CUSTOMER_RECEIVABLE_ACCOUNTS.has(a.code));
-    const inventoryValue = await sumBalanceWhere(deps.ledger, accounts, toDate, (a) => a.type === "asset" && a.code.startsWith("12"));
-    const payables = await sumBalanceWhere(deps.ledger, accounts, toDate, (a) => a.type === "liability" && a.code !== "2200");
+    const receivables = sumNaturalBalanceWhere(net, accounts, (a) => CUSTOMER_RECEIVABLE_ACCOUNTS.has(a.code));
+    const inventoryValue = sumNaturalBalanceWhere(net, accounts, (a) => a.type === "asset" && a.code.startsWith("12"));
+    const payables = sumNaturalBalanceWhere(net, accounts, (a) => a.type === "liability" && a.code !== "2200");
 
     const [customers, suppliers, items, users] = await Promise.all([
       deps.countCustomers(),

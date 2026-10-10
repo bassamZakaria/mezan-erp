@@ -146,6 +146,7 @@ const ROLES = [
       "accounting.period.view",
       "accounting.period.close",
       "accounting.reports.view",
+      "accounting.reports.view_unattributed",
       "accounting.exchange_rate.approve",
       "accounting.tax.view",
       "treasury.account.view",

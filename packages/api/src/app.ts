@@ -1735,7 +1735,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
 
   app.route(
     "/roles",
-    createRolesRoutes(uow, resolveEntitlements, resolveAuth, { audit: options.auditSink, workflowUsage }),
+    createRolesRoutes(uow, resolveEntitlements, resolveAuth, { audit: options.auditSink, workflowUsage, sessions: options.security?.sessions }),
   );
   app.route(
     "/users",

@@ -25,6 +25,7 @@ import {
 } from "./permission-gate.js";
 import { recordAdminEvent } from "./admin-audit.js";
 import type { EntitlementsResolver } from "./module-gate.js";
+import type { SessionRegistry } from "./session-auth.js";
 
 function serializeRole(role: Role) {
   return {
@@ -82,6 +83,7 @@ export interface RolesRoutesOptions {
    * create-and-approve chain, and this is the link that breaks it.
    */
   readonly workflowUsage?: (roleCode: string) => Promise<readonly string[]>;
+  readonly sessions?: Pick<SessionRegistry, "revokeUser">;
 }
 
 export function createRolesRoutes(
@@ -90,9 +92,21 @@ export function createRolesRoutes(
   resolveAuthContext: AuthContextResolver,
   options: RolesRoutesOptions = {},
 ) {
-  const { audit, workflowUsage } = options;
+  const { audit, workflowUsage, sessions } = options;
   const gate = createPermissionGate(resolveAuthContext);
   const app = new Hono();
+
+  /**
+   * SECURITY: a session carries the permissions its role had at sign-in. A
+   * role that changes or disappears must end those sessions, or the grant an
+   * admin just withdrew keeps working until each holder happens to sign out.
+   */
+  async function endSessionsOfRoleHolders(roleId: string): Promise<void> {
+    if (!sessions) return;
+    for (const user of await uow.users.list()) {
+      if (user.roleId === roleId) sessions.revokeUser(user.id);
+    }
+  }
 
   /**
    * The permission LIST travels, not just the role name. "Role edited" is not
@@ -270,6 +284,13 @@ export function createRolesRoutes(
         actor,
       );
       await auditRole(c, role, "UPDATE", before);
+      const sameAuthority =
+        before !== null &&
+        before !== undefined &&
+        before.code === role.code &&
+        before.permissions.length === role.permissions.length &&
+        before.permissions.every((permission) => role.permissions.includes(permission));
+      if (!sameAuthority) await endSessionsOfRoleHolders(role.id);
       if (conflicts.length > 0) await auditSodOverride(c, role, conflicts, parsed.data.reason ?? "");
       return c.json(serializeRole(role));
     } catch (err) {
@@ -294,6 +315,7 @@ export function createRolesRoutes(
     }
     try {
       await deleteRole(c.req.param("id"), uow);
+      await endSessionsOfRoleHolders(before.id);
       await recordAdminEvent(audit, c, {
         module: "admin",
         entityType: "ROLE",

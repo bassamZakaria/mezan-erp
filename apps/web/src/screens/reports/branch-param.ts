@@ -6,11 +6,6 @@ import { useAppTranslation } from "../../i18n";
 
 export interface BranchParam {
   readonly paramFields: readonly ReportRunnerParamField[];
-  /**
-   * Set when the statement reads the journal line and this session may not
-   * read the lines that carry no branch: its figures are then the session's
-   * branches only, and the reader has to be told so on the statement itself.
-   */
   readonly caveat: string | null;
 }
 
@@ -54,12 +49,6 @@ function runnerField(field: ReportParamField, lookup: BranchLookupDTO | undefine
   }
 }
 
-/**
- * A report's declared parameters as the runner renders them, with «الفرع»
- * turned into a picker. The options are the server's own answer for THIS
- * session, so the picker can only narrow what the server already scopes; the
- * value sent is the real branch id.
- */
 export function useBranchParam(paramFields: readonly ReportParamField[]): BranchParam {
   const { t } = useAppTranslation();
   const lookup = useBranchLookup().data;

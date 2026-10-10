@@ -24,7 +24,6 @@ export interface ReportResult<Row> {
   readonly reconciliation: ReportReconciliationResult | null;
   /** The summary strip's figures, computed server-side over the whole result (R21.2). */
   readonly kpis?: readonly ReportKpiResult[];
-  /** Set by a statement whose branch-filtered balance still carries unattributed postings. */
   readonly branchCaveat?: BranchCaveatDTO | null;
 }
 

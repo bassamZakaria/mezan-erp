@@ -3,7 +3,6 @@ import { Money as MoneyValue } from "@mezan/ui";
 import { useAppTranslation } from "../../i18n";
 import { moneyToNumber, parseMoney } from "../../data/partner-detail-hooks";
 
-/** The honest line above a branch-filtered balance that still carries postings no branch owns. */
 export function BranchCaveatNote({ caveat }: { caveat: BranchCaveatDTO }) {
   const { t, locale } = useAppTranslation();
   return (

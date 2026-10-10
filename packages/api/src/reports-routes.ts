@@ -46,6 +46,7 @@ import {
   ACCOUNT_TYPE_LABELS,
   accountActivity,
   includesUnattributedCaveat,
+  limitedToBranchesCaveat,
   type BranchCaveat,
   isoDateParamSchema,
   roundMoney,
@@ -132,7 +133,7 @@ import {
 } from "@mezan/domain";
 import { tenantToday } from "./tenant-day.js";
 import { branchScopeOf, createAnyPermissionGate, createPermissionGate, warehouseScopeOf, withinScope, type AuthContextResolver } from "./permission-gate.js";
-import { readableEntries } from "./branch-view.js";
+import { branchLineViewOf, isWholeLedgerView, lineInView, readableEntries } from "./branch-view.js";
 
 /**
  * التقارير — operational reports (docs/archive/catalog/08-reports.md), mounted under
@@ -1051,6 +1052,29 @@ export function createReportsRoutes(
   }
 
   /**
+   * INVARIANT: a party's ladder row and statement are folded from the SAME
+   * narrowed sources as its invoices. Reading receipts, cheques and control
+   * lines company-wide against branch-scoped invoices is what produced a
+   * closing balance made of another branch's collections.
+   */
+  function depsInView(c: Context): ReportsRoutesDeps {
+    const view = branchLineViewOf(c);
+    if (isWholeLedgerView(view)) return deps;
+    const { voucherDocuments, cheques, ledger } = deps;
+    const listLines = ledger.listLines?.bind(ledger);
+    return {
+      ...deps,
+      ...(voucherDocuments
+        ? { voucherDocuments: { list: async (filter) => (await voucherDocuments.list(filter)).filter((doc) => lineInView(view, doc.lines[0]?.branchId)) } }
+        : {}),
+      ...(cheques ? { cheques: { list: async (filter) => (await cheques.list(filter)).filter((cheque) => lineInView(view, cheque.branchId)) } } : {}),
+      ledger: Object.assign(Object.create(ledger) as LedgerRepository, {
+        ...(listLines ? { listLines: async (filter?: Parameters<typeof listLines>[0]) => (await listLines(filter)).filter((line) => lineInView(view, line.branchId)) } : {}),
+      }),
+    };
+  }
+
+  /**
    * Exactly the invoice set and netting terms the customer aging ladder ages
    * on a given day, for this caller's own branch scope.
    *
@@ -1060,25 +1084,27 @@ export function createReportsRoutes(
    */
   async function customerAgingSet(c: Context, asOfDate: string) {
     const live = await scopedSalesInvoices(c, { statusIn: [...SALES_INVOICE_ACTIVE_STATUSES], toDate: asOfDate });
-    const asOf = await agingAsOf(deps, "customer", asOfDate);
+    const viewDeps = depsInView(c);
+    const asOf = await agingAsOf(viewDeps, "customer", asOfDate);
     const voided = liveOnTheDay(
       await scopedSalesInvoices(c, { statusIn: [...SALES_INVOICE_TERMINAL_STATUSES], toDate: asOfDate }),
       asOf,
     ).map((invoice) => ({ ...invoice, status: "confirmed" as const }));
     const invoices = [...live, ...voided];
-    return { invoices, asOf, terms: await agingCustomersTerms(deps, invoices, asOf, await tenantToday(c, deps.today)) };
+    return { invoices, asOf, terms: await agingCustomersTerms(viewDeps, invoices, asOf, await tenantToday(c, deps.today)) };
   }
 
   /** The supplier ladder's twin of {@link customerAgingSet}. */
   async function supplierAgingSet(c: Context, asOfDate: string) {
     const live = await scopedPurchaseInvoices(c, { status: "confirmed" as const, toDate: asOfDate });
-    const asOf = await agingAsOf(deps, "supplier", asOfDate);
+    const viewDeps = depsInView(c);
+    const asOf = await agingAsOf(viewDeps, "supplier", asOfDate);
     const cancelled = liveOnTheDay(
       await scopedPurchaseInvoices(c, { status: "cancelled" as const, toDate: asOfDate }),
       asOf,
     ).map((invoice) => ({ ...invoice, status: "confirmed" as const }));
     const invoices = [...live, ...cancelled];
-    return { invoices, asOf, terms: await agingSuppliersTerms(deps, invoices, asOf, await tenantToday(c, deps.today)) };
+    return { invoices, asOf, terms: await agingSuppliersTerms(viewDeps, invoices, asOf, await tenantToday(c, deps.today)) };
   }
 
   // --- المبيعات ------------------------------------------------------
@@ -1674,7 +1700,7 @@ export function createReportsRoutes(
    * restates what the party's voucher or cheque settled to the invoice's booked
    * rate, so without them the statement closes that far from the ladder.
    */
-  async function realisedFxEntries(controlId: string, partyId: string, asOfDate: string, sign: 1n | -1n): Promise<PartyStatementEntry[]> {
+  async function realisedFxEntries(deps: ReportsRoutesDeps, controlId: string, partyId: string, asOfDate: string, sign: 1n | -1n): Promise<PartyStatementEntry[]> {
     const lines = (await deps.ledger.listLines?.({ accountIds: [controlId] })) ?? [];
     const entryDates = new Map(lines.map((line) => [line.entryId, line.date]));
     const byEntry = new Map<string, { line: PostedLine; scaled: bigint }>();
@@ -1702,11 +1728,11 @@ export function createReportsRoutes(
    * whatever branch the party belongs to) and any other item carrying none.
    */
   function partyBranchCaveat(c: Context, items: readonly AgingOpenItem[], partyId: string, asOfDate: string): BranchCaveat | null {
-    if (!branchScopeOf(c)) return null;
+    if (isWholeLedgerView(branchLineViewOf(c))) return null;
     const unattributed = items.filter(
       (item) => item.partyId === partyId && item.date <= asOfDate && (item.source === "opening" || item.branchId == null),
     );
-    return unattributed.length === 0 ? null : includesUnattributedCaveat(Money.sum(unattributed.map((item) => item.amount)));
+    return unattributed.length === 0 ? limitedToBranchesCaveat() : includesUnattributedCaveat(Money.sum(unattributed.map((item) => item.amount)));
   }
 
   function serializeStatement(partyId: string, asOfDate: string, statement: PartyStatement, agingTotal: Money, branchCaveat: BranchCaveat | null) {
@@ -1738,11 +1764,12 @@ export function createReportsRoutes(
       return c.json({ error: "NOT_FOUND" }, 404);
     }
     const asOfDate = await tenantToday(c, deps.today);
+    const viewDeps = depsInView(c);
     const invoices = (await scopedSalesInvoices(c, { statusIn: [...SALES_INVOICE_ACTIVE_STATUSES], toDate: asOfDate })).filter(
       (invoice) => invoice.customerId === id,
     );
-    const asOf = await agingAsOf(deps, "customer", asOfDate);
-    const terms = await agingCustomersTerms(deps, invoices, asOf, asOfDate);
+    const asOf = await agingAsOf(viewDeps, "customer", asOfDate);
+    const terms = await agingCustomersTerms(viewDeps, invoices, asOf, asOfDate);
     const invoiceRefs = new Map(invoices.map((invoice) => [invoice.id, invoice.docNo ?? invoice.id]));
     const entries: PartyStatementEntry[] = invoices.map((invoice) => ({
       key: `inv-${invoice.id}`,
@@ -1756,7 +1783,7 @@ export function createReportsRoutes(
       if (doc.status !== "confirmed" || doc.date > asOfDate || !invoiceRefs.has(doc.lines[0]?.sourceInvoiceId ?? "")) continue;
       entries.push({ key: `ret-${doc.id}`, date: doc.date, kind: "return", reference: doc.docNo ?? doc.id, increase: Money.zero(), decrease: salesReturnGrandTotal(doc) });
     }
-    for (const doc of (await deps.voucherDocuments?.list({ status: "confirmed" })) ?? []) {
+    for (const doc of (await viewDeps.voucherDocuments?.list({ status: "confirmed" })) ?? []) {
       if (!isStandingVoucher(doc) || doc.date > asOfDate) continue;
       const line = doc.lines[0];
       if (!line || line.direction !== "receipt" || line.counterpartyGlAccountId !== RECEIVABLES_CONTROL_ACCOUNT_ID || line.customerId !== id) continue;
@@ -1770,7 +1797,7 @@ export function createReportsRoutes(
         allocations: await voucherAllocations(doc.id, invoiceRefs),
       });
     }
-    for (const cheque of (await deps.cheques?.list({ direction: "incoming" })) ?? []) {
+    for (const cheque of (await viewDeps.cheques?.list({ direction: "incoming" })) ?? []) {
       if (cheque.direction !== "incoming" || cheque.counterpartyGlAccountId !== RECEIVABLES_CONTROL_ACCOUNT_ID || cheque.partyId !== id) continue;
       const days = chequeDays(cheque, asOf);
       if (days.raised > asOfDate) continue;
@@ -1798,7 +1825,7 @@ export function createReportsRoutes(
       });
     }
     entries.push(...openItemEntries(terms.openItems ?? [], id, asOfDate));
-    entries.push(...(await realisedFxEntries(RECEIVABLES_CONTROL_ACCOUNT_ID, id, asOfDate, 1n)));
+    entries.push(...(await realisedFxEntries(viewDeps, RECEIVABLES_CONTROL_ACCOUNT_ID, id, asOfDate, 1n)));
     const row = customerAgingBalances({ asOfDate, branchId: "" }, { invoices, ...terms }).get(id);
     return c.json(
       serializeStatement(
@@ -1818,11 +1845,12 @@ export function createReportsRoutes(
       return c.json({ error: "NOT_FOUND" }, 404);
     }
     const asOfDate = await tenantToday(c, deps.today);
+    const viewDeps = depsInView(c);
     const invoices = (await scopedPurchaseInvoices(c, { status: "confirmed", toDate: asOfDate })).filter(
       (invoice) => invoice.supplierId === id,
     );
-    const asOf = await agingAsOf(deps, "supplier", asOfDate);
-    const terms = await agingSuppliersTerms(deps, invoices, asOf, asOfDate);
+    const asOf = await agingAsOf(viewDeps, "supplier", asOfDate);
+    const terms = await agingSuppliersTerms(viewDeps, invoices, asOf, asOfDate);
     const invoiceRefs = new Map(invoices.map((invoice) => [invoice.id, invoice.number ?? invoice.id]));
     const entries: PartyStatementEntry[] = invoices.map((invoice) => ({
       key: `inv-${invoice.id}`,
@@ -1845,7 +1873,7 @@ export function createReportsRoutes(
         decrease: Money.sum(mine.map(purchaseReturnLineCredit)),
       });
     }
-    for (const doc of (await deps.voucherDocuments?.list({ status: "confirmed" })) ?? []) {
+    for (const doc of (await viewDeps.voucherDocuments?.list({ status: "confirmed" })) ?? []) {
       if (!isStandingVoucher(doc) || doc.date > asOfDate) continue;
       const line = doc.lines[0];
       if (!line || line.direction !== "payment" || line.counterpartyGlAccountId !== PAYABLES_CONTROL_ACCOUNT_ID || line.supplierId !== id) continue;
@@ -1859,7 +1887,7 @@ export function createReportsRoutes(
         allocations: await voucherAllocations(doc.id, invoiceRefs),
       });
     }
-    for (const cheque of (await deps.cheques?.list({ direction: "outgoing" })) ?? []) {
+    for (const cheque of (await viewDeps.cheques?.list({ direction: "outgoing" })) ?? []) {
       if (cheque.direction !== "outgoing" || cheque.counterpartyGlAccountId !== PAYABLES_CONTROL_ACCOUNT_ID || cheque.partyId !== id) continue;
       const days = chequeDays(cheque, asOf);
       if (days.raised > asOfDate) continue;
@@ -1887,7 +1915,7 @@ export function createReportsRoutes(
       });
     }
     entries.push(...openItemEntries(terms.openItems ?? [], id, asOfDate));
-    entries.push(...(await realisedFxEntries(PAYABLES_CONTROL_ACCOUNT_ID, id, asOfDate, -1n)));
+    entries.push(...(await realisedFxEntries(viewDeps, PAYABLES_CONTROL_ACCOUNT_ID, id, asOfDate, -1n)));
     const row = supplierAgingBalances({ asOfDate, branchId: "" }, { invoices, ...terms }).get(id);
     return c.json(
       serializeStatement(
@@ -1943,7 +1971,8 @@ export function createReportsRoutes(
     ]);
     // A voucher's branch lives on its single line (vouchers-routes.ts scopes
     // the register the same way).
-    const vouchers = withinScope(allVouchers, branchScopeOf(c), (doc) => doc.lines[0]?.branchId);
+    const view = branchLineViewOf(c);
+    const vouchers = allVouchers.filter((doc) => lineInView(view, doc.lines[0]?.branchId));
     const supplierName = new Map(suppliers.map((s) => [s.id, s.nameAr]));
     const rows = vouchers.flatMap((doc) => {
       // A reversal's mirror is a confirmed document with the same line; the
@@ -1965,7 +1994,8 @@ export function createReportsRoutes(
     // The subcontract half: the tax was withheld when the certificate was
     // approved for payment, on the certified value, and is owed to the
     // authority from that date whether or not the sub has been paid yet.
-    const certificates = (await deps.subCertificates?.listCertificates()) ?? [];
+    // A subcontract certificate carries no branch, so it is read as «غير مخصص».
+    const certificates = lineInView(view, null) ? ((await deps.subCertificates?.listCertificates()) ?? []) : [];
     for (const certificate of certificates) {
       if (certificate.status !== "approved_for_payment" && certificate.status !== "invoiced") continue;
       const row = certificate.computed.deductions.find((d) => d.key === "withholdingTax");

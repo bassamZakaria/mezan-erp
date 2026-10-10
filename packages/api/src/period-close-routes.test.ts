@@ -23,6 +23,7 @@ import { insecureHeaderAuthContextResolver } from "./permission-gate.js";
 
 const CLOSE = "accounting.period.close";
 const CLOSE_AND_OVERRIDE = `${CLOSE},${PERIOD_CLOSE_OVERRIDE_PERMISSION}`;
+const WILDCARD = "*";
 const REASON = "إقفال مبكر باعتماد المدير المالي";
 const PERIOD_ID = "fp-2026-01";
 const CLOSER = "U-CLOSER";
@@ -339,19 +340,27 @@ describe("locking is held to the same checks, and overriding it takes a second p
     const locks = (await closeEvents()).filter((e) => e.action === "LOCK");
     expect(locks).toHaveLength(1);
     expect(locks[0]).toMatchObject({ actor: SECOND_USER });
-    expect(locks[0]?.details).toMatchObject({ overridden: true, failedChecks: ["drafts"], reason: REASON });
+    expect(locks[0]?.details).toMatchObject({ overridden: true, failedChecks: ["drafts"], reason: REASON, singleOperatorMode: false });
   });
 
-  it("the tenant's single-operator switch lets the closer lock over a failing check; a clean lock never needed a second person", async () => {
-    const { periods, repo, world } = await setup();
+  it("the single-operator switch lets only the wildcard admin lock their own close over a failing check, and the LOCK event says so", async () => {
+    const { periods, repo, world, closeEvents } = await setup();
     await periods.fetch(post(`/${PERIOD_ID}/close`, CLOSE));
     await periods.fetch(post("/fp-2026-02/close", CLOSE));
     expect((await periods.fetch(post("/fp-2026-02/lock", CLOSE))).status).toBe(200);
 
     world.blocking = [PeriodCloseCheckCode.Drafts];
     world.singleOperatorMode = true;
-    expect((await periods.fetch(post(`/${PERIOD_ID}/lock`, CLOSE_AND_OVERRIDE, { overrideReason: REASON }))).status).toBe(200);
+    const notAdmin = await periods.fetch(post(`/${PERIOD_ID}/lock`, CLOSE_AND_OVERRIDE, { overrideReason: REASON }));
+    expect(notAdmin.status).toBe(403);
+    expect(((await notAdmin.json()) as { error: string }).error).toBe("PERIOD_LOCK_OVERRIDE_SAME_USER");
+    expect(await statusOf(repo)).toBe("closed");
+
+    expect((await periods.fetch(post(`/${PERIOD_ID}/lock`, WILDCARD, { overrideReason: REASON }))).status).toBe(200);
     expect(await statusOf(repo)).toBe("locked");
+    const locks = (await closeEvents()).filter((e) => e.action === "LOCK" && e.entityId === PERIOD_ID);
+    expect(locks).toHaveLength(1);
+    expect(locks[0]?.details).toMatchObject({ overridden: true, singleOperatorMode: true });
   });
 
   it("a locked period stays terminal: neither close nor lock reaches the checks, even with an override", async () => {

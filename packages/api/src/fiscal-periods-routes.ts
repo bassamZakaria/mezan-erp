@@ -15,7 +15,7 @@ import {
   type FiscalPeriodRepository,
 } from "@mezan/domain";
 import { generateFiscalYearSchema, periodCloseRequestSchema } from "@mezan/contracts";
-import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
+import { createPermissionGate, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
 import { buildAdminEvent, recordAdminEvent } from "./admin-audit.js";
 import { callerUserId } from "./permission-gate.js";
 import {
@@ -75,7 +75,7 @@ function handleDomainError(c: Context, err: unknown) {
     return c.json({ error: err.code, message: err.message }, 409);
   }
   if (err instanceof InvalidPeriodTransitionError) {
-    return c.json({ error: err.code, message: err.message }, 422);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 422);
   }
   if (err instanceof PeriodCloseRefusal) {
     return c.json(serializePeriodCloseError(err), REFUSAL_STATUS[err.code]);
@@ -161,8 +161,11 @@ export function createFiscalPeriodsRoutes(
       const parsed = periodCloseRequestSchema.safeParse(await readOptionalJson(c));
       if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
       const guard = periodCloseGuard();
-      if (!guard) throw new PeriodCloseChecksUnavailableError(periodId);
-      if (!audit) throw new PeriodCloseUnauditableError(periodId);
+      if (!guard || !audit) {
+        const period = await repo.findById(periodId);
+        if (!period) throw new FiscalPeriodNotFoundError(periodId);
+        throw guard ? new PeriodCloseUnauditableError(period) : new PeriodCloseChecksUnavailableError(period);
+      }
 
       const canOverride = canOverridePeriodClose(c);
       const result = await guard.attempt({
@@ -171,6 +174,7 @@ export function createFiscalPeriodsRoutes(
         overrideReason: parsed.data.overrideReason ?? null,
         canOverride,
         actor: callerUserId(c) ?? "system",
+        wildcardAdmin: getAuthContext(c)?.permissions.has("*") ?? false,
         buildAuditEvent: (input) =>
           buildAdminEvent(c, {
             module: PeriodAudit.Module,
@@ -187,6 +191,7 @@ export function createFiscalPeriodsRoutes(
               failedChecks: input.failedChecks,
               reason: input.overrideReason,
               sha256: input.sha256,
+              singleOperatorMode: input.singleOperatorMode,
             },
           }),
       });

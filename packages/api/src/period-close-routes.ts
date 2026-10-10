@@ -31,6 +31,7 @@ export interface PeriodCloseAuditInput {
   readonly failedChecks: readonly PeriodCloseCheckCode[];
   readonly overrideReason: string | null;
   readonly sha256: string | null;
+  readonly singleOperatorMode: boolean;
 }
 
 export interface PeriodCloseAttempt {
@@ -39,6 +40,7 @@ export interface PeriodCloseAttempt {
   readonly overrideReason: string | null;
   readonly canOverride: boolean;
   readonly actor: string;
+  readonly wildcardAdmin: boolean;
   readonly buildAuditEvent: (input: PeriodCloseAuditInput) => AuditEvent;
 }
 
@@ -161,7 +163,7 @@ export function createPeriodCloseRoutes(deps: PeriodCloseRoutesDeps, resolveAuth
     const period = await deps.periods.findById(c.req.param("periodId"));
     if (!period) return c.json({ error: "NOT_FOUND" }, 404);
     const guard = deps.guard();
-    if (!guard) return c.json(serializePeriodCloseError(new PeriodCloseChecksUnavailableError(period.id)), 503);
+    if (!guard) return c.json(serializePeriodCloseError(new PeriodCloseChecksUnavailableError(period)), 503);
     const evaluation = await guard.evaluate(period);
     return c.json(serializePeriodCloseChecklist(evaluation, period, canOverridePeriodClose(c)));
   });
@@ -170,7 +172,7 @@ export function createPeriodCloseRoutes(deps: PeriodCloseRoutesDeps, resolveAuth
     const period = await deps.periods.findById(c.req.param("periodId"));
     if (!period) return c.json({ error: "NOT_FOUND" }, 404);
     const guard = deps.guard();
-    if (!guard) return c.json(serializePeriodCloseError(new PeriodCloseChecksUnavailableError(period.id)), 503);
+    if (!guard) return c.json(serializePeriodCloseError(new PeriodCloseChecksUnavailableError(period)), 503);
     return c.json((await guard.listSummaries(period.id)).map(serializeSummary));
   });
 

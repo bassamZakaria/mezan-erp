@@ -1,3 +1,6 @@
+import type { FiscalPeriodStatus } from "./fiscal-period.js";
+import { FISCAL_PERIOD_STATUS_LABEL, FISCAL_PERIOD_TRANSITION_REFUSAL, fiscalPeriodLabel, quotedFiscalPeriod, type FiscalPeriodRef, type FiscalPeriodTransition } from "./labels.js";
+
 /** Raised when an operation references a fiscal period id that does not exist. */
 export class FiscalPeriodNotFoundError extends Error {
   readonly code = "FISCAL_PERIOD_NOT_FOUND";
@@ -27,12 +30,17 @@ export class DuplicateFiscalPeriodError extends Error {
  */
 export class InvalidPeriodTransitionError extends Error {
   readonly code = "INVALID_PERIOD_TRANSITION";
+  readonly periodId: string;
+  readonly messageEn: string;
   constructor(
-    readonly periodId: string,
-    readonly fromStatus: string,
-    readonly attemptedTransition: string,
+    period: FiscalPeriodRef,
+    readonly fromStatus: FiscalPeriodStatus,
+    readonly attemptedTransition: FiscalPeriodTransition,
   ) {
-    super(`لا يمكن تنفيذ "${attemptedTransition}" على الفترة المحاسبية "${periodId}" وهي في حالة "${fromStatus}".`);
+    const text = FISCAL_PERIOD_TRANSITION_REFUSAL[attemptedTransition](period, fromStatus);
+    super(text.ar);
+    this.messageEn = text.en;
+    this.periodId = period.id;
     this.name = "InvalidPeriodTransitionError";
   }
 }
@@ -46,11 +54,15 @@ export class InvalidPeriodTransitionError extends Error {
  */
 export class PeriodNotOpenForPostingError extends Error {
   readonly code = "PERIOD_NOT_OPEN_FOR_POSTING";
+  readonly periodId: string;
+  readonly messageEn: string;
   constructor(
-    readonly periodId: string,
-    readonly status: string,
+    period: FiscalPeriodRef,
+    readonly status: FiscalPeriodStatus,
   ) {
-    super(`الفترة المحاسبية "${periodId}" حالتها "${status}" ولا تسمح بالترحيل.`);
+    super(`${quotedFiscalPeriod(period).ar} ${FISCAL_PERIOD_STATUS_LABEL[status].ar} ولا تسمح بالترحيل.`);
+    this.messageEn = `Fiscal period ${fiscalPeriodLabel(period).en} is ${FISCAL_PERIOD_STATUS_LABEL[status].en} and does not accept postings.`;
+    this.periodId = period.id;
     this.name = "PeriodNotOpenForPostingError";
   }
 }

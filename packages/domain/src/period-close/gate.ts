@@ -1,3 +1,4 @@
+import { fiscalPeriodLabel, quotedFiscalPeriod, type FiscalPeriodRef } from "../fiscal-periods/labels.js";
 import { PeriodCloseAction, type PeriodCloseCheckCode } from "./types.js";
 
 export const PERIOD_CLOSE_OVERRIDE_PERMISSION = "accounting.period.override_close";
@@ -28,6 +29,16 @@ export interface PeriodCloseDecisionInput {
   /** Who closed the period being locked; null when no close of it is on record. */
   readonly closedBy: string | null;
   readonly singleOperatorMode: boolean;
+  /** The actor's grant is `"*"`. The single-operator switch waives the second person for this actor only, as it does in contracting. */
+  readonly wildcardAdmin: boolean;
+}
+
+function lockedByItsCloser(input: PeriodCloseDecisionInput): boolean {
+  return input.action === PeriodCloseAction.Lock && (input.closedBy === null || input.closedBy === input.actor);
+}
+
+function singleOperatorWaiver(input: PeriodCloseDecisionInput): boolean {
+  return input.singleOperatorMode && input.wildcardAdmin;
 }
 
 // A lock cannot be undone, so overriding its checks takes a second person: the one who closed the month may not also lock it over a failing check.
@@ -35,32 +46,38 @@ export function decidePeriodClose(input: PeriodCloseDecisionInput): PeriodCloseD
   if (input.blocking.length === 0) return PeriodCloseDecision.Allowed;
   if (input.overrideReason === null) return PeriodCloseDecision.Blocked;
   if (!input.canOverride) return PeriodCloseDecision.OverrideNotPermitted;
-  if (input.action === PeriodCloseAction.Lock && !input.singleOperatorMode && (input.closedBy === null || input.closedBy === input.actor)) {
-    return PeriodCloseDecision.LockOverrideNeedsSecondPerson;
-  }
+  if (lockedByItsCloser(input) && !singleOperatorWaiver(input)) return PeriodCloseDecision.LockOverrideNeedsSecondPerson;
   return PeriodCloseDecision.Overridden;
 }
 
+export function lockedUnderSingleOperatorWaiver(input: PeriodCloseDecisionInput): boolean {
+  return decidePeriodClose(input) === PeriodCloseDecision.Overridden && lockedByItsCloser(input);
+}
+
+type RefusalWording = (period: { readonly ar: string; readonly en: string }) => { readonly ar: string; readonly en: string };
+
 export abstract class PeriodCloseRefusal extends Error {
   abstract readonly code: PeriodCloseErrorCode;
-  constructor(
-    message: string,
-    readonly messageEn: string,
-  ) {
-    super(message);
+  readonly messageEn: string;
+  readonly periodId: string;
+  constructor(period: FiscalPeriodRef, wording: RefusalWording) {
+    const text = wording({ ar: quotedFiscalPeriod(period).ar, en: fiscalPeriodLabel(period).en });
+    super(text.ar);
+    this.messageEn = text.en;
+    this.periodId = period.id;
   }
 }
 
 export class PeriodCloseBlockedError extends PeriodCloseRefusal {
   readonly code = PeriodCloseErrorCode.Blocked;
   constructor(
-    readonly periodId: string,
+    period: FiscalPeriodRef,
     readonly blocking: readonly PeriodCloseCheckCode[],
   ) {
-    super(
-      `لا يمكن إقفال الفترة المحاسبية "${periodId}": عدد فحوص الإقفال غير المكتملة ${blocking.length}. عالجها من مساحة الإقفال أو اطلب تجاوزاً مسبَّباً.`,
-      `Fiscal period "${periodId}" cannot be closed: ${blocking.length} pre-close check(s) are not clear. Resolve them in the close workspace, or ask for an override with a reason.`,
-    );
+    super(period, (name) => ({
+      ar: `لا يمكن إقفال ${name.ar}: عدد فحوص الإقفال غير المكتملة ${blocking.length}. عالجها من مساحة الإقفال أو اطلب تجاوزاً مسبَّباً.`,
+      en: `Fiscal period ${name.en} cannot be closed: ${blocking.length} pre-close check(s) are not clear. Resolve them in the close workspace, or ask for an override with a reason.`,
+    }));
     this.name = "PeriodCloseBlockedError";
   }
 }
@@ -68,13 +85,13 @@ export class PeriodCloseBlockedError extends PeriodCloseRefusal {
 export class PeriodCloseOverrideNotPermittedError extends PeriodCloseRefusal {
   readonly code = PeriodCloseErrorCode.OverrideNotPermitted;
   constructor(
-    readonly periodId: string,
+    period: FiscalPeriodRef,
     readonly blocking: readonly PeriodCloseCheckCode[],
   ) {
-    super(
-      `تجاوز فحوص إقفال الفترة المحاسبية "${periodId}" يتطلب صلاحية «تجاوز فحوص الإقفال» غير المتاحة لحسابك.`,
-      `Overriding the pre-close checks of fiscal period "${periodId}" needs the “override close checks” permission, which your account does not have.`,
-    );
+    super(period, (name) => ({
+      ar: `تجاوز فحوص إقفال ${name.ar} يتطلب صلاحية «تجاوز فحوص الإقفال» غير المتاحة لحسابك.`,
+      en: `Overriding the pre-close checks of fiscal period ${name.en} needs the “override close checks” permission, which your account does not have.`,
+    }));
     this.name = "PeriodCloseOverrideNotPermittedError";
   }
 }
@@ -82,46 +99,46 @@ export class PeriodCloseOverrideNotPermittedError extends PeriodCloseRefusal {
 export class PeriodLockOverrideSameUserError extends PeriodCloseRefusal {
   readonly code = PeriodCloseErrorCode.LockOverrideSameUser;
   constructor(
-    readonly periodId: string,
+    period: FiscalPeriodRef,
     readonly blocking: readonly PeriodCloseCheckCode[],
   ) {
-    super(
-      `قفل الفترة المحاسبية "${periodId}" نهائياً فوق فحوص غير مكتملة يتطلب مستخدماً غير الذي أقفلها. اطلب من مستخدم آخر يملك الصلاحية تنفيذ القفل، أو عالج الفحوص أولاً.`,
-      `Locking fiscal period "${periodId}" over failing checks needs a different user from the one who closed it. Ask another permitted user to lock it, or clear the checks first.`,
-    );
+    super(period, (name) => ({
+      ar: `قفل ${name.ar} نهائياً فوق فحوص غير مكتملة يتطلب مستخدماً غير الذي أقفلها. اطلب من مستخدم آخر يملك الصلاحية تنفيذ القفل، أو عالج الفحوص أولاً.`,
+      en: `Locking fiscal period ${name.en} over failing checks needs a different user from the one who closed it. Ask another permitted user to lock it, or clear the checks first.`,
+    }));
     this.name = "PeriodLockOverrideSameUserError";
   }
 }
 
 export class PeriodCloseChecksUnavailableError extends PeriodCloseRefusal {
   readonly code = PeriodCloseErrorCode.ChecksUnavailable;
-  constructor(readonly periodId: string) {
-    super(
-      `تعذّر تشغيل فحوص إقفال الفترة المحاسبية "${periodId}"، فلا يمكن إقفالها أو قفلها الآن.`,
-      `The pre-close checks for fiscal period "${periodId}" are not available, so it cannot be closed or locked now.`,
-    );
+  constructor(period: FiscalPeriodRef) {
+    super(period, (name) => ({
+      ar: `تعذّر تشغيل فحوص إقفال ${name.ar}، فلا يمكن إقفالها أو قفلها الآن.`,
+      en: `The pre-close checks for fiscal period ${name.en} are not available, so it cannot be closed or locked now.`,
+    }));
     this.name = "PeriodCloseChecksUnavailableError";
   }
 }
 
 export class PeriodCloseUnauditableError extends PeriodCloseRefusal {
   readonly code = PeriodCloseErrorCode.Unauditable;
-  constructor(readonly periodId: string) {
-    super(
-      `تعذّر تسجيل إقفال الفترة المحاسبية "${periodId}" في سجل المراجعة، فلم يُنفَّذ الإقفال.`,
-      `The close of fiscal period "${periodId}" could not be written to the audit trail, so it was not carried out.`,
-    );
+  constructor(period: FiscalPeriodRef) {
+    super(period, (name) => ({
+      ar: `تعذّر تسجيل إقفال ${name.ar} في سجل المراجعة، فلم يُنفَّذ الإقفال.`,
+      en: `The close of fiscal period ${name.en} could not be written to the audit trail, so it was not carried out.`,
+    }));
     this.name = "PeriodCloseUnauditableError";
   }
 }
 
 export class PeriodCloseContendedError extends PeriodCloseRefusal {
   readonly code = PeriodCloseErrorCode.Contended;
-  constructor(readonly periodId: string) {
-    super(
-      `تغيّرت بيانات المنشأة أثناء فحص الفترة المحاسبية "${periodId}". أعد المحاولة بعد لحظات.`,
-      `The books changed while fiscal period "${periodId}" was being checked. Try again in a moment.`,
-    );
+  constructor(period: FiscalPeriodRef) {
+    super(period, (name) => ({
+      ar: `تغيّرت بيانات المنشأة أثناء فحص ${name.ar}. أعد المحاولة بعد لحظات.`,
+      en: `The books changed while fiscal period ${name.en} was being checked. Try again in a moment.`,
+    }));
     this.name = "PeriodCloseContendedError";
   }
 }

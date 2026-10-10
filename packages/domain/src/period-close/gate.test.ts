@@ -9,15 +9,17 @@ import {
   PeriodCloseUnauditableError,
   PeriodLockOverrideSameUserError,
   decidePeriodClose,
+  lockedUnderSingleOperatorWaiver,
 } from "./gate.js";
 import { findSequenceGapsInWindow, seriesRangesInWindow, SequenceSpanTooWideError } from "./sequence-gaps.js";
 import { PeriodCloseAction, PeriodCloseCheckCode } from "./types.js";
 
+const JUNE_PERIOD = { id: "fp-2026-06", year: 2026, periodNumber: 6 };
 const BLOCKING = [PeriodCloseCheckCode.Drafts, PeriodCloseCheckCode.BankStatements];
 const REASON = "اعتماد المدير المالي لإقفال مبكر";
 
-const CLOSE = { action: PeriodCloseAction.Close, actor: "U-1", closedBy: null, singleOperatorMode: false } as const;
-const LOCK = { action: PeriodCloseAction.Lock, actor: "U-1", singleOperatorMode: false } as const;
+const CLOSE = { action: PeriodCloseAction.Close, actor: "U-1", closedBy: null, singleOperatorMode: false, wildcardAdmin: false } as const;
+const LOCK = { action: PeriodCloseAction.Lock, actor: "U-1", singleOperatorMode: false, wildcardAdmin: false } as const;
 
 describe("decidePeriodClose", () => {
   it("allows a clear period, with or without a reason, whoever asks", () => {
@@ -46,24 +48,38 @@ describe("decidePeriodClose", () => {
     expect(decidePeriodClose({ ...override, closedBy: "U-1", canOverride: false })).toBe(PeriodCloseDecision.OverrideNotPermitted);
   });
 
-  it("the tenant's single-operator switch is the only thing that lets the closer lock over a failing check", () => {
+  it("the single-operator switch lets the closer lock over a failing check only when the closer is the wildcard admin", () => {
     const override = { ...LOCK, blocking: BLOCKING, overrideReason: REASON, canOverride: true, closedBy: "U-1" };
-    expect(decidePeriodClose({ ...override, singleOperatorMode: true })).toBe(PeriodCloseDecision.Overridden);
-    expect(decidePeriodClose({ ...override, singleOperatorMode: true, canOverride: false })).toBe(PeriodCloseDecision.OverrideNotPermitted);
+    expect(decidePeriodClose({ ...override, singleOperatorMode: true, wildcardAdmin: true })).toBe(PeriodCloseDecision.Overridden);
+    expect(decidePeriodClose({ ...override, singleOperatorMode: true, wildcardAdmin: false })).toBe(PeriodCloseDecision.LockOverrideNeedsSecondPerson);
+    expect(decidePeriodClose({ ...override, singleOperatorMode: false, wildcardAdmin: true })).toBe(PeriodCloseDecision.LockOverrideNeedsSecondPerson);
+    expect(decidePeriodClose({ ...override, singleOperatorMode: true, wildcardAdmin: true, canOverride: false })).toBe(PeriodCloseDecision.OverrideNotPermitted);
+  });
+
+  it("names the single-operator waiver only when it is what let the lock through", () => {
+    const override = { ...LOCK, blocking: BLOCKING, overrideReason: REASON, canOverride: true, singleOperatorMode: true, wildcardAdmin: true };
+    expect(lockedUnderSingleOperatorWaiver({ ...override, closedBy: "U-1" })).toBe(true);
+    expect(lockedUnderSingleOperatorWaiver({ ...override, closedBy: "U-2" })).toBe(false);
+    expect(lockedUnderSingleOperatorWaiver({ ...override, closedBy: "U-1", blocking: [] })).toBe(false);
+    expect(lockedUnderSingleOperatorWaiver({ ...override, closedBy: "U-1", action: PeriodCloseAction.Close })).toBe(false);
   });
 
   it("every refusal speaks Arabic first, carries an English twin and a stable code", () => {
     const refusals = [
-      new PeriodCloseBlockedError("fp-2026-06", BLOCKING),
-      new PeriodCloseOverrideNotPermittedError("fp-2026-06", BLOCKING),
-      new PeriodLockOverrideSameUserError("fp-2026-06", BLOCKING),
-      new PeriodCloseChecksUnavailableError("fp-2026-06"),
-      new PeriodCloseUnauditableError("fp-2026-06"),
-      new PeriodCloseContendedError("fp-2026-06"),
+      new PeriodCloseBlockedError(JUNE_PERIOD, BLOCKING),
+      new PeriodCloseOverrideNotPermittedError(JUNE_PERIOD, BLOCKING),
+      new PeriodLockOverrideSameUserError(JUNE_PERIOD, BLOCKING),
+      new PeriodCloseChecksUnavailableError(JUNE_PERIOD),
+      new PeriodCloseUnauditableError(JUNE_PERIOD),
+      new PeriodCloseContendedError(JUNE_PERIOD),
     ];
     for (const error of refusals) {
       expect(error.message).toMatch(/[\u0600-\u06FF]/);
       expect(error.messageEn).toMatch(/^[\x20-\x7E“”]+$/);
+      expect(error.message).toContain("«يونيو 2026»");
+      expect(error.messageEn).toContain("June 2026");
+      expect(`${error.message} ${error.messageEn}`).not.toContain("fp-2026-06");
+      expect(error.periodId).toBe("fp-2026-06");
     }
     expect(new Set(refusals.map((e) => e.code)).size).toBe(refusals.length);
     expect(refusals.map((e) => e.code).sort()).toEqual(Object.values(PeriodCloseErrorCode).sort());

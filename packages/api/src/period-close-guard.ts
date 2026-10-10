@@ -12,12 +12,14 @@ import {
   canonicalCloseSummary,
   closePeriod,
   decidePeriodClose,
+  lockedUnderSingleOperatorWaiver,
   lockPeriod,
   type AuditEvent,
   type AuditSink,
   type FiscalPeriod,
   type FiscalPeriodRepository,
   type PeriodCloseCheckCode,
+  type PeriodCloseDecisionInput,
   type PeriodCloseEvaluation,
   type PeriodCloseRefusal,
   type PeriodCloseSummary,
@@ -76,17 +78,17 @@ export interface PeriodCloseGuardDeps {
   readonly commit: ((request: PeriodCloseCommitRequest) => PeriodCloseCommitOutcome) | null;
 }
 
-function refusalFor(decision: PeriodCloseDecision, periodId: string, blocking: readonly PeriodCloseCheckCode[]): PeriodCloseRefusal | null {
+function refusalFor(decision: PeriodCloseDecision, period: FiscalPeriod, blocking: readonly PeriodCloseCheckCode[]): PeriodCloseRefusal | null {
   switch (decision) {
     case PeriodCloseDecision.Allowed:
     case PeriodCloseDecision.Overridden:
       return null;
     case PeriodCloseDecision.Blocked:
-      return new PeriodCloseBlockedError(periodId, blocking);
+      return new PeriodCloseBlockedError(period, blocking);
     case PeriodCloseDecision.OverrideNotPermitted:
-      return new PeriodCloseOverrideNotPermittedError(periodId, blocking);
+      return new PeriodCloseOverrideNotPermittedError(period, blocking);
     case PeriodCloseDecision.LockOverrideNeedsSecondPerson:
-      return new PeriodLockOverrideSameUserError(periodId, blocking);
+      return new PeriodLockOverrideSameUserError(period, blocking);
   }
 }
 
@@ -100,7 +102,7 @@ export function createPeriodCloseGuard(deps: PeriodCloseGuardDeps): PeriodCloseG
     const evaluation = await deps.evaluate(period);
     const overridable = evaluation.blocking.length > 0 && attempt.overrideReason !== null && attempt.canOverride;
     const lockOverride = overridable && attempt.action === PeriodCloseAction.Lock;
-    const decision = decidePeriodClose({
+    const decisionInput: PeriodCloseDecisionInput = {
       action: attempt.action,
       blocking: evaluation.blocking,
       overrideReason: attempt.overrideReason,
@@ -108,8 +110,10 @@ export function createPeriodCloseGuard(deps: PeriodCloseGuardDeps): PeriodCloseG
       actor: attempt.actor,
       closedBy: lockOverride ? await deps.lastClosedBy(period.id) : null,
       singleOperatorMode: lockOverride ? await deps.singleOperatorMode() : false,
-    });
-    const refusal = refusalFor(decision, period.id, evaluation.blocking);
+      wildcardAdmin: attempt.wildcardAdmin,
+    };
+    const decision = decidePeriodClose(decisionInput);
+    const refusal = refusalFor(decision, period, evaluation.blocking);
     if (refusal) return { kind: PeriodCloseAttemptKind.Refused, refusal, period, evaluation };
 
     const overrideReason = decision === PeriodCloseDecision.Overridden ? attempt.overrideReason : null;
@@ -122,6 +126,7 @@ export function createPeriodCloseGuard(deps: PeriodCloseGuardDeps): PeriodCloseG
       failedChecks: overrideReason === null ? [] : evaluation.blocking,
       overrideReason,
       sha256: summary?.sha256 ?? null,
+      singleOperatorMode: lockedUnderSingleOperatorWaiver(decisionInput),
     });
     const outcome = commit({ changeToken, periodId: period.id, fromStatus: period.status, toStatus: next.status, summary, auditEvent });
     return outcome === PeriodCloseCommitOutcome.Committed ? { kind: PeriodCloseAttemptKind.Done, period: next } : null;
@@ -132,12 +137,14 @@ export function createPeriodCloseGuard(deps: PeriodCloseGuardDeps): PeriodCloseG
     listSummaries: deps.listSummaries,
     async attempt(attempt) {
       const { commit } = deps;
-      if (!commit) throw new PeriodCloseUnauditableError(attempt.periodId);
+      const requested = await deps.periods.findById(attempt.periodId);
+      if (!requested) throw new FiscalPeriodNotFoundError(attempt.periodId);
+      if (!commit) throw new PeriodCloseUnauditableError(requested);
       for (let tries = 0; tries < MAX_ATTEMPTS; tries += 1) {
         const result = await attemptOnce(attempt, commit);
         if (result) return result;
       }
-      throw new PeriodCloseContendedError(attempt.periodId);
+      throw new PeriodCloseContendedError(requested);
     },
   };
 }
@@ -167,7 +174,7 @@ export function uncheckedPeriodCloseGuardForTests(repo: FiscalPeriodRepository, 
       const next = TRANSITION[attempt.action](period);
       await repo.update(next);
       await audit?.append(
-        attempt.buildAuditEvent({ action: attempt.action, period: next, previousStatus: period.status, failedChecks: [], overrideReason: null, sha256: null }),
+        attempt.buildAuditEvent({ action: attempt.action, period: next, previousStatus: period.status, failedChecks: [], overrideReason: null, sha256: null, singleOperatorMode: false }),
       );
       return { kind: PeriodCloseAttemptKind.Done, period: next };
     },

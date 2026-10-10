@@ -42,9 +42,9 @@ const entry = {
 
 describe("fiscal-period posting gate", () => {
   it("assertOpenForPosting allows an open period and blocks closed/locked ones", () => {
-    expect(() => assertOpenForPosting({ id: "p", status: "open" })).not.toThrow();
-    expect(() => assertOpenForPosting({ id: "p", status: "closed" })).toThrow(PeriodNotOpenForPostingError);
-    expect(() => assertOpenForPosting({ id: "p", status: "locked" })).toThrow(PeriodNotOpenForPostingError);
+    expect(() => assertOpenForPosting({ id: "p", year: 2026, periodNumber: 8, status: "open" })).not.toThrow();
+    expect(() => assertOpenForPosting({ id: "p", year: 2026, periodNumber: 8, status: "closed" })).toThrow(PeriodNotOpenForPostingError);
+    expect(() => assertOpenForPosting({ id: "p", year: 2026, periodNumber: 8, status: "locked" })).toThrow(PeriodNotOpenForPostingError);
   });
 
   it("posts into an open period", async () => {

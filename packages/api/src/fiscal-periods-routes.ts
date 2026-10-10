@@ -155,23 +155,24 @@ export function createFiscalPeriodsRoutes(
       }
       if (verdict.kind === PeriodCloseVerdictKind.Refuse) return c.json(verdict.body, verdict.status);
 
-      const period = await transition.apply(before.id, repo);
-      await auditPeriod(c, period, action, before.status);
+      // The override is recorded BEFORE the period moves: an override the trail could not take must not happen.
       if (verdict.overrideReason !== null) {
         await recordAdminEvent(audit, c, {
           module: "accounting",
           entityType: "FISCAL_PERIOD",
-          entityId: period.id,
+          entityId: before.id,
           action: `${action}_OVERRIDE`,
           severity: "WARNING",
           details: {
-            year: period.year,
-            periodNumber: period.periodNumber,
+            year: before.year,
+            periodNumber: before.periodNumber,
             failedChecks: verdict.overriddenChecks,
             reason: verdict.overrideReason,
           },
         });
       }
+      const period = await transition.apply(before.id, repo);
+      await auditPeriod(c, period, action, before.status);
       if (action === GuardedPeriodAction.Close && verdict.evaluation) {
         await periodCloseGuardFor(repo)?.recordClose({
           period,

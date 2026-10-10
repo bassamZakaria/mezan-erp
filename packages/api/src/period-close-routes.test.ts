@@ -141,6 +141,19 @@ describe("closing a period runs the pre-close checks (D176 C-3)", () => {
     expect(override).toMatchObject({ severity: "WARNING", entityType: "FISCAL_PERIOD", entityId: PERIOD_ID, actor: "U-CLOSER" });
     expect(override?.details).toMatchObject({ failedChecks: ["bank_statements", "depreciation"], reason: REASON, year: 2026, periodNumber: 1 });
     expect(guard.closes[0]).toMatchObject({ overrideReason: REASON });
+    expect(audit.events.map((e) => e.action)).toEqual(["CLOSE_OVERRIDE", "CLOSE"]);
+  });
+
+  it("does not close over a failing check when the override cannot be written to the audit trail", async () => {
+    const { periods, repo, guard, audit } = await setup();
+    guard.blocking = [PeriodCloseCheckCode.Drafts];
+    audit.append = async () => {
+      throw new Error("audit store unavailable");
+    };
+    const res = await periods.request(post(`/${PERIOD_ID}/close`, CLOSE_AND_OVERRIDE, { overrideReason: REASON }));
+    expect(res.status).toBe(500);
+    expect(await statusOf(repo)).toBe("open");
+    expect(guard.closes).toEqual([]);
   });
 
   it("rejects a reason too short to be one, and a body that tries to supply its own verdict", async () => {

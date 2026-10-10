@@ -20,6 +20,7 @@ interface SeriesBucket {
   width: number;
   readonly used: Set<number>;
   readonly inWindow: number[];
+  readonly before: number[];
 }
 
 export interface ParsedDocumentNumber {
@@ -80,12 +81,13 @@ export function findSequenceGapsInWindow(documents: readonly NumberedDocument[],
     const key = JSON.stringify([prefix, suffix]);
     let bucket = buckets.get(key);
     if (!bucket) {
-      bucket = { prefix, suffix, width, used: new Set(), inWindow: [] };
+      bucket = { prefix, suffix, width, used: new Set(), inWindow: [], before: [] };
       buckets.set(key, bucket);
     }
     bucket.width = Math.min(bucket.width, width);
     bucket.used.add(value);
     if (doc.date >= window.startDate && doc.date <= window.endDate) bucket.inWindow.push(value);
+    else if (doc.date < window.startDate) bucket.before.push(value);
   }
 
   const gaps: SeriesGap[] = [];
@@ -93,10 +95,18 @@ export function findSequenceGapsInWindow(documents: readonly NumberedDocument[],
     if (bucket.inWindow.length === 0) continue;
     let low = bucket.inWindow[0] ?? 0;
     let high = low;
+    let previous: number | null = null;
     for (const value of bucket.inWindow) {
       if (value < low) low = value;
       if (value > high) high = value;
     }
+    // The month's first number follows the last one issued before it. Without
+    // this anchor a number skipped exactly at a month boundary sat between two
+    // windows and was reported in neither.
+    for (const value of bucket.before) {
+      if (value < low && (previous === null || value > previous)) previous = value;
+    }
+    if (previous !== null) low = previous;
     const series = `${bucket.prefix}${SERIES_PLACEHOLDER}${bucket.suffix}`;
     if (high - low > MAX_SPAN) throw new SequenceSpanTooWideError(series, high - low);
     const missing: string[] = [];

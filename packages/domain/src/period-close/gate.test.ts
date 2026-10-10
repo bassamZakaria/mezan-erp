@@ -93,6 +93,35 @@ describe("decidePeriodClose", () => {
   });
 });
 
+describe("findSequenceGapsInWindow — the boundary between two months", () => {
+  const FEBRUARY = { startDate: "2026-02-01", endDate: "2026-02-28" };
+  const documents = [
+    { number: "INV-0009", date: "2026-01-20" },
+    { number: "INV-0010", date: "2026-01-31" },
+    { number: "INV-0013", date: "2026-02-02" },
+    { number: "INV-0014", date: "2026-02-11" },
+  ];
+
+  it("anchors on the last number dated before the month, so numbers skipped at the boundary belong to the month that follows", () => {
+    expect(findSequenceGapsInWindow(documents, FEBRUARY)).toEqual([{ series: "INV-#", missing: ["INV-0011", "INV-0012"] }]);
+    expect(findSequenceGapsInWindow(documents, { startDate: "2026-01-01", endDate: "2026-01-31" })).toEqual([]);
+  });
+
+  it("is not a gap when the skipped numbers exist with any other date", () => {
+    const filled = [...documents, { number: "INV-0011", date: "2026-03-01" }, { number: "INV-0012", date: "2026-01-05" }];
+    expect(findSequenceGapsInWindow(filled, FEBRUARY)).toEqual([]);
+  });
+
+  it("ignores an earlier-dated document numbered above the month's first — that is back-dating, not the previous number", () => {
+    const backdated = [{ number: "INV-0050", date: "2026-01-10" }, { number: "INV-0013", date: "2026-02-02" }, { number: "INV-0014", date: "2026-02-11" }];
+    expect(findSequenceGapsInWindow(backdated, FEBRUARY)).toEqual([]);
+  });
+
+  it("names the anchor a store has to fetch: the series' range in the month", () => {
+    expect(seriesRangesInWindow(documents, FEBRUARY)).toEqual([{ prefix: "INV-", suffix: "", low: 13, high: 14 }]);
+  });
+});
+
 describe("findSequenceGapsInWindow", () => {
   const JUNE = { startDate: "2026-06-01", endDate: "2026-06-30" };
 

@@ -387,8 +387,14 @@ function createQueries(sqlite: Database.Database): PeriodCloseQueries {
         const outsideWindow = sqlite.prepare(
           `${select} AND substr(${column}, 1, ?) = ? AND CAST(substr(${column}, ?) AS INTEGER) BETWEEN ? AND ? AND NOT (date >= ? AND date < ?)`,
         );
+        const previousNumber = sqlite.prepare(
+          `SELECT MAX(CAST(substr(${column}, ?) AS INTEGER)) AS value FROM ${source.table}
+            WHERE ${column} IS NOT NULL AND ${column} <> ''${typeClause} AND substr(${column}, 1, ?) = ? AND CAST(substr(${column}, ?) AS INTEGER) < ? AND date < ?`,
+        );
         for (const range of seriesRangesInWindow(documents, window)) {
-          const rows = outsideWindow.all(...typeParams, range.prefix.length, range.prefix, range.prefix.length + 1, range.low, range.high, from, before);
+          const digitsAt = range.prefix.length + 1;
+          const previous = (previousNumber.get(digitsAt, ...typeParams, range.prefix.length, range.prefix, digitsAt, range.low, from) as { value: number | null }).value;
+          const rows = outsideWindow.all(...typeParams, range.prefix.length, range.prefix, digitsAt, previous ?? range.low, range.high, from, before);
           documents.push(...(rows as NumberedDocument[]));
         }
         return [{ kind: source.kind, documents }];

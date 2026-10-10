@@ -122,6 +122,25 @@ describe("period-close checks read the real tables (ENH-E1-04)", () => {
     expect((await check("07", "sequence_gaps")).status).toBe("pass");
   });
 
+  it("a number skipped across a month boundary is reported in the month that follows it, and in no other", async () => {
+    const { sqlite, check } = await world();
+    journal(sqlite, "b9", "JE-000009", "2026-01-28");
+    journal(sqlite, "b10", "JE-000010", "2026-01-31");
+    journal(sqlite, "b13", "JE-000013", "2026-02-02");
+    journal(sqlite, "b14", "JE-000014", "2026-02-20");
+    journal(sqlite, "b15", "JE-000015", "2026-03-03");
+
+    expect((await check("01", "sequence_gaps")).status).toBe("pass");
+    const february = await check("02", "sequence_gaps");
+    expect(february.status).toBe("fail");
+    expect(february.findings.map((f) => [f.ref, f.count, f.items])).toEqual([["journal_entry:JE-#", 2, ["JE-000011", "JE-000012"]]]);
+    expect((await check("03", "sequence_gaps")).status).toBe("pass");
+
+    journal(sqlite, "b11", "JE-000011", "2026-03-05");
+    journal(sqlite, "b12", "JE-000012", "2026-01-15");
+    expect((await check("02", "sequence_gaps")).status).toBe("pass");
+  });
+
   it("orders a series by NUMBER once it outgrows its padding", async () => {
     const { sqlite, check } = await world();
     journal(sqlite, "p1", "PV-9999", "2026-06-29");

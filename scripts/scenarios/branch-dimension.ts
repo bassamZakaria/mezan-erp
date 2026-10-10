@@ -147,6 +147,12 @@ export async function run(ctx: Ctx): Promise<void> {
     const reconciliation = await req("GET", "/reconciliation", undefined, ALEX_GRANT);
     check("so is the sub-ledger reconciliation", reconciliation.status === 403, `status ${reconciliation.status}`);
 
+    const narrowedAdmin = { "x-branch-scope": MAIN };
+    const adminVat = await req("GET", "/financial-reports/vat-return", undefined, narrowedAdmin);
+    check("but an all-branches user who only picked a branch in the shell still gets the VAT return", adminVat.status === 200, `status ${adminVat.status}`);
+    const adminReconciliation = await req("GET", "/reconciliation", undefined, narrowedAdmin);
+    check("and the reconciliation", adminReconciliation.status === 200, `status ${adminReconciliation.status}`);
+
     const journal = (id: string, branchId: string) => ({
       id,
       date: today,

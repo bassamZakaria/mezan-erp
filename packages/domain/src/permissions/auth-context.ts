@@ -34,6 +34,11 @@ export interface AuthContextInput {
   readonly branchScope: ScopeSelection;
   readonly warehouseScope: ScopeSelection;
   /**
+   * The branches the SESSION was granted, before the request's own
+   * `x-branch-scope` narrowed them. Defaults to `branchScope`.
+   */
+  readonly branchGrant?: ScopeSelection;
+  /**
    * False when the request carried no session the server recognises.
    *
    * Distinct from holding no permissions: a signed-in user with an empty role
@@ -53,6 +58,13 @@ export interface AuthContext {
   readonly roleCodes: ReadonlySet<string>;
   readonly branchScope: ScopeSelection;
   readonly warehouseScope: ScopeSelection;
+  /**
+   * What the session was GRANTED, as opposed to `branchScope`, which is that
+   * grant after the shell's branch selector narrowed it for this request. A
+   * rule about who the caller IS reads this; a rule about what this request
+   * shows reads `branchScope`.
+   */
+  readonly branchGrant: ScopeSelection;
   /** False only for a caller the server could not identify at all. */
   readonly authenticated: boolean;
 }
@@ -73,6 +85,7 @@ export function createAuthContext(input: AuthContextInput): AuthContext {
     roleCodes: new Set(input.roleCodes ?? []),
     branchScope: input.branchScope,
     warehouseScope: input.warehouseScope,
+    branchGrant: input.branchGrant ?? input.branchScope,
     // Defaults to true so every existing caller — the header resolver, the
     // seed's minted grants, every test fake — keeps meaning "this is someone".
     authenticated: input.authenticated ?? true,

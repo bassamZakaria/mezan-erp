@@ -321,6 +321,16 @@ export function branchScopeOf(c: Context): readonly string[] | undefined {
   return !scope || scope === ALL_SCOPE ? undefined : scope;
 }
 
+/**
+ * The branches the SESSION was granted, or `undefined` for all of them — as
+ * opposed to {@link branchScopeOf}, which is that grant after the shell's
+ * branch selector narrowed it for this one request.
+ */
+export function branchGrantOf(c: Context): readonly string[] | undefined {
+  const grant = getAuthContext(c)?.branchGrant;
+  return !grant || grant === ALL_SCOPE ? undefined : grant;
+}
+
 /** Narrows `rows` to the scope, by whichever key carries the id. Returns `rows` untouched when unscoped. */
 export function withinScope<T>(rows: readonly T[], scope: readonly string[] | undefined, idOf: (row: T) => string | null | undefined): readonly T[] {
   if (!scope) return rows;

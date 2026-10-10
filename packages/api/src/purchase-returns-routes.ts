@@ -223,39 +223,75 @@ export function createPurchaseReturnsRoutes(
       const refusal = refuseInconsistentLine(line, await lookupInvoice(requestInvoices, line.sourceInvoiceId));
       if (refusal) return c.json(refusal, 422);
     }
-    try {
-      // Every figure is read off the invoice (D214): cost, the line's share of
-      // the VAT it actually carried, its rate, what is still returnable and the
-      // currency and rate it confirmed at (D203). The inventory credit comes
-      // from what the stock ledger removes at confirm (D47). The project and
-      // cost category are the caller's to state, and inherit the invoice's
-      // when they are not (D-01).
-      const lines = await Promise.all(parsed.data.lines.map(async (l) => {
-        const invoice = await lookupInvoice(requestInvoices, l.sourceInvoiceId);
-        const claimed: PurchaseReturnLine = {
+    // INVARIANT: every line a request raises against one invoice is derived
+    // in ONE call, so two lines naming the same invoice line are matched to it
+    // together and their total is what `validate` sees. Cost, tax, rate, what
+    // is returnable and the currency are the invoice's (D214, D203); the
+    // project and cost category are the caller's, inherited when unstated.
+    type RequestLine = (typeof parsed.data.lines)[number];
+    type StatedLine = RequestLine & { availableQty: string; unitCost: string; taxAmount: string };
+    const statesItsFigures = (l: RequestLine): l is StatedLine =>
+      l.availableQty !== undefined && l.unitCost !== undefined && l.taxAmount !== undefined;
+    const claimedOf = (l: StatedLine): PurchaseReturnLine => ({
+      itemId: l.itemId,
+      warehouseId: l.warehouseId,
+      supplierId: l.supplierId,
+      sourceInvoiceId: l.sourceInvoiceId,
+      sourceInvoiceNumber: l.sourceInvoiceNumber,
+      sourceLineId: l.sourceLineId ?? null,
+      reason: l.reason,
+      availableQty: Qty.fromMajor(l.availableQty),
+      qty: Qty.fromMajor(l.qty),
+      unitCost: Money.fromMajor(l.unitCost),
+      taxAmount: Money.fromMajor(l.taxAmount),
+      taxRatePercent: l.taxRatePercent ?? null,
+      projectId: parsed.data.projectId ?? null,
+      costCategory: l.costCategory ?? null,
+    });
+    const lines: PurchaseReturnLine[] = [];
+    for (const sourceInvoiceId of new Set(parsed.data.lines.map((l) => l.sourceInvoiceId))) {
+      const ofInvoice = parsed.data.lines.filter((l) => l.sourceInvoiceId === sourceInvoiceId);
+      const invoice = await lookupInvoice(requestInvoices, sourceInvoiceId);
+      if (!invoice) {
+        if (!ofInvoice.every(statesItsFigures)) {
+          return c.json(
+            {
+              error: "RETURN_FIGURES_REQUIRED",
+              message: "تعذّر قراءة الفاتورة المصدر؛ يجب إرسال تكلفة البند وضريبته والكمية المتاحة للإرجاع.",
+            },
+            422,
+          );
+        }
+        lines.push(...ofInvoice.filter(statesItsFigures).map(claimedOf));
+        continue;
+      }
+      const first = ofInvoice[0] as RequestLine;
+      const built = buildPurchaseReturnLinesFromInvoice(
+        invoice,
+        first.warehouseId,
+        first.reason,
+        ofInvoice.map((l) => ({
           itemId: l.itemId,
-          warehouseId: l.warehouseId,
-          supplierId: l.supplierId,
-          sourceInvoiceId: l.sourceInvoiceId,
-          sourceInvoiceNumber: l.sourceInvoiceNumber,
-          reason: l.reason,
-          availableQty: Qty.fromMajor(l.availableQty),
+          sourceLineId: l.sourceLineId ?? null,
           qty: Qty.fromMajor(l.qty),
-          unitCost: Money.fromMajor(l.unitCost),
-          taxAmount: Money.fromMajor(l.taxAmount),
-          taxRatePercent: l.taxRatePercent ?? null,
-          projectId: parsed.data.projectId ?? null,
-          costCategory: l.costCategory ?? null,
-        };
-        if (!invoice) return claimed;
-        const [derived] = buildPurchaseReturnLinesFromInvoice(invoice, l.warehouseId, l.reason, [{ itemId: l.itemId, sourceLineId: l.sourceLineId ?? null, qty: claimed.qty }]);
-        if (!derived) return { ...claimed, availableQty: Qty.zero() };
-        return {
-          ...derived,
-          projectId: parsed.data.projectId ?? derived.projectId ?? null,
-          costCategory: l.costCategory ?? derived.costCategory ?? null,
-        };
-      }));
+          reason: l.reason,
+          warehouseId: l.warehouseId,
+          costCategory: l.costCategory ?? undefined,
+        })),
+      );
+      if (built.unmatched.length > 0) {
+        return c.json(
+          {
+            error: "RETURN_LINE_NOT_ON_INVOICE",
+            message: "أحد بنود المرتجع غير موجود في الفاتورة المصدر.",
+            unmatched: built.unmatched.map((u) => ({ itemId: u.itemId, sourceLineId: u.sourceLineId ?? null })),
+          },
+          422,
+        );
+      }
+      lines.push(...built.lines.map((line) => ({ ...line, projectId: parsed.data.projectId ?? line.projectId ?? null })));
+    }
+    try {
       const doc = await service.createDraft({
         id: parsed.data.id,
         date: await tenantDay(c, parsed.data.date),

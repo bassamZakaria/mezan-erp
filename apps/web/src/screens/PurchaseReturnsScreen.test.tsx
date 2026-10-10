@@ -225,7 +225,7 @@ describe("PurchaseReturnsScreen", () => {
     await within(detail).findByText("ملغي");
   });
 
-  it("editing quantities across two real lines computes each line's own unitCost/taxAmount from the source invoice, and reaches the request exactly", async () => {
+  it("editing quantities across two real lines sends each line's own source line and quantity — and no cost, tax or returnable quantity, which the server reads off the invoice", async () => {
     let createdBody: Record<string, unknown> | undefined;
     const transport = stubTransport({
       ...baseHandlers([]),
@@ -258,14 +258,46 @@ describe("PurchaseReturnsScreen", () => {
     expect(lines).toEqual([
       {
         itemId: "item-cement", warehouseId: "MAIN-WH", supplierId: "sup-1", sourceInvoiceId: "pi-1",
-        sourceInvoiceNumber: "PI-000001", sourceLineId: "0", reason: "DEFECTIVE", availableQty: "20.000000", qty: "4",
-        unitCost: "85.000000", taxAmount: "47.600000",
+        sourceInvoiceNumber: "PI-000001", sourceLineId: "0", reason: "DEFECTIVE", qty: "4",
       },
       {
         itemId: "item-brick", warehouseId: "MAIN-WH", supplierId: "sup-1", sourceInvoiceId: "pi-1",
-        sourceInvoiceNumber: "PI-000001", sourceLineId: "1", reason: "DEFECTIVE", availableQty: "40.000000", qty: "2",
-        unitCost: "35.000000", taxAmount: "9.800000",
+        sourceInvoiceNumber: "PI-000001", sourceLineId: "1", reason: "DEFECTIVE", qty: "2",
       },
+    ]);
+  });
+
+  it("«إضافة بند» starts the new row on the next invoice line once the rows above take the whole of the first — never the same line twice by default", async () => {
+    let createdBody: Record<string, unknown> | undefined;
+    const transport = stubTransport({
+      ...baseHandlers([]),
+      "POST /purchase-returns": (init) => {
+        createdBody = JSON.parse((init?.body as string) ?? "{}");
+        const created = purchaseReturn({ id: (createdBody as { id: string }).id, docNo: null, status: "draft" });
+        return { status: 201, body: created };
+      },
+    });
+    renderWithProviders(
+      <WithSubPageNav>
+        <PurchaseReturnsScreen />
+      </WithSubPageNav>,
+      { transport, initialSession: testAdminSession },
+    );
+    await screen.findByText("لا توجد مرتجعات — أنشئ مرتجعاً جديداً");
+    fireEvent.click(screen.getAllByRole("button", { name: "مرتجع جديد" })[0]!);
+    await screen.findByRole("heading", { name: "مرتجع مشتريات جديد" });
+
+    // أسمنت was invoiced 20: returning all 20 leaves that line nothing.
+    fireEvent.change(qtyInputAt(0), { target: { value: "20" } });
+    fireEvent.click(screen.getByRole("button", { name: "إضافة بند" }));
+    fireEvent.change(qtyInputAt(1), { target: { value: "2" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "حفظ كمسودة" }));
+    await waitFor(() => expect(createdBody).toBeDefined());
+    const lines = createdBody!.lines as Array<Record<string, unknown>>;
+    expect(lines.map((l) => [l.itemId, l.sourceLineId, l.qty])).toEqual([
+      ["item-cement", "0", "20"],
+      ["item-brick", "1", "2"],
     ]);
   });
 
@@ -303,8 +335,7 @@ describe("PurchaseReturnsScreen", () => {
     expect(lines).toEqual([
       {
         itemId: "item-brick", warehouseId: "MAIN-WH", supplierId: "sup-1", sourceInvoiceId: "pi-1",
-        sourceInvoiceNumber: "PI-000001", sourceLineId: "1", reason: "DEFECTIVE", availableQty: "40.000000", qty: "6",
-        unitCost: "35.000000", taxAmount: "29.400000",
+        sourceInvoiceNumber: "PI-000001", sourceLineId: "1", reason: "DEFECTIVE", qty: "6",
       },
     ]);
   });

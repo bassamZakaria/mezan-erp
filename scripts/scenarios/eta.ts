@@ -722,6 +722,112 @@ export async function zeroPercentIsNeverInferred_D79(ctx: Ctx): Promise<void> {
       `draft ${again.status} confirm ${againConfirmed.status} ${JSON.stringify(againConfirmed.body).slice(0, 200)}`,
     );
   });
+
+  await scenario("d79j · one return cannot take an invoice line twice, two drafts against a line cannot both confirm, and a line the invoice does not carry is refused by name", async () => {
+    const { scaled } = ctx;
+    const window = `periodFrom=2020-01-01&periodTo=${ctx.today}`;
+    const net = async (accountId: string): Promise<bigint> => {
+      const totals = (await req("GET", `/financial-reports/account-ledger?accountId=${accountId}&${window}`)).body?.grandTotals;
+      return (scaled(totals?.debit) ?? 0n) - (scaled(totals?.credit) ?? 0n);
+    };
+    const pounds = (major: number): bigint => BigInt(major * 100) * 10_000n;
+    const ARABIC = /[\u0600-\u06FF]/;
+    const vat = listed.find((r: any) => r.rate === VAT && r.status === "active");
+
+    const sale = await req("POST", "/sales-invoices", {
+      id: "SCN-D79-SUM", date: TODAY, dueDate: "2026-09-23", customerId: CUSTOMER, customerNameAr: "عميل", warehouseId: WH, branchId: BRANCH,
+      arAccountId: AR, taxAccountId: OUTPUT_TAX,
+      lines: [{ lineId: "SCN-D79-SUM-L1", itemId: "ITEM-DEMO-10", itemNameAr: "خدمة", isStock: false, qty: "3", unitPrice: "100", taxRateId: vat?.id, revenueAccountId: REVENUE }],
+    });
+    const saleConfirmed = sale.status === 201 ? await req("POST", "/sales-invoices/SCN-D79-SUM/confirm", {}) : sale;
+    check("three units are sold on one line at 14%", saleConfirmed.status === 200, `${sale.status}/${saleConfirmed.status} ${JSON.stringify(saleConfirmed.body).slice(0, 200)}`);
+    const arBefore = await net(AR);
+    const vatBefore = await net(OUTPUT_TAX);
+
+    const fromInvoice = (id: string, requested: unknown[]) =>
+      req("POST", "/sales-returns/from-invoice", { id, date: TODAY, memo: "مرتجع (سيناريو D79j)", warehouseId: WH, sourceInvoiceId: "SCN-D79-SUM", reason: "DEFECTIVE", requested });
+    const l1 = (qty: string) => ({ itemId: "ITEM-DEMO-10", sourceLineId: "SCN-D79-SUM-L1", qty });
+
+    const twice = await fromInvoice("SCN-D79-SUM-TWICE", [l1("3"), l1("3")]);
+    check("«مرتجع من فاتورة» naming the line twice — 3 + 3 against 3 sold — is refused 422", twice.status === 422, `${twice.status} ${JSON.stringify(twice.body).slice(0, 200)}`);
+    check("the refusal is in Arabic and states the total it added up", ARABIC.test(String(twice.body?.message ?? "")) && String(twice.body?.message ?? "").includes("6.000000"), String(twice.body?.message));
+
+    const raw = (qty: string) => ({
+      itemId: "ITEM-DEMO-10", warehouseId: WH, customerId: CUSTOMER, sourceInvoiceId: "SCN-D79-SUM", sourceInvoiceNumber: null, sourceLineId: "SCN-D79-SUM-L1",
+      reason: "DEFECTIVE", availableQty: "3", qty, unitPrice: "100", unitCost: "0", taxAmount: "0",
+    });
+    const twiceRaw = await req("POST", "/sales-returns", { id: "SCN-D79-SUM-TWICE-RAW", date: TODAY, memo: "", lines: [raw("3"), raw("3")] });
+    check("the raw POST / shape naming the line twice is refused too", twiceRaw.status === 422, `${twiceRaw.status} ${JSON.stringify(twiceRaw.body).slice(0, 200)}`);
+
+    const foreign = await fromInvoice("SCN-D79-SUM-FOREIGN", [l1("1"), { itemId: "ITEM-DEMO-10", sourceLineId: "SCN-D79-NO-SUCH-LINE", qty: "1" }]);
+    check(
+      "a requested line the invoice does not carry refuses the whole return as RETURN_LINE_NOT_ON_INVOICE, in Arabic — it is not dropped while the rest is drafted",
+      foreign.status === 422 && foreign.body?.error === "RETURN_LINE_NOT_ON_INVOICE" && ARABIC.test(String(foreign.body?.message ?? "")),
+      `${foreign.status} ${JSON.stringify(foreign.body).slice(0, 200)}`,
+    );
+    const foreignRaw = await req("POST", "/sales-returns", { id: "SCN-D79-SUM-FOREIGN-RAW", date: TODAY, memo: "", lines: [{ ...raw("1"), sourceLineId: "SCN-D79-NO-SUCH-LINE" }] });
+    check("on POST / the same line id answers the same code, not «exceeds available (0)»", foreignRaw.status === 422 && foreignRaw.body?.error === "RETURN_LINE_NOT_ON_INVOICE", `${foreignRaw.status} ${JSON.stringify(foreignRaw.body).slice(0, 200)}`);
+    check("nothing has moved AR or 2200 so far", (await net(AR)) === arBefore && (await net(OUTPUT_TAX)) === vatBefore, `ar ${(await net(AR)) - arBefore} vat ${(await net(OUTPUT_TAX)) - vatBefore}`);
+
+    const draftA = await fromInvoice("SCN-D79-SUM-A", [l1("3")]);
+    const draftB = await fromInvoice("SCN-D79-SUM-B", [l1("3")]);
+    check("two drafts are raised against the same line, each for all three", draftA.status === 201 && draftB.status === 201, `${draftA.status}/${draftB.status}`);
+    const confirmA = await req("POST", "/sales-returns/SCN-D79-SUM-A/confirm", {});
+    check("the first confirms", confirmA.status === 200, JSON.stringify(confirmA.body).slice(0, 200));
+    const confirmB = await req("POST", "/sales-returns/SCN-D79-SUM-B/confirm", {});
+    check("the second is refused at confirm — what is returnable is read again from posted documents", confirmB.status === 422 && ARABIC.test(String(confirmB.body?.message ?? "")), `${confirmB.status} ${JSON.stringify(confirmB.body).slice(0, 200)}`);
+    check("and stays a draft", (await req("GET", "/sales-returns/SCN-D79-SUM-B")).body?.status === "draft");
+    const arMoved = (await net(AR)) - arBefore;
+    const vatMoved = (await net(OUTPUT_TAX)) - vatBefore;
+    check("AR was credited once: 300.00 + 42.00", arMoved === -pounds(342), `moved ${arMoved} (scaled 1e-6)`);
+    check("and 2200 was reversed once: 42.00", vatMoved === pounds(42), `moved ${vatMoved} (scaled 1e-6)`);
+    await req("POST", "/sales-returns/SCN-D79-SUM-B/cancel", {});
+
+    const balances = await Promise.all(
+      ["ITEM-DEMO-2", "ITEM-DEMO-3", "ITEM-DEMO-4"].map(async (itemId) => ({ itemId, ...(await req("GET", `/inventory/balance?itemId=${itemId}&warehouseId=${WH}`)).body })),
+    );
+    const exact = balances.find((b: any) => {
+      const onHand = scaled(b.onHand);
+      const average = scaled(b.averageCost);
+      const value = scaled(b.totalValue);
+      return onHand !== null && average !== null && value !== null && onHand > 0n && average % 10_000n === 0n && onHand * average === value * 1_000_000n;
+    });
+    check("a seeded stock item stands at a whole-piastre average, so buying and returning at that cost leaves its position as found", Boolean(exact), JSON.stringify(balances.map((b: any) => [b.itemId, b.onHand, b.averageCost, b.totalValue])));
+    if (!exact) return;
+    const SUPPLIER = "SUPP-DEMO-1";
+    const AP = "2100";
+    const INPUT_TAX = "1400";
+    const onHandOf = async (): Promise<bigint> => scaled((await req("GET", `/inventory/balance?itemId=${exact.itemId}&warehouseId=${WH}`)).body?.onHand) ?? 0n;
+    const purchase = await req("POST", "/purchases/invoices", {
+      id: "SCN-D79-SUM-PI", supplierId: SUPPLIER, date: TODAY, dueDate: "2026-09-23", branchId: BRANCH, warehouseId: WH,
+      lines: [{ itemId: exact.itemId, kind: "inventory", qty: "3", unitCost: String(exact.averageCost), taxRateId: vat?.id }],
+    });
+    const purchaseConfirmed = purchase.status === 201 ? await req("POST", "/purchases/invoices/SCN-D79-SUM-PI/confirm", {}) : purchase;
+    check("three units are bought on one line at 14%", purchaseConfirmed.status === 200, `${purchase.status}/${purchaseConfirmed.status} ${JSON.stringify(purchaseConfirmed.body).slice(0, 200)}`);
+    const apBefore = await net(AP);
+    const inputBefore = await net(INPUT_TAX);
+    const stockBefore = await onHandOf();
+    const lineCost = (scaled(exact.averageCost) ?? 0n) * 3n;
+    const lineTax = (lineCost * 14n) / 100n;
+
+    const back = (qty: string) => ({ itemId: exact.itemId, warehouseId: WH, supplierId: SUPPLIER, sourceInvoiceId: "SCN-D79-SUM-PI", sourceInvoiceNumber: null, sourceLineId: "0", reason: "DEFECTIVE", qty });
+    const purchaseReturn = (id: string, lines: unknown[]) => req("POST", "/purchase-returns", { id, date: TODAY, memo: "مرتجع مشتريات (سيناريو D79j)", lines });
+    const twiceBack = await purchaseReturn("SCN-D79-SUM-PR-TWICE", [back("3"), back("3")]);
+    check("a purchase return naming the line twice is refused 422, sending no cost, tax or returnable quantity of its own", twiceBack.status === 422, `${twiceBack.status} ${JSON.stringify(twiceBack.body).slice(0, 200)}`);
+    const foreignBack = await purchaseReturn("SCN-D79-SUM-PR-FOREIGN", [{ ...back("1"), sourceLineId: "9" }]);
+    check("a purchase line the invoice does not carry answers RETURN_LINE_NOT_ON_INVOICE", foreignBack.status === 422 && foreignBack.body?.error === "RETURN_LINE_NOT_ON_INVOICE", `${foreignBack.status} ${JSON.stringify(foreignBack.body).slice(0, 200)}`);
+    const backA = await purchaseReturn("SCN-D79-SUM-PR-A", [back("3")]);
+    const backB = await purchaseReturn("SCN-D79-SUM-PR-B", [back("3")]);
+    check("two purchase-return drafts are raised against the same line", backA.status === 201 && backB.status === 201, `${backA.status}/${backB.status} ${JSON.stringify(backA.body).slice(0, 160)}`);
+    check("the server read the line's own tax off the invoice", scaled(backA.body?.lines?.[0]?.taxAmount) === lineTax, `${backA.body?.lines?.[0]?.taxAmount} vs ${lineTax}`);
+    const backAConfirmed = await req("POST", "/purchase-returns/SCN-D79-SUM-PR-A/confirm", {});
+    const backBConfirmed = await req("POST", "/purchase-returns/SCN-D79-SUM-PR-B/confirm", {});
+    check("only the first confirms", backAConfirmed.status === 200 && backBConfirmed.status === 422, `${backAConfirmed.status}/${backBConfirmed.status} ${JSON.stringify(backBConfirmed.body).slice(0, 200)}`);
+    check("stock left once: three units", stockBefore - (await onHandOf()) === 3_000_000n, `moved ${stockBefore - (await onHandOf())}`);
+    check("AP was debited once: the line and its tax", (await net(AP)) - apBefore === lineCost + lineTax, `moved ${(await net(AP)) - apBefore} vs ${lineCost + lineTax}`);
+    check("and 1400 was reversed once", (await net(INPUT_TAX)) - inputBefore === -lineTax, `moved ${(await net(INPUT_TAX)) - inputBefore} vs ${-lineTax}`);
+    await req("POST", "/purchase-returns/SCN-D79-SUM-PR-B/cancel", {});
+  });
 }
 
 /**

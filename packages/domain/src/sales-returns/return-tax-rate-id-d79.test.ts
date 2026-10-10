@@ -66,7 +66,7 @@ describe("a sales return inherits the tax rate id of the invoice line it reverse
     { itemId: "EXEMPT-ITEM", qty: Qty.fromMajor("1") },
     { itemId: "EXPORT-ITEM", qty: Qty.fromMajor("2") },
     { itemId: "LEGACY-ITEM", qty: Qty.fromMajor("3") },
-  ]);
+  ]).lines;
 
   it("copies each invoice line's rate id onto its return line, and leaves a legacy line without one", () => {
     expect(lines.map((l) => [l.itemId, l.taxRateId])).toEqual([
@@ -107,7 +107,7 @@ describe("a purchase return inherits the tax rate id of the invoice line it reve
   const lines: PurchaseReturnLine[] = buildPurchaseReturnLinesFromInvoice(purchaseInvoice, "WH1", "DEFECTIVE", [
     { itemId: "TAXED", qty: Qty.fromMajor("1") },
     { itemId: "LEGACY", qty: Qty.fromMajor("1") },
-  ]);
+  ]).lines;
 
   it("copies the rate id, and leaves a legacy line without one", () => {
     expect(lines.map((l) => [l.itemId, l.taxRateId])).toEqual([

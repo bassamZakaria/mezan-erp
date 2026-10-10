@@ -14,7 +14,7 @@ import {
   type PillTone,
   type RowMenuItem,
 } from "@mezan/ui";
-import type { DocumentStatusDTO, PurchaseInvoiceDTO, PurchaseReturnLineDTO, PurchaseReturnReasonDTO } from "@mezan/contracts";
+import type { CreatePurchaseReturnDTO, DocumentStatusDTO, PurchaseInvoiceDTO, PurchaseReturnLineDTO, PurchaseReturnReasonDTO } from "@mezan/contracts";
 import { SelectField, NumberField, TextField } from "../settings/form-controls";
 import {
   useCancelPurchaseReturn,
@@ -33,10 +33,9 @@ import { DOC_STATUS_TONE, documentStatusLabel } from "../doc-status";
 import { PurchaseReturnPrintPage } from "../print/documents";
 import { useScreenIntent, useSubPage } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
-import { sourceLineOptions } from "./return-source-lines";
+import { firstSourceLineWithRoom, sourceLineOptions } from "./return-source-lines";
 import { todayIso } from "../lib/dates";
 import { EMPTY } from "../lib/empty";
-import { lineTaxDecimal } from "../lib/money";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 
 /** مرتجعات المشتريات (Purchase Returns) — docs/archive/catalog/02. Document-framework-backed (draft → confirmed, de-stocks, reduces AP). */
@@ -190,6 +189,15 @@ export function PurchaseReturnsScreen() {
     setLines(firstLine ? [blankLine(firstLine.sourceLineId)] : []);
   }
 
+  function nextSourceLineId(rows: readonly LineDraft[]): string {
+    const alreadyReturned = documents
+      .filter((d) => d.status === "confirmed" && d.reversesDocId === null)
+      .flatMap((d) => d.lines)
+      .flatMap((l) => (l.sourceInvoiceId === invoiceId && l.sourceLineId ? [{ sourceLineId: l.sourceLineId, qty: l.qty }] : []));
+    const onForm = rows.map((r) => ({ sourceLineId: r.sourceLineId, qty: String(Math.max(r.qty, 0)) }));
+    return firstSourceLineWithRoom(returnableLines, [...alreadyReturned, ...onForm]) ?? returnableLines[0]?.sourceLineId ?? "";
+  }
+
   async function submit(confirmAfter: boolean) {
     setError(null);
     const invoice = invoices.find((i) => i.id === invoiceId);
@@ -197,10 +205,9 @@ export function PurchaseReturnsScreen() {
       setError(t("purchaseReturns.error.needInvoice"));
       return;
     }
-    const returnLines: PurchaseReturnLineDTO[] = lines.flatMap((l) => {
+    const returnLines: CreatePurchaseReturnDTO["lines"] = lines.flatMap((l) => {
       const source = returnableLines.find((sl) => sl.sourceLineId === l.sourceLineId);
       if (!source || l.qty <= 0) return [];
-      const taxAmount = lineTaxDecimal(source.unitCost, String(l.qty), source.taxRatePercent);
       return [
         {
           itemId: source.itemId,
@@ -210,10 +217,7 @@ export function PurchaseReturnsScreen() {
           sourceInvoiceNumber: invoice.number,
           sourceLineId: source.sourceLineId,
           reason,
-          availableQty: source.qty,
           qty: String(l.qty),
-          unitCost: source.unitCost,
-          taxAmount,
         },
       ];
     });
@@ -326,7 +330,7 @@ export function PurchaseReturnsScreen() {
             <Button
               variant="default"
               disabled={returnableLines.length === 0}
-              onClick={() => setLines((prev) => [...prev, blankLine(returnableLines[0]?.sourceLineId ?? "")])}
+              onClick={() => setLines((prev) => [...prev, blankLine(nextSourceLineId(prev))])}
             >
               {t("purchaseReturns.addLine")}
             </Button>

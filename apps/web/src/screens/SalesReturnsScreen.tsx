@@ -38,7 +38,7 @@ import { SalesReturnPrintPage } from "../print/documents";
 import { useNavigation, useScreenIntent, useSubPage } from "../navigation";
 import { AttachmentsTab } from "../attachments/AttachmentsTab";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
-import { sourceLineOptions } from "./return-source-lines";
+import { firstSourceLineWithRoom, sourceLineOptions } from "./return-source-lines";
 import { useEntityName } from "../lib/entity-names";
 import { todayIso } from "../lib/dates";
 import { majorOf } from "../lib/money";
@@ -244,6 +244,16 @@ export function SalesReturnsScreen() {
     setLines(firstLine ? [blankLine(firstLine.lineId, reason)] : []);
   }
 
+  function nextSourceLineId(rows: readonly LineDraft[]): string {
+    const alreadyReturned = documents
+      .filter((d) => d.status === "confirmed" && d.reversesDocId === null)
+      .flatMap((d) => d.lines)
+      .flatMap((l) => (l.sourceInvoiceId === invoiceId && l.sourceLineId ? [{ sourceLineId: l.sourceLineId, qty: l.qty }] : []));
+    const onForm = rows.map((r) => ({ sourceLineId: r.sourceLineId, qty: String(Math.max(r.qty, 0)) }));
+    const sold = returnableLines.map((l) => ({ sourceLineId: l.lineId, qty: l.baseQty }));
+    return firstSourceLineWithRoom(sold, [...alreadyReturned, ...onForm]) ?? returnableLines[0]?.lineId ?? "";
+  }
+
   async function submit(confirmAfter: boolean) {
     setError(null);
     const invoice = invoices.find((i) => i.id === invoiceId);
@@ -439,7 +449,7 @@ export function SalesReturnsScreen() {
                 </Button>
               </div>
             ))}
-            <Button variant="default" disabled={returnableLines.length === 0} onClick={() => setLines((prev) => [...prev, blankLine(returnableLines[0]?.lineId ?? "", reason)])}>
+            <Button variant="default" disabled={returnableLines.length === 0} onClick={() => setLines((prev) => [...prev, blankLine(nextSourceLineId(prev), reason)])}>
               {t("salesReturns.addLine")}
             </Button>
           </div>

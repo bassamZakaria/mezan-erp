@@ -79,4 +79,22 @@ export {
 
 export { createInventoryStockHook } from "./inventory-stock-hook.js";
 
-export { matchSourceLines, returnedQtyBySourceLine, type SourceLineKey, type MatchedSourceLine } from "./match-source-lines.js";
+export {
+  matchSourceLines,
+  overdrawnSourceLines,
+  returnedQtyBySourceLine,
+  type SourceLineKey,
+  type MatchedSourceLine,
+  type ReturnableSourceLine,
+  type SourceLineRequest,
+  type SourceLineMatch,
+  type OverdrawnSourceLine,
+} from "./match-source-lines.js";
+
+export {
+  assertReturnTotalsWithinAvailable,
+  createReturnConfirmGuard,
+  type ReturnConfirmGuard,
+  type ReturnDocumentLine,
+  type ReturnSourceInvoice,
+} from "./return-availability.js";

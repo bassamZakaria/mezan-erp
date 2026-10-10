@@ -5,6 +5,7 @@
 
 import { extend, unitCostOf } from "../inventory/wac-math.js";
 import type { Qty } from "../money/index.js";
+import type { CostCategory } from "../contracting/cost-category.js";
 import type { PurchaseReturnLine, PurchaseReturnReason } from "./purchase-return-document.js";
 import type { SourcePurchaseInvoice } from "./ports.js";
 import { matchSourceLines } from "../documents/match-source-lines.js";
@@ -13,6 +14,14 @@ export interface PurchaseReturnRequestedQty {
   readonly itemId: string;
   readonly sourceLineId?: string | null;
   readonly qty: Qty;
+  readonly reason?: PurchaseReturnReason;
+  readonly warehouseId?: string;
+  readonly costCategory?: CostCategory | null;
+}
+
+export interface PurchaseReturnLinesFromInvoice {
+  readonly lines: PurchaseReturnLine[];
+  readonly unmatched: PurchaseReturnRequestedQty[];
 }
 
 export function buildPurchaseReturnLinesFromInvoice(
@@ -20,11 +29,11 @@ export function buildPurchaseReturnLinesFromInvoice(
   warehouseId: string,
   reason: PurchaseReturnReason,
   requested: readonly PurchaseReturnRequestedQty[],
-): PurchaseReturnLine[] {
+): PurchaseReturnLinesFromInvoice {
   const lines: PurchaseReturnLine[] = [];
-  for (const { line: invLine, request } of matchSourceLines(invoice.lines, requested)) {
+  const { matched, unmatched } = matchSourceLines(invoice.lines, requested.filter((r) => !r.qty.isZero()));
+  for (const { line: invLine, request } of matched) {
     const qty = request.qty;
-    if (qty.isZero()) continue;
     const availableQty = invLine.qty.subtract(invLine.alreadyReturnedQty);
     const taxShare =
       invLine.qty.isZero() || invLine.taxAmount.scaled === 0n
@@ -32,12 +41,12 @@ export function buildPurchaseReturnLinesFromInvoice(
         : extend(qty, unitCostOf(invLine.taxAmount, invLine.qty));
     lines.push({
       itemId: invLine.itemId,
-      warehouseId,
+      warehouseId: request.warehouseId ?? warehouseId,
       supplierId: invoice.supplierId,
       sourceInvoiceId: invoice.id,
       sourceInvoiceNumber: invoice.number,
       sourceLineId: invLine.sourceLineId ?? null,
-      reason,
+      reason: request.reason ?? reason,
       availableQty,
       qty,
       unitCost: invLine.unitCost,
@@ -48,9 +57,9 @@ export function buildPurchaseReturnLinesFromInvoice(
       // each line's costCategory (D-01) — the invoice is the only place these
       // are stated, and a return that drops them loses the project's cost.
       projectId: invoice.projectId ?? null,
-      costCategory: invLine.costCategory ?? null,
+      costCategory: request.costCategory ?? invLine.costCategory ?? null,
       ...(invoice.fxRate ? { currency: invoice.currency ?? null, fxRate: invoice.fxRate } : {}),
     });
   }
-  return lines;
+  return { lines, unmatched };
 }

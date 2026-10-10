@@ -38,13 +38,25 @@ export const purchaseReturnLineSchema = z.object({
   costCategory: costCategorySchema.nullish(),
 });
 
+/**
+ * EXTERNAL CONTRACT: cost, tax and the returnable quantity are read off the
+ * source invoice by the server and a caller's figures are ignored. They are
+ * required only where no invoices module is mounted to read them from, and
+ * the route answers 422 `RETURN_FIGURES_REQUIRED` when they are missing there.
+ */
+export const createPurchaseReturnLineSchema = purchaseReturnLineSchema.partial({
+  availableQty: true,
+  unitCost: true,
+  taxAmount: true,
+});
+
 export const createPurchaseReturnSchema = z.object({
   id: z.string().min(1),
   date: isoDateOrInstant,
   memo: z.string().default(""),
   /** بُعد المشروع — the contracting project this return's cost belongs to (D-01). */
   projectId: z.string().min(1).nullable().optional(),
-  lines: z.array(purchaseReturnLineSchema).min(1),
+  lines: z.array(createPurchaseReturnLineSchema).min(1),
 });
 
 export const purchaseReturnRequestedQtySchema = z.object({

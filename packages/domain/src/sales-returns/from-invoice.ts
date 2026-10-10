@@ -24,6 +24,12 @@ export interface SalesReturnRequestedQty {
    * for lines that name none.
    */
   readonly reason?: SalesReturnReason;
+  readonly warehouseId?: string;
+}
+
+export interface SalesReturnLinesFromInvoice {
+  readonly lines: SalesReturnLine[];
+  readonly unmatched: SalesReturnRequestedQty[];
 }
 
 /** One line per requested item with qty > 0; lines with 0/omitted qty are excluded (docs: "اتركه صفر لاستثنائه"). */
@@ -32,11 +38,11 @@ export function buildSalesReturnLinesFromInvoice(
   warehouseId: string,
   reason: SalesReturnReason,
   requested: readonly SalesReturnRequestedQty[],
-): SalesReturnLine[] {
+): SalesReturnLinesFromInvoice {
   const lines: SalesReturnLine[] = [];
-  for (const { line: invLine, request } of matchSourceLines(invoice.lines, requested)) {
+  const { matched, unmatched } = matchSourceLines(invoice.lines, requested.filter((r) => !r.qty.isZero()));
+  for (const { line: invLine, request } of matched) {
     const qty = request.qty;
-    if (qty.isZero()) continue;
     const availableQty = invLine.qty.subtract(invLine.alreadyReturnedQty);
     const taxShare =
       invLine.qty.isZero() || invLine.taxAmount.scaled === 0n
@@ -44,7 +50,7 @@ export function buildSalesReturnLinesFromInvoice(
         : extend(qty, unitCostOf(invLine.taxAmount, invLine.qty));
     lines.push({
       itemId: invLine.itemId,
-      warehouseId,
+      warehouseId: request.warehouseId ?? warehouseId,
       customerId: invoice.customerId,
       sourceInvoiceId: invoice.id,
       sourceInvoiceNumber: invoice.number,
@@ -61,5 +67,5 @@ export function buildSalesReturnLinesFromInvoice(
       ...(invoice.fxRate ? { currency: invoice.currency ?? null, fxRate: invoice.fxRate } : {}),
     });
   }
-  return lines;
+  return { lines, unmatched };
 }

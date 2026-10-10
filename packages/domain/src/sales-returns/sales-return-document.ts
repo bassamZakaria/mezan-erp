@@ -18,6 +18,7 @@ import type { DocumentTypeDefinition, FrameworkDocument } from "../documents/doc
 import { buildEffects, type DocumentEffects } from "../documents/effects.js";
 import type { DocumentGlPosting, DocumentStockPlan } from "../documents/hooks.js";
 import { InvalidDocumentError } from "../documents/errors.js";
+import { assertReturnTotalsWithinAvailable } from "../documents/return-availability.js";
 import { convertToBase } from "../exchange-rates/convert.js";
 
 export const DOC_TYPE = "SALES_RETURN";
@@ -186,6 +187,7 @@ export function createSalesReturnDocumentType(
           throw new InvalidDocumentError(DOC_TYPE, doc.id, `بند الصنف "${line.itemId}": القيم المالية لا يمكن أن تكون سالبة.`);
         }
       }
+      assertReturnTotalsWithinAvailable(DOC_TYPE, doc.id, doc.lines);
     },
 
     buildStockPlan(doc): DocumentStockPlan {

@@ -828,6 +828,7 @@ export {
 export {
   purchaseReturnReasonSchema,
   purchaseReturnLineSchema,
+  createPurchaseReturnLineSchema,
   createPurchaseReturnSchema,
   purchaseReturnRequestedQtySchema,
   buildPurchaseReturnFromInvoiceSchema,

@@ -590,12 +590,14 @@ export async function returnWorkOrderMaterials(
   if (lines.length === 0) throw new InvalidManufacturingDocumentError(["لا توجد مواد لإرجاعها"]);
 
   const byItem = new Map(order.materials.map((m) => [m.itemId, m]));
-  for (const l of lines) {
-    const mat = byItem.get(l.itemId);
+  const requestedByItem = new Map<string, Qty>();
+  for (const l of lines) requestedByItem.set(l.itemId, (requestedByItem.get(l.itemId) ?? Qty.zero()).add(l.qty));
+  for (const [itemId, requested] of requestedByItem) {
+    const mat = byItem.get(itemId);
     const outstanding = mat ? workOrderWipQty(order, mat) : Qty.zero();
-    if (!mat || l.qty.compare(outstanding) > 0) {
+    if (!mat || requested.compare(outstanding) > 0) {
       throw new InvalidManufacturingDocumentError([
-        `لا يمكن إرجاع ${l.qty.toString()} من "${l.itemId}"؛ القائم فقط ${outstanding.toString()}`,
+        `لا يمكن إرجاع ${requested.toString()} من "${itemId}"؛ القائم فقط ${outstanding.toString()}`,
       ]);
     }
   }
@@ -613,12 +615,8 @@ export async function returnWorkOrderMaterials(
     occurredAt,
   });
 
-  const returnedQtyByItem = new Map<string, Qty>();
-  for (const l of lines) {
-    returnedQtyByItem.set(l.itemId, (returnedQtyByItem.get(l.itemId) ?? Qty.zero()).add(l.qty));
-  }
   const materials = order.materials.map<WorkOrderMaterial>((m) => {
-    const ret = returnedQtyByItem.get(m.itemId);
+    const ret = requestedByItem.get(m.itemId);
     return ret ? { ...m, returnedQty: m.returnedQty.add(ret) } : m;
   });
 

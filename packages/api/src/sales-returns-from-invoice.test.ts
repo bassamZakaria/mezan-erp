@@ -316,7 +316,7 @@ describe("POST /sales-returns/from-invoice — the returnable quantity is the in
     expect(created.lines[0]!.availableQty).toBe("10.000000");
   });
 
-  it("refuses an invoice the books do not have, and one with nothing returnable requested", async () => {
+  it("refuses an invoice the books do not have, an item the invoice never carried, and a request for nothing", async () => {
     const { app } = await harness();
 
     const ghost = await app.fetch(
@@ -337,7 +337,15 @@ describe("POST /sales-returns/from-invoice — the returnable quantity is the in
       }),
     );
     expect(otherItem.status).toBe(422);
-    expect((await otherItem.json() as { error: string }).error).toBe("NO_RETURNABLE_LINES");
+    // D79 round 3: this answered NO_RETURNABLE_LINES only because it was the
+    // sole line — beside a valid line it was dropped and the rest drafted.
+    expect((await otherItem.json() as { error: string }).error).toBe("RETURN_LINE_NOT_ON_INVOICE");
+
+    const nothing = await app.fetch(
+      req("/from-invoice", { method: "POST", permissions: "sales.return.create", body: JSON.stringify(fromInvoice("SR-ZERO", "0")) }),
+    );
+    expect(nothing.status).toBe(422);
+    expect((await nothing.json() as { error: string }).error).toBe("NO_RETURNABLE_LINES");
   });
 
   it("needs sales.return.create — a viewer cannot raise one, and nothing is written", async () => {

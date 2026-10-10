@@ -5,32 +5,97 @@ export interface SourceLineKey {
   readonly sourceLineId?: string | null;
 }
 
+export interface ReturnableSourceLine extends SourceLineKey {
+  readonly qty: Qty;
+  readonly alreadyReturnedQty: Qty;
+}
+
+export interface SourceLineRequest extends SourceLineKey {
+  readonly qty: Qty;
+}
+
 export interface MatchedSourceLine<L, R> {
   readonly line: L;
   readonly request: R;
 }
 
-export function matchSourceLines<L extends SourceLineKey, R extends SourceLineKey>(
-  lines: readonly L[],
-  requests: readonly R[],
-): MatchedSourceLine<L, R>[] {
-  const claimed = new Map<number, R>();
-  const claim = (request: R, matches: (line: L) => boolean): void => {
-    const index = lines.findIndex((line, i) => !claimed.has(i) && matches(line));
-    if (index >= 0) claimed.set(index, request);
-  };
-  for (const request of requests) {
-    if (request.sourceLineId) claim(request, (line) => line.sourceLineId === request.sourceLineId && line.itemId === request.itemId);
-  }
-  for (const request of requests) {
-    if (!request.sourceLineId) claim(request, (line) => line.itemId === request.itemId);
-  }
-  return [...claimed.entries()].sort(([a], [b]) => a - b).map(([index, request]) => ({ line: lines[index] as L, request }));
+export interface SourceLineMatch<L, R> {
+  readonly matched: MatchedSourceLine<L, R>[];
+  readonly unmatched: R[];
 }
 
-// INVARIANT: a return that names no line is counted against its item's lines
-// in the same first-line order `matchSourceLines` claims them, so the limit a
-// return is checked against is the limit it was built on.
+// INVARIANT: a request naming a line is matched to it however many other
+// requests name it too — the total asked of one line is refused by
+// `overdrawnSourceLines`, and a matcher that hid the second request would hide
+// the overdraw with it.
+export function matchSourceLines<L extends ReturnableSourceLine, R extends SourceLineRequest>(
+  lines: readonly L[],
+  requests: readonly R[],
+): SourceLineMatch<L, R> {
+  const taken = lines.map((line) => line.alreadyReturnedQty);
+  const claimedInBatch = new Set<number>();
+  const assigned: { index: number; order: number; request: R }[] = [];
+  const unmatched: R[] = [];
+  const roomOf = (index: number): Qty => (lines[index] as L).qty.subtract(taken[index] as Qty);
+  const assign = (index: number, order: number, request: R): void => {
+    taken[index] = (taken[index] as Qty).add(request.qty);
+    claimedInBatch.add(index);
+    assigned.push({ index, order, request });
+  };
+
+  requests.forEach((request, order) => {
+    if (!request.sourceLineId) return;
+    const index = lines.findIndex((line) => line.sourceLineId === request.sourceLineId && line.itemId === request.itemId);
+    if (index < 0) unmatched.push(request);
+    else assign(index, order, request);
+  });
+
+  requests.forEach((request, order) => {
+    if (request.sourceLineId) return;
+    const ofItem = lines.flatMap((line, index) => (line.itemId === request.itemId ? [index] : []));
+    const fits = (index: number): boolean => roomOf(index).compare(request.qty) >= 0;
+    const hasRoom = (index: number): boolean => roomOf(index).compare(Qty.zero()) > 0;
+    const index =
+      ofItem.find((i) => !claimedInBatch.has(i) && fits(i)) ??
+      ofItem.find(fits) ??
+      ofItem.find(hasRoom) ??
+      ofItem[0];
+    if (index === undefined) unmatched.push(request);
+    else assign(index, order, request);
+  });
+
+  const matched = assigned
+    .sort((a, b) => a.index - b.index || a.order - b.order)
+    .map(({ index, request }) => ({ line: lines[index] as L, request }));
+  return { matched, unmatched: unmatched.sort((a, b) => requests.indexOf(a) - requests.indexOf(b)) };
+}
+
+export interface OverdrawnSourceLine<L> {
+  readonly line: L;
+  readonly requested: Qty;
+  readonly available: Qty;
+}
+
+export function overdrawnSourceLines<L extends ReturnableSourceLine, R extends SourceLineRequest>(
+  lines: readonly L[],
+  requests: readonly R[],
+): { readonly overdrawn: OverdrawnSourceLine<L>[]; readonly unmatched: R[] } {
+  const { matched, unmatched } = matchSourceLines(lines, requests);
+  const requestedByLine = new Map<L, Qty>();
+  for (const { line, request } of matched) {
+    requestedByLine.set(line, (requestedByLine.get(line) ?? Qty.zero()).add(request.qty));
+  }
+  const overdrawn: OverdrawnSourceLine<L>[] = [];
+  for (const [line, requested] of requestedByLine) {
+    const available = line.qty.subtract(line.alreadyReturnedQty);
+    if (requested.compare(available) > 0) overdrawn.push({ line, requested, available });
+  }
+  return { overdrawn, unmatched };
+}
+
+// INVARIANT: a stored return that names no line fills its item's lines first
+// to last, each up to what it has left — the same order `matchSourceLines`
+// looks for room in, so a new return is offered exactly the room this leaves.
 export function returnedQtyBySourceLine(
   lines: readonly (SourceLineKey & { readonly qty: Qty })[],
   returned: readonly (SourceLineKey & { readonly qty: Qty })[],

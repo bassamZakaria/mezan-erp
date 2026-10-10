@@ -27,6 +27,11 @@ import {
   resolvePrice,
   createSalesInvoiceGlHook,
   returnedQtyBySourceLine,
+  createReturnConfirmGuard,
+  SALES_RETURN_DOC_TYPE,
+  PURCHASE_RETURN_DOC_TYPE,
+  type SalesInvoiceLookupPort,
+  type PurchaseInvoiceLookupPort,
   createSalesInvoiceStockHook,
   SalesInvoiceService,
   CertificateService,
@@ -1846,6 +1851,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     stock: createInventoryStockHook(stockService),
     workflow: documentWorkflowGate,
     events: salesReturnEvents,
+    confirmGuard: createReturnConfirmGuard(SALES_RETURN_DOC_TYPE, (id) => salesReturnInvoices.findConfirmedInvoice(id)),
     /*
      * WITHOUT THIS the document's confirm and cancel write nothing to the
      * audit trail. `DocumentService.recordAudit` is guarded on `deps.audit`,
@@ -1866,6 +1872,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     stock: createInventoryStockHook(stockService),
     workflow: documentWorkflowGate,
     events: returnsEventBridge,
+    confirmGuard: createReturnConfirmGuard(PURCHASE_RETURN_DOC_TYPE, (id) => purchaseReturnInvoices.findConfirmedInvoice(id)),
     /*
      * WITHOUT THIS the document's confirm and cancel write nothing to the
      * audit trail. `DocumentService.recordAudit` is guarded on `deps.audit`,
@@ -1879,6 +1886,116 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     audit: auditSink,
     auditModule: "purchases",
   });
+  /**
+   * Derives the returnable quantity from the invoice minus what confirmed
+   * returns have already taken. Before this the server validated against a
+   * figure the CLIENT supplied, so the same goods could be returned
+   * repeatedly by claiming the full invoiced quantity each time.
+   */
+  const salesReturnInvoices: SalesInvoiceLookupPort = {
+    async findConfirmedInvoice(id: string) {
+      const invoice = await salesInvoices.findById(id);
+      if (!invoice || !SALES_INVOICE_ACTIVE_STATUSES.has(invoice.status)) return null;
+      const priorReturns = await salesReturns.list();
+      const returned = priorReturns
+        .filter((doc) => doc.status === "confirmed" && !doc.reversesDocId)
+        .flatMap((doc) => doc.lines.filter((line) => line.sourceInvoiceId === id));
+      const alreadyReturned = returnedQtyBySourceLine(
+        invoice.lines.map((l) => ({ sourceLineId: l.lineId, itemId: l.itemId, qty: l.baseQty })),
+        returned,
+      );
+      // The tax the line was ACTUALLY charged — after line, promotion and
+      // header discounts, and zero when the customer is tax-exempt. Handing
+      // the return a zero here credited no VAT at all and left it no rate
+      // to group the posting by (D76).
+      const chargedTax = new Map<string, { tax: Money; rate: number; taxRateId: string | null }>();
+      const invoiceTotals = salesInvoiceTotals(invoice);
+      for (const [i, line] of invoice.lines.entries()) {
+        chargedTax.set(line.lineId, {
+          tax: invoiceTotals.lines[i]?.tax ?? Money.zero(),
+          rate: line.taxRatePercent,
+          taxRateId: line.taxRateId,
+        });
+      }
+      return {
+        id: invoice.id,
+        number: invoice.docNo ?? invoice.id,
+        customerId: invoice.customerId,
+        warehouseId: invoice.warehouseId,
+        projectId: invoice.projectId,
+        currency: invoice.currency,
+        fxRate: invoice.fxRate ?? null,
+        date: invoice.date,
+        status: "confirmed" as const,
+        // A return is quoted in BASE units, because that is what it puts
+        // back into the stock ledger. A line sold as 5 cartons of 12 is
+        // returnable as up to 60 pieces at the per-piece price, so the
+        // credit still reconciles to the line and the ledger to the count.
+        lines: invoice.lines.map((l, lineIndex) => ({
+          sourceLineId: l.lineId,
+          itemId: l.itemId,
+          itemName: l.itemNameAr,
+          qty: l.baseQty,
+          alreadyReturnedQty: alreadyReturned[lineIndex] ?? Qty.zero(),
+          unitPrice: unitCostOf(extendQtyByPrice(l.qty, l.unitPrice), l.baseQty),
+          // The line's captured moving-average COST, not its price. This
+          // read `l.unitPrice` — the same expression as the line above —
+          // so «مرتجع من فاتورة», the route the screen uses, restocked
+          // every return at the SELLING price: inventory overstated and
+          // the COGS reversal wrong by the whole margin (D145).
+          unitCost:
+            l.unitCost === null
+              ? Money.zero()
+              : unitCostOf(extendQtyByPrice(l.qty, l.unitCost), l.baseQty),
+          taxAmount: chargedTax.get(l.lineId)?.tax ?? Money.zero(),
+          taxRatePercent: chargedTax.get(l.lineId)?.rate ?? null,
+          taxRateId: chargedTax.get(l.lineId)?.taxRateId ?? null,
+        })),
+      };
+    },
+  };
+  const purchaseReturnInvoices: PurchaseInvoiceLookupPort = {
+    async findConfirmedInvoice(id: string) {
+      const invoice = await purchaseInvoices.findById(id);
+      if (!invoice || invoice.status !== "confirmed") return null;
+      const priorReturns = await purchaseReturns.list();
+      const returned = priorReturns
+        .filter((doc) => doc.status === "confirmed" && !doc.reversesDocId)
+        .flatMap((doc) => doc.lines.filter((line) => line.sourceInvoiceId === id));
+      const returnable = invoice.lines
+        .map((l, index) => ({ ...l, sourceLineId: String(index) }))
+        .flatMap((l) => (l.itemId === null ? [] : [{ ...l, itemId: l.itemId }]));
+      const alreadyReturned = returnedQtyBySourceLine(returnable, returned);
+      return {
+        id: invoice.id,
+        number: invoice.number ?? invoice.id,
+        supplierId: invoice.supplierId,
+        warehouseId: invoice.warehouseId,
+        // A return inherits the invoice's project and each line's cost
+        // category (D-01); leaving them off here dropped both (D215).
+        projectId: invoice.projectId ?? null,
+        currency: invoice.currency,
+        fxRate: invoice.fxRate ?? null,
+        date: invoice.date,
+        status: "confirmed" as const,
+        lines: returnable.map((l, lineIndex) => ({
+            sourceLineId: l.sourceLineId,
+            itemId: l.itemId,
+            itemName: l.description ?? l.itemId,
+            qty: l.qty,
+            alreadyReturnedQty: alreadyReturned[lineIndex] ?? Qty.zero(),
+            unitCost: l.unitCost,
+            // The input VAT the line actually carried, and the rate that
+            // produced it — a return with neither credits no VAT back and
+            // gives the VAT return nothing to group by (D76).
+            taxAmount: purchaseInvoiceLineTax(l),
+            taxRatePercent: l.taxRatePercent,
+            taxRateId: l.taxRateId ?? null,
+            costCategory: l.costCategory ?? null,
+          })),
+      };
+    },
+  };
   const landedCostDocuments = new DocumentService(createLandedCostDocumentType(LANDED_COST_GL_ACCOUNTS), {
     repo: landedCostStore,
     numbering: { next: (opts) => ledger.numbering.next("LANDED_COST", { branchId: opts?.branchId }) },
@@ -3762,74 +3879,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     },
     salesReturns: {
       service: salesReturns,
-      /**
-       * Derives the returnable quantity from the invoice minus what confirmed
-       * returns have already taken. Before this the server validated against a
-       * figure the CLIENT supplied, so the same goods could be returned
-       * repeatedly by claiming the full invoiced quantity each time.
-       */
-      invoices: {
-        async findConfirmedInvoice(id: string) {
-          const invoice = await salesInvoices.findById(id);
-          if (!invoice || !SALES_INVOICE_ACTIVE_STATUSES.has(invoice.status)) return null;
-          const priorReturns = await salesReturns.list();
-          const returned = priorReturns
-            .filter((doc) => doc.status === "confirmed")
-            .flatMap((doc) => doc.lines.filter((line) => line.sourceInvoiceId === id));
-          const alreadyReturned = returnedQtyBySourceLine(
-            invoice.lines.map((l) => ({ sourceLineId: l.lineId, itemId: l.itemId, qty: l.baseQty })),
-            returned,
-          );
-          // The tax the line was ACTUALLY charged — after line, promotion and
-          // header discounts, and zero when the customer is tax-exempt. Handing
-          // the return a zero here credited no VAT at all and left it no rate
-          // to group the posting by (D76).
-          const chargedTax = new Map<string, { tax: Money; rate: number; taxRateId: string | null }>();
-          const invoiceTotals = salesInvoiceTotals(invoice);
-          for (const [i, line] of invoice.lines.entries()) {
-            chargedTax.set(line.lineId, {
-              tax: invoiceTotals.lines[i]?.tax ?? Money.zero(),
-              rate: line.taxRatePercent,
-              taxRateId: line.taxRateId,
-            });
-          }
-          return {
-            id: invoice.id,
-            number: invoice.docNo ?? invoice.id,
-            customerId: invoice.customerId,
-            warehouseId: invoice.warehouseId,
-            projectId: invoice.projectId,
-            currency: invoice.currency,
-            fxRate: invoice.fxRate ?? null,
-            date: invoice.date,
-            status: "confirmed" as const,
-            // A return is quoted in BASE units, because that is what it puts
-            // back into the stock ledger. A line sold as 5 cartons of 12 is
-            // returnable as up to 60 pieces at the per-piece price, so the
-            // credit still reconciles to the line and the ledger to the count.
-            lines: invoice.lines.map((l, lineIndex) => ({
-              sourceLineId: l.lineId,
-              itemId: l.itemId,
-              itemName: l.itemNameAr,
-              qty: l.baseQty,
-              alreadyReturnedQty: alreadyReturned[lineIndex] ?? Qty.zero(),
-              unitPrice: unitCostOf(extendQtyByPrice(l.qty, l.unitPrice), l.baseQty),
-              // The line's captured moving-average COST, not its price. This
-              // read `l.unitPrice` — the same expression as the line above —
-              // so «مرتجع من فاتورة», the route the screen uses, restocked
-              // every return at the SELLING price: inventory overstated and
-              // the COGS reversal wrong by the whole margin (D145).
-              unitCost:
-                l.unitCost === null
-                  ? Money.zero()
-                  : unitCostOf(extendQtyByPrice(l.qty, l.unitCost), l.baseQty),
-              taxAmount: chargedTax.get(l.lineId)?.tax ?? Money.zero(),
-              taxRatePercent: chargedTax.get(l.lineId)?.rate ?? null,
-              taxRateId: chargedTax.get(l.lineId)?.taxRateId ?? null,
-            })),
-          };
-        },
-      },
+      invoices: salesReturnInvoices,
       /**
        * «استرداد للعميل» (R3.9). A confirmed return credits AR and moves no
        * money; this pays the credit note out as a REAL رد مبلغ لعميل voucher —
@@ -3898,49 +3948,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     },
     purchaseReturns: {
       service: purchaseReturns,
-      /** See salesReturns.invoices — same defect, same fix. */
-      invoices: {
-        async findConfirmedInvoice(id: string) {
-          const invoice = await purchaseInvoices.findById(id);
-          if (!invoice || invoice.status !== "confirmed") return null;
-          const priorReturns = await purchaseReturns.list();
-          const returned = priorReturns
-            .filter((doc) => doc.status === "confirmed")
-            .flatMap((doc) => doc.lines.filter((line) => line.sourceInvoiceId === id));
-          const returnable = invoice.lines
-            .map((l, index) => ({ ...l, sourceLineId: String(index) }))
-            .flatMap((l) => (l.itemId === null ? [] : [{ ...l, itemId: l.itemId }]));
-          const alreadyReturned = returnedQtyBySourceLine(returnable, returned);
-          return {
-            id: invoice.id,
-            number: invoice.number ?? invoice.id,
-            supplierId: invoice.supplierId,
-            warehouseId: invoice.warehouseId,
-            // A return inherits the invoice's project and each line's cost
-            // category (D-01); leaving them off here dropped both (D215).
-            projectId: invoice.projectId ?? null,
-            currency: invoice.currency,
-            fxRate: invoice.fxRate ?? null,
-            date: invoice.date,
-            status: "confirmed" as const,
-            lines: returnable.map((l, lineIndex) => ({
-                sourceLineId: l.sourceLineId,
-                itemId: l.itemId,
-                itemName: l.description ?? l.itemId,
-                qty: l.qty,
-                alreadyReturnedQty: alreadyReturned[lineIndex] ?? Qty.zero(),
-                unitCost: l.unitCost,
-                // The input VAT the line actually carried, and the rate that
-                // produced it — a return with neither credits no VAT back and
-                // gives the VAT return nothing to group by (D76).
-                taxAmount: purchaseInvoiceLineTax(l),
-                taxRatePercent: l.taxRatePercent,
-                taxRateId: l.taxRateId ?? null,
-                costCategory: l.costCategory ?? null,
-              })),
-          };
-        },
-      },
+      invoices: purchaseReturnInvoices,
     },
     landedCosts: { documents: landedCostDocuments, service: landedCosts },
     installments: {

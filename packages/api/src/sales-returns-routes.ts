@@ -30,6 +30,14 @@ import { tenantDay, tenantToday } from "./tenant-day.js";
 
 type CreateSalesReturnLineInput = z.infer<typeof createSalesReturnSchema>["lines"][number];
 
+function lineNotOnInvoice(unmatched: readonly { readonly itemId: string; readonly sourceLineId?: string | null }[]) {
+  return {
+    error: "RETURN_LINE_NOT_ON_INVOICE" as const,
+    message: "أحد بنود المرتجع غير موجود في الفاتورة المصدر.",
+    unmatched: unmatched.map((u) => ({ itemId: u.itemId, sourceLineId: u.sourceLineId ?? null })),
+  };
+}
+
 function serializeLine(l: SalesReturnLine) {
   return {
     itemId: l.itemId,
@@ -176,23 +184,22 @@ export function createSalesReturnsRoutes(
     return null;
   }
 
-  /**
-   * Every figure of a `POST /` line read off the invoice it names, never off
-   * the request (D102, D214): price, cost, the line's share of the VAT it was
-   * actually charged, its rate, the returnable quantity, the project and the
-   * currency and rate it confirmed at (D203). Only the quantity, the reason
-   * and the warehouse the goods come back into are the caller's. Stating a
-   * price is stating the credit note; stating a cost is stating the margin.
-   *
-   * With no invoices module wired the caller's figures are all there is.
-   */
-  async function deriveLine(l: CreateSalesReturnLineInput): Promise<SalesReturnLine> {
-    const claimed: SalesReturnLine = {
+  // INVARIANT: every line a request raises against one invoice is derived in
+  // ONE call, so two lines naming the same invoice line are matched to it
+  // together and their total is what `validate` sees. Derived one at a time,
+  // each was offered the whole of the line. Only the quantity, the reason and
+  // the warehouse are the caller's; with no invoices module wired the
+  // caller's figures are all there is.
+  async function deriveLines(
+    requested: readonly CreateSalesReturnLineInput[],
+  ): Promise<{ lines: SalesReturnLine[] } | { refusal: ReturnType<typeof lineNotOnInvoice> }> {
+    const claimedOf = (l: CreateSalesReturnLineInput): SalesReturnLine => ({
       itemId: l.itemId,
       warehouseId: l.warehouseId,
       customerId: l.customerId,
       sourceInvoiceId: l.sourceInvoiceId,
       sourceInvoiceNumber: l.sourceInvoiceNumber,
+      sourceLineId: l.sourceLineId ?? null,
       reason: l.reason,
       availableQty: Qty.fromMajor(l.availableQty),
       qty: Qty.fromMajor(l.qty),
@@ -201,12 +208,27 @@ export function createSalesReturnsRoutes(
       taxAmount: Money.fromMajor(l.taxAmount),
       taxRatePercent: l.taxRatePercent ?? null,
       projectId: l.projectId ?? null,
-    };
-    if (!invoices) return claimed;
-    const invoice = await invoices.findConfirmedInvoice(l.sourceInvoiceId);
-    if (!invoice) return claimed;
-    const [derived] = buildSalesReturnLinesFromInvoice(invoice, l.warehouseId, l.reason, [{ itemId: l.itemId, sourceLineId: l.sourceLineId ?? null, qty: claimed.qty }]);
-    return derived ?? { ...claimed, availableQty: Qty.zero() };
+    });
+    if (!invoices) return { lines: requested.map(claimedOf) };
+    const lines: SalesReturnLine[] = [];
+    for (const sourceInvoiceId of new Set(requested.map((l) => l.sourceInvoiceId))) {
+      const ofInvoice = requested.filter((l) => l.sourceInvoiceId === sourceInvoiceId);
+      const invoice = await invoices.findConfirmedInvoice(sourceInvoiceId);
+      if (!invoice) {
+        lines.push(...ofInvoice.map(claimedOf));
+        continue;
+      }
+      const first = ofInvoice[0] as CreateSalesReturnLineInput;
+      const built = buildSalesReturnLinesFromInvoice(
+        invoice,
+        first.warehouseId,
+        first.reason,
+        ofInvoice.map((l) => ({ itemId: l.itemId, sourceLineId: l.sourceLineId ?? null, qty: Qty.fromMajor(l.qty), reason: l.reason, warehouseId: l.warehouseId })),
+      );
+      if (built.unmatched.length > 0) return { refusal: lineNotOnInvoice(built.unmatched) };
+      lines.push(...built.lines);
+    }
+    return { lines };
   }
 
   interface SalesReturnListFilter {
@@ -371,12 +393,14 @@ export function createSalesReturnsRoutes(
       const refusal = await refuseInconsistentLine(line);
       if (refusal) return c.json(refusal, 422);
     }
+    const derived = await deriveLines(parsed.data.lines);
+    if ("refusal" in derived) return c.json(derived.refusal, 422);
     try {
       const doc = await service.createDraft({
         id: parsed.data.id,
         date: await tenantDay(c, parsed.data.date),
         memo: parsed.data.memo,
-        lines: await Promise.all(parsed.data.lines.map(deriveLine)),
+        lines: derived.lines,
       });
       return c.json(serialize(doc), 201);
     } catch (err) {
@@ -403,12 +427,13 @@ export function createSalesReturnsRoutes(
     if (!invoice) {
       return c.json({ error: "SOURCE_INVOICE_NOT_FOUND", message: "الفاتورة المصدر غير موجودة أو غير مؤكدة." }, 404);
     }
-    const lines = buildSalesReturnLinesFromInvoice(
+    const { lines, unmatched } = buildSalesReturnLinesFromInvoice(
       invoice,
       parsed.data.warehouseId,
       parsed.data.reason,
       parsed.data.requested.map((r) => ({ itemId: r.itemId, sourceLineId: r.sourceLineId ?? null, qty: Qty.fromMajor(r.qty), reason: r.reason })),
     );
+    if (unmatched.length > 0) return c.json(lineNotOnInvoice(unmatched), 422);
     if (lines.length === 0) {
       return c.json({ error: "NO_RETURNABLE_LINES", message: "لا توجد بنود قابلة للإرجاع بالكميات المطلوبة." }, 422);
     }

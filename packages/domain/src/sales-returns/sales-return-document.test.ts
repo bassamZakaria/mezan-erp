@@ -243,7 +243,7 @@ describe("a return against a foreign invoice reverses at the invoice's rate (D20
       "WH1",
       "DEFECTIVE",
       [{ itemId: "ITEM1", qty: Qty.fromMajor("1") }],
-    );
+    ).lines;
     expect(lines[0]).toMatchObject({ currency: "USD", fxRate: "48.00" });
   });
 });

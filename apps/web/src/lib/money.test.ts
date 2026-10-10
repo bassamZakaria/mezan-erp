@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import fc from "fast-check";
-import { lineTaxDecimal, majorOf, scaledOf, sumMajor, sumScaled, toMajorNumber } from "./money";
+import { majorOf, scaledOf, sumMajor, sumScaled, toMajorNumber } from "./money";
 
 describe("scaledOf", () => {
   it("parses the API's six-decimal strings exactly", () => {
@@ -102,30 +102,3 @@ describe("money helpers — fuzz", () => {
     );
   });
 });
-
-describe("lineTaxDecimal — a rate applied to qty × unit cost in integers", () => {
-  it("is exact where the float product is not", () => {
-    expect(((Number("1.15") * 3 * 10) / 100).toFixed(2)).toBe("0.34");
-    expect(lineTaxDecimal("1.15", "3", 10)).toBe("0.350000");
-    expect(lineTaxDecimal("0.07", "3", 14)).toBe("0.030000");
-  });
-
-  it("rounds half-up to the piastre, the way a tax amount is stored", () => {
-    expect(lineTaxDecimal("100", "1", 14)).toBe("14.000000");
-    expect(lineTaxDecimal("33.33", "1", 14)).toBe("4.670000");
-    expect(lineTaxDecimal("0.25", "1", 14)).toBe("0.040000");
-    expect(lineTaxDecimal("0.25", "1", 10)).toBe("0.030000");
-  });
-
-  it("carries a fractional quantity and a fractional rate without losing a digit", () => {
-    expect(lineTaxDecimal("1250.50", "2.5", 14)).toBe("437.680000");
-    expect(lineTaxDecimal("1000", "1", 5.04)).toBe("50.400000");
-    expect(lineTaxDecimal("99999999.99", "1000", 14)).toBe("13999999998.600000");
-  });
-
-  it("is zero at 0% and for nothing returned", () => {
-    expect(lineTaxDecimal("100", "5", 0)).toBe("0.000000");
-    expect(lineTaxDecimal("100", "0", 14)).toBe("0.000000");
-  });
-});
-

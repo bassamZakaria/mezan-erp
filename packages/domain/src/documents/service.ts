@@ -52,6 +52,13 @@ export interface DocumentServiceDeps<Line> {
   /** Default acting user for audit/workflow; per-call opts override this. */
   readonly actor?: string;
   readonly actorRoles?: readonly string[];
+  /**
+   * INVARIANT: checked once before the workflow gate and again as the first
+   * act of the confirm's transaction. A limit that depends on what OTHER
+   * documents have posted since this one was drafted belongs here, not in
+   * `validate`, which only ever sees the draft's own snapshot.
+   */
+  readonly confirmGuard?: (doc: FrameworkDocument<Line>) => Promise<void>;
 }
 
 /** Command to open a new draft. Lines are the concrete type's line shape. */
@@ -132,6 +139,7 @@ export class DocumentService<Line> {
   async confirm(id: string, opts: ConfirmOptions = {}): Promise<ConfirmResult<Line>> {
     const existing = await this.require(id);
     this.def.validate?.(existing);
+    await this.deps.confirmGuard?.(existing);
 
     // Block confirming a document its own effects mark as not-confirmable
     // (e.g. an unbalanced journal) — the same signal the UI gates the button on.
@@ -175,6 +183,7 @@ export class DocumentService<Line> {
     assertTransition(this.def.code, id, existing.status, target);
 
     const confirmed = await this.deps.repo.transaction(async () => {
+      await this.deps.confirmGuard?.(existing);
       let docNo = existing.docNo;
       if (this.def.numberingSequence && !this.def.numberFromGl) {
         if (!this.deps.numbering) throw new MissingHookError(this.def.code, "numbering");

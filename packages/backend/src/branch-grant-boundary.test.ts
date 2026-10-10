@@ -302,6 +302,13 @@ describe("D111 round 1 · a request body cannot smuggle another branch", () => {
     expect(exists("sales_invoice", "D111-SMUGGLE-4")).toBe(false);
   });
 
+  it("refuses a work order that would draw its materials from another branch's warehouse", async () => {
+    const res = await alex("POST", "/manufacturing/work-orders", { id: "D111-WO-FOREIGN", sourceWarehouseId: MAIN_WAREHOUSE });
+    expect(res.status).toBe(403);
+    expect(res.body.error).toBe("BRANCH_OUT_OF_SCOPE");
+    expect(exists("work_order", "D111-WO-FOREIGN")).toBe(false);
+  });
+
   it("does not treat a stock transfer's destination as a posting branch", async () => {
     const res = await alex("POST", "/inventory/stock-transfers/draft", {
       id: "D111-TRF-OUT",

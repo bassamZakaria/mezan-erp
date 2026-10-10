@@ -213,9 +213,10 @@ const BODY_SCAN_DEPTH = 6;
  * The body keys whose warehouse decides the branch a posting lands in. A
  * transfer's `fromWarehouseId`/`toWarehouseId` are deliberately absent: a
  * transfer posts nothing to the ledger, and sending stock to another branch
- * is a legitimate act for a branch-granted user.
+ * is a legitimate act for a branch-granted user (its confirm is judged by the
+ * warehouse stock leaves, on the stored document).
  */
-const POSTING_WAREHOUSE_KEYS: ReadonlySet<string> = new Set(["warehouseId", "destinationWarehouseId"]);
+const POSTING_WAREHOUSE_KEYS: ReadonlySet<string> = new Set(["warehouseId", "destinationWarehouseId", "sourceWarehouseId"]);
 
 interface NamedLocations {
   readonly branchIds: string[];

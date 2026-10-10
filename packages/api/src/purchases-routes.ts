@@ -391,20 +391,24 @@ export function createPurchasesRoutes(
   resolveAuthContext: AuthContextResolver,
 ) {
   const app = new Hono();
-  /** One gate serves three stored documents, so the path says which one `:id` addresses. */
+  /**
+   * One gate serves three stored documents, so the ROUTE says which one `:id`
+   * addresses — the registered pattern, never the request path, whose id
+   * segment is the caller's to spell.
+   */
   const storedBranches: StoredBranchesResolver = async (c) => {
     const id = c.req.param("id");
     if (!id) return null;
-    const path = c.req.path;
-    if (path.includes("/orders/")) {
+    const path = c.req.routePath;
+    if (path.includes("/orders/:id")) {
       const order = await deps.orders.findById(id);
       return order ? documentBranches(c, [order.branchId], [order.warehouseId]) : null;
     }
-    if (path.includes("/receipts/")) {
+    if (path.includes("/receipts/:id")) {
       const receipt = await deps.receipts.findById(id);
       return receipt ? branchesOfWarehouses(c, [receipt.warehouseId]) : null;
     }
-    if (path.includes("/invoices/")) {
+    if (path.includes("/invoices/:id")) {
       const invoice = await deps.invoices.findById(id);
       return invoice ? documentBranches(c, [invoice.branchId], [invoice.warehouseId]) : null;
     }

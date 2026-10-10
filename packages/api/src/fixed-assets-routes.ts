@@ -220,12 +220,13 @@ export function createFixedAssetsRoutes(
    */
   const storedBranches: StoredBranchesResolver = async (c) => {
     const id = c.req.param("id");
-    if (!id || c.req.path.includes("/categories/")) return null;
+    const route = c.req.routePath;
+    if (!id || route.includes("/categories/:id")) return null;
     const assetBranches = async (assetIds: readonly string[]) => {
       const assets = await Promise.all(assetIds.map((assetId) => deps.assets.findById(assetId)));
       return (await Promise.all(assets.map((asset) => (asset ? documentBranches(c, [asset.branchId], [asset.warehouseId]) : [])))).flat();
     };
-    if (c.req.path.includes("/depreciation/runs/")) {
+    if (route.includes("/depreciation/runs/:id")) {
       const run = await deps.runs.findById(id);
       if (!run) return null;
       return run.branchId ? [run.branchId] : assetBranches(run.lines.map((line) => line.assetId));

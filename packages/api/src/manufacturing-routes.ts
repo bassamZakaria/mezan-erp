@@ -421,7 +421,7 @@ export function createManufacturingRoutes(
   const gate = createPermissionGate(resolveAuthContext, {
     storedBranches: async (c) => {
       const id = c.req.param("id");
-      if (!id || !c.req.path.includes("/work-orders/")) return null;
+      if (!id || !c.req.routePath.includes("/work-orders/:id")) return null;
       const order = await deps.workOrders.findById(id);
       return order ? branchesOfWarehouses(c, [order.sourceWarehouseId]) : null;
     },

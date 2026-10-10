@@ -21,7 +21,18 @@ export async function updateTaxRate(
   taxRateId: string,
   command: UpdateTaxRateCommand,
   repo: TaxRateRepository,
-  usage?: TaxRateUsage,
+  usage: TaxRateUsage,
+): Promise<TaxRate> {
+  // INVARIANT: the reference check and the write are one transaction, so a
+  // document cannot start naming the rate between the two.
+  return repo.transaction(() => updateTaxRateInTransaction(taxRateId, command, repo, usage));
+}
+
+async function updateTaxRateInTransaction(
+  taxRateId: string,
+  command: UpdateTaxRateCommand,
+  repo: TaxRateRepository,
+  usage: TaxRateUsage,
 ): Promise<TaxRate> {
   const current = await repo.findById(taxRateId);
   if (!current) throw new TaxRateNotFoundError(taxRateId);
@@ -31,7 +42,7 @@ export async function updateTaxRate(
   // it. Changing the percent or the sub-type here would restate every document
   // already filed under it, so a referenced rate keeps both for good.
   const restatesIdentity = nextRate !== current.rate || (command.etaSubType ?? current.etaSubType) !== current.etaSubType;
-  if (restatesIdentity && usage && (await usage.isReferenced(taxRateId))) {
+  if (restatesIdentity && (await usage.isReferenced(taxRateId))) {
     throw new TaxRateInUseError(current.id, current.name);
   }
   if (!Number.isFinite(nextRate) || nextRate < 0 || nextRate > 100) {

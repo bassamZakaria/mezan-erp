@@ -35,12 +35,15 @@ export function resolveEtaVatSubType(configured: string | null | undefined, taxR
  *
  * LEGACY ONLY: a line posted since D79 was closed carries its `taxRateId`, and
  * `resolveLineTaxRate` reads the classification off that row. This matcher is
- * reached only for a line whose stored id is NULL.
+ * reached only for a line whose stored id is NULL, and only above 0%.
  */
 export function findLineTaxRate<T extends { readonly status: string; readonly rate: number; readonly etaSubType: string }>(
   taxRates: readonly T[],
   taxRatePercent: number,
 ): T | null {
+  // INVARIANT: nothing is inferred at 0% on the read side either. One 0% rate
+  // on the tenant does not make every unnamed 0% line that rate.
+  if (!(taxRatePercent > 0)) return null;
   const matches = taxRates.filter((r) => r.status === TaxRateStatusCode.Active && r.rate === taxRatePercent);
   if (matches.length === 1) return matches[0] ?? null;
   if (matches.length === 0) return null;
@@ -50,14 +53,21 @@ export function findLineTaxRate<T extends { readonly status: string; readonly ra
   return distinct.size === 1 ? (matches[0] ?? null) : null;
 }
 
-export function isZeroRatedClassificationAmbiguous<
+const UNSPECIFIC_ZERO_SUBTYPES: ReadonlySet<string> = new Set(["auto", "V004"]);
+
+/**
+ * A 0% line that stored no tax rate, on a tenant that holds a specific zero
+ * classification (exempt, export…). Nothing on the books says the line is NOT
+ * one of those, so it may not be filed as the neutral V004 until someone names
+ * its rate.
+ */
+export function isZeroRatedLineUnclassified<
   T extends { readonly id: string; readonly status: string; readonly rate: number; readonly etaSubType: string },
 >(taxRates: readonly T[], line: LineTaxIdentity): boolean {
   if (line.taxRatePercent !== 0 || resolveLineTaxRate(taxRates, line) !== null) return false;
-  const classifications = new Set(
-    taxRates.filter((r) => r.status === TaxRateStatusCode.Active && r.rate === 0).map((r) => r.etaSubType),
+  return taxRates.some(
+    (r) => r.status === TaxRateStatusCode.Active && r.rate === 0 && !UNSPECIFIC_ZERO_SUBTYPES.has(r.etaSubType),
   );
-  return classifications.size > 1;
 }
 
 export interface LineTaxIdentity {

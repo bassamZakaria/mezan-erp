@@ -3,6 +3,7 @@ import {
   createTaxRate,
   updateTaxRate,
   DuplicateTaxCodeError,
+  DuplicateTaxRateIdError,
   InvalidTaxRateError,
   TaxRateNotFoundError,
   TaxRateInUseError,
@@ -49,7 +50,7 @@ function handleDomainError(c: Context, err: unknown) {
   if (err instanceof TaxRateNotFoundError) {
     return refuse(err, 404);
   }
-  if (err instanceof DuplicateTaxCodeError || err instanceof TaxRateInUseError) {
+  if (err instanceof DuplicateTaxCodeError || err instanceof DuplicateTaxRateIdError || err instanceof TaxRateInUseError) {
     return refuse(err, 409);
   }
   if (err instanceof InvalidTaxRateError) {
@@ -66,8 +67,8 @@ function handleDomainError(c: Context, err: unknown) {
 export function createTaxRatesRoutes(
   repo: TaxRateRepository,
   resolveAuthContext: AuthContextResolver,
+  usage: TaxRateUsage,
   audit?: AuditSink,
-  usage?: TaxRateUsage,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);

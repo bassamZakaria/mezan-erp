@@ -30,6 +30,7 @@ import {
   type Entitlements,
   type TaxRateRepository,
   type TaxRateUsage,
+  ASSUME_TAX_RATE_REFERENCED,
   type CostCenterRepository,
   type TreasuryAccountRepository,
   type FiscalPeriodRepository,
@@ -385,7 +386,7 @@ export interface CreateAppOptions {
   readonly taxGroupRepo?: TaxGroupRepository;
   /** Mounts `/tax-rates` (docs/archive/catalog/04 "الضرائب") when present — omit it for no `/tax-rates` route. */
   readonly taxRateRepo?: TaxRateRepository;
-  /** Which tax rates stored lines name; without it a referenced rate's percent and sub-type stay editable. */
+  /** Which tax rates stored lines name. Left out, every rate is treated as referenced and its percent and sub-type stay locked. */
   readonly taxRateUsage?: TaxRateUsage;
   /** Mounts `/cost-centers` (docs/archive/catalog/04 "مراكز التكلفة") when present — omit it for no `/cost-centers` route. */
   readonly costCenterRepo?: CostCenterRepository;
@@ -1037,7 +1038,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     );
   }
   if (options.taxRateRepo) {
-    app.route("/tax-rates", createTaxRatesRoutes(options.taxRateRepo, resolveAuth, options.auditSink, options.taxRateUsage));
+    app.route("/tax-rates", createTaxRatesRoutes(options.taxRateRepo, resolveAuth, options.taxRateUsage ?? ASSUME_TAX_RATE_REFERENCED, options.auditSink));
     if (options.taxGroupRepo) {
       app.route("/tax-groups", createTaxGroupsRoutes(options.taxGroupRepo, options.taxRateRepo, resolveAuth));
     }

@@ -21,7 +21,7 @@ import type {
   EtaReceiptLineInput,
   EtaReceiptPaymentMethod,
 } from "./receipt.js";
-import { resolveLineTaxRate, resolveEtaVatSubType, type LineTaxIdentity } from "./tax-subtype.js";
+import { isZeroRatedLineUnclassified, resolveLineTaxRate, resolveEtaVatSubType, type LineTaxIdentity } from "./tax-subtype.js";
 import { isEtaUnitCode } from "./mappings.js";
 import { EtaReceiptNotReadyError, EtaRefundTooLateError } from "./errors.js";
 import { extend, unitCostOf } from "../inventory/wac-math.js";
@@ -126,6 +126,7 @@ function lineCodes(
   const unitType = lookups.unitByCode.get(unit) ?? unit;
   if (!item?.etaItemCode) missing.add(`كود الصنف لدى المصلحة (${item?.code ?? itemId})`);
   if (!isEtaUnitCode(unitType)) missing.add(`ربط الوحدة (${unit || "—"})`);
+  if (isZeroRatedLineUnclassified(lookups.taxRates, tax)) missing.add(`ضريبة البند بنسبة 0% غير مسماة (${item?.code ?? itemId})`);
   return {
     internalCode: item?.code ?? itemId,
     // EXTERNAL CONTRACT: the authority's coding schemes on a receipt line are
@@ -219,12 +220,14 @@ const REFUND_WINDOW_DAYS = 540;
 const DAY_MS = 86_400_000;
 
 /**
- * The sale line a return line came from. A return line carries no source line
- * id, only the item and its per-base-unit price, so when one item sits on two
- * lines the price picks the line — the first match by item alone would file
- * one line's base with the other line's VAT.
+ * The sale line a return line came from: the line it names. A return stored
+ * before lines could be named carries only the item and its per-base-unit
+ * price, so when one item sits on two lines the price picks the line — the
+ * first match by item alone would file one line's base with the other's VAT.
  */
 function soldLineOf(invoice: SalesInvoice, ret: SalesReturnLine) {
+  const named = ret.sourceLineId ? invoice.lines.find((l) => l.lineId === ret.sourceLineId && l.itemId === ret.itemId) : undefined;
+  if (named) return named;
   const candidates = invoice.lines.filter((l) => l.itemId === ret.itemId);
   if (candidates.length <= 1) return candidates[0];
   return (

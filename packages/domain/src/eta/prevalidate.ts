@@ -91,11 +91,11 @@ export interface EtaPrevalidationLineInput {
    */
   readonly etaTaxSubType: string | null;
   /**
-   * A 0% line that stored no tax rate while the tenant holds more than one 0%
-   * classification: nothing on the books says which one it is, so it may not
-   * reach the authority until someone names it.
+   * A 0% line that stored no tax rate while the tenant holds a specific zero
+   * classification (exempt, export…): it may not reach the authority until
+   * someone names its rate.
    */
-  readonly taxClassificationAmbiguous: boolean;
+  readonly taxClassificationMissing: boolean;
   readonly netTotal: string;
   readonly taxAmount: string;
 }
@@ -230,13 +230,13 @@ export function prevalidateEtaInvoice(
         ),
       );
     }
-    if (line.taxClassificationAmbiguous) {
+    if (line.taxClassificationMissing) {
       out.push(
         finding(
           EtaPrevalidationRuleCode.TaxSubtypeNotMapped,
           EtaPrevalidationSeverity.Blocking,
-          `سطر «${line.itemLabel}» بنسبة ضريبة 0% دون ضريبة مسماة، ولدى المنشأة أكثر من تصنيف بنسبة صفر (معفى/تصدير/غير خاضع)، فلا يمكن تحديد أيها يُرسل للمصلحة.`,
-          `Line "${line.itemLabel}" is taxed at 0% and names no tax rate, while more than one 0% classification (exempt/export/not-subject) exists, so the one to file cannot be determined.`,
+          `سطر «${line.itemLabel}» بنسبة ضريبة 0% دون ضريبة مسماة، ولدى المنشأة تصنيف محدد بنسبة صفر (معفى/تصدير)، فلا يمكن إرساله للمصلحة كـ«غير خاضع» دون تحديد.`,
+          `Line "${line.itemLabel}" is taxed at 0% and names no tax rate, while a specific 0% classification (exempt/export) exists, so it cannot be filed as "not subject" by default.`,
           "اختر الضريبة الصحيحة على سطر المستند (معفى أو تصدير أو غير خاضع) ثم أعد الإرسال.",
           "Pick the correct tax rate on the document line (exempt, export or not subject), then resubmit.",
           EtaPrevalidationFixScreen.SourceDocument,

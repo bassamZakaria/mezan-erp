@@ -29,7 +29,6 @@ const EXEMPT = taxRate("VAT-EXEMPT", "معفى", 0, { etaSubType: "V003" });
 const EXPORT = taxRate("VAT-EXPORT", "تصدير", 0, { etaSubType: "V001" });
 const RETIRED = taxRate("OLD5", "ضريبة قديمة", 5, { status: "inactive" });
 const ALL = [VAT, EXEMPT, EXPORT, RETIRED];
-const NONE: TaxChoice = { kind: TaxChoiceKind.None };
 const picked = (taxRateId: string): TaxChoice => ({ kind: TaxChoiceKind.Rate, taxRateId });
 
 describe("chosenTaxRateId — an untouched line derives its rate the way the server does", () => {
@@ -47,9 +46,8 @@ describe("chosenTaxRateId — an untouched line derives its rate the way the ser
     expect(chosenTaxRateId(DERIVED_TAX, [], 14)).toBeNull();
   });
 
-  it("is the user's own pick once they made one, including 'none'", () => {
+  it("is the user's own pick once they made one", () => {
     expect(chosenTaxRateId(picked("VAT-EXPORT"), ALL, 14)).toBe("VAT-EXPORT");
-    expect(chosenTaxRateId(NONE, ALL, 14)).toBeNull();
   });
 });
 
@@ -59,9 +57,9 @@ describe("appliedTaxPercent", () => {
     expect(appliedTaxPercent(DERIVED_TAX, ALL, 14)).toBe(14);
   });
 
-  it("is the fallback percent when no rate is chosen", () => {
-    expect(appliedTaxPercent(NONE, ALL, 14)).toBe(14);
+  it("is the fallback percent when there is no rate to derive", () => {
     expect(appliedTaxPercent(DERIVED_TAX, ALL, 0)).toBe(0);
+    expect(appliedTaxPercent(DERIVED_TAX, [], 14)).toBe(14);
   });
 });
 
@@ -72,10 +70,6 @@ describe("lineTaxPayload — what the request says is what the picker shows", ()
 
   it("sends the derived rate's id for an untouched line — the rate the picker displays", () => {
     expect(lineTaxPayload(DERIVED_TAX, ALL, 14)).toEqual({ taxRateId: "VAT14" });
-  });
-
-  it("sends an explicit null when the user chose «بدون ضريبة مسماة», so the server stores no rate and infers none", () => {
-    expect(lineTaxPayload(NONE, ALL, 14)).toEqual({ taxRateId: null, taxRatePercent: 14 });
   });
 
   it("sends the percent alone for an untouched line with nothing to derive, leaving the decision to the server", () => {
@@ -103,11 +97,21 @@ describe("TaxRateField", () => {
     return onChange;
   }
 
-  it("lists each active rate by name and percent, plus the option that names none", () => {
+  it("lists each active rate by name and percent — and NO 'unnamed' option where a rate is derivable, since that would be tax charged under no rate", () => {
     renderField(DERIVED_TAX);
     fireEvent.click(screen.getByRole("combobox", { name: "الضريبة" }));
     expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual([
-      "بدون ضريبة مسماة (14٪)",
+      "ضريبة القيمة المضافة · 14٪",
+      "معفى · 0٪",
+      "تصدير · 0٪",
+    ]);
+  });
+
+  it("offers the 'unnamed' option at 0%, where it is what an untouched line already is", () => {
+    renderField(DERIVED_TAX, 0);
+    fireEvent.click(screen.getByRole("combobox", { name: "الضريبة" }));
+    expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual([
+      "بدون ضريبة مسماة (0٪)",
       "ضريبة القيمة المضافة · 14٪",
       "معفى · 0٪",
       "تصدير · 0٪",
@@ -124,13 +128,18 @@ describe("TaxRateField", () => {
     expect(screen.getByRole("combobox", { name: "الضريبة" })).toHaveTextContent("بدون ضريبة مسماة (0٪)");
   });
 
-  it("reports the picked rate's real id, and 'none' as a choice of its own", () => {
+  it("reports the picked rate's real id", () => {
     const onChange = renderField(DERIVED_TAX);
     fireEvent.click(screen.getByRole("combobox", { name: "الضريبة" }));
     fireEvent.mouseDown(screen.getByRole("option", { name: "تصدير · 0٪" }));
     expect(onChange).toHaveBeenLastCalledWith({ kind: TaxChoiceKind.Rate, taxRateId: "VAT-EXPORT" });
+  });
+
+  it("going back to the unnamed option on a 0% line returns it to the untouched state — never a 'no rate' the server would store beside a charged percent", () => {
+    const onChange = renderField(picked("VAT-EXPORT"), 0);
     fireEvent.click(screen.getByRole("combobox", { name: "الضريبة" }));
-    fireEvent.mouseDown(screen.getByRole("option", { name: "بدون ضريبة مسماة (14٪)" }));
-    expect(onChange).toHaveBeenLastCalledWith({ kind: TaxChoiceKind.None });
+    fireEvent.mouseDown(screen.getByRole("option", { name: "بدون ضريبة مسماة (0٪)" }));
+    expect(onChange).toHaveBeenLastCalledWith(DERIVED_TAX);
+    expect(lineTaxPayload(DERIVED_TAX, ALL, 0)).toEqual({ taxRatePercent: 0 });
   });
 });

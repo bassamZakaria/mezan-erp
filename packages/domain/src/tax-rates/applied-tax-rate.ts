@@ -97,13 +97,18 @@ export function resolveDocumentLineTax(
 /**
  * A line copied from a document that already resolved its tax — a quote
  * converting into an invoice. The rate was valid when it was quoted, so it is
- * kept even if it has been deactivated since, and the line is not repriced.
+ * kept even if it has been deactivated since, and the line is not repriced. A
+ * source that stored no rate (a quote written before quotes stored one) is
+ * inferred from its percent, exactly as a new line would be.
  */
 export function resolveInheritedTaxRate(
   taxRates: readonly RateIdentity[] | null,
   inherited: AppliedTaxRate,
 ): AppliedTaxRate {
-  if (inherited.taxRateId === null) return inherited;
+  if (inherited.taxRateId === null) {
+    const inferred = taxRates === null ? null : inferTaxRateByPercent(taxRates, inherited.taxRatePercent);
+    return { taxRateId: inferred?.id ?? null, taxRatePercent: inherited.taxRatePercent };
+  }
   if (taxRates === null) throw new TaxRateUnverifiableError(inherited.taxRateId);
   if (!taxRates.some((r) => r.id === inherited.taxRateId)) throw new TaxRateNotFoundError(inherited.taxRateId);
   return inherited;

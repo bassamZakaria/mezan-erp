@@ -259,20 +259,23 @@ describe("QuoteFormView", () => {
     expect(lines[0]!.taxRateId).toBe("VAT-EXPORT");
   });
 
-  it("D79: choosing «بدون ضريبة مسماة» sends an explicit null beside the percent, so the server stores no rate", async () => {
+  it("D79: a 14% line offers no «بدون ضريبة مسماة» — tax is never charged under no rate; picking another rate and coming back sends the 14% rate's id", async () => {
     const { getCreateBody } = renderForm();
     await screen.findByRole("heading", { name: "عرض سعر جديد" });
     await flushData();
     pickFromCombobox(document.body, "العميل *", "متجر الأمل");
     pickFromCombobox(document.body, "الصنف — بند 1", "صنف تجريبي");
     fireEvent.click(screen.getByRole("button", { name: "تفاصيل البند 1" }));
-    chooseTaxRate("بدون ضريبة مسماة (14٪)");
+    chooseTaxRate("معفى · 0٪");
+    fireEvent.click(screen.getByRole("combobox", { name: "الضريبة" }));
+    expect(screen.queryByRole("option", { name: /بدون ضريبة مسماة/ })).not.toBeInTheDocument();
+    fireEvent.mouseDown(screen.getByRole("option", { name: "ضريبة القيمة المضافة · 14٪" }));
 
     fireEvent.click(screen.getByRole("button", { name: "حفظ كمسودة" }));
     await waitFor(() => expect(getCreateBody()).not.toBeNull());
     const lines = (getCreateBody() as Record<string, unknown>).lines as Array<Record<string, unknown>>;
-    expect(lines[0]!.taxRatePercent).toBe(14);
-    expect(lines[0]!.taxRateId).toBeNull();
+    expect(lines[0]!.taxRateId).toBe("VAT14");
+    expect(lines[0]).not.toHaveProperty("taxRatePercent");
   });
 
   it("the header discount percent reduces the taxable base and grand total by the exact rounded amount, and is carried as a percent discount", async () => {

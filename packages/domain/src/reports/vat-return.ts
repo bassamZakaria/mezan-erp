@@ -31,6 +31,13 @@ export interface VatReturnContext extends GlReportContext {
    * Left out, such an invoice reports input tax against no base at all.
    */
   readonly inputBaseAccountIds?: readonly string[];
+  /**
+   * Accounts a sale's taxable base is credited to that are not revenue: the
+   * «فواتير مستخلصات على العقود» liability a progress-certificate invoice
+   * credits when the contract recognises revenue by percentage of completion.
+   * Left out, such an invoice reports output tax against no base at all.
+   */
+  readonly outputBaseAccountIds?: readonly string[];
 }
 
 export interface VatReturnParams {
@@ -60,6 +67,8 @@ const paramsSchema = z
     message: "تاريخ البداية يجب أن يسبق تاريخ النهاية",
     path: ["periodFrom"],
   });
+
+const PURCHASE_SOURCE_DOC_TYPES: ReadonlySet<string> = new Set(["PURCHASE_INVOICE", "PURCHASE_RETURN"]);
 
 const SIDE_LABELS: Record<VatSide, string> = {
   output: "ضريبة المخرجات (المبيعات)",
@@ -221,6 +230,8 @@ export function createVatReturnReport(
     run: (params, ctx) => {
       const typeOf = new Map(ctx.accounts.map((a) => [a.id, a.type]));
       const isRevenue = (id: string): boolean => typeOf.get(id) === "revenue";
+      const extraOutputBase = new Set(ctx.outputBaseAccountIds ?? []);
+      const isOutputBase = (id: string): boolean => isRevenue(id) || extraOutputBase.has(id);
       const extraInputBase = new Set(ctx.inputBaseAccountIds ?? []);
       const isPurchaseBase = (id: string): boolean =>
         typeOf.get(id) === "expense" || typeOf.get(id) === "asset" || extraInputBase.has(id);
@@ -244,7 +255,7 @@ export function createVatReturnReport(
         // ~6.3% bucket that was never charged to anyone (D28). Entries posted
         // before the dimension existed carry none, and still fall back to the
         // old derivation so history keeps reporting.
-        const outputTagged = ratedBuckets(entry, ctx.outputVatAccountId, isRevenue, "credit");
+        const outputTagged = ratedBuckets(entry, ctx.outputVatAccountId, isOutputBase, "credit");
         if (outputTagged.length > 0) {
           for (const b of outputTagged) bump(outputBuckets, b.rate, b.taxRateId, b.base, b.tax);
         } else if (revenueBase.scaled > 0n) {
@@ -254,7 +265,14 @@ export function createVatReturnReport(
 
         const inVat = lineNet(entry, ctx.inputVatAccountId);
         const inputTax = inVat.debit.add(inVat.credit.negate());
-        const inputTagged = ratedBuckets(entry, ctx.inputVatAccountId, (id) => id !== ctx.inputVatAccountId && isPurchaseBase(id), "debit");
+        // INVARIANT: only a purchase-side entry has an input base. A sale that
+        // credits an asset — a retention release crediting «محتجزات ضمان
+        // مدينة» at 0% — would otherwise read as a negative purchase.
+        const purchaseSide =
+          inVat.debit.scaled !== 0n || inVat.credit.scaled !== 0n || PURCHASE_SOURCE_DOC_TYPES.has(entry.sourceDocType ?? "");
+        const inputTagged = purchaseSide
+          ? ratedBuckets(entry, ctx.inputVatAccountId, (id) => id !== ctx.inputVatAccountId && isPurchaseBase(id), "debit")
+          : [];
         if (inputTagged.length > 0) {
           for (const b of inputTagged) bump(inputBuckets, b.rate, b.taxRateId, b.base, b.tax);
         } else if (inputTax.scaled > 0n) {

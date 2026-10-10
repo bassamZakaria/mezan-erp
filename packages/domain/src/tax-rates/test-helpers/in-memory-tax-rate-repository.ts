@@ -20,7 +20,12 @@ export class InMemoryTaxRateRepository implements TaxRateRepository {
   }
 
   async create(taxRate: TaxRate): Promise<void> {
+    if (this.rows.has(taxRate.id)) throw new Error(`tax rate ${taxRate.id} already exists`);
     this.rows.set(taxRate.id, taxRate);
+  }
+
+  async transaction<T>(fn: () => Promise<T>): Promise<T> {
+    return fn();
   }
 
   async update(taxRate: TaxRate): Promise<void> {

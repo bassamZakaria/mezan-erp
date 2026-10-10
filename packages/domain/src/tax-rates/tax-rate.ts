@@ -81,10 +81,15 @@ export interface TaxRateUsage {
   isReferenced(taxRateId: string): Promise<boolean>;
 }
 
+/** The answer when nothing can check: a rate is treated as referenced, so its identity stays locked. */
+export const ASSUME_TAX_RATE_REFERENCED: TaxRateUsage = { isReferenced: async () => true };
+
 export interface TaxRateRepository {
   findById(id: string): Promise<TaxRate | null>;
   findByCode(code: string): Promise<TaxRate | null>;
   list(): Promise<TaxRate[]>;
+  /** INVARIANT: inserts only. An id that already exists is an error, never an overwrite. */
   create(taxRate: TaxRate): Promise<void>;
   update(taxRate: TaxRate): Promise<void>;
+  transaction<T>(fn: () => Promise<T>): Promise<T>;
 }

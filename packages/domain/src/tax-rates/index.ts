@@ -7,9 +7,16 @@ export type {
   EtaVatSubTypeDefinition,
   TaxRateUsage,
 } from "./tax-rate.js";
-export { ETA_VAT_SUBTYPES, ETA_VAT_SUBTYPE_DEFINITIONS, getEtaVatSubTypeLabel, TaxRateStatusCode } from "./tax-rate.js";
+export {
+  ETA_VAT_SUBTYPES,
+  ETA_VAT_SUBTYPE_DEFINITIONS,
+  getEtaVatSubTypeLabel,
+  TaxRateStatusCode,
+  ASSUME_TAX_RATE_REFERENCED,
+} from "./tax-rate.js";
 export {
   DuplicateTaxCodeError,
+  DuplicateTaxRateIdError,
   TaxRateNotFoundError,
   InvalidTaxRateError,
   InactiveTaxRateError,

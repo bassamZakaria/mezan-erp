@@ -12,7 +12,7 @@ afterEach(() => {
 function newApp() {
   const repo = createSqliteTaxRateRepository();
   handles.push(repo);
-  const app = createTaxRatesRoutes(repo, insecureHeaderAuthContextResolver);
+  const app = createTaxRatesRoutes(repo, insecureHeaderAuthContextResolver, { isReferenced: async () => false });
   return { app, repo };
 }
 
@@ -42,7 +42,7 @@ describe("tax-rates router — the pickers on document forms (D79)", () => {
   it("answers 409 with an Arabic and an English message when a referenced rate's percent or sub-type is edited", async () => {
     const repo = createSqliteTaxRateRepository();
     handles.push(repo);
-    const app = createTaxRatesRoutes(repo, insecureHeaderAuthContextResolver, undefined, { isReferenced: async (id) => id === "t1" });
+    const app = createTaxRatesRoutes(repo, insecureHeaderAuthContextResolver, { isReferenced: async (id: string) => id === "t1" });
     await repo.create({ ...payload, calculationType: "exclusive", isDefault: true, outputTaxAccountId: null, inputTaxAccountId: null, etaSubType: "auto", status: "active" });
     const patch = (body: unknown) =>
       app.fetch(req("/t1", { method: "PATCH", permissions: "accounting.tax.manage", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }));
@@ -57,6 +57,41 @@ describe("tax-rates router — the pickers on document forms (D79)", () => {
     expect((await patch({ etaSubType: "V003" })).status).toBe(409);
     expect((await patch({ status: "inactive" })).status).toBe(200);
     expect((await repo.findById("t1"))?.rate).toBe(14);
+  });
+});
+
+describe("tax-rates router — create never overwrites (review round 2, skill rule 8)", () => {
+  const post = (app: ReturnType<typeof newApp>["app"], body: unknown) =>
+    app.fetch(req("/", { method: "POST", permissions: "accounting.tax.manage", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }));
+
+  it("answers 409 for an id that already exists and leaves the stored rate exactly as it was", async () => {
+    const { app, repo } = newApp();
+    expect((await post(app, payload)).status).toBe(201);
+    const before = await repo.findById("t1");
+
+    const res = await post(app, { id: "t1", code: "VAT14B", name: "x", rate: 10 });
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as { error: string; message: string; messageEn: string };
+    expect(body.error).toBe("TAX_RATE_ID_EXISTS");
+    expect(body.message).toMatch(/[\u0600-\u06FF]/);
+    expect(body.message).toContain(payload.name);
+    expect(body.messageEn).toMatch(/already exists/);
+    expect(await repo.findById("t1")).toEqual(before);
+    expect(await repo.list()).toHaveLength(1);
+  });
+
+  it("the repository's create is an insert: a second create of the same id throws rather than overwriting", async () => {
+    const { repo } = newApp();
+    const row = { ...payload, calculationType: "exclusive" as const, isDefault: false, outputTaxAccountId: null, inputTaxAccountId: null, etaSubType: "auto" as const, status: "active" as const };
+    await repo.create(row);
+    await expect(repo.create({ ...row, code: "OTHER", rate: 10 })).rejects.toThrow();
+    expect((await repo.findById("t1"))?.rate).toBe(14);
+  });
+
+  it("an update of an id that does not exist changes nothing", async () => {
+    const { repo } = newApp();
+    await repo.update({ ...payload, calculationType: "exclusive", isDefault: false, outputTaxAccountId: null, inputTaxAccountId: null, etaSubType: "auto", status: "active" });
+    expect(await repo.list()).toEqual([]);
   });
 });
 

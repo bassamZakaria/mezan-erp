@@ -283,8 +283,8 @@ describe("SalesReturnsScreen", () => {
     await waitFor(() => expect(createdBody).toBeDefined());
     const requested = createdBody!.requested as Array<Record<string, unknown>>;
     expect(requested).toEqual([
-      { itemId: "item-cement", qty: "4", reason: "DEFECTIVE" },
-      { itemId: "item-brick", qty: "2", reason: "WRONG_ITEM" },
+      { itemId: "item-cement", sourceLineId: "l1", qty: "4", reason: "DEFECTIVE" },
+      { itemId: "item-brick", sourceLineId: "l2", qty: "2", reason: "WRONG_ITEM" },
     ]);
     expect(createdBody!.sourceInvoiceId).toBe("inv-1");
   });
@@ -315,7 +315,7 @@ describe("SalesReturnsScreen", () => {
     fireEvent.click(screen.getByRole("button", { name: "حفظ كمسودة" }));
     await waitFor(() => expect(createdBody).toBeDefined());
     const requested = createdBody!.requested as Array<Record<string, unknown>>;
-    expect(requested).toEqual([{ itemId: "item-brick", qty: "6", reason: "DEFECTIVE" }]);
+    expect(requested).toEqual([{ itemId: "item-brick", sourceLineId: "l2", qty: "6", reason: "DEFECTIVE" }]);
   });
 
   it("switching the source invoice repopulates the returnable lines from the NEWLY picked invoice, not the stale one", async () => {

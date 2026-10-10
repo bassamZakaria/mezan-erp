@@ -116,7 +116,7 @@ function purchaseReturn(overrides: Partial<PurchaseReturnDocumentDTO> = {}): Pur
     lines: [
       {
         itemId: "item-cement", warehouseId: "MAIN-WH", supplierId: "sup-1", sourceInvoiceId: "pi-1",
-        sourceInvoiceNumber: "PI-000001", reason: "DEFECTIVE", availableQty: "20.000000", qty: "3.000000",
+        sourceInvoiceNumber: "PI-000001", sourceLineId: "0", reason: "DEFECTIVE", availableQty: "20.000000", qty: "3.000000",
         unitCost: "85.000000", taxAmount: "35.700000",
       },
     ],
@@ -258,12 +258,12 @@ describe("PurchaseReturnsScreen", () => {
     expect(lines).toEqual([
       {
         itemId: "item-cement", warehouseId: "MAIN-WH", supplierId: "sup-1", sourceInvoiceId: "pi-1",
-        sourceInvoiceNumber: "PI-000001", reason: "DEFECTIVE", availableQty: "20.000000", qty: "4",
+        sourceInvoiceNumber: "PI-000001", sourceLineId: "0", reason: "DEFECTIVE", availableQty: "20.000000", qty: "4",
         unitCost: "85.000000", taxAmount: "47.600000",
       },
       {
         itemId: "item-brick", warehouseId: "MAIN-WH", supplierId: "sup-1", sourceInvoiceId: "pi-1",
-        sourceInvoiceNumber: "PI-000001", reason: "DEFECTIVE", availableQty: "40.000000", qty: "2",
+        sourceInvoiceNumber: "PI-000001", sourceLineId: "1", reason: "DEFECTIVE", availableQty: "40.000000", qty: "2",
         unitCost: "35.000000", taxAmount: "9.800000",
       },
     ]);
@@ -303,7 +303,7 @@ describe("PurchaseReturnsScreen", () => {
     expect(lines).toEqual([
       {
         itemId: "item-brick", warehouseId: "MAIN-WH", supplierId: "sup-1", sourceInvoiceId: "pi-1",
-        sourceInvoiceNumber: "PI-000001", reason: "DEFECTIVE", availableQty: "40.000000", qty: "6",
+        sourceInvoiceNumber: "PI-000001", sourceLineId: "1", reason: "DEFECTIVE", availableQty: "40.000000", qty: "6",
         unitCost: "35.000000", taxAmount: "29.400000",
       },
     ]);

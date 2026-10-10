@@ -14,7 +14,7 @@ import {
   type PillTone,
   type RowMenuItem,
 } from "@mezan/ui";
-import type { DocumentStatusDTO, PurchaseReturnLineDTO, PurchaseReturnReasonDTO } from "@mezan/contracts";
+import type { DocumentStatusDTO, PurchaseInvoiceDTO, PurchaseReturnLineDTO, PurchaseReturnReasonDTO } from "@mezan/contracts";
 import { SelectField, NumberField, TextField } from "../settings/form-controls";
 import {
   useCancelPurchaseReturn,
@@ -33,6 +33,7 @@ import { DOC_STATUS_TONE, documentStatusLabel } from "../doc-status";
 import { PurchaseReturnPrintPage } from "../print/documents";
 import { useScreenIntent, useSubPage } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { sourceLineOptions } from "./return-source-lines";
 import { todayIso } from "../lib/dates";
 import { EMPTY } from "../lib/empty";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
@@ -53,13 +54,21 @@ const lineTotal = (l: PurchaseReturnLineDTO) => num(l.unitCost) * num(l.qty) + n
 
 interface LineDraft {
   key: string;
-  itemId: string;
+  sourceLineId: string;
   qty: number;
 }
 let lineSeq = 0;
-function blankLine(defaultItemId: string): LineDraft {
+function blankLine(sourceLineId: string): LineDraft {
   lineSeq += 1;
-  return { key: `l${lineSeq}`, itemId: defaultItemId, qty: 1 };
+  return { key: `l${lineSeq}`, sourceLineId, qty: 1 };
+}
+
+// EXTERNAL CONTRACT: a purchase invoice line has no id of its own; the server
+// names it by its position in the invoice, and a return must send the same.
+function returnableLinesOf(invoice: PurchaseInvoiceDTO | null | undefined) {
+  return (invoice?.lines ?? [])
+    .map((l, index) => ({ ...l, sourceLineId: String(index) }))
+    .flatMap((l) => (l.kind === "inventory" && l.itemId !== null ? [{ ...l, itemId: l.itemId }] : []));
 }
 
 export function PurchaseReturnsScreen() {
@@ -107,8 +116,8 @@ export function PurchaseReturnsScreen() {
     if (!firstInvoice) return;
     setInvoiceId(firstInvoice.id);
     setWarehouseId(firstInvoice.warehouseId);
-    const firstLine = firstInvoice.lines.find((l) => l.kind === "inventory" && l.itemId !== null);
-    setLines(firstLine?.itemId ? [blankLine(firstLine.itemId)] : []);
+    const firstLine = returnableLinesOf(firstInvoice)[0];
+    setLines(firstLine ? [blankLine(firstLine.sourceLineId)] : []);
   }, [firstSegment, invoices, invoiceId]);
 
   useEffect(() => {
@@ -118,10 +127,7 @@ export function PurchaseReturnsScreen() {
   }, [firstSegment, warehouses, warehouseId, invoiceId]);
 
   const selectedInvoice = invoices.find((i) => i.id === invoiceId) ?? null;
-  const returnableLines = useMemo(
-    () => (selectedInvoice?.lines ?? []).filter((l) => l.kind === "inventory" && l.itemId !== null),
-    [selectedInvoice],
-  );
+  const returnableLines = useMemo(() => returnableLinesOf(selectedInvoice), [selectedInvoice]);
 
   const [searchText, setSearchText, search] = useUrlSearch();
   const [page, setPage] = useUrlNumber("page", 1);
@@ -170,8 +176,8 @@ export function PurchaseReturnsScreen() {
     setInvoiceId(firstInvoice?.id ?? "");
     setWarehouseId(firstInvoice?.warehouseId ?? warehouses[0]?.id ?? "");
     setReason("DEFECTIVE");
-    const firstLine = firstInvoice?.lines.find((l) => l.kind === "inventory" && l.itemId !== null);
-    setLines(firstLine?.itemId ? [blankLine(firstLine.itemId)] : []);
+    const firstLine = returnableLinesOf(firstInvoice)[0];
+    setLines(firstLine ? [blankLine(firstLine.sourceLineId)] : []);
     subPage.open("new");
   }
 
@@ -179,8 +185,8 @@ export function PurchaseReturnsScreen() {
     setInvoiceId(id);
     const invoice = invoices.find((i) => i.id === id) ?? null;
     if (invoice) setWarehouseId(invoice.warehouseId);
-    const firstLine = invoice?.lines.find((l) => l.kind === "inventory" && l.itemId !== null);
-    setLines(firstLine?.itemId ? [blankLine(firstLine.itemId)] : []);
+    const firstLine = returnableLinesOf(invoice)[0];
+    setLines(firstLine ? [blankLine(firstLine.sourceLineId)] : []);
   }
 
   async function submit(confirmAfter: boolean) {
@@ -190,26 +196,26 @@ export function PurchaseReturnsScreen() {
       setError(t("purchaseReturns.error.needInvoice"));
       return;
     }
-    const returnLines: PurchaseReturnLineDTO[] = lines
-      .filter((l) => l.qty > 0 && l.itemId !== "")
-      .map((l) => {
-        const source = returnableLines.find((sl) => sl.itemId === l.itemId);
-        const unitCost = source?.unitCost ?? "0";
-        const taxRate = source?.taxRatePercent ?? 0;
-        const taxAmount = ((Number(unitCost) * l.qty * taxRate) / 100).toFixed(6);
-        return {
-          itemId: l.itemId,
+    const returnLines: PurchaseReturnLineDTO[] = lines.flatMap((l) => {
+      const source = returnableLines.find((sl) => sl.sourceLineId === l.sourceLineId);
+      if (!source || l.qty <= 0) return [];
+      const taxAmount = ((Number(source.unitCost) * l.qty * source.taxRatePercent) / 100).toFixed(6);
+      return [
+        {
+          itemId: source.itemId,
           warehouseId,
           supplierId: invoice.supplierId,
           sourceInvoiceId: invoice.id,
           sourceInvoiceNumber: invoice.number,
+          sourceLineId: source.sourceLineId,
           reason,
-          availableQty: source?.qty ?? String(l.qty),
+          availableQty: source.qty,
           qty: String(l.qty),
-          unitCost,
+          unitCost: source.unitCost,
           taxAmount,
-        };
-      });
+        },
+      ];
+    });
     if (returnLines.length === 0) {
       setError(t("purchaseReturns.error.needLine"));
       return;
@@ -298,9 +304,9 @@ export function PurchaseReturnsScreen() {
                 <div className="flex-1">
                   <SelectField
                     label={t("common.item")}
-                    value={line.itemId}
-                    onChange={(v) => setLines((prev) => prev.map((l) => (l.key === line.key ? { ...l, itemId: v } : l)))}
-                    options={returnableLines.map((sl) => ({ value: sl.itemId as string, label: itemName(sl.itemId as string) }))}
+                    value={line.sourceLineId}
+                    onChange={(v) => setLines((prev) => prev.map((l) => (l.key === line.key ? { ...l, sourceLineId: v } : l)))}
+                    options={sourceLineOptions(returnableLines.map((sl) => ({ sourceLineId: sl.sourceLineId, itemId: sl.itemId, label: itemName(sl.itemId) })))}
                   />
                 </div>
                 <div className="w-[90px]">
@@ -319,7 +325,7 @@ export function PurchaseReturnsScreen() {
             <Button
               variant="default"
               disabled={returnableLines.length === 0}
-              onClick={() => setLines((prev) => [...prev, blankLine((returnableLines[0]?.itemId as string) ?? "")])}
+              onClick={() => setLines((prev) => [...prev, blankLine(returnableLines[0]?.sourceLineId ?? "")])}
             >
               {t("purchaseReturns.addLine")}
             </Button>

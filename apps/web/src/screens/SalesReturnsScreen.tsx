@@ -38,6 +38,7 @@ import { SalesReturnPrintPage } from "../print/documents";
 import { useNavigation, useScreenIntent, useSubPage } from "../navigation";
 import { AttachmentsTab } from "../attachments/AttachmentsTab";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { sourceLineOptions } from "./return-source-lines";
 import { useEntityName } from "../lib/entity-names";
 import { todayIso } from "../lib/dates";
 import { majorOf } from "../lib/money";
@@ -60,15 +61,15 @@ const lineTotal = (l: SalesReturnLineDTO) => num(l.unitPrice) * num(l.qty) + num
 
 interface LineDraft {
   key: string;
-  itemId: string;
+  sourceLineId: string;
   qty: number;
   /** سبب الإرجاع per line (R3.9) — one item can come back broken and another as the wrong pick. */
   reason: SalesReturnReasonDTO;
 }
 let lineSeq = 0;
-function blankLine(defaultItemId: string, reason: SalesReturnReasonDTO): LineDraft {
+function blankLine(sourceLineId: string, reason: SalesReturnReasonDTO): LineDraft {
   lineSeq += 1;
-  return { key: `l${lineSeq}`, itemId: defaultItemId, qty: 1, reason };
+  return { key: `l${lineSeq}`, sourceLineId, qty: 1, reason };
 }
 
 const PAGE_SIZES = [10, 25, 50, 100] as const;
@@ -195,7 +196,7 @@ export function SalesReturnsScreen() {
     // `[]` is never `Object.is`-equal to the current state, so React would re-render
     // and re-run this effect forever on an invoice with nothing returnable.
     if (!firstLine) return;
-    setLines([blankLine(firstLine.itemId, reason)]);
+    setLines([blankLine(firstLine.lineId, reason)]);
   }, [firstSegment, invoices, invoiceId, lines.length, reason]);
 
   useEffect(() => {
@@ -231,7 +232,7 @@ export function SalesReturnsScreen() {
     setWarehouseId(firstInvoice?.warehouseId ?? warehouses[0]?.id ?? "");
     setReason("DEFECTIVE");
     const firstLine = firstInvoice?.lines.find((l) => l.isStock && l.unitCost !== null);
-    setLines(firstLine ? [blankLine(firstLine.itemId, "DEFECTIVE")] : []);
+    setLines(firstLine ? [blankLine(firstLine.lineId, "DEFECTIVE")] : []);
     subPage.open("new");
   }
 
@@ -240,7 +241,7 @@ export function SalesReturnsScreen() {
     const invoice = invoices.find((i) => i.id === id) ?? null;
     if (invoice) setWarehouseId(invoice.warehouseId);
     const firstLine = invoice?.lines.find((l) => l.isStock && l.unitCost !== null);
-    setLines(firstLine ? [blankLine(firstLine.itemId, reason)] : []);
+    setLines(firstLine ? [blankLine(firstLine.lineId, reason)] : []);
   }
 
   async function submit(confirmAfter: boolean) {
@@ -254,9 +255,10 @@ export function SalesReturnsScreen() {
     // tax share and what is still returnable are all read off the source
     // invoice server-side — a screen that computed them would be a second
     // opinion the books never asked for.
-    const requested = lines
-      .filter((l) => l.qty > 0 && l.itemId !== "")
-      .map((l) => ({ itemId: l.itemId, qty: String(l.qty), reason: l.reason }));
+    const requested = lines.flatMap((l) => {
+      const source = returnableLines.find((sl) => sl.lineId === l.sourceLineId);
+      return source && l.qty > 0 ? [{ itemId: source.itemId, sourceLineId: source.lineId, qty: String(l.qty), reason: l.reason }] : [];
+    });
     if (requested.length === 0) {
       setError(t("salesReturns.error.needLine"));
       return;
@@ -409,9 +411,9 @@ export function SalesReturnsScreen() {
                 <div className="flex-1">
                   <SelectField
                     label={t("common.item")}
-                    value={line.itemId}
-                    onChange={(v) => setLines((prev) => prev.map((l) => (l.key === line.key ? { ...l, itemId: v } : l)))}
-                    options={returnableLines.map((sl) => ({ value: sl.itemId, label: sl.itemNameAr }))}
+                    value={line.sourceLineId}
+                    onChange={(v) => setLines((prev) => prev.map((l) => (l.key === line.key ? { ...l, sourceLineId: v } : l)))}
+                    options={sourceLineOptions(returnableLines.map((sl) => ({ sourceLineId: sl.lineId, itemId: sl.itemId, label: sl.itemNameAr })))}
                   />
                 </div>
                 <div className="w-[90px]">
@@ -437,7 +439,7 @@ export function SalesReturnsScreen() {
                 </Button>
               </div>
             ))}
-            <Button variant="default" disabled={returnableLines.length === 0} onClick={() => setLines((prev) => [...prev, blankLine(returnableLines[0]?.itemId ?? "", reason)])}>
+            <Button variant="default" disabled={returnableLines.length === 0} onClick={() => setLines((prev) => [...prev, blankLine(returnableLines[0]?.lineId ?? "", reason)])}>
               {t("salesReturns.addLine")}
             </Button>
           </div>

@@ -26,6 +26,7 @@ import {
   reverseJournalEntry,
   resolvePrice,
   createSalesInvoiceGlHook,
+  returnedQtyBySourceLine,
   createSalesInvoiceStockHook,
   SalesInvoiceService,
   CertificateService,
@@ -3772,14 +3773,13 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
           const invoice = await salesInvoices.findById(id);
           if (!invoice || !SALES_INVOICE_ACTIVE_STATUSES.has(invoice.status)) return null;
           const priorReturns = await salesReturns.list();
-          const returnedByItem = new Map<string, Qty>();
-          for (const doc of priorReturns) {
-            if (doc.status !== "confirmed") continue;
-            for (const line of doc.lines) {
-              if (line.sourceInvoiceId !== id) continue;
-              returnedByItem.set(line.itemId, (returnedByItem.get(line.itemId) ?? Qty.zero()).add(line.qty));
-            }
-          }
+          const returned = priorReturns
+            .filter((doc) => doc.status === "confirmed")
+            .flatMap((doc) => doc.lines.filter((line) => line.sourceInvoiceId === id));
+          const alreadyReturned = returnedQtyBySourceLine(
+            invoice.lines.map((l) => ({ sourceLineId: l.lineId, itemId: l.itemId, qty: l.baseQty })),
+            returned,
+          );
           // The tax the line was ACTUALLY charged — after line, promotion and
           // header discounts, and zero when the customer is tax-exempt. Handing
           // the return a zero here credited no VAT at all and left it no rate
@@ -3807,12 +3807,12 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
             // back into the stock ledger. A line sold as 5 cartons of 12 is
             // returnable as up to 60 pieces at the per-piece price, so the
             // credit still reconciles to the line and the ledger to the count.
-            lines: invoice.lines.map((l) => ({
+            lines: invoice.lines.map((l, lineIndex) => ({
               sourceLineId: l.lineId,
               itemId: l.itemId,
               itemName: l.itemNameAr,
               qty: l.baseQty,
-              alreadyReturnedQty: returnedByItem.get(l.itemId) ?? Qty.zero(),
+              alreadyReturnedQty: alreadyReturned[lineIndex] ?? Qty.zero(),
               unitPrice: unitCostOf(extendQtyByPrice(l.qty, l.unitPrice), l.baseQty),
               // The line's captured moving-average COST, not its price. This
               // read `l.unitPrice` — the same expression as the line above —
@@ -3904,14 +3904,13 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
           const invoice = await purchaseInvoices.findById(id);
           if (!invoice || invoice.status !== "confirmed") return null;
           const priorReturns = await purchaseReturns.list();
-          const returnedByItem = new Map<string, Qty>();
-          for (const doc of priorReturns) {
-            if (doc.status !== "confirmed") continue;
-            for (const line of doc.lines) {
-              if (line.sourceInvoiceId !== id) continue;
-              returnedByItem.set(line.itemId, (returnedByItem.get(line.itemId) ?? Qty.zero()).add(line.qty));
-            }
-          }
+          const returned = priorReturns
+            .filter((doc) => doc.status === "confirmed")
+            .flatMap((doc) => doc.lines.filter((line) => line.sourceInvoiceId === id));
+          const returnable = invoice.lines
+            .map((l, index) => ({ ...l, sourceLineId: String(index) }))
+            .flatMap((l) => (l.itemId === null ? [] : [{ ...l, itemId: l.itemId }]));
+          const alreadyReturned = returnedQtyBySourceLine(returnable, returned);
           return {
             id: invoice.id,
             number: invoice.number ?? invoice.id,
@@ -3924,15 +3923,12 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
             fxRate: invoice.fxRate ?? null,
             date: invoice.date,
             status: "confirmed" as const,
-            lines: invoice.lines
-              .map((l, index) => ({ ...l, sourceLineId: String(index) }))
-              .filter((l) => l.itemId !== null)
-              .map((l) => ({
+            lines: returnable.map((l, lineIndex) => ({
                 sourceLineId: l.sourceLineId,
-                itemId: l.itemId as string,
-                itemName: l.description ?? (l.itemId as string),
+                itemId: l.itemId,
+                itemName: l.description ?? l.itemId,
                 qty: l.qty,
-                alreadyReturnedQty: returnedByItem.get(l.itemId as string) ?? Qty.zero(),
+                alreadyReturnedQty: alreadyReturned[lineIndex] ?? Qty.zero(),
                 unitCost: l.unitCost,
                 // The input VAT the line actually carried, and the rate that
                 // produced it — a return with neither credits no VAT back and
@@ -4009,6 +4005,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         inputBaseAccountIds: PURCHASE_GL_ACCOUNTS.goodsReceivedNotInvoicedAccountId
           ? [PURCHASE_GL_ACCOUNTS.goodsReceivedNotInvoicedAccountId]
           : [],
+        outputBaseAccountIds: async () => [routedAccountId(await accountRouting.get(), "contracting.billings") ?? "2165"],
       },
       taxRates,
       cashAccountIds: ["1300-1", "1310", "1315", "1320", "1330"],

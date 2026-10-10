@@ -39,24 +39,26 @@ describe("updateTaxRate — a rate stored lines name keeps its percent and its E
   });
 });
 
+const NOT_REFERENCED = { isReferenced: async () => false };
+
 describe("updateTaxRate", () => {
   it("updates fields in place", async () => {
     const repo = new InMemoryTaxRateRepository();
     await createTaxRate({ id: "t1", code: "VAT14", name: "VAT 14%", rate: 14 }, repo);
-    const updated = await updateTaxRate("t1", { rate: 15, calculationType: "inclusive" }, repo);
+    const updated = await updateTaxRate("t1", { rate: 15, calculationType: "inclusive" }, repo, NOT_REFERENCED);
     expect(updated.rate).toBe(15);
     expect(updated.calculationType).toBe("inclusive");
   });
 
   it("404s (throws TaxRateNotFoundError) for an unknown id", async () => {
     const repo = new InMemoryTaxRateRepository();
-    await expect(updateTaxRate("nope", { rate: 10 }, repo)).rejects.toThrow(TaxRateNotFoundError);
+    await expect(updateTaxRate("nope", { rate: 10 }, repo, NOT_REFERENCED)).rejects.toThrow(TaxRateNotFoundError);
   });
 
   it("rejects an out-of-range rate", async () => {
     const repo = new InMemoryTaxRateRepository();
     await createTaxRate({ id: "t1", code: "VAT14", name: "VAT 14%", rate: 14 }, repo);
-    await expect(updateTaxRate("t1", { rate: 101 }, repo)).rejects.toThrow(InvalidTaxRateError);
+    await expect(updateTaxRate("t1", { rate: 101 }, repo, NOT_REFERENCED)).rejects.toThrow(InvalidTaxRateError);
   });
 
   it("flips off the previous default when this rate becomes the new default", async () => {
@@ -64,7 +66,7 @@ describe("updateTaxRate", () => {
     await createTaxRate({ id: "t1", code: "VAT14", name: "VAT 14%", rate: 14, isDefault: true }, repo);
     await createTaxRate({ id: "t2", code: "VAT0", name: "VAT 0%", rate: 0 }, repo);
 
-    const updated = await updateTaxRate("t2", { isDefault: true }, repo);
+    const updated = await updateTaxRate("t2", { isDefault: true }, repo, NOT_REFERENCED);
     expect(updated.isDefault).toBe(true);
     expect((await repo.findById("t1"))?.isDefault).toBe(false);
   });
@@ -72,14 +74,14 @@ describe("updateTaxRate", () => {
   it("leaves other defaults untouched when isDefault is not part of the patch", async () => {
     const repo = new InMemoryTaxRateRepository();
     await createTaxRate({ id: "t1", code: "VAT14", name: "VAT 14%", rate: 14, isDefault: true }, repo);
-    await updateTaxRate("t1", { name: "ضريبة القيمة المضافة 14%" }, repo);
+    await updateTaxRate("t1", { name: "ضريبة القيمة المضافة 14%" }, repo, NOT_REFERENCED);
     expect((await repo.findById("t1"))?.isDefault).toBe(true);
   });
 
   it("can deactivate a tax rate via status", async () => {
     const repo = new InMemoryTaxRateRepository();
     await createTaxRate({ id: "t1", code: "VAT14", name: "VAT 14%", rate: 14 }, repo);
-    const updated = await updateTaxRate("t1", { status: "inactive" }, repo);
+    const updated = await updateTaxRate("t1", { status: "inactive" }, repo, NOT_REFERENCED);
     expect(updated.status).toBe("inactive");
   });
 });

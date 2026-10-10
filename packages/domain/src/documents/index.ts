@@ -78,3 +78,5 @@ export {
 } from "./journal-document.js";
 
 export { createInventoryStockHook } from "./inventory-stock-hook.js";
+
+export { matchSourceLines, returnedQtyBySourceLine, type SourceLineKey, type MatchedSourceLine } from "./match-source-lines.js";

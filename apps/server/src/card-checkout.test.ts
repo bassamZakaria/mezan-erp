@@ -359,6 +359,25 @@ describe("card checkout — sweeping checkouts whose callback never arrived", ()
     expect(await r.details("CARD_CHECKOUT_EXPIRED")).toEqual([expect.objectContaining({ checkoutId: checkout.id })]);
   });
 
+  it("does not report or audit an expiry for a checkout a callback settled while the provider was being asked", async () => {
+    let r!: Rig;
+    let stale!: CardCheckout;
+    r = await rig((provider) => ({
+      ...provider,
+      inquireTransaction: async (request) => {
+        const answer = await provider.inquireTransaction(request);
+        await deliver(r, stale);
+        return answer;
+      },
+    }));
+    stale = await r.open();
+    r.advance(SWEEP_EXPIRE_AFTER_MS + MINUTE);
+
+    expect(await r.service.sweepPending()).toMatchObject({ examined: 1, expired: 0, alreadySettled: 1 });
+    expect((await reload(r, stale)).status).toBe("paid");
+    expect(await r.details("CARD_CHECKOUT_EXPIRED")).toEqual([]);
+  });
+
   it("still applies a genuine payment that arrives after the checkout was expired", async () => {
     const r = await rig();
     const checkout = await r.open();

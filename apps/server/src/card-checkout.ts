@@ -335,14 +335,20 @@ export function createCardCheckoutService(options: CardCheckoutServiceOptions): 
     return { status: "ok", detail: SettlementDetail.Paid, checkoutId: checkout.id };
   }
 
-  async function expire(checkout: CardCheckout, why: string): Promise<void> {
+  type SweepTally = { -readonly [K in keyof CardCheckoutSweepResult]: number };
+
+  async function expire(checkout: CardCheckout, why: string, tally: SweepTally): Promise<void> {
     await checkouts.abandon(checkout.id, CheckoutFailureReason.Expired, nowIso());
+    const after = await checkouts.findById(checkout.id);
+    if (after?.status !== "failed" || after.failureReason !== CheckoutFailureReason.Expired) {
+      tally.alreadySettled += 1;
+      return;
+    }
+    tally.expired += 1;
     await audit("CARD_CHECKOUT_EXPIRED", checkout.tenantId, {
       checkoutId: checkout.id, providerOrderRef: checkout.providerOrderRef, openedAt: checkout.createdAt, why,
     }, "WARNING");
   }
-
-  type SweepTally = { -readonly [K in keyof CardCheckoutSweepResult]: number };
 
   async function sweepOne(checkout: CardCheckout, expireBefore: string, tally: SweepTally): Promise<void> {
     const overdue = checkout.createdAt <= expireBefore;
@@ -351,8 +357,7 @@ export function createCardCheckoutService(options: CardCheckoutServiceOptions): 
         tally.stillPending += 1;
         return;
       }
-      await expire(checkout, "never reached the provider");
-      tally.expired += 1;
+      await expire(checkout, "never reached the provider", tally);
       return;
     }
     const inquiry = await provider.inquireTransaction({ providerOrderRef: checkout.providerOrderRef, merchantRef: checkout.id });
@@ -366,8 +371,7 @@ export function createCardCheckoutService(options: CardCheckoutServiceOptions): 
         tally.stillPending += 1;
         return;
       }
-      await expire(checkout, "the provider holds no transaction for the order");
-      tally.expired += 1;
+      await expire(checkout, "the provider holds no transaction for the order", tally);
       return;
     }
     const result = await settle(inquiry.transaction, SettlementSource.Sweep);
@@ -401,8 +405,7 @@ export function createCardCheckoutService(options: CardCheckoutServiceOptions): 
           tally.stillPending += 1;
           return;
         }
-        await expire(checkout, `the provider's latest transaction for the order is ${result.detail}`);
-        tally.expired += 1;
+        await expire(checkout, `the provider's latest transaction for the order is ${result.detail}`, tally);
         return;
     }
   }

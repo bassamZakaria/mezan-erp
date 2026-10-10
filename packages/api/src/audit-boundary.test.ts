@@ -188,6 +188,23 @@ describe("auditBoundary", () => {
     expect(t.count()).toBe(1);
   });
 
+  it("changes nothing about a handler that writes and then throws for a reason other than the audit", async () => {
+    const t = tiny((_sink, sqlite) => {
+      const routes = new Hono();
+      routes.post("/things", async () => {
+        sqlite.prepare("INSERT INTO thing VALUES ('T1')").run();
+        throw new Error("a bug further down the handler");
+      });
+      routes.onError((_err, c) => c.json({ error: "INTERNAL" }, 500));
+      return routes;
+    });
+    const res = await t.app.fetch(new Request("http://x/things", { method: "POST" }));
+
+    expect(res.status).toBe(500);
+    expect(t.count()).toBe(1);
+    expect(t.sqlite.inTransaction).toBe(false);
+  });
+
   it("reports a handler that awaited real I/O inside the transaction", async () => {
     const sink = openSink();
     const sqlite = sink.db;

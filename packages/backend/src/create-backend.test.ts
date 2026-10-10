@@ -5668,6 +5668,33 @@ describe("createBackend — foreign documents settle and return in base (D202, D
   const onAccount = (date: string) => ({ date, position: OPEN, gain: 0, control: 2300, ladderRow: 2300, ladderTies: true });
   const settled = (date: string) => ({ date, position: HALF, gain: -100, control: 2400, ladderRow: 2400, ladderTies: true });
 
+  it("ENH-E1-04: the FX check wants a revaluation run AS OF the period end, per currency — a mid-month run does not pass, a run for another currency does not pass, and a month-end run does", async () => {
+    const app = await newBackend();
+    await halfReceiptOnAccount(app);
+    const periods = (await (await app.fetch(new Request("http://local/fiscal-periods", { headers: admin(app) }))).json()) as { id: string; startDate: string; endDate: string }[];
+    const august = periods.find((p) => p.startDate <= "2026-08-28" && p.endDate >= "2026-08-28")!;
+    const fx = async () => {
+      const checklist = (await (await app.fetch(new Request(`http://local/period-close/${august.id}/checks`, { headers: admin(app) }))).json()) as { checks: { code: string; status: string; findings: { ref: string; passed: boolean; asOfDate: string | null }[] }[] };
+      return checklist.checks.find((c) => c.code === "fx_revaluation")!;
+    };
+    const revalue = (body: Record<string, unknown>) => post(app, "/revaluation/post", { autoReverse: false, ...body }, admin(app));
+
+    expect(await fx()).toMatchObject({ status: "fail", findings: [{ ref: "USD", passed: false, asOfDate: "2026-08-31" }] });
+
+    expect((await revalue({ date: "2026-08-27" })).status).toBe(201);
+    expect((await fx()).status).toBe("fail");
+
+    expect((await revalue({ date: "2026-08-31", currencies: ["EUR"] })).status).toBe(201);
+    expect((await fx()).status).toBe("fail");
+
+    expect((await revalue({ date: "2026-08-31" })).status).toBe(201);
+    expect(await fx()).toMatchObject({ status: "pass", findings: [{ ref: "USD", passed: true }] });
+
+    const again = await revalue({ date: "2026-08-31" });
+    expect(again.status).toBe(201);
+    expect((await fx()).status).toBe("pass");
+  });
+
   it("D265: EGP 2,500 applied to half a USD 100 invoice, undone and applied again today, is one settlement dated today — revaluation, 4920, 1105 and the ladder agree on every day", async () => {
     const app = await newBackend();
     await halfReceiptOnAccount(app);

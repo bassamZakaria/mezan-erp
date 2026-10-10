@@ -555,7 +555,7 @@ export async function taxRateIdentity_D79(ctx: Ctx): Promise<void> {
  * the tenant in exactly that state and restores it before it finishes.
  */
 export async function zeroPercentIsNeverInferred_D79(ctx: Ctx): Promise<void> {
-  const { req, check, scenario, rows } = ctx;
+  const { req, n, check, scenario, rows } = ctx;
   const TOWER_CONTRACT = "CTR-DEMO-1";
 
   const listed = rows((await req("GET", "/tax-rates")).body);
@@ -675,6 +675,52 @@ export async function zeroPercentIsNeverInferred_D79(ctx: Ctx): Promise<void> {
       JSON.stringify((invoice?.lines ?? []).map((l: any) => [l.taxRatePercent, l.taxRateId])),
     );
     await req("POST", "/sales-invoices/SCN-D79-QT-OLD-INV/cancel", {});
+  });
+
+  await scenario("d79i · an item sold on two lines at two rates is returned line by line — one line's return does not use up the other's", async () => {
+    const vat = listed.find((r: any) => r.rate === VAT && r.status === "active");
+    const sale = await req("POST", "/sales-invoices", {
+      id: "SCN-D79-TWO", date: TODAY, dueDate: "2026-09-23", customerId: CUSTOMER, customerNameAr: "عميل", warehouseId: WH, branchId: BRANCH,
+      arAccountId: AR, taxAccountId: OUTPUT_TAX,
+      lines: [
+        { lineId: "SCN-D79-TWO-L1", itemId: "ITEM-DEMO-10", itemNameAr: "خدمة خاضعة", isStock: false, qty: "2", unitPrice: "100", taxRateId: vat?.id, revenueAccountId: REVENUE },
+        { lineId: "SCN-D79-TWO-L2", itemId: "ITEM-DEMO-10", itemNameAr: "خدمة معفاة", isStock: false, qty: "2", unitPrice: "100", taxRateId: exempt?.id, revenueAccountId: REVENUE },
+      ],
+    });
+    check("the sale is drafted with one item on two lines", sale.status === 201, JSON.stringify(sale.body).slice(0, 200));
+    const confirmed = await req("POST", "/sales-invoices/SCN-D79-TWO/confirm", {});
+    check("and confirms", confirmed.status === 200, JSON.stringify(confirmed.body).slice(0, 200));
+
+    const returnOf = (id: string, sourceLineId: string, qty: string) =>
+      req("POST", "/sales-returns/from-invoice", {
+        id, date: TODAY, memo: "مرتجع سطر محدد (سيناريو D79)", warehouseId: WH, sourceInvoiceId: "SCN-D79-TWO", reason: "DEFECTIVE",
+        requested: [{ itemId: "ITEM-DEMO-10", sourceLineId, qty }],
+      });
+    const taxed = await returnOf("SCN-D79-TWO-RET1", "SCN-D79-TWO-L1", "2");
+    check(
+      "the whole taxed line comes back under the 14% rate with its 28.00 of VAT",
+      taxed.status === 201 && taxed.body?.lines?.[0]?.taxRateId === vat?.id && n(taxed.body?.lines?.[0]?.taxAmount) === 28,
+      JSON.stringify(taxed.body?.lines ?? taxed.body).slice(0, 240),
+    );
+    const taxedConfirmed = await req("POST", "/sales-returns/SCN-D79-TWO-RET1/confirm", {});
+    check("and its return confirms", taxedConfirmed.status === 200, JSON.stringify(taxedConfirmed.body).slice(0, 200));
+
+    const exemptLine = await returnOf("SCN-D79-TWO-RET2", "SCN-D79-TWO-L2", "2");
+    check(
+      "the exempt line is STILL fully returnable — the first return counted against its own line, not against the item",
+      exemptLine.status === 201 && exemptLine.body?.lines?.[0]?.taxRateId === exempt?.id && n(exemptLine.body?.lines?.[0]?.taxAmount) === 0,
+      `${exemptLine.status} ${JSON.stringify(exemptLine.body?.lines ?? exemptLine.body).slice(0, 240)}`,
+    );
+    const exemptConfirmed = await req("POST", "/sales-returns/SCN-D79-TWO-RET2/confirm", {});
+    check("and its return confirms", exemptConfirmed.status === 200, JSON.stringify(exemptConfirmed.body).slice(0, 200));
+
+    const again = await returnOf("SCN-D79-TWO-RET3", "SCN-D79-TWO-L2", "1");
+    const againConfirmed = again.status === 201 ? await req("POST", "/sales-returns/SCN-D79-TWO-RET3/confirm", {}) : again;
+    check(
+      "and neither line can be returned a second time",
+      again.status !== 201 || againConfirmed.status !== 200,
+      `draft ${again.status} confirm ${againConfirmed.status} ${JSON.stringify(againConfirmed.body).slice(0, 200)}`,
+    );
   });
 }
 

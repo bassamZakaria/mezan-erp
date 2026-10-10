@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { useEffect } from "react";
 import { describe, expect, it } from "vitest";
 import { act, render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router";
@@ -251,5 +252,64 @@ describe("two writes in one handler", () => {
     act(() => screen.getByText("filter").click());
     await flush();
     expect(address()).toBe("/items?status=out_of_stock");
+  });
+});
+
+/**
+ * فواتير المبيعات resets its pager in an effect keyed on its filters AND on
+ * `setPage`. react-router hands back a new `setSearchParams` whenever the
+ * address changes, and the setters here were rebuilt from it — so writing
+ * `page=2` changed `setPage`, re-ran the effect, and wrote the page straight
+ * back to 1. Every page after the first was unreachable.
+ */
+describe("a setter listed in an effect's dependencies", () => {
+  function Harness() {
+    const [status] = useUrlParam("status", "all");
+    const [page, setPage] = useUrlNumber("page", 1);
+    useEffect(() => {
+      setPage(1);
+    }, [status, setPage]);
+    return (
+      <>
+        <output data-testid="value">{String(page)}</output>
+        <button type="button" onClick={() => setPage(2)}>
+          next
+        </button>
+      </>
+    );
+  }
+
+  it("keeps its identity across address changes, so paging is not undone by the reset effect", async () => {
+    renderAt(<Harness />);
+    await flush();
+    act(() => screen.getByText("next").click());
+    await flush();
+    await flush();
+    expect(address()).toBe("/items?page=2");
+    expect(screen.getByTestId("value").textContent).toBe("2");
+  });
+
+  it("still writes through the current address after earlier writes", async () => {
+    function Two() {
+      const [status, setStatus] = useUrlParam("status", "all");
+      const [page, setPage] = useUrlNumber("page", 1);
+      return (
+        <>
+          <output data-testid="value">{`${status}|${page}`}</output>
+          <button type="button" onClick={() => setStatus("active")}>
+            status
+          </button>
+          <button type="button" onClick={() => setPage(3)}>
+            page
+          </button>
+        </>
+      );
+    }
+    renderAt(<Two />);
+    act(() => screen.getByText("status").click());
+    await flush();
+    act(() => screen.getByText("page").click());
+    await flush();
+    expect(address()).toBe("/items?status=active&page=3");
   });
 });

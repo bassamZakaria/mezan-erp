@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 
 /**
@@ -42,6 +42,14 @@ let pendingPatch: Record<string, string | null> | null = null;
 
 function useUrlPatch(): (patch: Record<string, string | null>) => void {
   const [, setParams] = useSearchParams();
+  // INVARIANT: the returned function never changes identity. react-router
+  // rebuilds `setSearchParams` on every address change; a setter rebuilt from
+  // it re-fires any effect that lists it as a dependency each time the URL
+  // moves, and an effect that resets the page then undoes every page click.
+  const latestSetParams = useRef(setParams);
+  useLayoutEffect(() => {
+    latestSetParams.current = setParams;
+  }, [setParams]);
   return useCallback(
     (patch) => {
       pendingPatch = { ...(pendingPatch ?? {}), ...patch };
@@ -49,7 +57,7 @@ function useUrlPatch(): (patch: Record<string, string | null>) => void {
         const flush = pendingPatch;
         if (!flush) return;
         pendingPatch = null;
-        setParams(
+        latestSetParams.current(
           (prev) => {
             const copy = new URLSearchParams(prev);
             for (const [k, v] of Object.entries(flush)) {
@@ -62,7 +70,7 @@ function useUrlPatch(): (patch: Record<string, string | null>) => void {
         );
       });
     },
-    [setParams],
+    [],
   );
 }
 

@@ -160,46 +160,60 @@ test.describe("DocumentList — Sales Invoices", () => {
     await expect.poll(() => invoiceNumberTexts(page)).toEqual([...ascending].reverse());
   });
 
-  // BUG: with a search filter active and pageSize=10, clicking pager page
-  // "2" updates the URL (`?page=2`) but the table keeps rendering the exact
-  // same 10 rows page 1 showed — confirmed reproducible (re-run, and with an
-  // extra 600ms settle before paging to rule out a pure debounce race).
-  // apps/web/src/screens/SalesInvoicesScreen.tsx fetches the page from the
-  // server via `useSalesInvoices(listFilter)` with `listFilter` including
-  // both `search` and `page` (data/hooks.ts's `salesInvoiceParams` serializes
-  // both), so the client-side wiring looks correct — page 2 of an
-  // 11-row search result not returning the 11th row points at the
-  // `/sales-invoices` server route's own search+pagination composition.
-  test("BUG: paging to page 2 under an active search filter re-renders page 1's rows", async ({ page }) => {
-    // 23 sequential fixture-creation flows (1 item, 11 customers, 11
-    // invoices) — the fewest that still force a second page at the smallest
-    // selectable page size (10).
-    test.setTimeout(180_000);
-    test.fail();
-    const prefix = unique("عميل ترقيم قائمة");
-    const item = unique("صنف ترقيم قائمة");
-    await createItem(page, item, "10");
-    const names = Array.from({ length: 11 }, (_, i) => `${prefix} ${i + 1}`);
-    for (const name of names) await createCustomer(page, name);
-    for (const name of names) await createConfirmedInvoice(page, name, item);
+  // Guards the pager, which was dead: every page after the first was
+  // unreachable, with or without a search. Clicking «2» wrote `?page=2`, the
+  // address change handed the screen a NEW `setPage` (apps/web/src/lib/
+  // url-state.ts rebuilt its setters from react-router's `setSearchParams`,
+  // which changes identity with the URL), and the screen's reset-the-pager
+  // effect — keyed on `setPage` — ran again and wrote the page back to 1. This
+  // test used to be a `test.fail()` that blamed the `/sales-invoices` route;
+  // the route always answered the right page.
+  //
+  // The seeded history is the fixture: «INV-0000» matches INV-000001…INV-000099
+  // and nothing a sibling spec creates, because those are numbered past 1,000.
+  test("paging under an active search filter shows the next page's rows, and a reload stays on it", async ({ page }) => {
+    const seeded = (from: number) => Array.from({ length: 10 }, (_, i) => `INV-${String(from + i).padStart(6, "0")}`);
 
     await clickSidebarItem(page, "فواتير المبيعات");
-    await page.getByPlaceholder("بحث برقم الفاتورة أو اسم العميل…").fill(prefix);
+    await expect(page.getByRole("heading", { name: "فواتير المبيعات", level: 1 })).toBeVisible();
+    await page.getByPlaceholder("بحث برقم الفاتورة أو اسم العميل…").fill("INV-0000");
 
     await page.getByRole("combobox", { name: "صفوف لكل صفحة" }).click();
     await page.getByRole("option", { name: "10", exact: true }).click();
 
     // The summary is "عرض <shown> من <total> فاتورة" — a plain count of the
     // current page's rows, not an "1–10" range.
-    await expect(page.getByText("عرض 10 من 11 فاتورة")).toBeVisible();
-    const page1Numbers = await invoiceNumberTexts(page);
-    await page.waitForTimeout(600);
+    await expect(page.getByText("عرض 10 من 99 فاتورة")).toBeVisible();
+    await expect.poll(() => invoiceNumberTexts(page)).toEqual(seeded(1));
 
-    await page.getByRole("navigation", { name: "ترقيم الصفحات" }).getByRole("button", { name: "2", exact: true }).click();
+    const pager = page.getByRole("navigation", { name: "ترقيم الصفحات" });
+    const secondPage = page.waitForResponse((r) => {
+      const url = new URL(r.url());
+      return url.pathname.endsWith("/sales-invoices") && url.searchParams.get("page") === "2" && url.searchParams.get("search") === "INV-0000";
+    });
+    await pager.getByRole("button", { name: "2", exact: true }).click();
+    expect((await secondPage).status()).toBe(200);
+    await expect(page).toHaveURL(/[?&]page=2\b/);
+    await expect.poll(() => invoiceNumberTexts(page)).toEqual(seeded(11));
     await expect(page).toHaveURL(/[?&]page=2\b/);
 
-    await expect(page.locator("table tbody tr")).toHaveCount(1, { timeout: 3000 });
-    const page2Numbers = await invoiceNumberTexts(page);
-    expect(page2Numbers).not.toEqual(page1Numbers);
+    // The last page is the short one: 99 rows at 10 a page leaves nine.
+    await pager.getByRole("button", { name: "10", exact: true }).click();
+    await expect(page).toHaveURL(/[?&]page=10\b/);
+    await expect(page.getByText("عرض 9 من 99 فاتورة")).toBeVisible();
+    await expect.poll(async () => (await invoiceNumberTexts(page)).at(-1)).toBe("INV-000099");
+
+    // A page is part of the address: reloading it must not walk back to the first.
+    await pager.getByRole("button", { name: "2", exact: true }).click();
+    await expect.poll(() => invoiceNumberTexts(page)).toEqual(seeded(11));
+    await page.reload();
+    await expect(page.getByRole("heading", { name: "فواتير المبيعات", level: 1 })).toBeVisible();
+    await expect.poll(() => invoiceNumberTexts(page)).toEqual(seeded(11));
+    await expect(page).toHaveURL(/[?&]page=2\b/);
+
+    // And a filter change still sends the pager home, as it always meant to.
+    await page.getByPlaceholder("بحث برقم الفاتورة أو اسم العميل…").fill("INV-00000");
+    await expect(page.getByText("عرض 9 من 9 فاتورة")).toBeVisible();
+    await expect(page).not.toHaveURL(/[?&]page=/);
   });
 });

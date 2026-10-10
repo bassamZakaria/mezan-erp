@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { errorMessage } from "../lib/error-message";
 import {
   Button,
@@ -1909,9 +1909,23 @@ export function SalesInvoicesScreen() {
 
   // A filter that changes the result set must not leave the pager on a page
   // that no longer exists — the server would answer with nothing at all.
+  // Only a CHANGE resets it: running on mount sent a reloaded or linked
+  // `?page=3` back to the first page before its rows were ever asked for.
+  const filterKey = JSON.stringify([
+    statusFilter,
+    customerFilter?.id ?? null,
+    fromDate,
+    toDate,
+    branchFilter,
+    warehouseFilter,
+    debouncedSearch,
+  ]);
+  const settledFilterKey = useRef(filterKey);
   useEffect(() => {
+    if (settledFilterKey.current === filterKey) return;
+    settledFilterKey.current = filterKey;
     setPage(1);
-  }, [statusFilter, customerFilter, fromDate, toDate, branchFilter, warehouseFilter, debouncedSearch, setPage]);
+  }, [filterKey, setPage]);
   const listBranches = useBranches().data ?? [];
   const listWarehouses = useWarehouses().data ?? [];
   const listCustomers = useCustomers().data ?? [];

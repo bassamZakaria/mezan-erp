@@ -86,6 +86,7 @@ import {
   purchaseInvoiceTotal,
   purchaseInvoiceBaseTotal,
   voucherBaseAmount,
+  assertOpenForPosting,
   ledgerPresenceAsOf,
   purchaseInvoiceCancelEntryId,
   salesInvoiceVoidEntryId,
@@ -1001,6 +1002,12 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       return { allowNegativeStock: current.allowNegativeStock, allowBackorder: current.allowBackorder };
     },
     transaction: stockLedger.transaction,
+    // A day no generated period covers is not a shut one: only the GL insists
+    // on a period existing, and a stock-only tenant may never generate any.
+    periodGate: async (date) => {
+      const period = await fiscalPeriods.findByDate(date);
+      if (period) assertOpenForPosting(period);
+    },
     // Only activates when a caller ALSO passes a per-call `gl` (StockLedgerService
     // posts only when BOTH are present) — today that's every stock-adjustment
     // reason (createInventoryOpsStockHook below); every other stock
@@ -3570,6 +3577,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       assets,
       rateHistory: assetRateHistory,
       runs: depreciationRuns,
+      periods: fiscalPeriods,
       gl: salesInvoiceGl,
       defaultAccounts: FIXED_ASSETS_GL_ACCOUNTS,
       settings,

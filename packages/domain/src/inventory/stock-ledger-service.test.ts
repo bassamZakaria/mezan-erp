@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { Money, Qty } from "../money/index.js";
 import { StockLedgerService } from "./stock-ledger-service.js";
 import { NegativeStockError, InvalidStockMovementError, UncostedDeficitIssueError } from "./errors.js";
+import { PeriodNotOpenForPostingError } from "../fiscal-periods/errors.js";
 import type { InventoryDomainEvent, InventoryGlPosting } from "./ports.js";
 import {
   InMemoryStockLedger,
@@ -460,5 +461,62 @@ describe("StockLedgerService — what a deficit issue costs (D101)", () => {
     const position = await service.getBalanceDetail("I-NEW", "W1");
     expect(position.onHand.scaled).toBe(0n);
     expect(position.totalValue.scaled).toBe(0n);
+  });
+});
+
+describe("StockLedgerService — no movement is dated into a shut fiscal period", () => {
+  const SHUT = new PeriodNotOpenForPostingError({ id: "fp-2026-06", year: 2026, periodNumber: 6 }, "locked");
+
+  function gated() {
+    const ledger = new InMemoryStockLedger();
+    const layers = new InMemoryCostLayers();
+    const service = new StockLedgerService({
+      ledger,
+      layers,
+      snapshots: new InMemorySnapshots(),
+      policy: { allowNegativeStock: false },
+      periodGate: async (date) => {
+        if (date.startsWith("2026-06")) throw SHUT;
+      },
+    });
+    return { service, ledger };
+  }
+
+  async function stocked() {
+    const world = gated();
+    await world.service.postReceipt({
+      receiptId: "R-MAY",
+      sourceDocType: "PURCHASE_RECEIPT",
+      warehouseId: "W1",
+      occurredAt: "2026-05-10T00:00:00.000Z",
+      lines: [{ itemId: "I1", qty: Qty.fromMajor("10"), unitCost: Money.fromMajor("5") }],
+    });
+    return world;
+  }
+
+  const JUNE = "2026-06-15T00:00:00.000Z";
+  const WRITES: readonly [string, (service: StockLedgerService, occurredAt: string) => Promise<unknown>][] = [
+    ["a transfer", (s, occurredAt) => s.postTransfer({ transferId: "T1", fromWarehouseId: "W1", toWarehouseId: "W2", occurredAt, lines: [{ itemId: "I1", qty: Qty.fromMajor("2") }] })],
+    ["an adjustment", (s, occurredAt) => s.postAdjustment({ adjustmentId: "A1", warehouseId: "W1", reason: "DAMAGE", occurredAt, lines: [{ itemId: "I1", direction: "OUT", qty: Qty.fromMajor("1") }] })],
+    ["an issue", (s, occurredAt) => s.postIssue({ issueId: "S1", sourceDocType: "MATERIAL_CONSUMPTION", sourceDocId: "S1", warehouseId: "W1", occurredAt, lines: [{ itemId: "I1", qty: Qty.fromMajor("1") }] })],
+    ["a receipt", (s, occurredAt) => s.postReceipt({ receiptId: "R2", sourceDocType: "PURCHASE_RECEIPT", warehouseId: "W1", occurredAt, lines: [{ itemId: "I1", qty: Qty.fromMajor("1"), unitCost: Money.fromMajor("5") }] })],
+    ["a receipt reversal", (s, occurredAt) => s.reverseReceipt({ reversalId: "R-MAY:cancel", sourceDocType: "PURCHASE_RECEIPT", sourceDocId: "R-MAY", occurredAt, positions: [{ itemId: "I1", warehouseId: "W1" }] })],
+    ["a document stock plan", (s, occurredAt) => s.applyDocumentStockPlan({ sourceDocType: "SALES_RETURN", sourceDocId: "SR1", sourceDocNumber: null, warehouseId: "W1", occurredAt, lines: [{ itemId: "I1", direction: "IN", qty: Qty.fromMajor("1"), unitCost: Money.fromMajor("5") }] })],
+    ["a landed cost", (s, occurredAt) => s.applyLandedCostRevaluation({ itemId: "I1", warehouseId: "W1", sourceDocId: "R-MAY", valueDelta: Money.fromMajor("3"), landedCostDocId: "LC1", occurredAt })],
+  ];
+
+  it.each(WRITES)("%s dated in the shut month is refused and appends nothing", async (_name, write) => {
+    const { service, ledger } = await stocked();
+    const before = (await ledger.listByPosition("I1", "W1")).length;
+    await expect(write(service, JUNE)).rejects.toBe(SHUT);
+    expect((await ledger.listByPosition("I1", "W1")).length).toBe(before);
+    expect((await ledger.listByPosition("I1", "W2")).length).toBe(0);
+  });
+
+  it.each(WRITES)("%s dated in an open month goes through", async (_name, write) => {
+    const { service, ledger } = await stocked();
+    const before = (await ledger.listByPosition("I1", "W1")).length;
+    await write(service, "2026-07-02T00:00:00.000Z");
+    expect((await ledger.listByPosition("I1", "W1")).length).toBeGreaterThan(before);
   });
 });

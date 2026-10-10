@@ -48,6 +48,13 @@ describe("a posting dated into a shut or missing period", () => {
     expect((await answer(handleDocumentError, new DocumentNotFoundError("SALES_RETURN", "x"))).status).toBe(404);
   });
 
+  it("every route file's own error handler gives the shared answer, so a stock-only confirm names the month in both languages too", () => {
+    const silent = routeFiles()
+      .filter(({ source }) => /^function handle\w*Error\(c: Context, err: unknown\)/m.test(source) && !source.includes("postingRefusalResponse("))
+      .map(({ name }) => name);
+    expect(silent).toEqual([]);
+  });
+
   it("no route file maps the period refusal by hand without the shared answer", () => {
     const byHand = routeFiles()
       .filter(({ source }) => source.includes("instanceof PeriodNotOpenForPostingError") && !source.includes("postingRefusalResponse("))

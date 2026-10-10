@@ -23,6 +23,7 @@ import {
   DepreciationRunNotPostedError,
   NoFiscalPeriodForDateError,
   PeriodNotOpenForPostingError,
+  type FiscalPeriodRepository,
   VatPeriodAlreadyFiledError,
   DuplicateDepreciationPeriodError,
   NoDepreciableAssetsError,
@@ -73,6 +74,8 @@ export interface FixedAssetsRoutesDeps {
   readonly categories: AssetCategoryRepository;
   readonly assets: AssetRepository;
   readonly runs: DepreciationRunRepository;
+  /** Lets a run be refused before it is drafted for a closed or locked month. */
+  readonly periods?: Pick<FiscalPeriodRepository, "findByDate">;
   readonly gl: JournalPostingDeps;
   readonly defaultAccounts: {
     readonly depreciationExpenseAccountId: string;
@@ -530,7 +533,7 @@ export function createFixedAssetsRoutes(
           branchId: parsed.data.branchId ?? null,
           prorate: settings?.depreciationProrate ?? "DAILY",
         },
-        { runs: deps.runs, assets: deps.assets },
+        { runs: deps.runs, assets: deps.assets, periods: deps.periods },
       );
       return c.json(serializeRun(run), 201);
     } catch (err) {

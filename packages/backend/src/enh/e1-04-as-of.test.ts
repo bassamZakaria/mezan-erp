@@ -219,3 +219,62 @@ describe("the sub-ledgers are read as of the month end, like the ledger they are
     expect(await liveDifferences()).toEqual(TIED);
   });
 });
+
+describe("a shut month takes no posting and no stock movement, whichever document asks (ENH-E1-04)", () => {
+  const AUGUST_DRAFTS = [
+    { name: "journal entry", table: "journal_entry", where: "", confirm: (id: string) => `/gl/journal-entries/${id}/post` },
+    { name: "voucher", table: "voucher", where: "", confirm: (id: string) => `/vouchers/${id}/confirm` },
+    { name: "goods receipt", table: "goods_receipt", where: "", confirm: (id: string) => `/purchases/receipts/${id}/confirm` },
+    { name: "sales return", table: "framework_document", where: " AND doc_type = 'SALES_RETURN'", confirm: (id: string) => `/sales-returns/${id}/confirm` },
+    { name: "purchase return", table: "framework_document", where: " AND doc_type = 'PURCHASE_RETURN'", confirm: (id: string) => `/purchase-returns/${id}/confirm` },
+    { name: "landed cost", table: "framework_document", where: " AND doc_type = 'LANDED_COST'", confirm: (id: string) => `/landed-costs/${id}/confirm` },
+    { name: "stock transfer", table: "stock_transfer_document", where: "", confirm: (id: string) => `/inventory/stock-transfers/${id}/confirm` },
+    { name: "stock adjustment", table: "stock_adjustment_document", where: "", confirm: (id: string) => `/inventory/stock-adjustments/${id}/confirm` },
+  ] as const;
+  const REASON = { overrideReason: "إقفال تجريبي لاختبار منع الترحيل في الفترة" };
+  const count = (table: string): number => (sqlite.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n;
+
+  it.each(["closed", "locked"] as const)("no August draft confirms once August is %s, and nothing is written", async (status) => {
+    if (status === "closed") {
+      await ok(
+        "POST",
+        "/inventory/stock-adjustments/draft",
+        { id: "ASOF-ADJ-AUG", date: "2026-08-20", memo: "تسوية اختبار", lines: [{ itemId: "ITEM-DEMO-1", warehouseId: "WH-MAIN", reason: "DAMAGE", direction: "OUT", qty: "1" }] },
+        201,
+      );
+      await ok("POST", "/fiscal-periods/fp-2026-08/close", REASON, 200);
+    } else {
+      const controller = backend.sessions.issue({ userId: "controller", permissions: ["*"], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
+      const res = await backend.app.fetch(
+        new Request("http://local/fiscal-periods/fp-2026-08/lock", { method: "POST", headers: { authorization: `Bearer ${controller}`, "content-type": "application/json" }, body: JSON.stringify(REASON) }),
+      );
+      expect(res.status).toBe(200);
+    }
+    expect(periodStatus("08")).toBe(status);
+    const before = { movements: count("stock_movement"), entries: (sqlite.prepare(`SELECT COUNT(*) AS n FROM journal_entry WHERE status <> 'draft'`).get() as { n: number }).n };
+
+    const answers: Record<string, unknown>[] = [];
+    for (const draft of AUGUST_DRAFTS) {
+      const rows = sqlite.prepare(`SELECT id FROM ${draft.table} WHERE status = 'draft' AND date BETWEEN '2026-08-01' AND '2026-08-31'${draft.where}`).all() as { id: string }[];
+      expect({ name: draft.name, drafts: rows.length > 0 }).toEqual({ name: draft.name, drafts: true });
+      for (const row of rows) {
+        const res = await request("POST", draft.confirm(encodeURIComponent(row.id)), {});
+        const body = (await res.json()) as { error?: string; message?: string; messageEn?: string };
+        answers.push({ name: draft.name, status: res.status, error: body.error, arabic: body.message?.includes("أغسطس 2026") ?? false, english: body.messageEn?.includes("August 2026") ?? false });
+        expect((sqlite.prepare(`SELECT status FROM ${draft.table} WHERE id = ?`).get(row.id) as { status: string }).status).toBe("draft");
+      }
+    }
+    expect(answers.filter((a) => a.status !== 422 || a.error !== "PERIOD_NOT_OPEN_FOR_POSTING" || !a.arabic || !a.english)).toEqual([]);
+
+    const runsBefore = count("depreciation_run");
+    const run = await request("POST", "/assets/depreciation/runs", { period: "2026-08" });
+    expect(run.status).toBe(422);
+    expect(((await run.json()) as { error: string }).error).toBe("PERIOD_NOT_OPEN_FOR_POSTING");
+    expect(count("depreciation_run")).toBe(runsBefore);
+
+    expect(count("stock_movement")).toBe(before.movements);
+    expect((sqlite.prepare(`SELECT COUNT(*) AS n FROM journal_entry WHERE status <> 'draft'`).get() as { n: number }).n).toBe(before.entries);
+    expect(await liveDifferences()).toEqual(TIED);
+  });
+});
+

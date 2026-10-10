@@ -1,3 +1,4 @@
+import { postingRefusalResponse } from "./posting-refusal.js";
 import { Hono, type Context } from "hono";
 import {
   PeriodCloseAction,
@@ -68,6 +69,8 @@ function serialize(period: FiscalPeriod) {
 }
 
 function handleDomainError(c: Context, err: unknown) {
+  const postingRefusal = postingRefusalResponse(c, err);
+  if (postingRefusal) return postingRefusal;
   if (err instanceof FiscalPeriodNotFoundError) {
     return c.json({ error: err.code, message: err.message }, 404);
   }

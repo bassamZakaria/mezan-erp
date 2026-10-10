@@ -108,6 +108,12 @@ export interface StockLedgerServiceDeps {
   /** Clock for `occurredAt` defaults. Defaults to `Date.now`-based ISO. */
   readonly clock?: () => string;
   /**
+   * Refuses a movement dated into a fiscal period that is not open. A transfer
+   * posts nothing to the GL, so the posting engine's own gate never saw it and
+   * stock kept moving inside a locked month.
+   */
+  readonly periodGate?: (date: string) => Promise<void>;
+  /**
    * Last-resort unit cost for an issue out of a position that holds nothing and
    * was never received anywhere — the item master's تكلفة الشراء. Without it
    * such an issue is refused rather than written at zero (D101).
@@ -334,6 +340,10 @@ export interface DocumentStockPlanResult {
 
 export class StockLedgerService {
   constructor(private readonly deps: StockLedgerServiceDeps) {}
+
+  private async assertPeriodOpen(occurredAt: string): Promise<void> {
+    await this.deps.periodGate?.(occurredAt.slice(0, 10));
+  }
 
   private now(): string {
     return (this.deps.clock ?? (() => new Date().toISOString()))();
@@ -619,6 +629,7 @@ export class StockLedgerService {
   async postAdjustment(command: PostAdjustmentCommand): Promise<void> {
     this.validateAdjustment(command);
     const occurredAt = command.occurredAt ?? this.now();
+    await this.assertPeriodOpen(occurredAt);
 
     await this.runInTransaction(async () => {
       const movementIds: string[] = [];
@@ -682,6 +693,7 @@ export class StockLedgerService {
       throw new InvalidStockMovementError(["فئة التكلفة تتطلب اختيار مشروع"]);
     }
     const occurredAt = command.occurredAt ?? this.now();
+    await this.assertPeriodOpen(occurredAt);
 
     return this.runInTransaction(async () => {
       const lineCosts: IssueLineCost[] = [];
@@ -768,6 +780,7 @@ export class StockLedgerService {
       throw new InvalidStockMovementError(["التحويل يحتاج سطراً واحداً على الأقل"]);
     }
     const occurredAt = command.occurredAt ?? this.now();
+    await this.assertPeriodOpen(occurredAt);
     const sourceDocType = command.sourceDocType ?? "TRANSFER";
     const sourceDocId = command.sourceDocId ?? command.transferId;
 
@@ -850,6 +863,7 @@ export class StockLedgerService {
       }
     }
     const occurredAt = command.occurredAt ?? this.now();
+    await this.assertPeriodOpen(occurredAt);
 
     await this.runInTransaction(async () => {
       for (let i = 0; i < command.lines.length; i++) {
@@ -883,6 +897,7 @@ export class StockLedgerService {
    */
   async reverseReceipt(command: ReverseReceiptCommand): Promise<void> {
     const occurredAt = command.occurredAt ?? this.now();
+    await this.assertPeriodOpen(occurredAt);
 
     await this.runInTransaction(async () => {
       for (const pos of command.positions) {
@@ -970,6 +985,7 @@ export class StockLedgerService {
   }): Promise<DocumentStockPlanResult> {
     if (plan.lines.length === 0) return { valueMoved: Money.zero() };
     const occurredAt = plan.occurredAt ?? this.now();
+    await this.assertPeriodOpen(occurredAt);
 
     let valueMoved = Money.zero();
     await this.runInTransaction(async () => {
@@ -1036,7 +1052,7 @@ export class StockLedgerService {
     readonly landedCostDocId?: string;
     readonly landedCostDocNumber?: string | null;
     /** Document date of the landed cost; never dated before the position's last movement. */
-    readonly occurredAt?: string;
+    readonly occurredAt: string;
   }): Promise<LandedCostAbsorption> {
     if (line.valueDelta.scaled <= 0n) {
       throw new InvalidStockMovementError([
@@ -1050,8 +1066,8 @@ export class StockLedgerService {
           ? emptyPosition(line.itemId, line.warehouseId)
           : replay(line.itemId, line.warehouseId, movements);
       const last = movements[movements.length - 1]?.occurredAt;
-      const wanted = line.occurredAt ?? new Date().toISOString();
-      const occurredAt = last && last > wanted ? last : wanted;
+      const occurredAt = last && last > line.occurredAt ? last : line.occurredAt;
+      await this.assertPeriodOpen(occurredAt);
 
       await this.deps.ledger.append({
         id: `${line.landedCostDocId ?? line.sourceDocId}:LC:${line.itemId}:${line.warehouseId}`,

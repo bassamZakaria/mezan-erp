@@ -3,6 +3,7 @@ import type { AssetRepository } from "./asset.js";
 import type { DepreciationRun, DepreciationRunRepository } from "./depreciation-run.js";
 import { computeMonthlyDepreciation, type DepreciationPeriod } from "./depreciation.js";
 import { DuplicateDepreciationPeriodError, NoDepreciableAssetsError } from "./errors.js";
+import { assertOpenForPosting, type FiscalPeriodRepository } from "../fiscal-periods/index.js";
 
 export interface CreateDepreciationRunCommand {
   readonly id: string;
@@ -17,6 +18,8 @@ export interface CreateDepreciationRunCommand {
 export interface CreateDepreciationRunDeps {
   readonly runs: DepreciationRunRepository;
   readonly assets: AssetRepository;
+  /** When supplied, a run is not even drafted for a month that is closed or locked: it could never post. */
+  readonly periods?: Pick<FiscalPeriodRepository, "findByDate">;
 }
 
 function parsePeriod(period: string): DepreciationPeriod {
@@ -46,6 +49,10 @@ export async function createDepreciationRun(
   }
 
   const period = parsePeriod(cmd.period);
+  if (deps.periods) {
+    const fiscalPeriod = await deps.periods.findByDate(`${cmd.period}-01`);
+    if (fiscalPeriod) assertOpenForPosting(fiscalPeriod);
+  }
   const allAssets = await deps.assets.list();
   const eligible = allAssets.filter((asset) => {
     if (asset.status !== "active") return false;

@@ -4,6 +4,7 @@ export { isValidSlug } from "./slug.js";
 export {
   createTenant, activateTenant, suspendTenant, resumeTenant, archiveTenant,
   tenantDbFile,
+  TenantStatusCode,
   type Tenant, type TenantStatus, type TenantRepository,
   type CreateTenantCommand, type TenantTransitionCommand,
 } from "./tenant.js";

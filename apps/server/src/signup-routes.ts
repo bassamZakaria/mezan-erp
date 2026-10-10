@@ -4,14 +4,16 @@ import {
   InvalidSignupError,
   isDisposableEmailDomain,
   PlanNotFoundError,
-  SignupRequestStatus,
   SignupTokenExpiredError,
   SignupTokenInvalidError,
   startSignup,
   topPublicPaidPlan,
   TenantCodeTakenError,
+  TenantStatusCode,
   verifySignup,
   type Plan,
+  type SignupRequest,
+  type Tenant,
 } from "@mezan/domain";
 import { requestOrigin, sendNotificationEmail } from "@mezan/api";
 import type { PlatformHandle } from "@mezan/backend";
@@ -27,6 +29,8 @@ import { forwardedOrigin } from "./billing-routes.js";
 import { createRateLimiter } from "./rate-limit.js";
 import type { CloudEnv } from "./env.js";
 import type { TenantRouter } from "./tenant-router.js";
+
+export const SIGNUP_BASE_PATH = "/api/signup";
 
 const TOKEN_EXPIRES_IN_MS = 24 * 60 * 60 * 1000;
 
@@ -253,34 +257,24 @@ export function createSignupRoutes(options: SignupRoutesOptions): Hono {
     return c.json(responseBody, 201);
   });
 
-  app.post("/verify", async (c) => {
-    const ip = clientIp(c, env.trustProxy);
-    const wait = verifyIpLimit.retryAfter(ip);
-    if (wait > 0) return tooManyRequests(c, wait);
-    verifyIpLimit.consume(ip);
+  async function tenantSettledBy(request: SignupRequest): Promise<Tenant | null> {
+    const tenant = await platform.stores.tenants.findByCode(request.code);
+    if (!tenant || tenant.ownerEmail !== request.ownerEmail) return null;
+    if (tenant.status === TenantStatusCode.Archived) throw new SignupTokenInvalidError();
+    return tenant.status === TenantStatusCode.Active || tenant.status === TenantStatusCode.Suspended ? tenant : null;
+  }
 
-    const parsed = verifySignupRequestSchema.safeParse(await c.req.json().catch(() => null));
-    if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+  function alreadyVerifiedAnswer(tenant: Tenant, request: SignupRequest): VerifySignupResultDTO {
+    return { tenant, adminEmail: request.ownerEmail, adminPin: null, alreadyVerified: true };
+  }
 
-    const tokenHash = hashToken(parsed.data.token);
-    const nowIso = now().toISOString();
+  async function settleVerification(tokenHash: string): Promise<VerifySignupResultDTO> {
+    const request = await verifySignup(tokenHash, platform.stores.signupRequests, now().toISOString());
+
+    const settled = await tenantSettledBy(request);
+    if (settled) return alreadyVerifiedAnswer(settled, request);
+
     try {
-      const before = await platform.stores.signupRequests.findByTokenHash(tokenHash);
-      const alreadyVerified = before?.status === SignupRequestStatus.Verified;
-      const request = await verifySignup(tokenHash, platform.stores.signupRequests, nowIso);
-
-      // A link opened a second time must not provision again: the tenant is
-      // already claimed, and `provisionTenant` answers a claimed, active
-      // tenant with TENANT_CODE_TAKEN — which told the owner of a working
-      // account that their own code was in use. The PIN is never re-issued.
-      if (alreadyVerified) {
-        const existing = await platform.stores.tenants.findByCode(request.code);
-        if (existing && existing.status !== "provisioning" && existing.ownerEmail === request.ownerEmail) {
-          const settled: VerifySignupResultDTO = { tenant: existing, adminEmail: request.ownerEmail, adminPin: null, alreadyVerified: true };
-          return c.json(settled);
-        }
-      }
-
       const provisioned = await provisionTenant(
         {
           code: request.code,
@@ -295,9 +289,42 @@ export function createSignupRoutes(options: SignupRoutesOptions): Hono {
         { platform, router, now },
       );
       router.invalidate(provisioned.tenant.code);
+      return { ...provisioned, alreadyVerified: provisioned.adminPin === null };
+    } catch (err) {
+      const settledMeanwhile = await tenantSettledBy(request);
+      if (settledMeanwhile) return alreadyVerifiedAnswer(settledMeanwhile, request);
+      throw err;
+    }
+  }
 
-      const responseBody: VerifySignupResultDTO = { ...provisioned, alreadyVerified };
-      return c.json(responseBody);
+  // One verification per token at a time. Two posts of the same link used to
+  // provision side by side: both created the admin, and the loser answered the
+  // owner of a brand-new account with a 500 or TENANT_CODE_TAKEN. The queue
+  // covers this process; the settled-tenant lookups above cover a second one.
+  const verifying = new Map<string, Promise<VerifySignupResultDTO>>();
+
+  function verifyInTurn(tokenHash: string): Promise<VerifySignupResultDTO> {
+    const ahead = verifying.get(tokenHash) ?? Promise.resolve(null);
+    const mine = ahead.catch(() => null).then(() => settleVerification(tokenHash));
+    verifying.set(tokenHash, mine);
+    const release = () => {
+      if (verifying.get(tokenHash) === mine) verifying.delete(tokenHash);
+    };
+    mine.then(release, release);
+    return mine;
+  }
+
+  app.post("/verify", async (c) => {
+    const ip = clientIp(c, env.trustProxy);
+    const wait = verifyIpLimit.retryAfter(ip);
+    if (wait > 0) return tooManyRequests(c, wait);
+    verifyIpLimit.consume(ip);
+
+    const parsed = verifySignupRequestSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+
+    try {
+      return c.json(await verifyInTurn(hashToken(parsed.data.token)));
     } catch (err) {
       return signupErrorResponse(c, err);
     }

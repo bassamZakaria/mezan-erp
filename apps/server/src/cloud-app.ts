@@ -10,7 +10,7 @@ import { TenantNotFoundError } from "@mezan/domain";
 import type { CreateTenantRequestDTO, ProvisionResultDTO, ProvisionRetryRequestDTO } from "@mezan/contracts";
 import { createTenantRouter, requireOriginSecret, type TenantRouter } from "./tenant-router.js";
 import { provisionTenant, PlanRequiredError } from "./provision-tenant.js";
-import { createSignupRoutes } from "./signup-routes.js";
+import { createSignupRoutes, SIGNUP_BASE_PATH } from "./signup-routes.js";
 import { provisionDemoTenant } from "./demo-tenant.js";
 import { provisionReviewTenant } from "./review-tenant.js";
 import { createLegalRoutes, LEGAL_BASE_PATH } from "./legal-routes.js";
@@ -218,7 +218,15 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
   // otherwise swallow the console's routes first.
   root.route("/api/platform", platformApp);
   root.route("/api/billing", createTenantBillingRoutes({ platform, router, env, service: checkoutService, now }));
-  root.route("/api/signup", createSignupRoutes({ platform, router, env, now }));
+  const signupRoutes = createSignupRoutes({ platform, router, env, now });
+  root.route(SIGNUP_BASE_PATH, signupRoutes);
+  // The router matches strictly, so `/api/signup/` would fall through to the
+  // tenant router below and answer TENANT_REQUIRED.
+  root.all(`${SIGNUP_BASE_PATH}/`, (c) => {
+    const url = new URL(c.req.url);
+    url.pathname = "/";
+    return signupRoutes.fetch(new Request(url, c.req.raw), c.env);
+  });
   root.route("/api", router.app);
 
   if (checkoutService && testProvider) {

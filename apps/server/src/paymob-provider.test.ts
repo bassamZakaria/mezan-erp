@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Money, ProviderInquiryStatus, type CardCheckout, type CheckoutRequest } from "@mezan/domain";
+import { CardCheckoutStatus, Money, ProviderInquiryStatus, type CardCheckout, type CheckoutRequest } from "@mezan/domain";
 import {
   createPaymobProvider,
   createPaymobTestProvider,
@@ -289,7 +289,7 @@ describe("Paymob transaction inquiry", () => {
 describe("the Paymob test double", () => {
   const checkout: CardCheckout = {
     id: "checkout-1", tenantId: "t-acme", subscriptionId: "sub-acme", provider: "paymob-test", amount: Money.fromMajor("490.50"),
-    currency: "EGP", status: "pending", providerOrderRef: "424242", checkoutUrl: "/billing/test-checkout/checkout-1", providerRef: null,
+    currency: "EGP", status: CardCheckoutStatus.Pending, providerOrderRef: "424242", checkoutUrl: "/billing/test-checkout/checkout-1", providerRef: null,
     paymentId: null, failureReason: null, capturedAmount: null, requestedBy: "tester", createdAt: "2026-03-01T10:00:00.000Z", updatedAt: "2026-03-01T10:00:00.000Z",
   };
   const request = { providerOrderRef: "424242", merchantRef: "checkout-1" };

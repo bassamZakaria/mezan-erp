@@ -255,6 +255,103 @@ describe("card checkout — the callback", () => {
   });
 });
 
+describe("card checkout — a settlement and its audit event are one transaction", () => {
+  function failAudit(r: Rig, action: string): () => void {
+    const realAppend = r.platform.audit.append.bind(r.platform.audit);
+    r.platform.audit.append = async (event) => {
+      if (event.action === action) throw new Error("audit sink unavailable");
+      await realAppend(event);
+    };
+    return () => {
+      r.platform.audit.append = realAppend;
+    };
+  }
+  const signed = (r: Rig, checkout: CardCheckout) => r.provider.simulateCallback(checkout, "success");
+
+  it("records no payment and asks the provider to deliver again when the payment's event cannot be written", async () => {
+    const r = await rig();
+    const before = await r.periodEnd();
+    const checkout = await r.open();
+    const callback = signed(r, checkout);
+    const restore = failAudit(r, "PAYMENT_RECORDED");
+
+    const refused = await r.service.handleWebhook(callback.rawBody, callback.signature);
+
+    expect(refused).toEqual({ status: "retry" });
+    expect((await reload(r, checkout)).status).toBe("pending");
+    expect(await r.periodEnd()).toBe(before);
+    expect(await r.payments()).toBe(0);
+    expect(r.invalidated).toEqual([]);
+
+    restore();
+    const redelivered = await r.service.handleWebhook(callback.rawBody, callback.signature);
+
+    expect(redelivered).toMatchObject({ status: "ok", detail: SettlementDetail.Paid });
+    expect(await r.payments()).toBe(1);
+    expect((await r.actions()).filter((action) => action === "PAYMENT_RECORDED")).toHaveLength(1);
+  });
+
+  it("leaves a checkout pending, not silently unapplied, when the unapplied event cannot be written", async () => {
+    const r = await rig();
+    const checkout = await r.open();
+    const callback = signed(r, { ...checkout, amount: Money.fromMajor("1.00") });
+    const restore = failAudit(r, "CARD_PAYMENT_UNAPPLIED");
+
+    const refused = await r.service.handleWebhook(callback.rawBody, callback.signature);
+
+    expect(refused).toEqual({ status: "retry" });
+    expect((await reload(r, checkout)).status).toBe("pending");
+
+    restore();
+    const redelivered = await r.service.handleWebhook(callback.rawBody, callback.signature);
+
+    expect(redelivered).toMatchObject({ status: "ok", detail: SettlementDetail.AmountMismatch });
+    expect((await reload(r, checkout)).status).toBe("unapplied");
+    expect(await r.actions()).toContain("CARD_PAYMENT_UNAPPLIED");
+  });
+
+  it("does not lose the record of a second charge on a paid checkout when its event cannot be written", async () => {
+    const r = await rig();
+    const checkout = await r.open();
+    await deliver(r, checkout);
+    const second = signed(r, checkout);
+    const restore = failAudit(r, "CARD_PAYMENT_DUPLICATE_CHARGE");
+
+    expect(await r.service.handleWebhook(second.rawBody, second.signature)).toEqual({ status: "retry" });
+
+    restore();
+    const redelivered = await r.service.handleWebhook(second.rawBody, second.signature);
+
+    expect(redelivered).toMatchObject({ status: "ok", detail: SettlementDetail.AlreadySettled });
+    expect(await r.actions()).toContain("CARD_PAYMENT_DUPLICATE_CHARGE");
+    expect(await r.payments()).toBe(1);
+  });
+
+  it("leaves a card payment unapplied, and deliverable, when its reference was already recorded by hand", async () => {
+    const r = await rig();
+    const before = await r.periodEnd();
+    const checkout = await r.open();
+    const callback = signed(r, checkout);
+    const providerRef = String((JSON.parse(callback.rawBody) as { obj: { id: number } }).obj.id);
+    await r.platform.stores.payments.save({
+      id: "PAY-BY-HAND", tenantId: "t-acme", subscriptionId: "sub-acme", amount: checkout.amount, currency: "EGP",
+      reference: `PAYMOB-${providerRef}`, paidAt: OPENED, recordedBy: "PU-OWNER", note: null, createdAt: OPENED,
+    });
+
+    const result = await r.service.handleWebhook(callback.rawBody, callback.signature);
+
+    expect(result).toMatchObject({ status: "ok", detail: SettlementDetail.ReferenceAlreadyRecorded });
+    const after = await reload(r, checkout);
+    expect(after.status).toBe("unapplied");
+    expect(after.failureReason).toBe("REFERENCE_ALREADY_RECORDED");
+    expect(after.capturedAmount?.equals(checkout.amount)).toBe(true);
+    expect(await r.periodEnd()).toBe(before);
+    expect(await r.payments()).toBe(1);
+    expect(await r.details("CARD_PAYMENT_UNAPPLIED")).toMatchObject([{ reference: `PAYMOB-${providerRef}`, recordedPaymentId: "PAY-BY-HAND" }]);
+    expect(await r.service.handleWebhook(callback.rawBody, callback.signature)).toMatchObject({ status: "ok", detail: SettlementDetail.Duplicate });
+  });
+});
+
 describe("card checkout — sweeping checkouts whose callback never arrived", () => {
   it("settles a paid checkout the provider knows about through the callback's own path", async () => {
     const r = await rig();

@@ -5,7 +5,12 @@ import type { Subscription } from "./subscription.js";
 import type { Payment } from "./payment.js";
 import { moneyToPaymobCents } from "./paymob.js";
 
-export type CardCheckoutStatus = "pending" | "paid" | "failed" | "unapplied";
+export enum CardCheckoutStatus {
+  Pending = "pending",
+  Paid = "paid",
+  Failed = "failed",
+  Unapplied = "unapplied",
+}
 
 export enum CardCheckoutFailureReason {
   ProviderError = "PROVIDER_ERROR",
@@ -13,6 +18,24 @@ export enum CardCheckoutFailureReason {
   Expired = "EXPIRED",
   /** Still `pending`: the provider's answer about it could not be read past the expiry threshold, so a person has to look. */
   NeedsAttention = "NEEDS_ATTENTION",
+  AmountMismatch = "AMOUNT_MISMATCH",
+  PriceChanged = "PRICE_CHANGED",
+  SubscriptionNotRenewable = "SUBSCRIPTION_NOT_RENEWABLE",
+  ReferenceAlreadyRecorded = "REFERENCE_ALREADY_RECORDED",
+}
+
+export enum ProviderEventOutcome {
+  Duplicate = "duplicate",
+  Settled = "settled",
+  Unchanged = "unchanged",
+}
+
+export enum PaidSettlementOutcome {
+  Duplicate = "duplicate",
+  AlreadySettled = "already-settled",
+  SubscriptionChanged = "subscription-changed",
+  ReferenceTaken = "reference-taken",
+  Paid = "paid",
 }
 
 export interface CardCheckout {
@@ -27,7 +50,7 @@ export interface CardCheckout {
   readonly checkoutUrl: string | null;
   readonly providerRef: string | null;
   readonly paymentId: string | null;
-  readonly failureReason: string | null;
+  readonly failureReason: CardCheckoutFailureReason | null;
   /** What the provider actually collected, kept when the payment could not be applied so a later manual application has the real figure. */
   readonly capturedAmount: Money | null;
   readonly requestedBy: string;
@@ -36,10 +59,10 @@ export interface CardCheckout {
 }
 
 export interface CardCheckoutSettlement {
-  readonly status: Exclude<CardCheckoutStatus, "pending">;
+  readonly status: Exclude<CardCheckoutStatus, CardCheckoutStatus.Pending>;
   readonly providerRef: string | null;
   readonly paymentId: string | null;
-  readonly failureReason: string | null;
+  readonly failureReason: CardCheckoutFailureReason | null;
   readonly capturedAmount?: Money | null;
   readonly now: string;
 }
@@ -69,13 +92,15 @@ export interface CardCheckoutRepository {
     readonly providerRef: string;
     readonly now: string;
     readonly settle?: { readonly checkoutId: string; readonly from: readonly CardCheckoutStatus[]; readonly to: CardCheckoutSettlement };
-  }): Promise<"duplicate" | "settled" | "unchanged">;
+  }): Promise<ProviderEventOutcome>;
   /** Moves a checkout that never reached the provider; no transaction id is involved. */
-  abandon(checkoutId: string, failureReason: string, now: string): Promise<void>;
+  abandon(checkoutId: string, failureReason: CardCheckoutFailureReason, now: string): Promise<void>;
   /**
    * Settles a paid checkout atomically: claims the transaction id, moves the
    * checkout to `paid`, writes the renewed subscription (compare-and-set on its
    * `updatedAt`) and inserts the payment. Either all of it commits or none of it.
+   * `ReferenceTaken` means the tenant already holds a payment under this one's
+   * reference and nothing at all was written, the claim included.
    */
   settlePaid(input: {
     readonly provider: PaymentProviderId;
@@ -92,7 +117,7 @@ export interface CardCheckoutRepository {
     readonly subscriptionBefore: Subscription;
     readonly subscriptionAfter: Subscription;
     readonly payment: Payment;
-  }): Promise<"duplicate" | "already-settled" | "subscription-changed" | "paid">;
+  }): Promise<PaidSettlementOutcome>;
 }
 
 export class CardCheckoutUnavailableError extends Error {

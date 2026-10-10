@@ -2,8 +2,8 @@ import Database from "better-sqlite3";
 import { openSqliteConnection, withSqliteTransaction, type SqliteConnectionInput, type SqliteOpenOptions } from "./sqlite-connection.js";
 import {
   Money,
-  CardCheckoutFailureReason,
-  type CardCheckout, type CardCheckoutRepository, type CardCheckoutSettlement, type CardCheckoutStatus,
+  CardCheckoutFailureReason, CardCheckoutStatus, PaidSettlementOutcome, ProviderEventOutcome,
+  type CardCheckout, type CardCheckoutRepository, type CardCheckoutSettlement,
   type PaymentProviderId,
   type Payment, type PaymentRepository,
   type Plan, type PlanRepository, type PlanQuotas, PlanKind,
@@ -580,7 +580,7 @@ interface CardCheckoutRow {
   id: string; tenant_id: string; subscription_id: string; provider: PaymentProviderId; amount: number;
   currency: CardCheckout["currency"]; status: CardCheckoutStatus; provider_order_ref: string | null;
   checkout_url: string | null; provider_ref: string | null; payment_id: string | null;
-  failure_reason: string | null; captured_amount: number | null; requested_by: string; created_at: string; updated_at: string;
+  failure_reason: CardCheckoutFailureReason | null; captured_amount: number | null; requested_by: string; created_at: string; updated_at: string;
 }
 
 function toCardCheckout(r: CardCheckoutRow): CardCheckout {
@@ -606,8 +606,12 @@ class SqliteCardCheckoutStore implements CardCheckoutRepository {
   private readonly claim: Database.Statement;
   private readonly renewSubscription: Database.Statement;
   private readonly insertPayment: Database.Statement;
+  private readonly paymentUnderReference: Database.Statement;
+  private readonly claimed: Database.Statement;
 
   constructor(private readonly sqlite: Database.Database) {
+    this.paymentUnderReference = sqlite.prepare(`SELECT 1 FROM payment WHERE tenant_id = ? AND reference = ? LIMIT 1`);
+    this.claimed = sqlite.prepare(`SELECT 1 FROM payment_provider_event WHERE provider = ? AND provider_ref = ?`);
     this.insertStmt = sqlite.prepare(
       `INSERT INTO card_checkout (id, tenant_id, subscription_id, provider, amount, currency, status, provider_order_ref,
          checkout_url, provider_ref, payment_id, failure_reason, requested_by, created_at, updated_at)
@@ -696,26 +700,31 @@ class SqliteCardCheckoutStore implements CardCheckoutRepository {
     );
   }
 
-  async recordOutcome(input: Parameters<CardCheckoutRepository["recordOutcome"]>[0]): Promise<"duplicate" | "settled" | "unchanged"> {
+  async recordOutcome(input: Parameters<CardCheckoutRepository["recordOutcome"]>[0]): Promise<ProviderEventOutcome> {
     return this.sqlite.transaction(() => {
-      if (this.claim.run(input.provider, input.providerRef, input.now).changes !== 1) return "duplicate" as const;
-      if (!input.settle) return "unchanged" as const;
-      return this.casCheckout(input.settle.checkoutId, input.settle.from, input.settle.to) ? ("settled" as const) : ("unchanged" as const);
+      if (this.claim.run(input.provider, input.providerRef, input.now).changes !== 1) return ProviderEventOutcome.Duplicate;
+      if (!input.settle) return ProviderEventOutcome.Unchanged;
+      return this.casCheckout(input.settle.checkoutId, input.settle.from, input.settle.to) ? ProviderEventOutcome.Settled : ProviderEventOutcome.Unchanged;
     }).immediate();
   }
 
-  async abandon(checkoutId: string, failureReason: string, now: string): Promise<void> {
-    this.casCheckout(checkoutId, ["pending"], { status: "failed", providerRef: null, paymentId: null, failureReason, now });
+  async abandon(checkoutId: string, failureReason: CardCheckoutFailureReason, now: string): Promise<void> {
+    this.casCheckout(checkoutId, [CardCheckoutStatus.Pending], { status: CardCheckoutStatus.Failed, providerRef: null, paymentId: null, failureReason, now });
   }
 
-  async settlePaid(input: Parameters<CardCheckoutRepository["settlePaid"]>[0]): Promise<"duplicate" | "already-settled" | "subscription-changed" | "paid"> {
+  async settlePaid(input: Parameters<CardCheckoutRepository["settlePaid"]>[0]): Promise<PaidSettlementOutcome> {
     const { subscriptionBefore: before, subscriptionAfter: after, payment: p } = input;
-    const run = this.sqlite.transaction((): "duplicate" | "already-settled" | "paid" => {
-      if (this.claim.run(input.provider, input.claimRef ?? input.providerRef, input.now).changes !== 1) return "duplicate";
+    const run = this.sqlite.transaction((): PaidSettlementOutcome => {
+      // BEFORE the claim: a reference the tenant already holds must leave the
+      // provider's transaction id unclaimed, so the caller can still settle it
+      // as unapplied under that same id.
+      const alreadyClaimed = this.claimed.get(input.provider, input.claimRef ?? input.providerRef) !== undefined;
+      if (!alreadyClaimed && this.paymentUnderReference.get(p.tenantId, p.reference)) return PaidSettlementOutcome.ReferenceTaken;
+      if (this.claim.run(input.provider, input.claimRef ?? input.providerRef, input.now).changes !== 1) return PaidSettlementOutcome.Duplicate;
       const moved = this.casCheckout(input.checkoutId, input.from, {
-        status: "paid", providerRef: input.providerRef, paymentId: p.id, failureReason: null, now: input.now,
+        status: CardCheckoutStatus.Paid, providerRef: input.providerRef, paymentId: p.id, failureReason: null, now: input.now,
       });
-      if (!moved) return "already-settled";
+      if (!moved) return PaidSettlementOutcome.AlreadySettled;
       const renewed = this.renewSubscription.run({
         id: after.id, status: after.status, trialEndsAt: after.trialEndsAt,
         currentPeriodStart: after.currentPeriodStart, currentPeriodEnd: after.currentPeriodEnd, updatedAt: after.updatedAt,
@@ -727,12 +736,12 @@ class SqliteCardCheckoutStore implements CardCheckoutRepository {
         currency: p.currency, reference: p.reference, paidAt: p.paidAt, recordedBy: p.recordedBy,
         note: p.note, createdAt: p.createdAt,
       });
-      return "paid";
+      return PaidSettlementOutcome.Paid;
     });
     try {
       return run.immediate();
     } catch (err) {
-      if (err instanceof SubscriptionChanged) return "subscription-changed";
+      if (err instanceof SubscriptionChanged) return PaidSettlementOutcome.SubscriptionChanged;
       throw err;
     }
   }

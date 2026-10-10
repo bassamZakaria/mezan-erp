@@ -18,6 +18,7 @@ import {
   SubscriptionTransition,
   TenantNotFoundError,
   PlanNotFoundError,
+  CardCheckoutStatus,
   type CardCheckout,
   type ModuleTrial,
   type Plan,
@@ -33,7 +34,7 @@ import {
 } from "@mezan/contracts";
 import { readSessionToken, type SessionGrant } from "@mezan/api";
 import { resolveTenantPlan, serializeCardCheckout, type PlatformHandle } from "@mezan/backend";
-import type { CardCheckoutService } from "./card-checkout.js";
+import { SettlementStatus, type CardCheckoutService } from "./card-checkout.js";
 import type { PaymobTestProvider } from "./paymob-provider.js";
 import type { CloudEnv } from "./env.js";
 import type { TenantRouter } from "./tenant-router.js";
@@ -83,8 +84,8 @@ export function createPaymobWebhookRoutes(service: CardCheckoutService): Hono {
     const raw = await c.req.text();
     if (raw.length > MAX_WEBHOOK_BYTES) return c.json({ error: "PAYLOAD_TOO_LARGE" }, 413);
     const result = await service.handleWebhook(raw, c.req.query("hmac") ?? "");
-    if (result.status === "rejected") return c.json({ error: "INVALID_SIGNATURE" }, 401);
-    if (result.status === "retry") return c.json({ error: "RETRY" }, 503);
+    if (result.status === SettlementStatus.Rejected) return c.json({ error: "INVALID_SIGNATURE" }, 401);
+    if (result.status === SettlementStatus.Retry) return c.json({ error: "RETRY" }, 503);
     return c.json({ received: true });
   });
   return app;
@@ -380,7 +381,7 @@ function escapeHtml(value: string): string {
 function testCheckoutPage(checkout: CardCheckout, tenantCode: string): string {
   const id = escapeHtml(checkout.id);
   const amount = escapeHtml(checkout.amount.toString().replace(/0{1,4}$/, ""));
-  const open = checkout.status === "pending" || checkout.status === "failed";
+  const open = checkout.status === CardCheckoutStatus.Pending || checkout.status === CardCheckoutStatus.Failed;
   const statusLine = open ? "" : `<p class="state">الحالة: ${escapeHtml(checkout.status)} — Status: ${escapeHtml(checkout.status)}</p>`;
   const actions = open
     ? `<form method="post" action="/billing/test-checkout/${id}/complete">
@@ -454,7 +455,7 @@ export function createTestCheckoutRoutes(options: {
     if (!checkout || checkout.provider !== provider.id) return c.text("Not found", 404);
     const form = await c.req.parseBody().catch(() => ({}) as Record<string, unknown>);
     const outcome = form["outcome"] === "success" ? "success" : "failure";
-    if (checkout.status === "pending" || checkout.status === "failed") {
+    if (checkout.status === CardCheckoutStatus.Pending || checkout.status === CardCheckoutStatus.Failed) {
       const { rawBody, signature } = provider.simulateCallback(checkout, outcome);
       await service.handleWebhook(rawBody, signature);
     }

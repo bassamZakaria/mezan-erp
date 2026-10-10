@@ -42,6 +42,7 @@ import {
   type Plan,
   type Payment,
   type PlatformUser,
+  CardCheckoutStatus,
   type CardCheckout,
   CardCheckoutUnavailableError,
   CardPaymentNotApplicableError,
@@ -88,9 +89,7 @@ export interface PlatformCardCheckoutPort {
   readonly testMode: boolean;
   open(input: { readonly tenantId: string; readonly actorId: string; readonly request: Request }): Promise<CardCheckout>;
   list(tenantId: string): Promise<CardCheckout[]>;
-  /** Reconciles checkouts whose callback never arrived against the provider, within a bounded time. `null` when a pass is already running. */
   sweep(): Promise<CardCheckoutSweepResultDTO | null>;
-  /** Applies an `unapplied` card payment to the subscription; writes its own audit event in the same transaction. */
   applyUnapplied(input: {
     readonly tenantId: string;
     readonly checkoutId: string;
@@ -149,7 +148,7 @@ export function serializeCardCheckout(c: CardCheckout): CardCheckoutDTO {
   return {
     id: c.id, tenantId: c.tenantId, subscriptionId: c.subscriptionId, provider: c.provider,
     testMode: c.provider === "paymob-test", amount: c.amount.toString(), currency: c.currency, status: c.status,
-    checkoutUrl: c.status === "pending" ? c.checkoutUrl : null, providerRef: c.providerRef, paymentId: c.paymentId,
+    checkoutUrl: c.status === CardCheckoutStatus.Pending ? c.checkoutUrl : null, providerRef: c.providerRef, paymentId: c.paymentId,
     failureReason: c.failureReason, capturedAmount: c.capturedAmount?.toString() ?? null, requestedBy: c.requestedBy, createdAt: c.createdAt, updatedAt: c.updatedAt,
   };
 }

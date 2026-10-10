@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createCloudApp, type CloudApp } from "./cloud-app.js";
 import { createPaymobWebhookRoutes, PAYMOB_WEBHOOK_PATH, trustedReturnOrigin } from "./billing-routes.js";
 import type { CardCheckoutService, WebhookResult } from "./card-checkout.js";
-import { SettlementDetail } from "./card-checkout.js";
+import { SettlementDetail, SettlementStatus } from "./card-checkout.js";
 import { parseEnv, type CloudEnv } from "./env.js";
 
 const T = "2026-01-15T00:00:00.000Z";
@@ -203,7 +203,7 @@ describe("the Paymob webhook route", () => {
   });
 
   it("hands the raw body and the hmac query parameter to the service untouched", async () => {
-    const { app, seen } = hook({ status: "ok", detail: SettlementDetail.Paid });
+    const { app, seen } = hook({ status: SettlementStatus.Ok, detail: SettlementDetail.Paid });
     const raw = '{"type":"TRANSACTION",  "obj": {"id": 1}}';
 
     const res = await post(app, raw, "?hmac=DEADBEEF");
@@ -213,19 +213,19 @@ describe("the Paymob webhook route", () => {
   });
 
   it("answers 401 to an unverified callback, so the provider's log shows the refusal", async () => {
-    const { app } = hook({ status: "rejected" });
+    const { app } = hook({ status: SettlementStatus.Rejected });
     const res = await post(app, "{}", "");
     expect(res.status).toBe(401);
     expect(await res.json()).toEqual({ error: "INVALID_SIGNATURE" });
   });
 
   it("answers 503 when the settlement asks to be retried", async () => {
-    const { app } = hook({ status: "retry" });
+    const { app } = hook({ status: SettlementStatus.Retry });
     expect((await post(app, "{}")).status).toBe(503);
   });
 
   it("refuses an oversized body without reading it into the service", async () => {
-    const { app, seen } = hook({ status: "ok", detail: SettlementDetail.Paid });
+    const { app, seen } = hook({ status: SettlementStatus.Ok, detail: SettlementDetail.Paid });
 
     const declared = await post(app, "{}", "?hmac=abc", { "content-length": String(10 * 1024 * 1024) });
     const actual = await post(app, "x".repeat(300 * 1024));

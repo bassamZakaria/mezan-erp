@@ -7,6 +7,7 @@ import {
   createTenant,
   Money,
   startSubscription,
+  CardCheckoutStatus,
   type CardCheckout,
 } from "@mezan/domain";
 import type { CreateTenantRequestDTO, ProvisionResultDTO, ProvisionRetryRequestDTO } from "@mezan/contracts";
@@ -678,7 +679,7 @@ describe("createPlatformRoutes — card checkout operator actions", () => {
         sweep: async () => { calls.sweeps += 1; return swept; },
         applyUnapplied: async (input) => {
           calls.applied.push({ ...input, amount: input.amount?.toString() ?? null });
-          return checkout({ id: input.checkoutId, tenantId: input.tenantId, status: "paid" });
+          return checkout({ id: input.checkoutId, tenantId: input.tenantId, status: CardCheckoutStatus.Paid });
         },
         ...port,
       },
@@ -694,7 +695,7 @@ describe("createPlatformRoutes — card checkout operator actions", () => {
   function checkout(overrides: Partial<CardCheckout>): CardCheckout {
     return {
       id: "CHK-1", tenantId: "T-CARD", subscriptionId: "S1", provider: "paymob-test", amount: Money.fromMajor("490.50"), currency: "EGP",
-      status: "unapplied", providerOrderRef: "1", checkoutUrl: null, providerRef: "2", paymentId: null, failureReason: null,
+      status: CardCheckoutStatus.Unapplied, providerOrderRef: "1", checkoutUrl: null, providerRef: "2", paymentId: null, failureReason: null,
       capturedAmount: Money.fromMajor("480.00"),
       requestedBy: "tester", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z", ...overrides,
     };

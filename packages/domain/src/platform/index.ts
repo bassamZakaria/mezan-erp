@@ -47,7 +47,8 @@ export {
 } from "./paymob.js";
 export {
   cardCheckoutAmount, CardCheckoutUnavailableError, CardPaymentNotApplicableError, CardCheckoutFailureReason,
-  type CardCheckout, type CardCheckoutStatus, type CardCheckoutRepository, type CardCheckoutSettlement,
+  CardCheckoutStatus, PaidSettlementOutcome, ProviderEventOutcome,
+  type CardCheckout, type CardCheckoutRepository, type CardCheckoutSettlement,
 } from "./card-checkout.js";
 export {
   startSignup, verifySignup, isDisposableEmailDomain, DISPOSABLE_EMAIL_DOMAINS, SignupRequestStatus,

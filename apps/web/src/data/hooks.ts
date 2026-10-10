@@ -4542,7 +4542,10 @@ function useFiscalPeriodTransition(action: "close" | "reopen" | "lock", fallback
   return useMutation<FiscalPeriodDTO, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/fiscal-periods/${id}/${action}`, { method: "POST" });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, fallbackMessage));
+      if (!res.ok) {
+        const refusal = (await res.json<{ error?: string }>().catch(() => ({}))) as { error?: string };
+        throw new ApiError(res.status, await readError(res, fallbackMessage), undefined, undefined, refusal.error);
+      }
       return res.json<FiscalPeriodDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["fiscal-periods"] }),

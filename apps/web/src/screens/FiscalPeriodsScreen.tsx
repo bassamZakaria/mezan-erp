@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router";
 import {
   Button,
   Card,
@@ -12,8 +13,9 @@ import {
   type PillTone,
   type RowMenuItem,
 } from "@mezan/ui";
-import type { FiscalPeriodDTO, FiscalPeriodStatusDTO } from "@mezan/contracts";
+import { PeriodCloseErrorCodeDTO, type FiscalPeriodDTO, type FiscalPeriodStatusDTO } from "@mezan/contracts";
 import {
+  ApiError,
   useClosePeriod,
   useFiscalPeriods,
   useGenerateFiscalYear,
@@ -24,6 +26,8 @@ import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { todayIso } from "../lib/dates";
 import { fiscalMonthLabel } from "../lib/fiscal-month";
 import { useNavigation } from "../navigation";
+import { pathForRoute } from "../routing";
+import type { ScreenKey } from "../router/screens";
 import { YearEndCloseCard } from "./YearEndCloseCard";
 import { EMPTY } from "../lib/empty";
 import { useUrlNumber, useUrlParam } from "../lib/url-state";
@@ -47,11 +51,18 @@ function isCurrentPeriod(period: FiscalPeriodDTO): boolean {
 }
 
 const PAGE_SIZES = [10, 25, 50, 100] as const;
+const CLOSE_WORKSPACE_SCREEN: ScreenKey = "period-close";
+const CLOSE_WORKSPACE_PERIOD_PARAM = "period";
+
+function blockedByCloseChecks(error: unknown): boolean {
+  return error instanceof ApiError && error.code === PeriodCloseErrorCodeDTO.Blocked;
+}
 
 export function FiscalPeriodsScreen() {
   const { t } = useAppTranslation();
   const query = useFiscalPeriods();
   const nav = useNavigation();
+  const routerNavigate = useNavigate();
   const generateFiscalYear = useGenerateFiscalYear();
   const closePeriodMutation = useClosePeriod();
   const reopenPeriodMutation = useReopenPeriod();
@@ -90,6 +101,10 @@ export function FiscalPeriodsScreen() {
   const currentPeriod = periods.find(isCurrentPeriod) ?? null;
   const stalePeriods = periodsInYear.filter((p) => p.status === "open" && p.endDate < TODAY);
 
+  function openCloseWorkspace(periodId: string) {
+    routerNavigate({ pathname: pathForRoute(CLOSE_WORKSPACE_SCREEN), search: `?${new URLSearchParams({ [CLOSE_WORKSPACE_PERIOD_PARAM]: periodId }).toString()}` });
+  }
+
   // Each action calls the real API, which enforces the fiscal-period state
   // machine server-side — an invalid transition surfaces the server's own
   // error message rather than one guessed on the client.
@@ -100,6 +115,7 @@ export function FiscalPeriodsScreen() {
     try {
       await closePeriodMutation.mutateAsync(period.id);
     } catch (err) {
+      if (blockedByCloseChecks(err)) return openCloseWorkspace(period.id);
       setActionError(err instanceof Error ? err.message : t("fiscalPeriods.closeFailed", { period: `${fiscalMonthLabel(period.periodNumber, t)} ${period.year}` }));
     } finally {
       setPendingId(null);
@@ -113,6 +129,7 @@ export function FiscalPeriodsScreen() {
     try {
       await lockPeriodMutation.mutateAsync(period.id);
     } catch (err) {
+      if (blockedByCloseChecks(err)) return openCloseWorkspace(period.id);
       setActionError(err instanceof Error ? err.message : t("fiscalPeriods.lockFailed", { period: `${fiscalMonthLabel(period.periodNumber, t)} ${period.year}` }));
     } finally {
       setPendingId(null);
@@ -185,7 +202,7 @@ export function FiscalPeriodsScreen() {
             onChange={(value) => setYear(Number(value))}
             options={(years.length > 0 ? years : [selectedYear]).map((y) => ({ value: String(y), label: String(y) }))}
           />
-          <Button onClick={() => nav.navigate("period-close")}>{t("fiscalPeriods.openCloseWorkspace")}</Button>
+          <Button onClick={() => nav.navigate(CLOSE_WORKSPACE_SCREEN)}>{t("fiscalPeriods.openCloseWorkspace")}</Button>
           <Button variant="primary" onClick={generateNextYear}>
             {t("fiscalPeriods.createNextYear")}
           </Button>

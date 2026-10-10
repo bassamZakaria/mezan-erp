@@ -2284,11 +2284,6 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     return value;
   }
 
-  /**
-   * With `asOfDate` every term is what stood on that day: a document counts
-   * from the date its posting carried, so the figure is comparable with the
-   * control account's balance on the same day. Without it, today's position.
-   */
   async function resolveReconciliationControls(asOfDate?: string) {
     const upTo = (date: string | null | undefined): boolean => asOfDate === undefined || (date ?? "").slice(0, 10) <= asOfDate;
     const standingCertificate = (certificate: { status: string; approvedAt: string | null; executionDate: string; voidedAt: string | null }): boolean =>
@@ -2459,7 +2454,6 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     // above — counting it again here is exactly the double-post D241 was.
     for (const line of partyControlLines) {
       const openingBalance = line.sourceDocType === CUSTOMER_OPENING_BALANCE_DOC_TYPE || line.sourceDocType === SUPPLIER_OPENING_BALANCE_DOC_TYPE;
-      // A party's opening balance carries no date of its own, so on a past day its posted entries are the only record of when it began to stand.
       if (openingBalance ? asOfDate === undefined : !line.partyId) continue;
       const net = line.debit.scaled - line.credit.scaled;
       if (line.accountId === AR_CONTROL) arScaled += net;

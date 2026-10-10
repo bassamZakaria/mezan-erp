@@ -4,7 +4,7 @@ import { createFiscalPeriodsRoutes } from "./fiscal-periods-routes.js";
 import type { AuditEvent, AuditSink, AuditStream } from "@mezan/domain";
 
 import { insecureHeaderAuthContextResolver } from "./permission-gate.js";
-import { uncheckedPeriodCloseGuardForTests } from "./period-close-guard.js";
+import { uncheckedPeriodCloseGuardForTests } from "./test-helpers/unchecked-period-close-guard.js";
 import { NO_PERIOD_CLOSE_GUARD } from "./period-close-routes.js";
 const handles: SqliteFiscalPeriodRepositoryHandle[] = [];
 const DISCARD_AUDIT: AuditSink = { append: async () => {}, query: async () => [] };

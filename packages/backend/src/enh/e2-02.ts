@@ -66,7 +66,6 @@ export const area: BackendArea = {
           audit: ctx.audit,
           dueDepreciation: {
             hasDepreciableAssets: async () => (await assets.list()).some((asset) => DEPRECIABLE_ASSET_STATUSES.has(asset.status)),
-            // `findByPeriod(period, null)` matches only a run with NO branch, so a month run per branch read as never run.
             hasRunForPeriod: async (period) => (await depreciationRuns.list()).some((run) => run.period === period && run.status !== "cancelled"),
           },
         },

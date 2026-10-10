@@ -83,7 +83,11 @@ function summary(over: Partial<PeriodCloseSummaryDTO> = {}): PeriodCloseSummaryD
   };
 }
 
+type StubReply = { status?: number; body: unknown };
+
 interface Setup {
+  readonly periods?: () => StubReply | Promise<never>;
+  readonly summariesReply?: () => StubReply | Promise<never>;
   readonly checklist?: PeriodCloseChecklistDTO;
   readonly summaries?: PeriodCloseSummaryDTO[];
   readonly closeResult?: { status: number; body: unknown };
@@ -94,7 +98,7 @@ function renderScreen(setup: Setup = {}) {
   const closeBodies: unknown[] = [];
   if (setup.locale) window.localStorage.setItem("mezan.locale", setup.locale);
   else window.localStorage.removeItem("mezan.locale");
-  const transport = stubTransport({
+  const stub = stubTransport({
     "GET /fiscal-periods": () => ({ body: [JUNE] }),
     "GET /period-close/fp-2026-06/checks": () => ({ body: setup.checklist ?? checklist() }),
     "GET /period-close/fp-2026-06/summaries": () => ({ body: setup.summaries ?? [] }),
@@ -105,6 +109,15 @@ function renderScreen(setup: Setup = {}) {
       return setup.closeResult ?? { status: 200, body: { ...JUNE, status: PeriodStatusDTO.Closed } };
     },
   });
+  const overrides: Record<string, Setup["periods"]> = { "/fiscal-periods": setup.periods, "/period-close/fp-2026-06/summaries": setup.summariesReply };
+  const transport: typeof stub = (path, init) => {
+    const override = (init?.method ?? "GET") === "GET" ? overrides[path.split("?")[0] ?? ""] : undefined;
+    if (!override) return stub(path, init);
+    return Promise.resolve(override()).then((reply) => {
+      const status = reply.status ?? 200;
+      return { status, ok: status < 400, json: <T,>() => Promise.resolve(reply.body as T), text: () => Promise.resolve(JSON.stringify(reply.body)) };
+    });
+  };
   renderWithProviders(<PeriodCloseScreen />, { transport, initialSession: testAdminSession, route: "/money/period-close?period=fp-2026-06" });
   return { closeBodies };
 }
@@ -224,5 +237,32 @@ describe("PeriodCloseScreen", () => {
   it("says so when the period has never been closed from the workspace", async () => {
     renderScreen();
     expect(await screen.findByText("لم تُقفل هذه الفترة من مساحة الإقفال بعد.")).toBeInTheDocument();
+  });
+  it("shows the page and a loading state while the periods are still on their way, not an empty screen", async () => {
+    renderScreen({ periods: () => new Promise<never>(() => {}) });
+    expect(await screen.findByRole("heading", { level: 1, name: "مساحة إقفال الفترة" })).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("جارٍ التحميل");
+    expect(screen.queryByText("لا توجد فترات مالية بعد")).not.toBeInTheDocument();
+  });
+
+  it("a failed periods request is an error with a retry, never the “no periods yet” empty state", async () => {
+    let attempts = 0;
+    renderScreen({
+      periods: () => {
+        attempts += 1;
+        return attempts === 1 ? { status: 500, body: { message: "تعذّر الاتصال بقاعدة البيانات." } } : { body: [JUNE] };
+      },
+    });
+    expect(await screen.findByText("تعذّر الاتصال بقاعدة البيانات.")).toBeInTheDocument();
+    expect(screen.queryByText("لا توجد فترات مالية بعد")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "إعادة المحاولة" }));
+    await waitFor(() => expect(checkRow(PeriodCloseCheckCodeDTO.Drafts)).toBeInTheDocument());
+  });
+
+  it("keeps the close history section on screen while its rows load", async () => {
+    renderScreen({ summariesReply: () => new Promise<never>(() => {}) });
+    const history = await screen.findByRole("region", { name: "سجل الإقفال" });
+    expect(within(history).getByRole("status")).toHaveTextContent("جارٍ التحميل");
   });
 });

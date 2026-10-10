@@ -69,7 +69,6 @@ function withinWindow(date: string, window: PeriodCloseWindow): boolean {
   return date >= window.startDate && date <= window.endDate;
 }
 
-// A recurring entry that was posted and then reversed is NOT in the books for its period, unlike an FX revaluation whose reversal is the design.
 function recurringEntryState(status: string | null | undefined): PeriodCloseEntryState {
   if (status === SourceStatus.Posted) return PeriodCloseEntryState.Posted;
   if (status === SourceStatus.Reversed) return PeriodCloseEntryState.Reversed;
@@ -177,7 +176,6 @@ function buildSources(ctx: BackendModuleContext, store: ReturnType<typeof create
       return due;
     },
 
-    // Judged per ASSET: a run is per (period, branch), so "some run exists" says nothing about a branch it did not cover.
     async depreciation(window) {
       const periodKey = window.startDate.slice(0, 7);
       const period = { year: window.year, month: Number(periodKey.slice(5, 7)) };

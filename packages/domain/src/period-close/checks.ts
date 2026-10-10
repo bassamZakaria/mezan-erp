@@ -324,7 +324,6 @@ export interface EvaluatePeriodCloseOptions {
   readonly onCheckFailure?: PeriodCloseFailureReporter;
 }
 
-// A check that cannot be computed must BLOCK the close: reading "could not tell" as "nothing wrong" is the defect this gate exists to remove.
 export async function evaluatePeriodClose(
   window: PeriodCloseWindow,
   sources: PeriodCloseSources,

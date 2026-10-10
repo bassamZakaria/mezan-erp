@@ -372,8 +372,6 @@ function createQueries(sqlite: Database.Database): PeriodCloseQueries {
         count: countByStatus(source, PENDING_STATUSES, window),
       }));
     },
-    // The period's own documents, plus every document of the same series whose NUMBER falls between the period's
-    // lowest and highest — compared as numbers, so a series that outgrows its padding is still read in order.
     numberedDocuments(window) {
       const from = window.startDate;
       const before = nextDay(window.endDate);
@@ -510,7 +508,6 @@ function createQueries(sqlite: Database.Database): PeriodCloseQueries {
         .all(BASE_CURRENCY, ...LEDGER_EFFECTIVE_STATUSES, nextDay(toDate)) as { currency: string }[];
       return rows.map((row) => row.currency);
     },
-    // Scoped by the DOCUMENT's date: a June invoice whose submission fails in July is June's problem.
     etaErrorIds(window) {
       const documentDate = `COALESCE(si.date, fd.date, e.created_at)`;
       const rows = sqlite
@@ -565,7 +562,6 @@ function createFxRunLog(sqlite: Database.Database): FxRevaluationRunLog {
   });
   return {
     record: (run) => recordAll(run),
-    // A run answers only for what was in the books when it ran: an entry posted into the window afterwards has never been revalued.
     currenciesRevaluedAsOf(asOfDate) {
       const ranAt = new Map((runs.all(asOfDate) as { currency: string; ran_at: string }[]).map((row) => [row.currency, row.ran_at]));
       const postedAt = new Map(lastForeignPosting(asOfDate).map((row) => [row.currency, row.at]));

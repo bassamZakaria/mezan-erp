@@ -15,7 +15,6 @@ import {
   lockedUnderSingleOperatorWaiver,
   lockPeriod,
   type AuditEvent,
-  type AuditSink,
   type FiscalPeriod,
   type FiscalPeriodRepository,
   type PeriodCloseCheckCode,
@@ -44,7 +43,6 @@ export function sealPeriodCloseSummary(summary: UnsignedPeriodCloseSummary): str
   return createHash("sha256").update(canonicalCloseSummary(summary)).digest("hex");
 }
 
-// Two things must both hold: the row still hashes to its own seal, and that seal is the one the HMAC-chained audit trail recorded at the close.
 export function verifyPeriodCloseSeal(summary: PeriodCloseSummary, auditedSeals: ReadonlySet<string>): boolean {
   const { sha256, ...unsigned } = summary;
   return sealPeriodCloseSummary(unsigned) === sha256 && auditedSeals.has(sha256);
@@ -145,41 +143,6 @@ export function createPeriodCloseGuard(deps: PeriodCloseGuardDeps): PeriodCloseG
         if (result) return result;
       }
       throw new PeriodCloseContendedError(requested);
-    },
-  };
-}
-
-/**
- * TEST-ONLY. Closes and locks with NO pre-close checks, for router tests whose
- * subject is something else (the posting gate, the audit row). `createBackend`
- * never uses it; production routers get the real guard or refuse.
- */
-export function uncheckedPeriodCloseGuardForTests(repo: FiscalPeriodRepository, audit?: AuditSink): PeriodCloseGuard {
-  return {
-    async evaluate(period) {
-      return {
-        periodId: period.id,
-        year: period.year,
-        periodNumber: period.periodNumber,
-        startDate: period.startDate,
-        endDate: period.endDate,
-        evaluatedAt: new Date().toISOString(),
-        checks: [],
-        blocking: [],
-      };
-    },
-    async attempt(attempt) {
-      const period = await repo.findById(attempt.periodId);
-      if (!period) throw new FiscalPeriodNotFoundError(attempt.periodId);
-      const next = TRANSITION[attempt.action](period);
-      await repo.update(next);
-      await audit?.append(
-        attempt.buildAuditEvent({ action: attempt.action, period: next, previousStatus: period.status, failedChecks: [], overrideReason: null, sha256: null, singleOperatorMode: false }),
-      );
-      return { kind: PeriodCloseAttemptKind.Done, period: next };
-    },
-    async listSummaries() {
-      return [];
     },
   };
 }

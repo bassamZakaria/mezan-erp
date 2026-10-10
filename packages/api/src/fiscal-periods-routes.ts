@@ -154,7 +154,6 @@ export function createFiscalPeriodsRoutes(
     }
   });
 
-  // Close and lock share one guard: a lock is terminal, so it must not be a way around the checks a close refused.
   async function guardedTransition(c: Context, action: PeriodCloseAction) {
     const periodId = c.req.param("id") ?? "";
     try {

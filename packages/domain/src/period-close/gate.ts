@@ -41,7 +41,6 @@ function singleOperatorWaiver(input: PeriodCloseDecisionInput): boolean {
   return input.singleOperatorMode && input.wildcardAdmin;
 }
 
-// A lock cannot be undone, so overriding its checks takes a second person: the one who closed the month may not also lock it over a failing check.
 export function decidePeriodClose(input: PeriodCloseDecisionInput): PeriodCloseDecision {
   if (input.blocking.length === 0) return PeriodCloseDecision.Allowed;
   if (input.overrideReason === null) return PeriodCloseDecision.Blocked;

@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { Card, StatusPill, useFormat } from "@mezan/ui";
+import { Card, Skeleton, StatusPill, useFormat } from "@mezan/ui";
 import { useUsers } from "../../../data/hooks";
 import { useEntityName } from "../../../lib/entity-names";
 import { EMPTY } from "../../../lib/empty";
@@ -7,6 +7,7 @@ import { useAppTranslation } from "../../../i18n";
 import { usePeriodCloseSummaries } from "./hooks";
 
 const HASH_PREVIEW_LENGTH = 16;
+const LOADING_LINES = 2;
 
 export interface CloseHistoryProps {
   readonly periodId: string;
@@ -21,12 +22,12 @@ export function CloseHistory({ periodId }: CloseHistoryProps) {
   const userById = useMemo(() => new Map(users.map((user) => [user.id, user])), [users]);
   const summaries = summariesQuery.data ?? EMPTY;
 
-  if (summariesQuery.isLoading) return null;
-
   return (
     <section aria-label={t("periodClose.history")} className="mt-[18px]">
       <h2 className="mb-[8px] font-display text-[14px] font-bold text-ink">{t("periodClose.history")}</h2>
-      {summariesQuery.isError ? (
+      {summariesQuery.isLoading ? (
+        <Skeleton lines={LOADING_LINES} />
+      ) : summariesQuery.isError ? (
         <p role="alert" className="text-[12.5px] text-danger-ink">
           {summariesQuery.error.message}
         </p>

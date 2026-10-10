@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { Button, ConfirmDialog } from "@mezan/ui";
+import { Button, ConfirmDialog, useFormat } from "@mezan/ui";
 import { PERIOD_CLOSE_OVERRIDE_REASON_MAX, PERIOD_CLOSE_OVERRIDE_REASON_MIN, type PeriodCloseChecklistDTO } from "@mezan/contracts";
 import { TextAreaField } from "../../../settings/form-controls";
 import { errorMessage } from "../../../lib/error-message";
@@ -42,6 +42,7 @@ export interface CloseActionsProps {
 
 export function CloseActions({ checklist, action, periodLabel, onStart, onDone, onError }: CloseActionsProps) {
   const { t } = useAppTranslation();
+  const fmt = useFormat();
   const transition = usePeriodCloseTransition();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [reason, setReason] = useState("");
@@ -95,11 +96,11 @@ export function CloseActions({ checklist, action, periodLabel, onStart, onDone, 
         consequence={
           needsOverride ? (
             <div className="flex flex-col gap-3">
-              <p>{t("periodClose.overrideBody", { count: String(blockedCount) })}</p>
+              <p>{t("periodClose.overrideBody", { count: fmt.number(blockedCount) })}</p>
               <p>{t(copy.confirmBody)}</p>
               <TextAreaField
                 label={t("periodClose.overrideReason")}
-                hint={t("periodClose.overrideReasonHint", { min: String(PERIOD_CLOSE_OVERRIDE_REASON_MIN) })}
+                hint={t("periodClose.overrideReasonHint", { min: fmt.number(PERIOD_CLOSE_OVERRIDE_REASON_MIN) })}
                 value={reason}
                 onChange={setReason}
                 rows={3}

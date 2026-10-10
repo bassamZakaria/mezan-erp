@@ -1,5 +1,5 @@
-import { useCallback, useMemo, useState } from "react";
-import { Button, EmptyState, Select, StatusPill, useFormat, type PillTone } from "@mezan/ui";
+import { useCallback, useMemo, useState, type ReactNode } from "react";
+import { Button, EmptyState, Select, Skeleton, StatusPill, useFormat, type PillTone } from "@mezan/ui";
 import { PeriodStatusDTO, type FiscalPeriodDTO, type FiscalPeriodStatusDTO, type PeriodCloseFixTargetDTO } from "@mezan/contracts";
 import { useFiscalPeriods } from "../../../data/hooks";
 import { useAppTranslation, type AppTranslationKey } from "../../../i18n";
@@ -49,7 +49,35 @@ interface Notice {
   readonly message: string;
 }
 
-const NOTICE_ROLE: Readonly<Record<NoticeTone, "status" | "alert">> = { [NoticeTone.Success]: "status", [NoticeTone.Danger]: "alert" };
+enum NoticeRole {
+  Status = "status",
+  Alert = "alert",
+}
+
+const NOTICE_ROLE: Readonly<Record<NoticeTone, NoticeRole>> = { [NoticeTone.Success]: NoticeRole.Status, [NoticeTone.Danger]: NoticeRole.Alert };
+const LOADING_LINES = 6;
+
+interface ScreenFrameProps {
+  readonly title: string;
+  readonly subtitle: string;
+  readonly actions?: ReactNode;
+  readonly children: ReactNode;
+}
+
+function ScreenFrame({ title, subtitle, actions, children }: ScreenFrameProps) {
+  return (
+    <div className="w-full min-w-0">
+      <div className="mb-[16px] flex flex-wrap items-end justify-between gap-[14px]">
+        <div className="min-w-0">
+          <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">{title}</h1>
+          <p className="mt-[5px] max-w-[70ch] text-[12.5px] text-ink-muted">{subtitle}</p>
+        </div>
+        {actions ? <div className="flex flex-wrap items-center gap-[9px]">{actions}</div> : null}
+      </div>
+      {children}
+    </div>
+  );
+}
 const NOTICE_CLASS: Readonly<Record<NoticeTone, string>> = {
   [NoticeTone.Success]: "mb-[14px] rounded-md border border-success bg-success-soft px-[12px] py-[10px] text-[12.5px] text-success-ink",
   [NoticeTone.Danger]: "mb-[14px] rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink",
@@ -93,20 +121,44 @@ export function PeriodCloseScreen() {
   const openFiscalPeriods = useCallback(() => nav.navigate("fiscal-periods"), [nav]);
   const { refetch } = checklistQuery;
   const recheck = useCallback(() => void refetch(), [refetch]);
+  const { refetch: refetchPeriods } = periodsQuery;
+  const reloadPeriods = useCallback(() => void refetchPeriods(), [refetchPeriods]);
   const pinPeriod = useCallback(() => {
     if (selectedId) setPeriodParam(selectedId);
   }, [selectedId, setPeriodParam]);
   const reportDone = useCallback((message: string) => setNotice({ tone: NoticeTone.Success, message }), []);
   const reportError = useCallback((message: string) => setNotice({ tone: NoticeTone.Danger, message }), []);
 
-  if (periodsQuery.isLoading) return null;
+  const title = t("periodClose.title");
+  const subtitle = t("periodClose.subtitle");
+
+  if (periodsQuery.isLoading) {
+    return (
+      <ScreenFrame title={title} subtitle={subtitle}>
+        <Skeleton lines={LOADING_LINES} />
+      </ScreenFrame>
+    );
+  }
+  if (periodsQuery.isError) {
+    return (
+      <ScreenFrame title={title} subtitle={subtitle}>
+        <EmptyState
+          title={t("periodClose.periodsLoadFailed")}
+          description={periodsQuery.error.message}
+          action={{ label: t("common.retry"), onClick: reloadPeriods }}
+        />
+      </ScreenFrame>
+    );
+  }
   if (!selected) {
     return (
-      <EmptyState
-        title={t("periodClose.noPeriodsTitle")}
-        description={t("periodClose.noPeriodsBody")}
-        action={{ label: t("periodClose.openFiscalPeriods"), onClick: openFiscalPeriods }}
-      />
+      <ScreenFrame title={title} subtitle={subtitle}>
+        <EmptyState
+          title={t("periodClose.noPeriodsTitle")}
+          description={t("periodClose.noPeriodsBody")}
+          action={{ label: t("periodClose.openFiscalPeriods"), onClick: openFiscalPeriods }}
+        />
+      </ScreenFrame>
     );
   }
 
@@ -114,13 +166,11 @@ export function PeriodCloseScreen() {
   const nextAction = checklist ? NEXT_ACTION[checklist.periodStatus] : null;
 
   return (
-    <div className="w-full min-w-0">
-      <div className="mb-[16px] flex flex-wrap items-end justify-between gap-[14px]">
-        <div className="min-w-0">
-          <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">{t("periodClose.title")}</h1>
-          <p className="mt-[5px] max-w-[70ch] text-[12.5px] text-ink-muted">{t("periodClose.subtitle")}</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-[9px]">
+    <ScreenFrame
+      title={title}
+      subtitle={subtitle}
+      actions={
+        <>
           <Select size="sm" className="min-w-[220px]" aria-label={t("periodClose.period")} value={selected.id} onChange={selectPeriod} options={periodOptions} />
           <Button onClick={recheck} disabled={checklistQuery.isFetching}>
             {checklistQuery.isFetching ? t("periodClose.refreshing") : t("periodClose.refresh")}
@@ -128,14 +178,16 @@ export function PeriodCloseScreen() {
           <Button variant="ghost" onClick={openFiscalPeriods}>
             {t("periodClose.openFiscalPeriods")}
           </Button>
-        </div>
-      </div>
-
+        </>
+      }
+    >
       {notice ? (
         <div role={NOTICE_ROLE[notice.tone]} className={NOTICE_CLASS[notice.tone]}>
           {notice.message}
         </div>
       ) : null}
+
+      {checklistQuery.isLoading ? <Skeleton lines={LOADING_LINES} /> : null}
 
       {checklistQuery.isError ? (
         <EmptyState
@@ -177,6 +229,6 @@ export function PeriodCloseScreen() {
           <CloseHistory periodId={checklist.periodId} />
         </>
       ) : null}
-    </div>
+    </ScreenFrame>
   );
 }

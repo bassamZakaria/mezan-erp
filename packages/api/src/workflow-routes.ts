@@ -25,6 +25,7 @@ import {
 import { createWorkflowConfigSchema, updateWorkflowConfigSchema, submitApprovalRequestSchema, decideApprovalRequestSchema } from "@mezan/contracts";
 import { type AuthContextResolver, callerRoleCodes, createPermissionGate, getAuthContext, permissionDeniedBody, roleCodesOf } from "./permission-gate.js";
 import { recordAdminEvent } from "./admin-audit.js";
+import { BranchRecordKind, recordInBranchGrant } from "./branch-policy.js";
 
 /**
  * Acts on the DOCUMENT behind an approval request once a decision is recorded.
@@ -241,7 +242,9 @@ export function createWorkflowRoutes(
   app.get("/requests/pending-count", gate("workflow.view"), async (c) => {
     const roles = actorRoles(c);
     const rows = await deps.requests.listPendingForRoles(roles);
-    return c.json({ count: rows.length });
+    let count = 0;
+    for (const row of rows) if (await recordInBranchGrant(c, BranchRecordKind.ApprovalRequest, row.id)) count += 1;
+    return c.json({ count });
   });
 
   app.get("/requests/mine", gate("workflow.view"), async (c) => {

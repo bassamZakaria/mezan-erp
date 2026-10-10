@@ -922,6 +922,11 @@ describe("D111 round 2 · the grant holds on every family, for a non-admin and f
         expect(text, `${label} ${path}`).not.toContain(MAIN_WAREHOUSE);
         expect(text, `${label} ${path}`).not.toContain(MAIN);
       }
+      for (const path of ["/inventory/movements", "/inventory/availability", "/inventory/balance", "/inventory/stock-balance"]) {
+        const asked = await caller("GET", `${path}?itemId=ITEM-DEMO-1&warehouseId=${MAIN_WAREHOUSE}`);
+        expect(asked.status, `${label} ${path}`).toBe(403);
+        expect(asked.body.message).toMatch(ARABIC);
+      }
       const foreignAdjustment = rowsOf((await admin("GET", "/inventory/adjustments")).body).find((row: any) => row.warehouseId === MAIN_WAREHOUSE);
       const foreignTransfer = rowsOf((await admin("GET", "/inventory/transfers")).body).find(
         (row: any) => row.fromWarehouseId !== ALEX_WAREHOUSE && row.toWarehouseId !== ALEX_WAREHOUSE,
@@ -1000,6 +1005,10 @@ describe("D111 round 2 · the grant holds on every family, for a non-admin and f
         expect((await caller("GET", `/gl/journal-entries/${activity.id}`)).status, `${label} ${activity.id}`).toBe(200);
       }
     }
+    const pendingEverywhere = (await admin("GET", "/workflow/requests/pending-count")).body.count;
+    expect(pendingEverywhere).toBeGreaterThan(0);
+    expect((await alexStar("GET", "/workflow/requests/pending-count")).body.count).toBe(rowsOf((await alexStar("GET", "/workflow/requests/pending")).body).length);
+    expect((await alexStar("GET", "/workflow/requests/pending-count")).body.count).toBeLessThan(pendingEverywhere);
     const cockpit = await alex("GET", "/dashboard/cockpit");
     expect(JSON.stringify(cockpit.body)).not.toContain(MAIN);
   });

@@ -1017,9 +1017,6 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   // Must sit BELOW the entitlements binding: the over-limit sets are a function
   // of the limits that binding publishes.
   app.use("*", planLocationsBinding({ branches: options.branchStore, warehouses: options.warehouseStore }));
-  // SECURITY: below the warehouse binding it reads, above every route — a
-  // route mounted later (createBackend adds several) is still behind it.
-  app.use("*", branchPolicyEnforcement({ resolveAuthContext: resolveAuth, directory: options.branchDirectory }));
 
   // A session token presented from an address it was not issued to. The
   // REFUSAL happens in session-auth.ts regardless of this mount (the resolver
@@ -1046,6 +1043,11 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   if (resolveLicenseState) {
     app.use("*", createWriteGate(resolveLicenseState));
   }
+  // SECURITY: above every route — one mounted later (createBackend adds
+  // several) is still behind it. BELOW the session-origin report: this
+  // resolves the session, which revokes a token presented from elsewhere, and
+  // resolving first would leave that theft unrecorded.
+  app.use("*", branchPolicyEnforcement({ resolveAuthContext: resolveAuth, directory: options.branchDirectory }));
   app.get("/license/state", async (c) =>
     c.json(resolveLicenseState ? await resolveLicenseState(c) : WRITABLE_LICENSE_STATE),
   );

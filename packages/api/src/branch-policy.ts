@@ -101,6 +101,7 @@ export interface BranchPolicyEntry {
   readonly defaultsBranch?: boolean;
   readonly defaultsLineBranch?: boolean;
   readonly exemptBodyKeys?: readonly string[];
+  readonly query?: Readonly<Record<string, BranchRecordKind>>;
 }
 
 const K = BranchRecordKind;
@@ -166,7 +167,7 @@ export const BRANCH_POLICY_TABLE: readonly BranchPolicyEntry[] = [
   readOnly("/exchange-rates"),
   readOnly("/sequences"),
   readOnly("/roles"),
-  readOnly("/users"),
+  shared("/users"),
   readOnly("/branches"),
   readOnly("/barcode-config"),
   readOnly("/print-template-config"),
@@ -215,8 +216,6 @@ export const BRANCH_POLICY_TABLE: readonly BranchPolicyEntry[] = [
   companyWide("/audit/verify"),
   companyWide("/revaluation"),
   companyWide("/reconciliation"),
-  companyWide("/cash-forecast"),
-  companyWide("/cost-center-pl"),
   companyWide("/tax"),
   companyWide("/gl/year-end-close"),
   companyWide("/gl/vat-filings"),
@@ -247,6 +246,8 @@ export const BRANCH_POLICY_TABLE: readonly BranchPolicyEntry[] = [
 
   handlerScoped("/audit"),
   handlerScoped("/dashboard"),
+  handlerScoped("/cash-forecast"),
+  handlerScoped("/cost-center-pl"),
   handlerScoped("/financial-reports"),
   handlerScoped("/reports", { params: { id: null } }),
   handlerScoped("/attachments", { params: { id: null } }),
@@ -293,7 +294,7 @@ export const BRANCH_POLICY_TABLE: readonly BranchPolicyEntry[] = [
   scoped("/inventory/writedown-runs", K.WritedownRun),
   scoped("/inventory/adjustments", K.PostedStockDocument),
   scoped("/inventory/transfers", K.PostedStockDocument, { exemptBodyKeys: ["toWarehouseId"] }),
-  handlerScoped("/inventory", { params: { itemId: null } }),
+  handlerScoped("/inventory", { params: { itemId: null }, query: { warehouseId: K.Warehouse } }),
 
   scoped("/manufacturing/work-orders", K.WorkOrder, { handlerNarrowed: COUNTS_AND_STATS }),
   scoped("/manufacturing/config-instances", K.ConfigInstance),
@@ -509,11 +510,13 @@ function referencesNamedIn(value: unknown, depth = 0, found: NamedReference[] = 
 
 const BRANCH_DIRECTORY_KEY = "branchDirectory" as const;
 const GRANTED_WAREHOUSES_KEY = "grantedWarehouseIds" as const;
+const BRANCH_SESSION_KEY = "branchSession" as const;
 
 declare module "hono" {
   interface ContextVariableMap {
     branchDirectory?: BranchDirectory;
     grantedWarehouseIds?: readonly string[];
+    branchSession?: Session;
   }
 }
 
@@ -676,7 +679,7 @@ function defaultBranchRefusal(c: Context, session: Session, entry: BranchPolicyE
   return null;
 }
 
-function queryBranchRefusal(c: Context, session: Session): Response | null {
+async function queryRefusal(c: Context, session: Session, entry: BranchPolicyEntry): Promise<Response | null> {
   for (const key of QUERY_BRANCH_KEYS) {
     for (const raw of c.req.queries(key) ?? []) {
       for (const id of raw.split(",").map((part) => part.trim()).filter(Boolean)) {
@@ -689,7 +692,27 @@ function queryBranchRefusal(c: Context, session: Session): Response | null {
       }
     }
   }
+  for (const [key, kind] of Object.entries(entry.query ?? {})) {
+    for (const id of c.req.queries(key) ?? []) {
+      if (id === "") continue;
+      const standing = standingOf(session, await lookup(session, kind, id));
+      if (standing === Standing.Foreign || standing === Standing.PartlyForeign) return branchRefusal(c, BranchRefusalCode.BranchOutOfScope);
+    }
+  }
   return null;
+}
+
+/**
+ * Whether a record is inside the caller's branch grant — for a handler that
+ * counts or folds rows the middleware cannot see. True for an unrestricted
+ * session.
+ */
+export async function recordInBranchGrant(c: Context, kind: BranchRecordKind, id: string): Promise<boolean> {
+  const session = c.get(BRANCH_SESSION_KEY);
+  if (!session) return true;
+  const standing = standingOf(session, await lookup(session, kind, id));
+  if (standing === Standing.Granted || standing === Standing.PartlyForeign) return true;
+  return standing === Standing.Unattributed && session.seesUnattributed;
 }
 
 async function rowVisible(session: Session, kind: BranchRecordKind, row: unknown): Promise<boolean> {
@@ -776,6 +799,7 @@ export function branchPolicyEnforcement(options: BranchPolicyEnforcementOptions)
       access: isRead(c) ? BranchAccess.Read : BranchAccess.Write,
       cache: new Map(),
     };
+    c.set(BRANCH_SESSION_KEY, session);
     const branchByWarehouse = await c.get("warehouseBranches")?.();
     if (branchByWarehouse) {
       c.set(GRANTED_WAREHOUSES_KEY, [...branchByWarehouse].filter(([, branchId]) => session.grant.includes(branchId)).map(([id]) => id));
@@ -791,7 +815,7 @@ export function branchPolicyEnforcement(options: BranchPolicyEnforcementOptions)
       return isRead(c) ? next() : branchRefusal(c, BranchRefusalCode.CompanyWideOnly);
     }
 
-    const outsideQuery = queryBranchRefusal(c, session);
+    const outsideQuery = await queryRefusal(c, session, entry);
     if (outsideQuery) return outsideQuery;
     const stored = await storedRecordRefusal(c, session, entry, routePath);
     if (stored) return stored;

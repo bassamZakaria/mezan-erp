@@ -1,3 +1,4 @@
+import { ALL_PERMISSION_CODES } from "../../packages/domain/src/index.js";
 import { openSqliteConnection } from "../../packages/persistence/src/index.js";
 import type { Ctx } from "./harness.js";
 
@@ -20,6 +21,16 @@ const ITEM = "ITEM-DEMO-1";
 const CUSTOMER = "CUST-DEMO-2";
 const SUPPLIER = "SUPP-DEMO-1";
 const ALEX_GRANT = { "x-branch-grant": ALEX };
+const MAIN_WAREHOUSE = "WH-MAIN";
+const MAIN_TREASURY = "TR-DEMO-CASH";
+const VIEW_UNATTRIBUTED = "accounting.reports.view_unattributed";
+const EVERYTHING_BUT_UNATTRIBUTED = ALL_PERMISSION_CODES.filter((code) => code !== VIEW_UNATTRIBUTED).join(",");
+const ALEX_CLERK = { "x-user-id": "SCN-BR-CLERK", "x-permissions": EVERYTHING_BUT_UNATTRIBUTED, "x-branch-grant": ALEX };
+const ALEX_CLERK_WITH_UNATTRIBUTED = {
+  "x-user-id": "SCN-BR-CLERK-U",
+  "x-permissions": `${EVERYTHING_BUT_UNATTRIBUTED},${VIEW_UNATTRIBUTED}`,
+  "x-branch-grant": ALEX,
+};
 
 type Nets = ReadonlyMap<string, bigint>;
 
@@ -114,7 +125,7 @@ export async function run(ctx: Ctx): Promise<void> {
     check("the scoped trial balance is its own branch plus the unattributed bucket, nothing else", scopedDiff === null, scopedDiff ?? "");
 
     const foreign = await trialBalance(MAIN, ALEX_GRANT);
-    check("asking for another branch by id returns none of its figures", [...foreign.nets.values()].every((net) => net === 0n), `status ${foreign.res.status}`);
+    check("asking for another branch by id is refused, not answered empty", foreign.res.status === 403 && foreign.res.body?.error === "BRANCH_OUT_OF_SCOPE" && foreign.nets.size === 0, `status ${foreign.res.status}`);
 
     const widened = await trialBalance("", { ...ALEX_GRANT, "x-branch-scope": "*" });
     const widenedDiff = firstDifference(widened.nets, own);
@@ -128,7 +139,7 @@ export async function run(ctx: Ctx): Promise<void> {
     );
 
     const scopedIs = await incomeStatement(MAIN, ALEX_GRANT);
-    check("the scoped income statement shows nothing of another branch", [...scopedIs.nets.values()].every((net) => net === 0n));
+    check("the scoped income statement refuses another branch", scopedIs.res.status === 403 && scopedIs.nets.size === 0, `status ${scopedIs.res.status}`);
 
     const mainOnlyEntries = new Set(
       (
@@ -348,6 +359,90 @@ export async function run(ctx: Ctx): Promise<void> {
     const partsAfter = add([...(await Promise.all(branchIds.map((id) => trialBalance(id)))).map((p) => p.nets), (await trialBalance(UNATTRIBUTED)).nets]);
     const diffAfter = firstDifference(companyAfter.nets, partsAfter);
     check("and the identity still holds after all of them", diffAfter === null, diffAfter ?? "");
+  });
+
+  await it("branch dimension · a non-admin holding one branch reads its branch alone and moves nothing of another", async () => {
+    const arabic = /[\u0600-\u06FF]/;
+    const count = (sql: string, ...params: unknown[]) => (sqlite.prepare(sql).get(...params) as { n: number }).n;
+    const refused = (res: { status: number; body: any }) => (res.status === 403 || res.status === 404) && arabic.test(String(res.body?.message ?? ""));
+
+    const alone = (await trialBalance(ALEX)).nets;
+    const unattributed = (await trialBalance(UNATTRIBUTED)).nets;
+    const clerkTb = await trialBalance("", ALEX_CLERK);
+    const clerkDiff = firstDifference(clerkTb.nets, alone);
+    check("the clerk's trial balance is the branch alone — no «غير مخصص» without the permission", clerkTb.res.ok && clerkDiff === null, clerkDiff ?? `status ${clerkTb.res.status}`);
+    const withBucket = await trialBalance("", ALEX_CLERK_WITH_UNATTRIBUTED);
+    const bucketDiff = firstDifference(withBucket.nets, add([alone, unattributed]));
+    check("with the permission it is the branch plus the unattributed bucket", bucketDiff === null, bucketDiff ?? "");
+    for (const outside of [MAIN, UNATTRIBUTED]) {
+      const asked = await trialBalance(outside, ALEX_CLERK);
+      check(`naming ${outside} in the query is refused in Arabic`, asked.res.status === 403 && arabic.test(String(asked.res.body?.message ?? "")), `status ${asked.res.status}`);
+    }
+
+    const foreignInvoice = (sqlite.prepare("SELECT id FROM sales_invoice WHERE branch_id = ? AND status = 'confirmed' LIMIT 1").get(MAIN) as { id: string }).id;
+    const foreignReceipt = (sqlite.prepare("SELECT id FROM goods_receipt WHERE warehouse_id = ? AND status = 'confirmed' LIMIT 1").get(MAIN_WAREHOUSE) as { id: string }).id;
+    const foreignRun = (sqlite.prepare("SELECT id FROM hr_payroll_run WHERE branch_id = ? LIMIT 1").get(MAIN) as { id: string }).id;
+    const before = {
+      journals: count("SELECT COUNT(*) AS n FROM journal_entry"),
+      vouchers: count("SELECT COUNT(*) AS n FROM voucher"),
+      purchaseInvoices: count("SELECT COUNT(*) AS n FROM purchase_invoice"),
+      allocations: count("SELECT COUNT(*) AS n FROM voucher_allocation"),
+      mainMovements: count("SELECT COUNT(*) AS n FROM stock_movement WHERE warehouse_id = ?", MAIN_WAREHOUSE),
+      mainWarehouseBranch: count("SELECT COUNT(*) AS n FROM warehouse WHERE id = ? AND branch_id = ?", MAIN_WAREHOUSE, MAIN),
+    };
+    const attempts: readonly (readonly [label: string, method: string, path: string, body?: unknown])[] = [
+      ["read another branch's invoice by id", "GET", `/sales-invoices/${foreignInvoice}`],
+      ["capture another branch's warehouse", "PUT", `/warehouses/${MAIN_WAREHOUSE}`, { branchId: ALEX }],
+      ["disburse another branch's payroll run", "POST", `/hr/payroll/runs/${foreignRun}/disburse`, {}],
+      [
+        "pay a voucher out of another branch's drawer",
+        "POST",
+        "/vouchers",
+        { id: "SCN-BR-CLERK-V", date: today, memo: "صرف من خزينة فرع آخر", voucherType: "cash_payment", amount: "10.00", branchId: ALEX, paymentMethod: "cash", treasuryAccountId: MAIN_TREASURY, treasuryGlAccountId: "1300-1", counterpartyGlAccountId: "5200" },
+      ],
+      ["invoice another branch's goods receipt", "POST", "/purchases/invoices", { id: "SCN-BR-CLERK-PI", receiptId: foreignReceipt }],
+      ["allocate onto another branch's invoice", "POST", "/vouchers/VCH-DEMO-ALEX-1/allocations", { invoiceId: foreignInvoice, amount: "1.00" }],
+      [
+        "move stock out of another branch through the legacy route",
+        "POST",
+        "/inventory/transfers",
+        { transferId: "SCN-BR-CLERK-TRF", fromWarehouseId: MAIN_WAREHOUSE, toWarehouseId: ALEX_WAREHOUSE, occurredAt: today, lines: [{ itemId: ITEM, qty: "1" }] },
+      ],
+      ["open a company-wide surface", "GET", "/projects"],
+    ];
+    for (const [label, method, path, body] of attempts) {
+      const res = await req(method, path, body, ALEX_CLERK);
+      check(`the clerk cannot ${label}`, refused(res), `status ${res.status} ${JSON.stringify(res.body).slice(0, 160)}`);
+    }
+    const after = {
+      journals: count("SELECT COUNT(*) AS n FROM journal_entry"),
+      vouchers: count("SELECT COUNT(*) AS n FROM voucher"),
+      purchaseInvoices: count("SELECT COUNT(*) AS n FROM purchase_invoice"),
+      allocations: count("SELECT COUNT(*) AS n FROM voucher_allocation"),
+      mainMovements: count("SELECT COUNT(*) AS n FROM stock_movement WHERE warehouse_id = ?", MAIN_WAREHOUSE),
+      mainWarehouseBranch: count("SELECT COUNT(*) AS n FROM warehouse WHERE id = ? AND branch_id = ?", MAIN_WAREHOUSE, MAIN),
+    };
+    check("and SQLite holds exactly what it held before the attempts", JSON.stringify(after) === JSON.stringify(before), `${JSON.stringify(before)} → ${JSON.stringify(after)}`);
+
+    const openInvoices = rows((await req("GET", "/open-invoices", undefined, ALEX_CLERK)).body).map((row: any) => String(row.id));
+    check("the clerk's open-invoice list does not hold another branch's invoice", !openInvoices.includes(foreignInvoice), `${openInvoices.length} rows`);
+
+    const own = await req(
+      "POST",
+      "/gl/journal-entries",
+      { id: "SCN-BR-JE-CLERK", date: today, memo: "قيد موظف الفرع بلا تحديد فرع", source: "manual", lines: [{ accountId: "5200", debit: "7.00", credit: "0" }, { accountId: "2190", debit: "0", credit: "7.00" }] },
+      ALEX_CLERK,
+    );
+    check("a journal the clerk raises with no branch posts", own.status === 201, `${own.status} ${JSON.stringify(own.body).slice(0, 160)}`);
+    check("and lands on the clerk's only branch", allOn(branchesOfEntry("e.id", "SCN-BR-JE-CLERK"), ALEX), JSON.stringify(branchesOfEntry("e.id", "SCN-BR-JE-CLERK")));
+    const reread = await req("GET", "/gl/journal-entries/SCN-BR-JE-CLERK", undefined, ALEX_CLERK);
+    check("so its author can open it again", reread.status === 200, `status ${reread.status}`);
+
+    const branchIds: string[] = rows((await req("GET", "/branches")).body).map((b: any) => String(b.id));
+    const company = await trialBalance("");
+    const parts = add([...(await Promise.all(branchIds.map((id) => trialBalance(id)))).map((p) => p.nets), (await trialBalance(UNATTRIBUTED)).nets]);
+    const diff = firstDifference(company.nets, parts);
+    check("per branch + «غير مخصص» = company on the trial balance, after all of it", diff === null, diff ?? "");
   });
 
   sqlite.close();

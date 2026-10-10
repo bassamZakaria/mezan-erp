@@ -432,7 +432,7 @@ function createQueries(sqlite: Database.Database): PeriodCloseQueries {
       const due = `
         FROM hr_employee e
        WHERE e.hire_date <= @endDate
-         AND (e.status <> @terminated OR (e.terminated_at IS NOT NULL AND substr(e.terminated_at, 1, 10) >= @startDate))
+         AND (e.status <> @terminated OR (e.terminated_at IS NOT NULL AND substr(e.terminated_at, 1, 10) > @endDate))
          AND EXISTS (
            SELECT 1 FROM hr_contract c
             WHERE c.employee_id = e.id AND c.start_date <= @endDate AND (c.end_date IS NULL OR c.end_date >= @startDate)

@@ -79,6 +79,10 @@ export enum SubscriptionStatus {
   PastDue = "past_due",
 }
 
+export enum TenantStatus {
+  Active = "active",
+}
+
 export enum PlanCode {
   Free = "free",
   Core = "core",

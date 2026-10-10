@@ -84,14 +84,31 @@ function signalOwnGroup(child: ChildProcess, signal: Signal): void {
   }
 }
 
-async function stopChild(child: ChildProcess): Promise<void> {
-  if (hasExited(child) || child.pid === undefined) return;
-  const exited = new Promise<void>((resolve) => child.once("exit", () => resolve()));
-  signalOwnGroup(child, Signal.Terminate);
-  const stoppedInTime = await Promise.race([exited.then(() => true), wait(STOP_TIMEOUT_MS).then(() => false)]);
-  if (stoppedInTime) return;
+async function portReleased(port: number): Promise<boolean> {
+  const deadline = Date.now() + STOP_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    if (!(await portAnswers(port))) return true;
+    await wait(POLL_MS);
+  }
+  return false;
+}
+
+// The child is the package-manager wrapper; the server is a descendant in the same
+// group and can outlive it, so a stop is only done once the port is free again.
+async function stopChild(child: ChildProcess, port: number): Promise<void> {
+  if (child.pid === undefined) return;
+  if (!hasExited(child)) {
+    const exited = new Promise<void>((resolve) => child.once("exit", () => resolve()));
+    signalOwnGroup(child, Signal.Terminate);
+    const stoppedInTime = await Promise.race([exited.then(() => true), wait(STOP_TIMEOUT_MS).then(() => false)]);
+    if (!stoppedInTime) {
+      signalOwnGroup(child, Signal.Kill);
+      await exited;
+    }
+  }
+  if (await portReleased(port)) return;
   signalOwnGroup(child, Signal.Kill);
-  await exited;
+  if (!(await portReleased(port))) throw new Error(`port ${port} is still answering after its server was stopped`);
 }
 
 interface Launched {
@@ -139,10 +156,10 @@ async function start(port: number, healthUrl: string, launchServer: () => Launch
   try {
     await waitUntilUp(healthUrl, launched);
   } catch (error) {
-    await stopChild(launched.child);
+    await stopChild(launched.child, port);
     throw error;
   }
-  return { stop: () => stopChild(launched.child) };
+  return { stop: () => stopChild(launched.child, port) };
 }
 
 export function startApiServer(options: ApiServerOptions): Promise<ServerHandle> {

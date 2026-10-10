@@ -1,5 +1,5 @@
 import { test, expect, type Browser, type BrowserContext } from "@playwright/test";
-import { ApiError, Locale, PlanId, Theme, VIEWPORT_SIZE, Viewport, uniqueCode } from "./support/env";
+import { ApiError, CodePrefix, HttpMethod, Locale, PlanId, Theme, VIEWPORT_SIZE, Viewport, uniqueCode } from "./support/env";
 import {
   expectHealthyScreen,
   platformSignIn,
@@ -35,8 +35,6 @@ interface Look {
 }
 
 const HR_NOT_LICENSED: Refusal = { status: 403, error: ApiError.ModuleNotLicensed, path: /^\/api\/hr\// };
-const SHELL_HR_LOOKUPS: Refusal = { status: 403, error: ApiError.ModuleNotLicensed, path: /^\/api\/hr\/(employees|job-titles)$/ };
-const DASHBOARD_CONTRACTING: Refusal = { status: 403, error: ApiError.ModuleNotLicensed, path: /^\/api\/contracting\/reports\/summary$/ };
 const PRE_TENANT_LOOKUPS: Refusal = { status: 400, error: ApiError.TenantRequired, path: /^\/api\/(bootstrap\/status|entitlements)$/ };
 
 const LOOKS: readonly Look[] = [Viewport.Desktop, Viewport.Phone].flatMap((viewport) =>
@@ -56,9 +54,9 @@ const SCREENS: readonly Screen[] = [
   { name: "platform-plans", door: Door.Platform, path: () => "/platform/plans" },
   { name: "platform-plan-editor", door: Door.Platform, path: () => `/platform/plans/${PlanId.Business}` },
   { name: "platform-operators", door: Door.Platform, path: () => "/platform/users" },
-  { name: "tenant-dashboard", door: Door.Tenant, path: () => "/dashboard", refusals: [SHELL_HR_LOOKUPS, DASHBOARD_CONTRACTING] },
-  { name: "tenant-billing", door: Door.Tenant, path: () => "/setup/settings-billing", refusals: [SHELL_HR_LOOKUPS] },
-  { name: "tenant-customers", door: Door.Tenant, path: () => "/sell/customers", refusals: [SHELL_HR_LOOKUPS] },
+  { name: "tenant-dashboard", door: Door.Tenant, path: () => "/dashboard" },
+  { name: "tenant-billing", door: Door.Tenant, path: () => "/setup/settings-billing" },
+  { name: "tenant-customers", door: Door.Tenant, path: () => "/sell/customers" },
   { name: "tenant-unlicensed-module", door: Door.Tenant, path: () => "/people/employees", refusals: [HR_NOT_LICENSED] },
 ];
 
@@ -76,9 +74,9 @@ async function contextFor(browser: Browser, door: Door, look: Look): Promise<Bro
 test.describe("Every SaaS screen — both locales, both themes, desktop and 390px", () => {
   test.beforeAll(async ({ browser, playwright }) => {
     const request = await playwright.request.newContext();
-    tenant = await provisionTenant(request, { code: uniqueCode("walk"), nameAr: "شركة الجولة", ownerNameAr: "جميلة الجولة", planId: PlanId.Business, trial: true });
+    tenant = await provisionTenant(request, { code: uniqueCode(CodePrefix.Walk), nameAr: "شركة الجولة", ownerNameAr: "جميلة الجولة", planId: PlanId.Business, trial: true });
     const api = await tenantApiLogin(request, tenant);
-    const customer = await tenantCall(request, api, "POST", "/customers", { id: "CUST-WALK", code: "CW1", nameAr: "عميل الجولة" });
+    const customer = await tenantCall(request, api, HttpMethod.Post, "/customers", { id: "CUST-WALK", code: "CW1", nameAr: "عميل الجولة" });
     expect(customer.status, JSON.stringify(customer.body)).toBe(201);
     await request.dispose();
 
@@ -129,31 +127,35 @@ test.describe("Every SaaS screen — both locales, both themes, desktop and 390p
     },
   );
 
-  test.fixme(
-    "a tenant without HR makes no HR request from the shell [D-SAAS-03: AppLayout.tsx:201-202 calls useEmployees() and useJobTitles() on every screen for the user form's employee picker, so a tenant whose plan has no HR module gets two 403 MODULE_NOT_LICENSED answers and two console errors on every navigation]",
-    async ({ browser }) => {
-      const context = await contextFor(browser, Door.Tenant, { locale: Locale.Arabic, theme: Theme.Light, viewport: Viewport.Desktop });
-      const page = await context.newPage();
-      const watch = watchPage(page);
-      await page.goto("/sell/customers");
-      await watch.settled();
-      expect(watch.problems.filter((problem) => problem.includes("/api/hr/"))).toEqual([]);
-      await context.close();
-    },
-  );
+  test("a tenant without HR makes no HR request from the shell [guards D-SAAS-03]", async ({ browser }) => {
+    const context = await contextFor(browser, Door.Tenant, { locale: Locale.Arabic, theme: Theme.Light, viewport: Viewport.Desktop });
+    const page = await context.newPage();
+    const watch = watchPage(page);
+    const requested: string[] = [];
+    page.on("request", (request) => requested.push(new URL(request.url()).pathname));
+    await page.goto("/sell/customers");
+    await expect(page.getByRole("cell", { name: "عميل الجولة" }).first()).toBeVisible();
+    await watch.settled();
+    expect(requested).toContain("/api/entitlements");
+    expect(requested.filter((pathname) => pathname.startsWith("/api/hr/"))).toEqual([]);
+    expect(watch.problems).toEqual([]);
+    await context.close();
+  });
 
-  test.fixme(
-    "the dashboard asks only for what the plan includes [D-SAAS-04: DashboardScreen.tsx:149 gates the contracting exception summary on permission alone, so a Business tenant — which has «projects» but not «contracting» — gets a 403 MODULE_NOT_LICENSED and a console error on every dashboard load]",
-    async ({ browser }) => {
-      const context = await contextFor(browser, Door.Tenant, { locale: Locale.Arabic, theme: Theme.Light, viewport: Viewport.Desktop });
-      const page = await context.newPage();
-      const watch = watchPage(page, [SHELL_HR_LOOKUPS]);
-      await page.goto("/dashboard");
-      await watch.settled();
-      expect(watch.problems).toEqual([]);
-      await context.close();
-    },
-  );
+  test("the dashboard asks only for what the plan includes [guards D-SAAS-04]", async ({ browser }) => {
+    const context = await contextFor(browser, Door.Tenant, { locale: Locale.Arabic, theme: Theme.Light, viewport: Viewport.Desktop });
+    const page = await context.newPage();
+    const watch = watchPage(page);
+    const requested: string[] = [];
+    page.on("request", (request) => requested.push(new URL(request.url()).pathname));
+    await page.goto("/dashboard");
+    await expect(page.getByRole("heading", { level: 1 })).toContainText("جميلة");
+    await watch.settled();
+    expect(requested).toContain("/api/dashboard/summary");
+    expect(requested.filter((pathname) => pathname.startsWith("/api/contracting/"))).toEqual([]);
+    expect(watch.problems).toEqual([]);
+    await context.close();
+  });
 
   test.fixme(
     "the sign-in screen asks the server nothing tenant-scoped before a company is known [D-SAAS-06: on a device with no company code, the app requests /api/bootstrap/status and /api/entitlements with no x-mezan-tenant header and gets two 400 TENANT_REQUIRED answers and two console errors on first paint]",

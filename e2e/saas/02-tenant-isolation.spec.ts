@@ -12,6 +12,7 @@ import {
   StorageKey,
   TENANT_DOMAIN,
   TENANT_HEADER,
+  TenantStatus,
   uniqueCode,
 } from "./support/env";
 import {
@@ -142,7 +143,7 @@ test.describe("PLT-SAAS-07 — one tenant never sees another tenant's data", () 
 
     const tenants = await request.get(`${SAAS_API_URL}/api/platform/tenants`, { headers: { authorization: `Bearer ${operator}` } });
     const statusOfB = ((await tenants.json()) as { tenant: { id: string; status: string } }[]).find((row) => row.tenant.id === tenantB.id)?.tenant.status;
-    expect(statusOfB).toBe("active");
+    expect(statusOfB).toBe(TenantStatus.Active);
     expect(rowsOf((await tenantCall(request, apiA, HttpMethod.Get, "/customers")).body).map((row) => row["nameAr"])).toEqual([CUSTOMER_OF_A]);
   });
 

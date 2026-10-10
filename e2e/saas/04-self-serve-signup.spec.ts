@@ -1,10 +1,13 @@
 import { test, expect } from "@playwright/test";
-import { ApiError, BillingCycle, PlanId, SAAS_API_URL, uniqueCode } from "./support/env";
-import { errorOf, tenantApiLogin, tenantCall, tenantSignIn, type TenantLogin } from "./support/saas";
+import { ApiError, BillingCycle, CodePrefix, HttpMethod, PlanCode, PlanId, SAAS_API_URL, SubscriptionStatus, TENANT_HEADER, uniqueCode } from "./support/env";
+import { errorOf, invoiceDrafts, rowsOf, storedSession, tenantApiLogin, tenantCall, tenantSignIn, type TenantLogin } from "./support/saas";
 
-const CODE = uniqueCode("shop");
+const CODE = uniqueCode(CodePrefix.SignedUp);
 const COMPANY = "متجر الياسمين";
+const VENDOR_NAME = "Cyag";
 const OWNER_EMAIL = `sara@${CODE}.example`;
+const CUSTOMER_NAME = "عميل الياسمين";
+const FORGED_LINK_REFUSAL = "تعذّر تفعيل الحساب";
 
 let verifyUrl = "";
 let tenant: TenantLogin;
@@ -13,9 +16,11 @@ test.describe.configure({ mode: "serial" });
 
 test.describe("Self-serve signup — form, verification link, first sign-in", () => {
   test("the signup request is posted to the route the server mounts", async ({ request }) => {
-    const mounted = await request.post(`${SAAS_API_URL}/api/signup`, { data: {} });
-    expect(mounted.status()).toBe(400);
-    expect(((await mounted.json()) as { error: string }).error).toBe(ApiError.ValidationError);
+    for (const route of ["/api/signup", "/api/signup/"]) {
+      const mounted = await request.post(`${SAAS_API_URL}${route}`, { data: {} });
+      expect(mounted.status(), route).toBe(400);
+      expect(((await mounted.json()) as { error: string }).error, route).toBe(ApiError.ValidationError);
+    }
   });
 
   test("a visitor signs up and is shown the verification link in dev mode", async ({ page }) => {
@@ -29,7 +34,7 @@ test.describe("Self-serve signup — form, verification link, first sign-in", ()
     await page.getByLabel("البريد الإلكتروني").fill(OWNER_EMAIL);
     await page.getByRole("button", { name: /الأساسية/ }).click();
 
-    const posted = page.waitForResponse((r) => r.request().method() === "POST" && new URL(r.url()).pathname.startsWith("/api/signup"));
+    const posted = page.waitForResponse((r) => r.request().method() === HttpMethod.Post && new URL(r.url()).pathname.startsWith("/api/signup"));
     await page.getByRole("button", { name: "ابدأ التجربة المجانية" }).click();
     const response = await posted;
     expect(new URL(response.url()).pathname).toBe("/api/signup");
@@ -45,7 +50,7 @@ test.describe("Self-serve signup — form, verification link, first sign-in", ()
 
   test("the code is not usable before the link is opened", async ({ request }) => {
     const login = await request.post(`${SAAS_API_URL}/api/auth/login`, {
-      headers: { "x-mezan-tenant": CODE },
+      headers: { [TENANT_HEADER]: CODE },
       data: { username: OWNER_EMAIL, pin: "000000" },
     });
     expect(login.status()).toBe(404);
@@ -77,9 +82,11 @@ test.describe("Self-serve signup — form, verification link, first sign-in", ()
   });
 
   test("a forged verification link is refused in Arabic", async ({ page }) => {
+    const refused = page.waitForResponse((r) => new URL(r.url()).pathname === "/api/signup/verify");
     await page.goto("/signup/verify?token=not-a-real-token");
-    await expect(page.getByRole("alert")).toContainText(/[؀-ۿ]/);
-    await expect(page.getByRole("alert")).not.toContainText(/[A-Z]{2,}_[A-Z_]{2,}/);
+    expect((await refused).status()).toBe(400);
+    await expect(page.getByRole("alert")).toHaveText(FORGED_LINK_REFUSAL);
+    await expect(page.getByRole("heading", { name: "تم تفعيل الحساب", level: 1 })).toHaveCount(0);
   });
 
   test("the new owner signs in for the first time, on a trial of the top plan", async ({ page, request }) => {
@@ -92,28 +99,45 @@ test.describe("Self-serve signup — form, verification link, first sign-in", ()
     await expect(page.locator("main")).toContainText(/حالة الاشتراك\s*تجريبي/);
 
     const api = await tenantApiLogin(request, tenant);
-    const entitlements = await tenantCall(request, api, "GET", "/entitlements");
-    expect((entitlements.body as { plan: string }).plan).toBe("enterprise");
-    const hr = await tenantCall(request, api, "GET", "/hr/departments");
+    const entitlements = await tenantCall(request, api, HttpMethod.Get, "/entitlements");
+    expect((entitlements.body as { plan: string }).plan).toBe(PlanCode.Enterprise);
+    const hr = await tenantCall(request, api, HttpMethod.Get, "/hr/departments");
     expect(hr.status).toBe(200);
 
     await page.reload();
     await expect(page.getByRole("heading", { name: "المؤسسات", level: 2 })).toBeVisible();
   });
 
-  test.fixme(
-    "the new tenant carries the company name its owner typed [D-SAAS-02: every provisioned tenant is named «Cyag» — packages/backend/src/seed.ts:281 seeds companyName with the vendor's own name and apps/server/src/provision-tenant.ts never writes the name the tenant was created with, so the session, GET /tenant and printed documents carry «Cyag»]",
-    async ({ request }) => {
-      const login = await request.post(`${SAAS_API_URL}/api/auth/login`, {
-        headers: { "x-mezan-tenant": CODE },
-        data: { username: tenant.adminEmail, pin: tenant.adminPin },
-      });
-      expect(((await login.json()) as { tenantName: string }).tenantName).toBe(COMPANY);
-    },
-  );
+  test("the new tenant carries the company name its owner typed, in the session, in settings and on a printed invoice [guards D-SAAS-02]", async ({ page, request }) => {
+    const login = await request.post(`${SAAS_API_URL}/api/auth/login`, {
+      headers: { [TENANT_HEADER]: CODE },
+      data: { username: tenant.adminEmail, pin: tenant.adminPin },
+    });
+    expect(((await login.json()) as { tenantName: string }).tenantName).toBe(COMPANY);
+
+    await tenantSignIn(page, tenant);
+    expect((await storedSession(page))?.tenantName).toBe(COMPANY);
+    await page.goto("/setup/settings-general");
+    await expect(page.getByLabel("اسم المنشأة").first()).toHaveValue(COMPANY);
+
+    const api = await tenantApiLogin(request, tenant);
+    const today = ((await tenantCall(request, api, HttpMethod.Get, "/billing/subscription")).body as { today: string }).today;
+    expect((await tenantCall(request, api, HttpMethod.Post, "/customers", { id: "CUST-NAME", code: "CN1", nameAr: CUSTOMER_NAME })).status).toBe(201);
+    const drafts = await invoiceDrafts(request, api, { customerId: "CUST-NAME", customerName: CUSTOMER_NAME, itemId: "ITEM-NAME", itemName: "خدمة تسمية", today });
+    const invoice = await tenantCall(request, api, HttpMethod.Post, "/sales-invoices", drafts.draft(1));
+    expect(invoice.status, JSON.stringify(invoice.body)).toBe(201);
+    const invoiceId = String((invoice.body as { id: string }).id);
+
+    await page.goto(`/sell/sales-invoices/${invoiceId}/print`);
+    const sheet = page.locator("main");
+    await expect(sheet.getByText(CUSTOMER_NAME).first()).toBeVisible();
+    await expect(sheet.getByText(COMPANY, { exact: true }).first()).toBeVisible();
+    await expect(sheet).not.toContainText(VENDOR_NAME);
+    expect(rowsOf((await tenantCall(request, api, HttpMethod.Get, "/sales-invoices")).body)).toHaveLength(1);
+  });
 
   test("the request body cannot choose its own trial plan", async ({ request }) => {
-    const code = uniqueCode("crafted");
+    const code = uniqueCode(CodePrefix.Crafted);
     const start = await request.post(`${SAAS_API_URL}/api/signup`, {
       data: { code, nameAr: "منشأة مصنوعة", ownerEmail: `owner@${code}.example`, ownerNameAr: "مالك", planId: PlanId.Free, billingCycle: BillingCycle.Monthly },
     });
@@ -122,9 +146,11 @@ test.describe("Self-serve signup — form, verification link, first sign-in", ()
     const verify = await request.post(`${SAAS_API_URL}/api/signup/verify`, { data: { token } });
     const body = (await verify.json()) as { tenant: { id: string }; adminEmail: string; adminPin: string };
     const api = await tenantApiLogin(request, { id: body.tenant.id, code, adminEmail: body.adminEmail, adminPin: body.adminPin });
-    const entitlements = await tenantCall(request, api, "GET", "/entitlements");
-    expect((entitlements.body as { plan: string; trialEndsAt: string | null }).plan).toBe("enterprise");
+    const entitlements = await tenantCall(request, api, HttpMethod.Get, "/entitlements");
+    expect((entitlements.body as { plan: string; trialEndsAt: string | null }).plan).toBe(PlanCode.Enterprise);
     expect((entitlements.body as { trialEndsAt: string | null }).trialEndsAt).not.toBeNull();
     expect(errorOf(entitlements).error).toBeUndefined();
+    const billing = await tenantCall(request, api, HttpMethod.Get, "/billing/subscription");
+    expect((billing.body as { subscription: { status: string } }).subscription.status).toBe(SubscriptionStatus.Trialing);
   });
 });

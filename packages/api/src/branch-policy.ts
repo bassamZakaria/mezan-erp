@@ -357,7 +357,8 @@ export const BODY_REFERENCE_KEYS: Readonly<Record<string, BranchRecordKind>> = {
   docId: K.AnyDocument,
 };
 
-export const TREASURY_HOLDER_KEYS: ReadonlySet<string> = new Set(["treasuryAccountId", "bankTreasuryAccountId", "drawerTreasuryAccountId"]);
+export const TREASURY_HOLDER_KEYS: ReadonlySet<string> = new Set(["treasuryAccountId", "drawerTreasuryAccountId"]);
+const RESTRICTED_TREASURY_HOLDER_KEYS: ReadonlySet<string> = new Set([...TREASURY_HOLDER_KEYS, "bankTreasuryAccountId"]);
 
 const DOCUMENT_BRANCH_KEYS: ReadonlySet<string> = new Set(["branchId", "warehouseId", "sourceWarehouseId", "destinationWarehouseId", "fromWarehouseId"]);
 
@@ -610,32 +611,55 @@ async function readJsonBody(c: Context): Promise<unknown> {
  * account the money is held in — is held to the grant by the record's stored
  * branch, on every route, including one added later.
  */
-async function bodyRefusal(c: Context, session: Session, entry: BranchPolicyEntry, routePath: string, body: unknown): Promise<Response | null> {
-  const references = referencesNamedIn(body).filter((reference) => !entry.exemptBodyKeys?.includes(reference.key));
-  const documentBranches = new Set<string>();
-  const holderBranches = new Set<string>();
-  for (const reference of references) {
-    const branches = await lookup(session, reference.kind, reference.id);
-    const standing = standingOf(session, branches);
+async function bodyRefusal(c: Context, session: Session, entry: BranchPolicyEntry, body: unknown): Promise<Response | null> {
+  for (const reference of referencesNamedIn(body)) {
+    if (entry.exemptBodyKeys?.includes(reference.key)) continue;
+    const standing = standingOf(session, await lookup(session, reference.kind, reference.id));
     if (standing === Standing.Foreign || standing === Standing.PartlyForeign) {
       return branchRefusal(c, NAMED_LOCATION_KINDS.has(reference.kind) ? BranchRefusalCode.BranchOutOfScope : BranchRefusalCode.NotFound);
     }
-    const attributed = (branches ?? []).filter((id): id is string => typeof id === "string" && id !== "");
-    if (reference.depth === 0 && DOCUMENT_BRANCH_KEYS.has(reference.key)) for (const id of attributed) documentBranches.add(id);
-    if (TREASURY_HOLDER_KEYS.has(reference.key)) for (const id of attributed) holderBranches.add(id);
   }
-  if (holderBranches.size === 0) return null;
-  if (documentBranches.size === 0) {
-    const params = paramsOf(routePath, new URL(c.req.url).pathname);
-    for (const [name, value] of Object.entries(params)) {
+  return null;
+}
+
+/**
+ * LEDGER INVARIANT, for every session: money is not paid out of, or into, an
+ * account held by a branch other than the document's. The journal is stamped
+ * with the document's branch, so a mismatch books one branch's cash movement
+ * on another branch's drawer. A session restricted to branches is also held
+ * to it for the bank a cheque is banked in.
+ */
+async function treasuryMismatchRefusal(
+  c: Context,
+  resolve: (kind: BranchRecordKind, id: string) => Promise<readonly (string | null)[] | null>,
+  holderKeys: ReadonlySet<string>,
+  entry: BranchPolicyEntry | undefined,
+  routePath: string,
+  body: unknown,
+): Promise<Response | null> {
+  const references = referencesNamedIn(body);
+  const holders = references.filter((reference) => holderKeys.has(reference.key));
+  if (holders.length === 0) return null;
+  const attributed = async (kind: BranchRecordKind, id: string) => ((await resolve(kind, id)) ?? []).filter((branch): branch is string => typeof branch === "string" && branch !== "");
+  const documentBranches = new Set<string>();
+  if (entry) {
+    for (const [name, value] of Object.entries(paramsOf(routePath, new URL(c.req.url).pathname))) {
       const kind = entry.params?.[name];
       if (!kind || kind === K.TreasuryAccount) continue;
-      for (const id of (await lookup(session, kind, value)) ?? []) if (id) documentBranches.add(id);
+      for (const id of await attributed(kind, value)) documentBranches.add(id);
+    }
+  }
+  if (documentBranches.size === 0) {
+    for (const reference of references) {
+      if (reference.depth === 0 && DOCUMENT_BRANCH_KEYS.has(reference.key)) for (const id of await attributed(reference.kind, reference.id)) documentBranches.add(id);
     }
   }
   if (documentBranches.size === 0) return null;
-  const mismatched = [...holderBranches].some((id) => !documentBranches.has(id));
-  return mismatched ? branchRefusal(c, BranchRefusalCode.TreasuryBranchMismatch) : null;
+  for (const holder of holders) {
+    const held = await attributed(holder.kind, holder.id);
+    if (held.some((id) => !documentBranches.has(id))) return branchRefusal(c, BranchRefusalCode.TreasuryBranchMismatch);
+  }
+  return null;
 }
 
 /**
@@ -715,6 +739,13 @@ export async function recordInBranchGrant(c: Context, kind: BranchRecordKind, id
   return standing === Standing.Unattributed && session.seesUnattributed;
 }
 
+export async function recordsInBranchGrant<Row>(c: Context, kind: BranchRecordKind, rows: readonly Row[], idOf: (row: Row) => string): Promise<readonly Row[]> {
+  if (!c.get(BRANCH_SESSION_KEY)) return rows;
+  const kept: Row[] = [];
+  for (const row of rows) if (await recordInBranchGrant(c, kind, idOf(row))) kept.push(row);
+  return kept;
+}
+
 async function rowVisible(session: Session, kind: BranchRecordKind, row: unknown): Promise<boolean> {
   if (row === null || typeof row !== "object") return true;
   const record = row as Record<string, unknown>;
@@ -789,7 +820,14 @@ export function branchPolicyEnforcement(options: BranchPolicyEnforcementOptions)
     const routePath = terminalRoutePathOf(c);
     if (!routePath) return next();
     const ctx = await options.resolveAuthContext(c);
-    if (!ctx.authenticated || ctx.branchGrant === ALL_SCOPE) return next();
+    if (!ctx.authenticated) return next();
+    const directory = options.directory;
+    if (ctx.branchGrant === ALL_SCOPE) {
+      if (isRead(c) || !directory) return next();
+      const resolve = async (kind: BranchRecordKind, id: string) => (kind === K.Branch ? [id] : directory.branchesOf(kind, id, BranchAccess.Write));
+      const mismatch = await treasuryMismatchRefusal(c, resolve, TREASURY_HOLDER_KEYS, branchPolicyFor(routePath, table), routePath, await readJsonBody(c));
+      return mismatch ?? next();
+    }
 
     const session: Session = {
       ctx,
@@ -821,7 +859,10 @@ export function branchPolicyEnforcement(options: BranchPolicyEnforcementOptions)
     if (stored) return stored;
     if (!isRead(c)) {
       const body = await readJsonBody(c);
-      const refusal = (await bodyRefusal(c, session, entry, routePath, body)) ?? defaultBranchRefusal(c, session, entry, routePath, body);
+      const refusal =
+        (await bodyRefusal(c, session, entry, body)) ??
+        (await treasuryMismatchRefusal(c, (kind, id) => lookup(session, kind, id), RESTRICTED_TREASURY_HOLDER_KEYS, entry, routePath, body)) ??
+        defaultBranchRefusal(c, session, entry, routePath, body);
       if (refusal) return refusal;
       return next();
     }

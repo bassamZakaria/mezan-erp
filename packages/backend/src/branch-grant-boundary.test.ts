@@ -890,7 +890,22 @@ describe("D111 round 2 · the grant holds on every family, for a non-admin and f
     expect(mismatched.body.error).toBe("TREASURY_BRANCH_MISMATCH");
     expect(mismatched.body.message).toMatch(ARABIC);
     expect(exists("voucher", "D111-R2-V-MISMATCH")).toBe(false);
+
+    const byTheOwner = await admin("POST", "/vouchers", voucher("D111-R2-V-ADMIN-MISMATCH", ALEX, "TR-DEMO-CASH", "1300-1"));
+    expect(byTheOwner.status).toBe(403);
+    expect(byTheOwner.body.error).toBe("TREASURY_BRANCH_MISMATCH");
+    expect(byTheOwner.body.message).toMatch(ARABIC);
+    expect(exists("voucher", "D111-R2-V-ADMIN-MISMATCH")).toBe(false);
+    const payroll = () => fingerprint("SELECT status, disbursement_voucher_id FROM hr_payroll_run WHERE id = 'PR-DEMO-2'");
+    const payrollBefore = payroll();
+    const paidElsewhere = await admin("POST", "/hr/payroll/runs/PR-DEMO-2/disburse", { treasuryAccountId: "TR-DEMO-CASH-ALEX", date: TODAY });
+    expect(paidElsewhere.status).toBe(403);
+    expect(paidElsewhere.body.error).toBe("TREASURY_BRANCH_MISMATCH");
+    expect(payroll()).toBe(payrollBefore);
     expect(drawer()).toBe(before);
+
+    const sameBranch = await admin("POST", "/vouchers", voucher("D111-R2-V-ADMIN-OK", ALEX, "TR-DEMO-CASH-ALEX", "1300-1"));
+    expect(sameBranch.status, JSON.stringify(sameBranch.body).slice(0, 200)).toBe(201);
   });
 
   it("finding 4 · the legacy inventory routes move and show nothing of another branch", async () => {
@@ -1009,6 +1024,13 @@ describe("D111 round 2 · the grant holds on every family, for a non-admin and f
     expect(pendingEverywhere).toBeGreaterThan(0);
     expect((await alexStar("GET", "/workflow/requests/pending-count")).body.count).toBe(rowsOf((await alexStar("GET", "/workflow/requests/pending")).body).length);
     expect((await alexStar("GET", "/workflow/requests/pending-count")).body.count).toBeLessThan(pendingEverywhere);
+    for (const [label, caller] of restricted()) {
+      const listed = rowsOf((await caller("GET", "/assets")).body).length;
+      const stats = await caller("GET", "/assets/stats");
+      expect(stats.status, label).toBe(200);
+      expect(stats.body.count, label).toBe(listed);
+      expect(stats.body.count, label).toBeLessThan((await admin("GET", "/assets/stats")).body.count);
+    }
     const cockpit = await alex("GET", "/dashboard/cockpit");
     expect(JSON.stringify(cockpit.body)).not.toContain(MAIN);
   });

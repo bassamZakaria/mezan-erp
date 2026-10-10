@@ -1,3 +1,4 @@
+import { BranchRecordKind, recordsInBranchGrant } from "./branch-policy.js";
 import { randomUUID } from "node:crypto";
 import { Hono, type Context } from "hono";
 import {
@@ -292,7 +293,7 @@ export function createFixedAssetsRoutes(
    * query parameter narrows the already-scoped set and can never widen it.
    */
   async function listFilteredAssets(c: Context, filter: AssetListFilter): Promise<readonly Asset[]> {
-    let rows = withinScope(await deps.assets.list(), branchScopeOf(c), (a) => a.branchId);
+    let rows = await recordsInBranchGrant(c, BranchRecordKind.Asset, withinScope(await deps.assets.list(), branchScopeOf(c), (a) => a.branchId), (a) => a.id);
     if (filter.status) rows = rows.filter((a) => a.status === filter.status);
     if (filter.categoryId) rows = rows.filter((a) => a.categoryId === filter.categoryId);
     if (filter.branchId) rows = rows.filter((a) => a.branchId === filter.branchId);
@@ -496,7 +497,7 @@ export function createFixedAssetsRoutes(
    * keeps it visible under a narrowed scope rather than dropping it.
    */
   async function listFilteredRuns(c: Context, status?: string): Promise<readonly DepreciationRun[]> {
-    const rows = withinScope(await deps.runs.list(), branchScopeOf(c), (r) => r.branchId);
+    const rows = await recordsInBranchGrant(c, BranchRecordKind.DepreciationRun, withinScope(await deps.runs.list(), branchScopeOf(c), (r) => r.branchId), (r) => r.id);
     return status ? rows.filter((r) => r.status === status) : rows;
   }
 

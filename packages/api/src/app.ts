@@ -2,6 +2,8 @@ import { Hono } from "hono";
 import type { ItemCatalogCheck } from "./item-check.js";
 import {
   Money,
+  NoFiscalPeriodForDateError,
+  PeriodNotOpenForPostingError,
   SeatSessionRegistry,
   createEntitlements,
   type UnitOfWork,
@@ -1738,6 +1740,12 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
    * JSON body in the shape every client already parses.
    */
   app.onError((err, c) => {
+    // The posting engine refuses a date in a shut or missing period on EVERY
+    // route that posts, and only some route files map it. Same answer the GL
+    // route gives, so no confirm reports a closed month as «خطأ داخلي».
+    if (err instanceof PeriodNotOpenForPostingError || err instanceof NoFiscalPeriodForDateError) {
+      return c.json({ error: err.code, message: err.message }, 422);
+    }
     try {
       console.error(`[api] unhandled error on ${c.req.method} ${c.req.path}`, err);
     } catch {

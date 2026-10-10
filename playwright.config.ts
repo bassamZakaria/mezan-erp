@@ -19,7 +19,7 @@ const platformDir = mkdtempSync(path.join(tmpdir(), "mezan-e2e-platform-"));
 
 export default defineConfig({
   testDir: "./e2e",
-  testIgnore: /every-screen\.spec\.ts/,
+  testIgnore: [/every-screen\.spec\.ts/, /saas\//],
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,

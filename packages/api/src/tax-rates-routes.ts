@@ -7,6 +7,8 @@ import {
   InvalidTaxRateError,
   TaxRateNotFoundError,
   TaxRateInUseError,
+  SystemTaxRateLockedError,
+  isSystemTaxRate,
   AuditChangeAction,
   type AuditSink,
   type TaxRate,
@@ -41,6 +43,7 @@ function serialize(taxRate: TaxRate) {
     inputTaxAccountId: taxRate.inputTaxAccountId,
     etaSubType: taxRate.etaSubType,
     status: taxRate.status,
+    isSystem: isSystemTaxRate(taxRate.id),
   };
 }
 
@@ -50,7 +53,7 @@ function handleDomainError(c: Context, err: unknown) {
   if (err instanceof TaxRateNotFoundError) {
     return refuse(err, 404);
   }
-  if (err instanceof DuplicateTaxCodeError || err instanceof DuplicateTaxRateIdError || err instanceof TaxRateInUseError) {
+  if (err instanceof DuplicateTaxCodeError || err instanceof DuplicateTaxRateIdError || err instanceof TaxRateInUseError || err instanceof SystemTaxRateLockedError) {
     return refuse(err, 409);
   }
   if (err instanceof InvalidTaxRateError) {

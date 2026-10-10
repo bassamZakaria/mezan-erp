@@ -1,5 +1,6 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { createSqliteTaxRateRepository, createSqliteUnitOfWork, type SqliteTaxRateRepositoryHandle } from "@mezan/persistence";
+import { SYSTEM_NOT_SUBJECT_TAX_RATE_ID, ensureSystemTaxRates } from "@mezan/domain";
 import { createTaxRatesRoutes } from "./tax-rates-routes.js";
 import { createApp } from "./app.js";
 
@@ -58,6 +59,47 @@ describe("tax-rates router — the pickers on document forms (D79)", () => {
     expect((await patch({ etaSubType: "V003" })).status).toBe(409);
     expect((await patch({ status: "inactive" })).status).toBe(200);
     expect((await repo.findById("t1"))?.rate).toBe(14);
+  });
+});
+
+describe("tax-rates router — the system «غير خاضع» rate (D79 round 3)", () => {
+  async function seeded() {
+    const { app, repo } = newApp();
+    await ensureSystemTaxRates(repo);
+    return { app, repo };
+  }
+  const patch = (app: ReturnType<typeof newApp>["app"], body: unknown) =>
+    app.fetch(req(`/${SYSTEM_NOT_SUBJECT_TAX_RATE_ID}`, { method: "PATCH", permissions: "accounting.tax.manage", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }));
+
+  it("lists it as a system rate at 0% under V004, and the tenant's own rates as not", async () => {
+    const { app, repo } = await seeded();
+    await repo.create({ ...payload, calculationType: "exclusive", isDefault: true, outputTaxAccountId: null, inputTaxAccountId: null, etaSubType: "auto", status: "active" });
+    const listed = (await (await app.fetch(req("/", { permissions: "accounting.tax.view" }))).json()) as { id: string; rate: number; etaSubType: string; status: string; isSystem: boolean }[];
+    expect(listed.find((r) => r.id === SYSTEM_NOT_SUBJECT_TAX_RATE_ID)).toMatchObject({ rate: 0, etaSubType: "V004", status: "active", isSystem: true });
+    expect(listed.find((r) => r.id === "t1")?.isSystem).toBe(false);
+  });
+
+  it.each([{ name: "معفى" }, { rate: 14 }, { etaSubType: "V003" }, { status: "inactive" }, { isDefault: true }])(
+    "answers 409 TAX_RATE_SYSTEM_LOCKED in Arabic and English for %j, and the row does not change",
+    async (change) => {
+      const { app, repo } = await seeded();
+      const res = await patch(app, change);
+      expect(res.status).toBe(409);
+      const body = (await res.json()) as { error: string; message: string; messageEn: string };
+      expect(body.error).toBe("TAX_RATE_SYSTEM_LOCKED");
+      expect(body.message).toMatch(/غير خاضع/);
+      expect(body.messageEn).toMatch(/defined by the system/);
+      expect(await repo.findById(SYSTEM_NOT_SUBJECT_TAX_RATE_ID)).toMatchObject({ name: "غير خاضع", rate: 0, etaSubType: "V004", status: "active", isDefault: false });
+    },
+  );
+
+  it("answers 409 for a create under its id", async () => {
+    const { app } = await seeded();
+    const res = await app.fetch(
+      req("/", { method: "POST", permissions: "accounting.tax.manage", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...payload, id: SYSTEM_NOT_SUBJECT_TAX_RATE_ID }) }),
+    );
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: string }).error).toBe("TAX_RATE_ID_EXISTS");
   });
 });
 

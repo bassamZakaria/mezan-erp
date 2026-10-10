@@ -28,6 +28,7 @@
  */
 
 import type { EtaConfig } from "./config.js";
+import { EtaVatSubTypeCode } from "../tax-rates/tax-rate.js";
 import { etaReceiptDecimal } from "./receipt.js";
 
 export enum EtaPrevalidationRuleCode {
@@ -237,7 +238,7 @@ export function prevalidateEtaInvoice(
           EtaPrevalidationFixScreen.SourceDocument,
         ),
       );
-    } else if (line.taxRatePercent === 0 && (line.etaTaxSubType === null || line.etaTaxSubType === "auto")) {
+    } else if (line.taxRatePercent === 0 && (line.etaTaxSubType === null || line.etaTaxSubType === EtaVatSubTypeCode.Auto)) {
       out.push(
         finding(
           EtaPrevalidationRuleCode.TaxSubtypeNotMapped,

@@ -13,6 +13,7 @@ import {
   TaxRateUnverifiableError,
 } from "./errors.js";
 import { TaxRateStatusCode, type TaxRateStatus } from "./tax-rate.js";
+import { SYSTEM_NOT_SUBJECT_TAX_RATE, SYSTEM_NOT_SUBJECT_TAX_RATE_ID } from "./system-tax-rates.js";
 
 const rate = (id: string, name: string, percent: number, status: TaxRateStatus = TaxRateStatusCode.Active) => ({
   id,
@@ -126,8 +127,11 @@ describe("resolveInheritedTaxRate — a line copied from a document that already
     expect(resolveInheritedTaxRate(null, { taxRateId: null, taxRatePercent: 14 })).toEqual({ taxRateId: null, taxRatePercent: 14 });
   });
 
-  it("names the one active rate at a taxed percent for a source that stored none — a quote written before quotes stored a rate", () => {
-    expect(resolveInheritedTaxRate(MASTER, { taxRateId: null, taxRatePercent: 14 })).toEqual({ taxRateId: "VAT14", taxRatePercent: 14 });
+  it("infers nothing for a source that stored no rate, though exactly one active rate has its percent (D79 round 3)", () => {
+    // Round 2 named VAT14 here for a quote written before quotes stored a
+    // rate. A stored NULL cannot say whether it is that or a line whose author
+    // answered "no rate", so it is carried, never resolved a second time.
+    expect(resolveInheritedTaxRate(MASTER, { taxRateId: null, taxRatePercent: 14 })).toEqual({ taxRateId: null, taxRatePercent: 14 });
   });
 
   it("infers nothing for such a source at 0%, at a retired percent, or when two active rates share the percent", () => {
@@ -151,5 +155,39 @@ describe("inferTaxRateByPercent", () => {
 
   it("answers nothing when two active rates share the percent", () => {
     expect(inferTaxRateByPercent([VAT, rate("VAT14B", "ضريبة أخرى", 14)], 14)).toBeNull();
+  });
+});
+
+describe("the system «غير خاضع» rate — what a 0% line the SYSTEM raised is filed under (D79 round 3)", () => {
+  const WITH_SYSTEM = [...MASTER, SYSTEM_NOT_SUBJECT_TAX_RATE];
+  const notSubject = { taxRateId: SYSTEM_NOT_SUBJECT_TAX_RATE_ID, taxRatePercent: 0 };
+
+  it("names it on a line policy forced to 0% that named no rate — a tax-exempt customer's sale, a sale with VAT off", () => {
+    expect(resolveZeroRatedTaxRate(WITH_SYSTEM, { taxRatePercent: 14 })).toEqual(notSubject);
+    expect(resolveZeroRatedTaxRate(WITH_SYSTEM, {})).toEqual(notSubject);
+    expect(resolveDocumentLineTax(WITH_SYSTEM, { taxRatePercent: 14 }, { defaultPercent: 14, zeroRated: true })).toEqual(notSubject);
+  });
+
+  it("names it in place of a taxed rate the line asked for and was not charged", () => {
+    expect(resolveZeroRatedTaxRate(WITH_SYSTEM, { taxRateId: "VAT14", taxRatePercent: 14 })).toEqual(notSubject);
+  });
+
+  it("leaves a 0% rate the line itself named — an export to a tax-exempt customer is still an export", () => {
+    expect(resolveZeroRatedTaxRate(WITH_SYSTEM, { taxRateId: "EXPORT" })).toEqual({ taxRateId: "EXPORT", taxRatePercent: 0 });
+  });
+
+  it("is NOT inferred for a 0% line a user entered — that line still has to name its rate", () => {
+    expect(resolveAppliedTaxRate(WITH_SYSTEM, { taxRatePercent: 0 }, 14)).toEqual({ taxRateId: null, taxRatePercent: 0 });
+    expect(resolveDocumentLineTax(WITH_SYSTEM, { taxRatePercent: 0 }, { defaultPercent: 14, zeroRated: false })).toEqual({ taxRateId: null, taxRatePercent: 0 });
+    expect(resolveInheritedTaxRate(WITH_SYSTEM, { taxRateId: null, taxRatePercent: 0 })).toEqual({ taxRateId: null, taxRatePercent: 0 });
+    expect(inferTaxRateByPercent(WITH_SYSTEM, 0)).toBeNull();
+  });
+
+  it("can be named by a user like any other rate", () => {
+    expect(resolveAppliedTaxRate(WITH_SYSTEM, { taxRateId: SYSTEM_NOT_SUBJECT_TAX_RATE_ID }, 14)).toEqual(notSubject);
+  });
+
+  it("stores no rate where the tenant's master does not hold it", () => {
+    expect(resolveZeroRatedTaxRate(MASTER, {})).toEqual({ taxRateId: null, taxRatePercent: 0 });
   });
 });

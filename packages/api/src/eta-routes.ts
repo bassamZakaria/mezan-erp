@@ -1,6 +1,8 @@
 import { Hono, type Context } from "hono";
 import { z } from "zod";
 import {
+  EtaVatSubTypeCode,
+  TaxRateStatusCode,
   ETA_ACTIVITY_CODES,
   ETA_UNIT_CODES,
   EtaService,
@@ -128,7 +130,7 @@ async function readinessCounts(deps: EtaRoutesDeps): Promise<EtaReadinessCounts 
     branchesMissingCode: branches.filter((b) => b.active && !codedBranches.has(b.id)).length,
     itemsMissingCode: items.filter((i) => i.status === "active" && itemNeedsCode(i)).length,
     unitsMissingMapping: units.filter((u) => u.status === "active" && !mappedUnits.has(u.code)).length,
-    taxRatesMissingSubType: taxRates.filter((t) => t.status === "active" && t.etaSubType === "auto").length,
+    taxRatesMissingSubType: taxRates.filter((t) => t.status === TaxRateStatusCode.Active && t.etaSubType === EtaVatSubTypeCode.Auto).length,
   };
 }
 
@@ -598,14 +600,14 @@ export function createEtaRoutes(
     const rates = await deps.taxRates.list();
     return c.json(
       rates
-        .filter((r) => r.status === "active")
+        .filter((r) => r.status === TaxRateStatusCode.Active)
         .map((r) => ({
           taxRateId: r.id,
           code: r.code,
           name: r.name,
           rate: r.rate,
           etaSubType: r.etaSubType,
-          resolved: r.etaSubType !== "auto",
+          resolved: r.etaSubType !== EtaVatSubTypeCode.Auto,
         })),
     );
   });

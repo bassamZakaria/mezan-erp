@@ -614,10 +614,12 @@ export class SalesInvoiceService {
     taxRates: readonly TaxRate[] | null,
   ): SalesInvoice {
     const zeroRated = cmd.customerTaxExempt === true || !taxPolicy.enabled;
-    const appliedTax = (l: CreateSalesInvoiceLine): AppliedTaxRate =>
-      l.inheritedTax
-        ? resolveInheritedTaxRate(taxRates, l.inheritedTax)
-        : resolveDocumentLineTax(taxRates, l, { defaultPercent: taxPolicy.defaultRatePercent, zeroRated });
+    const appliedTax = (l: CreateSalesInvoiceLine): AppliedTaxRate => {
+      if (!l.inheritedTax) return resolveDocumentLineTax(taxRates, l, { defaultPercent: taxPolicy.defaultRatePercent, zeroRated });
+      const inherited = resolveInheritedTaxRate(taxRates, l.inheritedTax);
+      const raisedBySystem = zeroRated && inherited.taxRateId === null && inherited.taxRatePercent === 0;
+      return raisedBySystem ? resolveDocumentLineTax(taxRates, {}, { defaultPercent: 0, zeroRated }) : inherited;
+    };
     const lines: SalesInvoiceLine[] = cmd.lines.map((l) => {
       const unitFactor = l.unitFactor ?? 1;
       const tax = appliedTax(l);

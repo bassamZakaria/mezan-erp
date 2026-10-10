@@ -1,5 +1,6 @@
 import type { EtaVatSubType, TaxCalculationType, TaxRate, TaxRateRepository, TaxRateStatus, TaxRateUsage } from "./tax-rate.js";
-import { InvalidTaxRateError, TaxRateInUseError, TaxRateNotFoundError } from "./errors.js";
+import { InvalidTaxRateError, SystemTaxRateLockedError, TaxRateInUseError, TaxRateNotFoundError } from "./errors.js";
+import { isSystemTaxRate } from "./system-tax-rates.js";
 
 export interface UpdateTaxRateCommand {
   readonly name?: string;
@@ -36,6 +37,7 @@ async function updateTaxRateInTransaction(
 ): Promise<TaxRate> {
   const current = await repo.findById(taxRateId);
   if (!current) throw new TaxRateNotFoundError(taxRateId);
+  if (isSystemTaxRate(current.id)) throw new SystemTaxRateLockedError(current.id, current.name);
 
   const nextRate = command.rate ?? current.rate;
   // INVARIANT: a stored line names this row and reads its classification off

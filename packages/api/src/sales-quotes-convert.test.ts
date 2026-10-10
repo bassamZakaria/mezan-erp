@@ -286,6 +286,33 @@ describe("POST /:id/convert-to-invoice", () => {
     expect(invoice?.lines.map((l) => [l.taxRateId, l.taxRatePercent])).toEqual([["VAT-EXPORT", 0]]);
   });
 
+  it("D79 round 3: a quote line that stored NO rate at 14% converts to an invoice line with no rate — the one active 14% rate is not read off the percent a second time", async () => {
+    const vat: TaxRate = {
+      id: "VAT14", code: "VAT14", name: "ضريبة القيمة المضافة", rate: 14, calculationType: "exclusive", isDefault: true,
+      outputTaxAccountId: null, inputTaxAccountId: null, etaSubType: "auto", status: "active",
+    };
+    const { app, invoiceStore } = await harness(true, { list: async () => [vat] });
+    const create = await app.fetch(
+      req("/", {
+        method: "POST",
+        permissions: "sales.quote.create",
+        body: JSON.stringify({ ...draftBody, lines: [{ lineId: "L1", itemId: "SVC-1", itemNameAr: "خدمة", qty: "2", unitPrice: "50", taxRatePercent: 14, taxRateId: null }] }),
+      }),
+    );
+    const quote = (await create.json()) as { id: string; lines: { taxRateId: string | null; taxRatePercent: number }[] };
+    expect(quote.lines[0]).toMatchObject({ taxRateId: null, taxRatePercent: 14 });
+    await app.fetch(req(`/${quote.id}/send`, { method: "POST", permissions: "sales.quote.send" }));
+    await app.fetch(req(`/${quote.id}/accept`, { method: "POST", permissions: "sales.quote.edit" }));
+
+    const res = await app.fetch(
+      req(`/${quote.id}/convert-to-invoice`, { method: "POST", permissions: "sales.invoice.create", body: JSON.stringify(convertBody) }),
+    );
+    expect(res.status).toBe(201);
+    const { invoiceId } = (await res.json()) as { invoiceId: string };
+    const invoice = await invoiceStore!.findById(invoiceId);
+    expect(invoice?.lines.map((l) => [l.taxRateId, l.taxRatePercent])).toEqual([[null, 14]]);
+  });
+
   it("rejects a request missing GL-account info for one of the quote's lines", async () => {
     const { app } = await harness(true);
     const id = await createSentAcceptedQuote(app);

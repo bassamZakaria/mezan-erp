@@ -28,6 +28,8 @@ import {
   createSalesInvoiceGlHook,
   returnedQtyBySourceLine,
   createReturnConfirmGuard,
+  ensureSystemTaxRates,
+  SYSTEM_NOT_SUBJECT_TAX_RATE_ID,
   SALES_RETURN_DOC_TYPE,
   PURCHASE_RETURN_DOC_TYPE,
   type SalesInvoiceLookupPort,
@@ -689,6 +691,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const itemSpecifications = createSqliteItemSpecificationRepository(sqlite);
   const attachments = createSqliteAttachmentRepository(sqlite);
   const taxRates = createSqliteTaxRateRepository(sqlite);
+  await ensureSystemTaxRates(taxRates);
   const costCenters = createSqliteCostCenterRepository(sqlite);
   const masterDataChecks: MasterDataChecks = {
     [MasterDataKind.Customer]: customers,
@@ -1447,7 +1450,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
             // No VAT: the works were taxed on the certificate that withheld
             // this money. Taxing the release again would charge it twice.
             taxRatePercent: 0,
-            taxRateId: null,
+            taxRateId: SYSTEM_NOT_SUBJECT_TAX_RATE_ID,
             revenueAccountId: cmd.retentionAccountId,
           },
         ],
@@ -1680,7 +1683,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
               qty: Qty.fromMajor("1"),
               unitCost: cmd.amount,
               taxRatePercent: 0,
-            taxRateId: null,
+              taxRateId: SYSTEM_NOT_SUBJECT_TAX_RATE_ID,
             },
           ],
         },

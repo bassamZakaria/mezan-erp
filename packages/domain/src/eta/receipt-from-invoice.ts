@@ -219,12 +219,9 @@ export function buildPosReceiptInput(args: PosReceiptBuildArgs): EtaUnchainedRec
 const REFUND_WINDOW_DAYS = 540;
 const DAY_MS = 86_400_000;
 
-/**
- * The sale line a return line came from: the line it names. A return stored
- * before lines could be named carries only the item and its per-base-unit
- * price, so when one item sits on two lines the price picks the line — the
- * first match by item alone would file one line's base with the other's VAT.
- */
+// INVARIANT: a return stored before lines could be named carries only the
+// item and its per-base-unit price; when one item sits on two lines the price
+// picks the line, or one line's base is filed with the other's VAT.
 function soldLineOf(invoice: SalesInvoice, ret: SalesReturnLine) {
   const named = ret.sourceLineId ? invoice.lines.find((l) => l.lineId === ret.sourceLineId && l.itemId === ret.itemId) : undefined;
   if (named) return named;

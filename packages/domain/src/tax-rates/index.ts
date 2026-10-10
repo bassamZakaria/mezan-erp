@@ -12,6 +12,7 @@ export {
   ETA_VAT_SUBTYPE_DEFINITIONS,
   getEtaVatSubTypeLabel,
   TaxRateStatusCode,
+  EtaVatSubTypeCode,
   ASSUME_TAX_RATE_REFERENCED,
 } from "./tax-rate.js";
 export {
@@ -23,7 +24,14 @@ export {
   TaxRatePercentMismatchError,
   TaxRateUnverifiableError,
   TaxRateInUseError,
+  SystemTaxRateLockedError,
 } from "./errors.js";
+export {
+  SYSTEM_NOT_SUBJECT_TAX_RATE_ID,
+  SYSTEM_NOT_SUBJECT_TAX_RATE,
+  ensureSystemTaxRates,
+  isSystemTaxRate,
+} from "./system-tax-rates.js";
 export {
   inferTaxRateByPercent,
   resolveAppliedTaxRate,

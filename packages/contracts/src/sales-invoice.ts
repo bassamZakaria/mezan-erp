@@ -59,7 +59,11 @@ export const createSalesInvoiceLineSchema = z.object({
    * refuses a `taxRatePercent` that disagrees. `null` says the line names no
    * rate, and none is stored. Omitted, the server infers the one active rate
    * at the line's percent — but never at 0%, where exempt and zero-rated
-   * export cannot be told apart (D79).
+   * export cannot be told apart (D79). Two cases are not the caller's to
+   * answer: a line policy zero-rates (tax-exempt customer, VAT off) names the
+   * system «غير خاضع» rate unless it named a 0% rate itself, and a line
+   * converted from a quote carries the quote line's stored rate exactly — a
+   * quote line that stored none converts to none, at any percent.
    */
   taxRateId: z.string().min(1).nullish(),
   revenueAccountId: z.string().min(1),

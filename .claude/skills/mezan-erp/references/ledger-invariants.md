@@ -92,6 +92,17 @@ period directly is rejected so the reversible close step is never skipped.
 - Returns validate against **server-computed** invoiced quantity, never against a cap
   in the request body — the same goods were returnable twice. The same rule caught a
   receipt that could be invoiced twice: check the `invoiced` flag, not just the status.
+- The cap is per **source line and per document total**, and it is read twice. All of
+  a request's lines against one invoice are derived in ONE `build…FromInvoice` call;
+  `validate` refuses Σ qty per `(sourceInvoiceId, sourceLineId)` above what is
+  available, because two lines naming one invoice line each fit alone (D79). A draft's
+  `availableQty` is a snapshot, so `DocumentService`'s `confirmGuard` re-reads what
+  confirmed returns have taken — before the workflow gate and again inside the
+  confirm's transaction — and only one of two drafts against a line confirms. A line
+  the invoice does not carry is 422 `RETURN_LINE_NOT_ON_INVOICE`, never dropped and
+  never "exceeds available (0)". A return naming no line takes the first line of its
+  item with room. Any "give back against a source" path totals per source before it
+  compares — work-order material returns had the same per-line hole.
 - Validate invoice-level discounts, not only line-level ones: an unvalidated negative
   invoice discount applied as a subtraction and turned 950.00 into 1,140.00.
 - Discounts are deducted **before** VAT; a historical document records which
@@ -198,16 +209,38 @@ Proved in `scripts/scenarios/seams.ts`; each gap is a register entry.
   exist, be active and agree with any percent sent; `taxRateId: null` means "no
   rate" and stores NULL; an omitted id is inferred from the percent only above 0%
   and only when exactly one active rate has it. **A rate is never inferred at
-  0%** — exempt (V003), export (V001) and not-subject are all 0%, so a retention
-  release, a tax-exempt customer's sale and a VAT-off sale store NULL. A rate that
+  0%** — exempt (V003), export (V001) and not-subject (V004) are all 0% — so a
+  0% line a USER enters without a rate stores NULL. A 0% line the SYSTEM raises
+  is different: when policy zero-rates the document (tax-exempt customer, VAT
+  switched off) or the system itself builds the line (a retention release, on
+  the sales and the subcontract side), the line names the system-owned
+  «غير خاضع» rate (`SYSTEM_NOT_SUBJECT_TAX_RATE_ID` = `SYS-NOT-SUBJECT`, 0%,
+  V004). That is assignment by who raised the line, not inference from its
+  percent; a 0% rate the line itself named still wins. The row is ensured on
+  every tenant when the backend starts (`ensureSystemTaxRates`), is served with
+  `isSystem: true`, and is locked — any PATCH is 409 `TAX_RATE_SYSTEM_LOCKED` —
+  because posted lines name it. A line INHERITED from a source document (a
+  quote converted to an invoice) carries the source's stored rate exactly: a
+  NULL stays NULL at any percent, since a stored NULL cannot say whether it
+  predates the column or answered "no rate". A rate that
   any stored line names keeps its percent and ETA sub-type for good (409
   `TAX_RATE_IN_USE`); it may be renamed or deactivated, and an inactive rate still
   answers for lines already posted. The VAT return groups by the stored id and
   never assigns a NULL-id line to a rate at report time. Its output base counts
   revenue accounts plus the routed «فواتير مستخلصات على العقود» liability (2165),
-  which a cost-to-cost certificate invoice credits instead of revenue; its input
-  base is read only off purchase-side entries, so a sale that credits an asset
-  is not a negative purchase. NULL — a pre-D79 row, or a line that named no
+  which a cost-to-cost certificate invoice credits instead of revenue. The
+  recognition run then credits revenue and debits 2165 against the contract
+  asset — a reclassification of a supply already counted — so it and the
+  year-end close never reach the untagged fallback, which nets (credit − debit)
+  rather than summing credits. The control: Σ output base, 0% rows included,
+  equals the net movement of revenue + 2165 outside those two entry types,
+  exactly (`pnpm scenarios eta`), as its tax equals GL 2200. Its input base is
+  read off every entry except a sale's — one from the sales module, or one that
+  moves 2200 or revenue without moving 1400 — so a sale that credits an asset
+  is not a negative purchase, and a 0% purchase recorded by manual journal is
+  still a purchase. An entry posted when only its VAT line carried a rate takes
+  its base from its untagged lines, one-directionally. A bucket that nets to
+  zero emits no row. NULL — a pre-D79 row, or a line that named no
   rate — is the only case the e-invoice builders match the percent, and they
   match it only above 0%. A NULL 0% line on a tenant holding ANY specific zero
   classification (exempt, export) is a blocking pre-validation finding on an

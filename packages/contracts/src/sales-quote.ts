@@ -31,6 +31,11 @@ export const createSalesQuoteLineSchema = z.object({
   unitPrice: moneyString,
   discountPercent: z.number().min(0).max(100).optional(),
   taxRatePercent: z.number().min(0).optional(),
+  /**
+   * EXTERNAL CONTRACT: same three answers as a sales invoice line. Whatever is
+   * stored here is what the invoice this quote converts into carries — a line
+   * that stored no rate converts to a line with no rate, at any percent.
+   */
   taxRateId: z.string().min(1).nullish(),
 });
 

@@ -30,6 +30,8 @@ export const taxRateSchema = z.object({
   inputTaxAccountId: z.string().nullable(),
   etaSubType: etaVatSubTypeSchema,
   status: taxRateStatusSchema,
+  /** A rate the system owns and names on the 0% lines it raises; PATCH answers 409 `TAX_RATE_SYSTEM_LOCKED`. */
+  isSystem: z.boolean().optional(),
 });
 
 export const createTaxRateSchema = z.object({

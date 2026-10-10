@@ -1,4 +1,4 @@
-import type { EtaVatSubType, TaxCalculationType, TaxRate, TaxRateRepository } from "./tax-rate.js";
+import { EtaVatSubTypeCode, TaxRateStatusCode, type EtaVatSubType, type TaxCalculationType, type TaxRate, type TaxRateRepository } from "./tax-rate.js";
 import { DuplicateTaxCodeError, DuplicateTaxRateIdError, InvalidTaxRateError } from "./errors.js";
 
 export interface CreateTaxRateCommand {
@@ -65,8 +65,8 @@ async function createTaxRateInTransaction(command: CreateTaxRateCommand, repo: T
     isDefault,
     outputTaxAccountId: command.outputTaxAccountId ?? null,
     inputTaxAccountId: command.inputTaxAccountId ?? null,
-    etaSubType: command.etaSubType ?? "auto",
-    status: "active",
+    etaSubType: command.etaSubType ?? EtaVatSubTypeCode.Auto,
+    status: TaxRateStatusCode.Active,
   };
 
   await repo.create(taxRate);

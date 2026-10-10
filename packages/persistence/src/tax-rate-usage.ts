@@ -7,11 +7,6 @@ const JSON_LINE_COLUMNS = [
   { table: "framework_document", column: "lines_json" },
 ] as const;
 
-/**
- * Whether any stored line names a tax rate. The stores share one books file but
- * each creates its own tables, so a table that is not there yet is simply a
- * place the rate cannot be referenced from.
- */
 export function createSqliteTaxRateUsage(sqlite: Database.Database): TaxRateUsage {
   const hasTable = (table: string): boolean =>
     sqlite.prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`).get(table) !== undefined;

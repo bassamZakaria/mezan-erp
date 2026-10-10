@@ -86,6 +86,19 @@ export class TaxRateInUseError extends Error {
   }
 }
 
+export class SystemTaxRateLockedError extends Error {
+  readonly code = "TAX_RATE_SYSTEM_LOCKED";
+  readonly messageEn: string;
+  constructor(
+    readonly taxRateId: string,
+    readonly taxRateName: string,
+  ) {
+    super(`الضريبة «${taxRateName}» معرّفة من النظام ويستخدمها في البنود التي يصدرها بنسبة 0٪، ولا يمكن تعديلها أو إيقافها.`);
+    this.messageEn = `Tax rate "${taxRateName}" is defined by the system and named on the 0% lines it raises, so it cannot be edited or deactivated.`;
+    this.name = "SystemTaxRateLockedError";
+  }
+}
+
 /** Raised when the rate percentage is outside the valid 0–100 range. */
 export class InvalidTaxRateError extends Error {
   readonly code = "INVALID_TAX_RATE";

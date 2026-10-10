@@ -7256,6 +7256,7 @@ const webAr = {
   "instalments.confirmPlan": "تأكيد الخطة",
   "followUps.cancelFollowUp": "إلغاء المتابعة",
   "taxes.deactivate": "تعطيل النسبة",
+  "taxes.systemDefined": "معرّفة من النظام — لا تُعدَّل",
 
   // R1.10 — every list carries an empty state that says what the record is and offers the way to create one
   "quotes.emptyBody": "عرض السعر يسبق الفاتورة: يثبّت الأصناف وأسعارها لفترة صلاحية محددة، ويتحول إلى فاتورة مبيعات فور قبوله.",
@@ -16680,6 +16681,7 @@ const webEn: Record<WebTranslationKey, string> = {
   "instalments.confirmPlan": "Confirm plan",
   "followUps.cancelFollowUp": "Cancel follow-up",
   "taxes.deactivate": "Deactivate rate",
+  "taxes.systemDefined": "Defined by the system — not editable",
 
   // R1.10 — every list carries an empty state that says what the record is and offers the way to create one
   "quotes.emptyBody": "A quote comes before the invoice: it fixes the items and their prices for a stated validity window, and turns into a sales invoice once it is accepted.",

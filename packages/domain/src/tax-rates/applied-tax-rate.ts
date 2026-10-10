@@ -5,6 +5,7 @@ import {
   TaxRateUnverifiableError,
 } from "./errors.js";
 import { TaxRateStatusCode, type TaxRate } from "./tax-rate.js";
+import { systemNotSubjectRateIn } from "./system-tax-rates.js";
 
 export interface AppliedTaxRate {
   readonly taxRateId: string | null;
@@ -12,11 +13,6 @@ export interface AppliedTaxRate {
 }
 
 export interface AppliedTaxRateRequest {
-  /**
-   * `null` and `undefined` are NOT the same answer. `null` says "this line
-   * names no tax rate" and is stored as NULL whatever its percent. `undefined`
-   * says nothing, and lets the server infer a rate from the percent.
-   */
   readonly taxRateId?: string | null;
   readonly taxRatePercent?: number | null;
 }
@@ -64,6 +60,10 @@ export function resolveAppliedTaxRate(
   return { taxRateId: inferTaxRateByPercent(taxRates, taxRatePercent)?.id ?? null, taxRatePercent };
 }
 
+// INVARIANT: this is not inference from the percent. Policy made the line
+// 0% — the customer is tax-exempt, or VAT is off — so the SYSTEM raised it,
+// and a line the system raised at 0% is filed as not subject. A 0% the caller
+// typed goes through `resolveAppliedTaxRate` and still has to name its rate.
 export function resolveZeroRatedTaxRate(
   taxRates: readonly RateIdentity[],
   request: AppliedTaxRateRequest,
@@ -72,7 +72,7 @@ export function resolveZeroRatedTaxRate(
     const rate = requireNamedRate(taxRates, request.taxRateId);
     if (rate.rate === 0) return { taxRateId: rate.id, taxRatePercent: 0 };
   }
-  return { taxRateId: null, taxRatePercent: 0 };
+  return { taxRateId: systemNotSubjectRateIn(taxRates)?.id ?? null, taxRatePercent: 0 };
 }
 
 export interface DocumentLineTaxPolicy {
@@ -95,15 +95,14 @@ export function resolveDocumentLineTax(
 }
 
 // INVARIANT: an inherited rate is neither re-checked for being active nor
-// repriced — the source document was accepted under it.
+// repriced — the source document was accepted under it. A source that stored
+// NO rate is carried as it is: a NULL cannot say whether it predates the
+// column or answered "no rate", so nothing is resolved for it a second time.
 export function resolveInheritedTaxRate(
   taxRates: readonly RateIdentity[] | null,
   inherited: AppliedTaxRate,
 ): AppliedTaxRate {
-  if (inherited.taxRateId === null) {
-    const inferred = taxRates === null ? null : inferTaxRateByPercent(taxRates, inherited.taxRatePercent);
-    return { taxRateId: inferred?.id ?? null, taxRatePercent: inherited.taxRatePercent };
-  }
+  if (inherited.taxRateId === null) return inherited;
   if (taxRates === null) throw new TaxRateUnverifiableError(inherited.taxRateId);
   if (!taxRates.some((r) => r.id === inherited.taxRateId)) throw new TaxRateNotFoundError(inherited.taxRateId);
   return inherited;

@@ -570,14 +570,28 @@ export async function zeroPercentIsNeverInferred_D79(ctx: Ctx): Promise<void> {
     });
   const taxOf = (res: any) => JSON.stringify([res.body?.lines?.[0]?.taxRatePercent, res.body?.lines?.[0]?.taxRateId]);
 
-  await scenario("d79g · with exactly ONE active 0% rate, the 0% lines the system raises store no rate — and a picked one still does", async () => {
+  await scenario("d79g · the 0% lines the SYSTEM raises name «غير خاضع» and reach the authority; a 0% a user enters still names no rate, whatever 0% rates the tenant holds", async () => {
+    const NOT_SUBJECT = "SYS-NOT-SUBJECT";
+    const system = listed.find((r: any) => r.id === NOT_SUBJECT);
+    check("every tenant holds the system «غير خاضع» rate: 0%, V004, active, marked as the system's", system?.rate === 0 && system?.etaSubType === "V004" && system?.status === "active" && system?.isSystem === true && system?.name === "غير خاضع", JSON.stringify(system ?? null));
+    const locked = await req("PATCH", `/tax-rates/${NOT_SUBJECT}`, { status: "inactive" });
+    check("and it cannot be edited or deactivated: 409 TAX_RATE_SYSTEM_LOCKED, in Arabic", locked.status === 409 && locked.body?.error === "TAX_RATE_SYSTEM_LOCKED" && /[\u0600-\u06FF]/.test(String(locked.body?.message ?? "")), `${locked.status} ${JSON.stringify(locked.body).slice(0, 200)}`);
+
     const retired = await req("PATCH", `/tax-rates/${exported?.id}`, { status: "inactive" });
     check("the export rate is deactivated, though documents reference it", retired.status === 200 && retired.body?.status === "inactive", JSON.stringify(retired.body).slice(0, 200));
     const activeZero = rows((await req("GET", "/tax-rates")).body).filter((r: any) => r.rate === 0 && r.status === "active");
-    check("the tenant now holds exactly one active 0% rate, and it is «معفى»", activeZero.length === 1 && activeZero[0]?.id === exempt?.id, JSON.stringify(activeZero.map((r: any) => r.id)));
+    check(
+      "the tenant now holds exactly one 0% rate of its own, «معفى», beside the system's",
+      activeZero.length === 2 && activeZero.some((r: any) => r.id === exempt?.id) && activeZero.some((r: any) => r.id === NOT_SUBJECT),
+      JSON.stringify(activeZero.map((r: any) => r.id)),
+    );
 
     const exemptCustomer = await draft("SCN-D79-ONE-EXEMPT-CUST", { customerId: "CUST-DEMO-3", customerTaxExempt: true }, { taxRatePercent: VAT });
-    check("a tax-exempt customer's sale is drafted at 0% with NO rate — it is not an exempt supply", exemptCustomer.status === 201 && taxOf(exemptCustomer) === "[0,null]", `${exemptCustomer.status} ${taxOf(exemptCustomer)}`);
+    check(
+      "a tax-exempt customer's sale is drafted at 0% under «غير خاضع» — not NULL (D79 round 2 stored none, and the authority would not take it), and not the exempt SUPPLY's rate",
+      exemptCustomer.status === 201 && taxOf(exemptCustomer) === JSON.stringify([0, NOT_SUBJECT]),
+      `${exemptCustomer.status} ${taxOf(exemptCustomer)}`,
+    );
 
     const settings = (await req("GET", "/settings")).body;
     const off = await req("PUT", "/settings", { ...settings, taxEnabled: false });
@@ -585,10 +599,10 @@ export async function zeroPercentIsNeverInferred_D79(ctx: Ctx): Promise<void> {
     const vatOff = await draft("SCN-D79-ONE-VAT-OFF", {}, { taxRatePercent: VAT });
     const restored = await req("PUT", "/settings", { ...settings, taxEnabled: true });
     check("VAT is switched back on", restored.status === 200 && restored.body?.taxEnabled === true, `status ${restored.status}`);
-    check("a sale raised with VAT off is drafted at 0% with NO rate", vatOff.status === 201 && taxOf(vatOff) === "[0,null]", `${vatOff.status} ${taxOf(vatOff)}`);
+    check("a sale raised with VAT off is drafted at 0% under «غير خاضع»", vatOff.status === 201 && taxOf(vatOff) === JSON.stringify([0, NOT_SUBJECT]), `${vatOff.status} ${taxOf(vatOff)}`);
 
     const unnamed = await draft("SCN-D79-ONE-UNNAMED", {}, { taxRatePercent: 0 });
-    check("a 0% line that names no rate stores none, rather than the one 0% rate that exists", unnamed.status === 201 && taxOf(unnamed) === "[0,null]", `${unnamed.status} ${taxOf(unnamed)}`);
+    check("a 0% line a USER entered without a rate stores none — neither «معفى» nor the system's rate is read off the percent", unnamed.status === 201 && taxOf(unnamed) === "[0,null]", `${unnamed.status} ${taxOf(unnamed)}`);
 
     const picked = await draft("SCN-D79-ONE-PICKED", {}, { taxRateId: exempt?.id });
     check("a line that NAMES «معفى» stores it", picked.status === 201 && picked.body?.lines?.[0]?.taxRateId === exempt?.id, `${picked.status} ${taxOf(picked)}`);
@@ -613,7 +627,35 @@ export async function zeroPercentIsNeverInferred_D79(ctx: Ctx): Promise<void> {
       JSON.stringify(unclassified).slice(0, 300),
     );
 
-    for (const id of ["SCN-D79-ONE-EXEMPT-CUST", "SCN-D79-ONE-VAT-OFF", "SCN-D79-ONE-PICKED"]) {
+    const exemptFiled = await req("POST", "/sales-invoices/SCN-D79-ONE-EXEMPT-CUST/confirm", {});
+    check("the tax-exempt customer's sale confirms", exemptFiled.status === 200, JSON.stringify(exemptFiled.body).slice(0, 200));
+    const exemptNo = exemptFiled.body?.invoice?.docNo ?? exemptFiled.body?.docNo;
+    const exemptQueued = rows((await req("GET", "/eta/submissions")).body).find((s: any) => s.internalId === exemptNo);
+    const exemptPayload = exemptQueued ? (await req("GET", `/eta/submissions/${exemptQueued.id}`)).body?.payload : null;
+    const exemptLines = exemptPayload?.invoiceLines ?? exemptPayload?.itemData;
+    check(
+      "its e-document — a receipt, the customer being a consumer — files the line V004 because the line NAMES «غير خاضع», not because nothing was said",
+      String(exemptLines?.[0]?.taxableItems?.[0]?.subType) === "V004",
+      JSON.stringify(exemptLines?.[0]?.taxableItems ?? exemptQueued ?? null).slice(0, 200),
+    );
+    check(
+      "the confirm was not answered ETA_RECEIPT_NOT_READY, as a consumer sale with an unnamed 0% line is",
+      !exemptFiled.body?.etaReceiptError,
+      JSON.stringify(exemptFiled.body?.etaReceiptError ?? null).slice(0, 200),
+    );
+    check(
+      "and it is NOT blocked from the authority — the finding the unnamed line carries is not on it",
+      Boolean(exemptQueued) && (exemptQueued?.prevalidation ?? []).every((f: any) => f.code !== "TAX_SUBTYPE_NOT_MAPPED"),
+      JSON.stringify(exemptQueued?.prevalidation ?? null).slice(0, 300),
+    );
+    const journal = (await req("GET", `/gl/journal-entries/${exemptFiled.body?.invoice?.journalEntryId ?? exemptFiled.body?.journalEntryId}`)).body;
+    const revenueLine = (journal?.lines ?? []).find((l: any) => l.accountId === REVENUE);
+    check("the posted revenue line carries the rate, so the ledger alone can say what the sale was", revenueLine?.taxRateId === NOT_SUBJECT && revenueLine?.taxRatePercent === 0, JSON.stringify(revenueLine ?? journal ?? null).slice(0, 200));
+    const vatRows = rows((await req("GET", `/financial-reports/vat-return?periodFrom=${TODAY}&periodTo=${TODAY}`)).body);
+    const notSubjectRow = vatRows.find((r: any) => r.side === "output" && r.taxRateId === NOT_SUBJECT);
+    check("and the VAT return reports it on a row named «غير خاضع», apart from the unnamed 0% row", notSubjectRow?.taxRateName === "غير خاضع" && n(notSubjectRow?.base) >= 100 && n(notSubjectRow?.tax) === 0, JSON.stringify(vatRows.filter((r: any) => r.side === "output")).slice(0, 300));
+
+    for (const id of ["SCN-D79-ONE-VAT-OFF", "SCN-D79-ONE-PICKED"]) {
       await req("POST", `/sales-invoices/${id}/cancel`, {});
     }
 
@@ -628,9 +670,15 @@ export async function zeroPercentIsNeverInferred_D79(ctx: Ctx): Promise<void> {
     check("and released by a second person", released.status === 200 && Boolean(released.body?.invoiceId), JSON.stringify(released.body).slice(0, 240));
     const releaseInvoice = (await req("GET", `/sales-invoices/${released.body?.invoiceId}`)).body;
     check(
-      "the invoice the release raised is 0% with NO rate — a retention release is not an exempt sale",
-      (releaseInvoice?.lines ?? []).length === 1 && releaseInvoice.lines[0].taxRatePercent === 0 && releaseInvoice.lines[0].taxRateId === null,
+      "the invoice the release raised is 0% under «غير خاضع» — a retention release is not an exempt sale, and no longer a line with no rate",
+      (releaseInvoice?.lines ?? []).length === 1 && releaseInvoice.lines[0].taxRatePercent === 0 && releaseInvoice.lines[0].taxRateId === NOT_SUBJECT,
       JSON.stringify((releaseInvoice?.lines ?? []).map((l: any) => [l.taxRatePercent, l.taxRateId])),
+    );
+    const releaseQueued = rows((await req("GET", "/eta/submissions")).body).find((s: any) => s.internalId === releaseInvoice?.docNo);
+    check(
+      "so the release's e-invoice carries no unclassified-0% finding either",
+      !releaseQueued || (releaseQueued.prevalidation ?? []).every((f: any) => f.code !== "TAX_SUBTYPE_NOT_MAPPED"),
+      JSON.stringify(releaseQueued?.prevalidation ?? null).slice(0, 300),
     );
 
     const reactivated = await req("PATCH", `/tax-rates/${exported?.id}`, { status: "active" });

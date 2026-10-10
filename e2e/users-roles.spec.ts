@@ -214,7 +214,19 @@ test.describe("Users", () => {
     await form.getByLabel(/كلمة مرور مؤقتة/).fill("Passw0rd1");
     await form.getByLabel(/صلاحيات مدير المنشأة/).check();
     await form.getByLabel("الفرع الرئيسي", { exact: true }).check();
+
+    // ENH-E2-10: full authority holds both halves of every segregation-of-duties
+    // pair, so the form refuses it until the conflict is approved with a reason.
+    await expect(form.getByText("تعارض في الفصل بين المهام")).toBeVisible();
     await form.getByRole("button", { name: "حفظ المستخدم" }).click();
+    await expect(form.getByText("لإسناد دور بهذا التعارض، فعّل الاعتماد واذكر السبب.")).toBeVisible();
+    await expect(form).toBeVisible();
+
+    await form.getByLabel("أعتمد إسناد هذا الدور رغم التعارض").check();
+    await form.getByLabel("سبب الاستثناء").fill("مدير ثانٍ للمنشأة — اختبار تعطيل المستخدم");
+    const created = page.waitForResponse((r) => new URL(r.url()).pathname === "/api/users" && r.request().method() === "POST");
+    await form.getByRole("button", { name: "حفظ المستخدم" }).click();
+    expect((await created).status()).toBe(201);
     await expect(form).toBeHidden();
 
     const row = tableRow(page, userName);

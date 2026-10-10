@@ -82,7 +82,7 @@ async function createItem(page: Page, name: string, salePrice: string, options?:
   await price.fill(salePrice);
   await price.press("Tab");
   await page.getByRole("button", { name: "إضافة", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "الأصناف" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "الأصناف", level: 1, exact: true })).toBeVisible();
 }
 
 test.describe("Items", () => {
@@ -94,7 +94,7 @@ test.describe("Items", () => {
   test.beforeEach(async ({ page }) => {
     await loginAsDemoUser(page);
     await clickSidebarItem(page, "الأصناف");
-    await expect(page.getByRole("heading", { name: "الأصناف" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "الأصناف", level: 1, exact: true })).toBeVisible();
   });
 
   test("adding an item appears in the list with a generated code, and search finds it by name and code", async ({ page }) => {
@@ -197,7 +197,7 @@ test.describe("Items", () => {
       await expect(page.getByLabel("الباركود", { exact: true }).nth(0)).toHaveValue("1112223334442");
 
       await page.getByRole("button", { name: "إضافة", exact: true }).click();
-      await expect(page.getByRole("heading", { name: "الأصناف" })).toBeVisible();
+      await expect(page.getByRole("heading", { name: "الأصناف", level: 1, exact: true })).toBeVisible();
 
       await page.getByPlaceholder("بحث بالاسم أو الكود...").fill(name);
       await expect(listRow(page, name)).toBeVisible();
@@ -248,7 +248,7 @@ test.describe("Items", () => {
     await page.getByLabel("اسم الصنف *").fill(updatedName);
     await page.getByRole("button", { name: "حفظ", exact: true }).click();
 
-    await expect(page.getByRole("heading", { name: "الأصناف" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "الأصناف", level: 1, exact: true })).toBeVisible();
     // The search box resets on this navigation back to the list.
     await page.getByPlaceholder("بحث بالاسم أو الكود...").fill(updatedName);
     await expect(listRow(page, updatedName)).toBeVisible();
@@ -276,7 +276,7 @@ test.describe("Items", () => {
     await expect(page.getByRole("tabpanel").getByText("لا يوجد مخزون من هذا الصنف في أي مستودع.")).toBeVisible();
 
     await page.getByRole("button", { name: "رجوع للقائمة" }).click();
-    await expect(page.getByRole("heading", { name: "الأصناف" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "الأصناف", level: 1, exact: true })).toBeVisible();
   });
 
   test("captures the list screen in light and dark themes", async ({ page }) => {
@@ -326,11 +326,11 @@ test.describe("Items", () => {
       }
 
       await pageA.getByRole("button", { name: "إضافة", exact: true }).click();
-      await expect(pageA.getByRole("heading", { name: "الأصناف" })).toBeVisible();
+      await expect(pageA.getByRole("heading", { name: "الأصناف", level: 1, exact: true })).toBeVisible();
 
       // B must succeed too, with its own server-allocated code.
       await pageB.getByRole("button", { name: "إضافة", exact: true }).click();
-      await expect(pageB.getByRole("heading", { name: "الأصناف" })).toBeVisible();
+      await expect(pageB.getByRole("heading", { name: "الأصناف", level: 1, exact: true })).toBeVisible();
 
       const searchA = pageA.getByPlaceholder("بحث بالاسم أو الكود...");
       await searchA.fill(nameA);

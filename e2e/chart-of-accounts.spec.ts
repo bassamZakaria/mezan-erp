@@ -4,12 +4,24 @@ import { clickSidebarItem } from "./support/nav";
 
 /**
  * Chart of Accounts screen (apps/web/src/screens/ChartOfAccountsScreen.tsx).
- * The seeded chart of accounts has grown to 93 accounts under 6 root headers (a "9000 — حسابات نظامية" system-accounts root was added alongside the original 5)
+ * The seeded chart of accounts sits under 6 root headers (a "9000 — حسابات نظامية" system-accounts root was added alongside the original 5)
  * (الأصول 1000 / الالتزامات 2000 / حقوق الملكية 3000 / الإيرادات 4000 /
  * المصروفات 5000) — every header account starts expanded, so the tree renders
  * fully open on first load. There is no posted opening-balance journal entry
  * in the seed any more, so every account's balance panel reads zero.
+ *
+ * The tenant is shared with every other spec in the run and several of them add
+ * accounts (this file, trial-balance-report), so no test here pins the total:
+ * each reads it off the screen and asserts how the shown count relates to it.
  */
+
+const ROOT_HEADERS = 6;
+
+async function footerCounts(page: Page): Promise<{ shown: number; total: number }> {
+  const text = await page.getByText(/عرض \d+ من \d+ حساب/).innerText();
+  const [shown, total] = (text.match(/\d+/g) ?? []).map(Number);
+  return { shown: shown ?? -1, total: total ?? -1 };
+}
 
 function treeRow(page: Page, nameAr: string) {
   return page.locator("table tbody tr").filter({ has: page.getByText(nameAr, { exact: true }) });
@@ -27,11 +39,18 @@ test.describe("Chart of Accounts", () => {
   });
 
   test("tree starts fully expanded, then collapses and re-expands one branch", async ({ page }) => {
-    await expect(page.getByText("عرض 100 من 100 حساب")).toBeVisible();
+    await expect.poll(async () => (await footerCounts(page)).total).toBeGreaterThan(ROOT_HEADERS);
+    await expect
+      .poll(async () => {
+        const { shown, total } = await footerCounts(page);
+        return shown === total;
+      })
+      .toBe(true);
     await expect(treeRow(page, "ذمم مدينة")).toBeVisible();
 
     await page.getByRole("button", { name: "طي الكل" }).click();
-    await expect(page.getByText("عرض 6 من 100 حساب")).toBeVisible();
+    await expect.poll(async () => (await footerCounts(page)).shown).toBe(ROOT_HEADERS);
+    await expect(page.locator("table tbody tr")).toHaveCount(ROOT_HEADERS);
     await expect(treeRow(page, "ذمم مدينة")).toBeHidden();
     await expect(treeRow(page, "الأصول")).toBeVisible();
 
@@ -57,13 +76,18 @@ test.describe("Chart of Accounts", () => {
     await expect(panel.getByRole("tab", { name: "حركات الحساب" })).toHaveAttribute("aria-selected", "true");
     await panel.getByRole("tab", { name: "سجل التدقيق" }).click();
     await expect(panel.getByRole("tab", { name: "سجل التدقيق" })).toHaveAttribute("aria-selected", "true");
-    await expect(panel.getByText("سجل التدقيق يعرض كل تعديل")).toBeVisible();
+    // The tab reads the audit ledger now (it used to be a static caption); the
+    // seed never edits this account, so the ledger has nothing to show for it.
+    await expect(panel.getByText("لم يُسجَّل أي تغيير على هذا السجل بعد.")).toBeVisible();
 
     await panel.getByRole("button", { name: "إغلاق اللوحة" }).click();
     await expect(panel).toBeHidden();
   });
 
   test("adding an account validates a duplicate code, then succeeds with a unique one", async ({ page }) => {
+    await expect.poll(async () => (await footerCounts(page)).total).toBeGreaterThan(ROOT_HEADERS);
+    const before = await footerCounts(page);
+
     await page.getByRole("button", { name: "إضافة حساب" }).click();
     const form = page.getByRole("dialog", { name: "إضافة حساب" });
     await expect(form).toBeVisible();
@@ -80,7 +104,13 @@ test.describe("Chart of Accounts", () => {
 
     await expect(form).toBeHidden();
     await expect(treeRow(page, "حساب اختبار جديد")).toBeVisible();
-    await expect(page.getByText("عرض 101 من 101 حساب")).toBeVisible();
+    await expect.poll(async () => (await footerCounts(page)).total).toBeGreaterThan(before.total);
+    await expect
+      .poll(async () => {
+        const { shown, total } = await footerCounts(page);
+        return shown === total;
+      })
+      .toBe(true);
   });
 
   test("editing an account via the row action updates its name in the tree", async ({ page }) => {

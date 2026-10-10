@@ -34,7 +34,9 @@ import { confirmRowAction, runRowAction } from "./support/row-menu";
  *    fixture (a pre-mixed Jan-Mar locked / Apr-Jul closed / Aug-Dec open
  *    grid) does not exist — every lifecycle transition below is driven by the
  *    tests, each against its own untouched month so they can run serially
- *    without clobbering each other.
+ *    without clobbering each other. Those transitions run in NEXT year, which
+ *    the block generates itself: closing a month of the current year refuses
+ *    every posting dated in it, for every other spec sharing this tenant.
  *
  * Every describe block below runs `mode: "serial"` (the pattern already used
  * by e2e/crm.spec.ts and e2e/projects-assets-field.spec.ts) because the tests
@@ -249,8 +251,14 @@ test.describe("Treasury accounts", () => {
   });
 
   test("lists the seeded treasury accounts with type and status", async ({ page }) => {
-    // 3 total (demo-seed.ts's TREASURY_ACCOUNTS + the van cash custody account).
-    await expect(page.getByText("عرض 3 من 3 حساب")).toBeVisible();
+    // demo-seed.ts's TREASURY_ACCOUNTS (cash, the EGP bank, the USD bank) plus
+    // the van cash custody account. The total is not pinned: treasury-vouchers
+    // and sales-invoices add accounts of their own to this shared tenant.
+    await expect(page.getByText(/عرض \d+ من \d+ حساب/)).toBeVisible();
+    const usdRow = row(page, "البنك الأهلي — دولار");
+    await expect(usdRow.getByText("بنكي", { exact: true })).toBeVisible();
+    await expect(usdRow.getByText("USD", { exact: true })).toBeVisible();
+    await expect(row(page, "عهدة نقدية - عربة التوزيع").getByText("نقدي", { exact: true })).toBeVisible();
     const cashRow = row(page, "الخزينة الرئيسية");
     await expect(cashRow).toBeVisible();
     await expect(cashRow.getByText("نقدي", { exact: true })).toBeVisible();
@@ -269,7 +277,7 @@ test.describe("Treasury accounts", () => {
     // Wait for the real list to load first — while it's loading, DocumentList's
     // own empty-state renders a SECOND "إضافة حساب" button alongside the
     // toolbar's, and clicking by role/name alone is ambiguous until it's gone.
-    await expect(page.getByText("عرض 3 من 3 حساب")).toBeVisible();
+    await expect(row(page, "الخزينة الرئيسية")).toBeVisible();
     await page.getByRole("button", { name: "إضافة حساب" }).click();
     const form = page.getByRole("dialog", { name: "إضافة حساب" });
     await expect(form).toBeVisible();
@@ -288,7 +296,7 @@ test.describe("Treasury accounts", () => {
     await form.getByRole("button", { name: "إضافة", exact: true }).click();
     await expect(form).toBeHidden();
 
-    await expect(page.getByText("عرض 4 من 4 حساب")).toBeVisible();
+    await expect(row(page, "صندوق تجريبي").getByText("نقدي", { exact: true })).toBeVisible();
     await row(page, "صندوق تجريبي").click();
     const panel = page.getByRole("dialog", { name: "كشف حساب — صندوق تجريبي" });
     await expect(panel).toBeVisible();
@@ -319,6 +327,37 @@ test.describe("Treasury accounts", () => {
 test.describe("Fiscal periods", () => {
   test.describe.configure({ mode: "serial" });
 
+  const CURRENT_YEAR = new Date().getUTCFullYear();
+  const SANDBOX_YEAR = CURRENT_YEAR + 1;
+
+  function yearPicker(page: Page) {
+    return page.getByRole("combobox", { name: "السنة المالية" });
+  }
+
+  async function showYear(page: Page, year: number): Promise<void> {
+    await expect(page.getByText("عرض 12 من 12 فترة")).toBeVisible();
+    if ((await yearPicker(page).innerText()).trim() !== String(year)) {
+      await chooseComboboxOption(yearPicker(page), page, String(year));
+    }
+    await expect(yearPicker(page)).toHaveText(String(year));
+  }
+
+  async function showSandboxYear(page: Page): Promise<void> {
+    await expect(page.getByText("عرض 12 من 12 فترة")).toBeVisible();
+    await yearPicker(page).click();
+    const generated = (await page.getByRole("option", { name: String(SANDBOX_YEAR), exact: true }).count()) > 0;
+    await page.keyboard.press("Escape");
+    if (!generated) {
+      const created = page.waitForResponse(
+        (r) => r.url().includes("/fiscal-periods/generate-year") && r.request().method() === "POST",
+      );
+      await page.getByRole("button", { name: "إنشاء السنة التالية" }).first().click();
+      expect((await created).status()).toBe(201);
+    }
+    await showYear(page, SANDBOX_YEAR);
+    await expect(row(page, `يناير ${SANDBOX_YEAR}`, false)).toBeVisible();
+  }
+
   test.beforeEach(async ({ page }) => {
     await loginAsDemoUser(page);
     await clickSidebarItem(page, "الفترات المالية");
@@ -326,6 +365,7 @@ test.describe("Fiscal periods", () => {
   });
 
   test("shows the current fiscal year's 12 periods, all seeded open", async ({ page }) => {
+    await showYear(page, CURRENT_YEAR);
     await expect(page.getByText("عرض 12 من 12 فترة")).toBeVisible();
     await expect(row(page, "يناير", false).getByText("مفتوحة")).toBeVisible();
     await expect(row(page, "ديسمبر", false).getByText("مفتوحة")).toBeVisible();
@@ -338,6 +378,7 @@ test.describe("Fiscal periods", () => {
   });
 
   test("an open period only offers إغلاق; closing it swaps in إعادة فتح/قفل", async ({ page }) => {
+    await showSandboxYear(page);
     const period = row(page, "أكتوبر", false); // untouched by every other test in this block
     await expect(period.getByText("مفتوحة")).toBeVisible();
     await period.getByRole("button", { name: /^إجراءات/ }).click();
@@ -358,6 +399,7 @@ test.describe("Fiscal periods", () => {
   });
 
   test("locking a closed period removes every further lifecycle action", async ({ page }) => {
+    await showSandboxYear(page);
     const period = row(page, "أبريل", false); // untouched by every other test in this block
     await period.getByRole("button", { name: /^إجراءات/ }).click();
     await period.getByRole("menuitem", { name: "إغلاق" }).click();
@@ -371,6 +413,7 @@ test.describe("Fiscal periods", () => {
   });
 
   test("a period that has been locked has no lifecycle actions after a reload", async ({ page }) => {
+    await showSandboxYear(page);
     const period = row(page, "نوفمبر", false); // untouched by every other test in this block
     await period.getByRole("button", { name: /^إجراءات/ }).click();
     await period.getByRole("menuitem", { name: "إغلاق" }).click();
@@ -381,12 +424,14 @@ test.describe("Fiscal periods", () => {
 
     await page.reload();
     await expect(page.getByRole("heading", { name: "الفترات المالية" })).toBeVisible();
+    await showYear(page, SANDBOX_YEAR);
     const reloaded = row(page, "نوفمبر", false);
     await expect(reloaded.getByText("مقفلة")).toBeVisible();
     await expect(reloaded.getByRole("button")).toHaveCount(0);
   });
 
   test("reopening a closed period restores it to open with only إغلاق available", async ({ page }) => {
+    await showSandboxYear(page);
     const period = row(page, "مايو", false); // untouched by every other test in this block
     await period.getByRole("button", { name: /^إجراءات/ }).click();
     await period.getByRole("menuitem", { name: "إغلاق" }).click();
@@ -400,5 +445,12 @@ test.describe("Fiscal periods", () => {
     await expect(period.getByRole("menuitem", { name: "إغلاق" })).toBeVisible();
     await expect(period.getByRole("menuitem", { name: "إعادة فتح" })).toHaveCount(0);
     await expect(period.getByRole("menuitem", { name: "قفل" })).toHaveCount(0);
+  });
+
+  test("none of the lifecycle transitions above touched the current year", async ({ page }) => {
+    await showYear(page, CURRENT_YEAR);
+    await expect(page.getByRole("radio", { name: "مفتوحة (12)" })).toBeVisible();
+    await expect(page.getByRole("radio", { name: "مغلقة (0)" })).toBeVisible();
+    await expect(page.getByRole("radio", { name: "مقفلة (0)" })).toBeVisible();
   });
 });

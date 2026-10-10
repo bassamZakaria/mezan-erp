@@ -58,7 +58,7 @@ async function createTreasuryAccount(page: Page, name: string, code: string): Pr
 
 async function createItem(page: Page, name: string, salePrice: string): Promise<void> {
   await clickSidebarItem(page, "الأصناف");
-  await expect(page.getByRole("heading", { name: "الأصناف" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "الأصناف", level: 1, exact: true })).toBeVisible();
   await page.getByRole("button", { name: "إضافة صنف" }).first().click();
   // Items' add/edit is a full sub-PAGE, not a dialog — and its "نوع الصنف"
   // field is a custom portaled `Select` (packages/ui/src/primitives/Select.tsx),
@@ -75,7 +75,7 @@ async function createItem(page: Page, name: string, salePrice: string): Promise<
   await price.fill(salePrice);
   await price.press("Tab");
   await page.getByRole("button", { name: "إضافة", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "الأصناف" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "الأصناف", level: 1, exact: true })).toBeVisible();
 }
 
 /** Types into an EntityPicker combobox and clicks the matching option button. */

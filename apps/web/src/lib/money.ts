@@ -43,3 +43,20 @@ export function sumMajor(values: Iterable<string | null | undefined>): number {
 export function majorOf(value: string | null | undefined): number {
   return toMajorNumber(scaledOf(value));
 }
+
+const PIASTRE_IN_SCALED = 10n ** BigInt(SCALE_DIGITS - 2);
+
+function decimalOfScaled(scaled: bigint): string {
+  const magnitude = scaled < 0n ? -scaled : scaled;
+  const unit = 10n ** BigInt(SCALE_DIGITS);
+  const fraction = (magnitude % unit).toString().padStart(SCALE_DIGITS, "0");
+  return `${scaled < 0n ? "-" : ""}${magnitude / unit}.${fraction}`;
+}
+
+export function lineTaxDecimal(unitCost: string, qty: string, ratePercent: number): string {
+  const product = scaledOf(unitCost) * scaledOf(qty) * scaledOf(String(ratePercent));
+  const perPiastre = 10n ** BigInt(SCALE_DIGITS * 3);
+  const piastres = (product + perPiastre / 2n) / perPiastre;
+  return decimalOfScaled(piastres * PIASTRE_IN_SCALED);
+}
+

@@ -36,6 +36,7 @@ import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { sourceLineOptions } from "./return-source-lines";
 import { todayIso } from "../lib/dates";
 import { EMPTY } from "../lib/empty";
+import { lineTaxDecimal } from "../lib/money";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 
 /** مرتجعات المشتريات (Purchase Returns) — docs/archive/catalog/02. Document-framework-backed (draft → confirmed, de-stocks, reduces AP). */
@@ -199,7 +200,7 @@ export function PurchaseReturnsScreen() {
     const returnLines: PurchaseReturnLineDTO[] = lines.flatMap((l) => {
       const source = returnableLines.find((sl) => sl.sourceLineId === l.sourceLineId);
       if (!source || l.qty <= 0) return [];
-      const taxAmount = ((Number(source.unitCost) * l.qty * source.taxRatePercent) / 100).toFixed(6);
+      const taxAmount = lineTaxDecimal(source.unitCost, String(l.qty), source.taxRatePercent);
       return [
         {
           itemId: source.itemId,

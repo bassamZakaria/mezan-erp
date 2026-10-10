@@ -13,6 +13,22 @@ export enum PeriodCloseCheckCode {
   EtaErrors = "eta_errors",
 }
 
+export enum PeriodCloseAction {
+  Close = "close",
+  Lock = "lock",
+}
+
+export enum PeriodStatus {
+  Open = "open",
+  Closed = "closed",
+  Locked = "locked",
+}
+
+export enum PeriodCloseCommitOutcome {
+  Committed = "committed",
+  Stale = "stale",
+}
+
 export enum PeriodCloseCheckStatus {
   Pass = "pass",
   Fail = "fail",
@@ -79,12 +95,14 @@ export enum PeriodCloseFindingState {
   Pending = "pending",
   NotFinalized = "not_finalized",
   Mismatch = "mismatch",
+  Reversed = "reversed",
 }
 
 export enum PeriodCloseEntryState {
   Missing = "missing",
   Draft = "draft",
   Posted = "posted",
+  Reversed = "reversed",
 }
 
 export interface PeriodCloseFinding {
@@ -154,9 +172,11 @@ export interface PeriodCloseRecurringDue {
   readonly entry: PeriodCloseEntryState;
 }
 
-export interface PeriodCloseDepreciationState {
-  readonly depreciableAssets: number;
-  readonly run: PeriodCloseEntryState;
+export interface PeriodCloseDepreciationGroup {
+  readonly branchId: string | null;
+  readonly dueAssets: number;
+  readonly uncoveredAssets: number;
+  readonly hasDraftRun: boolean;
 }
 
 export interface PeriodCloseSequenceGap {
@@ -169,6 +189,8 @@ export interface PeriodCloseEtaError {
   readonly internalId: string;
 }
 
+export const FX_REVALUATION_ALL_CURRENCIES = "*";
+
 export interface PeriodCloseSources {
   draftCounts(window: PeriodCloseWindow): Promise<readonly PeriodCloseDocCount[]>;
   pendingApprovalCounts(window: PeriodCloseWindow): Promise<readonly PeriodCloseDocCount[]>;
@@ -176,9 +198,9 @@ export interface PeriodCloseSources {
   trialBalance(window: PeriodCloseWindow): Promise<PeriodCloseTrialBalance>;
   bankStatements(window: PeriodCloseWindow): Promise<readonly PeriodCloseBankStatement[]>;
   foreignCurrencies(window: PeriodCloseWindow): Promise<readonly string[]>;
-  fxRevaluationPosted(window: PeriodCloseWindow): Promise<boolean>;
+  fxRevaluedCurrencies(window: PeriodCloseWindow): Promise<readonly string[]>;
   recurringDue(window: PeriodCloseWindow): Promise<readonly PeriodCloseRecurringDue[]>;
-  depreciation(window: PeriodCloseWindow): Promise<PeriodCloseDepreciationState>;
+  depreciation(window: PeriodCloseWindow): Promise<readonly PeriodCloseDepreciationGroup[]>;
   sequenceGaps(window: PeriodCloseWindow): Promise<readonly PeriodCloseSequenceGap[]>;
   etaErrors(window: PeriodCloseWindow): Promise<readonly PeriodCloseEtaError[]>;
 }

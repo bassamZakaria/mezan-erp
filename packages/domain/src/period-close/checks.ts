@@ -1,4 +1,5 @@
 import {
+  FX_REVALUATION_ALL_CURRENCIES,
   PeriodCloseCheckCode,
   PeriodCloseCheckStatus,
   PeriodCloseDocKind,
@@ -51,11 +52,14 @@ function periodMonthKey(window: PeriodCloseWindow): string {
   return window.startDate.slice(0, 7);
 }
 
-function entryFindingState(entry: PeriodCloseEntryState): PeriodCloseFindingState {
-  if (entry === PeriodCloseEntryState.Posted) return PeriodCloseFindingState.Ok;
-  if (entry === PeriodCloseEntryState.Draft) return PeriodCloseFindingState.Draft;
-  return PeriodCloseFindingState.Missing;
-}
+const ENTRY_FINDING_STATE: Readonly<Record<PeriodCloseEntryState, PeriodCloseFindingState>> = {
+  [PeriodCloseEntryState.Posted]: PeriodCloseFindingState.Ok,
+  [PeriodCloseEntryState.Draft]: PeriodCloseFindingState.Draft,
+  [PeriodCloseEntryState.Reversed]: PeriodCloseFindingState.Reversed,
+  [PeriodCloseEntryState.Missing]: PeriodCloseFindingState.Missing,
+};
+
+const GENERAL_BRANCH_REF = "general";
 
 function docCountFindings(
   counts: readonly PeriodCloseDocCount[],
@@ -96,7 +100,8 @@ const tiesCheck: PeriodCloseCheckDefinition = {
       return finding({
         kind: PeriodCloseFindingKind.Tie,
         ref: tie.key,
-        label: `${tie.label} (${tie.controlAccountId})`,
+        label: tie.label,
+        items: [tie.controlAccountId],
         state: tied ? PeriodCloseFindingState.Ok : PeriodCloseFindingState.Mismatch,
         passed: tied,
         fix: PeriodCloseFixTarget.Reconciliation,
@@ -155,19 +160,21 @@ const fxCheck: PeriodCloseCheckDefinition = {
   async evaluate(window, sources) {
     const currencies = await sources.foreignCurrencies(window);
     if (currencies.length === 0) return outcome([], false);
-    const posted = await sources.fxRevaluationPosted(window);
-    return outcome([
-      finding({
-        kind: PeriodCloseFindingKind.ForeignCurrency,
-        ref: currencies.join(","),
-        state: posted ? PeriodCloseFindingState.Ok : PeriodCloseFindingState.Missing,
-        passed: posted,
-        fix: PeriodCloseFixTarget.Revaluation,
-        count: currencies.length,
-        items: currencies,
-        asOfDate: window.endDate,
+    const revalued = new Set(await sources.fxRevaluedCurrencies(window));
+    return outcome(
+      currencies.map((currency) => {
+        const done = revalued.has(currency) || revalued.has(FX_REVALUATION_ALL_CURRENCIES);
+        return finding({
+          kind: PeriodCloseFindingKind.ForeignCurrency,
+          ref: currency,
+          label: currency,
+          state: done ? PeriodCloseFindingState.Ok : PeriodCloseFindingState.Missing,
+          passed: done,
+          fix: PeriodCloseFixTarget.Revaluation,
+          asOfDate: window.endDate,
+        });
       }),
-    ]);
+    );
   },
 };
 
@@ -181,7 +188,7 @@ const recurringCheck: PeriodCloseCheckDefinition = {
         kind: PeriodCloseFindingKind.RecurringTemplate,
         ref: `${d.templateId}:${d.periodKey}`,
         label: d.label,
-        state: entryFindingState(d.entry),
+        state: ENTRY_FINDING_STATE[d.entry],
         passed: d.entry === PeriodCloseEntryState.Posted,
         fix: d.entry === PeriodCloseEntryState.Draft ? PeriodCloseFixTarget.Journals : PeriodCloseFixTarget.RecurringJournals,
         items: [d.periodKey],
@@ -195,18 +202,22 @@ const depreciationCheck: PeriodCloseCheckDefinition = {
   code: PeriodCloseCheckCode.Depreciation,
   fix: PeriodCloseFixTarget.DepreciationRuns,
   async evaluate(window, sources) {
-    const state = await sources.depreciation(window);
-    if (state.depreciableAssets === 0) return outcome([], false);
-    return outcome([
-      finding({
+    const groups = (await sources.depreciation(window)).filter((group) => group.dueAssets > 0);
+    const findings = groups.map((group) => {
+      const covered = group.uncoveredAssets === 0;
+      const open = group.hasDraftRun ? PeriodCloseFindingState.Draft : PeriodCloseFindingState.Missing;
+      return finding({
         kind: PeriodCloseFindingKind.DepreciationRun,
-        ref: periodMonthKey(window),
-        state: entryFindingState(state.run),
-        passed: state.run === PeriodCloseEntryState.Posted,
+        ref: `${periodMonthKey(window)}:${group.branchId ?? GENERAL_BRANCH_REF}`,
+        label: group.branchId,
+        state: covered ? PeriodCloseFindingState.Ok : open,
+        passed: covered,
         fix: PeriodCloseFixTarget.DepreciationRuns,
-        count: state.depreciableAssets,
-      }),
-    ]);
+        count: covered ? group.dueAssets : group.uncoveredAssets,
+        items: [periodMonthKey(window)],
+      });
+    });
+    return outcome(findings, findings.length > 0);
   },
 };
 

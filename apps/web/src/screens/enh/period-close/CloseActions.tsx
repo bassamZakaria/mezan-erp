@@ -35,11 +35,12 @@ export interface CloseActionsProps {
   readonly checklist: PeriodCloseChecklistDTO;
   readonly action: PeriodCloseAction;
   readonly periodLabel: string;
+  readonly onStart: () => void;
   readonly onDone: (message: string) => void;
   readonly onError: (message: string) => void;
 }
 
-export function CloseActions({ checklist, action, periodLabel, onDone, onError }: CloseActionsProps) {
+export function CloseActions({ checklist, action, periodLabel, onStart, onDone, onError }: CloseActionsProps) {
   const { t } = useAppTranslation();
   const transition = usePeriodCloseTransition();
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -59,6 +60,7 @@ export function CloseActions({ checklist, action, periodLabel, onDone, onError }
   const confirm = useCallback(async () => {
     if (isPending) return;
     setDialogOpen(false);
+    onStart();
     try {
       await mutateAsync({ periodId, action, ...(needsOverride ? { overrideReason: trimmedReason } : {}) });
       setReason("");
@@ -66,7 +68,7 @@ export function CloseActions({ checklist, action, periodLabel, onDone, onError }
     } catch (err) {
       onError(errorMessage(err, t("periodClose.actionFailed")));
     }
-  }, [action, copy.done, isPending, mutateAsync, needsOverride, onDone, onError, periodId, periodLabel, t, trimmedReason]);
+  }, [action, copy.done, isPending, mutateAsync, needsOverride, onDone, onError, onStart, periodId, periodLabel, t, trimmedReason]);
 
   const onConfirm = useCallback(() => void confirm(), [confirm]);
 

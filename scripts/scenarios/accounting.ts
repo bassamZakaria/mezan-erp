@@ -310,13 +310,30 @@ export async function run(ctx: Ctx): Promise<void> {
         `status ${lockFromOpen.status} body ${JSON.stringify(lockFromOpen.body)}`,
       );
 
-      const closeFeb = await ctx.req("POST", `/fiscal-periods/${feb.id}/close`, { overrideReason: "SCN: إقفال اختباري فوق فحوص الإقفال المفتوحة" });
+      // Closed by a second identity: overriding a LOCK takes a different user from the one who closed the month.
+      const closeFeb = await ctx.req(
+        "POST",
+        `/fiscal-periods/${feb.id}/close`,
+        { overrideReason: "SCN: إقفال اختباري فوق فحوص الإقفال المفتوحة" },
+        { "x-user-id": "SCN-FEB-CLOSER" },
+      );
       ctx.check("closing February succeeds", closeFeb.status === 200 && closeFeb.body?.status === "closed", `status ${closeFeb.status}`);
       const bareLockFeb = await ctx.req("POST", `/fiscal-periods/${feb.id}/lock`, {});
       ctx.check(
         "a bare lock is held to the same pre-close checks as the close — the terminal step is not a way around them",
         bareLockFeb.status === 409 && bareLockFeb.body?.error === "PERIOD_CLOSE_BLOCKED",
         `status ${bareLockFeb.status} body ${JSON.stringify(bareLockFeb.body).slice(0, 160)}`,
+      );
+      const closerLocksFeb = await ctx.req(
+        "POST",
+        `/fiscal-periods/${feb.id}/lock`,
+        { overrideReason: "SCN: إقفال اختباري فوق فحوص الإقفال المفتوحة" },
+        { "x-user-id": "SCN-FEB-CLOSER" },
+      );
+      ctx.check(
+        "the user who closed February may not lock it over a failing check alone",
+        closerLocksFeb.status === 403 && closerLocksFeb.body?.error === "PERIOD_LOCK_OVERRIDE_SAME_USER",
+        `status ${closerLocksFeb.status} body ${JSON.stringify(closerLocksFeb.body).slice(0, 160)}`,
       );
       const lockFeb = await ctx.req("POST", `/fiscal-periods/${feb.id}/lock`, { overrideReason: "SCN: إقفال اختباري فوق فحوص الإقفال المفتوحة" });
       ctx.check("locking a closed period succeeds", lockFeb.status === 200 && lockFeb.body?.status === "locked", `status ${lockFeb.status}`);

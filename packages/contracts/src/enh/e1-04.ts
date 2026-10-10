@@ -84,12 +84,38 @@ export enum PeriodCloseFindingStateDTO {
   Pending = "pending",
   NotFinalized = "not_finalized",
   Mismatch = "mismatch",
+  Reversed = "reversed",
 }
 
 export enum PeriodCloseErrorCodeDTO {
   Blocked = "PERIOD_CLOSE_BLOCKED",
   OverrideNotPermitted = "PERIOD_CLOSE_OVERRIDE_NOT_PERMITTED",
+  LockOverrideSameUser = "PERIOD_LOCK_OVERRIDE_SAME_USER",
+  ChecksUnavailable = "PERIOD_CLOSE_CHECKS_UNAVAILABLE",
+  Unauditable = "PERIOD_CLOSE_UNAUDITABLE",
+  Contended = "PERIOD_CLOSE_CONTENDED",
 }
+
+export enum PeriodStatusDTO {
+  Open = "open",
+  Closed = "closed",
+  Locked = "locked",
+}
+
+export enum PeriodCloseTieKeyDTO {
+  Inventory = "inventory",
+  Receivables = "ar",
+  Payables = "ap",
+  RetentionReceivable = "contracting_retention_receivable",
+  RetentionPayable = "contracting_retention_payable",
+  CustomerAdvances = "contracting_customer_advances",
+  WorkInProgress = "contracting_wip",
+  Billings = "contracting_billings",
+  ContractAsset = "contracting_contract_asset",
+  ContractLiability = "contracting_contract_liability",
+}
+
+export const periodCloseTieKeySchema = z.nativeEnum(PeriodCloseTieKeyDTO);
 
 export const PERIOD_CLOSE_OVERRIDE_REASON_MIN = 10;
 export const PERIOD_CLOSE_OVERRIDE_REASON_MAX = 500;
@@ -142,10 +168,13 @@ export const periodCloseRequestSchema = z
   })
   .strict();
 
-export const periodCloseRefusalSchema = z.object({
+export const periodCloseErrorSchema = z.object({
   error: z.nativeEnum(PeriodCloseErrorCodeDTO),
   message: z.string(),
   messageEn: z.string(),
+});
+
+export const periodCloseRefusalSchema = periodCloseErrorSchema.extend({
   failedChecks: z.array(periodCloseCheckCodeSchema),
   checklist: periodCloseChecklistSchema,
 });
@@ -161,11 +190,14 @@ export const periodCloseSummarySchema = z.object({
   closingCredit: moneyString,
   accountCount: z.number().int(),
   sha256: z.string().min(1),
+  /** False when the stored row no longer hashes to its own seal, or the seal is not the one the audit trail recorded. */
+  sealValid: z.boolean(),
 });
 
 export type PeriodCloseFindingDTO = z.infer<typeof periodCloseFindingSchema>;
 export type PeriodCloseCheckDTO = z.infer<typeof periodCloseCheckSchema>;
 export type PeriodCloseChecklistDTO = z.infer<typeof periodCloseChecklistSchema>;
 export type PeriodCloseRequestDTO = z.infer<typeof periodCloseRequestSchema>;
+export type PeriodCloseErrorDTO = z.infer<typeof periodCloseErrorSchema>;
 export type PeriodCloseRefusalDTO = z.infer<typeof periodCloseRefusalSchema>;
 export type PeriodCloseSummaryDTO = z.infer<typeof periodCloseSummarySchema>;

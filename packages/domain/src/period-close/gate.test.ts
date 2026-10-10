@@ -1,35 +1,72 @@
 import { describe, expect, it } from "vitest";
-import { PeriodCloseBlockedError, PeriodCloseDecision, PeriodCloseOverrideNotPermittedError, decidePeriodClose } from "./gate.js";
-import { findSequenceGapsInWindow, SequenceSpanTooWideError } from "./sequence-gaps.js";
-import { PeriodCloseCheckCode } from "./types.js";
+import {
+  PeriodCloseBlockedError,
+  PeriodCloseChecksUnavailableError,
+  PeriodCloseContendedError,
+  PeriodCloseDecision,
+  PeriodCloseErrorCode,
+  PeriodCloseOverrideNotPermittedError,
+  PeriodCloseUnauditableError,
+  PeriodLockOverrideSameUserError,
+  decidePeriodClose,
+} from "./gate.js";
+import { findSequenceGapsInWindow, seriesRangesInWindow, SequenceSpanTooWideError } from "./sequence-gaps.js";
+import { PeriodCloseAction, PeriodCloseCheckCode } from "./types.js";
 
 const BLOCKING = [PeriodCloseCheckCode.Drafts, PeriodCloseCheckCode.BankStatements];
 const REASON = "اعتماد المدير المالي لإقفال مبكر";
 
+const CLOSE = { action: PeriodCloseAction.Close, actor: "U-1", closedBy: null, singleOperatorMode: false } as const;
+const LOCK = { action: PeriodCloseAction.Lock, actor: "U-1", singleOperatorMode: false } as const;
+
 describe("decidePeriodClose", () => {
   it("allows a clear period, with or without a reason, whoever asks", () => {
     for (const canOverride of [true, false]) {
-      expect(decidePeriodClose({ blocking: [], overrideReason: null, canOverride })).toBe(PeriodCloseDecision.Allowed);
-      expect(decidePeriodClose({ blocking: [], overrideReason: REASON, canOverride })).toBe(PeriodCloseDecision.Allowed);
+      expect(decidePeriodClose({ ...CLOSE, blocking: [], overrideReason: null, canOverride })).toBe(PeriodCloseDecision.Allowed);
+      expect(decidePeriodClose({ ...CLOSE, blocking: [], overrideReason: REASON, canOverride })).toBe(PeriodCloseDecision.Allowed);
+      expect(decidePeriodClose({ ...LOCK, closedBy: "U-1", blocking: [], overrideReason: null, canOverride })).toBe(PeriodCloseDecision.Allowed);
     }
   });
 
   it("blocks a failing period when no reason is given — holding the permission is not itself an override", () => {
-    expect(decidePeriodClose({ blocking: BLOCKING, overrideReason: null, canOverride: true })).toBe(PeriodCloseDecision.Blocked);
-    expect(decidePeriodClose({ blocking: BLOCKING, overrideReason: null, canOverride: false })).toBe(PeriodCloseDecision.Blocked);
+    expect(decidePeriodClose({ ...CLOSE, blocking: BLOCKING, overrideReason: null, canOverride: true })).toBe(PeriodCloseDecision.Blocked);
+    expect(decidePeriodClose({ ...CLOSE, blocking: BLOCKING, overrideReason: null, canOverride: false })).toBe(PeriodCloseDecision.Blocked);
   });
 
-  it("a reason overrides only for a caller who holds the override permission", () => {
-    expect(decidePeriodClose({ blocking: BLOCKING, overrideReason: REASON, canOverride: true })).toBe(PeriodCloseDecision.Overridden);
-    expect(decidePeriodClose({ blocking: BLOCKING, overrideReason: REASON, canOverride: false })).toBe(PeriodCloseDecision.OverrideNotPermitted);
+  it("a reason overrides a CLOSE only for a caller who holds the override permission, and one person is enough", () => {
+    expect(decidePeriodClose({ ...CLOSE, blocking: BLOCKING, overrideReason: REASON, canOverride: true })).toBe(PeriodCloseDecision.Overridden);
+    expect(decidePeriodClose({ ...CLOSE, blocking: BLOCKING, overrideReason: REASON, canOverride: false })).toBe(PeriodCloseDecision.OverrideNotPermitted);
   });
 
-  it("both refusals speak Arabic first and carry an English twin", () => {
-    for (const error of [new PeriodCloseBlockedError("fp-2026-06", BLOCKING), new PeriodCloseOverrideNotPermittedError("fp-2026-06", BLOCKING)]) {
-      expect(error.message).toMatch(/[؀-ۿ]/);
+  it("overriding a LOCK takes a different user from the one who closed the period", () => {
+    const override = { ...LOCK, blocking: BLOCKING, overrideReason: REASON, canOverride: true };
+    expect(decidePeriodClose({ ...override, closedBy: "U-1" })).toBe(PeriodCloseDecision.LockOverrideNeedsSecondPerson);
+    expect(decidePeriodClose({ ...override, closedBy: "U-2" })).toBe(PeriodCloseDecision.Overridden);
+    expect(decidePeriodClose({ ...override, closedBy: null })).toBe(PeriodCloseDecision.LockOverrideNeedsSecondPerson);
+    expect(decidePeriodClose({ ...override, closedBy: "U-1", canOverride: false })).toBe(PeriodCloseDecision.OverrideNotPermitted);
+  });
+
+  it("the tenant's single-operator switch is the only thing that lets the closer lock over a failing check", () => {
+    const override = { ...LOCK, blocking: BLOCKING, overrideReason: REASON, canOverride: true, closedBy: "U-1" };
+    expect(decidePeriodClose({ ...override, singleOperatorMode: true })).toBe(PeriodCloseDecision.Overridden);
+    expect(decidePeriodClose({ ...override, singleOperatorMode: true, canOverride: false })).toBe(PeriodCloseDecision.OverrideNotPermitted);
+  });
+
+  it("every refusal speaks Arabic first, carries an English twin and a stable code", () => {
+    const refusals = [
+      new PeriodCloseBlockedError("fp-2026-06", BLOCKING),
+      new PeriodCloseOverrideNotPermittedError("fp-2026-06", BLOCKING),
+      new PeriodLockOverrideSameUserError("fp-2026-06", BLOCKING),
+      new PeriodCloseChecksUnavailableError("fp-2026-06"),
+      new PeriodCloseUnauditableError("fp-2026-06"),
+      new PeriodCloseContendedError("fp-2026-06"),
+    ];
+    for (const error of refusals) {
+      expect(error.message).toMatch(/[\u0600-\u06FF]/);
       expect(error.messageEn).toMatch(/^[\x20-\x7E“”]+$/);
-      expect(error.blocking).toEqual(BLOCKING);
     }
+    expect(new Set(refusals.map((e) => e.code)).size).toBe(refusals.length);
+    expect(refusals.map((e) => e.code).sort()).toEqual(Object.values(PeriodCloseErrorCode).sort());
   });
 });
 
@@ -73,6 +110,21 @@ describe("findSequenceGapsInWindow", () => {
       JUNE,
     );
     expect(gaps).toEqual([{ series: "RV-#", missing: ["RV-002"] }]);
+  });
+
+  it("reads numbers as numbers: a series that outgrows its padding has no gap where the next number is dated in another month", () => {
+    const gaps = findSequenceGapsInWindow(
+      [
+        { number: "INV-9999", date: "2026-06-29" },
+        { number: "INV-10000", date: "2026-07-01" },
+        { number: "INV-10001", date: "2026-06-30" },
+      ],
+      JUNE,
+    );
+    expect(gaps).toEqual([]);
+    expect(seriesRangesInWindow([{ number: "INV-9999", date: "2026-06-29" }, { number: "INV-10001", date: "2026-06-30" }], JUNE)).toEqual([
+      { prefix: "INV-", suffix: "", low: 9999, high: 10001 },
+    ]);
   });
 
   it("refuses to guess when one period spans more numbers than it can enumerate", () => {

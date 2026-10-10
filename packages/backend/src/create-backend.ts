@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import {
   createApp,
+  createPeriodCloseGuardSlot,
   createLoginThrottle,
   createSessionAuthContextResolver,
   createSessionRegistry,
@@ -220,6 +221,7 @@ import {
   createSqliteBarcodeConfigStore,
   createSqliteUserPreferencesStore,
   createSqliteAuditSink,
+  createSqlitePeriodCloseStore,
   deriveAuditChainKey,
   createSqliteLabelLayoutStore,
   createSqliteSequenceConfigStore,
@@ -692,6 +694,8 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   };
   const treasuryAccounts = createSqliteTreasuryAccountRepository(sqlite);
   const fiscalPeriods = createSqliteFiscalPeriodRepository(sqlite);
+  const periodCloseGuard = createPeriodCloseGuardSlot();
+  const fxRevaluationRuns = createSqlitePeriodCloseStore(sqlite).fxRuns;
   const ledger = createSqliteLedgerStore(sqlite, sequenceConfig);
   const priceLists = createSqlitePriceListStore(sqlite);
   const promotions = createSqlitePromotionStore(sqlite);
@@ -3021,6 +3025,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     costCenterRepo: costCenters,
     treasuryAccountRepo: treasuryAccounts,
     fiscalPeriodRepo: fiscalPeriods,
+    periodCloseGuard: periodCloseGuard.source,
     hasher,
     inventory: {
       service: stockService,
@@ -3322,6 +3327,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     exchangeRateRepo: exchangeRates,
     costCenterPl: { ledger, accounts, costCenters },
     fxRevaluation: {
+      recordRun: (run) => fxRevaluationRuns.record(run),
       ledger,
       accounts,
       periods: fiscalPeriods,
@@ -4122,6 +4128,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       sequenceCounters,
     },
     reconciliationControls: resolveReconciliationControls,
+    periodCloseGuard,
     addCloser: (closer) => areaClosers.push(closer),
   };
   await mountPos(areaContext);

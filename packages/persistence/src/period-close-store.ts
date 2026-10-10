@@ -1,9 +1,13 @@
 import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
 import {
-  FX_REVALUATION_DOC_TYPE,
+  BASE_CURRENCY,
   Money,
+  PeriodCloseCommitOutcome,
   PeriodCloseDocKind,
+  nextDay,
+  seriesRangesInWindow,
+  type AuditEvent,
   type NumberedDocument,
   type PeriodCloseCheckCode,
   type PeriodCloseCheckResult,
@@ -136,6 +140,10 @@ class SqlitePeriodCloseSummaryRepository implements PeriodCloseSummaryRepository
   }
 
   async save(summary: PeriodCloseSummary): Promise<void> {
+    this.insertSync(summary);
+  }
+
+  insertSync(summary: PeriodCloseSummary): void {
     const totals: WireTotals = {
       closingDebit: summary.totals.closingDebit.toString(),
       closingCredit: summary.totals.closingCredit.toString(),
@@ -195,34 +203,93 @@ const DOC_SOURCES: readonly DocSource[] = [
   { kind: PeriodCloseDocKind.WritedownRun, table: "writedown_run", byPeriodKey: true },
 ];
 
-const DRAFT_STATUS = "draft";
-const PENDING_STATUS = "pending";
-const UNPOSTED_PAYROLL_STATUSES = ["draft", "calculated"] as const;
-const LEDGER_EFFECTIVE_STATUSES = ["posted", "reversed"] as const;
-const ETA_ERROR_STATUS = "error";
+enum StoredStatus {
+  Draft = "draft",
+  Pending = "pending",
+  Calculated = "calculated",
+  Posted = "posted",
+  Reversed = "reversed",
+  EtaError = "error",
+  StatementCompleted = "completed",
+}
+
+const FISCAL_PERIOD_ENTITY = "FISCAL_PERIOD";
+const UNPOSTED_PAYROLL_STATUSES = [StoredStatus.Draft, StoredStatus.Calculated] as const;
+const LEDGER_EFFECTIVE_STATUSES = [StoredStatus.Posted, StoredStatus.Reversed] as const;
+
+const CREATE_FX_RUN = `
+CREATE TABLE IF NOT EXISTS fx_revaluation_run (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  as_of_date  TEXT NOT NULL,
+  currency    TEXT NOT NULL,
+  entry_id    TEXT,
+  ran_by      TEXT NOT NULL,
+  ran_at      TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_fx_revaluation_run_date ON fx_revaluation_run(as_of_date, currency);
+`;
+
+export interface FxRevaluationRunRecord {
+  readonly asOfDate: string;
+  readonly currencies: readonly string[];
+  readonly entryId: string | null;
+  readonly ranBy: string;
+  readonly ranAt: string;
+}
+
+export interface FxRevaluationRunLog {
+  record(run: FxRevaluationRunRecord): void;
+  currenciesRevaluedAsOf(asOfDate: string): string[];
+}
+
+export interface PeriodCloseBankStatementRow {
+  readonly statementId: string;
+  readonly statementNumber: string | null;
+  readonly treasuryAccountName: string | null;
+  readonly periodEnd: string;
+  readonly finalized: boolean;
+}
+
+export interface PeriodCloseRecurringRunRow {
+  readonly templateId: string;
+  readonly period: string;
+  readonly entryStatus: string | null;
+}
+
+export interface PeriodCloseRecurringSkipRow {
+  readonly templateId: string;
+  readonly period: string;
+}
+
+export interface PeriodCloseFxLineGroup {
+  readonly accountId: string;
+  readonly currency: string;
+  readonly fxRate: string;
+  readonly memo: string | null;
+  readonly debit: Money;
+  readonly credit: Money;
+}
 
 export interface PeriodCloseQueries {
   draftCounts(window: PeriodCloseWindow): PeriodCloseDocCount[];
   pendingApprovalCounts(window: PeriodCloseWindow): PeriodCloseDocCount[];
   numberedDocuments(window: PeriodCloseWindow): { kind: PeriodCloseDocKind; documents: NumberedDocument[] }[];
-  fxRevaluationEntries(window: PeriodCloseWindow): number;
-  journalEntryStatus(id: string): string | null;
+  bankStatementsOverlapping(window: PeriodCloseWindow): PeriodCloseBankStatementRow[];
+  recurringRuns(): PeriodCloseRecurringRunRow[];
+  recurringSkips(): PeriodCloseRecurringSkipRow[];
+  openFxLineGroups(toDate: string): PeriodCloseFxLineGroup[];
+  foreignTreasuryCurrencies(toDate: string): string[];
   etaErrorIds(window: PeriodCloseWindow): string[];
+  auditedSeals(periodId: string): string[];
 }
 
 function placeholders(values: readonly unknown[]): string {
   return values.map(() => "?").join(", ");
 }
 
-function dayAfter(isoDay: string): string {
-  const next = new Date(`${isoDay}T00:00:00Z`);
-  next.setUTCDate(next.getUTCDate() + 1);
-  return next.toISOString().slice(0, 10);
-}
-
 // Table and column names below come only from DOC_SOURCES, never from a caller; every value is bound.
 function createQueries(sqlite: Database.Database): PeriodCloseQueries {
-  function countByStatus(source: DocSource, status: string, window: PeriodCloseWindow): number {
+  function countByStatus(source: DocSource, status: StoredStatus, window: PeriodCloseWindow): number {
     const typeClause = source.docType ? " AND doc_type = ?" : "";
     const typeParams = source.docType ? [source.docType] : [];
     const row = source.byPeriodKey
@@ -231,7 +298,7 @@ function createQueries(sqlite: Database.Database): PeriodCloseQueries {
           .get(status, ...typeParams, window.startDate.slice(0, 7))
       : sqlite
           .prepare(`SELECT COUNT(*) AS n FROM ${source.table} WHERE status = ?${typeClause} AND date >= ? AND date < ?`)
-          .get(status, ...typeParams, window.startDate, dayAfter(window.endDate));
+          .get(status, ...typeParams, window.startDate, nextDay(window.endDate));
     return (row as { n: number }).n;
   }
 
@@ -246,74 +313,210 @@ function createQueries(sqlite: Database.Database): PeriodCloseQueries {
 
   return {
     draftCounts(window) {
-      const counts = DOC_SOURCES.map((source) => ({ kind: source.kind, count: countByStatus(source, DRAFT_STATUS, window) }));
+      const counts = DOC_SOURCES.map((source) => ({ kind: source.kind, count: countByStatus(source, StoredStatus.Draft, window) }));
       counts.push({ kind: PeriodCloseDocKind.PayrollRun, count: unpostedPayrollRuns(window) });
       return counts;
     },
     pendingApprovalCounts(window) {
       return DOC_SOURCES.filter((source) => source.holdsForApproval).map((source) => ({
         kind: source.kind,
-        count: countByStatus(source, PENDING_STATUS, window),
+        count: countByStatus(source, StoredStatus.Pending, window),
       }));
     },
-    // Every document whose number falls between the period's lowest and highest number, whatever its date:
-    // a number used by a document dated in another month is not a gap in this one.
+    // The period's own documents, plus every document of the same series whose NUMBER falls between the period's
+    // lowest and highest — compared as numbers, so a series that outgrows its padding is still read in order.
     numberedDocuments(window) {
       const from = window.startDate;
-      const before = dayAfter(window.endDate);
+      const before = nextDay(window.endDate);
       return DOC_SOURCES.flatMap((source) => {
         const column = source.numberColumn;
         if (!column) return [];
         const typeClause = source.docType ? " AND doc_type = ?" : "";
         const typeParams = source.docType ? [source.docType] : [];
-        const numbered = `${column} IS NOT NULL AND ${column} <> ''${typeClause}`;
-        const inWindow = `FROM ${source.table} WHERE ${numbered} AND date >= ? AND date < ?`;
-        const documents = sqlite
-          .prepare(
-            `SELECT ${column} AS number, substr(date, 1, 10) AS date FROM ${source.table}
-              WHERE ${numbered}
-                AND ${column} >= (SELECT MIN(${column}) ${inWindow})
-                AND ${column} <= (SELECT MAX(${column}) ${inWindow})`,
-          )
-          .all(...typeParams, ...typeParams, from, before, ...typeParams, from, before) as NumberedDocument[];
+        const select = `SELECT ${column} AS number, substr(date, 1, 10) AS date FROM ${source.table} WHERE ${column} IS NOT NULL AND ${column} <> ''${typeClause}`;
+        const documents = sqlite.prepare(`${select} AND date >= ? AND date < ?`).all(...typeParams, from, before) as NumberedDocument[];
+        const outsideWindow = sqlite.prepare(
+          `${select} AND substr(${column}, 1, ?) = ? AND CAST(substr(${column}, ?) AS INTEGER) BETWEEN ? AND ? AND NOT (date >= ? AND date < ?)`,
+        );
+        for (const range of seriesRangesInWindow(documents, window)) {
+          const rows = outsideWindow.all(...typeParams, range.prefix.length, range.prefix, range.prefix.length + 1, range.low, range.high, from, before);
+          documents.push(...(rows as NumberedDocument[]));
+        }
         return [{ kind: source.kind, documents }];
       });
     },
-    fxRevaluationEntries(window) {
-      const row = sqlite
-        .prepare(
-          `SELECT COUNT(*) AS n FROM journal_entry WHERE source_doc_type = ? AND reverses_entry_id IS NULL AND status IN (${placeholders(LEDGER_EFFECTIVE_STATUSES)}) AND date >= ? AND date < ?`,
-        )
-        .get(FX_REVALUATION_DOC_TYPE, ...LEDGER_EFFECTIVE_STATUSES, window.startDate, dayAfter(window.endDate)) as { n: number };
-      return row.n;
-    },
-    journalEntryStatus(id) {
-      const row = sqlite.prepare(`SELECT status FROM journal_entry WHERE id = ?`).get(id) as { status: string } | undefined;
-      return row?.status ?? null;
-    },
-    etaErrorIds(window) {
+    bankStatementsOverlapping(window) {
       const rows = sqlite
         .prepare(
-          `SELECT internal_id FROM eta_submission WHERE status = ? AND created_at >= ? AND created_at < ? ORDER BY internal_id`,
+          `SELECT s.id, s.statement_number, s.period_end, s.status, ta.name AS account_name
+             FROM bank_statement s
+             LEFT JOIN treasury_account ta ON ta.id = s.treasury_account_id
+            WHERE s.period_start <= ? AND s.period_end >= ?
+            ORDER BY s.period_end, s.id`,
         )
-        .all(ETA_ERROR_STATUS, window.startDate, dayAfter(window.endDate)) as { internal_id: string }[];
+        .all(window.endDate, window.startDate) as { id: string; statement_number: string | null; period_end: string; status: string; account_name: string | null }[];
+      return rows.map((row) => ({
+        statementId: row.id,
+        statementNumber: row.statement_number,
+        treasuryAccountName: row.account_name,
+        periodEnd: row.period_end,
+        finalized: row.status === StoredStatus.StatementCompleted,
+      }));
+    },
+    recurringRuns() {
+      const rows = sqlite
+        .prepare(
+          `SELECT r.template_id, r.period, je.status FROM recurring_journal_run r LEFT JOIN journal_entry je ON je.id = r.journal_entry_id`,
+        )
+        .all() as { template_id: string; period: string; status: string | null }[];
+      return rows.map((row) => ({ templateId: row.template_id, period: row.period, entryStatus: row.status }));
+    },
+    recurringSkips() {
+      const rows = sqlite.prepare(`SELECT template_id, period FROM recurring_journal_skip`).all() as { template_id: string; period: string }[];
+      return rows.map((row) => ({ templateId: row.template_id, period: row.period }));
+    },
+    openFxLineGroups(toDate) {
+      const rows = sqlite
+        .prepare(
+          `SELECT jl.account_id, jl.currency, jl.fx_rate, jl.memo, SUM(jl.debit) AS debit, SUM(jl.credit) AS credit
+             FROM journal_line jl
+             JOIN journal_entry je ON je.id = jl.entry_id
+            WHERE jl.currency IS NOT NULL AND jl.currency <> ? AND jl.fx_rate IS NOT NULL
+              AND je.status IN (${placeholders(LEDGER_EFFECTIVE_STATUSES)}) AND je.date < ?
+            GROUP BY jl.account_id, jl.currency, jl.fx_rate, jl.memo`,
+        )
+        .safeIntegers()
+        .all(BASE_CURRENCY, ...LEDGER_EFFECTIVE_STATUSES, nextDay(toDate)) as {
+        account_id: string;
+        currency: string;
+        fx_rate: string;
+        memo: string | null;
+        debit: bigint;
+        credit: bigint;
+      }[];
+      return rows.map((row) => ({
+        accountId: row.account_id,
+        currency: row.currency,
+        fxRate: row.fx_rate,
+        memo: row.memo,
+        debit: Money.fromScaled(row.debit),
+        credit: Money.fromScaled(row.credit),
+      }));
+    },
+    foreignTreasuryCurrencies(toDate) {
+      const rows = sqlite
+        .prepare(
+          `SELECT ta.currency AS currency
+             FROM treasury_account ta
+             JOIN journal_line jl ON jl.account_id = ta.gl_account_id
+             JOIN journal_entry je ON je.id = jl.entry_id
+            WHERE ta.currency <> ? AND je.status IN (${placeholders(LEDGER_EFFECTIVE_STATUSES)}) AND je.date < ?
+            GROUP BY ta.currency
+           HAVING SUM(jl.debit) <> SUM(jl.credit)
+            ORDER BY ta.currency`,
+        )
+        .all(BASE_CURRENCY, ...LEDGER_EFFECTIVE_STATUSES, nextDay(toDate)) as { currency: string }[];
+      return rows.map((row) => row.currency);
+    },
+    // Scoped by the DOCUMENT's date: a June invoice whose submission fails in July is June's problem.
+    etaErrorIds(window) {
+      const documentDate = `COALESCE(si.date, fd.date, e.created_at)`;
+      const rows = sqlite
+        .prepare(
+          `SELECT e.internal_id
+             FROM eta_submission e
+             LEFT JOIN sales_invoice si ON si.id = e.internal_id
+             LEFT JOIN framework_document fd ON fd.id = e.internal_id
+            WHERE e.status = ? AND ${documentDate} >= ? AND ${documentDate} < ?
+            ORDER BY e.internal_id`,
+        )
+        .all(StoredStatus.EtaError, window.startDate, nextDay(window.endDate)) as { internal_id: string }[];
       return rows.map((r) => r.internal_id);
     },
+    auditedSeals(periodId) {
+      const rows = sqlite
+        .prepare(
+          `SELECT json_extract(details, '$.sha256') AS seal FROM audit_event WHERE entity_type = ? AND entity_id = ? AND json_extract(details, '$.sha256') IS NOT NULL`,
+        )
+        .all(FISCAL_PERIOD_ENTITY, periodId) as { seal: string }[];
+      return rows.map((row) => row.seal);
+    },
   };
+}
+
+function createFxRunLog(sqlite: Database.Database): FxRevaluationRunLog {
+  const insert = sqlite.prepare(`INSERT INTO fx_revaluation_run (as_of_date, currency, entry_id, ran_by, ran_at) VALUES (?, ?, ?, ?, ?)`);
+  const revalued = sqlite.prepare(`SELECT DISTINCT currency FROM fx_revaluation_run WHERE as_of_date = ? ORDER BY currency`);
+  const recordAll = sqlite.transaction((run: FxRevaluationRunRecord) => {
+    for (const currency of run.currencies) insert.run(run.asOfDate, currency, run.entryId, run.ranBy, run.ranAt);
+  });
+  return {
+    record: (run) => recordAll(run),
+    currenciesRevaluedAsOf: (asOfDate) => (revalued.all(asOfDate) as { currency: string }[]).map((row) => row.currency),
+  };
+}
+
+export interface PeriodCloseCommit {
+  readonly changeToken: number;
+  readonly periodId: string;
+  readonly fromStatus: string;
+  readonly toStatus: string;
+  readonly summary: PeriodCloseSummary | null;
+  readonly auditEvent: AuditEvent;
+  readonly appendAudit: (event: AuditEvent) => void;
+}
+
+/**
+ * The close's critical section. `changeToken` is SQLite's `total_changes()` for
+ * the ONE connection every store shares: if it is unchanged between the moment
+ * the checks were read and the moment `commit` runs, no row anywhere was
+ * written in between, so the checklist that was judged is still the truth.
+ * `commit` re-reads it, moves the period, writes the summary and the audit row
+ * in a single synchronous transaction (a savepoint when one is already open),
+ * and reports `Stale` — having written nothing — when anything moved.
+ */
+export interface PeriodCloseCriticalSection {
+  changeToken(): number;
+  commit(input: PeriodCloseCommit): PeriodCloseCommitOutcome;
+}
+
+function createCriticalSection(sqlite: Database.Database, summaries: SqlitePeriodCloseSummaryRepository): PeriodCloseCriticalSection {
+  const totalChanges = sqlite.prepare(`SELECT total_changes() AS n`);
+  const statusOf = sqlite.prepare(`SELECT status FROM fiscal_period WHERE id = ?`);
+  const move = sqlite.prepare(`UPDATE fiscal_period SET status = ? WHERE id = ? AND status = ?`);
+  const changeToken = (): number => (totalChanges.get() as { n: number }).n;
+
+  const commit = sqlite.transaction((input: PeriodCloseCommit): PeriodCloseCommitOutcome => {
+    if (changeToken() !== input.changeToken) return PeriodCloseCommitOutcome.Stale;
+    const current = statusOf.get(input.periodId) as { status: string } | undefined;
+    if (current?.status !== input.fromStatus) return PeriodCloseCommitOutcome.Stale;
+    move.run(input.toStatus, input.periodId, input.fromStatus);
+    if (input.summary) summaries.insertSync(input.summary);
+    input.appendAudit(input.auditEvent);
+    return PeriodCloseCommitOutcome.Committed;
+  });
+
+  return { changeToken, commit: (input) => commit(input) };
 }
 
 export interface SqlitePeriodCloseStoreHandle {
   readonly summaries: PeriodCloseSummaryRepository;
   readonly queries: PeriodCloseQueries;
+  readonly fxRuns: FxRevaluationRunLog;
+  readonly critical: PeriodCloseCriticalSection;
   close(): void;
 }
 
 export function createSqlitePeriodCloseStore(path: SqliteConnectionInput = ":memory:"): SqlitePeriodCloseStoreHandle {
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.exec(CREATE_SUMMARY);
+  sqlite.exec(CREATE_FX_RUN);
+  const summaries = new SqlitePeriodCloseSummaryRepository(sqlite);
   return {
-    summaries: new SqlitePeriodCloseSummaryRepository(sqlite),
+    summaries,
     queries: createQueries(sqlite),
+    fxRuns: createFxRunLog(sqlite),
+    critical: createCriticalSection(sqlite, summaries),
     close: () => {
       if (owned) sqlite.close();
     },

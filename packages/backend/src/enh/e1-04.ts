@@ -1,53 +1,54 @@
-import { createHash, randomUUID } from "node:crypto";
-import { createPeriodCloseRoutes, reconcileControls, registerPeriodCloseGuard, type PeriodCloseGuard, type PeriodCloseRecord } from "@mezan/api";
+import { randomUUID } from "node:crypto";
+import {
+  createPeriodCloseGuard,
+  createPeriodCloseRoutes,
+  reconcileControls,
+  sealPeriodCloseSummary,
+  verifyPeriodCloseSeal,
+  type PeriodCloseSummaryInput,
+} from "@mezan/api";
 import {
   Money,
   PeriodCloseEntryState,
   buildTrialBalanceSnapshot,
-  canonicalCloseSummary,
+  computeMonthlyDepreciation,
+  createDefaultSettings,
+  dayBefore,
   deriveOpenFxBalances,
   duePeriods,
   evaluatePeriodClose,
   findSequenceGapsInWindow,
   journalDateForPeriod,
+  type Asset,
   type LedgerRepository,
+  type PeriodCloseDepreciationGroup,
   type PeriodCloseSources,
+  type PeriodCloseSummary,
   type PeriodCloseWindow,
+  type PostedLine,
   type UnsignedPeriodCloseSummary,
 } from "@mezan/domain";
 import {
   createSqliteAssetRepository,
-  createSqliteBankReconciliationStore,
   createSqliteDepreciationRunRepository,
   createSqlitePeriodCloseStore,
-  createSqliteRecurringJournalRunRepository,
-  createSqliteRecurringJournalSkipRepository,
   createSqliteRecurringJournalTemplateRepository,
+  type PeriodCloseFxLineGroup,
 } from "@mezan/persistence";
 import type { BackendArea, BackendModuleContext } from "../module-context.js";
 
-const DEPRECIABLE_ASSET_STATUSES: ReadonlySet<string> = new Set(["active", "under_maintenance"]);
-const LEDGER_EFFECTIVE_ENTRY_STATUSES: ReadonlySet<string> = new Set(["posted", "reversed"]);
-const FINALIZED_STATEMENT_STATUS = "completed";
-
-function today(): string {
-  return new Date().toISOString().slice(0, 10);
+enum SourceStatus {
+  Active = "active",
+  Draft = "draft",
+  Posted = "posted",
+  Reversed = "reversed",
 }
 
-function dayBefore(isoDay: string): string {
-  const previous = new Date(`${isoDay}T00:00:00Z`);
-  previous.setUTCDate(previous.getUTCDate() - 1);
-  return previous.toISOString().slice(0, 10);
+enum AssetScope {
+  Branch = "branch",
 }
 
-function withinWindow(date: string, window: PeriodCloseWindow): boolean {
-  return date >= window.startDate && date <= window.endDate;
-}
-
-function entryStateOf(status: string | null): PeriodCloseEntryState {
-  if (status === null) return PeriodCloseEntryState.Missing;
-  return LEDGER_EFFECTIVE_ENTRY_STATUSES.has(status) ? PeriodCloseEntryState.Posted : PeriodCloseEntryState.Draft;
-}
+const SYSTEM_SOURCE = "system";
 
 class LedgerAggregatesUnavailableError extends Error {
   constructor(readonly capability: string) {
@@ -56,34 +57,72 @@ class LedgerAggregatesUnavailableError extends Error {
   }
 }
 
-function ledgerReads(ledger: LedgerRepository) {
-  const { accountBalances, listLines } = ledger;
+function ledgerBalances(ledger: LedgerRepository) {
+  const { accountBalances } = ledger;
   if (!accountBalances) throw new LedgerAggregatesUnavailableError("accountBalances");
-  if (!listLines) throw new LedgerAggregatesUnavailableError("listLines");
-  return { accountBalances: accountBalances.bind(ledger), listLines: listLines.bind(ledger) };
+  return accountBalances.bind(ledger);
 }
 
-function buildSources(ctx: BackendModuleContext, closers: { close(): void }[]): PeriodCloseSources & { readonly store: ReturnType<typeof createSqlitePeriodCloseStore> } {
+function withinWindow(date: string, window: PeriodCloseWindow): boolean {
+  return date >= window.startDate && date <= window.endDate;
+}
+
+// A recurring entry that was posted and then reversed is NOT in the books for its period, unlike an FX revaluation whose reversal is the design.
+function recurringEntryState(status: string | null | undefined): PeriodCloseEntryState {
+  if (status === SourceStatus.Posted) return PeriodCloseEntryState.Posted;
+  if (status === SourceStatus.Reversed) return PeriodCloseEntryState.Reversed;
+  if (status === SourceStatus.Draft) return PeriodCloseEntryState.Draft;
+  return PeriodCloseEntryState.Missing;
+}
+
+function pairKey(templateId: string, period: string): string {
+  return JSON.stringify([templateId, period]);
+}
+
+function asPostedLine(group: PeriodCloseFxLineGroup, date: string): PostedLine {
+  return {
+    entryId: "",
+    entryNo: null,
+    date,
+    source: SYSTEM_SOURCE,
+    accountId: group.accountId,
+    costCenterId: null,
+    projectId: null,
+    costCategory: null,
+    branchId: null,
+    currency: group.currency,
+    fxRate: group.fxRate,
+    memo: group.memo,
+    debit: group.debit,
+    credit: group.credit,
+  };
+}
+
+function depreciationBranch(asset: Asset): string | null {
+  return asset.scope === AssetScope.Branch ? asset.branchId : null;
+}
+
+function buildSources(ctx: BackendModuleContext, store: ReturnType<typeof createSqlitePeriodCloseStore>, closers: { close(): void }[]): PeriodCloseSources {
   const { sqlite, stores } = ctx;
-  const store = createSqlitePeriodCloseStore(sqlite);
-  const bankStatements = createSqliteBankReconciliationStore(sqlite);
   const templates = createSqliteRecurringJournalTemplateRepository(sqlite);
-  const runs = createSqliteRecurringJournalRunRepository(sqlite);
-  const skips = createSqliteRecurringJournalSkipRepository(sqlite);
   const assets = createSqliteAssetRepository(sqlite);
   const depreciationRuns = createSqliteDepreciationRunRepository(sqlite);
-  closers.push(store, bankStatements, templates, runs, skips, assets, depreciationRuns);
-  const { queries } = store;
-  const ledger = ledgerReads(stores.ledger);
+  closers.push(templates, assets, depreciationRuns);
+  const { queries, fxRuns } = store;
+  const accountBalances = ledgerBalances(stores.ledger);
+
+  async function foreignCurrencies(window: PeriodCloseWindow): Promise<string[]> {
+    const lines = queries.openFxLineGroups(window.endDate).map((group) => asPostedLine(group, window.endDate));
+    const open = deriveOpenFxBalances(lines, await stores.accounts.list()).filter((balance) => balance.foreignAmount.scaled !== 0n);
+    return [...new Set([...open.map((balance) => balance.currency), ...queries.foreignTreasuryCurrencies(window.endDate)])].sort();
+  }
 
   return {
-    store,
     draftCounts: async (window) => queries.draftCounts(window),
     pendingApprovalCounts: async (window) => queries.pendingApprovalCounts(window),
 
-    // Live balances, as `/reconciliation` states them: a sub-ledger has no as-of-date replay, so the tie is "now", and says so.
     async subledgerTies() {
-      const asOfDate = today();
+      const asOfDate = new Date().toISOString().slice(0, 10);
       const summary = await reconcileControls(stores.ledger, await ctx.reconciliationControls());
       return summary.rows.map((row) => ({
         key: row.key,
@@ -97,7 +136,7 @@ function buildSources(ctx: BackendModuleContext, closers: { close(): void }[]): 
     async trialBalance(window) {
       let debit = 0n;
       let credit = 0n;
-      for (const net of (await ledger.accountBalances({ toDate: window.endDate })).values()) {
+      for (const net of (await accountBalances({ toDate: window.endDate })).values()) {
         if (net.scaled > 0n) debit += net.scaled;
         else credit -= net.scaled;
       }
@@ -105,60 +144,52 @@ function buildSources(ctx: BackendModuleContext, closers: { close(): void }[]): 
     },
 
     async bankStatements(window) {
-      const [statements, treasuryAccounts] = await Promise.all([
-        bankStatements.statements.list({ fromDate: window.startDate, toDate: window.endDate }),
-        stores.treasuryAccounts.list(),
-      ]);
-      const accountName = new Map(treasuryAccounts.map((account) => [account.id, account.name]));
-      return statements
-        .filter((statement) => statement.periodStart <= window.endDate && statement.periodEnd >= window.startDate)
-        .map((statement) => ({
-          statementId: statement.id,
-          label: `${accountName.get(statement.treasuryAccountId) ?? statement.treasuryAccountId} — ${statement.statementNumber ?? statement.id}`,
-          periodEnd: statement.periodEnd,
-          finalized: statement.status === FINALIZED_STATEMENT_STATUS,
-        }));
+      return queries.bankStatementsOverlapping(window).map((statement) => ({
+        statementId: statement.statementId,
+        label: `${statement.treasuryAccountName ?? statement.statementId} — ${statement.statementNumber ?? statement.statementId}`,
+        periodEnd: statement.periodEnd,
+        finalized: statement.finalized,
+      }));
     },
 
-    async foreignCurrencies(window) {
-      const [lines, accounts] = await Promise.all([ledger.listLines({ toDate: window.endDate }), stores.accounts.list()]);
-      const open = deriveOpenFxBalances(lines, accounts).filter((balance) => balance.foreignAmount.scaled !== 0n);
-      return [...new Set(open.map((balance) => balance.currency))].sort();
-    },
-
-    fxRevaluationPosted: async (window) => queries.fxRevaluationEntries(window) > 0,
+    foreignCurrencies,
+    fxRevaluedCurrencies: async (window) => fxRuns.currenciesRevaluedAsOf(window.endDate),
 
     async recurringDue(window) {
+      const runStatus = new Map(queries.recurringRuns().map((run) => [pairKey(run.templateId, run.period), run.entryStatus]));
+      const skipped = new Set(queries.recurringSkips().map((skip) => pairKey(skip.templateId, skip.period)));
       const due = [];
       for (const template of await templates.list()) {
         for (const periodKey of duePeriods(template, window.endDate)) {
           if (!withinWindow(journalDateForPeriod(template, periodKey), window)) continue;
-          if (await skips.findByTemplateAndPeriod(template.id, periodKey)) continue;
-          const run = await runs.findByTemplateAndPeriod(template.id, periodKey);
-          due.push({
-            templateId: template.id,
-            label: template.nameAr,
-            periodKey,
-            entry: run ? entryStateOf(queries.journalEntryStatus(run.journalEntryId)) : PeriodCloseEntryState.Missing,
-          });
+          const key = pairKey(template.id, periodKey);
+          if (skipped.has(key)) continue;
+          due.push({ templateId: template.id, label: template.nameAr, periodKey, entry: recurringEntryState(runStatus.get(key)) });
         }
       }
       return due;
     },
 
+    // Judged per ASSET: a run is per (period, branch), so "some run exists" says nothing about a branch it did not cover.
     async depreciation(window) {
-      const period = window.startDate.slice(0, 7);
+      const periodKey = window.startDate.slice(0, 7);
+      const period = { year: window.year, month: Number(periodKey.slice(5, 7)) };
       const [allAssets, allRuns] = await Promise.all([assets.list(), depreciationRuns.list()]);
-      const depreciableAssets = allAssets.filter(
-        (asset) => DEPRECIABLE_ASSET_STATUSES.has(asset.status) && asset.depreciationStartDate <= window.endDate,
-      ).length;
-      const periodRuns = allRuns.filter((run) => run.period === period && run.status !== "cancelled");
-      const run = periodRuns.some((r) => r.status === "draft")
-        ? PeriodCloseEntryState.Draft
-        : periodRuns.length > 0
-          ? PeriodCloseEntryState.Posted
-          : PeriodCloseEntryState.Missing;
-      return { depreciableAssets, run };
+      const periodRuns = allRuns.filter((run) => run.period === periodKey);
+      const covered = new Set(periodRuns.filter((run) => run.status === SourceStatus.Posted).flatMap((run) => run.lines.map((line) => line.assetId)));
+      const hasDraftRun = periodRuns.some((run) => run.status === SourceStatus.Draft);
+      const groups = new Map<string | null, { dueAssets: number; uncoveredAssets: number }>();
+      for (const asset of allAssets) {
+        const due =
+          covered.has(asset.id) || (asset.status === SourceStatus.Active && computeMonthlyDepreciation(asset, period, "DAILY").amount.scaled > 0n);
+        if (!due) continue;
+        const branchId = depreciationBranch(asset);
+        const group = groups.get(branchId) ?? { dueAssets: 0, uncoveredAssets: 0 };
+        group.dueAssets += 1;
+        if (!covered.has(asset.id)) group.uncoveredAssets += 1;
+        groups.set(branchId, group);
+      }
+      return [...groups.entries()].map(([branchId, group]): PeriodCloseDepreciationGroup => ({ branchId, ...group, hasDraftRun }));
     },
 
     async sequenceGaps(window) {
@@ -174,11 +205,40 @@ function buildSources(ctx: BackendModuleContext, closers: { close(): void }[]): 
 export const area: BackendArea = {
   mount(ctx: BackendModuleContext) {
     const closers: { close(): void }[] = [];
-    const sources = buildSources(ctx, closers);
-    const { summaries } = sources.store;
-    const ledger = ledgerReads(ctx.stores.ledger);
+    const store = createSqlitePeriodCloseStore(ctx.sqlite);
+    closers.push(store);
+    const sources = buildSources(ctx, store, closers);
+    const accountBalances = ledgerBalances(ctx.stores.ledger);
+    const { appendSync } = ctx.audit;
+    const appendAudit = appendSync ? appendSync.bind(ctx.audit) : null;
 
-    const guard: PeriodCloseGuard = {
+    async function buildSummary({ period, evaluation, closedBy, overrideReason }: PeriodCloseSummaryInput): Promise<PeriodCloseSummary> {
+      const [accounts, opening, closing] = await Promise.all([
+        ctx.stores.accounts.list(),
+        accountBalances({ toDate: dayBefore(period.startDate) }),
+        accountBalances({ toDate: period.endDate }),
+      ]);
+      const snapshot = buildTrialBalanceSnapshot(accounts, opening, closing);
+      const unsigned: UnsignedPeriodCloseSummary = {
+        id: randomUUID(),
+        periodId: period.id,
+        year: period.year,
+        periodNumber: period.periodNumber,
+        startDate: period.startDate,
+        endDate: period.endDate,
+        closedBy,
+        closedAt: new Date().toISOString(),
+        overrideReason,
+        failedChecks: evaluation.blocking,
+        checks: evaluation.checks,
+        trialBalance: snapshot.rows,
+        totals: snapshot.totals,
+      };
+      return { ...unsigned, sha256: sealPeriodCloseSummary(unsigned) };
+    }
+
+    const guard = createPeriodCloseGuard({
+      periods: ctx.stores.fiscalPeriods,
       evaluate(period) {
         const window: PeriodCloseWindow = {
           periodId: period.id,
@@ -192,40 +252,19 @@ export const area: BackendArea = {
           onCheckFailure: ({ code, error }) => console.error(`[period-close] check "${code}" could not be evaluated for ${period.id}`, error),
         });
       },
-
-      async recordClose({ period, evaluation, closedBy, overrideReason }: PeriodCloseRecord) {
-        const [accounts, opening, closing] = await Promise.all([
-          ctx.stores.accounts.list(),
-          ledger.accountBalances({ toDate: dayBefore(period.startDate) }),
-          ledger.accountBalances({ toDate: period.endDate }),
-        ]);
-        const snapshot = buildTrialBalanceSnapshot(accounts, opening, closing);
-        const unsigned: UnsignedPeriodCloseSummary = {
-          id: randomUUID(),
-          periodId: period.id,
-          year: period.year,
-          periodNumber: period.periodNumber,
-          startDate: period.startDate,
-          endDate: period.endDate,
-          closedBy,
-          closedAt: new Date().toISOString(),
-          overrideReason,
-          failedChecks: evaluation.blocking,
-          checks: evaluation.checks,
-          trialBalance: snapshot.rows,
-          totals: snapshot.totals,
-        };
-        const sha256 = createHash("sha256").update(canonicalCloseSummary(unsigned)).digest("hex");
-        await summaries.save({ ...unsigned, sha256 });
-      },
-
+      buildSummary,
+      lastClosedBy: async (periodId) => (await store.summaries.list({ periodId }))[0]?.closedBy ?? null,
+      singleOperatorMode: async () => ((await ctx.stores.settings.get()) ?? createDefaultSettings()).contractingSingleOperatorMode,
       async listSummaries(periodId) {
-        return summaries.list({ periodId });
+        const audited = new Set(store.queries.auditedSeals(periodId));
+        return (await store.summaries.list({ periodId })).map((summary) => ({ summary, sealValid: verifyPeriodCloseSeal(summary, audited) }));
       },
-    };
+      changeToken: store.critical.changeToken,
+      commit: appendAudit ? (request) => store.critical.commit({ ...request, appendAudit }) : null,
+    });
 
-    registerPeriodCloseGuard(ctx.stores.fiscalPeriods, guard);
-    ctx.app.route("/period-close", createPeriodCloseRoutes({ periods: ctx.stores.fiscalPeriods, guard }, ctx.resolveAuthContext));
+    ctx.periodCloseGuard.register(guard);
+    ctx.app.route("/period-close", createPeriodCloseRoutes({ periods: ctx.stores.fiscalPeriods, guard: ctx.periodCloseGuard.source }, ctx.resolveAuthContext));
     for (const closer of closers) ctx.addCloser(closer);
   },
 };

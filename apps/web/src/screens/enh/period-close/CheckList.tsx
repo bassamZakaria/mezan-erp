@@ -1,7 +1,10 @@
 import { memo, useCallback, useMemo } from "react";
 import { Button, Card, StatusPill, useFormat } from "@mezan/ui";
 import type { PeriodCloseCheckDTO, PeriodCloseFindingDTO, PeriodCloseFixTargetDTO } from "@mezan/contracts";
+import { useBranches } from "../../../data/hooks";
 import { useAppTranslation } from "../../../i18n";
+import { EMPTY } from "../../../lib/empty";
+import { useEntityName } from "../../../lib/entity-names";
 import {
   CHECK_STATUS_KEY,
   CHECK_STATUS_TONE,
@@ -31,7 +34,7 @@ const FindingRow = memo(function FindingRow({ finding, format, onFix }: FindingR
   return (
     <li className="flex flex-wrap items-center justify-between gap-[10px] py-[9px]">
       <div className="min-w-0">
-        <div className="text-[13px] font-semibold text-ink">{findingTitle(finding, t)}</div>
+        <div className="text-[13px] font-semibold text-ink">{findingTitle(finding, t, format)}</div>
         {figure ? <div className="mz-num mt-[2px] text-[12px] text-ink-muted">{figure}</div> : null}
       </div>
       <div className="flex flex-wrap items-center gap-[9px]">
@@ -82,7 +85,12 @@ export interface CheckListProps {
 
 export function CheckList({ checks, onFix }: CheckListProps) {
   const fmt = useFormat();
-  const format = useMemo<FindingFormatters>(() => ({ money: fmt.money, number: fmt.number, date: fmt.date }), [fmt.money, fmt.number, fmt.date]);
+  const entityName = useEntityName();
+  const branches = useBranches().data ?? EMPTY;
+  const format = useMemo<FindingFormatters>(() => {
+    const branchById = new Map(branches.map((branch) => [branch.id, branch]));
+    return { money: fmt.money, number: fmt.number, date: fmt.date, branchName: (id) => entityName(branchById.get(id), id) };
+  }, [fmt.money, fmt.number, fmt.date, branches, entityName]);
   return (
     <Card className="divide-y divide-border overflow-hidden">
       {checks.map((check) => (

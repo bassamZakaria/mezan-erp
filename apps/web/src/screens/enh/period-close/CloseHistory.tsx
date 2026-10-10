@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { Card, useFormat } from "@mezan/ui";
+import { Card, StatusPill, useFormat } from "@mezan/ui";
 import { useUsers } from "../../../data/hooks";
 import { useEntityName } from "../../../lib/entity-names";
 import { EMPTY } from "../../../lib/empty";
@@ -35,7 +35,7 @@ export function CloseHistory({ periodId }: CloseHistoryProps) {
       ) : (
         <Card className="divide-y divide-border overflow-hidden">
           {summaries.map((summary) => (
-            <dl key={summary.id} className="grid gap-[8px_18px] p-[12px_16px] text-[12.5px] sm:grid-cols-2 lg:grid-cols-5">
+            <dl key={summary.id} data-seal-valid={summary.sealValid} className="grid gap-[8px_18px] p-[12px_16px] text-[12.5px] sm:grid-cols-2 lg:grid-cols-5">
               <div>
                 <dt className="text-ink-faint">{t("periodClose.history.closedAt")}</dt>
                 <dd className="mz-num text-ink">{fmt.dateTime(summary.closedAt)}</dd>
@@ -54,8 +54,14 @@ export function CloseHistory({ periodId }: CloseHistoryProps) {
               </div>
               <div>
                 <dt className="text-ink-faint">{t("periodClose.history.hash")}</dt>
-                <dd className="mz-num text-ink" dir="ltr" title={summary.sha256}>
-                  {summary.sha256.slice(0, HASH_PREVIEW_LENGTH)}…
+                <dd className="flex flex-wrap items-center gap-[8px]">
+                  <span className="mz-num text-ink" dir="ltr" title={summary.sha256}>
+                    {summary.sha256.slice(0, HASH_PREVIEW_LENGTH)}…
+                  </span>
+                  <StatusPill
+                    label={t(summary.sealValid ? "periodClose.history.sealValid" : "periodClose.history.sealBroken")}
+                    tone={summary.sealValid ? "success" : "danger"}
+                  />
                 </dd>
               </div>
             </dl>

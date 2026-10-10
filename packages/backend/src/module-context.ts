@@ -1,5 +1,5 @@
 import type Database from "better-sqlite3";
-import type { App, AuthContextResolver, ReconciliationControl, SessionRegistry } from "@mezan/api";
+import type { App, AuthContextResolver, PeriodCloseGuardSlot, ReconciliationControl, SessionRegistry } from "@mezan/api";
 import type { EtaReceiptIssuer } from "./eta-receipts.js";
 import type { AuditSink, EventBus, UnitOfWork } from "@mezan/domain";
 import type {
@@ -71,6 +71,8 @@ export interface BackendModuleContext {
   readonly stores: BackendStores;
   /** The sub-ledger balances `/reconciliation` proves — the same resolver, so an area never re-derives them. */
   readonly reconciliationControls: () => Promise<readonly ReconciliationControl[]>;
+  /** Where the guided-close area hands its guard to the core `/fiscal-periods` routes; until it does, close and lock refuse. */
+  readonly periodCloseGuard: PeriodCloseGuardSlot;
   readonly addCloser: (closer: { close(): void }) => void;
 }
 

@@ -297,6 +297,10 @@ class SqliteAuditSink implements AuditSink, AuditQueryPort, AuditChainVerifyPort
   }
 
   async append(event: AuditEvent): Promise<void> {
+    this.appendSync(event);
+  }
+
+  appendSync(event: AuditEvent): void {
     this.appendChained({
       stream: event.stream,
       module: event.module,
@@ -446,6 +450,7 @@ class SqliteAuditSink implements AuditSink, AuditQueryPort, AuditChainVerifyPort
 }
 
 export interface SqliteAuditSinkHandle extends AuditSink, AuditQueryPort, AuditChainVerifyPort {
+  appendSync(event: AuditEvent): void;
   close(): void;
   /** The raw connection, for tests asserting the append-only triggers fire. */
   readonly db: Database.Database;

@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
 import { Button, EmptyState, Select, StatusPill, useFormat, type PillTone } from "@mezan/ui";
-import type { FiscalPeriodDTO, FiscalPeriodStatusDTO, PeriodCloseFixTargetDTO } from "@mezan/contracts";
+import { PeriodStatusDTO, type FiscalPeriodDTO, type FiscalPeriodStatusDTO, type PeriodCloseFixTargetDTO } from "@mezan/contracts";
 import { useFiscalPeriods } from "../../../data/hooks";
 import { useAppTranslation, type AppTranslationKey } from "../../../i18n";
 import { useNavigation } from "../../../navigation";
@@ -15,15 +15,19 @@ import { isClear } from "./findings";
 import { PeriodCloseAction, usePeriodCloseChecklist } from "./hooks";
 
 const STATUS_KEY: Readonly<Record<FiscalPeriodStatusDTO, AppTranslationKey>> = {
-  open: "fiscalPeriods.status.open",
-  closed: "fiscalPeriods.status.closed",
-  locked: "fiscalPeriods.status.locked",
+  [PeriodStatusDTO.Open]: "fiscalPeriods.status.open",
+  [PeriodStatusDTO.Closed]: "fiscalPeriods.status.closed",
+  [PeriodStatusDTO.Locked]: "fiscalPeriods.status.locked",
 };
-const STATUS_TONE: Readonly<Record<FiscalPeriodStatusDTO, PillTone>> = { open: "success", closed: "warning", locked: "neutral" };
+const STATUS_TONE: Readonly<Record<FiscalPeriodStatusDTO, PillTone>> = {
+  [PeriodStatusDTO.Open]: "success",
+  [PeriodStatusDTO.Closed]: "warning",
+  [PeriodStatusDTO.Locked]: "neutral",
+};
 const NEXT_ACTION: Readonly<Record<FiscalPeriodStatusDTO, PeriodCloseAction | null>> = {
-  open: PeriodCloseAction.Close,
-  closed: PeriodCloseAction.Lock,
-  locked: null,
+  [PeriodStatusDTO.Open]: PeriodCloseAction.Close,
+  [PeriodStatusDTO.Closed]: PeriodCloseAction.Lock,
+  [PeriodStatusDTO.Locked]: null,
 };
 
 function byPeriodOrder(a: FiscalPeriodDTO, b: FiscalPeriodDTO): number {
@@ -31,14 +35,25 @@ function byPeriodOrder(a: FiscalPeriodDTO, b: FiscalPeriodDTO): number {
 }
 
 function periodToCloseNext(periods: readonly FiscalPeriodDTO[], today: string): FiscalPeriodDTO | null {
-  const open = periods.filter((p) => p.status === "open");
+  const open = periods.filter((p) => p.status === PeriodStatusDTO.Open);
   return open.find((p) => p.endDate < today) ?? open.find((p) => p.startDate <= today && p.endDate >= today) ?? periods[periods.length - 1] ?? null;
 }
 
+enum NoticeTone {
+  Success = "success",
+  Danger = "danger",
+}
+
 interface Notice {
-  readonly tone: "success" | "danger";
+  readonly tone: NoticeTone;
   readonly message: string;
 }
+
+const NOTICE_ROLE: Readonly<Record<NoticeTone, "status" | "alert">> = { [NoticeTone.Success]: "status", [NoticeTone.Danger]: "alert" };
+const NOTICE_CLASS: Readonly<Record<NoticeTone, string>> = {
+  [NoticeTone.Success]: "mb-[14px] rounded-md border border-success bg-success-soft px-[12px] py-[10px] text-[12.5px] text-success-ink",
+  [NoticeTone.Danger]: "mb-[14px] rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink",
+};
 
 export function PeriodCloseScreen() {
   const { t } = useAppTranslation();
@@ -49,13 +64,11 @@ export function PeriodCloseScreen() {
   const [notice, setNotice] = useState<Notice | null>(null);
 
   const periods = useMemo(() => [...(periodsQuery.data ?? EMPTY)].sort(byPeriodOrder), [periodsQuery.data]);
-  const [stickyPeriodId, setStickyPeriodId] = useState<string | null>(null);
   const selected = useMemo(
-    () => periods.find((p) => p.id === (periodParam || stickyPeriodId)) ?? periodToCloseNext(periods, todayIso()),
-    [periods, periodParam, stickyPeriodId],
+    () => periods.find((p) => p.id === periodParam) ?? periodToCloseNext(periods, todayIso()),
+    [periods, periodParam],
   );
-  // Closing a month changes which one is "next"; without this the screen would jump to it and hide the result of the close just made.
-  if (selected && stickyPeriodId !== selected.id) setStickyPeriodId(selected.id);
+  const selectedId = selected?.id ?? null;
   const checklistQuery = usePeriodCloseChecklist(selected?.id ?? null);
   const checklist = checklistQuery.data;
 
@@ -80,8 +93,11 @@ export function PeriodCloseScreen() {
   const openFiscalPeriods = useCallback(() => nav.navigate("fiscal-periods"), [nav]);
   const { refetch } = checklistQuery;
   const recheck = useCallback(() => void refetch(), [refetch]);
-  const reportDone = useCallback((message: string) => setNotice({ tone: "success", message }), []);
-  const reportError = useCallback((message: string) => setNotice({ tone: "danger", message }), []);
+  const pinPeriod = useCallback(() => {
+    if (selectedId) setPeriodParam(selectedId);
+  }, [selectedId, setPeriodParam]);
+  const reportDone = useCallback((message: string) => setNotice({ tone: NoticeTone.Success, message }), []);
+  const reportError = useCallback((message: string) => setNotice({ tone: NoticeTone.Danger, message }), []);
 
   if (periodsQuery.isLoading) return null;
   if (!selected) {
@@ -116,14 +132,7 @@ export function PeriodCloseScreen() {
       </div>
 
       {notice ? (
-        <div
-          role={notice.tone === "danger" ? "alert" : "status"}
-          className={
-            notice.tone === "danger"
-              ? "mb-[14px] rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink"
-              : "mb-[14px] rounded-md border border-success bg-success-soft px-[12px] py-[10px] text-[12.5px] text-success-ink"
-          }
-        >
+        <div role={NOTICE_ROLE[notice.tone]} className={NOTICE_CLASS[notice.tone]}>
           {notice.message}
         </div>
       ) : null}
@@ -156,11 +165,11 @@ export function PeriodCloseScreen() {
                 {" · "}
                 <span className="mz-num">{t("periodClose.evaluatedAt", { time: fmt.dateTime(checklist.evaluatedAt) })}</span>
               </p>
-              {checklist.periodStatus === "locked" ? <p className="mt-[5px] text-[12.5px] text-ink-muted">{t("periodClose.periodLocked")}</p> : null}
-              {checklist.periodStatus === "closed" ? <p className="mt-[5px] text-[12.5px] text-ink-muted">{t("periodClose.periodClosed")}</p> : null}
+              {checklist.periodStatus === PeriodStatusDTO.Locked ? <p className="mt-[5px] text-[12.5px] text-ink-muted">{t("periodClose.periodLocked")}</p> : null}
+              {checklist.periodStatus === PeriodStatusDTO.Closed ? <p className="mt-[5px] text-[12.5px] text-ink-muted">{t("periodClose.periodClosed")}</p> : null}
             </div>
             {nextAction ? (
-              <CloseActions checklist={checklist} action={nextAction} periodLabel={periodLabel} onDone={reportDone} onError={reportError} />
+              <CloseActions checklist={checklist} action={nextAction} periodLabel={periodLabel} onStart={pinPeriod} onDone={reportDone} onError={reportError} />
             ) : null}
           </div>
 

@@ -22,6 +22,44 @@ interface SeriesBucket {
   readonly inWindow: number[];
 }
 
+export interface ParsedDocumentNumber {
+  readonly prefix: string;
+  readonly value: number;
+  readonly width: number;
+  readonly suffix: string;
+}
+
+export function parseDocumentNumber(number: string): ParsedDocumentNumber | null {
+  const match = NUMBER_PATTERN.exec(number.trim());
+  if (!match) return null;
+  const digits = match[2] ?? "";
+  return { prefix: match[1] ?? "", value: Number.parseInt(digits, 10), width: digits.length, suffix: match[3] ?? "" };
+}
+
+export interface SeriesRange {
+  readonly prefix: string;
+  readonly suffix: string;
+  readonly low: number;
+  readonly high: number;
+}
+
+export function seriesRangesInWindow(documents: readonly NumberedDocument[], window: Pick<PeriodCloseWindow, "startDate" | "endDate">): SeriesRange[] {
+  const ranges = new Map<string, { prefix: string; suffix: string; low: number; high: number }>();
+  for (const doc of documents) {
+    if (doc.date < window.startDate || doc.date > window.endDate) continue;
+    const parsed = parseDocumentNumber(doc.number);
+    if (!parsed) continue;
+    const key = JSON.stringify([parsed.prefix, parsed.suffix]);
+    const range = ranges.get(key);
+    if (!range) ranges.set(key, { prefix: parsed.prefix, suffix: parsed.suffix, low: parsed.value, high: parsed.value });
+    else {
+      if (parsed.value < range.low) range.low = parsed.value;
+      if (parsed.value > range.high) range.high = parsed.value;
+    }
+  }
+  return [...ranges.values()];
+}
+
 export class SequenceSpanTooWideError extends Error {
   readonly code = "SEQUENCE_SPAN_TOO_WIDE";
   constructor(
@@ -36,19 +74,16 @@ export class SequenceSpanTooWideError extends Error {
 export function findSequenceGapsInWindow(documents: readonly NumberedDocument[], window: Pick<PeriodCloseWindow, "startDate" | "endDate">): SeriesGap[] {
   const buckets = new Map<string, SeriesBucket>();
   for (const doc of documents) {
-    const match = NUMBER_PATTERN.exec(doc.number.trim());
-    if (!match) continue;
-    const prefix = match[1] ?? "";
-    const digits = match[2] ?? "";
-    const suffix = match[3] ?? "";
+    const parsed = parseDocumentNumber(doc.number);
+    if (!parsed) continue;
+    const { prefix, suffix, value, width } = parsed;
     const key = JSON.stringify([prefix, suffix]);
     let bucket = buckets.get(key);
     if (!bucket) {
-      bucket = { prefix, suffix, width: digits.length, used: new Set(), inWindow: [] };
+      bucket = { prefix, suffix, width, used: new Set(), inWindow: [] };
       buckets.set(key, bucket);
     }
-    const value = Number.parseInt(digits, 10);
-    bucket.width = Math.max(bucket.width, digits.length);
+    bucket.width = Math.min(bucket.width, width);
     bucket.used.add(value);
     if (doc.date >= window.startDate && doc.date <= window.endDate) bucket.inWindow.push(value);
   }

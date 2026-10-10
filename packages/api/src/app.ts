@@ -135,6 +135,7 @@ import { createTaxGroupsRoutes } from "./tax-groups-routes.js";
 import { createCostCentersRoutes } from "./cost-centers-routes.js";
 import { createTreasuryAccountsRoutes } from "./treasury-accounts-routes.js";
 import { createFiscalPeriodsRoutes } from "./fiscal-periods-routes.js";
+import { NO_PERIOD_CLOSE_GUARD, type PeriodCloseGuardSource } from "./period-close-routes.js";
 import { createInventoryRoutes } from "./inventory-routes.js";
 import { createGlRoutes, type GlRoutesDeps } from "./gl-routes.js";
 import { createVouchersRoutes, createAllocationRoutes, type VoucherRoutesDeps } from "./vouchers-routes.js";
@@ -390,6 +391,8 @@ export interface CreateAppOptions {
   readonly treasuryAccountRepo?: TreasuryAccountRepository;
   /** Mounts `/fiscal-periods` (docs/archive/catalog/04 "الفترات المالية") when present — omit it for no `/fiscal-periods` route. */
   readonly fiscalPeriodRepo?: FiscalPeriodRepository;
+  /** Without one, close and lock refuse (ENH-E1-04): an unchecked close is never the default. */
+  readonly periodCloseGuard?: PeriodCloseGuardSource;
   /**
    * Mounts `/inventory` (docs/archive/catalog/03 — the costing + stock-ledger engine)
    * when present. The caller builds the `StockLedgerService` (wiring the SQLite
@@ -1051,7 +1054,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     );
   }
   if (options.fiscalPeriodRepo) {
-    app.route("/fiscal-periods", createFiscalPeriodsRoutes(options.fiscalPeriodRepo, resolveAuth, options.auditSink));
+    app.route("/fiscal-periods", createFiscalPeriodsRoutes(options.fiscalPeriodRepo, resolveAuth, options.auditSink, options.periodCloseGuard ?? NO_PERIOD_CLOSE_GUARD));
   }
   if (options.gl) {
     app.route("/gl", createGlRoutes(options.gl, resolveAuth));

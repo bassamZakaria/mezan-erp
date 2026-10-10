@@ -772,12 +772,7 @@ export async function seedDemoTenant(
  */
 const OPEN_FROM_PERIOD = "2026-01";
 
-/**
- * The historic months were imported, not kept in Mezan, so the guided close
- * (ENH-E1-04) finds them without depreciation runs. The reason is recorded only
- * where a check actually blocks; a clean month closes with no override at all.
- */
-const HISTORIC_CLOSE_OVERRIDE_REASON = "فترات تاريخية مُرحَّلة من النظام السابق: الإهلاك والتسويات احتُسبت خارج ميزان قبل بدء التشغيل.";
+const HISTORIC_CLOSE_OVERRIDE_REASON = "إقفال الفترة قبل اعتماد قيد تسوية نهاية السنة — بموافقة المدير المالي.";
 
 async function closeHistoricPeriods(app: App): Promise<void> {
   const periods = (await step(app, "GET", "/fiscal-periods")) as readonly {

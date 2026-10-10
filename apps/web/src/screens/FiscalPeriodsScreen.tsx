@@ -40,8 +40,6 @@ import { useUrlNumber, useUrlParam } from "../lib/url-state";
 const STATUS_KEY: Record<FiscalPeriodStatusDTO, AppTranslationKey> = { open: "fiscalPeriods.status.open", closed: "fiscalPeriods.status.closed", locked: "fiscalPeriods.status.locked" };
 const STATUS_TONE: Record<FiscalPeriodStatusDTO, PillTone> = { open: "success", closed: "warning", locked: "neutral" };
 
-const monthLabel = fiscalMonthLabel;
-
 const TODAY = todayIso();
 
 function isCurrentPeriod(period: FiscalPeriodDTO): boolean {
@@ -102,7 +100,7 @@ export function FiscalPeriodsScreen() {
     try {
       await closePeriodMutation.mutateAsync(period.id);
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : t("fiscalPeriods.closeFailed", { period: `${monthLabel(period.periodNumber, t)} ${period.year}` }));
+      setActionError(err instanceof Error ? err.message : t("fiscalPeriods.closeFailed", { period: `${fiscalMonthLabel(period.periodNumber, t)} ${period.year}` }));
     } finally {
       setPendingId(null);
     }
@@ -115,7 +113,7 @@ export function FiscalPeriodsScreen() {
     try {
       await lockPeriodMutation.mutateAsync(period.id);
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : t("fiscalPeriods.lockFailed", { period: `${monthLabel(period.periodNumber, t)} ${period.year}` }));
+      setActionError(err instanceof Error ? err.message : t("fiscalPeriods.lockFailed", { period: `${fiscalMonthLabel(period.periodNumber, t)} ${period.year}` }));
     } finally {
       setPendingId(null);
     }
@@ -128,7 +126,7 @@ export function FiscalPeriodsScreen() {
     try {
       await reopenPeriodMutation.mutateAsync(period.id);
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : t("fiscalPeriods.reopenFailed", { period: `${monthLabel(period.periodNumber, t)} ${period.year}` }));
+      setActionError(err instanceof Error ? err.message : t("fiscalPeriods.reopenFailed", { period: `${fiscalMonthLabel(period.periodNumber, t)} ${period.year}` }));
     } finally {
       setPendingId(null);
     }
@@ -152,7 +150,7 @@ export function FiscalPeriodsScreen() {
       render: (p) => (
         <div className="flex items-center gap-[8px]">
           <span className="font-semibold text-ink">
-            {monthLabel(p.periodNumber, t)} {p.year}
+            {fiscalMonthLabel(p.periodNumber, t)} {p.year}
           </span>
           {isCurrentPeriod(p) ? <StatusPill label={t("fiscalPeriods.currentPeriod")} tone="info" /> : p.endDate < TODAY ? <StatusPill label={t("fiscalPeriods.ended")} tone="neutral" /> : null}
         </div>
@@ -205,7 +203,7 @@ export function FiscalPeriodsScreen() {
           <div className="text-[12px] font-semibold text-ink-faint">{t("fiscalPeriods.currentPeriod")}</div>
           <div className="mt-[4px] flex flex-wrap items-center gap-[10px]">
             <span className="font-display text-[15px] font-bold text-ink">
-              {monthLabel(currentPeriod.periodNumber, t)} {currentPeriod.year} ({currentPeriod.startDate} → {currentPeriod.endDate})
+              {fiscalMonthLabel(currentPeriod.periodNumber, t)} {currentPeriod.year} ({currentPeriod.startDate} → {currentPeriod.endDate})
             </span>
             <StatusPill label={currentPeriod.status === "open" ? t("fiscalPeriods.allowed") : t("fiscalPeriods.notAllowed")} tone={currentPeriod.status === "open" ? "success" : "danger"} />
           </div>
@@ -279,7 +277,7 @@ export function FiscalPeriodsScreen() {
                     { key: "lock", label: t("fiscalPeriods.lock"), disabled: pendingId === p.id, onSelect: () => void lockPeriod(p) },
                   ]
                 : [];
-          return <RowMenu items={menuItems} label={t("common.rowActionsFor", { name: `${monthLabel(p.periodNumber, t)} ${p.year}` })} />;
+          return <RowMenu items={menuItems} label={t("common.rowActionsFor", { name: `${fiscalMonthLabel(p.periodNumber, t)} ${p.year}` })} />;
         }}
         page={page}
         pageCount={pageCount}

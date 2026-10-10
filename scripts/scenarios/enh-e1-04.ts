@@ -114,8 +114,11 @@ export const scenario: ScenarioFragment = {
       checkEq("and a balanced trial-balance snapshot", n(latest?.closingDebit), n(latest?.closingCredit));
 
       const trail = rows((await req("GET", `/audit?entityType=FISCAL_PERIOD&entityId=${PERIOD}`)).body);
-      check("the clean close is audited as a CLOSE", trail.some((e: any) => e.action === "CLOSE"), JSON.stringify(trail.slice(0, 2)));
-      checkEq("and wrote no override event", trail.filter((e: any) => e.action === "CLOSE_OVERRIDE").length, 0);
+      const closes = trail.filter((e: any) => e.action === "CLOSE");
+      checkEq("the clean close is audited as exactly one CLOSE", closes.length, 1);
+      same("that carries no override", closes[0]?.details?.overridden, false);
+      same("and the very seal the summary holds", closes[0]?.details?.sha256, latest?.sha256);
+      same("the summary's seal verifies on read", latest?.sealValid, true);
 
       const reopened = await req("POST", `/fiscal-periods/${PERIOD}/reopen`, {});
       check("June is reopened", reopened.status === 200 && reopened.body?.status === "open", `status ${reopened.status}`);
@@ -129,15 +132,25 @@ export const scenario: ScenarioFragment = {
       check("the override closes June", overridden.status === 200 && overridden.body?.status === "closed", `status ${overridden.status} ${JSON.stringify(overridden.body).slice(0, 160)}`);
 
       const trail = rows((await req("GET", `/audit?entityType=FISCAL_PERIOD&entityId=${PERIOD}`)).body);
-      const event = trail.find((e: any) => e.action === "CLOSE_OVERRIDE");
-      check("the override is on the audit trail", Boolean(event), JSON.stringify(trail.slice(0, 3)));
+      const overrides = trail.filter((e: any) => e.action === "CLOSE" && e.details?.overridden === true);
+      checkEq("the override is on the audit trail exactly once, as the CLOSE event itself", overrides.length, 1);
+      const event = overrides[0];
       same("as a WARNING", event?.severity, "WARNING");
       check("naming the failed checks", Array.isArray(event?.details?.failedChecks) && event.details.failedChecks.includes("drafts"), JSON.stringify(event?.details));
       same("and the reason given", event?.details?.reason, REASON);
-      same("the summary keeps the reason too", rows((await req("GET", `/period-close/${PERIOD}/summaries`)).body)[0]?.overrideReason, REASON);
+      const sealed = rows((await req("GET", `/period-close/${PERIOD}/summaries`)).body)[0];
+      same("the summary keeps the reason too", sealed?.overrideReason, REASON);
+      same("and its seal is the one the audit event recorded", event?.details?.sha256, sealed?.sha256);
 
       const lock = await req("POST", `/fiscal-periods/${PERIOD}/lock`, {});
       checkEq("a bare lock of the overridden month is refused — the terminal step is no way around the checks", lock.status, 409);
+      const closerLocks = await req("POST", `/fiscal-periods/${PERIOD}/lock`, { overrideReason: REASON });
+      checkEq("the user who closed it may not lock it over the failing check alone", closerLocks.status, 403);
+      check(
+        "refused as needing a second person, in Arabic and English",
+        closerLocks.body?.error === "PERIOD_LOCK_OVERRIDE_SAME_USER" && /[\u0600-\u06FF]/.test(String(closerLocks.body?.message)) && typeof closerLocks.body?.messageEn === "string",
+        JSON.stringify(closerLocks.body).slice(0, 200),
+      );
       same("and June is still only closed", await periodStatus(), "closed");
     });
 

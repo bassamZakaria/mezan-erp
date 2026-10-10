@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { Hono, type Context } from "hono";
 import {
+  FX_REVALUATION_ALL_CURRENCIES,
   computeFxRevaluation,
   postFxRevaluation,
   deriveOpenFxBalances,
@@ -34,6 +35,12 @@ export interface FxRevaluationRoutesDeps {
   readonly events?: JournalPostingDeps["events"];
   readonly now?: () => string;
   readonly idGen?: () => string;
+  /**
+   * Records that a revaluation RAN as of a date, whether or not it posted: when
+   * no rate moved there is no entry, and without this the period close could
+   * not tell "revalued, nothing to book" from "never revalued".
+   */
+  readonly recordRun?: (run: FxRevaluationRun) => void;
 }
 
 function serializeResult(computed: FxRevaluationResult, date: string, autoReverse: boolean) {
@@ -75,6 +82,14 @@ function handleError(c: Context, err: unknown): Response {
  *   POST /post     — post the FX gain/loss entry (+ next-day auto-reversal).
  * Permission: `accounting.journal.post` (it posts a journal entry).
  */
+export interface FxRevaluationRun {
+  readonly asOfDate: string;
+  readonly currencies: readonly string[];
+  readonly entryId: string | null;
+  readonly ranBy: string;
+  readonly ranAt: string;
+}
+
 export function createFxRevaluationRoutes(
   deps: FxRevaluationRoutesDeps,
   resolveAuthContext: AuthContextResolver,
@@ -133,6 +148,14 @@ export function createFxRevaluationRoutes(
         id: idGen(),
         reversalId: idGen(),
         autoReverse,
+      });
+      const requested = parsed.data.currencies ?? [];
+      deps.recordRun?.({
+        asOfDate: date,
+        currencies: requested.length > 0 ? requested : [FX_REVALUATION_ALL_CURRENCIES],
+        entryId: result.entry?.id ?? null,
+        ranBy: postingDeps.actor ?? "system",
+        ranAt: deps.now ? deps.now() : new Date().toISOString(),
       });
       return c.json(
         {

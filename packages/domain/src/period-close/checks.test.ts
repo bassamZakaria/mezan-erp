@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { Money } from "../money/index.js";
 import { PERIOD_CLOSE_CHECKS, evaluatePeriodClose } from "./checks.js";
 import {
+  FX_REVALUATION_ALL_CURRENCIES,
   PeriodCloseCheckCode,
   PeriodCloseCheckStatus,
   PeriodCloseDocKind,
@@ -25,9 +26,9 @@ function cleanSources(over: Partial<PeriodCloseSources> = {}): PeriodCloseSource
     trialBalance: async () => ({ debit: Money.fromMajor("900.00"), credit: Money.fromMajor("900.00"), asOfDate: JUNE.endDate }),
     bankStatements: async () => [],
     foreignCurrencies: async () => [],
-    fxRevaluationPosted: async () => false,
+    fxRevaluedCurrencies: async () => [],
     recurringDue: async () => [],
-    depreciation: async () => ({ depreciableAssets: 0, run: PeriodCloseEntryState.Missing }),
+    depreciation: async () => [],
     sequenceGaps: async () => [],
     etaErrors: async () => [],
     ...over,
@@ -109,20 +110,36 @@ describe("evaluatePeriodClose", () => {
     expect(checkOf(done, PeriodCloseCheckCode.BankStatements).status).toBe(PeriodCloseCheckStatus.Pass);
   });
 
-  it("asks for an FX revaluation only when a foreign balance is open", async () => {
-    const missing = await evaluate({ foreignCurrencies: async () => ["EUR", "USD"] });
-    expect(missing.blocking).toEqual([PeriodCloseCheckCode.FxRevaluation]);
-    expect(checkOf(missing, PeriodCloseCheckCode.FxRevaluation).findings[0]).toMatchObject({ items: ["EUR", "USD"], state: PeriodCloseFindingState.Missing });
-    const run = await evaluate({ foreignCurrencies: async () => ["USD"], fxRevaluationPosted: async () => true });
-    expect(run.blocking).toEqual([]);
+  it("asks for an FX revaluation per currency with an open balance, as of the period end", async () => {
+    const none = await evaluate({ foreignCurrencies: async () => ["EUR", "USD"] });
+    expect(none.blocking).toEqual([PeriodCloseCheckCode.FxRevaluation]);
+    expect(checkOf(none, PeriodCloseCheckCode.FxRevaluation).findings.map((f) => [f.ref, f.passed, f.asOfDate])).toEqual([
+      ["EUR", false, JUNE.endDate],
+      ["USD", false, JUNE.endDate],
+    ]);
+
+    const oneOfTwo = await evaluate({ foreignCurrencies: async () => ["EUR", "USD"], fxRevaluedCurrencies: async () => ["USD"] });
+    expect(oneOfTwo.blocking).toEqual([PeriodCloseCheckCode.FxRevaluation]);
+    expect(checkOf(oneOfTwo, PeriodCloseCheckCode.FxRevaluation).findings.map((f) => f.passed)).toEqual([false, true]);
+
+    const both = await evaluate({ foreignCurrencies: async () => ["EUR", "USD"], fxRevaluedCurrencies: async () => ["EUR", "USD"] });
+    expect(both.blocking).toEqual([]);
   });
 
-  it("treats a recurring entry that is generated but still a draft as unfinished, and sends the user to journals rather than templates", async () => {
+  it("a revaluation run over every currency satisfies each of them, and no open balance means the check does not apply", async () => {
+    const all = await evaluate({ foreignCurrencies: async () => ["EUR", "USD"], fxRevaluedCurrencies: async () => [FX_REVALUATION_ALL_CURRENCIES] });
+    expect(all.blocking).toEqual([]);
+    const none = await evaluate({ fxRevaluedCurrencies: async () => ["USD"] });
+    expect(checkOf(none, PeriodCloseCheckCode.FxRevaluation).status).toBe(PeriodCloseCheckStatus.NotApplicable);
+  });
+
+  it("a recurring entry is finished only when POSTED: a draft, a missing one and a reversed one each block", async () => {
     const evaluation = await evaluate({
       recurringDue: async () => [
         { templateId: "RJT-1", label: "إيجار", periodKey: "2026-06", entry: PeriodCloseEntryState.Draft },
         { templateId: "RJT-2", label: "اشتراك", periodKey: "2026-06", entry: PeriodCloseEntryState.Missing },
         { templateId: "RJT-3", label: "تأمين", periodKey: "2026-06", entry: PeriodCloseEntryState.Posted },
+        { templateId: "RJT-4", label: "صيانة", periodKey: "2026-06", entry: PeriodCloseEntryState.Reversed },
       ],
     });
     expect(evaluation.blocking).toEqual([PeriodCloseCheckCode.RecurringJournals]);
@@ -130,16 +147,31 @@ describe("evaluatePeriodClose", () => {
       [PeriodCloseFindingState.Draft, PeriodCloseFixTarget.Journals, false],
       [PeriodCloseFindingState.Missing, PeriodCloseFixTarget.RecurringJournals, false],
       [PeriodCloseFindingState.Ok, PeriodCloseFixTarget.RecurringJournals, true],
+      [PeriodCloseFindingState.Reversed, PeriodCloseFixTarget.RecurringJournals, false],
     ]);
   });
 
-  it("requires a posted depreciation run when depreciable assets exist", async () => {
-    for (const run of [PeriodCloseEntryState.Missing, PeriodCloseEntryState.Draft]) {
-      expect((await evaluate({ depreciation: async () => ({ depreciableAssets: 4, run }) })).blocking).toEqual([PeriodCloseCheckCode.Depreciation]);
-    }
-    const posted = await evaluate({ depreciation: async () => ({ depreciableAssets: 4, run: PeriodCloseEntryState.Posted }) });
-    expect(posted.blocking).toEqual([]);
-    expect(checkOf(posted, PeriodCloseCheckCode.Depreciation).findings[0]).toMatchObject({ ref: "2026-06", count: 4 });
+  it("requires every branch's depreciable assets to be covered by a posted run — one branch's run does not clear another", async () => {
+    const evaluation = await evaluate({
+      depreciation: async () => [
+        { branchId: "BR-MAIN", dueAssets: 4, uncoveredAssets: 0, hasDraftRun: false },
+        { branchId: "BR-ALEX", dueAssets: 2, uncoveredAssets: 2, hasDraftRun: false },
+        { branchId: null, dueAssets: 0, uncoveredAssets: 0, hasDraftRun: false },
+      ],
+    });
+    expect(evaluation.blocking).toEqual([PeriodCloseCheckCode.Depreciation]);
+    expect(checkOf(evaluation, PeriodCloseCheckCode.Depreciation).findings.map((f) => [f.ref, f.passed, f.count, f.state])).toEqual([
+      ["2026-06:BR-MAIN", true, 4, PeriodCloseFindingState.Ok],
+      ["2026-06:BR-ALEX", false, 2, PeriodCloseFindingState.Missing],
+    ]);
+
+    const draft = await evaluate({ depreciation: async () => [{ branchId: null, dueAssets: 3, uncoveredAssets: 3, hasDraftRun: true }] });
+    expect(checkOf(draft, PeriodCloseCheckCode.Depreciation).findings[0]).toMatchObject({ ref: "2026-06:general", state: PeriodCloseFindingState.Draft, passed: false });
+
+    const covered = await evaluate({ depreciation: async () => [{ branchId: null, dueAssets: 3, uncoveredAssets: 0, hasDraftRun: false }] });
+    expect(covered.blocking).toEqual([]);
+    const nothingDue = await evaluate({ depreciation: async () => [{ branchId: null, dueAssets: 0, uncoveredAssets: 0, hasDraftRun: false }] });
+    expect(checkOf(nothingDue, PeriodCloseCheckCode.Depreciation).status).toBe(PeriodCloseCheckStatus.NotApplicable);
   });
 
   it("blocks on a missing document number and lists at most twenty of them", async () => {

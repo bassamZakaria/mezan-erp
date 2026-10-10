@@ -110,6 +110,7 @@ export function canonicalCloseSummary(summary: UnsignedPeriodCloseSummary): stri
       closedAt: summary.closedAt,
       overrideReason: summary.overrideReason,
       failedChecks: summary.failedChecks,
+      checks: summary.checks,
       trialBalance: summary.trialBalance,
       totals: summary.totals,
     }),

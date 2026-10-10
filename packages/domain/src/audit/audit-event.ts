@@ -94,6 +94,12 @@ export interface AuditSink {
 export interface AuditQueryFilter {
   readonly stream?: AuditStream;
   readonly branchId?: string;
+  /**
+   * Only rows stamped with one of these branches — what a branch-granted
+   * reader is held to. A row with no branch never matches, and an empty list
+   * matches nothing: an unknown branch is not the reader's branch.
+   */
+  readonly branchIds?: readonly string[];
   readonly module?: string;
   readonly action?: string;
   readonly actor?: string;

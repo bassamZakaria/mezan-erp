@@ -415,6 +415,13 @@ class SqliteAuditSink implements AuditSink, AuditQueryPort, AuditChainVerifyPort
         params[key] = value;
       }
     }
+    if (filter.branchIds !== undefined) {
+      const names = filter.branchIds.map((id, index) => {
+        params[`branchIds${index}`] = id;
+        return `@branchIds${index}`;
+      });
+      conditions.push(names.length > 0 ? `branch_id IN (${names.join(", ")})` : "0 = 1");
+    }
     if (filter.field !== undefined) {
       conditions.push("EXISTS (SELECT 1 FROM audit_event_field f WHERE f.event_id = audit_event.id AND f.field = @field)");
       params.field = filter.field;

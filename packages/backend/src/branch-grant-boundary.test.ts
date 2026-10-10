@@ -683,6 +683,35 @@ describe("D111 · what hangs off a document is no more readable than the documen
     }
   });
 
+  it("the audit log shows a branch-granted reader only rows stamped with its branches, whatever it asks for", async () => {
+    const stamped = (branchId: string) => one<{ n: number }>("SELECT COUNT(*) AS n FROM audit_event WHERE branch_id = ?", branchId)!.n;
+    expect(stamped(ALEX)).toBeGreaterThan(0);
+    expect(stamped(MAIN)).toBeGreaterThan(0);
+
+    const mine = await alex("GET", "/audit?limit=200");
+    expect(mine.status).toBe(200);
+    expect(mine.body.total).toBe(stamped(ALEX));
+    expect(new Set(mine.body.events.map((event: any) => event.branchId))).toEqual(new Set([ALEX]));
+
+    const asked = await alex("GET", `/audit?limit=200&branchId=${MAIN}`);
+    expect(asked.body).toMatchObject({ events: [], total: 0 });
+    const byEntity = await alex("GET", "/audit?limit=200&entityId=INV-DEMO-1");
+    expect(byEntity.body).toMatchObject({ events: [], total: 0 });
+
+    const whole = await admin("GET", "/audit?limit=1");
+    expect(whole.body.total).toBe(one<{ n: number }>("SELECT COUNT(*) AS n FROM audit_event")!.n);
+  });
+
+  it("the company-wide control reports over the audit trail are refused to a branch-granted reader", async () => {
+    for (const report of ["exceptions", "post-posting-changes", "after-hours", "new-accounts", "sod"]) {
+      const res = await alex("GET", `/security-reports/${report}`);
+      expect(res.status, report).toBe(403);
+      expect(res.body.error, report).toBe("COMPANY_WIDE_REPORT");
+      expect(res.body.message).toMatch(ARABIC);
+      expect((await admin("GET", `/security-reports/${report}`)).status, report).toBe(200);
+    }
+  });
+
   it("attachments of master data and of the branch's own documents stay readable", async () => {
     const item = attachmentOf("item");
     expect((await alex("GET", `/attachments/${item.id}`)).status).toBe(200);

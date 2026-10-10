@@ -90,6 +90,12 @@ export interface EtaPrevalidationLineInput {
    * id and no active tax rate matches its percent unambiguously (D79).
    */
   readonly etaTaxSubType: string | null;
+  /**
+   * A 0% line that stored no tax rate while the tenant holds more than one 0%
+   * classification: nothing on the books says which one it is, so it may not
+   * reach the authority until someone names it.
+   */
+  readonly taxClassificationAmbiguous: boolean;
   readonly netTotal: string;
   readonly taxAmount: string;
 }
@@ -224,7 +230,19 @@ export function prevalidateEtaInvoice(
         ),
       );
     }
-    if (line.taxRatePercent === 0 && (line.etaTaxSubType === null || line.etaTaxSubType === "auto")) {
+    if (line.taxClassificationAmbiguous) {
+      out.push(
+        finding(
+          EtaPrevalidationRuleCode.TaxSubtypeNotMapped,
+          EtaPrevalidationSeverity.Blocking,
+          `سطر «${line.itemLabel}» بنسبة ضريبة 0% دون ضريبة مسماة، ولدى المنشأة أكثر من تصنيف بنسبة صفر (معفى/تصدير/غير خاضع)، فلا يمكن تحديد أيها يُرسل للمصلحة.`,
+          `Line "${line.itemLabel}" is taxed at 0% and names no tax rate, while more than one 0% classification (exempt/export/not-subject) exists, so the one to file cannot be determined.`,
+          "اختر الضريبة الصحيحة على سطر المستند (معفى أو تصدير أو غير خاضع) ثم أعد الإرسال.",
+          "Pick the correct tax rate on the document line (exempt, export or not subject), then resubmit.",
+          EtaPrevalidationFixScreen.SourceDocument,
+        ),
+      );
+    } else if (line.taxRatePercent === 0 && (line.etaTaxSubType === null || line.etaTaxSubType === "auto")) {
       out.push(
         finding(
           EtaPrevalidationRuleCode.TaxSubtypeNotMapped,

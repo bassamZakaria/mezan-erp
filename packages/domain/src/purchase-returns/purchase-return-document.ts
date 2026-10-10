@@ -40,6 +40,7 @@ export interface PurchaseReturnLine {
   readonly supplierId: string;
   readonly sourceInvoiceId: string;
   readonly sourceInvoiceNumber: string | null;
+  readonly sourceLineId?: string | null;
   readonly reason: PurchaseReturnReason;
   /** Originally invoiced qty still eligible to return (caller-computed: invoice qty − already returned). */
   readonly availableQty: Qty;
@@ -55,7 +56,6 @@ export interface PurchaseReturnLine {
    * carrying none posts exactly the entry it always did.
    */
   readonly taxRatePercent?: number | null;
-  /** The tax rate row the source invoice line stored, read off the invoice (D79). */
   readonly taxRateId?: string | null;
   /**
    * بُعد المشروع — every line of a confirmed return carries the same

@@ -10,6 +10,11 @@
 export type TaxCalculationType = "exclusive" | "inclusive";
 export type TaxRateStatus = "active" | "inactive";
 
+export enum TaxRateStatusCode {
+  Active = "active",
+  Inactive = "inactive",
+}
+
 /**
  * Egyptian ETA e-invoice VAT sub-type codes (docs/archive/catalog/04's "الضرائب"
  * section transcribes V001–V009 from the tax dialog's helper text). "auto"
@@ -72,6 +77,10 @@ export interface TaxRate {
 }
 
 /** Persistence port for tax rates. The domain depends on this interface only — no SQL, no driver. */
+export interface TaxRateUsage {
+  isReferenced(taxRateId: string): Promise<boolean>;
+}
+
 export interface TaxRateRepository {
   findById(id: string): Promise<TaxRate | null>;
   findByCode(code: string): Promise<TaxRate | null>;

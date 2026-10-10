@@ -11,9 +11,11 @@ import { extend } from "../inventory/wac-math.js";
 import { unitCostOf } from "../inventory/wac-math.js";
 import type { SalesReturnLine, SalesReturnReason } from "./sales-return-document.js";
 import type { SourceSalesInvoice } from "./ports.js";
+import { matchSourceLines } from "../documents/match-source-lines.js";
 
 export interface SalesReturnRequestedQty {
   readonly itemId: string;
+  readonly sourceLineId?: string | null;
   readonly qty: Qty;
   /**
    * سبب الإرجاع for THIS line (R3.9). A document can return one item because
@@ -31,12 +33,10 @@ export function buildSalesReturnLinesFromInvoice(
   reason: SalesReturnReason,
   requested: readonly SalesReturnRequestedQty[],
 ): SalesReturnLine[] {
-  const requestedByItem = new Map(requested.map((r) => [r.itemId, r]));
   const lines: SalesReturnLine[] = [];
-  for (const invLine of invoice.lines) {
-    const request = requestedByItem.get(invLine.itemId);
-    const qty = request?.qty;
-    if (!qty || qty.isZero()) continue;
+  for (const { line: invLine, request } of matchSourceLines(invoice.lines, requested)) {
+    const qty = request.qty;
+    if (qty.isZero()) continue;
     const availableQty = invLine.qty.subtract(invLine.alreadyReturnedQty);
     const taxShare =
       invLine.qty.isZero() || invLine.taxAmount.scaled === 0n
@@ -48,6 +48,7 @@ export function buildSalesReturnLinesFromInvoice(
       customerId: invoice.customerId,
       sourceInvoiceId: invoice.id,
       sourceInvoiceNumber: invoice.number,
+      sourceLineId: invLine.sourceLineId ?? null,
       reason: request.reason ?? reason,
       availableQty,
       qty,

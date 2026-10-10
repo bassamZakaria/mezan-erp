@@ -7,9 +7,11 @@ import { extend, unitCostOf } from "../inventory/wac-math.js";
 import type { Qty } from "../money/index.js";
 import type { PurchaseReturnLine, PurchaseReturnReason } from "./purchase-return-document.js";
 import type { SourcePurchaseInvoice } from "./ports.js";
+import { matchSourceLines } from "../documents/match-source-lines.js";
 
 export interface PurchaseReturnRequestedQty {
   readonly itemId: string;
+  readonly sourceLineId?: string | null;
   readonly qty: Qty;
 }
 
@@ -19,11 +21,10 @@ export function buildPurchaseReturnLinesFromInvoice(
   reason: PurchaseReturnReason,
   requested: readonly PurchaseReturnRequestedQty[],
 ): PurchaseReturnLine[] {
-  const requestedByItem = new Map(requested.map((r) => [r.itemId, r.qty]));
   const lines: PurchaseReturnLine[] = [];
-  for (const invLine of invoice.lines) {
-    const qty = requestedByItem.get(invLine.itemId);
-    if (!qty || qty.isZero()) continue;
+  for (const { line: invLine, request } of matchSourceLines(invoice.lines, requested)) {
+    const qty = request.qty;
+    if (qty.isZero()) continue;
     const availableQty = invLine.qty.subtract(invLine.alreadyReturnedQty);
     const taxShare =
       invLine.qty.isZero() || invLine.taxAmount.scaled === 0n
@@ -35,6 +36,7 @@ export function buildPurchaseReturnLinesFromInvoice(
       supplierId: invoice.supplierId,
       sourceInvoiceId: invoice.id,
       sourceInvoiceNumber: invoice.number,
+      sourceLineId: invLine.sourceLineId ?? null,
       reason,
       availableQty,
       qty,

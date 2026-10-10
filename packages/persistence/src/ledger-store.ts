@@ -637,6 +637,7 @@ export function createSqliteLedgerStore(
   // existing books file reads back NULL, and the VAT return then groups it by
   // its percent exactly as it did before the column existed.
   if (!lineColumns.has("tax_rate_id")) sqlite.exec(`ALTER TABLE journal_line ADD COLUMN tax_rate_id TEXT`);
+  sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_journal_line_tax_rate ON journal_line(tax_rate_id) WHERE tax_rate_id IS NOT NULL`);
   // The two contracting dimensions (D-01) arrived later still.
   if (!lineColumns.has("project_id")) sqlite.exec(`ALTER TABLE journal_line ADD COLUMN project_id TEXT`);
   if (!lineColumns.has("cost_category")) sqlite.exec(`ALTER TABLE journal_line ADD COLUMN cost_category TEXT`);

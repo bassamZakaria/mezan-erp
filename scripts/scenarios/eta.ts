@@ -293,6 +293,7 @@ export async function run(ctx: Ctx): Promise<void> {
   });
 
   await taxRateIdentity_D79(ctx);
+  await zeroPercentIsNeverInferred_D79(ctx);
 }
 
 /**
@@ -373,7 +374,14 @@ export async function taxRateIdentity_D79(ctx: Ctx): Promise<void> {
     const subTypes = subTypesOf(payload?.invoiceLines);
     check("the exempt line is filed V003", subTypes[0] === "V003", JSON.stringify(subTypes));
     check("the zero-rated export line is filed V001", subTypes[1] === "V001", JSON.stringify(subTypes));
-    check("the line with no stored rate keeps the old neutral V004", subTypes[2] === "V004", JSON.stringify(subTypes));
+    check("the line with no stored rate keeps the old neutral V004 in the payload", subTypes[2] === "V004", JSON.stringify(subTypes));
+    const classification = (queued?.prevalidation ?? []).filter((f: any) => f.code === "TAX_SUBTYPE_NOT_MAPPED");
+    check(
+      "but it may not REACH the authority: with two 0% classifications on the tenant, the unnamed line is a blocking finding",
+      classification.length === 1 && classification[0]?.severity === "blocking" && queued?.hasBlockingFindings === true,
+      JSON.stringify(classification).slice(0, 300),
+    );
+    check("the finding tells the user, in Arabic, to pick the rate on the document line", /[\u0600-\u06FF]/.test(String(classification[0]?.messageAr ?? "")) && classification[0]?.fixScreen === "source_document", JSON.stringify(classification[0] ?? null).slice(0, 300));
 
     const entry = (await req("GET", `/gl/journal-entries/${confirmed.body?.invoice?.journalEntryId ?? confirmed.body?.journalEntryId}`)).body;
     const revenue = (entry?.lines ?? []).filter((l: any) => l.accountId === REVENUE);
@@ -523,4 +531,151 @@ export async function taxRateIdentity_D79(ctx: Ctx): Promise<void> {
     const cancelled = await req("POST", "/purchases/invoices/SCN-D79-PI/cancel", {});
     check("the draft is cancelled, so nothing is left owed to the supplier", cancelled.status === 200, JSON.stringify(cancelled.body).slice(0, 200));
   });
+}
+
+/**
+ * Review round 1 on D79. A rate is never INFERRED at 0%: on a tenant whose only
+ * 0% rate is «معفى», the 0% lines the system raises by itself — a tax-exempt
+ * customer's sale, a sale with VAT switched off, a retention release — would
+ * otherwise all be stored, and filed, as exempt supplies. This scenario puts
+ * the tenant in exactly that state and restores it before it finishes.
+ */
+export async function zeroPercentIsNeverInferred_D79(ctx: Ctx): Promise<void> {
+  const { req, check, scenario, rows } = ctx;
+  const TOWER_CONTRACT = "CTR-DEMO-1";
+
+  const listed = rows((await req("GET", "/tax-rates")).body);
+  const exempt = listed.find((r: any) => r.etaSubType === "V003" && r.rate === 0);
+  const exported = listed.find((r: any) => r.etaSubType === "V001" && r.rate === 0);
+
+  const draft = (id: string, over: Record<string, unknown>, line: Record<string, unknown>) =>
+    req("POST", "/sales-invoices", {
+      id, date: TODAY, dueDate: "2026-09-23", customerId: CUSTOMER, customerNameAr: "عميل", warehouseId: WH, branchId: BRANCH,
+      arAccountId: AR, taxAccountId: OUTPUT_TAX, ...over,
+      lines: [{ lineId: `${id}-L1`, itemId: "ITEM-DEMO-10", itemNameAr: "خدمة", isStock: false, qty: "1", unitPrice: "100", revenueAccountId: REVENUE, ...line }],
+    });
+  const taxOf = (res: any) => JSON.stringify([res.body?.lines?.[0]?.taxRatePercent, res.body?.lines?.[0]?.taxRateId]);
+
+  await scenario("d79g · with exactly ONE active 0% rate, the 0% lines the system raises store no rate — and a picked one still does", async () => {
+    const retired = await req("PATCH", `/tax-rates/${exported?.id}`, { status: "inactive" });
+    check("the export rate is deactivated, though documents reference it", retired.status === 200 && retired.body?.status === "inactive", JSON.stringify(retired.body).slice(0, 200));
+    const activeZero = rows((await req("GET", "/tax-rates")).body).filter((r: any) => r.rate === 0 && r.status === "active");
+    check("the tenant now holds exactly one active 0% rate, and it is «معفى»", activeZero.length === 1 && activeZero[0]?.id === exempt?.id, JSON.stringify(activeZero.map((r: any) => r.id)));
+
+    const exemptCustomer = await draft("SCN-D79-ONE-EXEMPT-CUST", { customerId: "CUST-DEMO-3", customerTaxExempt: true }, { taxRatePercent: VAT });
+    check("a tax-exempt customer's sale is drafted at 0% with NO rate — it is not an exempt supply", exemptCustomer.status === 201 && taxOf(exemptCustomer) === "[0,null]", `${exemptCustomer.status} ${taxOf(exemptCustomer)}`);
+
+    const settings = (await req("GET", "/settings")).body;
+    const off = await req("PUT", "/settings", { ...settings, taxEnabled: false });
+    check("VAT is switched off", off.status === 200 && off.body?.taxEnabled === false, `status ${off.status}`);
+    const vatOff = await draft("SCN-D79-ONE-VAT-OFF", {}, { taxRatePercent: VAT });
+    const restored = await req("PUT", "/settings", { ...settings, taxEnabled: true });
+    check("VAT is switched back on", restored.status === 200 && restored.body?.taxEnabled === true, `status ${restored.status}`);
+    check("a sale raised with VAT off is drafted at 0% with NO rate", vatOff.status === 201 && taxOf(vatOff) === "[0,null]", `${vatOff.status} ${taxOf(vatOff)}`);
+
+    const unnamed = await draft("SCN-D79-ONE-UNNAMED", {}, { taxRatePercent: 0 });
+    check("a 0% line that names no rate stores none, rather than the one 0% rate that exists", unnamed.status === 201 && taxOf(unnamed) === "[0,null]", `${unnamed.status} ${taxOf(unnamed)}`);
+
+    const picked = await draft("SCN-D79-ONE-PICKED", {}, { taxRateId: exempt?.id });
+    check("a line that NAMES «معفى» stores it", picked.status === 201 && picked.body?.lines?.[0]?.taxRateId === exempt?.id, `${picked.status} ${taxOf(picked)}`);
+
+    const refused = await draft("SCN-D79-ONE-RETIRED", {}, { taxRateId: exported?.id });
+    check("and the deactivated export rate cannot be put on a new line", refused.status === 422 && refused.body?.error === "TAX_RATE_INACTIVE", `${refused.status} ${JSON.stringify(refused.body).slice(0, 160)}`);
+    check("the refusal names the rate, not its id", String(refused.body?.message ?? "").includes(String(exported?.name)), String(refused.body?.message));
+
+    for (const id of ["SCN-D79-ONE-EXEMPT-CUST", "SCN-D79-ONE-VAT-OFF", "SCN-D79-ONE-UNNAMED", "SCN-D79-ONE-PICKED"]) {
+      await req("POST", `/sales-invoices/${id}/cancel`, {});
+    }
+
+    const release = await req(
+      "POST",
+      "/contracting/retention/releases",
+      { id: "SCN-D79-REL", contractId: TOWER_CONTRACT, kind: "provisional", date: "2026-09-02", amount: "100.00", notes: "إفراج جزئي (سيناريو D79)" },
+      { "x-user-id": "SCN-D79-MAKER" },
+    );
+    check("a retention release is drafted against a contract that really holds retention", release.status === 201, JSON.stringify(release.body).slice(0, 200));
+    const released = await req("POST", "/contracting/retention/releases/SCN-D79-REL/release", { approvedBy: "SCN-D79-APPROVER" });
+    check("and released by a second person", released.status === 200 && Boolean(released.body?.invoiceId), JSON.stringify(released.body).slice(0, 240));
+    const releaseInvoice = (await req("GET", `/sales-invoices/${released.body?.invoiceId}`)).body;
+    check(
+      "the invoice the release raised is 0% with NO rate — a retention release is not an exempt sale",
+      (releaseInvoice?.lines ?? []).length === 1 && releaseInvoice.lines[0].taxRatePercent === 0 && releaseInvoice.lines[0].taxRateId === null,
+      JSON.stringify((releaseInvoice?.lines ?? []).map((l: any) => [l.taxRatePercent, l.taxRateId])),
+    );
+
+    const reactivated = await req("PATCH", `/tax-rates/${exported?.id}`, { status: "active" });
+    check("the export rate is active again, as the seed left it", reactivated.status === 200 && reactivated.body?.status === "active", JSON.stringify(reactivated.body).slice(0, 200));
+  });
+
+  await scenario("d79h · a rate stored lines name keeps its percent and sub-type; a quote accepted under a rate still converts after it is deactivated", async () => {
+    const vat = listed.find((r: any) => r.rate === VAT && r.status === "active");
+    const percent = await req("PATCH", `/tax-rates/${vat?.id}`, { rate: 15 });
+    check("changing a referenced rate's percent is refused 409", percent.status === 409 && percent.body?.error === "TAX_RATE_IN_USE", `${percent.status} ${JSON.stringify(percent.body).slice(0, 160)}`);
+    check("with an Arabic message and an English one telling the user what to do instead", /[؀-ۿ]/.test(String(percent.body?.message ?? "")) && /new tax rate/i.test(String(percent.body?.messageEn ?? "")), JSON.stringify(percent.body).slice(0, 300));
+    const subType = await req("PATCH", `/tax-rates/${exempt?.id}`, { etaSubType: "V001" });
+    check("changing a referenced rate's ETA sub-type is refused 409 — exempt cannot become export under filed documents", subType.status === 409 && subType.body?.error === "TAX_RATE_IN_USE", `${subType.status}`);
+    const still = rows((await req("GET", "/tax-rates")).body);
+    check("neither rate changed", still.find((r: any) => r.id === vat?.id)?.rate === VAT && still.find((r: any) => r.id === exempt?.id)?.etaSubType === "V003");
+
+    await req("POST", "/tax-rates", { id: "SCN-D79-FREE", code: "SCN-D79-FREE", name: "نسبة تجريبية (سيناريو)", rate: 3, etaSubType: "V009" });
+    const free = await req("PATCH", "/tax-rates/SCN-D79-FREE", { rate: 4 });
+    check("a rate nothing references is still editable", free.status === 200 && free.body?.rate === 4, `${free.status} ${JSON.stringify(free.body).slice(0, 120)}`);
+
+    const quote = await req("POST", "/sales-quotes", {
+      id: "SCN-D79-QT-OLD", date: TODAY, expiryDate: "2026-09-23", customerId: CUSTOMER, customerNameAr: "عميل", branchId: BRANCH,
+      lines: [{ lineId: "SCN-D79-QT-OLD-L1", itemId: "ITEM-DEMO-10", itemNameAr: "خدمة", qty: "1", unitPrice: "100", taxRateId: "SCN-D79-FREE" }],
+    });
+    check("a quote is raised under that rate", quote.status === 201 && quote.body?.lines?.[0]?.taxRateId === "SCN-D79-FREE", JSON.stringify(quote.body?.lines ?? quote.body).slice(0, 200));
+    await req("POST", "/sales-quotes/SCN-D79-QT-OLD/send", {});
+    await req("POST", "/sales-quotes/SCN-D79-QT-OLD/accept", {});
+    const lockedNow = await req("PATCH", "/tax-rates/SCN-D79-FREE", { rate: 9 });
+    check("the quote now references the rate, so its percent is fixed", lockedNow.status === 409, `${lockedNow.status}`);
+    const retired = await req("PATCH", "/tax-rates/SCN-D79-FREE", { status: "inactive" });
+    check("but it can still be deactivated", retired.status === 200 && retired.body?.status === "inactive", `${retired.status}`);
+
+    const converted = await req("POST", "/sales-quotes/SCN-D79-QT-OLD/convert-to-invoice", {
+      id: "SCN-D79-QT-OLD-INV", dueDate: "2026-09-23", warehouseId: WH, arAccountId: AR, taxAccountId: OUTPUT_TAX,
+      lines: [{ lineId: "SCN-D79-QT-OLD-L1", isStock: false, revenueAccountId: REVENUE }],
+    });
+    check("the accepted quote still converts — it is not a dead end", converted.status === 201, `${converted.status} ${JSON.stringify(converted.body).slice(0, 200)}`);
+    const invoice = (await req("GET", "/sales-invoices/SCN-D79-QT-OLD-INV")).body;
+    check(
+      "and the invoice line carries the quoted rate and the quoted percent, not a repriced one",
+      invoice?.lines?.[0]?.taxRateId === "SCN-D79-FREE" && invoice?.lines?.[0]?.taxRatePercent === 4,
+      JSON.stringify((invoice?.lines ?? []).map((l: any) => [l.taxRatePercent, l.taxRateId])),
+    );
+    await req("POST", "/sales-invoices/SCN-D79-QT-OLD-INV/cancel", {});
+  });
+}
+
+/**
+ * The VAT return's INPUT side on the tenant the seed built: each rate's input
+ * tax stands against the base it was charged on, and the input tax it reports
+ * is exactly what GL 1400 moved. Before the purchase posting tagged its
+ * cost-side lines the same rows read base −2,840.00 against tax 136,488.90.
+ * Run on the seeded tenant, before any suite posts to 1400 by hand.
+ */
+export async function vatReturnInputBaseTiesToItsTax_D79(ctx: Ctx): Promise<void> {
+  const { req, n, check, rows, scaled } = ctx;
+  const window = `periodFrom=2020-01-01&periodTo=${ctx.today}`;
+  const inputRows = rows((await req("GET", `/financial-reports/vat-return?${window}`)).body).filter((r: any) => r.side === "input");
+  const taxed = inputRows.filter((r: any) => n(r.rate) > 0);
+  check("D79 seeded tenant · the VAT return has a taxed input row to check", taxed.length > 0, JSON.stringify(inputRows).slice(0, 200));
+  for (const row of taxed) {
+    const expected = (n(row.base) * n(row.rate)) / 100;
+    check(
+      `D79 seeded tenant · input row ${row.rowId}: base × ${row.rate}% is its tax, within the per-line rounding`,
+      n(row.base) > 0 && Math.abs(expected - n(row.tax)) <= 1,
+      `base ${row.base} × ${row.rate}% = ${expected.toFixed(2)} vs tax ${row.tax}`,
+    );
+  }
+  const ledger = (await req("GET", `/financial-reports/account-ledger?accountId=1400&${window}`)).body;
+  const debit = scaled(ledger?.grandTotals?.debit);
+  const credit = scaled(ledger?.grandTotals?.credit);
+  const reported = inputRows.reduce((sum: bigint, r: any) => sum + (scaled(r.tax) ?? 0n), 0n);
+  check(
+    "D79 seeded tenant · the input tax the return reports is exactly what GL 1400 moved",
+    debit !== null && credit !== null && reported === debit - credit,
+    `return ${Number(reported) / 1e6} vs ledger ${debit === null || credit === null ? "?" : Number(debit - credit) / 1e6}`,
+  );
 }

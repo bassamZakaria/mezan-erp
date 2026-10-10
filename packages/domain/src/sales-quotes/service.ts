@@ -11,12 +11,7 @@
 
 import { Money, Qty } from "../money/index.js";
 import type { DocumentNumberingHook } from "../documents/hooks.js";
-import {
-  resolveAppliedTaxRate,
-  resolveZeroRatedTaxRate,
-  type TaxRate,
-  type TaxRateRepository,
-} from "../tax-rates/index.js";
+import { resolveDocumentLineTax, type TaxRate, type TaxRateRepository } from "../tax-rates/index.js";
 import type { SalesQuote, SalesQuoteDiscount, SalesQuoteLine } from "./sales-quote.js";
 import { assertTransition } from "./status.js";
 import { computeQuoteTotals, type SalesQuoteTotals } from "./totals.js";
@@ -31,7 +26,6 @@ import {
 export interface SalesQuoteServiceDeps {
   readonly repo: SalesQuoteRepository;
   readonly numbering: DocumentNumberingHook;
-  /** The tax rate master; without it no quote line can be given a `taxRateId` (D79). */
   readonly taxRates?: Pick<TaxRateRepository, "list">;
   /** ISO-8601 UTC "now"; overridable for deterministic tests. */
   readonly now?: () => string;
@@ -179,12 +173,7 @@ export class SalesQuoteService {
   private buildDraft(cmd: CreateSalesQuoteCommand, taxRates: readonly TaxRate[] | null): SalesQuote {
     const zeroRated = cmd.customerTaxExempt === true;
     const lines: SalesQuoteLine[] = cmd.lines.map((l) => {
-      const tax =
-        taxRates === null
-          ? { taxRateId: null, taxRatePercent: zeroRated ? 0 : (l.taxRatePercent ?? 0) }
-          : zeroRated
-            ? resolveZeroRatedTaxRate(taxRates, l)
-            : resolveAppliedTaxRate(taxRates, l, 0);
+      const tax = resolveDocumentLineTax(taxRates, l, { defaultPercent: 0, zeroRated });
       return {
         lineId: l.lineId,
         itemId: l.itemId,

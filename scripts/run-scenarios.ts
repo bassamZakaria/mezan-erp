@@ -12,7 +12,7 @@ import { run as shell } from "./scenarios/shell.js";
 import { run as crossModule } from "./scenarios/cross-module.js";
 import { run as seams } from "./scenarios/seams.js";
 import { run as trialFreemium } from "./scenarios/trial-freemium.js";
-import { run as eta } from "./scenarios/eta.js";
+import { run as eta, vatReturnInputBaseTiesToItsTax_D79 } from "./scenarios/eta.js";
 import {
   run as reports,
   agingLaddersTieToTheirControlAccounts_D192,
@@ -66,6 +66,10 @@ if (!only.size || only.has("reports")) {
   await allocationUndoneAndMadeAgainSettlesOnce_D265(ctx);
   await voucherReversalDatedByReversalDay_D270(ctx);
   console.log(` ${ctx.passes.length + ctx.failures.length - before} assertions`);
+}
+
+if (!only.size || only.has("eta")) {
+  await vatReturnInputBaseTiesToItsTax_D79(ctx);
 }
 
 const fragmentSuites = [...POS_SCENARIOS, ...ENH_SCENARIOS].flatMap(([name, scenario]) =>

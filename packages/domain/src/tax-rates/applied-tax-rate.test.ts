@@ -1,19 +1,33 @@
 import { describe, expect, it } from "vitest";
 import {
-  findSoleActiveTaxRateByPercent,
+  inferTaxRateByPercent,
   resolveAppliedTaxRate,
+  resolveDocumentLineTax,
+  resolveInheritedTaxRate,
   resolveZeroRatedTaxRate,
 } from "./applied-tax-rate.js";
-import { InactiveTaxRateError, TaxRateNotFoundError, TaxRatePercentMismatchError } from "./errors.js";
-import type { TaxRateStatus } from "./tax-rate.js";
+import {
+  InactiveTaxRateError,
+  TaxRateNotFoundError,
+  TaxRatePercentMismatchError,
+  TaxRateUnverifiableError,
+} from "./errors.js";
+import { TaxRateStatusCode, type TaxRateStatus } from "./tax-rate.js";
 
-const rate = (id: string, percent: number, status: TaxRateStatus = "active") => ({ id, rate: percent, status });
+const rate = (id: string, name: string, percent: number, status: TaxRateStatus = TaxRateStatusCode.Active) => ({
+  id,
+  name,
+  rate: percent,
+  status,
+});
 
-const VAT = rate("VAT14", 14);
-const EXEMPT = rate("EXEMPT", 0);
-const EXPORT = rate("EXPORT", 0);
-const RETIRED = rate("OLD5", 5, "inactive");
+const VAT = rate("VAT14", "ضريبة القيمة المضافة", 14);
+const EXEMPT = rate("EXEMPT", "معفى", 0);
+const EXPORT = rate("EXPORT", "تصدير", 0);
+const RETIRED = rate("OLD5", "ضريبة قديمة", 5, TaxRateStatusCode.Inactive);
 const MASTER = [VAT, EXEMPT, EXPORT, RETIRED];
+const ONLY_EXEMPT_AT_ZERO = [VAT, EXEMPT];
+const ONLY_EXPORT_AT_ZERO = [VAT, EXPORT];
 
 describe("resolveAppliedTaxRate — a line names its tax rate (D79)", () => {
   it("takes the percent from the named rate, not from the request", () => {
@@ -39,17 +53,24 @@ describe("resolveAppliedTaxRate — a line names its tax rate (D79)", () => {
     expect(() => resolveAppliedTaxRate(MASTER, { taxRateId: "TAX-1" }, 14)).toThrow(TaxRateNotFoundError);
   });
 
-  it("refuses a deactivated rate on a new line", () => {
+  it("refuses a deactivated rate on a new line, naming the rate rather than quoting its id", () => {
     expect(() => resolveAppliedTaxRate(MASTER, { taxRateId: "OLD5" }, 14)).toThrow(InactiveTaxRateError);
+    expect(() => resolveAppliedTaxRate(MASTER, { taxRateId: "OLD5" }, 14)).toThrow(/ضريبة قديمة/);
+    expect(() => resolveAppliedTaxRate(MASTER, { taxRateId: "VAT14", taxRatePercent: 5 }, 14)).toThrow(/ضريبة القيمة المضافة/);
   });
 });
 
 describe("resolveAppliedTaxRate — a line names only a percent", () => {
-  it("stores the one active rate that has the percent", () => {
+  it("infers the one active rate at a percent above zero", () => {
     expect(resolveAppliedTaxRate(MASTER, { taxRatePercent: 14 }, 0)).toEqual({ taxRateId: "VAT14", taxRatePercent: 14 });
+    expect(resolveAppliedTaxRate(MASTER, {}, 14)).toEqual({ taxRateId: "VAT14", taxRatePercent: 14 });
   });
 
-  it("stores no id when two active rates share the percent, and keeps the percent", () => {
+  it("NEVER infers a rate at 0% — not even when the tenant holds exactly one 0% rate", () => {
+    // Guards review finding 1: with only «معفى» at 0%, a retention release or a
+    // tax-exempt customer's sale would otherwise be stored, and filed, as exempt.
+    expect(resolveAppliedTaxRate(ONLY_EXEMPT_AT_ZERO, { taxRatePercent: 0 }, 14)).toEqual({ taxRateId: null, taxRatePercent: 0 });
+    expect(resolveAppliedTaxRate(ONLY_EXPORT_AT_ZERO, { taxRatePercent: 0 }, 14)).toEqual({ taxRateId: null, taxRatePercent: 0 });
     expect(resolveAppliedTaxRate(MASTER, { taxRatePercent: 0 }, 14)).toEqual({ taxRateId: null, taxRatePercent: 0 });
   });
 
@@ -58,8 +79,8 @@ describe("resolveAppliedTaxRate — a line names only a percent", () => {
     expect(resolveAppliedTaxRate(MASTER, { taxRatePercent: 5.04 }, 14)).toEqual({ taxRateId: null, taxRatePercent: 5.04 });
   });
 
-  it("falls to the default percent when the line names neither", () => {
-    expect(resolveAppliedTaxRate(MASTER, {}, 14)).toEqual({ taxRateId: "VAT14", taxRatePercent: 14 });
+  it("treats an explicit null as 'this line names no rate' and infers nothing, even at 14%", () => {
+    expect(resolveAppliedTaxRate(MASTER, { taxRateId: null, taxRatePercent: 14 }, 0)).toEqual({ taxRateId: null, taxRatePercent: 14 });
   });
 });
 
@@ -69,14 +90,12 @@ describe("resolveZeroRatedTaxRate — policy forces the line to 0%", () => {
   });
 
   it("never stamps a taxed rate's id on a line charged nothing", () => {
-    expect(resolveZeroRatedTaxRate(MASTER, { taxRateId: "VAT14", taxRatePercent: 14 })).toEqual({
-      taxRateId: null,
-      taxRatePercent: 0,
-    });
+    expect(resolveZeroRatedTaxRate(MASTER, { taxRateId: "VAT14", taxRatePercent: 14 })).toEqual({ taxRateId: null, taxRatePercent: 0 });
   });
 
-  it("stores the sole active 0% rate when there is exactly one", () => {
-    expect(resolveZeroRatedTaxRate([VAT, EXEMPT], { taxRatePercent: 14 })).toEqual({ taxRateId: "EXEMPT", taxRatePercent: 0 });
+  it("stores NO id when the line named none — whichever single 0% rate the tenant happens to hold", () => {
+    expect(resolveZeroRatedTaxRate(ONLY_EXEMPT_AT_ZERO, { taxRatePercent: 14 })).toEqual({ taxRateId: null, taxRatePercent: 0 });
+    expect(resolveZeroRatedTaxRate(ONLY_EXPORT_AT_ZERO, {})).toEqual({ taxRateId: null, taxRatePercent: 0 });
   });
 
   it("still refuses an id no tax rate has", () => {
@@ -84,9 +103,43 @@ describe("resolveZeroRatedTaxRate — policy forces the line to 0%", () => {
   });
 });
 
-describe("findSoleActiveTaxRateByPercent", () => {
-  it("ignores inactive rates", () => {
-    expect(findSoleActiveTaxRateByPercent(MASTER, 5)).toBeNull();
-    expect(findSoleActiveTaxRateByPercent([EXEMPT, rate("EXPORT", 0, "inactive")], 0)?.id).toBe("EXEMPT");
+describe("resolveDocumentLineTax — the tax rate master may not be wired", () => {
+  const policy = { defaultPercent: 14, zeroRated: false };
+
+  it("keeps the percent and stores no id for a line that names no rate", () => {
+    expect(resolveDocumentLineTax(null, { taxRatePercent: 5 }, policy)).toEqual({ taxRateId: null, taxRatePercent: 5 });
+    expect(resolveDocumentLineTax(null, {}, { ...policy, zeroRated: true })).toEqual({ taxRateId: null, taxRatePercent: 0 });
+  });
+
+  it("refuses a line that NAMES a rate it cannot verify, rather than dropping the id behind a success", () => {
+    expect(() => resolveDocumentLineTax(null, { taxRateId: "EXEMPT" }, policy)).toThrow(TaxRateUnverifiableError);
+  });
+});
+
+describe("resolveInheritedTaxRate — a line copied from a document that already resolved its tax", () => {
+  it("keeps a rate deactivated since, at the percent it was resolved at", () => {
+    expect(resolveInheritedTaxRate(MASTER, { taxRateId: "OLD5", taxRatePercent: 5 })).toEqual({ taxRateId: "OLD5", taxRatePercent: 5 });
+  });
+
+  it("keeps a line that stored no rate exactly as it is", () => {
+    expect(resolveInheritedTaxRate(MASTER, { taxRateId: null, taxRatePercent: 0 })).toEqual({ taxRateId: null, taxRatePercent: 0 });
+    expect(resolveInheritedTaxRate(null, { taxRateId: null, taxRatePercent: 14 })).toEqual({ taxRateId: null, taxRatePercent: 14 });
+  });
+
+  it("refuses a rate row that no longer exists, and one it cannot verify", () => {
+    expect(() => resolveInheritedTaxRate(MASTER, { taxRateId: "GONE", taxRatePercent: 14 })).toThrow(TaxRateNotFoundError);
+    expect(() => resolveInheritedTaxRate(null, { taxRateId: "VAT14", taxRatePercent: 14 })).toThrow(TaxRateUnverifiableError);
+  });
+});
+
+describe("inferTaxRateByPercent", () => {
+  it("ignores inactive rates, and answers nothing at zero or below", () => {
+    expect(inferTaxRateByPercent(MASTER, 5)).toBeNull();
+    expect(inferTaxRateByPercent(ONLY_EXEMPT_AT_ZERO, 0)).toBeNull();
+    expect(inferTaxRateByPercent(MASTER, 14)?.id).toBe("VAT14");
+  });
+
+  it("answers nothing when two active rates share the percent", () => {
+    expect(inferTaxRateByPercent([VAT, rate("VAT14B", "ضريبة أخرى", 14)], 14)).toBeNull();
   });
 });

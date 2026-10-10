@@ -39,6 +39,10 @@ function columnsOf(path: string, table: string): string[] {
 function dropColumn(path: string, table: string, column: string): void {
   const db = new Database(path);
   try {
+    const indexes = db.prepare(`SELECT name, sql FROM sqlite_master WHERE type = 'index' AND tbl_name = ?`).all(table) as { name: string; sql: string | null }[];
+    for (const index of indexes) {
+      if (index.sql?.includes(column)) db.exec(`DROP INDEX ${index.name}`);
+    }
     db.exec(`ALTER TABLE ${table} DROP COLUMN ${column}`);
   } finally {
     db.close();

@@ -5,6 +5,8 @@ import { Money } from "../money/index.js";
 import { assertBalanced } from "../gl/post.js";
 import { runReport } from "./engine.js";
 import { createVatReturnReport, vatNetPayable, type VatReturnContext } from "./vat-return.js";
+import { Qty } from "../money/index.js";
+import { buildInvoicePosting, type PurchaseInvoice, type PurchaseInvoiceLine } from "../purchasing/purchase-invoice.js";
 
 const OUTPUT_VAT = "2200";
 const INPUT_VAT = "1400";
@@ -260,9 +262,9 @@ describe("createVatReturnReport — exact arithmetic", () => {
 
 describe("createVatReturnReport — grouped by the tax rate each line stored (D79)", () => {
   const taxRates = [
-    { id: "VAT14", name: "ضريبة القيمة المضافة 14%", rate: 14, status: "active" as const },
-    { id: "EXEMPT", name: "معفى", rate: 0, status: "active" as const },
-    { id: "EXPORT", name: "تصدير", rate: 0, status: "active" as const },
+    { id: "VAT14", name: "ضريبة القيمة المضافة 14%" },
+    { id: "EXEMPT", name: "معفى" },
+    { id: "EXPORT", name: "تصدير" },
   ];
   const run = (entries: JournalEntry[], rates: VatReturnContext["taxRates"] = taxRates) => {
     const definition = createVatReturnReport({ periodFrom: "2026-03-01", periodTo: "2026-03-31" });
@@ -301,7 +303,7 @@ describe("createVatReturnReport — grouped by the tax rate each line stored (D7
     expect(rows.find((r) => r.rowId === "output-0-EXEMPT")).toMatchObject({ base: 70 });
   });
 
-  it("folds a line that stored only a percent into the one active rate at that percent", () => {
+  it("keeps a line that stored only a percent on the unnamed row, never on whichever rate is active today", () => {
     const rows = run([
       je({
         id: "mixed-history",
@@ -315,11 +317,29 @@ describe("createVatReturnReport — grouped by the tax rate each line stored (D7
       }),
     ]);
     const fourteen = rows.filter((r) => r.side === "output" && r.rate === 14);
-    expect(fourteen).toHaveLength(1);
-    expect(fourteen[0]).toMatchObject({ rowId: "output-14-VAT14", base: 200, tax: 28, taxRateName: "ضريبة القيمة المضافة 14%" });
+    expect(fourteen.map((r) => [r.rowId, r.taxRateName, r.base, r.tax])).toEqual([
+      ["output-14", null, 100, 14],
+      ["output-14-VAT14", "ضريبة القيمة المضافة 14%", 100, 14],
+    ]);
   });
 
-  it("folds an entry with no rate on any line into the sole rate its derived percent matches", () => {
+  it("reports a filed period the same whatever rates exist when it is reprinted", () => {
+    const filed = [
+      je({
+        id: "legacy",
+        lines: [
+          line({ accountId: "1100", debit: Money.fromMajor("114") }),
+          line({ accountId: "4100", credit: Money.fromMajor("100"), taxRatePercent: 14 }),
+          line({ accountId: OUTPUT_VAT, credit: Money.fromMajor("14"), taxRatePercent: 14 }),
+        ],
+      }),
+    ];
+    const figures = (rates: VatReturnContext["taxRates"]) => run(filed, rates).map((r) => [r.rowId, r.base, r.tax]);
+    expect(figures(taxRates)).toEqual(figures([]));
+    expect(figures([...taxRates, { id: "VAT14-NEW", name: "ضريبة جديدة" }])).toEqual(figures(taxRates));
+  });
+
+  it("keeps an entry with no rate on any line on the unnamed row for its derived percent", () => {
     const rows = run([
       je({
         id: "untagged",
@@ -331,7 +351,7 @@ describe("createVatReturnReport — grouped by the tax rate each line stored (D7
       }),
     ]);
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ rowId: "output-14-VAT14", base: 100, tax: 14 });
+    expect(rows[0]).toMatchObject({ rowId: "output-14", taxRateId: null, base: 100, tax: 14 });
   });
 
   it("splits by stored id and names no row when the tax rate master is not supplied", () => {
@@ -354,17 +374,62 @@ describe("createVatReturnReport — grouped by the tax rate each line stored (D7
     ]);
   });
 
-  it("groups input tax by the stored rate as well", () => {
-    const rows = run([
-      je({
-        id: "purchase",
-        lines: [
-          line({ accountId: "1300", debit: Money.fromMajor("200"), taxRatePercent: 14, taxRateId: "VAT14" }),
-          line({ accountId: INPUT_VAT, debit: Money.fromMajor("28"), taxRatePercent: 14, taxRateId: "VAT14" }),
-          line({ accountId: "2100", credit: Money.fromMajor("228") }),
-        ],
-      }),
+});
+
+describe("createVatReturnReport — the input side, read off the REAL purchase posting (D28, D79)", () => {
+  const GRNI = "2120";
+  const PURCHASE_ACCOUNTS = {
+    inventoryAccountId: "1300",
+    taxAccountId: INPUT_VAT,
+    payableAccountId: "2100",
+    expenseAccountId: "5100",
+    goodsReceivedNotInvoicedAccountId: GRNI,
+  };
+  const purchaseLine = (overrides: Partial<PurchaseInvoiceLine>): PurchaseInvoiceLine => ({
+    itemId: "item-A", description: null, kind: "inventory", qty: Qty.fromMajor("1"), unitCost: Money.fromMajor("100"),
+    taxRatePercent: 14, taxRateId: "VAT14", batchNo: null, expiryDate: null, ...overrides,
+  });
+  const purchase = (id: string, receiptId: string | null, lines: PurchaseInvoiceLine[]): PurchaseInvoice => ({
+    id, number: id, supplierId: "sup-1", date: "2026-03-05", dueDate: null, supplierInvoiceNumber: null, branchId: "MAIN",
+    warehouseId: "WH", currency: "EGP", notes: null, receiptId, lines, status: "confirmed", fxRate: null, createdBy: "system",
+    createdAt: "2026-03-05T00:00:00.000Z",
+  });
+  const posted = (invoice: PurchaseInvoice): JournalEntry =>
+    je({ id: invoice.id, date: invoice.date, lines: buildInvoicePosting(invoice, PURCHASE_ACCOUNTS).lines.map((l) => ({ ...l })) });
+  const inputRows = (entries: JournalEntry[]) => {
+    const definition = createVatReturnReport({ periodFrom: "2026-03-01", periodTo: "2026-03-31" });
+    const outcome = runReport(
+      definition,
+      { periodFrom: "2026-03-01", periodTo: "2026-03-31" },
+      {
+        ...ctx(entries),
+        accounts: [...accounts, account({ id: GRNI, code: GRNI, nameAr: "بضاعة واردة لم تُفوتر", type: "liability" })],
+        inputBaseAccountIds: [GRNI],
+      },
+    );
+    if (!outcome.ok) throw new Error("the VAT return did not run");
+    return outcome.rows.filter((r) => r.side === "input").map((r) => [r.rowId, r.base, r.tax]);
+  };
+
+  it("a manual invoice reports each rate's input tax against the base it was charged on", () => {
+    const rows = inputRows([
+      posted(purchase("PI-1", null, [
+        purchaseLine({ qty: Qty.fromMajor("2") }),
+        purchaseLine({ kind: "expense", itemId: null, unitCost: Money.fromMajor("50") }),
+        purchaseLine({ kind: "expense", itemId: null, unitCost: Money.fromMajor("300"), taxRatePercent: 0, taxRateId: "EXEMPT" }),
+        purchaseLine({ unitCost: Money.fromMajor("70"), taxRatePercent: 0, taxRateId: null }),
+      ])),
     ]);
-    expect(rows.find((r) => r.side === "input")).toMatchObject({ rowId: "input-14-VAT14", base: 200, tax: 28 });
+    expect(rows).toEqual([
+      ["input-14-VAT14", 250, 35],
+      ["input-0", 70, 0],
+      ["input-0-EXEMPT", 300, 0],
+    ]);
+  });
+
+  it("an invoice raised from a goods receipt reports the same base, though it debits the received-not-invoiced liability", () => {
+    const fromReceipt = posted(purchase("PI-2", "gr-1", [purchaseLine({ qty: Qty.fromMajor("2") })]));
+    expect(fromReceipt.lines.some((l) => l.accountId === GRNI && l.debit.scaled > 0n)).toBe(true);
+    expect(inputRows([fromReceipt])).toEqual([["input-14-VAT14", 200, 28]]);
   });
 });

@@ -1,6 +1,6 @@
 import { Money, Qty, computeQuoteTotals, type SalesQuoteDiscount, type SalesQuoteLine, type SalesQuoteTotals } from "@mezan/domain";
 import type { ItemDTO, TaxRateDTO } from "@mezan/contracts";
-import { NO_TAX_RATE, appliedTaxPercent } from "../tax-rate-field";
+import { DERIVED_TAX, appliedTaxPercent, chosenTaxRateId, type TaxChoice } from "../tax-rate-field";
 import type { SalesQuoteRecord } from "../../data/hooks";
 import type { AppTranslationKey } from "../../i18n";
 import type { PillTone } from "@mezan/ui";
@@ -59,15 +59,14 @@ export interface LineDraft {
   /** null until an item is chosen — then the item's sale price, editable. */
   unitPrice: number | null;
   discountPercent: number;
-  /** The tax rate picked for this line; NO_TAX_RATE leaves the item's own percent to the server. */
-  taxRateId: string;
+  tax: TaxChoice;
   expanded: boolean;
 }
 
 let lineSeq = 0;
 export function blankLine(): LineDraft {
   lineSeq += 1;
-  return { key: `l${lineSeq}`, itemId: "", qty: 1, unitPrice: null, discountPercent: 0, taxRateId: NO_TAX_RATE, expanded: false };
+  return { key: `l${lineSeq}`, itemId: "", qty: 1, unitPrice: null, discountPercent: 0, tax: DERIVED_TAX, expanded: false };
 }
 
 /** The draft lines that carry a real item, as domain lines the totals engine can price. */
@@ -87,8 +86,8 @@ export function toDomainLines(
       qty: Qty.fromMajor(String(l.qty || 0)),
       unitPrice: Money.fromMajor(String(l.unitPrice ?? item.salePrice ?? 0)),
       discountPercent: l.discountPercent || 0,
-      taxRatePercent: appliedTaxPercent(taxRates, l.taxRateId, item.taxRatePercent),
-      taxRateId: l.taxRateId === NO_TAX_RATE ? null : l.taxRateId,
+      taxRatePercent: appliedTaxPercent(l.tax, taxRates, item.taxRatePercent),
+      taxRateId: chosenTaxRateId(l.tax, taxRates, item.taxRatePercent),
     });
   }
   return out;

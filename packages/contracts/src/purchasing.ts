@@ -195,7 +195,6 @@ export const createPurchaseInvoiceLineSchema = z.object({
   qty: positiveDecimalString,
   unitCost: positiveDecimalString,
   taxRatePercent: z.number().min(0).optional(),
-  /** The tax rate row applied; validated server-side, its percent read off the row (D79). */
   taxRateId: z.string().min(1).nullish(),
   batchNo: z.string().min(1).nullable().optional(),
   expiryDate: isoDate.nullable().optional(),

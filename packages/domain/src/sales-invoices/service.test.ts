@@ -8,7 +8,13 @@ import { InMemoryLedgerRepository, InMemorySequenceStore, RecordingAuditSink } f
 import { StockLedgerService } from "../inventory/index.js";
 import { InMemoryStockLedger, InMemoryCostLayers, InMemorySnapshots } from "../inventory/test-helpers/in-memory-stores.js";
 import type { DocumentWorkflowGate, DocumentDomainEvent } from "../documents/hooks.js";
-import { InactiveTaxRateError, TaxRateNotFoundError, TaxRatePercentMismatchError, type TaxRate } from "../tax-rates/index.js";
+import {
+  InactiveTaxRateError,
+  TaxRateNotFoundError,
+  TaxRatePercentMismatchError,
+  TaxRateUnverifiableError,
+  type TaxRate,
+} from "../tax-rates/index.js";
 import {
   SalesInvoiceService,
   createSalesInvoiceGlHook,
@@ -694,9 +700,49 @@ describe("SalesInvoiceService.createDraft — the tax rate's identity (D79)", ()
     expect(vat[0]).toMatchObject({ taxRateId: "VAT14", taxRatePercent: 14 });
   });
 
-  it("without the tax rate master wired, a line keeps its percent and stores no id — the pre-D79 behaviour", async () => {
+  it("without the tax rate master wired, a percent-only line keeps its percent and stores no id", async () => {
     const { svc } = await baseDeps();
-    const invoice = await svc.createDraft(draftCmd({ lines: [serviceLine("L1", { taxRateId: "EXEMPT", taxRatePercent: 14 })] }));
+    const invoice = await svc.createDraft(draftCmd({ lines: [serviceLine("L1", { taxRatePercent: 14 })] }));
     expect(invoice.lines[0]).toMatchObject({ taxRateId: null, taxRatePercent: 14 });
+  });
+
+  it("without the tax rate master wired, a line that NAMES a rate is refused — never stored with the id dropped", async () => {
+    const { svc, repo } = await baseDeps();
+    await expect(svc.createDraft(draftCmd({ lines: [serviceLine("L1", { taxRateId: "EXEMPT" })] }))).rejects.toBeInstanceOf(TaxRateUnverifiableError);
+    expect(await repo.findById("inv-1")).toBeNull();
+  });
+
+  describe("on a tenant whose ONLY 0% rate is exempt (review finding 1)", () => {
+    const onlyExempt = { list: async () => [rate("VAT14", 14, "auto"), rate("EXEMPT", 0, "V003")] };
+
+    it("a tax-exempt customer's sale stores no rate — it is not an exempt SUPPLY", async () => {
+      const { svc } = await baseDeps({ taxRates: onlyExempt });
+      const invoice = await svc.createDraft(draftCmd({ customerTaxExempt: true, lines: [serviceLine("L1", { taxRatePercent: 14 })] }));
+      expect(invoice.lines[0]).toMatchObject({ taxRateId: null, taxRatePercent: 0 });
+    });
+
+    it("a sale with VAT switched off stores no rate", async () => {
+      const { svc } = await baseDeps({ taxRates: onlyExempt, taxPolicy: () => ({ enabled: false, defaultRatePercent: 14, inclusive: false }) });
+      const invoice = await svc.createDraft(draftCmd({ lines: [serviceLine("L1", {})] }));
+      expect(invoice.lines[0]).toMatchObject({ taxRateId: null, taxRatePercent: 0 });
+    });
+
+    it("a system-raised 0% line that says 'no rate' — a retention release — stores no rate", async () => {
+      const { svc } = await baseDeps({ taxRates: onlyExempt });
+      const invoice = await svc.createDraft(draftCmd({ lines: [serviceLine("L1", { taxRateId: null, taxRatePercent: 0 })] }));
+      expect(invoice.lines[0]).toMatchObject({ taxRateId: null, taxRatePercent: 0 });
+    });
+
+    it("and so does a 0% line that says nothing at all", async () => {
+      const { svc } = await baseDeps({ taxRates: onlyExempt });
+      const invoice = await svc.createDraft(draftCmd({ lines: [serviceLine("L1", { taxRatePercent: 0 })] }));
+      expect(invoice.lines[0]).toMatchObject({ taxRateId: null, taxRatePercent: 0 });
+    });
+  });
+
+  it("a line inherited from a quote keeps a rate deactivated since, at the quoted percent", async () => {
+    const { svc } = await baseDeps({ taxRates });
+    const invoice = await svc.createDraft(draftCmd({ lines: [{ ...serviceLine("L1", {}), inheritedTax: { taxRateId: "OLD5", taxRatePercent: 5 } }] }));
+    expect(invoice.lines[0]).toMatchObject({ taxRateId: "OLD5", taxRatePercent: 5 });
   });
 });

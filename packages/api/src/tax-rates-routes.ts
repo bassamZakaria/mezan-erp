@@ -5,10 +5,12 @@ import {
   DuplicateTaxCodeError,
   InvalidTaxRateError,
   TaxRateNotFoundError,
+  TaxRateInUseError,
   AuditChangeAction,
   type AuditSink,
   type TaxRate,
   type TaxRateRepository,
+  type TaxRateUsage,
 } from "@mezan/domain";
 import { createTaxRateSchema, updateTaxRateSchema } from "@mezan/contracts";
 import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
@@ -47,7 +49,7 @@ function handleDomainError(c: Context, err: unknown) {
   if (err instanceof TaxRateNotFoundError) {
     return refuse(err, 404);
   }
-  if (err instanceof DuplicateTaxCodeError) {
+  if (err instanceof DuplicateTaxCodeError || err instanceof TaxRateInUseError) {
     return refuse(err, 409);
   }
   if (err instanceof InvalidTaxRateError) {
@@ -65,6 +67,7 @@ export function createTaxRatesRoutes(
   repo: TaxRateRepository,
   resolveAuthContext: AuthContextResolver,
   audit?: AuditSink,
+  usage?: TaxRateUsage,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
@@ -107,14 +110,14 @@ export function createTaxRatesRoutes(
     }
     try {
       const before = await repo.findById(c.req.param("id"));
-      const taxRate = await updateTaxRate(c.req.param("id"), parsed.data, repo);
+      const taxRate = await updateTaxRate(c.req.param("id"), parsed.data, repo, usage);
       await recordFieldChanges(audit, c, {
         entity: { module: "accounting", entityType: "TAX_RATE", entityId: taxRate.id },
         action: AuditChangeAction.Update,
         before: before ? serialize(before) : null,
         after: serialize(taxRate),
         fields: AUDITED_TAX_RATE_FIELDS,
-        warnOn: ["rate", "calculationType", "isDefault", "outputTaxAccountId", "inputTaxAccountId", "status"],
+        warnOn: ["rate", "calculationType", "isDefault", "outputTaxAccountId", "inputTaxAccountId", "etaSubType", "status"],
       });
       return c.json(serialize(taxRate));
     } catch (err) {

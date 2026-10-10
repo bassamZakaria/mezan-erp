@@ -149,6 +149,7 @@ import {
   createSqlitePriceListStore,
   createSqlitePromotionStore,
   createSqliteSalesQuoteStore,
+  createSqliteTaxRateUsage,
   createSqliteExchangeRateRepository,
   createSqliteEtaStore,
   createScryptHasher,
@@ -1440,6 +1441,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
             // No VAT: the works were taxed on the certificate that withheld
             // this money. Taxing the release again would charge it twice.
             taxRatePercent: 0,
+            taxRateId: null,
             revenueAccountId: cmd.retentionAccountId,
           },
         ],
@@ -1672,6 +1674,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
               qty: Qty.fromMajor("1"),
               unitCost: cmd.amount,
               taxRatePercent: 0,
+            taxRateId: null,
             },
           ],
         },
@@ -3021,6 +3024,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     auditSink,
     barcodeConfigStore: barcodeConfig,
     taxRateRepo: taxRates,
+    taxRateUsage: createSqliteTaxRateUsage(sqlite),
     costCenterRepo: costCenters,
     treasuryAccountRepo: treasuryAccounts,
     fiscalPeriodRepo: fiscalPeriods,
@@ -3804,6 +3808,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
             // returnable as up to 60 pieces at the per-piece price, so the
             // credit still reconciles to the line and the ledger to the count.
             lines: invoice.lines.map((l) => ({
+              sourceLineId: l.lineId,
               itemId: l.itemId,
               itemName: l.itemNameAr,
               qty: l.baseQty,
@@ -3920,8 +3925,10 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
             date: invoice.date,
             status: "confirmed" as const,
             lines: invoice.lines
+              .map((l, index) => ({ ...l, sourceLineId: String(index) }))
               .filter((l) => l.itemId !== null)
               .map((l) => ({
+                sourceLineId: l.sourceLineId,
                 itemId: l.itemId as string,
                 itemName: l.description ?? (l.itemId as string),
                 qty: l.qty,
@@ -3996,7 +4003,13 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     financialReports: {
       ledger,
       accounts,
-      vatAccounts: { outputVatAccountId: "2200", inputVatAccountId: "1400" },
+      vatAccounts: {
+        outputVatAccountId: "2200",
+        inputVatAccountId: "1400",
+        inputBaseAccountIds: PURCHASE_GL_ACCOUNTS.goodsReceivedNotInvoicedAccountId
+          ? [PURCHASE_GL_ACCOUNTS.goodsReceivedNotInvoicedAccountId]
+          : [],
+      },
       taxRates,
       cashAccountIds: ["1300-1", "1310", "1315", "1320", "1330"],
       otherIncomeExpenseAccountIds,

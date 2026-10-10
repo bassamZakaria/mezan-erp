@@ -54,12 +54,12 @@ export const createSalesInvoiceLineSchema = z.object({
   discountAmount: moneyString.optional(),
   taxRatePercent: z.number().min(0).optional(),
   /**
-   * The tax rate row applied to this line ("الضريبة"). The server checks it
-   * exists and is active and reads the percent off it; a `taxRatePercent` sent
-   * beside it must equal that percent. Omitted, the line keeps the percent it
-   * was sent and stores a rate id only when exactly one active rate has that
-   * percent — exempt and zero-rated export are both 0%, so a 0% line that
-   * names no rate cannot be told apart from either (D79).
+   * EXTERNAL CONTRACT: three answers, not two. A string names the tax rate:
+   * the server checks it exists and is active, reads the percent off it, and
+   * refuses a `taxRatePercent` that disagrees. `null` says the line names no
+   * rate, and none is stored. Omitted, the server infers the one active rate
+   * at the line's percent — but never at 0%, where exempt and zero-rated
+   * export cannot be told apart (D79).
    */
   taxRateId: z.string().min(1).nullish(),
   revenueAccountId: z.string().min(1),

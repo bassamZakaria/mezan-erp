@@ -21,7 +21,7 @@ import {
   useStockBalance,
   useTaxRates,
 } from "../../data/hooks";
-import { NO_TAX_RATE, TaxRateField, appliedTaxPercent, lineTaxPayload, soleActiveTaxRateId } from "../tax-rate-field";
+import { DERIVED_TAX, TaxRateField, appliedTaxPercent, lineTaxPayload } from "../tax-rate-field";
 import { useCustomerAging } from "../../data/partner-detail-hooks";
 import { useWorkingLocation } from "../../data/hub-hooks";
 import { useAppTranslation } from "../../i18n";
@@ -169,7 +169,7 @@ export function QuoteFormView({ onClose, initialCustomerId = "" }: { onClose: ()
             : { type: "amount", amount: discount.amount.toString() },
         priceListId: priceList?.id ?? null,
         lines: quoteLines.map((l) => ({
-          ...lineTaxPayload(l.taxRateId ?? NO_TAX_RATE, l.taxRatePercent),
+          ...lineTaxPayload(lines.find((draft) => draft.key === l.lineId)?.tax ?? DERIVED_TAX, taxRates, l.taxRatePercent),
           lineId: l.lineId,
           itemId: l.itemId,
           itemNameAr: l.itemNameAr,
@@ -269,7 +269,7 @@ export function QuoteFormView({ onClose, initialCustomerId = "" }: { onClose: ()
                             updateLine(line.key, {
                               itemId: picked?.id ?? "",
                               unitPrice: picked ? priceFor(picked) : null,
-                              taxRateId: picked ? soleActiveTaxRateId(taxRates, picked.taxRatePercent) : NO_TAX_RATE,
+                              tax: DERIVED_TAX,
                             });
                           }}
                           options={itemOptions}
@@ -294,7 +294,7 @@ export function QuoteFormView({ onClose, initialCustomerId = "" }: { onClose: ()
                         </div>
                         {item ? (
                           <div className="text-[11px] text-ink-muted">
-                            {t("quotes.field.taxPercent")} {format.number(appliedTaxPercent(taxRates, line.taxRateId, item.taxRatePercent))}%
+                            {t("quotes.field.taxPercent")} {format.number(appliedTaxPercent(line.tax, taxRates, item.taxRatePercent))}%
                           </div>
                         ) : null}
                       </div>
@@ -336,8 +336,8 @@ export function QuoteFormView({ onClose, initialCustomerId = "" }: { onClose: ()
                         />
                         <TaxRateField
                           label={t("taxRateField.label")}
-                          value={line.taxRateId}
-                          onChange={(v) => updateLine(line.key, { taxRateId: v })}
+                          choice={line.tax}
+                          onChange={(tax) => updateLine(line.key, { tax })}
                           taxRates={taxRates}
                           fallbackPercent={item.taxRatePercent}
                         />

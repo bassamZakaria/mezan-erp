@@ -259,7 +259,7 @@ describe("QuoteFormView", () => {
     expect(lines[0]!.taxRateId).toBe("VAT-EXPORT");
   });
 
-  it("D79: choosing no named rate sends the item's percent and no id, leaving the decision to the server", async () => {
+  it("D79: choosing «بدون ضريبة مسماة» sends an explicit null beside the percent, so the server stores no rate", async () => {
     const { getCreateBody } = renderForm();
     await screen.findByRole("heading", { name: "عرض سعر جديد" });
     await flushData();
@@ -272,7 +272,7 @@ describe("QuoteFormView", () => {
     await waitFor(() => expect(getCreateBody()).not.toBeNull());
     const lines = (getCreateBody() as Record<string, unknown>).lines as Array<Record<string, unknown>>;
     expect(lines[0]!.taxRatePercent).toBe(14);
-    expect(lines[0]).not.toHaveProperty("taxRateId");
+    expect(lines[0]!.taxRateId).toBeNull();
   });
 
   it("the header discount percent reduces the taxable base and grand total by the exact rounded amount, and is carried as a percent discount", async () => {

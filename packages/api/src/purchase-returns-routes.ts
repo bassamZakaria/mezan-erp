@@ -22,6 +22,7 @@ function serializeLine(l: PurchaseReturnLine) {
     supplierId: l.supplierId,
     sourceInvoiceId: l.sourceInvoiceId,
     sourceInvoiceNumber: l.sourceInvoiceNumber,
+    sourceLineId: l.sourceLineId ?? null,
     reason: l.reason,
     availableQty: l.availableQty.toString(),
     qty: l.qty.toString(),
@@ -247,7 +248,7 @@ export function createPurchaseReturnsRoutes(
           costCategory: l.costCategory ?? null,
         };
         if (!invoice) return claimed;
-        const [derived] = buildPurchaseReturnLinesFromInvoice(invoice, l.warehouseId, l.reason, [{ itemId: l.itemId, qty: claimed.qty }]);
+        const [derived] = buildPurchaseReturnLinesFromInvoice(invoice, l.warehouseId, l.reason, [{ itemId: l.itemId, sourceLineId: l.sourceLineId ?? null, qty: claimed.qty }]);
         if (!derived) return { ...claimed, availableQty: Qty.zero() };
         return {
           ...derived,

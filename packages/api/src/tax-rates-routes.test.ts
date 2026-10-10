@@ -24,6 +24,42 @@ function req(path: string, init: RequestInit & { permissions?: string } = {}) {
 
 const payload = { id: "t1", code: "VAT14", name: "ضريبة القيمة المضافة 14%", rate: 14 };
 
+describe("tax-rates router — the pickers on document forms (D79)", () => {
+  it("a role holding only the document-create permission can read the rates its line picker lists", async () => {
+    for (const create of ["sales.invoice.create", "sales.quote.create", "purchases.invoice.create"]) {
+      const { app, repo } = newApp();
+      await repo.create({ ...payload, calculationType: "exclusive", isDefault: true, outputTaxAccountId: null, inputTaxAccountId: null, etaSubType: "auto", status: "active" });
+      const res = await app.fetch(req("/", { permissions: create }));
+      expect(res.status).toBe(200);
+      expect(((await res.json()) as { id: string }[]).map((r) => r.id)).toEqual(["t1"]);
+      const manage = await app.fetch(
+        req("/t1", { method: "PATCH", permissions: create, headers: { "content-type": "application/json" }, body: JSON.stringify({ name: "x" }) }),
+      );
+      expect(manage.status).toBe(403);
+    }
+  });
+
+  it("answers 409 with an Arabic and an English message when a referenced rate's percent or sub-type is edited", async () => {
+    const repo = createSqliteTaxRateRepository();
+    handles.push(repo);
+    const app = createTaxRatesRoutes(repo, insecureHeaderAuthContextResolver, undefined, { isReferenced: async (id) => id === "t1" });
+    await repo.create({ ...payload, calculationType: "exclusive", isDefault: true, outputTaxAccountId: null, inputTaxAccountId: null, etaSubType: "auto", status: "active" });
+    const patch = (body: unknown) =>
+      app.fetch(req("/t1", { method: "PATCH", permissions: "accounting.tax.manage", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }));
+
+    const rate = await patch({ rate: 15 });
+    expect(rate.status).toBe(409);
+    const body = (await rate.json()) as { error: string; message: string; messageEn: string };
+    expect(body.error).toBe("TAX_RATE_IN_USE");
+    expect(body.message).toMatch(/[\u0600-\u06FF]/);
+    expect(body.message).toContain(payload.name);
+    expect(body.messageEn).toMatch(/Create a new tax rate/);
+    expect((await patch({ etaSubType: "V003" })).status).toBe(409);
+    expect((await patch({ status: "inactive" })).status).toBe(200);
+    expect((await repo.findById("t1"))?.rate).toBe(14);
+  });
+});
+
 describe("tax-rates router — permission gate", () => {
   it("rejects a request with no permissions with 403", async () => {
     const { app } = newApp();

@@ -7,6 +7,7 @@ import {
   createSalesInvoiceStockHook,
   type Account,
   type LedgerRepository,
+  type TaxRate,
   type JournalListFilter,
 } from "@mezan/domain";
 // Test-only in-memory account repository — not part of @mezan/domain's public
@@ -87,7 +88,8 @@ afterEach(() => {
   for (const h of invoiceClosers.splice(0)) h.close();
 });
 
-async function harness(includeInvoiceBridge: boolean) {
+async function harness(includeInvoiceBridge: boolean, taxRates?: SalesQuoteRoutesDeps["taxRates"]) {
+  let invoiceStore: SqliteSalesInvoiceStoreHandle | null = null;
   const repo = createSqliteSalesQuoteStore();
   quoteClosers.push(repo);
   const quoteNumbering = new NextNumberService(new MemSeq());
@@ -96,6 +98,7 @@ async function harness(includeInvoiceBridge: boolean) {
   if (includeInvoiceBridge) {
     const invoiceRepo = createSqliteSalesInvoiceStore();
     invoiceClosers.push(invoiceRepo);
+    invoiceStore = invoiceRepo;
 
     const accounts = new InMemoryAccountRepository();
     await accounts.create(account(AR));
@@ -169,8 +172,9 @@ async function harness(includeInvoiceBridge: boolean) {
       return () => `inv-from-quote-${++n}`;
     })(),
     invoice,
+    taxRates,
   };
-  return { app: createSalesQuotesRoutes(deps, insecureHeaderAuthContextResolver), repo };
+  return { app: createSalesQuotesRoutes(deps, insecureHeaderAuthContextResolver), repo, invoiceStore };
 }
 
 function req(path: string, init: RequestInit & { permissions?: string } = {}) {
@@ -241,6 +245,45 @@ describe("POST /:id/convert-to-invoice", () => {
     const stored = await repo.findById(id);
     expect(stored?.status).toBe("converted");
     expect(stored?.convertedInvoiceId).toBe(body.invoiceId);
+  });
+
+  it("D79: the invoice inherits the quote line's rate even after that rate was deactivated — an accepted quote is never a dead end", async () => {
+    const rate = (id: string, percent: number, status: TaxRate["status"]): TaxRate => ({
+      id, code: id, name: id, rate: percent, calculationType: "exclusive", isDefault: false,
+      outputTaxAccountId: null, inputTaxAccountId: null, etaSubType: "V001", status,
+    });
+    const master: TaxRate[] = [rate("VAT-EXPORT", 0, "active")];
+    const { app, invoiceStore } = await harness(true, { list: async () => master });
+
+    const create = await app.fetch(
+      req("/", {
+        method: "POST",
+        permissions: "sales.quote.create",
+        body: JSON.stringify({ ...draftBody, lines: [{ lineId: "L1", itemId: "SVC-1", itemNameAr: "خدمة", qty: "2", unitPrice: "50", taxRateId: "VAT-EXPORT" }] }),
+      }),
+    );
+    const quote = (await create.json()) as { id: string; lines: { taxRateId: string | null }[] };
+    expect(quote.lines[0]?.taxRateId).toBe("VAT-EXPORT");
+    await app.fetch(req(`/${quote.id}/send`, { method: "POST", permissions: "sales.quote.send" }));
+    await app.fetch(req(`/${quote.id}/accept`, { method: "POST", permissions: "sales.quote.edit" }));
+
+    master[0] = rate("VAT-EXPORT", 0, "inactive");
+    const refusedOnANewQuote = await app.fetch(
+      req("/", {
+        method: "POST",
+        permissions: "sales.quote.create",
+        body: JSON.stringify({ ...draftBody, lines: [{ lineId: "L1", itemId: "SVC-1", itemNameAr: "خدمة", qty: "1", unitPrice: "50", taxRateId: "VAT-EXPORT" }] }),
+      }),
+    );
+    expect(refusedOnANewQuote.status).toBe(422);
+
+    const res = await app.fetch(
+      req(`/${quote.id}/convert-to-invoice`, { method: "POST", permissions: "sales.invoice.create", body: JSON.stringify(convertBody) }),
+    );
+    expect(res.status).toBe(201);
+    const { invoiceId } = (await res.json()) as { invoiceId: string };
+    const invoice = await invoiceStore!.findById(invoiceId);
+    expect(invoice?.lines.map((l) => [l.taxRateId, l.taxRatePercent])).toEqual([["VAT-EXPORT", 0]]);
   });
 
   it("rejects a request missing GL-account info for one of the quote's lines", async () => {

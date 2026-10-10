@@ -1,10 +1,16 @@
 import type { Context } from "hono";
-import { InactiveTaxRateError, TaxRateNotFoundError, TaxRatePercentMismatchError } from "@mezan/domain";
+import {
+  InactiveTaxRateError,
+  TaxRateNotFoundError,
+  TaxRatePercentMismatchError,
+  TaxRateUnverifiableError,
+} from "@mezan/domain";
 
 export function taxRateRefusal(c: Context, err: unknown): Response | null {
   if (
     err instanceof TaxRateNotFoundError ||
     err instanceof InactiveTaxRateError ||
+    err instanceof TaxRateUnverifiableError ||
     err instanceof TaxRatePercentMismatchError
   ) {
     return c.json(

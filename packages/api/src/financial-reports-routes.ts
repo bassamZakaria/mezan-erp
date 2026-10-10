@@ -55,8 +55,8 @@ export interface FinancialReportsRoutesDeps {
   readonly vatAccounts?: {
     readonly outputVatAccountId: string;
     readonly inputVatAccountId: string;
+    readonly inputBaseAccountIds?: readonly string[];
   };
-  /** The tax rate master, so the VAT return names each row by the rate its lines stored (D79). */
   readonly taxRates?: Pick<TaxRateRepository, "list">;
   /**
    * The tenant's cash/bank GL accounts, used by the balance sheet and cash
@@ -242,7 +242,13 @@ export function createFinancialReportsRoutes(
       toDate: isoDateOrUndefined(params.periodTo),
     });
     const taxRates = deps.taxRates ? await deps.taxRates.list() : undefined;
-    const ctx: VatReturnContext = { ...base, outputVatAccountId, inputVatAccountId, taxRates };
+    const ctx: VatReturnContext = {
+      ...base,
+      outputVatAccountId,
+      inputVatAccountId,
+      taxRates,
+      inputBaseAccountIds: deps.vatAccounts?.inputBaseAccountIds,
+    };
     return respond(c, runReport(definition, params, ctx));
   });
 

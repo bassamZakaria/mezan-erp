@@ -146,16 +146,26 @@ describe("purchases-routes — an invoice line stores the tax rate applied (D79)
     expect(stored.lines.map((l) => l.taxRateId)).toEqual(["VAT14", "VAT14"]);
   });
 
-  it("explicit lines keep exempt and export apart, and store no id for a 0% line that names neither", async () => {
+  it("explicit lines keep exempt and export apart, infer only above 0%, and honour an explicit 'no rate'", async () => {
     const { app } = await newApp({ withTaxRates: true });
     const res = await postInvoice(app, invoiceBody([
       { itemId: null, kind: "expense", description: "معفى", qty: "1", unitCost: "100", taxRateId: "VAT-EXEMPT" },
       { itemId: null, kind: "expense", description: "تصدير", qty: "1", unitCost: "100", taxRateId: "VAT-EXPORT" },
       { itemId: null, kind: "expense", description: "بلا تسمية", qty: "1", unitCost: "100", taxRatePercent: 0 },
+      { itemId: null, kind: "expense", description: "نسبة فقط", qty: "1", unitCost: "100", taxRatePercent: 14 },
+      { itemId: null, kind: "expense", description: "بدون ضريبة مسماة", qty: "1", unitCost: "100", taxRateId: null, taxRatePercent: 14 },
     ]));
     expect(res.status).toBe(201);
     const created = (await res.json()) as { lines: { taxRatePercent: number; taxRateId: string | null }[] };
-    expect(created.lines.map((l) => [l.taxRatePercent, l.taxRateId])).toEqual([[0, "VAT-EXEMPT"], [0, "VAT-EXPORT"], [0, null]]);
+    // A percent alone lets the server infer the one 14% rate; an explicit null
+    // beside it says "no rate", and the route must not collapse the two.
+    expect(created.lines.map((l) => [l.taxRatePercent, l.taxRateId])).toEqual([
+      [0, "VAT-EXEMPT"],
+      [0, "VAT-EXPORT"],
+      [0, null],
+      [14, "VAT14"],
+      [14, null],
+    ]);
   });
 
   it("refuses a rate id no tax rate has, and a percent that is not the named rate's own, with 422 and an Arabic message", async () => {

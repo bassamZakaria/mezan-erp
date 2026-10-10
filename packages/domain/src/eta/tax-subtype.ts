@@ -1,3 +1,5 @@
+import { TaxRateStatusCode } from "../tax-rates/tax-rate.js";
+
 /**
  * Which VAT sub-type a submitted line carries. The tax rate master already
  * classifies itself (`TaxRate.etaSubType`); "auto" — its default — defers the
@@ -39,13 +41,23 @@ export function findLineTaxRate<T extends { readonly status: string; readonly ra
   taxRates: readonly T[],
   taxRatePercent: number,
 ): T | null {
-  const matches = taxRates.filter((r) => r.status === "active" && r.rate === taxRatePercent);
+  const matches = taxRates.filter((r) => r.status === TaxRateStatusCode.Active && r.rate === taxRatePercent);
   if (matches.length === 1) return matches[0] ?? null;
   if (matches.length === 0) return null;
   // Several rates share the value. If they all classify the same way the
   // ambiguity is only in the name, so the answer is still safe.
   const distinct = new Set(matches.map((r) => r.etaSubType));
   return distinct.size === 1 ? (matches[0] ?? null) : null;
+}
+
+export function isZeroRatedClassificationAmbiguous<
+  T extends { readonly id: string; readonly status: string; readonly rate: number; readonly etaSubType: string },
+>(taxRates: readonly T[], line: LineTaxIdentity): boolean {
+  if (line.taxRatePercent !== 0 || resolveLineTaxRate(taxRates, line) !== null) return false;
+  const classifications = new Set(
+    taxRates.filter((r) => r.status === TaxRateStatusCode.Active && r.rate === 0).map((r) => r.etaSubType),
+  );
+  return classifications.size > 1;
 }
 
 export interface LineTaxIdentity {

@@ -5,7 +5,6 @@ import { Money } from "../money/index.js";
 import type { JournalEntry } from "../journal.js";
 import type { ReportDefinition } from "./types.js";
 import { diffOf, sumRows } from "./kpi.js";
-import { findSoleActiveTaxRateByPercent } from "../tax-rates/applied-tax-rate.js";
 import type { TaxRate } from "../tax-rates/tax-rate.js";
 
 /**
@@ -13,19 +12,25 @@ import type { TaxRate } from "../tax-rates/tax-rate.js";
  * Output tax (sales) vs input tax (purchases), broken down by the tax rate each
  * posted line recorded. A line that stored its `taxRateId` is grouped under
  * that rate, which is what keeps an exempt sale and a zero-rated export — both
- * 0% — on separate rows (D79). A line with a percent and no id joins the one
- * active rate at that percent when there is exactly one, and otherwise stands
- * on an unnamed row for the percent. An entry whose lines carry neither falls
- * back to dividing its VAT by its base.
+ * 0% — on separate rows (D79). A line with a percent and no id stands on an
+ * unnamed row for that percent and is never assigned to a rate at report time:
+ * which rates are active changes, and a reprinted period must not. An entry
+ * whose lines carry neither falls back to dividing its VAT by its base.
  */
 
-export type VatReturnTaxRate = Pick<TaxRate, "id" | "name" | "rate" | "status">;
+export type VatReturnTaxRate = Pick<TaxRate, "id" | "name">;
 
 export interface VatReturnContext extends GlReportContext {
   readonly outputVatAccountId: string;
   readonly inputVatAccountId: string;
-  /** The tax rate master, to name each row. Omitted, rows still split by stored id and carry no name. */
   readonly taxRates?: readonly VatReturnTaxRate[];
+  /**
+   * Accounts a purchase's taxable base is debited to that are neither expense
+   * nor asset: the «بضاعة واردة لم تُفوتر» liability an invoice raised from a
+   * goods receipt clears instead of debiting inventory a second time (D53).
+   * Left out, such an invoice reports input tax against no base at all.
+   */
+  readonly inputBaseAccountIds?: readonly string[];
 }
 
 export interface VatReturnParams {
@@ -216,13 +221,11 @@ export function createVatReturnReport(
     run: (params, ctx) => {
       const typeOf = new Map(ctx.accounts.map((a) => [a.id, a.type]));
       const isRevenue = (id: string): boolean => typeOf.get(id) === "revenue";
-      const isPurchaseBase = (id: string): boolean => typeOf.get(id) === "expense" || typeOf.get(id) === "asset";
+      const extraInputBase = new Set(ctx.inputBaseAccountIds ?? []);
+      const isPurchaseBase = (id: string): boolean =>
+        typeOf.get(id) === "expense" || typeOf.get(id) === "asset" || extraInputBase.has(id);
 
-      const taxRates = ctx.taxRates ?? [];
-      const nameOf = new Map(taxRates.map((r) => [r.id, r.name]));
-      // A line that recorded a percent and no id: the fallback, stated once.
-      const legacyRateId = (rate: number, taxRateId: string | null): string | null =>
-        taxRateId ?? findSoleActiveTaxRateByPercent(taxRates, rate)?.id ?? null;
+      const nameOf = new Map((ctx.taxRates ?? []).map((r) => [r.id, r.name]));
 
       const outputBuckets = new Map<string, Bucket>();
       const inputBuckets = new Map<string, Bucket>();
@@ -243,22 +246,22 @@ export function createVatReturnReport(
         // old derivation so history keeps reporting.
         const outputTagged = ratedBuckets(entry, ctx.outputVatAccountId, isRevenue, "credit");
         if (outputTagged.length > 0) {
-          for (const b of outputTagged) bump(outputBuckets, b.rate, legacyRateId(b.rate, b.taxRateId), b.base, b.tax);
+          for (const b of outputTagged) bump(outputBuckets, b.rate, b.taxRateId, b.base, b.tax);
         } else if (revenueBase.scaled > 0n) {
           const rate = outputTax.scaled > 0n ? derivedRatePercent(outputTax, revenueBase) : 0;
-          bump(outputBuckets, rate, legacyRateId(rate, null), revenueBase, outputTax.scaled > 0n ? outputTax : Money.zero());
+          bump(outputBuckets, rate, null, revenueBase, outputTax.scaled > 0n ? outputTax : Money.zero());
         }
 
         const inVat = lineNet(entry, ctx.inputVatAccountId);
         const inputTax = inVat.debit.add(inVat.credit.negate());
         const inputTagged = ratedBuckets(entry, ctx.inputVatAccountId, (id) => id !== ctx.inputVatAccountId && isPurchaseBase(id), "debit");
         if (inputTagged.length > 0) {
-          for (const b of inputTagged) bump(inputBuckets, b.rate, legacyRateId(b.rate, b.taxRateId), b.base, b.tax);
+          for (const b of inputTagged) bump(inputBuckets, b.rate, b.taxRateId, b.base, b.tax);
         } else if (inputTax.scaled > 0n) {
           // Exclude the input-VAT account itself from the base (it's an asset too).
           const purchaseBase = debitsToTypes(entry, (id) => id !== ctx.inputVatAccountId && isPurchaseBase(id));
           const rate = purchaseBase.scaled > 0n ? derivedRatePercent(inputTax, purchaseBase) : 0;
-          bump(inputBuckets, rate, legacyRateId(rate, null), purchaseBase, inputTax);
+          bump(inputBuckets, rate, null, purchaseBase, inputTax);
         }
       }
 

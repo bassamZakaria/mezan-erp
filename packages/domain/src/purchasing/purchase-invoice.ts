@@ -17,7 +17,7 @@ import type { AllocatableInvoiceRepository } from "../vouchers/allocation.js";
 import { extend, occurredAtFromDocumentDate, unitCostOf, type CostLayerRepository } from "../inventory/index.js";
 import { convertToBase } from "../exchange-rates/convert.js";
 import { NextNumberService } from "../numbering/index.js";
-import { resolveAppliedTaxRate, type TaxRate, type TaxRateRepository } from "../tax-rates/index.js";
+import { resolveDocumentLineTax, type TaxRate, type TaxRateRepository } from "../tax-rates/index.js";
 import type { GoodsReceipt, GoodsReceiptRepository } from "./goods-receipt.js";
 import { markGoodsReceiptInvoiced } from "./goods-receipt.js";
 import { atomically, recordPurchaseAudit, type PurchaseAuditDeps } from "./audit.js";
@@ -66,7 +66,6 @@ export interface PurchaseInvoiceLine {
   readonly qty: Qty;
   readonly unitCost: Money;
   readonly taxRatePercent: number;
-  /** The tax rate row applied. Absent on an invoice stored before the field existed, or when no single active rate matched (D79). */
   readonly taxRateId?: string | null;
   /** Supplier lot this delivery arrived under. Absent for non-tracked goods. */
   readonly batchNo?: string | null;
@@ -167,7 +166,6 @@ export interface CreatePurchaseInvoiceCommand {
 
 export interface CreatePurchaseInvoiceDeps {
   readonly invoices: PurchaseInvoiceRepository;
-  /** The tax rate master; without it no line can be given a `taxRateId` (D79). */
   readonly taxRates?: Pick<TaxRateRepository, "list">;
   readonly receipts?: GoodsReceiptRepository;
   readonly numbering: NextNumberService;
@@ -375,10 +373,7 @@ function normalizeLines(
 ): PurchaseInvoiceLine[] {
   return lines.map((l) => {
     const kind = l.kind ?? "inventory";
-    const tax =
-      taxRates === null
-        ? { taxRateId: null, taxRatePercent: l.taxRatePercent ?? 0 }
-        : resolveAppliedTaxRate(taxRates, l, 0);
+    const tax = resolveDocumentLineTax(taxRates, l, { defaultPercent: 0, zeroRated: false });
     return {
       itemId: kind === "expense" ? (l.itemId ?? null) : (l.itemId ?? null),
       description: l.description ?? null,
@@ -524,16 +519,39 @@ export function buildInvoicePosting(
   // category invoice still posts one tagged line per category instead of
   // losing the split (D-01). A single, uncategorised group reproduces the
   // one-line-per-kind shape this posting always had.
-  const byCategory = (kind: PurchaseInvoiceLineKind): Map<CostCategory | null, Money> => {
-    const map = new Map<CostCategory | null, Money>();
+  //
+  // INVARIANT: each cost-side line also carries the tax rate its invoice lines
+  // were charged under, exactly as the input-VAT line does. It is the taxable
+  // BASE of that rate: the VAT return reads the base off these lines, and a 0%
+  // line posts no VAT line at all, so this is the only place its rate reaches
+  // the ledger (D28, D79).
+  interface CostGroup {
+    readonly costCategory: CostCategory | null;
+    readonly rate: number;
+    readonly taxRateId: string | null;
+    readonly amount: Money;
+  }
+  const costGroups = (kind: PurchaseInvoiceLineKind): CostGroup[] => {
+    const groups = new Map<string, CostGroup>();
     for (const line of invoice.lines) {
       if (line.kind !== kind) continue;
       const amount = convert(purchaseInvoiceLineBase(line));
-      const key = line.costCategory ?? null;
-      map.set(key, (map.get(key) ?? Money.zero()).add(amount));
+      const costCategory = line.costCategory ?? null;
+      const taxRateId = line.taxRateId ?? null;
+      const key = `${costCategory ?? ""}|${line.taxRatePercent}|${taxRateId ?? ""}`;
+      const existing = groups.get(key);
+      groups.set(key, { costCategory, rate: line.taxRatePercent, taxRateId, amount: (existing?.amount ?? Money.zero()).add(amount) });
     }
-    return map;
+    return [...groups.values()];
   };
+  const costLine = (accountId: string, group: CostGroup): PurchaseGlPostingLine => ({
+    accountId,
+    debit: group.amount,
+    credit: Money.zero(),
+    taxRatePercent: group.rate,
+    taxRateId: group.taxRateId,
+    ...(group.costCategory ? { costCategory: group.costCategory } : {}),
+  });
 
   const lines: PurchaseGlPostingLine[] = [];
   if (inventoryBase.scaled !== 0n) {
@@ -547,26 +565,19 @@ export function buildInvoicePosting(
      * inventory itself.
      */
     const clearsGrni = invoice.receiptId !== null && accounts.goodsReceivedNotInvoicedAccountId !== undefined;
-    for (const [costCategory, amount] of byCategory("inventory")) {
-      if (amount.scaled === 0n) continue;
-      lines.push({
-        accountId: clearsGrni ? (accounts.goodsReceivedNotInvoicedAccountId as string) : accounts.inventoryAccountId,
-        debit: amount,
-        credit: Money.zero(),
-        ...(costCategory ? { costCategory } : {}),
-      });
+    const inventoryAccountId = clearsGrni ? (accounts.goodsReceivedNotInvoicedAccountId as string) : accounts.inventoryAccountId;
+    for (const group of costGroups("inventory")) {
+      if (group.amount.scaled !== 0n) lines.push(costLine(inventoryAccountId, group));
     }
   }
   if (freightBase.scaled !== 0n) {
-    for (const [costCategory, amount] of byCategory("freight")) {
-      if (amount.scaled === 0n) continue;
-      lines.push({ accountId: freightAccountId, debit: amount, credit: Money.zero(), ...(costCategory ? { costCategory } : {}) });
+    for (const group of costGroups("freight")) {
+      if (group.amount.scaled !== 0n) lines.push(costLine(freightAccountId, group));
     }
   }
   if (expenseBase.scaled !== 0n) {
-    for (const [costCategory, amount] of byCategory("expense")) {
-      if (amount.scaled === 0n) continue;
-      lines.push({ accountId: expenseAccountId, debit: amount, credit: Money.zero(), ...(costCategory ? { costCategory } : {}) });
+    for (const group of costGroups("expense")) {
+      if (group.amount.scaled !== 0n) lines.push(costLine(expenseAccountId, group));
     }
   }
   if (tax.scaled !== 0n) {

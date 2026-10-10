@@ -188,18 +188,30 @@ Proved in `scripts/scenarios/seams.ts`; each gap is a register entry.
   posts its foreign numbers as EGP (D24). `findRate` correctly refuses a pending
   rate, so an unapproved rate is genuinely unspendable.
 - **Tax rate.** A sales invoice, quote, purchase invoice and return line stores
-  `taxRateId` — the tax-rate ROW it was charged under — beside its percent, and the
-  journal line it posts carries both (D28, D79). The id is resolved server-side
-  (`resolveAppliedTaxRate`): a named id must exist, be active and agree with any
-  percent sent; a percent alone stores an id only when exactly one active rate has
-  it. Exempt (V003) and zero-rated export (V001) are both 0%, so a 0% line that
-  names no rate stores NULL — and NULL, which is also what every line written
-  before the column holds, is the ONLY case the e-invoice builders and the VAT
-  return may fall back to matching the percent. Never re-derive a rate's identity
-  from its number where an id is stored. Still open: an item carries a percent, not
-  a rate id; a manual journal cannot name one; and a tax rate cannot express a
-  partial taxable base (Egypt's 14%-on-36% construction treatment), so a
-  transitional-basis certificate invoice posts 5.04% with a NULL id.
+  `taxRateId` — the tax-rate ROW it was charged under — beside its percent (D28,
+  D79). On the journal: a sales posting tags its revenue and VAT lines with the
+  percent and the id; a purchase posting tags its cost-side lines (inventory, the
+  2120 received-not-invoiced clearing, freight, expense) and its input-VAT line;
+  returns tag the same lines in reverse. The AR/AP line carries neither, and a 0%
+  line posts no VAT line, so its rate reaches the ledger on the base line only.
+  The id is resolved server-side (`resolveDocumentLineTax`): a named id must
+  exist, be active and agree with any percent sent; `taxRateId: null` means "no
+  rate" and stores NULL; an omitted id is inferred from the percent only above 0%
+  and only when exactly one active rate has it. **A rate is never inferred at
+  0%** — exempt (V003), export (V001) and not-subject are all 0%, so a retention
+  release, a tax-exempt customer's sale and a VAT-off sale store NULL. A rate that
+  any stored line names keeps its percent and ETA sub-type for good (409
+  `TAX_RATE_IN_USE`); it may be renamed or deactivated, and an inactive rate still
+  answers for lines already posted. The VAT return groups by the stored id and
+  never assigns a NULL-id line to a rate at report time. NULL — a pre-D79 row, or
+  a line that named no rate — is the only case the e-invoice builders match the
+  percent, and a NULL 0% line on a tenant with more than one 0% classification is
+  a blocking pre-validation finding. Still open: an item carries a percent, not a
+  rate id; a manual journal cannot name one; a NULL 0% line on a tenant with ONE
+  0% classification still files under it through that legacy fallback; and a tax
+  rate cannot express a partial taxable base (Egypt's 14%-on-36% construction
+  treatment), so a transitional-basis certificate invoice posts 5.04% with a NULL
+  id.
 - **Cost centre.** Journal lines carry `costCenterId` and the cost-centre P&L groups
   by it, with a غير مخصص bucket so totals always reconcile. Treasury vouchers have no
   such field (D26), so the report is blind to almost all real spending.

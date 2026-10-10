@@ -23,6 +23,8 @@ export const purchaseReturnLineSchema = z.object({
   supplierId: z.string().min(1),
   sourceInvoiceId: z.string().min(1),
   sourceInvoiceNumber: z.string().nullable(),
+  /** The source invoice line this reverses. Omitted, the first line of the item is taken. */
+  sourceLineId: z.string().min(1).nullish(),
   reason: purchaseReturnReasonSchema,
   availableQty: positiveDecimalString,
   qty: positiveDecimalString,
@@ -70,7 +72,7 @@ export const purchaseReturnDocumentSchema = z.object({
   status: documentStatusSchema,
   lines: z.array(
     purchaseReturnLineSchema.extend({
-      /** The tax rate row the source invoice line stored; read off the invoice, never off the request (D79). */
+      /** Read off the source invoice line, never off the request. */
       taxRateId: z.string().nullable().optional(),
       /** The source invoice's currency and confirm rate, stamped by the server (D203). */
       currency: z.string().nullable().optional(),

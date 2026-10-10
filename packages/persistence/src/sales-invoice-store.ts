@@ -103,6 +103,7 @@ CREATE INDEX IF NOT EXISTS idx_sales_invoice_date ON sales_invoice(date);
 CREATE INDEX IF NOT EXISTS idx_sales_invoice_salesperson ON sales_invoice(salesperson_id);
 CREATE INDEX IF NOT EXISTS idx_sales_invoice_promotion ON sales_invoice(promotion_id);
 CREATE INDEX IF NOT EXISTS idx_sales_invoice_line_invoice ON sales_invoice_line(invoice_id);
+CREATE INDEX IF NOT EXISTS idx_sales_invoice_line_tax_rate ON sales_invoice_line(tax_rate_id) WHERE tax_rate_id IS NOT NULL;
 `;
 
 /**

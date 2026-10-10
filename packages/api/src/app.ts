@@ -29,6 +29,7 @@ import {
   type LabelLayoutRepository,
   type Entitlements,
   type TaxRateRepository,
+  type TaxRateUsage,
   type CostCenterRepository,
   type TreasuryAccountRepository,
   type FiscalPeriodRepository,
@@ -384,6 +385,8 @@ export interface CreateAppOptions {
   readonly taxGroupRepo?: TaxGroupRepository;
   /** Mounts `/tax-rates` (docs/archive/catalog/04 "الضرائب") when present — omit it for no `/tax-rates` route. */
   readonly taxRateRepo?: TaxRateRepository;
+  /** Which tax rates stored lines name; without it a referenced rate's percent and sub-type stay editable. */
+  readonly taxRateUsage?: TaxRateUsage;
   /** Mounts `/cost-centers` (docs/archive/catalog/04 "مراكز التكلفة") when present — omit it for no `/cost-centers` route. */
   readonly costCenterRepo?: CostCenterRepository;
   /** Mounts `/treasury-accounts` (docs/archive/catalog/04 "حسابات الخزينة") when present — omit it for no `/treasury-accounts` route. */
@@ -654,6 +657,7 @@ export interface CreateAppOptions {
      */
     readonly layers?: CostLayerRepository;
     readonly resolveTaxRate?: (itemId: string) => number | Promise<number>;
+    readonly taxRates?: PurchasesRoutesDeps["taxRates"];
     readonly autoBatchNo?: (input: { itemId: string; receiptNumber: string; lineIndex: number }) => Promise<string | null>;
     readonly currencyCheck?: CurrencyCheck;
     /** Backs `POST /purchases/invoices/:id/payments`; omit it and that route answers 503. */
@@ -1033,7 +1037,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     );
   }
   if (options.taxRateRepo) {
-    app.route("/tax-rates", createTaxRatesRoutes(options.taxRateRepo, resolveAuth, options.auditSink));
+    app.route("/tax-rates", createTaxRatesRoutes(options.taxRateRepo, resolveAuth, options.auditSink, options.taxRateUsage));
     if (options.taxGroupRepo) {
       app.route("/tax-groups", createTaxGroupsRoutes(options.taxGroupRepo, options.taxRateRepo, resolveAuth));
     }
@@ -1484,7 +1488,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
           pay: purchases.pay,
           settlementPreview: purchases.settlementPreview,
           resolveTaxRate: purchases.resolveTaxRate,
-          taxRates: options.taxRateRepo,
+          taxRates: purchases.taxRates ?? options.taxRateRepo,
           currencyCheck:
             purchases.currencyCheck ?? (options.settingsStore ? createCurrencyCheck(options.settingsStore) : undefined),
           autoBatchNo:

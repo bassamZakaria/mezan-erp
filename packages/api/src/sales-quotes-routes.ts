@@ -75,7 +75,6 @@ export interface SalesQuoteRoutesDeps {
   readonly itemCheck?: ItemCatalogCheck;
   /** Refuses a quote naming a customer, warehouse or branch no master record holds (D310). */
   readonly masterData?: MasterDataChecks;
-  /** The tax rate master a line's `taxRateId` is checked against, on the quote and on the invoice it converts into (D79). */
   readonly taxRates?: Pick<TaxRateRepository, "list">;
   readonly numbering: DocumentNumberingHook;
   readonly now?: () => string;
@@ -272,7 +271,7 @@ export function createSalesQuotesRoutes(
         unitPrice: Money.fromMajor(l.unitPrice),
         discountPercent: l.discountPercent,
         taxRatePercent: l.taxRatePercent,
-        taxRateId: l.taxRateId ?? null,
+        taxRateId: l.taxRateId,
       })),
     };
     const refusal = await refuseUnknownItems(c, deps.itemCheck, cmd.lines.map((l) => l.itemId));
@@ -579,8 +578,7 @@ export function createSalesQuotesRoutes(
           qty: l.qty,
           unitPrice: l.unitPrice,
           discountPercent: l.discountPercent,
-          taxRatePercent: l.taxRatePercent,
-          taxRateId: l.taxRateId,
+          inheritedTax: { taxRateId: l.taxRateId, taxRatePercent: l.taxRatePercent },
           revenueAccountId: acc.revenueAccountId,
           cogsAccountId: acc.cogsAccountId ?? null,
           inventoryAccountId: acc.inventoryAccountId ?? null,

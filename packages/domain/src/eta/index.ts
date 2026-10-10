@@ -175,6 +175,7 @@ export {
   resolveEtaVatSubType,
   findLineTaxRate,
   resolveLineTaxRate,
+  isZeroRatedClassificationAmbiguous,
   ZERO_RATED_SUBTYPES,
   type LineTaxIdentity,
 } from "./tax-subtype.js";

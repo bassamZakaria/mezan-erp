@@ -16,6 +16,7 @@ interface WireLine {
   customerId: string;
   sourceInvoiceId: string;
   sourceInvoiceNumber: string | null;
+  sourceLineId?: string | null;
   reason: string;
   availableQty: string;
   qty: string;
@@ -39,6 +40,7 @@ function serializeLine(line: SalesReturnLine): WireLine {
     customerId: line.customerId,
     sourceInvoiceId: line.sourceInvoiceId,
     sourceInvoiceNumber: line.sourceInvoiceNumber,
+    sourceLineId: line.sourceLineId ?? null,
     reason: line.reason,
     availableQty: line.availableQty.toString(),
     qty: line.qty.toString(),
@@ -60,6 +62,7 @@ function deserializeLine(wire: unknown): SalesReturnLine {
     customerId: w.customerId,
     sourceInvoiceId: w.sourceInvoiceId,
     sourceInvoiceNumber: w.sourceInvoiceNumber,
+    sourceLineId: w.sourceLineId ?? null,
     reason: w.reason as SalesReturnLine["reason"],
     availableQty: Qty.fromMajor(w.availableQty),
     qty: Qty.fromMajor(w.qty),

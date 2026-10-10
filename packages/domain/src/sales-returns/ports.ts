@@ -13,6 +13,8 @@
 import type { Money, Qty } from "../money/index.js";
 
 export interface SourceSalesInvoiceLine {
+  /** The invoice line's own id, so a return can name the line it reverses rather than the first line of its item. */
+  readonly sourceLineId?: string | null;
   readonly itemId: string;
   readonly itemName: string;
   readonly qty: Qty;
@@ -23,7 +25,6 @@ export interface SourceSalesInvoiceLine {
   readonly taxAmount: Money;
   /** The VAT rate this line was charged at, carried onto the return line (D76). */
   readonly taxRatePercent?: number | null;
-  /** The tax rate row the invoice line stored; a return inherits it (D79). */
   readonly taxRateId?: string | null;
 }
 

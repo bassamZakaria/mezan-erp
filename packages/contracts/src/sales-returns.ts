@@ -26,6 +26,8 @@ export const salesReturnLineSchema = z.object({
   customerId: z.string().min(1),
   sourceInvoiceId: z.string().min(1),
   sourceInvoiceNumber: z.string().nullable(),
+  /** The source invoice line this reverses. Omitted, the first line of the item is taken. */
+  sourceLineId: z.string().min(1).nullish(),
   reason: salesReturnReasonSchema,
   availableQty: positiveDecimalString,
   qty: positiveDecimalString,
@@ -48,6 +50,8 @@ export const createSalesReturnSchema = z.object({
 /** Convenience request: derive return lines from a resolved source-invoice snapshot + requested qty per item. */
 export const salesReturnRequestedQtySchema = z.object({
   itemId: z.string().min(1),
+  /** The source invoice line this reverses. Omitted, the first line of the item is taken. */
+  sourceLineId: z.string().min(1).nullish(),
   qty: positiveDecimalString,
   /** Per-line سبب الإرجاع (R3.9); omitted lines fall back to the document's reason. */
   reason: salesReturnReasonSchema.optional(),
@@ -73,7 +77,7 @@ export const salesReturnDocumentSchema = z.object({
   status: documentStatusSchema,
   lines: z.array(
     salesReturnLineSchema.extend({
-      /** The tax rate row the source invoice line stored; read off the invoice, never off the request (D79). */
+      /** Read off the source invoice line, never off the request. */
       taxRateId: z.string().nullable().optional(),
       /** The source invoice's currency and confirm rate, stamped by the server (D203). */
       currency: z.string().nullable().optional(),

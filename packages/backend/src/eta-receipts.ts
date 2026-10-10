@@ -11,6 +11,7 @@ import {
   etaReceiptIssuedAt,
   extend as extendQtyByPrice,
   resolveLineTaxRate,
+  isZeroRatedClassificationAmbiguous,
   Money,
   prevalidateEtaInvoice,
   resolveEtaVatSubType,
@@ -559,6 +560,7 @@ async function buildInvoiceEtaInputs(
       etaUnitCode: unitByCode.get(unitCode) ?? null,
       taxRatePercent: line.taxRatePercent,
       etaTaxSubType: taxRate?.etaSubType ?? null,
+      taxClassificationAmbiguous: isZeroRatedClassificationAmbiguous(taxRates, line),
       netTotal,
       taxAmount,
     });
@@ -725,6 +727,7 @@ export function createReturnEtaEnqueueBridge(deps: {
             etaUnitCode: unitByCode.get(unitCode) ?? null,
             taxRatePercent: rate,
             etaTaxSubType: taxRate?.etaSubType ?? null,
+            taxClassificationAmbiguous: isZeroRatedClassificationAmbiguous(taxRates, { taxRateId: line.taxRateId, taxRatePercent: rate }),
             netTotal: net.toString(),
             taxAmount: line.taxAmount.toString(),
           });

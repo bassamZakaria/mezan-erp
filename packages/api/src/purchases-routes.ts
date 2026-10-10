@@ -168,7 +168,6 @@ export interface PurchasesRoutesDeps {
    * every «من إيصال استلام» invoice records no input VAT at all (D50).
    */
   readonly resolveTaxRate?: (itemId: string) => number | Promise<number>;
-  /** The tax rate master an invoice line's `taxRateId` is checked against and resolved from (D79). */
   readonly taxRates?: Pick<TaxRateRepository, "list">;
   /**
    * Settings §"سياسة المخزون" → `autoGenerateBatchNumbers`: hands a batch
@@ -1273,7 +1272,7 @@ export function createPurchasesRoutes(
           qty: Qty.fromMajor(l.qty),
           unitCost: Money.fromMajor(l.unitCost),
           taxRatePercent: l.taxRatePercent,
-          taxRateId: l.taxRateId ?? null,
+          taxRateId: l.taxRateId,
           batchNo: l.batchNo ?? null,
           expiryDate: l.expiryDate ?? null,
           costCategory: l.costCategory ?? null,

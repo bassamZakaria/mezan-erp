@@ -37,6 +37,7 @@ function serializeLine(l: SalesReturnLine) {
     customerId: l.customerId,
     sourceInvoiceId: l.sourceInvoiceId,
     sourceInvoiceNumber: l.sourceInvoiceNumber,
+    sourceLineId: l.sourceLineId ?? null,
     reason: l.reason,
     availableQty: l.availableQty.toString(),
     qty: l.qty.toString(),
@@ -204,7 +205,7 @@ export function createSalesReturnsRoutes(
     if (!invoices) return claimed;
     const invoice = await invoices.findConfirmedInvoice(l.sourceInvoiceId);
     if (!invoice) return claimed;
-    const [derived] = buildSalesReturnLinesFromInvoice(invoice, l.warehouseId, l.reason, [{ itemId: l.itemId, qty: claimed.qty }]);
+    const [derived] = buildSalesReturnLinesFromInvoice(invoice, l.warehouseId, l.reason, [{ itemId: l.itemId, sourceLineId: l.sourceLineId ?? null, qty: claimed.qty }]);
     return derived ?? { ...claimed, availableQty: Qty.zero() };
   }
 
@@ -406,7 +407,7 @@ export function createSalesReturnsRoutes(
       invoice,
       parsed.data.warehouseId,
       parsed.data.reason,
-      parsed.data.requested.map((r) => ({ itemId: r.itemId, qty: Qty.fromMajor(r.qty), reason: r.reason })),
+      parsed.data.requested.map((r) => ({ itemId: r.itemId, sourceLineId: r.sourceLineId ?? null, qty: Qty.fromMajor(r.qty), reason: r.reason })),
     );
     if (lines.length === 0) {
       return c.json({ error: "NO_RETURNABLE_LINES", message: "لا توجد بنود قابلة للإرجاع بالكميات المطلوبة." }, 422);

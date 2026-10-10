@@ -46,6 +46,7 @@ export interface SalesReturnLine {
   readonly customerId: string;
   readonly sourceInvoiceId: string;
   readonly sourceInvoiceNumber: string | null;
+  readonly sourceLineId?: string | null;
   readonly reason: SalesReturnReason;
   /** Originally invoiced qty still eligible to return (caller-computed: invoice qty − already returned). */
   readonly availableQty: Qty;
@@ -63,10 +64,6 @@ export interface SalesReturnLine {
    * posts exactly the entry it always did.
    */
   readonly taxRatePercent?: number | null;
-  /**
-   * The tax rate row the source invoice line stored, read off the invoice and
-   * never off the request. Null when the invoice line carried none (D79).
-   */
   readonly taxRateId?: string | null;
   /**
    * بُعد المشروع, inherited from the source invoice's own `projectId` (a

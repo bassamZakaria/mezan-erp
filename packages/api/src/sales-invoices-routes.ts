@@ -121,7 +121,6 @@ export interface SalesInvoiceRoutesDeps {
   readonly masterData?: MasterDataChecks;
   /** The tenant's VAT rules (settings §"الضريبة"), stamped onto a draft when it is raised. */
   readonly taxPolicy?: () => Promise<SalesInvoiceTaxPolicy> | SalesInvoiceTaxPolicy;
-  /** The tax rate master a line's `taxRateId` is checked against and resolved from (D79). */
   readonly taxRates?: Pick<TaxRateRepository, "list">;
   /**
    * The tenant's discount ceiling (settings §"الرقابة الائتمانية"). Optional
@@ -622,7 +621,7 @@ export function createSalesInvoicesRoutes(
         discountPercent: l.discountPercent,
         discountAmount: l.discountAmount === undefined ? undefined : Money.fromMajor(l.discountAmount),
         taxRatePercent: l.taxRatePercent,
-        taxRateId: l.taxRateId ?? null,
+        taxRateId: l.taxRateId,
         revenueAccountId: l.revenueAccountId,
         cogsAccountId: l.cogsAccountId ?? null,
         inventoryAccountId: l.inventoryAccountId ?? null,

@@ -59,7 +59,7 @@ import { PurchaseInvoicePrintPage } from "../print/documents";
 import { useNavigation, useScreenIntent, useSubPage } from "../navigation";
 import { AttachmentsTab } from "../attachments/AttachmentsTab";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
-import { TaxRateField, lineTaxPayload, soleActiveTaxRateId } from "./tax-rate-field";
+import { DERIVED_TAX, TaxRateField, lineTaxPayload, type TaxChoice } from "./tax-rate-field";
 import { useEntityName } from "../lib/entity-names";
 import { itemTypeIsPurchasable ,
   findCurrency} from "@mezan/domain";
@@ -123,8 +123,7 @@ interface DraftLine {
   qty: number;
   unitCost: number;
   taxRatePercent: number;
-  /** null until the user touches the picker: the rate is then read off `taxRatePercent`. */
-  taxRateId: string | null;
+  tax: TaxChoice;
   description: string;
   costCategory: CostCategoryDTO | null;
 }
@@ -132,11 +131,7 @@ interface DraftLine {
 const NO_TAX_RATES: readonly TaxRateDTO[] = [];
 
 function blankDraftLine(): DraftLine {
-  return { itemId: "", kind: "inventory", qty: 1, unitCost: 0, taxRatePercent: 14, taxRateId: null, description: "", costCategory: null };
-}
-
-function pickedTaxRateId(line: DraftLine, taxRates: readonly TaxRateDTO[]): string {
-  return line.taxRateId ?? soleActiveTaxRateId(taxRates, line.taxRatePercent);
+  return { itemId: "", kind: "inventory", qty: 1, unitCost: 0, taxRatePercent: 14, tax: DERIVED_TAX, description: "", costCategory: null };
 }
 
 interface PreviewLine {
@@ -778,7 +773,7 @@ export function PurchaseInvoicesScreen() {
             kind: l.kind,
             qty: String(l.qty),
             unitCost: String(l.unitCost || 0),
-            ...lineTaxPayload(pickedTaxRateId(l, taxRates), l.taxRatePercent),
+            ...lineTaxPayload(l.tax, taxRates, l.taxRatePercent),
             costCategory: l.kind === "inventory" ? null : l.costCategory,
           })),
         });
@@ -885,7 +880,7 @@ export function PurchaseInvoicesScreen() {
                         setLines((prev) =>
                           prev.map((l, j) =>
                             j === i
-                              ? { ...l, kind, ...(kind === "inventory" ? { itemId: l.itemId, costCategory: null } : { itemId: "", taxRatePercent: 0, taxRateId: null }) }
+                              ? { ...l, kind, ...(kind === "inventory" ? { itemId: l.itemId, costCategory: null } : { itemId: "", taxRatePercent: 0, tax: DERIVED_TAX }) }
                               : l,
                           ),
                         )
@@ -909,7 +904,7 @@ export function PurchaseInvoicesScreen() {
                                 itemId: opt?.id ?? "",
                                 unitCost: item?.costPrice ? Number(item.costPrice) : l.unitCost,
                                 taxRatePercent: item?.taxRatePercent ?? l.taxRatePercent,
-                                taxRateId: null,
+                                tax: DERIVED_TAX,
                               }
                             : l,
                         ),
@@ -931,8 +926,8 @@ export function PurchaseInvoicesScreen() {
                   <NumberField label={t("purchaseInvoices.field.cost")} value={line.unitCost} min={0} onChange={(v) => setLines((prev) => prev.map((l, j) => (j === i ? { ...l, unitCost: v } : l)))} />
                   <TaxRateField
                     label={t("taxRateField.label")}
-                    value={pickedTaxRateId(line, taxRates)}
-                    onChange={(v) => setLines((prev) => prev.map((l, j) => (j === i ? { ...l, taxRateId: v } : l)))}
+                    choice={line.tax}
+                    onChange={(tax) => setLines((prev) => prev.map((l, j) => (j === i ? { ...l, tax } : l)))}
                     taxRates={taxRates}
                     fallbackPercent={line.taxRatePercent}
                   />

@@ -15,8 +15,8 @@
 import { Money, Qty } from "../money/index.js";
 import { toBaseQty } from "../units/index.js";
 import {
-  resolveAppliedTaxRate,
-  resolveZeroRatedTaxRate,
+  resolveDocumentLineTax,
+  resolveInheritedTaxRate,
   type AppliedTaxRate,
   type TaxRate,
   type TaxRateRepository,
@@ -142,10 +142,7 @@ export interface SalesInvoiceServiceDeps {
    * added on top, and a line with no rate carries none.
    */
   readonly taxPolicy?: () => Promise<SalesInvoiceTaxPolicy> | SalesInvoiceTaxPolicy;
-  /**
-   * The tax rate master. Without it no draft line can be given a `taxRateId`,
-   * and a line that names one is stored unverified as NULL.
-   */
+  /** Without it no draft line can be given a `taxRateId`, and a line that names one is refused. */
   readonly taxRates?: Pick<TaxRateRepository, "list">;
   /**
    * Exchange rates, so a foreign-currency invoice posts its base-currency
@@ -208,8 +205,13 @@ export interface CreateSalesInvoiceLine {
   readonly discountPercent?: number;
   readonly discountAmount?: Money;
   readonly taxRatePercent?: number;
-  /** The tax rate row applied; validated and its percent read server-side (D79). */
   readonly taxRateId?: string | null;
+  /**
+   * SERVER-INTERNAL: the tax another document already resolved for this line
+   * (a quote converting into an invoice). Taken as it stands — no active check,
+   * no repricing. Never map it from a request body.
+   */
+  readonly inheritedTax?: AppliedTaxRate;
   readonly revenueAccountId: string;
   readonly cogsAccountId?: string | null;
   readonly inventoryAccountId?: string | null;
@@ -612,14 +614,10 @@ export class SalesInvoiceService {
     taxRates: readonly TaxRate[] | null,
   ): SalesInvoice {
     const zeroRated = cmd.customerTaxExempt === true || !taxPolicy.enabled;
-    const appliedTax = (l: CreateSalesInvoiceLine): AppliedTaxRate => {
-      if (taxRates === null) {
-        return { taxRateId: null, taxRatePercent: zeroRated ? 0 : (l.taxRatePercent ?? taxPolicy.defaultRatePercent) };
-      }
-      return zeroRated
-        ? resolveZeroRatedTaxRate(taxRates, l)
-        : resolveAppliedTaxRate(taxRates, l, taxPolicy.defaultRatePercent);
-    };
+    const appliedTax = (l: CreateSalesInvoiceLine): AppliedTaxRate =>
+      l.inheritedTax
+        ? resolveInheritedTaxRate(taxRates, l.inheritedTax)
+        : resolveDocumentLineTax(taxRates, l, { defaultPercent: taxPolicy.defaultRatePercent, zeroRated });
     const lines: SalesInvoiceLine[] = cmd.lines.map((l) => {
       const unitFactor = l.unitFactor ?? 1;
       const tax = appliedTax(l);

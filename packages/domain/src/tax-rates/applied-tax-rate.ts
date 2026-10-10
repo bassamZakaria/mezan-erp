@@ -1,5 +1,10 @@
-import { InactiveTaxRateError, TaxRateNotFoundError, TaxRatePercentMismatchError } from "./errors.js";
-import type { TaxRate } from "./tax-rate.js";
+import {
+  InactiveTaxRateError,
+  TaxRateNotFoundError,
+  TaxRatePercentMismatchError,
+  TaxRateUnverifiableError,
+} from "./errors.js";
+import { TaxRateStatusCode, type TaxRate } from "./tax-rate.js";
 
 export interface AppliedTaxRate {
   readonly taxRateId: string | null;
@@ -7,18 +12,38 @@ export interface AppliedTaxRate {
 }
 
 export interface AppliedTaxRateRequest {
+  /**
+   * `null` and `undefined` are NOT the same answer. `null` says "this line
+   * names no tax rate" and is stored as NULL whatever its percent. `undefined`
+   * says nothing, and lets the server infer a rate from the percent.
+   */
   readonly taxRateId?: string | null;
   readonly taxRatePercent?: number | null;
 }
 
-type RateIdentity = Pick<TaxRate, "id" | "rate" | "status">;
+type RateIdentity = Pick<TaxRate, "id" | "name" | "rate" | "status">;
 
-export function findSoleActiveTaxRateByPercent<T extends RateIdentity>(
+/**
+ * INVARIANT: a rate is never inferred at 0%. Exempt, export and not-subject
+ * are all 0% and mean different things to the authority, so a tenant holding
+ * only ONE of them would otherwise have every unnamed 0% line — a retention
+ * release, a tax-exempt customer's sale — filed under it. A 0% line carries a
+ * rate only when the caller named one.
+ */
+export function inferTaxRateByPercent<T extends Pick<TaxRate, "id" | "rate" | "status">>(
   taxRates: readonly T[],
   taxRatePercent: number,
 ): T | null {
-  const matches = taxRates.filter((r) => r.status === "active" && r.rate === taxRatePercent);
+  if (!(taxRatePercent > 0)) return null;
+  const matches = taxRates.filter((r) => r.status === TaxRateStatusCode.Active && r.rate === taxRatePercent);
   return matches.length === 1 ? (matches[0] ?? null) : null;
+}
+
+function requireNamedRate(taxRates: readonly RateIdentity[], taxRateId: string): RateIdentity {
+  const rate = taxRates.find((r) => r.id === taxRateId);
+  if (!rate) throw new TaxRateNotFoundError(taxRateId);
+  if (rate.status !== TaxRateStatusCode.Active) throw new InactiveTaxRateError(rate.id, rate.name);
+  return rate;
 }
 
 export function resolveAppliedTaxRate(
@@ -26,32 +51,60 @@ export function resolveAppliedTaxRate(
   request: AppliedTaxRateRequest,
   defaultPercent: number,
 ): AppliedTaxRate {
-  const requestedId = request.taxRateId ?? null;
-  if (requestedId !== null) {
-    const rate = taxRates.find((r) => r.id === requestedId);
-    if (!rate) throw new TaxRateNotFoundError(requestedId);
-    if (rate.status !== "active") throw new InactiveTaxRateError(requestedId);
+  if (typeof request.taxRateId === "string") {
+    const rate = requireNamedRate(taxRates, request.taxRateId);
     const claimed = request.taxRatePercent ?? null;
     if (claimed !== null && claimed !== rate.rate) {
-      throw new TaxRatePercentMismatchError(requestedId, rate.rate, claimed);
+      throw new TaxRatePercentMismatchError(rate.id, rate.name, rate.rate, claimed);
     }
     return { taxRateId: rate.id, taxRatePercent: rate.rate };
   }
   const taxRatePercent = request.taxRatePercent ?? defaultPercent;
-  return {
-    taxRateId: findSoleActiveTaxRateByPercent(taxRates, taxRatePercent)?.id ?? null,
-    taxRatePercent,
-  };
+  if (request.taxRateId === null) return { taxRateId: null, taxRatePercent };
+  return { taxRateId: inferTaxRateByPercent(taxRates, taxRatePercent)?.id ?? null, taxRatePercent };
 }
 
 export function resolveZeroRatedTaxRate(
   taxRates: readonly RateIdentity[],
   request: AppliedTaxRateRequest,
 ): AppliedTaxRate {
-  const requestedId = request.taxRateId ?? null;
-  if (requestedId !== null) {
-    const requested = resolveAppliedTaxRate(taxRates, { taxRateId: requestedId }, 0);
-    if (requested.taxRatePercent === 0) return requested;
+  if (typeof request.taxRateId === "string") {
+    const rate = requireNamedRate(taxRates, request.taxRateId);
+    if (rate.rate === 0) return { taxRateId: rate.id, taxRatePercent: 0 };
   }
-  return resolveAppliedTaxRate(taxRates, { taxRatePercent: 0 }, 0);
+  return { taxRateId: null, taxRatePercent: 0 };
+}
+
+export interface DocumentLineTaxPolicy {
+  readonly defaultPercent: number;
+  readonly zeroRated: boolean;
+}
+
+export function resolveDocumentLineTax(
+  taxRates: readonly RateIdentity[] | null,
+  request: AppliedTaxRateRequest,
+  policy: DocumentLineTaxPolicy,
+): AppliedTaxRate {
+  if (taxRates === null) {
+    if (typeof request.taxRateId === "string") throw new TaxRateUnverifiableError(request.taxRateId);
+    return { taxRateId: null, taxRatePercent: policy.zeroRated ? 0 : (request.taxRatePercent ?? policy.defaultPercent) };
+  }
+  return policy.zeroRated
+    ? resolveZeroRatedTaxRate(taxRates, request)
+    : resolveAppliedTaxRate(taxRates, request, policy.defaultPercent);
+}
+
+/**
+ * A line copied from a document that already resolved its tax — a quote
+ * converting into an invoice. The rate was valid when it was quoted, so it is
+ * kept even if it has been deactivated since, and the line is not repriced.
+ */
+export function resolveInheritedTaxRate(
+  taxRates: readonly RateIdentity[] | null,
+  inherited: AppliedTaxRate,
+): AppliedTaxRate {
+  if (inherited.taxRateId === null) return inherited;
+  if (taxRates === null) throw new TaxRateUnverifiableError(inherited.taxRateId);
+  if (!taxRates.some((r) => r.id === inherited.taxRateId)) throw new TaxRateNotFoundError(inherited.taxRateId);
+  return inherited;
 }

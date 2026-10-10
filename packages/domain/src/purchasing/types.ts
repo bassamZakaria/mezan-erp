@@ -91,7 +91,6 @@ export interface PurchaseGlPostingLine {
    * dividing tax by base per entry (D28).
    */
   readonly taxRatePercent?: number | null;
-  /** The tax rate row behind `taxRatePercent`, when the invoice line stored one (D79). */
   readonly taxRateId?: string | null;
 }
 

@@ -1,5 +1,5 @@
-import type { EtaVatSubType, TaxCalculationType, TaxRate, TaxRateRepository, TaxRateStatus } from "./tax-rate.js";
-import { InvalidTaxRateError, TaxRateNotFoundError } from "./errors.js";
+import type { EtaVatSubType, TaxCalculationType, TaxRate, TaxRateRepository, TaxRateStatus, TaxRateUsage } from "./tax-rate.js";
+import { InvalidTaxRateError, TaxRateInUseError, TaxRateNotFoundError } from "./errors.js";
 
 export interface UpdateTaxRateCommand {
   readonly name?: string;
@@ -21,11 +21,19 @@ export async function updateTaxRate(
   taxRateId: string,
   command: UpdateTaxRateCommand,
   repo: TaxRateRepository,
+  usage?: TaxRateUsage,
 ): Promise<TaxRate> {
   const current = await repo.findById(taxRateId);
   if (!current) throw new TaxRateNotFoundError(taxRateId);
 
   const nextRate = command.rate ?? current.rate;
+  // INVARIANT: a stored line names this row and reads its classification off
+  // it. Changing the percent or the sub-type here would restate every document
+  // already filed under it, so a referenced rate keeps both for good.
+  const restatesIdentity = nextRate !== current.rate || (command.etaSubType ?? current.etaSubType) !== current.etaSubType;
+  if (restatesIdentity && usage && (await usage.isReferenced(taxRateId))) {
+    throw new TaxRateInUseError(current.id, current.name);
+  }
   if (!Number.isFinite(nextRate) || nextRate < 0 || nextRate > 100) {
     throw new InvalidTaxRateError(
       `نسبة الضريبة يجب أن تكون رقماً بين 0 و100، والقيمة المُدخلة ${nextRate}.`,

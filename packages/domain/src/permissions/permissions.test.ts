@@ -111,6 +111,14 @@ describe("permission catalog", () => {
 });
 
 describe("dependency resolution", () => {
+  it("creating a sales invoice, a quote or a purchase invoice implies reading the tax rates its lines pick from (D79)", () => {
+    for (const create of ["sales.invoice.create", "sales.quote.create", "purchases.invoice.create"]) {
+      const resolved = resolvePermissions([create]);
+      expect(resolved.has("accounting.tax.view")).toBe(true);
+      expect(resolved.has("accounting.tax.manage")).toBe(false);
+    }
+  });
+
   it("granting .confirm implies .view_own (single hop)", () => {
     const resolved = resolvePermissions(["sales.invoice.confirm"]);
     expect(resolved.has("sales.invoice.confirm")).toBe(true);

@@ -20,29 +20,56 @@ export class TaxRateNotFoundError extends Error {
   }
 }
 
-/** Raised when a document line names a tax rate that has been deactivated. */
 export class InactiveTaxRateError extends Error {
   readonly code = "TAX_RATE_INACTIVE";
   readonly messageEn: string;
-  constructor(readonly taxRateId: string) {
-    super(`الضريبة "${taxRateId}" غير مفعّلة ولا يمكن استخدامها في مستند جديد.`);
-    this.messageEn = `Tax rate "${taxRateId}" is inactive and cannot be used on a new document.`;
+  constructor(
+    readonly taxRateId: string,
+    readonly taxRateName: string,
+  ) {
+    super(`الضريبة «${taxRateName}» غير مفعّلة ولا يمكن استخدامها في مستند جديد.`);
+    this.messageEn = `Tax rate "${taxRateName}" is inactive and cannot be used on a new document.`;
     this.name = "InactiveTaxRateError";
   }
 }
 
-/** Raised when a line names a tax rate together with a percent that is not that rate's own. */
 export class TaxRatePercentMismatchError extends Error {
   readonly code = "TAX_RATE_PERCENT_MISMATCH";
   readonly messageEn: string;
   constructor(
     readonly taxRateId: string,
+    readonly taxRateName: string,
     readonly ratePercent: number,
     readonly claimedPercent: number,
   ) {
-    super(`نسبة الضريبة المرسلة (${claimedPercent}٪) لا تطابق نسبة الضريبة "${taxRateId}" (${ratePercent}٪).`);
-    this.messageEn = `The submitted tax percent (${claimedPercent}%) does not match tax rate "${taxRateId}" (${ratePercent}%).`;
+    super(`نسبة الضريبة المرسلة (${claimedPercent}٪) لا تطابق نسبة الضريبة «${taxRateName}» (${ratePercent}٪).`);
+    this.messageEn = `The submitted tax percent (${claimedPercent}%) does not match tax rate "${taxRateName}" (${ratePercent}%).`;
     this.name = "TaxRatePercentMismatchError";
+  }
+}
+
+export class TaxRateUnverifiableError extends Error {
+  readonly code = "TAX_RATE_UNVERIFIABLE";
+  readonly messageEn: string;
+  constructor(readonly taxRateId: string) {
+    super(`تعذّر التحقق من الضريبة "${taxRateId}": دليل الضرائب غير متاح لهذا المستند.`);
+    this.messageEn = `Tax rate "${taxRateId}" could not be verified: no tax rate master is available to this document.`;
+    this.name = "TaxRateUnverifiableError";
+  }
+}
+
+export class TaxRateInUseError extends Error {
+  readonly code = "TAX_RATE_IN_USE";
+  readonly messageEn: string;
+  constructor(
+    readonly taxRateId: string,
+    readonly taxRateName: string,
+  ) {
+    super(
+      `لا يمكن تغيير نسبة الضريبة «${taxRateName}» أو تصنيفها لدى المصلحة لأنها مستخدمة في مستندات مسجّلة. أنشئ ضريبة جديدة بالقيم المطلوبة ثم أوقف هذه.`,
+    );
+    this.messageEn = `Tax rate "${taxRateName}" is used by recorded documents, so its percent and ETA sub-type cannot change. Create a new tax rate with the values you need, then deactivate this one.`;
+    this.name = "TaxRateInUseError";
   }
 }
 

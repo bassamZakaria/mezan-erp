@@ -5,12 +5,14 @@ import { fireEvent, screen } from "@testing-library/react";
 import type { TaxRateDTO } from "@mezan/contracts";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
 import {
-  NO_TAX_RATE,
+  DERIVED_TAX,
+  TaxChoiceKind,
   TaxRateField,
   appliedTaxPercent,
+  chosenTaxRateId,
   lineTaxPayload,
   selectableTaxRates,
-  soleActiveTaxRateId,
+  type TaxChoice,
 } from "./tax-rate-field";
 
 if (!Element.prototype.scrollIntoView) {
@@ -27,44 +29,64 @@ const EXEMPT = taxRate("VAT-EXEMPT", "معفى", 0, { etaSubType: "V003" });
 const EXPORT = taxRate("VAT-EXPORT", "تصدير", 0, { etaSubType: "V001" });
 const RETIRED = taxRate("OLD5", "ضريبة قديمة", 5, { status: "inactive" });
 const ALL = [VAT, EXEMPT, EXPORT, RETIRED];
+const NONE: TaxChoice = { kind: TaxChoiceKind.None };
+const picked = (taxRateId: string): TaxChoice => ({ kind: TaxChoiceKind.Rate, taxRateId });
 
-describe("soleActiveTaxRateId", () => {
-  it("names the rate when exactly one active rate has the percent", () => {
-    expect(soleActiveTaxRateId(ALL, 14)).toBe("VAT14");
+describe("chosenTaxRateId — an untouched line derives its rate the way the server does", () => {
+  it("names the one active rate at a percent above zero", () => {
+    expect(chosenTaxRateId(DERIVED_TAX, ALL, 14)).toBe("VAT14");
   });
 
-  it("names none when معفى and تصدير share 0% — the user has to say which", () => {
-    expect(soleActiveTaxRateId(ALL, 0)).toBe(NO_TAX_RATE);
+  it("names NOTHING at 0% — not even when the tenant holds exactly one 0% rate", () => {
+    expect(chosenTaxRateId(DERIVED_TAX, ALL, 0)).toBeNull();
+    expect(chosenTaxRateId(DERIVED_TAX, [VAT, EXEMPT], 0)).toBeNull();
   });
 
-  it("never names an inactive rate", () => {
-    expect(soleActiveTaxRateId(ALL, 5)).toBe(NO_TAX_RATE);
+  it("never names an inactive rate, and names nothing before the rates have loaded", () => {
+    expect(chosenTaxRateId(DERIVED_TAX, ALL, 5)).toBeNull();
+    expect(chosenTaxRateId(DERIVED_TAX, [], 14)).toBeNull();
+  });
+
+  it("is the user's own pick once they made one, including 'none'", () => {
+    expect(chosenTaxRateId(picked("VAT-EXPORT"), ALL, 14)).toBe("VAT-EXPORT");
+    expect(chosenTaxRateId(NONE, ALL, 14)).toBeNull();
   });
 });
 
 describe("appliedTaxPercent", () => {
-  it("is the picked rate's own percent, whatever the item's is", () => {
-    expect(appliedTaxPercent(ALL, "VAT-EXEMPT", 14)).toBe(0);
+  it("is the chosen rate's own percent, whatever the item's is", () => {
+    expect(appliedTaxPercent(picked("VAT-EXEMPT"), ALL, 14)).toBe(0);
+    expect(appliedTaxPercent(DERIVED_TAX, ALL, 14)).toBe(14);
   });
 
-  it("is the fallback percent when no rate is picked", () => {
-    expect(appliedTaxPercent(ALL, NO_TAX_RATE, 14)).toBe(14);
+  it("is the fallback percent when no rate is chosen", () => {
+    expect(appliedTaxPercent(NONE, ALL, 14)).toBe(14);
+    expect(appliedTaxPercent(DERIVED_TAX, ALL, 0)).toBe(0);
   });
 });
 
-describe("lineTaxPayload", () => {
+describe("lineTaxPayload — what the request says is what the picker shows", () => {
   it("sends the id alone for a picked rate, so the server reads the percent off the row", () => {
-    expect(lineTaxPayload("VAT-EXPORT", 14)).toEqual({ taxRateId: "VAT-EXPORT" });
+    expect(lineTaxPayload(picked("VAT-EXPORT"), ALL, 14)).toEqual({ taxRateId: "VAT-EXPORT" });
   });
 
-  it("sends the percent alone when no rate is picked", () => {
-    expect(lineTaxPayload(NO_TAX_RATE, 14)).toEqual({ taxRatePercent: 14 });
+  it("sends the derived rate's id for an untouched line — the rate the picker displays", () => {
+    expect(lineTaxPayload(DERIVED_TAX, ALL, 14)).toEqual({ taxRateId: "VAT14" });
+  });
+
+  it("sends an explicit null when the user chose «بدون ضريبة مسماة», so the server stores no rate and infers none", () => {
+    expect(lineTaxPayload(NONE, ALL, 14)).toEqual({ taxRateId: null, taxRatePercent: 14 });
+  });
+
+  it("sends the percent alone for an untouched line with nothing to derive, leaving the decision to the server", () => {
+    expect(lineTaxPayload(DERIVED_TAX, ALL, 0)).toEqual({ taxRatePercent: 0 });
+    expect(lineTaxPayload(DERIVED_TAX, [], 14)).toEqual({ taxRatePercent: 14 });
   });
 });
 
 describe("selectableTaxRates", () => {
   it("offers active rates only", () => {
-    expect(selectableTaxRates(ALL, NO_TAX_RATE).map((r) => r.id)).toEqual(["VAT14", "VAT-EXEMPT", "VAT-EXPORT"]);
+    expect(selectableTaxRates(ALL, null).map((r) => r.id)).toEqual(["VAT14", "VAT-EXEMPT", "VAT-EXPORT"]);
   });
 
   it("keeps an inactive rate that is already the selection, so it does not vanish from its own field", () => {
@@ -73,16 +95,16 @@ describe("selectableTaxRates", () => {
 });
 
 describe("TaxRateField", () => {
-  function renderField(value: string, onChange = vi.fn()) {
+  function renderField(choice: TaxChoice, fallbackPercent = 14, onChange = vi.fn()) {
     renderWithProviders(
-      <TaxRateField label="الضريبة" value={value} onChange={onChange} taxRates={ALL} fallbackPercent={14} />,
+      <TaxRateField label="الضريبة" choice={choice} onChange={onChange} taxRates={ALL} fallbackPercent={fallbackPercent} />,
       { transport: stubTransport({}), initialSession: testAdminSession },
     );
     return onChange;
   }
 
   it("lists each active rate by name and percent, plus the option that names none", () => {
-    renderField(NO_TAX_RATE);
+    renderField(DERIVED_TAX);
     fireEvent.click(screen.getByRole("combobox", { name: "الضريبة" }));
     expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual([
       "بدون ضريبة مسماة (14٪)",
@@ -92,10 +114,23 @@ describe("TaxRateField", () => {
     ]);
   });
 
-  it("reports the picked rate's real id", () => {
-    const onChange = renderField(NO_TAX_RATE);
+  it("shows the derived rate on an untouched 14% line, and no rate on an untouched 0% line", () => {
+    renderField(DERIVED_TAX);
+    expect(screen.getByRole("combobox", { name: "الضريبة" })).toHaveTextContent("ضريبة القيمة المضافة · 14٪");
+  });
+
+  it("shows «بدون ضريبة مسماة» on an untouched 0% line — the user has to say exempt or export", () => {
+    renderField(DERIVED_TAX, 0);
+    expect(screen.getByRole("combobox", { name: "الضريبة" })).toHaveTextContent("بدون ضريبة مسماة (0٪)");
+  });
+
+  it("reports the picked rate's real id, and 'none' as a choice of its own", () => {
+    const onChange = renderField(DERIVED_TAX);
     fireEvent.click(screen.getByRole("combobox", { name: "الضريبة" }));
     fireEvent.mouseDown(screen.getByRole("option", { name: "تصدير · 0٪" }));
-    expect(onChange).toHaveBeenCalledWith("VAT-EXPORT");
+    expect(onChange).toHaveBeenLastCalledWith({ kind: TaxChoiceKind.Rate, taxRateId: "VAT-EXPORT" });
+    fireEvent.click(screen.getByRole("combobox", { name: "الضريبة" }));
+    fireEvent.mouseDown(screen.getByRole("option", { name: "بدون ضريبة مسماة (14٪)" }));
+    expect(onChange).toHaveBeenLastCalledWith({ kind: TaxChoiceKind.None });
   });
 });

@@ -35,6 +35,7 @@ import {
   type StockLedgerService,
   type StockReservationSource,
   branchOfPostingWarehouse,
+  voucherLine,
   postJournalEntry,
   type NextNumberService,
   type JournalPostingDeps,
@@ -126,7 +127,7 @@ import {
   createItemUnitsRoutes,
 } from "./item-catalog-routes.js";
 import { createItemSpecificationsRoutes } from "./item-specifications-routes.js";
-import { createAttachmentsRoutes } from "./attachments-routes.js";
+import { createAttachmentsRoutes, type AttachmentEntityBranches } from "./attachments-routes.js";
 import { createAccountRoutingRoutes } from "./account-routing-routes.js";
 import { createRolesRoutes } from "./roles-routes.js";
 import { createUsersRoutes } from "./users-routes.js";
@@ -220,6 +221,7 @@ import { createFinancialReportsRoutes, type FinancialReportsRoutesDeps } from ".
 import { createLabelLayoutsRouter } from "./label-routes.js";
 import { createSequencesRoutes, type SequencesRoutesDeps } from "./sequences-routes.js";
 import { createAuditRoutes } from "./audit-routes.js";
+import { branchesOfWarehouses, documentBranches } from "./stored-branches.js";
 import { createSecurityReportsRoutes } from "./security-reports-routes.js";
 import { isProductionRuntime, permissionRefusalReporting, type PermissionRefusalReporter } from "./permission-gate.js";
 import { createBarcodeConfigRoutes } from "./barcode-config-routes.js";
@@ -823,7 +825,11 @@ export interface CreateAppOptions {
    * document or an entity; every route derives its permission from the entity
    * the file hangs off, so there is no attachment permission of its own.
    */
-  readonly attachments?: { readonly repo: AttachmentRepository; readonly resolveAuthContext?: AuthContextResolver };
+  readonly attachments?: {
+    readonly repo: AttachmentRepository;
+    readonly resolveAuthContext?: AuthContextResolver;
+    readonly entityBranches?: AttachmentEntityBranches;
+  };
   /**
    * The license state every mutating request is gated against, and that
    * `GET /license/state` reports (docs/archive/plan.md §2.5). Supplied by
@@ -885,6 +891,64 @@ function fxRatesUnder(source: FxRateSource | undefined, settingsStore: SettingsR
  *     (Electron main-process shape).
  * Routes carry no business logic — they validate, call the domain, serialize.
  */
+/**
+ * Which branch owns the document an attachment hangs off, read from the same
+ * stores the document routes read — so a file is never more readable than the
+ * document's own route makes the document.
+ */
+function attachmentEntityBranches(options: CreateAppOptions): AttachmentEntityBranches {
+  return async (c, entityType, entityId) => {
+    switch (entityType) {
+      case "sales-invoice": {
+        const invoice = await options.salesInvoices?.repo.findById(entityId);
+        return invoice ? documentBranches(c, [invoice.branchId], [invoice.warehouseId]) : null;
+      }
+      case "sales-quote": {
+        const quote = await options.salesQuotes?.repo.findById(entityId);
+        return quote ? [quote.branchId] : null;
+      }
+      case "sales-return": {
+        const doc = await options.salesReturns?.service.findById(entityId);
+        return doc ? documentBranches(c, doc.lines.map((line) => line.branchId), doc.lines.map((line) => line.warehouseId)) : null;
+      }
+      case "purchase-invoice": {
+        const invoice = await options.purchases?.invoices.findById(entityId);
+        return invoice ? documentBranches(c, [invoice.branchId], [invoice.warehouseId]) : null;
+      }
+      case "purchase-order": {
+        const order = await options.purchases?.orders.findById(entityId);
+        return order ? documentBranches(c, [order.branchId], [order.warehouseId]) : null;
+      }
+      case "goods-receipt": {
+        const receipt = await options.purchases?.receipts.findById(entityId);
+        return receipt ? branchesOfWarehouses(c, [receipt.warehouseId]) : null;
+      }
+      case "stock-adjustment": {
+        const doc = await options.stockAdjustments?.service.findById(entityId);
+        return doc ? branchesOfWarehouses(c, doc.lines.map((line) => line.warehouseId)) : null;
+      }
+      case "stock-transfer": {
+        const doc = await options.stockTransfers?.service.findById(entityId);
+        return doc ? branchesOfWarehouses(c, doc.lines.flatMap((line) => [line.fromWarehouseId, line.toWarehouseId])) : null;
+      }
+      case "work-order": {
+        const order = await options.manufacturing?.workOrders.findById(entityId);
+        return order ? branchesOfWarehouses(c, [order.sourceWarehouseId]) : null;
+      }
+      case "voucher": {
+        const doc = await options.vouchers?.documents.findById(entityId);
+        return doc ? [voucherLine(doc).branchId] : null;
+      }
+      case "item":
+      case "customer":
+      case "supplier":
+      case "employee":
+      case "attendance":
+        return null;
+    }
+  };
+}
+
 export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   /**
    * One resolver for every route on this app.
@@ -1724,7 +1788,10 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   if (options.attachments) {
     app.route(
       "/attachments",
-      createAttachmentsRoutes(options.attachments, (options.attachments.resolveAuthContext ?? resolveAuth) ?? resolveAuth),
+      createAttachmentsRoutes(
+        { ...options.attachments, entityBranches: options.attachments.entityBranches ?? attachmentEntityBranches(options) },
+        (options.attachments.resolveAuthContext ?? resolveAuth) ?? resolveAuth,
+      ),
     );
   }
 

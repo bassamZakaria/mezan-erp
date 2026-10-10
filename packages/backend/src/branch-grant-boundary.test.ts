@@ -648,3 +648,54 @@ describe("D111 · an id-addressed route checks the stored document's branch, not
     expect(one("SELECT status FROM stock_transfer_document WHERE id = ?", "D111-TRF-IN")?.status).toBe("draft");
   });
 });
+
+describe("D111 · what hangs off a document is no more readable than the document", () => {
+  const attachmentOf = (entityType: string) =>
+    one<{ id: string; entityId: string }>("SELECT id, entity_id AS entityId FROM attachment WHERE entity_type = ? LIMIT 1", entityType)!;
+
+  it("attachments of another branch's documents are absent by id, by content, in the list, and cannot be added or deleted", async () => {
+    for (const entityType of ["sales-invoice", "sales-quote", "sales-return", "purchase-order"]) {
+      const attachment = attachmentOf(entityType);
+      expect((await mainOnly("GET", `/attachments/${attachment.id}`)).status, entityType).toBe(200);
+      expect((await mainOnly("GET", `/attachments/${attachment.id}/content`)).body.contentBase64, entityType).toBeTruthy();
+
+      const meta = await alex("GET", `/attachments/${attachment.id}`);
+      expect(meta.status, entityType).toBe(404);
+      const content = await alex("GET", `/attachments/${attachment.id}/content`);
+      expect(content.status, entityType).toBe(404);
+      expect(content.body.contentBase64).toBeUndefined();
+      expect(rowsOf((await alex("GET", `/attachments?entityType=${entityType}&entityId=${attachment.entityId}`)).body)).toEqual([]);
+      expect(rowsOf((await alex("GET", `/attachments?entityType=${entityType}`)).body).map((r: any) => r.id)).not.toContain(attachment.id);
+      expect(rowsOf((await alex("GET", "/attachments")).body).map((r: any) => r.id)).not.toContain(attachment.id);
+
+      expectRefusedInArabic(await alex("DELETE", `/attachments/${attachment.id}`));
+      expectRefusedInArabic(
+        await alex("POST", "/attachments", {
+          id: `D111-ATT-${entityType}`,
+          entityType,
+          entityId: attachment.entityId,
+          fileName: "probe.txt",
+          mimeType: "text/plain",
+          contentBase64: Buffer.from("probe").toString("base64"),
+        }),
+      );
+      expect(one("SELECT COUNT(*) AS n FROM attachment WHERE id IN (?, ?)", attachment.id, `D111-ATT-${entityType}`)?.n).toBe(1);
+    }
+  });
+
+  it("attachments of master data and of the branch's own documents stay readable", async () => {
+    const item = attachmentOf("item");
+    expect((await alex("GET", `/attachments/${item.id}`)).status).toBe(200);
+    const own = await alex("POST", "/attachments", {
+      id: "D111-ATT-OWN",
+      entityType: "sales-invoice",
+      entityId: "INV-DEMO-ALEX-1",
+      fileName: "own.txt",
+      mimeType: "text/plain",
+      contentBase64: Buffer.from("own").toString("base64"),
+    });
+    expect(own.status, JSON.stringify(own.body).slice(0, 200)).toBe(201);
+    expect((await alex("GET", "/attachments/D111-ATT-OWN/content")).status).toBe(200);
+    expect((await mainOnly("GET", "/attachments/D111-ATT-OWN/content")).status).toBe(404);
+  });
+});

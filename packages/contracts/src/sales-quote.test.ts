@@ -86,6 +86,13 @@ describe("createSalesQuoteLineSchema", () => {
     const result = createSalesQuoteLineSchema.safeParse({ ...line, discountPercent: 150 });
     expect(result.success).toBe(false);
   });
+
+  it("carries taxRateId, so the invoice a quote converts into knows which 0% rate was quoted (D79)", () => {
+    const result = createSalesQuoteLineSchema.safeParse({ ...line, taxRateId: "VAT-EXPORT" });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.taxRateId).toBe("VAT-EXPORT");
+    expect(createSalesQuoteLineSchema.safeParse({ ...line, taxRateId: "" }).success).toBe(false);
+  });
 });
 
 describe("createSalesQuoteSchema", () => {

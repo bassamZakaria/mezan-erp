@@ -23,6 +23,8 @@ export interface SourceSalesInvoiceLine {
   readonly taxAmount: Money;
   /** The VAT rate this line was charged at, carried onto the return line (D76). */
   readonly taxRatePercent?: number | null;
+  /** The tax rate row the invoice line stored; a return inherits it (D79). */
+  readonly taxRateId?: string | null;
 }
 
 export interface SourceSalesInvoice {

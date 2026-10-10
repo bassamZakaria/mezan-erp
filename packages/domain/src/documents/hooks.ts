@@ -61,6 +61,8 @@ export interface DocumentGlPostingLine {
    * existed — the report falls back to the old derivation for those.
    */
   readonly taxRatePercent?: number | null;
+  /** The tax rate row behind `taxRatePercent`. Dropped here, the VAT return cannot tell two 0% rates apart (D79). */
+  readonly taxRateId?: string | null;
   /** بُعد المشروع — the contracting project the line belongs to (D-01). Dropped here, it is gone for good. */
   readonly projectId?: string | null;
   /** فئة التكلفة — only meaningful with `projectId`. */

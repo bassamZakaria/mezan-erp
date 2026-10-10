@@ -16,7 +16,7 @@ const CASH_TREASURY_ID = "TR-DEMO-CASH";
 const BANK_TREASURY_ID = "TR-DEMO-BANK";
 const CHARGED_LABOUR_GL = "5110";
 const SUNDRY_EXPENSE_GL = "5910";
-const VAT_PERCENT = 14;
+const VAT_RATE_ID = "VAT14";
 
 export async function seedContracting(app: App): Promise<void> {
   await step(app, "POST", "/purchases/invoices", {
@@ -30,7 +30,7 @@ export async function seedContracting(app: App): Promise<void> {
     currency: "EGP",
     projectId: TOWER,
     lines: [
-      { itemId: null, kind: "expense", description: "أسمنت وحديد تسليح موردان للموقع", qty: "1", unitCost: "85000", taxRatePercent: VAT_PERCENT, costCategory: "materials" },
+      { itemId: null, kind: "expense", description: "أسمنت وحديد تسليح موردان للموقع", qty: "1", unitCost: "85000", taxRateId: VAT_RATE_ID, costCategory: "materials" },
       { itemId: null, kind: "expense", description: "مقاول باطن — أعمال الحفر والردم", qty: "1", unitCost: "40000", taxRatePercent: 0, costCategory: "subcontract" },
     ],
   });
@@ -124,7 +124,7 @@ export async function seedContractingProjectInvoice(app: App): Promise<void> {
         isStock: false,
         qty: "1",
         unitPrice: "210000",
-        taxRatePercent: VAT_PERCENT,
+        taxRateId: VAT_RATE_ID,
         revenueAccountId: ACCOUNTS.revenue,
         cogsAccountId: ACCOUNTS.cogs,
         inventoryAccountId: ACCOUNTS.inventory,

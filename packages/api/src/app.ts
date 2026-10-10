@@ -1190,6 +1190,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
           // currency check only decides whether the code is allowed, never what
           // it is worth (D24).
           exchangeRates: salesInvoices.exchangeRates ?? options.exchangeRateRepo,
+          taxRates: salesInvoices.taxRates ?? options.taxRateRepo,
           taxPolicy:
             salesInvoices.taxPolicy ??
             (options.settingsStore
@@ -1265,7 +1266,10 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
               createSalesInvoiceQuota(options.salesInvoices.repo, (fn) => uow.transaction(fn)),
           }
         : undefined);
-    app.route("/sales-quotes", createSalesQuotesRoutes({ ...salesQuotes, invoice }, resolveAuth));
+    app.route("/sales-quotes", createSalesQuotesRoutes(
+        { ...salesQuotes, taxRates: salesQuotes.taxRates ?? options.taxRateRepo, invoice },
+        resolveAuth,
+      ));
   }
   if (options.salesReturns) {
     app.route(
@@ -1418,6 +1422,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
               currency: l.currency ?? null,
               fxRate: l.fxRate ?? null,
               taxRatePercent: l.taxRatePercent ?? null,
+              taxRateId: l.taxRateId ?? null,
               projectId: l.projectId ?? null,
               costCategory: l.costCategory ?? null,
               branchId: l.branchId ?? null,
@@ -1479,6 +1484,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
           pay: purchases.pay,
           settlementPreview: purchases.settlementPreview,
           resolveTaxRate: purchases.resolveTaxRate,
+          taxRates: options.taxRateRepo,
           currencyCheck:
             purchases.currencyCheck ?? (options.settingsStore ? createCurrencyCheck(options.settingsStore) : undefined),
           autoBatchNo:

@@ -257,3 +257,114 @@ describe("createVatReturnReport — exact arithmetic", () => {
     expect(vatNetPayable(outcome.rows)).toBeCloseTo(0.03, 10);
   });
 });
+
+describe("createVatReturnReport — grouped by the tax rate each line stored (D79)", () => {
+  const taxRates = [
+    { id: "VAT14", name: "ضريبة القيمة المضافة 14%", rate: 14, status: "active" as const },
+    { id: "EXEMPT", name: "معفى", rate: 0, status: "active" as const },
+    { id: "EXPORT", name: "تصدير", rate: 0, status: "active" as const },
+  ];
+  const run = (entries: JournalEntry[], rates: VatReturnContext["taxRates"] = taxRates) => {
+    const definition = createVatReturnReport({ periodFrom: "2026-03-01", periodTo: "2026-03-31" });
+    const outcome = runReport(definition, { periodFrom: "2026-03-01", periodTo: "2026-03-31" }, { ...ctx(entries), taxRates: rates });
+    if (!outcome.ok) throw new Error("the VAT return did not run");
+    return outcome.rows;
+  };
+
+  it("reports an exempt sale and a zero-rated export on separate rows, though both are 0%", () => {
+    const rows = run([
+      je({
+        id: "sale",
+        lines: [
+          line({ accountId: "1100", debit: Money.fromMajor("350") }),
+          line({ accountId: "4100", credit: Money.fromMajor("100"), taxRatePercent: 0, taxRateId: "EXEMPT" }),
+          line({ accountId: "4100", credit: Money.fromMajor("250"), taxRatePercent: 0, taxRateId: "EXPORT" }),
+        ],
+      }),
+    ]);
+    expect(rows.find((r) => r.taxRateId === "EXEMPT")).toMatchObject({ rowId: "output-0-EXEMPT", rate: 0, base: 100, tax: 0, taxRateName: "معفى" });
+    expect(rows.find((r) => r.taxRateId === "EXPORT")).toMatchObject({ rowId: "output-0-EXPORT", rate: 0, base: 250, tax: 0, taxRateName: "تصدير" });
+  });
+
+  it("leaves a 0% line that stored no rate on its own unnamed row when two rates share the percent", () => {
+    const rows = run([
+      je({
+        id: "legacy",
+        lines: [
+          line({ accountId: "1100", debit: Money.fromMajor("130") }),
+          line({ accountId: "4100", credit: Money.fromMajor("60"), taxRatePercent: 0 }),
+          line({ accountId: "4100", credit: Money.fromMajor("70"), taxRatePercent: 0, taxRateId: "EXEMPT" }),
+        ],
+      }),
+    ]);
+    expect(rows.find((r) => r.rowId === "output-0")).toMatchObject({ taxRateId: null, taxRateName: null, base: 60 });
+    expect(rows.find((r) => r.rowId === "output-0-EXEMPT")).toMatchObject({ base: 70 });
+  });
+
+  it("folds a line that stored only a percent into the one active rate at that percent", () => {
+    const rows = run([
+      je({
+        id: "mixed-history",
+        lines: [
+          line({ accountId: "1100", debit: Money.fromMajor("228") }),
+          line({ accountId: "4100", credit: Money.fromMajor("100"), taxRatePercent: 14 }),
+          line({ accountId: OUTPUT_VAT, credit: Money.fromMajor("14"), taxRatePercent: 14 }),
+          line({ accountId: "4100", credit: Money.fromMajor("100"), taxRatePercent: 14, taxRateId: "VAT14" }),
+          line({ accountId: OUTPUT_VAT, credit: Money.fromMajor("14"), taxRatePercent: 14, taxRateId: "VAT14" }),
+        ],
+      }),
+    ]);
+    const fourteen = rows.filter((r) => r.side === "output" && r.rate === 14);
+    expect(fourteen).toHaveLength(1);
+    expect(fourteen[0]).toMatchObject({ rowId: "output-14-VAT14", base: 200, tax: 28, taxRateName: "ضريبة القيمة المضافة 14%" });
+  });
+
+  it("folds an entry with no rate on any line into the sole rate its derived percent matches", () => {
+    const rows = run([
+      je({
+        id: "untagged",
+        lines: [
+          line({ accountId: "1100", debit: Money.fromMajor("114") }),
+          line({ accountId: "4100", credit: Money.fromMajor("100") }),
+          line({ accountId: OUTPUT_VAT, credit: Money.fromMajor("14") }),
+        ],
+      }),
+    ]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ rowId: "output-14-VAT14", base: 100, tax: 14 });
+  });
+
+  it("splits by stored id and names no row when the tax rate master is not supplied", () => {
+    const rows = run(
+      [
+        je({
+          id: "sale",
+          lines: [
+            line({ accountId: "1100", debit: Money.fromMajor("300") }),
+            line({ accountId: "4100", credit: Money.fromMajor("100"), taxRatePercent: 0, taxRateId: "EXEMPT" }),
+            line({ accountId: "4100", credit: Money.fromMajor("200"), taxRatePercent: 0 }),
+          ],
+        }),
+      ],
+      [],
+    );
+    expect(rows.map((r) => [r.rowId, r.taxRateName, r.base])).toEqual([
+      ["output-0", null, 200],
+      ["output-0-EXEMPT", null, 100],
+    ]);
+  });
+
+  it("groups input tax by the stored rate as well", () => {
+    const rows = run([
+      je({
+        id: "purchase",
+        lines: [
+          line({ accountId: "1300", debit: Money.fromMajor("200"), taxRatePercent: 14, taxRateId: "VAT14" }),
+          line({ accountId: INPUT_VAT, debit: Money.fromMajor("28"), taxRatePercent: 14, taxRateId: "VAT14" }),
+          line({ accountId: "2100", credit: Money.fromMajor("228") }),
+        ],
+      }),
+    ]);
+    expect(rows.find((r) => r.side === "input")).toMatchObject({ rowId: "input-14-VAT14", base: 200, tax: 28 });
+  });
+});

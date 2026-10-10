@@ -26,6 +26,8 @@ export interface SalesQuoteLine {
   readonly discountPercent: number;
   /** Output VAT percentage applied to this line (0 for exempt). */
   readonly taxRatePercent: number;
+  /** The tax rate row the line was quoted under; a converted invoice line inherits it (D79). */
+  readonly taxRateId: string | null;
 }
 
 export type SalesQuoteDiscountType = "percent" | "amount";

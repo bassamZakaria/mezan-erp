@@ -16,6 +16,7 @@ function line(overrides: Partial<SalesQuoteLine> = {}): SalesQuoteLine {
     unitPrice: Money.fromMajor("100"),
     discountPercent: 0,
     taxRatePercent: 14,
+    taxRateId: null,
     ...overrides,
   };
 }

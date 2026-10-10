@@ -187,10 +187,19 @@ Proved in `scripts/scenarios/seams.ts`; each gap is a register entry.
   document route ever sets those fields** — a `currency: "USD"` purchase invoice
   posts its foreign numbers as EGP (D24). `findRate` correctly refuses a pending
   rate, so an unapproved rate is genuinely unspendable.
-- **Tax rate.** Per-line rates are charged correctly, and nothing records *which*
-  rate a posted line carried, so the VAT return re-derives one blended rate per
-  entry (D28). A 14% / 5% / zero-rated invoice files at ~6.3%. A tax rate also cannot
-  express a partial taxable base (Egypt's 14%-on-36% construction treatment).
+- **Tax rate.** A sales invoice, quote, purchase invoice and return line stores
+  `taxRateId` — the tax-rate ROW it was charged under — beside its percent, and the
+  journal line it posts carries both (D28, D79). The id is resolved server-side
+  (`resolveAppliedTaxRate`): a named id must exist, be active and agree with any
+  percent sent; a percent alone stores an id only when exactly one active rate has
+  it. Exempt (V003) and zero-rated export (V001) are both 0%, so a 0% line that
+  names no rate stores NULL — and NULL, which is also what every line written
+  before the column holds, is the ONLY case the e-invoice builders and the VAT
+  return may fall back to matching the percent. Never re-derive a rate's identity
+  from its number where an id is stored. Still open: an item carries a percent, not
+  a rate id; a manual journal cannot name one; and a tax rate cannot express a
+  partial taxable base (Egypt's 14%-on-36% construction treatment), so a
+  transitional-basis certificate invoice posts 5.04% with a NULL id.
 - **Cost centre.** Journal lines carry `costCenterId` and the cost-centre P&L groups
   by it, with a غير مخصص bucket so totals always reconcile. Treasury vouchers have no
   such field (D26), so the report is blind to almost all real spending.

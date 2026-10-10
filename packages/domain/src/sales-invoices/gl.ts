@@ -70,9 +70,9 @@ export function buildSalesInvoiceGlPosting(
   // only do that if the ledger recorded them (D28).
   const revenueByAccountAndRate = new Map<
     string,
-    { accountId: string; rate: number; costCenterId: string | null; amount: Money }
+    { accountId: string; rate: number; taxRateId: string | null; costCenterId: string | null; amount: Money }
   >();
-  const taxByRate = new Map<number, Money>();
+  const taxByRate = new Map<string, { rate: number; taxRateId: string | null; amount: Money }>();
   for (let i = 0; i < invoice.lines.length; i++) {
     const line = invoice.lines[i];
     const lineTotals = totals.lines[i];
@@ -82,30 +82,35 @@ export function buildSalesInvoiceGlPosting(
     // invoice can belong to two centres, and a blended credit would attribute
     // both to whichever one happened to come first (D97).
     const costCenterId = line.costCenterId ?? null;
-    const key = `${line.revenueAccountId}|${rate}|${costCenterId ?? ""}`;
+    const taxRateId = line.taxRateId ?? null;
+    const taxKey = `${rate}|${taxRateId ?? ""}`;
+    const key = `${line.revenueAccountId}|${taxKey}|${costCenterId ?? ""}`;
     const bucket = revenueByAccountAndRate.get(key);
     const base = convert(lineTotals.taxableBase);
     if (bucket) revenueByAccountAndRate.set(key, { ...bucket, amount: bucket.amount.add(base) });
-    else revenueByAccountAndRate.set(key, { accountId: line.revenueAccountId, rate, costCenterId, amount: base });
+    else revenueByAccountAndRate.set(key, { accountId: line.revenueAccountId, rate, taxRateId, costCenterId, amount: base });
     const lineTax = convert(lineTotals.tax);
-    if (lineTax.scaled !== 0n) taxByRate.set(rate, (taxByRate.get(rate) ?? Money.zero()).add(lineTax));
+    if (lineTax.scaled !== 0n) {
+      const taxed = taxByRate.get(taxKey);
+      taxByRate.set(taxKey, { rate, taxRateId, amount: (taxed?.amount ?? Money.zero()).add(lineTax) });
+    }
   }
 
   // AR is the SUM of the converted parts, never the conversion of the sum:
   // rounding each component once is what keeps Σ debits == Σ credits exactly.
   let receivable = Money.zero();
-  for (const amount of taxByRate.values()) receivable = receivable.add(amount);
+  for (const { amount } of taxByRate.values()) receivable = receivable.add(amount);
   for (const bucket of revenueByAccountAndRate.values()) receivable = receivable.add(bucket.amount);
   debits.push({ accountId: invoice.arAccountId, debit: receivable, credit: Money.zero(), ...fxTag, ...projectTag });
 
-  for (const { accountId, rate, costCenterId, amount } of revenueByAccountAndRate.values()) {
+  for (const { accountId, rate, taxRateId, costCenterId, amount } of revenueByAccountAndRate.values()) {
     if (amount.scaled === 0n) continue;
-    credits.push({ accountId, debit: Money.zero(), credit: amount, taxRatePercent: rate, costCenterId, ...projectTag });
+    credits.push({ accountId, debit: Money.zero(), credit: amount, taxRatePercent: rate, taxRateId, costCenterId, ...projectTag });
   }
 
-  for (const [rate, amount] of taxByRate) {
+  for (const { rate, taxRateId, amount } of taxByRate.values()) {
     if (amount.scaled === 0n) continue;
-    credits.push({ accountId: invoice.taxAccountId, debit: Money.zero(), credit: amount, taxRatePercent: rate, ...projectTag });
+    credits.push({ accountId: invoice.taxAccountId, debit: Money.zero(), credit: amount, taxRatePercent: rate, taxRateId, ...projectTag });
   }
 
   // --- COGS side ---

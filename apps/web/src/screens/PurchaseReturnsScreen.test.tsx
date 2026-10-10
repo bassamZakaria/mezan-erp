@@ -84,8 +84,8 @@ function purchaseInvoice(overrides: Partial<PurchaseInvoiceDTO> = {}): PurchaseI
     notes: null,
     receiptId: null,
     lines: [
-      { itemId: "item-cement", description: null, kind: "inventory", qty: "20.000000", unitCost: "85.000000", taxRatePercent: 14, batchNo: null, expiryDate: null },
-      { itemId: "item-brick", description: null, kind: "inventory", qty: "40.000000", unitCost: "35.000000", taxRatePercent: 14, batchNo: null, expiryDate: null },
+      { itemId: "item-cement", description: null, kind: "inventory", qty: "20.000000", unitCost: "85.000000", taxRatePercent: 14, taxRateId: null, batchNo: null, expiryDate: null },
+      { itemId: "item-brick", description: null, kind: "inventory", qty: "40.000000", unitCost: "35.000000", taxRatePercent: 14, taxRateId: null, batchNo: null, expiryDate: null },
     ],
     status: "confirmed",
     subtotal: "1700.000000",
@@ -102,7 +102,7 @@ function purchaseInvoice(overrides: Partial<PurchaseInvoiceDTO> = {}): PurchaseI
 const purchaseInvoiceTile = purchaseInvoice({
   id: "pi-2",
   number: "PI-000200",
-  lines: [{ itemId: "item-tile", description: null, kind: "inventory", qty: "15.000000", unitCost: "60.000000", taxRatePercent: 14, batchNo: null, expiryDate: null }],
+  lines: [{ itemId: "item-tile", description: null, kind: "inventory", qty: "15.000000", unitCost: "60.000000", taxRatePercent: 14, taxRateId: null, batchNo: null, expiryDate: null }],
 });
 
 function purchaseReturn(overrides: Partial<PurchaseReturnDocumentDTO> = {}): PurchaseReturnDocumentDTO {

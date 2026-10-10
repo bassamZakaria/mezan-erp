@@ -28,6 +28,7 @@ function serializeLine(l: PurchaseReturnLine) {
     unitCost: l.unitCost.toString(),
     taxAmount: l.taxAmount.toString(),
     taxRatePercent: l.taxRatePercent ?? null,
+    taxRateId: l.taxRateId ?? null,
     projectId: l.projectId ?? null,
     costCategory: l.costCategory ?? null,
     currency: l.currency ?? null,

@@ -55,6 +55,7 @@ export function buildSalesReturnLinesFromInvoice(
       unitCost: invLine.unitCost,
       taxAmount: taxShare,
       taxRatePercent: invLine.taxRatePercent ?? null,
+      taxRateId: invLine.taxRateId ?? null,
       projectId: invoice.projectId ?? null,
       ...(invoice.fxRate ? { currency: invoice.currency ?? null, fxRate: invoice.fxRate } : {}),
     });

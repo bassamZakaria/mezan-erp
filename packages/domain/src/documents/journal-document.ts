@@ -165,6 +165,7 @@ export function createJournalGlHook(deps: JournalPostingDeps): DocumentGlHook {
             // posted line and can never recover them afterwards (D24, D26).
             costCenterId: l.costCenterId ?? null,
             taxRatePercent: l.taxRatePercent ?? null,
+            taxRateId: l.taxRateId ?? null,
             projectId: l.projectId ?? null,
             costCategory: l.costCategory ?? null,
             branchId: l.branchId ?? null,

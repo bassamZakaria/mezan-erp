@@ -423,6 +423,29 @@ const SALES_INVOICES = [
 ];
 
 const VAT_PERCENT = 14;
+const VAT_RATE_ID = "VAT14";
+
+/**
+ * Two rates at the SAME percent that mean different things to the authority:
+ * معفى (V003) and تصدير سلع (V001). Only the id a line stores tells them apart
+ * (D79), so the demo tenant carries both and one invoice that uses each.
+ */
+const ZERO_RATED_TAX_RATES = [
+  { id: "VAT-EXEMPT", code: "VAT-EXEMPT", name: "معفى من الضريبة", etaSubType: "V003" },
+  { id: "VAT-EXPORT", code: "VAT-EXPORT", name: "تصدير — نسبة صفر", etaSubType: "V001" },
+] as const;
+
+const ZERO_RATED_INVOICE = {
+  id: "INV-DEMO-TAX-1",
+  customerId: "CUST-DEMO-1",
+  salespersonId: "EMP-DEMO-1",
+  date: "2026-08-06",
+  dueDate: "2026-09-05",
+  lines: [
+    { itemId: "ITEM-DEMO-10", itemNameAr: "خدمة توصيل الطلبات", taxRateId: "VAT-EXEMPT", qty: "4", unitPrice: "75" },
+    { itemId: "ITEM-DEMO-1", itemNameAr: "أرز أبيض 5 كجم — توريد تصدير", taxRateId: "VAT-EXPORT", qty: "6", unitPrice: "75" },
+  ],
+} as const;
 
 /** EGS codes registered with the authority for part of the catalogue. */
 const ETA_ITEM_CODES = [
@@ -540,6 +563,15 @@ export async function seedDemoTenant(
     etaSubType: "auto",
     status: "active",
   });
+  for (const zeroRated of ZERO_RATED_TAX_RATES) {
+    await step(app, "POST", "/tax-rates", {
+      ...zeroRated,
+      rate: 0,
+      calculationType: "exclusive",
+      isDefault: false,
+      status: "active",
+    });
+  }
   await step(app, "POST", "/tax-groups", {
     id: "TXG-DEMO-1",
     code: "VAT-TABLE",
@@ -692,7 +724,7 @@ export async function seedDemoTenant(
       branchId: BRANCH_ID,
       warehouseId: WAREHOUSE_ID,
       currency: "EGP",
-      lines: invoice.lines.map((line) => ({ ...line, kind: "inventory", taxRatePercent: VAT_PERCENT })),
+      lines: invoice.lines.map((line) => ({ ...line, kind: "inventory", taxRateId: VAT_RATE_ID })),
     });
     await step(app, "POST", `/purchases/invoices/${invoice.id}/confirm`, {});
   }
@@ -724,7 +756,7 @@ export async function seedDemoTenant(
         isStock: true,
         qty: line.qty,
         unitPrice: line.unitPrice,
-        taxRatePercent: VAT_PERCENT,
+        taxRateId: VAT_RATE_ID,
         revenueAccountId: ACCOUNTS.revenue,
         cogsAccountId: ACCOUNTS.cogs,
         inventoryAccountId: ACCOUNTS.inventory,
@@ -732,6 +764,32 @@ export async function seedDemoTenant(
     });
     await step(app, "POST", `/sales-invoices/${invoice.id}/confirm`, {});
   }
+
+  await step(app, "POST", "/sales-invoices", {
+    id: ZERO_RATED_INVOICE.id,
+    date: ZERO_RATED_INVOICE.date,
+    dueDate: ZERO_RATED_INVOICE.dueDate,
+    customerId: ZERO_RATED_INVOICE.customerId,
+    customerNameAr: CUSTOMERS.find((c) => c.id === ZERO_RATED_INVOICE.customerId)?.nameAr ?? ZERO_RATED_INVOICE.customerId,
+    warehouseId: WAREHOUSE_ID,
+    branchId: BRANCH_ID,
+    salespersonId: ZERO_RATED_INVOICE.salespersonId,
+    salespersonNameAr: salespersonNameOf(ZERO_RATED_INVOICE.salespersonId),
+    currency: "EGP",
+    arAccountId: ACCOUNTS.receivable,
+    taxAccountId: ACCOUNTS.outputVat,
+    lines: ZERO_RATED_INVOICE.lines.map((line, index) => ({
+      lineId: `${ZERO_RATED_INVOICE.id}-L${index + 1}`,
+      itemId: line.itemId,
+      itemNameAr: line.itemNameAr,
+      isStock: false,
+      qty: line.qty,
+      unitPrice: line.unitPrice,
+      taxRateId: line.taxRateId,
+      revenueAccountId: ACCOUNTS.revenue,
+    })),
+  });
+  await step(app, "POST", `/sales-invoices/${ZERO_RATED_INVOICE.id}/confirm`, {});
 
   // Order matters: every module below references the core entities above.
   await seedAccess(app);

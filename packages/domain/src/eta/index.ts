@@ -171,7 +171,13 @@ export {
   type EtaSignatureResult,
   type EtaSigningPort,
 } from "./signing.js";
-export { resolveEtaVatSubType, findLineTaxRate, ZERO_RATED_SUBTYPES } from "./tax-subtype.js";
+export {
+  resolveEtaVatSubType,
+  findLineTaxRate,
+  resolveLineTaxRate,
+  ZERO_RATED_SUBTYPES,
+  type LineTaxIdentity,
+} from "./tax-subtype.js";
 export {
   EtaPrevalidationFailedError,
   EtaPrevalidationFixScreen,

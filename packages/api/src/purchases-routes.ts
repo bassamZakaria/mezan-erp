@@ -55,6 +55,7 @@ import {
   type GoodsReceiptRepository,
   type PurchaseInvoice,
   type PurchaseInvoiceLine,
+  type PurchaseInvoiceLineInput,
   type PurchaseInvoiceRepository,
   type PurchaseGlAccounts,
   type PurchaseGlPostingPort,
@@ -66,6 +67,7 @@ import {
   auditBranchFromScope,
   branchScopedAuditSink,
   type AuditSink,
+  type TaxRateRepository,
   can,
 } from "@mezan/domain";
 import {
@@ -78,6 +80,7 @@ import {
 } from "@mezan/contracts";
 import { refuseUnknownItems, type ItemCatalogCheck } from "./item-check.js";
 import { MasterDataKind, refuseUnknownMasterData, type MasterDataChecks } from "./master-data-check.js";
+import { taxRateRefusal } from "./tax-rate-refusal.js";
 import {
   documentVersionOf,
   documentVersionsOf,
@@ -165,6 +168,8 @@ export interface PurchasesRoutesDeps {
    * every «من إيصال استلام» invoice records no input VAT at all (D50).
    */
   readonly resolveTaxRate?: (itemId: string) => number | Promise<number>;
+  /** The tax rate master an invoice line's `taxRateId` is checked against and resolved from (D79). */
+  readonly taxRates?: Pick<TaxRateRepository, "list">;
   /**
    * Settings §"سياسة المخزون" → `autoGenerateBatchNumbers`: hands a batch
    * number to a receipt line the receiver left blank. Omit and a blank batch
@@ -308,6 +313,7 @@ function serializeInvoice(inv: PurchaseInvoice, allocated: Money = Money.zero(),
       qty: l.qty.toString(),
       unitCost: l.unitCost.toString(),
       taxRatePercent: l.taxRatePercent,
+      taxRateId: l.taxRateId ?? null,
       batchNo: l.batchNo ?? null,
       expiryDate: l.expiryDate ?? null,
       costCategory: l.costCategory ?? null,
@@ -326,6 +332,8 @@ function serializeInvoice(inv: PurchaseInvoice, allocated: Money = Money.zero(),
 }
 
 function handleDomainError(c: Context, err: unknown): Response {
+  const taxRefusal = taxRateRefusal(c, err);
+  if (taxRefusal) return taxRefusal;
   if (
     err instanceof PurchaseOrderNotFoundError ||
     err instanceof GoodsReceiptNotFoundError ||
@@ -1222,7 +1230,7 @@ export function createPurchasesRoutes(
     if (invoicePartyRefusal) return invoicePartyRefusal;
     try {
       // create-from-receipt: auto-fill lines from a confirmed receipt when omitted.
-      let lines: PurchaseInvoiceLine[] | undefined;
+      let lines: PurchaseInvoiceLineInput[] | undefined;
       if (parsed.data.lines && parsed.data.receiptId) {
         /*
          * An invoice that NAMES a receipt and then states its own costs was
@@ -1264,7 +1272,8 @@ export function createPurchasesRoutes(
           kind: l.kind ?? "inventory",
           qty: Qty.fromMajor(l.qty),
           unitCost: Money.fromMajor(l.unitCost),
-          taxRatePercent: l.taxRatePercent ?? 0,
+          taxRatePercent: l.taxRatePercent,
+          taxRateId: l.taxRateId ?? null,
           batchNo: l.batchNo ?? null,
           expiryDate: l.expiryDate ?? null,
           costCategory: l.costCategory ?? null,
@@ -1303,6 +1312,7 @@ export function createPurchasesRoutes(
           invoices: deps.invoices,
           receipts: deps.receipts,
           numbering: deps.numbering,
+          taxRates: deps.taxRates,
           policy: await resolvePolicy(),
           now: deps.now,
         },

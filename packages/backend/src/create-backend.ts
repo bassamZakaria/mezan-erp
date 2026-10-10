@@ -1202,6 +1202,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         numbering: { next: (opts) => ledger.numbering.next("SALES_INVOICE", { branchId: opts?.branchId }) },
         gl: createSalesInvoiceGlHook(salesInvoiceGl),
         stock: createSalesInvoiceStockHook(stockService),
+        taxRates,
         allocatable: vouchers.invoices,
         audit: auditSink,
         // INVARIANT: the SAME publisher the /sales/invoices routes use. A
@@ -1406,6 +1407,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         numbering: { next: (opts) => ledger.numbering.next("SALES_INVOICE", { branchId: opts?.branchId }) },
         gl: createSalesInvoiceGlHook(salesInvoiceGl),
         stock: createSalesInvoiceStockHook(stockService),
+        taxRates,
         allocatable: vouchers.invoices,
         audit: auditSink,
         // INVARIANT: the same publisher the /sales/invoices routes use — see the certificate's port above.
@@ -1526,6 +1528,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
             currency: l.currency ?? null,
             fxRate: l.fxRate ?? null,
             taxRatePercent: l.taxRatePercent ?? null,
+            taxRateId: l.taxRateId ?? null,
             projectId: l.projectId ?? null,
             costCategory: l.costCategory ?? null,
           })),
@@ -1591,7 +1594,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
             },
           ],
         },
-        { invoices: purchaseInvoices, numbering: ledger.numbering },
+        { invoices: purchaseInvoices, numbering: ledger.numbering, taxRates },
       );
       const { invoice } = await confirmPurchaseInvoice(invoiceId, {
         invoices: purchaseInvoices,
@@ -1672,7 +1675,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
             },
           ],
         },
-        { invoices: purchaseInvoices, numbering: ledger.numbering },
+        { invoices: purchaseInvoices, numbering: ledger.numbering, taxRates },
       );
       const { invoice } = await confirmPurchaseInvoice(invoiceId, {
         invoices: purchaseInvoices,
@@ -3777,12 +3780,13 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
           // header discounts, and zero when the customer is tax-exempt. Handing
           // the return a zero here credited no VAT at all and left it no rate
           // to group the posting by (D76).
-          const chargedTax = new Map<string, { tax: Money; rate: number }>();
+          const chargedTax = new Map<string, { tax: Money; rate: number; taxRateId: string | null }>();
           const invoiceTotals = salesInvoiceTotals(invoice);
           for (const [i, line] of invoice.lines.entries()) {
             chargedTax.set(line.lineId, {
               tax: invoiceTotals.lines[i]?.tax ?? Money.zero(),
               rate: line.taxRatePercent,
+              taxRateId: line.taxRateId,
             });
           }
           return {
@@ -3816,6 +3820,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
                   : unitCostOf(extendQtyByPrice(l.qty, l.unitCost), l.baseQty),
               taxAmount: chargedTax.get(l.lineId)?.tax ?? Money.zero(),
               taxRatePercent: chargedTax.get(l.lineId)?.rate ?? null,
+              taxRateId: chargedTax.get(l.lineId)?.taxRateId ?? null,
             })),
           };
         },
@@ -3927,6 +3932,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
                 // gives the VAT return nothing to group by (D76).
                 taxAmount: purchaseInvoiceLineTax(l),
                 taxRatePercent: l.taxRatePercent,
+                taxRateId: l.taxRateId ?? null,
                 costCategory: l.costCategory ?? null,
               })),
           };
@@ -3991,6 +3997,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       ledger,
       accounts,
       vatAccounts: { outputVatAccountId: "2200", inputVatAccountId: "1400" },
+      taxRates,
       cashAccountIds: ["1300-1", "1310", "1315", "1320", "1330"],
       otherIncomeExpenseAccountIds,
       branchOfEntry: resolveEntryBranches,

@@ -8,6 +8,7 @@ import { InMemoryLedgerRepository, InMemorySequenceStore, RecordingAuditSink } f
 import { StockLedgerService } from "../inventory/index.js";
 import { InMemoryStockLedger, InMemoryCostLayers, InMemorySnapshots } from "../inventory/test-helpers/in-memory-stores.js";
 import type { DocumentWorkflowGate, DocumentDomainEvent } from "../documents/hooks.js";
+import { InactiveTaxRateError, TaxRateNotFoundError, TaxRatePercentMismatchError, type TaxRate } from "../tax-rates/index.js";
 import {
   SalesInvoiceService,
   createSalesInvoiceGlHook,
@@ -618,5 +619,84 @@ describe("SalesInvoiceService — audit", () => {
     const { svc } = await baseDeps();
     await svc.createDraft(draftCmd());
     await expect(svc.cancel("inv-1")).resolves.toBeTruthy();
+  });
+});
+
+/* ================================================================== */
+/* The line stores the tax rate it was charged under (D79)             */
+/* ================================================================== */
+
+describe("SalesInvoiceService.createDraft — the tax rate's identity (D79)", () => {
+  const rate = (id: string, percent: number, etaSubType: TaxRate["etaSubType"], status: TaxRate["status"] = "active"): TaxRate => ({
+    id, code: id, name: id, rate: percent, calculationType: "exclusive", isDefault: false,
+    outputTaxAccountId: null, inputTaxAccountId: null, etaSubType, status,
+  });
+  const MASTER = [rate("VAT14", 14, "auto"), rate("EXEMPT", 0, "V003"), rate("EXPORT", 0, "V001"), rate("OLD5", 5, "auto", "inactive")];
+  const taxRates = { list: async () => MASTER };
+  const serviceLine = (lineId: string, tax: { taxRateId?: string | null; taxRatePercent?: number }) => ({
+    lineId, itemId: "SVC-1", itemNameAr: "خدمة", isStock: false, qty: Qty.fromMajor("1"), unitPrice: Money.fromMajor("100"),
+    revenueAccountId: REVENUE, ...tax,
+  });
+
+  it("stores the named rate's id and reads the percent off the rate, not the request", async () => {
+    const { svc } = await baseDeps({ taxRates });
+    const invoice = await svc.createDraft(draftCmd({ lines: [serviceLine("L1", { taxRateId: "EXEMPT" }), serviceLine("L2", { taxRateId: "EXPORT" }), serviceLine("L3", { taxRateId: "VAT14" })] }));
+    expect(invoice.lines.map((l) => [l.taxRateId, l.taxRatePercent])).toEqual([["EXEMPT", 0], ["EXPORT", 0], ["VAT14", 14]]);
+  });
+
+  it("resolves a percent-only line to the one active rate at that percent", async () => {
+    const { svc } = await baseDeps({ taxRates });
+    const invoice = await svc.createDraft(draftCmd({ lines: [serviceLine("L1", { taxRatePercent: 14 })] }));
+    expect(invoice.lines[0]).toMatchObject({ taxRateId: "VAT14", taxRatePercent: 14 });
+  });
+
+  it("stores NO id for a 0% line that names no rate while exempt and export both exist — and still raises the invoice", async () => {
+    const { svc } = await baseDeps({ taxRates });
+    const invoice = await svc.createDraft(draftCmd({ lines: [serviceLine("L1", { taxRatePercent: 0 })] }));
+    expect(invoice.lines[0]).toMatchObject({ taxRateId: null, taxRatePercent: 0 });
+  });
+
+  it("resolves a line that names neither through the tenant's default percent", async () => {
+    const { svc } = await baseDeps({ taxRates, taxPolicy: () => ({ enabled: true, defaultRatePercent: 14, inclusive: false }) });
+    const invoice = await svc.createDraft(draftCmd({ lines: [serviceLine("L1", {})] }));
+    expect(invoice.lines[0]).toMatchObject({ taxRateId: "VAT14", taxRatePercent: 14 });
+  });
+
+  it("refuses an unknown rate id, a deactivated rate, and a percent that is not the rate's own", async () => {
+    const { svc, repo } = await baseDeps({ taxRates });
+    await expect(svc.createDraft(draftCmd({ lines: [serviceLine("L1", { taxRateId: "TAX-1" })] }))).rejects.toBeInstanceOf(TaxRateNotFoundError);
+    await expect(svc.createDraft(draftCmd({ lines: [serviceLine("L1", { taxRateId: "OLD5" })] }))).rejects.toBeInstanceOf(InactiveTaxRateError);
+    await expect(svc.createDraft(draftCmd({ lines: [serviceLine("L1", { taxRateId: "EXEMPT", taxRatePercent: 14 })] }))).rejects.toBeInstanceOf(TaxRatePercentMismatchError);
+    expect(await repo.findById("inv-1")).toBeNull();
+  });
+
+  it("never stamps a taxed rate's id on a line a tax-exempt customer is charged nothing for", async () => {
+    const { svc } = await baseDeps({ taxRates });
+    const invoice = await svc.createDraft(draftCmd({ customerTaxExempt: true, lines: [serviceLine("L1", { taxRateId: "VAT14" }), serviceLine("L2", { taxRateId: "EXPORT" })] }));
+    expect(invoice.lines.map((l) => [l.taxRateId, l.taxRatePercent])).toEqual([[null, 0], ["EXPORT", 0]]);
+  });
+
+  it("does the same when VAT is switched off for the tenant", async () => {
+    const { svc } = await baseDeps({ taxRates, taxPolicy: () => ({ enabled: false, defaultRatePercent: 14, inclusive: false }) });
+    const invoice = await svc.createDraft(draftCmd({ lines: [serviceLine("L1", { taxRateId: "VAT14" })] }));
+    expect(invoice.lines[0]).toMatchObject({ taxRateId: null, taxRatePercent: 0 });
+  });
+
+  it("posts the stored ids onto the journal, so exempt and export revenue never blend", async () => {
+    const { svc, ledger } = await baseDeps({ taxRates });
+    await svc.createDraft(draftCmd({ lines: [serviceLine("L1", { taxRateId: "EXEMPT" }), serviceLine("L2", { taxRateId: "EXPORT" }), serviceLine("L3", { taxRateId: "VAT14" })] }));
+    const { invoice } = await svc.confirm("inv-1");
+    const entry = await ledger.findById(invoice.journalEntryId as string);
+    const revenue = (entry?.lines ?? []).filter((l) => l.accountId === REVENUE);
+    expect(revenue.map((l) => l.taxRateId).sort()).toEqual(["EXEMPT", "EXPORT", "VAT14"]);
+    const vat = (entry?.lines ?? []).filter((l) => l.accountId === TAX);
+    expect(vat).toHaveLength(1);
+    expect(vat[0]).toMatchObject({ taxRateId: "VAT14", taxRatePercent: 14 });
+  });
+
+  it("without the tax rate master wired, a line keeps its percent and stores no id — the pre-D79 behaviour", async () => {
+    const { svc } = await baseDeps();
+    const invoice = await svc.createDraft(draftCmd({ lines: [serviceLine("L1", { taxRateId: "EXEMPT", taxRatePercent: 14 })] }));
+    expect(invoice.lines[0]).toMatchObject({ taxRateId: null, taxRatePercent: 14 });
   });
 });

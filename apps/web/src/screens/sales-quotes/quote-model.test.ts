@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
-import type { ItemDTO } from "@mezan/contracts";
+import type { ItemDTO, TaxRateDTO } from "@mezan/contracts";
 import type { SalesQuoteRecord } from "../../data/hooks";
 import { blankLine, daysExpired, isExpired, previewTotals, toDomainDiscount, toDomainLines } from "./quote-model";
 
@@ -70,24 +70,32 @@ const items: ItemDTO[] = [
   },
 ];
 
+const taxRate = (id: string, rate: number, etaSubType: TaxRateDTO["etaSubType"]): TaxRateDTO => ({
+  id, code: id, name: id, rate, calculationType: "exclusive", isDefault: false,
+  outputTaxAccountId: null, inputTaxAccountId: null, etaSubType, status: "active",
+});
+const taxRates: TaxRateDTO[] = [taxRate("VAT14", 14, "auto"), taxRate("EXEMPT", 0, "V003"), taxRate("EXPORT", 0, "V001")];
+
 describe("toDomainLines", () => {
   it("drops a line whose itemId does not match any known item", () => {
-    const lines = toDomainLines([{ key: "l1", itemId: "missing-item", qty: 1, unitPrice: null, discountPercent: 0, taxRatePercent: null, expanded: false }], items);
+    const lines = toDomainLines([{ key: "l1", itemId: "missing-item", qty: 1, unitPrice: null, discountPercent: 0, taxRateId: "", expanded: false }], items, taxRates);
     expect(lines).toHaveLength(0);
   });
 
-  it("falls back to the item's own sale price and tax rate when the line leaves them null", () => {
-    const [line] = toDomainLines([{ key: "l1", itemId: "item-1", qty: 2, unitPrice: null, discountPercent: 5, taxRatePercent: null, expanded: false }], items);
+  it("falls back to the item's own sale price and tax percent when the line picks no rate, and names none", () => {
+    const [line] = toDomainLines([{ key: "l1", itemId: "item-1", qty: 2, unitPrice: null, discountPercent: 5, taxRateId: "", expanded: false }], items, taxRates);
     expect(line!.unitPrice.toString()).toBe("50.000000");
     expect(line!.taxRatePercent).toBe(14);
+    expect(line!.taxRateId).toBeNull();
     expect(line!.qty.toString()).toBe("2.000000");
     expect(line!.discountPercent).toBe(5);
   });
 
-  it("keeps an explicit unit price and tax rate rather than the item's defaults", () => {
-    const [line] = toDomainLines([{ key: "l1", itemId: "item-1", qty: 1, unitPrice: 75, discountPercent: 0, taxRatePercent: 5, expanded: false }], items);
+  it("keeps an explicit unit price, and prices the line at the PICKED rate's percent rather than the item's", () => {
+    const [line] = toDomainLines([{ key: "l1", itemId: "item-1", qty: 1, unitPrice: 75, discountPercent: 0, taxRateId: "EXEMPT", expanded: false }], items, taxRates);
     expect(line!.unitPrice.toString()).toBe("75.000000");
-    expect(line!.taxRatePercent).toBe(5);
+    expect(line!.taxRatePercent).toBe(0);
+    expect(line!.taxRateId).toBe("EXEMPT");
   });
 });
 
@@ -122,8 +130,9 @@ describe("blankLine", () => {
 describe("previewTotals", () => {
   it("delegates to the real computeQuoteTotals engine — a percent discount actually reduces the grand total", () => {
     const domainLines = toDomainLines(
-      [{ key: "l1", itemId: "item-1", qty: 2, unitPrice: 100, discountPercent: 0, taxRatePercent: 0, expanded: false }],
+      [{ key: "l1", itemId: "item-1", qty: 2, unitPrice: 100, discountPercent: 0, taxRateId: "EXPORT", expanded: false }],
       items,
+      taxRates,
     );
     const noDiscount = previewTotals(domainLines, { type: "percent", percent: 0 }, false);
     const withDiscount = previewTotals(domainLines, { type: "percent", percent: 10 }, false);

@@ -11,6 +11,12 @@
 
 import { Money, Qty } from "../money/index.js";
 import type { DocumentNumberingHook } from "../documents/hooks.js";
+import {
+  resolveAppliedTaxRate,
+  resolveZeroRatedTaxRate,
+  type TaxRate,
+  type TaxRateRepository,
+} from "../tax-rates/index.js";
 import type { SalesQuote, SalesQuoteDiscount, SalesQuoteLine } from "./sales-quote.js";
 import { assertTransition } from "./status.js";
 import { computeQuoteTotals, type SalesQuoteTotals } from "./totals.js";
@@ -25,6 +31,8 @@ import {
 export interface SalesQuoteServiceDeps {
   readonly repo: SalesQuoteRepository;
   readonly numbering: DocumentNumberingHook;
+  /** The tax rate master; without it no quote line can be given a `taxRateId` (D79). */
+  readonly taxRates?: Pick<TaxRateRepository, "list">;
   /** ISO-8601 UTC "now"; overridable for deterministic tests. */
   readonly now?: () => string;
   readonly actor?: string;
@@ -39,6 +47,7 @@ export interface CreateSalesQuoteLine {
   readonly unitPrice: Money;
   readonly discountPercent?: number;
   readonly taxRatePercent?: number;
+  readonly taxRateId?: string | null;
 }
 
 export interface CreateSalesQuoteCommand {
@@ -90,7 +99,7 @@ export class SalesQuoteService {
     if (await this.deps.repo.findById(cmd.id)) {
       throw new DuplicateSalesQuoteError(cmd.id);
     }
-    const quote = this.buildDraft(cmd);
+    const quote = this.buildDraft(cmd, this.deps.taxRates ? await this.deps.taxRates.list() : null);
     this.validate(quote);
     await this.deps.repo.save(quote);
     return quote;
@@ -167,16 +176,26 @@ export class SalesQuoteService {
 
   // --- internals ---
 
-  private buildDraft(cmd: CreateSalesQuoteCommand): SalesQuote {
-    const lines: SalesQuoteLine[] = cmd.lines.map((l) => ({
-      lineId: l.lineId,
-      itemId: l.itemId,
-      itemNameAr: l.itemNameAr,
-      qty: l.qty,
-      unitPrice: l.unitPrice,
-      discountPercent: l.discountPercent ?? 0,
-      taxRatePercent: cmd.customerTaxExempt ? 0 : (l.taxRatePercent ?? 0),
-    }));
+  private buildDraft(cmd: CreateSalesQuoteCommand, taxRates: readonly TaxRate[] | null): SalesQuote {
+    const zeroRated = cmd.customerTaxExempt === true;
+    const lines: SalesQuoteLine[] = cmd.lines.map((l) => {
+      const tax =
+        taxRates === null
+          ? { taxRateId: null, taxRatePercent: zeroRated ? 0 : (l.taxRatePercent ?? 0) }
+          : zeroRated
+            ? resolveZeroRatedTaxRate(taxRates, l)
+            : resolveAppliedTaxRate(taxRates, l, 0);
+      return {
+        lineId: l.lineId,
+        itemId: l.itemId,
+        itemNameAr: l.itemNameAr,
+        qty: l.qty,
+        unitPrice: l.unitPrice,
+        discountPercent: l.discountPercent ?? 0,
+        taxRatePercent: tax.taxRatePercent,
+        taxRateId: tax.taxRateId,
+      };
+    });
     return {
       id: cmd.id,
       docType: "SALES_QUOTE",

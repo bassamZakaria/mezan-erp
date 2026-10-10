@@ -3,7 +3,7 @@ import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
 import { useState, type ReactNode } from "react";
 import { screen, fireEvent, waitFor, within } from "@testing-library/react";
-import type { AccountDTO, CustomerDTO, ItemDTO, TreasuryAccountDTO, WarehouseDTO } from "@mezan/contracts";
+import type { AccountDTO, CustomerDTO, ItemDTO, TaxRateDTO, TreasuryAccountDTO, WarehouseDTO } from "@mezan/contracts";
 import { SalesInvoicesScreen } from "./SalesInvoicesScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
 import type { Transport } from "../data/transport";
@@ -115,7 +115,7 @@ const accounts: AccountDTO[] = [
 
 function invoiceLine(overrides: Partial<SalesInvoiceDTO["lines"][number]> = {}): SalesInvoiceDTO["lines"][number] {
   return {
-    unitCode: "", unitFactor: 1, discountType: "percent", discountAmount: "0.000000", costCenterId: null, baseQty: "1.000000", lineId: "l1", itemId: "item-rice", itemNameAr: "أرز أبيض مصري 5 كجم", isStock: true, qty: "1.000000", unitPrice: "185.000000",
+    unitCode: "", unitFactor: 1, discountType: "percent", discountAmount: "0.000000", costCenterId: null, taxRateId: null, baseQty: "1.000000", lineId: "l1", itemId: "item-rice", itemNameAr: "أرز أبيض مصري 5 كجم", isStock: true, qty: "1.000000", unitPrice: "185.000000",
     discountPercent: 0, taxRatePercent: 14, revenueAccountId: "4100", cogsAccountId: "5100", inventoryAccountId: "1200", unitCost: "150.000000",
     ...overrides,
   };
@@ -716,5 +716,81 @@ describe("SalesInvoicesScreen — convert an accepted quote", () => {
       { lineId: "l1", isStock: true, revenueAccountId: "4100-CUSTOM", cogsAccountId: "5100-CUSTOM", inventoryAccountId: "1200-CUSTOM" },
       { lineId: "l2", isStock: false, revenueAccountId: "4100", cogsAccountId: null, inventoryAccountId: null },
     ]);
+  });
+});
+
+describe("SalesInvoicesScreen — the line's tax is a picked tax rate (D79)", () => {
+  const taxRate = (id: string, name: string, rate: number, etaSubType: TaxRateDTO["etaSubType"]): TaxRateDTO => ({
+    id, code: id, name, rate, calculationType: "exclusive", isDefault: id === "VAT14",
+    outputTaxAccountId: null, inputTaxAccountId: null, etaSubType, status: "active",
+  });
+  const taxRates: TaxRateDTO[] = [
+    taxRate("VAT14", "ضريبة القيمة المضافة", 14, "auto"),
+    taxRate("VAT-EXEMPT", "معفى", 0, "V003"),
+    taxRate("VAT-EXPORT", "تصدير", 0, "V001"),
+  ];
+  const zeroRatedItem: ItemDTO = { ...items[1]!, id: "item-freight", code: "SVC-2", nameAr: "شحن دولي", taxRatePercent: 0 };
+
+  async function openFormAndPick(itemName: string) {
+    let createdBody: Record<string, unknown> | undefined;
+    const transport = stubTransport({
+      ...baseHandlers(seededInvoices),
+      "GET /items": () => ({ body: [...items, zeroRatedItem] }),
+      "GET /tax-rates": () => ({ body: taxRates }),
+      "POST /sales-invoices": (init) => {
+        createdBody = JSON.parse((init?.body as string) ?? "{}");
+        return { status: 201, body: invoice({ id: "inv-9", docNo: null, status: "draft", journalEntryId: null, confirmedAt: null }) };
+      },
+    });
+    renderWithProviders(<TestNavigation><SalesInvoicesScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
+    await screen.findByText("INV-000001");
+    openNewInvoicePage();
+    await pickFromCombobox("العميل *", "شركة الأمل للتجارة");
+    await pickFromCombobox("الصنف — سطر 1", itemName);
+    return {
+      save: async () => {
+        fireEvent.click(screen.getByRole("button", { name: "حفظ كمسودة" }));
+        await waitFor(() => expect(createdBody).toBeDefined());
+        return (createdBody!.lines as Array<Record<string, unknown>>)[0]!;
+      },
+    };
+  }
+
+  function chooseTaxRate(optionLabel: string): void {
+    fireEvent.click(screen.getByRole("combobox", { name: "الضريبة" }));
+    fireEvent.mouseDown(screen.getByRole("option", { name: optionLabel }));
+  }
+
+  it("a 14% item preselects the one active 14% rate, and the request names it by id with no percent", async () => {
+    const form = await openFormAndPick("أرز أبيض مصري");
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "الضريبة" })).toHaveTextContent("ضريبة القيمة المضافة · 14٪"));
+    const line = await form.save();
+    expect(line.taxRateId).toBe("VAT14");
+    expect(line).not.toHaveProperty("taxRatePercent");
+  });
+
+  it("picking معفى on a taxed item removes the previewed tax and sends the exempt rate's id", async () => {
+    const form = await openFormAndPick("أرز أبيض مصري");
+    chooseTaxRate("معفى · 0٪");
+    const grandTotal = () => screen.getByText("الإجمالي الكلي").closest("div")?.textContent ?? "";
+    await waitFor(() => expect(grandTotal()).toContain("185.00"));
+    const line = await form.save();
+    expect(line.taxRateId).toBe("VAT-EXEMPT");
+    expect(line).not.toHaveProperty("taxRatePercent");
+  });
+
+  it("a 0% item preselects NOTHING when معفى and تصدير both exist, and sends its percent with no id", async () => {
+    const form = await openFormAndPick("شحن دولي");
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "الضريبة" })).toHaveTextContent("بدون ضريبة مسماة (0٪)"));
+    const line = await form.save();
+    expect(line.taxRatePercent).toBe(0);
+    expect(line).not.toHaveProperty("taxRateId");
+  });
+
+  it("…and the user settles it by picking تصدير, which is what the request then carries", async () => {
+    const form = await openFormAndPick("شحن دولي");
+    chooseTaxRate("تصدير · 0٪");
+    const line = await form.save();
+    expect(line.taxRateId).toBe("VAT-EXPORT");
   });
 });

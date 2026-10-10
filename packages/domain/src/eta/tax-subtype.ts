@@ -31,8 +31,9 @@ export function resolveEtaVatSubType(configured: string | null | undefined, taxR
  * falls back to `auto`, which files the neutral V004 instead of a specific
  * claim the books never made.
  *
- * The real fix is a `taxRateId` on the invoice line so the identity is never
- * re-derived; that is a schema change and is recorded in the roadmap.
+ * LEGACY ONLY: a line posted since D79 was closed carries its `taxRateId`, and
+ * `resolveLineTaxRate` reads the classification off that row. This matcher is
+ * reached only for a line whose stored id is NULL.
  */
 export function findLineTaxRate<T extends { readonly status: string; readonly rate: number; readonly etaSubType: string }>(
   taxRates: readonly T[],
@@ -45,4 +46,26 @@ export function findLineTaxRate<T extends { readonly status: string; readonly ra
   // ambiguity is only in the name, so the answer is still safe.
   const distinct = new Set(matches.map((r) => r.etaSubType));
   return distinct.size === 1 ? (matches[0] ?? null) : null;
+}
+
+export interface LineTaxIdentity {
+  readonly taxRateId?: string | null;
+  readonly taxRatePercent: number;
+}
+
+/**
+ * The tax rate a line was charged at, read from the id the line stored. An
+ * inactive rate still answers: a posted line keeps the classification that
+ * applied when it was raised. Only a line with no stored id (or whose row is
+ * gone) falls back to matching the percent.
+ */
+export function resolveLineTaxRate<
+  T extends { readonly id: string; readonly status: string; readonly rate: number; readonly etaSubType: string },
+>(taxRates: readonly T[], line: LineTaxIdentity): T | null {
+  const storedId = line.taxRateId ?? null;
+  if (storedId !== null) {
+    const stored = taxRates.find((r) => r.id === storedId);
+    if (stored) return stored;
+  }
+  return findLineTaxRate(taxRates, line.taxRatePercent);
 }

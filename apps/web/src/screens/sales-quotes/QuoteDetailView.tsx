@@ -92,6 +92,7 @@ export function QuoteDetailView({ quote, onPrint, onBack }: { quote: SalesQuoteR
       unitPrice: Money.fromMajor(l.unitPrice),
       discountPercent: l.discountPercent ?? 0,
       taxRatePercent: l.taxRatePercent ?? 0,
+      taxRateId: l.taxRateId ?? null,
     }));
     const discount: SalesQuoteDiscount =
       quote.discount.type === "percent"

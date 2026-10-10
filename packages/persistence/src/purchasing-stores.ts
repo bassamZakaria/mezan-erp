@@ -351,6 +351,7 @@ function piToDomain(row: PiRow): PurchaseInvoice {
     qty: string;
     unitCost: string;
     taxRatePercent: number;
+    taxRateId?: string | null;
     batchNo?: string | null;
     expiryDate?: string | null;
     costCategory?: PurchaseInvoiceLine["costCategory"];
@@ -361,6 +362,7 @@ function piToDomain(row: PiRow): PurchaseInvoice {
     qty: Qty.fromMajor(l.qty),
     unitCost: Money.fromMajor(l.unitCost),
     taxRatePercent: l.taxRatePercent,
+    taxRateId: l.taxRateId ?? null,
     batchNo: l.batchNo ?? null,
     expiryDate: l.expiryDate ?? null,
     costCategory: l.costCategory ?? null,
@@ -474,6 +476,7 @@ class SqlitePurchaseInvoiceStore implements PurchaseInvoiceRepository {
           qty: l.qty.toString(),
           unitCost: l.unitCost.toString(),
           taxRatePercent: l.taxRatePercent,
+          taxRateId: l.taxRateId ?? null,
           batchNo: l.batchNo,
           expiryDate: l.expiryDate,
           costCategory: l.costCategory ?? null,

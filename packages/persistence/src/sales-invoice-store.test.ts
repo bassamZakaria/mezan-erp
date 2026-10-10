@@ -20,6 +20,7 @@ function line(overrides: Partial<SalesInvoiceLine> = {}): SalesInvoiceLine {
     revenueAccountId: "4000",
     cogsAccountId: "5000",
     inventoryAccountId: "1200",
+    taxRateId: null,
     costCenterId: null,
     unitCost: null,
     unitCode: "", unitFactor: 1, discountType: "percent" as const, discountAmount: Money.zero(),

@@ -70,6 +70,8 @@ export const purchaseReturnDocumentSchema = z.object({
   status: documentStatusSchema,
   lines: z.array(
     purchaseReturnLineSchema.extend({
+      /** The tax rate row the source invoice line stored; read off the invoice, never off the request (D79). */
+      taxRateId: z.string().nullable().optional(),
       /** The source invoice's currency and confirm rate, stamped by the server (D203). */
       currency: z.string().nullable().optional(),
       fxRate: z.string().nullable().optional(),

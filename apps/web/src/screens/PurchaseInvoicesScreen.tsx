@@ -29,6 +29,7 @@ import type {
   PurchaseInvoiceListQueryDTO,
   PurchaseInvoicePaymentDTO,
   PurchaseInvoiceStatusDTO,
+  TaxRateDTO,
 } from "@mezan/contracts";
 import {
   useConfirmPurchaseInvoice,
@@ -43,6 +44,7 @@ import {
   usePurchaseInvoiceStats,
   useProjects,
   useSuppliers,
+  useTaxRates,
   useTreasuryAccounts,
   useUsers,
   useBranches,
@@ -57,6 +59,7 @@ import { PurchaseInvoicePrintPage } from "../print/documents";
 import { useNavigation, useScreenIntent, useSubPage } from "../navigation";
 import { AttachmentsTab } from "../attachments/AttachmentsTab";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { TaxRateField, lineTaxPayload, soleActiveTaxRateId } from "./tax-rate-field";
 import { useEntityName } from "../lib/entity-names";
 import { itemTypeIsPurchasable ,
   findCurrency} from "@mezan/domain";
@@ -120,8 +123,20 @@ interface DraftLine {
   qty: number;
   unitCost: number;
   taxRatePercent: number;
+  /** null until the user touches the picker: the rate is then read off `taxRatePercent`. */
+  taxRateId: string | null;
   description: string;
   costCategory: CostCategoryDTO | null;
+}
+
+const NO_TAX_RATES: readonly TaxRateDTO[] = [];
+
+function blankDraftLine(): DraftLine {
+  return { itemId: "", kind: "inventory", qty: 1, unitCost: 0, taxRatePercent: 14, taxRateId: null, description: "", costCategory: null };
+}
+
+function pickedTaxRateId(line: DraftLine, taxRates: readonly TaxRateDTO[]): string {
+  return line.taxRateId ?? soleActiveTaxRateId(taxRates, line.taxRatePercent);
 }
 
 interface PreviewLine {
@@ -597,9 +612,10 @@ export function PurchaseInvoicesScreen() {
       return definition ? { value: code, label: `${code} — ${locale === "en" ? definition.nameEn : definition.nameAr}` } : { value: code, label: code };
     });
   }, [allowedCurrencies, baseCurrency, locale]);
-  const [lines, setLines] = useState<DraftLine[]>([{ itemId: "", kind: "inventory", qty: 1, unitCost: 0, taxRatePercent: 14, description: "", costCategory: null }]);
+  const [lines, setLines] = useState<DraftLine[]>([blankDraftLine()]);
   const [project, setProject] = useState<EntityPickerOption | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
+  const taxRates = useTaxRates().data ?? NO_TAX_RATES;
 
   const selected = selectedId === null ? null : (invoices.find((inv) => inv.id === selectedId || inv.number === selectedId) ?? null);
 
@@ -699,7 +715,7 @@ export function PurchaseInvoicesScreen() {
     setPickedReceipt(null);
     setDate(todayIso());
     setSupplierInvoiceNumber("");
-    setLines([{ itemId: "", kind: "inventory", qty: 1, unitCost: 0, taxRatePercent: 14, description: "", costCategory: null }]);
+    setLines([blankDraftLine()]);
     setProject(null);
     setFormError(null);
     subPage.open(...(supplierId ? ["new", supplierId] : ["new"]));
@@ -762,7 +778,7 @@ export function PurchaseInvoicesScreen() {
             kind: l.kind,
             qty: String(l.qty),
             unitCost: String(l.unitCost || 0),
-            taxRatePercent: l.taxRatePercent,
+            ...lineTaxPayload(pickedTaxRateId(l, taxRates), l.taxRatePercent),
             costCategory: l.kind === "inventory" ? null : l.costCategory,
           })),
         });
@@ -869,7 +885,7 @@ export function PurchaseInvoicesScreen() {
                         setLines((prev) =>
                           prev.map((l, j) =>
                             j === i
-                              ? { ...l, kind, ...(kind === "inventory" ? { itemId: l.itemId, costCategory: null } : { itemId: "", taxRatePercent: 0 }) }
+                              ? { ...l, kind, ...(kind === "inventory" ? { itemId: l.itemId, costCategory: null } : { itemId: "", taxRatePercent: 0, taxRateId: null }) }
                               : l,
                           ),
                         )
@@ -893,6 +909,7 @@ export function PurchaseInvoicesScreen() {
                                 itemId: opt?.id ?? "",
                                 unitCost: item?.costPrice ? Number(item.costPrice) : l.unitCost,
                                 taxRatePercent: item?.taxRatePercent ?? l.taxRatePercent,
+                                taxRateId: null,
                               }
                             : l,
                         ),
@@ -912,7 +929,13 @@ export function PurchaseInvoicesScreen() {
                 <div className="mt-[10px] grid grid-cols-3 gap-[8px]">
                   <NumberField label={t("common.qty")} value={line.qty} min={0} onChange={(v) => setLines((prev) => prev.map((l, j) => (j === i ? { ...l, qty: v } : l)))} />
                   <NumberField label={t("purchaseInvoices.field.cost")} value={line.unitCost} min={0} onChange={(v) => setLines((prev) => prev.map((l, j) => (j === i ? { ...l, unitCost: v } : l)))} />
-                  <NumberField label={t("purchaseInvoices.col.taxPct")} value={line.taxRatePercent} min={0} onChange={(v) => setLines((prev) => prev.map((l, j) => (j === i ? { ...l, taxRatePercent: v } : l)))} />
+                  <TaxRateField
+                    label={t("taxRateField.label")}
+                    value={pickedTaxRateId(line, taxRates)}
+                    onChange={(v) => setLines((prev) => prev.map((l, j) => (j === i ? { ...l, taxRateId: v } : l)))}
+                    taxRates={taxRates}
+                    fallbackPercent={line.taxRatePercent}
+                  />
                 </div>
                 {line.kind !== "inventory" ? (
                   <div className="mt-[10px]">
@@ -936,7 +959,7 @@ export function PurchaseInvoicesScreen() {
                 ) : null}
               </div>
             ))}
-            <Button onClick={() => setLines((prev) => [...prev, { itemId: "", kind: "inventory", qty: 1, unitCost: 0, taxRatePercent: 14, description: "", costCategory: null }])}>{t("purchaseInvoices.addLine")}</Button>
+            <Button onClick={() => setLines((prev) => [...prev, blankDraftLine()])}>{t("purchaseInvoices.addLine")}</Button>
             <div className="flex items-center justify-between border-t border-border pt-[10px]">
               <span className="text-[12.5px] text-ink-muted">{t("purchaseInvoices.subtotalBeforeTax")}</span>
               <MoneyValue value={manualSubtotal} />

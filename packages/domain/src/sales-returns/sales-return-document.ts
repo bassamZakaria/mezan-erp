@@ -64,6 +64,11 @@ export interface SalesReturnLine {
    */
   readonly taxRatePercent?: number | null;
   /**
+   * The tax rate row the source invoice line stored, read off the invoice and
+   * never off the request. Null when the invoice line carried none (D79).
+   */
+  readonly taxRateId?: string | null;
+  /**
    * بُعد المشروع, inherited from the source invoice's own `projectId` (a
    * return built via `/from-invoice` copies it straight off the invoice; one
    * built via the raw `POST /` shape may state it directly). Optional: a
@@ -214,32 +219,36 @@ export function createSalesReturnDocumentType(
       // reports the rates actually charged, and it can only do that if the
       // ledger recorded them (D28, D76). Lines carrying no rate group under
       // `null` and post the single untagged pair they always did.
-      const byRate = new Map<number | null, { base: Money; tax: Money }>();
+      const byRate = new Map<string, { rate: number | null; taxRateId: string | null; base: Money; tax: Money }>();
       for (const l of doc.lines) {
         const rate = l.taxRatePercent ?? null;
-        const slot = byRate.get(rate) ?? { base: Money.zero(), tax: Money.zero() };
+        const taxRateId = l.taxRateId ?? null;
+        const key = `${rate}|${taxRateId ?? ""}`;
+        const slot = byRate.get(key) ?? { rate, taxRateId, base: Money.zero(), tax: Money.zero() };
         const part = salesReturnLineBase(l);
-        byRate.set(rate, { base: slot.base.add(part.revenue), tax: slot.tax.add(part.tax) });
+        byRate.set(key, { ...slot, base: slot.base.add(part.revenue), tax: slot.tax.add(part.tax) });
       }
       const first = doc.lines[0];
       const fxTag = first?.fxRate ? { currency: first.currency ?? null, fxRate: first.fxRate } : {};
       const lines = [
-        ...[...byRate.entries()]
-          .filter(([, v]) => v.base.scaled !== 0n)
-          .map(([rate, v]) => ({
+        ...[...byRate.values()]
+          .filter((v) => v.base.scaled !== 0n)
+          .map((v) => ({
             accountId: accounts.salesReturnsAccountId,
             debit: v.base,
             credit: Money.zero(),
-            taxRatePercent: rate,
+            taxRatePercent: v.rate,
+            taxRateId: v.taxRateId,
             projectId,
           })),
-        ...[...byRate.entries()]
-          .filter(([, v]) => v.tax.scaled > 0n)
-          .map(([rate, v]) => ({
+        ...[...byRate.values()]
+          .filter((v) => v.tax.scaled > 0n)
+          .map((v) => ({
             accountId: accounts.outputTaxPayableAccountId,
             debit: v.tax,
             credit: Money.zero(),
-            taxRatePercent: rate,
+            taxRatePercent: v.rate,
+            taxRateId: v.taxRateId,
             projectId,
           })),
         { accountId: accounts.accountsReceivableId, debit: Money.zero(), credit: grandTotal, projectId, ...fxTag },

@@ -21,7 +21,7 @@ import type {
   EtaReceiptLineInput,
   EtaReceiptPaymentMethod,
 } from "./receipt.js";
-import { findLineTaxRate, resolveEtaVatSubType } from "./tax-subtype.js";
+import { resolveLineTaxRate, resolveEtaVatSubType, type LineTaxIdentity } from "./tax-subtype.js";
 import { isEtaUnitCode } from "./mappings.js";
 import { EtaReceiptNotReadyError, EtaRefundTooLateError } from "./errors.js";
 import { extend, unitCostOf } from "../inventory/wac-math.js";
@@ -39,7 +39,12 @@ export interface EtaReceiptItemCodes {
 /** The registered codes a receipt line needs. All read from master data by the caller. */
 export interface EtaReceiptLookups {
   readonly items: ReadonlyMap<string, EtaReceiptItemCodes>;
-  readonly taxRates: readonly { readonly status: string; readonly rate: number; readonly etaSubType: string }[];
+  readonly taxRates: readonly {
+    readonly id: string;
+    readonly status: string;
+    readonly rate: number;
+    readonly etaSubType: string;
+  }[];
   /** Tenant unit code → the authority's unit code. */
   readonly unitByCode: ReadonlyMap<string, string>;
 }
@@ -113,7 +118,7 @@ function lineCodes(
   lookups: EtaReceiptLookups,
   itemId: string,
   unitCode: string,
-  taxRatePercent: number,
+  tax: LineTaxIdentity,
   missing: Set<string>,
 ): Pick<EtaReceiptLineInput, "internalCode" | "itemType" | "itemCode" | "unitType" | "taxSubType" | "taxRate"> {
   const item = lookups.items.get(itemId) ?? null;
@@ -128,8 +133,8 @@ function lineCodes(
     itemType: item?.etaCodeType === "GPC" ? "GS1" : "EGS",
     itemCode: item?.etaItemCode ?? item?.code ?? itemId,
     unitType,
-    taxSubType: resolveEtaVatSubType(findLineTaxRate(lookups.taxRates, taxRatePercent)?.etaSubType, taxRatePercent),
-    taxRate: String(taxRatePercent),
+    taxSubType: resolveEtaVatSubType(resolveLineTaxRate(lookups.taxRates, tax)?.etaSubType, tax.taxRatePercent),
+    taxRate: String(tax.taxRatePercent),
   };
 }
 
@@ -184,7 +189,7 @@ export function buildPosReceiptInput(args: PosReceiptBuildArgs): EtaUnchainedRec
       : { totalSale: Money.zero(), commercialDiscount: Money.zero(), netSale: Money.zero(), tax: Money.zero() };
     figures.push(f);
     return receiptLine(
-      lineCodes(lookups, line.itemId, line.unitCode, line.taxRatePercent, missing),
+      lineCodes(lookups, line.itemId, line.unitCode, line, missing),
       line.itemNameAr,
       line.qty,
       f,
@@ -282,7 +287,8 @@ export function buildRefundReceiptInput(args: RefundReceiptBuildArgs): EtaUnchai
     }
     figures.push(f);
     const baseUnit = lookups.items.get(ret.itemId)?.baseUnitCode ?? "";
-    return receiptLine(lineCodes(lookups, ret.itemId, baseUnit, rate, missing), sold?.itemNameAr ?? ret.itemId, ret.qty, f);
+    const tax = { taxRateId: ret.taxRateId ?? sold?.taxRateId ?? null, taxRatePercent: rate };
+    return receiptLine(lineCodes(lookups, ret.itemId, baseUnit, tax, missing), sold?.itemNameAr ?? ret.itemId, ret.qty, f);
   });
   if (missing.size > 0) throw new EtaReceiptNotReadyError([...missing]);
   return {

@@ -24,6 +24,7 @@ import {
   type SalesInvoiceRepository,
   type SalesInvoiceStockHook,
   type CreateSalesInvoiceCommand,
+  type TaxRateRepository,
   QuotaKind,
 } from "@mezan/domain";
 import { withQuota, quotaRefusalResponse, type QuotaEnforcement } from "./plan-quota.js";
@@ -36,6 +37,7 @@ import {
 } from "@mezan/contracts";
 import { refuseUnknownItems, type ItemCatalogCheck } from "./item-check.js";
 import { MasterDataKind, refuseUnknownMasterData, type MasterDataChecks } from "./master-data-check.js";
+import { taxRateRefusal } from "./tax-rate-refusal.js";
 import {
   documentVersionOf,
   documentVersionsOf,
@@ -73,6 +75,8 @@ export interface SalesQuoteRoutesDeps {
   readonly itemCheck?: ItemCatalogCheck;
   /** Refuses a quote naming a customer, warehouse or branch no master record holds (D310). */
   readonly masterData?: MasterDataChecks;
+  /** The tax rate master a line's `taxRateId` is checked against, on the quote and on the invoice it converts into (D79). */
+  readonly taxRates?: Pick<TaxRateRepository, "list">;
   readonly numbering: DocumentNumberingHook;
   readonly now?: () => string;
   /** Generates a quote id when the request omits one. Defaults to a UUID. */
@@ -156,6 +160,7 @@ function serialize(quote: SalesQuote, totals: SalesQuoteTotals) {
       unitPrice: l.unitPrice.toString(),
       discountPercent: l.discountPercent,
       taxRatePercent: l.taxRatePercent,
+      taxRateId: l.taxRateId ?? null,
     })),
     totals: serializeTotals(totals),
   };
@@ -167,6 +172,8 @@ function withMessageEn(err: { code: string; message: string }) {
 }
 
 function handleDomainError(c: Context, err: unknown): Response {
+  const taxRefusal = taxRateRefusal(c, err);
+  if (taxRefusal) return taxRefusal;
   if (err instanceof InvalidSalesQuoteError) {
     return c.json({ ...withMessageEn(err), reasons: err.reasons }, 422);
   }
@@ -226,6 +233,7 @@ export function createSalesQuotesRoutes(
     const svcDeps: SalesQuoteServiceDeps = {
       repo: deps.repo,
       numbering: deps.numbering,
+      taxRates: deps.taxRates,
       now: deps.now,
       actor: getAuthContext(c)?.userId ?? "system",
     };
@@ -264,6 +272,7 @@ export function createSalesQuotesRoutes(
         unitPrice: Money.fromMajor(l.unitPrice),
         discountPercent: l.discountPercent,
         taxRatePercent: l.taxRatePercent,
+        taxRateId: l.taxRateId ?? null,
       })),
     };
     const refusal = await refuseUnknownItems(c, deps.itemCheck, cmd.lines.map((l) => l.itemId));
@@ -540,6 +549,7 @@ export function createSalesQuotesRoutes(
       numbering: deps.invoice.numbering,
       gl: deps.invoice.gl,
       stock: deps.invoice.stock,
+      taxRates: deps.taxRates,
       now: deps.now,
       actor: ctx?.userId ?? "system",
     });
@@ -570,6 +580,7 @@ export function createSalesQuotesRoutes(
           unitPrice: l.unitPrice,
           discountPercent: l.discountPercent,
           taxRatePercent: l.taxRatePercent,
+          taxRateId: l.taxRateId,
           revenueAccountId: acc.revenueAccountId,
           cogsAccountId: acc.cogsAccountId ?? null,
           inventoryAccountId: acc.inventoryAccountId ?? null,

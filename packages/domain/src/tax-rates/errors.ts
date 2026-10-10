@@ -20,6 +20,32 @@ export class TaxRateNotFoundError extends Error {
   }
 }
 
+/** Raised when a document line names a tax rate that has been deactivated. */
+export class InactiveTaxRateError extends Error {
+  readonly code = "TAX_RATE_INACTIVE";
+  readonly messageEn: string;
+  constructor(readonly taxRateId: string) {
+    super(`الضريبة "${taxRateId}" غير مفعّلة ولا يمكن استخدامها في مستند جديد.`);
+    this.messageEn = `Tax rate "${taxRateId}" is inactive and cannot be used on a new document.`;
+    this.name = "InactiveTaxRateError";
+  }
+}
+
+/** Raised when a line names a tax rate together with a percent that is not that rate's own. */
+export class TaxRatePercentMismatchError extends Error {
+  readonly code = "TAX_RATE_PERCENT_MISMATCH";
+  readonly messageEn: string;
+  constructor(
+    readonly taxRateId: string,
+    readonly ratePercent: number,
+    readonly claimedPercent: number,
+  ) {
+    super(`نسبة الضريبة المرسلة (${claimedPercent}٪) لا تطابق نسبة الضريبة "${taxRateId}" (${ratePercent}٪).`);
+    this.messageEn = `The submitted tax percent (${claimedPercent}%) does not match tax rate "${taxRateId}" (${ratePercent}%).`;
+    this.name = "TaxRatePercentMismatchError";
+  }
+}
+
 /** Raised when the rate percentage is outside the valid 0–100 range. */
 export class InvalidTaxRateError extends Error {
   readonly code = "INVALID_TAX_RATE";

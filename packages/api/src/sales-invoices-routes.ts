@@ -54,6 +54,7 @@ import {
   type SalesInvoicePricingDeps,
   type ContractBillingRoutingPort,
   type SalesInvoiceTaxPolicy,
+  type TaxRateRepository,
   type UserRepository,
   EtaReceiptedSaleVoidRefusedError,
   type EtaReceiptPaymentMethod,
@@ -71,6 +72,7 @@ import type { CurrencyCheck } from "./currency-policy.js";
 import { recordAdminEvent } from "./admin-audit.js";
 import { refuseUnknownItems, type ItemCatalogCheck } from "./item-check.js";
 import { MasterDataKind, refuseUnknownMasterData, type MasterDataChecks } from "./master-data-check.js";
+import { taxRateRefusal } from "./tax-rate-refusal.js";
 import { type AuthContextResolver, branchScopeOf, callerRoleCodes, createAnyPermissionGate, createPermissionGate, getAuthContext, moduleRefusalFor, warehouseScopeOf } from "./permission-gate.js";
 import { tenantDay, tenantToday } from "./tenant-day.js";
 import { withQuota, quotaRefusalResponse, type QuotaEnforcement } from "./plan-quota.js";
@@ -119,6 +121,8 @@ export interface SalesInvoiceRoutesDeps {
   readonly masterData?: MasterDataChecks;
   /** The tenant's VAT rules (settings §"الضريبة"), stamped onto a draft when it is raised. */
   readonly taxPolicy?: () => Promise<SalesInvoiceTaxPolicy> | SalesInvoiceTaxPolicy;
+  /** The tax rate master a line's `taxRateId` is checked against and resolved from (D79). */
+  readonly taxRates?: Pick<TaxRateRepository, "list">;
   /**
    * The tenant's discount ceiling (settings §"الرقابة الائتمانية"). Optional
    * for the same reason every cross-aggregate check here is: a caller that does
@@ -366,6 +370,7 @@ function serialize(
       discountPercent: l.discountPercent,
       discountAmount: l.discountAmount.toString(),
       taxRatePercent: l.taxRatePercent,
+      taxRateId: l.taxRateId ?? null,
       revenueAccountId: l.revenueAccountId,
       cogsAccountId: l.cogsAccountId,
       inventoryAccountId: l.inventoryAccountId,
@@ -384,6 +389,8 @@ function withMessageEn(err: { code: string; message: string }) {
 }
 
 function handleDomainError(c: Context, err: unknown): Response {
+  const taxRefusal = taxRateRefusal(c, err);
+  if (taxRefusal) return taxRefusal;
   if (err instanceof InvalidSalesInvoiceError) {
     return c.json({ ...withMessageEn(err), reasons: err.reasons }, 422);
   }
@@ -529,6 +536,7 @@ export function createSalesInvoicesRoutes(
       promotions: deps.promotions,
       pricing: deps.pricing,
       taxPolicy: deps.taxPolicy,
+      taxRates: deps.taxRates,
       exchangeRates: deps.exchangeRates,
       baseCurrency: deps.baseCurrency,
       contractBilling: deps.contractBilling,
@@ -614,6 +622,7 @@ export function createSalesInvoicesRoutes(
         discountPercent: l.discountPercent,
         discountAmount: l.discountAmount === undefined ? undefined : Money.fromMajor(l.discountAmount),
         taxRatePercent: l.taxRatePercent,
+        taxRateId: l.taxRateId ?? null,
         revenueAccountId: l.revenueAccountId,
         cogsAccountId: l.cogsAccountId ?? null,
         inventoryAccountId: l.inventoryAccountId ?? null,

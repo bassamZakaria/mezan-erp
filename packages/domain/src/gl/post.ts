@@ -49,6 +49,8 @@ export interface JournalLineInput {
   readonly fxRate?: string | null;
   /** VAT rate this line was charged at, so the VAT return can report the rates actually charged (D28). */
   readonly taxRatePercent?: number | null;
+  /** The tax rate row behind `taxRatePercent`, when the document stored one (D79). */
+  readonly taxRateId?: string | null;
   /** بُعد المشروع (D-01). Validated against `deps.projects` when that port is supplied. */
   readonly projectId?: string | null;
   /** فئة التكلفة — rejected without a `projectId`, because a category with no project is a figure nothing can roll up. */
@@ -140,6 +142,7 @@ function toLine(input: JournalLineInput): JournalLine {
     currency: input.currency ?? null,
     fxRate: input.fxRate ?? null,
     taxRatePercent: input.taxRatePercent ?? null,
+    taxRateId: input.taxRateId ?? null,
     projectId: input.projectId ?? null,
     costCategory: input.costCategory ?? null,
     branchId: input.branchId ?? null,

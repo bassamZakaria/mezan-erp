@@ -5,20 +5,27 @@ import { Money } from "../money/index.js";
 import type { JournalEntry } from "../journal.js";
 import type { ReportDefinition } from "./types.js";
 import { diffOf, sumRows } from "./kpi.js";
+import { findSoleActiveTaxRateByPercent } from "../tax-rates/applied-tax-rate.js";
+import type { TaxRate } from "../tax-rates/tax-rate.js";
 
 /**
  * إقرار ضريبة القيمة المضافة — VAT Return (docs/archive/catalog/08-reports.md).
- * Output tax (sales) vs input tax (purchases), broken down by rate. Journal
- * entries carry no rate metadata, so each rate is derived per entry from the
- * VAT line against its taxable base: for a sales entry the base is the revenue
- * credited alongside the output-VAT credit; for a purchase entry the base is
- * the expense/inventory debited alongside the input-VAT debit. Revenue entries
- * with no VAT line fall into the 0% (zero-rated) bucket.
+ * Output tax (sales) vs input tax (purchases), broken down by the tax rate each
+ * posted line recorded. A line that stored its `taxRateId` is grouped under
+ * that rate, which is what keeps an exempt sale and a zero-rated export — both
+ * 0% — on separate rows (D79). A line with a percent and no id joins the one
+ * active rate at that percent when there is exactly one, and otherwise stands
+ * on an unnamed row for the percent. An entry whose lines carry neither falls
+ * back to dividing its VAT by its base.
  */
+
+export type VatReturnTaxRate = Pick<TaxRate, "id" | "name" | "rate" | "status">;
 
 export interface VatReturnContext extends GlReportContext {
   readonly outputVatAccountId: string;
   readonly inputVatAccountId: string;
+  /** The tax rate master, to name each row. Omitted, rows still split by stored id and carry no name. */
+  readonly taxRates?: readonly VatReturnTaxRate[];
 }
 
 export interface VatReturnParams {
@@ -34,6 +41,9 @@ export interface VatReturnRow {
   readonly sideLabel: string;
   /** Rate as a percentage, e.g. 14 or 0. */
   readonly rate: number;
+  /** The tax rate the lines stored; null for lines that recorded only a percent. */
+  readonly taxRateId: string | null;
+  readonly taxRateName: string | null;
   readonly base: number;
   readonly tax: number;
 }
@@ -58,8 +68,14 @@ const SIDE_LABELS: Record<VatSide, string> = {
  * lines drifts, and the number that drifts is the one filed with the authority.
  */
 interface Bucket {
+  rate: number;
+  taxRateId: string | null;
   base: Money;
   tax: Money;
+}
+
+function bucketKey(rate: number, taxRateId: string | null): string {
+  return `${rate}|${taxRateId ?? ""}`;
 }
 
 function lineNet(entry: JournalEntry, accountId: string): { debit: Money; credit: Money } {
@@ -85,9 +101,10 @@ function debitsToTypes(entry: JournalEntry, accountsByType: (id: string) => bool
   return total;
 }
 
-function bump(map: Map<number, Bucket>, rate: number, base: Money, tax: Money): void {
-  const bucket = map.get(rate) ?? { base: Money.zero(), tax: Money.zero() };
-  map.set(rate, { base: bucket.base.add(base), tax: bucket.tax.add(tax) });
+function bump(map: Map<string, Bucket>, rate: number, taxRateId: string | null, base: Money, tax: Money): void {
+  const key = bucketKey(rate, taxRateId);
+  const bucket = map.get(key) ?? { rate, taxRateId, base: Money.zero(), tax: Money.zero() };
+  map.set(key, { ...bucket, base: bucket.base.add(base), tax: bucket.tax.add(tax) });
 }
 
 /**
@@ -121,8 +138,8 @@ function ratedBuckets(
   vatAccountId: string,
   isBaseAccount: (accountId: string) => boolean,
   side: "debit" | "credit",
-): { rate: number; base: Money; tax: Money }[] {
-  const byRate = new Map<number, { base: Money; tax: Money }>();
+): Bucket[] {
+  const byRate = new Map<string, Bucket>();
   let sawRate = false;
   for (const line of entry.lines) {
     const rate = line.taxRatePercent;
@@ -130,19 +147,19 @@ function ratedBuckets(
     const amount =
       side === "credit" ? line.credit.add(line.debit.negate()) : line.debit.add(line.credit.negate());
     if (amount.scaled === 0n) continue;
-    const slot = byRate.get(rate) ?? { base: Money.zero(), tax: Money.zero() };
+    const taxRateId = line.taxRateId ?? null;
+    const key = bucketKey(rate, taxRateId);
+    const slot = byRate.get(key) ?? { rate, taxRateId, base: Money.zero(), tax: Money.zero() };
     if (line.accountId === vatAccountId) {
       sawRate = true;
-      byRate.set(rate, { base: slot.base, tax: slot.tax.add(amount) });
+      byRate.set(key, { ...slot, tax: slot.tax.add(amount) });
     } else if (isBaseAccount(line.accountId)) {
       sawRate = true;
-      byRate.set(rate, { base: slot.base.add(amount), tax: slot.tax });
+      byRate.set(key, { ...slot, base: slot.base.add(amount) });
     }
   }
   if (!sawRate) return [];
-  return [...byRate.entries()]
-    .map(([rate, v]) => ({ rate, base: v.base, tax: v.tax }))
-    .filter((b) => b.base.scaled !== 0n || b.tax.scaled !== 0n);
+  return [...byRate.values()].filter((b) => b.base.scaled !== 0n || b.tax.scaled !== 0n);
 }
 
 export function createVatReturnReport(
@@ -157,6 +174,7 @@ export function createVatReturnReport(
     paramFields: [{ kind: "dateRange", fromKey: "periodFrom", toKey: "periodTo", label: "الفترة" }],
     rowKey: (row) => row.rowId,
     columns: [
+      { key: "taxRateName", header: "الضريبة", format: "text", value: (row) => row.taxRateName },
       { key: "rate", header: "نسبة الضريبة", format: "percent", align: "end", value: (row) => row.rate },
       {
         key: "base",
@@ -200,8 +218,14 @@ export function createVatReturnReport(
       const isRevenue = (id: string): boolean => typeOf.get(id) === "revenue";
       const isPurchaseBase = (id: string): boolean => typeOf.get(id) === "expense" || typeOf.get(id) === "asset";
 
-      const outputBuckets = new Map<number, Bucket>();
-      const inputBuckets = new Map<number, Bucket>();
+      const taxRates = ctx.taxRates ?? [];
+      const nameOf = new Map(taxRates.map((r) => [r.id, r.name]));
+      // A line that recorded a percent and no id: the fallback, stated once.
+      const legacyRateId = (rate: number, taxRateId: string | null): string | null =>
+        taxRateId ?? findSoleActiveTaxRateByPercent(taxRates, rate)?.id ?? null;
+
+      const outputBuckets = new Map<string, Bucket>();
+      const inputBuckets = new Map<string, Bucket>();
 
       for (const entry of ctx.journalEntries) {
         if (!isLedgerEffective(entry)) continue;
@@ -219,36 +243,40 @@ export function createVatReturnReport(
         // old derivation so history keeps reporting.
         const outputTagged = ratedBuckets(entry, ctx.outputVatAccountId, isRevenue, "credit");
         if (outputTagged.length > 0) {
-          for (const b of outputTagged) bump(outputBuckets, b.rate, b.base, b.tax);
+          for (const b of outputTagged) bump(outputBuckets, b.rate, legacyRateId(b.rate, b.taxRateId), b.base, b.tax);
         } else if (revenueBase.scaled > 0n) {
           const rate = outputTax.scaled > 0n ? derivedRatePercent(outputTax, revenueBase) : 0;
-          bump(outputBuckets, rate, revenueBase, outputTax.scaled > 0n ? outputTax : Money.zero());
+          bump(outputBuckets, rate, legacyRateId(rate, null), revenueBase, outputTax.scaled > 0n ? outputTax : Money.zero());
         }
 
         const inVat = lineNet(entry, ctx.inputVatAccountId);
         const inputTax = inVat.debit.add(inVat.credit.negate());
         const inputTagged = ratedBuckets(entry, ctx.inputVatAccountId, (id) => id !== ctx.inputVatAccountId && isPurchaseBase(id), "debit");
         if (inputTagged.length > 0) {
-          for (const b of inputTagged) bump(inputBuckets, b.rate, b.base, b.tax);
+          for (const b of inputTagged) bump(inputBuckets, b.rate, legacyRateId(b.rate, b.taxRateId), b.base, b.tax);
         } else if (inputTax.scaled > 0n) {
           // Exclude the input-VAT account itself from the base (it's an asset too).
           const purchaseBase = debitsToTypes(entry, (id) => id !== ctx.inputVatAccountId && isPurchaseBase(id));
           const rate = purchaseBase.scaled > 0n ? derivedRatePercent(inputTax, purchaseBase) : 0;
-          bump(inputBuckets, rate, purchaseBase, inputTax);
+          bump(inputBuckets, rate, legacyRateId(rate, null), purchaseBase, inputTax);
         }
       }
 
       const rows: VatReturnRow[] = [];
-      const emit = (side: VatSide, buckets: Map<number, Bucket>): void => {
-        for (const rate of [...buckets.keys()].sort((a, b) => b - a)) {
-          const bucket = buckets.get(rate);
-          if (!bucket) continue;
+      const emit = (side: VatSide, buckets: Map<string, Bucket>): void => {
+        const ordered = [...buckets.values()].sort(
+          (a, b) => b.rate - a.rate || (a.taxRateId ?? "").localeCompare(b.taxRateId ?? ""),
+        );
+        for (const bucket of ordered) {
+          const { rate, taxRateId } = bucket;
           // The serialisation boundary — the ONE conversion per figure.
           rows.push({
-            rowId: `${side}-${rate}`,
+            rowId: taxRateId === null ? `${side}-${rate}` : `${side}-${rate}-${taxRateId}`,
             side,
             sideLabel: SIDE_LABELS[side],
             rate,
+            taxRateId,
+            taxRateName: taxRateId === null ? null : (nameOf.get(taxRateId) ?? null),
             base: moneyToNumber(bucket.base),
             tax: moneyToNumber(bucket.tax),
           });

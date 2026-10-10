@@ -40,6 +40,7 @@ export function createSalesInvoiceGlHook(deps: JournalPostingDeps): DocumentGlHo
             // from a base-currency one (D24, D26).
             costCenterId: l.costCenterId ?? null,
             taxRatePercent: l.taxRatePercent ?? null,
+            taxRateId: l.taxRateId ?? null,
             currency: l.currency ?? null,
             fxRate: l.fxRate ?? null,
             projectId: l.projectId ?? null,

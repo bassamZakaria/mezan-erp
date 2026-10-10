@@ -86,8 +86,8 @@ export interface EtaPrevalidationLineInput {
   readonly taxRatePercent: number;
   /**
    * The VAT sub-type this line would resolve to — `"auto"` when the tax rate
-   * carries no explicit classification, null when no active tax rate matches
-   * the percent at all (see `findLineTaxRate`'s ambiguity refusal, D79).
+   * carries no explicit classification, null when the line stored no tax rate
+   * id and no active tax rate matches its percent unambiguously (D79).
    */
   readonly etaTaxSubType: string | null;
   readonly netTotal: string;

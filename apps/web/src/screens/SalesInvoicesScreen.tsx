@@ -39,7 +39,7 @@ import {
   type SalesInvoiceDiscount,
   type SalesInvoiceDiscountType,
   type SalesInvoiceLineDiscountType, itemTypeIsSellable, findCurrency, convertToBase, extend,} from "@mezan/domain";
-import type { ProjectDTO, SalesInvoiceListQueryDTO, SalesInvoiceStatusDTO } from "@mezan/contracts";
+import type { ProjectDTO, SalesInvoiceListQueryDTO, SalesInvoiceStatusDTO, TaxRateDTO } from "@mezan/contracts";
 import { SalesInvoicePrintPage } from "../print/SalesInvoicePrintPage";
 import {
   useAccounts,
@@ -51,6 +51,7 @@ import {
   useItems,
   useProjects,
   useSettings,
+  useTaxRates,
   useItemAvailability,
   useConvertSalesQuoteToInvoice,
   useEtaSubmissions,
@@ -82,6 +83,7 @@ import { AttachmentsTab } from "../attachments/AttachmentsTab";
 import { salesInvoiceStatusLabel } from "../domain-labels";
 import { documentStatusLabel } from "../doc-status";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { NO_TAX_RATE, TaxRateField, appliedTaxPercent, lineTaxPayload, soleActiveTaxRateId } from "./tax-rate-field";
 import { todayIso } from "../lib/dates";
 import { EMPTY } from "../lib/empty";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
@@ -168,7 +170,11 @@ interface InvoiceLineDraft {
   discountType: SalesInvoiceLineDiscountType;
   discountPercent: number;
   discountAmount: number;
+  /** The tax rate picked for this line; NO_TAX_RATE leaves the item's own percent to the server. */
+  taxRateId: string;
 }
+
+const NO_TAX_RATES: readonly TaxRateDTO[] = [];
 
 let lineSeq = 0;
 function blankLine(): InvoiceLineDraft {
@@ -182,6 +188,7 @@ function blankLine(): InvoiceLineDraft {
     discountType: "percent",
     discountPercent: 0,
     discountAmount: 0,
+    taxRateId: NO_TAX_RATE,
   };
 }
 
@@ -558,6 +565,7 @@ function CreateInvoicePage({ onClose, initialCustomerId }: { onClose: () => void
   );
 
   const tenantSettings = useSettings();
+  const taxRates = useTaxRates().data ?? NO_TAX_RATES;
   const customerData = customer ? (customers.find((c) => c.id === customer.id) ?? null) : null;
   // A customer with no tax registration number is a consumer sale — an
   // e-receipt, not an e-invoice — and confirming it here has no till to name
@@ -586,7 +594,8 @@ function CreateInvoicePage({ onClose, initialCustomerId }: { onClose: () => void
         discountType: l.discountType,
         discountPercent: l.discountType === "percent" ? l.discountPercent || 0 : 0,
         discountAmount: Money.fromMajor(String(l.discountType === "amount" ? l.discountAmount || 0 : 0)),
-        taxRatePercent: item.taxRatePercent,
+        taxRatePercent: appliedTaxPercent(taxRates, l.taxRateId, item.taxRatePercent),
+        taxRateId: l.taxRateId === NO_TAX_RATE ? null : l.taxRateId,
         revenueAccountId: item.revenueAccountId ?? REVENUE_ACCOUNT_ID,
         cogsAccountId: isStock ? (item.cogsAccountId ?? COGS_ACCOUNT_ID) : null,
         inventoryAccountId: isStock ? (item.inventoryAccountId ?? INVENTORY_ACCOUNT_ID) : null,
@@ -595,7 +604,7 @@ function CreateInvoicePage({ onClose, initialCustomerId }: { onClose: () => void
       });
     }
     return out;
-  }, [lines, items]);
+  }, [lines, items, taxRates]);
 
   const discount: SalesInvoiceDiscount = useMemo(
     () =>
@@ -670,6 +679,7 @@ function CreateInvoicePage({ onClose, initialCustomerId }: { onClose: () => void
         arAccountId: AR_ACCOUNT_ID,
         taxAccountId: TAX_ACCOUNT_ID,
         lines: domainLines.map((l) => ({
+          ...lineTaxPayload(l.taxRateId ?? NO_TAX_RATE, l.taxRatePercent),
           lineId: l.lineId,
           itemId: l.itemId,
           itemNameAr: l.itemNameAr,
@@ -681,7 +691,6 @@ function CreateInvoicePage({ onClose, initialCustomerId }: { onClose: () => void
           discountType: l.discountType,
           discountPercent: l.discountPercent,
           discountAmount: l.discountAmount.toString(),
-          taxRatePercent: l.taxRatePercent,
           revenueAccountId: l.revenueAccountId,
           cogsAccountId: l.cogsAccountId,
           inventoryAccountId: l.inventoryAccountId,
@@ -904,6 +913,7 @@ function CreateInvoicePage({ onClose, initialCustomerId }: { onClose: () => void
                           itemId: opt?.id ?? "",
                           unitCode: picked?.baseUnitCode ?? "",
                           unitPrice: picked ? priceFor(picked) : null,
+                          taxRateId: picked ? soleActiveTaxRateId(taxRates, picked.taxRatePercent) : NO_TAX_RATE,
                         });
                       }}
                       options={itemOptions}
@@ -963,7 +973,14 @@ function CreateInvoicePage({ onClose, initialCustomerId }: { onClose: () => void
                         {item.type === "stock" ? ` · ${t("salesInvoices.line.movesStock")}` : ""}
                       </div>
                     ) : null}
-                    <div className="grid gap-[10px] sm:grid-cols-2">
+                    <div className="grid gap-[10px] sm:grid-cols-3">
+                      <TaxRateField
+                        label={t("taxRateField.label")}
+                        value={line.taxRateId}
+                        onChange={(v) => updateLine(i, { taxRateId: v })}
+                        taxRates={taxRates}
+                        fallbackPercent={item.taxRatePercent}
+                      />
                       <SelectField
                         label={t("salesInvoices.field.lineDiscountType")}
                         value={line.discountType}
@@ -1333,6 +1350,7 @@ function InvoiceDetailView({
       discountPercent: l.discountPercent,
       discountAmount: Money.fromMajor(l.discountAmount ?? "0"),
       taxRatePercent: l.taxRatePercent,
+      taxRateId: l.taxRateId ?? null,
       revenueAccountId: l.revenueAccountId,
       cogsAccountId: l.cogsAccountId,
       inventoryAccountId: l.inventoryAccountId,

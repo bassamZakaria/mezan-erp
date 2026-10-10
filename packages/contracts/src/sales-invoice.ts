@@ -53,6 +53,15 @@ export const createSalesInvoiceLineSchema = z.object({
   /** Fixed line discount as an exact decimal string; capped at the line's gross. */
   discountAmount: moneyString.optional(),
   taxRatePercent: z.number().min(0).optional(),
+  /**
+   * The tax rate row applied to this line ("الضريبة"). The server checks it
+   * exists and is active and reads the percent off it; a `taxRatePercent` sent
+   * beside it must equal that percent. Omitted, the line keeps the percent it
+   * was sent and stores a rate id only when exactly one active rate has that
+   * percent — exempt and zero-rated export are both 0%, so a 0% line that
+   * names no rate cannot be told apart from either (D79).
+   */
+  taxRateId: z.string().min(1).nullish(),
   revenueAccountId: z.string().min(1),
   cogsAccountId: z.string().min(1).nullish(),
   inventoryAccountId: z.string().min(1).nullish(),
@@ -241,6 +250,7 @@ export const salesInvoiceLineRowSchema = z.object({
   discountPercent: z.number(),
   discountAmount: moneyString,
   taxRatePercent: z.number(),
+  taxRateId: z.string().nullable(),
   revenueAccountId: z.string().min(1),
   cogsAccountId: z.string().nullable(),
   inventoryAccountId: z.string().nullable(),

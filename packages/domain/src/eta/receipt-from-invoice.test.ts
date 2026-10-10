@@ -32,6 +32,7 @@ function line(lineId: string, qty: string, unitPrice: string, extra: Partial<Sal
     revenueAccountId: "4100",
     cogsAccountId: null,
     inventoryAccountId: null,
+    taxRateId: null,
     costCenterId: null,
     unitCost: null,
     ...extra,
@@ -81,7 +82,7 @@ const lookups: EtaReceiptLookups = {
     ["ITEM-L1", { code: "SKU-1", etaItemCode: "EG-100-1", etaCodeType: "EGS", baseUnitCode: "PCS" }],
     ["ITEM-L2", { code: "SKU-2", etaItemCode: "10000159", etaCodeType: "GPC", baseUnitCode: "PCS" }],
   ]),
-  taxRates: [{ status: "active", rate: 14, etaSubType: "V009" }],
+  taxRates: [{ id: "VAT14", status: "active", rate: 14, etaSubType: "V009" }],
   unitByCode: new Map([["PCS", "EA"]]),
 };
 
@@ -294,5 +295,34 @@ describe("buildRefundReceiptInput — a consumer return is a refund receipt (D28
     });
     const payload = buildEtaReceiptPayload({ ...refund, previousUuid: null }, config) as unknown as Payload;
     expectSdkArithmetic(payload);
+  });
+});
+
+describe("buildPosReceiptInput — the VAT sub-type comes from the rate each line stored (D79)", () => {
+  const zeroRated = {
+    ...lookups,
+    taxRates: [
+      { id: "VAT14", status: "active", rate: 14, etaSubType: "V009" },
+      { id: "VAT-EXEMPT", status: "active", rate: 0, etaSubType: "V003" },
+      { id: "VAT-EXPORT", status: "active", rate: 0, etaSubType: "V001" },
+    ],
+  };
+  const subTypes = (inv: SalesInvoice): string[] =>
+    buildPosReceiptInput({ invoice: inv, issuedAt: inv.confirmedAt!, device, paymentMethod: "cash", lookups: zeroRated }).lines.map((l) => l.taxSubType);
+
+  it("files an exempt line V003 and a zero-rated export line V001, though both are 0%", () => {
+    const inv = invoice([
+      line("L1", "1", "100.00", { taxRatePercent: 0, taxRateId: "VAT-EXEMPT" }),
+      line("L2", "1", "100.00", { taxRatePercent: 0, taxRateId: "VAT-EXPORT" }),
+    ]);
+    expect(subTypes(inv)).toEqual(["V003", "V001"]);
+  });
+
+  it("keeps the neutral V004 for a legacy 0% line with no stored rate — never a guess between the two", () => {
+    expect(subTypes(invoice([line("L1", "1", "100.00", { taxRatePercent: 0, taxRateId: null })]))).toEqual(["V004"]);
+  });
+
+  it("still matches a legacy taxed line by its percent", () => {
+    expect(subTypes(invoice([line("L1", "1", "100.00", { taxRatePercent: 14, taxRateId: null })]))).toEqual(["V009"]);
   });
 });

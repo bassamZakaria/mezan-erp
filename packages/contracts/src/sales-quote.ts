@@ -31,6 +31,8 @@ export const createSalesQuoteLineSchema = z.object({
   unitPrice: moneyString,
   discountPercent: z.number().min(0).max(100).optional(),
   taxRatePercent: z.number().min(0).optional(),
+  /** The tax rate row applied; validated server-side and inherited by the converted invoice line (D79). */
+  taxRateId: z.string().min(1).nullish(),
 });
 
 /** Create a draft sales quote. */
@@ -103,6 +105,7 @@ export const salesQuoteLineRowSchema = z.object({
   unitPrice: moneyString,
   discountPercent: z.number(),
   taxRatePercent: z.number(),
+  taxRateId: z.string().nullable(),
 });
 
 export const salesQuoteTotalsSchema = z.object({

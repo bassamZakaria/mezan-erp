@@ -15,6 +15,7 @@ import {
   type SalesQuoteLine,
 } from "./index.js";
 import { InMemorySalesQuoteRepository } from "./test-helpers/in-memory-sales-quote-repository.js";
+import { TaxRateNotFoundError, TaxRatePercentMismatchError, type TaxRate } from "../tax-rates/index.js";
 
 const NOW = "2026-08-22T10:00:00.000Z";
 
@@ -37,6 +38,7 @@ function line(overrides: Partial<SalesQuoteLine> & { lineId: string; itemId: str
     unitPrice: Money.fromMajor("0"),
     discountPercent: 0,
     taxRatePercent: 0,
+    taxRateId: null,
     ...overrides,
   };
 }
@@ -277,5 +279,42 @@ describe("isQuoteExpired", () => {
     const sent = await svc.send("qt-exp");
     expect(isQuoteExpired(sent, "2026-08-22")).toBe(true);
     expect(isQuoteExpired(sent, "2026-07-01")).toBe(false);
+  });
+});
+
+describe("SalesQuoteService.createDraft — the tax rate's identity (D79)", () => {
+  const rate = (id: string, percent: number): TaxRate => ({
+    id, code: id, name: id, rate: percent, calculationType: "exclusive", isDefault: false,
+    outputTaxAccountId: null, inputTaxAccountId: null, etaSubType: "auto", status: "active",
+  });
+  const MASTER = [rate("VAT14", 14), rate("EXEMPT", 0), rate("EXPORT", 0)];
+
+  function service() {
+    const numbering = new NextNumberService(new InMemorySequenceStore());
+    return new SalesQuoteService({
+      repo: new InMemorySalesQuoteRepository(),
+      numbering: { next: () => numbering.next("SALES_QUOTE") },
+      taxRates: { list: async () => MASTER },
+      now: () => NOW,
+      actor: "u1",
+    });
+  }
+  const quoted = (lineId: string, tax: { taxRateId?: string; taxRatePercent?: number }) => ({
+    lineId, itemId: "ITEM-A", itemNameAr: "صنف أ", qty: Qty.fromMajor("1"), unitPrice: Money.fromMajor("100"), ...tax,
+  });
+
+  it("stores the picked rate's id, with the percent read off the rate", async () => {
+    const quote = await service().createDraft(draftCmd({ lines: [quoted("L1", { taxRateId: "EXPORT" }), quoted("L2", { taxRatePercent: 14 }), quoted("L3", { taxRatePercent: 0 })] }));
+    expect(quote.lines.map((l) => [l.taxRateId, l.taxRatePercent])).toEqual([["EXPORT", 0], ["VAT14", 14], [null, 0]]);
+  });
+
+  it("refuses a rate id no tax rate has, and a percent that is not the rate's own", async () => {
+    await expect(service().createDraft(draftCmd({ lines: [quoted("L1", { taxRateId: "TAX-1" })] }))).rejects.toBeInstanceOf(TaxRateNotFoundError);
+    await expect(service().createDraft(draftCmd({ lines: [quoted("L1", { taxRateId: "EXEMPT", taxRatePercent: 14 })] }))).rejects.toBeInstanceOf(TaxRatePercentMismatchError);
+  });
+
+  it("never stamps a taxed rate's id on a line a tax-exempt customer is quoted at 0%", async () => {
+    const quote = await service().createDraft(draftCmd({ customerTaxExempt: true, lines: [quoted("L1", { taxRateId: "VAT14" })] }));
+    expect(quote.lines[0]).toMatchObject({ taxRateId: null, taxRatePercent: 0 });
   });
 });

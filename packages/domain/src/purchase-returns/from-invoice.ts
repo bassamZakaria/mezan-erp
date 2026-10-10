@@ -41,6 +41,7 @@ export function buildPurchaseReturnLinesFromInvoice(
       unitCost: invLine.unitCost,
       taxAmount: taxShare,
       taxRatePercent: invLine.taxRatePercent ?? null,
+      taxRateId: invLine.taxRateId ?? null,
       // A return built from an invoice inherits the invoice's projectId and
       // each line's costCategory (D-01) — the invoice is the only place these
       // are stated, and a return that drops them loses the project's cost.

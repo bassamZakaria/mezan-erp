@@ -321,6 +321,7 @@ export interface SalesQuoteLineRecord {
   readonly unitPrice: string;
   readonly discountPercent?: number;
   readonly taxRatePercent?: number;
+  readonly taxRateId?: string | null;
 }
 
 export type SalesQuoteDiscountRecord =

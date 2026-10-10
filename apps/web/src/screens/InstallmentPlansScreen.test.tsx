@@ -42,7 +42,7 @@ function salesInvoice(overrides: Partial<SalesInvoiceDTO> = {}): SalesInvoiceDTO
     fxRate: null,
     lines: [
       {
-        unitCode: "", unitFactor: 1, discountType: "percent", discountAmount: "0.000000", costCenterId: null, baseQty: "10.000000", lineId: "l1", itemId: "item-cement", itemNameAr: "أسمنت بورتلاندي", isStock: true, qty: "10.000000",
+        unitCode: "", unitFactor: 1, discountType: "percent", discountAmount: "0.000000", costCenterId: null, taxRateId: null, baseQty: "10.000000", lineId: "l1", itemId: "item-cement", itemNameAr: "أسمنت بورتلاندي", isStock: true, qty: "10.000000",
         unitPrice: "60.000000", discountPercent: 0, taxRatePercent: 0, revenueAccountId: "acc-rev",
         cogsAccountId: "acc-cogs", inventoryAccountId: "acc-inv", unitCost: "50.000000",
       },

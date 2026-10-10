@@ -10,7 +10,7 @@ import {
   EtaOriginalReceiptNotFoundError,
   etaReceiptIssuedAt,
   extend as extendQtyByPrice,
-  findLineTaxRate,
+  resolveLineTaxRate,
   Money,
   prevalidateEtaInvoice,
   resolveEtaVatSubType,
@@ -547,7 +547,7 @@ async function buildInvoiceEtaInputs(
     // quantity and unit price below are both per entered unit, so
     // filing the base unit code would misstate the quantity sold.
     const unitCode = line.unitCode !== "" ? line.unitCode : (item?.baseUnitCode ?? "");
-    const taxRate = findLineTaxRate(taxRates, line.taxRatePercent);
+    const taxRate = resolveLineTaxRate(taxRates, line);
     const netTotal = (lt?.taxableBase ?? Money.zero()).toString();
     const taxAmount = (lt?.tax ?? Money.zero()).toString();
     prevalidationLines.push({
@@ -712,7 +712,7 @@ export function createReturnEtaEnqueueBridge(deps: {
           const item = lineItems[index] ?? null;
           const net = extendQtyByPrice(line.qty, line.unitPrice);
           const rate = line.taxRatePercent ?? 0;
-          const taxRate = findLineTaxRate(taxRates, rate);
+          const taxRate = resolveLineTaxRate(taxRates, { taxRateId: line.taxRateId, taxRatePercent: rate });
           const unitCode = item?.baseUnitCode ?? "";
           totalNet = totalNet.add(net);
           totalTax = totalTax.add(line.taxAmount);

@@ -104,12 +104,12 @@ function salesInvoice(overrides: Partial<SalesInvoiceDTO> = {}): SalesInvoiceDTO
     fxRate: null,
     lines: [
       {
-        unitCode: "", unitFactor: 1, discountType: "percent", discountAmount: "0.000000", costCenterId: null, baseQty: "10.000000", lineId: "l1", itemId: "item-cement", itemNameAr: "أسمنت بورتلاندي", isStock: true, qty: "10.000000",
+        unitCode: "", unitFactor: 1, discountType: "percent", discountAmount: "0.000000", costCenterId: null, taxRateId: null, baseQty: "10.000000", lineId: "l1", itemId: "item-cement", itemNameAr: "أسمنت بورتلاندي", isStock: true, qty: "10.000000",
         unitPrice: "100.000000", discountPercent: 0, taxRatePercent: 14, revenueAccountId: "acc-rev",
         cogsAccountId: "acc-cogs", inventoryAccountId: "acc-inv", unitCost: "85.000000",
       },
       {
-        unitCode: "", unitFactor: 1, discountType: "percent", discountAmount: "0.000000", costCenterId: null, baseQty: "20.000000", lineId: "l2", itemId: "item-brick", itemNameAr: "طوب أحمر", isStock: true, qty: "20.000000",
+        unitCode: "", unitFactor: 1, discountType: "percent", discountAmount: "0.000000", costCenterId: null, taxRateId: null, baseQty: "20.000000", lineId: "l2", itemId: "item-brick", itemNameAr: "طوب أحمر", isStock: true, qty: "20.000000",
         unitPrice: "50.000000", discountPercent: 0, taxRatePercent: 14, revenueAccountId: "acc-rev",
         cogsAccountId: "acc-cogs", inventoryAccountId: "acc-inv", unitCost: "35.000000",
       },
@@ -125,7 +125,7 @@ const salesInvoiceTile = salesInvoice({
   docNo: "INV-000200",
   lines: [
     {
-      unitCode: "", unitFactor: 1, discountType: "percent", discountAmount: "0.000000", costCenterId: null, baseQty: "8.000000", lineId: "l1", itemId: "item-tile", itemNameAr: "بلاط", isStock: true, qty: "8.000000",
+      unitCode: "", unitFactor: 1, discountType: "percent", discountAmount: "0.000000", costCenterId: null, taxRateId: null, baseQty: "8.000000", lineId: "l1", itemId: "item-tile", itemNameAr: "بلاط", isStock: true, qty: "8.000000",
       unitPrice: "75.000000", discountPercent: 0, taxRatePercent: 14, revenueAccountId: "acc-rev",
       cogsAccountId: "acc-cogs", inventoryAccountId: "acc-inv", unitCost: "60.000000",
     },

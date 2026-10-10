@@ -14,6 +14,13 @@
 
 import { Money, Qty } from "../money/index.js";
 import { toBaseQty } from "../units/index.js";
+import {
+  resolveAppliedTaxRate,
+  resolveZeroRatedTaxRate,
+  type AppliedTaxRate,
+  type TaxRate,
+  type TaxRateRepository,
+} from "../tax-rates/index.js";
 import { occurredAtFromDocumentDate } from "../inventory/movement.js";
 import type { AllocatableInvoiceRepository } from "../vouchers/allocation.js";
 import { recordSensitiveEvent, type AuditSink } from "../audit/index.js";
@@ -136,6 +143,11 @@ export interface SalesInvoiceServiceDeps {
    */
   readonly taxPolicy?: () => Promise<SalesInvoiceTaxPolicy> | SalesInvoiceTaxPolicy;
   /**
+   * The tax rate master. Without it no draft line can be given a `taxRateId`,
+   * and a line that names one is stored unverified as NULL.
+   */
+  readonly taxRates?: Pick<TaxRateRepository, "list">;
+  /**
    * Exchange rates, so a foreign-currency invoice posts its base-currency
    * value at the rate that applied on its own date and keeps that rate on the
    * receivable line for revaluation (D24). Omit and a non-base currency is
@@ -196,6 +208,8 @@ export interface CreateSalesInvoiceLine {
   readonly discountPercent?: number;
   readonly discountAmount?: Money;
   readonly taxRatePercent?: number;
+  /** The tax rate row applied; validated and its percent read server-side (D79). */
+  readonly taxRateId?: string | null;
   readonly revenueAccountId: string;
   readonly cogsAccountId?: string | null;
   readonly inventoryAccountId?: string | null;
@@ -288,7 +302,8 @@ export class SalesInvoiceService {
     if (await this.deps.repo.findById(cmd.id)) {
       throw new DuplicateSalesInvoiceError(cmd.id);
     }
-    const invoice = this.buildDraft(cmd, await this.resolveTaxPolicy());
+    const taxRates = this.deps.taxRates ? await this.deps.taxRates.list() : null;
+    const invoice = this.buildDraft(cmd, await this.resolveTaxPolicy(), taxRates);
     this.validate(invoice);
     await this.deps.repo.save(invoice);
     this.emit("DOCUMENT_DRAFTED", invoice);
@@ -591,10 +606,23 @@ export class SalesInvoiceService {
     return this.deps.taxPolicy();
   }
 
-  private buildDraft(cmd: CreateSalesInvoiceCommand, taxPolicy: SalesInvoiceTaxPolicy): SalesInvoice {
+  private buildDraft(
+    cmd: CreateSalesInvoiceCommand,
+    taxPolicy: SalesInvoiceTaxPolicy,
+    taxRates: readonly TaxRate[] | null,
+  ): SalesInvoice {
     const zeroRated = cmd.customerTaxExempt === true || !taxPolicy.enabled;
+    const appliedTax = (l: CreateSalesInvoiceLine): AppliedTaxRate => {
+      if (taxRates === null) {
+        return { taxRateId: null, taxRatePercent: zeroRated ? 0 : (l.taxRatePercent ?? taxPolicy.defaultRatePercent) };
+      }
+      return zeroRated
+        ? resolveZeroRatedTaxRate(taxRates, l)
+        : resolveAppliedTaxRate(taxRates, l, taxPolicy.defaultRatePercent);
+    };
     const lines: SalesInvoiceLine[] = cmd.lines.map((l) => {
       const unitFactor = l.unitFactor ?? 1;
+      const tax = appliedTax(l);
       return {
       lineId: l.lineId,
       itemId: l.itemId,
@@ -611,7 +639,8 @@ export class SalesInvoiceService {
       discountType: l.discountType ?? "percent",
       discountPercent: l.discountPercent ?? 0,
       discountAmount: l.discountAmount ?? Money.zero(),
-      taxRatePercent: zeroRated ? 0 : (l.taxRatePercent ?? taxPolicy.defaultRatePercent),
+      taxRatePercent: tax.taxRatePercent,
+      taxRateId: tax.taxRateId,
       revenueAccountId: l.revenueAccountId,
       cogsAccountId: l.cogsAccountId ?? null,
       inventoryAccountId: l.inventoryAccountId ?? null,

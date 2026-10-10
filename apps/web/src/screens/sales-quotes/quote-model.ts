@@ -1,5 +1,6 @@
 import { Money, Qty, computeQuoteTotals, type SalesQuoteDiscount, type SalesQuoteLine, type SalesQuoteTotals } from "@mezan/domain";
-import type { ItemDTO } from "@mezan/contracts";
+import type { ItemDTO, TaxRateDTO } from "@mezan/contracts";
+import { NO_TAX_RATE, appliedTaxPercent } from "../tax-rate-field";
 import type { SalesQuoteRecord } from "../../data/hooks";
 import type { AppTranslationKey } from "../../i18n";
 import type { PillTone } from "@mezan/ui";
@@ -58,19 +59,23 @@ export interface LineDraft {
   /** null until an item is chosen — then the item's sale price, editable. */
   unitPrice: number | null;
   discountPercent: number;
-  /** Defaults to the item's own rate; editable per line, as on the reference. */
-  taxRatePercent: number | null;
+  /** The tax rate picked for this line; NO_TAX_RATE leaves the item's own percent to the server. */
+  taxRateId: string;
   expanded: boolean;
 }
 
 let lineSeq = 0;
 export function blankLine(): LineDraft {
   lineSeq += 1;
-  return { key: `l${lineSeq}`, itemId: "", qty: 1, unitPrice: null, discountPercent: 0, taxRatePercent: null, expanded: false };
+  return { key: `l${lineSeq}`, itemId: "", qty: 1, unitPrice: null, discountPercent: 0, taxRateId: NO_TAX_RATE, expanded: false };
 }
 
 /** The draft lines that carry a real item, as domain lines the totals engine can price. */
-export function toDomainLines(lines: readonly LineDraft[], items: readonly ItemDTO[]): SalesQuoteLine[] {
+export function toDomainLines(
+  lines: readonly LineDraft[],
+  items: readonly ItemDTO[],
+  taxRates: readonly TaxRateDTO[],
+): SalesQuoteLine[] {
   const out: SalesQuoteLine[] = [];
   for (const l of lines) {
     const item = items.find((i) => i.id === l.itemId);
@@ -82,7 +87,8 @@ export function toDomainLines(lines: readonly LineDraft[], items: readonly ItemD
       qty: Qty.fromMajor(String(l.qty || 0)),
       unitPrice: Money.fromMajor(String(l.unitPrice ?? item.salePrice ?? 0)),
       discountPercent: l.discountPercent || 0,
-      taxRatePercent: l.taxRatePercent ?? item.taxRatePercent,
+      taxRatePercent: appliedTaxPercent(taxRates, l.taxRateId, item.taxRatePercent),
+      taxRateId: l.taxRateId === NO_TAX_RATE ? null : l.taxRateId,
     });
   }
   return out;

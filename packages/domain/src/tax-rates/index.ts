@@ -7,7 +7,20 @@ export type {
   EtaVatSubTypeDefinition,
 } from "./tax-rate.js";
 export { ETA_VAT_SUBTYPES, ETA_VAT_SUBTYPE_DEFINITIONS, getEtaVatSubTypeLabel } from "./tax-rate.js";
-export { DuplicateTaxCodeError, TaxRateNotFoundError, InvalidTaxRateError } from "./errors.js";
+export {
+  DuplicateTaxCodeError,
+  TaxRateNotFoundError,
+  InvalidTaxRateError,
+  InactiveTaxRateError,
+  TaxRatePercentMismatchError,
+} from "./errors.js";
+export {
+  findSoleActiveTaxRateByPercent,
+  resolveAppliedTaxRate,
+  resolveZeroRatedTaxRate,
+  type AppliedTaxRate,
+  type AppliedTaxRateRequest,
+} from "./applied-tax-rate.js";
 export { validateNewTaxRate, createTaxRate, type CreateTaxRateCommand } from "./create-tax-rate.js";
 export { updateTaxRate, type UpdateTaxRateCommand } from "./update-tax-rate.js";
 

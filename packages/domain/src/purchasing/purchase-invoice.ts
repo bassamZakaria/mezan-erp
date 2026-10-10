@@ -17,6 +17,7 @@ import type { AllocatableInvoiceRepository } from "../vouchers/allocation.js";
 import { extend, occurredAtFromDocumentDate, unitCostOf, type CostLayerRepository } from "../inventory/index.js";
 import { convertToBase } from "../exchange-rates/convert.js";
 import { NextNumberService } from "../numbering/index.js";
+import { resolveAppliedTaxRate, type TaxRate, type TaxRateRepository } from "../tax-rates/index.js";
 import type { GoodsReceipt, GoodsReceiptRepository } from "./goods-receipt.js";
 import { markGoodsReceiptInvoiced } from "./goods-receipt.js";
 import { atomically, recordPurchaseAudit, type PurchaseAuditDeps } from "./audit.js";
@@ -65,6 +66,8 @@ export interface PurchaseInvoiceLine {
   readonly qty: Qty;
   readonly unitCost: Money;
   readonly taxRatePercent: number;
+  /** The tax rate row applied. Absent on an invoice stored before the field existed, or when no single active rate matched (D79). */
+  readonly taxRateId?: string | null;
   /** Supplier lot this delivery arrived under. Absent for non-tracked goods. */
   readonly batchNo?: string | null;
   /** ISO-8601 expiry of the received goods; drives FEFO consumption. Absent for non-perishables. */
@@ -139,6 +142,7 @@ export interface PurchaseInvoiceLineInput {
   readonly qty: Qty;
   readonly unitCost: Money;
   readonly taxRatePercent?: number;
+  readonly taxRateId?: string | null;
   readonly batchNo?: string | null;
   readonly expiryDate?: string | null;
   readonly costCategory?: CostCategory | null;
@@ -163,6 +167,8 @@ export interface CreatePurchaseInvoiceCommand {
 
 export interface CreatePurchaseInvoiceDeps {
   readonly invoices: PurchaseInvoiceRepository;
+  /** The tax rate master; without it no line can be given a `taxRateId` (D79). */
+  readonly taxRates?: Pick<TaxRateRepository, "list">;
   readonly receipts?: GoodsReceiptRepository;
   readonly numbering: NextNumberService;
   readonly policy?: PurchasePolicy;
@@ -365,16 +371,22 @@ export function buildInvoiceLinesFromReceipt(
 
 function normalizeLines(
   lines: readonly PurchaseInvoiceLineInput[],
+  taxRates: readonly TaxRate[] | null,
 ): PurchaseInvoiceLine[] {
   return lines.map((l) => {
     const kind = l.kind ?? "inventory";
+    const tax =
+      taxRates === null
+        ? { taxRateId: null, taxRatePercent: l.taxRatePercent ?? 0 }
+        : resolveAppliedTaxRate(taxRates, l, 0);
     return {
       itemId: kind === "expense" ? (l.itemId ?? null) : (l.itemId ?? null),
       description: l.description ?? null,
       kind,
       qty: l.qty,
       unitCost: l.unitCost,
-      taxRatePercent: l.taxRatePercent ?? 0,
+      taxRatePercent: tax.taxRatePercent,
+      taxRateId: tax.taxRateId,
       batchNo: l.batchNo ?? null,
       expiryDate: l.expiryDate ?? null,
       costCategory: l.costCategory ?? null,
@@ -431,7 +443,7 @@ export async function createPurchaseInvoice(
     throw new DuplicatePurchaseDocumentError(command.id);
   }
 
-  const lines = normalizeLines(command.lines);
+  const lines = normalizeLines(command.lines, deps.taxRates ? await deps.taxRates.list() : null);
   // A from-receipt invoice inherits the receipt's projectId when the caller
   // does not state its own (D-01) — the header field an unattended
   // create-from-receipt build would otherwise drop.
@@ -562,17 +574,20 @@ export function buildInvoicePosting(
     // reports the rates actually charged, and it can only do that if the ledger
     // recorded them (D28). The parts are summed from the per-line tax so they
     // still add to exactly `tax` — the payable above is unchanged.
-    const taxByRate = new Map<number, Money>();
+    const taxByRate = new Map<string, { rate: number; taxRateId: string | null; amount: Money }>();
     for (const line of invoice.lines) {
       const lineTax = convert(purchaseInvoiceLineTax(line));
       if (lineTax.scaled === 0n) continue;
-      taxByRate.set(line.taxRatePercent, (taxByRate.get(line.taxRatePercent) ?? Money.zero()).add(lineTax));
+      const taxRateId = line.taxRateId ?? null;
+      const key = `${line.taxRatePercent}|${taxRateId ?? ""}`;
+      const taxed = taxByRate.get(key);
+      taxByRate.set(key, { rate: line.taxRatePercent, taxRateId, amount: (taxed?.amount ?? Money.zero()).add(lineTax) });
     }
     if (taxByRate.size === 0) {
       lines.push({ accountId: accounts.taxAccountId, debit: tax, credit: Money.zero() });
     } else {
-      for (const [rate, amount] of taxByRate) {
-        lines.push({ accountId: accounts.taxAccountId, debit: amount, credit: Money.zero(), taxRatePercent: rate });
+      for (const { rate, taxRateId, amount } of taxByRate.values()) {
+        lines.push({ accountId: accounts.taxAccountId, debit: amount, credit: Money.zero(), taxRatePercent: rate, taxRateId });
       }
     }
   }

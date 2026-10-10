@@ -74,7 +74,7 @@ describe("fiscal-periods router — generate/list/get", () => {
 });
 
 describe("fiscal-periods router — lifecycle actions", () => {
-  it("closes an open period", async () => {
+  it("closes an open period when no pre-close guard is registered (a bare router; createBackend always registers one — see period-close-routes.test.ts)", async () => {
     const { app } = newApp();
     await generateYear(app);
     const res = await app.fetch(req("/fp-2026-01/close", { method: "POST", permissions: "accounting.period.close" }));

@@ -46,6 +46,24 @@ export enum PeriodCloseFixTargetDTO {
   Eta = "eta",
 }
 
+export enum PeriodCloseDocKindDTO {
+  JournalEntry = "journal_entry",
+  SalesInvoice = "sales_invoice",
+  PurchaseInvoice = "purchase_invoice",
+  GoodsReceipt = "goods_receipt",
+  Voucher = "voucher",
+  SalesReturn = "sales_return",
+  PurchaseReturn = "purchase_return",
+  LandedCost = "landed_cost",
+  StockTransfer = "stock_transfer",
+  StockAdjustment = "stock_adjustment",
+  DepreciationRun = "depreciation_run",
+  WritedownRun = "writedown_run",
+  PayrollRun = "payroll_run",
+}
+
+export const periodCloseDocKindSchema = z.nativeEnum(PeriodCloseDocKindDTO);
+
 export enum PeriodCloseFindingKindDTO {
   Drafts = "drafts",
   PendingApproval = "pending_approval",

@@ -274,7 +274,9 @@ export async function run(ctx: Ctx): Promise<void> {
       ctx.check("the fiscal year has January/February/March periods to test against", Boolean(jan && feb && mar), `periods=${periods.length}`);
       if (!jan || !feb || !mar) return;
 
-      const closeJan = await ctx.req("POST", `/fiscal-periods/${jan.id}/close`, {});
+      // The demo month carries real unfinished work (a recurring draft, no depreciation run), so the guided
+      // close (D176 C-3) refuses a bare close; this scenario is about the POSTING gate, and closes by override.
+      const closeJan = await ctx.req("POST", `/fiscal-periods/${jan.id}/close`, { overrideReason: "SCN: إقفال اختباري فوق فحوص الإقفال المفتوحة" });
       ctx.check("closing an open period succeeds", closeJan.status === 200 && closeJan.body?.status === "closed", `status ${closeJan.status}`);
 
       const postIntoClosed = await ctx.req("POST", "/gl/journal-entries", {
@@ -308,9 +310,15 @@ export async function run(ctx: Ctx): Promise<void> {
         `status ${lockFromOpen.status} body ${JSON.stringify(lockFromOpen.body)}`,
       );
 
-      const closeFeb = await ctx.req("POST", `/fiscal-periods/${feb.id}/close`, {});
+      const closeFeb = await ctx.req("POST", `/fiscal-periods/${feb.id}/close`, { overrideReason: "SCN: إقفال اختباري فوق فحوص الإقفال المفتوحة" });
       ctx.check("closing February succeeds", closeFeb.status === 200 && closeFeb.body?.status === "closed", `status ${closeFeb.status}`);
-      const lockFeb = await ctx.req("POST", `/fiscal-periods/${feb.id}/lock`, {});
+      const bareLockFeb = await ctx.req("POST", `/fiscal-periods/${feb.id}/lock`, {});
+      ctx.check(
+        "a bare lock is held to the same pre-close checks as the close — the terminal step is not a way around them",
+        bareLockFeb.status === 409 && bareLockFeb.body?.error === "PERIOD_CLOSE_BLOCKED",
+        `status ${bareLockFeb.status} body ${JSON.stringify(bareLockFeb.body).slice(0, 160)}`,
+      );
+      const lockFeb = await ctx.req("POST", `/fiscal-periods/${feb.id}/lock`, { overrideReason: "SCN: إقفال اختباري فوق فحوص الإقفال المفتوحة" });
       ctx.check("locking a closed period succeeds", lockFeb.status === 200 && lockFeb.body?.status === "locked", `status ${lockFeb.status}`);
 
       const reopenLocked = await ctx.req("POST", `/fiscal-periods/${feb.id}/reopen`, {});
@@ -1500,9 +1508,22 @@ export async function closingAMonthStrandsTheDraftsDatedIntoIt(ctx: Ctx): Promis
     ctx.check("a draft dated into March saves without touching the ledger", draft.status === 201 && draft.body?.status === "draft", `status ${draft.status} body ${JSON.stringify(draft.body).slice(0, 160)}`);
     ctx.check("and carries no entry number, because it has not been posted", draft.body?.entryNo === null, String(draft.body?.entryNo));
 
-    const close = await ctx.req("POST", `/fiscal-periods/${march.id}/close`, {});
+    // D176 C-3, fixed: this used to assert the close was ACCEPTED in silence. It is now refused, and names the draft.
+    const bareClose = await ctx.req("POST", `/fiscal-periods/${march.id}/close`, {});
+    const draftsCheck = (bareClose.body?.checklist?.checks ?? []).find((c: any) => c.code === "drafts");
+    const strandedJournals = (draftsCheck?.findings ?? []).find((f: any) => f.ref === "journal_entry");
     ctx.check(
-      "FINDING: the close is accepted with unposted work dated into the month, and says nothing about it — no count of stranded drafts, no refusal, no warning",
+      "D176 C-3: the close is REFUSED while unposted work is dated into the month",
+      bareClose.status === 409 && bareClose.body?.error === "PERIOD_CLOSE_BLOCKED" && (bareClose.body?.failedChecks ?? []).includes("drafts"),
+      `status ${bareClose.status} body ${JSON.stringify(bareClose.body).slice(0, 200)}`,
+    );
+    ctx.check("and it counts the stranded journal drafts instead of saying nothing", ctx.n(strandedJournals?.count) >= 1, JSON.stringify(draftsCheck).slice(0, 200));
+    ctx.check("in Arabic and in English", /[\u0600-\u06FF]/.test(String(bareClose.body?.message)) && typeof bareClose.body?.messageEn === "string");
+    ctx.check("and March is still open", (await ctx.req("GET", `/fiscal-periods/${march.id}`)).body?.status === "open");
+
+    const close = await ctx.req("POST", `/fiscal-periods/${march.id}/close`, { overrideReason: "SCN: إقفال اختباري فوق فحوص الإقفال المفتوحة" });
+    ctx.check(
+      "an override with a reason still closes it — which is how a draft can be stranded on purpose",
       close.status === 200 && close.body?.status === "closed",
       `status ${close.status} body ${JSON.stringify(close.body)}`,
     );

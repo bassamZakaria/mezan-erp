@@ -780,7 +780,7 @@ export async function run(ctx: Ctx): Promise<void> {
     // Fiscal-period close remains its own, separate lock — an accounting control, not a tax one.
     const july = rows((await req("GET", "/fiscal-periods?year=2026")).body).find((p: any) => p.periodNumber === 7);
     if (july?.id) {
-      const closed = await req("POST", `/fiscal-periods/${july.id}/close`, {});
+      const closed = await req("POST", `/fiscal-periods/${july.id}/close`, { overrideReason: "SCN-S: إقفال اختباري فوق فحوص الإقفال المفتوحة" });
       check("July closes", closed.status === 200, `status ${closed.status}`);
       const blocked = await postJournal("SCN-S-JE-JULY-BLOCKED", "2026-07-21", "محاولة بعد الإقفال", [
         { accountId: AR, debit: "1140.00", credit: "0.00", partyId: CUSTOMER },
@@ -990,7 +990,7 @@ export async function run(ctx: Ctx): Promise<void> {
         warehouseId: WH, branchId: BRANCH, arAccountId: AR, taxAccountId: OUTPUT_TAX,
         lines: [{ lineId: "SCN-S-BURN-L1", itemId: "SCN-S-SVC", itemNameAr: "خدمة اختبار", isStock: false, qty: "1", unitPrice: "10", taxRatePercent: 0, revenueAccountId: REVENUE }],
       });
-      await req("POST", `/fiscal-periods/${august.id}/close`, {});
+      await req("POST", `/fiscal-periods/${august.id}/close`, { overrideReason: "SCN-S: إقفال اختباري فوق فحوص الإقفال المفتوحة" });
       const beforeFail = n((await req("GET", "/sequences/SALES_INVOICE")).body?.currentValue);
       const failed = await req("POST", "/sales-invoices/SCN-S-BURN/confirm", {});
       check("the confirm is refused because the period is closed", failed.status === 422, `status ${failed.status} ${JSON.stringify(failed.body).slice(0, 200)}`);

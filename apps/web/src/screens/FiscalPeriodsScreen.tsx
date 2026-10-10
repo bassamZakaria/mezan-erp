@@ -22,6 +22,8 @@ import {
 } from "../data/hooks";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { todayIso } from "../lib/dates";
+import { fiscalMonthLabel } from "../lib/fiscal-month";
+import { useNavigation } from "../navigation";
 import { YearEndCloseCard } from "./YearEndCloseCard";
 import { EMPTY } from "../lib/empty";
 import { useUrlNumber, useUrlParam } from "../lib/url-state";
@@ -38,25 +40,7 @@ import { useUrlNumber, useUrlParam } from "../lib/url-state";
 const STATUS_KEY: Record<FiscalPeriodStatusDTO, AppTranslationKey> = { open: "fiscalPeriods.status.open", closed: "fiscalPeriods.status.closed", locked: "fiscalPeriods.status.locked" };
 const STATUS_TONE: Record<FiscalPeriodStatusDTO, PillTone> = { open: "success", closed: "warning", locked: "neutral" };
 
-const MONTH_KEYS: AppTranslationKey[] = [
-  "month.january",
-  "month.february",
-  "month.march",
-  "month.april",
-  "month.may",
-  "month.june",
-  "month.july",
-  "month.august",
-  "month.september",
-  "month.october",
-  "month.november",
-  "month.december",
-];
-
-function monthLabel(periodNumber: number, t: (key: AppTranslationKey) => string): string {
-  const key = MONTH_KEYS[periodNumber - 1];
-  return key ? t(key) : String(periodNumber);
-}
+const monthLabel = fiscalMonthLabel;
 
 const TODAY = todayIso();
 
@@ -69,6 +53,7 @@ const PAGE_SIZES = [10, 25, 50, 100] as const;
 export function FiscalPeriodsScreen() {
   const { t } = useAppTranslation();
   const query = useFiscalPeriods();
+  const nav = useNavigation();
   const generateFiscalYear = useGenerateFiscalYear();
   const closePeriodMutation = useClosePeriod();
   const reopenPeriodMutation = useReopenPeriod();
@@ -202,6 +187,7 @@ export function FiscalPeriodsScreen() {
             onChange={(value) => setYear(Number(value))}
             options={(years.length > 0 ? years : [selectedYear]).map((y) => ({ value: String(y), label: String(y) }))}
           />
+          <Button onClick={() => nav.navigate("period-close")}>{t("fiscalPeriods.openCloseWorkspace")}</Button>
           <Button variant="primary" onClick={generateNextYear}>
             {t("fiscalPeriods.createNextYear")}
           </Button>

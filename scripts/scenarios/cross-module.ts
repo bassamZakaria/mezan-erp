@@ -950,7 +950,7 @@ export async function run(ctx: Ctx): Promise<void> {
       treasuryAccountId: CASH_TREASURY, treasuryGlAccountId: CASH, counterpartyGlAccountId: EXPENSE,
     });
 
-    const closed = await req("POST", `/fiscal-periods/${august.id}/close`, {});
+    const closed = await req("POST", `/fiscal-periods/${august.id}/close`, { overrideReason: "SCN-X: إقفال اختباري فوق فحوص الإقفال المفتوحة" });
     check("August closes", closed.status === 200 && closed.body?.status === "closed", `status ${closed.status} ${JSON.stringify(closed.body).slice(0, 200)}`);
 
     const cashDuringClose = await gl(CASH);

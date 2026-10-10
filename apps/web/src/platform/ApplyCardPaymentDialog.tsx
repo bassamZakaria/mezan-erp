@@ -26,7 +26,6 @@ function isPositiveAmount(value: string): boolean {
   return AMOUNT_PATTERN.test(value) && /[1-9]/.test(value);
 }
 
-/** «تطبيق على الاشتراك» — the operator confirms what Paymob collected and why it is being applied by hand; the server renews, records the payment and audits it in one transaction. */
 export function ApplyCardPaymentDialog({ checkout, onClose, tenantId }: ApplyCardPaymentDialogProps) {
   const { t } = useAppTranslation();
   const expected = checkout ? toPiasters(checkout.amount) : "";

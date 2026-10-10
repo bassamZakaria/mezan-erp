@@ -404,6 +404,25 @@ describe("card checkout — sweeping checkouts whose callback never arrived", ()
     expect((await reload(r, second)).status).toBe("paid");
   });
 
+  it("stops asking a provider that keeps failing and leaves the rest of the batch untouched", async () => {
+    let inquiries = 0;
+    const r = await rig((provider) => ({
+      ...provider,
+      inquireTransaction: async () => {
+        inquiries += 1;
+        return { status: ProviderInquiryStatus.Unavailable, reason: "Paymob refused the API key" };
+      },
+    }));
+    for (const code of ["shop1", "shop2", "shop3", "shop4", "shop5"]) {
+      await addTenant(r.platform, code);
+      await r.open(`t-${code}`);
+    }
+    r.advance(SWEEP_EXPIRE_AFTER_MS * 2);
+
+    expect(await r.service.sweepPending()).toMatchObject({ examined: 5, unavailable: 5, expired: 0, paid: 0 });
+    expect(inquiries).toBe(3);
+  });
+
   it("runs one pass at a time", async () => {
     let inquiries = 0;
     const r = await rig((provider) => ({

@@ -20,11 +20,6 @@ function logResult(result: CardCheckoutSweepResult): void {
   if (settledAnything(result)) console.log(`[billing] card checkout sweep ${JSON.stringify(result)}`);
 }
 
-/**
- * Same shape as the dunning timer: one pass at boot, then on an interval that
- * never keeps the process alive. The service itself refuses to run two passes
- * at once, so a slow provider cannot stack them.
- */
 export function startCardCheckoutSweepTimer(
   service: Pick<CardCheckoutService, "sweepPending">,
   options: CardCheckoutSweepTimerOptions = {},

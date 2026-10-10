@@ -62,6 +62,7 @@ export enum CheckoutFailureReason {
 export const SWEEP_PENDING_AFTER_MS = 15 * 60_000;
 export const SWEEP_EXPIRE_AFTER_MS = 24 * 60 * 60_000;
 const SWEEP_BATCH = 200;
+const SWEEP_GIVE_UP_AFTER_UNAVAILABLE = 3;
 
 export interface CardCheckoutSweepOptions {
   /** A checkout pending for less than this is still inside the window a callback normally arrives in. */
@@ -416,13 +417,22 @@ export function createCardCheckoutService(options: CardCheckoutServiceOptions): 
     const tally: SweepTally = {
       examined: due.length, paid: 0, declined: 0, unapplied: 0, expired: 0, stillPending: 0, alreadySettled: 0, unavailable: 0, failed: 0,
     };
+    let unavailableInARow = 0;
     for (const checkout of due) {
+      // A provider that has just failed several inquiries running is down or
+      // refusing our key; asking it about the rest of the batch helps nobody.
+      if (unavailableInARow >= SWEEP_GIVE_UP_AFTER_UNAVAILABLE) {
+        tally.unavailable += 1;
+        continue;
+      }
+      const unavailableBefore = tally.unavailable;
       try {
         await sweepOne(checkout, expireBefore, tally);
       } catch (err) {
         log(`sweep failed on checkout ${checkout.id}`, err);
         tally.failed += 1;
       }
+      unavailableInARow = tally.unavailable > unavailableBefore ? unavailableInARow + 1 : 0;
     }
     return tally;
   }

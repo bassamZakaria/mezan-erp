@@ -207,7 +207,6 @@ export interface ApplyCardCheckoutVariables {
   readonly body: ApplyCardCheckoutRequestDTO;
 }
 
-/** Applying renews the subscription, so the tenant summary (period end, payments) is refetched along with the checkouts. */
 export function useApplyCardCheckoutMutation() {
   const { t } = useAppTranslation();
   const { request } = usePlatformApi();
@@ -224,7 +223,6 @@ export function useApplyCardCheckoutMutation() {
   });
 }
 
-/** One pass over every tenant's stuck checkouts, so anything it settled can change any tenant's summary. */
 export function useSweepCardCheckoutsMutation() {
   const { t } = useAppTranslation();
   const { request } = usePlatformApi();

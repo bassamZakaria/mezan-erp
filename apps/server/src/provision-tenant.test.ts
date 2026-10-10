@@ -82,6 +82,7 @@ describe("provisionTenant", () => {
       }),
     );
     expect(loginRes.status).toBe(200);
+    expect(((await loginRes.json()) as { tenantName: string }).tenantName).toBe("سياج");
   });
 
   it("refuses a code already claimed by a live tenant", async () => {

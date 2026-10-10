@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { SessionDTO } from "@mezan/contracts";
 import { createBackend, type BackendHandle } from "./create-backend.js";
-import { SEED_ADMIN_EMAIL, SEED_ADMIN_PIN, resolveSeedAdminSecrets } from "./seed.js";
+import { UNDISCLOSED_TENANT_NAME } from "./auth-routes.js";
+import { SEED_ADMIN_EMAIL, SEED_ADMIN_PIN, SEED_TENANT_NAME, resolveSeedAdminSecrets } from "./seed.js";
 
 type App = BackendHandle["app"];
 
@@ -559,5 +560,115 @@ describe("POST /auth/logout — revoking a session needs to be the machine that 
       fromAddress("192.168.1.40"),
     );
     expect(after.status).toBe(401);
+  });
+});
+
+/* ================================================================== */
+/* D-SAAS-02 / D-SAAS-07 — the company's own name, and who may read it */
+/* ================================================================== */
+
+describe("POST /bootstrap/admin — the claim carries the company's name (D-SAAS-02)", () => {
+  const COMPANY = "متجر الياسمين";
+  const owner = { nameAr: "سارة الياسمين", email: "owner@shop.test", pin: "246813" };
+
+  async function tenantNameAfterLogin(app: App): Promise<string> {
+    const login = await post(app, "/auth/login", { username: owner.email, pin: owner.pin });
+    expect(login.status).toBe(200);
+    return ((await login.json()) as SessionDTO).tenantName;
+  }
+
+  it("names the tenant what the claim says, in the session it returns and in every later one", async () => {
+    const app = await newBackend();
+
+    const claimed = await post(app, "/bootstrap/admin", { ...owner, companyName: COMPANY });
+
+    expect(claimed.status).toBe(201);
+    expect(((await claimed.json()) as SessionDTO).tenantName).toBe(COMPANY);
+    expect(await tenantNameAfterLogin(app)).toBe(COMPANY);
+  });
+
+  it("writes the name into the settings a printed document header reads", async () => {
+    const app = await newBackend();
+    const claimed = await post(app, "/bootstrap/admin", { ...owner, companyName: COMPANY });
+    const { token } = (await claimed.json()) as SessionDTO & { token: string };
+
+    const settings = await get(app, "/settings", { authorization: `Bearer ${token}` });
+
+    expect(settings.status).toBe(200);
+    expect(((await settings.json()) as { companyName: string }).companyName).toBe(COMPANY);
+  });
+
+  it("leaves the seeded name alone when the claim names no company — the desktop wizard's request", async () => {
+    const app = await newBackend();
+
+    const claimed = await post(app, "/bootstrap/admin", owner);
+
+    expect(claimed.status).toBe(201);
+    expect(((await claimed.json()) as SessionDTO).tenantName).toBe(SEED_TENANT_NAME);
+  });
+
+  it("refuses a blank company name instead of naming the tenant nothing", async () => {
+    const app = await newBackend();
+
+    const refused = await post(app, "/bootstrap/admin", { ...owner, companyName: "   " });
+
+    expect(refused.status).toBe(400);
+    expect((await post(app, "/auth/login", { username: owner.email, pin: owner.pin })).status).toBe(401);
+  });
+
+  it("does not let a refused replay rename a tenant somebody already claimed", async () => {
+    const app = await newBackend();
+    await post(app, "/bootstrap/admin", { ...owner, companyName: COMPANY });
+
+    const replay = await post(app, "/bootstrap/admin", { nameAr: "attacker", email: "attacker@evil.test", pin: "999999", companyName: "شركة المهاجم" });
+
+    expect(replay.status).toBe(409);
+    expect(await tenantNameAfterLogin(app)).toBe(COMPANY);
+  });
+
+  it("does not rename the tenant when creating the admin fails", async () => {
+    const app = await newBackend();
+
+    const refused = await post(app, "/bootstrap/admin", { ...owner, email: SEED_ADMIN_EMAIL, companyName: COMPANY });
+
+    expect(refused.status).toBe(409);
+    const seedLogin = await post(app, "/auth/login", { username: SEED_ADMIN_EMAIL, pin: SEED_ADMIN_PIN });
+    expect(((await seedLogin.json()) as SessionDTO).tenantName).toBe(SEED_TENANT_NAME);
+  });
+});
+
+describe("GET /tenant — an anonymous caller never learns a claimed tenant's name (D-SAAS-07)", () => {
+  it("answers the neutral placeholder once claimed, whatever the company is called", async () => {
+    const app = await newBackend();
+    await post(app, "/bootstrap/admin", { nameAr: "سارة", email: "owner@shop.test", pin: "246813", companyName: "متجر الياسمين" });
+
+    const anonymous = await get(app, "/tenant");
+
+    expect(anonymous.status).toBe(200);
+    expect(await anonymous.json()).toEqual({ name: UNDISCLOSED_TENANT_NAME });
+  });
+
+  it("keeps answering the placeholder after the owner renames the company in Settings", async () => {
+    const app = await newBackend();
+    const claimed = await post(app, "/bootstrap/admin", { nameAr: "سارة", email: "owner@shop.test", pin: "246813", companyName: "متجر الياسمين" });
+    const { token } = (await claimed.json()) as SessionDTO & { token: string };
+    const auth = { authorization: `Bearer ${token}` };
+    const current = (await (await get(app, "/settings", auth)).json()) as Record<string, unknown>;
+    const renamed = await app.fetch(
+      new Request("http://local/settings", {
+        method: "PUT",
+        headers: { "content-type": "application/json", ...auth },
+        body: JSON.stringify({ ...current, companyName: "الاسم التجاري السري" }),
+      }),
+    );
+    expect(renamed.status).toBe(200);
+
+    const anonymous = await get(app, "/tenant");
+
+    expect(await anonymous.json()).toEqual({ name: UNDISCLOSED_TENANT_NAME });
+  });
+
+  it("the placeholder is not the vendor's own name", () => {
+    expect(UNDISCLOSED_TENANT_NAME).not.toBe(SEED_TENANT_NAME);
   });
 });

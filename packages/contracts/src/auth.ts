@@ -59,6 +59,12 @@ export const bootstrapAdminRequestSchema = z.object({
   /** The first admin's email — and, from this moment on, their login. */
   email: z.string().trim().toLowerCase().email(),
   pin: z.string().regex(/^\d{6}$/),
+  /**
+   * The company being claimed, as opposed to `nameAr`, which is the admin's own
+   * name. Cloud provisioning sends the name the tenant was created with; the
+   * desktop wizard sends none and the install keeps its seeded name.
+   */
+  companyName: z.string().trim().min(1).max(200).nullable().default(null),
 });
 
 /** Result of the idempotent `POST /bootstrap/seed` — what the empty-DB seed created (or found). */

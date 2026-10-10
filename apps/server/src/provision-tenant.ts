@@ -83,7 +83,7 @@ export async function provisionTenant(cmd: ProvisionTenantCommand, deps: Provisi
         new Request("http://tenant.internal/bootstrap/admin", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ nameAr: cmd.ownerNameAr, email: cmd.ownerEmail, pin: adminPin }),
+          body: JSON.stringify({ nameAr: cmd.ownerNameAr, email: cmd.ownerEmail, pin: adminPin, companyName: cmd.nameAr }),
         }),
       );
       if (adminRes.status !== 201) {

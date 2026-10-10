@@ -52,6 +52,13 @@ export interface AuthRoutesDeps {
   readonly resolveEntitlements?: (c: Context) => Promise<Entitlements | null | undefined> | Entitlements | null | undefined;
 }
 
+/**
+ * What an anonymous caller is told a claimed tenant is called: the product's
+ * name, identical for every tenant, so the answer carries nothing about whose
+ * books these are.
+ */
+export const UNDISCLOSED_TENANT_NAME = "Mezan";
+
 async function tenantName(settings: SettingsRepository): Promise<string> {
   const s = await settings.get();
   return s?.companyName && s.companyName.trim() !== "" ? s.companyName : SEED_TENANT_NAME;
@@ -187,11 +194,17 @@ export function createAuthRoutes(deps: AuthRoutesDeps) {
     return users.some((u) => u.id !== SEED_ADMIN_USER_ID);
   }
 
-  /** Writes the claim once. Never cleared, and unreachable from `PUT /settings`. */
-  async function recordTenantClaim(at: string): Promise<void> {
+  /**
+   * Writes the claim once. Never cleared, and unreachable from `PUT /settings`.
+   *
+   * The company name rides in the SAME write and nowhere earlier: this route is
+   * anonymous, so a name written before the claim is recorded would let a
+   * refused or failed request rename somebody else's tenant.
+   */
+  async function recordTenantClaim(at: string, companyName: string | null): Promise<void> {
     const settings = await deps.settings.get();
     if (!settings || settings.tenantClaimedAt) return;
-    await deps.settings.save({ ...settings, tenantClaimedAt: at });
+    await deps.settings.save({ ...settings, tenantClaimedAt: at, companyName: companyName ?? settings.companyName });
   }
 
   /**
@@ -334,7 +347,7 @@ export function createAuthRoutes(deps: AuthRoutesDeps) {
    * host, gets the same generic placeholder a brand-new install would.
    */
   app.get("/tenant", async (c) => {
-    if (await tenantIsClaimed()) return c.json({ name: SEED_TENANT_NAME });
+    if (await tenantIsClaimed()) return c.json({ name: UNDISCLOSED_TENANT_NAME });
     return c.json({ name: await tenantName(deps.settings) });
   });
 
@@ -422,7 +435,7 @@ export function createAuthRoutes(deps: AuthRoutesDeps) {
         deps.uow,
         deps.hasher,
       );
-      await recordTenantClaim(new Date().toISOString());
+      await recordTenantClaim(new Date().toISOString(), parsed.data.companyName);
       await retireSeedAdmin();
       // The single highest-authority write in the product, and it recorded
       // nothing at all — so a company admin appearing from nowhere was

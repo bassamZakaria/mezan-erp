@@ -7,7 +7,7 @@ import type { Money, Qty } from "../money/index.js";
 import type { CostCategory } from "../contracting/cost-category.js";
 
 export interface SourcePurchaseInvoiceLine {
-  /** The invoice line's position, so a return can name the line it reverses rather than the first line of its item. */
+  /** EXTERNAL CONTRACT: a purchase invoice line has no id; this is its position in the invoice. */
   readonly sourceLineId?: string | null;
   readonly itemId: string;
   readonly itemName: string;

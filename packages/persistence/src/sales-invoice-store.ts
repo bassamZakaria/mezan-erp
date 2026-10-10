@@ -137,8 +137,6 @@ const ADDED_LINE_COLUMNS: readonly [string, string][] = [
   ["line_discount_type", "TEXT"],
   ["line_discount_amount", "INTEGER"],
   ["cost_center_id", "TEXT"],
-  // NULL on every line stored before the column existed: the e-invoice
-  // builders match such a line's percent, as they always did (D79).
   ["tax_rate_id", "TEXT"],
 ];
 

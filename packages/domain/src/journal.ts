@@ -54,12 +54,6 @@ export interface JournalLine {
    * existed — the report falls back to the old derivation for those.
    */
   readonly taxRatePercent?: number | null;
-  /**
-   * The tax rate row the line was charged under, beside its percent. Two rates
-   * can share a percent (exempt and zero-rated export are both 0%), so only the
-   * id tells the VAT return which one a base belongs to (D79). Null on lines
-   * posted before it existed and on lines whose document stored no rate id.
-   */
   readonly taxRateId?: string | null;
   /**
    * بُعد المشروع — the contracting project this line belongs to. Immutable with

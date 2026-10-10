@@ -633,9 +633,6 @@ export function createSqliteLedgerStore(
   // has the table already, so CREATE TABLE IF NOT EXISTS alone never adds it.
   const lineColumns = new Set((sqlite.prepare(`PRAGMA table_info(journal_line)`).all() as { name: string }[]).map((c) => c.name));
   if (!lineColumns.has("tax_rate_percent")) sqlite.exec(`ALTER TABLE journal_line ADD COLUMN tax_rate_percent REAL`);
-  // The rate's identity (D79). Nullable by design: every line already in an
-  // existing books file reads back NULL, and the VAT return then groups it by
-  // its percent exactly as it did before the column existed.
   if (!lineColumns.has("tax_rate_id")) sqlite.exec(`ALTER TABLE journal_line ADD COLUMN tax_rate_id TEXT`);
   sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_journal_line_tax_rate ON journal_line(tax_rate_id) WHERE tax_rate_id IS NOT NULL`);
   // The two contracting dimensions (D-01) arrived later still.

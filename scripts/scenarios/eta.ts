@@ -301,8 +301,9 @@ export async function run(ctx: Ctx): Promise<void> {
  * e-invoice, the e-receipt and the VAT return read the classification off that
  * row. معفى (V003) and تصدير (V001) are both 0%: before the id existed a 0% line
  * could only be filed as the neutral V004, or as whichever rate was defined
- * first. A line with no stored id — every line in a books file written before
- * the column existed — still takes that fallback, and only that line.
+ * first. A 0% line with no stored id — every such line in a books file written
+ * before the column existed — is never matched to a rate: on a tenant holding
+ * exempt or export it is blocked from the authority until its rate is named.
  */
 export async function taxRateIdentity_D79(ctx: Ctx): Promise<void> {
   const { req, n, check, checkEq, scenario, rows } = ctx;

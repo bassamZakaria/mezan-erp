@@ -425,11 +425,6 @@ const SALES_INVOICES = [
 const VAT_PERCENT = 14;
 const VAT_RATE_ID = "VAT14";
 
-/**
- * Two rates at the SAME percent that mean different things to the authority:
- * معفى (V003) and تصدير سلع (V001). Only the id a line stores tells them apart
- * (D79), so the demo tenant carries both and one invoice that uses each.
- */
 const ZERO_RATED_TAX_RATES = [
   { id: "VAT-EXEMPT", code: "VAT-EXEMPT", name: "معفى من الضريبة", etaSubType: "V003" },
   { id: "VAT-EXPORT", code: "VAT-EXPORT", name: "تصدير — نسبة صفر", etaSubType: "V001" },

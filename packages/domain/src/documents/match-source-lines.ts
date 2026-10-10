@@ -10,15 +10,6 @@ export interface MatchedSourceLine<L, R> {
   readonly request: R;
 }
 
-/**
- * Pairs each return request with the ONE source-invoice line it reverses.
- *
- * A request that names `sourceLineId` takes exactly that line. One that names
- * only the item — every caller written before lines could be named — takes the
- * first line of that item no other request has claimed. An item sold on two
- * lines at two tax rates is therefore returned under the rate of the line the
- * caller named, and never against both lines at once.
- */
 export function matchSourceLines<L extends SourceLineKey, R extends SourceLineKey>(
   lines: readonly L[],
   requests: readonly R[],
@@ -37,14 +28,9 @@ export function matchSourceLines<L extends SourceLineKey, R extends SourceLineKe
   return [...claimed.entries()].sort(([a], [b]) => a - b).map(([index, request]) => ({ line: lines[index] as L, request }));
 }
 
-/**
- * What confirmed returns have already taken from EACH source line.
- *
- * A return that names its line counts against that line. One stored before
- * lines could be named counts against the lines of its item in order, each up
- * to what that line still has — the same first-line rule `matchSourceLines`
- * uses, so the limit a return is checked against is the limit it was built on.
- */
+// INVARIANT: a return that names no line is counted against its item's lines
+// in the same first-line order `matchSourceLines` claims them, so the limit a
+// return is checked against is the limit it was built on.
 export function returnedQtyBySourceLine(
   lines: readonly (SourceLineKey & { readonly qty: Qty })[],
   returned: readonly (SourceLineKey & { readonly qty: Qty })[],

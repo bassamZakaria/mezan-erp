@@ -56,7 +56,6 @@ export interface FinancialReportsRoutesDeps {
     readonly outputVatAccountId: string;
     readonly inputVatAccountId: string;
     readonly inputBaseAccountIds?: readonly string[];
-    /** Resolved per request: the billings account is routed, and a tenant can remap it. */
     readonly outputBaseAccountIds?: () => Promise<readonly string[]>;
   };
   readonly taxRates?: Pick<TaxRateRepository, "list">;

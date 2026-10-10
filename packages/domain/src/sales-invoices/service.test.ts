@@ -628,9 +628,6 @@ describe("SalesInvoiceService — audit", () => {
   });
 });
 
-/* ================================================================== */
-/* The line stores the tax rate it was charged under (D79)             */
-/* ================================================================== */
 
 describe("SalesInvoiceService.createDraft — the tax rate's identity (D79)", () => {
   const rate = (id: string, percent: number, etaSubType: TaxRate["etaSubType"], status: TaxRate["status"] = "active"): TaxRate => ({

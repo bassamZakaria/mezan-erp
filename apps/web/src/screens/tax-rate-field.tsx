@@ -58,9 +58,9 @@ export interface TaxRateFieldProps {
 export function TaxRateField({ label, choice, onChange, taxRates, fallbackPercent, disabled }: TaxRateFieldProps) {
   const { t } = useAppTranslation();
   const selectedId = chosenTaxRateId(choice, taxRates, fallbackPercent);
-  // The unnamed option is offered only where it is what an untouched line
-  // already is: at 0%, or when no single rate has the percent. Where a rate IS
-  // derivable, "no named rate" would be a line charged tax under no rate.
+  // INVARIANT: the unnamed option exists only where an untouched line is
+  // already unnamed. Where a rate is derivable, offering it would let a line
+  // be charged tax under no rate.
   const unnamedIsDerived = chosenTaxRateId(DERIVED_TAX, taxRates, fallbackPercent) === null;
   const options = useMemo(
     () => [

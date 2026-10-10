@@ -13,7 +13,6 @@
 import type { Money, Qty } from "../money/index.js";
 
 export interface SourceSalesInvoiceLine {
-  /** The invoice line's own id, so a return can name the line it reverses rather than the first line of its item. */
   readonly sourceLineId?: string | null;
   readonly itemId: string;
   readonly itemName: string;

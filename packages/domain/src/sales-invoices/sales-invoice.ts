@@ -89,11 +89,6 @@ export interface SalesInvoiceLine {
   readonly discountAmount: Money;
   /** Output VAT percentage applied to this line (0 for exempt). */
   readonly taxRatePercent: number;
-  /**
-   * The tax rate row this line was charged under. NULL on a line raised before
-   * the column existed, or when no single active rate matched its percent: the
-   * e-invoice builders then fall back to matching the percent (D79).
-   */
   readonly taxRateId: string | null;
   /** Revenue GL account this line credits on confirm. */
   readonly revenueAccountId: string;

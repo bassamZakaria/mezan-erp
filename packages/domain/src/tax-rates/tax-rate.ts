@@ -81,7 +81,6 @@ export interface TaxRateUsage {
   isReferenced(taxRateId: string): Promise<boolean>;
 }
 
-/** The answer when nothing can check: a rate is treated as referenced, so its identity stays locked. */
 export const ASSUME_TAX_RATE_REFERENCED: TaxRateUsage = { isReferenced: async () => true };
 
 export interface TaxRateRepository {

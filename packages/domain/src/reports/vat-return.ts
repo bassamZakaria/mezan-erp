@@ -53,7 +53,6 @@ export interface VatReturnRow {
   readonly sideLabel: string;
   /** Rate as a percentage, e.g. 14 or 0. */
   readonly rate: number;
-  /** The tax rate the lines stored; null for lines that recorded only a percent. */
   readonly taxRateId: string | null;
   readonly taxRateName: string | null;
   readonly base: number;

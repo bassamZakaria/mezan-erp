@@ -90,11 +90,6 @@ export interface EtaPrevalidationLineInput {
    * id and no active tax rate matches its percent unambiguously (D79).
    */
   readonly etaTaxSubType: string | null;
-  /**
-   * A 0% line that stored no tax rate while the tenant holds a specific zero
-   * classification (exempt, export…): it may not reach the authority until
-   * someone names its rate.
-   */
   readonly taxClassificationMissing: boolean;
   readonly netTotal: string;
   readonly taxAmount: string;

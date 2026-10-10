@@ -94,13 +94,8 @@ export function resolveDocumentLineTax(
     : resolveAppliedTaxRate(taxRates, request, policy.defaultPercent);
 }
 
-/**
- * A line copied from a document that already resolved its tax — a quote
- * converting into an invoice. The rate was valid when it was quoted, so it is
- * kept even if it has been deactivated since, and the line is not repriced. A
- * source that stored no rate (a quote written before quotes stored one) is
- * inferred from its percent, exactly as a new line would be.
- */
+// INVARIANT: an inherited rate is neither re-checked for being active nor
+// repriced — the source document was accepted under it.
 export function resolveInheritedTaxRate(
   taxRates: readonly RateIdentity[] | null,
   inherited: AppliedTaxRate,

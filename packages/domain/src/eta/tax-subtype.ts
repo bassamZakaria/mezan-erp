@@ -55,12 +55,6 @@ export function findLineTaxRate<T extends { readonly status: string; readonly ra
 
 const UNSPECIFIC_ZERO_SUBTYPES: ReadonlySet<string> = new Set(["auto", "V004"]);
 
-/**
- * A 0% line that stored no tax rate, on a tenant that holds a specific zero
- * classification (exempt, export…). Nothing on the books says the line is NOT
- * one of those, so it may not be filed as the neutral V004 until someone names
- * its rate.
- */
 export function isZeroRatedLineUnclassified<
   T extends { readonly id: string; readonly status: string; readonly rate: number; readonly etaSubType: string },
 >(taxRates: readonly T[], line: LineTaxIdentity): boolean {
@@ -75,12 +69,8 @@ export interface LineTaxIdentity {
   readonly taxRatePercent: number;
 }
 
-/**
- * The tax rate a line was charged at, read from the id the line stored. An
- * inactive rate still answers: a posted line keeps the classification that
- * applied when it was raised. Only a line with no stored id (or whose row is
- * gone) falls back to matching the percent.
- */
+// INVARIANT: an inactive rate still answers by id — a posted line keeps the
+// classification it was raised under.
 export function resolveLineTaxRate<
   T extends { readonly id: string; readonly status: string; readonly rate: number; readonly etaSubType: string },
 >(taxRates: readonly T[], line: LineTaxIdentity): T | null {

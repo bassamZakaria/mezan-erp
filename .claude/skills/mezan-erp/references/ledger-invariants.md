@@ -203,13 +203,19 @@ Proved in `scripts/scenarios/seams.ts`; each gap is a register entry.
   any stored line names keeps its percent and ETA sub-type for good (409
   `TAX_RATE_IN_USE`); it may be renamed or deactivated, and an inactive rate still
   answers for lines already posted. The VAT return groups by the stored id and
-  never assigns a NULL-id line to a rate at report time. NULL — a pre-D79 row, or
-  a line that named no rate — is the only case the e-invoice builders match the
-  percent, and a NULL 0% line on a tenant with more than one 0% classification is
-  a blocking pre-validation finding. Still open: an item carries a percent, not a
-  rate id; a manual journal cannot name one; a NULL 0% line on a tenant with ONE
-  0% classification still files under it through that legacy fallback; and a tax
-  rate cannot express a partial taxable base (Egypt's 14%-on-36% construction
+  never assigns a NULL-id line to a rate at report time. Its output base counts
+  revenue accounts plus the routed «فواتير مستخلصات على العقود» liability (2165),
+  which a cost-to-cost certificate invoice credits instead of revenue; its input
+  base is read only off purchase-side entries, so a sale that credits an asset
+  is not a negative purchase. NULL — a pre-D79 row, or a line that named no
+  rate — is the only case the e-invoice builders match the percent, and they
+  match it only above 0%. A NULL 0% line on a tenant holding ANY specific zero
+  classification (exempt, export) is a blocking pre-validation finding on an
+  e-invoice and refuses a consumer e-receipt (`ETA_RECEIPT_NOT_READY`); the sale
+  itself still confirms and posts. `POST /tax-rates` with an existing id is 409
+  `TAX_RATE_ID_EXISTS`, never an overwrite. Still open: an item carries a
+  percent, not a rate id; a manual journal cannot name one; and a tax rate
+  cannot express a partial taxable base (Egypt's 14%-on-36% construction
   treatment), so a transitional-basis certificate invoice posts 5.04% with a NULL
   id.
 - **Cost centre.** Journal lines carry `costCenterId` and the cost-centre P&L groups

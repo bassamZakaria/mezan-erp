@@ -68,8 +68,8 @@ export interface DocumentGlPostingLine {
   /**
    * بُعد الفرع (DEC-20) — the branch the document belongs to. Dropped here it
    * is gone for good, the same way the cost centre and the project are. Null on
-   * every path that has no document branch (manual journals, payroll,
-   * depreciation, year-end close); those land in the statements' «غير مخصص»
+   * every path that has no document branch (a manual journal whose poster
+   * picked none, company-level entries); those land in the statements' «غير مخصص»
    * bucket rather than being derived from a join that would silently drop them.
    */
   readonly branchId?: string | null;

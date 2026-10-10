@@ -308,6 +308,7 @@ function ParamField({
       ) : field.kind === "select" ? (
         <Select
           size="sm"
+          className="min-w-[190px]"
           aria-label={field.label}
           value={params[field.key] ?? ""}
           onChange={(next) => set(field.key, next)}

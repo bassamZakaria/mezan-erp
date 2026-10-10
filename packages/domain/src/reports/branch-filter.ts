@@ -12,9 +12,11 @@ import type { ReportParamField } from "./types.js";
  * ONLY reports whose source rows actually carry a branch declare it. A stock
  * report reaches the branch through the warehouse holding the goods
  * ({@link branchOfWarehouse}); the financial statements read the posted journal
- * line, which carries a branch of its own since DEC-20 — filled path by path,
- * so a great deal of it is still null and every statement that narrows on it
- * must say so out loud ({@link UNATTRIBUTED_BRANCH_LABEL}).
+ * line, which carries a branch of its own since DEC-20. Every posting path whose
+ * source document has an unambiguous branch fills it (D111); company-level
+ * entries and lines posted before a path was filled stay null, so every
+ * statement that narrows on it must say so out loud
+ * ({@link UNATTRIBUTED_BRANCH_LABEL}).
  */
 export const BRANCH_PARAM_FIELD: ReportParamField = {
   kind: "branch",
@@ -48,10 +50,11 @@ export function matchesBranch(rowBranchId: string | null | undefined, branchId: 
  * The bucket a posted line with no branch on it falls into (DEC-20), as a
  * selectable value of the branch parameter.
  *
- * `branchId` is nullable and filled path by path — sales invoices, purchase
- * invoices and treasury vouchers carry one; manual journals only when the
- * poster picks a branch; payroll, depreciation and the year-end close carry
- * none at all. Branch columns therefore do NOT sum to the entity on their own,
+ * `branchId` is nullable. Documents raised in a branch, or moving stock held
+ * in one, carry it; a manual journal only when the poster picks a branch; and
+ * company-level entries — opening balances, unrealised FX revaluation, HR
+ * provisions, contracting certificates, a company-wide asset's depreciation —
+ * carry none at all. Branch columns therefore do NOT sum to the entity on their own,
  * and the only honest statement is one that names what is left over. The
  * bucket is always reachable and is never defaulted away.
  */

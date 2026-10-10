@@ -41,9 +41,10 @@ import { tenantToday } from "./tenant-day.js";
  * returned for a specific requested BRANCH — which is why every one of those
  * statements also reports «غير مخصص» on its own.
  *
- * The remaining statements (VAT return, general ledger, account ledger) read
- * the same entries but answer questions that are not branch questions, so they
- * declare nothing rather than offering a control that would only confuse.
+ * The general ledger and the account ledger narrow the same way, line by
+ * line (D111). The VAT return is the entity's own filing: narrowing it would
+ * present a partial statutory figure and serving it whole would hand a scoped
+ * caller every other branch's totals, so a branch-scoped caller is refused it.
  */
 export interface FinancialReportsRoutesDeps {
   readonly ledger: Pick<LedgerRepository, "list"> & Pick<Partial<LedgerRepository>, "accountBalances">;

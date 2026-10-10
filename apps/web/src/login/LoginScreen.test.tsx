@@ -353,6 +353,56 @@ describe("LoginScreen — SaaS company code", () => {
     expect(localStorage.getItem("mezan.tenantCode")).toBe("nile");
   });
 
+  it("opens on no company and no face row when two companies have signed in on this device — the last operator's leftover is dropped before the first paint", async () => {
+    rememberTenantCodeForEmail("a@acme.example", "acme");
+    rememberTenantCodeForEmail("b@nile.example", "nile");
+    localStorage.setItem("mezan.tenantCode", "nile");
+    localStorage.setItem(
+      "mezan.deviceUsers.nile",
+      JSON.stringify([{ email: "b@nile.example", nameAr: "بسمة النيل", nameEn: null, initials: "ب.ا", role: "admin", photoUrl: null }]),
+    );
+    const requests: string[] = [];
+    const transport = stubTransport({
+      ...preAuth,
+      "GET /tenant": () => ({ body: { name: "never shown" } }),
+      "GET /platform/resolve": () => ({ body: { mode: "code", exists: false } }),
+    });
+    renderWithProviders(<LoginScreen onStartWizard={() => {}} />, {
+      transport: (path, init) => {
+        requests.push(path);
+        return transport(path, init);
+      },
+    });
+
+    expect(await screen.findByLabelText("رمز المنشأة")).toHaveValue("");
+    expect(localStorage.getItem("mezan.tenantCode")).toBeNull();
+    expect(screen.queryByRole("radiogroup")).not.toBeInTheDocument();
+    expect(screen.queryByText("بسمة النيل")).not.toBeInTheDocument();
+    expect(requests).not.toContain("/tenant");
+
+    const email = screen.getByLabelText("البريد الإلكتروني");
+    fireEvent.change(email, { target: { value: "a@acme.example" } });
+    fireEvent.blur(email);
+    await screen.findByText("الرمز: acme");
+    expect(localStorage.getItem("mezan.tenantCode")).toBe("acme");
+  });
+
+  it("keeps the company code and the face row on a device only one company signs into", async () => {
+    rememberTenantCodeForEmail("b@nile.example", "nile");
+    localStorage.setItem("mezan.tenantCode", "nile");
+    localStorage.setItem(
+      "mezan.deviceUsers.nile",
+      JSON.stringify([{ email: "b@nile.example", nameAr: "بسمة النيل", nameEn: null, initials: "ب.ا", role: "admin", photoUrl: null }]),
+    );
+    renderWithProviders(<LoginScreen onStartWizard={() => {}} />, {
+      transport: stubTransport({ ...preAuth, "GET /platform/resolve": () => ({ body: { mode: "code", exists: true } }) }),
+    });
+
+    expect(await screen.findByLabelText("رمز المنشأة")).toHaveValue("nile");
+    expect(screen.getByRole("radio", { name: "اختر بسمة النيل" })).toBeChecked();
+    expect(localStorage.getItem("mezan.tenantCode")).toBe("nile");
+  });
+
   it("remembers the resolved company code under the operator's email after a successful sign-in", async () => {
     renderWithProviders(<LoginScreen onStartWizard={() => {}} />, {
       transport: stubTransport({

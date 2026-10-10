@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { BrandMark, Button, Copyright, TextInput, cn } from "@mezan/ui";
+import { BrandMark, Button, Copyright, TextInput, cn, useTheme } from "@mezan/ui";
 import { useLogin, usePlatformResolve, useTenantInfo } from "../data/hooks";
 import { useAppVersion } from "../data/hub-hooks";
 import {
   clearSessionExpired,
   clearTenantCode,
+  deviceSharedAcrossTenants,
   forgetTenantCodeForEmail,
   loadTenantCode,
   persistTenantCode,
@@ -37,6 +38,18 @@ function formatWait(seconds: number): string {
  */
 const DEFAULT_USERNAME = "admin@cyag.example";
 
+/**
+ * The company this screen opens on. A device several companies sign into
+ * opens on none: the leftover code is dropped BEFORE the first paint, so the
+ * previous operator's company and face row are never shown to the next one.
+ * Typing an email restores that operator's own company (`handleEmailBlur`).
+ * Idempotent on purpose — StrictMode runs a state initializer twice.
+ */
+function openingTenantCode(): string {
+  if (deviceSharedAcrossTenants()) clearTenantCode();
+  return loadTenantCode() ?? "";
+}
+
 export interface LoginScreenProps {
   onStartWizard: () => void;
 }
@@ -66,11 +79,12 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
   const appVersion = useAppVersion();
   const login = useLogin();
   const queryClient = useQueryClient();
+  useTheme();
 
   const platformResolve = usePlatformResolve();
   const tenantMode = platformResolve.data?.mode;
-  const [tenantCode, setTenantCode] = useState(() => loadTenantCode() ?? "");
-  const [resolvedCode, setResolvedCode] = useState(() => loadTenantCode() ?? "");
+  const [tenantCode, setTenantCode] = useState(openingTenantCode);
+  const [resolvedCode, setResolvedCode] = useState(openingTenantCode);
   const tenantCodeInvalid = tenantCode !== "" && !TENANT_CODE_RE.test(tenantCode);
   const tenantInfo = useTenantInfo(tenantMode === "subdomain" ? null : resolvedCode || null, {
     enabled: tenantMode === "subdomain" || resolvedCode !== "",
@@ -363,9 +377,9 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
           </div>
         ) : null}
 
-        <h2 className="mt-[14px] font-display text-[21px] font-bold leading-[1.35] text-ink">
+        <h1 className="mt-[14px] font-display text-[21px] font-bold leading-[1.35] text-ink">
           {typing ? t("login.title") : t("login.who")}
-        </h2>
+        </h1>
 
         {remembered.length > 0 ? (
           <div className="mt-[14px] flex gap-[9px]" role="radiogroup" aria-label={t("login.who")}>

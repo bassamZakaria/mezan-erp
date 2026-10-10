@@ -190,6 +190,15 @@ export function tenantCodeForEmail(email: string): string | null {
   return readTenantCodeByEmail()[key] ?? null;
 }
 
+/**
+ * More than one company has been signed into from this browser. On such a
+ * device the single `mezan.tenantCode` says only who was here LAST, so the
+ * login screen must not open on it.
+ */
+export function deviceSharedAcrossTenants(): boolean {
+  return new Set(Object.values(readTenantCodeByEmail())).size > 1;
+}
+
 export function rememberTenantCodeForEmail(email: string, code: string): void {
   const storage = getSessionStorage();
   if (!storage) return;

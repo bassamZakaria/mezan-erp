@@ -6,6 +6,7 @@ import {
   withSqliteRead,
   withSqliteTransaction,
   withSqliteTurn,
+  outsideSqliteTurn,
   type SqliteDriver,
 } from "./sqlite-connection.js";
 
@@ -491,6 +492,170 @@ describe("sqliteTransactionsSettled", () => {
     await Promise.all([turn, waiting]);
     expect(settled).toBe(true);
     expect(sqlite.inTransaction).toBe(false);
+    sqlite.close();
+  });
+});
+
+describe("outsideSqliteTurn", () => {
+  const open = () => {
+    const sqlite = new Database(":memory:");
+    sqlite.exec("CREATE TABLE t (v TEXT)");
+    return sqlite;
+  };
+  const values = (sqlite: Database.Database) => (sqlite.prepare("SELECT v FROM t ORDER BY rowid").all() as { v: string }[]).map((r) => r.v);
+  const tick = () => new Promise<void>((resolve) => setImmediate(resolve));
+  const insert = (sqlite: Database.Database, v: string) => sqlite.prepare("INSERT INTO t VALUES (?)").run(v);
+  const deferred = () => {
+    let resolve!: () => void;
+    const promise = new Promise<void>((done) => {
+      resolve = done;
+    });
+    return { promise, resolve };
+  };
+
+  it("lets another turn run while the holder waits on the outside world, and takes the turn back before the holder writes again", async () => {
+    const sqlite = open();
+    const world = deferred();
+    const holder = withSqliteTurn(sqlite, async () => {
+      insert(sqlite, "holder:intent");
+      await outsideSqliteTurn(sqlite, () => world.promise);
+      insert(sqlite, "holder:result");
+    });
+    await tick();
+
+    await withSqliteTurn(sqlite, async () => insert(sqlite, "other"));
+    expect(values(sqlite)).toEqual(["holder:intent", "other"]);
+
+    const blocker = deferred();
+    const third = withSqliteTurn(sqlite, async () => {
+      insert(sqlite, "third:start");
+      await blocker.promise;
+      insert(sqlite, "third:end");
+    });
+    await tick();
+    world.resolve();
+    await tick();
+    expect(values(sqlite)).toEqual(["holder:intent", "other", "third:start"]);
+
+    blocker.resolve();
+    await Promise.all([holder, third]);
+    expect(values(sqlite)).toEqual(["holder:intent", "other", "third:start", "third:end", "holder:result"]);
+    sqlite.close();
+  });
+
+  it("reports a holder that waits with the turn held, and not one that hands it back first", async () => {
+    const sqlite = open();
+    const yields: string[] = [];
+
+    await withSqliteTurn(sqlite, () => outsideSqliteTurn(sqlite, tick), { onYield: () => yields.push("handed-back") });
+    await withSqliteTurn(sqlite, tick, { onYield: () => yields.push("held") });
+    await withSqliteTurn(sqlite, async () => insert(sqlite, "sync"), { onYield: () => yields.push("database-only") });
+
+    expect(yields).toEqual(["held"]);
+    sqlite.close();
+  });
+
+  it("reports a holder that waits again after it has the turn back", async () => {
+    const sqlite = open();
+    const yields: string[] = [];
+
+    await withSqliteTurn(
+      sqlite,
+      async () => {
+        await outsideSqliteTurn(sqlite, tick);
+        await tick();
+      },
+      { onYield: () => yields.push("after-resume") },
+    );
+
+    expect(yields).toEqual(["after-resume"]);
+    sqlite.close();
+  });
+
+  it("keeps the turn across work started inside a transaction, which cannot hand it back", async () => {
+    const sqlite = open();
+    const yields: string[] = [];
+    let otherRan = false;
+    const holder = withSqliteTurn(
+      sqlite,
+      () =>
+        withSqliteTransaction(sqlite, async () => {
+          insert(sqlite, "inside");
+          await outsideSqliteTurn(sqlite, tick);
+        }),
+      { onYield: () => yields.push("yielded") },
+    );
+    const other = withSqliteTurn(sqlite, async () => {
+      otherRan = true;
+      expect(sqlite.inTransaction).toBe(false);
+    });
+
+    await holder;
+    expect(yields).toEqual(["yielded"]);
+    await other;
+    expect(otherRan).toBe(true);
+    sqlite.close();
+  });
+
+  it("waits for every overlapping piece of outside work before the holder goes on", async () => {
+    const sqlite = open();
+    const first = deferred();
+    const second = deferred();
+    const order: string[] = [];
+    const holder = withSqliteTurn(sqlite, async () => {
+      await Promise.all([
+        outsideSqliteTurn(sqlite, () => first.promise).then(() => order.push("first back")),
+        outsideSqliteTurn(sqlite, () => second.promise).then(() => order.push("second back")),
+      ]);
+      insert(sqlite, "holder");
+    });
+    await tick();
+
+    first.resolve();
+    await tick();
+    await withSqliteTurn(sqlite, async () => insert(sqlite, "other"));
+    expect(order).toEqual([]);
+
+    second.resolve();
+    await holder;
+    expect(order).toEqual(["first back", "second back"]);
+    expect(values(sqlite)).toEqual(["other", "holder"]);
+    sqlite.close();
+  });
+
+  it("takes the turn back after outside work that failed, so the holder can record the failure", async () => {
+    const sqlite = open();
+    await withSqliteTurn(sqlite, async () => {
+      await outsideSqliteTurn(sqlite, async () => {
+        await tick();
+        throw new Error("no answer");
+      }).catch(() => insert(sqlite, "failed"));
+    });
+    expect(values(sqlite)).toEqual(["failed"]);
+    sqlite.close();
+  });
+
+  it("releases the connection when the holder returns without waiting for its outside work", async () => {
+    const sqlite = open();
+    const world = deferred();
+    let leftover: Promise<void> | undefined;
+    await withSqliteTurn(sqlite, async () => {
+      leftover = outsideSqliteTurn(sqlite, () => world.promise);
+      await tick();
+    });
+
+    await withSqliteTurn(sqlite, async () => insert(sqlite, "next"));
+    world.resolve();
+    await leftover;
+    await withSqliteTurn(sqlite, async () => insert(sqlite, "after"));
+
+    expect(values(sqlite)).toEqual(["next", "after"]);
+    sqlite.close();
+  });
+
+  it("runs straight through for a caller that holds no turn", async () => {
+    const sqlite = open();
+    expect(await outsideSqliteTurn(sqlite, async () => 7)).toBe(7);
     sqlite.close();
   });
 });

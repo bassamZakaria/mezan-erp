@@ -98,7 +98,19 @@ export interface AuditSink {
    * first statement to its last. Called from inside a turn or a transaction the
    * caller already holds, it runs `fn` straight through.
    */
-  turn?<T>(fn: () => Promise<T>): Promise<T>;
+  turn?<T>(fn: () => Promise<T>, observer?: TurnObserver): Promise<T>;
+  /**
+   * Runs `fn` with that turn handed back, and takes it again before returning.
+   * For work that is not the database — a hash, a child process, a socket.
+   */
+  outsideTurn?<T>(fn: () => Promise<T>): Promise<T>;
+}
+
+export interface TurnObserver {
+  /** The holder gave the event loop back with the turn still held. */
+  onYield?(): void;
+  onSuspend?(): void;
+  onResume?(): void;
 }
 
 /**

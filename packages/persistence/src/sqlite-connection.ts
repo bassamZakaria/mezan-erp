@@ -166,8 +166,25 @@ interface Lane {
   queue: Promise<void>;
 }
 
+export interface SqliteTurnObserver {
+  /** The holder gave the event loop back with the turn still held: it awaited something that is not the database. */
+  onYield?(): void;
+  /** The turn was handed back around work that is not the database. */
+  onSuspend?(): void;
+  /** The turn was taken again once that work finished. */
+  onResume?(): void;
+}
+
 interface TurnScope extends Lane {
   active: boolean;
+  ended: boolean;
+  outside: number;
+  steps: Promise<void>;
+  retaken: Promise<void>;
+  announceRetaken: () => void;
+  release: () => void;
+  probe: ReturnType<typeof setImmediate> | undefined;
+  readonly observer: SqliteTurnObserver;
 }
 
 const connectionStates = new WeakMap<Database.Database, ConnectionState>();
@@ -322,32 +339,113 @@ export async function withSqliteRead<T>(sqlite: Database.Database, fn: () => T |
   }
 }
 
-// THE WHOLE OF A MUTATING REQUEST RUNS UNDER ONE TURN. Every store shares this
-// connection and most of them write by plain autocommit, so a write issued
-// while another chain's BEGIN is open lands inside that transaction and is
-// lost if it rolls back. Waiting only at the door does not close that: a
+// THE DATABASE WORK OF A MUTATING REQUEST RUNS UNDER ONE TURN. Every store
+// shares this connection and most of them write by plain autocommit, so a write
+// issued while another chain's BEGIN is open lands inside that transaction and
+// is lost if it rolls back. Waiting only at the door does not close that: a
 // request that got in before the BEGIN and then awaited would still write into
 // it. Holding the queue from the first statement to the last does.
 // The scope goes inactive BEFORE the queue is released, and the lane is drained
 // first: a task the request left running keeps this async context, and must
 // neither skip the shared queue once the turn is over nor still be mid-
 // transaction when the next holder issues its BEGIN.
-export async function withSqliteTurn<T>(sqlite: Database.Database, fn: () => Promise<T>): Promise<T> {
+function arm(scope: TurnScope): void {
+  scope.probe = setImmediate(() => {
+    scope.probe = undefined;
+    scope.observer.onYield?.();
+  });
+}
+
+function handBack(scope: TurnScope): Promise<void> {
+  scope.active = false;
+  if (scope.probe) clearImmediate(scope.probe);
+  scope.probe = undefined;
+  scope.retaken = new Promise<void>((resolve) => {
+    scope.announceRetaken = resolve;
+  });
+  return drained(scope).then(scope.release);
+}
+
+async function drained(scope: TurnScope): Promise<void> {
+  let seen: Promise<void> | undefined;
+  while (seen !== scope.queue) {
+    seen = scope.queue;
+    await seen;
+  }
+}
+
+function inOrder(scope: TurnScope, step: () => Promise<void>): Promise<void> {
+  const done = scope.steps.then(step);
+  scope.steps = done.catch(() => undefined);
+  return done;
+}
+
+export async function withSqliteTurn<T>(sqlite: Database.Database, fn: () => Promise<T>, observer: SqliteTurnObserver = {}): Promise<T> {
   const state = stateFor(sqlite);
   if (state.nesting.getStore() || heldTurn(state)) return fn();
 
-  const release = await enter(state);
-  const scope: TurnScope = { queue: Promise.resolve(), active: true };
+  const scope: TurnScope = {
+    queue: Promise.resolve(),
+    active: true,
+    ended: false,
+    outside: 0,
+    steps: Promise.resolve(),
+    retaken: Promise.resolve(),
+    announceRetaken: () => undefined,
+    release: await enter(state),
+    probe: undefined,
+    observer,
+  };
+  arm(scope);
   try {
     return await state.turn.run(scope, fn);
   } finally {
-    scope.active = false;
-    let seen: Promise<void> | undefined;
-    while (seen !== scope.queue) {
-      seen = scope.queue;
-      await seen;
-    }
-    release();
+    scope.ended = true;
+    await inOrder(scope, async () => {
+      if (scope.active) await handBack(scope);
+      scope.announceRetaken();
+    });
+  }
+}
+
+// WORK THAT IS NOT THE DATABASE IS DONE WITH THE TURN HANDED BACK. A hash on the
+// thread pool, a child process, a socket: awaited under the turn, each keeps
+// every other write of the tenant queued for as long as the outside world takes
+// to answer. The turn is taken again before `fn`'s caller continues, so what it
+// writes next is still the only write on the connection. Sections that overlap
+// all continue together, once the last of them is back.
+// Inside a transaction the turn cannot be handed back — the BEGIN is open on the
+// shared connection — so `fn` runs as it is and the turn's probe reports it.
+export async function outsideSqliteTurn<T>(sqlite: Database.Database, fn: () => Promise<T>): Promise<T> {
+  const state = stateFor(sqlite);
+  const scope = state.turn.getStore();
+  if (!scope || scope.ended || state.nesting.getStore()) return fn();
+
+  scope.outside += 1;
+  await inOrder(scope, async () => {
+    if (!scope.active || scope.ended) return;
+    await handBack(scope);
+    scope.observer.onSuspend?.();
+  });
+  try {
+    return await fn();
+  } finally {
+    scope.outside -= 1;
+    void inOrder(scope, async () => {
+      if (scope.outside > 0 || scope.active || scope.ended) return;
+      const release = await enter(state);
+      if (scope.outside > 0 || scope.ended) {
+        release();
+        return;
+      }
+      scope.release = release;
+      scope.queue = Promise.resolve();
+      scope.active = true;
+      arm(scope);
+      scope.observer.onResume?.();
+      scope.announceRetaken();
+    });
+    await scope.retaken;
   }
 }
 

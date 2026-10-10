@@ -1,5 +1,6 @@
-import type { Context, MiddlewareHandler } from "hono";
+import type { Context, MiddlewareHandler, Next } from "hono";
 import type { AuditSink } from "@mezan/domain";
+import { reportTurnYield } from "./turn-yields.js";
 
 export enum MutatingMethod {
   Post = "POST",
@@ -17,6 +18,7 @@ export enum AuditBoundaryRefusal {
 export enum ConnectionBusyReason {
   TimedOut = "timed-out",
   QueueFull = "queue-full",
+  ClientGone = "client-gone",
 }
 
 const MUTATING_METHODS: ReadonlySet<string> = new Set(Object.values(MutatingMethod));
@@ -133,14 +135,24 @@ function subPath(c: Context, prefix: string | undefined): string {
   return path === mount || path.startsWith(`${mount}/`) ? path.slice(mount.length) : path;
 }
 
+const preloaded = new WeakMap<Request, Promise<void>>();
+
 // Read BEFORE the connection is taken, whatever the content type says: the body
 // arrives over the socket, and a handler awaiting it with the turn held keeps
 // every other request of the tenant waiting on a slow client. Hono serves later
 // reads from this cache — as bytes, so a body that is not text survives it.
-async function preloadBody(c: Context): Promise<void> {
+// Once per request, however many middlewares ask.
+export function preloadBody(c: Context): Promise<void> {
+  const already = preloaded.get(c.req.raw);
+  if (already) return already;
   const type = (c.req.header("content-type") ?? "").toLowerCase();
   const isForm = type.includes("multipart/form-data") || type.includes("application/x-www-form-urlencoded");
-  await (isForm ? c.req.formData() : c.req.arrayBuffer()).catch(() => undefined);
+  const loading = (isForm ? c.req.formData() : c.req.arrayBuffer()).then(
+    () => undefined,
+    () => undefined,
+  );
+  preloaded.set(c.req.raw, loading);
+  return loading;
 }
 
 function defaultOnYield(c: Context): void {
@@ -233,19 +245,38 @@ export function beforeTheTurn(prepare: BoundaryPreparation): MiddlewareHandler {
   };
 }
 
-const CONNECTION_TURN_TIMEOUT_MS = 30_000;
+// Both sit well inside what a client waits: a LAN till gives a data request 30s
+// and a sign-in 5s (apps/desktop lan-client.ts), and a browser shows a spinner
+// for as long. A request refused here is told so in words, with time to spare.
+const CONNECTION_TURN_TIMEOUT_MS = 10_000;
+const SIGN_IN_TURN_TIMEOUT_MS = 2_500;
 const CONNECTION_TURN_MAX_WAITING = 64;
 const CONNECTION_HELD_WARNING_MS = 10_000;
+const SIGN_IN_PATH = /\/auth\/[^/]+$/;
 
 export interface ConnectionTurnOptions {
-  readonly timeoutMs?: number;
+  readonly timeoutMs?: number | ((c: Context) => number);
   readonly maxWaiting?: number;
   readonly heldWarningMs?: number;
   readonly onHeldTooLong?: (c: Context, heldMs: number) => void;
+  readonly onYield?: (c: Context) => void;
+}
+
+function defaultTimeoutMs(c: Context): number {
+  return SIGN_IN_PATH.test(c.req.path) ? SIGN_IN_TURN_TIMEOUT_MS : CONNECTION_TURN_TIMEOUT_MS;
 }
 
 function defaultOnHeldTooLong(c: Context, heldMs: number): void {
   console.error(`[db] ${c.req.method} ${c.req.path} has held the tenant's connection for ${heldMs}ms; every other write is waiting behind it`);
+}
+
+function defaultOnTurnYield(c: Context): void {
+  const route = `${c.req.method} ${c.req.routePath}`;
+  reportTurnYield(route);
+  console.error(
+    `[db] ${route} gave the event loop back while holding the tenant's connection; ` +
+      "do that work before the turn, or through a port that hands the turn back (AuditSink.outsideTurn)",
+  );
 }
 
 function busy(c: Context, reason: ConnectionBusyReason): Response {
@@ -253,81 +284,112 @@ function busy(c: Context, reason: ConnectionBusyReason): Response {
     c,
     AuditBoundaryRefusal.ConnectionBusy,
     503,
-    "قاعدة البيانات مشغولة بعملية لم تنتهِ. حاول مرة أخرى بعد قليل.",
-    "The database is busy with an operation that has not finished. Try again shortly.",
+    "قاعدة البيانات مشغولة بعملية لم تنتهِ، فلم يُنفَّذ طلبك. حاول مرة أخرى بعد قليل.",
+    "The database is busy with an operation that has not finished, so your request was not carried out. Try again shortly.",
   );
   res.headers.set("retry-after", "5");
   res.headers.set("x-busy-reason", reason);
   return res;
 }
 
-// A MUTATING request holds the connection's turn from its first statement to
-// its last, so no other request's write can land inside a transaction it opens
-// and vanish with a rollback. A READ only waits out a transaction that is open
-// when it arrives: the shared connection would show it uncommitted rows, but it
-// writes nothing, so it never queues behind a turn that has no BEGIN open.
-// Waiters are bounded and time out, so a holder that never finishes answers 503
-// to the requests behind it instead of collecting them.
+enum Wait {
+  Queued = "queued",
+  Arrived = "arrived",
+  GaveUp = "gave-up",
+}
+
+// A MUTATING request holds the connection's turn for its database work, so no
+// other request's write can land inside a transaction it opens and vanish with
+// a rollback. A READ only waits out a transaction that is open when it arrives:
+// the shared connection would show it uncommitted rows, but it writes nothing,
+// so it never queues behind a turn that has no BEGIN open, and it is not counted
+// against the bound on queued writes.
+// A queued write is counted from the moment it queues to the moment it gets the
+// turn, times out or loses its client — whichever comes first — and one whose
+// client has gone is never run: the caller has already been told it failed.
 export function connectionTurn(audit: AuditSink | undefined, options: ConnectionTurnOptions = {}): MiddlewareHandler {
-  const timeoutMs = options.timeoutMs ?? CONNECTION_TURN_TIMEOUT_MS;
+  const timeoutFor = typeof options.timeoutMs === "function" ? options.timeoutMs : () => (options.timeoutMs as number | undefined);
   const maxWaiting = options.maxWaiting ?? CONNECTION_TURN_MAX_WAITING;
   const heldWarningMs = options.heldWarningMs ?? CONNECTION_HELD_WARNING_MS;
   const onHeldTooLong = options.onHeldTooLong ?? defaultOnHeldTooLong;
+  const onYield = options.onYield ?? defaultOnTurnYield;
   let waiting = 0;
 
-  const refuseTimedOut = (c: Context): Response => {
+  const refuseTimedOut = (c: Context, timeoutMs: number): Response => {
     console.error(`[db] ${c.req.method} ${c.req.path} waited ${timeoutMs}ms for the tenant's connection`);
     return busy(c, ConnectionBusyReason.TimedOut);
   };
+
+  async function read(c: Context, next: Next, settled: () => Promise<void>, timeoutMs: number): Promise<Response | void> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timedOut = new Promise<true>((resolve) => {
+      timer = setTimeout(() => resolve(true), timeoutMs);
+      timer.unref?.();
+    });
+    const refused = await Promise.race([settled().then(() => false as const), timedOut]);
+    clearTimeout(timer);
+    if (refused) return refuseTimedOut(c, timeoutMs);
+    return next();
+  }
 
   return async (c, next) => {
     const settled = audit?.settled?.bind(audit);
     const turn = audit?.turn?.bind(audit);
     if (!settled || !turn) return next();
+    const timeoutMs = timeoutFor(c) ?? defaultTimeoutMs(c);
+    if (!isMutatingRequest(c)) return read(c, next, settled, timeoutMs);
+
+    await preloadBody(c);
+    const signal = c.req.raw.signal;
+    if (signal.aborted) return busy(c, ConnectionBusyReason.ClientGone);
+    // ORDER MATTERS: nothing may be awaited between this check and the count
+    // below, or a burst arriving in one tick all passes the check together.
     if (waiting >= maxWaiting) return busy(c, ConnectionBusyReason.QueueFull);
-
-    const mutating = isMutatingRequest(c);
-    if (mutating) await preloadBody(c);
-
-    let arrived = false;
-    let gaveUp = false;
-    let waitTimer: ReturnType<typeof setTimeout> | undefined;
-    const timedOut = new Promise<true>((resolve) => {
-      waitTimer = setTimeout(() => {
-        if (arrived) return;
-        gaveUp = true;
-        resolve(true);
-      }, timeoutMs);
-      waitTimer.unref?.();
-    });
-    const arrive = (): boolean => {
-      arrived = true;
-      clearTimeout(waitTimer);
-      waiting -= 1;
-      return !gaveUp;
-    };
     waiting += 1;
 
-    if (!mutating) {
-      const refused = await Promise.race([settled().then(() => false as const), timedOut]);
-      if (!arrive() || refused) return refuseTimedOut(c);
-      return next();
-    }
-
-    const held = turn(async () => {
-      if (!arrive()) return;
-      const since = Date.now();
-      const watchdog = setInterval(() => onHeldTooLong(c, Date.now() - since), heldWarningMs);
-      watchdog.unref?.();
-      try {
-        await next();
-      } finally {
-        clearInterval(watchdog);
-      }
+    let wait = Wait.Queued;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let onAbort: (() => void) | undefined;
+    const leaveTheQueue = (as: Wait): boolean => {
+      if (wait !== Wait.Queued) return false;
+      wait = as;
+      waiting -= 1;
+      clearTimeout(timer);
+      if (onAbort) signal.removeEventListener("abort", onAbort);
+      return true;
+    };
+    const gaveUp = new Promise<ConnectionBusyReason>((resolve) => {
+      timer = setTimeout(() => {
+        if (leaveTheQueue(Wait.GaveUp)) resolve(ConnectionBusyReason.TimedOut);
+      }, timeoutMs);
+      timer.unref?.();
+      onAbort = () => {
+        if (leaveTheQueue(Wait.GaveUp)) resolve(ConnectionBusyReason.ClientGone);
+      };
+      signal.addEventListener("abort", onAbort);
     });
-    const refused = await Promise.race([held.then(() => false as const), timedOut]);
-    if (!refused) return;
+
+    let watchdog: ReturnType<typeof setInterval> | undefined;
+    const watch = (): void => {
+      const since = Date.now();
+      watchdog = setInterval(() => onHeldTooLong(c, Date.now() - since), heldWarningMs);
+      watchdog.unref?.();
+    };
+    const held = turn(
+      async () => {
+        if (!leaveTheQueue(Wait.Arrived)) return;
+        watch();
+        try {
+          await next();
+        } finally {
+          clearInterval(watchdog);
+        }
+      },
+      { onYield: () => onYield(c), onSuspend: () => clearInterval(watchdog), onResume: watch },
+    );
+    const reason = await Promise.race([held.then(() => undefined), gaveUp]);
+    if (reason === undefined) return;
     held.catch(() => undefined);
-    return refuseTimedOut(c);
+    return reason === ConnectionBusyReason.TimedOut ? refuseTimedOut(c, timeoutMs) : busy(c, reason);
   };
 }

@@ -14,6 +14,7 @@ export {
   withSqliteRead,
   withSqliteTransaction,
   withSqliteTurn,
+  outsideSqliteTurn,
   type SqliteConnectionInput,
   type OpenedSqliteConnection,
   type SqliteDriver,

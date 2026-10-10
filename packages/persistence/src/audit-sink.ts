@@ -7,11 +7,12 @@ import {
   openSqliteConnection,
   sqliteTransactionsSettled,
   withSqliteTurn,
+  outsideSqliteTurn,
   withSqliteTransaction,
   type SqliteConnectionInput,
 } from "./sqlite-connection.js";
 import { auditChangedFieldNames } from "@mezan/domain";
-import type { AuditEvent, AuditQueryFilter, AuditQueryPort, AuditQueryResult, AuditSink, AuditStream } from "@mezan/domain";
+import type { AuditEvent, AuditQueryFilter, AuditQueryPort, AuditQueryResult, AuditSink, AuditStream, TurnObserver } from "@mezan/domain";
 
 /**
  * SQLite-backed AuditSink (docs/archive/plan.md §5.7).
@@ -346,8 +347,12 @@ class SqliteAuditSink implements AuditSink, AuditQueryPort, AuditChainVerifyPort
     return sqliteTransactionsSettled(this.sqlite);
   }
 
-  turn<T>(fn: () => Promise<T>): Promise<T> {
-    return withSqliteTurn(this.sqlite, fn);
+  turn<T>(fn: () => Promise<T>, observer?: TurnObserver): Promise<T> {
+    return withSqliteTurn(this.sqlite, fn, observer);
+  }
+
+  outsideTurn<T>(fn: () => Promise<T>): Promise<T> {
+    return outsideSqliteTurn(this.sqlite, fn);
   }
 
   private findIndexFault(rows: readonly { id: number; details: string | null }[]): number | null {
@@ -488,7 +493,8 @@ export interface SqliteAuditSinkHandle extends AuditSink, AuditQueryPort, AuditC
   atomic<T>(fn: () => Promise<T>): Promise<T>;
   insideTransaction(): boolean;
   settled(): Promise<void>;
-  turn<T>(fn: () => Promise<T>): Promise<T>;
+  turn<T>(fn: () => Promise<T>, observer?: TurnObserver): Promise<T>;
+  outsideTurn<T>(fn: () => Promise<T>): Promise<T>;
   close(): void;
   /** The raw connection, for tests asserting the append-only triggers fire. */
   readonly db: Database.Database;

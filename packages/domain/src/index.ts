@@ -69,6 +69,7 @@ export type {
   AuditEvent,
   AuditEventInput,
   AuditSink,
+  TurnObserver,
   AuditQueryFilter,
   AuditQueryResult,
   AuditQueryPort,

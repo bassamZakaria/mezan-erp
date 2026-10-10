@@ -1,3 +1,6 @@
+import { request as httpRequest } from "node:http";
+import type { AddressInfo } from "node:net";
+import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { afterEach, describe, expect, it } from "vitest";
 import { ALL_SCOPE, createAuthContext, type AuditEvent, type AuditSink } from "@mezan/domain";
@@ -11,6 +14,7 @@ import {
 import { createApp } from "./app.js";
 import { recordAdminEvent } from "./admin-audit.js";
 import { AUDITED_MOUNTS, auditBoundary, beforeTheTurn, connectionTurn } from "./audit-boundary.js";
+import { drainTurnYields } from "./turn-yields.js";
 
 type Sqlite = SqliteAuditSinkHandle["db"];
 
@@ -541,7 +545,8 @@ describe("an audit event on a mutating request must share a transaction with its
 });
 
 describe("connectionTurn", () => {
-  function gated(options: Parameters<typeof connectionTurn>[1] = {}) {
+  function gated(given: Parameters<typeof connectionTurn>[1] = {}) {
+    const options = { onYield: () => undefined, ...given };
     const sink = openSink();
     const sqlite = sink.db;
     sqlite.exec("CREATE TABLE thing (id TEXT PRIMARY KEY)");
@@ -566,6 +571,17 @@ describe("connectionTurn", () => {
       sqlite.prepare("INSERT INTO thing VALUES ('ACKNOWLEDGED')").run();
       return c.json({}, 201);
     });
+    let notes = 0;
+    const note = () => sqlite.prepare("INSERT INTO thing VALUES (?)").run(`NOTE-${++notes}`);
+    app.post("/note", (c) => {
+      note();
+      return c.json({}, 201);
+    });
+    app.post("/note-after-a-wait", async (c) => {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      note();
+      return c.json({}, 201);
+    });
     app.post("/plain-after-a-wait", async (c) => {
       await new Promise((resolve) => setTimeout(resolve, 5));
       sqlite.prepare("INSERT INTO thing VALUES ('ACKNOWLEDGED')").run();
@@ -579,11 +595,11 @@ describe("connectionTurn", () => {
     });
     app.get("/things", (c) => c.json((sqlite.prepare("SELECT id FROM thing ORDER BY id").all() as { id: string }[]).map((row) => row.id)));
     app.onError((_err, c) => c.json({ error: "INTERNAL" }, 500));
-    const post = (path: string) => Promise.resolve(app.fetch(new Request(`http://x${path}`, { method: "POST" })));
+    const post = (path: string, init: RequestInit = {}) => Promise.resolve(app.fetch(new Request(`http://x${path}`, { method: "POST", ...init })));
     const get = (path: string) => Promise.resolve(app.fetch(new Request(`http://x${path}`)));
     const list = async () => (await (await get("/things")).json()) as string[];
     const stored = () => (sqlite.prepare("SELECT id FROM thing ORDER BY id").all() as { id: string }[]).map((row) => row.id);
-    return { sink, sqlite, post, get, list, stored, finish };
+    return { app, sink, sqlite, post, get, list, stored, finish };
   }
 
   function broken(sink: SqliteAuditSinkHandle): AuditSink {
@@ -710,24 +726,210 @@ describe("connectionTurn", () => {
     expect((await t.post("/plain")).status).toBe(201);
   });
 
-  it("refuses at once, without queueing, past the bound on waiting requests", async () => {
+  it("refuses a write at once, without queueing, past the bound on waiting writes", async () => {
     const t = gated({ maxWaiting: 2 });
     const slow = t.post("/audited/slow");
     await nextTurn();
-    const first = t.post("/plain");
-    const second = t.get("/things");
+    const first = t.post("/note");
+    const second = t.post("/note-after-a-wait");
     await nextTurn();
 
-    const overflow = await t.get("/things");
+    const overflow = await t.post("/note");
 
     expect(overflow.status).toBe(503);
     expect(overflow.headers.get("x-busy-reason")).toBe("queue-full");
     expect((await t.get("/health")).status).toBe(200);
     t.finish();
     expect((await first).status).toBe(201);
-    expect((await second).status).toBe(200);
+    expect((await second).status).toBe(201);
     await slow;
+    expect((await t.post("/note")).status).toBe(201);
+  });
+
+  it("never counts a read against the bound on waiting writes", async () => {
+    const t = gated({ maxWaiting: 1 });
+    const slow = t.post("/audited/slow");
+    await nextTurn();
+    const queued = t.post("/note");
+    await nextTurn();
+    expect((await t.post("/note")).headers.get("x-busy-reason")).toBe("queue-full");
+
+    const reading = t.get("/things");
+    expect(await stillWaiting(reading)).toBe("waiting");
+
+    t.finish();
+    expect((await reading).status).toBe(200);
+    expect((await queued).status).toBe(201);
+    await slow;
+  });
+
+  it("stops counting a write once it has timed out, so the queue does not fill behind a holder that never finishes", async () => {
+    const t = gated({ timeoutMs: 20, maxWaiting: 3 });
+    const stuck = t.post("/busy-without-a-transaction");
+    await nextTurn();
+
+    const timedOut = await Promise.all([t.post("/note"), t.post("/note"), t.post("/note")]);
+    expect(timedOut.map((res) => res.headers.get("x-busy-reason"))).toEqual(["timed-out", "timed-out", "timed-out"]);
+
     expect((await t.get("/things")).status).toBe(200);
+    const later = await t.post("/note");
+    expect(later.headers.get("x-busy-reason")).toBe("timed-out");
+    t.finish();
+    await stuck;
+    expect((await t.post("/note")).status).toBe(201);
+  });
+
+  it("holds the bound against a burst that arrives in one tick", async () => {
+    const t = gated({ maxWaiting: 4 });
+    const stuck = t.post("/busy-without-a-transaction");
+    await nextTurn();
+
+    const burst = Array.from({ length: 30 }, () => t.post("/note", { body: "{}", headers: { "content-type": "application/json" } }));
+    await nextTurn();
+    const refused = await Promise.all(burst.map((pending) => Promise.race([pending.then((res) => res.status), nextTurn().then(() => 0)])));
+
+    expect(refused.filter((status) => status === 503)).toHaveLength(26);
+    t.finish();
+    expect((await Promise.all(burst)).filter((res) => res.status === 201)).toHaveLength(4);
+    await stuck;
+  });
+
+  it("never runs a write whose client went away while it queued", async () => {
+    const t = gated();
+    const busy = t.post("/busy-without-a-transaction");
+    await nextTurn();
+    const client = new AbortController();
+    const abandoned = t.post("/note", { signal: client.signal });
+    await nextTurn();
+
+    client.abort();
+    const res = await abandoned;
+    t.finish();
+    await busy;
+    await nextTurn();
+
+    expect(res.headers.get("x-busy-reason")).toBe("client-gone");
+    expect(t.stored()).toEqual([]);
+    expect((await t.post("/note")).status).toBe(201);
+  });
+
+  it("never runs a write whose till gave up on its socket while it queued", async () => {
+    const t = gated();
+    const server = serve({ fetch: t.app.fetch, port: 0, hostname: "127.0.0.1" });
+    await new Promise<void>((resolve) => server.once("listening", () => resolve()));
+    const port = (server.address() as AddressInfo).port;
+    const send = (path: string, timeout?: number) =>
+      new Promise<string>((resolve) => {
+        const req = httpRequest({ host: "127.0.0.1", port, path, method: "POST", headers: { "content-length": 0 }, timeout }, (res) => {
+          res.resume();
+          res.on("end", () => resolve(String(res.statusCode)));
+        });
+        req.on("timeout", () => {
+          req.destroy();
+          resolve("no answer from host");
+        });
+        req.on("error", () => undefined);
+        req.end();
+      });
+    try {
+      const busy = send("/busy-without-a-transaction");
+      await new Promise((resolve) => setTimeout(resolve, 30));
+
+      expect(await send("/note", 60)).toBe("no answer from host");
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      t.finish();
+      expect(await busy).toBe("200");
+      await new Promise((resolve) => setTimeout(resolve, 30));
+
+      expect(t.stored()).toEqual([]);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  it("answers a queued sign-in before a till's five second budget runs out, and a data request before its thirty", async () => {
+    const waited: string[] = [];
+    const error = console.error;
+    console.error = (line: unknown) => void waited.push(String(line));
+    try {
+      const sink = openSink();
+      const app = new Hono();
+      let finish!: () => void;
+      const held = new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+      app.use("*", connectionTurn(sink, { onYield: () => undefined, onHeldTooLong: () => undefined }));
+      app.post("/hold", async (c) => {
+        await held;
+        return c.json({});
+      });
+      app.post("/auth/login", (c) => c.json({}));
+      app.post("/vouchers", (c) => c.json({}));
+      const holding = app.fetch(new Request("http://x/hold", { method: "POST" }));
+      await nextTurn();
+
+      const [login, voucher] = await Promise.all([
+        app.fetch(new Request("http://x/auth/login", { method: "POST" })),
+        app.fetch(new Request("http://x/vouchers", { method: "POST" })),
+      ]);
+      finish();
+      await holding;
+
+      expect(login.status).toBe(503);
+      expect(voucher.status).toBe(503);
+      expect(await login.json()).toMatchObject({ error: "DATABASE_BUSY", message: expect.stringContaining("حاول مرة أخرى") });
+      const waitedMs = (path: string) => Number(/waited (\d+)ms/.exec(waited.find((line) => line.includes(path)) ?? "")?.[1]);
+      expect(waitedMs("/auth/login")).toBeLessThan(5_000 / 2 + 1);
+      expect(waitedMs("/vouchers")).toBeLessThan(30_000 / 2);
+    } finally {
+      console.error = error;
+    }
+  }, 20_000);
+
+  it("names a handler that gave the event loop back while holding the connection", async () => {
+    const yielded: string[] = [];
+    const t = gated({ onYield: (c) => yielded.push(`${c.req.method} ${c.req.routePath}`) });
+
+    expect((await t.post("/note")).status).toBe(201);
+    expect(yielded).toEqual([]);
+    expect((await t.post("/note-after-a-wait")).status).toBe(201);
+
+    expect(yielded).toEqual(["POST /note-after-a-wait"]);
+  });
+
+  it("reports nothing for work a handler does with the connection handed back, and lets other writes through meanwhile", async () => {
+    const yielded: string[] = [];
+    const sink = openSink();
+    sink.db.exec("CREATE TABLE thing (id TEXT PRIMARY KEY)");
+    const insert = (id: string) => sink.db.prepare("INSERT INTO thing VALUES (?)").run(id);
+    let answer!: () => void;
+    const outsideWorld = new Promise<void>((resolve) => {
+      answer = resolve;
+    });
+    const app = new Hono();
+    app.use("*", connectionTurn(sink, { onYield: (c) => yielded.push(c.req.path) }));
+    app.post("/submit", async (c) => {
+      insert("intent");
+      await sink.outsideTurn(() => outsideWorld);
+      insert("result");
+      return c.json({});
+    });
+    app.post("/voucher", (c) => {
+      insert("voucher");
+      return c.json({}, 201);
+    });
+    const stored = () => (sink.db.prepare("SELECT id FROM thing ORDER BY rowid").all() as { id: string }[]).map((row) => row.id);
+
+    const submitting = app.fetch(new Request("http://x/submit", { method: "POST" }));
+    await nextTurn();
+    expect((await app.fetch(new Request("http://x/voucher", { method: "POST" }))).status).toBe(201);
+    expect(stored()).toEqual(["intent", "voucher"]);
+    answer();
+    await submitting;
+
+    expect(stored()).toEqual(["intent", "voucher", "result"]);
+    expect(yielded).toEqual([]);
+    expect(drainTurnYields()).toEqual([]);
   });
 
   it("reports a request that has held the connection too long, naming it", async () => {

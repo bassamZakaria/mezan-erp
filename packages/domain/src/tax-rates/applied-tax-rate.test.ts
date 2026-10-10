@@ -126,6 +126,16 @@ describe("resolveInheritedTaxRate — a line copied from a document that already
     expect(resolveInheritedTaxRate(null, { taxRateId: null, taxRatePercent: 14 })).toEqual({ taxRateId: null, taxRatePercent: 14 });
   });
 
+  it("names the one active rate at a taxed percent for a source that stored none — a quote written before quotes stored a rate", () => {
+    expect(resolveInheritedTaxRate(MASTER, { taxRateId: null, taxRatePercent: 14 })).toEqual({ taxRateId: "VAT14", taxRatePercent: 14 });
+  });
+
+  it("infers nothing for such a source at 0%, at a retired percent, or when two active rates share the percent", () => {
+    expect(resolveInheritedTaxRate(ONLY_EXEMPT_AT_ZERO, { taxRateId: null, taxRatePercent: 0 })).toEqual({ taxRateId: null, taxRatePercent: 0 });
+    expect(resolveInheritedTaxRate(MASTER, { taxRateId: null, taxRatePercent: 5 })).toEqual({ taxRateId: null, taxRatePercent: 5 });
+    expect(resolveInheritedTaxRate([VAT, rate("VAT14B", "ضريبة أخرى", 14)], { taxRateId: null, taxRatePercent: 14 })).toEqual({ taxRateId: null, taxRatePercent: 14 });
+  });
+
   it("refuses a rate row that no longer exists, and one it cannot verify", () => {
     expect(() => resolveInheritedTaxRate(MASTER, { taxRateId: "GONE", taxRatePercent: 14 })).toThrow(TaxRateNotFoundError);
     expect(() => resolveInheritedTaxRate(null, { taxRateId: "VAT14", taxRatePercent: 14 })).toThrow(TaxRateUnverifiableError);

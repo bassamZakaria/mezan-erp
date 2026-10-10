@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Money, Qty } from "../money/index.js";
-import { matchSourceLines } from "./match-source-lines.js";
+import { matchSourceLines, returnedQtyBySourceLine } from "./match-source-lines.js";
 import { buildSalesReturnLinesFromInvoice } from "../sales-returns/from-invoice.js";
 import { buildPurchaseReturnLinesFromInvoice } from "../purchase-returns/from-invoice.js";
 import type { SourceSalesInvoice } from "../sales-returns/ports.js";
@@ -83,3 +83,42 @@ describe("a return of an item sold on two lines at two tax rates (review finding
     expect(built.map((l) => [l.sourceLineId, l.taxRateId, l.taxAmount.toString()])).toEqual([["1", "VAT-EXEMPT", "0.000000"]]);
   });
 });
+
+describe("returnedQtyBySourceLine — what earlier returns took from EACH line (D79 review round 2)", () => {
+  const q = (major: string) => Qty.fromMajor(major);
+  const sold = [
+    { sourceLineId: "L1", itemId: "A", qty: q("5") },
+    { sourceLineId: "L2", itemId: "A", qty: q("5") },
+    { sourceLineId: "L3", itemId: "B", qty: q("2") },
+  ];
+  const taken = (returned: { itemId: string; sourceLineId?: string | null; qty: Qty }[]) =>
+    returnedQtyBySourceLine(sold, returned).map((qty) => qty.toString());
+
+  it("counts a return against the line it names, leaving the item's other line whole", () => {
+    expect(taken([{ itemId: "A", sourceLineId: "L2", qty: q("3") }])).toEqual(["0.000000", "3.000000", "0.000000"]);
+  });
+
+  it("is not the item's total on every line — the per-item count that made one line's return block the other", () => {
+    const perLine = taken([{ itemId: "A", sourceLineId: "L1", qty: q("5") }]);
+    expect(perLine[0]).toBe("5.000000");
+    expect(perLine[1]).toBe("0.000000");
+  });
+
+  it("spreads a return that names no line over the item's lines in order, each up to what it has left", () => {
+    expect(taken([{ itemId: "A", qty: q("7") }])).toEqual(["5.000000", "2.000000", "0.000000"]);
+  });
+
+  it("fills around named returns whatever order they were stored in", () => {
+    expect(taken([{ itemId: "A", qty: q("4") }, { itemId: "A", sourceLineId: "L1", qty: q("3") }])).toEqual(["5.000000", "2.000000", "0.000000"]);
+  });
+
+  it("keeps the whole of an over-return on the item's last line, so the total taken is never understated", () => {
+    expect(taken([{ itemId: "A", qty: q("12") }])).toEqual(["5.000000", "7.000000", "0.000000"]);
+  });
+
+  it("counts nothing for a named line of another item or an item that was never sold, and sums exactly", () => {
+    expect(taken([{ itemId: "B", sourceLineId: "L1", qty: q("1") }, { itemId: "Z", qty: q("9") }])).toEqual(["0.000000", "0.000000", "1.000000"]);
+    expect(taken([{ itemId: "A", sourceLineId: "L1", qty: q("0.000001") }, { itemId: "A", sourceLineId: "L1", qty: q("0.000002") }])[0]).toBe("0.000003");
+  });
+});
+

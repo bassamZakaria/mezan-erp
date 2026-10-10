@@ -1,6 +1,7 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { createSqliteTaxRateRepository, type SqliteTaxRateRepositoryHandle } from "@mezan/persistence";
+import { createSqliteTaxRateRepository, createSqliteUnitOfWork, type SqliteTaxRateRepositoryHandle } from "@mezan/persistence";
 import { createTaxRatesRoutes } from "./tax-rates-routes.js";
+import { createApp } from "./app.js";
 
 import { insecureHeaderAuthContextResolver } from "./permission-gate.js";
 const handles: SqliteTaxRateRepositoryHandle[] = [];
@@ -92,6 +93,29 @@ describe("tax-rates router — create never overwrites (review round 2, skill ru
     const { repo } = newApp();
     await repo.update({ ...payload, calculationType: "exclusive", isDefault: false, outputTaxAccountId: null, inputTaxAccountId: null, etaSubType: "auto", status: "active" });
     expect(await repo.list()).toEqual([]);
+  });
+});
+
+describe("an app wired with no tax-rate usage port (review round 2)", () => {
+  it("treats every rate as referenced: its percent and sub-type are locked, its name and status are not", async () => {
+    const uow = createSqliteUnitOfWork();
+    const repo = createSqliteTaxRateRepository();
+    handles.push(repo);
+    try {
+      const app = createApp(uow, { taxRateRepo: repo });
+      await repo.create({ ...payload, calculationType: "exclusive", isDefault: true, outputTaxAccountId: null, inputTaxAccountId: null, etaSubType: "auto", status: "active" });
+      const patch = (body: unknown) =>
+        app.fetch(req("/tax-rates/t1", { method: "PATCH", permissions: "accounting.tax.manage", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }));
+
+      const rate = await patch({ rate: 15 });
+      expect(rate.status).toBe(409);
+      expect(((await rate.json()) as { error: string }).error).toBe("TAX_RATE_IN_USE");
+      expect((await patch({ etaSubType: "V003" })).status).toBe(409);
+      expect((await patch({ name: "ضريبة القيمة المضافة" })).status).toBe(200);
+      expect(await repo.findById("t1")).toMatchObject({ rate: 14, etaSubType: "auto", name: "ضريبة القيمة المضافة" });
+    } finally {
+      uow.close();
+    }
   });
 });
 

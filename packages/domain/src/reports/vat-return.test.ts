@@ -433,3 +433,81 @@ describe("createVatReturnReport — the input side, read off the REAL purchase p
     expect(inputRows([fromReceipt])).toEqual([["input-14-VAT14", 200, 28]]);
   });
 });
+
+describe("createVatReturnReport — a sale whose base is credited to a liability (D79 review round 2)", () => {
+  const BILLINGS = "2165";
+  const RETENTION_RECEIVABLE = "1150";
+  const withContracting = [
+    ...accounts,
+    account({ id: BILLINGS, code: BILLINGS, nameAr: "فواتير مستخلصات على العقود", type: "liability" }),
+    account({ id: RETENTION_RECEIVABLE, code: RETENTION_RECEIVABLE, nameAr: "محتجزات ضمان مدينة", type: "asset" }),
+  ];
+  const run = (entries: JournalEntry[], outputBaseAccountIds?: readonly string[]) => {
+    const window = { periodFrom: "2026-03-01", periodTo: "2026-03-31" };
+    const outcome = runReport(createVatReturnReport(window), window, { ...ctx(entries), accounts: withContracting, outputBaseAccountIds });
+    if (!outcome.ok) throw new Error("the VAT return did not run");
+    return outcome.rows.map((r) => [r.rowId, r.base, r.tax]);
+  };
+  const certificateInvoice = je({
+    id: "cert-inv",
+    lines: [
+      line({ accountId: "1100", debit: Money.fromMajor("1454088.24") }),
+      line({ accountId: BILLINGS, credit: Money.fromMajor("178556.00"), taxRatePercent: 14, taxRateId: "VAT14" }),
+      line({ accountId: "4100", credit: Money.fromMajor("1096960.00"), taxRatePercent: 14, taxRateId: "VAT14" }),
+      line({ accountId: OUTPUT_VAT, credit: Money.fromMajor("178572.24"), taxRatePercent: 14, taxRateId: "VAT14" }),
+    ],
+  });
+
+  it("counts the billings liability in the output base, so the row's tax stands against everything it was charged on", () => {
+    expect(run([certificateInvoice], [BILLINGS])).toEqual([["output-14-VAT14", 1275516, 178572.24]]);
+  });
+
+  it("reports the base short by exactly the billings credit when the account is not named — the defect the wiring closes", () => {
+    expect(run([certificateInvoice])).toEqual([["output-14-VAT14", 1096960, 178572.24]]);
+  });
+
+  it("reverses the billings base on the credit note that debits it", () => {
+    const creditNote = je({
+      id: "cert-cn",
+      lines: [
+        line({ accountId: BILLINGS, debit: Money.fromMajor("1000"), taxRatePercent: 14, taxRateId: "VAT14" }),
+        line({ accountId: OUTPUT_VAT, debit: Money.fromMajor("140"), taxRatePercent: 14, taxRateId: "VAT14" }),
+        line({ accountId: "1100", credit: Money.fromMajor("1140") }),
+      ],
+    });
+    expect(run([creditNote], [BILLINGS])).toEqual([["output-14-VAT14", -1000, -140]]);
+  });
+
+  it("gives a sale that credits an asset at 0% no input row — a retention release is not a negative purchase", () => {
+    const release = je({
+      id: "retention-release",
+      sourceDocType: "SALES_INVOICE",
+      lines: [
+        line({ accountId: "1100", debit: Money.fromMajor("100") }),
+        line({ accountId: RETENTION_RECEIVABLE, credit: Money.fromMajor("100"), taxRatePercent: 0 }),
+      ],
+    });
+    expect(run([release], [BILLINGS])).toEqual([]);
+  });
+
+  it("still reports a purchase and a purchase return charged wholly at 0%, which move no input VAT at all", () => {
+    const exemptPurchase = je({
+      id: "pi-exempt",
+      sourceDocType: "PURCHASE_INVOICE",
+      lines: [
+        line({ accountId: "5100", debit: Money.fromMajor("300"), taxRatePercent: 0, taxRateId: "EXEMPT" }),
+        line({ accountId: "2100", credit: Money.fromMajor("300") }),
+      ],
+    });
+    const exemptReturn = je({
+      id: "pr-exempt",
+      sourceDocType: "PURCHASE_RETURN",
+      lines: [
+        line({ accountId: "2100", debit: Money.fromMajor("100") }),
+        line({ accountId: "5100", credit: Money.fromMajor("100"), taxRatePercent: 0, taxRateId: "EXEMPT" }),
+      ],
+    });
+    expect(run([exemptPurchase, exemptReturn])).toEqual([["input-0-EXEMPT", 200, 0]]);
+  });
+});
+

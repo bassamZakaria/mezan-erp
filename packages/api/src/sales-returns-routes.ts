@@ -184,12 +184,8 @@ export function createSalesReturnsRoutes(
     return null;
   }
 
-  // INVARIANT: every line a request raises against one invoice is derived in
-  // ONE call, so two lines naming the same invoice line are matched to it
-  // together and their total is what `validate` sees. Derived one at a time,
-  // each was offered the whole of the line. Only the quantity, the reason and
-  // the warehouse are the caller's; with no invoices module wired the
-  // caller's figures are all there is.
+  // INVARIANT: a request's lines against one invoice are derived in ONE call;
+  // derived one at a time, each is offered the whole of the line it names.
   async function deriveLines(
     requested: readonly CreateSalesReturnLineInput[],
   ): Promise<{ lines: SalesReturnLine[] } | { refusal: ReturnType<typeof lineNotOnInvoice> }> {

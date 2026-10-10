@@ -107,6 +107,32 @@ const payload = {
   ],
 };
 
+describe("purchase-returns router — an edition with no invoices module to read the figures from (D79 round 3)", () => {
+  const post = (app: ReturnType<typeof createPurchaseReturnsRoutes>, body: unknown) =>
+    app.fetch(req("/", { method: "POST", permissions: "purchases.return.create", body: JSON.stringify(body) }));
+
+  it("refuses a line that states no cost, tax or returnable quantity — 422 RETURN_FIGURES_REQUIRED, in Arabic, nothing written", async () => {
+    const { service } = await buildRig();
+    const app = createPurchaseReturnsRoutes(service, insecureHeaderAuthContextResolver);
+    const { unitCost: _unitCost, taxAmount: _taxAmount, availableQty: _availableQty, ...bare } = payload.lines[0]!;
+    const res = await post(app, { ...payload, lines: [bare] });
+    expect(res.status).toBe(422);
+    const body = (await json(res)) as { error: string; message: string };
+    expect(body.error).toBe("RETURN_FIGURES_REQUIRED");
+    expect(body.message).toMatch(/[\u0600-\u06FF]/);
+    expect(await service.findById("PRT1")).toBeNull();
+  });
+
+  it("still drafts a line that states all three, at the figures it stated", async () => {
+    const { service } = await buildRig();
+    const app = createPurchaseReturnsRoutes(service, insecureHeaderAuthContextResolver);
+    const res = await post(app, payload);
+    expect(res.status).toBe(201);
+    const line = (await service.findById("PRT1"))?.lines[0];
+    expect([line?.unitCost.toString(), line?.taxAmount.toString(), line?.availableQty.toString()]).toEqual(["60.000000", "0.000000", "5.000000"]);
+  });
+});
+
 describe("purchase-returns router — permission gates", () => {
   it("rejects listing with no permissions", async () => {
     const { service } = await buildRig();

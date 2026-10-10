@@ -289,6 +289,35 @@ describe("SalesReturnsScreen", () => {
     expect(createdBody!.sourceInvoiceId).toBe("inv-1");
   });
 
+  it("«إضافة بند» starts the new row on the next invoice line once the rows above take the whole of the first — never the same line twice by default", async () => {
+    let createdBody: Record<string, unknown> | undefined;
+    const transport = stubTransport({
+      ...baseHandlers([]),
+      "POST /sales-returns/from-invoice": (init) => {
+        createdBody = JSON.parse((init?.body as string) ?? "{}");
+        const created = salesReturn({ id: (createdBody as { id: string }).id, docNo: null, status: "draft" });
+        return { status: 201, body: created };
+      },
+    });
+    renderWithProviders(<TestNavigation><SalesReturnsScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
+    await screen.findByText("لا توجد مرتجعات — أنشئ مرتجعاً جديداً");
+    fireEvent.click(screen.getAllByRole("button", { name: "مرتجع جديد" })[0]!);
+    await screen.findByRole("heading", { name: "مرتجع مبيعات جديد" });
+
+    // أسمنت بورتلاندي was sold 10: returning all 10 leaves that line nothing.
+    fireEvent.change(qtyInputAt(0), { target: { value: "10" } });
+    fireEvent.click(screen.getByRole("button", { name: "إضافة بند" }));
+    fireEvent.change(qtyInputAt(1), { target: { value: "2" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "حفظ كمسودة" }));
+    await waitFor(() => expect(createdBody).toBeDefined());
+    const requested = createdBody!.requested as Array<Record<string, unknown>>;
+    expect(requested.map((r) => [r.itemId, r.sourceLineId, r.qty])).toEqual([
+      ["item-cement", "l1", "10"],
+      ["item-brick", "l2", "2"],
+    ]);
+  });
+
   it("removing a line drops only that item from the request, leaving the survivor's own qty and reason untouched", async () => {
     let createdBody: Record<string, unknown> | undefined;
     const transport = stubTransport({

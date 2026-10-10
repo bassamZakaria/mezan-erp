@@ -223,11 +223,8 @@ export function createPurchaseReturnsRoutes(
       const refusal = refuseInconsistentLine(line, await lookupInvoice(requestInvoices, line.sourceInvoiceId));
       if (refusal) return c.json(refusal, 422);
     }
-    // INVARIANT: every line a request raises against one invoice is derived
-    // in ONE call, so two lines naming the same invoice line are matched to it
-    // together and their total is what `validate` sees. Cost, tax, rate, what
-    // is returnable and the currency are the invoice's (D214, D203); the
-    // project and cost category are the caller's, inherited when unstated.
+    // INVARIANT: a request's lines against one invoice are derived in ONE
+    // call; derived one at a time, each is offered the whole of the line.
     type RequestLine = (typeof parsed.data.lines)[number];
     type StatedLine = RequestLine & { availableQty: string; unitCost: string; taxAmount: string };
     const statesItsFigures = (l: RequestLine): l is StatedLine =>

@@ -24,10 +24,8 @@ export interface SourceLineMatch<L, R> {
   readonly unmatched: R[];
 }
 
-// INVARIANT: a request naming a line is matched to it however many other
-// requests name it too — the total asked of one line is refused by
-// `overdrawnSourceLines`, and a matcher that hid the second request would hide
-// the overdraw with it.
+// INVARIANT: a request naming a line is matched to it however many others
+// name it too; hiding the second would hide the overdraw `validate` refuses.
 export function matchSourceLines<L extends ReturnableSourceLine, R extends SourceLineRequest>(
   lines: readonly L[],
   requests: readonly R[],

@@ -52,12 +52,7 @@ export interface DocumentServiceDeps<Line> {
   /** Default acting user for audit/workflow; per-call opts override this. */
   readonly actor?: string;
   readonly actorRoles?: readonly string[];
-  /**
-   * INVARIANT: checked once before the workflow gate and again as the first
-   * act of the confirm's transaction. A limit that depends on what OTHER
-   * documents have posted since this one was drafted belongs here, not in
-   * `validate`, which only ever sees the draft's own snapshot.
-   */
+  /** INVARIANT: runs before the workflow gate and again as the first act of the confirm's transaction. */
   readonly confirmGuard?: (doc: FrameworkDocument<Line>) => Promise<void>;
 }
 

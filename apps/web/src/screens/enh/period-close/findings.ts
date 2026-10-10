@@ -143,6 +143,8 @@ export function findingTitle(finding: PeriodCloseFindingDTO, t: Translate, forma
       return t("periodClose.finding.eta", { count: format.number(finding.count ?? 0) });
     case PeriodCloseFindingKindDTO.BankStatement:
       return finding.label ?? finding.ref;
+    case PeriodCloseFindingKindDTO.PayrollDue:
+      return t("periodClose.finding.payroll", { period: finding.items[0] ?? finding.ref });
   }
 }
 
@@ -164,6 +166,8 @@ export function findingFigure(finding: PeriodCloseFindingDTO, t: Translate, form
       return t("periodClose.finding.count", { count: format.number(finding.count ?? 0) });
     case PeriodCloseFindingKindDTO.DepreciationRun:
       return t(finding.passed ? "periodClose.finding.assetsCovered" : "periodClose.finding.assetsUncovered", { count: format.number(finding.count ?? 0) });
+    case PeriodCloseFindingKindDTO.PayrollDue:
+      return t("periodClose.finding.employeesUnpaid", { count: format.number(finding.count ?? 0) });
     case PeriodCloseFindingKindDTO.RecurringTemplate:
     case PeriodCloseFindingKindDTO.EtaSubmission:
       return "";

@@ -25,6 +25,8 @@ function cleanSources(over: Partial<PeriodCloseSources> = {}): PeriodCloseSource
     subledgerTies: async () => [{ key: "ar", label: "ذمم العملاء", controlAccountId: "1105", difference: Money.zero(), asOfDate: "2026-07-02" }],
     trialBalance: async () => ({ debit: Money.fromMajor("900.00"), credit: Money.fromMajor("900.00"), asOfDate: JUNE.endDate }),
     bankStatements: async () => [],
+    bankAccountsWithMovement: async () => [],
+    payrollDue: async () => ({ dueEmployees: 0, uncoveredEmployees: 0, hasUnpostedRun: false }),
     foreignCurrencies: async () => [],
     fxRevaluedCurrencies: async () => [],
     recurringDue: async () => [],
@@ -104,10 +106,36 @@ describe("evaluatePeriodClose", () => {
   });
 
   it("blocks on a bank statement that is not finalized and passes once every one is", async () => {
-    const open = { statementId: "BS-1", label: "البنك الأهلي — 06/2026", periodEnd: JUNE.endDate, finalized: false };
+    const open = { statementId: "BS-1", treasuryAccountId: "TA-1", label: "البنك الأهلي — 06/2026", periodEnd: JUNE.endDate, finalized: false };
     expect((await evaluate({ bankStatements: async () => [open] })).blocking).toEqual([PeriodCloseCheckCode.BankStatements]);
     const done = await evaluate({ bankStatements: async () => [{ ...open, finalized: true }] });
     expect(checkOf(done, PeriodCloseCheckCode.BankStatements).status).toBe(PeriodCloseCheckStatus.Pass);
+  });
+
+  it("blocks when a bank account moved in the period and has no statement at all", async () => {
+    const account = { treasuryAccountId: "TA-1", label: "البنك الأهلي" };
+    const missing = await evaluate({ bankAccountsWithMovement: async () => [account] });
+    expect(missing.blocking).toEqual([PeriodCloseCheckCode.BankStatements]);
+    expect(checkOf(missing, PeriodCloseCheckCode.BankStatements).findings.map((f) => [f.ref, f.label, f.state])).toEqual([["account:TA-1", "البنك الأهلي", PeriodCloseFindingState.Missing]]);
+
+    const covered = await evaluate({
+      bankAccountsWithMovement: async () => [account],
+      bankStatements: async () => [{ statementId: "BS-1", treasuryAccountId: "TA-1", label: "البنك الأهلي — 06/2026", periodEnd: JUNE.endDate, finalized: true }],
+    });
+    expect(checkOf(covered, PeriodCloseCheckCode.BankStatements).status).toBe(PeriodCloseCheckStatus.Pass);
+    expect(checkOf(await evaluate(), PeriodCloseCheckCode.BankStatements).status).toBe(PeriodCloseCheckStatus.NotApplicable);
+  });
+
+  it("blocks a month whose employees have no posted payroll run, and says whether a run is waiting", async () => {
+    const missing = await evaluate({ payrollDue: async () => ({ dueEmployees: 4, uncoveredEmployees: 3, hasUnpostedRun: false }) });
+    expect(missing.blocking).toEqual([PeriodCloseCheckCode.Drafts]);
+    expect(checkOf(missing, PeriodCloseCheckCode.Drafts).findings.map((f) => [f.kind, f.ref, f.state, f.count, f.fix])).toEqual([
+      ["payroll_due", "2026-06", PeriodCloseFindingState.Missing, 3, PeriodCloseFixTarget.Payroll],
+    ]);
+    const waiting = await evaluate({ payrollDue: async () => ({ dueEmployees: 4, uncoveredEmployees: 4, hasUnpostedRun: true }) });
+    expect(checkOf(waiting, PeriodCloseCheckCode.Drafts).findings[0]?.state).toBe(PeriodCloseFindingState.Draft);
+    const paid = await evaluate({ payrollDue: async () => ({ dueEmployees: 4, uncoveredEmployees: 0, hasUnpostedRun: false }) });
+    expect(checkOf(paid, PeriodCloseCheckCode.Drafts).status).toBe(PeriodCloseCheckStatus.Pass);
   });
 
   it("asks for an FX revaluation per currency with an open balance, as of the period end", async () => {

@@ -211,6 +211,10 @@ enum StoredStatus {
   Reversed = "reversed",
   EtaError = "error",
   StatementCompleted = "completed",
+  BankAccountType = "bank",
+  EmployeeTerminated = "terminated",
+  PayrollApproved = "approved",
+  PayrollDisbursed = "disbursed",
 }
 
 const FISCAL_PERIOD_ENTITY = "FISCAL_PERIOD";
@@ -242,8 +246,20 @@ export interface FxRevaluationRunLog {
   currenciesRevaluedAsOf(asOfDate: string): string[];
 }
 
+export interface PeriodCloseBankAccountRow {
+  readonly treasuryAccountId: string;
+  readonly name: string;
+}
+
+export interface PeriodClosePayrollDueRow {
+  readonly dueEmployees: number;
+  readonly uncoveredEmployees: number;
+  readonly hasUnpostedRun: boolean;
+}
+
 export interface PeriodCloseBankStatementRow {
   readonly statementId: string;
+  readonly treasuryAccountId: string;
   readonly statementNumber: string | null;
   readonly treasuryAccountName: string | null;
   readonly periodEnd: string;
@@ -275,6 +291,8 @@ export interface PeriodCloseQueries {
   pendingApprovalCounts(window: PeriodCloseWindow): PeriodCloseDocCount[];
   numberedDocuments(window: PeriodCloseWindow): { kind: PeriodCloseDocKind; documents: NumberedDocument[] }[];
   bankStatementsOverlapping(window: PeriodCloseWindow): PeriodCloseBankStatementRow[];
+  bankAccountsWithMovement(window: PeriodCloseWindow): PeriodCloseBankAccountRow[];
+  payrollDue(window: PeriodCloseWindow): PeriodClosePayrollDueRow;
   recurringRuns(): PeriodCloseRecurringRunRow[];
   recurringSkips(): PeriodCloseRecurringSkipRow[];
   openFxLineGroups(toDate: string): PeriodCloseFxLineGroup[];
@@ -348,20 +366,63 @@ function createQueries(sqlite: Database.Database): PeriodCloseQueries {
     bankStatementsOverlapping(window) {
       const rows = sqlite
         .prepare(
-          `SELECT s.id, s.statement_number, s.period_end, s.status, ta.name AS account_name
+          `SELECT s.id, s.treasury_account_id, s.statement_number, s.period_end, s.status, ta.name AS account_name
              FROM bank_statement s
              LEFT JOIN treasury_account ta ON ta.id = s.treasury_account_id
             WHERE s.period_start <= ? AND s.period_end >= ?
             ORDER BY s.period_end, s.id`,
         )
-        .all(window.endDate, window.startDate) as { id: string; statement_number: string | null; period_end: string; status: string; account_name: string | null }[];
+        .all(window.endDate, window.startDate) as { id: string; treasury_account_id: string; statement_number: string | null; period_end: string; status: string; account_name: string | null }[];
       return rows.map((row) => ({
         statementId: row.id,
+        treasuryAccountId: row.treasury_account_id,
         statementNumber: row.statement_number,
         treasuryAccountName: row.account_name,
         periodEnd: row.period_end,
         finalized: row.status === StoredStatus.StatementCompleted,
       }));
+    },
+    bankAccountsWithMovement(window) {
+      const rows = sqlite
+        .prepare(
+          `SELECT ta.id, ta.name
+             FROM treasury_account ta
+            WHERE ta.type = ? AND ta.gl_account_id IS NOT NULL
+              AND EXISTS (
+                SELECT 1 FROM journal_line jl JOIN journal_entry je ON je.id = jl.entry_id
+                 WHERE jl.account_id = ta.gl_account_id AND je.status IN (${placeholders(LEDGER_EFFECTIVE_STATUSES)}) AND je.date >= ? AND je.date <= ?
+              )
+            ORDER BY ta.id`,
+        )
+        .all(StoredStatus.BankAccountType, ...LEDGER_EFFECTIVE_STATUSES, window.startDate, window.endDate) as { id: string; name: string }[];
+      return rows.map((row) => ({ treasuryAccountId: row.id, name: row.name }));
+    },
+    payrollDue(window) {
+      const year = Number(window.startDate.slice(0, 4));
+      const month = Number(window.startDate.slice(5, 7));
+      const due = `
+        FROM hr_employee e
+       WHERE e.hire_date <= @endDate
+         AND (e.status <> @terminated OR (e.terminated_at IS NOT NULL AND substr(e.terminated_at, 1, 10) >= @startDate))
+         AND EXISTS (
+           SELECT 1 FROM hr_contract c
+            WHERE c.employee_id = e.id AND c.start_date <= @endDate AND (c.end_date IS NULL OR c.end_date >= @startDate)
+         )`;
+      const params = { startDate: window.startDate, endDate: window.endDate, terminated: StoredStatus.EmployeeTerminated, year, month, approved: StoredStatus.PayrollApproved, disbursed: StoredStatus.PayrollDisbursed };
+      const row = sqlite
+        .prepare(
+          `SELECT COUNT(*) AS due,
+                  SUM(CASE WHEN NOT EXISTS (
+                    SELECT 1 FROM hr_payslip p JOIN hr_payroll_run r ON r.id = p.run_id
+                     WHERE p.employee_id = e.id AND r.year = @year AND r.month = @month AND r.status IN (@approved, @disbursed)
+                  ) THEN 1 ELSE 0 END) AS uncovered
+           ${due}`,
+        )
+        .get(params) as { due: number; uncovered: number | null };
+      const unposted = sqlite
+        .prepare(`SELECT COUNT(*) AS n FROM hr_payroll_run WHERE year = ? AND month = ? AND status IN (${placeholders(UNPOSTED_PAYROLL_STATUSES)})`)
+        .get(year, month, ...UNPOSTED_PAYROLL_STATUSES) as { n: number };
+      return { dueEmployees: row.due, uncoveredEmployees: row.uncovered ?? 0, hasUnpostedRun: unposted.n > 0 };
     },
     recurringRuns() {
       const rows = sqlite

@@ -60,6 +60,7 @@ const ENTRY_FINDING_STATE: Readonly<Record<PeriodCloseEntryState, PeriodCloseFin
 };
 
 const GENERAL_BRANCH_REF = "general";
+const BANK_ACCOUNT_REF_PREFIX = "account:";
 
 function docCountFindings(
   counts: readonly PeriodCloseDocCount[],
@@ -76,8 +77,22 @@ const draftsCheck: PeriodCloseCheckDefinition = {
   code: PeriodCloseCheckCode.Drafts,
   fix: PeriodCloseFixTarget.Journals,
   async evaluate(window, sources) {
-    const counts = await sources.draftCounts(window);
-    return outcome(docCountFindings(counts, PeriodCloseFindingKind.Drafts, PeriodCloseFindingState.Draft, (k) => PERIOD_CLOSE_DOC_KIND_FIX[k]));
+    const [counts, payroll] = await Promise.all([sources.draftCounts(window), sources.payrollDue(window)]);
+    const findings = docCountFindings(counts, PeriodCloseFindingKind.Drafts, PeriodCloseFindingState.Draft, (k) => PERIOD_CLOSE_DOC_KIND_FIX[k]);
+    if (payroll.uncoveredEmployees > 0) {
+      findings.push(
+        finding({
+          kind: PeriodCloseFindingKind.PayrollDue,
+          ref: periodMonthKey(window),
+          state: payroll.hasUnpostedRun ? PeriodCloseFindingState.Draft : PeriodCloseFindingState.Missing,
+          passed: false,
+          fix: PeriodCloseFixTarget.Payroll,
+          count: payroll.uncoveredEmployees,
+          items: [periodMonthKey(window)],
+        }),
+      );
+    }
+    return outcome(findings);
   },
 };
 
@@ -138,7 +153,8 @@ const bankCheck: PeriodCloseCheckDefinition = {
   code: PeriodCloseCheckCode.BankStatements,
   fix: PeriodCloseFixTarget.BankReconciliation,
   async evaluate(window, sources) {
-    const statements = await sources.bankStatements(window);
+    const [statements, accounts] = await Promise.all([sources.bankStatements(window), sources.bankAccountsWithMovement(window)]);
+    const withStatement = new Set(statements.map((s) => s.treasuryAccountId));
     const findings = statements.map((s) =>
       finding({
         kind: PeriodCloseFindingKind.BankStatement,
@@ -150,6 +166,20 @@ const bankCheck: PeriodCloseCheckDefinition = {
         asOfDate: s.periodEnd,
       }),
     );
+    for (const account of accounts) {
+      if (withStatement.has(account.treasuryAccountId)) continue;
+      findings.push(
+        finding({
+          kind: PeriodCloseFindingKind.BankStatement,
+          ref: `${BANK_ACCOUNT_REF_PREFIX}${account.treasuryAccountId}`,
+          label: account.label,
+          state: PeriodCloseFindingState.Missing,
+          passed: false,
+          fix: PeriodCloseFixTarget.BankReconciliation,
+          asOfDate: window.endDate,
+        }),
+      );
+    }
     return outcome(findings, findings.length > 0);
   },
 };

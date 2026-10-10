@@ -86,6 +86,7 @@ export enum PeriodCloseFindingKind {
   DepreciationRun = "depreciation_run",
   SequenceGap = "sequence_gap",
   EtaSubmission = "eta_submission",
+  PayrollDue = "payroll_due",
 }
 
 export enum PeriodCloseFindingState {
@@ -160,9 +161,21 @@ export interface PeriodCloseTrialBalance {
 
 export interface PeriodCloseBankStatement {
   readonly statementId: string;
+  readonly treasuryAccountId: string;
   readonly label: string;
   readonly periodEnd: string;
   readonly finalized: boolean;
+}
+
+export interface PeriodCloseBankAccount {
+  readonly treasuryAccountId: string;
+  readonly label: string;
+}
+
+export interface PeriodClosePayrollDue {
+  readonly dueEmployees: number;
+  readonly uncoveredEmployees: number;
+  readonly hasUnpostedRun: boolean;
 }
 
 export interface PeriodCloseRecurringDue {
@@ -197,6 +210,8 @@ export interface PeriodCloseSources {
   subledgerTies(window: PeriodCloseWindow): Promise<readonly PeriodCloseTie[]>;
   trialBalance(window: PeriodCloseWindow): Promise<PeriodCloseTrialBalance>;
   bankStatements(window: PeriodCloseWindow): Promise<readonly PeriodCloseBankStatement[]>;
+  bankAccountsWithMovement(window: PeriodCloseWindow): Promise<readonly PeriodCloseBankAccount[]>;
+  payrollDue(window: PeriodCloseWindow): Promise<PeriodClosePayrollDue>;
   foreignCurrencies(window: PeriodCloseWindow): Promise<readonly string[]>;
   fxRevaluedCurrencies(window: PeriodCloseWindow): Promise<readonly string[]>;
   recurringDue(window: PeriodCloseWindow): Promise<readonly PeriodCloseRecurringDue[]>;

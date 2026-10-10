@@ -146,11 +146,16 @@ function buildSources(ctx: BackendModuleContext, store: ReturnType<typeof create
     async bankStatements(window) {
       return queries.bankStatementsOverlapping(window).map((statement) => ({
         statementId: statement.statementId,
+        treasuryAccountId: statement.treasuryAccountId,
         label: `${statement.treasuryAccountName ?? statement.statementId} — ${statement.statementNumber ?? statement.statementId}`,
         periodEnd: statement.periodEnd,
         finalized: statement.finalized,
       }));
     },
+
+    bankAccountsWithMovement: async (window) =>
+      queries.bankAccountsWithMovement(window).map((account) => ({ treasuryAccountId: account.treasuryAccountId, label: account.name })),
+    payrollDue: async (window) => queries.payrollDue(window),
 
     foreignCurrencies,
     fxRevaluedCurrencies: async (window) => fxRuns.currenciesRevaluedAsOf(window.endDate),

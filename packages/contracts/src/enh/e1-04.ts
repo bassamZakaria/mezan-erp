@@ -75,6 +75,7 @@ export enum PeriodCloseFindingKindDTO {
   DepreciationRun = "depreciation_run",
   SequenceGap = "sequence_gap",
   EtaSubmission = "eta_submission",
+  PayrollDue = "payroll_due",
 }
 
 export enum PeriodCloseFindingStateDTO {

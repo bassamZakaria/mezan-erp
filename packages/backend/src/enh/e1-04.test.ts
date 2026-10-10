@@ -160,6 +160,51 @@ describe("period-close checks read the real tables (ENH-E1-04)", () => {
     expect((await check("06", "bank_statements")).status).toBe("pass");
   });
 
+  it("a bank account that moved in the month needs a finalized statement; one with no movement asks for nothing", async () => {
+    const { sqlite, request, check } = await world();
+    insert(sqlite, "treasury_account", { id: "ta-bank", code: "BNK-T", name: "البنك الأهلي — جاري", type: "bank", currency: "EGP", branch_id: "BR-MAIN", gl_account_id: "1021", status: "active" });
+    insert(sqlite, "treasury_account", { id: "ta-cash", code: "CSH-T", name: "خزينة الفرع", type: "cash", currency: "EGP", branch_id: "BR-MAIN", gl_account_id: "1011", status: "active" });
+    post(sqlite, "bank-move", "2026-06-10", [["1021", 500, 0], ["2170", 0, 500]]);
+    post(sqlite, "cash-move", "2026-06-11", [["1011", 80, 0], ["2170", 0, 80]]);
+
+    const june = await check("06", "bank_statements");
+    expect(june.status).toBe("fail");
+    expect(june.findings.map((f) => [f.ref, f.label, f.state, f.fix])).toEqual([["account:ta-bank", "البنك الأهلي — جاري", "missing", "bank-reconciliation"]]);
+    expect((await check("07", "bank_statements")).status).toBe("not_applicable");
+    await expectCloseRefused(request, "06", "bank_statements");
+
+    insert(sqlite, "bank_statement", { id: "bs-june", treasury_account_id: "ta-bank", statement_number: "ST-06", period_start: "2026-06-01", period_end: "2026-06-30", status: "in_progress" });
+    expect((await check("06", "bank_statements")).findings.map((f) => [f.ref, f.state])).toEqual([["bs-june", "not_finalized"]]);
+
+    sqlite.prepare(`UPDATE bank_statement SET status = 'completed' WHERE id = 'bs-june'`).run();
+    expect((await check("06", "bank_statements")).status).toBe("pass");
+  });
+
+  it("a month with an employee under contract and no posted payroll run does not close clean", async () => {
+    const { sqlite, request, check } = await world();
+    const employee = (id: string, hireDate: string, extra: Record<string, string | number | null> = {}) => {
+      insert(sqlite, "hr_employee", { id, code: id, hire_date: hireDate, status: "active", ...extra });
+      insert(sqlite, "hr_contract", { id: `ct-${id}`, number: `CT-${id}`, employee_id: id, start_date: hireDate, end_date: null, status: "active" });
+    };
+    employee("emp-1", "2026-01-01");
+    employee("emp-july", "2026-07-01");
+    employee("emp-left", "2026-01-01", { status: "terminated", terminated_at: "2026-05-20T10:00:00.000Z" });
+
+    const june = await check("06", "drafts");
+    expect(june.status).toBe("fail");
+    expect(june.findings.map((f) => [f.kind, f.ref, f.state, f.count, f.fix])).toEqual([["payroll_due", "2026-06", "missing", 1, "payroll"]]);
+    expect((await check("07", "drafts")).findings.map((f) => f.count)).toEqual([2]);
+    expect((await check("05", "drafts")).findings.map((f) => f.count)).toEqual([2]);
+    await expectCloseRefused(request, "06", "drafts");
+
+    insert(sqlite, "hr_payroll_run", { id: "pr-june", number: "PAY-2026-06", year: 2026, month: 6, period_start: "2026-06-01", period_end: "2026-06-30", currency: "EGP", status: "calculated" });
+    insert(sqlite, "hr_payslip", { id: "ps-1", number: "PS-1", run_id: "pr-june", employee_id: "emp-1", contract_id: "ct-emp-1", currency: "EGP", period_start: "2026-06-01", period_end: "2026-06-30", lines_json: "[]" });
+    expect((await check("06", "drafts")).findings.map((f) => [f.kind, f.state])).toEqual([["drafts", "draft"], ["payroll_due", "draft"]]);
+
+    sqlite.prepare(`UPDATE hr_payroll_run SET status = 'approved' WHERE id = 'pr-june'`).run();
+    expect((await check("06", "drafts")).status).toBe("pass");
+  });
+
   it("a recurring entry that was posted and then reversed is not done; a posted one is", async () => {
     const { sqlite, request, check } = await world();
     const template = await request("POST", "/gl/recurring/templates", {

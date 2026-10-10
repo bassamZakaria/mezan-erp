@@ -19,6 +19,13 @@ import { recordAdminEvent } from "./admin-audit.js";
 import { callerUserId } from "./permission-gate.js";
 import { PeriodCloseVerdictKind, judgePeriodClose, periodCloseGuardFor } from "./period-close-routes.js";
 
+class PeriodCloseOverrideUnauditableError extends Error {
+  constructor(readonly periodId: string) {
+    super(`Refusing to override the pre-close checks of "${periodId}": no audit sink is wired, so the override could not be recorded.`);
+    this.name = "PeriodCloseOverrideUnauditableError";
+  }
+}
+
 enum GuardedPeriodAction {
   Close = "CLOSE",
   Lock = "LOCK",
@@ -157,6 +164,7 @@ export function createFiscalPeriodsRoutes(
 
       // The override is recorded BEFORE the period moves: an override the trail could not take must not happen.
       if (verdict.overrideReason !== null) {
+        if (!audit) throw new PeriodCloseOverrideUnauditableError(before.id);
         await recordAdminEvent(audit, c, {
           module: "accounting",
           entityType: "FISCAL_PERIOD",

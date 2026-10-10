@@ -167,6 +167,25 @@ describe("closing a period runs the pre-close checks (D176 C-3)", () => {
   });
 });
 
+describe("an override needs somewhere to be recorded", () => {
+  it("refuses to override when the router was built with no audit sink, and still closes a clear period", async () => {
+    const repo = createSqliteFiscalPeriodRepository();
+    handles.push(repo);
+    const guard = new FakeGuard();
+    registerPeriodCloseGuard(repo, guard);
+    const periods = createFiscalPeriodsRoutes(repo, insecureHeaderAuthContextResolver);
+    await periods.fetch(post("/generate-year", CLOSE, { year: 2026 }));
+
+    guard.blocking = [PeriodCloseCheckCode.Drafts];
+    const overridden = await periods.request(post(`/${PERIOD_ID}/close`, CLOSE_AND_OVERRIDE, { overrideReason: REASON }));
+    expect(overridden.status).toBe(500);
+    expect(await statusOf(repo)).toBe("open");
+
+    guard.blocking = [];
+    expect((await periods.fetch(post(`/${PERIOD_ID}/close`, CLOSE))).status).toBe(200);
+  });
+});
+
 describe("locking is held to the same checks (the close's twin)", () => {
   it("refuses to lock a closed period while a check fails, and locks with an audited override", async () => {
     const { periods, repo, guard, audit } = await setup();

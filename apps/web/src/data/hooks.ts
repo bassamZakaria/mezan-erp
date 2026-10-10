@@ -6387,12 +6387,12 @@ export function useUpdateDepartment() {
   });
 }
 
-export function useJobTitles(): UseQueryResult<JobTitleDTO[], ApiError> {
+export function useJobTitles(enabled = true): UseQueryResult<JobTitleDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<JobTitleDTO[], ApiError>({
     queryKey: ["hr-job-titles"],
-    enabled: session !== null,
+    enabled: session !== null && enabled,
     queryFn: async () => {
       const res = await request("/hr/job-titles");
       if (!res.ok) throw await loaderError(res, t("api.jobTitlesCouldNotBe"), t);
@@ -6429,12 +6429,12 @@ export function useUpdateJobTitle() {
   });
 }
 
-export function useEmployees(): UseQueryResult<EmployeeDTO[], ApiError> {
+export function useEmployees(enabled = true): UseQueryResult<EmployeeDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<EmployeeDTO[], ApiError>({
     queryKey: ["hr-employees"],
-    enabled: session !== null,
+    enabled: session !== null && enabled,
     queryFn: async () => {
       const res = await request("/hr/employees");
       if (!res.ok) throw await loaderError(res, t("api.employeesCouldNotBeLoaded"), t);

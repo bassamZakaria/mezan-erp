@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { beforeEach, describe, expect, it } from "vitest";
-import { fireEvent, screen, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { Route, Routes } from "react-router";
 import type { PlanDTO, TenantSummaryDTO } from "@mezan/contracts";
 import { TenantDetailPage } from "./TenantDetailPage";
@@ -201,6 +201,7 @@ describe("TenantDetailPage", () => {
     renderDetail({ transport, session: testPlatformSession });
 
     fireEvent.click(await screen.findByRole("button", { name: "إيقاف المنشأة" }));
+    fireEvent.click(within(await screen.findByRole("dialog", { name: "إيقاف المنشأة؟" })).getByRole("button", { name: "إيقاف المنشأة" }));
     expect(await screen.findByRole("alert")).toHaveTextContent('لا يمكن نقل المنشأة من الحالة "active" إلى "suspended"');
   });
 
@@ -214,7 +215,34 @@ describe("TenantDetailPage", () => {
     renderDetail({ transport, session: testPlatformSession });
 
     fireEvent.click(await screen.findByRole("button", { name: "إيقاف المنشأة" }));
+    fireEvent.click(within(await screen.findByRole("dialog", { name: "إيقاف المنشأة؟" })).getByRole("button", { name: "إيقاف المنشأة" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("تحقق من الحقول المدخلة.");
+  });
+
+  it("suspending asks for confirmation first, and posts nothing until it is given (D-SAAS-10)", async () => {
+    let suspendPosts = 0;
+    const summary = makeSummary();
+    const transport = stubPlatformTransport({
+      "GET /tenants/tenant-1": () => ({ body: summary }),
+      "GET /plans": () => ({ body: [plan, plan2] }),
+      "POST /tenants/tenant-1/suspend": () => {
+        suspendPosts += 1;
+        return { body: { ...summary, tenant: { ...summary.tenant, status: "suspended" } } };
+      },
+    });
+    renderDetail({ transport, session: testPlatformSession });
+
+    fireEvent.click(await screen.findByRole("button", { name: "إيقاف المنشأة" }));
+    const dialog = await screen.findByRole("dialog", { name: "إيقاف المنشأة؟" });
+    expect(suspendPosts).toBe(0);
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "رجوع" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "إيقاف المنشأة؟" })).not.toBeInTheDocument());
+    expect(suspendPosts).toBe(0);
+
+    fireEvent.click(screen.getByRole("button", { name: "إيقاف المنشأة" }));
+    fireEvent.click(within(await screen.findByRole("dialog", { name: "إيقاف المنشأة؟" })).getByRole("button", { name: "إيقاف المنشأة" }));
+    await waitFor(() => expect(suspendPosts).toBe(1));
   });
 
   it("archiving asks for confirmation, and confirming posts the archive", async () => {

@@ -109,6 +109,7 @@ export function TenantDetailPage() {
   const [cardLinkCopied, setCardLinkCopied] = useState(false);
 
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
+  const [confirmSuspend, setConfirmSuspend] = useState(false);
   const [confirmArchive, setConfirmArchive] = useState(false);
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [confirmSuspendSubscription, setConfirmSuspendSubscription] = useState(false);
@@ -205,10 +206,7 @@ export function TenantDetailPage() {
             <Button
               variant="default"
               disabled={suspendTenant.isPending}
-              onClick={() => {
-                setMutationError(null);
-                suspendTenant.mutate(tenant.id, { onError: onMutationError });
-              }}
+              onClick={() => setConfirmSuspend(true)}
             >
               {t("platform.tenantDetail.suspend")}
             </Button>
@@ -482,6 +480,19 @@ export function TenantDetailPage() {
 
       <RecordPaymentDialog open={paymentDialogOpen} onClose={() => setPaymentDialogOpen(false)} tenantId={tenant.id} />
 
+      <ConfirmDialog
+        open={confirmSuspend}
+        title={t("platform.tenantDetail.confirmSuspend.title")}
+        consequence={t("platform.tenantDetail.confirmSuspend.consequence")}
+        confirmLabel={t("platform.tenantDetail.suspend")}
+        tone="danger"
+        onConfirm={() => {
+          setConfirmSuspend(false);
+          setMutationError(null);
+          suspendTenant.mutate(tenant.id, { onError: onMutationError });
+        }}
+        onCancel={() => setConfirmSuspend(false)}
+      />
       <ConfirmDialog
         open={confirmArchive}
         title={t("platform.tenantDetail.confirmArchive.title")}

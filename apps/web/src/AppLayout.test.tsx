@@ -442,6 +442,49 @@ describe("AppLayout — nav entitlements", () => {
   });
 });
 
+describe("AppLayout — HR lookups follow the plan (D-SAAS-03)", () => {
+  afterEach(() => {
+    persistSession(null);
+  });
+
+  function recordingTransport(activeModules: EntitlementsDTO["activeModules"]): { transport: Transport; requests: string[] } {
+    const requests: string[] = [];
+    const answer = stubTransport({
+      ...baseHandlers(),
+      "GET /entitlements": () => ({ body: { ...entitlements, activeModules } }),
+      "GET /roles": () => ({ body: [] }),
+      "GET /users": () => ({ body: [] }),
+      "GET /hr/employees": () => ({ body: [] }),
+      "GET /hr/job-titles": () => ({ body: [] }),
+    });
+    return {
+      requests,
+      transport: (path, init) => {
+        requests.push(path);
+        return answer(path, init);
+      },
+    };
+  }
+
+  it("asks for no employee or job title on a plan without HR", async () => {
+    const { transport, requests } = recordingTransport(["sales", "accounting"]);
+    renderLayout(transport, ["/dashboard"]);
+
+    const rail = await screen.findByRole("navigation", { name: "التنقل بين مساحات العمل" });
+    await waitFor(() => expect(within(rail).getByRole("button", { name: "المالية والإقفال" })).toBeInTheDocument());
+    await waitFor(() => expect(requests).toContain("/users"));
+    expect(requests.filter((path) => path.startsWith("/hr/"))).toEqual([]);
+  });
+
+  it("still loads them for the user form when the plan includes HR", async () => {
+    const { transport, requests } = recordingTransport(["sales", "accounting", "hr"]);
+    renderLayout(transport, ["/dashboard"]);
+
+    await waitFor(() => expect(requests).toContain("/hr/employees"));
+    expect(requests).toContain("/hr/job-titles");
+  });
+});
+
 describe("AppLayout — sign out", () => {
   afterEach(() => {
     persistSession(null);

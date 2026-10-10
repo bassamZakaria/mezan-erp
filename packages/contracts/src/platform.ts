@@ -131,7 +131,17 @@ export const recordPaymentRequestSchema = z.object({
   note: z.string().min(1).nullable().optional(),
 });
 
-export const subscriptionStatusSchema = z.enum(["trialing", "active", "past_due", "suspended", "cancelled"]);
+export enum SubscriptionStatusCode {
+  Trialing = "trialing",
+  Active = "active",
+  PastDue = "past_due",
+  Suspended = "suspended",
+  Cancelled = "cancelled",
+}
+
+const SUBSCRIPTION_STATUSES = ["trialing", "active", "past_due", "suspended", "cancelled"] as const satisfies readonly `${SubscriptionStatusCode}`[];
+
+export const subscriptionStatusSchema = z.enum(SUBSCRIPTION_STATUSES);
 
 export const subscriptionSchema = z.object({
   id: z.string().min(1),
@@ -214,7 +224,17 @@ export const paymentSchema = z.object({
   createdAt: isoLikeSchema,
 });
 
-export const licenseStateNameSchema = z.enum(["ACTIVE", "GRACE", "READ_ONLY", "INVALID", "UNLICENSED"]);
+export enum LicenseStateCode {
+  Active = "ACTIVE",
+  Grace = "GRACE",
+  ReadOnly = "READ_ONLY",
+  Invalid = "INVALID",
+  Unlicensed = "UNLICENSED",
+}
+
+const LICENSE_STATES = ["ACTIVE", "GRACE", "READ_ONLY", "INVALID", "UNLICENSED"] as const satisfies readonly `${LicenseStateCode}`[];
+
+export const licenseStateNameSchema = z.enum(LICENSE_STATES);
 
 export const licenseStateReasonSchema = z.enum([
   "TENANT_ARCHIVED",

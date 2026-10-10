@@ -10,6 +10,7 @@ import { useScopeSelector } from "./data/hub-hooks";
 import { displayName } from "./display-name";
 import { useProfile } from "./data/account-hooks";
 import { LoginScreen } from "./login/LoginScreen";
+import { PlanModule, planIncludesModule } from "./data/plan-modules";
 import { FirstRunWizard } from "./login/FirstRunWizard";
 import { LicenceStatusNotice } from "./lan/ConnectedDevicesPanel";
 import {
@@ -198,8 +199,9 @@ export function AppLayout() {
   const branchesQuery = useBranches();
   const warehousesQuery = useWarehouses();
   const entitlementsQuery = useEntitlements();
-  const employeesQuery = useEmployees();
-  const jobTitlesQuery = useJobTitles();
+  const hrLicensed = planIncludesModule(entitlementsQuery, PlanModule.Hr);
+  const employeesQuery = useEmployees(hrLicensed);
+  const jobTitlesQuery = useJobTitles(hrLicensed);
   const pendingApprovalCountQuery = usePendingApprovalCount();
   const pendingApprovalCount = pendingApprovalCountQuery.data ?? 0;
   const unreadNotificationCount = useUnreadNotificationCount().data ?? 0;

@@ -5,7 +5,8 @@ import { useApi } from "../data/ApiContext";
 import { useNavigation } from "../navigation";
 import type { ScreenKey } from "../router/screens";
 import type { ScreenIntentInput } from "../navigation";
-import { useDashboardSummary, useUserPreferences, type DashboardRange } from "../data/hooks";
+import { useDashboardSummary, useEntitlements, useUserPreferences, type DashboardRange } from "../data/hooks";
+import { PlanModule, planIncludesModule } from "../data/plan-modules";
 import { displayName } from "../display-name";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { BalanceBeam, beamTiltDegrees } from "./BalanceBeam";
@@ -142,11 +143,12 @@ export function DashboardScreen() {
   const attention = useAttentionData(window, today);
   /**
    * استثناءات المقاولات — the one contracting tile (design §06). Gated on the
-   * certificate-view right so a tenant that does not run contracting never sees
-   * a row about it.
+   * certificate-view right AND the plan: a company admin holds every right, so
+   * the right alone asked a plan without contracting for a report it refuses.
    */
   const mayViewContracting = (session?.permissions ?? []).some((p) => p === "*" || p === "contracting.certificate.view");
-  const contractingExceptions = useContractingExceptionSummary(mayViewContracting);
+  const contractingLicensed = planIncludesModule(useEntitlements(), PlanModule.Contracting);
+  const contractingExceptions = useContractingExceptionSummary(mayViewContracting && contractingLicensed);
 
   const greetingName = session ? firstNameOf(displayName(session, locale)) : "";
   const gl = summary?.gl;

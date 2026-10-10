@@ -108,6 +108,36 @@ describe("TenantsPage", () => {
     expect(screen.getByText("01/10/2026")).toBeInTheDocument();
   });
 
+  it("marks a tenant on trial as «تجريبي» in the licence column, so an operator can tell it from a paying one (D-SAAS-09)", async () => {
+    const trialing: TenantSummaryDTO = {
+      ...tenantSummary,
+      subscription: { ...tenantSummary.subscription!, status: "trialing", trialEndsAt: "2026-10-01T00:00:00.000Z" },
+    };
+    renderWithPlatformProviders(<TenantsPage />, {
+      transport: stubPlatformTransport({ ...baseHandlers(), "GET /tenants": () => ({ body: [trialing] }) }),
+      initialSession: testPlatformSession,
+    });
+
+    const row = (await screen.findByText("acme")).closest("tr")!;
+    expect(within(row).getByText("تجريبي")).toBeInTheDocument();
+    expect(within(row).queryByText("الترخيص نشط")).not.toBeInTheDocument();
+  });
+
+  it("keeps the licence state when a trialing tenant's licence is no longer active", async () => {
+    const lapsed: TenantSummaryDTO = {
+      ...tenantSummary,
+      subscription: { ...tenantSummary.subscription!, status: "trialing" },
+      licenseState: { state: "READ_ONLY", canWrite: false, usable: true },
+    };
+    renderWithPlatformProviders(<TenantsPage />, {
+      transport: stubPlatformTransport({ ...baseHandlers(), "GET /tenants": () => ({ body: [lapsed] }) }),
+      initialSession: testPlatformSession,
+    });
+
+    const row = (await screen.findByText("acme")).closest("tr")!;
+    expect(within(row).queryByText("تجريبي")).not.toBeInTheDocument();
+  });
+
   it("shows «منشأة جديدة» for an owner", async () => {
     renderWithPlatformProviders(<TenantsPage />, {
       transport: stubPlatformTransport(baseHandlers()),

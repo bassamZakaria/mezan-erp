@@ -3,7 +3,7 @@ import { useNavigate } from "react-router";
 import { Button, Card, DocumentList, useFormat, type DocumentListColumn } from "@mezan/ui";
 import type { TenantSummaryDTO } from "@mezan/contracts";
 import { useAppTranslation } from "../i18n";
-import { LicenseStateChip, TenantStatusChip } from "./chips";
+import { TenantLicenceChip, TenantStatusChip } from "./chips";
 import { usePlatformApi } from "./api";
 import { NewTenantDialog } from "./NewTenantDialog";
 import { usePlansQuery, useTenantsQuery } from "./hooks";
@@ -50,7 +50,7 @@ export function TenantsPage() {
     {
       key: "licence",
       header: t("platform.tenants.licence"),
-      render: (row) => <LicenseStateChip state={row.licenseState.state} />,
+      render: (row) => <TenantLicenceChip state={row.licenseState.state} subscriptionStatus={row.subscription?.status ?? null} />,
     },
     {
       key: "periodEnd",

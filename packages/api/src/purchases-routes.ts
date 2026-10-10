@@ -42,6 +42,8 @@ import {
   InactiveAccountError,
   NoFiscalPeriodForDateError,
   PeriodNotOpenForPostingError,
+  ReversalDateBeforeOriginalError,
+  InvalidStockMovementError,
   NegativeStockError,
   UncostedDeficitIssueError,
   CashBalanceWouldGoNegativeError,
@@ -83,6 +85,8 @@ import {
   documentVersionsOf,
   expectedVersionOf,
   readOptionalBody,
+  requestedReversalDate,
+  INVALID_REVERSAL_DATE,
   refuseStaleDocument,
   stampDocumentModifier,
   type DocumentVersionGuard,
@@ -374,6 +378,8 @@ function handleDomainError(c: Context, err: unknown): Response {
     // Raised by the voucher engine behind `POST /invoices/:id/payments` — the
     // same D20 shape: a refusal the caller can act on must not answer 500.
     err instanceof CashBalanceWouldGoNegativeError ||
+    err instanceof ReversalDateBeforeOriginalError ||
+    err instanceof InvalidStockMovementError ||
     err instanceof InvalidDocumentError ||
     err instanceof AllocationMismatchError ||
     err instanceof AllocationExceedsError
@@ -1342,8 +1348,12 @@ export function createPurchasesRoutes(
     const layers = deps.layers;
     const glReverse = deps.glReverse;
     app.post("/invoices/:id/cancel", gate("purchases.invoice.void"), async (c) => {
-      const stale = await refuseStaleDocument(c, deps.invoiceVersions, c.req.param("id"), expectedVersionOf(await readOptionalBody(c)));
+      const body = await readOptionalBody(c);
+      const stale = await refuseStaleDocument(c, deps.invoiceVersions, c.req.param("id"), expectedVersionOf(body));
       if (stale) return stale;
+      const requested = requestedReversalDate(body);
+      if (!requested.ok) return c.json(INVALID_REVERSAL_DATE, 400);
+      const today = await tenantDay(c, deps.now?.() ?? new Date().toISOString());
       const target = await deps.invoices.findById(c.req.param("id"));
       if (target?.status === "confirmed") {
         if (((await allocatedByInvoice([target.id])).get(target.id) ?? Money.zero()).scaled !== 0n) {
@@ -1378,7 +1388,7 @@ export function createPurchasesRoutes(
           audit: audit(c),
           actor: actor(c),
           now: deps.now,
-        });
+        }, { date: requested.date ?? (target && today < target.date ? target.date : today) });
         await stampDocumentModifier(deps.invoiceVersions, invoice.id, actor(c));
         emit("DOCUMENT_CANCELLED", "PURCHASE_INVOICE", invoice.id, invoice.number);
         return c.json(serializeInvoice(invoice));

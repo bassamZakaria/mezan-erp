@@ -888,6 +888,13 @@ export class StockLedgerService {
       for (const pos of command.positions) {
         const layers = await this.deps.layers.listByPosition(pos.itemId, pos.warehouseId);
         const mine = layers.filter((l) => l.sourceDocId === command.sourceDocId);
+        // A fully issued layer is removed from the store. Reversing "nothing"
+        // here let the caller reverse the GL for goods that had already left.
+        if (mine.length === 0) {
+          throw new InvalidStockMovementError([
+            `بضاعة المستند "${command.sourceDocId}" من الصنف "${pos.itemId}" صُرفت بالكامل، فلا يمكن عكس استلامها`,
+          ]);
+        }
         for (const layer of mine) {
           if (layer.remainingQty.compare(layer.originalQty) !== 0) {
             throw new InvalidStockMovementError([

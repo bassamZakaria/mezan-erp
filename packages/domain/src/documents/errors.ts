@@ -58,6 +58,25 @@ export class MissingHookError extends Error {
   }
 }
 
+/**
+ * A stock plan reached the ledger without its document's date. Stamping the
+ * wall clock instead put a June return's goods into October while its journal
+ * entry sat in June, so inventory and GL 1200 disagreed at every month end in
+ * between.
+ */
+export class StockPlanDateRequiredError extends Error {
+  readonly code = "STOCK_PLAN_DATE_REQUIRED";
+  readonly messageEn: string;
+  constructor(
+    readonly docType: string,
+    readonly docId: string,
+  ) {
+    super(`حركة المخزون للمستند "${docId}" من النوع "${docType}" بلا تاريخ مستند، ولا تُرحَّل بتاريخ اليوم.`);
+    this.messageEn = `The stock plan of ${docType} "${docId}" carries no document date and will not be stamped with today's.`;
+    this.name = "StockPlanDateRequiredError";
+  }
+}
+
 /** A confirm was attempted but the document's own structural validation failed. */
 export class InvalidDocumentError extends Error {
   readonly code = "INVALID_DOCUMENT";

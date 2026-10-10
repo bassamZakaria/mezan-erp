@@ -92,6 +92,7 @@ export {
   createPurchaseInvoice,
   confirmPurchaseInvoice,
   cancelPurchaseInvoice,
+  purchaseInvoiceCancelEntryId,
   buildInvoicePosting,
   buildInvoiceLinesFromReceipt,
   purchaseInvoiceLineBase,

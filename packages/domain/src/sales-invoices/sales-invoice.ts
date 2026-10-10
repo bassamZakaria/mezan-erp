@@ -205,6 +205,11 @@ export interface SalesInvoice {
   readonly reversedByInvoiceId: string | null;
 }
 
+/** The journal entry a void posts. Its DATE is the day the invoice stopped standing in the ledger. */
+export function salesInvoiceVoidEntryId(invoiceId: string): string {
+  return `${invoiceId}:void`;
+}
+
 /** Whether the invoice is live (its effects have been applied to the ledger). */
 export function isSalesInvoiceActive(status: SalesInvoiceStatus): boolean {
   return SALES_INVOICE_ACTIVE_STATUSES.has(status);

@@ -86,7 +86,9 @@ import {
   purchaseInvoiceTotal,
   purchaseInvoiceBaseTotal,
   voucherBaseAmount,
-  isStandingVoucher,
+  ledgerPresenceAsOf,
+  purchaseInvoiceCancelEntryId,
+  salesInvoiceVoidEntryId,
   PartyRequiredOnControlAccountError,
   CUSTOMER_OPENING_BALANCE_DOC_TYPE,
   SUPPLIER_OPENING_BALANCE_DOC_TYPE,
@@ -2288,6 +2290,20 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     const upTo = (date: string | null | undefined): boolean => asOfDate === undefined || (date ?? "").slice(0, 10) <= asOfDate;
     const standingCertificate = (certificate: { status: string; approvedAt: string | null; executionDate: string; voidedAt: string | null }): boolean =>
       upTo(certificate.approvedAt ?? certificate.executionDate) && (certificate.status !== "voided" || !upTo(certificate.voidedAt));
+    const dateById = (docs: readonly { id: string; date: string }[]): ReadonlyMap<string, string> => new Map(docs.map((d) => [d.id, d.date]));
+    const frameworkPresence = (
+      doc: { status: string; date: string; reversesDocId: string | null; reversedByDocId: string | null },
+      dates: ReadonlyMap<string, string>,
+    ): bigint => {
+      if (doc.reversesDocId) return 0n;
+      const live = doc.status === "confirmed" || doc.status === "posted";
+      const endedOn = doc.status === "reversed" && doc.reversedByDocId ? (dates.get(doc.reversedByDocId) ?? null) : null;
+      return BigInt(ledgerPresenceAsOf({ date: doc.date, live, endedOn }, asOfDate));
+    };
+    const invoicePresence = async (date: string, live: boolean, reversalEntryId: string | null): Promise<bigint> => {
+      const endedOn = asOfDate !== undefined && !live && reversalEntryId ? ((await ledger.findById(reversalEntryId))?.date ?? null) : null;
+      return BigInt(ledgerPresenceAsOf({ date, live, endedOn }, asOfDate));
+    };
     // The tenant's own control accounts (B-8). Comparing a recoded chart
     // against a compiled-in "1105"/"2100"/"1200" reported a mismatch equal to
     // every collection ever made.
@@ -2320,14 +2336,17 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
      * un-settles a payable when a supplier refunds); a payment debits it.
      */
     const voucherEffect = { receivable: 0n, payable: 0n };
-    for (const doc of await vouchers.documents.list({ status: "confirmed" })) {
-      if (!isStandingVoucher(doc) || !upTo(doc.date)) continue;
+    const allVouchers = await vouchers.documents.list();
+    const voucherDates = dateById(allVouchers);
+    for (const doc of allVouchers) {
+      const presence = frameworkPresence(doc, voucherDates);
+      if (presence === 0n) continue;
       const line = doc.lines[0];
       if (!line || line.direction === "transfer") continue;
       const credited = line.direction === "receipt";
       // BASE, as the voucher posted it: a foreign voucher's own `amount` is in
       // its currency (D194's twin).
-      const amount = voucherBaseAmount(line).scaled;
+      const amount = presence * voucherBaseAmount(line).scaled;
       if (line.counterpartyGlAccountId === AR_CONTROL) {
         voucherEffect.receivable += credited ? -amount : amount;
       }
@@ -2356,11 +2375,13 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
 
     let arScaled = 0n;
     for (const inv of invoices) {
-      if (!SALES_INVOICE_ACTIVE_STATUSES.has(inv.status) || !upTo(inv.date)) continue;
+      const live = SALES_INVOICE_ACTIVE_STATUSES.has(inv.status);
+      const presence = await invoicePresence(inv.date, live, inv.status === "reversed" ? salesInvoiceVoidEntryId(inv.id) : null);
+      if (presence === 0n) continue;
       const totals = salesInvoiceTotals(inv);
       // The BASE-currency figure, which is what the control account holds — a
       // USD invoice's own total is not an EGP amount (D24).
-      arScaled += salesInvoiceBaseGrandTotal(totals, inv.fxRate).scaled;
+      arScaled += presence * salesInvoiceBaseGrandTotal(totals, inv.fxRate).scaled;
     }
     for (const archive of salesArchives) {
       if (archive.settled || !upTo(archive.date)) continue;
@@ -2377,9 +2398,9 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     // A confirmed sales return credits AR in the GL. Omitting it here left the
     // control account moving while the sub-ledger stood still, so every tenant
     // that ever posted a return saw a false mismatch.
+    const salesReturnDates = dateById(salesReturnDocs);
     for (const doc of salesReturnDocs) {
-      if (doc.status !== "confirmed" || !upTo(doc.date)) continue;
-      arScaled -= salesReturnGrandTotal(doc).scaled;
+      arScaled -= frameworkPresence(doc, salesReturnDates) * salesReturnGrandTotal(doc).scaled;
     }
     /**
      * An approved مستخلص credits AR by its deductions block — retention, the
@@ -2398,9 +2419,9 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
 
     let apScaled = 0n;
     for (const inv of purchInvoices) {
-      if (inv.status !== "confirmed" || !upTo(inv.date)) continue;
+      const presence = await invoicePresence(inv.date, inv.status === "confirmed", inv.status === "cancelled" ? purchaseInvoiceCancelEntryId(inv.id) : null);
       // The BASE-currency figure, which is what the control account holds.
-      apScaled += purchaseInvoiceBaseTotal(inv).scaled;
+      if (presence !== 0n) apScaled += presence * purchaseInvoiceBaseTotal(inv).scaled;
     }
     for (const archive of purchaseArchives) {
       if (archive.settled || !upTo(archive.date)) continue;
@@ -2413,9 +2434,9 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     apScaled += chequeEffect.payable;
     // A purchase return debits AP; a landed cost credits it (the freight and
     // customs owed to a third party accrue to the same control account).
+    const purchaseReturnDates = dateById(purchaseReturnDocs);
     for (const doc of purchaseReturnDocs) {
-      if (doc.status !== "confirmed" || !upTo(doc.date)) continue;
-      apScaled -= purchaseReturnGrandTotal(doc).scaled;
+      apScaled -= frameworkPresence(doc, purchaseReturnDates) * purchaseReturnGrandTotal(doc).scaled;
     }
     /**
      * An approved مستخلص باطن DEBITS AP by its deductions block — the retention
@@ -2514,11 +2535,12 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
      */
     const advanceAccountId = account("contracting.customer_advances", "2160");
     let customerAdvancesScaled = 0n;
-    for (const doc of await vouchers.documents.list({ status: "confirmed" })) {
-      if (!isStandingVoucher(doc) || !upTo(doc.date)) continue;
+    for (const doc of allVouchers) {
+      const presence = frameworkPresence(doc, voucherDates);
       const line = doc.lines[0];
-      if (!line || line.counterpartyGlAccountId !== advanceAccountId) continue;
-      customerAdvancesScaled += line.direction === "receipt" ? voucherBaseAmount(line).scaled : -voucherBaseAmount(line).scaled;
+      if (presence === 0n || !line || line.counterpartyGlAccountId !== advanceAccountId) continue;
+      const amount = presence * voucherBaseAmount(line).scaled;
+      customerAdvancesScaled += line.direction === "receipt" ? amount : -amount;
     }
     for (const c of postedCertificates) {
       customerAdvancesScaled -= deduction(c.computed.deductions, "advanceRecovery");
@@ -2542,12 +2564,14 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     const billingsAccountId = account("contracting.billings", "2165");
     let billingsScaled = 0n;
     for (const inv of invoices) {
-      if (!SALES_INVOICE_ACTIVE_STATUSES.has(inv.status) || !upTo(inv.date)) continue;
+      if (!inv.lines.some((line) => line.revenueAccountId === billingsAccountId)) continue;
+      const presence = await invoicePresence(inv.date, SALES_INVOICE_ACTIVE_STATUSES.has(inv.status), inv.status === "reversed" ? salesInvoiceVoidEntryId(inv.id) : null);
+      if (presence === 0n) continue;
       const lineTotals = salesInvoiceTotals(inv).lines;
       inv.lines.forEach((line, index) => {
         if (line.revenueAccountId !== billingsAccountId) return;
         const stated = lineTotals[index]?.taxableBase;
-        if (stated) billingsScaled += (inv.fxRate ? convertToBase(stated, inv.fxRate) : stated).scaled;
+        if (stated) billingsScaled += presence * (inv.fxRate ? convertToBase(stated, inv.fxRate) : stated).scaled;
       });
     }
     for (const run of postedRuns) billingsScaled -= run.billedInPeriod.scaled;
@@ -3276,6 +3300,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         return issued;
       },
       hasEtaReceipt: (invoiceId) => etaReceipts.hasInvoiceReceipt(invoiceId),
+      stockRestore: createInventoryStockHook(stockService),
       settlementPreview: previewSettlement((message) => new InvalidSalesInvoicePaymentError(message)),
       pricing: {
         listPriceFor: async (customerId: string, itemId: string, qty: Qty) => {

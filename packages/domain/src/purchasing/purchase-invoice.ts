@@ -15,10 +15,11 @@ import { Money, Qty } from "../money/index.js";
 import type { CostCategory } from "../contracting/cost-category.js";
 import type { AllocatableInvoiceRepository } from "../vouchers/allocation.js";
 import { extend, occurredAtFromDocumentDate, unitCostOf, type CostLayerRepository } from "../inventory/index.js";
+import { ReversalDateBeforeOriginalError } from "../gl/errors.js";
 import { convertToBase } from "../exchange-rates/convert.js";
 import { NextNumberService } from "../numbering/index.js";
 import type { GoodsReceipt, GoodsReceiptRepository } from "./goods-receipt.js";
-import { markGoodsReceiptInvoiced } from "./goods-receipt.js";
+import { markGoodsReceiptInvoiced, receiptLayersConsumed } from "./goods-receipt.js";
 import { atomically, recordPurchaseAudit, type PurchaseAuditDeps } from "./audit.js";
 import {
   DEFAULT_PURCHASE_POLICY,
@@ -210,6 +211,11 @@ export interface CancelPurchaseInvoiceDeps extends PurchaseAuditDeps {
 
 function nowIso(deps: { now?: () => string }): string {
   return deps.now ? deps.now() : new Date().toISOString();
+}
+
+/** The journal entry a cancel posts. Its DATE is the day the invoice stopped standing in the ledger. */
+export function purchaseInvoiceCancelEntryId(invoiceId: string): string {
+  return `${invoiceId}:cancel`;
 }
 
 /** HALF_UP division on magnitudes (0.5 away from zero) — the TAX_COMPUTATION boundary. */
@@ -715,6 +721,7 @@ export async function confirmPurchaseInvoice(
 export async function cancelPurchaseInvoice(
   id: string,
   deps: CancelPurchaseInvoiceDeps,
+  options: { readonly date?: string } = {},
 ): Promise<PurchaseInvoice> {
   const policy = deps.policy ?? DEFAULT_PURCHASE_POLICY;
   const invoice = await deps.invoices.findById(id);
@@ -723,38 +730,44 @@ export async function cancelPurchaseInvoice(
     throw new PurchaseDocumentNotDraftError(id, invoice.status);
   }
 
+  if (options.date !== undefined && options.date < invoice.date) {
+    throw new ReversalDateBeforeOriginalError(id, options.date, invoice.date);
+  }
+  const today = nowIso(deps).slice(0, 10);
+  const cancelDate = options.date ?? (today < invoice.date ? invoice.date : today);
+
   return atomically(deps, async () => {
   if (invoice.status === "confirmed") {
     const inventoryLines = invoice.lines.filter((l) => l.kind === "inventory" && l.itemId !== null);
     if (policy.trackSoldPurchaseItems) {
       for (const line of inventoryLines) {
         const layers = await deps.layers.listByPosition(line.itemId as string, invoice.warehouseId);
-        const consumed = layers
-          .filter((l) => l.sourceDocId === invoice.id)
-          .some((l) => l.remainingQty.compare(l.originalQty) !== 0);
-        if (consumed) throw new PurchaseItemsAlreadyConsumedError(id);
+        if (receiptLayersConsumed(layers, invoice.id)) throw new PurchaseItemsAlreadyConsumedError(id);
       }
     }
 
-    await deps.glReverse.reverse(invoice.id, {
-      reversalId: `${invoice.id}:cancel`,
-      date: nowIso(deps),
-      memo: `عكس فاتورة مشتريات ${invoice.number}`,
-    });
-
+    // Stock first: the ledger refuses when the goods are no longer there to
+    // take back, and nothing must have been written to the GL by then.
     // A from-receipt invoice never posted its own stock (the receipt did) — see confirmPurchaseInvoice.
     if (!invoice.receiptId && inventoryLines.length > 0) {
       await deps.stock.reverseReceipt({
-        reversalId: `${invoice.id}:cancel`,
+        reversalId: purchaseInvoiceCancelEntryId(invoice.id),
         sourceDocType: "PURCHASE_INVOICE",
         sourceDocId: invoice.id,
         positions: inventoryLines.map((l) => ({
           itemId: l.itemId as string,
           warehouseId: invoice.warehouseId,
         })),
-        occurredAt: occurredAtFromDocumentDate(invoice.date),
+        // The day the GL reversal is dated, so stock and GL 1200 leave together.
+        occurredAt: occurredAtFromDocumentDate(cancelDate),
       });
     }
+
+    await deps.glReverse.reverse(invoice.id, {
+      reversalId: purchaseInvoiceCancelEntryId(invoice.id),
+      date: cancelDate,
+      memo: `عكس فاتورة مشتريات ${invoice.number}`,
+    });
   }
 
   const cancelled: PurchaseInvoice = { ...invoice, status: "cancelled" };

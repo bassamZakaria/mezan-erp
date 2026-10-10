@@ -66,6 +66,7 @@ export {
   DocumentNotFoundError,
   DuplicateDocumentError,
   MissingHookError,
+  StockPlanDateRequiredError,
   InvalidDocumentError,
 } from "./errors.js";
 
@@ -78,3 +79,5 @@ export {
 } from "./journal-document.js";
 
 export { createInventoryStockHook } from "./inventory-stock-hook.js";
+
+export { ledgerPresenceAsOf, type LedgerPresenceInput } from "./as-of.js";

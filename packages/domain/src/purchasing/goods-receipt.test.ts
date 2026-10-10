@@ -383,11 +383,12 @@ describe("goods receipt — cancel with trackSoldPurchaseItems on and nothing co
   it("succeeds when the strictness gate is on but no layer has been drawn down", async () => {
     const { orders, numbering } = await sentOrder();
     const receipts = new InMemoryGoodsReceipts();
-    const stock = makeStockService();
     const { InMemoryCostLayers } = await import("../inventory/test-helpers/in-memory-stores.js");
+    const layers = new InMemoryCostLayers();
+    const stock = makeStockService(layers);
     await createGoodsReceipt({ id: "gr-1", purchaseOrderId: "po-1", date: "2026-08-22" }, { receipts, orders, numbering });
     await confirmGoodsReceipt("gr-1", { receipts, orders, stock });
-    const cancelled = await cancelGoodsReceipt("gr-1", { receipts, orders, stock, layers: new InMemoryCostLayers() });
+    const cancelled = await cancelGoodsReceipt("gr-1", { receipts, orders, stock, layers });
     expect(cancelled.status).toBe("cancelled");
     expect((await stock.getBalanceDetail("item-A", WH)).onHand.toString()).toBe("0.000000");
   });

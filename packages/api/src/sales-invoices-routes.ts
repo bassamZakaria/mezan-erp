@@ -22,6 +22,8 @@ import {
   InactiveAccountError,
   NoFiscalPeriodForDateError,
   PeriodNotOpenForPostingError,
+  ReversalDateBeforeOriginalError,
+  salesInvoiceVoidEntryId,
   DuplicateJournalEntryError,
   ExpiredStockError,
   NegativeStockError,
@@ -78,6 +80,9 @@ import {
   documentVersionOf,
   documentVersionsOf,
   expectedVersionOf,
+  readOptionalBody,
+  requestedReversalDate,
+  INVALID_REVERSAL_DATE,
   refuseStaleDocument,
   stampDocumentModifier,
   type DocumentVersionGuard,
@@ -419,6 +424,7 @@ function handleDomainError(c: Context, err: unknown): Response {
     err instanceof InactiveAccountError ||
     err instanceof NoFiscalPeriodForDateError ||
     err instanceof PeriodNotOpenForPostingError ||
+    err instanceof ReversalDateBeforeOriginalError ||
     err instanceof NegativeStockError ||
     err instanceof UncostedDeficitIssueError ||
     err instanceof ExpiredStockError
@@ -1185,10 +1191,14 @@ export function createSalesInvoicesRoutes(
       );
     }
 
-    const date = (await tenantDay(c, deps.now?.() ?? new Date().toISOString()));
+    const requested = requestedReversalDate(await readOptionalBody(c));
+    if (!requested.ok) return c.json(INVALID_REVERSAL_DATE, 400);
+    const today = await tenantDay(c, deps.now?.() ?? new Date().toISOString());
+    const date = requested.date ?? (today < invoice.date ? invoice.date : today);
     try {
+      if (date < invoice.date) throw new ReversalDateBeforeOriginalError(invoice.id, date, invoice.date);
       const reversal = await deps.gl.reverse(invoice.journalEntryId, {
-        reversalId: `${invoice.id}:void`,
+        reversalId: salesInvoiceVoidEntryId(invoice.id),
         date,
         memo: `عكس فاتورة مبيعات ${invoice.docNo ?? invoice.id}`,
       });
@@ -1197,7 +1207,7 @@ export function createSalesInvoicesRoutes(
           sourceDocType: "SALES_INVOICE",
           // A separate source id from the issue, whose movement ids are
           // `${invoice.id}:${index}` — reusing it would collide in the ledger.
-          sourceDocId: `${invoice.id}:void`,
+          sourceDocId: salesInvoiceVoidEntryId(invoice.id),
           sourceDocNumber: invoice.docNo,
           warehouseId: invoice.warehouseId,
           date,

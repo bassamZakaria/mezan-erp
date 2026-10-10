@@ -5,7 +5,7 @@ import { seedHr } from "./demo-seed/hr.js";
 import { seedAccess } from "./demo-seed/access.js";
 import { seedAfterHoursActivity } from "./demo-seed/security-activity.js";
 import { seedCrm } from "./demo-seed/crm.js";
-import { seedInventoryOps } from "./demo-seed/inventory-ops.js";
+import { seedInventoryOps, seedShopFloor } from "./demo-seed/inventory-ops.js";
 import { seedPurchasing } from "./demo-seed/purchasing.js";
 import { seedTreasury } from "./demo-seed/treasury.js";
 import { seedPlatform } from "./demo-seed/platform.js";
@@ -739,6 +739,7 @@ export async function seedDemoTenant(
   await seedCrm(app);
   await seedInventoryOps(app);
   await seedPurchasing(app);
+  await seedShopFloor(app);
   await seedTreasury(app);
   await seedContracting(app);
   await seedContractingContracts(app);

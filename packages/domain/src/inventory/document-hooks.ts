@@ -19,6 +19,7 @@ import { mirrorStockPlan } from "../documents/hooks.js";
 import type { DocumentStockHook, DocumentStockPlan, DocumentStockResult } from "../documents/hooks.js";
 import type { InventoryGlPosting, InventoryGlPostingPort } from "./ports.js";
 import { occurredAtFromDocumentDate } from "./movement.js";
+import { StockPlanDateRequiredError } from "../documents/errors.js";
 import { Money } from "../money/index.js";
 import type { AdjustmentReason } from "./reasons.js";
 import type { StockLedgerService } from "./stock-ledger-service.js";
@@ -27,6 +28,11 @@ import type { StockLedgerService } from "./stock-ledger-service.js";
 export interface AdjustmentGlAccounts {
   readonly inventoryAccountId: string;
   readonly counterpartAccountId: string;
+}
+
+export function stockPlanOccurredAt(plan: DocumentStockPlan): string {
+  if (!plan.date) throw new StockPlanDateRequiredError(plan.sourceDocType, plan.sourceDocId);
+  return occurredAtFromDocumentDate(plan.date);
 }
 
 /**
@@ -52,7 +58,7 @@ export function createInventoryOpsStockHook(
           transferNumber: plan.sourceDocNumber,
           fromWarehouseId: plan.warehouseId,
           toWarehouseId: plan.toWarehouseId,
-          occurredAt: plan.date ? occurredAtFromDocumentDate(plan.date) : undefined,
+          occurredAt: stockPlanOccurredAt(plan),
           lines: plan.lines.map((l) => ({ itemId: l.itemId, qty: l.qty })),
         });
         // A transfer moves value between warehouses; the total is unchanged.
@@ -67,7 +73,7 @@ export function createInventoryOpsStockHook(
         reason,
         projectId: plan.projectId ?? null,
         costCategory: plan.costCategory ?? null,
-        occurredAt: plan.date ? occurredAtFromDocumentDate(plan.date) : undefined,
+        occurredAt: stockPlanOccurredAt(plan),
         lines: plan.lines.map((l) => ({
           itemId: l.itemId,
           direction: l.direction,
@@ -95,7 +101,7 @@ export function createInventoryOpsStockHook(
         sourceDocNumber: mirrored.sourceDocNumber,
         warehouseId: mirrored.warehouseId,
         lines: mirrored.lines,
-        occurredAt: mirrored.date ? occurredAtFromDocumentDate(mirrored.date) : undefined,
+        occurredAt: stockPlanOccurredAt(mirrored),
       });
     },
   };

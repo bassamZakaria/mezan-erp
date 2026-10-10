@@ -118,6 +118,7 @@ export {
   type AdjustmentGlAccounts,
   createInventoryOpsStockHook,
   createInventoryGlPostingHook,
+  stockPlanOccurredAt,
 } from "./document-hooks.js";
 
 export {

@@ -9,7 +9,7 @@
  */
 
 import { Money, Qty } from "../money/index.js";
-import { extend, occurredAtFromDocumentDate, type CostLayerRepository } from "../inventory/index.js";
+import { extend, occurredAtFromDocumentDate, type CostLayer, type CostLayerRepository } from "../inventory/index.js";
 import { NextNumberService } from "../numbering/index.js";
 import type { CostCategory } from "../contracting/cost-category.js";
 import {
@@ -147,6 +147,16 @@ export interface CancelGoodsReceiptDeps extends PurchaseAuditDeps {
   readonly layers: CostLayerRepository;
   readonly policy?: PurchasePolicy;
   readonly now?: () => string;
+}
+
+/**
+ * A layer that was fully issued is REMOVED from the store, so "no layer of this
+ * document" means consumed, not untouched. Reading it as untouched let a cancel
+ * credit GL 1200 for goods that had already left through cost of sales.
+ */
+export function receiptLayersConsumed(layers: readonly CostLayer[], sourceDocId: string): boolean {
+  const mine = layers.filter((l) => l.sourceDocId === sourceDocId);
+  return mine.length === 0 || mine.some((l) => l.remainingQty.compare(l.originalQty) !== 0);
 }
 
 function nowIso(deps: { now?: () => string }): string {
@@ -482,10 +492,7 @@ export async function cancelGoodsReceipt(
     if (policy.trackSoldPurchaseItems) {
       for (const line of receipt.lines) {
         const layers = await deps.layers.listByPosition(line.itemId, receipt.warehouseId);
-        const consumed = layers
-          .filter((l) => l.sourceDocId === receipt.id)
-          .some((l) => l.remainingQty.compare(l.originalQty) !== 0);
-        if (consumed) throw new PurchaseItemsAlreadyConsumedError(id);
+        if (receiptLayersConsumed(layers, receipt.id)) throw new PurchaseItemsAlreadyConsumedError(id);
       }
     }
 

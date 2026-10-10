@@ -1,3 +1,4 @@
+import { postingRefusalResponse } from "./posting-refusal.js";
 import { randomUUID } from "node:crypto";
 import { Hono, type Context } from "hono";
 import {
@@ -168,6 +169,8 @@ function serializeRun(run: DepreciationRun) {
 }
 
 function handleDomainError(c: Context, err: unknown) {
+  const postingRefusal = postingRefusalResponse(c, err);
+  if (postingRefusal) return postingRefusal;
   const refuse = (e: Error & { code: string; messageEn?: string }, status: 404 | 409 | 422) =>
     c.json({ error: e.code, message: e.message, ...(e.messageEn ? { messageEn: e.messageEn } : {}) }, status);
   if (err instanceof AssetCategoryNotFoundError || err instanceof AssetNotFoundError || err instanceof DepreciationRunNotFoundError) {

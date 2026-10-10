@@ -1,3 +1,4 @@
+import { postingRefusalResponse } from "./posting-refusal.js";
 import { randomUUID } from "node:crypto";
 import { Hono, type Context } from "hono";
 import {
@@ -148,6 +149,8 @@ function parseLine(line: { accountId: string; debit: string; credit: string; mem
 }
 
 function handleDomainError(c: Context, err: unknown): Response {
+  const postingRefusal = postingRefusalResponse(c, err);
+  if (postingRefusal) return postingRefusal;
   if (err instanceof RecurringJournalTemplateNotFoundError) {
     return c.json({ error: err.code, message: err.message }, 404);
   }

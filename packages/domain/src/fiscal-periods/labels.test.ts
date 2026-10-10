@@ -52,3 +52,19 @@ describe("fiscal period wording", () => {
     }
   });
 });
+
+describe("a posting refusal raised with only the period id", () => {
+  it("still names the month when the id is a generated one", () => {
+    const error = new PeriodNotOpenForPostingError("fp-2026-10", "closed");
+    expect(error.message).toBe("الفترة المحاسبية «أكتوبر 2026» مغلقة ولا تسمح بالترحيل.");
+    expect(error.messageEn).toBe("Fiscal period October 2026 is closed and does not accept postings.");
+    expect(error.periodId).toBe("fp-2026-10");
+  });
+
+  it("quotes the id itself when it is not one it can read a month from", () => {
+    const error = new PeriodNotOpenForPostingError("P1", "locked");
+    expect(error.message).toBe("الفترة المحاسبية «P1» مقفلة ولا تسمح بالترحيل.");
+    expect(error.periodId).toBe("P1");
+  });
+});
+

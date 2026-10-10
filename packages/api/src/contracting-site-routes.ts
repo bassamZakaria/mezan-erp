@@ -1,3 +1,4 @@
+import { postingRefusalResponse } from "./posting-refusal.js";
 import { Hono, type Context } from "hono";
 import {
   ExpiredStockError,
@@ -165,6 +166,8 @@ function serializeEquipmentHours(row: EquipmentHoursRow) {
 }
 
 function handleDomainError(c: Context, err: unknown) {
+  const postingRefusal = postingRefusalResponse(c, err);
+  if (postingRefusal) return postingRefusal;
   if (err instanceof SiteDocumentNotFoundError || err instanceof ProjectNotFoundError) {
     return c.json({ error: err.code, message: err.message }, 404);
   }

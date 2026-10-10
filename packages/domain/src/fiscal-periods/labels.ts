@@ -40,6 +40,15 @@ export function fiscalPeriodLabel(period: FiscalPeriodRef): BilingualText {
   return { ar: `${month.ar} ${period.year}`, en: `${month.en} ${period.year}` };
 }
 
+const GENERATED_PERIOD_ID = /^fp-(\d{4})-(\d{2})$/;
+
+/** A caller that holds only the period's id still gets the month named, when the id is a generated one. */
+export function fiscalPeriodRefOf(period: FiscalPeriodRef | string): FiscalPeriodRef | null {
+  if (typeof period !== "string") return period;
+  const match = GENERATED_PERIOD_ID.exec(period);
+  return match ? { id: period, year: Number(match[1]), periodNumber: Number(match[2]) } : null;
+}
+
 export function quotedFiscalPeriod(period: FiscalPeriodRef): BilingualText {
   const label = fiscalPeriodLabel(period);
   return { ar: `الفترة المحاسبية «${label.ar}»`, en: `fiscal period ${label.en}` };

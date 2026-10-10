@@ -1,3 +1,4 @@
+import { postingRefusalResponse } from "./posting-refusal.js";
 import { randomUUID } from "node:crypto";
 import { Hono, type Context } from "hono";
 import {
@@ -194,6 +195,8 @@ function serializeFiling(f: VatFiling) {
 }
 
 function handleDomainError(c: Context, err: unknown): Response {
+  const postingRefusal = postingRefusalResponse(c, err);
+  if (postingRefusal) return postingRefusal;
   if (err instanceof UnbalancedEntryError) {
     return c.json(
       {

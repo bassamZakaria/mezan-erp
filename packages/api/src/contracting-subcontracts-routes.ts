@@ -1,3 +1,4 @@
+import { postingRefusalResponse } from "./posting-refusal.js";
 import { Hono, type Context } from "hono";
 import {
   InvalidSubCertificateError,
@@ -312,6 +313,8 @@ function serializePreview(preview: SubCertificatePreview) {
 }
 
 function handleDomainError(c: Context, err: unknown) {
+  const postingRefusal = postingRefusalResponse(c, err);
+  if (postingRefusal) return postingRefusal;
   if (err instanceof SubcontractNotFoundError || err instanceof SubCertificateNotFoundError) {
     return c.json({ error: err.code, message: err.message }, 404);
   }

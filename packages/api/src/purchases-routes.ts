@@ -1,3 +1,4 @@
+import { postingRefusalResponse } from "./posting-refusal.js";
 import { Hono, type Context } from "hono";
 import {
   type AllocatableInvoiceRepository,
@@ -330,6 +331,8 @@ function serializeInvoice(inv: PurchaseInvoice, allocated: Money = Money.zero(),
 }
 
 function handleDomainError(c: Context, err: unknown): Response {
+  const postingRefusal = postingRefusalResponse(c, err);
+  if (postingRefusal) return postingRefusal;
   if (
     err instanceof PurchaseOrderNotFoundError ||
     err instanceof GoodsReceiptNotFoundError ||

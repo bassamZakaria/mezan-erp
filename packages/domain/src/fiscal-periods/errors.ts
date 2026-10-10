@@ -1,5 +1,5 @@
 import type { FiscalPeriodStatus } from "./fiscal-period.js";
-import { FISCAL_PERIOD_STATUS_LABEL, FISCAL_PERIOD_TRANSITION_REFUSAL, fiscalPeriodLabel, quotedFiscalPeriod, type FiscalPeriodRef, type FiscalPeriodTransition } from "./labels.js";
+import { FISCAL_PERIOD_STATUS_LABEL, FISCAL_PERIOD_TRANSITION_REFUSAL, fiscalPeriodLabel, fiscalPeriodRefOf, quotedFiscalPeriod, type FiscalPeriodRef, type FiscalPeriodTransition } from "./labels.js";
 
 /** Raised when an operation references a fiscal period id that does not exist. */
 export class FiscalPeriodNotFoundError extends Error {
@@ -57,12 +57,15 @@ export class PeriodNotOpenForPostingError extends Error {
   readonly periodId: string;
   readonly messageEn: string;
   constructor(
-    period: FiscalPeriodRef,
+    period: FiscalPeriodRef | string,
     readonly status: FiscalPeriodStatus,
   ) {
-    super(`${quotedFiscalPeriod(period).ar} ${FISCAL_PERIOD_STATUS_LABEL[status].ar} ولا تسمح بالترحيل.`);
-    this.messageEn = `Fiscal period ${fiscalPeriodLabel(period).en} is ${FISCAL_PERIOD_STATUS_LABEL[status].en} and does not accept postings.`;
-    this.periodId = period.id;
+    const ref = fiscalPeriodRefOf(period);
+    const id = typeof period === "string" ? period : period.id;
+    const named = ref ? { ar: quotedFiscalPeriod(ref).ar, en: fiscalPeriodLabel(ref).en } : { ar: `الفترة المحاسبية «${id}»`, en: id };
+    super(`${named.ar} ${FISCAL_PERIOD_STATUS_LABEL[status].ar} ولا تسمح بالترحيل.`);
+    this.messageEn = `Fiscal period ${named.en} is ${FISCAL_PERIOD_STATUS_LABEL[status].en} and does not accept postings.`;
+    this.periodId = id;
     this.name = "PeriodNotOpenForPostingError";
   }
 }
@@ -70,8 +73,10 @@ export class PeriodNotOpenForPostingError extends Error {
 /** Raised when no fiscal period has been generated to cover a given posting date. */
 export class NoFiscalPeriodForDateError extends Error {
   readonly code = "NO_FISCAL_PERIOD_FOR_DATE";
+  readonly messageEn: string;
   constructor(readonly date: string) {
     super(`لا توجد فترة محاسبية تغطي التاريخ "${date}".`);
+    this.messageEn = `No fiscal period covers the date "${date}".`;
     this.name = "NoFiscalPeriodForDateError";
   }
 }

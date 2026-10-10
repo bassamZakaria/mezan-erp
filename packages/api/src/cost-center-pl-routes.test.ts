@@ -124,3 +124,36 @@ describe("cost-center-pl router — GET /", () => {
     expect(body.totals.profit).toBe(Money.zero().toString());
   });
 });
+
+describe("cost-center-pl router — branch scope (D111)", () => {
+  it("never counts another branch's lines for a branch-scoped caller, and keeps unattributed ones", async () => {
+    const deps = await seed();
+    const posting: JournalPostingDeps = {
+      ledger: deps.ledger,
+      accounts: deps.accounts,
+      periods: { findByDate: async () => ({ id: "fp-08", year: 2026, periodNumber: 8, startDate: "2026-08-01", endDate: "2026-08-31", status: "open" }) },
+      numbering: deps.ledger.numbering,
+      now: () => "2026-08-31T10:00:00.000Z",
+    };
+    await postJournalEntry({ id: "je-alex", date: "2026-08-14", memo: "sale cc-a alex", source: "system", lines: [
+      { accountId: "1300", debit: Money.fromMajor("700"), credit: Money.zero(), branchId: "BR-ALEX" },
+      { accountId: "4000", debit: Money.zero(), credit: Money.fromMajor("700"), costCenterId: "cc-a", branchId: "BR-ALEX" },
+    ] }, posting);
+    await postJournalEntry({ id: "je-main", date: "2026-08-15", memo: "sale cc-a main", source: "system", lines: [
+      { accountId: "1300", debit: Money.fromMajor("900"), credit: Money.zero(), branchId: "BR-MAIN" },
+      { accountId: "4000", debit: Money.zero(), credit: Money.fromMajor("900"), costCenterId: "cc-a", branchId: "BR-MAIN" },
+    ] }, posting);
+
+    const { app, sessions } = newApp(deps);
+    const revenueOfA = async (branchScope: "*" | string[]) => {
+      const token = sessions.issue({ userId: "u1", permissions: ["accounting.reports.view"], roleCode: null, branchScope, warehouseScope: "*" });
+      const res = await app.fetch(req("/", { headers: { authorization: `Bearer ${token}` } }));
+      const body = (await res.json()) as { rows: { costCenterId: string; revenue: string }[] };
+      return body.rows.find((row) => row.costCenterId === "cc-a")?.revenue;
+    };
+
+    expect(await revenueOfA("*")).toBe("6600.000000");
+    expect(await revenueOfA(["BR-ALEX"])).toBe("5700.000000");
+    expect(await revenueOfA(["BR-MAIN"])).toBe("5900.000000");
+  });
+});

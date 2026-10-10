@@ -3516,6 +3516,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       rateHistory: assetRateHistory,
       runs: depreciationRuns,
       gl: salesInvoiceGl,
+      warehouses,
       defaultAccounts: FIXED_ASSETS_GL_ACCOUNTS,
       settings,
       audit: auditSink,

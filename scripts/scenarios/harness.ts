@@ -259,6 +259,7 @@ export async function boot() {
   return {
     app,
     sessions,
+    dbPath,
     today,
     onCalendar,
     req,

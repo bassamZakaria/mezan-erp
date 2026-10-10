@@ -21,6 +21,8 @@ import { Money } from "../money/index.js";
 import type { Asset, AssetRepository } from "./asset.js";
 import type { AssetCategory, AssetCategoryRepository } from "./asset-category.js";
 import { AssetNotFoundError } from "./errors.js";
+import type { WarehouseBranchLookup } from "../gl/index.js";
+import { branchOfAsset } from "./asset-branch.js";
 
 export interface DisposeAssetGlAccounts {
   /** Where the asset's cost sits when no category or asset override applies. */
@@ -70,6 +72,8 @@ export interface DisposeAssetDeps {
   readonly categories: Pick<AssetCategoryRepository, "findById">;
   readonly accounts: DisposeAssetGlAccounts;
   readonly gl?: DisposeAssetGlPort;
+  /** Resolves a warehouse-scoped asset's branch through the warehouse it sits in. */
+  readonly warehouses?: WarehouseBranchLookup;
 }
 
 export class AssetAlreadyDisposedError extends Error {
@@ -132,7 +136,7 @@ export async function disposeAsset(
     const accounts = resolveAccounts(asset, category, deps.accounts);
     const zero = Money.zero();
     const projectId = asset.projectId;
-    const branchId = asset.branchId;
+    const branchId = await branchOfAsset(asset, deps.warehouses);
     const lines: DisposeAssetPostingLine[] = [];
     if (asset.accumulatedDepreciation.scaled > 0n) {
       lines.push({ accountId: accounts.accumulatedDepreciationAccountId, debit: asset.accumulatedDepreciation, credit: zero, projectId, branchId });

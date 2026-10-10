@@ -37,6 +37,7 @@ import {
   type DepreciationRunRepository,
   type AuditSink,
   type JournalPostingDeps,
+  type WarehouseBranchLookup,
   type SettingsRepository,
   createDefaultSettings,
   matchesSearch,
@@ -73,6 +74,7 @@ export interface FixedAssetsRoutesDeps {
   readonly assets: AssetRepository;
   readonly runs: DepreciationRunRepository;
   readonly gl: JournalPostingDeps;
+  readonly warehouses?: WarehouseBranchLookup;
   readonly defaultAccounts: {
     readonly depreciationExpenseAccountId: string;
     readonly accumulatedDepreciationAccountId: string;
@@ -427,6 +429,7 @@ export function createFixedAssetsRoutes(
         {
           assets: deps.assets,
           categories: deps.categories,
+          warehouses: deps.warehouses,
           accounts: {
             assetAccountId: deps.defaultAccounts.assetAccountId ?? "1500",
             accumulatedDepreciationAccountId: deps.defaultAccounts.accumulatedDepreciationAccountId,
@@ -549,6 +552,7 @@ export function createFixedAssetsRoutes(
         assets: deps.assets,
         categories: deps.categories,
         gl: deps.gl,
+        warehouses: deps.warehouses,
         defaultAccounts: deps.defaultAccounts,
       });
       return c.json(serializeRun(run));

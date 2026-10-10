@@ -313,3 +313,12 @@ describe("disposeAsset — what it stores", () => {
     expect({ ...after, status: before.status }).toEqual(before);
   });
 });
+
+describe("disposeAsset — the branch dimension (D111)", () => {
+  it("stamps the asset's branch on every line of the disposal entry", async () => {
+    const h = harness(asset({ scope: "branch", branchId: "BR-ALEX" }));
+    await disposeAsset({ assetId: "asset-1", date: "2026-09-01" }, h.deps);
+    expect(h.posted[0]!.lines.length).toBeGreaterThan(1);
+    expect(h.posted[0]!.lines.every((l) => l.branchId === "BR-ALEX")).toBe(true);
+  });
+});

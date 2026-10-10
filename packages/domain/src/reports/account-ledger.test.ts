@@ -156,3 +156,37 @@ describe("createAccountLedgerReport — exact arithmetic", () => {
     expect(outcome.reconciliation?.withinTolerance).toBe(true);
   });
 });
+
+describe("createAccountLedgerReport — branch scope and filter (D111)", () => {
+  const tagged = (branchId: string | null, major: string) => [
+    { ...dr("1100", major), branchId },
+    { ...cr("4100", major), branchId },
+  ];
+  const entries = [
+    je({ id: "je-old", entryNo: "JE-0", date: "2026-02-10", lines: tagged("BR-MAIN", "500") }),
+    je({ id: "je-main", entryNo: "JE-1", lines: tagged("BR-MAIN", "100") }),
+    je({ id: "je-alex", entryNo: "JE-2", lines: tagged("BR-ALEX", "40") }),
+    je({ id: "je-none", entryNo: "JE-3", lines: tagged(null, "7") }),
+  ];
+  const definition = createAccountLedgerReport(accounts, { accountId: "1100", periodFrom: "2026-03-01", periodTo: "2026-03-31" });
+  const closing = (branchId: string, branchScope?: readonly string[]) => {
+    const outcome = runReport(
+      definition,
+      { accountId: "1100", periodFrom: "2026-03-01", periodTo: "2026-03-31", branchId },
+      { accounts, journalEntries: entries, branchScope },
+    );
+    if (!outcome.ok) throw new Error("report refused");
+    return { closing: outcome.rows[outcome.rows.length - 1]!.balance, reconciled: outcome.reconciliation?.withinTolerance };
+  };
+
+  it("keeps another branch's opening balance and movement away from a scoped caller", () => {
+    expect(closing("", ["BR-ALEX"])).toEqual({ closing: 47, reconciled: true });
+    expect(closing("BR-MAIN", ["BR-ALEX"])).toEqual({ closing: 0, reconciled: true });
+  });
+
+  it("narrows the opening balance and the movement to the branch asked for", () => {
+    expect(closing("BR-MAIN")).toEqual({ closing: 600, reconciled: true });
+    expect(closing("__unattributed__")).toEqual({ closing: 7, reconciled: true });
+    expect(closing("")).toEqual({ closing: 647, reconciled: true });
+  });
+});

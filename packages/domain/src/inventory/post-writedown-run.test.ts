@@ -143,3 +143,51 @@ describe("postWritedownRun", () => {
     await expect(postWritedownRun("run-1", h.deps)).rejects.toBeInstanceOf(WritedownRunNotDraftError);
   });
 });
+
+describe("postWritedownRun — the branch dimension (D111)", () => {
+  const slowLine = (warehouseId: string, amount: string) => ({
+    itemId: `item-${warehouseId}`,
+    warehouseId,
+    onHandQty: Qty.fromMajor("20"),
+    unitCost: Money.fromMajor("100.00"),
+    agingDays: 211,
+    writedownRateBps: 2_500,
+    amount: Money.fromMajor(amount),
+  });
+  const warehouses = {
+    async findById(id: string) {
+      return id === "wh-1" ? { branchId: "BR-MAIN" } : id === "wh-2" ? { branchId: "BR-ALEX" } : null;
+    },
+  };
+
+  it("splits the provision by the branch of the warehouse holding each slow line", async () => {
+    const h = await harness({
+      lines: [slowLine("wh-1", "500.00"), slowLine("wh-2", "120.00"), slowLine("wh-gone", "30.00")],
+      totalAmount: Money.fromMajor("650.00"),
+    });
+    await postWritedownRun("run-1", { ...h.deps, warehouses });
+    const entry = await h.ledger.findById("WRITEDOWN-JE:run-1");
+    const byBranch = new Map<string | null, string>();
+    for (const line of entry!.lines) {
+      if (line.accountId === "5060") byBranch.set(line.branchId ?? null, line.debit.toString());
+    }
+    expect([...byBranch]).toEqual([
+      ["BR-MAIN", "500.000000"],
+      ["BR-ALEX", "120.000000"],
+      [null, "30.000000"],
+    ]);
+    const debit = Money.sum(entry!.lines.map((l) => l.debit));
+    expect(debit.toString()).toBe("650.000000");
+    expect(Money.sum(entry!.lines.map((l) => l.credit)).equals(debit)).toBe(true);
+  });
+
+  it("posts the run total unattributed when the lines do not add up to it", async () => {
+    const h = await harness({ lines: [slowLine("wh-1", "400.00")], totalAmount: Money.fromMajor("500.00") });
+    await postWritedownRun("run-1", { ...h.deps, warehouses });
+    const entry = await h.ledger.findById("WRITEDOWN-JE:run-1");
+    expect(entry!.lines.map((l) => [l.branchId ?? null, l.debit.toString(), l.credit.toString()])).toEqual([
+      [null, "500.000000", "0.000000"],
+      [null, "0.000000", "500.000000"],
+    ]);
+  });
+});

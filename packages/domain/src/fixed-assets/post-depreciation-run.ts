@@ -1,5 +1,6 @@
 import { Money } from "../money/index.js";
-import { postJournalEntry, type JournalPostingDeps } from "../gl/index.js";
+import { postJournalEntry, type JournalPostingDeps, type WarehouseBranchLookup } from "../gl/index.js";
+import { branchOfAsset } from "./asset-branch.js";
 import type { Asset, AssetRepository } from "./asset.js";
 import type { AssetCategoryRepository } from "./asset-category.js";
 import type { DepreciationRun, DepreciationRunRepository } from "./depreciation-run.js";
@@ -16,6 +17,8 @@ export interface PostDepreciationRunDeps {
   readonly assets: AssetRepository;
   readonly categories: AssetCategoryRepository;
   readonly gl: JournalPostingDeps;
+  /** Resolves a warehouse-scoped asset's branch through the warehouse it sits in. */
+  readonly warehouses?: WarehouseBranchLookup;
   readonly now?: () => string;
   /** Fallback GL account ids used when neither the asset nor its category has an override configured. Required so posting never silently fails for under-configured data. */
   readonly defaultAccounts: {
@@ -83,7 +86,7 @@ export async function postDepreciationRun(runId: string, deps: PostDepreciationR
     // captured — an asset reassigned between drafting and posting the run
     // should post equipment cost to the project it belongs to today.
     const projectId = asset.projectId;
-    const branchId = asset.branchId;
+    const branchId = await branchOfAsset(asset, deps.warehouses);
     const key = pairKey(accounts, projectId, branchId);
     const existing = totalsByPair.get(key);
     totalsByPair.set(key, {

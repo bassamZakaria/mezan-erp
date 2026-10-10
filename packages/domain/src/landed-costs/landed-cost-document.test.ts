@@ -158,3 +158,16 @@ describe("describeEffects", () => {
     expect(effects?.blockedReason).toBe("لا يوجد بنود لتوزيع التكلفة عليها.");
   });
 });
+
+describe("createLandedCostDocumentType — the warehouse the posting is attributed through (D111)", () => {
+  const type = createLandedCostDocumentType(ACCOUNTS);
+
+  it("names the one warehouse every target line sits in", () => {
+    expect(type.buildGlPosting?.(doc())?.warehouseId).toBe("WH1");
+  });
+
+  it("names none when the targets span warehouses, so the entry stays unattributed rather than guessed", () => {
+    const posting = type.buildGlPosting?.(doc({ lines: [costLine(), costLine({ warehouseId: "WH2" })] }));
+    expect(posting?.warehouseId).toBeNull();
+  });
+});

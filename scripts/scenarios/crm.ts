@@ -256,10 +256,16 @@ export async function run(ctx: Ctx): Promise<void> {
 
     const je = await req("GET", `/gl/journal-entries/${posted.body.journalEntryId}`);
     checkEq("the posted journal entry is fetchable", je.status, 200);
-    checkEq("exactly TWO Dr/Cr pairs — all 3 categories share the same 5400/1590 accounts so lines are grouped, but the plant asset is project-assigned and posts under its own project group",
-      je.body.lines.length, 4);
-    const debitLine = je.body.lines.find((l: any) => l.accountId === "5400" && !l.projectId);
-    const creditLine = je.body.lines.find((l: any) => l.accountId === "1590" && !l.projectId);
+    checkEq("exactly THREE Dr/Cr pairs — all 3 categories share the same 5400/1590 accounts so lines are grouped; the plant asset posts under its own project, and the unassigned assets split by the branch each asset belongs to (D111)",
+      je.body.lines.length, 6);
+    const unassigned = (accountId: string) => je.body.lines.filter((l: any) => l.accountId === accountId && !l.projectId);
+    const debitLine = unassigned("5400")[0];
+    const creditLine = unassigned("1590")[0];
+    const sumOf = (lines: any[], side: "debit" | "credit") => lines.reduce((total: number, l: any) => total + n(l[side]), 0);
+    const branchDebit = unassigned("5400").find((l: any) => l.branchId === "BR-MAIN");
+    const companyDebit = unassigned("5400").find((l: any) => !l.branchId);
+    const branchCredit = unassigned("1590").find((l: any) => l.branchId === "BR-MAIN");
+    const companyCredit = unassigned("1590").find((l: any) => !l.branchId);
     const plantDebit = je.body.lines.find((l: any) => l.accountId === "5400" && l.projectId === "PRJ-DEMO-1");
     const plantCredit = je.body.lines.find((l: any) => l.accountId === "1590" && l.projectId === "PRJ-DEMO-1");
     check("a 5400 (depreciation expense) debit line exists for the unassigned assets", debitLine !== undefined);
@@ -268,8 +274,12 @@ export async function run(ctx: Ctx): Promise<void> {
     check("and credits 1590 under the same project", plantCredit !== undefined);
     check("the plant asset's expense line carries costCategory 'equipment' — plant depreciation is project equipment cost",
       plantDebit?.costCategory === "equipment", JSON.stringify(plantDebit?.costCategory));
-    checkEq("Dr 5400 (no project) == the 6 unassigned assets' total", n(debitLine.debit), 19459.027777);
-    checkEq("Cr 1590 (no project) == the same", n(creditLine.credit), 19459.027777);
+    checkEq("Dr 5400 (no project) == the 6 unassigned assets' total", sumOf(unassigned("5400"), "debit"), 19459.027777);
+    checkEq("Cr 1590 (no project) == the same", sumOf(unassigned("1590"), "credit"), 19459.027777);
+    checkEq("Dr 5400 in BR-MAIN == the two branch-owned assets and the one in a BR-MAIN warehouse (5,833.333333 + 2,506.944444 + 2,700)", n(branchDebit?.debit), 11040.277777);
+    checkEq("Cr 1590 in BR-MAIN == the same", n(branchCredit?.credit), 11040.277777);
+    checkEq("Dr 5400 unattributed == the three company-wide assets (3,718.75 + 950 + 3,750)", n(companyDebit?.debit), 8418.75);
+    checkEq("Cr 1590 unattributed == the same", n(companyCredit?.credit), 8418.75);
     checkEq("Dr 5400 (PRJ-DEMO-1) == the plant asset's 13,500.00", n(plantDebit.debit), 13500);
     checkEq("Cr 1590 (PRJ-DEMO-1) == the same", n(plantCredit.credit), 13500);
     checkEq("the entry balances: debit == credit",

@@ -281,3 +281,35 @@ describe("ChequeService.list", () => {
     expect((await service.list({ direction: "outgoing" })).map((c) => c.id)).toEqual(["chq-2"]);
   });
 });
+
+describe("ChequeService — the branch dimension (D111)", () => {
+  const branchesOf = (entry: { lines: readonly { branchId?: string | null }[] } | null | undefined) =>
+    entry?.lines.map((l) => l.branchId ?? null);
+
+  it("stamps the cheque's own branch on the creation, collection and bounce entries", async () => {
+    const { service, ledger } = buildTestService();
+    await service.createCheque(incomingCmd({ branchId: "BR-ALEX" }));
+    await service.deposit({ chequeId: "chq-1", bankTreasuryAccountId: "ta-bank1" });
+    await service.collect({ chequeId: "chq-1", bankGlAccountId: "1310", journalEntryId: "je-collect-1", date: "2026-08-20" });
+    expect(branchesOf(await ledger.findById("je-create-1"))).toEqual(["BR-ALEX", "BR-ALEX"]);
+    expect(branchesOf(await ledger.findById("je-collect-1"))).toEqual(["BR-ALEX", "BR-ALEX"]);
+
+    await service.createCheque(outgoingCmd({ branchId: "BR-GIZA" }));
+    await service.deposit({ chequeId: "chq-2", bankTreasuryAccountId: "ta-bank1" });
+    await service.bounce({ chequeId: "chq-2", journalEntryId: "je-bounce-2" });
+    expect(branchesOf(await ledger.findById("je-bounce-2"))).toEqual(["BR-GIZA", "BR-GIZA"]);
+  });
+
+  it("stamps the replacement cheque's branch on the replacement entry", async () => {
+    const { service, ledger } = buildTestService();
+    await service.createCheque(incomingCmd({ branchId: "BR-ALEX" }));
+    await service.deposit({ chequeId: "chq-1", bankTreasuryAccountId: "ta-bank1" });
+    await service.bounce({ chequeId: "chq-1", journalEntryId: "je-bounce-1" });
+    await service.replace({
+      bouncedChequeId: "chq-1",
+      newCheque: { id: "chq-1r", chequeNumber: "CHQ-5002", bankName: "بنك مصر", issueDate: "2026-08-21", dueDate: "2026-09-05", branchId: "BR-GIZA" },
+      journalEntryId: "je-replace-1",
+    });
+    expect(branchesOf(await ledger.findById("je-replace-1"))).toEqual(["BR-GIZA", "BR-GIZA"]);
+  });
+});

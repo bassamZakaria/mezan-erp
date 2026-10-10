@@ -375,3 +375,43 @@ describe("postDepreciationRun — atomicity and the Arabic memo", () => {
     expect((await h.ledger.findById("DEP-JE:run-tx"))!.memo).toBe("إهلاك الفترة 2026-03");
   });
 });
+
+describe("postDepreciationRun — the branch dimension (D111)", () => {
+  it("buckets depreciation by the asset's own branch, a warehouse asset by its warehouse's branch, and leaves a company asset unattributed", async () => {
+    const h = await harness();
+    await h.categories.create(category());
+    await h.assets.create(asset("b1", { scope: "branch", branchId: "BR-ALEX" }));
+    await h.assets.create(asset("b2", { scope: "branch", branchId: "BR-ALEX" }));
+    await h.assets.create(asset("g1"));
+    await h.assets.create(asset("w1", { scope: "warehouse", warehouseId: "WH-GIZA" }));
+    await h.runs.create({
+      id: "run-br",
+      period: "2026-03",
+      branchId: null,
+      status: "draft",
+      lines: [
+        { assetId: "b1", amount: Money.fromMajor("100.00") },
+        { assetId: "b2", amount: Money.fromMajor("50.00") },
+        { assetId: "g1", amount: Money.fromMajor("70.00") },
+        { assetId: "w1", amount: Money.fromMajor("30.00") },
+      ],
+      totalAmount: Money.fromMajor("250.00"),
+      journalEntryId: null,
+      createdAt: "2026-03-31T00:00:00.000Z",
+      postedAt: null,
+    });
+    await postDepreciationRun("run-br", {
+      ...h.deps,
+      warehouses: { findById: async (id) => (id === "WH-GIZA" ? { branchId: "BR-GIZA" } : null) },
+    });
+    const entry = await h.ledger.findById("DEP-JE:run-br");
+    expect(entry!.lines.map((l) => [l.accountId, l.branchId ?? null, l.debit.toString(), l.credit.toString()])).toEqual([
+      ["5400-1", "BR-ALEX", "150.000000", "0.000000"],
+      ["1590-1", "BR-ALEX", "0.000000", "150.000000"],
+      ["5400-1", null, "70.000000", "0.000000"],
+      ["1590-1", null, "0.000000", "70.000000"],
+      ["5400-1", "BR-GIZA", "30.000000", "0.000000"],
+      ["1590-1", "BR-GIZA", "0.000000", "30.000000"],
+    ]);
+  });
+});

@@ -49,10 +49,13 @@ export function PeriodCloseScreen() {
   const [notice, setNotice] = useState<Notice | null>(null);
 
   const periods = useMemo(() => [...(periodsQuery.data ?? EMPTY)].sort(byPeriodOrder), [periodsQuery.data]);
+  const [stickyPeriodId, setStickyPeriodId] = useState<string | null>(null);
   const selected = useMemo(
-    () => periods.find((p) => p.id === periodParam) ?? periodToCloseNext(periods, todayIso()),
-    [periods, periodParam],
+    () => periods.find((p) => p.id === (periodParam || stickyPeriodId)) ?? periodToCloseNext(periods, todayIso()),
+    [periods, periodParam, stickyPeriodId],
   );
+  // Closing a month changes which one is "next"; without this the screen would jump to it and hide the result of the close just made.
+  if (selected && stickyPeriodId !== selected.id) setStickyPeriodId(selected.id);
   const checklistQuery = usePeriodCloseChecklist(selected?.id ?? null);
   const checklist = checklistQuery.data;
 

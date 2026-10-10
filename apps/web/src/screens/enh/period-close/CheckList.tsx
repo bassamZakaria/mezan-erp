@@ -60,7 +60,7 @@ const CheckRow = memo(function CheckRow({ check, format, onFix }: CheckRowProps)
       <div className="flex flex-wrap items-start justify-between gap-[10px]">
         <div className="min-w-0">
           <h2 className="font-display text-[14px] font-bold text-ink">{title}</h2>
-          <p className="mt-[3px] max-w-[70ch] text-[12.5px] text-ink-muted">{checkHeadline(check, t, format)}</p>
+          <p className="mt-[3px] max-w-[70ch] text-[12.5px] text-ink-muted">{checkHeadline(check, t)}</p>
         </div>
         <StatusPill label={t(CHECK_STATUS_KEY[check.status])} tone={CHECK_STATUS_TONE[check.status]} />
       </div>

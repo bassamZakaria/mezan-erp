@@ -143,13 +143,10 @@ export function findingFigure(finding: PeriodCloseFindingDTO, t: Translate, form
   }
 }
 
-export function checkHeadline(check: PeriodCloseCheckDTO, t: Translate, format: FindingFormatters): string {
+export function checkHeadline(check: PeriodCloseCheckDTO, t: Translate): string {
   if (check.status === PeriodCloseCheckStatusDTO.Unavailable) return t("periodClose.unavailableHint");
   if (check.status === PeriodCloseCheckStatusDTO.NotApplicable) return t("periodClose.notApplicableHint");
-  const open = check.findings.filter((f) => !f.passed);
-  if (open.length === 0) return t(CHECK_BODY_KEY[check.code]);
-  const counted = open.reduce((sum, f) => sum + (f.count ?? 1), 0);
-  return `${t(CHECK_BODY_KEY[check.code])} — ${format.number(counted)}`;
+  return t(CHECK_BODY_KEY[check.code]);
 }
 
 export function isClear(check: PeriodCloseCheckDTO): boolean {

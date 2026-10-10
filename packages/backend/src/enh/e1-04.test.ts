@@ -212,6 +212,23 @@ describe("period-close checks read the real tables (ENH-E1-04)", () => {
     await expectCloseRefused(request, "07", "subledger_ties");
   });
 
+  it("a real invoice confirmed in July leaves June tied — the sub-ledger is read as of the month end too", async () => {
+    const { request, check } = await world();
+    expect((await request("POST", "/items", { id: "SVC-T", code: "SVC-T", nameAr: "خدمة", type: "service", baseUnitCode: "PCS" })).status).toBe(201);
+    const customer = { id: "cust-t", code: "cust-t", nameAr: "شركة الأمل للتجارة", paymentTermsDays: 30, currency: "EGP", openingBalance: "0", active: true, creditLimit: "0", taxExempt: false, etaBuyerType: "auto" };
+    expect((await request("POST", "/customers", customer)).status).toBe(201);
+    const invoice = {
+      id: "inv-t-july", date: "2026-07-12", dueDate: "2026-08-11", customerId: "cust-t", customerNameAr: customer.nameAr, warehouseId: "WH-MAIN", branchId: "BR-MAIN",
+      arAccountId: "1105", taxAccountId: "2200",
+      lines: [{ lineId: "L1", itemId: "SVC-T", itemNameAr: "خدمة", isStock: false, qty: "1", unitPrice: "1150.00", taxRatePercent: 0, revenueAccountId: "4100" }],
+    };
+    expect((await request("POST", "/sales-invoices", invoice)).status).toBe(201);
+    expect((await request("POST", "/sales-invoices/inv-t-july/confirm", {})).status).toBe(200);
+
+    expect(tieStates(await check("06", "subledger_ties"))).toMatchObject({ ar: "ok" });
+    expect(tieStates(await check("07", "subledger_ties"))).toMatchObject({ ar: "ok" });
+  });
+
   it("a month that did not tie at its end still fails after a later entry puts the control account back", async () => {
     const { sqlite, check } = await world();
     post(sqlite, "wrong-1200", "2026-07-05", [["1200", 100, 0], ["2170", 0, 100]]);

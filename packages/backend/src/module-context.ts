@@ -70,7 +70,7 @@ export interface BackendModuleContext {
   readonly etaReceipts: EtaReceiptIssuer;
   readonly stores: BackendStores;
   /** The sub-ledger balances `/reconciliation` proves — the same resolver, so an area never re-derives them. */
-  readonly reconciliationControls: () => Promise<readonly ReconciliationControl[]>;
+  readonly reconciliationControls: (asOfDate?: string) => Promise<readonly ReconciliationControl[]>;
   /** Where the guided-close area hands its guard to the core `/fiscal-periods` routes; until it does, close and lock refuse. */
   readonly periodCloseGuard: PeriodCloseGuardSlot;
   readonly addCloser: (closer: { close(): void }) => void;

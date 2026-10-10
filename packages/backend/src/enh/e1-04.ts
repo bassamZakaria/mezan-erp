@@ -121,9 +121,9 @@ function buildSources(ctx: BackendModuleContext, store: ReturnType<typeof create
     draftCounts: async (window) => queries.draftCounts(window),
     pendingApprovalCounts: async (window) => queries.pendingApprovalCounts(window),
 
-    async subledgerTies() {
-      const asOfDate = new Date().toISOString().slice(0, 10);
-      const summary = await reconcileControls(stores.ledger, await ctx.reconciliationControls());
+    async subledgerTies(window) {
+      const asOfDate = window.endDate;
+      const summary = await reconcileControls(stores.ledger, await ctx.reconciliationControls(asOfDate), asOfDate);
       return summary.rows.map((row) => ({
         key: row.key,
         label: row.label,

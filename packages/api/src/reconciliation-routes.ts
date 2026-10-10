@@ -33,10 +33,11 @@ export interface ReconciliationRoutesDeps {
 export async function reconcileControls(
   ledger: Pick<LedgerRepository, "accountBalance">,
   controls: readonly ReconciliationControl[],
+  asOfDate?: string,
 ): Promise<ReconciliationSummary> {
   const comparisons = await Promise.all(
     controls.map(async (control) => {
-      const bal = await ledger.accountBalance(control.controlAccountId);
+      const bal = await ledger.accountBalance(control.controlAccountId, asOfDate);
       const glBalance = control.naturalBalance === "debit" ? bal.balance : Money.fromScaled(-bal.balance.scaled);
       return {
         key: control.key,

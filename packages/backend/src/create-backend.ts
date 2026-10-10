@@ -91,6 +91,8 @@ import {
   CUSTOMER_OPENING_BALANCE_DOC_TYPE,
   SUPPLIER_OPENING_BALANCE_DOC_TYPE,
   fxRevaluationNet,
+  replay,
+  type StockMovement,
   Qty,
   purchaseReturnGrandTotal,
   salesReturnGrandTotal,
@@ -2261,7 +2263,36 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     ]);
   }
 
-  async function resolveReconciliationControls() {
+  async function inventoryValueAsOf(asOfDate: string): Promise<bigint> {
+    const { listAll } = stockLedger.ledger;
+    const movements = listAll
+      ? await listAll.call(stockLedger.ledger)
+      : (await Promise.all((await stockLedger.ledger.listPositions()).map((p) => stockLedger.ledger.listByPosition(p.itemId, p.warehouseId)))).flat();
+    const byPosition = new Map<string, StockMovement[]>();
+    for (const movement of movements) {
+      if (movement.occurredAt.slice(0, 10) > asOfDate) continue;
+      const key = JSON.stringify([movement.itemId, movement.warehouseId]);
+      const list = byPosition.get(key);
+      if (list) list.push(movement);
+      else byPosition.set(key, [movement]);
+    }
+    let value = 0n;
+    for (const list of byPosition.values()) {
+      const first = list[0];
+      if (first) value += replay(first.itemId, first.warehouseId, list).totalValue.scaled;
+    }
+    return value;
+  }
+
+  /**
+   * With `asOfDate` every term is what stood on that day: a document counts
+   * from the date its posting carried, so the figure is comparable with the
+   * control account's balance on the same day. Without it, today's position.
+   */
+  async function resolveReconciliationControls(asOfDate?: string) {
+    const upTo = (date: string | null | undefined): boolean => asOfDate === undefined || (date ?? "").slice(0, 10) <= asOfDate;
+    const standingCertificate = (certificate: { status: string; approvedAt: string | null; executionDate: string; voidedAt: string | null }): boolean =>
+      upTo(certificate.approvedAt ?? certificate.executionDate) && (certificate.status !== "voided" || !upTo(certificate.voidedAt));
     // The tenant's own control accounts (B-8). Comparing a recoded chart
     // against a compiled-in "1105"/"2100"/"1200" reported a mismatch equal to
     // every collection ever made.
@@ -2295,7 +2326,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
      */
     const voucherEffect = { receivable: 0n, payable: 0n };
     for (const doc of await vouchers.documents.list({ status: "confirmed" })) {
-      if (!isStandingVoucher(doc)) continue;
+      if (!isStandingVoucher(doc) || !upTo(doc.date)) continue;
       const line = doc.lines[0];
       if (!line || line.direction === "transfer") continue;
       const credited = line.direction === "receipt";
@@ -2321,7 +2352,8 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
      */
     const chequeEffect = { receivable: 0n, payable: 0n };
     for (const cheque of await cheques.list()) {
-      const restored = cheque.status === "bounced" || cheque.status === "replaced";
+      if (!upTo(cheque.issueDate)) continue;
+      const restored = (cheque.status === "bounced" || cheque.status === "replaced") && upTo(cheque.bouncedAt ?? cheque.issueDate);
       const net = restored ? 0n : -cheque.amount.scaled;
       if (cheque.counterpartyGlAccountId === AR_CONTROL) chequeEffect.receivable += net;
       if (cheque.counterpartyGlAccountId === AP_CONTROL) chequeEffect.payable += net;
@@ -2329,14 +2361,14 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
 
     let arScaled = 0n;
     for (const inv of invoices) {
-      if (!SALES_INVOICE_ACTIVE_STATUSES.has(inv.status)) continue;
+      if (!SALES_INVOICE_ACTIVE_STATUSES.has(inv.status) || !upTo(inv.date)) continue;
       const totals = salesInvoiceTotals(inv);
       // The BASE-currency figure, which is what the control account holds — a
       // USD invoice's own total is not an EGP amount (D24).
       arScaled += salesInvoiceBaseGrandTotal(totals, inv.fxRate).scaled;
     }
     for (const archive of salesArchives) {
-      if (archive.settled) continue;
+      if (archive.settled || !upTo(archive.date)) continue;
       arScaled += archive.docType === "SALES_RETURN"
         ? -archive.remainingBalance.scaled
         : archive.remainingBalance.scaled;
@@ -2344,14 +2376,14 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     // Opening balances are posted to the control account now (B-2), so the
     // sub-ledger side has to carry them or the two part company by exactly
     // Σ opening balances — the same gap, mirrored.
-    for (const customer of customerRows) arScaled += customer.openingBalance.scaled;
+    if (asOfDate === undefined) for (const customer of customerRows) arScaled += customer.openingBalance.scaled;
     arScaled += voucherEffect.receivable;
     arScaled += chequeEffect.receivable;
     // A confirmed sales return credits AR in the GL. Omitting it here left the
     // control account moving while the sub-ledger stood still, so every tenant
     // that ever posted a return saw a false mismatch.
     for (const doc of salesReturnDocs) {
-      if (doc.status !== "confirmed") continue;
+      if (doc.status !== "confirmed" || !upTo(doc.date)) continue;
       arScaled -= salesReturnGrandTotal(doc).scaled;
     }
     /**
@@ -2365,29 +2397,29 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       // A VOIDED certificate has had its deductions entry mirrored, so the
       // control account is back where it was and the sub-ledger must not
       // subtract them a second time.
-      if (certificate.status === "voided") continue;
+      if (!standingCertificate(certificate)) continue;
       arScaled -= certificate.postedDeductionsTotal.scaled;
     }
 
     let apScaled = 0n;
     for (const inv of purchInvoices) {
-      if (inv.status !== "confirmed") continue;
+      if (inv.status !== "confirmed" || !upTo(inv.date)) continue;
       // The BASE-currency figure, which is what the control account holds.
       apScaled += purchaseInvoiceBaseTotal(inv).scaled;
     }
     for (const archive of purchaseArchives) {
-      if (archive.settled) continue;
+      if (archive.settled || !upTo(archive.date)) continue;
       apScaled += archive.docType === "PURCHASE_RETURN"
         ? -archive.remainingBalance.scaled
         : archive.remainingBalance.scaled;
     }
-    for (const supplier of supplierRows) apScaled += supplier.openingBalance.scaled;
+    if (asOfDate === undefined) for (const supplier of supplierRows) apScaled += supplier.openingBalance.scaled;
     apScaled += voucherEffect.payable;
     apScaled += chequeEffect.payable;
     // A purchase return debits AP; a landed cost credits it (the freight and
     // customs owed to a third party accrue to the same control account).
     for (const doc of purchaseReturnDocs) {
-      if (doc.status !== "confirmed") continue;
+      if (doc.status !== "confirmed" || !upTo(doc.date)) continue;
       apScaled -= purchaseReturnGrandTotal(doc).scaled;
     }
     /**
@@ -2402,6 +2434,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
      * (Dr 2195 / Cr AP), already counted with every other confirmed one above.
      */
     for (const certificate of await subcontracts.listCertificates()) {
+      if (!upTo(certificate.approvedAt ?? certificate.executionDate)) continue;
       apScaled -= certificate.postedDeductionsTotal.scaled;
     }
     // Landed costs are deliberately NOT added here any more. They used to be,
@@ -2416,7 +2449,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
      * sub-ledger — every document at the rate it was booked at — carries the
      * unreversed restatement as its one non-document term (D194).
      */
-    const partyControlLines = (await ledger.listLines?.({ accountIds: [AR_CONTROL, AP_CONTROL] })) ?? [];
+    const partyControlLines = (await ledger.listLines?.({ accountIds: [AR_CONTROL, AP_CONTROL], toDate: asOfDate })) ?? [];
     arScaled += fxRevaluationNet(partyControlLines, AR_CONTROL).scaled;
     apScaled -= fxRevaluationNet(partyControlLines, AP_CONTROL).scaled;
     // A manual journal line names its party (D205) and no document records it.
@@ -2425,16 +2458,19 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     // one) but that movement is already in `customerRows`/`supplierRows`
     // above — counting it again here is exactly the double-post D241 was.
     for (const line of partyControlLines) {
-      if (!line.partyId) continue;
-      if (line.sourceDocType === CUSTOMER_OPENING_BALANCE_DOC_TYPE || line.sourceDocType === SUPPLIER_OPENING_BALANCE_DOC_TYPE) continue;
+      const openingBalance = line.sourceDocType === CUSTOMER_OPENING_BALANCE_DOC_TYPE || line.sourceDocType === SUPPLIER_OPENING_BALANCE_DOC_TYPE;
+      // A party's opening balance carries no date of its own, so on a past day its posted entries are the only record of when it began to stand.
+      if (openingBalance ? asOfDate === undefined : !line.partyId) continue;
       const net = line.debit.scaled - line.credit.scaled;
       if (line.accountId === AR_CONTROL) arScaled += net;
       if (line.accountId === AP_CONTROL) apScaled -= net;
     }
 
     let inventoryScaled = 0n;
-    for (const snap of snapshots) {
-      inventoryScaled += snap.totalValue.scaled;
+    if (asOfDate === undefined) {
+      for (const snap of snapshots) inventoryScaled += snap.totalValue.scaled;
+    } else {
+      inventoryScaled = await inventoryValueAsOf(asOfDate);
     }
 
     /**
@@ -2457,9 +2493,9 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     const account = (key: string, fallback: string): string => routedAccountId(routing, key) ?? fallback;
 
     /** Only a certificate whose deductions entry is actually on the ledger, and was not reversed. */
-    const postedCertificates = certificates.filter((c) => c.journalEntryId !== null && c.status !== "voided");
-    const postedSubCertificates = subCerts.filter((c) => c.journalEntryId !== null);
-    const postedRuns = runs.filter((r) => r.status === "posted");
+    const postedCertificates = certificates.filter((c) => c.journalEntryId !== null && standingCertificate(c));
+    const postedSubCertificates = subCerts.filter((c) => c.journalEntryId !== null && upTo(c.approvedAt ?? c.executionDate));
+    const postedRuns = runs.filter((r) => r.status === "posted" && upTo(r.periodEnd));
     const deduction = (
       rows: readonly { key: string; thisCertificate: Money }[],
       key: string,
@@ -2468,13 +2504,13 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     let retentionReceivableScaled = 0n;
     for (const c of postedCertificates) retentionReceivableScaled += deduction(c.computed.deductions, "retention");
     for (const r of releases) {
-      if (r.status === "released") retentionReceivableScaled -= r.amount.scaled;
+      if (r.status === "released" && upTo(r.date)) retentionReceivableScaled -= r.amount.scaled;
     }
 
     let retentionPayableScaled = 0n;
     for (const c of postedSubCertificates) retentionPayableScaled += deduction(c.computed.deductions, "retention");
     for (const sub of subContracts) {
-      for (const release of sub.retentionReleases) retentionPayableScaled -= release.amount.scaled;
+      for (const release of sub.retentionReleases) if (upTo(release.date)) retentionPayableScaled -= release.amount.scaled;
     }
 
     /**
@@ -2485,7 +2521,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     const advanceAccountId = account("contracting.customer_advances", "2160");
     let customerAdvancesScaled = 0n;
     for (const doc of await vouchers.documents.list({ status: "confirmed" })) {
-      if (!isStandingVoucher(doc)) continue;
+      if (!isStandingVoucher(doc) || !upTo(doc.date)) continue;
       const line = doc.lines[0];
       if (!line || line.counterpartyGlAccountId !== advanceAccountId) continue;
       customerAdvancesScaled += line.direction === "receipt" ? voucherBaseAmount(line).scaled : -voucherBaseAmount(line).scaled;
@@ -2500,8 +2536,8 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
      * it — less what the monthly recognition run has already relieved.
      */
     let wipScaled = 0n;
-    for (const row of consumptions) wipScaled += row.totalCost.scaled;
-    for (const log of equipmentLogs) wipScaled += log.amount.scaled;
+    for (const row of consumptions) if (upTo(row.date)) wipScaled += row.totalCost.scaled;
+    for (const log of equipmentLogs) if (upTo(log.date)) wipScaled += log.amount.scaled;
     for (const c of postedSubCertificates) wipScaled += c.computed.invoiceBase.scaled;
     for (const run of postedRuns) wipScaled -= run.wipRelieved.scaled;
 
@@ -2512,7 +2548,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     const billingsAccountId = account("contracting.billings", "2165");
     let billingsScaled = 0n;
     for (const inv of invoices) {
-      if (!SALES_INVOICE_ACTIVE_STATUSES.has(inv.status)) continue;
+      if (!SALES_INVOICE_ACTIVE_STATUSES.has(inv.status) || !upTo(inv.date)) continue;
       const lineTotals = salesInvoiceTotals(inv).lines;
       inv.lines.forEach((line, index) => {
         if (line.revenueAccountId !== billingsAccountId) return;
@@ -3375,7 +3411,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         return issued;
       },
     },
-    reconciliation: { ledger, resolveControls: resolveReconciliationControls },
+    reconciliation: { ledger, resolveControls: () => resolveReconciliationControls() },
     openingBalanceDuplicates: {
       resolveContext: resolveOpeningBalanceDuplicatesContext,
       repair: repairOpeningBalanceDuplicate,

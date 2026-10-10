@@ -143,6 +143,26 @@ export function clearTenantCode(): void {
   storage.removeItem(TENANT_CODE_STORAGE_KEY);
 }
 
+const TENANT_CODE_CONFIRMED_KEY = "mezan.tenantCodeConfirmed";
+
+/**
+ * The company code the operator now at the machine typed and confirmed on the
+ * sign-in screen. Per tab and ended by a sign-in, so it never outlives the
+ * person it describes: the next operator still gets a neutral screen.
+ */
+export function markTenantCodeConfirmed(code: string): void {
+  getTabStorage()?.setItem(TENANT_CODE_CONFIRMED_KEY, code);
+}
+
+export function clearTenantCodeConfirmed(): void {
+  getTabStorage()?.removeItem(TENANT_CODE_CONFIRMED_KEY);
+}
+
+export function tenantCodeConfirmedThisVisit(): boolean {
+  const confirmed = getTabStorage()?.getItem(TENANT_CODE_CONFIRMED_KEY) ?? null;
+  return confirmed !== null && confirmed === loadTenantCode();
+}
+
 const TENANT_CODE_BY_EMAIL_STORAGE_KEY = "mezan.tenantCodeByEmail";
 /** Bounds the per-operator map on a long-lived shared machine; oldest entries fall off first. */
 const TENANT_CODE_BY_EMAIL_LIMIT = 20;
@@ -190,11 +210,6 @@ export function tenantCodeForEmail(email: string): string | null {
   return readTenantCodeByEmail()[key] ?? null;
 }
 
-/**
- * More than one company has been signed into from this browser. On such a
- * device the single `mezan.tenantCode` says only who was here LAST, so the
- * login screen must not open on it.
- */
 export function deviceSharedAcrossTenants(): boolean {
   return new Set(Object.values(readTenantCodeByEmail())).size > 1;
 }

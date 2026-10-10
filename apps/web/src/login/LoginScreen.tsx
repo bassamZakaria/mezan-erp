@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { BrandMark, Button, Copyright, TextInput, cn, useTheme } from "@mezan/ui";
+import { BrandMark, Button, Copyright, TextInput, cn } from "@mezan/ui";
 import { useLogin, usePlatformResolve, useTenantInfo } from "../data/hooks";
 import { useAppVersion } from "../data/hub-hooks";
 import {
@@ -8,10 +8,13 @@ import {
   clearTenantCode,
   deviceSharedAcrossTenants,
   forgetTenantCodeForEmail,
+  clearTenantCodeConfirmed,
   loadTenantCode,
+  markTenantCodeConfirmed,
   persistTenantCode,
   rememberTenantCodeForEmail,
   sessionExpiredPending,
+  tenantCodeConfirmedThisVisit,
   tenantCodeForEmail,
 } from "../data/session";
 import { useAppTranslation } from "../i18n";
@@ -38,15 +41,11 @@ function formatWait(seconds: number): string {
  */
 const DEFAULT_USERNAME = "admin@cyag.example";
 
-/**
- * The company this screen opens on. A device several companies sign into
- * opens on none: the leftover code is dropped BEFORE the first paint, so the
- * previous operator's company and face row are never shown to the next one.
- * Typing an email restores that operator's own company (`handleEmailBlur`).
- * Idempotent on purpose — StrictMode runs a state initializer twice.
- */
+// Runs inside a state initializer, which StrictMode calls twice and which runs
+// again on every remount: it must stay idempotent, and it must never drop a code
+// the operator at the machine has just confirmed.
 function openingTenantCode(): string {
-  if (deviceSharedAcrossTenants()) clearTenantCode();
+  if (deviceSharedAcrossTenants() && !tenantCodeConfirmedThisVisit()) clearTenantCode();
   return loadTenantCode() ?? "";
 }
 
@@ -79,7 +78,6 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
   const appVersion = useAppVersion();
   const login = useLogin();
   const queryClient = useQueryClient();
-  useTheme();
 
   const platformResolve = usePlatformResolve();
   const tenantMode = platformResolve.data?.mode;
@@ -107,7 +105,7 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
    * be corrected straight back to whichever one they used last, and could
    * never reach the second (security review, item 3 finding 1).
    */
-  const codeConfirmedThisVisitRef = useRef(false);
+  const codeConfirmedThisVisitRef = useRef(tenantCodeConfirmedThisVisit());
 
   /**
    * A different company's rows must never survive a tenant switch on the
@@ -149,20 +147,26 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
     if (tenantCode === "") {
       switchTenantCode(clearTenantCode);
       setResolvedCode("");
-      codeConfirmedThisVisitRef.current = false;
+      forgetConfirmedCode();
       return;
     }
     if (tenantCodeInvalid) return;
     switchTenantCode(() => persistTenantCode(tenantCode));
     setResolvedCode(tenantCode);
+    markTenantCodeConfirmed(loadTenantCode() ?? tenantCode);
     codeConfirmedThisVisitRef.current = true;
+  }
+
+  function forgetConfirmedCode() {
+    clearTenantCodeConfirmed();
+    codeConfirmedThisVisitRef.current = false;
   }
 
   function handleChangeTenant() {
     switchTenantCode(clearTenantCode);
     setTenantCode("");
     setResolvedCode("");
-    codeConfirmedThisVisitRef.current = false;
+    forgetConfirmedCode();
   }
 
   /**
@@ -255,6 +259,7 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
       { username: identity, pin },
       {
         onSuccess: (session) => {
+          clearTenantCodeConfirmed();
           rememberDeviceUser(session);
           if (tenantMode === "code" && resolvedCode !== "") rememberTenantCodeForEmail(session.email, resolvedCode);
         },

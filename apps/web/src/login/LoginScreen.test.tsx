@@ -67,6 +67,7 @@ describe.each(["light", "dark"] as const)("LoginScreen (%s theme)", (theme) => {
     // user remembered by one test (e.g. a successful sign-in below) would
     // otherwise leak into the next test's render.
     localStorage.clear();
+    sessionStorage.clear();
   });
 
   afterEach(() => {
@@ -385,6 +386,76 @@ describe("LoginScreen — SaaS company code", () => {
     fireEvent.blur(email);
     await screen.findByText("الرمز: acme");
     expect(localStorage.getItem("mezan.tenantCode")).toBe("acme");
+  });
+
+  it("keeps the company the operator just confirmed when the screen mounts again — opening the setup wizard and cancelling must not wipe it", async () => {
+    rememberTenantCodeForEmail("a@acme.example", "acme");
+    rememberTenantCodeForEmail("b@nile.example", "nile");
+    localStorage.setItem("mezan.tenantCode", "nile");
+    const transport = stubTransport({ ...preAuth, "GET /platform/resolve": () => ({ body: { mode: "code", exists: true } }) });
+    const first = renderWithProviders(<LoginScreen onStartWizard={() => {}} />, { transport });
+    const code = await screen.findByLabelText("رمز المنشأة");
+    expect(code).toHaveValue("");
+    fireEvent.change(code, { target: { value: "acme" } });
+    fireEvent.blur(code);
+    await screen.findByText("الرمز: acme");
+
+    first.unmount();
+    renderWithProviders(<LoginScreen onStartWizard={() => {}} />, { transport });
+
+    await screen.findByText("الرمز: acme");
+    expect(localStorage.getItem("mezan.tenantCode")).toBe("acme");
+  });
+
+  it("does not let a remembered email pull the screen off the company confirmed before it mounted again", async () => {
+    rememberTenantCodeForEmail("a@acme.example", "acme");
+    rememberTenantCodeForEmail("b@nile.example", "nile");
+    const transport = stubTransport({ ...preAuth, "GET /platform/resolve": () => ({ body: { mode: "code", exists: true } }) });
+    const first = renderWithProviders(<LoginScreen onStartWizard={() => {}} />, { transport });
+    const code = await screen.findByLabelText("رمز المنشأة");
+    fireEvent.change(code, { target: { value: "nile" } });
+    fireEvent.blur(code);
+    await screen.findByText("الرمز: nile");
+    first.unmount();
+    renderWithProviders(<LoginScreen onStartWizard={() => {}} />, { transport });
+    await screen.findByText("الرمز: nile");
+
+    const email = await screen.findByLabelText("البريد الإلكتروني");
+    fireEvent.change(email, { target: { value: "a@acme.example" } });
+    fireEvent.blur(email);
+
+    expect(localStorage.getItem("mezan.tenantCode")).toBe("nile");
+  });
+
+  it("opens neutral again for the next operator once the one who confirmed a company has signed in and out", async () => {
+    rememberTenantCodeForEmail("a@acme.example", "acme");
+    rememberTenantCodeForEmail("b@nile.example", "nile");
+    const transport = stubTransport({
+      ...preAuth,
+      "GET /platform/resolve": () => ({ body: { mode: "code", exists: true } }),
+      "POST /auth/login": () => ({ body: testAdminSession }),
+    });
+    const first = renderWithProviders(
+      <>
+        <LoginScreen onStartWizard={() => {}} />
+        <SessionProbe />
+      </>,
+      { transport },
+    );
+    const code = await screen.findByLabelText("رمز المنشأة");
+    fireEvent.change(code, { target: { value: "acme" } });
+    fireEvent.blur(code);
+    await screen.findByText("الرمز: acme");
+    const email = await screen.findByLabelText("البريد الإلكتروني");
+    fireEvent.change(email, { target: { value: "a@acme.example" } });
+    fillPin("123456");
+    await vi.waitFor(() => expect(screen.getByTestId("session")).toHaveTextContent(testAdminSession.nameAr));
+
+    first.unmount();
+    renderWithProviders(<LoginScreen onStartWizard={() => {}} />, { transport });
+
+    expect(await screen.findByLabelText("رمز المنشأة")).toHaveValue("");
+    expect(localStorage.getItem("mezan.tenantCode")).toBeNull();
   });
 
   it("keeps the company code and the face row on a device only one company signs into", async () => {

@@ -263,3 +263,18 @@ describe("FirstRunWizard — installing a licence file", () => {
     expect(await screen.findByText("تعذّرت قراءة الملف المختار.")).toBeInTheDocument();
   });
 });
+
+describe("FirstRunWizard — the stored theme", () => {
+  afterEach(() => {
+    document.documentElement.removeAttribute("data-theme");
+    localStorage.clear();
+  });
+
+  it("opens in the dark theme the device already chose", () => {
+    localStorage.setItem("mezan:theme", "dark");
+
+    renderWizard();
+
+    expect(document.documentElement).toHaveAttribute("data-theme", "dark");
+  });
+});

@@ -625,6 +625,9 @@ const ADVANCES = [
   { id: "ADV-DEMO-3", employeeId: "EMP-DEMO-2", amount: "2400", installmentCount: 2, firstDeductionDate: "2026-09-01", reason: "أثاث منزلي", flow: "approved", disburseDate: null },
   { id: "ADV-DEMO-4", employeeId: "EMP-DEMO-4", amount: "3000", installmentCount: 3, firstDeductionDate: "2026-09-01", reason: "مصاريف مدارس", flow: "pending", disburseDate: null },
   { id: "ADV-DEMO-5", employeeId: "EMP-DEMO-6", amount: "10000", installmentCount: 10, firstDeductionDate: "2026-09-01", reason: "شراء دراجة بخارية", flow: "rejected", disburseDate: null },
+  // The signed-in demo admin's own file (EMP-DEMO-3), so «سُلفي» opens on a row.
+  // Approved and unpaid: it posts nothing and payroll recovers nothing from it.
+  { id: "ADV-DEMO-6", employeeId: "EMP-DEMO-3", amount: "5000", installmentCount: 5, firstDeductionDate: "2026-11-01", reason: "تجديد سكن", flow: "approved", disburseDate: null },
 ];
 
 /** June is settled, July is posted and awaiting its transfer, August is still محتسب. */

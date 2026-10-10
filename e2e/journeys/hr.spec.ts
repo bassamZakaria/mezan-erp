@@ -1,5 +1,11 @@
 import { expect, test } from "@playwright/test";
 import { loginAsDemoUser } from "../support/auth";
+import { expectPostedAndBalanced, journalEntry, microUnits } from "../support/ledger";
+
+interface ApprovedPayrollRun {
+  readonly journalEntryId: string | null;
+  readonly totalGross: string;
+}
 
 function aMondayLaterThisYear(): string {
   const base = Date.UTC(2026, 9, 5);
@@ -71,9 +77,22 @@ test.describe("HR journeys", () => {
     await expect(run).toContainText("محتسب");
     await expect(run.getByText(/PS-\d+/).first()).toBeVisible();
 
+    const approved = page.waitForResponse((r) => r.request().method() === "POST" && /\/hr\/payroll\/runs\/[^/]+\/approve$/.test(new URL(r.url()).pathname));
     await run.getByRole("button", { name: "اعتماد وترحيل القيد" }).click();
+    const approvedResponse = await approved;
+    expect(approvedResponse.status()).toBe(200);
+    const approvedRun = (await approvedResponse.json()) as ApprovedPayrollRun;
     await expect(run).toContainText("معتمد");
     await expect(run).not.toContainText("القيد المحاسبي —");
+
+    // «معتمد» has to be the accrual in the books, not a pill: one posted,
+    // balanced entry, booking no less than the gross the run itself reports.
+    expect(approvedRun.journalEntryId, "an approved payroll run must carry its journal entry").toBeTruthy();
+    const accrual = await journalEntry(page, approvedRun.journalEntryId!);
+    const accrued = expectPostedAndBalanced(accrual);
+    expect(microUnits(approvedRun.totalGross)).toBeGreaterThan(0n);
+    expect(accrued).toBeGreaterThanOrEqual(microUnits(approvedRun.totalGross));
+    await expect(run).toContainText(accrual.entryNo!);
 
     await run.getByRole("button", { name: "إغلاق اللوحة" }).click();
     await expect(page.getByRole("row").filter({ hasText: number })).toContainText("معتمد");

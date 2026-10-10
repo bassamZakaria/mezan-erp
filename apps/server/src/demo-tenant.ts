@@ -48,25 +48,30 @@ export async function provisionDemoTenant(deps: ProvisionDemoTenantDeps): Promis
     code: DEMO_TENANT_CODE,
     nameAr: DEMO_NAME_AR,
     adminPin: SEED_ADMIN_PIN,
+    // DEC-31 — the billing screen's module section has to show something real.
+    // POS is the one module the enterprise plan leaves out, so a live trial on it
+    // is the only way the demo can show «تجربة جارية» without inventing data.
+    //
+    // ORDER MATTERS: the trial starts BEFORE the seed runs. The POS seed
+    // fragments skip a tenant that does not hold `pos`, so a trial granted
+    // after seeding opened the whole POS workspace onto a tenant with no till,
+    // no drawer and no shift — a module on trial that could not ring up a sale.
+    beforeSeed: async (tenantId) => {
+      const nowIso = (deps.now ?? (() => new Date()))().toISOString();
+      await startModuleTrial(
+        {
+          id: randomUUID(),
+          tenantId,
+          module: "pos",
+          startedBy: "seed",
+          entitledModules: [],
+          now: nowIso,
+        },
+        deps.platform.stores.moduleTrials,
+      );
+    },
   });
   if (!created) return;
-  // DEC-31 — the billing screen's module section has to show something real.
-  // POS is the one module the enterprise plan leaves out, so a live trial on it
-  // is the only way the demo can show «تجربة جارية» without inventing data.
-  const tenant = await deps.platform.stores.tenants.findByCode(DEMO_TENANT_CODE);
-  if (!tenant) return;
-  const nowIso = (deps.now ?? (() => new Date()))().toISOString();
-  await startModuleTrial(
-    {
-      id: randomUUID(),
-      tenantId: tenant.id,
-      module: "pos",
-      startedBy: "seed",
-      entitledModules: [],
-      now: nowIso,
-    },
-    deps.platform.stores.moduleTrials,
-  );
   deps.router.invalidate(DEMO_TENANT_CODE);
 }
 
@@ -74,6 +79,8 @@ export interface SeededTenantSpec {
   readonly code: string;
   readonly nameAr: string;
   readonly adminPin: string;
+  /** Runs once the tenant is active and before its backend opens, so the seed sees whatever it grants. */
+  readonly beforeSeed?: (tenantId: string) => Promise<void>;
   readonly afterSeed?: (backend: BackendHandle) => Promise<void>;
 }
 
@@ -106,6 +113,7 @@ export async function provisionSeededTenant(deps: ProvisionDemoTenantDeps, spec:
     deps.platform.stores.plans,
   );
   const activated = await activateTenant({ id: tenant.id, now: nowIso }, deps.platform.stores.tenants);
+  await spec.beforeSeed?.(tenant.id);
 
   const dbPath = tenantDbPath(deps.env.platformDir, activated.dbFile);
   mkdirSync(path.dirname(dbPath), { recursive: true });

@@ -68,6 +68,29 @@ describe("provisionDemoTenant", () => {
     expect(summaryRes.status).toBe(200);
   });
 
+  it("starts the POS trial before it seeds, so the module on trial has tills to open", async () => {
+    const tenant = await platform.stores.tenants.findByCode(DEMO_TENANT_CODE);
+    const trials = await platform.stores.moduleTrials.listByTenant(tenant!.id);
+    expect(trials.map((t) => t.module)).toEqual(["pos"]);
+
+    const loginRes = await router.app.fetch(
+      new Request("http://ignored/auth/login", {
+        method: "POST",
+        headers: { "content-type": "application/json", [TENANT_HEADER]: DEMO_TENANT_CODE },
+        body: JSON.stringify({ username: SEED_ADMIN_EMAIL, pin: "123456" }),
+      }),
+    );
+    const session = (await loginRes.json()) as { token: string };
+    const terminalsRes = await router.app.fetch(
+      new Request("http://ignored/pos/terminals", {
+        headers: { authorization: `Bearer ${session.token}`, [TENANT_HEADER]: DEMO_TENANT_CODE },
+      }),
+    );
+    expect(terminalsRes.status).toBe(200);
+    const terminals = (await terminalsRes.json()) as { code: string }[];
+    expect(terminals.map((t) => t.code).sort()).toEqual(["POS-001", "POS-002", "POS-003"]);
+  });
+
   it("does nothing on a second call", async () => {
     const before = await platform.stores.tenants.findByCode(DEMO_TENANT_CODE);
 

@@ -2,6 +2,7 @@ import { test, expect, type Page, type Locator } from "@playwright/test";
 import { loginAsDemoUser } from "./support/auth";
 import { clickSidebarItem } from "./support/nav";
 import { brokenLabelField } from "./support/broken-label";
+import { creditOn, debitOn, expectPostedEntryOf, journalEntry, microUnits } from "./support/ledger";
 
 /**
  * Treasury Vouchers (السندات النقدية) — real API-backed screen
@@ -18,6 +19,17 @@ import { brokenLabelField } from "./support/broken-label";
  * user-picked account from the live chart of accounts — avoided here to
  * keep the flow deterministic.
  */
+
+const TRADE_RECEIVABLES = "1105";
+const TRADE_PAYABLES = "2100";
+
+interface ConfirmedVoucher {
+  readonly id: string;
+  readonly docNo: string;
+  readonly status: string;
+  readonly journalEntryId: string | null;
+  readonly treasuryGlAccountId: string;
+}
 
 function unique(prefix: string): string {
   return `${prefix} ${Date.now()}-${Math.floor(Math.random() * 100000)}`;
@@ -162,22 +174,32 @@ test.describe("Treasury Vouchers", () => {
     await voucherTypeCard(page, "تحصيل من عميل").click();
     await page.getByLabel("المبلغ").fill("1000");
     await pickParty(page, "ابحث عن عميل…", customerName);
-    // "إنشاء وتأكيد" chains a create POST then a confirm POST — the list
-    // row's number/status only reflect the SECOND one, and only once the
-    // confirm's invalidation re-fetches the vouchers list, so wait on that
-    // network round trip rather than the row settling on its own.
-    const confirmed = page.waitForResponse((r) => r.request().method() === "POST" && /\/vouchers\/[^/]+\/confirm$/.test(new URL(r.url()).pathname));
+    // «إنشاء وتأكيد» on a customer collection is ONE atomic call now —
+    // POST /vouchers/collections creates, confirms and posts in a single
+    // transaction — where it used to be a create POST chained to a confirm
+    // POST. Supplier payments below still take the two-step path.
+    const collected = page.waitForResponse((r) => r.request().method() === "POST" && new URL(r.url()).pathname.endsWith("/vouchers/collections"));
     const refetched = page.waitForResponse((r) => r.request().method() === "GET" && new URL(r.url()).pathname.endsWith("/vouchers"));
     await page.getByRole("button", { name: "إنشاء وتأكيد" }).click();
-    await confirmed;
+    const collectionResponse = await collected;
+    expect(collectionResponse.status()).toBe(201);
+    const receipt = ((await collectionResponse.json()) as { voucher: ConfirmedVoucher }).voucher;
     await refetched;
     await expect(page.getByRole("heading", { name: "السندات النقدية" })).toBeVisible();
 
     await page.getByPlaceholder("ابحث برقم السند، المرجع، العميل، المورد…").fill(customerName);
     const receiptRow = uniqueRow(page, customerName);
     await expect(receiptRow).toHaveCount(1);
-    await expect(receiptRow.getByText(/^CV-\d+$/)).toBeVisible();
+    await expect(receiptRow.getByText(receipt.docNo, { exact: true })).toBeVisible();
     await expect(receiptRow.getByText("مؤكد", { exact: true })).toBeVisible();
+
+    // «مؤكد» is a claim; the entry is the fact. Cash in, trade receivables down.
+    expect(receipt.status).toBe("confirmed");
+    expect(receipt.journalEntryId, "a confirmed collection must carry its journal entry").toBeTruthy();
+    const receiptEntry = await journalEntry(page, receipt.journalEntryId!);
+    expectPostedEntryOf(receiptEntry, "1000");
+    expect(debitOn(receiptEntry, receipt.treasuryGlAccountId)).toBe(microUnits("1000"));
+    expect(creditOn(receiptEntry, TRADE_RECEIVABLES)).toBe(microUnits("1000"));
 
     // Payment: دفع لمورد — the cash guard now allows it (balance 1000 ≥ 500).
     await page.getByPlaceholder("ابحث برقم السند، المرجع، العميل، المورد…").fill("");
@@ -188,15 +210,25 @@ test.describe("Treasury Vouchers", () => {
     const paymentConfirmed = page.waitForResponse((r) => r.request().method() === "POST" && /\/vouchers\/[^/]+\/confirm$/.test(new URL(r.url()).pathname));
     const paymentRefetched = page.waitForResponse((r) => r.request().method() === "GET" && new URL(r.url()).pathname.endsWith("/vouchers"));
     await page.getByRole("button", { name: "إنشاء وتأكيد" }).click();
-    await paymentConfirmed;
+    const paymentResponse = await paymentConfirmed;
+    expect(paymentResponse.status()).toBe(200);
+    const payment = (await paymentResponse.json()) as ConfirmedVoucher;
     await paymentRefetched;
     await expect(page.getByRole("heading", { name: "السندات النقدية" })).toBeVisible();
 
     await page.getByPlaceholder("ابحث برقم السند، المرجع، العميل، المورد…").fill(supplierName);
     const paymentRow = uniqueRow(page, supplierName);
     await expect(paymentRow).toHaveCount(1);
-    await expect(paymentRow.getByText(/^CV-\d+$/)).toBeVisible();
+    await expect(paymentRow.getByText(payment.docNo, { exact: true })).toBeVisible();
     await expect(paymentRow.getByText("مؤكد", { exact: true })).toBeVisible();
+
+    // Trade payables down, cash out — and by exactly what the voucher says.
+    expect(payment.status).toBe("confirmed");
+    expect(payment.journalEntryId, "a confirmed payment must carry its journal entry").toBeTruthy();
+    const paymentEntry = await journalEntry(page, payment.journalEntryId!);
+    expectPostedEntryOf(paymentEntry, "500");
+    expect(debitOn(paymentEntry, TRADE_PAYABLES)).toBe(microUnits("500"));
+    expect(creditOn(paymentEntry, payment.treasuryGlAccountId)).toBe(microUnits("500"));
   });
 
   // Previously documented as a defect (open_invoice's SqliteInvoiceRepository

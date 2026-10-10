@@ -100,3 +100,4 @@ export {
 
 export * from "./pos/index.js";
 export * from "./enh/index.js";
+export { AUDITED_MOUNTS, MutatingMethod, type AuditedMount } from "./audit-boundary.js";

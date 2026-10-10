@@ -34,7 +34,7 @@ function Citation({ text, source, verified }: { text: string; source: string; ve
     <div className="mt-[8px] flex flex-wrap items-center gap-[8px]">
       {verified ? null : <StatusPill label={t("statutory.unverified")} tone="warning" />}
       <p className="text-[11.5px] leading-relaxed text-ink-faint">{text}</p>
-      <p className="mz-num text-[11px] text-ink-faint" dir="ltr">
+      <p className="mz-num min-w-0 max-w-full text-[11px] text-ink-faint [overflow-wrap:anywhere]" dir="ltr">
         {source}
       </p>
     </div>

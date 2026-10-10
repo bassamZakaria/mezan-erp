@@ -64,10 +64,12 @@ function journal(sqlite: Sqlite, id: string, entryNo: string | null, date: strin
 
 const SCALE = 1_000_000;
 
-function post(sqlite: Sqlite, id: string, date: string, lines: readonly (readonly [accountId: string, debit: number, credit: number])[], extra: Record<string, string | number | null> = {}): void {
+type Columns = Record<string, string | number | null>;
+
+function post(sqlite: Sqlite, id: string, date: string, lines: readonly (readonly [accountId: string, debit: number, credit: number, extra?: Columns])[], extra: Columns = {}): void {
   insert(sqlite, "journal_entry", { id, entry_no: null, date, status: "posted", memo: id, source: "manual", created_at: `${date}T08:00:00.000Z`, ...extra });
-  lines.forEach(([accountId, debit, credit], index) => {
-    insert(sqlite, "journal_line", { entry_id: id, line_no: index + 1, account_id: accountId, debit: debit * SCALE, credit: credit * SCALE });
+  lines.forEach(([accountId, debit, credit, lineExtra], index) => {
+    insert(sqlite, "journal_line", { entry_id: id, line_no: index + 1, account_id: accountId, debit: debit * SCALE, credit: credit * SCALE, ...lineExtra });
   });
 }
 
@@ -345,6 +347,42 @@ describe("period-close checks read the real tables (ENH-E1-04)", () => {
     insert(sqlite, "depreciation_run", { id: "dr-june", period: "2026-06", status: "posted", lines: JSON.stringify([{ assetId: "asset-1", amount: "2000.00" }]), created_at: "2026-07-01T08:00:00.000Z" });
     expect((await check("06", "depreciation")).status).toBe("pass");
     expect((await check("07", "depreciation")).status).toBe("fail");
+  });
+
+  it("a revaluation run goes stale when a foreign-currency entry is posted into the month after it ran", async () => {
+    const { sqlite, check } = await world();
+    const usd = { currency: "USD", fx_rate: "50" };
+    const run = (ranAt: string) => insert(sqlite, "fx_revaluation_run", { as_of_date: "2026-06-30", currency: "*", ran_by: "admin", ran_at: ranAt });
+    post(sqlite, "usd-1", "2026-06-10", [["1105", 5000, 0, usd], ["4100", 0, 5000]], { posted_at: "2026-07-01T08:00:00.000Z" });
+
+    expect((await check("06", "fx_revaluation")).findings.map((f) => [f.ref, f.state])).toEqual([["USD", "missing"]]);
+    run("2026-07-02T09:00:00.000Z");
+    expect((await check("06", "fx_revaluation")).status).toBe("pass");
+
+    post(sqlite, "usd-late", "2026-06-20", [["1105", 1000, 0, usd], ["4100", 0, 1000]], { posted_at: "2026-07-03T11:00:00.000Z" });
+    const stale = await check("06", "fx_revaluation");
+    expect(stale.status).toBe("fail");
+    expect(stale.findings.map((f) => [f.ref, f.passed])).toEqual([["USD", false]]);
+
+    post(sqlite, "usd-july", "2026-07-04", [["1105", 700, 0, usd], ["4100", 0, 700]], { posted_at: "2026-07-04T08:00:00.000Z" });
+    run("2026-07-03T12:00:00.000Z");
+    expect((await check("06", "fx_revaluation")).status).toBe("pass");
+  });
+
+  it("an asset that was in service all month and disposed of the month after is still due for the month", async () => {
+    const { sqlite, check } = await world();
+    insert(sqlite, "asset", {
+      id: "asset-sold", code: "FA-T-2", name_ar: "سيارة توزيع", category_id: "cat-none", scope: "general",
+      acquisition_date: "2026-01-01", acquisition_cost: 120_000 * SCALE, depreciation_start_date: "2026-01-01",
+      depreciation_method: "straight_line", useful_life_months: 60, salvage_value: 0, accumulated_depreciation: 0, status: "disposed",
+    });
+    post(sqlite, "disposal", "2026-05-10", [["5910", 120_000, 0], ["1500", 0, 120_000]], { source: "system", source_doc_type: "ASSET_DISPOSAL", source_doc_id: "asset-sold" });
+
+    const april = await check("04", "depreciation");
+    expect(april.status).toBe("fail");
+    expect(april.findings.map((f) => [f.ref, f.state, f.count])).toEqual([["2026-04:general", "missing", 1]]);
+    expect((await check("05", "depreciation")).status).toBe("not_applicable");
+    expect((await check("06", "depreciation")).status).toBe("not_applicable");
   });
 
   it("a payroll run that was calculated and never approved is an unposted document of its month", async () => {

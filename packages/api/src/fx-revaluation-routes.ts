@@ -144,18 +144,21 @@ export function createFxRevaluationRoutes(
         now: deps.now,
         actor: getAuthContext(c)?.userId ?? "system",
       };
-      const result = await postFxRevaluation(balances, config, postingDeps, {
-        id: idGen(),
-        reversalId: idGen(),
-        autoReverse,
-      });
       const requested = parsed.data.currencies ?? [];
-      deps.recordRun?.({
-        asOfDate: date,
-        currencies: requested.length > 0 ? requested : [FX_REVALUATION_ALL_CURRENCIES],
-        entryId: result.entry?.id ?? null,
-        ranBy: postingDeps.actor ?? "system",
-        ranAt: deps.now ? deps.now() : new Date().toISOString(),
+      const result = await deps.ledger.transaction(async () => {
+        const posted = await postFxRevaluation(balances, config, postingDeps, {
+          id: idGen(),
+          reversalId: idGen(),
+          autoReverse,
+        });
+        deps.recordRun?.({
+          asOfDate: date,
+          currencies: requested.length > 0 ? requested : [FX_REVALUATION_ALL_CURRENCIES],
+          entryId: posted.entry?.id ?? null,
+          ranBy: postingDeps.actor ?? "system",
+          ranAt: deps.now ? deps.now() : new Date().toISOString(),
+        });
+        return posted;
       });
       return c.json(
         {

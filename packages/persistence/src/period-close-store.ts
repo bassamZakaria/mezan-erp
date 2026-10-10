@@ -2,6 +2,7 @@ import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
 import {
   BASE_CURRENCY,
+  FX_REVALUATION_ALL_CURRENCIES,
   Money,
   PeriodCloseCommitOutcome,
   PeriodCloseDocKind,
@@ -242,6 +243,7 @@ enum StoredStatus {
 }
 
 const FISCAL_PERIOD_ENTITY = "FISCAL_PERIOD";
+const ASSET_DISPOSAL_DOC_TYPE = "ASSET_DISPOSAL";
 const DRAFT_STATUSES = [StoredStatus.Draft] as const;
 const PENDING_STATUSES = [StoredStatus.Pending] as const;
 const UNPOSTED_PAYROLL_STATUSES = [StoredStatus.Draft, StoredStatus.Calculated] as const;
@@ -324,6 +326,7 @@ export interface PeriodCloseQueries {
   openFxLineGroups(toDate: string): PeriodCloseFxLineGroup[];
   foreignTreasuryCurrencies(toDate: string): string[];
   etaErrorIds(window: PeriodCloseWindow): string[];
+  assetDisposalDates(): { assetId: string; date: string }[];
   auditedSeals(periodId: string): string[];
 }
 
@@ -522,6 +525,16 @@ function createQueries(sqlite: Database.Database): PeriodCloseQueries {
         .all(StoredStatus.EtaError, window.startDate, nextDay(window.endDate)) as { internal_id: string }[];
       return rows.map((r) => r.internal_id);
     },
+    assetDisposalDates() {
+      const rows = sqlite
+        .prepare(
+          `SELECT source_doc_id AS asset_id, MIN(date) AS date FROM journal_entry
+            WHERE source_doc_type = ? AND status IN (${placeholders(LEDGER_EFFECTIVE_STATUSES)}) AND source_doc_id IS NOT NULL
+            GROUP BY source_doc_id`,
+        )
+        .all(ASSET_DISPOSAL_DOC_TYPE, ...LEDGER_EFFECTIVE_STATUSES) as { asset_id: string; date: string }[];
+      return rows.map((row) => ({ assetId: row.asset_id, date: row.date }));
+    },
     auditedSeals(periodId) {
       const rows = sqlite
         .prepare(
@@ -535,13 +548,34 @@ function createQueries(sqlite: Database.Database): PeriodCloseQueries {
 
 function createFxRunLog(sqlite: Database.Database): FxRevaluationRunLog {
   const insert = sqlite.prepare(`INSERT INTO fx_revaluation_run (as_of_date, currency, entry_id, ran_by, ran_at) VALUES (?, ?, ?, ?, ?)`);
-  const revalued = sqlite.prepare(`SELECT DISTINCT currency FROM fx_revaluation_run WHERE as_of_date = ? ORDER BY currency`);
+  const runs = sqlite.prepare(`SELECT currency, MAX(ran_at) AS ran_at FROM fx_revaluation_run WHERE as_of_date = ? GROUP BY currency ORDER BY currency`);
+  // Prepared on first use: this log is opened before the ledger store has created its tables.
+  const lastForeignPosting = (asOfDate: string) =>
+    sqlite
+      .prepare(
+        `SELECT jl.currency AS currency, MAX(COALESCE(je.posted_at, je.created_at)) AS at
+           FROM journal_line jl
+           JOIN journal_entry je ON je.id = jl.entry_id
+          WHERE jl.currency IS NOT NULL AND jl.currency <> ? AND je.status IN (${placeholders(LEDGER_EFFECTIVE_STATUSES)}) AND je.date <= ?
+          GROUP BY jl.currency`,
+      )
+      .all(BASE_CURRENCY, ...LEDGER_EFFECTIVE_STATUSES, asOfDate) as { currency: string; at: string }[];
   const recordAll = sqlite.transaction((run: FxRevaluationRunRecord) => {
     for (const currency of run.currencies) insert.run(run.asOfDate, currency, run.entryId, run.ranBy, run.ranAt);
   });
   return {
     record: (run) => recordAll(run),
-    currenciesRevaluedAsOf: (asOfDate) => (revalued.all(asOfDate) as { currency: string }[]).map((row) => row.currency),
+    // A run answers only for what was in the books when it ran: an entry posted into the window afterwards has never been revalued.
+    currenciesRevaluedAsOf(asOfDate) {
+      const ranAt = new Map((runs.all(asOfDate) as { currency: string; ran_at: string }[]).map((row) => [row.currency, row.ran_at]));
+      const postedAt = new Map(lastForeignPosting(asOfDate).map((row) => [row.currency, row.at]));
+      const allRanAt = ranAt.get(FX_REVALUATION_ALL_CURRENCIES);
+      const freshSince = (currency: string, run: string | undefined): boolean => run !== undefined && (postedAt.get(currency) ?? "") <= run;
+      if (allRanAt !== undefined && [...postedAt.keys()].every((currency) => freshSince(currency, allRanAt))) return [FX_REVALUATION_ALL_CURRENCIES];
+      const candidates = new Set([...ranAt.keys(), ...postedAt.keys()]);
+      candidates.delete(FX_REVALUATION_ALL_CURRENCIES);
+      return [...candidates].filter((currency) => freshSince(currency, ranAt.get(currency)) || freshSince(currency, allRanAt)).sort();
+    },
   };
 }
 

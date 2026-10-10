@@ -39,6 +39,7 @@ import type { BackendArea, BackendModuleContext } from "../module-context.js";
 
 enum SourceStatus {
   Active = "active",
+  Disposed = "disposed",
   Draft = "draft",
   Posted = "posted",
   Reversed = "reversed",
@@ -49,6 +50,7 @@ enum AssetScope {
 }
 
 const SYSTEM_SOURCE = "system";
+const ASSET_IN_SERVICE: Asset["status"] = "active";
 
 class LedgerAggregatesUnavailableError extends Error {
   constructor(readonly capability: string) {
@@ -183,10 +185,14 @@ function buildSources(ctx: BackendModuleContext, store: ReturnType<typeof create
       const periodRuns = allRuns.filter((run) => run.period === periodKey);
       const covered = new Set(periodRuns.filter((run) => run.status === SourceStatus.Posted).flatMap((run) => run.lines.map((line) => line.assetId)));
       const hasDraftRun = periodRuns.some((run) => run.status === SourceStatus.Draft);
+      const disposedOn = new Map(queries.assetDisposalDates().map((disposal) => [disposal.assetId, disposal.date]));
+      const inServiceAtPeriodEnd = (asset: Asset): boolean =>
+        asset.status === SourceStatus.Active || (asset.status === SourceStatus.Disposed && (disposedOn.get(asset.id) ?? "") > window.endDate);
       const groups = new Map<string | null, { dueAssets: number; uncoveredAssets: number }>();
       for (const asset of allAssets) {
         const due =
-          covered.has(asset.id) || (asset.status === SourceStatus.Active && computeMonthlyDepreciation(asset, period).amount.scaled > 0n);
+          covered.has(asset.id) ||
+          (inServiceAtPeriodEnd(asset) && computeMonthlyDepreciation({ ...asset, status: ASSET_IN_SERVICE }, period).amount.scaled > 0n);
         if (!due) continue;
         const branchId = depreciationBranch(asset);
         const group = groups.get(branchId) ?? { dueAssets: 0, uncoveredAssets: 0 };

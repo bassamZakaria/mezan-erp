@@ -219,6 +219,7 @@ import { createFinancialReportsRoutes, type FinancialReportsRoutesDeps } from ".
 import { createLabelLayoutsRouter } from "./label-routes.js";
 import { createSequencesRoutes, type SequencesRoutesDeps } from "./sequences-routes.js";
 import { createAuditRoutes } from "./audit-routes.js";
+import { AUDITED_MOUNTS, auditBoundary } from "./audit-boundary.js";
 import { createSecurityReportsRoutes } from "./security-reports-routes.js";
 import { isProductionRuntime, permissionRefusalReporting, type PermissionRefusalReporter } from "./permission-gate.js";
 import { createBarcodeConfigRoutes } from "./barcode-config-routes.js";
@@ -907,10 +908,9 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
 
   // AN APP WITH NO SINK RECORDS NOTHING, AND SAYS SO AT BOOT.
   //
-  // `recordAdminEvent` returns early when the sink is absent, deliberately: a
-  // forensic write must never turn a legitimate admin action into a 500. The
-  // cost of that is a composition which omits the sink and writes no trail at
-  // all, quietly and forever — the same failure shape as the header resolver
+  // `recordAdminEvent` returns early when the sink is absent, so that dev and
+  // route-level tests can mount without one. The cost of that is a composition
+  // which omits the sink and writes no trail at all, quietly and forever — the same failure shape as the header resolver
   // that defaulted to trusting the client. Dev and tests may mount without one;
   // a real build may not, and finds out at construction rather than during the
   // incident the trail was for.
@@ -919,6 +919,15 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
       "createApp was given no auditSink on a production/packaged build. " +
         "Administrative acts would be unrecorded.",
     );
+  }
+
+  // Registered before every route: a mutating request under an audited mount
+  // runs inside the sink's transaction, so the write and its audit event commit
+  // or roll back together (audit-boundary.ts).
+  for (const mount of AUDITED_MOUNTS) {
+    const boundary = auditBoundary(options.auditSink, mount);
+    app.use(mount.prefix, boundary);
+    app.use(`${mount.prefix}/*`, boundary);
   }
 
   // The tenant's timezone, published to every handler below so a route can

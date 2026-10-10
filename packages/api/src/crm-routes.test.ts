@@ -246,8 +246,12 @@ describe("converting a lead leaves a record of the customer it minted", () => {
     );
     expect(res.status).toBe(200);
 
-    expect(audit.events).toHaveLength(1);
-    const event = audit.events[0]!;
+    expect(audit.events.map((e) => `${e.entityType}:${e.action}`)).toEqual(["CUSTOMER:CREATE", "LEAD:CONVERT"]);
+    const onCustomer = audit.events[0]!;
+    expect(onCustomer.entityId).toBe("cust9");
+    expect(onCustomer.details).toMatchObject({ code: "C-0009" });
+    expect((onCustomer.details as { changes: { field: string }[] }).changes.map((change) => change.field)).toContain("code");
+    const event = audit.events[1]!;
     expect(event.stream).toBe("sensitive");
     expect(event.entityType).toBe("LEAD");
     expect(event.entityId).toBe("lead9");

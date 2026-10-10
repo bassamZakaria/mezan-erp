@@ -2,7 +2,7 @@ import Database from "better-sqlite3";
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
+import { openSqliteConnection, withSqliteTransaction, type SqliteConnectionInput } from "./sqlite-connection.js";
 import { auditChangedFieldNames } from "@mezan/domain";
 import type { AuditEvent, AuditQueryFilter, AuditQueryPort, AuditQueryResult, AuditSink, AuditStream } from "@mezan/domain";
 
@@ -248,7 +248,6 @@ class SqliteAuditSink implements AuditSink, AuditQueryPort, AuditChainVerifyPort
   private readonly select: Database.Statement;
   private readonly writeHead: Database.Statement;
   private readonly insertField: Database.Statement;
-  private readonly appendChained: (row: AuditChainFields, fields: readonly string[]) => void;
 
   constructor(
     private readonly sqlite: Database.Database,
@@ -268,22 +267,23 @@ class SqliteAuditSink implements AuditSink, AuditQueryPort, AuditChainVerifyPort
       `INSERT INTO audit_chain_head (id, row_id, row_hash, mac) VALUES (1, @row_id, @row_hash, @mac)
          ON CONFLICT(id) DO UPDATE SET row_id = @row_id, row_hash = @row_hash, mac = @mac`,
     );
-    // ORDERING IS THE WHOLE CONTROL: the row and the head it advances have to
-    // land together. A row appended without its head update reads as a
-    // truncated chain on the next verify; a head advanced without its row reads
-    // as a deleted one. Both are false alarms that would teach an owner to
-    // ignore the alarm.
-    // The field index rides in the same transaction as the row: a row whose
-    // index entries are missing is invisible to a field search, which is the
-    // exact hiding place this index exists to close.
-    this.appendChained = sqlite.transaction((row: AuditChainFields, fields: readonly string[]) => {
-      const prevHash = this.currentHeadHash();
-      const rowHash = hashRow(row, prevHash);
-      const info = this.insert.run({ ...row, prev_hash: prevHash, row_hash: rowHash });
-      const rowId = Number(info.lastInsertRowid);
-      for (const field of fields) this.insertField.run(rowId, field);
-      this.writeHead.run({ row_id: rowId, row_hash: rowHash, mac: macHead(this.chainKey, rowId, rowHash) });
-    });
+  }
+
+  // ORDERING IS THE WHOLE CONTROL: the row and the head it advances have to
+  // land together. A row appended without its head update reads as a
+  // truncated chain on the next verify; a head advanced without its row reads
+  // as a deleted one. Both are false alarms that would teach an owner to
+  // ignore the alarm.
+  // The field index rides in the same transaction as the row: a row whose
+  // index entries are missing is invisible to a field search, which is the
+  // exact hiding place this index exists to close.
+  private appendChained(row: AuditChainFields, fields: readonly string[]): void {
+    const prevHash = this.currentHeadHash();
+    const rowHash = hashRow(row, prevHash);
+    const info = this.insert.run({ ...row, prev_hash: prevHash, row_hash: rowHash });
+    const rowId = Number(info.lastInsertRowid);
+    for (const field of fields) this.insertField.run(rowId, field);
+    this.writeHead.run({ row_id: rowId, row_hash: rowHash, mac: macHead(this.chainKey, rowId, rowHash) });
   }
 
   private currentHeadHash(): string {
@@ -296,8 +296,14 @@ class SqliteAuditSink implements AuditSink, AuditQueryPort, AuditChainVerifyPort
     return GENESIS;
   }
 
+  // MUST go through withSqliteTransaction, never better-sqlite3's own
+  // `transaction()`: that one keys off `sqlite.inTransaction`, which is true for
+  // the whole shared connection, so a stand-alone append would nest as a
+  // SAVEPOINT inside whatever unrelated request has a BEGIN open and vanish if
+  // that request rolls back. This way it nests only inside its own caller's
+  // transaction and otherwise waits its turn.
   async append(event: AuditEvent): Promise<void> {
-    this.appendChained({
+    const row: AuditChainFields = {
       stream: event.stream,
       module: event.module,
       entity_type: event.entityType,
@@ -308,7 +314,13 @@ class SqliteAuditSink implements AuditSink, AuditQueryPort, AuditChainVerifyPort
       timestamp: event.timestamp,
       severity: event.severity,
       details: event.details === null ? null : JSON.stringify(event.details),
-    }, auditChangedFieldNames(event.details));
+    };
+    const fields = auditChangedFieldNames(event.details);
+    await withSqliteTransaction(this.sqlite, async () => this.appendChained(row, fields));
+  }
+
+  atomic<T>(fn: () => Promise<T>): Promise<T> {
+    return withSqliteTransaction(this.sqlite, fn);
   }
 
   private findIndexFault(rows: readonly { id: number; details: string | null }[]): number | null {
@@ -446,6 +458,7 @@ class SqliteAuditSink implements AuditSink, AuditQueryPort, AuditChainVerifyPort
 }
 
 export interface SqliteAuditSinkHandle extends AuditSink, AuditQueryPort, AuditChainVerifyPort {
+  atomic<T>(fn: () => Promise<T>): Promise<T>;
   close(): void;
   /** The raw connection, for tests asserting the append-only triggers fire. */
   readonly db: Database.Database;

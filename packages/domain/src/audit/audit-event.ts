@@ -83,6 +83,12 @@ export interface AuditEventInput {
 export interface AuditSink {
   append(event: AuditEvent): Promise<void>;
   query(stream: AuditStream, limit?: number): Promise<readonly AuditEvent[]>;
+  /**
+   * Runs `fn` in the transaction this sink's appends join, so a write and the
+   * event recording it commit or roll back together. A sink that cannot share a
+   * transaction with the writes it records leaves this out.
+   */
+  atomic?<T>(fn: () => Promise<T>): Promise<T>;
 }
 
 /**

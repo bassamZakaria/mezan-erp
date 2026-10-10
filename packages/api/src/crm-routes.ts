@@ -34,6 +34,7 @@ import {
   type Activity,
   type ActivityRepository,
   type CustomerRepository,
+  AuditChangeAction,
   type AuditSink,
 } from "@mezan/domain";
 import {
@@ -48,6 +49,7 @@ import {
 import { branchScopeOf, createPermissionGate, withinScope, type AuthContextResolver } from "./permission-gate.js";
 import { nextMasterCode } from "./master-code.js";
 import { recordAdminEvent } from "./admin-audit.js";
+import { recordCustomerChange } from "./customers-routes.js";
 import { MasterDataKind, refuseUnknownMasterData, type MasterDataChecks } from "./master-data-check.js";
 
 /**
@@ -257,6 +259,10 @@ export function createCrmRoutes(deps: CrmRoutesDeps, resolveAuthContext: AuthCon
         },
         { leads: deps.leads, customers: deps.customers, opportunities: deps.opportunities },
       );
+      const created = result.customerId
+        ? (await deps.customers.findAll()).find((row) => row.id === result.customerId)
+        : undefined;
+      if (created) await recordCustomerChange(deps.audit, c, created, AuditChangeAction.Create);
       await recordAdminEvent(deps.audit, c, {
         module: "crm",
         entityType: "LEAD",

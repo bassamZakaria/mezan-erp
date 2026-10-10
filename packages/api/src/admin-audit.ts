@@ -12,6 +12,7 @@ import {
 } from "@mezan/domain";
 import { getAuthContext } from "./permission-gate.js";
 import { requestOrigin } from "./request-origin.js";
+import { markAuditFailure } from "./audit-boundary.js";
 
 /**
  * The forensic trail for administrative acts.
@@ -22,8 +23,10 @@ import { requestOrigin } from "./request-origin.js";
  * the changes that decide who may do what left no record, and the change that
  * decides how much one customer may owe left a detailed one.
  *
- * Recording is best-effort by design: an audit sink that is unavailable must
- * not turn a legitimate admin action into a 500. What it must never do is
+ * Recording is NOT best-effort: an act that cannot be recorded does not
+ * happen. Under `auditBoundary` (audit-boundary.ts) the handler's writes and
+ * this append share one transaction, so a sink that refuses the event rolls
+ * the change back and the request answers 503. What it must never do is
  * silently succeed while writing nothing, which is why the sink is a required
  * argument rather than an optional field with a default.
  */
@@ -43,7 +46,7 @@ export async function recordAdminEvent(
 ): Promise<void> {
   if (!audit) return;
   const ctx = getAuthContext(c);
-  await recordSensitiveEvent(audit, {
+  await failingTheRequest(c, recordSensitiveEvent(audit, {
     module: entry.module,
     entityType: entry.entityType,
     entityId: entry.entityId,
@@ -63,7 +66,16 @@ export async function recordAdminEvent(
     branchId: ctx ? auditBranchFromScope(ctx.branchScope) : null,
     severity: entry.severity ?? "WARNING",
     details: withOrigin(c, entry.details),
-  });
+  }));
+}
+
+async function failingTheRequest(c: Context, append: Promise<void>): Promise<void> {
+  try {
+    await append;
+  } catch (err) {
+    markAuditFailure(c, err);
+    throw err;
+  }
 }
 
 /**
@@ -104,7 +116,7 @@ export async function recordSecurityAdminEvent(
   entry: AdminAuditEntry,
 ): Promise<void> {
   if (!audit) return;
-  await recordSecurityEvent(audit, {
+  await failingTheRequest(c, recordSecurityEvent(audit, {
     module: entry.module,
     entityType: entry.entityType,
     entityId: entry.entityId,
@@ -112,7 +124,7 @@ export async function recordSecurityAdminEvent(
     actor: getAuthContext(c)?.userId ?? "anonymous",
     severity: entry.severity ?? "CRITICAL",
     details: withOrigin(c, entry.details),
-  });
+  }));
 }
 
 /**

@@ -1288,7 +1288,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   if (options.landedCosts) {
     app.route(
       "/landed-costs",
-      createLandedCostsRoutes(options.landedCosts.documents, options.landedCosts.service, (options.landedCosts.resolveAuthContext ?? resolveAuth)),
+      createLandedCostsRoutes(options.landedCosts.documents, options.landedCosts.service, (options.landedCosts.resolveAuthContext ?? resolveAuth), options.warehouseStore),
     );
   }
   if (options.installments) {

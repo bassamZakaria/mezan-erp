@@ -14,6 +14,7 @@ import {
   type RunReportOutcome,
 } from "@mezan/domain";
 import { createPermissionGate, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
+import { refuseBranchScopedCaller } from "./branch-scope-refusal.js";
 import { atomically, type ConfigTransactor } from "./config-transactor.js";
 
 export interface OpeningBalanceDuplicatesRoutesDeps {
@@ -90,12 +91,16 @@ export function createOpeningBalanceDuplicatesRoutes(
   const gate = createPermissionGate(resolveAuthContext);
 
   app.get("/", gate("accounting.reports.view"), async (c) => {
+    const refusal = refuseBranchScopedCaller(c);
+    if (refusal) return refusal;
     const definition = createOpeningBalanceDuplicatesReport();
     const ctx = await deps.resolveContext();
     return respond(c, runReport(definition, {}, ctx));
   });
 
   app.post("/:kind/:partyId/repair", gate("accounting.journal.post"), async (c) => {
+    const refusal = refuseBranchScopedCaller(c);
+    if (refusal) return refusal;
     const kind = c.req.param("kind");
     if (kind !== "customer" && kind !== "supplier") {
       return c.json({ error: "INVALID_PARTY_KIND", message: "النوع يجب أن يكون عميل أو مورد." }, 400);

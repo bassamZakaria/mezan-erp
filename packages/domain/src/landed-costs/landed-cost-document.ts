@@ -45,9 +45,15 @@ export interface LandedCostGlAccounts {
   readonly accruedLandedCostPayableId: string;
 }
 
-export function landedCostWarehouseId(lines: readonly LandedCostLine[]): string | null {
-  const first = lines[0]?.warehouseId ?? null;
-  return first !== null && lines.every((line) => line.warehouseId === first) ? first : null;
+/**
+ * The one branch every target line's warehouse belongs to, or null when the
+ * lines genuinely span branches: the entry is ONE inventory debit against one
+ * accrual, and splitting an allocation between branches is not this
+ * document's to decide.
+ */
+export function landedCostBranchId(lines: readonly LandedCostLine[]): string | null {
+  const first = lines[0]?.branchId ?? null;
+  return first !== null && lines.every((line) => line.branchId === first) ? first : null;
 }
 
 function totalAllocated(lines: readonly LandedCostLine[]): Money {
@@ -100,13 +106,13 @@ export function createLandedCostDocumentType(
       // per-category split (it is one aggregate absorption), so the debit
       // takes the first line's explicit category or "materials" (D-01).
       const costCategory: CostCategory = doc.lines.find((l) => l.costCategory)?.costCategory ?? "materials";
+      const branchId = landedCostBranchId(doc.lines);
       return {
         sourceDocType: DOC_TYPE,
         sourceDocId: doc.id,
         sourceDocNumber: doc.docNo,
         date: doc.date,
         memo: doc.memo || `تكلفة إضافية ${doc.docNo ?? doc.id}`,
-        warehouseId: landedCostWarehouseId(doc.lines),
         lines: [
           {
             accountId: accounts.inventoryAccountId,
@@ -114,8 +120,9 @@ export function createLandedCostDocumentType(
             credit: Money.zero(),
             projectId,
             ...(projectId ? { costCategory } : {}),
+            branchId,
           },
-          { accountId: accounts.accruedLandedCostPayableId, debit: Money.zero(), credit: total, projectId },
+          { accountId: accounts.accruedLandedCostPayableId, debit: Money.zero(), credit: total, projectId, branchId },
         ],
       };
     },

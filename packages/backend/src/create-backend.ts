@@ -75,7 +75,6 @@ import {
   stockTransferDocumentType,
   createInventoryOpsStockHook,
   createInventoryGlPostingHook,
-  branchOfPostingWarehouse,
   PAYROLL_GL_ACCOUNTS,
   PhysicalCountService,
   SALES_INVOICE_ACTIVE_STATUSES,
@@ -1779,7 +1778,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   };
 
 
-  const documentGl = createJournalGlHook(salesInvoiceGl, warehouses);
+  const documentGl = createJournalGlHook(salesInvoiceGl);
   const documentWorkflowGate = createDocumentWorkflowGate(
     (actionType) => workflowConfigs.resolveSync(actionType),
     approvalRequests,
@@ -1894,7 +1893,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   });
   const landedCosts = new LandedCostService(landedCostDocuments, stockService, {
     postUnabsorbed: async (posting) => {
-      const branchId = await branchOfPostingWarehouse(warehouses, posting.warehouseId);
+      const branchId = posting.branchId;
       await postJournalEntry(
         {
           id: posting.entryId,

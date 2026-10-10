@@ -130,6 +130,7 @@ import {
 } from "@mezan/domain";
 import { tenantToday } from "./tenant-day.js";
 import { branchScopeOf, createAnyPermissionGate, createPermissionGate, warehouseScopeOf, withinScope, type AuthContextResolver } from "./permission-gate.js";
+import { readableEntries } from "./branch-view.js";
 
 /**
  * التقارير — operational reports (docs/archive/catalog/08-reports.md), mounted under
@@ -1427,8 +1428,8 @@ export function createReportsRoutes(
   app.get("/returns/fx-face-value", gate("accounting.reports.view"), async (c) => {
     const definition = createReturnsFxFaceValueReport();
     const [sales, purchases, salesReturns, purchaseReturns, customers, suppliers] = await Promise.all([
-      scopedSalesInvoices(c),
-      scopedPurchaseInvoices(c),
+      deps.salesInvoices.list().then((rows) => scopedRows(c, rows)),
+      deps.purchaseInvoices.list().then((rows) => scopedRows(c, rows)),
       deps.salesReturnDocs?.list({ status: "confirmed" }) ?? [],
       deps.purchaseReturnDocs?.list({ status: "confirmed" }) ?? [],
       deps.customers.findAll(),
@@ -1460,7 +1461,11 @@ export function createReportsRoutes(
     const boms = deps.boms;
     app.get("/manufacturing/make-vs-buy", gate("manufacturing.bom.view"), async (c) => {
       const definition = createMakeVsBuyReport();
-      const [items, bomList, invoices] = await Promise.all([deps.items.list(), boms.list(), scopedPurchaseInvoices(c)]);
+      const [items, bomList, invoices] = await Promise.all([
+        deps.items.list(),
+        boms.list(),
+        deps.purchaseInvoices.list().then((rows) => scopedRows(c, rows)),
+      ]);
       return respond(
         c,
         runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { items, boms: bomList, purchaseInvoices: invoices }),
@@ -2137,7 +2142,7 @@ export function createReportsRoutes(
     const account = ctx.accounts.find((entry) => entry.id === id);
     if (!account) return c.json({ error: "NOT_FOUND" }, 404);
     const activity = accountActivity(
-      ctx.journalEntries,
+      readableEntries(c, ctx.journalEntries),
       id,
       { to: asOfDate, ...(fromDate ? { from: fromDate } : {}) },
       { branchId, branchScope: branchScopeOf(c), excludeYearEndClose: fromDate !== undefined },

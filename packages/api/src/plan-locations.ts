@@ -24,6 +24,8 @@ export interface PlanLocationSources {
   readonly warehouses?: Pick<WarehouseRepository, "findAll">;
 }
 
+export const WAREHOUSE_BRANCHES_KEY = "warehouseBranches" as const;
+
 export interface OverLimitLocations {
   readonly branches: ReadonlyMap<string, string>;
   readonly warehouses: ReadonlyMap<string, string>;
@@ -36,6 +38,8 @@ const KEY = "planLocations" as const;
 declare module "hono" {
   interface ContextVariableMap {
     planLocations?: () => Promise<OverLimitLocations | null>;
+    /** Which branch each warehouse belongs to — what the gate resolves a write's warehouse through. */
+    warehouseBranches?: () => Promise<ReadonlyMap<string, string>>;
   }
 }
 
@@ -56,6 +60,11 @@ const NONE: OverLimitLocations = {
 export function planLocationsBinding(sources: PlanLocationSources): MiddlewareHandler {
   return async function bindPlanLocations(c, next) {
     let cached: OverLimitLocations | null | undefined;
+    let branchByWarehouse: ReadonlyMap<string, string> | undefined;
+    c.set(WAREHOUSE_BRANCHES_KEY, async () => {
+      branchByWarehouse ??= new Map(((await sources.warehouses?.findAll()) ?? []).map((w) => [w.id, w.branchId] as const));
+      return branchByWarehouse;
+    });
     c.set(KEY, async () => {
       if (cached !== undefined) return cached;
       const entitlements = c.get("entitlements");

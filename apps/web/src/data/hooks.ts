@@ -29,6 +29,7 @@ import type {
   UpdateItemUnitDTO,
   BounceChequeDTO,
   BranchDTO,
+  BranchLookupDTO,
   EntitlementsDTO,
   ChequeDirectionDTO,
   ChequeDTO,
@@ -1965,6 +1966,21 @@ export function useBranches(): UseQueryResult<BranchDTO[], ApiError> {
       const res = await request("/branches");
       if (!res.ok) throw await loaderError(res, t("api.branchesCouldNotBeLoaded"), t);
       return res.json<BranchDTO[]>();
+    },
+  });
+}
+
+/** What a branch picker may offer this session — the server's own scoped answer, open to any signed-in user. */
+export function useBranchLookup(): UseQueryResult<BranchLookupDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<BranchLookupDTO, ApiError>({
+    queryKey: ["branches", "lookup"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/branches/lookup");
+      if (!res.ok) throw await loaderError(res, t("api.branchesCouldNotBeLoaded"), t);
+      return res.json<BranchLookupDTO>();
     },
   });
 }

@@ -9,10 +9,13 @@ import {
   type FrameworkDocument,
   type LandedCostLine,
   type LandedCostService,
+  type WarehouseBranchLookup,
+  branchOfPostingWarehouse,
 } from "@mezan/domain";
 import { createLandedCostSchema } from "@mezan/contracts";
 import { type AuthContextResolver, callerUserId, createPermissionGate } from "./permission-gate.js";
 import { handleDocumentError } from "./document-error-handling.js";
+import { refuseOutOfScopeBranches } from "./branch-scope-refusal.js";
 import { tenantDay } from "./tenant-day.js";
 
 function serializeLine(l: LandedCostLine) {
@@ -67,6 +70,7 @@ export function createLandedCostsRoutes(
   documents: DocumentService<LandedCostLine>,
   landedCostService: LandedCostService,
   resolveAuthContext: AuthContextResolver,
+  warehouses?: WarehouseBranchLookup,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
@@ -95,7 +99,14 @@ export function createLandedCostsRoutes(
         amount: Money.fromMajor(ci.amount),
         supplierId: ci.supplierId ?? null,
       }));
+      const branchByWarehouse = new Map<string, string | null>();
+      for (const warehouseId of new Set(parsed.data.targets.map((t) => t.warehouseId))) {
+        branchByWarehouse.set(warehouseId, await branchOfPostingWarehouse(warehouses, warehouseId));
+      }
+      const branchRefusal = refuseOutOfScopeBranches(c, [...branchByWarehouse.values()]);
+      if (branchRefusal) return branchRefusal;
       const targets = parsed.data.targets.map((t) => ({
+        branchId: branchByWarehouse.get(t.warehouseId) ?? null,
         itemId: t.itemId,
         warehouseId: t.warehouseId,
         sourceInvoiceId: t.sourceInvoiceId,

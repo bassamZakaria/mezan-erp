@@ -7653,6 +7653,7 @@ const webAr = {
   "reports.allBranches": "كل الفروع",
   "reports.allMyBranches": "كل فروعي",
   "reports.unattributedBranch": "غير مخصص",
+  "reports.unattributedExcluded": "الأرقام المعروضة لفروعك فقط: القيود غير المخصصة لفرع (على مستوى المنشأة) غير مشمولة، لذلك لا تمثل هذه القائمة المنشأة كلها.",
 
   "backup.reason.preUpdate": "قبل تحديث البرنامج",
   // updates, the pre-update backup and the portable export (audit §2 U-5/U-8/U-9, N-11)
@@ -17080,6 +17081,7 @@ const webEn: Record<WebTranslationKey, string> = {
   "reports.allBranches": "All branches",
   "reports.allMyBranches": "All my branches",
   "reports.unattributedBranch": "Unattributed",
+  "reports.unattributedExcluded": "These figures cover your branches only: company-level entries assigned to no branch are excluded, so this statement does not represent the whole company.",
 
   "backup.reason.preUpdate": "Before an app update",
   // updates, the pre-update backup and the portable export (audit §2 U-5/U-8/U-9, N-11)

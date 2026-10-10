@@ -1,5 +1,5 @@
 import type { Context } from "hono";
-import { branchGrantOf } from "./permission-gate.js";
+import { branchGrantOf, branchesOutsideGrantRefusal } from "./permission-gate.js";
 
 /**
  * Refuses a branch-scoped caller on a report that only exists for the whole
@@ -24,17 +24,5 @@ export function refuseBranchScopedCaller(c: Context): Response | null {
 
 /** Refuses a write that names a branch outside the branches the caller's session was granted. */
 export function refuseOutOfScopeBranches(c: Context, branchIds: readonly (string | null | undefined)[]): Response | null {
-  const scope = branchGrantOf(c);
-  if (!scope) return null;
-  const foreign = [...new Set(branchIds.filter((id): id is string => typeof id === "string" && id !== "" && !scope.includes(id)))];
-  if (foreign.length === 0) return null;
-  return c.json(
-    {
-      error: "BRANCH_OUT_OF_SCOPE",
-      message: "لا يمكنك الترحيل على فرع خارج صلاحيتك.",
-      messageEn: "You cannot post to a branch outside your scope.",
-      branchIds: foreign,
-    },
-    403,
-  );
+  return branchesOutsideGrantRefusal(c, branchGrantOf(c), branchIds);
 }

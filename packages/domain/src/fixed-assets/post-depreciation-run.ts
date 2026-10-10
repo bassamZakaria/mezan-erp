@@ -75,6 +75,13 @@ export async function postDepreciationRun(runId: string, deps: PostDepreciationR
     assetsById.set(line.assetId, asset);
   }
 
+  const branchByWarehouse = new Map<string, string | null>();
+  const branchOf = async (asset: Asset): Promise<string | null> => {
+    if (asset.branchId || !asset.warehouseId) return asset.branchId;
+    if (!branchByWarehouse.has(asset.warehouseId)) branchByWarehouse.set(asset.warehouseId, await branchOfAsset(asset, deps.warehouses));
+    return branchByWarehouse.get(asset.warehouseId) ?? null;
+  };
+
   const totalsByPair = new Map<
     string,
     { accounts: ResolvedAccounts; projectId: string | null; branchId: string | null; total: Money }
@@ -86,7 +93,7 @@ export async function postDepreciationRun(runId: string, deps: PostDepreciationR
     // captured — an asset reassigned between drafting and posting the run
     // should post equipment cost to the project it belongs to today.
     const projectId = asset.projectId;
-    const branchId = await branchOfAsset(asset, deps.warehouses);
+    const branchId = await branchOf(asset);
     const key = pairKey(accounts, projectId, branchId);
     const existing = totalsByPair.get(key);
     totalsByPair.set(key, {

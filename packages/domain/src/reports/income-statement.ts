@@ -17,6 +17,7 @@ import { COMPARISON_LABEL_AR, type ComparisonMode, comparativeRange } from "./co
 import { Money } from "../money/index.js";
 import type { ReportDefinition } from "./types.js";
 import { sumRows } from "./kpi.js";
+import { ReportParamKind } from "./types.js";
 
 /**
  * قائمة الدخل — Income Statement (docs/archive/catalog/08-reports.md), a period P&L.
@@ -99,9 +100,9 @@ export function createIncomeStatementReport(
     paramsSchema,
     defaultParams: { compareTo: "previous", branchId: "", ...defaultParams },
     paramFields: [
-      { kind: "dateRange", fromKey: "periodFrom", toKey: "periodTo", label: "الفترة" },
+      { kind: ReportParamKind.DateRange, fromKey: "periodFrom", toKey: "periodTo", label: "الفترة" },
       {
-        kind: "select",
+        kind: ReportParamKind.Select,
         key: "compareTo",
         label: "المقارنة",
         options: [

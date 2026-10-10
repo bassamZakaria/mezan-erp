@@ -126,7 +126,7 @@ describe("cost-center-pl router — GET /", () => {
 });
 
 describe("cost-center-pl router — branch scope (D111)", () => {
-  it("never counts another branch's lines for a branch-scoped caller, and keeps unattributed ones", async () => {
+  it("never counts another branch's lines for a branch-granted caller, and counts unattributed ones only with the right to read them", async () => {
     const deps = await seed();
     const posting: JournalPostingDeps = {
       ledger: deps.ledger,
@@ -145,15 +145,17 @@ describe("cost-center-pl router — branch scope (D111)", () => {
     ] }, posting);
 
     const { app, sessions } = newApp(deps);
-    const revenueOfA = async (branchScope: "*" | string[]) => {
-      const token = sessions.issue({ userId: "u1", permissions: ["accounting.reports.view"], roleCode: null, branchScope, warehouseScope: "*" });
+    const revenueOfA = async (branchScope: "*" | string[], extra: string[] = []) => {
+      const token = sessions.issue({ userId: "u1", permissions: ["accounting.reports.view", ...extra], roleCode: null, branchScope, warehouseScope: "*" });
       const res = await app.fetch(req("/", { headers: { authorization: `Bearer ${token}` } }));
       const body = (await res.json()) as { rows: { costCenterId: string; revenue: string }[] };
       return body.rows.find((row) => row.costCenterId === "cc-a")?.revenue;
     };
 
     expect(await revenueOfA("*")).toBe("6600.000000");
-    expect(await revenueOfA(["BR-ALEX"])).toBe("5700.000000");
-    expect(await revenueOfA(["BR-MAIN"])).toBe("5900.000000");
+    expect(await revenueOfA(["BR-ALEX"])).toBe("700.000000");
+    expect(await revenueOfA(["BR-MAIN"])).toBe("900.000000");
+    expect(await revenueOfA(["BR-ALEX"], ["accounting.reports.view_unattributed"])).toBe("5700.000000");
+    expect(await revenueOfA(["BR-MAIN"], ["accounting.reports.view_unattributed"])).toBe("5900.000000");
   });
 });

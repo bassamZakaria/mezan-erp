@@ -7,6 +7,7 @@ import type { ReportDefinition } from "./types.js";
 import { sumRows, averageOf } from "./kpi.js";
 import { itemTypeTracksStock } from "../items/item-type.js";
 import { BRANCH_PARAM_FIELD, branchIdParamSchema, branchOfWarehouse, matchesBranch } from "./branch-filter.js";
+import { ReportParamKind } from "./types.js";
 
 /**
  * تقييم المخزون — Inventory Valuation (docs/archive/catalog/08-reports.md): current
@@ -70,8 +71,8 @@ export function createInventoryValuationReport(): ReportDefinition<
     paramsSchema,
     defaultParams: { search: "", warehouseId: "", branchId: "" },
     paramFields: [
-      { kind: "text", key: "search", label: "بحث", placeholder: "بحث بالاسم أو الكود" },
-      { kind: "text", key: "warehouseId", label: "المستودع", placeholder: "معرف المستودع" },
+      { kind: ReportParamKind.Text, key: "search", label: "بحث", placeholder: "بحث بالاسم أو الكود" },
+      { kind: ReportParamKind.Text, key: "warehouseId", label: "المستودع", placeholder: "معرف المستودع" },
       BRANCH_PARAM_FIELD,
     ],
     rowKey: (row) => row.itemId,

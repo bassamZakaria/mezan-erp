@@ -26,6 +26,7 @@ import {
 } from "@mezan/domain";
 import { createProjectSchema, updateProjectSchema } from "@mezan/contracts";
 import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
+import { branchLineViewOf, lineInView } from "./branch-view.js";
 import { tenantToday } from "./tenant-day.js";
 import { MasterDataKind, refuseUnknownMasterData, type MasterDataChecks } from "./master-data-check.js";
 
@@ -124,7 +125,8 @@ export function createProjectsRoutes(
   app.get("/pnl", gate("projects.project.view"), async (c) => {
     const fromDate = c.req.query("fromDate");
     const toDate = c.req.query("toDate");
-    const [lines, accounts, projects, routing, contracts, runs] = await Promise.all([
+    const view = branchLineViewOf(c);
+    const [allLines, accounts, projects, routing, contracts, runs] = await Promise.all([
       deps.ledger?.listLines?.({ fromDate, toDate }) ?? [],
       deps.accounts?.list() ?? [],
       deps.projects.list(),
@@ -141,8 +143,10 @@ export function createProjectsRoutes(
 
     // A balance-sheet figure is cumulative: the WIP and contract-position lines
     // are fetched to the report's end date only, never clipped to its start.
-    const contractingLines =
-      (await deps.ledger?.listLines?.({ toDate, accountIds: Object.values(contractingAccounts) })) ?? [];
+    const lines = allLines.filter((line) => lineInView(view, line.branchId));
+    const contractingLines = (
+      (await deps.ledger?.listLines?.({ toDate, accountIds: Object.values(contractingAccounts) })) ?? []
+    ).filter((line) => lineInView(view, line.branchId));
 
     // Bounded by the report's own end date: a run for a month AFTER `toDate`
     // reclassified billings that had not happened yet as far as this report is

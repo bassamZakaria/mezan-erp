@@ -69,6 +69,9 @@ export async function run(ctx: Ctx): Promise<void> {
   };
 
   await it("branch dimension · the seeded books hold more than one branch and an unattributed bucket", async () => {
+    const seededSecondBranch = sqlite.prepare("SELECT COUNT(*) AS n FROM journal_line WHERE branch_id = ?").get(ALEX) as { n: number };
+    check(`${ALEX} was seeded with postings — without it every assertion below proves nothing`, seededSecondBranch.n > 0, `${seededSecondBranch.n} lines`);
+    if (seededSecondBranch.n === 0) throw new Error(`${ALEX} is absent from the seeded ledger; the demo seed skipped the second branch`);
     const buckets = sqlite
       .prepare("SELECT COALESCE(branch_id, '') AS branchId, COUNT(*) AS lineCount FROM journal_line GROUP BY 1")
       .all() as { branchId: string; lineCount: number }[];

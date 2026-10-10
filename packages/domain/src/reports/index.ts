@@ -17,6 +17,7 @@ export type {
   ReportValidationError,
   RunReportOutcome,
 } from "./types.js";
+export { ReportParamKind } from "./types.js";
 export { computeReconciliation, computeReportGroups, runReport, validateReportParams } from "./engine.js";
 export {
   createTrialBalanceReport,

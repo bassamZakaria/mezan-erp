@@ -5,6 +5,7 @@ import { Money } from "../money/index.js";
 import type { JournalEntry } from "../journal.js";
 import type { ReportDefinition } from "./types.js";
 import { diffOf, sumRows } from "./kpi.js";
+import { ReportParamKind } from "./types.js";
 
 /**
  * إقرار ضريبة القيمة المضافة — VAT Return (docs/archive/catalog/08-reports.md).
@@ -154,7 +155,7 @@ export function createVatReturnReport(
     descriptionAr: "ضريبة المخرجات مقابل المدخلات مصنّفة حسب النسبة، وصافي الضريبة المستحقة عن الفترة.",
     paramsSchema,
     defaultParams,
-    paramFields: [{ kind: "dateRange", fromKey: "periodFrom", toKey: "periodTo", label: "الفترة" }],
+    paramFields: [{ kind: ReportParamKind.DateRange, fromKey: "periodFrom", toKey: "periodTo", label: "الفترة" }],
     rowKey: (row) => row.rowId,
     columns: [
       { key: "rate", header: "نسبة الضريبة", format: "percent", align: "end", value: (row) => row.rate },

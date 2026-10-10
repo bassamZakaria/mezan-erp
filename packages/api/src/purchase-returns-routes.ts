@@ -11,8 +11,9 @@ import {
   type PurchaseReturnLine,
 } from "@mezan/domain";
 import { createPurchaseReturnSchema } from "@mezan/contracts";
-import { type AuthContextResolver, callerUserId, createPermissionGate, warehouseScopeOf, withinScope } from "./permission-gate.js";
+import { type AuthContextResolver, branchScopeOf, callerUserId, createPermissionGate, warehouseScopeOf, withinScope } from "./permission-gate.js";
 import { handleDocumentError } from "./document-error-handling.js";
+import { refuseOutOfScopeBranches } from "./branch-scope-refusal.js";
 import { tenantDay } from "./tenant-day.js";
 
 function serializeLine(l: PurchaseReturnLine) {
@@ -147,6 +148,7 @@ export function createPurchaseReturnsRoutes(
     // routes already apply.
     const scope = warehouseScopeOf(c);
     let rows = !scope ? list : list.filter((doc) => doc.lines.some((line) => scope.includes(line.warehouseId)));
+    rows = withinScope(rows, branchScopeOf(c), (doc) => doc.lines[0]?.branchId);
     if (filter.supplierId) {
       rows = rows.filter((doc) => doc.lines.some((line) => line.supplierId === filter.supplierId));
     }
@@ -208,7 +210,7 @@ export function createPurchaseReturnsRoutes(
 
   app.get("/:id", gate("purchases.return.view"), async (c) => {
     const doc = await service.findById(c.req.param("id"));
-    if (!doc) return c.json({ error: "NOT_FOUND" }, 404);
+    if (!doc || withinScope([doc], branchScopeOf(c), (d) => d.lines[0]?.branchId).length === 0) return c.json({ error: "NOT_FOUND" }, 404);
     return c.json(serialize(doc));
   });
 
@@ -255,6 +257,8 @@ export function createPurchaseReturnsRoutes(
           costCategory: l.costCategory ?? derived.costCategory ?? null,
         };
       }));
+      const branchRefusal = refuseOutOfScopeBranches(c, lines.map((line) => line.branchId));
+      if (branchRefusal) return branchRefusal;
       const doc = await service.createDraft({
         id: parsed.data.id,
         date: await tenantDay(c, parsed.data.date),

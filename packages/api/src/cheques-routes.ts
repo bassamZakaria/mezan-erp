@@ -273,14 +273,20 @@ export function createChequesRoutes(deps: ChequeRoutesDeps, resolveAuthContext: 
     });
   });
 
+  /** 404, not 403, for a cheque of a branch the caller does not hold: its existence is itself information. */
+  async function visibleCheque(c: Context) {
+    const cheque = await service.findById(c.req.param("id") ?? "");
+    return cheque && withinScope([cheque], branchScopeOf(c), (ch) => ch.branchId).length > 0 ? cheque : null;
+  }
+
   app.get("/:id", gate("cheques.view"), async (c) => {
-    const cheque = await service.findById(c.req.param("id"));
+    const cheque = await visibleCheque(c);
     if (!cheque) return c.json({ error: "NOT_FOUND" }, 404);
     return c.json(await present(cheque, asOf()));
   });
 
   app.get("/:id/allocations", gate("cheques.view"), async (c) => {
-    const cheque = await service.findById(c.req.param("id"));
+    const cheque = await visibleCheque(c);
     if (!cheque) return c.json({ error: "NOT_FOUND" }, 404);
     return c.json((await service.listAllocations(cheque.id)).map((a) => ({
       id: a.id,

@@ -4,6 +4,7 @@ import { type GlReportContext, isLedgerEffective, lineInBranchView, moneyToNumbe
 import { BRANCH_STATEMENT_PARAM_FIELD, branchIdParamSchema } from "./branch-filter.js";
 import type { ReportDefinition } from "./types.js";
 import { sumRows, countDistinct } from "./kpi.js";
+import { ReportParamKind } from "./types.js";
 
 /**
  * دفتر الأستاذ العام — General Ledger (docs/archive/catalog/08-reports.md). Every
@@ -46,7 +47,7 @@ export function createGeneralLedgerReport(
     descriptionAr: "جميع بنود القيود المرحّلة عبر كل الحسابات خلال الفترة، مجمّعة حسب الحساب.",
     paramsSchema,
     defaultParams,
-    paramFields: [{ kind: "dateRange", fromKey: "periodFrom", toKey: "periodTo", label: "الفترة" }, BRANCH_STATEMENT_PARAM_FIELD],
+    paramFields: [{ kind: ReportParamKind.DateRange, fromKey: "periodFrom", toKey: "periodTo", label: "الفترة" }, BRANCH_STATEMENT_PARAM_FIELD],
     onDemand: true,
     rowKey: (row) => row.rowId,
     columns: [

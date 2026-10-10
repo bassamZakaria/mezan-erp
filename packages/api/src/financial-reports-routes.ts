@@ -19,6 +19,7 @@ import {
 } from "@mezan/domain";
 import { branchScopeOf, createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
 import { refuseBranchScopedCaller } from "./branch-scope-refusal.js";
+import { readableEntries } from "./branch-view.js";
 import { tenantToday } from "./tenant-day.js";
 
 /**
@@ -153,7 +154,7 @@ export function createFinancialReportsRoutes(
     // posted LINE, and `ledger.list` can only bound whole entries by date.
     return {
       accounts,
-      journalEntries,
+      journalEntries: readableEntries(c, journalEntries),
       cashAccountIds: deps.cashAccountIds,
       ...(otherIncomeExpenseAccountIds ? { otherIncomeExpenseAccountIds } : {}),
       branchScope: branchScopeOf(c),

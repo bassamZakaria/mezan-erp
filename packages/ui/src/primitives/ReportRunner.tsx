@@ -52,7 +52,7 @@ export interface ReportRunnerEntityRef {
 export type ReportRunnerParamField =
   | { readonly kind: "date"; readonly key: string; readonly label: string }
   | { readonly kind: "dateRange"; readonly fromKey: string; readonly toKey: string; readonly label: string }
-  | { readonly kind: "select"; readonly key: string; readonly label: string; readonly options: readonly { value: string; label: string }[] }
+  | { readonly kind: "select"; readonly key: string; readonly label: string; readonly options: readonly { value: string; label: string }[]; readonly wide?: boolean }
   | { readonly kind: "text"; readonly key: string; readonly label: string; readonly placeholder?: string };
 
 export interface ReportRunnerGroup<Row> {
@@ -308,7 +308,7 @@ function ParamField({
       ) : field.kind === "select" ? (
         <Select
           size="sm"
-          className="min-w-[190px]"
+          className={field.wide ? "[min-inline-size:190px]" : undefined}
           aria-label={field.label}
           value={params[field.key] ?? ""}
           onChange={(next) => set(field.key, next)}

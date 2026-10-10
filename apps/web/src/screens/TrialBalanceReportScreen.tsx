@@ -6,7 +6,7 @@ import { localizeReportDefinition } from "../report-labels";
 import { useAppTranslation } from "../i18n";
 import { todayIso } from "../lib/dates";
 import { ReportDrillDownPanel } from "./reports/ReportDrillDownPanel";
-import { useBranchParamFields } from "./reports/branch-param";
+import { useBranchParam } from "./reports/branch-param";
 
 /**
  * ميزان المراجعة (docs/archive/catalog/08-reports.md), wired to `GET
@@ -28,7 +28,7 @@ function toStringParams(defaults: object): Record<string, string> {
 export function TrialBalanceReportScreen() {
   const { t } = useAppTranslation();
   const definition = localizeReportDefinition(rawDefinition, t);
-  const paramFields = useBranchParamFields(definition.paramFields);
+  const { paramFields, caveat } = useBranchParam(definition.paramFields);
   const [params, setParams] = useState<Record<string, string>>(() => toStringParams(rawDefinition.defaultParams));
   const [hasRun, setHasRun] = useState<boolean>(!rawDefinition.onDemand);
   const [drillEntity, setDrillEntity] = useState<ReportRunnerEntityRef | null>(null);
@@ -60,7 +60,7 @@ export function TrialBalanceReportScreen() {
   return (
     <ReportRunner
       title={definition.titleAr}
-      description={definition.descriptionAr}
+      description={caveat ? [definition.descriptionAr, caveat].filter(Boolean).join(" ") : definition.descriptionAr}
       paramFields={paramFields}
       params={params}
       onParamsChange={setParams}

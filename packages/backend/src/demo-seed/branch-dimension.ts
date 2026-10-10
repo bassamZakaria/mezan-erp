@@ -41,7 +41,10 @@ async function run(app: App): Promise<void> {
     name: "فرع الإسكندرية",
     address: "طريق الحرية، الإسكندرية",
   });
-  if (!branchCreated) return;
+  if (!branchCreated) {
+    console.warn(`[demo-seed] ${SECOND_BRANCH_ID} was NOT seeded: the tenant's plan holds no room for a second branch. Every seeded posting is in one branch, so a branch filter has nothing to narrow.`);
+    return;
+  }
   const warehouseCreated = await createWithinPlan(app, "/warehouses", {
     id: SECOND_BRANCH_WAREHOUSE_ID,
     code: "WH-ALEX",
@@ -49,7 +52,10 @@ async function run(app: App): Promise<void> {
     nameEn: "Alexandria Warehouse",
     branchId: SECOND_BRANCH_ID,
   });
-  if (!warehouseCreated) return;
+  if (!warehouseCreated) {
+    console.warn(`[demo-seed] ${SECOND_BRANCH_WAREHOUSE_ID} was NOT seeded: the tenant's plan holds no room for another warehouse, so ${SECOND_BRANCH_ID} exists with no trade in it.`);
+    return;
+  }
 
   await step(app, "POST", "/accounts", {
     id: SECOND_BRANCH_CASH_GL_ACCOUNT_ID,

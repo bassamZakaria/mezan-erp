@@ -23,6 +23,7 @@ export const PERMISSION_ACTION_LABELS = {
   view_own: { ar: "عرض الخاص بي", en: "View own" },
   view_all: { ar: "عرض الكل", en: "View all" },
   view_cost: { ar: "عرض التكلفة", en: "View cost" },
+  view_unattributed: { ar: "عرض القيود غير المخصصة لفرع", en: "View entries assigned to no branch" },
   view_salary: { ar: "عرض الراتب", en: "View salary" },
   view_personal: { ar: "عرض البيانات الشخصية", en: "View personal data" },
   create: { ar: "إنشاء", en: "Create" },

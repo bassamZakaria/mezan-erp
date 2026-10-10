@@ -6,6 +6,7 @@ import { assertBalanced } from "../gl/post.js";
 import { runReport } from "./engine.js";
 import { createAccountLedgerReport } from "./account-ledger.js";
 import type { GlReportContext } from "./gl-shared.js";
+import { ReportParamKind } from "./types.js";
 
 function account(overrides: Partial<Account> = {}): Account {
   return {
@@ -133,9 +134,9 @@ describe("createAccountLedgerReport", () => {
     const withHeader: Account[] = [...accounts, account({ id: "9000", code: "9000", nameAr: "رئيسي", isHeader: true })];
     const definition = createAccountLedgerReport(withHeader, { accountId: "1100", periodFrom: "2026-03-01", periodTo: "2026-03-31" });
     expect(definition.onDemand).toBe(true);
-    const picker = definition.paramFields.find((f) => f.kind === "select");
+    const picker = definition.paramFields.find((f) => f.kind === ReportParamKind.Select);
     expect(picker?.kind).toBe("select");
-    if (picker?.kind !== "select") return;
+    if (picker?.kind !== ReportParamKind.Select) return;
     expect(picker.options.map((o) => o.value)).toEqual(["1100", "4100"]);
   });
 });

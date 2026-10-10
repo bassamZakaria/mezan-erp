@@ -1,4 +1,4 @@
-import type { ReportColumn, ReportParamField } from "@mezan/domain";
+import { ReportParamKind, type ReportColumn, type ReportParamField } from "@mezan/domain";
 import { WEB_TRANSLATION_KEYS } from "./i18n/catalog";
 import type { AppTranslationKey } from "./i18n";
 import type { ReportScreenDefinition } from "./screens/reports/ReportScreen";
@@ -35,13 +35,13 @@ function tryTranslate(key: string, fallback: string, t: Translate): string {
 }
 
 function localizeParamField(id: string, field: ReportParamField, t: Translate): ReportParamField {
-  if (field.kind === "branch") return field;
+  if (field.kind === ReportParamKind.Branch) return field;
   const label = tryTranslate(`report.${id}.param.${paramKeyOf(field)}`, field.label, t);
-  if (field.kind === "text") {
+  if (field.kind === ReportParamKind.Text) {
     const placeholder = field.placeholder ? tryTranslate(`report.${id}.ph.${field.key}`, field.placeholder, t) : field.placeholder;
     return { ...field, label, placeholder };
   }
-  if (field.kind !== "select") return { ...field, label };
+  if (field.kind !== ReportParamKind.Select) return { ...field, label };
   return {
     ...field,
     label,
@@ -53,7 +53,7 @@ function localizeParamField(id: string, field: ReportParamField, t: Translate): 
 }
 
 function paramKeyOf(field: ReportParamField): string {
-  return field.kind === "dateRange" ? field.fromKey : field.key;
+  return field.kind === ReportParamKind.DateRange ? field.fromKey : field.key;
 }
 
 /**

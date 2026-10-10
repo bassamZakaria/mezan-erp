@@ -20,7 +20,7 @@ import type { DocumentService, ConfirmOptions, ConfirmResult } from "../document
 import type { StockLedgerService } from "../inventory/stock-ledger-service.js";
 import { occurredAtFromDocumentDate } from "../inventory/movement.js";
 import { Money } from "../money/index.js";
-import { landedCostWarehouseId, type LandedCostLine } from "./landed-cost-document.js";
+import { landedCostBranchId, type LandedCostLine } from "./landed-cost-document.js";
 
 /**
  * One landed-cost line the stock could not absorb: the goods it attaches to
@@ -54,7 +54,7 @@ export interface LandedCostUnabsorbedGlPort {
     readonly sourceDocId: string;
     readonly sourceDocNumber: string | null;
     readonly amount: Money;
-    readonly warehouseId: string | null;
+    readonly branchId: string | null;
   }): Promise<void>;
 }
 
@@ -109,7 +109,7 @@ export class LandedCostService {
         sourceDocId: result.document.id,
         sourceDocNumber: result.document.docNo,
         amount: unabsorbedTotal,
-        warehouseId: landedCostWarehouseId(result.document.lines),
+        branchId: landedCostBranchId(result.document.lines),
       });
     }
     return { ...result, unabsorbed, unabsorbedTotal, unabsorbedJournalEntryId };

@@ -8,6 +8,7 @@ import type { ReportDefinition } from "./types.js";
 import { sumRows, countRows, maxOf } from "./kpi.js";
 import { itemTypeTracksStock } from "../items/item-type.js";
 import { BRANCH_PARAM_FIELD, branchIdParamSchema, branchOfWarehouse, matchesBranch } from "./branch-filter.js";
+import { ReportParamKind } from "./types.js";
 
 /**
  * أصناف بطيئة الحركة — Slow-Moving Items (docs/archive/catalog/08-reports.md): items
@@ -85,7 +86,7 @@ export function createInventorySlowMovingReport(today: string): ReportDefinition
     defaultParams: { severity: "", search: "", daysSinceLastSale: 90, warehouseId: "", branchId: "" },
     paramFields: [
       {
-        kind: "select",
+        kind: ReportParamKind.Select,
         key: "severity",
         label: "مستوى الخطورة",
         options: [
@@ -95,9 +96,9 @@ export function createInventorySlowMovingReport(today: string): ReportDefinition
           { value: "critical", label: SEVERITY_LABELS.critical },
         ],
       },
-      { kind: "text", key: "search", label: "بحث", placeholder: "اسم الصنف" },
-      { kind: "text", key: "daysSinceLastSale", label: "أيام منذ آخر بيع" },
-      { kind: "text", key: "warehouseId", label: "المستودع", placeholder: "معرف المستودع" },
+      { kind: ReportParamKind.Text, key: "search", label: "بحث", placeholder: "اسم الصنف" },
+      { kind: ReportParamKind.Text, key: "daysSinceLastSale", label: "أيام منذ آخر بيع" },
+      { kind: ReportParamKind.Text, key: "warehouseId", label: "المستودع", placeholder: "معرف المستودع" },
       BRANCH_PARAM_FIELD,
     ],
     rowKey: (row) => row.itemId,

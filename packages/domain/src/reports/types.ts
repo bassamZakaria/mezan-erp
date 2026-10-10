@@ -65,19 +65,28 @@ export interface ReportGroupSpec<Row> {
   readonly label: (row: Row) => string;
 }
 
+/** The closed set of parameter-bar controls a report may declare. */
+export enum ReportParamKind {
+  Date = "date",
+  DateRange = "dateRange",
+  Select = "select",
+  Text = "text",
+  Branch = "branch",
+}
+
 /** Declarative parameter-bar field — the UI renders this generically, no per-report form code. */
 export type ReportParamField =
-  | { readonly kind: "date"; readonly key: string; readonly label: string }
-  | { readonly kind: "dateRange"; readonly fromKey: string; readonly toKey: string; readonly label: string }
-  | { readonly kind: "select"; readonly key: string; readonly label: string; readonly options: readonly { value: string; label: string }[] }
-  | { readonly kind: "text"; readonly key: string; readonly label: string; readonly placeholder?: string }
+  | { readonly kind: ReportParamKind.Date; readonly key: string; readonly label: string }
+  | { readonly kind: ReportParamKind.DateRange; readonly fromKey: string; readonly toKey: string; readonly label: string }
+  | { readonly kind: ReportParamKind.Select; readonly key: string; readonly label: string; readonly options: readonly { value: string; label: string }[] }
+  | { readonly kind: ReportParamKind.Text; readonly key: string; readonly label: string; readonly placeholder?: string }
   /**
    * الفرع — a picker over the branch register, resolved by the client against
    * the branches the SESSION may see. The value sent is the real branch id.
    * `allowUnattributed` adds the «غير مخصص» bucket (DEC-20) for reports that
    * read the posted journal line.
    */
-  | { readonly kind: "branch"; readonly key: string; readonly label: string; readonly allowUnattributed: boolean };
+  | { readonly kind: ReportParamKind.Branch; readonly key: string; readonly label: string; readonly allowUnattributed: boolean };
 
 /**
  * A GL-reconciliation banner (docs/archive/catalog/08-reports.md: five reports

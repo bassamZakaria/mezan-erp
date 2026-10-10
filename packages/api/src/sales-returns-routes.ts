@@ -24,8 +24,9 @@ import {
   refundSalesReturnSchema,
 } from "@mezan/contracts";
 import type { z } from "zod";
-import { type AuthContextResolver, callerUserId, createAnyPermissionGate, createPermissionGate, getAuthContext, warehouseScopeOf, withinScope } from "./permission-gate.js";
+import { type AuthContextResolver, branchScopeOf, callerUserId, createAnyPermissionGate, createPermissionGate, getAuthContext, warehouseScopeOf, withinScope } from "./permission-gate.js";
 import { handleDocumentError } from "./document-error-handling.js";
+import { refuseOutOfScopeBranches } from "./branch-scope-refusal.js";
 import { tenantDay, tenantToday } from "./tenant-day.js";
 
 type CreateSalesReturnLineInput = z.infer<typeof createSalesReturnSchema>["lines"][number];
@@ -258,6 +259,7 @@ export function createSalesReturnsRoutes(
     const scope = warehouseScopeOf(c);
     if (!scope && ownVisibilityOnly(c)) return { rows: [], refunds: new Map() };
     let rows = !scope ? list : list.filter((doc) => doc.lines.some((line) => scope.includes(line.warehouseId)));
+    rows = withinScope(rows, branchScopeOf(c), (doc) => doc.lines[0]?.branchId);
     if (filter.customerId) {
       rows = rows.filter((doc) => doc.lines.some((line) => line.customerId === filter.customerId));
     }
@@ -349,7 +351,7 @@ export function createSalesReturnsRoutes(
 
   app.get("/:id", gateAny("sales.return.view", "sales.return.view_own"), async (c) => {
     const doc = await service.findById(c.req.param("id"));
-    if (!doc) return c.json({ error: "NOT_FOUND" }, 404);
+    if (!doc || withinScope([doc], branchScopeOf(c), (d) => d.lines[0]?.branchId).length === 0) return c.json({ error: "NOT_FOUND" }, 404);
     // A `view_own` holder gets 404, not 403: whether a return they may not see
     // exists at all is itself information, and the list already hides it.
     if (ownVisibilityOnly(c)) {
@@ -370,12 +372,15 @@ export function createSalesReturnsRoutes(
       const refusal = await refuseInconsistentLine(line);
       if (refusal) return c.json(refusal, 422);
     }
+    const derivedLines = await Promise.all(parsed.data.lines.map(deriveLine));
+    const branchRefusal = refuseOutOfScopeBranches(c, derivedLines.map((line) => line.branchId));
+    if (branchRefusal) return branchRefusal;
     try {
       const doc = await service.createDraft({
         id: parsed.data.id,
         date: await tenantDay(c, parsed.data.date),
         memo: parsed.data.memo,
-        lines: await Promise.all(parsed.data.lines.map(deriveLine)),
+        lines: derivedLines,
       });
       return c.json(serialize(doc), 201);
     } catch (err) {
@@ -411,6 +416,8 @@ export function createSalesReturnsRoutes(
     if (lines.length === 0) {
       return c.json({ error: "NO_RETURNABLE_LINES", message: "لا توجد بنود قابلة للإرجاع بالكميات المطلوبة." }, 422);
     }
+    const branchRefusal = refuseOutOfScopeBranches(c, lines.map((line) => line.branchId));
+    if (branchRefusal) return branchRefusal;
     try {
       const doc = await service.createDraft({
         id: parsed.data.id,

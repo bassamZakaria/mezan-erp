@@ -148,9 +148,11 @@ export {
 
 export {
   branchSchema,
+  branchLookupSchema,
   createBranchSchema,
   updateBranchSchema,
   type BranchDTO,
+  type BranchLookupDTO,
   type CreateBranchDTO,
   type UpdateBranchDTO,
 } from "./branch.js";

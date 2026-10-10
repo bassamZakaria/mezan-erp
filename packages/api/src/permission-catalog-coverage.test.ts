@@ -108,13 +108,16 @@ describe("the permission catalogue against the routes that check it", () => {
     //     what DEC-2 decided approval is: `workflow.approve`/`.reject`;
     //   - the desktop shell's restore IPC channel, which is not a Hono route at
     //     all: `admin.backup.view`, `admin.backup.restore`,
-    //     `admin.tenant.settings.edit`.
+    //     `admin.tenant.settings.edit`;
+    //   - a right that widens what every GL read returns rather than opening a
+    //     route of its own, checked in `branch-view.ts`:
+    //     `accounting.reports.view_unattributed` (D111).
     //
     // The count is pinned so the gap cannot quietly grow: adding a code without
     // anything to check it, or deleting the only consumer of one, moves this
     // number.
     expect(UNGATED.length).toBeGreaterThan(0);
-    expect(UNGATED.length).toBeLessThanOrEqual(13);
+    expect(UNGATED.length).toBeLessThanOrEqual(14);
   });
 
   it("every POS code the catalogue carries is checked by a POS route — the module came back with its gates", () => {

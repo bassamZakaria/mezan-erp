@@ -541,7 +541,9 @@ export function createFixedAssetsRoutes(
 
   app.get("/depreciation/runs/:id", gate("assets.depreciation.view"), async (c) => {
     const run = await deps.runs.findById(c.req.param("id"));
-    if (!run) return c.json({ error: "DEPRECIATION_RUN_NOT_FOUND" }, 404);
+    if (!run || withinScope([run], branchScopeOf(c), (r) => r.branchId).length === 0) {
+      return c.json({ error: "DEPRECIATION_RUN_NOT_FOUND" }, 404);
+    }
     return c.json(serializeRun(run));
   });
 

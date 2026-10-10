@@ -9,6 +9,7 @@ import { availableLeaveDays } from "../hr/leave-balance.js";
 import type { ReportDefinition } from "./types.js";
 import { sumRows } from "./kpi.js";
 import { BRANCH_PARAM_FIELD } from "./branch-filter.js";
+import { ReportParamKind } from "./types.js";
 
 /**
  * The workforce reports — attendance, what unused leave is worth, and who
@@ -95,7 +96,7 @@ export function createAttendanceSummaryReport(): ReportDefinition<AttendanceSumm
     descriptionAr: "أيام الحضور والتأخير والغياب والإجازات لكل موظف خلال الفترة، ومعها ساعات العمل والساعات الإضافية المعتمدة.",
     paramsSchema: dateRangeSchema,
     defaultParams: { from: "", to: "" },
-    paramFields: [{ kind: "dateRange", fromKey: "from", toKey: "to", label: "الفترة" }, BRANCH_PARAM_FIELD],
+    paramFields: [{ kind: ReportParamKind.DateRange, fromKey: "from", toKey: "to", label: "الفترة" }, BRANCH_PARAM_FIELD],
     run: (params, ctx) => {
       const inRange = ctx.attendance.filter((e) => e.date >= params.from && e.date <= params.to);
       const byEmployee = new Map<string, AttendanceEntry[]>();
@@ -199,7 +200,7 @@ export function createLeaveLiabilityReport(): ReportDefinition<LeaveLiabilityPar
     descriptionAr: "قيمة أرصدة الإجازات غير المستخدمة التي تُصرف عند إنهاء الخدمة — التزام قائم على المنشأة حتى لو لم يُقيَّد بعد.",
     paramsSchema: asOfSchema,
     defaultParams: { asOfDate: "" },
-    paramFields: [{ kind: "date", key: "asOfDate", label: "حتى تاريخ" }, BRANCH_PARAM_FIELD],
+    paramFields: [{ kind: ReportParamKind.Date, key: "asOfDate", label: "حتى تاريخ" }, BRANCH_PARAM_FIELD],
     run: (params, ctx) => {
       const payoutTypes = new Set(ctx.policies.filter((p) => p.payoutOnTermination && p.active).map((p) => p.leaveType));
       // Each year's balance already carries the previous year's unused days in
@@ -289,7 +290,7 @@ export function createHeadcountMovementReport(): ReportDefinition<AttendanceSumm
     descriptionAr: "الملتحقون والمنتهية خدمتهم وصافي التغير وعدد العاملين في نهاية كل شهر خلال الفترة.",
     paramsSchema: dateRangeSchema,
     defaultParams: { from: "", to: "" },
-    paramFields: [{ kind: "dateRange", fromKey: "from", toKey: "to", label: "الفترة" }, BRANCH_PARAM_FIELD],
+    paramFields: [{ kind: ReportParamKind.DateRange, fromKey: "from", toKey: "to", label: "الفترة" }, BRANCH_PARAM_FIELD],
     run: (params, ctx) => {
       const months: string[] = [];
       const start = params.from.slice(0, 7);

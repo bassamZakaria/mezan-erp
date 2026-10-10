@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { ReportParamField } from "./types.js";
+import { ReportParamKind } from "./types.js";
 
 /**
  * الفرع — the branch dimension every branch-aware report declares (D111).
@@ -19,7 +20,7 @@ import type { ReportParamField } from "./types.js";
  * ({@link UNATTRIBUTED_BRANCH_LABEL}).
  */
 export const BRANCH_PARAM_FIELD: ReportParamField = {
-  kind: "branch",
+  kind: ReportParamKind.Branch,
   key: "branchId",
   label: "الفرع",
   allowUnattributed: false,
@@ -66,7 +67,7 @@ export const UNATTRIBUTED_BRANCH_LABEL = "غير مخصص";
  * branch, or the «غير مخصص» bucket on its own.
  */
 export const BRANCH_STATEMENT_PARAM_FIELD: ReportParamField = {
-  kind: "branch",
+  kind: ReportParamKind.Branch,
   key: "branchId",
   label: "الفرع",
   allowUnattributed: true,
@@ -111,10 +112,10 @@ export function matchesStatementBranch(rowBranchId: string | null | undefined, b
 export function withinBranchScope(
   rowBranchId: string | null | undefined,
   scope: readonly string[] | undefined,
+  includeUnattributed = true,
 ): boolean {
-  if (!scope) return true;
-  if (rowBranchId == null || rowBranchId === "") return true;
-  return scope.includes(rowBranchId);
+  if (rowBranchId == null || rowBranchId === "") return includeUnattributed;
+  return !scope || scope.includes(rowBranchId);
 }
 
 /**

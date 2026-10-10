@@ -2,7 +2,7 @@ import { useState, type ReactNode } from "react";
 import { ReportChart, ReportRunner, type ReportRunnerEntityRef } from "@mezan/ui";
 import type { ReportChartSpec, ReportColumn, ReportParamField } from "@mezan/domain";
 import { useReport } from "../../data/reports-hooks";
-import { useBranchParamFields } from "./branch-param";
+import { useBranchParam } from "./branch-param";
 import { localizeGroupLabel, localizeReportDefinition, tryReportLabel } from "../../report-labels";
 import { useAppTranslation, type AppTranslationKey } from "../../i18n";
 import { reportChartPoints } from "./chart-points";
@@ -66,7 +66,7 @@ export function ReportScreen<TParams extends object, Row>({ definition: rawDefin
   const [hasRun, setHasRun] = useState<boolean>(!onDemand);
   const [drillEntity, setDrillEntity] = useState<ReportRunnerEntityRef | null>(null);
 
-  const paramFields = useBranchParamFields(definition.paramFields);
+  const { paramFields, caveat } = useBranchParam(definition.paramFields);
 
   const query = useReport<Row>(definition.id, apiPath, params, { enabled: hasRun, apiRoot });
 
@@ -170,7 +170,7 @@ export function ReportScreen<TParams extends object, Row>({ definition: rawDefin
   return (
     <ReportRunner
       title={definition.titleAr}
-      description={definition.descriptionAr}
+      description={caveat ? [definition.descriptionAr, caveat].filter(Boolean).join(" ") : definition.descriptionAr}
       paramFields={paramFields}
       params={params}
       onParamsChange={setParams}

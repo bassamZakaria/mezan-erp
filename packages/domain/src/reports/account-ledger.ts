@@ -6,6 +6,7 @@ import { Money } from "../money/index.js";
 import type { Account } from "../accounts/account.js";
 import type { ReportDefinition } from "./types.js";
 import { sumRows } from "./kpi.js";
+import { ReportParamKind } from "./types.js";
 
 /**
  * دفتر حساب — Account Ledger / statement (docs/archive/catalog/08-reports.md). All
@@ -76,8 +77,8 @@ export function createAccountLedgerReport(
     paramsSchema: buildParamsSchema(postable.map((a) => a.id)),
     defaultParams,
     paramFields: [
-      { kind: "select", key: "accountId", label: "الحساب", options },
-      { kind: "dateRange", fromKey: "periodFrom", toKey: "periodTo", label: "الفترة" },
+      { kind: ReportParamKind.Select, key: "accountId", label: "الحساب", options },
+      { kind: ReportParamKind.DateRange, fromKey: "periodFrom", toKey: "periodTo", label: "الفترة" },
       BRANCH_STATEMENT_PARAM_FIELD,
     ],
     onDemand: true,

@@ -39,6 +39,7 @@ import {
   type CashForecastOpeningAccountDTO,
 } from "@mezan/contracts";
 import { branchScopeOf, createPermissionGate, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
+import { canSeeUnattributed } from "./branch-view.js";
 import { recordFieldChanges } from "./admin-audit.js";
 import { openPartyAgingInputs, type ReportsRoutesDeps } from "./reports-routes.js";
 import { tenantToday } from "./tenant-day.js";
@@ -69,21 +70,23 @@ interface BranchView {
   readonly scope: readonly string[] | undefined;
   readonly narrowed: boolean;
   readonly empty: boolean;
+  readonly includeUnattributed: boolean;
 }
 
 function viewOf(c: Context, requested: string): BranchView {
   const scope = branchScopeOf(c);
   const outOfScope = requested !== "" && requested !== UNATTRIBUTED_BRANCH_ID && scope !== undefined && !scope.includes(requested);
-  return { branchId: requested, scope, narrowed: scope !== undefined || requested !== "", empty: outOfScope };
+  const includeUnattributed = canSeeUnattributed(c);
+  return { branchId: requested, scope, narrowed: scope !== undefined || requested !== "" || !includeUnattributed, empty: outOfScope, includeUnattributed };
 }
 
 function inView(branchId: string | null | undefined, view: BranchView): boolean {
-  return withinBranchScope(branchId, view.scope) && matchesStatementBranch(branchId, view.branchId);
+  return withinBranchScope(branchId, view.scope, view.includeUnattributed) && matchesStatementBranch(branchId, view.branchId);
 }
 
 /** Inside the caller's authority but attributable to no branch — what a narrowed total leaves out. */
 function unattributedInView(branchId: string | null | undefined, view: BranchView): boolean {
-  return (branchId == null || branchId === "") && withinBranchScope(branchId, view.scope);
+  return (branchId == null || branchId === "") && withinBranchScope(branchId, view.scope, view.includeUnattributed);
 }
 
 function itemDTO(item: ScheduledCashItem): CashForecastItemDTO {
@@ -124,6 +127,17 @@ interface OpeningCash {
   readonly accounts: CashForecastOpeningAccountDTO[];
 }
 
+/**
+ * A treasury account's GL balance as this view may read it. Two branches'
+ * drawers can share one GL account, so a narrowed view sums only the lines it
+ * is entitled to rather than taking the account's whole balance.
+ */
+async function glBalanceInView(deps: CashForecastRoutesDeps, glAccountId: string, today: string, view: BranchView): Promise<Money> {
+  const lines = view.narrowed ? await deps.reports.ledger.listLines?.({ accountIds: [glAccountId], toDate: today }) : undefined;
+  if (!lines) return (await deps.reports.ledger.accountBalance(glAccountId, today)).balance;
+  return Money.sum(lines.filter((line) => inView(line.branchId, view)).map((line) => line.debit.add(line.credit.negate())));
+}
+
 async function openingCash(
   deps: CashForecastRoutesDeps,
   today: string,
@@ -141,7 +155,7 @@ async function openingCash(
     let balance: string | null = null;
     if (glAccountId && !seen.has(glAccountId)) {
       seen.add(glAccountId);
-      const { balance: held } = await deps.reports.ledger.accountBalance(glAccountId, today);
+      const held = await glBalanceInView(deps, glAccountId, today, view);
       total += held.scaled;
       balance = held.toString();
     }
@@ -262,7 +276,7 @@ export function createCashForecastRoutes(deps: CashForecastRoutesDeps, resolveAu
       openingCash(deps, day, chequeAccountIds, view),
       forecastItems(deps, day, allCheques),
       deps.store.getThreshold(),
-      openingCash(deps, day, chequeAccountIds, { branchId: "", scope: undefined, narrowed: false, empty: false }),
+      openingCash(deps, day, chequeAccountIds, { branchId: "", scope: undefined, narrowed: false, empty: false, includeUnattributed: true }),
     ]);
     const items = view.empty ? [] : everyItem.filter((item) => inView(item.branchId, view));
     const unattributed = view.narrowed ? everyItem.filter((item) => unattributedInView(item.branchId, view)) : [];

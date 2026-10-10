@@ -67,7 +67,8 @@ import {
   getAuthContext,
   type AuthContextResolver,
 } from "./permission-gate.js";
-import { refuseOutOfScopeBranches } from "./branch-scope-refusal.js";
+import { refuseBranchScopedCaller, refuseOutOfScopeBranches } from "./branch-scope-refusal.js";
+import { branchLineViewOf, entriesInView, entryInView, isWholeLedgerView, lineInView, type BranchLineView } from "./branch-view.js";
 import { MasterDataKind, refuseUnknownMasterData, type MasterDataChecks } from "./master-data-check.js";
 
 /** External dependencies the GL routes bind the posting engine to. */
@@ -325,6 +326,16 @@ export function createGlRoutes(
     );
   }
 
+  /**
+   * Acting on a STORED entry — post, replace, delete, reverse — acts on the
+   * branches its lines already carry, which the request body never names: a
+   * reversal mirrors them, a replace discards them.
+   */
+  async function refuseStoredEntryBranches(c: Context, entryId: string): Promise<Response | null> {
+    const stored = await deps.ledger.findById(entryId);
+    return stored ? refuseOutOfScopeBranches(c, stored.lines.map((line) => line.branchId)) : null;
+  }
+
   app.get("/party-control-accounts", gate("accounting.journal.view"), async (c) => {
     const controls = (await deps.resolvePartyControlAccounts?.()) ?? new Map<string, PartyControlKind>();
     return c.json([...controls].map(([accountId, partyKind]) => ({ accountId, partyKind })));
@@ -373,11 +384,15 @@ export function createGlRoutes(
    * without anyone deciding to (D29).
    */
   app.get("/vat-filings", gate("accounting.reports.view"), async (c) => {
+    const refusal = refuseBranchScopedCaller(c);
+    if (refusal) return refusal;
     if (!deps.vatFilings) return c.json([]);
     return c.json((await deps.vatFilings.list()).map(serializeFiling));
   });
 
   app.post("/vat-filings", gate("accounting.period.close"), async (c) => {
+    const refusal = refuseBranchScopedCaller(c);
+    if (refusal) return refusal;
     if (!deps.vatFilings) return c.json({ error: "NOT_FOUND" }, 404);
     const parsed = recordVatFilingSchema.safeParse(await c.req.json());
     if (!parsed.success) {
@@ -402,6 +417,8 @@ export function createGlRoutes(
   });
 
   app.post("/vat-filings/:id/amend", gate("accounting.period.close"), async (c) => {
+    const refusal = refuseBranchScopedCaller(c);
+    if (refusal) return refusal;
     if (!deps.vatFilings) return c.json({ error: "NOT_FOUND" }, 404);
     const parsed = amendVatFilingSchema.safeParse(await c.req.json());
     if (!parsed.success) {
@@ -420,6 +437,8 @@ export function createGlRoutes(
    * is a normal state, so it answers 200 with `entry: null` rather than a 404.
    */
   app.get("/year-end-close/:year", gate("accounting.journal.view"), async (c) => {
+    const refusal = refuseBranchScopedCaller(c);
+    if (refusal) return refusal;
     const year = Number(c.req.param("year"));
     if (!Number.isInteger(year) || year < 1900 || year > 9999) {
       return c.json({ error: "VALIDATION_ERROR", message: "سنة غير صالحة." }, 400);
@@ -436,6 +455,8 @@ export function createGlRoutes(
    * how the screen knows to show the posted entry instead of the button.
    */
   app.get("/year-end-close/:year/preview", gate("accounting.period.close"), async (c) => {
+    const refusal = refuseBranchScopedCaller(c);
+    if (refusal) return refusal;
     const year = Number(c.req.param("year"));
     if (!Number.isInteger(year) || year < 1900 || year > 9999) {
       return c.json({ error: "VALIDATION_ERROR", message: "سنة غير صالحة." }, 400);
@@ -476,6 +497,8 @@ export function createGlRoutes(
    * the same year twice is refused rather than posted twice.
    */
   app.post("/year-end-close", gate("accounting.period.close"), async (c) => {
+    const refusal = refuseBranchScopedCaller(c);
+    if (refusal) return refusal;
     const parsed = closeFiscalYearSchema.safeParse(await c.req.json());
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
@@ -540,6 +563,8 @@ export function createGlRoutes(
   });
 
   app.post("/journal-entries/:id/post", gate("accounting.journal.post"), async (c) => {
+    const storedRefusal = await refuseStoredEntryBranches(c, c.req.param("id"));
+    if (storedRefusal) return storedRefusal;
     try {
       const entry = await postDraftJournalEntry(c.req.param("id"), await manualPostingDeps(c));
       return c.json(serialize(entry));
@@ -560,7 +585,7 @@ export function createGlRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
-    const branchRefusal = await refuseLineBranches(c, parsed.data.lines);
+    const branchRefusal = (await refuseStoredEntryBranches(c, c.req.param("id"))) ?? (await refuseLineBranches(c, parsed.data.lines));
     if (branchRefusal) return branchRefusal;
     try {
       const entry = await replaceDraftJournalEntry(
@@ -594,6 +619,8 @@ export function createGlRoutes(
 
   /** Delete a مسودة (draft) entry (D226). Refused 409 on anything that is not a draft. */
   app.delete("/journal-entries/:id", gate("accounting.journal.create"), async (c) => {
+    const storedRefusal = await refuseStoredEntryBranches(c, c.req.param("id"));
+    if (storedRefusal) return storedRefusal;
     try {
       await deleteDraftJournalEntry(c.req.param("id"), postingDeps(c));
       return c.body(null, 204);
@@ -613,6 +640,8 @@ export function createGlRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
+    const storedRefusal = await refuseStoredEntryBranches(c, c.req.param("id"));
+    if (storedRefusal) return storedRefusal;
     try {
       const entryId = c.req.param("id");
       const resolvedDate = await tenantDay(c, parsed.data.date ?? (deps.now ? deps.now() : new Date().toISOString()));
@@ -681,6 +710,7 @@ export function createGlRoutes(
    */
   async function listFilteredJournalEntries(
     filter: JournalListFilter,
+    view: BranchLineView,
     page?: { limit: number; offset: number },
   ): Promise<readonly JournalEntry[]> {
     const { sourceModule, search, ...ledgerFilter } = filter;
@@ -690,12 +720,15 @@ export function createGlRoutes(
     // mapping SQL does not hold, so a request carrying either of the two JS
     // filters is paged after them — a LIMIT ahead of a filter is a wrong page,
     // not a fast one.
-    const pagedInSql = page !== undefined && !sourceModule;
+    // A narrowed view drops entries with no visible line, which SQL cannot
+    // know either — so it too is paged after the cut.
+    const pagedInSql = page !== undefined && !sourceModule && isWholeLedgerView(view);
     let entries = await deps.ledger.list({
       ...ledgerFilter,
       ...(search ? { search } : {}),
       ...(pagedInSql ? page : {}),
     });
+    entries = entriesInView(view, entries);
     if (sourceModule) entries = entries.filter((e) => journalSourceModule(e.sourceDocType, e.source) === sourceModule);
     if (search) entries = entries.filter((e) => matchesSearch(search, e.entryNo, e.memo, e.sourceDocNumber));
     if (page && !pagedInSql) entries = entries.slice(page.offset, page.offset + page.limit);
@@ -708,7 +741,7 @@ export function createGlRoutes(
       return c.json({ error: "VALIDATION_ERROR", details: parsed.details }, 400);
     }
     const { page, pageSize } = parsed.filter;
-    const rows = await listFilteredJournalEntries(parsed.filter, {
+    const rows = await listFilteredJournalEntries(parsed.filter, branchLineViewOf(c), {
       limit: pageSize,
       offset: (page - 1) * pageSize,
     });
@@ -727,7 +760,7 @@ export function createGlRoutes(
       return c.json({ error: "VALIDATION_ERROR", details: parsed.details }, 400);
     }
     const { status: _ignored, ...withoutStatus } = parsed.filter;
-    const entries = await listFilteredJournalEntries(withoutStatus);
+    const entries = await listFilteredJournalEntries(withoutStatus, branchLineViewOf(c));
     const counts: Record<string, number> = {
       all: entries.length,
       draft: 0,
@@ -750,7 +783,7 @@ export function createGlRoutes(
     if (!parsed.ok) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.details }, 400);
     }
-    const entries = await listFilteredJournalEntries(parsed.filter);
+    const entries = await listFilteredJournalEntries(parsed.filter, branchLineViewOf(c));
     let totalDebit = Money.zero();
     let totalCredit = Money.zero();
     for (const entry of entries) {
@@ -772,8 +805,9 @@ export function createGlRoutes(
   app.get("/journal-entries/:id", gate("accounting.journal.view"), async (c) => {
     const key = c.req.param("id");
     // The register addresses an entry by its number (`/money/journals/JE-000100`).
-    const entry =
+    const stored =
       (await deps.ledger.findById(key)) ?? (await deps.ledger.list({ search: key })).find((e) => e.entryNo === key) ?? null;
+    const entry = stored ? entryInView(branchLineViewOf(c), stored) : null;
     if (!entry) return c.json({ error: "NOT_FOUND" }, 404);
     return c.json(serialize(entry));
   });
@@ -784,6 +818,8 @@ export function createGlRoutes(
    * or supplier actually owes, in the currency the document was raised in.
    */
   app.get("/balances-by-currency", gate("accounting.reports.view"), async (c) => {
+    const refusal = refuseBranchScopedCaller(c);
+    if (refusal) return refusal;
     const baseCurrency = (await deps.baseCurrency?.()) ?? "EGP";
     const documents = (await deps.openPartyDocuments?.()) ?? [];
     const report = summarizePartyBalancesByCurrency(documents, baseCurrency);
@@ -799,6 +835,18 @@ export function createGlRoutes(
   app.get("/accounts/:accountId/ledger", gate("accounting.journal.view"), async (c) => {
     const accountId = c.req.param("accountId");
     const asOf = c.req.query("asOf");
+    const view = branchLineViewOf(c);
+    if (!isWholeLedgerView(view)) {
+      const visible = ((await deps.ledger.listLines?.({ accountIds: [accountId], toDate: asOf })) ?? []).filter((line) =>
+        lineInView(view, line.branchId),
+      );
+      const debit = Money.sum(visible.map((line) => line.debit));
+      const credit = Money.sum(visible.map((line) => line.credit));
+      return c.json({
+        balance: serializeBalance({ accountId, debit, credit, balance: debit.add(credit.negate()) }),
+        lines: visible.map(serializeLedgerLine),
+      });
+    }
     const balance = await deps.ledger.accountBalance(accountId, asOf);
     const lines = await deps.ledger.accountLedger(accountId, asOf);
     return c.json({

@@ -1,7 +1,8 @@
 import { Hono } from "hono";
 import { createBranch, updateBranch, InvalidBranchError, type BranchRepository } from "@mezan/domain";
 import { createBranchSchema, updateBranchSchema } from "@mezan/contracts";
-import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
+import { branchGrantOf, createAuthenticatedGate, createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
+import { canSeeUnattributed } from "./branch-view.js";
 
 /** Branch CRUD routes (docs/archive/catalog/09 §"إدارة الفروع"), gated by admin.branches.*. */
 export function createBranchesRoutes(
@@ -13,6 +14,24 @@ export function createBranchesRoutes(
 
   app.get("/", gate("admin.branches.view"), async (c) => {
     return c.json(await store.findAll());
+  });
+
+  /**
+   * The branches a picker may offer: the ones the SESSION was granted, and
+   * nothing but their id and name. Any signed-in user may ask — a report or a
+   * document that takes a branch needs the list, and `admin.branches.view`
+   * would hand a branch manager every other branch's record. Inactive branches
+   * stay in: a closed branch's figures are still its figures.
+   *
+   * Registered before `/:id`, which would otherwise read `lookup` as an id.
+   */
+  app.get("/lookup", createAuthenticatedGate(resolveAuthContext), async (c) => {
+    const grant = branchGrantOf(c);
+    const branches = (await store.findAll())
+      .filter((branch) => !grant || grant.includes(branch.id))
+      .sort((a, b) => Number(b.isMain) - Number(a.isMain) || a.name.localeCompare(b.name, "ar"))
+      .map((branch) => ({ id: branch.id, name: branch.name, isMain: branch.isMain, active: branch.active }));
+    return c.json({ branches, restricted: grant !== undefined, unattributed: canSeeUnattributed(c) });
   });
 
   app.get("/:id", gate("admin.branches.view"), async (c) => {

@@ -4,6 +4,8 @@ import { salesReturnLineCredit, type SalesReturnLine } from "../sales-returns/sa
 import { purchaseReturnLineCredit, type PurchaseReturnLine } from "../purchase-returns/purchase-return-document.js";
 import type { ReportDefinition } from "./types.js";
 import { sumRows } from "./kpi.js";
+import { BRANCH_PARAM_FIELD } from "./branch-filter.js";
+import { ReportParamKind } from "./types.js";
 
 /**
  * مرتجعات بعملة أجنبية مرحّلة بالقيمة الاسمية — an EXCEPTIONS report (D222).
@@ -134,8 +136,9 @@ export function createReturnsFxFaceValueReport(): ReportDefinition<
     paramsSchema,
     defaultParams: { kind: "" },
     paramFields: [
+      BRANCH_PARAM_FIELD,
       {
-        kind: "select",
+        kind: ReportParamKind.Select,
         key: "kind",
         label: "النوع",
         options: [

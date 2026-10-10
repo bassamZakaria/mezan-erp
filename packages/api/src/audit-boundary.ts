@@ -25,7 +25,7 @@ export interface AuditedMount {
 // Mounts whose audited handlers sit beside network calls name the audited
 // sub-paths in `only`.
 export const AUDITED_MOUNTS: readonly AuditedMount[] = [
-  { prefix: "/settings" },
+  { prefix: "/settings", only: /^\/?$/ },
   { prefix: "/customers" },
   { prefix: "/suppliers" },
   { prefix: "/accounts" },

@@ -261,6 +261,11 @@ export async function withSqliteTransaction<T>(
   }
 }
 
+/** True when the caller's own async chain is inside a `withSqliteTransaction` on this connection — not merely "some transaction is open". */
+export function insideSqliteTransaction(sqlite: Database.Database): boolean {
+  return stateFor(sqlite).nesting.getStore() === true;
+}
+
 /**
  * Runs `fn` with this connection's transaction mutex held, so it cannot observe
  * a transaction's uncommitted rows — see the dirty-read note on

@@ -2,7 +2,12 @@ import Database from "better-sqlite3";
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { openSqliteConnection, withSqliteTransaction, type SqliteConnectionInput } from "./sqlite-connection.js";
+import {
+  insideSqliteTransaction,
+  openSqliteConnection,
+  withSqliteTransaction,
+  type SqliteConnectionInput,
+} from "./sqlite-connection.js";
 import { auditChangedFieldNames } from "@mezan/domain";
 import type { AuditEvent, AuditQueryFilter, AuditQueryPort, AuditQueryResult, AuditSink, AuditStream } from "@mezan/domain";
 
@@ -248,6 +253,7 @@ class SqliteAuditSink implements AuditSink, AuditQueryPort, AuditChainVerifyPort
   private readonly select: Database.Statement;
   private readonly writeHead: Database.Statement;
   private readonly insertField: Database.Statement;
+  private readonly appendNested: (row: AuditChainFields, fields: readonly string[]) => void;
 
   constructor(
     private readonly sqlite: Database.Database,
@@ -267,6 +273,7 @@ class SqliteAuditSink implements AuditSink, AuditQueryPort, AuditChainVerifyPort
       `INSERT INTO audit_chain_head (id, row_id, row_hash, mac) VALUES (1, @row_id, @row_hash, @mac)
          ON CONFLICT(id) DO UPDATE SET row_id = @row_id, row_hash = @row_hash, mac = @mac`,
     );
+    this.appendNested = sqlite.transaction((row: AuditChainFields, fields: readonly string[]) => this.appendChained(row, fields));
   }
 
   // ORDERING IS THE WHOLE CONTROL: the row and the head it advances have to
@@ -296,12 +303,14 @@ class SqliteAuditSink implements AuditSink, AuditQueryPort, AuditChainVerifyPort
     return GENESIS;
   }
 
-  // MUST go through withSqliteTransaction, never better-sqlite3's own
-  // `transaction()`: that one keys off `sqlite.inTransaction`, which is true for
-  // the whole shared connection, so a stand-alone append would nest as a
-  // SAVEPOINT inside whatever unrelated request has a BEGIN open and vanish if
-  // that request rolls back. This way it nests only inside its own caller's
-  // transaction and otherwise waits its turn.
+  // A STAND-ALONE append must take the connection's turn through
+  // withSqliteTransaction, never better-sqlite3's own `transaction()`: that one
+  // keys off `sqlite.inTransaction`, which is true for the whole shared
+  // connection, so the row would nest as a SAVEPOINT inside whatever unrelated
+  // request has a BEGIN open and vanish if that request rolls back.
+  // An append made INSIDE its caller's transaction stays synchronous: its
+  // savepoint is released before this function returns, so a caller that does
+  // not await the append cannot commit ahead of it.
   async append(event: AuditEvent): Promise<void> {
     const row: AuditChainFields = {
       stream: event.stream,
@@ -316,6 +325,10 @@ class SqliteAuditSink implements AuditSink, AuditQueryPort, AuditChainVerifyPort
       details: event.details === null ? null : JSON.stringify(event.details),
     };
     const fields = auditChangedFieldNames(event.details);
+    if (insideSqliteTransaction(this.sqlite)) {
+      this.appendNested(row, fields);
+      return;
+    }
     await withSqliteTransaction(this.sqlite, async () => this.appendChained(row, fields));
   }
 

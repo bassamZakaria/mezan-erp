@@ -297,6 +297,19 @@ describe("SqliteAuditSink inside a caller's transaction", () => {
     }
   });
 
+  it("is already written when an un-awaited append inside a transaction returns", async () => {
+    const sink = createSqliteAuditSink(":memory:", { chainKey: "k".repeat(64) });
+    try {
+      await sink.atomic(async () => {
+        void sink.append(changed("NOT_AWAITED"));
+        expect(countOf(sink, "audit_event")).toBe(1);
+      });
+      expect(await sink.verifyChain()).toEqual({ ok: true, checked: 1, unchained: 0, brokenRowId: null, reason: "OK" });
+    } finally {
+      sink.close();
+    }
+  });
+
   it("does not join an unrelated transaction that happens to be open on the shared connection", async () => {
     const sink = createSqliteAuditSink(":memory:", { chainKey: "k".repeat(64) });
     try {

@@ -63,6 +63,7 @@ import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { DERIVED_TAX, TaxRateField, lineTaxPayload, postedTaxRateLabel, type TaxChoice } from "./tax-rate-field";
 import { useEntityName } from "../lib/entity-names";
 import { ClassifyLineTaxAction, type ClassifiableLine } from "./ClassifyLineTaxAction";
+import { UnnamedTaxNotice } from "./UnnamedTaxNotice";
 import { PurchaseInvoiceStatusCode } from "@mezan/domain";
 import { itemTypeIsPurchasable ,
   findCurrency} from "@mezan/domain";
@@ -293,6 +294,12 @@ function InvoiceDetail({
           label: t("purchaseInvoices.tab.lines", { count: invoice.lines.length }),
           content: (
             <div className="overflow-x-auto">
+              <UnnamedTaxNotice
+                document={ClassifiableDocument.PurchaseInvoice}
+                posted={invoice.status === PurchaseInvoiceStatusCode.Confirmed}
+                documentKind={invoice.documentKind}
+                lines={classifiableLines}
+              />
               <table className="w-full min-w-[860px] border-collapse text-[13px]">
                 <thead>
                   <tr className="border-b border-border text-[11px] uppercase text-ink-muted">

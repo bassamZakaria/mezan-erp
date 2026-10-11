@@ -27,13 +27,16 @@ export interface ClassifyLineTaxActionProps {
   readonly line: ClassifiableLine;
   readonly lines: readonly ClassifiableLine[];
   readonly taxRates: readonly TaxRateDTO[];
+  /** Opened by another control that carries the label itself: the dialog renders alone, already open. */
+  readonly openedExternally?: boolean;
+  readonly onClosed?: () => void;
 }
 
-export function ClassifyLineTaxAction({ document, documentId, posted, documentKind, line, lines, taxRates }: ClassifyLineTaxActionProps) {
+export function ClassifyLineTaxAction({ document, documentId, posted, documentKind, line, lines, taxRates, openedExternally = false, onClosed }: ClassifyLineTaxActionProps) {
   const { t } = useAppTranslation();
   const { session } = useApi();
   const classify = useClassifyLineTax(document);
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(openedExternally);
   const [taxRateId, setTaxRateId] = useState("");
   const [error, setError] = useState<string | null>(null);
 
@@ -56,6 +59,11 @@ export function ClassifyLineTaxAction({ document, documentId, posted, documentKi
     setOpen(true);
   }
 
+  function closePanel() {
+    setOpen(false);
+    onClosed?.();
+  }
+
   async function submit() {
     if (classify.isPending) return;
     if (taxRateId === "") {
@@ -65,7 +73,7 @@ export function ClassifyLineTaxAction({ document, documentId, posted, documentKi
     setError(null);
     try {
       await classify.mutateAsync({ documentId, lineId: line.lineId, taxRateId, withLineIds: companions.map((other) => other.lineId) });
-      setOpen(false);
+      closePanel();
     } catch (err) {
       setError(err instanceof Error ? err.message : t("classifyTax.error.failed"));
     }
@@ -73,10 +81,12 @@ export function ClassifyLineTaxAction({ document, documentId, posted, documentKi
 
   return (
     <>
-      <Button type="button" size="sm" onClick={openPanel} aria-label={t("classifyTax.actionFor", { line: line.label })}>
-        {t("classifyTax.action")}
-      </Button>
-      <SidePanel open={open} onClose={() => setOpen(false)} title={t("classifyTax.title")}>
+      {openedExternally ? null : (
+        <Button type="button" size="sm" onClick={openPanel} aria-label={t("classifyTax.actionFor", { line: line.label })}>
+          {t("classifyTax.action")}
+        </Button>
+      )}
+      <SidePanel open={open} onClose={closePanel} title={t("classifyTax.title")}>
         <form
           className="flex flex-col gap-[14px]"
           onSubmit={(event) => {
@@ -117,7 +127,7 @@ export function ClassifyLineTaxAction({ document, documentId, posted, documentKi
             </div>
           ) : null}
           <div className="mt-[6px] flex justify-end gap-[9px]">
-            <Button type="button" onClick={() => setOpen(false)}>
+            <Button type="button" onClick={closePanel}>
               {t("common.cancel")}
             </Button>
             <Button type="submit" variant="primary" disabled={classify.isPending || candidates.length === 0}>

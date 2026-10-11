@@ -3093,8 +3093,10 @@ export function useClassifyLineTax(document: ClassifiableDocument) {
       return res.json<LineTaxClassificationDTO>();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [document === ClassifiableDocument.SalesInvoice ? "sales-invoices" : "purchase-invoices"] });
-      queryClient.invalidateQueries({ queryKey: ["eta-submissions"] });
+      const sales = document === ClassifiableDocument.SalesInvoice;
+      for (const key of [sales ? "sales-invoices" : "purchase-invoices", sales ? "sales-returns" : "purchase-returns", "eta-submissions", "journal-entries", "gl", "audit", "entity-audit"]) {
+        queryClient.invalidateQueries({ queryKey: [key] });
+      }
     },
   });
 }

@@ -75,6 +75,8 @@ export interface EtaPrevalidationFinding {
 }
 
 export interface EtaPrevalidationLineInput {
+  /** The source document's own line id, so a finding about the line can open an action on it. */
+  readonly lineRef?: string | null;
   readonly itemId: string;
   readonly itemLabel: string;
   /** `Item.etaItemCode` — null when never registered (a fallback to the internal code is not a real one). */
@@ -236,9 +238,23 @@ export function prevalidateEtaInvoice(
           "سمِّ ضريبة البند بإجراء «تصنيف ضريبة البند» على الفاتورة المرحّلة (معفى أو تصدير أو غير خاضع) ثم أعد الإرسال. وإن كان العميل معفى فحدِّد «ضريبة الإعفاء» على بطاقة العميل لتُسمّى تلقائياً في فواتيره القادمة.",
           "Name the line's tax rate with \"Classify line tax\" on the posted invoice (exempt, export or not subject), then resubmit. If the customer is tax-exempt, set the \"Exemption tax rate\" on the customer card so later invoices name it automatically.",
           EtaPrevalidationFixScreen.SourceDocument,
+          line.lineRef ?? null,
         ),
       );
-    } else if (line.taxRatePercent === 0 && (line.etaTaxSubType === null || line.etaTaxSubType === EtaVatSubTypeCode.Auto)) {
+    } else if (line.taxRatePercent === 0 && line.etaTaxSubType === null) {
+      out.push(
+        finding(
+          EtaPrevalidationRuleCode.TaxSubtypeNotMapped,
+          EtaPrevalidationSeverity.Warning,
+          `سطر «${line.itemLabel}» بنسبة ضريبة 0% دون ضريبة مسماة، وسيُرسل تلقائياً كـ«غير خاضع».`,
+          `Line "${line.itemLabel}" is taxed at 0% and names no tax rate; it will file as "not subject" by default.`,
+          "إن لم يكن البند «غير خاضع» فسمِّ ضريبته بإجراء «تصنيف ضريبة البند» على الفاتورة المرحّلة قبل الإرسال.",
+          "If the line is not \"not subject\", name its tax rate with \"Classify line tax\" on the posted invoice before it is sent.",
+          EtaPrevalidationFixScreen.SourceDocument,
+          line.lineRef ?? null,
+        ),
+      );
+    } else if (line.taxRatePercent === 0 && line.etaTaxSubType === EtaVatSubTypeCode.Auto) {
       out.push(
         finding(
           EtaPrevalidationRuleCode.TaxSubtypeNotMapped,

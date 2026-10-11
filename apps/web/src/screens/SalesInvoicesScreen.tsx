@@ -85,6 +85,7 @@ import { salesInvoiceStatusLabel } from "../domain-labels";
 import { documentStatusLabel } from "../doc-status";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { ClassifyLineTaxAction } from "./ClassifyLineTaxAction";
+import { UnnamedTaxNotice } from "./UnnamedTaxNotice";
 import { DERIVED_TAX, TaxRateField, appliedTaxPercent, chosenTaxRateId, lineTaxPayload, postedTaxRateLabel, type TaxChoice } from "./tax-rate-field";
 import { todayIso } from "../lib/dates";
 import { EMPTY } from "../lib/empty";
@@ -1551,6 +1552,12 @@ function InvoiceDetailView({
               grandTotal={toMajor(invoice.totals.grandTotal)}
               taxableTotal={toMajor(invoice.totals.taxableTotal ?? invoice.totals.subtotal)}
               taxTotal={toMajor(invoice.totals.taxTotal)}
+            />
+            <UnnamedTaxNotice
+              document={ClassifiableDocument.SalesInvoice}
+              posted={SALES_INVOICE_ACTIVE_STATUSES.has(invoice.status)}
+              documentKind={invoice.documentKind}
+              lines={invoice.lines.map((l) => ({ lineId: l.lineId, label: l.itemNameAr, taxRatePercent: l.taxRatePercent, taxRateId: l.taxRateId ?? null }))}
             />
             <Card className="overflow-hidden">
               <div className="overflow-x-auto">

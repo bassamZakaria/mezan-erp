@@ -29,7 +29,7 @@ import {
   type EtaTaxSubTypeRowDTO,
   type EtaUnitMappingRowDTO,
 } from "@mezan/contracts";
-import { ETA_RECEIPT_REPORTING_WINDOW_HOURS, EtaPrevalidationFixScreen, EtaPrevalidationSeverity } from "@mezan/domain";
+import { ETA_RECEIPT_REPORTING_WINDOW_HOURS, EtaDocumentTypeCode, EtaPrevalidationFixScreen, EtaPrevalidationRuleCode, EtaPrevalidationSeverity } from "@mezan/domain";
 import {
   useApplyEtaUnitSuggestions,
   useBulkRequeueSubmitEta,
@@ -58,6 +58,7 @@ import { pathForRoute } from "../routing";
 import { useEtaReceiptQueue } from "./eta/receipt-queue";
 import { useEtaPrevalidationStrings } from "./eta/prevalidate-strings";
 import { useEtaStrings } from "./eta/strings";
+import { EtaFindingClassifyAction } from "./eta/EtaFindingClassifyAction";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 
 const STATUS_TONE: Record<EtaSubmissionStatusDTO, PillTone> = {
@@ -109,6 +110,15 @@ const TABS: Array<{ id: EtaTab; labelKey: AppTranslationKey }> = [
   { id: "units", labelKey: "eta.tabUnits" },
   { id: "submissions", labelKey: "eta.tabSubmissions" },
 ];
+
+function classifiableFinding(finding: EtaPrevalidationFindingDTO, documentType: string): boolean {
+  return (
+    documentType === EtaDocumentTypeCode.Invoice &&
+    finding.code === EtaPrevalidationRuleCode.TaxSubtypeNotMapped &&
+    finding.fixScreen === EtaPrevalidationFixScreen.SourceDocument &&
+    typeof finding.fixRefId === "string"
+  );
+}
 
 /** Which screen a pre-validation finding's `fixScreen` opens — the ETA screen's own tabs, or another screen entirely. */
 function fixHrefFor(finding: EtaPrevalidationFindingDTO, internalId: string): string {
@@ -1416,6 +1426,9 @@ function ReadinessTab() {
                     tone={f.severity === EtaPrevalidationSeverity.Blocking ? "danger" : "warning"}
                   />
                   <span className="text-ink">{f.messageAr}</span>
+                  {classifiableFinding(f, s.documentType) ? (
+                    <EtaFindingClassifyAction documentNumber={s.internalId} lineId={f.fixRefId as string} />
+                  ) : null}
                   <a href={fixHrefFor(f, s.internalId)} className="font-semibold text-brand hover:underline">
                     {pt("fixLink")}
                   </a>

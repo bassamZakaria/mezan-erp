@@ -74,6 +74,23 @@ describe("prevalidateEtaInvoice — a 0% line nobody classified (D79)", () => {
     expect(hasBlockingEtaFindings(findings)).toBe(false);
   });
 
+  it("points the blocking finding at the LINE, so the screen can open «تصنيف ضريبة البند» on it", () => {
+    const [found] = findingsFor(line({ taxClassificationMissing: true, lineRef: "L7" }));
+    expect(found?.fixRefId).toBe("L7");
+  });
+
+  it("warns about an unnamed 0% line on the DOCUMENT and offers the classify action, when the tenant has no specific 0% rate", () => {
+    const [found] = findingsFor(line({ lineRef: "L7" }));
+    expect(found).toMatchObject({ severity: EtaPrevalidationSeverity.Warning, fixScreen: EtaPrevalidationFixScreen.SourceDocument, fixRefId: "L7" });
+    expect(found?.fixHintAr).toContain("تصنيف ضريبة البند");
+  });
+
+  it("still sends a line whose NAMED rate carries the automatic sub-type to the tax rates screen", () => {
+    const [found] = findingsFor(line({ etaTaxSubType: "auto", lineRef: "L7" }));
+    expect(found).toMatchObject({ severity: EtaPrevalidationSeverity.Warning, fixScreen: EtaPrevalidationFixScreen.TaxRates });
+    expect(found?.fixRefId ?? null).toBeNull();
+  });
+
   it("raises nothing for a 0% line that stored its classified rate", () => {
     expect(findingsFor(line({ etaTaxSubType: "V003" }))).toEqual([]);
   });

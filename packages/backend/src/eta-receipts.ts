@@ -563,6 +563,7 @@ async function buildInvoiceEtaInputs(
     const netTotal = (lt?.taxableBase ?? Money.zero()).toString();
     const taxAmount = (lt?.tax ?? Money.zero()).toString();
     prevalidationLines.push({
+      lineRef: line.lineId,
       itemId: line.itemId,
       itemLabel: line.itemNameAr,
       itemCode: item?.etaItemCode ?? null,

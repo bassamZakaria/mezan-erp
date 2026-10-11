@@ -58,6 +58,7 @@ export interface JournalLineInput {
   readonly branchId?: string | null;
   /** The customer/supplier of a line on a party control account (D205). */
   readonly partyId?: string | null;
+  readonly treasuryAccountId?: string | null;
 }
 
 /** Command to create/post a journal entry. */
@@ -145,6 +146,7 @@ function toLine(input: JournalLineInput): JournalLine {
     costCategory: input.costCategory ?? null,
     branchId: input.branchId ?? null,
     partyId: input.partyId ?? null,
+    treasuryAccountId: input.treasuryAccountId ?? null,
   };
 }
 

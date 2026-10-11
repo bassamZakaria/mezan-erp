@@ -13,6 +13,7 @@ import {
   NegativeCashBalanceError,
 } from "./errors.js";
 import { assertRecordIdIsNew } from "../records/duplicate-record-id.js";
+import { assertTreasuryLedgerAccount, type TreasuryLedgerAccountDeps } from "./ledger-account.js";
 
 export interface CreateTreasuryAccountCommand {
   readonly nameEn?: string | null;
@@ -91,6 +92,7 @@ export function validateNewTreasuryAccount(
 export async function createTreasuryAccount(
   command: CreateTreasuryAccountCommand,
   repo: TreasuryAccountRepository,
+  ledgerAccounts?: TreasuryLedgerAccountDeps,
 ): Promise<TreasuryAccount> {
   const existing = await repo.list();
   assertRecordIdIsNew(existing.find((row) => row.id === command.id), command.id);
@@ -117,6 +119,7 @@ export async function createTreasuryAccount(
     guaranteeFacilityLimit,
     status: "active",
   };
+  if (ledgerAccounts) await assertTreasuryLedgerAccount(account, existing, ledgerAccounts);
 
   await repo.create(account);
   return account;

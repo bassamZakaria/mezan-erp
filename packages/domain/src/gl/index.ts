@@ -12,6 +12,7 @@ export type {
   AccountBalance,
   AccountLedgerLine,
   LedgerAggregateFilter,
+  TreasuryBalanceQuery,
   PostedLineFilter,
   PostedLine,
 } from "./ledger.js";

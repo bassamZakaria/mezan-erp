@@ -103,6 +103,8 @@ export interface BranchPolicyEntry {
    * closed to a branch until someone decides it is local.
    */
   readonly branchEditableFields?: readonly string[];
+  /** SECURITY: only an unrestricted session creates a record of this family; a branch asks head office for one. */
+  readonly headOfficeCreates?: boolean;
   /** Fields a branch-restricted session may also state when it CREATES the record, because the record cannot exist without them. */
   readonly branchCreatableFields?: readonly string[];
   /** POST sub-paths of a read-only family that compute and store nothing. */
@@ -288,7 +290,12 @@ export const BRANCH_POLICY_TABLE: readonly BranchPolicyEntry[] = [
   scoped("/gl/recurring/runs", K.RecurringRun, { bodyKinds: { templateId: K.RecurringTemplate } }),
 
   scoped("/warehouses", K.Warehouse),
-  scoped("/treasury-accounts", K.TreasuryAccount, { handlerNarrowed: COUNTS_AND_STATS, unownedIsCompanys: true }),
+  scoped("/treasury-accounts", K.TreasuryAccount, {
+    handlerNarrowed: COUNTS_AND_STATS,
+    unownedIsCompanys: true,
+    headOfficeCreates: true,
+    branchEditableFields: ["name", "nameEn"],
+  }),
   scoped("/sales-invoices", K.SalesInvoice, { handlerNarrowed: COUNTS_AND_STATS, defaultsBranch: true }),
   scoped("/sales-quotes", K.SalesQuote, { handlerNarrowed: COUNTS_AND_STATS, defaultsBranch: true }),
   scoped("/sales-returns", K.SalesReturn, { handlerNarrowed: COUNTS_AND_STATS }),
@@ -399,6 +406,7 @@ export enum BranchRefusalCode {
   WarehouseBranchMismatch = "WAREHOUSE_BRANCH_MISMATCH",
   SharedFieldRestricted = "SHARED_FIELD_RESTRICTED",
   WarehouseOutOfScope = "WAREHOUSE_OUT_OF_SCOPE",
+  HeadOfficeCreatesOnly = "HEAD_OFFICE_CREATES_ONLY",
 }
 
 export interface BranchRefusalBody {
@@ -448,6 +456,11 @@ export const BRANCH_REFUSALS: Readonly<Record<BranchRefusalCode, BranchRefusalBo
     message: "المستودع خارج نطاق المستودعات المصرّح لك بها.",
     messageEn: "The warehouse is outside the warehouses granted to you.",
   },
+  [BranchRefusalCode.HeadOfficeCreatesOnly]: {
+    error: BranchRefusalCode.HeadOfficeCreatesOnly,
+    message: "إنشاء هذا السجل من اختصاص الإدارة العامة، ولا ينشئه حساب مقيّد بفروع محددة. اطلب من الإدارة إنشاءه لفرعك.",
+    messageEn: "Only head office creates this record; an account restricted to specific branches cannot. Ask head office to create it for your branch.",
+  },
   [BranchRefusalCode.WarehouseBranchMismatch]: {
     error: BranchRefusalCode.WarehouseBranchMismatch,
     message: "المستودع لا يتبع فرع المستند. اختر مستودعًا من الفرع نفسه أو غيّر الفرع.",
@@ -494,6 +507,7 @@ export function branchRestrictedAccess(path: string, method = "GET", table: read
   if (!entry || entry.policy === BranchPolicy.CompanyWide || branchSubPathListed(entry, pathname, entry.companyWide, method)) {
     return BranchRestrictedAccess.Unavailable;
   }
+  if (entry.headOfficeCreates && method === "POST" && pathname === entry.prefix) return BranchRestrictedAccess.Unavailable;
   if (entry.policy === BranchPolicy.SharedReadOnly && !branchSubPathListed(entry, pathname, entry.readPosts)) {
     return READ_METHODS.has(method) ? BranchRestrictedAccess.ReadOnly : BranchRestrictedAccess.Unavailable;
   }

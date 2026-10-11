@@ -69,6 +69,7 @@ const REFUSAL_STATUS: Readonly<Record<BranchRefusalCode, 400 | 403 | 404 | 422>>
   [BranchRefusalCode.WarehouseBranchMismatch]: 422,
   [BranchRefusalCode.SharedFieldRestricted]: 403,
   [BranchRefusalCode.WarehouseOutOfScope]: 403,
+  [BranchRefusalCode.HeadOfficeCreatesOnly]: 403,
 };
 
 export function branchRefusal(c: Context, code: BranchRefusalCode): Response {
@@ -661,6 +662,7 @@ export function branchPolicyEnforcement(options: BranchPolicyEnforcementOptions)
       return isRead(c) || subPathListed(entry, routePath, entry.readPosts) ? next() : branchRefusal(c, BranchRefusalCode.CompanyWideOnly);
     }
 
+    if (entry.headOfficeCreates && c.req.method === "POST" && routePath === entry.prefix) return branchRefusal(c, BranchRefusalCode.HeadOfficeCreatesOnly);
     const outsideQuery = await queryRefusal(c, session, entry);
     if (outsideQuery) return outsideQuery;
     const stored = (await storedRecordRefusal(c, session, entry, routePath)) ?? (await storedWarehouseRefusal(c, ctx, directory, entry, routePath));

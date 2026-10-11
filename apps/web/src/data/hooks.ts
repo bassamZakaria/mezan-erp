@@ -618,6 +618,7 @@ const BRANCH_REFUSAL_MESSAGE_KEYS: Readonly<Record<BranchRefusalCode, AppTransla
   [BranchRefusalCode.WarehouseBranchMismatch]: "branchRefusal.WAREHOUSE_BRANCH_MISMATCH",
   [BranchRefusalCode.WarehouseOutOfScope]: "branchRefusal.WAREHOUSE_OUT_OF_SCOPE",
   [BranchRefusalCode.SharedFieldRestricted]: "branchRefusal.SHARED_FIELD_RESTRICTED",
+  [BranchRefusalCode.HeadOfficeCreatesOnly]: "branchRefusal.HEAD_OFFICE_CREATES_ONLY",
 };
 
 /**

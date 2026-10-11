@@ -1,3 +1,4 @@
+import { assertTreasuryLedgerAccount, type TreasuryLedgerAccountDeps } from "./ledger-account.js";
 import { Money } from "../money/index.js";
 import {
   MAX_GUARANTEE_FACILITY_LIMIT_SCALED,
@@ -66,6 +67,7 @@ export async function updateTreasuryAccount(
   accountId: string,
   command: UpdateTreasuryAccountCommand,
   repo: TreasuryAccountRepository,
+  ledgerAccounts?: TreasuryLedgerAccountDeps,
 ): Promise<TreasuryAccount> {
   const current = await repo.findById(accountId);
   if (!current) throw new TreasuryAccountNotFoundError(accountId);
@@ -98,6 +100,8 @@ export async function updateTreasuryAccount(
     guaranteeFacilityLimit: nextFacilityLimit,
     status: command.status ?? current.status,
   };
+
+  if (ledgerAccounts) await assertTreasuryLedgerAccount(updated, await repo.list(), ledgerAccounts);
 
   await repo.update(updated);
   return updated;

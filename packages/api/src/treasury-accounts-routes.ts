@@ -6,17 +6,22 @@ import {
   DuplicateTreasuryAccountCodeError,
   InvalidGuaranteeFacilityLimitError,
   InvalidOpeningBalanceError,
+  InvalidTreasuryLedgerAccountError,
   NegativeCashBalanceError,
   TreasuryAccountNotFoundError,
   AuditChangeAction,
   type AuditSink,
   type TreasuryAccount,
   type TreasuryAccountRepository,
+  type TreasuryLedgerAccountDeps,
 } from "@mezan/domain";
 import { createTreasuryAccountSchema, updateTreasuryAccountSchema } from "@mezan/contracts";
 import { createPermissionGate, type AuthContextResolver, branchScopeOf, withinScope } from "./permission-gate.js";
 import { recordFieldChanges } from "./admin-audit.js";
 import { duplicateIdRefusal } from "./duplicate-id.js";
+import { sharedFieldRefusal } from "./branch-policy.js";
+
+const TREASURY_ACCOUNTS_PREFIX = "/treasury-accounts";
 import { DuplicateRecordIdError } from "@mezan/domain";
 
 function serialize(account: TreasuryAccount) {
@@ -64,6 +69,7 @@ function handleDomainError(c: Context, err: unknown) {
   }
   if (
     err instanceof NegativeCashBalanceError ||
+    err instanceof InvalidTreasuryLedgerAccountError ||
     err instanceof InvalidGuaranteeFacilityLimitError ||
     err instanceof InvalidOpeningBalanceError
   ) {
@@ -94,6 +100,7 @@ export function createTreasuryAccountsRoutes(
    * Repointing one silently is the treasury twin of raising a credit limit.
    */
   audit?: AuditSink,
+  ledgerAccounts?: TreasuryLedgerAccountDeps,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
@@ -243,7 +250,7 @@ export function createTreasuryAccountsRoutes(
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
     try {
-      const account = await createTreasuryAccount(parsed.data, repo);
+      const account = await createTreasuryAccount(parsed.data, repo, ledgerAccounts);
       await auditAccount(c, account, AuditChangeAction.Create);
       return c.json(serialize(account), 201);
     } catch (err) {
@@ -258,7 +265,9 @@ export function createTreasuryAccountsRoutes(
     }
     try {
       const before = await repo.findById(c.req.param("id"));
-      const account = await updateTreasuryAccount(c.req.param("id"), parsed.data, repo);
+      const restricted = before ? sharedFieldRefusal(c, TREASURY_ACCOUNTS_PREFIX, serialize(before), parsed.data) : null;
+      if (restricted) return restricted;
+      const account = await updateTreasuryAccount(c.req.param("id"), parsed.data, repo, ledgerAccounts);
       await auditAccount(c, account, AuditChangeAction.Update, before);
       return c.json(serialize(account));
     } catch (err) {

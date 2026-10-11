@@ -437,7 +437,7 @@ export function createDataMigrationRoutes(
         };
       },
       async (item) => {
-        const account = await createTreasuryAccount(item, deps.treasuryAccounts);
+        const account = await createTreasuryAccount(item, deps.treasuryAccounts, deps.accounts ? { accounts: deps.accounts } : undefined);
         await recordFieldChanges(audit, c, {
           entity: { module: "treasury", entityType: "TREASURY_ACCOUNT", entityId: account.id },
           action: AuditChangeAction.Create,

@@ -73,6 +73,8 @@ export interface DocumentGlPostingLine {
    * bucket rather than being derived from a join that would silently drop them.
    */
   readonly branchId?: string | null;
+  /** The treasury account whose money the line moved; see `JournalLine.treasuryAccountId`. */
+  readonly treasuryAccountId?: string | null;
 }
 
 /**

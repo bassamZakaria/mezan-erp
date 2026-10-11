@@ -203,6 +203,7 @@ export function voucherBaseWithholding(line: VoucherLine): Money {
 
 function buildVoucherLines(line: VoucherLine): DocumentGlPosting["lines"] {
   const { treasuryGlAccountId } = line;
+  const treasuryAccountId = line.treasuryAccountId;
   // BASE, always: GL 1105/2100 and every treasury account are base-currency,
   // so a foreign voucher converts at the rate stamped on it at confirm (B-4).
   const amount = voucherBaseAmount(line);
@@ -222,15 +223,15 @@ function buildVoucherLines(line: VoucherLine): DocumentGlPosting["lines"] {
     const destGl = line.counterTreasuryGlAccountId;
     if (!destGl) throw new Error("transfer voucher missing destination GL account");
     return [
-      { accountId: destGl, debit: amount, credit: zero, memo: null, projectId },
-      { accountId: treasuryGlAccountId, debit: zero, credit: amount, memo: null, projectId },
+      { accountId: destGl, debit: amount, credit: zero, memo: null, projectId, treasuryAccountId: line.counterTreasuryAccountId ?? null },
+      { accountId: treasuryGlAccountId, debit: zero, credit: amount, memo: null, projectId, treasuryAccountId },
     ];
   }
   const counter = line.counterpartyGlAccountId;
   if (!counter) throw new Error("voucher missing counterparty GL account");
   if (line.direction === "receipt") {
     return [
-      { accountId: treasuryGlAccountId, debit: amount, credit: zero, memo: null, projectId },
+      { accountId: treasuryGlAccountId, debit: amount, credit: zero, memo: null, projectId, treasuryAccountId },
       { accountId: counter, debit: zero, credit: amount, memo: null, costCenterId: cc, projectId, costCategory, ...fx },
     ];
   }
@@ -241,13 +242,13 @@ function buildVoucherLines(line: VoucherLine): DocumentGlPosting["lines"] {
     if (!whtAccount) throw new Error("a withholding voucher needs a withholding-tax GL account");
     return [
       { accountId: counter, debit: amount, credit: zero, memo: null, costCenterId: cc, projectId, costCategory, ...fx },
-      { accountId: treasuryGlAccountId, debit: zero, credit: Money.fromScaled(amount.scaled - withheld.scaled), memo: null, projectId },
+      { accountId: treasuryGlAccountId, debit: zero, credit: Money.fromScaled(amount.scaled - withheld.scaled), memo: null, projectId, treasuryAccountId },
       { accountId: whtAccount, debit: zero, credit: withheld, memo: null, projectId },
     ];
   }
   return [
     { accountId: counter, debit: amount, credit: zero, memo: null, costCenterId: cc, projectId, costCategory, ...fx },
-    { accountId: treasuryGlAccountId, debit: zero, credit: amount, memo: null, projectId },
+    { accountId: treasuryGlAccountId, debit: zero, credit: amount, memo: null, projectId, treasuryAccountId },
   ];
 }
 

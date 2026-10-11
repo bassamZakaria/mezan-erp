@@ -7,6 +7,7 @@ import type {
   AccountLedgerLine,
   JournalListFilter,
   LedgerRepository,
+  TreasuryBalanceQuery,
 } from "../ledger.js";
 import type { GlDomainEvent, GlEventPublisher } from "../events.js";
 
@@ -51,6 +52,20 @@ export class InMemoryLedgerRepository implements LedgerRepository {
       .filter((e) => (filter.fromDate ? e.date >= filter.fromDate : true))
       .filter((e) => (filter.toDate ? e.date <= filter.toDate : true))
       .sort((a, b) => (a.date === b.date ? a.id.localeCompare(b.id) : a.date.localeCompare(b.date)));
+  }
+
+  async treasuryAccountBalance(query: TreasuryBalanceQuery): Promise<Money> {
+    let net = 0n;
+    for (const entry of this.rows.values()) {
+      if (!LEDGER_STATUSES.has(entry.status)) continue;
+      if (query.asOfDate && entry.date > query.asOfDate) continue;
+      for (const line of entry.lines) {
+        if (line.accountId !== query.accountId) continue;
+        const holder = line.treasuryAccountId ?? null;
+        if (holder === query.treasuryAccountId || (holder === null && query.withUnattributed)) net += line.debit.scaled - line.credit.scaled;
+      }
+    }
+    return Money.fromScaled(net);
   }
 
   async accountBalance(accountId: string, asOfDate?: string): Promise<AccountBalance> {

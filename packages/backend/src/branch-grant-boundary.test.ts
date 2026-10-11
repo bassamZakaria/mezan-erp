@@ -2015,7 +2015,6 @@ describe("D111 round 4 · a create cannot take over another branch's record by n
     readonly foreignIdSql: string;
   }
   const TAKEOVERS: readonly Takeover[] = [
-    { route: "/treasury-accounts", schema: contracts.createTreasuryAccountSchema, table: "treasury_account", foreignIdSql: "SELECT id FROM treasury_account WHERE id = 'TR-DEMO-BANK'" },
     { route: "/field/vans", schema: contracts.createVanSchema, table: "van", foreignIdSql: "SELECT id FROM van WHERE branch_id = 'BR-MAIN' LIMIT 1" },
     { route: "/field/van-trips", schema: contracts.openVanTripSchema, table: "van_trip", foreignIdSql: "SELECT id FROM van_trip WHERE branch_id = 'BR-MAIN' LIMIT 1" },
     { route: "/crm/opportunities", schema: contracts.createOpportunitySchema, table: "crm_opportunity", foreignIdSql: "SELECT id FROM crm_opportunity WHERE id = 'OPP-DEMO-7'" },
@@ -2074,12 +2073,20 @@ describe("D111 round 4 · a create cannot take over another branch's record by n
     expect(journalCount()).toBe(entries);
   });
 
-  it("a branch user is told its own branch's id is taken", async () => {
-    const before = rowOf("treasury_account", "TR-DEMO-CASH-ALEX");
-    const res = await alex("POST", "/treasury-accounts", sampleOf(contracts.createTreasuryAccountSchema, { ...storedReferences(), id: "TR-DEMO-CASH-ALEX" }));
-    expect(res.status).toBe(409);
-    expect(res.body?.error).toBe(RecordErrorCode.DuplicateId);
-    expect(rowOf("treasury_account", "TR-DEMO-CASH-ALEX")).toBe(before);
+  it("a treasury account is head office's to open: a branch session draws one refusal whoever holds the id it names", async () => {
+    const answers = new Set<string>();
+    for (const caller of [alex, alexStar, bothBranches]) {
+      for (const id of ["TR-DEMO-CASH-ALEX", "TR-DEMO-BANK", "D111-R5-TR-FREE"]) {
+        const before = rowOf("treasury_account", id);
+        const res = await caller("POST", "/treasury-accounts", sampleOf(contracts.createTreasuryAccountSchema, { ...storedReferences(), id }));
+        expect(res.status, JSON.stringify(res.body).slice(0, 200)).toBe(403);
+        expect(res.body?.error).toBe("HEAD_OFFICE_CREATES_ONLY");
+        expect(res.body?.message).toMatch(ARABIC);
+        expect(rowOf("treasury_account", id)).toBe(before);
+        answers.add(JSON.stringify(res.body));
+      }
+    }
+    expect(answers.size).toBe(1);
   });
 
   it("a shared cost centre cannot be renamed through the create route by any session", async () => {
@@ -2433,7 +2440,7 @@ describe("D111 round 4 · a company-level record is not created by a branch-rest
     for (const caller of [alex, alexStar, bothBranches]) {
       const res = await caller("POST", "/treasury-accounts", { id: "D111-R4-TR-COMPANY", code: "R4-CO", name: "حساب الشركة", type: "bank", branchId: null });
       expect(res.status, JSON.stringify(res.body).slice(0, 200)).toBe(403);
-      expect(res.body?.error).toBe("COMPANY_WIDE_REPORT");
+      expect(res.body?.error).toBe("HEAD_OFFICE_CREATES_ONLY");
       expect(res.body?.message).toMatch(ARABIC);
       expect(one("SELECT id FROM treasury_account WHERE id = 'D111-R4-TR-COMPANY'")).toBeUndefined();
     }

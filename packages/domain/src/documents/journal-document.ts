@@ -172,6 +172,7 @@ export function createJournalGlHook(deps: JournalPostingDeps): DocumentGlHook {
             projectId: l.projectId ?? null,
             costCategory: l.costCategory ?? null,
             branchId: l.branchId ?? null,
+            treasuryAccountId: l.treasuryAccountId ?? null,
             currency: l.currency ?? null,
             fxRate: l.fxRate ?? null,
           })),

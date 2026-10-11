@@ -78,6 +78,13 @@ export interface JournalLine {
    * sub-ledger record.
    */
   readonly partyId?: string | null;
+  /**
+   * LEDGER INVARIANT: the cash or bank account (حساب الخزينة) whose money this
+   * line moved. Several drawers may post to one ledger account; this is what
+   * tells one drawer's cash from another's, so a drawer is never paid out of
+   * cash another drawer holds.
+   */
+  readonly treasuryAccountId?: string | null;
 }
 
 /**

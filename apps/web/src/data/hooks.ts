@@ -3077,7 +3077,6 @@ export interface ClassifyLineTaxAct {
   readonly withLineIds: readonly string[];
 }
 
-/** «تصنيف ضريبة البند» — names the tax rate of a posted line that stored none. */
 export function useClassifyLineTax(document: ClassifiableDocument) {
   const { t } = useAppTranslation();
   const { request } = useApi();

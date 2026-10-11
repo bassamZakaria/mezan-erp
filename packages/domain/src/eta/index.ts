@@ -54,6 +54,8 @@ export {
   createInMemoryEtaReceiptGaps,
   createKeyedSerializer,
   EtaReceiptChainConflictError,
+  EtaReceiptSourceKind,
+  parseEtaReceiptSourceKind,
   type EtaReceiptChainAppend,
   type EtaReceiptChainHead,
   type EtaReceiptChainRepository,

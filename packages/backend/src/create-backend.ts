@@ -20,6 +20,7 @@ import {
   SiteService,
   StockLedgerService,
   applyAllocatedSettlement,
+  EtaReceiptSourceKind,
   SalesQuoteService,
   SalesPricingMode,
   ETA_REQUEUE_MODE,
@@ -3571,7 +3572,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       rebuildSubmission: rebuildEtaInvoiceSubmission,
       issueDocumentReceipt: async (kind, docId) => {
         const issued =
-          kind === "invoice" ? await etaReceipts.issueInvoiceReceipt(docId) : await etaReceipts.issueReturnReceipt(docId);
+          kind === EtaReceiptSourceKind.Invoice ? await etaReceipts.issueInvoiceReceipt(docId) : await etaReceipts.issueReturnReceipt(docId);
         if (issued) etaReceipts.scheduleSubmission();
         return issued;
       },
@@ -3579,7 +3580,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       // 96-hour window, referencing the rejected one via header.referenceOldUUID.
       reissueDocumentReceipt: async (kind, docId) => {
         const issued =
-          kind === "invoice"
+          kind === EtaReceiptSourceKind.Invoice
             ? await etaReceipts.reissueInvoiceReceipt(docId)
             : await etaReceipts.reissueReturnReceipt(docId);
         if (issued) etaReceipts.scheduleSubmission();

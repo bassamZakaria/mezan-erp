@@ -81,7 +81,6 @@ export interface SalesQuoteRoutesDeps {
   readonly taxRates?: Pick<TaxRateRepository, "list">;
   /** Where a customer's tax exemption is read from; a request body is never believed (D79). */
   readonly customerTax?: CustomerTaxProfileSource;
-  /** The tenant's VAT switch, for the quote and for the invoice it converts into. */
   readonly taxPolicy?: SalesTaxPolicySource;
   readonly numbering: DocumentNumberingHook;
   readonly now?: () => string;

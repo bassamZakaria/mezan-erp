@@ -150,7 +150,6 @@ export interface PurchasesRoutesDeps {
    * describes commit together. Omitted, every flow behaves exactly as before.
    */
   readonly transactor?: PurchaseTransactor;
-  /** Names the rate on a classified line's posted journal lines; without it `classify-tax` answers 501. */
   readonly taxTags?: PurchaseInvoiceTaxTagPort;
   readonly taxDependents?: TaxClassificationDependentsPort;
   readonly accounts: PurchaseGlAccounts;
@@ -1374,7 +1373,6 @@ export function createPurchasesRoutes(
     }
   });
 
-  /** The purchase twin of `POST /sales-invoices/:id/lines/:lineId/journal-tax`; `:lineId` is the line's index. */
   app.post("/invoices/:id/lines/:lineId/journal-tax", gate("purchases.invoice.classify_tax"), async (c) => {
     const ctx = getAuthContext(c);
     if (!ctx || !can(ctx, "accounting.journal.view")) {

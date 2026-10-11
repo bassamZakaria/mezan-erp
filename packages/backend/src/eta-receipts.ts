@@ -27,6 +27,7 @@ import {
   TaxClassificationFiledUnreadableError,
   TaxClassificationFilingOutcome,
   EtaReissueWindowExpiredError,
+  EtaReceiptSourceKind,
   type EtaSubmission,
   type FrameworkDocument,
   type ReturnTaxFilingPort,
@@ -233,7 +234,7 @@ export function createEtaReceiptIssuer(deps: EtaReceiptIssuerDeps): EtaReceiptIs
    * the confirm that produced it has already posted and will not be undone.
    */
   async function withGap<T>(
-    gap: { readonly internalId: string; readonly docType: "invoice" | "return"; readonly docId: string; readonly issuedAt: string },
+    gap: { readonly internalId: string; readonly docType: EtaReceiptSourceKind; readonly docId: string; readonly issuedAt: string },
     issue: () => Promise<T>,
   ): Promise<T> {
     try {
@@ -326,7 +327,7 @@ export function createEtaReceiptIssuer(deps: EtaReceiptIssuerDeps): EtaReceiptIs
       const reprint = await deps.eta.receiptForPrint(receiptNo);
       if (reprint) return { receiptNo: reprint.receiptNo, uuid: reprint.uuid, qrValue: reprint.qrValue };
       const issuedAt = invoice.confirmedAt ?? now();
-      return withGap({ internalId: receiptNo, docType: "invoice", docId: invoice.id, issuedAt }, async () => {
+      return withGap({ internalId: receiptNo, docType: EtaReceiptSourceKind.Invoice, docId: invoice.id, issuedAt }, async () => {
         const printed = await deps.eta.enqueueReceipt(
           buildPosReceiptInput({
             invoice,
@@ -353,7 +354,7 @@ export function createEtaReceiptIssuer(deps: EtaReceiptIssuerDeps): EtaReceiptIs
       const reprint = await deps.eta.receiptForPrint(receiptNo);
       if (reprint) return { receiptNo: reprint.receiptNo, uuid: reprint.uuid, qrValue: reprint.qrValue };
       const issuedAt = doc.confirmedAt ?? now();
-      return withGap({ internalId: receiptNo, docType: "return", docId: doc.id, issuedAt }, async () => {
+      return withGap({ internalId: receiptNo, docType: EtaReceiptSourceKind.Return, docId: doc.id, issuedAt }, async () => {
         const original = await deps.eta.findByInternalId(invoice.docNo ?? invoice.id);
         if (!original || original.documentType !== "receipt" || !original.etaUuid) {
           throw new EtaOriginalReceiptNotFoundError(invoice.docNo ?? invoice.id);

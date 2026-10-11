@@ -31,7 +31,6 @@ import {
 import { recordFieldChanges } from "./admin-audit.js";
 import { tenantToday } from "./tenant-day.js";
 
-/** Resolves a tax rate by id, so `taxExemptionRateId` can be checked against the real resource. */
 export interface CustomerTaxRateLookup {
   findById(id: string): Promise<Pick<TaxRate, "id" | "name" | "rate" | "status"> | null>;
 }

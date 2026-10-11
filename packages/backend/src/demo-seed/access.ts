@@ -69,9 +69,6 @@ const ROLES = [
       "treasury.cash_voucher.view",
       "sales.invoice.view",
       "purchases.invoice.view",
-      // تصنيف ضريبة البند: naming the rate of a posted line that stored none
-      // is the accountant's correction. The permission shipped held by no
-      // role, so only the owner's account could clear a blocked e-invoice.
       "sales.invoice.classify_tax",
       "purchases.invoice.classify_tax",
     ],

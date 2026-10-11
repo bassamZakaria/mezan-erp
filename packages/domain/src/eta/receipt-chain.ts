@@ -102,6 +102,15 @@ export function createKeyedSerializer(): <T>(key: string, task: () => Promise<T>
   };
 }
 
+export enum EtaReceiptSourceKind {
+  Invoice = "invoice",
+  Return = "return",
+}
+
+export function parseEtaReceiptSourceKind(value: string): EtaReceiptSourceKind | null {
+  return Object.values(EtaReceiptSourceKind).find((kind) => kind === value) ?? null;
+}
+
 /**
  * إيصال لم يصدر — a consumer sale or return that should have been receipted
  * and was not (no device, missing registration, no original receipt…). Kept
@@ -112,7 +121,7 @@ export function createKeyedSerializer(): <T>(key: string, task: () => Promise<T>
 export interface EtaReceiptGap {
   /** The receipt number it would have carried (the document number). */
   readonly internalId: string;
-  readonly docType: "invoice" | "return";
+  readonly docType: EtaReceiptSourceKind;
   readonly docId: string;
   /** The sale (or return) moment the reporting window runs from. */
   readonly issuedAt: string;

@@ -173,7 +173,6 @@ export interface SalesInvoiceServiceDeps {
   /** Without it no draft line can be given a `taxRateId`, and a line that names one is refused. */
   readonly taxRates?: Pick<TaxRateRepository, "list">;
   readonly taxRerating?: SalesTaxReratingPort;
-  /** Names the tax rate on the posted journal lines of a line being classified (D79). */
   readonly taxTags?: JournalTaxTagPort;
   /**
    * Brings the e-document the authority holds, or is about to, in line with a
@@ -181,7 +180,6 @@ export interface SalesInvoiceServiceDeps {
    * refuse it — a filed document's classification cannot be contradicted.
    */
   readonly taxFiling?: SalesInvoiceTaxFilingPort;
-  /** Carries a classification to the returns already raised against the line, in its transaction. */
   readonly taxDependents?: TaxClassificationDependentsPort;
   /**
    * Exchange rates, so a foreign-currency invoice posts its base-currency
@@ -311,7 +309,6 @@ export interface ConfirmSalesInvoiceResult {
   readonly creditWarning: CreditCheckResult | null;
   /** Lines charged below the customer's assigned price list; empty when none, or when no list applies. */
   readonly pricingVariances: readonly PricingVariance[];
-  /** The lines were re-rated because the VAT switch moved since the draft was raised. */
   readonly taxRecalculated: boolean;
 }
 

@@ -35,7 +35,6 @@ export const PURCHASE_INVOICE_STATUS_LABELS_AR: Readonly<Record<PurchaseInvoiceS
   [PurchaseInvoiceStatusCode.Cancelled]: "ملغاة",
 };
 
-/** Names the rate on the invoice's posted journal lines; the composition root knows which entry is the invoice's. */
 export interface PurchaseInvoiceTaxTagPort {
   retagUnnamedTaxRate(invoiceId: string, taxRatePercent: number, taxRateId: string, expected?: readonly ExpectedTaxJournalLine[]): Promise<number>;
   nameChosenLines(
@@ -51,7 +50,6 @@ export interface ClassifyPurchaseInvoiceLineTaxDeps extends PurchaseAuditDeps {
   readonly invoices: PurchaseInvoiceRepository;
   readonly taxRates?: Pick<TaxRateRepository, "list">;
   readonly taxTags?: PurchaseInvoiceTaxTagPort;
-  /** Carries a classification to the returns already raised against the line, in its transaction. */
   readonly taxDependents?: TaxClassificationDependentsPort;
   /**
    * The accounts the invoice posted to. With them the lines a classification
@@ -169,7 +167,6 @@ export async function classifyPurchaseInvoiceLineTax(
   });
 }
 
-/** The purchase twin of `SalesInvoiceService.nameJournalLineTax`. */
 export async function namePurchaseInvoiceJournalLineTax(
   id: string,
   request: { readonly lineRef: string; readonly withLineRefs?: readonly string[]; readonly taxRateId?: string; readonly journalLineIndexes: readonly number[] },

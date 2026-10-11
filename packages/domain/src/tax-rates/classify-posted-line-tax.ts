@@ -14,7 +14,6 @@ export interface ClassifyPostedLineTaxRequest {
   readonly lineRef: string;
   readonly withLineRefs?: readonly string[];
   readonly taxRateId: string;
-  /** «تسمية ضريبة سطر القيد»: the entry's lines, by position, chosen by hand. */
   readonly journalLineIndexes?: readonly number[];
 }
 
@@ -78,7 +77,6 @@ export interface ChosenJournalLinesNamed {
   readonly after: readonly JournalLineTaxTag[];
 }
 
-/** Writes the tax-rate tag on a posted entry's lines that carry none. */
 export interface JournalTaxTagPort {
   retagUnnamedTaxRate(entryId: string, taxRatePercent: number, taxRateId: string, expected?: readonly ExpectedTaxJournalLine[]): Promise<number>;
   /**

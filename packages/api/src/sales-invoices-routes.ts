@@ -136,11 +136,9 @@ export interface SalesInvoiceRoutesDeps {
   readonly taxRates?: Pick<TaxRateRepository, "list">;
   /** Where a customer's tax exemption is read from; a request body is never believed (D79). */
   readonly customerTax?: CustomerTaxProfileSource;
-  /** Names the rate on a classified line's posted journal lines; without it `classify-tax` answers 501. */
   readonly taxTags?: SalesInvoiceServiceDeps["taxTags"];
   readonly taxFiling?: SalesInvoiceServiceDeps["taxFiling"];
   readonly taxDependents?: SalesInvoiceServiceDeps["taxDependents"];
-  /** Runs after a classification commits — issues the e-receipt a consumer sale was refused for its unnamed line. */
   readonly afterTaxClassified?: (invoiceId: string) => Promise<{ readonly outcome: TaxClassificationFilingOutcome; readonly message?: string } | null>;
   /**
    * The tenant's discount ceiling (settings §"الرقابة الائتمانية"). Optional
@@ -220,9 +218,7 @@ export interface SalesInvoiceRoutesDeps {
    */
   readonly stockRestore?: DocumentStockHook;
   readonly withdrawUnsentEtaSubmission?: (invoice: SalesInvoice) => Promise<void>;
-  /** Runs in the cancel's own transaction — hands a converted quote back as accepted. */
   readonly onDraftCancelled?: (invoice: SalesInvoice) => Promise<void>;
-  /** The rate an item is sold under, for a line re-rated when the VAT switch has moved. */
   readonly itemTax?: (itemId: string) => Promise<{ readonly taxRatePercent: number } | null>;
   readonly audit?: AuditSink;
   readonly allocatable?: AllocatableInvoiceRepository;

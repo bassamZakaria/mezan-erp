@@ -50,6 +50,8 @@ import {
   type TaxRateRepository,
   AuditChangeAction,
   type AuditSink,
+  EtaReceiptSourceKind,
+  parseEtaReceiptSourceKind,
 } from "@mezan/domain";
 import { recordFieldChanges } from "./admin-audit.js";
 import {
@@ -81,7 +83,7 @@ export interface EtaRoutesDeps {
    * (a gap), once its cause is fixed. Wired to the backend's receipt issuer.
    */
   readonly issueDocumentReceipt?: (
-    kind: "invoice" | "return",
+    kind: EtaReceiptSourceKind,
     docId: string,
   ) => Promise<{ receiptNo: string; uuid: string; qrValue: string } | null>;
   /**
@@ -90,7 +92,7 @@ export interface EtaRoutesDeps {
    * Null when the document's receipt was never rejected — nothing to correct.
    */
   readonly reissueDocumentReceipt?: (
-    kind: "invoice" | "return",
+    kind: EtaReceiptSourceKind,
     docId: string,
   ) => Promise<{ receiptNo: string; uuid: string; qrValue: string } | null>;
   /**
@@ -661,8 +663,8 @@ export function createEtaRoutes(
   });
 
   app.post("/receipts/issue/:kind/:docId", gate("accounting.eta.submit"), async (c) => {
-    const kind = c.req.param("kind");
-    if (kind !== "invoice" && kind !== "return") return c.json({ error: "NOT_FOUND" }, 404);
+    const kind = parseEtaReceiptSourceKind(c.req.param("kind"));
+    if (!kind) return c.json({ error: "NOT_FOUND" }, 404);
     if (!deps.issueDocumentReceipt) return c.json({ error: "NOT_CONFIGURED" }, 404);
     try {
       const printed = await deps.issueDocumentReceipt(kind, c.req.param("docId"));
@@ -679,8 +681,8 @@ export function createEtaRoutes(
   });
 
   app.post("/receipts/reissue/:kind/:docId", gate("accounting.eta.submit"), async (c) => {
-    const kind = c.req.param("kind");
-    if (kind !== "invoice" && kind !== "return") return c.json({ error: "NOT_FOUND" }, 404);
+    const kind = parseEtaReceiptSourceKind(c.req.param("kind"));
+    if (!kind) return c.json({ error: "NOT_FOUND" }, 404);
     if (!deps.reissueDocumentReceipt) return c.json({ error: "NOT_CONFIGURED" }, 404);
     try {
       const printed = await deps.reissueDocumentReceipt(kind, c.req.param("docId"));

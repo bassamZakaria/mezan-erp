@@ -1,13 +1,9 @@
 import type { SettingsRepository } from "../settings/ports.js";
-import { createDefaultSettings, type TenantSettings } from "../settings/settings.js";
+import { createDefaultSettings, TaxCalculationModeCode, type TenantSettings } from "../settings/settings.js";
 
-/** The tenant's VAT rules as a sale reads them (settings §"الضريبة"). */
 export interface SalesInvoiceTaxPolicy {
-  /** The tenant charges VAT at all. Off, every line is raised at 0%. */
   readonly enabled: boolean;
-  /** The rate a line that names none is raised at. */
   readonly defaultRatePercent: number;
-  /** Unit prices already contain the tax. */
   readonly inclusive: boolean;
 }
 
@@ -26,7 +22,7 @@ export function salesTaxPolicyFromSettings(settings: Pick<TenantSettings, "taxEn
   return {
     enabled: settings.taxEnabled,
     defaultRatePercent: settings.defaultTaxRate,
-    inclusive: settings.taxCalculation === "INCLUSIVE",
+    inclusive: settings.taxCalculation === TaxCalculationModeCode.Inclusive,
   };
 }
 

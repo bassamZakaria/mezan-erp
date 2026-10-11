@@ -28,7 +28,6 @@ export interface SalesQuoteServiceDeps {
   readonly repo: SalesQuoteRepository;
   readonly numbering: DocumentNumberingHook;
   readonly taxRates?: Pick<TaxRateRepository, "list">;
-  /** The tenant's VAT switch; omit and a quote is priced as if VAT were on. */
   readonly taxPolicy?: SalesTaxPolicySource;
   /** ISO-8601 UTC "now"; overridable for deterministic tests. */
   readonly now?: () => string;

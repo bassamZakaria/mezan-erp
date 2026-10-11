@@ -33,7 +33,6 @@ export interface ReturnTaxFilingPort<Line> {
 export function createReturnTaxCarry<Line extends SourcedTaxLine>(deps: {
   readonly returns: DocumentRepository<Line>;
   readonly tags: JournalTaxTagPort;
-  /** What the return's lines at one percent and no rate posted — its own posting builder's lines. */
   readonly expected: (doc: FrameworkDocument<Line>, taxRatePercent: number) => readonly ExpectedTaxJournalLine[];
   readonly filing?: ReturnTaxFilingPort<Line>;
 }): TaxClassificationDependentsPort {

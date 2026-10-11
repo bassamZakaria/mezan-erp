@@ -663,7 +663,6 @@ export interface CreateAppOptions {
      */
     readonly layers?: CostLayerRepository;
     readonly resolveTaxRate?: (itemId: string) => number | Promise<number>;
-    /** Carries a purchase line's tax classification to the purchase returns already raised against it. */
     readonly taxDependents?: PurchasesRoutesDeps["taxDependents"];
     readonly taxRates?: PurchasesRoutesDeps["taxRates"];
     readonly autoBatchNo?: (input: { itemId: string; receiptNumber: string; lineIndex: number }) => Promise<string | null>;

@@ -177,7 +177,6 @@ export const lineTaxClassificationSchema = z.object({
   taxRatePercent: z.number(),
   journalLinesNamed: z.number().int().nonnegative(),
   filing: z.nativeEnum(TaxClassificationFilingOutcomeCode),
-  /** Why a rejected e-receipt could not be reissued, in Arabic; present only with `reissue_refused`. */
   filingMessage: z.string().optional(),
 });
 

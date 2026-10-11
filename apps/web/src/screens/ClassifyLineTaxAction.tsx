@@ -27,7 +27,6 @@ export interface ClassifyLineTaxActionProps {
   readonly line: ClassifiableLine;
   readonly lines: readonly ClassifiableLine[];
   readonly taxRates: readonly TaxRateDTO[];
-  /** Opened by another control that carries the label itself: the dialog renders alone, already open. */
   readonly openedExternally?: boolean;
   readonly onClosed?: () => void;
 }

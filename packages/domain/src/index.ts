@@ -191,6 +191,7 @@ export * from "./cost-center-pl/index.js";
 export * from "./reconciliation/index.js";
 // eta/ — الفاتورة الإلكترونية (ETA e-invoicing) config + submission queue
 export * from "./eta/index.js";
+export { InvoiceDocumentKind, isRetentionRelease } from "./documents/invoice-document-kind.js";
 // --- cheques/ — Cheque Register (phase7/treasury-completion) ---
 export * from "./cheques/index.js";
 

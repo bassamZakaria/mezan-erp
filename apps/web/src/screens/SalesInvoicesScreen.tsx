@@ -1597,6 +1597,7 @@ function InvoiceDetailView({
                               document={ClassifiableDocument.SalesInvoice}
                               documentId={invoice.id}
                               posted={SALES_INVOICE_ACTIVE_STATUSES.has(invoice.status)}
+                              documentKind={invoice.documentKind}
                               line={{ lineId: l.lineId, label: l.itemNameAr, taxRatePercent: l.taxRatePercent, taxRateId: l.taxRateId ?? null }}
                               lines={invoice.lines.map((other) => ({ lineId: other.lineId, label: other.itemNameAr, taxRatePercent: other.taxRatePercent, taxRateId: other.taxRateId ?? null }))}
                               taxRates={detailTaxRates}

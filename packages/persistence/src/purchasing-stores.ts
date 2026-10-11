@@ -19,6 +19,7 @@ import {
   type PurchaseInvoiceListFilter,
   type PurchaseInvoiceRepository,
   type PurchaseInvoiceStatus,
+  InvoiceDocumentKind,
   PurchaseInvoiceStatusCode,
 } from "@mezan/domain";
 
@@ -315,7 +316,8 @@ CREATE TABLE IF NOT EXISTS purchase_invoice (
   status                  TEXT NOT NULL,
   fx_rate                 TEXT,
   created_by              TEXT NOT NULL,
-  created_at              TEXT NOT NULL
+  created_at              TEXT NOT NULL,
+  document_kind           TEXT NOT NULL DEFAULT 'standard'
 );
 CREATE INDEX IF NOT EXISTS idx_pi_supplier ON purchase_invoice(supplier_id);
 CREATE INDEX IF NOT EXISTS idx_pi_status ON purchase_invoice(status);
@@ -342,6 +344,7 @@ interface PiRow {
   status: string;
   created_by: string;
   created_at: string;
+  document_kind: string | null;
 }
 
 function piToDomain(row: PiRow): PurchaseInvoice {
@@ -370,6 +373,7 @@ function piToDomain(row: PiRow): PurchaseInvoice {
   }));
   return {
     id: row.id,
+    documentKind: row.document_kind === InvoiceDocumentKind.RetentionRelease ? InvoiceDocumentKind.RetentionRelease : InvoiceDocumentKind.Standard,
     number: row.number,
     supplierId: row.supplier_id,
     date: row.date,
@@ -395,8 +399,8 @@ class SqlitePurchaseInvoiceStore implements PurchaseInvoiceRepository {
 
   constructor(private readonly sqlite: Database.Database, private readonly versions?: DocumentVersionStore) {
     this.upsert = sqlite.prepare(`
-      INSERT INTO purchase_invoice (id, number, supplier_id, date, due_date, supplier_invoice_number, branch_id, warehouse_id, currency, notes, receipt_id, project_id, lines, status, fx_rate, created_by, created_at)
-      VALUES (@id, @number, @supplier_id, @date, @due_date, @supplier_invoice_number, @branch_id, @warehouse_id, @currency, @notes, @receipt_id, @project_id, @lines, @status, @fx_rate, @created_by, @created_at)
+      INSERT INTO purchase_invoice (id, number, supplier_id, date, due_date, supplier_invoice_number, branch_id, warehouse_id, currency, notes, receipt_id, project_id, lines, status, fx_rate, created_by, created_at, document_kind)
+      VALUES (@id, @number, @supplier_id, @date, @due_date, @supplier_invoice_number, @branch_id, @warehouse_id, @currency, @notes, @receipt_id, @project_id, @lines, @status, @fx_rate, @created_by, @created_at, @document_kind)
       ON CONFLICT(id) DO UPDATE SET
         supplier_id = excluded.supplier_id, date = excluded.date, due_date = excluded.due_date,
         supplier_invoice_number = excluded.supplier_invoice_number, branch_id = excluded.branch_id,
@@ -489,6 +493,7 @@ class SqlitePurchaseInvoiceStore implements PurchaseInvoiceRepository {
       notes: inv.notes,
       receipt_id: inv.receiptId,
       project_id: inv.projectId ?? null,
+      document_kind: inv.documentKind ?? InvoiceDocumentKind.Standard,
       lines: JSON.stringify(
         inv.lines.map((l) => ({
           itemId: l.itemId,
@@ -537,6 +542,20 @@ export function createSqlitePurchaseOrderStore(path: SqliteConnectionInput = ":m
 }
 
 /** Add a column in place when an existing books file predates it — `CREATE TABLE IF NOT EXISTS` never widens an existing table. */
+// A subcontract release raised before the kind was stored is known by the id
+// its issuer gives it and no other invoice; marked once, when the column arrives.
+// ORDER MATTERS: `pending` is read before CREATE_PI runs — running it brings an
+// older table up to the declared shape, after which the column always exists.
+function purchaseInvoiceKindUnrecorded(sqlite: Database.Database): boolean {
+  const columns = sqlite.prepare(`PRAGMA table_info(purchase_invoice)`).all() as { name: string }[];
+  return columns.length > 0 && !columns.some((c) => c.name === "document_kind");
+}
+
+function markPurchaseRetentionReleases(sqlite: Database.Database, pending: boolean): void {
+  if (!pending) return;
+  sqlite.prepare(`UPDATE purchase_invoice SET document_kind = ? WHERE id LIKE '%-RET-%-PINV'`).run(InvoiceDocumentKind.RetentionRelease);
+}
+
 function addColumnIfMissing(sqlite: Database.Database, table: string, column: string, ddl: string): void {
   const columns = sqlite.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
   if (!columns.some((c) => c.name === column)) {
@@ -556,10 +575,12 @@ export function createSqliteGoodsReceiptStore(path: SqliteConnectionInput = ":me
 /** Open a SQLite-backed PurchaseInvoiceRepository. */
 export function createSqlitePurchaseInvoiceStore(path: SqliteConnectionInput = ":memory:"): SqlitePurchaseInvoiceStoreHandle {
   const { sqlite, owned } = openSqliteConnection(path);
+  const kindUnrecorded = purchaseInvoiceKindUnrecorded(sqlite);
   sqlite.exec(CREATE_PI);
   // `fx_rate`/`project_id` arrived after the table shipped; add them in place.
   addColumnIfMissing(sqlite, "purchase_invoice", "fx_rate", "fx_rate TEXT");
   addColumnIfMissing(sqlite, "purchase_invoice", "project_id", "project_id TEXT");
+  markPurchaseRetentionReleases(sqlite, kindUnrecorded);
   addVersionColumns(sqlite, "purchase_invoice");
   const versions = createDocumentVersionStore(sqlite, "purchase_invoice");
   return Object.assign(new SqlitePurchaseInvoiceStore(sqlite, versions), { versions, close: () => { if (owned) sqlite.close(); } });
@@ -578,12 +599,14 @@ export interface SqlitePurchasingStores {
 
 export function createSqlitePurchasingStores(path: SqliteConnectionInput = ":memory:"): SqlitePurchasingStores {
   const { sqlite, owned } = openSqliteConnection(path);
+  const kindUnrecorded = purchaseInvoiceKindUnrecorded(sqlite);
   sqlite.exec(CREATE_PO);
   sqlite.exec(CREATE_GR);
   sqlite.exec(CREATE_PI);
   addColumnIfMissing(sqlite, "goods_receipt", "project_id", "project_id TEXT");
   addColumnIfMissing(sqlite, "purchase_invoice", "fx_rate", "fx_rate TEXT");
   addColumnIfMissing(sqlite, "purchase_invoice", "project_id", "project_id TEXT");
+  markPurchaseRetentionReleases(sqlite, kindUnrecorded);
   return {
     orders: new SqlitePurchaseOrderStore(sqlite),
     receipts: new SqliteGoodsReceiptStore(sqlite),

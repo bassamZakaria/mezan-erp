@@ -132,6 +132,16 @@ export class EtaReceiptNotReadyError extends Error {
   }
 }
 
+export class EtaReceiptNotASupplyError extends Error {
+  readonly code = "ETA_RECEIPT_NOT_A_SUPPLY";
+  readonly messageEn: string;
+  constructor(readonly documentNumber: string) {
+    super(`المستند ${documentNumber} إفراج عن محتجزات وليس بيعاً، فلا يصدر له إيصال إلكتروني ولا يُرسل لمصلحة الضرائب.`);
+    this.messageEn = `Document ${documentNumber} is a retention release, not a sale; it is issued no e-receipt and is not filed with the tax authority.`;
+    this.name = "EtaReceiptNotASupplyError";
+  }
+}
+
 /** SDK Receipt v1.2 buyer: a natural person at or above the threshold must carry a national ID and a name. */
 export class EtaBuyerIdentityRequiredError extends Error {
   readonly code = "ETA_BUYER_IDENTITY_REQUIRED";

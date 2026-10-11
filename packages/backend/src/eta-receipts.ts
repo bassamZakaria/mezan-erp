@@ -10,6 +10,8 @@ import {
   EtaSubmissionStatusCode,
   EtaDeviceSerialNotRegisteredError,
   EtaDeviceSerialUnknownError,
+  EtaReceiptNotASupplyError,
+  isRetentionRelease,
   EtaOfflineError,
   EtaOriginalReceiptNotFoundError,
   etaReceiptIssuedAt,
@@ -280,6 +282,7 @@ export function createEtaReceiptIssuer(deps: EtaReceiptIssuerDeps): EtaReceiptIs
     async issueInvoiceReceipt(invoiceId, options = {}) {
       const invoice = await deps.invoices.findById(invoiceId);
       if (!invoice || !SALES_INVOICE_ACTIVE_STATUSES.has(invoice.status)) return null;
+      if (isRetentionRelease(invoice)) throw new EtaReceiptNotASupplyError(invoice.docNo ?? invoice.id);
       const { b2b, buyer } = await buyerOf(invoice.customerId);
       if (b2b) return null;
       const receiptNo = invoice.docNo ?? invoice.id;
@@ -339,6 +342,7 @@ export function createEtaReceiptIssuer(deps: EtaReceiptIssuerDeps): EtaReceiptIs
     async reissueInvoiceReceipt(invoiceId, options = {}) {
       const invoice = await deps.invoices.findById(invoiceId);
       if (!invoice || !SALES_INVOICE_ACTIVE_STATUSES.has(invoice.status)) return null;
+      if (isRetentionRelease(invoice)) throw new EtaReceiptNotASupplyError(invoice.docNo ?? invoice.id);
       const { b2b, buyer } = await buyerOf(invoice.customerId);
       if (b2b) return null;
       const receiptNo = invoice.docNo ?? invoice.id;
@@ -476,7 +480,7 @@ export function createEtaEnqueueBridge(deps: {
       if (stopped) return;
       const task = (async () => {
         const invoice = await deps.invoices.findById(event.docId);
-        if (!invoice) return;
+        if (!invoice || isRetentionRelease(invoice)) return;
         const customer = await deps.customers.findById(invoice.customerId);
         if (!customer?.taxNumber) {
           // The confirm route issues this receipt itself, with the tender the
@@ -654,7 +658,7 @@ export function createEtaInvoiceRequeueRebuilder(
   return async (submission) => {
     if (submission.documentType !== "invoice") return null;
     const invoice = await deps.invoices.findByDocNo(submission.internalId);
-    if (!invoice) return null;
+    if (!invoice || isRetentionRelease(invoice)) return null;
     const customer = await deps.customers.findById(invoice.customerId);
     if (!customer?.taxNumber) return null;
     const { enqueueInput, prevalidation } = await buildInvoiceEtaInputs(

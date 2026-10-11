@@ -51,6 +51,7 @@ import {
   type SubcontractRetentionInvoicingPort,
   CERTIFICATE_WORKS_ITEM_ID,
   RETENTION_RELEASE_ITEM_ID,
+  InvoiceDocumentKind,
   GuaranteeService,
   type CertificateInvoicingPort,
   type RetentionReleaseInvoicingPort,
@@ -1440,6 +1441,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       });
       await service.createDraft({
         id: invoiceId,
+        documentKind: InvoiceDocumentKind.RetentionRelease,
         date: cmd.date,
         dueDate: cmd.dueDate,
         customerId: cmd.customerId,
@@ -1677,6 +1679,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       await createPurchaseInvoice(
         {
           id: invoiceId,
+          documentKind: InvoiceDocumentKind.RetentionRelease,
           supplierId: cmd.supplierId,
           date: cmd.date,
           dueDate: cmd.dueDate,

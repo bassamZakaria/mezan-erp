@@ -36,9 +36,6 @@ export function firstSourceLineWithRoom(sold: readonly SourceLineQty[], taken: r
 
 const LARGEST_PLAIN_DECIMAL = 1e21;
 
-// A cleared quantity field holds NaN: it takes nothing from its line. The
-// result is always a plain decimal — `String(1e-7)` is "1e-7", which the
-// money parser cannot read.
 export function formQtyOf(qty: number): string {
   if (!Number.isFinite(qty) || qty <= 0) return "0";
   return qty < LARGEST_PLAIN_DECIMAL ? qty.toFixed(6) : String(Number.MAX_SAFE_INTEGER);
@@ -50,9 +47,6 @@ export interface ServerSourceLine {
   readonly returnedQty: string;
 }
 
-// The line a new return row starts on: the first with room once what
-// CONFIRMED returns took (the server's figure) and what the form's own rows
-// take are both counted.
 export function nextReturnSourceLine(
   serverLines: readonly ServerSourceLine[],
   formRows: readonly { readonly sourceLineId: string; readonly qty: number }[],

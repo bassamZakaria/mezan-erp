@@ -1,3 +1,4 @@
+import type { InvoiceDocumentKind } from "../documents/invoice-document-kind.js";
 /**
  * Sales Invoice — the document that deducts stock and books a customer
  * receivable (docs/archive/catalog/01-sales.md §"فواتير المبيعات").
@@ -138,6 +139,8 @@ export interface AppliedSalesInvoicePromotion {
 export interface SalesInvoice {
   readonly id: string;
   readonly docType: "SALES_INVOICE";
+  /** Absent on a document written before the column existed: an ordinary invoice. */
+  readonly documentKind?: InvoiceDocumentKind;
   /** Sequential number (INV-…) stamped on confirm; null while draft/pending. */
   readonly docNo: string | null;
   readonly status: SalesInvoiceStatus;

@@ -6,6 +6,7 @@ import {
   TaxClassificationAuditEntity,
   TaxClassificationAuditModule,
   TaxClassificationJournalUntaggedError,
+  TaxClassificationNotASupplyError,
   TaxClassificationNotPostedError,
   TaxClassificationStaleError,
   type ClassifyPostedLineTaxRequest,
@@ -13,6 +14,7 @@ import {
   type TaxClassificationPlan,
   type TaxRateRepository,
 } from "../tax-rates/index.js";
+import { isRetentionRelease } from "../documents/invoice-document-kind.js";
 import { atomically, type PurchaseAuditDeps } from "./audit.js";
 import { PurchaseInvoiceNotFoundError } from "./errors.js";
 import type { PurchaseInvoice, PurchaseInvoiceRepository } from "./purchase-invoice.js";
@@ -63,6 +65,7 @@ export async function classifyPurchaseInvoiceLineTax(
     if (existing.status !== PurchaseInvoiceStatusCode.Confirmed) {
       throw new TaxClassificationNotPostedError(PURCHASE_INVOICE_STATUS_LABELS_AR[existing.status]);
     }
+    if (isRetentionRelease(existing)) throw new TaxClassificationNotASupplyError(existing.number);
     const taxRates = deps.taxRates ? await deps.taxRates.list() : null;
     const plan = planTaxClassification(
       taxRates,

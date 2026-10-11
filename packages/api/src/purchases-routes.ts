@@ -71,6 +71,7 @@ import {
   type AuditSink,
   type TaxRateRepository,
   can,
+  InvoiceDocumentKind,
 } from "@mezan/domain";
 import {
   createPurchaseOrderSchema,
@@ -300,6 +301,7 @@ function serializeInvoice(inv: PurchaseInvoice, allocated: Money = Money.zero(),
   const remaining = Money.fromScaled(baseTotal.scaled - allocated.scaled - returned.scaled);
   return {
     id: inv.id,
+    documentKind: inv.documentKind ?? InvoiceDocumentKind.Standard,
     number: inv.number,
     supplierId: inv.supplierId,
     date: inv.date,

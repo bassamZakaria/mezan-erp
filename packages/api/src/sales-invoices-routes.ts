@@ -58,6 +58,7 @@ import {
   type UserRepository,
   EtaReceiptedSaleVoidRefusedError,
   type EtaReceiptPaymentMethod,
+  InvoiceDocumentKind,
 } from "@mezan/domain";
 import {
   createSalesInvoiceSchema,
@@ -341,6 +342,7 @@ function serialize(
     dueDate: invoice.dueDate,
     customerId: invoice.customerId,
     customerNameAr: invoice.customerNameAr,
+    documentKind: invoice.documentKind ?? InvoiceDocumentKind.Standard,
     customerTaxExempt: invoice.customerTaxExempt,
     taxInclusive: invoice.taxInclusive,
     warehouseId: invoice.warehouseId,

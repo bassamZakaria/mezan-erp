@@ -5,6 +5,7 @@ import {
   PostedLineNotFoundError,
   TaxClassificationAlreadyFiledError,
   TaxClassificationJournalUntaggedError,
+  TaxClassificationNotASupplyError,
   TaxClassificationNotPostedError,
   TaxClassificationStaleError,
   TaxClassificationSharedPostingError,
@@ -46,6 +47,7 @@ export function taxClassificationRefusal(c: Context, err: unknown): Response | n
     err instanceof TaxClassificationNotPostedError ||
     err instanceof TaxClassificationAlreadyFiledError ||
     err instanceof TaxClassificationStaleError ||
+    err instanceof TaxClassificationNotASupplyError ||
     err instanceof TaxClassificationJournalUntaggedError
   ) {
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);

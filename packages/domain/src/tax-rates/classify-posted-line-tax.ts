@@ -60,6 +60,16 @@ export interface JournalTaxTagPort {
   retagUnnamedTaxRate(entryId: string, taxRatePercent: number, taxRateId: string, untagged?: UntaggedJournalLineSelector): Promise<number>;
 }
 
+export class TaxClassificationNotASupplyError extends Error {
+  readonly code = "TAX_CLASSIFICATION_NOT_A_SUPPLY";
+  readonly messageEn: string;
+  constructor(readonly documentNumber: string) {
+    super(`المستند ${documentNumber} إفراج عن محتجزات وليس توريداً، فلا ضريبة تُصنَّف على بنده.`);
+    this.messageEn = `Document ${documentNumber} is a retention release, not a supply; its line carries no tax to classify.`;
+    this.name = "TaxClassificationNotASupplyError";
+  }
+}
+
 export class TaxClassificationStaleError extends Error {
   readonly code = "TAX_CLASSIFICATION_STALE";
   readonly messageEn: string;

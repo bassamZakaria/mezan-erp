@@ -1857,3 +1857,4 @@ export {
 
 export * from "./pos/index.js";
 export * from "./enh/index.js";
+export { InvoiceDocumentKind } from "./invoice-document-kind.js";

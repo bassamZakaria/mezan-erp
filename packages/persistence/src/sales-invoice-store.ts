@@ -3,8 +3,10 @@ import { openSqliteConnection, withSqliteTransaction, type SqliteConnectionInput
 import { addVersionColumns, createDocumentVersionStore, type DocumentVersionStore } from "./document-version.js";
 import { childRowsByParent, countMatching, FilterClauses, selectPage } from "./list-query.js";
 import {
+  InvoiceDocumentKind,
   Money,
   Qty,
+  RETENTION_RELEASE_ITEM_ID,
   SALES_INVOICE_ACTIVE_STATUSES,
   type AppliedSalesInvoicePromotion,
   type SalesInvoice,
@@ -63,7 +65,8 @@ CREATE TABLE IF NOT EXISTS sales_invoice (
   journal_entry_id       TEXT,
   workflow_request_id    TEXT,
   reverses_invoice_id    TEXT REFERENCES sales_invoice(id),
-  reversed_by_invoice_id TEXT REFERENCES sales_invoice(id)
+  reversed_by_invoice_id TEXT REFERENCES sales_invoice(id),
+  document_kind          TEXT NOT NULL DEFAULT 'standard'
 );
 CREATE TABLE IF NOT EXISTS sales_invoice_line (
   invoice_id           TEXT NOT NULL REFERENCES sales_invoice(id),
@@ -128,6 +131,7 @@ const ADDED_COLUMNS: readonly (readonly [string, string])[] = [
   ["tax_inclusive", "INTEGER"],
   ["fx_rate", "TEXT"],
   ["project_id", "TEXT"],
+  ["document_kind", `TEXT NOT NULL DEFAULT '${InvoiceDocumentKind.Standard}'`],
 ];
 
 /** Line columns added after the table shipped — see {@link ADDED_COLUMNS}. */
@@ -140,6 +144,11 @@ const ADDED_LINE_COLUMNS: readonly [string, string][] = [
   ["cost_center_id", "TEXT"],
   ["tax_rate_id", "TEXT"],
 ];
+
+function lacksColumn(sqlite: Database.Database, table: string, column: string): boolean {
+  const columns = sqlite.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+  return columns.length > 0 && !columns.some((c) => c.name === column);
+}
 
 function addMissingColumns(sqlite: Database.Database): void {
   const existing = new Set(
@@ -165,6 +174,7 @@ interface InvoiceRow {
   due_date: string;
   customer_id: string;
   customer_name_ar: string;
+  document_kind: string | null;
   customer_tax_exempt: number;
   tax_inclusive: number | null;
   warehouse_id: string;
@@ -298,6 +308,7 @@ function invoiceParams(invoice: SalesInvoice) {
     due_date: invoice.dueDate,
     customer_id: invoice.customerId,
     customer_name_ar: invoice.customerNameAr,
+    document_kind: invoice.documentKind ?? InvoiceDocumentKind.Standard,
     customer_tax_exempt: invoice.customerTaxExempt ? 1 : 0,
     tax_inclusive: invoice.taxInclusive ? 1 : 0,
     warehouse_id: invoice.warehouseId,
@@ -362,7 +373,7 @@ class SqliteSalesInvoiceRepository implements SalesInvoiceRepository {
         currency, fx_rate, notes, internal_notes,
         discount_type, discount_percent, discount_amount, ar_account_id, tax_account_id,
         amount_paid, created_at, confirmed_at, journal_entry_id, workflow_request_id,
-        reverses_invoice_id, reversed_by_invoice_id
+        reverses_invoice_id, reversed_by_invoice_id, document_kind
       ) VALUES (
         @id, @doc_type, @doc_no, @status, @date, @due_date, @customer_id, @customer_name_ar,
         @customer_tax_exempt, @tax_inclusive, @warehouse_id, @branch_id, @salesperson_id, @salesperson_name_ar,
@@ -372,7 +383,7 @@ class SqliteSalesInvoiceRepository implements SalesInvoiceRepository {
         @currency, @fx_rate, @notes, @internal_notes,
         @discount_type, @discount_percent, @discount_amount, @ar_account_id, @tax_account_id,
         @amount_paid, @created_at, @confirmed_at, @journal_entry_id, @workflow_request_id,
-        @reverses_invoice_id, @reversed_by_invoice_id
+        @reverses_invoice_id, @reversed_by_invoice_id, @document_kind
       )
     `);
     this.updateInvoice = sqlite.prepare(`
@@ -414,7 +425,8 @@ class SqliteSalesInvoiceRepository implements SalesInvoiceRepository {
         journal_entry_id = @journal_entry_id,
         workflow_request_id = @workflow_request_id,
         reverses_invoice_id = @reverses_invoice_id,
-        reversed_by_invoice_id = @reversed_by_invoice_id
+        reversed_by_invoice_id = @reversed_by_invoice_id,
+        document_kind = @document_kind
       WHERE id = @id
     `);
     this.deleteLines = sqlite.prepare(`DELETE FROM sales_invoice_line WHERE invoice_id = ?`);
@@ -612,6 +624,7 @@ class SqliteSalesInvoiceRepository implements SalesInvoiceRepository {
       dueDate: row.due_date,
       customerId: row.customer_id,
       customerNameAr: row.customer_name_ar,
+      documentKind: row.document_kind === InvoiceDocumentKind.RetentionRelease ? InvoiceDocumentKind.RetentionRelease : InvoiceDocumentKind.Standard,
       customerTaxExempt: row.customer_tax_exempt === 1,
       taxInclusive: row.tax_inclusive === 1,
       warehouseId: row.warehouse_id,
@@ -650,8 +663,18 @@ export interface SqliteSalesInvoiceStoreHandle extends SalesInvoiceRepository {
 export function createSqliteSalesInvoiceStore(path: SqliteConnectionInput = ":memory:"): SqliteSalesInvoiceStoreHandle {
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.pragma("foreign_keys = ON");
+  // ORDER MATTERS: read before CREATE_TABLES — running it brings an older
+  // table up to the declared shape, after which the column always exists.
+  const kindUnrecorded = lacksColumn(sqlite, "sales_invoice", "document_kind");
   sqlite.exec(CREATE_TABLES);
   addMissingColumns(sqlite);
+  // A release raised before the kind was stored is known by the one line item
+  // only a release carries; marked once, when the column arrives.
+  if (kindUnrecorded) {
+    sqlite
+      .prepare(`UPDATE sales_invoice SET document_kind = ? WHERE id IN (SELECT invoice_id FROM sales_invoice_line WHERE item_id = ?)`)
+      .run(InvoiceDocumentKind.RetentionRelease, RETENTION_RELEASE_ITEM_ID);
+  }
   sqlite.exec(CREATE_INDEXES);
   addVersionColumns(sqlite, "sales_invoice");
   const versions = createDocumentVersionStore(sqlite, "sales_invoice");

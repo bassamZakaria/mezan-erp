@@ -188,6 +188,45 @@ describe("a retention release is not a supply", () => {
   });
 });
 
+describe("a retention release is marked as one, for a consumer contract customer too (D79 round 5)", () => {
+  it("is served with its document kind, is never classified, is never receipted and never queued", async () => {
+    const contract = (await call("GET", "/contracting/contracts/CTR-DEMO-1")).body;
+    const customer = (await call("GET", `/customers/${contract.customerId}`)).body;
+    expect((await call("PATCH", `/customers/${contract.customerId}`, { taxNumber: null, etaBuyerType: "individual" })).status).toBe(200);
+    try {
+      expect((await call("POST", "/contracting/retention/releases", { id: "T-REL-B2C", contractId: "CTR-DEMO-1", kind: "provisional", date: "2026-09-03", amount: "50.00", notes: "t" })).status).toBe(201);
+      const released = await call("POST", "/contracting/retention/releases/T-REL-B2C/release", { approvedBy: "T-APPROVER" }, ["*"]);
+      expect(released.status).toBe(200);
+      const invoice = (await call("GET", `/sales-invoices/${released.body.invoiceId}`)).body;
+      expect(invoice.documentKind).toBe("retention_release");
+
+      const classified = await call("POST", `/sales-invoices/${invoice.id}/lines/${invoice.lines[0].lineId}/classify-tax`, { taxRateId: EXEMPT_RATE });
+      expect([classified.status, classified.body.error]).toEqual([409, "TAX_CLASSIFICATION_NOT_A_SUPPLY"]);
+      expect(classified.body.message).toMatch(/[؀-ۿ]/);
+      expect((await call("GET", `/sales-invoices/${invoice.id}`)).body.lines[0].taxRateId).toBeNull();
+
+      const receipt = await call("POST", `/eta/receipts/issue/invoice/${invoice.id}`, {});
+      expect([receipt.status, receipt.body.error]).toEqual([409, "ETA_RECEIPT_NOT_A_SUPPLY"]);
+      expect(receipt.body.message).toMatch(/[؀-ۿ]/);
+      expect(await submissionOf(invoice.docNo)).toBeNull();
+      expect(rowsOf((await call("GET", "/eta/receipts/gaps")).body).filter((g) => g.internalId === invoice.docNo)).toEqual([]);
+    } finally {
+      await call("PATCH", `/customers/${contract.customerId}`, { taxNumber: customer.taxNumber, etaBuyerType: customer.etaBuyerType });
+    }
+  });
+
+  it("marks a subcontractor's retention release the same way, and refuses to classify its line", async () => {
+    const released = await call("POST", "/contracting/subcontracts/SUB-DEMO-1/release-retention", { amount: "100.00", date: "2026-09-03", kind: "final" }, ["*"]);
+    expect(released.status).toBe(200);
+    const release = released.body.retention.releases.at(-1);
+    const invoice = (await call("GET", `/purchases/invoices/${release.invoiceId}`)).body;
+    expect(invoice.documentKind).toBe("retention_release");
+    const classified = await call("POST", `/purchases/invoices/${invoice.id}/lines/0/classify-tax`, { taxRateId: EXEMPT_RATE });
+    expect([classified.status, classified.body.error]).toEqual([409, "TAX_CLASSIFICATION_NOT_A_SUPPLY"]);
+    expect((await call("GET", `/purchases/invoices/${invoice.id}`)).body.lines[0].taxRateId).toBeNull();
+  });
+});
+
 describe("classifying the tax of a posted line that stored none", () => {
   const classify = (invoiceId: string, lineId: string, body: Record<string, unknown>, permissions?: readonly string[]) =>
     call("POST", `/sales-invoices/${invoiceId}/lines/${lineId}/classify-tax`, body, permissions);

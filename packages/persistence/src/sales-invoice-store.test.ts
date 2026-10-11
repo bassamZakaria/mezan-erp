@@ -1,5 +1,9 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { Money, Qty, type SalesInvoice, type SalesInvoiceLine } from "@mezan/domain";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import Database from "better-sqlite3";
+import { InvoiceDocumentKind, Money, Qty, RETENTION_RELEASE_ITEM_ID, type SalesInvoice, type SalesInvoiceLine } from "@mezan/domain";
 import { createSqliteSalesInvoiceStore, type SqliteSalesInvoiceStoreHandle } from "./sales-invoice-store.js";
 
 const closers: Array<{ close(): void }> = [];
@@ -222,5 +226,45 @@ describe("SqliteSalesInvoiceStore — status aggregates (guards Q-5)", () => {
     expect(unsettled.map((i) => i.id).sort()).toEqual(["inv-2", "inv-3"]);
     expect(await repo.count({ statusIn: ["confirmed", "partially_paid"] })).toBe(2);
     expect(await repo.list({ statusIn: [] })).toEqual([]);
+  });
+});
+
+describe("the document kind of a sales invoice (D79 round 5)", () => {
+  it("stores a retention release as one and serves an ordinary invoice as standard", async () => {
+    const handle = createSqliteSalesInvoiceStore(":memory:");
+    closers.push(handle);
+    await handle.save(invoice({ id: "inv-release", documentKind: InvoiceDocumentKind.RetentionRelease }));
+    await handle.save(invoice({ id: "inv-plain" }));
+    expect((await handle.findById("inv-release"))?.documentKind).toBe(InvoiceDocumentKind.RetentionRelease);
+    expect((await handle.findById("inv-plain"))?.documentKind).toBe(InvoiceDocumentKind.Standard);
+  });
+
+  it("marks, once, a release raised before the column existed — by the line item only a release carries", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "mezan-kind-"));
+    const path = join(dir, "t.db");
+    const before = createSqliteSalesInvoiceStore(path);
+    await before.save(invoice({ id: "old-release", lines: [line({ itemId: RETENTION_RELEASE_ITEM_ID, isStock: false, cogsAccountId: null, inventoryAccountId: null })] }));
+    await before.save(invoice({ id: "old-plain" }));
+    before.close();
+    const raw = new Database(path);
+    raw.exec("ALTER TABLE sales_invoice DROP COLUMN document_kind");
+    raw.close();
+
+    const after = createSqliteSalesInvoiceStore(path);
+    closers.push(after);
+    expect((await after.findById("old-release"))?.documentKind).toBe(InvoiceDocumentKind.RetentionRelease);
+    expect((await after.findById("old-plain"))?.documentKind).toBe(InvoiceDocumentKind.Standard);
+  });
+
+  it("names the tax rate of an unnamed posted line and touches nothing else on the invoice", async () => {
+    const handle = createSqliteSalesInvoiceStore(":memory:");
+    closers.push(handle);
+    await handle.save(invoice({ id: "inv-posted", status: "confirmed", lines: [line({ lineId: "A", taxRatePercent: 0 }), line({ lineId: "B", taxRatePercent: 14 }), line({ lineId: "C", taxRatePercent: 0, taxRateId: "KEPT" })] }));
+    await handle.save(invoice({ id: "inv-draft", lines: [line({ lineId: "A", taxRatePercent: 0 })] }));
+
+    expect(await handle.nameLineTaxRate("inv-posted", ["A", "B", "C"], 0, "EXEMPT")).toBe(1);
+    expect((await handle.findById("inv-posted"))?.lines.map((l) => l.taxRateId)).toEqual(["EXEMPT", null, "KEPT"]);
+    expect(await handle.nameLineTaxRate("inv-posted", ["A"], 0, "EXPORT")).toBe(0);
+    expect(await handle.nameLineTaxRate("inv-draft", ["A"], 0, "EXEMPT")).toBe(0);
   });
 });

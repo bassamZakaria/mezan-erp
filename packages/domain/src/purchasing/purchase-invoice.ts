@@ -11,6 +11,7 @@
  * Its lines are auto-filled from the confirmed receipt (create-from auto-fill).
  */
 
+import { InvoiceDocumentKind } from "../documents/invoice-document-kind.js";
 import { Money, Qty } from "../money/index.js";
 import type { CostCategory } from "../contracting/cost-category.js";
 import type { AllocatableInvoiceRepository } from "../vouchers/allocation.js";
@@ -77,6 +78,8 @@ export interface PurchaseInvoiceLine {
 
 export interface PurchaseInvoice {
   readonly id: string;
+  /** Absent on a document written before the column existed: an ordinary invoice. */
+  readonly documentKind?: InvoiceDocumentKind;
   readonly number: string;
   readonly supplierId: string;
   readonly date: string;
@@ -166,6 +169,7 @@ export interface CreatePurchaseInvoiceCommand {
   readonly receiptId?: string | null;
   /** بُعد المشروع — optional; omit to inherit the receipt's projectId (create-from-receipt). */
   readonly projectId?: string | null;
+  readonly documentKind?: InvoiceDocumentKind;
   readonly createdBy?: string;
   readonly lines: readonly PurchaseInvoiceLineInput[];
 }
@@ -454,6 +458,7 @@ export async function createPurchaseInvoice(
   const number = await deps.numbering.next(PURCHASE_INVOICE_SEQUENCE, { branchId: command.branchId });
   const invoice: PurchaseInvoice = {
     id: command.id,
+    documentKind: command.documentKind ?? InvoiceDocumentKind.Standard,
     number: number.formatted,
     fxRate: null,
     supplierId: command.supplierId,

@@ -22,6 +22,7 @@ import {
   EtaDeviceSerialUnknownError,
   EtaMissingExchangeRateError,
   EtaReissueNotRejectedError,
+  EtaReceiptNotASupplyError,
   EtaReissueWindowExpiredError,
   EtaReissueSameInternalIdError,
   ETA_RECEIPT_PAYMENT_METHODS,
@@ -213,6 +214,7 @@ function handleError(c: Context, err: unknown): Response {
   // receipt filed with a blank serial the authority will not accept.
   if (err instanceof EtaDeviceSerialNotRegisteredError) return c.json({ error: err.code, message: err.message }, 409);
   if (err instanceof EtaRefundReferenceRequiredError) return c.json({ error: err.code, message: err.message }, 400);
+  if (err instanceof EtaReceiptNotASupplyError) return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
   // D-B4 — a rejected receipt corrected too late, twice, or not rejected at all.
   if (
     err instanceof EtaReissueWindowExpiredError ||

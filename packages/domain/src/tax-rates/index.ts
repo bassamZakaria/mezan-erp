@@ -73,6 +73,7 @@ export {
   TaxClassificationAuditEntity,
   JournalLineSide,
   TaxClassificationStaleError,
+  TaxClassificationNotASupplyError,
   TaxClassificationJournalUntaggedError,
   type UntaggedJournalLineSelector,
   PostedLineNotFoundError,

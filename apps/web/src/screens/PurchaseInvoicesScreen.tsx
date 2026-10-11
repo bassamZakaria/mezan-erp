@@ -328,6 +328,7 @@ function InvoiceDetail({
                             document={ClassifiableDocument.PurchaseInvoice}
                             documentId={invoice.id}
                             posted={invoice.status === PurchaseInvoiceStatusCode.Confirmed}
+                            documentKind={invoice.documentKind}
                             line={classifiableLines[i]!}
                             lines={classifiableLines}
                             taxRates={detailTaxRates}

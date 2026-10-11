@@ -20,6 +20,7 @@ import {
   planTaxClassification,
   TaxClassificationFilingOutcome,
   TaxClassificationNotPostedError,
+  TaxClassificationNotASupplyError,
   TaxClassificationAuditAction,
   TaxClassificationAuditEntity,
   TaxClassificationAuditModule,
@@ -38,6 +39,7 @@ import {
   type TaxRateRepository,
 } from "../tax-rates/index.js";
 import { occurredAtFromDocumentDate } from "../inventory/movement.js";
+import { InvoiceDocumentKind, isRetentionRelease } from "../documents/invoice-document-kind.js";
 import type { AllocatableInvoiceRepository } from "../vouchers/allocation.js";
 import { AuditSeverityCode, recordSensitiveEvent, type AuditSink } from "../audit/index.js";
 import type {
@@ -250,6 +252,7 @@ export interface CreateSalesInvoiceLine {
 
 export interface CreateSalesInvoiceCommand {
   readonly id: string;
+  readonly documentKind?: InvoiceDocumentKind;
   readonly date: string;
   readonly dueDate: string;
   readonly customerId: string;
@@ -699,6 +702,7 @@ export class SalesInvoiceService {
     return {
       id: cmd.id,
       docType: "SALES_INVOICE",
+      documentKind: cmd.documentKind ?? InvoiceDocumentKind.Standard,
       docNo: null,
       status: "draft",
       date: cmd.date,
@@ -793,6 +797,7 @@ export class SalesInvoiceService {
         throw new TaxClassificationNotPostedError(SALES_INVOICE_STATUS_LABELS_AR[existing.status]);
       }
       const documentNumber = existing.docNo ?? existing.id;
+      if (isRetentionRelease(existing)) throw new TaxClassificationNotASupplyError(documentNumber);
       const taxRates = this.deps.taxRates ? await this.deps.taxRates.list() : null;
       const plan = planTaxClassification(
         taxRates,

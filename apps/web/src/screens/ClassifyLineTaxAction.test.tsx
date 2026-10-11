@@ -2,7 +2,7 @@
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
 import { fireEvent, screen, waitFor } from "@testing-library/react";
-import type { SessionDTO, TaxRateDTO } from "@mezan/contracts";
+import { InvoiceDocumentKind, type SessionDTO, type TaxRateDTO } from "@mezan/contracts";
 import { ClassifiableDocument } from "../data/hooks";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
 import { ClassifyLineTaxAction, type ClassifiableLine } from "./ClassifyLineTaxAction";
@@ -28,7 +28,7 @@ interface Sent {
 
 function renderAction(
   target: ClassifiableLine,
-  opts: { posted?: boolean; session?: SessionDTO; respond?: () => { status?: number; body: unknown }; document?: ClassifiableDocument; lines?: ClassifiableLine[] } = {},
+  opts: { posted?: boolean; documentKind?: InvoiceDocumentKind; session?: SessionDTO; respond?: () => { status?: number; body: unknown }; document?: ClassifiableDocument; lines?: ClassifiableLine[] } = {},
 ) {
   const sent: Sent[] = [];
   const document = opts.document ?? ClassifiableDocument.SalesInvoice;
@@ -42,7 +42,7 @@ function renderAction(
     "POST /purchases/invoices/*/lines/*/classify-tax": handler,
   });
   renderWithProviders(
-    <ClassifyLineTaxAction document={document} documentId="INV-1" posted={opts.posted ?? true} line={target} lines={opts.lines ?? LINES} taxRates={TAX_RATES} />,
+    <ClassifyLineTaxAction document={document} documentId="INV-1" posted={opts.posted ?? true} documentKind={opts.documentKind} line={target} lines={opts.lines ?? LINES} taxRates={TAX_RATES} />,
     { transport, initialSession: opts.session ?? testAdminSession },
   );
   return sent;
@@ -114,6 +114,11 @@ describe("ClassifyLineTaxAction — «تصنيف ضريبة البند» on a po
   it("is absent on a line that already names a rate", () => {
     renderAction(LINES[2]!);
     expect(screen.queryByRole("button", { name: /تصنيف ضريبة البند/ })).toBeNull();
+  });
+
+  it("is absent on a retention release, which is not a supply and has no tax to classify", () => {
+    renderAction(LINES[0]!, { documentKind: InvoiceDocumentKind.RetentionRelease });
+    expect(screen.queryByRole("button", { name: /تصنيف ضريبة البند/ })).not.toBeInTheDocument();
   });
 
   it("is absent on a draft", () => {

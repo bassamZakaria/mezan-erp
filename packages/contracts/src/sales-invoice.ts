@@ -2,6 +2,7 @@ import { z } from "zod";
 import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from "./paging.js";
 import { moneyString } from "./money-string.js";
 import { isoDateOrInstant } from "./iso-date.js";
+import { InvoiceDocumentKind } from "./invoice-document-kind.js";
 
 /**
  * Wire contracts for Sales Invoices (docs/archive/catalog/01-sales.md §"فواتير المبيعات").
@@ -293,6 +294,8 @@ export const salesInvoiceSchema = z.object({
   dueDate: z.string().min(1),
   customerId: z.string().min(1),
   customerNameAr: z.string(),
+  /** Absent from a server older than the field: an ordinary invoice. */
+  documentKind: z.nativeEnum(InvoiceDocumentKind).optional(),
   customerTaxExempt: z.boolean(),
   taxInclusive: z.boolean(),
   warehouseId: z.string().min(1),

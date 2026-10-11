@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Button, SidePanel } from "@mezan/ui";
 import { TaxRateStatusCode } from "@mezan/domain";
-import type { TaxRateDTO } from "@mezan/contracts";
+import { InvoiceDocumentKind, type TaxRateDTO } from "@mezan/contracts";
 import { useApi } from "../data/ApiContext";
 import { ClassifiableDocument, useClassifyLineTax } from "../data/hooks";
 import { useAppTranslation } from "../i18n";
@@ -22,20 +22,14 @@ const PERMISSION: Record<ClassifiableDocument, string> = {
 export interface ClassifyLineTaxActionProps {
   readonly document: ClassifiableDocument;
   readonly documentId: string;
-  /** Whether the document is posted; a draft's line is not classified, it is edited. */
   readonly posted: boolean;
+  readonly documentKind?: InvoiceDocumentKind;
   readonly line: ClassifiableLine;
   readonly lines: readonly ClassifiableLine[];
   readonly taxRates: readonly TaxRateDTO[];
 }
 
-/**
- * «تصنيف ضريبة البند» on one posted line that names no tax rate. The picker
- * offers only active rates at the line's own percent — classifying never
- * changes the tax — and names the document's other unnamed lines at that
- * percent, which the server classifies with it.
- */
-export function ClassifyLineTaxAction({ document, documentId, posted, line, lines, taxRates }: ClassifyLineTaxActionProps) {
+export function ClassifyLineTaxAction({ document, documentId, posted, documentKind, line, lines, taxRates }: ClassifyLineTaxActionProps) {
   const { t } = useAppTranslation();
   const { session } = useApi();
   const classify = useClassifyLineTax(document);
@@ -54,7 +48,7 @@ export function ClassifyLineTaxAction({ document, documentId, posted, line, line
 
   const permissions = session?.permissions ?? [];
   const permitted = permissions.includes("*") || permissions.includes(PERMISSION[document]);
-  if (!posted || line.taxRateId !== null || !permitted) return null;
+  if (!posted || documentKind === InvoiceDocumentKind.RetentionRelease || line.taxRateId !== null || !permitted) return null;
 
   function openPanel() {
     setError(null);

@@ -147,6 +147,7 @@ export {
   EtaRefundTooLateError,
   EtaReceiptedSaleVoidRefusedError,
   EtaReissueNotRejectedError,
+  EtaReceiptNotASupplyError,
   EtaReissueWindowExpiredError,
   EtaReissueSameInternalIdError,
 } from "./errors.js";

@@ -171,7 +171,7 @@ function buildSources(ctx: BackendModuleContext, store: ReturnType<typeof create
     async payrollDue(window) {
       const period = { periodStart: window.startDate, periodEnd: window.endDate };
       const capabilities = payrollCapabilities(ctx.payrollBindings, BASE_CURRENCY);
-      const { paidEmployeeIds, hasUnpostedRun } = queries.payrollRuns(window);
+      const { paidEmployeeIds, hasUnpostedRun, partMonthTaxedPayslips } = queries.payrollRuns(window);
       const paid = new Set(paidEmployeeIds);
       let dueEmployees = 0;
       let uncoveredEmployees = 0;
@@ -181,7 +181,7 @@ function buildSources(ctx: BackendModuleContext, store: ReturnType<typeof create
         dueEmployees += 1;
         if (!paid.has(employee.id)) uncoveredEmployees += 1;
       }
-      return { dueEmployees, uncoveredEmployees, hasUnpostedRun };
+      return { dueEmployees, uncoveredEmployees, hasUnpostedRun, partMonthTaxedPayslips };
     },
 
     foreignCurrencies,

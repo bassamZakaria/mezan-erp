@@ -89,6 +89,7 @@ export enum PeriodCloseFindingKindDTO {
   SequenceGap = "sequence_gap",
   EtaSubmission = "eta_submission",
   PayrollDue = "payroll_due",
+  PayrollPartMonthTax = "payroll_part_month_tax",
 }
 
 export enum PeriodCloseFindingStateDTO {

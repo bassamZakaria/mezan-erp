@@ -285,6 +285,8 @@ export interface PeriodClosePayrollRunsRow {
   /** Employees holding a payslip in an approved or disbursed run for the month. */
   readonly paidEmployeeIds: readonly string[];
   readonly hasUnpostedRun: boolean;
+  /** Part-month payslips in an approved or disbursed run computed with statutory deductions on. */
+  readonly partMonthTaxedPayslips: number;
 }
 
 export interface PeriodCloseBankStatementRow {
@@ -451,7 +453,13 @@ function createQueries(sqlite: Database.Database): PeriodCloseQueries {
       const unposted = sqlite
         .prepare(`SELECT COUNT(*) AS n FROM hr_payroll_run WHERE year = ? AND month = ? AND status IN (${placeholders(UNPOSTED_PAYROLL_STATUSES)})`)
         .get(year, month, ...UNPOSTED_PAYROLL_STATUSES) as { n: number };
-      return { paidEmployeeIds: paid.map((row) => row.employee_id), hasUnpostedRun: unposted.n > 0 };
+      const partMonth = sqlite
+        .prepare(
+          `SELECT COUNT(*) AS n FROM hr_payslip p JOIN hr_payroll_run r ON r.id = p.run_id
+            WHERE r.year = ? AND r.month = ? AND r.status IN (?, ?) AND p.paid_days < p.period_days AND p.insurable_wage > 0`,
+        )
+        .get(year, month, StoredStatus.PayrollApproved, StoredStatus.PayrollDisbursed) as { n: number };
+      return { paidEmployeeIds: paid.map((row) => row.employee_id), hasUnpostedRun: unposted.n > 0, partMonthTaxedPayslips: partMonth.n };
     },
     recurringRuns() {
       const rows = sqlite

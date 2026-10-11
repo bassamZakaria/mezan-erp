@@ -149,6 +149,8 @@ export const payslipSchema = z.object({
   periodEnd: z.string().min(1),
   periodDays: z.number().int().positive(),
   paidDays: z.number().int().nonnegative(),
+  partMonthTaxNotice: z.string().nullable().optional(),
+  partMonthTaxNoticeEn: z.string().nullable().optional(),
   lines: z.array(payslipLineSchema),
   grossEarnings: z.string(),
   totalDeductions: z.string(),

@@ -101,6 +101,19 @@ const draftsCheck: PeriodCloseCheckDefinition = {
         }),
       );
     }
+    if ((payroll.partMonthTaxedPayslips ?? 0) > 0) {
+      findings.push(
+        finding({
+          kind: PeriodCloseFindingKind.PayrollPartMonthTax,
+          ref: periodMonthKey(window),
+          state: PeriodCloseFindingState.Ok,
+          passed: true,
+          fix: PeriodCloseFixTarget.Payroll,
+          count: payroll.partMonthTaxedPayslips ?? 0,
+          items: [periodMonthKey(window)],
+        }),
+      );
+    }
     return outcome(findings);
   },
 };

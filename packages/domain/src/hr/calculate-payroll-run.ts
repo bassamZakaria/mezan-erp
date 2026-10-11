@@ -30,6 +30,7 @@ import {
   type PeriodWorkedTime,
   type UnpaidLeaveDaysProvider,
   type WorkedTimeProvider,
+  PART_MONTH_TAX_NOTICE,
 } from "./payroll-run.js";
 import {
   resolveEgyptStatutoryRules,
@@ -404,6 +405,7 @@ export async function calculatePayrollRun(runId: string, deps: PayrollCalculatio
     }
     if (paidDays < periodDays) {
       warnings.push(`${employee.fullNameAr} (${employee.code}): احتُسب ${paidDays} من ${periodDays} يوماً بالتناسب.`);
+      if (statutory) warnings.push(`${employee.fullNameAr} (${employee.code}): ${PART_MONTH_TAX_NOTICE.ar}`);
     }
     let fx: EmployeePayrollInput["fx"] = null;
     if (contract.currency !== run.currency) {

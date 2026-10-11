@@ -530,6 +530,11 @@ export function PayrollRunsScreen() {
                       <div className="mz-num mt-[3px] text-[11.5px] text-ink-faint">
                         {p.paidDays} / {p.periodDays} {t("payroll.days")}
                       </div>
+                      {p.partMonthTaxNotice ? (
+                        <div role="note" className="mt-[6px] rounded-md border border-warning bg-warning-soft px-[10px] py-[7px] text-[11.5px] text-warning-ink">
+                          {locale === "en" ? (p.partMonthTaxNoticeEn ?? p.partMonthTaxNotice) : p.partMonthTaxNotice}
+                        </div>
+                      ) : null}
                       {p.basis ? <PayslipBasisSummary basis={p.basis} runCurrency={p.currency} /> : null}
                       {statutoryRun ? (
                         <div className="mt-[6px] flex flex-wrap gap-x-[16px] gap-y-[3px] text-[11.5px] text-ink-faint">

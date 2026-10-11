@@ -100,6 +100,7 @@ export enum PeriodCloseFindingKind {
   SequenceGap = "sequence_gap",
   EtaSubmission = "eta_submission",
   PayrollDue = "payroll_due",
+  PayrollPartMonthTax = "payroll_part_month_tax",
 }
 
 export enum PeriodCloseFindingState {
@@ -197,6 +198,8 @@ export interface PeriodClosePayrollDue {
   readonly dueEmployees: number;
   readonly uncoveredEmployees: number;
   readonly hasUnpostedRun: boolean;
+  /** Part-month payslips whose income tax awaits an annual settlement the engine does not run; reported, never blocking. */
+  readonly partMonthTaxedPayslips?: number;
 }
 
 export interface PeriodCloseRecurringDue {

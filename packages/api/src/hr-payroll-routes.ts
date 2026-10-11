@@ -7,6 +7,8 @@ import {
   advanceRecovered,
   approveEmployeeAdvance,
   approvePayrollRun,
+  PART_MONTH_TAX_NOTICE,
+  isPartMonthTaxedPayslip,
   calculatePayrollRun,
   cancelPayrollRun,
   createEmployeeDirectory,
@@ -229,6 +231,8 @@ export function serializePayslip(p: Payslip) {
     periodEnd: p.periodEnd,
     periodDays: p.periodDays,
     paidDays: p.paidDays,
+    partMonthTaxNotice: isPartMonthTaxedPayslip(p) ? PART_MONTH_TAX_NOTICE.ar : null,
+    partMonthTaxNoticeEn: isPartMonthTaxedPayslip(p) ? PART_MONTH_TAX_NOTICE.en : null,
     lines: p.lines.map((l) => ({
       id: l.id,
       kind: l.kind,

@@ -94,3 +94,29 @@ describe("September payroll with statutory deductions on a 9,000 monthly wage", 
     expect(await world.invariants()).toEqual(INVARIANTS_ZERO);
   });
 });
+
+describe("income tax on a part-month payslip is not settled by the engine, and the product says so", () => {
+  const NOTICE = "ضريبة كسب العمل على هذا الكشف احتُسبت على أجر جزء من الشهر محوَّلاً إلى سنة كاملة، فقد تقل عن المستحق أو تكون صفراً. الفرق يُسوّى في التسوية الضريبية السنوية، والنظام لا يجريها.";
+
+  it("each part-month payslip carries the warning; a full-month payslip does not", async () => {
+    const payslips = (await world.request("GET", "/hr/payroll/runs/PSP-RUN")).body.payslips as { employeeId: string; partMonthTaxNotice: string | null }[];
+    const notice = (employeeId: string) => payslips.find((p) => p.employeeId === employeeId)?.partMonthTaxNotice;
+    expect(notice("psp-full")).toBeNull();
+    expect(notice("psp-leaver")).toBe(NOTICE);
+    expect(notice("psp-joiner")).toBe(NOTICE);
+  });
+
+  it("the run names each of them among its warnings", async () => {
+    const warnings = (await world.request("GET", "/hr/payroll/runs/PSP-RUN")).body.warnings as string[];
+    const taxWarnings = warnings.filter((w) => w.includes("ضريبة كسب العمل"));
+    expect(taxWarnings).toHaveLength(3);
+    expect(taxWarnings.every((w) => w.includes("التسوية الضريبية السنوية"))).toBe(true);
+  });
+
+  it("September's close shows them as a finding that does not block the close", async () => {
+    const checks = (await world.request("GET", "/period-close/fp-2026-09/checks")).body.checks as { code: string; findings: { kind: string; passed: boolean; count: number | null }[] }[];
+    const finding = checks.flatMap((c) => c.findings).find((f) => f.kind === "payroll_part_month_tax");
+    expect(finding).toMatchObject({ passed: true, count: 3 });
+  });
+});
+

@@ -1,3 +1,5 @@
+import { useSyncExternalStore } from "react";
+import { loadTenantCode, subscribeTenantCode } from "./session";
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import type {
   AuditEventDTO,
@@ -458,15 +460,16 @@ export function useTenantInfo(
  * name-enumeration oracle (see `tenant-router.ts`'s `/platform/resolve`).
  */
 export interface PlatformResolveDTO {
-  readonly mode: "subdomain" | "code";
+  readonly mode: `${TenantResolveMode}`;
   readonly exists: boolean;
 }
 
-export function usePlatformResolve(): UseQueryResult<PlatformResolveDTO, ApiError> {
+export function usePlatformResolve(options: { enabled?: boolean } = {}): UseQueryResult<PlatformResolveDTO, ApiError> {
   const { t } = useAppTranslation();
   const { request } = useApi();
   return useQuery<PlatformResolveDTO, ApiError>({
     queryKey: ["platform", "resolve"],
+    enabled: options.enabled ?? true,
     queryFn: async () => {
       const res = await request("/platform/resolve");
       if (!res.ok) throw await loaderError(res, t("api.theCompanySDetailsCould"));
@@ -475,12 +478,32 @@ export function usePlatformResolve(): UseQueryResult<PlatformResolveDTO, ApiErro
   });
 }
 
+export enum TenantResolveMode {
+  Subdomain = "subdomain",
+  Code = "code",
+}
+
+// A backend with no platform in front (desktop, LAN till) has no /platform/resolve and no
+// company code: there the company is always known, and the first-run wizard depends on it.
+export function useCompanyKnown(): boolean {
+  const { session } = useApi();
+  const alreadyKnown = session !== null || isDesktopHost();
+  const resolve = usePlatformResolve({ enabled: !alreadyKnown });
+  const storedCode = useSyncExternalStore(subscribeTenantCode, loadTenantCode, () => null);
+  if (alreadyKnown || resolve.isError) return true;
+  if (!resolve.data) return false;
+  if (resolve.data.mode === TenantResolveMode.Subdomain) return resolve.data.exists;
+  return storedCode !== null && storedCode !== "";
+}
+
 /** What base data already exists — drives the wizard's seed checklist without triggering a seed. */
 export function useBootstrapStatus(): UseQueryResult<BootstrapSeedResultDTO, ApiError> {
   const { t } = useAppTranslation();
   const { request } = useApi();
+  const companyKnown = useCompanyKnown();
   return useQuery<BootstrapSeedResultDTO, ApiError>({
     queryKey: ["bootstrap", "status"],
+    enabled: companyKnown,
     queryFn: async () => {
       const res = await request("/bootstrap/status");
       if (!res.ok) throw await loaderError(res, t("api.theCoreDataStatusCould"), t);
@@ -498,8 +521,10 @@ export function useBootstrapStatus(): UseQueryResult<BootstrapSeedResultDTO, Api
 export function useEntitlements(): UseQueryResult<EntitlementsDTO, ApiError> {
   const { t } = useAppTranslation();
   const { request } = useApi();
+  const companyKnown = useCompanyKnown();
   return useQuery<EntitlementsDTO, ApiError>({
     queryKey: ["entitlements"],
+    enabled: companyKnown,
     queryFn: async () => {
       const res = await request("/entitlements");
       if (!res.ok) throw await loaderError(res, t("api.licenceDetailsCouldNotBe"), t);

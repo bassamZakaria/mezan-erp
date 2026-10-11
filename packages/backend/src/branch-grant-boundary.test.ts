@@ -2648,3 +2648,38 @@ describe("D111 round 4 · a refund paid out of the company's account is booked t
     expect(branches).toEqual([{ b: ALEX }]);
   });
 });
+
+describe("D111 round 4 · which warehouse may stand on which branch's document — the rule, for van, transit and site stores", () => {
+  const transfer = (id: string, fromWarehouseId: string, toWarehouseId: string) => ({ id, date: TODAY, memo: "تحويل اختبار", lines: [{ itemId: "ITEM-DEMO-1", fromWarehouseId, toWarehouseId, qty: "1" }] });
+  const typeOf = (warehouseId: string) => one<{ type: string; branch_id: string }>("SELECT type, branch_id FROM warehouse WHERE id = ?", warehouseId)!;
+
+  it("a transfer is the one document that crosses branches: branch to transit to branch, for a session that holds both", async () => {
+    expect(typeOf("WH-DEMO-TRANSIT")).toEqual({ type: "TRANSIT", branch_id: MAIN });
+    for (const caller of [admin, bothBranches]) {
+      const tag = caller === admin ? "A" : "B";
+      const out = await caller("POST", "/inventory/stock-transfers/draft", transfer(`D111-R4-TRF-OUT-${tag}`, ALEX_WAREHOUSE, "WH-DEMO-TRANSIT"));
+      expect(out.status, JSON.stringify(out.body).slice(0, 200)).toBe(201);
+      const into = await caller("POST", "/inventory/stock-transfers/draft", transfer(`D111-R4-TRF-IN-${tag}`, "WH-DEMO-TRANSIT", MAIN_WAREHOUSE));
+      expect(into.status, JSON.stringify(into.body).slice(0, 200)).toBe(201);
+    }
+  });
+
+  it("a branch user cannot route its stock through another branch's transit store", async () => {
+    const res = await alex("POST", "/inventory/stock-transfers/draft", transfer("D111-R4-TRF-ALEX", ALEX_WAREHOUSE, "WH-DEMO-TRANSIT"));
+    expect(res.status).toBe(403);
+    expect(res.body?.error).toBe("BRANCH_OUT_OF_SCOPE");
+    expect(one("SELECT id FROM stock_transfer_document WHERE id = 'D111-R4-TRF-ALEX'")).toBeUndefined();
+  });
+
+  it("a van, transit or site store sells and buys only for the branch it belongs to", async () => {
+    for (const warehouseId of ["WH-DEMO-VAN", "WH-DEMO-TRANSIT", "WH-SITE-TOWER"]) {
+      expect(typeOf(warehouseId).branch_id).toBe(MAIN);
+      const foreign = await admin("POST", "/sales-invoices", salesInvoice(`D111-R4-RULE-${warehouseId}-ALEX`, ALEX, warehouseId));
+      expect(foreign.status, `${warehouseId} ${JSON.stringify(foreign.body).slice(0, 160)}`).toBe(422);
+      expect(foreign.body?.error).toBe("WAREHOUSE_BRANCH_MISMATCH");
+      expect(foreign.body?.message).toMatch(ARABIC);
+      const own = await admin("POST", "/sales-invoices", salesInvoice(`D111-R4-RULE-${warehouseId}-MAIN`, MAIN, warehouseId));
+      expect(own.status, `${warehouseId} ${JSON.stringify(own.body).slice(0, 160)}`).toBe(201);
+    }
+  });
+});

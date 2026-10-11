@@ -94,7 +94,7 @@ export interface BranchDirectory {
    * than all it names: a van trip is worked from its van, a site issue leaves
    * the store it is issued from. Null when the family has no such rule.
    */
-  actingWarehousesOf?(kind: BranchRecordKind, id: string): Promise<readonly string[] | null> | readonly string[] | null;
+  actingWarehousesOf(kind: BranchRecordKind, id: string): Promise<readonly string[] | null> | readonly string[] | null;
 }
 
 export interface BranchPolicyEntry {

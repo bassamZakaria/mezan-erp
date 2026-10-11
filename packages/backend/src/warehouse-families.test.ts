@@ -137,6 +137,10 @@ describe("a session granted some warehouses cannot move a contracting-site docum
   });
 
   it("the keeper of the store the goods leave issues them; the site's keeper signs for them, and not the other way round", async () => {
+    const beforeIssue = movements();
+    const receivingEnd = await otherSiteKeeperOnly("POST", "/contracting/site/issues/WF-ISS-MAIN/confirm", {});
+    expect(receivingEnd.status, JSON.stringify(receivingEnd.body).slice(0, 200)).toBe(404);
+    expect(movements()).toBe(beforeIssue);
     expect((await mainKeeperOnly("POST", "/contracting/site/issues/WF-ISS-MAIN/confirm", {})).status).toBe(200);
     const receipt = await otherSiteKeeperOnly("POST", "/contracting/site/receipts", { id: "WF-SRC-1", issueId: "WF-ISS-MAIN", date: TODAY, lines: [{ itemId: "ITEM-DEMO-3", qtyReceived: "2" }] });
     expect(receipt.status, JSON.stringify(receipt.body).slice(0, 300)).toBe(201);
@@ -223,5 +227,65 @@ describe("a warehouse an unposted document stands on cannot be moved to another 
     count("WF-USE-PC-5", "SOME_FUTURE_STATUS");
     expect(use().openDocuments).toBe(1);
     clear();
+  });
+});
+
+describe("a van rep granted only the van's own store works the trip", () => {
+  const VAN_WAREHOUSE = "WH-DEMO-VAN";
+  let vanRep: Caller;
+  let stranger: Caller;
+  let tripId: string;
+
+  beforeAll(() => {
+    const session = (userId: string, warehouseScope: string[]) =>
+      callerFor(handle.sessions.issue({ userId, permissions: [...ALL_PERMISSION_CODES], roleCode: null, branchScope: ALL_SCOPE, warehouseScope }));
+    vanRep = session("USER-WF-VAN-REP", [VAN_WAREHOUSE]);
+    stranger = session("USER-WF-STRANGER", ["WH-ALEX"]);
+    tripId = one<{ id: string }>("SELECT id FROM van_trip WHERE status = 'ongoing' AND van_warehouse_id = ? LIMIT 1", VAN_WAREHOUSE)!.id;
+    expect(one<{ w: string }>("SELECT source_warehouse_id AS w FROM van_trip WHERE id = ?", tripId)!.w).toBe(MAIN_WAREHOUSE);
+  });
+
+  it("reads its trip and records a cash sale on it", async () => {
+    expect((await vanRep("GET", `/field/van-trips/${tripId}`)).status).toBe(200);
+    const res = await vanRep("POST", `/field/van-trips/${tripId}/cash-movements`, { id: "WF-VAN-CASH-1", kind: "sale", amount: "75.00", occurredAt: new Date().toISOString() });
+    expect([200, 201], JSON.stringify(res.body).slice(0, 300)).toContain(res.status);
+  });
+
+  it("cannot open a trip that loads from a store outside its grant", async () => {
+    const before = one<{ n: number }>("SELECT count(*) AS n FROM van_trip")!.n;
+    const moved = movements();
+    const res = await vanRep("POST", "/field/van-trips", {
+      id: "WF-VAN-TRIP-NEW",
+      date: TODAY,
+      vanId: "VAN-DEMO-1",
+      sourceWarehouseId: MAIN_WAREHOUSE,
+      sourceTreasuryAccountId: "TR-DEMO-CASH",
+      crew: [{ employeeId: "EMP-DEMO-2", role: "rep" }],
+      loadedStock: [{ itemId: "ITEM-DEMO-4", qty: "1" }],
+    });
+    expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(403);
+    expect(res.body?.error).toBe("WAREHOUSE_OUT_OF_SCOPE");
+    expect(res.body?.message).toMatch(ARABIC);
+    expect(one<{ n: number }>("SELECT count(*) AS n FROM van_trip")!.n).toBe(before);
+    expect(movements()).toBe(moved);
+  });
+
+  it("a session holding neither of the trip's stores finds no trip there", async () => {
+    expect((await stranger("GET", `/field/van-trips/${tripId}`)).status).toBe(404);
+    const res = await stranger("POST", `/field/van-trips/${tripId}/cash-movements`, { id: "WF-VAN-CASH-X", kind: "sale", amount: "1.00", occurredAt: new Date().toISOString() });
+    expect(res.status).toBe(404);
+  });
+
+  it("the keeper of the store it loaded from cannot settle the van's trip for it", async () => {
+    const res = await mainKeeperOnly("POST", `/field/van-trips/${tripId}/settle`, { countedCash: "0", stockCounts: [] });
+    expect(res.status, JSON.stringify(res.body).slice(0, 200)).toBe(404);
+    expect(one<{ status: string }>("SELECT status FROM van_trip WHERE id = ?", tripId)!.status).toBe("ongoing");
+  });
+
+  it("settles its trip", async () => {
+    const loaded = (JSON.parse(one<{ l: string }>("SELECT loaded_stock AS l FROM van_trip WHERE id = ?", tripId)?.l ?? "[]") as { itemId: string; qty: string }[]) ?? [];
+    const res = await vanRep("POST", `/field/van-trips/${tripId}/settle`, { countedCash: "1575.00", stockCounts: loaded.map((line) => ({ itemId: line.itemId, countedQty: String(line.qty) })) });
+    expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+    expect(one<{ status: string }>("SELECT status FROM van_trip WHERE id = ?", tripId)!.status).toBe("settled");
   });
 });

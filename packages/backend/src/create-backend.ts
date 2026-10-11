@@ -932,15 +932,14 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   // is built once they all exist — and BEFORE the first request, so a
   // statement that cannot be prepared stops the boot instead of a refusal.
   let branchDirectory: BranchDirectory | undefined;
+  const startedDirectory = (): BranchDirectory => {
+    if (!branchDirectory) throw new Error("createBackend: the branch directory was read before the backend finished starting");
+    return branchDirectory;
+  };
   const deferredBranchDirectory: BranchDirectory = {
-    branchesOf(kind, id, access) {
-      if (!branchDirectory) throw new Error("createBackend: the branch directory was read before the backend finished starting");
-      return branchDirectory.branchesOf(kind, id, access);
-    },
-    warehousesOf(kind, id) {
-      if (!branchDirectory) throw new Error("createBackend: the branch directory was read before the backend finished starting");
-      return branchDirectory.warehousesOf(kind, id);
-    },
+    branchesOf: (kind, id, access) => startedDirectory().branchesOf(kind, id, access),
+    warehousesOf: (kind, id) => startedDirectory().warehousesOf(kind, id),
+    actingWarehousesOf: (kind, id) => startedDirectory().actingWarehousesOf(kind, id),
   };
   const notificationEngine = new NotificationRulesEngine({
     rules: notificationRules,

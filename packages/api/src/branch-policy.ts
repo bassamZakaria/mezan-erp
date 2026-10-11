@@ -462,7 +462,7 @@ async function storedWarehouseRefusal(c: Context, ctx: AuthContext, directory: B
     const warehouses = (await directory.warehousesOf(kind, value)) ?? [];
     if (warehouses.length === 0) continue;
     const inside = warehouses.filter((id) => granted.includes(id)).length;
-    const acting = isRead(c) ? null : ((await directory.actingWarehousesOf?.(kind, value)) ?? null);
+    const acting = isRead(c) ? null : ((await directory.actingWarehousesOf(kind, value)) ?? null);
     const reachable = acting ? acting.every((id) => granted.includes(id)) : isRead(c) || entry.movesBetweenWarehouses ? inside > 0 : inside === warehouses.length;
     if (!reachable) return branchRefusal(c, BranchRefusalCode.NotFound);
   }

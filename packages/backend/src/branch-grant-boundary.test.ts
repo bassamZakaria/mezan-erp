@@ -1310,3 +1310,100 @@ describe("D111 round 2 · the grant holds on every family, for a non-admin and f
     expect((await admin("GET", "/tax/simplified-regime")).status).toBe(200);
   });
 });
+
+describe("D111 round 3 · a branch-restricted administrator cannot administer its way out of the branch", () => {
+  const BRANCH_ADMIN = "USER-R3-BRANCH-ADMIN";
+  const HQ_ACCOUNTANT = "USER-R3-HQ-ACCOUNTANT";
+  const ALEX_CLERK = "USER-R3-ALEX-CLERK";
+  let branchAdmin: Caller;
+  let roleId: string;
+
+  const account = (email: string, extra: Record<string, unknown>) => ({
+    nameAr: "حساب اختبار",
+    email,
+    roleId: null,
+    isCompanyAdmin: false,
+    branchScope: [ALEX],
+    warehouseScope: ALL_SCOPE,
+    password: "correct-horse-battery",
+    ...extra,
+  });
+  const stored = (id: string) => one<any>("SELECT is_company_admin, branch_scope, warehouse_scope, pin_hash, password_hash, status, role_id FROM user WHERE id = ?", id);
+
+  beforeAll(async () => {
+    roleId = one<{ id: string }>("SELECT role_id AS id FROM user WHERE role_id IS NOT NULL AND status = 'active' LIMIT 1")!.id;
+    const insert = sqlite.prepare(
+      "INSERT INTO user (id, name_ar, email, password_hash, role_id, is_company_admin, branch_scope, warehouse_scope, status, created_at) VALUES (?, ?, ?, 'x', ?, ?, ?, '\"*\"', ?, ?)",
+    );
+    insert.run(BRANCH_ADMIN, "مدير فرع الإسكندرية", "r3-branch-admin@cyag.example", null, 1, JSON.stringify([ALEX]), "active", TODAY);
+    insert.run(HQ_ACCOUNTANT, "محاسب المركز", "r3-hq-accountant@cyag.example", roleId, 0, '"*"', "active", TODAY);
+    insert.run(ALEX_CLERK, "موظف الإسكندرية", "r3-alex-clerk@cyag.example", roleId, 0, JSON.stringify([ALEX]), "inactive", TODAY);
+    branchAdmin = callerFor(handle.sessions.issue({ userId: BRANCH_ADMIN, permissions: ["*"], roleCode: null, branchScope: [ALEX], warehouseScope: ALL_SCOPE }));
+  });
+
+  function expectEscalationRefused(res: Res) {
+    expect(res.status, JSON.stringify(res.body).slice(0, 200)).toBe(403);
+    expect(res.body.error).toBe("PRIVILEGE_ESCALATION_DENIED");
+    expect(res.body.message).toMatch(ARABIC);
+  }
+
+  it("cannot create a company administrator over every branch", async () => {
+    const res = await branchAdmin("POST", "/users", account("r3-minted@cyag.example", { isCompanyAdmin: true, branchScope: ALL_SCOPE }));
+    expectEscalationRefused(res);
+    expect(one("SELECT id FROM user WHERE email = 'r3-minted@cyag.example'")).toBeUndefined();
+  });
+
+  it("cannot create an account in a branch it does not hold", async () => {
+    expectEscalationRefused(await branchAdmin("POST", "/users", account("r3-main@cyag.example", { roleId, branchScope: [MAIN] })));
+    expect(one("SELECT id FROM user WHERE email = 'r3-main@cyag.example'")).toBeUndefined();
+  });
+
+  it("cannot widen its own account to every branch", async () => {
+    const res = await branchAdmin("PUT", `/users/${BRANCH_ADMIN}`, account("r3-branch-admin@cyag.example", { isCompanyAdmin: true, branchScope: ALL_SCOPE, password: undefined }));
+    expectEscalationRefused(res);
+    expect(JSON.parse(stored(BRANCH_ADMIN).branch_scope)).toEqual([ALEX]);
+  });
+
+  it("cannot set the PIN or password of an account that reaches further than it does", async () => {
+    const before = stored(HQ_ACCOUNTANT);
+    const edit = account("r3-hq-accountant@cyag.example", { roleId, branchScope: ALL_SCOPE, password: undefined });
+    expectEscalationRefused(await branchAdmin("PUT", `/users/${HQ_ACCOUNTANT}`, { ...edit, pin: "432100" }));
+    expectEscalationRefused(await branchAdmin("PUT", `/users/${HQ_ACCOUNTANT}`, { ...edit, password: "an-attackers-password" }));
+    expect(stored(HQ_ACCOUNTANT)).toEqual(before);
+  });
+
+  it("cannot change the role of, make an administrator of, deactivate, reactivate or unlock such an account", async () => {
+    const before = stored(HQ_ACCOUNTANT);
+    const otherRole = one<{ id: string }>("SELECT id FROM role WHERE id <> ? LIMIT 1", roleId)!.id;
+    expectEscalationRefused(await branchAdmin("PUT", `/users/${HQ_ACCOUNTANT}`, account("r3-hq-accountant@cyag.example", { roleId: otherRole, branchScope: [ALEX], password: undefined })));
+    expectEscalationRefused(await branchAdmin("PUT", `/users/${HQ_ACCOUNTANT}`, account("r3-hq-accountant@cyag.example", { isCompanyAdmin: true, branchScope: [ALEX], password: undefined })));
+    for (const action of ["deactivate", "activate", "unlock"]) {
+      expectEscalationRefused(await branchAdmin("POST", `/users/${HQ_ACCOUNTANT}/${action}`, {}));
+    }
+    expect(stored(HQ_ACCOUNTANT)).toEqual(before);
+    expectEscalationRefused(await branchAdmin("POST", "/users/USER-ADMIN/deactivate", {}));
+    expect(stored("USER-ADMIN").status).toBe("active");
+  });
+
+  it("is refused the same way when it is a non-admin holding every permission", async () => {
+    const before = stored(HQ_ACCOUNTANT);
+    expectEscalationRefused(await alex("PUT", `/users/${HQ_ACCOUNTANT}`, account("r3-hq-accountant@cyag.example", { roleId, branchScope: ALL_SCOPE, password: undefined, pin: "432100" })));
+    expectEscalationRefused(await alex("POST", "/users", account("r3-alex-minted@cyag.example", { roleId, branchScope: ALL_SCOPE })));
+    expect(stored(HQ_ACCOUNTANT)).toEqual(before);
+  });
+
+  it("still administers an account inside its own branch", async () => {
+    const created = await branchAdmin("POST", "/users", account("r3-alex-new@cyag.example", { roleId }));
+    expect(created.status, JSON.stringify(created.body).slice(0, 300)).toBe(201);
+    expect(JSON.parse(one<any>("SELECT branch_scope FROM user WHERE email = 'r3-alex-new@cyag.example'").branch_scope)).toEqual([ALEX]);
+    const activated = await branchAdmin("POST", `/users/${ALEX_CLERK}/activate`, {});
+    expect(activated.status, JSON.stringify(activated.body).slice(0, 300)).toBe(200);
+    expect(stored(ALEX_CLERK).status).toBe("active");
+  });
+
+  it("leaves an unrestricted administrator free to do all of it", async () => {
+    const res = await admin("PUT", `/users/${HQ_ACCOUNTANT}`, account("r3-hq-accountant@cyag.example", { roleId, branchScope: ALL_SCOPE, password: undefined, pin: "987600" }));
+    expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+    expect(stored(HQ_ACCOUNTANT).pin_hash).toBeTruthy();
+  });
+});

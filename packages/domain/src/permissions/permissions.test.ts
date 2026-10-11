@@ -202,17 +202,18 @@ describe("AuthContext.can — scoping", () => {
     ).toBe(true);
   });
 
-  it("tenant admin (*) bypasses permission and scope checks", () => {
+  it("tenant admin (*) holds every permission, and is still held to the branches and warehouses it was granted (D111)", () => {
     const ctx = createAuthContext({
       userId: "admin",
       permissions: ["*"],
-      branchScope: [],
-      warehouseScope: [],
+      branchScope: ["BR-ALEX"],
+      warehouseScope: ALL_SCOPE,
     });
     expect(isTenantAdmin(ctx)).toBe(true);
-    expect(can(ctx, "admin.tenant.settings.edit", { branch: "x", warehouse: "y" })).toBe(
-      true,
-    );
+    expect(can(ctx, "admin.tenant.settings.edit", { branch: "BR-ALEX", warehouse: "y" })).toBe(true);
+    expect(can(ctx, "admin.tenant.settings.edit", { branch: "BR-MAIN" })).toBe(false);
+    const narrowed = createAuthContext({ userId: "admin", permissions: ["*"], branchScope: ["BR-ALEX"], branchGrant: ALL_SCOPE, warehouseScope: ALL_SCOPE });
+    expect(can(narrowed, "admin.tenant.settings.edit", { branch: "BR-MAIN" })).toBe(true);
     expect(can(ctx, "any.unknown.permission")).toBe(true);
   });
 });

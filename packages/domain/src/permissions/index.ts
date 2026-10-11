@@ -32,6 +32,7 @@ export {
   createAuthContext,
   can,
   isTenantAdmin,
+  isScopeRestricted,
   visibilityTier,
   type AuthContext,
   type AuthContextInput,

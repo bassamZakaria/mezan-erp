@@ -390,11 +390,6 @@ function toSubscription(r: SubscriptionRow): Subscription {
 
 const ANCHOR_BACKFILL = "2026-10-billing-anchor-backfill";
 
-/**
- * Runs once per platform database. A subscription stored before anchors were
- * recorded gets the day its history settles; one whose history does not is
- * marked for the platform owner and left exactly as it was.
- */
 function backfillBillingAnchors(sqlite: Database.Database): void {
   if (sqlite.prepare(`SELECT 1 FROM platform_migration WHERE name = ?`).get(ANCHOR_BACKFILL)) return;
   const unanchored = sqlite.prepare(`SELECT * FROM subscription WHERE billing_anchor_day IS NULL AND status <> ?`);

@@ -1,7 +1,6 @@
 import type Database from "better-sqlite3";
 
 export interface OwnerPinFence {
-  /** The highest generation that has written the owner's PIN. Zero when none has. */
   current(): number;
   raiseTo(generation: number): void;
 }

@@ -33,7 +33,7 @@ export interface OwnerHandOver {
 }
 
 export interface OwnerContact {
-  /** Brings the platform's record in line with the tenant's own owner account. Never moves the recorded address: only the owner's own act does. */
+  // SECURITY: never moves the recorded address. Only the owner's own act does.
   reconcile(code: string, backend: Pick<BackendHandle, "ownerAccount">): Promise<void>;
   emailChanged(code: string, change: UserEmailChange): Promise<void>;
   signedIn(code: string, user: SignedInUser): Promise<void>;

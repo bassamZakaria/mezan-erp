@@ -31,15 +31,11 @@ function moveDatabase(from: string, to: string): void {
   }
 }
 
-/**
- * Archives a tenant stuck in provisioning and frees its code.
- *
- * REQUIRED ORDERING: the database file is moved aside BEFORE the platform row
- * lets go of the code. The next signup under that code opens `tenants/<code>.db`;
- * if the old file were still there it would open the old company's books.
- * A failure after the move leaves a provisioning tenant with no file, which a
- * second release, or a provisioning retry, completes.
- */
+// REQUIRED ORDERING: the database file is moved aside BEFORE the platform row
+// lets go of the code. The next signup under that code opens `tenants/<code>.db`;
+// if the old file were still there it would open the old company's books.
+// A failure after the move leaves a provisioning tenant with no file, which a
+// second release, or a provisioning retry, completes.
 export async function releaseProvisioningTenant(deps: ReleaseTenantDeps, input: { readonly tenant: Tenant; readonly actorId: string }): Promise<Tenant> {
   const { platform } = deps;
   const tenant = await platform.stores.tenants.findById(input.tenant.id);

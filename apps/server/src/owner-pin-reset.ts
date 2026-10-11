@@ -10,7 +10,6 @@ export interface ResetTenantOwnerPinDeps {
   readonly pinOf?: () => string;
 }
 
-/** Resets the PIN of the account the platform records as the owner, found by user id so a renamed sign-in address cannot hide it. */
 export async function resetTenantOwnerPin(
   deps: ResetTenantOwnerPinDeps,
   input: { readonly tenant: Tenant; readonly actorId: string },

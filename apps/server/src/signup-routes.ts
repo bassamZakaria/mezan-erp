@@ -141,16 +141,9 @@ export interface SignupRoutesOptions {
   readonly sourceReporter?: SourceReporter;
 }
 
-/**
- * Public, session-free routes for self-serve signup — mounted under
- * `/api/signup` in `cloud-app.ts` only (never on the desktop LAN socket,
- * which has no concept of "the internet at large" to be rate-limited
- * against). A tenant exists as `provisioning` in the platform tenant table
- * from the moment {@link startSignup} runs, but `provisionTenant` — the only
- * thing that seeds it, creates its admin and starts its trial — runs
- * exclusively from `POST /verify`, so an unverified email can never end up
- * owning a live tenant.
- */
+// SECURITY: these routes are public and carry no session. `POST /` only
+// records a `provisioning` tenant; of the routes here, `POST /verify` alone
+// provisions it, so an address nobody has proved never owns a live tenant.
 export function createSignupRoutes(options: SignupRoutesOptions): Hono {
   const { platform, router, env } = options;
   const now = options.now ?? (() => new Date());

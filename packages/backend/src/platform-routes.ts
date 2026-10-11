@@ -94,11 +94,10 @@ export interface CreatePlatformRoutesOptions {
   /** Re-runs a failed provisioning (seed, admin, subscription) idempotently for a tenant stuck in `provisioning`. Optional only so a rig that never exercises this route still typechecks without supplying it. */
   readonly provisionRetry?: (input: { tenantId: string; actorId: string } & ProvisionRetryRequestDTO) => Promise<ProvisionResultDTO>;
   readonly resetOwnerPin?: (input: { tenant: Tenant; actorId: string }) => Promise<OwnerPinResetResultDTO>;
-  /** Archives a tenant stuck in provisioning and frees its code (its database file is the deployment's to move). */
   readonly releaseTenant?: (input: { tenant: Tenant; actorId: string }) => Promise<Tenant>;
-  /** Refreshes the platform's record of one tenant's owner from the tenant itself, before the console reads it. Must not throw. */
+  /** Must not throw: it runs in front of a read. */
   readonly reconcileOwner?: (tenant: Tenant) => Promise<void>;
-  /** The same, for every tenant whose backend is already open: the list must not open every tenant to draw itself. */
+  /** Only tenants whose backend is already open: the list must not open every tenant's database to draw itself. */
   readonly reconcileOpenOwners?: () => Promise<void>;
   readonly invalidateEntitlements: (code: string) => void;
   readonly idOf?: () => string;

@@ -68,7 +68,6 @@ export function isDisposableEmailDomain(email: string): boolean {
 export enum SignupRequestStatus {
   Pending = "pending",
   Verified = "verified",
-  /** The tenant this request made was released from provisioning: its link must never provision again. */
   Released = "released",
 }
 
@@ -108,11 +107,10 @@ export interface SignupRequestRepository {
   /** False once another caller has taken the claim over: the holder must stop before it hands out a PIN. */
   renewProvisioning(tokenHash: string, claimId: string, nowIso: string): Promise<boolean>;
   provisioningClaimedAt(tokenHash: string): Promise<string | null>;
-  /** The generation of the claim `claimId` holds: higher than every claim taken before it, on any token. Null once the claim is no longer this caller's. */
+  /** INVARIANT: higher than every claim taken before it, on any token. Null once the claim is no longer this caller's. */
   provisioningFence(tokenHash: string, claimId: string): Promise<number | null>;
   releaseProvisioning(tokenHash: string, claimId: string): Promise<void>;
   followOwnerEmail(code: string, before: string, after: string): Promise<void>;
-  /** Retires every request made for `code`, so none of their links can provision a tenant again. */
   releaseByCode(code: string): Promise<void>;
 }
 

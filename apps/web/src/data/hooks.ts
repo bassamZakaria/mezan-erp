@@ -476,12 +476,6 @@ export function noPlatformInFront(error: unknown): boolean {
   return error instanceof ApiError && error.status === 404;
 }
 
-/**
- * Which company this address serves. A 404 means there is no platform in
- * front (desktop, a LAN till's host) and is final. Any other failure is
- * retried in the background for as long as the screen is open: nothing waits
- * on it, and `failureCount` says it has not answered yet.
- */
 export function usePlatformResolve(options: { enabled?: boolean } = {}): UseQueryResult<PlatformResolveDTO, ApiError> {
   const { t } = useAppTranslation();
   const { request } = useApi();
@@ -505,7 +499,6 @@ export function usePlatformResolve(options: { enabled?: boolean } = {}): UseQuer
   });
 }
 
-/** True while the lookup has failed at least once and has not answered since. A missing platform is an answer, not a failure. */
 export function platformLookupFailing(resolve: Pick<UseQueryResult<PlatformResolveDTO, ApiError>, "data" | "failureCount" | "failureReason">): boolean {
   return resolve.data === undefined && resolve.failureCount > 0 && !noPlatformInFront(resolve.failureReason);
 }

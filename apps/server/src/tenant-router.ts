@@ -58,9 +58,7 @@ export function requireOriginSecret(secret?: string): MiddlewareHandler {
 export interface TenantRouter {
   readonly app: Hono;
   backendFor(code: string): Promise<BackendHandle>;
-  /** Compares the platform's record of the tenant's owner with the tenant's own owner account, and corrects the record. Opens the tenant's backend when it is not open. */
   reconcileOwner(code: string): Promise<void>;
-  /** Closes the tenant's backend, if open, so its database file can be moved. */
   evict(code: string): Promise<void>;
   invalidate(code: string): void;
   sweep(): Promise<void>;

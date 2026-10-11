@@ -9,7 +9,6 @@ import { NewTenantDialog } from "./NewTenantDialog";
 import { usePlansQuery, useTenantsQuery } from "./hooks";
 import { useMediaQuery } from "../lib/use-media-query";
 
-/** Below this width the table cannot show the status and the row action together, so each tenant is a card. */
 export const NARROW_TENANT_LIST_QUERY = "(max-width: 639px)";
 
 /** «المنشآت» — every tenant the platform has provisioned, with its plan, status and licence at a glance. Row click drills into `TenantDetailPage`; only an owner (never `support`) can provision a new one. */

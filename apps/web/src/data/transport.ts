@@ -11,7 +11,6 @@ export interface TransportResponse {
   readonly ok: boolean;
   json<T = unknown>(): Promise<T>;
   text(): Promise<string>;
-  /** A response header by its lower-case name, where the transport carries headers. */
   header?(name: string): string | null;
 }
 

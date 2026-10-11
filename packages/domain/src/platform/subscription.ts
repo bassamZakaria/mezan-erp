@@ -45,7 +45,6 @@ export interface Subscription {
   readonly currentPeriodEnd: string;
   /** Absent only on rows stored before it existed; {@link billingAnchorDayOf} answers for those. */
   readonly billingAnchorDay?: number;
-  /** True for a row stored before anchors existed whose history did not settle its anchor: the platform owner has to set it. */
   readonly billingAnchorNeedsReview?: boolean;
   readonly trialEndsAt: string | null;
   /**
@@ -109,7 +108,7 @@ const BUSINESS_CLOCK = new Intl.DateTimeFormat("en-US", {
   second: "numeric",
 });
 
-/** The wall clock in the platform's business timezone at `at`. Through `Intl`, never a fixed offset: Cairo keeps summer time. */
+// INVARIANT: through `Intl`, never a fixed offset. Cairo keeps summer time.
 function businessClock(at: Date): BusinessClock {
   const read: Record<string, number> = {};
   for (const part of BUSINESS_CLOCK.formatToParts(at)) {
@@ -130,7 +129,7 @@ function asUtc(clock: BusinessClock): number {
   return Date.UTC(clock.year, clock.month, clock.day, clock.hour, clock.minute, clock.second, clock.millisecond);
 }
 
-/** The instant at which the business wall clock reads `clock`. Two passes, so a clock on the far side of a summer-time change lands on its own offset. */
+// Two passes on purpose: a clock on the far side of a summer-time change must land on its own offset.
 function instantOfBusinessClock(clock: BusinessClock): Date {
   const wanted = asUtc(clock);
   let instant = wanted;
@@ -153,7 +152,6 @@ export function billingAnchorDayOf(s: Pick<Subscription, "billingAnchorDay" | "c
   return s.billingAnchorDay ?? businessDayOfMonth(s.currentPeriodStart);
 }
 
-/** One billing period after `startIso`, on `anchorDay` of the business calendar (or the month's last day when it is shorter), at the same business time of day. */
 export function addPeriod(startIso: string, cycle: BillingCycle, anchorDay: number = businessDayOfMonth(startIso)): string {
   const start = businessClock(new Date(startIso));
   const year = start.year + (cycle === "yearly" ? 1 : 0);
@@ -162,15 +160,7 @@ export function addPeriod(startIso: string, cycle: BillingCycle, anchorDay: numb
   return instantOfBusinessClock({ ...start, year: year + Math.floor(month / 12), month: month % 12, day: Math.min(anchorDay, lastDay) }).toISOString();
 }
 
-/**
- * The anchor day a subscription stored before anchors were recorded must have
- * had, or null when its history does not settle it.
- *
- * It is the business day the subscription was created on, provided every
- * renewal was recorded before the period it extended had ended (a late one
- * re-anchors on its own day) and the stored period is the one those renewals
- * lead to. `renewedAt` is when each renewal was RECORDED, oldest first.
- */
+/** CONTRACT: `renewedAt` is when each renewal was RECORDED (not when it was paid), oldest first. Null means the history does not settle the day. */
 export function inferBillingAnchorDay(
   s: Pick<Subscription, "createdAt" | "billingCycle" | "currentPeriodStart" | "currentPeriodEnd">,
   renewedAt: readonly string[],
@@ -353,7 +343,6 @@ export interface SetBillingAnchorDayCommand extends SubscriptionCommand {
   readonly day: number;
 }
 
-/** Sets the day of the month a live subscription renews on. The period already running keeps its end. */
 export async function setBillingAnchorDay(cmd: SetBillingAnchorDayCommand, repo: SubscriptionRepository): Promise<Subscription> {
   const s = await load(cmd.id, repo);
   const now = requireNow(cmd);

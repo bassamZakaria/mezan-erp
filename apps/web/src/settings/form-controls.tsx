@@ -43,7 +43,6 @@ export interface TextFieldProps {
   type?: "text" | "email" | "tel" | "date" | "password" | "number";
   autoComplete?: string;
   maxLength?: number;
-  /** What is wrong with the value. It marks the input invalid and is read out as its description. */
   error?: string | null;
   inputRef?: Ref<HTMLInputElement>;
 }

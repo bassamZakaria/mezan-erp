@@ -22,7 +22,6 @@ export interface ProvisionTenantDeps {
   readonly now: () => Date;
   readonly pinOf?: () => string;
   readonly stillOurs?: () => Promise<boolean>;
-  /** The generation of the provisioning claim this call runs under. The tenant refuses a PIN from an older one. */
   readonly fence?: number;
 }
 

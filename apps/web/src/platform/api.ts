@@ -25,7 +25,6 @@ export class PlatformApiError extends Error {
 interface PlatformApiContextValue {
   readonly session: PlatformSession | null;
   setSession(session: PlatformSession | null): void;
-  /** Ends the session and empties the query cache with it: what a sign-out and an expired token both do. */
   endSession(): void;
   request(path: string, init?: RequestInit): Promise<TransportResponse>;
 }

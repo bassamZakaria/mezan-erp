@@ -23,11 +23,8 @@ export interface Tenant {
   readonly code: string;
   readonly nameAr: string;
   readonly nameEn: string | null;
-  /** The last address the owner themself is known to answer at. The tenant's own user row is the truth; this is a cache of it. */
   readonly ownerEmail: string;
-  /** The owner's user id inside the tenant's own database. Null until the owner account exists or has been linked. */
   readonly ownerUserId: string | null;
-  /** False while the owner's sign-in address differs from `ownerEmail` and the owner has not yet proved the new one. */
   readonly ownerContactVerified: boolean;
   readonly status: TenantStatus;
   readonly dbFile: string;
@@ -134,11 +131,7 @@ export function releasedTenantCode(id: string): string {
   return `released-${id}`;
 }
 
-/**
- * Archives a tenant that never finished provisioning and gives it a code and
- * database file of its own, so the code it was holding can be signed up again.
- * The caller moves the database file to match before this is written.
- */
+/** REQUIRED ORDERING: the caller moves the tenant's database file to the released path before this is written. */
 export async function releaseTenant(cmd: TenantTransitionCommand, repo: TenantRepository): Promise<Tenant> {
   const now = isoTimestamp(cmd.now);
   if (!now) throw new InvalidTenantError(["الطابع الزمني الحالي غير صالح (يجب أن يكون بصيغة ISO-8601)"]);
@@ -157,20 +150,14 @@ export interface TenantOwnerAccount {
 }
 
 export enum OwnerContactProof {
-  /** The owner themself set or signed in with the address. */
   OwnerActed = "owner_acted",
-  /** The address is only what the tenant's database currently says. */
   Unproven = "unproven",
 }
 
-/**
- * The tenant row once it reflects `owner`, or null when it already does.
- *
- * SECURITY: the recorded address moves only on the owner's own act. An address
- * anyone else gave the owner's account marks the contact unverified and leaves
- * the recorded one where it was, so a PIN or an invoice is never sent to an
- * inbox the owner has not shown they hold.
- */
+// SECURITY: the recorded address moves only on the owner's own act. An address
+// anyone else gave the owner's account marks the contact unverified and leaves
+// the recorded one where it was, so a PIN or an invoice is never sent to an
+// inbox the owner has not shown they hold. Null means nothing changes.
 export function tenantWithOwnerContact(tenant: Tenant, owner: TenantOwnerAccount, proof: OwnerContactProof, now: string): Tenant | null {
   const at = isoTimestamp(now);
   if (!at) throw new InvalidTenantError(["الطابع الزمني الحالي غير صالح (يجب أن يكون بصيغة ISO-8601)"]);
@@ -190,7 +177,6 @@ export function tenantWithOwnerContact(tenant: Tenant, owner: TenantOwnerAccount
   return unchanged ? null : next;
 }
 
-/** The tenant row once `successor` owns it. `verified` is whether the successor themself made the hand-over. */
 export function tenantHandedTo(tenant: Tenant, successor: TenantOwnerAccount, verified: boolean, now: string): Tenant {
   const at = isoTimestamp(now);
   const email = normalizeEmail(successor.email);

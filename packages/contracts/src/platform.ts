@@ -170,7 +170,6 @@ export const recordPaymentRequestSchema = z.object({
 
 export const ownerPinResetResultSchema = z.object({
   adminEmail: z.string().min(1),
-  /** The address the owner account signs in with now. It differs from `adminEmail` while the owner contact is unverified. */
   signInEmail: z.string().min(1),
   adminPin: z.string().regex(/^\d{6}$/, "must be exactly 6 digits"),
 });
@@ -206,9 +205,7 @@ export const subscriptionSchema = z.object({
   extraWarehouses: z.number().int().nonnegative(),
   currentPeriodStart: isoLikeSchema,
   currentPeriodEnd: isoLikeSchema,
-  /** The day of the month the subscription renews on, in the platform's business calendar. */
   billingAnchorDay: billingAnchorDaySchema,
-  /** True when the day above is a guess the platform owner has to confirm or correct. */
   billingAnchorNeedsReview: z.boolean(),
   trialEndsAt: isoLikeSchema.nullable(),
   graceDays: z.number().int().nonnegative(),

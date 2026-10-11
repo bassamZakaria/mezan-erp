@@ -492,26 +492,21 @@ export enum OwnerPinResetOutcome {
   Reset = "reset",
   OwnerNotFound = "owner_not_found",
   AlreadySignedIn = "already_signed_in",
-  /** A later holder of the provisioning claim has already written the PIN: this caller's PIN must never be handed out. */
   Superseded = "superseded",
 }
 
 export interface ResetOwnerPinCommand {
-  /** The owner's user id, where the caller knows it. It wins over `email`, which a later edit may have moved. */
   readonly userId?: string | null;
   readonly email: string;
   readonly pin: string;
   readonly onlyIfNeverSignedIn: boolean;
   readonly actor: string;
-  /** The caller's provisioning-claim generation. Omitted by an operator's deliberate reset, which no claim can supersede. */
   readonly fence?: number;
 }
 
-/** The account a caller holding the handle may treat as the company's owner: never an erased one. */
 export interface OwnerAccount {
   readonly id: string;
   readonly email: string;
-  /** An active company admin: the only kind of account whose PIN the platform resets. */
   readonly canAdminister: boolean;
 }
 
@@ -622,7 +617,6 @@ export interface CreateBackendOptions {
   readonly resolveLicenseState?: CreateAppOptions["resolveLicenseState"];
   readonly onUserEmailChanged?: CreateAppOptions["onUserEmailChanged"];
   readonly companyOwner?: CreateAppOptions["companyOwner"];
-  /** Runs after a sign-in has been recorded. A throw is logged and never fails the sign-in. */
   readonly onUserSignedIn?: (user: SignedInUser) => Promise<void>;
   /**
    * The VERIFIED capability set every module-gated route group is checked

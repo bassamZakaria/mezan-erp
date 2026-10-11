@@ -87,7 +87,6 @@ const WRITABLE_SUBSCRIPTION_STATUSES: readonly string[] = [
   SubscriptionStatusKind.PastDue,
 ];
 
-/** Archived and still-provisioning tenants are not served at all; every other stored status reaches its own backend, where the licence state decides what it may do. */
 export function tenantIsServed(tenant: Pick<Tenant, "status"> | null): boolean {
   return tenant !== null && tenant.status !== TenantStatusCode.Archived && tenant.status !== TenantStatusCode.Provisioning;
 }

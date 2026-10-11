@@ -94,7 +94,6 @@ export interface UserEmailChange {
   readonly actorId: string;
 }
 
-/** The account the edition records as the company's owner, where the edition records one (the cloud platform does). */
 export interface CompanyOwnerPort {
   currentOwnerUserId(): Promise<string | null>;
   handOver(input: { readonly fromUserId: string; readonly toUserId: string; readonly toEmail: string; readonly actorId: string }): Promise<void>;

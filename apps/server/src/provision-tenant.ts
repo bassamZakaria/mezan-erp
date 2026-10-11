@@ -54,66 +54,77 @@ function defaultPinOf(): string {
   return String(randomInt(0, 1_000_000)).padStart(6, "0");
 }
 
+interface TenantSide {
+  readonly adminPin: string | null;
+}
+
+async function prepareTenantDatabase(cmd: ProvisionTenantCommand, tenant: Tenant, deps: ProvisionTenantDeps): Promise<TenantSide> {
+  const pinOf = deps.pinOf ?? defaultPinOf;
+  const backend = await deps.router.backendFor(tenant.code);
+
+  await backend.app.fetch(new Request("http://tenant.internal/bootstrap/seed", { method: "POST" }));
+
+  const statusRes = await backend.app.fetch(new Request("http://tenant.internal/bootstrap/status"));
+  const { claimed } = (await statusRes.json()) as { claimed: boolean };
+
+  if (claimed) {
+    if (tenant.status !== "provisioning") throw new TenantCodeTakenError(cmd.code);
+    return { adminPin: null };
+  }
+  const adminPin = pinOf();
+  const adminRes = await backend.app.fetch(
+    new Request("http://tenant.internal/bootstrap/admin", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ nameAr: cmd.ownerNameAr, email: cmd.ownerEmail, pin: adminPin }),
+    }),
+  );
+  if (adminRes.status !== 201) {
+    throw new Error(`bootstrap/admin responded ${adminRes.status}`);
+  }
+  return { adminPin };
+}
+
 export async function provisionTenant(cmd: ProvisionTenantCommand, deps: ProvisionTenantDeps): Promise<ProvisionTenantResult> {
   const nowIso = deps.now().toISOString();
-  const pinOf = deps.pinOf ?? defaultPinOf;
+  const { platform } = deps;
 
-  const existing = await deps.platform.stores.tenants.findByCode(cmd.code);
-  let tenant =
-    existing ??
-    (await createTenant(
-      { id: randomUUID(), code: cmd.code, nameAr: cmd.nameAr, nameEn: cmd.nameEn, ownerEmail: cmd.ownerEmail, now: nowIso },
-      deps.platform.stores.tenants,
-    ));
+  const registered = await platform.inTheTurn("tenant registration", async () => {
+    const existing = await platform.stores.tenants.findByCode(cmd.code);
+    return (
+      existing ??
+      (await createTenant(
+        { id: randomUUID(), code: cmd.code, nameAr: cmd.nameAr, nameEn: cmd.nameEn, ownerEmail: cmd.ownerEmail, now: nowIso },
+        platform.stores.tenants,
+      ))
+    );
+  });
 
   try {
-    const backend = await deps.router.backendFor(tenant.code);
+    const { adminPin } = await platform.outsideTheTurn(() => prepareTenantDatabase(cmd, registered, deps));
 
-    await backend.app.fetch(new Request("http://tenant.internal/bootstrap/seed", { method: "POST" }));
-
-    const statusRes = await backend.app.fetch(new Request("http://tenant.internal/bootstrap/status"));
-    const { claimed } = (await statusRes.json()) as { claimed: boolean };
-
-    let adminPin: string | null = null;
-    if (claimed) {
-      if (tenant.status !== "provisioning") throw new TenantCodeTakenError(cmd.code);
-    } else {
-      adminPin = pinOf();
-      const adminRes = await backend.app.fetch(
-        new Request("http://tenant.internal/bootstrap/admin", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ nameAr: cmd.ownerNameAr, email: cmd.ownerEmail, pin: adminPin }),
-        }),
-      );
-      if (adminRes.status !== 201) {
-        throw new Error(`bootstrap/admin responded ${adminRes.status}`);
+    const tenant = await platform.inTheTurn("tenant activation", async () => {
+      const live = await platform.stores.subscriptions.findLiveByTenant(registered.id);
+      if (!live) {
+        await startSubscription(
+          {
+            id: randomUUID(),
+            tenantId: registered.id,
+            planId: cmd.planId,
+            billingCycle: cmd.billingCycle,
+            trial: cmd.trial,
+            now: nowIso,
+          },
+          platform.stores.subscriptions,
+          platform.stores.plans,
+        );
       }
-    }
-
-    const live = await deps.platform.stores.subscriptions.findLiveByTenant(tenant.id);
-    if (!live) {
-      await startSubscription(
-        {
-          id: randomUUID(),
-          tenantId: tenant.id,
-          planId: cmd.planId,
-          billingCycle: cmd.billingCycle,
-          trial: cmd.trial,
-          now: nowIso,
-        },
-        deps.platform.stores.subscriptions,
-        deps.platform.stores.plans,
-      );
-    }
-
-    if (tenant.status === "provisioning") {
-      tenant = await activateTenant({ id: tenant.id, now: nowIso }, deps.platform.stores.tenants);
-    }
+      return registered.status === "provisioning" ? activateTenant({ id: registered.id, now: nowIso }, platform.stores.tenants) : registered;
+    });
 
     return { tenant, adminEmail: cmd.ownerEmail, adminPin };
   } catch (err) {
     if (err instanceof TenantCodeTakenError) throw err;
-    throw new TenantProvisioningError(tenant.id, err);
+    throw new TenantProvisioningError(registered.id, err);
   }
 }

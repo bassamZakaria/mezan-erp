@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { createPlan, createPlatformUser, MODULE_CATALOG, Money, PlanKind, QuotaKind, type AuditSink, type CreatePlanCommand, type SecretHasher } from "@mezan/domain";
+import { reportTurnYield } from "@mezan/api";
 import {
   createSqlitePlatformStores, createSqliteAuditSink, createScryptHasher,
   type SqlitePlatformStoresHandle, type SqliteConnectionInput, type SqliteOpenOptions,
@@ -18,6 +19,10 @@ export interface PlatformHandle {
   readonly audit: AuditSink;
   readonly hasher: SecretHasher;
   readonly ownerSeeded: boolean;
+  /** Runs database work no request is waiting on with the platform connection's turn held, as a tenant's background work does. */
+  inTheTurn<T>(label: string, work: () => Promise<T>): Promise<T>;
+  /** Awaits the outside world (a hash, the payment provider, mail, a tenant's own database) with the turn handed back. */
+  outsideTheTurn<T>(work: () => Promise<T>): Promise<T>;
   seedPlansIfEmpty(): Promise<void>;
   /** Copies the live platform database to `destination` via better-sqlite3's online backup API. */
   backupTo(destination: string): Promise<void>;
@@ -58,8 +63,15 @@ export const PLATFORM_SEED_PLANS: readonly SeedPlan[] = [
 export async function createPlatform(options: CreatePlatformOptions = {}): Promise<PlatformHandle> {
   const stores = createSqlitePlatformStores(options.dbPath ?? ":memory:", options.connection);
   const now = options.now ?? (() => new Date());
-  const hasher = options.hasher ?? createScryptHasher();
   const audit = createSqliteAuditSink(stores.sqlite);
+  const outsideTheTurn = <T>(work: () => Promise<T>): Promise<T> => audit.outsideTurn(work);
+  const inTheTurn = <T>(label: string, work: () => Promise<T>): Promise<T> =>
+    audit.turn(work, { onYield: () => reportTurnYield(`platform ${label}`) });
+  const slowHasher = options.hasher ?? createScryptHasher();
+  const hasher: SecretHasher = {
+    hash: (secret) => outsideTheTurn(() => slowHasher.hash(secret)),
+    verify: (secret, stored) => outsideTheTurn(() => slowHasher.verify(secret, stored)),
+  };
   const seedPlansIfEmpty = async () => {
     const stamp = now().toISOString();
     for (const plan of PLATFORM_SEED_PLANS) {
@@ -87,6 +99,8 @@ export async function createPlatform(options: CreatePlatformOptions = {}): Promi
     audit,
     hasher,
     ownerSeeded,
+    inTheTurn,
+    outsideTheTurn,
     seedPlansIfEmpty,
     backupTo: (destination) => stores.sqlite.backup(destination).then(() => undefined),
     close: () => { stores.close(); audit.close(); },

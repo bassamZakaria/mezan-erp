@@ -13,7 +13,7 @@ import {
   verifySignup,
   type Plan,
 } from "@mezan/domain";
-import { sendNotificationEmail } from "@mezan/api";
+import { connectionTurn, sendNotificationEmail } from "@mezan/api";
 import type { PlatformHandle } from "@mezan/backend";
 import {
   startSignupRequestSchema,
@@ -130,6 +130,7 @@ export function createSignupRoutes(options: SignupRoutesOptions): Hono {
 
   const app = new Hono();
   app.use("*", requireCloudSource(env.clientSource, options.sourceReporter));
+  app.use("*", connectionTurn(platform.audit));
 
   function tooManyRequests(c: Context, retryAfterSeconds: number): Response {
     c.header("retry-after", String(retryAfterSeconds));
@@ -237,7 +238,8 @@ export function createSignupRoutes(options: SignupRoutesOptions): Hono {
       devVerifyUrl = verifyUrl;
     } else {
       const mail = verificationEmail(verifyUrl, body.nameAr);
-      const result = await sendNotificationEmail(env.platformSmtp, body.ownerEmail, mail);
+      const smtp = env.platformSmtp;
+      const result = await platform.outsideTheTurn(() => sendNotificationEmail(smtp, body.ownerEmail, mail));
       if (result.outcome !== "sent") {
         console.error(`[signup] verification email to a pending tenant could not be delivered (${result.outcome}): ${result.detail}`);
       }

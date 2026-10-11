@@ -1,4 +1,5 @@
 import { describe, it, expect, afterEach } from "vitest";
+import { drainForeignWrites } from "@mezan/persistence";
 import { createSessionRegistry } from "@mezan/api";
 import {
   activateTenant,
@@ -708,6 +709,64 @@ describe("createPlatformRoutes", () => {
 
     const res = await unwiredApp.fetch(req(`/tenants/${tenant.id}/provision`, rig.ownerToken, { method: "POST" }));
     expect(res.status).toBe(500);
+  });
+});
+
+describe("createPlatformRoutes — the platform connection's turn", () => {
+  const newUser = (email: string) => JSON.stringify({ email, password: "a long enough password", role: "support" });
+  const LONGER_THAN_A_HASH_MS = 600;
+
+  it("makes a platform user create wait for a transaction another operation has open, instead of writing into it", async () => {
+    const rig = await buildRig();
+    let finish!: () => void;
+    const finished = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    let opened!: () => void;
+    const open = new Promise<void>((resolve) => {
+      opened = resolve;
+    });
+    const settling = rig.platform.audit.atomic!(async () => {
+      opened();
+      await finished;
+      throw new Error("the settlement rolls back");
+    }).catch(() => undefined);
+    await open;
+
+    let answered = false;
+    const creating = Promise.resolve(rig.app.fetch(req("/users", rig.ownerToken, { method: "POST", body: newUser("waits@mezan.app") }))).then((res) => {
+      answered = true;
+      return res;
+    });
+    await new Promise((resolve) => setTimeout(resolve, LONGER_THAN_A_HASH_MS));
+    expect(answered).toBe(false);
+    finish();
+    await settling;
+    const created = await creating;
+
+    expect(created.status).toBe(201);
+    expect((await rig.platform.stores.platformUsers.list()).map((user) => user.email)).toContain("waits@mezan.app");
+    expect(drainForeignWrites()).toEqual([]);
+  });
+
+  it("creates no platform user when the event that records it cannot be written", async () => {
+    const rig = await buildRig();
+    const realAppend = rig.platform.audit.append.bind(rig.platform.audit);
+    rig.platform.audit.append = async (event) => {
+      if (event.action === "PLATFORM_USER_CREATED") throw new Error("audit sink unavailable");
+      await realAppend(event);
+    };
+
+    const refused = await rig.app.fetch(req("/users", rig.ownerToken, { method: "POST", body: newUser("unrecorded@mezan.app") }));
+
+    expect(refused.status).toBe(503);
+    expect(await json(refused)).toMatchObject({ error: "AUDIT_UNAVAILABLE" });
+    expect((await rig.platform.stores.platformUsers.list()).map((user) => user.email)).not.toContain("unrecorded@mezan.app");
+
+    rig.platform.audit.append = realAppend;
+    const created = await rig.app.fetch(req("/users", rig.ownerToken, { method: "POST", body: newUser("unrecorded@mezan.app") }));
+    expect(created.status).toBe(201);
+    expect((await rig.platform.audit.query("security", 50)).filter((event) => event.action === "PLATFORM_USER_CREATED")).toHaveLength(1);
   });
 });
 

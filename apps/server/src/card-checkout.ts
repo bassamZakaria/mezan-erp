@@ -206,7 +206,12 @@ export interface CardCheckoutServiceOptions {
 const RENEWAL_REFUSALS = [InvalidSubscriptionTransitionError, InvalidSubscriptionError, SubscriptionNotFoundError, CardCheckoutUnavailableError];
 
 export function createCardCheckoutService(options: CardCheckoutServiceOptions): CardCheckoutService {
-  const { platform, provider, now } = options;
+  const { platform, now } = options;
+  const provider: PaymentProvider = {
+    ...options.provider,
+    createCheckout: (input) => platform.outsideTheTurn(() => options.provider.createCheckout(input)),
+    inquireTransaction: (input) => platform.outsideTheTurn(() => options.provider.inquireTransaction(input)),
+  };
   const idOf = options.idOf ?? randomUUID;
   const log = options.log ?? ((message: string, err?: unknown) => console.error(`[billing] ${message}`, err ?? ""));
   const checkouts = platform.stores.cardCheckouts;
@@ -612,7 +617,7 @@ export function createCardCheckoutService(options: CardCheckoutServiceOptions): 
   // button must not both be asking the provider about the same checkouts.
   function sweepPending(sweepOptions: CardCheckoutSweepOptions = {}): Promise<CardCheckoutSweepResult> {
     if (sweeping) return sweeping;
-    sweeping = runSweep(sweepOptions).finally(() => {
+    sweeping = platform.inTheTurn("card checkout sweep", () => runSweep(sweepOptions)).finally(() => {
       sweeping = null;
     });
     return sweeping;
@@ -805,13 +810,13 @@ export function createCardCheckoutService(options: CardCheckoutServiceOptions): 
   }
 
   return {
-    provider,
-    open,
-    handleWebhook,
+    provider: options.provider,
+    open: (input) => platform.inTheTurn("card checkout", () => open(input)),
+    handleWebhook: (rawBody, signature) => platform.inTheTurn("card callback", () => handleWebhook(rawBody, signature)),
     sweepPending,
     sweepRunning: () => sweeping !== null,
-    applyUnapplied,
-    resolveFlagged,
+    applyUnapplied: (input) => platform.inTheTurn("card payment applied by hand", () => applyUnapplied(input)),
+    resolveFlagged: (input) => platform.inTheTurn("card checkout resolution", () => resolveFlagged(input)),
     listByTenant: (tenantId) => checkouts.listByTenant(tenantId),
     find: (id) => checkouts.findById(id),
   };

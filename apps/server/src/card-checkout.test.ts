@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
+import { drainTurnYields } from "@mezan/api";
+import { drainForeignWrites } from "@mezan/persistence";
 import { createPlatform, type PlatformHandle } from "@mezan/backend";
 import {
   activateTenant,
@@ -1072,5 +1074,81 @@ describe("card checkout — resolving a flagged checkout", () => {
 
     expect(await reload(r, checkout)).toMatchObject({ status: CardCheckoutStatus.Pending, resolution: null, resolvedAt: null });
     expect(await r.payments()).toBe(0);
+  });
+});
+
+describe("card checkout — the platform connection's turn", () => {
+  function heldOpen(r: Rig) {
+    let finish!: () => void;
+    const finished = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    let begin!: () => void;
+    const begun = new Promise<void>((resolve) => {
+      begin = resolve;
+    });
+    const settling = r.platform.audit.atomic!(async () => {
+      begin();
+      await finished;
+      throw new Error("the other operation rolls back");
+    }).catch(() => undefined);
+    return { begun, release: async () => { finish(); await settling; } };
+  }
+  const aMoment = () => new Promise((resolve) => setTimeout(resolve, 20));
+
+  it("opens a checkout after a transaction another operation has open, never inside it", async () => {
+    const r = await rig();
+    const other = heldOpen(r);
+    await other.begun;
+
+    const opening = r.open();
+    await aMoment();
+    await other.release();
+
+    expect((await opening).status).toBe("pending");
+    expect(drainForeignWrites()).toEqual([]);
+  });
+
+  it("sweeps after a transaction another operation has open, never inside it", async () => {
+    const r = await rig();
+    const checkout = await r.open();
+    r.provider.simulateCallback(checkout, "success");
+    r.advance(SWEEP_PENDING_AFTER_MS + MINUTE);
+    const other = heldOpen(r);
+    await other.begun;
+
+    const sweeping = r.service.sweepPending();
+    await aMoment();
+    await other.release();
+
+    expect(await sweeping).toMatchObject({ examined: 1, paid: 1, failed: 0 });
+    expect(drainForeignWrites()).toEqual([]);
+  });
+
+  it("does not hold the platform connection while the provider is being asked", async () => {
+    let answer!: () => void;
+    const answered = new Promise<void>((resolve) => {
+      answer = resolve;
+    });
+    const r = await rig((provider) => ({
+      ...provider,
+      inquireTransaction: async (request) => {
+        await answered;
+        return provider.inquireTransaction(request);
+      },
+    }));
+    const checkout = await r.open();
+    r.provider.simulateCallback(checkout, "success");
+    r.advance(SWEEP_PENDING_AFTER_MS + MINUTE);
+
+    const sweeping = r.service.sweepPending();
+    await aMoment();
+    const delivered = await deliver(r, checkout);
+    answer();
+
+    expect(delivered).toMatchObject({ detail: SettlementDetail.Paid });
+    expect(await sweeping).toMatchObject({ examined: 1, paid: 0 });
+    expect(await r.payments()).toBe(1);
+    expect(drainTurnYields()).toEqual([]);
   });
 });

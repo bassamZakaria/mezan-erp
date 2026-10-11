@@ -45,6 +45,7 @@ import {
   type PlatformUser,
   CardCheckoutStatus,
   type CardCheckoutResolution,
+  type SecretHasher,
   type CardCheckout,
   CardCheckoutUnavailableError,
   CardPaymentNotApplicableError,
@@ -75,6 +76,7 @@ import {
   type CardCheckoutSweepResultDTO,
   type PlatformCardCheckoutsDTO,
 } from "@mezan/contracts";
+import { connectionTurn } from "@mezan/api";
 import type { PlatformHandle } from "./create-platform.js";
 import type { PlatformAuth } from "./platform-auth.js";
 
@@ -326,10 +328,39 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
     }).catch(onAuditError);
   }
 
+  interface RecordedWrite<T> {
+    readonly value: T;
+    readonly action: string;
+    readonly entityId: string | null;
+    readonly details: Record<string, unknown>;
+  }
+
+  function recordedWith<T>(c: Context, write: () => Promise<RecordedWrite<T>>): Promise<T> {
+    const platformUser = c.get("platformUser");
+    const together = async (): Promise<T> => {
+      const { value, action, entityId, details } = await write();
+      await recordSecurityEvent(platform.audit, {
+        module: "platform",
+        entityType: "PLATFORM",
+        entityId,
+        action,
+        actor: platformUser?.id ?? "unknown",
+        severity: "INFO",
+        timestamp: nowIso(),
+        details: { ...details, origin: auth.sourceOf(c) ?? "host" },
+      }).catch((cause: unknown) => {
+        throw new PlatformAuditUnavailableError(cause);
+      });
+      return value;
+    };
+    return platform.audit.atomic ? platform.audit.atomic(together) : together();
+  }
+
   const requireAny = auth.requirePlatform();
   const requireOwner = auth.requirePlatform("owner");
 
   const app = new Hono();
+  app.use("*", connectionTurn(platform.audit));
   app.route("/auth", auth.app);
 
   app.get("/tenants", requireAny, async (c) => {
@@ -732,8 +763,12 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
     const parsed = createPlatformUserRequestSchema.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     try {
-      const user = await createPlatformUser({ id: idOf(), ...parsed.data, now: nowIso() }, platform.stores.platformUsers, platform.hasher);
-      await audit(c, "PLATFORM_USER_CREATED", user.id, { email: user.email, role: user.role });
+      const passwordHash = await platform.hasher.hash(parsed.data.password);
+      const hashedOnce: SecretHasher = { hash: async () => passwordHash, verify: platform.hasher.verify };
+      const user = await recordedWith(c, async () => {
+        const created = await createPlatformUser({ id: idOf(), ...parsed.data, now: nowIso() }, platform.stores.platformUsers, hashedOnce);
+        return { value: created, action: "PLATFORM_USER_CREATED", entityId: created.id, details: { email: created.email, role: created.role } };
+      });
       return c.json(serializePlatformUser(user), 201);
     } catch (err) {
       return domainErrorResponse(c, err);

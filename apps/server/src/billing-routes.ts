@@ -32,7 +32,7 @@ import {
   type BillingQuotaDTO,
   type TenantBillingDTO,
 } from "@mezan/contracts";
-import { BodyLimitRefusal, DEVICE_SECRET_HEADER, readSessionToken, type SessionGrant } from "@mezan/api";
+import { BodyLimitRefusal, DEVICE_SECRET_HEADER, connectionTurn, readSessionToken, type SessionGrant } from "@mezan/api";
 import { resolveTenantPlan, serializeCardCheckoutForTenant, type PlatformHandle } from "@mezan/backend";
 import { SettlementStatus, type CardCheckoutService } from "./card-checkout.js";
 import type { PaymobTestProvider } from "./paymob-provider.js";
@@ -199,6 +199,7 @@ export function createTenantBillingRoutes(options: TenantBillingRoutesOptions): 
   const now = options.now ?? (() => new Date());
   const app = new Hono();
   app.use("*", requireCloudSource(env.clientSource, options.sourceReporter));
+  app.use("*", connectionTurn(platform.audit));
 
   async function resolveCaller(c: Context): Promise<Caller | Response> {
     const code = resolveTenantCode(c.req.raw, { tenantDomain: env.tenantDomain, trustForwardedHost: env.trustProxy, allowTenantHeader: true });

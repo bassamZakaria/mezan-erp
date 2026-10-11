@@ -178,13 +178,13 @@ export class JournalReversalNotReversibleError extends Error {
   }
 }
 
-const JOURNAL_LIKE_SOURCE_DOC_TYPES: ReadonlySet<string> = new Set(["RECURRING_JOURNAL_TEMPLATE"]);
+const JOURNAL_LIKE_SOURCE_DOC_TYPES: ReadonlySet<string> = new Set(["RECURRING_JOURNAL_TEMPLATE", "INITIAL_BALANCE"]);
 
 /**
  * Only a journal reverses from the journal: an entry a document posted is
  * reversed by reversing that document, and a reversing entry is not reversed
- * at all. A recurring template's entry is a plain journal with no document
- * behind it, so it still reverses here.
+ * at all. A recurring template's entry and an imported opening trial balance
+ * are plain journals with no document behind them, so they still reverse here.
  */
 export function assertReversibleFromJournal(entry: {
   readonly id: string;

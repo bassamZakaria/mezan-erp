@@ -6,6 +6,8 @@ import {
   JournalEntryAlreadyReversedError,
   InactiveAccountError,
   DuplicateJournalEntryError,
+  assertReversibleFromJournal,
+  JournalReversalNotReversibleError,
 } from "./errors.js";
 
 describe("gl errors", () => {
@@ -61,3 +63,19 @@ describe("gl errors", () => {
     expect(err.message).toBe('القيد "je-1" موجود بالفعل.');
   });
 });
+
+describe("what the journal's own reverse action accepts", () => {
+  const entry = (over: Record<string, unknown>) => ({ id: "JE-1", entryNo: "JE-000001", reversesEntryId: null, sourceDocType: null, sourceDocId: null, sourceDocNumber: null, ...over });
+
+  it("a manual journal, a recurring template's entry and an imported opening balance: none has a document to reverse instead", () => {
+    expect(() => assertReversibleFromJournal(entry({}))).not.toThrow();
+    expect(() => assertReversibleFromJournal(entry({ sourceDocType: "RECURRING_JOURNAL_TEMPLATE", sourceDocId: "T-1" }))).not.toThrow();
+    expect(() => assertReversibleFromJournal(entry({ sourceDocType: "INITIAL_BALANCE" }))).not.toThrow();
+  });
+
+  it("an entry a document posted is refused, naming the document; a reversing entry is refused whatever posted it", () => {
+    expect(() => assertReversibleFromJournal(entry({ sourceDocType: "TREASURY_VOUCHER", sourceDocId: "V-1", sourceDocNumber: "CV-000009" }))).toThrow(/CV-000009/);
+    expect(() => assertReversibleFromJournal(entry({ reversesEntryId: "JE-0" }))).toThrow(JournalReversalNotReversibleError);
+  });
+});
+

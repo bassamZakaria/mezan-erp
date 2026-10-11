@@ -281,7 +281,7 @@ export function PrintView({ config, document, showToolbar = true, orientation = 
               ) : null}
               {totalsConfig.showTaxBreakdown
                 ? document.totals.taxBreakdown?.map((row) => (
-                    <div key={row.label} className="flex justify-between">
+                    <div key={`${row.label}|${row.rate ?? ""}`} className="flex justify-between">
                       <span className="text-ink-muted">
                         {row.label}
                         {row.rate !== undefined ? ` (${formatNumber(row.rate)}%)` : ""}

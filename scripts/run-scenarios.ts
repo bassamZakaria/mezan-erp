@@ -1,6 +1,7 @@
 // Must stay the first import: it moves the clock before any module reads it.
 import "./scenarios/fake-clock.js";
 import { boot } from "./scenarios/harness.js";
+import { connectionTurnFindings } from "./connection-turn-guard.js";
 import { run as sales } from "./scenarios/sales.js";
 import { run as purchases } from "./scenarios/purchases.js";
 import { run as inventory } from "./scenarios/inventory.js";
@@ -107,4 +108,5 @@ if (!only.size || only.has("reports")) {
 const end = await ctx.invariants();
 console.log(`final     tb ${end.tb.toFixed(6)} · inventory ${end.inventory.toFixed(6)} · ap ${end.ap.toFixed(6)} · ar ${end.ar.toFixed(6)}`);
 exactlyZero("final", end);
+for (const finding of connectionTurnFindings()) ctx.failures.push(`connection turn · ${finding}`);
 process.exit(ctx.report());

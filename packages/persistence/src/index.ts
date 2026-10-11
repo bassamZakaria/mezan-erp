@@ -377,3 +377,4 @@ export {
   type IdempotentAnswer,
   type IdempotentRequestStore,
 } from "./idempotent-request-store.js";
+export { drainUntransactedAudits } from "./untransacted-audits.js";

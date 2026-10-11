@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { createAuditEvent } from "@mezan/domain";
 import { createSqliteAuditSink } from "./audit-sink.js";
 import { withSqliteTransaction } from "./sqlite-connection.js";
+import { drainUntransactedAudits } from "./untransacted-audits.js";
 
 describe("SqliteAuditSink", () => {
   it("appends and reads back per stream, newest-first, round-tripping details", async () => {
@@ -330,5 +331,50 @@ describe("SqliteAuditSink inside a caller's transaction", () => {
     } finally {
       sink.close();
     }
+  });
+});
+
+describe("a change-log event appended outside any transaction by a request that is writing", () => {
+  const event = (stream: "sensitive" | "security") =>
+    createAuditEvent({ stream, module: "contracting", entityType: "PROGRESS_CERTIFICATE", entityId: "PC-1", action: "APPROVE", actor: "u1", severity: "INFO" });
+
+  it("is reported by name when the appender holds the connection's turn and has no transaction open", async () => {
+    const sink = createSqliteAuditSink(":memory:");
+    drainUntransactedAudits();
+
+    await sink.turn(() => sink.append(event("sensitive")));
+
+    expect(drainUntransactedAudits()).toEqual(["contracting/PROGRESS_CERTIFICATE/APPROVE"]);
+    sink.close();
+  });
+
+  it("is not reported inside the transaction that makes the write", async () => {
+    const sink = createSqliteAuditSink(":memory:");
+    drainUntransactedAudits();
+
+    await sink.turn(() => sink.atomic(() => sink.append(event("sensitive"))));
+
+    expect(drainUntransactedAudits()).toEqual([]);
+    sink.close();
+  });
+
+  it("is not reported for the security stream, which records attempts and has no write to stay in step with", async () => {
+    const sink = createSqliteAuditSink(":memory:");
+    drainUntransactedAudits();
+
+    await sink.turn(() => sink.append(event("security")));
+
+    expect(drainUntransactedAudits()).toEqual([]);
+    sink.close();
+  });
+
+  it("is not reported for an appender that holds no turn — a read, or a task no request is writing under", async () => {
+    const sink = createSqliteAuditSink(":memory:");
+    drainUntransactedAudits();
+
+    await sink.append(event("sensitive"));
+
+    expect(drainUntransactedAudits()).toEqual([]);
+    sink.close();
   });
 });

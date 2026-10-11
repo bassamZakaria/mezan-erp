@@ -18,7 +18,12 @@ export interface CheckoutSession {
   readonly providerOrderRef: string;
 }
 
-export type ProviderTransactionOutcome = "paid" | "failed" | "pending" | "not_a_payment";
+export enum ProviderTransactionOutcome {
+  Paid = "paid",
+  Failed = "failed",
+  Pending = "pending",
+  NotAPayment = "not_a_payment",
+}
 
 export interface VerifiedProviderTransaction {
   readonly providerRef: string;

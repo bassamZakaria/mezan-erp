@@ -10,6 +10,8 @@ import {
   PaidSettlementOutcome,
   ProviderEventOutcome,
   ProviderInquiryStatus,
+  ProviderTransactionOutcome,
+  TenantLifecycle,
   InvalidSubscriptionError,
   InvalidSubscriptionTransitionError,
   PlanNotFoundError,
@@ -228,7 +230,7 @@ export function createCardCheckoutService(options: CardCheckoutServiceOptions): 
 
   async function open(input: OpenCardCheckoutInput): Promise<CardCheckout> {
     const tenant = await requireTenant(input.tenantId);
-    if (tenant.status !== "active" && tenant.status !== "suspended") {
+    if (tenant.status !== TenantLifecycle.Active && tenant.status !== TenantLifecycle.Suspended) {
       throw new CardCheckoutUnavailableError([`حالة المنشأة "${tenant.status}" لا تسمح بالدفع`], [`tenant status "${tenant.status}" cannot pay`]);
     }
     const subscription = await platform.stores.subscriptions.findLiveByTenant(tenant.id);
@@ -296,11 +298,11 @@ export function createCardCheckoutService(options: CardCheckoutServiceOptions): 
     const ok = (detail: SettlementDetail, checkoutId?: string): SettlementResult => ({
       status: SettlementStatus.Ok, detail, ...(checkoutId === undefined ? {} : { checkoutId }),
     });
-    if (txn.outcome === "pending") return ok(SettlementDetail.Pending);
+    if (txn.outcome === ProviderTransactionOutcome.Pending) return ok(SettlementDetail.Pending);
 
     const checkout = await checkouts.findByProviderOrder(provider.id, txn.providerOrderRef);
 
-    if (txn.outcome === "not_a_payment") {
+    if (txn.outcome === ProviderTransactionOutcome.NotAPayment) {
       if (source === SettlementSource.Webhook) {
         await audit(CardCheckoutAuditAction.WebhookNonPayment, checkout?.tenantId ?? null, {
           checkoutId: checkout?.id ?? null, providerRef: txn.providerRef, providerOrderRef: txn.providerOrderRef,
@@ -359,7 +361,7 @@ export function createCardCheckoutService(options: CardCheckoutServiceOptions): 
     const unapplied = (failureReason: UnsettledReason, details: Record<string, unknown>) =>
       settleAs(CardCheckoutStatus.Unapplied, OPEN_TO_A_PAYMENT, failureReason, CardCheckoutAuditAction.PaymentUnapplied, details);
 
-    if (txn.outcome === "failed") {
+    if (txn.outcome === ProviderTransactionOutcome.Failed) {
       return settleAs(CardCheckoutStatus.Failed, [CardCheckoutStatus.Pending], CardCheckoutFailureReason.Declined, CardCheckoutAuditAction.PaymentDeclined);
     }
 

@@ -18,7 +18,7 @@ import {
   SWEEP_PENDING_AFTER_MS,
   type CardCheckoutService,
 } from "./card-checkout.js";
-import { createPaymobTestProvider, type PaymobTestProvider } from "./paymob-provider.js";
+import { createPaymobProvider, createPaymobTestProvider, type PaymobTestProvider } from "./paymob-provider.js";
 
 const OPENED = "2026-03-01T10:00:00.000Z";
 const MINUTE = 60_000;
@@ -483,6 +483,25 @@ describe("card checkout — sweeping checkouts whose callback never arrived", ()
 
     expect(await deliver(r, checkout)).toMatchObject({ detail: SettlementDetail.Paid });
     expect((await reload(r, checkout)).status).toBe("paid");
+  });
+
+  it("never expires a checkout on a 404 that is not Paymob's own answer, and expires it on the one that is", async () => {
+    let answer = () => new Response("<html>404 Not Found</html>", { status: 404, headers: { "content-type": "text/html" } });
+    const live = createPaymobProvider(
+      { baseUrl: "https://accept.paymob.test/", secretKey: "sk", publicKey: "pk", hmacSecret: "hmac", integrationIds: [158], apiKey: "key" },
+      (async (input: Parameters<typeof fetch>[0]) =>
+        String(input).endsWith("/api/auth/tokens") ? new Response(JSON.stringify({ token: "bearer" }), { status: 200 }) : answer()) as typeof fetch,
+    );
+    const r = await rig((provider) => ({ ...provider, inquireTransaction: (request) => live.inquireTransaction(request) }));
+    const checkout = await r.open();
+    r.advance(SWEEP_EXPIRE_AFTER_MS * 3);
+
+    expect(await r.service.sweepPending()).toMatchObject({ examined: 1, unavailable: 1, expired: 0 });
+    expect((await reload(r, checkout)).status).toBe("pending");
+
+    answer = () => new Response(JSON.stringify({ detail: "Not found." }), { status: 404, headers: { "content-type": "application/json" } });
+    expect(await r.service.sweepPending()).toMatchObject({ examined: 1, unavailable: 0, expired: 1 });
+    expect((await reload(r, checkout)).status).toBe("failed");
   });
 
   it("never expires a checkout while the provider cannot be asked", async () => {

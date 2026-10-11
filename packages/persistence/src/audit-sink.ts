@@ -8,10 +8,12 @@ import {
   sqliteTransactionsSettled,
   withSqliteTurn,
   outsideSqliteTurn,
+  holdsSqliteTurn,
   withSqliteTransaction,
   type SqliteConnectionInput,
 } from "./sqlite-connection.js";
 import { auditChangedFieldNames } from "@mezan/domain";
+import { reportUntransactedAudit } from "./untransacted-audits.js";
 import type { AuditEvent, AuditQueryFilter, AuditQueryPort, AuditQueryResult, AuditSink, AuditStream, TurnObserver } from "@mezan/domain";
 
 /**
@@ -29,6 +31,8 @@ import type { AuditEvent, AuditQueryFilter, AuditQueryPort, AuditQueryResult, Au
  * single branch to name. It is added by ALTER on an existing database, which
  * does not fire the append-only triggers.
  */
+
+const SENSITIVE_STREAM: AuditStream = "sensitive";
 
 const CREATE_TABLE = `
 CREATE TABLE IF NOT EXISTS audit_event (
@@ -331,6 +335,13 @@ class SqliteAuditSink implements AuditSink, AuditQueryPort, AuditChainVerifyPort
     if (insideSqliteTransaction(this.sqlite)) {
       this.appendNested(row, fields);
       return;
+    }
+    // The security stream records attempts — a refused sign-in, a refused
+    // permission — which have no write to stay in step with. The change log
+    // does: appended here by a request that is writing, it shares no
+    // transaction with that write.
+    if (event.stream === SENSITIVE_STREAM && holdsSqliteTurn(this.sqlite)) {
+      reportUntransactedAudit(`${event.module}/${event.entityType}/${event.action}`);
     }
     await withSqliteTransaction(this.sqlite, async () => this.appendChained(row, fields));
   }

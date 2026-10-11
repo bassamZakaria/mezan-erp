@@ -625,6 +625,16 @@ describe("TenantDetailPage", () => {
       expect(await screen.findAllByRole("button", { name: "تطبيق على الاشتراك" })).toHaveLength(1);
     });
 
+    it("names a payment whose reference is already recorded, and offers no apply action the server would refuse", async () => {
+      const recorded: CardCheckoutDTO = { ...unapplied, id: "chk-4", failureReason: "REFERENCE_ALREADY_RECORDED" };
+      renderDetail({ transport: checkoutsTransport({}, [recorded]), session: testPlatformSession });
+
+      expect(await screen.findByText(/مرجع هذه العملية مسجَّل كدفعة من قبل/)).toBeInTheDocument();
+      expect(screen.getByText("مسجَّلة كدفعة — لا تحتاج تطبيقًا")).toBeInTheDocument();
+      expect(screen.queryByText(/سبب غير معروف/)).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "تطبيق على الاشتراك" })).not.toBeInTheDocument();
+    });
+
     const tally = {
       examined: 9, paid: 1, declined: 0, unapplied: 0, expired: 1, stillPending: 1, alreadySettled: 2,
       needsAttention: 0, unavailable: 0, failed: 0, deferred: 0,

@@ -1,5 +1,5 @@
 import { Money } from "../money/money.js";
-import type { ProviderTransactionOutcome } from "./payment-provider.js";
+import { ProviderTransactionOutcome } from "./payment-provider.js";
 
 // Paymob's documented concatenation order for the Transaction Processed
 // callback HMAC (HMAC-SHA512, lowercase hex, key = the merchant's HMAC secret).
@@ -108,12 +108,12 @@ function flag(obj: PaymobTransactionObject, key: string): boolean {
  * money yet.
  */
 export function classifyPaymobTransaction(obj: PaymobTransactionObject): ProviderTransactionOutcome {
-  if (flag(obj, "pending")) return "pending";
+  if (flag(obj, "pending")) return ProviderTransactionOutcome.Pending;
   if (flag(obj, "has_parent_transaction") || flag(obj, "is_refunded") || flag(obj, "is_voided") || flag(obj, "is_auth")) {
-    return "not_a_payment";
+    return ProviderTransactionOutcome.NotAPayment;
   }
-  if (flag(obj, "success") && !flag(obj, "error_occured")) return "paid";
-  return "failed";
+  if (flag(obj, "success") && !flag(obj, "error_occured")) return ProviderTransactionOutcome.Paid;
+  return ProviderTransactionOutcome.Failed;
 }
 
 export interface ParsedPaymobTransaction {

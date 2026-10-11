@@ -235,9 +235,23 @@ describe("Paymob transaction inquiry", () => {
     expect(fetched.calls).toHaveLength(0);
   });
 
-  it("reads a 404 as no transaction for the order", async () => {
-    const { provider } = inquiring(() => json({ message: "not found" }, 404));
+  it("reads Paymob's own not-found answer as no transaction for the order", async () => {
+    const { provider } = inquiring(() => json({ detail: "Not found." }, 404));
     expect(await provider.inquireTransaction(request)).toEqual({ status: ProviderInquiryStatus.None });
+  });
+
+  it.each([
+    ["a gateway's HTML page", () => new Response("<html><body>404 Not Found</body></html>", { status: 404, headers: { "content-type": "text/html" } })],
+    ["an empty body", () => new Response(null, { status: 404 })],
+    ["another service's JSON", () => json({ message: "not found" }, 404)],
+    ["a route that no longer exists", () => json({ detail: "The requested URL was not found on this server." }, 404)],
+    ["a list", () => json([{ detail: "Not found." }], 404)],
+  ])("does not read a 404 that is %s as no transaction — it cannot say the order was never paid", async (_name, answer) => {
+    const { provider } = inquiring(answer);
+
+    const inquiry = await provider.inquireTransaction(request);
+
+    expect(inquiry.status).toBe(ProviderInquiryStatus.Unavailable);
   });
 
   it.each([

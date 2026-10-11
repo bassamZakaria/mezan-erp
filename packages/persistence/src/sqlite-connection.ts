@@ -466,6 +466,11 @@ export async function outsideSqliteTurn<T>(sqlite: Database.Database, fn: () => 
   }
 }
 
+/** True while the caller's own async chain holds this connection's turn — it is a mutating request, or work one started. */
+export function holdsSqliteTurn(sqlite: Database.Database): boolean {
+  return heldTurn(stateFor(sqlite)) !== undefined;
+}
+
 /** Resolves once no transaction is open on this connection; at once for the chain that owns the open one. */
 export async function sqliteTransactionsSettled(sqlite: Database.Database): Promise<void> {
   const state = stateFor(sqlite);

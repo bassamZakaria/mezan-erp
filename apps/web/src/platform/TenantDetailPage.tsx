@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
 import { Button, Card, ConfirmDialog, Money, Select, StatusPill, useFormat } from "@mezan/ui";
-import { MODULES } from "@mezan/domain";
+import { CardCheckoutFailureReason, CardCheckoutStatus, MODULES } from "@mezan/domain";
 import type {
   BillingCycleDTO,
   CardCheckoutDTO,
@@ -70,18 +70,30 @@ function canResumeSubscription(status: SubscriptionStatusDTO): boolean {
   return status === "suspended";
 }
 
-const FAILURE_REASON_KEY: Readonly<Record<string, AppTranslationKey>> = {
-  DECLINED: "platform.cardCheckout.reason.DECLINED",
-  PROVIDER_ERROR: "platform.cardCheckout.reason.PROVIDER_ERROR",
-  AMOUNT_MISMATCH: "platform.cardCheckout.reason.AMOUNT_MISMATCH",
-  PRICE_CHANGED: "platform.cardCheckout.reason.PRICE_CHANGED",
-  SUBSCRIPTION_NOT_RENEWABLE: "platform.cardCheckout.reason.SUBSCRIPTION_NOT_RENEWABLE",
-  EXPIRED: "platform.cardCheckout.reason.EXPIRED",
-  NEEDS_ATTENTION: "platform.cardCheckout.reason.NEEDS_ATTENTION",
+const FAILURE_REASON_KEY: Readonly<Record<CardCheckoutFailureReason, AppTranslationKey>> = {
+  [CardCheckoutFailureReason.Declined]: "platform.cardCheckout.reason.DECLINED",
+  [CardCheckoutFailureReason.ProviderError]: "platform.cardCheckout.reason.PROVIDER_ERROR",
+  [CardCheckoutFailureReason.AmountMismatch]: "platform.cardCheckout.reason.AMOUNT_MISMATCH",
+  [CardCheckoutFailureReason.PriceChanged]: "platform.cardCheckout.reason.PRICE_CHANGED",
+  [CardCheckoutFailureReason.SubscriptionNotRenewable]: "platform.cardCheckout.reason.SUBSCRIPTION_NOT_RENEWABLE",
+  [CardCheckoutFailureReason.Expired]: "platform.cardCheckout.reason.EXPIRED",
+  [CardCheckoutFailureReason.NeedsAttention]: "platform.cardCheckout.reason.NEEDS_ATTENTION",
+  [CardCheckoutFailureReason.ReferenceAlreadyRecorded]: "platform.cardCheckout.reason.REFERENCE_ALREADY_RECORDED",
 };
 
+// A captured payment whose reference is already a recorded payment cannot be
+// applied by hand: the server refuses it (card-checkout.ts applyUnapplied),
+// because applying it would renew the subscription a second time.
+function canApplyByHand(checkout: { readonly status: string; readonly providerRef: string | null; readonly failureReason: string | null }): boolean {
+  return (
+    checkout.status === CardCheckoutStatus.Unapplied &&
+    Boolean(checkout.providerRef) &&
+    checkout.failureReason !== CardCheckoutFailureReason.ReferenceAlreadyRecorded
+  );
+}
+
 function failureReasonKey(reason: string): AppTranslationKey {
-  return FAILURE_REASON_KEY[reason] ?? "platform.cardCheckout.reason.other";
+  return (FAILURE_REASON_KEY as Readonly<Record<string, AppTranslationKey | undefined>>)[reason] ?? "platform.cardCheckout.reason.other";
 }
 
 /** `MODULE_CATALOG`/entitlement ids are the permission catalog's `MODULES` ids, except its one differing entry (`financial_papers` → `cheques`) — mirrors `PlanEditor.tsx`'s own mapping. */
@@ -451,10 +463,13 @@ export function TenantDetailPage() {
                     </span>
                   </div>
                   <div className="flex items-center gap-[10px]">
-                    {isOwner && c.status === "unapplied" && c.providerRef ? (
+                    {isOwner && canApplyByHand(c) ? (
                       <Button variant="default" size="sm" onClick={() => setApplyTarget(c)}>
                         {t("platform.cardCheckout.apply.action")}
                       </Button>
+                    ) : null}
+                    {c.status === CardCheckoutStatus.Unapplied && c.failureReason === CardCheckoutFailureReason.ReferenceAlreadyRecorded ? (
+                      <span className="text-[11px] text-ink-muted">{t("platform.cardCheckout.apply.alreadyRecorded")}</span>
                     ) : null}
                     <Money value={Number(c.amount)} />
                   </div>

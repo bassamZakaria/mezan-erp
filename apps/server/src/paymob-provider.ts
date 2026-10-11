@@ -76,9 +76,25 @@ function readInquiredTransaction(
 const HTTP_NOT_FOUND = 404;
 // These say something about us or about Paymob, not about the order asked for.
 const PROVIDER_WIDE_STATUSES: ReadonlySet<number> = new Set([401, 403, 408, 429]);
+// EXTERNAL CONTRACT: Paymob's API answers a resource it does not hold with
+// 404 and `{"detail": "Not found."}`. Only that says "no transaction was ever
+// made on this order". A 404 from anything else on the way — a gateway, a
+// moved route, a wrong base URL — says nothing about the order, and reading it
+// as "none" lets the sweep expire a checkout the customer may have paid.
+const PAYMOB_NOT_FOUND_DETAIL = /^not found\.?$/i;
 
-function readInquiryResponse(status: number): ProviderInquiry | null {
-  if (status === HTTP_NOT_FOUND) return { status: ProviderInquiryStatus.None };
+function isPaymobNotFound(body: unknown): boolean {
+  if (body === null || typeof body !== "object" || Array.isArray(body)) return false;
+  const detail = (body as { detail?: unknown }).detail;
+  return typeof detail === "string" && PAYMOB_NOT_FOUND_DETAIL.test(detail.trim());
+}
+
+async function readInquiryResponse(response: Response): Promise<ProviderInquiry | null> {
+  const status = response.status;
+  if (status === HTTP_NOT_FOUND) {
+    const body: unknown = await response.json().catch(() => undefined);
+    return isPaymobNotFound(body) ? { status: ProviderInquiryStatus.None } : unavailable("HTTP 404 that is not Paymob's own not-found answer");
+  }
   if (status >= 500 || PROVIDER_WIDE_STATUSES.has(status)) return unavailable(`HTTP ${status}`);
   if (status < 200 || status >= 300) return unreadable(`HTTP ${status}`);
   return null;
@@ -127,7 +143,7 @@ function createPaymobInquiryClient(config: PaymobLiveConfig, base: string, fetch
         if (!token) return unavailable("Paymob refused the API key");
         response = await ask(token, request);
       }
-      const refused = readInquiryResponse(response.status);
+      const refused = await readInquiryResponse(response);
       if (refused) return refused;
       const body: unknown = await response.json().catch(() => undefined);
       return readInquiredTransaction(body, config.integrationIds, request);

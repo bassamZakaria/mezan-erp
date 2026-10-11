@@ -174,7 +174,7 @@ describe("POST /sales-returns/from-invoice — the lines come off the invoice", 
   it("carries the invoice price, the invoice COST and the proportional tax share", async () => {
     const { app } = await harness();
     const res = await app.fetch(
-      req("/from-invoice", { method: "POST", permissions: "sales.return.create", body: JSON.stringify(fromInvoice("SR-1", "4")) }),
+      req("/from-invoice", { method: "POST", permissions: "sales.return.create,sales.invoice.view", body: JSON.stringify(fromInvoice("SR-1", "4")) }),
     );
 
     expect(res.status).toBe(201);
@@ -206,7 +206,7 @@ describe("POST /sales-returns/from-invoice — the lines come off the invoice", 
     expect(before.totalValue.toString()).toBe("3000.000000");
     expect(before.averageCost.toString()).toBe("15.000000");
 
-    await app.fetch(req("/from-invoice", { method: "POST", permissions: "sales.return.create", body: JSON.stringify(fromInvoice("SR-1", "4")) }));
+    await app.fetch(req("/from-invoice", { method: "POST", permissions: "sales.return.create,sales.invoice.view", body: JSON.stringify(fromInvoice("SR-1", "4")) }));
     const confirmed = await app.fetch(req("/SR-1/confirm", { method: "POST", permissions: "sales.return.confirm", body: "{}" }));
     expect(confirmed.status).toBe(200);
     const body = (await confirmed.json()) as { document: { status: string; docNo: string; journalEntryId: string; refundDue: string } };
@@ -240,7 +240,7 @@ describe("POST /sales-returns/from-invoice — the returnable quantity is the in
     const { app, service, stockService } = await harness();
 
     const res = await app.fetch(
-      req("/from-invoice", { method: "POST", permissions: "sales.return.create", body: JSON.stringify(fromInvoice("SR-OVER", "11")) }),
+      req("/from-invoice", { method: "POST", permissions: "sales.return.create,sales.invoice.view", body: JSON.stringify(fromInvoice("SR-OVER", "11")) }),
     );
     expect(res.status).toBe(422);
 
@@ -254,7 +254,7 @@ describe("POST /sales-returns/from-invoice — the returnable quantity is the in
   it("accepts the whole ten, because the cap is inclusive", async () => {
     const { app } = await harness();
     const res = await app.fetch(
-      req("/from-invoice", { method: "POST", permissions: "sales.return.create", body: JSON.stringify(fromInvoice("SR-ALL", "10")) }),
+      req("/from-invoice", { method: "POST", permissions: "sales.return.create,sales.invoice.view", body: JSON.stringify(fromInvoice("SR-ALL", "10")) }),
     );
     expect(res.status).toBe(201);
     const created = (await res.json()) as { lines: { qty: string }[] };
@@ -264,7 +264,7 @@ describe("POST /sales-returns/from-invoice — the returnable quantity is the in
   it("refuses ten plus one MICRO-unit", async () => {
     const { app } = await harness();
     const res = await app.fetch(
-      req("/from-invoice", { method: "POST", permissions: "sales.return.create", body: JSON.stringify(fromInvoice("SR-EPS", "10.000001")) }),
+      req("/from-invoice", { method: "POST", permissions: "sales.return.create,sales.invoice.view", body: JSON.stringify(fromInvoice("SR-EPS", "10.000001")) }),
     );
     expect(res.status).toBe(422);
   });
@@ -274,7 +274,7 @@ describe("POST /sales-returns/from-invoice — the returnable quantity is the in
 
     // First return: six of ten, confirmed. Four are left.
     expect(
-      (await app.fetch(req("/from-invoice", { method: "POST", permissions: "sales.return.create", body: JSON.stringify(fromInvoice("SR-A", "6")) }))).status,
+      (await app.fetch(req("/from-invoice", { method: "POST", permissions: "sales.return.create,sales.invoice.view", body: JSON.stringify(fromInvoice("SR-A", "6")) }))).status,
     ).toBe(201);
     expect((await app.fetch(req("/SR-A/confirm", { method: "POST", permissions: "sales.return.confirm", body: "{}" }))).status).toBe(200);
 
@@ -284,7 +284,7 @@ describe("POST /sales-returns/from-invoice — the returnable quantity is the in
 
     // Second return: FIVE, one more than is left. 6 + 5 = 11 against ten sold.
     const second = await app.fetch(
-      req("/from-invoice", { method: "POST", permissions: "sales.return.create", body: JSON.stringify(fromInvoice("SR-B", "5")) }),
+      req("/from-invoice", { method: "POST", permissions: "sales.return.create,sales.invoice.view", body: JSON.stringify(fromInvoice("SR-B", "5")) }),
     );
     expect(second.status).toBe(422);
     expect(await service.findById("SR-B")).toBeNull();
@@ -296,7 +296,7 @@ describe("POST /sales-returns/from-invoice — the returnable quantity is the in
 
     // Exactly the four that remain are still returnable.
     const third = await app.fetch(
-      req("/from-invoice", { method: "POST", permissions: "sales.return.create", body: JSON.stringify(fromInvoice("SR-C", "4")) }),
+      req("/from-invoice", { method: "POST", permissions: "sales.return.create,sales.invoice.view", body: JSON.stringify(fromInvoice("SR-C", "4")) }),
     );
     expect(third.status).toBe(201);
     const created = (await third.json()) as { lines: { availableQty: string; qty: string }[] };
@@ -306,10 +306,10 @@ describe("POST /sales-returns/from-invoice — the returnable quantity is the in
 
   it("does not count a DRAFT return against the remainder — only a confirmed one has taken the goods", async () => {
     const { app } = await harness();
-    await app.fetch(req("/from-invoice", { method: "POST", permissions: "sales.return.create", body: JSON.stringify(fromInvoice("SR-DRAFT", "6")) }));
+    await app.fetch(req("/from-invoice", { method: "POST", permissions: "sales.return.create,sales.invoice.view", body: JSON.stringify(fromInvoice("SR-DRAFT", "6")) }));
 
     const second = await app.fetch(
-      req("/from-invoice", { method: "POST", permissions: "sales.return.create", body: JSON.stringify(fromInvoice("SR-SECOND", "10")) }),
+      req("/from-invoice", { method: "POST", permissions: "sales.return.create,sales.invoice.view", body: JSON.stringify(fromInvoice("SR-SECOND", "10")) }),
     );
     expect(second.status).toBe(201);
     const created = (await second.json()) as { lines: { availableQty: string }[] };
@@ -322,7 +322,7 @@ describe("POST /sales-returns/from-invoice — the returnable quantity is the in
     const ghost = await app.fetch(
       req("/from-invoice", {
         method: "POST",
-        permissions: "sales.return.create",
+        permissions: "sales.return.create,sales.invoice.view",
         body: JSON.stringify({ ...fromInvoice("SR-GHOST", "1"), sourceInvoiceId: "INV-NOPE" }),
       }),
     );
@@ -332,7 +332,7 @@ describe("POST /sales-returns/from-invoice — the returnable quantity is the in
     const otherItem = await app.fetch(
       req("/from-invoice", {
         method: "POST",
-        permissions: "sales.return.create",
+        permissions: "sales.return.create,sales.invoice.view",
         body: JSON.stringify({ ...fromInvoice("SR-OTHER", "1"), requested: [{ itemId: "ITEM-NOT-ON-INVOICE", qty: "1" }] }),
       }),
     );
@@ -342,7 +342,7 @@ describe("POST /sales-returns/from-invoice — the returnable quantity is the in
     expect((await otherItem.json() as { error: string }).error).toBe("RETURN_LINE_NOT_ON_INVOICE");
 
     const nothing = await app.fetch(
-      req("/from-invoice", { method: "POST", permissions: "sales.return.create", body: JSON.stringify(fromInvoice("SR-ZERO", "0")) }),
+      req("/from-invoice", { method: "POST", permissions: "sales.return.create,sales.invoice.view", body: JSON.stringify(fromInvoice("SR-ZERO", "0")) }),
     );
     expect(nothing.status).toBe(422);
     expect((await nothing.json() as { error: string }).error).toBe("NO_RETURNABLE_LINES");

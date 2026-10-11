@@ -121,7 +121,7 @@ describe("sales-returns router — create + confirm", () => {
   it("creates a draft, then confirms it, restocking and posting a balanced GL entry", async () => {
     const app = await newApp();
     const createRes = await app.fetch(
-      req("/", { method: "POST", permissions: "sales.return.create", body: JSON.stringify(payload) }),
+      req("/", { method: "POST", permissions: "sales.return.create,sales.invoice.view", body: JSON.stringify(payload) }),
     );
     expect(createRes.status).toBe(201);
     const created = (await createRes.json()) as { status: string; awaitingRefund: boolean };
@@ -145,7 +145,7 @@ describe("sales-returns router — create + confirm", () => {
   it("rejects an over-quantity return with 422", async () => {
     const app = await newApp();
     const bad = { ...payload, id: "SR2", lines: [{ ...payload.lines[0], qty: "10", availableQty: "5" }] };
-    const res = await app.fetch(req("/", { method: "POST", permissions: "sales.return.create", body: JSON.stringify(bad) }));
+    const res = await app.fetch(req("/", { method: "POST", permissions: "sales.return.create,sales.invoice.view", body: JSON.stringify(bad) }));
     expect(res.status).toBe(422);
   });
 });
@@ -192,7 +192,7 @@ describe("what the caller may claim on a return (D102)", () => {
     const res = await app.fetch(
       req("/", {
         method: "POST",
-        permissions: "sales.return.create",
+        permissions: "sales.return.create,sales.invoice.view",
         body: JSON.stringify({
           ...payload,
           id: "SR-OVER",
@@ -216,7 +216,7 @@ describe("what the caller may claim on a return (D102)", () => {
     const res = await app.fetch(
       req("/", {
         method: "POST",
-        permissions: "sales.return.create",
+        permissions: "sales.return.create,sales.invoice.view",
         body: JSON.stringify({ ...payload, id: "SR-ONCE", lines: [{ ...payload.lines[0], qty: "1" }, { ...payload.lines[0], qty: "1" }] }),
       }),
     );
@@ -230,7 +230,7 @@ describe("what the caller may claim on a return (D102)", () => {
     const exact = await app.fetch(
       req("/", {
         method: "POST",
-        permissions: "sales.return.create",
+        permissions: "sales.return.create,sales.invoice.view",
         body: JSON.stringify({
           ...payload,
           id: "SR-EXACT",
@@ -243,7 +243,7 @@ describe("what the caller may claim on a return (D102)", () => {
     const overByOne = await app.fetch(
       req("/", {
         method: "POST",
-        permissions: "sales.return.create",
+        permissions: "sales.return.create,sales.invoice.view",
         body: JSON.stringify({
           ...payload,
           id: "SR-OVER-1",
@@ -259,7 +259,7 @@ describe("what the caller may claim on a return (D102)", () => {
     const res = await app.fetch(
       req("/", {
         method: "POST",
-        permissions: "sales.return.create",
+        permissions: "sales.return.create,sales.invoice.view",
         body: JSON.stringify({
           ...payload,
           id: "SR-GHOST",
@@ -279,7 +279,7 @@ describe("what the caller may claim on a return (D102)", () => {
     const res = await app.fetch(
       req("/", {
         method: "POST",
-        permissions: "sales.return.create",
+        permissions: "sales.return.create,sales.invoice.view",
         body: JSON.stringify({
           ...payload,
           id: "SR-COST",
@@ -298,7 +298,7 @@ describe("what the caller may claim on a return (D102)", () => {
     const res = await app.fetch(
       req("/", {
         method: "POST",
-        permissions: "sales.return.create",
+        permissions: "sales.return.create,sales.invoice.view",
         body: JSON.stringify({
           ...payload,
           id: "SR-PRICE",
@@ -322,7 +322,7 @@ describe("what the caller may claim on a return (D102)", () => {
     const res = await app.fetch(
       req("/", {
         method: "POST",
-        permissions: "sales.return.create",
+        permissions: "sales.return.create,sales.invoice.view",
         body: JSON.stringify({
           ...payload,
           id: "SR-TRUSTED",
@@ -373,7 +373,7 @@ describe("who a return credits (D89)", () => {
     const res = await app.fetch(
       req("/", {
         method: "POST",
-        permissions: "sales.return.create",
+        permissions: "sales.return.create,sales.invoice.view",
         body: JSON.stringify({
           ...payload,
           id: "SR-DIVERTED",
@@ -391,7 +391,7 @@ describe("who a return credits (D89)", () => {
     const res = await app.fetch(
       req("/", {
         method: "POST",
-        permissions: "sales.return.create",
+        permissions: "sales.return.create,sales.invoice.view",
         body: JSON.stringify({
           ...payload,
           id: "SR-WRONG-ITEM",
@@ -408,7 +408,7 @@ describe("who a return credits (D89)", () => {
     const res = await app.fetch(
       req("/", {
         method: "POST",
-        permissions: "sales.return.create",
+        permissions: "sales.return.create,sales.invoice.view",
         body: JSON.stringify({
           ...payload,
           id: "SR-LEGIT",
@@ -424,7 +424,7 @@ describe("who a return credits (D89)", () => {
     const res = await app.fetch(
       req("/", {
         method: "POST",
-        permissions: "sales.return.create",
+        permissions: "sales.return.create,sales.invoice.view",
         body: JSON.stringify({
           ...payload,
           id: "SR-DIVERTED-OVER",
@@ -484,7 +484,7 @@ describe("two partial returns that together exceed the invoice (boundary crossin
     const first = await app.fetch(
       req("/", {
         method: "POST",
-        permissions: "sales.return.create",
+        permissions: "sales.return.create,sales.invoice.view",
         body: JSON.stringify({ ...payload, id: "SR-PART-1", lines: [{ ...payload.lines[0], availableQty: "999", qty: "2" }] }),
       }),
     );
@@ -500,7 +500,7 @@ describe("two partial returns that together exceed the invoice (boundary crossin
     const second = await app.fetch(
       req("/", {
         method: "POST",
-        permissions: "sales.return.create",
+        permissions: "sales.return.create,sales.invoice.view",
         body: JSON.stringify({ ...payload, id: "SR-PART-2", lines: [{ ...payload.lines[0], availableQty: "999", qty: "2" }] }),
       }),
     );
@@ -511,7 +511,7 @@ describe("two partial returns that together exceed the invoice (boundary crossin
     const legit = await app.fetch(
       req("/", {
         method: "POST",
-        permissions: "sales.return.create",
+        permissions: "sales.return.create,sales.invoice.view",
         body: JSON.stringify({ ...payload, id: "SR-PART-3", lines: [{ ...payload.lines[0], availableQty: "999", qty: "1" }] }),
       }),
     );
@@ -561,7 +561,7 @@ describe("a return restocks at the cost it left at, not a freshly recomputed ave
     const built = await app.fetch(
       req("/from-invoice", {
         method: "POST",
-        permissions: "sales.return.create",
+        permissions: "sales.return.create,sales.invoice.view",
         body: JSON.stringify({
           id: "SR-COST-LAYER",
           date: "2026-08-21",
@@ -605,7 +605,7 @@ describe("GET /sales-returns/:id", () => {
     const { service, stockService: _s } = await buildService();
     const refunds = makeRefundsPort();
     const app = createSalesReturnsRoutes(service, insecureHeaderAuthContextResolver, undefined, refunds);
-    await app.fetch(req("/", { method: "POST", permissions: "sales.return.create", body: JSON.stringify(payload) }), insecureHeaderAuthContextResolver);
+    await app.fetch(req("/", { method: "POST", permissions: "sales.return.create,sales.invoice.view", body: JSON.stringify(payload) }), insecureHeaderAuthContextResolver);
     await app.fetch(req("/SR1/confirm", { method: "POST", permissions: "sales.return.confirm", body: "{}" }));
     await app.fetch(
       req("/SR1/refund", {
@@ -632,7 +632,7 @@ describe("POST /sales-returns validation", () => {
     const res = await app.fetch(
       req("/", {
         method: "POST",
-        permissions: "sales.return.create",
+        permissions: "sales.return.create,sales.invoice.view",
         body: JSON.stringify({ id: "BAD", date: "2026-08-21", memo: "", lines: [] }),
       }),
     );
@@ -681,7 +681,7 @@ describe("POST /sales-returns/from-invoice", () => {
   it("answers 400 for a malformed from-invoice body", async () => {
     const app = await newApp();
     const res = await app.fetch(
-      req("/from-invoice", { method: "POST", permissions: "sales.return.create", body: JSON.stringify({ id: "X" }) }),
+      req("/from-invoice", { method: "POST", permissions: "sales.return.create,sales.invoice.view", body: JSON.stringify({ id: "X" }) }),
     );
     expect(res.status).toBe(400);
   });
@@ -689,7 +689,7 @@ describe("POST /sales-returns/from-invoice", () => {
   it("answers 503 when no invoices port is wired", async () => {
     const app = await newApp();
     const res = await app.fetch(
-      req("/from-invoice", { method: "POST", permissions: "sales.return.create", body: JSON.stringify(fromInvoiceBody()) }),
+      req("/from-invoice", { method: "POST", permissions: "sales.return.create,sales.invoice.view", body: JSON.stringify(fromInvoiceBody()) }),
     );
     expect(res.status).toBe(503);
   });
@@ -702,7 +702,7 @@ describe("POST /sales-returns/from-invoice", () => {
       },
     });
     const res = await app.fetch(
-      req("/from-invoice", { method: "POST", permissions: "sales.return.create", body: JSON.stringify(fromInvoiceBody()) }),
+      req("/from-invoice", { method: "POST", permissions: "sales.return.create,sales.invoice.view", body: JSON.stringify(fromInvoiceBody()) }),
     );
     expect(res.status).toBe(404);
   });
@@ -717,7 +717,7 @@ describe("POST /sales-returns/from-invoice", () => {
     const res = await app.fetch(
       req("/from-invoice", {
         method: "POST",
-        permissions: "sales.return.create",
+        permissions: "sales.return.create,sales.invoice.view",
         body: JSON.stringify(fromInvoiceBody({ requested: [{ itemId: "ITEM1", qty: "0" }] })),
       }),
     );
@@ -732,7 +732,7 @@ describe("POST /sales-returns/from-invoice", () => {
       },
     });
     const res = await app.fetch(
-      req("/from-invoice", { method: "POST", permissions: "sales.return.create", body: JSON.stringify(fromInvoiceBody()) }),
+      req("/from-invoice", { method: "POST", permissions: "sales.return.create,sales.invoice.view", body: JSON.stringify(fromInvoiceBody()) }),
     );
     expect(res.status).toBe(201);
     const body = (await res.json()) as {
@@ -756,11 +756,11 @@ describe("POST /sales-returns/from-invoice", () => {
       },
     });
     const first = await app.fetch(
-      req("/from-invoice", { method: "POST", permissions: "sales.return.create", body: JSON.stringify(fromInvoiceBody()) }),
+      req("/from-invoice", { method: "POST", permissions: "sales.return.create,sales.invoice.view", body: JSON.stringify(fromInvoiceBody()) }),
     );
     expect(first.status).toBe(201);
     const second = await app.fetch(
-      req("/from-invoice", { method: "POST", permissions: "sales.return.create", body: JSON.stringify(fromInvoiceBody()) }),
+      req("/from-invoice", { method: "POST", permissions: "sales.return.create,sales.invoice.view", body: JSON.stringify(fromInvoiceBody()) }),
     );
     expect(second.status).toBe(409);
   });
@@ -769,7 +769,7 @@ describe("POST /sales-returns/from-invoice", () => {
 describe("POST /sales-returns/:id/cancel", () => {
   it("cancels a draft", async () => {
     const app = await newApp();
-    await app.fetch(req("/", { method: "POST", permissions: "sales.return.create", body: JSON.stringify(payload) }));
+    await app.fetch(req("/", { method: "POST", permissions: "sales.return.create,sales.invoice.view", body: JSON.stringify(payload) }));
     const res = await app.fetch(req("/SR1/cancel", { method: "POST", permissions: "sales.return.void", body: "{}" }));
     expect(res.status).toBe(200);
     const body = (await res.json()) as { status: string };
@@ -778,7 +778,7 @@ describe("POST /sales-returns/:id/cancel", () => {
 
   it("refuses to cancel an already-confirmed return, and leaves it confirmed", async () => {
     const app = await newApp();
-    await app.fetch(req("/", { method: "POST", permissions: "sales.return.create", body: JSON.stringify(payload) }));
+    await app.fetch(req("/", { method: "POST", permissions: "sales.return.create,sales.invoice.view", body: JSON.stringify(payload) }));
     await app.fetch(req("/SR1/confirm", { method: "POST", permissions: "sales.return.confirm", body: "{}" }));
 
     const res = await app.fetch(req("/SR1/cancel", { method: "POST", permissions: "sales.return.void", body: "{}" }));
@@ -806,11 +806,11 @@ describe("GET /sales-returns/counts and /stats", () => {
 
     // One draft, never confirmed — contributes to `all`/`draft` but not to returnedTotal.
     await app.fetch(
-      req("/", { method: "POST", permissions: "sales.return.create", body: JSON.stringify({ ...payload, id: "SR-DRAFT" }) }), insecureHeaderAuthContextResolver);
+      req("/", { method: "POST", permissions: "sales.return.create,sales.invoice.view", body: JSON.stringify({ ...payload, id: "SR-DRAFT" }) }), insecureHeaderAuthContextResolver);
 
     // One confirmed, fully refunded.
     await app.fetch(
-      req("/", { method: "POST", permissions: "sales.return.create", body: JSON.stringify({ ...payload, id: "SR-PAID" }) }),
+      req("/", { method: "POST", permissions: "sales.return.create,sales.invoice.view", body: JSON.stringify({ ...payload, id: "SR-PAID" }) }),
     );
     await app.fetch(req("/SR-PAID/confirm", { method: "POST", permissions: "sales.return.confirm", body: "{}" }));
     const paidDoc = (await (await app.fetch(req("/SR-PAID", { permissions: "sales.return.view" }))).json()) as { refundDue: string };
@@ -824,7 +824,7 @@ describe("GET /sales-returns/counts and /stats", () => {
 
     // One confirmed, still awaiting refund.
     await app.fetch(
-      req("/", { method: "POST", permissions: "sales.return.create", body: JSON.stringify({ ...payload, id: "SR-DUE" }) }),
+      req("/", { method: "POST", permissions: "sales.return.create,sales.invoice.view", body: JSON.stringify({ ...payload, id: "SR-DUE" }) }),
     );
     await app.fetch(req("/SR-DUE/confirm", { method: "POST", permissions: "sales.return.confirm", body: "{}" }));
 
@@ -864,7 +864,7 @@ describe("listFilteredReturns — the filters actually narrow the rows AND the h
     await app.fetch(
       req("/", {
         method: "POST",
-        permissions: "sales.return.create",
+        permissions: "sales.return.create,sales.invoice.view",
         body: JSON.stringify({
           ...payload,
           id: "SR-CUST-A",
@@ -875,7 +875,7 @@ describe("listFilteredReturns — the filters actually narrow the rows AND the h
     await app.fetch(
       req("/", {
         method: "POST",
-        permissions: "sales.return.create",
+        permissions: "sales.return.create,sales.invoice.view",
         body: JSON.stringify({
           ...payload,
           id: "SR-CUST-B",
@@ -911,8 +911,8 @@ describe("listFilteredReturns — the filters actually narrow the rows AND the h
   it("awaitingRefund=true keeps only confirmed returns still owed money", async () => {
     const { service } = await buildService();
     const app = createSalesReturnsRoutes(service, insecureHeaderAuthContextResolver);
-    await app.fetch(req("/", { method: "POST", permissions: "sales.return.create", body: JSON.stringify({ ...payload, id: "SR-DRAFT-ONLY" }) }));
-    await app.fetch(req("/", { method: "POST", permissions: "sales.return.create", body: JSON.stringify({ ...payload, id: "SR-CONFIRMED" }) }));
+    await app.fetch(req("/", { method: "POST", permissions: "sales.return.create,sales.invoice.view", body: JSON.stringify({ ...payload, id: "SR-DRAFT-ONLY" }) }));
+    await app.fetch(req("/", { method: "POST", permissions: "sales.return.create,sales.invoice.view", body: JSON.stringify({ ...payload, id: "SR-CONFIRMED" }) }));
     await app.fetch(req("/SR-CONFIRMED/confirm", { method: "POST", permissions: "sales.return.confirm", body: "{}" }));
 
     const res = await app.fetch(req("/?awaitingRefund=true", { permissions: "sales.return.view" }));
@@ -945,7 +945,7 @@ describe("POST /sales-returns/:id/refund", () => {
     const { service } = await buildService();
     const refunds = makeRefundsPort();
     const app = createSalesReturnsRoutes(service, insecureHeaderAuthContextResolver, undefined, refunds);
-    await app.fetch(req("/", { method: "POST", permissions: "sales.return.create", body: JSON.stringify({ ...payload, id }) }), insecureHeaderAuthContextResolver);
+    await app.fetch(req("/", { method: "POST", permissions: "sales.return.create,sales.invoice.view", body: JSON.stringify({ ...payload, id }) }), insecureHeaderAuthContextResolver);
     await app.fetch(req(`/${id}/confirm`, { method: "POST", permissions: "sales.return.confirm", body: "{}" }));
     return { app, refunds };
   }
@@ -960,7 +960,7 @@ describe("POST /sales-returns/:id/refund", () => {
 
   it("503s when no refunds port is wired", async () => {
     const app = await newApp();
-    await app.fetch(req("/", { method: "POST", permissions: "sales.return.create", body: JSON.stringify(payload) }));
+    await app.fetch(req("/", { method: "POST", permissions: "sales.return.create,sales.invoice.view", body: JSON.stringify(payload) }));
     await app.fetch(req("/SR1/confirm", { method: "POST", permissions: "sales.return.confirm", body: "{}" }));
     const res = await app.fetch(
       req("/SR1/refund", { method: "POST", permissions: "sales.return.confirm", body: JSON.stringify({ amount: "1", treasuryAccountId: "TILL1" }) }),
@@ -980,7 +980,7 @@ describe("POST /sales-returns/:id/refund", () => {
   it("422s a refund against a return that is still a draft (not yet confirmed)", async () => {
     const { service } = await buildService();
     const app = createSalesReturnsRoutes(service, insecureHeaderAuthContextResolver, undefined, makeRefundsPort());
-    await app.fetch(req("/", { method: "POST", permissions: "sales.return.create", body: JSON.stringify(payload) }));
+    await app.fetch(req("/", { method: "POST", permissions: "sales.return.create,sales.invoice.view", body: JSON.stringify(payload) }));
     const res = await app.fetch(
       req("/SR1/refund", { method: "POST", permissions: "sales.return.confirm", body: JSON.stringify({ amount: "1", treasuryAccountId: "TILL1" }) }),
     );
@@ -1036,7 +1036,7 @@ describe("POST /sales-returns/:id/refund", () => {
       },
     };
     const app = createSalesReturnsRoutes(service, insecureHeaderAuthContextResolver, undefined, brokenRefunds);
-    await app.fetch(req("/", { method: "POST", permissions: "sales.return.create", body: JSON.stringify(payload) }), insecureHeaderAuthContextResolver);
+    await app.fetch(req("/", { method: "POST", permissions: "sales.return.create,sales.invoice.view", body: JSON.stringify(payload) }), insecureHeaderAuthContextResolver);
     await app.fetch(req("/SR1/confirm", { method: "POST", permissions: "sales.return.confirm", body: "{}" }));
     const res = await app.fetch(
       req("/SR1/refund", { method: "POST", permissions: "sales.return.confirm", body: JSON.stringify({ amount: "228", treasuryAccountId: "TILL1" }) }),

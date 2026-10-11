@@ -27,6 +27,7 @@ import {
 import type { z } from "zod";
 import { type AuthContextResolver, callerUserId, createAnyPermissionGate, createPermissionGate, getAuthContext, warehouseScopeOf, withinScope } from "./permission-gate.js";
 import { handleDocumentError } from "./document-error-handling.js";
+import { salesSourceInvoiceHidden } from "./source-invoice-visibility.js";
 import { tenantDay, tenantToday } from "./tenant-day.js";
 
 type CreateSalesReturnLineInput = z.infer<typeof createSalesReturnSchema>["lines"][number];
@@ -119,17 +120,6 @@ export function createSalesReturnsRoutes(
   const gate = createPermissionGate(resolveAuthContext);
   const gateAny = createAnyPermissionGate(resolveAuthContext);
 
-  // INVARIANT: the SAME rule `GET /sales-invoices/:id` applies. A caller whose
-  // only invoice grant is the own-records tier — or who holds none — reads
-  // the lines of the invoices they sold and of no other.
-  const sourceInvoiceHidden = async (c: Context, invoice: { readonly salespersonId?: string | null }): Promise<boolean> => {
-    const ctx = getAuthContext(c);
-    if (!ctx) return true;
-    if (can(ctx, "sales.invoice.view") || can(ctx, "sales.invoice.view_all")) return false;
-    const own = ownSalespersonId ? await ownSalespersonId(ctx.userId) : null;
-    return own === null || invoice.salespersonId !== own;
-  };
-
   /*
    * D70 — the `sales.return.view_own` tier, enforced.
    *
@@ -181,18 +171,24 @@ export function createSalesReturnsRoutes(
   // Scoped to ONE request: `alreadyReturnedQty` moves every time a return
   // confirms, and a cache that outlives the request would keep serving the
   // cap from before it did.
-  async function lookupInvoice(cache: Map<string, SourceInvoice>, sourceInvoiceId: string): Promise<SourceInvoice> {
+  async function lookupInvoice(c: Context, cache: Map<string, SourceInvoice>, sourceInvoiceId: string): Promise<SourceInvoice> {
     if (!invoices) return null;
-    if (!cache.has(sourceInvoiceId)) cache.set(sourceInvoiceId, await invoices.findConfirmedInvoice(sourceInvoiceId));
+    if (!cache.has(sourceInvoiceId)) {
+      const found = await invoices.findConfirmedInvoice(sourceInvoiceId);
+      const ctx = getAuthContext(c);
+      const own = ctx && ownSalespersonId ? await ownSalespersonId(ctx.userId) : null;
+      cache.set(sourceInvoiceId, found && !salesSourceInvoiceHidden(ctx, found, own) ? found : null);
+    }
     return cache.get(sourceInvoiceId) ?? null;
   }
 
   async function refuseInconsistentLine(
+    c: Context,
     line: { sourceInvoiceId: string; customerId: string; itemId: string; unitCost?: string },
     requestInvoices: Map<string, SourceInvoice>,
   ): Promise<{ error: string; message: string } | null> {
     if (!invoices) return null;
-    const invoice = await lookupInvoice(requestInvoices, line.sourceInvoiceId);
+    const invoice = await lookupInvoice(c, requestInvoices, line.sourceInvoiceId);
     if (!invoice) return SOURCE_INVOICE_NOT_FOUND;
     if (invoice.customerId !== line.customerId) {
       return {
@@ -212,6 +208,7 @@ export function createSalesReturnsRoutes(
   // INVARIANT: a request's lines against one invoice are derived in ONE call;
   // derived one at a time, each is offered the whole of the line it names.
   async function deriveLines(
+    c: Context,
     requested: readonly CreateSalesReturnLineInput[],
     requestInvoices: Map<string, SourceInvoice>,
   ): Promise<{ lines: SalesReturnLine[] } | { refusal: ReturnType<typeof lineNotOnInvoice> | typeof SOURCE_INVOICE_NOT_FOUND }> {
@@ -235,7 +232,7 @@ export function createSalesReturnsRoutes(
     const lines: SalesReturnLine[] = [];
     for (const sourceInvoiceId of new Set(requested.map((l) => l.sourceInvoiceId))) {
       const ofInvoice = requested.filter((l) => l.sourceInvoiceId === sourceInvoiceId);
-      const invoice = await lookupInvoice(requestInvoices, sourceInvoiceId);
+      const invoice = await lookupInvoice(c, requestInvoices, sourceInvoiceId);
       if (!invoice) return { refusal: SOURCE_INVOICE_NOT_FOUND };
       const first = ofInvoice[0] as CreateSalesReturnLineInput;
       const built = buildSalesReturnLinesFromInvoice(
@@ -393,8 +390,8 @@ export function createSalesReturnsRoutes(
     if (!invoices) {
       return c.json({ error: "INVOICE_LOOKUP_UNAVAILABLE", message: "قراءة بنود الفاتورة المصدر تتطلب وحدة فواتير المبيعات." }, 503);
     }
-    const invoice = await invoices.findConfirmedInvoice(c.req.param("invoiceId"));
-    if (!invoice || (await sourceInvoiceHidden(c, invoice))) return c.json(SOURCE_INVOICE_NOT_FOUND, 404);
+    const invoice = await lookupInvoice(c, new Map(), c.req.param("invoiceId"));
+    if (!invoice) return c.json(SOURCE_INVOICE_NOT_FOUND, 404);
     return c.json(
       returnSourceLinesSchema.parse({
         sourceInvoiceId: invoice.id,
@@ -428,10 +425,10 @@ export function createSalesReturnsRoutes(
     }
     const requestInvoices = new Map<string, SourceInvoice>();
     for (const line of parsed.data.lines) {
-      const refusal = await refuseInconsistentLine(line, requestInvoices);
+      const refusal = await refuseInconsistentLine(c, line, requestInvoices);
       if (refusal) return c.json(refusal, 422);
     }
-    const derived = await deriveLines(parsed.data.lines, requestInvoices);
+    const derived = await deriveLines(c, parsed.data.lines, requestInvoices);
     if ("refusal" in derived) return c.json(derived.refusal, 422);
     try {
       const doc = await service.createDraft({
@@ -461,10 +458,8 @@ export function createSalesReturnsRoutes(
     if (!invoices) {
       return c.json({ error: "INVOICE_LOOKUP_UNAVAILABLE", message: "إنشاء مرتجع من فاتورة يتطلب وحدة فواتير المبيعات." }, 503);
     }
-    const invoice = await invoices.findConfirmedInvoice(parsed.data.sourceInvoiceId);
-    if (!invoice) {
-      return c.json({ error: "SOURCE_INVOICE_NOT_FOUND", message: "الفاتورة المصدر غير موجودة أو غير مؤكدة." }, 404);
-    }
+    const invoice = await lookupInvoice(c, new Map(), parsed.data.sourceInvoiceId);
+    if (!invoice) return c.json(SOURCE_INVOICE_NOT_FOUND, 404);
     const { lines, unmatched } = buildSalesReturnLinesFromInvoice(
       invoice,
       parsed.data.warehouseId,

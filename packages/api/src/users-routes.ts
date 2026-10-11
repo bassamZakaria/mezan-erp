@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { Hono, type Context } from "hono";
 import {
+  ALL_SCOPE,
   saveUser,
   setUserStatus,
   isTenantAdmin,
@@ -32,6 +33,7 @@ import { ErasureRetention, createUserSchema, eraseUserSchema, updateUserSchema }
 import { EMPTY_ERASURE_COUNTS, type UserErasurePort } from "./user-erasure.js";
 import {
   createPermissionGate,
+  branchGrantOf,
   getAuthContext,
   type AuthContextResolver,
 } from "./permission-gate.js";
@@ -446,14 +448,25 @@ export function createUsersRoutes(
     );
   }
 
+  /**
+   * SECURITY: a branch-restricted session administers the users of its own
+   * branches. A user it could not have created — one granted another branch,
+   * or every branch — is not listed to it and does not open by id.
+   */
+  const withinCallersBranches = (c: Context, user: User): boolean => {
+    const grant = branchGrantOf(c);
+    if (!grant) return true;
+    return user.branchScope !== ALL_SCOPE && user.branchScope.every((branchId) => grant.includes(branchId));
+  };
+
   app.get("/", gate("admin.users.view"), async (c) => {
     const users = await uow.users.list();
-    return c.json(users.map(serializeUser));
+    return c.json(users.filter((user) => withinCallersBranches(c, user)).map(serializeUser));
   });
 
   app.get("/:id", gate("admin.users.view"), async (c) => {
     const user = await uow.users.findById(c.req.param("id"));
-    if (!user) return c.json({ error: "NOT_FOUND" }, 404);
+    if (!user || !withinCallersBranches(c, user)) return c.json({ error: "NOT_FOUND" }, 404);
     return c.json(serializeUser(user));
   });
 

@@ -555,6 +555,8 @@ export function createVouchersRoutes(
     const d = parsed.data;
     const refusal = refuseVoucherType(c, voucherPermissions("create", d.voucherType, d.projectId));
     if (refusal) return refusal;
+    const takenVoucherId = await refuseTakenId(c, d.id, (id) => serviceFor(c).findById(id));
+    if (takenVoucherId) return takenVoucherId;
     const partyRefusal = await refuseUnknownMasterData(c, deps.masterData, [
       { kind: MasterDataKind.Customer, ids: [d.customerId] },
       { kind: MasterDataKind.Supplier, ids: [d.supplierId] },

@@ -2024,13 +2024,23 @@ describe("D111 round 4 · a create cannot take over another branch's record by n
     { route: "/vouchers", schema: contracts.createVoucherSchema, table: "voucher", foreignIdSql: "SELECT id FROM voucher WHERE branch_id = 'BR-MAIN' LIMIT 1" },
     { route: "/sales-invoices", schema: contracts.createSalesInvoiceSchema, table: "sales_invoice", foreignIdSql: "SELECT id FROM sales_invoice WHERE branch_id = 'BR-MAIN' LIMIT 1" },
   ];
-  const alexReferences = { branchId: ALEX, warehouseId: ALEX_WAREHOUSE, treasuryAccountId: "TR-DEMO-CASH-ALEX", customerId: "CUST-DEMO-2", currency: "EGP", date: TODAY };
+  const storedReferences = () => ({
+    branchId: ALEX,
+    warehouseId: ALEX_WAREHOUSE,
+    treasuryAccountId: "TR-DEMO-CASH-ALEX",
+    customerId: "CUST-DEMO-2",
+    vanId: one<{ id: string }>("SELECT id FROM van ORDER BY id LIMIT 1")!.id,
+    employeeId: one<{ id: string }>("SELECT id FROM hr_employee ORDER BY id LIMIT 1")!.id,
+    sourceWarehouseId: MAIN_WAREHOUSE,
+    currency: "EGP",
+    date: TODAY,
+  });
   const rowOf = (table: string, id: string) => JSON.stringify(one(`SELECT * FROM "${table}" WHERE id = ?`, id));
   const journalCount = () => one<{ n: number }>("SELECT count(*) AS n FROM journal_entry")!.n;
 
   it.each(TAKEOVERS)("$route — a branch user and a * admin granted one branch are told nothing is there, and the row is untouched", async ({ route, schema, table, foreignIdSql }) => {
     const id = one<{ id: string }>(foreignIdSql)!.id;
-    const body = sampleOf(schema, { ...alexReferences, id });
+    const body = sampleOf(schema, { ...storedReferences(), id });
     for (const caller of [alex, alexStar]) {
       const before = rowOf(table, id);
       const entries = journalCount();
@@ -2046,7 +2056,7 @@ describe("D111 round 4 · a create cannot take over another branch's record by n
 
   it.each(TAKEOVERS)("$route — the refusal is the one an id nobody holds draws when it is named as a reference", async ({ route, schema, foreignIdSql }) => {
     const id = one<{ id: string }>(foreignIdSql)!.id;
-    const taken = await alex("POST", route, sampleOf(schema, { ...alexReferences, id }));
+    const taken = await alex("POST", route, sampleOf(schema, { ...storedReferences(), id }));
     const unknownReference = await alex("POST", "/sales-returns", { id: "D111-R4-UNKNOWN-REF", date: TODAY, sourceInvoiceId: "D111-R4-NO-SUCH-INVOICE", lines: [] });
     expect(taken.status).toBe(unknownReference.status);
     expect(taken.body).toEqual(unknownReference.body);
@@ -2056,7 +2066,7 @@ describe("D111 round 4 · a create cannot take over another branch's record by n
     const id = one<{ id: string }>(foreignIdSql)!.id;
     const before = rowOf(table, id);
     const entries = journalCount();
-    const res = await bothBranches("POST", route, sampleOf(schema, { ...alexReferences, id }));
+    const res = await bothBranches("POST", route, sampleOf(schema, { ...storedReferences(), id }));
     expect(res.status, `${route} ${JSON.stringify(res.body).slice(0, 200)}`).toBe(409);
     expect(res.body?.error).toBe(RecordErrorCode.DuplicateId);
     expect(res.body?.message).toMatch(ARABIC);
@@ -2066,7 +2076,7 @@ describe("D111 round 4 · a create cannot take over another branch's record by n
 
   it("a branch user is told its own branch's id is taken", async () => {
     const before = rowOf("treasury_account", "TR-DEMO-CASH-ALEX");
-    const res = await alex("POST", "/treasury-accounts", sampleOf(contracts.createTreasuryAccountSchema, { ...alexReferences, id: "TR-DEMO-CASH-ALEX" }));
+    const res = await alex("POST", "/treasury-accounts", sampleOf(contracts.createTreasuryAccountSchema, { ...storedReferences(), id: "TR-DEMO-CASH-ALEX" }));
     expect(res.status).toBe(409);
     expect(res.body?.error).toBe(RecordErrorCode.DuplicateId);
     expect(rowOf("treasury_account", "TR-DEMO-CASH-ALEX")).toBe(before);
@@ -2563,5 +2573,57 @@ describe("D111 round 4 · the lists a picker needs are open to every signed-in u
     for (const code of ["accounting.journal.view", "sales.invoice.create", "treasury.cash_voucher.create"]) expect(permissions, code).toContain(code);
     const manager = callerFor(handle.sessions.issue({ userId: "USER-R4-MANAGER", permissions, roleCode: "BRANCH_MANAGER", branchScope: [ALEX], warehouseScope: ALL_SCOPE }));
     expect((await manager("GET", "/dashboard/summary")).status).toBe(200);
+  });
+});
+
+describe("D111 round 4 · a reference nobody holds and one another branch holds answer the same, under every reference key", () => {
+  it("an employee, a cost centre, a payroll run and a recurring template", async () => {
+    const foreignEmployee = one<{ id: string }>("SELECT id FROM hr_employee WHERE branch_id = ? LIMIT 1", MAIN)!.id;
+    const foreignRun = one<{ id: string }>("SELECT id FROM hr_payroll_run WHERE branch_id = ? LIMIT 1", MAIN)!.id;
+    const foreignCostCenter = one<{ id: string }>("SELECT id FROM cost_center WHERE branch_id = ? LIMIT 1", MAIN)?.id;
+    const probes: (readonly [path: string, body: (id: string) => unknown, foreign: string | undefined])[] = [
+      ["/hr/advances", (id) => ({ employeeId: id, amount: "100.00", installments: 1, requestDate: TODAY }), foreignEmployee],
+      ["/hr/leave-requests", (id) => ({ employeeId: id, leaveType: "annual", startDate: TODAY, endDate: TODAY }), foreignEmployee],
+      ["/hr/payroll/garnishments", (id) => ({ employeeId: id, runId: foreignRun, totalAmount: "10.00", monthlyAmount: "10.00", startDate: TODAY }), foreignEmployee],
+      ["/vouchers", (id) => ({ ...voucher(`D111-R4-ORACLE-${id.length}`, ALEX, "TR-DEMO-CASH-ALEX", "1300-ALEX"), costCenterId: id }), foreignCostCenter],
+      ["/gl/recurring/runs", (id) => ({ templateId: id, period: "2026-10" }), one<{ id: string }>("SELECT id FROM recurring_journal_template LIMIT 1")?.id],
+    ];
+    for (const [path, body, foreign] of probes) {
+      if (!foreign) continue;
+      for (const caller of [alex, alexStar]) {
+        const held = await caller("POST", path, body(foreign));
+        const unknown = await caller("POST", path, body("D111-R4-NOBODY-HOLDS-THIS"));
+        expect({ status: unknown.status, body: unknown.body }, path).toEqual({ status: held.status, body: held.body });
+      }
+    }
+  });
+});
+
+describe("D111 round 4 · the user list is the users within the caller's branches", () => {
+  it("a branch-restricted session lists and opens only users whose branches are inside its own", async () => {
+    const scopes = new Map(all<{ id: string; branch_scope: string }>("SELECT id, branch_scope FROM user").map((row) => [row.id, JSON.parse(row.branch_scope) as string | string[]]));
+    for (const caller of [alex, alexStar]) {
+      const listed = rowsOf((await caller("GET", "/users")).body);
+      expect(listed.length).toBeGreaterThan(0);
+      for (const user of listed) {
+        const scope = scopes.get(user.id);
+        expect(Array.isArray(scope) && scope.every((branch) => branch === ALEX), `${user.email} ${JSON.stringify(scope)}`).toBe(true);
+      }
+      const outside = [...scopes].find(([, scope]) => scope === "*")![0];
+      const res = await caller("GET", `/users/${outside}`);
+      expect(res.status).toBe(404);
+    }
+    expect(rowsOf((await admin("GET", "/users")).body).length).toBe(scopes.size);
+  });
+});
+
+describe("D111 round 4 · a stored record cannot be moved onto another branch's warehouse by its id", () => {
+  it("a till of one branch is not given another branch's warehouse", async () => {
+    const terminal = one<{ id: string; warehouse_id: string }>("SELECT id, warehouse_id FROM pos_terminal WHERE branch_id = ? LIMIT 1", MAIN)!;
+    const current = (await admin("GET", `/pos/terminals/${terminal.id}`)).body;
+    const res = await admin("PUT", `/pos/terminals/${terminal.id}`, { ...current, warehouseId: ALEX_WAREHOUSE });
+    expect(res.status, JSON.stringify(res.body).slice(0, 200)).toBe(422);
+    expect(res.body?.error).toBe("WAREHOUSE_BRANCH_MISMATCH");
+    expect(one<{ w: string }>("SELECT warehouse_id AS w FROM pos_terminal WHERE id = ?", terminal.id)!.w).toBe(terminal.warehouse_id);
   });
 });

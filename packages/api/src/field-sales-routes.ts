@@ -275,8 +275,8 @@ export function createFieldSalesRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
-      const takenId = await refuseTakenId(c, parsed.data.id, (id) => deps.trips.findById(id));
-      if (takenId) return takenId;
+    const takenId = await refuseTakenId(c, parsed.data.id, (id) => deps.trips.findById(id));
+    if (takenId) return takenId;
     const body = parsed.data;
     try {
       /**

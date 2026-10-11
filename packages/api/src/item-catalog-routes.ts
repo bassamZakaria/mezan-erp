@@ -121,8 +121,8 @@ export function createItemCategoriesRoutes(
   app.post("/", gate("inventory.item.create"), async (c) => {
     const parsed = createItemCategorySchema.safeParse(await c.req.json());
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
-      const takenId = await refuseTakenId(c, parsed.data.id, (id) => repo.findById(id));
-      if (takenId) return takenId;
+    const takenId = await refuseTakenId(c, parsed.data.id, (id) => repo.findById(id));
+    if (takenId) return takenId;
     try {
       return c.json(serializeCategory(await createItemCategory(parsed.data, repo)), 201);
     } catch (err) {

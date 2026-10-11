@@ -45,31 +45,14 @@ const RESTRICTED_TREASURY_HOLDER_KEYS: ReadonlySet<string> = new Set([...TREASUR
 const DOCUMENT_BRANCH_KEYS: ReadonlySet<string> = new Set(["branchId", "warehouseId", "sourceWarehouseId", "destinationWarehouseId", "fromWarehouseId"]);
 
 /**
- * SECURITY: keys that name one kind of record on every route. An id under one
- * of them that nothing holds answers exactly as an id another branch holds, so
- * the refusal does not say which it was. A key that means different records on
- * different routes (`runId`, `templateId`, `planId`, `orderId`, `docId`) is not
- * here: the directory cannot tell "absent" from "not the kind I look up".
+ * SECURITY: an id under a reference key that nothing holds answers exactly as
+ * an id another branch holds, so the refusal does not say which it was. These
+ * keys mean different records on different routes, so the directory cannot
+ * tell "absent" from "not the kind I look up" — a family that takes one says
+ * what it means there (`bodyKinds`), and until it does an absent id under it
+ * is left to the handler.
  */
-const SOLE_MEANING_KEYS: ReadonlySet<string> = new Set([
-  "receiptId",
-  "purchaseOrderId",
-  "quoteId",
-  "invoiceId",
-  "sourceInvoiceId",
-  "voucherId",
-  "chequeId",
-  "statementId",
-  "rfqId",
-  "vanId",
-  "tripId",
-  "terminalId",
-  "assetId",
-  "workOrderId",
-  "opportunityId",
-  "relatedOpportunityId",
-  "installmentPlanId",
-]);
+const AMBIGUOUS_REFERENCE_KEYS: ReadonlySet<string> = new Set(["runId", "templateId", "planId", "orderId", "docId"]);
 
 const NAMED_LOCATION_KINDS: ReadonlySet<BranchRecordKind> = new Set([K.Branch, K.Warehouse, K.TreasuryAccount]);
 const QUERY_BRANCH_KEYS = ["branchId", "branchIds", "branch"] as const;
@@ -284,11 +267,14 @@ async function readJsonBody(c: Context): Promise<unknown> {
  */
 async function bodyRefusal(c: Context, session: Session, entry: BranchPolicyEntry, body: unknown): Promise<Response | null> {
   for (const reference of referencesNamedIn(body)) {
-    const standing = standingOf(session, await lookup(session, reference.kind, reference.id));
+    const declared = entry.bodyKinds?.[reference.key];
+    const kind = declared ?? reference.kind;
+    const standing = standingOf(session, await lookup(session, kind, reference.id));
     if (standing === Standing.Foreign || standing === Standing.PartlyForeign) {
-      return branchRefusal(c, NAMED_LOCATION_KINDS.has(reference.kind) ? BranchRefusalCode.BranchOutOfScope : BranchRefusalCode.NotFound);
+      return branchRefusal(c, NAMED_LOCATION_KINDS.has(kind) ? BranchRefusalCode.BranchOutOfScope : BranchRefusalCode.NotFound);
     }
-    if (standing === Standing.Absent && SOLE_MEANING_KEYS.has(reference.key)) return branchRefusal(c, BranchRefusalCode.NotFound);
+    const meaningIsKnown = declared !== undefined || !AMBIGUOUS_REFERENCE_KEYS.has(reference.key);
+    if (standing === Standing.Absent && meaningIsKnown && !NAMED_LOCATION_KINDS.has(kind)) return branchRefusal(c, BranchRefusalCode.NotFound);
   }
   return null;
 }

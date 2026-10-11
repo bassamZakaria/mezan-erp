@@ -112,6 +112,8 @@ export interface BranchPolicyEntry {
   /** A record of this family that no branch owns is the company's: readable by every session, writable only by an unrestricted one. */
   readonly unownedIsCompanys?: boolean;
   readonly query?: Readonly<Record<string, BranchRecordKind>>;
+  /** What a body key that means different records on different routes names in this family. */
+  readonly bodyKinds?: Readonly<Record<string, BranchRecordKind>>;
 }
 
 const K = BranchRecordKind;
@@ -283,7 +285,7 @@ export const BRANCH_POLICY_TABLE: readonly BranchPolicyEntry[] = [
   handlerScoped("/gl/journal-entries", { params: { id: K.JournalEntry }, defaultsLineBranch: true }),
   handlerScoped("/gl/accounts", { params: { accountId: null } }),
   scoped("/gl/recurring/templates", K.RecurringTemplate, { params: { entryId: K.JournalEntry } }),
-  scoped("/gl/recurring/runs", K.RecurringRun),
+  scoped("/gl/recurring/runs", K.RecurringRun, { bodyKinds: { templateId: K.RecurringTemplate } }),
 
   scoped("/warehouses", K.Warehouse),
   scoped("/treasury-accounts", K.TreasuryAccount, { handlerNarrowed: COUNTS_AND_STATS, unownedIsCompanys: true }),
@@ -312,7 +314,7 @@ export const BRANCH_POLICY_TABLE: readonly BranchPolicyEntry[] = [
   scoped("/crm/opportunities", K.CrmOpportunity, { defaultsBranch: true }),
   scoped("/crm/activities", K.CrmActivity),
   scoped("/installments/plans", K.InstallmentPlan, { handlerNarrowed: COUNTS_AND_STATS }),
-  scoped("/installments/follow-ups", K.CollectionFollowUp, { handlerNarrowed: COUNTS_AND_STATS }),
+  scoped("/installments/follow-ups", K.CollectionFollowUp, { handlerNarrowed: COUNTS_AND_STATS, bodyKinds: { planId: K.InstallmentPlan } }),
   scoped("/workflow/requests", K.ApprovalRequest, { handlerNarrowed: ["/pending-count"] }),
   scoped("/eta/submissions", K.EtaSubmission),
   scoped("/eta/receipts", K.EtaReceipt, { params: { internalId: K.EtaReceipt, kind: null, docId: K.SourceDocument }, rows: K.EtaReceipt }),
@@ -334,9 +336,9 @@ export const BRANCH_POLICY_TABLE: readonly BranchPolicyEntry[] = [
   scoped("/hr/leave-requests", K.LeaveRequest, { handlerNarrowed: ["/counts"] }),
   scoped("/hr/leave-balances", K.LeaveBalance),
   scoped("/hr/advances", K.EmployeeAdvance),
-  scoped("/hr/payroll/garnishments", K.Garnishment),
+  scoped("/hr/payroll/garnishments", K.Garnishment, { bodyKinds: { runId: K.PayrollRun } }),
   scoped("/hr/payroll/runs", K.PayrollRun, { defaultsBranch: true }),
-  scoped("/hr/payroll/payslips", K.Payslip),
+  scoped("/hr/payroll/payslips", K.Payslip, { bodyKinds: { runId: K.PayrollRun } }),
 ];
 
 /**

@@ -657,6 +657,7 @@ export interface CreateAppOptions {
      * Omit and those two endpoints are not mounted.
      */
     readonly layers?: CostLayerRepository;
+    readonly landedCostsStandingOn?: (documentId: string) => Promise<readonly string[]>;
     readonly resolveTaxRate?: (itemId: string) => number | Promise<number>;
     readonly autoBatchNo?: (input: { itemId: string; receiptNumber: string; lineIndex: number }) => Promise<string | null>;
     readonly currencyCheck?: CurrencyCheck;
@@ -1473,6 +1474,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
           // the audit row and the writes it describes commit together.
           transactor: { transaction: (fn) => purchases.gl.ledger.transaction(fn) },
           glReverse: purchases.layers ? glReversePort : undefined,
+          landedCostsStandingOn: purchases.landedCostsStandingOn,
           accounts: purchases.accounts,
           allocatable: purchases.allocatable,
           returns: options.purchaseReturns?.service,

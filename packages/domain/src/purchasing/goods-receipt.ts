@@ -20,6 +20,7 @@ import {
   type PurchaseOrder,
   type PurchaseOrderRepository,
 } from "./purchase-order.js";
+import { LandedCostStandsOnDocumentError } from "../landed-costs/errors.js";
 import { atomically, recordPurchaseAudit, type PurchaseAuditDeps } from "./audit.js";
 import {
   DEFAULT_PURCHASE_POLICY,
@@ -143,6 +144,8 @@ export interface ConfirmGoodsReceiptDeps extends PurchaseAuditDeps {
 }
 
 export interface CancelGoodsReceiptDeps extends PurchaseAuditDeps {
+  /** Numbers of the confirmed landed costs standing on a document; one that carries any is not cancelled under them. */
+  readonly landedCostsStandingOn?: (documentId: string) => Promise<readonly string[]>;
   readonly receipts: GoodsReceiptRepository;
   readonly orders: PurchaseOrderRepository;
   readonly stock: PurchaseStockPostingPort;
@@ -515,6 +518,11 @@ export async function cancelGoodsReceipt(
   }
   const today = (deps.now?.() ?? new Date().toISOString()).slice(0, 10);
   const cancelDate = options.date ?? (today < receipt.date ? receipt.date : today);
+
+  if (receipt.status === "confirmed") {
+    const standing = (await deps.landedCostsStandingOn?.(receipt.id)) ?? [];
+    if (standing.length > 0) throw new LandedCostStandsOnDocumentError(receipt.id, standing);
+  }
 
   return atomically(deps, async () => {
   if (receipt.status === "confirmed") {

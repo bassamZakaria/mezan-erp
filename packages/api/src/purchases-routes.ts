@@ -38,6 +38,7 @@ import {
   PurchaseItemsAlreadyConsumedError,
   GoodsReceiptAlreadyInvoicedError,
   InvoiceDoesNotMatchReceiptError,
+  LandedCostStandsOnDocumentError,
   InvalidJournalEntryError,
   AccountNotFoundError,
   HeaderAccountNotPostableError,
@@ -188,6 +189,8 @@ export interface PurchasesRoutesDeps {
   readonly layers?: CostLayerRepository;
   /** GL reversal hook for cancelling a confirmed purchase invoice. Required together with `layers`. */
   readonly glReverse?: PurchaseGlReversalPort;
+  /** Numbers of the confirmed landed costs standing on a receipt or invoice; a document carrying one is not cancelled under it. */
+  readonly landedCostsStandingOn?: (documentId: string) => Promise<readonly string[]>;
   /** Append-only audit sink; when present every confirm/cancel below is recorded on the `sensitive` stream. */
   readonly audit?: AuditSink;
   /**
@@ -357,7 +360,8 @@ function handleDomainError(c: Context, err: unknown): Response {
     err instanceof PurchaseOrderRequiredError ||
     err instanceof PurchaseItemsAlreadyConsumedError ||
     err instanceof GoodsReceiptAlreadyInvoicedError ||
-    err instanceof InvoiceDoesNotMatchReceiptError
+    err instanceof InvoiceDoesNotMatchReceiptError ||
+    err instanceof LandedCostStandsOnDocumentError
   ) {
     return c.json(
       {
@@ -811,6 +815,7 @@ export function createPurchasesRoutes(
           stock: deps.stock,
           layers,
           glReverse: deps.glReverse,
+          landedCostsStandingOn: deps.landedCostsStandingOn,
           policy: await resolvePolicy(),
           transactor: deps.transactor,
           audit: audit(c),
@@ -1394,6 +1399,7 @@ export function createPurchasesRoutes(
           stock: deps.stock,
           glReverse,
           layers,
+          landedCostsStandingOn: deps.landedCostsStandingOn,
           receipts: deps.receipts,
           policy: await resolvePolicy(),
           transactor: deps.transactor,

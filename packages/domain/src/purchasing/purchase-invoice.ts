@@ -20,6 +20,7 @@ import { convertToBase } from "../exchange-rates/convert.js";
 import { NextNumberService } from "../numbering/index.js";
 import type { GoodsReceipt, GoodsReceiptRepository } from "./goods-receipt.js";
 import { distinctPositions, markGoodsReceiptInvoiced, receiptLayersConsumed, releaseGoodsReceiptFromInvoice } from "./goods-receipt.js";
+import { LandedCostStandsOnDocumentError } from "../landed-costs/errors.js";
 import { atomically, recordPurchaseAudit, type PurchaseAuditDeps } from "./audit.js";
 import {
   DEFAULT_PURCHASE_POLICY,
@@ -204,6 +205,8 @@ export interface ConfirmPurchaseInvoiceResult {
 }
 
 export interface CancelPurchaseInvoiceDeps extends PurchaseAuditDeps {
+  /** Numbers of the confirmed landed costs standing on a document; one that carries any is not cancelled under them. */
+  readonly landedCostsStandingOn?: (documentId: string) => Promise<readonly string[]>;
   readonly invoices: PurchaseInvoiceRepository;
   readonly stock: PurchaseStockPostingPort;
   readonly glReverse: PurchaseGlReversalPort;
@@ -771,6 +774,11 @@ export async function cancelPurchaseInvoice(
   }
   const today = nowIso(deps).slice(0, 10);
   const cancelDate = options.date ?? (today < invoice.date ? invoice.date : today);
+
+  if (invoice.status === "confirmed") {
+    const standing = (await deps.landedCostsStandingOn?.(invoice.id)) ?? [];
+    if (standing.length > 0) throw new LandedCostStandsOnDocumentError(invoice.id, standing);
+  }
 
   return atomically(deps, async () => {
   if (invoice.status === "confirmed") {

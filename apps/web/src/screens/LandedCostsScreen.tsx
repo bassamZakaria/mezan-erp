@@ -28,6 +28,7 @@ import type {
 import { SelectField, NumberField, TextField } from "../settings/form-controls";
 import {
   useCancelLandedCost,
+  useReverseLandedCost,
   useConfirmLandedCost,
   useCreateLandedCost,
   useItems,
@@ -113,6 +114,7 @@ export function LandedCostsScreen() {
   const createLandedCost = useCreateLandedCost();
   const confirmLandedCost = useConfirmLandedCost();
   const cancelLandedCost = useCancelLandedCost();
+  const reverseLandedCost = useReverseLandedCost();
 
   const documents = query.data ?? EMPTY;
   const invoices = (invoicesQuery.data ?? []).filter((i) => i.status === "confirmed");
@@ -358,6 +360,15 @@ export function LandedCostsScreen() {
     }
   }
 
+  async function reverseConfirmed(id: string) {
+    setError(null);
+    try {
+      await reverseLandedCost.mutateAsync(id);
+    } catch (err) {
+      setError(errorMessage(err, t("common.failed")));
+    }
+  }
+
   const statusChips: DocumentListStatusChip[] = [
     { key: "all", label: t("common.all"), count: counts.all },
     { key: "draft", label: t("docStatus.draft"), count: counts.draft },
@@ -463,7 +474,7 @@ export function LandedCostsScreen() {
                   { key: "cancel", label: t("common.cancel"), onSelect: () => void cancelExisting(d.id) },
                 ]
               : []),
-            ...(d.status === "confirmed" ? [{ key: "void", label: t("landedCosts.void"), onSelect: () => void cancelExisting(d.id) }] : []),
+            ...(d.status === "confirmed" ? [{ key: "void", label: t("landedCosts.void"), onSelect: () => void reverseConfirmed(d.id) }] : []),
           ];
           return (
             <div className="flex items-center gap-2" onClick={(event) => event.stopPropagation()}>
@@ -703,7 +714,7 @@ export function LandedCostsScreen() {
               </div>
             ) : null}
             {selected.status === "confirmed" ? (
-              <Button variant="default" onClick={() => cancelExisting(selected.id)}>
+              <Button variant="default" onClick={() => reverseConfirmed(selected.id)}>
                 {t("landedCosts.void")}
               </Button>
             ) : null}

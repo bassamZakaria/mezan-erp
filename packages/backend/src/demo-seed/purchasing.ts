@@ -370,7 +370,7 @@ export async function seedPurchasing(app: App): Promise<void> {
    */
   await step(app, "POST", "/landed-costs", {
     id: "LC-DEMO-1",
-    date: "2026-08-13",
+    date: "2026-08-18",
     memo: `تكاليف توريد إذن الاستلام ${receiptOne.number}`,
     distributionMethod: "BY_VALUE",
     costItems: [

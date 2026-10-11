@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { Hono } from "hono";
 import {
   Money,
@@ -151,6 +152,20 @@ export function createLandedCostsRoutes(
     try {
       const doc = await documents.cancel(c.req.param("id"));
       return c.json(serialize(doc));
+    } catch (err) {
+      return handleDocumentError(c, err);
+    }
+  });
+
+  app.post("/:id/reverse", gate("purchases.landed_cost.void"), async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { date?: unknown; reversalId?: unknown } | null;
+    try {
+      const date = await tenantDay(c, typeof body?.date === "string" && body.date !== "" ? body.date : new Date().toISOString());
+      const result = await landedCostService.reverse(c.req.param("id"), {
+        reversalId: typeof body?.reversalId === "string" && body.reversalId !== "" ? body.reversalId : randomUUID(),
+        date,
+      });
+      return c.json({ original: serialize(result.original), reversal: serialize(result.reversal) }, 201);
     } catch (err) {
       return handleDocumentError(c, err);
     }

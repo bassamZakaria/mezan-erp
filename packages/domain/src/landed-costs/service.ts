@@ -16,7 +16,9 @@
  * plumbing across engines, tracked as a follow-up, not attempted here.
  */
 
-import type { DocumentService, ConfirmOptions, ConfirmResult } from "../documents/service.js";
+import type { DocumentService, ConfirmOptions, ConfirmResult, ReverseOptions } from "../documents/service.js";
+import type { FrameworkDocument } from "../documents/document.js";
+import { LandedCostDateBeforeStockMovementError, LandedCostGoodsIssuedError } from "./errors.js";
 import type { StockLedgerService } from "../inventory/stock-ledger-service.js";
 import { occurredAtFromDocumentDate } from "../inventory/movement.js";
 import { Money } from "../money/index.js";
@@ -55,6 +57,13 @@ export interface LandedCostUnabsorbedGlPort {
     readonly sourceDocNumber: string | null;
     readonly amount: Money;
   }): Promise<void>;
+  /** Mirrors the reclassification entry of a landed cost being reversed; a no-op when that entry was never posted. */
+  reverseUnabsorbed?(entryId: string, opts: { readonly reversalId: string; readonly date: string }): Promise<void>;
+}
+
+export interface LandedCostServiceOptions {
+  /** The document whose cost layers a target's goods sit in: an invoice raised from a receipt names the receipt. Absent = the target document itself. */
+  readonly layerOwnerOf?: (sourceDocId: string) => Promise<string>;
 }
 
 export interface LandedCostConfirmResult extends ConfirmResult<LandedCostLine> {
@@ -69,9 +78,60 @@ export class LandedCostService {
     private readonly documents: DocumentService<LandedCostLine>,
     private readonly stock: StockLedgerService,
     private readonly gl?: LandedCostUnabsorbedGlPort,
+    private readonly options: LandedCostServiceOptions = {},
   ) {}
 
+  private async layerOwnerOf(sourceDocId: string): Promise<string> {
+    return (await this.options.layerOwnerOf?.(sourceDocId)) ?? sourceDocId;
+  }
+
+  private async assertNotBeforeStock(date: string, lines: readonly LandedCostLine[]): Promise<void> {
+    await this.stock.assertMovementDateOpen(occurredAtFromDocumentDate(date));
+    for (const line of lines) {
+      const latest = await this.stock.latestMovementDay(line.itemId, line.warehouseId);
+      if (latest !== null && latest > date) throw new LandedCostDateBeforeStockMovementError(date, line.itemId, latest);
+    }
+  }
+
+  /** Confirmed landed costs still standing on a purchase document, by document number. */
+  async standingOn(sourceDocId: string): Promise<string[]> {
+    return (await this.documents.list({ status: "confirmed" }))
+      .filter((doc) => !doc.reversesDocId && doc.lines.some((line) => line.sourceInvoiceId === sourceDocId))
+      .map((doc) => doc.docNo ?? doc.id);
+  }
+
+  /**
+   * Reverses a confirmed landed cost: the ledger entry is mirrored and each
+   * position gives the cost back. Refused once goods have left a targeted
+   * position since — part of the cost is then in cost of sales, and a mirror
+   * would take it out of stock that never carried it.
+   */
+  async reverse(id: string, opts: ReverseOptions & { readonly date: string }): Promise<{ original: FrameworkDocument<LandedCostLine>; reversal: FrameworkDocument<LandedCostLine> }> {
+    const existing = await this.documents.findById(id);
+    if (existing && existing.status === "confirmed" && !existing.reversesDocId) {
+      for (const line of existing.lines) {
+        const state = await this.stock.landedCostRevaluationState({ itemId: line.itemId, warehouseId: line.warehouseId, landedCostDocId: existing.id });
+        if (state.issuedSince) throw new LandedCostGoodsIssuedError(existing.docNo ?? existing.id, line.itemId);
+      }
+      await this.assertNotBeforeStock(opts.date, existing.lines);
+    }
+    const result = await this.documents.reverse(id, opts);
+    for (const line of result.original.lines) {
+      await this.stock.reverseLandedCostRevaluation({
+        itemId: line.itemId,
+        warehouseId: line.warehouseId,
+        landedCostDocId: result.original.id,
+        reversalDocId: result.reversal.id,
+        occurredAt: occurredAtFromDocumentDate(opts.date),
+      });
+    }
+    await this.gl?.reverseUnabsorbed?.(`${result.original.id}:UNABSORBED`, { reversalId: `${result.reversal.id}:UNABSORBED`, date: opts.date });
+    return result;
+  }
+
   async confirm(id: string, opts: ConfirmOptions = {}): Promise<LandedCostConfirmResult> {
+    const draft = await this.documents.findById(id);
+    if (draft && draft.status === "draft") await this.assertNotBeforeStock(draft.date, draft.lines);
     const result = await this.documents.confirm(id, opts);
     if (result.held) {
       return { ...result, unabsorbed: [], unabsorbedTotal: Money.zero(), unabsorbedJournalEntryId: null };
@@ -82,7 +142,7 @@ export class LandedCostService {
       const absorption = await this.stock.applyLandedCostRevaluation({
         itemId: line.itemId,
         warehouseId: line.warehouseId,
-        sourceDocId: line.sourceInvoiceId,
+        sourceDocId: await this.layerOwnerOf(line.sourceInvoiceId),
         valueDelta: line.allocatedAmount,
         landedCostDocId: result.document.id,
         landedCostDocNumber: result.document.docNo,

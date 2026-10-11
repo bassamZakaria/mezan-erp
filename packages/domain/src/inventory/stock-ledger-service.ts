@@ -28,7 +28,9 @@ import {
   StockMovement,
   StockMovementDirection,
   StockSourceDocType,
+  isRevaluation,
 } from "./movement.js";
+import { LandedCostDateBeforeStockMovementError } from "../landed-costs/errors.js";
 import {
   foldPostedAdjustments,
   foldPostedTransfers,
@@ -1066,6 +1068,9 @@ export class StockLedgerService {
           ? emptyPosition(line.itemId, line.warehouseId)
           : replay(line.itemId, line.warehouseId, movements);
       const last = movements[movements.length - 1]?.occurredAt;
+      if (last && last.slice(0, 10) > line.occurredAt.slice(0, 10)) {
+        throw new LandedCostDateBeforeStockMovementError(line.occurredAt.slice(0, 10), line.itemId, last.slice(0, 10));
+      }
       const occurredAt = last && last > line.occurredAt ? last : line.occurredAt;
       await this.assertPeriodOpen(occurredAt);
 
@@ -1093,6 +1098,66 @@ export class StockLedgerService {
         absorbed: Money.fromScaled(line.valueDelta.scaled - unabsorbed.scaled),
         unabsorbed,
       };
+    });
+  }
+
+  /** The period gate every movement passes, for a caller that must be refused by it before any other rule speaks. */
+  async assertMovementDateOpen(occurredAt: string): Promise<void> {
+    await this.assertPeriodOpen(occurredAt);
+  }
+
+  /** The day of the latest movement recorded on a position, or null when it has none. */
+  async latestMovementDay(itemId: string, warehouseId: string): Promise<string | null> {
+    const movements = await this.deps.ledger.listByPosition(itemId, warehouseId);
+    return movements.reduce<string | null>((latest, m) => (latest === null || m.occurredAt.slice(0, 10) > latest ? m.occurredAt.slice(0, 10) : latest), null);
+  }
+
+  /** The value-only movement a landed-cost document appended to a position, and whether anything has left the position since. */
+  async landedCostRevaluationState(line: { readonly itemId: string; readonly warehouseId: string; readonly landedCostDocId: string }): Promise<{ readonly applied: boolean; readonly issuedSince: boolean }> {
+    const movements = await this.deps.ledger.listByPosition(line.itemId, line.warehouseId);
+    const index = movements.findIndex((m) => m.sourceDocType === "LANDED_COST" && m.sourceDocId === line.landedCostDocId && isRevaluation(m));
+    if (index === -1) return { applied: false, issuedSince: false };
+    return { applied: true, issuedSince: movements.slice(index + 1).some((m) => m.direction === "OUT" && !isRevaluation(m)) };
+  }
+
+  /**
+   * Takes a landed cost back off a position: the mirror value-only movement,
+   * against the same receipt's layers. Exact only while nothing has left the
+   * position since the cost was loaded — the caller refuses otherwise.
+   */
+  async reverseLandedCostRevaluation(line: {
+    readonly itemId: string;
+    readonly warehouseId: string;
+    readonly landedCostDocId: string;
+    readonly reversalDocId: string;
+    readonly occurredAt: string;
+  }): Promise<void> {
+    await this.runInTransaction(async () => {
+      const movements = await this.deps.ledger.listByPosition(line.itemId, line.warehouseId);
+      const applied = movements.find((m) => m.sourceDocType === "LANDED_COST" && m.sourceDocId === line.landedCostDocId && isRevaluation(m));
+      if (!applied) return;
+      const last = movements[movements.length - 1]?.occurredAt;
+      if (last && last.slice(0, 10) > line.occurredAt.slice(0, 10)) {
+        throw new LandedCostDateBeforeStockMovementError(line.occurredAt.slice(0, 10), line.itemId, last.slice(0, 10));
+      }
+      const occurredAt = last && last > line.occurredAt ? last : line.occurredAt;
+      await this.assertPeriodOpen(occurredAt);
+      await this.deps.ledger.append({
+        id: `${line.reversalDocId}:LC:${line.itemId}:${line.warehouseId}`,
+        itemId: line.itemId,
+        warehouseId: line.warehouseId,
+        direction: "OUT",
+        qty: Qty.zero(),
+        unitCost: Money.zero(),
+        sourceDocType: "LANDED_COST",
+        sourceDocId: line.reversalDocId,
+        sourceDocNumber: null,
+        reason: null,
+        occurredAt,
+        valueDelta: applied.valueDelta,
+        revaluesSourceDocId: applied.revaluesSourceDocId,
+      });
+      await this.rebuildWithin(line.itemId, line.warehouseId);
     });
   }
 

@@ -1,5 +1,8 @@
 import type { Context } from "hono";
 import {
+  LandedCostDateBeforeStockMovementError,
+  LandedCostGoodsIssuedError,
+  LandedCostStandsOnDocumentError,
   ApprovalRequestRejectedError,
   DocumentNotFoundError,
   DuplicateDocumentError,
@@ -35,6 +38,21 @@ export function handleDocumentError(c: Context, err: unknown): Response {
   }
   if (err instanceof InvalidDocumentTransitionError) {
     return refuse(err, 409);
+  }
+  if (
+    err instanceof LandedCostDateBeforeStockMovementError ||
+    err instanceof LandedCostGoodsIssuedError ||
+    err instanceof LandedCostStandsOnDocumentError
+  ) {
+    return c.json(
+      {
+        error: err.code,
+        message: err.message,
+        messageEn: err.messageEn,
+        ...(err instanceof LandedCostDateBeforeStockMovementError ? { earliestAllowedDate: err.earliestAllowedDate } : {}),
+      },
+      422,
+    );
   }
   if (err instanceof InvalidDocumentError || err instanceof ReversalNotReversibleError) {
     return refuse(err, 422);

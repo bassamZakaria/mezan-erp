@@ -121,7 +121,7 @@ describe("LandedCostsScreen", () => {
     await waitFor(() => expect(screen.queryByText("أنشئ مستند تكلفة لتوزيع التكاليف الإضافية على المشتريات")).not.toBeInTheDocument());
   });
 
-  it("confirms then cancels a draft landed-cost document", async () => {
+  it("confirms a draft, then takes the confirmed document back by reversing it — a confirmed landed cost is never cancelled", async () => {
     let current: LandedCostDocumentDTO[] = [landedCost()];
     const transport = stubTransport({
       ...baseHandlers(current),
@@ -130,9 +130,9 @@ describe("LandedCostsScreen", () => {
         current = current.map((d) => (d.id === "lc-1" ? { ...d, status: "confirmed" as const, confirmedAt: "2026-08-21T10:00:00.000Z" } : d));
         return { body: { document: current[0], held: false } };
       },
-      "POST /landed-costs/lc-1/cancel": () => {
-        current = current.map((d) => (d.id === "lc-1" ? { ...d, status: "cancelled" as const } : d));
-        return { body: current[0] };
+      "POST /landed-costs/lc-1/reverse": () => {
+        current = current.map((d) => (d.id === "lc-1" ? { ...d, status: "reversed" as const, reversedByDocId: "lc-1-rev" } : d));
+        return { status: 201, body: { original: current[0], reversal: { ...current[0], id: "lc-1-rev", reversesDocId: "lc-1" } } };
       },
     });
     renderWithProviders(<LandedCostsScreen />, { transport, initialSession: testAdminSession });
@@ -141,6 +141,6 @@ describe("LandedCostsScreen", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "تأكيد التوزيع" }));
     expect(await within(dialog).findByRole("button", { name: "إلغاء المستند" })).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole("button", { name: "إلغاء المستند" }));
-    await within(dialog).findByText("ملغي");
+    await within(dialog).findByText("معكوس");
   });
 });

@@ -1947,6 +1947,13 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         salesInvoiceGl,
       );
     },
+    reverseUnabsorbed: async (entryId, opts) => {
+      const entry = await ledger.findById(entryId);
+      if (!entry || entry.status !== "posted") return;
+      await reverseJournalEntry(entryId, salesInvoiceGl, { reversalId: opts.reversalId, date: opts.date });
+    },
+  }, {
+    layerOwnerOf: async (sourceDocId) => (await purchaseInvoices.findById(sourceDocId))?.receiptId ?? sourceDocId,
   });
   const installmentPlanDocuments = new DocumentService(installmentPlanDocumentType, {
     repo: installmentPlans,
@@ -3299,6 +3306,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       // which 404 without it. app.ts derives the GL reversal port from this
       // being present, so omitting it silently disables both.
       layers: stockLedger.layers,
+      landedCostsStandingOn: (documentId) => landedCosts.standingOn(documentId),
     },
     salesInvoices: {
       repo: salesInvoices,

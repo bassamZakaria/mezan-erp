@@ -6139,6 +6139,23 @@ export function useCancelLandedCost() {
   });
 }
 
+export function useReverseLandedCost() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<{ original: LandedCostDocumentDTO; reversal: LandedCostDocumentDTO }, ApiError, string>({
+    mutationFn: async (id) => {
+      const res = await request(`/landed-costs/${id}/reverse`, { method: "POST", body: JSON.stringify({}) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theLandedCostDocumentCould3"), t));
+      return res.json<{ original: LandedCostDocumentDTO; reversal: LandedCostDocumentDTO }>();
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["landed-costs"] });
+      void queryClient.invalidateQueries({ queryKey: ["stock-levels"] });
+    },
+  });
+}
+
 export interface InstallmentPlanListFilter {
   /** A stored document status, or one of the derived axis keys `all` / `overdue`. */
   readonly status?: DocumentStatusDTO | "all" | "overdue";

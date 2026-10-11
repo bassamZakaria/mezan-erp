@@ -32,4 +32,10 @@ export {
   type UnabsorbedLandedCost,
 } from "./service.js";
 
-export { EmptyLandedCostTargetsError, ZeroLandedCostWeightError } from "./errors.js";
+export {
+  EmptyLandedCostTargetsError,
+  ZeroLandedCostWeightError,
+  LandedCostDateBeforeStockMovementError,
+  LandedCostGoodsIssuedError,
+  LandedCostStandsOnDocumentError,
+} from "./errors.js";

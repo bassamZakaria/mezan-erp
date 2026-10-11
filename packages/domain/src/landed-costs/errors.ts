@@ -30,3 +30,52 @@ export class ZeroLandedCostWeightError extends Error {
     this.name = "ZeroLandedCostWeightError";
   }
 }
+
+/** Raised when a landed cost is dated before a stock movement already recorded on a position it targets: stock and the ledger must carry it on the same day. */
+export class LandedCostDateBeforeStockMovementError extends Error {
+  readonly code = "LANDED_COST_DATE_BEFORE_STOCK_MOVEMENT";
+  readonly messageEn: string;
+  constructor(
+    readonly date: string,
+    readonly itemId: string,
+    readonly earliestAllowedDate: string,
+  ) {
+    super(
+      `تاريخ التكلفة الإضافية ${date} يسبق آخر حركة مخزون على الصنف "${itemId}" بتاريخ ${earliestAllowedDate}. أقرب تاريخ مسموح به هو ${earliestAllowedDate}، ليبقى المخزون والأستاذ العام على التاريخ نفسه.`,
+    );
+    this.messageEn = `The landed-cost date ${date} is before the latest stock movement on item "${itemId}", dated ${earliestAllowedDate}. The earliest date allowed is ${earliestAllowedDate}, so stock and the general ledger carry it on the same day.`;
+    this.name = "LandedCostDateBeforeStockMovementError";
+  }
+}
+
+/** Raised when a landed cost cannot be reversed because goods left the position after it raised their cost: part of it is already in cost of sales. */
+export class LandedCostGoodsIssuedError extends Error {
+  readonly code = "LANDED_COST_GOODS_ISSUED";
+  readonly messageEn: string;
+  constructor(
+    readonly landedCostId: string,
+    readonly itemId: string,
+  ) {
+    super(
+      `لا يمكن عكس التكلفة الإضافية "${landedCostId}": الصنف "${itemId}" صُرف منه بعد تحميل التكلفة عليه، فجزء منها دخل تكلفة المبيعات بالفعل. عالج الفرق بتسوية مخزون أو قيد يدوي.`,
+    );
+    this.messageEn = `Landed cost "${landedCostId}" cannot be reversed: item "${itemId}" has been issued since the cost was loaded onto it, so part of it is already in cost of sales. Correct the difference with a stock adjustment or a manual journal.`;
+    this.name = "LandedCostGoodsIssuedError";
+  }
+}
+
+/** Raised when a purchase document is cancelled while a confirmed landed cost still stands on it. */
+export class LandedCostStandsOnDocumentError extends Error {
+  readonly code = "LANDED_COST_STANDS_ON_DOCUMENT";
+  readonly messageEn: string;
+  constructor(
+    readonly documentId: string,
+    readonly landedCostNumbers: readonly string[],
+  ) {
+    super(
+      `لا يمكن إلغاء مستند المشتريات "${documentId}" وعليه تكلفة إضافية مؤكدة (${landedCostNumbers.join("، ")}). اعكس مستند التكلفة الإضافية أولاً ثم ألغِ المستند.`,
+    );
+    this.messageEn = `Purchase document "${documentId}" cannot be cancelled while a confirmed landed cost stands on it (${landedCostNumbers.join(", ")}). Reverse the landed-cost document first, then cancel the document.`;
+    this.name = "LandedCostStandsOnDocumentError";
+  }
+}

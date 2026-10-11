@@ -3908,7 +3908,7 @@ describe("createBackend — a landed cost does not touch the AP control account 
       "/landed-costs",
       {
         id: "lc-1",
-        date: "2026-08-24",
+        date: new Date().toISOString().slice(0, 10),
         memo: "شحن وتخليص",
         distributionMethod: "BY_VALUE",
         costItems: [{ costType: "SHIPPING", description: "شحن بحري", amount: "500", supplierId: "SUP-FREIGHT" }],

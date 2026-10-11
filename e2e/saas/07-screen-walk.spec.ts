@@ -137,6 +137,17 @@ test.describe("Every SaaS screen — both locales, both themes, desktop and 390p
     const context = await contextFor(browser, Door.Platform, look);
     const page = await context.newPage();
     await page.goto("/platform/tenants");
+    const list = await page.getByRole("table").evaluate((table) => {
+      let box = table.parentElement;
+      while (box && !["auto", "scroll"].includes(getComputedStyle(box).overflowX)) box = box.parentElement;
+      if (!box) return null;
+      const before = box.scrollLeft;
+      box.scrollLeft = before - 80;
+      return { hidden: box.scrollWidth - box.clientWidth, moved: Math.abs(box.scrollLeft - before) };
+    });
+    expect(list, "the tenants list sits in a container that scrolls sideways").not.toBeNull();
+    expect(list?.hidden ?? 0, "the list is wider than the phone").toBeGreaterThan(0);
+    expect(list?.moved ?? 0, "and its own container scrolls to the rest").toBeGreaterThan(0);
     await page.getByRole("navigation", { name: "منصة Mezan" }).getByRole("link", { name: "الباقات", exact: true }).click();
     await expect(page).toHaveURL(/\/platform\/plans$/);
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible();

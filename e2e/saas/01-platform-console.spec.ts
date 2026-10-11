@@ -367,6 +367,7 @@ test.describe("PLT-SAAS-01..06 — the platform console and the tenant it create
       data: { username: paying.adminEmail, pin: paying.adminPin },
     });
     expect(oldPin.status()).toBe(401);
-    await tenantApiLogin(request, { ...paying, adminPin: fresh.adminPin });
+    paying = { ...paying, adminPin: fresh.adminPin };
+    await tenantApiLogin(request, paying);
   });
 });

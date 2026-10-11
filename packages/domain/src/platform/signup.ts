@@ -99,14 +99,8 @@ export interface SignupRequestRepository {
    * transition; only this method's WHERE clause makes it safe to run twice.
    */
   tryMarkVerified(tokenHash: string, nowIso: string): Promise<SignupRequest | null>;
-  /**
-   * Takes the one provisioning claim a token has, for every process sharing this
-   * platform database. A claim taken before `staleBeforeIso` belonged to a
-   * process that died mid-provision and is taken over. False means another
-   * holder is provisioning this token right now.
-   */
+  /** A claim taken before `staleBeforeIso` must be taken over: its holder died mid-provision and will never release it. */
   tryClaimProvisioning(tokenHash: string, claimId: string, nowIso: string, staleBeforeIso: string): Promise<boolean>;
-  /** Gives the claim back; a no-op unless `claimId` still holds it. */
   releaseProvisioning(tokenHash: string, claimId: string): Promise<void>;
 }
 

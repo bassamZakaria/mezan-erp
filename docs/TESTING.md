@@ -8416,8 +8416,9 @@ seconds to boot, a test 120 seconds, a screen-walk test 180, the three clock
 tests of spec 06 240 each, and an `expect` 20 seconds (Playwright's default of
 5 is too short under load). With the demo seed the same boot measured 8
 seconds at load 7: about 7 seconds of single-threaded CPU and 2 of system
-time, with some 10,700 voluntary context switches, because the seed drives
-every demo document through the real routes and each commits on its own. 159
+time, with some 10,700 voluntary context switches, which fits a seed that drives
+every demo document through the real routes, each committing on its own (not
+counted). 159
 seconds were reported for it at load 11; this machine did not reproduce that,
 and the suite no longer depends on it. Spec 03's tests do not depend on each other, so the file is no longer
 serial and one failure does not skip the rest; specs 01, 02, 04, 05 and 06

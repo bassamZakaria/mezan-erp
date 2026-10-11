@@ -24,7 +24,6 @@ export interface ProvisionTenantDeps {
 export interface ProvisionTenantResult {
   readonly tenant: Tenant;
   readonly adminEmail: string;
-  /** Null only on a resumed provision whose owner has already signed in: that owner knows their PIN. */
   readonly adminPin: string | null;
 }
 

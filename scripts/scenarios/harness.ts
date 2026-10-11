@@ -32,7 +32,7 @@ export async function boot() {
   // allow (A3's SEAT_LIMIT_REACHED); this stand-in resolver keeps every cap off.
   const resolveEntitlements = () =>
     createEntitlements({ plan: "DEMO", activeModules: MODULE_CATALOG, features: {}, seats: 50, expiresAt: null });
-  const { app, sessions } = await createBackend({ dbPath, seedDemoData: true, resolveEntitlements });
+  const { app, sessions, drain } = await createBackend({ dbPath, seedDemoData: true, resolveEntitlements });
 
   /**
    * A scenario acts as an identity by minting a session for it, not by writing
@@ -259,6 +259,7 @@ export async function boot() {
   return {
     app,
     sessions,
+    drain,
     today,
     onCalendar,
     req,

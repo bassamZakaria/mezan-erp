@@ -555,7 +555,7 @@ export async function taxRateIdentity_D79(ctx: Ctx): Promise<void> {
  * the tenant in exactly that state and restores it before it finishes.
  */
 export async function zeroPercentIsNeverInferred_D79(ctx: Ctx): Promise<void> {
-  const { req, n, check, scenario, rows } = ctx;
+  const { req, n, check, scenario, rows, scaled } = ctx;
   const TOWER_CONTRACT = "CTR-DEMO-1";
 
   const listed = rows((await req("GET", "/tax-rates")).body);
@@ -670,15 +670,29 @@ export async function zeroPercentIsNeverInferred_D79(ctx: Ctx): Promise<void> {
     check("and released by a second person", released.status === 200 && Boolean(released.body?.invoiceId), JSON.stringify(released.body).slice(0, 240));
     const releaseInvoice = (await req("GET", `/sales-invoices/${released.body?.invoiceId}`)).body;
     check(
-      "the invoice the release raised is 0% under «غير خاضع» — a retention release is not an exempt sale, and no longer a line with no rate",
-      (releaseInvoice?.lines ?? []).length === 1 && releaseInvoice.lines[0].taxRatePercent === 0 && releaseInvoice.lines[0].taxRateId === NOT_SUBJECT,
-      JSON.stringify((releaseInvoice?.lines ?? []).map((l: any) => [l.taxRatePercent, l.taxRateId])),
+      "the document the release raised is confirmed and makes no tax classification claim: one 0% line naming no rate — a release is a receivable reclass, not a supply",
+      releaseInvoice?.status === "confirmed" && (releaseInvoice?.lines ?? []).length === 1 && releaseInvoice.lines[0].taxRatePercent === 0 && releaseInvoice.lines[0].taxRateId === null,
+      `${releaseInvoice?.status} ${JSON.stringify((releaseInvoice?.lines ?? []).map((l: any) => [l.taxRatePercent, l.taxRateId]))}`,
     );
-    const releaseQueued = rows((await req("GET", "/eta/submissions")).body).find((s: any) => s.internalId === releaseInvoice?.docNo);
+    const releaseJournal = (await req("GET", `/gl/journal-entries/${releaseInvoice?.journalEntryId}`)).body;
+    const releaseLines = (releaseJournal?.lines ?? []) as any[];
+    const releaseDebit = releaseLines.reduce((sum, l) => sum + (scaled(l.debit) ?? 0n), 0n);
+    const releaseCredit = releaseLines.reduce((sum, l) => sum + (scaled(l.credit) ?? 0n), 0n);
     check(
-      "so the release's e-invoice carries no unclassified-0% finding either",
-      !releaseQueued || (releaseQueued.prevalidation ?? []).every((f: any) => f.code !== "TAX_SUBTYPE_NOT_MAPPED"),
-      JSON.stringify(releaseQueued?.prevalidation ?? null).slice(0, 300),
+      "its journal ties: Dr receivables 100.00 / Cr the retention account 100.00, two lines, no VAT line and no tax rate on either",
+      releaseLines.length === 2 && releaseDebit === 100_000_000n && releaseCredit === 100_000_000n &&
+        releaseLines.some((l) => l.accountId === AR && scaled(l.debit) === 100_000_000n) &&
+        releaseLines.every((l) => l.accountId !== OUTPUT_TAX && (l.taxRateId ?? null) === null),
+      JSON.stringify(releaseLines.map((l) => [l.accountId, l.debit, l.credit, l.taxRatePercent, l.taxRateId])),
+    );
+    const releaseDayVat = rows((await req("GET", "/financial-reports/vat-return?periodFrom=2026-09-02&periodTo=2026-09-02")).body);
+    check("the VAT return for the release day reports nothing — not a 0% supply, not a negative purchase", releaseDayVat.length === 0, JSON.stringify(releaseDayVat).slice(0, 300));
+    await ctx.drain();
+    const releaseQueued = rows((await req("GET", "/eta/submissions?pageSize=500")).body).filter((s: any) => s.internalId === releaseInvoice?.docNo);
+    check(
+      "and the release is NOT filed with the authority: it produces no ETA submission at all (D79 round 4 — it was queued as a 100.00 V004 supply)",
+      Boolean(releaseInvoice?.docNo) && releaseQueued.length === 0,
+      JSON.stringify(releaseQueued.map((s: any) => [s.id, s.status, s.documentType])).slice(0, 300),
     );
 
     const reactivated = await req("PATCH", `/tax-rates/${exported?.id}`, { status: "active" });

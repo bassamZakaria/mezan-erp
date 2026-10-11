@@ -29,7 +29,6 @@ import {
   returnedQtyBySourceLine,
   createReturnConfirmGuard,
   ensureSystemTaxRates,
-  SYSTEM_NOT_SUBJECT_TAX_RATE_ID,
   SALES_RETURN_DOC_TYPE,
   PURCHASE_RETURN_DOC_TYPE,
   type SalesInvoiceLookupPort,
@@ -1420,8 +1419,10 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         taxRates,
         allocatable: vouchers.invoices,
         audit: auditSink,
-        // INVARIANT: the same publisher the /sales/invoices routes use — see the certificate's port above.
-        events: salesInvoiceEvents,
+        // INVARIANT: NOT `salesInvoiceEvents`. A retention release is a
+        // receivable reclass (Dr AR / Cr retention), not a supply: it must
+        // never reach the ETA queue or the e-receipt issuer.
+        events: salesInvoiceEventBridge,
         // The REAL actor, not "system": this invoice is a live receivable, and
         // its audit row named nobody.
         actor: cmd.actor ?? "system",
@@ -1450,7 +1451,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
             // No VAT: the works were taxed on the certificate that withheld
             // this money. Taxing the release again would charge it twice.
             taxRatePercent: 0,
-            taxRateId: SYSTEM_NOT_SUBJECT_TAX_RATE_ID,
+            taxRateId: null,
             revenueAccountId: cmd.retentionAccountId,
           },
         ],
@@ -1683,7 +1684,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
               qty: Qty.fromMajor("1"),
               unitCost: cmd.amount,
               taxRatePercent: 0,
-              taxRateId: SYSTEM_NOT_SUBJECT_TAX_RATE_ID,
+              taxRateId: null,
             },
           ],
         },

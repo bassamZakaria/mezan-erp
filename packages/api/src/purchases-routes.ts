@@ -99,7 +99,7 @@ import {
   withinScope,
   type StoredBranchesResolver,
 } from "./permission-gate.js";
-import { branchesOfWarehouses, documentBranches, withinBranchGrant } from "./stored-branches.js";
+import { branchesOfWarehouses, documentBranches, withinBranchGrant, withinBranchView } from "./stored-branches.js";
 import { duplicateIdRefusal } from "./duplicate-id.js";
 import { DuplicateRecordIdError } from "@mezan/domain";
 
@@ -923,7 +923,8 @@ export function createPurchasesRoutes(
     // predicate below is re-applied so a repository that cannot express one
     // still answers the same rows.
     let rows = withinScope(
-      withinScope(
+      await withinBranchView(
+        c,
         await deps.invoices.list({
           supplierId,
           fromDate,
@@ -933,8 +934,7 @@ export function createPurchasesRoutes(
           search,
           status: storedInvoiceStatus(status),
         }),
-        branchScopeOf(c),
-        (i) => i.branchId,
+        (i) => documentBranches(c, [i.branchId], [i.warehouseId]),
       ),
       warehouseScopeOf(c),
       (i) => i.warehouseId,

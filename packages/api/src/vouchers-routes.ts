@@ -55,7 +55,7 @@ import {
   type VoucherListQueryDTO,
 } from "@mezan/contracts";
 import { type AuthContextResolver, branchScopeOf, callerRoleCodes, createAnyPermissionGate, createPermissionGate, getAuthContext, permissionDeniedBody, withinScope } from "./permission-gate.js";
-import { storedBranchesById } from "./stored-branches.js";
+import { storedBranchesById, withinBranchView } from "./stored-branches.js";
 import { MasterDataKind, refuseUnknownMasterData, type MasterDataChecks } from "./master-data-check.js";
 import { tenantDay } from "./tenant-day.js";
 import { duplicateIdRefusal, refuseTakenId } from "./duplicate-id.js";
@@ -373,7 +373,7 @@ export function createVouchersRoutes(
           (voucherLine(d).referenceNo ?? "").toLowerCase().includes(term),
       );
     }
-    docs = [...withinScope(docs, branchScopeOf(c), (d) => voucherLine(d).branchId)];
+    docs = await withinBranchView(c, docs, async (d) => [voucherLine(d).branchId]);
 
     // Cut the page BEFORE the per-row allocation summary — that summary is a
     // sub-ledger read per voucher, and running it over the whole book to

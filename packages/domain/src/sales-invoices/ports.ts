@@ -58,6 +58,13 @@ export interface SalesInvoiceListFilter {
    * applied and it is why scope is separate from the filters below.
    */
   readonly branchScope?: readonly string[];
+  /**
+   * INVARIANT: the warehouses the branches in `branchScope` hold. An invoice
+   * that states no branch stands on its warehouse's branch — the branch
+   * directory's reading, which the gate applies to every row by id — so the
+   * list has to place it the same way BEFORE the page is cut.
+   */
+  readonly branchScopeWarehouses?: readonly string[];
   readonly warehouseScope?: readonly string[];
   /** Presentation filters the user picked. Strict equality — a null does not match. */
   readonly branchId?: string;

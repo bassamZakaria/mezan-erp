@@ -1,6 +1,7 @@
 import type { Context } from "hono";
 import { BranchAccess, BranchRecordKind, branchDirectoryOf } from "./branch-policy.js";
 import { branchGrantOf, branchScopeOf, type StoredBranchesResolver } from "./permission-gate.js";
+import { canSeeUnattributed } from "./branch-view.js";
 
 /** The branch each of `warehouseIds` belongs to; null for one no branch holds. */
 export async function branchesOfWarehouses(c: Context, warehouseIds: readonly (string | null | undefined)[]): Promise<(string | null)[]> {
@@ -86,4 +87,30 @@ export async function withinBranchGrant<Row>(
     if (attributed.length === 0 || attributed.some((id) => grant.includes(id))) kept.push(row);
   }
   return kept;
+}
+
+/**
+ * INVARIANT, for a list that is cut into pages: the rows the session reads,
+ * decided exactly as the branch gate decides them by id — a row no branch owns
+ * only for a session that reads the unattributed. Narrow with this BEFORE the
+ * page is cut; the gate then drops nothing and a page stays whole.
+ */
+export async function withinBranchView<Row>(c: Context, rows: readonly Row[], branchesOf: (row: Row) => Promise<readonly (string | null | undefined)[]>): Promise<Row[]> {
+  const scope = branchScopeOf(c);
+  if (!scope) return [...rows];
+  const unattributed = canSeeUnattributed(c);
+  const kept: Row[] = [];
+  for (const row of rows) {
+    const attributed = (await branchesOf(row)).filter((id): id is string => typeof id === "string" && id !== "");
+    if (attributed.length === 0 ? unattributed : attributed.some((id) => scope.includes(id))) kept.push(row);
+  }
+  return kept;
+}
+
+/** The warehouses the branches of the request's scope hold, or `undefined` for an unscoped request. */
+export async function warehousesOfBranchScope(c: Context): Promise<readonly string[] | undefined> {
+  const scope = branchScopeOf(c);
+  if (!scope) return undefined;
+  const branchByWarehouse = await c.get("warehouseBranches")?.();
+  return branchByWarehouse ? [...branchByWarehouse].filter(([, branchId]) => scope.includes(branchId)).map(([id]) => id) : undefined;
 }

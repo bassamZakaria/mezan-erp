@@ -72,7 +72,7 @@ import { recordAdminEvent } from "./admin-audit.js";
 import { refuseUnknownItems, type ItemCatalogCheck } from "./item-check.js";
 import { MasterDataKind, refuseUnknownMasterData, type MasterDataChecks } from "./master-data-check.js";
 import { type AuthContextResolver, branchScopeOf, callerRoleCodes, createAnyPermissionGate, createPermissionGate, getAuthContext, moduleRefusalFor, warehouseScopeOf } from "./permission-gate.js";
-import { documentBranches, storedBranchesById } from "./stored-branches.js";
+import { documentBranches, storedBranchesById, warehousesOfBranchScope } from "./stored-branches.js";
 import { tenantDay, tenantToday } from "./tenant-day.js";
 import { withQuota, quotaRefusalResponse, type QuotaEnforcement } from "./plan-quota.js";
 import {
@@ -855,6 +855,7 @@ export function createSalesInvoicesRoutes(
       // instead of hydrating every draft, paid and cancelled row to discard it.
       ...(status === "open" || status === "overdue" ? { statusIn: UNSETTLED_STATUSES } : {}),
       branchScope: branchScopeOf(c),
+      branchScopeWarehouses: await warehousesOfBranchScope(c),
       warehouseScope: warehouseScopeOf(c),
       branchId,
       warehouseId,

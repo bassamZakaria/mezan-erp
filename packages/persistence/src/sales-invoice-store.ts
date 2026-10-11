@@ -494,8 +494,14 @@ class SqliteSalesInvoiceRepository implements SalesInvoiceRepository {
       ["warehouse_id", filter.warehouseScope],
     ] as const) {
       if (!ids) continue;
-      if (ids.length === 0) where.raw(`${column} IS NULL`);
-      else where.raw(`(${column} IN (${ids.map(() => "?").join(",")}) OR ${column} IS NULL)`, ...ids);
+      const marks = (values: readonly string[]) => values.map(() => "?").join(",");
+      const standsOn = column === "branch_id" ? filter.branchScopeWarehouses : undefined;
+      if (standsOn) {
+        const own = ids.length > 0 ? `branch_id IN (${marks(ids)})` : "0 = 1";
+        const byWarehouse = standsOn.length > 0 ? `(COALESCE(branch_id, '') = '' AND warehouse_id IN (${marks(standsOn)}))` : "0 = 1";
+        where.raw(`(${own} OR ${byWarehouse})`, ...ids, ...standsOn);
+      } else if (ids.length === 0) where.raw(`${column} IS NULL`);
+      else where.raw(`(${column} IN (${marks(ids)}) OR ${column} IS NULL)`, ...ids);
     }
     const term = filter.search?.trim();
     if (term) {

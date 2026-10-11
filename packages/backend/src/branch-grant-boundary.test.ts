@@ -2683,3 +2683,81 @@ describe("D111 round 4 · which warehouse may stand on which branch's document �
     }
   });
 });
+
+describe("D111 round 4 · a page of a branch's list is a whole page — a document with no branch of its own is placed in the query, not dropped after the cut", () => {
+  type Caller = typeof alex;
+  const EFFECTIVE_BRANCH = "COALESCE(NULLIF(d.branch_id, ''), (SELECT w.branch_id FROM warehouse w WHERE w.id = d.warehouse_id))";
+
+  async function everyPage(caller: Caller, path: string, pageSize: number): Promise<{ ids: string[]; sizes: number[] }> {
+    const ids: string[] = [];
+    const sizes: number[] = [];
+    for (let page = 1; page <= 400; page++) {
+      const res = await caller("GET", `${path}?page=${page}&pageSize=${pageSize}`);
+      expect(res.status, JSON.stringify(res.body).slice(0, 160)).toBe(200);
+      const rows = res.body as { id: string }[];
+      sizes.push(rows.length);
+      ids.push(...rows.map((row) => row.id));
+      if (rows.length < pageSize) break;
+    }
+    return { ids, sizes };
+  }
+
+  function reshaped(table: string, where: string, count: number, set: string, ...params: unknown[]): { ids: string[]; restore: () => void } {
+    const warehouse = table === "voucher" ? "NULL" : "warehouse_id";
+    const rows = all<{ id: string; branch_id: string; warehouse_id: string | null }>(`SELECT id, branch_id, ${warehouse} AS warehouse_id FROM ${table} d WHERE ${where} ORDER BY id LIMIT ${count}`);
+    expect(rows.length, `${table} ${where}`).toBe(count);
+    const change = sqlite.prepare(`UPDATE ${table} SET ${set} WHERE id = ?`);
+    const put = sqlite.prepare(table === "voucher" ? `UPDATE ${table} SET branch_id = ? WHERE id = ?` : `UPDATE ${table} SET branch_id = ?, warehouse_id = ? WHERE id = ?`);
+    for (const row of rows) change.run(...params, row.id);
+    return {
+      ids: rows.map((row) => row.id),
+      restore: () => rows.forEach((row) => (table === "voucher" ? put.run(row.branch_id, row.id) : put.run(row.branch_id, row.warehouse_id, row.id))),
+    };
+  }
+
+  for (const [table, path] of [
+    ["sales_invoice", "/sales-invoices"],
+    ["purchase_invoice", "/purchases/invoices"],
+  ] as const) {
+    it(`${path}: one with no branch stands on its warehouse's branch, and every page but the last is full`, async () => {
+      const atMain = `d.branch_id = '${MAIN}' AND d.warehouse_id = '${MAIN_WAREHOUSE}'`;
+      const own = reshaped(table, atMain, 3, "branch_id = '', warehouse_id = ?", ALEX_WAREHOUSE);
+      const stated = reshaped(table, atMain, 4, "branch_id = ?, warehouse_id = ?", ALEX, ALEX_WAREHOUSE);
+      const foreign = reshaped(table, atMain, 3, "branch_id = ''");
+      try {
+        const expected = all<{ id: string }>(`SELECT d.id FROM ${table} d WHERE ${EFFECTIVE_BRANCH} = ?`, ALEX).map((row) => row.id).sort();
+        expect(expected.length).toBeGreaterThan(7);
+        for (const caller of [alex, alexWithUnattributed]) {
+          const { ids, sizes } = await everyPage(caller, path, 2);
+          expect([...ids].sort()).toEqual(expected);
+          expect(new Set(ids).size).toBe(ids.length);
+          expect(sizes.slice(0, -1).every((size) => size === 2), sizes.join(",")).toBe(true);
+          for (const id of own.ids) expect(ids).toContain(id);
+          for (const id of foreign.ids) expect(ids).not.toContain(id);
+        }
+      } finally {
+        foreign.restore();
+        stated.restore();
+        own.restore();
+      }
+    });
+  }
+
+  it("/vouchers: one with no branch is listed only for a session that reads the unattributed, in whole pages either way", async () => {
+    const stated = reshaped("voucher", `d.branch_id = '${MAIN}'`, 5, "branch_id = ?", ALEX);
+    const unattributed = reshaped("voucher", `d.branch_id = '${MAIN}'`, 3, "branch_id = ''");
+    try {
+      const owned = all<{ id: string }>("SELECT id FROM voucher WHERE branch_id = ?", ALEX).map((row) => row.id).sort();
+      expect(owned.length).toBeGreaterThan(4);
+      const plain = await everyPage(alex, "/vouchers", 2);
+      expect([...plain.ids].sort()).toEqual(owned);
+      expect(plain.sizes.slice(0, -1).every((size) => size === 2), plain.sizes.join(",")).toBe(true);
+      const reading = await everyPage(alexWithUnattributed, "/vouchers", 2);
+      expect([...reading.ids].sort()).toEqual([...owned, ...unattributed.ids].sort());
+      expect(reading.sizes.slice(0, -1).every((size) => size === 2), reading.sizes.join(",")).toBe(true);
+    } finally {
+      unattributed.restore();
+      stated.restore();
+    }
+  });
+});

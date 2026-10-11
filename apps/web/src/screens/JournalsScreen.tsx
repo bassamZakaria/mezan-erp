@@ -1,3 +1,4 @@
+import { useDocumentId } from "../lib/document-id";
 import { useEffect, useMemo, useState } from "react";
 import {
   Button,
@@ -174,6 +175,7 @@ export function JournalsScreen() {
   const projectsQuery = useProjects();
   const branchesQuery = useBranches();
   const createJournalEntry = useCreateJournalEntry();
+  const entryId = useDocumentId();
   const updateJournalEntry = useUpdateJournalEntry();
   const deleteJournalEntry = useDeleteJournalEntry();
   const reverseJournalEntry = useReverseJournalEntry();
@@ -394,7 +396,11 @@ export function JournalsScreen() {
   if (selectedId === "new") {
     return (
       <CreateJournalView
-        onPost={(body) => createJournalEntry.mutateAsync({ id: crypto.randomUUID(), ...body })}
+        onPost={async (body) => {
+          const posted = await createJournalEntry.mutateAsync({ id: entryId.current(), ...body });
+          entryId.renew();
+          return posted;
+        }}
         accountOptions={accountOptions}
         costCenterOptions={costCenterOptions}
         onDone={subPage.close}

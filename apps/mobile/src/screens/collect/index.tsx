@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ScrollView, StyleSheet, Text } from "react-native";
 import type { BranchDTO, CustomerDTO, OpenInvoiceDTO, TreasuryAccountDTO } from "@mezan/contracts";
 import { Button } from "@/components/button";
@@ -20,6 +20,7 @@ import { useStrings } from "@/i18n";
 import { useFormPadding } from "@/layout";
 import { formatAmountWithCurrency, isPositiveDecimal, toAmountInput } from "@/money";
 import { todayIso } from "@/domain/dates";
+import { makeDocumentId } from "@/domain/local-id";
 import { AllocationInvoiceKind, CollectPaymentMethod, TreasuryAccountStatus } from "@/domain/enums";
 import { resolveDefaultBranch } from "@/domain/working-location";
 import { useSession } from "@/session/SessionProvider";
@@ -91,6 +92,10 @@ export function Collect() {
   const [notice, setNotice] = useState<string | null>(null);
 
   const createCollection = useCreateCollection();
+  // ONE id per collection the rep means to record: a press whose answer never
+  // arrived is answered, on the next press, with the voucher already recorded
+  // instead of taking the customer's money twice.
+  const voucherId = useRef(makeDocumentId());
 
   async function submit() {
     setNotice(null);
@@ -116,6 +121,7 @@ export function Collect() {
     setError(null);
     try {
       const result = await createCollection.mutateAsync({
+        id: voucherId.current,
         date: todayIso(),
         customerId: customer.id,
         branchId: branch.id,
@@ -128,6 +134,7 @@ export function Collect() {
         // allocate the voucher's base amount at its own approved rate.
         allocations: [inBaseCurrency ? { invoiceId: invoice.id, amount: voucherAmount } : { invoiceId: invoice.id }],
       });
+      voucherId.current = makeDocumentId();
       const docNo = result.voucher.docNo ?? result.voucher.id;
       setNotice(result.held ? `${strings.collect.held} — ${docNo}` : `${strings.collect.success} ${invoice.invoiceNo} — ${docNo}`);
       setAmount("");

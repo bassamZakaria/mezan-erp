@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { BranchDTO, CustomerDTO, ItemDTO, WarehouseDTO } from "@mezan/contracts";
@@ -25,7 +25,7 @@ import { formatAmountWithCurrency, isPositiveDecimal, toAmountInput } from "@/mo
 import { DEFAULT_GL_ACCOUNTS } from "@/domain/accounts";
 import { addDaysIso, todayIso } from "@/domain/dates";
 import { DocumentKind, ItemType } from "@/domain/enums";
-import { makeLocalId } from "@/domain/local-id";
+import { makeDocumentId, makeLocalId } from "@/domain/local-id";
 import { resolveDefaultBranch, resolveDefaultWarehouse } from "@/domain/working-location";
 import { useSession } from "@/session/SessionProvider";
 import { RADIUS, SPACE, TYPE, useTheme } from "@/theme";
@@ -112,6 +112,10 @@ export function Sell() {
   }, [customer, date, dueDateTouched]);
 
   const createInvoice = useCreateSalesInvoice();
+  // ONE id per invoice the rep means to create. It survives an attempt whose
+  // answer never arrived, so pressing again is answered with the invoice
+  // already created; it is replaced once a create is known to have succeeded.
+  const invoiceId = useRef(makeDocumentId());
   const confirmInvoice = useConfirmSalesInvoice();
   const createQuote = useCreateSalesQuote();
 
@@ -174,6 +178,7 @@ export function Sell() {
           return;
         }
         const created = await createInvoice.mutateAsync({
+          id: invoiceId.current,
           date,
           dueDate,
           customerId: customer.id,
@@ -202,6 +207,7 @@ export function Sell() {
             };
           }),
         });
+        invoiceId.current = makeDocumentId();
         const confirmed = await confirmInvoice.mutateAsync({ id: created.id });
         const total = confirmed.totals?.grandTotal;
         setNotice(

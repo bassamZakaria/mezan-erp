@@ -1,3 +1,4 @@
+import { useDocumentId } from "../lib/document-id";
 import { useEffect, useMemo, useState } from "react";
 import { errorMessage } from "../lib/error-message";
 import {
@@ -111,6 +112,7 @@ export function LandedCostsScreen() {
   const itemsQuery = useItems();
   const projectsQuery = useProjects();
   const createLandedCost = useCreateLandedCost();
+  const landedCostId = useDocumentId();
   const confirmLandedCost = useConfirmLandedCost();
   const cancelLandedCost = useCancelLandedCost();
 
@@ -323,9 +325,8 @@ export function LandedCostsScreen() {
       costCategory: target.costCategory,
     }));
     try {
-      const id = crypto.randomUUID();
       const created = await createLandedCost.mutateAsync({
-        id,
+        id: landedCostId.current(),
         date: todayIso(),
         memo: "",
         distributionMethod: method,
@@ -333,6 +334,7 @@ export function LandedCostsScreen() {
         targets: targetEntries,
         projectId: project?.id ?? null,
       });
+      landedCostId.renew();
       if (confirmAfter) await confirmLandedCost.mutateAsync(created.id);
       setPanel("none");
     } catch (err) {

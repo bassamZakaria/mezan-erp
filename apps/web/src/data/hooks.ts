@@ -574,6 +574,17 @@ export async function readError(
   return withSupportCode(fallback, res.status, t);
 }
 
+/** {@link readError}, keeping the server's machine-readable code beside its sentence, for a form that acts on which refusal it was. */
+export async function codedError(
+  res: { readonly status: number; json<T>(): Promise<T> },
+  fallback: string,
+  t?: AppTranslate,
+): Promise<ApiError> {
+  const body = (await res.json<{ error?: string; message?: string }>().catch(() => ({}))) as { error?: string; message?: string };
+  const message = body.message !== undefined && body.message !== "" ? body.message : withSupportCode(fallback, res.status, t);
+  return new ApiError(res.status, message, undefined, undefined, body.error);
+}
+
 /** `t`, narrowed to what {@link readError} needs, so data files need no i18n types of their own. */
 export type AppTranslate = ReturnType<typeof useAppTranslation>["t"];
 
@@ -2478,7 +2489,7 @@ export function useCreateVoucher() {
   return useMutation<VoucherDTO, ApiError, CreateVoucherDTO>({
     mutationFn: async (body) => {
       const res = await request("/vouchers", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theVoucherCouldNotBe2"), t));
+      if (!res.ok) throw await codedError(res, t("api.theVoucherCouldNotBe2"), t);
       return res.json<VoucherDTO>();
     },
     onSuccess: () => invalidateVouchers(queryClient),
@@ -2492,7 +2503,7 @@ export function useCreateCollection() {
   return useMutation<CollectionResultDTO, ApiError, CreateCollectionDTO>({
     mutationFn: async (body) => {
       const res = await request("/vouchers/collections", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theVoucherCouldNotBe2"), t));
+      if (!res.ok) throw await codedError(res, t("api.theVoucherCouldNotBe2"), t);
       return res.json<CollectionResultDTO>();
     },
     onSuccess: () => {
@@ -3024,7 +3035,7 @@ export function useCreateSalesInvoice() {
   return useMutation<SalesInvoiceDTO, ApiError, CreateSalesInvoiceDTO>({
     mutationFn: async (body) => {
       const res = await request("/sales-invoices", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theInvoiceCouldNotBe"), t));
+      if (!res.ok) throw await codedError(res, t("api.theInvoiceCouldNotBe"), t);
       return res.json<SalesInvoiceDTO>();
     },
     onSuccess: () => invalidateSalesInvoices(queryClient),

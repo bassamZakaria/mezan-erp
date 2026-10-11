@@ -1852,3 +1852,5 @@ export {
 
 export * from "./pos/index.js";
 export * from "./enh/index.js";
+
+export { IdempotencyRefusal, IDEMPOTENT_REPLAY_HEADER } from "./idempotency.js";

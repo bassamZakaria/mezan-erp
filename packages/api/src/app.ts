@@ -964,15 +964,27 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   }
   for (const [path, prepare] of Object.entries(options.beforeTheTurn ?? {})) app.use(path, beforeTheTurn(prepare));
 
-  if (options.idempotentRequests) {
-    const replayed = idempotentCreate({ requests: options.idempotentRequests, resolveAuthContext: resolveAuth, audit: options.auditSink });
-    for (const path of IDEMPOTENT_CREATES) app.use(path, replayed);
-  }
+  const idempotent = options.idempotentRequests
+    ? idempotentCreate({
+        requests: options.idempotentRequests,
+        resolveAuthContext: resolveAuth,
+        audit: options.auditSink,
+        readCurrent: (c, path) => {
+          const headers = new Headers(c.req.raw.headers);
+          headers.delete("content-length");
+          headers.delete("content-type");
+          return app.fetch(new Request(new URL(path, c.req.url), { headers }), c.env);
+        },
+      })
+    : undefined;
+  if (idempotent) for (const create of IDEMPOTENT_CREATES) app.use(create.path, idempotent.replay);
 
   // Before anything reads or writes: a mutating request holds this tenant's
   // connection for its whole length, and a read waits out an open transaction
   // (audit-boundary.ts).
   app.use("*", connectionTurn(options.auditSink));
+
+  if (idempotent) for (const create of IDEMPOTENT_CREATES) app.use(create.path, idempotent.record);
 
   // Registered before every route: a mutating request under an audited mount
   // runs inside the sink's transaction, so the write and its audit event commit

@@ -1,8 +1,11 @@
 import { createHash } from "node:crypto";
-import type { MiddlewareHandler } from "hono";
+import type { Context, MiddlewareHandler } from "hono";
 import type { AuditSink } from "@mezan/domain";
+import { IdempotencyRefusal, IDEMPOTENT_REPLAY_HEADER } from "@mezan/contracts";
 import { MutatingMethod, preloadBody } from "./audit-boundary.js";
 import type { AuthContextResolver } from "./permission-gate.js";
+
+export { IdempotencyRefusal, IDEMPOTENT_REPLAY_HEADER };
 
 export interface IdempotentAnswer {
   readonly requestHash: string;
@@ -16,19 +19,39 @@ export interface IdempotentRequests {
   forget(before: string): number;
 }
 
-export enum IdempotencyRefusal {
-  KeyReused = "IDEMPOTENCY_KEY_REUSED",
+export interface IdempotentCreate {
+  readonly path: string;
+  /** Where the document a create made is read back from. */
+  readonly read: (id: string) => string;
+  /** How what was read fits into the first answer, when the create answers with more than the document. */
+  readonly merge?: (first: unknown, current: unknown) => unknown;
 }
 
-export const IDEMPOTENT_REPLAY_HEADER = "idempotent-replay";
+const byId =
+  (mount: string) =>
+  (id: string): string =>
+    `${mount}/${encodeURIComponent(id)}`;
 
 /** Creates that post money or stock on one request, or open a document a second copy of which would be confirmed too. */
-export const IDEMPOTENT_CREATES: readonly string[] = ["/sales-invoices", "/vouchers", "/vouchers/collections"];
+export const IDEMPOTENT_CREATES: readonly IdempotentCreate[] = [
+  { path: "/sales-invoices", read: byId("/sales-invoices") },
+  { path: "/vouchers", read: byId("/vouchers") },
+  { path: "/vouchers/collections", read: byId("/vouchers"), merge: (first, voucher) => ({ ...(first as object), voucher }) },
+  { path: "/sales-returns", read: byId("/sales-returns") },
+  { path: "/sales-returns/from-invoice", read: byId("/sales-returns") },
+  { path: "/purchase-returns", read: byId("/purchase-returns") },
+  { path: "/purchases/invoices", read: byId("/purchases/invoices") },
+  { path: "/cheques", read: byId("/cheques") },
+  { path: "/landed-costs", read: byId("/landed-costs") },
+  { path: "/gl/journal-entries", read: byId("/gl/journal-entries") },
+];
 
 const KEPT_FOR_MS = 7 * 24 * 60 * 60_000;
-const FORGET_EVERY = 500;
+const FORGET_EVERY_MS = 60 * 60_000;
 const SUCCESS_FROM = 200;
 const SUCCESS_BELOW = 300;
+const NOT_FOUND = 404;
+const RETRY_AFTER_SECONDS = "2";
 const JSON_TYPE = "application/json; charset=UTF-8";
 
 export interface IdempotentCreateOptions {
@@ -36,7 +59,25 @@ export interface IdempotentCreateOptions {
   readonly resolveAuthContext: AuthContextResolver;
   readonly audit?: AuditSink;
   readonly now?: () => Date;
+  readonly creates?: readonly IdempotentCreate[];
+  /** Reads a document back as the caller, through the app's own routes. */
+  readonly readCurrent: (c: Context, path: string) => Response | Promise<Response>;
 }
+
+export interface IdempotentCreateMiddleware {
+  /** Registered AHEAD of the connection's turn: answers a resend, refuses a reused id. */
+  readonly replay: MiddlewareHandler;
+  /** Registered INSIDE the turn: runs the create and keeps its answer in one transaction. */
+  readonly record: MiddlewareHandler;
+}
+
+interface Pending {
+  readonly scope: string;
+  readonly key: string;
+  readonly requestHash: string;
+}
+
+class AnswerNotRecorded extends Error {}
 
 function clientKey(body: unknown): string | null {
   if (body === null || typeof body !== "object") return null;
@@ -44,31 +85,57 @@ function clientKey(body: unknown): string | null {
   return typeof id === "string" && id !== "" ? id : null;
 }
 
+// The same create re-serialised by another client — or by the same one after a
+// reload — orders its keys differently. Keys are sorted; a list keeps its
+// order, because the order of an invoice's lines is part of what was asked.
+function canonical(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonical);
+  if (value === null || typeof value !== "object") return value;
+  const sorted: Record<string, unknown> = {};
+  for (const key of Object.keys(value).sort()) sorted[key] = canonical((value as Record<string, unknown>)[key]);
+  return sorted;
+}
+
 // A CREATE WHOSE ANSWER WAS LOST MUST NOT RUN TWICE. A till that timed out, a
 // browser that dropped its connection, a clerk who pressed the button again:
 // each resends the same create, and the first one may well have posted. The
 // client mints the document's id once per document it means to create, and that
-// id is the key — the same key with the same body is answered with what the
-// first attempt was told, and with a different body it is refused.
-// Registered AHEAD of the connection's turn: the lookup is a read, the answer is
-// read off the response once the turn is over, and recording it is a turn of
-// its own. If the process dies between the create and that record, the resend
-// reaches the handler and is refused there as a duplicate id — never run twice.
-export function idempotentCreate(options: IdempotentCreateOptions): MiddlewareHandler {
-  const { requests, resolveAuthContext, audit } = options;
+// id is the key — the same key with the same body is answered with the document
+// as it now stands, and with a different body it is refused.
+// The create and the record of its answer commit TOGETHER: an answer that
+// cannot be kept rolls the create back, so no caller is ever told a create
+// failed when the document exists.
+export function idempotentCreate(options: IdempotentCreateOptions): IdempotentCreateMiddleware {
+  const { requests, resolveAuthContext, audit, readCurrent } = options;
   const now = options.now ?? (() => new Date());
+  const creates = new Map((options.creates ?? IDEMPOTENT_CREATES).map((create) => [create.path, create]));
   const inFlight = new Map<string, Promise<void>>();
-  let recorded = 0;
+  const pending = new WeakMap<Context, Pending>();
+  let forgotAt: number | null = null;
 
-  const inATurn = <T>(work: () => T): Promise<T> => (audit?.turn ? audit.turn(async () => work()) : Promise.resolve(work()));
+  const forgetOld = (): void => {
+    const at = now().getTime();
+    if (forgotAt !== null && at - forgotAt < FORGET_EVERY_MS) return;
+    forgotAt = at;
+    requests.forget(new Date(at - KEPT_FOR_MS).toISOString());
+  };
 
-  return async (c, next) => {
-    if (c.req.method !== MutatingMethod.Post) return next();
+  async function asItStandsNow(c: Context, create: IdempotentCreate, key: string, first: IdempotentAnswer): Promise<Response> {
+    const headers = { "content-type": JSON_TYPE, [IDEMPOTENT_REPLAY_HEADER]: "true" };
+    const current = await readCurrent(c, create.read(key));
+    if (current.status === NOT_FOUND) return new Response(await current.text(), { status: NOT_FOUND, headers });
+    if (current.status < SUCCESS_FROM || current.status >= SUCCESS_BELOW) return new Response(first.body, { status: first.status, headers });
+    const body = create.merge ? JSON.stringify(create.merge(JSON.parse(first.body), await current.json())) : await current.text();
+    return new Response(body, { status: first.status, headers });
+  }
+
+  const replay: MiddlewareHandler = async (c, next) => {
+    const create = creates.get(c.req.path);
+    if (!create || c.req.method !== MutatingMethod.Post) return next();
     await preloadBody(c);
-    const text = await c.req.text().catch(() => "");
     let body: unknown = null;
     try {
-      body = JSON.parse(text);
+      body = JSON.parse(await c.req.text());
     } catch {
       return next();
     }
@@ -79,7 +146,7 @@ export function idempotentCreate(options: IdempotentCreateOptions): MiddlewareHa
 
     const scope = `${c.req.path}\u0000${caller.userId}`;
     const slot = `${scope}\u0000${key}`;
-    const requestHash = createHash("sha256").update(text, "utf8").digest("hex");
+    const requestHash = createHash("sha256").update(JSON.stringify(canonical(body)), "utf8").digest("hex");
     // ORDER MATTERS: nothing is awaited between the last look at `inFlight` and
     // the claim below, or two sends of one create both find the slot free.
     for (let ahead = inFlight.get(slot); ahead; ahead = inFlight.get(slot)) await ahead;
@@ -88,20 +155,15 @@ export function idempotentCreate(options: IdempotentCreateOptions): MiddlewareHa
 
     const earlier = requests.find(scope, key);
     if (earlier) {
-      if (earlier.requestHash !== requestHash) {
-        return c.json(
-          {
-            error: IdempotencyRefusal.KeyReused,
-            message: "سبق تسجيل مستند بهذا المعرّف ببيانات مختلفة، فلم يُسجَّل هذا الطلب. حدّث الصفحة وأعد المحاولة.",
-            messageEn: "A document was already recorded under this id with different contents, so this request was not recorded. Reload and try again.",
-          },
-          409,
-        );
-      }
-      return new Response(earlier.body, {
-        status: earlier.status,
-        headers: { "content-type": JSON_TYPE, [IDEMPOTENT_REPLAY_HEADER]: "true" },
-      });
+      if (earlier.requestHash === requestHash) return asItStandsNow(c, create, key, earlier);
+      return c.json(
+        {
+          error: IdempotencyRefusal.KeyReused,
+          message: "سبق تسجيل مستند بهذا المعرّف ببيانات مختلفة، فلم يُسجَّل هذا الطلب. افتح المستند المسجَّل أو أنشئ مستندًا جديدًا.",
+          messageEn: "A document was already recorded under this id with different contents, so this request was not recorded. Open the recorded document or start a new one.",
+        },
+        409,
+      );
     }
 
     let finished!: () => void;
@@ -111,19 +173,47 @@ export function idempotentCreate(options: IdempotentCreateOptions): MiddlewareHa
         finished = resolve;
       }),
     );
+    pending.set(c, { scope, key, requestHash });
     try {
       await next();
-      const status = c.res.status;
-      if (status < SUCCESS_FROM || status >= SUCCESS_BELOW) return;
-      const answer = await c.res.clone().text();
-      await inATurn(() => {
-        requests.record(scope, key, { requestHash, status, body: answer }, now().toISOString());
-        recorded += 1;
-        if (recorded % FORGET_EVERY === 0) requests.forget(new Date(now().getTime() - KEPT_FOR_MS).toISOString());
-      });
     } finally {
       inFlight.delete(slot);
       finished();
     }
   };
+
+  const record: MiddlewareHandler = async (c, next) => {
+    const create = pending.get(c);
+    if (!create) return next();
+    const keep = async (): Promise<void> => {
+      await next();
+      const status = c.res.status;
+      if (status < SUCCESS_FROM || status >= SUCCESS_BELOW) return;
+      const answer = await c.res.clone().text();
+      try {
+        requests.record(create.scope, create.key, { requestHash: create.requestHash, status, body: answer }, now().toISOString());
+        forgetOld();
+      } catch (err) {
+        console.error(`[idempotency] could not keep the answer to ${c.req.method} ${c.req.path}; the create was rolled back`, err);
+        throw new AnswerNotRecorded();
+      }
+    };
+    try {
+      await (audit?.atomic ? audit.atomic(keep) : keep());
+    } catch (err) {
+      if (!(err instanceof AnswerNotRecorded)) throw err;
+      c.res = undefined;
+      c.res = c.json(
+        {
+          error: IdempotencyRefusal.NotRecorded,
+          message: "تعذّر حفظ نتيجة العملية، فلم يُسجَّل المستند. أعد المحاولة.",
+          messageEn: "The result of this operation could not be kept, so the document was not recorded. Try again.",
+        },
+        503,
+        { "retry-after": RETRY_AFTER_SECONDS },
+      );
+    }
+  };
+
+  return { replay, record };
 }

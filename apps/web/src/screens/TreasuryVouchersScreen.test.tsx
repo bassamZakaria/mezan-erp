@@ -148,7 +148,17 @@ function statsOf(rows: VoucherRowDTO[]): Record<string, number> {
   };
 }
 
-function renderScreen({ heldOnConfirm = false, allocations = seededAllocations }: { heldOnConfirm?: boolean; allocations?: Record<string, VoucherAllocationDTO[]> } = {}) {
+type CollectionAnswer = { status: number; body: unknown } | undefined;
+
+function renderScreen({
+  heldOnConfirm = false,
+  allocations = seededAllocations,
+  answerCollection,
+}: {
+  heldOnConfirm?: boolean;
+  allocations?: Record<string, VoucherAllocationDTO[]>;
+  answerCollection?: (attempt: number) => CollectionAnswer;
+} = {}) {
   let current = [...seededVouchers];
   let nextSeq = 5;
   const allocationsByVoucher = { ...allocations };
@@ -195,6 +205,8 @@ function renderScreen({ heldOnConfirm = false, allocations = seededAllocations }
     "POST /vouchers/collections": (init) => {
       const body = JSON.parse((init?.body as string) ?? "{}");
       collectionRequests.push(body);
+      const instead = answerCollection?.(collectionRequests.length);
+      if (instead) return instead;
       const docNo = `CV-${String(nextSeq).padStart(6, "0")}`;
       const created = voucher({
         ...body,
@@ -310,6 +322,50 @@ describe("TreasuryVouchersScreen — create + confirm", () => {
     expect(await screen.findByText("CV-000005")).toBeInTheDocument();
     expect(collectionRequests).toHaveLength(1);
     expect(collectionRequests[0]).toMatchObject({ amount: "300.000000", allocations: [] });
+  });
+
+  async function fillCollection(amount: string) {
+    fireEvent.click(screen.getByRole("button", { name: "سند جديد" }));
+    fireEvent.click(screen.getByText("تحصيل من عميل"));
+    setMoney(screen.getByLabelText("المبلغ"), amount);
+    fireEvent.focus(screen.getByPlaceholderText("ابحث عن عميل…"));
+    fireEvent.mouseDown(screen.getByText("شركة الأمل للتجارة"));
+    return screen.getByRole("button", { name: "إنشاء وتأكيد" });
+  }
+
+  it("sends the same voucher id again when the first save got no answer, and a fresh one for the next voucher", async () => {
+    const { collectionRequests } = renderScreen({
+      answerCollection: (attempt) => (attempt === 1 ? { status: 503, body: { error: "DATABASE_BUSY", message: "قاعدة البيانات مشغولة" } } : undefined),
+    });
+    await screen.findByText("CV-000001");
+    const save = await fillCollection("300");
+
+    fireEvent.click(save);
+    expect(await screen.findByText("قاعدة البيانات مشغولة")).toBeInTheDocument();
+    await waitFor(() => expect(save).toBeEnabled());
+    fireEvent.click(save);
+    await waitFor(() => expect(screen.getByRole("heading", { name: "السندات النقدية" })).toBeInTheDocument());
+
+    expect(collectionRequests).toHaveLength(2);
+    expect(collectionRequests[0]?.["id"]).toMatch(/^[0-9a-f-]{36}$/);
+    expect(collectionRequests[1]?.["id"]).toBe(collectionRequests[0]?.["id"]);
+
+    fireEvent.click(await fillCollection("120"));
+    await waitFor(() => expect(collectionRequests).toHaveLength(3));
+    expect(collectionRequests[2]?.["id"]).not.toBe(collectionRequests[0]?.["id"]);
+  });
+
+  it("opens the voucher already recorded, with a notice, when its id was used with other contents", async () => {
+    const { collectionRequests } = renderScreen({
+      answerCollection: () => ({ status: 409, body: { error: "IDEMPOTENCY_KEY_REUSED", message: "سبق تسجيل مستند بهذا المعرّف ببيانات مختلفة" } }),
+    });
+    await screen.findByText("CV-000001");
+
+    fireEvent.click(await fillCollection("300"));
+
+    expect(await screen.findByRole("status")).toHaveTextContent("سبق تسجيل هذا السند، ففُتح السند المسجَّل بدل تسجيل آخر");
+    expect(screen.queryByRole("button", { name: "إنشاء وتأكيد" })).not.toBeInTheDocument();
+    expect(collectionRequests).toHaveLength(1);
   });
 
   /**

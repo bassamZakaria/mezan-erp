@@ -1,3 +1,4 @@
+import { useDocumentId } from "../lib/document-id";
 import { useEffect, useMemo, useState } from "react";
 import { errorMessage } from "../lib/error-message";
 import {
@@ -69,6 +70,7 @@ export function PurchaseReturnsScreen() {
   const suppliersQuery = useSuppliers();
   const itemsQuery = useItems();
   const createReturn = useCreatePurchaseReturn();
+  const returnId = useDocumentId();
   const confirmReturn = useConfirmPurchaseReturn();
   const cancelReturn = useCancelPurchaseReturn();
 
@@ -215,8 +217,8 @@ export function PurchaseReturnsScreen() {
       return;
     }
     try {
-      const id = crypto.randomUUID();
-      const created = await createReturn.mutateAsync({ id, date: todayIso(), memo: "", lines: returnLines });
+      const created = await createReturn.mutateAsync({ id: returnId.current(), date: todayIso(), memo: "", lines: returnLines });
+      returnId.renew();
       if (confirmAfter) await confirmReturn.mutateAsync(created.id);
       subPage.close();
     } catch (err) {

@@ -1,3 +1,4 @@
+import { IdempotencyRefusal } from "@mezan/contracts";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   DocumentList,
@@ -64,6 +65,7 @@ import {
   useCancelVoucher,
   type VoucherDetailDTO,
   type VoucherRowDTO,
+  ApiError,
 } from "../data/hooks";
 import { useWorkingLocation } from "../data/hub-hooks";
 import { NumberField, SelectField, TextField } from "../settings/form-controls";
@@ -190,6 +192,7 @@ export function TreasuryVouchersScreen() {
   // shell's breadcrumb (and the «رجوع» that sits beside it) can lead out of it.
   const subPage = useSubPage();
   const [selectedId] = subPage.segments;
+  const [alreadyCreated, setAlreadyCreated] = useState(false);
   // Arriving from «تحصيل» on an invoice row: the customer is known, so the
   // create form opens as a collection already pointed at them (R3.5).
   const [prefillParty, setPrefillParty] = useState<{ customerId?: string; supplierId?: string } | null>(null);
@@ -384,6 +387,10 @@ export function TreasuryVouchersScreen() {
         initialSupplierId={prefillParty?.supplierId ?? null}
         initialVoucherType={prefillType}
         onDone={subPage.close}
+        onAlreadyCreated={(voucherId) => {
+          setAlreadyCreated(true);
+          subPage.open(voucherId);
+        }}
       />
     );
   }
@@ -398,7 +405,16 @@ export function TreasuryVouchersScreen() {
   }
 
   if (selectedId) {
-    return <VoucherDetailView id={selectedId} partyName={partyName} treasuryName={treasuryName} onBack={subPage.close} />;
+    return (
+      <>
+        {alreadyCreated ? (
+          <div role="status" className="mb-[18px] rounded-md border border-warning bg-warning-soft px-[12px] py-[10px] text-[12.5px] text-warning-ink">
+            {t("vouchers.alreadyCreated")}
+          </div>
+        ) : null}
+        <VoucherDetailView id={selectedId} partyName={partyName} treasuryName={treasuryName} onBack={subPage.close} />
+      </>
+    );
   }
 
   return (
@@ -951,6 +967,7 @@ function CreateVoucherView({
   initialSupplierId = null,
   initialVoucherType = null,
   onDone,
+  onAlreadyCreated,
 }: {
   customers: CustomerDTO[];
   suppliers: SupplierDTO[];
@@ -961,6 +978,7 @@ function CreateVoucherView({
   /** Opens the form on this type instead of the grid. Overridden by a named party. */
   initialVoucherType?: VoucherType | null;
   onDone: () => void;
+  onAlreadyCreated: (voucherId: string) => void;
 }) {
   const nameOf = useEntityName();
   const { t } = useAppTranslation();
@@ -1154,6 +1172,12 @@ function CreateVoucherView({
       }
       onDone();
     } catch (err) {
+      if (err instanceof ApiError && err.code === IdempotencyRefusal.KeyReused) {
+        const saved = voucherId.current;
+        voucherId.current = crypto.randomUUID();
+        onAlreadyCreated(saved);
+        return;
+      }
       setError(err instanceof Error ? err.message : t("vouchers.theVoucherCouldNotBe3"));
     } finally {
       setBusy(false);

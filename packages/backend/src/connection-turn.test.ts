@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { ALL_SCOPE, type EtaCommandResult } from "@mezan/domain";
+import { IDEMPOTENT_CREATES } from "@mezan/api";
 import { createBackend, type BackendHandle, type CreateBackendOptions } from "./create-backend.js";
 import { raced } from "./test/raced.js";
 
@@ -14,6 +15,7 @@ afterEach(async () => {
 interface Answer {
   readonly status: number;
   readonly reason: string | null;
+  readonly replayed: string | null;
   readonly body: unknown;
 }
 
@@ -33,7 +35,7 @@ async function open(options: Partial<CreateBackendOptions> = {}) {
     } catch {
       parsed = text;
     }
-    return { status: res.status, reason: res.headers.get("x-busy-reason"), body: parsed };
+    return { status: res.status, reason: res.headers.get("x-busy-reason"), replayed: res.headers.get("idempotent-replay"), body: parsed };
   };
   const signIn = (index: number) =>
     call("POST", "/auth/login", { username: `nobody${index}@example.eg`, pin: "123456" }, { "content-type": "application/json" });
@@ -327,7 +329,7 @@ describe("a create sent again because its answer never arrived", () => {
     const resent = await t.call("POST", "/sales-invoices", invoice("11111111-aaaa-4bbb-8ccc-000000000001"));
 
     expect(first.status).toBe(201);
-    expect(resent).toEqual(first);
+    expect(resent).toMatchObject({ status: first.status, replayed: "true", body: first.body });
     expect(await t.listed("/sales-invoices")).toHaveLength(1);
   });
 
@@ -339,7 +341,7 @@ describe("a create sent again because its answer never arrived", () => {
     const resent = await t.call("POST", "/vouchers/collections", collection("22222222-aaaa-4bbb-8ccc-000000000002"));
 
     expect(first.status, JSON.stringify(first.body)).toBe(201);
-    expect(resent).toEqual(first);
+    expect(resent).toMatchObject({ status: first.status, replayed: "true", body: first.body });
     expect(await t.listed("/vouchers")).toHaveLength(1);
     expect((await t.listed("/gl/journal-entries")).length).toBe(entriesBefore + 1);
   });
@@ -353,7 +355,9 @@ describe("a create sent again because its answer never arrived", () => {
     ]);
 
     expect(a.status).toBe(201);
-    expect(b).toEqual(a);
+    expect([a.replayed, b.replayed].sort()).toEqual([null, "true"].sort());
+    const [made, replayed] = a.replayed === null ? [a, b] : [b, a];
+    expect(replayed.body).toMatchObject(made.body as object);
     expect(await t.listed("/vouchers")).toHaveLength(1);
   });
 
@@ -367,13 +371,91 @@ describe("a create sent again because its answer never arrived", () => {
     expect(await t.listed("/vouchers")).toHaveLength(1);
   });
 
-  it("does not hand one user's recorded answer to another caller who sends the same id", async () => {
+  it("does not hand one user's recorded answer to another signed-in user who sends the same id", async () => {
     const t = await shop();
-    await t.call("POST", "/sales-invoices", invoice("55555555-aaaa-4bbb-8ccc-000000000005"));
+    const id = "55555555-aaaa-4bbb-8ccc-000000000005";
+    const first = await t.call("POST", "/sales-invoices", invoice(id));
+    const colleague = t.handle.sessions.issue({ userId: "user-b", permissions: ["*"], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
+    const asColleague = { authorization: `Bearer ${colleague}`, "content-type": "application/json" };
 
-    const stranger = await t.call("POST", "/sales-invoices", invoice("55555555-aaaa-4bbb-8ccc-000000000005"), { "content-type": "application/json" });
+    const sameBody = await t.call("POST", "/sales-invoices", invoice(id), asColleague);
+    const otherBody = await t.call("POST", "/sales-invoices", invoice(id, "999"), asColleague);
+    const anonymous = await t.call("POST", "/sales-invoices", invoice(id), { "content-type": "application/json" });
 
-    expect(stranger.status).toBe(401);
+    expect(first.status).toBe(201);
+    expect(sameBody).toMatchObject({ status: 409, replayed: null, body: { error: "DUPLICATE_SALES_INVOICE" } });
+    expect(otherBody).toMatchObject({ status: 409, replayed: null, body: { error: "DUPLICATE_SALES_INVOICE" } });
+    expect(anonymous.status).toBe(401);
+    expect(await t.listed("/sales-invoices")).toHaveLength(1);
+  });
+
+  it("answers the same create with its keys in another order as the resend it is", async () => {
+    const t = await shop();
+    const body = invoice("77777777-aaaa-4bbb-8ccc-000000000007");
+    const first = await t.call("POST", "/sales-invoices", body);
+
+    const reordered = Object.fromEntries(Object.entries(body).reverse().map(([key, value]) => [key, key === "lines" ? body.lines.map((line) => Object.fromEntries(Object.entries(line).reverse())) : value]));
+    const resent = await t.call("POST", "/sales-invoices", reordered);
+
+    expect(first.status).toBe(201);
+    expect(resent).toMatchObject({ status: 201, replayed: "true", body: { id: body.id } });
+    expect(await t.listed("/sales-invoices")).toHaveLength(1);
+  });
+
+  it("answers a resend with the document as it stands now, not as it was first created", async () => {
+    const t = await shop();
+    const body = invoice("88888888-aaaa-4bbb-8ccc-000000000008");
+    const first = await t.call("POST", "/sales-invoices", body);
+    expect((await t.call("POST", `/sales-invoices/${body.id}/confirm`, {})).status).toBe(200);
+
+    const resent = await t.call("POST", "/sales-invoices", body);
+
+    expect(first.body).toMatchObject({ status: "draft", docNo: null });
+    expect(resent).toMatchObject({ status: 201, replayed: "true", body: { id: body.id, status: "confirmed", docNo: expect.stringMatching(/^INV-/) } });
+  });
+
+  it("answers a resent collection with the voucher as it stands now", async () => {
+    const t = await shop();
+    const body = collection("99999999-aaaa-4bbb-8ccc-000000000009");
+    const first = await t.call("POST", "/vouchers/collections", body);
+    expect(first.status, JSON.stringify(first.body)).toBe(201);
+    expect((await t.call("POST", `/vouchers/${body.id}/reverse`, { date: "2026-08-23" })).status).toBe(201);
+
+    const resent = await t.call("POST", "/vouchers/collections", body);
+
+    expect(resent).toMatchObject({ status: 201, replayed: "true", body: { held: false, voucher: { id: body.id, status: "reversed" } } });
+    expect(await t.listed("/vouchers")).toHaveLength(2);
+  });
+
+  it("posts one journal entry when a manual entry is sent twice", async () => {
+    const t = await shop();
+    const entry = {
+      id: "aaaaaaaa-aaaa-4bbb-8ccc-00000000000a",
+      date: "2026-08-22",
+      memo: "قيد تسوية",
+      lines: [
+        { accountId: "2170", debit: "100.00", credit: "0" },
+        { accountId: "2190", debit: "0", credit: "100.00" },
+      ],
+    };
+    const before = (await t.listed("/gl/journal-entries")).length;
+
+    const first = await t.call("POST", "/gl/journal-entries", entry);
+    const resent = await t.call("POST", "/gl/journal-entries", entry);
+
+    expect(first.status, JSON.stringify(first.body)).toBe(201);
+    expect(resent).toMatchObject({ status: 201, replayed: "true", body: { id: entry.id } });
+    expect((await t.listed("/gl/journal-entries")).length).toBe(before + 1);
+  });
+
+  it("reads back every create it answers again through a route that exists", async () => {
+    const t = await shop();
+
+    for (const create of IDEMPOTENT_CREATES) {
+      const read = await t.call("GET", create.read("no-such-document"));
+      expect(read.status, create.path).toBe(404);
+      expect(typeof read.body, `${create.path} is read back from ${create.read("…")}, which no route serves`).toBe("object");
+    }
   });
 
   it("records nothing for a create that was refused, so the corrected resend goes through", async () => {

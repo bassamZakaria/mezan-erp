@@ -1,3 +1,4 @@
+import { useDocumentId } from "../lib/document-id";
 import { useEffect, useMemo, useState } from "react";
 import { errorMessage } from "../lib/error-message";
 import {
@@ -81,6 +82,7 @@ export function SalesReturnsScreen() {
   const customersQuery = useCustomers();
   const itemsQuery = useItems();
   const createReturn = useCreateSalesReturnFromInvoice();
+  const returnId = useDocumentId();
   const refundReturn = useRefundSalesReturn();
   const confirmReturn = useConfirmSalesReturn();
   const cancelReturn = useCancelSalesReturn();
@@ -262,9 +264,8 @@ export function SalesReturnsScreen() {
       return;
     }
     try {
-      const id = crypto.randomUUID();
       const created = await createReturn.mutateAsync({
-        id,
+        id: returnId.current(),
         date: todayIso(),
         memo: "",
         sourceInvoiceId: invoice.id,
@@ -272,6 +273,7 @@ export function SalesReturnsScreen() {
         reason,
         requested,
       });
+      returnId.renew();
       if (confirmAfter) await confirmReturn.mutateAsync(created.id);
       subPage.close();
     } catch (err) {

@@ -1,3 +1,4 @@
+import { useDocumentId } from "../lib/document-id";
 import { useMemo, useState } from "react";
 import {
   Button,
@@ -470,6 +471,7 @@ export function PurchaseInvoicesScreen() {
   const itemsQuery = useItems();
   const projectsQuery = useProjects();
   const createInvoice = useCreatePurchaseInvoice();
+  const invoiceId = useDocumentId();
   const confirmInvoice = useConfirmPurchaseInvoice();
 
   const receipts = receiptsQuery.data ?? [];
@@ -733,7 +735,7 @@ export function PurchaseInvoicesScreen() {
         const receipt = confirmedReceipts.find((r) => r.id === pickedReceipt?.id);
         if (!receipt || receiptLines.length === 0) return;
         await createInvoice.mutateAsync({
-          id: crypto.randomUUID(),
+          id: invoiceId.current(),
           supplierId: receipt.supplierId,
           date,
           branchId: workingLocation.branchId ?? "",
@@ -748,7 +750,7 @@ export function PurchaseInvoicesScreen() {
         const usable = lines.filter((l) => l.qty > 0 && (l.kind !== "inventory" || l.itemId !== ""));
         if (usable.length === 0) return;
         await createInvoice.mutateAsync({
-          id: crypto.randomUUID(),
+          id: invoiceId.current(),
           supplierId: supplier.id,
           date,
           branchId: workingLocation.branchId ?? "",
@@ -767,6 +769,7 @@ export function PurchaseInvoicesScreen() {
           })),
         });
       }
+      invoiceId.renew();
       subPage.close();
     } catch (err) {
       setFormError(err instanceof Error ? err.message : t("purchaseInvoices.error.saveFailed"));

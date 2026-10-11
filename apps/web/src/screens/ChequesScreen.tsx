@@ -1,3 +1,4 @@
+import { useDocumentId } from "../lib/document-id";
 import { useEffect, useMemo, useState } from "react";
 import { errorMessage } from "../lib/error-message";
 import {
@@ -431,6 +432,7 @@ function CreateChequeView({ onDone }: { onDone: () => void }) {
   const suppliersQuery = useSuppliers();
   const branchesQuery = useBranches();
   const create = useCreateCheque();
+  const chequeId = useDocumentId();
 
   const partyOptions: EntityPickerOption[] =
     direction === "incoming"
@@ -462,6 +464,7 @@ function CreateChequeView({ onDone }: { onDone: () => void }) {
     const accounts = DIRECTION_ACCOUNTS[direction];
     try {
       await create.mutateAsync({
+        id: chequeId.current(),
         direction,
         chequeNumber: chequeNumber.trim(),
         bankName: bankName.trim(),
@@ -476,6 +479,7 @@ function CreateChequeView({ onDone }: { onDone: () => void }) {
         counterpartyGlAccountId: accounts.counterparty,
         controlAccounts: { underCollectionAccountId: accounts.underCollection, bouncedAccountId: accounts.bounced },
       });
+      chequeId.renew();
       onDone();
     } catch (err) {
       setError(errorMessage(err, t("common.failed")));

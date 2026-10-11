@@ -39,6 +39,7 @@ import {
   type SalesInvoiceDiscount,
   type SalesInvoiceDiscountType,
   type SalesInvoiceLineDiscountType, itemTypeIsSellable, findCurrency, convertToBase, extend,} from "@mezan/domain";
+import { IdempotencyRefusal } from "@mezan/contracts";
 import type { ProjectDTO, SalesInvoiceListQueryDTO, SalesInvoiceStatusDTO } from "@mezan/contracts";
 import { SalesInvoicePrintPage } from "../print/SalesInvoicePrintPage";
 import {
@@ -69,6 +70,7 @@ import {
   type SalesInvoiceDTO,
   useTreasuryAccounts,
   useAllowedCurrencies,
+  ApiError,
 } from "../data/hooks";
 import { useWorkingLocation } from "../data/hub-hooks";
 import { useAuditLog } from "../data/platform-hooks";
@@ -342,7 +344,15 @@ function InvoiceEffectCards({
   );
 }
 
-function CreateInvoicePage({ onClose, initialCustomerId }: { onClose: () => void; initialCustomerId?: string | null }) {
+function CreateInvoicePage({
+  onClose,
+  onAlreadyCreated,
+  initialCustomerId,
+}: {
+  onClose: () => void;
+  onAlreadyCreated: (invoiceId: string) => void;
+  initialCustomerId?: string | null;
+}) {
   const { t, locale } = useAppTranslation();
   const format = useFormat();
   const customersQuery = useCustomers();
@@ -704,6 +714,13 @@ function CreateInvoicePage({ onClose, initialCustomerId }: { onClose: () => void
       resetForm();
       onClose();
     } catch (err) {
+      if (err instanceof ApiError && err.code === IdempotencyRefusal.KeyReused) {
+        const saved = invoiceId.current;
+        invoiceId.current = crypto.randomUUID();
+        resetForm();
+        onAlreadyCreated(saved);
+        return;
+      }
       setError(err instanceof Error ? err.message : t("salesInvoices.error.saveFailed"));
     } finally {
       setBusy(false);
@@ -1925,6 +1942,7 @@ export function SalesInvoicesScreen() {
   // `#/sales/sales-invoices` · `…/new` · `…/<docNo|id>`
   const subPage = useSubPage();
   const [previewId, setPreviewId] = useState<string | null>(null);
+  const [alreadyCreated, setAlreadyCreated] = useState(false);
   const { navigate } = useNavigation();
   useScreenIntent((intent) => {
     const customerId = intent.prefill?.customerId;
@@ -2065,7 +2083,18 @@ export function SalesInvoicesScreen() {
     },
   ];
 
-  if (firstSegment === "new") return <CreateInvoicePage onClose={subPage.close} initialCustomerId={subPage.segments[1] ?? null} />;
+  if (firstSegment === "new") {
+    return (
+      <CreateInvoicePage
+        onClose={subPage.close}
+        onAlreadyCreated={(invoiceId) => {
+          setAlreadyCreated(true);
+          subPage.open(invoiceId);
+        }}
+        initialCustomerId={subPage.segments[1] ?? null}
+      />
+    );
+  }
 
   // `#/sell/sales-invoices/<docNo>/print` — a destination, not an overlay, so
   // it survives a reload and leaves through the shell's own «رجوع».
@@ -2073,6 +2102,11 @@ export function SalesInvoicesScreen() {
 
   return (
     <>
+      {alreadyCreated && selectedId ? (
+        <div role="status" className="mb-[18px] rounded-md border border-warning bg-warning-soft px-[12px] py-[10px] text-[12.5px] text-warning-ink">
+          {t("salesInvoices.alreadyCreated")}
+        </div>
+      ) : null}
       {selected ? (
         <InvoiceDetailView invoice={selected} today={today} onPrint={() => subPage.open(selected.docNo ?? selected.id, "print")} />
       ) : (

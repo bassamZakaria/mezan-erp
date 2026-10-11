@@ -380,6 +380,30 @@ describe("SalesInvoicesScreen — create + confirm flow", () => {
     expect(sentIds[2]).not.toBe(sentIds[0]);
   });
 
+  it("opens the invoice already saved, with a notice, when its id was used with other contents", async () => {
+    let sends = 0;
+    const transport = stubTransport({
+      ...baseHandlers(seededInvoices),
+      "POST /sales-invoices": () => {
+        sends += 1;
+        return { status: 409, body: { error: "IDEMPOTENCY_KEY_REUSED", message: "سبق تسجيل مستند بهذا المعرّف ببيانات مختلفة" } };
+      },
+    });
+    renderWithProviders(<TestNavigation><SalesInvoicesScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
+    await screen.findByText("INV-000001");
+    openNewInvoicePage();
+    await pickFromCombobox("العميل *", "شركة الأمل للتجارة");
+    await pickFromCombobox("الصنف — سطر 1", "أرز أبيض مصري");
+    const save = screen.getByRole("button", { name: "حفظ كمسودة" });
+    await waitFor(() => expect(save).toBeEnabled());
+
+    fireEvent.click(save);
+
+    expect(await screen.findByRole("status")).toHaveTextContent("سبق حفظ هذه الفاتورة، ففُتحت الفاتورة المحفوظة بدل إنشاء أخرى");
+    expect(screen.queryByRole("heading", { name: "فاتورة مبيعات جديدة" })).not.toBeInTheDocument();
+    expect(sends).toBe(1);
+  });
+
   it("shows a domain validation error instead of confirming an invoice without a customer", async () => {
     const transport = stubTransport(baseHandlers(seededInvoices));
     renderWithProviders(<TestNavigation><SalesInvoicesScreen /></TestNavigation>, { transport, initialSession: testAdminSession });

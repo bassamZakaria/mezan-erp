@@ -105,18 +105,43 @@ export const allowedCurrenciesSchema = z.object({
 
 export type TenantSettingsDTO = z.infer<typeof tenantSettingsSchema>;
 
-/** GET /settings/lookup — what every signed-in user's screens and printed documents read; no outbound-mail configuration. */
-export const tenantSettingsLookupSchema = tenantSettingsSchema.omit({
-  smtpEnabled: true,
-  smtpHost: true,
-  smtpPort: true,
-  smtpSecurity: true,
-  smtpUsername: true,
-  smtpPassword: true,
-  smtpFromName: true,
-  smtpFromEmail: true,
-  allowedEmailDomains: true,
-});
+/**
+ * SECURITY: the ONLY settings `GET /settings/lookup` hands to every signed-in
+ * user — what a screen or a printed document needs to render. A setting added
+ * to `tenantSettingsSchema` is NOT served by the lookup until it is listed
+ * here, so a secret, a mail template or an outbound credential added later is
+ * closed by default.
+ */
+export const TENANT_SETTINGS_LOOKUP_KEYS = [
+  "currency",
+  "secondaryCurrencies",
+  "language",
+  "timezone",
+  "direction",
+  "dateFormat",
+  "dateNumerals",
+  "weekendDays",
+  "weekStartDay",
+  "fiscalYearStartMonth",
+  "multiCurrencyEnabled",
+  "companyName",
+  "taxRegistrationNumber",
+  "commercialRegistrationNumber",
+  "phone",
+  "email",
+  "address",
+  "taxEnabled",
+  "defaultTaxRate",
+  "taxCalculation",
+  "requirePoForGrn",
+] as const satisfies readonly (keyof z.infer<typeof tenantSettingsSchema>)[];
+
+export type TenantSettingsLookupKey = (typeof TENANT_SETTINGS_LOOKUP_KEYS)[number];
+
+/** GET /settings/lookup — see `TENANT_SETTINGS_LOOKUP_KEYS`. */
+export const tenantSettingsLookupSchema = tenantSettingsSchema.pick(
+  Object.fromEntries(TENANT_SETTINGS_LOOKUP_KEYS.map((key) => [key, true])) as { [K in TenantSettingsLookupKey]: true },
+);
 export type TenantSettingsLookupDTO = z.infer<typeof tenantSettingsLookupSchema>;
 export type UpdateTenantSettingsDTO = z.infer<typeof updateTenantSettingsSchema>;
 export type SendTestEmailDTO = z.infer<typeof sendTestEmailSchema>;

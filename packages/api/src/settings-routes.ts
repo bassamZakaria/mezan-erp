@@ -7,7 +7,13 @@ import {
   type SettingsRepository,
   type TenantSettings,
 } from "@mezan/domain";
-import { updateTenantSettingsSchema, sendTestEmailSchema } from "@mezan/contracts";
+import {
+  TENANT_SETTINGS_LOOKUP_KEYS,
+  sendTestEmailSchema,
+  tenantSettingsLookupSchema,
+  updateTenantSettingsSchema,
+  type TenantSettingsLookupDTO,
+} from "@mezan/contracts";
 import { createAuthenticatedGate, createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
 import { sendTestEmail } from "./smtp-client.js";
 import { changedKeys, changedKeysAsFieldChanges, recordAdminEvent } from "./admin-audit.js";
@@ -25,19 +31,6 @@ import { changedKeys, changedKeysAsFieldChanges, recordAdminEvent } from "./admi
  */
 
 const MASKED_PASSWORD = "";
-
-/** The stored SMTP password never leaves the server — see `mergePassword`. */
-const ADMIN_ONLY_SETTINGS: ReadonlySet<string> = new Set([
-  "smtpEnabled",
-  "smtpHost",
-  "smtpPort",
-  "smtpSecurity",
-  "smtpUsername",
-  "smtpPassword",
-  "smtpFromName",
-  "smtpFromEmail",
-  "allowedEmailDomains",
-]);
 
 function maskSecrets(settings: TenantSettings): TenantSettings {
   return { ...settings, smtpPassword: MASKED_PASSWORD };
@@ -78,11 +71,13 @@ export function createSettingsRoutes(
    * The settings every screen and every printed document reads: currency,
    * numerals, the company's name and tax number, the sales and stock policy.
    * Any signed-in user may ask — `admin.settings.view` is the settings SCREEN.
-   * SECURITY: the outbound-mail configuration is not part of it.
+   * SECURITY: an allowlist. It answers `TENANT_SETTINGS_LOOKUP_KEYS` and
+   * nothing else, so no setting is exposed by being added.
    */
   app.get("/lookup", createAuthenticatedGate(resolveAuthContext), async (c) => {
     const settings = (await store.get()) ?? createDefaultSettings();
-    return c.json(Object.fromEntries(Object.entries(settings).filter(([key]) => !ADMIN_ONLY_SETTINGS.has(key))));
+    const lookup: TenantSettingsLookupDTO = tenantSettingsLookupSchema.parse(Object.fromEntries(TENANT_SETTINGS_LOOKUP_KEYS.map((key) => [key, settings[key]])));
+    return c.json(lookup);
   });
 
   app.get("/currencies", createAuthenticatedGate(resolveAuthContext), async (c) => {

@@ -145,6 +145,8 @@ export {
   type TenantSettingsDTO,
   tenantSettingsLookupSchema,
   type TenantSettingsLookupDTO,
+  type TenantSettingsLookupKey,
+  TENANT_SETTINGS_LOOKUP_KEYS,
   type UpdateTenantSettingsDTO,
 } from "./settings.js";
 

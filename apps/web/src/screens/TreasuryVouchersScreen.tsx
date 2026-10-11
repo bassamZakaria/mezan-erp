@@ -1,4 +1,5 @@
 import { IdempotencyRefusal } from "@mezan/contracts";
+import { AlreadySavedNotice, useAlreadySavedNotice, useDocumentId } from "../lib/document-id";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   DocumentList,
@@ -192,7 +193,7 @@ export function TreasuryVouchersScreen() {
   // shell's breadcrumb (and the «رجوع» that sits beside it) can lead out of it.
   const subPage = useSubPage();
   const [selectedId] = subPage.segments;
-  const [alreadyCreated, setAlreadyCreated] = useState(false);
+  const savedNotice = useAlreadySavedNotice();
   // Arriving from «تحصيل» on an invoice row: the customer is known, so the
   // create form opens as a collection already pointed at them (R3.5).
   const [prefillParty, setPrefillParty] = useState<{ customerId?: string; supplierId?: string } | null>(null);
@@ -388,7 +389,7 @@ export function TreasuryVouchersScreen() {
         initialVoucherType={prefillType}
         onDone={subPage.close}
         onAlreadyCreated={(voucherId) => {
-          setAlreadyCreated(true);
+          savedNotice.show(voucherId);
           subPage.open(voucherId);
         }}
       />
@@ -407,11 +408,7 @@ export function TreasuryVouchersScreen() {
   if (selectedId) {
     return (
       <>
-        {alreadyCreated ? (
-          <div role="status" className="mb-[18px] rounded-md border border-warning bg-warning-soft px-[12px] py-[10px] text-[12.5px] text-warning-ink">
-            {t("vouchers.alreadyCreated")}
-          </div>
-        ) : null}
+        <AlreadySavedNotice notice={savedNotice} openId={selectedId} message={t("vouchers.alreadyCreated")} dismissLabel={t("documents.alreadySaved.dismiss")} />
         <VoucherDetailView id={selectedId} partyName={partyName} treasuryName={treasuryName} onBack={subPage.close} />
       </>
     );
@@ -990,7 +987,7 @@ function CreateVoucherView({
   // whose answer never arrived, so pressing save again is answered with the
   // voucher already recorded instead of taking the money twice; it is replaced
   // the moment a create is known to have succeeded.
-  const voucherId = useRef(crypto.randomUUID());
+  const voucherId = useDocumentId(onAlreadyCreated);
   const branchesQuery = useBranches();
   const costCentersQuery = useCostCenters();
   const projectsQuery = useProjects();
@@ -1113,7 +1110,7 @@ function CreateVoucherView({
     try {
       if (line.voucherType === "customer_collection" && line.customerId) {
         const collected = await createCollection.mutateAsync({
-          id: voucherId.current,
+          id: voucherId.current(),
           date: draft.date,
           memo: draft.memo || voucherLabel(def),
           customerId: line.customerId,
@@ -1130,7 +1127,7 @@ function CreateVoucherView({
           withholdingGlAccountId: line.withholdingGlAccountId ?? null,
           allocations: [],
         });
-        voucherId.current = crypto.randomUUID();
+        voucherId.renew();
         if (collected.held) {
           setHeldVoucher({ docNo: collected.voucher.docNo ?? "" });
           return;
@@ -1139,7 +1136,7 @@ function CreateVoucherView({
         return;
       }
       const created = await createVoucher.mutateAsync({
-        id: voucherId.current,
+        id: voucherId.current(),
         date: draft.date,
         memo: draft.memo || voucherLabel(def),
         voucherType: line.voucherType,
@@ -1161,8 +1158,8 @@ function CreateVoucherView({
         withholdingRatePercent: line.withholdingRatePercent ?? null,
         withholdingGlAccountId: line.withholdingGlAccountId ?? null,
       });
-      voucherId.current = crypto.randomUUID();
       const confirmed = await confirmVoucher.mutateAsync({ id: created.id });
+      voucherId.renew();
       // An approval gate holds the confirm: the voucher exists, nothing was
       // posted, and closing the wizard here reported plain success for money
       // that has not moved (D83).
@@ -1172,12 +1169,7 @@ function CreateVoucherView({
       }
       onDone();
     } catch (err) {
-      if (err instanceof ApiError && err.code === IdempotencyRefusal.KeyReused) {
-        const saved = voucherId.current;
-        voucherId.current = crypto.randomUUID();
-        onAlreadyCreated(saved);
-        return;
-      }
+      if (voucherId.recover(err)) return;
       setError(err instanceof Error ? err.message : t("vouchers.theVoucherCouldNotBe3"));
     } finally {
       setBusy(false);

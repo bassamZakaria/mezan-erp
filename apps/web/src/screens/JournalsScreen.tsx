@@ -1,4 +1,4 @@
-import { useDocumentId } from "../lib/document-id";
+import { AlreadySavedNotice, useAlreadySavedNotice, useDocumentId } from "../lib/document-id";
 import { useEffect, useMemo, useState } from "react";
 import {
   Button,
@@ -175,7 +175,11 @@ export function JournalsScreen() {
   const projectsQuery = useProjects();
   const branchesQuery = useBranches();
   const createJournalEntry = useCreateJournalEntry();
-  const entryId = useDocumentId();
+  const savedNotice = useAlreadySavedNotice();
+  const entryId = useDocumentId((savedId) => {
+    savedNotice.show(savedId);
+    subPage.open(savedId);
+  });
   const updateJournalEntry = useUpdateJournalEntry();
   const deleteJournalEntry = useDeleteJournalEntry();
   const reverseJournalEntry = useReverseJournalEntry();
@@ -397,9 +401,14 @@ export function JournalsScreen() {
     return (
       <CreateJournalView
         onPost={async (body) => {
-          const posted = await createJournalEntry.mutateAsync({ id: entryId.current(), ...body });
-          entryId.renew();
-          return posted;
+          try {
+            const posted = await createJournalEntry.mutateAsync({ id: entryId.current(), ...body });
+            entryId.renew();
+            return posted;
+          } catch (err) {
+            if (entryId.recover(err)) return false;
+            throw err;
+          }
         }}
         accountOptions={accountOptions}
         costCenterOptions={costCenterOptions}
@@ -430,6 +439,7 @@ export function JournalsScreen() {
     const balanced = Math.abs(totals.debit - totals.credit) < 0.005;
     return (
       <div className="w-full">
+        <AlreadySavedNotice notice={savedNotice} openId={selectedId ?? null} message={t("documents.alreadySaved")} dismissLabel={t("documents.alreadySaved.dismiss")} />
         <DocumentDetail
           title={selected.entryNo ?? t("journals.journalEntry")}
           statusLabel={t(STATUS_KEY[selected.status])}
@@ -780,6 +790,7 @@ function CreateJournalView({
   /** "edit" only for a DRAFT entry (D226) — a posted/reversed entry is corrected by reversal, never edited. */
   mode?: "create" | "edit";
   initial?: JournalDoc;
+  /** Resolves false when the entry turned out to be saved already and the screen has opened it. */
   onPost: (body: JournalFormPayload) => Promise<unknown>;
   accountOptions: { value: string; label: string }[];
   costCenterOptions: { value: string; label: string }[];
@@ -850,7 +861,7 @@ function CreateJournalView({
     setBusy(true);
     setError(null);
     try {
-      await onPost({
+      const posted = await onPost({
         date,
         memo: memo.trim(),
         lines: lines.map((l) => ({
@@ -865,6 +876,7 @@ function CreateJournalView({
           partyId: partyKindOf.has(l.accountId) && l.partyId ? l.partyId : null,
         })),
       });
+      if (posted === false) return;
       onDone();
     } catch (err) {
       setError(err instanceof Error ? err.message : t(mode === "edit" ? "journals.theEntryCouldNotBeSaved" : "journals.theEntryCouldNotBe"));

@@ -1,4 +1,4 @@
-import { useDocumentId } from "../lib/document-id";
+import { AlreadySavedNotice, useAlreadySavedNotice, useDocumentId } from "../lib/document-id";
 import { useEffect, useMemo, useState } from "react";
 import { errorMessage } from "../lib/error-message";
 import {
@@ -82,7 +82,11 @@ export function SalesReturnsScreen() {
   const customersQuery = useCustomers();
   const itemsQuery = useItems();
   const createReturn = useCreateSalesReturnFromInvoice();
-  const returnId = useDocumentId();
+  const savedNotice = useAlreadySavedNotice();
+  const returnId = useDocumentId((savedId) => {
+    savedNotice.show(savedId);
+    subPage.open(savedId);
+  });
   const refundReturn = useRefundSalesReturn();
   const confirmReturn = useConfirmSalesReturn();
   const cancelReturn = useCancelSalesReturn();
@@ -273,10 +277,11 @@ export function SalesReturnsScreen() {
         reason,
         requested,
       });
-      returnId.renew();
       if (confirmAfter) await confirmReturn.mutateAsync(created.id);
+      returnId.renew();
       subPage.close();
     } catch (err) {
+      if (returnId.recover(err)) return;
       setError(errorMessage(err, t("common.failed")));
     }
   }
@@ -460,6 +465,7 @@ export function SalesReturnsScreen() {
 
   const detailPage = (
     <div className="w-full">
+      <AlreadySavedNotice notice={savedNotice} openId={firstSegment ?? null} message={t("documents.alreadySaved")} dismissLabel={t("documents.alreadySaved.dismiss")} />
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-ink-muted">{t("eyebrow.sales.returns")}</div>

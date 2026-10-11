@@ -1,4 +1,4 @@
-import { useDocumentId } from "../lib/document-id";
+import { AlreadySavedNotice, useAlreadySavedNotice, useDocumentId } from "../lib/document-id";
 import { useMemo, useState } from "react";
 import {
   Button,
@@ -471,7 +471,11 @@ export function PurchaseInvoicesScreen() {
   const itemsQuery = useItems();
   const projectsQuery = useProjects();
   const createInvoice = useCreatePurchaseInvoice();
-  const invoiceId = useDocumentId();
+  const savedNotice = useAlreadySavedNotice();
+  const invoiceId = useDocumentId((savedId) => {
+    savedNotice.show(savedId);
+    subPage.open(savedId);
+  });
   const confirmInvoice = useConfirmPurchaseInvoice();
 
   const receipts = receiptsQuery.data ?? [];
@@ -772,6 +776,7 @@ export function PurchaseInvoicesScreen() {
       invoiceId.renew();
       subPage.close();
     } catch (err) {
+      if (invoiceId.recover(err)) return;
       setFormError(err instanceof Error ? err.message : t("purchaseInvoices.error.saveFailed"));
     }
   }
@@ -981,6 +986,7 @@ export function PurchaseInvoicesScreen() {
   if (selected) {
     return (
       <>
+        <AlreadySavedNotice notice={savedNotice} openId={selectedId} message={t("documents.alreadySaved")} dismissLabel={t("documents.alreadySaved.dismiss")} />
         <InvoiceDetail
           invoice={selected}
           supplierName={supplierName}

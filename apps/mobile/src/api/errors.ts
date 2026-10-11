@@ -15,14 +15,17 @@ export class ApiError extends Error {
   /** The server's own Arabic refusal, when it sent one. Shown in preference to anything this client invents. */
   readonly serverMessage: string | null;
   readonly serverMessageEn: string | null;
+  /** The server's machine-readable refusal code, when it sent one. */
+  readonly code: string | null;
 
-  constructor(failure: ApiFailure, status: number | null, serverMessage: string | null, serverMessageEn: string | null) {
+  constructor(failure: ApiFailure, status: number | null, serverMessage: string | null, serverMessageEn: string | null, code: string | null = null) {
     super(serverMessage ?? serverMessageEn ?? failure);
     this.name = "ApiError";
     this.failure = failure;
     this.status = status;
     this.serverMessage = serverMessage;
     this.serverMessageEn = serverMessageEn;
+    this.code = code;
   }
 }
 

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AlreadySavedNotice, useAlreadySavedNotice, useDocumentId } from "../lib/document-id";
 import { errorMessage } from "../lib/error-message";
 import {
   Button,
@@ -370,7 +371,10 @@ function CreateInvoicePage({
   // answer never arrived, so pressing save again is answered with the invoice
   // already created instead of creating a second; it is replaced the moment a
   // create is known to have succeeded.
-  const invoiceId = useRef(crypto.randomUUID());
+  const invoiceId = useDocumentId((savedId) => {
+    resetForm();
+    onAlreadyCreated(savedId);
+  });
   const unitLabel = useUnitLabel();
   const workingLocation = useWorkingLocation();
   const nameOf = useEntityName();
@@ -667,7 +671,7 @@ function CreateInvoicePage({
     setError(null);
     try {
       const created = await createInvoice.mutateAsync({
-        id: invoiceId.current,
+        id: invoiceId.current(),
         date,
         dueDate,
         customerId: customer.id,
@@ -703,7 +707,6 @@ function CreateInvoicePage({
           inventoryAccountId: l.inventoryAccountId,
         })),
       });
-      invoiceId.current = crypto.randomUUID();
       if (shouldConfirm) {
         await confirmInvoice.mutateAsync(
           isConsumerReceiptSale && receiptPaymentMethod !== ""
@@ -711,16 +714,11 @@ function CreateInvoicePage({
             : created.id,
         );
       }
+      invoiceId.renew();
       resetForm();
       onClose();
     } catch (err) {
-      if (err instanceof ApiError && err.code === IdempotencyRefusal.KeyReused) {
-        const saved = invoiceId.current;
-        invoiceId.current = crypto.randomUUID();
-        resetForm();
-        onAlreadyCreated(saved);
-        return;
-      }
+      if (invoiceId.recover(err)) return;
       setError(err instanceof Error ? err.message : t("salesInvoices.error.saveFailed"));
     } finally {
       setBusy(false);
@@ -1942,7 +1940,7 @@ export function SalesInvoicesScreen() {
   // `#/sales/sales-invoices` · `…/new` · `…/<docNo|id>`
   const subPage = useSubPage();
   const [previewId, setPreviewId] = useState<string | null>(null);
-  const [alreadyCreated, setAlreadyCreated] = useState(false);
+  const savedNotice = useAlreadySavedNotice();
   const { navigate } = useNavigation();
   useScreenIntent((intent) => {
     const customerId = intent.prefill?.customerId;
@@ -2088,7 +2086,7 @@ export function SalesInvoicesScreen() {
       <CreateInvoicePage
         onClose={subPage.close}
         onAlreadyCreated={(invoiceId) => {
-          setAlreadyCreated(true);
+          savedNotice.show(invoiceId);
           subPage.open(invoiceId);
         }}
         initialCustomerId={subPage.segments[1] ?? null}
@@ -2102,11 +2100,7 @@ export function SalesInvoicesScreen() {
 
   return (
     <>
-      {alreadyCreated && selectedId ? (
-        <div role="status" className="mb-[18px] rounded-md border border-warning bg-warning-soft px-[12px] py-[10px] text-[12.5px] text-warning-ink">
-          {t("salesInvoices.alreadyCreated")}
-        </div>
-      ) : null}
+      <AlreadySavedNotice notice={savedNotice} openId={selectedId ?? null} message={t("salesInvoices.alreadyCreated")} dismissLabel={t("documents.alreadySaved.dismiss")} />
       {selected ? (
         <InvoiceDetailView invoice={selected} today={today} onPrint={() => subPage.open(selected.docNo ?? selected.id, "print")} />
       ) : (

@@ -197,6 +197,35 @@ describe("PurchaseReturnsScreen", () => {
     expect(await screen.findByText("شركة النيل للتوريدات")).toBeInTheDocument();
   });
 
+  it("opens the return already saved, with a notice, when its id was used with other contents, and uses a new id next time", async () => {
+    let current: PurchaseReturnDocumentDTO[] = [];
+    const sentIds: string[] = [];
+    const transport = stubTransport({
+      ...baseHandlers(current),
+      "GET /purchase-returns": () => ({ body: current }),
+      "POST /purchase-returns": (init) => {
+        const body = JSON.parse((init?.body as string) ?? "{}");
+        sentIds.push(body.id);
+        if (sentIds.length > 1) return { status: 201, body: purchaseReturn({ id: body.id, docNo: null, status: "draft" }) };
+        current = [purchaseReturn({ id: body.id, docNo: null, status: "draft" })];
+        return { status: 409, body: { error: "IDEMPOTENCY_KEY_REUSED", message: "سبق تسجيل مستند بهذا المعرّف ببيانات مختلفة" } };
+      },
+    });
+    renderWithProviders(
+      <WithSubPageNav>
+        <PurchaseReturnsScreen />
+      </WithSubPageNav>,
+      { transport, initialSession: testAdminSession },
+    );
+    await screen.findByText("لا توجد مرتجعات — أنشئ مرتجعاً جديداً");
+    fireEvent.click(screen.getAllByRole("button", { name: "مرتجع جديد" })[0]!);
+    fireEvent.click(screen.getByRole("button", { name: "حفظ كمسودة" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent("سبق حفظ هذا المستند، ففُتح المستند المحفوظ بدل إنشاء آخر");
+    expect(screen.queryByRole("heading", { name: "مرتجع مشتريات جديد" })).not.toBeInTheDocument();
+    expect(sentIds).toHaveLength(1);
+  });
+
   it("confirms then cancels a draft return", async () => {
     let current: PurchaseReturnDocumentDTO[] = [purchaseReturn()];
     const transport = stubTransport({

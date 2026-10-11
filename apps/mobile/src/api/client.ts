@@ -40,7 +40,7 @@ function headersFor(credentials: ApiCredentials): Record<string, string> {
   return headers;
 }
 
-async function readRefusal(response: Response): Promise<{ message: string | null; messageEn: string | null }> {
+async function readRefusal(response: Response): Promise<{ message: string | null; messageEn: string | null; code: string | null }> {
   try {
     const body: unknown = await response.json();
     if (body && typeof body === "object") {
@@ -48,12 +48,13 @@ async function readRefusal(response: Response): Promise<{ message: string | null
       return {
         message: typeof record.message === "string" ? record.message : null,
         messageEn: typeof record.messageEn === "string" ? record.messageEn : null,
+        code: typeof record.error === "string" ? record.error : null,
       };
     }
   } catch {
     // A refusal with no JSON body is still a refusal; the caller falls back to a named reason.
   }
-  return { message: null, messageEn: null };
+  return { message: null, messageEn: null, code: null };
 }
 
 export function joinUrl(baseUrl: string, path: string): string {
@@ -87,7 +88,7 @@ export async function apiRequest<T>(
           : REFUSAL_STATUSES.has(response.status)
             ? ApiFailure.Refused
             : ApiFailure.Server;
-    throw new ApiError(failure, response.status, refusal.message, refusal.messageEn);
+    throw new ApiError(failure, response.status, refusal.message, refusal.messageEn, refusal.code);
   }
 
   if (response.status === 204) return undefined as T;

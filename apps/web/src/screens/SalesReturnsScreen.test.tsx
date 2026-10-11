@@ -231,6 +231,31 @@ describe("SalesReturnsScreen", () => {
     expect(await screen.findByText("شركة الأمل للتجارة")).toBeInTheDocument();
   });
 
+  it("opens the return already saved, with a notice, when its id was used with other contents", async () => {
+    let current: SalesReturnDocumentDTO[] = [];
+    const sentIds: string[] = [];
+    const transport = stubTransport({
+      ...baseHandlers(current),
+      "GET /sales-returns": () => ({ body: current }),
+      "POST /sales-returns/from-invoice": (init) => {
+        const body = JSON.parse((init?.body as string) ?? "{}");
+        sentIds.push(body.id);
+        current = [salesReturn({ id: body.id, docNo: null, status: "draft" })];
+        return { status: 409, body: { error: "IDEMPOTENCY_KEY_REUSED", message: "سبق تسجيل مستند بهذا المعرّف ببيانات مختلفة" } };
+      },
+    });
+    renderWithProviders(<TestNavigation><SalesReturnsScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
+    await screen.findByText("لا توجد مرتجعات — أنشئ مرتجعاً جديداً");
+    const [newButton] = screen.getAllByRole("button", { name: "مرتجع جديد" });
+    fireEvent.click(newButton as HTMLElement);
+    await screen.findByRole("heading", { name: "مرتجع مبيعات جديد" });
+    fireEvent.click(screen.getByRole("button", { name: "حفظ كمسودة" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent("سبق حفظ هذا المستند، ففُتح المستند المحفوظ بدل إنشاء آخر");
+    expect(screen.queryByRole("heading", { name: "مرتجع مبيعات جديد" })).not.toBeInTheDocument();
+    expect(sentIds).toHaveLength(1);
+  });
+
   it("confirms then cancels a draft return", async () => {
     let current: SalesReturnDocumentDTO[] = [salesReturn()];
     const transport = stubTransport({

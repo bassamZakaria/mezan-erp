@@ -403,7 +403,7 @@ export function useLogin() {
     mutationFn: async (body) => {
       const res = await request("/auth/login", { method: "POST", body: JSON.stringify(body) });
       if (!res.ok) {
-        type LoginError = { error?: string; message?: string; retryAfterSeconds?: number };
+        type LoginError = { error?: string; message?: string; retryAfterSeconds?: number; unlockByCode?: boolean };
         const err = await res.json<LoginError>().catch((): LoginError => ({}));
         const message =
           err.error === "TENANT_REQUIRED"
@@ -411,11 +411,35 @@ export function useLogin() {
             : err.error === "TENANT_NOT_FOUND"
               ? t("login.tenantNotFound")
               : (err.message ?? t("api.signInFailed"));
+        if (err.error === SignInRefusalCode.AccountLocked) throw new AccountLockedError(res.status, message, err.unlockByCode === true);
         throw new ApiError(res.status, message, undefined, err.retryAfterSeconds, err.error);
       }
       return res.json<SessionDTO>();
     },
     onSuccess: (session) => setSession(session),
+  });
+}
+
+export enum SignInRefusalCode {
+  AccountLocked = "ACCOUNT_LOCKED",
+}
+
+/** The account is locked until an administrator or a mailed one-time code opens it; `unlockByCode` says a code was mailed. */
+export class AccountLockedError extends ApiError {
+  constructor(status: number, message: string, readonly unlockByCode: boolean) {
+    super(status, message, undefined, undefined, SignInRefusalCode.AccountLocked);
+    this.name = "AccountLockedError";
+  }
+}
+
+export function useUnlockAccount() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  return useMutation<void, ApiError, { username: string; code: string }>({
+    mutationFn: async (body) => {
+      const res = await request("/auth/unlock", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw await codedError(res, t("login.unlock.failed"), t);
+    },
   });
 }
 
@@ -1479,7 +1503,7 @@ export function useCreateJournalEntry() {
   return useMutation<JournalEntryDTO, ApiError, CreateGlJournalEntryDTO>({
     mutationFn: async (body) => {
       const res = await request("/gl/journal-entries", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theEntryCouldNotBe"), t));
+      if (!res.ok) throw await codedError(res, t("api.theEntryCouldNotBe"), t);
       return res.json<JournalEntryDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["journal-entries"] }),
@@ -2095,7 +2119,7 @@ export function useCreateCheque() {
   return useMutation<ChequeDTO, ApiError, CreateChequeDTO>({
     mutationFn: async (body) => {
       const res = await request("/cheques", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theChequeCouldNotBe"), t));
+      if (!res.ok) throw await codedError(res, t("api.theChequeCouldNotBe"), t);
       return res.json<ChequeDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["cheques"] }),
@@ -2894,7 +2918,7 @@ export function useCreatePurchaseInvoice() {
   return useMutation<PurchaseInvoiceDTO, ApiError, CreatePurchaseInvoiceDTO>({
     mutationFn: async (body) => {
       const res = await request("/purchases/invoices", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.thePurchaseInvoiceCouldNot"), t));
+      if (!res.ok) throw await codedError(res, t("api.thePurchaseInvoiceCouldNot"), t);
       return res.json<PurchaseInvoiceDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["purchase-invoices"] }),
@@ -5914,7 +5938,7 @@ export function useCreateSalesReturn() {
   return useMutation<SalesReturnDocumentDTO, ApiError, CreateSalesReturnDTO>({
     mutationFn: async (body) => {
       const res = await request("/sales-returns", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theSalesReturnCouldNot"), t));
+      if (!res.ok) throw await codedError(res, t("api.theSalesReturnCouldNot"), t);
       return res.json<SalesReturnDocumentDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["sales-returns"] }),
@@ -6028,7 +6052,7 @@ export function useCreatePurchaseReturn() {
   return useMutation<PurchaseReturnDocumentDTO, ApiError, CreatePurchaseReturnDTO>({
     mutationFn: async (body) => {
       const res = await request("/purchase-returns", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.thePurchaseReturnCouldNot"), t));
+      if (!res.ok) throw await codedError(res, t("api.thePurchaseReturnCouldNot"), t);
       return res.json<PurchaseReturnDocumentDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["purchase-returns"] }),
@@ -6086,7 +6110,7 @@ export function useCreateLandedCost() {
   return useMutation<LandedCostDocumentDTO, ApiError, CreateLandedCostDTO>({
     mutationFn: async (body) => {
       const res = await request("/landed-costs", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theLandedCostDocumentCould"), t));
+      if (!res.ok) throw await codedError(res, t("api.theLandedCostDocumentCould"), t);
       return res.json<LandedCostDocumentDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["landed-costs"] }),
@@ -8309,7 +8333,7 @@ export function useCreateSalesReturnFromInvoice() {
   return useMutation<SalesReturnDocumentDTO, ApiError, BuildSalesReturnFromInvoiceDTO>({
     mutationFn: async (body) => {
       const res = await request("/sales-returns/from-invoice", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theSalesReturnCouldNot"), t));
+      if (!res.ok) throw await codedError(res, t("api.theSalesReturnCouldNot"), t);
       return res.json<SalesReturnDocumentDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["sales-returns"] }),

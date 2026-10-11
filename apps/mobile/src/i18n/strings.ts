@@ -187,6 +187,7 @@ export interface Strings {
     readonly loading: string;
     readonly offline: string;
     readonly offlineWrite: string;
+    readonly alreadySaved: string;
     readonly search: string;
     readonly cancel: string;
     readonly selectCustomerToView: string;
@@ -387,6 +388,7 @@ const AR: Strings = {
     loading: "جارٍ التحميل…",
     offline: "لا يوجد اتصال — هذه آخر أرقام وصلت",
     offlineWrite: "لا يوجد اتصال. لا يمكن حفظ مستند بدون اتصال بالخادم.",
+    alreadySaved: "سبق حفظ هذا المستند ببيانات مختلفة، فلم يُسجَّل مرة ثانية. راجع المستند المحفوظ قبل إنشاء غيره",
     search: "بحث",
     cancel: "إلغاء",
     selectCustomerToView: "اختر عميلًا من القائمة لعرض ملفه",
@@ -587,6 +589,7 @@ const EN: Strings = {
     loading: "Loading…",
     offline: "Offline — these are the last figures received",
     offlineWrite: "Offline. A document cannot be saved without a connection.",
+    alreadySaved: "This document was already saved with different contents, so it was not recorded again. Check the saved document before creating another",
     search: "Search",
     cancel: "Cancel",
     selectCustomerToView: "Pick a customer from the list to see their file",

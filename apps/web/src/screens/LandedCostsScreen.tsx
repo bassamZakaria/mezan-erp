@@ -1,4 +1,4 @@
-import { useDocumentId } from "../lib/document-id";
+import { AlreadySavedNotice, useAlreadySavedNotice, useDocumentId } from "../lib/document-id";
 import { useEffect, useMemo, useState } from "react";
 import { errorMessage } from "../lib/error-message";
 import {
@@ -112,7 +112,11 @@ export function LandedCostsScreen() {
   const itemsQuery = useItems();
   const projectsQuery = useProjects();
   const createLandedCost = useCreateLandedCost();
-  const landedCostId = useDocumentId();
+  const savedNotice = useAlreadySavedNotice();
+  const landedCostId = useDocumentId((savedId) => {
+    savedNotice.show(savedId);
+    setPanel({ id: savedId });
+  });
   const confirmLandedCost = useConfirmLandedCost();
   const cancelLandedCost = useCancelLandedCost();
 
@@ -334,10 +338,11 @@ export function LandedCostsScreen() {
         targets: targetEntries,
         projectId: project?.id ?? null,
       });
-      landedCostId.renew();
       if (confirmAfter) await confirmLandedCost.mutateAsync(created.id);
+      landedCostId.renew();
       setPanel("none");
     } catch (err) {
+      if (landedCostId.recover(err)) return;
       setError(errorMessage(err, t("common.failed")));
     }
   }
@@ -651,6 +656,7 @@ export function LandedCostsScreen() {
       <SidePanel open={selected !== null} onClose={() => setPanel("none")} title={selected?.docNo ?? t("landedCosts.detailTitle")}>
         {selected ? (
           <div className="flex flex-col gap-4 p-5">
+            <AlreadySavedNotice notice={savedNotice} openId={selected.id} message={t("documents.alreadySaved")} dismissLabel={t("documents.alreadySaved.dismiss")} />
             <StatusPill label={documentStatusLabel(selected.status, t)} tone={DOC_STATUS_TONE[selected.status]} />
             <div className="flex items-center justify-between rounded-[8px] border border-border px-3 py-2 text-[12.5px]">
               <span className="text-ink-muted">{t("landedCosts.field.method")}</span>

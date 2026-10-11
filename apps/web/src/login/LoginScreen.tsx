@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { BrandMark, Button, Copyright, TextInput, cn } from "@mezan/ui";
-import { useLogin, usePlatformResolve, useTenantInfo } from "../data/hooks";
+import { AccountLockedError, useLogin, usePlatformResolve, useTenantInfo, useUnlockAccount } from "../data/hooks";
 import { useAppVersion } from "../data/hub-hooks";
 import {
   clearSessionExpired,
@@ -211,6 +211,27 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
    * floor at 6pm does not read carefully; it presses the button again.
    */
   const [lockedForSeconds, setLockedForSeconds] = useState(0);
+  const [unlockOffered, setUnlockOffered] = useState(false);
+  const [unlockCode, setUnlockCode] = useState("");
+  const [unlockedNotice, setUnlockedNotice] = useState(false);
+  const unlock = useUnlockAccount();
+
+  function submitUnlockCode() {
+    if (unlockCode.trim() === "" || unlock.isPending) return;
+    unlock.mutate(
+      { username: identity, code: unlockCode.trim() },
+      {
+        onSuccess: () => {
+          setUnlockOffered(false);
+          setUnlockCode("");
+          setError(null);
+          setUnlockedNotice(true);
+          submittedFor.current = "";
+        },
+        onError: (err) => setError(err.message),
+      },
+    );
+  }
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
   const submittedFor = useRef<string>("");
 
@@ -246,6 +267,7 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
         },
         onError: (err) => {
           setError(err.message || t("login.error.generic"));
+          setUnlockOffered(err instanceof AccountLockedError && err.unlockByCode);
           if (err.status === 429 && typeof err.retryAfterSeconds === "number") {
             setLockedForSeconds(Math.max(1, Math.ceil(err.retryAfterSeconds)));
           }
@@ -512,6 +534,30 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
           <p role="alert" className="mt-[10px] text-xs font-semibold text-danger-ink">
             {error}
           </p>
+        ) : null}
+
+        {unlockedNotice && error === null ? (
+          <p role="status" className="mt-[10px] text-xs font-semibold text-success-ink">
+            {t("login.unlock.done")}
+          </p>
+        ) : null}
+
+        {unlockOffered ? (
+          <div className="mt-[12px] flex items-end gap-[8px]">
+            <label className="flex-1 text-xs text-ink-muted">
+              {t("login.unlock.code")}
+              <TextInput
+                dir="ltr"
+                autoComplete="one-time-code"
+                value={unlockCode}
+                onChange={(e) => setUnlockCode(e.target.value)}
+                className="mt-[4px] w-full"
+              />
+            </label>
+            <Button type="button" disabled={unlockCode.trim() === "" || unlock.isPending} onClick={submitUnlockCode}>
+              {t("login.unlock.submit")}
+            </Button>
+          </div>
         ) : null}
 
         <Button type="submit" variant="primary" disabled={!canSubmit} className="mt-[16px] w-full justify-center py-[12px]">

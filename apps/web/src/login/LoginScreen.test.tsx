@@ -299,6 +299,51 @@ describe("LoginScreen — SaaS company code", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("اسم المستخدم أو رمز PIN غير صحيح.");
   });
 
+  it("offers a place to type the mailed code when the account is locked, and opens the account with it", async () => {
+    let unlockBody: unknown = null;
+    renderWithProviders(<LoginScreen onStartWizard={() => {}} />, {
+      transport: stubTransport({
+        ...preAuth,
+        "GET /platform/resolve": () => ({ body: { mode: "code", exists: true } }),
+        "POST /auth/login": () => ({
+          status: 423,
+          body: { error: "ACCOUNT_LOCKED", unlockByCode: true, message: "تم قفل هذا الحساب بعد محاولات دخول فاشلة متكررة." },
+        }),
+        "POST /auth/unlock": (init) => {
+          unlockBody = JSON.parse((init?.body as string) ?? "{}");
+          return { body: { ok: true } };
+        },
+      }),
+    });
+    fireEvent.change(await screen.findByLabelText("رمز المنشأة"), { target: { value: "cyag" } });
+    fillPin("000000");
+    expect(await screen.findByRole("alert")).toHaveTextContent("تم قفل هذا الحساب");
+
+    fireEvent.change(screen.getByLabelText("رمز فكّ القفل"), { target: { value: "ABCDEFGHIJKLMNOP" } });
+    fireEvent.click(screen.getByRole("button", { name: "فكّ القفل" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent("تم فكّ قفل الحساب");
+    expect(unlockBody).toMatchObject({ code: "ABCDEFGHIJKLMNOP" });
+    expect(screen.queryByLabelText("رمز فكّ القفل")).not.toBeInTheDocument();
+  });
+
+  it("offers no code field when the lock can only be opened by an administrator", async () => {
+    renderWithProviders(<LoginScreen onStartWizard={() => {}} />, {
+      transport: stubTransport({
+        ...preAuth,
+        "GET /platform/resolve": () => ({ body: { mode: "code", exists: true } }),
+        "POST /auth/login": () => ({
+          status: 423,
+          body: { error: "ACCOUNT_LOCKED", unlockByCode: false, message: "تم قفل هذا الحساب. اطلب من مدير النظام فكّ القفل." },
+        }),
+      }),
+    });
+    fireEvent.change(await screen.findByLabelText("رمز المنشأة"), { target: { value: "cyag" } });
+    fillPin("000000");
+    expect(await screen.findByRole("alert")).toHaveTextContent("اطلب من مدير النظام فكّ القفل");
+    expect(screen.queryByLabelText("رمز فكّ القفل")).not.toBeInTheDocument();
+  });
+
   it("sends x-mezan-tenant on the login request once a company code is resolved", async () => {
     let seenTenantHeader: string | null = null;
     renderWithProviders(<LoginScreen onStartWizard={() => {}} />, {

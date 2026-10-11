@@ -25,7 +25,8 @@ import { formatAmountWithCurrency, isPositiveDecimal, toAmountInput } from "@/mo
 import { DEFAULT_GL_ACCOUNTS } from "@/domain/accounts";
 import { addDaysIso, todayIso } from "@/domain/dates";
 import { DocumentKind, ItemType } from "@/domain/enums";
-import { makeDocumentId, makeLocalId } from "@/domain/local-id";
+import { makeLocalId } from "@/domain/local-id";
+import { useDocumentId } from "@/hooks/use-document-id";
 import { resolveDefaultBranch, resolveDefaultWarehouse } from "@/domain/working-location";
 import { useSession } from "@/session/SessionProvider";
 import { RADIUS, SPACE, TYPE, useTheme } from "@/theme";
@@ -115,7 +116,11 @@ export function Sell() {
   // ONE id per invoice the rep means to create. It survives an attempt whose
   // answer never arrived, so pressing again is answered with the invoice
   // already created; it is replaced once a create is known to have succeeded.
-  const invoiceId = useRef(makeDocumentId());
+  const invoiceId = useDocumentId((savedId) => {
+    setNotice(`${strings.common.alreadySaved} — ${savedId}`);
+    setLines([blankLine()]);
+    setNotes("");
+  });
   const confirmInvoice = useConfirmSalesInvoice();
   const createQuote = useCreateSalesQuote();
 
@@ -178,7 +183,7 @@ export function Sell() {
           return;
         }
         const created = await createInvoice.mutateAsync({
-          id: invoiceId.current,
+          id: invoiceId.current(),
           date,
           dueDate,
           customerId: customer.id,
@@ -207,8 +212,8 @@ export function Sell() {
             };
           }),
         });
-        invoiceId.current = makeDocumentId();
         const confirmed = await confirmInvoice.mutateAsync({ id: created.id });
+        invoiceId.renew();
         const total = confirmed.totals?.grandTotal;
         setNotice(
           `${strings.sell.invoiceCreated} — ${confirmed.docNo ?? confirmed.id}` +
@@ -218,6 +223,7 @@ export function Sell() {
       setLines([blankLine()]);
       setNotes("");
     } catch (err) {
+      if (invoiceId.recover(err)) return;
       setError(describeWriteError(err, strings));
     } finally {
       setBusy(false);

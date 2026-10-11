@@ -20,7 +20,7 @@ import { useStrings } from "@/i18n";
 import { useFormPadding } from "@/layout";
 import { formatAmountWithCurrency, isPositiveDecimal, toAmountInput } from "@/money";
 import { todayIso } from "@/domain/dates";
-import { makeDocumentId } from "@/domain/local-id";
+import { useDocumentId } from "@/hooks/use-document-id";
 import { AllocationInvoiceKind, CollectPaymentMethod, TreasuryAccountStatus } from "@/domain/enums";
 import { resolveDefaultBranch } from "@/domain/working-location";
 import { useSession } from "@/session/SessionProvider";
@@ -95,7 +95,13 @@ export function Collect() {
   // ONE id per collection the rep means to record: a press whose answer never
   // arrived is answered, on the next press, with the voucher already recorded
   // instead of taking the customer's money twice.
-  const voucherId = useRef(makeDocumentId());
+  const voucherId = useDocumentId((savedId) => {
+    setNotice(`${strings.common.alreadySaved} — ${savedId}`);
+    setAmount("");
+    setReferenceNo("");
+    setInvoice(null);
+    setTreasuryAccount(null);
+  });
 
   async function submit() {
     setNotice(null);
@@ -121,7 +127,7 @@ export function Collect() {
     setError(null);
     try {
       const result = await createCollection.mutateAsync({
-        id: voucherId.current,
+        id: voucherId.current(),
         date: todayIso(),
         customerId: customer.id,
         branchId: branch.id,
@@ -134,7 +140,7 @@ export function Collect() {
         // allocate the voucher's base amount at its own approved rate.
         allocations: [inBaseCurrency ? { invoiceId: invoice.id, amount: voucherAmount } : { invoiceId: invoice.id }],
       });
-      voucherId.current = makeDocumentId();
+      voucherId.renew();
       const docNo = result.voucher.docNo ?? result.voucher.id;
       setNotice(result.held ? `${strings.collect.held} — ${docNo}` : `${strings.collect.success} ${invoice.invoiceNo} — ${docNo}`);
       setAmount("");
@@ -142,6 +148,7 @@ export function Collect() {
       setInvoice(null);
       setTreasuryAccount(null);
     } catch (err) {
+      if (voucherId.recover(err)) return;
       setError(describeWriteError(err, strings));
     } finally {
       setBusy(false);

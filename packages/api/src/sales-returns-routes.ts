@@ -22,6 +22,7 @@ import {
   buildSalesReturnFromInvoiceSchema,
   createSalesReturnSchema,
   refundSalesReturnSchema,
+  returnSourceLinesSchema,
 } from "@mezan/contracts";
 import type { z } from "zod";
 import { type AuthContextResolver, callerUserId, createAnyPermissionGate, createPermissionGate, getAuthContext, warehouseScopeOf, withinScope } from "./permission-gate.js";
@@ -361,6 +362,24 @@ export function createSalesReturnsRoutes(
       refundedTotal: refundedTotal.toString(),
       refundDue: refundDueTotal.toString(),
     });
+  });
+
+  app.get("/source-lines/:invoiceId", gate("sales.return.create"), async (c) => {
+    if (!invoices) {
+      return c.json({ error: "INVOICE_LOOKUP_UNAVAILABLE", message: "قراءة بنود الفاتورة المصدر تتطلب وحدة فواتير المبيعات." }, 503);
+    }
+    const invoice = await invoices.findConfirmedInvoice(c.req.param("invoiceId"));
+    if (!invoice) return c.json(SOURCE_INVOICE_NOT_FOUND, 404);
+    return c.json(
+      returnSourceLinesSchema.parse({
+        sourceInvoiceId: invoice.id,
+        lines: invoice.lines.flatMap((line) =>
+          line.sourceLineId
+            ? [{ sourceLineId: line.sourceLineId, itemId: line.itemId, soldQty: line.qty.toString(), returnedQty: line.alreadyReturnedQty.toString() }]
+            : [],
+        ),
+      }),
+    );
   });
 
   app.get("/:id", gateAny("sales.return.view", "sales.return.view_own"), async (c) => {

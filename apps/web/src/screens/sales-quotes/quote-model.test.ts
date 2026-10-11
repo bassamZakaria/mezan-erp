@@ -78,6 +78,13 @@ const taxRate = (id: string, rate: number, etaSubType: TaxRateDTO["etaSubType"])
 const taxRates: TaxRateDTO[] = [taxRate("VAT14", 14, "auto"), taxRate("EXEMPT", 0, "V003"), taxRate("EXPORT", 0, "V001")];
 
 describe("toDomainLines", () => {
+  it("prices a line whose unit price or quantity field was cleared at zero, instead of throwing while the form renders (D79 round 4)", () => {
+    const item = items[0]!;
+    const cleared = { key: "l1", itemId: item.id, qty: Number.NaN, unitPrice: Number.NaN, discountPercent: Number.NaN, tax: DERIVED_TAX, expanded: false };
+    const [line] = toDomainLines([cleared], items, taxRates);
+    expect([line?.qty.toString(), line?.unitPrice.toString(), line?.discountPercent]).toEqual(["0.000000", "0.000000", 0]);
+  });
+
   it("drops a line whose itemId does not match any known item", () => {
     const lines = toDomainLines([{ key: "l1", itemId: "missing-item", qty: 1, unitPrice: null, discountPercent: 0, tax: DERIVED_TAX, expanded: false }], items, taxRates);
     expect(lines).toHaveLength(0);

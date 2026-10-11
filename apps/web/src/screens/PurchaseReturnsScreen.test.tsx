@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
-import { screen, fireEvent, within, waitFor } from "@testing-library/react";
+import { act, screen, fireEvent, within, waitFor } from "@testing-library/react";
 import { useState, type ReactElement } from "react";
 import type { ItemDTO, PurchaseInvoiceDTO, PurchaseReturnDocumentDTO, SupplierDTO, WarehouseDTO } from "@mezan/contracts";
 import { PurchaseReturnsScreen } from "./PurchaseReturnsScreen";
@@ -130,8 +130,25 @@ function purchaseReturn(overrides: Partial<PurchaseReturnDocumentDTO> = {}): Pur
   };
 }
 
-function baseHandlers(returns: PurchaseReturnDocumentDTO[], invoices: PurchaseInvoiceDTO[] = [purchaseInvoice()]) {
+function baseHandlers(
+  returns: PurchaseReturnDocumentDTO[],
+  invoices: PurchaseInvoiceDTO[] = [purchaseInvoice()],
+  /** What the SERVER says confirmed returns already took, by invoice line position. */
+  returnedByLine: Record<string, string> = {},
+) {
   return {
+    "GET /purchase-returns/source-lines/*": (_init: unknown, path: string) => {
+      const invoice = invoices.find((i) => i.id === decodeURIComponent(path.split("/").pop()!.split("?")[0]!));
+      if (!invoice) return { status: 404, body: { error: "SOURCE_INVOICE_NOT_FOUND" } };
+      return {
+        body: {
+          sourceInvoiceId: invoice.id,
+          lines: invoice.lines.flatMap((l, index) =>
+            l.itemId === null ? [] : [{ sourceLineId: String(index), itemId: l.itemId, soldQty: l.qty, returnedQty: returnedByLine[String(index)] ?? "0" }],
+          ),
+        },
+      };
+    },
     "GET /purchases/invoices": () => ({ body: invoices }),
     "GET /warehouses": () => ({ body: warehouses }),
     "GET /suppliers": () => ({ body: suppliers2 }),
@@ -265,6 +282,54 @@ describe("PurchaseReturnsScreen", () => {
         sourceInvoiceNumber: "PI-000001", sourceLineId: "1", reason: "DEFECTIVE", qty: "2",
       },
     ]);
+  });
+
+  it("clearing a quantity and pressing «إضافة بند» adds a row instead of crashing the form — an empty field takes nothing from its line (D79 round 4)", async () => {
+    const transport = stubTransport(baseHandlers([]));
+    renderWithProviders(
+      <WithSubPageNav>
+        <PurchaseReturnsScreen />
+      </WithSubPageNav>,
+      { transport, initialSession: testAdminSession },
+    );
+    await screen.findByText("لا توجد مرتجعات — أنشئ مرتجعاً جديداً");
+    fireEvent.click(screen.getAllByRole("button", { name: "مرتجع جديد" })[0]!);
+    await screen.findByRole("heading", { name: "مرتجع مشتريات جديد" });
+
+    fireEvent.change(qtyInputAt(0), { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: "إضافة بند" }));
+
+    expect(screen.getAllByText("الكمية")).toHaveLength(2);
+    expect(screen.getByRole("heading", { name: "مرتجع مشتريات جديد" })).toBeInTheDocument();
+  });
+
+  it("starts a new row from what the SERVER says is left of each invoice line, not from the returns the list happens to show (D79 round 4)", async () => {
+    let served = false;
+    const handlers = baseHandlers([], [purchaseInvoice()], { "0": "20" });
+    const transport = stubTransport({
+      ...handlers,
+      "GET /purchase-returns/source-lines/*": (init, path) => {
+        served = true;
+        return handlers["GET /purchase-returns/source-lines/*"](init, path);
+      },
+    });
+    renderWithProviders(
+      <WithSubPageNav>
+        <PurchaseReturnsScreen />
+      </WithSubPageNav>,
+      { transport, initialSession: testAdminSession },
+    );
+    await screen.findByText("لا توجد مرتجعات — أنشئ مرتجعاً جديداً");
+    fireEvent.click(screen.getAllByRole("button", { name: "مرتجع جديد" })[0]!);
+    await screen.findByRole("heading", { name: "مرتجع مشتريات جديد" });
+    await waitFor(() => expect(served).toBe(true));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "إضافة بند" }));
+    await waitFor(() => expect(screen.getAllByRole("combobox", { name: "الصنف" })).toHaveLength(2));
+    expect(screen.getAllByRole("combobox", { name: "الصنف" })[1]!.textContent).toBe("طوب أحمر");
   });
 
   it("«إضافة بند» starts the new row on the next invoice line once the rows above take the whole of the first — never the same line twice by default", async () => {

@@ -10,7 +10,7 @@ import {
   type PurchaseInvoiceLookupPort,
   type PurchaseReturnLine,
 } from "@mezan/domain";
-import { createPurchaseReturnSchema } from "@mezan/contracts";
+import { createPurchaseReturnSchema, returnSourceLinesSchema } from "@mezan/contracts";
 import { type AuthContextResolver, callerUserId, createPermissionGate, warehouseScopeOf, withinScope } from "./permission-gate.js";
 import { handleDocumentError } from "./document-error-handling.js";
 import { tenantDay } from "./tenant-day.js";
@@ -205,6 +205,24 @@ export function createPurchaseReturnsRoutes(
       returnedTotal = returnedTotal.add(purchaseReturnGrandTotal(doc));
     }
     return c.json({ count: rows.length, confirmed, returnedTotal: returnedTotal.toString() });
+  });
+
+  app.get("/source-lines/:invoiceId", gate("purchases.return.create"), async (c) => {
+    if (!invoices) {
+      return c.json({ error: "INVOICE_LOOKUP_UNAVAILABLE", message: "قراءة بنود الفاتورة المصدر تتطلب وحدة فواتير المشتريات." }, 503);
+    }
+    const invoice = await invoices.findConfirmedInvoice(c.req.param("invoiceId"));
+    if (!invoice) return c.json({ error: "SOURCE_INVOICE_NOT_FOUND", message: "الفاتورة المصدر غير موجودة أو غير مؤكدة." }, 404);
+    return c.json(
+      returnSourceLinesSchema.parse({
+        sourceInvoiceId: invoice.id,
+        lines: invoice.lines.flatMap((line) =>
+          line.sourceLineId
+            ? [{ sourceLineId: line.sourceLineId, itemId: line.itemId, soldQty: line.qty.toString(), returnedQty: line.alreadyReturnedQty.toString() }]
+            : [],
+        ),
+      }),
+    );
   });
 
   app.get("/:id", gate("purchases.return.view"), async (c) => {

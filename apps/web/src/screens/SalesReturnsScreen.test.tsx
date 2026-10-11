@@ -2,7 +2,7 @@
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
 import { useState, type ReactNode } from "react";
-import { screen, fireEvent, waitFor, within } from "@testing-library/react";
+import { act, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import type { CustomerDTO, ItemDTO, SalesReturnDocumentDTO, TreasuryAccountDTO, WarehouseDTO } from "@mezan/contracts";
 import type { SalesInvoiceDTO } from "../data/hooks";
 import { SalesReturnsScreen } from "./SalesReturnsScreen";
@@ -161,8 +161,23 @@ function salesReturn(overrides: Partial<SalesReturnDocumentDTO> = {}): SalesRetu
   };
 }
 
-function baseHandlers(returns: SalesReturnDocumentDTO[], invoices: SalesInvoiceDTO[] = [salesInvoice()]) {
+function baseHandlers(
+  returns: SalesReturnDocumentDTO[],
+  invoices: SalesInvoiceDTO[] = [salesInvoice()],
+  /** What the SERVER says confirmed returns already took, by invoice line. */
+  returnedByLine: Record<string, string> = {},
+) {
   return {
+    "GET /sales-returns/source-lines/*": (_init: unknown, path: string) => {
+      const invoice = invoices.find((i) => i.id === decodeURIComponent(path.split("/").pop()!.split("?")[0]!));
+      if (!invoice) return { status: 404, body: { error: "SOURCE_INVOICE_NOT_FOUND" } };
+      return {
+        body: {
+          sourceInvoiceId: invoice.id,
+          lines: invoice.lines.map((l) => ({ sourceLineId: l.lineId, itemId: l.itemId, soldQty: l.baseQty, returnedQty: returnedByLine[l.lineId] ?? "0" })),
+        },
+      };
+    },
     "GET /sales-invoices": () => ({ body: invoices }),
     "GET /warehouses": () => ({ body: warehouses }),
     "GET /customers": () => ({ body: customers }),
@@ -316,6 +331,51 @@ describe("SalesReturnsScreen", () => {
       ["item-cement", "l1", "10"],
       ["item-brick", "l2", "2"],
     ]);
+  });
+
+  it("clearing a quantity and pressing «إضافة بند» adds a row instead of crashing the form — an empty field takes nothing from its line (D79 round 4)", async () => {
+    const transport = stubTransport(baseHandlers([]));
+    renderWithProviders(<TestNavigation><SalesReturnsScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
+    await screen.findByText("لا توجد مرتجعات — أنشئ مرتجعاً جديداً");
+    fireEvent.click(screen.getAllByRole("button", { name: "مرتجع جديد" })[0]!);
+    await screen.findByRole("heading", { name: "مرتجع مبيعات جديد" });
+
+    fireEvent.change(qtyInputAt(0), { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: "إضافة بند" }));
+
+    expect(screen.getAllByText("الكمية")).toHaveLength(2);
+    expect(screen.getByRole("heading", { name: "مرتجع مبيعات جديد" })).toBeInTheDocument();
+    expect(screen.getAllByRole("combobox", { name: "الصنف" }).map((c) => c.textContent)).toEqual(["أسمنت بورتلاندي", "أسمنت بورتلاندي"]);
+  });
+
+  it("starts a new row from what the SERVER says is left of each invoice line, not from the returns the list happens to show (D79 round 4)", async () => {
+    let createdBody: Record<string, unknown> | undefined;
+    let served = false;
+    const handlers = baseHandlers([], [salesInvoice()], { l1: "10" });
+    const transport = stubTransport({
+      // The list is filtered down to nothing, while the server knows أسمنت's line is fully returned.
+      ...handlers,
+      "GET /sales-returns/source-lines/*": (init, path) => {
+        served = true;
+        return handlers["GET /sales-returns/source-lines/*"](init, path);
+      },
+      "POST /sales-returns/from-invoice": (init) => {
+        createdBody = JSON.parse((init?.body as string) ?? "{}");
+        return { status: 201, body: salesReturn({ id: (createdBody as { id: string }).id, docNo: null, status: "draft" }) };
+      },
+    });
+    renderWithProviders(<TestNavigation><SalesReturnsScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
+    await screen.findByText("لا توجد مرتجعات — أنشئ مرتجعاً جديداً");
+    fireEvent.click(screen.getAllByRole("button", { name: "مرتجع جديد" })[0]!);
+    await screen.findByRole("heading", { name: "مرتجع مبيعات جديد" });
+    await waitFor(() => expect(served).toBe(true));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "إضافة بند" }));
+    await waitFor(() => expect(screen.getAllByRole("combobox", { name: "الصنف" })).toHaveLength(2));
+    expect(screen.getAllByRole("combobox", { name: "الصنف" })[1]!.textContent).toBe("طوب أحمر");
   });
 
   it("removing a line drops only that item from the request, leaving the survivor's own qty and reason untouched", async () => {

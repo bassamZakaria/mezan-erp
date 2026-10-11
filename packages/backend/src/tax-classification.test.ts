@@ -447,3 +447,41 @@ describe("classifying the tax of a posted purchase line that stored none", () =>
     );
   });
 });
+
+describe("what a return form may still take from an invoice is the server's figure", () => {
+  it("serves each line's sold and already-returned quantity, moved only by CONFIRMED returns, and answers 409 to a second confirm", async () => {
+    const stock = (lineId: string, qty: string) => ({
+      lineId, itemId: "ITEM-DEMO-2", itemNameAr: "صنف", isStock: true, qty, unitPrice: "100", taxRateId: VAT_RATE,
+      revenueAccountId: REVENUE, cogsAccountId: "5100", inventoryAccountId: "1200",
+    });
+    await sale("T-RET-SRC", NOT_EXEMPT_CUSTOMER, [stock("L1", "3"), stock("L2", "2")]);
+    expect((await call("POST", "/sales-invoices/T-RET-SRC/confirm", {})).status).toBe(200);
+    const sourceLines = async () => (await call("GET", "/sales-returns/source-lines/T-RET-SRC")).body.lines.map((l: { sourceLineId: string; soldQty: string; returnedQty: string }) => [l.sourceLineId, Number(l.soldQty), Number(l.returnedQty)]);
+    expect(await sourceLines()).toEqual([["L1", 3, 0], ["L2", 2, 0]]);
+
+    const draft = await call("POST", "/sales-returns/from-invoice", { id: "T-RET-1", date: TODAY, memo: "t", warehouseId: WAREHOUSE, sourceInvoiceId: "T-RET-SRC", reason: "DEFECTIVE", requested: [{ itemId: "ITEM-DEMO-2", sourceLineId: "L1", qty: "3" }] });
+    expect(draft.status).toBe(201);
+    expect(await sourceLines()).toEqual([["L1", 3, 0], ["L2", 2, 0]]);
+    expect((await call("POST", "/sales-returns/T-RET-1/confirm", {})).status).toBe(200);
+    expect(await sourceLines()).toEqual([["L1", 3, 3], ["L2", 2, 0]]);
+
+    const again = await call("POST", "/sales-returns/T-RET-1/confirm", {});
+    expect([again.status, again.body.error]).toEqual([409, "INVALID_DOCUMENT_TRANSITION"]);
+
+    expect((await call("GET", "/sales-returns/source-lines/NOPE")).status).toBe(404);
+    expect((await call("GET", "/sales-returns/source-lines/T-RET-SRC", undefined, ["sales.return.view"])).status).toBe(403);
+  });
+
+  it("does the same for a purchase invoice, whose lines are named by position", async () => {
+    await call("POST", "/purchases/invoices", { id: "T-PRET-SRC", supplierId: "SUPP-DEMO-1", date: TODAY, dueDate: "2026-09-23", branchId: BRANCH, warehouseId: WAREHOUSE, lines: [{ itemId: "ITEM-DEMO-2", kind: "inventory", qty: "4", unitCost: "72", taxRateId: VAT_RATE }] });
+    expect((await call("POST", "/purchases/invoices/T-PRET-SRC/confirm", {})).status).toBe(200);
+    const sourceLines = async () => (await call("GET", "/purchase-returns/source-lines/T-PRET-SRC")).body.lines.map((l: { sourceLineId: string; soldQty: string; returnedQty: string }) => [l.sourceLineId, Number(l.soldQty), Number(l.returnedQty)]);
+    expect(await sourceLines()).toEqual([["0", 4, 0]]);
+    const draft = await call("POST", "/purchase-returns", { id: "T-PRET-1", date: TODAY, memo: "t", lines: [{ itemId: "ITEM-DEMO-2", warehouseId: WAREHOUSE, supplierId: "SUPP-DEMO-1", sourceInvoiceId: "T-PRET-SRC", sourceInvoiceNumber: null, sourceLineId: "0", reason: "DEFECTIVE", qty: "1" }] });
+    expect(draft.status).toBe(201);
+    expect((await call("POST", "/purchase-returns/T-PRET-1/confirm", {})).status).toBe(200);
+    expect(await sourceLines()).toEqual([["0", 4, 1]]);
+    const again = await call("POST", "/purchase-returns/T-PRET-1/confirm", {});
+    expect([again.status, again.body.error]).toEqual([409, "INVALID_DOCUMENT_TRANSITION"]);
+  });
+});

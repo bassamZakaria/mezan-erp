@@ -124,3 +124,24 @@ export type CreateSalesReturnDTO = z.infer<typeof createSalesReturnSchema>;
 export type BuildSalesReturnFromInvoiceDTO = z.infer<typeof buildSalesReturnFromInvoiceSchema>;
 export type SalesReturnDocumentDTO = z.infer<typeof salesReturnDocumentSchema>;
 export type RefundSalesReturnDTO = z.infer<typeof refundSalesReturnSchema>;
+
+/**
+ * GET /sales-returns/source-lines/:invoiceId and its purchase twin — what each
+ * line of a confirmed invoice sold and what confirmed returns have already
+ * taken from it, computed server-side. A return form starts a new row from
+ * this, never from whichever returns its list happens to be showing.
+ */
+export const returnSourceLineSchema = z.object({
+  sourceLineId: z.string().min(1),
+  itemId: z.string().min(1),
+  soldQty: z.string(),
+  returnedQty: z.string(),
+});
+
+export const returnSourceLinesSchema = z.object({
+  sourceInvoiceId: z.string().min(1),
+  lines: z.array(returnSourceLineSchema),
+});
+
+export type ReturnSourceLineDTO = z.infer<typeof returnSourceLineSchema>;
+export type ReturnSourceLinesDTO = z.infer<typeof returnSourceLinesSchema>;

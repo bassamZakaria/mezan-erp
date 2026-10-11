@@ -5,6 +5,7 @@ import type { SalesQuoteRecord } from "../../data/hooks";
 import type { AppTranslationKey } from "../../i18n";
 import type { PillTone } from "@mezan/ui";
 import { todayIso } from "../../lib/dates";
+import { finiteOrZero } from "../../lib/money";
 
 export type QuoteStatus = SalesQuoteRecord["status"];
 /** The list's own status axis: the stored statuses plus the derived منتهي (expired). */
@@ -84,7 +85,7 @@ export function toDomainLines(
       itemId: item.id,
       itemNameAr: item.nameAr,
       qty: Qty.fromMajor(String(l.qty || 0)),
-      unitPrice: Money.fromMajor(String(l.unitPrice ?? item.salePrice ?? 0)),
+      unitPrice: Money.fromMajor(l.unitPrice === null ? String(item.salePrice ?? 0) : String(finiteOrZero(l.unitPrice))),
       discountPercent: l.discountPercent || 0,
       taxRatePercent: appliedTaxPercent(l.tax, taxRates, item.taxRatePercent),
       taxRateId: chosenTaxRateId(l.tax, taxRates, item.taxRatePercent),

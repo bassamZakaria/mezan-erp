@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { firstSourceLineWithRoom, sourceLineOptions } from "./return-source-lines";
+import { firstSourceLineWithRoom, formQtyOf, nextReturnSourceLine, sourceLineOptions } from "./return-source-lines";
 
 describe("sourceLineOptions — a return picks the invoice LINE it reverses", () => {
   it("offers one option per line, valued by the line's id, labelled by the item", () => {
@@ -53,5 +53,34 @@ describe("firstSourceLineWithRoom — a new return row starts on a line that sti
   it("answers null when no line has anything left", () => {
     expect(firstSourceLineWithRoom(sold, [{ sourceLineId: "l1", qty: "3" }, { sourceLineId: "l2", qty: "5" }])).toBeNull();
     expect(firstSourceLineWithRoom([], [])).toBeNull();
+  });
+});
+
+describe("nextReturnSourceLine — the default line of a new return row", () => {
+  const server = [
+    { sourceLineId: "l1", soldQty: "3.000000", returnedQty: "1.000000" },
+    { sourceLineId: "l2", soldQty: "5.000000", returnedQty: "0.000000" },
+  ];
+
+  it("counts what the server says confirmed returns took beside what the form's own rows take", () => {
+    expect(nextReturnSourceLine(server, [], "l1")).toBe("l1");
+    expect(nextReturnSourceLine(server, [{ sourceLineId: "l1", qty: 2 }], "l1")).toBe("l2");
+    expect(nextReturnSourceLine(server, [{ sourceLineId: "l1", qty: 2 }, { sourceLineId: "l2", qty: 5 }], "l1")).toBe("l1");
+  });
+
+  it.each([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, -4, 0])(
+    "treats a cleared or meaningless quantity (%s) as taking nothing, instead of throwing inside a state update",
+    (qty) => {
+      expect(formQtyOf(qty)).toBe("0");
+      expect(nextReturnSourceLine(server, [{ sourceLineId: "l1", qty }], "l1")).toBe("l1");
+    },
+  );
+
+  it("keeps a real fractional quantity exact, and never hands the parser an exponent", () => {
+    expect(formQtyOf(0.5)).toBe("0.500000");
+    expect(formQtyOf(1e-7)).toBe("0.000000");
+    expect(formQtyOf(1e30)).toBe("9007199254740991");
+    expect(nextReturnSourceLine(server, [{ sourceLineId: "l1", qty: 1e-7 }, { sourceLineId: "l2", qty: 1e30 }], "l1")).toBe("l1");
+    expect(nextReturnSourceLine(server, [{ sourceLineId: "l1", qty: 1.5 }, { sourceLineId: "l1", qty: 0.5 }], "l1")).toBe("l2");
   });
 });

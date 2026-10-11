@@ -23,6 +23,8 @@ import {
   useItems,
   usePurchaseInvoices,
   usePurchaseReturns,
+  useReturnSourceLines,
+  ReturnKind,
   usePurchaseReturnCounts,
   usePurchaseReturnStats,
   useSuppliers,
@@ -33,7 +35,7 @@ import { DOC_STATUS_TONE, documentStatusLabel } from "../doc-status";
 import { PurchaseReturnPrintPage } from "../print/documents";
 import { useScreenIntent, useSubPage } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
-import { firstSourceLineWithRoom, sourceLineOptions } from "./return-source-lines";
+import { nextReturnSourceLine, sourceLineOptions } from "./return-source-lines";
 import { todayIso } from "../lib/dates";
 import { EMPTY } from "../lib/empty";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
@@ -128,6 +130,7 @@ export function PurchaseReturnsScreen() {
 
   const selectedInvoice = invoices.find((i) => i.id === invoiceId) ?? null;
   const returnableLines = useMemo(() => returnableLinesOf(selectedInvoice), [selectedInvoice]);
+  const sourceLines = useReturnSourceLines(ReturnKind.Purchase, firstSegment === "new" ? invoiceId : "").data?.lines ?? EMPTY;
 
   const [searchText, setSearchText, search] = useUrlSearch();
   const [page, setPage] = useUrlNumber("page", 1);
@@ -190,12 +193,10 @@ export function PurchaseReturnsScreen() {
   }
 
   function nextSourceLineId(rows: readonly LineDraft[]): string {
-    const alreadyReturned = documents
-      .filter((d) => d.status === "confirmed" && d.reversesDocId === null)
-      .flatMap((d) => d.lines)
-      .flatMap((l) => (l.sourceInvoiceId === invoiceId && l.sourceLineId ? [{ sourceLineId: l.sourceLineId, qty: l.qty }] : []));
-    const onForm = rows.map((r) => ({ sourceLineId: r.sourceLineId, qty: String(Math.max(r.qty, 0)) }));
-    return firstSourceLineWithRoom(returnableLines, [...alreadyReturned, ...onForm]) ?? returnableLines[0]?.sourceLineId ?? "";
+    const returnable = new Set(returnableLines.map((l) => l.sourceLineId));
+    const known = sourceLines.filter((line) => returnable.has(line.sourceLineId));
+    const sold = known.length > 0 ? known : returnableLines.map((l) => ({ sourceLineId: l.sourceLineId, soldQty: l.qty, returnedQty: "0" }));
+    return nextReturnSourceLine(sold, rows, returnableLines[0]?.sourceLineId ?? "");
   }
 
   async function submit(confirmAfter: boolean) {

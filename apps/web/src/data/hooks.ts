@@ -215,6 +215,7 @@ import type {
   UpsertTaxGroupDTO,
   UpdateAccountRoutingDTO,
   SalesReturnDocumentDTO,
+  ReturnSourceLinesDTO,
   SessionDTO,
   SettleVanTripDTO,
   StartPhysicalCountDTO,
@@ -5860,6 +5861,30 @@ export function useSalesReturns(filter: SalesReturnListFilter = {}): UseQueryRes
       const res = await request(`/sales-returns${qs ? `?${qs}` : ""}`);
       if (!res.ok) throw await loaderError(res, t("api.salesReturnsCouldNotBe"), t);
       return res.json<SalesReturnDocumentDTO[]>();
+    },
+  });
+}
+
+export enum ReturnKind {
+  Sales = "sales-returns",
+  Purchase = "purchase-returns",
+}
+
+/**
+ * What each line of a confirmed invoice sold and what confirmed returns have
+ * taken from it — the server's figure. Keyed under the returns list so every
+ * confirm or cancel refetches it.
+ */
+export function useReturnSourceLines(kind: ReturnKind, invoiceId: string): UseQueryResult<ReturnSourceLinesDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<ReturnSourceLinesDTO, ApiError>({
+    queryKey: [kind, "source-lines", invoiceId],
+    enabled: session !== null && invoiceId !== "",
+    queryFn: async () => {
+      const res = await request(`/${kind}/source-lines/${encodeURIComponent(invoiceId)}`);
+      if (!res.ok) throw await loaderError(res, t(kind === ReturnKind.Sales ? "api.salesReturnsCouldNotBe" : "api.purchaseReturnsCouldNotBe"), t);
+      return res.json<ReturnSourceLinesDTO>();
     },
   });
 }

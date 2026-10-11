@@ -828,6 +828,10 @@ export {
   type BuildSalesReturnFromInvoiceDTO,
   type SalesReturnDocumentDTO,
   type RefundSalesReturnDTO,
+  returnSourceLineSchema,
+  returnSourceLinesSchema,
+  type ReturnSourceLineDTO,
+  type ReturnSourceLinesDTO,
 } from "./sales-returns.js";
 
 export {

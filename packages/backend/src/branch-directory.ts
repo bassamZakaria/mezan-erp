@@ -86,12 +86,13 @@ const ANY_DOCUMENT_KINDS = [
 ] as const;
 const WORKFLOW_HELD_TABLES: readonly (readonly [string, BranchRecordKind])[] = [
   ["sales_invoice", K.SalesInvoice],
-  ["purchase_invoice", K.PurchaseInvoice],
   ["voucher", K.Voucher],
   ["framework_document", K.AnyDocument],
   ["stock_adjustment_document", K.StockAdjustment],
   ["stock_transfer_document", K.StockTransfer],
 ];
+const STOCK_DOCUMENT_TABLES = ["stock_adjustment_document", "stock_transfer_document"] as const;
+type StockDocumentTable = (typeof STOCK_DOCUMENT_TABLES)[number];
 
 function parseLines(json: unknown): Record<string, unknown>[] {
   if (typeof json !== "string") return [];
@@ -112,35 +113,55 @@ function text(value: unknown): string | null {
  * It reads the STORED row — never a request body — so the answer cannot be
  * steered by the caller, and the by-id check, the body-reference check and
  * list narrowing agree by construction.
+ *
+ * Every statement is prepared here, at construction: one that cannot be
+ * prepared throws and the backend does not start. A statement that failed
+ * quietly used to answer "no such record", which the boundary reads as
+ * nothing to refuse.
  */
 export function createSqliteBranchDirectory(sqlite: Database.Database): BranchDirectory {
-  const statements = new Map<string, Database.Statement | null>();
-  const prepared = (sql: string): Database.Statement | null => {
-    if (!statements.has(sql)) {
-      try {
-        statements.set(sql, sqlite.prepare(sql));
-      } catch {
-        statements.set(sql, null);
-      }
-    }
-    return statements.get(sql) ?? null;
+  type Query = (id: string, docType?: string) => Record<string, unknown>[];
+  const query = (sql: string): Query => {
+    const statement = sqlite.prepare(sql);
+    return (id, docType) => statement.all(docType === undefined ? { id } : { id, docType }) as Record<string, unknown>[];
   };
-  const all = (sql: string, id: string, docType?: string): Record<string, unknown>[] =>
-    (prepared(sql)?.all(docType === undefined ? { id } : { id, docType }) as Record<string, unknown>[] | undefined) ?? [];
   const found = (rows: Record<string, unknown>[]): Branches => (rows.length === 0 ? null : rows.map((row) => text(row["b"])));
+
+  const columnQueries = new Map<BranchRecordKind, Query>(
+    (Object.entries(COLUMN_SOURCES) as [BranchRecordKind, ColumnSource][]).map(([kind, source]) => [
+      kind,
+      query(`SELECT ${source.branch} AS b FROM ${source.table} d WHERE d.id = @id${source.numberColumn ? ` OR d.${source.numberColumn} = @id` : ""}`),
+    ]),
+  );
+  const workflowHeldQueries = WORKFLOW_HELD_TABLES.map(([table, kind]) => [query(`SELECT id FROM ${table} WHERE workflow_request_id = @id`), kind] as const);
+  const stockDocumentQueries: Record<StockDocumentTable, Query> = {
+    stock_adjustment_document: query("SELECT lines_json FROM stock_adjustment_document WHERE id = @id OR doc_no = @id"),
+    stock_transfer_document: query("SELECT lines_json FROM stock_transfer_document WHERE id = @id OR doc_no = @id"),
+  };
+  const sql = {
+    warehouse: query("SELECT branch_id AS b FROM warehouse WHERE id = @id"),
+    frameworkAny: query("SELECT lines_json FROM framework_document WHERE (id = @id OR doc_no = @id)"),
+    frameworkTyped: query("SELECT lines_json FROM framework_document WHERE (id = @id OR doc_no = @id) AND doc_type = @docType"),
+    journalEntry: query("SELECT l.branch_id AS b FROM journal_entry e LEFT JOIN journal_line l ON l.entry_id = e.id WHERE e.id = @id OR e.entry_no = @id"),
+    recurringTemplate: query("SELECT lines FROM recurring_journal_template WHERE id = @id"),
+    recurringRun: query("SELECT template_id FROM recurring_journal_run WHERE id = @id"),
+    postedStock: query(
+      "SELECT DISTINCT (SELECT w.branch_id FROM warehouse w WHERE w.id = m.warehouse_id) AS b FROM stock_movement m WHERE m.source_doc_id = @id OR m.source_doc_number = @id",
+    ),
+    depreciationRun: query("SELECT branch_id, lines FROM depreciation_run WHERE id = @id"),
+    configInstance: query("SELECT work_order_id FROM config_instance WHERE id = @id"),
+    voucherAllocation: query("SELECT voucher_id, invoice_id FROM voucher_allocation WHERE id = @id"),
+    followUp: query("SELECT installment_plan_id FROM collection_follow_up WHERE id = @id"),
+    approvalRequest: query("SELECT id FROM approval_request WHERE id = @id"),
+    etaSubmission: query("SELECT internal_id FROM eta_submission WHERE id = @id"),
+    etaSubmissionOf: query("SELECT internal_id FROM eta_submission WHERE internal_id = @id"),
+    etaReceiptGap: query("SELECT internal_id FROM eta_receipt_gap WHERE internal_id = @id"),
+  };
 
   const warehouseBranch = (warehouseId: unknown): string | null => {
     const id = text(warehouseId);
-    return id ? text(all("SELECT branch_id AS b FROM warehouse WHERE id = @id", id)[0]?.["b"]) : null;
+    return id ? text(sql.warehouse(id)[0]?.["b"]) : null;
   };
-
-  const fromColumns = (source: ColumnSource, id: string): Branches =>
-    found(
-      all(
-        `SELECT ${source.branch} AS b FROM ${source.table} d WHERE d.id = @id${source.numberColumn ? ` OR d.${source.numberColumn} = @id` : ""}`,
-        id,
-      ),
-    );
 
   const firstOf = (kinds: readonly BranchRecordKind[], id: string, access: BranchAccess): Branches => {
     for (const kind of kinds) {
@@ -151,11 +172,7 @@ export function createSqliteBranchDirectory(sqlite: Database.Database): BranchDi
   };
 
   const frameworkDocument = (id: string, docType: string | undefined, access: BranchAccess): Branches => {
-    const row = all(
-      `SELECT lines_json FROM framework_document WHERE (id = @id OR doc_no = @id)${docType ? " AND doc_type = @docType" : ""}`,
-      id,
-      docType,
-    )[0];
+    const row = docType ? sql.frameworkTyped(id, docType)[0] : sql.frameworkAny(id)[0];
     if (!row) return null;
     return parseLines(row["lines_json"]).map((line) => {
       const own = text(line["branchId"]) ?? warehouseBranch(line["warehouseId"]);
@@ -165,37 +182,30 @@ export function createSqliteBranchDirectory(sqlite: Database.Database): BranchDi
     });
   };
 
-  const stockDocument = (table: string, id: string, warehouseKeys: readonly string[]): Branches => {
-    const row = all(`SELECT lines_json FROM ${table} WHERE id = @id OR doc_no = @id`, id)[0];
+  const stockDocument = (table: StockDocumentTable, id: string, warehouseKeys: readonly string[]): Branches => {
+    const row = stockDocumentQueries[table](id)[0];
     if (!row) return null;
     return parseLines(row["lines_json"]).flatMap((line) => warehouseKeys.map((key) => warehouseBranch(line[key])));
   };
 
   const special: Partial<Record<BranchRecordKind, Resolver>> = {
     [K.Branch]: (id) => [id],
-    [K.JournalEntry]: (id) =>
-      found(all("SELECT l.branch_id AS b FROM journal_entry e LEFT JOIN journal_line l ON l.entry_id = e.id WHERE e.id = @id OR e.entry_no = @id", id)),
+    [K.JournalEntry]: (id) => found(sql.journalEntry(id)),
     [K.RecurringTemplate]: (id) => {
-      const row = all("SELECT lines FROM recurring_journal_template WHERE id = @id", id)[0];
+      const row = sql.recurringTemplate(id)[0];
       return row ? parseLines(row["lines"]).map((line) => text(line["branchId"])) : null;
     },
     [K.RecurringRun]: (id, access) => {
-      const row = all("SELECT template_id FROM recurring_journal_run WHERE id = @id", id)[0];
+      const row = sql.recurringRun(id)[0];
       const templateId = text(row?.["template_id"]);
       return row ? (templateId ? (resolve(K.RecurringTemplate, templateId, access) ?? []) : []) : null;
     },
     [K.StockAdjustment]: (id) => stockDocument("stock_adjustment_document", id, ["warehouseId"]),
     [K.StockTransfer]: (id, access) =>
       stockDocument("stock_transfer_document", id, access === BranchAccess.Read ? ["fromWarehouseId", "toWarehouseId"] : ["fromWarehouseId"]),
-    [K.PostedStockDocument]: (id) =>
-      found(
-        all(
-          "SELECT DISTINCT (SELECT w.branch_id FROM warehouse w WHERE w.id = m.warehouse_id) AS b FROM stock_movement m WHERE m.source_doc_id = @id OR m.source_doc_number = @id",
-          id,
-        ),
-      ),
+    [K.PostedStockDocument]: (id) => found(sql.postedStock(id)),
     [K.DepreciationRun]: (id, access) => {
-      const row = all("SELECT branch_id, lines FROM depreciation_run WHERE id = @id", id)[0];
+      const row = sql.depreciationRun(id)[0];
       if (!row) return null;
       const own = text(row["branch_id"]);
       if (own) return [own];
@@ -205,12 +215,12 @@ export function createSqliteBranchDirectory(sqlite: Database.Database): BranchDi
       });
     },
     [K.ConfigInstance]: (id, access) => {
-      const row = all("SELECT work_order_id FROM config_instance WHERE id = @id", id)[0];
+      const row = sql.configInstance(id)[0];
       const workOrderId = text(row?.["work_order_id"]);
       return row ? (workOrderId ? (resolve(K.WorkOrder, workOrderId, access) ?? []) : []) : null;
     },
     [K.VoucherAllocation]: (id, access) => {
-      const row = all("SELECT voucher_id, invoice_id FROM voucher_allocation WHERE id = @id", id)[0];
+      const row = sql.voucherAllocation(id)[0];
       if (!row) return null;
       const voucherId = text(row["voucher_id"]);
       const invoiceId = text(row["invoice_id"]);
@@ -220,28 +230,28 @@ export function createSqliteBranchDirectory(sqlite: Database.Database): BranchDi
       ];
     },
     [K.CollectionFollowUp]: (id, access) => {
-      const row = all("SELECT installment_plan_id FROM collection_follow_up WHERE id = @id", id)[0];
+      const row = sql.followUp(id)[0];
       const planId = text(row?.["installment_plan_id"]);
       return row ? (planId ? (resolve(K.InstallmentPlan, planId, access) ?? []) : []) : null;
     },
     [K.ApprovalRequest]: (id, access) => {
-      if (all("SELECT id FROM approval_request WHERE id = @id", id).length === 0) return null;
-      for (const [table, kind] of WORKFLOW_HELD_TABLES) {
-        const held = text(all(`SELECT id FROM ${table} WHERE workflow_request_id = @id`, id)[0]?.["id"]);
+      if (sql.approvalRequest(id).length === 0) return null;
+      for (const [heldBy, kind] of workflowHeldQueries) {
+        const held = text(heldBy(id)[0]?.["id"]);
         if (held) return resolve(kind, held, access) ?? [];
       }
+      // A purchase invoice keeps no back-reference to its request; like every
+      // request, its id is `<document id>:<action>`.
       const separator = id.lastIndexOf(":");
       return separator > 0 ? (firstOf(ANY_DOCUMENT_KINDS, id.slice(0, separator), access) ?? []) : [];
     },
     [K.EtaSubmission]: (id, access) => {
-      const row = all("SELECT internal_id FROM eta_submission WHERE id = @id", id)[0];
+      const row = sql.etaSubmission(id)[0];
       const internalId = text(row?.["internal_id"]);
       return row ? (internalId ? (firstOf(ANY_DOCUMENT_KINDS, internalId, access) ?? []) : []) : null;
     },
     [K.EtaReceipt]: (id, access) => {
-      const known =
-        all("SELECT internal_id FROM eta_submission WHERE internal_id = @id", id).length > 0 ||
-        all("SELECT internal_id FROM eta_receipt_gap WHERE internal_id = @id", id).length > 0;
+      const known = sql.etaSubmissionOf(id).length > 0 || sql.etaReceiptGap(id).length > 0;
       return known ? (firstOf(ANY_DOCUMENT_KINDS, id, access) ?? []) : null;
     },
     [K.AnyInvoice]: (id, access) => firstOf([K.SalesInvoice, K.PurchaseInvoice], id, access),
@@ -250,8 +260,8 @@ export function createSqliteBranchDirectory(sqlite: Database.Database): BranchDi
   };
 
   function resolve(kind: BranchRecordKind, id: string, access: BranchAccess): Branches {
-    const source = COLUMN_SOURCES[kind];
-    if (source) return fromColumns(source, id);
+    const fromColumns = columnQueries.get(kind);
+    if (fromColumns) return found(fromColumns(id));
     const docType = FRAMEWORK_DOC_TYPE[kind];
     if (docType) return frameworkDocument(id, docType, access);
     return special[kind]?.(id, access) ?? null;

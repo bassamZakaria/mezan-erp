@@ -252,6 +252,7 @@ import {
   type EtaReceiptIssuer,
 } from "./eta-receipts.js";
 import { createAuthRoutes } from "./auth-routes.js";
+import type { BranchDirectory } from "@mezan/api";
 import { createSqliteBranchDirectory } from "./branch-directory.js";
 import { createDashboardRoutes } from "./dashboard-routes.js";
 import { createPreferencesRoutes } from "./preferences-routes.js";
@@ -2982,6 +2983,16 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     return { voucherId };
   };
 
+  // The directory reads tables that stores mounted further down create, so it
+  // is built once they all exist — and BEFORE the first request, so a
+  // statement that cannot be prepared stops the boot instead of a refusal.
+  let branchDirectory: BranchDirectory | undefined;
+  const deferredBranchDirectory: BranchDirectory = {
+    branchesOf(kind, id, access) {
+      if (!branchDirectory) throw new Error("createBackend: the branch directory was read before the backend finished starting");
+      return branchDirectory.branchesOf(kind, id, access);
+    },
+  };
   const app = createApp(uow, {
     resolveAuthContext,
     security: { sessions, loginThrottle },
@@ -2997,7 +3008,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         : {}),
     settingsStore: settings,
     branchStore: branches,
-    branchDirectory: createSqliteBranchDirectory(sqlite),
+    branchDirectory: deferredBranchDirectory,
     warehouseStore: warehouses,
     customerStore: customers,
     supplierStore: suppliers,
@@ -4211,6 +4222,8 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     userPreferences,
     labelLayouts,
   ];
+
+  branchDirectory = createSqliteBranchDirectory(sqlite);
 
   if (options.seedDemoData) {
     await seedDemoTenant(app, {

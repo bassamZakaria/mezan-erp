@@ -18,9 +18,11 @@ import {
   resolveDocumentLineTax,
   classifyStoredTaxRate,
   planTaxClassification,
+  alreadyClassifiedAs,
   TaxClassificationFilingOutcome,
   TaxClassificationNotPostedError,
   TaxClassificationNotASupplyError,
+  PostedLineNotFoundError,
   SystemTaxRateOnlyError,
   SYSTEM_NOT_SUBJECT_TAX_RATE,
   isSystemTaxRate,
@@ -29,8 +31,10 @@ import {
   TaxClassificationAuditModule,
   TaxClassificationJournalUntaggedError,
   TaxClassificationStaleError,
-  JournalLineSide,
-  type UntaggedJournalLineSelector,
+  JournalTaxLineUnclassifiedError,
+  TaxRateAlreadyClassifiedError,
+  type ExpectedTaxJournalLine,
+  type ChosenJournalLinesNamed,
   type TaxClassificationDependentsPort,
   type ClassifyPostedLineTaxRequest,
   type JournalTaxTagPort,
@@ -758,6 +762,70 @@ export class SalesInvoiceService {
   }
 
   /**
+   * تسمية ضريبة سطر القيد — for a posted invoice whose entry the automatic
+   * match could not name. On a line that names no rate yet it is a
+   * classification with the journal lines chosen by hand; on a line that
+   * already names one it names the entry's lines under that same rate.
+   *
+   * INVARIANT: no amount, account, date or status moves, the chosen lines must
+   * be exactly what the document's lines at that rate posted, and a filed VAT
+   * month refuses it.
+   */
+  async nameJournalLineTax(
+    id: string,
+    request: { readonly lineRef: string; readonly withLineRefs?: readonly string[]; readonly taxRateId?: string; readonly journalLineIndexes: readonly number[] },
+  ): Promise<ClassifySalesInvoiceLineTaxResult> {
+    const target = (await this.require(id)).lines.find((line) => line.lineId === request.lineRef);
+    if (!target) throw new PostedLineNotFoundError(request.lineRef);
+    if ((target.taxRateId ?? null) === null) {
+      if (!request.taxRateId) throw new JournalTaxLineUnclassifiedError(request.lineRef);
+      return this.classifyLineTax(id, { ...request, taxRateId: request.taxRateId });
+    }
+    return this.deps.repo.transaction(async () => {
+      const existing = await this.require(id);
+      if (!SALES_INVOICE_ACTIVE_STATUSES.has(existing.status)) {
+        throw new TaxClassificationNotPostedError(SALES_INVOICE_STATUS_LABELS_AR[existing.status]);
+      }
+      const line = existing.lines.find((candidate) => candidate.lineId === request.lineRef);
+      const taxRateId = line?.taxRateId ?? null;
+      if (!line || taxRateId === null) throw new JournalTaxLineUnclassifiedError(request.lineRef);
+      const taxRates = this.deps.taxRates ? await this.deps.taxRates.list() : null;
+      const taxRateName = taxRates?.find((rate) => rate.id === taxRateId)?.name ?? taxRateId;
+      if (request.taxRateId && request.taxRateId !== taxRateId) throw new TaxRateAlreadyClassifiedError(taxRateId, taxRateName);
+      const stored: AppliedTaxRate = { taxRateId, taxRatePercent: line.taxRatePercent };
+      if (!existing.journalEntryId || !this.deps.taxTags) throw new TaxClassificationJournalUntaggedError(existing.docNo ?? existing.id);
+      const journalLines = await this.deps.taxTags.nameChosenLines(
+        existing.journalEntryId,
+        request.journalLineIndexes,
+        stored.taxRatePercent,
+        taxRateId,
+        expectedSalesTaxJournalLines(existing, stored),
+      );
+      const lineRefs = existing.lines
+        .filter((candidate) => (candidate.taxRateId ?? null) === taxRateId && candidate.taxRatePercent === stored.taxRatePercent)
+        .map((candidate) => candidate.lineId);
+      if (this.deps.audit) {
+        await recordSensitiveEvent(this.deps.audit, {
+          module: TaxClassificationAuditModule.Sales,
+          entityType: TaxClassificationAuditEntity.SalesInvoice,
+          entityId: existing.id,
+          action: TaxClassificationAuditAction.NameJournalLineTax,
+          actor: this.deps.actor ?? "system",
+          branchId: existing.branchId ?? null,
+          severity: AuditSeverityCode.Warning,
+          details: { invoiceId: existing.id, docNo: existing.docNo, lineIds: lineRefs, taxRateId, taxRateName, journalEntryId: existing.journalEntryId, journalLines },
+        });
+      }
+      return {
+        invoice: existing,
+        plan: { lineRefs, before: stored, after: stored, taxRateName },
+        journalLinesNamed: journalLines.after.length,
+        filing: TaxClassificationFilingOutcome.NotQueued,
+      };
+    });
+  }
+
+  /**
    * تعديل بند مسودة — the quantity, price or tax rate of ONE line, while the
    * invoice is still a draft. A posted line is never edited: that correction
    * is a return.
@@ -997,25 +1065,34 @@ export class SalesInvoiceService {
       const documentNumber = existing.docNo ?? existing.id;
       if (isRetentionRelease(existing)) throw new TaxClassificationNotASupplyError(documentNumber);
       const taxRates = this.deps.taxRates ? await this.deps.taxRates.list() : null;
-      const plan = planTaxClassification(
-        taxRates,
-        existing.lines.map((l) => ({ lineRef: l.lineId, label: l.itemNameAr, stored: { taxRateId: l.taxRateId ?? null, taxRatePercent: l.taxRatePercent } })),
-        request,
-      );
+      const postedLines = existing.lines.map((l) => ({ lineRef: l.lineId, label: l.itemNameAr, stored: { taxRateId: l.taxRateId ?? null, taxRatePercent: l.taxRatePercent } }));
+      const standing = alreadyClassifiedAs(taxRates, postedLines, request);
+      if (standing) return { invoice: existing, plan: standing, journalLinesNamed: 0, filing: TaxClassificationFilingOutcome.NotQueued };
+      const plan = planTaxClassification(taxRates, postedLines, request);
       if (isSystemTaxRate(request.taxRateId) && this.deps.taxPolicy && (await this.deps.taxPolicy()).enabled) {
         throw new SystemTaxRateOnlyError(request.taxRateId, plan.taxRateName);
       }
       // ORDER MATTERS: the journal goes first — it is what refuses a filed
       // VAT period, and it must refuse before the invoice line is written.
       let journalLinesNamed = 0;
+      let chosenJournalLines: ChosenJournalLinesNamed | null = null;
       if (existing.journalEntryId && this.deps.taxTags) {
-        journalLinesNamed = await this.deps.taxTags.retagUnnamedTaxRate(
-          existing.journalEntryId,
-          plan.before.taxRatePercent,
-          request.taxRateId,
-          untaggedSalesJournalLines(existing, plan),
-        );
-        if (journalLinesNamed === 0 && postedSomething(existing, plan)) throw new TaxClassificationJournalUntaggedError(documentNumber);
+        const expected = expectedSalesTaxJournalLines(existing, plan.before);
+        if (request.journalLineIndexes) {
+          chosenJournalLines = await this.deps.taxTags.nameChosenLines(
+            existing.journalEntryId,
+            request.journalLineIndexes,
+            plan.before.taxRatePercent,
+            request.taxRateId,
+            expected,
+          );
+          journalLinesNamed = chosenJournalLines.after.length;
+        } else {
+          journalLinesNamed = await this.deps.taxTags.retagUnnamedTaxRate(existing.journalEntryId, plan.before.taxRatePercent, request.taxRateId, expected);
+        }
+        // A group that posted nothing has no journal line to name; any other
+        // that names none is refused, so the line and its entry never part ways.
+        if (journalLinesNamed === 0 && expected.length > 0) throw new TaxClassificationJournalUntaggedError(documentNumber);
       }
       const carried = (await this.deps.taxDependents?.carry({
         sourceDocumentId: existing.id,
@@ -1044,6 +1121,7 @@ export class SalesInvoiceService {
             taxRateName: plan.taxRateName,
             journalEntryId: existing.journalEntryId,
             journalLinesNamed,
+            ...(chosenJournalLines ? { journalLines: chosenJournalLines } : {}),
             carriedToDocuments: carried.documentNumbers,
             filing,
           },
@@ -1145,20 +1223,9 @@ export async function applyAllocatedSettlement(
   return updated;
 }
 
-// INVARIANT: a group whose lines extend to nothing posted no journal line, so
-// there is none to name and none left unnamed — it classifies on the document
-// alone. Any other group that names no journal line is refused.
-function postedSomething(invoice: SalesInvoice, plan: TaxClassificationPlan): boolean {
-  const totals = salesInvoiceTotals(invoice).lines;
-  return plan.lineRefs.some((lineRef) => {
-    const line = totals.find((candidate) => candidate.lineId === lineRef);
-    return !line || line.taxableBase.scaled !== 0n || line.tax.scaled !== 0n;
-  });
-}
-
-function untaggedSalesJournalLines(invoice: SalesInvoice, plan: TaxClassificationPlan): UntaggedJournalLineSelector | undefined {
-  if (plan.lineRefs.length !== invoice.lines.length) return undefined;
-  const accountIds = new Set(invoice.lines.map((line) => line.revenueAccountId));
-  if (plan.before.taxRatePercent > 0) accountIds.add(invoice.taxAccountId);
-  return { accountIds: [...accountIds], side: JournalLineSide.Credit };
+function expectedSalesTaxJournalLines(invoice: SalesInvoice, tax: AppliedTaxRate): ExpectedTaxJournalLine[] {
+  const posting = buildSalesInvoiceGlPosting(invoice, salesInvoiceTotals(invoice), [], invoice.fxRate ? { rate: invoice.fxRate } : undefined);
+  return posting.lines
+    .filter((line) => line.taxRatePercent === tax.taxRatePercent && (line.taxRateId ?? null) === tax.taxRateId)
+    .map((line) => ({ accountId: line.accountId, debit: line.debit, credit: line.credit }));
 }

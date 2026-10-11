@@ -86,3 +86,21 @@ describe("the retention release item belongs to the release document alone", () 
     expect(released.status, JSON.stringify(released.body)).toBe(200);
   });
 });
+
+describe("classifying a line twice under the same rate", () => {
+  it("answers the first result again instead of refusing, writes nothing more, and still refuses a different rate", async () => {
+    await confirmedSale("R6-RETRY", [serviceLine("A", UNNAMED_ZERO)]);
+    const first = await classifySale("R6-RETRY", "A");
+    const retry = await classifySale("R6-RETRY", "A");
+    expect([first.status, retry.status]).toEqual([200, 200]);
+    expect([retry.body.taxRateId, retry.body.lineIds, retry.body.taxRatePercent]).toEqual([first.body.taxRateId, first.body.lineIds, first.body.taxRatePercent]);
+    expect(await kit.auditRows("SALES_INVOICE", "R6-RETRY", "CLASSIFY_LINE_TAX")).toHaveLength(1);
+    const other = await classifySale("R6-RETRY", "A", "VAT-EXPORT");
+    expect([other.status, other.body.error]).toEqual([409, "TAX_RATE_ALREADY_CLASSIFIED"]);
+
+    await confirmedPurchase("R6-PRETRY", [{ itemId: null, kind: "expense", description: "خدمة", qty: "1", unitCost: "200", ...UNNAMED_ZERO }]);
+    const purchase = () => kit.call("POST", "/purchases/invoices/R6-PRETRY/lines/0/classify-tax", { taxRateId: EXEMPT_RATE });
+    expect([(await purchase()).status, (await purchase()).status]).toEqual([200, 200]);
+    expect(await kit.auditRows("PURCHASE_INVOICE", "R6-PRETRY", "CLASSIFY_LINE_TAX")).toHaveLength(1);
+  });
+});

@@ -1,7 +1,6 @@
 import type { Money } from "../money/index.js";
 import type { JournalEntry, JournalEntrySource, JournalEntryStatus } from "../journal.js";
 import type { CostCategory } from "../contracting/cost-category.js";
-import type { UntaggedJournalLineSelector } from "../tax-rates/classify-posted-line-tax.js";
 
 /**
  * Ledger persistence port for the GL posting engine.
@@ -49,11 +48,13 @@ export interface LedgerRepository {
    */
   retagUnnamedTaxRate?(entryId: string, taxRatePercent: number, taxRateId: string): Promise<number>;
   /**
-   * INVARIANT: the same write for an entry posted before lines carried a tax
-   * percent. It applies ONLY when no line of the entry carries one, and names
-   * percent and rate on the selected lines that carry neither.
+   * INVARIANT: the same write, addressed by position, for lines that carry NO
+   * rate id and either no percent or this one — an entry posted before lines
+   * carried a tax tag. It sets percent and rate on exactly the lines at
+   * `lineIndexes` (their order in the entry) and returns how many it named; a
+   * line already naming a rate is left alone.
    */
-  retagUntaggedTaxRate?(entryId: string, selector: UntaggedJournalLineSelector, taxRatePercent: number, taxRateId: string): Promise<number>;
+  tagJournalLines?(entryId: string, lineIndexes: readonly number[], taxRatePercent: number, taxRateId: string): Promise<number>;
   findById(id: string): Promise<JournalEntry | null>;
   findByEntryNo(entryNo: string): Promise<JournalEntry | null>;
   list(filter?: JournalListFilter): Promise<readonly JournalEntry[]>;

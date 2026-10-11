@@ -2,6 +2,7 @@ import { TaxClassificationFilingOutcomeCode } from "@mezan/contracts";
 import { classifyStoredTaxRate, type AppliedTaxRate } from "./applied-tax-rate.js";
 import { TaxRateAlreadyClassifiedError } from "./errors.js";
 import type { TaxRate } from "./tax-rate.js";
+import type { Money } from "../money/index.js";
 
 export interface PostedTaxLine {
   readonly lineRef: string;
@@ -13,6 +14,8 @@ export interface ClassifyPostedLineTaxRequest {
   readonly lineRef: string;
   readonly withLineRefs?: readonly string[];
   readonly taxRateId: string;
+  /** «تسمية ضريبة سطر القيد»: the entry's lines, by position, chosen by hand. */
+  readonly journalLineIndexes?: readonly number[];
 }
 
 export interface TaxClassificationPlan {
@@ -26,6 +29,7 @@ export { TaxClassificationFilingOutcomeCode as TaxClassificationFilingOutcome };
 
 export enum TaxClassificationAuditAction {
   ClassifyLineTax = "CLASSIFY_LINE_TAX",
+  NameJournalLineTax = "NAME_JOURNAL_LINE_TAX",
 }
 
 export enum TaxClassificationAuditModule {
@@ -38,23 +42,57 @@ export enum TaxClassificationAuditEntity {
   PurchaseInvoice = "PURCHASE_INVOICE",
 }
 
-export enum JournalLineSide {
-  Debit = "debit",
-  Credit = "credit",
+export class JournalTaxLineUnclassifiedError extends Error {
+  readonly code = "JOURNAL_TAX_LINE_UNCLASSIFIED";
+  readonly messageEn: string;
+  constructor(readonly lineRef: string) {
+    super(`البند "${lineRef}" لا يسمّي ضريبة بعد — اختر الضريبة مع سطور القيد ليُصنَّف البند وقيده معاً.`);
+    this.messageEn = `Line "${lineRef}" names no tax yet — pick the rate together with the journal lines, so the line and its entry are classified at once.`;
+    this.name = "JournalTaxLineUnclassifiedError";
+  }
 }
 
-// INVARIANT: an entry posted before journal lines carried a tax percent has
-// NO tagged line, so the percent cannot find them. The selector says which of
-// its lines are the document's base and tax lines; it is consulted only when
-// the entry carries no tax percent anywhere.
-export interface UntaggedJournalLineSelector {
-  readonly accountIds?: readonly string[];
-  readonly side?: JournalLineSide;
+// INVARIANT: what a document's lines at one percent and one rate POST — the
+// base lines and the VAT line — rebuilt by the document's own posting builder.
+// An entry posted before journal lines carried a tax tag has nothing the
+// percent can find, so these are what its untagged lines are matched against:
+// same account, same debit, same credit. A line is named only when it is one
+// of them; nothing is swept in by side or by account alone.
+export interface ExpectedTaxJournalLine {
+  readonly accountId: string;
+  readonly debit: Money;
+  readonly credit: Money;
+}
+
+export interface JournalLineTaxTag {
+  readonly lineIndex: number;
+  readonly accountId: string;
+  readonly debit: string;
+  readonly credit: string;
+  readonly taxRatePercent: number | null;
+  readonly taxRateId: string | null;
+}
+
+export interface ChosenJournalLinesNamed {
+  readonly before: readonly JournalLineTaxTag[];
+  readonly after: readonly JournalLineTaxTag[];
 }
 
 /** Writes the tax-rate tag on a posted entry's lines that carry none. */
 export interface JournalTaxTagPort {
-  retagUnnamedTaxRate(entryId: string, taxRatePercent: number, taxRateId: string, untagged?: UntaggedJournalLineSelector): Promise<number>;
+  retagUnnamedTaxRate(entryId: string, taxRatePercent: number, taxRateId: string, expected?: readonly ExpectedTaxJournalLine[]): Promise<number>;
+  /**
+   * «تسمية ضريبة سطر القيد» — the accountant names the lines by hand, for an
+   * entry the match above cannot resolve. The chosen lines must carry no rate
+   * and be, account for account and amount for amount, the `expected` ones.
+   */
+  nameChosenLines(
+    entryId: string,
+    lineIndexes: readonly number[],
+    taxRatePercent: number,
+    taxRateId: string,
+    expected: readonly ExpectedTaxJournalLine[],
+  ): Promise<ChosenJournalLinesNamed>;
 }
 
 export interface TaxClassificationCarryRequest {
@@ -128,10 +166,51 @@ export class TaxClassificationJournalUntaggedError extends Error {
   readonly messageEn: string;
   constructor(readonly documentNumber: string) {
     super(
-      `قيد المستند ${documentNumber} لا يحمل سطراً يمكن تسمية ضريبته، فلم يُصنَّف البند حتى لا يختلف المستند عن قيده. راجع القيد مع المحاسب.`,
+      `قيد المستند ${documentNumber} لا يحمل سطوراً تطابق بنوده بهذه الضريبة، فلم يُصنَّف البند حتى لا يختلف المستند عن قيده. افتح تبويب القيد في صفحة المستند واستخدم «تسمية ضريبة سطر القيد» لاختيار سطور القيد يدوياً.`,
     );
-    this.messageEn = `The journal entry of document ${documentNumber} has no line whose tax can be named, so the line was not classified — the document and its entry would disagree.`;
+    this.messageEn = `The journal entry of document ${documentNumber} holds no lines matching its lines at this tax, so the line was not classified — the document and its entry would disagree. Open the document's journal tab and use "Name tax on journal line" to choose the lines by hand.`;
     this.name = "TaxClassificationJournalUntaggedError";
+  }
+}
+
+export class JournalTaxLinesMismatchError extends Error {
+  readonly code = "JOURNAL_TAX_LINES_MISMATCH";
+  readonly messageEn: string;
+  constructor(
+    readonly entryId: string,
+    readonly expectedLines: readonly { readonly accountId: string; readonly debit: string; readonly credit: string }[],
+  ) {
+    const wanted = expectedLines.map((line) => `${line.accountId} (مدين ${line.debit} / دائن ${line.credit})`).join("، ");
+    super(
+      `السطور المختارة لا تطابق ما رحّلته بنود المستند بهذه الضريبة. المطلوب اختيار: ${wanted || "لا شيء — هذه البنود لم ترحّل سطراً"}. إن كان القيد قد جمع هذه البنود مع غيرها في سطر واحد فلا تُسمّى ضريبته: ألغِ المستند وأعد إصداره.`,
+    );
+    this.messageEn = `The chosen lines are not what the document's lines at this tax posted. Expected: ${expectedLines.map((line) => `${line.accountId} (Dr ${line.debit} / Cr ${line.credit})`).join(", ") || "none"}.`;
+    this.name = "JournalTaxLinesMismatchError";
+  }
+}
+
+export class JournalTaxLineAlreadyNamedError extends Error {
+  readonly code = "JOURNAL_TAX_LINE_ALREADY_NAMED";
+  readonly messageEn: string;
+  constructor(
+    readonly entryId: string,
+    readonly lineIndex: number,
+  ) {
+    super(`السطر رقم ${lineIndex + 1} من القيد يحمل ضريبة بالفعل أو غير موجود، ولا تُسمّى ضريبة سطر مرتين.`);
+    this.messageEn = `Line ${lineIndex + 1} of the entry already names a tax, or does not exist; a line's tax is never named twice.`;
+    this.name = "JournalTaxLineAlreadyNamedError";
+  }
+}
+
+export class TaxClassificationReturnJournalUntaggedError extends Error {
+  readonly code = "TAX_CLASSIFICATION_RETURN_JOURNAL_UNTAGGED";
+  readonly messageEn: string;
+  constructor(readonly returnNumber: string) {
+    super(
+      `قيد المرتجع ${returnNumber} الصادر على هذا البند لا يحمل سطوراً تطابق بنوده بهذه الضريبة، فلم يُصنَّف شيء حتى لا يختلف المرتجع عن قيده. افتح تبويب القيد في صفحة المرتجع واستخدم «تسمية ضريبة سطر القيد»، ثم صنّف البند.`,
+    );
+    this.messageEn = `The journal entry of return ${returnNumber} against this line holds no lines matching its lines at this tax, so nothing was classified. Open the return's journal tab, use "Name tax on journal line", then classify the line.`;
+    this.name = "TaxClassificationReturnJournalUntaggedError";
   }
 }
 
@@ -183,6 +262,18 @@ export class TaxClassificationAlreadyFiledError extends Error {
   }
 }
 
+export class TaxClassificationFiledUnreadableError extends Error {
+  readonly code = "TAX_CLASSIFICATION_FILED_UNREADABLE";
+  readonly messageEn: string;
+  constructor(readonly documentNumber: string) {
+    super(
+      `المستند ${documentNumber} أُرسل لمصلحة الضرائب ولا يمكن قراءة التصنيف الذي أُرسل به، فلم يُصنَّف البند حتى لا يخالف ما لدى المصلحة. راجع المستند في شاشة الفاتورة الإلكترونية.`,
+    );
+    this.messageEn = `Document ${documentNumber} was filed with the tax authority and the classification it was filed under cannot be read, so the line was not classified — it could contradict what the authority holds.`;
+    this.name = "TaxClassificationFiledUnreadableError";
+  }
+}
+
 // INVARIANT: every unnamed line of one document at one percent shares
 // journal lines (the VAT line always, the base line usually), and a journal
 // line carries ONE rate. So they are classified together or not at all — the
@@ -215,4 +306,24 @@ export function planTaxClassification(
     );
   }
   return { lineRefs: group.map((l) => l.lineRef), before: target.stored, after, taxRateName: nameOf(request.taxRateId) };
+}
+
+// INVARIANT: a retry of a classification that already landed — the same lines
+// under the same rate — is answered with what stands, never refused and never
+// written again. Any other request against a named line is still refused.
+export function alreadyClassifiedAs(
+  taxRates: readonly Pick<TaxRate, "id" | "name">[] | null,
+  lines: readonly PostedTaxLine[],
+  request: ClassifyPostedLineTaxRequest,
+): TaxClassificationPlan | null {
+  if (request.journalLineIndexes) return null;
+  const asked = [request.lineRef, ...(request.withLineRefs ?? [])].map((lineRef) => lines.find((line) => line.lineRef === lineRef));
+  const target = asked[0];
+  if (!target || asked.some((line) => !line || line.stored.taxRateId !== request.taxRateId)) return null;
+  return {
+    lineRefs: lines.filter((line) => line.stored.taxRateId === request.taxRateId && line.stored.taxRatePercent === target.stored.taxRatePercent).map((line) => line.lineRef),
+    before: target.stored,
+    after: target.stored,
+    taxRateName: taxRates?.find((rate) => rate.id === request.taxRateId)?.name ?? request.taxRateId,
+  };
 }

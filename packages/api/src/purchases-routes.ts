@@ -62,6 +62,7 @@ import {
   type PurchaseTransactor,
   type PurchaseInvoiceTaxTagPort,
   classifyPurchaseInvoiceLineTax,
+  namePurchaseInvoiceJournalLineTax,
   type PurchaseGlReversalPort,
   type PurchasePolicy,
   type PurchaseStockPostingPort,
@@ -81,6 +82,7 @@ import {
   purchaseInvoiceListQuerySchema,
   purchaseInvoicePaymentSchema,
   classifyLineTaxSchema,
+  nameJournalLineTaxSchema,
   lineTaxClassificationSchema,
   TaxClassificationFilingOutcomeCode,
   type PurchaseInvoiceListQueryDTO,
@@ -1352,7 +1354,7 @@ export function createPurchasesRoutes(
       const result = await classifyPurchaseInvoiceLineTax(
         existing.id,
         { lineRef: c.req.param("lineId"), withLineRefs: parsed.data.withLineIds, taxRateId: parsed.data.taxRateId },
-        { invoices: deps.invoices, taxRates: deps.taxRates, taxTags: deps.taxTags, taxDependents: deps.taxDependents, transactor: deps.transactor, audit: audit(c), actor: actor(c) },
+        { invoices: deps.invoices, taxRates: deps.taxRates, taxTags: deps.taxTags, taxDependents: deps.taxDependents, accounts: deps.accounts, transactor: deps.transactor, audit: audit(c), actor: actor(c) },
       );
       await stampDocumentModifier(deps.invoiceVersions, result.invoice.id, actor(c));
       return c.json(
@@ -1361,6 +1363,45 @@ export function createPurchasesRoutes(
           documentNumber: result.invoice.number,
           lineIds: result.plan.lineRefs,
           taxRateId: parsed.data.taxRateId,
+          taxRateName: result.plan.taxRateName,
+          taxRatePercent: result.plan.after.taxRatePercent,
+          journalLinesNamed: result.journalLinesNamed,
+          filing: TaxClassificationFilingOutcomeCode.NotQueued,
+        }),
+      );
+    } catch (err) {
+      return taxClassificationRefusal(c, err) ?? handleDomainError(c, err);
+    }
+  });
+
+  /** The purchase twin of `POST /sales-invoices/:id/lines/:lineId/journal-tax`; `:lineId` is the line's index. */
+  app.post("/invoices/:id/lines/:lineId/journal-tax", gate("purchases.invoice.classify_tax"), async (c) => {
+    const ctx = getAuthContext(c);
+    if (!ctx || !can(ctx, "accounting.journal.view")) {
+      return c.json({ error: "FORBIDDEN", message: "تسمية ضريبة سطر القيد تتطلب صلاحية عرض قيود اليومية." }, 403);
+    }
+    if (!deps.taxTags || !deps.taxRates) {
+      return c.json({ error: "TAX_CLASSIFICATION_NOT_CONFIGURED", message: "تصنيف ضريبة البنود غير مُفعّل على هذا الخادم." }, 501);
+    }
+    const parsed = nameJournalLineTaxSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) {
+      return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    }
+    const existing = await deps.invoices.findById(c.req.param("id"));
+    if (!existing || hiddenFromOwn(c, existing)) return c.json({ error: "NOT_FOUND" }, 404);
+    try {
+      const result = await namePurchaseInvoiceJournalLineTax(
+        existing.id,
+        { lineRef: c.req.param("lineId"), withLineRefs: parsed.data.withLineIds, taxRateId: parsed.data.taxRateId, journalLineIndexes: parsed.data.journalLineIndexes },
+        { invoices: deps.invoices, taxRates: deps.taxRates, taxTags: deps.taxTags, taxDependents: deps.taxDependents, accounts: deps.accounts, transactor: deps.transactor, audit: audit(c), actor: actor(c) },
+      );
+      await stampDocumentModifier(deps.invoiceVersions, result.invoice.id, actor(c));
+      return c.json(
+        lineTaxClassificationSchema.parse({
+          documentId: result.invoice.id,
+          documentNumber: result.invoice.number,
+          lineIds: result.plan.lineRefs,
+          taxRateId: result.plan.after.taxRateId,
           taxRateName: result.plan.taxRateName,
           taxRatePercent: result.plan.after.taxRatePercent,
           journalLinesNamed: result.journalLinesNamed,

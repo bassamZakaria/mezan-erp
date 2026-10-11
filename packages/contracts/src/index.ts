@@ -300,6 +300,8 @@ export {
   type CreateTaxRateDTO,
   type UpdateTaxRateDTO,
   classifyLineTaxSchema,
+  nameJournalLineTaxSchema,
+  type NameJournalLineTaxDTO,
   lineTaxClassificationSchema,
   TaxClassificationFilingOutcomeCode,
   TaxCalculationTypeCode,

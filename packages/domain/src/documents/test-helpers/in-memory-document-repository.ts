@@ -45,7 +45,7 @@ export class InMemoryDocumentRepository<Line> implements DocumentRepository<Line
     let named = 0;
     const lines = doc.lines.map((line) => {
       const sourced = line as { sourceInvoiceId?: string; taxRatePercent?: number | null; taxRateId?: string | null };
-      if (sourced.sourceInvoiceId !== sourceInvoiceId || (sourced.taxRateId ?? null) !== null || (sourced.taxRatePercent ?? 0) !== taxRatePercent) return line;
+      if (sourced.sourceInvoiceId !== sourceInvoiceId || (sourced.taxRateId ?? null) !== null || sourced.taxRatePercent !== taxRatePercent) return line;
       named += 1;
       return { ...line, taxRateId };
     });

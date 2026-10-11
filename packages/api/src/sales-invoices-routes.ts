@@ -10,6 +10,7 @@ import {
   Qty,
   SalesInvoiceService,
   SalesInvoiceField,
+  type TaxClassificationFilingOutcome,
   SalesInvoiceNotDraftError,
   SalesInvoiceLineNotFoundError,
   SALES_TAX_RECALCULATED_NOTICE_AR,
@@ -73,6 +74,7 @@ import {
   salesInvoiceListQuerySchema,
   salesInvoiceSchema,
   classifyLineTaxSchema,
+  nameJournalLineTaxSchema,
   lineTaxClassificationSchema,
   type SalesInvoiceListQueryDTO,
   type SalesInvoiceDiscountDTO,
@@ -139,7 +141,7 @@ export interface SalesInvoiceRoutesDeps {
   readonly taxFiling?: SalesInvoiceServiceDeps["taxFiling"];
   readonly taxDependents?: SalesInvoiceServiceDeps["taxDependents"];
   /** Runs after a classification commits — issues the e-receipt a consumer sale was refused for its unnamed line. */
-  readonly afterTaxClassified?: (invoiceId: string) => Promise<void>;
+  readonly afterTaxClassified?: (invoiceId: string) => Promise<{ readonly outcome: TaxClassificationFilingOutcome; readonly message?: string } | null>;
   /**
    * The tenant's discount ceiling (settings §"الرقابة الائتمانية"). Optional
    * for the same reason every cross-aggregate check here is: a caller that does
@@ -412,6 +414,7 @@ function withMessageEn(err: { code: string; message: string }) {
 }
 
 const SALES_INVOICE_DOC_TYPE = "SALES_INVOICE";
+const JOURNAL_VIEW_PERMISSION = "accounting.journal.view";
 const REVERSED_STATUS: SalesInvoice["status"] = "reversed";
 
 enum StockDirection {
@@ -1123,7 +1126,7 @@ export function createSalesInvoicesRoutes(
         taxRateId: parsed.data.taxRateId,
       });
       await stampDocumentModifier(deps.versionGuard, invoice.id, getAuthContext(c)?.userId);
-      await deps.afterTaxClassified?.(invoice.id);
+      const correction = (await deps.afterTaxClassified?.(invoice.id)) ?? null;
       return c.json(
         lineTaxClassificationSchema.parse({
           documentId: result.invoice.id,
@@ -1133,7 +1136,58 @@ export function createSalesInvoicesRoutes(
           taxRateName: result.plan.taxRateName,
           taxRatePercent: result.plan.after.taxRatePercent,
           journalLinesNamed: result.journalLinesNamed,
-          filing: result.filing,
+          filing: correction?.outcome ?? result.filing,
+          ...(correction?.message ? { filingMessage: correction.message } : {}),
+        }),
+      );
+    } catch (err) {
+      return taxClassificationRefusal(c, err) ?? handleDomainError(c, err);
+    }
+  });
+
+  /**
+   * تسمية ضريبة سطر القيد — the accountant names the entry's lines by hand,
+   * for a posted invoice whose entry the automatic match could not name.
+   *
+   * SECURITY: the tax-classification permission AND the right to read the
+   * journal. The request chooses journal lines, so a caller who may not see
+   * the entry is never asked to point into it.
+   */
+  app.post("/:id/lines/:lineId/journal-tax", gate("sales.invoice.classify_tax"), async (c) => {
+    const ctx = getAuthContext(c);
+    if (!ctx || !can(ctx, JOURNAL_VIEW_PERMISSION)) {
+      return c.json({ error: "FORBIDDEN", message: "تسمية ضريبة سطر القيد تتطلب صلاحية عرض قيود اليومية." }, 403);
+    }
+    if (!deps.taxTags || !deps.taxRates) {
+      return c.json({ error: "TAX_CLASSIFICATION_NOT_CONFIGURED", message: "تصنيف ضريبة البنود غير مُفعّل على هذا الخادم." }, 501);
+    }
+    const parsed = nameJournalLineTaxSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) {
+      return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    }
+    const svc = service(c);
+    const invoice = await svc.findByIdOrDocNo(c.req.param("id"));
+    if (!invoice) return c.json({ error: "NOT_FOUND" }, 404);
+    try {
+      const result = await svc.nameJournalLineTax(invoice.id, {
+        lineRef: c.req.param("lineId"),
+        withLineRefs: parsed.data.withLineIds,
+        taxRateId: parsed.data.taxRateId,
+        journalLineIndexes: parsed.data.journalLineIndexes,
+      });
+      await stampDocumentModifier(deps.versionGuard, invoice.id, ctx.userId);
+      const correction = parsed.data.taxRateId ? ((await deps.afterTaxClassified?.(invoice.id)) ?? null) : null;
+      return c.json(
+        lineTaxClassificationSchema.parse({
+          documentId: result.invoice.id,
+          documentNumber: result.invoice.docNo,
+          lineIds: result.plan.lineRefs,
+          taxRateId: result.plan.after.taxRateId,
+          taxRateName: result.plan.taxRateName,
+          taxRatePercent: result.plan.after.taxRatePercent,
+          journalLinesNamed: result.journalLinesNamed,
+          filing: correction?.outcome ?? result.filing,
+          ...(correction?.message ? { filingMessage: correction.message } : {}),
         }),
       );
     } catch (err) {

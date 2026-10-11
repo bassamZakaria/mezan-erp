@@ -1865,6 +1865,12 @@ describe("createBackend — the e-receipt path (D282–D284)", () => {
       expect(corrected.submission.payload.header.referenceOldUUID).toBe(rejected!.uuid);
       expect(corrected.submission.payload.header.previousUUID).toBe(rejected!.uuid);
       expect(corrected.submission.status).toBe("ready");
+
+      const second = await post(app, `/eta/receipts/reissue/invoice/${sale.id}`, {}, admin(app));
+      expect(second.status).toBe(422);
+      expect((await second.json()) as { error: string }).toMatchObject({ error: "ETA_RECEIPT_NOT_APPLICABLE" });
+      const third = await app.fetch(new Request(`http://local/eta/receipts/${encodeURIComponent(`${sale.docNo}-R3`)}`, { headers: admin(app) }));
+      expect(third.status).toBe(404);
     });
 
     it("refuses to correct a receipt the authority has not rejected", async () => {

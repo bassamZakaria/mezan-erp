@@ -198,7 +198,7 @@ export function createSqliteDocumentStore<Line>(
       const lines = JSON.parse(row.lines_json) as { sourceInvoiceId?: string; taxRatePercent?: number | null; taxRateId?: string | null }[];
       let named = 0;
       for (const line of lines) {
-        if (line.sourceInvoiceId !== sourceInvoiceId || (line.taxRateId ?? null) !== null || (line.taxRatePercent ?? 0) !== taxRatePercent) continue;
+        if (line.sourceInvoiceId !== sourceInvoiceId || (line.taxRateId ?? null) !== null || line.taxRatePercent !== taxRatePercent) continue;
         line.taxRateId = taxRateId;
         named += 1;
       }

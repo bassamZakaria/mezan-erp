@@ -915,11 +915,12 @@ describe("SalesInvoiceService.classifyLineTax — naming the rate of a posted li
     expect(tags).toHaveLength(4);
   });
 
-  it("never re-points a line that names a rate, and writes nothing when it refuses", async () => {
+  it("never re-points a line that names a rate, and writes nothing when it refuses or answers a retry", async () => {
     const { svc, repo, ledger, entry, audit } = await posted([{ ...unnamed("L1", 0), taxRateId: "EXEMPT" }]);
     const before = await journalOf(ledger, entry!.id);
     await expect(svc.classifyLineTax("inv-1", { lineRef: "L1", taxRateId: "EXPORT" })).rejects.toBeInstanceOf(TaxRateAlreadyClassifiedError);
-    await expect(svc.classifyLineTax("inv-1", { lineRef: "L1", taxRateId: "EXEMPT" })).rejects.toBeInstanceOf(TaxRateAlreadyClassifiedError);
+    const standing = await svc.classifyLineTax("inv-1", { lineRef: "L1", taxRateId: "EXEMPT" });
+    expect([standing.plan.lineRefs, standing.plan.after.taxRateId, standing.journalLinesNamed]).toEqual([["L1"], "EXEMPT", 0]);
     expect((await repo.findById("inv-1"))?.lines[0]?.taxRateId).toBe("EXEMPT");
     expect(await journalOf(ledger, entry!.id)).toEqual(before);
     expect(audit.events.filter((e) => e.action === "CLASSIFY_LINE_TAX")).toEqual([]);

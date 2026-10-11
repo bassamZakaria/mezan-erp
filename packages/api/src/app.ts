@@ -1487,11 +1487,16 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
           // INVARIANT: the SAME deterministic entry ids the posting adapters
           // above and the historical import use.
           taxTags: {
-            retagUnnamedTaxRate: async (invoiceId, taxRatePercent, taxRateId, untagged) => {
+            retagUnnamedTaxRate: async (invoiceId, taxRatePercent, taxRateId, expected) => {
               const tags = createJournalTaxTagPort({ ledger: purchases.gl.ledger, vatFilings: purchases.gl.vatFilings });
-              const posted = await tags.retagUnnamedTaxRate(`PI-JE:${invoiceId}`, taxRatePercent, taxRateId, untagged);
-              const imported = await tags.retagUnnamedTaxRate(`HIST-PI-JE:${invoiceId}`, taxRatePercent, taxRateId, untagged);
+              const posted = await tags.retagUnnamedTaxRate(`PI-JE:${invoiceId}`, taxRatePercent, taxRateId, expected);
+              const imported = await tags.retagUnnamedTaxRate(`HIST-PI-JE:${invoiceId}`, taxRatePercent, taxRateId, expected);
               return posted + imported;
+            },
+            nameChosenLines: async (invoiceId, lineIndexes, taxRatePercent, taxRateId, expected) => {
+              const tags = createJournalTaxTagPort({ ledger: purchases.gl.ledger, vatFilings: purchases.gl.vatFilings });
+              const entryId = (await purchases.gl.ledger.findById(`PI-JE:${invoiceId}`)) ? `PI-JE:${invoiceId}` : `HIST-PI-JE:${invoiceId}`;
+              return tags.nameChosenLines(entryId, lineIndexes, taxRatePercent, taxRateId, expected);
             },
           },
           glReverse: purchases.layers ? glReversePort : undefined,

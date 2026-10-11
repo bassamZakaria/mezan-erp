@@ -58,6 +58,7 @@ import {
   CERTIFICATE_WORKS_ITEM_ID,
   RETENTION_RELEASE_ITEM_ID,
   createReturnTaxCarry,
+  expectedReturnTaxJournalLines,
   salesTaxPolicySource,
   InvoiceDocumentKind,
   GuaranteeService,
@@ -265,6 +266,9 @@ import { runExternalSigningCommand } from "./eta-signing-command.js";
 import {
   createEtaEnqueueBridge,
   createSalesInvoiceTaxFiling,
+  createSalesReturnTaxFiling,
+  createEtaReturnCreditNoteRebuilder,
+  type EtaReceiptCorrection,
   createEtaInvoiceRequeueRebuilder,
   createEtaReceiptIssuer,
   createReturnEtaEnqueueBridge,
@@ -3296,7 +3300,11 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       // «من إيصال استلام» omits lines, so the route builds them from the receipt
       // — and without this port every one of those lines was taxed at 0% (D50).
       resolveTaxRate: async (itemId) => (await items.findById(itemId))?.taxRatePercent ?? 0,
-      taxDependents: createReturnTaxCarry({ returns: purchaseReturnStore, tags: createJournalTaxTagPort({ ledger, vatFilings }) }),
+      taxDependents: createReturnTaxCarry({
+        returns: purchaseReturnStore,
+        tags: createJournalTaxTagPort({ ledger, vatFilings }),
+        expected: expectedReturnTaxJournalLines(createPurchaseReturnDocumentType(PURCHASE_RETURN_GL_ACCOUNTS)),
+      }),
       /**
        * سداد للمورد from the invoice itself (R4.4) — the purchase-side mirror of
        * the sales `collect` adapter below. It creates, confirms and allocates a
@@ -3419,17 +3427,44 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         await etaService.exclude(submission.id, `أُلغيت الفاتورة ${invoice.docNo ?? invoice.id} قبل إرسالها إلى المصلحة.`);
       },
       taxTags: createJournalTaxTagPort({ ledger, vatFilings }),
-      taxDependents: createReturnTaxCarry({ returns: salesReturnStore, tags: createJournalTaxTagPort({ ledger, vatFilings }) }),
+      taxDependents: createReturnTaxCarry({
+        returns: salesReturnStore,
+        tags: createJournalTaxTagPort({ ledger, vatFilings }),
+        expected: expectedReturnTaxJournalLines(createSalesReturnDocumentType(SALES_RETURN_GL_ACCOUNTS)),
+        filing: createSalesReturnTaxFiling({
+          eta: etaService,
+          taxRates,
+          rebuildCreditNote: createEtaReturnCreditNoteRebuilder({
+            eta: etaService,
+            customers,
+            items,
+            taxRates,
+            branchCodes: etaStore.branchCodes,
+            unitMappings: etaStore.unitMappings,
+          }),
+        }),
+      }),
       taxFiling: createSalesInvoiceTaxFiling({ eta: etaService, taxRates, rebuild: rebuildEtaInvoiceSubmission }),
       // A consumer sale whose e-receipt was refused for its unnamed 0% line
-      // gets it now. Best-effort, as at confirm: the classification stands.
+      // gets it now, and a rejected one is corrected — once per rejection.
+      // Best-effort, as at confirm: the classification stands either way, and
+      // the reply says what actually became of the receipt.
       afterTaxClassified: async (invoiceId) => {
+        let correction: EtaReceiptCorrection | null = null;
         try {
-          const issued = (await etaReceipts.reissueInvoiceReceipt(invoiceId)) ?? (await etaReceipts.issueInvoiceReceipt(invoiceId));
-          if (issued) etaReceipts.scheduleSubmission();
+          correction = await etaReceipts.correctInvoiceReceiptAfterClassification(invoiceId);
         } catch (error) {
           console.error(`[eta] could not issue the receipt of ${invoiceId} after its tax was classified`, error);
         }
+        for (const returned of await salesReturnStore.listByLineRef?.("sourceInvoiceId", [invoiceId], { status: "confirmed" }) ?? []) {
+          try {
+            const refund = (await etaReceipts.reissueReturnReceipt(returned.id)) ?? (await etaReceipts.issueReturnReceipt(returned.id));
+            if (refund) etaReceipts.scheduleSubmission();
+          } catch (error) {
+            console.error(`[eta] could not issue the refund receipt of ${returned.id} after its tax was classified`, error);
+          }
+        }
+        return correction;
       },
       settlementPreview: previewSettlement((message) => new InvalidSalesInvoicePaymentError(message)),
       pricing: {

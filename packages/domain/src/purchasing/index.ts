@@ -167,6 +167,7 @@ export {
 
 export {
   classifyPurchaseInvoiceLineTax,
+  namePurchaseInvoiceJournalLineTax,
   PURCHASE_INVOICE_STATUS_LABELS_AR,
   type PurchaseInvoiceTaxTagPort,
   type ClassifyPurchaseInvoiceLineTaxDeps,

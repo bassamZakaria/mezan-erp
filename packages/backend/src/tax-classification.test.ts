@@ -307,11 +307,11 @@ describe("classifying the tax of a posted line that stored none", () => {
     expect(payload.invoiceLines[0].taxableItems[0].subType).toBe("V003");
   });
 
-  it("refuses to move the line on to another rate, or to name it twice", async () => {
+  it("refuses to move the line on to another rate, and answers a retry under the same rate with what stands", async () => {
     const other = await classify("T-STUCK", "L1", { taxRateId: EXPORT_RATE });
     expect([other.status, other.body.error]).toEqual([409, "TAX_RATE_ALREADY_CLASSIFIED"]);
     const again = await classify("T-STUCK", "L1", { taxRateId: EXEMPT_RATE });
-    expect(again.status).toBe(409);
+    expect([again.status, again.body.taxRateId, again.body.journalLinesNamed]).toEqual([200, EXEMPT_RATE, 0]);
     expect((await journalOf("T-STUCK")).invoice.lines[0].taxRateId).toBe(EXEMPT_RATE);
   });
 

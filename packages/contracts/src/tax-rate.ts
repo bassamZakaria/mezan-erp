@@ -147,10 +147,25 @@ export const classifyLineTaxSchema = z.object({
   withLineIds: z.array(z.string().min(1)).max(500).optional(),
 });
 
+/**
+ * تسمية ضريبة سطر القيد — the entry's lines, by their position in the entry,
+ * that carry the tax of one document line. `taxRateId` is required only when
+ * the document line names no rate yet.
+ */
+export const nameJournalLineTaxSchema = z.object({
+  journalLineIndexes: z.array(z.number().int().nonnegative()).min(1).max(500),
+  taxRateId: z.string().min(1).optional(),
+  withLineIds: z.array(z.string().min(1)).max(500).optional(),
+});
+export type NameJournalLineTaxDTO = z.infer<typeof nameJournalLineTaxSchema>;
+
 export enum TaxClassificationFilingOutcomeCode {
   NotQueued = "not_queued",
   Requeued = "requeued",
   FiledConsistent = "filed_consistent",
+  Reissued = "reissued",
+  ReissuePending = "reissue_pending",
+  ReissueRefused = "reissue_refused",
 }
 
 export const lineTaxClassificationSchema = z.object({
@@ -162,6 +177,8 @@ export const lineTaxClassificationSchema = z.object({
   taxRatePercent: z.number(),
   journalLinesNamed: z.number().int().nonnegative(),
   filing: z.nativeEnum(TaxClassificationFilingOutcomeCode),
+  /** Why a rejected e-receipt could not be reissued, in Arabic; present only with `reissue_refused`. */
+  filingMessage: z.string().optional(),
 });
 
 export type ClassifyLineTaxDTO = z.infer<typeof classifyLineTaxSchema>;

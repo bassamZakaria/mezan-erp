@@ -18,7 +18,7 @@ import {
 import { isRetentionRelease } from "../documents/invoice-document-kind.js";
 import { atomically, type PurchaseAuditDeps } from "./audit.js";
 import { PurchaseInvoiceNotFoundError } from "./errors.js";
-import type { PurchaseInvoice, PurchaseInvoiceRepository } from "./purchase-invoice.js";
+import { purchaseInvoiceLineBase, type PurchaseInvoice, type PurchaseInvoiceRepository } from "./purchase-invoice.js";
 import { PurchaseInvoiceStatusCode } from "./types.js";
 
 export const PURCHASE_INVOICE_STATUS_LABELS_AR: Readonly<Record<PurchaseInvoiceStatusCode, string>> = {
@@ -89,7 +89,13 @@ export async function classifyPurchaseInvoiceLineTax(
         request.taxRateId,
         plan.lineRefs.length === existing.lines.length ? { side: JournalLineSide.Debit } : undefined,
       );
-      if (journalLinesNamed === 0) throw new TaxClassificationJournalUntaggedError(existing.number);
+      // INVARIANT: lines that extend to nothing posted no journal line, so the
+      // group classifies on the document alone; any other is refused.
+      const postedSomething = plan.lineRefs.some((lineRef) => {
+        const line = existing.lines[Number(lineRef)];
+        return !line || purchaseInvoiceLineBase(line).scaled !== 0n;
+      });
+      if (journalLinesNamed === 0 && postedSomething) throw new TaxClassificationJournalUntaggedError(existing.number);
     }
     const carried = (await deps.taxDependents?.carry({
       sourceDocumentId: existing.id,

@@ -868,7 +868,7 @@ export class SalesInvoiceService {
           request.taxRateId,
           untaggedSalesJournalLines(existing, plan),
         );
-        if (journalLinesNamed === 0) throw new TaxClassificationJournalUntaggedError(documentNumber);
+        if (journalLinesNamed === 0 && postedSomething(existing, plan)) throw new TaxClassificationJournalUntaggedError(documentNumber);
       }
       const carried = (await this.deps.taxDependents?.carry({
         sourceDocumentId: existing.id,
@@ -996,6 +996,17 @@ export async function applyAllocatedSettlement(
   const written = await repo.writeFields(updated, [SalesInvoiceField.AmountPaid, SalesInvoiceField.Status], { status: [existing.status] });
   if (!written) throw new DocumentChangedError("SALES_INVOICE", id);
   return updated;
+}
+
+// INVARIANT: a group whose lines extend to nothing posted no journal line, so
+// there is none to name and none left unnamed — it classifies on the document
+// alone. Any other group that names no journal line is refused.
+function postedSomething(invoice: SalesInvoice, plan: TaxClassificationPlan): boolean {
+  const totals = salesInvoiceTotals(invoice).lines;
+  return plan.lineRefs.some((lineRef) => {
+    const line = totals.find((candidate) => candidate.lineId === lineRef);
+    return !line || line.taxableBase.scaled !== 0n || line.tax.scaled !== 0n;
+  });
 }
 
 function untaggedSalesJournalLines(invoice: SalesInvoice, plan: TaxClassificationPlan): UntaggedJournalLineSelector | undefined {

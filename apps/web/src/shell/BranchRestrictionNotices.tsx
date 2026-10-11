@@ -2,7 +2,6 @@ import { Lock } from "lucide-react";
 import { Button } from "@mezan/ui";
 import { useAppTranslation } from "../i18n";
 
-/** What a branch-restricted user sees at the address of a screen that exists only for the whole company. */
 export function BranchUnavailableState({ onGoHome }: { readonly onGoHome: () => void }) {
   const { t } = useAppTranslation();
   return (
@@ -17,7 +16,6 @@ export function BranchUnavailableState({ onGoHome }: { readonly onGoHome: () => 
   );
 }
 
-/** Shown above a shared configuration screen a branch-restricted user may read and not change. */
 export function BranchReadOnlyNotice() {
   const { t } = useAppTranslation();
   return (

@@ -5,7 +5,6 @@ import { useApi } from "../data/ApiContext";
 
 export interface BranchGate {
   readonly restricted: boolean;
-  /** False for a tile or action the server refuses a branch-restricted session — so it is not drawn and not asked for. */
   allows(action: BranchGatedAction): boolean;
   allowsApi(path: string): boolean;
 }

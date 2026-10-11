@@ -591,10 +591,12 @@ interface RecurringJournalHistoryRow {
   readonly skip: RecurringJournalSkipDTO | null;
 }
 
+const HISTORY_SKIPS_LIMIT = 200;
+
 function HistoryTab() {
   const { t } = useAppTranslation();
   const runsQuery = useRecurringJournalRuns();
-  const skipsQuery = useAllRecurringJournalSkips();
+  const skipsQuery = useAllRecurringJournalSkips(HISTORY_SKIPS_LIMIT, useBranchGate().allows(BranchGatedAction.RecurringSkips));
   const templatesQuery = useRecurringJournalTemplates();
   const nav = useNavigation();
   const [page, setPage] = useState(1);
@@ -726,7 +728,7 @@ export function RecurringJournalsScreen() {
       tabs={[
         { key: "templates", label: t("recurringJournals.tab.templates"), render: () => <TemplatesTab /> },
         ...(branchGate.allows(BranchGatedAction.RecurringDue) ? [{ key: "due", label: t("recurringJournals.tab.due"), render: () => <DueTab /> }] : []),
-        ...(branchGate.allows(BranchGatedAction.RecurringSkips) ? [{ key: "history", label: t("recurringJournals.tab.history"), render: () => <HistoryTab /> }] : []),
+        { key: "history", label: t("recurringJournals.tab.history"), render: () => <HistoryTab /> },
         ...(branchGate.allows(BranchGatedAction.RecurringDepreciationDue)
           ? [{ key: "depreciation", label: t("recurringJournals.tab.depreciation"), render: () => <DepreciationDueTab /> }]
           : []),

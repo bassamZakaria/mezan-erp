@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { BRANCH_POLICY_TABLE, BranchPolicy, BranchRestrictedAccess } from "@mezan/contracts";
+import { BRANCH_POLICY_TABLE, BranchPolicy, BranchRestrictedAccess, branchPolicyFor } from "@mezan/contracts";
 import {
   BRANCH_GATED_ACTION_API,
   BranchGatedAction,
   COMPANY_WIDE_WITHOUT_A_SURFACE,
   NAV_ITEM_API,
+  READ_ONLY_FAMILY_HOST,
+  READ_ONLY_WITHOUT_A_SURFACE,
   actionAccess,
   branchRefusalBefore,
   isBranchRestricted,
@@ -29,6 +31,16 @@ describe("what a branch-restricted session is shown is read from the server's ow
       .map((entry) => entry.prefix)
       .filter((prefix) => !COMPANY_WIDE_WITHOUT_A_SURFACE.includes(prefix) && !surfaced.some((path) => path === prefix || path.startsWith(`${prefix}/`)));
     expect(forgotten).toEqual([]);
+  });
+
+  it("every read-only family the server declares is a screen in the web map or part of one, so a new one cannot be forgotten", () => {
+    const screens = Object.values(NAV_ITEM_API);
+    const forgotten = BRANCH_POLICY_TABLE.filter((entry) => entry.policy === BranchPolicy.SharedReadOnly)
+      .map((entry) => entry.prefix)
+      .filter((prefix) => !screens.includes(prefix) && READ_ONLY_FAMILY_HOST[prefix] === undefined && !READ_ONLY_WITHOUT_A_SURFACE.includes(prefix));
+    expect(forgotten).toEqual([]);
+    expect(Object.values(READ_ONLY_FAMILY_HOST).filter((host) => !navKeys.includes(host))).toEqual([]);
+    expect(Object.keys(READ_ONLY_FAMILY_HOST).filter((prefix) => branchPolicyFor(prefix)?.policy !== BranchPolicy.SharedReadOnly)).toEqual([]);
   });
 
   it("names only screens that exist", () => {

@@ -1,5 +1,7 @@
 import { BranchGatedAction } from "../branch-restriction";
 import { useBranchGate } from "../shell/useBranchGate";
+import { BranchUnavailableState } from "../shell/BranchRestrictionNotices";
+import { useNavigation } from "../navigation";
 import { useEffect, useState } from "react";
 import {
   Button,
@@ -147,6 +149,7 @@ const ETA_TAB_VALUES = new Set<EtaTab>(["general", "credentials", "items", "unit
 
 export function EtaScreen() {
   const branchGate = useBranchGate();
+  const { navigate } = useNavigation();
   const { t } = useAppTranslation();
   const pt = useEtaPrevalidationStrings();
   const [rawTab, setRawTab] = useUrlParam("tab", "general");
@@ -248,7 +251,7 @@ export function EtaScreen() {
       {tab === "units" ? <UnitMappingTab /> : null}
       {tab === "submissions" ? <SubmissionsTab statusKeys={STATUS_KEYS} /> : null}
       {tab === "readiness" ? <ReadinessTab /> : null}
-      {tab === "rejections" && branchGate.allows(BranchGatedAction.EtaReports) ? <RejectionsTab /> : null}
+      {tab === "rejections" ? branchGate.allows(BranchGatedAction.EtaReports) ? <RejectionsTab /> : <BranchUnavailableState onGoHome={() => navigate("dashboard")} /> : null}
     </div>
   );
 }

@@ -5,9 +5,7 @@ import { useAppTranslation } from "../i18n";
 
 export interface LockedFields {
   isLocked(field: string): boolean;
-  /** `disabled` and the reason, to spread onto a form control; empty for a field that is open. */
   props(field: string, hint?: string): { readonly disabled?: boolean; readonly hint?: string };
-  /** The payload without the fields this session may not set, so the server's defaults stand. */
   withoutLocked<Payload extends object>(payload: Payload): Partial<Payload>;
 }
 

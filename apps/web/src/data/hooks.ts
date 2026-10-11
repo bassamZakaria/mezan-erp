@@ -1702,12 +1702,12 @@ export function useRecurringJournalSkips(templateId: string | null): UseQueryRes
   });
 }
 
-export function useAllRecurringJournalSkips(limit = 200): UseQueryResult<RecurringJournalSkipDTO[], ApiError> {
+export function useAllRecurringJournalSkips(limit = 200, enabled = true): UseQueryResult<RecurringJournalSkipDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<RecurringJournalSkipDTO[], ApiError>({
     queryKey: ["recurring-journal-skips", limit],
-    enabled: session !== null,
+    enabled: session !== null && enabled,
     queryFn: async () => {
       const res = await request(`/gl/recurring/skips?limit=${limit}`);
       if (!res.ok) throw await loaderError(res, t("recurringJournals.historyCouldNotLoad"), t);
@@ -2010,7 +2010,7 @@ export function useUpdateSettings() {
 export function useBranches(): UseQueryResult<BranchDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
-  const administers = sessionHolds(session, ReadPermission.Branches);
+  const administers = sessionHolds(session, ReadPermission.Branches) && !isBranchRestricted(session);
   return useQuery<BranchDTO[], ApiError>({
     queryKey: ["branches", administers ? "records" : "granted"],
     enabled: session !== null,
@@ -2402,7 +2402,7 @@ export function useJournalEntry(id: string | null): UseQueryResult<JournalEntryD
 export function useWarehouses(): UseQueryResult<WarehouseDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
-  const administers = sessionHolds(session, ReadPermission.Warehouses);
+  const administers = sessionHolds(session, ReadPermission.Warehouses) && !isBranchRestricted(session);
   return useQuery<WarehouseDTO[], ApiError>({
     queryKey: ["warehouses", administers ? "records" : "granted"],
     enabled: session !== null,

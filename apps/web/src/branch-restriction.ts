@@ -85,7 +85,6 @@ export const NAV_ITEM_API: Readonly<Record<string, string>> = {
   roles: "/roles",
 };
 
-/** An action or tile inside a screen that stays open, backed by a family of its own. */
 export enum BranchGatedAction {
   YearEndClose = "year_end_close",
   VatFilings = "vat_filings",
@@ -138,8 +137,24 @@ export const BRANCH_GATED_ACTION_API: Readonly<Record<BranchGatedAction, string>
   [BranchGatedAction.ContractingExceptions]: "/contracting/reports",
 };
 
-/** Company-wide families no signed-in screen reaches: the first-run wizard runs before there is a session. */
 export const COMPANY_WIDE_WITHOUT_A_SURFACE: readonly string[] = ["/bootstrap"];
+
+export const READ_ONLY_WITHOUT_A_SURFACE: readonly string[] = ["/label-layouts"];
+
+export const READ_ONLY_FAMILY_HOST: Readonly<Record<string, string>> = {
+  "/accounting": "coa",
+  "/gl/party-control-accounts": "coa",
+  "/tax-groups": "taxes",
+  "/eta/activity-codes": "eta",
+  "/eta/branch-codes": "eta",
+  "/eta/item-mappings": "eta",
+  "/eta/tax-subtypes": "eta",
+  "/eta/unit-codes": "eta",
+  "/eta/unit-mappings": "eta",
+  "/hr/payroll/statutory-flag": "payroll-statutory",
+  "/bank-statements/rules": "bank-reconciliation",
+  "/manufacturing/work-stations": "work-orders",
+};
 
 export function navItemAccess(key: string, table: readonly BranchPolicyEntry[] = BRANCH_POLICY_TABLE): BranchRestrictedAccess {
   const api = NAV_ITEM_API[key];
@@ -165,7 +180,6 @@ interface NavGroupLike<Item extends NavItemLike> {
   readonly sections?: readonly { readonly items: readonly Item[] }[];
 }
 
-/** The nav tree without the screens a branch-restricted session cannot open; a shelf or workspace left empty goes with them. */
 export function withoutBranchUnavailable<Item extends NavItemLike, Group extends NavGroupLike<Item>>(groups: readonly Group[]): Group[] {
   const open = (item: Item) => navItemAccess(item.key) !== BranchRestrictedAccess.Unavailable;
   return groups
@@ -183,11 +197,6 @@ interface RefusalBody {
   readonly messageEn: string;
 }
 
-/**
- * The refusal the server would send a branch-restricted session for this
- * request, or null when it would let it through — so a call the table already
- * refuses is answered on the device instead of travelling to collect a 403.
- */
 export function branchRefusalBefore(path: string, method: string): RefusalBody | null {
   const access = branchRestrictedAccess(path, method);
   if (access === BranchRestrictedAccess.Unavailable) return BRANCH_REFUSALS[branchPolicyFor(path.split("?")[0]!) ? BranchRefusalCode.CompanyWideOnly : BranchRefusalCode.PolicyUndeclared];

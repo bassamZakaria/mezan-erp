@@ -2785,17 +2785,29 @@ describe("D111 round 4 · a bank charge on the company's account takes the branc
     };
   };
 
-  it("the statement's branch when it states one, and «غير مخصص» when it states none", async () => {
+  it("a statement a one-branch user imports on the company's account is that branch's, and its charge with it; one the company imports is «غير مخصص»", async () => {
     const created = await admin("POST", "/treasury-accounts", { id: BANK, code: "BANK-R4-CHG", name: "حساب الشركة للمصاريف", type: "bank", branchId: null, glAccountId: "1310" });
     expect(created.status, JSON.stringify(created.body)).toBe(201);
     expect(one("SELECT branch_id FROM treasury_account WHERE id = ?", BANK)).toEqual({ branch_id: null });
 
-    for (const id of ["R4-STMT-ALEX", "R4-STMT-NONE"]) {
-      const res = await admin("POST", "/bank-statements/import", imported(id));
-      expect(res.status, JSON.stringify(res.body).slice(0, 240)).toBe(201);
-      expect(one("SELECT branch_id FROM bank_statement WHERE id = ?", id)).toEqual({ branch_id: null });
-    }
-    sqlite.prepare("UPDATE bank_statement SET branch_id = ? WHERE id = 'R4-STMT-ALEX'").run(ALEX);
+    const byBranch = await alex("POST", "/bank-statements/import", imported("R4-STMT-ALEX"));
+    expect(byBranch.status, JSON.stringify(byBranch.body).slice(0, 240)).toBe(201);
+    expect(one("SELECT branch_id FROM bank_statement WHERE id = 'R4-STMT-ALEX'")).toEqual({ branch_id: ALEX });
+    expect((await alex("GET", "/bank-statements/R4-STMT-ALEX")).status).toBe(200);
+    expect((await mainOnly("GET", "/bank-statements/R4-STMT-ALEX")).status).toBe(404);
+
+    const byCompany = await admin("POST", "/bank-statements/import", imported("R4-STMT-NONE"));
+    expect(byCompany.status, JSON.stringify(byCompany.body).slice(0, 240)).toBe(201);
+    expect(one("SELECT branch_id FROM bank_statement WHERE id = 'R4-STMT-NONE'")).toEqual({ branch_id: null });
+
+    const byTwoBranches = await bothBranches("POST", "/bank-statements/import", imported("R4-STMT-BOTH"));
+    expect(byTwoBranches.status, JSON.stringify(byTwoBranches.body).slice(0, 240)).toBe(403);
+    expect(byTwoBranches.body.message).toMatch(ARABIC);
+    expect(one("SELECT id FROM bank_statement WHERE id = 'R4-STMT-BOTH'")).toBeUndefined();
+    const reading = await bothBranchesWithUnattributed("POST", "/bank-statements/import", imported("R4-STMT-BOTH-U"));
+    expect(reading.status, JSON.stringify(reading.body).slice(0, 240)).toBe(201);
+    expect(one("SELECT branch_id FROM bank_statement WHERE id = 'R4-STMT-BOTH-U'")).toEqual({ branch_id: null });
+    expect((await bothBranchesWithUnattributed("GET", "/bank-statements/R4-STMT-BOTH-U")).status).toBe(200);
 
     const ofBranch = await chargeOn("R4-STMT-ALEX");
     expect(ofBranch.voucher).toBe(ALEX);

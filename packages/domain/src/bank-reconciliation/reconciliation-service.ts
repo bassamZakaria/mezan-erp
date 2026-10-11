@@ -228,6 +228,15 @@ export interface BankReconciliationServiceDeps {
    * client supplied; a route builds one service per request with it.
    */
   readonly branchScope?: readonly string[];
+  /**
+   * INVARIANT: a statement read on an account the company holds takes the one
+   * branch its importer is granted, so the importer can open what it imported
+   * and the bank charges raised from it land in that branch. A caller granted
+   * several branches cannot be placed, and one that does not read «غير مخصص»
+   * is refused rather than left with a statement it cannot see.
+   */
+  readonly soleBranchId?: string;
+  readonly readsUnattributed?: boolean;
   readonly baseCurrency?: string;
   readonly mappings: StatementColumnMappingRepository;
   readonly ledgerReader: TreasuryLedgerReader;
@@ -293,6 +302,15 @@ export class BankReconciliationService {
     return account;
   }
 
+  private statementBranchOf(account: TreasuryAccount | null): string | null {
+    if (account?.branchId) return account.branchId;
+    if (this.deps.soleBranchId) return this.deps.soleBranchId;
+    if (account && this.deps.branchScope && this.deps.readsUnattributed === false) {
+      throw new TreasuryAccountOutOfBranchScopeError(account.id);
+    }
+    return null;
+  }
+
   async assertAccountInScope(treasuryAccountId: string): Promise<void> {
     await this.requireAccount(treasuryAccountId);
   }
@@ -318,7 +336,7 @@ export class BankReconciliationService {
       {
         id: cmd.id,
         treasuryAccountId: cmd.treasuryAccountId,
-        branchId: account?.branchId ?? null,
+        branchId: this.statementBranchOf(account),
         currency: account?.currency ?? this.baseCurrency(),
         importFingerprint: this.fingerprintOf(cmd.treasuryAccountId, source, {
           periodStart: cmd.periodStart,
@@ -421,7 +439,7 @@ export class BankReconciliationService {
       {
         id: cmd.id,
         treasuryAccountId: cmd.treasuryAccountId,
-        branchId: account?.branchId ?? null,
+        branchId: this.statementBranchOf(account),
         currency: account?.currency ?? parsed.currency ?? this.baseCurrency(),
         importFingerprint: this.fingerprintOf(cmd.treasuryAccountId, source, {
           periodStart,

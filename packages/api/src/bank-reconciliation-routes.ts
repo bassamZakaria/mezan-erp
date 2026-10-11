@@ -77,7 +77,8 @@ import {
   StatementFileFormatCode,
   StatementSourceCode,
 } from "@mezan/contracts";
-import { branchScopeOf, callerRoleCodes, callerUserId, createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
+import { canSeeUnattributed } from "./branch-view.js";
+import { branchGrantOf, branchScopeOf, callerRoleCodes, callerUserId, createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
 import { recordAdminEvent, recordFieldChanges } from "./admin-audit.js";
 import { duplicateIdRefusal, refuseTakenId } from "./duplicate-id.js";
 import { DuplicateRecordIdError } from "@mezan/domain";
@@ -366,7 +367,12 @@ export function createBankReconciliationRoutes(
    * was reachable by anyone holding the permission.
    */
   const serviceFor = (c: Context): BankReconciliationService =>
-    new BankReconciliationService({ ...deps, branchScope: branchScopeOf(c) });
+    new BankReconciliationService({
+      ...deps,
+      branchScope: branchScopeOf(c),
+      soleBranchId: branchGrantOf(c)?.length === 1 ? branchGrantOf(c)![0] : undefined,
+      readsUnattributed: canSeeUnattributed(c),
+    });
 
   /**
    * Resolve one line's matched entry number. The routes that return a SINGLE

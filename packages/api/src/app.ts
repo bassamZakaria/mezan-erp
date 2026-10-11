@@ -97,7 +97,7 @@ import {
 } from "@mezan/domain";
 import { createScryptHasher } from "@mezan/persistence";
 import { createLanRoutes } from "./lan/routes.js";
-import { sessionOriginReporting, type SessionRegistry } from "./session-auth.js";
+import { existenceRead, sessionOriginReporting, type SessionRegistry } from "./session-auth.js";
 import type { LoginThrottle } from "./login-throttle.js";
 import { applyModuleGates, entitlementsBinding, type EntitlementsResolver } from "./module-gate.js";
 import { createAccountsRouter } from "./accounts.js";
@@ -974,6 +974,10 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
           headers.delete("content-length");
           headers.delete("content-type");
           return app.fetch(new Request(new URL(path, c.req.url), { headers }), c.env);
+        },
+        stillExists: async (c, path) => {
+          const read = existenceRead(new URL(path, c.req.url), c.env);
+          return (await app.fetch(read.request, read.env)).status !== 404;
         },
       })
     : undefined;

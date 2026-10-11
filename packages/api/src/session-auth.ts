@@ -364,6 +364,27 @@ const ANONYMOUS: AuthContext = createAuthContext({
   authenticated: false,
 });
 
+const existenceReads = new WeakSet<Request>();
+/** Read only where no session registry is mounted (route-level tests): a session resolver never looks at these. */
+const HEADER_MODE_READER = { "x-user-id": "system", "x-permissions": "*", "x-branch-scope": "*", "x-warehouse-scope": "*" };
+
+// SECURITY: marks a GET this process builds for itself, to learn only whether
+// a record exists. Membership is by object identity, so nothing that arrives
+// over a socket can be in the set, and the answer's body is never handed to a
+// caller — only its status is read (idempotent-create.ts `stillExists`).
+export function existenceRead(url: URL | string, env?: unknown): { readonly request: Request; readonly env: unknown } {
+  const request = new Request(url, { method: "GET", headers: HEADER_MODE_READER });
+  existenceReads.add(request);
+  return { request, env };
+}
+
+const EXISTENCE_READER: AuthContext = createAuthContext({
+  userId: "system",
+  permissions: ["*"],
+  branchScope: ALL_SCOPE,
+  warehouseScope: ALL_SCOPE,
+});
+
 /**
  * Resolves the caller from the session registry. A request with no valid token
  * gets an AuthContext holding NO permissions, so every gated route answers 403
@@ -371,6 +392,7 @@ const ANONYMOUS: AuthContext = createAuthContext({
  */
 export function createSessionAuthContextResolver(sessions: SessionRegistry): AuthContextResolver {
   return function resolveAuthContext(c: Context): AuthContext {
+    if (existenceReads.has(c.req.raw)) return EXISTENCE_READER;
     const token = readSessionToken(c);
     if (!token) return ANONYMOUS;
     // The second argument is the whole of the origin binding at the gate: a

@@ -582,6 +582,10 @@ export function createSalesInvoicesRoutes(
     const d = parsed.data;
     const currencyRefusal = await deps.currencyCheck?.(d.currency);
     if (currencyRefusal) return c.json({ error: "CURRENCY_NOT_ALLOWED", message: currencyRefusal }, 422);
+    // A caller who may read only their own invoices is the salesperson of one
+    // they create without naming anybody: otherwise the invoice they have just
+    // made is one they can never open.
+    const ownEmployeeId = !d.salespersonId && ownVisibilityOnly(c) ? await ownSalespersonIdOf(c) : NO_SUCH_ACTOR;
     const cmd: CreateSalesInvoiceCommand = {
       id: d.id ?? idGen(),
       date: d.date,
@@ -591,7 +595,7 @@ export function createSalesInvoicesRoutes(
       customerTaxExempt: d.customerTaxExempt,
       warehouseId: d.warehouseId,
       branchId: d.branchId,
-      salespersonId: d.salespersonId ?? null,
+      salespersonId: d.salespersonId ?? (ownEmployeeId === NO_SUCH_ACTOR ? null : ownEmployeeId),
       salespersonNameAr: d.salespersonNameAr ?? null,
       projectId: d.projectId ?? null,
       couponCode: d.couponCode ?? null,

@@ -62,6 +62,12 @@ export interface IdempotentCreateOptions {
   readonly creates?: readonly IdempotentCreate[];
   /** Reads a document back as the caller, through the app's own routes. */
   readonly readCurrent: (c: Context, path: string) => Response | Promise<Response>;
+  /**
+   * Whether the document is still there at all, whoever may read it. A caller
+   * allowed to create a document is not always allowed to read it back, and a
+   * refused read must not be answered as a document that was never made.
+   */
+  readonly stillExists?: (c: Context, path: string) => Promise<boolean>;
 }
 
 export interface IdempotentCreateMiddleware {
@@ -123,7 +129,11 @@ export function idempotentCreate(options: IdempotentCreateOptions): IdempotentCr
   async function asItStandsNow(c: Context, create: IdempotentCreate, key: string, first: IdempotentAnswer): Promise<Response> {
     const headers = { "content-type": JSON_TYPE, [IDEMPOTENT_REPLAY_HEADER]: "true" };
     const current = await readCurrent(c, create.read(key));
-    if (current.status === NOT_FOUND) return new Response(await current.text(), { status: NOT_FOUND, headers });
+    if (current.status === NOT_FOUND) {
+      const gone = options.stillExists ? !(await options.stillExists(c, create.read(key))) : true;
+      if (gone) return new Response(await current.text(), { status: NOT_FOUND, headers });
+      return new Response(first.body, { status: first.status, headers });
+    }
     if (current.status < SUCCESS_FROM || current.status >= SUCCESS_BELOW) return new Response(first.body, { status: first.status, headers });
     const body = create.merge ? JSON.stringify(create.merge(JSON.parse(first.body), await current.json())) : await current.text();
     return new Response(body, { status: first.status, headers });

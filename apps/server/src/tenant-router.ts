@@ -4,7 +4,7 @@ import { mkdirSync } from "node:fs";
 import { timingSafeEqual } from "node:crypto";
 import { createSourceThrottle, tooManyAttempts, type SourceThrottle } from "@mezan/api";
 import { createBackend, type BackendHandle, type PlatformHandle } from "@mezan/backend";
-import type { SessionGrant } from "@mezan/api";
+import type { SessionGrant, SmtpConfig } from "@mezan/api";
 import type { SqliteOpenOptions } from "@mezan/persistence";
 import { createBackendCache, type BackendCache } from "./backend-cache.js";
 import { callerSource, originEnv, requireCloudSource, SOCKET_ONLY, type ClientSourceOptions, type CloudSource, type SourceReporter } from "./client-source.js";
@@ -19,6 +19,8 @@ export interface TenantRouterOptions {
   /** How the caller's address is read. Defaults to the socket's peer with no proxy trusted. */
   readonly clientSource?: ClientSourceOptions;
   readonly sourceReporter?: SourceReporter;
+  /** The platform's mail server, for a tenant that has configured none: an account-lock notice still reaches its administrators. */
+  readonly securityMail?: SmtpConfig;
   readonly allowTenantHeader?: boolean;
   readonly idleMs?: number;
   readonly ttlMs?: number;
@@ -123,6 +125,7 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
     return createBackend({
       dbPath,
       connection: options.connection,
+      securityMail: options.securityMail,
       resolveEntitlements: () => r.resolveEntitlements(),
       resolveLicenseState: () => r.resolveLicenseState(),
     });

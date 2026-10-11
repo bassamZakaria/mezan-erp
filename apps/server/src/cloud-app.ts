@@ -104,6 +104,7 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
     trustForwardedHost: env.trustProxy,
     clientSource: env.clientSource,
     sourceReporter,
+    securityMail: env.platformSmtp,
     allowTenantHeader: true,
     now,
     connection: { exclusive: env.sqliteExclusive },

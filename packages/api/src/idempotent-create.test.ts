@@ -10,7 +10,11 @@ afterEach(() => {
   for (const sink of sinks.splice(0)) sink.db.close();
 });
 
-function mounted(wrap: (store: IdempotentRequests) => IdempotentRequests = (store) => store, now: () => Date = () => new Date("2026-09-14T12:00:00.000Z")) {
+function mounted(
+  wrap: (store: IdempotentRequests) => IdempotentRequests = (store) => store,
+  now: () => Date = () => new Date("2026-09-14T12:00:00.000Z"),
+  callerMayRead: () => boolean = () => true,
+) {
   const sink = createSqliteAuditSink(":memory:", { chainKey: "k".repeat(64) });
   sinks.push(sink);
   sink.db.exec("CREATE TABLE doc (id TEXT PRIMARY KEY, status TEXT NOT NULL)");
@@ -23,6 +27,7 @@ function mounted(wrap: (store: IdempotentRequests) => IdempotentRequests = (stor
     now,
     creates: [{ path: "/docs", read: (id) => `/docs/${id}` }],
     readCurrent: (c, path) => app.fetch(new Request(new URL(path, c.req.url))),
+    stillExists: async (c, path) => (await app.fetch(new Request(new URL(path, c.req.url), { headers: { "x-test-system": "1" } }))).status !== 404,
   });
   app.use("/docs", idempotent.replay);
   app.use("*", connectionTurn(sink));
@@ -33,6 +38,7 @@ function mounted(wrap: (store: IdempotentRequests) => IdempotentRequests = (stor
     return c.json({ id: body.id, status: "draft" }, 201);
   });
   app.get("/docs/:id", (c) => {
+    if (c.req.header("x-test-system") !== "1" && !callerMayRead()) return c.json({ error: "NOT_FOUND" }, 404);
     const row = sink.db.prepare("SELECT id, status FROM doc WHERE id = ?").get(c.req.param("id"));
     return row ? c.json(row) : c.json({ error: "NOT_FOUND" }, 404);
   });
@@ -78,6 +84,23 @@ describe("a create whose answer could not be kept", () => {
     t.db.prepare("DELETE FROM doc WHERE id = 'doc-1'").run();
     expect((await t.create({ id: "doc-1" })).status).toBe(404);
     expect(t.docs()).toBe(0);
+  });
+
+  it("answers a resend with the first answer when the caller may create the document but not read it back", async () => {
+    let mayRead = true;
+    const t = mounted(undefined, undefined, () => mayRead);
+    mayRead = false;
+    const first = await t.create({ id: "doc-1" });
+    expect(first.status).toBe(201);
+
+    const resent = await t.create({ id: "doc-1" });
+    expect(resent.status).toBe(201);
+    expect(resent.headers.get("idempotent-replay")).toBe("true");
+    expect(await resent.json()).toEqual({ id: "doc-1", status: "draft" });
+    expect(t.docs()).toBe(1);
+
+    t.db.prepare("DELETE FROM doc WHERE id = 'doc-1'").run();
+    expect((await t.create({ id: "doc-1" })).status).toBe(404);
   });
 
   it("treats the same body with its keys in another order as the same create, and a changed value as another", async () => {

@@ -4,6 +4,7 @@ import {
   InvalidSignupError,
   isDisposableEmailDomain,
   PlanNotFoundError,
+  SignupAlreadyActivatedError,
   SignupTokenExpiredError,
   SignupTokenInvalidError,
   startSignup,
@@ -120,7 +121,7 @@ function signupErrorResponse(c: Context, err: unknown): Response {
   if (err instanceof SignupTokenInvalidError) {
     return c.json({ error: err.code, message: err.message }, 400);
   }
-  if (err instanceof SignupTokenExpiredError) {
+  if (err instanceof SignupTokenExpiredError || err instanceof SignupAlreadyActivatedError) {
     return c.json({ error: err.code, message: err.message }, 410);
   }
   if (err instanceof SignupVerificationBusyError) {

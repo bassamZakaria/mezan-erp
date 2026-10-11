@@ -42,7 +42,7 @@ const SUSPEND_QUESTION = "إيقاف المنشأة؟";
 const RESET_OWNER_PIN = "إعادة تعيين رمز المالك";
 const RESET_OWNER_PIN_QUESTION = "إعادة تعيين رمز المالك؟";
 const FIRST_PERIOD_END = "2027-02-28";
-const RENEWED_PERIOD_END = "2027-03-28";
+const RENEWED_PERIOD_END = "2027-03-31";
 
 interface PlatformSubscription {
   readonly status: string;

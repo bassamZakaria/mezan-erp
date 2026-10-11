@@ -8,6 +8,7 @@ import type { TenantRepository } from "./tenant.js";
 import {
   InvalidSignupError,
   PlanNotFoundError,
+  SignupAlreadyActivatedError,
   SignupTokenExpiredError,
   SignupTokenInvalidError,
   TenantCodeTakenError,
@@ -177,6 +178,9 @@ export async function startSignup(
   return request;
 }
 
+/** A used link keeps answering "already activated" this long — long enough for a prefetching mail scanner and a late second click — and is then only a pointer to the sign-in page. */
+export const VERIFIED_LINK_VALID_MS = 30 * 24 * 60 * 60 * 1000;
+
 /**
  * Consumes a verification token.
  *
@@ -201,7 +205,11 @@ export async function verifySignup(tokenHash: string, repo: SignupRequestReposit
   if (!nowIso) throw new SignupTokenInvalidError();
   const request = await repo.findByTokenHash(tokenHash);
   if (!request) throw new SignupTokenInvalidError();
-  if (request.status === SignupRequestStatus.Verified) return request;
+  if (request.status === SignupRequestStatus.Verified) {
+    const usedAt = new Date(request.verifiedAt ?? request.expiresAt).getTime();
+    if (new Date(nowIso).getTime() - usedAt > VERIFIED_LINK_VALID_MS) throw new SignupAlreadyActivatedError();
+    return request;
+  }
   if (new Date(request.expiresAt).getTime() < new Date(nowIso).getTime()) throw new SignupTokenExpiredError();
 
   const won = await repo.tryMarkVerified(tokenHash, nowIso);

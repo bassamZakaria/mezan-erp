@@ -71,6 +71,7 @@ CREATE TABLE IF NOT EXISTS subscription (
   current_period_end    TEXT NOT NULL,
   trial_ends_at         TEXT,
   previous_plan_id      TEXT,
+  billing_anchor_day    INTEGER,
   grace_days            INTEGER NOT NULL,
   cancelled_at          TEXT,
   created_at            TEXT NOT NULL,
@@ -187,6 +188,7 @@ function addMissingColumns(sqlite: Database.Database): void {
     (sqlite.prepare(`PRAGMA table_info(subscription)`).all() as { name: string }[]).map((c) => c.name),
   );
   if (!onSubscription.has("previous_plan_id")) sqlite.exec(`ALTER TABLE subscription ADD COLUMN previous_plan_id TEXT`);
+  if (!onSubscription.has("billing_anchor_day")) sqlite.exec(`ALTER TABLE subscription ADD COLUMN billing_anchor_day INTEGER`);
 }
 
 interface TenantRow {
@@ -322,6 +324,7 @@ interface SubscriptionRow {
   extra_seats: number; extra_branches: number; extra_warehouses: number;
   current_period_start: string; current_period_end: string; trial_ends_at: string | null;
   previous_plan_id: string | null;
+  billing_anchor_day: number | null;
   grace_days: number; cancelled_at: string | null; created_at: string; updated_at: string;
 }
 
@@ -333,6 +336,7 @@ function toSubscription(r: SubscriptionRow): Subscription {
     currentPeriodStart: r.current_period_start, currentPeriodEnd: r.current_period_end,
     trialEndsAt: r.trial_ends_at, previousPlanId: r.previous_plan_id, graceDays: r.grace_days, cancelledAt: r.cancelled_at,
     createdAt: r.created_at, updatedAt: r.updated_at,
+    ...(r.billing_anchor_day === null ? {} : { billingAnchorDay: r.billing_anchor_day }),
   };
 }
 
@@ -352,16 +356,16 @@ class SqliteSubscriptionStore implements SubscriptionTransitionRepository {
     this.upsert = sqlite.prepare(
       `INSERT INTO subscription (id, tenant_id, plan_id, status, billing_cycle, add_on_modules, extra_seats,
          extra_branches, extra_warehouses, current_period_start, current_period_end, trial_ends_at, previous_plan_id,
-         grace_days, cancelled_at, created_at, updated_at)
+         billing_anchor_day, grace_days, cancelled_at, created_at, updated_at)
        VALUES (@id, @tenantId, @planId, @status, @billingCycle, @addOnModules, @extraSeats, @extraBranches,
-         @extraWarehouses, @currentPeriodStart, @currentPeriodEnd, @trialEndsAt, @previousPlanId, @graceDays, @cancelledAt,
+         @extraWarehouses, @currentPeriodStart, @currentPeriodEnd, @trialEndsAt, @previousPlanId, @billingAnchorDay, @graceDays, @cancelledAt,
          @createdAt, @updatedAt)
        ON CONFLICT(id) DO UPDATE SET
          tenant_id = @tenantId, plan_id = @planId, status = @status, billing_cycle = @billingCycle,
          add_on_modules = @addOnModules, extra_seats = @extraSeats, extra_branches = @extraBranches,
          extra_warehouses = @extraWarehouses, current_period_start = @currentPeriodStart,
          current_period_end = @currentPeriodEnd, trial_ends_at = @trialEndsAt, previous_plan_id = @previousPlanId,
-         grace_days = @graceDays,
+         billing_anchor_day = @billingAnchorDay, grace_days = @graceDays,
          cancelled_at = @cancelledAt, created_at = @createdAt, updated_at = @updatedAt`,
     );
     this.byId = sqlite.prepare(`SELECT * FROM subscription WHERE id = ?`);
@@ -379,7 +383,7 @@ class SqliteSubscriptionStore implements SubscriptionTransitionRepository {
       `UPDATE subscription
           SET plan_id = @planId, previous_plan_id = @previousPlanId, status = @status, billing_cycle = @billingCycle,
               current_period_start = @currentPeriodStart, current_period_end = @currentPeriodEnd,
-              trial_ends_at = @trialEndsAt, updated_at = @updatedAt
+              trial_ends_at = @trialEndsAt, billing_anchor_day = @billingAnchorDay, updated_at = @updatedAt
         WHERE id = @id AND plan_id = @beforePlanId AND status = @beforeStatus AND updated_at = @beforeUpdatedAt`,
     );
   }
@@ -418,7 +422,7 @@ class SqliteSubscriptionStore implements SubscriptionTransitionRepository {
           id: after.id, planId: after.planId, previousPlanId: after.previousPlanId,
           status: after.status, billingCycle: after.billingCycle,
           currentPeriodStart: after.currentPeriodStart, currentPeriodEnd: after.currentPeriodEnd,
-          trialEndsAt: after.trialEndsAt, updatedAt: after.updatedAt,
+          trialEndsAt: after.trialEndsAt, billingAnchorDay: after.billingAnchorDay ?? null, updatedAt: after.updatedAt,
           beforePlanId: before.planId, beforeStatus: before.status, beforeUpdatedAt: before.updatedAt,
         });
         if (result.changes !== 1) return false;
@@ -435,7 +439,8 @@ class SqliteSubscriptionStore implements SubscriptionTransitionRepository {
       id: s.id, tenantId: s.tenantId, planId: s.planId, status: s.status, billingCycle: s.billingCycle,
       addOnModules: JSON.stringify(s.addOnModules), extraSeats: s.extraSeats, extraBranches: s.extraBranches,
       extraWarehouses: s.extraWarehouses, currentPeriodStart: s.currentPeriodStart, currentPeriodEnd: s.currentPeriodEnd,
-      trialEndsAt: s.trialEndsAt, previousPlanId: s.previousPlanId, graceDays: s.graceDays, cancelledAt: s.cancelledAt,
+      trialEndsAt: s.trialEndsAt, previousPlanId: s.previousPlanId, billingAnchorDay: s.billingAnchorDay ?? null,
+      graceDays: s.graceDays, cancelledAt: s.cancelledAt,
       createdAt: s.createdAt, updatedAt: s.updatedAt,
     });
   }
@@ -621,7 +626,7 @@ class SqliteCardCheckoutStore implements CardCheckoutRepository {
     );
     this.renewSubscription = sqlite.prepare(
       `UPDATE subscription SET status = @status, trial_ends_at = @trialEndsAt, current_period_start = @currentPeriodStart,
-         current_period_end = @currentPeriodEnd, updated_at = @updatedAt
+         current_period_end = @currentPeriodEnd, billing_anchor_day = @billingAnchorDay, updated_at = @updatedAt
        WHERE id = @id AND status = @expectedStatus AND updated_at = @expectedUpdatedAt AND current_period_end = @expectedPeriodEnd`,
     );
     this.insertPayment = sqlite.prepare(
@@ -693,7 +698,7 @@ class SqliteCardCheckoutStore implements CardCheckoutRepository {
       if (!moved) return "already-settled";
       const renewed = this.renewSubscription.run({
         id: after.id, status: after.status, trialEndsAt: after.trialEndsAt,
-        currentPeriodStart: after.currentPeriodStart, currentPeriodEnd: after.currentPeriodEnd, updatedAt: after.updatedAt,
+        currentPeriodStart: after.currentPeriodStart, currentPeriodEnd: after.currentPeriodEnd, billingAnchorDay: after.billingAnchorDay ?? null, updatedAt: after.updatedAt,
         expectedStatus: before.status, expectedUpdatedAt: before.updatedAt, expectedPeriodEnd: before.currentPeriodEnd,
       });
       if (renewed.changes !== 1) throw new SubscriptionChanged();

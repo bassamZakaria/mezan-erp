@@ -36,6 +36,12 @@ export interface Subscription {
   readonly extraWarehouses: number;
   readonly currentPeriodStart: string;
   readonly currentPeriodEnd: string;
+  /**
+   * The day of the month this subscription is billed on. A period that starts on the 31st
+   * ends on 28 February, and without this the next one would start — and stay — on the 28th.
+   * Absent only on rows stored before it existed; {@link billingAnchorDayOf} answers for those.
+   */
+  readonly billingAnchorDay?: number;
   readonly trialEndsAt: string | null;
   /**
    * The plan this subscription was on before its last plan change.
@@ -77,12 +83,20 @@ export interface SubscriptionTransitionRepository extends SubscriptionRepository
 export const DEFAULT_GRACE_DAYS = 7;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-export function addPeriod(startIso: string, cycle: BillingCycle): string {
+function utcDayOfMonth(iso: string): number {
+  return new Date(iso).getUTCDate();
+}
+
+export function billingAnchorDayOf(s: Pick<Subscription, "billingAnchorDay" | "currentPeriodStart">): number {
+  return s.billingAnchorDay ?? utcDayOfMonth(s.currentPeriodStart);
+}
+
+export function addPeriod(startIso: string, cycle: BillingCycle, anchorDay: number = utcDayOfMonth(startIso)): string {
   const d = new Date(startIso);
   const year = d.getUTCFullYear() + (cycle === "yearly" ? 1 : 0);
   const month = d.getUTCMonth() + (cycle === "monthly" ? 1 : 0);
   const lastDay = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
-  const day = Math.min(d.getUTCDate(), lastDay);
+  const day = Math.min(anchorDay, lastDay);
   return new Date(Date.UTC(year, month, day, d.getUTCHours(), d.getUTCMinutes(), d.getUTCSeconds(), d.getUTCMilliseconds())).toISOString();
 }
 
@@ -107,6 +121,7 @@ export function applyTrialEndToFree(s: Subscription, freePlanId: string, nowIso:
     billingCycle: "monthly",
     currentPeriodStart: endedAt,
     currentPeriodEnd: addPeriod(endedAt, "monthly"),
+    billingAnchorDay: utcDayOfMonth(endedAt),
     updatedAt: nowIso,
   };
 }
@@ -195,6 +210,7 @@ export async function startSubscription(
     extraWarehouses,
     currentPeriodStart: now,
     currentPeriodEnd: addPeriod(now, cmd.billingCycle),
+    billingAnchorDay: utcDayOfMonth(now),
     trialEndsAt: trial ? addDays(now, plan.trialDays) : null,
     previousPlanId: null,
     graceDays,
@@ -233,12 +249,14 @@ export function applyRenewal(s: Subscription, nowIso: string): Subscription {
   assertFrom(s, ["trialing", "active", "past_due"], "active");
   const lapsed = s.currentPeriodEnd < now;
   const periodStart = lapsed ? now : s.currentPeriodEnd;
+  const billingAnchorDay = lapsed ? utcDayOfMonth(now) : billingAnchorDayOf(s);
   return {
     ...s,
     status: "active",
     trialEndsAt: null,
     currentPeriodStart: periodStart,
-    currentPeriodEnd: addPeriod(periodStart, s.billingCycle),
+    currentPeriodEnd: addPeriod(periodStart, s.billingCycle, billingAnchorDay),
+    billingAnchorDay,
     updatedAt: now,
   };
 }

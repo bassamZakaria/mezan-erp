@@ -140,6 +140,32 @@ describe("createSqlitePlatformStores", () => {
   });
 });
 
+describe("a subscription's billing day", () => {
+  it("is kept with the subscription, and a row stored before it existed reads back without one", async () => {
+    const stores = createSqlitePlatformStores(":memory:");
+    await stores.subscriptions.save({ ...sub, billingAnchorDay: 31 });
+    await stores.subscriptions.save({ ...sub, id: "S-OLD", tenantId: "T-OLD" });
+
+    expect((await stores.subscriptions.findById("S1"))?.billingAnchorDay).toBe(31);
+    expect(await stores.subscriptions.findById("S-OLD")).toEqual({ ...sub, id: "S-OLD", tenantId: "T-OLD" });
+    stores.close();
+  });
+
+  it("is added to a platform database created before the column existed", () => {
+    const raw = new Database(":memory:");
+    raw.exec(`CREATE TABLE subscription (
+      id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL, plan_id TEXT NOT NULL, status TEXT NOT NULL, billing_cycle TEXT NOT NULL,
+      add_on_modules TEXT NOT NULL, extra_seats INTEGER NOT NULL, extra_branches INTEGER NOT NULL, extra_warehouses INTEGER NOT NULL,
+      current_period_start TEXT NOT NULL, current_period_end TEXT NOT NULL, trial_ends_at TEXT, previous_plan_id TEXT,
+      grace_days INTEGER NOT NULL, cancelled_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`);
+
+    createSqlitePlatformStores(raw);
+
+    expect((raw.prepare(`PRAGMA table_info(subscription)`).all() as { name: string }[]).map((column) => column.name)).toContain("billing_anchor_day");
+    raw.close();
+  });
+});
+
 describe("signup provisioning claim", () => {
   const TOKEN = "token-hash";
   const AT = "2026-01-15T10:00:00.000Z";

@@ -866,6 +866,47 @@ describe("a signup verification whose provisioning claim is contested", () => {
   });
 });
 
+describe("a verification link long after it was used", () => {
+  const DAY_MS = 24 * 60 * 60 * 1000;
+
+  it("answers already activated for thirty days, then retires: no PIN, no account details, nothing provisioned or claimed", async () => {
+    const dataDir = platformDir();
+    const platform = await openPlatform(dataDir);
+    let clock = new Date(T).getTime();
+    let claimAttempts = 0;
+    const { signup, router } = signupProcess(platform, dataDir, {
+      now: () => new Date(clock),
+      stores: (stores) => {
+        const signupRequests = Object.create(stores.signupRequests) as SignupStores["signupRequests"];
+        signupRequests.tryClaimProvisioning = async (...args) => {
+          claimAttempts += 1;
+          return stores.signupRequests.tryClaimProvisioning(...args);
+        };
+        return { signupRequests };
+      },
+    });
+    const token = await startOn(signup, "aged");
+    const first = (await (await send(signup, "/verify", { token })).json()) as VerifyBody;
+    const tenantBefore = await platform.stores.tenants.findByCode("aged");
+
+    clock += 30 * DAY_MS;
+    const onTheLastDay = await send(signup, "/verify", { token });
+    expect(onTheLastDay.status).toBe(200);
+    expect((await onTheLastDay.json()) as VerifyBody).toMatchObject({ adminPin: null, alreadyVerified: true });
+    const attemptsWhileValid = claimAttempts;
+
+    clock += 1;
+    const retired = await send(signup, "/verify", { token });
+
+    expect(retired.status).toBe(410);
+    expect(await retired.json()).toEqual({ error: "SIGNUP_ALREADY_ACTIVATED", message: "تم تفعيل هذا الحساب مسبقًا. سجّل الدخول برمز منشأتك وبريدك." });
+    expect(claimAttempts).toBe(attemptsWhileValid);
+    expect(await platform.stores.tenants.findByCode("aged")).toEqual(tenantBefore);
+    expect((await platform.stores.subscriptions.listByTenant(first.tenant.id)).length).toBe(1);
+    expect((await tenantLogin(router, "aged", first.adminPin)).status).toBe(200);
+  });
+});
+
 describe("a stored subscription status this build does not know", () => {
   it("is shown as unknown on that tenant's row and its own billing card, while every other tenant still lists", async () => {
     const app = await boot();

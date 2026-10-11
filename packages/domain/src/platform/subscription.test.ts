@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { Money } from "../money/money.js";
 import { PlanKind, type Plan, type PlanRepository } from "./plan.js";
 import {
-  addPeriod, startSubscription, renewSubscription, changePlan, markPastDue,
+  addPeriod, applyRenewal, startSubscription, renewSubscription, changePlan, markPastDue,
   suspendSubscription, resumeSubscription, cancelSubscription,
   type Subscription, type SubscriptionRepository,
 } from "./subscription.js";
@@ -145,7 +145,7 @@ describe("lifecycle", () => {
     expect(s.status).toBe("active");
     expect(s.trialEndsAt).toBeNull();
     expect(s.currentPeriodStart).toBe("2026-02-28T10:00:00.000Z");
-    expect(s.currentPeriodEnd).toBe("2026-03-28T10:00:00.000Z");
+    expect(s.currentPeriodEnd).toBe("2026-03-31T10:00:00.000Z");
     expect(s.updatedAt).toBe(BEFORE_END);
   });
 
@@ -219,3 +219,53 @@ describe("lifecycle", () => {
       .rejects.toThrow(InvalidSubscriptionError);
   });
 });
+
+describe("a renewal keeps the day the subscription is billed on", () => {
+  async function started(now: string, billingCycle: "monthly" | "yearly" = "monthly"): Promise<Subscription> {
+    return startSubscription({ ...base, billingCycle, now }, subs(), plans(plan()));
+  }
+
+  function periodEndsAfterRenewingOnTime(first: Subscription, renewals: number): string[] {
+    const ends = [first.currentPeriodEnd];
+    let current = first;
+    for (let i = 0; i < renewals; i += 1) {
+      current = applyRenewal(current, current.currentPeriodStart);
+      ends.push(current.currentPeriodEnd);
+    }
+    return ends.map((end) => end.slice(0, 10));
+  }
+
+  it("returns to the 31st after a short February", async () => {
+    expect(periodEndsAfterRenewingOnTime(await started("2027-01-31T10:00:00.000Z"), 4)).toEqual([
+      "2027-02-28", "2027-03-31", "2027-04-30", "2027-05-31", "2027-06-30",
+    ]);
+  });
+
+  it("lands on the 29th of a leap February and still returns to the 31st", async () => {
+    expect(periodEndsAfterRenewingOnTime(await started("2028-01-31T10:00:00.000Z"), 2)).toEqual(["2028-02-29", "2028-03-31", "2028-04-30"]);
+  });
+
+  it("keeps a 30th through February", async () => {
+    expect(periodEndsAfterRenewingOnTime(await started("2027-01-30T10:00:00.000Z"), 2)).toEqual(["2027-02-28", "2027-03-30", "2027-04-30"]);
+  });
+
+  it("keeps a yearly 29 February, falling back to the 28th only in the years without one", async () => {
+    expect(periodEndsAfterRenewingOnTime(await started("2028-02-29T10:00:00.000Z", "yearly"), 3)).toEqual([
+      "2029-02-28", "2030-02-28", "2031-02-28", "2032-02-29",
+    ]);
+  });
+
+  it("starts a new billing day when a lapsed subscription is paid late", async () => {
+    const first = await started("2027-01-31T10:00:00.000Z");
+    const paidLate = applyRenewal(first, "2027-03-10T09:00:00.000Z");
+
+    expect(paidLate.currentPeriodStart).toBe("2027-03-10T09:00:00.000Z");
+    expect(periodEndsAfterRenewingOnTime(paidLate, 1)).toEqual(["2027-04-10", "2027-05-10"]);
+  });
+
+  it("carries the time of day of the period it renews", async () => {
+    const renewed = applyRenewal(await started("2027-01-31T10:00:00.000Z"), "2027-02-01T00:00:00.000Z");
+    expect(applyRenewal(renewed, "2027-03-01T00:00:00.000Z").currentPeriodEnd).toBe("2027-04-30T10:00:00.000Z");
+  });
+});
+

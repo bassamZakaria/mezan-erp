@@ -17,10 +17,15 @@ import { createHttpTransport } from "../data/transport";
  */
 const transport = createHttpTransport("/api/signup");
 
+export enum SignupErrorCode {
+  AlreadyActivated = "SIGNUP_ALREADY_ACTIVATED",
+}
+
 export class SignupApiError extends Error {
   constructor(
     readonly status: number,
     message: string,
+    readonly code: string | null = null,
   ) {
     super(message);
     this.name = "SignupApiError";
@@ -29,8 +34,8 @@ export class SignupApiError extends Error {
 
 async function readError(res: Awaited<ReturnType<typeof transport>>, fallback: string): Promise<SignupApiError> {
   try {
-    const body = await res.json<{ message?: string }>();
-    return new SignupApiError(res.status, body.message ?? fallback);
+    const body = await res.json<{ message?: string; error?: string }>();
+    return new SignupApiError(res.status, body.message ?? fallback, body.error ?? null);
   } catch {
     return new SignupApiError(res.status, fallback);
   }

@@ -490,11 +490,12 @@ async function seedFieldSales(app: App): Promise<void> {
 }
 
 /**
- * One VAT return already submitted, for a window nothing else in the seed or
- * the scenarios posts into (D29). It makes the filings surface real without
- * locking a period the rest of the demo data still writes to.
+ * One VAT return already submitted, for a window no scenario posts into (D29).
+ * A filed return refuses every later posting into its month, so the guided
+ * close files it only after May's own entries — its payroll, its recurring
+ * entry, its supplementary depreciation — are in the books.
  */
-async function seedVatFiling(app: App): Promise<void> {
+export async function seedVatFiling(app: App): Promise<void> {
   await step(app, "POST", "/gl/vat-filings", {
     id: "VATF-DEMO-2026-05",
     periodFrom: "2026-05-01",
@@ -722,7 +723,6 @@ export async function seedTreasury(app: App): Promise<void> {
   await seedExchangeRates(app);
   await seedInstallmentPlan(app);
   await seedFieldSales(app);
-  await seedVatFiling(app);
   await seedBankStatement(app);
   await seedForeignCurrencyBankStatement(app);
 }

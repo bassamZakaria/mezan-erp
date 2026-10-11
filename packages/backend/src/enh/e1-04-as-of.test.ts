@@ -91,15 +91,6 @@ afterAll(() => {
   if (dir) rmSync(dir, { recursive: true, force: true });
 });
 
-const OVERRIDDEN_EVERY_MONTH = { failed: ["bank_statements", "drafts", "recurring_journals"], named: "المستندات غير المرحَّلة، كشوف البنوك، القيود المتكررة المستحقة" };
-// May's VAT return is filed, so the plant asset registered after May's run can no longer be charged in May: its depreciation is overridden, and said so.
-const OVERRIDDEN: Readonly<Record<string, { failed: string[]; named: string }>> = {
-  "01": OVERRIDDEN_EVERY_MONTH,
-  "02": OVERRIDDEN_EVERY_MONTH,
-  "03": OVERRIDDEN_EVERY_MONTH,
-  "04": OVERRIDDEN_EVERY_MONTH,
-  "05": { failed: ["bank_statements", "depreciation", "drafts", "recurring_journals"], named: `${OVERRIDDEN_EVERY_MONTH.named}، تشغيل الإهلاك` },
-};
 
 interface SummaryRow {
   readonly overrideReason: string | null;
@@ -151,15 +142,27 @@ describe("the demo shows a guided close that works, and one that refuses for a r
     }
   });
 
-  it("January to May were closed by override, each with its stated Arabic reason and the checks it overrode", async () => {
+  it("January to May are closed clean as well: nothing failed, no override, each month's payroll paid and its bank statement finalized", async () => {
     for (const month of ["01", "02", "03", "04", "05"]) {
       expect(periodStatus(month)).toBe("closed");
-      const [latest] = await summariesOf(month);
-      const expected = OVERRIDDEN[month];
-      expect({ month, failed: [...(latest?.failedChecks ?? [])].sort() }).toEqual({ month, failed: expected?.failed });
-      expect(latest?.overrideReason).toBe(`إقفال بتجاوز الفحوص الآتية: ${expected?.named} — بموافقة المدير المالي.`);
-      expect(latest?.sealValid).toBe(true);
+      const summaries = await summariesOf(month);
+      expect({ month, closes: summaries.length, failed: summaries[0]?.failedChecks, overrideReason: summaries[0]?.overrideReason, sealValid: summaries[0]?.sealValid }).toEqual({
+        month,
+        closes: 1,
+        failed: [],
+        overrideReason: null,
+        sealValid: true,
+      });
+      expect(sqlite.prepare(`SELECT status FROM hr_payroll_run WHERE year = 2026 AND month = ?`).all(Number(month))).toEqual([{ status: "disbursed" }]);
+      expect(sqlite.prepare(`SELECT status FROM bank_statement WHERE id = ?`).all(`BSTMT-DEMO-2026-${month}`)).toEqual([{ status: "completed" }]);
     }
+  });
+
+  it("May's VAT return is filed after May's own entries, and the asset registered after May's first run is charged by a supplementary one", () => {
+    const mayRuns = sqlite.prepare(`SELECT status, lines FROM depreciation_run WHERE period = '2026-05' ORDER BY created_at`).all() as { status: string; lines: string }[];
+    expect(mayRuns.map((run) => run.status)).toEqual(["posted", "posted"]);
+    expect((JSON.parse(mayRuns[1]!.lines) as { assetId: string }[]).map((line) => line.assetId)).toEqual(["ASSET-DEMO-PLANT-1"]);
+    expect(sqlite.prepare(`SELECT status FROM vat_filing WHERE id = 'VATF-DEMO-2026-05'`).all()).toEqual([{ status: "filed" }]);
   });
 
   it("July's bank statement carries a bank charge the books did not know: it was booked from the statement line, not matched to an entry written to fit it", () => {
@@ -193,9 +196,11 @@ describe("the demo shows a guided close that works, and one that refuses for a r
     expect(await summariesOf("08")).toEqual([]);
   });
 
-  it("the employee who left before the first payroll run of the year is owed nothing by June's or July's run", () => {
+  it("the employee who left at the end of May is paid by January's to May's runs and by none after", () => {
     expect(sqlite.prepare(`SELECT status, terminated_at FROM hr_employee WHERE id = 'EMP-DEMO-9'`).get()).toEqual({ status: "terminated", terminated_at: "2026-05-31" });
-    expect((sqlite.prepare(`SELECT COUNT(*) AS n FROM hr_payslip WHERE employee_id = 'EMP-DEMO-9'`).get() as { n: number }).n).toBe(0);
+    const paidMonths = sqlite.prepare(`SELECT r.month FROM hr_payslip p JOIN hr_payroll_run r ON r.id = p.run_id WHERE p.employee_id = 'EMP-DEMO-9' ORDER BY r.month`).all() as { month: number }[];
+    expect(paidMonths.every((row) => row.month <= 5)).toBe(true);
+    expect(paidMonths.map((row) => row.month)).toContain(5);
   });
 });
 

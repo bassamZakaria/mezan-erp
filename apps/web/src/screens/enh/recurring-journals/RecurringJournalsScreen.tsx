@@ -29,7 +29,9 @@ import {
   useDueRecurringJournals,
   useGenerateDueRecurringJournals,
   usePartyControlAccounts,
+  ApiError,
   useRecurringJournalRuns,
+  useReverseRecurringJournalRun,
   useRecurringJournalSkips,
   useRecurringJournalTemplates,
   useSetRecurringJournalTemplateStatus,
@@ -589,8 +591,25 @@ interface RecurringJournalHistoryRow {
   readonly skip: RecurringJournalSkipDTO | null;
 }
 
-function HistoryTab() {
+export function RecurringJournalHistory() {
   const { t } = useAppTranslation();
+  const reverseRun = useReverseRecurringJournalRun();
+  const [reversingId, setReversingId] = useState<string | null>(null);
+  const [reverseError, setReverseError] = useState<string | null>(null);
+
+  async function reverse(runId: string) {
+    if (reversingId !== null) return;
+    setReversingId(runId);
+    setReverseError(null);
+    try {
+      await reverseRun.mutateAsync({ runId, date: todayIso() });
+    } catch (err) {
+      setReverseError(err instanceof ApiError ? err.message : t("recurringJournals.reverseFailed"));
+    } finally {
+      setReversingId(null);
+    }
+  }
+
   const runsQuery = useRecurringJournalRuns();
   const skipsQuery = useAllRecurringJournalSkips();
   const templatesQuery = useRecurringJournalTemplates();
@@ -668,11 +687,25 @@ function HistoryTab() {
   ];
 
   return (
+    <>
+      {reverseError ? (
+        <div role="alert" className="mb-[12px] rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
+          {reverseError}
+        </div>
+      ) : null}
     <DocumentList<RecurringJournalHistoryRow>
       title={t("recurringJournals.tab.history")}
       columns={columns}
       rows={pageRows}
       rowKey={(row) => row.key}
+      rowAction={(row) => {
+        const run = row.run;
+        if (!run) return null;
+        const items: RowMenuItem[] = [
+          { key: "reverse", label: t("recurringJournals.reverseRunEntry"), tone: "danger" as const, disabled: reversingId === run.id, onSelect: () => void reverse(run.id) },
+        ];
+        return <RowMenu items={items} label={t("common.rowActionsFor", { name: run.period })} />;
+      }}
       loading={runsQuery.isLoading || skipsQuery.isLoading}
       loadFailed={runsQuery.isError || skipsQuery.isError}
       page={page}
@@ -680,6 +713,7 @@ function HistoryTab() {
       onPageChange={setPage}
       emptyState={<EmptyState title={t("recurringJournals.noHistory")} description={t("recurringJournals.subtitle")} />}
     />
+    </>
   );
 }
 
@@ -723,7 +757,7 @@ export function RecurringJournalsScreen() {
       tabs={[
         { key: "templates", label: t("recurringJournals.tab.templates"), render: () => <TemplatesTab /> },
         { key: "due", label: t("recurringJournals.tab.due"), render: () => <DueTab /> },
-        { key: "history", label: t("recurringJournals.tab.history"), render: () => <HistoryTab /> },
+        { key: "history", label: t("recurringJournals.tab.history"), render: () => <RecurringJournalHistory /> },
         { key: "depreciation", label: t("recurringJournals.tab.depreciation"), render: () => <DepreciationDueTab /> },
       ]}
     />

@@ -31,3 +31,14 @@ describe("a recognition run reversed later", () => {
     expect(allZero(await contractingTies("fp-2026-09"))).toBe(true);
   });
 });
+
+describe("a subcontractor certificate approved half an hour after midnight in Cairo", () => {
+  it("is read on the day its entry is dated, not on the UTC day of the instant the approval was recorded", async () => {
+    world.sqlite.prepare(`UPDATE subcontract_certificate SET approved_at = '2026-06-30T22:30:00.000Z' WHERE id = 'SMST-DEMO-2'`).run();
+    world.sqlite.prepare(`UPDATE journal_entry SET date = '2026-07-01' WHERE id = 'SMST-DEMO-2-DED'`).run();
+
+    expect(allZero(await contractingTies("fp-2026-06"))).toBe(true);
+    expect(allZero(await contractingTies("fp-2026-07"))).toBe(true);
+  });
+});
+

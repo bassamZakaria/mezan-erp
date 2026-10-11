@@ -34,7 +34,7 @@ function entryLines(entryId: string) {
 describe("ending service against payroll that is already approved", () => {
   it("the seed pays EMP-DEMO-2 for June (disbursed) and July (approved), and August is only calculated", () => {
     const runs = world.sqlite
-      .prepare(`SELECT r.month, r.status FROM hr_payslip p JOIN hr_payroll_run r ON r.id = p.run_id WHERE p.employee_id = 'EMP-DEMO-2' ORDER BY r.month`)
+      .prepare(`SELECT r.month, r.status FROM hr_payslip p JOIN hr_payroll_run r ON r.id = p.run_id WHERE p.employee_id = 'EMP-DEMO-2' AND r.month >= 6 ORDER BY r.month`)
       .all();
     expect(runs).toEqual([
       { month: 6, status: "disbursed" },

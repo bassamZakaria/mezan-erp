@@ -8,6 +8,7 @@ import {
   DuplicateJournalEntryError,
   assertReversibleFromJournal,
   JournalReversalNotReversibleError,
+  JournalEntryOwnedByDocumentError,
 } from "./errors.js";
 
 describe("gl errors", () => {
@@ -67,9 +68,9 @@ describe("gl errors", () => {
 describe("what the journal's own reverse action accepts", () => {
   const entry = (over: Record<string, unknown>) => ({ id: "JE-1", entryNo: "JE-000001", reversesEntryId: null, sourceDocType: null, sourceDocId: null, sourceDocNumber: null, ...over });
 
-  it("a manual journal, a recurring template's entry and an imported opening balance: none has a document to reverse instead", () => {
+  it("a manual journal and an imported opening balance: neither has a document to reverse instead", () => {
     expect(() => assertReversibleFromJournal(entry({}))).not.toThrow();
-    expect(() => assertReversibleFromJournal(entry({ sourceDocType: "RECURRING_JOURNAL_TEMPLATE", sourceDocId: "T-1" }))).not.toThrow();
+    expect(() => assertReversibleFromJournal(entry({ sourceDocType: "RECURRING_JOURNAL_TEMPLATE", sourceDocId: "T-1" }))).toThrow(JournalEntryOwnedByDocumentError);
     expect(() => assertReversibleFromJournal(entry({ sourceDocType: "INITIAL_BALANCE" }))).not.toThrow();
   });
 

@@ -86,6 +86,8 @@ import {
   createHolidaySchema,
   updateHolidaySchema,
   createLeaveRequestSchema,
+  type PayBasisDTO,
+  type TransitionEmployeeDTO,
 } from "@mezan/contracts";
 import { createPermissionGate, getAuthContext, type AuthContextResolver, branchScopeOf, withinScope } from "./permission-gate.js";
 import { createHrTimeLeaveRoutes, type HrTimeLeaveRoutesDeps } from "./hr-time-leave-routes.js";
@@ -138,6 +140,20 @@ export interface HrRoutesDeps extends Partial<HrTimeLeaveDeps> {
   readonly printTemplates?: Pick<PrintTemplateConfigRepository, "get">;
   readonly tenantSettings?: Pick<SettingsRepository, "get">;
 }
+
+// The wire carries the closed sets as validated strings; each is mapped to its domain member here, exhaustively, so a value added on one side fails to compile until the other knows it.
+const EMPLOYEE_STATUS_FROM_WIRE: Readonly<Record<TransitionEmployeeDTO["status"], EmployeeRefStatus>> = {
+  active: EmployeeRefStatus.Active,
+  on_leave: EmployeeRefStatus.OnLeave,
+  suspended: EmployeeRefStatus.Suspended,
+  terminated: EmployeeRefStatus.Terminated,
+};
+
+const PAY_BASIS_FROM_WIRE: Readonly<Record<PayBasisDTO, PayBasis>> = {
+  monthly: PayBasis.Monthly,
+  hourly: PayBasis.Hourly,
+  daily: PayBasis.Daily,
+};
 
 function serializeDepartment(d: Department) {
   return {
@@ -547,7 +563,7 @@ export function createHrRoutes(deps: HrRoutesDeps, resolveAuthContext: AuthConte
     const parsed = transitionEmployeeSchema.safeParse(await c.req.json());
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     try {
-      const next = transitionEmployee(current, parsed.data.status as EmployeeRefStatus);
+      const next = transitionEmployee(current, EMPLOYEE_STATUS_FROM_WIRE[parsed.data.status]);
       await deps.employees.update(next);
       return c.json(serializeEmployee(next));
     } catch (err) {
@@ -712,7 +728,7 @@ export function createHrRoutes(deps: HrRoutesDeps, resolveAuthContext: AuthConte
       const contract = await createContract(
         {
           ...parsed.data,
-          payBasis: parsed.data.payBasis as PayBasis | undefined,
+          payBasis: parsed.data.payBasis === undefined ? undefined : PAY_BASIS_FROM_WIRE[parsed.data.payBasis],
           id,
           number,
           monthlySalary: Money.fromMajor(parsed.data.monthlySalary),

@@ -1,26 +1,16 @@
 import type { App } from "@mezan/api";
-import { PeriodCloseCheckCodeDTO } from "@mezan/contracts";
 import { ACCOUNTS, call, step } from "./shared.js";
+import { seedVatFiling } from "./treasury.js";
 
 // Runs LAST: every step here posts into a month that must still be open, and the closes shut those months to everything seeded before them.
 
 const BANK_TREASURY_ID = "TR-DEMO-BANK";
 const RECURRING_TEMPLATE_ID = "RJT-DEMO-1";
-const CHECK_NAME: Readonly<Record<PeriodCloseCheckCodeDTO, string>> = {
-  [PeriodCloseCheckCodeDTO.Drafts]: "المستندات غير المرحَّلة",
-  [PeriodCloseCheckCodeDTO.PendingApprovals]: "مستندات بانتظار الاعتماد",
-  [PeriodCloseCheckCodeDTO.SubledgerTies]: "مطابقة الدفاتر المساعدة مع حسابات المراقبة",
-  [PeriodCloseCheckCodeDTO.TrialBalance]: "توازن ميزان المراجعة",
-  [PeriodCloseCheckCodeDTO.BankStatements]: "كشوف البنوك",
-  [PeriodCloseCheckCodeDTO.FxRevaluation]: "إعادة تقييم العملات الأجنبية",
-  [PeriodCloseCheckCodeDTO.RecurringJournals]: "القيود المتكررة المستحقة",
-  [PeriodCloseCheckCodeDTO.Depreciation]: "تشغيل الإهلاك",
-  [PeriodCloseCheckCodeDTO.SequenceGaps]: "تسلسل أرقام المستندات",
-  [PeriodCloseCheckCodeDTO.EtaErrors]: "أخطاء الفاتورة الإلكترونية",
-};
 const BANK_CHARGE = { month: "2026-07", description: "مصاريف خدمات بنكية", amount: 75n * 1_000_000n } as const;
-const OVERRIDDEN_MONTHS = ["2026-01", "2026-02", "2026-03", "2026-04", "2026-05"] as const;
-const CLEAN_MONTHS = ["2026-06", "2026-07"] as const;
+const CLOSED_MONTHS = ["2026-01", "2026-02", "2026-03", "2026-04", "2026-05", "2026-06", "2026-07"] as const;
+const DEPRECIATED_BY_HISTORY = new Set(["2026-01", "2026-02", "2026-03", "2026-04", "2026-05"]);
+// The plant asset was registered after May's run had posted: May takes a supplementary run for it, before May's VAT return is filed.
+const SUPPLEMENTARY_DEPRECIATION = "2026-05";
 const DRAFT_RUN = { period: "2026-09", branchId: "BR-MAIN" } as const;
 const SCALE = 1_000_000n;
 
@@ -133,23 +123,17 @@ async function close(app: App, month: string, body: { overrideReason?: string })
   if (!res.ok) throw new Error(`[demo-seed] ${month} did not close${body.overrideReason ? "" : " clean"}: ${res.status} ${await res.text()}`);
 }
 
-async function closeByOverride(app: App, month: string): Promise<void> {
-  const checklist = (await step(app, "GET", `/period-close/${periodIdOf(month)}/checks`)) as { blocking: readonly PeriodCloseCheckCodeDTO[] };
-  if (checklist.blocking.length === 0) throw new Error(`[demo-seed] ${month} has nothing to override.`);
-  const overridden = checklist.blocking.map((code) => CHECK_NAME[code]).join("، ");
-  await close(app, month, { overrideReason: `إقفال بتجاوز الفحوص الآتية: ${overridden} — بموافقة المدير المالي.` });
-}
-
 export async function seedGuidedClose(app: App): Promise<void> {
-  for (const month of CLEAN_MONTHS) await postDepreciation(app, month);
+  for (const month of CLOSED_MONTHS) if (!DEPRECIATED_BY_HISTORY.has(month)) await postDepreciation(app, month);
+  await postDepreciation(app, SUPPLEMENTARY_DEPRECIATION);
   // A draft the «ترحيل» action has something to act on (D54), in a month that is still open.
   await step(app, "POST", "/assets/depreciation/runs", DRAFT_RUN);
 
-  for (const month of CLEAN_MONTHS) {
+  for (const month of CLOSED_MONTHS) {
     await postRecurringEntry(app, month);
     await reconcileBankStatement(app, month);
   }
+  await seedVatFiling(app);
 
-  for (const month of OVERRIDDEN_MONTHS) await closeByOverride(app, month);
-  for (const month of CLEAN_MONTHS) await close(app, month, {});
+  for (const month of CLOSED_MONTHS) await close(app, month, {});
 }

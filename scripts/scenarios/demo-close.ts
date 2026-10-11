@@ -1,24 +1,16 @@
 import type { Ctx } from "./harness.js";
 
-const CLEAN_MONTHS = ["06", "07"] as const;
-const OVERRIDDEN_MONTHS = ["01", "02", "03", "04", "05"] as const;
-const OVERRIDDEN_EVERY_MONTH = { checks: ["bank_statements", "drafts", "recurring_journals"], names: ["المستندات غير المرحَّلة", "كشوف البنوك", "القيود المتكررة المستحقة"] };
-// May's VAT return is filed, so the asset registered after May's depreciation run cannot be charged in May any more.
-const OVERRIDDEN: Readonly<Record<string, { checks: string[]; names: string[] }>> = {
-  "01": OVERRIDDEN_EVERY_MONTH,
-  "02": OVERRIDDEN_EVERY_MONTH,
-  "03": OVERRIDDEN_EVERY_MONTH,
-  "04": OVERRIDDEN_EVERY_MONTH,
-  "05": { checks: ["bank_statements", "depreciation", "drafts", "recurring_journals"], names: [...OVERRIDDEN_EVERY_MONTH.names, "تشغيل الإهلاك"] },
-};
+const CLEAN_MONTHS = ["01", "02", "03", "04", "05", "06", "07"] as const;
 const LIVE_MONTH = "08";
 const LIVE_MONTH_BLOCKERS = ["bank_statements", "depreciation", "drafts", "fx_revaluation", "recurring_journals"];
 const periodId = (month: string) => `fp-2026-${month}`;
 
 /**
  * الإقفال الموجَّه على بيانات العرض — what the demo tenant ships with, read
- * BEFORE any other suite touches it: two months closed clean, five closed by a
- * stated override, and the live month refused for reasons that are really there.
+ * BEFORE any other suite touches it: January to July closed clean — payroll
+ * paid, the recurring entry posted, every asset depreciated, the bank statement
+ * finalized, no override anywhere — and the live month refused for reasons
+ * that are really there.
  *
  * It then reopens January to July. Every suite after this one was written to
  * post into those months — back-dated entries, a month closed and reopened, a
@@ -32,7 +24,7 @@ export async function run(ctx: Ctx): Promise<void> {
   const checklistOf = async (month: string) => (await req("GET", `/period-close/${periodId(month)}/checks`)).body;
   const summariesOf = async (month: string) => rows((await req("GET", `/period-close/${periodId(month)}/summaries`)).body);
 
-  await scenario("demo close · June and July are closed clean: every check passes and neither close carries an override", async () => {
+  await scenario("demo close · January to July are closed clean: every check passes and no close carries an override", async () => {
     for (const month of CLEAN_MONTHS) {
       same(`2026-${month} is closed`, await statusOf(month), "closed");
       const checklist = await checklistOf(month);
@@ -63,21 +55,6 @@ export async function run(ctx: Ctx): Promise<void> {
     }
   });
 
-  await scenario("demo close · January to May are closed by override, each with its reason and the checks it overrode", async () => {
-    for (const month of OVERRIDDEN_MONTHS) {
-      same(`2026-${month} is closed`, await statusOf(month), "closed");
-      const [summary] = await summariesOf(month);
-      check(`2026-${month}: the override reason is stated in Arabic`, /[؀-ۿ]{4,}/.test(summary?.overrideReason ?? ""), JSON.stringify(summary?.overrideReason));
-      same(`2026-${month}: the summary names exactly what was overridden`, JSON.stringify([...(summary?.failedChecks ?? [])].sort()), JSON.stringify(OVERRIDDEN[month]?.checks));
-      check(
-        `2026-${month}: and the stated reason names each of those checks`,
-        (OVERRIDDEN[month]?.names ?? ["?"]).every((name) => String(summary?.overrideReason ?? "").includes(name)),
-        JSON.stringify(summary?.overrideReason),
-      );
-      check(`2026-${month}: its seal is intact`, summary?.sealValid === true, JSON.stringify(summary?.sealValid));
-    }
-  });
-
   await scenario("demo close · August is open and refuses to close on its real blockers", async () => {
     same("August is open", await statusOf(LIVE_MONTH), "open");
     const refused = await req("POST", `/fiscal-periods/${periodId(LIVE_MONTH)}/close`, {});
@@ -94,7 +71,7 @@ export async function run(ctx: Ctx): Promise<void> {
   });
 
   await scenario("demo close · January to July are reopened for the suites that post into them; their sealed summaries stay", async () => {
-    for (const month of [...OVERRIDDEN_MONTHS, ...CLEAN_MONTHS]) {
+    for (const month of CLEAN_MONTHS) {
       const reopened = await req("POST", `/fiscal-periods/${periodId(month)}/reopen`, {});
       check(`2026-${month} reopens`, reopened.status === 200 && reopened.body?.status === "open", `status ${reopened.status}`);
       check(`2026-${month}: its close is still on record`, (await summariesOf(month)).length === 1, "summary missing after reopen");

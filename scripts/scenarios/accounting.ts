@@ -313,6 +313,18 @@ export async function run(ctx: Ctx): Promise<void> {
         `status ${lockFromOpen.status} body ${JSON.stringify(lockFromOpen.body)}`,
       );
 
+      // February ships closed clean, so the scenario leaves real unfinished work in it: a draft entry is what the checks are there to catch.
+      const febDraft = await ctx.req("POST", "/gl/journal-entries/draft", {
+        id: "SCN-JE-FEB-DRAFT",
+        date: feb.startDate,
+        memo: "SCN: مسودة تُبقي فحص الإقفال مفتوحاً",
+        lines: [
+          { accountId: "2170", debit: "10.00", credit: "0.00" },
+          { accountId: "2190", debit: "0.00", credit: "10.00" },
+        ],
+      });
+      ctx.check("a draft entry is left in February", febDraft.status === 201, `status ${febDraft.status} ${JSON.stringify(febDraft.body).slice(0, 140)}`);
+
       // Closed by a second identity: overriding a LOCK takes a different user from the one who closed the month.
       const closeFeb = await ctx.req(
         "POST",

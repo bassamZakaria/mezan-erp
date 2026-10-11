@@ -627,8 +627,13 @@ const ADVANCES = [
   { id: "ADV-DEMO-5", employeeId: "EMP-DEMO-6", amount: "10000", installmentCount: 10, firstDeductionDate: "2026-09-01", reason: "شراء دراجة بخارية", flow: "rejected", disburseDate: null },
 ];
 
-/** June is settled, July is posted and awaiting its transfer, August is still محتسب. */
+/** January to June are settled, July is posted and awaiting its transfer, August is still محتسب. */
 const PAYROLL_RUNS = [
+  { id: "PR-DEMO-2026-01", year: 2026, month: 1, stage: "disbursed", disburseDate: "2026-01-31" },
+  { id: "PR-DEMO-2026-02", year: 2026, month: 2, stage: "disbursed", disburseDate: "2026-02-28" },
+  { id: "PR-DEMO-2026-03", year: 2026, month: 3, stage: "disbursed", disburseDate: "2026-03-31" },
+  { id: "PR-DEMO-2026-04", year: 2026, month: 4, stage: "disbursed", disburseDate: "2026-04-30" },
+  { id: "PR-DEMO-2026-05", year: 2026, month: 5, stage: "disbursed", disburseDate: "2026-05-31" },
   { id: "PR-DEMO-1", year: 2026, month: 6, stage: "disbursed", disburseDate: "2026-06-30" },
   { id: "PR-DEMO-2", year: 2026, month: 7, stage: "approved", disburseDate: null },
   { id: "PR-DEMO-3", year: 2026, month: 8, stage: "calculated", disburseDate: null },

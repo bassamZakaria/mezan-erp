@@ -278,6 +278,28 @@ describe("SettingsGeneral", () => {
     expect(body.weekendDays?.slice().sort()).toEqual([0, 5]);
   });
 
+  it("closing a period has its own single-operator switch: turning it on PUTs that setting and leaves the contracting one as it was", async () => {
+    let lastBody: Record<string, unknown> | null = null;
+    const transport = stubTransport({
+      "GET /settings": () => ({ body: baseSettings }),
+      "PUT /settings": (init) => {
+        lastBody = JSON.parse((init?.body as string) ?? "{}");
+        return { body: { ...baseSettings, ...lastBody } };
+      },
+    });
+    renderWithProviders(<SettingsGeneral />, { transport, initialSession: testAdminSession });
+    await screen.findByRole("button", { name: "حفظ الإعدادات" });
+    fireEvent.click(screen.getByRole("tab", { name: "السياسات" }));
+
+    const closeSwitch = screen.getByRole("switch", { name: "وضع المشغّل الواحد لإقفال الفترات" });
+    expect(closeSwitch).toHaveAttribute("aria-checked", "false");
+    fireEvent.click(closeSwitch);
+    fireEvent.click(screen.getByRole("button", { name: "حفظ الإعدادات" }));
+    await waitFor(() => expect(lastBody).not.toBeNull());
+
+    expect(lastBody).toMatchObject({ periodCloseSingleOperatorMode: true, contractingSingleOperatorMode: false });
+  });
+
   it("drives every field on السياسات — every toggle, number and select — and PUTs the exact values, leaving the untouched tabs' fields as they were", async () => {
     let lastBody: Record<string, unknown> | null = null;
     const transport = stubTransport({

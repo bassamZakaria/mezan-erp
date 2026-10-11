@@ -2,6 +2,10 @@ import { postingRefusalResponse } from "./posting-refusal.js";
 import { randomUUID } from "node:crypto";
 import { Hono, type Context } from "hono";
 import {
+  ReversalDateBeforeOriginalError,
+  JournalEntryAlreadyReversedError,
+  JournalEntryNotPostedError,
+  reverseJournalEntry,
   AccountNotFoundError,
   HeaderAccountNotPostableError,
   InactiveAccountError,
@@ -159,6 +163,12 @@ function handleDomainError(c: Context, err: unknown): Response {
   }
   if (err instanceof InvalidRecurringJournalScheduleError || err instanceof InvalidJournalEntryError) {
     return c.json({ error: err.code, message: err.message }, 400);
+  }
+  if (err instanceof ReversalDateBeforeOriginalError) {
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 422);
+  }
+  if (err instanceof JournalEntryAlreadyReversedError || err instanceof JournalEntryNotPostedError) {
+    return c.json({ error: err.code, message: err.message }, 409);
   }
   if (err instanceof RecurringJournalPeriodAlreadyGeneratedError || err instanceof RecurringJournalPeriodAlreadySkippedError) {
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
@@ -375,6 +385,43 @@ export function createRecurringJournalRoutes(deps: RecurringJournalRoutesDeps, r
     const limitParam = c.req.query("limit");
     const limit = limitParam ? Number(limitParam) : undefined;
     return c.json(await deps.runs.list(Number.isFinite(limit) ? limit : undefined));
+  });
+
+  /**
+   * عكس قيد الدورة. A run's entry is reversed HERE, not from the journal: the
+   * run is what the worklist and the month's close read, and both read its
+   * state off this entry.
+   */
+  app.post("/runs/:id/reverse", gate("accounting.recurring.manage"), async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { date?: unknown; memo?: unknown } | null;
+    const run = (await deps.runs.list()).find((candidate) => candidate.id === c.req.param("id"));
+    if (!run) return c.json({ error: "RECURRING_JOURNAL_RUN_NOT_FOUND", message: "دورة القيد المتكرر غير موجودة.", messageEn: "The recurring journal run does not exist." }, 404);
+    try {
+      const date = await tenantDay(c, typeof body?.date === "string" && body.date !== "" ? body.date : (deps.now?.() ?? new Date().toISOString()));
+      const original = await deps.ledger.findById(run.journalEntryId);
+      if (original && date < original.date) throw new ReversalDateBeforeOriginalError(run.journalEntryId, date, original.date);
+      const result = await reverseJournalEntry(
+        run.journalEntryId,
+        {
+          ledger: deps.ledger,
+          accounts: deps.accounts,
+          periods: deps.periods,
+          numbering: deps.numbering,
+          projects: deps.projects,
+          audit: deps.audit,
+          events: deps.events,
+          now: deps.now,
+          actor: getAuthContext(c)?.userId ?? "system",
+        },
+        { reversalId: idGen(), date, memo: typeof body?.memo === "string" && body.memo !== "" ? body.memo : undefined },
+      );
+      return c.json(
+        { runId: run.id, templateId: run.templateId, period: run.period, journalEntryId: run.journalEntryId, entryStatus: result.original.status, reversalEntryId: result.reversal.id, reversalEntryNo: result.reversal.entryNo ?? null },
+        201,
+      );
+    } catch (err) {
+      return handleDomainError(c, err);
+    }
   });
 
   /**

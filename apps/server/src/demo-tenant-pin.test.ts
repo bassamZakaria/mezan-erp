@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterAll, describe, expect, it, vi } from "vitest";
 import { createPlatform, SEED_ADMIN_EMAIL, SEED_ADMIN_PIN, takeSeededAdminSecrets, type PlatformHandle } from "@mezan/backend";
 import { createTenantRouter, TENANT_HEADER, type TenantRouter } from "./tenant-router.js";
+import { reachable } from "./cloud-harness.js";
 import { provisionDemoTenant, DEMO_TENANT_CODE } from "./demo-tenant.js";
 import { provisionTenant } from "./provision-tenant.js";
 
@@ -35,6 +36,7 @@ describe("provisionDemoTenant — the demo's pinned admin PIN", () => {
     const dataDir = mkdtempSync(path.join(tmpdir(), "mezan-demo-pin-"));
     dirs.push(dataDir);
     const router = createTenantRouter({ platform, dataDir, sweepEveryMs: 0 });
+    reachable(router.app);
     routers.push(router);
 
     await provisionDemoTenant({ platform, router, env: { platformDir: dataDir, sqliteExclusive: false } });

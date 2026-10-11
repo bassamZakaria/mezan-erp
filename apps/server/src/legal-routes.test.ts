@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createPlatform, type PlatformHandle } from "@mezan/backend";
 import type { SmtpConfig } from "@mezan/api";
 import { createLegalRoutes } from "./legal-routes.js";
+import { reachable } from "./cloud-harness.js";
 
 const T = "2026-09-21T10:00:00.000Z";
 
@@ -34,7 +35,7 @@ describe("legal pages", () => {
   afterEach(() => platform.close());
 
   it("serves the privacy policy in Arabic by default and in English on ?lang=en, headed as a draft", async () => {
-    const app = createLegalRoutes({ platform, supportEmail: "support@mezan.test", now: () => new Date(T) });
+    const app = reachable(createLegalRoutes({ platform, supportEmail: "support@mezan.test", now: () => new Date(T) }));
 
     const ar = await app.fetch(new Request("http://legal/privacy"));
     expect(ar.status).toBe(200);
@@ -52,7 +53,7 @@ describe("legal pages", () => {
   });
 
   it("offers no form when no request could reach a person, only the administrator path", async () => {
-    const app = createLegalRoutes({ platform, now: () => new Date(T) });
+    const app = reachable(createLegalRoutes({ platform, now: () => new Date(T) }));
 
     const html = await (await app.fetch(new Request("http://legal/account-deletion?lang=en"))).text();
     expect(html).toContain("Users screen");
@@ -66,7 +67,7 @@ describe("legal pages", () => {
   });
 
   it("points at the support mailbox, without a form, when the platform sends no mail", async () => {
-    const app = createLegalRoutes({ platform, supportEmail: "support@mezan.test", now: () => new Date(T) });
+    const app = reachable(createLegalRoutes({ platform, supportEmail: "support@mezan.test", now: () => new Date(T) }));
     const html = await (await app.fetch(new Request("http://legal/account-deletion?lang=en"))).text();
     expect(html).not.toContain("<form");
     expect(html).toContain("write to the email address at the end of this page");
@@ -75,7 +76,7 @@ describe("legal pages", () => {
 
   it("records a deletion request, mails it to support, and answers with its reference", async () => {
     const send = vi.fn(async () => ({ outcome: "sent" as const, detail: "250" }));
-    const app = createLegalRoutes({ platform, supportEmail: "support@mezan.test", platformSmtp: SMTP, now: () => new Date(T), send });
+    const app = reachable(createLegalRoutes({ platform, supportEmail: "support@mezan.test", platformSmtp: SMTP, now: () => new Date(T), send }));
 
     const page = await (await app.fetch(new Request("http://legal/account-deletion?lang=en"))).text();
     expect(page).toContain("<form");
@@ -101,7 +102,7 @@ describe("legal pages", () => {
 
   it("refuses an invalid request without mailing, and says so when the mail does not go", async () => {
     const send = vi.fn(async () => ({ outcome: "offline" as const, detail: "ECONNREFUSED" }));
-    const app = createLegalRoutes({ platform, supportEmail: "support@mezan.test", platformSmtp: SMTP, now: () => new Date(T), send });
+    const app = reachable(createLegalRoutes({ platform, supportEmail: "support@mezan.test", platformSmtp: SMTP, now: () => new Date(T), send }));
 
     const invalid = await app.fetch(form({ companyCode: "", email: "not-an-email" }));
     expect(invalid.status).toBe(400);
@@ -118,7 +119,7 @@ describe("legal pages", () => {
 
   it("rate-limits a flood of requests from one address", async () => {
     const send = vi.fn(async () => ({ outcome: "sent" as const, detail: "250" }));
-    const app = createLegalRoutes({ platform, supportEmail: "support@mezan.test", platformSmtp: SMTP, now: () => new Date(T), send });
+    const app = reachable(createLegalRoutes({ platform, supportEmail: "support@mezan.test", platformSmtp: SMTP, now: () => new Date(T), send }));
 
     const statuses: number[] = [];
     for (let i = 0; i < 6; i += 1) {

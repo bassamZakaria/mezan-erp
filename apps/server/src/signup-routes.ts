@@ -24,7 +24,7 @@ import {
 } from "@mezan/contracts";
 import { provisionTenant, TenantProvisioningError } from "./provision-tenant.js";
 import { forwardedOrigin } from "./billing-routes.js";
-import { clientSource } from "./client-source.js";
+import { callerSource, requireCloudSource, type SourceReporter } from "./client-source.js";
 import { createRateLimiter } from "./rate-limit.js";
 import type { CloudEnv } from "./env.js";
 import type { TenantRouter } from "./tenant-router.js";
@@ -103,6 +103,7 @@ export interface SignupRoutesOptions {
   readonly router: TenantRouter;
   readonly env: CloudEnv;
   readonly now?: () => Date;
+  readonly sourceReporter?: SourceReporter;
 }
 
 /**
@@ -128,6 +129,7 @@ export function createSignupRoutes(options: SignupRoutesOptions): Hono {
   const verifyIpLimit = createRateLimiter(30, 60 * 60_000);
 
   const app = new Hono();
+  app.use("*", requireCloudSource(env.clientSource, options.sourceReporter));
 
   function tooManyRequests(c: Context, retryAfterSeconds: number): Response {
     c.header("retry-after", String(retryAfterSeconds));
@@ -148,7 +150,7 @@ export function createSignupRoutes(options: SignupRoutesOptions): Hono {
    * shape as `/platform/resolve`'s fix (see `tenant-router.ts`).
    */
   app.get("/check-code", async (c) => {
-    const ip = (clientSource(c, env.clientSource) ?? "unknown");
+    const ip = callerSource(c);
     const wait = checkCodeLimit.retryAfter(ip);
     if (wait > 0) return tooManyRequests(c, wait);
     checkCodeLimit.consume(ip);
@@ -163,7 +165,7 @@ export function createSignupRoutes(options: SignupRoutesOptions): Hono {
   });
 
   app.post("/", async (c) => {
-    const ip = (clientSource(c, env.clientSource) ?? "unknown");
+    const ip = callerSource(c);
     const ipWait = startIpLimit.retryAfter(ip);
     if (ipWait > 0) return tooManyRequests(c, ipWait);
     // Consumed BEFORE parsing, not after: a flood of malformed bodies must
@@ -246,7 +248,7 @@ export function createSignupRoutes(options: SignupRoutesOptions): Hono {
   });
 
   app.post("/verify", async (c) => {
-    const ip = (clientSource(c, env.clientSource) ?? "unknown");
+    const ip = callerSource(c);
     const wait = verifyIpLimit.retryAfter(ip);
     if (wait > 0) return tooManyRequests(c, wait);
     verifyIpLimit.consume(ip);

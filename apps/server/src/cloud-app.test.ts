@@ -5,7 +5,10 @@ import type { Context } from "hono";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createCloudApp, type CloudApp } from "./cloud-app.js";
 import { parseEnv, type CloudEnv } from "./env.js";
+import { reachable } from "./cloud-harness.js";
 
+const PROXY_HOPS = 2;
+const PROXIED = { MEZAN_TRUST_PROXY: "1", MEZAN_TRUSTED_PROXY_HOPS: String(PROXY_HOPS) };
 const T = "2026-01-15T00:00:00.000Z";
 
 const backendCloseSpies = vi.hoisted(() => [] as Array<ReturnType<typeof vi.fn>>);
@@ -60,7 +63,7 @@ function webDistFixture(): string {
 
 function testEnv(overrides: Partial<CloudEnv> = {}): CloudEnv {
   return {
-    ...parseEnv({}),
+    ...parseEnv(PROXIED),
     platformDir: tempDir("mezan-cloud-platform-"),
     webDist: webDistFixture(),
     platformOwnerEmail: "owner@mezan.local",
@@ -72,6 +75,7 @@ function testEnv(overrides: Partial<CloudEnv> = {}): CloudEnv {
 async function boot(env: CloudEnv, options: Parameters<typeof createCloudApp>[1] = {}): Promise<CloudApp> {
   const app = await createCloudApp(env, { now: () => new Date(T), ...options });
   apps.push(app);
+  reachable(app.root, PROXY_HOPS);
   return app;
 }
 
@@ -311,6 +315,7 @@ describe("createCloudApp", () => {
     const start = vi.fn(() => stop);
     const env = testEnv();
     const app = await createCloudApp(env, { now: () => new Date(T), backups: { start } });
+    reachable(app.root, PROXY_HOPS);
 
     const token = await platformLogin(app, "owner@mezan.local", "owner-password-123");
     await provisionCyag(app, token);

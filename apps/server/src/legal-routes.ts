@@ -5,7 +5,7 @@ import type { SmtpConfig } from "@mezan/api";
 import { sendNotificationEmail } from "@mezan/api";
 import { recordSecurityEvent } from "@mezan/domain";
 import type { PlatformHandle } from "@mezan/backend";
-import { clientSource, type ClientSourceOptions } from "./client-source.js";
+import { callerSource, requireCloudSource, SOCKET_ONLY, type ClientSourceOptions, type SourceReporter } from "./client-source.js";
 import { createRateLimiter, type RateLimiter } from "./rate-limit.js";
 import {
   ACCOUNT_DELETION,
@@ -34,8 +34,8 @@ export interface LegalRoutesDeps {
   readonly platform: PlatformHandle;
   readonly supportEmail?: string;
   readonly platformSmtp?: SmtpConfig;
-  /** Which address a deletion request is counted against. Defaults to the socket's peer. */
   readonly clientSource?: ClientSourceOptions;
+  readonly sourceReporter?: SourceReporter;
   readonly now: () => Date;
   readonly limiter?: RateLimiter;
   readonly send?: typeof sendNotificationEmail;
@@ -177,7 +177,6 @@ ${renderNotice(lang, notice)}
 }
 
 
-const SOCKET_ONLY: ClientSourceOptions = { trustedProxyHops: 0, trustViewerAddress: false };
 
 function fieldOf(body: Record<string, unknown>, name: string): string {
   const value = body[name];
@@ -222,12 +221,12 @@ export function createLegalRoutes(deps: LegalRoutesDeps): Hono {
 
   app.get(`/${LegalPage.AccountDeletion}`, (c) => deletionPage(c, languageOf(c), Notice.None, 200));
 
-  app.post(`/${LegalPage.AccountDeletion}`, bodyLimit({ maxSize: MAX_FORM_BYTES, onError: (c) => deletionPage(c, languageOf(c), Notice.Invalid, 400) }), async (c) => {
+  app.post(`/${LegalPage.AccountDeletion}`, requireCloudSource(deps.clientSource ?? SOCKET_ONLY, deps.sourceReporter), bodyLimit({ maxSize: MAX_FORM_BYTES, onError: (c) => deletionPage(c, languageOf(c), Notice.Invalid, 400) }), async (c) => {
     const lang = languageOf(c);
     if (!formEnabled || deps.supportEmail === undefined || deps.platformSmtp === undefined) {
       return deletionPage(c, lang, Notice.None, 200);
     }
-    const ip = clientSource(c, deps.clientSource ?? SOCKET_ONLY) ?? "unknown";
+    const ip = callerSource(c);
     if (limiter.retryAfter(ip) > 0) return deletionPage(c, lang, Notice.TooMany, 429);
     limiter.consume(ip);
 

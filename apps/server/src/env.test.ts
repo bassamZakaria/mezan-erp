@@ -8,7 +8,7 @@ describe("parseEnv", () => {
       platformDir: ".data/platform",
       tenantDomain: undefined,
       trustProxy: false,
-      clientSource: { trustedProxyHops: 0, trustViewerAddress: false },
+      clientSource: { trustedProxyHops: 0, trustViewerAddress: false, compareViewerAddress: false },
       originSecret: undefined,
       sqliteExclusive: false,
       platformOwnerEmail: undefined,
@@ -50,8 +50,11 @@ describe("parseEnv", () => {
     ).toThrow(/MEZAN_SEED_DEMO/);
   });
 
-  it("trusts one appended hop behind a proxy unless told how many there are, and none without one", () => {
-    expect(parseEnv({ MEZAN_TRUST_PROXY: "1" }).clientSource).toEqual({ trustedProxyHops: 1, trustViewerAddress: false });
+  it("refuses to trust a proxy without being told how many hops it appends, and trusts none without one", () => {
+    expect(() => parseEnv({ MEZAN_TRUST_PROXY: "1" })).toThrow(/MEZAN_TRUSTED_PROXY_HOPS/);
+    expect(() => parseEnv({ MEZAN_TRUST_PROXY: "1", MEZAN_TRUSTED_PROXY_HOPS: "0" })).toThrow(/MEZAN_TRUSTED_PROXY_HOPS/);
+    expect(parseEnv({ MEZAN_TRUST_PROXY: "1", MEZAN_TRUSTED_PROXY_HOPS: "1" }).clientSource).toEqual({ trustedProxyHops: 1, trustViewerAddress: false, compareViewerAddress: false });
+    expect(parseEnv({ MEZAN_TRUST_PROXY: "1", MEZAN_TRUSTED_PROXY_HOPS: "2", MEZAN_ORIGIN_SECRET: "s3cr3t" }).clientSource).toEqual({ trustedProxyHops: 2, trustViewerAddress: false, compareViewerAddress: true });
     expect(parseEnv({ MEZAN_TRUST_PROXY: "1", MEZAN_TRUSTED_PROXY_HOPS: "2" }).clientSource.trustedProxyHops).toBe(2);
     expect(parseEnv({}).clientSource.trustedProxyHops).toBe(0);
   });
@@ -59,7 +62,7 @@ describe("parseEnv", () => {
   it("refuses to count forwarded hops or read the viewer address without the proxy that makes them true", () => {
     expect(() => parseEnv({ MEZAN_TRUSTED_PROXY_HOPS: "2" })).toThrow(/MEZAN_TRUST_PROXY/);
     expect(() => parseEnv({ MEZAN_TRUST_PROXY: "1", MEZAN_TRUSTED_PROXY_HOPS: "-1" })).toThrow(/MEZAN_TRUSTED_PROXY_HOPS/);
-    expect(() => parseEnv({ MEZAN_TRUST_PROXY: "1", MEZAN_TRUST_VIEWER_ADDRESS: "1" })).toThrow(/MEZAN_ORIGIN_SECRET/);
+    expect(() => parseEnv({ MEZAN_TRUST_PROXY: "1", MEZAN_TRUSTED_PROXY_HOPS: "2", MEZAN_TRUST_VIEWER_ADDRESS: "1" })).toThrow(/MEZAN_ORIGIN_SECRET/);
     expect(() => parseEnv({ MEZAN_ORIGIN_SECRET: "s3cr3t", MEZAN_TRUST_VIEWER_ADDRESS: "1" })).toThrow(/MEZAN_TRUST_PROXY/);
   });
 
@@ -102,7 +105,7 @@ describe("parseEnv", () => {
       platformDir: "/data",
       tenantDomain: "mezan.test",
       trustProxy: true,
-      clientSource: { trustedProxyHops: 2, trustViewerAddress: true },
+      clientSource: { trustedProxyHops: 2, trustViewerAddress: true, compareViewerAddress: true },
       originSecret: "s3cr3t",
       sqliteExclusive: true,
       platformOwnerEmail: "owner@mezan.local",

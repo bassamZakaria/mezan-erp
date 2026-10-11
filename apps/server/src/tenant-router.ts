@@ -4,9 +4,10 @@ import { mkdirSync } from "node:fs";
 import { timingSafeEqual } from "node:crypto";
 import { createSourceThrottle, tooManyAttempts, type SourceThrottle } from "@mezan/api";
 import { createBackend, type BackendHandle, type PlatformHandle } from "@mezan/backend";
+import type { SessionGrant } from "@mezan/api";
 import type { SqliteOpenOptions } from "@mezan/persistence";
 import { createBackendCache, type BackendCache } from "./backend-cache.js";
-import { clientSource, originEnv, type ClientSourceOptions } from "./client-source.js";
+import { callerSource, originEnv, requireCloudSource, SOCKET_ONLY, type ClientSourceOptions, type CloudSource, type SourceReporter } from "./client-source.js";
 import { createTenantResolvers, type TenantResolvers } from "./tenant-entitlements.js";
 import { resolveTenantCode, TENANT_HEADER } from "./tenant-resolver.js";
 
@@ -15,10 +16,9 @@ export interface TenantRouterOptions {
   readonly dataDir: string;
   readonly tenantDomain?: string;
   readonly trustForwardedHost?: boolean;
-  /** Proxies in front of this process that append to `x-forwarded-for`. Defaults to one when the forwarded host is trusted, none otherwise. */
-  readonly trustedProxyHops?: number;
-  /** Read the client from `CloudFront-Viewer-Address`: only where nothing reaches this process except through CloudFront. */
-  readonly trustViewerAddress?: boolean;
+  /** How the caller's address is read. Defaults to the socket's peer with no proxy trusted. */
+  readonly clientSource?: ClientSourceOptions;
+  readonly sourceReporter?: SourceReporter;
   readonly allowTenantHeader?: boolean;
   readonly idleMs?: number;
   readonly ttlMs?: number;
@@ -58,9 +58,26 @@ const INVALID_CREDENTIALS = 401;
 
 const SOURCE_KEY_SEPARATOR = "\u0000";
 
+/** A tenant backend as a cloud CALLER reaches it: every read names the address the caller is counted and bound against. */
+export interface TenantDoor {
+  fetch(request: Request, source: CloudSource): Promise<Response>;
+  findSession(token: string, source: CloudSource): SessionGrant | null;
+}
+
+function doorTo(backend: BackendHandle): TenantDoor {
+  return {
+    fetch: async (request, source) => backend.app.fetch(request, originEnv(source)),
+    findSession: (token, source) => backend.sessions.find(token, source),
+  };
+}
+
 export interface TenantRouter {
   readonly app: Hono;
+  // SECURITY: the backend as THIS PROCESS acts on it (provisioning, backups,
+  // seeding) — an in-process call with no address reads as the host's own
+  // console. A route answering a caller uses `callerDoor`, never this.
   backendFor(code: string): Promise<BackendHandle>;
+  callerDoor(code: string): Promise<TenantDoor>;
   invalidate(code: string): void;
   sweep(): Promise<void>;
   close(): Promise<void>;
@@ -123,12 +140,9 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
   });
 
   const signInSources = options.signInSources ?? createSourceThrottle(options.now ? () => options.now!().getTime() : undefined);
-  const sourceOptions: ClientSourceOptions = {
-    trustedProxyHops: options.trustedProxyHops ?? (options.trustForwardedHost === true ? 1 : 0),
-    trustViewerAddress: options.trustViewerAddress === true,
-  };
 
   const app = new Hono();
+  app.use("*", requireCloudSource(options.clientSource ?? SOCKET_ONLY, options.sourceReporter));
   const resolverOptions = {
     tenantDomain: options.tenantDomain,
     trustForwardedHost: options.trustForwardedHost,
@@ -167,38 +181,35 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
     if (!tenant || tenant.status === "archived" || tenant.status === "provisioning") {
       return c.json({ error: "TENANT_NOT_FOUND", message: "المنشأة غير موجودة" }, 404);
     }
-    const backend = await cache.get(code);
+    const door = doorTo(await cache.get(code));
     const prefixLen = c.req.routePath.length - REST_PATTERN.length;
     const subPath = c.req.path.slice(prefixLen) || "/";
     const targetUrl = new URL(`${subPath}${new URL(c.req.raw.url).search}`, c.req.raw.url);
     const forwarded = new Request(targetUrl, c.req.raw);
-    // A tenant backend is reached through `app.fetch`, with no socket under the
-    // request. The address is known here, at the edge, and is handed over as
-    // the request's environment on EVERY forward: the backend then binds a
-    // session to it and counts failed sign-ins against it, as it does for a
-    // socket of its own.
-    const source = clientSource(c, sourceOptions);
-    const env = originEnv(source);
-    if (c.req.method !== "POST" || subPath !== SIGN_IN) return backend.app.fetch(forwarded, env);
+    const source = callerSource(c);
+    if (c.req.method !== "POST" || subPath !== SIGN_IN) return door.fetch(forwarded, source);
 
-    const held = source ? `${code}${SOURCE_KEY_SEPARATOR}${source}` : null;
-    const wait = held ? signInSources.retryAfter(held) : 0;
+    const held = `${code}${SOURCE_KEY_SEPARATOR}${source}`;
+    const wait = signInSources.retryAfter(held);
     if (wait > 0) {
       c.header("retry-after", String(wait));
       return c.json(tooManyAttempts(wait), 429);
     }
-    const answer = await backend.app.fetch(forwarded, env);
-    if (held && answer.status === INVALID_CREDENTIALS) signInSources.fail(held);
+    const answer = await door.fetch(forwarded, source);
+    if (answer.status === INVALID_CREDENTIALS) signInSources.fail(held);
     return answer;
   });
 
+  async function openFor(code: string): Promise<BackendHandle> {
+    const tenant = await options.platform.stores.tenants.findByCode(code);
+    if (!tenant || tenant.status === "archived") throw new Error("TENANT_NOT_FOUND");
+    return cache.get(code);
+  }
+
   return {
     app,
-    async backendFor(code) {
-      const tenant = await options.platform.stores.tenants.findByCode(code);
-      if (!tenant || tenant.status === "archived") throw new Error("TENANT_NOT_FOUND");
-      return cache.get(code);
-    },
+    backendFor: openFor,
+    callerDoor: async (code) => doorTo(await openFor(code)),
     invalidate(code) { resolvers.get(code)?.invalidate(); },
     sweep: () => cache.sweep(),
     close: () => cache.close(),

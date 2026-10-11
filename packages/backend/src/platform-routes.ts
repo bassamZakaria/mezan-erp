@@ -73,7 +73,6 @@ import {
   type CardCheckoutSweepResultDTO,
   type PlatformCardCheckoutsDTO,
 } from "@mezan/contracts";
-import { requestOrigin } from "@mezan/api";
 import type { PlatformHandle } from "./create-platform.js";
 import type { PlatformAuth } from "./platform-auth.js";
 
@@ -305,7 +304,7 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
       actor: platformUser?.id ?? "unknown",
       severity: "INFO",
       timestamp: nowIso(),
-      details: { ...details, origin: requestOrigin(c) ?? "host" },
+      details: { ...details, origin: auth.sourceOf(c) ?? "host" },
     }).catch(onAuditError);
   }
 
@@ -512,7 +511,7 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
               severity: "INFO",
               timestamp: nowIso(),
               details: {
-                paymentId: payment.id, amount: parsed.data.amount, reference: payment.reference, origin: requestOrigin(c) ?? "host",
+                paymentId: payment.id, amount: parsed.data.amount, reference: payment.reference, origin: auth.sourceOf(c) ?? "host",
                 ...(duplicateOfPaymentId === null ? {} : { duplicateOfPaymentId, duplicateReferenceConfirmed: true }),
               },
             }).catch((cause: unknown) => {

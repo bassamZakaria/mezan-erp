@@ -37,7 +37,8 @@ import { resolveTenantPlan, serializeCardCheckout, type PlatformHandle } from "@
 import { SettlementStatus, type CardCheckoutService } from "./card-checkout.js";
 import type { PaymobTestProvider } from "./paymob-provider.js";
 import type { CloudEnv } from "./env.js";
-import type { TenantRouter } from "./tenant-router.js";
+import type { TenantDoor, TenantRouter } from "./tenant-router.js";
+import { callerSource, requireCloudSource, type CloudSource, type SourceReporter } from "./client-source.js";
 import { resolveTenantCode } from "./tenant-resolver.js";
 
 export const PAYMOB_WEBHOOK_PATH = "/api/billing/paymob/webhook";
@@ -96,6 +97,8 @@ interface Caller {
   readonly grant: SessionGrant;
   /** The caller's own bearer token, so the tenant-side usage read is made AS them. */
   readonly token: string;
+  readonly source: CloudSource;
+  readonly door: TenantDoor;
 }
 
 function allowed(grant: SessionGrant, permission: string): boolean {
@@ -180,6 +183,7 @@ export interface TenantBillingRoutesOptions {
   readonly env: CloudEnv;
   readonly service: CardCheckoutService | null;
   readonly now?: () => Date;
+  readonly sourceReporter?: SourceReporter;
 }
 
 /**
@@ -192,6 +196,7 @@ export function createTenantBillingRoutes(options: TenantBillingRoutesOptions): 
   const { platform, router, env, service } = options;
   const now = options.now ?? (() => new Date());
   const app = new Hono();
+  app.use("*", requireCloudSource(env.clientSource, options.sourceReporter));
 
   async function resolveCaller(c: Context): Promise<Caller | Response> {
     const code = resolveTenantCode(c.req.raw, { tenantDomain: env.tenantDomain, trustForwardedHost: env.trustProxy, allowTenantHeader: true });
@@ -202,23 +207,20 @@ export function createTenantBillingRoutes(options: TenantBillingRoutesOptions): 
     }
     const token = readSessionToken(c);
     if (!token) return c.json({ error: "UNAUTHENTICATED", message: "سجّل الدخول أولًا" }, 401);
-    const backend = await router.backendFor(code);
-    // Must look the token up with the same origin the tenant backend saw at
-    // login. The tenant router forwards `backend.app.fetch(request)` without
-    // the socket env, so every tenant session is bound to the null origin; a
-    // mismatched lookup here would not just fail, it would REVOKE the session.
-    const grant = backend.sessions.find(token, null);
+    const source = callerSource(c);
+    const door = await router.callerDoor(code);
+    const grant = door.findSession(token, source);
     if (!grant) return c.json({ error: "UNAUTHENTICATED", message: "انتهت الجلسة، سجّل الدخول مرة أخرى" }, 401);
-    return { tenant, grant, token };
+    return { tenant, grant, token, source, door };
   }
 
   const forbidden = (c: Context) => c.json({ error: "FORBIDDEN", message: "ليست لديك صلاحية إدارة الاشتراك" }, 403);
 
   /** What this tenant's own backend counts against its plan, on its own day. Forwarded with the caller's token, so it is the caller's own read. */
-  async function planUsage(code: string, token: string): Promise<PlanUsage> {
-    const backend = await router.backendFor(code);
-    const res = await backend.app.fetch(
-      new Request("http://tenant/plan-usage", { headers: { authorization: `Bearer ${token}` } }),
+  async function planUsage(caller: Caller): Promise<PlanUsage> {
+    const res = await caller.door.fetch(
+      new Request("http://tenant/plan-usage", { headers: { authorization: `Bearer ${caller.token}` } }),
+      caller.source,
     );
     if (!res.ok) return { today: null, month: null, quotas: [], limits: [] };
     return (await res.json()) as PlanUsage;
@@ -241,7 +243,7 @@ export function createTenantBillingRoutes(options: TenantBillingRoutesOptions): 
         amountDue = (subscription.billingCycle === "yearly" ? plan.priceYearly : plan.priceMonthly).toString();
       }
     }
-    const usage = await planUsage(caller.tenant.code, caller.token);
+    const usage = await planUsage(caller);
     const plans = (await platform.stores.plans.list()).filter((p) => p.status === "active" && p.isPublic);
     const checkouts: CardCheckout[] = service ? (await service.listByTenant(caller.tenant.id)).slice(0, 10) : [];
 

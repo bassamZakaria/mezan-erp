@@ -9,6 +9,8 @@ import { createTenant, activateTenant, archiveTenant, suspendTenant, startSubscr
 import type { SessionDTO } from "@mezan/contracts";
 import { createTenantRouter, type TenantRouter } from "./tenant-router.js";
 import { TENANT_HEADER } from "./tenant-resolver.js";
+import { originEnv, type CloudSource } from "./client-source.js";
+import { reachable } from "./cloud-harness.js";
 
 const T = new Date("2026-01-15T00:00:00.000Z").toISOString();
 
@@ -95,8 +97,7 @@ function newRouter(
     dataDir,
     tenantDomain: opts.tenantDomain,
     trustForwardedHost: opts.trustForwardedHost,
-    trustedProxyHops: opts.trustedProxyHops,
-    trustViewerAddress: opts.trustViewerAddress,
+    clientSource: { trustedProxyHops: opts.trustedProxyHops ?? 0, trustViewerAddress: opts.trustViewerAddress === true, compareViewerAddress: false },
     allowTenantHeader: opts.allowTenantHeader,
     idleMs: opts.idleMs,
     ttlMs: opts.ttlMs,
@@ -114,6 +115,7 @@ function newRouter(
     },
   });
   routers.push(router);
+  reachable(router.app, opts.trustedProxyHops ?? 0);
   return { router, opened };
 }
 
@@ -274,7 +276,7 @@ describe("createTenantRouter", () => {
     it("still reaches the tenant backend's own route when the router is nested under a parent mount", async () => {
       const platform = await seedPlatform();
       const { router } = newRouter(platform);
-      const parent = new Hono();
+      const parent = reachable(new Hono());
       parent.route("/api", router.app);
 
       const res = await parent.fetch(new Request("http://ignored/api/tenant", { headers: { [TENANT_HEADER]: "cyag" } }));
@@ -363,6 +365,7 @@ describe("createTenantRouter", () => {
         openBackend: async () => ({ app: stub, sessions: createSessionRegistry(), backupTo: vi.fn(), drain: vi.fn(), close: vi.fn() }),
       });
       routers.push(router);
+      reachable(router.app);
       return { router, captured };
     }
 
@@ -372,7 +375,7 @@ describe("createTenantRouter", () => {
 
       await router.app.fetch(new Request("http://ignored/customers/a%2Fb", { headers: { [TENANT_HEADER]: "cyag" } }));
 
-      const parent = new Hono();
+      const parent = reachable(new Hono());
       parent.route("/api", router.app);
       await parent.fetch(new Request("http://ignored/api/customers/a%2Fb", { headers: { [TENANT_HEADER]: "cyag" } }));
 
@@ -393,6 +396,7 @@ describe("createTenantRouter", () => {
         openBackend: async () => { throw new Error("boom"); },
       });
       routers.push(router);
+      reachable(router.app);
 
       const res = await router.app.fetch(new Request("http://ignored/tenant", { headers: { [TENANT_HEADER]: "cyag" } }));
       expect(res.status).toBe(500);
@@ -411,6 +415,7 @@ describe("createTenantRouter", () => {
         openBackend: async () => { throw new Error("TENANT_NOT_FOUND"); },
       });
       routers.push(router);
+      reachable(router.app);
 
       const res = await router.app.fetch(new Request("http://ignored/tenant", { headers: { [TENANT_HEADER]: "cyag" } }));
       expect(res.status).toBe(404);
@@ -509,7 +514,7 @@ describe("createTenantRouter", () => {
 
     it("holds an address after thirty failures in one tenant, and leaves it free in every other", async () => {
       const platform = await seedPlatform();
-      const { router } = newRouter(platform, { trustForwardedHost: true });
+      const { router } = newRouter(platform, { trustForwardedHost: true, trustedProxyHops: 1 });
       await bootstrapAdmin(router, "cyag");
       await bootstrapAdmin(router, "nile");
       for (let i = 0; i < 30; i += 1) {
@@ -534,7 +539,31 @@ describe("createTenantRouter", () => {
       await bootstrapAdmin(router, "cyag");
       for (let i = 0; i < 31; i += 1) await signIn(router, "cyag", `ghost${i}@example.com`, "203.0.113.9");
 
-      expect((await signIn(router, "cyag", "owner-cyag@example.com", "203.0.113.9", "123456")).status).toBe(200);
+      const sameSocket = await signIn(router, "cyag", "owner-cyag@example.com", "198.51.100.4", "123456");
+      const otherSocket = await router.app.fetch(
+        new Request("http://ignored/auth/login", {
+          method: "POST",
+          headers: { "content-type": "application/json", [TENANT_HEADER]: "cyag", "x-forwarded-for": "203.0.113.9" },
+          body: JSON.stringify({ username: "owner-cyag@example.com", pin: "123456" }),
+        }),
+        originEnv("10.0.7.7" as CloudSource),
+      );
+
+      expect(sameSocket.status).toBe(429);
+      expect(otherSocket.status).toBe(200);
+    }, 120_000);
+
+    it("refuses a caller with no address at all rather than treating it as the host's own console", async () => {
+      const platform = await seedPlatform();
+      const { router } = newRouter(platform, { trustForwardedHost: true, trustedProxyHops: 2 });
+      await bootstrapAdmin(router, "cyag");
+
+      const oneHopShort = await signIn(router, "cyag", "owner-cyag@example.com", EDGE, "123456");
+      const notAnAddress = await signIn(router, "cyag", "owner-cyag@example.com", `unknown, ${EDGE}`, "123456");
+
+      expect(oneHopShort.status).toBe(503);
+      expect(await oneHopShort.json()).toMatchObject({ error: "SOURCE_UNRESOLVED", message: expect.stringContaining("مصدر الطلب") });
+      expect(notAnAddress.status).toBe(503);
     }, 120_000);
 
     it("counts a client that rotates the hop it wrote itself as the one address it is", async () => {

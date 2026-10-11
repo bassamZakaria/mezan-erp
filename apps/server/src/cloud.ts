@@ -119,6 +119,6 @@ const { root } = await createCloudApp(env, { authMiddleware, transformIndexHtml 
  * demo usable and gives up a control that was already blind at this mount.
  * The desktop and LAN mounts pass the socket through and keep the binding.
  */
-serve({ fetch: (request: Request) => root.fetch(request), port: env.port, hostname: "0.0.0.0" }, (info) => {
+serve({ fetch: root.fetch, port: env.port, hostname: "0.0.0.0" }, (info) => {
   console.log(`[cloud] Mezan platform on :${info.port} (platform dir: ${env.platformDir})`);
 });

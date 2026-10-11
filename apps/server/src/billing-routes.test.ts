@@ -7,7 +7,10 @@ import { createPaymobWebhookRoutes, PAYMOB_WEBHOOK_PATH, trustedReturnOrigin } f
 import type { CardCheckoutService, WebhookResult } from "./card-checkout.js";
 import { SettlementDetail, SettlementStatus } from "./card-checkout.js";
 import { parseEnv, type CloudEnv } from "./env.js";
+import { reachable } from "./cloud-harness.js";
 
+const PROXY_HOPS = 2;
+const PROXIED = { MEZAN_TRUST_PROXY: "1", MEZAN_TRUSTED_PROXY_HOPS: String(PROXY_HOPS) };
 const T = "2026-01-15T00:00:00.000Z";
 
 const apps: CloudApp[] = [];
@@ -27,7 +30,7 @@ function testEnv(): CloudEnv {
   const webDist = tempDir("mezan-billing-web-");
   writeFileSync(path.join(webDist, "index.html"), "<!doctype html><body>مزان</body>");
   return {
-    ...parseEnv({ MEZAN_PAYMOB_TEST_MODE: "1" }),
+    ...parseEnv({ ...PROXIED, MEZAN_PAYMOB_TEST_MODE: "1" }),
     platformDir: tempDir("mezan-billing-platform-"),
     webDist,
     platformOwnerEmail: "owner@mezan.local",
@@ -39,6 +42,7 @@ function testEnv(): CloudEnv {
 async function boot(): Promise<CloudApp> {
   const app = await createCloudApp(testEnv(), { now: () => new Date(T) });
   apps.push(app);
+  reachable(app.root, PROXY_HOPS);
   return app;
 }
 

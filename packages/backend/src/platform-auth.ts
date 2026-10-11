@@ -29,10 +29,13 @@ export interface PlatformAuthDeps {
   readonly now: () => Date;
   readonly loginThrottle?: LoginThrottle;
   readonly onAuditError?: (err: unknown) => void;
+  /** Where a request came from. Defaults to the socket's peer; the cloud passes the address its trusted proxy saw. */
+  readonly sourceOf?: (c: Context) => string | null;
 }
 
 export interface PlatformAuth {
   readonly app: Hono;
+  readonly sourceOf: (c: Context) => string | null;
   readonly requirePlatform: (role?: PlatformRole) => MiddlewareHandler;
 }
 
@@ -45,6 +48,7 @@ export function createPlatformAuth(deps: PlatformAuthDeps): PlatformAuth {
   const { platform, sessions, now } = deps;
   const onAuditError = deps.onAuditError ?? ((err: unknown) => console.error(err));
   const throttle = deps.loginThrottle ?? createLoginThrottle(() => now().getTime());
+  const sourceOf = deps.sourceOf ?? requestOrigin;
 
   function security(c: Context, action: string, severity: "CRITICAL" | "WARNING" | "INFO", details: Record<string, unknown>) {
     return recordSecurityEvent(platform.audit, {
@@ -55,7 +59,7 @@ export function createPlatformAuth(deps: PlatformAuthDeps): PlatformAuth {
       actor: typeof details["userId"] === "string" ? (details["userId"] as string) : "anonymous",
       severity,
       timestamp: now().toISOString(),
-      details: { ...details, origin: requestOrigin(c) ?? "host" },
+      details: { ...details, origin: sourceOf(c) ?? "host" },
     }).catch(onAuditError);
   }
 
@@ -68,7 +72,7 @@ export function createPlatformAuth(deps: PlatformAuthDeps): PlatformAuth {
   function requirePlatform(role?: PlatformRole): MiddlewareHandler {
     return async (c, next) => {
       const token = readSessionToken(c);
-      const grant = token ? sessions.find(token, requestOrigin(c)) : null;
+      const grant = token ? sessions.find(token, sourceOf(c)) : null;
       const userRole = grant ? roleOf(grant.roleCode) : null;
       if (!grant || !userRole) return c.json({ error: "UNAUTHENTICATED" }, 401);
       if (role && userRole !== role) {
@@ -86,7 +90,7 @@ export function createPlatformAuth(deps: PlatformAuthDeps): PlatformAuth {
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
-    const key = throttleKey(parsed.data.email, requestOrigin(c));
+    const key = throttleKey(parsed.data.email, sourceOf(c));
     const waitSeconds = throttle.retryAfter(key);
     if (waitSeconds > 0) {
       await security(c, "PLATFORM_LOGIN_BLOCKED", "WARNING", { email: parsed.data.email, retryAfterSeconds: waitSeconds });
@@ -112,14 +116,14 @@ export function createPlatformAuth(deps: PlatformAuthDeps): PlatformAuth {
         branchScope: ALL_SCOPE,
         warehouseScope: ALL_SCOPE,
       },
-      requestOrigin(c),
+      sourceOf(c),
     );
     return c.json({ token, user: { id: user.id, email: user.email, role: user.role } });
   });
 
   app.post("/logout", (c) => {
     const token = readSessionToken(c);
-    if (token) sessions.revoke(token);
+    if (token && sessions.find(token, sourceOf(c))) sessions.revoke(token);
     return c.json({ ok: true });
   });
 
@@ -130,5 +134,5 @@ export function createPlatformAuth(deps: PlatformAuthDeps): PlatformAuth {
     return c.json({ id: user.id, email: user.email, role: user.role });
   });
 
-  return { app, requirePlatform };
+  return { app, requirePlatform, sourceOf };
 }

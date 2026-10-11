@@ -10,6 +10,7 @@ import { BodyLimitRefusal, createSessionRegistry } from "@mezan/api";
 import { TenantNotFoundError } from "@mezan/domain";
 import type { CreateTenantRequestDTO, ProvisionResultDTO, ProvisionRetryRequestDTO } from "@mezan/contracts";
 import { createTenantRouter, requireOriginSecret, type TenantRouter } from "./tenant-router.js";
+import { callerSource, createSourceReporter, requireCloudSource } from "./client-source.js";
 import { provisionTenant, PlanRequiredError } from "./provision-tenant.js";
 import { createSignupRoutes } from "./signup-routes.js";
 import { provisionDemoTenant } from "./demo-tenant.js";
@@ -92,15 +93,17 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
   }
 
   const sessions = createSessionRegistry();
-  const auth = createPlatformAuth({ platform, sessions, now });
+  const auth = createPlatformAuth({ platform, sessions, now, sourceOf: callerSource });
+  const sourceReporter = createSourceReporter();
+  const sourceGate = requireCloudSource(env.clientSource, sourceReporter);
 
   const router = createTenantRouter({
     platform,
     dataDir: env.platformDir,
     tenantDomain: env.tenantDomain,
     trustForwardedHost: env.trustProxy,
-    trustedProxyHops: env.clientSource.trustedProxyHops,
-    trustViewerAddress: env.clientSource.trustViewerAddress,
+    clientSource: env.clientSource,
+    sourceReporter,
     allowTenantHeader: true,
     now,
     connection: { exclusive: env.sqliteExclusive },
@@ -216,17 +219,14 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
   }
 
   // Above the demo basic-auth: a store reviewer opens these signed out.
+  // SECURITY / REQUIRED ORDERING: the pages are public, but the one POST is
+  // throttled per caller address, and a forwarded hop is only the caller's
+  // once the origin secret has proved the request crossed the edge. So the
+  // POST passes the origin-secret gate BEFORE its address is read.
+  root.on("POST", `${LEGAL_BASE_PATH}/*`, requireOriginSecret(env.originSecret));
   root.route(
     LEGAL_BASE_PATH,
-    createLegalRoutes({
-      platform,
-      supportEmail: env.supportEmail,
-      platformSmtp: env.platformSmtp,
-      // Mounted above the origin-secret gate, so nothing proves a request
-      // crossed CloudFront: the viewer header is not believed here.
-      clientSource: { trustedProxyHops: env.clientSource.trustedProxyHops, trustViewerAddress: false },
-      now,
-    }),
+    createLegalRoutes({ platform, supportEmail: env.supportEmail, platformSmtp: env.platformSmtp, clientSource: env.clientSource, sourceReporter, now }),
   );
 
   if (options.authMiddleware) {
@@ -234,6 +234,7 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
   }
 
   root.use("/api/*", requireOriginSecret(env.originSecret));
+  root.use("/api/*", sourceGate);
 
   // `/api/platform` before `/api`: the tenant router's own catch-all would
   // otherwise swallow the console's routes first.
@@ -245,8 +246,8 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
   });
   for (const mount of ["/api/platform/*", "/api/billing/*", "/api/signup/*"]) root.use(mount, platformBody);
   root.route("/api/platform", platformApp);
-  root.route("/api/billing", createTenantBillingRoutes({ platform, router, env, service: checkoutService, now }));
-  root.route("/api/signup", createSignupRoutes({ platform, router, env, now }));
+  root.route("/api/billing", createTenantBillingRoutes({ platform, router, env, service: checkoutService, now, sourceReporter }));
+  root.route("/api/signup", createSignupRoutes({ platform, router, env, now, sourceReporter }));
   root.route("/api", router.app);
 
   if (checkoutService && testProvider) {

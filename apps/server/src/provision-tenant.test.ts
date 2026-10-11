@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { createBackend, createPlatform, type PlatformHandle } from "@mezan/backend";
 import { createTenant, retirePlan, startSubscription, TenantCodeTakenError } from "@mezan/domain";
+import { reachable } from "./cloud-harness.js";
 import { createTenantRouter, TENANT_HEADER, type TenantRouter } from "./tenant-router.js";
 import { provisionTenant, TenantProvisioningError } from "./provision-tenant.js";
 
@@ -34,6 +35,7 @@ function newRouter(platform: PlatformHandle): TenantRouter {
       }),
   });
   routers.push(router);
+  reachable(router.app);
   return router;
 }
 

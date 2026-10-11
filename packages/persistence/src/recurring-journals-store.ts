@@ -257,6 +257,11 @@ class SqliteRecurringJournalRunRepository implements RecurringJournalRunReposito
     this.selectAll = sqlite.prepare(`SELECT * FROM recurring_journal_run ORDER BY generated_at DESC LIMIT ?`);
   }
 
+  async findById(id: string): Promise<RecurringJournalRun | null> {
+    const row = this.sqlite.prepare(`SELECT * FROM recurring_journal_run WHERE id = ?`).get(id) as RunRow | undefined;
+    return row ? toRun(row) : null;
+  }
+
   async findByTemplateAndPeriod(templateId: string, period: string): Promise<RecurringJournalRun | null> {
     const row = this.selectByTemplateAndPeriod.get(templateId, period) as RunRow | undefined;
     return row ? toRun(row) : null;
@@ -266,11 +271,24 @@ class SqliteRecurringJournalRunRepository implements RecurringJournalRunReposito
     return (this.selectByTemplate.all(templateId) as RunRow[]).map(toRun);
   }
 
+  async replace(previousRunId: string, run: RecurringJournalRun): Promise<boolean> {
+    const swap = this.sqlite.transaction((): boolean => {
+      const removed = this.sqlite.prepare(`DELETE FROM recurring_journal_run WHERE id = ? AND template_id = ? AND period = ?`).run(previousRunId, run.templateId, run.period);
+      if (removed.changes === 0) return false;
+      return this.insertRun(run);
+    });
+    return swap();
+  }
+
   async list(limit = 200): Promise<readonly RecurringJournalRun[]> {
     return (this.selectAll.all(limit) as RunRow[]).map(toRun);
   }
 
   async save(run: RecurringJournalRun): Promise<boolean> {
+    return this.insertRun(run);
+  }
+
+  private insertRun(run: RecurringJournalRun): boolean {
     // `changes === 0` is exactly the ON CONFLICT DO NOTHING path: another
     // call already claimed this (template, period) first.
     const info = this.insert.run({

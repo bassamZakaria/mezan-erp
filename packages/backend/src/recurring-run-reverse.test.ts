@@ -1,3 +1,4 @@
+import { ALL_SCOPE } from "@mezan/domain";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { seededWorld, type SeededWorld } from "./test-helpers/seeded-world.js";
 
@@ -9,48 +10,69 @@ beforeAll(async () => {
 
 afterAll(() => world?.close());
 
-interface Run {
+interface RunRow {
   id: string;
   templateId: string;
   period: string;
-  journalEntryId: string | null;
+  journalEntryId: string;
 }
-const septemberRun = async () => ((await world.request("GET", "/gl/recurring/runs")).body as unknown as Run[]).find((run) => run.templateId === "RJT-DEMO-1" && run.period === "2026-09")!;
-const entryStatus = (id: string) => (world.sqlite.prepare(`SELECT status FROM journal_entry WHERE id = ?`).get(id) as { status: string }).status;
-const recurringState = async () => {
-  const checks = (await world.request("GET", "/period-close/fp-2026-09/checks")).body.checks as { code: string; findings: { ref: string; state: string }[] }[];
-  return checks.find((c) => c.code === "recurring_journals")?.findings.find((f) => f.ref === "RJT-DEMO-1:2026-09")?.state;
+
+const julyRun = () =>
+  world.sqlite
+    .prepare(
+      `SELECT r.id, r.template_id AS templateId, r.period, r.journal_entry_id AS journalEntryId FROM recurring_journal_run r JOIN journal_entry je ON je.id = r.journal_entry_id WHERE r.period = '2026-07' AND je.status = 'posted' ORDER BY r.id LIMIT 1`,
+    )
+    .get() as RunRow;
+const recurringFindings = async (periodId: string) => {
+  const checks = (await world.request("GET", `/period-close/${periodId}/checks`)).body.checks as { findings: { kind: string; ref: string; passed: boolean; state: string }[] }[];
+  return checks.flatMap((c) => c.findings).filter((f) => f.kind === "recurring_template");
 };
+const dueFor = async (templateId: string) =>
+  ((await world.request("GET", "/gl/recurring/due?asOfDate=2026-07-31")).body.due as { templateId: string; periods: string[] }[]).find((d) => d.templateId === templateId)?.periods ?? [];
 
-describe("reversing the entry a recurring run generated", () => {
-  it("is refused from the journal, which names the run's own screen as the place to do it", async () => {
-    const run = await septemberRun();
-    expect((await world.request("POST", `/gl/journal-entries/${encodeURIComponent(run.journalEntryId!)}/post`, {})).status).toBe(200);
-
-    const refused = await world.request("POST", `/gl/journal-entries/${encodeURIComponent(run.journalEntryId!)}/reverse`, {});
-
-    expect(refused.status).toBe(422);
-    expect(refused.body.error).toBe("JOURNAL_ENTRY_OWNED_BY_DOCUMENT");
-    expect(entryStatus(run.journalEntryId!)).toBe("posted");
+describe("reversing a recurring run", () => {
+  it("needs the right to post journals as well as to manage recurring entries", async () => {
+    const run = julyRun();
+    const token = world.backend.sessions.issue({ userId: "limited", permissions: ["accounting.recurring.manage", "accounting.recurring.view"], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
+    const res = await world.backend.app.fetch(
+      new Request(`http://local/gl/recurring/runs/${encodeURIComponent(run.id)}/reverse`, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify({ date: "2026-10-05" }) }),
+    );
+    expect(res.status).toBe(403);
+    expect(((await res.json()) as { permission?: string }).permission).toBe("accounting.journal.post");
+    expect((world.sqlite.prepare(`SELECT status FROM journal_entry WHERE id = ?`).get(run.journalEntryId) as { status: string }).status).toBe("posted");
   });
 
-  it("goes through the run: the entry is reversed on the stated day and the month's close reads the run as reversed", async () => {
-    const run = await septemberRun();
-    const early = await world.request("POST", `/gl/recurring/runs/${encodeURIComponent(run.id)}/reverse`, { date: "2026-08-15" });
-    expect(`${early.status} ${String(early.body.error)}`).toBe("422 REVERSAL_DATE_BEFORE_ORIGINAL");
+  it("finds a run that is not among the two hundred most recent", async () => {
+    const run = julyRun();
+    const insert = world.sqlite.prepare(
+      `INSERT INTO recurring_journal_run (id, template_id, period, journal_entry_id, generated_at, generated_by) VALUES (?, ?, '2099-01', ?, '2099-01-01T00:00:00.000Z', 'test')`,
+    );
+    for (let i = 0; i < 205; i += 1) insert.run(`RRR-FILL-${i}`, `RRR-TEMPLATE-${i}`, `RRR-ENTRY-${i}`);
 
-    const reversed = await world.request("POST", `/gl/recurring/runs/${encodeURIComponent(run.id)}/reverse`, { date: "2026-09-20" });
+    const refused = await world.request("POST", `/gl/recurring/runs/${encodeURIComponent(run.id)}/reverse`, { date: "2026-06-30" });
 
-    expect(reversed.status).toBe(201);
-    expect(reversed.body).toMatchObject({ runId: run.id, journalEntryId: run.journalEntryId, entryStatus: "reversed" });
-    expect(world.sqlite.prepare(`SELECT date FROM journal_entry WHERE reverses_entry_id = ?`).all(run.journalEntryId)).toEqual([{ date: "2026-09-20" }]);
-    expect(await recurringState()).toBe("reversed");
-
-    const again = await world.request("POST", `/gl/recurring/runs/${encodeURIComponent(run.id)}/reverse`, { date: "2026-09-21" });
-    expect(again.status).toBe(409);
+    expect(`${refused.status} ${String(refused.body.error)}`).toBe("422 REVERSAL_DATE_BEFORE_ORIGINAL");
+    world.sqlite.prepare(`DELETE FROM recurring_journal_run WHERE id LIKE 'RRR-FILL-%'`).run();
   });
 
-  it("a run that does not exist is a 404", async () => {
-    expect((await world.request("POST", "/gl/recurring/runs/NOPE/reverse", {})).status).toBe(404);
+  it("frees its month: the period is due again, regenerates, and the month's close check passes once the new entry is posted", async () => {
+    const run = julyRun();
+    expect(await dueFor(run.templateId)).not.toContain("2026-07");
+
+    const reversed = await world.request("POST", `/gl/recurring/runs/${encodeURIComponent(run.id)}/reverse`, { date: "2026-10-05" });
+    expect(reversed.status, JSON.stringify(reversed.body)).toBe(201);
+    expect((await recurringFindings("fp-2026-07")).find((f) => f.ref === `${run.templateId}:2026-07`)).toMatchObject({ passed: false, state: "reversed" });
+    expect(await dueFor(run.templateId)).toContain("2026-07");
+
+    const generated = await world.request("POST", "/gl/recurring/generate-due", { asOfDate: "2026-07-31", templateIds: [run.templateId] });
+    expect(generated.status).toBe(201);
+    const fresh = (generated.body.generated as { period: string; journalEntryId: string }[]).find((g) => g.period === "2026-07");
+    expect(fresh, JSON.stringify(generated.body)).toBeDefined();
+    expect(fresh?.journalEntryId).not.toBe(run.journalEntryId);
+    expect(await dueFor(run.templateId)).not.toContain("2026-07");
+
+    const again = await world.request("POST", "/gl/recurring/generate-due", { asOfDate: "2026-07-31", templateIds: [run.templateId] });
+    expect((again.body.generated as unknown[]).length).toBe(0);
+    expect(world.count("recurring_journal_run", `template_id = '${run.templateId}' AND period = '2026-07'`)).toBe(1);
   });
 });

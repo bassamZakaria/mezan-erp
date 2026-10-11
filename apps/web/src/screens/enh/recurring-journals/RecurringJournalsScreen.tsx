@@ -702,7 +702,7 @@ export function RecurringJournalHistory() {
         const run = row.run;
         if (!run) return null;
         const items: RowMenuItem[] = [
-          { key: "reverse", label: t("recurringJournals.reverseRunEntry"), tone: "danger" as const, disabled: reversingId === run.id, onSelect: () => void reverse(run.id) },
+          { key: "reverse", label: t("recurringJournals.reverseRunEntry"), tone: "danger" as const, disabled: reversingId === run.id, confirm: { title: t("recurringJournals.reverseRunEntry"), consequence: t("recurringJournals.reverseConfirmBody", { name: nameById.get(run.templateId) ?? run.templateId, period: run.period }), confirmLabel: t("recurringJournals.reverseRunEntry") }, onSelect: () => void reverse(run.id) },
         ];
         return <RowMenu items={items} label={t("common.rowActionsFor", { name: run.period })} />;
       }}

@@ -28,6 +28,7 @@ import {
   dueDepreciationPeriods,
   duePeriods,
   generateDueRecurringJournals,
+  recurringRunStanding,
   setRecurringJournalTemplateStatus,
   skipRecurringJournalOccurrence,
   updateRecurringJournalTemplate,
@@ -351,7 +352,7 @@ export function createRecurringJournalRoutes(deps: RecurringJournalRoutesDeps, r
       if (template.status !== RecurringJournalTemplateStatus.Active) continue;
       const outstanding: string[] = [];
       for (const period of duePeriods(template, asOfDate)) {
-        if (await deps.runs.findByTemplateAndPeriod(template.id, period)) continue;
+        if ((await recurringRunStanding(deps, template.id, period)).standing) continue;
         if (await deps.skips.findByTemplateAndPeriod(template.id, period)) continue;
         outstanding.push(period);
       }
@@ -392,9 +393,9 @@ export function createRecurringJournalRoutes(deps: RecurringJournalRoutesDeps, r
    * run is what the worklist and the month's close read, and both read its
    * state off this entry.
    */
-  app.post("/runs/:id/reverse", gate("accounting.recurring.manage"), async (c) => {
+  app.post("/runs/:id/reverse", gate("accounting.recurring.manage"), gate("accounting.journal.post"), async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as { date?: unknown; memo?: unknown } | null;
-    const run = (await deps.runs.list()).find((candidate) => candidate.id === c.req.param("id"));
+    const run = await deps.runs.findById(c.req.param("id"));
     if (!run) return c.json({ error: "RECURRING_JOURNAL_RUN_NOT_FOUND", message: "دورة القيد المتكرر غير موجودة.", messageEn: "The recurring journal run does not exist." }, 404);
     try {
       const date = await tenantDay(c, typeof body?.date === "string" && body.date !== "" ? body.date : (deps.now?.() ?? new Date().toISOString()));

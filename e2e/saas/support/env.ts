@@ -1,6 +1,6 @@
-// The suite owns four private ports and no others. 3321/5321 carry the main API and web
-// pair for the whole run; 3322/5322 carry the second pair spec 06 restarts under
-// MEZAN_FAKE_TODAY, because a process cannot change its clock while it is running.
+export { LicenseStateCode as LicenseState, SubscriptionStatusCode as SubscriptionStatus, UNDISCLOSED_TENANT_NAME } from "@mezan/contracts";
+export { TenantStatusCode as TenantStatus } from "@mezan/domain";
+
 export const SAAS_API_PORT = 3321;
 export const SAAS_WEB_PORT = 5321;
 export const CLOCK_API_PORT = 3322;
@@ -16,7 +16,8 @@ export const CLOCK_WEB_URL = `http://127.0.0.1:${CLOCK_WEB_PORT}`;
 export const TENANT_DOMAIN = "localhost";
 export const PLATFORM_OWNER_EMAIL = "owner@mezan.local";
 export const PLATFORM_OWNER_PASSWORD = "owner-password-123";
-export const DEMO_TENANT_CODE = "demo";
+export const MAIN_SERVER_TODAY = "2027-01-31";
+export const SIGNUP_SOURCE_HEADER = "x-forwarded-for";
 export const WALK_DIR = "e2e-results/saas-walk";
 
 export enum Locale {
@@ -73,16 +74,6 @@ export enum HttpMethod {
   Patch = "PATCH",
 }
 
-export enum SubscriptionStatus {
-  Trialing = "trialing",
-  Active = "active",
-  PastDue = "past_due",
-}
-
-export enum TenantStatus {
-  Active = "active",
-}
-
 export enum PlanCode {
   Free = "free",
   Core = "core",
@@ -101,22 +92,27 @@ export enum Module {
   Manufacturing = "manufacturing",
 }
 
-export enum LicenseState {
-  Active = "ACTIVE",
-  Grace = "GRACE",
-  ReadOnly = "READ_ONLY",
-}
-
 export const TENANT_HEADER = "x-mezan-tenant";
 export const FORWARDED_HOST_HEADER = "x-forwarded-host";
 
 export const INVALID_CREDENTIALS_SENTENCE = "اسم المستخدم أو رمز PIN غير صحيح.";
 export const LICENSE_READ_ONLY_SENTENCE =
   "الترخيص غير فعّال حاليًا، والبرنامج في وضع القراءة فقط. كل بياناتك متاحة للعرض والطباعة والتصدير، لكن لا يمكن حفظ أي حركة جديدة حتى تجديد الترخيص.";
-export const UNDISCLOSED_TENANT_NAME = "Mezan";
 
 export function tenantCodeTakenSentence(code: string): string {
   return `رمز المنشأة "${code}" مستخدم بالفعل`;
+}
+
+export enum ItemType {
+  Service = "service",
+}
+
+export enum Currency {
+  Egp = "EGP",
+}
+
+export enum DiscountType {
+  Percent = "percent",
 }
 
 export enum ResolveMode {
@@ -134,6 +130,7 @@ export enum StorageKey {
 
 export enum CodePrefix {
   Console = "cyag",
+  Paying = "paying",
   IsolatedA = "alpha",
   IsolatedB = "nile",
   Resolved = "oasis",

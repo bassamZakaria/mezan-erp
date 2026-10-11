@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { ApiError, BillingCycle, CodePrefix, HttpMethod, PlanCode, PlanId, SAAS_API_URL, SubscriptionStatus, TENANT_HEADER, uniqueCode } from "./support/env";
+import { ApiError, BillingCycle, CodePrefix, HttpMethod, PlanCode, PlanId, SAAS_API_URL, SIGNUP_SOURCE_HEADER, SubscriptionStatus, TENANT_HEADER, uniqueCode } from "./support/env";
 import { errorOf, invoiceDrafts, rowsOf, storedSession, tenantApiLogin, tenantCall, tenantSignIn, type TenantLogin } from "./support/saas";
 
 const CODE = uniqueCode(CodePrefix.SignedUp);
@@ -7,22 +7,32 @@ const COMPANY = "متجر الياسمين";
 const VENDOR_NAME = "Cyag";
 const OWNER_EMAIL = `sara@${CODE}.example`;
 const CUSTOMER_NAME = "عميل الياسمين";
-const FORGED_LINK_REFUSAL = "تعذّر تفعيل الحساب";
+const FORGED_LINK_REFUSAL = "رابط التفعيل غير صالح";
 
 let verifyUrl = "";
 let tenant: TenantLogin;
 
+function freshSource(): Record<string, string> {
+  const octet = () => 1 + Math.floor(Math.random() * 254);
+  return { [SIGNUP_SOURCE_HEADER]: `10.${octet()}.${octet()}.${octet()}` };
+}
+
 test.describe.configure({ mode: "serial" });
 
 test.describe("Self-serve signup — form, verification link, first sign-in", () => {
+  test.beforeEach(async ({ context }) => {
+    await context.setExtraHTTPHeaders(freshSource());
+  });
+
   test("the signup request is posted to the route the server mounts", async ({ request }) => {
     for (const route of ["/api/signup", "/api/signup/"]) {
-      const mounted = await request.post(`${SAAS_API_URL}${route}`, { data: {} });
+      const mounted = await request.post(`${SAAS_API_URL}${route}`, { headers: freshSource(), data: {} });
       expect(mounted.status(), route).toBe(400);
       expect(((await mounted.json()) as { error: string }).error, route).toBe(ApiError.ValidationError);
     }
     const code = uniqueCode(CodePrefix.Crafted);
     const withSlash = await request.post(`${SAAS_API_URL}/api/signup/`, {
+      headers: freshSource(),
       data: { code, nameAr: "منشأة الشرطة", ownerEmail: `owner@${code}.example`, ownerNameAr: "مالك", planId: PlanId.Core, billingCycle: BillingCycle.Monthly },
     });
     expect(withSlash.status(), await withSlash.text()).toBe(201);
@@ -32,6 +42,7 @@ test.describe("Self-serve signup — form, verification link, first sign-in", ()
   test("a visitor signs up and is shown the verification link in dev mode", async ({ page }) => {
     await page.goto("/signup");
     await expect(page.getByRole("heading", { name: "أنشئ حساب ميزان", level: 1 })).toBeVisible();
+    await expect(page.getByLabel("اسم المنشأة (عربي)")).toHaveAttribute("maxlength", "200");
     await page.getByLabel("اسم المنشأة (عربي)").fill(COMPANY);
     await page.getByLabel("رمز المنشأة").fill(CODE);
     await page.getByLabel("رمز المنشأة").blur();
@@ -145,6 +156,7 @@ test.describe("Self-serve signup — form, verification link, first sign-in", ()
   test("the request body cannot choose its own trial plan", async ({ request }) => {
     const code = uniqueCode(CodePrefix.Crafted);
     const start = await request.post(`${SAAS_API_URL}/api/signup`, {
+      headers: freshSource(),
       data: { code, nameAr: "منشأة مصنوعة", ownerEmail: `owner@${code}.example`, ownerNameAr: "مالك", planId: PlanId.Free, billingCycle: BillingCycle.Monthly },
     });
     expect(start.status()).toBe(201);

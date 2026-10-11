@@ -1,6 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import path from "node:path";
+import { rmSync } from "node:fs";
 import { test, expect, type APIRequestContext } from "@playwright/test";
 import {
   ApiError,
@@ -35,7 +33,7 @@ import {
   type TenantApi,
   type TenantLogin,
 } from "./support/saas";
-import { startApiServer, startWebServer, type ServerHandle } from "./support/servers";
+import { RunDir, newRunDir, startApiServer, startWebServer, type ServerHandle } from "./support/servers";
 
 const CODE = uniqueCode(CodePrefix.Trial);
 const CUSTOMER_NAME = "عميل فترة التجربة";
@@ -102,7 +100,7 @@ test.describe.configure({ mode: "serial" });
 test.describe("The clock moves — a trial lands on Free, the Free quota holds, and an unpaid period goes past due, then read-only", () => {
   test.beforeAll(async ({ playwright }) => {
     test.setTimeout(300_000);
-    platformDir = mkdtempSync(path.join(tmpdir(), "mezan-saas-e2e-clock-"));
+    platformDir = newRunDir(RunDir.Clock);
     const request = await playwright.request.newContext();
 
     api = await startApiServer({ port: CLOCK_API_PORT, platformDir, seedDemo: false });

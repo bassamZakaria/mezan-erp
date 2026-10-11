@@ -2,7 +2,6 @@ import { test, expect, type APIRequestContext, type Page } from "@playwright/tes
 import {
   ApiError,
   CodePrefix,
-  DEMO_TENANT_CODE,
   HttpMethod,
   INVALID_CREDENTIALS_SENTENCE,
   LICENSE_READ_ONLY_SENTENCE,
@@ -23,6 +22,7 @@ import {
   openTenantDetail,
   platformSignIn,
   platformToken,
+  provisionTenant,
   rowsOf,
   tenantApiLogin,
   tenantCall,
@@ -35,9 +35,11 @@ const TENANT_NAME = "شركة سياج";
 const PAYMENT_REFERENCE = `INSTAPAY-${TENANT_CODE}`;
 const PAYMENT_AMOUNT = "980";
 const CUSTOMER_NAME = `عميل ${TENANT_CODE}`;
-const HR_REFUSAL = "وحدة الموارد البشرية غير مُفعّلة في ترخيص هذه النسخة. تواصل مع الدعم لإضافتها إلى الاشتراك.";
+const HR_REFUSAL = "وحدة الموارد البشرية ليست ضمن باقة «الأعمال». يمكنكم إضافتها بترقية الباقة من صفحة الاشتراك.";
 const READ_ONLY_BANNER = "الترخيص غير فعّال — وضع القراءة فقط";
 const SUSPEND_QUESTION = "إيقاف المنشأة؟";
+const FIRST_PERIOD_END = "2027-02-28";
+const RENEWED_PERIOD_END = "2027-03-28";
 
 interface PlatformSubscription {
   readonly status: string;
@@ -50,6 +52,7 @@ interface PlatformPayment {
 }
 
 let tenant: TenantLogin;
+let paying: TenantLogin;
 
 async function periodEnd(page: Page): Promise<Date> {
   const text = await page.locator("main").innerText();
@@ -70,20 +73,16 @@ async function subscriptionOf(request: APIRequestContext, tenantId: string): Pro
   return (await platformGet<{ subscription: PlatformSubscription }>(request, `/tenants/${tenantId}`)).subscription;
 }
 
-function oneBillingMonthAfter(iso: string): string {
-  const start = new Date(iso);
-  const lastDayOfNextMonth = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 2, 0)).getUTCDate();
-  const end = new Date(start);
-  end.setUTCDate(1);
-  end.setUTCMonth(start.getUTCMonth() + 1);
-  end.setUTCDate(Math.min(start.getUTCDate(), lastDayOfNextMonth));
-  return end.toISOString();
-}
-
 test.describe.configure({ mode: "serial" });
 
 test.describe("PLT-SAAS-01..06 — the platform console and the tenant it creates", () => {
-  test("PLT-SAAS-01 the platform owner signs in and sees the seeded demo tenant and nothing this suite did not create", async ({ page }) => {
+  test.beforeAll(async ({ playwright }) => {
+    const request = await playwright.request.newContext();
+    paying = await provisionTenant(request, { code: uniqueCode(CodePrefix.Paying), nameAr: "شركة مدفوعة", ownerNameAr: "هالة المدفوعة", planId: PlanId.Enterprise, trial: false });
+    await request.dispose();
+  });
+
+  test("PLT-SAAS-01 the platform owner signs in and sees the paying tenant and nothing this suite did not create", async ({ page }) => {
     await platformSignIn(page);
     const rail = page.getByRole("navigation", { name: "منصة Mezan" });
     for (const label of ["المنشآت", "الباقات", "المشغّلون"]) {
@@ -91,10 +90,10 @@ test.describe("PLT-SAAS-01..06 — the platform console and the tenant it create
     }
     await expect(rail.getByRole("button", { name: "تسجيل الخروج" })).toBeVisible();
     const table = page.getByRole("table");
-    await expect(table.getByRole("row").filter({ has: page.getByRole("cell", { name: DEMO_TENANT_CODE, exact: true }) })).toHaveCount(1);
+    await expect(table.getByRole("row").filter({ has: page.getByRole("cell", { name: paying.code, exact: true }) })).toHaveCount(1);
     const codes = await table.locator("tbody tr td:first-child").allInnerTexts();
-    expect(codes).toContain(DEMO_TENANT_CODE);
-    expect(codes.filter((code) => code !== DEMO_TENANT_CODE && !SUITE_TENANT_CODE.test(code))).toEqual([]);
+    expect(codes).toContain(paying.code);
+    expect(codes.filter((code) => !SUITE_TENANT_CODE.test(code))).toEqual([]);
   });
 
   test("PLT-SAAS-01 a wrong password is refused in Arabic and opens nothing", async ({ page }) => {
@@ -143,8 +142,9 @@ test.describe("PLT-SAAS-01..06 — the platform console and the tenant it create
     const row = page.getByRole("row").filter({ hasText: TENANT_CODE });
     await expect(row.getByText("تجريبي", { exact: true })).toBeVisible();
     await expect(row.getByText("الترخيص نشط", { exact: true })).toHaveCount(0);
-    const demo = page.getByRole("row").filter({ has: page.getByRole("cell", { name: DEMO_TENANT_CODE, exact: true }) });
-    await expect(demo.getByText("تجريبي", { exact: true })).toHaveCount(0);
+    const paid = page.getByRole("row").filter({ has: page.getByRole("cell", { name: paying.code, exact: true }) });
+    await expect(paid).toHaveCount(1);
+    await expect(paid.getByText("تجريبي", { exact: true })).toHaveCount(0);
   });
 
   test("PLT-SAAS-02 a second tenant cannot take the same code", async ({ page }) => {
@@ -187,7 +187,7 @@ test.describe("PLT-SAAS-01..06 — the platform console and the tenant it create
     await page.getByRole("button", { name: "تسجيل الخروج" }).click();
     await page.getByRole("button", { name: "تغيير المنشأة" }).click();
     const field = page.getByRole("textbox", { name: "رمز المنشأة" });
-    await field.fill(DEMO_TENANT_CODE);
+    await field.fill(paying.code);
     await field.blur();
     await expect(page.getByRole("button", { name: "تغيير المنشأة" })).toBeVisible();
     const refused = page.waitForResponse((r) => new URL(r.url()).pathname === "/api/auth/login");
@@ -231,7 +231,7 @@ test.describe("PLT-SAAS-01..06 — the platform console and the tenant it create
 
     await platformSignIn(page);
     await openTenantDetail(page, TENANT_CODE);
-    const shownBefore = await periodEnd(page);
+    expect((await periodEnd(page)).toISOString().slice(0, 10)).toBe(FIRST_PERIOD_END);
 
     await page.getByRole("button", { name: "تسجيل دفعة" }).click();
     const dialog = page.getByRole("dialog", { name: "تسجيل دفعة" });
@@ -248,19 +248,19 @@ test.describe("PLT-SAAS-01..06 — the platform console and the tenant it create
 
     const subscriptionAfter = await subscriptionOf(request, tenant.id);
     expect(subscriptionAfter.status).toBe(SubscriptionStatus.Active);
-    expect(subscriptionAfter.currentPeriodEnd).toBe(oneBillingMonthAfter(subscriptionBefore.currentPeriodEnd));
+    expect(subscriptionBefore.currentPeriodEnd.slice(0, 10)).toBe(FIRST_PERIOD_END);
+    expect(subscriptionAfter.currentPeriodEnd).toBe(subscriptionBefore.currentPeriodEnd.replace(FIRST_PERIOD_END, RENEWED_PERIOD_END));
     const payments = await platformGet<PlatformPayment[]>(request, `/tenants/${tenant.id}/payments`);
     expect(payments).toHaveLength(1);
     expect(payments[0]?.reference).toBe(PAYMENT_REFERENCE);
     expect(Number(payments[0]?.amount)).toBe(Number(PAYMENT_AMOUNT));
 
-    const shownAfter = await periodEnd(page);
-    expect(shownAfter.toISOString()).toBe(oneBillingMonthAfter(shownBefore.toISOString()));
+    expect((await periodEnd(page)).toISOString().slice(0, 10)).toBe(RENEWED_PERIOD_END);
 
     await page.reload();
     await expect(main.getByText(PAYMENT_REFERENCE)).toBeVisible();
     await expect(main).toContainText(/حالة الاشتراك\s*نشط/);
-    expect((await periodEnd(page)).getTime()).toBe(shownAfter.getTime());
+    expect((await periodEnd(page)).toISOString().slice(0, 10)).toBe(RENEWED_PERIOD_END);
   });
 
   test("PLT-SAAS-05 a payment with no amount is refused before it reaches the server", async ({ page }) => {

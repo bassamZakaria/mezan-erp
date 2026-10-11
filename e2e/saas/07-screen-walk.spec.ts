@@ -1,6 +1,7 @@
 import { test, expect, type Browser, type BrowserContext } from "@playwright/test";
 import { ApiError, CodePrefix, HttpMethod, Locale, PlanId, Theme, VIEWPORT_SIZE, Viewport, uniqueCode } from "./support/env";
 import {
+  enterTenantCode,
   expectHealthyScreen,
   platformSignIn,
   provisionTenant,
@@ -34,8 +35,8 @@ interface Look {
   readonly viewport: Viewport;
 }
 
+const TENANT_SCOPED_BEFORE_SIGN_IN: readonly string[] = ["/api/bootstrap/status", "/api/entitlements"];
 const HR_NOT_LICENSED: Refusal = { status: 403, error: ApiError.ModuleNotLicensed, path: /^\/api\/hr\// };
-const PRE_TENANT_LOOKUPS: Refusal = { status: 400, error: ApiError.TenantRequired, path: /^\/api\/(bootstrap\/status|entitlements)$/ };
 
 const LOOKS: readonly Look[] = [Viewport.Desktop, Viewport.Phone].flatMap((viewport) =>
   [Locale.Arabic, Locale.English].flatMap((locale) => [Theme.Light, Theme.Dark].map((theme) => ({ locale, theme, viewport }))),
@@ -48,7 +49,7 @@ let platformState: StorageState;
 const SCREENS: readonly Screen[] = [
   { name: "platform-login", door: Door.Public, path: () => "/platform/login" },
   { name: "signup", door: Door.Public, path: () => "/signup" },
-  { name: "tenant-login", door: Door.Public, path: () => "/", refusals: [PRE_TENANT_LOOKUPS] },
+  { name: "tenant-login", door: Door.Public, path: () => "/" },
   { name: "platform-tenants", door: Door.Platform, path: () => "/platform/tenants" },
   { name: "platform-tenant-detail", door: Door.Platform, path: () => `/platform/tenants/${tenant.id}` },
   { name: "platform-plans", door: Door.Platform, path: () => "/platform/plans" },
@@ -59,10 +60,6 @@ const SCREENS: readonly Screen[] = [
   { name: "tenant-customers", door: Door.Tenant, path: () => "/sell/customers" },
   { name: "tenant-unlicensed-module", door: Door.Tenant, path: () => "/people/employees", refusals: [HR_NOT_LICENSED] },
 ];
-
-function fitsViewport(screen: Screen, viewport: Viewport): boolean {
-  return viewport === Viewport.Desktop || screen.door !== Door.Platform;
-}
 
 async function contextFor(browser: Browser, door: Door, look: Look): Promise<BrowserContext> {
   const storageState = door === Door.Platform ? platformState : door === Door.Tenant ? tenantState : undefined;
@@ -95,7 +92,7 @@ test.describe("Every SaaS screen — both locales, both themes, desktop and 390p
     const label = `${look.locale}-${look.theme}-${look.viewport}`;
     test(`${label}: every screen has one h1, no errors, no page scroll, no raw enum`, async ({ browser }) => {
       test.setTimeout(180_000);
-      for (const screen of SCREENS.filter((candidate) => fitsViewport(candidate, look.viewport))) {
+      for (const screen of SCREENS) {
         await test.step(screen.name, async () => {
           const context = await contextFor(browser, screen.door, look);
           const page = await context.newPage();
@@ -111,21 +108,43 @@ test.describe("Every SaaS screen — both locales, both themes, desktop and 390p
     });
   }
 
-  test.fixme(
-    "the platform console fits a 390px phone [D-SAAS-12: PlatformShell.tsx keeps a fixed 220px rail beside the page at every width and its tables do not scroll inside a container, so at 390px the tenants, tenant detail, plans, plan editor and operators pages scroll sideways by 109-701px]",
-    async ({ browser }) => {
-      const look: Look = { locale: Locale.Arabic, theme: Theme.Light, viewport: Viewport.Phone };
-      for (const screen of SCREENS.filter((candidate) => candidate.door === Door.Platform)) {
+  test("the platform console fits a 390px phone: the rail becomes a top bar, every page keeps to the viewport and its controls stay reachable [guards D-SAAS-12]", async ({ browser }) => {
+    const look: Look = { locale: Locale.Arabic, theme: Theme.Light, viewport: Viewport.Phone };
+    const width = VIEWPORT_SIZE[Viewport.Phone].width;
+    for (const screen of SCREENS.filter((candidate) => candidate.door === Door.Platform)) {
+      await test.step(screen.name, async () => {
         const context = await contextFor(browser, screen.door, look);
         const page = await context.newPage();
         const watch = watchPage(page);
         await page.goto(screen.path());
         await expect(page.locator("h1").first()).toBeVisible();
-        await expectHealthyScreen(page, { name: `defect-D-SAAS-12-${screen.name}`, locale: look.locale, watch });
+        await expectHealthyScreen(page, { name: `phone-console-${screen.name}`, locale: look.locale, watch });
+
+        const rail = page.getByRole("navigation", { name: "منصة Mezan" });
+        const railBox = await rail.boundingBox();
+        const mainBox = await page.locator("main").boundingBox();
+        expect(railBox?.width, `${screen.name}: the rail spans the viewport`).toBe(width);
+        expect(mainBox?.width, `${screen.name}: the page spans the viewport`).toBe(width);
+        expect(mainBox?.y ?? 0, `${screen.name}: the page sits under the bar`).toBeGreaterThanOrEqual((railBox?.y ?? 0) + (railBox?.height ?? 0));
+        for (const label of ["المنشآت", "الباقات", "المشغّلون"]) {
+          await expect(rail.getByRole("link", { name: label, exact: true })).toBeInViewport();
+        }
+        await expect(rail.getByRole("button", { name: "تسجيل الخروج" })).toBeInViewport();
         await context.close();
-      }
-    },
-  );
+      });
+    }
+
+    const context = await contextFor(browser, Door.Platform, look);
+    const page = await context.newPage();
+    await page.goto("/platform/tenants");
+    await page.getByRole("navigation", { name: "منصة Mezan" }).getByRole("link", { name: "الباقات", exact: true }).click();
+    await expect(page).toHaveURL(/\/platform\/plans$/);
+    await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+    await page.goto("/platform/tenants");
+    await page.getByRole("row").filter({ hasText: tenant.code }).getByRole("button", { name: "عرض" }).click();
+    await expect(page).toHaveURL(new RegExp(`/platform/tenants/${tenant.id}$`));
+    await context.close();
+  });
 
   test("a tenant without HR makes no HR request from the shell [guards D-SAAS-03]", async ({ browser }) => {
     const context = await contextFor(browser, Door.Tenant, { locale: Locale.Arabic, theme: Theme.Light, viewport: Viewport.Desktop });
@@ -157,16 +176,25 @@ test.describe("Every SaaS screen — both locales, both themes, desktop and 390p
     await context.close();
   });
 
-  test.fixme(
-    "the sign-in screen asks the server nothing tenant-scoped before a company is known [D-SAAS-06: on a device with no company code, the app requests /api/bootstrap/status and /api/entitlements with no x-mezan-tenant header and gets two 400 TENANT_REQUIRED answers and two console errors on first paint]",
-    async ({ browser }) => {
-      const context = await contextFor(browser, Door.Public, { locale: Locale.Arabic, theme: Theme.Light, viewport: Viewport.Desktop });
-      const page = await context.newPage();
-      const watch = watchPage(page);
-      await page.goto("/");
-      await watch.settled();
-      expect(watch.problems).toEqual([]);
-      await context.close();
-    },
-  );
+  test("the sign-in screen asks the server nothing tenant-scoped before a company is known, and asks once the code is confirmed [guards D-SAAS-06]", async ({ browser }) => {
+    const context = await contextFor(browser, Door.Public, { locale: Locale.Arabic, theme: Theme.Light, viewport: Viewport.Desktop });
+    const page = await context.newPage();
+    const watch = watchPage(page);
+    const requested: string[] = [];
+    page.on("request", (request) => requested.push(new URL(request.url()).pathname));
+    await page.goto("/");
+    await expect(page.getByRole("textbox", { name: "رمز المنشأة" })).toBeVisible();
+    await watch.settled();
+    expect(requested).toContain("/api/platform/resolve");
+    expect(requested.filter((pathname) => TENANT_SCOPED_BEFORE_SIGN_IN.includes(pathname))).toEqual([]);
+    expect(watch.problems).toEqual([]);
+
+    const status = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/bootstrap/status");
+    await enterTenantCode(page, tenant.code);
+    expect((await status).status()).toBe(200);
+    await watch.settled();
+    expect(requested).toContain("/api/entitlements");
+    expect(watch.problems).toEqual([]);
+    await context.close();
+  });
 });

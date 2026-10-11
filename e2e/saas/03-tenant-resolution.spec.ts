@@ -44,8 +44,6 @@ function collectApiBodies(page: Page): () => Promise<string[]> {
   return () => Promise.all(bodies);
 }
 
-test.describe.configure({ mode: "serial" });
-
 test.describe("PLT-SAAS-08 — resolving a tenant reveals nothing before sign-in", () => {
   test.beforeAll(async ({ playwright }) => {
     const request = await playwright.request.newContext();

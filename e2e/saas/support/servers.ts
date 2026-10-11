@@ -1,5 +1,8 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import { mkdtempSync, readdirSync, rmSync, statSync } from "node:fs";
 import { connect } from "node:net";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { PLATFORM_OWNER_EMAIL, PLATFORM_OWNER_PASSWORD, TENANT_DOMAIN } from "./env";
 
 export interface ServerHandle {
@@ -23,12 +26,39 @@ enum Signal {
   Kill = "SIGKILL",
 }
 
+export enum RunDir {
+  Platform = "mezan-saas-e2e-platform-",
+  Clock = "mezan-saas-e2e-clock-",
+}
+
+const RUN_DIR_NAME = new RegExp(`^(?:${Object.values(RunDir).join("|")})[A-Za-z0-9]{6}$`);
+const ABANDONED_AFTER_MS = 6 * 60 * 60_000;
+
+export function newRunDir(kind: RunDir): string {
+  return mkdtempSync(path.join(tmpdir(), kind));
+}
+
+// A killed run cannot remove its own directory. Only directories this suite named, and only
+// ones old enough that no live run can own them, are removed.
+export function removeAbandonedRunDirs(): void {
+  for (const entry of readdirSync(tmpdir(), { withFileTypes: true })) {
+    if (!entry.isDirectory() || !RUN_DIR_NAME.test(entry.name)) continue;
+    const dir = path.join(tmpdir(), entry.name);
+    try {
+      if (Date.now() - statSync(dir).mtimeMs > ABANDONED_AFTER_MS) rmSync(dir, { recursive: true, force: true });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== NO_SUCH_ENTRY) throw error;
+    }
+  }
+}
+
 const LOOPBACK = "127.0.0.1";
-const BOOT_TIMEOUT_MS = 120_000;
+export const BOOT_TIMEOUT_MS = 300_000;
 const STOP_TIMEOUT_MS = 10_000;
 const PORT_PROBE_TIMEOUT_MS = 1_000;
 const POLL_MS = 250;
 const NO_SUCH_PROCESS = "ESRCH";
+const NO_SUCH_ENTRY = "ENOENT";
 
 export const API_SERVER_COMMAND = "pnpm exec tsx apps/server/src/index.ts";
 

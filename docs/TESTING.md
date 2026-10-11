@@ -8378,13 +8378,50 @@ if any of them already answers: **3321** (API) and **5321** (web) for the whole
 run, and **3322** (API) and **5322** (web) for the second pair that spec 06
 restarts under `MEZAN_FAKE_TODAY` — a process cannot change its clock while it
 runs, so each jump in the calendar is a restart on the same platform
-directory. Each run gets a fresh platform directory and removes it on exit. It
+directory. Each run gets a fresh platform directory and removes it on exit; a
+run that was killed cannot, so the next run removes any `mezan-saas-e2e-*`
+directory older than six hours before it starts. It
 boots `apps/server/src/index.ts`, not `cloud.ts` (the fake clock is refused
 under `NODE_ENV=production`), so the basic-auth gate and static serving of
 `cloud.ts` are not covered by it. Backups are switched off in the suite
 (`MEZAN_BACKUP_INTERVAL_MINUTES=0`) and there is no backup scenario below, so
-the suite says nothing about backups. Signup allows 8 requests per IP per hour
-per server process; the suite uses 2 on the main server.
+the suite says nothing about backups.
+
+The main server boots **without** the demo seed (`MEZAN_SEED_DEMO=0`) and on a
+fixed day (`MEZAN_FAKE_TODAY=2027-01-31`, noon UTC). No spec needs the demo
+company's data: spec 01 used `demo` only as "a tenant that is not on trial", so
+it now provisions a paying tenant through `POST /api/platform/tenants`. The
+fixed day is what lets PLT-SAAS-05 assert literal dates — a first period that
+ends 2027-02-28 (a month from the 31st, clamped) and a renewed one that ends
+2027-03-28 — instead of recomputing the domain's month arithmetic in the test.
+The seeded `demo` tenant is covered by `apps/server/src/demo-tenant.test.ts`
+and by the manual walk below, not by this suite.
+
+Signup allows 8 requests per source address per hour per server process, and
+every request counts, including a malformed one. Spec 04 makes 5 signup
+requests on the main server (four by API, one from the form) and spec 06 makes
+1 on the clock server. The suite's servers trust the proxy header
+(`MEZAN_TRUST_PROXY=1`), so each of spec 04's signups carries its own
+`x-forwarded-for` and is counted against its own source; the production limit
+is untouched, and `--repeat-each=2` on specs 01, 03 and 04 passes (56 tests).
+
+Timeouts, and the load they were measured at. On a 12-core machine shared with
+other test runs, at a 1-minute load average of 28 to 39 (three full runs on
+2026-10-11, one of them alongside four `pnpm build`s of this repo): a
+screen-walk test took 16 to 27 seconds and the slowest other test 17 seconds
+(the 390px console walk; outside spec 07 the slowest was 11 seconds). The main
+API answered `/healthz` 1 second after start with no seed, measured at load 7
+and again at load 10, not at the higher load. Against that: servers get 300
+seconds to boot, a test 120 seconds, a screen-walk test 180, the three clock
+tests of spec 06 240 each, and an `expect` 20 seconds (Playwright's default of
+5 is too short under load). With the demo seed the same boot measured 8
+seconds at load 7: about 7 seconds of single-threaded CPU and 2 of system
+time, with some 10,700 voluntary context switches, because the seed drives
+every demo document through the real routes and each commits on its own. 159
+seconds were reported for it at load 11; this machine did not reproduce that,
+and the suite no longer depends on it. Spec 03's tests do not depend on each other, so the file is no longer
+serial and one failure does not skip the rest; specs 01, 02, 04, 05 and 06
+stay serial because each test continues the one before it.
 
 - **PLT-SAAS-01** — Platform owner signs in.
   **Pre**: `pnpm env:testing:fresh` running. `scripts/env.mjs` seeds the
@@ -8394,6 +8431,8 @@ per server process; the suite uses 2 on the main server.
   **Assert**: Redirects into the console at `/platform/tenants`; the sidebar
   shows المنشآت / الباقات / المشغّلون and "تسجيل الخروج" (`platform.nav.*`);
   the list shows only the seeded demo tenant `demo` (`MEZAN_SEED_DEMO=1`).
+  The automated suite boots without the seed, so there it asserts the paying
+  tenant it provisioned and no code it did not create.
 
 - **PLT-SAAS-02** — Create tenant `cyag` on the business plan with a trial.
   **Pre**: Signed in as the platform owner from PLT-SAAS-01.
@@ -8432,8 +8471,9 @@ per server process; the suite uses 2 on the main server.
   and the session token; look at the workspace rail; open `/people/employees`
   by its address.
   **Assert**: 403 `MODULE_NOT_LICENSED` with the message «وحدة الموارد البشرية
-  غير مُفعّلة في ترخيص هذه النسخة. تواصل مع الدعم لإضافتها إلى الاشتراك.»
-  (`packages/api/src/module-gate.ts`'s `createModuleGate`). `GET
+  ليست ضمن باقة «الأعمال». يمكنكم إضافتها بترقية الباقة من صفحة الاشتراك.»
+  (`packages/api/src/module-gate.ts`'s `createModuleGate`; a desktop install,
+  which has a licence and no plan, keeps «… غير مُفعّلة في ترخيص هذه النسخة …»). `GET
   /api/entitlements` lists `sales` and neither `hr` nor `manufacturing`. The
   rail shows «البيع والتحصيل» and neither «الأشخاص» nor «التصنيع»
   (`filterNavGroups`, `AppLayout.tsx`). The employees screen shows that same
@@ -8517,19 +8557,21 @@ per server process; the suite uses 2 on the main server.
 
 Found by the final code review the same day and fixed: cached tenant answers and the remembered-users list survived a sign-out and a code switch (cross-tenant leak in one browser); the CloudFront origin secret was never set; a failed provisioning could not be retried from the console.
 
-### Run record — 2026-10-10, `pnpm test:saas` on :3321/:5321 and :3322/:5322, Chromium
+### Run record — 2026-10-11, `pnpm test:saas` on :3321/:5321 and :3322/:5322, Chromium
 
 Automated, Arabic, light theme, desktop unless the screen walk says otherwise.
-Run twice in a row: 56 passed, 2 parked (`test.fixme`), 0 failed, both times
-(3.8 and 4.0 minutes); spec 01 with `--repeat-each=2`: 22 passed.
+Run three times in a row: 58 passed, 0 parked, 0 failed, 0 skipped each time —
+4.3 minutes at a load average of 28, 5.6 minutes at 39 with four `pnpm build`s
+of this repo running beside it, and 5.1 minutes at 31. Specs 01, 03 and 04
+with `--repeat-each=2`: 56 passed.
 
 | ID | Result | What the suite asserts |
 |---|---|---|
-| PLT-SAAS-01 | pass | Owner signs in; the rail shows its three links; the list holds `demo` and no code the suite did not create; a wrong password answers «بيانات الدخول غير صحيحة» and stores no session. |
-| PLT-SAAS-02 | pass | Tenant created on business with a trial; PIN shown once and gone after a reload; the list marks it «تجريبي»; a second tenant on the same code answers 409 «رمز المنشأة "…" مستخدم بالفعل» and creates nothing. |
-| PLT-SAAS-03 | pass | Code, email and PIN reach an empty tenant; the code survives a reload; the same PIN against `demo` answers 401 «اسم المستخدم أو رمز PIN غير صحيح.». |
+| PLT-SAAS-01 | pass | Owner signs in; the rail shows its three links; the list holds the paying tenant the suite provisioned and no code it did not create; a wrong password answers «بيانات الدخول غير صحيحة» and stores no session. |
+| PLT-SAAS-02 | pass | Tenant created on business with a trial; PIN shown once and gone after a reload; the list marks it «تجريبي» and does not mark the paying tenant so; a second tenant on the same code answers 409 «رمز المنشأة "…" مستخدم بالفعل» and creates nothing. |
+| PLT-SAAS-03 | pass | Code, email and PIN reach an empty tenant; the code survives a reload; the same PIN against the paying tenant answers 401 «اسم المستخدم أو رمز PIN غير صحيح.». |
 | PLT-SAAS-04 | pass | 403 `MODULE_NOT_LICENSED` with its exact sentence; the rail hides «الأشخاص» and «التصنيع»; the screen shows the same sentence. |
-| PLT-SAAS-05 | pass | One payment recorded; status becomes «نشط»; the period end moves by exactly one billing month from the previous period end; a payment with no amount is refused on the form. |
+| PLT-SAAS-05 | pass | One payment recorded; status becomes «نشط»; the period end moves from 2027-02-28 to 2027-03-28, same time of day, on the server and on screen; a payment with no amount is refused on the form. |
 | PLT-SAAS-06 | pass | Suspend asks first; then `POST /customers` and `POST /sales-invoices` answer 403 `LICENSE_READ_ONLY` with the exact sentence, reads answer 200, the tenant app shows the read-only banner and refuses a customer on screen; resume restores writing. |
 | PLT-SAAS-07 | pass | A's customer is absent from B on screen and by API; B's token with A's header, A's subdomain with B's header and token, a tenant token on `/api/platform/*`, a platform token on the tenant API and A's record by id from B are all refused; the two database files exist on disk and A's customer is in A's only. |
 | PLT-SAAS-08 | pass | Resolve answers mode and existence only; code mode and subdomain mode carry no company name in any response before sign-in; `GET /api/tenant` answers the placeholder before and after a rename; a shared device opens neutral and keeps a company confirmed this visit. |
@@ -8543,10 +8585,18 @@ sentence; a paid period left unpaid is marked past due and keeps writing
 through its seven days of grace, is read-only after them, and is restored by a
 recorded payment.
 
-Parked, each as a `test.fixme` asserting the required behaviour: D-SAAS-06
-(the sign-in screen asks for `/api/bootstrap/status` and `/api/entitlements`
-before a company is known) and D-SAAS-12 (the platform console does not fit a
-390px phone).
+Nothing is parked. D-SAAS-06 is guarded: on a sign-in screen with no company
+code the app asks for `/api/platform/resolve` only, and asks for
+`/api/bootstrap/status` and `/api/entitlements` once a code is confirmed.
+D-SAAS-12 is guarded: at 390px the console's rail is a top bar the width of the
+viewport with its three links and «تسجيل الخروج» in view, the page sits under
+it at the same width, no console page scrolls sideways, and the bar's links
+and a tenant's «عرض» still navigate; the screen walk now takes the console
+through all four phone looks as well.
+
+Also guarded since 2026-10-11: a forged verification link shows the server's
+«رابط التفعيل غير صالح»; the signup form caps the company name at 200
+characters.
 
 # 12. Shell, dashboard and reports
 

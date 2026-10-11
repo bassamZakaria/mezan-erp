@@ -241,3 +241,122 @@ describe("how much of a request the server will hold", () => {
     expect((await t.call("POST", "/attachments", file, { "content-type": "application/json" })).status).toBe(413);
   });
 });
+
+describe("a create sent again because its answer never arrived", () => {
+  const customer = {
+    id: "CUST-1",
+    code: "CUST-1",
+    nameAr: "عميل نقدي",
+    paymentTermsDays: 30,
+    currency: "EGP",
+    openingBalance: "0",
+    active: true,
+    creditLimit: "0",
+    taxExempt: false,
+    etaBuyerType: "auto",
+  };
+  const invoice = (id: string, unitPrice = "100") => ({
+    id,
+    date: "2026-08-22",
+    dueDate: "2026-09-21",
+    customerId: "CUST-1",
+    customerNameAr: "عميل نقدي",
+    warehouseId: "WH-MAIN",
+    branchId: "BR-MAIN",
+    arAccountId: "1105",
+    taxAccountId: "2200",
+    lines: [{ lineId: "L1", itemId: "SVC-1", itemNameAr: "خدمة", isStock: false, qty: "1", unitPrice, taxRatePercent: 0, revenueAccountId: "4100" }],
+  });
+  const collection = (id: string, amount = "250.00") => ({
+    id,
+    date: "2026-08-22",
+    customerId: "CUST-1",
+    branchId: "BR-MAIN",
+    treasuryAccountId: "ta-main",
+    amount,
+    paymentMethod: "cash",
+    allocations: [],
+  });
+
+  async function shop() {
+    const t = await open();
+    const made = async (answer: Promise<Answer>) => {
+      const got = await answer;
+      expect(got.status, JSON.stringify(got.body)).toBe(201);
+    };
+    await made(t.call("POST", "/customers", customer));
+    await made(t.call("POST", "/items", { id: "SVC-1", code: "SVC-1", nameAr: "خدمة", type: "service", baseUnitCode: "PCS" }));
+    await made(
+      t.call("POST", "/treasury-accounts", { id: "ta-main", code: "TA-MAIN", name: "الخزينة الرئيسية", branchId: "BR-MAIN", glAccountId: "1310" }),
+    );
+    const listed = async (path: string) => {
+      const body = (await t.call("GET", path)).body as { items?: unknown[] } | unknown[];
+      return Array.isArray(body) ? body : (body.items ?? []);
+    };
+    return { ...t, listed };
+  }
+
+  it("creates one sales invoice and answers the resend with it", async () => {
+    const t = await shop();
+
+    const first = await t.call("POST", "/sales-invoices", invoice("11111111-aaaa-4bbb-8ccc-000000000001"));
+    const resent = await t.call("POST", "/sales-invoices", invoice("11111111-aaaa-4bbb-8ccc-000000000001"));
+
+    expect(first.status).toBe(201);
+    expect(resent).toEqual(first);
+    expect(await t.listed("/sales-invoices")).toHaveLength(1);
+  });
+
+  it("takes a customer's money once when the collection is sent twice, and posts one journal entry", async () => {
+    const t = await shop();
+    const entriesBefore = (await t.listed("/gl/journal-entries")).length;
+
+    const first = await t.call("POST", "/vouchers/collections", collection("22222222-aaaa-4bbb-8ccc-000000000002"));
+    const resent = await t.call("POST", "/vouchers/collections", collection("22222222-aaaa-4bbb-8ccc-000000000002"));
+
+    expect(first.status, JSON.stringify(first.body)).toBe(201);
+    expect(resent).toEqual(first);
+    expect(await t.listed("/vouchers")).toHaveLength(1);
+    expect((await t.listed("/gl/journal-entries")).length).toBe(entriesBefore + 1);
+  });
+
+  it("creates one voucher when both sends are in flight together", async () => {
+    const t = await shop();
+
+    const [a, b] = await Promise.all([
+      t.call("POST", "/vouchers/collections", collection("33333333-aaaa-4bbb-8ccc-000000000003")),
+      t.call("POST", "/vouchers/collections", collection("33333333-aaaa-4bbb-8ccc-000000000003")),
+    ]);
+
+    expect(a.status).toBe(201);
+    expect(b).toEqual(a);
+    expect(await t.listed("/vouchers")).toHaveLength(1);
+  });
+
+  it("refuses the same id with different contents, in Arabic, and records nothing more", async () => {
+    const t = await shop();
+    await t.call("POST", "/vouchers/collections", collection("44444444-aaaa-4bbb-8ccc-000000000004"));
+
+    const changed = await t.call("POST", "/vouchers/collections", collection("44444444-aaaa-4bbb-8ccc-000000000004", "999.00"));
+
+    expect(changed).toMatchObject({ status: 409, body: { error: "IDEMPOTENCY_KEY_REUSED", message: expect.stringContaining("ببيانات مختلفة") } });
+    expect(await t.listed("/vouchers")).toHaveLength(1);
+  });
+
+  it("does not hand one user's recorded answer to another caller who sends the same id", async () => {
+    const t = await shop();
+    await t.call("POST", "/sales-invoices", invoice("55555555-aaaa-4bbb-8ccc-000000000005"));
+
+    const stranger = await t.call("POST", "/sales-invoices", invoice("55555555-aaaa-4bbb-8ccc-000000000005"), { "content-type": "application/json" });
+
+    expect(stranger.status).toBe(401);
+  });
+
+  it("records nothing for a create that was refused, so the corrected resend goes through", async () => {
+    const t = await shop();
+    const refused = await t.call("POST", "/sales-invoices", { ...invoice("66666666-aaaa-4bbb-8ccc-000000000006"), customerId: "NOBODY" });
+    expect(refused.status).toBeGreaterThanOrEqual(400);
+
+    expect((await t.call("POST", "/sales-invoices", invoice("66666666-aaaa-4bbb-8ccc-000000000006"))).status).toBe(201);
+  });
+});

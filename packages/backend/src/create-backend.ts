@@ -221,6 +221,7 @@ import {
   createSqliteBarcodeConfigStore,
   createSqliteUserPreferencesStore,
   createSqliteAuditSink,
+  createSqliteIdempotentRequestStore,
   deriveAuditChainKey,
   createSqliteLabelLayoutStore,
   createSqliteSequenceConfigStore,
@@ -3005,6 +3006,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   });
 
   const app = createApp(uow, {
+    idempotentRequests: createSqliteIdempotentRequestStore(sqlite),
     secrets,
     beforeTheTurn: auth.beforeTheTurn,
     /**

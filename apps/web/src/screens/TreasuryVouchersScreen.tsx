@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   DocumentList,
   DocumentDetail,
@@ -968,6 +968,11 @@ function CreateVoucherView({
   const createVoucher = useCreateVoucher();
   const confirmVoucher = useConfirmVoucher();
   const createCollection = useCreateCollection();
+  // ONE id per voucher the cashier means to record. It survives an attempt
+  // whose answer never arrived, so pressing save again is answered with the
+  // voucher already recorded instead of taking the money twice; it is replaced
+  // the moment a create is known to have succeeded.
+  const voucherId = useRef(crypto.randomUUID());
   const branchesQuery = useBranches();
   const costCentersQuery = useCostCenters();
   const projectsQuery = useProjects();
@@ -1090,6 +1095,7 @@ function CreateVoucherView({
     try {
       if (line.voucherType === "customer_collection" && line.customerId) {
         const collected = await createCollection.mutateAsync({
+          id: voucherId.current,
           date: draft.date,
           memo: draft.memo || voucherLabel(def),
           customerId: line.customerId,
@@ -1106,6 +1112,7 @@ function CreateVoucherView({
           withholdingGlAccountId: line.withholdingGlAccountId ?? null,
           allocations: [],
         });
+        voucherId.current = crypto.randomUUID();
         if (collected.held) {
           setHeldVoucher({ docNo: collected.voucher.docNo ?? "" });
           return;
@@ -1114,6 +1121,7 @@ function CreateVoucherView({
         return;
       }
       const created = await createVoucher.mutateAsync({
+        id: voucherId.current,
         date: draft.date,
         memo: draft.memo || voucherLabel(def),
         voucherType: line.voucherType,
@@ -1135,6 +1143,7 @@ function CreateVoucherView({
         withholdingRatePercent: line.withholdingRatePercent ?? null,
         withholdingGlAccountId: line.withholdingGlAccountId ?? null,
       });
+      voucherId.current = crypto.randomUUID();
       const confirmed = await confirmVoucher.mutateAsync({ id: created.id });
       // An approval gate holds the confirm: the voucher exists, nothing was
       // posted, and closing the wizard here reported plain success for money

@@ -372,3 +372,8 @@ export {
 
 export * from "./pos/index.js";
 export * from "./enh/index.js";
+export {
+  createSqliteIdempotentRequestStore,
+  type IdempotentAnswer,
+  type IdempotentRequestStore,
+} from "./idempotent-request-store.js";

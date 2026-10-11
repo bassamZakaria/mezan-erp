@@ -223,6 +223,7 @@ import { createAuditRoutes } from "./audit-routes.js";
 import { AUDITED_MOUNTS, MutatingMethod, auditBoundary, beforeTheTurn, connectionTurn, type BoundaryPreparation } from "./audit-boundary.js";
 import { createPrecomputingHasher, type PrecomputingHasher } from "./precomputed-secrets.js";
 import { requestBodyLimit } from "./body-limit.js";
+import { IDEMPOTENT_CREATES, idempotentCreate, type IdempotentRequests } from "./idempotent-create.js";
 import { createSecurityReportsRoutes } from "./security-reports-routes.js";
 import { isProductionRuntime, permissionRefusalReporting, type PermissionRefusalReporter } from "./permission-gate.js";
 import { createBarcodeConfigRoutes } from "./barcode-config-routes.js";
@@ -819,6 +820,8 @@ export interface CreateAppOptions {
   readonly hasher?: ReturnType<typeof createScryptHasher>;
   /** That hasher already wrapped, when the composition shares it with routes it mounts itself. Wins over `hasher`. */
   readonly secrets?: PrecomputingHasher;
+  /** Where a create's answer is kept, so the same create sent again is answered with it (idempotent-create.ts). */
+  readonly idempotentRequests?: IdempotentRequests;
   /** Work other mounts do ahead of the connection's turn, keyed by path (audit-boundary.ts `beforeTheTurn`). */
   readonly beforeTheTurn?: Readonly<Record<string, BoundaryPreparation>>;
   /**
@@ -960,6 +963,11 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     app.use(`${prefix}/*`, prepared);
   }
   for (const [path, prepare] of Object.entries(options.beforeTheTurn ?? {})) app.use(path, beforeTheTurn(prepare));
+
+  if (options.idempotentRequests) {
+    const replayed = idempotentCreate({ requests: options.idempotentRequests, resolveAuthContext: resolveAuth, audit: options.auditSink });
+    for (const path of IDEMPOTENT_CREATES) app.use(path, replayed);
+  }
 
   // Before anything reads or writes: a mutating request holds this tenant's
   // connection for its whole length, and a read waits out an open transaction

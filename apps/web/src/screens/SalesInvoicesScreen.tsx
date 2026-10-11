@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { errorMessage } from "../lib/error-message";
 import {
   Button,
@@ -356,6 +356,11 @@ function CreateInvoicePage({ onClose, initialCustomerId }: { onClose: () => void
   const convertQuote = useConvertSalesQuoteToInvoice();
   const createInvoice = useCreateSalesInvoice();
   const confirmInvoice = useConfirmSalesInvoice();
+  // ONE id per invoice the clerk means to create. It survives an attempt whose
+  // answer never arrived, so pressing save again is answered with the invoice
+  // already created instead of creating a second; it is replaced the moment a
+  // create is known to have succeeded.
+  const invoiceId = useRef(crypto.randomUUID());
   const unitLabel = useUnitLabel();
   const workingLocation = useWorkingLocation();
   const nameOf = useEntityName();
@@ -652,6 +657,7 @@ function CreateInvoicePage({ onClose, initialCustomerId }: { onClose: () => void
     setError(null);
     try {
       const created = await createInvoice.mutateAsync({
+        id: invoiceId.current,
         date,
         dueDate,
         customerId: customer.id,
@@ -687,6 +693,7 @@ function CreateInvoicePage({ onClose, initialCustomerId }: { onClose: () => void
           inventoryAccountId: l.inventoryAccountId,
         })),
       });
+      invoiceId.current = crypto.randomUUID();
       if (shouldConfirm) {
         await confirmInvoice.mutateAsync(
           isConsumerReceiptSale && receiptPaymentMethod !== ""

@@ -130,6 +130,27 @@ export const suspendTenant = (cmd: TenantTransitionCommand, repo: TenantReposito
 export const archiveTenant = (cmd: TenantTransitionCommand, repo: TenantRepository) => transition(cmd, TenantStatusCode.Archived, repo);
 export const resumeTenant = (cmd: TenantTransitionCommand, repo: TenantRepository) => transition(cmd, TenantStatusCode.Active, repo, [TenantStatusCode.Suspended]);
 
+export function releasedTenantCode(id: string): string {
+  return `released-${id}`;
+}
+
+/**
+ * Archives a tenant that never finished provisioning and gives it a code and
+ * database file of its own, so the code it was holding can be signed up again.
+ * The caller moves the database file to match before this is written.
+ */
+export async function releaseTenant(cmd: TenantTransitionCommand, repo: TenantRepository): Promise<Tenant> {
+  const now = isoTimestamp(cmd.now);
+  if (!now) throw new InvalidTenantError(["الطابع الزمني الحالي غير صالح (يجب أن يكون بصيغة ISO-8601)"]);
+  const current = await repo.findById(cmd.id);
+  if (!current) throw new TenantNotFoundError(cmd.id);
+  if (current.status !== TenantStatusCode.Provisioning) throw new InvalidTenantTransitionError(current.status, TenantStatusCode.Archived);
+  const code = releasedTenantCode(current.id);
+  const next: Tenant = { ...current, status: TenantStatusCode.Archived, code, dbFile: tenantDbFile(code), updatedAt: now };
+  await repo.save(next);
+  return next;
+}
+
 export interface TenantOwnerAccount {
   readonly id: string;
   readonly email: string;

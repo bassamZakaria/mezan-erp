@@ -4,10 +4,11 @@ import { CompanyNameProblem, companyNameProblem, companyNameProblemAr } from "./
 import { isoTimestamp } from "./validation.js";
 import type { BillingCycle } from "./subscription.js";
 import type { PlanRepository } from "./plan.js";
-import type { TenantRepository } from "./tenant.js";
+import { TenantStatusCode, type TenantRepository } from "./tenant.js";
 import {
   InvalidSignupError,
   PlanNotFoundError,
+  SignupActivationIncompleteError,
   SignupAlreadyActivatedError,
   SignupTokenExpiredError,
   SignupTokenInvalidError,
@@ -67,6 +68,8 @@ export function isDisposableEmailDomain(email: string): boolean {
 export enum SignupRequestStatus {
   Pending = "pending",
   Verified = "verified",
+  /** The tenant this request made was released from provisioning: its link must never provision again. */
+  Released = "released",
 }
 
 export interface SignupRequest {
@@ -109,6 +112,8 @@ export interface SignupRequestRepository {
   provisioningFence(tokenHash: string, claimId: string): Promise<number | null>;
   releaseProvisioning(tokenHash: string, claimId: string): Promise<void>;
   followOwnerEmail(code: string, before: string, after: string): Promise<void>;
+  /** Retires every request made for `code`, so none of their links can provision a tenant again. */
+  releaseByCode(code: string): Promise<void>;
 }
 
 export interface StartSignupCommand {
@@ -202,14 +207,23 @@ export const VERIFIED_LINK_VALID_MS = 30 * 24 * 60 * 60 * 1000;
  * and writing after leaves the exact gap `card-checkout.ts`'s `settlePaid`
  * was built to avoid.
  */
-export async function verifySignup(tokenHash: string, repo: SignupRequestRepository, now: string): Promise<SignupRequest> {
+export async function verifySignup(
+  tokenHash: string,
+  repo: SignupRequestRepository,
+  now: string,
+  tenants: Pick<TenantRepository, "findByCode">,
+): Promise<SignupRequest> {
   const nowIso = isoTimestamp(now);
   if (!nowIso) throw new SignupTokenInvalidError();
   const request = await repo.findByTokenHash(tokenHash);
-  if (!request) throw new SignupTokenInvalidError();
+  if (!request || request.status === SignupRequestStatus.Released) throw new SignupTokenInvalidError();
   if (request.status === SignupRequestStatus.Verified) {
     const usedAt = new Date(request.verifiedAt ?? request.expiresAt).getTime();
-    if (new Date(nowIso).getTime() - usedAt > VERIFIED_LINK_VALID_MS) throw new SignupAlreadyActivatedError();
+    if (new Date(nowIso).getTime() - usedAt > VERIFIED_LINK_VALID_MS) {
+      const tenant = await tenants.findByCode(request.code);
+      if (tenant?.status === TenantStatusCode.Provisioning) throw new SignupActivationIncompleteError();
+      throw new SignupAlreadyActivatedError();
+    }
     return request;
   }
   if (new Date(request.expiresAt).getTime() < new Date(nowIso).getTime()) throw new SignupTokenExpiredError();

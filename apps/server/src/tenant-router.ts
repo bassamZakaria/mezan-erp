@@ -60,6 +60,8 @@ export interface TenantRouter {
   backendFor(code: string): Promise<BackendHandle>;
   /** Compares the platform's record of the tenant's owner with the tenant's own owner account, and corrects the record. Opens the tenant's backend when it is not open. */
   reconcileOwner(code: string): Promise<void>;
+  /** Closes the tenant's backend, if open, so its database file can be moved. */
+  evict(code: string): Promise<void>;
   invalidate(code: string): void;
   sweep(): Promise<void>;
   close(): Promise<void>;
@@ -198,6 +200,7 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
       return cache.get(code);
     },
     reconcileOwner,
+    evict: (code) => cache.evict(code),
     invalidate(code) { resolvers.get(code)?.invalidate(); },
     sweep: () => cache.sweep(),
     close: () => cache.close(),

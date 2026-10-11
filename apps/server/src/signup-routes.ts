@@ -4,6 +4,7 @@ import {
   InvalidSignupError,
   isDisposableEmailDomain,
   PlanNotFoundError,
+  SignupActivationIncompleteError,
   SignupAlreadyActivatedError,
   SignupTokenExpiredError,
   SignupTokenInvalidError,
@@ -112,6 +113,9 @@ function signupErrorResponse(c: Context, err: unknown): Response {
   }
   if (err instanceof SignupTokenInvalidError) {
     return c.json({ error: err.code, message: err.message }, 400);
+  }
+  if (err instanceof SignupActivationIncompleteError) {
+    return c.json({ error: err.code, message: err.message }, 409);
   }
   if (err instanceof SignupTokenExpiredError || err instanceof SignupAlreadyActivatedError) {
     return c.json({ error: err.code, message: err.message }, 410);
@@ -344,7 +348,7 @@ export function createSignupRoutes(options: SignupRoutesOptions): Hono {
   }
 
   async function verifyInTurn(tokenHash: string): Promise<VerifySignupResultDTO> {
-    const request = await verifySignup(tokenHash, claims, now().toISOString());
+    const request = await verifySignup(tokenHash, claims, now().toISOString(), platform.stores.tenants);
     const claimId = randomUUID();
     const giveUpAt = Date.now() + provisionWaitMs;
     for (;;) {

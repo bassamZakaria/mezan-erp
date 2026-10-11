@@ -784,6 +784,7 @@ class SqliteSignupRequestStore implements SignupRequestRepository {
   private readonly followOwner: Database.Statement;
   private readonly claimedAt: Database.Statement;
   private readonly fenceOf: Database.Statement;
+  private readonly releaseCode: Database.Statement;
 
   constructor(sqlite: Database.Database) {
     const dropStaleClaim = sqlite.prepare(`DELETE FROM signup_provision_claim WHERE token_hash = ? AND claimed_at < ?`);
@@ -803,6 +804,7 @@ class SqliteSignupRequestStore implements SignupRequestRepository {
       .immediate;
     this.release = sqlite.prepare(`DELETE FROM signup_provision_claim WHERE token_hash = ? AND claim_id = ?`);
     this.followOwner = sqlite.prepare(`UPDATE signup_request SET owner_email = ? WHERE code = ? AND owner_email = ? AND status = ?`);
+    this.releaseCode = sqlite.prepare(`UPDATE signup_request SET status = ? WHERE code = ?`);
     this.renew = sqlite.prepare(`UPDATE signup_provision_claim SET claimed_at = ? WHERE token_hash = ? AND claim_id = ?`);
     this.claimedAt = sqlite.prepare(`SELECT claimed_at FROM signup_provision_claim WHERE token_hash = ?`);
     this.upsert = sqlite.prepare(
@@ -858,6 +860,10 @@ class SqliteSignupRequestStore implements SignupRequestRepository {
 
   async provisioningFence(tokenHash: string, claimId: string): Promise<number | null> {
     return (this.fenceOf.get(tokenHash, claimId) as { fence: number | null } | undefined)?.fence ?? null;
+  }
+
+  async releaseByCode(code: string): Promise<void> {
+    this.releaseCode.run(SignupRequestStatus.Released, code);
   }
 
   async followOwnerEmail(code: string, before: string, after: string): Promise<void> {

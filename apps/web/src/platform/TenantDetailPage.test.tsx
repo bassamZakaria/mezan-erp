@@ -247,6 +247,41 @@ describe("TenantDetailPage", () => {
     await waitFor(() => expect(suspendPosts).toBe(1));
   });
 
+  it("offers the owner of the platform to archive a tenant stuck in provisioning and free its code, after asking", async () => {
+    let releases = 0;
+    const stuck = makeSummary({ status: TenantWireStatus.Provisioning });
+    const archived = makeSummary({ status: TenantWireStatus.Archived, code: "released-tenant-1" });
+    const transport = stubPlatformTransport({
+      "GET /tenants/tenant-1": () => ({ body: releases === 0 ? stuck : archived }),
+      "GET /plans": () => ({ body: [plan, plan2] }),
+      "POST /tenants/tenant-1/release": () => {
+        releases += 1;
+        return { body: archived };
+      },
+    });
+    renderDetail({ transport, session: testPlatformSession });
+
+    fireEvent.click(await screen.findByRole("button", { name: "أرشفة وتحرير الرمز" }));
+    const dialog = await screen.findByRole("dialog", { name: "أرشفة المنشأة وتحرير رمزها؟" });
+    expect(dialog).toHaveTextContent("acme");
+    expect(releases).toBe(0);
+    fireEvent.click(within(dialog).getByRole("button", { name: "أرشفة وتحرير" }));
+
+    await waitFor(() => expect(releases).toBe(1));
+    expect(await screen.findByText("released-tenant-1")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "أرشفة وتحرير الرمز" })).not.toBeInTheDocument();
+  });
+
+  it("offers no release for a live tenant, nor to a support operator", async () => {
+    const transport = stubPlatformTransport({
+      "GET /tenants/tenant-1": () => ({ body: makeSummary() }),
+      "GET /plans": () => ({ body: [plan, plan2] }),
+    });
+    renderDetail({ transport, session: testPlatformSession });
+    await screen.findByRole("button", { name: "أرشفة المنشأة" });
+    expect(screen.queryByRole("button", { name: "أرشفة وتحرير الرمز" })).not.toBeInTheDocument();
+  });
+
   it("says the owner contact is unverified, and after a reset names the address the owner now signs in with", async () => {
     const transport = stubPlatformTransport({
       "GET /tenants/tenant-1": () => ({ body: makeSummary({ ownerContactVerified: false }) }),

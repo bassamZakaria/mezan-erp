@@ -182,6 +182,10 @@ export function useArchiveTenantMutation() {
   return useSummaryMutation<string>((tenantId) => `/tenants/${tenantId}/archive`, () => undefined, "platform.tenantDetail.archive");
 }
 
+export function useReleaseTenantMutation() {
+  return useSummaryMutation<string>((tenantId) => `/tenants/${tenantId}/release`, () => undefined, "platform.tenantDetail.release");
+}
+
 export function useChangePlanMutation() {
   return useSummaryMutation<{ tenantId: string; body: ChangePlanRequestDTO }>(
     ({ tenantId }) => `/tenants/${tenantId}/subscription/change-plan`,

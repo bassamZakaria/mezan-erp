@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -6,7 +6,8 @@ import type { Hono } from "hono";
 import { openSqliteConnection } from "@mezan/persistence";
 import { SubscriptionStatusCode } from "@mezan/contracts";
 import { createBackend, createPlatform, type PlatformHandle } from "@mezan/backend";
-import { TenantStatusCode, type Subscription } from "@mezan/domain";
+import { createTenant, InvalidTenantTransitionError, startSubscription, TenantStatusCode, type Subscription } from "@mezan/domain";
+import { releaseProvisioningTenant } from "./release-tenant.js";
 import { createCloudApp, type CloudApp } from "./cloud-app.js";
 import { createSignupRoutes } from "./signup-routes.js";
 import { reachable } from "./cloud-harness.js";
@@ -952,6 +953,127 @@ describe("a verification link long after it was used", () => {
     expect(await platform.stores.tenants.findByCode("aged")).toEqual(tenantBefore);
     expect((await platform.stores.subscriptions.listByTenant(first.tenant.id)).length).toBe(1);
     expect((await tenantLogin(router, "aged", first.adminPin)).status).toBe(200);
+  });
+});
+
+describe("a verification link long after it was used, for an account that never finished activating", () => {
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  const subscriptionsDown = (): SaveSubscription => async () => {
+    throw new Error("the platform database refused the subscription");
+  };
+
+  it("says the activation did not complete, instead of telling the owner to sign in to an account that does not open", async () => {
+    const dataDir = platformDir();
+    const platform = await openPlatform(dataDir);
+    let clock = new Date(T).getTime();
+    const { signup } = signupProcess(platform, dataDir, { now: () => new Date(clock), saveSubscription: subscriptionsDown });
+    const token = await startOn(signup, "stuck");
+    expect((await send(signup, "/verify", { token })).status).toBe(500);
+    const tenantBefore = await platform.stores.tenants.findByCode("stuck");
+    expect(tenantBefore?.status).toBe(TenantStatusCode.Provisioning);
+
+    clock += 30 * DAY_MS + 1;
+    const retired = await send(signup, "/verify", { token });
+
+    expect(retired.status).toBe(409);
+    expect(await retired.json()).toEqual({
+      error: "SIGNUP_ACTIVATION_INCOMPLETE",
+      message: "لم يكتمل تفعيل هذا الحساب، وانتهت صلاحية رابط التفعيل. تواصل مع الدعم لإكمال التفعيل.",
+    });
+    expect(await platform.stores.tenants.findByCode("stuck")).toEqual(tenantBefore);
+    expect(await platform.stores.subscriptions.listByTenant(tenantBefore?.id ?? "")).toEqual([]);
+  });
+});
+
+describe("releasing a tenant stuck in provisioning", () => {
+  const subscriptionsDown = (): SaveSubscription => async () => {
+    throw new Error("the platform database refused the subscription");
+  };
+
+  async function stuckTenant(code: string) {
+    const dataDir = platformDir();
+    const platform = await openPlatform(dataDir);
+    const broken = signupProcess(platform, dataDir, { saveSubscription: subscriptionsDown });
+    const oldToken = await startOn(broken.signup, code);
+    expect((await send(broken.signup, "/verify", { token: oldToken })).status).toBe(500);
+    const tenant = await platform.stores.tenants.findByCode(code);
+    if (!tenant) throw new Error("the stuck tenant was not created");
+    await broken.router.close();
+    const working = signupProcess(platform, dataDir);
+    return { dataDir, platform, tenant, oldToken, working };
+  }
+
+  it("archives it under a code of its own, sets its database aside, and frees the code for a new signup that gets a new database", async () => {
+    const { dataDir, platform, tenant, oldToken, working } = await stuckTenant("freed");
+    const oldFile = path.join(dataDir, tenant.dbFile);
+    expect(existsSync(oldFile)).toBe(true);
+
+    const released = await releaseProvisioningTenant({ platform, router: working.router, dataDir, now: () => new Date(T) }, { tenant, actorId: "op-1" });
+
+    expect(released).toMatchObject({ id: tenant.id, status: TenantStatusCode.Archived, code: `released-${tenant.id}` });
+    expect(existsSync(oldFile)).toBe(false);
+    expect(existsSync(path.join(dataDir, released.dbFile))).toBe(true);
+    expect(await platform.stores.tenants.findByCode("freed")).toBeNull();
+    const rows = await platform.audit.query("security");
+    expect(rows.filter((row) => row.action === "TENANT_RELEASED")).toMatchObject([
+      { entityId: tenant.id, actor: "platform:op-1", details: { code: "freed", releasedAs: `released-${tenant.id}` } },
+    ]);
+
+    const stale = await send(working.signup, "/verify", { token: oldToken });
+    expect(stale.status).toBe(400);
+    expect(await stale.json()).toMatchObject({ error: "SIGNUP_TOKEN_INVALID" });
+    expect(await platform.stores.tenants.findByCode("freed")).toBeNull();
+
+    const again = await send(working.signup, "/", { ...signupBody("freed", "متجر جديد"), ownerEmail: "someone-new@freed.example" });
+    expect(again.status).toBe(201);
+    const newToken = new URL(((await again.json()) as { devVerifyUrl: string }).devVerifyUrl).searchParams.get("token") ?? "";
+    const verified = (await (await send(working.signup, "/verify", { token: newToken })).json()) as VerifyBody;
+    expect(verified.tenant).toMatchObject({ code: "freed", status: TenantStatusCode.Active });
+    expect(verified.tenant.id).not.toBe(tenant.id);
+    const signedIn = await working.router.app.fetch(
+      new Request("http://ignored/auth/login", {
+        method: "POST",
+        headers: { "content-type": "application/json", [TENANT_HEADER]: "freed" },
+        body: JSON.stringify({ username: "someone-new@freed.example", pin: verified.adminPin }),
+      }),
+    );
+    expect(signedIn.status).toBe(200);
+    const users = (await (
+      await working.router.app.fetch(
+        new Request("http://ignored/users", { headers: { authorization: `Bearer ${((await signedIn.json()) as { token: string }).token}`, [TENANT_HEADER]: "freed" } }),
+      )
+    ).json()) as { email: string }[];
+    expect(users.map((user) => user.email)).toContain("someone-new@freed.example");
+    expect(users.map((user) => user.email)).not.toContain("owner@freed.example");
+  });
+
+  it("refuses a tenant that is not provisioning, and leaves it exactly as it was", async () => {
+    const dataDir = platformDir();
+    const platform = await openPlatform(dataDir);
+    const { signup, router } = signupProcess(platform, dataDir);
+    await send(signup, "/verify", { token: await startOn(signup, "live") });
+    const tenant = await platform.stores.tenants.findByCode("live");
+    if (!tenant) throw new Error("the tenant was not created");
+
+    await expect(releaseProvisioningTenant({ platform, router, dataDir, now: () => new Date(T) }, { tenant, actorId: "op-1" })).rejects.toBeInstanceOf(
+      InvalidTenantTransitionError,
+    );
+
+    expect(await platform.stores.tenants.findByCode("live")).toEqual(tenant);
+    expect(existsSync(path.join(dataDir, tenant.dbFile))).toBe(true);
+  });
+
+  it("cancels the subscription a stuck tenant had already been given", async () => {
+    const dataDir = platformDir();
+    const platform = await openPlatform(dataDir);
+    const { router } = signupProcess(platform, dataDir);
+    const tenant = await createTenant({ id: "t-half", code: "half", nameAr: "نصف مجهزة", ownerEmail: "owner@half.example", now: T }, platform.stores.tenants);
+    await startSubscription({ id: "sub-half", tenantId: tenant.id, planId: "PLAN-CORE", billingCycle: "monthly", now: T }, platform.stores.subscriptions, platform.stores.plans);
+
+    await releaseProvisioningTenant({ platform, router, dataDir, now: () => new Date(T) }, { tenant, actorId: "op-1" });
+
+    expect(await platform.stores.subscriptions.findLiveByTenant(tenant.id)).toBeNull();
+    expect((await platform.stores.subscriptions.listByTenant(tenant.id)).map((s) => s.status)).toEqual(["cancelled"]);
   });
 });
 

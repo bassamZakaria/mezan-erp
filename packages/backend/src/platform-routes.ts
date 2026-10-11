@@ -91,6 +91,8 @@ export interface CreatePlatformRoutesOptions {
   /** Re-runs a failed provisioning (seed, admin, subscription) idempotently for a tenant stuck in `provisioning`. Optional only so a rig that never exercises this route still typechecks without supplying it. */
   readonly provisionRetry?: (input: { tenantId: string; actorId: string } & ProvisionRetryRequestDTO) => Promise<ProvisionResultDTO>;
   readonly resetOwnerPin?: (input: { tenant: Tenant; actorId: string }) => Promise<OwnerPinResetResultDTO>;
+  /** Archives a tenant stuck in provisioning and frees its code (its database file is the deployment's to move). */
+  readonly releaseTenant?: (input: { tenant: Tenant; actorId: string }) => Promise<Tenant>;
   /** Refreshes the platform's record of one tenant's owner from the tenant itself, before the console reads it. Must not throw. */
   readonly reconcileOwner?: (tenant: Tenant) => Promise<void>;
   /** The same, for every tenant whose backend is already open: the list must not open every tenant to draw itself. */
@@ -238,7 +240,7 @@ function domainErrorResponse(c: Context, err: unknown): Response {
 }
 
 export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono {
-  const { platform, auth, now, provisionTenant, provisionRetry, resetOwnerPin, reconcileOwner, reconcileOpenOwners, invalidateEntitlements, idOf = randomUUID } = options;
+  const { platform, auth, now, provisionTenant, provisionRetry, resetOwnerPin, releaseTenant, reconcileOwner, reconcileOpenOwners, invalidateEntitlements, idOf = randomUUID } = options;
   const onAuditError = options.onAuditError ?? ((err: unknown) => console.error(err));
   const nowIso = () => now().toISOString();
 
@@ -332,6 +334,21 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
       invalidateEntitlements(result.tenant.code);
       await audit(c, "TENANT_PROVISION_RETRIED", result.tenant.id, { code: result.tenant.code });
       return c.json(result, 200);
+    } catch (err) {
+      return domainErrorResponse(c, err);
+    }
+  });
+
+  app.post("/tenants/:id/release", requireOwner, async (c) => {
+    try {
+      const tenant = await requireTenant(c.req.param("id"));
+      if (tenant.status !== TenantStatusCode.Provisioning) {
+        return c.json({ error: "TENANT_NOT_PROVISIONING", message: "المنشأة ليست قيد التجهيز" }, 409);
+      }
+      if (!releaseTenant) throw new Error("releaseTenant dependency is not configured");
+      const released = await releaseTenant({ tenant, actorId: c.get("platformUser")!.id });
+      invalidateEntitlements(tenant.code);
+      return c.json(await tenantSummary(platform, released, nowIso()));
     } catch (err) {
       return domainErrorResponse(c, err);
     }

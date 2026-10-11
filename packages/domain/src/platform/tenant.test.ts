@@ -7,6 +7,8 @@ import {
   archiveTenant,
   tenantWithOwnerContact,
   tenantHandedTo,
+  releaseTenant,
+  releasedTenantCode,
   OwnerContactProof,
   type Tenant,
   type TenantRepository,
@@ -185,3 +187,29 @@ describe("tenantWithOwnerContact", () => {
     expect(tenantHandedTo(linked, { id: "U-NEXT", email: "next@cyag.eg" }, true, LATER).ownerContactVerified).toBe(true);
   });
 });
+
+describe("releaseTenant", () => {
+  it("archives a provisioning tenant under a code and database file of its own, so the code it held is free", async () => {
+    const repo = memoryRepo();
+    const t = await createTenant(cmd, repo);
+
+    const released = await releaseTenant({ id: t.id, now: "2026-09-14T08:00:00.000Z" }, repo);
+
+    expect(released).toEqual({
+      ...t, status: "archived", code: "released-T1", dbFile: "tenants/released-T1.db", updatedAt: "2026-09-14T08:00:00.000Z",
+    });
+    expect(await repo.findByCode("cyag")).toBeNull();
+    expect(releasedTenantCode("T1")).toBe("released-T1");
+  });
+
+  it("refuses every tenant that is not provisioning", async () => {
+    const repo = memoryRepo();
+    const t = await createTenant(cmd, repo);
+    await activateTenant({ id: t.id, now: NOW }, repo);
+    await expect(releaseTenant({ id: t.id, now: NOW }, repo)).rejects.toBeInstanceOf(InvalidTenantTransitionError);
+    await suspendTenant({ id: t.id, now: NOW }, repo);
+    await expect(releaseTenant({ id: t.id, now: NOW }, repo)).rejects.toBeInstanceOf(InvalidTenantTransitionError);
+    await expect(releaseTenant({ id: "nope", now: NOW }, repo)).rejects.toBeInstanceOf(TenantNotFoundError);
+  });
+});
+

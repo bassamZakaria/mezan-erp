@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { createSessionRegistry } from "@mezan/api";
-import { createPlatformUser, createTenant, activateTenant, startSubscription } from "@mezan/domain";
+import { createPlatformUser, createTenant, activateTenant, releaseTenant, startSubscription } from "@mezan/domain";
 import { tenantDTOOf, type CreateTenantRequestDTO, type ProvisionResultDTO, type ProvisionRetryRequestDTO } from "@mezan/contracts";
 import { createPlatform, type PlatformHandle } from "./create-platform.js";
 import { createPlatformAuth, type PlatformAuth } from "./platform-auth.js";
@@ -25,6 +25,7 @@ interface Rig {
   readonly supportToken: string;
   readonly invalidated: string[];
   readonly reconciled: string[];
+  readonly released: string[];
   readonly provisioned: Array<CreateTenantRequestDTO & { actorId: string }>;
 }
 
@@ -59,6 +60,7 @@ async function buildRig(): Promise<Rig> {
 
   const invalidated: string[] = [];
   const reconciled: string[] = [];
+  const released: string[] = [];
   const provisioned: Array<CreateTenantRequestDTO & { actorId: string }> = [];
   let idCounter = 0;
   const idOf = () => `ID-${++idCounter}`;
@@ -109,11 +111,15 @@ async function buildRig(): Promise<Rig> {
       if (stored) await platform.stores.tenants.save({ ...stored, ownerContactVerified: false });
     },
     reconcileOpenOwners: async () => { reconciled.push("*open*"); },
+    releaseTenant: async ({ tenant, actorId }) => {
+      released.push(`${tenant.code} by ${actorId}`);
+      return releaseTenant({ id: tenant.id, now: FIXED_NOW().toISOString() }, platform.stores.tenants);
+    },
     invalidateEntitlements: (code: string) => { invalidated.push(code); },
     idOf,
   });
 
-  return { reconciled, platform, auth, app, ownerToken: await login("owner@mezan.app"), supportToken: await login("support@mezan.app"), invalidated, provisioned };
+  return { reconciled, released, platform, auth, app, ownerToken: await login("owner@mezan.app"), supportToken: await login("support@mezan.app"), invalidated, provisioned };
 }
 
 const RESET_PIN = "305917";
@@ -197,6 +203,34 @@ describe("createPlatformRoutes", () => {
 
     expect((await rig.app.fetch(req(`/tenants/${body.tenant.id}`, rig.supportToken))).status).toBe(200);
     expect(rig.reconciled).toEqual([]);
+  });
+
+  it("releases a tenant stuck in provisioning for the platform owner only, and answers it archived under its new code", async () => {
+    const rig = await buildRig();
+    const stuck = await createTenant({ id: "T-STUCK", code: "stuck", nameAr: "عالقة", ownerEmail: "owner@stuck.example", now: FIXED_NOW().toISOString() }, rig.platform.stores.tenants);
+
+    const bySupport = await rig.app.fetch(req(`/tenants/${stuck.id}/release`, rig.supportToken, { method: "POST" }));
+    expect(bySupport.status).toBe(403);
+    expect(rig.released).toEqual([]);
+
+    const res = await rig.app.fetch(req(`/tenants/${stuck.id}/release`, rig.ownerToken, { method: "POST" }));
+
+    expect(res.status).toBe(200);
+    expect(await json(res)).toMatchObject({ tenant: { id: "T-STUCK", code: "released-T-STUCK", status: "archived" } });
+    expect(rig.released).toEqual(["stuck by PU-OWNER"]);
+    expect(rig.invalidated).toContain("stuck");
+  });
+
+  it("refuses to release a tenant that is live, in Arabic, without touching it", async () => {
+    const rig = await buildRig();
+    const { body } = await provisionOne(rig);
+
+    const res = await rig.app.fetch(req(`/tenants/${body.tenant.id}/release`, rig.ownerToken, { method: "POST" }));
+
+    expect(res.status).toBe(409);
+    expect(await json(res)).toEqual({ error: "TENANT_NOT_PROVISIONING", message: "المنشأة ليست قيد التجهيز" });
+    expect(rig.released).toEqual([]);
+    expect((await rig.platform.stores.tenants.findById(body.tenant.id))?.code).toBe("acme");
   });
 
   it("404s an unknown tenant", async () => {

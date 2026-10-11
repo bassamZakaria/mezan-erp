@@ -16,6 +16,7 @@ import type { CreateTenantRequestDTO, OwnerPinResetResultDTO, ProvisionResultDTO
 import { createTenantRouter, requireOriginSecret, type TenantRouter } from "./tenant-router.js";
 import { provisionResultDTOOf, provisionTenant, PlanRequiredError } from "./provision-tenant.js";
 import { resetTenantOwnerPin } from "./owner-pin-reset.js";
+import { releaseProvisioningTenant } from "./release-tenant.js";
 import { createSourceReporter } from "./client-source.js";
 import { createSignupRoutes, SIGNUP_BASE_PATH } from "./signup-routes.js";
 import { provisionDemoTenant } from "./demo-tenant.js";
@@ -164,6 +165,7 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
     provisionTenant: provisionTenantForRoutes,
     provisionRetry: provisionRetryForRoutes,
     resetOwnerPin: resetOwnerPinForRoutes,
+    releaseTenant: (input) => releaseProvisioningTenant({ platform, router, dataDir: env.platformDir, now }, input),
     reconcileOwner: (tenant) => reconcileOwnerQuietly(tenant.code),
     reconcileOpenOwners: async () => {
       await Promise.all(router.openTenants().map(reconcileOwnerQuietly));

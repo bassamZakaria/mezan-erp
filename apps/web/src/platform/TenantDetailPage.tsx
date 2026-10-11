@@ -19,6 +19,7 @@ import { RecordPaymentDialog } from "./RecordPaymentDialog";
 import { CardCheckoutChip, CheckoutOutcomeNotice, TestModeChip, absoluteCheckoutUrl } from "../billing/CardCheckoutStatus";
 import {
   useArchiveTenantMutation,
+  useReleaseTenantMutation,
   useCancelSubscriptionMutation,
   useCardCheckoutsQuery,
   useCreateCardCheckoutMutation,
@@ -109,6 +110,7 @@ export function TenantDetailPage() {
   const suspendTenant = useSuspendTenantMutation();
   const resumeTenant = useResumeTenantMutation();
   const archiveTenant = useArchiveTenantMutation();
+  const releaseTenant = useReleaseTenantMutation();
   const changePlan = useChangePlanMutation();
   const cancelSubscription = useCancelSubscriptionMutation();
   const suspendSubscription = useSuspendSubscriptionMutation();
@@ -135,6 +137,7 @@ export function TenantDetailPage() {
   const [confirmResetOwnerPin, setConfirmResetOwnerPin] = useState(false);
   const ownerPinReset = ownerPin.issued;
   const [confirmArchive, setConfirmArchive] = useState(false);
+  const [confirmRelease, setConfirmRelease] = useState(false);
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [confirmSuspendSubscription, setConfirmSuspendSubscription] = useState(false);
   const [confirmResumeSubscription, setConfirmResumeSubscription] = useState(false);
@@ -230,6 +233,11 @@ export function TenantDetailPage() {
               onClick={() => (subscription ? submitRetry() : setShowRetryPicker(true))}
             >
               {retryProvision.isPending ? t("platform.tenantDetail.retrying") : t("platform.tenantDetail.retryProvision")}
+            </Button>
+          ) : null}
+          {tenant.status === TenantWireStatus.Provisioning ? (
+            <Button variant="danger-outline" disabled={releaseTenant.isPending} onClick={() => setConfirmRelease(true)}>
+              {t("platform.tenantDetail.release")}
             </Button>
           ) : null}
           {canSuspendTenant(tenant.status) ? (
@@ -582,6 +590,19 @@ export function TenantDetailPage() {
           suspendTenant.mutate(tenant.id, { onError: onMutationError });
         }}
         onCancel={() => setConfirmSuspend(false)}
+      />
+      <ConfirmDialog
+        open={confirmRelease}
+        title={t("platform.tenantDetail.confirmRelease.title")}
+        consequence={t("platform.tenantDetail.confirmRelease.consequence", { code: tenant.code })}
+        confirmLabel={t("platform.tenantDetail.confirmRelease.confirm")}
+        tone="danger"
+        onConfirm={() => {
+          setConfirmRelease(false);
+          setMutationError(null);
+          releaseTenant.mutate(tenant.id, { onError: onMutationError });
+        }}
+        onCancel={() => setConfirmRelease(false)}
       />
       <ConfirmDialog
         open={confirmArchive}

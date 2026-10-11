@@ -3,7 +3,7 @@ export * from "./errors.js";
 export { isValidSlug } from "./slug.js";
 export { COMPANY_NAME_MAX_LENGTH, CompanyNameProblem, companyNameProblem, companyNameProblemAr } from "./company-name.js";
 export {
-  createTenant, activateTenant, suspendTenant, resumeTenant, archiveTenant, tenantWithOwnerContact, tenantHandedTo,
+  createTenant, activateTenant, suspendTenant, resumeTenant, archiveTenant, releaseTenant, releasedTenantCode, tenantWithOwnerContact, tenantHandedTo,
   tenantDbFile,
   TenantStatusCode, OwnerContactProof,
   type Tenant, type TenantStatus, type TenantRepository, type TenantOwnerAccount,

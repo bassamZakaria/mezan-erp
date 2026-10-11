@@ -32,6 +32,7 @@ function signups(): SignupRequestRepository & { rows: SignupRequest[] } {
     async provisioningClaimedAt() { return null; },
     async provisioningFence() { return 1; },
     async followOwnerEmail() {},
+    async releaseByCode() {},
     async releaseProvisioning() {},
   };
 }

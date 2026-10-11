@@ -7,6 +7,7 @@ import { seedAfterHoursActivity } from "./demo-seed/security-activity.js";
 import { seedCrm } from "./demo-seed/crm.js";
 import { seedInventoryOps, seedShopFloor } from "./demo-seed/inventory-ops.js";
 import { seedPurchasing } from "./demo-seed/purchasing.js";
+import { seedGuidedClose } from "./demo-seed/period-close.js";
 import { seedTreasury } from "./demo-seed/treasury.js";
 import { seedPlatform } from "./demo-seed/platform.js";
 import { seedAttachments } from "./demo-seed/attachments.js";
@@ -760,6 +761,7 @@ export async function seedDemoTenant(
   // to post; the close is what the accountant would have done at each
   // year-end, and it has to happen after the books are written.
   await closeHistoricPeriods(app);
+  await seedGuidedClose(app);
 }
 
 /**

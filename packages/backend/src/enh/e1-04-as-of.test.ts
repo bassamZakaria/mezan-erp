@@ -91,7 +91,89 @@ afterAll(() => {
   if (dir) rmSync(dir, { recursive: true, force: true });
 });
 
+interface SummaryRow {
+  readonly overrideReason: string | null;
+  readonly failedChecks: readonly string[];
+  readonly sealValid: boolean;
+}
+
+async function summariesOf(month: string): Promise<SummaryRow[]> {
+  const res = await request("GET", `/period-close/fp-2026-${month}/summaries`);
+  expect(res.status).toBe(200);
+  return (await res.json()) as SummaryRow[];
+}
+
+describe("the demo shows a guided close that works, and one that refuses for a real reason (ENH-E1-04)", () => {
+  it("June and July were closed clean — every check passing, no override on the summary or in the audit trail", async () => {
+    for (const month of ["06", "07"]) {
+      expect(periodStatus(month)).toBe("closed");
+      const res = await request("GET", `/period-close/fp-2026-${month}/checks`);
+      const checklist = (await res.json()) as PeriodCloseChecklistDTO;
+      expect({ month, blocking: checklist.blocking, unavailable: checklist.checks.filter((c) => c.status === PeriodCloseCheckStatusDTO.Unavailable).map((c) => c.code) }).toEqual({ month, blocking: [], unavailable: [] });
+      const summaries = await summariesOf(month);
+      expect(summaries.map((summary) => [summary.overrideReason, summary.failedChecks, summary.sealValid])).toEqual([[null, [], true]]);
+      const audited = sqlite
+        .prepare(`SELECT json_extract(details, '$.overridden') AS overridden, json_extract(details, '$.reason') AS reason FROM audit_event WHERE entity_type = 'FISCAL_PERIOD' AND entity_id = ? AND action = 'CLOSE'`)
+        .all(`fp-2026-${month}`);
+      expect(audited).toEqual([{ overridden: 0, reason: null }]);
+    }
+  });
+
+  it("each clean month has its recurring entry posted, a depreciation run covering every asset once, and a bank statement finalized without force", () => {
+    for (const month of ["06", "07"]) {
+      const from = `2026-${month}-01`;
+      const to = `2026-${month}-31`;
+      expect((sqlite.prepare(`SELECT COUNT(*) AS n FROM journal_entry WHERE status = 'draft' AND date BETWEEN ? AND ?`).get(from, to) as { n: number }).n).toBe(0);
+      const runs = sqlite.prepare(`SELECT status, lines FROM depreciation_run WHERE period = ?`).all(`2026-${month}`) as { status: string; lines: string }[];
+      const depreciated = runs.flatMap((run) => (JSON.parse(run.lines) as { assetId: string }[]).map((line) => line.assetId));
+      expect(runs.map((run) => run.status)).toEqual(["posted"]);
+      expect(new Set(depreciated).size).toBe(depreciated.length);
+      const statements = sqlite
+        .prepare(`SELECT period_start, period_end, status, finalize_override_reason, COALESCE(unmatched_at_finalize, 0) AS unmatched FROM bank_statement WHERE treasury_account_id = 'TR-DEMO-BANK' AND period_start = ?`)
+        .all(from);
+      expect(statements).toHaveLength(1);
+      expect(statements[0]).toMatchObject({ status: "completed", finalize_override_reason: null, unmatched: 0 });
+      const lines = sqlite
+        .prepare(`SELECT COUNT(*) AS n, SUM(CASE WHEN l.status = 'matched' THEN 1 ELSE 0 END) AS matched FROM statement_line l JOIN bank_statement s ON s.id = l.statement_id WHERE s.treasury_account_id = 'TR-DEMO-BANK' AND s.period_start = ?`)
+        .get(from) as { n: number; matched: number };
+      expect(lines.n).toBeGreaterThan(0);
+      expect(lines.matched).toBe(lines.n);
+    }
+  });
+
+  it("January to May were closed by override, each with its stated Arabic reason and the checks it overrode", async () => {
+    for (const month of ["01", "02", "03", "04", "05"]) {
+      expect(periodStatus(month)).toBe("closed");
+      const [latest] = await summariesOf(month);
+      expect(latest?.overrideReason).toMatch(/[\u0600-\u06FF].*المدير المالي/);
+      expect(latest?.failedChecks.length).toBeGreaterThan(0);
+      expect(latest?.sealValid).toBe(true);
+    }
+  });
+
+  it("August is open and is refused on its real blockers; the refusal names them and leaves it open", async () => {
+    expect(periodStatus("08")).toBe("open");
+    const refused = await request("POST", "/fiscal-periods/fp-2026-08/close", {});
+    expect(refused.status).toBe(409);
+    const body = (await refused.json()) as { error: string; message: string; failedChecks: string[] };
+    expect(body.error).toBe("PERIOD_CLOSE_BLOCKED");
+    expect(body.message).toContain("أغسطس 2026");
+    expect([...body.failedChecks].sort()).toEqual(["bank_statements", "depreciation", "drafts", "fx_revaluation", "recurring_journals"]);
+    expect(periodStatus("08")).toBe("open");
+    expect(await summariesOf("08")).toEqual([]);
+  });
+
+  it("the employee who left before the first payroll run of the year is owed nothing by June's or July's run", () => {
+    expect(sqlite.prepare(`SELECT status, terminated_at FROM hr_employee WHERE id = 'EMP-DEMO-9'`).get()).toEqual({ status: "terminated", terminated_at: "2026-05-31" });
+    expect((sqlite.prepare(`SELECT COUNT(*) AS n FROM hr_payslip WHERE employee_id = 'EMP-DEMO-9'`).get() as { n: number }).n).toBe(0);
+  });
+});
+
 describe("the sub-ledgers are read as of the month end, like the ledger they are tied to (ENH-E1-04)", () => {
+  beforeAll(async () => {
+    for (const month of ["06", "07"]) await ok("POST", `/fiscal-periods/fp-2026-${month}/reopen`, {}, 200);
+  });
+
   it("the demo books tie on inventory, receivables and payables at every month end of the year", async () => {
     await expectTiedEverywhere(MONTHS);
   });

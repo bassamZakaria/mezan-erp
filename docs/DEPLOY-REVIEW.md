@@ -41,6 +41,7 @@ contract lives with the code that reads it (`apps/server/src/env.ts`).
 | `MEZAN_SQLITE_EXCLUSIVE` | `1` | one writer per tenant file |
 | `MEZAN_TENANT_DOMAIN` | the review domain | |
 | `MEZAN_TRUST_PROXY` | `1` | behind CloudFront and API Gateway |
+| `MEZAN_TRUSTED_PROXY_HOPS` | `2` | CloudFront appends the viewer's address, API Gateway appends CloudFront's. Left at the default of `1`, every client is counted as the CloudFront edge it came through — see [ENVIRONMENTS.md](ENVIRONMENTS.md) |
 | `MEZAN_ORIGIN_SECRET` | SSM, generated | CloudFront adds it; a direct hit on API Gateway gets 403 on `/api/*` |
 | `MEZAN_PLATFORM_OWNER_EMAIL` / `_PASSWORD` | SSM | the platform console owner |
 | `MEZAN_REVIEW_TENANT_CODE` | `review` | 2–40 of `a-z0-9-`, never `demo` |

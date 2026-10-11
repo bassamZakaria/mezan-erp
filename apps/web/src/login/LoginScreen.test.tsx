@@ -6,7 +6,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState, useSyncExternalStore, type ReactElement } from "react";
 import { LoginScreen } from "./LoginScreen";
 import { useApi, ApiProvider } from "../data/ApiContext";
-import { loadTenantCode, markSessionExpired, persistTenantCode, rememberTenantCodeForEmail, subscribeTenantCode } from "../data/session";
+import { loadTenantCode, markSessionExpired, persistTenantCode, rememberTenantCodeForEmail, sessionExpiredPending, subscribeTenantCode } from "../data/session";
 import { createQueryClient } from "../data/queryClient";
 import { AppI18nProvider } from "../i18n";
 import { rememberDeviceUser } from "./device-users";
@@ -121,6 +121,47 @@ describe.each(["light", "dark"] as const)("LoginScreen (%s theme)", (theme) => {
     fireEvent.click(screen.getByRole("button", { name: "دخول" }));
 
     await vi.waitFor(() => expect(screen.getByTestId("session")).toHaveTextContent(testAdminSession.nameAr));
+  });
+
+  it("still says the session ended after the sign-in screen is mounted again, as a navigation does, until the person acts", () => {
+    markSessionExpired();
+    const first = renderWithProviders(<LoginScreen onStartWizard={() => {}} />, { transport: okTransport() });
+    expect(screen.getByRole("status")).toHaveTextContent("انتهت الجلسة");
+    first.unmount();
+
+    renderWithProviders(<LoginScreen onStartWizard={() => {}} />, { transport: okTransport() });
+
+    expect(screen.getByRole("status")).toHaveTextContent("انتهت الجلسة");
+    expect(sessionExpiredPending()).toBe(true);
+  });
+
+  it("drops the session-ended notice once the person starts typing a PIN, and does not bring it back on the next visit", () => {
+    markSessionExpired();
+    const first = renderWithProviders(<LoginScreen onStartWizard={() => {}} />, { transport: okTransport() });
+
+    fireEvent.change(screen.getByLabelText("رمز PIN رقم 1"), { target: { value: "1" } });
+
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    expect(sessionExpiredPending()).toBe(false);
+    first.unmount();
+    renderWithProviders(<LoginScreen onStartWizard={() => {}} />, { transport: okTransport() });
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+
+  it("clears the session-ended notice on a successful sign-in", async () => {
+    markSessionExpired();
+    renderWithProviders(
+      <>
+        <LoginScreen onStartWizard={() => {}} />
+        <SessionProbe />
+      </>,
+      { transport: okTransport() },
+    );
+
+    fillPin("123456");
+
+    await waitFor(() => expect(screen.getByTestId("session")).toHaveTextContent(testAdminSession.nameAr));
+    expect(sessionExpiredPending()).toBe(false);
   });
 
   it("shows the session-expired notice when the tab was left open past a dead token", () => {

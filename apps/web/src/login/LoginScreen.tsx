@@ -143,6 +143,7 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
   }
 
   function handleTenantCodeChange(event: ChangeEvent<HTMLInputElement>) {
+    acknowledgeExpiry();
     setTenantCode(event.target.value.toLowerCase());
   }
 
@@ -217,10 +218,16 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
   }, [tenantNotFound, username, resolvedCode]);
 
   const [pinDigits, setPinDigits] = useState<string[]>(Array(PIN_LENGTH).fill(""));
-  // Pure read at mount, cleared in the effect below — see `session.ts` for why
-  // the two are not one call.
-  const [expired] = useState(sessionExpiredPending);
-  useEffect(() => clearSessionExpired(), []);
+  const [expired, setExpired] = useState(sessionExpiredPending);
+  // REQUIRED: the flag is cleared by something the person does, never by this
+  // screen mounting. A sign-out by the server is followed by a navigation that
+  // mounts the screen a second time, and a notice consumed by the first mount
+  // was gone before anyone could read it.
+  function acknowledgeExpiry() {
+    if (!expired) return;
+    clearSessionExpired();
+    setExpired(false);
+  }
   const [error, setError] = useState<string | null>(null);
   /**
    * Seconds left on a lockout, counted down locally.
@@ -262,6 +269,7 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
       { username: identity, pin },
       {
         onSuccess: (session) => {
+          clearSessionExpired();
           clearTenantCodeConfirmed();
           rememberDeviceUser(session);
           if (tenantMode === TenantResolveMode.Code && resolvedCode !== "") rememberTenantCodeForEmail(session.email, resolvedCode);
@@ -301,6 +309,7 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
   }, [pinComplete, pin, identity]);
 
   function pickUser(user: DeviceUser) {
+    acknowledgeExpiry();
     setSelected(user);
     setTyping(false);
     setUsername(user.email);
@@ -310,6 +319,7 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
   }
 
   function handlePinChange(index: number, event: ChangeEvent<HTMLInputElement>) {
+    acknowledgeExpiry();
     const raw = event.target.value.replace(/\D/g, "");
     // The box keeps no `maxLength`, so a PASTED "1234" arrives whole — but that
     // also means typing over a filled box arrives as old+new ("1" + "4" = "14").
@@ -522,7 +532,10 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
               placeholder={t("login.who.otherHint")}
               autoComplete="username"
               className="mz-lat"
-              onChange={(e) => setUsername(e.target.value)}
+              onChange={(e) => {
+                acknowledgeExpiry();
+                setUsername(e.target.value);
+              }}
               onBlur={handleEmailBlur}
             />
           </label>

@@ -2627,3 +2627,24 @@ describe("D111 round 4 · a stored record cannot be moved onto another branch's 
     expect(one<{ w: string }>("SELECT warehouse_id AS w FROM pos_terminal WHERE id = ?", terminal.id)!.w).toBe(terminal.warehouse_id);
   });
 });
+
+describe("D111 round 4 · a refund paid out of the company's account is booked to the branch of the return it settles", () => {
+  it("the refund voucher and its journal carry the return's branch, never none", async () => {
+    const companyAccount = await admin("POST", "/treasury-accounts", { id: "D111-R4-TR-HQ", code: "R4-HQ", name: "حساب الشركة", type: "bank", currency: "EGP", branchId: null, glAccountId: "1310" });
+    expect(companyAccount.status, JSON.stringify(companyAccount.body).slice(0, 200)).toBe(201);
+    const invoice = { ...salesInvoice("D111-R4-REFUND-INV", ALEX, ALEX_WAREHOUSE), lines: [{ ...salesInvoice("x", ALEX, ALEX_WAREHOUSE).lines[0]!, lineId: "D111-R4-REFUND-INV-L1", isStock: true, qty: "1" }] };
+    expect((await admin("POST", "/sales-invoices", invoice)).status).toBe(201);
+    const confirmed = await admin("POST", "/sales-invoices/D111-R4-REFUND-INV/confirm", {});
+    expect(confirmed.status, JSON.stringify(confirmed.body).slice(0, 200)).toBe(200);
+    const drafted = await admin("POST", "/sales-returns/from-invoice", { id: "D111-R4-REFUND-SRT", date: TODAY, sourceInvoiceId: "D111-R4-REFUND-INV", warehouseId: ALEX_WAREHOUSE, reason: "OTHER", requested: [{ itemId: "ITEM-DEMO-1", qty: "1" }] });
+    expect(drafted.status, JSON.stringify(drafted.body).slice(0, 200)).toBe(201);
+    expect((await admin("POST", "/sales-returns/D111-R4-REFUND-SRT/confirm", {})).status).toBe(200);
+
+    const refunded = await admin("POST", "/sales-returns/D111-R4-REFUND-SRT/refund", { amount: "10.00", treasuryAccountId: "D111-R4-TR-HQ", paymentMethod: "bank" });
+    expect(refunded.status, JSON.stringify(refunded.body).slice(0, 200)).toBe(200);
+    const voucherId = refunded.body.voucherId as string;
+    expect(one<{ b: string }>("SELECT branch_id AS b FROM voucher WHERE id = ?", voucherId)!.b).toBe(ALEX);
+    const branches = all<{ b: string | null }>("SELECT DISTINCT l.branch_id AS b FROM journal_line l JOIN journal_entry e ON e.id = l.entry_id WHERE e.source_doc_id = ? OR e.id = ?", voucherId, voucherId);
+    expect(branches).toEqual([{ b: ALEX }]);
+  });
+});

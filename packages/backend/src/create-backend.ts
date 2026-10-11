@@ -3921,7 +3921,11 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
             memo: command.memo ?? undefined,
             voucherType: "customer_refund",
             amount: command.amount,
-            branchId: treasury.branchId ?? COMPANY_LEVEL_VOUCHER_BRANCH,
+            // LEDGER INVARIANT: the refund settles the return, so it is booked
+            // to the return's branch — the account's own only when the return
+            // has none. Booking it to a company-level account's "no branch"
+            // left a branch's refund outside that branch's books.
+            branchId: (await bridgedDocumentBranchIds(deferredBranchDirectory, "SALES_RETURN", command.returnId))[0] ?? treasury.branchId ?? COMPANY_LEVEL_VOUCHER_BRANCH,
             paymentMethod: command.paymentMethod,
             treasuryAccountId: command.treasuryAccountId,
             treasuryGlAccountId: treasury.glAccountId,

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { ALL_SCOPE, type EtaCommandResult } from "@mezan/domain";
 import { createBackend, type BackendHandle, type CreateBackendOptions } from "./create-backend.js";
+import { raced } from "./test/raced.js";
 
 const handles: BackendHandle[] = [];
 afterEach(async () => {
@@ -87,11 +88,13 @@ describe("a tenant's connection under a sign-in flood", () => {
 
 describe("a tenant's connection while the signing program is slow", () => {
   async function withQueuedInvoice(run: CreateBackendOptions["etaSigningRunner"]) {
+    const filed: string[] = [];
     const t = await open({
       etaSigningRunner: run,
       etaHttpClient: async (request) => {
         if (request.url.endsWith("/connect/token")) return { status: 200, body: JSON.stringify({ access_token: "token", expires_in: 3600 }) };
         const sent = JSON.parse(request.body ?? "{}") as { documents?: { internalID?: string }[] };
+        for (const doc of sent.documents ?? []) filed.push(doc.internalID ?? "");
         const accepted = (sent.documents ?? []).map((doc) => ({ uuid: "UUID-1", internalId: doc.internalID, longId: "LONG-1" }));
         return { status: 202, body: JSON.stringify({ submissionId: "SUB-1", acceptedDocuments: accepted, rejectedDocuments: [] }) };
       },
@@ -153,8 +156,26 @@ describe("a tenant's connection while the signing program is slow", () => {
     const queued = (await t.call("GET", "/eta/submissions")).body as { id: string; documentType: string; status: string }[];
     const invoice = queued.find((submission) => submission.documentType === "invoice");
     if (!invoice) throw new Error(`no e-invoice was queued: ${JSON.stringify(queued)}`);
-    return { ...t, submissionId: invoice.id };
+    return { ...t, submissionId: invoice.id, filed };
   }
+
+  it("files the document once when three senders press submit together", async () => {
+    let asked = 0;
+    const t = await withQueuedInvoice(async () => {
+      asked += 1;
+      await nextTurn();
+      return { code: 0, stdout: "CADES-SIGNATURE", stderr: "" };
+    });
+
+    await raced(
+      () => t.call("POST", `/eta/submissions/${t.submissionId}/submit`),
+      (answers) => expect(answers.map((answer) => answer.status).sort()).toEqual([200, 409, 409]),
+    );
+
+    expect(asked).toBe(1);
+    expect(t.filed).toHaveLength(1);
+    expect((await t.call("GET", `/eta/submissions/${t.submissionId}`)).body).toMatchObject({ status: "submitted" });
+  });
 
   it("posts another user's write while a submission waits on the signer, and refuses a second sender for the same document", async () => {
     let sign!: (result: EtaCommandResult) => void;

@@ -17,6 +17,14 @@ import { updateProfileSchema, changePasswordSchema, changePinSchema } from "@mez
 import { getAuthContext, type AuthContextResolver } from "./permission-gate.js";
 import { createPrecomputingHasher } from "./precomputed-secrets.js";
 
+export enum ProfileRefusal {
+  CredentialChangedMeanwhile = "CREDENTIAL_CHANGED_MEANWHILE",
+}
+
+class CredentialChangedMeanwhile extends Error {}
+
+const CREDENTIAL_ATTEMPTS = 3;
+
 function serializeProfile(user: User) {
   return {
     id: user.id,
@@ -89,12 +97,47 @@ export function createProfileRoutes(
   const secrets = createPrecomputingHasher(hasher);
 
   // scrypt must finish BEFORE the transaction opens: awaited inside it, every
-  // other request on this connection would run with the BEGIN still open.
-  async function verifiedAndHashedAhead(callerId: string, currentPassword: string, next: string | null): Promise<() => void> {
-    const user = await uow.users.findById(callerId);
-    if (!user) return () => undefined;
-    return secrets.precompute({ hash: next === null ? [] : [next], verify: [[currentPassword, user.passwordHash]] });
+  // other request on this connection would run with the BEGIN still open. The
+  // hash hands the connection back, so the password it was checked against is
+  // read again inside the transaction; if it moved meanwhile, the check is
+  // made again against the one now stored.
+  async function withCurrentPasswordChecked(
+    callerId: string,
+    currentPassword: string,
+    next: string | null,
+    write: (tx: UnitOfWork) => Promise<void>,
+  ): Promise<boolean> {
+    for (let attempt = 0; attempt < CREDENTIAL_ATTEMPTS; attempt += 1) {
+      const checkedAgainst = (await uow.users.findById(callerId))?.passwordHash ?? null;
+      const release =
+        checkedAgainst === null
+          ? () => undefined
+          : await secrets.precompute({ hash: next === null ? [] : [next], verify: [[currentPassword, checkedAgainst]] });
+      try {
+        await uow.transaction(async (tx) => {
+          const stored = (await tx.users.findById(callerId))?.passwordHash ?? null;
+          if (stored !== checkedAgainst) throw new CredentialChangedMeanwhile();
+          await write(tx);
+        });
+        return true;
+      } catch (err) {
+        if (!(err instanceof CredentialChangedMeanwhile)) throw err;
+      } finally {
+        release();
+      }
+    }
+    return false;
   }
+
+  const changedMeanwhile = (c: Context) =>
+    c.json(
+      {
+        error: ProfileRefusal.CredentialChangedMeanwhile,
+        message: "تغيّرت بيانات الدخول لهذا الحساب أثناء تنفيذ الطلب، فلم يُحفظ شيء. أعد المحاولة.",
+        messageEn: "This account's credentials changed while the request was running, so nothing was saved. Try again.",
+      },
+      409,
+    );
 
   app.get("/", requireAuth, async (c) => {
     const callerId = resolveCallerId(c);
@@ -123,9 +166,8 @@ export function createProfileRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
-    const release = await verifiedAndHashedAhead(callerId, parsed.data.currentPassword, parsed.data.newPassword);
     try {
-      await uow.transaction(async (tx) => {
+      const changed = await withCurrentPasswordChecked(callerId, parsed.data.currentPassword, parsed.data.newPassword, async (tx) => {
         await changeOwnPassword(callerId, parsed.data, tx, secrets.hasher);
         if (audit) {
           await recordSecurityEvent(audit, {
@@ -138,11 +180,9 @@ export function createProfileRoutes(
           });
         }
       });
-      return c.body(null, 204);
+      return changed ? c.body(null, 204) : changedMeanwhile(c);
     } catch (err) {
       return profileErrorResponse(c, err);
-    } finally {
-      release();
     }
   });
 
@@ -152,9 +192,8 @@ export function createProfileRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
-    const release = await verifiedAndHashedAhead(callerId, parsed.data.currentPassword, parsed.data.newPin);
     try {
-      await uow.transaction(async (tx) => {
+      const changed = await withCurrentPasswordChecked(callerId, parsed.data.currentPassword, parsed.data.newPin, async (tx) => {
         await changeOwnPin(callerId, parsed.data, tx, secrets.hasher);
         if (audit) {
           await recordSecurityEvent(audit, {
@@ -167,11 +206,9 @@ export function createProfileRoutes(
           });
         }
       });
-      return c.body(null, 204);
+      return changed ? c.body(null, 204) : changedMeanwhile(c);
     } catch (err) {
       return profileErrorResponse(c, err);
-    } finally {
-      release();
     }
   });
 

@@ -634,7 +634,7 @@ export class EtaService {
       } catch (err) {
         if (err instanceof EtaOfflineError || err instanceof EtaSubmissionInFlightError) queued.push(s.id);
         else if (err instanceof EtaSignerNotConfiguredError || err instanceof EtaSigningFailedError) unsigned.push(s.id);
-        else throw err;
+        else if (!(err instanceof InvalidEtaTransitionError)) throw err;
       }
     }
 
@@ -646,7 +646,7 @@ export class EtaService {
           else if (next.status === "error") rejected.push(next);
         } catch (err) {
           if (err instanceof EtaOfflineError || err instanceof EtaSubmissionInFlightError) queued.push(s.id);
-          else throw err;
+          else if (!(err instanceof InvalidEtaTransitionError)) throw err;
         }
       }
     }
@@ -739,7 +739,7 @@ export class EtaService {
           const next = await this.refreshStatus(s.id);
           if (next.status === "error") rejected.push(next);
         } catch (err) {
-          if (!(err instanceof EtaOfflineError || err instanceof EtaSubmissionInFlightError)) throw err;
+          if (!(err instanceof EtaOfflineError || err instanceof EtaSubmissionInFlightError || err instanceof InvalidEtaTransitionError)) throw err;
         }
       }
     }
@@ -755,18 +755,33 @@ export class EtaService {
   private async submitReceiptChunk(chunk: readonly EtaSubmission[]): Promise<EtaSubmission[]> {
     if (!this.transmitPort.transmitReceiptBatch) {
       const out: EtaSubmission[] = [];
-      for (const s of chunk) out.push(await this.submit(s.id));
+      for (const s of chunk) {
+        try {
+          out.push(await this.submit(s.id));
+        } catch (err) {
+          if (!(err instanceof InvalidEtaTransitionError)) throw err;
+        }
+      }
       return out;
     }
     const transmitBatch = this.transmitPort.transmitReceiptBatch.bind(this.transmitPort);
     return this.holding(
       chunk.map((s) => s.id),
       async () => {
+        // The caller listed this chunk before earlier chunks went out, and each
+        // of those waited on the authority. Read again now the ids are held:
+        // a receipt another drive reported meanwhile is not reported twice.
+        const still: EtaSubmission[] = [];
+        for (const listed of chunk) {
+          const now = await this.found(listed.id);
+          if (now.status === "ready") still.push(now);
+        }
+        if (still.length === 0) return [];
         const config = await this.deps.config.get();
-        const result = await transmitBatch(chunk, config);
+        const result = await transmitBatch(still, config);
         const byId = new Map(result.outcomes.map((o) => [o.submissionId, o]));
         const out: EtaSubmission[] = [];
-        for (const s of chunk) {
+        for (const s of still) {
           const outcome = byId.get(s.id) ?? {
             submissionId: s.id,
             ok: false,
@@ -880,7 +895,7 @@ export class EtaService {
         submitted.push(await this.submit(s.id));
       } catch (err) {
         if (err instanceof EtaOfflineError || err instanceof EtaSubmissionInFlightError) queued.push(s.id);
-        else throw err;
+        else if (!(err instanceof InvalidEtaTransitionError)) throw err;
       }
     }
     return { submitted, queued };

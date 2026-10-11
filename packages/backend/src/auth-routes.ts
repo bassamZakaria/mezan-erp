@@ -180,6 +180,23 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
     return secrets.precompute({ verify: [[parsed.data.pin, hash]] });
   };
 
+  const claimPasswords = new WeakMap<Request, string>();
+
+  // Hashed before the request queues for the connection, and only while nobody
+  // has claimed the tenant: the handler then checks the claim and inserts the
+  // admin inside one transaction, with nothing left to wait for in between.
+  const hashClaimSecretsBeforeTheTurn: BoundaryPreparation = async (c) => {
+    const secrets = deps.secrets;
+    if (!secrets) return;
+    const parsed = bootstrapAdminRequestSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return;
+    await deps.audit?.settled?.();
+    if (await tenantIsClaimed()) return;
+    const password = `pw-${crypto.randomUUID()}`;
+    claimPasswords.set(c.req.raw, password);
+    return secrets.precompute({ hash: [password, parsed.data.pin] });
+  };
+
   /**
    * A hash to verify against when the account does not exist, so a miss costs
    * the same scrypt a hit does. Built once, lazily — hashing on every mount
@@ -258,10 +275,21 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
    * who has lost their PIN, and deleting the row would take the audit history
    * that points at it with it.
    */
-  async function retireSeedAdmin(): Promise<void> {
-    const seed = await deps.uow.users.findById(SEED_ADMIN_USER_ID);
+  async function retireSeedAdmin(uow: UnitOfWork): Promise<void> {
+    const seed = await uow.users.findById(SEED_ADMIN_USER_ID);
     if (!seed || seed.status !== "active") return;
-    await deps.uow.users.save({ ...seed, status: "inactive" });
+    await uow.users.save({ ...seed, status: "inactive" });
+  }
+
+  async function alreadyClaimed(c: Context, email: string) {
+    await security(c, "BOOTSTRAP_REFUSED", "CRITICAL", { email });
+    return c.json(
+      {
+        error: "TENANT_ALREADY_PROVISIONED",
+        message: "تم إعداد هذه المنشأة بالفعل. سجّل الدخول بحسابك.",
+      },
+      409,
+    );
   }
 
   app.post("/auth/login", async (c) => {
@@ -290,10 +318,15 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
     // An unknown email used to return before any hashing happened, so the
     // response time answered "does this account exist" for free. Verify against
     // a throwaway hash instead, and spend the same scrypt either way.
-    const ok =
+    const verified =
       user && user.status === "active" && user.pinHash
         ? await deps.hasher.verify(pin, user.pinHash)
         : (await deps.hasher.verify(pin, await decoyHash()), false);
+    // The check may have handed the connection back. The verdict holds only for
+    // the account as it stands now: still active, still on the PIN it was
+    // checked against.
+    const current = verified && user ? await deps.uow.users.findById(user.id) : null;
+    const ok = current !== null && current.status === "active" && current.pinHash === user?.pinHash;
     if (!user || !ok) {
       const lockedFor = Math.max(throttle.fail(key), origin ? sources.fail(origin) : 0);
       if (lockedFor > 0) {
@@ -435,40 +468,40 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
-    if (await tenantIsClaimed()) {
-      await security(c, "BOOTSTRAP_REFUSED", "CRITICAL", { email: parsed.data.email });
-      return c.json(
-        {
-          error: "TENANT_ALREADY_PROVISIONED",
-          message: "تم إعداد هذه المنشأة بالفعل. سجّل الدخول بحسابك.",
-        },
-        409,
-      );
-    }
+    if (await tenantIsClaimed()) return alreadyClaimed(c, parsed.data.email);
     await seedIfEmpty(deps.seedStores);
     try {
-      const user = await saveUser(
-        {
-          id: crypto.randomUUID(),
-          nameAr: parsed.data.nameAr,
-          nameEn: parsed.data.nameEn,
-          email: parsed.data.email,
-          phone: null,
-          password: `pw-${crypto.randomUUID()}`,
-          pin: parsed.data.pin,
-          roleId: null,
-          isCompanyAdmin: true,
-          employeeId: null,
-          branchScope: ALL_SCOPE,
-          warehouseScope: ALL_SCOPE,
-          status: "active",
-          createdAt: new Date().toISOString(),
-        },
-        deps.uow,
-        deps.hasher,
-      );
-      await recordTenantClaim(new Date().toISOString());
-      await retireSeedAdmin();
+      // ORDER MATTERS: the claim is read again here, inside the transaction that
+      // inserts the admin and records the claim. Seeding above may have handed
+      // the connection back, and the read at the top of this handler is then
+      // one every concurrent claimant shared.
+      const user = await deps.uow.transaction(async (tx) => {
+        if (await tenantIsClaimed()) return null;
+        const claimed = await saveUser(
+          {
+            id: crypto.randomUUID(),
+            nameAr: parsed.data.nameAr,
+            nameEn: parsed.data.nameEn,
+            email: parsed.data.email,
+            phone: null,
+            password: claimPasswords.get(c.req.raw) ?? `pw-${crypto.randomUUID()}`,
+            pin: parsed.data.pin,
+            roleId: null,
+            isCompanyAdmin: true,
+            employeeId: null,
+            branchScope: ALL_SCOPE,
+            warehouseScope: ALL_SCOPE,
+            status: "active",
+            createdAt: new Date().toISOString(),
+          },
+          tx,
+          deps.hasher,
+        );
+        await recordTenantClaim(new Date().toISOString());
+        await retireSeedAdmin(tx);
+        return claimed;
+      });
+      if (!user) return alreadyClaimed(c, parsed.data.email);
       // The single highest-authority write in the product, and it recorded
       // nothing at all — so a company admin appearing from nowhere was
       // indistinguishable, afterwards, from one that had always been there.
@@ -494,5 +527,5 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
     }
   });
 
-  return { routes: app, beforeTheTurn: { "/auth/login": verifyPinBeforeTheTurn } };
+  return { routes: app, beforeTheTurn: { "/auth/login": verifyPinBeforeTheTurn, "/bootstrap/admin": hashClaimSecretsBeforeTheTurn } };
 }

@@ -429,6 +429,47 @@ describe("submitReadyReceipts — reported device by device, in chain order", ()
   });
 });
 
+describe("two drives of the receipt queue at once", () => {
+  it("reports each receipt to the authority once, though the first drive listed them all before it waited", async () => {
+    const batches: string[][] = [];
+    let releaseFirst!: () => void;
+    const firstHeld = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const submissions = new MemSubmissions();
+    const svc = new EtaService({
+      config: new MemConfig(READY),
+      submissions,
+      receiptUuid: countingUuidPort(),
+      now: () => "2026-09-01T10:00:00.000Z",
+      newId: () => `eta-${++ids}`,
+      transmit: {
+        async transmit() {
+          throw new Error("the batch leg should have been used");
+        },
+        async transmitReceiptBatch(batch) {
+          batches.push(batch.map((s) => s.internalId));
+          if (batches.length === 1) await firstHeld;
+          return { submissionUUID: `SUB-${batches.length}`, outcomes: batch.map((s) => ({ submissionId: s.id, ok: true, etaUuid: s.etaUuid ?? undefined })) };
+        },
+      },
+    });
+    for (const serial of ["POS-A", "POS-B"]) {
+      await svc.enqueueReceipt({ ...receipt, internalId: `${serial}-1`, seller: { deviceSerialNumber: serial, branchCode: "1", companyTradeName: "متجر" } });
+    }
+
+    const first = svc.submitReadyReceipts();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    const second = await svc.submitReadyReceipts();
+    releaseFirst();
+    await first;
+
+    expect(second.submitted.map((s) => s.internalId)).toEqual(["POS-B-1"]);
+    expect(batches).toEqual([["POS-A-1"], ["POS-B-1"]]);
+    expect((await submissions.list()).map((s) => s.status)).toEqual(["submitted", "submitted"]);
+  });
+});
+
 describe("reissueReceipt — correcting and re-issuing a REJECTED receipt (D-B4)", () => {
   const header = (p: { submission: { payload: unknown } }) =>
     (p.submission.payload as { header: { uuid: string; previousUUID: string; referenceOldUUID?: string } }).header;

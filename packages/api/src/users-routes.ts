@@ -651,6 +651,10 @@ export function createUsersRoutes(
       const id = c.req.param("id");
       const ctx = getAuthContext(c);
       if (!ctx) return c.json({ error: "UNAUTHENTICATED" }, 401);
+      // ORDER MATTERS: the hash hands the connection back, so it is taken
+      // before anything is read — every check below is then made on rows no
+      // other request has had a turn to change.
+      const unusableHash = await hasher.hash(`${randomUUID()}${randomUUID()}`);
       const outranked = await refuseIfTargetOutranks(c, id);
       if (outranked) return outranked;
       const target = await uow.users.findById(id);
@@ -673,7 +677,6 @@ export function createUsersRoutes(
           422,
         );
       }
-      const unusableHash = await hasher.hash(`${randomUUID()}${randomUUID()}`);
       try {
         const result = await uow.transaction(async (tx) => {
           const current = await tx.users.findById(id);

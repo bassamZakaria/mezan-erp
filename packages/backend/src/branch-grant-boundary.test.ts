@@ -2468,6 +2468,7 @@ describe("D111 round 4 · a branch user edits a shared record's contact details 
   });
 
   it("an item's sale price, tax rate, stock tracking, type, units and costing are refused", async () => {
+    const otherSupplier = one<{ id: string }>("SELECT id FROM supplier WHERE id <> COALESCE((SELECT default_supplier_id FROM item WHERE id = 'ITEM-DEMO-1'), '') ORDER BY id LIMIT 1")!.id;
     for (const [label, caller] of restricted()) {
       const before = row("item", "ITEM-DEMO-1");
       for (const [field, value] of [
@@ -2477,7 +2478,7 @@ describe("D111 round 4 · a branch user edits a shared record's contact details 
         ["type", "service"],
         ["baseUnitCode", "KG"],
         ["alternateUnits", [{ code: "BOX", name: "كرتونة", factor: 1000 }]],
-        ["defaultSupplierId", "SUPP-DEMO-1"],
+        ["defaultSupplierId", otherSupplier],
       ] as const) {
         refused(await caller("PATCH", "/items/ITEM-DEMO-1", { [field]: value }), field);
       }

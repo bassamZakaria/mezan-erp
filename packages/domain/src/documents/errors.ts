@@ -97,6 +97,7 @@ export class InvalidDocumentError extends Error {
     readonly docType: string,
     readonly docId: string,
     message: string,
+    readonly messageEn?: string,
   ) {
     super(message);
     this.name = "InvalidDocumentError";

@@ -10,7 +10,7 @@ import { isoDateOrInstant } from "./iso-date.js";
 
 // --- Employee advances -----------------------------------------------------
 
-export const employeeAdvanceStatusSchema = z.enum(["pending", "approved", "disbursed", "repaid", "rejected"]);
+export const employeeAdvanceStatusSchema = z.enum(["pending", "approved", "disbursed", "repaid", "rejected", "cancelled"]);
 
 export const advanceInstallmentSchema = z.object({
   seq: z.number().int().positive(),
@@ -112,6 +112,7 @@ export const payslipLineSourceSchema = z.enum([
   "social_insurance_employee",
   "social_insurance_employer",
   "statutory_levy",
+  "termination_adjustment",
 ]);
 
 export const payslipLineSchema = z.object({

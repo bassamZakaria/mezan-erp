@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { DEFAULT_TIME_ZONE, toTenantDay } from "@mezan/domain";
 import { INVARIANTS_ZERO, seededWorld, type SeededWorld } from "./test-helpers/seeded-world.js";
 
@@ -16,10 +16,13 @@ const today = () => toTenantDay(new Date().toISOString(), DEFAULT_TIME_ZONE);
 const terminate = (id: string, body?: unknown) => world.request("POST", `/hr/employees/${id}/terminate`, body);
 
 interface Recovery {
-  readonly advanceId: string;
-  readonly advanceNumber: string;
+  readonly advanceId: string | null;
+  readonly advanceNumber: string | null;
   readonly days: number;
+  readonly gross: string;
   readonly amount: string;
+  readonly payableReduced: string;
+  readonly taxRelief: string;
   readonly journalEntryId: string;
   readonly paidThrough: string;
 }
@@ -43,7 +46,7 @@ describe("ending service against payroll that is already approved", () => {
     ]);
   });
 
-  it("a last day of 12 June is accepted, and the pay for 13 June to 31 July becomes an advance the employee owes: Dr 1160, Cr 5120, dated today", async () => {
+  it("a last day of 12 June is accepted: June was paid out, so its 18 days become an advance; July is approved and unpaid, so its 30 come off what is owed — one entry, dated today", async () => {
     const advancesBefore = world.balance("1160");
     const expenseBefore = world.balance("5120");
 
@@ -52,26 +55,27 @@ describe("ending service against payroll that is already approved", () => {
     expect(answer.status).toBe(200);
     expect(answer.body).toMatchObject({ status: "terminated", terminatedAt: "2026-06-12" });
     const recovery = answer.body.payRecovery as Recovery;
-    expect(recovery).toMatchObject({ days: 49, amount: "13440.000000", paidThrough: "2026-07-31" });
+    expect(recovery).toMatchObject({ days: 48, gross: "13440.000000", amount: "5040.000000", payableReduced: "8400.000000", taxRelief: "0.000000", paidThrough: "2026-07-31" });
     expect(recovery.advanceNumber).toMatch(/^ADV-/);
 
     expect(entryLines(recovery.journalEntryId)).toEqual([
-      { accountId: "1160", debit: 13_440n * SCALE, credit: 0n, date: today() },
+      { accountId: "2170", debit: 8_400n * SCALE, credit: 0n, date: today() },
+      { accountId: "1160", debit: 5_040n * SCALE, credit: 0n, date: today() },
       { accountId: "5120", debit: 0n, credit: 12_480n * SCALE, date: today() },
       { accountId: "5121", debit: 0n, credit: 960n * SCALE, date: today() },
     ]);
-    expect(world.balance("1160") - advancesBefore).toBe(13_440n * SCALE);
+    expect(world.balance("1160") - advancesBefore).toBe(5_040n * SCALE);
     expect(world.balance("5120") - expenseBefore).toBe(-12_480n * SCALE);
     expect(await world.invariants()).toEqual(INVARIANTS_ZERO);
 
     const advance = (await world.request("GET", `/hr/advances/${recovery.advanceId}`)).body;
-    expect(advance).toMatchObject({ employeeId: "EMP-DEMO-2", status: "disbursed", amount: "13440.000000", outstanding: "13440.000000", disbursementVoucherId: null, disbursementJournalEntryId: recovery.journalEntryId });
+    expect(advance).toMatchObject({ employeeId: "EMP-DEMO-2", status: "disbursed", amount: "5040.000000", outstanding: "5040.000000", disbursementVoucherId: null, disbursementJournalEntryId: recovery.journalEntryId });
   });
 
   it("the end-of-service statement deducts the recorded overpayment", async () => {
     await world.request("PUT", "/hr/payroll/statutory-flag", { enabled: true, acknowledged: true });
     const statement = await world.request("GET", "/hr/employees/EMP-DEMO-2/end-of-service");
-    expect(`${statement.status} ${String(statement.body.outstandingAdvances)}`).toBe("200 13440.000000");
+    expect(`${statement.status} ${String(statement.body.outstandingAdvances)}`).toBe("200 5040.000000");
   });
 
   it("a last day on the thirtieth of a 31-day month owes nothing back on a 30-day divisor, and records no advance", async () => {
@@ -92,32 +96,26 @@ describe("ending service against payroll that is already approved", () => {
 });
 
 describe("ending service between this month's payroll approval and the month end", () => {
-  const day = today();
-  const [year, month] = [Number(day.slice(0, 4)), Number(day.slice(5, 7))];
-  const monthEnd = `${day.slice(0, 8)}${String(new Date(Date.UTC(year, month, 0)).getUTCDate()).padStart(2, "0")}`;
-  const dayAfterMonthEnd = new Date(Date.parse(`${monthEnd}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10);
+  const day = "2026-10-20";
+  const [year, month] = [2026, 10];
+  const monthEnd = "2026-10-31";
+  const dayAfterMonthEnd = "2026-11-01";
 
   beforeAll(async () => {
+    vi.useFakeTimers({ toFake: ["Date"], now: new Date(`${day}T10:00:00.000Z`) });
     expect((await world.request("POST", "/hr/payroll/runs", { id: "TERM-RUN", year, month })).status).toBe(201);
     expect((await world.request("POST", "/hr/payroll/runs/TERM-RUN/calculate", {})).status).toBe(200);
     expect((await world.request("POST", "/hr/payroll/runs/TERM-RUN/approve", {})).status).toBe(200);
   });
 
-  it("the request the screen used to send, with no body, ends service today and books the rest of the month as owed back", async () => {
+  afterAll(() => vi.useRealTimers());
+
+  it("the request the screen used to send, with no body, ends service today; the ten days the approved month still pays for come off its unpaid net, less the income tax withheld on them", async () => {
     const answer = await terminate("EMP-DEMO-6");
 
     expect(answer.status).toBe(200);
     expect(answer.body).toMatchObject({ status: "terminated", terminatedAt: day });
-    const paidUnits = (d: number) => Math.min(d, 30);
-    const units = 30 - paidUnits(Number(day.slice(8, 10)));
-    const expected = (7_250n * SCALE * BigInt(units)) / 30n;
-    if (day === monthEnd || units === 0) {
-      expect(answer.body.payRecovery).toBeNull();
-    } else {
-      const recovery = answer.body.payRecovery as Recovery;
-      expect(recovery.paidThrough).toBe(monthEnd);
-      expect(BigInt(recovery.amount.replace(".", "")) / 10_000n).toBe(expected / 10_000n);
-    }
+    expect(answer.body.payRecovery).toMatchObject({ advanceId: null, days: 10, gross: "2416.670000", amount: "0.000000", payableReduced: "2364.880000", taxRelief: "51.790000", paidThrough: monthEnd });
     expect(await world.invariants()).toEqual(INVARIANTS_ZERO);
   });
 

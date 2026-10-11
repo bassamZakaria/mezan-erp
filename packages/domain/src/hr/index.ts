@@ -27,11 +27,13 @@ export {
   canTransitionEmployee,
 } from "./employee.js";
 export { createEmployee, updateEmployee, type CreateEmployeeCommand, type EmployeeEditableFields } from "./create-employee.js";
-export { transitionEmployee, terminateEmployee, rehireEmployee } from "./transition-employee.js";
+export { transitionEmployee, terminateEmployee, rehireEmployee, withTerminationDate } from "./transition-employee.js";
 export {
   payslipPaidSpan,
   payslipOverpaymentAfter,
   terminateEmployeeService,
+  correctTerminationDate,
+  type TerminationPayrollDeps,
   type PayslipPaidSpan,
   type PayslipOverpayment,
   type TerminationPayRecovery,
@@ -295,6 +297,8 @@ export {
   EmployeeNotFoundError,
   InvalidEmployeeError,
   InvalidEmployeeTransitionError,
+  EmployeeNotTerminatedError,
+  TerminationRecoveryAlreadyCollectedError,
   UserNotLinkedToEmployeeError,
   ContractNotFoundError,
   InvalidContractError,

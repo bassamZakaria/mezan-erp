@@ -58,20 +58,50 @@ export class EmployeeNotFoundError extends Error {
 /** Raised when a new-employee/edit command fails validation. */
 export class InvalidEmployeeError extends Error {
   readonly code = "INVALID_EMPLOYEE";
-  constructor(readonly reasons: readonly string[]) {
+  readonly messageEn?: string;
+  constructor(
+    readonly reasons: readonly string[],
+    reasonsEn?: readonly string[],
+  ) {
     super(reasons.join("، "));
+    if (reasonsEn) this.messageEn = reasonsEn.join("; ");
     this.name = "InvalidEmployeeError";
+  }
+}
+
+export class EmployeeNotTerminatedError extends Error {
+  readonly code = "EMPLOYEE_NOT_TERMINATED";
+  readonly messageEn: string;
+  constructor(readonly employeeId: string) {
+    super(`الموظف "${employeeId}" لم تُنهَ خدمته، فلا يوجد تاريخ إنهاء خدمة يُصحَّح.`);
+    this.messageEn = `Employee "${employeeId}" is not terminated, so there is no termination date to correct.`;
+    this.name = "EmployeeNotTerminatedError";
+  }
+}
+
+export class TerminationRecoveryAlreadyCollectedError extends Error {
+  readonly code = "TERMINATION_RECOVERY_ALREADY_COLLECTED";
+  readonly messageEn: string;
+  constructor(
+    readonly employeeId: string,
+    readonly advanceNumber: string,
+  ) {
+    super(`لا يمكن تصحيح تاريخ إنهاء الخدمة: السلفة ${advanceNumber} التي سُجّلت عن أجر الأيام بعد آخر يوم عمل حُصّل جزء منها. اعكس التحصيل أولاً.`);
+    this.messageEn = `The termination date cannot be corrected: part of advance ${advanceNumber}, raised for the pay after the last day, has already been collected. Reverse the collection first.`;
+    this.name = "TerminationRecoveryAlreadyCollectedError";
   }
 }
 
 /** Raised when an employee status transition is not allowed by the employee state machine. */
 export class InvalidEmployeeTransitionError extends Error {
   readonly code = "INVALID_EMPLOYEE_TRANSITION";
+  readonly messageEn: string;
   constructor(
     readonly from: EmployeeStatus,
     readonly to: EmployeeStatus,
   ) {
     super(`لا يمكن نقل الموظف من "${getEmployeeStatusLabel(from)}" إلى "${getEmployeeStatusLabel(to)}".`);
+    this.messageEn = `An employee cannot move from "${from}" to "${to}".`;
     this.name = "InvalidEmployeeTransitionError";
   }
 }

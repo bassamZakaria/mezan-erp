@@ -21,7 +21,15 @@ import type { PayBasis } from "./contract.js";
  * every net figure so a net is never read as if it were final.
  */
 
-export type PayrollRunStatus = "draft" | "calculated" | "approved" | "disbursed" | "cancelled";
+export enum PayrollRunStatusCode {
+  Draft = "draft",
+  Calculated = "calculated",
+  Approved = "approved",
+  Disbursed = "disbursed",
+  Cancelled = "cancelled",
+}
+
+export type PayrollRunStatus = `${PayrollRunStatusCode}`;
 
 export interface PayrollRunStatusDefinition {
   readonly code: PayrollRunStatus;
@@ -170,18 +178,22 @@ export function payrollUnimplementedRulesFor(run: Pick<PayrollRun, "statutoryTab
 export type PayslipLineKind = "earning" | "deduction" | "employer_contribution";
 
 /** Where a line came from — the audit trail for "why is my net this number?". */
-export type PayslipLineSource =
-  | "contract_basic"
-  | "contract_allowance"
-  | "contract_deduction"
-  | "unpaid_leave"
-  | "advance_recovery"
-  | "garnishment"
-  | "overtime"
-  | "income_tax"
-  | "social_insurance_employee"
-  | "social_insurance_employer"
-  | "statutory_levy";
+export enum PayslipLineSourceCode {
+  ContractBasic = "contract_basic",
+  ContractAllowance = "contract_allowance",
+  ContractDeduction = "contract_deduction",
+  UnpaidLeave = "unpaid_leave",
+  AdvanceRecovery = "advance_recovery",
+  Garnishment = "garnishment",
+  Overtime = "overtime",
+  IncomeTax = "income_tax",
+  SocialInsuranceEmployee = "social_insurance_employee",
+  SocialInsuranceEmployer = "social_insurance_employer",
+  StatutoryLevy = "statutory_levy",
+  TerminationAdjustment = "termination_adjustment",
+}
+
+export type PayslipLineSource = `${PayslipLineSourceCode}`;
 
 export interface PayslipLineSourceDefinition {
   readonly code: PayslipLineSource;
@@ -200,6 +212,7 @@ export const PAYSLIP_LINE_SOURCE_DEFINITIONS: readonly PayslipLineSourceDefiniti
   { code: "social_insurance_employee", labelAr: "التأمينات — حصة الموظف" },
   { code: "social_insurance_employer", labelAr: "التأمينات — حصة صاحب العمل" },
   { code: "statutory_levy", labelAr: "رسوم قانونية" },
+  { code: "termination_adjustment", labelAr: "تسوية إنهاء الخدمة" },
 ] as const;
 
 export function getPayslipLineSourceLabel(source: PayslipLineSource): string {

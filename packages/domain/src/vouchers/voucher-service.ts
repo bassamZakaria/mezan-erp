@@ -455,7 +455,12 @@ export class VoucherService {
     const approvedRate = async (currency: string): Promise<string> => {
       const found = await this.deps.exchangeRates?.findRate(currency, doc.date);
       if (!found) {
-        throw new InvalidDocumentError(doc.docType, doc.id, `لا يوجد سعر صرف معتمد للعملة ${currency} بتاريخ ${doc.date}؛ لا يمكن ترحيل السند.`);
+        throw new InvalidDocumentError(
+          doc.docType,
+          doc.id,
+          `لا يوجد سعر صرف معتمد للعملة ${currency} بتاريخ ${doc.date}؛ لا يمكن ترحيل السند.`,
+          `There is no approved exchange rate for ${currency} on ${doc.date}; the voucher cannot be posted.`,
+        );
       }
       return found.rate;
     };
@@ -537,6 +542,7 @@ export class VoucherService {
         voucherDocumentType.code,
         id,
         "الشيك المرتبط بهذا السند ما زال قائماً في سجل الشيكات؛ ارتداد الشيك هو ما يعكس السند.",
+        "The cheque this voucher raised still stands in the cheque register; bouncing the cheque is what reverses the voucher.",
       );
     }
     return this.deps.documents.transaction(async () => {

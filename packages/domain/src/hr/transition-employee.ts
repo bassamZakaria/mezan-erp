@@ -15,11 +15,20 @@ export function terminateEmployee(employee: Employee, effectiveDate: string, lat
   if (!canTransitionEmployee(employee.status, EmployeeRefStatus.Terminated)) {
     throw new InvalidEmployeeTransitionError(employee.status, EmployeeRefStatus.Terminated);
   }
+  return withTerminationDate(employee, effectiveDate, latestAllowed);
+}
+
+/** The employee as terminated on `effectiveDate`, after the checks every termination date passes — a first one or a corrected one. */
+export function withTerminationDate(employee: Employee, effectiveDate: string, latestAllowed: string = effectiveDate): Employee {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(effectiveDate) || Number.isNaN(Date.parse(`${effectiveDate}T00:00:00.000Z`))) {
-    throw new InvalidEmployeeError(["تاريخ إنهاء الخدمة مطلوب بصيغة YYYY-MM-DD"]);
+    throw new InvalidEmployeeError(["تاريخ إنهاء الخدمة مطلوب بصيغة YYYY-MM-DD"], ["The termination date is required as YYYY-MM-DD"]);
   }
-  if (effectiveDate > latestAllowed) throw new InvalidEmployeeError([`تاريخ إنهاء الخدمة لا يمكن أن يكون بعد ${latestAllowed}`]);
-  if (effectiveDate < employee.hireDate) throw new InvalidEmployeeError(["تاريخ إنهاء الخدمة لا يمكن أن يسبق تاريخ التعيين"]);
+  if (effectiveDate > latestAllowed) {
+    throw new InvalidEmployeeError([`تاريخ إنهاء الخدمة لا يمكن أن يكون بعد ${latestAllowed}`], [`The termination date cannot be after ${latestAllowed}`]);
+  }
+  if (effectiveDate < employee.hireDate) {
+    throw new InvalidEmployeeError(["تاريخ إنهاء الخدمة لا يمكن أن يسبق تاريخ التعيين"], ["The termination date cannot be before the hire date"]);
+  }
   return { ...employee, status: EmployeeRefStatus.Terminated, terminatedAt: effectiveDate };
 }
 

@@ -6560,10 +6560,13 @@ export function useTransitionEmployee() {
 }
 
 export interface TerminationPayRecoveryDTO {
-  readonly advanceId: string;
-  readonly advanceNumber: string;
+  readonly advanceId: string | null;
+  readonly advanceNumber: string | null;
   readonly days: number;
+  readonly gross: string;
   readonly amount: string;
+  readonly payableReduced: string;
+  readonly taxRelief: string;
   readonly journalEntryId: string;
   readonly paidThrough: string;
 }
@@ -6583,6 +6586,24 @@ export function useTerminateEmployee() {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["hr-employees"] });
       void queryClient.invalidateQueries({ queryKey: ["hr-advances"] });
+    },
+  });
+}
+
+export function useCorrectTerminationDate() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<TerminatedEmployeeDTO, ApiError, { id: string; effectiveDate: string }>({
+    mutationFn: async ({ id, effectiveDate }) => {
+      const res = await request(`/hr/employees/${id}/correct-termination-date`, { method: "POST", body: JSON.stringify({ effectiveDate }) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("employees.couldnTCorrectTheTerminationDate"), t));
+      return res.json<TerminatedEmployeeDTO>();
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["hr-employees"] });
+      void queryClient.invalidateQueries({ queryKey: ["hr-advances"] });
+      void queryClient.invalidateQueries({ queryKey: ["hr-payroll-runs"] });
     },
   });
 }

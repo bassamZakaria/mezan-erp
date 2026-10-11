@@ -14,6 +14,7 @@ const STATUS_KEY: Record<EmployeeAdvanceStatusDTO, AppTranslationKey> = {
   disbursed: "advances.status.disbursed",
   repaid: "advances.status.repaid",
   rejected: "advances.status.rejected",
+  cancelled: "advances.status.cancelled",
 };
 
 const STATUS_TONE: Record<EmployeeAdvanceStatusDTO, PillTone> = {
@@ -22,6 +23,7 @@ const STATUS_TONE: Record<EmployeeAdvanceStatusDTO, PillTone> = {
   disbursed: "success",
   repaid: "neutral",
   rejected: "danger",
+  cancelled: "neutral",
 };
 
 interface Draft {

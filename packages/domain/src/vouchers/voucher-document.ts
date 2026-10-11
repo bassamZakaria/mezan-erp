@@ -344,50 +344,50 @@ export const voucherDocumentType: DocumentTypeDefinition<VoucherLine> = {
 
   validate(doc) {
     if (doc.lines.length !== 1) {
-      throw new InvalidDocumentError(VOUCHER_DOC_TYPE, doc.id, "السند يجب أن يحمل بنداً اقتصادياً واحداً بالضبط.");
+      throw new InvalidDocumentError(VOUCHER_DOC_TYPE, doc.id, "السند يجب أن يحمل بنداً اقتصادياً واحداً بالضبط.", "A voucher carries exactly one economic line.");
     }
     const line = doc.lines[0]!;
     const def = getVoucherTypeDefinition(line.voucherType);
     if (line.amount.scaled <= 0n) {
-      throw new InvalidDocumentError(VOUCHER_DOC_TYPE, doc.id, "مبلغ السند يجب أن يكون أكبر من صفر.");
+      throw new InvalidDocumentError(VOUCHER_DOC_TYPE, doc.id, "مبلغ السند يجب أن يكون أكبر من صفر.", "The voucher amount must be greater than zero.");
     }
     if (line.treasuryAccountId.trim() === "" || line.treasuryGlAccountId.trim() === "") {
-      throw new InvalidDocumentError(VOUCHER_DOC_TYPE, doc.id, "حساب الخزينة مطلوب.");
+      throw new InvalidDocumentError(VOUCHER_DOC_TYPE, doc.id, "حساب الخزينة مطلوب.", "A treasury account is required.");
     }
     if (def.direction === "transfer") {
       if (!line.counterTreasuryAccountId || !line.counterTreasuryGlAccountId) {
-        throw new InvalidDocumentError(VOUCHER_DOC_TYPE, doc.id, "التحويل يتطلب خزينة مستقبِلة.");
+        throw new InvalidDocumentError(VOUCHER_DOC_TYPE, doc.id, "التحويل يتطلب خزينة مستقبِلة.", "A transfer needs a receiving treasury account.");
       }
       if (line.counterTreasuryAccountId === line.treasuryAccountId) {
-        throw new InvalidDocumentError(VOUCHER_DOC_TYPE, doc.id, "لا يمكن التحويل إلى نفس الخزينة.");
+        throw new InvalidDocumentError(VOUCHER_DOC_TYPE, doc.id, "لا يمكن التحويل إلى نفس الخزينة.", "A transfer cannot go to the treasury account it comes from.");
       }
     } else if (!line.counterpartyGlAccountId || line.counterpartyGlAccountId.trim() === "") {
-      throw new InvalidDocumentError(VOUCHER_DOC_TYPE, doc.id, "الحساب المقابل مطلوب.");
+      throw new InvalidDocumentError(VOUCHER_DOC_TYPE, doc.id, "الحساب المقابل مطلوب.", "A counterparty account is required.");
     }
     const withheld = line.withholdingAmount?.scaled ?? 0n;
     if (withheld !== 0n) {
       if (def.direction !== "payment") {
-        throw new InvalidDocumentError(VOUCHER_DOC_TYPE, doc.id, "ضريبة الخصم لا تُطبَّق إلا على سندات الصرف.");
+        throw new InvalidDocumentError(VOUCHER_DOC_TYPE, doc.id, "ضريبة الخصم لا تُطبَّق إلا على سندات الصرف.", "Withholding tax applies to payment vouchers only.");
       }
       if (withheld < 0n || withheld >= line.amount.scaled) {
-        throw new InvalidDocumentError(VOUCHER_DOC_TYPE, doc.id, "قيمة ضريبة الخصم يجب أن تكون أكبر من صفر وأقل من قيمة السند.");
+        throw new InvalidDocumentError(VOUCHER_DOC_TYPE, doc.id, "قيمة ضريبة الخصم يجب أن تكون أكبر من صفر وأقل من قيمة السند.", "The withholding tax must be greater than zero and less than the voucher amount.");
       }
       if (!line.withholdingGlAccountId) {
-        throw new InvalidDocumentError(VOUCHER_DOC_TYPE, doc.id, "حساب ضريبة الخصم مطلوب.");
+        throw new InvalidDocumentError(VOUCHER_DOC_TYPE, doc.id, "حساب ضريبة الخصم مطلوب.", "A withholding tax account is required.");
       }
     }
     if (def.requiresCustomer && !line.customerId) {
-      throw new InvalidDocumentError(VOUCHER_DOC_TYPE, doc.id, "هذا النوع من السندات يتطلب اختيار عميل.");
+      throw new InvalidDocumentError(VOUCHER_DOC_TYPE, doc.id, "هذا النوع من السندات يتطلب اختيار عميل.", "This voucher type needs a customer.");
     }
     if (def.requiresSupplier && !line.supplierId) {
-      throw new InvalidDocumentError(VOUCHER_DOC_TYPE, doc.id, "هذا النوع من السندات يتطلب اختيار مورّد.");
+      throw new InvalidDocumentError(VOUCHER_DOC_TYPE, doc.id, "هذا النوع من السندات يتطلب اختيار مورّد.", "This voucher type needs a supplier.");
     }
     const projectId = line.projectId ?? null;
     if (def.requiresProject && !projectId) {
-      throw new InvalidDocumentError(VOUCHER_DOC_TYPE, doc.id, "هذا النوع من السندات يتطلب اختيار مشروع.");
+      throw new InvalidDocumentError(VOUCHER_DOC_TYPE, doc.id, "هذا النوع من السندات يتطلب اختيار مشروع.", "This voucher type needs a project.");
     }
     if (line.costCategory && !projectId) {
-      throw new InvalidDocumentError(VOUCHER_DOC_TYPE, doc.id, "فئة التكلفة تتطلب اختيار مشروع.");
+      throw new InvalidDocumentError(VOUCHER_DOC_TYPE, doc.id, "فئة التكلفة تتطلب اختيار مشروع.", "A cost category needs a project.");
     }
   },
 

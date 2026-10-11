@@ -3302,6 +3302,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     },
     cheques: {
       masterData: masterDataChecks,
+      treasuryAccounts,
       cheques,
       gl: salesInvoiceGl,
       // A cheque applied against an invoice lives in the same allocation

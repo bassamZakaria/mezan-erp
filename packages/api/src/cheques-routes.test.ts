@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from "vitest";
-import type { Account, AuditEvent, AuditSink, AuditStream } from "@mezan/domain";
+import { Money, type Account, type AuditEvent, type AuditSink, type AuditStream } from "@mezan/domain";
 import { createSqliteLedgerStore, createSqliteAccountRepository, createSqliteFiscalPeriodRepository, createSqliteChequeRepository } from "@mezan/persistence";
 import { createChequesRoutes, type ChequeRoutesDeps } from "./cheques-routes.js";
 import { MasterDataKind, type MasterDataChecks, type MasterRecordCheck } from "./master-data-check.js";
@@ -39,7 +39,14 @@ async function newApp(masterData?: MasterDataChecks) {
 
   idSeq = 0;
   const audit = new MemAudit();
+  const bankAccounts: Record<string, string> = { "ta-bank1": "1310", "tr-1": "1310" };
   const deps: ChequeRoutesDeps = {
+    treasuryAccounts: {
+      findById: async (id) =>
+        bankAccounts[id]
+          ? { id, code: id, name: id, nameEn: null, type: "bank", currency: "EGP", bankAccountNumber: null, branchId: null, glAccountId: bankAccounts[id]!, openingBalance: Money.zero(), openingBalanceDate: null, guaranteeFacilityLimit: null, status: "active" }
+          : null,
+    },
     cheques,
     gl: { ledger, accounts, periods, numbering: ledger.numbering, now: () => "2026-08-22T10:00:00.000Z" },
     now: () => "2026-08-22T10:00:00.000Z",

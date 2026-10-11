@@ -903,7 +903,7 @@ describe("D111 round 2 · the grant holds on every family, for a non-admin and f
 
     expect(drawer()).toBe(before);
 
-    const sameBranch = await admin("POST", "/vouchers", voucher("D111-R2-V-ADMIN-OK", ALEX, "TR-DEMO-CASH-ALEX", "1300-1"));
+    const sameBranch = await admin("POST", "/vouchers", voucher("D111-R2-V-ADMIN-OK", ALEX, "TR-DEMO-CASH-ALEX", "1300-ALEX"));
     expect(sameBranch.status, JSON.stringify(sameBranch.body).slice(0, 200)).toBe(201);
   });
 
@@ -1155,7 +1155,7 @@ describe("D111 round 2 · the grant holds on every family, for a non-admin and f
     expect(unattributed.status, JSON.stringify(unattributed.body).slice(0, 200)).toBe(201);
     expect(all("SELECT DISTINCT branch_id AS b FROM journal_line WHERE entry_id = ?", "D111-R2-JE-UNATTRIBUTED")).toEqual([{ b: null }]);
 
-    const { branchId: _omitted, ...headerless } = voucher("D111-R2-V-DEFAULT", ALEX, "TR-DEMO-CASH-ALEX", "1300-1");
+    const { branchId: _omitted, ...headerless } = voucher("D111-R2-V-DEFAULT", ALEX, "TR-DEMO-CASH-ALEX", "1300-ALEX");
     const raised = await alex("POST", "/vouchers", headerless);
     expect(raised.status, JSON.stringify(raised.body).slice(0, 200)).toBe(201);
     expect(one<{ b: string }>("SELECT branch_id AS b FROM voucher WHERE id = ?", "D111-R2-V-DEFAULT")?.b).toBe(ALEX);
@@ -2213,5 +2213,82 @@ describe("D111 round 4 · a notification reaches only the people whose branch gr
     expect(alert).toBeDefined();
     for (const who of ["everywhere", "alexUnattributed", "alexAdmin"]) expect(await received(who, alert.id), who).toBe(true);
     for (const who of ["alex", "main"]) expect(await received(who, alert.id), who).toBe(false);
+  });
+});
+
+describe("D111 round 4 · the ledger account money moves through is the stored treasury account's, never the caller's", () => {
+  const DRAWER = "TR-DEMO-CASH-ALEX";
+  const HQ_BANK_GL = "1310";
+  const drawerGl = () => one<{ gl: string }>("SELECT gl_account_id AS gl FROM treasury_account WHERE id = ?", DRAWER)!.gl;
+  const linesOf = (documentId: string) =>
+    all<{ account_id: string; debit: number; credit: number }>(
+      "SELECT l.account_id, l.debit, l.credit FROM journal_line l JOIN journal_entry e ON e.id = l.entry_id WHERE e.source_doc_id = ? OR e.id = ?",
+      documentId,
+      documentId,
+    );
+  const hqBankNet = () => one<{ net: number }>("SELECT COALESCE(SUM(debit - credit), 0) AS net FROM journal_line WHERE account_id = ?", HQ_BANK_GL)!.net;
+  const payment = (id: string, treasuryGlAccountId: string | undefined) => {
+    const { treasuryGlAccountId: _stated, ...body } = voucher(id, ALEX, DRAWER, "unused");
+    return { ...body, voucherType: "other_income", counterpartyGlAccountId: "4900", customerId: undefined, ...(treasuryGlAccountId ? { treasuryGlAccountId } : {}) };
+  };
+
+  it("a voucher on the branch drawer that names the HQ bank's ledger account is refused, for a branch user and for the admin", async () => {
+    for (const [label, caller] of [["branch user", alex], ["* admin granted one branch", alexStar], ["admin", admin]] as const) {
+      const before = hqBankNet();
+      const res = await caller("POST", "/vouchers", payment(`D111-R4-GL-${label.length}`, HQ_BANK_GL));
+      expect(res.status, `${label} ${JSON.stringify(res.body).slice(0, 200)}`).toBe(422);
+      expect(res.body?.error).toBe("TREASURY_GL_ACCOUNT_MISMATCH");
+      expect(res.body?.message).toMatch(ARABIC);
+      expect(one("SELECT id FROM voucher WHERE id = ?", `D111-R4-GL-${label.length}`)).toBeUndefined();
+      expect(hqBankNet()).toBe(before);
+    }
+  });
+
+  it("a voucher that names no ledger account posts to the drawer's own", async () => {
+    const before = hqBankNet();
+    const created = await alex("POST", "/vouchers", payment("D111-R4-GL-DERIVED", undefined));
+    expect(created.status, JSON.stringify(created.body).slice(0, 200)).toBe(201);
+    expect(created.body.treasuryGlAccountId).toBe(drawerGl());
+    const confirmed = await alex("POST", "/vouchers/D111-R4-GL-DERIVED/confirm", {});
+    expect(confirmed.status, JSON.stringify(confirmed.body).slice(0, 200)).toBe(200);
+    const accounts = linesOf("D111-R4-GL-DERIVED").map((line) => line.account_id);
+    expect(accounts).toContain(drawerGl());
+    expect(accounts).not.toContain(HQ_BANK_GL);
+    expect(hqBankNet()).toBe(before);
+  });
+
+  it("a voucher on a treasury account nobody holds is refused rather than posted to a ledger account the caller picked", async () => {
+    const res = await admin("POST", "/vouchers", { ...payment("D111-R4-GL-GHOST", HQ_BANK_GL), treasuryAccountId: "TR-NO-SUCH-ACCOUNT" });
+    expect(res.status).toBe(422);
+    expect(res.body?.error).toBe("TREASURY_ACCOUNT_NOT_FOUND");
+    expect(one("SELECT id FROM voucher WHERE id = 'D111-R4-GL-GHOST'")).toBeUndefined();
+  });
+
+  it("a cheque is collected into the ledger account of the bank it was deposited at, whatever the request names", async () => {
+    const cheque = {
+      id: "D111-R4-CHQ-GL",
+      direction: "incoming",
+      chequeNumber: "D111-R4-0100",
+      bankName: "بنك الاختبار",
+      amount: "410.00",
+      issueDate: TODAY,
+      dueDate: TODAY,
+      branchId: MAIN,
+      partyId: "CUST-DEMO-2",
+      counterpartyGlAccountId: "1105",
+      controlAccounts: { underCollectionAccountId: "1320" },
+    };
+    expect((await admin("POST", "/cheques", cheque)).status).toBe(201);
+    expect((await admin("POST", "/cheques/D111-R4-CHQ-GL/deposit", { bankTreasuryAccountId: "TR-DEMO-BANK" })).status).toBe(200);
+    const entries = one<{ n: number }>("SELECT count(*) AS n FROM journal_entry")!.n;
+    const elsewhere = await admin("POST", "/cheques/D111-R4-CHQ-GL/collect", { bankGlAccountId: drawerGl() });
+    expect(elsewhere.status, JSON.stringify(elsewhere.body).slice(0, 200)).toBe(422);
+    expect(elsewhere.body?.message).toMatch(ARABIC);
+    expect(one<{ n: number }>("SELECT count(*) AS n FROM journal_entry")!.n).toBe(entries);
+    const collected = await admin("POST", "/cheques/D111-R4-CHQ-GL/collect", {});
+    expect(collected.status, JSON.stringify(collected.body).slice(0, 200)).toBe(200);
+    const entryId = one<{ id: string }>("SELECT collection_journal_entry_id AS id FROM cheque WHERE id = 'D111-R4-CHQ-GL'")!.id;
+    const debited = all<{ account_id: string }>("SELECT account_id FROM journal_line WHERE entry_id = ? AND debit > 0", entryId).map((line) => line.account_id);
+    expect(debited).toEqual([HQ_BANK_GL]);
   });
 });

@@ -60,6 +60,7 @@ import { MasterDataKind, refuseUnknownMasterData, type MasterDataChecks } from "
 import { tenantDay } from "./tenant-day.js";
 import { duplicateIdRefusal, refuseTakenId } from "./duplicate-id.js";
 import { DuplicateRecordIdError } from "@mezan/domain";
+import { treasuryLedgerAccount } from "./treasury-ledger-account.js";
 
 /** The register port moved into the domain with the call that uses it (D196). */
 export type { VoucherChequeRegistration, VoucherChequeRegistrationPort } from "@mezan/domain";
@@ -581,6 +582,12 @@ export function createVouchersRoutes(
         );
       }
     }
+    const treasury = await treasuryLedgerAccount(c, deps.treasuryAccounts, d.treasuryAccountId, d.treasuryGlAccountId);
+    if (treasury instanceof Response) return treasury;
+    const counterTreasury = d.counterTreasuryAccountId
+      ? await treasuryLedgerAccount(c, deps.treasuryAccounts, d.counterTreasuryAccountId, d.counterTreasuryGlAccountId)
+      : null;
+    if (counterTreasury instanceof Response) return counterTreasury;
     try {
       const svc = serviceFor(c);
       const doc = await svc.createVoucher({
@@ -592,11 +599,11 @@ export function createVouchersRoutes(
         currency: d.currency,
         branchId: d.branchId,
         paymentMethod: d.paymentMethod,
-        treasuryAccountId: d.treasuryAccountId,
-        treasuryGlAccountId: d.treasuryGlAccountId,
+        treasuryAccountId: treasury.id,
+        treasuryGlAccountId: treasury.glAccountId,
         counterpartyGlAccountId: d.counterpartyGlAccountId ?? null,
-        counterTreasuryAccountId: d.counterTreasuryAccountId ?? null,
-        counterTreasuryGlAccountId: d.counterTreasuryGlAccountId ?? null,
+        counterTreasuryAccountId: counterTreasury?.id ?? null,
+        counterTreasuryGlAccountId: counterTreasury?.glAccountId ?? null,
         customerId: d.customerId ?? null,
         supplierId: d.supplierId ?? null,
         referenceNo: d.referenceNo ?? null,
@@ -640,17 +647,8 @@ export function createVouchersRoutes(
     if (!deps.receivableAccountId) {
       return c.json({ error: "COLLECTION_UNAVAILABLE", message: "حساب ذمم العملاء غير مهيأ.", messageEn: "The receivables control account is not configured." }, 503);
     }
-    const treasury = await deps.treasuryAccounts.findById(d.treasuryAccountId);
-    if (!treasury || treasury.status !== "active" || !treasury.glAccountId) {
-      return c.json(
-        {
-          error: "TREASURY_ACCOUNT_NOT_FOUND",
-          message: "حساب الخزينة غير موجود أو غير نشط أو بلا حساب دفتري.",
-          messageEn: "The treasury account does not exist, is inactive, or has no ledger account.",
-        },
-        422,
-      );
-    }
+    const treasury = await treasuryLedgerAccount(c, deps.treasuryAccounts, d.treasuryAccountId, null);
+    if (treasury instanceof Response) return treasury;
     const date = await tenantDay(c, d.date ?? (deps.now ? deps.now() : new Date().toISOString()));
     if (d.withholdingAmount && Money.fromMajor(d.withholdingAmount).scaled !== 0n && deps.simplifiedRegimeActiveOn) {
       if (await deps.simplifiedRegimeActiveOn(date)) {

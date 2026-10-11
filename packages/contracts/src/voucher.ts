@@ -101,7 +101,8 @@ export const createVoucherSchema = z.object({
   branchId: z.string().min(1),
   paymentMethod: voucherPaymentMethodSchema,
   treasuryAccountId: z.string().min(1),
-  treasuryGlAccountId: z.string().min(1),
+  /** Derived from the treasury account; a request that states it must state the account's own. */
+  treasuryGlAccountId: z.string().min(1).optional(),
   counterpartyGlAccountId: z.string().nullish(),
   counterTreasuryAccountId: z.string().nullish(),
   counterTreasuryGlAccountId: z.string().nullish(),

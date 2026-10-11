@@ -38,7 +38,9 @@ this page is the map.
 - Posting is gated on the **fiscal period** and on the account being active.
 - A posted entry is **immutable**. Corrections are reversing entries
   (`reverse.ts`): every line mirrored, the original marked `reversed` and linked,
-  the reversal itself period-gated. There is no edit and no delete.
+  the reversal itself period-gated. There is no edit and no delete. The one write
+  a posted line ever takes — naming the tax rate of a line that stored none, which
+  moves no amount, account, date or status — is §9 «Tax rate», and nowhere else.
 - Journal numbers come from the numbering engine (`JOURNAL_ENTRY` sequence), not
   from the caller.
 - `accountBalance` is **per account with no subtree rollup** — a control account
@@ -88,7 +90,9 @@ period directly is rejected so the reversible close step is never skipped.
 - Lifecycle is draft → confirmed → (returned / cancelled / voided). **Confirm is
   where everything happens**: numbering, stock plan, GL posting, sub-ledger update,
   workflow gate, events. A confirm that posts nothing is the defect to look for first.
-- A confirmed document is voided, never deleted — the trail survives.
+- A confirmed document is voided, never deleted — the trail survives. Its lines
+  are as immutable as its entry; the single exception is the one §9 «Tax rate»
+  states.
 - Returns validate against **server-computed** invoiced quantity, never against a cap
   in the request body — the same goods were returnable twice. The same rule caught a
   receipt that could be invoiced twice: check the `invoiced` flag, not just the status.
@@ -221,7 +225,16 @@ Proved in `scripts/scenarios/seams.ts`; each gap is a register entry.
   still wins in both. (a) The tenant's VAT is switched off: the sale is out of
   scope and names the system-owned «غير خاضع» rate
   (`SYSTEM_NOT_SUBJECT_TAX_RATE_ID` = `SYS-NOT-SUBJECT`, 0%, V004) — the ONLY
-  case that rate is assigned automatically. (b) The customer is tax-exempt: the
+  case that rate is assigned automatically. The switch is read through ONE
+  source (`salesTaxPolicySource`), handed to every sales invoice and quote
+  service — the invoice routes, a quote and its conversion, a certificate
+  invoice, a held invoice's approval (`sales-tax-policy.structure.test.ts`
+  fails a construction without it) — so a quote raised or converted while VAT
+  is off is zero-rated under the system rate whatever it was priced at. The
+  rate belongs to that case alone: with VAT on, a sale carrying it is refused
+  at confirm (422 `INVALID_SALES_INVOICE`), it cannot be picked when
+  classifying (422 `TAX_RATE_SYSTEM_ONLY`), and it is refused on a customer
+  card (422 `CUSTOMER_EXEMPTION_RATE_SYSTEM`). (b) The customer is tax-exempt: the
   line names the 0% rate on that customer's card (`taxExemptionRateId` —
   whichever active 0% rate the tenant chose; no sub-type is guessed), and with
   none on the card it stores NULL and waits to be classified. Exemption is read
@@ -229,13 +242,24 @@ Proved in `scripts/scenarios/seams.ts`; each gap is a register entry.
   body's `customerTaxExempt` is ignored, on invoices and quotes alike. A
   retention release, on the sales and the subcontract side, is NOT a supply:
   its line names no rate, it reports no VAT row, and it is confirmed without
-  the ETA bridge so it never reaches the queue or the e-receipt issuer. The
+  the ETA bridge so it never reaches the queue or the e-receipt issuer. That it
+  is a release is STORED on the document (`documentKind` =
+  `InvoiceDocumentKind.RetentionRelease`, set at the two issuing sites and
+  back-filled once when the column arrives) — nothing infers it from an item or
+  an id. A release is never classified (409 `TAX_CLASSIFICATION_NOT_A_SUPPLY`),
+  `POST /eta/receipts/issue/invoice/:id` refuses it (409
+  `ETA_RECEIPT_NOT_A_SUPPLY`), the enqueue bridge and the requeue rebuilder skip
+  it, and the screen shows no classify action on it — whoever the contract's
+  customer is, a consumer included. The
   system row is ensured AND repaired on every tenant when the backend starts
   (`ensureSystemTaxRates` — existence is not the contract; percent, sub-type,
   name, code and status are), is served with `isSystem: true`, and is locked —
   any PATCH is 409 `TAX_RATE_SYSTEM_LOCKED`. Nothing a user creates may pass
   for it: its id or code in any letter case, or its name, percent and sub-type
-  together, is 409 `TAX_RATE_RESERVED`. A line INHERITED from a source document
+  together — `auto` at 0% counts as not-subject, as the e-invoice reads it — is
+  409 `TAX_RATE_RESERVED`. A look-alike a file already holds stays editable: it
+  can be renamed or deactivated, and only a change that makes or restates one
+  is refused. A line INHERITED from a source document
   (a quote converted to an invoice) carries the source's stored rate exactly: a
   NULL stays NULL at any percent, since a stored NULL cannot say whether it
   predates the column or answered "no rate" — unless the convert request names
@@ -250,14 +274,46 @@ Proved in `scripts/scenarios/seams.ts`; each gap is a register entry.
   line with it, so the request must name them all (`withLineIds`) or is 409
   `TAX_CLASSIFICATION_SHARED_POSTING`. It is refused once the VAT return
   covering the entry's date is filed (422 `VAT_PERIOD_ALREADY_FILED`) but not
-  by a closed fiscal period — no balance moves. A queued e-invoice is rebuilt,
-  which clears its finding; a sent or accepted e-invoice, and any e-receipt,
-  allows only a classification that leaves each line's filed sub-type as it
-  was (else 409 `TAX_CLASSIFICATION_ALREADY_FILED`). Each classification is a
-  `CLASSIFY_LINE_TAX` audit row with the line's tax before and after. A rate that
+  by a closed fiscal period — no balance moves. The read, the plan and both
+  writes share ONE transaction, and the invoice is written by a targeted
+  `nameLineTaxRate` (`… WHERE tax_rate_id IS NULL`, rows-affected checked) —
+  never by saving the document — so of two classifications racing each other
+  one wins and the other is 409 `TAX_RATE_ALREADY_CLASSIFIED`, and a collection
+  allocated meanwhile is not written away (409 `TAX_CLASSIFICATION_STALE` if
+  the line moved under it). A void re-reads the invoice under its own
+  transaction: a void that lands first leaves a reversed invoice, which is not
+  classifiable (409 `TAX_CLASSIFICATION_NOT_POSTED`) and whose reversal stays
+  as it was posted; a classification that lands first is mirrored, tag for
+  tag, by the void's reversal. An entry posted before journal lines carried a
+  tax percent has nothing the percent can find: when the whole document is one
+  classification its base and tax lines are named, percent and rate; otherwise
+  the classification is refused (409 `TAX_CLASSIFICATION_JOURNAL_UNTAGGED`) —
+  the line and its journal never part ways. Returns already raised against
+  the line take the classification in the SAME transaction, their lines and
+  their journal entries alike (`createReturnTaxCarry`), drafts included; if
+  one of them is dated in a month whose VAT return is filed the classification
+  is refused naming it (422 `TAX_CLASSIFICATION_RETURN_FILED`), and a return
+  mixing another invoice's unnamed lines at that percent refuses it too (409
+  `TAX_CLASSIFICATION_RETURN_MIXED`). What the e-document does depends on its
+  state, read off ONE list (`ETA_REQUEUE_MODE`): a queued or REJECTED
+  e-invoice is rebuilt and requeued, which clears its finding — a rejected
+  document is not filed, so its classification may change the sub-type, and a
+  rejected e-receipt is reissued; an EXCLUDED e-invoice stays excluded with
+  its reason (the reply says `not_queued`); a sent or accepted e-invoice or
+  e-receipt allows only a classification that leaves each line at the sub-type
+  its FILED PAYLOAD declares — never what today's rate table would derive —
+  else 409 `TAX_CLASSIFICATION_ALREADY_FILED`. Each classification is a
+  `CLASSIFY_LINE_TAX` audit row with the line's tax before and after and the
+  returns it reached. The seeded accountant and finance manager hold both
+  classify permissions; no role template exists for a new tenant, whose only
+  account is the owner's. A rate that
   any stored line names keeps its percent and ETA sub-type for good (409
   `TAX_RATE_IN_USE`); it may be renamed or deactivated, and an inactive rate still
-  answers for lines already posted. The VAT return groups by the stored id and
+  answers for lines already posted. A rate named on customer cards is held
+  harder — the card will name it on that customer's NEXT sale — so its percent,
+  sub-type AND status stay until the cards are cleared (409
+  `TAX_RATE_ON_CUSTOMER_CARDS`, saying how many), and an inactive rate a
+  request names on a card is refused even when the card already holds it. The VAT return groups by the stored id and
   never assigns a NULL-id line to a rate at report time. Its output base counts
   revenue accounts plus the routed «فواتير مستخلصات على العقود» liability (2165),
   which a cost-to-cost certificate invoice credits instead of revenue. The
@@ -277,7 +333,9 @@ Proved in `scripts/scenarios/seams.ts`; each gap is a register entry.
   match it only above 0%. A NULL 0% line on a tenant holding ANY specific zero
   classification (exempt, export) is a blocking pre-validation finding on an
   e-invoice and refuses a consumer e-receipt (`ETA_RECEIPT_NOT_READY`); the sale
-  itself still confirms and posts. `POST /tax-rates` with an existing id is 409
+  itself still confirms and posts. On a tenant with no specific 0% rate the same
+  line files as not-subject under a WARNING — shown on the posted document and
+  on the submission, both of which open «تصنيف ضريبة البند» on the line. `POST /tax-rates` with an existing id is 409
   `TAX_RATE_ID_EXISTS`, never an overwrite. Still open: an item carries a
   percent, not a rate id; a manual journal cannot name one; and a tax rate
   cannot express a partial taxable base (Egypt's 14%-on-36% construction

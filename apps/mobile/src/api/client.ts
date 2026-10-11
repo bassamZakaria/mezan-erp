@@ -1,4 +1,4 @@
-import type { ZodType } from "zod";
+import type { ZodType, ZodTypeDef } from "zod";
 import { ApiError, ApiFailure } from "./errors";
 
 export enum HttpMethod {
@@ -23,7 +23,7 @@ export interface ApiCredentials {
 export interface RequestOptions<T> {
   readonly method?: HttpMethod;
   readonly body?: unknown;
-  readonly schema?: ZodType<T>;
+  readonly schema?: ZodType<T, ZodTypeDef, unknown>;
   readonly signal?: AbortSignal;
 }
 

@@ -47,6 +47,11 @@ describe("customerSchema", () => {
     expect(createCustomerSchema.safeParse({ id: "c", nameAr: "ع", taxExemptionRateId: "" }).success).toBe(false);
   });
 
+  it("reads a customer from a server older than the exemption rate as having none", () => {
+    const { taxExemptionRateId: _dropped, ...older } = customer;
+    expect(customerSchema.parse(older).taxExemptionRateId).toBeNull();
+  });
+
   it("accepts a minimal valid customer and preserves every field verbatim", () => {
     const result = customerSchema.safeParse(customer);
     expect(result.success).toBe(true);

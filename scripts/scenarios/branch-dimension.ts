@@ -227,27 +227,30 @@ export async function run(ctx: Ctx): Promise<void> {
     check("purchase invoice: every line carries the invoice's branch", allOn(branchesOfDocument("SCN-BR-PI"), ALEX), JSON.stringify(branchesOfDocument("SCN-BR-PI")));
 
     const purchaseNumber = (await req("GET", "/purchases/invoices/SCN-BR-PI")).body?.number ?? null;
-    const purchaseReturn = await req("POST", "/purchase-returns", {
-      id: "SCN-BR-PRT",
-      date: today,
-      memo: "مرتجع مشتريات فرع الإسكندرية",
-      lines: [
-        {
-          itemId: ITEM,
-          warehouseId: ALEX_WAREHOUSE,
-          supplierId: SUPPLIER,
-          sourceInvoiceId: "SCN-BR-PI",
-          sourceInvoiceNumber: purchaseNumber,
-          reason: "OTHER",
-          availableQty: "5",
-          qty: "1",
-          unitCost: "140",
-          taxAmount: "19.60",
-          taxRatePercent: 14,
-          branchId: MAIN,
-        },
-      ],
-    });
+    const purchaseReturnLine = {
+      itemId: ITEM,
+      warehouseId: ALEX_WAREHOUSE,
+      supplierId: SUPPLIER,
+      sourceInvoiceId: "SCN-BR-PI",
+      sourceInvoiceNumber: purchaseNumber,
+      reason: "OTHER",
+      availableQty: "5",
+      qty: "1",
+      unitCost: "140",
+      taxAmount: "19.60",
+      taxRatePercent: 14,
+    };
+    const purchaseReturnBody = { id: "SCN-BR-PRT", date: today, memo: "مرتجع مشتريات فرع الإسكندرية" };
+    // D111 round 3: a line that states one branch and draws on another
+    // branch's warehouse used to be accepted and silently re-stamped from its
+    // source invoice. It is now refused before it is stored.
+    const lyingReturn = await req("POST", "/purchase-returns", { ...purchaseReturnBody, lines: [{ ...purchaseReturnLine, branchId: MAIN }] });
+    check(
+      "purchase return: a line naming a branch its warehouse does not belong to is refused",
+      lyingReturn.status === 422 && lyingReturn.body?.error === "WAREHOUSE_BRANCH_MISMATCH",
+      `${lyingReturn.status} ${JSON.stringify(lyingReturn.body).slice(0, 160)}`,
+    );
+    const purchaseReturn = await req("POST", "/purchase-returns", { ...purchaseReturnBody, lines: [purchaseReturnLine] });
     const purchaseReturnConfirm = await req("POST", "/purchase-returns/SCN-BR-PRT/confirm", {});
     check("purchase return confirms", purchaseReturn.status === 201 && purchaseReturnConfirm.ok, `${purchaseReturn.status}/${purchaseReturnConfirm.status} ${JSON.stringify(purchaseReturnConfirm.body).slice(0, 160)}`);
     check("purchase return: every line carries its source invoice's branch", allOn(branchesOfDocument("SCN-BR-PRT"), ALEX), JSON.stringify(branchesOfDocument("SCN-BR-PRT")));

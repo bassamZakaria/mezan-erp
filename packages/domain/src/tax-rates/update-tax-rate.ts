@@ -1,5 +1,5 @@
-import type { EtaVatSubType, TaxCalculationType, TaxRate, TaxRateRepository, TaxRateStatus, TaxRateUsage } from "./tax-rate.js";
-import { InvalidTaxRateError, SystemTaxRateLockedError, TaxRateInUseError, TaxRateNotFoundError } from "./errors.js";
+import { TaxRateStatusCode, type EtaVatSubType, type TaxCalculationType, type TaxRate, type TaxRateRepository, type TaxRateStatus, type TaxRateUsage } from "./tax-rate.js";
+import { InvalidTaxRateError, SystemTaxRateLockedError, TaxRateInUseError, TaxRateNotFoundError, TaxRateOnCustomerCardsError } from "./errors.js";
 import { assertNotReservedTaxRate, isSystemTaxRate } from "./system-tax-rates.js";
 
 export interface UpdateTaxRateCommand {
@@ -47,6 +47,14 @@ async function updateTaxRateInTransaction(
   if (restatesIdentity && (await usage.isReferenced(taxRateId))) {
     throw new TaxRateInUseError(current.id, current.name);
   }
+  // INVARIANT: a customer card that names this rate will name it on that
+  // customer's next sale. It must stay a rate that sale can take — active,
+  // at the percent and under the classification the card was given.
+  const deactivates = command.status === TaxRateStatusCode.Inactive && current.status !== TaxRateStatusCode.Inactive;
+  if (restatesIdentity || deactivates) {
+    const customerCount = (await usage.exemptCustomerCount?.(taxRateId)) ?? 0;
+    if (customerCount > 0) throw new TaxRateOnCustomerCardsError(current.id, current.name, customerCount);
+  }
   if (!Number.isFinite(nextRate) || nextRate < 0 || nextRate > 100) {
     throw new InvalidTaxRateError(
       `نسبة الضريبة يجب أن تكون رقماً بين 0 و100، والقيمة المُدخلة ${nextRate}.`,
@@ -74,7 +82,11 @@ async function updateTaxRateInTransaction(
     status: command.status ?? current.status,
   };
 
-  assertNotReservedTaxRate(updated);
+  // A look-alike a file already holds must stay editable — above all it must
+  // be possible to rename or deactivate it. Only a change that MAKES a rate a
+  // look-alike, or keeps one while restating it, is refused.
+  const restated = updated.name !== current.name || updated.rate !== current.rate || updated.etaSubType !== current.etaSubType;
+  if (restated) assertNotReservedTaxRate(updated);
   await repo.update(updated);
   return updated;
 }

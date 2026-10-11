@@ -86,6 +86,22 @@ export class TaxRateUnverifiableError extends Error {
   }
 }
 
+export class TaxRateOnCustomerCardsError extends Error {
+  readonly code = "TAX_RATE_ON_CUSTOMER_CARDS";
+  readonly messageEn: string;
+  constructor(
+    readonly taxRateId: string,
+    readonly taxRateName: string,
+    readonly customerCount: number,
+  ) {
+    super(
+      `الضريبة «${taxRateName}» مسجّلة ضريبةَ إعفاء على بطاقات ${customerCount} من العملاء، فلا تتغيّر نسبتها أو تصنيفها ولا تُوقف قبل إزالتها من تلك البطاقات.`,
+    );
+    this.messageEn = `Tax rate "${taxRateName}" is the exemption rate on ${customerCount} customer card(s); clear it from those cards before changing its percent or sub-type or deactivating it.`;
+    this.name = "TaxRateOnCustomerCardsError";
+  }
+}
+
 export class TaxRateInUseError extends Error {
   readonly code = "TAX_RATE_IN_USE";
   readonly messageEn: string;

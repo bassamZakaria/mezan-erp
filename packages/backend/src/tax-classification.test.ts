@@ -160,6 +160,44 @@ describe("the exemption rate on the customer card", () => {
     expect(findings[0].fixHintAr).toContain("بطاقة العميل");
   });
 
+  it("refuses the system rate on a customer card, in Arabic", async () => {
+    const refused = await exemptCustomer("T-EX-SYSTEM", { taxExemptionRateId: SYSTEM_RATE });
+    expect([refused.status, refused.body.error]).toEqual([422, "CUSTOMER_EXEMPTION_RATE_SYSTEM"]);
+    expect(refused.body.message).toMatch(/[؀-ۿ]/);
+    expect((await call("GET", "/customers/T-EX-SYSTEM")).status).toBe(404);
+  });
+
+  it("holds a rate named on customer cards to its percent, sub-type and status until the cards are cleared — saying how many", async () => {
+    expect((await call("POST", "/tax-rates", { id: "T-CARD-ZERO", code: "T-CARD-ZERO", name: "صفري للبطاقات", rate: 0, etaSubType: "V002" })).status).toBe(201);
+    await exemptCustomer("T-EX-CARD-1", { taxExemptionRateId: "T-CARD-ZERO" });
+    await exemptCustomer("T-EX-CARD-2", { taxExemptionRateId: "T-CARD-ZERO" });
+
+    for (const patch of [{ rate: 14 }, { etaSubType: "V003" }, { status: "inactive" }]) {
+      const refused = await call("PATCH", "/tax-rates/T-CARD-ZERO", patch);
+      expect([refused.status, refused.body.error, refused.body.customerCount]).toEqual([409, "TAX_RATE_ON_CUSTOMER_CARDS", 2]);
+      expect(refused.body.message).toMatch(/2/);
+      expect(refused.body.message).toMatch(/[؀-ۿ]/);
+    }
+    expect((await call("PATCH", "/tax-rates/T-CARD-ZERO", { name: "صفري — اسم جديد" })).status).toBe(200);
+
+    await call("PATCH", "/customers/T-EX-CARD-1", { taxExemptionRateId: null });
+    await call("PATCH", "/customers/T-EX-CARD-2", { taxExempt: false });
+    expect((await call("PATCH", "/tax-rates/T-CARD-ZERO", { status: "inactive" })).status).toBe(200);
+  });
+
+  it("refuses an inactive rate a request names on the card", async () => {
+    expect((await call("POST", "/tax-rates", { id: "T-CARD-OLD", code: "T-CARD-OLD", name: "صفري قديم", rate: 0, etaSubType: "V002" })).status).toBe(201);
+    expect((await call("PATCH", "/tax-rates/T-CARD-OLD", { status: "inactive" })).status).toBe(200);
+    await exemptCustomer("T-EX-RESEND");
+    const fresh = await call("PATCH", "/customers/T-EX-RESEND", { taxExemptionRateId: "T-CARD-OLD" });
+    expect([fresh.status, fresh.body.error]).toEqual([422, "CUSTOMER_EXEMPTION_RATE_INVALID"]);
+  });
+
+  it("treats a 0% rate named «غير خاضع» with the automatic sub-type as the system's look-alike", async () => {
+    const shadow = await call("POST", "/tax-rates", { id: "T-SHADOW", code: "T-SHADOW", name: "غير خاضع", rate: 0, etaSubType: "auto" });
+    expect([shadow.status, shadow.body.error]).toEqual([409, "TAX_RATE_RESERVED"]);
+  });
+
   it("never names the system «غير خاضع» rate for an exempt customer", async () => {
     const all = rowsOf((await call("GET", "/sales-invoices?pageSize=500")).body).filter((i) => String(i.id).startsWith("T-"));
     expect(all.flatMap((i) => (i.lines ?? []).map((l: { taxRateId: string | null }) => l.taxRateId))).not.toContain(SYSTEM_RATE);
@@ -545,6 +583,30 @@ describe("who in the seeded tenant may classify (D79 round 5)", () => {
     const session = await signIn("karim.fouad@cyag.example");
     expect(session.status).toBe(200);
     expect(session.body.permissions).not.toContain("sales.invoice.classify_tax");
+  });
+});
+
+describe("re-rating a tax rate while a document starts naming it (D79 round 5)", () => {
+  it.each([
+    ["re-rate first", true],
+    ["sale first", false],
+  ])("never leaves a line naming a rate at a percent the rate no longer has (%s)", async (_label, patchFirst) => {
+    const id = patchFirst ? "T-RERATE-A" : "T-RERATE-B";
+    expect((await call("POST", "/tax-rates", { id, code: id, name: `صفري ${id}`, rate: 0, etaSubType: "V002" })).status).toBe(201);
+    const rerate = () => call("PATCH", `/tax-rates/${id}`, { rate: 5 });
+    const selling = () => sale(`${id}-SALE`, NOT_EXEMPT_CUSTOMER, [serviceLine("L1", { taxRateId: id })]);
+    const [first, second] = await Promise.all(patchFirst ? [rerate(), selling()] : [selling(), rerate()]);
+    const patched = patchFirst ? first : second;
+    const sold = patchFirst ? second : first;
+    expect([200, 409]).toContain(patched.status);
+    const rate = (await call("GET", `/tax-rates/${id}`)).body.rate as number;
+    if (sold.status === 201) {
+      expect((await call("GET", `/sales-invoices/${id}-SALE`)).body.lines[0].taxRatePercent).toBe(rate);
+    } else {
+      expect(sold.status).toBe(422);
+    }
+    const again = await call("PATCH", `/tax-rates/${id}`, { rate: 7 });
+    expect(again.status).toBe(sold.status === 201 ? 409 : 200);
   });
 });
 

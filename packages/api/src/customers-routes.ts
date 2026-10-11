@@ -14,6 +14,7 @@ import {
   AuditChangeAction,
   VatPeriodAlreadyFiledError,
   TaxRateStatusCode,
+  isSystemTaxRate,
   type AuditSink,
   type Customer,
   type CustomerRepository,
@@ -206,6 +207,13 @@ export function createCustomersRouter(
         error: "TAX_RATE_NOT_FOUND",
         message: "ضريبة الإعفاء المحددة غير موجودة.",
         messageEn: "The selected exemption tax rate was not found.",
+      };
+    }
+    if (isSystemTaxRate(rate.id)) {
+      return {
+        error: "CUSTOMER_EXEMPTION_RATE_SYSTEM",
+        message: `«${rate.name}» ضريبة يسمّيها النظام للمنشأة التي أوقفت ضريبة القيمة المضافة، ولا تُسجَّل ضريبةَ إعفاء على بطاقة عميل. اختر ضريبة بنسبة 0٪ من ضرائب المنشأة.`,
+        messageEn: `"${rate.name}" is named by the system for a tenant whose VAT is off; it cannot be a customer's exemption rate. Pick one of the tenant's own 0% rates.`,
       };
     }
     if (rate.status !== TaxRateStatusCode.Active || rate.rate !== 0) {
@@ -484,9 +492,10 @@ export function createCustomersRouter(
     // Un-exempting a customer drops its exemption rate with it; a rate the
     // caller names in the same request is checked, never silently dropped.
     const nextExemptionRateId = namedExemptionRate !== undefined ? namedExemptionRate : nextTaxExempt ? current.taxExemptionRateId : null;
-    // An unchanged rate is not re-checked: a rate deactivated since must not
-    // block editing the customer's phone number.
-    if (nextExemptionRateId !== current.taxExemptionRateId || nextTaxExempt !== current.taxExempt) {
+    // A rate the request does not mention is not re-checked: one deactivated
+    // since must not block editing the customer's phone number. A rate the
+    // request NAMES is checked even when the card already holds it.
+    if (namedExemptionRate !== undefined || nextExemptionRateId !== current.taxExemptionRateId || nextTaxExempt !== current.taxExempt) {
       const exemptionRefusal = await exemptionRateRefusal(nextTaxExempt, nextExemptionRateId);
       if (exemptionRefusal) return c.json(exemptionRefusal, 422);
     }

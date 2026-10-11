@@ -26,6 +26,7 @@ export {
   TaxRatePercentMismatchError,
   TaxRateUnverifiableError,
   TaxRateInUseError,
+  TaxRateOnCustomerCardsError,
   SystemTaxRateLockedError,
   ReservedTaxRateError,
   TaxRateAlreadyClassifiedError,

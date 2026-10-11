@@ -27,5 +27,10 @@ export function createSqliteTaxRateUsage(sqlite: Database.Database): TaxRateUsag
       }
       return false;
     },
+    async exemptCustomerCount(taxRateId: string): Promise<number> {
+      if (!hasTable("customer")) return 0;
+      const row = sqlite.prepare(`SELECT COUNT(*) AS n FROM customer WHERE tax_exemption_rate_id = ? AND tax_exempt = 1`).get(taxRateId) as { n: number | bigint };
+      return Number(row.n);
+    },
   };
 }

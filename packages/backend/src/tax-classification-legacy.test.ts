@@ -108,3 +108,35 @@ describe("classifying a line whose journal entry predates tax tags (D79 round 5)
     expect((await call("GET", "/purchases/invoices/T-PI-LEGACY-MIXED")).body.lines.map((l: { taxRateId: string | null }) => l.taxRateId)).toEqual([null, null]);
   });
 });
+
+describe("tax rates a file already holds in a shape today's rules refuse (D79 round 5)", () => {
+  function raw(sql: string, ...params: unknown[]): void {
+    const { sqlite } = openSqliteConnection(dbPath);
+    sqlite.prepare(sql).run(...params);
+    sqlite.close();
+  }
+
+  it("lets a look-alike of the system rate that already exists be deactivated and renamed, and still refuses making one", async () => {
+    raw(
+      `INSERT INTO tax_rate (id, code, name, rate, calculation_type, is_default, output_tax_account_id, input_tax_account_id, eta_sub_type, status)
+       VALUES ('OLD-LOOKALIKE', 'OLD-LOOKALIKE', 'غير خاضع', 0, 'exclusive', 0, NULL, NULL, 'V004', 'active')`,
+    );
+    const deactivated = await call("PATCH", "/tax-rates/OLD-LOOKALIKE", { status: "inactive" });
+    expect([deactivated.status, deactivated.body.status]).toEqual([200, "inactive"]);
+    const renamed = await call("PATCH", "/tax-rates/OLD-LOOKALIKE", { name: "غير خاضع — قديمة" });
+    expect([renamed.status, renamed.body.name]).toEqual([200, "غير خاضع — قديمة"]);
+    const back = await call("PATCH", "/tax-rates/OLD-LOOKALIKE", { name: "غير خاضع" });
+    expect([back.status, back.body.error]).toEqual([409, "TAX_RATE_RESERVED"]);
+  });
+
+  it("refuses an inactive rate the request names on a customer card even when the card already holds it, and still saves an unrelated edit", async () => {
+    expect((await call("POST", "/tax-rates", { id: "OLD-ZERO", code: "OLD-ZERO", name: "صفري قديم", rate: 0, etaSubType: "V002" })).status).toBe(201);
+    expect((await call("POST", "/customers", { id: "OLD-CARD", code: "OLD-CARD", nameAr: "جهة", taxNumber: "311222333", etaBuyerType: "business", taxExempt: true, taxExemptionRateId: "OLD-ZERO" })).status).toBe(201);
+    raw(`UPDATE tax_rate SET status = 'inactive' WHERE id = 'OLD-ZERO'`);
+
+    const resent = await call("PATCH", "/customers/OLD-CARD", { taxExemptionRateId: "OLD-ZERO" });
+    expect([resent.status, resent.body.error]).toEqual([422, "CUSTOMER_EXEMPTION_RATE_INVALID"]);
+    const phone = await call("PATCH", "/customers/OLD-CARD", { phone: "01000000000" });
+    expect([phone.status, phone.body.taxExemptionRateId]).toEqual([200, "OLD-ZERO"]);
+  });
+});

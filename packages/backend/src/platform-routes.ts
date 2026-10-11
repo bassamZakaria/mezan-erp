@@ -37,6 +37,7 @@ import {
   InvalidPlatformUserError,
   PlatformUserEmailTakenError,
   PlatformUserNotFoundError,
+  TenantStatusCode,
   type Tenant,
   type Plan,
   type Payment,
@@ -60,6 +61,7 @@ import {
   type CreateTenantRequestDTO,
   type ProvisionRetryRequestDTO,
   type ProvisionResultDTO,
+  type OwnerPinResetResultDTO,
   type TenantSummaryDTO,
   type TenantDTO,
   type PlanDTO,
@@ -86,6 +88,7 @@ export interface CreatePlatformRoutesOptions {
   readonly provisionTenant: (cmd: CreateTenantRequestDTO & { actorId: string }) => Promise<ProvisionResultDTO>;
   /** Re-runs a failed provisioning (seed, admin, subscription) idempotently for a tenant stuck in `provisioning`. Optional only so a rig that never exercises this route still typechecks without supplying it. */
   readonly provisionRetry?: (input: { tenantId: string } & ProvisionRetryRequestDTO) => Promise<ProvisionResultDTO>;
+  readonly resetOwnerPin?: (input: { tenant: Tenant; actorId: string }) => Promise<OwnerPinResetResultDTO>;
   readonly invalidateEntitlements: (code: string) => void;
   readonly idOf?: () => string;
   readonly onAuditError?: (err: unknown) => void;
@@ -180,6 +183,15 @@ function asServerDomainFailure(err: unknown): { readonly code: string; readonly 
   return { code: shape.code, message: err.message, ...(typeof shape.tenantId === "string" ? { tenantId: shape.tenantId } : {}) };
 }
 
+export class TenantOwnerAccountNotFoundError extends Error {
+  readonly code = "TENANT_OWNER_ACCOUNT_NOT_FOUND";
+
+  constructor() {
+    super("لا يوجد في المنشأة حساب مدير نشط ببريد مالكها.");
+    this.name = "TenantOwnerAccountNotFoundError";
+  }
+}
+
 function domainErrorResponse(c: Context, err: unknown): Response {
   const serverFailure = asServerDomainFailure(err);
   if (serverFailure) {
@@ -225,7 +237,7 @@ function domainErrorResponse(c: Context, err: unknown): Response {
 }
 
 export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono {
-  const { platform, auth, now, provisionTenant, provisionRetry, invalidateEntitlements, idOf = randomUUID } = options;
+  const { platform, auth, now, provisionTenant, provisionRetry, resetOwnerPin, invalidateEntitlements, idOf = randomUUID } = options;
   const onAuditError = options.onAuditError ?? ((err: unknown) => console.error(err));
   const nowIso = () => now().toISOString();
 
@@ -301,7 +313,7 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     try {
       const tenant = await requireTenant(c.req.param("id"));
-      if (tenant.status !== "provisioning") {
+      if (tenant.status !== TenantStatusCode.Provisioning) {
         return c.json({ error: "TENANT_NOT_PROVISIONING", message: "المنشأة ليست قيد التجهيز" }, 409);
       }
       if (!provisionRetry) throw new Error("provisionRetry dependency is not configured");
@@ -310,6 +322,23 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
       await audit(c, "TENANT_PROVISION_RETRIED", result.tenant.id, { code: result.tenant.code });
       return c.json(result, 200);
     } catch (err) {
+      return domainErrorResponse(c, err);
+    }
+  });
+
+  app.post("/tenants/:id/owner-pin/reset", requireOwner, async (c) => {
+    const platformUser = c.get("platformUser")!;
+    try {
+      const tenant = await requireTenant(c.req.param("id"));
+      if (tenant.status !== TenantStatusCode.Active && tenant.status !== TenantStatusCode.Suspended) {
+        return c.json({ error: "TENANT_NOT_LIVE", message: "لا يُعاد تعيين رمز المالك إلا لمنشأة نشطة أو موقوفة" }, 409);
+      }
+      if (!resetOwnerPin) throw new Error("resetOwnerPin dependency is not configured");
+      const result = await resetOwnerPin({ tenant, actorId: platformUser.id });
+      await audit(c, "TENANT_OWNER_PIN_RESET", tenant.id, { code: tenant.code, adminEmail: result.adminEmail });
+      return c.json(result, 200);
+    } catch (err) {
+      if (err instanceof TenantOwnerAccountNotFoundError) return c.json({ error: err.code, message: err.message }, 409);
       return domainErrorResponse(c, err);
     }
   });

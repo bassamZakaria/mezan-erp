@@ -33,6 +33,23 @@ import type { TenantRouter } from "./tenant-router.js";
 export const SIGNUP_BASE_PATH = "/api/signup";
 
 const TOKEN_EXPIRES_IN_MS = 24 * 60 * 60 * 1000;
+const PROVISION_CLAIM_STALE_MS = 2 * 60_000;
+const PROVISION_WAIT_MS = 30_000;
+const PROVISION_POLL_MS = 50;
+const PROVISION_RETRY_AFTER_SECONDS = 5;
+
+export class SignupVerificationBusyError extends Error {
+  readonly code = "SIGNUP_VERIFICATION_IN_PROGRESS";
+
+  constructor() {
+    super("جارٍ تفعيل الحساب الآن. أعد فتح الرابط بعد لحظات.");
+    this.name = "SignupVerificationBusyError";
+  }
+}
+
+function pause(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 /** The IP a signup attempt is counted against — `x-forwarded-for` only when this deployment is known to sit behind a trusted proxy, never taken on a caller's word alone (same gate `forwardedOrigin` uses). */
 function clientIp(c: Context, trustProxy: boolean): string {
@@ -102,6 +119,10 @@ function signupErrorResponse(c: Context, err: unknown): Response {
   }
   if (err instanceof SignupTokenExpiredError) {
     return c.json({ error: err.code, message: err.message }, 410);
+  }
+  if (err instanceof SignupVerificationBusyError) {
+    c.header("retry-after", String(PROVISION_RETRY_AFTER_SECONDS));
+    return c.json({ error: err.code, message: err.message }, 503);
   }
   if (err instanceof TenantProvisioningError) {
     console.error(err, err.cause);
@@ -268,9 +289,7 @@ export function createSignupRoutes(options: SignupRoutesOptions): Hono {
     return { tenant, adminEmail: request.ownerEmail, adminPin: null, alreadyVerified: true };
   }
 
-  async function settleVerification(tokenHash: string): Promise<VerifySignupResultDTO> {
-    const request = await verifySignup(tokenHash, platform.stores.signupRequests, now().toISOString());
-
+  async function settleVerification(request: SignupRequest): Promise<VerifySignupResultDTO> {
     const settled = await tenantSettledBy(request);
     if (settled) return alreadyVerifiedAnswer(settled, request);
 
@@ -291,27 +310,28 @@ export function createSignupRoutes(options: SignupRoutesOptions): Hono {
       router.invalidate(provisioned.tenant.code);
       return { ...provisioned, alreadyVerified: provisioned.adminPin === null };
     } catch (err) {
-      const settledMeanwhile = await tenantSettledBy(request);
+      const settledMeanwhile = await tenantSettledBy(request).catch(() => null);
       if (settledMeanwhile) return alreadyVerifiedAnswer(settledMeanwhile, request);
       throw err;
     }
   }
 
-  // One verification per token at a time. Two posts of the same link used to
-  // provision side by side: both created the admin, and the loser answered the
-  // owner of a brand-new account with a 500 or TENANT_CODE_TAKEN. The queue
-  // covers this process; the settled-tenant lookups above cover a second one.
-  const verifying = new Map<string, Promise<VerifySignupResultDTO>>();
-
-  function verifyInTurn(tokenHash: string): Promise<VerifySignupResultDTO> {
-    const ahead = verifying.get(tokenHash) ?? Promise.resolve(null);
-    const mine = ahead.catch(() => null).then(() => settleVerification(tokenHash));
-    verifying.set(tokenHash, mine);
-    const release = () => {
-      if (verifying.get(tokenHash) === mine) verifying.delete(tokenHash);
-    };
-    mine.then(release, release);
-    return mine;
+  async function verifyInTurn(tokenHash: string): Promise<VerifySignupResultDTO> {
+    const request = await verifySignup(tokenHash, platform.stores.signupRequests, now().toISOString());
+    const claims = platform.stores.signupRequests;
+    const claimId = randomUUID();
+    const giveUpAt = Date.now() + PROVISION_WAIT_MS;
+    for (;;) {
+      const at = now().getTime();
+      if (await claims.tryClaimProvisioning(tokenHash, claimId, new Date(at).toISOString(), new Date(at - PROVISION_CLAIM_STALE_MS).toISOString())) break;
+      if (Date.now() >= giveUpAt) throw new SignupVerificationBusyError();
+      await pause(PROVISION_POLL_MS);
+    }
+    try {
+      return await settleVerification(request);
+    } finally {
+      await claims.releaseProvisioning(tokenHash, claimId);
+    }
   }
 
   app.post("/verify", async (c) => {

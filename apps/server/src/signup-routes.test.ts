@@ -1,8 +1,13 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import type { Hono } from "hono";
+import { createBackend, createPlatform, type PlatformHandle } from "@mezan/backend";
+import { TenantStatusCode, type Subscription } from "@mezan/domain";
 import { createCloudApp, type CloudApp } from "./cloud-app.js";
+import { createSignupRoutes } from "./signup-routes.js";
+import { createTenantRouter, TENANT_HEADER, type TenantRouter } from "./tenant-router.js";
 import { COMPANY_NAME_MAX_LENGTH } from "@mezan/domain";
 import { parseEnv } from "./env.js";
 
@@ -10,9 +15,13 @@ const T = "2026-01-15T00:00:00.000Z";
 
 const apps: CloudApp[] = [];
 const dirs: string[] = [];
+const routers: TenantRouter[] = [];
+const platforms: PlatformHandle[] = [];
 
 afterEach(async () => {
   for (const app of apps.splice(0)) await app.close();
+  for (const router of routers.splice(0)) await router.close();
+  for (const platform of platforms.splice(0)) platform.close();
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
@@ -293,5 +302,223 @@ describe("self-serve signup routes", () => {
     const app = await boot();
     const res = await post(app, "/api/signup/verify", { token: "not-a-real-token" });
     expect(res.status).toBe(400);
+  });
+});
+
+function cloudLogin(app: CloudApp, code: string, pin: string): Promise<Response> {
+  return Promise.resolve(
+    app.root.fetch(
+      new Request("http://cloud.internal/api/auth/login", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-mezan-tenant": code },
+        body: JSON.stringify({ username: `owner@${code}.example`, pin }),
+      }),
+    ),
+  );
+}
+
+function resetOwnerPin(app: CloudApp, tenantId: string, bearer: string | null): Promise<Response> {
+  return Promise.resolve(
+    app.root.fetch(
+      new Request(`http://cloud.internal/api/platform/tenants/${tenantId}/owner-pin/reset`, {
+        method: "POST",
+        headers: bearer ? { authorization: `Bearer ${bearer}` } : {},
+      }),
+    ),
+  );
+}
+
+describe("the platform owner resets a tenant owner's PIN", () => {
+  it("issues a new PIN once, retires the old one and ends the owner's open sessions", async () => {
+    const app = await boot();
+    const first = (await (await post(app, "/api/signup/verify", { token: await startAndReadToken(app, "locked") })).json()) as VerifyBody;
+    const oldPin = first.adminPin ?? "";
+    const session = ((await (await cloudLogin(app, "locked", oldPin)).json()) as { token: string }).token;
+    const customers = () =>
+      app.root.fetch(new Request("http://cloud.internal/api/customers", { headers: { authorization: `Bearer ${session}`, "x-mezan-tenant": "locked" } }));
+    expect((await customers()).status).toBe(200);
+
+    const reset = await resetOwnerPin(app, first.tenant.id, await platformBearer(app));
+
+    expect(reset.status).toBe(200);
+    const body = (await reset.json()) as { adminEmail: string; adminPin: string };
+    expect(body.adminEmail).toBe("owner@locked.example");
+    expect(body.adminPin).toMatch(/^[0-9]{6}$/);
+    expect(body.adminPin).not.toBe(oldPin);
+    expect((await customers()).status).toBe(401);
+    expect((await cloudLogin(app, "locked", oldPin)).status).toBe(401);
+    expect((await cloudLogin(app, "locked", body.adminPin)).status).toBe(200);
+  });
+
+  it("is refused without a platform session, and for a tenant session", async () => {
+    const app = await boot();
+    const first = (await (await post(app, "/api/signup/verify", { token: await startAndReadToken(app, "guarded") })).json()) as VerifyBody;
+    const pin = first.adminPin ?? "";
+    const tenantSession = ((await (await cloudLogin(app, "guarded", pin)).json()) as { token: string }).token;
+
+    expect((await resetOwnerPin(app, first.tenant.id, null)).status).toBe(401);
+    expect((await resetOwnerPin(app, first.tenant.id, tenantSession)).status).toBe(401);
+    expect((await cloudLogin(app, "guarded", pin)).status).toBe(200);
+  });
+
+  it("is not reachable on the tenant's own API, with or without the tenant's admin session", async () => {
+    const app = await boot();
+    const first = (await (await post(app, "/api/signup/verify", { token: await startAndReadToken(app, "inside") })).json()) as VerifyBody;
+    const pin = first.adminPin ?? "";
+    const tenantSession = ((await (await cloudLogin(app, "inside", pin)).json()) as { token: string }).token;
+
+    for (const route of ["/api/owner-pin/reset", "/api/bootstrap/owner-pin", "/api/auth/owner-pin/reset"]) {
+      const answer = await app.root.fetch(
+        new Request(`http://cloud.internal${route}`, {
+          method: "POST",
+          headers: { "content-type": "application/json", authorization: `Bearer ${tenantSession}`, "x-mezan-tenant": "inside" },
+          body: JSON.stringify({ email: "owner@inside.example", pin: "000000" }),
+        }),
+      );
+      expect(answer.status, route).toBe(404);
+    }
+    expect((await cloudLogin(app, "inside", "000000")).status).toBe(401);
+  });
+
+  it("answers 404 for a tenant that does not exist", async () => {
+    const app = await boot();
+    expect((await resetOwnerPin(app, "no-such-tenant", await platformBearer(app))).status).toBe(404);
+  });
+});
+
+interface SignupProcess {
+  readonly signup: Hono;
+  readonly router: TenantRouter;
+}
+
+type SaveSubscription = (subscription: Subscription) => Promise<void>;
+
+function platformDir(): string {
+  const dataDir = mkdtempSync(path.join(tmpdir(), "mezan-signup-shared-"));
+  dirs.push(dataDir);
+  return dataDir;
+}
+
+async function openPlatform(dataDir: string): Promise<PlatformHandle> {
+  const platform = await createPlatform({ dbPath: path.join(dataDir, "platform.db"), now: () => new Date(T) });
+  platforms.push(platform);
+  return platform;
+}
+
+function signupProcess(platform: PlatformHandle, dataDir: string, saveSubscription?: (save: SaveSubscription) => SaveSubscription): SignupProcess {
+  const router = createTenantRouter({
+    platform,
+    dataDir,
+    sweepEveryMs: 0,
+    now: () => new Date(T),
+    openBackend: async (_code, dbPath, resolvers) => {
+      mkdirSync(path.dirname(dbPath), { recursive: true });
+      return createBackend({
+        dbPath,
+        resolveEntitlements: () => resolvers.resolveEntitlements(),
+        resolveLicenseState: () => resolvers.resolveLicenseState(),
+      });
+    },
+  });
+  routers.push(router);
+  const subscriptions = Object.create(platform.stores.subscriptions) as PlatformHandle["stores"]["subscriptions"];
+  if (saveSubscription) subscriptions.save = saveSubscription((subscription) => platform.stores.subscriptions.save(subscription));
+  const seen: PlatformHandle = saveSubscription ? { ...platform, stores: { ...platform.stores, subscriptions } } : platform;
+  const signup = createSignupRoutes({ platform: seen, router, env: { ...parseEnv({}), platformDir: dataDir }, now: () => new Date(T) });
+  return { signup, router };
+}
+
+function send(app: Hono, route: string, body: unknown): Promise<Response> {
+  return Promise.resolve(
+    app.fetch(new Request(`http://signup.internal${route}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })),
+  );
+}
+
+async function startOn(app: Hono, code: string): Promise<string> {
+  const started = await send(app, "/", signupBody(code, "متجر الياسمين"));
+  expect(started.status).toBe(201);
+  return new URL(((await started.json()) as { devVerifyUrl: string }).devVerifyUrl).searchParams.get("token") ?? "";
+}
+
+function tenantLogin(router: TenantRouter, code: string, pin: string | null): Promise<Response> {
+  return Promise.resolve(
+    router.app.fetch(
+      new Request("http://ignored/auth/login", {
+        method: "POST",
+        headers: { "content-type": "application/json", [TENANT_HEADER]: code },
+        body: JSON.stringify({ username: `owner@${code}.example`, pin }),
+      }),
+    ),
+  );
+}
+
+function failOnce(): (save: SaveSubscription) => SaveSubscription {
+  let failed = false;
+  return (save) => async (subscription) => {
+    if (!failed) {
+      failed = true;
+      throw new Error("the platform database refused the subscription");
+    }
+    await save(subscription);
+  };
+}
+
+describe("signup verification when provisioning fails or is shared between processes", () => {
+  it("hands the owner a fresh PIN when the link is opened again after a provision that failed once the admin existed", async () => {
+    const dataDir = platformDir();
+    const platform = await openPlatform(dataDir);
+    const { signup, router } = signupProcess(platform, dataDir, failOnce());
+    const token = await startOn(signup, "retry");
+
+    const first = await send(signup, "/verify", { token });
+    expect(first.status).toBe(500);
+    expect(((await first.json()) as { error: string }).error).toBe("TENANT_PROVISIONING_FAILED");
+
+    const again = await send(signup, "/verify", { token });
+    expect(again.status).toBe(200);
+    const body = (await again.json()) as VerifyBody;
+    expect(body.tenant.status).toBe("active");
+    expect(body.adminPin).toMatch(/^\d{6}$/);
+    expect(body.alreadyVerified).toBe(false);
+    expect((await tenantLogin(router, "retry", body.adminPin)).status).toBe(200);
+
+    const third = await send(signup, "/verify", { token });
+    expect((await third.json()) as VerifyBody).toMatchObject({ adminPin: null, alreadyVerified: true });
+    expect((await tenantLogin(router, "retry", body.adminPin)).status).toBe(200);
+  });
+
+  it("provisions a link once when two server processes on one platform database verify it at the same moment", async () => {
+    const dataDir = platformDir();
+    const platform = await openPlatform(dataDir);
+    const one = signupProcess(platform, dataDir);
+    const two = signupProcess(await openPlatform(dataDir), dataDir);
+    const token = await startOn(one.signup, "twice");
+
+    const answers = await Promise.all([send(one.signup, "/verify", { token }), send(two.signup, "/verify", { token })]);
+
+    expect(answers.map((answer) => answer.status)).toEqual([200, 200]);
+    const bodies = (await Promise.all(answers.map((answer) => answer.json()))) as VerifyBody[];
+    const pins = bodies.map((body) => body.adminPin).filter((pin): pin is string => pin !== null);
+    expect(pins).toHaveLength(1);
+    expect(bodies.map((body) => body.alreadyVerified).sort()).toEqual([false, true]);
+    expect(new Set(bodies.map((body) => body.tenant.id)).size).toBe(1);
+    expect((await platform.stores.tenants.list()).filter((tenant) => tenant.code === "twice")).toHaveLength(1);
+    expect((await tenantLogin(one.router, "twice", pins[0] ?? null)).status).toBe(200);
+  });
+
+  it("answers the provisioning failure itself when the tenant was archived while it failed, not an invalid link", async () => {
+    const dataDir = platformDir();
+    const platform = await openPlatform(dataDir);
+    const { signup } = signupProcess(platform, dataDir, () => async (subscription) => {
+      const tenant = await platform.stores.tenants.findById(subscription.tenantId);
+      if (tenant) await platform.stores.tenants.save({ ...tenant, status: TenantStatusCode.Archived });
+      throw new Error("the platform database refused the subscription");
+    });
+    const token = await startOn(signup, "masked");
+
+    const answer = await send(signup, "/verify", { token });
+
+    expect(answer.status).toBe(500);
+    expect(((await answer.json()) as { error: string }).error).toBe("TENANT_PROVISIONING_FAILED");
   });
 });

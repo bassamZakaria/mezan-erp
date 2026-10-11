@@ -142,6 +142,12 @@ CREATE TABLE IF NOT EXISTS signup_request (
   verified_at   TEXT
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_signup_request_token ON signup_request(token_hash);
+
+CREATE TABLE IF NOT EXISTS signup_provision_claim (
+  token_hash TEXT PRIMARY KEY,
+  claim_id   TEXT NOT NULL,
+  claimed_at TEXT NOT NULL
+);
 CREATE INDEX IF NOT EXISTS idx_signup_request_code ON signup_request(code, status, expires_at);
 
 CREATE TABLE IF NOT EXISTS module_trial (
@@ -719,8 +725,21 @@ class SqliteSignupRequestStore implements SignupRequestRepository {
   private readonly byTokenHash: Database.Statement;
   private readonly activeByCode: Database.Statement;
   private readonly markVerified: Database.Statement;
+  private readonly claim: (tokenHash: string, claimId: string, nowIso: string, staleBeforeIso: string) => boolean;
+  private readonly release: Database.Statement;
 
   constructor(sqlite: Database.Database) {
+    const dropStaleClaim = sqlite.prepare(`DELETE FROM signup_provision_claim WHERE token_hash = ? AND claimed_at < ?`);
+    const insertClaim = sqlite.prepare(`INSERT OR IGNORE INTO signup_provision_claim (token_hash, claim_id, claimed_at) VALUES (?, ?, ?)`);
+    // IMMEDIATE: the stale-claim delete and the insert must be one write transaction,
+    // or two processes can both delete the same dead claim and both believe they hold it.
+    this.claim = sqlite
+      .transaction((tokenHash: string, claimId: string, nowIso: string, staleBeforeIso: string) => {
+        dropStaleClaim.run(tokenHash, staleBeforeIso);
+        return insertClaim.run(tokenHash, claimId, nowIso).changes === 1;
+      })
+      .immediate;
+    this.release = sqlite.prepare(`DELETE FROM signup_provision_claim WHERE token_hash = ? AND claim_id = ?`);
     this.upsert = sqlite.prepare(
       `INSERT INTO signup_request (id, code, name_ar, name_en, owner_email, owner_name_ar, plan_id, billing_cycle,
          token_hash, status, expires_at, created_at, verified_at)
@@ -757,6 +776,14 @@ class SqliteSignupRequestStore implements SignupRequestRepository {
     const result = this.markVerified.run(SignupRequestStatus.Verified, nowIso, tokenHash, SignupRequestStatus.Pending);
     if (result.changes !== 1) return null;
     return this.findByTokenHash(tokenHash);
+  }
+
+  async tryClaimProvisioning(tokenHash: string, claimId: string, nowIso: string, staleBeforeIso: string): Promise<boolean> {
+    return this.claim(tokenHash, claimId, nowIso, staleBeforeIso);
+  }
+
+  async releaseProvisioning(tokenHash: string, claimId: string): Promise<void> {
+    this.release.run(tokenHash, claimId);
   }
 
   async save(r: SignupRequest): Promise<void> {

@@ -132,6 +132,11 @@ export const recordPaymentRequestSchema = z.object({
   note: z.string().min(1).nullable().optional(),
 });
 
+export const ownerPinResetResultSchema = z.object({
+  adminEmail: z.string().min(1),
+  adminPin: z.string().regex(/^\d{6}$/, "must be exactly 6 digits"),
+});
+
 export enum SubscriptionStatusCode {
   Trialing = "trialing",
   Active = "active",
@@ -373,6 +378,7 @@ export type BillingCycleDTO = z.infer<typeof billingCycleSchema>;
 export type CreateTenantRequestDTO = z.infer<typeof createTenantRequestSchema>;
 export type ProvisionRetryRequestDTO = z.infer<typeof provisionRetryRequestSchema>;
 export type ProvisionResultDTO = z.infer<typeof provisionResultSchema>;
+export type OwnerPinResetResultDTO = z.infer<typeof ownerPinResetResultSchema>;
 export type StartSubscriptionRequestDTO = z.infer<typeof startSubscriptionRequestSchema>;
 export type ChangePlanRequestDTO = z.infer<typeof changePlanRequestSchema>;
 export type SubscriptionSuspendRequestDTO = z.infer<typeof subscriptionSuspendRequestSchema>;

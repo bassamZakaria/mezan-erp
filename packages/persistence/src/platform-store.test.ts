@@ -139,3 +139,36 @@ describe("createSqlitePlatformStores", () => {
     stores.close();
   });
 });
+
+describe("signup provisioning claim", () => {
+  const TOKEN = "token-hash";
+  const AT = "2026-01-15T10:00:00.000Z";
+  const STALE_BEFORE = "2026-01-15T09:58:00.000Z";
+
+  it("is held by one claimant at a time and passes on only once released", async () => {
+    const { signupRequests, close } = createSqlitePlatformStores(":memory:");
+
+    expect(await signupRequests.tryClaimProvisioning(TOKEN, "first", AT, STALE_BEFORE)).toBe(true);
+    expect(await signupRequests.tryClaimProvisioning(TOKEN, "second", AT, STALE_BEFORE)).toBe(false);
+    expect(await signupRequests.tryClaimProvisioning("another-token", "second", AT, STALE_BEFORE)).toBe(true);
+
+    await signupRequests.releaseProvisioning(TOKEN, "second");
+    expect(await signupRequests.tryClaimProvisioning(TOKEN, "second", AT, STALE_BEFORE)).toBe(false);
+
+    await signupRequests.releaseProvisioning(TOKEN, "first");
+    expect(await signupRequests.tryClaimProvisioning(TOKEN, "second", AT, STALE_BEFORE)).toBe(true);
+    close();
+  });
+
+  it("is taken over once its holder has been gone longer than the stale window, and not a moment before", async () => {
+    const { signupRequests, close } = createSqlitePlatformStores(":memory:");
+    await signupRequests.tryClaimProvisioning(TOKEN, "dead", "2026-01-15T09:58:00.000Z", "2026-01-15T09:56:00.000Z");
+
+    expect(await signupRequests.tryClaimProvisioning(TOKEN, "live", AT, STALE_BEFORE)).toBe(false);
+    expect(await signupRequests.tryClaimProvisioning(TOKEN, "live", "2026-01-15T10:00:01.000Z", "2026-01-15T09:58:01.000Z")).toBe(true);
+
+    await signupRequests.releaseProvisioning(TOKEN, "dead");
+    expect(await signupRequests.tryClaimProvisioning(TOKEN, "other", "2026-01-15T10:00:02.000Z", "2026-01-15T09:58:02.000Z")).toBe(false);
+    close();
+  });
+});

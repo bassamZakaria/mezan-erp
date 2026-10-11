@@ -245,6 +245,68 @@ describe("TenantDetailPage", () => {
     await waitFor(() => expect(suspendPosts).toBe(1));
   });
 
+  it("resetting the owner's PIN asks first, then shows the new PIN once with the owner's email", async () => {
+    let resets = 0;
+    const summary = makeSummary();
+    const transport = stubPlatformTransport({
+      "GET /tenants/tenant-1": () => ({ body: summary }),
+      "GET /plans": () => ({ body: [plan, plan2] }),
+      "POST /tenants/tenant-1/owner-pin/reset": () => {
+        resets += 1;
+        return { body: { adminEmail: "owner@acme.test", adminPin: "305917" } };
+      },
+    });
+    renderDetail({ transport, session: testPlatformSession });
+
+    fireEvent.click(await screen.findByRole("button", { name: "إعادة تعيين رمز المالك" }));
+    const dialog = await screen.findByRole("dialog", { name: "إعادة تعيين رمز المالك؟" });
+    expect(resets).toBe(0);
+    fireEvent.click(within(dialog).getByRole("button", { name: "رجوع" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "إعادة تعيين رمز المالك؟" })).not.toBeInTheDocument());
+    expect(resets).toBe(0);
+    expect(screen.queryByText("305917")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "إعادة تعيين رمز المالك" }));
+    fireEvent.click(within(await screen.findByRole("dialog", { name: "إعادة تعيين رمز المالك؟" })).getByRole("button", { name: "إعادة التعيين" }));
+
+    expect(await screen.findByText("305917")).toBeInTheDocument();
+    expect(screen.getByText("owner@acme.test")).toBeInTheDocument();
+    expect(screen.getByText(/لن يظهر .* مرة أخرى/)).toBeInTheDocument();
+    expect(resets).toBe(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "إخفاء الرمز" }));
+    expect(screen.queryByText("305917")).not.toBeInTheDocument();
+  });
+
+  it("shows the server's refusal when the owner's PIN cannot be reset, and no PIN", async () => {
+    const summary = makeSummary();
+    const transport = stubPlatformTransport({
+      "GET /tenants/tenant-1": () => ({ body: summary }),
+      "GET /plans": () => ({ body: [plan, plan2] }),
+      "POST /tenants/tenant-1/owner-pin/reset": () => ({
+        status: 409,
+        body: { error: "TENANT_OWNER_ACCOUNT_NOT_FOUND", message: "لا يوجد في المنشأة حساب مدير نشط ببريد مالكها." },
+      }),
+    });
+    renderDetail({ transport, session: testPlatformSession });
+
+    fireEvent.click(await screen.findByRole("button", { name: "إعادة تعيين رمز المالك" }));
+    fireEvent.click(within(await screen.findByRole("dialog", { name: "إعادة تعيين رمز المالك؟" })).getByRole("button", { name: "إعادة التعيين" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("لا يوجد في المنشأة حساب مدير نشط ببريد مالكها.");
+  });
+
+  it("does not offer the PIN reset to a support operator", async () => {
+    const transport = stubPlatformTransport({
+      "GET /tenants/tenant-1": () => ({ body: makeSummary() }),
+      "GET /plans": () => ({ body: [plan, plan2] }),
+    });
+    renderDetail({ transport, session: supportSession });
+
+    await screen.findByText("باقة النمو — growth");
+    expect(screen.queryByRole("button", { name: "إعادة تعيين رمز المالك" })).not.toBeInTheDocument();
+  });
+
   it("archiving asks for confirmation, and confirming posts the archive", async () => {
     let archived = false;
     const summary = makeSummary();

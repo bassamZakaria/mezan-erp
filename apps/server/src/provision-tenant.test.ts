@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { createBackend, createPlatform, type PlatformHandle } from "@mezan/backend";
+import { createBackend, createPlatform, type BackendHandle, type PlatformHandle } from "@mezan/backend";
 import { createTenant, retirePlan, startSubscription, TenantCodeTakenError } from "@mezan/domain";
 import { createTenantRouter, TENANT_HEADER, type TenantRouter } from "./tenant-router.js";
 import { provisionTenant, TenantProvisioningError } from "./provision-tenant.js";
@@ -35,6 +35,18 @@ function newRouter(platform: PlatformHandle): TenantRouter {
   });
   routers.push(router);
   return router;
+}
+
+function login(backend: BackendHandle, username: string, pin: string): Promise<Response> {
+  return Promise.resolve(
+    backend.app.fetch(
+      new Request("http://tenant.internal/auth/login", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ username, pin }),
+      }),
+    ),
+  );
 }
 
 async function newPlatform(): Promise<PlatformHandle> {
@@ -102,7 +114,7 @@ describe("provisionTenant", () => {
     ).rejects.toBeInstanceOf(TenantCodeTakenError);
   });
 
-  it("leaves the tenant provisioning and rethrows with the tenant id when subscribing fails AFTER seeding and admin creation, and a resumed call completes without a second admin", async () => {
+  it("leaves the tenant provisioning and rethrows with the tenant id when subscribing fails AFTER seeding and admin creation, and a resumed call completes without a second admin and hands over a fresh PIN", async () => {
     const platform = await newPlatform();
     await retirePlan({ id: "PLAN-CORE" }, platform.stores.plans);
     const router = newRouter(platform);
@@ -145,21 +157,37 @@ describe("provisionTenant", () => {
     );
     expect(resumed.tenant.status).toBe("active");
     expect(resumed.tenant.id).toBe(failedTenant?.id);
-    expect(resumed.adminPin).toBeNull();
+    expect(resumed.adminPin).toBe("222222");
     expect(resumed.adminEmail).toBe(cmd.ownerEmail);
 
     const sub = await platform.stores.subscriptions.findLiveByTenant(resumed.tenant.id);
     expect(sub?.planId).toBe("PLAN-BUSINESS");
 
-    // No second admin was created — the original PIN still logs the owner in.
-    const loginRes = await backend.app.fetch(
-      new Request("http://tenant.internal/auth/login", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ username: cmd.ownerEmail, pin: "111111" }),
-      }),
+    expect((await login(backend, cmd.ownerEmail, "111111")).status).toBe(401);
+    const signedIn = await login(backend, cmd.ownerEmail, "222222");
+    expect(signedIn.status).toBe(200);
+    const users = await backend.app.fetch(
+      new Request("http://tenant.internal/users", { headers: { authorization: `Bearer ${((await signedIn.json()) as { token: string }).token}` } }),
     );
-    expect(loginRes.status).toBe(200);
+    const admins = ((await users.json()) as { isCompanyAdmin: boolean; status: string }[]).filter((user) => user.isCompanyAdmin && user.status === "active");
+    expect(admins).toHaveLength(1);
+  });
+
+  it("does not rotate the PIN of an owner who has already signed in when a provision is resumed", async () => {
+    const platform = await newPlatform();
+    await retirePlan({ id: "PLAN-CORE" }, platform.stores.plans);
+    const router = newRouter(platform);
+    const cmd = { code: "signedin", nameAr: "دخلت", ownerEmail: "owner@signedin.example", ownerNameAr: "المدير", planId: "PLAN-CORE", billingCycle: "monthly" as const, trial: false };
+    await expect(provisionTenant(cmd, { platform, router, now: () => new Date(T), pinOf: () => "111111" })).rejects.toBeInstanceOf(TenantProvisioningError);
+    const backend = await router.backendFor("signedin");
+    expect((await login(backend, cmd.ownerEmail, "111111")).status).toBe(200);
+
+    const resumed = await provisionTenant({ ...cmd, planId: "PLAN-BUSINESS" }, { platform, router, now: () => new Date(T), pinOf: () => "222222" });
+
+    expect(resumed.tenant.status).toBe("active");
+    expect(resumed.adminPin).toBeNull();
+    expect((await login(backend, cmd.ownerEmail, "222222")).status).toBe(401);
+    expect((await login(backend, cmd.ownerEmail, "111111")).status).toBe(200);
   });
 
   it("does not re-start a subscription that is already live on a resumed tenant", async () => {

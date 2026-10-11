@@ -26,6 +26,8 @@ function signups(): SignupRequestRepository & { rows: SignupRequest[] } {
     async findActiveByCode() { return null; },
     async save(r) { rows.push(r); },
     async tryMarkVerified() { return null; },
+    async tryClaimProvisioning() { return true; },
+    async releaseProvisioning() {},
   };
 }
 

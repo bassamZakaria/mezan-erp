@@ -481,8 +481,27 @@ function fanOutDocumentEvents(...publishers: readonly DocumentEventPublisher[]):
   };
 }
 
+export enum OwnerPinResetOutcome {
+  Reset = "reset",
+  OwnerNotFound = "owner_not_found",
+  AlreadySignedIn = "already_signed_in",
+}
+
+export interface ResetOwnerPinCommand {
+  readonly email: string;
+  readonly pin: string;
+  readonly onlyIfNeverSignedIn: boolean;
+  readonly actor: string;
+}
+
 export interface BackendHandle {
   readonly app: App;
+  /**
+   * SECURITY: deliberately NOT an HTTP route. A route would be reachable through
+   * the tenant router and the desktop LAN mount; this is callable only by code
+   * that already holds the handle (platform provisioning and the platform console).
+   */
+  resetOwnerPin(cmd: ResetOwnerPinCommand): Promise<OwnerPinResetOutcome>;
   /**
    * الإيصال الإلكتروني — issues a consumer sale's (or return's) e-receipt
    * synchronously, on the chain of the device serial given. The POS till calls
@@ -4216,9 +4235,29 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     });
   }
 
+  async function resetOwnerPin(cmd: ResetOwnerPinCommand): Promise<OwnerPinResetOutcome> {
+    const owner = await uow.users.findByEmail(cmd.email.trim().toLowerCase());
+    if (!owner || !owner.isCompanyAdmin || owner.status !== "active") return OwnerPinResetOutcome.OwnerNotFound;
+    if (cmd.onlyIfNeverSignedIn && owner.lastLoginAt !== null) return OwnerPinResetOutcome.AlreadySignedIn;
+    await uow.users.save({ ...owner, pinHash: await hasher.hash(cmd.pin) });
+    sessions.revokeUser(owner.id);
+    loginThrottle.succeed(owner.email.trim().toLowerCase());
+    await recordSecurityEvent(auditSink, {
+      module: "auth",
+      entityType: "USER",
+      entityId: owner.id,
+      action: "OWNER_PIN_RESET",
+      actor: cmd.actor,
+      severity: "CRITICAL",
+      details: { email: owner.email, onlyIfNeverSignedIn: cmd.onlyIfNeverSignedIn, origin: "platform" },
+    });
+    return OwnerPinResetOutcome.Reset;
+  }
+
   return {
     app,
     sessions,
+    resetOwnerPin,
     etaReceipts,
     backupTo: (destination) => sqlite.backup(destination).then(() => undefined),
     async drain() {

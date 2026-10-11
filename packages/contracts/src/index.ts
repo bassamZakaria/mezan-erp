@@ -1747,6 +1747,8 @@ export {
   subscriptionResumeRequestSchema,
   recordPaymentRequestSchema,
   subscriptionStatusSchema,
+  ownerPinResetResultSchema,
+  type OwnerPinResetResultDTO,
   SubscriptionStatusCode,
   subscriptionSchema,
   planStatusSchema,

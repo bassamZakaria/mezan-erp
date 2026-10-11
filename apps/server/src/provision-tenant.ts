@@ -1,6 +1,6 @@
 import { randomInt, randomUUID } from "node:crypto";
-import { activateTenant, createTenant, startSubscription, TenantCodeTakenError, type BillingCycle, type Tenant } from "@mezan/domain";
-import type { PlatformHandle } from "@mezan/backend";
+import { activateTenant, createTenant, startSubscription, TenantCodeTakenError, TenantStatusCode, type BillingCycle, type Tenant } from "@mezan/domain";
+import { OwnerPinResetOutcome, type PlatformHandle } from "@mezan/backend";
 import type { TenantRouter } from "./tenant-router.js";
 
 export interface ProvisionTenantCommand {
@@ -24,7 +24,7 @@ export interface ProvisionTenantDeps {
 export interface ProvisionTenantResult {
   readonly tenant: Tenant;
   readonly adminEmail: string;
-  /** Null on a resumed provision — the admin already exists and its PIN is not re-issued. */
+  /** Null only on a resumed provision whose owner has already signed in: that owner knows their PIN. */
   readonly adminPin: string | null;
 }
 
@@ -50,13 +50,15 @@ export class PlanRequiredError extends Error {
   }
 }
 
-function defaultPinOf(): string {
+export const PROVISIONING_ACTOR = "platform:provisioning";
+
+export function generateOwnerPin(): string {
   return String(randomInt(0, 1_000_000)).padStart(6, "0");
 }
 
 export async function provisionTenant(cmd: ProvisionTenantCommand, deps: ProvisionTenantDeps): Promise<ProvisionTenantResult> {
   const nowIso = deps.now().toISOString();
-  const pinOf = deps.pinOf ?? defaultPinOf;
+  const pinOf = deps.pinOf ?? generateOwnerPin;
 
   const existing = await deps.platform.stores.tenants.findByCode(cmd.code);
   let tenant =
@@ -76,7 +78,10 @@ export async function provisionTenant(cmd: ProvisionTenantCommand, deps: Provisi
 
     let adminPin: string | null = null;
     if (claimed) {
-      if (tenant.status !== "provisioning") throw new TenantCodeTakenError(cmd.code);
+      if (tenant.status !== TenantStatusCode.Provisioning) throw new TenantCodeTakenError(cmd.code);
+      const freshPin = pinOf();
+      const outcome = await backend.resetOwnerPin({ email: cmd.ownerEmail, pin: freshPin, onlyIfNeverSignedIn: true, actor: PROVISIONING_ACTOR });
+      if (outcome === OwnerPinResetOutcome.Reset) adminPin = freshPin;
     } else {
       adminPin = pinOf();
       const adminRes = await backend.app.fetch(
@@ -107,7 +112,7 @@ export async function provisionTenant(cmd: ProvisionTenantCommand, deps: Provisi
       );
     }
 
-    if (tenant.status === "provisioning") {
+    if (tenant.status === TenantStatusCode.Provisioning) {
       tenant = await activateTenant({ id: tenant.id, now: nowIso }, deps.platform.stores.tenants);
     }
 

@@ -2,7 +2,8 @@ import { useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
 import { Button, Card, ConfirmDialog, Money, Select, StatusPill, useFormat } from "@mezan/ui";
 import { MODULES } from "@mezan/domain";
-import type { BillingCycleDTO, ProvisionResultDTO, SubscriptionStatusDTO } from "@mezan/contracts";
+import { TenantStatusCode } from "@mezan/domain";
+import type { BillingCycleDTO, OwnerPinResetResultDTO, ProvisionResultDTO, SubscriptionStatusDTO } from "@mezan/contracts";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { moduleLabel } from "../domain-labels";
 import { SelectField, TextAreaField, ToggleField } from "../settings/form-controls";
@@ -19,6 +20,7 @@ import {
   usePlansQuery,
   useResumeSubscriptionMutation,
   useResumeTenantMutation,
+  useResetOwnerPinMutation,
   useRetryProvisionMutation,
   useSuspendSubscriptionMutation,
   useSuspendTenantMutation,
@@ -47,6 +49,9 @@ function canResumeTenant(status: string): boolean {
 }
 function canArchiveTenant(status: string): boolean {
   return status === "active" || status === "suspended";
+}
+function canResetOwnerPin(status: string): boolean {
+  return status === TenantStatusCode.Active || status === TenantStatusCode.Suspended;
 }
 /** Mirrors `changePlan`/`cancelSubscription`/`suspendSubscription`/`resumeSubscription` in `packages/domain/src/platform/subscription.ts`. */
 function canChangePlan(status: SubscriptionStatusDTO): boolean {
@@ -101,6 +106,7 @@ export function TenantDetailPage() {
   const suspendSubscription = useSuspendSubscriptionMutation();
   const resumeSubscription = useResumeSubscriptionMutation();
   const retryProvision = useRetryProvisionMutation();
+  const resetOwnerPin = useResetOwnerPinMutation();
   const cardCheckouts = useCardCheckoutsQuery(id);
   const createCardCheckout = useCreateCardCheckoutMutation();
   const [searchParams] = useSearchParams();
@@ -110,6 +116,8 @@ export function TenantDetailPage() {
 
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
   const [confirmSuspend, setConfirmSuspend] = useState(false);
+  const [confirmResetOwnerPin, setConfirmResetOwnerPin] = useState(false);
+  const [ownerPinReset, setOwnerPinReset] = useState<OwnerPinResetResultDTO | null>(null);
   const [confirmArchive, setConfirmArchive] = useState(false);
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [confirmSuspendSubscription, setConfirmSuspendSubscription] = useState(false);
@@ -211,6 +219,11 @@ export function TenantDetailPage() {
               {t("platform.tenantDetail.suspend")}
             </Button>
           ) : null}
+          {canResetOwnerPin(tenant.status) ? (
+            <Button variant="default" disabled={resetOwnerPin.isPending} onClick={() => setConfirmResetOwnerPin(true)}>
+              {t("platform.tenantDetail.resetOwnerPin")}
+            </Button>
+          ) : null}
           {canResumeTenant(tenant.status) ? (
             <Button
               variant="default"
@@ -256,6 +269,32 @@ export function TenantDetailPage() {
                 }}
               >
                 {retryProvision.isPending ? t("platform.tenantDetail.retrying") : t("platform.tenantDetail.retryProvision")}
+              </Button>
+            </div>
+          </div>
+        </Card>
+      ) : null}
+
+      {ownerPinReset ? (
+        <Card className="p-[16px]">
+          <div className="flex flex-col gap-[10px]">
+            <p className="text-[12.5px] text-ink-muted">{t("platform.tenantDetail.resetOwnerPin.done")}</p>
+            <div className="flex flex-col gap-[10px] rounded-md border border-border bg-surface-2 p-[14px]">
+              <div>
+                <span className="mb-[6px] block text-xs font-semibold text-ink-muted">{t("platform.newTenant.result.adminEmail")}</span>
+                <span dir="ltr" className="break-all text-[13px] font-semibold text-ink">{ownerPinReset.adminEmail}</span>
+              </div>
+              <div>
+                <span className="mb-[6px] block text-xs font-semibold text-ink-muted">{t("platform.newTenant.result.adminPin")}</span>
+                <code dir="ltr" className="mz-num select-all break-all rounded-[6px] bg-surface px-[10px] py-[6px] text-[16px] font-bold text-ink">
+                  {ownerPinReset.adminPin}
+                </code>
+              </div>
+            </div>
+            <p role="status" className="text-[11.5px] font-semibold text-warning-ink">{t("platform.newTenant.result.oneTime")}</p>
+            <div>
+              <Button variant="default" onClick={() => setOwnerPinReset(null)}>
+                {t("platform.tenantDetail.resetOwnerPin.hide")}
               </Button>
             </div>
           </div>
@@ -480,6 +519,21 @@ export function TenantDetailPage() {
 
       <RecordPaymentDialog open={paymentDialogOpen} onClose={() => setPaymentDialogOpen(false)} tenantId={tenant.id} />
 
+      <ConfirmDialog
+        open={confirmResetOwnerPin}
+        title={t("platform.tenantDetail.confirmResetOwnerPin.title")}
+        consequence={t("platform.tenantDetail.confirmResetOwnerPin.consequence", { email: tenant.ownerEmail })}
+        confirmLabel={t("platform.tenantDetail.resetOwnerPin.confirm")}
+        tone="danger"
+        onConfirm={() => {
+          if (resetOwnerPin.isPending) return;
+          setConfirmResetOwnerPin(false);
+          setMutationError(null);
+          setOwnerPinReset(null);
+          resetOwnerPin.mutate(tenant.id, { onSuccess: setOwnerPinReset, onError: onMutationError });
+        }}
+        onCancel={() => setConfirmResetOwnerPin(false)}
+      />
       <ConfirmDialog
         open={confirmSuspend}
         title={t("platform.tenantDetail.confirmSuspend.title")}

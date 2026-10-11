@@ -5,6 +5,7 @@ import type {
   ChangePlanRequestDTO,
   CreateTenantRequestDTO,
   PlanDTO,
+  OwnerPinResetResultDTO,
   ProvisionResultDTO,
   ProvisionRetryRequestDTO,
   RecordPaymentRequestDTO,
@@ -108,6 +109,18 @@ export function useRetryProvisionMutation() {
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["platform", "tenants"] });
       queryClient.invalidateQueries({ queryKey: ["platform", "tenants", result.tenant.id] });
+    },
+  });
+}
+
+export function useResetOwnerPinMutation() {
+  const { t } = useAppTranslation();
+  const { request } = usePlatformApi();
+  return useMutation<OwnerPinResetResultDTO, PlatformApiError, string>({
+    mutationFn: async (tenantId) => {
+      const res = await request(`/tenants/${tenantId}/owner-pin/reset`, { method: "POST" });
+      if (!res.ok) throw new PlatformApiError(res.status, await readPlatformErrorMessage(res, t, "platform.tenantDetail.resetOwnerPin.error.generic"));
+      return res.json<OwnerPinResetResultDTO>();
     },
   });
 }

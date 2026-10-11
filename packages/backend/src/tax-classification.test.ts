@@ -796,21 +796,19 @@ describe("the tenant's VAT switch reaches every path that raises a sale (D79 rou
     }
   });
 
-  it("refuses, at confirm and in Arabic, a sale that carries the system rate once VAT is on again", async () => {
+  it("re-rates a sale converted from a quote raised outside VAT once VAT is on again, and confirms it", async () => {
     const converted = await convert("T-QT-VAT-OFF", "T-INV-STALE-SYSTEM");
     expect(converted.status).toBe(201);
-    const refused = await call("POST", "/sales-invoices/T-INV-STALE-SYSTEM/confirm", {});
-    expect([refused.status, refused.body.error]).toEqual([422, "INVALID_SALES_INVOICE"]);
-    expect(refused.body.message).toMatch(/غير خاضع/);
-    expect((await call("GET", "/sales-invoices/T-INV-STALE-SYSTEM")).body.status).toBe("draft");
+    expect(taxOf(await call("GET", "/sales-invoices/T-INV-STALE-SYSTEM"))).toEqual([[14, VAT_RATE], [14, VAT_RATE]]);
+    const confirmed = await call("POST", "/sales-invoices/T-INV-STALE-SYSTEM/confirm", {});
+    expect([confirmed.status, confirmed.body.status]).toEqual([200, "confirmed"]);
+  });
 
+  it("refuses a new sale that names the system rate while VAT is on, and stores nothing", async () => {
     const named = await sale("T-INV-NAMED-SYSTEM", NOT_EXEMPT_CUSTOMER, [serviceLine("L1", { taxRateId: SYSTEM_RATE })]);
-    if (named.status === 201) {
-      const second = await call("POST", "/sales-invoices/T-INV-NAMED-SYSTEM/confirm", {});
-      expect([second.status, second.body.error]).toEqual([422, "INVALID_SALES_INVOICE"]);
-    } else {
-      expect(named.status).toBe(422);
-    }
+    expect([named.status, named.body.error]).toEqual([422, "TAX_RATE_SYSTEM_ONLY"]);
+    expect(named.body.message).toMatch(/غير خاضع/);
+    expect((await call("GET", "/sales-invoices/T-INV-NAMED-SYSTEM")).status).toBe(404);
   });
 
   it("refuses to classify a posted line under the system rate while VAT is on", async () => {

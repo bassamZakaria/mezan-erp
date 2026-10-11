@@ -1,6 +1,6 @@
 import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
-import { Money, type Customer, type CustomerRepository, type EtaBuyerType } from "@mezan/domain";
+import { Money, SYSTEM_NOT_SUBJECT_TAX_RATE_ID, type Customer, type CustomerRepository, type EtaBuyerType } from "@mezan/domain";
 
 /**
  * SQLite-backed CustomerRepository (docs/archive/catalog/01 "العملاء"). Standalone —
@@ -192,6 +192,10 @@ export function createSqliteCustomerRepository(path: SqliteConnectionInput = ":m
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.exec(CREATE_TABLE);
   addMissingColumns(sqlite);
+  // INVARIANT: the system's not-subject rate is never a customer's exemption —
+  // it says the TENANT is outside VAT. A card left holding it is cleared, and
+  // the customer's sales wait to be classified under a rate of the tenant's own.
+  sqlite.prepare(`UPDATE customer SET tax_exemption_rate_id = NULL WHERE tax_exemption_rate_id = ?`).run(SYSTEM_NOT_SUBJECT_TAX_RATE_ID);
   const repo = new SqliteCustomerRepository(sqlite);
   return Object.assign(repo, {
     close: () => { if (owned) sqlite.close(); },

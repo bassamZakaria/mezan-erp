@@ -1,6 +1,8 @@
 import { AuditSeverityCode, recordSensitiveEvent } from "../audit/index.js";
 import {
   JournalLineSide,
+  isSystemTaxRate,
+  SystemTaxRateOnlyError,
   planTaxClassification,
   TaxClassificationAuditAction,
   TaxClassificationAuditEntity,
@@ -79,6 +81,7 @@ export async function classifyPurchaseInvoiceLineTax(
       })),
       request,
     );
+    if (isSystemTaxRate(request.taxRateId)) throw new SystemTaxRateOnlyError(request.taxRateId, plan.taxRateName);
     // ORDER MATTERS: the journal goes first — it is what refuses a filed VAT
     // period, and it must refuse before the invoice line is written.
     let journalLinesNamed = 0;

@@ -33,3 +33,6 @@ export function salesTaxPolicyFromSettings(settings: Pick<TenantSettings, "taxEn
 export function salesTaxPolicySource(settings: Pick<SettingsRepository, "get">): SalesTaxPolicySource {
   return async () => salesTaxPolicyFromSettings((await settings.get()) ?? createDefaultSettings());
 }
+
+export const SALES_TAX_RECALCULATED_NOTICE_AR =
+  "أُعيد احتساب الضريبة على بنود الفاتورة وفق إعداد ضريبة القيمة المضافة الحالي — راجع الإجمالي قبل تسليمها للعميل.";

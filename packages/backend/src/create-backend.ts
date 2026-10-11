@@ -20,6 +20,7 @@ import {
   SiteService,
   StockLedgerService,
   applyAllocatedSettlement,
+  SalesQuoteService,
   SalesPricingMode,
   ETA_REQUEUE_MODE,
   EtaRequeueMode,
@@ -3400,6 +3401,18 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       },
       hasEtaReceipt: (invoiceId) => etaReceipts.hasInvoiceReceipt(invoiceId),
       stockRestore: createInventoryStockHook(stockService),
+      itemTax: async (itemId) => {
+        const item = await items.findById(itemId);
+        return item ? { taxRatePercent: item.taxRatePercent } : null;
+      },
+      onDraftCancelled: async (invoice) => {
+        await new SalesQuoteService({
+          repo: salesQuotes,
+          numbering: { next: (opts) => ledger.numbering.next("SALES_QUOTE", { branchId: opts?.branchId }) },
+          taxRates,
+          taxPolicy: salesTaxPolicySource(settings),
+        }).reopenConvertedBy(invoice.id);
+      },
       withdrawUnsentEtaSubmission: async (invoice) => {
         const submission = await etaService.findByInternalId(invoice.docNo ?? invoice.id);
         if (!submission || ETA_REQUEUE_MODE[submission.status] !== EtaRequeueMode.Automatic) return;

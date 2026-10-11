@@ -13,6 +13,7 @@ import {
   TaxRateNotFoundError,
   TaxRatePercentMismatchError,
   TaxRateUnverifiableError,
+  SystemTaxRateOnlyError,
 } from "./errors.js";
 import { TaxRateStatusCode, type TaxRateStatus } from "./tax-rate.js";
 import { SYSTEM_NOT_SUBJECT_TAX_RATE, SYSTEM_NOT_SUBJECT_TAX_RATE_ID } from "./system-tax-rates.js";
@@ -194,8 +195,14 @@ describe("the system «غير خاضع» rate — named automatically in ONE cas
     expect(inferTaxRateByPercent(WITH_SYSTEM, 0)).toBeNull();
   });
 
-  it("can be named by a user like any other rate", () => {
-    expect(resolveAppliedTaxRate(WITH_SYSTEM, { taxRateId: SYSTEM_NOT_SUBJECT_TAX_RATE_ID }, 14)).toEqual(notSubject);
+  it("is refused when a line chooses it by id — only the VAT-off policy names it", () => {
+    expect(() => resolveAppliedTaxRate(WITH_SYSTEM, { taxRateId: SYSTEM_NOT_SUBJECT_TAX_RATE_ID }, 14)).toThrow(SystemTaxRateOnlyError);
+    expect(() => resolveZeroRatedTaxRate(WITH_SYSTEM, { taxRateId: SYSTEM_NOT_SUBJECT_TAX_RATE_ID }, exemptCustomer("EXEMPT"))).toThrow(SystemTaxRateOnlyError);
+    expect(resolveZeroRatedTaxRate(WITH_SYSTEM, { taxRateId: SYSTEM_NOT_SUBJECT_TAX_RATE_ID }, VAT_OFF)).toEqual(notSubject);
+  });
+
+  it("is never read off an exempt customer's card", () => {
+    expect(resolveZeroRatedTaxRate(WITH_SYSTEM, {}, exemptCustomer(SYSTEM_NOT_SUBJECT_TAX_RATE_ID))).toEqual({ taxRateId: null, taxRatePercent: 0 });
   });
 
   it("stores no rate where the tenant's master does not hold it", () => {

@@ -10,6 +10,9 @@ import {
   Qty,
   SalesInvoiceService,
   SalesInvoiceField,
+  SalesInvoiceNotDraftError,
+  SalesInvoiceLineNotFoundError,
+  SALES_TAX_RECALCULATED_NOTICE_AR,
   DocumentChangedError,
   computeInvoiceTotals,
   InvalidSalesInvoiceError,
@@ -66,6 +69,7 @@ import {
   createSalesInvoiceSchema,
   confirmSalesInvoiceSchema,
   salesInvoicePaymentSchema,
+  editSalesInvoiceDraftLineSchema,
   salesInvoiceListQuerySchema,
   salesInvoiceSchema,
   classifyLineTaxSchema,
@@ -214,6 +218,10 @@ export interface SalesInvoiceRoutesDeps {
    */
   readonly stockRestore?: DocumentStockHook;
   readonly withdrawUnsentEtaSubmission?: (invoice: SalesInvoice) => Promise<void>;
+  /** Runs in the cancel's own transaction — hands a converted quote back as accepted. */
+  readonly onDraftCancelled?: (invoice: SalesInvoice) => Promise<void>;
+  /** The rate an item is sold under, for a line re-rated when the VAT switch has moved. */
+  readonly itemTax?: (itemId: string) => Promise<{ readonly taxRatePercent: number } | null>;
   readonly audit?: AuditSink;
   readonly allocatable?: AllocatableInvoiceRepository;
   /**
@@ -581,6 +589,13 @@ export function createSalesInvoicesRoutes(
       pricing: deps.pricing,
       taxPolicy: deps.taxPolicy,
       taxRates: deps.taxRates,
+      taxRerating: {
+        customerExemptionRateId: async (customerId) => {
+          const profile = await customerTaxProfileOf(deps.customerTax, customerId);
+          return profile.taxExempt ? profile.taxExemptionRateId : null;
+        },
+        itemTax: async (itemId) => (await deps.itemTax?.(itemId)) ?? null,
+      },
       taxTags: deps.taxTags,
       taxFiling: deps.taxFiling,
       taxDependents: deps.taxDependents,
@@ -1168,6 +1183,7 @@ export function createSalesInvoicesRoutes(
         etaReceipt,
         ...(etaReceiptError ? { etaReceiptError } : {}),
         held: result.held,
+        ...(result.taxRecalculated ? { taxRecalculated: { message: SALES_TAX_RECALCULATED_NOTICE_AR } } : {}),
         creditWarning: serializeCreditWarning(result.creditWarning),
         // Lines charged under the customer's own price list (D35). Empty when
         // no list applies, so a tenant that prices freely sees nothing new.
@@ -1194,10 +1210,46 @@ export function createSalesInvoicesRoutes(
     if (stale) return stale;
     const svc = service(c);
     try {
-      const invoice = await svc.cancel(c.req.param("id"));
+      const invoice = await deps.repo.transaction(async () => {
+        const cancelled = await svc.cancel(c.req.param("id"));
+        await deps.onDraftCancelled?.(cancelled);
+        return cancelled;
+      });
       await stampDocumentModifier(deps.versionGuard, invoice.id, getAuthContext(c)?.userId);
       return c.json(serialize(invoice, totalsFor(svc, invoice)));
     } catch (err) {
+      return handleDomainError(c, err);
+    }
+  });
+
+  app.patch("/:id/lines/:lineId", gate("sales.invoice.edit"), async (c) => {
+    const body: unknown = await c.req.json().catch(() => null);
+    const parsed = editSalesInvoiceDraftLineSchema.safeParse(body);
+    if (!parsed.success) {
+      return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    }
+    const svc = service(c);
+    const invoice = await svc.findByIdOrDocNo(c.req.param("id"));
+    if (!invoice) return c.json({ error: "NOT_FOUND" }, 404);
+    if (ownVisibilityOnly(c) && invoice.salespersonId !== (await ownSalespersonIdOf(c))) {
+      return c.json({ error: "NOT_FOUND" }, 404);
+    }
+    const stale = await refuseStaleDocument(c, deps.versionGuard, invoice.id, expectedVersionOf(body));
+    if (stale) return stale;
+    try {
+      const edited = await svc.editDraftLine(invoice.id, c.req.param("lineId"), {
+        ...(parsed.data.qty !== undefined ? { qty: Qty.fromMajor(parsed.data.qty) } : {}),
+        ...(parsed.data.unitPrice !== undefined ? { unitPrice: Money.fromMajor(parsed.data.unitPrice) } : {}),
+        ...(parsed.data.taxRateId !== undefined ? { taxRateId: parsed.data.taxRateId } : {}),
+      });
+      await stampDocumentModifier(deps.versionGuard, edited.id, getAuthContext(c)?.userId);
+      return c.json({
+        ...serialize(edited, totalsFor(svc, edited), Money.zero(), maySeeCost(c)),
+        version: await documentVersionOf(deps.versionGuard, edited.id),
+      });
+    } catch (err) {
+      if (err instanceof SalesInvoiceNotDraftError) return c.json({ error: err.code, message: err.message }, 409);
+      if (err instanceof SalesInvoiceLineNotFoundError) return c.json({ error: err.code, message: err.message }, 404);
       return handleDomainError(c, err);
     }
   });

@@ -53,3 +53,25 @@ export class InvalidSalesInvoicePaymentError extends Error {
     this.name = "InvalidSalesInvoicePaymentError";
   }
 }
+
+export class SalesInvoiceNotDraftError extends Error {
+  readonly code = "SALES_INVOICE_NOT_DRAFT";
+  constructor(
+    readonly invoiceId: string,
+    readonly status: SalesInvoiceStatus,
+  ) {
+    super(`لا يُعدَّل بند فاتورة في حالة "${SALES_INVOICE_STATUS_LABELS_AR[status]}" — التعديل للمسودة وحدها؛ الفاتورة المرحّلة تُصحَّح بمرتجع.`);
+    this.name = "SalesInvoiceNotDraftError";
+  }
+}
+
+export class SalesInvoiceLineNotFoundError extends Error {
+  readonly code = "SALES_INVOICE_LINE_NOT_FOUND";
+  constructor(
+    readonly invoiceId: string,
+    readonly lineId: string,
+  ) {
+    super(`البند ${lineId} غير موجود على الفاتورة ${invoiceId}.`);
+    this.name = "SalesInvoiceLineNotFoundError";
+  }
+}

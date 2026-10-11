@@ -62,12 +62,15 @@ export type {
 } from "./ports.js";
 export { SalesInvoiceField } from "./ports.js";
 
-export { salesTaxPolicyFromSettings, salesTaxPolicySource, SalesPricingMode, type SalesTaxPolicySource } from "./tax-policy.js";
+export { salesTaxPolicyFromSettings, salesTaxPolicySource, SalesPricingMode, SALES_TAX_RECALCULATED_NOTICE_AR, type SalesTaxPolicySource } from "./tax-policy.js";
 
 export {
   SalesInvoiceService,
   applyAllocatedSettlement,
   type SalesInvoiceServiceDeps,
+  type SalesTaxReratingPort,
+  type EditSalesInvoiceDraftLineCommand,
+  SalesInvoiceDraftAuditAction,
   type SalesInvoicePricingDeps,
   type ContractBillingRouting,
   type ContractBillingRoutingPort,
@@ -100,6 +103,8 @@ export {
   DuplicateSalesInvoiceError,
   InvalidSalesInvoiceTransitionError,
   InvalidSalesInvoicePaymentError,
+  SalesInvoiceNotDraftError,
+  SalesInvoiceLineNotFoundError,
 } from "./errors.js";
 
 export {

@@ -139,6 +139,21 @@ export const confirmSalesInvoiceSchema = z.object({
  * without it was how the invoice's `amountPaid` drifted from the ledger (D1).
  * The route creates and confirms a real collection voucher and allocates it.
  */
+/**
+ * تعديل بند مسودة — one line of a DRAFT invoice. At least one field; a posted
+ * invoice refuses it.
+ */
+export const editSalesInvoiceDraftLineSchema = z
+  .object({
+    qty: moneyString.optional(),
+    unitPrice: moneyString.optional(),
+    taxRateId: z.string().min(1).optional(),
+  })
+  .refine((change) => change.qty !== undefined || change.unitPrice !== undefined || change.taxRateId !== undefined, {
+    message: "حدّد الكمية أو السعر أو الضريبة المراد تعديلها.",
+  });
+export type EditSalesInvoiceDraftLineDTO = z.infer<typeof editSalesInvoiceDraftLineSchema>;
+
 export const salesInvoicePaymentSchema = z.object({
   amount: moneyString,
   treasuryAccountId: z.string().min(1),

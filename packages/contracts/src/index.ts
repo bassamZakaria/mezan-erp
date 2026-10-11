@@ -683,6 +683,8 @@ export {
   createSalesInvoiceSchema,
   confirmSalesInvoiceSchema,
   salesInvoicePaymentSchema,
+  editSalesInvoiceDraftLineSchema,
+  type EditSalesInvoiceDraftLineDTO,
   salesInvoiceListQuerySchema,
   salesInvoiceStatsSchema,
   salesInvoiceFilterKeySchema,

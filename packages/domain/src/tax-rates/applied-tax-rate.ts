@@ -1,5 +1,6 @@
 import {
   InactiveTaxRateError,
+  SystemTaxRateOnlyError,
   TaxRateAlreadyClassifiedError,
   TaxRateClassificationPercentError,
   TaxRateNotFoundError,
@@ -7,7 +8,7 @@ import {
   TaxRateUnverifiableError,
 } from "./errors.js";
 import { TaxRateStatusCode, type TaxRate } from "./tax-rate.js";
-import { systemNotSubjectRateIn } from "./system-tax-rates.js";
+import { isSystemTaxRate, systemNotSubjectRateIn } from "./system-tax-rates.js";
 
 export interface AppliedTaxRate {
   readonly taxRateId: string | null;
@@ -37,6 +38,15 @@ export function inferTaxRateByPercent<T extends Pick<TaxRate, "id" | "rate" | "s
   return matches.length === 1 ? (matches[0] ?? null) : null;
 }
 
+// INVARIANT: the system's «غير خاضع» rate is never CHOSEN. It is named by the
+// VAT-off policy alone, so a line, a customer card or a purchase that asks for
+// it by id is refused — a tenant inside VAT declares 0% under a rate of its own.
+function requireChosenRate(taxRates: readonly RateIdentity[], taxRateId: string): RateIdentity {
+  const rate = requireNamedRate(taxRates, taxRateId);
+  if (isSystemTaxRate(rate.id)) throw new SystemTaxRateOnlyError(rate.id, rate.name);
+  return rate;
+}
+
 function requireNamedRate(taxRates: readonly RateIdentity[], taxRateId: string): RateIdentity {
   const rate = taxRates.find((r) => r.id === taxRateId);
   if (!rate) throw new TaxRateNotFoundError(taxRateId);
@@ -50,7 +60,7 @@ export function resolveAppliedTaxRate(
   defaultPercent: number,
 ): AppliedTaxRate {
   if (typeof request.taxRateId === "string") {
-    const rate = requireNamedRate(taxRates, request.taxRateId);
+    const rate = requireChosenRate(taxRates, request.taxRateId);
     const claimed = request.taxRatePercent ?? null;
     if (claimed !== null && claimed !== rate.rate) {
       throw new TaxRatePercentMismatchError(rate.id, rate.name, rate.rate, claimed);
@@ -77,7 +87,7 @@ function policyRateId(taxRates: readonly RateIdentity[], zeroRating: ZeroRating)
       return systemNotSubjectRateIn(taxRates)?.id ?? null;
     case ZeroRatingCause.ExemptCustomer: {
       const rate = taxRates.find((r) => r.id === zeroRating.exemptionTaxRateId);
-      return rate && rate.status === TaxRateStatusCode.Active && rate.rate === 0 ? rate.id : null;
+      return rate && rate.status === TaxRateStatusCode.Active && rate.rate === 0 && !isSystemTaxRate(rate.id) ? rate.id : null;
     }
   }
 }
@@ -94,7 +104,7 @@ export function resolveZeroRatedTaxRate(
   zeroRating: ZeroRating,
 ): AppliedTaxRate {
   if (typeof request.taxRateId === "string") {
-    const rate = requireNamedRate(taxRates, request.taxRateId);
+    const rate = zeroRating.cause === ZeroRatingCause.VatOff ? requireNamedRate(taxRates, request.taxRateId) : requireChosenRate(taxRates, request.taxRateId);
     if (rate.rate === 0) return { taxRateId: rate.id, taxRatePercent: 0 };
   }
   return { taxRateId: policyRateId(taxRates, zeroRating), taxRatePercent: 0 };

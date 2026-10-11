@@ -175,6 +175,21 @@ export class SalesQuoteService {
     return converted;
   }
 
+  /**
+   * INVARIANT: a quote is `converted` only while the draft it became still
+   * exists. Cancelling that draft hands the quote back as accepted, so the
+   * customer's agreed quote can be raised again instead of being stranded.
+   */
+  async reopenConvertedBy(invoiceId: string): Promise<SalesQuote | null> {
+    return this.deps.repo.transaction(async () => {
+      const quote = (await this.deps.repo.list({ status: "converted" })).find((candidate) => candidate.convertedInvoiceId === invoiceId);
+      if (!quote) return null;
+      const reopened: SalesQuote = { ...quote, status: "accepted", convertedAt: null, convertedInvoiceId: null };
+      await this.deps.repo.update(reopened);
+      return reopened;
+    });
+  }
+
   // --- internals ---
 
   private buildDraft(cmd: CreateSalesQuoteCommand, taxRates: readonly TaxRate[] | null, vatOff: boolean): SalesQuote {

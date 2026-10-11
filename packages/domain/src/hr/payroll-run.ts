@@ -49,6 +49,9 @@ export const ALLOWED_PAYROLL_RUN_TRANSITIONS: Record<PayrollRunStatus, readonly 
   cancelled: [],
 };
 
+/** A run in one of these can no longer be recalculated: what it paid stands. */
+export const PAYROLL_RUN_FINAL_STATUSES: ReadonlySet<PayrollRunStatus> = new Set<PayrollRunStatus>(["approved", "disbursed"]);
+
 export function canTransitionPayrollRun(from: PayrollRunStatus, to: PayrollRunStatus): boolean {
   return ALLOWED_PAYROLL_RUN_TRANSITIONS[from].includes(to);
 }

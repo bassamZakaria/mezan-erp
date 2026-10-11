@@ -1,4 +1,4 @@
-import { InvalidEmployeeError, InvalidEmployeeTransitionError } from "./errors.js";
+import { InvalidEmployeeError, InvalidEmployeeTransitionError, TerminationBeforePaidPayrollError } from "./errors.js";
 import { canTransitionEmployee, type Employee, type EmployeeStatus } from "./employee.js";
 
 /** Transitions an employee to a new status if the state machine allows it. */
@@ -16,7 +16,7 @@ export function transitionEmployee(employee: Employee, to: EmployeeStatus): Empl
  * states — not the instant the button was pressed, which made someone who left
  * on the twelfth look in service until whenever HR recorded it.
  */
-export function terminateEmployee(employee: Employee, effectiveDate: string, today: string = effectiveDate): Employee {
+export function terminateEmployee(employee: Employee, effectiveDate: string, today: string = effectiveDate, paidThrough: string | null = null): Employee {
   if (!canTransitionEmployee(employee.status, "terminated")) {
     throw new InvalidEmployeeTransitionError(employee.status, "terminated");
   }
@@ -25,6 +25,8 @@ export function terminateEmployee(employee: Employee, effectiveDate: string, tod
   }
   if (effectiveDate > today) throw new InvalidEmployeeError(["تاريخ إنهاء الخدمة لا يمكن أن يكون بعد اليوم"]);
   if (effectiveDate < employee.hireDate) throw new InvalidEmployeeError(["تاريخ إنهاء الخدمة لا يمكن أن يسبق تاريخ التعيين"]);
+  // `paidThrough` is the end of the latest month an approved or disbursed run paid this employee for: such a run cannot be recalculated, so an earlier last day would leave the overpayment with no document to correct it.
+  if (paidThrough !== null && effectiveDate < paidThrough) throw new TerminationBeforePaidPayrollError(effectiveDate, paidThrough);
   return { ...employee, status: "terminated", terminatedAt: effectiveDate };
 }
 

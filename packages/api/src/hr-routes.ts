@@ -39,6 +39,8 @@ import {
   InvalidJobTitleError,
   EmployeeNotFoundError,
   InvalidEmployeeError,
+  TerminationBeforePaidPayrollError,
+  PAYROLL_RUN_FINAL_STATUSES,
   InvalidEmployeeTransitionError,
   ContractNotFoundError,
   InvalidContractError,
@@ -290,6 +292,7 @@ function handleDomainError(c: Context, err: unknown): Response {
     err instanceof InvalidJobTitleError ||
     err instanceof InvalidEmployeeError ||
     err instanceof InvalidEmployeeTransitionError ||
+    err instanceof TerminationBeforePaidPayrollError ||
     err instanceof InvalidContractError ||
     err instanceof ContractNotActiveError ||
     err instanceof InvalidHolidayError ||
@@ -553,6 +556,14 @@ export function createHrRoutes(deps: HrRoutesDeps, resolveAuthContext: AuthConte
     }
   });
 
+  async function paidThroughOf(employeeId: string): Promise<string | null> {
+    if (!deps.payroll?.payslips || !deps.payroll.runs) return null;
+    const runs = new Map((await deps.payroll.runs.list()).map((run) => [run.id, run]));
+    return (await deps.payroll.payslips.listByEmployeeId(employeeId))
+      .filter((payslip) => PAYROLL_RUN_FINAL_STATUSES.has(runs.get(payslip.runId)?.status ?? "draft"))
+      .reduce<string | null>((latest, payslip) => (latest === null || payslip.periodEnd > latest ? payslip.periodEnd : latest), null);
+  }
+
   app.post("/employees/:id/terminate", gate("hr.employee.terminate"), async (c) => {
     const current = await deps.employees.findById(c.req.param("id"));
     if (!current) return c.json({ error: "EMPLOYEE_NOT_FOUND" }, 404);
@@ -560,7 +571,7 @@ export function createHrRoutes(deps: HrRoutesDeps, resolveAuthContext: AuthConte
       const body = (await c.req.json().catch(() => ({}))) as { effectiveDate?: unknown };
       const today = await tenantToday(c);
       const requested = body.effectiveDate === undefined || body.effectiveDate === null ? today : String(body.effectiveDate);
-      const next = terminateEmployee(current, requested, today);
+      const next = terminateEmployee(current, requested, today, await paidThroughOf(current.id));
       await deps.employees.update(next);
       return c.json(serializeEmployee(next));
     } catch (err) {

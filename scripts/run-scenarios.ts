@@ -1,6 +1,7 @@
 // Must stay the first import: it moves the clock before any module reads it.
 import "./scenarios/fake-clock.js";
 import { boot } from "./scenarios/harness.js";
+import { run as demoClose } from "./scenarios/demo-close.js";
 import { run as sales } from "./scenarios/sales.js";
 import { run as purchases } from "./scenarios/purchases.js";
 import { run as inventory } from "./scenarios/inventory.js";
@@ -54,6 +55,15 @@ const exactlyZero = (label: string, inv: Awaited<ReturnType<typeof ctx.invariant
 exactlyZero("baseline", start);
 
 const only = new Set(process.argv.slice(2));
+
+// ALWAYS, and first: it reads the demo's closed months as shipped, then reopens
+// them — the state every other suite, run alone or together, was written against.
+{
+  process.stdout.write("  demo-close…");
+  const before = ctx.passes.length + ctx.failures.length;
+  await demoClose(ctx);
+  console.log(` ${ctx.passes.length + ctx.failures.length - before} assertions`);
+}
 
 if (!only.size || only.has("reports")) {
   process.stdout.write("  seeded-tenant…");

@@ -1,6 +1,6 @@
 import type { ScenarioFragment } from "./fragments.js";
 
-const SEEDED_PERIOD = "fp-2026-06";
+const SEEDED_PERIOD = "fp-2026-08";
 const YEAR = 2019;
 const DRAFT_DATE = `${YEAR}-06-15`;
 const DRAFT_ID = "SCN-PC-DRAFT-1";

@@ -285,9 +285,8 @@ export async function importHistoricalSalesDocuments(
       createdBy: command.createdBy ?? "system",
       createdAt: nowIso(deps),
     };
-    await deps.archives.create(archive);
-    archived.push(archive);
-
+    // The entry first: if the ledger refuses it — a closed month — nothing is
+    // archived, or the sub-ledger would owe a balance no entry carries.
     if (!archive.settled && deps.gl && deps.accounts) {
       const isReturn = archive.docType === "SALES_RETURN";
       const lines: HistoricalSalesImportGlPostingLine[] = isReturn
@@ -308,6 +307,8 @@ export async function importHistoricalSalesDocuments(
         lines,
       });
     }
+    await deps.archives.create(archive);
+    archived.push(archive);
   }
 
   return { archived, errors };

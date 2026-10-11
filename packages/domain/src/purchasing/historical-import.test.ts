@@ -167,6 +167,20 @@ describe("importHistoricalPurchaseDocuments", () => {
     expect(posting.lines[1]?.credit.toString()).toBe("60.000000");
   });
 
+  it("archives nothing when the opening entry is refused — a document dated into a closed month is not left owed with no entry behind it", async () => {
+    const archives = new InMemoryArchives();
+    const gl = {
+      async post(): Promise<never> {
+        throw new Error("PERIOD_NOT_OPEN_FOR_POSTING");
+      },
+    };
+    const rows: HistoricalImportRowInput[] = [
+      row({ rowNumber: 1, docType: "PURCHASE_INVOICE", unitCost: Money.fromMajor("100.00"), amountPaid: Money.fromMajor("40.00") }),
+    ];
+    await expect(importHistoricalPurchaseDocuments({ importBatchId: "batch-1", rows }, { archives, gl, accounts: ACCOUNTS, now })).rejects.toThrow("PERIOD_NOT_OPEN_FOR_POSTING");
+    expect(await archives.list()).toEqual([]);
+  });
+
   it("posts the mirrored direction for an unsettled PURCHASE_RETURN", async () => {
     const archives = new InMemoryArchives();
     const gl = new RecordingGlPort();

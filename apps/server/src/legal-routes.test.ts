@@ -128,4 +128,25 @@ describe("legal pages", () => {
     expect(statuses.slice(0, 5)).toEqual([201, 201, 201, 201, 201]);
     expect(statuses[5]).toBe(429);
   });
+
+  it("counts a deletion request against the hop the trusted proxy appended, never a hop the caller wrote ahead of it", async () => {
+    const send = vi.fn(async () => ({ outcome: "sent" as const, detail: "250" }));
+    const app = createLegalRoutes({
+      platform, supportEmail: "support@mezan.test", platformSmtp: SMTP, now: () => new Date(T), send,
+      clientSource: { trustedProxyHops: 2, trustViewerAddress: false, compareViewerAddress: false },
+    });
+    const from = (chain: string, i: number) => {
+      const request = form({ companyCode: "acme", email: `u${i}@acme.test` });
+      request.headers.set("x-forwarded-for", chain);
+      return app.fetch(request);
+    };
+
+    const statuses: number[] = [];
+    for (let i = 0; i < 6; i += 1) statuses.push((await from(`9.9.9.${i}, 5.5.5.5, 130.176.0.7`, i)).status);
+    expect(statuses).toEqual([201, 201, 201, 201, 201, 429]);
+
+    expect((await from("5.5.5.5, 41.33.10.10, 130.176.0.7", 7)).status).toBe(201);
+    expect((await from("130.176.0.7", 8)).status).toBe(503);
+    expect(send).toHaveBeenCalledTimes(6);
+  });
 });

@@ -87,4 +87,19 @@ describe("a cloud caller behind the two-hop proxy", () => {
     expect((await h.send("/api/platform/tenants", { token })).status).toBe(200);
     expect((await h.send("/api/platform/tenants", { token, client: "66.66.66.66" })).status).toBe(401);
   });
+
+  it("reads the deletion form's caller only after the origin secret has proved the request crossed the edge", async () => {
+    const h = await bootCloudHarness({ vars: { MEZAN_ORIGIN_SECRET: "edge-secret", MEZAN_SUPPORT_EMAIL: "support@mezan.test" } });
+    harnesses.push(h);
+    const post = (headers: Record<string, string>) =>
+      h.send("/legal/account-deletion", {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded", ...headers },
+        body: new URLSearchParams({ companyCode: "acme", email: "a@acme.test" }).toString(),
+      });
+
+    expect((await post({})).status).toBe(403);
+    expect((await post({ "x-mezan-origin": "edge-secret" })).status).not.toBe(403);
+    expect((await h.send("/legal/privacy")).status).toBe(200);
+  });
 });

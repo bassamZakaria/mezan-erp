@@ -35,9 +35,9 @@ therefore never reads the leftmost entry. It counts from the right
 
 | Variable | Default | What it does |
 | --- | --- | --- |
-| `MEZAN_TRUST_PROXY` | `0` | `1` trusts `x-forwarded-host` and lets the two settings below apply. `0`: the socket's peer is the address, whatever the headers say. |
-| `MEZAN_TRUSTED_PROXY_HOPS` | `1` with `MEZAN_TRUST_PROXY=1`, else `0` | How many proxies in front of the server append to `x-forwarded-for`. The client is the entry that many places from the right. Refused without `MEZAN_TRUST_PROXY=1`. |
-| `MEZAN_TRUST_VIEWER_ADDRESS` | `0` | `1` reads the client from `CloudFront-Viewer-Address` when present (falling back to the hop count). Refused without `MEZAN_TRUST_PROXY=1` **and** `MEZAN_ORIGIN_SECRET`: the header is only CloudFront's word when nothing reaches the origin except through CloudFront. Applies under `/api/*` only — `/legal/*` sits above the origin-secret gate and never believes it. |
+| `MEZAN_TRUST_PROXY` | `0` | `1` trusts `x-forwarded-host` and lets the two settings below apply; the socket is then never read. `0`: the socket's peer is the address, whatever the headers say. |
+| `MEZAN_TRUSTED_PROXY_HOPS` | none — **required** with `MEZAN_TRUST_PROXY=1` | How many proxies in front of the server append to `x-forwarded-for` (1 or more). The client is the entry that many places from the right. The server **refuses to start** with `MEZAN_TRUST_PROXY=1` and no count, and with a count but no `MEZAN_TRUST_PROXY=1`. |
+| `MEZAN_TRUST_VIEWER_ADDRESS` | `0` | `1` reads the client from `CloudFront-Viewer-Address` when present (falling back to the hop count). Refused without `MEZAN_TRUST_PROXY=1` **and** `MEZAN_ORIGIN_SECRET`: the header is only CloudFront's word when nothing reaches the origin except through CloudFront. The deletion form's `POST /legal/account-deletion` passes the origin-secret gate before its address is read, like `/api/*`; the legal pages themselves stay public. |
 
 Set the hop count to the deployment's real chain, or the limits key on the
 wrong machine:
@@ -49,8 +49,22 @@ wrong machine:
 | AWS (CloudFront → API Gateway → VPC link → task) | CloudFront appends the viewer, API Gateway appends the CloudFront edge | `2` |
 
 Too low a count keys every client behind one proxy address (one office's typos
-hold everybody); too high a count reads an entry the caller wrote. A chain
-shorter than the count falls back to the socket's peer.
+hold everybody); too high a count reads an entry the caller wrote.
+
+There is no fallback. With a proxy trusted, a request whose chain is shorter
+than the count, or whose entry at that place is not an address (`unknown`, an
+obfuscated token, empty), has **no** address: it is answered `503
+SOURCE_UNRESOLVED` in Arabic and the server logs `CLIENT ADDRESS UNRESOLVED`
+(at most one line a minute). It is never counted as the host's own console and
+never as the socket's peer. An entry carrying a port (`1.2.3.4:5678`,
+`[2001:db8::1]:5678`) is read without it, and one IPv6 address is one key
+however it is spelled.
+
+Where `MEZAN_ORIGIN_SECRET` is set, every request also carries CloudFront's own
+`CloudFront-Viewer-Address`, and the server compares it with the address the
+hop count produced. A disagreement means the hop count is wrong for the
+deployment; it is logged as `CLIENT ADDRESS MISMATCH` (at most one line a
+minute) and should be treated as a misconfiguration alarm.
 
 The tenant router hands the address it worked out to the tenant backend with
 each forwarded request, so a tenant session is bound to the address that signed

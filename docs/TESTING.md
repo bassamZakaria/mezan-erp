@@ -8434,6 +8434,19 @@ with a `retry-after`; a different client that writes `10.44.0.1` ahead of
 itself still gets through; and a chain too short to hold a client is answered
 503 `SOURCE_UNRESOLVED`.
 
+Sign-in never waits on the company lookup (`GET /api/platform/resolve`). Spec
+03 fails that request in the browser (`page.route`) two ways: a 502 HTML page
+on the bare host, where the form and the company-code field are there at once,
+no «إعادة المحاولة» panel and no alert appear, the lookup is retried by itself,
+no `/api/tenant`, `/api/entitlements` or `/api/bootstrap/status` request leaves
+before a company is typed, and a typed company signs in; and a 500 on a tenant
+subdomain, where the screen settles into subdomain mode without a click once
+the lookup answers and the owner signs in while it is still failing. Spec 02
+holds the «انتهت الجلسة» notice to two rules: it is on the sign-in screen after
+a session is revoked, whichever of the page's requests meets the 401 first,
+and it is still there after the page is loaded again, until the first PIN
+digit is typed.
+
 Timeouts, and the load they were measured at. On a 12-core machine shared with
 other test runs, at a 1-minute load average of 6 to 39 (nine full runs on
 2026-10-11, three of them alongside `pnpm build`s of this repo): a

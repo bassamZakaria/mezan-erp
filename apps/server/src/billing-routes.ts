@@ -26,7 +26,7 @@ import {
 import {
   createCardCheckoutRequestSchema,
   startModuleTrialRequestSchema,
-  subscriptionStatusSchema,
+  subscriptionStatusOf,
   type BillingLimitDTO,
   type BillingModuleDTO,
   type BillingQuotaDTO,
@@ -252,7 +252,7 @@ export function createTenantBillingRoutes(options: TenantBillingRoutesOptions): 
       subscription:
         subscription && plan && amountDue !== null
           ? {
-              status: subscriptionStatusSchema.parse(subscription.status),
+              status: subscriptionStatusOf(subscription.status),
               billingCycle: subscription.billingCycle,
               currentPeriodEnd: subscription.currentPeriodEnd,
               planNameAr: plan.nameAr,

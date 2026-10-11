@@ -3,7 +3,7 @@ import "@testing-library/jest-dom/vitest";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, screen, within } from "@testing-library/react";
 import { useLocation } from "react-router";
-import { LicenseStateCode, SubscriptionStatusCode, type PlanDTO, type TenantSummaryDTO } from "@mezan/contracts";
+import { LicenseStateCode, SubscriptionStatusCode, TenantWireStatus, type PlanDTO, type TenantSummaryDTO } from "@mezan/contracts";
 import type { Transport } from "../data/transport";
 import { TenantsPage } from "./TenantsPage";
 import { renderWithPlatformProviders, stubPlatformTransport, testPlatformSession } from "./test-support";
@@ -37,7 +37,7 @@ const tenantSummary: TenantSummaryDTO = {
     nameAr: "شركة أكمي",
     nameEn: "Acme Co",
     ownerEmail: "owner@acme.test",
-    status: "active",
+    status: TenantWireStatus.Active,
     dbFile: "tenants/acme.db",
     createdAt: "2026-09-01T00:00:00.000Z",
     updatedAt: "2026-09-01T00:00:00.000Z",
@@ -106,6 +106,23 @@ describe("TenantsPage", () => {
     expect(screen.getByText("نشطة")).toBeInTheDocument();
     expect(screen.getByText("الترخيص نشط")).toBeInTheDocument();
     expect(screen.getByText("01/10/2026")).toBeInTheDocument();
+  });
+
+  it("marks the one row whose stored subscription status is not recognised as needing review, beside a normal row", async () => {
+    const odd: TenantSummaryDTO = {
+      ...tenantSummary,
+      tenant: { ...tenantSummary.tenant, id: "tenant-2", code: "oddone", nameAr: "منشأة غريبة" },
+      subscription: tenantSummary.subscription && { ...tenantSummary.subscription, id: "sub-2", tenantId: "tenant-2", status: SubscriptionStatusCode.Unknown },
+    };
+    renderWithPlatformProviders(<TenantsPage />, {
+      transport: stubPlatformTransport({ ...baseHandlers(), "GET /tenants": () => ({ body: [tenantSummary, odd] }) }),
+      initialSession: testPlatformSession,
+    });
+
+    const oddRow = (await screen.findByText("oddone")).closest("tr");
+    expect(oddRow).toHaveTextContent("غير معروفة — تحتاج مراجعة");
+    expect(screen.getByText("acme").closest("tr")).toHaveTextContent("الترخيص نشط");
+    expect(screen.getByText("acme").closest("tr")).not.toHaveTextContent("غير معروفة");
   });
 
   it("marks a tenant on trial as «تجريبي» in the licence column, so an operator can tell it from a paying one (D-SAAS-09)", async () => {

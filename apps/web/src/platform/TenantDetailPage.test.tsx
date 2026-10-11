@@ -3,7 +3,7 @@ import "@testing-library/jest-dom/vitest";
 import { beforeEach, describe, expect, it } from "vitest";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { Route, Routes } from "react-router";
-import { LicenseStateCode, SubscriptionStatusCode, type PlanDTO, type TenantSummaryDTO } from "@mezan/contracts";
+import { LicenseStateCode, SubscriptionStatusCode, TenantWireStatus, type PlanDTO, type TenantSummaryDTO } from "@mezan/contracts";
 import { TenantDetailPage } from "./TenantDetailPage";
 import { renderWithPlatformProviders, stubPlatformTransport, testPlatformSession } from "./test-support";
 import type { PlatformSession } from "./session";
@@ -48,7 +48,7 @@ function makeSummary(overrides: Partial<TenantSummaryDTO["tenant"]> = {}, subOve
       nameAr: "شركة أكمي",
       nameEn: "Acme Co",
       ownerEmail: "owner@acme.test",
-      status: "active",
+      status: TenantWireStatus.Active,
       dbFile: "tenants/acme.db",
       createdAt: "2026-09-01T00:00:00.000Z",
       updatedAt: "2026-09-01T00:00:00.000Z",
@@ -158,7 +158,7 @@ describe("TenantDetailPage", () => {
   });
 
   it("shows resume, not suspend, for a suspended tenant", async () => {
-    const summary = makeSummary({ status: "suspended" });
+    const summary = makeSummary({ status: TenantWireStatus.Suspended });
     const transport = stubPlatformTransport({
       "GET /tenants/tenant-1": () => ({ body: summary }),
       "GET /plans": () => ({ body: [plan, plan2] }),

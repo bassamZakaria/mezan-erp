@@ -10,9 +10,16 @@ import {
   type SubscriptionTransitionRepository,
   type PlatformUser, type PlatformUserRepository,
   type SignupRequest, type SignupRequestRepository, SignupRequestStatus,
-  type Subscription,
-  type Tenant, type TenantRepository,
+  type Subscription, SUBSCRIPTION_STATUSES,
+  type Tenant, type TenantRepository, TenantStatusCode,
 } from "@mezan/domain";
+
+const TENANT_STATUSES: readonly string[] = Object.values(TenantStatusCode);
+
+// A status outside the closed set would be read back by every list this row appears in; refuse it at the one door in.
+function assertKnownStatus(kind: string, status: string, known: readonly string[]): void {
+  if (!known.includes(status)) throw new Error(`refusing to store ${kind} status "${status}"`);
+}
 
 const CREATE_TABLES = `
 CREATE TABLE IF NOT EXISTS tenant (
@@ -228,6 +235,7 @@ class SqliteTenantStore implements TenantRepository {
   }
 
   async save(t: Tenant): Promise<void> {
+    assertKnownStatus("tenant", t.status, TENANT_STATUSES);
     this.upsert.run({
       id: t.id, code: t.code, nameAr: t.nameAr, nameEn: t.nameEn, ownerEmail: t.ownerEmail,
       status: t.status, dbFile: t.dbFile, createdAt: t.createdAt, updatedAt: t.updatedAt,
@@ -422,6 +430,7 @@ class SqliteSubscriptionStore implements SubscriptionTransitionRepository {
   }
 
   async save(s: Subscription): Promise<void> {
+    assertKnownStatus("subscription", s.status, SUBSCRIPTION_STATUSES);
     this.upsert.run({
       id: s.id, tenantId: s.tenantId, planId: s.planId, status: s.status, billingCycle: s.billingCycle,
       addOnModules: JSON.stringify(s.addOnModules), extraSeats: s.extraSeats, extraBranches: s.extraBranches,

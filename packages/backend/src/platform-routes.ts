@@ -55,7 +55,8 @@ import {
   subscriptionResumeRequestSchema,
   recordPaymentRequestSchema,
   planCreateRequestSchema,
-  subscriptionStatusSchema,
+  subscriptionStatusOf,
+  tenantDTOOf,
   licenseStateNameSchema,
   planUpdateRequestSchema,
   createPlatformUserRequestSchema,
@@ -97,12 +98,7 @@ export interface CreatePlatformRoutesOptions {
   readonly cardCheckout?: PlatformCardCheckoutPort;
 }
 
-function serializeTenant(t: Tenant): TenantDTO {
-  return {
-    id: t.id, code: t.code, nameAr: t.nameAr, nameEn: t.nameEn, ownerEmail: t.ownerEmail,
-    status: t.status, dbFile: t.dbFile, createdAt: t.createdAt, updatedAt: t.updatedAt,
-  };
-}
+const serializeTenant = (t: Tenant): TenantDTO => tenantDTOOf(t);
 
 /** The wire enum is a zod literal (`@mezan/contracts` may not import the domain); this is the one place it becomes `PlanKind`. */
 function planKindOf(kind: PlanKindDTO | undefined): PlanKind | undefined {
@@ -150,7 +146,7 @@ async function tenantSummary(platform: PlatformHandle, tenant: Tenant, nowIso: s
     tenant: serializeTenant(tenant),
     subscription: subscription
       ? {
-          id: subscription.id, tenantId: subscription.tenantId, planId: subscription.planId, status: subscriptionStatusSchema.parse(subscription.status),
+          id: subscription.id, tenantId: subscription.tenantId, planId: subscription.planId, status: subscriptionStatusOf(subscription.status),
           billingCycle: subscription.billingCycle, addOnModules: [...subscription.addOnModules],
           extraSeats: subscription.extraSeats, extraBranches: subscription.extraBranches, extraWarehouses: subscription.extraWarehouses,
           currentPeriodStart: subscription.currentPeriodStart, currentPeriodEnd: subscription.currentPeriodEnd,

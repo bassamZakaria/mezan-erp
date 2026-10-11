@@ -1,6 +1,7 @@
 import { randomInt, randomUUID } from "node:crypto";
 import { activateTenant, createTenant, normalizeEmail, startSubscription, TenantCodeTakenError, TenantStatusCode, type BillingCycle, type Tenant } from "@mezan/domain";
 import { OwnerPinResetOutcome, TenantOwnerAccountNotFoundError, type PlatformHandle } from "@mezan/backend";
+import { tenantDTOOf, type ProvisionResultDTO } from "@mezan/contracts";
 import type { TenantRouter } from "./tenant-router.js";
 
 export interface ProvisionTenantCommand {
@@ -27,6 +28,10 @@ export interface ProvisionTenantResult {
   readonly tenant: Tenant;
   readonly adminEmail: string;
   readonly adminPin: string | null;
+}
+
+export function provisionResultDTOOf(result: ProvisionTenantResult): ProvisionResultDTO {
+  return { tenant: tenantDTOOf(result.tenant), adminEmail: result.adminEmail, adminPin: result.adminPin };
 }
 
 export class TenantProvisioningError extends Error {

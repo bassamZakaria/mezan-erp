@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { DocumentDetail, Button, Card, StatusPill } from "@mezan/ui";
-import type { TenantSettingsDTO, UpdateTenantSettingsDTO } from "@mezan/contracts";
+import { COMPANY_NAME_MAX_LENGTH, type TenantSettingsDTO, type UpdateTenantSettingsDTO } from "@mezan/contracts";
+import { companyNameError } from "../company-name";
 import { useSettings, useUpdateSettings, useSendTestEmail } from "../data/hooks";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { MaintenancePanel } from "./MaintenancePanel";
@@ -78,6 +79,11 @@ function SettingsForm({ initial }: { initial: TenantSettingsDTO }) {
   }
 
   async function handleSave() {
+    const nameError = companyNameError(draft.companyName, t);
+    if (nameError) {
+      setError(nameError);
+      return;
+    }
     try {
       const saved = await updateSettingsMutation.mutateAsync(draft as UpdateTenantSettingsDTO);
       setDraft(saved);
@@ -126,7 +132,12 @@ function SettingsForm({ initial }: { initial: TenantSettingsDTO }) {
           label: t("settingsGeneral.companyDetails"),
           content: (
             <SectionCard title={t("settingsGeneral.companyDetails")}>
-              <TextField label={t("settingsGeneral.companyName")} value={draft.companyName} onChange={(v) => patch({ companyName: v })} />
+              <TextField
+                label={t("settingsGeneral.companyName")}
+                value={draft.companyName}
+                maxLength={COMPANY_NAME_MAX_LENGTH}
+                onChange={(v) => patch({ companyName: v })}
+              />
               <TextField
                 label={t("common.taxNumber")}
                 value={draft.taxRegistrationNumber}

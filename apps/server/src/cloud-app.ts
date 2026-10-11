@@ -16,7 +16,7 @@ import { createSessionRegistry } from "@mezan/api";
 import { TenantNotFoundError, type Tenant } from "@mezan/domain";
 import type { CreateTenantRequestDTO, OwnerPinResetResultDTO, ProvisionResultDTO, ProvisionRetryRequestDTO } from "@mezan/contracts";
 import { createTenantRouter, requireOriginSecret, type TenantRouter } from "./tenant-router.js";
-import { generateOwnerPin, platformActor, provisionTenant, PlanRequiredError } from "./provision-tenant.js";
+import { generateOwnerPin, platformActor, provisionResultDTOOf, provisionTenant, PlanRequiredError } from "./provision-tenant.js";
 import { createSignupRoutes, SIGNUP_BASE_PATH } from "./signup-routes.js";
 import { provisionDemoTenant } from "./demo-tenant.js";
 import { provisionReviewTenant } from "./review-tenant.js";
@@ -112,8 +112,8 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
     if (created) console.log(`[cloud] reviewer tenant "${env.reviewTenant.code}" seeded; every login uses MEZAN_REVIEW_PIN.`);
   }
 
-  const provisionTenantForRoutes = (cmd: CreateTenantRequestDTO & { actorId: string }): Promise<ProvisionResultDTO> =>
-    provisionTenant(cmd, { platform, router, now });
+  const provisionTenantForRoutes = async (cmd: CreateTenantRequestDTO & { actorId: string }): Promise<ProvisionResultDTO> =>
+    provisionResultDTOOf(await provisionTenant(cmd, { platform, router, now }));
 
   const provisionRetryForRoutes = async (input: { tenantId: string; actorId: string } & ProvisionRetryRequestDTO): Promise<ProvisionResultDTO> => {
     const tenant = await platform.stores.tenants.findById(input.tenantId);
@@ -122,7 +122,7 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
     const planId = live?.planId ?? input.planId;
     const billingCycle = live?.billingCycle ?? input.billingCycle;
     if (!planId || !billingCycle) throw new PlanRequiredError();
-    return provisionTenant(
+    const provisioned = await provisionTenant(
       {
         code: tenant.code,
         nameAr: tenant.nameAr,
@@ -136,6 +136,7 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
       },
       { platform, router, now },
     );
+    return provisionResultDTOOf(provisioned);
   };
 
   const resetOwnerPinForRoutes = async (input: { tenant: Tenant; actorId: string }): Promise<OwnerPinResetResultDTO> => {

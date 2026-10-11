@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { COMPANY_NAME_MAX_LENGTH as DOMAIN_MAX, companyNameProblem } from "@mezan/domain";
-import { COMPANY_NAME_MAX_LENGTH as WIRE_MAX, companyNameSchema } from "@mezan/contracts";
+import { COMPANY_NAME_MAX_LENGTH as DOMAIN_MAX, companyNameProblem, SUBSCRIPTION_STATUSES, TenantStatusCode } from "@mezan/domain";
+import { COMPANY_NAME_MAX_LENGTH as WIRE_MAX, companyNameSchema, SubscriptionStatusCode, TenantWireStatus, updateTenantSettingsSchema } from "@mezan/contracts";
 
 const FORBIDDEN = [
   ...Array.from({ length: 0x20 }, (_, code) => code),
@@ -39,8 +39,30 @@ describe("the company-name rule is the same on the wire and in the domain", () =
     expect(companyNameSchema.parse(name)).toBe(name);
   });
 
+  it.each(SAMPLES.map((sample) => [JSON.stringify(sample).slice(0, 40), sample]))("the settings screen's save agrees on %s", (_shown, sample) => {
+    expect(updateTenantSettingsSchema.safeParse({ companyName: sample }).success).toBe(companyNameProblem(sample) === null);
+  });
+
+  it("still accepts a settings save that does not touch the company name", () => {
+    expect(updateTenantSettingsSchema.safeParse({ phone: "0100" }).success).toBe(true);
+  });
+
   it("refuses every forbidden character and keeps every joiner and mark", () => {
     expect(FORBIDDEN.filter((character) => companyNameSchema.safeParse(`a${character}b`).success)).toEqual([]);
     expect(KEPT.filter((character) => !companyNameSchema.safeParse(`a${character}b`).success)).toEqual([]);
+  });
+});
+
+describe("the closed status sets are the same on the wire and in the domain", () => {
+  const storable = (codes: Record<string, string>) => Object.values(codes).filter((code) => code !== "unknown").sort();
+
+  it("names every tenant status the domain can store, plus the read-only unknown", () => {
+    expect(storable(TenantWireStatus)).toEqual(Object.values(TenantStatusCode).sort());
+    expect(Object.values(TenantStatusCode)).not.toContain(TenantWireStatus.Unknown);
+  });
+
+  it("names every subscription status the domain can store, plus the read-only unknown", () => {
+    expect(storable(SubscriptionStatusCode)).toEqual([...SUBSCRIPTION_STATUSES].sort());
+    expect(SUBSCRIPTION_STATUSES).not.toContain(SubscriptionStatusCode.Unknown);
   });
 });

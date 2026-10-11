@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { createSessionRegistry } from "@mezan/api";
 import { createPlatformUser, createTenant, activateTenant, startSubscription } from "@mezan/domain";
-import type { CreateTenantRequestDTO, ProvisionResultDTO, ProvisionRetryRequestDTO } from "@mezan/contracts";
+import { tenantDTOOf, type CreateTenantRequestDTO, type ProvisionResultDTO, type ProvisionRetryRequestDTO } from "@mezan/contracts";
 import { createPlatform, type PlatformHandle } from "./create-platform.js";
 import { createPlatformAuth, type PlatformAuth } from "./platform-auth.js";
 import { createPlatformRoutes, TenantOwnerAccountNotFoundError } from "./platform-routes.js";
@@ -74,7 +74,7 @@ async function buildRig(): Promise<Rig> {
       platform.stores.subscriptions,
       platform.stores.plans,
     );
-    return { tenant: active, adminEmail: cmd.ownerEmail, adminPin: "482913" };
+    return { tenant: tenantDTOOf(active), adminEmail: cmd.ownerEmail, adminPin: "482913" };
   };
 
   const provisionRetry = async ({ tenantId, planId, billingCycle, trial }: { tenantId: string } & ProvisionRetryRequestDTO): Promise<ProvisionResultDTO> => {
@@ -88,7 +88,7 @@ async function buildRig(): Promise<Rig> {
         platform.stores.plans,
       );
     }
-    return { tenant, adminEmail: tenant.ownerEmail, adminPin: null };
+    return { tenant: tenantDTOOf(tenant), adminEmail: tenant.ownerEmail, adminPin: null };
   };
 
   const app = createPlatformRoutes({

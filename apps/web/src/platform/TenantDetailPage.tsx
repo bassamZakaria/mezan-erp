@@ -2,8 +2,15 @@ import { useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
 import { Button, Card, ConfirmDialog, Money, Select, StatusPill, useFormat } from "@mezan/ui";
 import { MODULES } from "@mezan/domain";
-import { TenantStatusCode } from "@mezan/domain";
-import type { BillingCycleDTO, OwnerPinResetResultDTO, ProvisionResultDTO, SubscriptionStatusDTO } from "@mezan/contracts";
+import {
+  SubscriptionStatusCode,
+  TenantWireStatus,
+  type BillingCycleDTO,
+  type OwnerPinResetResultDTO,
+  type ProvisionResultDTO,
+  type SubscriptionStatusDTO,
+  type TenantStatusDTO,
+} from "@mezan/contracts";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { moduleLabel } from "../domain-labels";
 import { SelectField, TextAreaField, ToggleField } from "../settings/form-controls";
@@ -33,38 +40,39 @@ const BILLING_CYCLE_LABEL: Record<BillingCycleDTO, AppTranslationKey> = {
 };
 
 const SUBSCRIPTION_STATUS_LABEL: Record<SubscriptionStatusDTO, AppTranslationKey> = {
-  trialing: "platform.subscriptionStatus.trialing",
-  active: "platform.subscriptionStatus.active",
-  past_due: "platform.subscriptionStatus.past_due",
-  suspended: "platform.subscriptionStatus.suspended",
-  cancelled: "platform.subscriptionStatus.cancelled",
+  [SubscriptionStatusCode.Trialing]: "platform.subscriptionStatus.trialing",
+  [SubscriptionStatusCode.Active]: "platform.subscriptionStatus.active",
+  [SubscriptionStatusCode.PastDue]: "platform.subscriptionStatus.past_due",
+  [SubscriptionStatusCode.Suspended]: "platform.subscriptionStatus.suspended",
+  [SubscriptionStatusCode.Cancelled]: "platform.subscriptionStatus.cancelled",
+  [SubscriptionStatusCode.Unknown]: "platform.status.unknown",
 };
 
 /** Mirrors `TRANSITIONS` in `packages/domain/src/platform/tenant.ts` — suspend only from `active`, resume only from `suspended`, archive from either. */
-function canSuspendTenant(status: string): boolean {
-  return status === "active";
+function canSuspendTenant(status: TenantStatusDTO): boolean {
+  return status === TenantWireStatus.Active;
 }
-function canResumeTenant(status: string): boolean {
-  return status === "suspended";
+function canResumeTenant(status: TenantStatusDTO): boolean {
+  return status === TenantWireStatus.Suspended;
 }
-function canArchiveTenant(status: string): boolean {
-  return status === "active" || status === "suspended";
+function canArchiveTenant(status: TenantStatusDTO): boolean {
+  return status === TenantWireStatus.Active || status === TenantWireStatus.Suspended;
 }
-function canResetOwnerPin(status: string): boolean {
-  return status === TenantStatusCode.Active || status === TenantStatusCode.Suspended;
+function canResetOwnerPin(status: TenantStatusDTO): boolean {
+  return status === TenantWireStatus.Active || status === TenantWireStatus.Suspended;
 }
 /** Mirrors `changePlan`/`cancelSubscription`/`suspendSubscription`/`resumeSubscription` in `packages/domain/src/platform/subscription.ts`. */
 function canChangePlan(status: SubscriptionStatusDTO): boolean {
-  return status === "trialing" || status === "active" || status === "past_due";
+  return status === SubscriptionStatusCode.Trialing || status === SubscriptionStatusCode.Active || status === SubscriptionStatusCode.PastDue;
 }
 function canCancelSubscription(status: SubscriptionStatusDTO): boolean {
-  return status !== "cancelled";
+  return status !== SubscriptionStatusCode.Cancelled && status !== SubscriptionStatusCode.Unknown;
 }
 function canSuspendSubscription(status: SubscriptionStatusDTO): boolean {
-  return status === "active" || status === "past_due";
+  return status === SubscriptionStatusCode.Active || status === SubscriptionStatusCode.PastDue;
 }
 function canResumeSubscription(status: SubscriptionStatusDTO): boolean {
-  return status === "suspended";
+  return status === SubscriptionStatusCode.Suspended;
 }
 
 const FAILURE_REASON_KEY: Readonly<Record<string, AppTranslationKey>> = {
@@ -201,7 +209,7 @@ export function TenantDetailPage() {
 
       {isOwner ? (
         <div className="flex flex-wrap gap-[9px]">
-          {tenant.status === "provisioning" ? (
+          {tenant.status === TenantWireStatus.Provisioning ? (
             <Button
               variant="primary"
               disabled={retryProvision.isPending}
@@ -244,7 +252,7 @@ export function TenantDetailPage() {
         </div>
       ) : null}
 
-      {tenant.status === "provisioning" && showRetryPicker && !subscription ? (
+      {tenant.status === TenantWireStatus.Provisioning && showRetryPicker && !subscription ? (
         <Card className="p-[16px]">
           <h2 className="mb-[12px] text-[13px] font-bold text-ink">{t("platform.tenantDetail.retryProvision")}</h2>
           <div className="flex flex-col gap-[14px]">

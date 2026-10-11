@@ -19,12 +19,13 @@ import { requestOrigin, sendNotificationEmail } from "@mezan/api";
 import type { PlatformHandle } from "@mezan/backend";
 import {
   startSignupRequestSchema,
+  tenantDTOOf,
   verifySignupRequestSchema,
   type PublicPlanDTO,
   type StartSignupResultDTO,
   type VerifySignupResultDTO,
 } from "@mezan/contracts";
-import { provisionTenant, ProvisioningSupersededError, TenantProvisioningError } from "./provision-tenant.js";
+import { provisionResultDTOOf, provisionTenant, ProvisioningSupersededError, TenantProvisioningError } from "./provision-tenant.js";
 import { forwardedOrigin } from "./billing-routes.js";
 import { createRateLimiter } from "./rate-limit.js";
 import type { CloudEnv } from "./env.js";
@@ -292,7 +293,7 @@ export function createSignupRoutes(options: SignupRoutesOptions): Hono {
   }
 
   function alreadyVerifiedAnswer(tenant: Tenant, request: SignupRequest): VerifySignupResultDTO {
-    return { tenant, adminEmail: request.ownerEmail, adminPin: null, alreadyVerified: true };
+    return { tenant: tenantDTOOf(tenant), adminEmail: request.ownerEmail, adminPin: null, alreadyVerified: true };
   }
 
   async function settleVerification(request: SignupRequest, stillOurs: () => Promise<boolean>): Promise<VerifySignupResultDTO> {
@@ -314,7 +315,7 @@ export function createSignupRoutes(options: SignupRoutesOptions): Hono {
         { platform, router, now, stillOurs },
       );
       router.invalidate(provisioned.tenant.code);
-      return { ...provisioned, alreadyVerified: provisioned.adminPin === null };
+      return { ...provisionResultDTOOf(provisioned), alreadyVerified: provisioned.adminPin === null };
     } catch (err) {
       if (err instanceof ProvisioningSupersededError) throw err;
       const settledMeanwhile = await tenantSettledBy(request).catch(() => null);

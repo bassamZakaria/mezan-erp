@@ -60,7 +60,23 @@ export const createPlatformUserRequestSchema = z.object({
   role: platformRoleSchema,
 });
 
-export const tenantStatusSchema = z.enum(["provisioning", "active", "suspended", "archived"]);
+// Mirrors `TenantStatusCode` in @mezan/domain by hand, because this package cannot import it;
+// `apps/server/src/company-name-parity.test.ts` fails when the two disagree.
+export enum TenantWireStatus {
+  Provisioning = "provisioning",
+  Active = "active",
+  Suspended = "suspended",
+  Archived = "archived",
+  /** Never stored: see `SubscriptionStatusCode.Unknown`. */
+  Unknown = "unknown",
+}
+
+export const tenantStatusSchema = z.nativeEnum(TenantWireStatus);
+
+export function tenantStatusOf(stored: string): TenantWireStatus {
+  const parsed = tenantStatusSchema.safeParse(stored);
+  return parsed.success ? parsed.data : TenantWireStatus.Unknown;
+}
 
 export const tenantSchema = z.object({
   id: z.string().min(1),
@@ -73,6 +89,14 @@ export const tenantSchema = z.object({
   createdAt: isoLikeSchema,
   updatedAt: isoLikeSchema,
 });
+
+/** The one place a stored tenant becomes its wire shape: every route that answers a tenant goes through it. */
+export function tenantDTOOf(stored: Omit<z.infer<typeof tenantSchema>, "status"> & { readonly status: string }): z.infer<typeof tenantSchema> {
+  return {
+    id: stored.id, code: stored.code, nameAr: stored.nameAr, nameEn: stored.nameEn, ownerEmail: stored.ownerEmail,
+    status: tenantStatusOf(stored.status), dbFile: stored.dbFile, createdAt: stored.createdAt, updatedAt: stored.updatedAt,
+  };
+}
 
 export const billingCycleSchema = z.enum(["monthly", "yearly"]);
 
@@ -143,9 +167,16 @@ export enum SubscriptionStatusCode {
   PastDue = "past_due",
   Suspended = "suspended",
   Cancelled = "cancelled",
+  /** Never stored: what a read answers for a stored value this build does not recognise, so one odd row cannot fail a whole list. */
+  Unknown = "unknown",
 }
 
 export const subscriptionStatusSchema = z.nativeEnum(SubscriptionStatusCode);
+
+export function subscriptionStatusOf(stored: string): SubscriptionStatusCode {
+  const parsed = subscriptionStatusSchema.safeParse(stored);
+  return parsed.success ? parsed.data : SubscriptionStatusCode.Unknown;
+}
 
 export const subscriptionSchema = z.object({
   id: z.string().min(1),

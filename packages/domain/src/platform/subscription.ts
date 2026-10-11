@@ -10,7 +10,8 @@ import {
   TenantAlreadySubscribedError,
 } from "./errors.js";
 
-export type SubscriptionStatus = "trialing" | "active" | "past_due" | "suspended" | "cancelled";
+export const SUBSCRIPTION_STATUSES = ["trialing", "active", "past_due", "suspended", "cancelled"] as const;
+export type SubscriptionStatus = (typeof SUBSCRIPTION_STATUSES)[number];
 
 export enum SubscriptionTransition {
   TrialEndedToFree = "TRIAL_ENDED_TO_FREE",

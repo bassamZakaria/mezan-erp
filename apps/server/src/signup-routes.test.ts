@@ -3,6 +3,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
+import { openSqliteConnection } from "@mezan/persistence";
+import { SubscriptionStatusCode } from "@mezan/contracts";
 import { createBackend, createPlatform, type PlatformHandle } from "@mezan/backend";
 import { TenantStatusCode, type Subscription } from "@mezan/domain";
 import { createCloudApp, type CloudApp } from "./cloud-app.js";
@@ -861,5 +863,50 @@ describe("a signup verification whose provisioning claim is contested", () => {
     const delivered = (await (await held).json()) as VerifyBody;
     expect(delivered).toMatchObject({ alreadyVerified: false });
     expect((await tenantLogin(holder.router, "living", delivered.adminPin)).status).toBe(200);
+  });
+});
+
+describe("a stored subscription status this build does not know", () => {
+  it("is shown as unknown on that tenant's row and its own billing card, while every other tenant still lists", async () => {
+    const app = await boot();
+    const odd = (await (await post(app, "/api/signup/verify", { token: await startAndReadToken(app, "oddone") })).json()) as VerifyBody;
+    await post(app, "/api/signup/verify", { token: await startAndReadToken(app, "fineone") });
+    const session = ((await (await cloudLogin(app, "oddone", odd.adminPin ?? "")).json()) as { token: string }).token;
+    const raw = openSqliteConnection(path.join(dirs[dirs.length - 1] ?? "", "platform.db")).sqlite;
+    raw.prepare("UPDATE subscription SET status = 'paused' WHERE tenant_id = ?").run(odd.tenant.id);
+    raw.close();
+
+    const listed = await app.root.fetch(
+      new Request("http://cloud.internal/api/platform/tenants", { headers: { authorization: `Bearer ${await platformBearer(app)}` } }),
+    );
+
+    expect(listed.status).toBe(200);
+    const rows = (await listed.json()) as { tenant: { code: string }; subscription: { status: string } | null }[];
+    expect(Object.fromEntries(rows.map((row) => [row.tenant.code, row.subscription?.status]))).toEqual({
+      oddone: SubscriptionStatusCode.Unknown,
+      fineone: SubscriptionStatusCode.Trialing,
+    });
+    const billing = await app.root.fetch(
+      new Request("http://cloud.internal/api/billing/subscription", { headers: { authorization: `Bearer ${session}`, "x-mezan-tenant": "oddone" } }),
+    );
+    expect(billing.status).toBe(200);
+    expect(((await billing.json()) as { subscription: { status: string } }).subscription.status).toBe(SubscriptionStatusCode.Unknown);
+  });
+
+  it("is refused on the way in, so it can only arrive from outside the product", async () => {
+    const dataDir = platformDir();
+    const platform = await openPlatform(dataDir);
+    const router = createTenantRouter({ platform, dataDir, sweepEveryMs: 0, now: () => new Date(T) });
+    routers.push(router);
+    const { tenant } = await provisionTenant(
+      { code: "strict", nameAr: "صارمة", ownerEmail: "owner@strict.example", ownerNameAr: "المالك", planId: "PLAN-CORE", billingCycle: "monthly", trial: false },
+      { platform, router, now: () => new Date(T) },
+    );
+    const live = await platform.stores.subscriptions.findLiveByTenant(tenant.id);
+
+    await expect(platform.stores.subscriptions.save({ ...live!, status: "paused" as Subscription["status"] })).rejects.toThrow(/paused/);
+    await expect(platform.stores.tenants.save({ ...tenant, status: "frozen" as typeof tenant.status })).rejects.toThrow(/frozen/);
+    expect((await platform.stores.subscriptions.findLiveByTenant(tenant.id))?.status).toBe("active");
+    expect((await platform.stores.tenants.findById(tenant.id))?.status).toBe("active");
   });
 });

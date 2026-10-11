@@ -1,19 +1,21 @@
 import { StatusPill, type PillTone } from "@mezan/ui";
-import { LicenseStateCode, SubscriptionStatusCode, type LicenseStateNameDTO, type SubscriptionStatusDTO, type TenantStatusDTO } from "@mezan/contracts";
+import { LicenseStateCode, SubscriptionStatusCode, TenantWireStatus, type LicenseStateNameDTO, type SubscriptionStatusDTO, type TenantStatusDTO } from "@mezan/contracts";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
 const TENANT_STATUS_TONE: Record<TenantStatusDTO, PillTone> = {
-  provisioning: "info",
-  active: "success",
-  suspended: "warning",
-  archived: "neutral",
+  [TenantWireStatus.Provisioning]: "info",
+  [TenantWireStatus.Active]: "success",
+  [TenantWireStatus.Suspended]: "warning",
+  [TenantWireStatus.Archived]: "neutral",
+  [TenantWireStatus.Unknown]: "danger",
 };
 
 const TENANT_STATUS_LABEL: Record<TenantStatusDTO, AppTranslationKey> = {
-  provisioning: "platform.tenantStatus.provisioning",
-  active: "platform.tenantStatus.active",
-  suspended: "platform.tenantStatus.suspended",
-  archived: "platform.tenantStatus.archived",
+  [TenantWireStatus.Provisioning]: "platform.tenantStatus.provisioning",
+  [TenantWireStatus.Active]: "platform.tenantStatus.active",
+  [TenantWireStatus.Suspended]: "platform.tenantStatus.suspended",
+  [TenantWireStatus.Archived]: "platform.tenantStatus.archived",
+  [TenantWireStatus.Unknown]: "platform.status.unknown",
 };
 
 export function TenantStatusChip({ status }: { status: TenantStatusDTO }) {
@@ -45,6 +47,9 @@ export function LicenseStateChip({ state }: { state: LicenseStateNameDTO }) {
 
 export function TenantLicenceChip({ state, subscriptionStatus }: { state: LicenseStateNameDTO; subscriptionStatus: SubscriptionStatusDTO | null }) {
   const { t } = useAppTranslation();
+  if (subscriptionStatus === SubscriptionStatusCode.Unknown) {
+    return <StatusPill label={t("platform.status.unknown")} tone="danger" />;
+  }
   if (state === LicenseStateCode.Active && subscriptionStatus === SubscriptionStatusCode.Trialing) {
     return <StatusPill label={t("platform.subscriptionStatus.trialing")} tone="info" />;
   }

@@ -7,7 +7,8 @@ import {
   TextInput,
 } from "@mezan/ui";
 import type { BootstrapSeedResultDTO } from "@mezan/contracts";
-import { COMPANY_NAME_MAX_LENGTH, CompanyNameProblem, companyNameProblem } from "@mezan/domain";
+import { COMPANY_NAME_MAX_LENGTH } from "@mezan/domain";
+import { companyNameError } from "../company-name";
 import {
   isDesktopHost,
   useBootstrapSeed,
@@ -49,12 +50,6 @@ const STEPS = [
 ] as const satisfies readonly { key: string; labelKey: AppTranslationKey }[];
 
 type StepKey = (typeof STEPS)[number]["key"];
-
-const COMPANY_NAME_ERROR: Record<CompanyNameProblem, AppTranslationKey> = {
-  [CompanyNameProblem.Empty]: "firstRun.companyNameRequired",
-  [CompanyNameProblem.TooLong]: "firstRun.companyNameTooLong",
-  [CompanyNameProblem.ForbiddenCharacter]: "firstRun.companyNameForbidden",
-};
 
 export interface FirstRunWizardProps {
   onFinish: () => void;
@@ -140,9 +135,9 @@ export function FirstRunWizard({ onFinish, onCancel }: FirstRunWizardProps) {
 
 
   function handleAdminNext() {
-    const nameProblem = companyNameProblem(companyName);
-    if (nameProblem) {
-      setAdminError(t(COMPANY_NAME_ERROR[nameProblem]));
+    const nameError = companyNameError(companyName, t);
+    if (nameError) {
+      setAdminError(nameError);
       return;
     }
     if (!adminName.trim() || !adminEmail.trim()) {

@@ -156,8 +156,24 @@ function toVoucherLine(d: {
   costCenterId: string | null;
   projectId?: string | null;
   costCategory?: CostCategoryDTO | null;
+  treasuryFx?: VoucherRowDTO["treasuryFx"];
 }): VoucherLine {
-  return { ...d, amount: Money.fromMajor(d.amount) };
+  const leg = d.treasuryFx;
+  return {
+    ...d,
+    amount: Money.fromMajor(d.amount),
+    treasuryFx: leg
+      ? {
+          currency: leg.currency,
+          fxRate: leg.fxRate,
+          foreignAmount: Money.fromMajor(leg.foreignAmount),
+          ...(leg.carryingBase ? { carryingBase: Money.fromMajor(leg.carryingBase) } : {}),
+          ...(leg.realised ? { realised: Money.fromMajor(leg.realised) } : {}),
+          ...(leg.realisedAccountId ? { realisedAccountId: leg.realisedAccountId } : {}),
+        }
+      : null,
+    counterTreasuryFx: null,
+  };
 }
 
 function toPreviewDoc(line: VoucherLine, extra: { id: string; date: string; memo: string; status: VoucherDocument["status"] }): VoucherDocument {

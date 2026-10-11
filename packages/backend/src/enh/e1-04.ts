@@ -122,7 +122,7 @@ function buildSources(ctx: BackendModuleContext, store: ReturnType<typeof create
   const accountBalances = ledgerBalances(stores.ledger);
 
   // A currency is foreign-and-open when a monetary account still holds some of it. A treasury line posted before lines carried a currency is read at the rate of its own day; one whose day has no approved rate cannot be read at all, and its currency stays listed until a rate is entered.
-  async function foreignCurrencies(window: PeriodCloseWindow): Promise<string[]> {
+  async function openForeignBalances(window: PeriodCloseWindow) {
     const tagged = queries.openFxLineGroups(window.endDate).map((group) => asPostedLine(group, window.endDate));
     const unreadable = new Set<string>();
     const derived: PostedLine[] = [];
@@ -131,8 +131,21 @@ function buildSources(ctx: BackendModuleContext, store: ReturnType<typeof create
       if (fxRate) derived.push(asPostedLine({ accountId: group.accountId, currency: group.currency, fxRate, memo: null, debit: group.debit, credit: group.credit }, group.date));
       else if (group.debit.scaled !== group.credit.scaled) unreadable.add(group.currency);
     }
-    const open = deriveOpenFxBalances([...tagged, ...derived], await stores.accounts.list()).filter((balance) => balance.foreignAmount.scaled !== 0n);
+    return { balances: deriveOpenFxBalances([...tagged, ...derived], await stores.accounts.list()), unreadable };
+  }
+
+  async function foreignCurrencies(window: PeriodCloseWindow): Promise<string[]> {
+    const { balances, unreadable } = await openForeignBalances(window);
+    const open = balances.filter((balance) => balance.foreignAmount.scaled !== 0n);
     return [...new Set([...open.map((balance) => balance.currency), ...unreadable])].sort();
+  }
+
+  async function foreignResidues(window: PeriodCloseWindow) {
+    const { balances } = await openForeignBalances(window);
+    const treasury = await ctx.treasuryFx.foreignCurrencyByGlAccount();
+    return balances
+      .filter((balance) => treasury.get(balance.accountId) === balance.currency && balance.foreignAmount.scaled === 0n && balance.bookedBase.scaled !== 0n)
+      .map((balance) => ({ accountId: balance.accountId, currency: balance.currency, label: balance.label ?? balance.accountId, base: balance.bookedBase }));
   }
 
   return {
@@ -193,6 +206,7 @@ function buildSources(ctx: BackendModuleContext, store: ReturnType<typeof create
     },
 
     foreignCurrencies,
+    foreignResidues,
     fxRevaluedCurrencies: async (window) => fxRuns.currenciesRevaluedAsOf(window.endDate),
 
     async recurringDue(window) {

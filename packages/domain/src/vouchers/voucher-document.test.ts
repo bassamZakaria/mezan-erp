@@ -172,6 +172,47 @@ describe("voucherDocumentType.describeEffects", () => {
   });
 });
 
+describe("money leaving a foreign-currency treasury account at its carrying amount", () => {
+  const drained = () => {
+    const base = doc({ voucherType: "other_expense", amount: Money.fromMajor("1200"), treasuryGlAccountId: "1310-USD", counterpartyGlAccountId: "5910" });
+    const line: VoucherLine = {
+      ...base.lines[0]!,
+      currency: "USD",
+      fxRate: "49.35",
+      treasuryFx: { currency: "USD", fxRate: "49.35", foreignAmount: Money.fromMajor("1200"), carryingBase: Money.fromMajor("58680"), realised: Money.fromMajor("540"), realisedAccountId: "4920" },
+    };
+    return { ...base, lines: [line] };
+  };
+
+  it("posts the difference from the document rate on the account, base only, against the realised account — and still balances", () => {
+    const lines = voucherDocumentType.buildGlPosting!(drained())!.lines;
+    expect(lines.map((l) => [l.accountId, l.debit.toString(), l.credit.toString(), l.memo ?? null])).toEqual([
+      ["5910", "59220.000000", "0.000000", null],
+      ["1310-USD", "0.000000", "59220.000000", null],
+      ["1310-USD", "540.000000", "0.000000", "فروق عملة محققة"],
+      ["4920", "0.000000", "540.000000", "فروق عملة محققة"],
+    ]);
+    expect(Money.sum(lines.map((l) => l.debit)).toString()).toBe(Money.sum(lines.map((l) => l.credit)).toString());
+  });
+
+  it("a loss debits the realised account and credits the account", () => {
+    const voucher = drained();
+    const line = voucher.lines[0]!;
+    const lossy = { ...voucher, lines: [{ ...line, treasuryFx: { ...line.treasuryFx!, carryingBase: Money.fromMajor("59520"), realised: Money.fromMajor("-300"), realisedAccountId: "5920" } }] };
+    const lines = voucherDocumentType.buildGlPosting!(lossy)!.lines.slice(2);
+    expect(lines.map((l) => [l.accountId, l.debit.toString(), l.credit.toString()])).toEqual([
+      ["5920", "300.000000", "0.000000"],
+      ["1310-USD", "0.000000", "300.000000"],
+    ]);
+  });
+
+  it("says so in what the voucher does", () => {
+    expect(voucherDocumentType.describeEffects(drained()).effects.map((e) => e.description)).toContain(
+      "فروق عملة محققة: ربح 540.00 — خرج 1200.00 USD من الحساب بقيمته الدفترية 58680.00 وسعر السند 49.35",
+    );
+  });
+});
+
 describe("withholding tax on a payment voucher (خصم وتحصيل)", () => {
   const validate = (document: VoucherDocument) => voucherDocumentType.validate?.(document);
 

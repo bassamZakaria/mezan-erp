@@ -229,11 +229,25 @@ const fxCheck: PeriodCloseCheckDefinition = {
   code: PeriodCloseCheckCode.FxRevaluation,
   fix: PeriodCloseFixTarget.Revaluation,
   async evaluate(window, sources) {
-    const currencies = await sources.foreignCurrencies(window);
-    if (currencies.length === 0) return outcome([], false);
+    const [currencies, residues] = await Promise.all([sources.foreignCurrencies(window), sources.foreignResidues(window)]);
+    if (currencies.length === 0 && residues.length === 0) return outcome([], false);
     const revalued = new Set(await sources.fxRevaluedCurrencies(window));
-    return outcome(
-      currencies.map((currency) => {
+    const stranded = residues.map((residue) =>
+      finding({
+        kind: PeriodCloseFindingKind.ForeignResidue,
+        ref: residue.accountId,
+        label: residue.label,
+        state: PeriodCloseFindingState.Mismatch,
+        passed: false,
+        fix: PeriodCloseFixTarget.Revaluation,
+        amount: residue.base,
+        asOfDate: window.endDate,
+        items: [residue.currency],
+      }),
+    );
+    return outcome([
+      ...stranded,
+      ...currencies.map((currency) => {
         const done = revalued.has(currency) || revalued.has(FX_REVALUATION_ALL_CURRENCIES);
         return finding({
           kind: PeriodCloseFindingKind.ForeignCurrency,
@@ -245,7 +259,7 @@ const fxCheck: PeriodCloseCheckDefinition = {
           asOfDate: window.endDate,
         });
       }),
-    );
+    ]);
   },
 };
 

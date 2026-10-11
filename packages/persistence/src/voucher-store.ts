@@ -187,20 +187,41 @@ interface StoredTreasuryLegFx {
   readonly currency: string;
   readonly fxRate: string;
   readonly foreignAmount: string;
+  readonly carryingBase?: string;
+  readonly realised?: string;
+  readonly realisedAccountId?: string;
 }
 
 function parseTreasuryFx(raw: string | null): Pick<VoucherLine, "treasuryFx" | "counterTreasuryFx"> {
   if (!raw) return { treasuryFx: null, counterTreasuryFx: null };
   const stored = JSON.parse(raw) as { treasury?: StoredTreasuryLegFx | null; counter?: StoredTreasuryLegFx | null };
   const leg = (value: StoredTreasuryLegFx | null | undefined): TreasuryLegFx | null =>
-    value ? { currency: value.currency, fxRate: value.fxRate, foreignAmount: Money.fromMajor(value.foreignAmount) } : null;
+    value
+      ? {
+          currency: value.currency,
+          fxRate: value.fxRate,
+          foreignAmount: Money.fromMajor(value.foreignAmount),
+          ...(value.carryingBase === undefined ? {} : { carryingBase: Money.fromMajor(value.carryingBase) }),
+          ...(value.realised === undefined ? {} : { realised: Money.fromMajor(value.realised) }),
+          ...(value.realisedAccountId === undefined ? {} : { realisedAccountId: value.realisedAccountId }),
+        }
+      : null;
   return { treasuryFx: leg(stored.treasury), counterTreasuryFx: leg(stored.counter) };
 }
 
 function storedTreasuryFx(line: VoucherLine): string | null {
   if (!line.treasuryFx && !line.counterTreasuryFx) return null;
   const leg = (value: TreasuryLegFx | null | undefined): StoredTreasuryLegFx | null =>
-    value ? { currency: value.currency, fxRate: value.fxRate, foreignAmount: value.foreignAmount.toString() } : null;
+    value
+      ? {
+          currency: value.currency,
+          fxRate: value.fxRate,
+          foreignAmount: value.foreignAmount.toString(),
+          ...(value.carryingBase ? { carryingBase: value.carryingBase.toString() } : {}),
+          ...(value.realised ? { realised: value.realised.toString() } : {}),
+          ...(value.realisedAccountId ? { realisedAccountId: value.realisedAccountId } : {}),
+        }
+      : null;
   return JSON.stringify({ treasury: leg(line.treasuryFx), counter: leg(line.counterTreasuryFx) });
 }
 

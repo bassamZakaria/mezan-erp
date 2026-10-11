@@ -55,6 +55,26 @@ export function convertFromBase(base: Money, rate: string): Money {
   return Money.fromScaled(divRound(base.scaled * SCALE, rateScaled));
 }
 
+/**
+ * FX_CARRYING_RELIEF — the one place a carrying amount is rounded: what
+ * `foreignOut` of a position holding `foreign` at `base` is carried at, the
+ * weighted-average share, half-away-from-zero at the 1e-6 money scale.
+ * INVARIANT: an outflow that takes all the foreign money takes all the base,
+ * so a position with no foreign money left has no base left either. What the
+ * position does not hold is not carried at anything and comes back as zero.
+ */
+export function carryingBaseOf(position: { readonly foreign: Money; readonly base: Money }, foreignOut: Money): { readonly covered: Money; readonly base: Money } {
+  if (position.foreign.scaled <= 0n || foreignOut.scaled <= 0n) return { covered: Money.zero(), base: Money.zero() };
+  if (foreignOut.scaled >= position.foreign.scaled) return { covered: position.foreign, base: position.base };
+  return { covered: foreignOut, base: Money.fromScaled(divRound(position.base.scaled * foreignOut.scaled, position.foreign.scaled)) };
+}
+
+/** `amount` scaled by `part / whole`, half-away-from-zero; the whole when `part` is the whole. */
+export function shareOfBase(amount: Money, part: Money, whole: Money): Money {
+  if (whole.scaled === 0n || part.scaled === whole.scaled) return amount;
+  return Money.fromScaled(divRound(amount.scaled * part.scaled, whole.scaled));
+}
+
 /** True when a currency code represents the base currency (or is unset). */
 export function isBaseCurrency(currency: string | null | undefined): boolean {
   return currency == null || currency === "" || currency === BASE_CURRENCY;

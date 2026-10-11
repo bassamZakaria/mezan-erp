@@ -140,6 +140,8 @@ export function findingTitle(finding: PeriodCloseFindingDTO, t: Translate, forma
       return t("periodClose.finding.trialBalance");
     case PeriodCloseFindingKindDTO.ForeignCurrency:
       return t("periodClose.finding.currency", { currency: finding.ref });
+    case PeriodCloseFindingKindDTO.ForeignResidue:
+      return t("periodClose.finding.foreignResidue", { name: finding.label ?? finding.ref, currency: finding.items[0] ?? "" });
     case PeriodCloseFindingKindDTO.RecurringTemplate:
       return t("periodClose.finding.recurring", { name: finding.label ?? finding.ref, period: finding.items[0] ?? "" });
     case PeriodCloseFindingKindDTO.DepreciationRun:
@@ -165,6 +167,8 @@ export function findingFigure(finding: PeriodCloseFindingDTO, t: Translate, form
     case PeriodCloseFindingKindDTO.Tie:
     case PeriodCloseFindingKindDTO.TrialBalance:
       return t("periodClose.finding.difference", { amount: format.money(finding.amount ?? "0") });
+    case PeriodCloseFindingKindDTO.ForeignResidue:
+      return t("periodClose.finding.foreignResidueAmount", { amount: format.money(finding.amount ?? "0") });
     case PeriodCloseFindingKindDTO.SequenceGap:
       return t("periodClose.finding.sequenceMissing", {
         count: format.number(finding.count ?? 0),

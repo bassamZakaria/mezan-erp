@@ -99,7 +99,16 @@ function serialize(doc: VoucherDocument) {
     amount: line.amount.toString(),
     currency: line.currency,
     fxRate: line.fxRate ?? null,
-    treasuryFx: line.treasuryFx ? { currency: line.treasuryFx.currency, fxRate: line.treasuryFx.fxRate, foreignAmount: line.treasuryFx.foreignAmount.toString() } : null,
+    treasuryFx: line.treasuryFx
+      ? {
+          currency: line.treasuryFx.currency,
+          fxRate: line.treasuryFx.fxRate,
+          foreignAmount: line.treasuryFx.foreignAmount.toString(),
+          ...(line.treasuryFx.carryingBase ? { carryingBase: line.treasuryFx.carryingBase.toString() } : {}),
+          ...(line.treasuryFx.realised ? { realised: line.treasuryFx.realised.toString() } : {}),
+          ...(line.treasuryFx.realisedAccountId ? { realisedAccountId: line.treasuryFx.realisedAccountId } : {}),
+        }
+      : null,
     counterTreasuryFx: line.counterTreasuryFx
       ? { currency: line.counterTreasuryFx.currency, fxRate: line.counterTreasuryFx.fxRate, foreignAmount: line.counterTreasuryFx.foreignAmount.toString() }
       : null,

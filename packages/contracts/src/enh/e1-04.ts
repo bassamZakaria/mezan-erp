@@ -84,6 +84,7 @@ export enum PeriodCloseFindingKindDTO {
   TrialBalance = "trial_balance",
   BankStatement = "bank_statement",
   ForeignCurrency = "foreign_currency",
+  ForeignResidue = "foreign_residue",
   RecurringTemplate = "recurring_template",
   DepreciationRun = "depreciation_run",
   SequenceGap = "sequence_gap",

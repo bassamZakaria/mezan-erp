@@ -95,6 +95,7 @@ export enum PeriodCloseFindingKind {
   TrialBalance = "trial_balance",
   BankStatement = "bank_statement",
   ForeignCurrency = "foreign_currency",
+  ForeignResidue = "foreign_residue",
   RecurringTemplate = "recurring_template",
   DepreciationRun = "depreciation_run",
   SequenceGap = "sequence_gap",
@@ -230,6 +231,13 @@ export interface PeriodCloseEtaError {
 
 export const FX_REVALUATION_ALL_CURRENCIES = "*";
 
+export interface PeriodCloseForeignResidue {
+  readonly accountId: string;
+  readonly currency: string;
+  readonly label: string;
+  readonly base: Money;
+}
+
 export interface PeriodCloseSources {
   draftCounts(window: PeriodCloseWindow): Promise<readonly PeriodCloseDocCount[]>;
   pendingApprovalCounts(window: PeriodCloseWindow): Promise<readonly PeriodCloseDocCount[]>;
@@ -240,6 +248,8 @@ export interface PeriodCloseSources {
   payrollDue(window: PeriodCloseWindow): Promise<PeriodClosePayrollDue>;
   foreignCurrencies(window: PeriodCloseWindow): Promise<readonly string[]>;
   fxRevaluedCurrencies(window: PeriodCloseWindow): Promise<readonly string[]>;
+  /** Foreign-currency treasury accounts holding none of their currency while the ledger still carries a base amount on them. */
+  foreignResidues(window: PeriodCloseWindow): Promise<readonly PeriodCloseForeignResidue[]>;
   recurringDue(window: PeriodCloseWindow): Promise<readonly PeriodCloseRecurringDue[]>;
   depreciation(window: PeriodCloseWindow): Promise<readonly PeriodCloseDepreciationGroup[]>;
   sequenceGaps(window: PeriodCloseWindow): Promise<readonly PeriodCloseSequenceGap[]>;

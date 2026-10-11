@@ -2993,6 +2993,10 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       return (await exchangeRates.findRate(currency, date))?.rate ?? null;
     },
     differenceAccounts: () => fxDifferenceAccounts("realised"),
+    async treasuryPosition(treasuryAccountId, asOfDate) {
+      const held = (await foreignTreasuryBalances(asOfDate)).find((row) => row.treasuryAccountId === treasuryAccountId);
+      return held ? { foreign: held.foreignBalance, base: held.baseBalance } : null;
+    },
   };
   const settlementPreviewer = new VoucherService({
     documents: vouchers.documents,
@@ -3064,10 +3068,10 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       return { currency: line.currency, fxRate: line.fxRate ?? null };
     },
   };
-  const chequeBankLegFx = async (bankGlAccountId: string, date: string): Promise<{ currency: string; fxRate: string } | null> => {
+  const chequeBankLegFx = async (bankGlAccountId: string, date: string): Promise<{ currency: string; fxRate: string | null } | null> => {
     const currency = (await foreignTreasuryCurrencies()).get(bankGlAccountId);
-    const rate = currency ? await exchangeRates.findRate(currency, date) : null;
-    return currency && rate ? { currency, fxRate: rate.rate } : null;
+    if (!currency) return null;
+    return { currency, fxRate: (await exchangeRates.findRate(currency, date))?.rate ?? null };
   };
   const voucherChequeRegister = new ChequeService({
     cheques,

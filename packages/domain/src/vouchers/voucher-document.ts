@@ -17,8 +17,9 @@
  * stays pure so it drives both the UI effects panel and tests.
  */
 
-import { Money } from "../money/index.js";
+import { Money, roundMoney } from "../money/index.js";
 import { convertToBase } from "../exchange-rates/convert.js";
+import { FX_REALISED_LINE_MEMO } from "./realised-fx.js";
 import type { DocumentTypeDefinition, FrameworkDocument } from "../documents/document.js";
 import { buildEffects } from "../documents/effects.js";
 import type { DocumentGlPosting } from "../documents/hooks.js";
@@ -115,6 +116,24 @@ export interface TreasuryLegFx {
   /** Base units per one unit of {@link currency}. */
   readonly fxRate: string;
   readonly foreignAmount: Money;
+  /** What the money that LEFT the account was carried at in base — its weighted-average cost. Absent on money coming in. */
+  readonly carryingBase?: Money;
+  /** فروق عملة محققة: base at the document's rate less {@link carryingBase}; positive is a gain. Posted in the voucher's own entry. */
+  readonly realised?: Money;
+  readonly realisedAccountId?: string;
+}
+
+/** The two lines that bring a foreign treasury account's relief from the document rate to its carrying amount: base only on the account, the difference on the realised account. */
+function realisedTreasuryLines(treasuryGlAccountId: string, leg: TreasuryLegFx | null | undefined, projectId: string | null): DocumentGlPosting["lines"] {
+  if (!leg?.realised || leg.realised.scaled === 0n || !leg.realisedAccountId) return [];
+  const gain = leg.realised.scaled > 0n;
+  const amount = gain ? leg.realised : leg.realised.negate();
+  const zero = Money.zero();
+  const onAccount = { accountId: treasuryGlAccountId, memo: FX_REALISED_LINE_MEMO, projectId, currency: leg.currency, fxRate: leg.fxRate };
+  const onDifference = { accountId: leg.realisedAccountId, memo: FX_REALISED_LINE_MEMO, projectId };
+  return gain
+    ? [{ ...onAccount, debit: amount, credit: zero }, { ...onDifference, debit: zero, credit: amount }]
+    : [{ ...onDifference, debit: amount, credit: zero }, { ...onAccount, debit: zero, credit: amount }];
 }
 
 export interface HeldAllocationRequest {
@@ -262,6 +281,7 @@ function buildVoucherLines(line: VoucherLine): DocumentGlPosting["lines"] {
     return [
       { accountId: destGl, debit: amount, credit: zero, memo: null, projectId, ...counterTreasuryFx },
       { accountId: treasuryGlAccountId, debit: zero, credit: amount, memo: null, projectId, ...treasuryFx },
+      ...realisedTreasuryLines(treasuryGlAccountId, line.treasuryFx, projectId),
     ];
   }
   const counter = line.counterpartyGlAccountId;
@@ -281,17 +301,37 @@ function buildVoucherLines(line: VoucherLine): DocumentGlPosting["lines"] {
       { accountId: counter, debit: amount, credit: zero, memo: null, costCenterId: cc, projectId, costCategory, ...fx },
       { accountId: treasuryGlAccountId, debit: zero, credit: Money.fromScaled(amount.scaled - withheld.scaled), memo: null, projectId, ...treasuryFx },
       { accountId: whtAccount, debit: zero, credit: withheld, memo: null, projectId },
+      ...realisedTreasuryLines(treasuryGlAccountId, line.treasuryFx, projectId),
     ];
   }
   return [
     { accountId: counter, debit: amount, credit: zero, memo: null, costCenterId: cc, projectId, costCategory, ...fx },
     { accountId: treasuryGlAccountId, debit: zero, credit: amount, memo: null, projectId, ...treasuryFx },
+    ...realisedTreasuryLines(treasuryGlAccountId, line.treasuryFx, projectId),
   ];
 }
 
 /** What actually leaves the treasury, in BASE currency: the settling amount less any tax withheld. */
 export function voucherNetPaid(line: VoucherLine): Money {
   return Money.fromScaled(voucherBaseAmount(line).scaled - voucherBaseWithholding(line).scaled);
+}
+
+function twoDecimals(amount: Money): string {
+  const text = roundMoney(amount, 2, "HALF_UP").toString();
+  return text.slice(0, text.length - 4);
+}
+
+function realisedFxEffect(line: VoucherLine): { kind: "gl"; description: string }[] {
+  const leg = line.treasuryFx;
+  if (!leg?.realised || leg.realised.scaled === 0n || !leg.carryingBase) return [];
+  const gain = leg.realised.scaled > 0n;
+  const amount = twoDecimals(gain ? leg.realised : leg.realised.negate());
+  return [
+    {
+      kind: "gl",
+      description: `فروق عملة محققة: ${gain ? "ربح" : "خسارة"} ${amount} — خرج ${twoDecimals(leg.foreignAmount)} ${leg.currency} من الحساب بقيمته الدفترية ${twoDecimals(leg.carryingBase)} وسعر السند ${leg.fxRate}`,
+    },
+  ];
 }
 
 /** The treasury-voucher document type definition. Plugs into {@link DocumentService}. */
@@ -381,6 +421,7 @@ export const voucherDocumentType: DocumentTypeDefinition<VoucherLine> = {
       effects: [
         { kind: "balance", description: a },
         { kind: def.allocatable ? "info" : "gl", description: b },
+        ...realisedFxEffect(line),
         {
           kind: "gl",
           description: `يُنشئ قيداً محاسبياً متوازناً بقيمة ${line.amount.toString()} (${def.labelAr})`,

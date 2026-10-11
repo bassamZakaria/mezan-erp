@@ -43,19 +43,25 @@ describe("a voucher on a foreign-currency treasury account", () => {
     expect(legs("VCH-DEMO-USD-1", "1310-USD")).toEqual([{ debit: 58_680n * SCALE, credit: 0n, currency: "USD", fxRate: "48.90" }]);
   });
 
-  it("a USD payment at a later rate leaves the bank at that day's rate, with the dollars it paid", async () => {
+  it("a USD payment at a later rate takes its dollars out at that day's rate and brings the bank back to what they were carried at", async () => {
     const paid = await voucher("TFX-PAY-USD", { date: "2026-08-20", voucherType: "other_expense", amount: "200.00", currency: "USD", ...USD_BANK, counterpartyGlAccountId: "5910" });
     expect(paid.status).toBe(200);
-    expect(legs("TFX-PAY-USD", "1310-USD")).toEqual([{ debit: 0n, credit: 9_870n * SCALE, currency: "USD", fxRate: "49.35" }]);
-    expect(await treasuryFx("TFX-PAY-USD")).toEqual({ currency: "USD", fxRate: "49.35", foreignAmount: "200.000000" });
+    expect(legs("TFX-PAY-USD", "1310-USD")).toEqual([
+      { debit: 0n, credit: 9_870n * SCALE, currency: "USD", fxRate: "49.35" },
+      { debit: 90n * SCALE, credit: 0n, currency: "USD", fxRate: "49.35" },
+    ]);
+    expect(await treasuryFx("TFX-PAY-USD")).toEqual({ currency: "USD", fxRate: "49.35", foreignAmount: "200.000000", carryingBase: "9780.000000", realised: "90.000000", realisedAccountId: "4920" });
   });
 
   it("a payment stated in the base currency from the USD bank posts the base amount and records the dollars at the day's rate", async () => {
     const paid = await voucher("TFX-PAY-EGP", { date: "2026-08-20", voucherType: "other_expense", amount: "4935.00", currency: "EGP", ...USD_BANK, counterpartyGlAccountId: "5910" });
     expect(paid.status).toBe(200);
-    expect(legs("TFX-PAY-EGP", "1310-USD")).toEqual([{ debit: 0n, credit: 4_935n * SCALE, currency: "USD", fxRate: "49.35" }]);
+    expect(legs("TFX-PAY-EGP", "1310-USD")).toEqual([
+      { debit: 0n, credit: 4_935n * SCALE, currency: "USD", fxRate: "49.35" },
+      { debit: 45n * SCALE, credit: 0n, currency: "USD", fxRate: "49.35" },
+    ]);
     expect(legs("TFX-PAY-EGP", "5910")).toEqual([{ debit: 4_935n * SCALE, credit: 0n, currency: null, fxRate: null }]);
-    expect(await treasuryFx("TFX-PAY-EGP")).toEqual({ currency: "USD", fxRate: "49.35", foreignAmount: "100.000000" });
+    expect(await treasuryFx("TFX-PAY-EGP")).toEqual({ currency: "USD", fxRate: "49.35", foreignAmount: "100.000000", carryingBase: "4890.000000", realised: "45.000000", realisedAccountId: "4920" });
   });
 
   it("a voucher in a second foreign currency is refused: one line carries one rate", async () => {
@@ -75,16 +81,16 @@ describe("a voucher on a foreign-currency treasury account", () => {
 });
 
 describe("what the USD bank holds, in dollars", () => {
-  it("is on the treasury account and on balances by currency: 1,100 dollars booked at 53,745", async () => {
+  it("is on the treasury account and on balances by currency: 1,100 dollars carried at 53,880", async () => {
     const account = (await world.request("GET", "/treasury-accounts/TR-DEMO-BANK-USD")).body;
-    expect(account).toMatchObject({ currency: "USD", foreignBalance: "1100.000000", foreignBalanceBase: "53745.000000", foreignBalanceDerivedLines: 0 });
+    expect(account).toMatchObject({ currency: "USD", foreignBalance: "1100.000000", foreignBalanceBase: "53880.000000", foreignBalanceDerivedLines: 0 });
     const listed = ((await world.request("GET", "/treasury-accounts")).body as unknown as { id: string; foreignBalance: string | null }[]);
     expect(listed.find((a) => a.id === "TR-DEMO-BANK-USD")?.foreignBalance).toBe("1100.000000");
     expect(listed.find((a) => a.id === "TR-DEMO-BANK")?.foreignBalance).toBeNull();
 
     const report = (await world.request("GET", "/gl/balances-by-currency")).body;
     expect(report.treasury).toEqual([
-      { treasuryAccountId: "TR-DEMO-BANK-USD", name: expect.any(String), glAccountId: "1310-USD", currency: "USD", foreignBalance: "1100.000000", baseBalance: "53745.000000", derivedLines: 0 },
+      { treasuryAccountId: "TR-DEMO-BANK-USD", name: expect.any(String), glAccountId: "1310-USD", currency: "USD", foreignBalance: "1100.000000", baseBalance: "53880.000000", derivedLines: 0 },
     ]);
   });
 });
@@ -112,19 +118,22 @@ describe("month-end revaluation of the USD bank", () => {
     expect(await fxFinding("fp-2026-08")).toMatchObject({ passed: false });
   });
 
-  it("restates 1,100 dollars booked at 53,745 to the closing rate of 49.35: a gain of 540 exactly, reversed the next day", async () => {
+  it("restates 1,100 dollars carried at 53,880 to the closing rate of 49.35: 405 unrealised, reversed the next day — with the 135 the two payments realised, the 540 the dollars gained", async () => {
     const preview = await world.request("POST", "/revaluation/preview", { date: "2026-08-31", currencies: ["USD"] });
     expect(preview.status).toBe(200);
     const bank = (preview.body.details as { accountId: string; foreignAmount: string; bookedBase: string; revaluedBase: string; delta: string }[]).find((d) => d.accountId === "1310-USD");
-    expect(bank).toMatchObject({ foreignAmount: "1100.000000", bookedBase: "53745.000000", revaluedBase: "54285.000000", delta: "540.000000" });
+    expect(bank).toMatchObject({ foreignAmount: "1100.000000", bookedBase: "53880.000000", revaluedBase: "54285.000000", delta: "405.000000" });
+    const realisedByPayments = legs("TFX-PAY-USD", "4920")[0]!.credit + legs("TFX-PAY-EGP", "4920")[0]!.credit;
+    expect(realisedByPayments + 405n * SCALE).toBe(540n * SCALE);
 
     const gainBefore = world.balance("4940");
     const bankBefore = world.balance("1310-USD", "2026-08-31");
     const posted = await world.request("POST", "/revaluation/post", { date: "2026-08-31", currencies: ["USD"] });
     expect(posted.status).toBe(201);
 
-    expect(world.balance("1310-USD", "2026-08-31") - bankBefore).toBe(540n * SCALE);
-    expect(world.balance("4940", "2026-08-31") - gainBefore).toBeLessThanOrEqual(-540n * SCALE);
+    expect(world.balance("1310-USD", "2026-08-31") - bankBefore).toBe(405n * SCALE);
+    expect(world.balance("4940", "2026-08-31") - gainBefore).toBeLessThanOrEqual(-405n * SCALE);
+    expect(world.balance("1310-USD", "2026-08-31")).toBe(54_285n * SCALE);
     expect(world.balance("1310-USD", "2026-09-01")).toBe(bankBefore);
     expect(await world.invariants()).toEqual(INVARIANTS_ZERO);
   });

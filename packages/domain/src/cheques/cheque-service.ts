@@ -33,7 +33,8 @@
  */
 
 import { Money } from "../money/index.js";
-import { postJournalEntry, type JournalPostingDeps } from "../gl/index.js";
+import { postJournalEntry, type JournalLineInput, type JournalPostingDeps } from "../gl/index.js";
+import { carryingBaseOf, convertFromBase, shareOfBase } from "../exchange-rates/convert.js";
 import type {
   Cheque,
   ChequeControlAccounts,
@@ -48,6 +49,7 @@ import {
   ChequeNotFoundError,
   InvalidChequeCommandError,
   ReplacementAmountMismatchError,
+  ChequeBankRateMissingError,
 } from "./errors.js";
 import {
   allocate as allocateFn,
@@ -59,7 +61,7 @@ import {
   type VoucherAllocation,
 } from "../vouchers/allocation.js";
 import type { AllocationInvoiceKind } from "../vouchers/voucher-types.js";
-import { allocationUndoDay, postRealisedFx, reverseRealisedFx, settlementRatesFor, type RealisedFxPort, type SettlingLine, type SettlingMoney } from "../vouchers/realised-fx.js";
+import { FX_REALISED_LINE_MEMO, allocationUndoDay, postRealisedFx, reverseRealisedFx, settlementRatesFor, type RealisedFxPort, type SettlingLine, type SettlingMoney } from "../vouchers/realised-fx.js";
 
 export interface CreateChequeCommand {
   readonly id: string;
@@ -168,7 +170,7 @@ export interface ChequeServiceDeps {
   /** Rates and accounts for the realised exchange difference a cheque settling a foreign invoice posts (D221). */
   readonly realisedFx?: RealisedFxPort;
   /** The currency and the day's approved rate of a bank account kept in a foreign currency, so the line a collection posts on it says what it holds; null for a base-currency account. */
-  readonly bankLegFx?: (bankGlAccountId: string, date: string) => Promise<{ readonly currency: string; readonly fxRate: string } | null>;
+  readonly bankLegFx?: (bankGlAccountId: string, date: string) => Promise<{ readonly currency: string; readonly fxRate: string | null } | null>;
 }
 
 /**
@@ -289,14 +291,34 @@ export class ChequeService {
     return updated;
   }
 
+  /** An outgoing cheque's money leaves a foreign-currency bank at what the bank carries it at; the difference from the day's rate is realised in the clearing entry. */
+  private async realisedOnClearing(cheque: Cheque, bankGlAccountId: string, leg: { currency: string; fxRate: string }, date: string): Promise<JournalLineInput[]> {
+    const port = this.deps.realisedFx;
+    const position = cheque.bankTreasuryAccountId ? ((await port?.treasuryPosition?.(cheque.bankTreasuryAccountId, date)) ?? null) : null;
+    if (!port || !position) return [];
+    const foreignOut = convertFromBase(cheque.amount, leg.fxRate);
+    const carried = carryingBaseOf(position, foreignOut);
+    if (carried.covered.scaled === 0n) return [];
+    const realised = shareOfBase(cheque.amount, carried.covered, foreignOut).scaled - carried.base.scaled;
+    if (realised === 0n) return [];
+    const accounts = await port.differenceAccounts();
+    const amount = Money.fromScaled(realised > 0n ? realised : -realised);
+    const onBank = { accountId: bankGlAccountId, memo: FX_REALISED_LINE_MEMO, currency: leg.currency, fxRate: leg.fxRate };
+    return realised > 0n
+      ? [{ ...onBank, debit: amount, credit: Money.zero() }, { accountId: accounts.gainAccountId, memo: FX_REALISED_LINE_MEMO, debit: Money.zero(), credit: amount }]
+      : [{ accountId: accounts.lossAccountId, memo: FX_REALISED_LINE_MEMO, debit: amount, credit: Money.zero() }, { ...onBank, debit: Money.zero(), credit: amount }];
+  }
+
   /** The bank confirms clearance: deposited → collected. Posts the cash-recognition GL entry. */
   async collect(cmd: CollectChequeCommand): Promise<Cheque> {
     const cheque = await this.require(cmd.chequeId);
     assertChequeTransition(cheque, "collect");
 
     const collectionDate = cmd.date ?? this.now().slice(0, 10);
-    const bankFx = (await this.deps.bankLegFx?.(cmd.bankGlAccountId, collectionDate)) ?? {};
-    const lines =
+    const bankLeg = (await this.deps.bankLegFx?.(cmd.bankGlAccountId, collectionDate)) ?? null;
+    if (bankLeg && !bankLeg.fxRate) throw new ChequeBankRateMissingError(bankLeg.currency, collectionDate);
+    const bankFx = bankLeg?.fxRate ? { currency: bankLeg.currency, fxRate: bankLeg.fxRate } : {};
+    const lines: JournalLineInput[] =
       cheque.direction === "incoming"
         ? [
             { accountId: cmd.bankGlAccountId, debit: cheque.amount, credit: Money.zero(), ...bankFx },
@@ -305,6 +327,7 @@ export class ChequeService {
         : [
             { accountId: cheque.controlAccounts.underCollectionAccountId, debit: cheque.amount, credit: Money.zero() },
             { accountId: cmd.bankGlAccountId, debit: Money.zero(), credit: cheque.amount, ...bankFx },
+            ...(bankLeg?.fxRate ? await this.realisedOnClearing(cheque, cmd.bankGlAccountId, { currency: bankLeg.currency, fxRate: bankLeg.fxRate }, collectionDate) : []),
           ];
     const entry = await postJournalEntry(
       {

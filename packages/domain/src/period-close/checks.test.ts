@@ -29,6 +29,7 @@ function cleanSources(over: Partial<PeriodCloseSources> = {}): PeriodCloseSource
     payrollDue: async () => ({ dueEmployees: 0, uncoveredEmployees: 0, hasUnpostedRun: false }),
     foreignCurrencies: async () => [],
     fxRevaluedCurrencies: async () => [],
+    foreignResidues: async () => [],
     recurringDue: async () => [],
     depreciation: async () => [],
     sequenceGaps: async () => [],

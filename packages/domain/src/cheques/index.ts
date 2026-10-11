@@ -20,6 +20,7 @@ export {
   ChequeNotFoundError,
   DuplicateChequeNumberError,
   InvalidChequeCommandError,
+  ChequeBankRateMissingError,
   InvalidChequeTransitionError,
   ReplacementAmountMismatchError,
 } from "./errors.js";

@@ -40,7 +40,7 @@ import {
 } from "./voucher-document.js";
 import { InvalidDocumentError } from "../documents/errors.js";
 import { BASE_CURRENCY } from "../exchange-rates/exchange-rate.js";
-import { convertFromBase } from "../exchange-rates/convert.js";
+import { carryingBaseOf, convertFromBase, shareOfBase } from "../exchange-rates/convert.js";
 import {
   getVoucherTypeDefinition,
   type AllocationInvoiceKind,
@@ -474,7 +474,10 @@ export class VoucherService {
     const paysOut = line.direction === "payment";
     const baseMoved = paysOut ? voucherNetPaid(line) : voucherBaseAmount(line);
     const statedMoved = paysOut ? Money.fromScaled(line.amount.scaled - (line.withholdingAmount?.scaled ?? 0n)) : line.amount;
-    const treasuryFx = line.treasuryFx ?? (await legFx(line.treasuryAccountId, baseMoved, statedMoved));
+    const movedOut = paysOut || line.direction === "transfer";
+    const sourceBaseMoved = paysOut ? baseMoved : voucherBaseAmount(line);
+    const stampedLeg = line.treasuryFx ?? (await legFx(line.treasuryAccountId, sourceBaseMoved, statedMoved));
+    const treasuryFx = stampedLeg && movedOut ? await this.atCarrying(line.treasuryAccountId, stampedLeg, sourceBaseMoved, doc.date) : stampedLeg;
     const counterTreasuryFx = line.counterTreasuryFx ?? (await legFx(line.counterTreasuryAccountId, voucherBaseAmount(line), line.amount));
     if (treasuryFx || counterTreasuryFx) line = { ...line, treasuryFx, counterTreasuryFx };
 
@@ -482,6 +485,27 @@ export class VoucherService {
     const stamped: VoucherDocument = { ...doc, lines: [line] };
     await this.deps.documents.update(stamped);
     return stamped;
+  }
+
+  /**
+   * Money leaving a foreign-currency treasury account is relieved at what the
+   * account carries it at, and the difference from the document's rate is a
+   * realised exchange difference of this voucher. Read at confirm, never from
+   * the request: a figure the caller stamped is not a carrying amount.
+   */
+  private async atCarrying(treasuryAccountId: string, leg: TreasuryLegFx, baseMoved: Money, date: string): Promise<TreasuryLegFx> {
+    const plain: TreasuryLegFx = { currency: leg.currency, fxRate: leg.fxRate, foreignAmount: leg.foreignAmount };
+    const port = this.deps.realisedFx;
+    const position = (await port?.treasuryPosition?.(treasuryAccountId, date)) ?? null;
+    if (!port || !position) return plain;
+    const carried = carryingBaseOf(position, leg.foreignAmount);
+    if (carried.covered.scaled === 0n) return plain;
+    const atDocumentRate = shareOfBase(baseMoved, carried.covered, leg.foreignAmount);
+    const realised = Money.fromScaled(atDocumentRate.scaled - carried.base.scaled);
+    const carryingBase = Money.fromScaled(baseMoved.scaled - realised.scaled);
+    if (realised.scaled === 0n) return { ...plain, carryingBase };
+    const accounts = await port.differenceAccounts();
+    return { ...plain, carryingBase, realised, realisedAccountId: realised.scaled > 0n ? accounts.gainAccountId : accounts.lossAccountId };
   }
 
   /** Hand a voucher held بانتظار الموافقة back to its submitter as a draft. */

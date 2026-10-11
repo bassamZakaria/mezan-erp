@@ -39,7 +39,16 @@ export const heldAllocationSchema = z.object({
   amount: moneyString.nullable(),
 });
 
-export const treasuryLegFxSchema = z.object({ currency: z.string(), fxRate: z.string(), foreignAmount: moneyString });
+export const treasuryLegFxSchema = z.object({
+  currency: z.string(),
+  fxRate: z.string(),
+  foreignAmount: moneyString,
+  /** What the money that left a foreign-currency account was carried at, in base. */
+  carryingBase: z.string().optional(),
+  /** فروق عملة محققة posted in the voucher's entry: positive is a gain. */
+  realised: z.string().optional(),
+  realisedAccountId: z.string().optional(),
+});
 
 export const voucherSchema = z.object({
   id: z.string().min(1),

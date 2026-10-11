@@ -10,6 +10,7 @@ import {
   DuplicateChequeNumberError,
   InvalidChequeCommandError,
   InvalidChequeTransitionError,
+  ChequeBankRateMissingError,
   ReplacementAmountMismatchError,
   UnbalancedEntryError,
   AccountNotFoundError,
@@ -108,6 +109,7 @@ function handleDomainError(c: Context, err: unknown): Response {
   }
   if (
     err instanceof InvalidChequeCommandError ||
+    err instanceof ChequeBankRateMissingError ||
     err instanceof ReplacementAmountMismatchError ||
     err instanceof AllocationExceedsError ||
     err instanceof AllocationMismatchError ||

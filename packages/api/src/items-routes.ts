@@ -20,6 +20,7 @@ import {
   can,
   matchesSearch } from "@mezan/domain";
 import { createItemSchema, updateItemSchema, pageQuerySchema, DEFAULT_PAGE_SIZE } from "@mezan/contracts";
+import { grantedWarehouseIdsOf } from "./branch-policy.js";
 import { createPermissionGate, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
 import { recordFieldChanges } from "./admin-audit.js";
 
@@ -248,7 +249,7 @@ export function createItemsRouter(
    * (R1.1). Nothing else computes item rows — the three routes below must not
    * be able to disagree about what the catalogue contains.
    */
-  async function listFilteredItems(filter: ItemListFilter): Promise<readonly ItemRow[]> {
+  async function listFilteredItems(c: Context, filter: ItemListFilter): Promise<readonly ItemRow[]> {
     const items = await repo.list();
     // Narrow first, then price the survivors: computing a stock state for rows
     // the search is about to drop is work nobody reads.
@@ -262,7 +263,11 @@ export function createItemsRouter(
 
     const onHandByItem = new Map<string, Qty>();
     if (snapshots) {
+      // SECURITY: a session restricted to branches counts only the stock its
+      // own warehouses hold; the item is shared, the quantity is not.
+      const granted = grantedWarehouseIdsOf(c);
       for (const position of await snapshots.list()) {
+        if (granted && !granted.includes(position.warehouseId)) continue;
         onHandByItem.set(position.itemId, (onHandByItem.get(position.itemId) ?? Qty.zero()).add(position.onHand));
       }
     }
@@ -302,7 +307,7 @@ export function createItemsRouter(
 
   app.get("/", gate("inventory.item.view"), async (c) => {
     const filter = parseItemListQuery(c);
-    const rows = await listFilteredItems(filter);
+    const rows = await listFilteredItems(c, filter);
     const showCost = maySeeCost(c);
     // The chip states (low_stock/out_of_stock) are computed from the stock
     // snapshot, not stored, so the page is cut after them. The counts route
@@ -327,7 +332,7 @@ export function createItemsRouter(
    */
   app.get("/counts", gate("inventory.item.view"), async (c) => {
     const { status: _ignored, ...withoutStatus } = parseItemListQuery(c);
-    const rows = await listFilteredItems(withoutStatus);
+    const rows = await listFilteredItems(c, withoutStatus);
     const counts: Record<string, number> = {
       all: rows.length,
       active: 0,
@@ -354,7 +359,7 @@ export function createItemsRouter(
    * consumables hold stock too (R5.1).
    */
   app.get("/stats", gate("inventory.item.view"), async (c) => {
-    const rows = await listFilteredItems(parseItemListQuery(c));
+    const rows = await listFilteredItems(c, parseItemListQuery(c));
     const active = rows.filter((r) => r.item.status === "active").length;
     const stockTracked = rows.filter((r) => itemTypeTracksStock(r.item.type)).length;
     return c.json({

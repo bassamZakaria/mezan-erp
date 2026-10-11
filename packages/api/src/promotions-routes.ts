@@ -24,6 +24,7 @@ import {
   type SalesReturnLine,
 } from "@mezan/domain";
 import { createPromotionSchema, evaluatePromotionsQuerySchema, updatePromotionSchema } from "@mezan/contracts";
+import { BranchRecordKind, recordsInBranchGrant } from "./branch-policy.js";
 import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
 import { recordFieldChanges } from "./admin-audit.js";
 import { tenantClock, tenantToday } from "./tenant-day.js";
@@ -181,7 +182,10 @@ export function createPromotionsRoutes(
     const dateTo = c.req.query("dateTo");
     const promotions = await repo.list();
 
-    const invoices: PromotionUsageInvoice[] = (await usage.salesInvoices?.list())?.map((inv) => ({
+    // SECURITY: the campaign is shared; what it granted is each branch's own.
+    const visibleInvoices = await recordsInBranchGrant(c, BranchRecordKind.SalesInvoice, (await usage.salesInvoices?.list()) ?? [], (inv) => inv.id);
+    const visibleInvoiceIds = new Set(visibleInvoices.map((inv) => inv.id));
+    const invoices: PromotionUsageInvoice[] = visibleInvoices.map((inv) => ({
       id: inv.id,
       date: inv.date,
       live: SALES_INVOICE_ACTIVE_STATUSES.has(inv.status),
@@ -195,12 +199,12 @@ export function createPromotionsRoutes(
             lineDiscounts: inv.appliedPromotion.lineDiscounts.map((d) => ({ itemId: d.itemId, amount: d.amount })),
           }
         : null,
-    })) ?? [];
+    }));
 
     const returns: PromotionUsageReturn[] = [];
     for (const doc of (await usage.salesReturns?.list()) ?? []) {
       const sourceInvoiceId = doc.lines[0]?.sourceInvoiceId;
-      if (!sourceInvoiceId) continue;
+      if (!sourceInvoiceId || !visibleInvoiceIds.has(sourceInvoiceId)) continue;
       returns.push({
         sourceInvoiceId,
         date: doc.date,

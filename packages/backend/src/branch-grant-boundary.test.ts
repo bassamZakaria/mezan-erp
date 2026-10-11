@@ -1673,3 +1673,73 @@ describe("D111 round 3 · a refusal does not tell a branch user whether another 
     expect(one<{ b: string }>("SELECT branch_id AS b FROM sales_invoice WHERE id = ?", foreign.id)!.b).toBe(MAIN);
   });
 });
+
+describe("D111 round 3 · shared master data carries no other branch's money or stock", () => {
+  const restricted = (): readonly (readonly [label: string, caller: Caller])[] => [
+    ["non-admin", alex],
+    ["* admin granted one branch", alexStar],
+  ];
+  const sumOwed = (rows: any[]) => rows.reduce((sum, row) => sum + BigInt(String(row.owed).replace(".", "")), 0n);
+  const scaled = (money: string) => BigInt(money.replace(".", ""));
+
+  it("what customers owe and suppliers are owed is the caller's branch ladder, in the stats, the list and the record", async () => {
+    const company = {
+      customers: (await admin("GET", "/customers/stats")).body.toCollect,
+      suppliers: (await admin("GET", "/suppliers/stats")).body.payable,
+    };
+    expect(company.customers).toBe((await admin("GET", "/reports/aging/customers")).body.grandTotals.total);
+    for (const [label, caller] of restricted()) {
+      const ladder = {
+        customers: (await caller("GET", "/reports/aging/customers")).body.grandTotals.total,
+        suppliers: (await caller("GET", "/reports/aging/suppliers")).body.grandTotals.total,
+      };
+      expect(scaled(ladder.customers), label).toBeLessThan(scaled(company.customers));
+      expect((await caller("GET", "/customers/stats")).body.toCollect, label).toBe(ladder.customers);
+      expect((await caller("GET", "/suppliers/stats")).body.payable, label).toBe(ladder.suppliers);
+      const customers = rowsOf((await caller("GET", "/customers?pageSize=500")).body);
+      const suppliers = rowsOf((await caller("GET", "/suppliers?pageSize=500")).body);
+      expect(sumOwed(customers), label).toBe(scaled(ladder.customers));
+      expect(sumOwed(suppliers), label).toBe(scaled(ladder.suppliers));
+      for (const row of customers.filter((customer: any) => scaled(customer.owed) !== 0n).slice(0, 3)) {
+        expect((await caller("GET", `/customers/${row.id}`)).body.owed, label).toBe(row.owed);
+      }
+      const foreignOnly = rowsOf((await admin("GET", "/customers?pageSize=500")).body).find(
+        (row: any) => scaled(row.owed) > 0n && scaled(customers.find((mine: any) => mine.id === row.id)?.owed ?? "0.0") === 0n,
+      );
+      expect(foreignOnly, "the seed holds a customer who owes only another branch").toBeTruthy();
+      expect((await caller("GET", `/customers/${foreignOnly.id}`)).body.owed, label).toBe("0.000000");
+      expect((await caller("GET", "/customers?overLimit=true")).status, label).toBe(200);
+    }
+  });
+
+  it("an item's on-hand quantity and the low-stock counts are the caller's warehouses'", async () => {
+    const onHandIn = (warehouseIds: readonly string[], itemId: string) =>
+      all<{ on_hand: number }>(
+        `SELECT on_hand FROM wac_snapshot WHERE item_id = ? AND warehouse_id IN (${warehouseIds.map(() => "?").join(",")})`,
+        itemId,
+        ...warehouseIds,
+      ).length;
+    const everywhere = rowsOf((await admin("GET", "/items?pageSize=100")).body);
+    const heldOnlyElsewhere = everywhere.find((row: any) => row.onHand !== null && Number(row.onHand) > 0 && onHandIn([ALEX_WAREHOUSE], row.id) === 0);
+    expect(heldOnlyElsewhere, "the seed holds an item stocked only outside the branch").toBeTruthy();
+    for (const [label, caller] of restricted()) {
+      const mine = rowsOf((await caller("GET", "/items?pageSize=100")).body);
+      expect(Number(mine.find((row: any) => row.id === heldOnlyElsewhere.id).onHand), label).toBe(0);
+      const counts = (await caller("GET", "/items/counts")).body;
+      expect(counts.out_of_stock, label).toBe(mine.filter((row: any) => row.stockState === "out").length);
+      expect(counts.low_stock, label).toBe(mine.filter((row: any) => row.stockState === "low").length);
+      expect(counts.out_of_stock, label).toBeGreaterThan((await admin("GET", "/items/counts")).body.out_of_stock);
+    }
+  });
+
+  it("a promotion's report counts only the discount the caller's branch granted", async () => {
+    const company = (await admin("GET", "/promotions/report")).body as any[];
+    expect(company.some((row) => row.usageCount > 0)).toBe(true);
+    const grantedInBranch = (promotionId: string) =>
+      one<{ n: number }>("SELECT COUNT(*) AS n FROM sales_invoice WHERE promotion_id = ? AND branch_id = ?", promotionId, ALEX)!.n;
+    for (const [label, caller] of restricted()) {
+      const mine = (await caller("GET", "/promotions/report")).body as any[];
+      for (const row of mine) expect(row.usageCount, `${label} ${row.id}`).toBeLessThanOrEqual(grantedInBranch(row.id));
+    }
+  });
+});

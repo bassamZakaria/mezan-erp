@@ -22,7 +22,7 @@ import { tenantToday } from "./tenant-day.js";
  */
 export interface SupplierPayablesSource {
   /** `today` is the TENANT's calendar day, resolved at the route (D288). */
-  outstandingBySupplier(today: string): Promise<ReadonlyMap<string, Money>>;
+  outstandingBySupplier(today: string, c: Context): Promise<ReadonlyMap<string, Money>>;
 }
 
 /** Wire representation of a supplier — a plain JSON-safe projection with Money as decimal strings. */
@@ -143,7 +143,7 @@ export function createSuppliersRouter(
    * cheques — so the screen never derives a second figure (D201).
    */
   async function withOwed(c: Context, rows: readonly Supplier[]) {
-    const outstanding = payables ? await payables.outstandingBySupplier(await tenantToday(c)) : null;
+    const outstanding = payables ? await payables.outstandingBySupplier(await tenantToday(c), c) : null;
     return rows.map((supplier) => ({
       ...serialize(supplier),
       owed: outstanding ? (outstanding.get(supplier.id) ?? Money.zero()).toString() : null,
@@ -175,7 +175,7 @@ export function createSuppliersRouter(
    */
   app.get("/stats", gate("purchases.supplier.view"), async (c) => {
     const suppliers = await listFilteredSuppliers(parseSupplierListQuery(c));
-    const outstanding = (await payables?.outstandingBySupplier(await tenantToday(c))) ?? new Map<string, Money>();
+    const outstanding = (await payables?.outstandingBySupplier(await tenantToday(c), c)) ?? new Map<string, Money>();
     let active = 0;
     let payable = Money.zero();
     for (const supplier of suppliers) {

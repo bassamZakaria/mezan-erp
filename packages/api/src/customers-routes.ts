@@ -47,7 +47,7 @@ export interface CustomerPriceListLookup {
  */
 export interface CustomerReceivablesSource {
   /** `today` is the TENANT's calendar day, resolved at the route (D288). */
-  outstandingByCustomer(today: string): Promise<ReadonlyMap<string, Money>>;
+  outstandingByCustomer(today: string, c: Context): Promise<ReadonlyMap<string, Money>>;
 }
 
 /**
@@ -214,7 +214,7 @@ export function createCustomersRouter(
   }
 
   async function outstandingByCustomer(c: Context): Promise<ReadonlyMap<string, Money>> {
-    return (await receivables?.outstandingByCustomer(await tenantToday(c))) ?? new Map<string, Money>();
+    return (await receivables?.outstandingByCustomer(await tenantToday(c), c)) ?? new Map<string, Money>();
   }
 
   /** The customer's aging row, which carries the opening balance itself (D204) — one definition, used by both the filter and the KPI. */

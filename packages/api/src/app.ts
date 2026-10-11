@@ -170,7 +170,7 @@ import { createOpeningBalanceDuplicatesRoutes, type OpeningBalanceDuplicatesRout
 import { createEtaRoutes, type EtaRoutesDeps } from "./eta-routes.js";
 import type { ExchangeRateRepository } from "@mezan/domain";
 import type { DocumentEventPublisher } from "@mezan/domain";
-import { createReportsRoutes, customerAgingOwed, supplierAgingOwed, type ReportsRoutesDeps } from "./reports-routes.js";
+import { createReportsRoutes, customerAgingOwedInView, supplierAgingOwedInView, type ReportsRoutesDeps } from "./reports-routes.js";
 import { createChequesRoutes, type ChequeRoutesDeps } from "./cheques-routes.js";
 import { createBankReconciliationRoutes, type BankReconciliationRoutesDeps } from "./bank-reconciliation-routes.js";
 import { createCrmRoutes, type CrmRoutesDeps } from "./crm-routes.js";
@@ -1081,12 +1081,12 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   /** The customer aging ladder's own row totals — never a second derivation beside it (D195). */
   const reportsDeps = options.reports;
   const customerReceivables: CustomerReceivablesSource | undefined = reportsDeps
-    ? { outstandingByCustomer: (today) => customerAgingOwed(reportsDeps, today) }
+    ? { outstandingByCustomer: (today, c) => customerAgingOwedInView(reportsDeps, c, today) }
     : undefined;
 
   /** The supplier aging ladder's own row totals, as the customer side does (D201). */
   const supplierPayables: SupplierPayablesSource | undefined = reportsDeps
-    ? { outstandingBySupplier: (today) => supplierAgingOwed(reportsDeps, today) }
+    ? { outstandingBySupplier: (today, c) => supplierAgingOwedInView(reportsDeps, c, today) }
     : undefined;
 
   if (options.customerStore) {

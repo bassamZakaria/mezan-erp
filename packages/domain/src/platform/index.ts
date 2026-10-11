@@ -37,17 +37,17 @@ export {
 export {
   ProviderInquiryStatus,
   type PaymentProvider, type PaymentProviderId, type CheckoutRequest, type CheckoutSession,
-  ProviderTransactionOutcome, type VerifiedProviderTransaction,
+  ProviderTransactionOutcome, ProviderNonPaymentKind, type VerifiedProviderTransaction,
   type ProviderInquiry, type ProviderInquiryRequest,
 } from "./payment-provider.js";
 export {
   PAYMOB_TRANSACTION_HMAC_FIELDS, paymobTransactionHmacMessage, hasPaymobSignedShape, parsePaymobTransaction,
-  classifyPaymobTransaction, moneyToPaymobCents, paymobCentsToMoney,
+  classifyPaymobTransaction, paymobNonPaymentKind, moneyToPaymobCents, paymobCentsToMoney,
   type PaymobTransactionObject, type ParsedPaymobTransaction,
 } from "./paymob.js";
 export {
   cardCheckoutAmount, CardCheckoutUnavailableError, CardPaymentNotApplicableError, CardCheckoutFailureReason,
-  CardCheckoutStatus, PaidSettlementOutcome, ProviderEventOutcome,
+  CardCheckoutStatus, CardCheckoutAttentionCause, CardCheckoutResolution, PaidSettlementOutcome, ProviderEventOutcome,
   type CardCheckout, type CardCheckoutRepository, type CardCheckoutSettlement,
 } from "./card-checkout.js";
 export {

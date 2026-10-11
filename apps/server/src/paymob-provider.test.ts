@@ -141,6 +141,23 @@ describe("Paymob callback verification", () => {
     const { rawBody, signature } = callback(transaction(overrides));
     expect((await provider.verifyWebhook(rawBody, signature))?.outcome).toBe(outcome);
   });
+
+  it.each([
+    ["a refunded sale", { is_refunded: true }, "refund"],
+    ["a refund of a sale", { has_parent_transaction: true, is_refund: true }, "refund"],
+    ["a voided sale", { is_voided: true }, "void"],
+    ["a void of a sale", { has_parent_transaction: true, is_void: true }, "void"],
+    ["an authorisation hold", { is_auth: true }, "other"],
+    ["a capture of a hold", { has_parent_transaction: true }, "other"],
+  ])("reads %s as the non-payment kind %s", async (_label, overrides, kind) => {
+    const { rawBody, signature } = callback(transaction(overrides));
+    expect((await provider.verifyWebhook(rawBody, signature))?.nonPayment).toBe(kind);
+  });
+
+  it("names no non-payment kind for a payment", async () => {
+    const { rawBody, signature } = callback(transaction());
+    expect((await provider.verifyWebhook(rawBody, signature))?.nonPayment).toBeNull();
+  });
 });
 
 describe("Paymob checkout creation", () => {
@@ -304,7 +321,8 @@ describe("the Paymob test double", () => {
   const checkout: CardCheckout = {
     id: "checkout-1", tenantId: "t-acme", subscriptionId: "sub-acme", provider: "paymob-test", amount: Money.fromMajor("490.50"),
     currency: "EGP", status: CardCheckoutStatus.Pending, providerOrderRef: "424242", checkoutUrl: "/billing/test-checkout/checkout-1", providerRef: null,
-    paymentId: null, failureReason: null, capturedAmount: null, requestedBy: "tester", createdAt: "2026-03-01T10:00:00.000Z", updatedAt: "2026-03-01T10:00:00.000Z",
+    paymentId: null, failureReason: null, capturedAmount: null, requestedBy: "tester", attentionCause: null, resolution: null, resolvedAt: null,
+    resolvedBy: null, resolutionReason: null, createdAt: "2026-03-01T10:00:00.000Z", updatedAt: "2026-03-01T10:00:00.000Z",
   };
   const request = { providerOrderRef: "424242", merchantRef: "checkout-1" };
 

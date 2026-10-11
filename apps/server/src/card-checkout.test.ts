@@ -3,10 +3,14 @@ import { createPlatform, type PlatformHandle } from "@mezan/backend";
 import {
   activateTenant,
   cancelSubscription,
+  CardCheckoutAttentionCause,
+  CardCheckoutResolution,
+  CardCheckoutStatus,
   CardPaymentNotApplicableError,
   createTenant,
   Money,
   ProviderInquiryStatus,
+  ProviderNonPaymentKind,
   ProviderTransactionOutcome,
   startSubscription,
   type CardCheckout,
@@ -897,6 +901,176 @@ describe("card checkout — applying an unapplied payment by hand", () => {
 
     expect((await reload(r, checkout)).status).toBe("unapplied");
     expect(await r.periodEnd()).toBe(before);
+    expect(await r.payments()).toBe(0);
+  });
+});
+
+describe("card checkout — resolving a flagged checkout", () => {
+  const notAPayment = (kind: ProviderNonPaymentKind) => (provider: PaymobTestProvider): PaymentProvider => ({
+    ...provider,
+    inquireTransaction: async (request) => {
+      const answer = await provider.inquireTransaction(request);
+      return answer.status === ProviderInquiryStatus.Found
+        ? { ...answer, transaction: { ...answer.transaction, outcome: ProviderTransactionOutcome.NotAPayment, nonPayment: kind } }
+        : answer;
+    },
+  });
+  const unreadable = (provider: PaymobTestProvider): PaymentProvider => ({
+    ...provider,
+    inquireTransaction: async () => ({ status: ProviderInquiryStatus.Unreadable, reason: "the inquiry answer is not a transaction" }),
+  });
+  async function flagged(r: Rig): Promise<CardCheckout> {
+    const checkout = await r.open();
+    r.provider.simulateCallback(checkout, "success");
+    r.advance(SWEEP_EXPIRE_AFTER_MS + MINUTE);
+    await r.service.sweepPending();
+    return reload(r, checkout);
+  }
+  const resolve = (r: Rig, checkout: CardCheckout, overrides: Partial<Parameters<CardCheckoutService["resolveFlagged"]>[0]> = {}) =>
+    r.service.resolveFlagged({
+      tenantId: "t-acme", checkoutId: checkout.id, resolution: CardCheckoutResolution.Reviewed, overrideAmount: false,
+      reason: "راجعت لوحة بيموب ولا توجد عملية", actorId: "PU-OWNER", ...overrides,
+    });
+  const resolvedEvents = async (r: Rig) =>
+    (await r.platform.audit.query("security", 200)).filter((event) => event.action === "CARD_CHECKOUT_RESOLVED");
+
+  it.each([
+    [ProviderNonPaymentKind.Refund, CardCheckoutAttentionCause.Refund],
+    [ProviderNonPaymentKind.Void, CardCheckoutAttentionCause.Void],
+    [ProviderNonPaymentKind.Other, CardCheckoutAttentionCause.NotACapture],
+  ])("keeps why a checkout was flagged: the provider's latest transaction is a %s", async (kind, cause) => {
+    const r = await rig(notAPayment(kind));
+    expect((await flagged(r)).attentionCause).toBe(cause);
+  });
+
+  it("keeps why a checkout was flagged when the provider's answer could not be read", async () => {
+    const r = await rig(unreadable);
+    expect((await flagged(r)).attentionCause).toBe(CardCheckoutAttentionCause.Unreadable);
+  });
+
+  it("stops asking the provider about a checkout a person has reviewed, and still takes a late payment for it", async () => {
+    const r = await rig(unreadable);
+    const checkout = await flagged(r);
+
+    const reviewed = await resolve(r, checkout);
+
+    expect(reviewed).toMatchObject({
+      status: CardCheckoutStatus.Pending, resolution: CardCheckoutResolution.Reviewed, resolvedBy: "PU-OWNER",
+      resolutionReason: "راجعت لوحة بيموب ولا توجد عملية",
+    });
+    expect(await r.service.sweepPending()).toMatchObject({ examined: 0, needsAttention: 0 });
+    expect(await deliver(r, checkout)).toMatchObject({ detail: SettlementDetail.Paid });
+    expect((await reload(r, checkout)).status).toBe(CardCheckoutStatus.Paid);
+  });
+
+  it("records a resolution as a critical event carrying the checkout before and after", async () => {
+    const r = await rig(notAPayment(ProviderNonPaymentKind.Refund));
+    const checkout = await flagged(r);
+
+    await resolve(r, checkout, { resolution: CardCheckoutResolution.Refunded, reason: "استُرد المبلغ من لوحة بيموب" });
+
+    const [event] = await resolvedEvents(r);
+    expect(event).toMatchObject({ severity: "CRITICAL", actor: "PU-OWNER", entityId: "t-acme" });
+    expect(event?.details).toMatchObject({
+      checkoutId: checkout.id,
+      resolution: CardCheckoutResolution.Refunded,
+      reason: "استُرد المبلغ من لوحة بيموب",
+      before: { status: CardCheckoutStatus.Pending, failureReason: "NEEDS_ATTENTION", attentionCause: CardCheckoutAttentionCause.Refund, resolution: null },
+      after: { status: CardCheckoutStatus.Refunded, resolution: CardCheckoutResolution.Refunded },
+    });
+  });
+
+  it("closes a checkout recorded as refunded, so a late payment callback renews nothing", async () => {
+    const r = await rig(notAPayment(ProviderNonPaymentKind.Refund));
+    const before = await r.periodEnd();
+    const checkout = await flagged(r);
+
+    const refunded = await resolve(r, checkout, { resolution: CardCheckoutResolution.Refunded });
+
+    expect(refunded.status).toBe(CardCheckoutStatus.Refunded);
+    expect(await r.service.sweepPending()).toMatchObject({ examined: 0 });
+    expect(await deliver(r, checkout)).toMatchObject({ detail: SettlementDetail.AlreadySettled });
+    expect(await r.periodEnd()).toBe(before);
+    expect(await r.payments()).toBe(0);
+    expect(await r.actions()).toContain("CARD_PAYMENT_DUPLICATE_CHARGE");
+  });
+
+  it("applies a payment by hand under the provider's transaction number, renews once, and ignores that transaction's late callback", async () => {
+    const r = await rig(unreadable);
+    const before = await r.periodEnd();
+    const checkout = await flagged(r);
+    const late = r.provider.simulateCallback(checkout, "success");
+    const providerRef = String((JSON.parse(late.rawBody) as { obj: { id: number } }).obj.id);
+
+    const applied = await resolve(r, checkout, { resolution: CardCheckoutResolution.AppliedByHand, providerRef, amount: checkout.amount });
+
+    expect(applied).toMatchObject({ status: CardCheckoutStatus.Paid, resolution: CardCheckoutResolution.AppliedByHand, providerRef });
+    const renewedTo = await r.periodEnd();
+    expect(renewedTo).not.toBe(before);
+    const [payment] = await r.platform.stores.payments.listByTenant("t-acme");
+    expect(payment).toMatchObject({ reference: `PAYMOB-${providerRef}`, recordedBy: "PU-OWNER" });
+    expect(payment?.amount.equals(checkout.amount)).toBe(true);
+    expect(r.invalidated).toEqual(["acme"]);
+    expect((await resolvedEvents(r))[0]?.details).toMatchObject({ paymentId: payment?.id, after: { status: CardCheckoutStatus.Paid } });
+
+    expect(await r.service.handleWebhook(late.rawBody, late.signature)).toMatchObject({ detail: SettlementDetail.Duplicate });
+    expect(await r.periodEnd()).toBe(renewedTo);
+    expect(await r.payments()).toBe(1);
+  });
+
+  it("refuses to apply by hand without the provider's transaction number and the amount collected", async () => {
+    const r = await rig(unreadable);
+    const checkout = await flagged(r);
+
+    await expect(resolve(r, checkout, { resolution: CardCheckoutResolution.AppliedByHand, amount: checkout.amount })).rejects.toBeInstanceOf(CardPaymentNotApplicableError);
+    await expect(resolve(r, checkout, { resolution: CardCheckoutResolution.AppliedByHand, providerRef: "777" })).rejects.toBeInstanceOf(CardPaymentNotApplicableError);
+    await expect(resolve(r, checkout, { resolution: CardCheckoutResolution.AppliedByHand, providerRef: "abc", amount: checkout.amount })).rejects.toBeInstanceOf(CardPaymentNotApplicableError);
+    expect(await r.payments()).toBe(0);
+  });
+
+  it("refuses an amount other than the checkout's unless the override is confirmed", async () => {
+    const r = await rig(unreadable);
+    const checkout = await flagged(r);
+    const by = { resolution: CardCheckoutResolution.AppliedByHand, providerRef: "777", amount: Money.fromMajor("1.00") };
+
+    await expect(resolve(r, checkout, by)).rejects.toBeInstanceOf(CardPaymentNotApplicableError);
+    expect((await resolve(r, checkout, { ...by, overrideAmount: true })).status).toBe(CardCheckoutStatus.Paid);
+    expect((await resolvedEvents(r))[0]?.details).toMatchObject({ amountOverridden: true, expected: checkout.amount.toString() });
+  });
+
+  it("does not apply by hand when the subscription can no longer be renewed, and leaves the checkout flagged", async () => {
+    const r = await rig(unreadable);
+    const checkout = await flagged(r);
+    await cancelSubscription({ id: "sub-acme", now: OPENED }, r.platform.stores.subscriptions);
+
+    await expect(resolve(r, checkout, { resolution: CardCheckoutResolution.AppliedByHand, providerRef: "777", amount: checkout.amount })).rejects.toThrow();
+
+    expect(await reload(r, checkout)).toMatchObject({ status: CardCheckoutStatus.Pending, resolution: null });
+    expect(await r.payments()).toBe(0);
+  });
+
+  it("refuses a checkout that is not flagged, one already resolved, another tenant's, and an empty reason", async () => {
+    const r = await rig(unreadable);
+    const open = await r.open();
+    await expect(resolve(r, open)).rejects.toBeInstanceOf(CardPaymentNotApplicableError);
+
+    const checkout = await flagged(r);
+    await expect(resolve(r, checkout, { tenantId: "t-other" })).rejects.toBeInstanceOf(CardPaymentNotApplicableError);
+    await expect(resolve(r, checkout, { reason: "  " })).rejects.toBeInstanceOf(CardPaymentNotApplicableError);
+    await resolve(r, checkout);
+    await expect(resolve(r, checkout, { resolution: CardCheckoutResolution.Refunded })).rejects.toBeInstanceOf(CardPaymentNotApplicableError);
+    expect(await resolvedEvents(r)).toHaveLength(1);
+  });
+
+  it("resolves nothing when the event cannot be written", async () => {
+    const r = await rig(unreadable);
+    const checkout = await flagged(r);
+    failAudit(r, "CARD_CHECKOUT_RESOLVED");
+
+    await expect(resolve(r, checkout, { resolution: CardCheckoutResolution.Refunded })).rejects.toThrow("audit sink unavailable");
+    await expect(resolve(r, checkout, { resolution: CardCheckoutResolution.AppliedByHand, providerRef: "777", amount: checkout.amount })).rejects.toThrow("audit sink unavailable");
+
+    expect(await reload(r, checkout)).toMatchObject({ status: CardCheckoutStatus.Pending, resolution: null, resolvedAt: null });
     expect(await r.payments()).toBe(0);
   });
 });

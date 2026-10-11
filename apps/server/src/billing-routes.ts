@@ -33,7 +33,7 @@ import {
   type TenantBillingDTO,
 } from "@mezan/contracts";
 import { BodyLimitRefusal, DEVICE_SECRET_HEADER, readSessionToken, type SessionGrant } from "@mezan/api";
-import { resolveTenantPlan, serializeCardCheckout, type PlatformHandle } from "@mezan/backend";
+import { resolveTenantPlan, serializeCardCheckoutForTenant, type PlatformHandle } from "@mezan/backend";
 import { SettlementStatus, type CardCheckoutService } from "./card-checkout.js";
 import type { PaymobTestProvider } from "./paymob-provider.js";
 import type { CloudEnv } from "./env.js";
@@ -290,7 +290,7 @@ export function createTenantBillingRoutes(options: TenantBillingRoutesOptions): 
           priceMonthly: p.priceMonthly.toString(), priceYearly: p.priceYearly.toString(),
           trialDays: p.trialDays, current: p.id === plan?.id,
         })),
-      checkouts: checkouts.map(serializeCardCheckout),
+      checkouts: checkouts.map(serializeCardCheckoutForTenant),
     };
     return c.json(body);
   });
@@ -367,7 +367,7 @@ export function createTenantBillingRoutes(options: TenantBillingRoutesOptions): 
         returnUrl: (id) => `${origin}${parsed.data.returnPath}?checkout=${encodeURIComponent(id)}`,
         notificationUrl: notificationUrl(c.req.raw, env),
       });
-      return c.json(serializeCardCheckout(checkout), 201);
+      return c.json(serializeCardCheckoutForTenant(checkout), 201);
     } catch (err) {
       return unavailable(c, err);
     }
@@ -379,7 +379,7 @@ export function createTenantBillingRoutes(options: TenantBillingRoutesOptions): 
     if (!allowed(caller.grant, "admin.settings.view")) return forbidden(c);
     const checkout = service ? await service.find(c.req.param("id")) : null;
     if (!checkout || checkout.tenantId !== caller.tenant.id) return c.json({ error: "NOT_FOUND", message: "عملية الدفع غير موجودة" }, 404);
-    return c.json(serializeCardCheckout(checkout));
+    return c.json(serializeCardCheckoutForTenant(checkout));
   });
 
   return app;

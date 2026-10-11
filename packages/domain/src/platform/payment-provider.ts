@@ -25,6 +25,12 @@ export enum ProviderTransactionOutcome {
   NotAPayment = "not_a_payment",
 }
 
+export enum ProviderNonPaymentKind {
+  Refund = "refund",
+  Void = "void",
+  Other = "other",
+}
+
 export interface VerifiedProviderTransaction {
   readonly providerRef: string;
   readonly providerOrderRef: string;
@@ -32,6 +38,7 @@ export interface VerifiedProviderTransaction {
   readonly amount: Money;
   readonly currency: string;
   readonly outcome: ProviderTransactionOutcome;
+  readonly nonPayment?: ProviderNonPaymentKind | null;
   readonly occurredAt: string;
 }
 

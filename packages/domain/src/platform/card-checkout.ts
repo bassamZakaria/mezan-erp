@@ -10,6 +10,21 @@ export enum CardCheckoutStatus {
   Paid = "paid",
   Failed = "failed",
   Unapplied = "unapplied",
+  Refunded = "refunded",
+}
+
+export enum CardCheckoutAttentionCause {
+  Refund = "REFUND",
+  Void = "VOID",
+  NotACapture = "NOT_A_CAPTURE",
+  OtherCheckout = "OTHER_CHECKOUT",
+  Unreadable = "UNREADABLE",
+}
+
+export enum CardCheckoutResolution {
+  Reviewed = "REVIEWED",
+  AppliedByHand = "APPLIED_BY_HAND",
+  Refunded = "REFUNDED",
 }
 
 export enum CardCheckoutFailureReason {
@@ -54,6 +69,11 @@ export interface CardCheckout {
   /** What the provider actually collected, kept when the payment could not be applied so a later manual application has the real figure. */
   readonly capturedAmount: Money | null;
   readonly requestedBy: string;
+  readonly attentionCause: CardCheckoutAttentionCause | null;
+  readonly resolution: CardCheckoutResolution | null;
+  readonly resolvedAt: string | null;
+  readonly resolvedBy: string | null;
+  readonly resolutionReason: string | null;
   readonly createdAt: string;
   readonly updatedAt: string;
 }
@@ -79,10 +99,16 @@ export interface CardCheckoutRepository {
    * declined order and succeed, and that callback can be lost too.
    */
   listSweepable(openedAtOrBefore: string, declinedOpenedAfter: string, limit: number): Promise<CardCheckout[]>;
-  /** Marks a still-`pending` checkout as needing a person; false when it was already marked or is no longer pending. */
-  /** Notes that a sweep examined this checkout, so the next pass starts with the ones it has not reached. */
   markSwept(checkoutId: string, now: string): Promise<void>;
-  flagNeedsAttention(checkoutId: string, now: string): Promise<boolean>;
+  flagNeedsAttention(checkoutId: string, cause: CardCheckoutAttentionCause, now: string): Promise<boolean>;
+  resolveFlagged(input: {
+    readonly checkoutId: string;
+    readonly resolution: CardCheckoutResolution;
+    readonly status: CardCheckoutStatus.Pending | CardCheckoutStatus.Refunded;
+    readonly resolvedBy: string;
+    readonly reason: string;
+    readonly now: string;
+  }): Promise<boolean>;
   attachSession(id: string, providerOrderRef: string, checkoutUrl: string, now: string): Promise<void>;
   /**
    * Claims the provider's transaction id and, when `settle` is given, moves the

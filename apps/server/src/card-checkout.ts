@@ -3,13 +3,16 @@ import {
   applyRenewal,
   cardCheckoutAmount,
   recordSecurityEvent,
+  CardCheckoutAttentionCause,
   CardCheckoutFailureReason,
+  CardCheckoutResolution,
   CardCheckoutStatus,
   CardCheckoutUnavailableError,
   CardPaymentNotApplicableError,
   PaidSettlementOutcome,
   ProviderEventOutcome,
   ProviderInquiryStatus,
+  ProviderNonPaymentKind,
   ProviderTransactionOutcome,
   TenantLifecycle,
   InvalidSubscriptionError,
@@ -68,6 +71,7 @@ export type WebhookResult = { readonly status: SettlementStatus.Rejected } | Set
 enum EventSeverity {
   Info = "INFO",
   Warning = "WARNING",
+  Critical = "CRITICAL",
 }
 
 type UnsettledReason =
@@ -84,6 +88,14 @@ const DETAIL_OF: Readonly<Record<UnsettledReason, SettlementDetail>> = {
   [CardCheckoutFailureReason.SubscriptionNotRenewable]: SettlementDetail.SubscriptionNotRenewable,
   [CardCheckoutFailureReason.ReferenceAlreadyRecorded]: SettlementDetail.ReferenceAlreadyRecorded,
 };
+
+const CAUSE_OF_NON_PAYMENT: Readonly<Record<ProviderNonPaymentKind, CardCheckoutAttentionCause>> = {
+  [ProviderNonPaymentKind.Refund]: CardCheckoutAttentionCause.Refund,
+  [ProviderNonPaymentKind.Void]: CardCheckoutAttentionCause.Void,
+  [ProviderNonPaymentKind.Other]: CardCheckoutAttentionCause.NotACapture,
+};
+
+const PROVIDER_TRANSACTION_NUMBER = /^[0-9]{1,20}$/;
 
 const RETRY: SettlementRetry = { status: SettlementStatus.Retry };
 const OPEN_TO_A_PAYMENT: readonly CardCheckoutStatus[] = [CardCheckoutStatus.Pending, CardCheckoutStatus.Failed];
@@ -114,6 +126,7 @@ export enum CardCheckoutAuditAction {
   PaymentAppliedManually = "CARD_PAYMENT_APPLIED_MANUALLY",
   CheckoutExpired = "CARD_CHECKOUT_EXPIRED",
   CheckoutNeedsAttention = "CARD_CHECKOUT_NEEDS_ATTENTION",
+  CheckoutResolved = "CARD_CHECKOUT_RESOLVED",
 }
 
 export const SWEEP_PENDING_AFTER_MS = 15 * 60_000;
@@ -158,6 +171,17 @@ export interface ApplyUnappliedResult {
   readonly payment: Payment;
 }
 
+export interface ResolveFlaggedInput {
+  readonly tenantId: string;
+  readonly checkoutId: string;
+  readonly resolution: CardCheckoutResolution;
+  readonly reason: string;
+  readonly actorId: string;
+  readonly providerRef?: string;
+  readonly amount?: Money;
+  readonly overrideAmount: boolean;
+}
+
 export interface CardCheckoutService {
   readonly provider: PaymentProvider;
   open(input: OpenCardCheckoutInput): Promise<CardCheckout>;
@@ -165,6 +189,7 @@ export interface CardCheckoutService {
   sweepPending(options?: CardCheckoutSweepOptions): Promise<CardCheckoutSweepResult>;
   sweepRunning(): boolean;
   applyUnapplied(input: ApplyUnappliedInput): Promise<ApplyUnappliedResult>;
+  resolveFlagged(input: ResolveFlaggedInput): Promise<CardCheckout>;
   listByTenant(tenantId: string): Promise<CardCheckout[]>;
   find(id: string): Promise<CardCheckout | null>;
 }
@@ -257,6 +282,11 @@ export function createCardCheckoutService(options: CardCheckoutServiceOptions): 
       failureReason: null,
       capturedAmount: null,
       requestedBy: input.requestedBy,
+      attentionCause: null,
+      resolution: null,
+      resolvedAt: null,
+      resolvedBy: null,
+      resolutionReason: null,
       createdAt: stamp,
       updatedAt: stamp,
     };
@@ -468,11 +498,11 @@ export function createCardCheckoutService(options: CardCheckoutServiceOptions): 
   // A checkout the provider knows about but whose answer we cannot read is
   // never expired on a guess: money may have been taken. Past the threshold it
   // is flagged for a person, once, and stays payable by a late callback.
-  async function raise(checkout: CardCheckout, why: string, tally: SweepTally): Promise<void> {
+  async function raise(checkout: CardCheckout, cause: CardCheckoutAttentionCause, why: string, tally: SweepTally): Promise<void> {
     await recordedTogether(async () => {
-      if (!(await checkouts.flagNeedsAttention(checkout.id, nowIso()))) return;
+      if (!(await checkouts.flagNeedsAttention(checkout.id, cause, nowIso()))) return;
       await mustRecord(CardCheckoutAuditAction.CheckoutNeedsAttention, checkout.tenantId, {
-        checkoutId: checkout.id, providerOrderRef: checkout.providerOrderRef, openedAt: checkout.createdAt, why,
+        checkoutId: checkout.id, providerOrderRef: checkout.providerOrderRef, openedAt: checkout.createdAt, cause, why,
       }, EventSeverity.Warning);
     });
     tally.needsAttention += 1;
@@ -495,7 +525,7 @@ export function createCardCheckoutService(options: CardCheckoutServiceOptions): 
         return;
       case ProviderInquiryStatus.Unreadable:
         log(`inquiry unreadable for checkout ${checkout.id}: ${inquiry.reason}`);
-        return leaveOr(() => raise(checkout, inquiry.reason, tally));
+        return leaveOr(() => raise(checkout, CardCheckoutAttentionCause.Unreadable, inquiry.reason, tally));
       case ProviderInquiryStatus.None:
         return leaveOr(() => expire(checkout, "the provider holds no transaction for the order", tally));
       case ProviderInquiryStatus.Found:
@@ -532,9 +562,10 @@ export function createCardCheckoutService(options: CardCheckoutServiceOptions): 
       // front of a person; only an order the provider has no transaction for
       // is expired.
       case SettlementDetail.NotAPayment:
+        return leaveOr(() => raise(checkout, CAUSE_OF_NON_PAYMENT[inquiry.transaction.nonPayment ?? ProviderNonPaymentKind.Other], `the provider's latest transaction for the order is ${result.detail}`, tally));
       case SettlementDetail.Unmatched:
       case SettlementDetail.ReferenceMismatch:
-        return leaveOr(() => raise(checkout, `the provider's latest transaction for the order is ${result.detail}`, tally));
+        return leaveOr(() => raise(checkout, CardCheckoutAttentionCause.OtherCheckout, `the provider's latest transaction for the order is ${result.detail}`, tally));
     }
   }
 
@@ -667,6 +698,112 @@ export function createCardCheckoutService(options: CardCheckoutServiceOptions): 
     return { checkout: (await checkouts.findById(checkout.id))!, payment };
   }
 
+  const snapshot = (checkout: CardCheckout) => ({
+    status: checkout.status,
+    failureReason: checkout.failureReason,
+    attentionCause: checkout.attentionCause,
+    resolution: checkout.resolution,
+    providerRef: checkout.providerRef,
+    paymentId: checkout.paymentId,
+  });
+
+  async function handApplication(checkout: CardCheckout, input: ResolveFlaggedInput, reason: string, stamp: string) {
+    const refuse = (ar: string, en: string) => new CardPaymentNotApplicableError([ar], [en]);
+    const providerRef = input.providerRef?.trim() ?? "";
+    if (!PROVIDER_TRANSACTION_NUMBER.test(providerRef)) {
+      throw refuse("أدخل رقم العملية كما يظهر في لوحة مزوّد الدفع (أرقام فقط)", "enter the transaction number shown on the provider's dashboard (digits only)");
+    }
+    const amount = input.amount;
+    if (!amount) throw refuse("أدخل المبلغ المحصَّل كما يظهر في لوحة مزوّد الدفع", "enter the amount collected as the provider's dashboard shows it");
+    if (amount.scaled <= 0n) throw refuse("المبلغ يجب أن يكون أكبر من صفر", "the amount must be greater than zero");
+    if (!amount.equals(checkout.amount) && !input.overrideAmount) {
+      throw refuse(
+        `المبلغ ${amount.toString()} لا يطابق قيمة عملية الدفع (${checkout.amount.toString()})؛ أكِّد التجاوز لتسجيله`,
+        `amount ${amount.toString()} is not the checkout's amount (${checkout.amount.toString()}); confirm the override to record it`,
+      );
+    }
+    const reference = `PAYMOB-${providerRef}`;
+    if (await platform.stores.payments.findByReference(checkout.tenantId, reference)) {
+      throw refuse(`المرجع "${reference}" مسجَّل كدفعة من قبل`, `reference "${reference}" is already recorded as a payment`);
+    }
+    const subscription = await platform.stores.subscriptions.findById(checkout.subscriptionId);
+    if (!subscription) throw new SubscriptionNotFoundError(checkout.subscriptionId);
+    const renewed = applyRenewal(subscription, stamp);
+    const payment: Payment = {
+      id: idOf(),
+      tenantId: checkout.tenantId,
+      subscriptionId: checkout.subscriptionId,
+      amount,
+      currency: "EGP",
+      reference,
+      paidAt: stamp,
+      recordedBy: input.actorId,
+      note: `بطاقة — تطبيق يدوي لعملية دفع معلّقة للمراجعة ${checkout.id}: ${reason}`,
+      createdAt: stamp,
+    };
+    return { providerRef, amount, subscription, renewed, payment };
+  }
+
+  async function resolveFlagged(input: ResolveFlaggedInput): Promise<CardCheckout> {
+    const refuse = (ar: string, en: string) => new CardPaymentNotApplicableError([ar], [en]);
+    const reason = input.reason.trim();
+    if (reason === "") throw refuse("سبب القرار مطلوب", "a reason is required");
+    const before = await checkouts.findById(input.checkoutId);
+    if (!before || before.tenantId !== input.tenantId) throw refuse("عملية الدفع غير موجودة لهذه المنشأة", "no such checkout for this tenant");
+    if (before.status !== CardCheckoutStatus.Pending || before.failureReason !== CardCheckoutFailureReason.NeedsAttention || before.resolvedAt !== null) {
+      throw refuse("عملية الدفع ليست معلّقة للمراجعة، أو سبق البتّ فيها", "the checkout is not waiting for a review, or was already resolved");
+    }
+    const stamp = nowIso();
+    const byHand = input.resolution === CardCheckoutResolution.AppliedByHand ? await handApplication(before, input, reason, stamp) : null;
+    const changed = () => refuse("تغيّرت عملية الدفع أو الاشتراك أثناء التنفيذ، أعد المحاولة", "the checkout or subscription changed meanwhile; try again");
+
+    const resolveAndRecord = async () => {
+      const marked = await checkouts.resolveFlagged({
+        checkoutId: before.id,
+        resolution: input.resolution,
+        status: input.resolution === CardCheckoutResolution.Refunded ? CardCheckoutStatus.Refunded : CardCheckoutStatus.Pending,
+        resolvedBy: input.actorId,
+        reason,
+        now: stamp,
+      });
+      if (!marked) throw changed();
+      if (byHand) {
+        const outcome = await checkouts.settlePaid({
+          provider: before.provider,
+          providerRef: byHand.providerRef,
+          now: stamp,
+          checkoutId: before.id,
+          from: [CardCheckoutStatus.Pending],
+          subscriptionBefore: byHand.subscription,
+          subscriptionAfter: byHand.renewed,
+          payment: byHand.payment,
+        });
+        if (outcome === PaidSettlementOutcome.Duplicate) {
+          throw refuse(`رقم العملية ${byHand.providerRef} عولج من قبل`, `transaction ${byHand.providerRef} was already processed`);
+        }
+        if (outcome !== PaidSettlementOutcome.Paid) throw changed();
+      }
+      const after = (await checkouts.findById(before.id))!;
+      await auditEvent(CardCheckoutAuditAction.CheckoutResolved, before.tenantId, {
+        checkoutId: before.id, resolution: input.resolution, reason, before: snapshot(before), after: snapshot(after),
+        ...(byHand
+          ? {
+              paymentId: byHand.payment.id, amount: byHand.amount.toString(), expected: before.amount.toString(),
+              amountOverridden: !byHand.amount.equals(before.amount),
+            }
+          : {}),
+      }, EventSeverity.Critical, input.actorId);
+      return after;
+    };
+    const after = await (platform.audit.atomic ? platform.audit.atomic(resolveAndRecord) : resolveAndRecord());
+
+    if (byHand) {
+      const tenant = await platform.stores.tenants.findById(before.tenantId);
+      if (tenant) options.invalidateEntitlements(tenant.code);
+    }
+    return after;
+  }
+
   return {
     provider,
     open,
@@ -674,6 +811,7 @@ export function createCardCheckoutService(options: CardCheckoutServiceOptions): 
     sweepPending,
     sweepRunning: () => sweeping !== null,
     applyUnapplied,
+    resolveFlagged,
     listByTenant: (tenantId) => checkouts.listByTenant(tenantId),
     find: (id) => checkouts.findById(id),
   };

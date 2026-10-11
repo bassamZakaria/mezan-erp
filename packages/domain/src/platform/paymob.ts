@@ -1,5 +1,5 @@
 import { Money } from "../money/money.js";
-import { ProviderTransactionOutcome } from "./payment-provider.js";
+import { ProviderNonPaymentKind, ProviderTransactionOutcome } from "./payment-provider.js";
 
 // Paymob's documented concatenation order for the Transaction Processed
 // callback HMAC (HMAC-SHA512, lowercase hex, key = the merchant's HMAC secret).
@@ -116,6 +116,13 @@ export function classifyPaymobTransaction(obj: PaymobTransactionObject): Provide
   return ProviderTransactionOutcome.Failed;
 }
 
+export function paymobNonPaymentKind(obj: PaymobTransactionObject): ProviderNonPaymentKind | null {
+  if (classifyPaymobTransaction(obj) !== ProviderTransactionOutcome.NotAPayment) return null;
+  if (flag(obj, "is_refunded") || flag(obj, "is_refund")) return ProviderNonPaymentKind.Refund;
+  if (flag(obj, "is_voided") || flag(obj, "is_void")) return ProviderNonPaymentKind.Void;
+  return ProviderNonPaymentKind.Other;
+}
+
 export interface ParsedPaymobTransaction {
   readonly integrationId: number;
   readonly providerRef: string;
@@ -124,6 +131,7 @@ export interface ParsedPaymobTransaction {
   readonly amount: Money;
   readonly currency: string;
   readonly outcome: ProviderTransactionOutcome;
+  readonly nonPayment: ProviderNonPaymentKind | null;
   readonly occurredAt: string;
 }
 
@@ -153,6 +161,7 @@ export function parsePaymobTransaction(obj: PaymobTransactionObject): ParsedPaym
     amount,
     currency,
     outcome: classifyPaymobTransaction(obj),
+    nonPayment: paymobNonPaymentKind(obj),
     occurredAt: typeof createdAt === "string" ? createdAt : "",
   };
 }

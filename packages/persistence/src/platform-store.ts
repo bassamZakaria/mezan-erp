@@ -2,7 +2,7 @@ import Database from "better-sqlite3";
 import { openSqliteConnection, withSqliteTransaction, type SqliteConnectionInput, type SqliteOpenOptions } from "./sqlite-connection.js";
 import {
   Money,
-  CardCheckoutFailureReason, CardCheckoutStatus, PaidSettlementOutcome, ProviderEventOutcome,
+  CardCheckoutAttentionCause, CardCheckoutFailureReason, CardCheckoutResolution, CardCheckoutStatus, PaidSettlementOutcome, ProviderEventOutcome,
   type CardCheckout, type CardCheckoutRepository, type CardCheckoutSettlement,
   type PaymentProviderId,
   type Payment, type PaymentRepository,
@@ -178,6 +178,9 @@ function addMissingColumns(sqlite: Database.Database): void {
   );
   if (!onCheckout.has("captured_amount")) sqlite.exec(`ALTER TABLE card_checkout ADD COLUMN captured_amount INTEGER`);
   if (!onCheckout.has("swept_at")) sqlite.exec(`ALTER TABLE card_checkout ADD COLUMN swept_at TEXT`);
+  for (const column of ["attention_cause", "resolution", "resolved_at", "resolved_by", "resolution_reason"]) {
+    if (!onCheckout.has(column)) sqlite.exec(`ALTER TABLE card_checkout ADD COLUMN ${column} TEXT`);
+  }
   const onSubscription = new Set(
     (sqlite.prepare(`PRAGMA table_info(subscription)`).all() as { name: string }[]).map((c) => c.name),
   );
@@ -594,6 +597,8 @@ interface CardCheckoutRow {
   currency: CardCheckout["currency"]; status: CardCheckoutStatus; provider_order_ref: string | null;
   checkout_url: string | null; provider_ref: string | null; payment_id: string | null;
   failure_reason: CardCheckoutFailureReason | null; captured_amount: number | null; requested_by: string; created_at: string; updated_at: string;
+  attention_cause: CardCheckoutAttentionCause | null; resolution: CardCheckoutResolution | null; resolved_at: string | null;
+  resolved_by: string | null; resolution_reason: string | null;
 }
 
 function toCardCheckout(r: CardCheckoutRow): CardCheckout {
@@ -604,6 +609,8 @@ function toCardCheckout(r: CardCheckoutRow): CardCheckout {
     paymentId: r.payment_id, failureReason: r.failure_reason,
     capturedAmount: r.captured_amount === null ? null : Money.fromScaled(r.captured_amount),
     requestedBy: r.requested_by,
+    attentionCause: r.attention_cause, resolution: r.resolution, resolvedAt: r.resolved_at,
+    resolvedBy: r.resolved_by, resolutionReason: r.resolution_reason,
     createdAt: r.created_at, updatedAt: r.updated_at,
   };
 }
@@ -615,6 +622,7 @@ class SqliteCardCheckoutStore implements CardCheckoutRepository {
   private readonly byTenant: Database.Statement;
   private readonly sweepable: Database.Statement;
   private readonly flag: Database.Statement;
+  private readonly resolve: Database.Statement;
   private readonly attach: Database.Statement;
   private readonly claim: Database.Statement;
   private readonly renewSubscription: Database.Statement;
@@ -638,13 +646,19 @@ class SqliteCardCheckoutStore implements CardCheckoutRepository {
     this.sweepable = sqlite.prepare(
       `SELECT * FROM card_checkout
         WHERE created_at <= @openedAtOrBefore
+          AND resolved_at IS NULL
           AND (status = 'pending' OR (status = 'failed' AND failure_reason = @declined AND created_at > @declinedOpenedAfter))
         ORDER BY COALESCE(swept_at, '') ASC, created_at ASC, id ASC LIMIT @limit`,
     );
     this.swept = sqlite.prepare(`UPDATE card_checkout SET swept_at = ? WHERE id = ?`);
     this.flag = sqlite.prepare(
-      `UPDATE card_checkout SET failure_reason = @reason, updated_at = @now
+      `UPDATE card_checkout SET failure_reason = @reason, attention_cause = @cause, updated_at = @now
         WHERE id = @id AND status = 'pending' AND (failure_reason IS NULL OR failure_reason <> @reason)`,
+    );
+    this.resolve = sqlite.prepare(
+      `UPDATE card_checkout SET status = @status, resolution = @resolution, resolved_at = @now, resolved_by = @resolvedBy,
+         resolution_reason = @reason, updated_at = @now
+        WHERE id = @checkoutId AND status = 'pending' AND failure_reason = @flagged AND resolved_at IS NULL`,
     );
     this.attach = sqlite.prepare(
       `UPDATE card_checkout SET provider_order_ref = ?, checkout_url = ?, updated_at = ? WHERE id = ? AND provider_order_ref IS NULL`,
@@ -695,8 +709,12 @@ class SqliteCardCheckoutStore implements CardCheckoutRepository {
     this.swept.run(now, checkoutId);
   }
 
-  async flagNeedsAttention(checkoutId: string, now: string): Promise<boolean> {
-    return this.flag.run({ id: checkoutId, now, reason: CardCheckoutFailureReason.NeedsAttention }).changes === 1;
+  async flagNeedsAttention(checkoutId: string, cause: CardCheckoutAttentionCause, now: string): Promise<boolean> {
+    return this.flag.run({ id: checkoutId, now, cause, reason: CardCheckoutFailureReason.NeedsAttention }).changes === 1;
+  }
+
+  async resolveFlagged(input: Parameters<CardCheckoutRepository["resolveFlagged"]>[0]): Promise<boolean> {
+    return this.resolve.run({ ...input, flagged: CardCheckoutFailureReason.NeedsAttention }).changes === 1;
   }
 
   async attachSession(id: string, providerOrderRef: string, checkoutUrl: string, now: string): Promise<void> {

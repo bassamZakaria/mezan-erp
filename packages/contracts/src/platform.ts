@@ -254,7 +254,11 @@ export const tenantSummarySchema = z.object({
   payments: z.array(paymentSchema),
 });
 
-export const cardCheckoutStatusSchema = z.enum(["pending", "paid", "failed", "unapplied"]);
+export const cardCheckoutStatusSchema = z.enum(["pending", "paid", "failed", "unapplied", "refunded"]);
+
+export const cardCheckoutAttentionCauseSchema = z.enum(["REFUND", "VOID", "NOT_A_CAPTURE", "OTHER_CHECKOUT", "UNREADABLE"]);
+
+export const cardCheckoutResolutionSchema = z.enum(["REVIEWED", "APPLIED_BY_HAND", "REFUNDED"]);
 
 export const cardCheckoutSchema = z.object({
   id: z.string().min(1),
@@ -272,6 +276,11 @@ export const cardCheckoutSchema = z.object({
   /** What the provider reported collecting, when the payment could not be applied automatically. */
   capturedAmount: z.string().nullable(),
   requestedBy: z.string().min(1),
+  attentionCause: cardCheckoutAttentionCauseSchema.nullable(),
+  resolution: cardCheckoutResolutionSchema.nullable(),
+  resolvedAt: z.string().nullable(),
+  resolvedBy: z.string().nullable(),
+  resolutionReason: z.string().nullable(),
   createdAt: isoLikeSchema,
   updatedAt: isoLikeSchema,
 });
@@ -311,6 +320,14 @@ export const applyCardCheckoutRequestSchema = z.object({
   amount: strictlyPositiveDecimalString.optional(),
   overrideAmount: z.boolean().optional(),
   reason: z.string().trim().min(3).max(500),
+});
+
+export const resolveCardCheckoutRequestSchema = z.object({
+  resolution: cardCheckoutResolutionSchema,
+  reason: z.string().trim().min(3).max(500),
+  providerRef: z.string().trim().regex(/^[0-9]{1,20}$/).optional(),
+  amount: strictlyPositiveDecimalString.optional(),
+  overrideAmount: z.boolean().optional(),
 });
 
 /** How a module stands for this tenant right now (DEC-31 rules 3 and 5). */
@@ -423,3 +440,6 @@ export type StartModuleTrialRequestDTO = z.infer<typeof startModuleTrialRequestS
 export type PlatformCardCheckoutsDTO = z.infer<typeof platformCardCheckoutsSchema>;
 export type CardCheckoutSweepResultDTO = z.infer<typeof cardCheckoutSweepResultSchema>;
 export type ApplyCardCheckoutRequestDTO = z.infer<typeof applyCardCheckoutRequestSchema>;
+export type ResolveCardCheckoutRequestDTO = z.infer<typeof resolveCardCheckoutRequestSchema>;
+export type CardCheckoutAttentionCauseDTO = z.infer<typeof cardCheckoutAttentionCauseSchema>;
+export type CardCheckoutResolutionDTO = z.infer<typeof cardCheckoutResolutionSchema>;

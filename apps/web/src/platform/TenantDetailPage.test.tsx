@@ -485,10 +485,11 @@ describe("TenantDetailPage", () => {
     const unapplied: CardCheckoutDTO = {
       id: "chk-1", tenantId: "tenant-1", subscriptionId: "sub-1", provider: "paymob", testMode: false, amount: "500.000000",
       currency: "EGP", status: "unapplied", checkoutUrl: null, providerRef: "574588", paymentId: null, failureReason: "AMOUNT_MISMATCH",
-      capturedAmount: "480.500000", requestedBy: "tenant:acme:u1", createdAt: "2026-09-10T00:00:00.000Z", updatedAt: "2026-09-10T00:00:00.000Z",
+      capturedAmount: "480.500000", requestedBy: "tenant:acme:u1", attentionCause: null, resolution: null, resolvedAt: null, resolvedBy: null,
+      resolutionReason: null, createdAt: "2026-09-10T00:00:00.000Z", updatedAt: "2026-09-10T00:00:00.000Z",
     };
     const expired: CardCheckoutDTO = { ...unapplied, id: "chk-2", status: "failed", providerRef: null, failureReason: "EXPIRED", capturedAmount: null };
-    const flagged: CardCheckoutDTO = { ...expired, id: "chk-3", status: "pending", failureReason: "NEEDS_ATTENTION" };
+    const flagged: CardCheckoutDTO = { ...expired, id: "chk-3", status: "pending", failureReason: "NEEDS_ATTENTION", attentionCause: "UNREADABLE" };
     const AMOUNT = "المبلغ المحصَّل فعلًا (جنيه)";
     const REASON = "سبب التطبيق اليدوي";
     const OVERRIDE = "أؤكّد تسجيل مبلغ يختلف عمّا سجّله مزوّد الدفع";
@@ -615,6 +616,7 @@ describe("TenantDetailPage", () => {
 
       expect(await screen.findByText(/انتهت المهلة دون أن يؤكّد مزوّد الدفع أي عملية/)).toBeInTheDocument();
       expect(screen.getByText(/تحتاج مراجعة: ردّ مزوّد الدفع عن هذه العملية غير مقروء/)).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "البتّ في العملية" })).not.toBeInTheDocument();
       expect(screen.queryByRole("button", { name: "تطبيق على الاشتراك" })).not.toBeInTheDocument();
       expect(screen.queryByRole("button", { name: "مطابقة العمليات المعلّقة مع Paymob" })).not.toBeInTheDocument();
     });
@@ -651,6 +653,188 @@ describe("TenantDetailPage", () => {
       expect(screen.queryByRole("button", { name: "تطبيق على الاشتراك" })).not.toBeInTheDocument();
     });
 
+    describe("a flagged checkout", () => {
+      const RESOLVE = "البتّ في العملية";
+      const DECISION_REASON = "سبب القرار";
+      const refundFlag: CardCheckoutDTO = { ...flagged, id: "chk-6", attentionCause: "REFUND" };
+      const voidFlag: CardCheckoutDTO = { ...flagged, id: "chk-7", attentionCause: "VOID" };
+
+      function resolving(checkouts: CardCheckoutDTO[] = [flagged], answer: () => { status?: number; body: unknown } = () => ({ body: { ...flagged, resolution: "REVIEWED" } })) {
+        const posted: { path: string; body: unknown }[] = [];
+        const handler = (init: RequestInit | undefined, path: string) => {
+          posted.push({ path, body: JSON.parse(String(init?.body)) });
+          return answer();
+        };
+        const transport = checkoutsTransport(
+          Object.fromEntries(checkouts.map((c) => [`POST /tenants/tenant-1/card-checkouts/${c.id}/resolve`, handler])),
+          checkouts,
+        );
+        return { posted, transport };
+      }
+
+      async function decide(dialog: HTMLElement, choice: string, reason = "راجعت لوحة بيموب") {
+        fireEvent.click(within(dialog).getByRole("radio", { name: choice }));
+        fireEvent.change(within(dialog).getByLabelText(DECISION_REASON), { target: { value: reason } });
+      }
+
+      it("says in Arabic whether the provider shows a refund, a void or an answer that could not be read", async () => {
+        renderDetail({ transport: checkoutsTransport({}, [flagged, refundFlag, voidFlag]), session: testPlatformSession });
+
+        expect(await screen.findByText(/آخر حركة على هذا الطلب لدى مزوّد الدفع استرداد/)).toBeInTheDocument();
+        expect(screen.getByText(/آخر حركة على هذا الطلب لدى مزوّد الدفع إلغاء قبل التسوية/)).toBeInTheDocument();
+        expect(screen.getByText(/ردّ مزوّد الدفع عن هذه العملية غير مقروء/)).toBeInTheDocument();
+        expect(screen.getAllByRole("button", { name: RESOLVE })).toHaveLength(3);
+      });
+
+      it("marks a checkout reviewed only after the owner confirms what that does", async () => {
+        const { posted, transport } = resolving();
+        renderDetail({ transport, session: testPlatformSession });
+
+        fireEvent.click(await screen.findByRole("button", { name: RESOLVE }));
+        const dialog = screen.getByRole("dialog");
+        await decide(dialog, "رُوجعت ولا يلزم إجراء");
+        fireEvent.click(within(dialog).getByRole("button", { name: "متابعة" }));
+
+        expect(within(dialog).getByText(/يتوقف سؤال مزوّد الدفع عن هذه العملية/)).toBeInTheDocument();
+        expect(posted).toEqual([]);
+
+        fireEvent.click(within(dialog).getByRole("button", { name: "تأكيد القرار" }));
+
+        await waitFor(() => expect(posted).toEqual([
+          { path: "/tenants/tenant-1/card-checkouts/chk-3/resolve", body: { resolution: "REVIEWED", reason: "راجعت لوحة بيموب" } },
+        ]));
+        await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+      });
+
+      it("records a refund, and sends the transaction number and amount of a payment applied by hand", async () => {
+        const { posted, transport } = resolving([refundFlag, flagged]);
+        renderDetail({ transport, session: testPlatformSession });
+
+        fireEvent.click((await screen.findAllByRole("button", { name: RESOLVE }))[0]!);
+        let dialog = screen.getByRole("dialog");
+        await decide(dialog, "تسجيلها كمستردّة", "رُدّ المبلغ من لوحة بيموب");
+        fireEvent.click(within(dialog).getByRole("button", { name: "متابعة" }));
+        expect(within(dialog).getByText(/تُغلق العملية كمستردّة ولا تُجدِّد الاشتراك/)).toBeInTheDocument();
+        fireEvent.click(within(dialog).getByRole("button", { name: "تأكيد القرار" }));
+        await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+
+        fireEvent.click(screen.getAllByRole("button", { name: RESOLVE })[1]!);
+        dialog = screen.getByRole("dialog");
+        await decide(dialog, "تطبيق الدفعة يدويًا على الاشتراك", "الدفعة ظاهرة في لوحة بيموب");
+        fireEvent.change(within(dialog).getByLabelText("رقم العملية في لوحة Paymob"), { target: { value: "٥٧٤٥٨٨" } });
+        fireEvent.click(within(dialog).getByRole("button", { name: "متابعة" }));
+        expect(within(dialog).getByText(/يجدّد اشتراك المنشأة فترة واحدة/)).toBeInTheDocument();
+        fireEvent.click(within(dialog).getByRole("button", { name: "تأكيد القرار" }));
+
+        await waitFor(() => expect(posted.map((p) => p.body)).toEqual([
+          { resolution: "REFUNDED", reason: "رُدّ المبلغ من لوحة بيموب" },
+          { resolution: "APPLIED_BY_HAND", reason: "الدفعة ظاهرة في لوحة بيموب", providerRef: "574588", amount: "500.00" },
+        ]));
+      });
+
+      it("asks for the override before sending an amount other than the checkout's", async () => {
+        const { posted, transport } = resolving();
+        renderDetail({ transport, session: testPlatformSession });
+
+        fireEvent.click(await screen.findByRole("button", { name: RESOLVE }));
+        const dialog = screen.getByRole("dialog");
+        await decide(dialog, "تطبيق الدفعة يدويًا على الاشتراك");
+        fireEvent.change(within(dialog).getByLabelText("رقم العملية في لوحة Paymob"), { target: { value: "574588" } });
+        fireEvent.change(within(dialog).getByLabelText("المبلغ المحصَّل كما في لوحة Paymob (جنيه)"), { target: { value: "480.50" } });
+        fireEvent.click(within(dialog).getByRole("button", { name: "متابعة" }));
+        expect(within(dialog).getByText("المبلغ يختلف عن قيمة عملية الدفع. أكّد التجاوز أو أعِد المبلغ كما هو.")).toBeInTheDocument();
+
+        fireEvent.click(within(dialog).getByRole("switch", { name: "أؤكّد تسجيل مبلغ يختلف عن قيمة عملية الدفع" }));
+        fireEvent.click(within(dialog).getByRole("button", { name: "متابعة" }));
+        fireEvent.click(within(dialog).getByRole("button", { name: "تأكيد القرار" }));
+
+        await waitFor(() => expect(posted.map((p) => p.body)).toEqual([
+          { resolution: "APPLIED_BY_HAND", reason: "راجعت لوحة بيموب", providerRef: "574588", amount: "480.50", overrideAmount: true },
+        ]));
+      });
+
+      it.each([
+        ["no decision", async () => undefined, "اختر القرار أولًا."],
+        ["no reason", async (dialog: HTMLElement) => decide(dialog, "رُوجعت ولا يلزم إجراء", "  "), "اكتب سبب القرار (ثلاثة أحرف على الأقل)."],
+        ["no transaction number", async (dialog: HTMLElement) => decide(dialog, "تطبيق الدفعة يدويًا على الاشتراك"), "أدخل رقم العملية كما يظهر في لوحة Paymob (أرقام فقط)."],
+      ])("does not go on to the confirmation with %s", async (_label, fill, message) => {
+        const { posted, transport } = resolving();
+        renderDetail({ transport, session: testPlatformSession });
+
+        fireEvent.click(await screen.findByRole("button", { name: RESOLVE }));
+        const dialog = screen.getByRole("dialog");
+        await fill(dialog);
+        fireEvent.click(within(dialog).getByRole("button", { name: "متابعة" }));
+
+        expect(within(dialog).getByText(message)).toBeInTheDocument();
+        expect(within(dialog).queryByRole("button", { name: "تأكيد القرار" })).not.toBeInTheDocument();
+        expect(posted).toEqual([]);
+      });
+
+      it("does not offer applying by hand while the subscription cannot be renewed", async () => {
+        const cancelledSummary = makeSummary({}, { status: "cancelled" });
+        renderDetail({ transport: checkoutsTransport({ "GET /tenants/tenant-1": () => ({ body: cancelledSummary }) }, [flagged]), session: testPlatformSession });
+
+        fireEvent.click(await screen.findByRole("button", { name: RESOLVE }));
+        const dialog = screen.getByRole("dialog");
+
+        expect(within(dialog).getByRole("radio", { name: "تطبيق الدفعة يدويًا على الاشتراك" })).toBeDisabled();
+        expect(within(dialog).getByText("الاشتراك لا يقبل التجديد الآن — أعد تفعيله أولًا ثم طبِّق الدفعة")).toBeInTheDocument();
+      });
+
+      it("keeps the dialog open and shows the server's refusal", async () => {
+        const { transport } = resolving([flagged], () => ({
+          status: 409,
+          body: { error: "CARD_PAYMENT_NOT_APPLICABLE", message: "تعذّر تطبيق دفعة البطاقة: عملية الدفع ليست معلّقة للمراجعة، أو سبق البتّ فيها" },
+        }));
+        renderDetail({ transport, session: testPlatformSession });
+
+        fireEvent.click(await screen.findByRole("button", { name: RESOLVE }));
+        const dialog = screen.getByRole("dialog");
+        await decide(dialog, "رُوجعت ولا يلزم إجراء");
+        fireEvent.click(within(dialog).getByRole("button", { name: "متابعة" }));
+        fireEvent.click(within(dialog).getByRole("button", { name: "تأكيد القرار" }));
+
+        expect(await within(dialog).findByText(/عملية الدفع ليست معلّقة للمراجعة، أو سبق البتّ فيها/)).toBeInTheDocument();
+      });
+
+      it("marks only the row being saved as busy, and frees it when the save fails", async () => {
+        let answer: (response: { status: number; ok: boolean; json: <T>() => Promise<T>; text: () => Promise<string> }) => void = () => undefined;
+        const base = checkoutsTransport({}, [flagged, refundFlag]);
+        const transport: typeof base = (path, init) =>
+          init?.method === "POST" && path.endsWith("/resolve") ? new Promise((resolve) => { answer = resolve; }) : base(path, init);
+        renderDetail({ transport, session: testPlatformSession });
+
+        fireEvent.click((await screen.findAllByRole("button", { name: RESOLVE }))[0]!);
+        const dialog = screen.getByRole("dialog");
+        await decide(dialog, "رُوجعت ولا يلزم إجراء");
+        fireEvent.click(within(dialog).getByRole("button", { name: "متابعة" }));
+        fireEvent.click(within(dialog).getByRole("button", { name: "تأكيد القرار" }));
+
+        const busy = await screen.findByRole("button", { name: "جارٍ حفظ القرار…" });
+        expect(busy).toBeDisabled();
+        expect(screen.getAllByRole("button", { name: RESOLVE })).toHaveLength(1);
+        expect(screen.getByRole("button", { name: RESOLVE })).toBeEnabled();
+
+        const body = { error: "AUDIT_UNAVAILABLE", message: "تعذّر تسجيل العملية في سجل التدقيق، فلم يُحفظ أي تغيير. حاول مرة أخرى." };
+        answer({ status: 503, ok: false, json: <T,>() => Promise.resolve(body as T), text: () => Promise.resolve(JSON.stringify(body)) });
+
+        await waitFor(() => expect(screen.getAllByRole("button", { name: RESOLVE })).toHaveLength(2));
+        expect(screen.queryByRole("button", { name: "جارٍ حفظ القرار…" })).not.toBeInTheDocument();
+      });
+
+      it("shows what was decided, by whom and why, and offers no second decision", async () => {
+        const reviewed: CardCheckoutDTO = { ...flagged, resolution: "REVIEWED", resolvedAt: "2026-09-12T00:00:00.000Z", resolvedBy: "PU-1", resolutionReason: "لا توجد عملية في اللوحة" };
+        const refunded: CardCheckoutDTO = { ...refundFlag, status: "refunded", resolution: "REFUNDED", resolvedAt: "2026-09-12T00:00:00.000Z", resolvedBy: "PU-1", resolutionReason: "رُدّ المبلغ" };
+        renderDetail({ transport: checkoutsTransport({}, [reviewed, refunded]), session: testPlatformSession });
+
+        expect(await screen.findByText(/رُوجعت ولا يلزم إجراء — لا توجد عملية في اللوحة/)).toBeInTheDocument();
+        expect(screen.getByText(/سُجّلت كمستردّة — رُدّ المبلغ/)).toBeInTheDocument();
+        expect(screen.getByText("مستردّة")).toBeInTheDocument();
+        expect(screen.queryByRole("button", { name: RESOLVE })).not.toBeInTheDocument();
+      });
+    });
+
     const tally = {
       examined: 9, paid: 1, declined: 0, unapplied: 0, expired: 1, stillPending: 1, alreadySettled: 2,
       needsAttention: 0, unavailable: 0, failed: 0, deferred: 0,
@@ -682,7 +866,7 @@ describe("TenantDetailPage", () => {
 
       fireEvent.click(await screen.findByRole("button", { name: "مطابقة العمليات المعلّقة مع Paymob" }));
 
-      expect(await screen.findByText("2 عملية ردّ مزوّد الدفع عنها غير مقروء وتحتاج مراجعة في لوحة Paymob.")).toBeInTheDocument();
+      expect(await screen.findByText("2 عملية لم يتأكّد مصيرها لدى مزوّد الدفع (استرداد، إلغاء، أو ردّ غير مقروء) وتحتاج البتّ فيها من صفحة منشأتها.")).toBeInTheDocument();
       expect(screen.getByText("تعذّر سؤال مزوّد الدفع عن 3 عملية وفشلت تسوية 1، فتُركت كما هي.")).toBeInTheDocument();
       expect(screen.getByText("4 عملية لم يصلها الدور في هذه المرة وتُراجَع في المطابقة التالية.")).toBeInTheDocument();
     });

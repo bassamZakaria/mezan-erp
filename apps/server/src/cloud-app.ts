@@ -178,6 +178,7 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
           sweep: async () =>
             checkoutService.sweepRunning() ? null : checkoutService.sweepPending({ budgetMs: OPERATOR_SWEEP_BUDGET_MS }),
           applyUnapplied: async (input) => (await checkoutService.applyUnapplied(input)).checkout,
+          resolveFlagged: (input) => checkoutService.resolveFlagged(input),
         }
       : undefined,
   });

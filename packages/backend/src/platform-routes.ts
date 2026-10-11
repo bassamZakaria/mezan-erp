@@ -44,6 +44,7 @@ import {
   type Payment,
   type PlatformUser,
   CardCheckoutStatus,
+  type CardCheckoutResolution,
   type CardCheckout,
   CardCheckoutUnavailableError,
   CardPaymentNotApplicableError,
@@ -57,6 +58,7 @@ import {
   subscriptionResumeRequestSchema,
   recordPaymentRequestSchema,
   applyCardCheckoutRequestSchema,
+  resolveCardCheckoutRequestSchema,
   planCreateRequestSchema,
   planUpdateRequestSchema,
   createPlatformUserRequestSchema,
@@ -97,6 +99,16 @@ export interface PlatformCardCheckoutPort {
     readonly overrideAmount: boolean;
     readonly reason: string;
     readonly actorId: string;
+  }): Promise<CardCheckout>;
+  resolveFlagged(input: {
+    readonly tenantId: string;
+    readonly checkoutId: string;
+    readonly resolution: CardCheckoutResolution;
+    readonly reason: string;
+    readonly actorId: string;
+    readonly providerRef?: string;
+    readonly amount?: Money;
+    readonly overrideAmount: boolean;
   }): Promise<CardCheckout>;
 }
 
@@ -149,8 +161,14 @@ export function serializeCardCheckout(c: CardCheckout): CardCheckoutDTO {
     id: c.id, tenantId: c.tenantId, subscriptionId: c.subscriptionId, provider: c.provider,
     testMode: c.provider === "paymob-test", amount: c.amount.toString(), currency: c.currency, status: c.status,
     checkoutUrl: c.status === CardCheckoutStatus.Pending ? c.checkoutUrl : null, providerRef: c.providerRef, paymentId: c.paymentId,
-    failureReason: c.failureReason, capturedAmount: c.capturedAmount?.toString() ?? null, requestedBy: c.requestedBy, createdAt: c.createdAt, updatedAt: c.updatedAt,
+    failureReason: c.failureReason, capturedAmount: c.capturedAmount?.toString() ?? null, requestedBy: c.requestedBy,
+    attentionCause: c.attentionCause, resolution: c.resolution, resolvedAt: c.resolvedAt, resolvedBy: c.resolvedBy,
+    resolutionReason: c.resolutionReason, createdAt: c.createdAt, updatedAt: c.updatedAt,
   };
+}
+
+export function serializeCardCheckoutForTenant(c: CardCheckout): CardCheckoutDTO {
+  return { ...serializeCardCheckout(c), resolvedBy: null, resolutionReason: null };
 }
 
 function serializePlatformUser(u: PlatformUser): PlatformUserDTO {
@@ -601,6 +619,29 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
         overrideAmount: parsed.data.overrideAmount === true,
         reason: parsed.data.reason,
         actorId: platformUser.id,
+      });
+      return c.json(serializeCardCheckout(checkout));
+    } catch (err) {
+      return domainErrorResponse(c, err);
+    }
+  });
+
+  app.post("/tenants/:id/card-checkouts/:checkoutId/resolve", requireOwner, async (c) => {
+    if (!options.cardCheckout) return cardCheckoutNotConfigured(c);
+    const parsed = resolveCardCheckoutRequestSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    const platformUser = c.get("platformUser")!;
+    try {
+      const tenant = await requireTenant(c.req.param("id"));
+      const checkout = await options.cardCheckout.resolveFlagged({
+        tenantId: tenant.id,
+        checkoutId: c.req.param("checkoutId"),
+        resolution: parsed.data.resolution as CardCheckoutResolution,
+        reason: parsed.data.reason,
+        actorId: platformUser.id,
+        ...(parsed.data.providerRef === undefined ? {} : { providerRef: parsed.data.providerRef }),
+        ...(parsed.data.amount === undefined ? {} : { amount: Money.fromMajor(parsed.data.amount) }),
+        overrideAmount: parsed.data.overrideAmount === true,
       });
       return c.json(serializeCardCheckout(checkout));
     } catch (err) {

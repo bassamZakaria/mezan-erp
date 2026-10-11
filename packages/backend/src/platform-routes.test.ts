@@ -7,13 +7,14 @@ import {
   createTenant,
   Money,
   startSubscription,
+  CardCheckoutResolution,
   CardCheckoutStatus,
   type CardCheckout,
 } from "@mezan/domain";
 import type { CreateTenantRequestDTO, ProvisionResultDTO, ProvisionRetryRequestDTO } from "@mezan/contracts";
 import { createPlatform, type PlatformHandle } from "./create-platform.js";
 import { createPlatformAuth, type PlatformAuth } from "./platform-auth.js";
-import { createPlatformRoutes, type PlatformCardCheckoutPort } from "./platform-routes.js";
+import { createPlatformRoutes, serializeCardCheckout, serializeCardCheckoutForTenant, type PlatformCardCheckoutPort } from "./platform-routes.js";
 
 const FIXED_NOW = () => new Date("2026-01-01T00:00:00Z");
 
@@ -718,7 +719,7 @@ describe("createPlatformRoutes — card checkout operator actions", () => {
 
   async function withCardCheckout(port: Partial<PlatformCardCheckoutPort> = {}) {
     const rig = await buildRig();
-    const calls: { sweeps: number; applied: unknown[] } = { sweeps: 0, applied: [] };
+    const calls: { sweeps: number; applied: unknown[]; resolved: unknown[] } = { sweeps: 0, applied: [], resolved: [] };
     const app = createPlatformRoutes({
       platform: rig.platform,
       auth: rig.auth,
@@ -733,6 +734,13 @@ describe("createPlatformRoutes — card checkout operator actions", () => {
         applyUnapplied: async (input) => {
           calls.applied.push({ ...input, amount: input.amount?.toString() ?? null });
           return checkout({ id: input.checkoutId, tenantId: input.tenantId, status: CardCheckoutStatus.Paid });
+        },
+        resolveFlagged: async (input) => {
+          calls.resolved.push({ ...input, amount: input.amount?.toString() ?? null });
+          return checkout({
+            id: input.checkoutId, tenantId: input.tenantId, status: CardCheckoutStatus.Refunded, resolution: input.resolution,
+            resolvedAt: "2026-01-02T00:00:00.000Z", resolvedBy: input.actorId, resolutionReason: input.reason,
+          });
         },
         ...port,
       },
@@ -750,7 +758,8 @@ describe("createPlatformRoutes — card checkout operator actions", () => {
       id: "CHK-1", tenantId: "T-CARD", subscriptionId: "S1", provider: "paymob-test", amount: Money.fromMajor("490.50"), currency: "EGP",
       status: CardCheckoutStatus.Unapplied, providerOrderRef: "1", checkoutUrl: null, providerRef: "2", paymentId: null, failureReason: null,
       capturedAmount: Money.fromMajor("480.00"),
-      requestedBy: "tester", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z", ...overrides,
+      requestedBy: "tester", attentionCause: null, resolution: null, resolvedAt: null, resolvedBy: null, resolutionReason: null,
+      createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z", ...overrides,
     };
   }
 
@@ -779,7 +788,7 @@ describe("createPlatformRoutes — card checkout operator actions", () => {
     ]);
 
     expect(responses.map((res) => res.status)).toEqual([403, 403, 401, 401]);
-    expect(calls).toEqual({ sweeps: 0, applied: [] });
+    expect(calls).toEqual({ sweeps: 0, applied: [], resolved: [] });
   });
 
   it("applies an unapplied payment as the signed-in owner, never as an actor named in the body", async () => {
@@ -854,6 +863,77 @@ describe("createPlatformRoutes — card checkout operator actions", () => {
     expect(refused.status).toBe(409);
     expect(await json(refused)).toMatchObject({ error: "CARD_PAYMENT_NOT_APPLICABLE", messageEn: expect.stringContaining("not unapplied") });
     expect(unknown.status).toBe(404);
+  });
+
+  it("resolves a flagged checkout as the signed-in owner and answers with who resolved it and why", async () => {
+    const { rig, app, calls, tenant } = await withCardCheckout();
+
+    const res = await app.fetch(
+      req(`/tenants/${tenant.id}/card-checkouts/CHK-1/resolve`, rig.ownerToken, {
+        method: "POST",
+        body: JSON.stringify({ resolution: "REFUNDED", reason: "  refunded on the dashboard  ", actorId: "someone-else" }),
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    expect(await json(res)).toMatchObject({
+      id: "CHK-1", status: "refunded", resolution: "REFUNDED", resolvedBy: "PU-OWNER", resolutionReason: "refunded on the dashboard",
+    });
+    expect(calls.resolved).toEqual([
+      { tenantId: tenant.id, checkoutId: "CHK-1", resolution: "REFUNDED", reason: "refunded on the dashboard", actorId: "PU-OWNER", amount: null, overrideAmount: false },
+    ]);
+  });
+
+  it("passes the transaction number and amount of a payment applied by hand", async () => {
+    const { rig, app, calls, tenant } = await withCardCheckout();
+
+    await app.fetch(
+      req(`/tenants/${tenant.id}/card-checkouts/CHK-1/resolve`, rig.ownerToken, {
+        method: "POST",
+        body: JSON.stringify({ resolution: "APPLIED_BY_HAND", reason: "seen on the dashboard", providerRef: "123456", amount: "490.50", overrideAmount: true }),
+      }),
+    );
+
+    expect(calls.resolved).toEqual([expect.objectContaining({ resolution: "APPLIED_BY_HAND", providerRef: "123456", amount: "490.500000", overrideAmount: true })]);
+  });
+
+  it.each([
+    ["an unknown resolution", { resolution: "FORGOTTEN", reason: "seen on the dashboard" }],
+    ["no reason", { resolution: "REVIEWED" }],
+    ["a transaction number that is not digits", { resolution: "APPLIED_BY_HAND", reason: "seen on the dashboard", providerRef: "12 OR 1", amount: "1.00" }],
+    ["a numeric amount", { resolution: "APPLIED_BY_HAND", reason: "seen on the dashboard", providerRef: "12", amount: 5 }],
+  ])("400s a resolution with %s", async (_label, body) => {
+    const { rig, app, calls, tenant } = await withCardCheckout();
+    const res = await app.fetch(req(`/tenants/${tenant.id}/card-checkouts/CHK-1/resolve`, rig.ownerToken, { method: "POST", body: JSON.stringify(body) }));
+    expect(res.status).toBe(400);
+    expect(calls.resolved).toEqual([]);
+  });
+
+  it("refuses a resolution from support, from nobody, and for an unknown tenant, and answers a refusal in Arabic", async () => {
+    const { rig, app, calls, tenant } = await withCardCheckout();
+    const body = JSON.stringify({ resolution: "REVIEWED", reason: "seen on the dashboard" });
+    const path = `/tenants/${tenant.id}/card-checkouts/CHK-1/resolve`;
+
+    const support = await app.fetch(req(path, rig.supportToken, { method: "POST", body }));
+    const nobody = await app.fetch(new Request(`http://x${path}`, { method: "POST", body, headers: { "content-type": "application/json" } }));
+    const unknown = await app.fetch(req("/tenants/T-NOBODY/card-checkouts/CHK-1/resolve", rig.ownerToken, { method: "POST", body }));
+
+    expect([support.status, nobody.status, unknown.status]).toEqual([403, 401, 404]);
+    expect(calls.resolved).toEqual([]);
+
+    const refusing = await withCardCheckout({
+      resolveFlagged: async () => { throw new CardPaymentNotApplicableError(["عملية الدفع ليست معلّقة للمراجعة"], ["the checkout is not waiting for a review"]); },
+    });
+    const refused = await refusing.app.fetch(req("/tenants/T-CARD/card-checkouts/CHK-1/resolve", refusing.rig.ownerToken, { method: "POST", body }));
+    expect(refused.status).toBe(409);
+    expect(await json(refused)).toMatchObject({ error: "CARD_PAYMENT_NOT_APPLICABLE", message: expect.stringContaining("ليست معلّقة للمراجعة") });
+  });
+
+  it("keeps who resolved a checkout, and the operator's note, out of what the tenant is shown", () => {
+    const resolved = checkout({ resolution: CardCheckoutResolution.Reviewed, resolvedAt: "2026-01-02T00:00:00.000Z", resolvedBy: "PU-OWNER", resolutionReason: "internal note" });
+
+    expect(serializeCardCheckout(resolved)).toMatchObject({ resolvedBy: "PU-OWNER", resolutionReason: "internal note" });
+    expect(serializeCardCheckoutForTenant(resolved)).toMatchObject({ resolution: "REVIEWED", resolvedBy: null, resolutionReason: null });
   });
 
   it("answers 503 for both actions when card checkout is not configured", async () => {

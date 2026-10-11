@@ -6,6 +6,7 @@ import type {
   BillingCycleDTO,
   CardCheckoutDTO,
   CardCheckoutSweepResultDTO,
+  ResolveCardCheckoutRequestDTO,
   ProvisionResultDTO,
   SubscriptionStatusDTO,
 } from "@mezan/contracts";
@@ -15,6 +16,8 @@ import { SelectField, TextAreaField, ToggleField } from "../settings/form-contro
 import { LicenseStateChip, TenantStatusChip } from "./chips";
 import { PlatformApiError, usePlatformApi } from "./api";
 import { RecordPaymentDialog } from "./RecordPaymentDialog";
+import { attentionCauseKey, resolvedKey } from "./card-checkout-labels";
+import { ResolveCardCheckoutDialog, ResolveOutcome } from "./ResolveCardCheckoutDialog";
 import { ApplyCardPaymentDialog } from "./ApplyCardPaymentDialog";
 import { CardCheckoutChip, CheckoutOutcomeNotice, TestModeChip, absoluteCheckoutUrl } from "../billing/CardCheckoutStatus";
 import {
@@ -24,6 +27,7 @@ import {
   useCreateCardCheckoutMutation,
   useChangePlanMutation,
   usePlansQuery,
+  useResolveCardCheckoutMutation,
   useResumeSubscriptionMutation,
   useResumeTenantMutation,
   useRetryProvisionMutation,
@@ -99,6 +103,14 @@ function isAppliable(checkout: AppliableCheckout): boolean {
   );
 }
 
+function awaitsADecision(checkout: Pick<CardCheckoutDTO, "status" | "failureReason" | "resolution">): boolean {
+  return (
+    checkout.status === CardCheckoutStatus.Pending &&
+    checkout.failureReason === CardCheckoutFailureReason.NeedsAttention &&
+    checkout.resolution === null
+  );
+}
+
 function failureReasonKey(reason: string): AppTranslationKey {
   return (FAILURE_REASON_KEY as Readonly<Record<string, AppTranslationKey | undefined>>)[reason] ?? "platform.cardCheckout.reason.other";
 }
@@ -134,6 +146,9 @@ export function TenantDetailPage() {
   const createCardCheckout = useCreateCardCheckoutMutation();
   const sweepCardCheckouts = useSweepCardCheckoutsMutation();
   const [applyTarget, setApplyTarget] = useState<CardCheckoutDTO | null>(null);
+  const resolveCardCheckout = useResolveCardCheckoutMutation();
+  const [resolveTarget, setResolveTarget] = useState<CardCheckoutDTO | null>(null);
+  const [resolvingId, setResolvingId] = useState<string | null>(null);
   const [searchParams] = useSearchParams();
   const returnedCheckoutId = searchParams.get("checkout");
   const [cardLink, setCardLink] = useState<string | null>(null);
@@ -164,6 +179,17 @@ export function TenantDetailPage() {
   const { tenant, subscription, plan, licenseState, entitlements, payments } = summary;
   const checkoutsData = cardCheckouts.data;
   const returnedCheckout = returnedCheckoutId ? checkoutsData?.checkouts.find((c) => c.id === returnedCheckoutId) : undefined;
+
+  async function resolveCheckout(checkout: CardCheckoutDTO, body: ResolveCardCheckoutRequestDTO): Promise<ResolveOutcome> {
+    if (resolvingId !== null) return ResolveOutcome.Busy;
+    setResolvingId(checkout.id);
+    try {
+      await resolveCardCheckout.mutateAsync({ tenantId: checkout.tenantId, checkoutId: checkout.id, body });
+      return ResolveOutcome.Saved;
+    } finally {
+      setResolvingId(null);
+    }
+  }
 
   function payByCard() {
     if (createCardCheckout.isPending) return;
@@ -466,10 +492,25 @@ export function TenantDetailPage() {
                     </div>
                     <span className="text-[11px] text-ink-faint">
                       {format.date(c.createdAt)}
-                      {c.failureReason ? ` — ${t(failureReasonKey(c.failureReason))}` : ""}
+                      {c.failureReason && !(c.failureReason === CardCheckoutFailureReason.NeedsAttention && c.resolution === null)
+                        ? ` — ${t(failureReasonKey(c.failureReason))}`
+                        : ""}
                     </span>
+                    {awaitsADecision(c) ? <span className="text-[11px] text-warning-ink">{t(attentionCauseKey(c.attentionCause))}</span> : null}
+                    {c.resolution ? (
+                      <span className="text-[11px] text-ink-muted">
+                        {t(resolvedKey(c.resolution))}
+                        {c.resolutionReason ? ` — ${c.resolutionReason}` : ""}
+                        {c.resolvedBy ? ` (${c.resolvedBy})` : ""}
+                      </span>
+                    ) : null}
                   </div>
                   <div className="flex items-center gap-[10px]">
+                    {isOwner && awaitsADecision(c) ? (
+                      <Button variant="default" size="sm" disabled={resolvingId === c.id} onClick={() => setResolveTarget(c)}>
+                        {resolvingId === c.id ? t("platform.cardCheckout.resolve.saving") : t("platform.cardCheckout.resolve.action")}
+                      </Button>
+                    ) : null}
                     {isOwner && isAppliable(c) && canRenewSubscription(subscription?.status) ? (
                       <Button variant="default" size="sm" onClick={() => setApplyTarget(c)}>
                         {t("platform.cardCheckout.apply.action")}
@@ -546,6 +587,15 @@ export function TenantDetailPage() {
         checkout={applyTarget}
         onClose={() => setApplyTarget(null)}
         tenantId={tenant.id}
+      />
+
+      <ResolveCardCheckoutDialog
+        key={resolveTarget?.id ?? "closed"}
+        checkout={resolveTarget}
+        canApply={canRenewSubscription(subscription?.status)}
+        saving={resolvingId !== null}
+        onResolve={resolveCheckout}
+        onClose={() => setResolveTarget(null)}
       />
 
       <ConfirmDialog

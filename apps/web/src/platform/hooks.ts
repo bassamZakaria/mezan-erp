@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tan
 import type {
   ApplyCardCheckoutRequestDTO,
   CardCheckoutDTO,
+  ResolveCardCheckoutRequestDTO,
   CardCheckoutSweepResultDTO,
   PlatformCardCheckoutsDTO,
   ChangePlanRequestDTO,
@@ -218,6 +219,28 @@ export function useApplyCardCheckoutMutation() {
     mutationFn: async ({ tenantId, checkoutId, body }) => {
       const res = await request(`/tenants/${tenantId}/card-checkouts/${checkoutId}/apply`, { method: "POST", body: JSON.stringify(body) });
       if (!res.ok) throw new PlatformApiError(res.status, await readPlatformErrorMessage(res, t, "platform.cardCheckout.apply.error.generic"));
+      return res.json<CardCheckoutDTO>();
+    },
+    onSettled: (_data, _err, { tenantId }) => {
+      void queryClient.invalidateQueries({ queryKey: ["platform", "tenants", tenantId] });
+    },
+  });
+}
+
+export interface ResolveCardCheckoutVariables {
+  readonly tenantId: string;
+  readonly checkoutId: string;
+  readonly body: ResolveCardCheckoutRequestDTO;
+}
+
+export function useResolveCardCheckoutMutation() {
+  const { t } = useAppTranslation();
+  const { request } = usePlatformApi();
+  const queryClient = useQueryClient();
+  return useMutation<CardCheckoutDTO, PlatformApiError, ResolveCardCheckoutVariables>({
+    mutationFn: async ({ tenantId, checkoutId, body }) => {
+      const res = await request(`/tenants/${tenantId}/card-checkouts/${checkoutId}/resolve`, { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new PlatformApiError(res.status, await readPlatformErrorMessage(res, t, "platform.cardCheckout.resolve.error.generic"));
       return res.json<CardCheckoutDTO>();
     },
     onSettled: (_data, _err, { tenantId }) => {

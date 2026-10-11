@@ -294,6 +294,8 @@ export async function run(ctx: Ctx): Promise<void> {
 
   await taxRateIdentity_D79(ctx);
   await zeroPercentIsNeverInferred_D79(ctx);
+  await taxIsRoundedPerLine_D79(ctx);
+  await postedLineTaxIsClassified_D79(ctx);
 }
 
 /**
@@ -978,8 +980,17 @@ export async function vatReturnInputBaseTiesToItsTax_D79(ctx: Ctx): Promise<void
 
 const BILLINGS = "2165";
 const RECLASSIFICATION_DOC_TYPES: ReadonlySet<string> = new Set(["REVENUE_RECOGNITION_RUN", "YEAR_END_CLOSE"]);
-const HALF_PIASTRE = 5_000n;
-const ONE_POUND = 1_000_000n;
+const SCALE = 1_000_000n;
+const PIASTRE = 10_000n;
+
+function toPiastre(numerator: bigint, denominator: bigint): bigint {
+  return ((numerator * 2n + denominator * PIASTRE) / (denominator * PIASTRE * 2n)) * PIASTRE;
+}
+
+function taxOnLine(qty: bigint, unitPrice: bigint, ratePercent: number): bigint {
+  const extended = toPiastre(qty * unitPrice, SCALE);
+  return toPiastre(extended * BigInt(Math.round(ratePercent * 1_000_000)), 100n * SCALE);
+}
 
 async function postedEntries(ctx: Ctx, toDate: string): Promise<any[]> {
   const entries: any[] = [];
@@ -1010,13 +1021,18 @@ export async function vatReturnOutputBaseTiesToItsTax_D79(ctx: Ctx): Promise<voi
   const baseAccounts = new Set<string>([BILLINGS, ...accounts.filter((a: any) => a.type === "revenue").map((a: any) => String(a.id))]);
   check("D79 seeded tenant · the chart names its revenue accounts", baseAccounts.size > 1, `${baseAccounts.size} base accounts`);
 
-  const taxLinesByRow = new Map<string, bigint>();
+  const taxByRow = new Map<string, bigint>();
+  const taxByDocument = new Map<string, Map<string, bigint>>();
   let ledgerBase = 0n;
   for (const entry of entries) {
     for (const line of entry.lines ?? []) {
-      if (line.accountId === OUTPUT_TAX && line.taxRatePercent !== null) {
-        const key = `${line.taxRatePercent}|${line.taxRateId ?? ""}`;
-        taxLinesByRow.set(key, (taxLinesByRow.get(key) ?? 0n) + 1n);
+      if (line.accountId === OUTPUT_TAX) {
+        const key = `${line.taxRatePercent ?? ""}|${line.taxRateId ?? ""}`;
+        const moved = (scaled(line.credit) ?? 0n) - (scaled(line.debit) ?? 0n);
+        taxByRow.set(key, (taxByRow.get(key) ?? 0n) + moved);
+        const ofDocument = taxByDocument.get(`${entry.sourceDocType}|${entry.sourceDocId}`) ?? new Map<string, bigint>();
+        ofDocument.set(key, (ofDocument.get(key) ?? 0n) + moved);
+        taxByDocument.set(`${entry.sourceDocType}|${entry.sourceDocId}`, ofDocument);
       }
       if (RECLASSIFICATION_DOC_TYPES.has(String(entry.sourceDocType)) || !baseAccounts.has(String(line.accountId))) continue;
       ledgerBase += (scaled(line.credit) ?? 0n) - (scaled(line.debit) ?? 0n);
@@ -1032,20 +1048,60 @@ export async function vatReturnOutputBaseTiesToItsTax_D79(ctx: Ctx): Promise<voi
   check("D79 seeded tenant · and the tenant holds a recognition run, so the tie-out is exercised against one", recognised > 0, `${recognised} recognition entries`);
 
   for (const row of taxed) {
-    const base = scaled(row.base);
-    const tax = scaled(row.tax);
-    const rateBasisPoints = BigInt(Math.round(n(row.rate) * 100));
-    const expected = base === null ? null : (base * rateBasisPoints) / 10_000n;
-    const gap = expected === null || tax === null ? null : expected > tax ? expected - tax : tax - expected;
-    const taxLines = taxLinesByRow.get(`${row.rate}|${row.taxRateId ?? ""}`) ?? 0n;
-    const rounding = taxLines * HALF_PIASTRE;
-    const bound = taxLines > 0n && rounding < ONE_POUND ? rounding : ONE_POUND;
+    const posted = taxByRow.get(`${row.rate}|${row.taxRateId ?? ""}`) ?? null;
     check(
-      `D79 seeded tenant · output row ${row.rowId}: base × ${row.rate}% is its tax, within half a piastre for each of its ${taxLines} VAT lines and never more than a pound`,
-      base !== null && base > 0n && gap !== null && gap <= bound,
-      `base ${row.base} × ${row.rate}% vs tax ${row.tax}, gap ${gap} against ${bound} (scaled 1e-6)`,
+      `D79 seeded tenant · output row ${row.rowId}: its tax is exactly what GL 2200 carries under that rate — no tolerance`,
+      posted !== null && scaled(row.tax) === posted,
+      `return ${row.tax} vs ledger ${posted} (scaled 1e-6)`,
     );
   }
+
+  // The tax each document posted, re-derived from its own lines the way the
+  // server prices them: extend the line, round to the piastre, take the rate,
+  // round to the piastre, THEN sum. One 2200 line aggregates many invoice
+  // lines, so base × rate on the aggregate is not this figure (three lines of
+  // 0.25 at 14% are 0.12, not 0.105) — and no tolerance stands in for it.
+  const invoices = (await ctx.allRows("/sales-invoices")).filter((i: any) => ["confirmed", "partially_paid", "paid"].includes(String(i.status)));
+  const noDiscount = (discount: any) => !discount || (scaled(discount.amount ?? "0") ?? 0n) === 0n && Number(discount.percent ?? 0) === 0;
+  const pricedPlainly = (invoice: any) =>
+    !invoice.taxInclusive && !invoice.fxRate && !invoice.appliedPromotion && !invoice.customerTaxExempt && noDiscount(invoice.discount) &&
+    invoice.lines.every((l: any) => Number(l.discountPercent ?? 0) === 0 && (scaled(l.discountAmount ?? "0") ?? 0n) === 0n);
+  let rederived = 0;
+  let totalled = 0;
+  let foreign = 0;
+  const mismatched: string[] = [];
+  for (const invoice of invoices) {
+    const postedByKey = taxByDocument.get(`SALES_INVOICE|${invoice.id}`) ?? new Map<string, bigint>();
+    const postedTotal = [...postedByKey.values()].reduce((sum, v) => sum + v, 0n);
+    if (invoice.fxRate) {
+      foreign += 1;
+      continue;
+    }
+    if (!pricedPlainly(invoice)) {
+      totalled += 1;
+      if (postedTotal !== scaled(invoice.totals?.taxTotal)) mismatched.push(`${invoice.docNo}: posted ${postedTotal} vs document ${invoice.totals?.taxTotal}`);
+      continue;
+    }
+    rederived += 1;
+    const expectedByKey = new Map<string, bigint>();
+    for (const line of invoice.lines) {
+      const tax = taxOnLine(scaled(line.qty) ?? 0n, scaled(line.unitPrice) ?? 0n, Number(line.taxRatePercent));
+      if (tax === 0n) continue;
+      const key = `${line.taxRatePercent}|${line.taxRateId ?? ""}`;
+      expectedByKey.set(key, (expectedByKey.get(key) ?? 0n) + tax);
+    }
+    const keys = new Set([...expectedByKey.keys(), ...postedByKey.keys()]);
+    for (const key of keys) {
+      if ((expectedByKey.get(key) ?? 0n) !== (postedByKey.get(key) ?? 0n)) {
+        mismatched.push(`${invoice.docNo} [${key}]: lines give ${expectedByKey.get(key) ?? 0n} vs posted ${postedByKey.get(key) ?? 0n}`);
+      }
+    }
+  }
+  check(
+    "D79 seeded tenant · every sales invoice priced without discounts posts, per rate, EXACTLY the sum of its lines' own piastre-rounded tax; every other base-currency invoice posts exactly its document tax",
+    mismatched.length === 0 && rederived > 0,
+    `${rederived} re-derived line by line, ${totalled} held to the document total, ${foreign} foreign-currency left to D203's own check; mismatches: ${mismatched.slice(0, 5).join(" · ") || "none"}`,
+  );
   const ledger = (await req("GET", `/financial-reports/account-ledger?accountId=${OUTPUT_TAX}&${window}`)).body;
   const debit = scaled(ledger?.grandTotals?.debit);
   const credit = scaled(ledger?.grandTotals?.credit);
@@ -1057,3 +1113,137 @@ export async function vatReturnOutputBaseTiesToItsTax_D79(ctx: Ctx): Promise<voi
   );
 }
 
+/**
+ * The reviewer's own counter-example to a tolerance: one 2200 line aggregates
+ * many invoice lines, and tax is rounded per LINE. Three lines of 0.25 at 14%
+ * are 0.04 each — 0.12 — while 14% of their 0.75 total is 0.105. The ledger and
+ * the VAT return must carry 0.12 to the micro-unit.
+ */
+export async function taxIsRoundedPerLine_D79(ctx: Ctx): Promise<void> {
+  const { req, check, scenario, rows, scaled } = ctx;
+  await scenario("d79i · tax is rounded on each line and then summed: three lines of 0.25 at 14% post 0.12, exactly, on the ledger and on the VAT return", async () => {
+    const vat = rows((await req("GET", "/tax-rates")).body).find((r: any) => r.rate === VAT && r.status === "active");
+    const outputRow = async () => rows((await req("GET", `/financial-reports/vat-return?periodFrom=${TODAY}&periodTo=${TODAY}`)).body).find((r: any) => r.side === "output" && r.taxRateId === vat?.id);
+    const before = await outputRow();
+    const created = await req("POST", "/sales-invoices", {
+      id: "SCN-D79-ROUND", date: TODAY, dueDate: "2026-09-23", customerId: CUSTOMER, customerNameAr: "عميل", warehouseId: WH, branchId: BRANCH,
+      arAccountId: AR, taxAccountId: OUTPUT_TAX,
+      lines: ["L1", "L2", "L3"].map((lineId) => ({ lineId: `SCN-D79-ROUND-${lineId}`, itemId: "ITEM-DEMO-10", itemNameAr: "خدمة", isStock: false, qty: "1", unitPrice: "0.25", taxRateId: vat?.id, revenueAccountId: REVENUE })),
+    });
+    check("an invoice of three 0.25 lines at 14% is drafted", created.status === 201, JSON.stringify(created.body).slice(0, 200));
+    const confirmed = await req("POST", "/sales-invoices/SCN-D79-ROUND/confirm", {});
+    check("and confirms", confirmed.status === 200, JSON.stringify(confirmed.body).slice(0, 200));
+    const perLine = taxOnLine(1_000_000n, 250_000n, VAT);
+    check("each line's own tax is 0.04 — 0.035 rounded up to the piastre", perLine === 40_000n, `${perLine}`);
+    const entry = (await req("GET", `/gl/journal-entries/${confirmed.body?.invoice?.journalEntryId ?? confirmed.body?.journalEntryId}`)).body;
+    const taxLines = (entry?.lines ?? []).filter((l: any) => l.accountId === OUTPUT_TAX);
+    check(
+      "the entry credits 2200 with 0.12 — three times the line's tax, not 14% of the 0.75 total (0.105)",
+      taxLines.length === 1 && scaled(taxLines[0].credit) === 3n * perLine && 3n * perLine === 120_000n,
+      JSON.stringify(taxLines.map((l: any) => [l.credit, l.taxRatePercent, l.taxRateId])),
+    );
+    const after = await outputRow();
+    const moved = (key: "base" | "tax") => (scaled(after?.[key]) ?? 0n) - (scaled(before?.[key]) ?? 0n);
+    check("the VAT return's 14% row moved by exactly 0.75 of base and 0.12 of tax", moved("base") === 750_000n && moved("tax") === 120_000n, `base ${moved("base")} tax ${moved("tax")} (scaled 1e-6)`);
+  });
+}
+
+/**
+ * D79 round 4 — the way out for a posted line that stored no rate. The sale
+ * d79g left blocked (an exempt customer with no exemption rate) is classified
+ * here: the line and its journal line take the rate, nothing else moves, and
+ * the e-invoice's blocking finding is gone.
+ */
+export async function postedLineTaxIsClassified_D79(ctx: Ctx): Promise<void> {
+  const { req, check, scenario, rows, scaled } = ctx;
+  await scenario("d79j · a posted line that named no rate is classified: NULL → a rate at its own percent, on the line and the ledger, audited; never rate → rate, never another percent", async () => {
+    const listed = rows((await req("GET", "/tax-rates")).body);
+    const exempt = listed.find((r: any) => r.etaSubType === "V003" && r.rate === 0 && r.status === "active");
+    const exported = listed.find((r: any) => r.etaSubType === "V001" && r.rate === 0 && r.status === "active");
+    const vat = listed.find((r: any) => r.rate === VAT && r.status === "active");
+    const STUCK = "SCN-D79-ONE-EXEMPT-NONE";
+    const LINE = `${STUCK}-L1`;
+    const classify = (lineId: string, body: unknown, over?: Record<string, string>) => req("POST", `/sales-invoices/${STUCK}/lines/${lineId}/classify-tax`, body, over);
+    const read = async () => {
+      const invoice = (await req("GET", `/sales-invoices/${STUCK}`)).body;
+      const entry = (await req("GET", `/gl/journal-entries/${invoice?.journalEntryId}`)).body;
+      return { invoice, entry, money: JSON.stringify((entry?.lines ?? []).map((l: any) => [l.accountId, l.debit, l.credit, l.taxRatePercent])) };
+    };
+    const before = await read();
+    check("the sale d79g left blocked is posted and its line names no rate", before.invoice?.status === "confirmed" && before.invoice?.lines?.[0]?.taxRateId === null, JSON.stringify(before.invoice?.lines?.map((l: any) => [l.taxRatePercent, l.taxRateId])));
+    const trialBefore = (await req("GET", "/financial-reports/trial-balance")).body?.grandTotals;
+
+    const forbidden = await classify(LINE, { taxRateId: exempt?.id }, { "x-user-id": "SCN-D79-CLERK", "x-permissions": "sales.invoice.view,sales.invoice.confirm,sales.invoice.void" });
+    check("viewing, confirming and voiding invoices do not carry the right to classify: 403", forbidden.status === 403, `${forbidden.status}`);
+    const taxed = await classify(LINE, { taxRateId: vat?.id });
+    check(
+      "a 0% line cannot be classified under the 14% rate — 422, in Arabic; classification never changes the tax",
+      taxed.status === 422 && taxed.body?.error === "TAX_RATE_CLASSIFICATION_PERCENT_MISMATCH" && /[\u0600-\u06FF]/.test(String(taxed.body?.message ?? "")),
+      `${taxed.status} ${JSON.stringify(taxed.body).slice(0, 200)}`,
+    );
+    check("and both refusals wrote nothing", (await read()).money === before.money && (await read()).invoice?.lines?.[0]?.taxRateId === null);
+
+    const done = await classify(LINE, { taxRateId: exempt?.id });
+    check(
+      "naming «معفى» is accepted: one line, one journal line, and the queued e-invoice is rebuilt",
+      done.status === 200 && JSON.stringify(done.body?.lineIds) === JSON.stringify([LINE]) && done.body?.journalLinesNamed === 1 && done.body?.filing === "requeued",
+      `${done.status} ${JSON.stringify(done.body).slice(0, 240)}`,
+    );
+    const after = await read();
+    check("the invoice line now names the rate at the same 0%", after.invoice?.lines?.[0]?.taxRateId === exempt?.id && after.invoice?.lines?.[0]?.taxRatePercent === 0, JSON.stringify(after.invoice?.lines?.map((l: any) => [l.taxRatePercent, l.taxRateId])));
+    check("its revenue journal line carries the rate", (after.entry?.lines ?? []).filter((l: any) => l.taxRatePercent === 0).every((l: any) => l.taxRateId === exempt?.id), JSON.stringify((after.entry?.lines ?? []).map((l: any) => [l.accountId, l.taxRatePercent, l.taxRateId])));
+    check("no account, amount, percent, date, number or status moved on the entry", after.money === before.money && after.entry?.date === before.entry?.date && after.entry?.entryNo === before.entry?.entryNo && after.entry?.status === before.entry?.status, `${after.money} vs ${before.money}`);
+    check("the invoice's totals are what they were", JSON.stringify(after.invoice?.totals) === JSON.stringify(before.invoice?.totals), JSON.stringify(after.invoice?.totals));
+    const trialAfter = (await req("GET", "/financial-reports/trial-balance")).body?.grandTotals;
+    check("and the trial balance did not move by a micro-unit", scaled(trialAfter?.debit) === scaled(trialBefore?.debit) && scaled(trialAfter?.credit) === scaled(trialBefore?.credit), JSON.stringify([trialBefore, trialAfter]));
+
+    await ctx.drain();
+    const queued = rows((await req("GET", "/eta/submissions?pageSize=500")).body).find((s: any) => s.internalId === after.invoice?.docNo);
+    check(
+      "the e-invoice's blocking finding is gone and it is ready to send",
+      queued?.status === "ready" && queued?.hasBlockingFindings === false && (queued?.prevalidation ?? []).every((f: any) => f.code !== "TAX_SUBTYPE_NOT_MAPPED"),
+      JSON.stringify([queued?.status, queued?.prevalidation]).slice(0, 300),
+    );
+    const payload = queued ? (await req("GET", `/eta/submissions/${queued.id}`)).body?.payload : null;
+    check("and files the line under the rate's own sub-type, V003", String(payload?.invoiceLines?.[0]?.taxableItems?.[0]?.subType) === "V003", JSON.stringify(payload?.invoiceLines?.[0]?.taxableItems ?? null).slice(0, 200));
+
+    const moved = await classify(LINE, { taxRateId: exported?.id });
+    check("the line cannot then be moved to «تصدير»: 409 TAX_RATE_ALREADY_CLASSIFIED", moved.status === 409 && moved.body?.error === "TAX_RATE_ALREADY_CLASSIFIED", `${moved.status} ${JSON.stringify(moved.body).slice(0, 160)}`);
+    check("and still names «معفى»", (await read()).invoice?.lines?.[0]?.taxRateId === exempt?.id);
+
+    const trail = rows((await req("GET", `/audit?stream=sensitive&entityType=SALES_INVOICE&entityId=${STUCK}&action=CLASSIFY_LINE_TAX`)).body);
+    check(
+      "the audit trail holds one row: who, which line, and the tax before and after",
+      trail.length === 1 && trail[0]?.actor === "USER-ADMIN" && trail[0]?.details?.before?.taxRateId === null && trail[0]?.details?.after?.taxRateId === exempt?.id && JSON.stringify(trail[0]?.details?.lineIds) === JSON.stringify([LINE]),
+      JSON.stringify(trail).slice(0, 300),
+    );
+
+    const quote = await req("POST", "/sales-quotes", {
+      id: "SCN-D79-QT-NULL", date: TODAY, expiryDate: "2026-09-23", customerId: CUSTOMER, customerNameAr: "عميل", branchId: BRANCH,
+      lines: [
+        { lineId: "SCN-D79-QT-NULL-L1", itemId: "ITEM-DEMO-10", itemNameAr: "خدمة", qty: "1", unitPrice: "100", taxRatePercent: VAT, taxRateId: null },
+        { lineId: "SCN-D79-QT-NULL-L2", itemId: "ITEM-DEMO-10", itemNameAr: "خدمة", qty: "1", unitPrice: "100", taxRatePercent: 0, taxRateId: null },
+      ],
+    });
+    check("a quote whose lines name no rate is raised, as an old quote already holds them", quote.status === 201 && JSON.stringify((quote.body?.lines ?? []).map((l: any) => l.taxRateId)) === "[null,null]", JSON.stringify(quote.body?.lines ?? quote.body).slice(0, 200));
+    await req("POST", "/sales-quotes/SCN-D79-QT-NULL/send", {});
+    await req("POST", "/sales-quotes/SCN-D79-QT-NULL/accept", {});
+    const convert = (lines: unknown[]) => req("POST", "/sales-quotes/SCN-D79-QT-NULL/convert-to-invoice", { id: "SCN-D79-QT-NULL-INV", dueDate: "2026-09-23", warehouseId: WH, arAccountId: AR, taxAccountId: OUTPUT_TAX, lines });
+    const repriced = await convert([
+      { lineId: "SCN-D79-QT-NULL-L1", isStock: false, revenueAccountId: REVENUE, taxRateId: exempt?.id },
+      { lineId: "SCN-D79-QT-NULL-L2", isStock: false, revenueAccountId: REVENUE },
+    ]);
+    check("converting it cannot name a 0% rate on its 14% line: 422, and no invoice is raised", repriced.status === 422 && (await req("GET", "/sales-invoices/SCN-D79-QT-NULL-INV")).status === 404, `${repriced.status} ${JSON.stringify(repriced.body).slice(0, 160)}`);
+    const converted = await convert([
+      { lineId: "SCN-D79-QT-NULL-L1", isStock: false, revenueAccountId: REVENUE, taxRateId: vat?.id },
+      { lineId: "SCN-D79-QT-NULL-L2", isStock: false, revenueAccountId: REVENUE, taxRateId: exempt?.id },
+    ]);
+    const invoice = (await req("GET", "/sales-invoices/SCN-D79-QT-NULL-INV")).body;
+    check(
+      "converting it MAY name each line's rate at the line's own percent — the invoice is drafted with both named, never stuck",
+      converted.status === 201 && JSON.stringify((invoice?.lines ?? []).map((l: any) => [l.taxRatePercent, l.taxRateId])) === JSON.stringify([[VAT, vat?.id], [0, exempt?.id]]),
+      `${converted.status} ${JSON.stringify((invoice?.lines ?? []).map((l: any) => [l.taxRatePercent, l.taxRateId]))}`,
+    );
+    await req("POST", "/sales-invoices/SCN-D79-QT-NULL-INV/cancel", {});
+  });
+}

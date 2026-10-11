@@ -300,6 +300,39 @@ describe("period-close checks read the real tables (ENH-E1-04)", () => {
     expect(await dueIn("09")).toEqual([["missing", 1]]);
   });
 
+  it("a run for a month pays a leaver to their last day and someone who left later in full — on the payslips and in the entry the approval posts", async () => {
+    const { sqlite, request, check } = await world();
+    const hire = async (id: string, salary: string) => {
+      expect((await request("POST", "/hr/employees", { id, firstName: "موظف", lastName: id, branchId: "BR-MAIN", hireDate: "2026-01-01" })).status).toBe(201);
+      expect((await request("POST", "/hr/contracts", { id: `ct-${id}`, employeeId: id, type: "indefinite", startDate: "2026-01-01", monthlySalary: salary, currency: "EGP" })).status).toBe(201);
+    };
+    await hire("emp-stays", "6000");
+    await hire("emp-mid-june", "9000");
+    await hire("emp-left-july", "3000");
+    expect((await request("POST", "/hr/employees/emp-mid-june/terminate", { effectiveDate: "2026-06-12" })).status).toBe(200);
+    expect((await request("POST", "/hr/employees/emp-left-july/terminate", { effectiveDate: "2026-07-20" })).status).toBe(200);
+
+    const run = (await (await request("POST", "/hr/payroll/runs", { id: "pr-june", year: 2026, month: 6 })).json()) as { id: string };
+    expect((await request("POST", `/hr/payroll/runs/${run.id}/calculate`, {})).status).toBe(200);
+    const payslips = sqlite.prepare(`SELECT employee_id AS employee, paid_days AS days, net_pay AS net FROM hr_payslip WHERE run_id = ? ORDER BY employee_id`).safeIntegers().all(run.id);
+    expect(payslips).toEqual([
+      { employee: "emp-left-july", days: 30n, net: 3_000_000_000n },
+      { employee: "emp-mid-june", days: 12n, net: 3_600_000_000n },
+      { employee: "emp-stays", days: 30n, net: 6_000_000_000n },
+    ]);
+    expect((await check("06", "drafts")).findings.filter((f) => f.kind === "payroll_due").map((f) => [f.state, f.count])).toEqual([["draft", 3]]);
+
+    const approved = (await (await request("POST", `/hr/payroll/runs/${run.id}/approve`, {})).json()) as { status: string; journalEntryId: string };
+    expect(approved.status).toBe("approved");
+    const entry = sqlite
+      .prepare(`SELECT je.date AS date, SUM(jl.debit) AS debit, SUM(jl.credit) AS credit FROM journal_entry je JOIN journal_line jl ON jl.entry_id = je.id WHERE je.id = ? GROUP BY je.date`)
+      .safeIntegers()
+      .get(approved.journalEntryId);
+    expect(entry).toEqual({ date: "2026-06-30", debit: 12_600_000_000n, credit: 12_600_000_000n });
+    expect((await check("06", "drafts")).findings.filter((f) => f.kind === "payroll_due")).toEqual([]);
+    expect((await check("07", "drafts")).findings.filter((f) => f.kind === "payroll_due").map((f) => [f.state, f.count])).toEqual([["missing", 2]]);
+  });
+
   it("a tenant without the HR module is not asked for a payroll run", async () => {
     const withoutHr = await world(MODULE_CATALOG.filter((module) => module !== "hr"));
     insert(withoutHr.sqlite, "hr_employee", { id: "emp-1", code: "emp-1", hire_date: "2026-01-01", status: "active" });

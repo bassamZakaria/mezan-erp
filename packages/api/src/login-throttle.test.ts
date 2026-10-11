@@ -237,10 +237,61 @@ describe("createLoginThrottle — the sequence has to cost something", () => {
     expect(throttle.retryAfter(throttleKey(account, "192.168.1.7"))).toBeGreaterThan(0);
 
     // What `POST /users/:id/unlock` calls: the bare account.
-    throttle.succeed(account);
+    throttle.unlock(account);
 
     expect(throttle.retryAfter(throttleKey(account, "192.168.1.7"))).toBe(0);
     expect(throttle.retryAfter(throttleKey(account, "192.168.1.99"))).toBe(0);
+  });
+
+  it("never locks an account whose till mistypes once every twenty-five minutes, all week", () => {
+    const { throttle, advance } = throttleAt();
+    const till = throttleKey("owner@shop.test", "41.33.10.10");
+
+    for (let typo = 1; typo <= 400; typo += 1) {
+      advance(25 * MINUTE);
+      expect(throttle.fail(till), `typo ${typo}`).toBe(0);
+      expect(throttle.retryAfter(till), `after typo ${typo}`).toBe(0);
+    }
+  });
+
+  it("still locks six failures inside one hour, however they are spaced", () => {
+    const { throttle, advance } = throttleAt();
+    const till = throttleKey("owner@shop.test", "41.33.10.10");
+
+    for (let typo = 1; typo <= 5; typo += 1) {
+      advance(11 * MINUTE);
+      expect(throttle.fail(till), `typo ${typo}`).toBe(0);
+    }
+    advance(4 * MINUTE);
+    expect(throttle.fail(till)).toBe(60);
+  });
+
+  it("clears only the address a verified credential came from", () => {
+    const { throttle } = throttleAt();
+    const account = "owner@shop.test";
+    const attacker = throttleKey(account, "41.33.10.10");
+    const owner = throttleKey(account, "196.221.5.5");
+    for (let i = 0; i < 7; i += 1) throttle.fail(attacker);
+    for (let i = 0; i < 4; i += 1) throttle.fail(owner);
+
+    throttle.succeed(owner);
+
+    expect(throttle.retryAfter(attacker)).toBe(120);
+    for (let i = 1; i <= 5; i += 1) expect(throttle.fail(owner), `failure ${i}`).toBe(0);
+    expect(throttle.fail(owner)).toBe(60);
+  });
+
+  it("keeps the account ceiling counting through a successful sign-in from one address", () => {
+    const { throttle } = throttleAt();
+    const account = "owner@shop.test";
+    for (let host = 1; host <= 14; host += 1) {
+      for (let i = 0; i < 4; i += 1) throttle.fail(throttleKey(account, `192.168.1.${host}`));
+    }
+
+    throttle.succeed(throttleKey(account, "192.168.1.1"));
+    for (let i = 0; i < 4; i += 1) throttle.fail(throttleKey(account, "192.168.1.200"));
+
+    expect(throttle.retryAfter(throttleKey(account, "192.168.1.77"))).toBe(15 * 60);
   });
 
   // The key carries an email, which contains "@" — so the separator between the
@@ -301,6 +352,16 @@ describe("createSourceThrottle — failures from one address, whichever accounts
     advance(60 * 60_000 + 1);
 
     expect(sources.fail("192.168.1.66")).toBe(0);
+  });
+
+  it("never holds an office that mistypes once every twenty-five minutes, all week", () => {
+    const { sources, advance } = sourcesAt();
+
+    for (let typo = 1; typo <= 400; typo += 1) {
+      advance(25 * 60_000);
+      expect(sources.fail("41.33.10.10"), `typo ${typo}`).toBe(0);
+    }
+    expect(sources.retryAfter("41.33.10.10")).toBe(0);
   });
 
   it("keeps no more than ten thousand addresses, however many are sent", () => {

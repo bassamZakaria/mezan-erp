@@ -85,7 +85,17 @@ export {
   type SessionRefusal,
   type SessionRefusalReason,
 } from "./session-auth.js";
-export { createLoginThrottle, createSourceThrottle, throttleKey, type LoginThrottle, type SourceThrottle } from "./login-throttle.js";
+export {
+  createLoginThrottle,
+  createSourceThrottle,
+  throttleKey,
+  tooManyAttempts,
+  waitPhrase,
+  SignInRefusal,
+  type LoginThrottle,
+  type SourceThrottle,
+} from "./login-throttle.js";
+export { createSignInGate, type SignInGate, type SignInGateOptions } from "./sign-in-gate.js";
 export { requestOrigin } from "./request-origin.js";
 export { permissionRefusalReporting, type PermissionRefusal, type PermissionRefusalReporter } from "./permission-gate.js";
 export {

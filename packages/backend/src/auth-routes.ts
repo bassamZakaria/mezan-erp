@@ -18,13 +18,16 @@ import { loginRequestSchema, bootstrapAdminRequestSchema, type SessionDTO } from
 import {
   createLoginThrottle,
   createSourceThrottle,
+  createSignInGate,
   readSessionToken,
   requestOrigin,
   throttleKey,
+  tooManyAttempts,
   type BoundaryPreparation,
   type LoginThrottle,
   type PrecomputingHasher,
   type SessionRegistry,
+  type SignInGate,
   type SourceThrottle,
 } from "@mezan/api";
 import { SEED_ADMIN_USER_ID, SEED_TENANT_NAME, currentCounts, seedIfEmpty, type SeedStores } from "./seed.js";
@@ -40,6 +43,8 @@ export interface AuthRoutesDeps {
   readonly loginThrottle?: LoginThrottle;
   /** Failed sign-ins per source address, whichever accounts they named. Defaults to a fresh one per app. */
   readonly sourceThrottle?: SourceThrottle;
+  /** How many PIN checks run and wait at once. Defaults to a fresh one per app. */
+  readonly signInGate?: SignInGate;
   /**
    * The hasher `hasher` came from, so a sign-in's PIN is verified before the
    * request takes the tenant's connection. Without it the verification still
@@ -63,6 +68,8 @@ export interface AuthRoutesDeps {
    */
   readonly resolveEntitlements?: (c: Context) => Promise<Entitlements | null | undefined> | Entitlements | null | undefined;
 }
+
+const SIGN_IN_BUSY_RETRY_SECONDS = 2;
 
 async function tenantName(settings: SettingsRepository): Promise<string> {
   const s = await settings.get();
@@ -117,19 +124,6 @@ async function toSession(user: User, deps: AuthRoutesDeps, origin: string | null
 }
 
 /**
- * "900 ثانية" is not a wait a person can act on. Past two minutes the honest
- * unit is minutes; the exact second count still travels as `retryAfterSeconds`
- * so the client can run a countdown against it.
- */
-function waitPhrase(seconds: number): string {
-  if (seconds < 120) return `${seconds} ثانية`;
-  const minutes = Math.ceil(seconds / 60);
-  if (minutes === 2) return "دقيقتين";
-  if (minutes <= 10) return `${minutes} دقائق`;
-  return `${minutes} دقيقة`;
-}
-
-/**
  * Real auth + first-run bootstrap routes (docs/archive/plan.md — desktop username+PIN):
  *   POST /auth/login          verify user + PIN, return the resolved session
  *   POST /bootstrap/seed      idempotently seed an empty DB (wizard seed step)
@@ -158,6 +152,7 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
   const app = new Hono();
   const throttle = deps.loginThrottle ?? createLoginThrottle();
   const sources = deps.sourceThrottle ?? createSourceThrottle();
+  const gate = deps.signInGate ?? createSignInGate();
 
   const blockedFor = (key: string, origin: string | null): number =>
     Math.max(throttle.retryAfter(key), origin ? sources.retryAfter(origin) : 0);
@@ -173,11 +168,17 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
     if (!parsed.success) return;
     const needle = parsed.data.username.trim().toLowerCase();
     const origin = requestOrigin(c);
+    // ORDER MATTERS: both ladders are asked before a hash is bought, and a
+    // caller the gate has no place for is answered here — it must not reach
+    // the handler, which would hash for it under the connection's turn.
     if (blockedFor(throttleKey(needle, origin), origin) > 0) return;
-    await deps.audit?.settled?.();
-    const user = await deps.uow.users.findByEmail(needle);
-    const hash = user && user.status === "active" && user.pinHash ? user.pinHash : await decoyHash();
-    return secrets.precompute({ verify: [[parsed.data.pin, hash]] });
+    const checked = gate.admit(origin, async () => {
+      await deps.audit?.settled?.();
+      const user = await deps.uow.users.findByEmail(needle);
+      const hash = user && user.status === "active" && user.pinHash ? user.pinHash : await decoyHash();
+      return secrets.precompute({ verify: [[parsed.data.pin, hash]] });
+    });
+    return checked ?? lockedOut(c, SIGN_IN_BUSY_RETRY_SECONDS);
   };
 
   const claimPasswords = new WeakMap<Request, string>();
@@ -220,14 +221,7 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
 
   function lockedOut(c: Context, seconds: number) {
     c.header("retry-after", String(seconds));
-    return c.json(
-      {
-        error: "TOO_MANY_ATTEMPTS",
-        retryAfterSeconds: seconds,
-        message: `محاولات دخول كثيرة. حاول بعد ${waitPhrase(seconds)}.`,
-      },
-      429,
-    );
+    return c.json(tooManyAttempts(seconds), 429);
   }
 
   /**

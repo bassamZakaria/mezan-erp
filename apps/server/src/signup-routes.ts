@@ -13,7 +13,7 @@ import {
   verifySignup,
   type Plan,
 } from "@mezan/domain";
-import { requestOrigin, sendNotificationEmail } from "@mezan/api";
+import { sendNotificationEmail } from "@mezan/api";
 import type { PlatformHandle } from "@mezan/backend";
 import {
   startSignupRequestSchema,
@@ -24,20 +24,12 @@ import {
 } from "@mezan/contracts";
 import { provisionTenant, TenantProvisioningError } from "./provision-tenant.js";
 import { forwardedOrigin } from "./billing-routes.js";
+import { clientSource } from "./client-source.js";
 import { createRateLimiter } from "./rate-limit.js";
 import type { CloudEnv } from "./env.js";
 import type { TenantRouter } from "./tenant-router.js";
 
 const TOKEN_EXPIRES_IN_MS = 24 * 60 * 60 * 1000;
-
-/** The IP a signup attempt is counted against — `x-forwarded-for` only when this deployment is known to sit behind a trusted proxy, never taken on a caller's word alone (same gate `forwardedOrigin` uses). */
-function clientIp(c: Context, trustProxy: boolean): string {
-  if (trustProxy) {
-    const forwarded = c.req.header("x-forwarded-for")?.split(",")[0]?.trim();
-    if (forwarded) return forwarded;
-  }
-  return requestOrigin(c) ?? "unknown";
-}
 
 function hashToken(token: string): string {
   return createHash("sha256").update(token).digest("hex");
@@ -156,7 +148,7 @@ export function createSignupRoutes(options: SignupRoutesOptions): Hono {
    * shape as `/platform/resolve`'s fix (see `tenant-router.ts`).
    */
   app.get("/check-code", async (c) => {
-    const ip = clientIp(c, env.trustProxy);
+    const ip = (clientSource(c, env.clientSource) ?? "unknown");
     const wait = checkCodeLimit.retryAfter(ip);
     if (wait > 0) return tooManyRequests(c, wait);
     checkCodeLimit.consume(ip);
@@ -171,7 +163,7 @@ export function createSignupRoutes(options: SignupRoutesOptions): Hono {
   });
 
   app.post("/", async (c) => {
-    const ip = clientIp(c, env.trustProxy);
+    const ip = (clientSource(c, env.clientSource) ?? "unknown");
     const ipWait = startIpLimit.retryAfter(ip);
     if (ipWait > 0) return tooManyRequests(c, ipWait);
     // Consumed BEFORE parsing, not after: a flood of malformed bodies must
@@ -254,7 +246,7 @@ export function createSignupRoutes(options: SignupRoutesOptions): Hono {
   });
 
   app.post("/verify", async (c) => {
-    const ip = clientIp(c, env.trustProxy);
+    const ip = (clientSource(c, env.clientSource) ?? "unknown");
     const wait = verifyIpLimit.retryAfter(ip);
     if (wait > 0) return tooManyRequests(c, wait);
     verifyIpLimit.consume(ip);

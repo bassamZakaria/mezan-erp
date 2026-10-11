@@ -46,9 +46,10 @@ async function open(options: Partial<CreateBackendOptions> = {}) {
 }
 
 const nextTurn = () => new Promise<void>((resolve) => setImmediate(resolve));
+const SIGN_INS_ONE_ADDRESS_MAY_HOLD = 6;
 
 describe("a tenant's connection under a sign-in flood", () => {
-  it("answers an authenticated read and write while a hundred sign-ins naming different accounts are still being checked", async () => {
+  it("answers an authenticated read and write while a sign-in flood is being checked, and refuses at once the sign-ins it has no place for", async () => {
     const t = await open();
     await t.signIn(0);
 
@@ -66,9 +67,11 @@ describe("a tenant's connection under a sign-in flood", () => {
     expect(read).toMatchObject({ status: 200, reason: null });
     expect(write).toMatchObject({ status: 201, reason: null });
     expect(health.status).toBe(200);
-    expect(checkingWhenTheWriteLanded).toBeGreaterThan(50);
+    expect(checkingWhenTheWriteLanded).toBeGreaterThan(0);
     expect(outcomes.filter((answer) => answer.status === 503)).toEqual([]);
-    expect(new Set(outcomes.map((answer) => answer.status))).toEqual(new Set([401]));
+    expect(new Set(outcomes.map((answer) => answer.status))).toEqual(new Set([401, 429]));
+    expect(outcomes.filter((answer) => answer.status === 401)).toHaveLength(SIGN_INS_ONE_ADDRESS_MAY_HOLD);
+    expect(outcomes.find((answer) => answer.status === 429)?.body).toMatchObject({ error: "TOO_MANY_ATTEMPTS", retryAfterSeconds: 2 });
   });
 
   it("refuses no read and no write when a hundred requests of every kind arrive together", async () => {

@@ -222,13 +222,13 @@ function originLabel(origin: string | null): string {
  * specific origin — the in-process mount — and matches only null, so a token
  * minted over IPC is refused the moment it appears on the wire.
  *
- * WHAT IT DOES NOT REACH. The origin is the PEER of the socket, so behind a
- * reverse proxy every session binds to the proxy and the check stops
- * distinguishing anything. That is the honest limit of a control that refuses
- * to read `x-forwarded-for` — a header the client writes is not a control, and
- * the desktop and LAN editions this was written for have no proxy in front of
- * them. Nor does it separate two devices sharing one address; on a flat shop
- * LAN they do not.
+ * WHAT IT DOES NOT REACH. It never reads a header. Behind a reverse proxy the
+ * socket's peer is the proxy, so the cloud edition's tenant router works the
+ * client's address out from the hop its trusted proxy appended and hands it to
+ * the tenant backend as the request's environment (apps/server
+ * client-source.ts) — the same place a real socket's address is read from. Nor
+ * does it separate two devices sharing one address; on a flat shop LAN they do
+ * not.
  */
 export function createSessionRegistry(now: () => number = Date.now): SessionRegistry {
   const byHash = new Map<string, StoredSession>();

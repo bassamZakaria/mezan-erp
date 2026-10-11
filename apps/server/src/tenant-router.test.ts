@@ -79,6 +79,8 @@ function newRouter(
   opts: {
     tenantDomain?: string;
     trustForwardedHost?: boolean;
+    trustedProxyHops?: number;
+    trustViewerAddress?: boolean;
     allowTenantHeader?: boolean;
     idleMs?: number;
     ttlMs?: number;
@@ -93,6 +95,8 @@ function newRouter(
     dataDir,
     tenantDomain: opts.tenantDomain,
     trustForwardedHost: opts.trustForwardedHost,
+    trustedProxyHops: opts.trustedProxyHops,
+    trustViewerAddress: opts.trustViewerAddress,
     allowTenantHeader: opts.allowTenantHeader,
     idleMs: opts.idleMs,
     ttlMs: opts.ttlMs,
@@ -479,31 +483,49 @@ describe("createTenantRouter", () => {
   });
 
   describe("tenant sign-in from one address", () => {
-    const signIn = (router: TenantRouter, code: string, username: string, forwardedFor: string, pin = "000000") =>
+    interface From {
+      readonly forwardedFor?: string;
+      readonly viewer?: string;
+      readonly pin?: string;
+      readonly token?: string;
+    }
+    const send = (router: TenantRouter, code: string, method: string, path: string, from: From, body?: unknown) =>
       router.app.fetch(
-        new Request("http://ignored/auth/login", {
-          method: "POST",
-          headers: { "content-type": "application/json", [TENANT_HEADER]: code, "x-forwarded-for": forwardedFor },
-          body: JSON.stringify({ username, pin }),
+        new Request(`http://ignored${path}`, {
+          method,
+          headers: {
+            "content-type": "application/json",
+            [TENANT_HEADER]: code,
+            ...(from.forwardedFor === undefined ? {} : { "x-forwarded-for": from.forwardedFor }),
+            ...(from.viewer === undefined ? {} : { "cloudfront-viewer-address": from.viewer }),
+            ...(from.token === undefined ? {} : { authorization: `Bearer ${from.token}` }),
+          },
+          body: body === undefined ? undefined : JSON.stringify(body),
         }),
       );
+    const signIn = (router: TenantRouter, code: string, username: string, forwardedFor: string, pin = "000000", viewer?: string) =>
+      send(router, code, "POST", "/auth/login", { forwardedFor, viewer }, { username, pin });
+    const EDGE = "130.176.0.7";
 
-    it("holds an address after thirty failures across tenants and accounts, before the tenant is asked again", async () => {
+    it("holds an address after thirty failures in one tenant, and leaves it free in every other", async () => {
       const platform = await seedPlatform();
       const { router } = newRouter(platform, { trustForwardedHost: true });
       await bootstrapAdmin(router, "cyag");
       await bootstrapAdmin(router, "nile");
-      for (let i = 0; i < 31; i += 1) {
-        expect((await signIn(router, i % 2 === 0 ? "cyag" : "nile", `ghost${i}@example.com`, "203.0.113.9")).status).toBe(401);
+      for (let i = 0; i < 30; i += 1) {
+        expect((await signIn(router, "cyag", `ghost${i}@example.com`, "203.0.113.9")).status).toBe(401);
       }
+      expect((await signIn(router, "cyag", "ghost30@example.com", "203.0.113.9")).status).toBe(429);
 
       const held = await signIn(router, "cyag", "owner-cyag@example.com", "203.0.113.9", "123456");
       const elsewhere = await signIn(router, "cyag", "owner-cyag@example.com", "198.51.100.4", "123456");
+      const otherTenant = await signIn(router, "nile", "owner-nile@example.com", "203.0.113.9", "123456");
 
       expect(held.status).toBe(429);
       expect(await held.json()).toMatchObject({ error: "TOO_MANY_ATTEMPTS", message: expect.stringContaining("محاولات دخول كثيرة") });
       expect(held.headers.get("retry-after")).toBe("60");
       expect(elsewhere.status).toBe(200);
+      expect(otherTenant.status).toBe(200);
     }, 120_000);
 
     it("ignores a forwarded address it was not told to trust", async () => {
@@ -513,6 +535,98 @@ describe("createTenantRouter", () => {
       for (let i = 0; i < 31; i += 1) await signIn(router, "cyag", `ghost${i}@example.com`, "203.0.113.9");
 
       expect((await signIn(router, "cyag", "owner-cyag@example.com", "203.0.113.9", "123456")).status).toBe(200);
+    }, 120_000);
+
+    it("counts a client that rotates the hop it wrote itself as the one address it is", async () => {
+      const platform = await seedPlatform();
+      const { router } = newRouter(platform, { trustForwardedHost: true, trustedProxyHops: 2 });
+      await bootstrapAdmin(router, "cyag");
+      const statuses: number[] = [];
+      for (let i = 0; i < 40; i += 1) {
+        statuses.push((await signIn(router, "cyag", `ghost${i}@example.com`, `10.9.0.${i}, 41.33.10.10, ${EDGE}`)).status);
+      }
+
+      expect(statuses.slice(0, 30)).toEqual(Array<number>(30).fill(401));
+      expect(statuses.slice(30)).toEqual(Array<number>(10).fill(429));
+    }, 120_000);
+
+    it("does not hold an office because somebody else wrote its address ahead of their own", async () => {
+      const platform = await seedPlatform();
+      const { router } = newRouter(platform, { trustForwardedHost: true, trustedProxyHops: 2 });
+      await bootstrapAdmin(router, "cyag");
+      for (let i = 0; i < 31; i += 1) await signIn(router, "cyag", `ghost${i}@example.com`, `196.221.5.5, 41.33.10.10, ${EDGE}`);
+
+      const office = await signIn(router, "cyag", "owner-cyag@example.com", `196.221.5.5, ${EDGE}`, "123456");
+      const attacker = await signIn(router, "cyag", "owner-cyag@example.com", `41.33.10.10, ${EDGE}`, "123456");
+
+      expect(office.status).toBe(200);
+      expect(attacker.status).toBe(429);
+    }, 120_000);
+
+    it("leaves the owner able to sign in from the office after six wrong PINs sent from somewhere else", async () => {
+      const platform = await seedPlatform();
+      const { router } = newRouter(platform, { trustForwardedHost: true, trustedProxyHops: 2 });
+      await bootstrapAdmin(router, "cyag");
+      for (let i = 0; i < 6; i += 1) await signIn(router, "cyag", "owner-cyag@example.com", `41.33.10.10, ${EDGE}`, "111111");
+
+      const office = await signIn(router, "cyag", "owner-cyag@example.com", `196.221.5.5, ${EDGE}`, "123456");
+      const attacker = await signIn(router, "cyag", "owner-cyag@example.com", `41.33.10.10, ${EDGE}`, "123456");
+
+      expect(office.status).toBe(200);
+      expect(attacker.status).toBe(429);
+      expect(await attacker.json()).toMatchObject({ error: "TOO_MANY_ATTEMPTS" });
+    }, 120_000);
+
+    it("refuses a tenant session presented from an address other than the one that signed in", async () => {
+      const platform = await seedPlatform();
+      const { router } = newRouter(platform, { trustForwardedHost: true, trustedProxyHops: 2 });
+      await bootstrapAdmin(router, "cyag");
+      const office = `196.221.5.5, ${EDGE}`;
+      const session = (await (await signIn(router, "cyag", "owner-cyag@example.com", office, "123456")).json()) as SessionDTO;
+
+      const fromTheOffice = await send(router, "cyag", "GET", "/item-brands", { forwardedFor: office, token: session.token });
+      const stolen = await send(router, "cyag", "GET", "/item-brands", { forwardedFor: `41.33.10.10, ${EDGE}`, token: session.token });
+      const afterwards = await send(router, "cyag", "GET", "/item-brands", { forwardedFor: office, token: session.token });
+
+      expect(fromTheOffice.status).toBe(200);
+      expect(stolen.status).toBe(401);
+      expect(afterwards.status).toBe(401);
+    }, 120_000);
+
+    it("reads the address CloudFront set when told to trust it, whatever the forwarded chain says", async () => {
+      const platform = await seedPlatform();
+      const { router } = newRouter(platform, { trustForwardedHost: true, trustedProxyHops: 2, trustViewerAddress: true });
+      await bootstrapAdmin(router, "cyag");
+      for (let i = 0; i < 31; i += 1) await signIn(router, "cyag", `ghost${i}@example.com`, `10.9.0.${i}, ${EDGE}`, "000000", "41.33.10.10:50000");
+
+      const held = await signIn(router, "cyag", "owner-cyag@example.com", `8.8.8.8, ${EDGE}`, "123456", "41.33.10.10:50123");
+      const office = await signIn(router, "cyag", "owner-cyag@example.com", `8.8.8.8, ${EDGE}`, "123456", "196.221.5.5:50123");
+
+      expect(held.status).toBe(429);
+      expect(office.status).toBe(200);
+    }, 120_000);
+
+    it("signs the owner in within a second while a thousand sign-ins arrive from another address", async () => {
+      const platform = await seedPlatform();
+      const { router } = newRouter(platform, { trustForwardedHost: true, trustedProxyHops: 2 });
+      await bootstrapAdmin(router, "cyag");
+      await signIn(router, "cyag", "owner-cyag@example.com", `196.221.5.5, ${EDGE}`, "123456");
+      await signIn(router, "cyag", "nobody@example.com", `198.51.100.4, ${EDGE}`);
+
+      const flood = Array.from({ length: 1000 }, (_, i) => signIn(router, "cyag", `ghost${i}@example.com`, `41.33.10.10, ${EDGE}`));
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      const started = performance.now();
+      const owner = await signIn(router, "cyag", "owner-cyag@example.com", `196.221.5.5, ${EDGE}`, "123456");
+      const ownerMs = performance.now() - started;
+      const answers = await Promise.all(flood);
+
+      expect(owner.status).toBe(200);
+      expect(ownerMs).toBeLessThan(1000);
+      const refused = answers.filter((answer) => answer.status === 429);
+      expect(refused.length).toBeGreaterThan(900);
+      expect(await refused[0]!.json()).toMatchObject({ error: "TOO_MANY_ATTEMPTS", message: expect.stringContaining("محاولات دخول كثيرة") });
+      expect(refused[0]!.headers.get("retry-after")).not.toBeNull();
+      expect(answers.filter((answer) => answer.status !== 429 && answer.status !== 401)).toEqual([]);
     }, 120_000);
   });
 });

@@ -13,6 +13,7 @@ import {
   throttleKey,
   type LoginThrottle,
   type SessionRegistry,
+  tooManyAttempts,
 } from "@mezan/api";
 import type { PlatformHandle } from "./create-platform.js";
 
@@ -37,10 +38,7 @@ export interface PlatformAuth {
 
 function lockedOut(c: Context, seconds: number) {
   c.header("retry-after", String(seconds));
-  return c.json(
-    { error: "TOO_MANY_ATTEMPTS", retryAfterSeconds: seconds, message: `محاولات دخول كثيرة. حاول بعد ${seconds} ثانية.` },
-    429,
-  );
+  return c.json(tooManyAttempts(seconds), 429);
 }
 
 export function createPlatformAuth(deps: PlatformAuthDeps): PlatformAuth {

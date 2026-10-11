@@ -24,6 +24,40 @@ into `<platform dir>/backups/` (`MEZAN_BACKUP_INTERVAL_MINUTES`, default 15).
 On the demo host that directory sits under `/tmp` and is lost on restart; on
 AWS a sidecar syncs it to S3 — see the `apps/mezan` README in `cyag-devops`.
 
+## Behind a proxy: which address a request is counted against
+
+Sign-in throttling, signup and deletion-form rate limits, and the address a
+tenant session is bound to all need the caller's real address. Behind a proxy
+the socket's peer is the proxy, and `x-forwarded-for` is a list the caller can
+start with anything: each proxy only **appends** the address it saw. The server
+therefore never reads the leftmost entry. It counts from the right
+(`apps/server/src/client-source.ts`).
+
+| Variable | Default | What it does |
+| --- | --- | --- |
+| `MEZAN_TRUST_PROXY` | `0` | `1` trusts `x-forwarded-host` and lets the two settings below apply. `0`: the socket's peer is the address, whatever the headers say. |
+| `MEZAN_TRUSTED_PROXY_HOPS` | `1` with `MEZAN_TRUST_PROXY=1`, else `0` | How many proxies in front of the server append to `x-forwarded-for`. The client is the entry that many places from the right. Refused without `MEZAN_TRUST_PROXY=1`. |
+| `MEZAN_TRUST_VIEWER_ADDRESS` | `0` | `1` reads the client from `CloudFront-Viewer-Address` when present (falling back to the hop count). Refused without `MEZAN_TRUST_PROXY=1` **and** `MEZAN_ORIGIN_SECRET`: the header is only CloudFront's word when nothing reaches the origin except through CloudFront. Applies under `/api/*` only — `/legal/*` sits above the origin-secret gate and never believes it. |
+
+Set the hop count to the deployment's real chain, or the limits key on the
+wrong machine:
+
+| Deployment | Chain | `MEZAN_TRUSTED_PROXY_HOPS` |
+| --- | --- | --- |
+| dev, testing, staging on localhost | none | unset (`MEZAN_TRUST_PROXY=0`) |
+| Render demo | Render's proxy | `1` |
+| AWS (CloudFront → API Gateway → VPC link → task) | CloudFront appends the viewer, API Gateway appends the CloudFront edge | `2` |
+
+Too low a count keys every client behind one proxy address (one office's typos
+hold everybody); too high a count reads an entry the caller wrote. A chain
+shorter than the count falls back to the socket's peer.
+
+The tenant router hands the address it worked out to the tenant backend with
+each forwarded request, so a tenant session is bound to the address that signed
+in: the same token presented from another address is refused and revoked, and
+the user signs in again. A phone that moves between Wi-Fi and mobile data is
+such a move.
+
 ## Running testing and staging locally
 
 ```sh

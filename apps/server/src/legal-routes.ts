@@ -2,9 +2,10 @@ import { randomUUID } from "node:crypto";
 import { Hono, type Context } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import type { SmtpConfig } from "@mezan/api";
-import { requestOrigin, sendNotificationEmail } from "@mezan/api";
+import { sendNotificationEmail } from "@mezan/api";
 import { recordSecurityEvent } from "@mezan/domain";
 import type { PlatformHandle } from "@mezan/backend";
+import { clientSource, type ClientSourceOptions } from "./client-source.js";
 import { createRateLimiter, type RateLimiter } from "./rate-limit.js";
 import {
   ACCOUNT_DELETION,
@@ -33,7 +34,8 @@ export interface LegalRoutesDeps {
   readonly platform: PlatformHandle;
   readonly supportEmail?: string;
   readonly platformSmtp?: SmtpConfig;
-  readonly trustProxy: boolean;
+  /** Which address a deletion request is counted against. Defaults to the socket's peer. */
+  readonly clientSource?: ClientSourceOptions;
   readonly now: () => Date;
   readonly limiter?: RateLimiter;
   readonly send?: typeof sendNotificationEmail;
@@ -174,13 +176,8 @@ ${renderNotice(lang, notice)}
 </form>`;
 }
 
-function clientIp(c: Context, trustProxy: boolean): string {
-  if (trustProxy) {
-    const forwarded = c.req.header("x-forwarded-for")?.split(",")[0]?.trim();
-    if (forwarded) return forwarded;
-  }
-  return requestOrigin(c) ?? "unknown";
-}
+
+const SOCKET_ONLY: ClientSourceOptions = { trustedProxyHops: 0, trustViewerAddress: false };
 
 function fieldOf(body: Record<string, unknown>, name: string): string {
   const value = body[name];
@@ -230,7 +227,7 @@ export function createLegalRoutes(deps: LegalRoutesDeps): Hono {
     if (!formEnabled || deps.supportEmail === undefined || deps.platformSmtp === undefined) {
       return deletionPage(c, lang, Notice.None, 200);
     }
-    const ip = clientIp(c, deps.trustProxy);
+    const ip = clientSource(c, deps.clientSource ?? SOCKET_ONLY) ?? "unknown";
     if (limiter.retryAfter(ip) > 0) return deletionPage(c, lang, Notice.TooMany, 429);
     limiter.consume(ip);
 

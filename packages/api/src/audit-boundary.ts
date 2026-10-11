@@ -113,7 +113,8 @@ export function assertAuditIsTransactional(audit: AuditSink, c: Context): void {
   throw new AuditOutsideTransactionError(c.req.method, c.req.path);
 }
 
-export type BoundaryPreparation = (c: Context) => Promise<(() => void) | void>;
+/** What `prepare` hands back runs once the request is over; a Response refuses the request before it queues for the connection. */
+export type BoundaryPreparation = (c: Context) => Promise<(() => void) | Response | void>;
 
 export interface AuditBoundaryOptions {
   readonly only?: RegExp;
@@ -238,6 +239,7 @@ export function beforeTheTurn(prepare: BoundaryPreparation): MiddlewareHandler {
     if (!isMutatingRequest(c)) return next();
     await preloadBody(c);
     const release = await prepare(c);
+    if (release instanceof Response) return release;
     try {
       await next();
     } finally {

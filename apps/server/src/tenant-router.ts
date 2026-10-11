@@ -2,10 +2,11 @@ import { Hono, type Context, type MiddlewareHandler } from "hono";
 import path from "node:path";
 import { mkdirSync } from "node:fs";
 import { timingSafeEqual } from "node:crypto";
-import { createSourceThrottle, requestOrigin, type SourceThrottle } from "@mezan/api";
+import { createSourceThrottle, tooManyAttempts, type SourceThrottle } from "@mezan/api";
 import { createBackend, type BackendHandle, type PlatformHandle } from "@mezan/backend";
 import type { SqliteOpenOptions } from "@mezan/persistence";
 import { createBackendCache, type BackendCache } from "./backend-cache.js";
+import { clientSource, originEnv, type ClientSourceOptions } from "./client-source.js";
 import { createTenantResolvers, type TenantResolvers } from "./tenant-entitlements.js";
 import { resolveTenantCode, TENANT_HEADER } from "./tenant-resolver.js";
 
@@ -14,13 +15,17 @@ export interface TenantRouterOptions {
   readonly dataDir: string;
   readonly tenantDomain?: string;
   readonly trustForwardedHost?: boolean;
+  /** Proxies in front of this process that append to `x-forwarded-for`. Defaults to one when the forwarded host is trusted, none otherwise. */
+  readonly trustedProxyHops?: number;
+  /** Read the client from `CloudFront-Viewer-Address`: only where nothing reaches this process except through CloudFront. */
+  readonly trustViewerAddress?: boolean;
   readonly allowTenantHeader?: boolean;
   readonly idleMs?: number;
   readonly ttlMs?: number;
   readonly sweepEveryMs?: number;
   readonly now?: () => Date;
   readonly openBackend?: (code: string, dbPath: string, resolvers: TenantResolvers) => Promise<BackendHandle>;
-  /** Failed tenant sign-ins per client address, across every tenant. Defaults to a fresh one. */
+  /** Failed tenant sign-ins per tenant and client address. Defaults to a fresh one. */
   readonly signInSources?: SourceThrottle;
   /** Passed straight through to every tenant `createBackend` call (e.g. `{ exclusive: true }` on EFS). Ignored when `openBackend` is supplied. */
   readonly connection?: SqliteOpenOptions;
@@ -51,19 +56,7 @@ export function requireOriginSecret(secret?: string): MiddlewareHandler {
 const SIGN_IN = "/auth/login";
 const INVALID_CREDENTIALS = 401;
 
-// A tenant backend is reached through `app.fetch`, with no socket under the
-// request, so it cannot tell one caller from another and counts every sign-in
-// as its own console's. The address is known here, at the edge: the forwarded
-// one only when this deployment sits behind a proxy that sets it.
-function signInSource(c: Context, trustForwarded: boolean): string | null {
-  const forwarded = trustForwarded ? c.req.header("x-forwarded-for")?.split(",")[0]?.trim() : undefined;
-  return forwarded || requestOrigin(c);
-}
-
-function waitPhrase(seconds: number): string {
-  if (seconds < 120) return `${seconds} ثانية`;
-  return `${Math.ceil(seconds / 60)} دقيقة`;
-}
+const SOURCE_KEY_SEPARATOR = "\u0000";
 
 export interface TenantRouter {
   readonly app: Hono;
@@ -130,6 +123,10 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
   });
 
   const signInSources = options.signInSources ?? createSourceThrottle(options.now ? () => options.now!().getTime() : undefined);
+  const sourceOptions: ClientSourceOptions = {
+    trustedProxyHops: options.trustedProxyHops ?? (options.trustForwardedHost === true ? 1 : 0),
+    trustViewerAddress: options.trustViewerAddress === true,
+  };
 
   const app = new Hono();
   const resolverOptions = {
@@ -175,19 +172,23 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
     const subPath = c.req.path.slice(prefixLen) || "/";
     const targetUrl = new URL(`${subPath}${new URL(c.req.raw.url).search}`, c.req.raw.url);
     const forwarded = new Request(targetUrl, c.req.raw);
-    if (c.req.method !== "POST" || subPath !== SIGN_IN) return backend.app.fetch(forwarded);
+    // A tenant backend is reached through `app.fetch`, with no socket under the
+    // request. The address is known here, at the edge, and is handed over as
+    // the request's environment on EVERY forward: the backend then binds a
+    // session to it and counts failed sign-ins against it, as it does for a
+    // socket of its own.
+    const source = clientSource(c, sourceOptions);
+    const env = originEnv(source);
+    if (c.req.method !== "POST" || subPath !== SIGN_IN) return backend.app.fetch(forwarded, env);
 
-    const source = signInSource(c, options.trustForwardedHost === true);
-    const wait = source ? signInSources.retryAfter(source) : 0;
+    const held = source ? `${code}${SOURCE_KEY_SEPARATOR}${source}` : null;
+    const wait = held ? signInSources.retryAfter(held) : 0;
     if (wait > 0) {
       c.header("retry-after", String(wait));
-      return c.json(
-        { error: "TOO_MANY_ATTEMPTS", retryAfterSeconds: wait, message: `محاولات دخول كثيرة. حاول بعد ${waitPhrase(wait)}.` },
-        429,
-      );
+      return c.json(tooManyAttempts(wait), 429);
     }
-    const answer = await backend.app.fetch(forwarded);
-    if (source && answer.status === INVALID_CREDENTIALS) signInSources.fail(source);
+    const answer = await backend.app.fetch(forwarded, env);
+    if (held && answer.status === INVALID_CREDENTIALS) signInSources.fail(held);
     return answer;
   });
 

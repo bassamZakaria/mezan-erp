@@ -99,6 +99,8 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
     dataDir: env.platformDir,
     tenantDomain: env.tenantDomain,
     trustForwardedHost: env.trustProxy,
+    trustedProxyHops: env.clientSource.trustedProxyHops,
+    trustViewerAddress: env.clientSource.trustViewerAddress,
     allowTenantHeader: true,
     now,
     connection: { exclusive: env.sqliteExclusive },
@@ -220,7 +222,9 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
       platform,
       supportEmail: env.supportEmail,
       platformSmtp: env.platformSmtp,
-      trustProxy: env.trustProxy,
+      // Mounted above the origin-secret gate, so nothing proves a request
+      // crossed CloudFront: the viewer header is not believed here.
+      clientSource: { trustedProxyHops: env.clientSource.trustedProxyHops, trustViewerAddress: false },
       now,
     }),
   );

@@ -575,7 +575,7 @@ export function createUsersRoutes(
       await auditUser(c, user, "DEACTIVATE");
       // Firing someone at 10:00 must not leave them posting at 10:05.
       sessions?.revokeUser(user.id);
-      if (loginThrottle) loginThrottle.succeed(user.email.trim().toLowerCase());
+      if (loginThrottle) loginThrottle.unlock(user.email);
       return c.json(serializeUser(user));
     } catch (err) {
       return userErrorResponse(c, err);
@@ -622,7 +622,7 @@ export function createUsersRoutes(
     if (erasedRefusal) return erasedRefusal;
     const outranked = await refuseIfTargetOutranks(c, c.req.param("id"));
     if (outranked) return outranked;
-    loginThrottle?.succeed(user.email.trim().toLowerCase());
+    loginThrottle?.unlock(user.email);
     await recordSecurityAdminEvent(audit, c, {
       module: "admin",
       entityType: "USER",
@@ -711,7 +711,7 @@ export function createUsersRoutes(
           });
         }
         sessions?.revokeUser(id);
-        loginThrottle?.succeed(result.previousEmail);
+        loginThrottle?.unlock(result.previousEmail);
         return c.json({
           user: serializeUser(result.erased),
           erased: { ...result.counts, sessionsRevoked: sessions !== undefined },

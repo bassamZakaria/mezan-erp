@@ -1,4 +1,5 @@
 import type { SmtpConfig } from "@mezan/api";
+import type { ClientSourceOptions } from "./client-source.js";
 import type { SmtpSecurity } from "@mezan/domain";
 import type { ReviewTenantConfig } from "./review-tenant.js";
 
@@ -21,6 +22,8 @@ export interface CloudEnv {
   readonly platformDir: string;
   readonly tenantDomain?: string;
   readonly trustProxy: boolean;
+  /** Which address a request is counted and bound against (client-source.ts). */
+  readonly clientSource: ClientSourceOptions;
   readonly originSecret?: string;
   readonly sqliteExclusive: boolean;
   readonly platformOwnerEmail?: string;
@@ -188,11 +191,29 @@ function parseReviewTenant(env: Record<string, string | undefined>): ReviewTenan
   return { code, pin };
 }
 
+const DEFAULT_TRUSTED_PROXY_HOPS = 1;
+
+function parseClientSource(env: Record<string, string | undefined>): ClientSourceOptions {
+  const trustProxy = flag(env["MEZAN_TRUST_PROXY"]);
+  const hops = parseNonNegativeInt(env["MEZAN_TRUSTED_PROXY_HOPS"], "MEZAN_TRUSTED_PROXY_HOPS", trustProxy ? DEFAULT_TRUSTED_PROXY_HOPS : 0);
+  if (hops > 0 && !trustProxy) {
+    throw new Error("MEZAN_TRUSTED_PROXY_HOPS needs MEZAN_TRUST_PROXY=1: without a trusted proxy the forwarded chain is whatever the caller wrote");
+  }
+  const viewer = flag(env["MEZAN_TRUST_VIEWER_ADDRESS"]);
+  if (viewer && (!trustProxy || trimmedOrUndefined(env["MEZAN_ORIGIN_SECRET"]) === undefined)) {
+    throw new Error(
+      "MEZAN_TRUST_VIEWER_ADDRESS needs MEZAN_TRUST_PROXY=1 and MEZAN_ORIGIN_SECRET: CloudFront-Viewer-Address is only CloudFront's word when nothing reaches the origin except through it",
+    );
+  }
+  return { trustedProxyHops: hops, trustViewerAddress: viewer };
+}
+
 export function parseEnv(env: Record<string, string | undefined> = process.env, options: ParseEnvOptions = {}): CloudEnv {
   return {
     platformDir: env["MEZAN_PLATFORM_DIR"] ?? ".data/platform",
     tenantDomain: trimmedOrUndefined(env["MEZAN_TENANT_DOMAIN"]),
     trustProxy: flag(env["MEZAN_TRUST_PROXY"]),
+    clientSource: parseClientSource(env),
     originSecret: trimmedOrUndefined(env["MEZAN_ORIGIN_SECRET"]),
     sqliteExclusive: flag(env["MEZAN_SQLITE_EXCLUSIVE"]),
     platformOwnerEmail: trimmedOrUndefined(env["MEZAN_PLATFORM_OWNER_EMAIL"]),

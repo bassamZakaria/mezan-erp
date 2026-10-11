@@ -73,7 +73,11 @@ const GLOBAL_LOCK_MS = 15 * 60_000;
 const BASE_LOCK_MS = 60_000;
 /** Ceiling, so a locked-out shop is never locked out for a whole shift. */
 const MAX_LOCK_MS = 15 * 60_000;
-/** A quiet period this long forgets the streak — yesterday's typos are not an attack. */
+/**
+ * How long one failure counts. A SLIDING window, not a quiet period: a streak
+ * that only a quiet hour could forget never forgot anything in a shop that is
+ * open all day, so one typo every twenty-five minutes climbed to a lock.
+ */
 const DECAY_MS = 60 * 60_000;
 /**
  * How many attempt records are kept.
@@ -87,8 +91,8 @@ const DECAY_MS = 60 * 60_000;
 const MAX_RECORDS = 10_000;
 
 interface AttemptRecord {
-  failures: number;
-  lastFailureAt: number;
+  /** When each failure still inside the window happened, oldest first. */
+  failures: number[];
   lockedUntil: number;
 }
 
@@ -97,10 +101,61 @@ export interface LoginThrottle {
   retryAfter(key: string): number;
   /** Records a failure and returns the seconds the account is now locked for. */
   fail(key: string): number;
-  /** Clears the streak after a verified credential — and what an admin unlock calls. */
+  /** Clears the streak of the one key a credential was just verified on. */
   succeed(key: string): void;
+  /** Clears an account everywhere it was counted — what an admin unlock calls. */
+  unlock(account: string): void;
   /** How many records are held. For the exception report and for tests. */
   size(): number;
+}
+
+export enum SignInRefusal {
+  TooManyAttempts = "TOO_MANY_ATTEMPTS",
+}
+
+/**
+ * "900 ثانية" is not a wait a person can act on. Past two minutes the honest
+ * unit is minutes; the exact second count still travels as `retryAfterSeconds`
+ * so the client can run a countdown against it.
+ */
+export function waitPhrase(seconds: number): string {
+  if (seconds < 120) return `${seconds} ثانية`;
+  const minutes = Math.ceil(seconds / 60);
+  if (minutes === 2) return "دقيقتين";
+  if (minutes <= 10) return `${minutes} دقائق`;
+  return `${minutes} دقيقة`;
+}
+
+export function tooManyAttempts(seconds: number) {
+  return {
+    error: SignInRefusal.TooManyAttempts,
+    retryAfterSeconds: seconds,
+    message: `محاولات دخول كثيرة. حاول بعد ${waitPhrase(seconds)}.`,
+  };
+}
+
+const lastFailureAt = (record: AttemptRecord): number => record.failures.at(-1) ?? 0;
+
+function dropOutsideWindow(record: AttemptRecord, at: number): void {
+  while (record.failures.length > 0 && at - record.failures[0]! > DECAY_MS) record.failures.shift();
+}
+
+function readRecord(records: Map<string, AttemptRecord>, key: string, at: number): AttemptRecord | undefined {
+  const record = records.get(key);
+  if (!record) return undefined;
+  dropOutsideWindow(record, at);
+  if (record.failures.length === 0 && record.lockedUntil <= at) {
+    records.delete(key);
+    return undefined;
+  }
+  return record;
+}
+
+function evictRecords(records: Map<string, AttemptRecord>, at: number): void {
+  for (const key of [...records.keys()]) readRecord(records, key, at);
+  if (records.size <= MAX_RECORDS) return;
+  const oldestFirst = [...records.entries()].sort((a, b) => lastFailureAt(a[1]) - lastFailureAt(b[1]));
+  for (const [key] of oldestFirst.slice(0, records.size - MAX_RECORDS)) records.delete(key);
 }
 
 function lockDuration(failures: number): number {
@@ -146,26 +201,7 @@ function isHostLocal(key: string): boolean {
 
 export function createLoginThrottle(now: () => number = Date.now): LoginThrottle {
   const records = new Map<string, AttemptRecord>();
-
-  /** Drops decayed records, then the oldest, until the map is within its cap. */
-  function evict(at: number) {
-    for (const [key, record] of records) {
-      if (at - record.lastFailureAt > DECAY_MS) records.delete(key);
-    }
-    if (records.size <= MAX_RECORDS) return;
-    const oldestFirst = [...records.entries()].sort((a, b) => a[1].lastFailureAt - b[1].lastFailureAt);
-    for (const [key] of oldestFirst.slice(0, records.size - MAX_RECORDS)) records.delete(key);
-  }
-
-  function read(key: string, at: number): AttemptRecord | undefined {
-    const record = records.get(key);
-    if (!record) return undefined;
-    if (at - record.lastFailureAt > DECAY_MS) {
-      records.delete(key);
-      return undefined;
-    }
-    return record;
-  }
+  const read = (key: string, at: number) => readRecord(records, key, at);
 
   return {
     retryAfter(key) {
@@ -184,35 +220,21 @@ export function createLoginThrottle(now: () => number = Date.now): LoginThrottle
       if (record.lockedUntil > at) return Math.ceil((record.lockedUntil - at) / 1000);
       if (record.lockedUntil !== 0) {
         // A SERVED LOCK STEPS THE LADDER DOWN ONE RUNG — it does not reset it.
-        //
-        // Leaving the streak at its high-water mark meant that after waiting
-        // fifteen minutes, one more typo bought another THIRTY: the ratchet
-        // only ever went up, so a person who had just been let back in was one
-        // slip from a longer lock than the one they had served.
-        //
-        // Resetting it to zero instead — which is the obvious fix, and the one
-        // this file first shipped — is worse, and the existing suite said so.
-        // Five free attempts per served lock is 7,200 guesses a day, which
-        // walks a six-digit keyspace in about four months; the whole point of
-        // the ratchet is that a sweep costs decades, not that a guess costs a
-        // minute. Stepping down one rung keeps the ceiling exactly where it
-        // was (one guess per fifteen minutes at the top, ~28 years for a full
-        // sweep) while making a single post-lock typo cost the same wait
-        // again rather than double it.
-        //
+        // Left at its high-water mark, one typo after a served wait bought
+        // double that wait; reset to zero, every served lock bought five free
+        // guesses. One rung down, a post-lock typo costs the same wait again.
         // For the person who is simply locked out and needs to work now, the
         // answer is `POST /users/:id/unlock`, not a weaker ladder.
-        record.failures = Math.max(0, record.failures - 1);
+        record.failures.shift();
         record.lockedUntil = 0;
       }
       return 0;
     },
     fail(key) {
       const at = now();
-      const record = read(key, at) ?? { failures: 0, lastFailureAt: at, lockedUntil: 0 };
-      record.failures += 1;
-      record.lastFailureAt = at;
-      const lock = lockDuration(record.failures);
+      const record = read(key, at) ?? { failures: [], lockedUntil: 0 };
+      record.failures.push(at);
+      const lock = lockDuration(record.failures.length);
       record.lockedUntil = lock > 0 ? at + lock : 0;
       records.set(key, record);
 
@@ -221,30 +243,32 @@ export function createLoginThrottle(now: () => number = Date.now): LoginThrottle
       let globalLock = 0;
       if (!isHostLocal(key)) {
         const globalKey = `${GLOBAL_PREFIX}${accountOf(key)}`;
-        const global = read(globalKey, at) ?? { failures: 0, lastFailureAt: at, lockedUntil: 0 };
-        global.failures += 1;
-        global.lastFailureAt = at;
-        if (global.failures >= GLOBAL_ATTEMPT_CEILING) global.lockedUntil = at + GLOBAL_LOCK_MS;
+        const global = read(globalKey, at) ?? { failures: [], lockedUntil: 0 };
+        global.failures.push(at);
+        if (global.failures.length >= GLOBAL_ATTEMPT_CEILING) global.lockedUntil = at + GLOBAL_LOCK_MS;
         records.set(globalKey, global);
         if (global.lockedUntil > at) globalLock = global.lockedUntil - at;
       }
 
-      evict(at);
+      evictRecords(records, at);
       // The longer of the two, because both are true: the caller is told the
       // wait it actually has to serve, not the one its own address earned.
       return Math.ceil(Math.max(lock, globalLock) / 1000);
     },
+    // ONLY the key the credential was verified on. Clearing the whole account
+    // here let anyone who could sign in from one address wipe the count an
+    // attacker was building against the same account from another.
     succeed(key) {
       records.delete(key);
-      // An unlock clears the account everywhere it was counted, not only on the
-      // one source that happened to lock it: an admin pressing «فكّ القفل» means
-      // "this person can sign in now", and leaving four other keys locked would
-      // make the button a lie — and leaving the per-account total in place
-      // would make it a lie one attempt later.
-      const account = accountOf(key);
-      records.delete(account);
-      records.delete(`${GLOBAL_PREFIX}${account}`);
-      const prefix = `${account}${KEY_SEPARATOR}`;
+    },
+    // An admin pressing «فكّ القفل» means "this person can sign in now":
+    // leaving other addresses locked would make the button a lie, and leaving
+    // the per-account total in place would make it a lie one attempt later.
+    unlock(account) {
+      const needle = accountOf(throttleKey(account, null));
+      records.delete(needle);
+      records.delete(`${GLOBAL_PREFIX}${needle}`);
+      const prefix = `${needle}${KEY_SEPARATOR}`;
       for (const held of [...records.keys()]) {
         if (held.startsWith(prefix)) records.delete(held);
       }
@@ -283,40 +307,21 @@ export interface SourceThrottle {
 export function createSourceThrottle(now: () => number = Date.now): SourceThrottle {
   const records = new Map<string, AttemptRecord>();
 
-  function read(source: string, at: number): AttemptRecord | undefined {
-    const record = records.get(source);
-    if (record && at - record.lastFailureAt > DECAY_MS) {
-      records.delete(source);
-      return undefined;
-    }
-    return record;
-  }
-
-  function evict(at: number): void {
-    for (const [source, record] of records) {
-      if (at - record.lastFailureAt > DECAY_MS) records.delete(source);
-    }
-    if (records.size <= MAX_RECORDS) return;
-    const oldestFirst = [...records.entries()].sort((a, b) => a[1].lastFailureAt - b[1].lastFailureAt);
-    for (const [source] of oldestFirst.slice(0, records.size - MAX_RECORDS)) records.delete(source);
-  }
-
   return {
     retryAfter(source) {
       const at = now();
-      const record = read(source, at);
+      const record = readRecord(records, source, at);
       return record && record.lockedUntil > at ? Math.ceil((record.lockedUntil - at) / 1000) : 0;
     },
     fail(source) {
       const at = now();
-      const record = read(source, at) ?? { failures: 0, lastFailureAt: at, lockedUntil: 0 };
-      record.failures += 1;
-      record.lastFailureAt = at;
-      const doublings = record.failures - SOURCE_FREE_ATTEMPTS - 1;
+      const record = readRecord(records, source, at) ?? { failures: [], lockedUntil: 0 };
+      record.failures.push(at);
+      const doublings = record.failures.length - SOURCE_FREE_ATTEMPTS - 1;
       const lock = doublings < 0 ? 0 : Math.min(BASE_LOCK_MS * 2 ** doublings, MAX_LOCK_MS);
       record.lockedUntil = lock > 0 ? at + lock : 0;
       records.set(source, record);
-      evict(at);
+      evictRecords(records, at);
       return Math.ceil(lock / 1000);
     },
     size() {

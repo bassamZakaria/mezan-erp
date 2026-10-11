@@ -9,6 +9,16 @@
 import type { Money, Qty } from "../money/index.js";
 import type { AppliedSalesInvoicePromotion, SalesInvoice, SalesInvoiceLine } from "./sales-invoice.js";
 
+export enum SalesInvoiceField {
+  Status = "status",
+  AmountPaid = "amountPaid",
+  WorkflowRequestId = "workflowRequestId",
+}
+
+export interface SalesInvoiceWritePrecondition {
+  readonly status: readonly SalesInvoice["status"][];
+}
+
 /** Persistence port for sales invoices, keyed by id. */
 export interface SalesInvoiceRepository {
   save(invoice: SalesInvoice): Promise<void>;
@@ -39,6 +49,20 @@ export interface SalesInvoiceRepository {
    * overwritten by a stale copy.
    */
   nameLineTaxRate(invoiceId: string, lineIds: readonly string[], taxRatePercent: number, taxRateId: string): Promise<number>;
+  /**
+   * INVARIANT: the ONE write a state change makes to a stored invoice. Only
+   * the named fields of `next` are written, and only while the stored row is
+   * in one of `expected.status`; it answers whether a row was written. A
+   * posted invoice is never saved whole, so a collection, a classification
+   * and a void can never overwrite one another with an earlier copy.
+   */
+  writeFields(next: SalesInvoice, fields: readonly SalesInvoiceField[], expected: SalesInvoiceWritePrecondition): Promise<boolean>;
+  /**
+   * INVARIANT: the whole-document write, taken only by a row that has not
+   * posted yet (draft or pending) and is in one of `expected.status`. It is
+   * how a confirm or a draft edit lands; a posted row answers false.
+   */
+  replaceUnposted(next: SalesInvoice, expected: SalesInvoiceWritePrecondition): Promise<boolean>;
   /** Run `fn` in one atomic transaction. In-memory implementations may just call `fn`. */
   transaction<T>(fn: () => Promise<T>): Promise<T>;
 }

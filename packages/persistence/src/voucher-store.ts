@@ -1,6 +1,7 @@
 import Database from "better-sqlite3";
 import { openSqliteConnection, withSqliteTransaction, type SqliteConnectionInput } from "./sqlite-connection.js";
 import { childRowsByParent } from "./list-query.js";
+import { columnsOf, FRAMEWORK_DOCUMENT_COLUMNS, writeRowColumnsWhere } from "./document-field-write.js";
 import {
   Money,
   type AllocatableInvoice,
@@ -9,7 +10,9 @@ import {
   type AllocationRepository,
   type AllocationStatus,
   type CostCategory,
+  DocumentField,
   type DocumentListFilter,
+  type DocumentWritePrecondition,
   type DocumentRepository,
   type DocumentStatus,
   type FrameworkDocument,
@@ -271,6 +274,15 @@ function docParams(doc: FrameworkDocument<VoucherLine>) {
   };
 }
 
+const VOUCHER_COLUMNS: Readonly<Record<DocumentField, readonly string[]>> = {
+  ...FRAMEWORK_DOCUMENT_COLUMNS,
+  [DocumentField.Lines]: [
+    "amount", "fx_rate", "counterparty_gl_account_id", "counter_treasury_account_id", "counter_treasury_gl_account_id",
+    "customer_id", "supplier_id", "reference_no", "cost_center_id", "project_id", "cost_category",
+    "withholding_amount", "withholding_rate_percent", "withholding_gl_account_id", "held_allocations",
+  ],
+};
+
 class SqliteVoucherRepository implements DocumentRepository<VoucherLine> {
   private readonly insert: Database.Statement;
   private readonly updateStmt: Database.Statement;
@@ -320,6 +332,16 @@ class SqliteVoucherRepository implements DocumentRepository<VoucherLine> {
 
   async update(doc: FrameworkDocument<VoucherLine>): Promise<void> {
     this.updateStmt.run(docParams(doc));
+  }
+
+  async writeFields(next: FrameworkDocument<VoucherLine>, fields: readonly DocumentField[], expected: DocumentWritePrecondition): Promise<boolean> {
+    return writeRowColumnsWhere(this.sqlite, {
+      table: "voucher",
+      row: docParams(next),
+      columns: columnsOf(VOUCHER_COLUMNS, fields),
+      id: next.id,
+      expectedStatuses: [expected.status],
+    });
   }
 
   async findById(id: string): Promise<FrameworkDocument<VoucherLine> | null> {

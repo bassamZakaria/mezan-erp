@@ -12,11 +12,12 @@
  */
 
 import { recordSensitiveEvent, type AuditSink } from "../audit/index.js";
-import type {
-  DocumentTypeDefinition,
-  FrameworkDocument,
-  DocumentListFilter,
-  DocumentRepository,
+import {
+  DocumentField,
+  type DocumentTypeDefinition,
+  type FrameworkDocument,
+  type DocumentListFilter,
+  type DocumentRepository,
 } from "./document.js";
 import type { DocumentEffects } from "./effects.js";
 import type {
@@ -35,6 +36,7 @@ import {
   DuplicateDocumentError,
   InvalidDocumentError,
   MissingHookError,
+  assertDocumentWritten,
 } from "./errors.js";
 
 export interface DocumentServiceDeps<Line> {
@@ -133,23 +135,7 @@ export class DocumentService<Line> {
    */
   async confirm(id: string, opts: ConfirmOptions = {}): Promise<ConfirmResult<Line>> {
     const existing = await this.require(id);
-    // ORDER MATTERS: the lifecycle answers first. A confirmed return re-checked
-    // against its own posted lines reads as an overdraw, which is the wrong
-    // refusal for "this is already confirmed".
-    assertTransition(this.def.code, id, existing.status, this.def.confirmedStatus);
-    this.def.validate?.(existing);
-    await this.deps.confirmGuard?.(existing);
-
-    // Block confirming a document its own effects mark as not-confirmable
-    // (e.g. an unbalanced journal) — the same signal the UI gates the button on.
-    const effects = this.def.describeEffects(existing);
-    if (effects.blocked) {
-      throw new InvalidDocumentError(
-        this.def.code,
-        id,
-        effects.blockedReason ?? "Document cannot be confirmed in its current state.",
-      );
-    }
+    await this.assertConfirmable(existing);
 
     // --- Workflow gate on confirm --------------------------------------
     if (this.def.gateActionType) {
@@ -172,63 +158,94 @@ export class DocumentService<Line> {
           status: "pending",
           workflowRequestId: decision.requestId,
         };
-        await this.deps.repo.update(held);
+        await this.write(held, [DocumentField.Status, DocumentField.WorkflowRequestId], existing.status);
         this.emit("DOCUMENT_SUBMITTED", held);
         return { document: held, held: true };
       }
     }
 
     const target = this.def.confirmedStatus;
-    assertTransition(this.def.code, id, existing.status, target);
 
     const confirmed = await this.deps.repo.transaction(async () => {
-      await this.deps.confirmGuard?.(existing);
-      let docNo = existing.docNo;
-      if (this.def.numberingSequence && !this.def.numberFromGl) {
-        if (!this.deps.numbering) throw new MissingHookError(this.def.code, "numbering");
-        docNo = (await this.deps.numbering.next({ branchId: this.def.branchOf?.(existing) ?? null })).formatted;
-      }
-
-      let working: FrameworkDocument<Line> = { ...existing, docNo };
-
-      // The stock plan runs BEFORE the GL posting is built, so the posting
-      // can credit inventory by the value the ledger actually moved rather
-      // than by a figure the document carries (D47).
-      let stockResult: DocumentStockResult | undefined;
-      if (this.def.buildStockPlan) {
-        const plan = this.def.buildStockPlan(working);
-        if (plan) {
-          if (!this.deps.stock) throw new MissingHookError(this.def.code, "stock");
-          stockResult = await this.deps.stock.apply(plan);
-        }
-      }
-
-      let journalEntryId = existing.journalEntryId;
-      if (this.def.buildGlPosting) {
-        const posting = this.def.buildGlPosting(working, stockResult);
-        if (posting) {
-          if (!this.deps.gl) throw new MissingHookError(this.def.code, "gl");
-          const result = await this.deps.gl.post(posting);
-          journalEntryId = result.journalEntryId;
-          if (this.def.numberFromGl) docNo = result.journalEntryNo;
-        }
-      }
-
-      const next: FrameworkDocument<Line> = {
-        ...working,
-        docNo,
-        journalEntryId,
-        status: target,
-        confirmedAt: this.now(),
-        workflowRequestId: null,
-      };
-      await this.deps.repo.update(next);
-      await this.recordAudit("CONFIRM", next, "INFO");
-      return next;
+      // INVARIANT: every guard runs on the row as it stands inside this
+      // transaction. A classification or cancel that landed since the request
+      // began is posted from, or refuses this confirm — never overwritten.
+      const fresh = await this.require(id);
+      await this.assertConfirmable(fresh);
+      return this.post(fresh, target);
     });
 
     this.emit("DOCUMENT_CONFIRMED", confirmed);
     return { document: confirmed, held: false };
+  }
+
+  private async assertConfirmable(doc: FrameworkDocument<Line>): Promise<void> {
+    // ORDER MATTERS: the lifecycle answers first. A confirmed return re-checked
+    // against its own posted lines reads as an overdraw, which is the wrong
+    // refusal for "this is already confirmed".
+    assertTransition(this.def.code, doc.id, doc.status, this.def.confirmedStatus);
+    this.def.validate?.(doc);
+    await this.deps.confirmGuard?.(doc);
+
+    // Block confirming a document its own effects mark as not-confirmable
+    // (e.g. an unbalanced journal) — the same signal the UI gates the button on.
+    const effects = this.def.describeEffects(doc);
+    if (effects.blocked) {
+      throw new InvalidDocumentError(
+        this.def.code,
+        doc.id,
+        effects.blockedReason ?? "Document cannot be confirmed in its current state.",
+      );
+    }
+  }
+
+  private async post(existing: FrameworkDocument<Line>, target: DocumentStatus): Promise<FrameworkDocument<Line>> {
+    let docNo = existing.docNo;
+    if (this.def.numberingSequence && !this.def.numberFromGl) {
+      if (!this.deps.numbering) throw new MissingHookError(this.def.code, "numbering");
+      docNo = (await this.deps.numbering.next({ branchId: this.def.branchOf?.(existing) ?? null })).formatted;
+    }
+
+    let working: FrameworkDocument<Line> = { ...existing, docNo };
+
+    // The stock plan runs BEFORE the GL posting is built, so the posting
+    // can credit inventory by the value the ledger actually moved rather
+    // than by a figure the document carries (D47).
+    let stockResult: DocumentStockResult | undefined;
+    if (this.def.buildStockPlan) {
+      const plan = this.def.buildStockPlan(working);
+      if (plan) {
+        if (!this.deps.stock) throw new MissingHookError(this.def.code, "stock");
+        stockResult = await this.deps.stock.apply(plan);
+      }
+    }
+
+    let journalEntryId = existing.journalEntryId;
+    if (this.def.buildGlPosting) {
+      const posting = this.def.buildGlPosting(working, stockResult);
+      if (posting) {
+        if (!this.deps.gl) throw new MissingHookError(this.def.code, "gl");
+        const result = await this.deps.gl.post(posting);
+        journalEntryId = result.journalEntryId;
+        if (this.def.numberFromGl) docNo = result.journalEntryNo;
+      }
+    }
+
+    const next: FrameworkDocument<Line> = {
+      ...working,
+      docNo,
+      journalEntryId,
+      status: target,
+      confirmedAt: this.now(),
+      workflowRequestId: null,
+    };
+    await this.write(
+      next,
+      [DocumentField.DocNo, DocumentField.Status, DocumentField.ConfirmedAt, DocumentField.JournalEntryId, DocumentField.WorkflowRequestId],
+      existing.status,
+    );
+    await this.recordAudit("CONFIRM", next, "INFO");
+    return next;
   }
 
   /**
@@ -237,29 +254,38 @@ export class DocumentService<Line> {
    * the DOCUMENT, as opposed to for the approval request.
    */
   async returnToDraft(id: string): Promise<FrameworkDocument<Line>> {
-    const existing = await this.require(id);
-    if (existing.status === "draft") return existing;
-    assertTransition(this.def.code, id, existing.status, "draft");
-    const returned: FrameworkDocument<Line> = { ...existing, status: "draft", workflowRequestId: null };
-    await this.deps.repo.update(returned);
+    const returned = await this.deps.repo.transaction(async () => {
+      const existing = await this.require(id);
+      if (existing.status === "draft") return null;
+      assertTransition(this.def.code, id, existing.status, "draft");
+      const next: FrameworkDocument<Line> = { ...existing, status: "draft", workflowRequestId: null };
+      await this.write(next, [DocumentField.Status, DocumentField.WorkflowRequestId], existing.status);
+      return next;
+    });
+    if (!returned) return this.require(id);
     this.emit("DOCUMENT_DRAFTED", returned);
     return returned;
   }
 
   /** Cancel a draft/pending document (never a live one — those are reversed). */
   async cancel(id: string): Promise<FrameworkDocument<Line>> {
-    const existing = await this.require(id);
-    assertTransition(this.def.code, id, existing.status, "cancelled");
-    const cancelledLines = this.def.onCancel?.(existing) ?? existing.lines;
-    const cancelled: FrameworkDocument<Line> = {
-      ...existing,
-      status: "cancelled",
-      lines: cancelledLines,
-      workflowRequestId: null,
-    };
-    await this.deps.repo.transaction(async () => {
-      await this.deps.repo.update(cancelled);
-      await this.recordAudit("CANCEL", cancelled, "WARNING");
+    const cancelled = await this.deps.repo.transaction(async () => {
+      const existing = await this.require(id);
+      assertTransition(this.def.code, id, existing.status, "cancelled");
+      const cancelledLines = this.def.onCancel?.(existing) ?? null;
+      const next: FrameworkDocument<Line> = {
+        ...existing,
+        status: "cancelled",
+        lines: cancelledLines ?? existing.lines,
+        workflowRequestId: null,
+      };
+      await this.write(
+        next,
+        [DocumentField.Status, DocumentField.WorkflowRequestId, ...(cancelledLines ? [DocumentField.Lines] : [])],
+        existing.status,
+      );
+      await this.recordAudit("CANCEL", next, "WARNING");
+      return next;
     });
     this.emit("DOCUMENT_CANCELLED", cancelled);
     return cancelled;
@@ -271,23 +297,23 @@ export class DocumentService<Line> {
    * hook. Creates a reversing document linked both ways.
    */
   async reverse(id: string, opts: ReverseOptions): Promise<{ original: FrameworkDocument<Line>; reversal: FrameworkDocument<Line> }> {
-    const existing = await this.require(id);
-    if (!isActive(existing.status)) {
-      // assertTransition gives the precise error (only active → reversed is legal).
-      assertTransition(this.def.code, id, existing.status, "reversed");
-    }
-    const resolvedDate = opts.date ?? existing.date;
-    // A reversal dated before the document it reverses would restate a day
-    // already reported (D270, voucher reversal). This is scoped to THIS
-    // document-lifecycle path rather than the shared `reverseJournalEntry` —
-    // other reversal flows (a depreciation run, a purchase-invoice cancel)
-    // legitimately reverse at an earlier date and are gated by the period
-    // lock alone.
-    if (resolvedDate < existing.date) {
-      throw new ReversalDateBeforeOriginalError(id, resolvedDate, existing.date);
-    }
-
     return this.deps.repo.transaction(async () => {
+      const existing = await this.require(id);
+      if (!isActive(existing.status)) {
+        // assertTransition gives the precise error (only active → reversed is legal).
+        assertTransition(this.def.code, id, existing.status, "reversed");
+      }
+      const resolvedDate = opts.date ?? existing.date;
+      // A reversal dated before the document it reverses would restate a day
+      // already reported (D270, voucher reversal). This is scoped to THIS
+      // document-lifecycle path rather than the shared `reverseJournalEntry` —
+      // other reversal flows (a depreciation run, a purchase-invoice cancel)
+      // legitimately reverse at an earlier date and are gated by the period
+      // lock alone.
+      if (resolvedDate < existing.date) {
+        throw new ReversalDateBeforeOriginalError(id, resolvedDate, existing.date);
+      }
+
       let reversalJournalEntryId: string | null = null;
       let reversalDocNo: string | null = null;
       if (existing.journalEntryId) {
@@ -335,7 +361,7 @@ export class DocumentService<Line> {
         status: "reversed",
         reversedByDocId: reversal.id,
       };
-      await this.deps.repo.update(original);
+      await this.write(original, [DocumentField.Status, DocumentField.ReversedByDocId], existing.status);
 
       await this.recordAudit("REVERSE", original, "WARNING", reversal.id);
       this.emit("DOCUMENT_REVERSED", original, reversal.id);
@@ -369,6 +395,10 @@ export class DocumentService<Line> {
     return (await repo.list(filter)).filter((doc) =>
       doc.lines.some((line) => wanted.has((line as Record<string, unknown>)[field] as string)),
     );
+  }
+
+  private async write(next: FrameworkDocument<Line>, fields: readonly DocumentField[], expectedStatus: DocumentStatus): Promise<void> {
+    assertDocumentWritten(await this.deps.repo.writeFields(next, fields, { status: expectedStatus }), this.def.code, next.id);
   }
 
   private async require(id: string): Promise<FrameworkDocument<Line>> {

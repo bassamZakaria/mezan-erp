@@ -1,5 +1,6 @@
 import Database from "better-sqlite3";
 import { openSqliteConnection, withSqliteTransaction, type SqliteConnectionInput } from "./sqlite-connection.js";
+import { columnsOf, FRAMEWORK_DOCUMENT_COLUMNS, writeRowColumnsWhere } from "./document-field-write.js";
 import type {
   DocumentListFilter,
   DocumentRepository,
@@ -144,6 +145,16 @@ export function createSqliteDocumentStore<Line>(
     },
     async update(doc) {
       update.run(toRow(doc));
+    },
+    async writeFields(next, fields, expected) {
+      return writeRowColumnsWhere(sqlite, {
+        table: "framework_document",
+        row: toRow(next),
+        columns: columnsOf(FRAMEWORK_DOCUMENT_COLUMNS, fields),
+        id: next.id,
+        expectedStatuses: [expected.status],
+        and: { sql: "doc_type = ?", params: [docType] },
+      });
     },
     async findById(id) {
       const row = selectById.get(id, docType) as DocumentRow | undefined;

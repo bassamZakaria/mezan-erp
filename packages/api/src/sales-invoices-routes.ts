@@ -9,6 +9,8 @@ import {
   type SalesReturnDocument,
   Qty,
   SalesInvoiceService,
+  SalesInvoiceField,
+  DocumentChangedError,
   computeInvoiceTotals,
   InvalidSalesInvoiceError,
   SalesInvoiceNotFoundError,
@@ -211,6 +213,7 @@ export interface SalesInvoiceRoutesDeps {
    * rather than reversing the GL and leaving the warehouse permanently short.
    */
   readonly stockRestore?: DocumentStockHook;
+  readonly withdrawUnsentEtaSubmission?: (invoice: SalesInvoice) => Promise<void>;
   readonly audit?: AuditSink;
   readonly allocatable?: AllocatableInvoiceRepository;
   /**
@@ -398,6 +401,35 @@ function serialize(
 function withMessageEn(err: { code: string; message: string }) {
   const messageEn = (err as { messageEn?: string }).messageEn;
   return { error: err.code, message: err.message, ...(messageEn ? { messageEn } : {}) };
+}
+
+const SALES_INVOICE_DOC_TYPE = "SALES_INVOICE";
+const REVERSED_STATUS: SalesInvoice["status"] = "reversed";
+
+enum StockDirection {
+  In = "IN",
+}
+
+enum SalesInvoiceAuditAction {
+  Void = "VOID",
+}
+
+enum SalesInvoiceVoidRefusalCode {
+  HasCollections = "INVOICE_HAS_COLLECTIONS",
+  HasReturns = "INVOICE_HAS_RETURNS",
+  NotPosted = "INVOICE_NOT_POSTED",
+  StockRestoreUnavailable = "STOCK_RESTORE_UNAVAILABLE",
+  IssueCostUnknown = "ISSUE_COST_UNKNOWN",
+}
+
+class SalesInvoiceVoidRefusal extends Error {
+  constructor(
+    readonly status: 404 | 409 | 503,
+    readonly body: { readonly error: string; readonly message: string },
+  ) {
+    super(body.message);
+    this.name = "SalesInvoiceVoidRefusal";
+  }
 }
 
 function handleDomainError(c: Context, err: unknown): Response {
@@ -1185,114 +1217,100 @@ export function createSalesInvoicesRoutes(
    */
   app.post("/:id/void", gate("sales.invoice.void"), async (c) => {
     const svc = service(c);
-    const invoice = await svc.findByIdOrDocNo(c.req.param("id"));
-    if (!invoice) return c.json({ error: "NOT_FOUND" }, 404);
+    const requested = await svc.findByIdOrDocNo(c.req.param("id"));
+    if (!requested) return c.json({ error: "NOT_FOUND" }, 404);
 
+    const date = await tenantDay(c, deps.now?.() ?? new Date().toISOString());
     try {
-      assertSalesInvoiceTransition(invoice.id, invoice.status, "reversed");
-    } catch (err) {
-      return handleDomainError(c, err);
-    }
-    // A receipted consumer sale is corrected by a return (a refund receipt);
-    // the authority has no cancellation for a receipt, so a void would drop
-    // the VAT from the books while the authority keeps it.
-    if (deps.hasEtaReceipt && (await deps.hasEtaReceipt(invoice.id))) {
-      const refusal = new EtaReceiptedSaleVoidRefusedError(invoice.docNo ?? invoice.id);
-      return c.json({ error: refusal.code, message: refusal.message }, 409);
-    }
-
-    // The purchase side refuses when the received goods have already been
-    // consumed; the sales side's equivalents are a collection that has moved
-    // real cash and a return that has already given part of the goods back.
-    // Either one has to be undone on its own document first, or the void would
-    // silently strand a voucher or a credit note against a document that no
-    // longer exists.
-    if (invoice.amountPaid.scaled !== 0n) {
-      return c.json(
-        {
-          error: "INVOICE_HAS_COLLECTIONS",
-          message: "لا يمكن إلغاء فاتورة حُصّلت مبالغ عليها — اعكس التحصيل أولاً.",
-        },
-        409,
-      );
-    }
-    const returnedCredit = await creditFor(invoice.id);
-    if (returnedCredit.scaled !== 0n) {
-      return c.json(
-        {
-          error: "INVOICE_HAS_RETURNS",
-          message: "لا يمكن إلغاء فاتورة صدر عليها مرتجع — ألغِ المرتجع أولاً.",
-        },
-        409,
-      );
-    }
-    if (!invoice.journalEntryId) {
-      return c.json(
-        { error: "INVOICE_NOT_POSTED", message: "الفاتورة ليس لها قيد يومية لعكسه." },
-        409,
-      );
-    }
-
-    const stockLines = invoice.lines.filter((l) => l.isStock && !l.qty.isZero());
-    if (stockLines.length > 0 && !deps.stockRestore) {
-      return c.json(
-        {
-          error: "STOCK_RESTORE_UNAVAILABLE",
-          message: "إلغاء الفاتورة يتطلب إرجاع المخزون؛ وحدة المخزون غير مفعّلة.",
-        },
-        503,
-      );
-    }
-    // Restoring at a cost the document does not carry would put stock back at
-    // zero value and leave GL 1200 permanently above the valuation report.
-    if (stockLines.some((l) => l.unitCost === null)) {
-      return c.json(
-        {
-          error: "ISSUE_COST_UNKNOWN",
-          message: "لا يمكن إرجاع المخزون: تكلفة الصرف غير مسجّلة على الفاتورة.",
-        },
-        409,
-      );
-    }
-
-    const date = (await tenantDay(c, deps.now?.() ?? new Date().toISOString()));
-    const journalEntryId = invoice.journalEntryId;
-    try {
-      // INVARIANT: the reversal mirrors the entry's tax tags as they stand, and
-      // the invoice is re-read under the same transaction that writes it — a
-      // classification racing this void lands wholly before it or is refused.
+      // INVARIANT: the invoice is re-read inside the transaction and EVERY
+      // guard below runs on that read. A collection, a return, a receipt or a
+      // classification that landed since the request began is either seen
+      // here and refuses the void, or finds the invoice reversed and refuses
+      // itself — the two can never both stand.
       const { voided, reversal } = await deps.repo.transaction(async () => {
-        const current = (await deps.repo.findById(invoice.id)) ?? invoice;
+        const current = await deps.repo.findById(requested.id);
+        if (!current) throw new SalesInvoiceVoidRefusal(404, { error: "NOT_FOUND", message: "الفاتورة غير موجودة." });
         assertSalesInvoiceTransition(current.id, current.status, "reversed");
+        // A receipted consumer sale is corrected by a return (a refund receipt);
+        // the authority has no cancellation for a receipt, so a void would drop
+        // the VAT from the books while the authority keeps it.
+        if (deps.hasEtaReceipt && (await deps.hasEtaReceipt(current.id))) {
+          throw new EtaReceiptedSaleVoidRefusedError(current.docNo ?? current.id);
+        }
+        // The purchase side refuses when the received goods have already been
+        // consumed; the sales side's equivalents are a collection that has moved
+        // real cash and a return that has already given part of the goods back.
+        // Either one has to be undone on its own document first, or the void would
+        // silently strand a voucher or a credit note against a document that no
+        // longer exists.
+        if (current.amountPaid.scaled !== 0n) {
+          throw new SalesInvoiceVoidRefusal(409, {
+            error: SalesInvoiceVoidRefusalCode.HasCollections,
+            message: "لا يمكن إلغاء فاتورة حُصّلت مبالغ عليها — اعكس التحصيل أولاً.",
+          });
+        }
+        if ((await creditFor(current.id)).scaled !== 0n) {
+          throw new SalesInvoiceVoidRefusal(409, {
+            error: SalesInvoiceVoidRefusalCode.HasReturns,
+            message: "لا يمكن إلغاء فاتورة صدر عليها مرتجع — اعكس المرتجع من شاشة مرتجعات المبيعات أولاً.",
+          });
+        }
+        const journalEntryId = current.journalEntryId;
+        if (!journalEntryId) {
+          throw new SalesInvoiceVoidRefusal(409, {
+            error: SalesInvoiceVoidRefusalCode.NotPosted,
+            message: "الفاتورة ليس لها قيد يومية لعكسه.",
+          });
+        }
+        const stockLines = current.lines.filter((l) => l.isStock && !l.qty.isZero());
+        const stockRestore = deps.stockRestore;
+        if (stockLines.length > 0 && !stockRestore) {
+          throw new SalesInvoiceVoidRefusal(503, {
+            error: SalesInvoiceVoidRefusalCode.StockRestoreUnavailable,
+            message: "إلغاء الفاتورة يتطلب إرجاع المخزون؛ وحدة المخزون غير مفعّلة.",
+          });
+        }
+        // Restoring at a cost the document does not carry would put stock back at
+        // zero value and leave GL 1200 permanently above the valuation report.
+        if (stockLines.some((l) => l.unitCost === null)) {
+          throw new SalesInvoiceVoidRefusal(409, {
+            error: SalesInvoiceVoidRefusalCode.IssueCostUnknown,
+            message: "لا يمكن إرجاع المخزون: تكلفة الصرف غير مسجّلة على الفاتورة.",
+          });
+        }
+
         const posted = await deps.gl.reverse(journalEntryId, {
-          reversalId: `${invoice.id}:void`,
+          reversalId: `${current.id}:void`,
           date,
-          memo: `عكس فاتورة مبيعات ${invoice.docNo ?? invoice.id}`,
+          memo: `عكس فاتورة مبيعات ${current.docNo ?? current.id}`,
         });
-        if (stockLines.length > 0) {
-          await deps.stockRestore!.apply({
-            sourceDocType: "SALES_INVOICE",
+        if (stockLines.length > 0 && stockRestore) {
+          await stockRestore.apply({
+            sourceDocType: SALES_INVOICE_DOC_TYPE,
             // A separate source id from the issue, whose movement ids are
             // `${invoice.id}:${index}` — reusing it would collide in the ledger.
-            sourceDocId: `${invoice.id}:void`,
-            sourceDocNumber: invoice.docNo,
-            warehouseId: invoice.warehouseId,
+            sourceDocId: `${current.id}:void`,
+            sourceDocNumber: current.docNo,
+            warehouseId: current.warehouseId,
             date,
             lines: stockLines.map((l) => ({
               itemId: l.itemId,
-              direction: "IN" as const,
+              direction: StockDirection.In,
               qty: l.qty,
               unitCost: l.unitCost as Money,
             })),
           });
         }
-        const next: SalesInvoice = { ...current, status: "reversed" };
-        await deps.repo.update(next);
+        const next: SalesInvoice = { ...current, status: REVERSED_STATUS };
+        if (!(await deps.repo.writeFields(next, [SalesInvoiceField.Status], { status: [current.status] }))) {
+          throw new DocumentChangedError(SALES_INVOICE_DOC_TYPE, current.id);
+        }
+        await deps.withdrawUnsentEtaSubmission?.(next);
         await recordAdminEvent(deps.audit, c, {
           module: "sales",
-          entityType: "SALES_INVOICE",
+          entityType: SALES_INVOICE_DOC_TYPE,
           entityId: next.id,
-          action: "VOID",
+          action: SalesInvoiceAuditAction.Void,
           details: {
             docNo: next.docNo,
             customerId: next.customerId,
@@ -1308,6 +1326,8 @@ export function createSalesInvoicesRoutes(
         reversalJournalEntryId: reversal.journalEntryId,
       });
     } catch (err) {
+      if (err instanceof SalesInvoiceVoidRefusal) return c.json(err.body, err.status);
+      if (err instanceof EtaReceiptedSaleVoidRefusedError) return c.json({ error: err.code, message: err.message }, 409);
       return handleDomainError(c, err);
     }
   });

@@ -70,3 +70,20 @@ export class InvalidDocumentError extends Error {
     this.name = "InvalidDocumentError";
   }
 }
+
+export class DocumentChangedError extends Error {
+  readonly code = "DOCUMENT_CHANGED";
+  readonly messageEn: string;
+  constructor(
+    readonly docType: string,
+    readonly docId: string,
+  ) {
+    super(`تغيّر المستند ${docId} أثناء تنفيذ العملية — أعد تحميله ثم حاول مرة أخرى.`);
+    this.messageEn = `Document ${docType}/${docId} changed while the operation ran. Reload it and try again.`;
+    this.name = "DocumentChangedError";
+  }
+}
+
+export function assertDocumentWritten(written: boolean, docType: string, docId: string): void {
+  if (!written) throw new DocumentChangedError(docType, docId);
+}

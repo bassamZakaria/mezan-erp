@@ -1,6 +1,7 @@
 import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
 import { countMatching, FilterClauses, selectPage } from "./list-query.js";
+import { columnsOf, writeRowColumnsWhere } from "./document-field-write.js";
 import { addVersionColumns, createDocumentVersionStore, type DocumentVersionStore } from "./document-version.js";
 import {
   Money,
@@ -13,6 +14,8 @@ import {
   type GoodsReceiptLine,
   type GoodsReceiptRepository,
   type GoodsReceiptStatus,
+  GoodsReceiptField,
+  PurchaseInvoiceField,
   type PurchaseInvoice,
   type PurchaseInvoiceLine,
   type PurchaseInvoiceLineKind,
@@ -238,7 +241,7 @@ class SqliteGoodsReceiptStore implements GoodsReceiptRepository {
   private readonly selectAll: Database.Statement;
   private readonly selectByOrder: Database.Statement;
 
-  constructor(sqlite: Database.Database) {
+  constructor(private readonly sqlite: Database.Database) {
     this.upsert = sqlite.prepare(`
       INSERT INTO goods_receipt (id, number, purchase_order_id, supplier_id, warehouse_id, date, notes, project_id, lines, status, invoiced, created_by, created_at)
       VALUES (@id, @number, @purchase_order_id, @supplier_id, @warehouse_id, @date, @notes, @project_id, @lines, @status, @invoiced, @created_by, @created_at)
@@ -266,6 +269,15 @@ class SqliteGoodsReceiptStore implements GoodsReceiptRepository {
   }
   async update(receipt: GoodsReceipt): Promise<void> {
     this.write(receipt);
+  }
+  async writeFields(next: GoodsReceipt, fields: readonly GoodsReceiptField[], expected: { readonly status: GoodsReceipt["status"] }): Promise<boolean> {
+    return writeRowColumnsWhere(this.sqlite, {
+      table: "goods_receipt",
+      row: { status: next.status, invoiced: next.invoiced ? 1 : 0 },
+      columns: columnsOf(GOODS_RECEIPT_COLUMNS, fields),
+      id: next.id,
+      expectedStatuses: [expected.status],
+    });
   }
   private write(r: GoodsReceipt): void {
     this.upsert.run({
@@ -295,6 +307,16 @@ class SqliteGoodsReceiptStore implements GoodsReceiptRepository {
     });
   }
 }
+
+const GOODS_RECEIPT_COLUMNS: Readonly<Record<GoodsReceiptField, readonly string[]>> = {
+  [GoodsReceiptField.Status]: ["status"],
+  [GoodsReceiptField.Invoiced]: ["invoiced"],
+};
+
+const PURCHASE_INVOICE_COLUMNS: Readonly<Record<PurchaseInvoiceField, readonly string[]>> = {
+  [PurchaseInvoiceField.Status]: ["status"],
+  [PurchaseInvoiceField.FxRate]: ["fx_rate"],
+};
 
 // --- Purchase Invoice ------------------------------------------------------
 
@@ -458,6 +480,17 @@ class SqlitePurchaseInvoiceStore implements PurchaseInvoiceRepository {
     this.write(invoice);
     // N-9: any write moves the version, whichever path made the change.
     this.versions?.bump(invoice.id);
+  }
+  async writeFields(next: PurchaseInvoice, fields: readonly PurchaseInvoiceField[], expected: { readonly status: PurchaseInvoice["status"] }): Promise<boolean> {
+    const written = writeRowColumnsWhere(this.sqlite, {
+      table: "purchase_invoice",
+      row: { status: next.status, fx_rate: next.fxRate ?? null },
+      columns: columnsOf(PURCHASE_INVOICE_COLUMNS, fields),
+      id: next.id,
+      expectedStatuses: [expected.status],
+    });
+    if (written) this.versions?.bump(next.id);
+    return written;
   }
   async nameLineTaxRate(invoiceId: string, lineIndexes: readonly number[], taxRatePercent: number, taxRateId: string): Promise<number> {
     const row = this.selectById.get(invoiceId) as PiRow | undefined;

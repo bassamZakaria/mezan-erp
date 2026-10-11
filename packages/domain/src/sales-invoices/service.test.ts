@@ -224,12 +224,19 @@ describe("applyAllocatedSettlement", () => {
     expect(await applyAllocatedSettlement(repo, "missing", Money.fromMajor("100"))).toBeNull();
   });
 
-  it("is a no-op for a non-active status (e.g. draft)", async () => {
+  it("refuses money settled against an invoice that is not live, and writes nothing", async () => {
     const { svc, repo } = await baseDeps();
     await svc.createDraft(draftCmd());
-    const result = await applyAllocatedSettlement(repo, "inv-1", Money.fromMajor("100"));
-    expect(result?.status).toBe("draft");
-    expect(result?.amountPaid.toString()).toBe("0.000000");
+    await expect(applyAllocatedSettlement(repo, "inv-1", Money.fromMajor("100"))).rejects.toBeInstanceOf(InvalidSalesInvoicePaymentError);
+    const stored = await repo.findById("inv-1");
+    expect([stored?.status, stored?.amountPaid.toString()]).toEqual(["draft", "0.000000"]);
+  });
+
+  it("leaves an invoice that is not live alone when nothing is settled against it", async () => {
+    const { svc, repo } = await baseDeps();
+    await svc.createDraft(draftCmd());
+    const result = await applyAllocatedSettlement(repo, "inv-1", Money.zero());
+    expect([result?.status, result?.amountPaid.toString()]).toEqual(["draft", "0.000000"]);
   });
 
   it("moves confirmed -> partially_paid -> paid as settlement rises, and back down on reversal", async () => {

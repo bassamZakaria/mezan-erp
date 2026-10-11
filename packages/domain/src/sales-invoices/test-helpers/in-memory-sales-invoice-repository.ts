@@ -1,5 +1,7 @@
 import { SALES_INVOICE_ACTIVE_STATUSES, type SalesInvoice } from "../sales-invoice.js";
-import type { SalesInvoiceListFilter, SalesInvoiceRepository } from "../ports.js";
+import type { SalesInvoiceField, SalesInvoiceListFilter, SalesInvoiceRepository, SalesInvoiceWritePrecondition } from "../ports.js";
+
+const UNPOSTED_STATUSES: readonly SalesInvoice["status"][] = ["draft", "pending"];
 
 /** Trivial in-memory {@link SalesInvoiceRepository} for domain-layer + UI tests. */
 export class InMemorySalesInvoiceRepository implements SalesInvoiceRepository {
@@ -11,6 +13,20 @@ export class InMemorySalesInvoiceRepository implements SalesInvoiceRepository {
 
   async update(invoice: SalesInvoice): Promise<void> {
     this.rows.set(invoice.id, invoice);
+  }
+
+  async writeFields(next: SalesInvoice, fields: readonly SalesInvoiceField[], expected: SalesInvoiceWritePrecondition): Promise<boolean> {
+    const stored = this.rows.get(next.id);
+    if (!stored || !expected.status.includes(stored.status)) return false;
+    this.rows.set(next.id, { ...stored, ...Object.fromEntries(fields.map((field) => [field, next[field]])) });
+    return true;
+  }
+
+  async replaceUnposted(next: SalesInvoice, expected: SalesInvoiceWritePrecondition): Promise<boolean> {
+    const stored = this.rows.get(next.id);
+    if (!stored || !expected.status.includes(stored.status) || !UNPOSTED_STATUSES.includes(stored.status)) return false;
+    this.rows.set(next.id, next);
+    return true;
   }
 
   async nameLineTaxRate(invoiceId: string, lineIds: readonly string[], taxRatePercent: number, taxRateId: string): Promise<number> {

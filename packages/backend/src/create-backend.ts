@@ -20,6 +20,10 @@ import {
   SiteService,
   StockLedgerService,
   applyAllocatedSettlement,
+  ETA_REQUEUE_MODE,
+  EtaRequeueMode,
+  SalesInvoiceField,
+  DocumentChangedError,
   InvalidSalesInvoicePaymentError,
   InvalidPurchaseDocumentError,
   postJournalEntry,
@@ -1317,7 +1321,8 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
           memo: `عكس فاتورة مستخلص ${invoice.docNo ?? invoice.id} — ${reasonAr}`,
         });
       }
-      await salesInvoices.update({ ...invoice, status: "reversed" });
+      const written = await salesInvoices.writeFields({ ...invoice, status: "reversed" }, [SalesInvoiceField.Status], { status: [invoice.status] });
+      if (!written) throw new DocumentChangedError("SALES_INVOICE", invoice.id);
       const sub = await vouchers.invoices.findById(invoiceId);
       if (sub) await vouchers.invoices.save({ ...sub, total: Money.zero(), allocated: Money.zero() });
     },
@@ -3391,6 +3396,12 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         return issued;
       },
       hasEtaReceipt: (invoiceId) => etaReceipts.hasInvoiceReceipt(invoiceId),
+      stockRestore: createInventoryStockHook(stockService),
+      withdrawUnsentEtaSubmission: async (invoice) => {
+        const submission = await etaService.findByInternalId(invoice.docNo ?? invoice.id);
+        if (!submission || ETA_REQUEUE_MODE[submission.status] !== EtaRequeueMode.Automatic) return;
+        await etaService.exclude(submission.id, `أُلغيت الفاتورة ${invoice.docNo ?? invoice.id} قبل إرسالها إلى المصلحة.`);
+      },
       taxTags: createJournalTaxTagPort({ ledger, vatFilings }),
       taxDependents: createReturnTaxCarry({ returns: salesReturnStore, tags: createJournalTaxTagPort({ ledger, vatFilings }) }),
       taxFiling: createSalesInvoiceTaxFiling({ eta: etaService, taxRates, rebuild: rebuildEtaInvoiceSubmission }),

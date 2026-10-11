@@ -20,6 +20,7 @@ import {
   type PurchaseOrderRepository,
 } from "./purchase-order.js";
 import { atomically, recordPurchaseAudit, type PurchaseAuditDeps } from "./audit.js";
+import { assertDocumentWritten } from "../documents/errors.js";
 import {
   DEFAULT_PURCHASE_POLICY,
   type GoodsReceiptStatus,
@@ -77,12 +78,23 @@ export interface GoodsReceipt {
   readonly createdAt: string;
 }
 
+export enum GoodsReceiptField {
+  Status = "status",
+  Invoiced = "invoiced",
+}
+
 export interface GoodsReceiptRepository {
   findById(id: string): Promise<GoodsReceipt | null>;
   list(): Promise<GoodsReceipt[]>;
   listByOrder(purchaseOrderId: string): Promise<GoodsReceipt[]>;
   create(receipt: GoodsReceipt): Promise<void>;
   update(receipt: GoodsReceipt): Promise<void>;
+  /**
+   * INVARIANT: the ONE write a state change makes to a stored receipt — the
+   * named fields of `next`, only while the stored row is still in
+   * `expected.status`. It answers whether a row was written.
+   */
+  writeFields(next: GoodsReceipt, fields: readonly GoodsReceiptField[], expected: { readonly status: GoodsReceipt["status"] }): Promise<boolean>;
 }
 
 export interface GoodsReceiptLineInput {
@@ -398,13 +410,12 @@ export async function confirmGoodsReceipt(
   id: string,
   deps: ConfirmGoodsReceiptDeps,
 ): Promise<GoodsReceipt> {
+  return atomically(deps, async () => {
   const receipt = await deps.receipts.findById(id);
   if (!receipt) throw new GoodsReceiptNotFoundError(id);
   if (receipt.status !== "draft") {
     throw new PurchaseDocumentNotDraftError(id, receipt.status);
   }
-
-  return atomically(deps, async () => {
   await deps.stock.postReceipt({
     receiptId: receipt.id,
     receiptNumber: receipt.number,
@@ -443,7 +454,7 @@ export async function confirmGoodsReceipt(
   }
 
   const confirmed: GoodsReceipt = { ...receipt, status: "confirmed" };
-  await deps.receipts.update(confirmed);
+  await writeReceipt(deps.receipts, confirmed, [GoodsReceiptField.Status], receipt.status);
   await recordPurchaseAudit(deps, "GOODS_RECEIPT", "CONFIRM", {
     receiptId: confirmed.id,
     number: confirmed.number,
@@ -470,14 +481,14 @@ export async function cancelGoodsReceipt(
   deps: CancelGoodsReceiptDeps,
 ): Promise<GoodsReceipt> {
   const policy = deps.policy ?? DEFAULT_PURCHASE_POLICY;
+
+  return atomically(deps, async () => {
   const receipt = await deps.receipts.findById(id);
   if (!receipt) throw new GoodsReceiptNotFoundError(id);
   if (receipt.status === "cancelled") {
     throw new PurchaseDocumentNotDraftError(id, receipt.status);
   }
   if (receipt.invoiced) throw new GoodsReceiptAlreadyInvoicedError(id);
-
-  return atomically(deps, async () => {
   if (receipt.status === "confirmed") {
     if (policy.trackSoldPurchaseItems) {
       for (const line of receipt.lines) {
@@ -510,7 +521,7 @@ export async function cancelGoodsReceipt(
   }
 
   const cancelled: GoodsReceipt = { ...receipt, status: "cancelled" };
-  await deps.receipts.update(cancelled);
+  await writeReceipt(deps.receipts, cancelled, [GoodsReceiptField.Status], receipt.status);
   await recordPurchaseAudit(deps, "GOODS_RECEIPT", "CANCEL", {
     receiptId: cancelled.id,
     number: cancelled.number,
@@ -532,5 +543,14 @@ export async function markGoodsReceiptInvoiced(
   const receipt = await deps.receipts.findById(id);
   if (!receipt) throw new GoodsReceiptNotFoundError(id);
   if (receipt.invoiced) return;
-  await deps.receipts.update({ ...receipt, invoiced: true });
+  await writeReceipt(deps.receipts, { ...receipt, invoiced: true }, [GoodsReceiptField.Invoiced], receipt.status);
+}
+
+async function writeReceipt(
+  receipts: GoodsReceiptRepository,
+  next: GoodsReceipt,
+  fields: readonly GoodsReceiptField[],
+  expectedStatus: GoodsReceipt["status"],
+): Promise<void> {
+  assertDocumentWritten(await receipts.writeFields(next, fields, { status: expectedStatus }), "GOODS_RECEIPT", next.id);
 }

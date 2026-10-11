@@ -65,6 +65,8 @@ import type {
   SalesInvoiceStatus,
 } from "./sales-invoice.js";
 import { assertTransition } from "./status.js";
+import { DocumentChangedError } from "../documents/errors.js";
+import { SalesInvoiceField } from "./ports.js";
 import { salesInvoiceTotals, salesInvoiceBaseGrandTotal, type SalesInvoiceTotals } from "./totals.js";
 import { describeSalesInvoiceEffects } from "./effects.js";
 import { buildSalesInvoiceGlPosting, type SalesInvoiceCogsLine, type SalesInvoiceFxContext } from "./gl.js";
@@ -392,7 +394,7 @@ export class SalesInvoiceService {
           status: "pending",
           workflowRequestId: decision.requestId,
         };
-        await this.deps.repo.update(held);
+        await this.writeFields(held, [SalesInvoiceField.Status, SalesInvoiceField.WorkflowRequestId], existing.status);
         this.emit("DOCUMENT_SUBMITTED", held);
         return { invoice: held, held: true, creditWarning: null, pricingVariances: [] };
       }
@@ -400,22 +402,37 @@ export class SalesInvoiceService {
 
     assertTransition(id, existing.status, "confirmed");
 
-    // The promotion is evaluated only once the gate has granted, so a snapshot
-    // exists only on an invoice that really went live — and every figure below
-    // (credit exposure, GL posting, AR) reflects the discount it granted.
-    const promoted = await this.applyContractBilling(await this.applyPromotion(existing));
-    const totals = this.totalsOf(promoted);
+    const { confirmed, creditWarning, pricingVariances } = await this.deps.repo.transaction(async () => {
+      // INVARIANT: the invoice is re-read and every guard re-run inside the
+      // transaction that posts it. A draft edited, cancelled or confirmed since
+      // the request began is posted as it now stands, or refused — an earlier
+      // copy is never posted or written back.
+      const fresh = await this.require(id);
+      assertTransition(id, fresh.status, "confirmed");
+      this.validate(fresh);
+      await this.assertNoStaleSystemRate(fresh);
+      const freshEffects = this.effectsOf(fresh);
+      if (freshEffects.blocked) {
+        throw new InvalidSalesInvoiceError([
+          freshEffects.blockedReason ?? "الفاتورة غير قابلة للتأكيد في حالتها الحالية.",
+        ]);
+      }
 
-    // A foreign-currency invoice needs the rate BEFORE anything is written:
-    // resolved here, a missing rate refuses the confirm outright rather than
-    // leaving stock issued against a document that never posted.
-    const fx = await this.resolveFxRate(promoted);
+      // The promotion is evaluated only once the gate has granted, so a snapshot
+      // exists only on an invoice that really went live — and every figure below
+      // (credit exposure, GL posting, AR) reflects the discount it granted.
+      const promoted = await this.applyContractBilling(await this.applyPromotion(fresh));
+      const totals = this.totalsOf(promoted);
 
-    const creditWarning = await this.checkCredit(promoted, salesInvoiceBaseGrandTotal(totals, fx?.rate));
-    const pricingVariances = await this.checkPricing(promoted);
+      // A foreign-currency invoice needs the rate BEFORE anything is written:
+      // resolved here, a missing rate refuses the confirm outright rather than
+      // leaving stock issued against a document that never posted.
+      const fx = await this.resolveFxRate(promoted);
 
-    const confirmed = await this.deps.repo.transaction(async () => {
-      const number = await this.deps.numbering.next({ branchId: existing.branchId });
+      const creditWarning = await this.checkCredit(promoted, salesInvoiceBaseGrandTotal(totals, fx?.rate));
+      const pricingVariances = await this.checkPricing(promoted);
+
+      const number = await this.deps.numbering.next({ branchId: fresh.branchId });
       const docNo = number.formatted;
       // The LEDGER timestamp is the invoice's own date, never the wall clock:
       // a document-dated movement and a now()-stamped one cannot be replayed in
@@ -467,7 +484,7 @@ export class SalesInvoiceService {
         journalEntryId: glResult.journalEntryId,
         workflowRequestId: null,
       };
-      await this.deps.repo.update(next);
+      if (!(await this.deps.repo.replaceUnposted(next, { status: [fresh.status] }))) throw new DocumentChangedError("SALES_INVOICE", id);
 
       // The allocation sub-ledger row and the audit row are part of the confirm,
       // not a follow-up: written after the commit, a failure between them left a
@@ -488,7 +505,7 @@ export class SalesInvoiceService {
         });
       }
       await this.recordAudit("CONFIRM", next, "INFO");
-      return next;
+      return { confirmed: next, creditWarning, pricingVariances };
     });
 
     this.emit("DOCUMENT_CONFIRMED", confirmed);
@@ -561,26 +578,37 @@ export class SalesInvoiceService {
    * to for the approval request.
    */
   async returnToDraft(id: string): Promise<SalesInvoice> {
-    const existing = await this.require(id);
-    if (existing.status === "draft") return existing;
-    assertTransition(id, existing.status, "draft");
-    const returned: SalesInvoice = { ...existing, status: "draft", workflowRequestId: null };
-    await this.deps.repo.update(returned);
+    const returned = await this.deps.repo.transaction(async () => {
+      const existing = await this.require(id);
+      if (existing.status === "draft") return null;
+      assertTransition(id, existing.status, "draft");
+      const next: SalesInvoice = { ...existing, status: "draft", workflowRequestId: null };
+      await this.writeFields(next, [SalesInvoiceField.Status, SalesInvoiceField.WorkflowRequestId], existing.status);
+      return next;
+    });
+    if (!returned) return this.require(id);
     this.emit("DOCUMENT_DRAFTED", returned);
     return returned;
   }
 
   /** Cancel a draft/pending invoice (never a live one — those are corrected by a return). */
   async cancel(id: string): Promise<SalesInvoice> {
-    const existing = await this.require(id);
-    assertTransition(id, existing.status, "cancelled");
-    const cancelled: SalesInvoice = { ...existing, status: "cancelled", workflowRequestId: null };
-    await this.deps.repo.transaction(async () => {
-      await this.deps.repo.update(cancelled);
-      await this.recordAudit("CANCEL", cancelled, "WARNING");
+    const cancelled = await this.deps.repo.transaction(async () => {
+      const existing = await this.require(id);
+      assertTransition(id, existing.status, "cancelled");
+      const next: SalesInvoice = { ...existing, status: "cancelled", workflowRequestId: null };
+      await this.writeFields(next, [SalesInvoiceField.Status, SalesInvoiceField.WorkflowRequestId], existing.status);
+      await this.recordAudit("CANCEL", next, "WARNING");
+      return next;
     });
     this.emit("DOCUMENT_CANCELLED", cancelled);
     return cancelled;
+  }
+
+  private async writeFields(next: SalesInvoice, fields: readonly SalesInvoiceField[], expectedStatus: SalesInvoiceStatus): Promise<void> {
+    if (!(await this.deps.repo.writeFields(next, fields, { status: [expectedStatus] }))) {
+      throw new DocumentChangedError("SALES_INVOICE", next.id);
+    }
   }
 
   /**
@@ -950,7 +978,12 @@ export async function applyAllocatedSettlement(
 ): Promise<SalesInvoice | null> {
   const existing = await repo.findById(id);
   if (!existing) return null;
-  if (!SALES_INVOICE_ACTIVE_STATUSES.has(existing.status)) return existing;
+  if (!SALES_INVOICE_ACTIVE_STATUSES.has(existing.status)) {
+    if (settled.scaled <= 0n) return existing;
+    throw new InvalidSalesInvoicePaymentError(
+      `لا يمكن تسجيل دفعة على فاتورة في حالة ${SALES_INVOICE_STATUS_LABELS_AR[existing.status]}.`,
+    );
+  }
 
   const grandTotal = salesInvoiceBaseGrandTotal(salesInvoiceTotals(existing), existing.fxRate);
   const capped = settled.scaled > grandTotal.scaled ? grandTotal : settled;
@@ -960,7 +993,8 @@ export async function applyAllocatedSettlement(
 
   if (nextStatus !== existing.status) assertTransition(id, existing.status, nextStatus);
   const updated: SalesInvoice = { ...existing, amountPaid: capped, status: nextStatus };
-  await repo.update(updated);
+  const written = await repo.writeFields(updated, [SalesInvoiceField.AmountPaid, SalesInvoiceField.Status], { status: [existing.status] });
+  if (!written) throw new DocumentChangedError("SALES_INVOICE", id);
   return updated;
 }
 

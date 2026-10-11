@@ -8,8 +8,8 @@ import {
   InMemorySnapshots,
 } from "../inventory/test-helpers/in-memory-stores.js";
 import type { PurchaseOrder, PurchaseOrderRepository } from "./purchase-order.js";
-import type { GoodsReceipt, GoodsReceiptRepository } from "./goods-receipt.js";
-import type { PurchaseInvoice, PurchaseInvoiceRepository } from "./purchase-invoice.js";
+import type { GoodsReceipt, GoodsReceiptField, GoodsReceiptRepository } from "./goods-receipt.js";
+import type { PurchaseInvoice, PurchaseInvoiceField, PurchaseInvoiceRepository } from "./purchase-invoice.js";
 import { PurchaseInvoiceStatusCode, type PurchaseGlPosting, type PurchaseGlPostingPort } from "./types.js";
 
 /** Gap-free counter store; one row per (code, period). */
@@ -60,6 +60,12 @@ export class InMemoryGoodsReceipts implements GoodsReceiptRepository {
   async update(receipt: GoodsReceipt): Promise<void> {
     this.rows.set(receipt.id, receipt);
   }
+  async writeFields(next: GoodsReceipt, fields: readonly GoodsReceiptField[], expected: { readonly status: GoodsReceipt["status"] }): Promise<boolean> {
+    const stored = this.rows.get(next.id);
+    if (!stored || stored.status !== expected.status) return false;
+    this.rows.set(next.id, { ...stored, ...Object.fromEntries(fields.map((field) => [field, next[field]])) });
+    return true;
+  }
 }
 
 export class InMemoryPurchaseInvoices implements PurchaseInvoiceRepository {
@@ -75,6 +81,12 @@ export class InMemoryPurchaseInvoices implements PurchaseInvoiceRepository {
   }
   async update(invoice: PurchaseInvoice): Promise<void> {
     this.rows.set(invoice.id, invoice);
+  }
+  async writeFields(next: PurchaseInvoice, fields: readonly PurchaseInvoiceField[], expected: { readonly status: PurchaseInvoice["status"] }): Promise<boolean> {
+    const stored = this.rows.get(next.id);
+    if (!stored || stored.status !== expected.status) return false;
+    this.rows.set(next.id, { ...stored, ...Object.fromEntries(fields.map((field) => [field, next[field]])) });
+    return true;
   }
   async nameLineTaxRate(invoiceId: string, lineIndexes: readonly number[], taxRatePercent: number, taxRateId: string): Promise<number> {
     const invoice = this.rows.get(invoiceId);

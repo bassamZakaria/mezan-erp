@@ -22,6 +22,9 @@ import { resolveDocumentLineTax, type TaxRate, type TaxRateRepository } from "..
 import type { GoodsReceipt, GoodsReceiptRepository } from "./goods-receipt.js";
 import { markGoodsReceiptInvoiced } from "./goods-receipt.js";
 import { atomically, recordPurchaseAudit, type PurchaseAuditDeps } from "./audit.js";
+import { assertDocumentWritten } from "../documents/errors.js";
+
+const PURCHASE_INVOICE_DOC_TYPE = "PURCHASE_INVOICE";
 import {
   DEFAULT_PURCHASE_POLICY,
   type PurchaseGlAccounts,
@@ -107,6 +110,11 @@ export interface PurchaseInvoice {
   readonly createdAt: string;
 }
 
+export enum PurchaseInvoiceField {
+  Status = "status",
+  FxRate = "fxRate",
+}
+
 export interface PurchaseInvoiceRepository {
   findById(id: string): Promise<PurchaseInvoice | null>;
   list(filter?: PurchaseInvoiceListFilter): Promise<PurchaseInvoice[]>;
@@ -120,6 +128,14 @@ export interface PurchaseInvoiceRepository {
    * confirmed invoice. Returns how many it named; nothing else is written.
    */
   nameLineTaxRate(invoiceId: string, lineIndexes: readonly number[], taxRatePercent: number, taxRateId: string): Promise<number>;
+  /**
+   * INVARIANT: the ONE write a state change makes to a stored invoice — the
+   * named fields of `next`, only while the stored row is still in
+   * `expected.status`. It answers whether a row was written; a confirm or a
+   * cancel never saves a whole invoice it read earlier, so a classification
+   * that landed in between is never undone.
+   */
+  writeFields(next: PurchaseInvoice, fields: readonly PurchaseInvoiceField[], expected: { readonly status: PurchaseInvoiceStatus }): Promise<boolean>;
 }
 
 /**
@@ -640,26 +656,6 @@ export async function confirmPurchaseInvoice(
   id: string,
   deps: ConfirmPurchaseInvoiceDeps,
 ): Promise<ConfirmPurchaseInvoiceResult> {
-  const invoice = await deps.invoices.findById(id);
-  if (!invoice) throw new PurchaseInvoiceNotFoundError(id);
-  if (invoice.status !== "draft") {
-    throw new PurchaseDocumentNotDraftError(id, invoice.status);
-  }
-
-  const baseCurrency = deps.baseCurrency ?? "EGP";
-  let fx: { rate: string; baseCurrency: string } | undefined;
-  if (invoice.currency && invoice.currency !== baseCurrency) {
-    const found = await deps.exchangeRates?.findRate(invoice.currency, invoice.date);
-    if (!found) {
-      throw new InvalidPurchaseDocumentError([
-        `لا يوجد سعر صرف معتمد للعملة ${invoice.currency} بتاريخ ${invoice.date}؛ لا يمكن ترحيل الفاتورة.`,
-      ]);
-    }
-    fx = { rate: found.rate, baseCurrency };
-  }
-
-  const posting = buildInvoicePosting(invoice, deps.accounts, fx);
-
   // EVERY WRITE BELOW SHARES ONE TRANSACTION (B-7). The GL entry is keyed
   // `PI-JE:<invoiceId>`, so a failure after it posted left the invoice `draft`
   // with a live entry and every retry threw DuplicateJournalEntryError — the
@@ -670,7 +666,29 @@ export async function confirmPurchaseInvoice(
   // an unbalanced entry then refuses before the sub-ledger has moved (D21).
   const runAtomically = deps.gl.transaction?.bind(deps.gl) ?? (<T,>(fn: () => Promise<T>) => fn());
 
-  const confirmed = await runAtomically(async () => {
+  const { confirmed, posting } = await runAtomically(async () => {
+    // INVARIANT: the invoice is read and guarded inside the transaction that
+    // posts it; a copy read before it began is never posted or written back.
+    const invoice = await deps.invoices.findById(id);
+    if (!invoice) throw new PurchaseInvoiceNotFoundError(id);
+    if (invoice.status !== "draft") {
+      throw new PurchaseDocumentNotDraftError(id, invoice.status);
+    }
+
+    const baseCurrency = deps.baseCurrency ?? "EGP";
+    let fx: { rate: string; baseCurrency: string } | undefined;
+    if (invoice.currency && invoice.currency !== baseCurrency) {
+      const found = await deps.exchangeRates?.findRate(invoice.currency, invoice.date);
+      if (!found) {
+        throw new InvalidPurchaseDocumentError([
+          `لا يوجد سعر صرف معتمد للعملة ${invoice.currency} بتاريخ ${invoice.date}؛ لا يمكن ترحيل الفاتورة.`,
+        ]);
+      }
+      fx = { rate: found.rate, baseCurrency };
+    }
+
+    const posting = buildInvoicePosting(invoice, deps.accounts, fx);
+
     await deps.gl.post(posting);
 
     // Manual invoice (no prior receipt): the invoice IS the stock-in document.
@@ -707,7 +725,11 @@ export async function confirmPurchaseInvoice(
     }
 
     const next: PurchaseInvoice = { ...invoice, status: "confirmed", fxRate: fx?.rate ?? null };
-    await deps.invoices.update(next);
+    assertDocumentWritten(
+      await deps.invoices.writeFields(next, [PurchaseInvoiceField.Status, PurchaseInvoiceField.FxRate], { status: invoice.status }),
+      PURCHASE_INVOICE_DOC_TYPE,
+      next.id,
+    );
 
     if (deps.allocatable) {
       await deps.allocatable.save({
@@ -731,9 +753,8 @@ export async function confirmPurchaseInvoice(
       status: next.status,
       total: purchaseInvoiceTotal(next).toString(),
     }, next.id);
-    return next;
+    return { confirmed: next, posting };
   });
-
 
   return { invoice: confirmed, posting };
 }
@@ -754,13 +775,15 @@ export async function cancelPurchaseInvoice(
   deps: CancelPurchaseInvoiceDeps,
 ): Promise<PurchaseInvoice> {
   const policy = deps.policy ?? DEFAULT_PURCHASE_POLICY;
+
+  return atomically(deps, async () => {
+  // INVARIANT: read and guarded inside the transaction, so the reversal mirrors
+  // the entry's tax tags as they stand and the write below moves only the status.
   const invoice = await deps.invoices.findById(id);
   if (!invoice) throw new PurchaseInvoiceNotFoundError(id);
   if (invoice.status === "cancelled") {
     throw new PurchaseDocumentNotDraftError(id, invoice.status);
   }
-
-  return atomically(deps, async () => {
   if (invoice.status === "confirmed") {
     const inventoryLines = invoice.lines.filter((l) => l.kind === "inventory" && l.itemId !== null);
     if (policy.trackSoldPurchaseItems) {
@@ -795,7 +818,11 @@ export async function cancelPurchaseInvoice(
   }
 
   const cancelled: PurchaseInvoice = { ...invoice, status: "cancelled" };
-  await deps.invoices.update(cancelled);
+  assertDocumentWritten(
+    await deps.invoices.writeFields(cancelled, [PurchaseInvoiceField.Status], { status: invoice.status }),
+    PURCHASE_INVOICE_DOC_TYPE,
+    cancelled.id,
+  );
   await recordPurchaseAudit(deps, "PURCHASE_INVOICE", "CANCEL", {
     invoiceId: cancelled.id,
     number: cancelled.number,

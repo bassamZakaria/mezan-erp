@@ -50,7 +50,9 @@ export type {
   DocumentTypeDefinition,
   DocumentRepository,
   DocumentListFilter,
+  DocumentWritePrecondition,
 } from "./document.js";
+export { DocumentField } from "./document.js";
 
 export {
   DocumentService,
@@ -67,6 +69,8 @@ export {
   DuplicateDocumentError,
   MissingHookError,
   InvalidDocumentError,
+  DocumentChangedError,
+  assertDocumentWritten,
 } from "./errors.js";
 
 export {

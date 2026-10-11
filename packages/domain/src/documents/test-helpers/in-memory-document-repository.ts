@@ -1,6 +1,8 @@
 import type {
+  DocumentField,
   DocumentListFilter,
   DocumentRepository,
+  DocumentWritePrecondition,
   FrameworkDocument,
 } from "../document.js";
 import type { DocumentDomainEvent, DocumentEventPublisher } from "../hooks.js";
@@ -15,6 +17,14 @@ export class InMemoryDocumentRepository<Line> implements DocumentRepository<Line
 
   async update(doc: FrameworkDocument<Line>): Promise<void> {
     this.rows.set(doc.id, doc);
+  }
+
+  async writeFields(next: FrameworkDocument<Line>, fields: readonly DocumentField[], expected: DocumentWritePrecondition): Promise<boolean> {
+    const stored = this.rows.get(next.id);
+    if (!stored || stored.status !== expected.status) return false;
+    const patch = Object.fromEntries(fields.map((field) => [field, next[field]]));
+    this.rows.set(next.id, { ...stored, ...patch });
+    return true;
   }
 
   async findById(id: string): Promise<FrameworkDocument<Line> | null> {

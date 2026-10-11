@@ -36,7 +36,8 @@ import {
   type VoucherDocument,
   type VoucherLine,
 } from "./voucher-document.js";
-import { InvalidDocumentError } from "../documents/errors.js";
+import { InvalidDocumentError, assertDocumentWritten } from "../documents/errors.js";
+import { DocumentField } from "../documents/document.js";
 import { BASE_CURRENCY } from "../exchange-rates/exchange-rate.js";
 import {
   getVoucherTypeDefinition,
@@ -402,9 +403,13 @@ export class VoucherService {
       await this.applyAllocations(id, carried, result.document);
       const current = (await this.service.findById(id)) ?? result.document;
       const cleared: VoucherDocument = { ...current, lines: [{ ...voucherLine(current), heldAllocations: null }] };
-      await this.deps.documents.update(cleared);
+      await this.writeLine(cleared, current.status);
       return { ...result, document: cleared };
     });
+  }
+
+  private async writeLine(next: VoucherDocument, expectedStatus: VoucherDocument["status"]): Promise<void> {
+    assertDocumentWritten(await this.deps.documents.writeFields(next, [DocumentField.Lines], { status: expectedStatus }), next.docType, next.id);
   }
 
   private async registerCheque(
@@ -454,7 +459,7 @@ export class VoucherService {
       );
     }
     const stamped: VoucherDocument = { ...doc, lines: [{ ...line, fxRate: found.rate }] };
-    await this.deps.documents.update(stamped);
+    await this.writeLine(stamped, doc.status);
     return stamped;
   }
 
@@ -583,9 +588,9 @@ export class VoucherService {
       await this.projectSettlement(result.invoice);
       return { allocation: result.allocation };
     };
-    // The realised-FX entry and the allocation are one act: a posted
-    // difference with no allocation behind it would sit on the party forever.
-    return realisedFx ? this.deps.documents.transaction(run) : run();
+    // The realised-FX entry, the allocation and the invoice's settlement are
+    // one act: a refused settlement must take the allocation back with it.
+    return this.deps.documents.transaction(run);
   }
 
   /**
@@ -614,7 +619,7 @@ export class VoucherService {
           ...confirmed.document,
           lines: [{ ...voucherLine(confirmed.document), heldAllocations: requests }],
         };
-        await this.deps.documents.update(carrying);
+        await this.writeLine(carrying, confirmed.document.status);
         return { document: carrying, held: true, allocations: [], heldAllocations: requests };
       }
       const made = await this.applyAllocations(cmd.id, requests, confirmed.document, cmd.date);

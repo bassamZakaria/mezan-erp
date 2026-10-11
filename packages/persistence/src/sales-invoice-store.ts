@@ -1,6 +1,7 @@
 import Database from "better-sqlite3";
 import { openSqliteConnection, withSqliteTransaction, type SqliteConnectionInput } from "./sqlite-connection.js";
 import { addVersionColumns, createDocumentVersionStore, type DocumentVersionStore } from "./document-version.js";
+import { columnsOf, writeRowColumnsWhere } from "./document-field-write.js";
 import { childRowsByParent, countMatching, FilterClauses, selectPage } from "./list-query.js";
 import {
   InvoiceDocumentKind,
@@ -8,6 +9,8 @@ import {
   Qty,
   RETENTION_RELEASE_ITEM_ID,
   SALES_INVOICE_ACTIVE_STATUSES,
+  SalesInvoiceField,
+  type SalesInvoiceWritePrecondition,
   type AppliedSalesInvoicePromotion,
   type SalesInvoice,
   type SalesInvoiceDiscount,
@@ -353,6 +356,14 @@ function invoiceParams(invoice: SalesInvoice) {
   };
 }
 
+const UNPOSTED_STATUSES: readonly SalesInvoiceStatus[] = ["draft", "pending"];
+
+const SALES_INVOICE_COLUMNS: Readonly<Record<SalesInvoiceField, readonly string[]>> = {
+  [SalesInvoiceField.Status]: ["status"],
+  [SalesInvoiceField.AmountPaid]: ["amount_paid"],
+  [SalesInvoiceField.WorkflowRequestId]: ["workflow_request_id"],
+};
+
 class SqliteSalesInvoiceRepository implements SalesInvoiceRepository {
   private readonly insertInvoice: Database.Statement;
   private readonly updateInvoice: Database.Statement;
@@ -470,6 +481,29 @@ class SqliteSalesInvoiceRepository implements SalesInvoiceRepository {
     // N-9: EVERY write moves the version, so a caller holding an older one is
     // detectable whichever path made the change.
     this.versions?.bump(invoice.id);
+  }
+
+  async writeFields(next: SalesInvoice, fields: readonly SalesInvoiceField[], expected: SalesInvoiceWritePrecondition): Promise<boolean> {
+    const written = writeRowColumnsWhere(this.sqlite, {
+      table: "sales_invoice",
+      row: invoiceParams(next),
+      columns: columnsOf(SALES_INVOICE_COLUMNS, fields),
+      id: next.id,
+      expectedStatuses: expected.status,
+    });
+    if (written) this.versions?.bump(next.id);
+    return written;
+  }
+
+  async replaceUnposted(next: SalesInvoice, expected: SalesInvoiceWritePrecondition): Promise<boolean> {
+    const unposted = expected.status.filter((status) => UNPOSTED_STATUSES.includes(status));
+    if (unposted.length === 0) return false;
+    const changes = this.sqlite
+      .prepare(`SELECT 1 FROM sales_invoice WHERE id = ? AND status IN (${unposted.map(() => "?").join(",")})`)
+      .get(next.id, ...unposted);
+    if (!changes) return false;
+    await this.update(next);
+    return true;
   }
 
   async nameLineTaxRate(invoiceId: string, lineIds: readonly string[], taxRatePercent: number, taxRateId: string): Promise<number> {

@@ -132,9 +132,9 @@ export class TaxClassificationReturnMixedError extends Error {
   readonly messageEn: string;
   constructor(readonly returnNumber: string) {
     super(
-      `المرتجع ${returnNumber} يجمع بنوداً غير مصنّفة الضريبة من أكثر من فاتورة بالنسبة نفسها في قيد واحد. صنّف بنود الفواتير الأخرى أولاً، أو اعكس المرتجع وأصدره لكل فاتورة على حدة.`,
+      `المرتجع ${returnNumber} يجمع بنوداً غير مصنّفة الضريبة من أكثر من فاتورة بالنسبة نفسها في سطر قيد واحد، وسطر القيد يحمل ضريبة واحدة، فلا يُصنَّف بند إحدى الفاتورتين دون الأخرى. المرتجع المؤكد لا يُعكس؛ راجع المحاسب قبل تصنيف هذه البنود.`,
     );
-    this.messageEn = `Return ${returnNumber} holds unclassified lines of more than one invoice at the same percent on one journal line. Classify the other invoices' lines first, or reverse the return and raise one per invoice.`;
+    this.messageEn = `Return ${returnNumber} holds unclassified lines of more than one invoice at the same percent on one journal line, and a journal line carries one rate, so one invoice's line cannot be classified without the other's. A confirmed return cannot be reversed; refer to the accountant before classifying these lines.`;
     this.name = "TaxClassificationReturnMixedError";
   }
 }

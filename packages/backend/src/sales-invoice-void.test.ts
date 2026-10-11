@@ -74,3 +74,21 @@ describe("voiding a confirmed stock invoice", () => {
     expect(after?.exclusionReason).toContain(invoice.docNo);
   });
 });
+
+describe("voiding an invoice a confirmed return stands against", () => {
+  it("is refused with the real way forward, since a confirmed return cannot be undone", async () => {
+    await confirmedStockSale("VOID-RET-1");
+    const drafted = await kit.call("POST", "/sales-returns/from-invoice", {
+      id: "VOID-RET-1-R", date: TODAY, memo: "", warehouseId: WAREHOUSE, sourceInvoiceId: "VOID-RET-1", reason: "DEFECTIVE",
+      requested: [{ itemId: STOCK_ITEM, sourceLineId: "A", qty: "1" }],
+    });
+    expect(drafted.status).toBe(201);
+    expect((await kit.call("POST", "/sales-returns/VOID-RET-1-R/confirm", {})).status).toBe(200);
+    const undo = await kit.call("POST", "/sales-returns/VOID-RET-1-R/cancel", {});
+    expect(undo.status).toBeGreaterThanOrEqual(400);
+    const refused = await kit.call("POST", "/sales-invoices/VOID-RET-1/void", { reason: "خطأ" });
+    expect([refused.status, refused.body.error]).toEqual([409, "INVOICE_HAS_RETURNS"]);
+    expect(refused.body.message).toContain("بمرتجع عن باقي كمياتها");
+    expect(refused.body.message).not.toMatch(/ألغِ المرتجع|اعكس المرتجع/);
+  });
+});

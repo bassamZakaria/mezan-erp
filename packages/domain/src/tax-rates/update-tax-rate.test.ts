@@ -113,3 +113,34 @@ describe("updateTaxRate", () => {
     expect(updated.status).toBe("inactive");
   });
 });
+
+describe("updateTaxRate — the reference check and the write are one transaction", () => {
+  it("asks whether the rate is referenced, and writes it, inside the same open transaction", async () => {
+    const repo = new InMemoryTaxRateRepository();
+    await createTaxRate({ id: "t1", code: "ZERO", name: "صفرية", rate: 0, etaSubType: "V002" }, repo);
+    let open = 0;
+    const seen: string[] = [];
+    const transaction = repo.transaction.bind(repo);
+    repo.transaction = async (fn) => {
+      open += 1;
+      try {
+        return await transaction(fn);
+      } finally {
+        open -= 1;
+      }
+    };
+    const update = repo.update.bind(repo);
+    repo.update = async (rate) => {
+      seen.push(open > 0 ? "write inside" : "write outside");
+      return update(rate);
+    };
+    const usage = {
+      isReferenced: async () => {
+        seen.push(open > 0 ? "check inside" : "check outside");
+        return false;
+      },
+    };
+    await updateTaxRate("t1", { rate: 5 }, repo, usage);
+    expect(seen).toEqual(["check inside", "write inside"]);
+  });
+});

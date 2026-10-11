@@ -1,5 +1,16 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { InvoiceDocumentKind, Money, Qty, type SalesInvoice, type SalesInvoiceLine } from "@mezan/domain";
+import {
+  applyAllocatedSettlement,
+  InvoiceDocumentKind,
+  Money,
+  Qty,
+  SalesInvoiceField,
+  SalesInvoiceService,
+  TaxRateStatusCode,
+  type SalesInvoice,
+  type SalesInvoiceLine,
+  type TaxRate,
+} from "@mezan/domain";
 import { createSqliteSalesInvoiceStore, type SqliteSalesInvoiceStoreHandle } from "./sales-invoice-store.js";
 
 const closers: Array<{ close(): void }> = [];
@@ -245,5 +256,57 @@ describe("the document kind of a sales invoice (D79 round 5)", () => {
     expect((await handle.findById("inv-posted"))?.lines.map((l) => l.taxRateId)).toEqual(["EXEMPT", null, "KEPT"]);
     expect(await handle.nameLineTaxRate("inv-posted", ["A"], 0, "EXPORT")).toBe(0);
     expect(await handle.nameLineTaxRate("inv-draft", ["A"], 0, "EXEMPT")).toBe(0);
+  });
+});
+
+describe("a classification never saves the invoice whole", () => {
+  it("keeps a settlement written while its own transaction is open", async () => {
+    const repo = createSqliteSalesInvoiceStore(":memory:");
+    closers.push(repo);
+    await repo.save(invoice({ id: "inv-live", status: "confirmed", docNo: "INV-1", journalEntryId: "JE-1", discount: { type: "percent", percent: 0 }, lines: [line({ lineId: "A", taxRatePercent: 0, taxRateId: null })] }));
+    const settledMidway = Money.fromMajor("40");
+    const service = new SalesInvoiceService({
+      repo,
+      numbering: { next: async () => ({ formatted: "INV-X" }) } as never,
+      gl: {} as never,
+      stock: {} as never,
+      taxRates: { list: async () => [{ id: "EXEMPT", code: "EXEMPT", name: "معفى", rate: 0, status: TaxRateStatusCode.Active, etaSubType: "V003" } as TaxRate] },
+      taxTags: {
+        retagUnnamedTaxRate: async () => {
+          await applyAllocatedSettlement(repo, "inv-live", settledMidway);
+          return 1;
+        },
+        nameChosenLines: async () => ({ before: [], after: [] }),
+      },
+    });
+
+    await service.classifyLineTax("inv-live", { lineRef: "A", taxRateId: "EXEMPT" });
+
+    const stored = await repo.findById("inv-live");
+    expect([stored?.lines[0]?.taxRateId, stored?.amountPaid.toString(), stored?.status]).toEqual(["EXEMPT", "40.000000", "partially_paid"]);
+  });
+
+  it("refuses to replace a posted row whole, whatever status the caller expects", async () => {
+    const repo = createSqliteSalesInvoiceStore(":memory:");
+    closers.push(repo);
+    const posted = invoice({ id: "inv-posted", status: "confirmed" });
+    await repo.save(posted);
+    expect(await repo.replaceUnposted({ ...posted, notes: "x" }, { status: ["confirmed", "draft"] })).toBe(false);
+    expect((await repo.findById("inv-posted"))?.notes).toBe(posted.notes);
+    await repo.save(invoice({ id: "inv-draft" }));
+    expect(await repo.replaceUnposted({ ...invoice({ id: "inv-draft" }), notes: "عُدّل" }, { status: ["draft"] })).toBe(true);
+    expect((await repo.findById("inv-draft"))?.notes).toBe("عُدّل");
+  });
+
+  it("writes only the named fields, and only while the row is in the expected status", async () => {
+    const repo = createSqliteSalesInvoiceStore(":memory:");
+    closers.push(repo);
+    const live = invoice({ id: "inv-w", status: "confirmed" });
+    await repo.save(live);
+    const stale = { ...live, status: "reversed" as const, notes: "نسخة قديمة", amountPaid: Money.fromMajor("999") };
+    expect(await repo.writeFields(stale, [SalesInvoiceField.Status], { status: ["partially_paid"] })).toBe(false);
+    expect(await repo.writeFields(stale, [SalesInvoiceField.Status], { status: ["confirmed"] })).toBe(true);
+    const stored = await repo.findById("inv-w");
+    expect([stored?.status, stored?.notes, stored?.amountPaid.toString()]).toEqual(["reversed", live.notes, "0.000000"]);
   });
 });

@@ -218,6 +218,14 @@ export interface SalesInvoiceRoutesDeps {
    */
   readonly stockRestore?: DocumentStockHook;
   readonly withdrawUnsentEtaSubmission?: (invoice: SalesInvoice) => Promise<void>;
+  /**
+   * SECURITY: what the print page needs beyond the invoice itself — the names
+   * of its own branch and warehouse, its own customer's printed details and
+   * its own e-document identifiers. Served under the invoice's visibility
+   * rule, so printing never needs the right to read every customer, branch,
+   * warehouse or the e-invoice queue.
+   */
+  readonly printContext?: (invoice: SalesInvoice) => Promise<SalesInvoicePrintContext>;
   readonly onDraftCancelled?: (invoice: SalesInvoice) => Promise<void>;
   readonly itemTax?: (itemId: string) => Promise<{ readonly taxRatePercent: number } | null>;
   readonly audit?: AuditSink;
@@ -248,6 +256,14 @@ export interface SalesInvoiceRoutesDeps {
   readonly now?: () => string;
   /** Generates an invoice id when the request omits one. Defaults to a UUID. */
   readonly idGen?: () => string;
+}
+
+export interface SalesInvoicePrintContext {
+  readonly branchName: string | null;
+  readonly warehouseName: string | null;
+  readonly customer: { readonly code: string; readonly taxNumber: string | null; readonly address: string | null; readonly phone: string | null } | null;
+  readonly etaUuid: string | null;
+  readonly etaQrValue: string | null;
 }
 
 function discountToDomain(dto: SalesInvoiceDiscountDTO | undefined): SalesInvoiceDiscount | undefined {
@@ -1270,6 +1286,16 @@ export function createSalesInvoicesRoutes(
     } catch (err) {
       return handleDomainError(c, err);
     }
+  });
+
+  app.get("/:id/print-context", gateAny("sales.invoice.view", "sales.invoice.view_all", "sales.invoice.view_own"), async (c) => {
+    if (!deps.printContext) return c.json({ error: "PRINT_CONTEXT_UNAVAILABLE", message: "بيانات الطباعة غير متاحة على هذا الخادم." }, 501);
+    const invoice = await service(c).findByIdOrDocNo(c.req.param("id"));
+    if (!invoice) return c.json({ error: "NOT_FOUND" }, 404);
+    if (ownVisibilityOnly(c) && invoice.salespersonId !== (await ownSalespersonIdOf(c))) {
+      return c.json({ error: "NOT_FOUND" }, 404);
+    }
+    return c.json(await deps.printContext(invoice));
   });
 
   app.patch("/:id/lines/:lineId", gate("sales.invoice.edit"), async (c) => {

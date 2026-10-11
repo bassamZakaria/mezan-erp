@@ -20,6 +20,7 @@ import {
   SiteService,
   StockLedgerService,
   applyAllocatedSettlement,
+  EtaSubmissionStatusCode,
   EtaReceiptSourceKind,
   SalesQuoteService,
   SalesPricingMode,
@@ -3410,6 +3411,23 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       },
       hasEtaReceipt: (invoiceId) => etaReceipts.hasInvoiceReceipt(invoiceId),
       stockRestore: createInventoryStockHook(stockService),
+      printContext: async (invoice) => {
+        const docNo = invoice.docNo ?? invoice.id;
+        const [branch, warehouse, customer, submission, receipt] = await Promise.all([
+          branches.findById(invoice.branchId),
+          warehouses.findById(invoice.warehouseId),
+          customers.findById(invoice.customerId),
+          etaService.findByInternalId(docNo),
+          etaService.receiptForPrint(docNo),
+        ]);
+        return {
+          branchName: branch?.name ?? null,
+          warehouseName: warehouse?.name ?? null,
+          customer: customer ? { code: customer.code, taxNumber: customer.taxNumber ?? null, address: customer.address ?? null, phone: customer.phone ?? null } : null,
+          etaUuid: (submission?.status === EtaSubmissionStatusCode.Accepted ? submission.etaUuid : null) ?? receipt?.uuid ?? null,
+          etaQrValue: receipt?.qrValue ?? null,
+        };
+      },
       itemTax: async (itemId) => {
         const item = await items.findById(itemId);
         return item ? { taxRatePercent: item.taxRatePercent } : null;

@@ -1706,7 +1706,10 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   if (options.printTemplateConfig) {
     app.route(
       "/print-template-config",
-      createPrintTemplateConfigRoutes(options.printTemplateConfig, (options.printTemplateConfig.resolveAuthContext ?? resolveAuth) ?? resolveAuth),
+      createPrintTemplateConfigRoutes(
+        { repo: options.printTemplateConfig.repo, settings: options.settingsStore },
+        (options.printTemplateConfig.resolveAuthContext ?? resolveAuth) ?? resolveAuth,
+      ),
     );
   }
   if (options.dataMigration) {

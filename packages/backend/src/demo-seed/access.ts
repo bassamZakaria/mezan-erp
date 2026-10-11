@@ -71,6 +71,7 @@ const ROLES = [
       "purchases.invoice.view",
       "sales.invoice.classify_tax",
       "purchases.invoice.classify_tax",
+      "accounting.eta.view",
     ],
   },
   {
@@ -166,6 +167,7 @@ const ROLES = [
       "sales.invoice.view_cost",
       "sales.invoice.classify_tax",
       "purchases.invoice.classify_tax",
+      "accounting.eta.view",
       "hr.employee.view",
       "hr.employee.view_salary",
       "hr.payroll.view",

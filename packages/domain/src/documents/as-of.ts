@@ -18,3 +18,13 @@ export function ledgerPresenceAsOf(doc: LedgerPresenceInput, asOfDate: string | 
   const ended = !doc.live && doc.endedOn !== null && doc.endedOn.slice(0, 10) <= asOfDate ? 1 : 0;
   return (posted - ended) as -1 | 0 | 1;
 }
+
+// `linkDates` is the document's own date followed by the date of each reversal down its chain: every link undoes the one before it, from the day it is dated.
+export function reversalChainPresenceAsOf(linkDates: readonly string[], asOfDate: string | undefined): number {
+  let presence = 0;
+  linkDates.forEach((date, index) => {
+    if (asOfDate !== undefined && date.slice(0, 10) > asOfDate) return;
+    presence += index % 2 === 0 ? 1 : -1;
+  });
+  return presence;
+}

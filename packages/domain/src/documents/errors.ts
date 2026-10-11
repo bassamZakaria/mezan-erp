@@ -15,6 +15,19 @@ export class InvalidDocumentTransitionError extends Error {
   }
 }
 
+export class ReversalNotReversibleError extends Error {
+  readonly code = "REVERSAL_NOT_REVERSIBLE";
+  readonly messageEn: string;
+  constructor(
+    readonly docType: string,
+    readonly docId: string,
+  ) {
+    super(`المستند ${docId} قيد عكسي ولا يُعكس. أعد إدخال المستند الأصلي من جديد بدلاً من عكس عكسه.`);
+    this.messageEn = `Document ${docId} is itself a reversal and cannot be reversed. Re-enter the original document instead.`;
+    this.name = "ReversalNotReversibleError";
+  }
+}
+
 export class DocumentNotFoundError extends Error {
   readonly code = "DOCUMENT_NOT_FOUND";
   constructor(

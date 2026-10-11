@@ -67,6 +67,7 @@ export {
   DuplicateDocumentError,
   MissingHookError,
   StockPlanDateRequiredError,
+  ReversalNotReversibleError,
   InvalidDocumentError,
 } from "./errors.js";
 
@@ -80,4 +81,4 @@ export {
 
 export { createInventoryStockHook } from "./inventory-stock-hook.js";
 
-export { ledgerPresenceAsOf, type LedgerPresenceInput } from "./as-of.js";
+export { ledgerPresenceAsOf, reversalChainPresenceAsOf, type LedgerPresenceInput } from "./as-of.js";

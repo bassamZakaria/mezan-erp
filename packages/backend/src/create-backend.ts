@@ -90,6 +90,9 @@ import {
   voucherBaseAmount,
   assertOpenForPosting,
   ledgerPresenceAsOf,
+  reversalChainPresenceAsOf,
+  isActive,
+  type DocumentStatus,
   purchaseInvoiceCancelEntryId,
   salesInvoiceVoidEntryId,
   PartyRequiredOnControlAccountError,
@@ -2306,20 +2309,32 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     const upTo = (date: string | null | undefined): boolean => asOfDate === undefined || (date ?? "").slice(0, 10) <= asOfDate;
     const standingCertificate = (certificate: { status: string; approvedAt: string | null; executionDate: string; voidedAt: string | null }): boolean =>
       upTo(certificate.approvedAt ?? certificate.executionDate) && (certificate.status !== "voided" || !upTo(certificate.voidedAt));
-    const dateById = (docs: readonly { id: string; date: string }[]): ReadonlyMap<string, string> => new Map(docs.map((d) => [d.id, d.date]));
-    const frameworkPresence = (
-      doc: { status: string; date: string; reversesDocId: string | null; reversedByDocId: string | null },
-      dates: ReadonlyMap<string, string>,
-    ): bigint => {
+    type ChainLink = { id: string; status: DocumentStatus; date: string; reversesDocId: string | null; reversedByDocId: string | null };
+    const linksById = <T extends ChainLink>(docs: readonly T[]): ReadonlyMap<string, T> => new Map(docs.map((d) => [d.id, d]));
+    // A reversal is never counted on its own: its effect is read through the document it reverses, link by link down the chain.
+    const frameworkPresence = (doc: ChainLink, docs: ReadonlyMap<string, ChainLink>): bigint => {
       if (doc.reversesDocId) return 0n;
-      const live = doc.status === "confirmed" || doc.status === "posted";
-      const endedOn = doc.status === "reversed" && doc.reversedByDocId ? (dates.get(doc.reversedByDocId) ?? null) : null;
-      return BigInt(ledgerPresenceAsOf({ date: doc.date, live, endedOn }, asOfDate));
+      const dates = [doc.date];
+      const seen = new Set([doc.id]);
+      let link = doc;
+      while (link.status === "reversed" && link.reversedByDocId) {
+        const next = docs.get(link.reversedByDocId);
+        if (!next || seen.has(next.id)) break;
+        seen.add(next.id);
+        dates.push(next.date);
+        link = next;
+      }
+      if (!isActive(link.status)) return 0n;
+      return BigInt(reversalChainPresenceAsOf(dates, asOfDate));
     };
-    const invoicePresence = async (date: string, live: boolean, reversalEntryId: string | null): Promise<bigint> => {
-      const endedOn = asOfDate !== undefined && !live && reversalEntryId ? ((await ledger.findById(reversalEntryId))?.date ?? null) : null;
-      return BigInt(ledgerPresenceAsOf({ date, live, endedOn }, asOfDate));
+    const entryDatesOf = async (ids: readonly (string | null)[]): Promise<ReadonlyMap<string, string>> => {
+      const wanted = ids.filter((id): id is string => id !== null);
+      if (asOfDate === undefined || wanted.length === 0) return new Map();
+      if (ledger.entryDates) return ledger.entryDates(wanted);
+      const found = await Promise.all(wanted.map(async (id) => [id, (await ledger.findById(id))?.date ?? null] as const));
+      return new Map(found.filter((pair): pair is readonly [string, string] => pair[1] !== null));
     };
+    const invoicePresence = (date: string, live: boolean, endedOn: string | null): bigint => BigInt(ledgerPresenceAsOf({ date, live, endedOn }, asOfDate));
     // The tenant's own control accounts (B-8). Comparing a recoded chart
     // against a compiled-in "1105"/"2100"/"1200" reported a mismatch equal to
     // every collection ever made.
@@ -2353,7 +2368,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
      */
     const voucherEffect = { receivable: 0n, payable: 0n };
     const allVouchers = await vouchers.documents.list();
-    const voucherDates = dateById(allVouchers);
+    const voucherDates = linksById(allVouchers);
     for (const doc of allVouchers) {
       const presence = frameworkPresence(doc, voucherDates);
       if (presence === 0n) continue;
@@ -2381,18 +2396,26 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
      * own and carries the new credit.
      */
     const chequeEffect = { receivable: 0n, payable: 0n };
-    for (const cheque of await cheques.list()) {
-      if (!upTo(cheque.issueDate)) continue;
-      const restored = (cheque.status === "bounced" || cheque.status === "replaced") && upTo(cheque.bouncedAt ?? cheque.issueDate);
+    const allCheques = await cheques.list();
+    // Each side of a cheque is read on the day its own journal entry is dated: `bouncedAt` is the instant the bounce was recorded, and a replacement's entry is not dated on the day written on the cheque.
+    const chequeEntryDates = await entryDatesOf(allCheques.flatMap((cheque) => [cheque.creationJournalEntryId, cheque.bounceJournalEntryId]));
+    const chequeEntryDate = (entryId: string | null, fallback: string): string => (entryId ? chequeEntryDates.get(entryId) : undefined) ?? fallback;
+    for (const cheque of allCheques) {
+      if (!upTo(chequeEntryDate(cheque.creationJournalEntryId, cheque.issueDate))) continue;
+      const restored = (cheque.status === "bounced" || cheque.status === "replaced") && upTo(chequeEntryDate(cheque.bounceJournalEntryId, cheque.issueDate));
       const net = restored ? 0n : -cheque.amount.scaled;
       if (cheque.counterpartyGlAccountId === AR_CONTROL) chequeEffect.receivable += net;
       if (cheque.counterpartyGlAccountId === AP_CONTROL) chequeEffect.payable += net;
     }
 
+    const undoneEntryDates = await entryDatesOf([
+      ...invoices.filter((inv) => inv.status === "reversed").map((inv) => salesInvoiceVoidEntryId(inv.id)),
+      ...purchInvoices.filter((inv) => inv.status === "cancelled").map((inv) => purchaseInvoiceCancelEntryId(inv.id)),
+    ]);
     let arScaled = 0n;
     for (const inv of invoices) {
       const live = SALES_INVOICE_ACTIVE_STATUSES.has(inv.status);
-      const presence = await invoicePresence(inv.date, live, inv.status === "reversed" ? salesInvoiceVoidEntryId(inv.id) : null);
+      const presence = invoicePresence(inv.date, live, undoneEntryDates.get(salesInvoiceVoidEntryId(inv.id)) ?? null);
       if (presence === 0n) continue;
       const totals = salesInvoiceTotals(inv);
       // The BASE-currency figure, which is what the control account holds — a
@@ -2414,7 +2437,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     // A confirmed sales return credits AR in the GL. Omitting it here left the
     // control account moving while the sub-ledger stood still, so every tenant
     // that ever posted a return saw a false mismatch.
-    const salesReturnDates = dateById(salesReturnDocs);
+    const salesReturnDates = linksById(salesReturnDocs);
     for (const doc of salesReturnDocs) {
       arScaled -= frameworkPresence(doc, salesReturnDates) * salesReturnGrandTotal(doc).scaled;
     }
@@ -2435,7 +2458,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
 
     let apScaled = 0n;
     for (const inv of purchInvoices) {
-      const presence = await invoicePresence(inv.date, inv.status === "confirmed", inv.status === "cancelled" ? purchaseInvoiceCancelEntryId(inv.id) : null);
+      const presence = invoicePresence(inv.date, inv.status === "confirmed", undoneEntryDates.get(purchaseInvoiceCancelEntryId(inv.id)) ?? null);
       // The BASE-currency figure, which is what the control account holds.
       if (presence !== 0n) apScaled += presence * purchaseInvoiceBaseTotal(inv).scaled;
     }
@@ -2450,7 +2473,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     apScaled += chequeEffect.payable;
     // A purchase return debits AP; a landed cost credits it (the freight and
     // customs owed to a third party accrue to the same control account).
-    const purchaseReturnDates = dateById(purchaseReturnDocs);
+    const purchaseReturnDates = linksById(purchaseReturnDocs);
     for (const doc of purchaseReturnDocs) {
       apScaled -= frameworkPresence(doc, purchaseReturnDates) * purchaseReturnGrandTotal(doc).scaled;
     }

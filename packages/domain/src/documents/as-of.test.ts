@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ledgerPresenceAsOf } from "./as-of.js";
+import { ledgerPresenceAsOf, reversalChainPresenceAsOf } from "./as-of.js";
 
 describe("ledgerPresenceAsOf", () => {
   const reversedInJuly = { date: "2026-06-29", live: false, endedOn: "2026-07-10" };
@@ -33,5 +33,25 @@ describe("ledgerPresenceAsOf", () => {
   it("with no as-of date, counts exactly the documents that stand today", () => {
     expect(ledgerPresenceAsOf(reversedInJuly, undefined)).toBe(0);
     expect(ledgerPresenceAsOf({ date: "2027-01-01", live: true, endedOn: null }, undefined)).toBe(1);
+  });
+});
+
+describe("reversalChainPresenceAsOf", () => {
+  const chain = ["2026-08-10", "2026-08-31", "2026-09-10"];
+
+  it("counts a document whose reversal was itself reversed: there, gone, and back, each from the day it is dated", () => {
+    expect(reversalChainPresenceAsOf(chain, "2026-08-09")).toBe(0);
+    expect(reversalChainPresenceAsOf(chain, "2026-08-30")).toBe(1);
+    expect(reversalChainPresenceAsOf(chain, "2026-08-31")).toBe(0);
+    expect(reversalChainPresenceAsOf(chain, "2026-09-09")).toBe(0);
+    expect(reversalChainPresenceAsOf(chain, "2026-09-10")).toBe(1);
+    expect(reversalChainPresenceAsOf(chain, undefined)).toBe(1);
+  });
+
+  it("agrees with ledgerPresenceAsOf for a document that stands and for one reversed once", () => {
+    for (const asOf of ["2026-06-28", "2026-06-30", "2026-07-10", undefined]) {
+      expect(reversalChainPresenceAsOf(["2026-06-29"], asOf)).toBe(ledgerPresenceAsOf({ date: "2026-06-29", live: true, endedOn: null }, asOf));
+      expect(reversalChainPresenceAsOf(["2026-06-29", "2026-07-10"], asOf)).toBe(ledgerPresenceAsOf({ date: "2026-06-29", live: false, endedOn: "2026-07-10" }, asOf));
+    }
   });
 });

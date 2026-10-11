@@ -35,6 +35,7 @@ import {
   DuplicateDocumentError,
   InvalidDocumentError,
   MissingHookError,
+  ReversalNotReversibleError,
 } from "./errors.js";
 
 export interface DocumentServiceDeps<Line> {
@@ -268,6 +269,8 @@ export class DocumentService<Line> {
       // assertTransition gives the precise error (only active → reversed is legal).
       assertTransition(this.def.code, id, existing.status, "reversed");
     }
+    // Reversing a reversal re-posts the original's effect under a document every sub-ledger reads as "a reversal": the control account moves and no sub-ledger follows.
+    if (existing.reversesDocId) throw new ReversalNotReversibleError(this.def.code, id);
     const resolvedDate = opts.date ?? existing.date;
     // A reversal dated before the document it reverses would restate a day
     // already reported (D270, voucher reversal). This is scoped to THIS

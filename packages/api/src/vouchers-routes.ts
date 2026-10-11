@@ -30,6 +30,7 @@ import {
   AllocationExceedsError,
   SettlementRateMissingError,
   ReversalDateBeforeOriginalError,
+  ReversalNotReversibleError,
   allocationFxDifference,
   allocationInvoiceAmount,
   invoiceOpenBalance,
@@ -173,7 +174,7 @@ function handleDomainError(c: Context, err: unknown): Response {
   if (err instanceof CashBalanceWouldGoNegativeError) {
     return refuse(err, 422);
   }
-  if (err instanceof ReversalDateBeforeOriginalError) {
+  if (err instanceof ReversalDateBeforeOriginalError || err instanceof ReversalNotReversibleError) {
     return refuse(err, 422);
   }
   if (err instanceof AdvanceDisbursementNotReversibleError) {

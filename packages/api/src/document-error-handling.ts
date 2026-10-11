@@ -6,6 +6,7 @@ import {
   InvalidDocumentError,
   InvalidDocumentTransitionError,
   MissingHookError,
+  ReversalNotReversibleError,
   NegativeStockError,
   UncostedDeficitIssueError,
   InvalidStockMovementError,
@@ -35,7 +36,7 @@ export function handleDocumentError(c: Context, err: unknown): Response {
   if (err instanceof InvalidDocumentTransitionError) {
     return refuse(err, 409);
   }
-  if (err instanceof InvalidDocumentError) {
+  if (err instanceof InvalidDocumentError || err instanceof ReversalNotReversibleError) {
     return refuse(err, 422);
   }
   if (err instanceof MissingHookError) {

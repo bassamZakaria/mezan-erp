@@ -49,6 +49,9 @@ async function open(options: Partial<CreateBackendOptions> = {}) {
 
 const nextTurn = () => new Promise<void>((resolve) => setImmediate(resolve));
 const SIGN_INS_ONE_ADDRESS_MAY_HOLD = 6;
+/** A 503 from the connection's queue, as opposed to the sign-in queue saying it has no place. */
+const databaseBusy = (answer: { status: number; body: unknown }): boolean =>
+  answer.status === 503 && (answer.body as { error?: string } | null)?.error !== "SIGN_IN_BUSY";
 
 describe("a tenant's connection under a sign-in flood", () => {
   it("answers an authenticated read and write while a sign-in flood is being checked, and refuses at once the sign-ins it has no place for", async () => {
@@ -70,10 +73,10 @@ describe("a tenant's connection under a sign-in flood", () => {
     expect(write).toMatchObject({ status: 201, reason: null });
     expect(health.status).toBe(200);
     expect(checkingWhenTheWriteLanded).toBeGreaterThan(0);
-    expect(outcomes.filter((answer) => answer.status === 503)).toEqual([]);
-    expect(new Set(outcomes.map((answer) => answer.status))).toEqual(new Set([401, 429]));
+    expect(outcomes.filter(databaseBusy)).toEqual([]);
+    expect(new Set(outcomes.map((answer) => answer.status))).toEqual(new Set([401, 503]));
     expect(outcomes.filter((answer) => answer.status === 401)).toHaveLength(SIGN_INS_ONE_ADDRESS_MAY_HOLD);
-    expect(outcomes.find((answer) => answer.status === 429)?.body).toMatchObject({ error: "TOO_MANY_ATTEMPTS", retryAfterSeconds: 2 });
+    expect(outcomes.find((answer) => answer.status === 503)?.body).toMatchObject({ error: "SIGN_IN_BUSY", retryAfterSeconds: 2 });
   });
 
   it("refuses no read and no write when a hundred requests of every kind arrive together", async () => {
@@ -85,7 +88,7 @@ describe("a tenant's connection under a sign-in flood", () => {
     );
     const answers = await Promise.all(mixed);
 
-    expect(answers.filter((answer) => answer.status === 503)).toEqual([]);
+    expect(answers.filter(databaseBusy)).toEqual([]);
     expect(answers.filter((answer) => answer.status === 201)).toHaveLength(33);
     expect(answers.filter((answer) => answer.status === 200)).toHaveLength(33);
   });

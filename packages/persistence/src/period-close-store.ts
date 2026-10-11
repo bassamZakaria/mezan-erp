@@ -320,6 +320,14 @@ export interface PeriodCloseFxLineGroup {
   readonly credit: Money;
 }
 
+export interface PeriodCloseUntaggedTreasuryGroup {
+  readonly accountId: string;
+  readonly currency: string;
+  readonly date: string;
+  readonly debit: Money;
+  readonly credit: Money;
+}
+
 export interface PeriodCloseQueries {
   draftCounts(window: PeriodCloseWindow): PeriodCloseDocCount[];
   pendingApprovalCounts(window: PeriodCloseWindow): PeriodCloseDocCount[];
@@ -330,7 +338,8 @@ export interface PeriodCloseQueries {
   recurringRuns(): PeriodCloseRecurringRunRow[];
   recurringSkips(): PeriodCloseRecurringSkipRow[];
   openFxLineGroups(toDate: string): PeriodCloseFxLineGroup[];
-  foreignTreasuryCurrencies(toDate: string): string[];
+  /** Lines on a foreign-currency treasury account that carry no currency of their own, summed per account and day. */
+  untaggedTreasuryLineGroups(toDate: string): PeriodCloseUntaggedTreasuryGroup[];
   etaErrorIds(window: PeriodCloseWindow): string[];
   assetDisposalDates(): { assetId: string; date: string }[];
   auditedSeals(periodId: string): string[];
@@ -501,20 +510,20 @@ function createQueries(sqlite: Database.Database): PeriodCloseQueries {
         credit: Money.fromScaled(row.credit),
       }));
     },
-    foreignTreasuryCurrencies(toDate) {
+    untaggedTreasuryLineGroups(toDate) {
       const rows = sqlite
         .prepare(
-          `SELECT ta.currency AS currency
+          `SELECT jl.account_id, ta.currency AS currency, je.date AS date, SUM(jl.debit) AS debit, SUM(jl.credit) AS credit
              FROM treasury_account ta
              JOIN journal_line jl ON jl.account_id = ta.gl_account_id
              JOIN journal_entry je ON je.id = jl.entry_id
-            WHERE ta.currency <> ? AND je.status IN (${placeholders(LEDGER_EFFECTIVE_STATUSES)}) AND je.date < ?
-            GROUP BY ta.currency
-           HAVING SUM(jl.debit) <> SUM(jl.credit)
-            ORDER BY ta.currency`,
+            WHERE ta.currency <> ? AND (jl.currency IS NULL OR jl.currency = ? OR jl.fx_rate IS NULL)
+              AND je.status IN (${placeholders(LEDGER_EFFECTIVE_STATUSES)}) AND je.date < ?
+            GROUP BY jl.account_id, ta.currency, je.date`,
         )
-        .all(BASE_CURRENCY, ...LEDGER_EFFECTIVE_STATUSES, nextDay(toDate)) as { currency: string }[];
-      return rows.map((row) => row.currency);
+        .safeIntegers()
+        .all(BASE_CURRENCY, BASE_CURRENCY, ...LEDGER_EFFECTIVE_STATUSES, nextDay(toDate)) as { account_id: string; currency: string; date: string; debit: bigint; credit: bigint }[];
+      return rows.map((row) => ({ accountId: row.account_id, currency: row.currency, date: row.date, debit: Money.fromScaled(row.debit), credit: Money.fromScaled(row.credit) }));
     },
     etaErrorIds(window) {
       const documentDate = `COALESCE(si.date, fd.date, e.created_at)`;

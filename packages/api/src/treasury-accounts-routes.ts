@@ -1,6 +1,7 @@
 import { postingRefusalResponse } from "./posting-refusal.js";
 import { Hono, type Context } from "hono";
 import {
+  type ForeignTreasuryBalance,
   Money,
   createTreasuryAccount,
   updateTreasuryAccount,
@@ -94,6 +95,8 @@ export function createTreasuryAccountsRoutes(
    * Repointing one silently is the treasury twin of raising a credit limit.
    */
   audit?: AuditSink,
+  /** What each foreign-currency account holds in its own currency; absent = the list reports none. */
+  foreignBalances?: () => Promise<readonly ForeignTreasuryBalance[]>,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
@@ -149,11 +152,25 @@ export function createTreasuryAccountsRoutes(
     return rows;
   }
 
+  /** A foreign-currency account also says what it holds in its own currency; a base-currency one carries nulls. */
+  async function withForeignBalance(accounts: readonly TreasuryAccount[]) {
+    const rows = new Map(((await foreignBalances?.()) ?? []).map((row) => [row.treasuryAccountId, row]));
+    return accounts.map((account) => {
+      const row = rows.get(account.id);
+      return {
+        ...serialize(account),
+        foreignBalance: row ? row.foreignBalance.toString() : null,
+        foreignBalanceBase: row ? row.baseBalance.toString() : null,
+        foreignBalanceDerivedLines: row ? row.derivedLines : null,
+      };
+    });
+  }
+
   app.get("/", gate("treasury.account.view"), async (c) => {
     const parsed = parseListQuery(c);
     if (!parsed.ok) return c.json({ error: "VALIDATION_ERROR", details: parsed.details }, 400);
     const accounts = await listFilteredAccounts(c, parsed.filter);
-    return c.json(accounts.map(serialize));
+    return c.json(await withForeignBalance(accounts));
   });
 
   /**
@@ -234,7 +251,7 @@ export function createTreasuryAccountsRoutes(
   app.get("/:id", gate("treasury.account.view"), async (c) => {
     const account = await repo.findById(c.req.param("id"));
     if (!account) return c.json({ error: "NOT_FOUND" }, 404);
-    return c.json(serialize(account));
+    return c.json((await withForeignBalance([account]))[0]);
   });
 
   app.post("/", gate("treasury.account.manage"), async (c) => {

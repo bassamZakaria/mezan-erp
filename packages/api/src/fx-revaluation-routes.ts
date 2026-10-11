@@ -6,6 +6,8 @@ import {
   computeFxRevaluation,
   postFxRevaluation,
   deriveOpenFxBalances,
+  withDerivedTreasuryFx,
+  type DerivedTreasuryFxLine,
   nextDay,
   FxRateMissingError,
   NoFiscalPeriodForDateError,
@@ -42,12 +44,22 @@ export interface FxRevaluationRoutesDeps {
    * not tell "revalued, nothing to book" from "never revalued".
    */
   readonly recordRun?: (run: FxRevaluationRun) => void;
+  /** GL account → currency, for every treasury account kept in a foreign currency: its untagged lines are read at the rate of their own date. */
+  readonly foreignTreasuryCurrencies?: () => Promise<ReadonlyMap<string, string>>;
 }
 
-function serializeResult(computed: FxRevaluationResult, date: string, autoReverse: boolean) {
+function serializeResult(computed: FxRevaluationResult, date: string, autoReverse: boolean, derived: readonly DerivedTreasuryFxLine[] = []) {
   return {
     date,
     autoReverse,
+    derivedTreasuryLines: derived.map((line) => ({
+      entryId: line.entryId,
+      accountId: line.accountId,
+      date: line.date,
+      currency: line.currency,
+      fxRate: line.fxRate,
+      foreignAmount: line.foreignAmount.toString(),
+    })),
     reversalDate: nextDay(date),
     details: computed.details.map((d) => ({
       accountId: d.accountId,
@@ -101,8 +113,9 @@ export function createFxRevaluationRoutes(
   const gate = createPermissionGate(resolveAuthContext);
   const idGen = deps.idGen ?? (() => randomUUID());
 
-  async function build(date: string, currencyFilter?: readonly string[]): Promise<{ balances: OpenFxBalance[]; config: FxRevaluationConfig }> {
-    const lines = (await deps.ledger.listLines?.({ toDate: date })) ?? [];
+  async function build(date: string, currencyFilter?: readonly string[]): Promise<{ balances: OpenFxBalance[]; config: FxRevaluationConfig; derived: DerivedTreasuryFxLine[] }> {
+    const posted = (await deps.ledger.listLines?.({ toDate: date })) ?? [];
+    const { lines, derived } = await withDerivedTreasuryFx(posted, (await deps.foreignTreasuryCurrencies?.()) ?? new Map(), async (currency, on) => (await deps.exchangeRates.findRate(currency, on))?.rate ?? null);
     const accounts = await deps.accounts.list();
     const filterSet = currencyFilter && currencyFilter.length > 0 ? new Set(currencyFilter) : undefined;
     const balances = deriveOpenFxBalances(lines, accounts, filterSet);
@@ -113,7 +126,8 @@ export function createFxRevaluationRoutes(
       const rate = await deps.exchangeRates.findRate(currency, date);
       if (rate) closingRates.set(currency, rate.rate);
     }
-    return { balances, config: { date, closingRates, ...(await deps.differenceAccounts()) } };
+    const reported = filterSet ? derived.filter((line) => filterSet.has(line.currency)) : derived;
+    return { balances, config: { date, closingRates, ...(await deps.differenceAccounts()) }, derived: reported };
   }
 
   app.post("/preview", gate("accounting.journal.post"), async (c) => {
@@ -121,9 +135,9 @@ export function createFxRevaluationRoutes(
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     const date = await tenantDay(c, parsed.data.date);
     try {
-      const { balances, config } = await build(date, parsed.data.currencies);
+      const { balances, config, derived } = await build(date, parsed.data.currencies);
       const computed = computeFxRevaluation(balances, config);
-      return c.json(serializeResult(computed, date, parsed.data.autoReverse ?? true));
+      return c.json(serializeResult(computed, date, parsed.data.autoReverse ?? true, derived));
     } catch (err) {
       return handleError(c, err);
     }
@@ -135,7 +149,7 @@ export function createFxRevaluationRoutes(
     const autoReverse = parsed.data.autoReverse ?? true;
     const date = await tenantDay(c, parsed.data.date);
     try {
-      const { balances, config } = await build(date, parsed.data.currencies);
+      const { balances, config, derived } = await build(date, parsed.data.currencies);
       const postingDeps: JournalPostingDeps = {
         ledger: deps.ledger,
         accounts: deps.accounts,
@@ -165,7 +179,7 @@ export function createFxRevaluationRoutes(
       });
       return c.json(
         {
-          preview: serializeResult(result.computed, parsed.data.date, autoReverse),
+          preview: serializeResult(result.computed, parsed.data.date, autoReverse, derived),
           entryId: result.entry?.id ?? null,
           entryNo: result.entry?.entryNo ?? null,
           reversalId: result.reversal?.id ?? null,

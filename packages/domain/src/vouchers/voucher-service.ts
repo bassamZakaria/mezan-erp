@@ -30,6 +30,8 @@ import {
 import { createDocumentWorkflowGate } from "../documents/journal-document.js";
 import {
   voucherBaseAmount,
+  voucherNetPaid,
+  type TreasuryLegFx,
   voucherDocumentType,
   voucherLine,
   type HeldAllocationRequest,
@@ -38,6 +40,7 @@ import {
 } from "./voucher-document.js";
 import { InvalidDocumentError } from "../documents/errors.js";
 import { BASE_CURRENCY } from "../exchange-rates/exchange-rate.js";
+import { convertFromBase } from "../exchange-rates/convert.js";
 import {
   getVoucherTypeDefinition,
   type AllocationInvoiceKind,
@@ -321,9 +324,16 @@ export class VoucherService {
   async createVoucher(cmd: CreateVoucherCommand): Promise<VoucherDocument> {
     const def = getVoucherTypeDefinition(cmd.voucherType);
     const treasury = await this.deps.treasuryAccounts.findById(cmd.treasuryAccountId);
-    const currency = cmd.currency ?? treasury?.currency ?? this.deps.baseCurrency ?? BASE_CURRENCY;
-    if (treasury?.currency && treasury.currency !== currency) {
-      throw new VoucherTreasuryCurrencyMismatchError(cmd.id, cmd.treasuryAccountId, treasury.currency, currency);
+    const base = this.deps.baseCurrency ?? BASE_CURRENCY;
+    const currency = cmd.currency ?? treasury?.currency ?? base;
+    // One line carries one rate: the voucher and each treasury account it touches may differ only when one side of the pair is the base currency.
+    const counterTreasury = cmd.counterTreasuryAccountId ? await this.deps.treasuryAccounts.findById(cmd.counterTreasuryAccountId) : null;
+    for (const account of [treasury, counterTreasury]) {
+      if (!account?.currency || account.currency === base || currency === base || account.currency === currency) continue;
+      throw new VoucherTreasuryCurrencyMismatchError(cmd.id, account.id, account.currency, currency);
+    }
+    if (treasury?.currency && counterTreasury?.currency && treasury.currency !== base && counterTreasury.currency !== base && treasury.currency !== counterTreasury.currency) {
+      throw new VoucherTreasuryCurrencyMismatchError(cmd.id, counterTreasury.id, counterTreasury.currency, treasury.currency);
     }
     const line: VoucherLine = {
       voucherType: cmd.voucherType,
@@ -440,20 +450,36 @@ export class VoucherService {
    * once.
    */
   private async stampFxRate(doc: VoucherDocument): Promise<VoucherDocument> {
-    const line = voucherLine(doc);
+    const original = voucherLine(doc);
     const base = this.deps.baseCurrency ?? BASE_CURRENCY;
-    if (!line.currency || line.currency === base) return doc;
-    if (line.fxRate) return doc;
+    const approvedRate = async (currency: string): Promise<string> => {
+      const found = await this.deps.exchangeRates?.findRate(currency, doc.date);
+      if (!found) {
+        throw new InvalidDocumentError(doc.docType, doc.id, `لا يوجد سعر صرف معتمد للعملة ${currency} بتاريخ ${doc.date}؛ لا يمكن ترحيل السند.`);
+      }
+      return found.rate;
+    };
 
-    const found = await this.deps.exchangeRates?.findRate(line.currency, doc.date);
-    if (!found) {
-      throw new InvalidDocumentError(
-        doc.docType,
-        doc.id,
-        `لا يوجد سعر صرف معتمد للعملة ${line.currency} بتاريخ ${doc.date}؛ لا يمكن ترحيل السند.`,
-      );
-    }
-    const stamped: VoucherDocument = { ...doc, lines: [{ ...line, fxRate: found.rate }] };
+    let line = original;
+    if (line.currency && line.currency !== base && !line.fxRate) line = { ...line, fxRate: await approvedRate(line.currency) };
+
+    // What the movement is in each foreign treasury account's own currency: the voucher's own figure when it is stated in that currency, else the base amount at the day's approved rate.
+    const legFx = async (accountId: string | null, baseMoved: Money, statedMoved: Money): Promise<TreasuryLegFx | null> => {
+      const account = accountId ? await this.deps.treasuryAccounts.findById(accountId) : null;
+      if (!account?.currency || account.currency === base) return null;
+      if (account.currency === line.currency && line.fxRate) return { currency: account.currency, fxRate: line.fxRate, foreignAmount: statedMoved };
+      const rate = await approvedRate(account.currency);
+      return { currency: account.currency, fxRate: rate, foreignAmount: convertFromBase(baseMoved, rate) };
+    };
+    const paysOut = line.direction === "payment";
+    const baseMoved = paysOut ? voucherNetPaid(line) : voucherBaseAmount(line);
+    const statedMoved = paysOut ? Money.fromScaled(line.amount.scaled - (line.withholdingAmount?.scaled ?? 0n)) : line.amount;
+    const treasuryFx = line.treasuryFx ?? (await legFx(line.treasuryAccountId, baseMoved, statedMoved));
+    const counterTreasuryFx = line.counterTreasuryFx ?? (await legFx(line.counterTreasuryAccountId, voucherBaseAmount(line), line.amount));
+    if (treasuryFx || counterTreasuryFx) line = { ...line, treasuryFx, counterTreasuryFx };
+
+    if (line === original) return doc;
+    const stamped: VoucherDocument = { ...doc, lines: [line] };
     await this.deps.documents.update(stamped);
     return stamped;
   }

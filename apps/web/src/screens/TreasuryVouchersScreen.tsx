@@ -22,6 +22,7 @@ import {
   getVoucherPaymentMethodLabel,
   getVoucherTypeDefinition,
   isVoucherType,
+  BASE_CURRENCY,
   convertFromBase,
   Money,
   VOUCHER_PAYMENT_METHODS,
@@ -45,6 +46,7 @@ import type {
 import {
   useAccounts,
   useBranches,
+  useExchangeRates,
   useCostCenters,
   useConfirmVoucher,
   useCreateAllocation,
@@ -66,6 +68,7 @@ import {
   type VoucherRowDTO,
 } from "../data/hooks";
 import { useWorkingLocation } from "../data/hub-hooks";
+import { TreasuryCurrencyNotice, type TreasuryCurrencyRate } from "./TreasuryCurrencyNotice";
 import { NumberField, SelectField, TextField } from "../settings/form-controls";
 import { VoucherPrintPage } from "../print/documents";
 import { useScreenIntent, useSubPage } from "../navigation";
@@ -926,8 +929,12 @@ function withholdingOf(amount: Money, ratePercent: number | null, direction: str
   };
 }
 
+const EMPTY_RATES: readonly TreasuryCurrencyRate[] = [];
+
 interface CreateDraft {
   amount: number | null;
+  /** Empty = the treasury account's own currency. */
+  currency: string;
   paymentMethod: VoucherPaymentMethod;
   treasuryAccountId: string;
   counterTreasuryAccountId: string;
@@ -969,6 +976,7 @@ function CreateVoucherView({
   const confirmVoucher = useConfirmVoucher();
   const createCollection = useCreateCollection();
   const branchesQuery = useBranches();
+  const exchangeRatesQuery = useExchangeRates();
   const costCentersQuery = useCostCenters();
   const projectsQuery = useProjects();
 
@@ -980,6 +988,7 @@ function CreateVoucherView({
   );
   const [draft, setDraft] = useState<CreateDraft>({
     amount: null,
+    currency: "",
     paymentMethod: "cash",
     treasuryAccountId: treasuryAccounts[0]?.id ?? "",
     counterTreasuryAccountId: treasuryAccounts[1]?.id ?? "",
@@ -1036,6 +1045,17 @@ function CreateVoucherView({
     return fixed ?? draft.counterpartyGlAccountId;
   }, [type, def, draft.counterpartyGlAccountId]);
 
+  const chosenTreasuryAccounts = useMemo(
+    () =>
+      [draft.treasuryAccountId, def?.direction === "transfer" ? draft.counterTreasuryAccountId : ""]
+        .map((id) => treasuryAccounts.find((account) => account.id === id))
+        .filter((account): account is TreasuryAccountDTO => account !== undefined),
+    [draft.treasuryAccountId, draft.counterTreasuryAccountId, def?.direction, treasuryAccounts],
+  );
+  const accountCurrencies = new Set([...chosenTreasuryAccounts.map((account) => account.currency), BASE_CURRENCY]);
+  // The voucher is stated in its treasury account's currency unless the user picked the base currency on a foreign account.
+  const voucherCurrency = draft.currency !== "" && accountCurrencies.has(draft.currency) ? draft.currency : (chosenTreasuryAccounts[0]?.currency ?? BASE_CURRENCY);
+
   const buildLine = useCallback((): VoucherLine | null => {
     if (!type || !def) return null;
     const amount = Money.fromMajor(String(draft.amount ?? 0));
@@ -1043,7 +1063,7 @@ function CreateVoucherView({
       voucherType: type,
       direction: def.direction,
       amount,
-      currency: treasuryAccounts.find((account) => account.id === draft.treasuryAccountId)?.currency ?? "EGP",
+      currency: voucherCurrency,
       branchId: workingLocation.branchId ?? branchesQuery.data?.[0]?.id ?? "",
       paymentMethod: draft.paymentMethod,
       treasuryAccountId: draft.treasuryAccountId,
@@ -1062,7 +1082,7 @@ function CreateVoucherView({
     // `workingLocation` and the branch list are real inputs: the line's branch
     // is resolved from them, and leaving them out let the effects preview keep
     // showing the branch that was current when the form opened.
-  }, [type, def, draft, workingLocation.branchId, branchesQuery.data, treasuryGlOf, counterpartyGl, treasuryAccounts]);
+  }, [type, def, draft, workingLocation.branchId, branchesQuery.data, treasuryGlOf, counterpartyGl, voucherCurrency]);
 
   // A preview document for the live effects panel — a pure client-side computation, no network call.
   const previewEffects = useMemo(() => {
@@ -1096,6 +1116,7 @@ function CreateVoucherView({
           branchId: line.branchId,
           treasuryAccountId: line.treasuryAccountId,
           amount: line.amount.toString(),
+          currency: line.currency,
           paymentMethod: line.paymentMethod,
           referenceNo: line.referenceNo,
           costCenterId: line.costCenterId ?? null,
@@ -1118,6 +1139,7 @@ function CreateVoucherView({
         memo: draft.memo || voucherLabel(def),
         voucherType: line.voucherType,
         amount: line.amount.toString(),
+        currency: line.currency,
         branchId: line.branchId,
         paymentMethod: line.paymentMethod,
         treasuryAccountId: line.treasuryAccountId,
@@ -1255,6 +1277,16 @@ function CreateVoucherView({
               options={treasuryOptions}
             />
           ) : null}
+
+          <TreasuryCurrencyNotice
+            baseCurrency={BASE_CURRENCY}
+            accounts={chosenTreasuryAccounts}
+            voucherCurrency={voucherCurrency}
+            onVoucherCurrencyChange={(currency) => setDraft((d) => ({ ...d, currency }))}
+            amount={draft.amount}
+            date={draft.date}
+            rates={exchangeRatesQuery.data ?? EMPTY_RATES}
+          />
 
           {def.requiresCustomer || def.requiresSupplier ? (
             <div>

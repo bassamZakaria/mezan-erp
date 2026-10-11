@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type {
   AllowedCurrenciesDTO,
@@ -265,6 +265,28 @@ describe("FxRevaluationScreen — party balances by currency", () => {
     expect(screen.getAllByText("300.00").length).toBeGreaterThan(0); // group total + party row both carry this value
     expect(screen.getByText("2")).toBeInTheDocument();
     expect(screen.queryByText("15000.000000")).not.toBeInTheDocument();
+  });
+
+  it("lists what each foreign-currency treasury account holds in its own currency, and says when lines were read at a derived rate", async () => {
+    renderWithProviders(<FxRevaluationScreen />, {
+      initialSession: testAdminSession,
+      transport: stubTransport(
+        balancesHandlers({
+          baseCurrency: "EGP",
+          receivables: [],
+          payables: [],
+          receivableTotalBase: "0.000000",
+          payableTotalBase: "0.000000",
+          treasury: [{ treasuryAccountId: "ta-usd", name: "البنك الأهلي — دولار", glAccountId: "1310-USD", currency: "USD", foreignBalance: "1100.000000", baseBalance: "53745.000000", derivedLines: 2 }],
+        }),
+      ),
+    });
+    const table = await screen.findByRole("table", { name: "أرصدة حسابات الخزينة بالعملة الأجنبية" });
+    expect(within(table).getByText("البنك الأهلي — دولار")).toBeInTheDocument();
+    expect(within(table).getByText("USD")).toBeInTheDocument();
+    expect(table).toHaveTextContent("1,100.00");
+    expect(table).toHaveTextContent("53,745.00");
+    expect(table).toHaveTextContent("2 قيد قُرئ بسعر يوم ترحيله لأنه لا يحمل عملة");
   });
 
   it("shows the empty-balances message for a side with nothing open", async () => {

@@ -17,6 +17,9 @@ import {
   sendNotificationEmail,
 } from "@mezan/api";
 import {
+  withDerivedTreasuryFx,
+  deriveOpenFxBalances,
+  type ForeignTreasuryBalance,
   chequeLedgerDays,
   ALL_SCOPE,
   SiteService,
@@ -2316,6 +2319,41 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     return value;
   }
 
+  /** GL account → currency of every treasury account kept in a foreign currency. */
+  async function foreignTreasuryCurrencies(): Promise<ReadonlyMap<string, string>> {
+    const base = ((await settings.get()) ?? createDefaultSettings()).currency;
+    const byGlAccount = new Map<string, string>();
+    for (const account of await treasuryAccounts.list()) {
+      if (account.glAccountId && account.currency && account.currency !== base) byGlAccount.set(account.glAccountId, account.currency);
+    }
+    return byGlAccount;
+  }
+
+  /** What each foreign-currency treasury account holds in its own currency, beside the base amount the ledger books it at. */
+  async function foreignTreasuryBalances(asOfDate?: string): Promise<ForeignTreasuryBalance[]> {
+    const byGlAccount = await foreignTreasuryCurrencies();
+    if (byGlAccount.size === 0) return [];
+    const posted = (await ledger.listLines?.({ accountIds: [...byGlAccount.keys()], ...(asOfDate ? { toDate: asOfDate } : {}) })) ?? [];
+    const { lines, derived } = await withDerivedTreasuryFx(posted, byGlAccount, async (currency, on) => (await exchangeRates.findRate(currency, on))?.rate ?? null);
+    const open = deriveOpenFxBalances(lines, await accounts.list());
+    const rows: ForeignTreasuryBalance[] = [];
+    for (const account of await treasuryAccounts.list()) {
+      const currency = account.glAccountId ? byGlAccount.get(account.glAccountId) : undefined;
+      if (!account.glAccountId || !currency) continue;
+      const balance = open.find((b) => b.accountId === account.glAccountId && b.currency === currency);
+      rows.push({
+        treasuryAccountId: account.id,
+        name: account.name,
+        glAccountId: account.glAccountId,
+        currency,
+        foreignBalance: balance?.foreignAmount ?? Money.zero(),
+        baseBalance: balance?.bookedBase ?? Money.zero(),
+        derivedLines: derived.filter((line) => line.accountId === account.glAccountId).length,
+      });
+    }
+    return rows;
+  }
+
   async function resolveReconciliationControls(asOfDate?: string) {
     const upTo = (date: string | null | undefined): boolean => asOfDate === undefined || (date ?? "").slice(0, 10) <= asOfDate;
     const standingCertificate = (certificate: { status: string; approvedAt: string | null; executionDate: string; voidedAt: string | null }): boolean =>
@@ -2993,11 +3031,17 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       return { currency: line.currency, fxRate: line.fxRate ?? null };
     },
   };
+  const chequeBankLegFx = async (bankGlAccountId: string, date: string): Promise<{ currency: string; fxRate: string } | null> => {
+    const currency = (await foreignTreasuryCurrencies()).get(bankGlAccountId);
+    const rate = currency ? await exchangeRates.findRate(currency, date) : null;
+    return currency && rate ? { currency, fxRate: rate.rate } : null;
+  };
   const voucherChequeRegister = new ChequeService({
     cheques,
     gl: salesInvoiceGl,
     allocation: { allocations: vouchers.allocations, invoices: vouchers.invoices, settlement: invoiceSettlement, returns: invoiceReturnCredits },
     raisedBy: chequeRaisedByVoucher,
+    bankLegFx: chequeBankLegFx,
     realisedFx,
   });
   const voucherCheques: VoucherChequeRegistrationPort = {
@@ -3182,6 +3226,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         kind === "customer" ? (await customers.findById(id)) !== null : (await suppliers.findById(id)) !== null,
       vatFilings,
       openPartyDocuments: () => collectOpenPartyDocuments(),
+      treasuryCurrencyBalances: () => foreignTreasuryBalances(),
       baseCurrency: async () => ((await settings.get()) ?? createDefaultSettings()).currency,
     },
     vouchers: {
@@ -3383,6 +3428,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       // sub-ledger as a voucher, so a bounce can reopen what it settled (D192).
       allocation: { allocations: vouchers.allocations, invoices: vouchers.invoices, settlement: invoiceSettlement, returns: invoiceReturnCredits },
       raisedBy: chequeRaisedByVoucher,
+      bankLegFx: chequeBankLegFx,
       realisedFx,
     },
     bankReconciliation: {
@@ -3445,6 +3491,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       projects,
       exchangeRates,
       differenceAccounts: () => fxDifferenceAccounts("unrealised"),
+      foreignTreasuryCurrencies,
     },
     eta: {
       service: etaService,
@@ -4242,6 +4289,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     },
     reconciliationControls: resolveReconciliationControls,
     payrollBindings: { attendanceBound: Boolean(hrAttendance), exchangeRatesBound: Boolean(exchangeRates) },
+    treasuryFx: { foreignCurrencyByGlAccount: foreignTreasuryCurrencies, rateOn: async (currency, date) => (await exchangeRates.findRate(currency, date))?.rate ?? null },
     periodCloseGuard,
     addCloser: (closer) => areaClosers.push(closer),
   };

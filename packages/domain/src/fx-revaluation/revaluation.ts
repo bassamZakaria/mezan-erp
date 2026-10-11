@@ -221,6 +221,70 @@ export function deriveOpenFxBalances(
   return balances.sort((a, b) => (a.accountId === b.accountId ? a.currency.localeCompare(b.currency) : a.accountId.localeCompare(b.accountId)));
 }
 
+/** What a foreign-currency treasury account holds in its own currency, beside the base amount the ledger books it at. */
+export interface ForeignTreasuryBalance {
+  readonly treasuryAccountId: string;
+  readonly name: string;
+  readonly glAccountId: string;
+  readonly currency: string;
+  readonly foreignBalance: Money;
+  readonly baseBalance: Money;
+  /** How many of the account's lines carry no currency of their own and were read at the rate of their date. */
+  readonly derivedLines: number;
+}
+
+/** One ledger line on a foreign-currency treasury account that carries no currency of its own, read at the rate in force on its date. */
+export interface DerivedTreasuryFxLine {
+  readonly entryId: string;
+  readonly accountId: string;
+  readonly date: string;
+  readonly currency: string;
+  readonly fxRate: string;
+  readonly foreignAmount: Money;
+}
+
+/**
+ * A line posted on a foreign-currency treasury account before treasury lines
+ * carried a currency has a base amount and nothing else. Its foreign amount is
+ * DERIVED here — the account's currency at the approved rate of the line's own
+ * date — for reading only: the posted line is never rewritten, and every
+ * derived line is returned so the caller can show it as such. A date with no
+ * approved rate leaves the line as it is.
+ */
+export async function withDerivedTreasuryFx<L extends Pick<PostedLine, "entryId" | "accountId" | "date" | "currency" | "fxRate" | "debit" | "credit">>(
+  lines: readonly L[],
+  foreignTreasuryCurrencyByAccount: ReadonlyMap<string, string>,
+  rateOn: (currency: string, date: string) => Promise<string | null>,
+): Promise<{ readonly lines: L[]; readonly derived: DerivedTreasuryFxLine[] }> {
+  const derived: DerivedTreasuryFxLine[] = [];
+  const rates = new Map<string, string | null>();
+  const out: L[] = [];
+  for (const line of lines) {
+    const currency = foreignTreasuryCurrencyByAccount.get(line.accountId);
+    if (!currency || (line.fxRate && !isBaseCurrency(line.currency))) {
+      out.push(line);
+      continue;
+    }
+    const key = `${currency} ${line.date}`;
+    if (!rates.has(key)) rates.set(key, await rateOn(currency, line.date));
+    const fxRate = rates.get(key) ?? null;
+    if (!fxRate) {
+      out.push(line);
+      continue;
+    }
+    out.push({ ...line, currency, fxRate });
+    derived.push({
+      entryId: line.entryId,
+      accountId: line.accountId,
+      date: line.date,
+      currency,
+      fxRate,
+      foreignAmount: convertFromBase(Money.fromScaled(line.debit.scaled - line.credit.scaled), fxRate),
+    });
+  }
+  return { lines: out, derived };
+}
+
 /** A line whose signed base amount (`debitPositive`) becomes a debit (>0) or credit (<0). */
 function lineFor(
   accountId: string,

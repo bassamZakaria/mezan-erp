@@ -12,7 +12,7 @@ import {
   formatNumber,
   type DocumentListColumn,
 } from "@mezan/ui";
-import type { CurrencyBalanceGroupDTO, FxRevaluationDetailDTO } from "@mezan/contracts";
+import type { CurrencyBalanceGroupDTO, TreasuryCurrencyBalanceDTO, FxRevaluationDetailDTO } from "@mezan/contracts";
 import { foreignCurrencies, nextDay } from "@mezan/domain";
 import {
   useAllowedCurrencies,
@@ -202,8 +202,47 @@ export function FxRevaluationScreen() {
             totalBase={balances?.payableTotalBase ?? "0"}
           />
         </div>
+        {(balances?.treasury ?? []).length > 0 ? <TreasuryCurrencyTable rows={balances?.treasury ?? []} /> : null}
       </section>
     </div>
+  );
+}
+
+function TreasuryCurrencyTable({ rows }: { rows: readonly TreasuryCurrencyBalanceDTO[] }) {
+  const { t } = useAppTranslation();
+  const headCell =
+    "whitespace-nowrap border-b border-border bg-surface-2 px-[13px] py-[9px] text-start text-[11px] font-bold uppercase tracking-[0.2px] text-ink-muted";
+  return (
+    <Card className="mt-[16px] overflow-hidden">
+      <div className="border-b border-border px-[14px] py-[10px]">
+        <h3 className="text-[13px] font-bold text-ink">{t("fx.balances.treasury")}</h3>
+      </div>
+      <div className="overflow-x-auto">
+        <table aria-label={t("fx.balances.treasury")} className="w-full min-w-[420px] border-collapse text-[13px]">
+          <thead>
+            <tr>
+              <th scope="col" className={headCell}>{t("fx.balances.treasuryAccount")}</th>
+              <th scope="col" className={headCell}>{t("fx.currency")}</th>
+              <th scope="col" className={headCell}>{t("fx.balances.transactionAmount")}</th>
+              <th scope="col" className={headCell}>{t("fx.balances.baseAmount")}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.treasuryAccountId} className="border-b border-border last:border-b-0">
+                <td className="px-[13px] py-[8px] text-ink">
+                  {row.name}
+                  {row.derivedLines > 0 ? <div className="text-[11.5px] text-warning-ink">{t("fx.balances.derivedLines", { count: row.derivedLines })}</div> : null}
+                </td>
+                <td className="mz-num px-[13px] py-[8px] text-ink-muted">{row.currency}</td>
+                <td className="mz-num px-[13px] py-[8px] text-ink">{fmt(row.foreignBalance)}</td>
+                <td className="mz-num px-[13px] py-[8px] text-ink-muted">{fmt(row.baseBalance)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Card>
   );
 }
 

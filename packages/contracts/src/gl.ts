@@ -191,12 +191,26 @@ export const currencyBalanceGroupSchema = z.object({
 });
 
 /** GET /gl/balances-by-currency — customer and supplier balances per currency. */
+export const treasuryCurrencyBalanceSchema = z.object({
+  treasuryAccountId: z.string(),
+  name: z.string(),
+  glAccountId: z.string(),
+  currency: z.string(),
+  foreignBalance: z.string(),
+  baseBalance: z.string(),
+  /** Lines carrying no currency of their own, read at the approved rate of their own date. */
+  derivedLines: z.number().int(),
+});
+export type TreasuryCurrencyBalanceDTO = z.infer<typeof treasuryCurrencyBalanceSchema>;
+
 export const partyCurrencyBalanceReportSchema = z.object({
   baseCurrency: z.string(),
   receivables: z.array(currencyBalanceGroupSchema),
   payables: z.array(currencyBalanceGroupSchema),
   receivableTotalBase: z.string(),
   payableTotalBase: z.string(),
+  /** Foreign-currency treasury accounts: what each holds in its own currency and the base amount the ledger books that at. */
+  treasury: z.array(treasuryCurrencyBalanceSchema).optional(),
 });
 
 export type PartyCurrencyBalanceDTO = z.infer<typeof partyCurrencyBalanceSchema>;

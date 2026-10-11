@@ -167,6 +167,8 @@ export interface ChequeServiceDeps {
   readonly raisedBy?: ChequeRaisingDocumentPort;
   /** Rates and accounts for the realised exchange difference a cheque settling a foreign invoice posts (D221). */
   readonly realisedFx?: RealisedFxPort;
+  /** The currency and the day's approved rate of a bank account kept in a foreign currency, so the line a collection posts on it says what it holds; null for a base-currency account. */
+  readonly bankLegFx?: (bankGlAccountId: string, date: string) => Promise<{ readonly currency: string; readonly fxRate: string } | null>;
 }
 
 /**
@@ -292,20 +294,22 @@ export class ChequeService {
     const cheque = await this.require(cmd.chequeId);
     assertChequeTransition(cheque, "collect");
 
+    const collectionDate = cmd.date ?? this.now().slice(0, 10);
+    const bankFx = (await this.deps.bankLegFx?.(cmd.bankGlAccountId, collectionDate)) ?? {};
     const lines =
       cheque.direction === "incoming"
         ? [
-            { accountId: cmd.bankGlAccountId, debit: cheque.amount, credit: Money.zero() },
+            { accountId: cmd.bankGlAccountId, debit: cheque.amount, credit: Money.zero(), ...bankFx },
             { accountId: cheque.controlAccounts.underCollectionAccountId, debit: Money.zero(), credit: cheque.amount },
           ]
         : [
             { accountId: cheque.controlAccounts.underCollectionAccountId, debit: cheque.amount, credit: Money.zero() },
-            { accountId: cmd.bankGlAccountId, debit: Money.zero(), credit: cheque.amount },
+            { accountId: cmd.bankGlAccountId, debit: Money.zero(), credit: cheque.amount, ...bankFx },
           ];
     const entry = await postJournalEntry(
       {
         id: cmd.journalEntryId,
-        date: cmd.date ?? this.now().slice(0, 10),
+        date: collectionDate,
         memo: `تحصيل شيك رقم ${cheque.chequeNumber}`,
         source: "system",
         sourceDocType: "CHEQUE",

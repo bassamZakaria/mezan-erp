@@ -1717,6 +1717,8 @@ export {
   type PartyCurrencyBalanceDTO,
   type CurrencyBalanceGroupDTO,
   type PartyCurrencyBalanceReportDTO,
+  type TreasuryCurrencyBalanceDTO,
+  treasuryCurrencyBalanceSchema,
 } from "./gl.js";
 
 export {

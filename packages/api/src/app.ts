@@ -1052,7 +1052,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   if (options.treasuryAccountRepo) {
     app.route(
       "/treasury-accounts",
-      createTreasuryAccountsRoutes(options.treasuryAccountRepo, resolveAuth, options.gl?.ledger, options.auditSink),
+      createTreasuryAccountsRoutes(options.treasuryAccountRepo, resolveAuth, options.gl?.ledger, options.auditSink, options.gl?.treasuryCurrencyBalances),
     );
   }
   if (options.fiscalPeriodRepo) {

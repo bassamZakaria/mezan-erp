@@ -2,6 +2,7 @@ import { postingRefusalResponse } from "./posting-refusal.js";
 import { randomUUID } from "node:crypto";
 import { Hono, type Context } from "hono";
 import {
+  type ForeignTreasuryBalance,
   Money,
   createJournalEntry,
   postJournalEntry,
@@ -107,6 +108,8 @@ export interface GlRoutesDeps {
    * balance is base-currency.
    */
   readonly openPartyDocuments?: () => Promise<readonly OpenPartyDocument[]>;
+  /** Foreign-currency treasury accounts and what each holds in its own currency. */
+  readonly treasuryCurrencyBalances?: () => Promise<readonly ForeignTreasuryBalance[]>;
   /** The tenant's base currency; defaults to EGP. */
   readonly baseCurrency?: () => Promise<string> | string;
 }
@@ -786,6 +789,15 @@ export function createGlRoutes(
       payables: report.payables.map(serializeCurrencyGroup),
       receivableTotalBase: report.receivableTotalBase.toString(),
       payableTotalBase: report.payableTotalBase.toString(),
+      treasury: ((await deps.treasuryCurrencyBalances?.()) ?? []).map((row) => ({
+        treasuryAccountId: row.treasuryAccountId,
+        name: row.name,
+        glAccountId: row.glAccountId,
+        currency: row.currency,
+        foreignBalance: row.foreignBalance.toString(),
+        baseBalance: row.baseBalance.toString(),
+        derivedLines: row.derivedLines,
+      })),
     });
   });
 

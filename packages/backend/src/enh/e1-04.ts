@@ -121,10 +121,18 @@ function buildSources(ctx: BackendModuleContext, store: ReturnType<typeof create
   const { queries, fxRuns } = store;
   const accountBalances = ledgerBalances(stores.ledger);
 
+  // A currency is foreign-and-open when a monetary account still holds some of it. A treasury line posted before lines carried a currency is read at the rate of its own day; one whose day has no approved rate cannot be read at all, and its currency stays listed until a rate is entered.
   async function foreignCurrencies(window: PeriodCloseWindow): Promise<string[]> {
-    const lines = queries.openFxLineGroups(window.endDate).map((group) => asPostedLine(group, window.endDate));
-    const open = deriveOpenFxBalances(lines, await stores.accounts.list()).filter((balance) => balance.foreignAmount.scaled !== 0n);
-    return [...new Set([...open.map((balance) => balance.currency), ...queries.foreignTreasuryCurrencies(window.endDate)])].sort();
+    const tagged = queries.openFxLineGroups(window.endDate).map((group) => asPostedLine(group, window.endDate));
+    const unreadable = new Set<string>();
+    const derived: PostedLine[] = [];
+    for (const group of queries.untaggedTreasuryLineGroups(window.endDate)) {
+      const fxRate = await ctx.treasuryFx.rateOn(group.currency, group.date);
+      if (fxRate) derived.push(asPostedLine({ accountId: group.accountId, currency: group.currency, fxRate, memo: null, debit: group.debit, credit: group.credit }, group.date));
+      else if (group.debit.scaled !== group.credit.scaled) unreadable.add(group.currency);
+    }
+    const open = deriveOpenFxBalances([...tagged, ...derived], await stores.accounts.list()).filter((balance) => balance.foreignAmount.scaled !== 0n);
+    return [...new Set([...open.map((balance) => balance.currency), ...unreadable])].sort();
   }
 
   return {

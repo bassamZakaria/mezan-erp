@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { convertFromBase } from "../exchange-rates/convert.js";
 import { Money } from "../money/index.js";
 import { buildTestService } from "./test-helpers/build-test-service.js";
 import { voucherLine } from "./voucher-document.js";
@@ -157,8 +158,10 @@ describe("VoucherService — a foreign-currency voucher", () => {
     const arLine = entry.lines.find((l) => l.accountId === "1100")!;
     expect(arLine.currency).toBe("USD");
     expect(arLine.fxRate).toBe("49.35");
-    // The cash leg is base money in a base treasury — no FX tag on it.
-    expect(entry.lines.find((l) => l.accountId === "1300-1")!.currency ?? null).toBeNull();
+    // The cash leg sits on a USD treasury account: it carries the account's currency and the rate, and the voucher records the dollars that moved.
+    const cashLine = entry.lines.find((l) => l.accountId === "1300-1")!;
+    expect({ currency: cashLine.currency, fxRate: cashLine.fxRate }).toEqual({ currency: "USD", fxRate: "49.35" });
+    expect(voucherLine(document).treasuryFx).toEqual({ currency: "USD", fxRate: "49.35", foreignAmount: Money.fromMajor("1000") });
   });
 
   it("refuses a currency with no approved rate, and posts nothing", async () => {
@@ -336,12 +339,21 @@ describe("VoucherService — D338: the voucher takes its treasury account's curr
     expect(voucherLine(doc).currency).toBe("USD");
   });
 
-  it("a stated currency the treasury account does not hold is refused, and nothing is written", async () => {
+  it("a second foreign currency on a foreign treasury account is refused, and nothing is written", async () => {
     const h = buildTestService();
-    await expect(h.service.createVoucher({ ...collection, treasuryAccountId: "ta-cash-usd", currency: "EGP" })).rejects.toMatchObject({
+    await expect(h.service.createVoucher({ ...collection, treasuryAccountId: "ta-cash-usd", currency: "EUR" })).rejects.toMatchObject({
       messageEn: expect.stringContaining("treasury account is in USD"),
     });
     expect(await h.service.findById("v-d338")).toBeNull();
+  });
+
+  it("a voucher stated in the base currency on a foreign treasury account is taken, and confirms with the dollars it moved at the day's rate", async () => {
+    const h = buildTestService({ rates: { USD: "50.00" } });
+    await h.service.createVoucher({ ...collection, treasuryAccountId: "ta-cash-usd", currency: "EGP" });
+    const { document } = await h.service.confirmVoucher(collection.id);
+    const line = voucherLine(document);
+    expect(line.fxRate ?? null).toBeNull();
+    expect(line.treasuryFx).toEqual({ currency: "USD", fxRate: "50.00", foreignAmount: convertFromBase(line.amount, "50.00") });
   });
 
   it("createConfirmAndAllocate confirms and allocates the unallocated remainder in one call", async () => {

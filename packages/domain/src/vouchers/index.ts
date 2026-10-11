@@ -21,6 +21,7 @@ export {
 
 export {
   type VoucherLine,
+  type TreasuryLegFx,
   type VoucherDocument,
   type HeldAllocationRequest,
   VOUCHER_DOC_TYPE,

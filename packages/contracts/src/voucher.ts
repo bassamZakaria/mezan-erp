@@ -39,6 +39,8 @@ export const heldAllocationSchema = z.object({
   amount: moneyString.nullable(),
 });
 
+export const treasuryLegFxSchema = z.object({ currency: z.string(), fxRate: z.string(), foreignAmount: moneyString });
+
 export const voucherSchema = z.object({
   id: z.string().min(1),
   docNo: z.string().nullable(),
@@ -57,6 +59,10 @@ export const voucherSchema = z.object({
    * (B-4/B-5).
    */
   fxRate: z.string().nullable(),
+  /** What the movement is in a foreign-currency treasury account's own currency, stamped at confirm; null on a base-currency account. */
+  treasuryFx: treasuryLegFxSchema.nullable().optional(),
+  /** The same for the destination account of a transfer. */
+  counterTreasuryFx: treasuryLegFxSchema.nullable().optional(),
   /** `amount` converted at `fxRate` — what the GL, the treasury and every allocation hold. */
   baseAmount: z.string(),
   branchId: z.string(),
@@ -175,6 +181,8 @@ export const createAllocationSchema = z.object({
  * voucher.
  */
 export const createCollectionSchema = z.object({
+  /** The currency the collection is stated in: the treasury account's own when omitted, or the base currency on a foreign-currency account. */
+  currency: z.string().optional(),
   id: z.string().min(1).optional(),
   date: isoDateOrInstant.optional(),
   memo: z.string().optional(),

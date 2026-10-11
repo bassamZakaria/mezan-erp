@@ -99,6 +99,10 @@ function serialize(doc: VoucherDocument) {
     amount: line.amount.toString(),
     currency: line.currency,
     fxRate: line.fxRate ?? null,
+    treasuryFx: line.treasuryFx ? { currency: line.treasuryFx.currency, fxRate: line.treasuryFx.fxRate, foreignAmount: line.treasuryFx.foreignAmount.toString() } : null,
+    counterTreasuryFx: line.counterTreasuryFx
+      ? { currency: line.counterTreasuryFx.currency, fxRate: line.counterTreasuryFx.fxRate, foreignAmount: line.counterTreasuryFx.foreignAmount.toString() }
+      : null,
     baseAmount: voucherBaseAmount(line).toString(),
     branchId: line.branchId,
     paymentMethod: line.paymentMethod,
@@ -664,7 +668,7 @@ export function createVouchersRoutes(
           memo: d.memo,
           voucherType,
           amount: Money.fromMajor(d.amount),
-          currency: treasury.currency,
+          currency: d.currency ?? treasury.currency,
           branchId: d.branchId,
           paymentMethod: d.paymentMethod,
           treasuryAccountId: treasury.id,

@@ -1643,4 +1643,44 @@ export async function closingAMonthStrandsTheDraftsDatedIntoIt(ctx: Ctx): Promis
       if (posted.status === 201) await ctx.req("POST", `/gl/journal-entries/${id}/reverse`, {});
     }
   });
+
+  await ctx.scenario("treasury FX: a USD bank holds dollars — receipts and payments at two rates, a base-currency payment, the month-end restatement, and the reversals that take it all back", async () => {
+    const usd = async () => (await ctx.req("GET", "/treasury-accounts/TR-DEMO-BANK-USD")).body;
+    const bank = async (date: string) => {
+      const preview = await ctx.req("POST", "/revaluation/preview", { date, currencies: ["USD"] });
+      const row = (preview.body?.details ?? []).find((d: any) => d.accountId === "1310-USD");
+      return { foreign: ctx.n(row?.foreignAmount), booked: ctx.n(row?.bookedBase), delta: ctx.n(row?.delta), rate: String(row?.closingRate ?? "") };
+    };
+    const before = { account: await usd(), bank: await bank("2026-08-31") };
+    ctx.check("the USD bank reports a foreign balance of its own", before.account?.currency === "USD" && typeof before.account?.foreignBalance === "string", JSON.stringify(before.account).slice(0, 160));
+
+    const voucher = async (id: string, body: Record<string, unknown>) => {
+      const created = await ctx.req("POST", "/vouchers", { id, branchId: "BR-MAIN", memo: "SCN treasury FX", paymentMethod: "bank", treasuryAccountId: "TR-DEMO-BANK-USD", treasuryGlAccountId: "1310-USD", ...body });
+      const confirmed = created.status === 201 ? await ctx.req("POST", `/vouchers/${id}/confirm`, {}) : created;
+      return { status: confirmed.status, fx: (confirmed.body?.document ?? confirmed.body)?.treasuryFx ?? (await ctx.req("GET", `/vouchers/${id}`)).body?.treasuryFx };
+    };
+    const receipt = await voucher("SCN-A-TFX-IN", { date: "2026-08-10", voucherType: "other_income", amount: "300.00", currency: "USD", counterpartyGlAccountId: "4900" });
+    ctx.check("a 300 USD receipt on 10 August confirms at 48.90", receipt.status === 200 && receipt.fx?.fxRate === "48.90" && receipt.fx?.foreignAmount === "300.000000", JSON.stringify(receipt));
+    const payment = await voucher("SCN-A-TFX-OUT", { date: "2026-08-20", voucherType: "other_expense", amount: "100.00", currency: "USD", counterpartyGlAccountId: "5910" });
+    ctx.check("a 100 USD payment on 20 August confirms at 49.35", payment.status === 200 && payment.fx?.fxRate === "49.35" && payment.fx?.foreignAmount === "100.000000", JSON.stringify(payment));
+    const basePayment = await voucher("SCN-A-TFX-EGP", { date: "2026-08-20", voucherType: "other_expense", amount: "987.00", currency: "EGP", counterpartyGlAccountId: "5910" });
+    ctx.check("a 987.00 EGP payment from the USD bank records 20 dollars at the day's rate", basePayment.status === 200 && basePayment.fx?.currency === "USD" && basePayment.fx?.foreignAmount === "20.000000", JSON.stringify(basePayment));
+    const second = await ctx.req("POST", "/vouchers", { id: "SCN-A-TFX-EUR", branchId: "BR-MAIN", memo: "SCN", paymentMethod: "bank", treasuryAccountId: "TR-DEMO-BANK-USD", treasuryGlAccountId: "1310-USD", date: "2026-08-20", voucherType: "other_expense", amount: "5.00", currency: "EUR", counterpartyGlAccountId: "5910" });
+    ctx.check("a EUR voucher on the USD bank is refused in Arabic", second.status === 422 && /عملة أجنبية أخرى/.test(String(second.body?.message)), `status ${second.status} ${JSON.stringify(second.body).slice(0, 140)}`);
+
+    const after = { account: await usd(), bank: await bank("2026-08-31") };
+    ctx.checkEq("the bank holds 300 − 100 − 20 = 180 more dollars", after.bank.foreign - before.bank.foreign, 180);
+    ctx.checkEq("booked at 300×48.90 − 100×49.35 − 987.00 = 8,748.00 more", after.bank.booked - before.bank.booked, 8748);
+    ctx.checkEq("the treasury account reports the same dollars", ctx.n(after.account?.foreignBalance) - ctx.n(before.account?.foreignBalance), 180);
+    ctx.checkEq("restating to the closing rate of 49.35 adds 180×49.35 − 8,748.00 = 135.00 to the unrealised gain", after.bank.delta - before.bank.delta, 135);
+
+    for (const id of ["SCN-A-TFX-EGP", "SCN-A-TFX-OUT", "SCN-A-TFX-IN"]) {
+      const date = id === "SCN-A-TFX-IN" ? "2026-08-10" : "2026-08-20";
+      const reversed = await ctx.req("POST", `/vouchers/${id}/reverse`, { date });
+      ctx.check(`${id} reverses`, reversed.status === 201, `status ${reversed.status} ${JSON.stringify(reversed.body).slice(0, 140)}`);
+    }
+    const restored = await bank("2026-08-31");
+    ctx.checkEq("the dollars are back where they started", restored.foreign, before.bank.foreign);
+    ctx.checkEq("and so is the amount they are booked at", restored.booked, before.bank.booked);
+  });
 }

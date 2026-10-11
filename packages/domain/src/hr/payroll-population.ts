@@ -1,5 +1,6 @@
 import type { EmployeeRef } from "../hr-shared/employee-ref.js";
 import type { Contract } from "./contract.js";
+import { isBaseCurrency } from "../exchange-rates/convert.js";
 
 export interface PayrollWindow {
   readonly periodStart: string;
@@ -12,6 +13,19 @@ export interface PayrollCapabilities {
   readonly runCurrency: string;
   /** A contract in another currency can be converted into the run's. */
   readonly canConvertCurrency: boolean;
+}
+
+export interface PayrollBindings {
+  readonly attendanceBound: boolean;
+  readonly exchangeRatesBound: boolean;
+}
+
+export function payrollCapabilities(bindings: PayrollBindings, runCurrency: string): PayrollCapabilities {
+  return {
+    attendanceBound: bindings.attendanceBound,
+    runCurrency,
+    canConvertCurrency: bindings.exchangeRatesBound && isBaseCurrency(runCurrency),
+  };
 }
 
 export enum PayrollExclusionReason {

@@ -551,8 +551,14 @@ function createQueries(sqlite: Database.Database): PeriodCloseQueries {
 
 function createFxRunLog(sqlite: Database.Database): FxRevaluationRunLog {
   const insert = sqlite.prepare(`INSERT INTO fx_revaluation_run (as_of_date, currency, entry_id, ran_by, ran_at) VALUES (?, ?, ?, ?, ?)`);
-  const runs = sqlite.prepare(`SELECT currency, MAX(ran_at) AS at FROM fx_revaluation_run WHERE as_of_date = ? GROUP BY currency`);
+  // A revaluation auto-reverses the day AFTER the period end and still stands at it. One whose reversal is dated on or before the period end was undone and covers nothing.
+  const undoneBy = (entry: string, asOf: string) =>
+    `EXISTS (SELECT 1 FROM journal_entry undone JOIN journal_entry undo ON undo.id = undone.reversed_by_entry_id WHERE undone.id = ${entry} AND substr(undo.date, 1, 10) <= ${asOf})`;
   type Stamp = { currency: string; at: string };
+  const standingRuns = (asOfDate: string) =>
+    sqlite
+      .prepare(`SELECT run.currency AS currency, MAX(run.ran_at) AS at FROM fx_revaluation_run run WHERE run.as_of_date = ? AND NOT ${undoneBy("run.entry_id", "run.as_of_date")} GROUP BY run.currency`)
+      .all(asOfDate) as Stamp[];
   // Prepared on first use: this log is opened before the ledger store has created its tables.
   const foreignLines = `
        FROM journal_line jl
@@ -566,9 +572,9 @@ function createFxRunLog(sqlite: Database.Database): FxRevaluationRunLog {
   const revaluationEntries = (asOfDate: string) =>
     sqlite
       .prepare(
-        `SELECT jl.currency AS currency, MAX(COALESCE(je.posted_at, je.created_at)) AS at ${foreignLines} AND je.source_doc_type = ? AND substr(je.date, 1, 10) = ? GROUP BY jl.currency`,
+        `SELECT jl.currency AS currency, MAX(COALESCE(je.posted_at, je.created_at)) AS at ${foreignLines} AND je.source_doc_type = ? AND substr(je.date, 1, 10) = ? AND je.reverses_entry_id IS NULL AND NOT ${undoneBy("je.id", "?")} GROUP BY jl.currency`,
       )
-      .all(BASE_CURRENCY, ...LEDGER_EFFECTIVE_STATUSES, FX_REVALUATION_DOC_TYPE, asOfDate) as Stamp[];
+      .all(BASE_CURRENCY, ...LEDGER_EFFECTIVE_STATUSES, FX_REVALUATION_DOC_TYPE, asOfDate, asOfDate) as Stamp[];
   // A foreign treasury balance whose lines carry no currency and rate: the revaluation cannot see it, so no run has revalued it.
   const unseenTreasuryCurrencies = (asOfDate: string) =>
     sqlite
@@ -590,7 +596,7 @@ function createFxRunLog(sqlite: Database.Database): FxRevaluationRunLog {
   return {
     record: (run) => recordAll(run),
     currenciesRevaluedAsOf(asOfDate) {
-      const ranAt = new Map((runs.all(asOfDate) as Stamp[]).map((row) => [row.currency, row.at]));
+      const ranAt = new Map(standingRuns(asOfDate).map((row) => [row.currency, row.at]));
       const entryAt = new Map(revaluationEntries(asOfDate).map((row) => [row.currency, row.at]));
       const postedAt = new Map(lastForeignPosting(asOfDate).map((row) => [row.currency, row.at]));
       const unseen = new Set(unseenTreasuryCurrencies(asOfDate).map((row) => row.currency));

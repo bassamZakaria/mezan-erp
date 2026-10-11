@@ -289,15 +289,17 @@ describe("period-close checks read the real tables (ENH-E1-04)", () => {
     employee("emp-undated", { status: "terminated", terminated_at: null });
 
     run(6, "disbursed", ["emp-stays", "emp-left-aug", "emp-left-mid-july"]);
+    expect(await dueIn("06")).toEqual([["missing", 1]]);
+    insert(sqlite, "hr_payslip", { id: "ps-06-daily", number: "PS-06-DAILY", run_id: "pr-06", employee_id: "emp-daily", contract_id: "ct-emp-daily", currency: "EGP", period_start: "2026-06-01", period_end: "2026-06-28" });
     expect(await dueIn("06")).toEqual([]);
 
-    run(7, "approved", ["emp-stays", "emp-left-aug"]);
+    run(7, "approved", ["emp-stays", "emp-left-aug", "emp-daily"]);
     expect(await dueIn("07")).toEqual([["missing", 1]]);
     insert(sqlite, "hr_payslip", { id: "ps-07-final", number: "PS-07-FINAL", run_id: "pr-07", employee_id: "emp-left-mid-july", contract_id: "ct-emp-left-mid-july", currency: "EGP", period_start: "2026-07-01", period_end: "2026-07-12" });
     expect(await dueIn("07")).toEqual([]);
 
-    expect(await dueIn("08")).toEqual([["missing", 2]]);
-    expect(await dueIn("09")).toEqual([["missing", 1]]);
+    expect(await dueIn("08")).toEqual([["missing", 3]]);
+    expect(await dueIn("09")).toEqual([["missing", 2]]);
   });
 
   it("a run for a month pays a leaver to their last day and someone who left later in full — on the payslips and in the entry the approval posts", async () => {
@@ -331,6 +333,24 @@ describe("period-close checks read the real tables (ENH-E1-04)", () => {
     expect(entry).toEqual({ date: "2026-06-30", debit: 12_600_000_000n, credit: 12_600_000_000n });
     expect((await check("06", "drafts")).findings.filter((f) => f.kind === "payroll_due")).toEqual([]);
     expect((await check("07", "drafts")).findings.filter((f) => f.kind === "payroll_due").map((f) => [f.state, f.count])).toEqual([["missing", 2]]);
+  });
+
+  it("a daily-paid worker is owed by the month exactly as a run would pay them, because the check and the run price with the same bindings", async () => {
+    const { sqlite, request, check } = await world();
+    const due = async () => (await check("06", "drafts")).findings.filter((f) => f.kind === "payroll_due").map((f) => [f.state, f.count]);
+    expect((await request("POST", "/hr/employees", { id: "emp-monthly", firstName: "موظف", lastName: "شهري", branchId: "BR-MAIN", hireDate: "2026-01-01" })).status).toBe(201);
+    expect((await request("POST", "/hr/contracts", { id: "ct-monthly", employeeId: "emp-monthly", type: "indefinite", startDate: "2026-01-01", monthlySalary: "6000", currency: "EGP" })).status).toBe(201);
+    expect((await request("POST", "/hr/employees", { id: "emp-daily", firstName: "عامل", lastName: "يومية", branchId: "BR-MAIN", hireDate: "2026-01-01" })).status).toBe(201);
+    const daily = await request("POST", "/hr/contracts", { id: "ct-daily", employeeId: "emp-daily", type: "indefinite", startDate: "2026-01-01", monthlySalary: "0", payBasis: "daily", dailyRate: "200", currency: "EGP" });
+    expect(`${daily.status} ${daily.status === 201 ? "" : await daily.text()}`.trim()).toBe("201");
+
+    expect(await due()).toEqual([["missing", 2]]);
+
+    expect((await request("POST", "/hr/payroll/runs", { id: "pr-june", year: 2026, month: 6 })).status).toBe(201);
+    expect((await request("POST", "/hr/payroll/runs/pr-june/calculate", {})).status).toBe(200);
+    expect(sqlite.prepare(`SELECT employee_id AS employee FROM hr_payslip WHERE run_id = 'pr-june' ORDER BY employee_id`).all()).toEqual([{ employee: "emp-daily" }, { employee: "emp-monthly" }]);
+    expect((await request("POST", "/hr/payroll/runs/pr-june/approve", {})).status).toBe(200);
+    expect(await due()).toEqual([]);
   });
 
   it("a tenant without the HR module is not asked for a payroll run", async () => {
@@ -530,6 +550,26 @@ describe("period-close checks read the real tables (ENH-E1-04)", () => {
     post(sqlite, "usd-bank", "2026-06-12", [["1021", 48000, 0], ["2170", 0, 48000]], { posted_at: "2026-06-12T08:00:00.000Z" });
     expect(await state("06")).toEqual([["USD", "missing"]]);
     expect(await state("05")).toEqual([["USD", "ok"]]);
+  });
+
+  it("a revaluation undone within the month no longer covers it; one that auto-reverses the next day still does", async () => {
+    const { sqlite, check } = await world();
+    const usd = { currency: "USD", fx_rate: "50" };
+    const restated = { currency: "USD", fx_rate: "51", memo: "إعادة تقييم عملات أجنبية" };
+    const state = async (month: string) => (await check(month, "fx_revaluation")).findings.map((f) => [f.ref, f.state]);
+    const revaluation = (id: string, date: string, reversalId: string, reversalDate: string, stamp: string): void => {
+      post(sqlite, id, date, [["1105", 100, 0, restated], ["4100", 0, 100]], { posted_at: stamp, source_doc_type: "FX_REVALUATION" });
+      post(sqlite, reversalId, reversalDate, [["4100", 100, 0], ["1105", 0, 100, restated]], { posted_at: stamp, source_doc_type: "FX_REVALUATION", reverses_entry_id: id });
+      sqlite.prepare(`UPDATE journal_entry SET status = 'reversed', reversed_by_entry_id = ? WHERE id = ?`).run(reversalId, id);
+    };
+
+    post(sqlite, "usd-feb", "2026-02-10", [["1105", 5000, 0, usd], ["4100", 0, 5000]], { posted_at: "2026-02-10T08:00:00.000Z" });
+    revaluation("reval-mar", "2026-03-31", "reval-mar-undone", "2026-03-31", "2026-04-01T09:00:00.000Z");
+    insert(sqlite, "fx_revaluation_run", { as_of_date: "2026-03-31", currency: "USD", entry_id: "reval-mar", ran_by: "admin", ran_at: "2026-04-01T09:00:00.000Z" });
+    revaluation("reval-apr", "2026-04-30", "reval-apr-auto", "2026-05-01", "2026-05-01T09:00:00.000Z");
+
+    expect(await state("03")).toEqual([["USD", "missing"]]);
+    expect(await state("04")).toEqual([["USD", "ok"]]);
   });
 
   it("an asset that was in service all month and disposed of the month after is still due for the month", async () => {

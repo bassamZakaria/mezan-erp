@@ -450,6 +450,8 @@ export {
   contractForPeriod,
   inServiceDuring,
   payrollEligibility,
+  payrollCapabilities,
+  type PayrollBindings,
   type PayrollCapabilities,
   type PayrollEligibility,
   type PayrollServiceSpan,

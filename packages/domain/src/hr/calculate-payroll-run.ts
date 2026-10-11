@@ -1,5 +1,5 @@
 import { Money, allocate, roundMoney } from "../money/index.js";
-import { convertFromBase, convertToBase, isBaseCurrency } from "../exchange-rates/convert.js";
+import { convertFromBase, convertToBase } from "../exchange-rates/convert.js";
 import type { EmployeeDirectory, EmployeeRef } from "../hr-shared/employee-ref.js";
 import { getPayBasisLabel, getPayFrequencyLabel, type Contract, type ContractRepository } from "./contract.js";
 import { componentAccountId, type PayrollComponentRepository } from "./payroll-component.js";
@@ -46,7 +46,7 @@ import {
   PayrollFxRateMissingError,
   PayrollRunNotFoundError,
 } from "./errors.js";
-import { PayrollExclusionReason, inServiceDuring, payrollEligibility, type PayrollCapabilities, type PayrollWindow } from "./payroll-population.js";
+import { PayrollExclusionReason, inServiceDuring, payrollCapabilities, payrollEligibility, type PayrollWindow } from "./payroll-population.js";
 
 /**
  * The payroll calculation engine (docs/archive/catalog/06 "الرواتب").
@@ -378,11 +378,7 @@ export async function calculatePayrollRun(runId: string, deps: PayrollCalculatio
   const warnings: string[] = [];
 
   const window: PayrollWindow = { periodStart: run.periodStart, periodEnd: run.periodEnd };
-  const capabilities: PayrollCapabilities = {
-    attendanceBound: deps.workedTime !== undefined,
-    runCurrency: run.currency,
-    canConvertCurrency: deps.exchangeRates !== undefined && isBaseCurrency(run.currency),
-  };
+  const capabilities = payrollCapabilities({ attendanceBound: deps.workedTime !== undefined, exchangeRatesBound: deps.exchangeRates !== undefined }, run.currency);
   // Everyone who served a day of the PERIOD, not today's staff list: a run for
   // June still owes June's pay to someone who has left since.
   const employees = (await deps.employees.list()).filter((e) => inServiceDuring(e, window) && (run.branchId === null || e.branchId === run.branchId));

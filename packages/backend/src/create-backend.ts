@@ -4227,6 +4227,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       sequenceCounters,
     },
     reconciliationControls: resolveReconciliationControls,
+    payrollBindings: { attendanceBound: Boolean(hrAttendance), exchangeRatesBound: Boolean(exchangeRates) },
     periodCloseGuard,
     addCloser: (closer) => areaClosers.push(closer),
   };

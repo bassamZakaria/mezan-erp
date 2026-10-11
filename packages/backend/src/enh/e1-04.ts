@@ -20,6 +20,7 @@ import {
   findSequenceGapsInWindow,
   inServiceDuring,
   payrollEligibility,
+  payrollCapabilities,
   BASE_CURRENCY,
   journalDateForPeriod,
   type Asset,
@@ -165,15 +166,10 @@ function buildSources(ctx: BackendModuleContext, store: ReturnType<typeof create
 
     bankAccountsWithMovement: async (window) =>
       queries.bankAccountsWithMovement(window).map((account) => ({ treasuryAccountId: account.treasuryAccountId, label: account.name, firstMovementDate: account.firstMovementDate })),
-    /**
-     * Who a run for the month would pay — the run's own predicate, asked of the
-     * month — less whoever a posted run has paid. Attendance is not bound to
-     * payroll here, so an hourly or daily contract is one a run cannot pay and
-     * is not counted as owed.
-     */
+    // Who a run for the month would pay — the run's own predicate and bindings, asked of the month — less whoever a posted run has paid.
     async payrollDue(window) {
       const period = { periodStart: window.startDate, periodEnd: window.endDate };
-      const capabilities = { attendanceBound: false, runCurrency: BASE_CURRENCY, canConvertCurrency: true };
+      const capabilities = payrollCapabilities(ctx.payrollBindings, BASE_CURRENCY);
       const { paidEmployeeIds, hasUnpostedRun } = queries.payrollRuns(window);
       const paid = new Set(paidEmployeeIds);
       let dueEmployees = 0;

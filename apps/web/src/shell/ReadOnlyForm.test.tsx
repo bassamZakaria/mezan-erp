@@ -2,7 +2,7 @@
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
-import { NumberField, SelectField, TextAreaField, TextField, ToggleField } from "../settings/form-controls";
+import { Field, NumberField, SelectField, TextAreaField, TextField, ToggleField } from "../settings/form-controls";
 import { ReadOnlyForm } from "./ReadOnlyForm";
 
 const REASON = "إعداد مشترك لكل الفروع — تعدّله الإدارة.";
@@ -45,5 +45,24 @@ describe("a shared configuration form, for a branch-restricted user (D111)", () 
     expect(screen.getByRole("combobox", { name: "طريقة الحساب" })).toBeEnabled();
     expect(screen.getByText("يظهر على الفاتورة")).toBeInTheDocument();
     expect(screen.queryByText(REASON)).not.toBeInTheDocument();
+  });
+
+  it("disables a control a screen placed in a labelled field by hand, and says why", () => {
+    const form = (
+      <Field label="الوصف" hint="يظهر في القائمة">
+        <textarea aria-label="الوصف" defaultValue="" />
+        <button type="button">اختيار</button>
+      </Field>
+    );
+    const { unmount } = render(<ReadOnlyForm reason={REASON}>{form}</ReadOnlyForm>);
+    expect(screen.getByLabelText("الوصف")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "اختيار" })).toBeDisabled();
+    expect(screen.getByText(REASON)).toBeInTheDocument();
+    unmount();
+
+    render(<ReadOnlyForm reason={null}>{form}</ReadOnlyForm>);
+    expect(screen.getByLabelText("الوصف")).toBeEnabled();
+    expect(screen.getByRole("button", { name: "اختيار" })).toBeEnabled();
+    expect(screen.getByText("يظهر في القائمة")).toBeInTheDocument();
   });
 });

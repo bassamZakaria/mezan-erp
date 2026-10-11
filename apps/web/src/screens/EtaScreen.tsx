@@ -1,4 +1,5 @@
 import { BranchGatedAction } from "../branch-restriction";
+import { ReadOnlyFields } from "../shell/ReadOnlyForm";
 import { useBranchGate } from "../shell/useBranchGate";
 import { BranchUnavailableState } from "../shell/BranchRestrictionNotices";
 import { useNavigation } from "../navigation";
@@ -245,10 +246,10 @@ export function EtaScreen() {
         ))}
       </div>
 
-      {tab === "general" ? <GeneralTab config={config} /> : null}
-      {tab === "credentials" ? <CredentialsTab config={config} /> : null}
-      {tab === "items" ? <ItemMappingTab /> : null}
-      {tab === "units" ? <UnitMappingTab /> : null}
+      {tab === "general" ? <ReadOnlyFields><GeneralTab config={config} /></ReadOnlyFields> : null}
+      {tab === "credentials" ? <ReadOnlyFields><CredentialsTab config={config} /></ReadOnlyFields> : null}
+      {tab === "items" ? <ReadOnlyFields><ItemMappingTab /></ReadOnlyFields> : null}
+      {tab === "units" ? <ReadOnlyFields><UnitMappingTab /></ReadOnlyFields> : null}
       {tab === "submissions" ? <SubmissionsTab statusKeys={STATUS_KEYS} /> : null}
       {tab === "readiness" ? <ReadinessTab /> : null}
       {tab === "rejections" ? branchGate.allows(BranchGatedAction.EtaReports) ? <RejectionsTab /> : <BranchUnavailableState onGoHome={() => navigate("dashboard")} /> : null}

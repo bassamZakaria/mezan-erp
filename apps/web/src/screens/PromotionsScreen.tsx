@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { ReadOnlyFields } from "../shell/ReadOnlyForm";
 import {
   Button,
   Card,
@@ -535,6 +536,7 @@ export function PromotionsScreen() {
         onClose={() => setPanelOpen(false)}
         title={editingId ? t("promotions.panel.editTitle") : t("promotions.panel.title")}
       >
+        <ReadOnlyFields>
         <div className="flex flex-col gap-4 p-5">
           {error ? (
             <div role="alert" className="rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
@@ -736,6 +738,7 @@ export function PromotionsScreen() {
             </Button>
           </div>
         </div>
+        </ReadOnlyFields>
       </SidePanel>
     </div>
   );

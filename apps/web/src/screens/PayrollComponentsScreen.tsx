@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { ReadOnlyFields } from "../shell/ReadOnlyForm";
 import {
   Button,
   Card,
@@ -251,7 +252,7 @@ export function PayrollComponentsScreen() {
         onClose={() => setFormOpen(false)}
         title={editingId ? t("payrollComponents.editComponent") : t("payrollComponents.newComponent")}
       >
-        <form onSubmit={submit} className="flex flex-col gap-[14px]">
+        <ReadOnlyFields><form onSubmit={submit} className="flex flex-col gap-[14px]">
           {formError ? (
             <div role="alert" className="rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
               {formError}
@@ -283,7 +284,7 @@ export function PayrollComponentsScreen() {
               {t("common.save")}
             </Button>
           </div>
-        </form>
+        </form></ReadOnlyFields>
       </SidePanel>
     </div>
   );

@@ -25,10 +25,17 @@ export interface FieldProps {
   children: ReactNode;
 }
 
-export function Field({ label, hint, htmlFor, className, children }: FieldProps) {
+export function Field({ label, hint: givenHint, htmlFor, className, children }: FieldProps) {
+  const { disabled, hint } = useReadOnlyControl(undefined, givenHint);
   return (
     <UiField label={label} hint={hint} htmlFor={htmlFor} className={className}>
-      {children}
+      {disabled ? (
+        <fieldset disabled className="contents">
+          {children}
+        </fieldset>
+      ) : (
+        children
+      )}
     </UiField>
   );
 }

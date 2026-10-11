@@ -8403,11 +8403,11 @@ requests on the main server (four by API, one from the form) and spec 06 makes
 1 on the clock server. The suite's servers trust the proxy header
 (`MEZAN_TRUST_PROXY=1`), so each of spec 04's signups carries its own
 `x-forwarded-for` and is counted against its own source; the production limit
-is untouched, and `--repeat-each=2` on specs 01, 03 and 04 passes (56 tests).
+is untouched, and `--repeat-each=2` on specs 01, 03 and 04 passes (58 tests).
 
 Timeouts, and the load they were measured at. On a 12-core machine shared with
-other test runs, at a 1-minute load average of 12 to 39 (six full runs on
-2026-10-11, two of them alongside four `pnpm build`s of this repo): a
+other test runs, at a 1-minute load average of 6 to 39 (nine full runs on
+2026-10-11, three of them alongside `pnpm build`s of this repo): a
 screen-walk test took 15 to 34 seconds and the slowest other test 17 seconds
 (the 390px console walk in one run, spec 06's first test in another). The main
 API answered `/healthz` 1 second after start with no seed, measured at load 7
@@ -8562,11 +8562,12 @@ Found by the final code review the same day and fixed: cached tenant answers and
 
 Automated, Arabic, light theme, desktop unless the screen walk says otherwise.
 Run three times in a row on the final tree: 59 passed, 0 parked, 0 failed, 0
-skipped each time — 5.7 minutes at a load average of 34 to 38, 4.7 minutes at
-35 with four `pnpm build`s of this repo finishing beside it, and 3.7 minutes
-at 12 falling to 6. The three runs before the owner-PIN test was added were 58
-of 58 at loads of 28, 39 (again beside four builds) and 31. Specs 01, 03 and
-04 with `--repeat-each=2`: 56 passed.
+skipped each time — 4.3 minutes at a load average rising from 6 to 23, 5.7
+minutes at 24 to 39 with two `pnpm build`s of this repo finishing beside it,
+and 5.3 minutes at 35 to 39. Six earlier runs the same day, at loads of 12 to
+39 and two of them beside four builds, were also green (58 of 58 before the
+owner-PIN test existed, 59 of 59 after). Specs 01, 03 and 04 with
+`--repeat-each=2`: 58 passed.
 
 | ID | Result | What the suite asserts |
 |---|---|---|

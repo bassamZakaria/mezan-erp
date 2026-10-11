@@ -114,13 +114,27 @@ const CUSTOMERS = [
     phone: "01223334455",
     paymentTermsDays: 15,
     creditLimit: "25000",
-    // A tax-exempt individual buyer, so the invoice screens have a customer
-    // that genuinely zero-rates rather than only the exempt FLAG to look at.
-    taxExempt: true,
     etaBuyerType: "individual" as const,
     nationalId: "29001011234567",
     contactPerson: "محمود الفجر",
     address: "34 شارع الجيش، طنطا، الغربية",
+  },
+  {
+    // INVARIANT: the ONE tax-exempt customer, and no seeded history sells to
+    // it. Exemption is read off this record by the server, so every sale to
+    // it zero-rates under the exemption rate set on its card below.
+    id: "CUST-DEMO-4",
+    code: "C-0090",
+    nameAr: "جمعية النور الخيرية",
+    nameEn: "Al Nour Charity",
+    phone: "01554445566",
+    paymentTermsDays: 30,
+    creditLimit: "40000",
+    taxExempt: true,
+    etaBuyerType: "individual" as const,
+    nationalId: "28505051234567",
+    contactPerson: "سلوى عبد الرحمن",
+    address: "9 شارع النصر، المنصورة، الدقهلية",
   },
 ];
 
@@ -430,7 +444,7 @@ const ZERO_RATED_TAX_RATES = [
   { id: "VAT-EXPORT", code: "VAT-EXPORT", name: "تصدير — نسبة صفر", etaSubType: "V001" },
 ] as const;
 
-const EXEMPT_CUSTOMER_ID = "CUST-DEMO-3";
+const EXEMPT_CUSTOMER_ID = "CUST-DEMO-4";
 const EXEMPT_CUSTOMER_TAX_RATE_ID = "VAT-EXEMPT";
 
 const ZERO_RATED_INVOICE = {

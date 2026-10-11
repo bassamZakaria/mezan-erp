@@ -480,13 +480,28 @@ export async function run(ctx: Ctx): Promise<void> {
       const onRegister = gaps.some((g: any) => g.docType === gapDocType && (g.docId === doc.id || g.internalId === key));
       return onQueue !== onRegister;
     };
-    const strayInvoices = confirmed.filter((i: any) => !accountedFor(i, "invoice", [queuedInvoices, saleReceipts]));
+    // A retention release raises a sales-invoice DOCUMENT that is not a supply
+    // (Dr receivables / Cr retention): it belongs on neither the queue nor the
+    // register (D79). It is held to that separately, not waved through.
+    const releaseDocIds = new Set(rows((await req("GET", "/contracting/retention/releases")).body).map((r: any) => r.invoiceId).filter(Boolean));
+    const supplies = confirmed.filter((i: any) => !releaseDocIds.has(i.id));
+    const releaseDocs = confirmed.filter((i: any) => releaseDocIds.has(i.id));
+    const filedReleases = releaseDocs.filter((i: any) => {
+      const key = i.docNo ?? i.id;
+      return queued.some((s: any) => s.internalId === key) || gaps.some((g: any) => g.docId === i.id || g.internalId === key);
+    });
+    check(
+      "D79 — a retention release's document is filed with the authority nowhere: not queued, not receipted, not on the unissued register",
+      releaseDocs.length > 0 && filedReleases.length === 0,
+      `release documents=${releaseDocs.length} filed=${JSON.stringify(filedReleases.map((i: any) => i.docNo ?? i.id))}`,
+    );
+    const strayInvoices = confirmed.filter((i: any) => supplies.includes(i) && !accountedFor(i, "invoice", [queuedInvoices, saleReceipts]));
     const strayReturns = confirmedReturns.filter((r: any) => !accountedFor(r, "return", [queuedNotes, refundReceipts]));
 
     check(
       "D5 — every live sales invoice is accounted for exactly once: queued as an invoice or a receipt, or on the unissued register",
       strayInvoices.length === 0,
-      `invoices=${queuedInvoices.length} receipts=${saleReceipts.length} gaps=${gaps.filter((g: any) => g.docType === "invoice").length} live invoices=${confirmed.length} unaccounted=${JSON.stringify(strayInvoices.slice(0, 5).map((i: any) => i.docNo ?? i.id))}`,
+      `invoices=${queuedInvoices.length} receipts=${saleReceipts.length} gaps=${gaps.filter((g: any) => g.docType === "invoice").length} live supplies=${supplies.length} unaccounted=${JSON.stringify(strayInvoices.slice(0, 5).map((i: any) => i.docNo ?? i.id))}`,
     );
     check("D5 — the B2C half of the queue is not empty: consumer sales really do produce receipts", saleReceipts.length > 0, `receipts=${saleReceipts.length}`);
     check(

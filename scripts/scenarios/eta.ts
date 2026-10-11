@@ -621,9 +621,9 @@ export async function zeroPercentIsNeverInferred_D79(ctx: Ctx): Promise<void> {
       `${exemptUncarded.status} ${taxOf(exemptUncarded)}`,
     );
 
-    const carded = (await req("GET", "/customers/CUST-DEMO-3")).body;
+    const carded = (await req("GET", "/customers/CUST-DEMO-4")).body;
     check("the seeded exempt customer carries «معفى» as its exemption rate", carded?.taxExempt === true && carded?.taxExemptionRateId === exempt?.id, JSON.stringify([carded?.taxExempt, carded?.taxExemptionRateId]));
-    const exemptCustomer = await draft("SCN-D79-ONE-EXEMPT-CUST", { customerId: "CUST-DEMO-3" }, { taxRatePercent: VAT });
+    const exemptCustomer = await draft("SCN-D79-ONE-EXEMPT-CUST", { customerId: "CUST-DEMO-4" }, { taxRatePercent: VAT });
     check(
       "an exempt customer's sale is drafted at 0% under the rate on the customer's card — the tenant's own declaration, not a guess",
       exemptCustomer.status === 201 && taxOf(exemptCustomer) === JSON.stringify([0, exempt?.id]),

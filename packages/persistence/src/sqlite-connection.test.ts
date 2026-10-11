@@ -760,6 +760,51 @@ describe("a write that lands inside another chain's open transaction", () => {
     sqlite.close();
   });
 
+  it("is reported however it was issued: a RETURNING statement read with get or all, an exec, and the driver's own transaction", async () => {
+    const { sqlite } = openSqliteConnection(":memory:");
+    sqlite.exec("CREATE TABLE t (v TEXT)");
+    drainForeignWrites();
+
+    const rolledBack = withSqliteTransaction(sqlite, async () => {
+      sqlite.prepare("INSERT INTO t VALUES ('document')").run();
+      await tick();
+      throw new Error("period closed");
+    }).catch(() => undefined);
+    await tick();
+    sqlite.prepare("INSERT INTO t VALUES ('got') RETURNING v").get();
+    sqlite.prepare("INSERT INTO t VALUES ('listed') RETURNING v").all();
+    sqlite.exec("INSERT INTO t VALUES ('executed')");
+    sqlite.transaction(() => undefined)();
+    sqlite.exec("PRAGMA user_version");
+    await rolledBack;
+
+    expect(drainForeignWrites()).toEqual([
+      "INSERT INTO t VALUES ('got') RETURNING v",
+      "INSERT INTO t VALUES ('listed') RETURNING v",
+      "INSERT INTO t VALUES ('executed')",
+      "db.transaction",
+    ]);
+    sqlite.close();
+  });
+
+  it("reports nothing for an exec or a driver transaction the open transaction issued itself", async () => {
+    const { sqlite } = openSqliteConnection(":memory:");
+    sqlite.exec("CREATE TABLE t (v TEXT)");
+    drainForeignWrites();
+
+    await withSqliteTransaction(sqlite, async () => {
+      sqlite.exec("INSERT INTO t VALUES ('executed')");
+      sqlite.transaction(() => sqlite.prepare("INSERT INTO t VALUES ('batched') RETURNING v").get())();
+      await withSqliteTransaction(sqlite, async () => {
+        sqlite.exec("INSERT INTO t VALUES ('nested')");
+      });
+    });
+
+    expect(drainForeignWrites()).toEqual([]);
+    expect((sqlite.prepare("SELECT v FROM t ORDER BY rowid").all() as { v: string }[]).map((r) => r.v)).toEqual(["executed", "batched", "nested"]);
+    sqlite.close();
+  });
+
   it("reports nothing for the transaction's own writes, for a read, or for a writer that waited its turn", async () => {
     const { sqlite } = openSqliteConnection(":memory:");
     sqlite.exec("CREATE TABLE t (v TEXT)");

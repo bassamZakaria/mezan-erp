@@ -1,5 +1,6 @@
 export {
   AuditRecordingError,
+  AuditStreamName,
   ConnectionTurnLostError,
   AUDIT_SEVERITIES,
   AUDIT_STREAMS,

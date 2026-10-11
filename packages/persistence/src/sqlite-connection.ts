@@ -153,19 +153,47 @@ const watched = new WeakSet<Database.Database>();
 function watchForForeignWrites(sqlite: Database.Database): void {
   if (watched.has(sqlite)) return;
   watched.add(sqlite);
+  const foreign = (): boolean => {
+    const state = connectionStates.get(sqlite);
+    return state !== undefined && state.transaction !== null && !state.nesting.getStore();
+  };
+  const named = (source: string): string => source.trim().replace(/\s+/g, " ").slice(0, 80);
+
+  // Every way a statement that writes can be run: `run`, and `get`/`all`/
+  // `iterate` for one that also answers rows (INSERT … RETURNING).
   const prepare = sqlite.prepare.bind(sqlite);
   sqlite.prepare = ((source: string) => {
     const statement = prepare(source);
     if (statement.readonly) return statement;
-    const run = statement.run.bind(statement);
-    statement.run = ((...params: unknown[]) => {
-      const state = connectionStates.get(sqlite);
-      if (state?.transaction && !state.nesting.getStore()) reportForeignWrite(source.trim().replace(/\s+/g, " ").slice(0, 80));
-      return run(...params);
-    }) as typeof statement.run;
+    for (const method of WRITING_STATEMENT_METHODS) {
+      const original = statement[method].bind(statement) as (...params: unknown[]) => unknown;
+      (statement as unknown as Record<string, unknown>)[method] = (...params: unknown[]) => {
+        if (foreign()) reportForeignWrite(named(source));
+        return original(...params);
+      };
+    }
     return statement;
   }) as typeof sqlite.prepare;
+
+  const exec = sqlite.exec.bind(sqlite);
+  sqlite.exec = ((source: string) => {
+    if (foreign() && !READ_ONLY_EXEC.test(source)) reportForeignWrite(named(source));
+    return exec(source);
+  }) as typeof sqlite.exec;
+
+  // The driver's own `transaction()` opens a SAVEPOINT when a transaction is
+  // already open, so its whole body would land inside another chain's.
+  const transaction = sqlite.transaction.bind(sqlite) as (fn: (...args: unknown[]) => unknown) => unknown;
+  sqlite.transaction = ((fn: (...args: unknown[]) => unknown) =>
+    transaction((...args: unknown[]) => {
+      if (foreign()) reportForeignWrite(DRIVER_TRANSACTION);
+      return fn(...args);
+    })) as typeof sqlite.transaction;
 }
+
+const WRITING_STATEMENT_METHODS = ["run", "get", "all", "iterate"] as const;
+const READ_ONLY_EXEC = /^\s*(PRAGMA|SELECT)\b/i;
+const DRIVER_TRANSACTION = "db.transaction";
 
 let savepointCounter = 0;
 

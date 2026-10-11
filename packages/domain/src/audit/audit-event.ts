@@ -28,7 +28,11 @@ export type AuditSeverity = (typeof AUDIT_SEVERITIES)[number];
  * The two audit streams from the catalog: security events (أحداث الأمان) and
  * sensitive operations (العمليات الحساسة). Each has its own tab/count in the UI.
  */
-export const AUDIT_STREAMS = ["security", "sensitive"] as const;
+export enum AuditStreamName {
+  Security = "security",
+  Sensitive = "sensitive",
+}
+export const AUDIT_STREAMS = ["security", "sensitive"] as const satisfies readonly `${AuditStreamName}`[];
 export type AuditStream = (typeof AUDIT_STREAMS)[number];
 
 /**

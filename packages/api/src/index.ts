@@ -113,5 +113,5 @@ export {
 export * from "./pos/index.js";
 export * from "./enh/index.js";
 export { AUDITED_MOUNTS, MutatingMethod, type AuditedMount, type BoundaryPreparation } from "./audit-boundary.js";
-export { BodyLimitBytes, requestBodyLimit } from "./body-limit.js";
+export { BodyLimitBytes, BodyLimitRefusal, bodyLimitFor, requestBodyLimit } from "./body-limit.js";
 export { IDEMPOTENT_CREATES, IDEMPOTENT_REPLAY_HEADER, IdempotencyRefusal, idempotentCreate, type IdempotentRequests } from "./idempotent-create.js";

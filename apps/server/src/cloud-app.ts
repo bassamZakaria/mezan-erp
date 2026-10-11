@@ -6,7 +6,7 @@ import path from "node:path";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono, type MiddlewareHandler } from "hono";
 import { createPlatform, createPlatformAuth, createPlatformRoutes, type PlatformHandle } from "@mezan/backend";
-import { createSessionRegistry } from "@mezan/api";
+import { BodyLimitRefusal, createSessionRegistry } from "@mezan/api";
 import { TenantNotFoundError } from "@mezan/domain";
 import type { CreateTenantRequestDTO, ProvisionResultDTO, ProvisionRetryRequestDTO } from "@mezan/contracts";
 import { createTenantRouter, requireOriginSecret, type TenantRouter } from "./tenant-router.js";
@@ -241,7 +241,7 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
   // limited by the tenant app, which knows who is asking (api body-limit.ts).
   const platformBody = bodyLimit({
     maxSize: PLATFORM_BODY_BYTES,
-    onError: (c) => c.json({ error: "PAYLOAD_TOO_LARGE", message: "حجم البيانات المرسلة أكبر من المسموح به." }, 413),
+    onError: (c) => c.json({ error: BodyLimitRefusal.PayloadTooLarge, message: "حجم البيانات المرسلة أكبر من المسموح به." }, 413),
   });
   for (const mount of ["/api/platform/*", "/api/billing/*", "/api/signup/*"]) root.use(mount, platformBody);
   root.route("/api/platform", platformApp);

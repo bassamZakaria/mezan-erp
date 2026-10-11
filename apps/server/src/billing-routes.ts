@@ -32,7 +32,7 @@ import {
   type BillingQuotaDTO,
   type TenantBillingDTO,
 } from "@mezan/contracts";
-import { readSessionToken, type SessionGrant } from "@mezan/api";
+import { BodyLimitRefusal, readSessionToken, type SessionGrant } from "@mezan/api";
 import { resolveTenantPlan, serializeCardCheckout, type PlatformHandle } from "@mezan/backend";
 import { SettlementStatus, type CardCheckoutService } from "./card-checkout.js";
 import type { PaymobTestProvider } from "./paymob-provider.js";
@@ -80,9 +80,9 @@ export function createPaymobWebhookRoutes(service: CardCheckoutService): Hono {
   const app = new Hono();
   app.post("/", async (c) => {
     const declared = Number(c.req.header("content-length") ?? "0");
-    if (Number.isFinite(declared) && declared > MAX_WEBHOOK_BYTES) return c.json({ error: "PAYLOAD_TOO_LARGE" }, 413);
+    if (Number.isFinite(declared) && declared > MAX_WEBHOOK_BYTES) return c.json({ error: BodyLimitRefusal.PayloadTooLarge }, 413);
     const raw = await c.req.text();
-    if (raw.length > MAX_WEBHOOK_BYTES) return c.json({ error: "PAYLOAD_TOO_LARGE" }, 413);
+    if (raw.length > MAX_WEBHOOK_BYTES) return c.json({ error: BodyLimitRefusal.PayloadTooLarge }, 413);
     const result = await service.handleWebhook(raw, c.req.query("hmac") ?? "");
     if (result.status === SettlementStatus.Rejected) return c.json({ error: "INVALID_SIGNATURE" }, 401);
     if (result.status === SettlementStatus.Retry) return c.json({ error: "RETRY" }, 503);

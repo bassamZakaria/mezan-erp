@@ -56,6 +56,7 @@ export type {
 // audit/ — append-only audit trail (security + sensitive streams)
 export {
   AuditRecordingError,
+  AuditStreamName,
   ConnectionTurnLostError,
   AUDIT_SEVERITIES,
   AUDIT_STREAMS,

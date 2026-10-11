@@ -38,6 +38,7 @@ export async function run(ctx: Ctx): Promise<void> {
   const env: CloudEnv = {
     platformDir: dir,
     trustProxy: false,
+    clientSource: { trustedProxyHops: 0, trustViewerAddress: false },
     sqliteExclusive: false,
     platformOwnerEmail: "owner@platform.example",
     platformOwnerPassword: "platform-owner-password",

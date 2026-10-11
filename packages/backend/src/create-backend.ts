@@ -2559,7 +2559,11 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
 
     /** Only a certificate whose deductions entry is actually on the ledger, and was not reversed. */
     const postedCertificates = certificates.filter((c) => c.journalEntryId !== null && standingCertificate(c));
-    const postedSubCertificates = subCerts.filter((c) => c.journalEntryId !== null && upTo(c.approvedAt ?? c.executionDate));
+    // A subcontractor certificate is read on the day its own entry is dated; `approvedAt` is the instant the approval was recorded. A posted one is never cancelled, and a recognition run's reversal is dated the run's own period end, so each stands or is gone on one day at every reading.
+    const subCertificateEntryDates = await entryDatesOf(subCerts.map((c) => c.journalEntryId));
+    const postedSubCertificates = subCerts.filter(
+      (c) => c.journalEntryId !== null && upTo(subCertificateEntryDates.get(c.journalEntryId) ?? c.approvedAt ?? c.executionDate),
+    );
     const postedRuns = runs.filter((r) => r.status === "posted" && upTo(r.periodEnd));
     const deduction = (
       rows: readonly { key: string; thisCertificate: Money }[],

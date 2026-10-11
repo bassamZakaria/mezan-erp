@@ -2,9 +2,11 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { ALL_PERMISSION_CODES, ALL_SCOPE, createEntitlements, LAN_MULTI_TILL_FEATURE, MODULE_CATALOG } from "@mezan/domain";
+import { ALL_PERMISSION_CODES, ALL_SCOPE, createEntitlements, LAN_MULTI_TILL_FEATURE, MODULE_CATALOG, RecordErrorCode } from "@mezan/domain";
 import { openSqliteConnection } from "@mezan/persistence";
+import * as contracts from "@mezan/contracts";
 import { createBackend, type BackendHandle } from "./create-backend.js";
+import { sampleOf, type SampledSchema } from "./test-helpers/zod-sample.js";
 
 /**
  * D111 — the branch grant is an authorization boundary. Every case drives the
@@ -1661,17 +1663,18 @@ describe("D111 round 3 · a refusal does not tell a branch user whether another 
     }
   });
 
-  it("creating under an id that exists answers the same whether the caller's branch or another's holds it, and names nothing", async () => {
+  it("creating under another branch's id answers as a reference nobody holds, under the caller's own as «taken», and neither names the other branch", async () => {
     const foreign = one<{ id: string; doc_no: string }>("SELECT id, doc_no FROM sales_invoice WHERE branch_id = ? AND doc_no IS NOT NULL LIMIT 1", MAIN)!;
     const own = one<{ id: string }>("SELECT id FROM sales_invoice WHERE branch_id = ? LIMIT 1", ALEX)!;
     for (const caller of [alex, alexStar]) {
       const overForeign = await caller("POST", "/sales-invoices", salesInvoice(foreign.id, ALEX, ALEX_WAREHOUSE));
       const overOwn = await caller("POST", "/sales-invoices", salesInvoice(own.id, ALEX, ALEX_WAREHOUSE));
-      expect(overForeign.status).toBe(409);
+      expect(overForeign.status).toBe(404);
+      expect(overForeign.body.error).toBe("NOT_FOUND");
       expect(overForeign.body.message).toMatch(ARABIC);
       expect(overOwn.status).toBe(409);
-      const strip = (body: any, id: string) => JSON.stringify(body).split(id).join("<id>");
-      expect(strip(overForeign.body, foreign.id)).toBe(strip(overOwn.body, own.id));
+      expect(overOwn.body.error).toBe(RecordErrorCode.DuplicateId);
+      expect(JSON.stringify(overForeign.body)).not.toContain(foreign.id);
       expect(JSON.stringify(overForeign.body)).not.toContain(foreign.doc_no);
       expect(JSON.stringify(overForeign.body)).not.toContain(MAIN);
     }
@@ -2001,5 +2004,89 @@ describe("D111 round 3 · the chips above a branch user's list count that user's
       expect(mine.status, stats).toBe(200);
       expect(JSON.stringify(mine.body), stats).not.toBe(JSON.stringify((await admin("GET", stats)).body));
     }
+  });
+});
+
+describe("D111 round 4 · a create cannot take over another branch's record by naming its id", () => {
+  interface Takeover {
+    readonly route: string;
+    readonly schema: SampledSchema;
+    readonly table: string;
+    readonly foreignIdSql: string;
+  }
+  const TAKEOVERS: readonly Takeover[] = [
+    { route: "/treasury-accounts", schema: contracts.createTreasuryAccountSchema, table: "treasury_account", foreignIdSql: "SELECT id FROM treasury_account WHERE id = 'TR-DEMO-BANK'" },
+    { route: "/field/vans", schema: contracts.createVanSchema, table: "van", foreignIdSql: "SELECT id FROM van WHERE branch_id = 'BR-MAIN' LIMIT 1" },
+    { route: "/field/van-trips", schema: contracts.openVanTripSchema, table: "van_trip", foreignIdSql: "SELECT id FROM van_trip WHERE branch_id = 'BR-MAIN' LIMIT 1" },
+    { route: "/crm/opportunities", schema: contracts.createOpportunitySchema, table: "crm_opportunity", foreignIdSql: "SELECT id FROM crm_opportunity WHERE id = 'OPP-DEMO-7'" },
+    { route: "/hr/payroll/runs", schema: contracts.createPayrollRunSchema, table: "hr_payroll_run", foreignIdSql: "SELECT id FROM hr_payroll_run WHERE id = 'PR-DEMO-3'" },
+    { route: "/cheques", schema: contracts.createChequeSchema, table: "cheque", foreignIdSql: "SELECT id FROM cheque WHERE branch_id = 'BR-MAIN' LIMIT 1" },
+    { route: "/vouchers", schema: contracts.createVoucherSchema, table: "voucher", foreignIdSql: "SELECT id FROM voucher WHERE branch_id = 'BR-MAIN' LIMIT 1" },
+    { route: "/sales-invoices", schema: contracts.createSalesInvoiceSchema, table: "sales_invoice", foreignIdSql: "SELECT id FROM sales_invoice WHERE branch_id = 'BR-MAIN' LIMIT 1" },
+  ];
+  const alexReferences = { branchId: ALEX, warehouseId: ALEX_WAREHOUSE, treasuryAccountId: "TR-DEMO-CASH-ALEX", customerId: "CUST-DEMO-2", currency: "EGP", date: TODAY };
+  const rowOf = (table: string, id: string) => JSON.stringify(one(`SELECT * FROM "${table}" WHERE id = ?`, id));
+  const journalCount = () => one<{ n: number }>("SELECT count(*) AS n FROM journal_entry")!.n;
+
+  it.each(TAKEOVERS)("$route — a branch user and a * admin granted one branch are told nothing is there, and the row is untouched", async ({ route, schema, table, foreignIdSql }) => {
+    const id = one<{ id: string }>(foreignIdSql)!.id;
+    const body = sampleOf(schema, { ...alexReferences, id });
+    for (const caller of [alex, alexStar]) {
+      const before = rowOf(table, id);
+      const entries = journalCount();
+      const res = await caller("POST", route, body);
+      expect(res.status, `${route} ${JSON.stringify(res.body).slice(0, 200)}`).toBe(404);
+      expect(res.body?.error).toBe("NOT_FOUND");
+      expect(res.body?.message).toMatch(ARABIC);
+      expect(JSON.stringify(res.body)).not.toContain(MAIN);
+      expect(rowOf(table, id)).toBe(before);
+      expect(journalCount()).toBe(entries);
+    }
+  });
+
+  it.each(TAKEOVERS)("$route — the refusal is the one an id nobody holds draws when it is named as a reference", async ({ route, schema, foreignIdSql }) => {
+    const id = one<{ id: string }>(foreignIdSql)!.id;
+    const taken = await alex("POST", route, sampleOf(schema, { ...alexReferences, id }));
+    const unknownReference = await alex("POST", "/sales-returns", { id: "D111-R4-UNKNOWN-REF", date: TODAY, sourceInvoiceId: "D111-R4-NO-SUCH-INVOICE", lines: [] });
+    expect(taken.status).toBe(unknownReference.status);
+    expect(taken.body).toEqual(unknownReference.body);
+  });
+
+  it.each(TAKEOVERS)("$route — a user granted both branches is told the id is taken, and the row is untouched", async ({ route, schema, table, foreignIdSql }) => {
+    const id = one<{ id: string }>(foreignIdSql)!.id;
+    const before = rowOf(table, id);
+    const entries = journalCount();
+    const res = await bothBranches("POST", route, sampleOf(schema, { ...alexReferences, id }));
+    expect(res.status, `${route} ${JSON.stringify(res.body).slice(0, 200)}`).toBe(409);
+    expect(res.body?.error).toBe(RecordErrorCode.DuplicateId);
+    expect(res.body?.message).toMatch(ARABIC);
+    expect(rowOf(table, id)).toBe(before);
+    expect(journalCount()).toBe(entries);
+  });
+
+  it("a branch user is told its own branch's id is taken", async () => {
+    const before = rowOf("treasury_account", "TR-DEMO-CASH-ALEX");
+    const res = await alex("POST", "/treasury-accounts", sampleOf(contracts.createTreasuryAccountSchema, { ...alexReferences, id: "TR-DEMO-CASH-ALEX" }));
+    expect(res.status).toBe(409);
+    expect(res.body?.error).toBe(RecordErrorCode.DuplicateId);
+    expect(rowOf("treasury_account", "TR-DEMO-CASH-ALEX")).toBe(before);
+  });
+
+  it("a shared cost centre cannot be renamed through the create route by any session", async () => {
+    const before = rowOf("cost_center", "CC-DEMO-1");
+    for (const caller of [alex, alexStar, bothBranches, admin]) {
+      const res = await caller("POST", "/cost-centers", sampleOf(contracts.createCostCenterSchema, { id: "CC-DEMO-1" }));
+      expect(res.status, JSON.stringify(res.body).slice(0, 200)).toBe(409);
+      expect(res.body?.error).toBe(RecordErrorCode.DuplicateId);
+      expect(rowOf("cost_center", "CC-DEMO-1")).toBe(before);
+    }
+  });
+
+  it("the HQ bank stays out of a branch user's reach after the attempt", async () => {
+    await alex("POST", "/treasury-accounts", { id: "TR-DEMO-BANK", code: "R4-TAKEOVER", name: "استيلاء", type: "bank", branchId: ALEX });
+    expect(one<{ branch_id: string; gl_account_id: string }>("SELECT branch_id, gl_account_id FROM treasury_account WHERE id = 'TR-DEMO-BANK'")).toEqual({ branch_id: MAIN, gl_account_id: "1310" });
+    const paid = await alex("POST", "/vouchers", { ...voucher("D111-R4-PAY", ALEX, "TR-DEMO-BANK", "1310"), voucherType: "supplier_payment", amount: "5000.00" });
+    expect([403, 404]).toContain(paid.status);
+    expect(one("SELECT id FROM voucher WHERE id = 'D111-R4-PAY'")).toBeUndefined();
   });
 });

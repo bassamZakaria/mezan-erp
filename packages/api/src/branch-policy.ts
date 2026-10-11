@@ -245,6 +245,26 @@ async function storedRecordRefusal(c: Context, session: Session, entry: BranchPo
   return null;
 }
 
+const CREATED_RECORD_ID_KEY = "id";
+
+/**
+ * SECURITY: a create that names the id of a record the session may not see is
+ * answered exactly as a reference to a record that is not there. The handler's
+ * own «this id is taken» is left for ids the session can already read, so the
+ * 409 never says that another branch holds a record under that id.
+ */
+async function claimedIdRefusal(c: Context, session: Session, entry: BranchPolicyEntry, routePath: string, body: unknown): Promise<Response | null> {
+  if (c.req.method !== "POST" || paramNamesOf(routePath).length > 0 || entry.policy !== BranchPolicy.Scoped) return null;
+  const kind = entry.params?.[CREATED_RECORD_ID_KEY];
+  if (!kind || body === null || typeof body !== "object" || Array.isArray(body)) return null;
+  const claimed = (body as Record<string, unknown>)[CREATED_RECORD_ID_KEY];
+  if (typeof claimed !== "string" || claimed === "") return null;
+  const standing = standingOf(session, await lookup(session, kind, claimed));
+  if (standing === Standing.Absent || standing === Standing.Granted || standing === Standing.PartlyForeign) return null;
+  if (standing === Standing.Unattributed && (entry.unownedIsCompanys || session.seesUnattributed)) return null;
+  return branchRefusal(c, BranchRefusalCode.NotFound);
+}
+
 async function readJsonBody(c: Context): Promise<unknown> {
   // SECURITY: read whatever the declared content type. Every route parses its
   // body with `c.req.json()`, which ignores the header — so trusting the
@@ -602,6 +622,7 @@ export function branchPolicyEnforcement(options: BranchPolicyEnforcementOptions)
       const refusal =
         warehouseGrantRefusal(c, ctx, body) ??
         companysRecordRefusal(c, entry, body) ??
+        (await claimedIdRefusal(c, session, entry, routePath, body)) ??
         (await bodyRefusal(c, session, entry, body)) ??
         (await warehouseBranchRefusal(c, (kind, id) => lookup(session, kind, id), entry, body)) ??
         (await treasuryMismatchRefusal(c, (kind, id) => lookup(session, kind, id), RESTRICTED_TREASURY_HOLDER_KEYS, entry, routePath, body)) ??

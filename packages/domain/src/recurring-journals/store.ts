@@ -23,7 +23,8 @@ export interface RecurringJournalTemplateRepository {
 export interface RecurringJournalRunRepository {
   findByTemplateAndPeriod(templateId: string, period: string): Promise<RecurringJournalRun | null>;
   listByTemplate(templateId: string): Promise<readonly RecurringJournalRun[]>;
-  list(limit?: number): Promise<readonly RecurringJournalRun[]>;
+  /** The newest runs, of `templateIds` only when given — the limit counts the rows asked for, never rows the caller may not see. */
+  list(limit?: number, templateIds?: readonly string[]): Promise<readonly RecurringJournalRun[]>;
   /** Returns `true` if this call recorded the run, `false` if (template, period) was already claimed. */
   save(run: RecurringJournalRun): Promise<boolean>;
 }
@@ -37,7 +38,7 @@ export interface RecurringJournalRunRepository {
 export interface RecurringJournalSkipRepository {
   findByTemplateAndPeriod(templateId: string, period: string): Promise<RecurringJournalSkip | null>;
   listByTemplate(templateId: string): Promise<readonly RecurringJournalSkip[]>;
-  list(limit?: number): Promise<readonly RecurringJournalSkip[]>;
+  list(limit?: number, templateIds?: readonly string[]): Promise<readonly RecurringJournalSkip[]>;
   /** Returns `true` if this call recorded the skip, `false` if (template, period) was already claimed. */
   save(skip: RecurringJournalSkip): Promise<boolean>;
 }

@@ -236,6 +236,7 @@ class SqliteRecurringJournalRunRepository implements RecurringJournalRunReposito
   private readonly selectByTemplateAndPeriod: Database.Statement;
   private readonly selectByTemplate: Database.Statement;
   private readonly selectAll: Database.Statement;
+  private readonly selectOfTemplates: Database.Statement;
 
   constructor(private readonly sqlite: Database.Database) {
     // ON CONFLICT DO NOTHING is the DB-level half of the idempotency
@@ -255,6 +256,9 @@ class SqliteRecurringJournalRunRepository implements RecurringJournalRunReposito
       `SELECT * FROM recurring_journal_run WHERE template_id = ? ORDER BY period DESC`,
     );
     this.selectAll = sqlite.prepare(`SELECT * FROM recurring_journal_run ORDER BY generated_at DESC LIMIT ?`);
+    this.selectOfTemplates = sqlite.prepare(
+      `SELECT * FROM recurring_journal_run WHERE template_id IN (SELECT value FROM json_each(?)) ORDER BY generated_at DESC LIMIT ?`,
+    );
   }
 
   async findByTemplateAndPeriod(templateId: string, period: string): Promise<RecurringJournalRun | null> {
@@ -266,8 +270,9 @@ class SqliteRecurringJournalRunRepository implements RecurringJournalRunReposito
     return (this.selectByTemplate.all(templateId) as RunRow[]).map(toRun);
   }
 
-  async list(limit = 200): Promise<readonly RecurringJournalRun[]> {
-    return (this.selectAll.all(limit) as RunRow[]).map(toRun);
+  async list(limit = 200, templateIds?: readonly string[]): Promise<readonly RecurringJournalRun[]> {
+    const rows = templateIds ? this.selectOfTemplates.all(JSON.stringify(templateIds), limit) : this.selectAll.all(limit);
+    return (rows as RunRow[]).map(toRun);
   }
 
   async save(run: RecurringJournalRun): Promise<boolean> {
@@ -339,6 +344,7 @@ class SqliteRecurringJournalSkipRepository implements RecurringJournalSkipReposi
   private readonly selectByTemplateAndPeriod: Database.Statement;
   private readonly selectByTemplate: Database.Statement;
   private readonly selectAll: Database.Statement;
+  private readonly selectOfTemplates: Database.Statement;
 
   constructor(private readonly sqlite: Database.Database) {
     // ON CONFLICT DO NOTHING mirrors the run repository's claim: a concurrent
@@ -357,6 +363,9 @@ class SqliteRecurringJournalSkipRepository implements RecurringJournalSkipReposi
       `SELECT * FROM recurring_journal_skip WHERE template_id = ? ORDER BY period DESC`,
     );
     this.selectAll = sqlite.prepare(`SELECT * FROM recurring_journal_skip ORDER BY skipped_at DESC LIMIT ?`);
+    this.selectOfTemplates = sqlite.prepare(
+      `SELECT * FROM recurring_journal_skip WHERE template_id IN (SELECT value FROM json_each(?)) ORDER BY skipped_at DESC LIMIT ?`,
+    );
   }
 
   async findByTemplateAndPeriod(templateId: string, period: string): Promise<RecurringJournalSkip | null> {
@@ -368,8 +377,9 @@ class SqliteRecurringJournalSkipRepository implements RecurringJournalSkipReposi
     return (this.selectByTemplate.all(templateId) as SkipRow[]).map(toSkip);
   }
 
-  async list(limit = 200): Promise<readonly RecurringJournalSkip[]> {
-    return (this.selectAll.all(limit) as SkipRow[]).map(toSkip);
+  async list(limit = 200, templateIds?: readonly string[]): Promise<readonly RecurringJournalSkip[]> {
+    const rows = templateIds ? this.selectOfTemplates.all(JSON.stringify(templateIds), limit) : this.selectAll.all(limit);
+    return (rows as SkipRow[]).map(toSkip);
   }
 
   async save(skip: RecurringJournalSkip): Promise<boolean> {

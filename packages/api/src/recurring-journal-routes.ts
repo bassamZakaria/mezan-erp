@@ -1,3 +1,4 @@
+import { BranchRecordKind, recordsInBranchGrant } from "./branch-policy.js";
 import { randomUUID } from "node:crypto";
 import { Hono, type Context } from "hono";
 import {
@@ -218,7 +219,8 @@ export function createRecurringJournalRoutes(deps: RecurringJournalRoutesDeps, r
   async function visibleTemplateIds(c: Context): Promise<ReadonlySet<string> | null> {
     const scope = branchScopeOf(c);
     if (!scope) return null;
-    return new Set((await deps.templates.list()).filter((template) => namesOnly(template, scope)).map((template) => template.id));
+    const named = (await deps.templates.list()).filter((template) => namesOnly(template, scope));
+    return new Set((await recordsInBranchGrant(c, BranchRecordKind.RecurringTemplate, named, (template) => template.id)).map((template) => template.id));
   }
 
   /** Changing, pausing or skipping a STORED template acts on the branches its lines already carry. */
@@ -427,7 +429,7 @@ export function createRecurringJournalRoutes(deps: RecurringJournalRoutesDeps, r
     const limitParam = c.req.query("limit");
     const limit = limitParam ? Number(limitParam) : undefined;
     const visible = await visibleTemplateIds(c);
-    const runs = await deps.runs.list(Number.isFinite(limit) ? limit : undefined);
+    const runs = await deps.runs.list(Number.isFinite(limit) ? limit : undefined, visible ? [...visible] : undefined);
     return c.json(visible ? runs.filter((run) => visible.has(run.templateId)) : runs);
   });
 
@@ -473,7 +475,7 @@ export function createRecurringJournalRoutes(deps: RecurringJournalRoutesDeps, r
     const limitParam = c.req.query("limit");
     const limit = limitParam ? Number(limitParam) : undefined;
     const visible = await visibleTemplateIds(c);
-    const skips = await deps.skips.list(Number.isFinite(limit) ? limit : undefined);
+    const skips = await deps.skips.list(Number.isFinite(limit) ? limit : undefined, visible ? [...visible] : undefined);
     return c.json((visible ? skips.filter((skip) => visible.has(skip.templateId)) : skips).map(serializeSkip));
   });
 

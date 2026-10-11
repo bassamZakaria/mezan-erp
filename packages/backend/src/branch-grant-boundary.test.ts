@@ -1898,3 +1898,22 @@ describe("D111 round 3 · a return's branch is read one way: its line's, else it
     });
   }
 });
+
+describe("D111 round 3 · a limited list is cut to the caller's rows before it is cut to the limit", () => {
+  it("recurring runs: a branch user asking for one run gets its own latest, not an empty page", async () => {
+    const template = one<any>("SELECT * FROM recurring_journal_template LIMIT 1");
+    const lines = (JSON.parse(template.lines) as Record<string, unknown>[]).map((line) => ({ ...line, branchId: ALEX }));
+    const columns = Object.keys(template);
+    sqlite
+      .prepare(`INSERT INTO recurring_journal_template (${columns.join(", ")}) VALUES (${columns.map(() => "?").join(", ")})`)
+      .run(...columns.map((column) => (column === "id" ? "R3-RJT-ALEX" : column === "lines" ? JSON.stringify(lines) : column === "code" || column === "name_ar" ? `${template[column]}-R3` : template[column])));
+    sqlite
+      .prepare("INSERT INTO recurring_journal_run (id, template_id, period, journal_entry_id, generated_at, generated_by) VALUES ('R3-RUN-ALEX', 'R3-RJT-ALEX', '2020-01', 'R3-NO-ENTRY', '2020-01-31T00:00:00.000Z', 'USER-ADMIN')")
+      .run();
+    expect(all("SELECT id FROM recurring_journal_run").length).toBeGreaterThan(1);
+    const mine = await alex("GET", "/gl/recurring/runs?limit=1");
+    expect(mine.status).toBe(200);
+    expect(rowsOf(mine.body).map((run: any) => run.id)).toEqual(["R3-RUN-ALEX"]);
+    expect(rowsOf((await admin("GET", "/gl/recurring/runs?limit=1")).body)).toHaveLength(1);
+  });
+});

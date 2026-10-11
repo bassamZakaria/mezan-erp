@@ -62,7 +62,7 @@ export type {
 } from "./ports.js";
 export { SalesInvoiceField } from "./ports.js";
 
-export { salesTaxPolicyFromSettings, salesTaxPolicySource, type SalesTaxPolicySource } from "./tax-policy.js";
+export { salesTaxPolicyFromSettings, salesTaxPolicySource, SalesPricingMode, type SalesTaxPolicySource } from "./tax-policy.js";
 
 export {
   SalesInvoiceService,

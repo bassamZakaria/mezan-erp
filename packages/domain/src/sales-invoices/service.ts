@@ -44,7 +44,7 @@ import {
 } from "../tax-rates/index.js";
 import { occurredAtFromDocumentDate } from "../inventory/movement.js";
 import { InvoiceDocumentKind, isRetentionRelease } from "../documents/invoice-document-kind.js";
-import type { SalesInvoiceTaxPolicy, SalesTaxPolicySource } from "./tax-policy.js";
+import { SalesPricingMode, type SalesInvoiceTaxPolicy, type SalesTaxPolicySource } from "./tax-policy.js";
 import type { AllocatableInvoiceRepository } from "../vouchers/allocation.js";
 import { AuditSeverityCode, recordSensitiveEvent, type AuditSink } from "../audit/index.js";
 import type {
@@ -274,6 +274,14 @@ export interface CreateSalesInvoiceCommand {
   readonly discount?: SalesInvoiceDiscount;
   readonly arAccountId: string;
   readonly taxAccountId: string;
+  /**
+   * INVARIANT: an invoice derived from another document — a quote, a progress
+   * certificate, a retention release — states the pricing that document was
+   * priced under. The tenant's setting decides only for an invoice keyed in
+   * directly; reading a derived one under it bills a different total than the
+   * document the customer agreed to.
+   */
+  readonly sourcePricing?: SalesPricingMode;
   readonly lines: readonly CreateSalesInvoiceLine[];
 }
 
@@ -761,7 +769,7 @@ export class SalesInvoiceService {
       customerId: cmd.customerId,
       customerNameAr: cmd.customerNameAr,
       customerTaxExempt: cmd.customerTaxExempt ?? false,
-      taxInclusive: taxPolicy.inclusive,
+      taxInclusive: cmd.sourcePricing ? cmd.sourcePricing === SalesPricingMode.TaxInclusive : taxPolicy.inclusive,
       warehouseId: cmd.warehouseId,
       branchId: cmd.branchId,
       salespersonId: cmd.salespersonId ?? null,

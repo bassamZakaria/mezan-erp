@@ -20,6 +20,7 @@ import {
   SiteService,
   StockLedgerService,
   applyAllocatedSettlement,
+  SalesPricingMode,
   ETA_REQUEUE_MODE,
   EtaRequeueMode,
   SalesInvoiceField,
@@ -1255,6 +1256,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         notes: cmd.memoAr,
         arAccountId: CERTIFICATE_AR_ACCOUNT_ID,
         taxAccountId: routedAccountId(routing, "tax.output_vat") ?? "2200",
+        sourcePricing: SalesPricingMode.TaxExclusive,
         lines: [
           {
             lineId: `${invoiceId}-L1`,
@@ -1462,6 +1464,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         notes: cmd.memoAr,
         arAccountId: CERTIFICATE_AR_ACCOUNT_ID,
         taxAccountId: routedAccountId(routing, "tax.output_vat") ?? "2200",
+        sourcePricing: SalesPricingMode.TaxExclusive,
         lines: [
           {
             lineId: `${invoiceId}-L1`,

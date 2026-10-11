@@ -11,6 +11,11 @@ export interface SalesInvoiceTaxPolicy {
   readonly inclusive: boolean;
 }
 
+export enum SalesPricingMode {
+  TaxExclusive = "tax_exclusive",
+  TaxInclusive = "tax_inclusive",
+}
+
 export type SalesTaxPolicySource = () => Promise<SalesInvoiceTaxPolicy> | SalesInvoiceTaxPolicy;
 
 // INVARIANT: the ONE reading of the VAT switch. Every path that raises or

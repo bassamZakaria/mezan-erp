@@ -19,6 +19,7 @@ import {
   type SalesQuoteServiceDeps,
   type CreateSalesQuoteCommand,
   SalesInvoiceService,
+  SalesPricingMode,
   InvalidSalesInvoiceError,
   DuplicateSalesInvoiceError,
   type SalesInvoiceRepository,
@@ -580,6 +581,7 @@ export function createSalesQuotesRoutes(
       discount: quote.discount,
       arAccountId: d.arAccountId,
       taxAccountId: d.taxAccountId,
+      sourcePricing: SalesPricingMode.TaxExclusive,
       lines: quote.lines.map((l) => {
         const acc = byLineId.get(l.lineId);
         if (!acc) throw new Error(`unreachable: line ${l.lineId} validated above`);

@@ -82,6 +82,7 @@ const REFUSAL_STATUS: Readonly<Record<BranchRefusalCode, 400 | 403 | 404 | 422>>
   [BranchRefusalCode.TreasuryBranchMismatch]: 403,
   [BranchRefusalCode.WarehouseBranchMismatch]: 422,
   [BranchRefusalCode.SharedFieldRestricted]: 403,
+  [BranchRefusalCode.WarehouseOutOfScope]: 403,
 };
 
 export function branchRefusal(c: Context, code: BranchRefusalCode): Response {
@@ -405,6 +406,19 @@ function defaultBranchRefusal(c: Context, session: Session, entry: BranchPolicyE
   return null;
 }
 
+/**
+ * SECURITY, for every session granted only some warehouses: a write that
+ * names a warehouse outside them is refused, on every route. Stock leaves the
+ * warehouse a document names, so a draft raised on another one is a claim on
+ * stock the session was never given.
+ */
+function warehouseGrantRefusal(c: Context, ctx: AuthContext, body: unknown): Response | null {
+  const granted = ctx.warehouseGrant;
+  if (granted === ALL_SCOPE) return null;
+  const outside = referencesNamedIn(body).some((reference) => reference.kind === K.Warehouse && !granted.includes(reference.id));
+  return outside ? branchRefusal(c, BranchRefusalCode.WarehouseOutOfScope) : null;
+}
+
 function companysRecordRefusal(c: Context, entry: BranchPolicyEntry, body: unknown): Response | null {
   if (!entry.unownedIsCompanys || body === null || typeof body !== "object" || Array.isArray(body)) return null;
   return (body as Record<string, unknown>)["branchId"] === null ? branchRefusal(c, BranchRefusalCode.CompanyWideOnly) : null;
@@ -562,9 +576,13 @@ export function branchPolicyEnforcement(options: BranchPolicyEnforcementOptions)
     if (!ctx.authenticated) return next();
     const directory = options.directory;
     if (ctx.branchGrant === ALL_SCOPE) {
-      if (isRead(c) || !directory) return next();
+      if (isRead(c)) return next();
+      const body = await readJsonBody(c);
+      const outsideWarehouses = warehouseGrantRefusal(c, ctx, body);
+      if (outsideWarehouses) return outsideWarehouses;
+      if (!directory) return next();
       const resolve = async (kind: BranchRecordKind, id: string) => (kind === K.Branch ? [id] : directory.branchesOf(kind, id, BranchAccess.Write));
-      const mismatch = await warehouseBranchRefusal(c, resolve, branchPolicyFor(routePath, table), await readJsonBody(c));
+      const mismatch = await warehouseBranchRefusal(c, resolve, branchPolicyFor(routePath, table), body);
       return mismatch ?? next();
     }
 
@@ -599,6 +617,7 @@ export function branchPolicyEnforcement(options: BranchPolicyEnforcementOptions)
     if (!isRead(c)) {
       const body = await readJsonBody(c);
       const refusal =
+        warehouseGrantRefusal(c, ctx, body) ??
         companysRecordRefusal(c, entry, body) ??
         (await bodyRefusal(c, session, entry, body)) ??
         (await warehouseBranchRefusal(c, (kind, id) => lookup(session, kind, id), entry, body)) ??

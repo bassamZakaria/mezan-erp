@@ -1917,3 +1917,60 @@ describe("D111 round 3 · a limited list is cut to the caller's rows before it i
     expect(rowsOf((await admin("GET", "/gl/recurring/runs?limit=1")).body)).toHaveLength(1);
   });
 });
+
+describe("D111 round 3 · the routes the review did not drive", () => {
+  const everythingButUnattributed = () => ALL_PERMISSION_CODES.filter((code) => code !== VIEW_UNATTRIBUTED);
+  const NOT_FOUND_BODY = { error: "NOT_FOUND", message: "المستند غير موجود أو يخص فرعًا خارج صلاحيتك." };
+
+  it("bank reconciliation: a statement line cannot be matched against another branch's journal entries", async () => {
+    const statement = one<{ id: string }>("SELECT id FROM bank_statement LIMIT 1")!.id;
+    const line = one<{ id: string }>("SELECT id FROM statement_line WHERE statement_id = ? LIMIT 1", statement)!.id;
+    const foreignEntry = one<{ id: string }>("SELECT entry_id AS id FROM journal_line WHERE branch_id = ? LIMIT 1", ALEX)!.id;
+    const matched = () => JSON.stringify(all("SELECT * FROM statement_line WHERE id = ?", line));
+    const before = matched();
+    const many = await mainOnly("POST", `/bank-statements/${statement}/lines/${line}/match-many`, { entryIds: [foreignEntry] });
+    expect(many.status, JSON.stringify(many.body).slice(0, 200)).toBe(404);
+    expect(many.body).toMatchObject(NOT_FOUND_BODY);
+    const single = await mainOnly("POST", `/bank-statements/${statement}/lines/${line}/match`, { entryId: foreignEntry });
+    expect(single.status, JSON.stringify(single.body).slice(0, 200)).toBe(404);
+    expect(single.body).toMatchObject(NOT_FOUND_BODY);
+    expect(matched()).toBe(before);
+  });
+
+  it("an advance's cash repayment: not on another branch's advance, and not into another branch's drawer", async () => {
+    const advance = one<{ id: string }>("SELECT a.id FROM hr_employee_advance a JOIN hr_employee e ON e.id = a.employee_id WHERE e.branch_id = ? LIMIT 1", MAIN)!.id;
+    const state = () => JSON.stringify(all("SELECT * FROM hr_employee_advance WHERE id = ?", advance)) + one<{ n: number }>("SELECT COUNT(*) AS n FROM voucher")!.n;
+    const before = state();
+    const repay = (treasuryAccountId: string, branchId: string) => ({ repaymentId: `R3-REPAY-${treasuryAccountId}`, amount: "1.00", treasuryAccountId, branchId, date: TODAY });
+    for (const caller of [alex, alexStar]) {
+      expectRefusedInArabic(await caller("POST", `/hr/advances/${advance}/repay`, repay("TR-DEMO-CASH-ALEX", ALEX)));
+      expect((await caller("GET", `/hr/advances/${advance}/repayable`)).status).toBe(404);
+    }
+    const intoForeignDrawer = await mainOnly("POST", `/hr/advances/${advance}/repay`, repay("TR-DEMO-CASH-ALEX", MAIN));
+    expect(intoForeignDrawer.status).toBe(403);
+    expect(intoForeignDrawer.body.error).toBe("BRANCH_OUT_OF_SCOPE");
+    const underForeignBranch = await mainOnly("POST", `/hr/advances/${advance}/repay`, repay("TR-DEMO-CASH", ALEX));
+    expect(underForeignBranch.status).toBe(403);
+    expect(state()).toBe(before);
+  });
+
+  it("a session granted one warehouse cannot raise a document on another, whatever branches it holds", async () => {
+    const granted = "WH-DEMO-2";
+    const sessions: readonly (readonly [label: string, caller: Caller])[] = [
+      ["every branch", callerFor(handle.sessions.issue({ userId: "USER-R3-WH-ALL", permissions: everythingButUnattributed(), roleCode: null, branchScope: ALL_SCOPE, warehouseScope: [granted] }))],
+      ["one branch", callerFor(handle.sessions.issue({ userId: "USER-R3-WH-MAIN", permissions: everythingButUnattributed(), roleCode: null, branchScope: [MAIN], warehouseScope: [granted] }))],
+      ["* admin", callerFor(handle.sessions.issue({ userId: "USER-R3-WH-STAR", permissions: ["*"], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: [granted] }))],
+    ];
+    for (const [label, caller] of sessions) {
+      const id = `R3-WH-${label.length}`;
+      const refused = await caller("POST", "/sales-invoices", salesInvoice(id, MAIN, MAIN_WAREHOUSE));
+      expect(refused.status, `${label} ${JSON.stringify(refused.body).slice(0, 200)}`).toBe(403);
+      expect(refused.body.error).toBe("WAREHOUSE_OUT_OF_SCOPE");
+      expect(refused.body.message).toMatch(ARABIC);
+      expect(one("SELECT id FROM sales_invoice WHERE id = ?", id)).toBeUndefined();
+      expect((await caller("POST", "/purchases/invoices", purchaseInvoice(`${id}-PI`, MAIN, MAIN_WAREHOUSE))).status, label).toBe(403);
+      const allowed = await caller("POST", "/sales-invoices", salesInvoice(`${id}-OK`, MAIN, granted));
+      expect(allowed.status, `${label} ${JSON.stringify(allowed.body).slice(0, 200)}`).toBe(201);
+    }
+  });
+});

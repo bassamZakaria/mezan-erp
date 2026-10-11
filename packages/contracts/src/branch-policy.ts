@@ -356,6 +356,7 @@ export const BODY_REFERENCE_KEYS: Readonly<Record<string, BranchRecordKind>> = {
   installmentPlanId: K.InstallmentPlan,
   planId: K.InstallmentPlan,
   templateId: K.RecurringTemplate,
+  entryId: K.JournalEntry,
   docId: K.AnyDocument,
 };
 
@@ -368,6 +369,7 @@ export enum BranchRefusalCode {
   TreasuryBranchMismatch = "TREASURY_BRANCH_MISMATCH",
   WarehouseBranchMismatch = "WAREHOUSE_BRANCH_MISMATCH",
   SharedFieldRestricted = "SHARED_FIELD_RESTRICTED",
+  WarehouseOutOfScope = "WAREHOUSE_OUT_OF_SCOPE",
 }
 
 export interface BranchRefusalBody {
@@ -411,6 +413,11 @@ export const BRANCH_REFUSALS: Readonly<Record<BranchRefusalCode, BranchRefusalBo
     error: BranchRefusalCode.SharedFieldRestricted,
     message: "هذا الحقل يسري على كل الفروع، ولا يحدده أو يغيّره حساب مقيّد بفروع محددة. اطلب التعديل من الإدارة.",
     messageEn: "This field applies to every branch and cannot be set or changed by an account restricted to specific branches. Ask head office to change it.",
+  },
+  [BranchRefusalCode.WarehouseOutOfScope]: {
+    error: BranchRefusalCode.WarehouseOutOfScope,
+    message: "المستودع خارج نطاق المستودعات المصرّح لك بها.",
+    messageEn: "The warehouse is outside the warehouses granted to you.",
   },
   [BranchRefusalCode.WarehouseBranchMismatch]: {
     error: BranchRefusalCode.WarehouseBranchMismatch,

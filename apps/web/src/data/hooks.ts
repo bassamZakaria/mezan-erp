@@ -3534,6 +3534,20 @@ export function useCreateDepreciationRun() {
   });
 }
 
+export function useDiscardDepreciationRun() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<DepreciationRunDTO, ApiError, string>({
+    mutationFn: async (id) => {
+      const res = await request(`/assets/depreciation/runs/${id}/discard`, { method: "POST", body: JSON.stringify({}) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theDepreciationDraftCouldNotBeDiscarded"), t));
+      return res.json<DepreciationRunDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["depreciation-runs"] }),
+  });
+}
+
 export function usePostDepreciationRun() {
   const { t } = useAppTranslation();
   const { request } = useApi();

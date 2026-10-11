@@ -7,6 +7,7 @@ import {
   createAsset,
   createDepreciationRun,
   postDepreciationRun,
+  discardDepreciationRun,
   reverseDepreciationRun,
   DuplicateAssetCategoryCodeError,
   InvalidAssetCategoryError,
@@ -165,6 +166,7 @@ function serializeRun(run: DepreciationRun) {
     branchId: run.branchId,
     status: run.status,
     lines: run.lines.map((l) => ({ assetId: l.assetId, amount: l.amount.toString() })),
+    skippedLines: (run.skippedLines ?? []).map((l) => ({ assetId: l.assetId, assetCode: l.assetCode, amount: l.amount.toString() })),
     totalAmount: run.totalAmount.toString(),
     journalEntryId: run.journalEntryId,
     createdAt: run.createdAt,
@@ -557,6 +559,23 @@ export function createFixedAssetsRoutes(
         categories: deps.categories,
         gl: deps.gl,
         defaultAccounts: deps.defaultAccounts,
+      });
+      return c.json(serializeRun(run));
+    } catch (err) {
+      return handleDomainError(c, err);
+    }
+  });
+
+  app.post("/depreciation/runs/:id/discard", gate("assets.depreciation.run"), async (c) => {
+    try {
+      const run = await discardDepreciationRun(c.req.param("id"), { runs: deps.runs });
+      await recordAdminEvent(deps.audit, c, {
+        module: "assets",
+        entityType: "DEPRECIATION_RUN",
+        entityId: run.id,
+        action: "DISCARD",
+        severity: "WARNING",
+        details: { period: run.period, branchId: run.branchId, lines: run.lines.length, totalAmount: run.totalAmount.toString() },
       });
       return c.json(serializeRun(run));
     } catch (err) {

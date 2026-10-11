@@ -12,6 +12,7 @@ import {
   PeriodCloseEntryState,
   buildTrialBalanceSnapshot,
   computeMonthlyDepreciation,
+  DEPRECIABLE_ASSET_STATUSES,
   createDefaultSettings,
   dayBefore,
   deriveOpenFxBalances,
@@ -212,7 +213,7 @@ function buildSources(ctx: BackendModuleContext, store: ReturnType<typeof create
       const hasDraftRun = periodRuns.some((run) => run.status === SourceStatus.Draft);
       const disposedOn = new Map(queries.assetDisposalDates().map((disposal) => [disposal.assetId, disposal.date]));
       const inServiceAtPeriodEnd = (asset: Asset): boolean =>
-        asset.status === SourceStatus.Active || (asset.status === SourceStatus.Disposed && (disposedOn.get(asset.id) ?? "") > window.endDate);
+        DEPRECIABLE_ASSET_STATUSES.has(asset.status) || (asset.status === SourceStatus.Disposed && (disposedOn.get(asset.id) ?? "") > window.endDate);
       const groups = new Map<string | null, { dueAssets: number; uncoveredAssets: number; uncoveredAssetCodes: string[]; doubleChargedAssetCodes: string[] }>();
       for (const asset of allAssets) {
         const due =

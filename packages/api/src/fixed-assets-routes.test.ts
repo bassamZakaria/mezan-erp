@@ -306,7 +306,7 @@ describe("fixed-assets router — depreciation run full flow", () => {
     expect(Number(assetBody.accumulatedDepreciation)).toBeGreaterThan(0);
   });
 
-  it("409s posting an already-posted run, and 409s creating a duplicate-period run", async () => {
+  it("409s posting an already-posted run; a second run for the month finds nothing left uncharged, and a second open draft is a duplicate", async () => {
     const { app } = await newApp();
     await app.fetch(req("/categories", { method: "POST", permissions: "assets.manage", body: JSON.stringify(categoryPayload) }));
     await app.fetch(
@@ -329,7 +329,13 @@ describe("fixed-assets router — depreciation run full flow", () => {
     const dupPeriod = await app.fetch(
       req("/depreciation/runs", { method: "POST", permissions: "assets.depreciation.run", body: JSON.stringify({ period: "2026-03" }) }),
     );
-    expect(dupPeriod.status).toBe(409);
+    expect(dupPeriod.status).toBe(422);
+    expect(((await dupPeriod.json()) as { error: string }).error).toBe("NO_DEPRECIABLE_ASSETS");
+
+    const draftA = await app.fetch(req("/depreciation/runs", { method: "POST", permissions: "assets.depreciation.run", body: JSON.stringify({ period: "2026-04" }) }));
+    expect(draftA.status).toBe(201);
+    const draftB = await app.fetch(req("/depreciation/runs", { method: "POST", permissions: "assets.depreciation.run", body: JSON.stringify({ period: "2026-04" }) }));
+    expect(draftB.status).toBe(409);
   });
 
   it("422s creating a run with nothing left to depreciate", async () => {

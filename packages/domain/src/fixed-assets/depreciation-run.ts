@@ -18,6 +18,13 @@ export interface DepreciationRunLine {
   readonly costCategory?: CostCategory | null;
 }
 
+/** A drafted line the posting left out because another posted run had already charged that asset for the period. */
+export interface DepreciationRunSkippedLine {
+  readonly assetId: string;
+  readonly assetCode: string;
+  readonly amount: Money;
+}
+
 export interface DepreciationRun {
   readonly id: string;
   /** "YYYY-MM" */
@@ -25,6 +32,7 @@ export interface DepreciationRun {
   readonly branchId: string | null;
   readonly status: DepreciationRunStatus;
   readonly lines: readonly DepreciationRunLine[];
+  readonly skippedLines?: readonly DepreciationRunSkippedLine[];
   readonly totalAmount: Money;
   readonly journalEntryId: string | null;
   readonly createdAt: string;

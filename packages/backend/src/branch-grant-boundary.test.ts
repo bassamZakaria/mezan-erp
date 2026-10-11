@@ -1635,3 +1635,41 @@ describe("D111 round 3 · a record raised with no branch lands in the author's o
     expect(rowsOf((await alex("GET", "/shift-templates")).body).map((row: any) => row.nameAr)).toContain("وردية اختبار الفرع");
   });
 });
+
+describe("D111 round 3 · a refusal does not tell a branch user whether another branch holds an id", () => {
+  it("a referenced document another branch holds and one nobody holds answer the same", async () => {
+    const foreignReceipt = one<{ id: string }>("SELECT r.id FROM goods_receipt r JOIN warehouse w ON w.id = r.warehouse_id WHERE w.branch_id = ? LIMIT 1", MAIN)!.id;
+    const foreignInvoice = one<{ id: string }>("SELECT id FROM sales_invoice WHERE branch_id = ? AND status = 'confirmed' LIMIT 1", MAIN)!.id;
+    const ownVoucher = one<{ id: string }>("SELECT id FROM voucher WHERE branch_id = ? LIMIT 1", ALEX)!.id;
+    const probes: readonly (readonly [path: string, body: (id: string) => unknown, foreign: string])[] = [
+      ["/purchases/invoices", (id) => ({ ...purchaseInvoice(`R3-ORACLE-${id.length}`, ALEX, ALEX_WAREHOUSE), receiptId: id }), foreignReceipt],
+      ["/allocations", (id) => ({ voucherId: ownVoucher, invoiceId: id, amount: "1.00" }), foreignInvoice],
+      ["/crm/activities", (id) => ({ type: "call", subject: "متابعة", relatedOpportunityId: id }), one<{ id: string }>("SELECT id FROM crm_opportunity WHERE branch_id = ? LIMIT 1", MAIN)!.id],
+    ];
+    for (const [path, body, foreign] of probes) {
+      for (const caller of [alex, alexStar]) {
+        const held = await caller("POST", path, body(foreign));
+        const unknown = await caller("POST", path, body("R3-NOBODY-HOLDS-THIS"));
+        expect(held.status, path).toBe(404);
+        expect({ status: unknown.status, body: unknown.body }, path).toEqual({ status: held.status, body: held.body });
+      }
+    }
+  });
+
+  it("creating under an id that exists answers the same whether the caller's branch or another's holds it, and names nothing", async () => {
+    const foreign = one<{ id: string; doc_no: string }>("SELECT id, doc_no FROM sales_invoice WHERE branch_id = ? AND doc_no IS NOT NULL LIMIT 1", MAIN)!;
+    const own = one<{ id: string }>("SELECT id FROM sales_invoice WHERE branch_id = ? LIMIT 1", ALEX)!;
+    for (const caller of [alex, alexStar]) {
+      const overForeign = await caller("POST", "/sales-invoices", salesInvoice(foreign.id, ALEX, ALEX_WAREHOUSE));
+      const overOwn = await caller("POST", "/sales-invoices", salesInvoice(own.id, ALEX, ALEX_WAREHOUSE));
+      expect(overForeign.status).toBe(409);
+      expect(overForeign.body.message).toMatch(ARABIC);
+      expect(overOwn.status).toBe(409);
+      const strip = (body: any, id: string) => JSON.stringify(body).split(id).join("<id>");
+      expect(strip(overForeign.body, foreign.id)).toBe(strip(overOwn.body, own.id));
+      expect(JSON.stringify(overForeign.body)).not.toContain(foreign.doc_no);
+      expect(JSON.stringify(overForeign.body)).not.toContain(MAIN);
+    }
+    expect(one<{ b: string }>("SELECT branch_id AS b FROM sales_invoice WHERE id = ?", foreign.id)!.b).toBe(MAIN);
+  });
+});

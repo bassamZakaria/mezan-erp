@@ -40,6 +40,33 @@ const RESTRICTED_TREASURY_HOLDER_KEYS: ReadonlySet<string> = new Set([...TREASUR
 
 const DOCUMENT_BRANCH_KEYS: ReadonlySet<string> = new Set(["branchId", "warehouseId", "sourceWarehouseId", "destinationWarehouseId", "fromWarehouseId"]);
 
+/**
+ * SECURITY: keys that name one kind of record on every route. An id under one
+ * of them that nothing holds answers exactly as an id another branch holds, so
+ * the refusal does not say which it was. A key that means different records on
+ * different routes (`runId`, `templateId`, `planId`, `orderId`, `docId`) is not
+ * here: the directory cannot tell "absent" from "not the kind I look up".
+ */
+const SOLE_MEANING_KEYS: ReadonlySet<string> = new Set([
+  "receiptId",
+  "purchaseOrderId",
+  "quoteId",
+  "invoiceId",
+  "sourceInvoiceId",
+  "voucherId",
+  "chequeId",
+  "statementId",
+  "rfqId",
+  "vanId",
+  "tripId",
+  "terminalId",
+  "assetId",
+  "workOrderId",
+  "opportunityId",
+  "relatedOpportunityId",
+  "installmentPlanId",
+]);
+
 const NAMED_LOCATION_KINDS: ReadonlySet<BranchRecordKind> = new Set([K.Branch, K.Warehouse, K.TreasuryAccount]);
 const QUERY_BRANCH_KEYS = ["branchId", "branchIds", "branch"] as const;
 const UNATTRIBUTED_QUERY_VALUE = "__unattributed__";
@@ -252,6 +279,7 @@ async function bodyRefusal(c: Context, session: Session, entry: BranchPolicyEntr
     if (standing === Standing.Foreign || standing === Standing.PartlyForeign) {
       return branchRefusal(c, NAMED_LOCATION_KINDS.has(reference.kind) ? BranchRefusalCode.BranchOutOfScope : BranchRefusalCode.NotFound);
     }
+    if (standing === Standing.Absent && SOLE_MEANING_KEYS.has(reference.key)) return branchRefusal(c, BranchRefusalCode.NotFound);
   }
   return null;
 }

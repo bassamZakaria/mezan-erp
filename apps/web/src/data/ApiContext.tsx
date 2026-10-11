@@ -13,6 +13,27 @@ import {
 } from "./session";
 import { resolveDefaultTransport, type Transport, type TransportResponse } from "./transport";
 import { publishLoaderApi } from "./api-bridge";
+import { DEVICE_BINDING_HEADER } from "@mezan/contracts";
+import { StepUpDialog, type StepUpPrompt } from "./StepUpDialog";
+
+const SIGN_IN_PATH = "/auth/login";
+const STEP_UP_PATH = "/auth/step-up";
+const STEP_UP_STATUS = 403;
+const STEP_UP_REQUIRED = "STEP_UP_REQUIRED";
+/** Asks the cloud edge to keep the device secret in an httpOnly cookie this script never sees. Ignored by a desktop or LAN host, whose sessions stay bound to the address. */
+const COOKIE_KEPT_DEVICE_SECRET = "cookie";
+
+function parsed(text: string): { error?: string; message?: string } | null {
+  try {
+    return JSON.parse(text) as { error?: string; message?: string };
+  } catch {
+    return null;
+  }
+}
+
+function replayable(response: TransportResponse, text: string): TransportResponse {
+  return { status: response.status, ok: response.ok, json: async <T,>() => JSON.parse(text) as T, text: async () => text };
+}
 
 interface ApiContextValue {
   readonly session: Session | null;
@@ -82,6 +103,37 @@ export function ApiProvider({ children, transport, initialSession }: ApiProvider
     void queryClient.invalidateQueries();
   }, [scopeSelection, queryClient]);
 
+  const [stepUp, setStepUp] = useState<StepUpPrompt | null>(null);
+
+  // The server asks for the PIN again before an administrative change made
+  // after the session's address moved. The person is asked once, here, and the
+  // request they made is sent once more — so no screen has to know about it.
+  const afterStepUp = useCallback(
+    async (refused: TransportResponse, resend: () => Promise<TransportResponse>, headers: Headers): Promise<TransportResponse> => {
+      const text = await refused.text();
+      const replayed = replayable(refused, text);
+      const body = parsed(text);
+      if (body?.error !== STEP_UP_REQUIRED) return replayed;
+      const confirmed = await new Promise<boolean>((resolve) => {
+        setStepUp({
+          message: body.message ?? "",
+          cancel: () => resolve(false),
+          confirm: async (pin) => {
+            const answer = await resolvedTransport(STEP_UP_PATH, { method: "POST", headers, body: JSON.stringify({ pin }) });
+            if (answer.ok) {
+              resolve(true);
+              return null;
+            }
+            return parsed(await answer.text())?.message ?? "";
+          },
+        });
+      });
+      setStepUp(null);
+      return confirmed ? resend() : replayed;
+    },
+    [resolvedTransport],
+  );
+
   const value = useMemo<ApiContextValue>(
     () => ({
       session,
@@ -100,7 +152,10 @@ export function ApiProvider({ children, transport, initialSession }: ApiProvider
         const narrowing = method === "GET" || method === "HEAD" ? scopeSelection : undefined;
         for (const [k, v] of Object.entries(authHeaders(session, narrowing))) headers.set(k, v);
         if (init?.body && !headers.has("content-type")) headers.set("content-type", "application/json");
-        const response = await resolvedTransport(path, { ...init, headers });
+        if (path === SIGN_IN_PATH) headers.set(DEVICE_BINDING_HEADER, COOKIE_KEPT_DEVICE_SECRET);
+        const send = (): Promise<TransportResponse> => resolvedTransport(path, { ...init, headers });
+        const first = await send();
+        const response = first.status === STEP_UP_STATUS && session !== null ? await afterStepUp(first, send, headers) : first;
 
         /*
          * 401 means the server does not know this session any more — it
@@ -127,7 +182,7 @@ export function ApiProvider({ children, transport, initialSession }: ApiProvider
         return response;
       },
     }),
-    [session, setSession, scopeSelection, setScopeSelection, resolvedTransport, queryClient],
+    [session, setSession, scopeSelection, setScopeSelection, resolvedTransport, queryClient, afterStepUp],
   );
 
   /*
@@ -141,7 +196,12 @@ export function ApiProvider({ children, transport, initialSession }: ApiProvider
    */
   publishLoaderApi({ request: value.request, queryClient, isAuthenticated: session !== null });
 
-  return <ApiContext.Provider value={value}>{children}</ApiContext.Provider>;
+  return (
+    <ApiContext.Provider value={value}>
+      {children}
+      {stepUp ? <StepUpDialog prompt={stepUp} /> : null}
+    </ApiContext.Provider>
+  );
 }
 
 export function useApi(): ApiContextValue {

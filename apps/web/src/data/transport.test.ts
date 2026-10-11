@@ -11,7 +11,7 @@ describe("createHttpTransport", () => {
   it("prefixes the path with the base URL and forwards init", async () => {
     const fetchSpy = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
       expect(input).toBe("/api/items?status=active");
-      expect(init).toEqual({ method: "POST" });
+      expect(init).toEqual({ method: "POST", credentials: "same-origin" });
       return new Response(JSON.stringify({ ok: true }), { status: 201 });
     });
     globalThis.fetch = fetchSpy as unknown as typeof fetch;

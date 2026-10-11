@@ -10,6 +10,7 @@ import { createBackendCache, type BackendCache } from "./backend-cache.js";
 import { callerSource, originEnv, requireCloudSource, SOCKET_ONLY, type ClientSourceOptions, type CloudSource, type SourceReporter } from "./client-source.js";
 import { createTenantResolvers, type TenantResolvers } from "./tenant-entitlements.js";
 import { resolveTenantCode, TENANT_HEADER } from "./tenant-resolver.js";
+import { asksForDeviceCookie, clearingCookie, secretIntoCookie, withDeviceSecretHeader } from "./device-cookie.js";
 
 export interface TenantRouterOptions {
   readonly platform: PlatformHandle;
@@ -56,6 +57,12 @@ export function requireOriginSecret(secret?: string): MiddlewareHandler {
 }
 
 const SIGN_IN = "/auth/login";
+const SIGN_OUT = "/auth/logout";
+
+function isHttps(request: Request, trustForwarded: boolean): boolean {
+  const forwarded = trustForwarded ? request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim() : undefined;
+  return (forwarded ?? new URL(request.url).protocol.replace(":", "")) === "https";
+}
 const COUNTED_AS_FAILED: ReadonlySet<number> = new Set([401, 423]);
 // A tenant backend holds an address after thirty failures against ITS
 // accounts (login-throttle.ts). This is the one count no tenant can keep: the
@@ -191,8 +198,11 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
     const prefixLen = c.req.routePath.length - REST_PATTERN.length;
     const subPath = c.req.path.slice(prefixLen) || "/";
     const targetUrl = new URL(`${subPath}${new URL(c.req.raw.url).search}`, c.req.raw.url);
-    const forwarded = new Request(targetUrl, c.req.raw);
+    const cookieSignIn = asksForDeviceCookie(c.req.raw);
+    const secure = isHttps(c.req.raw, options.trustForwardedHost === true);
+    const forwarded = withDeviceSecretHeader(new Request(targetUrl, c.req.raw));
     const source = callerSource(c);
+    if (c.req.method === "POST" && subPath === SIGN_OUT) return clearingCookie(await door.fetch(forwarded, source), secure);
     if (c.req.method !== "POST" || subPath !== SIGN_IN) return door.fetch(forwarded, source);
 
     const counted = throttleSource(source) ?? source;
@@ -203,7 +213,7 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
     }
     const answer = await door.fetch(forwarded, source);
     if (COUNTED_AS_FAILED.has(answer.status)) signInSources.fail(counted);
-    return answer;
+    return cookieSignIn ? secretIntoCookie(answer, secure) : answer;
   });
 
   async function openFor(code: string): Promise<BackendHandle> {

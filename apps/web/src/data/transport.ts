@@ -32,7 +32,7 @@ function getBridge(): MezanBridge | undefined {
 /** HTTP transport for the web/dev build — talks to the `/api` middleware (or a proxied apps/server). */
 export function createHttpTransport(baseUrl = "/api"): Transport {
   return async (path, init) => {
-    const res = await fetch(`${baseUrl}${path}`, init);
+    const res = await fetch(`${baseUrl}${path}`, { ...init, credentials: "same-origin" });
     return {
       status: res.status,
       ok: res.ok,

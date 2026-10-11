@@ -107,6 +107,74 @@ describe("a cloud caller behind the two-hop proxy", () => {
     expect((await h.send("/api/profile", { token, tenant: "acme", headers: device })).status).toBe(401);
   });
 
+  describe("a browser's device secret", () => {
+    async function browserSignIn(h: CloudHarness, admin: { adminEmail: string; adminPin: string }, headers: Record<string, string> = {}) {
+      const res = await h.send("/api/auth/login", {
+        method: "POST", tenant: "acme", headers: { "x-mezan-device-binding": "cookie", ...headers },
+        body: JSON.stringify({ username: admin.adminEmail, pin: admin.adminPin }),
+      });
+      const setCookie = res.headers.get("set-cookie") ?? "";
+      const body = (await res.json()) as { token: string; deviceSecret?: string };
+      return { status: res.status, setCookie, body, cookie: setCookie.split(";")[0] ?? "" };
+    }
+
+    it("is set as an httpOnly, same-site cookie under /api and never handed to the page's script", async () => {
+      const h = await boot();
+      const admin = await provision(h);
+      const plain = await browserSignIn(h, admin);
+      expect(plain.status).toBe(200);
+      expect(plain.body.deviceSecret).toBeUndefined();
+      expect(plain.setCookie).toMatch(/^mezan_device=[A-Za-z0-9_-]{40,}; /);
+      expect(plain.setCookie).toContain("Path=/api");
+      expect(plain.setCookie).toContain("HttpOnly");
+      expect(plain.setCookie).toContain("SameSite=Strict");
+      expect(plain.setCookie).not.toContain("Secure");
+
+      const https = await browserSignIn(h, admin, { "x-forwarded-proto": "https" });
+      expect(https.setCookie).toContain("Secure");
+    });
+
+    it("lets the browser change address, on the tenant's routes and on billing, and records each move once as information", async () => {
+      const h = await boot();
+      const admin = await provision(h);
+      const { body, cookie } = await browserSignIn(h, admin);
+      const browser = { token: body.token, tenant: "acme", headers: { cookie } };
+
+      expect((await h.send("/api/profile", browser)).status).toBe(200);
+      expect((await h.send("/api/profile", { ...browser, client: "102.44.7.1" })).status).toBe(200);
+      expect((await h.send("/api/billing/subscription", { ...browser, client: "197.55.1.9" })).status).toBe(200);
+      expect((await h.send("/api/profile", { ...browser, client: "197.55.1.9" })).status).toBe(200);
+
+      const audit = await (await h.send("/api/audit?action=SESSION_ADDRESS_CHANGED", { ...browser, client: "197.55.1.9" })).text();
+      expect(audit.match(/"action":"SESSION_ADDRESS_CHANGED"/g) ?? []).toHaveLength(2);
+    });
+
+    it("is not a credential: a cross-site request carrying only the cookie is refused, and so is the token without the cookie", async () => {
+      const h = await boot();
+      const admin = await provision(h);
+      const { body, cookie } = await browserSignIn(h, admin);
+
+      const crossSite = await h.send("/api/item-brands", {
+        method: "POST", tenant: "acme", headers: { cookie, origin: "https://evil.example" },
+        body: JSON.stringify({ id: "b-x", code: "BX", name: "x", nameAr: "س" }),
+      });
+      expect(crossSite.status).toBe(401);
+      expect((await h.send("/api/profile", { tenant: "acme", headers: { cookie } })).status).toBe(401);
+      expect((await h.send("/api/profile", { token: body.token, tenant: "acme", headers: { cookie } })).status).toBe(200);
+
+      expect((await h.send("/api/profile", { token: body.token, tenant: "acme" })).status).toBe(401);
+    });
+
+    it("is cleared on sign-out", async () => {
+      const h = await boot();
+      const admin = await provision(h);
+      const { body, cookie } = await browserSignIn(h, admin);
+      const out = await h.send("/api/auth/logout", { method: "POST", token: body.token, tenant: "acme", headers: { cookie } });
+      expect(out.headers.get("set-cookie")).toMatch(/^mezan_device=; .*Max-Age=0/);
+      expect((await h.send("/api/profile", { token: body.token, tenant: "acme", headers: { cookie } })).status).toBe(401);
+    });
+  });
+
   it("reads the deletion form's caller only after the origin secret has proved the request crossed the edge", async () => {
     const h = await bootCloudHarness({ vars: { MEZAN_ORIGIN_SECRET: "edge-secret", MEZAN_SUPPORT_EMAIL: "support@mezan.test" } });
     harnesses.push(h);

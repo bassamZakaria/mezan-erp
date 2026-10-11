@@ -38,6 +38,7 @@ import { SettlementStatus, type CardCheckoutService } from "./card-checkout.js";
 import type { PaymobTestProvider } from "./paymob-provider.js";
 import type { CloudEnv } from "./env.js";
 import type { TenantDoor, TenantRouter } from "./tenant-router.js";
+import { deviceSecretOf } from "./device-cookie.js";
 import { callerSource, requireCloudSource, type CloudSource, type SourceReporter } from "./client-source.js";
 import { resolveTenantCode } from "./tenant-resolver.js";
 
@@ -210,10 +211,16 @@ export function createTenantBillingRoutes(options: TenantBillingRoutesOptions): 
     if (!token) return c.json({ error: "UNAUTHENTICATED", message: "سجّل الدخول أولًا" }, 401);
     const source = callerSource(c);
     const door = await router.callerDoor(code);
-    const grant = door.findSession(token, source, c.req.header(DEVICE_SECRET_HEADER) ?? null);
+    const deviceSecret = deviceSecretOf(c.req.raw);
+    const device: Record<string, string> = deviceSecret ? { [DEVICE_SECRET_HEADER]: deviceSecret } : {};
+    // REQUIRED ORDERING: the tenant's own app sees the request first, so an
+    // address change on a device-bound session is written to its audit log
+    // exactly as it is on any tenant route; the lookup below would otherwise
+    // absorb the change unrecorded.
+    await door.fetch(new Request("http://tenant/profile", { headers: { authorization: `Bearer ${token}`, ...device } }), source);
+    const grant = door.findSession(token, source, deviceSecret);
     if (!grant) return c.json({ error: "UNAUTHENTICATED", message: "انتهت الجلسة، سجّل الدخول مرة أخرى" }, 401);
-    const deviceSecret = c.req.header(DEVICE_SECRET_HEADER);
-    return { tenant, grant, token, source, door, device: deviceSecret ? { [DEVICE_SECRET_HEADER]: deviceSecret } : {} };
+    return { tenant, grant, token, source, door, device };
   }
 
   const forbidden = (c: Context) => c.json({ error: "FORBIDDEN", message: "ليست لديك صلاحية إدارة الاشتراك" }, 403);

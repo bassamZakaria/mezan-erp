@@ -142,6 +142,60 @@ describe("createSqlitePlatformStores", () => {
     db.close();
   });
 
+  describe("the one-time anchor-day backfill", () => {
+    const legacy = (over: Partial<Subscription>): Subscription => ({
+      ...sub, createdAt: "2026-01-31T10:00:00.000Z", currentPeriodStart: "2026-01-31T10:00:00.000Z", currentPeriodEnd: "2026-02-28T10:00:00.000Z", ...over,
+    });
+
+    async function storedBeforeAnchorsExisted(db: InstanceType<typeof Database>) {
+      const before = createSqlitePlatformStores(db);
+      await before.subscriptions.save(legacy({ id: "S-ON-TIME", tenantId: "T-ON-TIME", currentPeriodStart: "2026-03-28T10:00:00.000Z", currentPeriodEnd: "2026-04-28T10:00:00.000Z" }));
+      await before.payments.save({ ...payment, id: "P1", tenantId: "T-ON-TIME", subscriptionId: "S-ON-TIME", createdAt: "2026-02-20T09:00:00.000Z" });
+      await before.payments.save({ ...payment, id: "P2", tenantId: "T-ON-TIME", subscriptionId: "S-ON-TIME", createdAt: "2026-03-20T09:00:00.000Z" });
+      await before.subscriptions.save(legacy({ id: "S-LATE", tenantId: "T-LATE", currentPeriodStart: "2026-03-10T09:00:00.000Z", currentPeriodEnd: "2026-04-10T09:00:00.000Z" }));
+      await before.payments.save({ ...payment, id: "P3", tenantId: "T-LATE", subscriptionId: "S-LATE", createdAt: "2026-03-10T09:00:00.000Z" });
+      await before.subscriptions.save(legacy({ id: "S-NIGHT", tenantId: "T-NIGHT", createdAt: "2026-01-14T23:00:00.000Z", currentPeriodStart: "2026-01-14T23:00:00.000Z", currentPeriodEnd: "2026-02-14T23:00:00.000Z" }));
+      await before.subscriptions.save(legacy({ id: "S-GONE", tenantId: "T-GONE", status: "cancelled", cancelledAt: NOW }));
+      await before.subscriptions.save(legacy({ id: "S-SET", tenantId: "T-SET", billingAnchorDay: 12 }));
+      db.exec("DELETE FROM platform_migration");
+    }
+
+    it("restores the day a subscription was created on when its renewals were all on time, marks the ones its history does not settle, and leaves set and cancelled ones alone", async () => {
+      const db = new Database(":memory:");
+      await storedBeforeAnchorsExisted(db);
+
+      const { subscriptions } = createSqlitePlatformStores(db);
+
+      expect(await subscriptions.findById("S-ON-TIME")).toMatchObject({ billingAnchorDay: 31, currentPeriodEnd: "2026-04-28T10:00:00.000Z" });
+      expect((await subscriptions.findById("S-ON-TIME"))?.billingAnchorNeedsReview).toBeUndefined();
+      expect((await subscriptions.findById("S-NIGHT"))?.billingAnchorDay).toBe(15);
+      const late = await subscriptions.findById("S-LATE");
+      expect(late?.billingAnchorDay).toBeUndefined();
+      expect(late?.billingAnchorNeedsReview).toBe(true);
+      expect(await subscriptions.findById("S-GONE")).not.toHaveProperty("billingAnchorDay");
+      expect(await subscriptions.findById("S-GONE")).not.toHaveProperty("billingAnchorNeedsReview");
+      expect((await subscriptions.findById("S-SET"))?.billingAnchorDay).toBe(12);
+      db.close();
+    });
+
+    it("runs once: what the platform owner set afterwards is not looked at again", async () => {
+      const db = new Database(":memory:");
+      await storedBeforeAnchorsExisted(db);
+      const first = createSqlitePlatformStores(db);
+      const late = await first.subscriptions.findById("S-LATE");
+      if (!late) throw new Error("the late subscription is missing");
+      await first.subscriptions.save({ ...late, billingAnchorDay: 10, billingAnchorNeedsReview: false });
+      db.exec("UPDATE subscription SET billing_anchor_day = NULL WHERE id = 'S-ON-TIME'");
+
+      const again = createSqlitePlatformStores(db);
+
+      expect(await again.subscriptions.findById("S-LATE")).toMatchObject({ billingAnchorDay: 10 });
+      expect((await again.subscriptions.findById("S-LATE"))?.billingAnchorNeedsReview).toBeUndefined();
+      expect((await again.subscriptions.findById("S-ON-TIME"))?.billingAnchorDay).toBeUndefined();
+      db.close();
+    });
+  });
+
   it("refuses a second live subscription for one tenant at the database", async () => {
     const stores = createSqlitePlatformStores(":memory:");
     await stores.subscriptions.save(sub);

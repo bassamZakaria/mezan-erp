@@ -192,6 +192,8 @@ export function subscriptionStatusOf(stored: string): SubscriptionStatusCode {
   return parsed.success ? parsed.data : SubscriptionStatusCode.Unknown;
 }
 
+export const billingAnchorDaySchema = z.number().int().min(1).max(31);
+
 export const subscriptionSchema = z.object({
   id: z.string().min(1),
   tenantId: z.string().min(1),
@@ -204,12 +206,18 @@ export const subscriptionSchema = z.object({
   extraWarehouses: z.number().int().nonnegative(),
   currentPeriodStart: isoLikeSchema,
   currentPeriodEnd: isoLikeSchema,
+  /** The day of the month the subscription renews on, in the platform's business calendar. */
+  billingAnchorDay: billingAnchorDaySchema,
+  /** True when the day above is a guess the platform owner has to confirm or correct. */
+  billingAnchorNeedsReview: z.boolean(),
   trialEndsAt: isoLikeSchema.nullable(),
   graceDays: z.number().int().nonnegative(),
   cancelledAt: isoLikeSchema.nullable(),
   createdAt: isoLikeSchema,
   updatedAt: isoLikeSchema,
 });
+
+export const setBillingAnchorDayRequestSchema = z.object({ day: billingAnchorDaySchema });
 
 /** Mirrors the domain's `PlanKind`; `@mezan/contracts` may not import `@mezan/domain`. */
 export const planKindSchema = z.enum(["paid", "free"]);
@@ -431,6 +439,7 @@ export type SubscriptionSuspendRequestDTO = z.infer<typeof subscriptionSuspendRe
 export type SubscriptionResumeRequestDTO = z.infer<typeof subscriptionResumeRequestSchema>;
 export type RecordPaymentRequestDTO = z.infer<typeof recordPaymentRequestSchema>;
 export type SubscriptionStatusDTO = z.infer<typeof subscriptionStatusSchema>;
+export type SetBillingAnchorDayRequestDTO = z.infer<typeof setBillingAnchorDayRequestSchema>;
 export type SubscriptionDTO = z.infer<typeof subscriptionSchema>;
 export type PlanStatusDTO = z.infer<typeof planStatusSchema>;
 export type PlanKindDTO = z.infer<typeof planKindSchema>;

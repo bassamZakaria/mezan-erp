@@ -68,6 +68,8 @@ function makeSummary(overrides: Partial<TenantSummaryDTO["tenant"]> = {}, subOve
       extraWarehouses: 0,
       currentPeriodStart: "2026-09-01T00:00:00.000Z",
       currentPeriodEnd: "2026-10-01T00:00:00.000Z",
+      billingAnchorDay: 1,
+      billingAnchorNeedsReview: false,
       trialEndsAt: null,
       graceDays: 5,
       cancelledAt: null,
@@ -245,6 +247,56 @@ describe("TenantDetailPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "إيقاف المنشأة" }));
     fireEvent.click(within(await screen.findByRole("dialog", { name: "إيقاف المنشأة؟" })).getByRole("button", { name: "إيقاف المنشأة" }));
     await waitFor(() => expect(suspendPosts).toBe(1));
+  });
+
+  it("shows the billing day, says when it needs review, and lets the platform owner set it", async () => {
+    const sent: unknown[] = [];
+    let day = 28;
+    let needsReview = true;
+    const transport = stubPlatformTransport({
+      "GET /tenants/tenant-1": () => ({ body: makeSummary({}, { billingAnchorDay: day, billingAnchorNeedsReview: needsReview }) }),
+      "GET /plans": () => ({ body: [plan, plan2] }),
+      "POST /tenants/tenant-1/subscription/anchor-day": (init) => {
+        const body = JSON.parse(String(init?.body)) as { day: number };
+        sent.push(body);
+        day = body.day;
+        needsReview = false;
+        return { body: makeSummary({}, { billingAnchorDay: day, billingAnchorNeedsReview: false }) };
+      },
+    });
+    renderDetail({ transport, session: testPlatformSession });
+
+    expect(await screen.findByText("يوم الفوترة يحتاج مراجعة")).toBeInTheDocument();
+    const field = screen.getByRole("spinbutton", { name: "يوم الفوترة من الشهر" });
+    expect(field).toHaveValue(28);
+    fireEvent.change(field, { target: { value: "31" } });
+    fireEvent.click(screen.getByRole("button", { name: "حفظ يوم الفوترة" }));
+
+    await waitFor(() => expect(sent).toEqual([{ day: 31 }]));
+    await waitFor(() => expect(screen.queryByText("يوم الفوترة يحتاج مراجعة")).not.toBeInTheDocument());
+    expect(screen.getByRole("spinbutton", { name: "يوم الفوترة من الشهر" })).toHaveValue(31);
+  });
+
+  it("refuses a billing day that is not on a calendar before asking the server, and shows a support operator the day without the control", async () => {
+    let posts = 0;
+    const handlers = {
+      "GET /tenants/tenant-1": () => ({ body: makeSummary({}, { billingAnchorDay: 15 }) }),
+      "GET /plans": () => ({ body: [plan, plan2] }),
+      "POST /tenants/tenant-1/subscription/anchor-day": () => {
+        posts += 1;
+        return { body: makeSummary() };
+      },
+    };
+    const asOwner = renderDetail({ transport: stubPlatformTransport(handlers), session: testPlatformSession });
+    const field = await screen.findByRole("spinbutton", { name: "يوم الفوترة من الشهر" });
+    fireEvent.change(field, { target: { value: "32" } });
+    expect(screen.getByRole("button", { name: "حفظ يوم الفوترة" })).toBeDisabled();
+    expect(posts).toBe(0);
+    asOwner.unmount();
+
+    renderDetail({ transport: stubPlatformTransport(handlers), session: { token: "S", user: { id: "PU-2", email: "support@mezan.example", role: "support" } } });
+    expect(await screen.findByText("يوم الفوترة من الشهر")).toBeInTheDocument();
+    expect(screen.queryByRole("spinbutton", { name: "يوم الفوترة من الشهر" })).not.toBeInTheDocument();
   });
 
   it("offers the owner of the platform to archive a tenant stuck in provisioning and free its code, after asking", async () => {

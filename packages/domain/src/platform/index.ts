@@ -15,7 +15,7 @@ export {
   type CreatePlanCommand, type UpdatePlanCommand, type HasLiveSubscribers,
 } from "./plan.js";
 export {
-  DEFAULT_GRACE_DAYS, SubscriptionStatusKind, billingAnchorDayOf,
+  DEFAULT_GRACE_DAYS, SubscriptionStatusKind, billingAnchorDayOf, inferBillingAnchorDay, setBillingAnchorDay,
   startSubscription, renewSubscription, applyRenewal, changePlan, markPastDue,
   suspendSubscription, resumeSubscription, cancelSubscription,
   type Subscription, type SubscriptionStatus, type BillingCycle, type SubscriptionRepository,

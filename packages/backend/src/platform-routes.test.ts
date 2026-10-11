@@ -318,6 +318,29 @@ describe("createPlatformRoutes", () => {
     expect(await json(res)).toMatchObject({ error: "INVALID_TENANT_TRANSITION" });
   });
 
+  it("lets the platform owner set the billing day of a subscription marked for review, audits it with both days, and renews on it", async () => {
+    const rig = await buildRig();
+    const { body } = await provisionOne(rig);
+    const id = body.tenant.id;
+    const live = await rig.platform.stores.subscriptions.findLiveByTenant(id);
+    if (!live) throw new Error("the tenant has no subscription");
+    await rig.platform.stores.subscriptions.save({ ...live, billingAnchorDay: undefined, billingAnchorNeedsReview: true });
+    const before = (await json(await rig.app.fetch(req(`/tenants/${id}`, rig.ownerToken)))) as { subscription: { billingAnchorDay: number; billingAnchorNeedsReview: boolean } };
+    expect(before.subscription.billingAnchorNeedsReview).toBe(true);
+
+    const bySupport = await rig.app.fetch(req(`/tenants/${id}/subscription/anchor-day`, rig.supportToken, { method: "POST", body: JSON.stringify({ day: 31 }) }));
+    const offCalendar = await rig.app.fetch(req(`/tenants/${id}/subscription/anchor-day`, rig.ownerToken, { method: "POST", body: JSON.stringify({ day: 32 }) }));
+    const set = await rig.app.fetch(req(`/tenants/${id}/subscription/anchor-day`, rig.ownerToken, { method: "POST", body: JSON.stringify({ day: 31 }) }));
+
+    expect(bySupport.status).toBe(403);
+    expect(offCalendar.status).toBe(400);
+    expect(set.status).toBe(200);
+    expect(((await json(set)) as { subscription: Record<string, unknown> }).subscription).toMatchObject({ billingAnchorDay: 31, billingAnchorNeedsReview: false });
+    const rows = (await rig.platform.audit.query("security")).filter((row) => row.action === "SUBSCRIPTION_ANCHOR_DAY_SET");
+    expect(rows).toMatchObject([{ actor: "PU-OWNER", entityId: id, details: { before: before.subscription.billingAnchorDay, after: 31, neededReview: true } }]);
+    expect((await rig.platform.stores.subscriptions.findLiveByTenant(id))?.billingAnchorDay).toBe(31);
+  });
+
   it("changes plan, cancels, suspends and resumes a subscription", async () => {
     const rig = await buildRig();
     const { body } = await provisionOne(rig);

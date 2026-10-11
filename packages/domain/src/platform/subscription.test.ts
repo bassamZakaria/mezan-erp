@@ -3,7 +3,7 @@ import { Money } from "../money/money.js";
 import { PlanKind, type Plan, type PlanRepository } from "./plan.js";
 import {
   addPeriod, applyRenewal, startSubscription, renewSubscription, changePlan, markPastDue,
-  suspendSubscription, resumeSubscription, cancelSubscription,
+  suspendSubscription, resumeSubscription, cancelSubscription, billingAnchorDayOf, inferBillingAnchorDay, setBillingAnchorDay,
   type Subscription, type SubscriptionRepository,
 } from "./subscription.js";
 import {
@@ -263,9 +263,112 @@ describe("a renewal keeps the day the subscription is billed on", () => {
     expect(periodEndsAfterRenewingOnTime(paidLate, 1)).toEqual(["2027-04-10", "2027-05-10"]);
   });
 
-  it("carries the time of day of the period it renews", async () => {
+  it("carries the Cairo time of day of the period it renews, which is an hour earlier in UTC once summer time has begun", async () => {
     const renewed = applyRenewal(await started("2027-01-31T10:00:00.000Z"), "2027-02-01T00:00:00.000Z");
-    expect(applyRenewal(renewed, "2027-03-01T00:00:00.000Z").currentPeriodEnd).toBe("2027-04-30T10:00:00.000Z");
+    expect(renewed.currentPeriodEnd).toBe("2027-03-31T10:00:00.000Z");
+    expect(applyRenewal(renewed, "2027-03-01T00:00:00.000Z").currentPeriodEnd).toBe("2027-04-30T09:00:00.000Z");
+  });
+});
+
+describe("the billing day is the business day in Cairo, not the UTC day", () => {
+  const ONE_AM_IN_CAIRO_ON_THE_15TH = "2026-01-14T23:00:00.000Z";
+
+  it("anchors a signup made at 01:00 Cairo time on its own day, and ends the period on that Cairo day", async () => {
+    const s = await startSubscription({ ...base, now: ONE_AM_IN_CAIRO_ON_THE_15TH }, subs(), plans(plan()));
+
+    expect(s.billingAnchorDay).toBe(15);
+    expect(s.currentPeriodEnd).toBe("2026-02-14T23:00:00.000Z");
+    expect(billingAnchorDayOf({ currentPeriodStart: ONE_AM_IN_CAIRO_ON_THE_15TH })).toBe(15);
+  });
+
+  it("keeps the Cairo day and the Cairo time of day across the change to summer time", () => {
+    expect(addPeriod("2026-04-14T22:30:00.000Z", "monthly")).toBe("2026-05-14T21:30:00.000Z");
+    expect(addPeriod("2026-10-14T21:30:00.000Z", "monthly")).toBe("2026-11-14T22:30:00.000Z");
+  });
+
+  it("keeps a month-end anchor taken just after midnight in Cairo through February and back to the 31st", async () => {
+    const repo = subs();
+    const started = await startSubscription({ ...base, now: "2026-01-30T22:30:00.000Z" }, repo, plans(plan()));
+    expect(started.billingAnchorDay).toBe(31);
+    expect(started.currentPeriodEnd).toBe("2026-02-27T22:30:00.000Z");
+
+    const renewed = await renewSubscription({ id: "S1", now: "2026-02-20T10:00:00.000Z" }, repo);
+
+    expect(renewed.currentPeriodEnd).toBe("2026-03-30T22:30:00.000Z");
+    expect(renewed.billingAnchorDay).toBe(31);
+  });
+
+  it("re-anchors a lapsed renewal on the Cairo day it was paid", async () => {
+    const repo = subs();
+    await startSubscription(base, repo, plans(plan()));
+
+    const renewed = await renewSubscription({ id: "S1", now: "2026-03-09T23:30:00.000Z" }, repo);
+
+    expect(renewed.billingAnchorDay).toBe(10);
+    expect(renewed.currentPeriodEnd).toBe("2026-04-09T23:30:00.000Z");
+  });
+});
+
+describe("inferBillingAnchorDay — the anchor a subscription stored before anchors existed must have had", () => {
+  const legacy = (over: Partial<Subscription>): Subscription => ({
+    id: "S1", tenantId: "T1", planId: "P1", status: "active", billingCycle: "monthly", addOnModules: [],
+    extraSeats: 0, extraBranches: 0, extraWarehouses: 0,
+    currentPeriodStart: NOW, currentPeriodEnd: "2026-02-28T10:00:00.000Z", trialEndsAt: null, previousPlanId: null,
+    graceDays: 7, cancelledAt: null, createdAt: NOW, updatedAt: NOW, ...over,
+  });
+
+  it("is the Cairo day it was created on when it has never been renewed", () => {
+    expect(inferBillingAnchorDay(legacy({}), [])).toBe(31);
+    expect(inferBillingAnchorDay(legacy({ createdAt: "2026-01-14T23:00:00.000Z", currentPeriodStart: "2026-01-14T23:00:00.000Z", currentPeriodEnd: "2026-02-14T23:00:00.000Z" }), [])).toBe(15);
+  });
+
+  it("is still the day it was created on after renewals paid on time, even though the stored period has drifted down to the 28th", () => {
+    const drifted = legacy({ currentPeriodStart: "2026-03-28T10:00:00.000Z", currentPeriodEnd: "2026-04-28T10:00:00.000Z" });
+
+    expect(inferBillingAnchorDay(drifted, ["2026-02-20T09:00:00.000Z", "2026-03-20T09:00:00.000Z"])).toBe(31);
+  });
+
+  it("is not guessed when a renewal was recorded after its period had ended", () => {
+    const lapsed = legacy({ currentPeriodStart: "2026-03-10T09:00:00.000Z", currentPeriodEnd: "2026-04-10T09:00:00.000Z" });
+
+    expect(inferBillingAnchorDay(lapsed, ["2026-03-10T09:00:00.000Z"])).toBeNull();
+  });
+
+  it("is not guessed when the stored period is not the one its payments lead to", () => {
+    const afterTrialDrop = legacy({ currentPeriodStart: "2026-02-14T10:00:00.000Z", currentPeriodEnd: "2026-03-14T10:00:00.000Z" });
+    const morePeriodsThanPayments = legacy({ currentPeriodStart: "2026-04-28T10:00:00.000Z", currentPeriodEnd: "2026-05-28T10:00:00.000Z" });
+
+    expect(inferBillingAnchorDay(afterTrialDrop, [])).toBeNull();
+    expect(inferBillingAnchorDay(morePeriodsThanPayments, ["2026-02-20T09:00:00.000Z"])).toBeNull();
+  });
+
+  it("is not guessed when the stored day is later than the day it was created on", () => {
+    const later = legacy({ createdAt: "2026-01-05T10:00:00.000Z", currentPeriodStart: "2026-01-19T10:00:00.000Z", currentPeriodEnd: "2026-02-19T10:00:00.000Z" });
+
+    expect(inferBillingAnchorDay(later, [])).toBeNull();
+  });
+});
+
+describe("setBillingAnchorDay", () => {
+  it("sets the day the next renewals land on, clears the review mark and leaves the running period alone", async () => {
+    const repo = subs();
+    const started = await startSubscription(base, repo, plans(plan()));
+    await repo.save({ ...started, billingAnchorDay: undefined, billingAnchorNeedsReview: true, currentPeriodStart: "2026-03-28T10:00:00.000Z", currentPeriodEnd: "2026-04-28T10:00:00.000Z" });
+
+    const set = await setBillingAnchorDay({ id: "S1", day: 31, now: "2026-04-01T00:00:00.000Z" }, repo);
+
+    expect(set).toMatchObject({ billingAnchorDay: 31, billingAnchorNeedsReview: false, currentPeriodEnd: "2026-04-28T10:00:00.000Z", updatedAt: "2026-04-01T00:00:00.000Z" });
+    expect((await renewSubscription({ id: "S1", now: "2026-04-20T00:00:00.000Z" }, repo)).currentPeriodEnd).toBe("2026-05-31T10:00:00.000Z");
+  });
+
+  it("refuses a day that is not on a calendar, and a cancelled subscription", async () => {
+    const repo = subs();
+    await startSubscription(base, repo, plans(plan()));
+    for (const day of [0, 32, 1.5, Number.NaN]) {
+      await expect(setBillingAnchorDay({ id: "S1", day, now: NOW }, repo)).rejects.toThrow(InvalidSubscriptionError);
+    }
+    await cancelSubscription({ id: "S1", now: NOW }, repo);
+    await expect(setBillingAnchorDay({ id: "S1", day: 15, now: NOW }, repo)).rejects.toThrow(InvalidSubscriptionTransitionError);
   });
 });
 

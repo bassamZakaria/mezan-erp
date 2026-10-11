@@ -13,6 +13,8 @@ import {
   suspendTenant,
   resumeTenant,
   archiveTenant,
+  billingAnchorDayOf,
+  setBillingAnchorDay,
   recordPayment,
   createPlatformUser,
   deactivatePlatformUser,
@@ -49,6 +51,7 @@ import {
 import {
   createTenantRequestSchema,
   provisionRetryRequestSchema,
+  setBillingAnchorDayRequestSchema,
   startSubscriptionRequestSchema,
   changePlanRequestSchema,
   subscriptionSuspendRequestSchema,
@@ -156,6 +159,7 @@ async function tenantSummary(platform: PlatformHandle, tenant: Tenant, nowIso: s
           billingCycle: subscription.billingCycle, addOnModules: [...subscription.addOnModules],
           extraSeats: subscription.extraSeats, extraBranches: subscription.extraBranches, extraWarehouses: subscription.extraWarehouses,
           currentPeriodStart: subscription.currentPeriodStart, currentPeriodEnd: subscription.currentPeriodEnd,
+          billingAnchorDay: billingAnchorDayOf(subscription), billingAnchorNeedsReview: subscription.billingAnchorNeedsReview === true,
           trialEndsAt: subscription.trialEndsAt, graceDays: subscription.graceDays, cancelledAt: subscription.cancelledAt,
           createdAt: subscription.createdAt, updatedAt: subscription.updatedAt,
         }
@@ -462,6 +466,26 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
       await cancelSubscription({ id: subscription.id, now: nowIso() }, platform.stores.subscriptions);
       invalidateEntitlements(tenant.code);
       await audit(c, "SUBSCRIPTION_CANCELLED", tenant.id, {});
+      return c.json(await tenantSummary(platform, tenant, nowIso()));
+    } catch (err) {
+      return domainErrorResponse(c, err);
+    }
+  });
+
+  app.post("/tenants/:id/subscription/anchor-day", requireOwner, async (c) => {
+    const parsed = setBillingAnchorDayRequestSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    try {
+      const tenant = await requireTenant(c.req.param("id"));
+      const subscription = await requireLiveSubscription(tenant);
+      await setBillingAnchorDay({ id: subscription.id, day: parsed.data.day, now: nowIso() }, platform.stores.subscriptions);
+      await audit(
+        c,
+        "SUBSCRIPTION_ANCHOR_DAY_SET",
+        tenant.id,
+        { before: billingAnchorDayOf(subscription), after: parsed.data.day, neededReview: subscription.billingAnchorNeedsReview === true },
+        "WARNING",
+      );
       return c.json(await tenantSummary(platform, tenant, nowIso()));
     } catch (err) {
       return domainErrorResponse(c, err);

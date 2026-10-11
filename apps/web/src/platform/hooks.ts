@@ -186,6 +186,14 @@ export function useReleaseTenantMutation() {
   return useSummaryMutation<string>((tenantId) => `/tenants/${tenantId}/release`, () => undefined, "platform.tenantDetail.release");
 }
 
+export function useSetBillingAnchorDayMutation() {
+  return useSummaryMutation<{ tenantId: string; day: number }>(
+    ({ tenantId }) => `/tenants/${tenantId}/subscription/anchor-day`,
+    ({ day }) => ({ day }),
+    "platform.tenantDetail.anchorDay.save",
+  );
+}
+
 export function useChangePlanMutation() {
   return useSummaryMutation<{ tenantId: string; body: ChangePlanRequestDTO }>(
     ({ tenantId }) => `/tenants/${tenantId}/subscription/change-plan`,

@@ -55,6 +55,8 @@ const tenantSummary: TenantSummaryDTO = {
     extraWarehouses: 0,
     currentPeriodStart: "2026-09-01T00:00:00.000Z",
     currentPeriodEnd: "2026-10-01T00:00:00.000Z",
+    billingAnchorDay: 1,
+    billingAnchorNeedsReview: false,
     trialEndsAt: null,
     graceDays: 5,
     cancelledAt: null,

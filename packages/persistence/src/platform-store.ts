@@ -10,7 +10,7 @@ import {
   type SubscriptionTransitionRepository,
   type PlatformUser, type PlatformUserRepository,
   type SignupRequest, type SignupRequestRepository, SignupRequestStatus,
-  type Subscription, SubscriptionStatusKind,
+  type Subscription, SubscriptionStatusKind, inferBillingAnchorDay,
   type Tenant, type TenantRepository, TenantStatusCode,
 } from "@mezan/domain";
 
@@ -74,6 +74,7 @@ CREATE TABLE IF NOT EXISTS subscription (
   trial_ends_at         TEXT,
   previous_plan_id      TEXT,
   billing_anchor_day    INTEGER,
+  billing_anchor_review INTEGER NOT NULL DEFAULT 0,
   grace_days            INTEGER NOT NULL,
   cancelled_at          TEXT,
   created_at            TEXT NOT NULL,
@@ -83,6 +84,11 @@ CREATE INDEX IF NOT EXISTS idx_subscription_tenant ON subscription(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_subscription_plan ON subscription(plan_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_subscription_one_live
   ON subscription(tenant_id) WHERE status <> 'cancelled';
+
+CREATE TABLE IF NOT EXISTS platform_migration (
+  name        TEXT PRIMARY KEY,
+  applied_at  TEXT NOT NULL
+);
 
 CREATE TABLE IF NOT EXISTS platform_user (
   id             TEXT PRIMARY KEY,
@@ -197,6 +203,7 @@ function addMissingColumns(sqlite: Database.Database): void {
   );
   if (!onSubscription.has("previous_plan_id")) sqlite.exec(`ALTER TABLE subscription ADD COLUMN previous_plan_id TEXT`);
   if (!onSubscription.has("billing_anchor_day")) sqlite.exec(`ALTER TABLE subscription ADD COLUMN billing_anchor_day INTEGER`);
+  if (!onSubscription.has("billing_anchor_review")) sqlite.exec(`ALTER TABLE subscription ADD COLUMN billing_anchor_review INTEGER NOT NULL DEFAULT 0`);
   const onTenant = new Set((sqlite.prepare(`PRAGMA table_info(tenant)`).all() as { name: string }[]).map((c) => c.name));
   const onClaim = new Set((sqlite.prepare(`PRAGMA table_info(signup_provision_claim)`).all() as { name: string }[]).map((c) => c.name));
   if (!onClaim.has("fence")) sqlite.exec(`ALTER TABLE signup_provision_claim ADD COLUMN fence INTEGER`);
@@ -364,6 +371,7 @@ interface SubscriptionRow {
   current_period_start: string; current_period_end: string; trial_ends_at: string | null;
   previous_plan_id: string | null;
   billing_anchor_day: number | null;
+  billing_anchor_review: number;
   grace_days: number; cancelled_at: string | null; created_at: string; updated_at: string;
 }
 
@@ -376,7 +384,35 @@ function toSubscription(r: SubscriptionRow): Subscription {
     trialEndsAt: r.trial_ends_at, previousPlanId: r.previous_plan_id, graceDays: r.grace_days, cancelledAt: r.cancelled_at,
     createdAt: r.created_at, updatedAt: r.updated_at,
     ...(r.billing_anchor_day === null ? {} : { billingAnchorDay: r.billing_anchor_day }),
+    ...(r.billing_anchor_review === 1 ? { billingAnchorNeedsReview: true } : {}),
   };
+}
+
+const ANCHOR_BACKFILL = "2026-10-billing-anchor-backfill";
+
+/**
+ * Runs once per platform database. A subscription stored before anchors were
+ * recorded gets the day its history settles; one whose history does not is
+ * marked for the platform owner and left exactly as it was.
+ */
+function backfillBillingAnchors(sqlite: Database.Database): void {
+  if (sqlite.prepare(`SELECT 1 FROM platform_migration WHERE name = ?`).get(ANCHOR_BACKFILL)) return;
+  const unanchored = sqlite.prepare(`SELECT * FROM subscription WHERE billing_anchor_day IS NULL AND status <> ?`);
+  const renewals = sqlite.prepare(`SELECT created_at FROM payment WHERE subscription_id = ? ORDER BY created_at, id`);
+  const setAnchor = sqlite.prepare(`UPDATE subscription SET billing_anchor_day = ? WHERE id = ? AND billing_anchor_day IS NULL`);
+  const markForReview = sqlite.prepare(`UPDATE subscription SET billing_anchor_review = 1 WHERE id = ? AND billing_anchor_day IS NULL`);
+  const done = sqlite.prepare(`INSERT INTO platform_migration (name, applied_at) VALUES (?, ?)`);
+  sqlite
+    .transaction(() => {
+      for (const row of unanchored.all(SubscriptionStatusKind.Cancelled) as SubscriptionRow[]) {
+        const recordedAt = (renewals.all(row.id) as { created_at: string }[]).map((payment) => payment.created_at);
+        const day = inferBillingAnchorDay(toSubscription(row), recordedAt);
+        if (day === null) markForReview.run(row.id);
+        else setAnchor.run(day, row.id);
+      }
+      done.run(ANCHOR_BACKFILL, new Date().toISOString());
+    })
+    .immediate();
 }
 
 class SqliteSubscriptionStore implements SubscriptionTransitionRepository {
@@ -395,16 +431,16 @@ class SqliteSubscriptionStore implements SubscriptionTransitionRepository {
     this.upsert = sqlite.prepare(
       `INSERT INTO subscription (id, tenant_id, plan_id, status, billing_cycle, add_on_modules, extra_seats,
          extra_branches, extra_warehouses, current_period_start, current_period_end, trial_ends_at, previous_plan_id,
-         billing_anchor_day, grace_days, cancelled_at, created_at, updated_at)
+         billing_anchor_day, billing_anchor_review, grace_days, cancelled_at, created_at, updated_at)
        VALUES (@id, @tenantId, @planId, @status, @billingCycle, @addOnModules, @extraSeats, @extraBranches,
-         @extraWarehouses, @currentPeriodStart, @currentPeriodEnd, @trialEndsAt, @previousPlanId, @billingAnchorDay, @graceDays, @cancelledAt,
+         @extraWarehouses, @currentPeriodStart, @currentPeriodEnd, @trialEndsAt, @previousPlanId, @billingAnchorDay, @billingAnchorReview, @graceDays, @cancelledAt,
          @createdAt, @updatedAt)
        ON CONFLICT(id) DO UPDATE SET
          tenant_id = @tenantId, plan_id = @planId, status = @status, billing_cycle = @billingCycle,
          add_on_modules = @addOnModules, extra_seats = @extraSeats, extra_branches = @extraBranches,
          extra_warehouses = @extraWarehouses, current_period_start = @currentPeriodStart,
          current_period_end = @currentPeriodEnd, trial_ends_at = @trialEndsAt, previous_plan_id = @previousPlanId,
-         billing_anchor_day = @billingAnchorDay, grace_days = @graceDays,
+         billing_anchor_day = @billingAnchorDay, billing_anchor_review = @billingAnchorReview, grace_days = @graceDays,
          cancelled_at = @cancelledAt, created_at = @createdAt, updated_at = @updatedAt`,
     );
     this.byId = sqlite.prepare(`SELECT * FROM subscription WHERE id = ?`);
@@ -479,6 +515,7 @@ class SqliteSubscriptionStore implements SubscriptionTransitionRepository {
       addOnModules: JSON.stringify(s.addOnModules), extraSeats: s.extraSeats, extraBranches: s.extraBranches,
       extraWarehouses: s.extraWarehouses, currentPeriodStart: s.currentPeriodStart, currentPeriodEnd: s.currentPeriodEnd,
       trialEndsAt: s.trialEndsAt, previousPlanId: s.previousPlanId, billingAnchorDay: s.billingAnchorDay ?? null,
+      billingAnchorReview: s.billingAnchorNeedsReview === true ? 1 : 0,
       graceDays: s.graceDays, cancelledAt: s.cancelledAt,
       createdAt: s.createdAt, updatedAt: s.updatedAt,
     });
@@ -903,6 +940,7 @@ export function createSqlitePlatformStores(
   const { sqlite, owned } = openSqliteConnection(path, options);
   sqlite.exec(CREATE_TABLES);
   addMissingColumns(sqlite);
+  backfillBillingAnchors(sqlite);
   return {
     tenants: new SqliteTenantStore(sqlite),
     plans: new SqlitePlanStore(sqlite),

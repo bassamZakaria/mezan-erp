@@ -1750,6 +1750,8 @@ export {
   startSubscriptionRequestSchema,
   changePlanRequestSchema,
   subscriptionSuspendRequestSchema,
+  setBillingAnchorDayRequestSchema,
+  type SetBillingAnchorDayRequestDTO,
   subscriptionResumeRequestSchema,
   recordPaymentRequestSchema,
   subscriptionStatusSchema,

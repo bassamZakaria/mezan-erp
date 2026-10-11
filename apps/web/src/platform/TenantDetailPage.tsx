@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useBlocker, useParams, useSearchParams } from "react-router";
-import { Button, Card, ConfirmDialog, Money, Select, StatusPill, useFormat } from "@mezan/ui";
+import { Button, Card, ConfirmDialog, Money, Select, StatusPill, TextInput, useFormat } from "@mezan/ui";
 import { MODULES } from "@mezan/domain";
 import {
   SubscriptionStatusCode,
@@ -9,6 +9,7 @@ import {
   type ProvisionResultDTO,
   type SubscriptionStatusDTO,
   type TenantStatusDTO,
+  type TenantSummaryDTO,
 } from "@mezan/contracts";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { moduleLabel } from "../domain-labels";
@@ -20,6 +21,7 @@ import { CardCheckoutChip, CheckoutOutcomeNotice, TestModeChip, absoluteCheckout
 import {
   useArchiveTenantMutation,
   useReleaseTenantMutation,
+  useSetBillingAnchorDayMutation,
   useCancelSubscriptionMutation,
   useCardCheckoutsQuery,
   useCreateCardCheckoutMutation,
@@ -56,6 +58,10 @@ function canSuspendTenant(status: TenantStatusDTO): boolean {
 function canResumeTenant(status: TenantStatusDTO): boolean {
   return status === TenantWireStatus.Suspended;
 }
+function canChangeAnchorDay(status: SubscriptionStatusDTO): boolean {
+  return status !== SubscriptionStatusCode.Cancelled && status !== SubscriptionStatusCode.Unknown;
+}
+
 function canArchiveTenant(status: TenantStatusDTO): boolean {
   return status === TenantWireStatus.Active || status === TenantWireStatus.Suspended;
 }
@@ -370,6 +376,7 @@ export function TenantDetailPage() {
             <Fact numeric label={t("platform.tenantDetail.periodEnd")} value={format.date(subscription.currentPeriodEnd)} />
             {subscription.trialEndsAt ? <Fact numeric label={t("platform.tenantDetail.trialEndsAt")} value={format.date(subscription.trialEndsAt)} /> : null}
             <Fact numeric label={t("platform.tenantDetail.graceDays")} value={String(subscription.graceDays)} />
+            <BillingAnchorDay tenantId={tenant.id} subscription={subscription} editable={isOwner && canChangeAnchorDay(subscription.status)} onError={onMutationError} />
 
             {isOwner ? (
               <div className="mt-[6px] flex flex-wrap items-center gap-[9px] border-t border-border pt-[12px]">
@@ -683,6 +690,68 @@ export function TenantDetailPage() {
         }}
         onCancel={() => setConfirmResumeSubscription(false)}
       />
+    </div>
+  );
+}
+
+const FIRST_DAY_OF_MONTH = 1;
+const LAST_DAY_OF_MONTH = 31;
+
+function BillingAnchorDay({
+  tenantId,
+  subscription,
+  editable,
+  onError,
+}: {
+  tenantId: string;
+  subscription: NonNullable<TenantSummaryDTO["subscription"]>;
+  editable: boolean;
+  onError: (err: PlatformApiError) => void;
+}) {
+  const { t } = useAppTranslation();
+  const setAnchorDay = useSetBillingAnchorDayMutation();
+  const [typed, setTyped] = useState<string | null>(null);
+  const shown = typed ?? String(subscription.billingAnchorDay);
+  const day = Number(shown);
+  const valid = Number.isInteger(day) && day >= FIRST_DAY_OF_MONTH && day <= LAST_DAY_OF_MONTH;
+  const changed = valid && (day !== subscription.billingAnchorDay || subscription.billingAnchorNeedsReview);
+
+  return (
+    <div className="flex flex-col gap-[6px] text-[12.5px]">
+      <div className="flex flex-wrap items-center justify-between gap-[10px]">
+        <span className="text-ink-muted">{t("platform.tenantDetail.anchorDay")}</span>
+        {editable ? (
+          <span className="flex items-center gap-[8px]">
+            <TextInput
+              type="number"
+              min={FIRST_DAY_OF_MONTH}
+              max={LAST_DAY_OF_MONTH}
+              value={shown}
+              aria-label={t("platform.tenantDetail.anchorDay")}
+              invalid={!valid}
+              className="mz-num w-[72px]"
+              onChange={(event) => setTyped(event.target.value)}
+            />
+            <Button
+              size="sm"
+              disabled={!changed || setAnchorDay.isPending}
+              onClick={() => setAnchorDay.mutate({ tenantId, day }, { onSuccess: () => setTyped(null), onError })}
+            >
+              {t("platform.tenantDetail.anchorDay.save")}
+            </Button>
+          </span>
+        ) : (
+          <span className="mz-num font-semibold text-ink">{subscription.billingAnchorDay}</span>
+        )}
+      </div>
+      {subscription.billingAnchorNeedsReview ? (
+        <div className="flex flex-col gap-[4px]">
+          <span>
+            <StatusPill label={t("platform.tenantDetail.anchorDay.review")} tone="warning" />
+          </span>
+          <span className="text-ink-muted">{t("platform.tenantDetail.anchorDay.reviewHint")}</span>
+        </div>
+      ) : null}
     </div>
   );
 }

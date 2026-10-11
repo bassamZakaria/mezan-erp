@@ -189,6 +189,7 @@ describe("subscriptionSchema", () => {
     id: "s1", tenantId: "t1", planId: "plan-core", status: "active" as const, billingCycle: "monthly" as const,
     addOnModules: ["hr"], extraSeats: 0, extraBranches: 0, extraWarehouses: 0,
     currentPeriodStart: "2026-09-01T00:00:00.000Z", currentPeriodEnd: "2026-10-01T00:00:00.000Z",
+    billingAnchorDay: 1, billingAnchorNeedsReview: false,
     trialEndsAt: null, graceDays: 7, cancelledAt: null,
     createdAt: "2026-09-01T00:00:00.000Z", updatedAt: "2026-09-01T00:00:00.000Z",
   };

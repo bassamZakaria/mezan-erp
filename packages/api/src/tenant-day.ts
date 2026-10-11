@@ -1,5 +1,5 @@
 import type { Context, MiddlewareHandler } from "hono";
-import { DEFAULT_TIME_ZONE, toTenantDay, type SettingsRepository } from "@mezan/domain";
+import { DEFAULT_TIME_ZONE, occurredAtFromDocumentDate, toTenantDay, type SettingsRepository } from "@mezan/domain";
 
 /**
  * Narrowing a wire date to the tenant's calendar day, at the route boundary.
@@ -44,6 +44,11 @@ export async function tenantDay(c: Context, value: string | undefined): Promise<
 /** The default day every as-of report and its drill-down share (D281); they must not diverge. */
 export async function tenantToday(c: Context, override?: () => string): Promise<string> {
   return override ? override() : tenantDay(c, new Date().toISOString());
+}
+
+/** The stock-ledger stamp of a posting that carries no document date: the tenant's calendar day, the one its GL entry is dated, never the UTC day of the instant. */
+export async function tenantStockMoment(c: Context, value?: string | null, now?: () => string): Promise<string> {
+  return occurredAtFromDocumentDate(await tenantDay(c, value ?? now?.() ?? new Date().toISOString()));
 }
 
 /** The tenant's wall clock now — the only time a self-service punch may carry. */

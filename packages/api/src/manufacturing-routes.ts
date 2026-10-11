@@ -782,9 +782,10 @@ export function createManufacturingRoutes(
     }
   });
 
-  const stockDeps = () => ({ workOrders: deps.workOrders, stock: deps.stock, now: deps.now });
+  const postingDay = (c: Context) => tenantDay(c, deps.now?.() ?? new Date().toISOString());
+  const stockDeps = async (c: Context) => ({ workOrders: deps.workOrders, stock: deps.stock, now: deps.now, postingDay: await postingDay(c) });
   /** Stock deps plus the ledger — every stage that can move scrap value needs both. */
-  const stockGlDeps = () => ({ ...stockDeps(), gl: deps.gl, accounts: deps.accounts });
+  const stockGlDeps = async (c: Context) => ({ ...(await stockDeps(c)), gl: deps.gl, accounts: deps.accounts });
 
   app.post("/work-orders/:id/start", gate("manufacturing.wo.execute"), async (c) => {
     try {
@@ -799,7 +800,7 @@ export function createManufacturingRoutes(
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     try {
       const attribution = await resolveAttribution(parsed.data);
-      return c.json(serializeWorkOrder(await issueWorkOrderMaterials(c.req.param("id"), stockDeps(), attribution)));
+      return c.json(serializeWorkOrder(await issueWorkOrderMaterials(c.req.param("id"), (await stockDeps(c)), attribution)));
     } catch (err) {
       return handleDomainError(c, err);
     }
@@ -812,7 +813,7 @@ export function createManufacturingRoutes(
       const order = await extraIssueWorkOrderMaterials(
         c.req.param("id"),
         parsed.data.lines.map((l) => ({ itemId: l.itemId, qty: Qty.fromMajor(l.qty) })),
-        stockDeps(),
+        (await stockDeps(c)),
         await resolveAttribution(parsed.data),
       );
       return c.json(serializeWorkOrder(order));
@@ -828,7 +829,7 @@ export function createManufacturingRoutes(
       const order = await returnWorkOrderMaterials(
         c.req.param("id"),
         parsed.data.lines.map((l) => ({ itemId: l.itemId, qty: Qty.fromMajor(l.qty) })),
-        stockDeps(),
+        (await stockDeps(c)),
         await resolveAttribution(parsed.data),
       );
       return c.json(serializeWorkOrder(order));
@@ -844,7 +845,7 @@ export function createManufacturingRoutes(
       const order = await logWorkOrderWaste(
         c.req.param("id"),
         parsed.data.lines.map((l) => ({ itemId: l.itemId, qty: Qty.fromMajor(l.qty), notes: l.notes })),
-        stockGlDeps(),
+        (await stockGlDeps(c)),
         await resolveAttribution(parsed.data),
       );
       return c.json(serializeWorkOrder(order));
@@ -875,7 +876,7 @@ export function createManufacturingRoutes(
       const order = await receiveWorkOrderProduct(
         c.req.param("id"),
         Qty.fromMajor(parsed.data.producedQty),
-        stockGlDeps(),
+        (await stockGlDeps(c)),
         await resolveAttribution(parsed.data),
       );
       return c.json(serializeWorkOrder(order));
@@ -891,6 +892,7 @@ export function createManufacturingRoutes(
         gl: deps.gl,
         accounts: deps.accounts,
         now: deps.now,
+        postingDay: await postingDay(c),
       });
       return c.json(serializeWorkOrder(order));
     } catch (err) {

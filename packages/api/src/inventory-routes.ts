@@ -1,4 +1,5 @@
 import { postingRefusalResponse } from "./posting-refusal.js";
+import { tenantStockMoment } from "./tenant-day.js";
 import { Hono, type Context } from "hono";
 import {
   Money,
@@ -390,7 +391,7 @@ export function createInventoryRoutes(
         adjustmentNumber: parsed.data.adjustmentNumber ?? null,
         warehouseId: parsed.data.warehouseId,
         reason: parsed.data.reason,
-        occurredAt: parsed.data.occurredAt,
+        occurredAt: await tenantStockMoment(c, parsed.data.occurredAt),
         // The reason decides which account absorbs the value, not the caller
         // (R5.9). Seven of the eight reasons previously posted nothing at all.
         gl: {
@@ -465,7 +466,7 @@ export function createInventoryRoutes(
         transferNumber: parsed.data.transferNumber ?? null,
         fromWarehouseId: parsed.data.fromWarehouseId,
         toWarehouseId: parsed.data.toWarehouseId,
-        occurredAt: parsed.data.occurredAt,
+        occurredAt: await tenantStockMoment(c, parsed.data.occurredAt),
         lines: parsed.data.lines.map((l) => ({ itemId: l.itemId, qty: Qty.fromMajor(l.qty) })),
       });
       return c.json({ ok: true }, 201);

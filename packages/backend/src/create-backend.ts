@@ -23,6 +23,8 @@ import {
   applyAllocatedSettlement,
   InvalidSalesInvoicePaymentError,
   InvalidPurchaseDocumentError,
+  assertPeriodOpen,
+  assertVatNotFiled,
   postJournalEntry,
   reverseJournalEntry,
   resolvePrice,
@@ -990,6 +992,13 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     projects,
     projectRequiredAccountIds,
     audit: auditSink,
+  };
+  const historicalImportGate = {
+    assertPostable: async (date: string): Promise<void> => {
+      await assertPeriodOpen(date, fiscalPeriods);
+      await assertVatNotFiled(date, vatFilings);
+    },
+    transaction: <T>(fn: () => Promise<T>): Promise<T> => ledger.transaction(fn),
   };
   const stockService = new StockLedgerService({
     ledger: stockLedger.ledger,
@@ -3705,6 +3714,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
             salesInvoiceGl,
           );
         },
+        ...historicalImportGate,
       },
       accounts: { openingBalanceAccountId: "3210", payableAccountId: "2100" },
     },
@@ -3818,6 +3828,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
             salesInvoiceGl,
           );
         },
+        ...historicalImportGate,
       },
       accounts: { openingBalanceAccountId: "3210", receivableAccountId: "1105" },
     },

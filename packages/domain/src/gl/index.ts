@@ -31,6 +31,7 @@ export {
   assertBalanced,
   assertLinesPostable,
   assertPeriodOpen,
+  assertVatNotFiled,
   assertEntryDate,
   assertMemorandumPartition,
   assertProjectRequired,

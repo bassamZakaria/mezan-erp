@@ -107,6 +107,8 @@ export interface HistoricalSalesImportGlPosting {
 
 export interface HistoricalSalesImportGlPostingPort {
   post(posting: HistoricalSalesImportGlPosting): Promise<void>;
+  assertPostable?(date: string): Promise<void>;
+  transaction?<T>(fn: () => Promise<T>): Promise<T>;
 }
 
 /**
@@ -259,6 +261,7 @@ export async function importHistoricalSalesDocuments(
   const errors = [...preview.errors];
   const archived: HistoricalSalesArchive[] = [];
 
+  const pending: (typeof preview.groups[number])[] = [];
   for (const group of preview.groups) {
     const existing = await deps.archives.findByOriginalNumber(group.docType, group.documentNumber);
     if (existing) {
@@ -268,48 +271,59 @@ export async function importHistoricalSalesDocuments(
       });
       continue;
     }
-
-    const archive: HistoricalSalesArchive = {
-      id: `${command.importBatchId}:${archived.length}`,
-      docType: group.docType,
-      originalNumber: group.documentNumber,
-      customerId: group.customerId,
-      date: group.date,
-      dueDate: group.dueDate,
-      lines: group.lines,
-      total: group.total,
-      amountPaid: group.amountPaid,
-      remainingBalance: group.remainingBalance,
-      settled: group.settled,
-      importBatchId: command.importBatchId,
-      createdBy: command.createdBy ?? "system",
-      createdAt: nowIso(deps),
-    };
-    // The entry first: if the ledger refuses it — a closed month — nothing is
-    // archived, or the sub-ledger would owe a balance no entry carries.
-    if (!archive.settled && deps.gl && deps.accounts) {
-      const isReturn = archive.docType === "SALES_RETURN";
-      const lines: HistoricalSalesImportGlPostingLine[] = isReturn
-        ? [
-            { accountId: deps.accounts.openingBalanceAccountId, debit: archive.remainingBalance, credit: Money.zero() },
-            { accountId: deps.accounts.receivableAccountId, debit: Money.zero(), credit: archive.remainingBalance },
-          ]
-        : [
-            { accountId: deps.accounts.receivableAccountId, debit: archive.remainingBalance, credit: Money.zero() },
-            { accountId: deps.accounts.openingBalanceAccountId, debit: Money.zero(), credit: archive.remainingBalance },
-          ];
-      await deps.gl.post({
-        sourceDocType: "HISTORICAL_SALES_IMPORT",
-        sourceDocId: archive.id,
-        sourceDocNumber: archive.originalNumber,
-        date: archive.date,
-        memo: `استيراد ${isReturn ? "مرتجع" : "فاتورة"} مبيعات سابقة ${archive.originalNumber}`,
-        lines,
-      });
-    }
-    await deps.archives.create(archive);
-    archived.push(archive);
+    pending.push(group);
   }
+
+  const posts = Boolean(deps.gl && deps.accounts);
+  for (const group of pending) {
+    if (posts && !group.settled) await deps.gl?.assertPostable?.(group.date);
+  }
+
+  const writeAll = async (): Promise<void> => {
+    for (const group of pending) {
+      const archive: HistoricalSalesArchive = {
+        id: `${command.importBatchId}:${archived.length}`,
+        docType: group.docType,
+        originalNumber: group.documentNumber,
+        customerId: group.customerId,
+        date: group.date,
+        dueDate: group.dueDate,
+        lines: group.lines,
+        total: group.total,
+        amountPaid: group.amountPaid,
+        remainingBalance: group.remainingBalance,
+        settled: group.settled,
+        importBatchId: command.importBatchId,
+        createdBy: command.createdBy ?? "system",
+        createdAt: nowIso(deps),
+      };
+      // The entry first: if the ledger refuses it — a closed month — nothing is
+      // archived, or the sub-ledger would owe a balance no entry carries.
+      if (!archive.settled && deps.gl && deps.accounts) {
+        const isReturn = archive.docType === "SALES_RETURN";
+        const lines: HistoricalSalesImportGlPostingLine[] = isReturn
+          ? [
+              { accountId: deps.accounts.openingBalanceAccountId, debit: archive.remainingBalance, credit: Money.zero() },
+              { accountId: deps.accounts.receivableAccountId, debit: Money.zero(), credit: archive.remainingBalance },
+            ]
+          : [
+              { accountId: deps.accounts.receivableAccountId, debit: archive.remainingBalance, credit: Money.zero() },
+              { accountId: deps.accounts.openingBalanceAccountId, debit: Money.zero(), credit: archive.remainingBalance },
+            ];
+        await deps.gl.post({
+          sourceDocType: "HISTORICAL_SALES_IMPORT",
+          sourceDocId: archive.id,
+          sourceDocNumber: archive.originalNumber,
+          date: archive.date,
+          memo: `استيراد ${isReturn ? "مرتجع" : "فاتورة"} مبيعات سابقة ${archive.originalNumber}`,
+          lines,
+        });
+      }
+      await deps.archives.create(archive);
+      archived.push(archive);
+    }
+  };
+  await (deps.gl?.transaction ? deps.gl.transaction(writeAll) : writeAll());
 
   return { archived, errors };
 }

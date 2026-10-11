@@ -23,7 +23,7 @@ const sub: Subscription = {
 
 const tenant: Tenant = {
   id: "T1", code: "cyag", nameAr: "سياج", nameEn: "Cyag", ownerEmail: "o@cyag.eg", status: "active",
-  dbFile: "tenants/cyag.db", createdAt: "2026-09-01T00:00:00.000Z", updatedAt: "2026-09-01T00:00:00.000Z",
+  ownerUserId: null, ownerContactVerified: true, dbFile: "tenants/cyag.db", createdAt: "2026-09-01T00:00:00.000Z", updatedAt: "2026-09-01T00:00:00.000Z",
 };
 
 describe("deriveEntitlements", () => {

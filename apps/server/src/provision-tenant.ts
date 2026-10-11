@@ -144,6 +144,9 @@ export async function provisionTenant(cmd: ProvisionTenantCommand, deps: Provisi
       );
     }
 
+    await deps.router
+      .reconcileOwner(tenant.code)
+      .catch((err: unknown) => console.error(`[cloud] owner of "${tenant.code}" could not be linked while provisioning`, err));
     await stillOurs();
     if (tenant.status === TenantStatusCode.Provisioning) {
       const latest = await deps.platform.stores.tenants.findById(tenant.id);

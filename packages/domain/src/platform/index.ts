@@ -3,11 +3,11 @@ export * from "./errors.js";
 export { isValidSlug } from "./slug.js";
 export { COMPANY_NAME_MAX_LENGTH, CompanyNameProblem, companyNameProblem, companyNameProblemAr } from "./company-name.js";
 export {
-  createTenant, activateTenant, suspendTenant, resumeTenant, archiveTenant, followTenantOwnerEmail,
+  createTenant, activateTenant, suspendTenant, resumeTenant, archiveTenant, tenantWithOwnerContact, tenantHandedTo,
   tenantDbFile,
-  TenantStatusCode,
-  type Tenant, type TenantStatus, type TenantRepository,
-  type CreateTenantCommand, type TenantTransitionCommand, type ChangeTenantOwnerEmailCommand,
+  TenantStatusCode, OwnerContactProof,
+  type Tenant, type TenantStatus, type TenantRepository, type TenantOwnerAccount,
+  type CreateTenantCommand, type TenantTransitionCommand,
 } from "./tenant.js";
 export {
   createPlan, updatePlan, retirePlan, dedupeModules,

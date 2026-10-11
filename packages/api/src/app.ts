@@ -354,6 +354,7 @@ export interface CreateAppOptions {
    */
   readonly onPermissionRefused?: PermissionRefusalReporter;
   readonly onUserEmailChanged?: UsersRoutesOptions["onEmailChanged"];
+  readonly companyOwner?: UsersRoutesOptions["owner"];
   /** Mounts `/audit` — the read-only audit query surface — when present. */
   readonly audit?: { readonly store: AuditQueryPort; readonly resolveAuthContext?: AuthContextResolver };
   /** Mounts `/label-layouts` when present — the sticker-sheet geometries the label screen renders. */
@@ -1659,6 +1660,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
       readAllowedEmailDomains: async () => (await options.settingsStore?.get())?.allowedEmailDomains ?? [],
       audit: options.auditSink,
       onEmailChanged: options.onUserEmailChanged,
+      owner: options.companyOwner,
       sessions: options.security?.sessions,
       loginThrottle: options.security?.loginThrottle,
       erasure: options.hr

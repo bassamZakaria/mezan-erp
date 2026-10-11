@@ -5,6 +5,7 @@ import {
   Checkbox,
   DocumentList,
   EntityPicker,
+  Select,
   SidePanel,
   StatusPill,
   TextInput,
@@ -142,6 +143,7 @@ export function UsersPage({ users, roles, branches, warehouses, employees, onSav
   const [eraseTarget, setEraseTarget] = useState<UserDTO | null>(null);
   const [eraseEmail, setEraseEmail] = useState("");
   const [eraseReason, setEraseReason] = useState("");
+  const [eraseSuccessorId, setEraseSuccessorId] = useState("");
   const [eraseError, setEraseError] = useState<string | null>(null);
   const [eraseNotice, setEraseNotice] = useState<string | null>(null);
   const [erasingId, setErasingId] = useState<string | null>(null);
@@ -222,6 +224,7 @@ export function UsersPage({ users, roles, branches, warehouses, employees, onSav
     setEraseTarget(user);
     setEraseEmail("");
     setEraseReason("");
+    setEraseSuccessorId("");
     setEraseError(null);
     setEraseNotice(null);
   }
@@ -234,7 +237,11 @@ export function UsersPage({ users, roles, branches, warehouses, employees, onSav
       return;
     }
     setErasingId(eraseTarget.id);
-    const result = await onErase(eraseTarget.id, { confirmEmail: eraseEmail.trim(), reason: eraseReason.trim() });
+    const result = await onErase(eraseTarget.id, {
+      confirmEmail: eraseEmail.trim(),
+      reason: eraseReason.trim(),
+      ...(eraseSuccessorId === "" ? {} : { newOwnerUserId: eraseSuccessorId }),
+    });
     setErasingId(null);
     if (!result.ok) {
       setEraseError(result.error ?? t("users.erase.failed"));
@@ -244,6 +251,12 @@ export function UsersPage({ users, roles, branches, warehouses, employees, onSav
     setEraseTarget(null);
   }
 
+  const successorOptions =
+    eraseTarget?.isCompanyAdmin === true
+      ? users
+          .filter((u) => u.id !== eraseTarget.id && u.isCompanyAdmin && u.status === "active" && !u.erasedAt)
+          .map((u) => ({ value: u.id, label: `${u.nameAr} — ${u.email}` }))
+      : [];
   const roleOptions: EntityPickerOption[] = roles.map((r) => ({ id: r.id, label: r.name, sublabel: r.code }));
   const employeeOptions: EntityPickerOption[] = employees.map((e) => ({ id: e.id, label: e.name, sublabel: e.position }));
 
@@ -537,6 +550,15 @@ export function UsersPage({ users, roles, branches, warehouses, employees, onSav
             onChange={setEraseReason}
             placeholder={t("users.erase.reasonPlaceholder")}
           />
+          {successorOptions.length > 0 ? (
+            <Select
+              label={t("users.erase.newOwnerLabel")}
+              value={eraseSuccessorId}
+              onChange={setEraseSuccessorId}
+              options={successorOptions}
+              placeholder={t("users.erase.newOwnerPlaceholder")}
+            />
+          ) : null}
           <div className="flex justify-end gap-[9px] border-t border-border pt-[14px]">
             <Button variant="ghost" onClick={() => setEraseTarget(null)}>{t("common.cancel")}</Button>
             <Button variant="danger-outline" disabled={erasingId !== null} onClick={() => void handleErase()}>

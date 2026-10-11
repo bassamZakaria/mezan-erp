@@ -13,7 +13,7 @@ import {
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { moduleLabel } from "../domain-labels";
 import { SelectField, TextAreaField, ToggleField } from "../settings/form-controls";
-import { LicenseStateChip, TenantStatusChip } from "./chips";
+import { LicenseStateChip, OwnerContactChip, TenantStatusChip } from "./chips";
 import { PlatformApiError, usePlatformApi } from "./api";
 import { RecordPaymentDialog } from "./RecordPaymentDialog";
 import { CardCheckoutChip, CheckoutOutcomeNotice, TestModeChip, absoluteCheckoutUrl } from "../billing/CardCheckoutStatus";
@@ -204,7 +204,13 @@ export function TenantDetailPage() {
           <TenantStatusChip status={tenant.status} />
           <LicenseStateChip state={licenseState.state} />
         </div>
-        <p className="mt-[2px] text-[12.5px] text-ink-muted">{t("platform.tenantDetail.ownerEmail")}: {tenant.ownerEmail}</p>
+        <p className="mt-[2px] flex flex-wrap items-center gap-[8px] text-[12.5px] text-ink-muted">
+          <span>{t("platform.tenantDetail.ownerEmail")}: {tenant.ownerEmail}</span>
+          <OwnerContactChip verified={tenant.ownerContactVerified} />
+        </p>
+        {tenant.ownerContactVerified ? null : (
+          <p className="mt-[2px] text-[12px] text-warning-ink">{t("platform.tenantDetail.ownerUnverifiedHint")}</p>
+        )}
       </div>
 
       {mutationError ? (
@@ -300,6 +306,12 @@ export function TenantDetailPage() {
                 <span className="mb-[6px] block text-xs font-semibold text-ink-muted">{t("platform.newTenant.result.adminEmail")}</span>
                 <span dir="ltr" className="break-all text-[13px] font-semibold text-ink">{ownerPinReset.adminEmail}</span>
               </div>
+              {ownerPinReset.signInEmail === ownerPinReset.adminEmail ? null : (
+                <div>
+                  <span className="mb-[6px] block text-xs font-semibold text-ink-muted">{t("platform.tenantDetail.ownerSignInEmail")}</span>
+                  <span dir="ltr" className="break-all text-[13px] font-semibold text-ink">{ownerPinReset.signInEmail}</span>
+                </div>
+              )}
               <div>
                 <span className="mb-[6px] block text-xs font-semibold text-ink-muted">{t("platform.newTenant.result.adminPin")}</span>
                 <code dir="ltr" className="mz-num select-all break-all rounded-[6px] bg-surface px-[10px] py-[6px] text-[16px] font-bold text-ink">

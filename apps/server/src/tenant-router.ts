@@ -2,12 +2,13 @@ import { Hono, type MiddlewareHandler } from "hono";
 import path from "node:path";
 import { mkdirSync } from "node:fs";
 import { timingSafeEqual } from "node:crypto";
-import { createBackend, type BackendHandle, type PlatformHandle } from "@mezan/backend";
+import { createBackend, type BackendHandle, type PlatformHandle, type SignedInUser } from "@mezan/backend";
 import type { SqliteOpenOptions } from "@mezan/persistence";
-import type { UserEmailChange } from "@mezan/api";
+import type { CompanyOwnerPort, UserEmailChange } from "@mezan/api";
 import { TenantResolveMode, type PlatformResolveDTO } from "@mezan/contracts";
-import { followTenantOwnerEmail, recordSecurityEvent, tenantIsServed, TenantStatusCode } from "@mezan/domain";
+import { tenantIsServed, TenantStatusCode } from "@mezan/domain";
 import { createBackendCache, type BackendCache } from "./backend-cache.js";
+import { createOwnerContact } from "./owner-contact.js";
 import { createTenantResolvers, type TenantResolvers } from "./tenant-entitlements.js";
 import { resolveTenantCode, TENANT_HEADER } from "./tenant-resolver.js";
 
@@ -28,6 +29,8 @@ export interface TenantRouterOptions {
 
 export interface TenantBackendHooks {
   readonly onUserEmailChanged: (change: UserEmailChange) => Promise<void>;
+  readonly onUserSignedIn: (user: SignedInUser) => Promise<void>;
+  readonly companyOwner: CompanyOwnerPort;
 }
 
 function safeEqual(provided: string, secret: string): boolean {
@@ -55,6 +58,8 @@ export function requireOriginSecret(secret?: string): MiddlewareHandler {
 export interface TenantRouter {
   readonly app: Hono;
   backendFor(code: string): Promise<BackendHandle>;
+  /** Compares the platform's record of the tenant's owner with the tenant's own owner account, and corrects the record. Opens the tenant's backend when it is not open. */
+  reconcileOwner(code: string): Promise<void>;
   invalidate(code: string): void;
   sweep(): Promise<void>;
   close(): Promise<void>;
@@ -95,31 +100,16 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
     }
     return r;
   };
-  const clock = options.now ?? (() => new Date());
+  const ownerContact = createOwnerContact({ platform: options.platform, now: options.now ?? (() => new Date()) });
   const hooksFor = (code: string): TenantBackendHooks => ({
-    // Runs inside the tenant's own save: the audit row is part of the change, so its failure undoes both.
-    onUserEmailChanged: async (change) => {
-      const at = clock().toISOString();
-      const before = await options.platform.stores.tenants.findByCode(code);
-      const tenant = await followTenantOwnerEmail({ code, before: change.before, after: change.after, now: at }, options.platform.stores.tenants);
-      if (!tenant || !before) return;
-      try {
-        await options.platform.stores.signupRequests.followOwnerEmail(code, before.ownerEmail, tenant.ownerEmail);
-        await recordSecurityEvent(options.platform.audit, {
-          module: "platform",
-          entityType: "PLATFORM",
-          entityId: tenant.id,
-          action: "TENANT_OWNER_EMAIL_CHANGED",
-          actor: `tenant:${code}:${change.actorId}`,
-          severity: "CRITICAL",
-          timestamp: at,
-          details: { code, before: before.ownerEmail, after: tenant.ownerEmail, userId: change.userId },
-        });
-      } catch (err) {
-        await options.platform.stores.tenants.save(before);
-        await options.platform.stores.signupRequests.followOwnerEmail(code, tenant.ownerEmail, before.ownerEmail);
-        throw err;
-      }
+    onUserEmailChanged: (change) => ownerContact.emailChanged(code, change),
+    onUserSignedIn: (user) => ownerContact.signedIn(code, user),
+    companyOwner: {
+      currentOwnerUserId: async () => {
+        await reconcileOwner(code);
+        return (await options.platform.stores.tenants.findByCode(code))?.ownerUserId ?? null;
+      },
+      handOver: (input) => ownerContact.handOver(code, input),
     },
   });
   const openBackend = options.openBackend ?? (async (code, dbPath, r, hooks) => {
@@ -130,6 +120,8 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
       resolveEntitlements: () => r.resolveEntitlements(),
       resolveLicenseState: () => r.resolveLicenseState(),
       onUserEmailChanged: hooks.onUserEmailChanged,
+      onUserSignedIn: hooks.onUserSignedIn,
+      companyOwner: hooks.companyOwner,
     });
   });
   const cache: BackendCache<BackendHandle> = createBackendCache({
@@ -140,9 +132,17 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
     open: async (code) => {
       const tenant = await options.platform.stores.tenants.findByCode(code);
       if (!tenant) throw new Error("TENANT_NOT_FOUND");
-      return openBackend(code, tenantDbPath(options.dataDir, tenant.dbFile), resolversFor(code), hooksFor(code));
+      const backend = await openBackend(code, tenantDbPath(options.dataDir, tenant.dbFile), resolversFor(code), hooksFor(code));
+      await ownerContact.reconcile(code, backend).catch((err: unknown) => console.error(`[cloud] owner contact of "${code}" could not be reconciled on open`, err));
+      return backend;
     },
   });
+
+  async function reconcileOwner(code: string): Promise<void> {
+    const tenant = await options.platform.stores.tenants.findByCode(code);
+    if (!tenant || tenant.status === TenantStatusCode.Archived) return;
+    await ownerContact.reconcile(code, await cache.get(code));
+  }
 
   const app = new Hono();
   const resolverOptions = {
@@ -197,6 +197,7 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
       if (!tenant || tenant.status === TenantStatusCode.Archived) throw new Error("TENANT_NOT_FOUND");
       return cache.get(code);
     },
+    reconcileOwner,
     invalidate(code) { resolvers.get(code)?.invalidate(); },
     sweep: () => cache.sweep(),
     close: () => cache.close(),

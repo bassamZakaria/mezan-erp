@@ -15,6 +15,7 @@ function tenants(): TenantRepository & { rows: Tenant[] } {
     async findByCode(code) { return rows.find((t) => t.code === code) ?? null; },
     async list() { return rows; },
     async save(t) { rows.push(t); },
+    async compareAndSetOwner() { return false; },
   };
 }
 

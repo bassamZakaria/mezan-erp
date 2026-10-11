@@ -125,6 +125,7 @@ import {
   tenantTodayIso,
   BASE_CURRENCY,
   UserStatusCode,
+  isErasedUser,
 } from "@mezan/domain";
 import {
   openSqliteConnection,
@@ -493,14 +494,32 @@ export enum OwnerPinResetOutcome {
 }
 
 export interface ResetOwnerPinCommand {
+  /** The owner's user id, where the caller knows it. It wins over `email`, which a later edit may have moved. */
+  readonly userId?: string | null;
   readonly email: string;
   readonly pin: string;
   readonly onlyIfNeverSignedIn: boolean;
   readonly actor: string;
 }
 
+/** The account a caller holding the handle may treat as the company's owner: never an erased one. */
+export interface OwnerAccount {
+  readonly id: string;
+  readonly email: string;
+  /** An active company admin: the only kind of account whose PIN the platform resets. */
+  readonly canAdminister: boolean;
+}
+
+export type OwnerAccountQuery = { readonly userId: string } | { readonly email: string };
+
+export interface SignedInUser {
+  readonly userId: string;
+  readonly email: string;
+}
+
 export interface BackendHandle {
   readonly app: App;
+  ownerAccount(query: OwnerAccountQuery): Promise<OwnerAccount | null>;
   /**
    * SECURITY: deliberately NOT an HTTP route. A route would be reachable through
    * the tenant router and the desktop LAN mount; this is callable only by code
@@ -597,6 +616,9 @@ export interface CreateBackendOptions {
    */
   readonly resolveLicenseState?: CreateAppOptions["resolveLicenseState"];
   readonly onUserEmailChanged?: CreateAppOptions["onUserEmailChanged"];
+  readonly companyOwner?: CreateAppOptions["companyOwner"];
+  /** Runs after a sign-in has been recorded. A throw is logged and never fails the sign-in. */
+  readonly onUserSignedIn?: (user: SignedInUser) => Promise<void>;
   /**
    * The VERIFIED capability set every module-gated route group is checked
    * against, and that `GET /entitlements` and `/roles` report.
@@ -3006,6 +3028,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     resolveAuthContext,
     security: { sessions, loginThrottle },
     ...(options.onUserEmailChanged ? { onUserEmailChanged: options.onUserEmailChanged } : {}),
+    ...(options.companyOwner ? { companyOwner: options.companyOwner } : {}),
     onPermissionRefused,
     // The LAN routes need the SAME session registry the auth routes issue
     // into, or a disconnect revokes a token nobody is holding.
@@ -4085,7 +4108,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       schemaVersion: CURRENT_SCHEMA_VERSION,
     }),
   );
-  app.route("/", createAuthRoutes({ uow, hasher, settings, seedStores, sessions, loginThrottle, audit: auditSink, resolveEntitlements: options.resolveEntitlements }));
+  app.route("/", createAuthRoutes({ uow, hasher, settings, seedStores, sessions, loginThrottle, audit: auditSink, resolveEntitlements: options.resolveEntitlements, onSignedIn: options.onUserSignedIn }));
   app.route(
     "/",
     createDashboardRoutes({
@@ -4242,8 +4265,14 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     });
   }
 
+  async function ownerAccount(query: OwnerAccountQuery): Promise<OwnerAccount | null> {
+    const user = "userId" in query ? await uow.users.findById(query.userId) : await uow.users.findByEmail(query.email.trim().toLowerCase());
+    if (!user || isErasedUser(user)) return null;
+    return { id: user.id, email: user.email, canAdminister: user.isCompanyAdmin && user.status === UserStatusCode.Active };
+  }
+
   async function resetOwnerPin(cmd: ResetOwnerPinCommand): Promise<OwnerPinResetOutcome> {
-    const owner = await uow.users.findByEmail(cmd.email.trim().toLowerCase());
+    const owner = cmd.userId ? await uow.users.findById(cmd.userId) : await uow.users.findByEmail(cmd.email.trim().toLowerCase());
     if (!owner || !owner.isCompanyAdmin || owner.status !== UserStatusCode.Active) return OwnerPinResetOutcome.OwnerNotFound;
     if (cmd.onlyIfNeverSignedIn && owner.lastLoginAt !== null) return OwnerPinResetOutcome.AlreadySignedIn;
     await uow.users.save({ ...owner, pinHash: await hasher.hash(cmd.pin) });
@@ -4264,6 +4293,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   return {
     app,
     sessions,
+    ownerAccount,
     resetOwnerPin,
     etaReceipts,
     backupTo: (destination) => sqlite.backup(destination).then(() => undefined),

@@ -311,6 +311,39 @@ describe("UsersPage — personal-data erasure (D348)", () => {
     );
   });
 
+  const NEW_OWNER_LABEL = "المالك الجديد للمنشأة (إن كان هذا الحساب هو المالك)";
+
+  it("offers the other active company admins as the new owner when a company admin is erased, and sends the one chosen", async () => {
+    const admin: UserDTO = { ...user, isCompanyAdmin: true };
+    const peer: UserDTO = { ...user, id: "user-9", nameAr: "هدى المديرة", email: "huda@cyag.test", isCompanyAdmin: true };
+    const leftAdmin: UserDTO = { ...peer, id: "user-8", nameAr: "مدير سابق", email: "left@cyag.test", status: "inactive" };
+    const onErase = vi.fn().mockResolvedValue({ ok: true, value: { alreadyErased: false } });
+    renderPage({ users: [admin, peer, leftAdmin, inactiveUser], onErase });
+
+    fireEvent.click(screen.getAllByRole("button", { name: "محو البيانات الشخصية" })[0]!);
+    fireEvent.change(await screen.findByLabelText("اكتب بريد الحساب للتأكيد"), { target: { value: admin.email } });
+    fireEvent.change(screen.getByLabelText(/سبب المحو/), { target: { value: "طلب صاحب البيانات" } });
+    fireEvent.click(screen.getByRole("combobox", { name: NEW_OWNER_LABEL }));
+    const offered = await screen.findAllByRole("option");
+    expect(offered.map((option) => option.textContent)).toEqual(["هدى المديرة — huda@cyag.test"]);
+    fireEvent.mouseDown(offered[0]!);
+    fireEvent.click(screen.getByRole("button", { name: "محو البيانات" }));
+
+    await waitFor(() =>
+      expect(onErase).toHaveBeenCalledWith(admin.id, { confirmEmail: admin.email, reason: "طلب صاحب البيانات", newOwnerUserId: "user-9" }),
+    );
+  });
+
+  it("asks for no new owner when the account being erased is not a company admin", async () => {
+    const clerk: UserDTO = { ...user, isCompanyAdmin: false, roleId: "role-1" };
+    const peer: UserDTO = { ...user, id: "user-9", nameAr: "هدى المديرة", email: "huda@cyag.test", isCompanyAdmin: true };
+    renderPage({ users: [clerk, peer], onErase: vi.fn() });
+
+    fireEvent.click(screen.getAllByRole("button", { name: "محو البيانات الشخصية" })[0]!);
+    await screen.findByLabelText("اكتب بريد الحساب للتأكيد");
+    expect(screen.queryByRole("combobox", { name: NEW_OWNER_LABEL })).not.toBeInTheDocument();
+  });
+
   it("surfaces a refusal from the server instead of closing", async () => {
     const onErase = vi.fn().mockResolvedValue({ ok: false, error: "لا يمكن محو بيانات آخر مدير شركة نشط." });
     renderPage({ onErase });

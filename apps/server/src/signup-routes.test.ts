@@ -500,14 +500,14 @@ describe("the platform owner resets a tenant owner's PIN", () => {
     ]);
   });
 
-  it("leaves the recorded owner alone when another user's email changes, and undoes the owner's change when the platform cannot record it", async () => {
+  it("leaves the recorded owner alone when another user's email changes, and keeps the owner's saved change when the platform cannot record it", async () => {
     const dataDir = platformDir();
     const platform = await openPlatform(dataDir);
     let refuseSave = false;
     const tenants = Object.create(platform.stores.tenants) as PlatformHandle["stores"]["tenants"];
-    tenants.save = async (tenant) => {
+    tenants.compareAndSetOwner = async (before, after, sideEffect) => {
       if (refuseSave) throw new Error("the platform database refused the tenant");
-      await platform.stores.tenants.save(tenant);
+      return platform.stores.tenants.compareAndSetOwner(before, after, sideEffect);
     };
     const router = createTenantRouter({ platform: { ...platform, stores: { ...platform.stores, tenants } }, dataDir, sweepEveryMs: 0, now: () => new Date(T) });
     routers.push(router);
@@ -544,10 +544,10 @@ describe("the platform owner resets a tenant owner's PIN", () => {
     refuseSave = true;
     const refused = await call("PUT", `/users/${String(owner?.["id"])}`, { ...owner, email: "new@steady.example" });
 
-    expect(refused.status).toBe(500);
+    expect(refused.status).toBe(200);
     expect((await platform.stores.tenants.findByCode("steady"))?.ownerEmail).toBe("owner@steady.example");
     const after = (await (await call("GET", "/users")).json()) as Record<string, unknown>[];
-    expect(after.find((user) => user["id"] === owner?.["id"])?.["email"]).toBe("owner@steady.example");
+    expect(after.find((user) => user["id"] === owner?.["id"])?.["email"]).toBe("new@steady.example");
   });
 
   it("records the operator who retried a provision as the actor of the tenant's PIN reset", async () => {

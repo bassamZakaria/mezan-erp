@@ -84,6 +84,7 @@ export const tenantSchema = z.object({
   nameAr: z.string().min(1),
   nameEn: z.string().nullable(),
   ownerEmail: z.string().min(1),
+  ownerContactVerified: z.boolean(),
   status: tenantStatusSchema,
   dbFile: z.string().min(1),
   createdAt: isoLikeSchema,
@@ -94,7 +95,7 @@ export const tenantSchema = z.object({
 export function tenantDTOOf(stored: Omit<z.infer<typeof tenantSchema>, "status"> & { readonly status: string }): z.infer<typeof tenantSchema> {
   return {
     id: stored.id, code: stored.code, nameAr: stored.nameAr, nameEn: stored.nameEn, ownerEmail: stored.ownerEmail,
-    status: tenantStatusOf(stored.status), dbFile: stored.dbFile, createdAt: stored.createdAt, updatedAt: stored.updatedAt,
+    ownerContactVerified: stored.ownerContactVerified, status: tenantStatusOf(stored.status), dbFile: stored.dbFile, createdAt: stored.createdAt, updatedAt: stored.updatedAt,
   };
 }
 
@@ -169,6 +170,8 @@ export const recordPaymentRequestSchema = z.object({
 
 export const ownerPinResetResultSchema = z.object({
   adminEmail: z.string().min(1),
+  /** The address the owner account signs in with now. It differs from `adminEmail` while the owner contact is unverified. */
+  signInEmail: z.string().min(1),
   adminPin: z.string().regex(/^\d{6}$/, "must be exactly 6 digits"),
 });
 

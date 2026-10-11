@@ -8,15 +8,14 @@ import {
   createPlatform,
   createPlatformAuth,
   createPlatformRoutes,
-  OwnerPinResetOutcome,
-  TenantOwnerAccountNotFoundError,
   type PlatformHandle,
 } from "@mezan/backend";
 import { createSessionRegistry } from "@mezan/api";
 import { SubscriptionStatusKind, TenantNotFoundError, type Tenant } from "@mezan/domain";
 import type { CreateTenantRequestDTO, OwnerPinResetResultDTO, ProvisionResultDTO, ProvisionRetryRequestDTO } from "@mezan/contracts";
 import { createTenantRouter, requireOriginSecret, type TenantRouter } from "./tenant-router.js";
-import { generateOwnerPin, platformActor, provisionResultDTOOf, provisionTenant, PlanRequiredError } from "./provision-tenant.js";
+import { provisionResultDTOOf, provisionTenant, PlanRequiredError } from "./provision-tenant.js";
+import { resetTenantOwnerPin } from "./owner-pin-reset.js";
 import { createSignupRoutes, SIGNUP_BASE_PATH } from "./signup-routes.js";
 import { provisionDemoTenant } from "./demo-tenant.js";
 import { provisionReviewTenant } from "./review-tenant.js";
@@ -139,18 +138,11 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
     return provisionResultDTOOf(provisioned);
   };
 
-  const resetOwnerPinForRoutes = async (input: { tenant: Tenant; actorId: string }): Promise<OwnerPinResetResultDTO> => {
-    const backend = await router.backendFor(input.tenant.code);
-    const adminPin = generateOwnerPin();
-    const outcome = await backend.resetOwnerPin({
-      email: input.tenant.ownerEmail,
-      pin: adminPin,
-      onlyIfNeverSignedIn: false,
-      actor: platformActor(input.actorId),
-    });
-    if (outcome !== OwnerPinResetOutcome.Reset) throw new TenantOwnerAccountNotFoundError();
-    return { adminEmail: input.tenant.ownerEmail, adminPin };
-  };
+  const resetOwnerPinForRoutes = (input: { tenant: Tenant; actorId: string }): Promise<OwnerPinResetResultDTO> =>
+    resetTenantOwnerPin({ platform, router }, input);
+
+  const reconcileOwnerQuietly = (code: string): Promise<void> =>
+    router.reconcileOwner(code).catch((err: unknown) => console.error(`[cloud] owner contact of "${code}" could not be reconciled`, err));
 
   let testProvider: PaymobTestProvider | null = null;
   let cardCheckout: CardCheckoutService | null = null;
@@ -170,6 +162,10 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
     provisionTenant: provisionTenantForRoutes,
     provisionRetry: provisionRetryForRoutes,
     resetOwnerPin: resetOwnerPinForRoutes,
+    reconcileOwner: (tenant) => reconcileOwnerQuietly(tenant.code),
+    reconcileOpenOwners: async () => {
+      await Promise.all(router.openTenants().map(reconcileOwnerQuietly));
+    },
     invalidateEntitlements: router.invalidate,
     cardCheckout: checkoutService
       ? {

@@ -26,6 +26,7 @@ import {
 import { SEED_ADMIN_USER_ID, SEED_TENANT_NAME, currentCounts, seedIfEmpty, type SeedStores } from "./seed.js";
 
 export interface AuthRoutesDeps {
+  readonly onSignedIn?: (user: { readonly userId: string; readonly email: string }) => Promise<void>;
   readonly uow: UnitOfWork;
   readonly hasher: SecretHasher;
   readonly settings: SettingsRepository;
@@ -293,6 +294,9 @@ export function createAuthRoutes(deps: AuthRoutesDeps) {
     const at = new Date().toISOString();
     await recordSuccessfulLogin(user.id, at, deps.uow);
     await security(c, "LOGIN_SUCCEEDED", "INFO", { userId: user.id, username: needle });
+    await deps.onSignedIn?.({ userId: user.id, email: user.email }).catch((err: unknown) =>
+      console.error("[auth] the sign-in succeeded, but announcing it failed", err),
+    );
     // The session is bound to the origin the CREDENTIAL was verified from, so
     // the till that logged in is the only place the token it got back works.
     return c.json(await toSession(user, deps, requestOrigin(c)));

@@ -50,6 +50,7 @@ function makeSummary(overrides: Partial<TenantSummaryDTO["tenant"]> = {}, subOve
       nameEn: "Acme Co",
       ownerEmail: "owner@acme.test",
       status: TenantWireStatus.Active,
+      ownerContactVerified: true,
       dbFile: "tenants/acme.db",
       createdAt: "2026-09-01T00:00:00.000Z",
       updatedAt: "2026-09-01T00:00:00.000Z",
@@ -246,6 +247,42 @@ describe("TenantDetailPage", () => {
     await waitFor(() => expect(suspendPosts).toBe(1));
   });
 
+  it("says the owner contact is unverified, and after a reset names the address the owner now signs in with", async () => {
+    const transport = stubPlatformTransport({
+      "GET /tenants/tenant-1": () => ({ body: makeSummary({ ownerContactVerified: false }) }),
+      "GET /plans": () => ({ body: [plan, plan2] }),
+      "POST /tenants/tenant-1/owner-pin/reset": () => ({
+        body: { adminEmail: "owner@acme.test", signInEmail: "inbox@elsewhere.test", adminPin: "305917" },
+      }),
+    });
+    renderDetail({ transport, session: testPlatformSession });
+
+    expect(await screen.findByText("بريد المالك غير مؤكَّد")).toBeInTheDocument();
+    expect(screen.getByText(/غيّر مدير آخر بريد دخول المالك/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "إعادة تعيين رمز المالك" }));
+    fireEvent.click(within(await screen.findByRole("dialog", { name: "إعادة تعيين رمز المالك؟" })).getByRole("button", { name: "إعادة التعيين" }));
+
+    expect(await screen.findByText("305917")).toBeInTheDocument();
+    expect(screen.getByText("بريد الدخول الحالي للمالك")).toBeInTheDocument();
+    expect(screen.getByText("inbox@elsewhere.test")).toBeInTheDocument();
+  });
+
+  it("shows no unverified mark and no second address for a verified owner", async () => {
+    const transport = stubPlatformTransport({
+      "GET /tenants/tenant-1": () => ({ body: makeSummary() }),
+      "GET /plans": () => ({ body: [plan, plan2] }),
+      "POST /tenants/tenant-1/owner-pin/reset": () => ({ body: { adminEmail: "owner@acme.test", signInEmail: "owner@acme.test", adminPin: "305917" } }),
+    });
+    renderDetail({ transport, session: testPlatformSession });
+
+    fireEvent.click(await screen.findByRole("button", { name: "إعادة تعيين رمز المالك" }));
+    fireEvent.click(within(await screen.findByRole("dialog", { name: "إعادة تعيين رمز المالك؟" })).getByRole("button", { name: "إعادة التعيين" }));
+
+    expect(await screen.findByText("305917")).toBeInTheDocument();
+    expect(screen.queryByText("بريد المالك غير مؤكَّد")).not.toBeInTheDocument();
+    expect(screen.queryByText("بريد الدخول الحالي للمالك")).not.toBeInTheDocument();
+  });
+
   it("resetting the owner's PIN asks first, then shows the new PIN once with the owner's email", async () => {
     let resets = 0;
     const summary = makeSummary();
@@ -254,7 +291,7 @@ describe("TenantDetailPage", () => {
       "GET /plans": () => ({ body: [plan, plan2] }),
       "POST /tenants/tenant-1/owner-pin/reset": () => {
         resets += 1;
-        return { body: { adminEmail: "owner@acme.test", adminPin: "305917" } };
+        return { body: { adminEmail: "owner@acme.test", signInEmail: "owner@acme.test", adminPin: "305917" } };
       },
     });
     renderDetail({ transport, session: testPlatformSession });
@@ -322,7 +359,7 @@ describe("TenantDetailPage", () => {
     fireEvent.click(within(leaving).getByRole("button", { name: "غادر على أي حال" }));
     await screen.findByRole("navigation", { name: "قائمة الاختبار" });
 
-    const body = { adminEmail: "owner@acme.test", adminPin: "305917" };
+    const body = { adminEmail: "owner@acme.test", signInEmail: "owner@acme.test", adminPin: "305917" };
     await act(async () => {
       answer({ status: 200, ok: true, json: <T,>() => Promise.resolve(body as T), text: () => Promise.resolve(JSON.stringify(body)) });
     });
@@ -342,7 +379,7 @@ describe("TenantDetailPage", () => {
     const transport = stubPlatformTransport({
       "GET /tenants/tenant-1": () => ({ body: makeSummary() }),
       "GET /plans": () => ({ body: [plan, plan2] }),
-      "POST /tenants/tenant-1/owner-pin/reset": () => ({ body: { adminEmail: "owner@acme.test", adminPin: "305917" } }),
+      "POST /tenants/tenant-1/owner-pin/reset": () => ({ body: { adminEmail: "owner@acme.test", signInEmail: "owner@acme.test", adminPin: "305917" } }),
     });
     renderConsole(transport);
     await askForReset();

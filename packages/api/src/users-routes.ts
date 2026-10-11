@@ -94,13 +94,18 @@ export interface UserEmailChange {
   readonly actorId: string;
 }
 
+/** The account the edition records as the company's owner, where the edition records one (the cloud platform does). */
+export interface CompanyOwnerPort {
+  currentOwnerUserId(): Promise<string | null>;
+  handOver(input: { readonly fromUserId: string; readonly toUserId: string; readonly toEmail: string; readonly actorId: string }): Promise<void>;
+}
+
 export interface UsersRoutesOptions {
-  /**
-   * Runs INSIDE the transaction that saves the new email: a throw undoes the
-   * edit. The cloud edition keeps the platform's recorded owner email in step
-   * here, so the two never commit apart.
-   */
+  // REQUIRED ORDERING: called only after the save has committed, never inside
+  // its transaction. Its work lives in another database, so running it before
+  // the commit lets the two disagree for good when the commit then fails.
   readonly onEmailChanged?: (change: UserEmailChange) => Promise<void>;
+  readonly owner?: CompanyOwnerPort;
   /**
    * The tenant's allowed email domains, read per request rather than captured
    * at mount: an admin who adds a domain in الإعدادات must not have to restart
@@ -156,7 +161,7 @@ export function createUsersRoutes(
   resolveAuthContext: AuthContextResolver,
   options: UsersRoutesOptions = {},
 ) {
-  const { readAllowedEmailDomains, audit, sessions, loginThrottle, erasure, onEmailChanged } = options;
+  const { readAllowedEmailDomains, audit, sessions, loginThrottle, erasure, onEmailChanged, owner } = options;
   const gate = createPermissionGate(resolveAuthContext);
   const app = new Hono();
 
@@ -543,7 +548,7 @@ export function createUsersRoutes(
       // lands over the earlier one — which cannot escalate (the guard still
       // bounds what either caller may write) but does silently undo a
       // promotion and reset a PIN nobody asked to reset.
-      const user = await uow.transaction(async (tx) => {
+      const committed = await uow.transaction(async (tx) => {
         const current = await tx.users.findById(id);
         if (!current) throw new UserNotFoundError(id);
         const saved = await saveUser(
@@ -554,11 +559,14 @@ export function createUsersRoutes(
           hasher,
           await saveOptions(),
         );
-        if (onEmailChanged && saved.email !== current.email) {
-          await onEmailChanged({ userId: id, before: current.email, after: saved.email, actorId: getAuthContext(c)?.userId ?? "unknown" });
-        }
-        return saved;
+        return { saved, emailBefore: current.email };
       });
+      const user = committed.saved;
+      if (onEmailChanged && user.email !== committed.emailBefore) {
+        await onEmailChanged({ userId: id, before: committed.emailBefore, after: user.email, actorId: getAuthContext(c)?.userId ?? "unknown" }).catch(
+          (err: unknown) => console.error("[users] the email change was saved, but announcing it failed", err),
+        );
+      }
       await auditUser(c, user, "UPDATE", before, change);
       await auditCredentialReset(c, user, change);
       if (conflicts.length > 0) await auditSodOverride(c, user, conflicts, parsed.data.reason ?? "");
@@ -692,6 +700,26 @@ export function createUsersRoutes(
       }
       const unusableHash = await hasher.hash(`${randomUUID()}${randomUUID()}`);
       try {
+        if (owner && (await owner.currentOwnerUserId()) === id) {
+          const successorId = parsed.data.newOwnerUserId;
+          const successor = successorId && successorId !== id ? await uow.users.findById(successorId) : null;
+          if (!successor || !successor.isCompanyAdmin || successor.status !== "active" || isErasedUser(successor)) {
+            return c.json(
+              {
+                error: "OWNER_SUCCESSOR_REQUIRED",
+                message: "هذا الحساب هو مالك المنشأة. اختر مديرًا آخر للمنشأة ليصبح المالك قبل محو بياناته.",
+                messageEn: "This account owns the company. Choose another company admin as the new owner before erasing it.",
+              },
+              422,
+            );
+          }
+          const employee = target.employeeId ? await port.linkedEmployee(target.employeeId) : null;
+          assertUserErasable(target, { actorId: ctx.userId, users: await uow.users.list(), employee });
+          // REQUIRED ORDERING: ownership moves before the erasure, never after.
+          // If the erasure then fails the company still has a real owner; the
+          // other order can leave the platform pointing at an erased account.
+          await owner.handOver({ fromUserId: id, toUserId: successor.id, toEmail: successor.email, actorId: ctx.userId });
+        }
         const result = await uow.transaction(async (tx) => {
           const current = await tx.users.findById(id);
           if (!current) throw new UserNotFoundError(id);

@@ -107,6 +107,8 @@ export enum ErasureRetention {
 export const eraseUserSchema = z.object({
   confirmEmail: z.string().trim().min(1),
   reason: z.string().trim().min(3).max(500),
+  /** Required only when the account being erased is the company owner: the company admin who becomes the owner. */
+  newOwnerUserId: z.string().trim().min(1).optional(),
 });
 
 export const userErasureResultSchema = z.object({

@@ -3,7 +3,7 @@ import { useNavigate } from "react-router";
 import { Button, Card, DocumentList, useFormat, type DocumentListColumn } from "@mezan/ui";
 import type { TenantSummaryDTO } from "@mezan/contracts";
 import { useAppTranslation } from "../i18n";
-import { TenantLicenceChip, TenantStatusChip } from "./chips";
+import { OwnerContactChip, TenantLicenceChip, TenantStatusChip } from "./chips";
 import { usePlatformApi } from "./api";
 import { NewTenantDialog } from "./NewTenantDialog";
 import { usePlansQuery, useTenantsQuery } from "./hooks";
@@ -34,6 +34,7 @@ export function TenantsPage() {
         <div>
           <div className="font-semibold text-ink">{row.tenant.nameAr}</div>
           {row.tenant.nameEn ? <div className="mz-lat text-[11px] text-ink-faint">{row.tenant.nameEn}</div> : null}
+          <OwnerContactChip verified={row.tenant.ownerContactVerified} />
         </div>
       ),
     },

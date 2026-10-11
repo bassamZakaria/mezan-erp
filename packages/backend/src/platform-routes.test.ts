@@ -24,6 +24,7 @@ interface Rig {
   readonly ownerToken: string;
   readonly supportToken: string;
   readonly invalidated: string[];
+  readonly reconciled: string[];
   readonly provisioned: Array<CreateTenantRequestDTO & { actorId: string }>;
 }
 
@@ -57,6 +58,7 @@ async function buildRig(): Promise<Rig> {
   }
 
   const invalidated: string[] = [];
+  const reconciled: string[] = [];
   const provisioned: Array<CreateTenantRequestDTO & { actorId: string }> = [];
   let idCounter = 0;
   const idOf = () => `ID-${++idCounter}`;
@@ -99,13 +101,19 @@ async function buildRig(): Promise<Rig> {
     provisionRetry,
     resetOwnerPin: async ({ tenant }) => {
       if (tenant.ownerEmail === OWNER_WHO_LEFT) throw new TenantOwnerAccountNotFoundError();
-      return { adminEmail: tenant.ownerEmail, adminPin: RESET_PIN };
+      return { adminEmail: tenant.ownerEmail, signInEmail: tenant.ownerEmail, adminPin: RESET_PIN };
     },
+    reconcileOwner: async (tenant) => {
+      reconciled.push(tenant.code);
+      const stored = await platform.stores.tenants.findById(tenant.id);
+      if (stored) await platform.stores.tenants.save({ ...stored, ownerContactVerified: false });
+    },
+    reconcileOpenOwners: async () => { reconciled.push("*open*"); },
     invalidateEntitlements: (code: string) => { invalidated.push(code); },
     idOf,
   });
 
-  return { platform, auth, app, ownerToken: await login("owner@mezan.app"), supportToken: await login("support@mezan.app"), invalidated, provisioned };
+  return { reconciled, platform, auth, app, ownerToken: await login("owner@mezan.app"), supportToken: await login("support@mezan.app"), invalidated, provisioned };
 }
 
 const RESET_PIN = "305917";
@@ -169,6 +177,28 @@ describe("createPlatformRoutes", () => {
     expect(detail.payments).toEqual([]);
   });
 
+  it("reconciles the owner contact before a tenant is read: the open ones for the list, the one asked for on its own page", async () => {
+    const rig = await buildRig();
+    const { body } = await provisionOne(rig);
+
+    const listed = (await json(await rig.app.fetch(req("/tenants", rig.supportToken)))) as Array<{ tenant: { ownerContactVerified: boolean } }>;
+    expect(rig.reconciled).toEqual(["*open*"]);
+    expect(listed[0]?.tenant.ownerContactVerified).toBe(true);
+
+    const one = (await json(await rig.app.fetch(req(`/tenants/${body.tenant.id}`, rig.supportToken)))) as { tenant: { ownerContactVerified: boolean } };
+    expect(rig.reconciled).toEqual(["*open*", "acme"]);
+    expect(one.tenant.ownerContactVerified).toBe(false);
+  });
+
+  it("does not open an archived tenant's database to reconcile it", async () => {
+    const rig = await buildRig();
+    const { body } = await provisionOne(rig);
+    await rig.app.fetch(req(`/tenants/${body.tenant.id}/archive`, rig.ownerToken, { method: "POST" }));
+
+    expect((await rig.app.fetch(req(`/tenants/${body.tenant.id}`, rig.supportToken))).status).toBe(200);
+    expect(rig.reconciled).toEqual([]);
+  });
+
   it("404s an unknown tenant", async () => {
     const rig = await buildRig();
     const res = await rig.app.fetch(req("/tenants/ghost", rig.ownerToken));
@@ -211,7 +241,7 @@ describe("createPlatformRoutes", () => {
     const res = await rig.app.fetch(req(`/tenants/${body.tenant.id}/owner-pin/reset`, rig.ownerToken, { method: "POST" }));
 
     expect(res.status).toBe(200);
-    expect(await json(res)).toEqual({ adminEmail: body.tenant.ownerEmail, adminPin: RESET_PIN });
+    expect(await json(res)).toEqual({ adminEmail: body.tenant.ownerEmail, signInEmail: body.tenant.ownerEmail, adminPin: RESET_PIN });
     const row = (await rig.platform.audit.query("security")).find((r) => r.action === "TENANT_OWNER_PIN_RESET");
     expect(row).toMatchObject({ module: "platform", actor: "PU-OWNER", entityId: body.tenant.id, severity: "CRITICAL" });
     expect(JSON.stringify(row)).not.toContain(RESET_PIN);

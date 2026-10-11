@@ -28,6 +28,8 @@ CREATE TABLE IF NOT EXISTS tenant (
   name_ar      TEXT NOT NULL,
   name_en      TEXT,
   owner_email  TEXT NOT NULL,
+  owner_user_id TEXT,
+  owner_contact_verified INTEGER NOT NULL DEFAULT 1,
   status       TEXT NOT NULL,
   db_file      TEXT NOT NULL,
   created_at   TEXT NOT NULL,
@@ -189,16 +191,21 @@ function addMissingColumns(sqlite: Database.Database): void {
   );
   if (!onSubscription.has("previous_plan_id")) sqlite.exec(`ALTER TABLE subscription ADD COLUMN previous_plan_id TEXT`);
   if (!onSubscription.has("billing_anchor_day")) sqlite.exec(`ALTER TABLE subscription ADD COLUMN billing_anchor_day INTEGER`);
+  const onTenant = new Set((sqlite.prepare(`PRAGMA table_info(tenant)`).all() as { name: string }[]).map((c) => c.name));
+  if (!onTenant.has("owner_user_id")) sqlite.exec(`ALTER TABLE tenant ADD COLUMN owner_user_id TEXT`);
+  if (!onTenant.has("owner_contact_verified")) sqlite.exec(`ALTER TABLE tenant ADD COLUMN owner_contact_verified INTEGER NOT NULL DEFAULT 1`);
 }
 
 interface TenantRow {
   id: string; code: string; name_ar: string; name_en: string | null; owner_email: string;
+  owner_user_id: string | null; owner_contact_verified: number;
   status: Tenant["status"]; db_file: string; created_at: string; updated_at: string;
 }
 
 function toTenant(r: TenantRow): Tenant {
   return {
     id: r.id, code: r.code, nameAr: r.name_ar, nameEn: r.name_en, ownerEmail: r.owner_email,
+    ownerUserId: r.owner_user_id, ownerContactVerified: r.owner_contact_verified === 1,
     status: r.status, dbFile: r.db_file, createdAt: r.created_at, updatedAt: r.updated_at,
   };
 }
@@ -208,14 +215,20 @@ class SqliteTenantStore implements TenantRepository {
   private readonly byId: Database.Statement;
   private readonly byCode: Database.Statement;
   private readonly all: Database.Statement;
+  private readonly ownerUpdate: Database.Statement;
 
-  constructor(sqlite: Database.Database) {
+  constructor(private readonly sqlite: Database.Database) {
     this.upsert = sqlite.prepare(
-      `INSERT INTO tenant (id, code, name_ar, name_en, owner_email, status, db_file, created_at, updated_at)
-       VALUES (@id, @code, @nameAr, @nameEn, @ownerEmail, @status, @dbFile, @createdAt, @updatedAt)
+      `INSERT INTO tenant (id, code, name_ar, name_en, owner_email, owner_user_id, owner_contact_verified, status, db_file, created_at, updated_at)
+       VALUES (@id, @code, @nameAr, @nameEn, @ownerEmail, @ownerUserId, @ownerContactVerified, @status, @dbFile, @createdAt, @updatedAt)
        ON CONFLICT(id) DO UPDATE SET
          code = @code, name_ar = @nameAr, name_en = @nameEn, owner_email = @ownerEmail,
+         owner_user_id = @ownerUserId, owner_contact_verified = @ownerContactVerified,
          status = @status, db_file = @dbFile, created_at = @createdAt, updated_at = @updatedAt`,
+    );
+    this.ownerUpdate = sqlite.prepare(
+      `UPDATE tenant SET owner_email = @ownerEmail, owner_user_id = @ownerUserId, owner_contact_verified = @ownerContactVerified, updated_at = @updatedAt
+       WHERE id = @id AND owner_email = @beforeEmail AND owner_user_id IS @beforeUserId AND owner_contact_verified = @beforeVerified`,
     );
     this.byId = sqlite.prepare(`SELECT * FROM tenant WHERE id = ?`);
     this.byCode = sqlite.prepare(`SELECT * FROM tenant WHERE code = ?`);
@@ -240,8 +253,26 @@ class SqliteTenantStore implements TenantRepository {
     assertKnownStatus("tenant", t.status, TENANT_STATUSES);
     this.upsert.run({
       id: t.id, code: t.code, nameAr: t.nameAr, nameEn: t.nameEn, ownerEmail: t.ownerEmail,
+      ownerUserId: t.ownerUserId, ownerContactVerified: t.ownerContactVerified ? 1 : 0,
       status: t.status, dbFile: t.dbFile, createdAt: t.createdAt, updatedAt: t.updatedAt,
     });
+  }
+
+  async compareAndSetOwner(before: Tenant, after: Tenant, sideEffect: () => Promise<void>): Promise<boolean> {
+    return withSqliteTransaction(
+      this.sqlite,
+      async () => {
+        const result = this.ownerUpdate.run({
+          id: after.id, ownerEmail: after.ownerEmail, ownerUserId: after.ownerUserId,
+          ownerContactVerified: after.ownerContactVerified ? 1 : 0, updatedAt: after.updatedAt,
+          beforeEmail: before.ownerEmail, beforeUserId: before.ownerUserId, beforeVerified: before.ownerContactVerified ? 1 : 0,
+        });
+        if (result.changes !== 1) return false;
+        await sideEffect();
+        return true;
+      },
+      "BEGIN IMMEDIATE",
+    );
   }
 }
 

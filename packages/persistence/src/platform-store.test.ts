@@ -7,7 +7,7 @@ const NOW = "2026-09-13T10:00:00.000Z";
 
 const tenant: Tenant = {
   id: "T1", code: "cyag", nameAr: "سياج", nameEn: null, ownerEmail: "o@cyag.eg", status: "provisioning",
-  dbFile: "tenants/cyag.db", createdAt: NOW, updatedAt: NOW,
+  ownerUserId: null, ownerContactVerified: true, dbFile: "tenants/cyag.db", createdAt: NOW, updatedAt: NOW,
 };
 const plan: Plan = {
   id: "P1", code: "core", nameAr: "الأساسية", nameEn: "Core", kind: PlanKind.Paid, quotas: {}, modules: ["accounting", "sales"],
@@ -109,6 +109,36 @@ describe("createSqlitePlatformStores", () => {
     stores.close();
     expect(db.open).toBe(true);
     expect(await stores.tenants.findById("T1")).toEqual(tenant);
+    db.close();
+  });
+
+  it("moves the owner only while the stored owner is the one the caller read, and undoes the move when its side effect fails", async () => {
+    const stores = createSqlitePlatformStores(":memory:");
+    await stores.tenants.save(tenant);
+    const linked = { ...tenant, ownerUserId: "U1", updatedAt: "2026-09-14T00:00:00.000Z" };
+    const effects: string[] = [];
+
+    expect(await stores.tenants.compareAndSetOwner(tenant, linked, async () => { effects.push("linked"); })).toBe(true);
+    expect(await stores.tenants.findById("T1")).toEqual(linked);
+
+    const stale = { ...tenant, ownerEmail: "late@cyag.eg" };
+    expect(await stores.tenants.compareAndSetOwner(tenant, stale, async () => { effects.push("stale"); })).toBe(false);
+    expect(await stores.tenants.findById("T1")).toEqual(linked);
+    expect(effects).toEqual(["linked"]);
+
+    const moved = { ...linked, ownerEmail: "new@cyag.eg", ownerContactVerified: false };
+    await expect(stores.tenants.compareAndSetOwner(linked, moved, async () => { throw new Error("audit refused"); })).rejects.toThrow("audit refused");
+    expect(await stores.tenants.findById("T1")).toEqual(linked);
+    stores.close();
+  });
+
+  it("adds the owner columns to a platform database created before them, with every contact verified", async () => {
+    const db = new Database(":memory:");
+    db.exec(`CREATE TABLE tenant (id TEXT PRIMARY KEY, code TEXT NOT NULL, name_ar TEXT NOT NULL, name_en TEXT, owner_email TEXT NOT NULL,
+      status TEXT NOT NULL, db_file TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`);
+    db.prepare(`INSERT INTO tenant VALUES ('T0', 'old', 'قديمة', NULL, 'owner@old.eg', 'active', 'tenants/old.db', ?, ?)`).run(NOW, NOW);
+    const stores = createSqlitePlatformStores(db);
+    expect(await stores.tenants.findById("T0")).toMatchObject({ ownerEmail: "owner@old.eg", ownerUserId: null, ownerContactVerified: true });
     db.close();
   });
 

@@ -45,6 +45,11 @@ export function LicenseStateChip({ state }: { state: LicenseStateNameDTO }) {
   return <StatusPill label={t(LICENSE_STATE_LABEL[state])} tone={LICENSE_STATE_TONE[state]} />;
 }
 
+export function OwnerContactChip({ verified }: { verified: boolean }) {
+  const { t } = useAppTranslation();
+  return verified ? null : <StatusPill label={t("platform.tenants.ownerUnverified")} tone="warning" />;
+}
+
 export function TenantLicenceChip({ state, subscriptionStatus }: { state: LicenseStateNameDTO; subscriptionStatus: SubscriptionStatusDTO | null }) {
   const { t } = useAppTranslation();
   if (subscriptionStatus === SubscriptionStatusCode.Unknown) {

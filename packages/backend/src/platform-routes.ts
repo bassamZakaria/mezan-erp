@@ -91,6 +91,10 @@ export interface CreatePlatformRoutesOptions {
   /** Re-runs a failed provisioning (seed, admin, subscription) idempotently for a tenant stuck in `provisioning`. Optional only so a rig that never exercises this route still typechecks without supplying it. */
   readonly provisionRetry?: (input: { tenantId: string; actorId: string } & ProvisionRetryRequestDTO) => Promise<ProvisionResultDTO>;
   readonly resetOwnerPin?: (input: { tenant: Tenant; actorId: string }) => Promise<OwnerPinResetResultDTO>;
+  /** Refreshes the platform's record of one tenant's owner from the tenant itself, before the console reads it. Must not throw. */
+  readonly reconcileOwner?: (tenant: Tenant) => Promise<void>;
+  /** The same, for every tenant whose backend is already open: the list must not open every tenant to draw itself. */
+  readonly reconcileOpenOwners?: () => Promise<void>;
   readonly invalidateEntitlements: (code: string) => void;
   readonly idOf?: () => string;
   readonly onAuditError?: (err: unknown) => void;
@@ -234,7 +238,7 @@ function domainErrorResponse(c: Context, err: unknown): Response {
 }
 
 export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono {
-  const { platform, auth, now, provisionTenant, provisionRetry, resetOwnerPin, invalidateEntitlements, idOf = randomUUID } = options;
+  const { platform, auth, now, provisionTenant, provisionRetry, resetOwnerPin, reconcileOwner, reconcileOpenOwners, invalidateEntitlements, idOf = randomUUID } = options;
   const onAuditError = options.onAuditError ?? ((err: unknown) => console.error(err));
   const nowIso = () => now().toISOString();
 
@@ -283,6 +287,7 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
   app.route("/auth", auth.app);
 
   app.get("/tenants", requireAny, async (c) => {
+    await reconcileOpenOwners?.();
     const tenants = await platform.stores.tenants.list();
     const summaries = await Promise.all(tenants.map((t) => tenantSummary(platform, t, nowIso())));
     return c.json(summaries);
@@ -290,7 +295,9 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
 
   app.get("/tenants/:id", requireAny, async (c) => {
     try {
-      const tenant = await requireTenant(c.req.param("id"));
+      const read = await requireTenant(c.req.param("id"));
+      if (reconcileOwner && (read.status === TenantStatusCode.Active || read.status === TenantStatusCode.Suspended)) await reconcileOwner(read);
+      const tenant = await requireTenant(read.id);
       return c.json(await tenantSummary(platform, tenant, nowIso()));
     } catch (err) {
       return domainErrorResponse(c, err);

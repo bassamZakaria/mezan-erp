@@ -38,6 +38,7 @@ const tenantSummary: TenantSummaryDTO = {
     nameEn: "Acme Co",
     ownerEmail: "owner@acme.test",
     status: TenantWireStatus.Active,
+    ownerContactVerified: true,
     dbFile: "tenants/acme.db",
     createdAt: "2026-09-01T00:00:00.000Z",
     updatedAt: "2026-09-01T00:00:00.000Z",
@@ -123,6 +124,20 @@ describe("TenantsPage", () => {
     expect(oddRow).toHaveTextContent("غير معروفة — تحتاج مراجعة");
     expect(screen.getByText("acme").closest("tr")).toHaveTextContent("الترخيص نشط");
     expect(screen.getByText("acme").closest("tr")).not.toHaveTextContent("غير معروفة");
+  });
+
+  it("marks only the tenant whose owner address has not been confirmed by the owner", async () => {
+    const unverified: TenantSummaryDTO = {
+      ...tenantSummary,
+      tenant: { ...tenantSummary.tenant, id: "tenant-2", code: "renamed", nameAr: "منشأة مُعاد تسميتها", ownerContactVerified: false },
+    };
+    renderWithPlatformProviders(<TenantsPage />, {
+      transport: stubPlatformTransport({ ...baseHandlers(), "GET /tenants": () => ({ body: [tenantSummary, unverified] }) }),
+      initialSession: testPlatformSession,
+    });
+
+    expect((await screen.findByText("renamed")).closest("tr")).toHaveTextContent("بريد المالك غير مؤكَّد");
+    expect(screen.getByText("acme").closest("tr")).not.toHaveTextContent("بريد المالك غير مؤكَّد");
   });
 
   it("marks a tenant on trial as «تجريبي» in the licence column, so an operator can tell it from a paying one (D-SAAS-09)", async () => {

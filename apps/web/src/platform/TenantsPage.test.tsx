@@ -1,11 +1,11 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, screen, within } from "@testing-library/react";
 import { useLocation } from "react-router";
 import { LicenseStateCode, SubscriptionStatusCode, TenantWireStatus, type PlanDTO, type TenantSummaryDTO } from "@mezan/contracts";
 import type { Transport } from "../data/transport";
-import { TenantsPage } from "./TenantsPage";
+import { NARROW_TENANT_LIST_QUERY, TenantsPage } from "./TenantsPage";
 import { renderWithPlatformProviders, stubPlatformTransport, testPlatformSession } from "./test-support";
 import type { PlatformSession } from "./session";
 
@@ -124,6 +124,60 @@ describe("TenantsPage", () => {
     expect(oddRow).toHaveTextContent("غير معروفة — تحتاج مراجعة");
     expect(screen.getByText("acme").closest("tr")).toHaveTextContent("الترخيص نشط");
     expect(screen.getByText("acme").closest("tr")).not.toHaveTextContent("غير معروفة");
+  });
+
+  describe("on a phone-width screen", () => {
+    const original = window.matchMedia;
+    beforeEach(() => {
+      window.matchMedia = ((query: string) => ({
+        matches: query === NARROW_TENANT_LIST_QUERY,
+        media: query,
+        addEventListener: () => undefined,
+        removeEventListener: () => undefined,
+      })) as unknown as typeof window.matchMedia;
+    });
+    afterEach(() => {
+      window.matchMedia = original;
+    });
+
+    it("lists each tenant as a card that carries its status, licence and its own «عرض» action, with no table to scroll sideways", async () => {
+      const unverified: TenantSummaryDTO = {
+        ...tenantSummary,
+        tenant: { ...tenantSummary.tenant, id: "tenant-2", code: "renamed", nameAr: "منشأة ثانية", status: TenantWireStatus.Suspended, ownerContactVerified: false },
+      };
+      renderWithPlatformProviders(
+        <>
+          <TenantsPage />
+          <LocationProbe />
+        </>,
+        { transport: stubPlatformTransport({ ...baseHandlers(), "GET /tenants": () => ({ body: [tenantSummary, unverified] }) }), initialSession: testPlatformSession },
+      );
+
+      const first = (await screen.findByText("acme")).closest("li");
+      expect(screen.queryByRole("table")).not.toBeInTheDocument();
+      expect(screen.getByRole("heading", { level: 1, name: "المنشآت" })).toBeInTheDocument();
+      expect(first).toHaveTextContent("شركة أكمي");
+      expect(first).toHaveTextContent("نشطة");
+      expect(first).toHaveTextContent("الترخيص نشط");
+      expect(first).toHaveTextContent("باقة النمو");
+      const second = screen.getByText("renamed").closest("li");
+      expect(second).toHaveTextContent("موقوفة");
+      expect(second).toHaveTextContent("بريد المالك غير مؤكَّد");
+      expect(within(second as HTMLElement).getByRole("link", { name: "عرض منشأة ثانية" })).toHaveTextContent("عرض");
+
+      fireEvent.click(within(first as HTMLElement).getByRole("link", { name: "عرض شركة أكمي" }));
+      expect(screen.getByTestId("location")).toHaveTextContent("/platform/tenants/tenant-1");
+    });
+
+    it("says so when there is no tenant yet, and still offers the owner a new one", async () => {
+      renderWithPlatformProviders(<TenantsPage />, {
+        transport: stubPlatformTransport({ ...baseHandlers(), "GET /tenants": () => ({ body: [] }) }),
+        initialSession: testPlatformSession,
+      });
+
+      expect(await screen.findByText("لا توجد منشآت بعد.")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "منشأة جديدة" })).toBeInTheDocument();
+    });
   });
 
   it("marks only the tenant whose owner address has not been confirmed by the owner", async () => {

@@ -2090,3 +2090,48 @@ describe("D111 round 4 · a create cannot take over another branch's record by n
     expect(one("SELECT id FROM voucher WHERE id = 'D111-R4-PAY'")).toBeUndefined();
   });
 });
+
+describe("D111 round 4 · a cheque and the entry that receives it are one write", () => {
+  const cheque = (id: string, chequeNumber: string) => ({
+    id,
+    direction: "incoming",
+    chequeNumber,
+    bankName: "بنك الاختبار",
+    amount: "3100.00",
+    issueDate: TODAY,
+    dueDate: TODAY,
+    branchId: ALEX,
+    partyId: "CUST-DEMO-2",
+    counterpartyGlAccountId: "1105",
+    controlAccounts: { underCollectionAccountId: "1320", payableAccountId: "2140" },
+  });
+  const receivable = () => one<{ net: number }>("SELECT COALESCE(SUM(debit - credit), 0) AS net FROM journal_line WHERE account_id = '1105'")!.net;
+
+  it("a cheque whose row cannot be stored leaves no journal entry behind", async () => {
+    sqlite.exec("CREATE TRIGGER d111_r4_refuse_cheque BEFORE INSERT ON cheque WHEN NEW.id = 'D111-R4-ATOMIC' BEGIN SELECT RAISE(ABORT, 'forced failure after posting'); END");
+    try {
+      const entries = one<{ n: number }>("SELECT count(*) AS n FROM journal_entry")!.n;
+      const owed = receivable();
+      const res = await admin("POST", "/cheques", cheque("D111-R4-ATOMIC", "D111-R4-0001"));
+      expect(res.status).toBeGreaterThanOrEqual(400);
+      expect(one("SELECT id FROM cheque WHERE id = 'D111-R4-ATOMIC'")).toBeUndefined();
+      expect(one<{ n: number }>("SELECT count(*) AS n FROM journal_entry")!.n).toBe(entries);
+      expect(receivable()).toBe(owed);
+    } finally {
+      sqlite.exec("DROP TRIGGER d111_r4_refuse_cheque");
+    }
+  });
+
+  it("a cheque under an id already on the register is refused before anything posts", async () => {
+    const existing = one<{ id: string }>("SELECT id FROM cheque WHERE branch_id = ? LIMIT 1", MAIN)!;
+    const entries = one<{ n: number }>("SELECT count(*) AS n FROM journal_entry")!.n;
+    const owed = receivable();
+    const res = await admin("POST", "/cheques", { ...cheque(existing.id, "D111-R4-0002"), branchId: MAIN });
+    expect(res.status).toBe(409);
+    expect(res.body?.error).toBe(RecordErrorCode.DuplicateId);
+    expect(one<{ n: number }>("SELECT count(*) AS n FROM journal_entry")!.n).toBe(entries);
+    expect(receivable()).toBe(owed);
+    const reconciliation = await admin("GET", "/reconciliation");
+    expect(reconciliation.body.rows.filter((row: any) => !row.matched)).toEqual([]);
+  });
+});

@@ -377,4 +377,5 @@ export {
   type IdempotentAnswer,
   type IdempotentRequestStore,
 } from "./idempotent-request-store.js";
+export { createSqliteAccountLockStore, type SqliteAccountLockStore, type StoredAccountLock } from "./account-lock-store.js";
 export { drainForeignWrites, drainUntransactedAudits, keepRecent } from "./untransacted-audits.js";

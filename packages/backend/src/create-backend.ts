@@ -1,7 +1,11 @@
 import { createHash, randomUUID } from "node:crypto";
 import {
   createApp,
+  ACCOUNT_LOCK_FAILURES,
+  createAccountLocks,
   createLoginThrottle,
+  type LoginThrottle,
+  type SmtpConfig,
   createSessionAuthContextResolver,
   createSessionRegistry,
   createSimplifiedRegimeRoutes,
@@ -223,6 +227,7 @@ import {
   createSqliteUserPreferencesStore,
   createSqliteAuditSink,
   createSqliteIdempotentRequestStore,
+  createSqliteAccountLockStore,
   deriveAuditChainKey,
   createSqliteLabelLayoutStore,
   createSqliteSequenceConfigStore,
@@ -237,6 +242,7 @@ import {
   convertToBase,
   createDefaultSettings,
   NotificationDispatcher,
+  NotificationChannelState,
   type NotificationTransport,
   type EtaCommandResult,
   type EtaCommandRunner,
@@ -254,7 +260,7 @@ import {
   createReturnEtaEnqueueBridge,
   type EtaReceiptIssuer,
 } from "./eta-receipts.js";
-import { createAuth } from "./auth-routes.js";
+import { createAuth, type AccountLockedEvent } from "./auth-routes.js";
 import { createDashboardRoutes } from "./dashboard-routes.js";
 import { createPreferencesRoutes } from "./preferences-routes.js";
 import { SEED_ADMIN_USER_ID, seedIfEmpty, type SeedStores } from "./seed.js";
@@ -522,6 +528,18 @@ export interface BackendHandle {
   close(): void;
 }
 
+const ACCOUNT_LOCKED_NOTICE = "SECURITY_ACCOUNT_LOCKED";
+
+function accountLockedNotice(event: AccountLockedEvent, mailed: boolean): string {
+  const lines = [
+    `قُفل حساب «${event.user.nameAr}» (${event.user.email}) بعد ${ACCOUNT_LOCK_FAILURES} محاولة دخول فاشلة خلال ٢٤ ساعة. آخر مصدر: ${event.source}.`,
+    "لفكّ القفل: افتح شاشة المستخدمين واضغط «فكّ القفل» أمام الحساب.",
+  ];
+  if (mailed && event.unlockCode) lines.push(`أو أدخل هذا الرمز في شاشة الدخول خلال ساعة واحدة: ${event.unlockCode}`);
+  lines.push("إن لم تكن هذه المحاولات من صاحب الحساب فغيّر رمز PIN الخاص به.");
+  return lines.join("\n");
+}
+
 export interface CreateBackendOptions {
   /**
    * SQLite location. A file path gives durable, shared-across-restarts storage
@@ -546,6 +564,10 @@ export interface CreateBackendOptions {
   readonly seedAdminPin?: string;
   /** Outbound HTTP for the ETA gateway. Tests inject a fake server; nothing else should. */
   readonly etaHttpClient?: EtaHttpClient;
+  /** The mail server an account-lock notice goes through when the tenant has configured none of its own: the platform's, on the cloud. */
+  readonly securityMail?: SmtpConfig;
+  /** Sends one mail. Tests inject a recorder; nothing else should. */
+  readonly sendMail?: typeof sendNotificationEmail;
   /** Runs the operator's external CAdES-BES signing program. Tests inject a fake. */
   readonly etaSigningRunner?: EtaCommandRunner;
   /**
@@ -2763,7 +2785,70 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
    * object: a per-router throttle would let an admin "unlock" an account that
    * stays locked at the login route.
    */
-  const loginThrottle = createLoginThrottle();
+  const signInLadder = createLoginThrottle();
+  const accountLocks = createAccountLocks({ known: createSqliteAccountLockStore(sqlite) });
+  // REQUIRED: every unlock in the product — the Users screen, a PIN reset, an
+  // email change — goes through this one object, and it must clear the
+  // account lock as well as the backoff or the button unlocks nothing.
+  const loginThrottle: LoginThrottle = {
+    ...signInLadder,
+    unlock(account) {
+      accountLocks.clear(account);
+      signInLadder.unlock(account);
+    },
+  };
+  const sendMail = options.sendMail ?? sendNotificationEmail;
+  const securitySmtp = async (): Promise<SmtpConfig | null> => {
+    const tenant = (await settings.get()) ?? createDefaultSettings();
+    return tenant.smtpEnabled ? tenant : (options.securityMail ?? null);
+  };
+  const lockMailInTheTurn = inTheTurn("account lock notice");
+  const notifyAccountLocked = async (event: AccountLockedEvent): Promise<void> => {
+    const smtp = await securitySmtp();
+    const admins = (await uow.users.list()).filter((u) => u.isCompanyAdmin && u.status === "active");
+    const createdAt = new Date().toISOString();
+    const mailed = smtp !== null && event.unlockCode !== null;
+    const ids = new Set<string>();
+    for (const admin of admins) {
+      const id = randomUUID();
+      ids.add(id);
+      await notifications.save({
+        id,
+        ruleId: null,
+        recipientUserId: admin.id,
+        eventCode: ACCOUNT_LOCKED_NOTICE,
+        title: "تم قفل حساب بعد محاولات دخول فاشلة",
+        body: accountLockedNotice(event, mailed),
+        priority: "urgent",
+        channels: mailed ? ["in_app", "email"] : ["in_app"],
+        channelStatus: mailed
+          ? { in_app: NotificationChannelState.Delivered, email: NotificationChannelState.Queued }
+          : { in_app: NotificationChannelState.Delivered },
+        status: "unread",
+        payload: { userId: event.user.id, source: event.source },
+        createdAt,
+        readAt: null,
+      });
+    }
+    if (!mailed || smtp === null || ids.size === 0) return;
+    const dispatcher = new NotificationDispatcher({
+      notifications,
+      recipientEmail: async (userId) => (await uow.users.findById(userId))?.email ?? null,
+      transports: [
+        {
+          channel: "email",
+          async send(notification, recipientEmail) {
+            if (!recipientEmail) return { kind: "rejected", reason: "لا يوجد بريد إلكتروني مسجَّل لهذا المستخدم." };
+            const sent = await outsideTheTurn(() => sendMail(smtp, recipientEmail, { subject: notification.title, body: notification.body }));
+            return sent.outcome === "sent" ? { kind: "sent" } : { kind: sent.outcome === "offline" ? "offline" : "rejected", reason: sent.detail };
+          },
+        },
+      ],
+    });
+    void lockMailInTheTurn(() => dispatcher.drain({ only: ids })).catch((error: unknown) => {
+      console.error("[auth] the account-lock notice could not be mailed; it stays queued", error);
+    });
+  };
 
   /**
    * Refused requests, recorded.
@@ -3014,7 +3099,10 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     settings,
     seedStores,
     sessions,
-    loginThrottle,
+    loginThrottle: signInLadder,
+    accountLocks,
+    onAccountLocked: notifyAccountLocked,
+    canMailUnlockCode: async () => (await securitySmtp()) !== null,
     audit: auditSink,
     resolveEntitlements: options.resolveEntitlements,
   });

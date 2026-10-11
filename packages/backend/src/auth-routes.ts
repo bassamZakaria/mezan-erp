@@ -14,15 +14,23 @@ import {
   type SettingsRepository,
   type User,
 } from "@mezan/domain";
-import { loginRequestSchema, bootstrapAdminRequestSchema, type SessionDTO } from "@mezan/contracts";
+import { loginRequestSchema, bootstrapAdminRequestSchema, unlockAccountRequestSchema, type SessionDTO } from "@mezan/contracts";
 import {
+  accountLocked,
+  createAccountLocks,
   createLoginThrottle,
+  createMemoryAccountLockStore,
+  createSignInGuard,
   createSourceThrottle,
   createSignInGate,
   readSessionToken,
   requestOrigin,
-  throttleKey,
+  SignInRefusal,
+  SignInVerdict,
+  throttleSource,
   tooManyAttempts,
+  type AccountLocks,
+  type SignInDecision,
   type BoundaryPreparation,
   type LoginThrottle,
   type PrecomputingHasher,
@@ -45,6 +53,16 @@ export interface AuthRoutesDeps {
   readonly sourceThrottle?: SourceThrottle;
   /** How many PIN checks run and wait at once. Defaults to a fresh one per app. */
   readonly signInGate?: SignInGate;
+  /** Failed sign-ins per account and the lock they end in. Defaults to one kept in memory; the backend keeps it in the tenant's database. */
+  readonly accountLocks?: AccountLocks;
+  /**
+   * Called once when an account locks, inside the request that locked it.
+   * Returns true when the one-time code was handed to a mail server for at
+   * least one administrator.
+   */
+  readonly onAccountLocked?: (event: AccountLockedEvent) => Promise<void>;
+  /** Whether a locked account's administrators can be mailed a code at all. */
+  readonly canMailUnlockCode?: () => Promise<boolean>;
   /**
    * The hasher `hasher` came from, so a sign-in's PIN is verified before the
    * request takes the tenant's connection. Without it the verification still
@@ -69,7 +87,15 @@ export interface AuthRoutesDeps {
   readonly resolveEntitlements?: (c: Context) => Promise<Entitlements | null | undefined> | Entitlements | null | undefined;
 }
 
+export interface AccountLockedEvent {
+  readonly user: User;
+  /** Null when no code could be issued. */
+  readonly unlockCode: string | null;
+  readonly source: string;
+}
+
 const SIGN_IN_BUSY_RETRY_SECONDS = 2;
+const ACCOUNT_LOCKED_STATUS = 423;
 
 async function tenantName(settings: SettingsRepository): Promise<string> {
   const s = await settings.get();
@@ -153,9 +179,14 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
   const throttle = deps.loginThrottle ?? createLoginThrottle();
   const sources = deps.sourceThrottle ?? createSourceThrottle();
   const gate = deps.signInGate ?? createSignInGate();
+  const locks = deps.accountLocks ?? createAccountLocks({ known: createMemoryAccountLockStore() });
+  const guard = createSignInGuard({ throttle, sources, locks });
+  const canMailUnlockCode = deps.canMailUnlockCode ?? (async () => false);
 
-  const blockedFor = (key: string, origin: string | null): number =>
-    Math.max(throttle.retryAfter(key), origin ? sources.retryAfter(origin) : 0);
+  async function refused(c: Context, held: SignInDecision): Promise<Response> {
+    if (held.verdict === SignInVerdict.Locked) return c.json(accountLocked(await canMailUnlockCode()), ACCOUNT_LOCKED_STATUS);
+    return lockedOut(c, held.retryAfterSeconds);
+  }
 
   // The scrypt behind a sign-in is the slowest thing an anonymous caller can ask
   // for. It is spent here, before the request queues for the connection, and
@@ -168,11 +199,13 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
     if (!parsed.success) return;
     const needle = parsed.data.username.trim().toLowerCase();
     const origin = requestOrigin(c);
-    // ORDER MATTERS: both ladders are asked before a hash is bought, and a
-    // caller the gate has no place for is answered here — it must not reach
-    // the handler, which would hash for it under the connection's turn.
-    if (blockedFor(throttleKey(needle, origin), origin) > 0) return;
-    const checked = gate.admit(origin, async () => {
+    // ORDER MATTERS: the lock and both ladders are asked before a hash is
+    // bought, and a caller the gate has no place for is answered here — it must
+    // not reach the handler, which would hash for it under the connection's turn.
+    await deps.audit?.settled?.();
+    const known = (await deps.uow.users.findByEmail(needle)) !== null;
+    if (guard.check(needle, origin, known).verdict !== SignInVerdict.Proceed) return;
+    const checked = gate.admit(throttleSource(origin), async () => {
       await deps.audit?.settled?.();
       const user = await deps.uow.users.findByEmail(needle);
       const hash = user && user.status === "active" && user.pinHash ? user.pinHash : await decoyHash();
@@ -297,18 +330,21 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
     // is counted per account. See login-throttle.ts — this is what stops one
     // phone on the shop wifi from taking the counter out of service.
     const origin = requestOrigin(c);
-    const key = throttleKey(needle, origin);
-
-    const waitSeconds = blockedFor(key, origin);
-    if (waitSeconds > 0) {
-      await security(c, "LOGIN_BLOCKED", "WARNING", { username: needle, retryAfterSeconds: waitSeconds });
-      return lockedOut(c, waitSeconds);
-    }
 
     // The email, and only the email. Matching the FULL NAME, as this did, made
     // "who can log in" a property of a field any admin may edit, and two people
     // who share a display name shared an account door.
     const user = await deps.uow.users.findByEmail(needle);
+    const held = guard.check(needle, origin, user !== null);
+    if (held.verdict !== SignInVerdict.Proceed) {
+      await security(c, "LOGIN_BLOCKED", "WARNING", {
+        username: needle,
+        retryAfterSeconds: held.retryAfterSeconds,
+        accountLocked: held.verdict === SignInVerdict.Locked,
+      });
+      return refused(c, held);
+    }
+
     // An unknown email used to return before any hashing happened, so the
     // response time answered "does this account exist" for free. Verify against
     // a throwaway hash instead, and spend the same scrypt either way.
@@ -322,12 +358,17 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
     const current = verified && user ? await deps.uow.users.findById(user.id) : null;
     const ok = current !== null && current.status === "active" && current.pinHash === user?.pinHash;
     if (!user || !ok) {
-      const lockedFor = Math.max(throttle.fail(key), origin ? sources.fail(origin) : 0);
-      if (lockedFor > 0) {
-        // The taxonomy in audit/audit-event.ts names account lockout as the
-        // canonical CRITICAL event. It wrote nothing until now.
-        await security(c, "ACCOUNT_LOCKED", "CRITICAL", { username: needle, lockedForSeconds: lockedFor });
-        return lockedOut(c, lockedFor);
+      const failure = guard.failed(needle, origin, user !== null);
+      if (failure.verdict === SignInVerdict.Locked) {
+        if (failure.justLocked) {
+          await security(c, "ACCOUNT_HARD_LOCKED", "CRITICAL", { username: needle, userId: user?.id });
+          if (user) await deps.onAccountLocked?.({ user, unlockCode: guard.issueUnlockCode(needle), source: origin ?? "host" });
+        }
+        return refused(c, failure);
+      }
+      if (failure.verdict === SignInVerdict.Wait) {
+        await security(c, "ACCOUNT_LOCKED", "CRITICAL", { username: needle, lockedForSeconds: failure.retryAfterSeconds });
+        return lockedOut(c, failure.retryAfterSeconds);
       }
       await security(c, "LOGIN_FAILED", "WARNING", { username: needle });
       return c.json({ error: "INVALID_CREDENTIALS", message: "اسم المستخدم أو رمز PIN غير صحيح." }, 401);
@@ -353,13 +394,31 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
         }
       }
     }
-    throttle.succeed(key);
+    guard.succeeded(needle, origin);
     const at = new Date().toISOString();
     await recordSuccessfulLogin(user.id, at, deps.uow);
     await security(c, "LOGIN_SUCCEEDED", "INFO", { userId: user.id, username: needle });
     // The session is bound to the origin the CREDENTIAL was verified from, so
     // the till that logged in is the only place the token it got back works.
     return c.json(await toSession(user, deps, requestOrigin(c)));
+  });
+
+  app.post("/auth/unlock", async (c) => {
+    const parsed = unlockAccountRequestSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    const needle = parsed.data.username.trim().toLowerCase();
+    const origin = requestOrigin(c);
+    const bucket = throttleSource(origin);
+    const wait = bucket === null ? 0 : sources.retryAfter(bucket);
+    if (wait > 0) return lockedOut(c, wait);
+    if (!guard.redeemUnlockCode(needle, parsed.data.code)) {
+      if (bucket !== null) sources.fail(bucket);
+      await security(c, "ACCOUNT_UNLOCK_REFUSED", "WARNING", { username: needle });
+      return c.json({ error: SignInRefusal.InvalidUnlockCode, message: "رمز فكّ القفل غير صحيح أو انتهت صلاحيته." }, 400);
+    }
+    const user = await deps.uow.users.findByEmail(needle);
+    await security(c, "ACCOUNT_UNLOCKED_BY_CODE", "WARNING", { username: needle, userId: user?.id });
+    return c.json({ ok: true });
   });
 
   /**

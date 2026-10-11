@@ -89,12 +89,26 @@ export {
   createLoginThrottle,
   createSourceThrottle,
   throttleKey,
+  throttleSource,
   tooManyAttempts,
+  accountLocked,
   waitPhrase,
   SignInRefusal,
   type LoginThrottle,
   type SourceThrottle,
 } from "./login-throttle.js";
+export {
+  ACCOUNT_LOCK_FAILURES,
+  SignInVerdict,
+  createAccountLocks,
+  createMemoryAccountLockStore,
+  createSignInGuard,
+  type AccountLockRecord,
+  type AccountLockStore,
+  type AccountLocks,
+  type SignInDecision,
+  type SignInGuard,
+} from "./sign-in-guard.js";
 export { createSignInGate, type SignInGate, type SignInGateOptions } from "./sign-in-gate.js";
 export { requestOrigin } from "./request-origin.js";
 export { permissionRefusalReporting, type PermissionRefusal, type PermissionRefusalReporter } from "./permission-gate.js";

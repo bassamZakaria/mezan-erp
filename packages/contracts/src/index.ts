@@ -898,6 +898,8 @@ export {
 
 export {
   loginRequestSchema,
+  unlockAccountRequestSchema,
+  type UnlockAccountRequestDTO,
   sessionSchema,
   loginResponseSchema,
   bootstrapAdminRequestSchema,

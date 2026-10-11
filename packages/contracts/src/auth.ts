@@ -8,6 +8,12 @@ import { scopeSelectionSchema } from "./roles.js";
  * (`x-user-id`, `x-permissions`, `x-branch-scope`, `x-warehouse-scope`) it
  * sends on every subsequent API call.
  */
+export const unlockAccountRequestSchema = z.object({
+  username: z.string().min(1).max(254),
+  code: z.string().min(1).max(64),
+});
+export type UnlockAccountRequestDTO = z.infer<typeof unlockAccountRequestSchema>;
+
 export const loginRequestSchema = z.object({
   /**
    * The user's EMAIL — never their display name. A display name is neither

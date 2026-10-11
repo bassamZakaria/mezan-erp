@@ -561,6 +561,10 @@ export function createUsersRoutes(
       ) {
         sessions.revokeUser(user.id);
       }
+      // A new PIN from an administrator is an unlock: the account must open on
+      // it. An account whose address changed leaves no lock behind on the old one.
+      if (change.pinChanged) loginThrottle?.unlock(user.email);
+      if (before.email !== user.email) loginThrottle?.unlock(before.email);
       return c.json(serializeUser(user));
     } catch (err) {
       return userErrorResponse(c, err);

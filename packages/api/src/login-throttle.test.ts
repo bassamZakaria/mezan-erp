@@ -144,25 +144,6 @@ describe("createLoginThrottle — the sequence has to cost something", () => {
     expect(throttle.fail("owner@shop.test")).toBe(120);
   });
 
-  it("makes a full six-digit sweep take longer than a human lifetime", () => {
-    // The arithmetic the control exists for, stated rather than assumed. At
-    // the ceiling, every further guess costs 15 minutes, so the remaining
-    // 999,994 candidates cost ~28.5 years of continuous attack.
-    const { throttle, advance } = throttleAt();
-    for (let i = 0; i < 5; i++) throttle.fail("owner@shop.test");
-
-    let lockedSeconds = 0;
-    for (let i = 0; i < 200; i++) {
-      lockedSeconds += throttle.fail("owner@shop.test");
-      advance(1);
-    }
-    const ceilingSeconds = 15 * 60;
-    const remaining = 1_000_000 - 205;
-    const years = (lockedSeconds + remaining * ceilingSeconds) / (365 * 24 * 3600);
-
-    expect(years).toBeGreaterThan(25);
-  });
-
   it("treats the key as opaque, so the caller decides what an account is", () => {
     // The route passes the lower-cased email. If the throttle ever
     // canonicalised on its own, "Owner@Shop.test" and "owner@shop.test" would
@@ -173,74 +154,18 @@ describe("createLoginThrottle — the sequence has to cost something", () => {
     expect(throttle.retryAfter("owner@shop.test")).toBe(60);
     expect(throttle.retryAfter("Owner@Shop.test")).toBe(0);
   });
-  /**
-   * guards N-12: the per-source ladder, alone, SELLS attempts.
-   *
-   * Counting per (account, source) is what stops one phone on the wifi holding
-   * the owner's account locked all day — and on a flat LAN it also means a
-   * fresh five attempts per source address. A laptop can hold a hundred
-   * addresses on that subnet: 1,270 free guesses before anything locks, every
-   * hour, which walks a six-digit PIN in weeks.
-   */
-  it("caps one account across EVERY source address, not just per address", () => {
+  it("clears an account on every address it was counted from when an administrator unlocks it", () => {
     const { throttle } = throttleAt();
     const account = "owner@shop.test";
-
-    // Four failures each from twenty different addresses: never enough to trip
-    // any single source's own five-attempt ladder.
-    let lastLock = 0;
-    for (let host = 1; host <= 20; host += 1) {
-      const key = throttleKey(account, `192.168.1.${host}`);
-      for (let i = 0; i < 4; i += 1) lastLock = throttle.fail(key);
+    for (let host = 1; host <= 3; host += 1) {
+      for (let i = 0; i < 7; i += 1) throttle.fail(throttleKey(account, `192.168.1.${host}`));
     }
+    for (let i = 0; i < 7; i += 1) throttle.fail(throttleKey("clerk@shop.test", "192.168.1.1"));
 
-    expect(lastLock).toBeGreaterThan(0);
-    // A twenty-first address, which has failed nothing at all, is refused too:
-    // the ceiling belongs to the ACCOUNT.
-    expect(throttle.retryAfter(throttleKey(account, "192.168.1.99"))).toBeGreaterThan(0);
-    // And a different account on the same subnet is untouched.
-    expect(throttle.retryAfter(throttleKey("clerk@shop.test", "192.168.1.99"))).toBe(0);
-  });
-
-  /**
-   * guards N-12: THE HOST'S OWN CONSOLE STAYS OPEN.
-   *
-   * Without this exemption the ceiling becomes an attack of its own — lock the
-   * owner out of the machine standing in their own shop, from the car park.
-   * Physical access already means the SQLite file, so refusing them protects
-   * nothing.
-   */
-  it("never lets a remote flood lock the machine's own console", () => {
-    const { throttle } = throttleAt();
-    const account = "owner@shop.test";
-
-    for (let host = 1; host <= 40; host += 1) {
-      const key = throttleKey(account, `192.168.1.${host}`);
-      for (let i = 0; i < 4; i += 1) throttle.fail(key);
-    }
-
-    expect(throttle.retryAfter(throttleKey(account, "192.168.1.7"))).toBeGreaterThan(0);
-    // `throttleKey(account, null)` is the host's in-process mount.
-    expect(throttle.retryAfter(throttleKey(account, null))).toBe(0);
-  });
-
-  // guards N-12: «فكّ القفل» has to mean "this person can sign in now" — and
-  // that includes clearing the per-account total, or the very next attempt from
-  // any address locks them straight back out.
-  it("clears the account ceiling on an unlock, not just the source streaks", () => {
-    const { throttle } = throttleAt();
-    const account = "owner@shop.test";
-    for (let host = 1; host <= 20; host += 1) {
-      const key = throttleKey(account, `192.168.1.${host}`);
-      for (let i = 0; i < 4; i += 1) throttle.fail(key);
-    }
-    expect(throttle.retryAfter(throttleKey(account, "192.168.1.7"))).toBeGreaterThan(0);
-
-    // What `POST /users/:id/unlock` calls: the bare account.
     throttle.unlock(account);
 
-    expect(throttle.retryAfter(throttleKey(account, "192.168.1.7"))).toBe(0);
-    expect(throttle.retryAfter(throttleKey(account, "192.168.1.99"))).toBe(0);
+    for (let host = 1; host <= 3; host += 1) expect(throttle.retryAfter(throttleKey(account, `192.168.1.${host}`))).toBe(0);
+    expect(throttle.retryAfter(throttleKey("clerk@shop.test", "192.168.1.1"))).toBeGreaterThan(0);
   });
 
   it("never locks an account whose till mistypes once every twenty-five minutes, all week", () => {
@@ -279,32 +204,6 @@ describe("createLoginThrottle — the sequence has to cost something", () => {
     expect(throttle.retryAfter(attacker)).toBe(120);
     for (let i = 1; i <= 5; i += 1) expect(throttle.fail(owner), `failure ${i}`).toBe(0);
     expect(throttle.fail(owner)).toBe(60);
-  });
-
-  it("keeps the account ceiling counting through a successful sign-in from one address", () => {
-    const { throttle } = throttleAt();
-    const account = "owner@shop.test";
-    for (let host = 1; host <= 14; host += 1) {
-      for (let i = 0; i < 4; i += 1) throttle.fail(throttleKey(account, `192.168.1.${host}`));
-    }
-
-    throttle.succeed(throttleKey(account, "192.168.1.1"));
-    for (let i = 0; i < 4; i += 1) throttle.fail(throttleKey(account, "192.168.1.200"));
-
-    expect(throttle.retryAfter(throttleKey(account, "192.168.1.77"))).toBe(15 * 60);
-  });
-
-  // The key carries an email, which contains "@" — so the separator between the
-  // account half and the source half cannot be "@" or the account is not
-  // recoverable from the key, and the ceiling above cannot be counted at all.
-  it("keeps the account recoverable from a key even though an account is an email", () => {
-    const { throttle } = throttleAt();
-    for (let i = 0; i < 60; i += 1) throttle.fail(throttleKey("owner@shop.test", "10.0.0.5"));
-
-    // The ceiling landed on "owner@shop.test", not on "owner" or on
-    // "owner@shop.test@10.0.0.5".
-    expect(throttle.retryAfter(throttleKey("owner@shop.test", "10.0.0.9"))).toBeGreaterThan(0);
-    expect(throttle.retryAfter(throttleKey("owner", "10.0.0.9"))).toBe(0);
   });
 });
 

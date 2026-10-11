@@ -102,6 +102,8 @@ export interface DrainResult {
   readonly skipped: number;
 }
 
+const ONLY_SCAN_LIMIT = 10_000;
+
 function hoursBetween(fromIso: string, toIso: string): number {
   return (Date.parse(toIso) - Date.parse(fromIso)) / 3_600_000;
 }
@@ -114,12 +116,15 @@ export class NotificationDispatcher {
   // answers. So a channel is claimed (queued → sending) before its send, and
   // only the drain that claimed it sends it; afterwards that one channel is
   // written, never the row as it was read before the wait.
-  async drain(): Promise<DrainResult> {
+  async drain(options: { readonly only?: ReadonlySet<string> } = {}): Promise<DrainResult> {
     const policy = this.deps.policy ?? DEFAULT_DISPATCH_POLICY;
     const now = this.deps.now?.() ?? new Date().toISOString();
     const notifications = this.deps.notifications;
     await notifications.requeueStaleSending(new Date(Date.parse(now) - policy.sendingTimeoutMinutes * 60_000).toISOString());
-    const queued = await notifications.listQueued(policy.batchSize);
+    const only = options.only;
+    const queued = only
+      ? (await notifications.listQueued(ONLY_SCAN_LIMIT)).filter((notification) => only.has(notification.id))
+      : await notifications.listQueued(policy.batchSize);
 
     let attempted = 0;
     let sent = 0;

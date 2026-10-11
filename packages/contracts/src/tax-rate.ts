@@ -1,20 +1,50 @@
 import { z } from "zod";
 
+// INVARIANT: the ONE listing of these closed sets. `@mezan/domain` imports
+// the enums from here — this package is the leaf every client depends on, so
+// the wire schema and the domain cannot drift apart.
+export enum TaxCalculationTypeCode {
+  Exclusive = "exclusive",
+  Inclusive = "inclusive",
+}
+
+export enum TaxRateStatusCode {
+  Active = "active",
+  Inactive = "inactive",
+}
+
+/**
+ * Egyptian ETA e-invoice VAT sub-type codes (docs/archive/catalog/04's "الضرائب"
+ * section transcribes V001–V009 from the tax dialog's helper text). "auto"
+ * mirrors the mockup's default option — "تلقائي (أساسي عند وجود ضريبة، غير
+ * خاضع عند 0%)" — which lets the invoicing engine pick V009 (basic sales) or
+ * V004 (not subject) itself based on the line's rate at submission time.
+ */
+export enum EtaVatSubTypeCode {
+  Auto = "auto",
+  ExportGoods = "V001",
+  ExportServices = "V002",
+  Exempt = "V003",
+  NotSubject = "V004",
+  V005 = "V005",
+  V006 = "V006",
+  V007 = "V007",
+  V008 = "V008",
+  BasicSales = "V009",
+}
+
+// EXTERNAL CONTRACT: the wire carries these as plain strings, so each schema
+// infers the enum's own VALUES — derived from it, never listed a second time.
+function valuesOf<Value extends string>(members: Readonly<Record<string, Value>>): [`${Value}`, ...`${Value}`[]] {
+  const [first, ...rest] = Object.values(members) as `${Value}`[];
+  if (first === undefined) throw new RangeError("an enum with no members has no wire values");
+  return [first, ...rest];
+}
+
 /** Wire contract for tax rates (docs/archive/catalog/04 "الضرائب"). */
-export const taxCalculationTypeSchema = z.enum(["exclusive", "inclusive"]);
-export const taxRateStatusSchema = z.enum(["active", "inactive"]);
-export const etaVatSubTypeSchema = z.enum([
-  "auto",
-  "V001",
-  "V002",
-  "V003",
-  "V004",
-  "V005",
-  "V006",
-  "V007",
-  "V008",
-  "V009",
-]);
+export const taxCalculationTypeSchema = z.enum(valuesOf(TaxCalculationTypeCode));
+export const taxRateStatusSchema = z.enum(valuesOf(TaxRateStatusCode));
+export const etaVatSubTypeSchema = z.enum(valuesOf(EtaVatSubTypeCode));
 
 export const taxRateSchema = z.object({
   id: z.string().min(1),

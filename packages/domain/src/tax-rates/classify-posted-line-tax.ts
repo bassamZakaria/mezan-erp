@@ -1,3 +1,4 @@
+import { TaxClassificationFilingOutcomeCode } from "@mezan/contracts";
 import { classifyStoredTaxRate, type AppliedTaxRate } from "./applied-tax-rate.js";
 import { TaxRateAlreadyClassifiedError } from "./errors.js";
 import type { TaxRate } from "./tax-rate.js";
@@ -21,11 +22,7 @@ export interface TaxClassificationPlan {
   readonly taxRateName: string;
 }
 
-export enum TaxClassificationFilingOutcome {
-  NotQueued = "not_queued",
-  Requeued = "requeued",
-  FiledConsistent = "filed_consistent",
-}
+export { TaxClassificationFilingOutcomeCode as TaxClassificationFilingOutcome };
 
 export enum TaxClassificationAuditAction {
   ClassifyLineTax = "CLASSIFY_LINE_TAX",

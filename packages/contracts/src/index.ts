@@ -302,6 +302,9 @@ export {
   classifyLineTaxSchema,
   lineTaxClassificationSchema,
   TaxClassificationFilingOutcomeCode,
+  TaxCalculationTypeCode,
+  TaxRateStatusCode,
+  EtaVatSubTypeCode,
   type ClassifyLineTaxDTO,
   type LineTaxClassificationDTO,
 } from "./tax-rate.js";

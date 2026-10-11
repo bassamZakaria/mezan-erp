@@ -206,3 +206,21 @@ describe("taxGroupSchema", () => {
     if (!result.success) expect(result.error.flatten().fieldErrors).toHaveProperty("components");
   });
 });
+
+describe("the closed sets a tax rate is described in have one listing (D79 round 5)", () => {
+  it("accepts on the wire exactly the values the enums hold, and nothing else", async () => {
+    const { EtaVatSubTypeCode, TaxCalculationTypeCode, TaxRateStatusCode, etaVatSubTypeSchema, taxCalculationTypeSchema, taxRateStatusSchema } = await import("./tax-rate.js");
+    expect(etaVatSubTypeSchema.options).toEqual(Object.values(EtaVatSubTypeCode));
+    expect(taxRateStatusSchema.options).toEqual(Object.values(TaxRateStatusCode));
+    expect(taxCalculationTypeSchema.options).toEqual(Object.values(TaxCalculationTypeCode));
+    expect(etaVatSubTypeSchema.safeParse("V010").success).toBe(false);
+  });
+
+  it("is the same enum object the domain exports", async () => {
+    const contracts = await import("./tax-rate.js");
+    const domain = await import("@mezan/domain");
+    expect(domain.EtaVatSubTypeCode).toBe(contracts.EtaVatSubTypeCode);
+    expect(domain.TaxRateStatusCode).toBe(contracts.TaxRateStatusCode);
+    expect(domain.TaxClassificationFilingOutcome).toBe(contracts.TaxClassificationFilingOutcomeCode);
+  });
+});

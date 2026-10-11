@@ -1,3 +1,4 @@
+import { EtaVatSubTypeCode, TaxCalculationTypeCode, TaxRateStatusCode } from "@mezan/contracts";
 /**
  * Tax rates — core entity (docs/archive/catalog/04-accounting-treasury.md "الضرائب").
  * A `TaxRate` is the master record used when building sales/purchase invoice
@@ -7,36 +8,10 @@
  * e-invoice VAT sub-type classification (V001–V009).
  */
 
-export enum TaxCalculationTypeCode {
-  Exclusive = "exclusive",
-  Inclusive = "inclusive",
-}
+export { EtaVatSubTypeCode, TaxCalculationTypeCode, TaxRateStatusCode };
 export type TaxCalculationType = `${TaxCalculationTypeCode}`;
-export enum TaxRateStatusCode {
-  Active = "active",
-  Inactive = "inactive",
-}
 export type TaxRateStatus = `${TaxRateStatusCode}`;
 
-/**
- * Egyptian ETA e-invoice VAT sub-type codes (docs/archive/catalog/04's "الضرائب"
- * section transcribes V001–V009 from the tax dialog's helper text). "auto"
- * mirrors the mockup's default option — "تلقائي (أساسي عند وجود ضريبة، غير
- * خاضع عند 0%)" — which lets the invoicing engine pick V009 (basic sales) or
- * V004 (not subject) itself based on the line's rate at submission time.
- */
-export enum EtaVatSubTypeCode {
-  Auto = "auto",
-  ExportGoods = "V001",
-  ExportServices = "V002",
-  Exempt = "V003",
-  NotSubject = "V004",
-  V005 = "V005",
-  V006 = "V006",
-  V007 = "V007",
-  V008 = "V008",
-  BasicSales = "V009",
-}
 export const ETA_VAT_SUBTYPES: readonly EtaVatSubTypeCode[] = Object.values(EtaVatSubTypeCode);
 // EXTERNAL CONTRACT: the wire carries these as plain strings, so the value
 // type is the enum's own values — derived from it, never listed a second time.

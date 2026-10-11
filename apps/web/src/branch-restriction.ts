@@ -150,9 +150,10 @@ export function actionAccess(action: BranchGatedAction, table: readonly BranchPo
   return branchRestrictedAccess(BRANCH_GATED_ACTION_API[action], "GET", table);
 }
 
-/** The fields of a shared record a branch-restricted session may not set — the server's own list. */
-export function restrictedFieldsOf(apiPrefix: string): readonly string[] {
-  return branchPolicyFor(apiPrefix)?.restrictedFields ?? [];
+export function branchEditableFieldsOf(apiPrefix: string, creating: boolean): ReadonlySet<string> | null {
+  const entry = branchPolicyFor(apiPrefix);
+  if (!entry?.branchEditableFields) return null;
+  return new Set([...entry.branchEditableFields, ...(creating ? (entry.branchCreatableFields ?? []) : [])]);
 }
 
 interface NavItemLike {

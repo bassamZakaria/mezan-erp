@@ -676,7 +676,7 @@ export function CustomersScreen() {
           min={0}
           {...locked.props("paymentTermsDays")}
         />
-        <TextField label={t("customers.field.currency")} value={draft.currency} onChange={(v) => setDraft((d) => ({ ...d, currency: v }))} placeholder="EGP" />
+        <TextField label={t("customers.field.currency")} value={draft.currency} onChange={(v) => setDraft((d) => ({ ...d, currency: v }))} placeholder="EGP" {...locked.props("currency")} />
         <NumberField
           label={t("customers.field.creditLimit")}
           value={draft.creditLimit}
@@ -684,7 +684,7 @@ export function CustomersScreen() {
           min={0}
           {...locked.props("creditLimit", t("customers.field.creditLimitHint"))}
         />
-        <TextField label={t("customers.field.category")} value={draft.category} onChange={(v) => setDraft((d) => ({ ...d, category: v }))} placeholder={t("common.uncategorized")} />
+        <TextField label={t("customers.field.category")} value={draft.category} onChange={(v) => setDraft((d) => ({ ...d, category: v }))} placeholder={t("common.uncategorized")} {...locked.props("category")} />
         {/* An entity reference, so a picker over the real endpoint — typing a
             list name here would have stored a string no price list answers to. */}
         <div>
@@ -716,17 +716,20 @@ export function CustomersScreen() {
           </button>
           {advancedOpen ? (
             <div className="flex flex-col gap-[14px] border-t border-border p-[14px]">
-              <CustomerLogoField
-                customerId={editingId}
-                value={draft.logoAttachmentId}
-                onChange={(id) => setDraft((d) => ({ ...d, logoAttachmentId: id }))}
-              />
-              <TextField label={t("customers.field.taxNumber")} value={draft.taxNumber} onChange={(v) => setDraft((d) => ({ ...d, taxNumber: v }))} placeholder="300xxxxxxxxx" />
+              {locked.isLocked("logoAttachmentId") ? null : (
+                <CustomerLogoField
+                  customerId={editingId}
+                  value={draft.logoAttachmentId}
+                  onChange={(id) => setDraft((d) => ({ ...d, logoAttachmentId: id }))}
+                />
+              )}
+              <TextField label={t("customers.field.taxNumber")} value={draft.taxNumber} onChange={(v) => setDraft((d) => ({ ...d, taxNumber: v }))} placeholder="300xxxxxxxxx" {...locked.props("taxNumber")} />
               <TextField
                 label={t("customers.field.commercialRegistration")}
                 value={draft.commercialRegistrationNumber}
                 onChange={(v) => setDraft((d) => ({ ...d, commercialRegistrationNumber: v }))}
                 placeholder="CR-000000"
+                {...locked.props("commercialRegistrationNumber")}
               />
               <ToggleField
                 label={t("customers.field.taxExempt")}
@@ -739,9 +742,9 @@ export function CustomersScreen() {
                 value={draft.etaBuyerType}
                 onChange={(v) => setDraft((d) => ({ ...d, etaBuyerType: v as EtaBuyerTypeDTO }))}
                 options={ETA_BUYER_TYPES.map((kind) => ({ value: kind, label: t(ETA_BUYER_TYPE_KEY[kind]) }))}
-                hint={t("customers.field.etaBuyerTypeHint")}
+                {...locked.props("etaBuyerType", t("customers.field.etaBuyerTypeHint"))}
               />
-              <TextField label={t("customers.field.nationalId")} value={draft.nationalId} onChange={(v) => setDraft((d) => ({ ...d, nationalId: v }))} />
+              <TextField label={t("customers.field.nationalId")} value={draft.nationalId} onChange={(v) => setDraft((d) => ({ ...d, nationalId: v }))} {...locked.props("nationalId")} />
               <TextField label={t("customers.field.contactPerson")} value={draft.contactPerson} onChange={(v) => setDraft((d) => ({ ...d, contactPerson: v }))} />
               <TextField label={t("customers.field.address")} value={draft.address} onChange={(v) => setDraft((d) => ({ ...d, address: v }))} />
               <TextField label={t("common.notes")} value={draft.notes} onChange={(v) => setDraft((d) => ({ ...d, notes: v }))} />

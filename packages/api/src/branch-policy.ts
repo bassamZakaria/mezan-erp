@@ -539,15 +539,18 @@ function sameFieldValue(stored: unknown, sent: unknown): boolean {
 
 /**
  * SECURITY: a branch-restricted session may create and edit shared master
- * data, but not the fields that apply to every branch — a credit limit, a
- * price list, payment terms, a cost, the accounts a sale posts to, whether the
- * record is active. `stored` is the record as it stands, or null on create;
- * a field the request sends unchanged is not a change.
+ * data, but only the fields its family lists as local — contact details. A
+ * price, a tax rate, an opening balance, a bank account, the accounts a sale
+ * posts to apply to every branch and stay with an unrestricted session.
+ * `stored` is the record as it stands, or null on create; a field the request
+ * sends unchanged, or at its default on create, is not a change.
  */
 export function sharedFieldRefusal(c: Context, prefix: string, stored: Readonly<Record<string, unknown>> | null, sent: Readonly<Record<string, unknown>>): Response | null {
   if (!c.get(BRANCH_SESSION_KEY)) return null;
-  const restricted = branchPolicyFor(prefix)?.restrictedFields ?? [];
-  const fields = restricted.filter((field) => sent[field] !== undefined && !sameFieldValue(stored ? stored[field] : CREATED_ACTIVE[field], sent[field]));
+  const entry = branchPolicyFor(prefix);
+  if (!entry?.branchEditableFields) return null;
+  const open = new Set([...entry.branchEditableFields, ...(stored === null ? (entry.branchCreatableFields ?? []) : [])]);
+  const fields = Object.keys(sent).filter((field) => !open.has(field) && sent[field] !== undefined && !sameFieldValue(stored ? stored[field] : CREATED_ACTIVE[field], sent[field]));
   if (fields.length === 0) return null;
   return c.json({ ...BRANCH_REFUSALS[BranchRefusalCode.SharedFieldRestricted], fields }, 403);
 }

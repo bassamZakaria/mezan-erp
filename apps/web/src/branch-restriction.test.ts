@@ -9,7 +9,7 @@ import {
   branchRefusalBefore,
   isBranchRestricted,
   navItemAccess,
-  restrictedFieldsOf,
+  branchEditableFieldsOf,
   withoutBranchUnavailable,
 } from "./branch-restriction";
 import { navGroupSpecs } from "./nav-config";
@@ -94,8 +94,14 @@ describe("what a branch-restricted session is shown is read from the server's ow
   });
 
   it("reads the refused master-data fields from the same table", () => {
-    expect(restrictedFieldsOf("/customers")).toEqual(expect.arrayContaining(["creditLimit", "priceListId", "paymentTermsDays", "taxExempt", "active"]));
-    expect(restrictedFieldsOf("/items")).toEqual(expect.arrayContaining(["costPrice", "revenueAccountId"]));
-    expect(restrictedFieldsOf("/sales-invoices")).toEqual([]);
+    const customer = branchEditableFieldsOf("/customers", false)!;
+    expect([...customer]).toEqual(expect.arrayContaining(["nameAr", "phone", "email", "address", "notes", "contactPerson"]));
+    for (const field of ["creditLimit", "priceListId", "paymentTermsDays", "taxExempt", "active", "openingBalance", "taxNumber", "currency"]) expect(customer.has(field), field).toBe(false);
+    const supplier = branchEditableFieldsOf("/suppliers", false)!;
+    for (const field of ["bankAccount", "openingBalance", "taxNumber", "paymentTermsDays", "active"]) expect(supplier.has(field), field).toBe(false);
+    const item = branchEditableFieldsOf("/items", false)!;
+    for (const field of ["salePrice", "costPrice", "taxRatePercent", "trackInventory", "type", "baseUnitCode", "revenueAccountId", "status"]) expect(item.has(field), field).toBe(false);
+    expect(branchEditableFieldsOf("/items", true)!.has("baseUnitCode")).toBe(true);
+    expect(branchEditableFieldsOf("/sales-invoices", false)).toBeNull();
   });
 });

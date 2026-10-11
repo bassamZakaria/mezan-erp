@@ -97,8 +97,14 @@ export interface BranchPolicyEntry {
   readonly companyWide?: readonly string[];
   readonly defaultsBranch?: boolean;
   readonly defaultsLineBranch?: boolean;
-  /** Fields of a shared record that apply to every branch: a branch-restricted session may not set or change them. */
-  readonly restrictedFields?: readonly string[];
+  /**
+   * SECURITY: the only fields of a shared record a branch-restricted session
+   * may set or change — an allowlist, so a field added to the record later is
+   * closed to a branch until someone decides it is local.
+   */
+  readonly branchEditableFields?: readonly string[];
+  /** Fields a branch-restricted session may also state when it CREATES the record, because the record cannot exist without them. */
+  readonly branchCreatableFields?: readonly string[];
   /** POST sub-paths of a read-only family that compute and store nothing. */
   readonly readPosts?: readonly string[];
   /** A family that moves stock between two warehouses, so its warehouses need not share the document's branch. */
@@ -119,9 +125,23 @@ function handlerScoped(prefix: string, extra: Partial<BranchPolicyEntry> = {}): 
   return { prefix, policy: BranchPolicy.Scoped, reads: ScopedReads.HandlerNarrows, ...extra };
 }
 
-function shared(prefix: string, params?: Readonly<Record<string, BranchRecordKind | null>>, restrictedFields?: readonly string[]): BranchPolicyEntry {
-  return { prefix, policy: BranchPolicy.MasterDataShared, ...(params ? { params } : {}), ...(restrictedFields ? { restrictedFields } : {}) };
+function shared(
+  prefix: string,
+  params?: Readonly<Record<string, BranchRecordKind | null>>,
+  branchEditableFields?: readonly string[],
+  branchCreatableFields?: readonly string[],
+): BranchPolicyEntry {
+  return {
+    prefix,
+    policy: BranchPolicy.MasterDataShared,
+    ...(params ? { params } : {}),
+    ...(branchEditableFields ? { branchEditableFields } : {}),
+    ...(branchCreatableFields ? { branchCreatableFields } : {}),
+  };
 }
+
+const RECORD_IDENTITY_FIELDS = ["id", "code", "nameAr", "nameEn"] as const;
+const CONTACT_FIELDS = ["phone", "email", "contactPerson", "notes"] as const;
 
 function readOnly(prefix: string, extra: Partial<BranchPolicyEntry> = {}): BranchPolicyEntry {
   return { prefix, policy: BranchPolicy.SharedReadOnly, ...extra };
@@ -200,7 +220,12 @@ export const BRANCH_POLICY_TABLE: readonly BranchPolicyEntry[] = [
   readOnly("/assets/categories"),
   readOnly("/manufacturing/work-stations"),
 
-  shared("/items", undefined, ["costPrice", "revenueAccountId", "cogsAccountId", "inventoryAccountId", "status"]),
+  shared(
+    "/items",
+    undefined,
+    [...RECORD_IDENTITY_FIELDS, "description", "barcodes", "categoryId", "brandId", "seasonId", "specifications"],
+    ["type", "baseUnitCode"],
+  ),
   shared("/item-units"),
   shared("/item-categories"),
   shared("/item-brands"),
@@ -211,8 +236,8 @@ export const BRANCH_POLICY_TABLE: readonly BranchPolicyEntry[] = [
   readOnly("/promotions", { readPosts: ["/evaluate"] }),
   readOnly("/manufacturing/boms"),
   readOnly("/manufacturing/configurable-products"),
-  shared("/customers", { id: K.Customer }, ["creditLimit", "priceListId", "paymentTermsDays", "taxExempt", "active"]),
-  shared("/suppliers", { id: K.Supplier }, ["paymentTermsDays", "active"]),
+  shared("/customers", { id: K.Customer }, [...RECORD_IDENTITY_FIELDS, ...CONTACT_FIELDS, "branchId", "address"]),
+  shared("/suppliers", { id: K.Supplier }, [...RECORD_IDENTITY_FIELDS, ...CONTACT_FIELDS, "addressCity", "addressDistrict", "addressStreet"]),
   shared("/cost-centers", { id: K.CostCenter }),
 
   companyWide("/data-migration"),

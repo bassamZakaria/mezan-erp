@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { isBranchRestricted, restrictedFieldsOf } from "../branch-restriction";
+import { branchEditableFieldsOf, isBranchRestricted } from "../branch-restriction";
 import { useApi } from "../data/ApiContext";
 import { useAppTranslation } from "../i18n";
 
@@ -11,21 +11,18 @@ export interface LockedFields {
   withoutLocked<Payload extends object>(payload: Payload): Partial<Payload>;
 }
 
-/**
- * The fields of a shared record that apply to every branch, as the server's
- * policy table names them, locked for a branch-restricted session.
- */
 export function useLockedFields(apiPrefix: string): LockedFields {
   const { session } = useApi();
   const { t } = useAppTranslation();
   const restricted = isBranchRestricted(session);
   return useMemo(() => {
-    const locked = new Set(restricted ? restrictedFieldsOf(apiPrefix) : []);
+    const editable = restricted ? branchEditableFieldsOf(apiPrefix, false) : null;
+    const isLocked = (field: string) => editable !== null && !editable.has(field);
     const reason = t("branchRestriction.fieldLocked");
     return {
-      isLocked: (field) => locked.has(field),
-      props: (field, hint) => (locked.has(field) ? { disabled: true, hint: reason } : hint === undefined ? {} : { hint }),
-      withoutLocked: (payload) => Object.fromEntries(Object.entries(payload).filter(([key]) => !locked.has(key))) as Partial<typeof payload>,
+      isLocked,
+      props: (field, hint) => (isLocked(field) ? { disabled: true, hint: reason } : hint === undefined ? {} : { hint }),
+      withoutLocked: (payload) => Object.fromEntries(Object.entries(payload).filter(([key]) => !isLocked(key))) as Partial<typeof payload>,
     };
   }, [apiPrefix, restricted, t]);
 }

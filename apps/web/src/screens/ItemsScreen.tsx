@@ -1,3 +1,4 @@
+import { LockedFieldset } from "../shell/LockedFieldset";
 import { useLockedFields } from "../shell/useLockedFields";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { matchesSearch } from "@mezan/domain";
@@ -680,6 +681,7 @@ export function ItemsScreen() {
   const seasonName = (id: string | null | undefined) => (id ? nameOf(seasons.find((x) => x.id === id), id) : "—");
   const createItem = useCreateItem();
   const locked = useLockedFields(ITEMS_API);
+  const lockedReason = t("branchRestriction.fieldLocked");
   const updateItem = useUpdateItem();
   const accountsQuery = useAccounts();
   const unitsQuery = useItemUnits();
@@ -1029,9 +1031,11 @@ export function ItemsScreen() {
               <SectionCard title={t("items.section.accounts")} description={t("items.section.accountsHint")} columns={1}>
                 {accountFields}
               </SectionCard>
-              <SectionCard title={t("items.section.eta")} columns={1}>
-                {etaFields}
-              </SectionCard>
+              <LockedFieldset locked={locked.isLocked("etaItemCode")} reason={lockedReason}>
+                <SectionCard title={t("items.section.eta")} columns={1}>
+                  {etaFields}
+                </SectionCard>
+              </LockedFieldset>
               {editingId ? (
                 <SectionCard title={t("items.section.status")} columns={1}>
                   <SelectField
@@ -1052,6 +1056,7 @@ export function ItemsScreen() {
         <SectionCard title={t("items.section.identity")} description={t("items.section.identityHint")}>
         <SelectField
           label={t("items.itemType")}
+          {...(editingId ? locked.props("type") : {})}
           required
           value={draft.type}
           onChange={(v) => {
@@ -1092,6 +1097,7 @@ export function ItemsScreen() {
         />
         <SelectField
           label={t("items.defaultSupplier")}
+          {...locked.props("defaultSupplierId")}
           value={draft.defaultSupplierId}
           onChange={(v) => setDraft((d) => ({ ...d, defaultSupplierId: v }))}
           options={[
@@ -1159,12 +1165,14 @@ export function ItemsScreen() {
         <SectionCard title={t("items.section.units")} description={t("items.section.unitsHint")}>
         <SelectField
           label={t("items.baseUnit")}
+          {...(editingId ? locked.props("baseUnitCode") : {})}
           required
           value={draft.baseUnitCode}
           onChange={(v) => setDraft((d) => ({ ...d, baseUnitCode: v }))}
           options={itemUnits.map((u) => ({ value: u.code, label: `${nameOf(u)} (${u.code})` }))}
         />
 
+        <LockedFieldset locked={locked.isLocked("alternateUnits")} reason={lockedReason} className="sm:col-span-2">
         <FieldGroup label={t("items.alternateUnitsOfMeasure")} hint={t("items.forExampleCarton12Pieces")} className="sm:col-span-2">
           <div className="flex flex-col gap-[8px]">
             {draft.alternateUnits.map((unit, index) => (
@@ -1217,6 +1225,7 @@ export function ItemsScreen() {
             </Button>
           </div>
         </FieldGroup>
+        </LockedFieldset>
 
         </SectionCard>
 
@@ -1253,6 +1262,7 @@ export function ItemsScreen() {
 
         </SectionCard>
 
+        <LockedFieldset locked={locked.isLocked("salePrice")} reason={lockedReason}>
         <SectionCard title={t("items.section.pricing")}>
         <Field label={t("items.salePrice")}>
           <MoneyInput aria-label={t("items.salePrice")} value={draft.salePrice} onChange={(v) => setDraft((d) => ({ ...d, salePrice: v }))} />
@@ -1264,8 +1274,10 @@ export function ItemsScreen() {
         <NumberField label={t("items.taxRate")} value={draft.taxRatePercent} onChange={(v) => setDraft((d) => ({ ...d, taxRatePercent: v ?? 0 }))} min={0} />
 
         </SectionCard>
+        </LockedFieldset>
 
         {draft.type === "stock" ? (
+          <LockedFieldset locked={locked.isLocked("trackInventory")} reason={lockedReason}>
           <SectionCard title={t("items.section.stockPolicy")}>
             <div className="sm:col-span-2">
               <ToggleField
@@ -1308,6 +1320,7 @@ export function ItemsScreen() {
               />
             </div>
           </SectionCard>
+          </LockedFieldset>
         ) : null}
 
 

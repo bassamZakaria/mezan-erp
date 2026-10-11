@@ -2429,3 +2429,89 @@ describe("D111 round 4 · a company-level record is not created by a branch-rest
     }
   });
 });
+
+describe("D111 round 4 · a branch user edits a shared record's contact details and nothing else", () => {
+  const refused = (res: Res, field: string) => {
+    expect(res.status, `${field} ${JSON.stringify(res.body).slice(0, 200)}`).toBe(403);
+    expect(res.body?.error).toBe("SHARED_FIELD_RESTRICTED");
+    expect(res.body?.message).toMatch(ARABIC);
+    expect(res.body?.fields).toContain(field);
+  };
+  const row = (table: string, id: string) => JSON.stringify(one(`SELECT * FROM "${table}" WHERE id = ?`, id));
+  const openingEntries = () => one<{ n: number }>("SELECT count(*) AS n FROM journal_entry WHERE id LIKE 'OB-%'")!.n;
+  const restricted = (): readonly (readonly [string, Caller])[] => [["non-admin", alex], ["* admin granted one branch", alexStar], ["two branches", bothBranches]];
+
+  it("a supplier's bank account, opening balance, tax number, currency and category are refused", async () => {
+    const supplier = one<{ id: string }>("SELECT id FROM supplier ORDER BY id LIMIT 1")!.id;
+    for (const [label, caller] of restricted()) {
+      const before = row("supplier", supplier);
+      const entries = openingEntries();
+      for (const [field, value] of [["bankAccount", "EG00 ATTACKER 0000"], ["openingBalance", "123456.00"], ["taxNumber", "111-111-111"], ["currency", "USD"], ["category", "vip"]] as const) {
+        refused(await caller("PATCH", `/suppliers/${supplier}`, { [field]: value }), field);
+      }
+      expect(row("supplier", supplier), label).toBe(before);
+      expect(openingEntries(), label).toBe(entries);
+    }
+  });
+
+  it("a customer's opening balance, tax number, currency and tax identity are refused", async () => {
+    for (const [label, caller] of restricted()) {
+      const before = row("customer", "CUST-DEMO-2");
+      const entries = openingEntries();
+      const buyerType = one<{ t: string }>("SELECT eta_buyer_type AS t FROM customer WHERE id = 'CUST-DEMO-2'")!.t === "individual" ? "business" : "individual";
+      for (const [field, value] of [["openingBalance", "777.00"], ["taxNumber", "999-999-999"], ["currency", "USD"], ["etaBuyerType", buyerType], ["nationalId", "29001010101010"], ["commercialRegistrationNumber", "55555"]] as const) {
+        refused(await caller("PATCH", "/customers/CUST-DEMO-2", { [field]: value }), field);
+      }
+      expect(row("customer", "CUST-DEMO-2"), label).toBe(before);
+      expect(openingEntries(), label).toBe(entries);
+    }
+  });
+
+  it("an item's sale price, tax rate, stock tracking, type, units and costing are refused", async () => {
+    for (const [label, caller] of restricted()) {
+      const before = row("item", "ITEM-DEMO-1");
+      for (const [field, value] of [
+        ["salePrice", "0.01"],
+        ["taxRatePercent", 0],
+        ["trackInventory", false],
+        ["type", "service"],
+        ["baseUnitCode", "KG"],
+        ["alternateUnits", [{ code: "BOX", name: "كرتونة", factor: 1000 }]],
+        ["defaultSupplierId", "SUPP-DEMO-1"],
+      ] as const) {
+        refused(await caller("PATCH", "/items/ITEM-DEMO-1", { [field]: value }), field);
+      }
+      expect(row("item", "ITEM-DEMO-1"), label).toBe(before);
+    }
+  });
+
+  it("a branch user still creates a customer and a supplier at the counter, with contact details only", async () => {
+    const customer = await alex("POST", "/customers", { id: "D111-R4-CUST-COUNTER", nameAr: "عميل الشباك", phone: "01000000009", address: "الإسكندرية", notes: "عميل نقدي" });
+    expect(customer.status, JSON.stringify(customer.body).slice(0, 200)).toBe(201);
+    const supplier = await alex("POST", "/suppliers", { id: "D111-R4-SUPP-COUNTER", nameAr: "مورد محلي", phone: "01000000008", addressCity: "الإسكندرية" });
+    expect(supplier.status, JSON.stringify(supplier.body).slice(0, 200)).toBe(201);
+  });
+
+  it("neither can be born owing or owed money, nor with a bank account", async () => {
+    const entries = openingEntries();
+    refused(await alex("POST", "/customers", { id: "D111-R4-CUST-OB", nameAr: "عميل برصيد", openingBalance: "50000.00", openingBalanceDate: TODAY }), "openingBalance");
+    refused(await alex("POST", "/suppliers", { id: "D111-R4-SUPP-OB", nameAr: "مورد برصيد", openingBalance: "90000.00" }), "openingBalance");
+    refused(await alex("POST", "/suppliers", { id: "D111-R4-SUPP-BANK", nameAr: "مورد بحساب", bankAccount: "EG00 X" }), "bankAccount");
+    expect(one("SELECT id FROM customer WHERE id = 'D111-R4-CUST-OB'")).toBeUndefined();
+    expect(one("SELECT id FROM supplier WHERE id IN ('D111-R4-SUPP-OB', 'D111-R4-SUPP-BANK')")).toBeUndefined();
+    expect(openingEntries()).toBe(entries);
+  });
+
+  it("a branch user edits the contact details of a shared record", async () => {
+    expect((await alex("PATCH", "/customers/CUST-DEMO-2", { phone: "01000000077", email: "branch@example.com", address: "عنوان جديد", notes: "ملاحظة الفرع", contactPerson: "أحمد" })).status).toBe(200);
+    const supplier = one<{ id: string }>("SELECT id FROM supplier ORDER BY id LIMIT 1")!.id;
+    expect((await alex("PATCH", `/suppliers/${supplier}`, { phone: "01000000066", addressStreet: "شارع الفرع", notes: "ملاحظة" })).status).toBe(200);
+    expect((await alex("PATCH", "/items/ITEM-DEMO-1", { description: "وصف الفرع", nameEn: "Branch name" })).status).toBe(200);
+  });
+
+  it("an unrestricted session sets all of it, opening balances included", async () => {
+    expect((await admin("PATCH", "/items/ITEM-DEMO-1", { taxRatePercent: 14 })).status).toBe(200);
+    const created = await admin("POST", "/customers", { id: "D111-R4-CUST-ADMIN", nameAr: "عميل الإدارة", taxNumber: "123-456-789", openingBalance: "10.00", openingBalanceDate: TODAY });
+    expect(created.status, JSON.stringify(created.body).slice(0, 200)).toBe(201);
+  });
+});

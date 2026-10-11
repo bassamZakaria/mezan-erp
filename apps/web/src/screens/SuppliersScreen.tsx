@@ -515,18 +515,18 @@ export function SuppliersScreen() {
         min={0}
         {...locked.props("paymentTermsDays")}
       />
-      <TextField label={t("suppliers.field.currency")} value={draft.currency} onChange={(v) => setDraft((d) => ({ ...d, currency: v }))} placeholder="EGP" />
-      <TextField label={t("suppliers.field.category")} value={draft.category} onChange={(v) => setDraft((d) => ({ ...d, category: v }))} placeholder={t("common.uncategorized")} />
+      <TextField label={t("suppliers.field.currency")} value={draft.currency} onChange={(v) => setDraft((d) => ({ ...d, currency: v }))} placeholder="EGP" {...locked.props("currency")} />
+      <TextField label={t("suppliers.field.category")} value={draft.category} onChange={(v) => setDraft((d) => ({ ...d, category: v }))} placeholder={t("common.uncategorized")} {...locked.props("category")} />
       <NumberField
         label={t("suppliers.field.openingBalance")}
         value={draft.openingBalance}
         onChange={(v) => setDraft((d) => ({ ...d, openingBalance: v }))}
-        hint={t("suppliers.field.openingBalanceHint")}
+        {...locked.props("openingBalance", t("suppliers.field.openingBalanceHint"))}
       />
       <TextField label={t("suppliers.field.nameEn")} value={draft.nameEn} onChange={(v) => setDraft((d) => ({ ...d, nameEn: v }))} />
       <TextField label={t("common.email")} type="email" value={draft.email} onChange={(v) => setDraft((d) => ({ ...d, email: v }))} />
-      <TextField label={t("suppliers.field.taxNumber")} value={draft.taxNumber} onChange={(v) => setDraft((d) => ({ ...d, taxNumber: v }))} placeholder="300xxxxxxxxx" />
-      <TextField label={t("suppliers.field.bankAccount")} value={draft.bankAccount} onChange={(v) => setDraft((d) => ({ ...d, bankAccount: v }))} />
+      <TextField label={t("suppliers.field.taxNumber")} value={draft.taxNumber} onChange={(v) => setDraft((d) => ({ ...d, taxNumber: v }))} placeholder="300xxxxxxxxx" {...locked.props("taxNumber")} />
+      <TextField label={t("suppliers.field.bankAccount")} value={draft.bankAccount} onChange={(v) => setDraft((d) => ({ ...d, bankAccount: v }))} {...locked.props("bankAccount")} />
       <TextField label={t("suppliers.field.contactPerson")} value={draft.contactPerson} onChange={(v) => setDraft((d) => ({ ...d, contactPerson: v }))} />
       <TextField label={t("suppliers.field.city")} value={draft.addressCity} onChange={(v) => setDraft((d) => ({ ...d, addressCity: v }))} />
       <TextField label={t("suppliers.field.district")} value={draft.addressDistrict} onChange={(v) => setDraft((d) => ({ ...d, addressDistrict: v }))} />

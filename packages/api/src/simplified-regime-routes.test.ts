@@ -104,6 +104,7 @@ function makeCustomer(id: string, nameAr: string): Customer {
     priceListId: null,
     creditLimit: Money.zero(),
     taxExempt: false,
+    taxExemptionRateId: null,
     etaBuyerType: "business",
     commercialRegistrationNumber: null,
     address: null,

@@ -25,6 +25,8 @@ export {
   TaxRateUnverifiableError,
   TaxRateInUseError,
   SystemTaxRateLockedError,
+  TaxRateAlreadyClassifiedError,
+  TaxRateClassificationPercentError,
 } from "./errors.js";
 export {
   SYSTEM_NOT_SUBJECT_TAX_RATE_ID,
@@ -38,6 +40,9 @@ export {
   resolveZeroRatedTaxRate,
   resolveDocumentLineTax,
   resolveInheritedTaxRate,
+  classifyStoredTaxRate,
+  ZeroRatingCause,
+  type ZeroRating,
   type AppliedTaxRate,
   type AppliedTaxRateRequest,
   type DocumentLineTaxPolicy,

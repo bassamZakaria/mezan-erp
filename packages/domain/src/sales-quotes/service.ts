@@ -11,7 +11,7 @@
 
 import { Money, Qty } from "../money/index.js";
 import type { DocumentNumberingHook } from "../documents/hooks.js";
-import { resolveDocumentLineTax, type TaxRate, type TaxRateRepository } from "../tax-rates/index.js";
+import { resolveDocumentLineTax, ZeroRatingCause, type TaxRate, type TaxRateRepository, type ZeroRating } from "../tax-rates/index.js";
 import type { SalesQuote, SalesQuoteDiscount, SalesQuoteLine } from "./sales-quote.js";
 import { assertTransition } from "./status.js";
 import { computeQuoteTotals, type SalesQuoteTotals } from "./totals.js";
@@ -50,7 +50,10 @@ export interface CreateSalesQuoteCommand {
   readonly expiryDate: string;
   readonly customerId: string;
   readonly customerNameAr: string;
+  /** SERVER-DERIVED from the customer record; never map it from a request body. */
   readonly customerTaxExempt?: boolean;
+  /** SERVER-DERIVED: the 0% rate on the exempt customer's card, when it has one. */
+  readonly customerTaxExemptionRateId?: string | null;
   readonly branchId: string;
   readonly currency?: string;
   readonly notes?: string | null;
@@ -171,9 +174,12 @@ export class SalesQuoteService {
   // --- internals ---
 
   private buildDraft(cmd: CreateSalesQuoteCommand, taxRates: readonly TaxRate[] | null): SalesQuote {
-    const zeroRated = cmd.customerTaxExempt === true;
+    const zeroRating: ZeroRating | null =
+      cmd.customerTaxExempt === true
+        ? { cause: ZeroRatingCause.ExemptCustomer, exemptionTaxRateId: cmd.customerTaxExemptionRateId ?? null }
+        : null;
     const lines: SalesQuoteLine[] = cmd.lines.map((l) => {
-      const tax = resolveDocumentLineTax(taxRates, l, { defaultPercent: 0, zeroRated });
+      const tax = resolveDocumentLineTax(taxRates, l, { defaultPercent: 0, zeroRating });
       return {
         lineId: l.lineId,
         itemId: l.itemId,

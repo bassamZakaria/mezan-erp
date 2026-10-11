@@ -317,4 +317,9 @@ describe("SalesQuoteService.createDraft — the tax rate's identity (D79)", () =
     const quote = await service().createDraft(draftCmd({ customerTaxExempt: true, lines: [quoted("L1", { taxRateId: "VAT14" })] }));
     expect(quote.lines[0]).toMatchObject({ taxRateId: null, taxRatePercent: 0 });
   });
+
+  it("quotes a tax-exempt customer under the 0% rate on the customer's card (D79 round 4)", async () => {
+    const quote = await service().createDraft(draftCmd({ customerTaxExempt: true, customerTaxExemptionRateId: "EXEMPT", lines: [quoted("L1", { taxRateId: "VAT14" }), quoted("L2", {})] }));
+    expect(quote.lines.map((l) => [l.taxRateId, l.taxRatePercent])).toEqual([["EXEMPT", 0], ["EXEMPT", 0]]);
+  });
 });

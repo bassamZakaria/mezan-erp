@@ -86,6 +86,34 @@ export class TaxRateInUseError extends Error {
   }
 }
 
+export class TaxRateClassificationPercentError extends Error {
+  readonly code = "TAX_RATE_CLASSIFICATION_PERCENT_MISMATCH";
+  readonly messageEn: string;
+  constructor(
+    readonly taxRateId: string,
+    readonly taxRateName: string,
+    readonly ratePercent: number,
+    readonly storedPercent: number,
+  ) {
+    super(`البند مسجّل بنسبة ${storedPercent}٪ والضريبة «${taxRateName}» نسبتها ${ratePercent}٪. اختر ضريبة بالنسبة نفسها — التصنيف لا يغيّر مبلغ الضريبة.`);
+    this.messageEn = `The line is recorded at ${storedPercent}% and tax rate "${taxRateName}" is ${ratePercent}%. Pick a rate at the same percent — classifying never changes the tax amount.`;
+    this.name = "TaxRateClassificationPercentError";
+  }
+}
+
+export class TaxRateAlreadyClassifiedError extends Error {
+  readonly code = "TAX_RATE_ALREADY_CLASSIFIED";
+  readonly messageEn: string;
+  constructor(
+    readonly taxRateId: string,
+    readonly storedTaxRateName: string,
+  ) {
+    super(`هذا البند مسجّل بالفعل تحت الضريبة «${storedTaxRateName}»، ولا يُعاد تصنيف بند له ضريبة. صحّحه بمرتجع أو إشعار ثم أصدر المستند من جديد.`);
+    this.messageEn = `This line is already recorded under tax rate "${storedTaxRateName}", and a classified line cannot be reclassified. Correct it with a return or a credit note, then raise the document again.`;
+    this.name = "TaxRateAlreadyClassifiedError";
+  }
+}
+
 export class SystemTaxRateLockedError extends Error {
   readonly code = "TAX_RATE_SYSTEM_LOCKED";
   readonly messageEn: string;

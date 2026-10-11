@@ -430,6 +430,9 @@ const ZERO_RATED_TAX_RATES = [
   { id: "VAT-EXPORT", code: "VAT-EXPORT", name: "تصدير — نسبة صفر", etaSubType: "V001" },
 ] as const;
 
+const EXEMPT_CUSTOMER_ID = "CUST-DEMO-3";
+const EXEMPT_CUSTOMER_TAX_RATE_ID = "VAT-EXEMPT";
+
 const ZERO_RATED_INVOICE = {
   id: "INV-DEMO-TAX-1",
   customerId: "CUST-DEMO-1",
@@ -567,6 +570,7 @@ export async function seedDemoTenant(
       status: "active",
     });
   }
+  await step(app, "PATCH", `/customers/${EXEMPT_CUSTOMER_ID}`, { taxExemptionRateId: EXEMPT_CUSTOMER_TAX_RATE_ID });
   await step(app, "POST", "/tax-groups", {
     id: "TXG-DEMO-1",
     code: "VAT-TABLE",

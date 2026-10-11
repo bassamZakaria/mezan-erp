@@ -5,6 +5,8 @@ import {
   resolveDocumentLineTax,
   resolveInheritedTaxRate,
   resolveZeroRatedTaxRate,
+  ZeroRatingCause,
+  type ZeroRating,
 } from "./applied-tax-rate.js";
 import {
   InactiveTaxRateError,
@@ -29,6 +31,8 @@ const RETIRED = rate("OLD5", "ضريبة قديمة", 5, TaxRateStatusCode.Inact
 const MASTER = [VAT, EXEMPT, EXPORT, RETIRED];
 const ONLY_EXEMPT_AT_ZERO = [VAT, EXEMPT];
 const ONLY_EXPORT_AT_ZERO = [VAT, EXPORT];
+const VAT_OFF: ZeroRating = { cause: ZeroRatingCause.VatOff };
+const exemptCustomer = (exemptionTaxRateId: string | null): ZeroRating => ({ cause: ZeroRatingCause.ExemptCustomer, exemptionTaxRateId });
 
 describe("resolveAppliedTaxRate — a line names its tax rate (D79)", () => {
   it("takes the percent from the named rate, not from the request", () => {
@@ -86,30 +90,32 @@ describe("resolveAppliedTaxRate — a line names only a percent", () => {
 });
 
 describe("resolveZeroRatedTaxRate — policy forces the line to 0%", () => {
-  it("keeps a 0% rate the line named", () => {
-    expect(resolveZeroRatedTaxRate(MASTER, { taxRateId: "EXPORT" })).toEqual({ taxRateId: "EXPORT", taxRatePercent: 0 });
+  it("keeps a 0% rate the line named, whatever made the document zero-rated", () => {
+    expect(resolveZeroRatedTaxRate(MASTER, { taxRateId: "EXPORT" }, VAT_OFF)).toEqual({ taxRateId: "EXPORT", taxRatePercent: 0 });
+    expect(resolveZeroRatedTaxRate(MASTER, { taxRateId: "EXPORT" }, exemptCustomer("EXEMPT"))).toEqual({ taxRateId: "EXPORT", taxRatePercent: 0 });
   });
 
   it("never stamps a taxed rate's id on a line charged nothing", () => {
-    expect(resolveZeroRatedTaxRate(MASTER, { taxRateId: "VAT14", taxRatePercent: 14 })).toEqual({ taxRateId: null, taxRatePercent: 0 });
+    expect(resolveZeroRatedTaxRate(MASTER, { taxRateId: "VAT14", taxRatePercent: 14 }, exemptCustomer(null))).toEqual({ taxRateId: null, taxRatePercent: 0 });
   });
 
-  it("stores NO id when the line named none — whichever single 0% rate the tenant happens to hold", () => {
-    expect(resolveZeroRatedTaxRate(ONLY_EXEMPT_AT_ZERO, { taxRatePercent: 14 })).toEqual({ taxRateId: null, taxRatePercent: 0 });
-    expect(resolveZeroRatedTaxRate(ONLY_EXPORT_AT_ZERO, {})).toEqual({ taxRateId: null, taxRatePercent: 0 });
+  it("stores NO id for an exempt customer with no exemption rate — whichever single 0% rate the tenant happens to hold", () => {
+    expect(resolveZeroRatedTaxRate(ONLY_EXEMPT_AT_ZERO, { taxRatePercent: 14 }, exemptCustomer(null))).toEqual({ taxRateId: null, taxRatePercent: 0 });
+    expect(resolveZeroRatedTaxRate(ONLY_EXPORT_AT_ZERO, {}, exemptCustomer(null))).toEqual({ taxRateId: null, taxRatePercent: 0 });
   });
 
   it("still refuses an id no tax rate has", () => {
-    expect(() => resolveZeroRatedTaxRate(MASTER, { taxRateId: "TAX-1" })).toThrow(TaxRateNotFoundError);
+    expect(() => resolveZeroRatedTaxRate(MASTER, { taxRateId: "TAX-1" }, VAT_OFF)).toThrow(TaxRateNotFoundError);
   });
 });
 
 describe("resolveDocumentLineTax — the tax rate master may not be wired", () => {
-  const policy = { defaultPercent: 14, zeroRated: false };
+  const policy = { defaultPercent: 14, zeroRating: null };
 
   it("keeps the percent and stores no id for a line that names no rate", () => {
     expect(resolveDocumentLineTax(null, { taxRatePercent: 5 }, policy)).toEqual({ taxRateId: null, taxRatePercent: 5 });
-    expect(resolveDocumentLineTax(null, {}, { ...policy, zeroRated: true })).toEqual({ taxRateId: null, taxRatePercent: 0 });
+    expect(resolveDocumentLineTax(null, {}, { ...policy, zeroRating: VAT_OFF })).toEqual({ taxRateId: null, taxRatePercent: 0 });
+    expect(resolveDocumentLineTax(null, { taxRatePercent: 14 }, { ...policy, zeroRating: exemptCustomer("EXEMPT") })).toEqual({ taxRateId: null, taxRatePercent: 0 });
   });
 
   it("refuses a line that NAMES a rate it cannot verify, rather than dropping the id behind a success", () => {
@@ -158,27 +164,32 @@ describe("inferTaxRateByPercent", () => {
   });
 });
 
-describe("the system «غير خاضع» rate — what a 0% line the SYSTEM raised is filed under (D79 round 3)", () => {
+describe("the system «غير خاضع» rate — named automatically in ONE case, a sale with VAT switched off (D79 round 4)", () => {
   const WITH_SYSTEM = [...MASTER, SYSTEM_NOT_SUBJECT_TAX_RATE];
   const notSubject = { taxRateId: SYSTEM_NOT_SUBJECT_TAX_RATE_ID, taxRatePercent: 0 };
 
-  it("names it on a line policy forced to 0% that named no rate — a tax-exempt customer's sale, a sale with VAT off", () => {
-    expect(resolveZeroRatedTaxRate(WITH_SYSTEM, { taxRatePercent: 14 })).toEqual(notSubject);
-    expect(resolveZeroRatedTaxRate(WITH_SYSTEM, {})).toEqual(notSubject);
-    expect(resolveDocumentLineTax(WITH_SYSTEM, { taxRatePercent: 14 }, { defaultPercent: 14, zeroRated: true })).toEqual(notSubject);
+  it("names it on a line a VAT-off tenant raised without a rate", () => {
+    expect(resolveZeroRatedTaxRate(WITH_SYSTEM, { taxRatePercent: 14 }, VAT_OFF)).toEqual(notSubject);
+    expect(resolveZeroRatedTaxRate(WITH_SYSTEM, {}, VAT_OFF)).toEqual(notSubject);
+    expect(resolveDocumentLineTax(WITH_SYSTEM, { taxRatePercent: 14 }, { defaultPercent: 14, zeroRating: VAT_OFF })).toEqual(notSubject);
   });
 
   it("names it in place of a taxed rate the line asked for and was not charged", () => {
-    expect(resolveZeroRatedTaxRate(WITH_SYSTEM, { taxRateId: "VAT14", taxRatePercent: 14 })).toEqual(notSubject);
+    expect(resolveZeroRatedTaxRate(WITH_SYSTEM, { taxRateId: "VAT14", taxRatePercent: 14 }, VAT_OFF)).toEqual(notSubject);
   });
 
-  it("leaves a 0% rate the line itself named — an export to a tax-exempt customer is still an export", () => {
-    expect(resolveZeroRatedTaxRate(WITH_SYSTEM, { taxRateId: "EXPORT" })).toEqual({ taxRateId: "EXPORT", taxRatePercent: 0 });
+  it("does NOT name it for a tax-exempt customer — round 3 did, and filed an exempt sale as not subject", () => {
+    expect(resolveZeroRatedTaxRate(WITH_SYSTEM, { taxRatePercent: 14 }, exemptCustomer(null))).toEqual({ taxRateId: null, taxRatePercent: 0 });
+    expect(resolveDocumentLineTax(WITH_SYSTEM, {}, { defaultPercent: 14, zeroRating: exemptCustomer(null) })).toEqual({ taxRateId: null, taxRatePercent: 0 });
+  });
+
+  it("leaves a 0% rate the line itself named — an export under VAT off is still an export", () => {
+    expect(resolveZeroRatedTaxRate(WITH_SYSTEM, { taxRateId: "EXPORT" }, VAT_OFF)).toEqual({ taxRateId: "EXPORT", taxRatePercent: 0 });
   });
 
   it("is NOT inferred for a 0% line a user entered — that line still has to name its rate", () => {
     expect(resolveAppliedTaxRate(WITH_SYSTEM, { taxRatePercent: 0 }, 14)).toEqual({ taxRateId: null, taxRatePercent: 0 });
-    expect(resolveDocumentLineTax(WITH_SYSTEM, { taxRatePercent: 0 }, { defaultPercent: 14, zeroRated: false })).toEqual({ taxRateId: null, taxRatePercent: 0 });
+    expect(resolveDocumentLineTax(WITH_SYSTEM, { taxRatePercent: 0 }, { defaultPercent: 14, zeroRating: null })).toEqual({ taxRateId: null, taxRatePercent: 0 });
     expect(resolveInheritedTaxRate(WITH_SYSTEM, { taxRateId: null, taxRatePercent: 0 })).toEqual({ taxRateId: null, taxRatePercent: 0 });
     expect(inferTaxRateByPercent(WITH_SYSTEM, 0)).toBeNull();
   });
@@ -188,6 +199,24 @@ describe("the system «غير خاضع» rate — what a 0% line the SYSTEM rais
   });
 
   it("stores no rate where the tenant's master does not hold it", () => {
-    expect(resolveZeroRatedTaxRate(MASTER, {})).toEqual({ taxRateId: null, taxRatePercent: 0 });
+    expect(resolveZeroRatedTaxRate(MASTER, {}, VAT_OFF)).toEqual({ taxRateId: null, taxRatePercent: 0 });
+  });
+});
+
+describe("a tax-exempt customer's exemption rate — the 0% rate the tenant put on the customer card (D79 round 4)", () => {
+  const WITH_SYSTEM = [...MASTER, SYSTEM_NOT_SUBJECT_TAX_RATE];
+
+  it("is named on every line policy zero-rated that named no 0% rate of its own", () => {
+    expect(resolveZeroRatedTaxRate(WITH_SYSTEM, { taxRatePercent: 14 }, exemptCustomer("EXEMPT"))).toEqual({ taxRateId: "EXEMPT", taxRatePercent: 0 });
+    expect(resolveZeroRatedTaxRate(WITH_SYSTEM, { taxRateId: "VAT14" }, exemptCustomer("EXEMPT"))).toEqual({ taxRateId: "EXEMPT", taxRatePercent: 0 });
+    expect(resolveDocumentLineTax(WITH_SYSTEM, {}, { defaultPercent: 14, zeroRating: exemptCustomer("EXPORT") })).toEqual({ taxRateId: "EXPORT", taxRatePercent: 0 });
+  });
+
+  it("stores no rate when the card's rate is gone, deactivated, or no longer 0% — the line then waits to be classified", () => {
+    expect(resolveZeroRatedTaxRate(WITH_SYSTEM, {}, exemptCustomer("GONE"))).toEqual({ taxRateId: null, taxRatePercent: 0 });
+    expect(resolveZeroRatedTaxRate(WITH_SYSTEM, {}, exemptCustomer("OLD5"))).toEqual({ taxRateId: null, taxRatePercent: 0 });
+    expect(resolveZeroRatedTaxRate(WITH_SYSTEM, {}, exemptCustomer("VAT14"))).toEqual({ taxRateId: null, taxRatePercent: 0 });
+    const retired = [VAT, rate("EXEMPT", "معفى", 0, TaxRateStatusCode.Inactive)];
+    expect(resolveZeroRatedTaxRate(retired, {}, exemptCustomer("EXEMPT"))).toEqual({ taxRateId: null, taxRatePercent: 0 });
   });
 });

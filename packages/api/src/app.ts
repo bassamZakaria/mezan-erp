@@ -1,3 +1,4 @@
+import { customerTaxProfileFrom } from "./customer-tax-profile.js";
 import { Hono } from "hono";
 import type { ItemCatalogCheck } from "./item-check.js";
 import {
@@ -1021,6 +1022,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
         // (B-2, D241) — a second, screen-only posting path is exactly the bug
         // this defect was.
         options.customerOpeningBalances,
+        options.taxRateRepo,
       ),
     );
   }
@@ -1196,6 +1198,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
           // it is worth (D24).
           exchangeRates: salesInvoices.exchangeRates ?? options.exchangeRateRepo,
           taxRates: salesInvoices.taxRates ?? options.taxRateRepo,
+          customerTax: salesInvoices.customerTax ?? (options.customerStore ? customerTaxProfileFrom(options.customerStore) : undefined),
           taxPolicy:
             salesInvoices.taxPolicy ??
             (options.settingsStore
@@ -1272,7 +1275,12 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
           }
         : undefined);
     app.route("/sales-quotes", createSalesQuotesRoutes(
-        { ...salesQuotes, taxRates: salesQuotes.taxRates ?? options.taxRateRepo, invoice },
+        {
+          ...salesQuotes,
+          taxRates: salesQuotes.taxRates ?? options.taxRateRepo,
+          customerTax: salesQuotes.customerTax ?? (options.customerStore ? customerTaxProfileFrom(options.customerStore) : undefined),
+          invoice,
+        },
         resolveAuth,
       ));
   }

@@ -1,5 +1,7 @@
 import {
   InactiveTaxRateError,
+  TaxRateAlreadyClassifiedError,
+  TaxRateClassificationPercentError,
   TaxRateNotFoundError,
   TaxRatePercentMismatchError,
   TaxRateUnverifiableError,
@@ -60,24 +62,47 @@ export function resolveAppliedTaxRate(
   return { taxRateId: inferTaxRateByPercent(taxRates, taxRatePercent)?.id ?? null, taxRatePercent };
 }
 
-// INVARIANT: this is not inference from the percent. Policy made the line
-// 0% — the customer is tax-exempt, or VAT is off — so the SYSTEM raised it,
-// and a line the system raised at 0% is filed as not subject. A 0% the caller
-// typed goes through `resolveAppliedTaxRate` and still has to name its rate.
+export enum ZeroRatingCause {
+  VatOff = "vat_off",
+  ExemptCustomer = "exempt_customer",
+}
+
+export type ZeroRating =
+  | { readonly cause: ZeroRatingCause.VatOff }
+  | { readonly cause: ZeroRatingCause.ExemptCustomer; readonly exemptionTaxRateId: string | null };
+
+function policyRateId(taxRates: readonly RateIdentity[], zeroRating: ZeroRating): string | null {
+  switch (zeroRating.cause) {
+    case ZeroRatingCause.VatOff:
+      return systemNotSubjectRateIn(taxRates)?.id ?? null;
+    case ZeroRatingCause.ExemptCustomer: {
+      const rate = taxRates.find((r) => r.id === zeroRating.exemptionTaxRateId);
+      return rate && rate.status === TaxRateStatusCode.Active && rate.rate === 0 ? rate.id : null;
+    }
+  }
+}
+
+// INVARIANT: this is not inference from the percent. The system's
+// «غير خاضع» rate is named in ONE case — the tenant's VAT is switched off,
+// so the sale is out of scope. An exempt customer's line names the 0% rate
+// the tenant put on that customer's card and nothing else: exempt, export
+// and not-subject are different declarations, and a guess here is a wrong
+// filing. With no such rate the line stores NULL and waits to be classified.
 export function resolveZeroRatedTaxRate(
   taxRates: readonly RateIdentity[],
   request: AppliedTaxRateRequest,
+  zeroRating: ZeroRating,
 ): AppliedTaxRate {
   if (typeof request.taxRateId === "string") {
     const rate = requireNamedRate(taxRates, request.taxRateId);
     if (rate.rate === 0) return { taxRateId: rate.id, taxRatePercent: 0 };
   }
-  return { taxRateId: systemNotSubjectRateIn(taxRates)?.id ?? null, taxRatePercent: 0 };
+  return { taxRateId: policyRateId(taxRates, zeroRating), taxRatePercent: 0 };
 }
 
 export interface DocumentLineTaxPolicy {
   readonly defaultPercent: number;
-  readonly zeroRated: boolean;
+  readonly zeroRating: ZeroRating | null;
 }
 
 export function resolveDocumentLineTax(
@@ -87,10 +112,10 @@ export function resolveDocumentLineTax(
 ): AppliedTaxRate {
   if (taxRates === null) {
     if (typeof request.taxRateId === "string") throw new TaxRateUnverifiableError(request.taxRateId);
-    return { taxRateId: null, taxRatePercent: policy.zeroRated ? 0 : (request.taxRatePercent ?? policy.defaultPercent) };
+    return { taxRateId: null, taxRatePercent: policy.zeroRating ? 0 : (request.taxRatePercent ?? policy.defaultPercent) };
   }
-  return policy.zeroRated
-    ? resolveZeroRatedTaxRate(taxRates, request)
+  return policy.zeroRating
+    ? resolveZeroRatedTaxRate(taxRates, request, policy.zeroRating)
     : resolveAppliedTaxRate(taxRates, request, policy.defaultPercent);
 }
 
@@ -106,4 +131,25 @@ export function resolveInheritedTaxRate(
   if (taxRates === null) throw new TaxRateUnverifiableError(inherited.taxRateId);
   if (!taxRates.some((r) => r.id === inherited.taxRateId)) throw new TaxRateNotFoundError(inherited.taxRateId);
   return inherited;
+}
+
+// INVARIANT: classification only ever goes NULL → rate, and only to a rate
+// whose percent IS the stored percent. It names what the line was charged
+// under; it can never reprice a line or move it from one rate to another.
+export function classifyStoredTaxRate(
+  taxRates: readonly RateIdentity[] | null,
+  stored: AppliedTaxRate,
+  taxRateId: string,
+): AppliedTaxRate {
+  if (stored.taxRateId === taxRateId) return stored;
+  if (taxRates === null) throw new TaxRateUnverifiableError(taxRateId);
+  if (stored.taxRateId !== null) {
+    const current = taxRates.find((r) => r.id === stored.taxRateId);
+    throw new TaxRateAlreadyClassifiedError(stored.taxRateId, current?.name ?? stored.taxRateId);
+  }
+  const rate = requireNamedRate(taxRates, taxRateId);
+  if (rate.rate !== stored.taxRatePercent) {
+    throw new TaxRateClassificationPercentError(rate.id, rate.name, rate.rate, stored.taxRatePercent);
+  }
+  return { taxRateId: rate.id, taxRatePercent: stored.taxRatePercent };
 }

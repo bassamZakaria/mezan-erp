@@ -73,6 +73,7 @@ import { recordAdminEvent } from "./admin-audit.js";
 import { refuseUnknownItems, type ItemCatalogCheck } from "./item-check.js";
 import { MasterDataKind, refuseUnknownMasterData, type MasterDataChecks } from "./master-data-check.js";
 import { taxRateRefusal } from "./tax-rate-refusal.js";
+import { customerTaxProfileOf, type CustomerTaxProfileSource } from "./customer-tax-profile.js";
 import { type AuthContextResolver, branchScopeOf, callerRoleCodes, createAnyPermissionGate, createPermissionGate, getAuthContext, moduleRefusalFor, warehouseScopeOf } from "./permission-gate.js";
 import { tenantDay, tenantToday } from "./tenant-day.js";
 import { withQuota, quotaRefusalResponse, type QuotaEnforcement } from "./plan-quota.js";
@@ -122,6 +123,8 @@ export interface SalesInvoiceRoutesDeps {
   /** The tenant's VAT rules (settings §"الضريبة"), stamped onto a draft when it is raised. */
   readonly taxPolicy?: () => Promise<SalesInvoiceTaxPolicy> | SalesInvoiceTaxPolicy;
   readonly taxRates?: Pick<TaxRateRepository, "list">;
+  /** Where a customer's tax exemption is read from; a request body is never believed (D79). */
+  readonly customerTax?: CustomerTaxProfileSource;
   /**
    * The tenant's discount ceiling (settings §"الرقابة الائتمانية"). Optional
    * for the same reason every cross-aggregate check here is: a caller that does
@@ -589,13 +592,15 @@ export function createSalesInvoicesRoutes(
     const d = parsed.data;
     const currencyRefusal = await deps.currencyCheck?.(d.currency);
     if (currencyRefusal) return c.json({ error: "CURRENCY_NOT_ALLOWED", message: currencyRefusal }, 422);
+    const customerTax = await customerTaxProfileOf(deps.customerTax, d.customerId);
     const cmd: CreateSalesInvoiceCommand = {
       id: d.id ?? idGen(),
       date: d.date,
       dueDate: d.dueDate,
       customerId: d.customerId,
       customerNameAr: d.customerNameAr,
-      customerTaxExempt: d.customerTaxExempt,
+      customerTaxExempt: customerTax.taxExempt,
+      customerTaxExemptionRateId: customerTax.taxExemptionRateId,
       warehouseId: d.warehouseId,
       branchId: d.branchId,
       salespersonId: d.salespersonId ?? null,

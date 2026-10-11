@@ -10,6 +10,8 @@ import { InMemoryStockLedger, InMemoryCostLayers, InMemorySnapshots } from "../i
 import type { DocumentWorkflowGate, DocumentDomainEvent } from "../documents/hooks.js";
 import {
   InactiveTaxRateError,
+  TaxRateAlreadyClassifiedError,
+  TaxRateClassificationPercentError,
   TaxRateNotFoundError,
   TaxRatePercentMismatchError,
   TaxRateUnverifiableError,
@@ -711,25 +713,38 @@ describe("SalesInvoiceService.createDraft — the tax rate's identity (D79)", ()
     expect(await repo.findById("inv-1")).toBeNull();
   });
 
-  describe("on a tenant holding the system «غير خاضع» rate (D79 round 3)", () => {
+  describe("on a tenant holding the system «غير خاضع» rate (D79 round 4)", () => {
     const withSystem = { list: async () => [...MASTER, SYSTEM_NOT_SUBJECT_TAX_RATE] };
     const NOT_SUBJECT = { taxRateId: SYSTEM_NOT_SUBJECT_TAX_RATE_ID, taxRatePercent: 0 };
+    const vatOff = () => ({ enabled: false, defaultRatePercent: 14, inclusive: false });
 
-    it("a tax-exempt customer's sale names it — not NULL, and not the exempt supply's rate", async () => {
-      const { svc } = await baseDeps({ taxRates: withSystem });
-      const invoice = await svc.createDraft(draftCmd({ customerTaxExempt: true, lines: [serviceLine("L1", { taxRatePercent: 14 }), serviceLine("L2", { taxRateId: "VAT14" }), serviceLine("L3", { taxRateId: "EXPORT" })] }));
-      expect(invoice.lines.map((l) => [l.taxRateId, l.taxRatePercent])).toEqual([[SYSTEM_NOT_SUBJECT_TAX_RATE_ID, 0], [SYSTEM_NOT_SUBJECT_TAX_RATE_ID, 0], ["EXPORT", 0]]);
-    });
-
-    it("a sale with VAT switched off names it", async () => {
-      const { svc } = await baseDeps({ taxRates: withSystem, taxPolicy: () => ({ enabled: false, defaultRatePercent: 14, inclusive: false }) });
+    it("a sale with VAT switched off names it — the one case the system rate is assigned", async () => {
+      const { svc } = await baseDeps({ taxRates: withSystem, taxPolicy: vatOff });
       const invoice = await svc.createDraft(draftCmd({ lines: [serviceLine("L1", {})] }));
       expect(invoice.lines[0]).toMatchObject(NOT_SUBJECT);
     });
 
-    it("a retention release, which names it on its own line, stores it", async () => {
+    it("a tax-exempt customer with no exemption rate stores NO rate — round 3 filed it as not subject", async () => {
       const { svc } = await baseDeps({ taxRates: withSystem });
-      const invoice = await svc.createDraft(draftCmd({ lines: [serviceLine("L1", { taxRateId: SYSTEM_NOT_SUBJECT_TAX_RATE_ID, taxRatePercent: 0 })] }));
+      const invoice = await svc.createDraft(draftCmd({ customerTaxExempt: true, lines: [serviceLine("L1", { taxRatePercent: 14 }), serviceLine("L2", { taxRateId: "VAT14" }), serviceLine("L3", { taxRateId: "EXPORT" })] }));
+      expect(invoice.lines.map((l) => [l.taxRateId, l.taxRatePercent])).toEqual([[null, 0], [null, 0], ["EXPORT", 0]]);
+    });
+
+    it("a tax-exempt customer's sale names the 0% rate on the customer's card, on every line policy zero-rated", async () => {
+      const { svc } = await baseDeps({ taxRates: withSystem });
+      const invoice = await svc.createDraft(draftCmd({ customerTaxExempt: true, customerTaxExemptionRateId: "EXEMPT", lines: [serviceLine("L1", { taxRatePercent: 14 }), serviceLine("L2", { taxRateId: "VAT14" }), serviceLine("L3", { taxRateId: "EXPORT" })] }));
+      expect(invoice.lines.map((l) => [l.taxRateId, l.taxRatePercent])).toEqual([["EXEMPT", 0], ["EXEMPT", 0], ["EXPORT", 0]]);
+    });
+
+    it("an exemption rate on the card of a customer who is NOT exempt changes nothing", async () => {
+      const { svc } = await baseDeps({ taxRates: withSystem });
+      const invoice = await svc.createDraft(draftCmd({ customerTaxExempt: false, customerTaxExemptionRateId: "EXEMPT", lines: [serviceLine("L1", { taxRateId: "VAT14" })] }));
+      expect(invoice.lines[0]).toMatchObject({ taxRateId: "VAT14", taxRatePercent: 14 });
+    });
+
+    it("with VAT off, an exempt customer's sale is still out of scope: the system rate, not the card's", async () => {
+      const { svc } = await baseDeps({ taxRates: withSystem, taxPolicy: vatOff });
+      const invoice = await svc.createDraft(draftCmd({ customerTaxExempt: true, customerTaxExemptionRateId: "EXEMPT", lines: [serviceLine("L1", {})] }));
       expect(invoice.lines[0]).toMatchObject(NOT_SUBJECT);
     });
 
@@ -739,25 +754,62 @@ describe("SalesInvoiceService.createDraft — the tax rate's identity (D79)", ()
       expect(invoice.lines.map((l) => l.taxRateId)).toEqual([null, null]);
     });
 
-    it("posts it onto the revenue line of the journal, so the VAT return can name the row", async () => {
+    it("posts the card's rate onto the revenue line of the journal, so the VAT return can name the row", async () => {
       const { svc, ledger } = await baseDeps({ taxRates: withSystem });
-      await svc.createDraft(draftCmd({ customerTaxExempt: true, lines: [serviceLine("L1", { taxRatePercent: 14 })] }));
+      await svc.createDraft(draftCmd({ customerTaxExempt: true, customerTaxExemptionRateId: "EXEMPT", lines: [serviceLine("L1", { taxRatePercent: 14 })] }));
       const { invoice } = await svc.confirm("inv-1");
       const entry = await ledger.findById(invoice.journalEntryId as string);
       const revenue = (entry?.lines ?? []).filter((l) => l.accountId === REVENUE);
-      expect(revenue.map((l) => [l.taxRateId, l.taxRatePercent, l.credit.toString()])).toEqual([[SYSTEM_NOT_SUBJECT_TAX_RATE_ID, 0, "100.000000"]]);
+      expect(revenue.map((l) => [l.taxRateId, l.taxRatePercent, l.credit.toString()])).toEqual([["EXEMPT", 0, "100.000000"]]);
       expect((entry?.lines ?? []).filter((l) => l.accountId === TAX)).toEqual([]);
     });
 
-    it("an inherited 0% line with no rate names it only when policy zero-rates the invoice; an inherited 14% line with no rate is carried as it is", async () => {
+    it("an inherited 0% line with no rate takes the policy's rate only when policy zero-rates the invoice; an inherited 14% line with no rate is carried as it is", async () => {
       const inheritedLine = (lineId: string, taxRatePercent: number) => ({ ...serviceLine(lineId, {}), inheritedTax: { taxRateId: null, taxRatePercent } });
-      const exempt = await baseDeps({ taxRates: withSystem });
-      const zeroRated = await exempt.svc.createDraft(draftCmd({ customerTaxExempt: true, lines: [inheritedLine("L1", 0)] }));
-      expect(zeroRated.lines[0]).toMatchObject(NOT_SUBJECT);
+      const carded = await baseDeps({ taxRates: withSystem });
+      const named = await carded.svc.createDraft(draftCmd({ customerTaxExempt: true, customerTaxExemptionRateId: "EXEMPT", lines: [inheritedLine("L1", 0)] }));
+      expect(named.lines[0]).toMatchObject({ taxRateId: "EXEMPT", taxRatePercent: 0 });
+
+      const uncarded = await baseDeps({ taxRates: withSystem });
+      const unnamed = await uncarded.svc.createDraft(draftCmd({ customerTaxExempt: true, lines: [inheritedLine("L1", 0)] }));
+      expect(unnamed.lines[0]).toMatchObject({ taxRateId: null, taxRatePercent: 0 });
 
       const ordinary = await baseDeps({ taxRates: withSystem });
       const carried = await ordinary.svc.createDraft(draftCmd({ lines: [inheritedLine("L1", 0), inheritedLine("L2", 14)] }));
       expect(carried.lines.map((l) => [l.taxRateId, l.taxRatePercent])).toEqual([[null, 0], [null, 14]]);
+    });
+
+    describe("naming the rate of an inherited line whose source stored none (a quote converting)", () => {
+      const inherited = (lineId: string, taxRateId: string | null, taxRatePercent: number, inheritedTaxRateId: string) => ({
+        ...serviceLine(lineId, {}),
+        inheritedTax: { taxRateId, taxRatePercent },
+        inheritedTaxRateId,
+      });
+
+      it("names an active rate at the stored percent: 14% NULL → VAT14, 0% NULL → EXEMPT", async () => {
+        const { svc } = await baseDeps({ taxRates: withSystem });
+        const invoice = await svc.createDraft(draftCmd({ lines: [inherited("L1", null, 14, "VAT14"), inherited("L2", null, 0, "EXEMPT")] }));
+        expect(invoice.lines.map((l) => [l.taxRateId, l.taxRatePercent])).toEqual([["VAT14", 14], ["EXEMPT", 0]]);
+      });
+
+      it("refuses a rate at another percent — naming never reprices the line", async () => {
+        const { svc, repo } = await baseDeps({ taxRates: withSystem });
+        await expect(svc.createDraft(draftCmd({ lines: [inherited("L1", null, 14, "EXEMPT")] }))).rejects.toBeInstanceOf(TaxRateClassificationPercentError);
+        expect(await repo.findById("inv-1")).toBeNull();
+      });
+
+      it("refuses to move a line that already names a rate to another one", async () => {
+        const { svc } = await baseDeps({ taxRates: withSystem });
+        await expect(svc.createDraft(draftCmd({ lines: [inherited("L1", "EXEMPT", 0, "EXPORT")] }))).rejects.toBeInstanceOf(TaxRateAlreadyClassifiedError);
+      });
+
+      it("accepts the rate the line already names, and refuses an inactive or unknown one", async () => {
+        const { svc } = await baseDeps({ taxRates: withSystem });
+        const same = await svc.createDraft(draftCmd({ lines: [inherited("L1", "EXEMPT", 0, "EXEMPT")] }));
+        expect(same.lines[0]).toMatchObject({ taxRateId: "EXEMPT", taxRatePercent: 0 });
+        const other = await baseDeps({ taxRates: withSystem });
+        await expect(other.svc.createDraft(draftCmd({ lines: [inherited("L1", null, 14, "NOPE")] }))).rejects.toBeInstanceOf(TaxRateNotFoundError);
+      });
     });
   });
 

@@ -373,7 +373,7 @@ function normalizeLines(
 ): PurchaseInvoiceLine[] {
   return lines.map((l) => {
     const kind = l.kind ?? "inventory";
-    const tax = resolveDocumentLineTax(taxRates, l, { defaultPercent: 0, zeroRated: false });
+    const tax = resolveDocumentLineTax(taxRates, l, { defaultPercent: 0, zeroRating: null });
     return {
       itemId: kind === "expense" ? (l.itemId ?? null) : (l.itemId ?? null),
       description: l.description ?? null,

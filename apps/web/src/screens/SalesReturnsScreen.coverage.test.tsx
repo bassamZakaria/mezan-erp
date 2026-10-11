@@ -31,7 +31,7 @@ const customers: CustomerDTO[] = [
   {
     id: "cust-1", code: "C1", nameAr: "شركة الأمل للتجارة", nameEn: null, phone: null, email: null, contactPerson: null,
     taxNumber: null, category: null, notes: null, paymentTermsDays: 30, currency: "EGP", openingBalance: "0", active: true,
-    priceListId: null, creditLimit: "0", taxExempt: false, etaBuyerType: "business", commercialRegistrationNumber: null, address: null, logoAttachmentId: null, nationalId: null,
+    priceListId: null, creditLimit: "0", taxExempt: false, taxExemptionRateId: null, etaBuyerType: "business", commercialRegistrationNumber: null, address: null, logoAttachmentId: null, nationalId: null,
   },
 ];
 

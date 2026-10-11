@@ -16,6 +16,9 @@ import { Money, Qty } from "../money/index.js";
 import { toBaseQty } from "../units/index.js";
 import {
   resolveDocumentLineTax,
+  classifyStoredTaxRate,
+  ZeroRatingCause,
+  type ZeroRating,
   resolveInheritedTaxRate,
   type AppliedTaxRate,
   type TaxRate,
@@ -212,6 +215,11 @@ export interface CreateSalesInvoiceLine {
    * no repricing. Never map it from a request body.
    */
   readonly inheritedTax?: AppliedTaxRate;
+  /**
+   * Names the rate of an inherited line whose source stored NONE. Honoured
+   * only for a stored NULL, and only for a rate at the stored percent.
+   */
+  readonly inheritedTaxRateId?: string | null;
   readonly revenueAccountId: string;
   readonly cogsAccountId?: string | null;
   readonly inventoryAccountId?: string | null;
@@ -225,7 +233,10 @@ export interface CreateSalesInvoiceCommand {
   readonly dueDate: string;
   readonly customerId: string;
   readonly customerNameAr: string;
+  /** SERVER-DERIVED from the customer record; never map it from a request body. */
   readonly customerTaxExempt?: boolean;
+  /** SERVER-DERIVED: the 0% rate on the exempt customer's card, when it has one. */
+  readonly customerTaxExemptionRateId?: string | null;
   readonly warehouseId: string;
   readonly branchId: string;
   readonly salespersonId?: string | null;
@@ -613,12 +624,17 @@ export class SalesInvoiceService {
     taxPolicy: SalesInvoiceTaxPolicy,
     taxRates: readonly TaxRate[] | null,
   ): SalesInvoice {
-    const zeroRated = cmd.customerTaxExempt === true || !taxPolicy.enabled;
+    const zeroRating: ZeroRating | null = !taxPolicy.enabled
+      ? { cause: ZeroRatingCause.VatOff }
+      : cmd.customerTaxExempt === true
+        ? { cause: ZeroRatingCause.ExemptCustomer, exemptionTaxRateId: cmd.customerTaxExemptionRateId ?? null }
+        : null;
     const appliedTax = (l: CreateSalesInvoiceLine): AppliedTaxRate => {
-      if (!l.inheritedTax) return resolveDocumentLineTax(taxRates, l, { defaultPercent: taxPolicy.defaultRatePercent, zeroRated });
+      if (!l.inheritedTax) return resolveDocumentLineTax(taxRates, l, { defaultPercent: taxPolicy.defaultRatePercent, zeroRating });
       const inherited = resolveInheritedTaxRate(taxRates, l.inheritedTax);
-      const raisedBySystem = zeroRated && inherited.taxRateId === null && inherited.taxRatePercent === 0;
-      return raisedBySystem ? resolveDocumentLineTax(taxRates, {}, { defaultPercent: 0, zeroRated }) : inherited;
+      if (typeof l.inheritedTaxRateId === "string") return classifyStoredTaxRate(taxRates, inherited, l.inheritedTaxRateId);
+      const raisedBySystem = zeroRating !== null && inherited.taxRateId === null && inherited.taxRatePercent === 0;
+      return raisedBySystem ? resolveDocumentLineTax(taxRates, {}, { defaultPercent: 0, zeroRating }) : inherited;
     };
     const lines: SalesInvoiceLine[] = cmd.lines.map((l) => {
       const unitFactor = l.unitFactor ?? 1;

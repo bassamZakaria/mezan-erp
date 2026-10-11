@@ -26,6 +26,8 @@ export const customerSchema = z.object({
   priceListId: z.string().nullable(),
   creditLimit: z.string(),
   taxExempt: z.boolean(),
+  /** The active 0% tax rate the customer's exemption is filed under; null when none is set (D79). */
+  taxExemptionRateId: z.string().min(1).nullable(),
   etaBuyerType: etaBuyerTypeSchema,
   commercialRegistrationNumber: z.string().nullable(),
   address: z.string().nullable(),
@@ -68,6 +70,7 @@ export const createCustomerSchema = z.object({
   priceListId: z.string().nullable().optional(),
   creditLimit: z.string().optional(),
   taxExempt: z.boolean().optional(),
+  taxExemptionRateId: z.string().min(1).nullable().optional(),
   etaBuyerType: etaBuyerTypeSchema.optional(),
   commercialRegistrationNumber: z.string().nullable().optional(),
   address: z.string().nullable().optional(),

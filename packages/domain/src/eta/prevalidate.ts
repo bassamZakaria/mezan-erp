@@ -233,8 +233,8 @@ export function prevalidateEtaInvoice(
           EtaPrevalidationSeverity.Blocking,
           `سطر «${line.itemLabel}» بنسبة ضريبة 0% دون ضريبة مسماة، ولدى المنشأة تصنيف محدد بنسبة صفر (معفى/تصدير)، فلا يمكن إرساله للمصلحة كـ«غير خاضع» دون تحديد.`,
           `Line "${line.itemLabel}" is taxed at 0% and names no tax rate, while a specific 0% classification (exempt/export) exists, so it cannot be filed as "not subject" by default.`,
-          "اختر الضريبة الصحيحة على سطر المستند (معفى أو تصدير أو غير خاضع) ثم أعد الإرسال.",
-          "Pick the correct tax rate on the document line (exempt, export or not subject), then resubmit.",
+          "سمِّ ضريبة البند بإجراء «تصنيف ضريبة البند» على الفاتورة المرحّلة (معفى أو تصدير أو غير خاضع) ثم أعد الإرسال. وإن كان العميل معفى فحدِّد «ضريبة الإعفاء» على بطاقة العميل لتُسمّى تلقائياً في فواتيره القادمة.",
+          "Name the line's tax rate with \"Classify line tax\" on the posted invoice (exempt, export or not subject), then resubmit. If the customer is tax-exempt, set the \"Exemption tax rate\" on the customer card so later invoices name it automatically.",
           EtaPrevalidationFixScreen.SourceDocument,
         ),
       );

@@ -87,6 +87,7 @@ export const createSalesInvoiceSchema = z.object({
   dueDate: z.string().min(1),
   customerId: z.string().min(1),
   customerNameAr: z.string().min(1),
+  /** IGNORED: exemption is read off the customer record server-side. Kept so older clients still parse. */
   customerTaxExempt: z.boolean().optional(),
   warehouseId: z.string().min(1),
   branchId: z.string().min(1),

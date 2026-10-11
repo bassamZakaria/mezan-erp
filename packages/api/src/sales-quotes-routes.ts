@@ -38,6 +38,7 @@ import {
 import { refuseUnknownItems, type ItemCatalogCheck } from "./item-check.js";
 import { MasterDataKind, refuseUnknownMasterData, type MasterDataChecks } from "./master-data-check.js";
 import { taxRateRefusal } from "./tax-rate-refusal.js";
+import { customerTaxProfileOf, type CustomerTaxProfileSource } from "./customer-tax-profile.js";
 import {
   documentVersionOf,
   documentVersionsOf,
@@ -76,6 +77,8 @@ export interface SalesQuoteRoutesDeps {
   /** Refuses a quote naming a customer, warehouse or branch no master record holds (D310). */
   readonly masterData?: MasterDataChecks;
   readonly taxRates?: Pick<TaxRateRepository, "list">;
+  /** Where a customer's tax exemption is read from; a request body is never believed (D79). */
+  readonly customerTax?: CustomerTaxProfileSource;
   readonly numbering: DocumentNumberingHook;
   readonly now?: () => string;
   /** Generates a quote id when the request omits one. Defaults to a UUID. */
@@ -249,13 +252,15 @@ export function createSalesQuotesRoutes(
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
     const d = parsed.data;
+    const customerTax = await customerTaxProfileOf(deps.customerTax, d.customerId);
     const cmd: CreateSalesQuoteCommand = {
       id: d.id ?? idGen(),
       date: d.date,
       expiryDate: d.expiryDate,
       customerId: d.customerId,
       customerNameAr: d.customerNameAr,
-      customerTaxExempt: d.customerTaxExempt,
+      customerTaxExempt: customerTax.taxExempt,
+      customerTaxExemptionRateId: customerTax.taxExemptionRateId,
       branchId: d.branchId,
       currency: d.currency,
       notes: d.notes ?? null,
@@ -552,13 +557,16 @@ export function createSalesQuotesRoutes(
       now: deps.now,
       actor: ctx?.userId ?? "system",
     });
+    const customerTax = await customerTaxProfileOf(deps.customerTax, quote.customerId);
     const cmd: CreateSalesInvoiceCommand = {
       id: d.id ?? idGen(),
       date: d.date ?? quote.date,
       dueDate: d.dueDate,
       customerId: quote.customerId,
       customerNameAr: quote.customerNameAr,
+      // The quote's own answer: it priced its lines under it when it was raised.
       customerTaxExempt: quote.customerTaxExempt,
+      customerTaxExemptionRateId: customerTax.taxExempt ? customerTax.taxExemptionRateId : null,
       warehouseId: d.warehouseId,
       branchId: quote.branchId,
       currency: quote.currency,
@@ -579,6 +587,7 @@ export function createSalesQuotesRoutes(
           unitPrice: l.unitPrice,
           discountPercent: l.discountPercent,
           inheritedTax: { taxRateId: l.taxRateId, taxRatePercent: l.taxRatePercent },
+          inheritedTaxRateId: acc.taxRateId ?? null,
           revenueAccountId: acc.revenueAccountId,
           cogsAccountId: acc.cogsAccountId ?? null,
           inventoryAccountId: acc.inventoryAccountId ?? null,

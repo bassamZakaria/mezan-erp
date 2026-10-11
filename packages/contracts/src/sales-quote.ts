@@ -46,6 +46,7 @@ export const createSalesQuoteSchema = z.object({
   expiryDate: z.string().min(1),
   customerId: z.string().min(1),
   customerNameAr: z.string().min(1),
+  /** IGNORED: exemption is read off the customer record server-side. Kept so older clients still parse. */
   customerTaxExempt: z.boolean().optional(),
   branchId: z.string().min(1),
   currency: z.string().optional(),
@@ -77,6 +78,12 @@ export const convertSalesQuoteLineSchema = z.object({
   revenueAccountId: z.string().min(1),
   cogsAccountId: z.string().min(1).nullish(),
   inventoryAccountId: z.string().min(1).nullish(),
+  /**
+   * Names the tax rate of a quote line that stored none. Honoured only for
+   * such a line and only for an active rate at the line's stored percent; a
+   * line that already names a rate refuses any other (409).
+   */
+  taxRateId: z.string().min(1).nullish(),
 });
 
 export const convertSalesQuoteToInvoiceSchema = z.object({

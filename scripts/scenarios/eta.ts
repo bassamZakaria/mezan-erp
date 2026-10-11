@@ -570,7 +570,7 @@ export async function zeroPercentIsNeverInferred_D79(ctx: Ctx): Promise<void> {
     });
   const taxOf = (res: any) => JSON.stringify([res.body?.lines?.[0]?.taxRatePercent, res.body?.lines?.[0]?.taxRateId]);
 
-  await scenario("d79g · the 0% lines the SYSTEM raises name «غير خاضع» and reach the authority; a 0% a user enters still names no rate, whatever 0% rates the tenant holds", async () => {
+  await scenario("d79g · the system «غير خاضع» rate is named in one case only, a sale with VAT off; an exempt customer names the rate on its card or none; a release is not a supply; a 0% a user enters still names no rate", async () => {
     const NOT_SUBJECT = "SYS-NOT-SUBJECT";
     const system = listed.find((r: any) => r.id === NOT_SUBJECT);
     check("every tenant holds the system «غير خاضع» rate: 0%, V004, active, marked as the system's", system?.rate === 0 && system?.etaSubType === "V004" && system?.status === "active" && system?.isSystem === true && system?.name === "غير خاضع", JSON.stringify(system ?? null));
@@ -586,10 +586,45 @@ export async function zeroPercentIsNeverInferred_D79(ctx: Ctx): Promise<void> {
       JSON.stringify(activeZero.map((r: any) => r.id)),
     );
 
-    const exemptCustomer = await draft("SCN-D79-ONE-EXEMPT-CUST", { customerId: "CUST-DEMO-3", customerTaxExempt: true }, { taxRatePercent: VAT });
+    const claimed = await draft("SCN-D79-ONE-CLAIMED", { customerId: CUSTOMER, customerTaxExempt: true }, { taxRatePercent: VAT });
+    const vatRate = listed.find((r: any) => r.rate === VAT && r.status === "active");
     check(
-      "a tax-exempt customer's sale is drafted at 0% under «غير خاضع» — not NULL (D79 round 2 stored none, and the authority would not take it), and not the exempt SUPPLY's rate",
-      exemptCustomer.status === 201 && taxOf(exemptCustomer) === JSON.stringify([0, NOT_SUBJECT]),
+      "a request CLAIMING exemption for a customer who is not exempt is not believed: the line is taxed at 14% under the VAT rate and the invoice is not marked exempt",
+      claimed.status === 201 && taxOf(claimed) === JSON.stringify([VAT, vatRate?.id]) && claimed.body?.customerTaxExempt === false,
+      `${claimed.status} ${taxOf(claimed)} customerTaxExempt=${claimed.body?.customerTaxExempt}`,
+    );
+    await req("POST", "/sales-invoices/SCN-D79-ONE-CLAIMED/cancel", {});
+
+    const UNCARDED = "SCN-D79-EXEMPT-NO-RATE";
+    const uncarded = await req("POST", "/customers", {
+      id: UNCARDED, code: UNCARDED, nameAr: "جهة معفاة بلا ضريبة إعفاء (سيناريو)", taxNumber: "311222333", etaBuyerType: "business", taxExempt: true,
+    });
+    check("an exempt business customer is created with no exemption rate on its card", uncarded.status === 201 && uncarded.body?.taxExempt === true && uncarded.body?.taxExemptionRateId === null, JSON.stringify(uncarded.body).slice(0, 200));
+    const taxedCard = await req("PATCH", `/customers/${UNCARDED}`, { taxExemptionRateId: vatRate?.id });
+    check(
+      "the card refuses a 14% rate as the exemption rate, in Arabic — only an active 0% rate is one",
+      taxedCard.status === 422 && taxedCard.body?.error === "CUSTOMER_EXEMPTION_RATE_INVALID" && /[\u0600-\u06FF]/.test(String(taxedCard.body?.message ?? "")),
+      `${taxedCard.status} ${JSON.stringify(taxedCard.body).slice(0, 200)}`,
+    );
+    const notExemptCard = await req("PATCH", `/customers/${CUSTOMER}`, { taxExemptionRateId: exempt?.id });
+    check(
+      "and refuses any exemption rate on a customer who is not exempt",
+      notExemptCard.status === 422 && notExemptCard.body?.error === "CUSTOMER_EXEMPTION_RATE_WITHOUT_EXEMPTION",
+      `${notExemptCard.status} ${JSON.stringify(notExemptCard.body).slice(0, 200)}`,
+    );
+    const exemptUncarded = await draft("SCN-D79-ONE-EXEMPT-NONE", { customerId: UNCARDED, customerTaxExempt: false }, { taxRatePercent: VAT });
+    check(
+      "an exempt customer with no exemption rate is drafted at 0% naming NO rate — round 3 named «غير خاضع» here and filed an exempt sale as not subject",
+      exemptUncarded.status === 201 && taxOf(exemptUncarded) === "[0,null]" && exemptUncarded.body?.customerTaxExempt === true,
+      `${exemptUncarded.status} ${taxOf(exemptUncarded)}`,
+    );
+
+    const carded = (await req("GET", "/customers/CUST-DEMO-3")).body;
+    check("the seeded exempt customer carries «معفى» as its exemption rate", carded?.taxExempt === true && carded?.taxExemptionRateId === exempt?.id, JSON.stringify([carded?.taxExempt, carded?.taxExemptionRateId]));
+    const exemptCustomer = await draft("SCN-D79-ONE-EXEMPT-CUST", { customerId: "CUST-DEMO-3" }, { taxRatePercent: VAT });
+    check(
+      "an exempt customer's sale is drafted at 0% under the rate on the customer's card — the tenant's own declaration, not a guess",
+      exemptCustomer.status === 201 && taxOf(exemptCustomer) === JSON.stringify([0, exempt?.id]),
       `${exemptCustomer.status} ${taxOf(exemptCustomer)}`,
     );
 
@@ -627,15 +662,33 @@ export async function zeroPercentIsNeverInferred_D79(ctx: Ctx): Promise<void> {
       JSON.stringify(unclassified).slice(0, 300),
     );
 
+    const stuckFiled = await req("POST", "/sales-invoices/SCN-D79-ONE-EXEMPT-NONE/confirm", {});
+    check("the uncarded exempt customer's sale still confirms and posts", stuckFiled.status === 200, JSON.stringify(stuckFiled.body).slice(0, 200));
+    await ctx.drain();
+    const stuckNo = stuckFiled.body?.invoice?.docNo ?? stuckFiled.body?.docNo;
+    const stuckQueued = rows((await req("GET", "/eta/submissions?pageSize=500")).body).find((s: any) => s.internalId === stuckNo);
+    const stuckFindings = (stuckQueued?.prevalidation ?? []).filter((f: any) => f.code === "TAX_SUBTYPE_NOT_MAPPED");
+    check(
+      "its e-invoice is BLOCKED from the authority until the line is classified — it is not filed V004 by default",
+      stuckFindings.length === 1 && stuckFindings[0]?.severity === "blocking" && stuckQueued?.hasBlockingFindings === true,
+      JSON.stringify(stuckQueued?.prevalidation ?? stuckQueued ?? null).slice(0, 300),
+    );
+    check(
+      "and the finding's Arabic hint names both ways out: the classify action on the posted invoice, and the exemption rate on the customer card",
+      String(stuckFindings[0]?.fixHintAr ?? "").includes("تصنيف ضريبة البند") && String(stuckFindings[0]?.fixHintAr ?? "").includes("بطاقة العميل"),
+      String(stuckFindings[0]?.fixHintAr ?? ""),
+    );
+
     const exemptFiled = await req("POST", "/sales-invoices/SCN-D79-ONE-EXEMPT-CUST/confirm", {});
-    check("the tax-exempt customer's sale confirms", exemptFiled.status === 200, JSON.stringify(exemptFiled.body).slice(0, 200));
+    check("the carded exempt customer's sale confirms", exemptFiled.status === 200, JSON.stringify(exemptFiled.body).slice(0, 200));
+    await ctx.drain();
     const exemptNo = exemptFiled.body?.invoice?.docNo ?? exemptFiled.body?.docNo;
-    const exemptQueued = rows((await req("GET", "/eta/submissions")).body).find((s: any) => s.internalId === exemptNo);
+    const exemptQueued = rows((await req("GET", "/eta/submissions?pageSize=500")).body).find((s: any) => s.internalId === exemptNo);
     const exemptPayload = exemptQueued ? (await req("GET", `/eta/submissions/${exemptQueued.id}`)).body?.payload : null;
     const exemptLines = exemptPayload?.invoiceLines ?? exemptPayload?.itemData;
     check(
-      "its e-document — a receipt, the customer being a consumer — files the line V004 because the line NAMES «غير خاضع», not because nothing was said",
-      String(exemptLines?.[0]?.taxableItems?.[0]?.subType) === "V004",
+      "its e-document — a receipt, the customer being a consumer — files the line under the card's rate's own sub-type, V003, because the line NAMES that rate",
+      String(exemptLines?.[0]?.taxableItems?.[0]?.subType) === String(exempt?.etaSubType) && exempt?.etaSubType === "V003",
       JSON.stringify(exemptLines?.[0]?.taxableItems ?? exemptQueued ?? null).slice(0, 200),
     );
     check(
@@ -650,11 +703,10 @@ export async function zeroPercentIsNeverInferred_D79(ctx: Ctx): Promise<void> {
     );
     const journal = (await req("GET", `/gl/journal-entries/${exemptFiled.body?.invoice?.journalEntryId ?? exemptFiled.body?.journalEntryId}`)).body;
     const revenueLine = (journal?.lines ?? []).find((l: any) => l.accountId === REVENUE);
-    check("the posted revenue line carries the rate, so the ledger alone can say what the sale was", revenueLine?.taxRateId === NOT_SUBJECT && revenueLine?.taxRatePercent === 0, JSON.stringify(revenueLine ?? journal ?? null).slice(0, 200));
+    check("the posted revenue line carries the card's rate, so the ledger alone can say what the sale was", revenueLine?.taxRateId === exempt?.id && revenueLine?.taxRatePercent === 0, JSON.stringify(revenueLine ?? journal ?? null).slice(0, 200));
     const vatRows = rows((await req("GET", `/financial-reports/vat-return?periodFrom=${TODAY}&periodTo=${TODAY}`)).body);
-    const notSubjectRow = vatRows.find((r: any) => r.side === "output" && r.taxRateId === NOT_SUBJECT);
-    check("and the VAT return reports it on a row named «غير خاضع», apart from the unnamed 0% row", notSubjectRow?.taxRateName === "غير خاضع" && n(notSubjectRow?.base) >= 100 && n(notSubjectRow?.tax) === 0, JSON.stringify(vatRows.filter((r: any) => r.side === "output")).slice(0, 300));
-
+    const exemptRow = vatRows.find((r: any) => r.side === "output" && r.taxRateId === exempt?.id);
+    check("and the VAT return reports it on the row named for that rate, apart from the unnamed 0% row", exemptRow?.taxRateName === exempt?.name && n(exemptRow?.base) >= 100 && n(exemptRow?.tax) === 0, JSON.stringify(vatRows.filter((r: any) => r.side === "output")).slice(0, 300));
     for (const id of ["SCN-D79-ONE-VAT-OFF", "SCN-D79-ONE-PICKED"]) {
       await req("POST", `/sales-invoices/${id}/cancel`, {});
     }

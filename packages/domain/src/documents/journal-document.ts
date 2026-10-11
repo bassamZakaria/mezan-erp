@@ -19,10 +19,14 @@ import { Money } from "../money/index.js";
 import { postJournalEntry, reverseJournalEntry, type JournalPostingDeps } from "../gl/index.js";
 import {
   ApprovalRequestRejectedError,
+  ApprovalRequestUntrustedError,
+  documentFingerprint,
   resubmitApproval,
   startApproval,
   submitApproval,
+  type ApprovalRequestRecord,
   type ApprovalRequestRepository,
+  type ApprovalSubject,
   type GateConfig,
   type GateableActionType,
 } from "../workflow/index.js";
@@ -208,17 +212,37 @@ export function createDocumentWorkflowGate(
     async evaluate(input) {
       const config = resolveConfig(input.actionType) ?? { actionType: input.actionType, steps: [] };
       if (requests) {
+        const subject: ApprovalSubject = {
+          documentId: input.document.id,
+          branchId: input.document.branchId,
+          fingerprint: documentFingerprint(input.document.content),
+        };
         // A confirm of an already-submitted document must READ its standing
         // request, never overwrite it: submitting afresh on every confirm threw
         // away the approval that had just been granted, so an approved document
         // could never be posted by anyone.
         const existing = await requests.findById(input.requestId);
         if (existing) {
-          if (existing.status === "approved") return { granted: true, requestId: existing.id };
-          if (existing.status === "pending") return { granted: false, requestId: existing.id };
+          if (existing.actionType !== input.actionType || existing.subject?.documentId !== subject.documentId) {
+            throw new ApprovalRequestUntrustedError(existing.id);
+          }
           if (existing.status === "rejected") throw new ApprovalRequestRejectedError(existing.id);
-          const resumed = await resubmitApproval(existing.id, { submittedBy: input.submittedBy }, requests);
-          return { granted: resumed.status === "approved", requestId: resumed.id };
+          if (existing.status === "modification_requested") {
+            const resumed = await resubmitApproval(existing.id, { submittedBy: input.submittedBy, subject }, requests);
+            return { granted: resumed.status === "approved", requestId: resumed.id };
+          }
+          const standsForThisDocument = sameSubject(existing.subject, subject) && input.document.heldRequestId === existing.id;
+          if (existing.status === "approved" && decidedBySomeoneElse(existing)) {
+            if (!standsForThisDocument) throw new ApprovalRequestUntrustedError(existing.id);
+            return { granted: true, requestId: existing.id };
+          }
+          if (existing.status === "pending" && standsForThisDocument) return { granted: false, requestId: existing.id };
+          // What is left was never decided by a second person: a request
+          // granted at submission whose document then failed to post, or one
+          // whose document changed while it waited. It is judged afresh.
+          const { request } = startApproval(config, { requestId: existing.id, submittedBy: input.submittedBy, submitterRoles: input.submitterRoles });
+          await requests.save({ ...existing, ...request, subject, updatedAt: new Date().toISOString() });
+          return { granted: request.status === "approved", requestId: existing.id };
         }
         const record = await submitApproval(
           {
@@ -227,6 +251,7 @@ export function createDocumentWorkflowGate(
             submittedBy: input.submittedBy,
             submitterRoles: input.submitterRoles,
             entityLabel: input.entityLabel ?? null,
+            subject,
           },
           config,
           requests,
@@ -241,4 +266,19 @@ export function createDocumentWorkflowGate(
       return { granted: request.status === "approved", requestId: request.id };
     },
   };
+}
+
+function sameSubject(stored: ApprovalSubject | null | undefined, current: ApprovalSubject): boolean {
+  return !!stored && stored.documentId === current.documentId && stored.branchId === current.branchId && stored.fingerprint === current.fingerprint;
+}
+
+/**
+ * SECURITY (maker-checker): a stored «approved» counts only when somebody
+ * other than the submitter closed the chain. One granted at submission — no
+ * chain configured, or an admin submitter — is judged again by the chain in
+ * force when its document is next confirmed.
+ */
+function decidedBySomeoneElse(request: ApprovalRequestRecord): boolean {
+  const closing = request.decisions[request.decisions.length - 1];
+  return closing !== undefined && (closing.kind === "approve" || closing.kind === "bypass") && closing.actorId !== request.submittedBy;
 }

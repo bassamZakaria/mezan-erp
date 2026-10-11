@@ -95,7 +95,6 @@ export const createSalesInvoiceSchema = z.object({
 
 /** Confirm a draft invoice (posts stock + the AR/revenue/COGS journal entry). */
 export const confirmSalesInvoiceSchema = z.object({
-  requestId: z.string().min(1).optional(),
   /**
    * N-9 — the `version` the screen was served. Sent back on the act so a second
    * till acting on a document that has already moved is refused with 409 rather

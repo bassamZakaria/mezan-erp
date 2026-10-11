@@ -28,6 +28,7 @@ import type {
   DocumentEventType,
   DocumentStockResult,
 } from "./hooks.js";
+import { confirmRequestIdOf, statedBranchOf } from "./hooks.js";
 import { assertTransition, isActive, type DocumentStatus } from "./status.js";
 import { ReversalDateBeforeOriginalError } from "../gl/errors.js";
 import {
@@ -66,8 +67,6 @@ export interface CreateDraftCommand<Line> {
 export interface ConfirmOptions {
   readonly actor?: string;
   readonly actorRoles?: readonly string[];
-  /** Workflow request id when the type is gated; defaults to a deterministic `${docId}:confirm`. */
-  readonly requestId?: string;
 }
 
 export interface ReverseOptions {
@@ -150,10 +149,11 @@ export class DocumentService<Line> {
       if (!this.deps.workflow) throw new MissingHookError(this.def.code, "workflow");
       const decision = await this.deps.workflow.evaluate({
         actionType: this.def.gateActionType,
-        requestId: opts.requestId ?? `${id}:confirm`,
+        requestId: confirmRequestIdOf(id),
         submittedBy: opts.actor ?? this.deps.actor ?? "system",
         submitterRoles: opts.actorRoles ?? this.deps.actorRoles,
         entityLabel: existing.docNo ?? existing.id,
+        document: { id, branchId: statedBranchOf(existing), content: existing, heldRequestId: existing.workflowRequestId },
       });
       if (!decision.granted) {
         // Confirming an already-held document is a no-op, not an illegal

@@ -46,7 +46,11 @@ export {
   resubmitApproval,
   ApprovalRequestNotFoundError,
   ApprovalRequestRejectedError,
+  ApprovalRequestUntrustedError,
+  type ApprovalSubject,
   type ApprovalRequestRecord,
   type ApprovalRequestRepository,
   type SubmitApprovalCommand,
 } from "./requests.js";
+
+export { documentFingerprint, sha256Hex } from "./fingerprint.js";

@@ -276,7 +276,6 @@ export interface CollectionResult {
 export interface ConfirmVoucherOptions {
   readonly actor?: string;
   readonly actorRoles?: readonly string[];
-  readonly requestId?: string;
 }
 
 export class VoucherService {

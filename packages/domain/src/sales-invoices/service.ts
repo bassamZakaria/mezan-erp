@@ -23,6 +23,7 @@ import type {
   DocumentWorkflowGate,
   DocumentEventPublisher,
 } from "../documents/hooks.js";
+import { confirmRequestIdOf, statedBranchOf } from "../documents/hooks.js";
 import type { GateableActionType } from "../workflow/index.js";
 import type { CreditControlMode } from "../settings/settings.js";
 import { checkCustomerCredit, CreditLimitExceededError, type CreditCheckResult } from "../credit-control/index.js";
@@ -229,7 +230,6 @@ export interface CreateSalesInvoiceCommand {
 export interface ConfirmSalesInvoiceOptions {
   readonly actor?: string;
   readonly actorRoles?: readonly string[];
-  readonly requestId?: string;
 }
 
 export interface ConfirmSalesInvoiceResult {
@@ -316,9 +316,10 @@ export class SalesInvoiceService {
     if (this.deps.workflow) {
       const decision = await this.deps.workflow.evaluate({
         actionType: GATE_ACTION,
-        requestId: opts.requestId ?? `${id}:confirm`,
+        requestId: confirmRequestIdOf(id),
         submittedBy: opts.actor ?? this.deps.actor ?? "system",
         submitterRoles: opts.actorRoles ?? this.deps.actorRoles,
+        document: { id, branchId: statedBranchOf(existing), content: existing, heldRequestId: existing.workflowRequestId },
       });
       if (!decision.granted) {
         // Re-confirming while the request is still in the inbox is a no-op, not

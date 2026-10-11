@@ -227,7 +227,7 @@ import { isProductionRuntime, permissionRefusalReporting, type PermissionRefusal
 import { BranchAccess, BranchRecordKind, branchDirectoryOf, branchPolicyEnforcement, type BranchDirectory } from "./branch-policy.js";
 import { createBarcodeConfigRoutes } from "./barcode-config-routes.js";
 import { createProfileRoutes } from "./profile-routes.js";
-import { DuplicateRecordIdError } from "@mezan/domain";
+import { ApprovalRequestUntrustedError, DuplicateRecordIdError } from "@mezan/domain";
 import { duplicateIdRefusal } from "./duplicate-id.js";
 
 function defaultEntitlementsResolver(): EntitlementsResolver {
@@ -1832,6 +1832,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
    */
   app.onError((err, c) => {
     if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
+    if (err instanceof ApprovalRequestUntrustedError) return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
     try {
       console.error(`[api] unhandled error on ${c.req.method} ${c.req.path}`, err);
     } catch {

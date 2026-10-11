@@ -230,6 +230,40 @@ export interface DocumentWorkflowInput {
   readonly submitterRoles?: readonly string[];
   /** Human-readable identifier shown in the approvals inbox — usually the document number. */
   readonly entityLabel?: string | null;
+  /**
+   * SECURITY: the stored document being confirmed, read by the service and
+   * never from a request. An approval is honoured only for this document, in
+   * this branch, with this content, and only when the document is itself held
+   * under that request.
+   */
+  readonly document: GatedDocument;
+}
+
+const CONFIRM_REQUEST_SUFFIX = ":confirm";
+
+/**
+ * SECURITY: the id of a document's confirm request is derived here from the
+ * stored document's id and from nothing a caller sends, so no request can be
+ * raised or read under an id of the caller's choosing.
+ */
+export function confirmRequestIdOf(documentId: string): string {
+  return `${documentId}${CONFIRM_REQUEST_SUFFIX}`;
+}
+
+export function documentIdOfConfirmRequest(requestId: string): string | null {
+  return requestId.endsWith(CONFIRM_REQUEST_SUFFIX) ? requestId.slice(0, -CONFIRM_REQUEST_SUFFIX.length) : null;
+}
+
+export function statedBranchOf(document: object): string | null {
+  const branchId = (document as { branchId?: unknown }).branchId;
+  return typeof branchId === "string" && branchId !== "" ? branchId : null;
+}
+
+export interface GatedDocument {
+  readonly id: string;
+  readonly branchId: string | null;
+  readonly content: object;
+  readonly heldRequestId: string | null;
 }
 
 /**

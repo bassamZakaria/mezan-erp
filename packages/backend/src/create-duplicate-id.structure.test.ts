@@ -1,6 +1,7 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import * as contracts from "@mezan/contracts";
 import { ALL_SCOPE, createEntitlements, LAN_MULTI_TILL_FEATURE, MODULE_CATALOG, RecordErrorCode } from "@mezan/domain";
@@ -21,6 +22,7 @@ interface CreateRoute {
   readonly route: string;
   readonly table: string;
   readonly idColumn?: string;
+  readonly refusedAs?: string;
   readonly existingIdSql?: string;
   readonly pathFor?: (sqlite: Sqlite) => string;
   readonly body?: (sampled: any, id: string, sqlite: Sqlite) => Record<string, unknown>;
@@ -92,10 +94,14 @@ const SEEDED_REFERENCES: Record<string, unknown> = {
 };
 
 /*
- * Every create schema in @mezan/contracts that accepts a caller-supplied `id`,
- * mapped to the route that parses it and the table its row lands in. A schema
- * added later with an `id` and no entry here fails the suite.
+ * Every schema a route parses that carries an identifier the CALLER chooses —
+ * `id`, a `code` that is the row's key, any `…requestId` — mapped to the route
+ * that parses it and the table its row lands in. The list of schemas is read
+ * from the route sources, not from their names: one added later, whatever it is
+ * called, fails the suite until it is mapped here or explained below.
  */
+const UPDATE_BY_PATH = "an update of the record its path names; the code is an attribute of that record, not the key a row is created under";
+
 const CREATE_ROUTES: Record<string, CreateRoute> = {
   createAccountSchema: { route: "/accounts", table: "account" },
   createAssetCategorySchema: { route: "/assets/categories", table: "asset_category" },
@@ -204,25 +210,36 @@ const CREATE_ROUTES: Record<string, CreateRoute> = {
     pathFor: (sqlite) => `/sales-quotes/${firstId(sqlite, "sales_quote")}/convert-to-invoice`,
   },
   buildSalesReturnFromInvoiceSchema: { route: "/sales-returns/from-invoice", table: "framework_document", existingIdSql: "SELECT * FROM framework_document WHERE doc_type = 'SALES_RETURN' ORDER BY id LIMIT 1" },
+  createItemUnitSchema: { route: "/item-units", table: "item_unit", idColumn: "code", refusedAs: "DUPLICATE_ITEM_UNIT_CODE" },
+  createItemSpecificationSchema: {
+    route: "/item-specifications",
+    table: "item_specification",
+    idColumn: "code",
+    refusedAs: "DUPLICATE_ITEM_SPECIFICATION_CODE",
+    body: (_sampled, code) => ({ code, nameAr: "مواصفة مكررة", type: "text" }),
+  },
 };
 
-/* Schemas that carry an `id` and create nothing under it, each with the reason. */
+/* Route-parsed schemas that carry such a key and create nothing under it, each with the reason. */
 const NOT_A_CREATE: Record<string, string> = {
   recordVanCashMovementSchema: "the handler mints the movement id itself; the body id is never stored",
-  recordRecentSchema: "the id names the record the user just opened; the store keys by user and record",
-  buildPurchaseReturnFromInvoiceSchema: "no route parses it",
-  createContractLineItemSchema: "a nested line of createContractSchema, never a request body",
-  createJournalDocumentSchema: "no route parses it",
-  cardCheckoutSchema: "platform checkout: the id is the tenant's own, resolved from the session",
-  configInputSchema: "a nested input of the configurator preview, which stores nothing",
-  importableDepartmentSchema: "a response shape; no route parses it",
-  openInvoiceSchema: "an open invoice as the allocation screen reads it, a response",
-  postPostingChangesReportSchema: "a response shape; no route parses it",
-  postedAdjustmentSchema: "a response shape; no route parses it",
-  postedTransferSchema: "a response shape; no route parses it",
+  salesInvoiceSchema: "shapes the response of a create; no request is parsed with it",
+  salesQuoteSchema: "shapes the response of a create; no request is parsed with it",
+  parseBarcodeRequestSchema: "the code is a scanned barcode to decode; nothing is stored",
+  createProductTemplateSchema: "the row's key is an id the server mints; the code is a unique attribute with its own refusal",
+  createRoleSchema: "the row's key is an id the server mints; the code is a unique attribute with its own refusal",
+  updateBranchSchema: UPDATE_BY_PATH,
+  updateCustomerSchema: UPDATE_BY_PATH,
+  updatePriceListSchema: UPDATE_BY_PATH,
+  updatePromotionSchema: UPDATE_BY_PATH,
+  updateRoleSchema: UPDATE_BY_PATH,
+  updateSupplierSchema: UPDATE_BY_PATH,
+  updateWarehouseSchema: UPDATE_BY_PATH,
 };
 
-const CREATE_NAME = /^(create|upsert|open|record|issue|start|post|import|save|add|build|convert|selfCreate|cardCheckout|configInput)/;
+const ROUTE_SOURCES = join(dirname(fileURLToPath(import.meta.url)), "../../api/src");
+const PARSED_BY_A_ROUTE = /\b([A-Za-z0-9_]+Schema)\b\s*\.\s*(?:safeParse|parse)\(/g;
+const CALLER_CHOSEN_IDENTIFIER = /^(id|code|.*[rR]equestId)$/;
 
 const unwrapped = (schema: any): any => {
   let current = schema;
@@ -236,11 +253,19 @@ const unwrapped = (schema: any): any => {
   return current;
 };
 
-const createSchemasWithId = Object.entries(contracts)
-  .filter(([name, value]) => CREATE_NAME.test(name) && value && typeof value === "object" && "_def" in (value as object))
-  .filter(([, value]) => Object.prototype.hasOwnProperty.call(unwrapped(value)?.shape ?? {}, "id"))
-  .map(([name]) => name)
-  .sort();
+const routeSource = readdirSync(ROUTE_SOURCES)
+  .filter((file) => file.endsWith(".ts") && !file.includes(".test."))
+  .map((file) => readFileSync(join(ROUTE_SOURCES, file), "utf8"))
+  .join("\n");
+const parsedByARoute = [...new Set([...routeSource.matchAll(PARSED_BY_A_ROUTE)].map((match) => match[1]!))];
+
+const identifierKeysOf = (name: string): string[] => {
+  const keys = Object.keys(unwrapped((contracts as Record<string, unknown>)[name])?.shape ?? {});
+  const chosen = keys.filter((key) => CALLER_CHOSEN_IDENTIFIER.test(key));
+  return chosen.includes("id") ? chosen.filter((key) => key !== "code") : chosen;
+};
+
+const createSchemasWithId = parsedByARoute.filter((name) => identifierKeysOf(name).length > 0).sort();
 
 let handle: BackendHandle;
 let sqlite: Sqlite;
@@ -286,6 +311,19 @@ describe("every create schema with a caller-supplied id is covered", () => {
     expect(unmapped).toEqual([]);
   });
 
+  it("reads the request schemas from the route sources", () => {
+    expect(parsedByARoute.length).toBeGreaterThan(200);
+    expect(parsedByARoute).toContain("submitApprovalRequestSchema");
+    expect(parsedByARoute).toContain("decideApprovalRequestSchema");
+  });
+
+  it("the approval routes take no identifier from the caller", () => {
+    expect(identifierKeysOf("submitApprovalRequestSchema")).toEqual([]);
+    expect(identifierKeysOf("decideApprovalRequestSchema")).toEqual([]);
+    expect(identifierKeysOf("confirmSalesInvoiceSchema")).toEqual([]);
+    expect(identifierKeysOf("confirmVoucherSchema")).toEqual([]);
+  });
+
   it("names no schema that no longer exists or no longer takes an id", () => {
     const stale = [...Object.keys(CREATE_ROUTES), ...Object.keys(NOT_A_CREATE)].filter((name) => !createSchemasWithId.includes(name));
     expect(stale).toEqual([]);
@@ -311,7 +349,7 @@ describe("a create that names an existing record's id is refused and writes noth
     expect(existing, `${entry.table} has no seeded row to collide with`).toBeDefined();
     const id = String(existing![idColumn]);
     const path = entry.pathFor ? entry.pathFor(sqlite) : entry.route;
-    const sampled = sampleOf((contracts as Record<string, any>)[schemaName], { ...SEEDED_REFERENCES, id }) as Record<string, unknown>;
+    const sampled = sampleOf((contracts as Record<string, any>)[schemaName], { ...SEEDED_REFERENCES, [idColumn]: id }) as Record<string, unknown>;
     const body = entry.body ? entry.body(sampled, id, sqlite) : sampled;
     expect((contracts as Record<string, any>)[schemaName].safeParse(body).success, `the body the test sends is not a valid ${schemaName}: ${JSON.stringify(body).slice(0, 300)}`).toBe(true);
 
@@ -323,7 +361,7 @@ describe("a create that names an existing record's id is refused and writes noth
     outcomes.push(`${schemaName}\t${path}\t${res.status}\t${res.body?.error ?? ""}\t${rowBefore === rowAfter ? "row-same" : "ROW-CHANGED"}\t${JSON.stringify(res.body).slice(0, 160)}`);
 
     expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(409);
-    expect(res.body?.error).toBe(RecordErrorCode.DuplicateId);
+    expect(res.body?.error).toBe(entry.refusedAs ?? RecordErrorCode.DuplicateId);
     expect(res.body?.message).toMatch(ARABIC);
     expect(rowAfter).toBe(rowBefore);
     expect(countsAfter).toEqual(countsBefore);

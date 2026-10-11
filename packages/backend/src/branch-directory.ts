@@ -1,5 +1,6 @@
 import type Database from "better-sqlite3";
 import { BranchAccess, BranchRecordKind, type BranchDirectory } from "@mezan/api";
+import { documentIdOfConfirmRequest } from "@mezan/domain";
 
 type Branches = readonly (string | null)[] | null;
 type Resolver = (id: string, access: BranchAccess) => Branches;
@@ -175,7 +176,7 @@ export function createSqliteBranchDirectory(sqlite: Database.Database): BranchDi
     configInstance: query("SELECT work_order_id FROM config_instance WHERE id = @id"),
     voucherAllocation: query("SELECT voucher_id, invoice_id FROM voucher_allocation WHERE id = @id"),
     followUp: query("SELECT installment_plan_id FROM collection_follow_up WHERE id = @id"),
-    approvalRequest: query("SELECT id FROM approval_request WHERE id = @id"),
+    approvalRequest: query("SELECT id, document_id FROM approval_request WHERE id = @id"),
     etaSubmission: query("SELECT internal_id FROM eta_submission WHERE id = @id"),
     etaSubmissionOf: query("SELECT internal_id FROM eta_submission WHERE internal_id = @id"),
     etaReceiptGap: query("SELECT internal_id FROM eta_receipt_gap WHERE internal_id = @id"),
@@ -263,15 +264,14 @@ export function createSqliteBranchDirectory(sqlite: Database.Database): BranchDi
       return row ? (planId ? (resolve(K.InstallmentPlan, planId, access) ?? []) : []) : null;
     },
     [K.ApprovalRequest]: (id, access) => {
-      if (sql.approvalRequest(id).length === 0) return null;
+      const request = sql.approvalRequest(id)[0];
+      if (!request) return null;
       for (const [heldBy, kind] of workflowHeldQueries) {
         const held = text(heldBy(id)[0]?.["id"]);
         if (held) return resolve(kind, held, access) ?? [];
       }
-      // A purchase invoice keeps no back-reference to its request; like every
-      // request, its id is `<document id>:<action>`.
-      const separator = id.lastIndexOf(":");
-      return separator > 0 ? (firstOf(ANY_DOCUMENT_KINDS, id.slice(0, separator), access) ?? []) : [];
+      const documentId = text(request["document_id"]) ?? documentIdOfConfirmRequest(id);
+      return documentId ? (firstOf(ANY_DOCUMENT_KINDS, documentId, access) ?? []) : [];
     },
     [K.EtaSubmission]: (id, access) => {
       const row = sql.etaSubmission(id)[0];

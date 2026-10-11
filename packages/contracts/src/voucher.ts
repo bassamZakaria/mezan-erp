@@ -121,9 +121,7 @@ export const createVoucherSchema = z.object({
 });
 
 /** Confirm a draft voucher (posts GL, stamps CV- number). */
-export const confirmVoucherSchema = z.object({
-  requestId: z.string().min(1).optional(),
-});
+export const confirmVoucherSchema = z.object({});
 
 /** Reverse a confirmed voucher. */
 export const reverseVoucherSchema = z.object({
@@ -191,7 +189,6 @@ export const createCollectionSchema = z.object({
   withholdingAmount: moneyString.nullish(),
   withholdingRatePercent: z.number().min(0).max(100).nullish(),
   withholdingGlAccountId: z.string().nullish(),
-  requestId: z.string().min(1).optional(),
   allocations: z
     .array(
       z.object({

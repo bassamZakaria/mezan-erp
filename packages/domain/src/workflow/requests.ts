@@ -15,9 +15,18 @@ import {
   type GateConfig,
 } from "./gate.js";
 
+/** The document a request was raised for, as it stood when it was submitted. */
+export interface ApprovalSubject {
+  readonly documentId: string;
+  readonly branchId: string | null;
+  readonly fingerprint: string;
+}
+
 export interface ApprovalRequestRecord extends ApprovalRequest {
   /** Free-text label for the gated entity (e.g. "فاتورة مبيعات INV-000123"), for the inbox row. */
   readonly entityLabel: string | null;
+  /** Null for a request that gates no document. */
+  readonly subject?: ApprovalSubject | null;
   readonly createdAt: string;
   readonly updatedAt: string;
 }
@@ -26,6 +35,13 @@ export interface ApprovalRequestRecord extends ApprovalRequest {
 export interface ApprovalRequestRepository {
   list(): Promise<readonly ApprovalRequestRecord[]>;
   findById(id: string): Promise<ApprovalRequestRecord | null>;
+  /**
+   * SECURITY: the only way a request comes to exist. It throws
+   * `DuplicateRecordIdError` on an id already held and leaves that row as it
+   * was — a request that could be re-created could be re-created approved.
+   */
+  insert(record: ApprovalRequestRecord): Promise<void>;
+  /** Records a transition of a standing request; creates nothing. */
   save(record: ApprovalRequestRecord): Promise<void>;
   /** Pending requests whose CURRENT step's role is held by the caller (or every pending request for `["*"]`). */
   listPendingForRoles(roles: readonly string[]): Promise<readonly ApprovalRequestRecord[]>;
@@ -45,6 +61,20 @@ export class ApprovalRequestRejectedError extends Error {
   }
 }
 
+/**
+ * Thrown when a document is confirmed on the strength of a request that is not
+ * its own approval: one it did not raise, one recorded for another action,
+ * branch or content, or one no second person decided.
+ */
+export class ApprovalRequestUntrustedError extends Error {
+  readonly code = "APPROVAL_REQUEST_UNTRUSTED" as const;
+  readonly messageEn = "This document's approval request does not match the document as it stands, so it cannot be confirmed on it. Return the document to draft and submit it again.";
+  constructor(readonly id: string) {
+    super("طلب الموافقة المسجَّل لهذا المستند لا يطابق المستند بحالته الحالية، فلا يُعتمد عليه في التأكيد. أعد المستند إلى مسودة ثم أرسله للموافقة من جديد.");
+    this.name = "ApprovalRequestUntrustedError";
+  }
+}
+
 export class ApprovalRequestNotFoundError extends Error {
   readonly code = "APPROVAL_REQUEST_NOT_FOUND" as const;
   constructor(readonly id: string) {
@@ -59,6 +89,7 @@ export interface SubmitApprovalCommand {
   readonly submittedBy: string;
   readonly submitterRoles?: readonly string[];
   readonly entityLabel?: string | null;
+  readonly subject?: ApprovalSubject | null;
   readonly at?: number;
 }
 
@@ -76,8 +107,8 @@ export async function submitApproval(
     at: cmd.at,
   });
   const ts = now();
-  const record: ApprovalRequestRecord = { ...request, entityLabel: cmd.entityLabel ?? null, createdAt: ts, updatedAt: ts };
-  await repo.save(record);
+  const record: ApprovalRequestRecord = { ...request, entityLabel: cmd.entityLabel ?? null, subject: cmd.subject ?? null, createdAt: ts, updatedAt: ts };
+  await repo.insert(record);
   return record;
 }
 
@@ -91,7 +122,7 @@ export async function decideApproval(
   const existing = await repo.findById(id);
   if (!existing) throw new ApprovalRequestNotFoundError(id);
   const { request } = gateDecide(existing, input);
-  const record: ApprovalRequestRecord = { ...request, entityLabel: existing.entityLabel, createdAt: existing.createdAt, updatedAt: now() };
+  const record: ApprovalRequestRecord = { ...request, entityLabel: existing.entityLabel, subject: existing.subject ?? null, createdAt: existing.createdAt, updatedAt: now() };
   await repo.save(record);
   return record;
 }
@@ -99,14 +130,20 @@ export async function decideApproval(
 /** Re-submits a request bounced back as `modification_requested`, restarting the chain from step 0. */
 export async function resubmitApproval(
   id: string,
-  input: { submittedBy?: string; at?: number } = {},
+  input: { submittedBy?: string; at?: number; subject?: ApprovalSubject | null } = {},
   repo: ApprovalRequestRepository,
   now: () => string = () => new Date().toISOString(),
 ): Promise<ApprovalRequestRecord> {
   const existing = await repo.findById(id);
   if (!existing) throw new ApprovalRequestNotFoundError(id);
   const { request } = gateResubmit(existing, input);
-  const record: ApprovalRequestRecord = { ...request, entityLabel: existing.entityLabel, createdAt: existing.createdAt, updatedAt: now() };
+  const record: ApprovalRequestRecord = {
+    ...request,
+    entityLabel: existing.entityLabel,
+    subject: input.subject === undefined ? (existing.subject ?? null) : input.subject,
+    createdAt: existing.createdAt,
+    updatedAt: now(),
+  };
   await repo.save(record);
   return record;
 }

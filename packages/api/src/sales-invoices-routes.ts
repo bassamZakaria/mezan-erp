@@ -1052,7 +1052,6 @@ export function createSalesInvoicesRoutes(
     const ctx = getAuthContext(c);
     try {
       const result = await svc.confirm(c.req.param("id"), {
-        requestId: parsed.data.requestId,
         actor: ctx?.userId,
         actorRoles: gateActorRoles(c),
       });

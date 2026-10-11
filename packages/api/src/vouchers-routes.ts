@@ -693,7 +693,7 @@ export function createVouchersRoutes(
           invoiceId: a.invoiceId,
           ...(a.amount ? { amount: Money.fromMajor(a.amount) } : {}),
         })),
-        { requestId: d.requestId, actor: ctx?.userId, actorRoles: gateActorRoles(c) },
+        { actor: ctx?.userId, actorRoles: gateActorRoles(c) },
       );
       return c.json(
         {
@@ -748,7 +748,6 @@ export function createVouchersRoutes(
     try {
       const ctx = getAuthContext(c);
       const result = await serviceFor(c).confirmVoucher(c.req.param("id"), {
-        requestId: parsed.data.requestId,
         actor: ctx?.userId,
         actorRoles: gateActorRoles(c),
       });

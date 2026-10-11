@@ -43,7 +43,9 @@ export type {
   DocumentEventType,
   DocumentDomainEvent,
   DocumentEventPublisher,
+  GatedDocument,
 } from "./hooks.js";
+export { confirmRequestIdOf, documentIdOfConfirmRequest } from "./hooks.js";
 
 export type {
   FrameworkDocument,

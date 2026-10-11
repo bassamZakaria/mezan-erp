@@ -50,10 +50,9 @@ export const approvalRequestSchema = z.object({
 });
 
 /** `POST /workflow/requests` — submits a new approval request for a gateable action. */
-export const submitApprovalRequestSchema = z.object({
+export const submitApprovalRequestSchema = z.strictObject({
   actionType: z.string().min(1),
   entityLabel: z.string().min(1).optional(),
-  requestId: z.string().min(1).optional(),
 });
 
 /** `POST /workflow/requests/:id/decide` — the inbox's approve / reject / request-modification actions. */

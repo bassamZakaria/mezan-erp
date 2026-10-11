@@ -672,6 +672,24 @@ describe("what a return form may still take from an invoice is the server's figu
   });
 });
 
+describe("a return form's source lines follow the invoice's own visibility (D79 round 5)", () => {
+  it("hides a sales invoice's lines from a caller who may only see their own invoices, as the invoice read does", async () => {
+    const own = ["sales.return.create", "sales.invoice.view_own"];
+    expect((await call("GET", "/sales-invoices/T-RET-SRC", undefined, own)).status).toBe(404);
+    expect((await call("GET", "/sales-returns/source-lines/T-RET-SRC", undefined, own)).status).toBe(404);
+    expect((await call("GET", "/sales-returns/source-lines/T-RET-SRC", undefined, ["sales.return.create"])).status).toBe(404);
+    expect((await call("GET", "/sales-returns/source-lines/T-RET-SRC", undefined, ["sales.return.create", "sales.invoice.view"])).status).toBe(200);
+  });
+
+  it("hides a purchase invoice's lines from a caller who did not enter it and may only see their own", async () => {
+    const own = ["purchases.return.create", "purchases.invoice.view_own"];
+    expect((await call("GET", "/purchases/invoices/T-PRET-SRC", undefined, own)).status).toBe(404);
+    expect((await call("GET", "/purchase-returns/source-lines/T-PRET-SRC", undefined, own)).status).toBe(404);
+    expect((await call("GET", "/purchase-returns/source-lines/T-PRET-SRC", undefined, ["purchases.return.create"])).status).toBe(404);
+    expect((await call("GET", "/purchase-returns/source-lines/T-PRET-SRC", undefined, ["purchases.return.create", "purchases.invoice.view"])).status).toBe(200);
+  });
+});
+
 describe("the tenant's VAT switch reaches every path that raises a sale (D79 round 5)", () => {
   const quoteLines = [
     { lineId: "A", itemId: "ITEM-DEMO-10", itemNameAr: "خدمة", qty: "1", unitPrice: "100", taxRatePercent: 0, taxRateId: null },

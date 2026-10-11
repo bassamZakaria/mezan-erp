@@ -26,6 +26,8 @@ export interface SourcePurchaseInvoiceLine {
 export interface SourcePurchaseInvoice {
   readonly id: string;
   readonly number: string;
+  /** The user who entered the invoice — what an own-records caller's visibility is measured against. */
+  readonly createdBy?: string | null;
   readonly supplierId: string;
   readonly warehouseId: string;
   readonly date: string;

@@ -1941,6 +1941,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       return {
         id: invoice.id,
         number: invoice.docNo ?? invoice.id,
+        salespersonId: invoice.salespersonId,
         customerId: invoice.customerId,
         warehouseId: invoice.warehouseId,
         projectId: invoice.projectId,
@@ -1990,6 +1991,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       return {
         id: invoice.id,
         number: invoice.number ?? invoice.id,
+        createdBy: invoice.createdBy,
         supplierId: invoice.supplierId,
         warehouseId: invoice.warehouseId,
         // A return inherits the invoice's project and each line's cost

@@ -112,10 +112,23 @@ export function createSalesReturnsRoutes(
    * answers 503 rather than flipping a state flag that moves no money.
    */
   refunds?: SalesReturnRefundPort,
+  /** The employee a user sells as; absent, an own-records caller is shown no source invoice at all. */
+  ownSalespersonId?: (userId: string) => Promise<string | null>,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
   const gateAny = createAnyPermissionGate(resolveAuthContext);
+
+  // INVARIANT: the SAME rule `GET /sales-invoices/:id` applies. A caller whose
+  // only invoice grant is the own-records tier — or who holds none — reads
+  // the lines of the invoices they sold and of no other.
+  const sourceInvoiceHidden = async (c: Context, invoice: { readonly salespersonId?: string | null }): Promise<boolean> => {
+    const ctx = getAuthContext(c);
+    if (!ctx) return true;
+    if (can(ctx, "sales.invoice.view") || can(ctx, "sales.invoice.view_all")) return false;
+    const own = ownSalespersonId ? await ownSalespersonId(ctx.userId) : null;
+    return own === null || invoice.salespersonId !== own;
+  };
 
   /*
    * D70 — the `sales.return.view_own` tier, enforced.
@@ -381,7 +394,7 @@ export function createSalesReturnsRoutes(
       return c.json({ error: "INVOICE_LOOKUP_UNAVAILABLE", message: "قراءة بنود الفاتورة المصدر تتطلب وحدة فواتير المبيعات." }, 503);
     }
     const invoice = await invoices.findConfirmedInvoice(c.req.param("invoiceId"));
-    if (!invoice) return c.json(SOURCE_INVOICE_NOT_FOUND, 404);
+    if (!invoice || (await sourceInvoiceHidden(c, invoice))) return c.json(SOURCE_INVOICE_NOT_FOUND, 404);
     return c.json(
       returnSourceLinesSchema.parse({
         sourceInvoiceId: invoice.id,

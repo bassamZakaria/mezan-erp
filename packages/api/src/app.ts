@@ -1286,6 +1286,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
         (options.salesReturns.resolveAuthContext ?? resolveAuth),
         options.salesReturns.invoices,
         options.salesReturns.refunds,
+        async (userId) => (await uow.users.findById(userId))?.employeeId ?? null,
       ),
     );
   }

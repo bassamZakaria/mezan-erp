@@ -10,6 +10,8 @@ import {
   InvalidOpeningBalanceError,
   NegativeCashBalanceError,
   TreasuryAccountNotFoundError,
+  TreasuryAccountHasMovementsError,
+  TreasuryGlAccountCurrencyConflictError,
   AuditChangeAction,
   type AuditSink,
   type TreasuryAccount,
@@ -66,7 +68,9 @@ function handleDomainError(c: Context, err: unknown) {
   if (
     err instanceof NegativeCashBalanceError ||
     err instanceof InvalidGuaranteeFacilityLimitError ||
-    err instanceof InvalidOpeningBalanceError
+    err instanceof InvalidOpeningBalanceError ||
+    err instanceof TreasuryAccountHasMovementsError ||
+    err instanceof TreasuryGlAccountCurrencyConflictError
   ) {
     return refuse(err, 422);
   }
@@ -89,7 +93,7 @@ export function createTreasuryAccountsRoutes(
    * live-balance label is the defect `73381da` fixed — so the live figures are
    * omitted rather than approximated when no ledger is wired.
    */
-  ledger?: { accountBalance(accountId: string, asOfDate?: string): Promise<{ balance: Money }> },
+  ledger?: { accountBalance(accountId: string, asOfDate?: string): Promise<{ balance: Money }>; listLines?(filter: { accountIds: readonly string[] }): Promise<readonly unknown[]> },
   /**
    * Which GL account a till or bank posts to is what decides where cash lands.
    * Repointing one silently is the treasury twin of raising a credit limit.
@@ -275,7 +279,9 @@ export function createTreasuryAccountsRoutes(
     }
     try {
       const before = await repo.findById(c.req.param("id"));
-      const account = await updateTreasuryAccount(c.req.param("id"), parsed.data, repo);
+      const account = await updateTreasuryAccount(c.req.param("id"), parsed.data, repo, {
+        hasPostedLines: async (glAccountId) => ((await ledger?.listLines?.({ accountIds: [glAccountId] })) ?? []).length > 0,
+      });
       await auditAccount(c, account, AuditChangeAction.Update, before);
       return c.json(serialize(account));
     } catch (err) {

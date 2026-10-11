@@ -17,10 +17,13 @@ export {
   InvalidOpeningBalanceError,
   TreasuryAccountNotFoundError,
   NegativeCashBalanceError,
+  TreasuryAccountFixedField,
+  TreasuryAccountHasMovementsError,
+  TreasuryGlAccountCurrencyConflictError,
 } from "./errors.js";
 export {
   validateNewTreasuryAccount,
   createTreasuryAccount,
   type CreateTreasuryAccountCommand,
 } from "./create-treasury-account.js";
-export { updateTreasuryAccount, type UpdateTreasuryAccountCommand } from "./update-treasury-account.js";
+export { updateTreasuryAccount, type UpdateTreasuryAccountCommand, type TreasuryAccountMovementProbe } from "./update-treasury-account.js";

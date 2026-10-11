@@ -2,10 +2,10 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { createBackend, createPlatform, TenantOwnerAccountNotFoundError, type BackendHandle, type PlatformHandle } from "@mezan/backend";
+import { createBackend, createPlatform, OwnerPinResetOutcome, TenantOwnerAccountNotFoundError, type BackendHandle, type PlatformHandle } from "@mezan/backend";
 import { createTenant, retirePlan, startSubscription, TenantCodeTakenError } from "@mezan/domain";
 import { createTenantRouter, TENANT_HEADER, type TenantRouter } from "./tenant-router.js";
-import { provisionTenant, TenantProvisioningError } from "./provision-tenant.js";
+import { provisionTenant, ProvisioningSupersededError, TenantProvisioningError } from "./provision-tenant.js";
 
 const T = "2026-01-15T00:00:00.000Z";
 
@@ -278,5 +278,96 @@ describe("provisionTenant", () => {
     expect((thrown as TenantProvisioningError).cause).toBeInstanceOf(TenantOwnerAccountNotFoundError);
     expect((await platform.stores.tenants.findById(tenant.id))?.status).toBe("provisioning");
     expect(await platform.stores.subscriptions.findLiveByTenant(tenant.id)).toBeNull();
+  });
+
+  describe("a contested provisioning claim", () => {
+    const cmd = {
+      code: "raced", nameAr: "متنازع عليها", ownerEmail: "owner@raced.example", ownerNameAr: "المدير",
+      planId: "PLAN-CORE", billingCycle: "monthly" as const, trial: false,
+    };
+
+    async function halfProvisioned(firstPin: string) {
+      const platform = await newPlatform();
+      await retirePlan({ id: "PLAN-CORE" }, platform.stores.plans);
+      const router = newRouter(platform);
+      await expect(provisionTenant(cmd, { platform, router, now: () => new Date(T), pinOf: () => firstPin })).rejects.toBeInstanceOf(TenantProvisioningError);
+      return { platform, router, resume: { ...cmd, planId: "PLAN-BUSINESS" } };
+    }
+
+    function lostAtCheck(lostAt: number): () => Promise<boolean> {
+      let checks = 0;
+      return async () => (checks += 1) < lostAt;
+    }
+
+    it("writes no PIN once the claim is lost before the PIN step", async () => {
+      const { platform, router, resume } = await halfProvisioned("111111");
+
+      await expect(
+        provisionTenant(resume, { platform, router, now: () => new Date(T), pinOf: () => "222222", stillOurs: lostAtCheck(1) }),
+      ).rejects.toBeInstanceOf(ProvisioningSupersededError);
+
+      const backend = await router.backendFor("raced");
+      expect((await platform.stores.tenants.findByCode("raced"))?.status).toBe("provisioning");
+      expect((await login(backend, cmd.ownerEmail, "222222")).status).toBe(401);
+      expect((await login(backend, cmd.ownerEmail, "111111")).status).toBe(200);
+    });
+
+    it("starts no subscription once the claim is lost before the subscription step", async () => {
+      const { platform, router, resume } = await halfProvisioned("111111");
+
+      await expect(
+        provisionTenant(resume, { platform, router, now: () => new Date(T), pinOf: () => "222222", stillOurs: lostAtCheck(2) }),
+      ).rejects.toBeInstanceOf(ProvisioningSupersededError);
+
+      const tenant = await platform.stores.tenants.findByCode("raced");
+      expect(tenant?.status).toBe("provisioning");
+      expect(await platform.stores.subscriptions.findLiveByTenant(tenant?.id ?? "")).toBeNull();
+    });
+
+    it("does not activate the tenant once the claim is lost before activation", async () => {
+      const { platform, router, resume } = await halfProvisioned("111111");
+
+      await expect(
+        provisionTenant(resume, { platform, router, now: () => new Date(T), pinOf: () => "222222", stillOurs: lostAtCheck(3) }),
+      ).rejects.toBeInstanceOf(ProvisioningSupersededError);
+
+      expect((await platform.stores.tenants.findByCode("raced"))?.status).toBe("provisioning");
+    });
+
+    it("refuses the PIN of a holder that froze after its last check and was superseded, so every PIN handed out signs in", async () => {
+      const { platform, router, resume } = await halfProvisioned("111111");
+      const deps = { platform, router, now: () => new Date(T) };
+      let winner: Awaited<ReturnType<typeof provisionTenant>> | null = null;
+      let frozen = false;
+      const freezeWhileAnotherHolderFinishes = async () => {
+        if (frozen) return true;
+        frozen = true;
+        winner = await provisionTenant(resume, { ...deps, pinOf: () => "333333", fence: 2 });
+        return true;
+      };
+
+      const stale = provisionTenant(resume, { ...deps, pinOf: () => "222222", stillOurs: freezeWhileAnotherHolderFinishes, fence: 1 });
+
+      await expect(stale).rejects.toBeInstanceOf(ProvisioningSupersededError);
+      const backend = await router.backendFor("raced");
+      expect(winner).toMatchObject({ adminPin: "333333" });
+      expect((await login(backend, cmd.ownerEmail, "222222")).status).toBe(401);
+      expect((await login(backend, cmd.ownerEmail, "333333")).status).toBe(200);
+    });
+
+    it("lets a later holder write over an earlier one, and an operator's unfenced reset over both", async () => {
+      const { platform, router, resume } = await halfProvisioned("111111");
+      const backend = await router.backendFor("raced");
+      const reset = (pin: string, fence?: number) =>
+        backend.resetOwnerPin({ email: cmd.ownerEmail, pin, onlyIfNeverSignedIn: true, actor: "test", ...(fence === undefined ? {} : { fence }) });
+
+      expect(await reset("444444", 5)).toBe(OwnerPinResetOutcome.Reset);
+      expect(await reset("555555", 4)).toBe(OwnerPinResetOutcome.Superseded);
+      expect(await reset("666666", 5)).toBe(OwnerPinResetOutcome.Reset);
+      expect(await reset("777777")).toBe(OwnerPinResetOutcome.Reset);
+      expect(await reset("888888", 4)).toBe(OwnerPinResetOutcome.Superseded);
+      expect((await login(backend, cmd.ownerEmail, "777777")).status).toBe(200);
+      expect(resume.planId).toBe("PLAN-BUSINESS");
+    });
   });
 });

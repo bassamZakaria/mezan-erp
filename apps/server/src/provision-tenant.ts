@@ -22,6 +22,8 @@ export interface ProvisionTenantDeps {
   readonly now: () => Date;
   readonly pinOf?: () => string;
   readonly stillOurs?: () => Promise<boolean>;
+  /** The generation of the provisioning claim this call runs under. The tenant refuses a PIN from an older one. */
+  readonly fence?: number;
 }
 
 export interface ProvisionTenantResult {
@@ -110,7 +112,9 @@ export async function provisionTenant(cmd: ProvisionTenantCommand, deps: Provisi
         pin: freshPin,
         onlyIfNeverSignedIn: true,
         actor: cmd.actorId ? platformActor(cmd.actorId) : PROVISIONING_ACTOR,
+        ...(deps.fence === undefined ? {} : { fence: deps.fence }),
       });
+      if (outcome === OwnerPinResetOutcome.Superseded) throw new ProvisioningSupersededError();
       if (outcome === OwnerPinResetOutcome.OwnerNotFound) throw new TenantOwnerAccountNotFoundError();
       if (outcome === OwnerPinResetOutcome.Reset) adminPin = freshPin;
     } else {

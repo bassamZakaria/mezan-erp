@@ -156,7 +156,13 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_signup_request_token ON signup_request(tok
 CREATE TABLE IF NOT EXISTS signup_provision_claim (
   token_hash TEXT PRIMARY KEY,
   claim_id   TEXT NOT NULL,
-  claimed_at TEXT NOT NULL
+  claimed_at TEXT NOT NULL,
+  fence      INTEGER
+);
+-- AUTOINCREMENT on purpose: a fence must never be reused, even after every claim row is gone.
+CREATE TABLE IF NOT EXISTS provision_fence (
+  generation INTEGER PRIMARY KEY AUTOINCREMENT,
+  taken_at   TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_signup_request_code ON signup_request(code, status, expires_at);
 
@@ -192,6 +198,8 @@ function addMissingColumns(sqlite: Database.Database): void {
   if (!onSubscription.has("previous_plan_id")) sqlite.exec(`ALTER TABLE subscription ADD COLUMN previous_plan_id TEXT`);
   if (!onSubscription.has("billing_anchor_day")) sqlite.exec(`ALTER TABLE subscription ADD COLUMN billing_anchor_day INTEGER`);
   const onTenant = new Set((sqlite.prepare(`PRAGMA table_info(tenant)`).all() as { name: string }[]).map((c) => c.name));
+  const onClaim = new Set((sqlite.prepare(`PRAGMA table_info(signup_provision_claim)`).all() as { name: string }[]).map((c) => c.name));
+  if (!onClaim.has("fence")) sqlite.exec(`ALTER TABLE signup_provision_claim ADD COLUMN fence INTEGER`);
   if (!onTenant.has("owner_user_id")) sqlite.exec(`ALTER TABLE tenant ADD COLUMN owner_user_id TEXT`);
   if (!onTenant.has("owner_contact_verified")) sqlite.exec(`ALTER TABLE tenant ADD COLUMN owner_contact_verified INTEGER NOT NULL DEFAULT 1`);
 }
@@ -775,16 +783,22 @@ class SqliteSignupRequestStore implements SignupRequestRepository {
   private readonly renew: Database.Statement;
   private readonly followOwner: Database.Statement;
   private readonly claimedAt: Database.Statement;
+  private readonly fenceOf: Database.Statement;
 
   constructor(sqlite: Database.Database) {
     const dropStaleClaim = sqlite.prepare(`DELETE FROM signup_provision_claim WHERE token_hash = ? AND claimed_at < ?`);
     const insertClaim = sqlite.prepare(`INSERT OR IGNORE INTO signup_provision_claim (token_hash, claim_id, claimed_at) VALUES (?, ?, ?)`);
+    const takeFence = sqlite.prepare(`INSERT INTO provision_fence (taken_at) VALUES (?)`);
+    const stampFence = sqlite.prepare(`UPDATE signup_provision_claim SET fence = ? WHERE token_hash = ? AND claim_id = ?`);
+    this.fenceOf = sqlite.prepare(`SELECT fence FROM signup_provision_claim WHERE token_hash = ? AND claim_id = ?`);
     // IMMEDIATE: the stale-claim delete and the insert must be one write transaction,
     // or two processes can both delete the same dead claim and both believe they hold it.
     this.claim = sqlite
       .transaction((tokenHash: string, claimId: string, nowIso: string, staleBeforeIso: string) => {
         dropStaleClaim.run(tokenHash, staleBeforeIso);
-        return insertClaim.run(tokenHash, claimId, nowIso).changes === 1;
+        if (insertClaim.run(tokenHash, claimId, nowIso).changes !== 1) return false;
+        stampFence.run(Number(takeFence.run(nowIso).lastInsertRowid), tokenHash, claimId);
+        return true;
       })
       .immediate;
     this.release = sqlite.prepare(`DELETE FROM signup_provision_claim WHERE token_hash = ? AND claim_id = ?`);
@@ -840,6 +854,10 @@ class SqliteSignupRequestStore implements SignupRequestRepository {
   async provisioningClaimedAt(tokenHash: string): Promise<string | null> {
     const row = this.claimedAt.get(tokenHash) as { claimed_at: string } | undefined;
     return row?.claimed_at ?? null;
+  }
+
+  async provisioningFence(tokenHash: string, claimId: string): Promise<number | null> {
+    return (this.fenceOf.get(tokenHash, claimId) as { fence: number | null } | undefined)?.fence ?? null;
   }
 
   async followOwnerEmail(code: string, before: string, after: string): Promise<void> {

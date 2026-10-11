@@ -105,6 +105,8 @@ export interface SignupRequestRepository {
   /** False once another caller has taken the claim over: the holder must stop before it hands out a PIN. */
   renewProvisioning(tokenHash: string, claimId: string, nowIso: string): Promise<boolean>;
   provisioningClaimedAt(tokenHash: string): Promise<string | null>;
+  /** The generation of the claim `claimId` holds: higher than every claim taken before it, on any token. Null once the claim is no longer this caller's. */
+  provisioningFence(tokenHash: string, claimId: string): Promise<number | null>;
   releaseProvisioning(tokenHash: string, claimId: string): Promise<void>;
   followOwnerEmail(code: string, before: string, after: string): Promise<void>;
 }

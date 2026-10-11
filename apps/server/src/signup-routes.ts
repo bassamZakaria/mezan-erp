@@ -297,7 +297,7 @@ export function createSignupRoutes(options: SignupRoutesOptions): Hono {
     return { tenant: tenantDTOOf(tenant), adminEmail: request.ownerEmail, adminPin: null, alreadyVerified: true };
   }
 
-  async function settleVerification(request: SignupRequest, stillOurs: () => Promise<boolean>): Promise<VerifySignupResultDTO> {
+  async function settleVerification(request: SignupRequest, stillOurs: () => Promise<boolean>, fence: number): Promise<VerifySignupResultDTO> {
     const settled = await tenantSettledBy(request);
     if (settled) return alreadyVerifiedAnswer(settled, request);
 
@@ -313,7 +313,7 @@ export function createSignupRoutes(options: SignupRoutesOptions): Hono {
           billingCycle: request.billingCycle,
           trial: true,
         },
-        { platform, router, now, stillOurs },
+        { platform, router, now, stillOurs, fence },
       );
       router.invalidate(provisioned.tenant.code);
       return { ...provisionResultDTOOf(provisioned), alreadyVerified: provisioned.adminPin === null };
@@ -363,7 +363,9 @@ export function createSignupRoutes(options: SignupRoutesOptions): Hono {
     const heartbeat = setInterval(() => void stillOurs().catch((err: unknown) => console.error("[signup] provisioning claim heartbeat failed", err)), provisionHeartbeatMs);
     heartbeat.unref();
     try {
-      return await settleVerification(request, stillOurs);
+      const fence = await claims.provisioningFence(tokenHash, claimId);
+      if (fence === null) throw new ProvisioningSupersededError();
+      return await settleVerification(request, stillOurs, fence);
     } catch (err) {
       if (err instanceof ProvisioningSupersededError) return await answerOfTheWinner(request, tokenHash, giveUpAt);
       throw err;

@@ -216,6 +216,26 @@ describe("signup provisioning claim", () => {
     close();
   });
 
+  it("gives each claim a generation higher than every claim before it, on any token, and none to a caller that does not hold the claim", async () => {
+    const { signupRequests, close } = createSqlitePlatformStores(":memory:");
+
+    await signupRequests.tryClaimProvisioning(TOKEN, "first", AT, STALE_BEFORE);
+    const first = await signupRequests.provisioningFence(TOKEN, "first");
+    expect(await signupRequests.provisioningFence(TOKEN, "second")).toBeNull();
+    await signupRequests.tryClaimProvisioning("another-token", "other", AT, STALE_BEFORE);
+    const other = await signupRequests.provisioningFence("another-token", "other");
+    await signupRequests.releaseProvisioning(TOKEN, "first");
+    await signupRequests.releaseProvisioning("another-token", "other");
+    await signupRequests.tryClaimProvisioning(TOKEN, "second", AT, STALE_BEFORE);
+    const second = await signupRequests.provisioningFence(TOKEN, "second");
+
+    expect(first).toBeGreaterThan(0);
+    expect(other).toBeGreaterThan(first ?? 0);
+    expect(second).toBeGreaterThan(other ?? 0);
+    expect(await signupRequests.provisioningFence(TOKEN, "first")).toBeNull();
+    close();
+  });
+
   it("is taken over once its holder has been gone longer than the stale window, and not a moment before", async () => {
     const { signupRequests, close } = createSqlitePlatformStores(":memory:");
     await signupRequests.tryClaimProvisioning(TOKEN, "dead", "2026-01-15T09:58:00.000Z", "2026-01-15T09:56:00.000Z");

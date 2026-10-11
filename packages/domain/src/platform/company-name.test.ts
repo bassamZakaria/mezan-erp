@@ -30,6 +30,7 @@ function signups(): SignupRequestRepository & { rows: SignupRequest[] } {
     async tryClaimProvisioning() { return true; },
     async renewProvisioning() { return true; },
     async provisioningClaimedAt() { return null; },
+    async provisioningFence() { return 1; },
     async followOwnerEmail() {},
     async releaseProvisioning() {},
   };

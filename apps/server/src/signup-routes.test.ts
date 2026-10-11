@@ -791,6 +791,48 @@ describe("a signup verification whose provisioning claim is contested", () => {
     expect((await platform.stores.subscriptions.listByTenant(bodies[1]?.tenant.id ?? "")).length).toBe(1);
   });
 
+  it("never hands out a dead PIN when a holder freezes after its last claim check, just before it writes the PIN, and is superseded meanwhile", async () => {
+    const EVEN_LATER = "2026-01-15T00:06:00.000Z";
+    const dataDir = platformDir();
+    const platform = await openPlatform(dataDir);
+    const firstStalled = deferred();
+    const frozenBeforeThePin = deferred();
+    const first = signupProcess(platform, dataDir, { stores: stallingAfterThePin(firstStalled) });
+    let checks = 0;
+    const second = signupProcess(await openPlatform(dataDir), dataDir, {
+      now: () => new Date(LATER),
+      stores: (stores) => {
+        const signupRequests = Object.create(stores.signupRequests) as SignupStores["signupRequests"];
+        signupRequests.renewProvisioning = async (...args) => {
+          const ours = await stores.signupRequests.renewProvisioning(...args);
+          if ((checks += 1) === 1) {
+            frozenBeforeThePin.arrive();
+            await frozenBeforeThePin.promise;
+          }
+          return ours;
+        };
+        return { signupRequests };
+      },
+    });
+    const third = signupProcess(await openPlatform(dataDir), dataDir, { now: () => new Date(EVEN_LATER) });
+    const token = await startOn(first.signup, "frozen");
+
+    const abandoned = send(first.signup, "/verify", { token });
+    await firstStalled.reached;
+    const superseded = send(second.signup, "/verify", { token });
+    await frozenBeforeThePin.reached;
+    const winner = await send(third.signup, "/verify", { token });
+    frozenBeforeThePin.release();
+    firstStalled.release();
+
+    const answers = [await abandoned, await superseded, winner];
+    const bodies = (await Promise.all(answers.map((answer) => answer.json()))) as VerifyBody[];
+    expect(answers.map((answer) => answer.status)).toEqual([200, 200, 200]);
+    const pins = bodies.map((body) => body.adminPin).filter((pin): pin is string => pin !== null);
+    expect(pins).toEqual([bodies[2]?.adminPin]);
+    expect((await tenantLogin(third.router, "frozen", pins[0] ?? null)).status).toBe(200);
+  });
+
   it("answers 503 with a retry hint to a second opener that outwaits a live provision, without writing to the platform database while it waits", async () => {
     const dataDir = platformDir();
     const platform = await openPlatform(dataDir);

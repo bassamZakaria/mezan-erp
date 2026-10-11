@@ -369,3 +369,4 @@ export {
 
 export * from "./pos/index.js";
 export * from "./enh/index.js";
+export { createSqliteOwnerPinFence, type OwnerPinFence } from "./owner-pin-fence.js";

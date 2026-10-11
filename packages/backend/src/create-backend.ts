@@ -221,6 +221,7 @@ import {
   createDataMigrationTransactor,
   createSqliteBarcodeConfigStore,
   createSqliteUserPreferencesStore,
+  createSqliteOwnerPinFence,
   createSqliteAuditSink,
   deriveAuditChainKey,
   createSqliteLabelLayoutStore,
@@ -491,6 +492,8 @@ export enum OwnerPinResetOutcome {
   Reset = "reset",
   OwnerNotFound = "owner_not_found",
   AlreadySignedIn = "already_signed_in",
+  /** A later holder of the provisioning claim has already written the PIN: this caller's PIN must never be handed out. */
+  Superseded = "superseded",
 }
 
 export interface ResetOwnerPinCommand {
@@ -500,6 +503,8 @@ export interface ResetOwnerPinCommand {
   readonly pin: string;
   readonly onlyIfNeverSignedIn: boolean;
   readonly actor: string;
+  /** The caller's provisioning-claim generation. Omitted by an operator's deliberate reset, which no claim can supersede. */
+  readonly fence?: number;
 }
 
 /** The account a caller holding the handle may treat as the company's owner: never an erased one. */
@@ -706,6 +711,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   });
   const barcodeConfig = createSqliteBarcodeConfigStore(sqlite);
   const userPreferences = createSqliteUserPreferencesStore(sqlite);
+  const ownerPinFence = createSqliteOwnerPinFence(sqlite);
   const dataMigrationTransactor = createDataMigrationTransactor(sqlite);
   // The boundary a route-level config write shares with its audit row (D298).
   // Same shared connection the audit sink writes on, so the append nests as a
@@ -4275,7 +4281,22 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     const owner = cmd.userId ? await uow.users.findById(cmd.userId) : await uow.users.findByEmail(cmd.email.trim().toLowerCase());
     if (!owner || !owner.isCompanyAdmin || owner.status !== UserStatusCode.Active) return OwnerPinResetOutcome.OwnerNotFound;
     if (cmd.onlyIfNeverSignedIn && owner.lastLoginAt !== null) return OwnerPinResetOutcome.AlreadySignedIn;
-    await uow.users.save({ ...owner, pinHash: await hasher.hash(cmd.pin) });
+    const pinHash = await hasher.hash(cmd.pin);
+    // SECURITY: the fence is compared and raised in the same transaction as the
+    // PIN write. A holder that lost its claim while it was paused arrives here
+    // with an older generation and writes nothing, so the PIN the newer holder
+    // handed out is the one that still signs in.
+    const written = await uow.transaction(async (tx) => {
+      if (cmd.fence !== undefined) {
+        if (cmd.fence < ownerPinFence.current()) return false;
+        ownerPinFence.raiseTo(cmd.fence);
+      }
+      const current = await tx.users.findById(owner.id);
+      if (!current) return false;
+      await tx.users.save({ ...current, pinHash });
+      return true;
+    });
+    if (!written) return OwnerPinResetOutcome.Superseded;
     sessions.revokeUser(owner.id);
     loginThrottle.succeed(owner.email.trim().toLowerCase());
     await recordSecurityEvent(auditSink, {

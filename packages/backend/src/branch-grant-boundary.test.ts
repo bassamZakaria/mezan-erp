@@ -1835,3 +1835,25 @@ describe("D111 round 3 · a branch user does not rewrite what prices every branc
     expect((await admin("PATCH", "/items/ITEM-DEMO-1", { costPrice: "140" })).status).toBe(200);
   });
 });
+
+describe("D111 round 3 · the attendance summary is the branch's own workforce", () => {
+  const window = "from=2026-01-01&to=2026-12-31";
+
+  it("a branch user gets a summary of its own employees and none of another branch's", async () => {
+    const mainEmployee = one<{ id: string }>("SELECT e.id FROM hr_employee e JOIN hr_attendance a ON a.employee_id = e.id WHERE e.branch_id = ? LIMIT 1", MAIN)!.id;
+    const company = (await admin("GET", `/hr/attendance/summary?${window}`)).body;
+    expect(company.daysPresent).toBeGreaterThan(0);
+    for (const caller of [alex, alexStar]) {
+      const mine = await caller("GET", `/hr/attendance/summary?${window}`);
+      expect(mine.status, JSON.stringify(mine.body).slice(0, 200)).toBe(200);
+      expect(mine.body.daysPresent).toBe(0);
+      expect(mine.body.workedMinutes).toBe(0);
+      const named = await caller("GET", `/hr/attendance/summary?${window}&employeeId=${mainEmployee}`);
+      expect(named.status).toBe(404);
+      expect(named.body.message).toMatch(ARABIC);
+    }
+    const theirs = await mainOnly("GET", `/hr/attendance/summary?${window}`);
+    expect(theirs.body.daysPresent).toBe(company.daysPresent);
+    expect((await mainOnly("GET", `/hr/attendance/summary?${window}&employeeId=${mainEmployee}`)).status).toBe(200);
+  });
+});

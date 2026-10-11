@@ -303,7 +303,7 @@ export const BRANCH_POLICY_TABLE: readonly BranchPolicyEntry[] = [
 
   scoped("/hr/employees", K.Employee),
   scoped("/hr/contracts", K.EmployeeContract),
-  scoped("/hr/attendance", K.Attendance, { companyWide: ["/import"] }),
+  scoped("/hr/attendance", K.Attendance, { companyWide: ["/import"], handlerNarrowed: ["/summary"] }),
   scoped("/hr/leave-requests", K.LeaveRequest),
   scoped("/hr/leave-balances", K.LeaveBalance),
   scoped("/hr/advances", K.EmployeeAdvance),

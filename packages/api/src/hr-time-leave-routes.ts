@@ -1,3 +1,4 @@
+import { BranchRecordKind, BranchRefusalCode, branchRefusal, recordInBranchGrant, recordsInBranchGrant } from "./branch-policy.js";
 import { randomUUID } from "node:crypto";
 import { Hono, type Context } from "hono";
 import {
@@ -239,7 +240,7 @@ export function createHrTimeLeaveRoutes(deps: HrTimeLeaveRoutesDeps, resolveAuth
     // to render `?? 0` in that state, so four zeros sat above a table of forty
     // present days: a plausible figure where the honest one was available.
     if (!employeeId) {
-      const entries = await deps.attendance.list({ from, to });
+      const entries = await recordsInBranchGrant(c, BranchRecordKind.Attendance, await deps.attendance.list({ from, to }), (entry) => entry.id);
       const workforce = summarizeWorkforceAttendance(from, to, entries);
       return c.json({
         employeeId: null,
@@ -259,6 +260,7 @@ export function createHrTimeLeaveRoutes(deps: HrTimeLeaveRoutesDeps, resolveAuth
         attendanceRatePercent: 100 - workforce.absenceRatePercent,
       });
     }
+    if (!(await recordInBranchGrant(c, BranchRecordKind.Employee, employeeId))) return branchRefusal(c, BranchRefusalCode.NotFound);
     const entries = await deps.attendance.list({ employeeId, from, to });
     return c.json(summarizeAttendance(employeeId, from, to, entries));
   });

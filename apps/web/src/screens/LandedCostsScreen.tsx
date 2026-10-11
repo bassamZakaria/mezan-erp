@@ -15,6 +15,7 @@ import {
   type EntityPickerOption,
   type PillTone,
   type RowMenuItem,
+  ConfirmDialog,
 } from "@mezan/ui";
 import { Money, Qty, distributeLandedCost, landedCostTotalsByType, type AllocatedLandedCostLine } from "@mezan/domain";
 import type {
@@ -342,6 +343,9 @@ export function LandedCostsScreen() {
     }
   }
 
+  const [reversingId, setReversingId] = useState<string | null>(null);
+  const [reverseAsked, setReverseAsked] = useState<string | null>(null);
+
   async function confirmExisting(id: string) {
     setError(null);
     try {
@@ -361,11 +365,16 @@ export function LandedCostsScreen() {
   }
 
   async function reverseConfirmed(id: string) {
+    if (reversingId !== null) return;
+    setReverseAsked(null);
+    setReversingId(id);
     setError(null);
     try {
       await reverseLandedCost.mutateAsync(id);
     } catch (err) {
       setError(errorMessage(err, t("common.failed")));
+    } finally {
+      setReversingId(null);
     }
   }
 
@@ -474,7 +483,7 @@ export function LandedCostsScreen() {
                   { key: "cancel", label: t("common.cancel"), onSelect: () => void cancelExisting(d.id) },
                 ]
               : []),
-            ...(d.status === "confirmed" ? [{ key: "void", label: t("landedCosts.void"), onSelect: () => void reverseConfirmed(d.id) }] : []),
+            ...(d.status === "confirmed" ? [{ key: "void", label: t("landedCosts.void"), tone: "danger" as const, disabled: reversingId === d.id, confirm: { title: t("landedCosts.void"), consequence: t("landedCosts.voidConsequence", { doc: d.docNo ?? d.id }), confirmLabel: t("landedCosts.void") }, onSelect: () => void reverseConfirmed(d.id) }] : []),
           ];
           return (
             <div className="flex items-center gap-2" onClick={(event) => event.stopPropagation()}>
@@ -714,9 +723,19 @@ export function LandedCostsScreen() {
               </div>
             ) : null}
             {selected.status === "confirmed" ? (
-              <Button variant="default" onClick={() => reverseConfirmed(selected.id)}>
-                {t("landedCosts.void")}
-              </Button>
+              <>
+                <Button variant="danger-outline" disabled={reversingId === selected.id} onClick={() => setReverseAsked(selected.id)}>
+                  {t("landedCosts.void")}
+                </Button>
+                <ConfirmDialog
+                  open={reverseAsked === selected.id}
+                  title={t("landedCosts.void")}
+                  consequence={t("landedCosts.voidConsequence", { doc: selected.docNo ?? selected.id })}
+                  confirmLabel={t("landedCosts.void")}
+                  onConfirm={() => void reverseConfirmed(selected.id)}
+                  onCancel={() => setReverseAsked(null)}
+                />
+              </>
             ) : null}
           </div>
         ) : null}

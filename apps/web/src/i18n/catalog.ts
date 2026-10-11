@@ -2339,6 +2339,7 @@ const webAr = {
   "landedCosts.newUnitCost": "تكلفة جديدة",
   "landedCosts.confirm": "تأكيد التوزيع",
   "landedCosts.void": "إلغاء المستند",
+  "landedCosts.voidConsequence": "سيُعكس مستند التكلفة الإضافية {doc}: تُسحب التكلفة من البضاعة التي حُمِّلت عليها ويُرحَّل قيد عكسي بتاريخ اليوم.",
 
   // purchases — requests for quotation
   "rfqs.status.draft": "مسودة",
@@ -11794,6 +11795,7 @@ const webEn: Record<WebTranslationKey, string> = {
   "landedCosts.newUnitCost": "New unit cost",
   "landedCosts.confirm": "Confirm distribution",
   "landedCosts.void": "Cancel document",
+  "landedCosts.voidConsequence": "Landed cost {doc} will be reversed: the cost comes back off the goods it was loaded onto and a reversing entry is posted dated today.",
 
   // purchases — requests for quotation
   "rfqs.status.draft": "Draft",

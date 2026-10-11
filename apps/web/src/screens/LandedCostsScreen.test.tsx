@@ -141,6 +141,10 @@ describe("LandedCostsScreen", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "تأكيد التوزيع" }));
     expect(await within(dialog).findByRole("button", { name: "إلغاء المستند" })).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole("button", { name: "إلغاء المستند" }));
+    const confirmation = await screen.findByText(/سيُعكس مستند التكلفة الإضافية LC-000001/);
+    expect(confirmation).toBeInTheDocument();
+    const confirmButtons = screen.getAllByRole("button", { name: "إلغاء المستند" });
+    fireEvent.click(confirmButtons[confirmButtons.length - 1]!);
     await within(dialog).findByText("معكوس");
   });
 });

@@ -159,8 +159,11 @@ export function createLandedCostsRoutes(
 
   app.post("/:id/reverse", gate("purchases.landed_cost.void"), async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as { date?: unknown; reversalId?: unknown } | null;
+    if (body?.date !== undefined && body.date !== null && (typeof body.date !== "string" || body.date.trim() === "")) {
+      return c.json({ error: "VALIDATION_ERROR", message: "تاريخ العكس يجب أن يكون نصاً بصيغة YYYY-MM-DD.", messageEn: "The reversal date must be a YYYY-MM-DD string." }, 400);
+    }
     try {
-      const date = await tenantDay(c, typeof body?.date === "string" && body.date !== "" ? body.date : new Date().toISOString());
+      const date = await tenantDay(c, typeof body?.date === "string" ? body.date : new Date().toISOString());
       const result = await landedCostService.reverse(c.req.param("id"), {
         reversalId: typeof body?.reversalId === "string" && body.reversalId !== "" ? body.reversalId : randomUUID(),
         date,

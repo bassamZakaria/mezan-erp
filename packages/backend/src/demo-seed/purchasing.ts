@@ -400,7 +400,7 @@ export async function seedPurchasing(app: App): Promise<void> {
 
   await step(app, "POST", "/landed-costs", {
     id: "LC-DEMO-2",
-    date: "2026-08-21",
+    date: "2026-08-23",
     memo: `تأمين ورسوم جمركية على إذن الاستلام ${receiptTwo.number}`,
     distributionMethod: "BY_QUANTITY",
     costItems: [

@@ -2788,6 +2788,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   // accounts, posted through the same GL engine every other voucher uses. ---
   const vanTripVoucherService = new VoucherService({
     documents: vouchers.documents,
+    vatFilings,
     ledger,
     accounts,
     periods: fiscalPeriods,
@@ -2803,6 +2804,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   });
   const hrTreasuryDisbursement = createHrTreasuryDisbursementPort({
     documents: vouchers.documents,
+    vatFilings,
     ledger,
     accounts,
     periods: fiscalPeriods,
@@ -3000,6 +3002,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   };
   const settlementPreviewer = new VoucherService({
     documents: vouchers.documents,
+    vatFilings,
     ledger,
     accounts,
     periods: fiscalPeriods,
@@ -3038,6 +3041,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       if (!doc || doc.status !== "confirmed") return;
       await new VoucherService({
         documents: vouchers.documents,
+        vatFilings,
         ledger,
         accounts,
         periods: fiscalPeriods,
@@ -3133,6 +3137,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     const voucherId = `COLL:${input.invoiceId}:${randomUUID()}`;
     const service = new VoucherService({
       documents: vouchers.documents,
+      vatFilings,
       ledger,
       accounts,
       periods: fiscalPeriods,
@@ -3276,6 +3281,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       resolveGateConfig: (actionType) => workflowConfigs.resolveSync(actionType),
       approvalRequests,
       documents: vouchers.documents,
+      vatFilings,
       allocations: vouchers.allocations,
       invoices: vouchers.invoices,
       ledger,
@@ -3350,6 +3356,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         const voucherId = `PAY:${input.invoiceId}:${randomUUID()}`;
         const service = new VoucherService({
           documents: vouchers.documents,
+          vatFilings,
           ledger,
           accounts,
           periods: fiscalPeriods,
@@ -3490,6 +3497,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       }),
       entryPoster: createVoucherBankEntryPoster({
         documents: vouchers.documents,
+        vatFilings,
         allocations: vouchers.allocations,
         invoices: vouchers.invoices,
         ledger,
@@ -4056,6 +4064,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
           const voucherId = `REFUND:${command.returnId}:${randomUUID()}`;
           const service = new VoucherService({
             documents: vouchers.documents,
+            vatFilings,
             ledger,
             accounts,
             periods: fiscalPeriods,

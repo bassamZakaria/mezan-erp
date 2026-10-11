@@ -166,6 +166,8 @@ export interface VoucherServiceDeps {
   readonly ledger: LedgerRepository;
   readonly accounts: Pick<AccountRepository, "findById">;
   readonly periods: Pick<FiscalPeriodRepository, "findByDate">;
+  /** Filed VAT returns: a voucher is not posted into a month whose return is filed, like every other document. */
+  readonly vatFilings?: JournalPostingDeps["vatFilings"];
   readonly numbering: NextNumberService;
   readonly treasuryAccounts: Pick<TreasuryAccountRepository, "findById">;
   readonly allocations: AllocationRepository;
@@ -291,6 +293,7 @@ export class VoucherService {
       ledger: deps.ledger,
       accounts: deps.accounts,
       periods: deps.periods,
+      vatFilings: deps.vatFilings,
       numbering: deps.numbering,
       audit: deps.audit,
       now: deps.now,

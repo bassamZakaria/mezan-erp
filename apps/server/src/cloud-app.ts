@@ -16,6 +16,7 @@ import type { CreateTenantRequestDTO, OwnerPinResetResultDTO, ProvisionResultDTO
 import { createTenantRouter, requireOriginSecret, type TenantRouter } from "./tenant-router.js";
 import { provisionResultDTOOf, provisionTenant, PlanRequiredError } from "./provision-tenant.js";
 import { resetTenantOwnerPin } from "./owner-pin-reset.js";
+import { createSourceReporter } from "./client-source.js";
 import { createSignupRoutes, SIGNUP_BASE_PATH } from "./signup-routes.js";
 import { provisionDemoTenant } from "./demo-tenant.js";
 import { provisionReviewTenant } from "./review-tenant.js";
@@ -91,6 +92,7 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
 
   const sessions = createSessionRegistry();
   const auth = createPlatformAuth({ platform, sessions, now });
+  const sourceReporter = createSourceReporter();
 
   const router = createTenantRouter({
     platform,
@@ -225,13 +227,7 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
   // Above the demo basic-auth: a store reviewer opens these signed out.
   root.route(
     LEGAL_BASE_PATH,
-    createLegalRoutes({
-      platform,
-      supportEmail: env.supportEmail,
-      platformSmtp: env.platformSmtp,
-      trustProxy: env.trustProxy,
-      now,
-    }),
+    createLegalRoutes({ platform, supportEmail: env.supportEmail, platformSmtp: env.platformSmtp, clientSource: env.clientSource, sourceReporter, now }),
   );
 
   if (options.authMiddleware) {
@@ -244,7 +240,7 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
   // otherwise swallow the console's routes first.
   root.route("/api/platform", platformApp);
   root.route("/api/billing", createTenantBillingRoutes({ platform, router, env, service: checkoutService, now }));
-  root.route(SIGNUP_BASE_PATH, createSignupRoutes({ platform, router, env, now }));
+  root.route(SIGNUP_BASE_PATH, createSignupRoutes({ platform, router, env, now, sourceReporter }));
   root.route("/api", router.app);
 
   if (checkoutService && testProvider) {

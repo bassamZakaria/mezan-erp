@@ -16,7 +16,7 @@ import {
   type SignupRequest,
   type Tenant,
 } from "@mezan/domain";
-import { requestOrigin, sendNotificationEmail } from "@mezan/api";
+import { sendNotificationEmail } from "@mezan/api";
 import type { PlatformHandle } from "@mezan/backend";
 import {
   startSignupRequestSchema,
@@ -28,6 +28,7 @@ import {
 } from "@mezan/contracts";
 import { provisionResultDTOOf, provisionTenant, ProvisioningSupersededError, TenantProvisioningError } from "./provision-tenant.js";
 import { forwardedOrigin } from "./billing-routes.js";
+import { callerSource, requireCloudSource, type SourceReporter } from "./client-source.js";
 import { createRateLimiter } from "./rate-limit.js";
 import type { CloudEnv } from "./env.js";
 import type { TenantRouter } from "./tenant-router.js";
@@ -53,15 +54,6 @@ export class SignupVerificationBusyError extends Error {
 
 function pause(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/** The IP a signup attempt is counted against — `x-forwarded-for` only when this deployment is known to sit behind a trusted proxy, never taken on a caller's word alone (same gate `forwardedOrigin` uses). */
-function clientIp(c: Context, trustProxy: boolean): string {
-  if (trustProxy) {
-    const forwarded = c.req.header("x-forwarded-for")?.split(",")[0]?.trim();
-    if (forwarded) return forwarded;
-  }
-  return requestOrigin(c) ?? "unknown";
 }
 
 function hashToken(token: string): string {
@@ -142,6 +134,7 @@ export interface SignupRoutesOptions {
   readonly now?: () => Date;
   readonly provisionWaitMs?: number;
   readonly provisionHeartbeatMs?: number;
+  readonly sourceReporter?: SourceReporter;
 }
 
 /**
@@ -169,6 +162,7 @@ export function createSignupRoutes(options: SignupRoutesOptions): Hono {
   const verifyIpLimit = createRateLimiter(30, 60 * 60_000);
 
   const app = new Hono();
+  app.use("*", requireCloudSource(env.clientSource, options.sourceReporter));
 
   function tooManyRequests(c: Context, retryAfterSeconds: number): Response {
     c.header("retry-after", String(retryAfterSeconds));
@@ -189,7 +183,7 @@ export function createSignupRoutes(options: SignupRoutesOptions): Hono {
    * shape as `/platform/resolve`'s fix (see `tenant-router.ts`).
    */
   app.get("/check-code", async (c) => {
-    const ip = clientIp(c, env.trustProxy);
+    const ip = callerSource(c);
     const wait = checkCodeLimit.retryAfter(ip);
     if (wait > 0) return tooManyRequests(c, wait);
     checkCodeLimit.consume(ip);
@@ -204,7 +198,7 @@ export function createSignupRoutes(options: SignupRoutesOptions): Hono {
   });
 
   app.post("/", async (c) => {
-    const ip = clientIp(c, env.trustProxy);
+    const ip = callerSource(c);
     const ipWait = startIpLimit.retryAfter(ip);
     if (ipWait > 0) return tooManyRequests(c, ipWait);
     // Consumed BEFORE parsing, not after: a flood of malformed bodies must
@@ -376,7 +370,7 @@ export function createSignupRoutes(options: SignupRoutesOptions): Hono {
   }
 
   app.post("/verify", async (c) => {
-    const ip = clientIp(c, env.trustProxy);
+    const ip = callerSource(c);
     const wait = verifyIpLimit.retryAfter(ip);
     if (wait > 0) return tooManyRequests(c, wait);
     verifyIpLimit.consume(ip);

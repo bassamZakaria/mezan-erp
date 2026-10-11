@@ -23,7 +23,20 @@ export const PLATFORM_OWNER_PASSWORD = "owner-password-123";
 export const MAIN_SERVER_TODAY = "2027-01-31";
 export const DEMO_SERVER_TODAY = "2026-10-11";
 export const DEMO_TENANT = { code: "demo", adminEmail: "admin@cyag.example", adminPin: "123456" } as const;
-export const SIGNUP_SOURCE_HEADER = "x-forwarded-for";
+export const FORWARDED_FOR_HEADER = "x-forwarded-for";
+export const TRUSTED_PROXY_HOPS = 2;
+export const TRUSTED_PROXY_HOP = "130.176.0.7";
+export const DEFAULT_BROWSER_CLIENT = "10.9.0.1";
+
+/** What a browser sends: the dev proxy in front of the API appends its own hop, which makes the chain two trusted hops long. */
+export function browserSource(client: string): Record<string, string> {
+  return { [FORWARDED_FOR_HEADER]: client };
+}
+
+/** The chain a request reaching the API directly must carry to look as it would behind the two trusted proxies. `claimed` is whatever the caller wrote ahead of them. */
+export function proxiedSource(client: string, claimed?: string): Record<string, string> {
+  return { [FORWARDED_FOR_HEADER]: [...(claimed === undefined ? [] : [claimed]), client, TRUSTED_PROXY_HOP].join(", ") };
+}
 export const WALK_DIR = "e2e-results/saas-walk";
 
 export enum Locale {
@@ -69,6 +82,7 @@ export enum ApiError {
   TenantCodeTaken = "TENANT_CODE_TAKEN",
   ValidationError = "VALIDATION_ERROR",
   TooManyRequests = "TOO_MANY_REQUESTS",
+  SourceUnresolved = "SOURCE_UNRESOLVED",
   WarehouseLimitReached = "WAREHOUSE_LIMIT_REACHED",
   InvalidSignature = "INVALID_SIGNATURE",
   InvalidCredentials = "INVALID_CREDENTIALS",

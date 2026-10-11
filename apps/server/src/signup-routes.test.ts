@@ -9,6 +9,7 @@ import { createBackend, createPlatform, type PlatformHandle } from "@mezan/backe
 import { TenantStatusCode, type Subscription } from "@mezan/domain";
 import { createCloudApp, type CloudApp } from "./cloud-app.js";
 import { createSignupRoutes } from "./signup-routes.js";
+import { reachable } from "./cloud-harness.js";
 import { provisionTenant } from "./provision-tenant.js";
 import { createTenantRouter, TENANT_HEADER, type TenantRouter } from "./tenant-router.js";
 import { COMPANY_NAME_MAX_LENGTH } from "@mezan/domain";
@@ -58,6 +59,7 @@ async function boot(): Promise<CloudApp> {
     },
     { now: () => new Date(T) },
   );
+  reachable(app.root);
   apps.push(app);
   return app;
 }
@@ -631,7 +633,7 @@ function signupProcess(platform: PlatformHandle, dataDir: string, options: Signu
   if (saveSubscription) subscriptions.save = saveSubscription((subscription) => platform.stores.subscriptions.save(subscription));
   const withSubscriptions: SignupStores = saveSubscription ? { ...platform.stores, subscriptions } : platform.stores;
   const seen: PlatformHandle = { ...platform, stores: { ...withSubscriptions, ...stores?.(withSubscriptions) } };
-  const signup = createSignupRoutes({ platform: seen, router, env: { ...parseEnv({}), platformDir: dataDir }, now, provisionWaitMs, provisionHeartbeatMs });
+  const signup = reachable(createSignupRoutes({ platform: seen, router, env: { ...parseEnv({}), platformDir: dataDir }, now, provisionWaitMs, provisionHeartbeatMs }));
   return { signup, router };
 }
 
@@ -997,3 +999,54 @@ describe("a stored subscription status this build does not know", () => {
     expect((await platform.stores.tenants.findById(tenant.id))?.status).toBe("active");
   });
 });
+
+describe("the address a signup is counted against", () => {
+  const STARTS_PER_SOURCE_PER_HOUR = 8;
+
+  async function proxiedSignup(): Promise<Hono> {
+    const dataDir = platformDir();
+    const platform = await openPlatform(dataDir);
+    const router = createTenantRouter({ platform, dataDir, sweepEveryMs: 0, now: () => new Date(T) });
+    routers.push(router);
+    const env = { ...parseEnv({ MEZAN_TRUST_PROXY: "1", MEZAN_TRUSTED_PROXY_HOPS: "2" }), platformDir: dataDir };
+    return createSignupRoutes({ platform, router, env, now: () => new Date(T), sourceReporter: { unresolved: () => undefined, viewerMismatch: () => undefined } });
+  }
+
+  const startFrom = (app: Hono, chain: string | null) =>
+    Promise.resolve(
+      app.fetch(
+        new Request("http://signup.internal/", {
+          method: "POST",
+          headers: { "content-type": "application/json", ...(chain === null ? {} : { "x-forwarded-for": chain }) },
+          body: "{}",
+        }),
+      ),
+    );
+
+  it("throttles the hop the trusted proxy appended, however the caller rewrites the hops ahead of it", async () => {
+    const app = await proxiedSignup();
+
+    const statuses: number[] = [];
+    for (let n = 0; n <= STARTS_PER_SOURCE_PER_HOUR; n += 1) statuses.push((await startFrom(app, `203.0.113.${n}, 41.33.10.10, 130.176.0.7`)).status);
+
+    expect(statuses).toEqual([...Array.from({ length: STARTS_PER_SOURCE_PER_HOUR }, () => 400), 429]);
+  });
+
+  it("does not throttle a caller because another caller wrote its address first in the chain", async () => {
+    const app = await proxiedSignup();
+    for (let n = 0; n <= STARTS_PER_SOURCE_PER_HOUR; n += 1) await startFrom(app, "41.33.10.11, 41.33.10.10, 130.176.0.7");
+
+    expect((await startFrom(app, "41.33.10.11, 130.176.0.7")).status).toBe(400);
+  });
+
+  it("refuses a request whose chain is too short to hold the caller's address, instead of counting it as the proxy", async () => {
+    const app = await proxiedSignup();
+
+    const refused = await startFrom(app, "130.176.0.7");
+    const bare = await startFrom(app, null);
+
+    expect([refused.status, bare.status]).toEqual([503, 503]);
+    expect(await refused.json()).toMatchObject({ error: "SOURCE_UNRESOLVED", message: "تعذّر تحديد مصدر الطلب. حاول مرة أخرى بعد قليل." });
+  });
+});
+

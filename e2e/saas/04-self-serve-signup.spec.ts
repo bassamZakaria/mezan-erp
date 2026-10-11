@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { ApiError, BillingCycle, CodePrefix, HttpMethod, PlanCode, PlanId, SAAS_API_URL, SIGNUP_SOURCE_HEADER, SubscriptionStatus, TENANT_HEADER, uniqueCode } from "./support/env";
+import { ApiError, BillingCycle, CodePrefix, HttpMethod, PlanCode, PlanId, SAAS_API_URL, SubscriptionStatus, TENANT_HEADER, FORWARDED_FOR_HEADER, browserSource, proxiedSource, uniqueCode } from "./support/env";
 import { errorOf, invoiceDrafts, rowsOf, storedSession, tenantApiLogin, tenantCall, tenantSignIn, type TenantLogin } from "./support/saas";
 
 const CODE = uniqueCode(CodePrefix.SignedUp);
@@ -18,16 +18,20 @@ const SIGNUPS_PER_SOURCE_PER_HOUR = 8;
 const TOO_MANY_ATTEMPTS = "محاولات كثيرة جدًا، حاول لاحقًا";
 let sourcesHandedOut = 0;
 
-function freshSource(): Record<string, string> {
+function freshClient(): string {
   const n = sourcesHandedOut++;
-  return { [SIGNUP_SOURCE_HEADER]: `10.4.${Math.floor(n / SOURCES_PER_BLOCK)}.${1 + (n % SOURCES_PER_BLOCK)}` };
+  return `10.4.${Math.floor(n / SOURCES_PER_BLOCK)}.${1 + (n % SOURCES_PER_BLOCK)}`;
+}
+
+function freshSource(): Record<string, string> {
+  return proxiedSource(freshClient());
 }
 
 test.describe.configure({ mode: "serial" });
 
 test.describe("Self-serve signup — form, verification link, first sign-in", () => {
   test.beforeEach(async ({ context }) => {
-    await context.setExtraHTTPHeaders(freshSource());
+    await context.setExtraHTTPHeaders(browserSource(freshClient()));
   });
 
   test("the signup request is posted to the route the server mounts", async ({ request }) => {
@@ -45,19 +49,23 @@ test.describe("Self-serve signup — form, verification link, first sign-in", ()
     expect(((await withSlash.json()) as { devVerifyUrl: string }).devVerifyUrl).toContain("/signup/verify?token=");
   });
 
-  test("one address is refused its ninth signup attempt in an hour, in Arabic, while another address still gets through", async ({ request }) => {
-    const attempt = (source: string) => request.post(`${SAAS_API_URL}/api/signup`, { headers: { [SIGNUP_SOURCE_HEADER]: source }, data: {} });
+  test("one address is refused its ninth signup attempt in an hour, in Arabic, whatever it writes ahead of the trusted proxies, while another address still gets through", async ({ request }) => {
+    const attempt = (client: string, claimed: string) =>
+      request.post(`${SAAS_API_URL}/api/signup`, { headers: proxiedSource(client, claimed), data: {} });
     for (let n = 1; n <= SIGNUPS_PER_SOURCE_PER_HOUR; n += 1) {
-      expect((await attempt(THROTTLED_SOURCE)).status(), `attempt ${n}`).toBe(400);
+      expect((await attempt(THROTTLED_SOURCE, `203.0.113.${n}`)).status(), `attempt ${n}`).toBe(400);
     }
 
-    const ninth = await attempt(THROTTLED_SOURCE);
+    const ninth = await attempt(THROTTLED_SOURCE, "203.0.113.200");
 
     expect(ninth.status()).toBe(429);
     expect(await ninth.json()).toEqual({ error: ApiError.TooManyRequests, message: TOO_MANY_ATTEMPTS });
     expect(Number(ninth.headers()["retry-after"])).toBeGreaterThan(0);
     expect(Number(ninth.headers()["retry-after"])).toBeLessThanOrEqual(3600);
-    expect((await attempt(freshSource()[SIGNUP_SOURCE_HEADER] ?? "")).status()).toBe(400);
+    expect((await attempt(freshClient(), THROTTLED_SOURCE)).status()).toBe(400);
+    const unproxied = await request.post(`${SAAS_API_URL}/api/signup`, { headers: { [FORWARDED_FOR_HEADER]: THROTTLED_SOURCE }, data: {} });
+    expect(unproxied.status()).toBe(503);
+    expect(await unproxied.json()).toMatchObject({ error: ApiError.SourceUnresolved });
   });
 
   test("a visitor signs up and is shown the verification link in dev mode", async ({ page }) => {
@@ -182,7 +190,7 @@ test.describe("Self-serve signup — form, verification link, first sign-in", ()
     });
     expect(start.status()).toBe(201);
     const token = new URL(((await start.json()) as { devVerifyUrl: string }).devVerifyUrl).searchParams.get("token") ?? "";
-    const verify = await request.post(`${SAAS_API_URL}/api/signup/verify`, { data: { token } });
+    const verify = await request.post(`${SAAS_API_URL}/api/signup/verify`, { headers: freshSource(), data: { token } });
     const body = (await verify.json()) as { tenant: { id: string }; adminEmail: string; adminPin: string };
     const api = await tenantApiLogin(request, { id: body.tenant.id, code, adminEmail: body.adminEmail, adminPin: body.adminPin });
     const entitlements = await tenantCall(request, api, HttpMethod.Get, "/entitlements");

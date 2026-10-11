@@ -8418,13 +8418,21 @@ shows the number of days between the server's day and the trial's end.
 Signup allows 8 requests per source address per hour per server process, and
 every request counts, including a malformed one. Spec 04 makes 5 signup
 requests on the main server (four by API, one from the form) and spec 06 makes
-1 on the clock server. The suite's servers trust the proxy header
-(`MEZAN_TRUST_PROXY=1`), so each of spec 04's signups carries its own
-`x-forwarded-for` — handed out in order from `10.4.0.1`, not at random — and is
-counted against its own source. The limit itself is asserted: one address
-(`10.44.0.1`) makes eight attempts, each answered on its merits, and its ninth
-answers 429 «محاولات كثيرة جدًا، حاول لاحقًا» with a `retry-after`, while a
-different address still gets through.
+1 on the clock server. The suite's servers trust two proxy hops
+(`MEZAN_TRUST_PROXY=1`, `MEZAN_TRUSTED_PROXY_HOPS=2`): the address a signup is
+counted against is the second entry from the right of `x-forwarded-for`, never
+the leftmost one, which the caller writes. A browser in the suite sends its
+client address alone and the Vite dev proxy appends its own hop; a request sent
+straight to the API carries the whole chain, `<client>, 130.176.0.7`
+(`proxiedSource` in `e2e/saas/support/env.ts`). Every browser context gets the
+client `10.9.0.1` unless a spec gives it another, and each of spec 04's signups
+carries its own client, handed out in order from `10.4.0.1`, not at random.
+The limit itself is asserted: one client (`10.44.0.1`) makes eight attempts,
+each with a different address written ahead of it in the chain and each
+answered on its merits; its ninth answers 429 «محاولات كثيرة جدًا، حاول لاحقًا»
+with a `retry-after`; a different client that writes `10.44.0.1` ahead of
+itself still gets through; and a chain too short to hold a client is answered
+503 `SOURCE_UNRESOLVED`.
 
 Timeouts, and the load they were measured at. On a 12-core machine shared with
 other test runs, at a 1-minute load average of 6 to 39 (nine full runs on

@@ -3,7 +3,7 @@ import { mkdtempSync, readdirSync, rmSync, statSync } from "node:fs";
 import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { PLATFORM_OWNER_EMAIL, PLATFORM_OWNER_PASSWORD, TENANT_DOMAIN } from "./env";
+import { PLATFORM_OWNER_EMAIL, PLATFORM_OWNER_PASSWORD, TENANT_DOMAIN, TRUSTED_PROXY_HOPS } from "./env";
 
 export interface ServerHandle {
   stop(): Promise<void>;
@@ -74,6 +74,7 @@ export function apiServerEnv(options: ApiServerOptions): Record<string, string> 
     MEZAN_PAYMOB_TEST_MODE: "1",
     MEZAN_TENANT_DOMAIN: TENANT_DOMAIN,
     MEZAN_TRUST_PROXY: "1",
+    MEZAN_TRUSTED_PROXY_HOPS: String(TRUSTED_PROXY_HOPS),
     MEZAN_BACKUP_INTERVAL_MINUTES: "0",
   };
   if (options.fakeToday) env["MEZAN_FAKE_TODAY"] = options.fakeToday;

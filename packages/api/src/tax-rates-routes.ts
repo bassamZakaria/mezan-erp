@@ -8,6 +8,7 @@ import {
   TaxRateNotFoundError,
   TaxRateInUseError,
   SystemTaxRateLockedError,
+  ReservedTaxRateError,
   isSystemTaxRate,
   AuditChangeAction,
   type AuditSink,
@@ -53,7 +54,7 @@ function handleDomainError(c: Context, err: unknown) {
   if (err instanceof TaxRateNotFoundError) {
     return refuse(err, 404);
   }
-  if (err instanceof DuplicateTaxCodeError || err instanceof DuplicateTaxRateIdError || err instanceof TaxRateInUseError || err instanceof SystemTaxRateLockedError) {
+  if (err instanceof DuplicateTaxCodeError || err instanceof DuplicateTaxRateIdError || err instanceof TaxRateInUseError || err instanceof SystemTaxRateLockedError || err instanceof ReservedTaxRateError) {
     return refuse(err, 409);
   }
   if (err instanceof InvalidTaxRateError) {

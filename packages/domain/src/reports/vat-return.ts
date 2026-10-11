@@ -2,7 +2,7 @@ import { z } from "zod";
 import { isoDateParamSchema } from "./iso-date.js";
 import { type GlReportContext, isLedgerEffective, isYearEndClose, moneyToNumber } from "./gl-shared.js";
 import { Money, allocate } from "../money/index.js";
-import { journalSourceModule, type JournalEntry } from "../journal.js";
+import { journalSourceModule, JournalSourceModuleCode, type JournalEntry } from "../journal.js";
 import { RECOGNITION_DOC_TYPE } from "../contracting/recognition/recognition.js";
 import type { ReportDefinition } from "./types.js";
 import { diffOf, sumRows } from "./kpi.js";
@@ -272,8 +272,8 @@ export function createVatReturnReport(
         outVat: { debit: Money; credit: Money },
       ): boolean => {
         const module = journalSourceModule(entry.sourceDocType, entry.source);
-        if (moved(inVat) || module === "purchases") return true;
-        return !(module === "sales" || moved(outVat) || netOn(entry, isRevenue, PostingSide.Credit).scaled !== 0n);
+        if (moved(inVat) || module === JournalSourceModuleCode.Purchases) return true;
+        return !(module === JournalSourceModuleCode.Sales || moved(outVat) || netOn(entry, isRevenue, PostingSide.Credit).scaled !== 0n);
       };
 
       const nameOf = new Map((ctx.taxRates ?? []).map((r) => [r.id, r.name]));

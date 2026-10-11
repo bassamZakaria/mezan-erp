@@ -142,6 +142,11 @@ export function createSalesReturnsRoutes(
     return refunds ? refunds.list(id) : [];
   }
 
+  const SOURCE_INVOICE_NOT_FOUND = {
+    error: "SOURCE_INVOICE_NOT_FOUND",
+    message: "الفاتورة المصدر غير موجودة أو غير مؤكدة.",
+  } as const;
+
   /**
    * Every figure a caller stated on a `POST /` line, checked against the
    * invoice it names (D89, D102).
@@ -163,12 +168,7 @@ export function createSalesReturnsRoutes(
   ): Promise<{ error: string; message: string } | null> {
     if (!invoices) return null;
     const invoice = await invoices.findConfirmedInvoice(line.sourceInvoiceId);
-    if (!invoice) {
-      return {
-        error: "SOURCE_INVOICE_NOT_FOUND",
-        message: "الفاتورة المصدر غير موجودة أو غير مؤكدة.",
-      };
-    }
+    if (!invoice) return SOURCE_INVOICE_NOT_FOUND;
     if (invoice.customerId !== line.customerId) {
       return {
         error: "RETURN_CUSTOMER_MISMATCH",
@@ -188,7 +188,7 @@ export function createSalesReturnsRoutes(
   // derived one at a time, each is offered the whole of the line it names.
   async function deriveLines(
     requested: readonly CreateSalesReturnLineInput[],
-  ): Promise<{ lines: SalesReturnLine[] } | { refusal: ReturnType<typeof lineNotOnInvoice> }> {
+  ): Promise<{ lines: SalesReturnLine[] } | { refusal: ReturnType<typeof lineNotOnInvoice> | typeof SOURCE_INVOICE_NOT_FOUND }> {
     const claimedOf = (l: CreateSalesReturnLineInput): SalesReturnLine => ({
       itemId: l.itemId,
       warehouseId: l.warehouseId,
@@ -210,10 +210,7 @@ export function createSalesReturnsRoutes(
     for (const sourceInvoiceId of new Set(requested.map((l) => l.sourceInvoiceId))) {
       const ofInvoice = requested.filter((l) => l.sourceInvoiceId === sourceInvoiceId);
       const invoice = await invoices.findConfirmedInvoice(sourceInvoiceId);
-      if (!invoice) {
-        lines.push(...ofInvoice.map(claimedOf));
-        continue;
-      }
+      if (!invoice) return { refusal: SOURCE_INVOICE_NOT_FOUND };
       const first = ofInvoice[0] as CreateSalesReturnLineInput;
       const built = buildSalesReturnLinesFromInvoice(
         invoice,

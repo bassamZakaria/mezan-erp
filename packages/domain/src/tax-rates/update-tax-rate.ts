@@ -1,6 +1,6 @@
 import type { EtaVatSubType, TaxCalculationType, TaxRate, TaxRateRepository, TaxRateStatus, TaxRateUsage } from "./tax-rate.js";
 import { InvalidTaxRateError, SystemTaxRateLockedError, TaxRateInUseError, TaxRateNotFoundError } from "./errors.js";
-import { isSystemTaxRate } from "./system-tax-rates.js";
+import { assertNotReservedTaxRate, isSystemTaxRate } from "./system-tax-rates.js";
 
 export interface UpdateTaxRateCommand {
   readonly name?: string;
@@ -74,6 +74,7 @@ async function updateTaxRateInTransaction(
     status: command.status ?? current.status,
   };
 
+  assertNotReservedTaxRate(updated);
   await repo.update(updated);
   return updated;
 }

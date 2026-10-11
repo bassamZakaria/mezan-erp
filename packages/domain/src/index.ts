@@ -10,7 +10,7 @@ export type {
   UnitOfWork,
   JournalSourceModule,
 } from "./journal.js";
-export { journalSourceModule } from "./journal.js";
+export { journalSourceModule, JournalSourceModuleCode } from "./journal.js";
 // The spike's minimal poster (backs the legacy `/journal-entries` route). The
 // full GL posting engine below owns the primary `postJournalEntry` name.
 export {

@@ -1,4 +1,5 @@
-import { EtaVatSubTypeCode, TaxRateStatusCode, type EtaVatSubType, type TaxCalculationType, type TaxRate, type TaxRateRepository } from "./tax-rate.js";
+import { EtaVatSubTypeCode, TaxCalculationTypeCode, TaxRateStatusCode, type EtaVatSubType, type TaxCalculationType, type TaxRate, type TaxRateRepository } from "./tax-rate.js";
+import { assertNotReservedTaxRate } from "./system-tax-rates.js";
 import { DuplicateTaxCodeError, DuplicateTaxRateIdError, InvalidTaxRateError } from "./errors.js";
 
 export interface CreateTaxRateCommand {
@@ -29,6 +30,7 @@ function assertValidRate(rate: number): void {
 export function validateNewTaxRate(command: CreateTaxRateCommand, existing: readonly TaxRate[]): void {
   const sameId = existing.find((t) => t.id === command.id);
   if (sameId) throw new DuplicateTaxRateIdError(sameId.id, sameId.name);
+  assertNotReservedTaxRate({ ...command, etaSubType: command.etaSubType ?? EtaVatSubTypeCode.Auto });
   if (existing.some((t) => t.code === command.code)) {
     throw new DuplicateTaxCodeError(command.code);
   }
@@ -61,7 +63,7 @@ async function createTaxRateInTransaction(command: CreateTaxRateCommand, repo: T
     code: command.code,
     name: command.name,
     rate: command.rate,
-    calculationType: command.calculationType ?? "exclusive",
+    calculationType: command.calculationType ?? TaxCalculationTypeCode.Exclusive,
     isDefault,
     outputTaxAccountId: command.outputTaxAccountId ?? null,
     inputTaxAccountId: command.inputTaxAccountId ?? null,

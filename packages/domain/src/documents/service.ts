@@ -133,6 +133,10 @@ export class DocumentService<Line> {
    */
   async confirm(id: string, opts: ConfirmOptions = {}): Promise<ConfirmResult<Line>> {
     const existing = await this.require(id);
+    // ORDER MATTERS: the lifecycle answers first. A confirmed return re-checked
+    // against its own posted lines reads as an overdraw, which is the wrong
+    // refusal for "this is already confirmed".
+    assertTransition(this.def.code, id, existing.status, this.def.confirmedStatus);
     this.def.validate?.(existing);
     await this.deps.confirmGuard?.(existing);
 

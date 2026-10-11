@@ -114,6 +114,16 @@ export class TaxRateAlreadyClassifiedError extends Error {
   }
 }
 
+export class ReservedTaxRateError extends Error {
+  readonly code = "TAX_RATE_RESERVED";
+  readonly messageEn: string;
+  constructor(readonly systemTaxRateName: string) {
+    super(`الضريبة «${systemTaxRateName}» معرّفة من النظام، ولا تُنشأ ضريبة بمعرّفها أو رمزها أو بالاسم والنسبة والتصنيف نفسها. استخدم ضريبة النظام أو اختر اسماً ورمزاً مختلفين.`);
+    this.messageEn = `Tax rate "${systemTaxRateName}" is defined by the system, and no tax rate may take its id or code, or its name, percent and classification together. Use the system rate, or choose a different name and code.`;
+    this.name = "ReservedTaxRateError";
+  }
+}
+
 export class SystemTaxRateLockedError extends Error {
   readonly code = "TAX_RATE_SYSTEM_LOCKED";
   readonly messageEn: string;

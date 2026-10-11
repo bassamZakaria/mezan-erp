@@ -7,7 +7,11 @@
  * e-invoice VAT sub-type classification (V001–V009).
  */
 
-export type TaxCalculationType = "exclusive" | "inclusive";
+export enum TaxCalculationTypeCode {
+  Exclusive = "exclusive",
+  Inclusive = "inclusive",
+}
+export type TaxCalculationType = `${TaxCalculationTypeCode}`;
 export enum TaxRateStatusCode {
   Active = "active",
   Inactive = "inactive",

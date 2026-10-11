@@ -152,18 +152,20 @@ export interface UnitOfWork {
  * `unknown` is honest about an entry whose document type predates this field
  * rather than guessing a module.
  */
-export type JournalSourceModule =
-  | "sales"
-  | "purchases"
-  | "inventory"
-  | "treasury"
-  | "manufacturing"
-  | "payroll"
-  | "assets"
-  | "contracting"
-  | "accounting"
-  | "manual"
-  | "unknown";
+export enum JournalSourceModuleCode {
+  Sales = "sales",
+  Purchases = "purchases",
+  Inventory = "inventory",
+  Treasury = "treasury",
+  Manufacturing = "manufacturing",
+  Payroll = "payroll",
+  Assets = "assets",
+  Contracting = "contracting",
+  Accounting = "accounting",
+  Manual = "manual",
+  Unknown = "unknown",
+}
+export type JournalSourceModule = `${JournalSourceModuleCode}`;
 
 const MODULE_BY_DOC_TYPE: Readonly<Record<string, JournalSourceModule>> = {
   SALES_INVOICE: "sales",

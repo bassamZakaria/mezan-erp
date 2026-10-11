@@ -1,5 +1,5 @@
 import type { Context, MiddlewareHandler, Next } from "hono";
-import { AuditRecordingError, type AuditSink } from "@mezan/domain";
+import { AuditRecordingError, ConnectionTurnLostError, type AuditSink } from "@mezan/domain";
 import { reportTurnYield } from "./turn-yields.js";
 
 export enum MutatingMethod {
@@ -265,6 +265,8 @@ export interface ConnectionTurnOptions {
   readonly heldWarningMs?: number;
   readonly onHeldTooLong?: (c: Context, heldMs: number) => void;
   readonly onYield?: (c: Context) => void;
+  /** How long a request that handed the connection back waits to take it again before it is refused. */
+  readonly retakeTimeoutMs?: number;
 }
 
 function defaultTimeoutMs(c: Context): number {
@@ -385,10 +387,16 @@ export function connectionTurn(audit: AuditSink | undefined, options: Connection
           clearInterval(watchdog);
         }
       },
-      { onYield: () => onYield(c), onSuspend: () => clearInterval(watchdog), onResume: watch },
+      { onYield: () => onYield(c), onSuspend: () => clearInterval(watchdog), onResume: watch, retakeTimeoutMs: options.retakeTimeoutMs },
     );
     const reason = await Promise.race([held.then(() => undefined), gaveUp]);
-    if (reason === undefined) return;
+    if (reason === undefined) {
+      if (!(c.error instanceof ConnectionTurnLostError)) return;
+      console.error(`[db] ${c.req.method} ${c.req.path} handed the tenant's connection back and could not take it again; it was stopped before it wrote`);
+      c.res = undefined;
+      c.res = busy(c, ConnectionBusyReason.TimedOut);
+      return;
+    }
     held.catch(() => undefined);
     return reason === ConnectionBusyReason.TimedOut ? refuseTimedOut(c, timeoutMs) : busy(c, reason);
   };

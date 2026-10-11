@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import Database from "better-sqlite3";
+import { ConnectionTurnLostError } from "@mezan/domain";
 import { installSchemaSync } from "./schema-sync.js";
 import { reportForeignWrite } from "./untransacted-audits.js";
 
@@ -195,17 +196,18 @@ interface Lane {
 }
 
 export interface SqliteTurnObserver {
-  /** The holder gave the event loop back with the turn still held: it awaited something that is not the database. */
   onYield?(): void;
-  /** The turn was handed back around work that is not the database. */
   onSuspend?(): void;
-  /** The turn was taken again once that work finished. */
   onResume?(): void;
+  readonly retakeTimeoutMs?: number;
 }
+
+const RETAKE_TIMEOUT_MS = 10_000;
 
 interface TurnScope extends Lane {
   active: boolean;
   ended: boolean;
+  abandoned: boolean;
   outside: number;
   steps: Promise<void>;
   retaken: Promise<void>;
@@ -419,6 +421,7 @@ export async function withSqliteTurn<T>(sqlite: Database.Database, fn: () => Pro
     queue: Promise.resolve(),
     active: true,
     ended: false,
+    abandoned: false,
     outside: 0,
     steps: Promise.resolve(),
     retaken: Promise.resolve(),
@@ -434,11 +437,34 @@ export async function withSqliteTurn<T>(sqlite: Database.Database, fn: () => Pro
   } finally {
     while (scope.leftRunning.size > 0) await Promise.allSettled([...scope.leftRunning]);
     scope.ended = true;
-    await inOrder(scope, async () => {
+    const closed = inOrder(scope, async () => {
       if (scope.active) await handBack(scope);
       scope.announceRetaken();
     });
+    // An abandoned re-take is still queued behind whoever holds the connection.
+    // It gives its place straight back when it arrives; waiting for that here
+    // would hang this request on the very holder it gave up on.
+    if (scope.abandoned) void closed.catch(() => undefined);
+    else await closed;
   }
+}
+
+// THE WAIT TO TAKE THE TURN AGAIN IS BOUNDED. A holder that never finishes
+// would otherwise keep every chain that handed the turn back waiting for good —
+// and with it whatever that chain holds for the length of its request.
+async function retakenInTime(scope: TurnScope): Promise<void> {
+  const waitMs = scope.observer.retakeTimeoutMs ?? RETAKE_TIMEOUT_MS;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const gaveUp = new Promise<true>((resolve) => {
+    timer = setTimeout(() => resolve(true), waitMs);
+    timer.unref?.();
+  });
+  const lost = await Promise.race([scope.retaken.then(() => false as const), gaveUp]);
+  clearTimeout(timer);
+  if (!lost || scope.active) return;
+  scope.abandoned = true;
+  scope.ended = true;
+  throw new ConnectionTurnLostError(waitMs);
 }
 
 // Database work a holder starts and does not wait for — an event subscriber, a
@@ -490,7 +516,7 @@ export async function outsideSqliteTurn<T>(sqlite: Database.Database, fn: () => 
       scope.observer.onResume?.();
       scope.announceRetaken();
     });
-    await scope.retaken;
+    await retakenInTime(scope);
   }
 }
 

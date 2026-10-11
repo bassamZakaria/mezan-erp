@@ -586,6 +586,45 @@ describe("an audit event on a mutating request must share a transaction with its
 });
 
 describe("connectionTurn", () => {
+  it("refuses, in Arabic and with a retry time, a request that handed the connection back and could not take it again", async () => {
+    const sink = openSink();
+    sink.db.exec("CREATE TABLE thing (id TEXT PRIMARY KEY)");
+    let release!: () => void;
+    const stuck = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let handedBack!: () => void;
+    const outside = new Promise<void>((resolve) => {
+      handedBack = resolve;
+    });
+    const app = new Hono();
+    app.use("*", connectionTurn(sink, { onYield: () => undefined, onHeldTooLong: () => undefined, retakeTimeoutMs: 60 }));
+    app.post("/files-with-the-authority", async (c) => {
+      await sink.outsideTurn(async () => {
+        handedBack();
+        await new Promise<void>((resolve) => setTimeout(resolve, 10));
+      });
+      sink.db.prepare("INSERT INTO thing VALUES ('WRITTEN-WITHOUT-THE-TURN')").run();
+      return c.json({}, 201);
+    });
+    app.post("/never-finishes", async (c) => {
+      await stuck;
+      return c.json({});
+    });
+
+    const filing = app.fetch(new Request("http://x/files-with-the-authority", { method: "POST" }));
+    await outside;
+    const holder = app.fetch(new Request("http://x/never-finishes", { method: "POST" }));
+    const res = await filing;
+
+    expect(res.status).toBe(503);
+    expect(await res.json()).toMatchObject({ error: "DATABASE_BUSY", message: expect.stringContaining("مشغولة") });
+    expect(res.headers.get("retry-after")).toBe("5");
+    expect(sink.db.prepare("SELECT id FROM thing").all()).toEqual([]);
+    release();
+    await holder;
+  });
+
   function gated(given: Parameters<typeof connectionTurn>[1] = {}) {
     const options = { onYield: () => undefined, ...given };
     const sink = openSink();

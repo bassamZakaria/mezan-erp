@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { DEFAULT_ETA_CONFIG, type EtaConfig, type EtaConfigRepository } from "./config.js";
 import type { EtaSubmission, EtaSubmissionRepository, EtaSubmissionStatus } from "./submission.js";
 import { EtaService } from "./service.js";
+import { ConnectionTurnLostError } from "../audit/index.js";
 import { EtaOfflineError, EtaReissueNotRejectedError, EtaReissueSameInternalIdError, EtaReissueWindowExpiredError } from "./errors.js";
 import { EtaReceiptUuidUnavailableError, type EtaReceiptInput, type EtaReceiptUuidPort } from "./receipt.js";
 import { createInMemoryEtaReceiptChain, type EtaReceiptChainRepository } from "./receipt-chain.js";
@@ -426,6 +427,35 @@ describe("submitReadyReceipts — reported device by device, in chain order", ()
     expect(result.rejected.map((s) => s.internalId)).toEqual(["RCP-BATCH-2"]);
     expect(result.submitted.every((s) => s.status === "submitted")).toBe(true);
     expect(result.rejected[0]?.errors).toEqual(["رفضت المصلحة هذا الإيصال"]);
+  });
+});
+
+describe("a submission whose request lost the connection while the authority answered", () => {
+  it("lets go of the document, so the next press sends it instead of being told it is still being sent", async () => {
+    let attempts = 0;
+    const submissions = new MemSubmissions();
+    const svc = new EtaService({
+      config: new MemConfig(READY),
+      submissions,
+      receiptUuid: countingUuidPort(),
+      now: () => "2026-09-01T10:00:00.000Z",
+      newId: () => `eta-${++ids}`,
+      transmit: {
+        async transmit(submission) {
+          attempts += 1;
+          if (attempts === 1) throw new ConnectionTurnLostError(10_000);
+          return { ok: true, etaUuid: submission.etaUuid ?? "UUID-1" };
+        },
+      },
+    });
+    const issued = await svc.enqueueReceipt({ ...receipt, internalId: "RCP-LOST-1" });
+    const id = (await submissions.findByInternalId("RCP-LOST-1"))!.id;
+    expect(issued).toBeTruthy();
+
+    await expect(svc.submit(id)).rejects.toBeInstanceOf(ConnectionTurnLostError);
+
+    expect((await svc.submit(id)).status).toBe("submitted");
+    expect(attempts).toBe(2);
   });
 });
 

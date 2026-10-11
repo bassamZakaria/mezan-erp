@@ -114,11 +114,19 @@ export class AuditRecordingError extends Error {
   }
 }
 
+/** The holder handed its turn back around outside work and could not take it again in time: it must stop, having written nothing since. */
+export class ConnectionTurnLostError extends Error {
+  constructor(waitedMs: number) {
+    super(`the connection's turn was not taken again within ${waitedMs}ms`);
+    this.name = "ConnectionTurnLostError";
+  }
+}
+
 export interface TurnObserver {
-  /** The holder gave the event loop back with the turn still held. */
   onYield?(): void;
   onSuspend?(): void;
   onResume?(): void;
+  readonly retakeTimeoutMs?: number;
 }
 
 /**

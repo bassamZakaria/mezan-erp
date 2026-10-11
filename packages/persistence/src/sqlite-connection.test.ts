@@ -7,8 +7,10 @@ import {
   withSqliteTransaction,
   withSqliteTurn,
   outsideSqliteTurn,
+  holdsSqliteTurn,
   type SqliteDriver,
 } from "./sqlite-connection.js";
+import { ConnectionTurnLostError } from "@mezan/domain";
 import { drainForeignWrites } from "./untransacted-audits.js";
 
 describe("openSqliteConnection", () => {
@@ -680,6 +682,58 @@ describe("outsideSqliteTurn", () => {
   it("runs straight through for a caller that holds no turn", async () => {
     const sqlite = open();
     expect(await outsideSqliteTurn(sqlite, async () => 7)).toBe(7);
+    sqlite.close();
+  });
+});
+
+describe("outsideSqliteTurn — taking the turn again has a bound", () => {
+  const pause = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+  it("fails the holder once the bound passes behind a holder that never finishes, and leaves the queue usable when that one ends", async () => {
+    const sqlite = new Database(":memory:");
+    let releaseStuck!: () => void;
+    let finallyRan = false;
+
+    const waiting = withSqliteTurn(
+      sqlite,
+      async () => {
+        try {
+          await outsideSqliteTurn(sqlite, () => pause(10));
+          return "took the turn again";
+        } finally {
+          finallyRan = true;
+        }
+      },
+      { retakeTimeoutMs: 60 },
+    );
+    await pause(2);
+    const stuck = withSqliteTurn(sqlite, () => new Promise<void>((resolve) => (releaseStuck = resolve)));
+
+    const outcome = await Promise.race([waiting.then((value) => value, (err: unknown) => err), pause(2000).then(() => "still waiting")]);
+
+    expect(outcome).toBeInstanceOf(ConnectionTurnLostError);
+    expect(finallyRan).toBe(true);
+
+    releaseStuck();
+    await stuck;
+    const next = await Promise.race([withSqliteTurn(sqlite, async () => "ran"), pause(1000).then(() => "queue is blocked")]);
+    expect(next).toBe("ran");
+    sqlite.close();
+  });
+
+  it("takes the turn again as before when the wait is inside the bound", async () => {
+    const sqlite = new Database(":memory:");
+
+    const result = await withSqliteTurn(
+      sqlite,
+      async () => {
+        await outsideSqliteTurn(sqlite, () => pause(5));
+        return holdsSqliteTurn(sqlite);
+      },
+      { retakeTimeoutMs: 500 },
+    );
+
+    expect(result).toBe(true);
     sqlite.close();
   });
 });

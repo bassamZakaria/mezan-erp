@@ -85,7 +85,7 @@ export function createSettingsRoutes(
     return c.json(Object.fromEntries(Object.entries(settings).filter(([key]) => !ADMIN_ONLY_SETTINGS.has(key))));
   });
 
-  app.get("/currencies", gate("admin.settings.view"), async (c) => {
+  app.get("/currencies", createAuthenticatedGate(resolveAuthContext), async (c) => {
     const settings = (await store.get()) ?? createDefaultSettings();
     return c.json({
       base: settings.currency,

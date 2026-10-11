@@ -52,6 +52,8 @@ const STEPPER_KEYS = [
   { key: "confirmed", labelKey: "docStatus.confirmed" },
 ] as const;
 
+const MIN_WAREHOUSES_FOR_A_TRANSFER = 2;
+
 function headerOf(doc: StockTransferDocumentDTO): { fromWarehouseId: string; toWarehouseId: string } {
   const first = doc.lines[0];
   return first ? { fromWarehouseId: first.fromWarehouseId, toWarehouseId: first.toWarehouseId } : { fromWarehouseId: "—", toWarehouseId: "—" };
@@ -445,6 +447,19 @@ function CreateTransferView({
     }
   }
 
+  if (warehouses !== undefined && warehouseList.length < MIN_WAREHOUSES_FOR_A_TRANSFER) {
+    return (
+      <div className="w-full">
+        <h1 className="mb-[16px] mt-[5px] font-display text-2xl font-bold text-ink">{t("stockXfer.newStockTransfer")}</h1>
+        <EmptyState
+          title={t("stockXfer.noSecondWarehouse.title")}
+          description={t("stockXfer.noSecondWarehouse.body")}
+          action={{ label: t("common.cancel"), onClick: onDone }}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="w-full">
       <div className="mb-[16px] flex flex-wrap items-end justify-between gap-[18px]">
@@ -466,7 +481,7 @@ function CreateTransferView({
       ) : null}
 
       <div className="grid gap-5 lg:grid-cols-[2fr_1fr]">
-        <div className="flex flex-col gap-[16px]">
+        <div className="flex min-w-0 flex-col gap-[16px]">
           <Card className="grid grid-cols-1 gap-[14px] p-[18px] sm:grid-cols-2">
             <TextField label={t("stockXfer.date")} value={date} onChange={setDate} placeholder="YYYY-MM-DD" />
             <TextField label={t("common.notes")} value={memo} onChange={setMemo} placeholder={t("stockXfer.describeTheTransfer")} />
@@ -481,7 +496,7 @@ function CreateTransferView({
 
           <Card className="overflow-hidden">
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[440px] border-collapse text-[13px]">
+              <table className="w-full min-w-[320px] border-collapse text-[13px]">
                 <thead>
                   <tr>
                     <th scope="col" className="border-b border-border bg-surface-2 px-[12px] py-[10px] text-start text-[11px] font-bold uppercase text-ink-muted">{t("common.item")}</th>
@@ -495,7 +510,7 @@ function CreateTransferView({
                       <td className="px-[12px] py-[8px]">
                         <Select
                           size="sm"
-                          className="min-w-[160px]"
+                          className="min-w-[130px]"
                           aria-label={t("stockXfer.lineItem", { number: i + 1 })}
                           value={line.itemId}
                           onChange={(value) => updateLine(i, { itemId: value })}
@@ -507,7 +522,7 @@ function CreateTransferView({
                           type="number"
                           size="sm"
                           numeric
-                          className="w-[110px] text-end"
+                          className="w-[88px] text-end"
                           aria-label={t("stockXfer.lineQty", { number: i + 1 })}
                           value={line.qty || ""}
                           min={0}

@@ -1188,7 +1188,7 @@ export function ItemsScreen() {
                 />
                 <TextInput
                   size="sm"
-                  className="flex-1"
+                  className="min-w-0 flex-1"
                   aria-label={t("items.unitName")}
                   value={unit.name}
                   onChange={(e) => updateAlternateUnit(index, { name: e.target.value })}

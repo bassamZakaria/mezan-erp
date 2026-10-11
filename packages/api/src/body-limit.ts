@@ -15,12 +15,24 @@ export enum BodyLimitBytes {
   Upload = 16 * MIB,
 }
 
-const UPLOAD_PATH = /\/(attachments|data-migration|import|import-file|commit|clock|photo|boq|settings|profile|users|print-templates|label-layouts)(\/|$)/;
+export enum BodyLimitRefusal {
+  PayloadTooLarge = "PAYLOAD_TOO_LARGE",
+}
+
+// Only routes that take a FILE. A photo, a logo and a layout are capped far
+// below a document's size by their own schemas, so the routes that carry them
+// are not here. A preview and its commit read the same file: both are.
+const UPLOAD_PATH = /\/(attachments|data-migration|historical-import|import|import-file|commit|clock|boq)(\/|$)/;
+
+export function bodyLimitFor(path: string, signedIn: boolean): BodyLimitBytes {
+  if (!signedIn) return BodyLimitBytes.Anonymous;
+  return UPLOAD_PATH.test(path) ? BodyLimitBytes.Upload : BodyLimitBytes.Document;
+}
 
 function tooLarge(c: Context): Response {
   return c.json(
     {
-      error: "PAYLOAD_TOO_LARGE",
+      error: BodyLimitRefusal.PayloadTooLarge,
       message: "حجم البيانات المرسلة أكبر من المسموح به لهذه العملية.",
       messageEn: "The request body is larger than this operation accepts.",
     },
@@ -42,7 +54,6 @@ export function requestBodyLimit(resolveAuthContext: AuthContextResolver): Middl
   return async (c, next) => {
     if (!isMutatingRequest(c)) return next();
     const signedIn = (await resolveAuthContext(c)).authenticated;
-    const allowed = !signedIn ? BodyLimitBytes.Anonymous : UPLOAD_PATH.test(c.req.path) ? BodyLimitBytes.Upload : BodyLimitBytes.Document;
-    return limits[allowed](c, next);
+    return limits[bodyLimitFor(c.req.path, signedIn)](c, next);
   };
 }

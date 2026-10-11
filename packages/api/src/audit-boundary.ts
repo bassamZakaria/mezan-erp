@@ -275,23 +275,8 @@ function defaultOnHeldTooLong(c: Context, heldMs: number): void {
   console.error(`[db] ${c.req.method} ${c.req.path} has held the tenant's connection for ${heldMs}ms; every other write is waiting behind it`);
 }
 
-// What the process was waiting on when the holder gave the loop back, by Node's
-// own resource names (ScryptJob, TCPSocketWrap, ProcessWrap, Timeout, …): the
-// route alone says who, this says for what.
-function pendingWork(): string {
-  const waitingOn = new Set(process.getActiveResourcesInfo());
-  waitingOn.delete("Immediate");
-  return [...waitingOn].sort().join("+") || "nothing left pending";
-}
-
 function defaultOnTurnYield(c: Context): void {
-  const route = `${c.req.method} ${c.req.routePath}`;
-  const waitingOn = pendingWork();
-  reportTurnYield(`${route} [${waitingOn}]`);
-  console.error(
-    `[db] ${route} gave the event loop back while holding the tenant's connection (waiting on ${waitingOn}); ` +
-      "do that work before the turn, or through a port that hands the turn back (AuditSink.outsideTurn)",
-  );
+  reportTurnYield(`${c.req.method} ${c.req.routePath}`);
 }
 
 function busy(c: Context, reason: ConnectionBusyReason): Response {

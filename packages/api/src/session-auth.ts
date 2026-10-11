@@ -332,6 +332,28 @@ function narrowScope(granted: ScopeSelection, requested: string | undefined): Sc
   return allowed.length > 0 ? allowed : granted;
 }
 
+const lookedUp = new WeakMap<SessionRegistry, WeakMap<Context, SessionLookup>>();
+
+// ONE lookup per request, shared by everything that asks who the caller is. A
+// lookup that refuses a moved token also revokes it, so a second lookup on the
+// same request finds nothing and has nothing to say: whichever middleware
+// asked first would swallow the refusal the forensic row is written from.
+// Keyed by the context, not the Request: the body limit replaces `c.req.raw`
+// when a body arrives with no declared length.
+function sessionLookup(sessions: SessionRegistry, c: Context, token: string): SessionLookup {
+  let perRequest = lookedUp.get(sessions);
+  if (!perRequest) {
+    perRequest = new WeakMap();
+    lookedUp.set(sessions, perRequest);
+  }
+  let lookup = perRequest.get(c);
+  if (!lookup) {
+    lookup = sessions.inspect(token, requestOrigin(c));
+    perRequest.set(c, lookup);
+  }
+  return lookup;
+}
+
 const ANONYMOUS: AuthContext = createAuthContext({
   userId: "anonymous",
   permissions: [],
@@ -356,7 +378,7 @@ export function createSessionAuthContextResolver(sessions: SessionRegistry): Aut
     // session is revoked on the way out. 401, never a quieter, smaller grant —
     // a mismatched origin degrading to reduced permissions would be a session
     // the thief still holds.
-    const grant = sessions.find(token, requestOrigin(c));
+    const { grant } = sessionLookup(sessions, c, token);
     if (!grant) return ANONYMOUS;
     return createAuthContext({
       userId: grant.userId,
@@ -390,7 +412,7 @@ export function sessionOriginReporting(sessions: SessionRegistry, audit: AuditSi
   return async function reportMovedSessions(c, next) {
     const token = readSessionToken(c);
     if (token) {
-      const { refusal } = sessions.inspect(token, requestOrigin(c));
+      const { refusal } = sessionLookup(sessions, c, token);
       if (refusal?.reason === "moved") {
         await recordSecurityEvent(audit, {
           module: "auth",

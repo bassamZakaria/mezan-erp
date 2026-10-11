@@ -17,6 +17,7 @@ import {
   sendNotificationEmail,
 } from "@mezan/api";
 import {
+  chequeLedgerDays,
   ALL_SCOPE,
   SiteService,
   StockLedgerService,
@@ -2401,10 +2402,10 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     const allCheques = await cheques.list();
     // Each side of a cheque is read on the day its own journal entry is dated: `bouncedAt` is the instant the bounce was recorded, and a replacement's entry is not dated on the day written on the cheque.
     const chequeEntryDates = await entryDatesOf(allCheques.flatMap((cheque) => [cheque.creationJournalEntryId, cheque.bounceJournalEntryId]));
-    const chequeEntryDate = (entryId: string | null, fallback: string): string => (entryId ? chequeEntryDates.get(entryId) : undefined) ?? fallback;
     for (const cheque of allCheques) {
-      if (!upTo(chequeEntryDate(cheque.creationJournalEntryId, cheque.issueDate))) continue;
-      const restored = (cheque.status === "bounced" || cheque.status === "replaced") && upTo(chequeEntryDate(cheque.bounceJournalEntryId, cheque.issueDate));
+      const { raised, undone } = chequeLedgerDays(cheque, (entryId) => chequeEntryDates.get(entryId));
+      if (!upTo(raised)) continue;
+      const restored = undone !== null && upTo(undone);
       const net = restored ? 0n : -cheque.amount.scaled;
       if (cheque.counterpartyGlAccountId === AR_CONTROL) chequeEffect.receivable += net;
       if (cheque.counterpartyGlAccountId === AP_CONTROL) chequeEffect.payable += net;

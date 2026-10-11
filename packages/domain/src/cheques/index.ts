@@ -12,6 +12,8 @@ export {
   type ChequeStatus,
   type ChequeStatusDefinition,
   type ChequeStoredStatus,
+  chequeLedgerDays,
+  type ChequeLedgerDays,
 } from "./cheque.js";
 
 export {

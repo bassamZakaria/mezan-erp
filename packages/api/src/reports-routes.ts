@@ -1,6 +1,7 @@
 import { Hono, type Context } from "hono";
 import { z } from "zod";
 import {
+  chequeLedgerDays,
   Money,
   payrollCreditsByRunId,
   type AllocatableInvoiceRepository,
@@ -570,10 +571,7 @@ function voucherStoodOn(doc: VoucherDocument, byId: ReadonlyMap<string, VoucherD
 
 /** The days a cheque's credit to its party arose and, if it bounced, was undone — read off the entries that posted them. */
 function chequeDays(cheque: Cheque, asOf: AgingAsOf): { readonly raised: string; readonly undone: string | null } {
-  const raised = (cheque.creationJournalEntryId ? asOf.entryDates.get(cheque.creationJournalEntryId) : undefined) ?? cheque.issueDate;
-  if (cheque.status !== "bounced" && cheque.status !== "replaced") return { raised, undone: null };
-  const undone = (cheque.bounceJournalEntryId ? asOf.entryDates.get(cheque.bounceJournalEntryId) : undefined) ?? cheque.bouncedAt?.slice(0, 10) ?? raised;
-  return { raised, undone };
+  return chequeLedgerDays(cheque, (entryId) => asOf.entryDates.get(entryId));
 }
 
 /**

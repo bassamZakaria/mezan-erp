@@ -108,8 +108,8 @@ describe("an asset already charged for the month", () => {
     expect(refused.status).toBe(422);
     expect(refused.body).toEqual({
       error: "ASSET_ALREADY_DEPRECIATED",
-      message: "الأصل AST-0002 حُمِّل إهلاك الفترة \"2026-10\" في تشغيل مرحَّل آخر. ألغِ هذا التشغيل وأنشئ تشغيلاً جديداً للأصول الباقية فقط.",
-      messageEn: 'Asset AST-0002 was already charged depreciation for period "2026-10" by another posted run. Discard this run and draft a new one for the remaining assets only.',
+      message: "الأصل AST-0002 حُمِّل إهلاك الفترة \"2026-10\" في تشغيل مرحَّل آخر، ولم يبقَ في هذه المسودة ما يُرحَّل. استبعد المسودة من قائمة تشغيلات الإهلاك.",
+      messageEn: 'Asset AST-0002 was already charged depreciation for period "2026-10" by another posted run, and nothing is left on this draft to post. Discard the draft from the depreciation runs list.',
     });
     expect(world.count("journal_entry")).toBe(entries);
     expect(accumulated().get("ASSET-DEMO-2")).toBe(before);

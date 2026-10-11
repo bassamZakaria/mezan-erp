@@ -2568,6 +2568,17 @@ describe("D111 round 4 · the lists a picker needs are open to every signed-in u
     expect(Object.keys(lookup.body).filter((key) => key.startsWith("smtp") || key === "allowedEmailDomains")).toEqual([]);
   });
 
+  it("the settings lookup answers its allowlist and nothing else — no secret, credential or mail template, whoever asks", async () => {
+    sqlite.prepare("UPDATE tenant_settings SET data = json_set(data, '$.futureApiSecret', 'sk-live-not-for-screens', '$.webhookToken', 't0ken')").run();
+    for (const caller of [admin, alex, picker("USER-R5-PICK", [ALEX], ALL_SCOPE)]) {
+      const lookup = await caller("GET", "/settings/lookup");
+      expect(lookup.status).toBe(200);
+      expect(Object.keys(lookup.body).sort()).toEqual([...contracts.TENANT_SETTINGS_LOOKUP_KEYS].sort());
+      expect(Object.keys(lookup.body).filter((key) => /secret|password|token|key|smtp|template/i.test(key))).toEqual([]);
+      expect(JSON.stringify(lookup.body)).not.toContain("sk-live-not-for-screens");
+    }
+  });
+
   it("an unauthenticated caller reads none of them", async () => {
     for (const path of ["/branches/lookup", "/warehouses/lookup", "/settings/lookup"]) {
       const res = await handle.app.fetch(new Request(`http://local${path}`));
@@ -2823,5 +2834,68 @@ describe("D111 round 4 · a bank charge on the company's account takes the branc
     const unattributed = await chargeOn("R4-STMT-NONE");
     expect(unattributed.voucher).toBe("");
     expect(unattributed.lines).toEqual([null, null]);
+  });
+});
+
+describe("D111 round 5 · a return is taken at the counter the goods come back to, whichever branch sold them", () => {
+  const INVOICE = "D111-R5-XRET-INV";
+  const fromInvoice = (id: string, warehouseId: string) => ({ id, date: TODAY, sourceInvoiceId: INVOICE, warehouseId, reason: "OTHER", requested: [{ itemId: "ITEM-DEMO-1", qty: "1" }] });
+  const returnBranchesOf = (id: string) => (JSON.parse(one<{ l: string }>("SELECT lines_json AS l FROM framework_document WHERE id = ?", id)!.l) as { branchId: string | null }[]).map((line) => line.branchId);
+  const netByBranch = () => all<{ b: string | null; net: number }>("SELECT branch_id AS b, sum(debit) - sum(credit) AS net FROM journal_line GROUP BY branch_id");
+
+  beforeAll(async () => {
+    const base = salesInvoice(INVOICE, MAIN, MAIN_WAREHOUSE);
+    const invoice = { ...base, lines: [{ ...base.lines[0]!, isStock: true, qty: "3" }] };
+    expect((await admin("POST", "/sales-invoices", invoice)).status).toBe(201);
+    const confirmed = await admin("POST", `/sales-invoices/${INVOICE}/confirm`, {});
+    expect(confirmed.status, JSON.stringify(confirmed.body).slice(0, 200)).toBe(200);
+  });
+
+  it("head office and a user of both branches return branch A's invoice at branch B, and it is booked to B", async () => {
+    for (const [tag, caller] of [["ADMIN", admin], ["BOTH", bothBranches]] as const) {
+      const id = `D111-R5-XRET-${tag}`;
+      const drafted = await caller("POST", "/sales-returns/from-invoice", fromInvoice(id, ALEX_WAREHOUSE));
+      expect(drafted.status, `${tag} ${JSON.stringify(drafted.body).slice(0, 300)}`).toBe(201);
+      expect(returnBranchesOf(id)).toEqual([ALEX]);
+      const stockBefore = one<{ n: number }>("SELECT count(*) AS n FROM stock_movement WHERE warehouse_id = ?", ALEX_WAREHOUSE)!.n;
+      const confirmed = await caller("POST", `/sales-returns/${id}/confirm`, {});
+      expect(confirmed.status, `${tag} ${JSON.stringify(confirmed.body).slice(0, 300)}`).toBe(200);
+      expect(one<{ n: number }>("SELECT count(*) AS n FROM stock_movement WHERE warehouse_id = ?", ALEX_WAREHOUSE)!.n).toBe(stockBefore + 1);
+      const moved = all<{ w: string }>("SELECT warehouse_id AS w FROM stock_movement WHERE source_doc_id = ?", id).map((row) => row.w);
+      expect(moved).toEqual([ALEX_WAREHOUSE]);
+      const branches = all<{ b: string | null }>("SELECT DISTINCT l.branch_id AS b FROM journal_line l JOIN journal_entry e ON e.id = l.entry_id WHERE e.source_doc_id = ?", id);
+      expect(branches).toEqual([{ b: ALEX }]);
+    }
+  });
+
+  it("a user of branch B alone cannot: branch A's invoice is not there for them, and nothing is drafted", async () => {
+    const before = one<{ n: number }>("SELECT count(*) AS n FROM framework_document")!.n;
+    const res = await alex("POST", "/sales-returns/from-invoice", fromInvoice("D111-R5-XRET-ALEX", ALEX_WAREHOUSE));
+    expect(res.status, JSON.stringify(res.body).slice(0, 200)).toBe(404);
+    expect(res.body?.error).toBe("NOT_FOUND");
+    expect(res.body?.message).toMatch(ARABIC);
+    expect(one<{ n: number }>("SELECT count(*) AS n FROM framework_document")!.n).toBe(before);
+  });
+
+  it("a user of branch A alone cannot take it at branch B's counter either", async () => {
+    const res = await mainOnly("POST", "/sales-returns/from-invoice", fromInvoice("D111-R5-XRET-MAIN", ALEX_WAREHOUSE));
+    expect(res.status, JSON.stringify(res.body).slice(0, 200)).toBe(403);
+    expect(res.body?.error).toBe("BRANCH_OUT_OF_SCOPE");
+    expect(one("SELECT id FROM framework_document WHERE id = 'D111-R5-XRET-MAIN'")).toBeUndefined();
+  });
+
+  it("a return cannot be split across two branches' stores", async () => {
+    const line = (warehouseId: string) => ({ itemId: "ITEM-DEMO-1", warehouseId, customerId: "CUST-DEMO-2", sourceInvoiceId: INVOICE, sourceInvoiceNumber: null, reason: "OTHER", availableQty: "1", qty: "0.5", unitPrice: "100", unitCost: "0", taxAmount: "0" });
+    const res = await admin("POST", "/sales-returns", { id: "D111-R5-XRET-SPLIT", date: TODAY, memo: "", lines: [line(ALEX_WAREHOUSE), line(MAIN_WAREHOUSE)] });
+    expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(422);
+    expect(res.body?.message).toMatch(ARABIC);
+    expect(one("SELECT id FROM framework_document WHERE id = 'D111-R5-XRET-SPLIT'")).toBeUndefined();
+  });
+
+  it("the ledger by branch, with what no branch owns, still adds up to the company's", () => {
+    const company = one<{ net: number }>("SELECT sum(debit) - sum(credit) AS net FROM journal_line")!.net;
+    expect(company).toBe(0);
+    expect(netByBranch().reduce((sum, row) => sum + row.net, 0)).toBe(company);
+    expect(one<{ n: number }>("SELECT count(*) AS n FROM journal_line WHERE branch_id = ''")!.n).toBe(0);
   });
 });

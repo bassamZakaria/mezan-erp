@@ -26,7 +26,7 @@ import {
 import type { z } from "zod";
 import { type AuthContextResolver, branchScopeOf, callerUserId, createAnyPermissionGate, createPermissionGate, getAuthContext, warehouseScopeOf, withinScope } from "./permission-gate.js";
 import { BranchRecordKind } from "./branch-policy.js";
-import { returnBranches, storedBranchesById, withinBranchScope } from "./stored-branches.js";
+import { branchesOfWarehouses, returnBranches, storedBranchesById, withinBranchScope } from "./stored-branches.js";
 import { handleDocumentError } from "./document-error-handling.js";
 import { refuseOutOfScopeBranches } from "./branch-scope-refusal.js";
 import { tenantDay, tenantToday } from "./tenant-day.js";
@@ -193,7 +193,7 @@ export function createSalesReturnsRoutes(
    *
    * With no invoices module wired the caller's figures are all there is.
    */
-  async function deriveLine(l: CreateSalesReturnLineInput): Promise<SalesReturnLine> {
+  async function deriveLine(c: Context, l: CreateSalesReturnLineInput): Promise<SalesReturnLine> {
     const claimed: SalesReturnLine = {
       itemId: l.itemId,
       warehouseId: l.warehouseId,
@@ -212,7 +212,8 @@ export function createSalesReturnsRoutes(
     if (!invoices) return claimed;
     const invoice = await invoices.findConfirmedInvoice(l.sourceInvoiceId);
     if (!invoice) return claimed;
-    const [derived] = buildSalesReturnLinesFromInvoice(invoice, l.warehouseId, l.reason, [{ itemId: l.itemId, qty: claimed.qty }]);
+    const [receivingBranchId] = await branchesOfWarehouses(c, [l.warehouseId]);
+    const [derived] = buildSalesReturnLinesFromInvoice(invoice, l.warehouseId, l.reason, [{ itemId: l.itemId, qty: claimed.qty }], receivingBranchId);
     return derived ?? { ...claimed, availableQty: Qty.zero() };
   }
 
@@ -381,7 +382,7 @@ export function createSalesReturnsRoutes(
       const refusal = await refuseInconsistentLine(line);
       if (refusal) return c.json(refusal, 422);
     }
-    const derivedLines = await Promise.all(parsed.data.lines.map(deriveLine));
+    const derivedLines = await Promise.all(parsed.data.lines.map((line) => deriveLine(c, line)));
     const branchRefusal = refuseOutOfScopeBranches(c, derivedLines.map((line) => line.branchId));
     if (branchRefusal) return branchRefusal;
     try {
@@ -418,11 +419,13 @@ export function createSalesReturnsRoutes(
     if (!invoice) {
       return c.json({ error: "SOURCE_INVOICE_NOT_FOUND", message: "الفاتورة المصدر غير موجودة أو غير مؤكدة." }, 404);
     }
+    const [receivingBranchId] = await branchesOfWarehouses(c, [parsed.data.warehouseId]);
     const lines = buildSalesReturnLinesFromInvoice(
       invoice,
       parsed.data.warehouseId,
       parsed.data.reason,
       parsed.data.requested.map((r) => ({ itemId: r.itemId, qty: Qty.fromMajor(r.qty), reason: r.reason })),
+      receivingBranchId,
     );
     if (lines.length === 0) {
       return c.json({ error: "NO_RETURNABLE_LINES", message: "لا توجد بنود قابلة للإرجاع بالكميات المطلوبة." }, 422);

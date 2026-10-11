@@ -338,7 +338,9 @@ async function attributedBranches(resolve: BranchResolver, kind: BranchRecordKin
  * The document's branch is the one it will be BOOKED to, which is not always
  * the one the body states: the stored document a by-id route addresses, else
  * the branch named beside the warehouse, else the source document named beside
- * it, else the header's, else the branch of the header's own warehouse.
+ * it, else the header's, else the branch of the header's own warehouse. A
+ * family `bookedToItsWarehouse` skips the source document: its branch IS its
+ * warehouse's.
  */
 async function warehouseBranchRefusal(
   c: Context,
@@ -369,7 +371,7 @@ async function warehouseBranchRefusal(
     let branches: ReadonlySet<string> | undefined = depth === 0 && stored.size > 0 ? stored : typeof stated === "string" && stated !== "" ? new Set([stated]) : undefined;
     if (!branches) {
       const sourced = new Set<string>();
-      for (const key of SOURCE_DOCUMENT_KEYS) {
+      for (const key of entry?.bookedToItsWarehouse ? [] : SOURCE_DOCUMENT_KEYS) {
         const id = record[key];
         const kind = BODY_REFERENCE_KEYS[key];
         if (typeof id === "string" && id !== "" && kind) for (const branch of await attributedBranches(resolve, kind, id)) sourced.add(branch);
@@ -460,7 +462,8 @@ async function storedWarehouseRefusal(c: Context, ctx: AuthContext, directory: B
     const warehouses = (await directory.warehousesOf(kind, value)) ?? [];
     if (warehouses.length === 0) continue;
     const inside = warehouses.filter((id) => granted.includes(id)).length;
-    const reachable = isRead(c) || entry.movesBetweenWarehouses ? inside > 0 : inside === warehouses.length;
+    const acting = isRead(c) ? null : ((await directory.actingWarehousesOf?.(kind, value)) ?? null);
+    const reachable = acting ? acting.every((id) => granted.includes(id)) : isRead(c) || entry.movesBetweenWarehouses ? inside > 0 : inside === warehouses.length;
     if (!reachable) return branchRefusal(c, BranchRefusalCode.NotFound);
   }
   return null;

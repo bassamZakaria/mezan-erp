@@ -169,6 +169,9 @@ export function createSalesReturnDocumentType(
         if (line.sourceInvoiceId !== invoiceId) {
           throw new InvalidDocumentError(DOC_TYPE, doc.id, "كل بنود المرتجع يجب أن تنتمي لنفس الفاتورة.");
         }
+        if ((line.branchId ?? null) !== (doc.lines[0]?.branchId ?? null)) {
+          throw new InvalidDocumentError(DOC_TYPE, doc.id, "كل بنود المرتجع يجب أن تُستلم في مستودعات فرع واحد؛ سجّل مرتجعاً لكل فرع.");
+        }
         if ((line.fxRate ?? null) !== (doc.lines[0]?.fxRate ?? null)) {
           throw new InvalidDocumentError(DOC_TYPE, doc.id, "كل بنود المرتجع يجب أن تحمل سعر صرف الفاتورة نفسه.");
         }

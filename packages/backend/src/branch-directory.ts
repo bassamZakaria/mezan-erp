@@ -1,6 +1,7 @@
 import type Database from "better-sqlite3";
 import { BranchAccess, BranchRecordKind, type BranchDirectory } from "@mezan/api";
 import { documentIdOfConfirmRequest } from "@mezan/domain";
+import { WAREHOUSE_FAMILIES, lineWarehousesOf, linesColumnOf, warehouseColumnsOf } from "./warehouse-families.js";
 
 type Branches = readonly (string | null)[] | null;
 type Resolver = (id: string, access: BranchAccess) => Branches;
@@ -33,6 +34,14 @@ const COLUMN_SOURCES: Partial<Record<BranchRecordKind, ColumnSource>> = {
     branch: "COALESCE(NULLIF(d.branch_id, ''), (SELECT t.branch_id FROM treasury_account t WHERE t.id = d.treasury_account_id))",
   },
   [K.PhysicalCount]: { table: "physical_count", branch: OF_WAREHOUSE, numberColumn: "count_no" },
+  [K.MaterialConsumption]: { table: "material_consumption", branch: OF_WAREHOUSE, numberColumn: "doc_no" },
+  [K.SiteCustody]: { table: "site_custody", branch: OF_WAREHOUSE },
+  [K.SiteIssue]: { table: "site_issue", branch: "(SELECT w.branch_id FROM warehouse w WHERE w.id = d.from_warehouse_id)", numberColumn: "doc_no" },
+  [K.SiteReceipt]: {
+    table: "site_receipt",
+    branch: "(SELECT w.branch_id FROM warehouse w JOIN site_issue i ON i.to_warehouse_id = w.id WHERE i.id = d.issue_id)",
+    numberColumn: "doc_no",
+  },
   [K.WorkOrder]: { table: "work_order", branch: "(SELECT w.branch_id FROM warehouse w WHERE w.id = d.source_warehouse_id)", numberColumn: "number" },
   [K.Asset]: { table: "asset", branch: OWN_OR_WAREHOUSE },
   [K.Van]: { table: "van", branch: OWN_OR_WAREHOUSE },
@@ -61,34 +70,14 @@ const COLUMN_SOURCES: Partial<Record<BranchRecordKind, ColumnSource>> = {
   },
 };
 
-interface WarehouseSource {
-  readonly table: string;
-  readonly columns: readonly string[];
-  readonly numberColumn?: string;
-}
+const FRAMEWORK_DOC_TYPE: Partial<Record<BranchRecordKind, string>> = Object.fromEntries(
+  WAREHOUSE_FAMILIES.filter((family) => family.docType !== undefined).map((family) => [family.kind, family.docType]),
+);
 
-const WAREHOUSE_SOURCES: Partial<Record<BranchRecordKind, WarehouseSource>> = {
-  [K.Warehouse]: { table: "warehouse", columns: ["id"] },
-  [K.SalesInvoice]: { table: "sales_invoice", columns: ["warehouse_id"], numberColumn: "doc_no" },
-  [K.PurchaseOrder]: { table: "purchase_order", columns: ["warehouse_id"], numberColumn: "number" },
-  [K.PurchaseInvoice]: { table: "purchase_invoice", columns: ["warehouse_id"], numberColumn: "number" },
-  [K.GoodsReceipt]: { table: "goods_receipt", columns: ["warehouse_id"], numberColumn: "number" },
-  [K.Rfq]: { table: "purchase_rfq", columns: ["warehouse_id"], numberColumn: "number" },
-  [K.PhysicalCount]: { table: "physical_count", columns: ["warehouse_id"], numberColumn: "count_no" },
-  [K.WorkOrder]: { table: "work_order", columns: ["source_warehouse_id", "wip_warehouse_id", "destination_warehouse_id"], numberColumn: "number" },
-  [K.Asset]: { table: "asset", columns: ["warehouse_id"] },
-  [K.Van]: { table: "van", columns: ["warehouse_id"] },
-  [K.VanTrip]: { table: "van_trip", columns: ["van_warehouse_id", "source_warehouse_id"] },
-  [K.PosTerminal]: { table: "pos_terminal", columns: ["warehouse_id"] },
-  [K.WritedownRun]: { table: "writedown_run", columns: ["warehouse_id"] },
-};
-const LINE_WAREHOUSE_KEYS = ["warehouseId", "fromWarehouseId", "toWarehouseId"] as const;
-
-const FRAMEWORK_DOC_TYPE: Partial<Record<BranchRecordKind, string>> = {
-  [K.SalesReturn]: "SALES_RETURN",
-  [K.PurchaseReturn]: "PURCHASE_RETURN",
-  [K.LandedCost]: "LANDED_COST",
-  [K.InstallmentPlan]: "INSTALLMENT_PLAN",
+/** The warehouse columns a write on a stored record draws on, where that is not every warehouse the record names. */
+const ACTING_WAREHOUSE_COLUMNS: Partial<Record<BranchRecordKind, readonly string[]>> = {
+  [K.SiteIssue]: ["from_warehouse_id"],
+  [K.VanTrip]: ["van_warehouse_id"],
 };
 
 const SOURCE_DOCUMENT_KINDS = [K.SalesInvoice, K.PurchaseInvoice, K.GoodsReceipt, K.PurchaseOrder, K.SalesQuote] as const;
@@ -295,43 +284,48 @@ export function createSqliteBranchDirectory(sqlite: Database.Database): BranchDi
     return special[kind]?.(id, access) ?? null;
   }
 
-  const warehouseQueries = new Map<BranchRecordKind, { rows: Query; columns: readonly string[] }>(
-    (Object.entries(WAREHOUSE_SOURCES) as [BranchRecordKind, WarehouseSource][]).map(([kind, source]) => [
-      kind,
-      {
-        rows: query(`SELECT ${source.columns.join(", ")} FROM ${source.table} d WHERE d.id = @id${source.numberColumn ? ` OR d.${source.numberColumn} = @id` : ""}`),
-        columns: source.columns,
-      },
-    ]),
+  interface FamilyRead {
+    readonly rows: Query;
+    readonly columns: readonly string[];
+    readonly lines: string | null;
+  }
+  const familyReads = new Map<BranchRecordKind, FamilyRead>(
+    WAREHOUSE_FAMILIES.map((family) => {
+      const columns = warehouseColumnsOf(sqlite, family.table);
+      const lines = linesColumnOf(sqlite, family.table);
+      const selected = [...columns, ...(lines ? [lines] : [])];
+      if (selected.length === 0) throw new Error(`warehouse family "${family.table}" names no warehouse column and carries no lines`);
+      const byNumber = family.numberColumn ? ` OR d.${family.numberColumn} = @id` : "";
+      const ofType = family.docType ? ` AND d.doc_type = '${family.docType}'` : "";
+      return [family.kind, { rows: query(`SELECT ${selected.join(", ")} FROM ${family.table} d WHERE (d.id = @id${byNumber})${ofType}`), columns, lines }];
+    }),
   );
   const postedStockWarehouses = query("SELECT DISTINCT m.warehouse_id AS w FROM stock_movement m WHERE m.source_doc_id = @id OR m.source_doc_number = @id");
-  const lineWarehouses = (linesJson: unknown): string[] =>
-    parseLines(linesJson).flatMap((line) => LINE_WAREHOUSE_KEYS.map((key) => text(line[key])).filter((id): id is string => id !== null));
+  const siteReceiptWarehouses = query(
+    "SELECT i.to_warehouse_id AS destination, i.transit_warehouse_id AS transit FROM site_receipt r JOIN site_issue i ON i.id = r.issue_id WHERE r.id = @id OR r.doc_no = @id",
+  );
   const WAREHOUSE_COMPOSITES: Partial<Record<BranchRecordKind, readonly BranchRecordKind[]>> = {
     [K.AnyInvoice]: [K.SalesInvoice, K.PurchaseInvoice],
     [K.SourceDocument]: SOURCE_DOCUMENT_KINDS,
     [K.AnyDocument]: ANY_DOCUMENT_KINDS,
   };
+  const present = (values: readonly unknown[]): string[] => [...new Set(values.map(text).filter((value): value is string => value !== null))];
 
   function warehousesOf(kind: BranchRecordKind, id: string): readonly string[] | null {
-    const fromColumns = warehouseQueries.get(kind);
-    if (fromColumns) {
-      const rows = fromColumns.rows(id);
+    if (kind === K.Warehouse) return sql.warehouse(id).length === 0 ? null : [id];
+    const family = familyReads.get(kind);
+    if (family) {
+      const rows = family.rows(id);
       if (rows.length === 0) return null;
-      return [...new Set(rows.flatMap((row) => fromColumns.columns.map((column) => text(row[column])).filter((value): value is string => value !== null)))];
+      return present(rows.flatMap((row) => [...family.columns.map((column) => row[column]), ...(family.lines ? lineWarehousesOf(row[family.lines]) : [])]));
     }
-    const docType = FRAMEWORK_DOC_TYPE[kind];
-    if (docType) {
-      const row = sql.frameworkTyped(id, docType)[0];
-      return row ? [...new Set(lineWarehouses(row["lines_json"]))] : null;
-    }
-    if (kind === K.StockAdjustment || kind === K.StockTransfer) {
-      const row = stockDocumentQueries[kind === K.StockAdjustment ? "stock_adjustment_document" : "stock_transfer_document"](id)[0];
-      return row ? [...new Set(lineWarehouses(row["lines_json"]))] : null;
+    if (kind === K.SiteReceipt) {
+      const rows = siteReceiptWarehouses(id);
+      return rows.length === 0 ? null : present(rows.flatMap((row) => [row["destination"], row["transit"]]));
     }
     if (kind === K.PostedStockDocument) {
       const rows = postedStockWarehouses(id);
-      return rows.length === 0 ? null : rows.map((row) => text(row["w"])).filter((value): value is string => value !== null);
+      return rows.length === 0 ? null : present(rows.map((row) => row["w"]));
     }
     for (const member of WAREHOUSE_COMPOSITES[kind] ?? []) {
       const warehouses = warehousesOf(member, id);
@@ -340,5 +334,15 @@ export function createSqliteBranchDirectory(sqlite: Database.Database): BranchDi
     return resolve(kind, id, BranchAccess.Read) === null ? null : [];
   }
 
-  return { branchesOf: resolve, warehousesOf };
+  function actingWarehousesOf(kind: BranchRecordKind, id: string): readonly string[] | null {
+    if (kind === K.SiteReceipt) {
+      const row = siteReceiptWarehouses(id)[0];
+      return row ? present([row["destination"]]) : null;
+    }
+    const columns = ACTING_WAREHOUSE_COLUMNS[kind];
+    const row = columns ? familyReads.get(kind)?.rows(id)[0] : undefined;
+    return row && columns ? present(columns.map((column) => row[column])) : null;
+  }
+
+  return { branchesOf: resolve, warehousesOf, actingWarehousesOf };
 }

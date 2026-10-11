@@ -1,43 +1,41 @@
 import type Database from "better-sqlite3";
 import type { WarehouseUse } from "@mezan/api";
-
-const OPEN_STATUSES = ["draft", "pending"];
-const OPEN_PURCHASE_ORDER_STATUSES = ["draft", "sent", "partially_received"];
-const OPEN_WORK_ORDER_STATUSES = ["planned", "in_progress"];
-const OPEN_VAN_TRIP_STATUSES = ["ongoing"];
-const OPEN_COUNT_STATUSES = ["IN_PROGRESS"];
-const LINE_WAREHOUSE_KEYS = ["warehouseId", "fromWarehouseId", "toWarehouseId", "sourceWarehouseId", "destinationWarehouseId"];
+import { LINE_WAREHOUSE_KEY, SETTLED_STATUSES, WAREHOUSE_FAMILIES, hasStatus, linesColumnOf, warehouseColumnsOf, type WarehouseFamily } from "./warehouse-families.js";
 
 const quoted = (values: readonly string[]) => values.map((value) => `'${value}'`).join(", ");
+
+function openDocumentsSql(sqlite: Database.Database, family: WarehouseFamily): string {
+  const columns = warehouseColumnsOf(sqlite, family.table);
+  const lines = linesColumnOf(sqlite, family.table);
+  const named = [
+    ...columns.map((column) => `d.${column} = @id`),
+    ...(lines ? [`EXISTS (SELECT 1 FROM json_each(d.${lines}) line, json_each(line.value) field WHERE field.value = @id AND field.type = 'text' AND warehouse_key(field.key) = 1)`] : []),
+  ];
+  const open = family.openWhere ?? (hasStatus(sqlite, family.table) ? `d.status NOT IN (${quoted(SETTLED_STATUSES)})` : "1 = 1");
+  const ofType = family.docType ? ` AND d.doc_type = '${family.docType}'` : "";
+  return `(SELECT count(*) FROM ${family.table} d WHERE ${open}${ofType} AND (${named.join(" OR ")}))`;
+}
 
 /**
  * What still ties a warehouse to its branch: stock on its shelves, and
  * documents that have not yet posted. Moving the warehouse to another branch
  * under either would leave a branch's document drawing on another branch's
- * stock.
+ * stock. The documents are every family of `WAREHOUSE_FAMILIES` — the list the
+ * branch boundary reads — so the two cannot disagree about what names a
+ * warehouse.
  */
 export function createWarehouseUse(sqlite: Database.Database): (warehouseId: string) => WarehouseUse {
-  const lineNamesWarehouse = `EXISTS (SELECT 1 FROM json_each(d.lines_json) line WHERE ${LINE_WAREHOUSE_KEYS.map((key) => `json_extract(line.value, '$.${key}') = @id`).join(" OR ")})`;
+  sqlite.function("warehouse_key", { deterministic: true }, (key: unknown) => (typeof key === "string" && LINE_WAREHOUSE_KEY.test(key) ? 1 : 0));
   // Prepared on first use: the tables are created by stores mounted after this is wired.
   let statements: { stock: Database.Statement; openDocuments: Database.Statement } | undefined;
   const prepared = () =>
     (statements ??= {
       stock: sqlite.prepare("SELECT 1 FROM wac_snapshot WHERE warehouse_id = ? AND on_hand <> 0 LIMIT 1"),
-      openDocuments: sqlite.prepare(`
-        SELECT
-          (SELECT count(*) FROM sales_invoice WHERE warehouse_id = @id AND status IN (${quoted(OPEN_STATUSES)}))
-        + (SELECT count(*) FROM purchase_invoice WHERE warehouse_id = @id AND status IN (${quoted(OPEN_STATUSES)}))
-        + (SELECT count(*) FROM purchase_order WHERE warehouse_id = @id AND status IN (${quoted(OPEN_PURCHASE_ORDER_STATUSES)}))
-        + (SELECT count(*) FROM goods_receipt WHERE warehouse_id = @id AND status IN (${quoted(OPEN_STATUSES)}))
-        + (SELECT count(*) FROM purchase_rfq WHERE warehouse_id = @id AND status IN (${quoted(OPEN_PURCHASE_ORDER_STATUSES)}))
-        + (SELECT count(*) FROM framework_document d WHERE d.status IN (${quoted(OPEN_STATUSES)}) AND ${lineNamesWarehouse})
-        + (SELECT count(*) FROM stock_adjustment_document d WHERE d.status IN (${quoted(OPEN_STATUSES)}) AND ${lineNamesWarehouse})
-        + (SELECT count(*) FROM stock_transfer_document d WHERE d.status IN (${quoted(OPEN_STATUSES)}) AND ${lineNamesWarehouse})
-        + (SELECT count(*) FROM work_order WHERE status IN (${quoted(OPEN_WORK_ORDER_STATUSES)}) AND @id IN (source_warehouse_id, wip_warehouse_id, destination_warehouse_id))
-        + (SELECT count(*) FROM van_trip WHERE status IN (${quoted(OPEN_VAN_TRIP_STATUSES)}) AND @id IN (van_warehouse_id, source_warehouse_id))
-        + (SELECT count(*) FROM physical_count WHERE warehouse_id = @id AND status IN (${quoted(OPEN_COUNT_STATUSES)}))
-        AS n
-      `),
+      openDocuments: sqlite.prepare(
+        `SELECT ${WAREHOUSE_FAMILIES.filter((family) => !family.standing)
+          .map((family) => openDocumentsSql(sqlite, family))
+          .join(" + ")} AS n`,
+      ),
     });
   return (warehouseId) => ({
     holdsStock: prepared().stock.get(warehouseId) !== undefined,

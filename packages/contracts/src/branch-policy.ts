@@ -33,6 +33,10 @@ export enum BranchRecordKind {
   StockTransfer = "stock_transfer",
   PostedStockDocument = "posted_stock_document",
   PhysicalCount = "physical_count",
+  MaterialConsumption = "material_consumption",
+  SiteIssue = "site_issue",
+  SiteReceipt = "site_receipt",
+  SiteCustody = "site_custody",
   WritedownRun = "writedown_run",
   WorkOrder = "work_order",
   ConfigInstance = "config_instance",
@@ -85,6 +89,12 @@ export interface BranchDirectory {
   branchesOf(kind: BranchRecordKind, id: string, access: BranchAccess): Promise<readonly (string | null)[] | null> | readonly (string | null)[] | null;
   /** The warehouses a stored record stands on: empty for one that names none, null when nothing holds the id. */
   warehousesOf(kind: BranchRecordKind, id: string): Promise<readonly string[] | null> | readonly string[] | null;
+  /**
+   * The warehouses a WRITE on a stored record draws on, when that is fewer
+   * than all it names: a van trip is worked from its van, a site issue leaves
+   * the store it is issued from. Null when the family has no such rule.
+   */
+  actingWarehousesOf?(kind: BranchRecordKind, id: string): Promise<readonly string[] | null> | readonly string[] | null;
 }
 
 export interface BranchPolicyEntry {
@@ -111,6 +121,12 @@ export interface BranchPolicyEntry {
   readonly readPosts?: readonly string[];
   /** A family that moves stock between two warehouses, so its warehouses need not share the document's branch. */
   readonly movesBetweenWarehouses?: boolean;
+  /**
+   * LEDGER INVARIANT: a document of this family is booked to the branch of the
+   * warehouse its goods land in, whichever branch raised the document it names
+   * as its source. A return is taken where the customer brings the goods back.
+   */
+  readonly bookedToItsWarehouse?: boolean;
   /** A record of this family that no branch owns is the company's: readable by every session, writable only by an unrestricted one. */
   readonly unownedIsCompanys?: boolean;
   readonly query?: Readonly<Record<string, BranchRecordKind>>;
@@ -264,6 +280,10 @@ export const BRANCH_POLICY_TABLE: readonly BranchPolicyEntry[] = [
   companyWide("/inventory/drift"),
   companyWide("/projects"),
   companyWide("/contracting"),
+  { ...companyWide("/contracting/site/issues"), params: { id: K.SiteIssue }, movesBetweenWarehouses: true },
+  { ...companyWide("/contracting/site/receipts"), params: { id: K.SiteReceipt }, movesBetweenWarehouses: true },
+  { ...companyWide("/contracting/site/consumptions"), params: { id: K.MaterialConsumption } },
+  { ...companyWide("/contracting/site/custody"), params: { id: K.SiteCustody } },
   companyWide("/crm/leads"),
   companyWide("/hr/dashboard"),
   companyWide("/hr/leave-accrual-batches"),
@@ -298,7 +318,7 @@ export const BRANCH_POLICY_TABLE: readonly BranchPolicyEntry[] = [
   }),
   scoped("/sales-invoices", K.SalesInvoice, { handlerNarrowed: COUNTS_AND_STATS, defaultsBranch: true }),
   scoped("/sales-quotes", K.SalesQuote, { handlerNarrowed: COUNTS_AND_STATS, defaultsBranch: true }),
-  scoped("/sales-returns", K.SalesReturn, { handlerNarrowed: COUNTS_AND_STATS }),
+  scoped("/sales-returns", K.SalesReturn, { handlerNarrowed: COUNTS_AND_STATS, bookedToItsWarehouse: true }),
   scoped("/purchases/orders", K.PurchaseOrder, { handlerNarrowed: COUNTS_AND_STATS, defaultsBranch: true }),
   scoped("/purchases/receipts", K.GoodsReceipt, { handlerNarrowed: COUNTS_AND_STATS }),
   scoped("/purchases/invoices", K.PurchaseInvoice, { handlerNarrowed: COUNTS_AND_STATS, defaultsBranch: true }),

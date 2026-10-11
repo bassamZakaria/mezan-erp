@@ -30,6 +30,12 @@ export function buildSalesReturnLinesFromInvoice(
   warehouseId: string,
   reason: SalesReturnReason,
   requested: readonly SalesReturnRequestedQty[],
+  /**
+   * LEDGER INVARIANT: the branch of the warehouse the goods come back into. A
+   * return is booked there, not to the branch that raised the invoice — the
+   * stock lands in that branch's store and its counter gives the credit.
+   */
+  receivingBranchId?: string | null,
 ): SalesReturnLine[] {
   const requestedByItem = new Map(requested.map((r) => [r.itemId, r]));
   const lines: SalesReturnLine[] = [];
@@ -56,7 +62,7 @@ export function buildSalesReturnLinesFromInvoice(
       taxAmount: taxShare,
       taxRatePercent: invLine.taxRatePercent ?? null,
       projectId: invoice.projectId ?? null,
-      branchId: invoice.branchId ?? null,
+      branchId: receivingBranchId ?? invoice.branchId ?? null,
       ...(invoice.fxRate ? { currency: invoice.currency ?? null, fxRate: invoice.fxRate } : {}),
     });
   }

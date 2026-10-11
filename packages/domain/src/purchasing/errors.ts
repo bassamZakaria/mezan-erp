@@ -97,10 +97,12 @@ export class PurchaseOrderRequiredError extends Error {
 
 export class PurchaseItemsAlreadyConsumedError extends Error {
   readonly code = "PURCHASE_ITEMS_ALREADY_CONSUMED";
+  readonly messageEn: string;
   constructor(readonly id: string) {
     super(
-      `لا يمكن إلغاء مستند المشتريات "${id}": جزء من بضاعته بيع أو نُقل أو استُهلك بالفعل، وسياسة تتبّع الأصناف المباعة مفعّلة.`,
+      `لا يمكن إلغاء مستند المشتريات "${id}": جزء من بضاعته بيع أو نُقل أو استُهلك بالفعل. سجّل مرتجع مشتريات بالكمية الباقية في المخزن بدلاً من الإلغاء.`,
     );
+    this.messageEn = `Purchase document "${id}" cannot be cancelled: some of its goods have already been sold, transferred or consumed. Record a purchase return for what is still on hand instead.`;
     this.name = "PurchaseItemsAlreadyConsumedError";
   }
 }

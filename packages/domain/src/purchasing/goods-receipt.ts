@@ -11,6 +11,7 @@
 import { Money, Qty } from "../money/index.js";
 import { extend, occurredAtFromDocumentDate, type CostLayer, type CostLayerRepository } from "../inventory/index.js";
 import { NextNumberService } from "../numbering/index.js";
+import { JournalEntryNotFoundError } from "../gl/errors.js";
 import type { CostCategory } from "../contracting/cost-category.js";
 import {
   applyReceiptToOrder,
@@ -28,6 +29,7 @@ import {
   type PurchaseGlAccounts,
   type PurchaseGlPosting,
   type PurchaseGlPostingPort,
+  type PurchaseGlReversalPort,
 } from "./types.js";
 import {
   DuplicatePurchaseDocumentError,
@@ -145,8 +147,13 @@ export interface CancelGoodsReceiptDeps extends PurchaseAuditDeps {
   readonly orders: PurchaseOrderRepository;
   readonly stock: PurchaseStockPostingPort;
   readonly layers: CostLayerRepository;
+  readonly glReverse?: PurchaseGlReversalPort;
   readonly policy?: PurchasePolicy;
   readonly now?: () => string;
+}
+
+export function goodsReceiptCancelEntryId(receiptId: string): string {
+  return `${receiptId}:cancel`;
 }
 
 /**
@@ -157,6 +164,22 @@ export interface CancelGoodsReceiptDeps extends PurchaseAuditDeps {
 export function receiptLayersConsumed(layers: readonly CostLayer[], sourceDocId: string): boolean {
   const mine = layers.filter((l) => l.sourceDocId === sourceDocId);
   return mine.length === 0 || mine.some((l) => l.remainingQty.compare(l.originalQty) !== 0);
+}
+
+export interface StockPosition {
+  readonly itemId: string;
+  readonly warehouseId: string;
+}
+
+// One document may carry the same item on several lines; its layers are found per position, so a repeated position must be visited once.
+export function distinctPositions(positions: readonly StockPosition[]): StockPosition[] {
+  const seen = new Set<string>();
+  return positions.filter((p) => {
+    const key = JSON.stringify([p.itemId, p.warehouseId]);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function nowIso(deps: { now?: () => string }): string {
@@ -489,20 +512,33 @@ export async function cancelGoodsReceipt(
 
   return atomically(deps, async () => {
   if (receipt.status === "confirmed") {
+    const positions = distinctPositions(receipt.lines.map((l) => ({ itemId: l.itemId, warehouseId: receipt.warehouseId })));
     if (policy.trackSoldPurchaseItems) {
-      for (const line of receipt.lines) {
-        const layers = await deps.layers.listByPosition(line.itemId, receipt.warehouseId);
+      for (const position of positions) {
+        const layers = await deps.layers.listByPosition(position.itemId, position.warehouseId);
         if (receiptLayersConsumed(layers, receipt.id)) throw new PurchaseItemsAlreadyConsumedError(id);
       }
     }
 
     await deps.stock.reverseReceipt({
-      reversalId: `${receipt.id}:cancel`,
+      reversalId: goodsReceiptCancelEntryId(receipt.id),
       sourceDocType: "PURCHASE_RECEIPT",
       sourceDocId: receipt.id,
-      positions: receipt.lines.map((l) => ({ itemId: l.itemId, warehouseId: receipt.warehouseId })),
+      positions,
       occurredAt: occurredAtFromDocumentDate(receipt.date),
     });
+
+    try {
+      await deps.glReverse?.reverse(receipt.id, {
+        reversalId: goodsReceiptCancelEntryId(receipt.id),
+        // The day the stock reversal is stamped, so stock and GL 1200 leave together.
+        date: receipt.date,
+        memo: `عكس إذن استلام ${receipt.number}`,
+      });
+    } catch (err) {
+      // A receipt confirmed while no accrual account was configured posted no entry: there is nothing to reverse.
+      if (!(err instanceof JournalEntryNotFoundError)) throw err;
+    }
 
     if (receipt.purchaseOrderId) {
       const order = await deps.orders.findById(receipt.purchaseOrderId);
@@ -540,4 +576,13 @@ export async function markGoodsReceiptInvoiced(
   if (!receipt) throw new GoodsReceiptNotFoundError(id);
   if (receipt.invoiced) return;
   await deps.receipts.update({ ...receipt, invoiced: true });
+}
+
+export async function releaseGoodsReceiptFromInvoice(
+  id: string,
+  deps: Pick<ConfirmGoodsReceiptDeps, "receipts">,
+): Promise<void> {
+  const receipt = await deps.receipts.findById(id);
+  if (!receipt?.invoiced) return;
+  await deps.receipts.update({ ...receipt, invoiced: false });
 }

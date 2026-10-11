@@ -361,6 +361,7 @@ function handleDomainError(c: Context, err: unknown): Response {
       {
         error: err.code,
         message: err.message,
+        messageEn: err instanceof PurchaseItemsAlreadyConsumedError ? err.messageEn : undefined,
         reasons: err instanceof InvalidPurchaseDocumentError ? err.reasons : undefined,
       },
       422,
@@ -803,6 +804,7 @@ export function createPurchasesRoutes(
           orders: deps.orders,
           stock: deps.stock,
           layers,
+          glReverse: deps.glReverse,
           policy: await resolvePolicy(),
           transactor: deps.transactor,
           audit: audit(c),
@@ -1386,6 +1388,7 @@ export function createPurchasesRoutes(
           stock: deps.stock,
           glReverse,
           layers,
+          receipts: deps.receipts,
           policy: await resolvePolicy(),
           transactor: deps.transactor,
           audit: audit(c),

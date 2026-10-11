@@ -19,7 +19,7 @@ import { ReversalDateBeforeOriginalError } from "../gl/errors.js";
 import { convertToBase } from "../exchange-rates/convert.js";
 import { NextNumberService } from "../numbering/index.js";
 import type { GoodsReceipt, GoodsReceiptRepository } from "./goods-receipt.js";
-import { markGoodsReceiptInvoiced, receiptLayersConsumed } from "./goods-receipt.js";
+import { distinctPositions, markGoodsReceiptInvoiced, receiptLayersConsumed, releaseGoodsReceiptFromInvoice } from "./goods-receipt.js";
 import { atomically, recordPurchaseAudit, type PurchaseAuditDeps } from "./audit.js";
 import {
   DEFAULT_PURCHASE_POLICY,
@@ -205,6 +205,7 @@ export interface CancelPurchaseInvoiceDeps extends PurchaseAuditDeps {
   readonly stock: PurchaseStockPostingPort;
   readonly glReverse: PurchaseGlReversalPort;
   readonly layers: CostLayerRepository;
+  readonly receipts?: GoodsReceiptRepository;
   readonly policy?: PurchasePolicy;
   readonly now?: () => string;
 }
@@ -739,10 +740,13 @@ export async function cancelPurchaseInvoice(
   return atomically(deps, async () => {
   if (invoice.status === "confirmed") {
     const inventoryLines = invoice.lines.filter((l) => l.kind === "inventory" && l.itemId !== null);
+    const positions = distinctPositions(inventoryLines.map((l) => ({ itemId: l.itemId as string, warehouseId: invoice.warehouseId })));
+    // The goods of a from-receipt invoice sit in layers the RECEIPT created, under the receipt's id.
+    const layerOwnerId = invoice.receiptId ?? invoice.id;
     if (policy.trackSoldPurchaseItems) {
-      for (const line of inventoryLines) {
-        const layers = await deps.layers.listByPosition(line.itemId as string, invoice.warehouseId);
-        if (receiptLayersConsumed(layers, invoice.id)) throw new PurchaseItemsAlreadyConsumedError(id);
+      for (const position of positions) {
+        const layers = await deps.layers.listByPosition(position.itemId, position.warehouseId);
+        if (receiptLayersConsumed(layers, layerOwnerId)) throw new PurchaseItemsAlreadyConsumedError(id);
       }
     }
 
@@ -754,10 +758,7 @@ export async function cancelPurchaseInvoice(
         reversalId: purchaseInvoiceCancelEntryId(invoice.id),
         sourceDocType: "PURCHASE_INVOICE",
         sourceDocId: invoice.id,
-        positions: inventoryLines.map((l) => ({
-          itemId: l.itemId as string,
-          warehouseId: invoice.warehouseId,
-        })),
+        positions,
         // The day the GL reversal is dated, so stock and GL 1200 leave together.
         occurredAt: occurredAtFromDocumentDate(cancelDate),
       });
@@ -768,6 +769,9 @@ export async function cancelPurchaseInvoice(
       date: cancelDate,
       memo: `عكس فاتورة مشتريات ${invoice.number}`,
     });
+    if (invoice.receiptId && deps.receipts) {
+      await releaseGoodsReceiptFromInvoice(invoice.receiptId, { receipts: deps.receipts });
+    }
   }
 
   const cancelled: PurchaseInvoice = { ...invoice, status: "cancelled" };

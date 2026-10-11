@@ -94,7 +94,7 @@ export {
 } from "./security-reports-routes.js";
 export { sendNotificationEmail, type SmtpConfig } from "./smtp-client.js";
 export { createPrecomputingHasher, type PrecomputingHasher, type SecretsToPrecompute } from "./precomputed-secrets.js";
-export { drainTurnYields } from "./turn-yields.js";
+export { drainTurnYields, reportTurnYield } from "./turn-yields.js";
 export {
   createSimplifiedRegimeRoutes,
   type SimplifiedRegimeRoutesDeps,

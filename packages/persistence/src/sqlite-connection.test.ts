@@ -496,6 +496,29 @@ describe("sqliteTransactionsSettled", () => {
   });
 });
 
+describe("withSqliteTurn — work a holder starts and does not wait for", () => {
+  it("keeps the turn until database work the holder left running has finished", async () => {
+    const sqlite = new Database(":memory:");
+    sqlite.exec("CREATE TABLE t (v TEXT)");
+    const insert = (v: string) => sqlite.prepare("INSERT INTO t VALUES (?)").run(v);
+    const tick = () => new Promise<void>((resolve) => setImmediate(resolve));
+    let subscriber: Promise<void> | undefined;
+
+    const holder = withSqliteTurn(sqlite, async () => {
+      insert("holder");
+      subscriber = withSqliteTurn(sqlite, async () => {
+        await tick();
+        insert("subscriber");
+      });
+    });
+    const next = withSqliteTurn(sqlite, async () => insert("next"));
+    await Promise.all([holder, next, subscriber]);
+
+    expect((sqlite.prepare("SELECT v FROM t ORDER BY rowid").all() as { v: string }[]).map((r) => r.v)).toEqual(["holder", "subscriber", "next"]);
+    sqlite.close();
+  });
+});
+
 describe("outsideSqliteTurn", () => {
   const open = () => {
     const sqlite = new Database(":memory:");

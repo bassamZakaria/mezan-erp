@@ -183,6 +183,7 @@ interface TurnScope extends Lane {
   retaken: Promise<void>;
   announceRetaken: () => void;
   release: () => void;
+  readonly leftRunning: Set<Promise<unknown>>;
   probe: ReturnType<typeof setImmediate> | undefined;
   readonly observer: SqliteTurnObserver;
 }
@@ -382,7 +383,9 @@ function inOrder(scope: TurnScope, step: () => Promise<void>): Promise<void> {
 
 export async function withSqliteTurn<T>(sqlite: Database.Database, fn: () => Promise<T>, observer: SqliteTurnObserver = {}): Promise<T> {
   const state = stateFor(sqlite);
-  if (state.nesting.getStore() || heldTurn(state)) return fn();
+  if (state.nesting.getStore()) return fn();
+  const holder = heldTurn(state);
+  if (holder) return within(holder, fn);
 
   const scope: TurnScope = {
     queue: Promise.resolve(),
@@ -393,6 +396,7 @@ export async function withSqliteTurn<T>(sqlite: Database.Database, fn: () => Pro
     retaken: Promise.resolve(),
     announceRetaken: () => undefined,
     release: await enter(state),
+    leftRunning: new Set(),
     probe: undefined,
     observer,
   };
@@ -400,12 +404,25 @@ export async function withSqliteTurn<T>(sqlite: Database.Database, fn: () => Pro
   try {
     return await state.turn.run(scope, fn);
   } finally {
+    while (scope.leftRunning.size > 0) await Promise.allSettled([...scope.leftRunning]);
     scope.ended = true;
     await inOrder(scope, async () => {
       if (scope.active) await handBack(scope);
       scope.announceRetaken();
     });
   }
+}
+
+// Database work a holder starts and does not wait for — an event subscriber, a
+// bridge — asks for the turn too. It already has it, and the turn is not
+// handed on until that work is done: otherwise it would still be writing when
+// the next holder opens its BEGIN.
+function within<T>(holder: TurnScope, fn: () => Promise<T>): Promise<T> {
+  const running = fn();
+  holder.leftRunning.add(running);
+  const done = (): void => void holder.leftRunning.delete(running);
+  running.then(done, done);
+  return running;
 }
 
 // WORK THAT IS NOT THE DATABASE IS DONE WITH THE TURN HANDED BACK. A hash on the

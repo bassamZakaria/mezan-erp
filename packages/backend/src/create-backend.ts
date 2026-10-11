@@ -15,6 +15,7 @@ import {
   type SessionRegistry,
   sendNotificationEmail,
   createPrecomputingHasher,
+  reportTurnYield,
 } from "@mezan/api";
 import {
   ALL_SCOPE,
@@ -713,6 +714,16 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   // awaited with the turn released, and the request takes it again to record
   // what they answered.
   const outsideTheTurn = <T>(work: () => Promise<T>): Promise<T> => auditSink.outsideTurn(work);
+  // WORK NO REQUEST IS WAITING ON TAKES THE TURN FOR ITS DATABASE WORK TOO: a
+  // timer, an event subscriber, a task a confirm leaves running. Started inside
+  // a request it shares that request's turn, which is then kept until it is
+  // done; started on its own it queues like any write. Either way it is never
+  // writing while another holder has a BEGIN open, and its ports hand the turn
+  // back around the outside world exactly as a request's do.
+  const inTheTurn =
+    (label: string) =>
+    <T>(work: () => Promise<T>): Promise<T> =>
+      auditSink.turn(work, { onYield: () => reportTurnYield(`background ${label}`) });
   const etaHttp = options.etaHttpClient ?? fetchEtaHttpClient();
   const etaSigningRunner = options.etaSigningRunner ?? runExternalSigningCommand;
   const etaTransmit = createEtaHttpTransmitPort({
@@ -926,8 +937,9 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     roles: uow.roles,
     generateId: () => randomUUID(),
   });
+  const notifyInTheTurn = inTheTurn("notification rules");
   eventBus.subscribeAll((event) => {
-    void notificationEngine.handle(event).catch((error: unknown) => {
+    void notifyInTheTurn(() => notificationEngine.handle(event)).catch((error: unknown) => {
       console.error(`[notifications] engine failed handling "${event.code}"`, error);
     });
   });
@@ -1128,6 +1140,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
    * and a future POS till, and from the confirm events for every other path.
    */
   const etaReceipts = createEtaReceiptIssuer({
+    turn: inTheTurn("e-receipt submission"),
     eta: etaService,
     invoices: salesInvoices,
     returns: salesReturnStore,
@@ -1147,6 +1160,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   });
 
   const etaEnqueueBridge = createEtaEnqueueBridge({
+    turn: inTheTurn("e-invoice queueing"),
     eta: etaService,
     issuer: etaReceipts,
     invoices: salesInvoices,

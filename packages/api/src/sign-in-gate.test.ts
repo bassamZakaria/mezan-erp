@@ -13,7 +13,7 @@ const tick = () => new Promise<void>((resolve) => setImmediate(resolve));
 
 describe("how many PIN checks a tenant runs at once", () => {
   it("runs as many as it was given, queues a few more, and refuses the rest at once", async () => {
-    const gate = createSignInGate({ running: 2, waiting: 1, perSource: 10 });
+    const gate = createSignInGate({ running: 2, waiting: 1, perSource: 10, reserved: 0 });
     const started: number[] = [];
     const checks = [held(), held(), held()];
     const admitted = checks.map((work, index) =>
@@ -37,7 +37,7 @@ describe("how many PIN checks a tenant runs at once", () => {
   });
 
   it("keeps places for another address when one address has taken its share", async () => {
-    const gate = createSignInGate({ running: 2, waiting: 6, perSource: 3 });
+    const gate = createSignInGate({ running: 2, waiting: 6, perSource: 3, reserved: 0 });
     const flood = [held(), held(), held()];
     const admitted = flood.map((work) => gate.admit("41.33.10.10", work.check));
 
@@ -68,5 +68,50 @@ describe("how many PIN checks a tenant runs at once", () => {
     expect(gate.admit(null, async () => undefined)).toBeNull();
     console1.finish();
     console2.finish();
+  });
+});
+
+describe("who gets a place when a few addresses try to take them all", () => {
+  const never = () => new Promise<never>(() => undefined);
+
+  it("keeps places back for an address holding none, however many places the busy addresses ask for", () => {
+    const gate = createSignInGate();
+    let admitted = 0;
+    for (const source of ["41.33.10.10", "41.33.10.11", "41.33.10.12"]) {
+      for (let i = 0; i < 6; i += 1) if (gate.admit(source, never) !== null) admitted += 1;
+    }
+
+    expect(admitted).toBeLessThan(16);
+    expect(gate.admit("196.221.5.5", async () => "owner")).not.toBeNull();
+    expect(gate.admit("196.221.5.6", async () => "clerk")).not.toBeNull();
+  });
+
+  it("always has a place for the machine's own console", () => {
+    const gate = createSignInGate();
+    for (let source = 0; source < 40; source += 1) gate.admit(`10.0.0.${source}`, never);
+
+    expect(gate.admit("196.221.5.5", async () => "late")).toBeNull();
+    expect(gate.admit(null, async () => "console")).not.toBeNull();
+  });
+
+  it("serves waiting addresses in turn, so one arriving behind a busy address is not served behind all of its checks", async () => {
+    const gate = createSignInGate({ running: 1, waiting: 20, perSource: 6, reserved: 2 });
+    const order: string[] = [];
+    const release: (() => void)[] = [];
+    const slow = (tag: string) => () =>
+      new Promise<void>((resolve) => {
+        order.push(tag);
+        release.push(resolve);
+      });
+    for (let i = 0; i < 6; i += 1) gate.admit("41.33.10.10", slow("busy"));
+    gate.admit("196.221.5.5", slow("owner"));
+
+    for (let served = 0; served < 3; served += 1) {
+      release[served]!();
+      await tick();
+      await tick();
+    }
+
+    expect(order.slice(0, 3)).toEqual(["busy", "owner", "busy"]);
   });
 });

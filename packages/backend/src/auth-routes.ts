@@ -17,6 +17,7 @@ import {
 import { loginRequestSchema, bootstrapAdminRequestSchema, unlockAccountRequestSchema, type SessionDTO } from "@mezan/contracts";
 import {
   accountLocked,
+  signInBusy,
   createAccountLocks,
   createLoginThrottle,
   createMemoryAccountLockStore,
@@ -95,6 +96,7 @@ export interface AccountLockedEvent {
 }
 
 const SIGN_IN_BUSY_RETRY_SECONDS = 2;
+const SIGN_IN_BUSY_STATUS = 503;
 const ACCOUNT_LOCKED_STATUS = 423;
 
 async function tenantName(settings: SettingsRepository): Promise<string> {
@@ -211,7 +213,9 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
       const hash = user && user.status === "active" && user.pinHash ? user.pinHash : await decoyHash();
       return secrets.precompute({ verify: [[parsed.data.pin, hash]] });
     });
-    return checked ?? lockedOut(c, SIGN_IN_BUSY_RETRY_SECONDS);
+    if (checked !== null) return checked;
+    c.header("retry-after", String(SIGN_IN_BUSY_RETRY_SECONDS));
+    return c.json(signInBusy(SIGN_IN_BUSY_RETRY_SECONDS), SIGN_IN_BUSY_STATUS);
   };
 
   const claimPasswords = new WeakMap<Request, string>();

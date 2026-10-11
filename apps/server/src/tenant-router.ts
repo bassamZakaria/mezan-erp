@@ -2,7 +2,7 @@ import { Hono, type Context, type MiddlewareHandler } from "hono";
 import path from "node:path";
 import { mkdirSync } from "node:fs";
 import { timingSafeEqual } from "node:crypto";
-import { createSourceThrottle, tooManyAttempts, type SourceThrottle } from "@mezan/api";
+import { createSourceThrottle, throttleSource, tooManyAttempts, type SourceThrottle } from "@mezan/api";
 import { createBackend, type BackendHandle, type PlatformHandle } from "@mezan/backend";
 import type { SessionGrant, SmtpConfig } from "@mezan/api";
 import type { SqliteOpenOptions } from "@mezan/persistence";
@@ -27,7 +27,7 @@ export interface TenantRouterOptions {
   readonly sweepEveryMs?: number;
   readonly now?: () => Date;
   readonly openBackend?: (code: string, dbPath: string, resolvers: TenantResolvers) => Promise<BackendHandle>;
-  /** Failed tenant sign-ins per tenant and client address. Defaults to a fresh one. */
+  /** Failed tenant sign-ins per client address ACROSS tenants. Defaults to a fresh one. */
   readonly signInSources?: SourceThrottle;
   /** Passed straight through to every tenant `createBackend` call (e.g. `{ exclusive: true }` on EFS). Ignored when `openBackend` is supplied. */
   readonly connection?: SqliteOpenOptions;
@@ -56,9 +56,11 @@ export function requireOriginSecret(secret?: string): MiddlewareHandler {
 }
 
 const SIGN_IN = "/auth/login";
-const INVALID_CREDENTIALS = 401;
-
-const SOURCE_KEY_SEPARATOR = "\u0000";
+const COUNTED_AS_FAILED: ReadonlySet<number> = new Set([401, 423]);
+// A tenant backend holds an address after thirty failures against ITS
+// accounts (login-throttle.ts). This is the one count no tenant can keep: the
+// same address spread across many tenants, under each one's own limit.
+const CROSS_TENANT_FREE_ATTEMPTS = 90;
 
 /** A tenant backend as a cloud CALLER reaches it: every read names the address the caller is counted and bound against. */
 export interface TenantDoor {
@@ -142,7 +144,8 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
     },
   });
 
-  const signInSources = options.signInSources ?? createSourceThrottle(options.now ? () => options.now!().getTime() : undefined);
+  const signInSources =
+    options.signInSources ?? createSourceThrottle(options.now ? () => options.now!().getTime() : undefined, CROSS_TENANT_FREE_ATTEMPTS);
 
   const app = new Hono();
   app.use("*", requireCloudSource(options.clientSource ?? SOCKET_ONLY, options.sourceReporter));
@@ -192,14 +195,14 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
     const source = callerSource(c);
     if (c.req.method !== "POST" || subPath !== SIGN_IN) return door.fetch(forwarded, source);
 
-    const held = `${code}${SOURCE_KEY_SEPARATOR}${source}`;
-    const wait = signInSources.retryAfter(held);
+    const counted = throttleSource(source) ?? source;
+    const wait = signInSources.retryAfter(counted);
     if (wait > 0) {
       c.header("retry-after", String(wait));
       return c.json(tooManyAttempts(wait), 429);
     }
     const answer = await door.fetch(forwarded, source);
-    if (answer.status === INVALID_CREDENTIALS) signInSources.fail(held);
+    if (COUNTED_AS_FAILED.has(answer.status)) signInSources.fail(counted);
     return answer;
   });
 

@@ -4,7 +4,7 @@ import path from "node:path";
 import { Hono } from "hono";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createBackend, createPlatform, type BackendHandle, type PlatformHandle } from "@mezan/backend";
-import { createSessionRegistry } from "@mezan/api";
+import { createSessionRegistry, createSourceThrottle, type SourceThrottle } from "@mezan/api";
 import { createTenant, activateTenant, archiveTenant, suspendTenant, startSubscription, changePlan } from "@mezan/domain";
 import type { SessionDTO } from "@mezan/contracts";
 import { createTenantRouter, type TenantRouter } from "./tenant-router.js";
@@ -83,6 +83,7 @@ function newRouter(
     trustForwardedHost?: boolean;
     trustedProxyHops?: number;
     trustViewerAddress?: boolean;
+    signInSources?: SourceThrottle;
     allowTenantHeader?: boolean;
     idleMs?: number;
     ttlMs?: number;
@@ -99,6 +100,7 @@ function newRouter(
     trustForwardedHost: opts.trustForwardedHost,
     clientSource: { trustedProxyHops: opts.trustedProxyHops ?? 0, trustViewerAddress: opts.trustViewerAddress === true, compareViewerAddress: false },
     allowTenantHeader: opts.allowTenantHeader,
+    signInSources: opts.signInSources,
     idleMs: opts.idleMs,
     ttlMs: opts.ttlMs,
     sweepEveryMs: 0,
@@ -533,6 +535,23 @@ describe("createTenantRouter", () => {
       expect(otherTenant.status).toBe(200);
     }, 120_000);
 
+    it("holds an address that sweeps across tenants before it has reached any one tenant's own limit", async () => {
+      const platform = await seedPlatform();
+      const { router } = newRouter(platform, { trustForwardedHost: true, trustedProxyHops: 1, signInSources: createSourceThrottle(() => Date.parse(T), 40) });
+      await bootstrapAdmin(router, "cyag");
+      await bootstrapAdmin(router, "nile");
+      const statuses: number[] = [];
+      for (let i = 0; i < 25; i += 1) statuses.push((await signIn(router, "cyag", `ghost${i}@example.com`, "203.0.113.9")).status);
+      for (let i = 0; i < 20; i += 1) statuses.push((await signIn(router, "nile", `ghost${i}@example.com`, "203.0.113.9")).status);
+
+      expect(statuses.slice(0, 41)).toEqual(Array<number>(41).fill(401));
+      expect(statuses.slice(41)).toEqual(Array<number>(4).fill(429));
+      const held = await signIn(router, "nile", "owner-nile@example.com", "203.0.113.9", "123456");
+      expect(held.status).toBe(429);
+      expect(await held.json()).toMatchObject({ error: "TOO_MANY_ATTEMPTS" });
+      expect((await signIn(router, "nile", "owner-nile@example.com", "198.51.100.4", "123456")).status).toBe(200);
+    }, 120_000);
+
     it("ignores a forwarded address it was not told to trust", async () => {
       const platform = await seedPlatform();
       const { router } = newRouter(platform);
@@ -651,11 +670,13 @@ describe("createTenantRouter", () => {
 
       expect(owner.status).toBe(200);
       expect(ownerMs).toBeLessThan(1000);
-      const refused = answers.filter((answer) => answer.status === 429);
-      expect(refused.length).toBeGreaterThan(900);
-      expect(await refused[0]!.json()).toMatchObject({ error: "TOO_MANY_ATTEMPTS", message: expect.stringContaining("محاولات دخول كثيرة") });
-      expect(refused[0]!.headers.get("retry-after")).not.toBeNull();
-      expect(answers.filter((answer) => answer.status !== 429 && answer.status !== 401)).toEqual([]);
+      const busy = answers.filter((answer) => answer.status === 503);
+      const held = answers.filter((answer) => answer.status === 429);
+      expect(busy.length + held.length).toBeGreaterThan(900);
+      expect(await busy[0]!.json()).toMatchObject({ error: "SIGN_IN_BUSY", message: expect.stringContaining("مشغول") });
+      expect(busy[0]!.headers.get("retry-after")).not.toBeNull();
+      for (const answer of held.slice(0, 3)) expect(await answer.json()).toMatchObject({ error: "TOO_MANY_ATTEMPTS" });
+      expect(answers.filter((answer) => ![401, 429, 503].includes(answer.status))).toEqual([]);
     }, 120_000);
   });
 });

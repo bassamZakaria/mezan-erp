@@ -82,7 +82,17 @@ export interface LoginThrottle {
 export enum SignInRefusal {
   TooManyAttempts = "TOO_MANY_ATTEMPTS",
   AccountLocked = "ACCOUNT_LOCKED",
+  Busy = "SIGN_IN_BUSY",
   InvalidUnlockCode = "INVALID_UNLOCK_CODE",
+}
+
+/** The tenant is checking as many PINs as it will at once. Nothing was counted against the caller. */
+export function signInBusy(seconds: number) {
+  return {
+    error: SignInRefusal.Busy,
+    retryAfterSeconds: seconds,
+    message: "الخادم مشغول الآن بطلبات دخول أخرى، ولم تُحتسب هذه المحاولة. أعد المحاولة بعد ثوانٍ.",
+  };
 }
 
 /** `unlockByCode` says whether a one-time code was mailed to the administrators, so the client offers a place to type it. */
@@ -267,7 +277,7 @@ export interface SourceThrottle {
  * valid account would otherwise reset the count for a sweep of every other.
  * The host's own console has no source and is never counted here.
  */
-export function createSourceThrottle(now: () => number = Date.now): SourceThrottle {
+export function createSourceThrottle(now: () => number = Date.now, freeAttempts: number = SOURCE_FREE_ATTEMPTS): SourceThrottle {
   const records = new Map<string, AttemptRecord>();
 
   return {
@@ -280,7 +290,7 @@ export function createSourceThrottle(now: () => number = Date.now): SourceThrott
       const at = now();
       const record = readRecord(records, source, at) ?? { failures: [], lockedUntil: 0 };
       record.failures.push(at);
-      const doublings = record.failures.length - SOURCE_FREE_ATTEMPTS - 1;
+      const doublings = record.failures.length - freeAttempts - 1;
       const lock = doublings < 0 ? 0 : Math.min(BASE_LOCK_MS * 2 ** doublings, MAX_LOCK_MS);
       record.lockedUntil = lock > 0 ? at + lock : 0;
       records.set(source, record);

@@ -195,3 +195,22 @@ describe("getting back into a locked account", () => {
     expect(statuses.slice(19)).toEqual([423, 423]);
   }, 120_000);
 });
+
+describe("a burst of sign-ins larger than the tenant checks at once", () => {
+  it("tells the ones it has no place for that the server is busy, not that they tried too often", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const h = await open();
+    await claim(h);
+
+    const answers = await Promise.all(Array.from({ length: 40 }, (_, i) => signIn(h, "000000", "41.33.10.10", `ghost${i}@shop.eg`)));
+    const busy = answers.filter((answer) => answer.status === 503);
+
+    expect(busy.length).toBeGreaterThan(20);
+    expect(await busy[0]!.json()).toMatchObject({ error: "SIGN_IN_BUSY", message: expect.stringContaining("مشغول") });
+    expect(busy[0]!.headers.get("retry-after")).toBe("2");
+    expect(answers.filter((answer) => answer.status !== 503 && answer.status !== 401)).toEqual([]);
+
+    const owner = await signIn(h, OWNER.pin, "196.221.5.5");
+    expect(owner.status).toBe(200);
+  }, 120_000);
+});

@@ -1,9 +1,5 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import Database from "better-sqlite3";
-import { InvoiceDocumentKind, Money, Qty, RETENTION_RELEASE_ITEM_ID, type SalesInvoice, type SalesInvoiceLine } from "@mezan/domain";
+import { InvoiceDocumentKind, Money, Qty, type SalesInvoice, type SalesInvoiceLine } from "@mezan/domain";
 import { createSqliteSalesInvoiceStore, type SqliteSalesInvoiceStoreHandle } from "./sales-invoice-store.js";
 
 const closers: Array<{ close(): void }> = [];
@@ -237,23 +233,6 @@ describe("the document kind of a sales invoice (D79 round 5)", () => {
     await handle.save(invoice({ id: "inv-plain" }));
     expect((await handle.findById("inv-release"))?.documentKind).toBe(InvoiceDocumentKind.RetentionRelease);
     expect((await handle.findById("inv-plain"))?.documentKind).toBe(InvoiceDocumentKind.Standard);
-  });
-
-  it("marks, once, a release raised before the column existed — by the line item only a release carries", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "mezan-kind-"));
-    const path = join(dir, "t.db");
-    const before = createSqliteSalesInvoiceStore(path);
-    await before.save(invoice({ id: "old-release", lines: [line({ itemId: RETENTION_RELEASE_ITEM_ID, isStock: false, cogsAccountId: null, inventoryAccountId: null })] }));
-    await before.save(invoice({ id: "old-plain" }));
-    before.close();
-    const raw = new Database(path);
-    raw.exec("ALTER TABLE sales_invoice DROP COLUMN document_kind");
-    raw.close();
-
-    const after = createSqliteSalesInvoiceStore(path);
-    closers.push(after);
-    expect((await after.findById("old-release"))?.documentKind).toBe(InvoiceDocumentKind.RetentionRelease);
-    expect((await after.findById("old-plain"))?.documentKind).toBe(InvoiceDocumentKind.Standard);
   });
 
   it("names the tax rate of an unnamed posted line and touches nothing else on the invoice", async () => {

@@ -2,12 +2,12 @@ import Database from "better-sqlite3";
 import { openSqliteConnection, withSqliteTransaction, type SqliteConnectionInput } from "./sqlite-connection.js";
 import { addVersionColumns, createDocumentVersionStore, type DocumentVersionStore } from "./document-version.js";
 import { columnsOf, writeRowColumnsWhere } from "./document-field-write.js";
+import { markInvoicesNamedByRegister } from "./document-kind-backfill.js";
 import { childRowsByParent, countMatching, FilterClauses, selectPage } from "./list-query.js";
 import {
   InvoiceDocumentKind,
   Money,
   Qty,
-  RETENTION_RELEASE_ITEM_ID,
   SALES_INVOICE_ACTIVE_STATUSES,
   SalesInvoiceField,
   type SalesInvoiceWritePrecondition,
@@ -702,12 +702,8 @@ export function createSqliteSalesInvoiceStore(path: SqliteConnectionInput = ":me
   const kindUnrecorded = lacksColumn(sqlite, "sales_invoice", "document_kind");
   sqlite.exec(CREATE_TABLES);
   addMissingColumns(sqlite);
-  // A release raised before the kind was stored is known by the one line item
-  // only a release carries; marked once, when the column arrives.
   if (kindUnrecorded) {
-    sqlite
-      .prepare(`UPDATE sales_invoice SET document_kind = ? WHERE id IN (SELECT invoice_id FROM sales_invoice_line WHERE item_id = ?)`)
-      .run(InvoiceDocumentKind.RetentionRelease, RETENTION_RELEASE_ITEM_ID);
+    markInvoicesNamedByRegister(sqlite, { table: "sales_invoice", register: "contracting_retention_release", kind: InvoiceDocumentKind.RetentionRelease });
   }
   sqlite.exec(CREATE_INDEXES);
   addVersionColumns(sqlite, "sales_invoice");

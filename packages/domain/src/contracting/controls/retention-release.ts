@@ -34,11 +34,7 @@ export function getRetentionReleaseStatusLabel(status: RetentionReleaseStatus): 
   return RETENTION_RELEASE_STATUS_DEFINITIONS.find((d) => d.code === status)?.labelAr ?? status;
 }
 
-/**
- * The service item the generated «إفراج عن محتجزات» invoice names. A tenant
- * that prefers its own service item overrides it in the composition.
- */
-export const RETENTION_RELEASE_ITEM_ID = "SRV-CONTRACTING-RETENTION";
+export { RETENTION_RELEASE_ITEM_ID } from "../../documents/invoice-document-kind.js";
 
 export interface RetentionRelease {
   readonly id: string;

@@ -43,7 +43,7 @@ import {
   type TaxRateRepository,
 } from "../tax-rates/index.js";
 import { occurredAtFromDocumentDate } from "../inventory/movement.js";
-import { InvoiceDocumentKind, isRetentionRelease } from "../documents/invoice-document-kind.js";
+import { InvoiceDocumentKind, isRetentionRelease, RETENTION_RELEASE_ITEM_ID } from "../documents/invoice-document-kind.js";
 import { SalesPricingMode, type SalesInvoiceTaxPolicy, type SalesTaxPolicySource } from "./tax-policy.js";
 import type { AllocatableInvoiceRepository } from "../vouchers/allocation.js";
 import { AuditSeverityCode, recordSensitiveEvent, type AuditSink } from "../audit/index.js";
@@ -802,6 +802,9 @@ export class SalesInvoiceService {
     if (invoice.lines.length === 0) reasons.push("الفاتورة تتطلب بنداً واحداً على الأقل.");
     for (const line of invoice.lines) {
       if (line.itemId.trim() === "") reasons.push("كل بند يجب أن يستهدف صنفاً.");
+      if (line.itemId === RETENTION_RELEASE_ITEM_ID && !isRetentionRelease(invoice)) {
+        reasons.push(`الصنف "${line.itemNameAr}": صنف الإفراج عن المحتجزات يصدر على مستند الإفراج وحده، ولا يُباع على فاتورة عادية.`);
+      }
       if (line.qty.isNegative() || line.qty.isZero()) {
         reasons.push(`الصنف "${line.itemNameAr}": الكمية يجب أن تكون أكبر من صفر.`);
       }

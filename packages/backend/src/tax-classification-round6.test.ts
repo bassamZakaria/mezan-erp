@@ -68,3 +68,21 @@ describe("a 0% line that posted nothing can still be classified", () => {
     expect(namesOf((await kit.call("GET", "/purchases/invoices/R6-PFREE")).body.lines)).toEqual([VAT_RATE, EXEMPT_RATE]);
   });
 });
+
+describe("the retention release item belongs to the release document alone", () => {
+  it("refuses it on a sale keyed in by hand, so a normal sale can never be read as a release", async () => {
+    const draft = await kit.call("POST", "/sales-invoices", {
+      id: "R6-RET-ITEM", date: TODAY, dueDate: "2026-09-23", customerId: "CUST-DEMO-1", customerNameAr: "عميل", warehouseId: "WH-MAIN", branchId: "BR-MAIN",
+      arAccountId: "1105", taxAccountId: "2200", lines: [serviceLine("A", { itemId: "SRV-CONTRACTING-RETENTION", taxRateId: VAT_RATE })],
+    });
+    expect([draft.status, draft.body.error], JSON.stringify(draft.body)).toEqual([422, "INVALID_SALES_INVOICE"]);
+    expect(String(draft.body.reasons?.[0] ?? draft.body.message)).toContain("الإفراج عن المحتجزات");
+    expect((await kit.call("GET", "/sales-invoices/R6-RET-ITEM")).status).toBe(404);
+  });
+
+  it("still raises the release itself", async () => {
+    expect((await kit.call("POST", "/contracting/retention/releases", { id: "R6-REL", contractId: "CTR-DEMO-1", kind: "provisional", date: "2026-09-02", amount: "100.00", notes: "t" })).status).toBe(201);
+    const released = await kit.call("POST", "/contracting/retention/releases/R6-REL/release", { approvedBy: "T-APPROVER" }, ["*"]);
+    expect(released.status, JSON.stringify(released.body)).toBe(200);
+  });
+});

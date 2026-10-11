@@ -2,6 +2,7 @@ import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
 import { countMatching, FilterClauses, selectPage } from "./list-query.js";
 import { columnsOf, writeRowColumnsWhere } from "./document-field-write.js";
+import { markInvoicesNamedByRegister } from "./document-kind-backfill.js";
 import { addVersionColumns, createDocumentVersionStore, type DocumentVersionStore } from "./document-version.js";
 import {
   Money,
@@ -575,8 +576,6 @@ export function createSqlitePurchaseOrderStore(path: SqliteConnectionInput = ":m
 }
 
 /** Add a column in place when an existing books file predates it — `CREATE TABLE IF NOT EXISTS` never widens an existing table. */
-// A subcontract release raised before the kind was stored is known by the id
-// its issuer gives it and no other invoice; marked once, when the column arrives.
 // ORDER MATTERS: `pending` is read before CREATE_PI runs — running it brings an
 // older table up to the declared shape, after which the column always exists.
 function purchaseInvoiceKindUnrecorded(sqlite: Database.Database): boolean {
@@ -586,7 +585,7 @@ function purchaseInvoiceKindUnrecorded(sqlite: Database.Database): boolean {
 
 function markPurchaseRetentionReleases(sqlite: Database.Database, pending: boolean): void {
   if (!pending) return;
-  sqlite.prepare(`UPDATE purchase_invoice SET document_kind = ? WHERE id LIKE '%-RET-%-PINV'`).run(InvoiceDocumentKind.RetentionRelease);
+  markInvoicesNamedByRegister(sqlite, { table: "purchase_invoice", register: "subcontract_retention_release", kind: InvoiceDocumentKind.RetentionRelease });
 }
 
 function addColumnIfMissing(sqlite: Database.Database, table: string, column: string, ddl: string): void {

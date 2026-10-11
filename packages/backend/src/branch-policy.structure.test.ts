@@ -2,8 +2,8 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { BRANCH_POLICY_TABLE, BranchPolicy, branchPolicyFor, undeclaredPolicyOf } from "@mezan/api";
-import { createEntitlements, MODULE_CATALOG } from "@mezan/domain";
+import { ATTACHMENT_ENTITY_OWNERS, AttachmentOwner, BRANCH_POLICY_TABLE, BranchPolicy, branchPolicyFor, undeclaredPolicyOf } from "@mezan/api";
+import { ATTACHMENT_ENTITY_TYPES, createEntitlements, MODULE_CATALOG } from "@mezan/domain";
 import { createBackend, type BackendHandle } from "./create-backend.js";
 
 const BOOT_TIMEOUT_MS = 240_000;
@@ -55,5 +55,17 @@ describe("D111 · every mounted route declares what a branch-restricted session 
     expect(undeclaredPolicyOf("/sales-invoices/:id/some-new-action")).toBeNull();
     expect(undeclaredPolicyOf("/sales-invoices/:otherId/x")).toMatch(/no stored-branch resolver/);
     expect(branchPolicyFor("/projects/:id")?.policy).toBe(BranchPolicy.CompanyWide);
+  });
+});
+
+describe("D111 · every attachment entity type declares whose branch its files follow", () => {
+  it("no entity type is undeclared, so one added later is closed to a branch-restricted session until it is", () => {
+    const undeclared = ATTACHMENT_ENTITY_TYPES.filter((entityType) => !Object.values(AttachmentOwner).includes(ATTACHMENT_ENTITY_OWNERS[entityType]));
+    expect(undeclared).toEqual([]);
+  });
+
+  it("only catalogue master data is shared; a person's and a document's files follow a branch", () => {
+    const sharedTypes = ATTACHMENT_ENTITY_TYPES.filter((entityType) => ATTACHMENT_ENTITY_OWNERS[entityType] === AttachmentOwner.SharedMasterData);
+    expect([...sharedTypes].sort()).toEqual(["customer", "item", "supplier"]);
   });
 });

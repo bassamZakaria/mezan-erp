@@ -15,6 +15,7 @@ import {
 } from "@mezan/domain";
 import { createAttachmentSchema } from "@mezan/contracts";
 import { ALL_SCOPE } from "@mezan/domain";
+import { BranchRefusalCode, branchRefusal } from "./branch-policy.js";
 import { moduleRefusalFor, permissionDeniedBody, storedDocumentRefusal, type AuthContextResolver } from "./permission-gate.js";
 
 /**
@@ -37,6 +38,34 @@ export type AttachmentEntityBranches = (
   entityType: AttachmentEntityType,
   entityId: string,
 ) => Promise<readonly (string | null | undefined)[] | null>;
+
+export enum AttachmentOwner {
+  BranchRecord = "branch_record",
+  SharedMasterData = "shared_master_data",
+}
+
+/**
+ * SECURITY: whose branch an entity type's files follow. A type missing here is
+ * refused to a branch-restricted session — `branch-policy.structure.test.ts`
+ * fails first — so a type added later is closed until someone says what it is.
+ */
+export const ATTACHMENT_ENTITY_OWNERS: Readonly<Record<AttachmentEntityType, AttachmentOwner>> = {
+  item: AttachmentOwner.SharedMasterData,
+  customer: AttachmentOwner.SharedMasterData,
+  supplier: AttachmentOwner.SharedMasterData,
+  employee: AttachmentOwner.BranchRecord,
+  attendance: AttachmentOwner.BranchRecord,
+  "sales-invoice": AttachmentOwner.BranchRecord,
+  "sales-quote": AttachmentOwner.BranchRecord,
+  "sales-return": AttachmentOwner.BranchRecord,
+  "purchase-invoice": AttachmentOwner.BranchRecord,
+  "purchase-order": AttachmentOwner.BranchRecord,
+  "goods-receipt": AttachmentOwner.BranchRecord,
+  "stock-adjustment": AttachmentOwner.BranchRecord,
+  "stock-transfer": AttachmentOwner.BranchRecord,
+  "work-order": AttachmentOwner.BranchRecord,
+  voucher: AttachmentOwner.BranchRecord,
+};
 
 export interface AttachmentsRoutesDeps {
   readonly repo: AttachmentRepository;
@@ -119,6 +148,9 @@ export function createAttachmentsRoutes(
   async function entityOutsideGrant(c: Context, entityType: AttachmentEntityType, entityId: string): Promise<Response | null> {
     const ctx = auth(c);
     if (!deps.entityBranches || ctx.branchGrant === ALL_SCOPE) return null;
+    const owner: AttachmentOwner | undefined = ATTACHMENT_ENTITY_OWNERS[entityType];
+    if (owner === AttachmentOwner.SharedMasterData) return null;
+    if (owner !== AttachmentOwner.BranchRecord) return branchRefusal(c, BranchRefusalCode.NotFound);
     const branchIds = await deps.entityBranches(c, entityType, entityId);
     return branchIds ? storedDocumentRefusal(c, ctx.branchGrant, branchIds) : null;
   }

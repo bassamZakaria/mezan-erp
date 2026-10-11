@@ -224,7 +224,7 @@ import { createAuditRoutes } from "./audit-routes.js";
 import { branchesOfWarehouses, documentBranches } from "./stored-branches.js";
 import { createSecurityReportsRoutes } from "./security-reports-routes.js";
 import { isProductionRuntime, permissionRefusalReporting, type PermissionRefusalReporter } from "./permission-gate.js";
-import { branchPolicyEnforcement, type BranchDirectory } from "./branch-policy.js";
+import { BranchAccess, BranchRecordKind, branchDirectoryOf, branchPolicyEnforcement, type BranchDirectory } from "./branch-policy.js";
 import { createBarcodeConfigRoutes } from "./barcode-config-routes.js";
 import { createProfileRoutes } from "./profile-routes.js";
 
@@ -953,11 +953,13 @@ function attachmentEntityBranches(options: CreateAppOptions): AttachmentEntityBr
         const doc = await options.vouchers?.documents.findById(entityId);
         return doc ? [voucherLine(doc).branchId] : null;
       }
+      case "employee":
+        return (await branchDirectoryOf(c)?.branchesOf(BranchRecordKind.Employee, entityId, BranchAccess.Read)) ?? null;
+      case "attendance":
+        return (await branchDirectoryOf(c)?.branchesOf(BranchRecordKind.Attendance, entityId, BranchAccess.Read)) ?? null;
       case "item":
       case "customer":
       case "supplier":
-      case "employee":
-      case "attendance":
         return null;
     }
   };

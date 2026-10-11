@@ -1407,3 +1407,52 @@ describe("D111 round 3 · a branch-restricted administrator cannot administer it
     expect(stored(HQ_ACCOUNTANT).pin_hash).toBeTruthy();
   });
 });
+
+describe("D111 round 3 · an employee's or an attendance record's files are the employee's branch's", () => {
+  const upload = (id: string, entityType: string, entityId: string) => ({
+    id,
+    entityType,
+    entityId,
+    fileName: "contract.txt",
+    mimeType: "text/plain",
+    contentBase64: Buffer.from("عقد عمل").toString("base64"),
+  });
+
+  it("another branch's employee contract and attendance sheet cannot be read, listed, added to or deleted", async () => {
+    const employee = one<{ id: string }>("SELECT id FROM hr_employee WHERE branch_id = ? LIMIT 1", MAIN)!;
+    const attendance = one<{ id: string }>("SELECT a.id FROM hr_attendance a JOIN hr_employee e ON e.id = a.employee_id WHERE e.branch_id = ? LIMIT 1", MAIN)!;
+    for (const [entityType, entityId] of [["employee", employee.id], ["attendance", attendance.id]] as const) {
+      const stored = `R3-ATT-${entityType}`;
+      expect((await admin("POST", "/attachments", upload(stored, entityType, entityId))).status, entityType).toBe(201);
+      expect((await mainOnly("GET", `/attachments/${stored}`)).status, entityType).toBe(200);
+
+      expect((await alex("GET", `/attachments/${stored}`)).status, entityType).toBe(404);
+      const content = await alex("GET", `/attachments/${stored}/content`);
+      expect(content.status, entityType).toBe(404);
+      expect(content.body.contentBase64).toBeUndefined();
+      expect(rowsOf((await alex("GET", `/attachments?entityType=${entityType}&entityId=${entityId}`)).body)).toEqual([]);
+      expect(rowsOf((await alex("GET", "/attachments")).body).map((r: any) => r.id)).not.toContain(stored);
+      expectRefusedInArabic(await alex("POST", "/attachments", upload(`${stored}-PROBE`, entityType, entityId)));
+      expectRefusedInArabic(await alex("DELETE", `/attachments/${stored}`));
+      expectRefusedInArabic(await alexStar("DELETE", `/attachments/${stored}`));
+      expect(one<{ n: number }>("SELECT COUNT(*) AS n FROM attachment WHERE id IN (?, ?)", stored, `${stored}-PROBE`)!.n, entityType).toBe(1);
+    }
+  });
+
+  it("the branch's own employee's files stay with the branch", async () => {
+    sqlite.prepare("INSERT OR REPLACE INTO hr_employee SELECT 'R3-EMP-ALEX', " + employeeColumnsAfterId() + " FROM hr_employee LIMIT 1").run();
+    sqlite.prepare("UPDATE hr_employee SET branch_id = ? WHERE id = 'R3-EMP-ALEX'").run(ALEX);
+    expect((await alex("POST", "/attachments", upload("R3-ATT-OWN", "employee", "R3-EMP-ALEX"))).status).toBe(201);
+    expect((await alex("GET", "/attachments/R3-ATT-OWN")).status).toBe(200);
+    expect((await mainOnly("GET", "/attachments/R3-ATT-OWN")).status).toBe(404);
+    expect((await alex("DELETE", "/attachments/R3-ATT-OWN")).status).toBeLessThan(300);
+  });
+
+  function employeeColumnsAfterId(): string {
+    return all<{ name: string }>("SELECT name FROM pragma_table_info('hr_employee')")
+      .map((column) => column.name)
+      .filter((name) => name !== "id")
+      .map((name) => (name === "code" || name === "employee_no" || name === "national_id" ? `'R3-' || ${name}` : name))
+      .join(", ");
+  }
+});

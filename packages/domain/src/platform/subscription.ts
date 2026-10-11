@@ -10,7 +10,22 @@ import {
   TenantAlreadySubscribedError,
 } from "./errors.js";
 
-export type SubscriptionStatus = "trialing" | "active" | "past_due" | "suspended" | "cancelled";
+export enum SubscriptionState {
+  Trialing = "trialing",
+  Active = "active",
+  PastDue = "past_due",
+  Suspended = "suspended",
+  Cancelled = "cancelled",
+}
+
+export type SubscriptionStatus = `${SubscriptionState}`;
+
+/** The only states a payment can renew from. Read by the checkout service and the console, so the button and the server agree. */
+export const RENEWABLE_SUBSCRIPTION_STATES: readonly SubscriptionStatus[] = [
+  SubscriptionState.Trialing,
+  SubscriptionState.Active,
+  SubscriptionState.PastDue,
+];
 
 export enum SubscriptionTransition {
   TrialEndedToFree = "TRIAL_ENDED_TO_FREE",
@@ -229,7 +244,7 @@ function requireNow(cmd: SubscriptionCommand): string {
 /** The subscription one paid period later — pure, so a caller can persist it inside its own transaction. */
 export function applyRenewal(s: Subscription, nowIso: string): Subscription {
   const now = requireNow({ id: s.id, now: nowIso });
-  assertFrom(s, ["trialing", "active", "past_due"], "active");
+  assertFrom(s, RENEWABLE_SUBSCRIPTION_STATES, "active");
   const lapsed = s.currentPeriodEnd < now;
   const periodStart = lapsed ? now : s.currentPeriodEnd;
   return {

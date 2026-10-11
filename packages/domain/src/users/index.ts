@@ -1,5 +1,6 @@
 export {
   type User,
+  UserState,
   type UserStatus,
   type UserRepository,
   type SecretHasher,

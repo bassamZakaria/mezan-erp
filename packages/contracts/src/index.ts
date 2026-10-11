@@ -1286,6 +1286,7 @@ export {
   printPosReceiptConfigSchema,
   printTemplateOverrideSchema,
   printTemplateConfigSchema,
+  LOGO_MAX_CHARS,
   type PrintPageSizeDTO,
   type LogoPositionDTO,
   type LogoSizeDTO,

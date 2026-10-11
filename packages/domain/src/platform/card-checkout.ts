@@ -1,7 +1,7 @@
 import type { Money } from "../money/money.js";
 import type { PaymentProviderId } from "./payment-provider.js";
 import type { Plan } from "./plan.js";
-import type { Subscription } from "./subscription.js";
+import { RENEWABLE_SUBSCRIPTION_STATES, type Subscription } from "./subscription.js";
 import type { Payment } from "./payment.js";
 import { moneyToPaymobCents } from "./paymob.js";
 
@@ -142,14 +142,12 @@ export class CardPaymentNotApplicableError extends Error {
   }
 }
 
-const RENEWABLE: readonly Subscription["status"][] = ["trialing", "active", "past_due"];
-
 /**
  * What one card checkout charges: the plan's price for the subscription's own
  * cycle, computed here and never taken from the caller.
  */
 export function cardCheckoutAmount(plan: Plan, subscription: Subscription): Money {
-  if (!RENEWABLE.includes(subscription.status)) {
+  if (!RENEWABLE_SUBSCRIPTION_STATES.includes(subscription.status)) {
     throw new CardCheckoutUnavailableError(
       [`حالة الاشتراك "${subscription.status}" لا تسمح بالتجديد`],
       [`subscription status "${subscription.status}" cannot be renewed`],

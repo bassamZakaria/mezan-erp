@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
 import { Button, Card, ConfirmDialog, Money, Select, StatusPill, useFormat } from "@mezan/ui";
-import { CardCheckoutFailureReason, CardCheckoutStatus, MODULES } from "@mezan/domain";
+import { CardCheckoutFailureReason, CardCheckoutStatus, MODULES, RENEWABLE_SUBSCRIPTION_STATES } from "@mezan/domain";
 import type {
   BillingCycleDTO,
   CardCheckoutDTO,
@@ -81,9 +81,8 @@ const FAILURE_REASON_KEY: Readonly<Record<CardCheckoutFailureReason, AppTranslat
   [CardCheckoutFailureReason.ReferenceAlreadyRecorded]: "platform.cardCheckout.reason.REFERENCE_ALREADY_RECORDED",
 };
 
-/** Mirrors `applyRenewal` in `packages/domain/src/platform/subscription.ts`: applying a payment renews, and only these can be renewed. */
 function canRenewSubscription(status: SubscriptionStatusDTO | undefined): boolean {
-  return status === "trialing" || status === "active" || status === "past_due";
+  return status !== undefined && RENEWABLE_SUBSCRIPTION_STATES.includes(status);
 }
 
 type AppliableCheckout = { readonly status: string; readonly providerRef: string | null; readonly failureReason: string | null };

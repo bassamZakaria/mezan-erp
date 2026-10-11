@@ -957,7 +957,7 @@ export class CertificateService {
     return this.view(next);
   }
 
-  /** One forensic row per transition; never allowed to fail the transition itself. */
+  /** One forensic row per transition, written with it: a row that cannot be written fails the transition. */
   private async audit(
     certificate: ProgressCertificate,
     action: string,

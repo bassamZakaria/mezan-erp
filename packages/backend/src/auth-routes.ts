@@ -12,6 +12,7 @@ import {
   type UnitOfWork,
   type SecretHasher,
   type SettingsRepository,
+  UserState,
   type User,
 } from "@mezan/domain";
 import { loginRequestSchema, bootstrapAdminRequestSchema, unlockAccountRequestSchema, type SessionDTO } from "@mezan/contracts";
@@ -210,7 +211,7 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
     const checked = gate.admit(throttleSource(origin), async () => {
       await deps.audit?.settled?.();
       const user = await deps.uow.users.findByEmail(needle);
-      const hash = user && user.status === "active" && user.pinHash ? user.pinHash : await decoyHash();
+      const hash = user && user.status === UserState.Active && user.pinHash ? user.pinHash : await decoyHash();
       return secrets.precompute({ verify: [[parsed.data.pin, hash]] });
     });
     if (checked !== null) return checked;
@@ -308,8 +309,8 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
    */
   async function retireSeedAdmin(uow: UnitOfWork): Promise<void> {
     const seed = await uow.users.findById(SEED_ADMIN_USER_ID);
-    if (!seed || seed.status !== "active") return;
-    await uow.users.save({ ...seed, status: "inactive" });
+    if (!seed || seed.status !== UserState.Active) return;
+    await uow.users.save({ ...seed, status: UserState.Inactive });
   }
 
   async function alreadyClaimed(c: Context, email: string) {
@@ -353,15 +354,21 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
     // response time answered "does this account exist" for free. Verify against
     // a throwaway hash instead, and spend the same scrypt either way.
     const verified =
-      user && user.status === "active" && user.pinHash
+      user && user.status === UserState.Active && user.pinHash
         ? await deps.hasher.verify(pin, user.pinHash)
         : (await deps.hasher.verify(pin, await decoyHash()), false);
     // The check may have handed the connection back. The verdict holds only for
     // the account as it stands now: still active, still on the PIN it was
     // checked against.
     const current = verified && user ? await deps.uow.users.findById(user.id) : null;
-    const ok = current !== null && current.status === "active" && current.pinHash === user?.pinHash;
-    if (!user || !ok) {
+    const signedIn = current !== null && current.status === UserState.Active && current.pinHash === user?.pinHash ? current : null;
+    if (verified && signedIn === null) {
+      // The PIN that was typed was the account's PIN when the check began; the
+      // account changed underneath it. Nobody guessed wrong, so nothing counts.
+      await security(c, "LOGIN_FAILED", "WARNING", { username: needle, accountChangedDuringCheck: true });
+      return c.json({ error: "INVALID_CREDENTIALS", message: "اسم المستخدم أو رمز PIN غير صحيح." }, 401);
+    }
+    if (signedIn === null) {
       const failure = guard.failed(needle, origin, user !== null);
       if (failure.verdict === SignInVerdict.Locked) {
         if (failure.justLocked) {
@@ -384,27 +391,27 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
      * can sign in, so that a human decides who stays. Checked AFTER the
      * credential, so it can never tell an outsider how many users a tenant has.
      */
-    if (!user.isCompanyAdmin) {
+    if (!signedIn.isCompanyAdmin) {
       const entitlements = await deps.resolveEntitlements?.(c);
       if (entitlements) {
-        const active = (await deps.uow.users.list()).filter((u) => u.status === "active").length;
+        const active = (await deps.uow.users.list()).filter((u) => u.status === UserState.Active).length;
         if (active > entitlements.seats) {
           const refusal = seatsOverLimitRefusal(entitlements.seats, active, {
             nameAr: entitlements.planNameAr ?? entitlements.plan,
             nameEn: entitlements.planNameEn ?? entitlements.plan,
           });
-          await security(c, "LOGIN_REFUSED_SEATS", "WARNING", { userId: user.id, seats: entitlements.seats, active });
+          await security(c, "LOGIN_REFUSED_SEATS", "WARNING", { userId: signedIn.id, seats: entitlements.seats, active });
           return c.json(refusal, 403);
         }
       }
     }
     guard.succeeded(needle, origin);
     const at = new Date().toISOString();
-    await recordSuccessfulLogin(user.id, at, deps.uow);
-    await security(c, "LOGIN_SUCCEEDED", "INFO", { userId: user.id, username: needle });
+    await recordSuccessfulLogin(signedIn.id, at, deps.uow);
+    await security(c, "LOGIN_SUCCEEDED", "INFO", { userId: signedIn.id, username: needle });
     // The session is bound to the origin the CREDENTIAL was verified from, so
     // the till that logged in is the only place the token it got back works.
-    return c.json(await toSession(user, deps, requestOrigin(c)));
+    return c.json(await toSession(signedIn, deps, requestOrigin(c)));
   });
 
   app.post("/auth/unlock", async (c) => {
@@ -548,7 +555,7 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
             employeeId: null,
             branchScope: ALL_SCOPE,
             warehouseScope: ALL_SCOPE,
-            status: "active",
+            status: UserState.Active,
             createdAt: new Date().toISOString(),
           },
           tx,

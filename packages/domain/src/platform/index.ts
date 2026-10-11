@@ -15,7 +15,7 @@ export {
 export {
   DEFAULT_GRACE_DAYS,
   startSubscription, renewSubscription, applyRenewal, changePlan, markPastDue,
-  suspendSubscription, resumeSubscription, cancelSubscription,
+  suspendSubscription, resumeSubscription, cancelSubscription, RENEWABLE_SUBSCRIPTION_STATES, SubscriptionState,
   type Subscription, type SubscriptionStatus, type BillingCycle, type SubscriptionRepository,
   type StartSubscriptionCommand, type SubscriptionCommand, type ChangePlanCommand,
 } from "./subscription.js";

@@ -24,18 +24,23 @@ const cashier: User = {
 
 function mounted() {
   const users = new Map<string, User>([[cashier.id, cashier]]);
-  let checked!: () => void;
-  const checking = new Promise<void>((resolve) => {
-    checked = resolve;
-  });
+  let checked: () => void = () => undefined;
   let asked!: () => void;
-  const verifyAsked = new Promise<void>((resolve) => {
+  let verifyAsked = new Promise<void>((resolve) => {
     asked = resolve;
   });
+  const firstVerify = verifyAsked;
   const hasher: SecretHasher = {
     hash: async (secret) => `hash:${secret}`,
     verify: async (secret, hash) => {
-      asked();
+      const checking = new Promise<void>((resolve) => {
+        checked = resolve;
+      });
+      const announce = asked;
+      verifyAsked = new Promise<void>((resolve) => {
+        asked = resolve;
+      });
+      announce();
       await checking;
       return hash === `hash:${secret}`;
     },
@@ -59,15 +64,19 @@ function mounted() {
     sessions: { ...sessions, issue: (grant, origin) => ((issued += 1), sessions.issue(grant, origin)) },
   };
   const app = createAuthRoutes(deps);
-  const signIn = () =>
-    app.fetch(
+  let pending = firstVerify;
+  const signIn = (from?: string) => {
+    pending = verifyAsked;
+    return app.fetch(
       new Request("http://local/auth/login", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ username: cashier.email, pin: "135790" }),
       }),
+      from ? { incoming: { socket: { remoteAddress: from } } } : undefined,
     );
-  return { users, signIn, verifyAsked, finishChecking: checked, issued: () => issued };
+  };
+  return { users, signIn, verifyAsked: firstVerify, nextVerify: () => pending, finishChecking: () => checked(), issued: () => issued };
 }
 
 describe("a sign-in whose account changes while its PIN is being checked", () => {
@@ -93,6 +102,38 @@ describe("a sign-in whose account changes while its PIN is being checked", () =>
 
     expect((await answer).status).toBe(401);
     expect(t.issued()).toBe(0);
+  });
+
+  it("does not count a PIN replaced during the check as a failed attempt against the account", async () => {
+    const t = mounted();
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const answer = t.signIn("41.33.10.10");
+      await t.nextVerify();
+      t.users.set(cashier.id, { ...cashier, pinHash: `hash:replaced-${attempt}` });
+      t.finishChecking();
+      expect((await answer).status).toBe(401);
+      t.users.set(cashier.id, cashier);
+    }
+
+    const honest = t.signIn("41.33.10.10");
+    await t.nextVerify();
+    t.finishChecking();
+    expect((await honest).status).toBe(200);
+  });
+
+  it("issues the session for the account as it stands after the check, not as it was read before it", async () => {
+    const t = mounted();
+
+    const answer = t.signIn();
+    await t.verifyAsked;
+    t.users.set(cashier.id, { ...cashier, isCompanyAdmin: false, nameAr: "اسم جديد", branchScope: ["BR-2"] });
+    t.finishChecking();
+
+    const session = (await (await answer).json()) as { isCompanyAdmin: boolean; nameAr: string; permissions: string[]; branchScope: unknown };
+    expect(session.isCompanyAdmin).toBe(false);
+    expect(session.permissions).toEqual([]);
+    expect(session.nameAr).toBe("اسم جديد");
+    expect(session.branchScope).toEqual(["BR-2"]);
   });
 
   it("signs in an account nothing happened to", async () => {

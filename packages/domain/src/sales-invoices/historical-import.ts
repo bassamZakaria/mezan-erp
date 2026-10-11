@@ -179,6 +179,24 @@ export function previewHistoricalSalesImport(
     else byKey.set(key, [row]);
   }
 
+  // The archive holds one document per (type, number): the same number under two parties cannot both be written.
+  const firstRowsByNumber = new Map<string, number[]>();
+  for (const bucket of byKey.values()) {
+    const first = bucket[0]!;
+    const numberKey = `${first.docType}|${first.documentNumber}`;
+    firstRowsByNumber.set(numberKey, [...(firstRowsByNumber.get(numberKey) ?? []), first.rowNumber]);
+  }
+  for (const [key, bucket] of [...byKey]) {
+    const first = bucket[0]!;
+    const sharing = firstRowsByNumber.get(`${first.docType}|${first.documentNumber}`) ?? [];
+    if (sharing.length < 2) continue;
+    errors.push({
+      rowNumber: first.rowNumber,
+      reasons: [`رقم المستند "${first.documentNumber}" مكرر في الملف لأكثر من عميل (الصفوف ${sharing.join("، ")}). رقم المستند لا يتكرر داخل النوع الواحد.`],
+    });
+    byKey.delete(key);
+  }
+
   const groups: HistoricalSalesImportGroup[] = [];
   for (const bucket of byKey.values()) {
     const first = bucket[0] as HistoricalSalesImportRowInput;

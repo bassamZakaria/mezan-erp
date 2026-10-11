@@ -111,6 +111,20 @@ describe("previewHistoricalImport", () => {
     expect(preview.groups[0]?.documentNumber).toBe("INV-OK");
   });
 
+  it("one document number under two parties in a batch is reported on each and neither is taken", () => {
+    const rows: HistoricalImportRowInput[] = [
+      row({ rowNumber: 1, documentNumber: "DUP-1", supplierId: "party-1" }),
+      row({ rowNumber: 2, documentNumber: "DUP-1", supplierId: "party-2" }),
+      row({ rowNumber: 3, documentNumber: "OK-1", supplierId: "party-2" }),
+    ];
+    const preview = previewHistoricalImport(rows);
+    expect(preview.groups.map((g) => g.documentNumber)).toEqual(["OK-1"]);
+    expect(preview.errors).toEqual([
+      { rowNumber: 1, reasons: ['رقم المستند "DUP-1" مكرر في الملف لأكثر من مورد (الصفوف 1، 2). رقم المستند لا يتكرر داخل النوع الواحد.'] },
+      { rowNumber: 2, reasons: ['رقم المستند "DUP-1" مكرر في الملف لأكثر من مورد (الصفوف 1، 2). رقم المستند لا يتكرر داخل النوع الواحد.'] },
+    ]);
+  });
+
   it("drops a whole group when its rows disagree on date/due date", () => {
     const rows: HistoricalImportRowInput[] = [
       row({ rowNumber: 1, date: "2026-01-15" }),

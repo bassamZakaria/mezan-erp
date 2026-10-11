@@ -49,6 +49,8 @@ import { branchScopeOf, createPermissionGate, withinScope, type AuthContextResol
 import { nextMasterCode } from "./master-code.js";
 import { recordAdminEvent } from "./admin-audit.js";
 import { MasterDataKind, refuseUnknownMasterData, type MasterDataChecks } from "./master-data-check.js";
+import { duplicateIdRefusal } from "./duplicate-id.js";
+import { DuplicateRecordIdError } from "@mezan/domain";
 
 /**
  * CRM routes (docs/archive/catalog/06-crm-hr.md "العملاء المحتملون / الفرص / خط
@@ -142,6 +144,7 @@ function withMessageEn(err: { code: string; message: string }) {
 }
 
 function handleDomainError(c: Context, err: unknown): Response {
+  if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
   if (err instanceof LeadNotFoundError || err instanceof OpportunityNotFoundError || err instanceof PipelineStageNotFoundError || err instanceof ActivityNotFoundError) {
     return c.json(withMessageEn(err), 404);
   }

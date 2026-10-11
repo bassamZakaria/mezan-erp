@@ -1,5 +1,6 @@
 import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
+import { insertingNew, prepareInsertOnly } from "./insert-new.js";
 import {
   Money,
   Qty,
@@ -223,6 +224,7 @@ function toDomain(row: VanTripRow): VanTrip {
 
 class SqliteVanTripRepository implements VanTripRepository {
   private readonly upsert: Database.Statement;
+  private readonly insertOnly: Database.Statement;
   private readonly selectById: Database.Statement;
   private readonly selectAll: Database.Statement;
 
@@ -257,6 +259,7 @@ class SqliteVanTripRepository implements VanTripRepository {
         settlement = excluded.settlement,
         notes = excluded.notes
     `);
+    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
     this.selectById = sqlite.prepare(`SELECT * FROM van_trip WHERE id = ?`);
     this.selectAll = sqlite.prepare(`SELECT * FROM van_trip`);
   }
@@ -271,15 +274,15 @@ class SqliteVanTripRepository implements VanTripRepository {
   }
 
   async create(trip: VanTrip): Promise<void> {
-    this.write(trip);
+    insertingNew(trip.id, () => this.write(trip, this.insertOnly));
   }
 
   async update(trip: VanTrip): Promise<void> {
     this.write(trip);
   }
 
-  private write(trip: VanTrip): void {
-    this.upsert.run({
+  private write(trip: VanTrip, statement: Database.Statement = this.upsert): void {
+    statement.run({
       id: trip.id,
       trip_no: trip.tripNo,
       date: trip.date,
@@ -330,6 +333,7 @@ function vanToDomain(row: VanRow): Van {
 
 class SqliteVanRepository implements VanRepository {
   private readonly upsert: Database.Statement;
+  private readonly insertOnly: Database.Statement;
   private readonly selectById: Database.Statement;
   private readonly selectAll: Database.Statement;
 
@@ -347,6 +351,7 @@ class SqliteVanRepository implements VanRepository {
         treasury_account_id = excluded.treasury_account_id,
         active = excluded.active
     `);
+    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
     this.selectById = sqlite.prepare(`SELECT * FROM van WHERE id = ?`);
     this.selectAll = sqlite.prepare(`SELECT * FROM van ORDER BY code`);
   }
@@ -361,7 +366,15 @@ class SqliteVanRepository implements VanRepository {
   }
 
   async save(van: Van): Promise<void> {
-    this.upsert.run({
+    this.write(van);
+  }
+
+  async insert(van: Van): Promise<void> {
+    insertingNew(van.id, () => this.write(van, this.insertOnly));
+  }
+
+  private write(van: Van, statement: Database.Statement = this.upsert): void {
+    statement.run({
       id: van.id,
       code: van.code,
       name_ar: van.nameAr,

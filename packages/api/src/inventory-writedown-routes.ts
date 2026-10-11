@@ -19,6 +19,8 @@ import type { WacSnapshotRepository, StockLedgerRepository } from "@mezan/domain
 import { createWritedownRunSchema } from "@mezan/contracts";
 import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
 import { MasterDataKind, refuseUnknownMasterData, type MasterDataChecks } from "./master-data-check.js";
+import { duplicateIdRefusal } from "./duplicate-id.js";
+import { DuplicateRecordIdError } from "@mezan/domain";
 
 /**
  * Inventory aging-based write-down batch routes (docs/archive/phase-backlog.md Phase 4
@@ -71,6 +73,7 @@ function serializeRun(run: WritedownRun) {
 }
 
 function handleDomainError(c: Context, err: unknown) {
+  if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
   if (err instanceof WritedownRunNotFoundError) {
     return c.json({ error: err.code, message: err.message }, 404);
   }

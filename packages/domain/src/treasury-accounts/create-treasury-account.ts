@@ -12,6 +12,7 @@ import {
   InvalidOpeningBalanceError,
   NegativeCashBalanceError,
 } from "./errors.js";
+import { assertRecordIdIsNew } from "../records/duplicate-record-id.js";
 
 export interface CreateTreasuryAccountCommand {
   readonly nameEn?: string | null;
@@ -92,6 +93,7 @@ export async function createTreasuryAccount(
   repo: TreasuryAccountRepository,
 ): Promise<TreasuryAccount> {
   const existing = await repo.list();
+  assertRecordIdIsNew(existing.find((row) => row.id === command.id), command.id);
   validateNewTreasuryAccount(command, existing);
 
   const type = command.type ?? "cash";

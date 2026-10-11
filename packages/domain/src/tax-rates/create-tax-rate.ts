@@ -1,5 +1,6 @@
 import type { EtaVatSubType, TaxCalculationType, TaxRate, TaxRateRepository } from "./tax-rate.js";
 import { DuplicateTaxCodeError, InvalidTaxRateError } from "./errors.js";
+import { assertRecordIdIsNew } from "../records/duplicate-record-id.js";
 
 export interface CreateTaxRateCommand {
   readonly id: string;
@@ -41,6 +42,7 @@ export function validateNewTaxRate(command: CreateTaxRateCommand, existing: read
  */
 export async function createTaxRate(command: CreateTaxRateCommand, repo: TaxRateRepository): Promise<TaxRate> {
   const existing = await repo.list();
+  assertRecordIdIsNew(existing.find((row) => row.id === command.id), command.id);
   validateNewTaxRate(command, existing);
 
   const isDefault = command.isDefault ?? false;

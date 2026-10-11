@@ -2,6 +2,7 @@ import { Money } from "../money/index.js";
 import { createCostCenter, type CostCenterRepository } from "../cost-centers/index.js";
 import type { Project, ProjectRepository } from "./project.js";
 import { DuplicateProjectCodeError } from "./errors.js";
+import { assertRecordIdIsNew } from "../records/duplicate-record-id.js";
 
 export interface CreateProjectCommand {
   readonly id: string;
@@ -38,6 +39,7 @@ export interface CreateProjectDeps {
  */
 export async function createProject(cmd: CreateProjectCommand, deps: CreateProjectDeps): Promise<Project> {
   const existing = await deps.projects.list();
+  assertRecordIdIsNew(existing.find((row) => row.id === cmd.id), cmd.id);
   if (existing.some((p) => p.code === cmd.code)) {
     throw new DuplicateProjectCodeError(cmd.code);
   }

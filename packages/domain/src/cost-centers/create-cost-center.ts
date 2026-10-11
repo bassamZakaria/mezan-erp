@@ -1,5 +1,6 @@
 import type { CostCenter, CostCenterRepository, CostCenterType } from "./cost-center.js";
 import { DuplicateCostCenterCodeError, InvalidParentCostCenterError } from "./errors.js";
+import { assertRecordIdIsNew } from "../records/duplicate-record-id.js";
 
 export interface CreateCostCenterCommand {
   readonly id: string;
@@ -34,6 +35,7 @@ export function validateNewCostCenter(command: CreateCostCenterCommand, existing
 /** Creates and persists a new cost center. New cost centers always start `active`. */
 export async function createCostCenter(command: CreateCostCenterCommand, repo: CostCenterRepository): Promise<CostCenter> {
   const existing = await repo.list();
+  assertRecordIdIsNew(existing.find((row) => row.id === command.id), command.id);
   validateNewCostCenter(command, existing);
 
   const costCenter: CostCenter = {

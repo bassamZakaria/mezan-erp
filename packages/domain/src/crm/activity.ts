@@ -1,4 +1,5 @@
 import { ActivityNotPendingError, InvalidActivityError } from "./errors.js";
+import { assertRecordIdIsNew } from "../records/duplicate-record-id.js";
 
 /**
  * Activities — core entity (docs/archive/catalog/06-crm-hr.md "مهامي / الأنشطة"). A
@@ -41,6 +42,7 @@ export interface CreateActivityCommand {
 
 /** Creates and persists a new activity. New activities always start `pending`. */
 export async function createActivity(command: CreateActivityCommand, repo: ActivityRepository): Promise<Activity> {
+  assertRecordIdIsNew(await repo.findById(command.id), command.id);
   if (command.subject.trim().length === 0) {
     throw new InvalidActivityError(["الموضوع مطلوب"]);
   }

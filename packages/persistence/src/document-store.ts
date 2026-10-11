@@ -6,6 +6,7 @@ import type {
   DocumentStatus,
   FrameworkDocument,
 } from "@mezan/domain";
+import { insertingNew } from "./insert-new.js";
 
 /**
  * Generic SQLite-backed {@link DocumentRepository} for the document framework
@@ -140,7 +141,7 @@ export function createSqliteDocumentStore<Line>(
 
   return {
     async save(doc) {
-      insert.run(toRow(doc));
+      insertingNew(doc.id, () => insert.run(toRow(doc)));
     },
     async update(doc) {
       update.run(toRow(doc));

@@ -50,6 +50,7 @@ import {
   WorkOrderNotFoundError,
   WorkOrderStageError,
 } from "./errors.js";
+import { DuplicateRecordIdError } from "../records/duplicate-record-id.js";
 
 const WORK_ORDER_SEQUENCE = "WORK_ORDER";
 
@@ -247,6 +248,9 @@ export async function createWorkOrder(
   command: CreateWorkOrderCommand,
   deps: CreateWorkOrderDeps,
 ): Promise<WorkOrder> {
+  if (await deps.workOrders.findById(command.id)) {
+    throw new DuplicateRecordIdError(command.id);
+  }
   const reasons: string[] = [];
   if (command.plannedQty.isZero() || command.plannedQty.isNegative()) {
     reasons.push("الكمية المخططة يجب أن تكون أكبر من صفر");
@@ -267,9 +271,6 @@ export async function createWorkOrder(
 
   const bom = await deps.boms.findById(command.bomId);
   if (!bom) throw new BomNotFoundError(command.bomId);
-  if (await deps.workOrders.findById(command.id)) {
-    throw new DuplicateManufacturingDocumentError(command.id);
-  }
 
   const planned = command.plannedQty.scaled;
   const standard = bom.standardQty.scaled;

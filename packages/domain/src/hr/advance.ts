@@ -1,5 +1,6 @@
 import { Money, allocate } from "../money/index.js";
 import { InvalidEmployeeAdvanceError, InvalidEmployeeAdvanceTransitionError } from "./errors.js";
+import { assertRecordIdIsNew } from "../records/duplicate-record-id.js";
 
 /**
  * Employee cash advances — docs/archive/catalog/06-crm-hr.md "سلف الموظفين". A cash
@@ -190,6 +191,7 @@ export async function requestEmployeeAdvance(
   command: CreateEmployeeAdvanceCommand,
   repo: EmployeeAdvanceRepository,
 ): Promise<EmployeeAdvance> {
+  assertRecordIdIsNew(await repo.findById(command.id), command.id);
   const reasons = validate(command);
   if (reasons.length > 0) throw new InvalidEmployeeAdvanceError(reasons);
 

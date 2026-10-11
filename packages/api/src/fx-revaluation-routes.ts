@@ -20,6 +20,8 @@ import {
 import { fxRevaluationRequestSchema } from "@mezan/contracts";
 import { createPermissionGate, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
 import { tenantDay } from "./tenant-day.js";
+import { duplicateIdRefusal } from "./duplicate-id.js";
+import { DuplicateRecordIdError } from "@mezan/domain";
 
 export interface FxRevaluationRoutesDeps {
   readonly ledger: LedgerRepository;
@@ -59,6 +61,7 @@ function serializeResult(computed: FxRevaluationResult, date: string, autoRevers
 }
 
 function handleError(c: Context, err: unknown): Response {
+  if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
   if (err instanceof FxRateMissingError) {
     return c.json({ error: err.code, message: err.message, currency: err.currency }, 422);
   }

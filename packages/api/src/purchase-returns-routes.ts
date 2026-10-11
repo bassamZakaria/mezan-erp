@@ -17,6 +17,7 @@ import { returnBranches, storedBranchesById, withinBranchScope } from "./stored-
 import { handleDocumentError } from "./document-error-handling.js";
 import { refuseOutOfScopeBranches } from "./branch-scope-refusal.js";
 import { tenantDay } from "./tenant-day.js";
+import { refuseTakenId } from "./duplicate-id.js";
 
 function serializeLine(l: PurchaseReturnLine) {
   return {
@@ -226,6 +227,8 @@ export function createPurchaseReturnsRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
+    const takenId = await refuseTakenId(c, parsed.data.id, (id) => service.findById(id));
+    if (takenId) return takenId;
     const requestInvoices = new Map<string, SourceInvoice>();
     for (const line of parsed.data.lines) {
       const refusal = refuseInconsistentLine(line, await lookupInvoice(requestInvoices, line.sourceInvoiceId));

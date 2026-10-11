@@ -81,6 +81,7 @@ import {
   RetentionReleaseNotFoundError,
 } from "./errors.js";
 import { tenantTodayIso } from "../../dates.js";
+import { DuplicateRecordIdError } from "../../records/duplicate-record-id.js";
 
 /**
  * تقارير الاستثناءات والإفراج عن المحتجزات — slice 5B (design §06).
@@ -948,6 +949,9 @@ export class ControlsService {
   }
 
   async createRelease(cmd: CreateRetentionReleaseCommand): Promise<RetentionReleaseView> {
+    if (await this.deps.releases.findById(cmd.id)) {
+      throw new DuplicateRecordIdError(cmd.id);
+    }
     const reasons: string[] = [];
     if (!ISO_DATE.test(cmd.date)) reasons.push("تاريخ الإفراج مطلوب بصيغة YYYY-MM-DD");
     const contract = await this.deps.contracts.findContractById(cmd.contractId);
@@ -966,7 +970,7 @@ export class ControlsService {
 
     return this.deps.releases.transaction(async () => {
       if (await this.deps.releases.findById(cmd.id)) {
-        throw new InvalidRetentionReleaseError([`مستند الإفراج "${cmd.id}" موجود بالفعل`]);
+        throw new DuplicateRecordIdError(cmd.id);
       }
       const number = await this.deps.numbering.next(RETENTION_RELEASE_SEQUENCE);
       const release: RetentionRelease = {
@@ -992,7 +996,7 @@ export class ControlsService {
         createdAt: this.today(),
         createdBy: cmd.createdBy ?? null,
       };
-      await this.deps.releases.save(release);
+      await this.deps.releases.insert(release);
       return this.view(release);
     });
   }

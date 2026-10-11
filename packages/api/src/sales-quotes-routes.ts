@@ -54,6 +54,8 @@ import {
   withinScope,} from "./permission-gate.js";
 import { storedBranchesById } from "./stored-branches.js";
 import { tenantDay } from "./tenant-day.js";
+import { duplicateIdRefusal, refuseTakenId } from "./duplicate-id.js";
+import { DuplicateRecordIdError } from "@mezan/domain";
 
 /**
  * External dependencies the sales-quote routes bind the domain service to.
@@ -168,6 +170,7 @@ function withMessageEn(err: { code: string; message: string }) {
 }
 
 function handleDomainError(c: Context, err: unknown): Response {
+  if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
   if (err instanceof InvalidSalesQuoteError) {
     return c.json({ ...withMessageEn(err), reasons: err.reasons }, 422);
   }
@@ -514,6 +517,9 @@ export function createSalesQuotesRoutes(
     const quoteSvc = service(c);
     const quote = await quoteSvc.findById(c.req.param("id"));
     if (!quote) return c.json({ error: "NOT_FOUND" }, 404);
+    const invoiceRepo = deps.invoice.repo;
+    const takenId = await refuseTakenId(c, d.id, (id) => invoiceRepo.findById(id));
+    if (takenId) return takenId;
     if (quote.status !== "accepted") {
       return c.json(
         { error: "INVALID_QUOTE_STATUS", message: "لا يمكن تحويل عرض السعر إلا بعد قبوله من العميل." },

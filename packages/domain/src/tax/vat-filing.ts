@@ -18,6 +18,7 @@ import { Money } from "../money/index.js";
 import type { SimplifiedRegimeElection } from "./simplified-regime-election.js";
 import { simplifiedRegimeActiveOn } from "./simplified-regime-election.js";
 import type { SimplifiedRegimeSchedule, VatPeriodMode } from "./simplified-regime-schedule.js";
+import { assertRecordIdIsNew } from "../records/duplicate-record-id.js";
 
 export type VatFilingStatus = "filed" | "amended";
 
@@ -40,6 +41,7 @@ export interface VatFilingRepository {
   findById(id: string): Promise<VatFiling | null>;
   list(): Promise<readonly VatFiling[]>;
   save(filing: VatFiling): Promise<void>;
+  insert(filing: VatFiling): Promise<void>;
   /** Every filing whose window contains `date` — normally one, never many. */
   findCovering(date: string): Promise<readonly VatFiling[]>;
 }
@@ -187,6 +189,7 @@ export async function recordVatFiling(
     readonly expectedPeriodMode?: VatPeriodMode;
   },
 ): Promise<VatFiling> {
+  assertRecordIdIsNew(await deps.filings.findById(cmd.id), cmd.id);
   if (deps.expectedPeriodMode !== undefined) {
     const actual = vatPeriodModeOfWindow(cmd);
     if (actual !== deps.expectedPeriodMode) throw new VatPeriodModeMismatchError(deps.expectedPeriodMode, actual);
@@ -207,7 +210,7 @@ export async function recordVatFiling(
     amendedAt: null,
     amendmentReason: null,
   };
-  await deps.filings.save(filing);
+  await deps.filings.insert(filing);
   return filing;
 }
 

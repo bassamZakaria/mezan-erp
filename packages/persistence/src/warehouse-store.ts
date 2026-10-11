@@ -1,6 +1,7 @@
 import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
 import type { Warehouse, WarehouseRepository, WarehouseType } from "@mezan/domain";
+import { insertingNew, prepareInsertOnly } from "./insert-new.js";
 
 /** SQLite-backed WarehouseRepository (docs/archive/catalog/09 §"إدارة المستودعات"). */
 
@@ -50,6 +51,7 @@ function toWarehouse(row: WarehouseRow): Warehouse {
 
 class SqliteWarehouseStore implements WarehouseRepository {
   private readonly upsert: Database.Statement;
+  private readonly insertOnly: Database.Statement;
   private readonly selectAll: Database.Statement;
   private readonly selectByBranch: Database.Statement;
   private readonly selectById: Database.Statement;
@@ -63,6 +65,7 @@ class SqliteWarehouseStore implements WarehouseRepository {
          type = @type, is_default = @isDefault, active = @active,
          project_id = @projectId, custodian_user_id = @custodianUserId`,
     );
+    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
     this.selectAll = sqlite.prepare(`SELECT * FROM warehouse ORDER BY code ASC`);
     this.selectByBranch = sqlite.prepare(`SELECT * FROM warehouse WHERE branch_id = ? ORDER BY code ASC`);
     this.selectById = sqlite.prepare(`SELECT * FROM warehouse WHERE id = ?`);
@@ -82,7 +85,15 @@ class SqliteWarehouseStore implements WarehouseRepository {
   }
 
   async save(warehouse: Warehouse): Promise<void> {
-    this.upsert.run({
+    this.write(warehouse);
+  }
+
+  async insert(warehouse: Warehouse): Promise<void> {
+    insertingNew(warehouse.id, () => this.write(warehouse, this.insertOnly));
+  }
+
+  private write(warehouse: Warehouse, statement: Database.Statement = this.upsert): void {
+    statement.run({
       id: warehouse.id,
       code: warehouse.code,
       name: warehouse.name,

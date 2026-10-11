@@ -1,6 +1,7 @@
 import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
 import type { CollectionFollowUp, CollectionFollowUpListFilter, CollectionFollowUpRepository } from "@mezan/domain";
+import { insertingNew, prepareInsertOnly } from "./insert-new.js";
 
 /** SQLite-backed {@link CollectionFollowUpRepository} — متابعة التحصيل (docs/archive/catalog/05). Its own small table (not a `FrameworkDocument` — see follow-up.ts's doc-comment). */
 
@@ -84,9 +85,14 @@ export function createSqliteFollowUpStore(sqlite: Database.Database): Collection
     };
   }
 
+  const insertOnly = prepareInsertOnly(sqlite, upsert.source);
+
   return {
     async save(f) {
       upsert.run(toRow(f));
+    },
+    async insert(f) {
+      insertingNew(f.id, () => insertOnly.run(toRow(f)));
     },
     async update(f) {
       upsert.run(toRow(f));

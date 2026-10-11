@@ -1,3 +1,4 @@
+import { assertRecordIdIsNew } from "../records/duplicate-record-id.js";
 /**
  * تخطيطات الملصقات (label layouts) — docs/archive/catalog/03 §"طباعة الباركود
  * والملصقات". A layout is the printable geometry of one label sheet: how many
@@ -45,6 +46,7 @@ export interface LabelLayoutRepository {
   findById(id: string): Promise<LabelLayout | null>;
   findByCode(code: string): Promise<LabelLayout | null>;
   save(layout: LabelLayout): Promise<void>;
+  insert(layout: LabelLayout): Promise<void>;
   delete(id: string): Promise<void>;
 }
 
@@ -165,11 +167,12 @@ export async function createLabelLayout(
   command: CreateLabelLayoutCommand,
   repo: LabelLayoutRepository,
 ): Promise<LabelLayout> {
+  assertRecordIdIsNew(await repo.findById(command.id), command.id);
   const layout = materialize(command);
   const reasons = validate(layout);
   if (reasons.length > 0) throw new InvalidLabelLayoutError(reasons);
   if (await repo.findByCode(layout.code)) throw new DuplicateLabelLayoutCodeError(layout.code);
-  await repo.save(layout);
+  await repo.insert(layout);
   return layout;
 }
 

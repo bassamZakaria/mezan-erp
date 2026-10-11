@@ -21,6 +21,7 @@ import {
   InvalidSalesQuoteError,
   SalesQuoteNotFoundError,
 } from "./errors.js";
+import { DuplicateRecordIdError } from "../records/duplicate-record-id.js";
 
 export interface SalesQuoteServiceDeps {
   readonly repo: SalesQuoteRepository;
@@ -88,7 +89,7 @@ export class SalesQuoteService {
   /** Open a new مسودة (draft): validated and persisted, not numbered. */
   async createDraft(cmd: CreateSalesQuoteCommand): Promise<SalesQuote> {
     if (await this.deps.repo.findById(cmd.id)) {
-      throw new DuplicateSalesQuoteError(cmd.id);
+      throw new DuplicateRecordIdError(cmd.id);
     }
     const quote = this.buildDraft(cmd);
     this.validate(quote);

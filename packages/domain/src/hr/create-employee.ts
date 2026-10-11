@@ -9,6 +9,7 @@ import type {
   OvertimeEligibility,
   WorkerCategory,
 } from "./employee.js";
+import { assertRecordIdIsNew } from "../records/duplicate-record-id.js";
 
 export interface CreateEmployeeCommand {
   readonly id: string;
@@ -58,6 +59,7 @@ function validate(command: Pick<CreateEmployeeCommand, "firstName" | "lastName" 
 
 /** Creates and persists a new employee. New employees always start "active". */
 export async function createEmployee(command: CreateEmployeeCommand, repo: EmployeeRepository): Promise<Employee> {
+  assertRecordIdIsNew(await repo.findById(command.id), command.id);
   const reasons = validate(command);
   if (reasons.length > 0) throw new InvalidEmployeeError(reasons);
 

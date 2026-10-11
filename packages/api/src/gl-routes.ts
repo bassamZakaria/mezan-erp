@@ -72,6 +72,8 @@ import {
 import { refuseBranchScopedCaller, refuseOutOfScopeBranches } from "./branch-scope-refusal.js";
 import { branchLineViewOf, canSeeUnattributed, entriesInView, entryInView, isWholeLedgerView, lineInView, type BranchLineView } from "./branch-view.js";
 import { MasterDataKind, refuseUnknownMasterData, type MasterDataChecks } from "./master-data-check.js";
+import { duplicateIdRefusal } from "./duplicate-id.js";
+import { DuplicateRecordIdError } from "@mezan/domain";
 
 /** Stands in for the branch of a line the caller may not read; never a real id, so never inside a grant. */
 const UNREADABLE_BRANCH = "\u0000unattributed";
@@ -204,6 +206,7 @@ function serializeFiling(f: VatFiling) {
 }
 
 function handleDomainError(c: Context, err: unknown): Response {
+  if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
   if (err instanceof UnbalancedEntryError) {
     return c.json(
       {

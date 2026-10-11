@@ -2,6 +2,7 @@ import { Money } from "../money/index.js";
 import type { Qty } from "../money/index.js";
 import type { VanTrip, VanTripCrewRole, VanTripRepository } from "./van-trip.js";
 import { InvalidVanTripError, SameWarehouseVanTripError } from "./errors.js";
+import { assertRecordIdIsNew } from "../records/duplicate-record-id.js";
 
 export interface OpenVanTripCommand {
   readonly id: string;
@@ -67,6 +68,7 @@ export interface OpenVanTripDeps {
 }
 
 export async function openVanTrip(cmd: OpenVanTripCommand, deps: OpenVanTripDeps): Promise<VanTrip> {
+  assertRecordIdIsNew(await deps.trips.findById(cmd.id), cmd.id);
   const reasons: string[] = [];
   if (cmd.crew.length === 0) reasons.push("يجب إضافة عضو واحد على الأقل للطاقم");
   if (deps.employeeExists) {

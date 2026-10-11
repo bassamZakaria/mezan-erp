@@ -38,6 +38,8 @@ import {
 import { createPermissionGate, sessionWarehouseScopeOf, warehouseScopeOf, withinScope, type AuthContextResolver } from "./permission-gate.js";
 import { branchesOfWarehouses, storedBranchesById, withinBranchGrant } from "./stored-branches.js";
 import { tenantDay } from "./tenant-day.js";
+import { duplicateIdRefusal } from "./duplicate-id.js";
+import { DuplicateRecordIdError } from "@mezan/domain";
 
 /**
  * Document-layer routes for the phase4/inventory-ops document types, built on
@@ -203,6 +205,7 @@ function warehouseScopeRefusal(c: Context, warehouseIds: readonly string[]): Res
 }
 
 function handleDocumentError(c: Context, err: unknown): Response {
+  if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
   if (err instanceof DocumentNotFoundError || err instanceof PhysicalCountNotFoundError) {
     return c.json({ error: err.code, message: err.message }, 404);
   }

@@ -40,6 +40,7 @@ import {
   RecordingAuditSink,
   RecordingGlEventPublisher,
 } from "./test-helpers/in-memory-ledger-repository.js";
+import { DuplicateRecordIdError } from "../records/duplicate-record-id.js";
 
 function account(id: string, overrides: Partial<Account> = {}): Account {
   return {
@@ -298,9 +299,7 @@ describe("postJournalEntry — rejections", () => {
   it("rejects a duplicate entry id", async () => {
     const { deps } = await harness();
     await postJournalEntry(cashSale, deps);
-    await expect(postJournalEntry(cashSale, deps)).rejects.toBeInstanceOf(
-      DuplicateJournalEntryError,
-    );
+    await expect(postJournalEntry(cashSale, deps)).rejects.toBeInstanceOf(DuplicateRecordIdError);
   });
 });
 

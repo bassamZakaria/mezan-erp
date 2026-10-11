@@ -1,5 +1,6 @@
 import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
+import { insertingNew, prepareInsertOnly } from "./insert-new.js";
 import {
   Money,
   Qty,
@@ -79,6 +80,7 @@ function toWritedownRun(row: WritedownRunRow): WritedownRun {
 
 class SqliteWritedownRunRepository implements WritedownRunRepository {
   private readonly upsert: Database.Statement;
+  private readonly insertOnly: Database.Statement;
   private readonly selectById: Database.Statement;
   private readonly selectAll: Database.Statement;
   private readonly selectByPeriodWarehouse: Database.Statement;
@@ -98,6 +100,7 @@ class SqliteWritedownRunRepository implements WritedownRunRepository {
         created_at = excluded.created_at,
         posted_at = excluded.posted_at
     `);
+    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
     this.selectById = sqlite.prepare(`SELECT * FROM writedown_run WHERE id = ?`);
     this.selectAll = sqlite.prepare(`SELECT * FROM writedown_run`);
     this.selectByPeriodWarehouse = sqlite.prepare(`SELECT * FROM writedown_run WHERE period = ? AND warehouse_id = ?`);
@@ -125,14 +128,14 @@ class SqliteWritedownRunRepository implements WritedownRunRepository {
   }
 
   async create(run: WritedownRun): Promise<void> {
-    this.write(run);
+    insertingNew(run.id, () => this.write(run, this.insertOnly));
   }
 
   async update(run: WritedownRun): Promise<void> {
     this.write(run);
   }
 
-  private write(run: WritedownRun): void {
+  private write(run: WritedownRun, statement: Database.Statement = this.upsert): void {
     const lines: SerializedLine[] = run.lines.map((l) => ({
       itemId: l.itemId,
       warehouseId: l.warehouseId,
@@ -142,7 +145,7 @@ class SqliteWritedownRunRepository implements WritedownRunRepository {
       writedownRateBps: l.writedownRateBps,
       amount: l.amount.toString(),
     }));
-    this.upsert.run({
+    statement.run({
       id: run.id,
       period: run.period,
       warehouse_id: run.warehouseId,

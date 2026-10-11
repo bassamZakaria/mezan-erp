@@ -98,6 +98,7 @@ export interface VanRepository {
   findById(id: string): Promise<Van | null>;
   list(): Promise<readonly Van[]>;
   save(van: Van): Promise<void>;
+  insert(van: Van): Promise<void>;
 }
 
 /**

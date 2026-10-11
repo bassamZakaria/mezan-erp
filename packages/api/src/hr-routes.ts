@@ -89,6 +89,8 @@ import { createHrTimeLeaveRoutes, type HrTimeLeaveRoutesDeps } from "./hr-time-l
 import { createHrPayrollRoutes, type HrPayrollRoutesDeps } from "./hr-payroll-routes.js";
 import { createHrSelfRoutes } from "./hr-self-routes.js";
 import { tenantToday } from "./tenant-day.js";
+import { duplicateIdRefusal, refuseTakenId } from "./duplicate-id.js";
+import { DuplicateRecordIdError } from "@mezan/domain";
 
 /**
  * The hr/time-leave stores are OPTIONAL here so the composition root can adopt
@@ -269,6 +271,7 @@ function withMessageEn(err: { readonly code: string; readonly message: string; r
 }
 
 function handleDomainError(c: Context, err: unknown): Response {
+  if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
   if (err instanceof DuplicateDeviceBadgeError) {
     return c.json(withMessageEn(err), 409);
   }
@@ -675,6 +678,8 @@ export function createHrRoutes(deps: HrRoutesDeps, resolveAuthContext: AuthConte
   app.post("/contracts", gate("hr.contract.create"), async (c) => {
     const parsed = createContractSchema.safeParse(await c.req.json());
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    const takenId = await refuseTakenId(c, parsed.data.id, (id) => deps.contracts.findById(id));
+    if (takenId) return takenId;
     try {
       const id = parsed.data.id ?? randomUUID();
       const number = (await deps.numbering.next("EMPLOYMENT_CONTRACT")).formatted;
@@ -720,6 +725,8 @@ export function createHrRoutes(deps: HrRoutesDeps, resolveAuthContext: AuthConte
   app.post("/holidays", gate("hr.leave_policy.edit"), async (c) => {
     const parsed = createHolidaySchema.safeParse(await c.req.json());
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    const takenId = await refuseTakenId(c, parsed.data.id, (id) => deps.holidays.findById(id));
+    if (takenId) return takenId;
     try {
       const holiday = createHoliday({ ...parsed.data, id: parsed.data.id ?? randomUUID() });
       await deps.holidays.create(holiday);

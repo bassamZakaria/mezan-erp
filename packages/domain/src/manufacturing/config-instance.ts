@@ -28,6 +28,7 @@ import {
   DuplicateManufacturingDocumentError,
   InvalidManufacturingDocumentError,
 } from "./errors.js";
+import { DuplicateRecordIdError } from "../records/duplicate-record-id.js";
 
 const CONFIG_INSTANCE_SEQUENCE = "CONFIG_INSTANCE";
 
@@ -122,11 +123,11 @@ export async function createConfigInstance(
   command: CreateConfigInstanceCommand,
   deps: CreateConfigInstanceDeps,
 ): Promise<CreateConfigInstanceResult> {
+  if (await deps.instances.findById(command.id)) {
+    throw new DuplicateRecordIdError(command.id);
+  }
   if (command.qty.isZero() || command.qty.isNegative()) {
     throw new InvalidManufacturingDocumentError(["الكمية يجب أن تكون أكبر من صفر"]);
-  }
-  if (await deps.instances.findById(command.id)) {
-    throw new DuplicateManufacturingDocumentError(command.id);
   }
   const product = await deps.products.findById(command.configurableProductId);
   if (!product) throw new ConfigurableProductNotFoundError(command.configurableProductId);

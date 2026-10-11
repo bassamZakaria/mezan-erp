@@ -47,6 +47,8 @@ import {
   updateSubcontractSchema,
 } from "@mezan/contracts";
 import { createPermissionGate, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
+import { duplicateIdRefusal } from "./duplicate-id.js";
+import { DuplicateRecordIdError } from "@mezan/domain";
 
 /**
  * عقود الباطن ومستخلصاتها — the mirror of the client contract and its
@@ -312,6 +314,7 @@ function serializePreview(preview: SubCertificatePreview) {
 }
 
 function handleDomainError(c: Context, err: unknown) {
+  if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
   if (err instanceof SubcontractNotFoundError || err instanceof SubCertificateNotFoundError) {
     return c.json({ error: err.code, message: err.message }, 404);
   }

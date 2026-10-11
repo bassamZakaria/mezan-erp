@@ -1,5 +1,6 @@
 import Database from "better-sqlite3";
 import type { TaxGroup, TaxGroupMember, TaxGroupRepository, TaxRateStatus } from "@mezan/domain";
+import { insertingNew, prepareInsertOnly } from "./insert-new.js";
 
 /**
  * SQLite-backed tax groups (R6.4). Members are a JSON column rather than a
@@ -53,8 +54,10 @@ export function createSqliteTaxGroupStore(sqlite: Database.Database): TaxGroupRe
   const selectById = sqlite.prepare(`SELECT * FROM tax_group WHERE id = ?`);
   const selectAll = sqlite.prepare(`SELECT * FROM tax_group ORDER BY code`);
 
-  function write(group: TaxGroup): void {
-    upsert.run({
+  const insertOnly = prepareInsertOnly(sqlite, upsert.source);
+
+  function write(group: TaxGroup, statement: Database.Statement = upsert): void {
+    statement.run({
       id: group.id,
       code: group.code,
       name_ar: group.nameAr,
@@ -73,7 +76,7 @@ export function createSqliteTaxGroupStore(sqlite: Database.Database): TaxGroupRe
       return (selectAll.all() as Row[]).map(toGroup);
     },
     async create(group) {
-      write(group);
+      insertingNew(group.id, () => write(group, insertOnly));
     },
     async update(group) {
       write(group);

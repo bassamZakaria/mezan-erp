@@ -33,6 +33,8 @@ import {
   itemStockSchema,
 } from "@mezan/contracts";
 import { createPermissionGate, sessionWarehouseScopeOf, warehouseScopeOf, withinScope, type AuthContextResolver } from "./permission-gate.js";
+import { duplicateIdRefusal } from "./duplicate-id.js";
+import { DuplicateRecordIdError } from "@mezan/domain";
 
 /**
  * Permission-gated routes for the costing + stock-ledger engine (docs/archive/catalog/03).
@@ -138,6 +140,7 @@ function serializePostedTransfer(t: PostedTransfer) {
 }
 
 function handleDomainError(c: Context, err: unknown) {
+  if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
   if (err instanceof NegativeStockError) {
     return c.json(
       {

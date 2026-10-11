@@ -41,6 +41,7 @@ import {
   PurchaseOrderNotReceivableError,
   PurchaseOrderRequiredError,
 } from "./errors.js";
+import { DuplicateRecordIdError } from "../records/duplicate-record-id.js";
 
 const GOODS_RECEIPT_SEQUENCE = "GOODS_RECEIPT";
 
@@ -218,7 +219,7 @@ export async function createGoodsReceipt(
 ): Promise<GoodsReceipt> {
   const policy = deps.policy ?? DEFAULT_PURCHASE_POLICY;
   if (await deps.receipts.findById(command.id)) {
-    throw new DuplicatePurchaseDocumentError(command.id);
+    throw new DuplicateRecordIdError(command.id);
   }
 
   if (!command.purchaseOrderId) {

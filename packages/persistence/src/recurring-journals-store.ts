@@ -1,5 +1,6 @@
 import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
+import { insertingNew, prepareInsertOnly } from "./insert-new.js";
 import {
   Money,
   RecurringJournalFrequency,
@@ -149,6 +150,7 @@ function toTemplate(row: TemplateRow): RecurringJournalTemplate {
 
 class SqliteRecurringJournalTemplateRepository implements RecurringJournalTemplateRepository {
   private readonly upsert: Database.Statement;
+  private readonly insertOnly: Database.Statement;
   private readonly selectById: Database.Statement;
   private readonly selectAll: Database.Statement;
 
@@ -172,6 +174,7 @@ class SqliteRecurringJournalTemplateRepository implements RecurringJournalTempla
         lines = excluded.lines,
         updated_at = excluded.updated_at
     `);
+    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
     this.selectById = sqlite.prepare(`SELECT * FROM recurring_journal_template WHERE id = ?`);
     this.selectAll = sqlite.prepare(`SELECT * FROM recurring_journal_template ORDER BY created_at ASC`);
   }
@@ -186,7 +189,15 @@ class SqliteRecurringJournalTemplateRepository implements RecurringJournalTempla
   }
 
   async save(template: RecurringJournalTemplate): Promise<void> {
-    this.upsert.run({
+    this.write(template);
+  }
+
+  async insert(template: RecurringJournalTemplate): Promise<void> {
+    insertingNew(template.id, () => this.write(template, this.insertOnly));
+  }
+
+  private write(template: RecurringJournalTemplate, statement: Database.Statement = this.upsert): void {
+    statement.run({
       id: template.id,
       name_ar: template.nameAr,
       name_en: template.nameEn,

@@ -59,6 +59,8 @@ import {
   EtaBulkRequeueOutcome,
 } from "@mezan/contracts";
 import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
+import { duplicateIdRefusal } from "./duplicate-id.js";
+import { DuplicateRecordIdError } from "@mezan/domain";
 
 export interface EtaRoutesDeps {
   readonly service: EtaService;
@@ -187,6 +189,7 @@ function serializeSubmission(s: EtaSubmission, opts: { payload?: boolean } = {})
 }
 
 function handleError(c: Context, err: unknown): Response {
+  if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
   if (err instanceof EtaSubmissionNotFoundError) {
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 404);
   }

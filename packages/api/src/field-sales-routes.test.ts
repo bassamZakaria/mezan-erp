@@ -422,6 +422,7 @@ describe("D310 — a van and a trip may not name a branch or warehouse that does
       list: async () => [],
       findById: async () => null,
       save: async () => {},
+      insert: async () => {},
     };
     const app = createVansRoutes(vans, insecureHeaderAuthContextResolver, MASTER_DATA);
     const res = await app.fetch(

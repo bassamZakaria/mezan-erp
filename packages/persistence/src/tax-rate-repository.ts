@@ -1,6 +1,7 @@
 import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
 import type { EtaVatSubType, TaxCalculationType, TaxRate, TaxRateRepository, TaxRateStatus } from "@mezan/domain";
+import { insertingNew, prepareInsertOnly } from "./insert-new.js";
 
 /** SQLite-backed TaxRateRepository (docs/archive/catalog/04 "الضرائب"). Standalone, mirroring `createSqliteAccountRepository`. */
 
@@ -49,6 +50,7 @@ function toTaxRate(row: TaxRateRow): TaxRate {
 
 class SqliteTaxRateRepository implements TaxRateRepository {
   private readonly upsert: Database.Statement;
+  private readonly insertOnly: Database.Statement;
   private readonly selectById: Database.Statement;
   private readonly selectByCode: Database.Statement;
   private readonly selectAll: Database.Statement;
@@ -68,6 +70,7 @@ class SqliteTaxRateRepository implements TaxRateRepository {
         eta_sub_type = excluded.eta_sub_type,
         status = excluded.status
     `);
+    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
     this.selectById = sqlite.prepare(`SELECT * FROM tax_rate WHERE id = ?`);
     this.selectByCode = sqlite.prepare(`SELECT * FROM tax_rate WHERE code = ?`);
     this.selectAll = sqlite.prepare(`SELECT * FROM tax_rate`);
@@ -89,15 +92,15 @@ class SqliteTaxRateRepository implements TaxRateRepository {
   }
 
   async create(taxRate: TaxRate): Promise<void> {
-    this.write(taxRate);
+    insertingNew(taxRate.id, () => this.write(taxRate, this.insertOnly));
   }
 
   async update(taxRate: TaxRate): Promise<void> {
     this.write(taxRate);
   }
 
-  private write(taxRate: TaxRate): void {
-    this.upsert.run({
+  private write(taxRate: TaxRate, statement: Database.Statement = this.upsert): void {
+    statement.run({
       id: taxRate.id,
       code: taxRate.code,
       name: taxRate.name,

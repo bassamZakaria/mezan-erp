@@ -54,6 +54,7 @@ import {
   ProgressCertificateNotFoundError,
 } from "./errors.js";
 import { tenantTodayIso } from "../../dates.js";
+import { DuplicateRecordIdError } from "../../records/duplicate-record-id.js";
 
 /**
  * المستخلص — the use cases and the ledger behind them (design §04).
@@ -777,6 +778,9 @@ export class CertificateService {
   }
 
   async create(cmd: CreateCertificateCommand, actor: CertificateActor): Promise<CertificateView> {
+    if (await this.deps.store.findById(cmd.id)) {
+      throw new DuplicateRecordIdError(cmd.id);
+    }
     const contract = await this.requireContract(cmd.contractId);
     if (contract.status !== "active") {
       throw new InvalidProgressCertificateError([
@@ -801,7 +805,7 @@ export class CertificateService {
 
     return this.deps.store.transaction(async () => {
       if (await this.deps.store.findById(cmd.id)) {
-        throw new InvalidProgressCertificateError([`المستخلص "${cmd.id}" موجود بالفعل`]);
+        throw new DuplicateRecordIdError(cmd.id);
       }
       const number = await this.deps.numbering.next(CERTIFICATE_SEQUENCE);
       const certificate: ProgressCertificate = {

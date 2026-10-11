@@ -47,6 +47,7 @@ import type {
   SiteReceipt,
   UnreceivedRow,
 } from "./site-documents.js";
+import { DuplicateRecordIdError } from "../../records/duplicate-record-id.js";
 
 export interface SiteServiceDeps {
   readonly issues: SiteIssueRepository;
@@ -203,6 +204,9 @@ export class SiteService {
   // --- إذن صرف للموقع ---
 
   async createIssueDraft(command: CreateSiteIssueCommand): Promise<SiteIssue> {
+    if (await this.deps.issues.findById(command.id)) {
+      throw new DuplicateRecordIdError(command.id);
+    }
     const reasons: string[] = [];
     if (!ISO_DATE.test(command.date)) reasons.push("التاريخ مطلوب بصيغة YYYY-MM-DD");
     if (command.issuedByUserId.trim() === "") reasons.push("لا بد من معرفة من أصدر إذن الصرف");
@@ -220,9 +224,6 @@ export class SiteService {
       throw new InvalidSiteDocumentError(["الصرف للموقع يكون من مستودع رئيسي وليس من مستودع موقع أو مواد في الطريق"]);
     }
     if (source.id === destination.id) throw new InvalidSiteDocumentError(["المستودع المصدر والمستودع المستلم واحد"]);
-    if (await this.deps.issues.findById(command.id)) {
-      throw new InvalidSiteDocumentError([`إذن الصرف "${command.id}" موجود بالفعل`]);
-    }
 
     const issue: SiteIssue = {
       id: command.id,
@@ -304,6 +305,9 @@ export class SiteService {
   // --- استلام بالموقع ---
 
   async createReceiptDraft(command: CreateSiteReceiptCommand): Promise<SiteReceipt> {
+    if (await this.deps.receipts.findById(command.id)) {
+      throw new DuplicateRecordIdError(command.id);
+    }
     const issue = await this.deps.issues.findById(command.issueId);
     if (!issue) throw new SiteDocumentNotFoundError(command.issueId);
     if (issue.status === "draft") {
@@ -354,9 +358,6 @@ export class SiteService {
       }
     });
     if (reasons.length > 0) throw new InvalidSiteDocumentError(reasons);
-    if (await this.deps.receipts.findById(command.id)) {
-      throw new InvalidSiteDocumentError([`مستند الاستلام "${command.id}" موجود بالفعل`]);
-    }
 
     const receipt: SiteReceipt = {
       id: command.id,
@@ -427,6 +428,9 @@ export class SiteService {
   // --- استهلاك مواد ---
 
   async createConsumptionDraft(command: CreateMaterialConsumptionCommand): Promise<MaterialConsumption> {
+    if (await this.deps.consumptions.findById(command.id)) {
+      throw new DuplicateRecordIdError(command.id);
+    }
     const reasons: string[] = [];
     if (!ISO_DATE.test(command.date)) reasons.push("التاريخ مطلوب بصيغة YYYY-MM-DD");
     if (command.lines.length === 0) reasons.push("مستند الاستهلاك يحتاج سطراً واحداً على الأقل");
@@ -452,9 +456,6 @@ export class SiteService {
       throw new InvalidSiteDocumentError([
         "بند جدول الكميات مطلوب — المشروع يعمل تحت عقد سارٍ، والاستهلاك بلا بند لا يظهر في تقرير انحراف الاستهلاك",
       ]);
-    }
-    if (await this.deps.consumptions.findById(command.id)) {
-      throw new InvalidSiteDocumentError([`مستند الاستهلاك "${command.id}" موجود بالفعل`]);
     }
 
     const consumption: MaterialConsumption = {
@@ -575,6 +576,9 @@ export class SiteService {
   // --- عهدة المواد المرتجعة ---
 
   async issueCustody(command: IssueCustodyCommand): Promise<CustodyItem> {
+    if (await this.deps.custody.findById(command.id)) {
+      throw new DuplicateRecordIdError(command.id);
+    }
     const reasons: string[] = [];
     if (!ISO_DATE.test(command.issuedDate)) reasons.push("تاريخ الصرف مطلوب بصيغة YYYY-MM-DD");
     if (command.descriptionAr.trim() === "") reasons.push("وصف العهدة مطلوب");
@@ -582,9 +586,6 @@ export class SiteService {
     if (reasons.length > 0) throw new InvalidSiteDocumentError(reasons);
 
     const warehouse = await this.requireSiteWarehouse(command.warehouseId, "مستودع الموقع");
-    if (await this.deps.custody.findById(command.id)) {
-      throw new InvalidSiteDocumentError([`سجل العهدة "${command.id}" موجود بالفعل`]);
-    }
 
     const item: CustodyItem = {
       id: command.id,
@@ -623,6 +624,9 @@ export class SiteService {
   // --- تشغيل المعدات ---
 
   async createEquipmentLogDraft(command: CreateEquipmentLogCommand): Promise<EquipmentLog> {
+    if (await this.deps.equipmentLogs.findById(command.id)) {
+      throw new DuplicateRecordIdError(command.id);
+    }
     const reasons: string[] = [];
     if (!ISO_DATE.test(command.date)) reasons.push("التاريخ مطلوب بصيغة YYYY-MM-DD");
     if (command.hours.isZero() || command.hours.isNegative()) reasons.push("عدد الساعات يجب أن يكون رقماً موجباً");
@@ -656,9 +660,6 @@ export class SiteService {
     const boqLineId = command.boqLineId?.trim() ? command.boqLineId.trim() : null;
     if (boqLineId && this.deps.boqLines && !(await this.deps.boqLines.exists(boqLineId))) {
       throw new InvalidSiteDocumentError([`بند جدول الكميات "${boqLineId}" غير موجود`]);
-    }
-    if (await this.deps.equipmentLogs.findById(command.id)) {
-      throw new InvalidSiteDocumentError([`سجل التشغيل "${command.id}" موجود بالفعل`]);
     }
 
     const log: EquipmentLog = {

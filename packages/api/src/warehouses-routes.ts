@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { createWarehouse, updateWarehouse, InvalidWarehouseError, type WarehouseRepository } from "@mezan/domain";
 import { createWarehouseSchema, updateWarehouseSchema } from "@mezan/contracts";
 import { createPermissionGate, type AuthContextResolver, branchScopeOf, withinScope } from "./permission-gate.js";
+import { refuseExistingId } from "./duplicate-id.js";
 
 /** Warehouse CRUD routes (docs/archive/catalog/09 §"إدارة المستودعات"), gated by admin.warehouses.*. */
 export function createWarehousesRoutes(
@@ -28,9 +29,8 @@ export function createWarehousesRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
-    if (await store.findById(parsed.data.id)) {
-      return c.json({ error: "ALREADY_EXISTS" }, 409);
-    }
+    const taken = refuseExistingId(c, await store.findById(parsed.data.id), parsed.data.id);
+    if (taken) return taken;
     const limit = c.get("entitlements")?.limits?.warehouses;
     if (limit !== undefined && (await store.findAll()).length >= limit) {
       return c.json(
@@ -40,7 +40,7 @@ export function createWarehousesRoutes(
     }
     try {
       const warehouse = createWarehouse(parsed.data);
-      await store.save(warehouse);
+      await store.insert(warehouse);
       return c.json(warehouse, 201);
     } catch (err) {
       if (err instanceof InvalidWarehouseError) {

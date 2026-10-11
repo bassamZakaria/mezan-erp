@@ -1,5 +1,6 @@
 import { InvalidDepartmentError } from "./errors.js";
 import type { Department, DepartmentRepository } from "./department.js";
+import { assertRecordIdIsNew } from "../records/duplicate-record-id.js";
 
 export interface CreateDepartmentCommand {
   readonly id: string;
@@ -22,6 +23,7 @@ function validate(command: CreateDepartmentCommand): string[] {
 
 /** Creates and persists a new department. */
 export async function createDepartment(command: CreateDepartmentCommand, repo: DepartmentRepository): Promise<Department> {
+  assertRecordIdIsNew(await repo.findById(command.id), command.id);
   const reasons = validate(command);
   if (reasons.length > 0) throw new InvalidDepartmentError(reasons);
 

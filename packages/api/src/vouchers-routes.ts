@@ -58,6 +58,8 @@ import { type AuthContextResolver, branchScopeOf, callerRoleCodes, createAnyPerm
 import { storedBranchesById } from "./stored-branches.js";
 import { MasterDataKind, refuseUnknownMasterData, type MasterDataChecks } from "./master-data-check.js";
 import { tenantDay } from "./tenant-day.js";
+import { duplicateIdRefusal, refuseTakenId } from "./duplicate-id.js";
+import { DuplicateRecordIdError } from "@mezan/domain";
 
 /** The register port moved into the domain with the call that uses it (D196). */
 export type { VoucherChequeRegistration, VoucherChequeRegistrationPort } from "@mezan/domain";
@@ -166,6 +168,7 @@ function serializeInvoice(i: AllocatableInvoice, returned: Money = Money.zero())
 }
 
 function handleDomainError(c: Context, err: unknown): Response {
+  if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
   const refuse = (e: Error & { code: string; messageEn?: string }, status: 404 | 409 | 422) =>
     c.json({ error: e.code, message: e.message, ...(e.messageEn ? { messageEn: e.messageEn } : {}) }, status);
   if (err instanceof CashBalanceWouldGoNegativeError) {
@@ -626,6 +629,8 @@ export function createVouchersRoutes(
     if (d.allocations.length > 0 && !(ctx && can(ctx, "treasury.allocation.manage"))) {
       return c.json(permissionDeniedBody("treasury.allocation.manage"), 403);
     }
+    const takenId = await refuseTakenId(c, d.id, (id) => serviceFor(c).findById(id));
+    if (takenId) return takenId;
     const partyRefusal = await refuseUnknownMasterData(c, deps.masterData, [
       { kind: MasterDataKind.Customer, ids: [d.customerId] },
       { kind: MasterDataKind.Branch, ids: [d.branchId] },

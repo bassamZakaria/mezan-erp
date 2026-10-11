@@ -29,6 +29,8 @@ import { createPermissionGate, type AuthContextResolver } from "./permission-gat
 import { branchLineViewOf, lineInView } from "./branch-view.js";
 import { tenantToday } from "./tenant-day.js";
 import { MasterDataKind, refuseUnknownMasterData, type MasterDataChecks } from "./master-data-check.js";
+import { duplicateIdRefusal } from "./duplicate-id.js";
+import { DuplicateRecordIdError } from "@mezan/domain";
 
 function serialize(project: Project) {
   return {
@@ -54,6 +56,7 @@ function withMessageEn(err: { readonly code: string; readonly message: string })
 }
 
 function handleDomainError(c: Context, err: unknown) {
+  if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
   if (err instanceof ProjectNotFoundError) {
     return c.json(withMessageEn(err), 404);
   }

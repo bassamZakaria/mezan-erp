@@ -18,6 +18,7 @@ import { documentBranches, storedBranchesById, withinBranchGrant } from "./store
 import { handleDocumentError } from "./document-error-handling.js";
 import { refuseOutOfScopeBranches } from "./branch-scope-refusal.js";
 import { tenantDay } from "./tenant-day.js";
+import { refuseTakenId } from "./duplicate-id.js";
 
 function serializeLine(l: LandedCostLine) {
   return {
@@ -97,6 +98,8 @@ export function createLandedCostsRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
+    const takenId = await refuseTakenId(c, parsed.data.id, (id) => documents.findById(id));
+    if (takenId) return takenId;
     try {
       const costItems = parsed.data.costItems.map((ci) => ({
         costType: ci.costType,

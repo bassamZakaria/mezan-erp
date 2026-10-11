@@ -1,6 +1,7 @@
 import { RecurringJournalTemplateNotFoundError, RecurringJournalTemplateStatus, type RecurringJournalFrequency, type RecurringJournalTemplate, type RecurringJournalTemplateLine } from "./types.js";
 import { assertValidSchedule, assertValidTemplateLines, type ValidateTemplateDeps } from "./validate.js";
 import type { RecurringJournalTemplateRepository } from "./store.js";
+import { assertRecordIdIsNew } from "../records/duplicate-record-id.js";
 
 export interface RecurringJournalTemplateDeps extends ValidateTemplateDeps {
   readonly templates: RecurringJournalTemplateRepository;
@@ -29,6 +30,7 @@ export async function createRecurringJournalTemplate(
   cmd: CreateRecurringJournalTemplateCommand,
   deps: RecurringJournalTemplateDeps,
 ): Promise<RecurringJournalTemplate> {
+  assertRecordIdIsNew(await deps.templates.findById(cmd.id), cmd.id);
   assertValidSchedule(cmd);
   await assertValidTemplateLines(cmd.lines, deps);
   const timestamp = nowIso(deps);
@@ -48,7 +50,7 @@ export async function createRecurringJournalTemplate(
     createdAt: timestamp,
     updatedAt: timestamp,
   };
-  await deps.templates.save(template);
+  await deps.templates.insert(template);
   return template;
 }
 

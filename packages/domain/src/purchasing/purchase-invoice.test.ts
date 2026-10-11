@@ -36,6 +36,7 @@ import {
   makeNumbering,
   makeStockService,
 } from "./test-helpers.js";
+import { DuplicateRecordIdError } from "../records/duplicate-record-id.js";
 
 const now = () => "2026-08-21T09:00:00.000Z";
 const WH = "MAIN-WH";
@@ -257,7 +258,7 @@ describe("createPurchaseInvoice — both input shapes", () => {
       lines: [{ itemId: "item-Z", kind: "inventory" as const, qty: Qty.fromMajor("1"), unitCost: Money.fromMajor("1") }],
     };
     await createPurchaseInvoice(cmd, { invoices, numbering });
-    await expect(createPurchaseInvoice(cmd, { invoices, numbering })).rejects.toThrow(DuplicatePurchaseDocumentError);
+    await expect(createPurchaseInvoice(cmd, { invoices, numbering })).rejects.toThrow(DuplicateRecordIdError);
   });
 
   it("rejects an inventory line with no item id", async () => {

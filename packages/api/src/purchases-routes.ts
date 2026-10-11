@@ -100,6 +100,8 @@ import {
   type StoredBranchesResolver,
 } from "./permission-gate.js";
 import { branchesOfWarehouses, documentBranches, withinBranchGrant } from "./stored-branches.js";
+import { duplicateIdRefusal } from "./duplicate-id.js";
+import { DuplicateRecordIdError } from "@mezan/domain";
 
 /**
  * Permission-gated routes for the purchase chain (docs/archive/catalog/02), mounted
@@ -329,6 +331,7 @@ function serializeInvoice(inv: PurchaseInvoice, allocated: Money = Money.zero(),
 }
 
 function handleDomainError(c: Context, err: unknown): Response {
+  if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
   if (
     err instanceof PurchaseOrderNotFoundError ||
     err instanceof GoodsReceiptNotFoundError ||

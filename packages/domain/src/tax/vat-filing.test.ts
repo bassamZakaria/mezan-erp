@@ -28,6 +28,7 @@ import {
  * and guarding a decoration.
  */
 import { assertVatNotFiled } from "../gl/post.js";
+import { DuplicateRecordIdError } from "../records/duplicate-record-id.js";
 
 interface FakeRepo extends VatFilingRepository {
   readonly rows: Map<string, VatFiling>;
@@ -46,6 +47,10 @@ function repository(seed: readonly VatFiling[] = []): FakeRepo {
       return [...rows.values()];
     },
     async save(filing: VatFiling) {
+      store.saves += 1;
+      rows.set(filing.id, filing);
+    },
+    async insert(filing: VatFiling) {
       store.saves += 1;
       rows.set(filing.id, filing);
     },
@@ -238,58 +243,37 @@ describe("assertVatNotFiled — the lock a backdated document must hit", () => {
   });
 });
 
-/**
- * DEFECT — recordVatFiling never asks whether cmd.id is already taken, and
- * save is an UPSERT keyed on id (vat-filing-store.ts, ON CONFLICT(id) DO
- * UPDATE). POSTing /gl/vat-filings with an id already on file and a window that
- * does not overlap it therefore OVERWRITES the earlier filing: the acknowledged
- * figure, its ETA reference, its filer, its timestamp and any amendment reason
- * are gone, and the filed period is postable again.
- *
- * SalesInvoiceService.create refuses a duplicate id outright
- * (DuplicateSalesInvoiceError). The tax register is the one place that does not.
- */
-describe("DEFECT: recording a filing under an existing id overwrites the acknowledged return", () => {
-  it("erases the filed July record — figure, reference, filer and all — and unlocks the period", async () => {
+describe("recording a filing under an existing id is refused and leaves the acknowledged return as it was", () => {
+  it("keeps the filed July record — figure, reference, filer — and the period stays filed", async () => {
     const repo = repository([filedRow()]);
-    await expect(assertVatNotFiled("2026-07-16", repo)).rejects.toBeInstanceOf(
-      VatPeriodAlreadyFiledError,
-    );
+    const before = await repo.findById("VF-2026-07");
 
-    await recordVatFiling(
-      {
-        id: "VF-2026-07",
-        periodFrom: "2026-10-01",
-        periodTo: "2026-10-31",
-        netAmount: Money.fromMajor("12.00"),
-        filedBy: "u-junior",
-      },
-      { filings: repo },
-    );
+    await expect(
+      recordVatFiling(
+        { id: "VF-2026-07", periodFrom: "2026-10-01", periodTo: "2026-10-31", netAmount: Money.fromMajor("12.00"), filedBy: "u-junior" },
+        { filings: repo },
+      ),
+    ).rejects.toBeInstanceOf(DuplicateRecordIdError);
 
-    const survivor = (await repo.findById("VF-2026-07"))!;
     expect(repo.rows.size).toBe(1);
-    expect(survivor.periodFrom).toBe("2026-10-01");
-    expect(survivor.netAmount.toString()).toBe("12.000000");
-    expect(survivor.referenceNo).toBeNull();
-    expect(survivor.filedBy).toBe("u-junior");
-    await expect(assertVatNotFiled("2026-07-16", repo)).resolves.toBeUndefined();
+    expect(await repo.findById("VF-2026-07")).toEqual(before);
+    await expect(assertVatNotFiled("2026-07-16", repo)).rejects.toBeInstanceOf(VatPeriodAlreadyFiledError);
   });
 
-  it("un-amends an amended filing, discarding the reason the amendment was required to carry", async () => {
+  it("does not un-amend an amended filing", async () => {
     const repo = repository([filedRow()]);
     await amendVatFiling("VF-2026-07", "تسوية بعد الفحص", { filings: repo });
-    expect((await repo.findById("VF-2026-07"))!.amendmentReason).toBe("تسوية بعد الفحص");
 
-    await recordVatFiling(
-      { id: "VF-2026-07", periodFrom: "2026-11-01", periodTo: "2026-11-30", netAmount: Money.fromMajor("5.00") },
-      { filings: repo },
-    );
+    await expect(
+      recordVatFiling(
+        { id: "VF-2026-07", periodFrom: "2026-11-01", periodTo: "2026-11-30", netAmount: Money.fromMajor("5.00") },
+        { filings: repo },
+      ),
+    ).rejects.toBeInstanceOf(DuplicateRecordIdError);
 
     const survivor = (await repo.findById("VF-2026-07"))!;
-    expect(survivor.status).toBe("filed");
-    expect(survivor.amendedAt).toBeNull();
-    expect(survivor.amendmentReason).toBeNull();
+    expect(survivor.status).toBe("amended");
+    expect(survivor.amendmentReason).toBe("تسوية بعد الفحص");
   });
 });
 

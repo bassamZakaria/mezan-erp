@@ -46,6 +46,7 @@ import {
   VariationOrderNotFoundError,
 } from "./errors.js";
 import { tenantTodayIso } from "../../dates.js";
+import { DuplicateRecordIdError } from "../../records/duplicate-record-id.js";
 
 const PERCENT_RE = /^\d+(\.\d{1,6})?$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -310,6 +311,9 @@ export class WorksContractService {
   }
 
   async create(cmd: CreateWorksContractCommand): Promise<WorksContractView> {
+    if (await this.deps.store.findContractById(cmd.id)) {
+      throw new DuplicateRecordIdError(cmd.id);
+    }
     const reasons: string[] = [];
     if (cmd.titleAr.trim().length === 0) reasons.push("اسم العقد مطلوب");
     requireDate(reasons, "تاريخ التوقيع", cmd.signedDate);
@@ -330,7 +334,7 @@ export class WorksContractService {
 
     return this.deps.store.transaction(async () => {
       if (await this.deps.store.findContractById(cmd.id)) {
-        throw new InvalidWorksContractError([`العقد "${cmd.id}" موجود بالفعل`]);
+        throw new DuplicateRecordIdError(cmd.id);
       }
       const number = await this.deps.numbering.next("CONTRACT");
       const contract: WorksContract = {
@@ -613,6 +617,9 @@ export class WorksContractService {
   }
 
   async createVariationOrder(cmd: CreateVariationOrderCommand, actor: WorksContractActor): Promise<VariationOrderView> {
+    if (await this.deps.store.findVariationOrderById(cmd.id)) {
+      throw new DuplicateRecordIdError(cmd.id);
+    }
     const contract = await this.require(cmd.contractId);
     const reasons: string[] = [];
     if (contract.status !== "active") reasons.push("لا يمكن إصدار أمر تغيير إلا على عقد ساري");
@@ -627,7 +634,7 @@ export class WorksContractService {
 
     return this.deps.store.transaction(async () => {
       if (await this.deps.store.findVariationOrderById(cmd.id)) {
-        throw new InvalidWorksContractError([`أمر التغيير "${cmd.id}" موجود بالفعل`]);
+        throw new DuplicateRecordIdError(cmd.id);
       }
       const number = await this.deps.numbering.next("VARIATION_ORDER");
       const order: VariationOrder = {

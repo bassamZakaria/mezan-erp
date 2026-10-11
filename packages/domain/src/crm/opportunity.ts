@@ -1,5 +1,6 @@
 import { Money } from "../money/index.js";
 import { InvalidOpportunityError } from "./errors.js";
+import { assertRecordIdIsNew } from "../records/duplicate-record-id.js";
 
 /**
  * Opportunities — core entity (docs/archive/catalog/06-crm-hr.md "الفرص"). An
@@ -65,6 +66,7 @@ export async function createOpportunity(
   command: CreateOpportunityCommand,
   repo: OpportunityRepository,
 ): Promise<Opportunity> {
+  assertRecordIdIsNew(await repo.findById(command.id), command.id);
   const probability = command.probability ?? 50;
   const reasons = validate(command.title, probability);
   if (reasons.length > 0) throw new InvalidOpportunityError(reasons);

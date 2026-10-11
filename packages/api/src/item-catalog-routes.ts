@@ -30,6 +30,8 @@ import {
 } from "@mezan/contracts";
 import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
 import { recordFieldChanges } from "./admin-audit.js";
+import { duplicateIdRefusal, refuseExistingId, refuseTakenId } from "./duplicate-id.js";
+import { DuplicateRecordIdError } from "@mezan/domain";
 
 const AUDITED_BRAND_FIELDS = ["code", "nameAr", "nameEn", "status"] as const;
 const AUDITED_SEASON_FIELDS = ["code", "nameAr", "nameEn", "startDate", "endDate", "status"] as const;
@@ -56,6 +58,7 @@ function serializeCategory(category: ItemCategory) {
 }
 
 function handleDomainError(c: Context, err: unknown) {
+  if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
   const refuse = (e: Error & { code: string; messageEn?: string }, status: 404 | 409 | 422) =>
     c.json({ error: e.code, message: e.message, ...(e.messageEn ? { messageEn: e.messageEn } : {}) }, status);
   if (err instanceof ItemUnitNotFoundError || err instanceof ItemCategoryNotFoundError) {
@@ -118,6 +121,8 @@ export function createItemCategoriesRoutes(
   app.post("/", gate("inventory.item.create"), async (c) => {
     const parsed = createItemCategorySchema.safeParse(await c.req.json());
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+      const takenId = await refuseTakenId(c, parsed.data.id, (id) => repo.findById(id));
+      if (takenId) return takenId;
     try {
       return c.json(serializeCategory(await createItemCategory(parsed.data, repo)), 201);
     } catch (err) {
@@ -192,7 +197,8 @@ export function createItemBrandsRoutes(
   app.post("/", gate("inventory.item.create"), async (c) => {
     const parsed = upsertItemBrandSchema.safeParse(await c.req.json());
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
-    if (await repo.findById(parsed.data.id)) return c.json({ error: "ALREADY_EXISTS" }, 409);
+    const taken = refuseExistingId(c, await repo.findById(parsed.data.id), parsed.data.id);
+    if (taken) return taken;
     const brand: ItemBrand = { ...parsed.data, nameEn: parsed.data.nameEn ?? null, status: parsed.data.status ?? "active" };
     await repo.create(brand);
     await auditBrand(c, AuditChangeAction.Create, null, brand);
@@ -243,7 +249,8 @@ export function createItemSeasonsRoutes(
   app.post("/", gate("inventory.item.create"), async (c) => {
     const parsed = upsertItemSeasonSchema.safeParse(await c.req.json());
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
-    if (await repo.findById(parsed.data.id)) return c.json({ error: "ALREADY_EXISTS" }, 409);
+    const taken = refuseExistingId(c, await repo.findById(parsed.data.id), parsed.data.id);
+    if (taken) return taken;
     const season: ItemSeason = {
       ...parsed.data,
       nameEn: parsed.data.nameEn ?? null,

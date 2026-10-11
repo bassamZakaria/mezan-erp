@@ -7,6 +7,8 @@ import { createPermissionGate, type AuthContextResolver } from "./permission-gat
 import { recordFieldChanges } from "./admin-audit.js";
 import type { PartyOpeningBalancePoster } from "./customers-routes.js";
 import { tenantToday } from "./tenant-day.js";
+import { duplicateIdRefusal, refuseExistingId } from "./duplicate-id.js";
+import { DuplicateRecordIdError } from "@mezan/domain";
 
 /**
  * What is still owed to each supplier — the supplier aging ladder's row, which
@@ -73,6 +75,7 @@ export const AUDITED_SUPPLIER_FIELDS = [
 ] as const;
 
 function handleDomainError(c: Context, err: unknown) {
+  if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
   if (err instanceof InvalidSupplierError) {
     return c.json({ error: err.code, message: err.message, reasons: err.reasons }, 422);
   }
@@ -204,9 +207,8 @@ export function createSuppliersRouter(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
-    if (await repo.findById(parsed.data.id)) {
-      return c.json({ error: "ALREADY_EXISTS" }, 409);
-    }
+    const taken = refuseExistingId(c, await repo.findById(parsed.data.id), parsed.data.id);
+    if (taken) return taken;
     const restrictedOnCreate = sharedFieldRefusal(c, SUPPLIERS_PREFIX, null, parsed.data);
     if (restrictedOnCreate) return restrictedOnCreate;
     const code = parsed.data.code ?? nextMasterCode((await repo.findAll()).map((row) => row.code), "S");
@@ -224,7 +226,7 @@ export function createSuppliersRouter(
       // period must leave behind no supplier carrying a balance the control
       // account never heard about.
       await openingBalances?.post(supplier);
-      await repo.save(supplier);
+      await repo.insert(supplier);
       await auditSupplier(c, supplier, AuditChangeAction.Create);
       return c.json(serialize(supplier), 201);
     } catch (err) {

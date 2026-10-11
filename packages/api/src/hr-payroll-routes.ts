@@ -101,6 +101,8 @@ import { recordAdminEvent } from "./admin-audit.js";
 import { tenantDay } from "./tenant-day.js";
 import { tenantToday } from "./tenant-day.js";
 import { MasterDataKind, refuseUnknownMasterData, type MasterDataChecks } from "./master-data-check.js";
+import { duplicateIdRefusal, refuseTakenId } from "./duplicate-id.js";
+import { DuplicateRecordIdError } from "@mezan/domain";
 
 /**
  * Payroll + employee-advance routes (docs/archive/catalog/06-crm-hr.md "الرواتب" and
@@ -320,6 +322,7 @@ function withMessageEn(err: { readonly code: string; readonly message: string; r
 }
 
 function handleDomainError(c: Context, err: unknown): Response {
+  if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
   if (
     err instanceof EmployeeAdvanceNotFoundError ||
     err instanceof PayrollRunNotFoundError ||
@@ -427,6 +430,8 @@ export function createHrPayrollRoutes(deps: HrPayrollRoutesDeps, resolveAuthCont
     app.post("/payroll/components", gate("hr.payroll.create"), async (c) => {
       const parsed = createPayrollComponentSchema.safeParse(await c.req.json());
       if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+      const takenId = await refuseTakenId(c, parsed.data.id, (id) => components.findById(id));
+      if (takenId) return takenId;
       try {
         const existing = await components.findByCode(parsed.data.code.trim());
         if (existing) throw new DuplicatePayrollComponentError(parsed.data.code);
@@ -662,6 +667,8 @@ export function createHrPayrollRoutes(deps: HrPayrollRoutesDeps, resolveAuthCont
     app.post("/payroll/garnishments", gate("hr.payroll.create"), async (c) => {
       const parsed = createGarnishmentSchema.safeParse(await c.req.json().catch(() => ({})));
       if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+      const takenId = await refuseTakenId(c, parsed.data.id, (id) => garnishmentRegister.findById(id));
+      if (takenId) return takenId;
       if (!(await deps.employees.findById(parsed.data.employeeId))) {
         return c.json({ error: "EMPLOYEE_NOT_FOUND", message: "الموظف غير موجود." }, 404);
       }
@@ -674,9 +681,6 @@ export function createHrPayrollRoutes(deps: HrPayrollRoutesDeps, resolveAuthCont
           endDate: parsed.data.endDate ?? null,
           notes: parsed.data.notes ?? null,
         });
-        if (await garnishmentRegister.findById(record.id)) {
-          return c.json({ error: "DUPLICATE_GARNISHMENT", message: "يوجد سند حجز بنفس المعرّف." }, 409);
-        }
         await garnishmentRegister.create(record);
         return c.json(serializeGarnishment(record), 201);
       } catch (err) {

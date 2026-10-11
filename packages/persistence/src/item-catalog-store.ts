@@ -1,5 +1,6 @@
 import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
+import { insertingNew, prepareInsertOnly } from "./insert-new.js";
 import type {
   ItemCatalogStatus,
   ItemCategory,
@@ -128,8 +129,10 @@ function createCategoryRepository(sqlite: Database.Database): ItemCategoryReposi
   const selectById = sqlite.prepare(`SELECT * FROM item_category WHERE id = ?`);
   const selectAll = sqlite.prepare(`SELECT * FROM item_category ORDER BY name_ar`);
 
-  function write(category: ItemCategory): void {
-    upsert.run({
+  const insertOnly = prepareInsertOnly(sqlite, upsert.source);
+
+  function write(category: ItemCategory, statement: Database.Statement = upsert): void {
+    statement.run({
       id: category.id,
       name_ar: category.nameAr,
       name_en: category.nameEn,
@@ -147,7 +150,7 @@ function createCategoryRepository(sqlite: Database.Database): ItemCategoryReposi
       return (selectAll.all() as CategoryRow[]).map(toCategory);
     },
     async create(category) {
-      write(category);
+      insertingNew(category.id, () => write(category, insertOnly));
     },
     async update(category) {
       write(category);
@@ -204,8 +207,10 @@ function createBrandRepository(sqlite: Database.Database): ItemBrandRepository {
   const selectAll = sqlite.prepare(`SELECT * FROM item_brand ORDER BY name_ar`);
   const remove = sqlite.prepare(`DELETE FROM item_brand WHERE id = ?`);
 
-  function write(brand: ItemBrand): void {
-    upsert.run({
+  const insertOnly = prepareInsertOnly(sqlite, upsert.source);
+
+  function write(brand: ItemBrand, statement: Database.Statement = upsert): void {
+    statement.run({
       id: brand.id,
       code: brand.code,
       name_ar: brand.nameAr,
@@ -223,7 +228,7 @@ function createBrandRepository(sqlite: Database.Database): ItemBrandRepository {
       return (selectAll.all() as BrandRow[]).map(toBrand);
     },
     async create(brand) {
-      write(brand);
+      insertingNew(brand.id, () => write(brand, insertOnly));
     },
     async update(brand) {
       write(brand);
@@ -250,8 +255,10 @@ function createSeasonRepository(sqlite: Database.Database): ItemSeasonRepository
   const selectAll = sqlite.prepare(`SELECT * FROM item_season ORDER BY start_date DESC, name_ar`);
   const remove = sqlite.prepare(`DELETE FROM item_season WHERE id = ?`);
 
-  function write(season: ItemSeason): void {
-    upsert.run({
+  const insertOnly = prepareInsertOnly(sqlite, upsert.source);
+
+  function write(season: ItemSeason, statement: Database.Statement = upsert): void {
+    statement.run({
       id: season.id,
       code: season.code,
       name_ar: season.nameAr,
@@ -271,7 +278,7 @@ function createSeasonRepository(sqlite: Database.Database): ItemSeasonRepository
       return (selectAll.all() as SeasonRow[]).map(toSeason);
     },
     async create(season) {
-      write(season);
+      insertingNew(season.id, () => write(season, insertOnly));
     },
     async update(season) {
       write(season);

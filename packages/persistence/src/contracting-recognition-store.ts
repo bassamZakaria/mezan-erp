@@ -1,5 +1,6 @@
 import Database from "better-sqlite3";
 import { openSqliteConnection, withSqliteTransaction, type SqliteConnectionInput } from "./sqlite-connection.js";
+import { insertingNew, prepareInsertOnly } from "./insert-new.js";
 import {
   Money,
   type CostCategory,
@@ -167,6 +168,7 @@ function toRun(row: RunRow): RevenueRecognitionRun {
 
 class SqliteRecognitionRunRepository implements RevenueRecognitionRunRepository {
   private readonly upsert: Database.Statement;
+  private readonly insertOnly: Database.Statement;
   private readonly selectById: Database.Statement;
   private readonly selectByDocNo: Database.Statement;
   private readonly selectAll: Database.Statement;
@@ -199,6 +201,7 @@ class SqliteRecognitionRunRepository implements RevenueRecognitionRunRepository 
         reversed_at = excluded.reversed_at,
         reversed_by = excluded.reversed_by
     `);
+    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
     this.selectById = sqlite.prepare(`SELECT * FROM contracting_recognition_run WHERE id = ?`);
     this.selectByDocNo = sqlite.prepare(`SELECT * FROM contracting_recognition_run WHERE doc_no = ?`);
     this.selectAll = sqlite.prepare(
@@ -229,7 +232,15 @@ class SqliteRecognitionRunRepository implements RevenueRecognitionRunRepository 
   }
 
   async save(run: RevenueRecognitionRun): Promise<void> {
-    this.upsert.run({
+    this.write(run);
+  }
+
+  async insert(run: RevenueRecognitionRun): Promise<void> {
+    insertingNew(run.id, () => this.write(run, this.insertOnly));
+  }
+
+  private write(run: RevenueRecognitionRun, statement: Database.Statement = this.upsert): void {
+    statement.run({
       id: run.id,
       doc_no: run.docNo,
       contract_id: run.contractId,

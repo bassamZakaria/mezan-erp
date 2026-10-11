@@ -1,5 +1,6 @@
 import type { Account, AccountRepository, AccountStatus, AccountType, NaturalBalance } from "./account.js";
 import { DuplicateAccountCodeError, InvalidParentAccountError } from "./errors.js";
+import { assertRecordIdIsNew } from "../records/duplicate-record-id.js";
 
 export interface CreateAccountCommand {
   readonly id: string;
@@ -45,6 +46,7 @@ export function validateNewAccount(command: CreateAccountCommand, existing: read
  */
 export async function createAccount(command: CreateAccountCommand, repo: AccountRepository): Promise<Account> {
   const existing = await repo.list();
+  assertRecordIdIsNew(existing.find((row) => row.id === command.id), command.id);
   validateNewAccount(command, existing);
 
   const status: AccountStatus = "active";

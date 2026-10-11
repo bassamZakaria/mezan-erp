@@ -14,6 +14,8 @@ import {
 import { generateFiscalYearSchema } from "@mezan/contracts";
 import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
 import { recordAdminEvent } from "./admin-audit.js";
+import { duplicateIdRefusal } from "./duplicate-id.js";
+import { DuplicateRecordIdError } from "@mezan/domain";
 
 function serialize(period: FiscalPeriod) {
   return {
@@ -27,6 +29,7 @@ function serialize(period: FiscalPeriod) {
 }
 
 function handleDomainError(c: Context, err: unknown) {
+  if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
   if (err instanceof FiscalPeriodNotFoundError) {
     return c.json({ error: err.code, message: err.message }, 404);
   }

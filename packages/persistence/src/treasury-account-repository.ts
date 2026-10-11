@@ -1,6 +1,7 @@
 import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
 import { Money, type TreasuryAccount, type TreasuryAccountRepository, type TreasuryAccountStatus, type TreasuryAccountType } from "@mezan/domain";
+import { insertingNew, prepareInsertOnly } from "./insert-new.js";
 
 /** SQLite-backed TreasuryAccountRepository (docs/archive/catalog/04 "حسابات الخزينة"). Standalone, mirroring `createSqliteAccountRepository`. */
 
@@ -65,6 +66,7 @@ function toTreasuryAccount(row: TreasuryAccountRow): TreasuryAccount {
 
 class SqliteTreasuryAccountRepository implements TreasuryAccountRepository {
   private readonly upsert: Database.Statement;
+  private readonly insertOnly: Database.Statement;
   private readonly selectById: Database.Statement;
   private readonly selectByCode: Database.Statement;
   private readonly selectAll: Database.Statement;
@@ -87,6 +89,7 @@ class SqliteTreasuryAccountRepository implements TreasuryAccountRepository {
         guarantee_facility_limit = excluded.guarantee_facility_limit,
         status = excluded.status
     `);
+    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
     this.selectById = sqlite.prepare(`SELECT * FROM treasury_account WHERE id = ?`);
     this.selectByCode = sqlite.prepare(`SELECT * FROM treasury_account WHERE code = ?`);
     this.selectAll = sqlite.prepare(`SELECT * FROM treasury_account`);
@@ -108,15 +111,15 @@ class SqliteTreasuryAccountRepository implements TreasuryAccountRepository {
   }
 
   async create(account: TreasuryAccount): Promise<void> {
-    this.write(account);
+    insertingNew(account.id, () => this.write(account, this.insertOnly));
   }
 
   async update(account: TreasuryAccount): Promise<void> {
     this.write(account);
   }
 
-  private write(account: TreasuryAccount): void {
-    this.upsert.run({
+  private write(account: TreasuryAccount, statement: Database.Statement = this.upsert): void {
+    statement.run({
       id: account.id,
       code: account.code,
       name: account.name,

@@ -23,6 +23,7 @@ import {
   DuplicatePurchaseDocumentError,
 } from "./errors.js";
 import { InMemoryPurchaseOrders, makeNumbering } from "./test-helpers.js";
+import { DuplicateRecordIdError } from "../records/duplicate-record-id.js";
 
 const now = () => "2026-08-21T09:00:00.000Z";
 
@@ -116,9 +117,7 @@ describe("createRfq", () => {
   it("rejects a duplicate id", async () => {
     const rfqs = new InMemoryRfqs();
     await createRfq(rfqBase(), { rfqs, numbering: makeNumbering(), now });
-    await expect(createRfq(rfqBase(), { rfqs, numbering: makeNumbering(), now })).rejects.toThrow(
-      DuplicatePurchaseDocumentError,
-    );
+    await expect(createRfq(rfqBase(), { rfqs, numbering: makeNumbering(), now })).rejects.toThrow(DuplicateRecordIdError);
   });
 });
 

@@ -1,6 +1,7 @@
 import type { Money } from "../money/index.js";
 import { InvalidContractError, ContractNotActiveError } from "./errors.js";
 import type { Contract, ContractLineItem, ContractRepository, ContractType, LeaveEntitlementOverrides, PayBasis, PayFrequency } from "./contract.js";
+import { assertRecordIdIsNew } from "../records/duplicate-record-id.js";
 
 export interface CreateContractCommand {
   readonly id: string;
@@ -34,6 +35,7 @@ function validate(command: Pick<CreateContractCommand, "employeeId" | "startDate
 
 /** Creates and persists a new contract. New contracts always start "active". */
 export async function createContract(command: CreateContractCommand, repo: ContractRepository): Promise<Contract> {
+  assertRecordIdIsNew(await repo.findById(command.id), command.id);
   const type = command.type ?? "indefinite";
   const reasons = validate({ employeeId: command.employeeId, startDate: command.startDate, type, endDate: command.endDate ?? null });
   if (reasons.length > 0) throw new InvalidContractError(reasons);

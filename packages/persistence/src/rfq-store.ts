@@ -1,5 +1,6 @@
 import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
+import { insertingNew, prepareInsertOnly } from "./insert-new.js";
 import {
   Money,
   Qty,
@@ -80,6 +81,7 @@ function rfqToDomain(row: RfqRow): PurchaseRfq {
 
 class SqlitePurchaseRfqStore implements PurchaseRfqRepository {
   private readonly upsert: Database.Statement;
+  private readonly insertOnly: Database.Statement;
   private readonly selectById: Database.Statement;
   private readonly selectAll: Database.Statement;
 
@@ -92,6 +94,7 @@ class SqlitePurchaseRfqStore implements PurchaseRfqRepository {
         warehouse_id = excluded.warehouse_id, notes = excluded.notes, lines = excluded.lines,
         status = excluded.status, purchase_order_id = excluded.purchase_order_id
     `);
+    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
     this.selectById = sqlite.prepare(`SELECT * FROM purchase_rfq WHERE id = ?`);
     this.selectAll = sqlite.prepare(`SELECT * FROM purchase_rfq`);
   }
@@ -104,13 +107,13 @@ class SqlitePurchaseRfqStore implements PurchaseRfqRepository {
     return (this.selectAll.all() as RfqRow[]).map(rfqToDomain);
   }
   async create(rfq: PurchaseRfq): Promise<void> {
-    this.write(rfq);
+    insertingNew(rfq.id, () => this.write(rfq, this.insertOnly));
   }
   async update(rfq: PurchaseRfq): Promise<void> {
     this.write(rfq);
   }
-  private write(r: PurchaseRfq): void {
-    this.upsert.run({
+  private write(r: PurchaseRfq, statement: Database.Statement = this.upsert): void {
+    statement.run({
       id: r.id,
       number: r.number,
       date: r.date,

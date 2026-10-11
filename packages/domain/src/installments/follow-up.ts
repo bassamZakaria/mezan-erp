@@ -37,6 +37,7 @@ export interface CollectionFollowUp {
 
 export interface CollectionFollowUpRepository {
   save(followUp: CollectionFollowUp): Promise<void>;
+  insert(followUp: CollectionFollowUp): Promise<void>;
   update(followUp: CollectionFollowUp): Promise<void>;
   findById(id: string): Promise<CollectionFollowUp | null>;
   list(filter?: CollectionFollowUpListFilter): Promise<readonly CollectionFollowUp[]>;

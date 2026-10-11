@@ -28,6 +28,7 @@ import {
   InvalidGuaranteeTransitionError,
 } from "./errors.js";
 import { tenantTodayIso } from "../../dates.js";
+import { DuplicateRecordIdError } from "../../records/duplicate-record-id.js";
 
 /**
  * سجل خطابات الضمان — the register's use cases and the ledger behind them
@@ -222,7 +223,7 @@ export class GuaranteeService {
 
   async createDraft(command: CreateGuaranteeCommand): Promise<LetterOfGuarantee> {
     if (await this.deps.guarantees.findById(command.id)) {
-      throw new InvalidGuaranteeError([`خطاب ضمان بالمعرّف "${command.id}" موجود بالفعل.`]);
+      throw new DuplicateRecordIdError(command.id);
     }
     const cashMarginPercent = command.cashMarginPercent ?? "20";
     const cashMarginAmount = command.cashMarginAmount ?? guaranteeMarginOf(command.faceValue, cashMarginPercent);

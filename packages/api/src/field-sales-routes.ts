@@ -37,6 +37,8 @@ import {
 import { can } from "@mezan/domain";
 import { tenantDay, tenantToday } from "./tenant-day.js";
 import { MasterDataKind, refuseUnknownMasterData, type MasterDataChecks } from "./master-data-check.js";
+import { duplicateIdRefusal, refuseExistingId, refuseTakenId } from "./duplicate-id.js";
+import { DuplicateRecordIdError } from "@mezan/domain";
 
 /**
  * Field/Van Sales routes (docs/archive/catalog/07-mfg-projects-assets.md "رحلات
@@ -141,6 +143,7 @@ function withMessageEn(err: { code: string; message: string }) {
 }
 
 function handleDomainError(c: Context, err: unknown) {
+  if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
   if (err instanceof VanTripNotFoundError || err instanceof VanNotFoundError) {
     return c.json(withMessageEn(err), 404);
   }
@@ -189,6 +192,8 @@ export function createVansRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
+    const takenVan = parsed.data.id === undefined ? null : refuseExistingId(c, await vans.findById(parsed.data.id), parsed.data.id);
+    if (takenVan) return takenVan;
     const vanPlaceRefusal = await refuseUnknownMasterData(c, masterData, [
       { kind: MasterDataKind.Branch, ids: [parsed.data.branchId] },
       { kind: MasterDataKind.Warehouse, ids: [parsed.data.warehouseId] },
@@ -206,7 +211,7 @@ export function createVansRoutes(
         treasuryAccountId: parsed.data.treasuryAccountId,
         active: parsed.data.active,
       });
-      await vans.save(van);
+      await vans.insert(van);
       return c.json(serializeVan(van), 201);
     } catch (err) {
       return handleDomainError(c, err);
@@ -270,6 +275,8 @@ export function createFieldSalesRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
+      const takenId = await refuseTakenId(c, parsed.data.id, (id) => deps.trips.findById(id));
+      if (takenId) return takenId;
     const body = parsed.data;
     try {
       /**

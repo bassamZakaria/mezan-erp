@@ -36,6 +36,8 @@ import {
   updateWorksContractSchema,
 } from "@mezan/contracts";
 import { createPermissionGate, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
+import { duplicateIdRefusal } from "./duplicate-id.js";
+import { DuplicateRecordIdError } from "@mezan/domain";
 
 /**
  * العقود وجداول الكميات وأوامر التغيير — slice 1 of المقاولات.
@@ -222,6 +224,7 @@ function serializeVariationOrder(view: VariationOrderView, contractDocNo: string
 }
 
 function handleDomainError(c: Context, err: unknown) {
+  if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
   if (err instanceof WorksContractNotFoundError || err instanceof VariationOrderNotFoundError) {
     return c.json({ error: err.code, message: err.message }, 404);
   }

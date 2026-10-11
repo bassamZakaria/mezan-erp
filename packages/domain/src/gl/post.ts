@@ -31,6 +31,7 @@ import {
   PartyRequiredOnControlAccountError,
   type PartyControlKind,
 } from "./errors.js";
+import { DuplicateRecordIdError } from "../records/duplicate-record-id.js";
 
 /** Sequence code the JE numbering engine uses (numbering/sequences.ts). */
 const JOURNAL_ENTRY_SEQUENCE = "JOURNAL_ENTRY";
@@ -362,6 +363,9 @@ export async function createJournalEntry(
   cmd: CreateJournalEntryCommand,
   deps: JournalPostingDeps,
 ): Promise<JournalEntry> {
+  if (await deps.ledger.findById(cmd.id)) {
+    throw new DuplicateRecordIdError(cmd.id);
+  }
   assertEntryDate(cmd.date);
   assertEntryStructure(cmd.lines);
   assertBalanced(cmd.lines);
@@ -372,7 +376,7 @@ export async function createJournalEntry(
 
   return deps.ledger.transaction(async () => {
     if (await deps.ledger.findById(cmd.id)) {
-      throw new DuplicateJournalEntryError(cmd.id);
+      throw new DuplicateRecordIdError(cmd.id);
     }
     const entry: JournalEntry = {
       id: cmd.id,
@@ -409,6 +413,9 @@ export async function postJournalEntry(
   cmd: CreateJournalEntryCommand,
   deps: JournalPostingDeps,
 ): Promise<JournalEntry> {
+  if (await deps.ledger.findById(cmd.id)) {
+    throw new DuplicateRecordIdError(cmd.id);
+  }
   assertEntryDate(cmd.date);
   assertEntryStructure(cmd.lines);
   const { totalDebit, totalCredit } = assertBalanced(cmd.lines);
@@ -421,7 +428,7 @@ export async function postJournalEntry(
 
   const entry = await deps.ledger.transaction(async () => {
     if (await deps.ledger.findById(cmd.id)) {
-      throw new DuplicateJournalEntryError(cmd.id);
+      throw new DuplicateRecordIdError(cmd.id);
     }
     const stamp = nowIso(deps);
     const number = await deps.numbering.next(JOURNAL_ENTRY_SEQUENCE);

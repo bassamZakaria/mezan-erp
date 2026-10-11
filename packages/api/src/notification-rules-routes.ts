@@ -18,6 +18,8 @@ import {
 import { createNotificationRuleSchema, updateNotificationRuleSchema } from "@mezan/contracts";
 import { createPermissionGate, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
 import { recordAdminEvent } from "./admin-audit.js";
+import { duplicateIdRefusal, refuseTakenId } from "./duplicate-id.js";
+import { DuplicateRecordIdError } from "@mezan/domain";
 
 function serialize(rule: NotificationRule) {
   return {
@@ -38,6 +40,7 @@ function serialize(rule: NotificationRule) {
 }
 
 function handleDomainError(c: Context, err: unknown) {
+  if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
   if (err instanceof InvalidNotificationRuleError) {
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, reasons: err.reasons }, 422);
   }
@@ -124,6 +127,8 @@ export function createNotificationRulesRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
+    const takenId = await refuseTakenId(c, parsed.data.id, (id) => repo.findById(id));
+    if (takenId) return takenId;
     try {
       const rule = await saveNotificationRule(
         {

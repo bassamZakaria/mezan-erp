@@ -17,6 +17,7 @@ import {
   DuplicateManufacturingDocumentError,
   InvalidManufacturingDocumentError,
 } from "./errors.js";
+import { DuplicateRecordIdError } from "../records/duplicate-record-id.js";
 
 const BOM_SEQUENCE = "BOM";
 
@@ -184,10 +185,10 @@ function validateLines(command: CreateBomCommand): BomLine[] {
 }
 
 async function insertBom(command: CreateBomCommand, deps: BomDeps): Promise<Bom> {
-  const lines = validateLines(command);
   if (await deps.boms.findById(command.id)) {
-    throw new DuplicateManufacturingDocumentError(command.id);
+    throw new DuplicateRecordIdError(command.id);
   }
+  const lines = validateLines(command);
 
   // Supersede any active version for this product, and compute the next version.
   const existing = await deps.boms.listByProduct(command.productItemId);

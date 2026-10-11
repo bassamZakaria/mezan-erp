@@ -5,6 +5,7 @@ export interface RecurringJournalTemplateRepository {
   findById(id: string): Promise<RecurringJournalTemplate | null>;
   list(): Promise<readonly RecurringJournalTemplate[]>;
   save(template: RecurringJournalTemplate): Promise<void>;
+  insert(template: RecurringJournalTemplate): Promise<void>;
 }
 
 /**

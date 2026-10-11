@@ -76,6 +76,7 @@ import {
   TreasuryAccountOutOfBranchScopeError,
   ZeroAmountLineError,
 } from "./errors.js";
+import { assertRecordIdIsNew } from "../records/duplicate-record-id.js";
 
 /**
  * The opening/closing balance must be storable. Without this an over-large
@@ -303,6 +304,7 @@ export class BankReconciliationService {
 
   /** Import a CSV statement: persists the column mapping for the account, then the statement + its parsed lines. */
   async importStatement(cmd: ImportStatementCommand): Promise<{ statement: BankStatement; lines: readonly StatementLine[] }> {
+    assertRecordIdIsNew(await this.deps.statements.findById(cmd.id), cmd.id);
     assertStatementBalanceBound(cmd.id, "الرصيد الافتتاحي", cmd.openingBalance);
     assertStatementBalanceBound(cmd.id, "الرصيد الختامي", cmd.closingBalance);
     const account = await this.requireAccount(cmd.treasuryAccountId);
@@ -389,6 +391,7 @@ export class BankReconciliationService {
    * always closes.
    */
   async importStatementFile(cmd: ImportStatementFileCommand): Promise<{ statement: BankStatement; lines: readonly StatementLine[] }> {
+    assertRecordIdIsNew(await this.deps.statements.findById(cmd.id), cmd.id);
     const parsed: ParsedStatementFile = cmd.format === StatementFileFormat.Ofx ? parseOfx(cmd.content) : parseMt940(cmd.content);
     const account = await this.requireAccount(cmd.treasuryAccountId);
     this.assertFileMatchesAccount(account, parsed);
@@ -696,6 +699,7 @@ export class BankReconciliationService {
 
   /** Manually add a line the CSV import missed. */
   async addManualLine(cmd: AddManualLineCommand): Promise<StatementLine> {
+    assertRecordIdIsNew(await this.deps.statements.findLineById(cmd.id), cmd.id);
     const statement = await this.require(cmd.statementId);
     this.assertNotFinalized(statement);
     const line: StatementLine = {

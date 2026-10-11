@@ -30,6 +30,7 @@ import {
   createDocumentWorkflowGate,
   type JournalDocLine,
 } from "./journal-document.js";
+import { DuplicateRecordIdError } from "../records/duplicate-record-id.js";
 
 /* -------------------------------------------------------------------- */
 /* 1. Lifecycle state machine + guards                                   */
@@ -92,9 +93,7 @@ describe("DocumentService — generic lifecycle with hooks", () => {
     const repo = new InMemoryDocumentRepository<FakeLine>();
     const svc = new DocumentService(fakeType(), { repo });
     await svc.createDraft({ id: "d1", date: "2026-08-22", memo: "m", lines: [] });
-    await expect(svc.createDraft({ id: "d1", date: "2026-08-22", memo: "m", lines: [] })).rejects.toBeInstanceOf(
-      DuplicateDocumentError,
-    );
+    await expect(svc.createDraft({ id: "d1", date: "2026-08-22", memo: "m", lines: [] })).rejects.toBeInstanceOf(DuplicateRecordIdError);
   });
 
   it("confirm fires numbering → stock → GL in order and persists the active document", async () => {

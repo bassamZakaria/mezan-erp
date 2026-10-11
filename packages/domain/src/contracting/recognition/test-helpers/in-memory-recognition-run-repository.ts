@@ -35,6 +35,10 @@ export class InMemoryRecognitionRunRepository implements RevenueRecognitionRunRe
     this.rows.set(run.id, run);
   }
 
+  async insert(run: RevenueRecognitionRun): Promise<void> {
+    this.rows.set(run.id, run);
+  }
+
   async transaction<T>(fn: () => Promise<T>): Promise<T> {
     return fn();
   }

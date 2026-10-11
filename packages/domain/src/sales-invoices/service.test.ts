@@ -25,6 +25,7 @@ import {
 } from "./index.js";
 import type { SalesInvoicePromotionHook } from "./ports.js";
 import { InMemorySalesInvoiceRepository } from "./test-helpers/in-memory-sales-invoice-repository.js";
+import { DuplicateRecordIdError } from "../records/duplicate-record-id.js";
 
 const AR = "1300";
 const REVENUE = "4000";
@@ -409,7 +410,7 @@ describe("SalesInvoiceService.createDraft — validation", () => {
   it("rejects a duplicate id", async () => {
     const { svc } = await baseDeps();
     await svc.createDraft(draftCmd());
-    await expect(svc.createDraft(draftCmd())).rejects.toBeInstanceOf(DuplicateSalesInvoiceError);
+    await expect(svc.createDraft(draftCmd())).rejects.toBeInstanceOf(DuplicateRecordIdError);
   });
 
   async function expectReason(overrides: Partial<CreateSalesInvoiceCommand>, reason: string) {

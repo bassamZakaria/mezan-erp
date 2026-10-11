@@ -23,6 +23,8 @@ import { createItemSchema, updateItemSchema, pageQuerySchema, DEFAULT_PAGE_SIZE 
 import { grantedWarehouseIdsOf, sharedFieldRefusal } from "./branch-policy.js";
 import { createPermissionGate, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
 import { recordFieldChanges } from "./admin-audit.js";
+import { duplicateIdRefusal } from "./duplicate-id.js";
+import { DuplicateRecordIdError } from "@mezan/domain";
 
 export const AUDITED_ITEM_FIELDS = [
   "code",
@@ -123,6 +125,7 @@ function toAlternateUnits(value: AlternateUnit[] | undefined): AlternateUnit[] |
 }
 
 function handleDomainError(c: Context, err: unknown) {
+  if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
   if (err instanceof ItemNotFoundError) {
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 404);
   }

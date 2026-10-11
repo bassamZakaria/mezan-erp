@@ -11,6 +11,8 @@ import {
 } from "@mezan/domain";
 import { createLabelLayoutSchema, updateLabelLayoutSchema } from "@mezan/contracts";
 import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
+import { duplicateIdRefusal } from "./duplicate-id.js";
+import { DuplicateRecordIdError } from "@mezan/domain";
 
 /**
  * `/label-layouts` — تخطيطات الملصقات (docs/archive/catalog/03 §"طباعة الباركود
@@ -45,6 +47,7 @@ function serialize(layout: LabelLayout) {
 }
 
 function handleDomainError(c: Context, err: unknown) {
+  if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
   if (err instanceof LabelLayoutNotFoundError) {
     return c.json({ error: err.code, message: err.message }, 404);
   }

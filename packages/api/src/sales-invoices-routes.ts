@@ -83,6 +83,8 @@ import {
   stampDocumentModifier,
   type DocumentVersionGuard,
 } from "./document-version.js";
+import { duplicateIdRefusal } from "./duplicate-id.js";
+import { DuplicateRecordIdError } from "@mezan/domain";
 
 /**
  * External dependencies the sales-invoice routes bind the domain service to.
@@ -385,6 +387,7 @@ function withMessageEn(err: { code: string; message: string }) {
 }
 
 function handleDomainError(c: Context, err: unknown): Response {
+  if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
   if (err instanceof InvalidSalesInvoiceError) {
     return c.json({ ...withMessageEn(err), reasons: err.reasons }, 422);
   }

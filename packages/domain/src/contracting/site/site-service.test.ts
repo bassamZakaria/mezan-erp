@@ -68,6 +68,9 @@ class InMemoryWarehouses implements WarehouseRepository {
   async save(warehouse: Warehouse) {
     this.rows.set(warehouse.id, warehouse);
   }
+  async insert(warehouse: Warehouse) {
+    this.rows.set(warehouse.id, warehouse);
+  }
 }
 
 function map<T extends { id: string }>() {

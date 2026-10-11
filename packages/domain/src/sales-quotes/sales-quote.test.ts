@@ -15,6 +15,7 @@ import {
   type SalesQuoteLine,
 } from "./index.js";
 import { InMemorySalesQuoteRepository } from "./test-helpers/in-memory-sales-quote-repository.js";
+import { DuplicateRecordIdError } from "../records/duplicate-record-id.js";
 
 const NOW = "2026-08-22T10:00:00.000Z";
 
@@ -209,7 +210,7 @@ describe("SalesQuoteService lifecycle", () => {
   it("rejects a duplicate id on createDraft", async () => {
     const { svc } = harness();
     await svc.createDraft(draftCmd({ id: "qt-dup" }));
-    await expect(svc.createDraft(draftCmd({ id: "qt-dup" }))).rejects.toBeInstanceOf(DuplicateSalesQuoteError);
+    await expect(svc.createDraft(draftCmd({ id: "qt-dup" }))).rejects.toBeInstanceOf(DuplicateRecordIdError);
   });
 
   it("rejects validation failures on createDraft", async () => {

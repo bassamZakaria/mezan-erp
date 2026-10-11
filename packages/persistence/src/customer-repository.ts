@@ -1,6 +1,7 @@
 import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
 import { Money, type Customer, type CustomerRepository, type EtaBuyerType } from "@mezan/domain";
+import { insertingNew, prepareInsertOnly } from "./insert-new.js";
 
 /**
  * SQLite-backed CustomerRepository (docs/archive/catalog/01 "العملاء"). Standalone —
@@ -107,6 +108,7 @@ function toCustomer(row: CustomerRow): Customer {
 
 class SqliteCustomerRepository implements CustomerRepository {
   private readonly upsert: Database.Statement;
+  private readonly insertOnly: Database.Statement;
   private readonly selectAll: Database.Statement;
   private readonly selectById: Database.Statement;
   private readonly selectByCode: Database.Statement;
@@ -131,6 +133,7 @@ class SqliteCustomerRepository implements CustomerRepository {
         commercial_registration_number = @commercialRegistrationNumber, address = @address,
         logo_attachment_id = @logoAttachmentId, national_id = @nationalId
     `);
+    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
     this.selectAll = sqlite.prepare(`SELECT * FROM customer ORDER BY code ASC`);
     this.selectById = sqlite.prepare(`SELECT * FROM customer WHERE id = ?`);
     this.selectByCode = sqlite.prepare(`SELECT * FROM customer WHERE code = ?`);
@@ -151,7 +154,15 @@ class SqliteCustomerRepository implements CustomerRepository {
   }
 
   async save(customer: Customer): Promise<void> {
-    this.upsert.run({
+    this.write(customer);
+  }
+
+  async insert(customer: Customer): Promise<void> {
+    insertingNew(customer.id, () => this.write(customer, this.insertOnly));
+  }
+
+  private write(customer: Customer, statement: Database.Statement = this.upsert): void {
+    statement.run({
       id: customer.id,
       code: customer.code,
       nameAr: customer.nameAr,

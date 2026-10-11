@@ -17,6 +17,8 @@ import { createAttachmentSchema } from "@mezan/contracts";
 import { ALL_SCOPE } from "@mezan/domain";
 import { BranchRefusalCode, branchRefusal } from "./branch-policy.js";
 import { moduleRefusalFor, permissionDeniedBody, storedDocumentRefusal, type AuthContextResolver } from "./permission-gate.js";
+import { duplicateIdRefusal } from "./duplicate-id.js";
+import { DuplicateRecordIdError } from "@mezan/domain";
 
 /**
  * المرفقات — `/attachments`. Files hang off a document (invoice, voucher, work
@@ -114,6 +116,7 @@ function serialize(attachment: Attachment) {
 }
 
 function handleDomainError(c: Context, err: unknown) {
+  if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
   if (err instanceof AttachmentNotFoundError) {
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 404);
   }

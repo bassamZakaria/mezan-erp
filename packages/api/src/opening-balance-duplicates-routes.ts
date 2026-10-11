@@ -16,6 +16,8 @@ import {
 import { createPermissionGate, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
 import { refuseBranchScopedCaller } from "./branch-scope-refusal.js";
 import { atomically, type ConfigTransactor } from "./config-transactor.js";
+import { duplicateIdRefusal } from "./duplicate-id.js";
+import { DuplicateRecordIdError } from "@mezan/domain";
 
 export interface OpeningBalanceDuplicatesRoutesDeps {
   readonly resolveContext: () => Promise<OpeningBalanceDuplicatesContext>;
@@ -51,6 +53,7 @@ function respond(c: Context, outcome: RunReportOutcome<unknown, unknown>): Respo
 }
 
 function handleDomainError(c: Context, err: unknown): Response {
+  if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
   if (err instanceof NoFiscalPeriodForDateError || err instanceof PeriodNotOpenForPostingError) {
     return c.json({ error: err.code, message: err.message }, 422);
   }

@@ -28,6 +28,8 @@ import {
 } from "./permission-gate.js";
 import { recordFieldChanges } from "./admin-audit.js";
 import { tenantToday } from "./tenant-day.js";
+import { duplicateIdRefusal, refuseExistingId } from "./duplicate-id.js";
+import { DuplicateRecordIdError } from "@mezan/domain";
 
 /** Resolves a price list by id, so `priceListId` can be checked against the real resource. */
 export interface CustomerPriceListLookup {
@@ -136,6 +138,7 @@ export const AUDITED_CUSTOMER_FIELDS = [
 ] as const;
 
 function handleDomainError(c: Context, err: unknown) {
+  if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
   if (err instanceof InvalidCustomerError) {
     return c.json({ error: err.code, message: err.message, reasons: err.reasons }, 422);
   }
@@ -365,9 +368,8 @@ export function createCustomersRouter(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
-    if (await repo.findById(parsed.data.id)) {
-      return c.json({ error: "ALREADY_EXISTS" }, 409);
-    }
+    const taken = refuseExistingId(c, await repo.findById(parsed.data.id), parsed.data.id);
+    if (taken) return taken;
     const restrictedOnCreate = sharedFieldRefusal(c, CUSTOMERS_PREFIX, null, parsed.data);
     if (restrictedOnCreate) return restrictedOnCreate;
     const code = parsed.data.code ?? nextMasterCode((await repo.findAll()).map((row) => row.code), "C");
@@ -392,7 +394,7 @@ export function createCustomersRouter(
       // The GL post goes FIRST: a refused period must leave behind no customer
       // carrying an opening balance the control account never heard about.
       await postOpeningBalance(customer, openingBalanceDate);
-      await repo.save(customer);
+      await repo.insert(customer);
       await record(c, customer, AuditChangeAction.Create);
       return c.json(serialize(customer), 201);
     } catch (err) {

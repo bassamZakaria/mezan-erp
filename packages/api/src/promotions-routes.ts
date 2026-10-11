@@ -28,6 +28,8 @@ import { BranchRecordKind, recordsInBranchGrant } from "./branch-policy.js";
 import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
 import { recordFieldChanges } from "./admin-audit.js";
 import { tenantClock, tenantToday } from "./tenant-day.js";
+import { duplicateIdRefusal, refuseTakenId } from "./duplicate-id.js";
+import { DuplicateRecordIdError } from "@mezan/domain";
 
 const AUDITED_PROMOTION_FIELDS = [
   "code",
@@ -96,6 +98,7 @@ function serialize(promotion: Promotion, today: string) {
 }
 
 function handleDomainError(c: Context, err: unknown) {
+  if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
   if (err instanceof PromotionNotFoundError) {
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 404);
   }
@@ -251,6 +254,8 @@ export function createPromotionsRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
+    const takenId = await refuseTakenId(c, parsed.data.id, (id) => repo.findById(id));
+    if (takenId) return takenId;
     try {
       const promotion = await createPromotion(
         {

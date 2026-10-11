@@ -265,3 +265,5 @@ export * from "./platform/index.js";
 
 export * from "./pos/index.js";
 export * from "./enh/index.js";
+
+export * from "./records/duplicate-record-id.js";

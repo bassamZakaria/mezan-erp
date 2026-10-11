@@ -26,6 +26,7 @@ import {
   makeNumbering,
   makeStockService,
 } from "./test-helpers.js";
+import { DuplicateRecordIdError } from "../records/duplicate-record-id.js";
 
 const now = () => "2026-08-21T09:00:00.000Z";
 const WH = "MAIN-WH";
@@ -163,7 +164,7 @@ describe("goods receipt — receiving lifecycle", () => {
     await createGoodsReceipt({ id: "gr-1", purchaseOrderId: "po-1", date: "2026-08-22" }, { receipts, orders, numbering });
     await expect(
       createGoodsReceipt({ id: "gr-1", purchaseOrderId: "po-1", date: "2026-08-22" }, { receipts, orders, numbering }),
-    ).rejects.toThrow(DuplicatePurchaseDocumentError);
+    ).rejects.toThrow(DuplicateRecordIdError);
   });
 
   it("refuses a line costCategory when the receipt carries no projectId", async () => {

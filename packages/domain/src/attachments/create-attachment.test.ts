@@ -8,6 +8,7 @@ import {
 } from "./create-attachment.js";
 import { DuplicateAttachmentIdError, InvalidAttachmentError } from "./errors.js";
 import type { Attachment, AttachmentContent, AttachmentRepository } from "./attachment.js";
+import { DuplicateRecordIdError } from "../records/duplicate-record-id.js";
 
 class FakeAttachmentRepository implements AttachmentRepository {
   readonly rows = new Map<string, Attachment>();
@@ -182,7 +183,7 @@ describe("createAttachment — refusals", () => {
   it("throws DuplicateAttachmentIdError when the caller-supplied id already exists", async () => {
     const repo = new FakeAttachmentRepository();
     repo.rows.set("att-1", { ...cmd(), byteSize: 3, mimeType: "image/jpeg", entityType: "item", notes: null, uploadedAt: "x" } as unknown as Attachment);
-    await expect(createAttachment(cmd(), repo)).rejects.toBeInstanceOf(DuplicateAttachmentIdError);
+    await expect(createAttachment(cmd(), repo)).rejects.toBeInstanceOf(DuplicateRecordIdError);
   });
 
   it("does not persist anything when validation fails", async () => {

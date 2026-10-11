@@ -3,6 +3,7 @@ import { AuditChangeAction, type AuditSink, type ExchangeRate, type ExchangeRate
 import { createExchangeRateSchema } from "@mezan/contracts";
 import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
 import { recordFieldChanges } from "./admin-audit.js";
+import { refuseExistingId } from "./duplicate-id.js";
 
 const AUDITED_EXCHANGE_RATE_FIELDS = ["currency", "rate", "effectiveDate", "rateType", "source", "status"] as const;
 
@@ -42,12 +43,8 @@ export function createExchangeRatesRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
-    // The repository upserts by id, so without this check re-POSTing an
-    // existing id rewrote the rate and reset its status — an approved or even
-    // LOCKED rate could be silently replaced through the create route (D25).
-    if (await repo.findById(parsed.data.id)) {
-      return c.json({ error: "ALREADY_EXISTS", message: "سعر صرف بهذا المعرّف موجود بالفعل." }, 409);
-    }
+    const taken = refuseExistingId(c, await repo.findById(parsed.data.id), parsed.data.id);
+    if (taken) return taken;
     const rate: ExchangeRate = {
       id: parsed.data.id,
       currency: parsed.data.currency,

@@ -1,6 +1,7 @@
 import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
 import { Money, type Project, type ProjectRepository, type ProjectStatus } from "@mezan/domain";
+import { insertingNew, prepareInsertOnly } from "./insert-new.js";
 
 /** SQLite-backed ProjectRepository (docs/archive/catalog/07 "المشاريع والمقاولات"). Standalone, mirroring `createSqliteAccountRepository`. */
 
@@ -58,6 +59,7 @@ function toProject(row: ProjectRow): Project {
 
 class SqliteProjectRepository implements ProjectRepository {
   private readonly upsert: Database.Statement;
+  private readonly insertOnly: Database.Statement;
   private readonly selectById: Database.Statement;
   private readonly selectByCode: Database.Statement;
   private readonly selectAll: Database.Statement;
@@ -80,6 +82,7 @@ class SqliteProjectRepository implements ProjectRepository {
         notes = excluded.notes,
         cost_center_id = excluded.cost_center_id
     `);
+    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
     this.selectById = sqlite.prepare(`SELECT * FROM project WHERE id = ?`);
     this.selectByCode = sqlite.prepare(`SELECT * FROM project WHERE code = ?`);
     this.selectAll = sqlite.prepare(`SELECT * FROM project`);
@@ -101,15 +104,15 @@ class SqliteProjectRepository implements ProjectRepository {
   }
 
   async create(project: Project): Promise<void> {
-    this.write(project);
+    insertingNew(project.id, () => this.write(project, this.insertOnly));
   }
 
   async update(project: Project): Promise<void> {
     this.write(project);
   }
 
-  private write(project: Project): void {
-    this.upsert.run({
+  private write(project: Project, statement: Database.Statement = this.upsert): void {
+    statement.run({
       id: project.id,
       code: project.code,
       name_ar: project.nameAr,

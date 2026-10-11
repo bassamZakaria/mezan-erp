@@ -1,5 +1,6 @@
 import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
+import { insertingNew, prepareInsertOnly } from "./insert-new.js";
 import {
   Money,
   type AssetCategory,
@@ -84,6 +85,7 @@ function toAssetCategory(row: AssetCategoryRow): AssetCategory {
 
 class SqliteAssetCategoryRepository implements AssetCategoryRepository {
   private readonly upsert: Database.Statement;
+  private readonly insertOnly: Database.Statement;
   private readonly selectById: Database.Statement;
   private readonly selectByCode: Database.Statement;
   private readonly selectAll: Database.Statement;
@@ -114,6 +116,7 @@ class SqliteAssetCategoryRepository implements AssetCategoryRepository {
         loss_on_disposal_account_id = excluded.loss_on_disposal_account_id,
         active = excluded.active
     `);
+    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
     this.selectById = sqlite.prepare(`SELECT * FROM asset_category WHERE id = ?`);
     this.selectByCode = sqlite.prepare(`SELECT * FROM asset_category WHERE code = ?`);
     this.selectAll = sqlite.prepare(`SELECT * FROM asset_category`);
@@ -134,15 +137,15 @@ class SqliteAssetCategoryRepository implements AssetCategoryRepository {
   }
 
   async create(category: AssetCategory): Promise<void> {
-    this.write(category);
+    insertingNew(category.id, () => this.write(category, this.insertOnly));
   }
 
   async update(category: AssetCategory): Promise<void> {
     this.write(category);
   }
 
-  private write(category: AssetCategory): void {
-    this.upsert.run({
+  private write(category: AssetCategory, statement: Database.Statement = this.upsert): void {
+    statement.run({
       id: category.id,
       code: category.code,
       name_ar: category.nameAr,
@@ -263,6 +266,7 @@ function toAsset(row: AssetRow): Asset {
 
 class SqliteAssetRepository implements AssetRepository {
   private readonly upsert: Database.Statement;
+  private readonly insertOnly: Database.Statement;
   private readonly selectById: Database.Statement;
   private readonly selectByCode: Database.Statement;
   private readonly selectAll: Database.Statement;
@@ -304,6 +308,7 @@ class SqliteAssetRepository implements AssetRepository {
         project_id = excluded.project_id,
         internal_hourly_rate = excluded.internal_hourly_rate
     `);
+    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
     this.selectById = sqlite.prepare(`SELECT * FROM asset WHERE id = ?`);
     this.selectByCode = sqlite.prepare(`SELECT * FROM asset WHERE code = ?`);
     this.selectAll = sqlite.prepare(`SELECT * FROM asset`);
@@ -324,15 +329,15 @@ class SqliteAssetRepository implements AssetRepository {
   }
 
   async create(asset: Asset): Promise<void> {
-    this.write(asset);
+    insertingNew(asset.id, () => this.write(asset, this.insertOnly));
   }
 
   async update(asset: Asset): Promise<void> {
     this.write(asset);
   }
 
-  private write(asset: Asset): void {
-    this.upsert.run({
+  private write(asset: Asset, statement: Database.Statement = this.upsert): void {
+    statement.run({
       id: asset.id,
       code: asset.code,
       name_ar: asset.nameAr,
@@ -517,6 +522,7 @@ function toDepreciationRun(row: DepreciationRunRow): DepreciationRun {
 
 class SqliteDepreciationRunRepository implements DepreciationRunRepository {
   private readonly upsert: Database.Statement;
+  private readonly insertOnly: Database.Statement;
   private readonly selectById: Database.Statement;
   private readonly selectAll: Database.Statement;
   private readonly selectByPeriodBranch: Database.Statement;
@@ -536,6 +542,7 @@ class SqliteDepreciationRunRepository implements DepreciationRunRepository {
         created_at = excluded.created_at,
         posted_at = excluded.posted_at
     `);
+    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
     this.selectById = sqlite.prepare(`SELECT * FROM depreciation_run WHERE id = ?`);
     this.selectAll = sqlite.prepare(`SELECT * FROM depreciation_run`);
     this.selectByPeriodBranch = sqlite.prepare(`SELECT * FROM depreciation_run WHERE period = ? AND branch_id = ?`);
@@ -563,15 +570,15 @@ class SqliteDepreciationRunRepository implements DepreciationRunRepository {
   }
 
   async create(run: DepreciationRun): Promise<void> {
-    this.write(run);
+    insertingNew(run.id, () => this.write(run, this.insertOnly));
   }
 
   async update(run: DepreciationRun): Promise<void> {
     this.write(run);
   }
 
-  private write(run: DepreciationRun): void {
-    this.upsert.run({
+  private write(run: DepreciationRun, statement: Database.Statement = this.upsert): void {
+    statement.run({
       id: run.id,
       period: run.period,
       branch_id: run.branchId,

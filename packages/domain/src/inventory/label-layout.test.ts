@@ -28,6 +28,9 @@ class InMemoryLabelLayouts implements LabelLayoutRepository {
   async save(layout: LabelLayout): Promise<void> {
     this.rows.set(layout.id, layout);
   }
+  async insert(layout: LabelLayout): Promise<void> {
+    this.rows.set(layout.id, layout);
+  }
   async delete(id: string): Promise<void> {
     this.rows.delete(id);
   }

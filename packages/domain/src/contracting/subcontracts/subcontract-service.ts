@@ -39,6 +39,7 @@ import {
   type SubcontractStatus,
 } from "./subcontract.js";
 import { tenantTodayIso } from "../../dates.js";
+import { DuplicateRecordIdError } from "../../records/duplicate-record-id.js";
 
 /**
  * عقد الباطن — the use cases and the ledger behind the two that post
@@ -411,6 +412,9 @@ export class SubcontractService {
   // ----- use cases ---------------------------------------------------------
 
   async create(cmd: CreateSubcontractCommand, actor: SubcontractActor): Promise<SubcontractView> {
+    if (await this.deps.store.findById(cmd.id)) {
+      throw new DuplicateRecordIdError(cmd.id);
+    }
     const reasons: string[] = [];
     if (cmd.titleAr.trim() === "") reasons.push("اسم عقد الباطن مطلوب");
     if (cmd.supplierId.trim() === "") reasons.push("مقاول الباطن مطلوب");
@@ -441,7 +445,7 @@ export class SubcontractService {
 
     return this.deps.store.transaction(async () => {
       if (await this.deps.store.findById(cmd.id)) {
-        throw new InvalidSubcontractError([`عقد الباطن "${cmd.id}" موجود بالفعل`]);
+        throw new DuplicateRecordIdError(cmd.id);
       }
       const number = await this.deps.numbering.next(SUBCONTRACT_SEQUENCE);
       const subcontract: Subcontract = {

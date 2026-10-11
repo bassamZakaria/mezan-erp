@@ -140,6 +140,9 @@ class MemoryReleaseStore implements RetentionReleaseStore {
   async save(release: RetentionRelease) {
     this.rows.set(release.id, release);
   }
+  async insert(release: RetentionRelease) {
+    this.rows.set(release.id, release);
+  }
   async transaction<T>(fn: () => Promise<T>) {
     return fn();
   }

@@ -148,3 +148,54 @@ export class ReversalDateBeforeOriginalError extends Error {
     this.name = "ReversalDateBeforeOriginalError";
   }
 }
+
+/** Raised when the journal's own reverse action is asked to reverse an entry a document posted: the document is reversed instead, so it and its sub-ledger move with the entry. */
+export class JournalEntryOwnedByDocumentError extends Error {
+  readonly code = "JOURNAL_ENTRY_OWNED_BY_DOCUMENT";
+  readonly messageEn: string;
+  constructor(
+    readonly entryId: string,
+    readonly sourceDocType: string | null,
+    readonly sourceDocReference: string,
+  ) {
+    super(`القيد يخص المستند ${sourceDocReference} ولا يُعكس من دفتر اليومية. اعكس المستند نفسه أو ألغِه من شاشته ليبقى المستند ودفتره الفرعي متطابقين مع القيد.`);
+    this.messageEn = `This entry belongs to document ${sourceDocReference} and is not reversed from the journal. Reverse or cancel the document on its own screen, so the document and its sub-ledger stay in step with the entry.`;
+    this.name = "JournalEntryOwnedByDocumentError";
+  }
+}
+
+/** Raised when the journal's own reverse action is asked to reverse a reversing entry. */
+export class JournalReversalNotReversibleError extends Error {
+  readonly code = "JOURNAL_REVERSAL_NOT_REVERSIBLE";
+  readonly messageEn: string;
+  constructor(
+    readonly entryId: string,
+    readonly entryReference: string,
+  ) {
+    super(`القيد ${entryReference} قيد عكسي ولا يُعكس. أعد إدخال القيد الأصلي من جديد بدلاً من عكس عكسه.`);
+    this.messageEn = `Entry ${entryReference} is itself a reversal and cannot be reversed. Post the original entry again instead.`;
+    this.name = "JournalReversalNotReversibleError";
+  }
+}
+
+const JOURNAL_LIKE_SOURCE_DOC_TYPES: ReadonlySet<string> = new Set(["RECURRING_JOURNAL_TEMPLATE"]);
+
+/**
+ * Only a journal reverses from the journal: an entry a document posted is
+ * reversed by reversing that document, and a reversing entry is not reversed
+ * at all. A recurring template's entry is a plain journal with no document
+ * behind it, so it still reverses here.
+ */
+export function assertReversibleFromJournal(entry: {
+  readonly id: string;
+  readonly entryNo?: string | null;
+  readonly reversesEntryId?: string | null;
+  readonly sourceDocType?: string | null;
+  readonly sourceDocId?: string | null;
+  readonly sourceDocNumber?: string | null;
+}): void {
+  if (entry.reversesEntryId) throw new JournalReversalNotReversibleError(entry.id, entry.entryNo ?? entry.id);
+  if (entry.sourceDocType && !JOURNAL_LIKE_SOURCE_DOC_TYPES.has(entry.sourceDocType)) {
+    throw new JournalEntryOwnedByDocumentError(entry.id, entry.sourceDocType, entry.sourceDocNumber ?? entry.sourceDocId ?? entry.id);
+  }
+}

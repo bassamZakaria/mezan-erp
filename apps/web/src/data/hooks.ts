@@ -1332,6 +1332,8 @@ export interface JournalEntryDTO {
   readonly postedAt: string | null;
   readonly reversesEntryId: string | null;
   readonly reversedByEntryId: string | null;
+  /** False for an entry a document owns and for a reversing entry: neither is reversed from the journal. */
+  readonly reversibleFromJournal?: boolean;
   /** The document this entry came from, and the module derived from it (R6.3). */
   readonly sourceDocType: string | null;
   readonly sourceDocId: string | null;

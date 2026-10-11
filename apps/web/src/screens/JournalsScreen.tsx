@@ -431,7 +431,7 @@ export function JournalsScreen() {
           subtitle={<DocumentStatusStepper steps={STEPPER_KEYS.map((step): DocumentStatusStep => ({ key: step.key, label: t(step.labelKey) }))} currentKey={selected.status} tone={selected.status === "reversed" ? "danger" : "brand"} />}
           actions={
             <>
-              {selected.status === "posted" ? (
+              {selected.status === "posted" && selected.reversibleFromJournal !== false ? (
                 <Button
                   variant="danger-outline"
                   disabled={pendingId === selected.id}
@@ -689,7 +689,7 @@ export function JournalsScreen() {
             // dedicated button opens the date-picking dialog below instead,
             // since embedding a live date field in the row menu's frozen
             // `pending` snapshot would not stay editable.
-            ...(d.status === "posted"
+            ...(d.status === "posted" && d.reversibleFromJournal !== false
               ? [{ key: "reverse", label: t("journals.reverseEntry"), tone: "danger" as const, disabled: pendingId === d.id, onSelect: () => void reverseEntry(d, todayIso()) }]
               : []),
             ...(d.status === "draft"

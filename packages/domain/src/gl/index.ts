@@ -53,6 +53,9 @@ export {
   PartyRequiredOnControlAccountError,
   InvalidJournalPartyError,
   ReversalDateBeforeOriginalError,
+  JournalEntryOwnedByDocumentError,
+  JournalReversalNotReversibleError,
+  assertReversibleFromJournal,
   type PartyControlKind,
 } from "./errors.js";
 

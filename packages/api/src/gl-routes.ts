@@ -24,6 +24,9 @@ import {
   PartyRequiredOnControlAccountError,
   InvalidJournalPartyError,
   ReversalDateBeforeOriginalError,
+  JournalEntryOwnedByDocumentError,
+  JournalReversalNotReversibleError,
+  assertReversibleFromJournal,
   type PartyControlKind,
   type JournalEntry,
   type JournalPostingDeps,
@@ -120,6 +123,7 @@ function serialize(entry: JournalEntry) {
     postedAt: entry.postedAt ?? null,
     reversesEntryId: entry.reversesEntryId ?? null,
     reversedByEntryId: entry.reversedByEntryId ?? null,
+    reversibleFromJournal: reversibleFromJournal(entry),
     sourceDocType: entry.sourceDocType ?? null,
     sourceDocId: entry.sourceDocId ?? null,
     sourceDocNumber: entry.sourceDocNumber ?? null,
@@ -214,7 +218,7 @@ function handleDomainError(c: Context, err: unknown): Response {
   if (err instanceof PartyRequiredOnControlAccountError || err instanceof InvalidJournalPartyError) {
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, accountId: err.accountId }, 422);
   }
-  if (err instanceof ReversalDateBeforeOriginalError) {
+  if (err instanceof ReversalDateBeforeOriginalError || err instanceof JournalEntryOwnedByDocumentError || err instanceof JournalReversalNotReversibleError) {
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 422);
   }
   if (err instanceof VatPeriodAlreadyFiledError) {
@@ -272,6 +276,16 @@ function handleDomainError(c: Context, err: unknown): Response {
  * reversing is a money-reversing posting action, so `/reverse` reuses
  * `accounting.journal.post`.
  */
+function reversibleFromJournal(entry: Parameters<typeof assertReversibleFromJournal>[0]): boolean {
+  try {
+    assertReversibleFromJournal(entry);
+    return true;
+  } catch (err) {
+    if (err instanceof JournalEntryOwnedByDocumentError || err instanceof JournalReversalNotReversibleError) return false;
+    throw err;
+  }
+}
+
 export function createGlRoutes(
   deps: GlRoutesDeps,
   resolveAuthContext: AuthContextResolver,
@@ -600,6 +614,7 @@ export function createGlRoutes(
       // `reverseJournalEntry` directly with its own date semantics and is
       // gated by the period lock alone.
       const existing = await deps.ledger.findById(entryId);
+      if (existing) assertReversibleFromJournal(existing);
       if (existing && resolvedDate < existing.date) {
         throw new ReversalDateBeforeOriginalError(entryId, resolvedDate, existing.date);
       }

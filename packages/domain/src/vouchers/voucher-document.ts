@@ -23,6 +23,7 @@ import type { DocumentTypeDefinition, FrameworkDocument } from "../documents/doc
 import { buildEffects } from "../documents/effects.js";
 import type { DocumentGlPosting } from "../documents/hooks.js";
 import { InvalidDocumentError } from "../documents/errors.js";
+import { reversalChainPresenceAsOf } from "../documents/as-of.js";
 import type { CostCategory } from "../contracting/cost-category.js";
 import {
   getVoucherTypeDefinition,
@@ -125,6 +126,28 @@ export function voucherLine(doc: VoucherDocument): VoucherLine {
  */
 export function isStandingVoucher(doc: VoucherDocument): boolean {
   return (doc.status === "confirmed" || doc.status === "posted") && !doc.reversesDocId;
+}
+
+/**
+ * Whether a voucher's effect stood on `asOfDate`, read down its reversal chain:
+ * each link undoes the one before it from the day it is dated, so a voucher
+ * whose reversal was itself reversed stands again from that day. A reversal is
+ * never counted on its own.
+ */
+export function voucherStandsAsOf(doc: VoucherDocument, byId: ReadonlyMap<string, VoucherDocument>, asOfDate: string | undefined): boolean {
+  if (doc.reversesDocId) return false;
+  const dates = [doc.date];
+  const seen = new Set([doc.id]);
+  let link = doc;
+  while (link.status === "reversed" && link.reversedByDocId) {
+    const next = byId.get(link.reversedByDocId);
+    if (!next || seen.has(next.id)) break;
+    seen.add(next.id);
+    dates.push(next.date);
+    link = next;
+  }
+  if (link.status !== "confirmed" && link.status !== "posted") return false;
+  return reversalChainPresenceAsOf(dates, asOfDate) === 1;
 }
 
 class InvalidVoucherLineError extends Error {

@@ -94,6 +94,7 @@ import {
   voucherBaseAmount,
   voucherBaseWithholding,
   isStandingVoucher,
+  voucherStandsAsOf,
   fxRevaluationNet,
   FX_REALISED_DOC_TYPE,
   allocationInvoiceAmount,
@@ -562,11 +563,7 @@ async function agingAsOf(deps: ReportsRoutesDeps, kind: PartyKind, asOfDate: str
  * voucher reversed after the snapshot still counts in it.
  */
 function voucherStoodOn(doc: VoucherDocument, byId: ReadonlyMap<string, VoucherDocument>, asOfDate: string): boolean {
-  if (doc.reversesDocId || doc.date > asOfDate) return false;
-  if (isStandingVoucher(doc)) return true;
-  if (doc.status !== "reversed") return false;
-  const reversedOn = (doc.reversedByDocId ? byId.get(doc.reversedByDocId)?.date : undefined) ?? doc.date;
-  return reversedOn > asOfDate;
+  return voucherStandsAsOf(doc, byId, asOfDate);
 }
 
 /** The days a cheque's credit to its party arose and, if it bounced, was undone — read off the entries that posted them. */
@@ -1733,8 +1730,10 @@ export function createReportsRoutes(
       if (doc.status !== "confirmed" || doc.date > asOfDate || !invoiceRefs.has(doc.lines[0]?.sourceInvoiceId ?? "")) continue;
       entries.push({ key: `ret-${doc.id}`, date: doc.date, kind: "return", reference: doc.docNo ?? doc.id, increase: Money.zero(), decrease: salesReturnGrandTotal(doc) });
     }
-    for (const doc of (await deps.voucherDocuments?.list({ status: "confirmed" })) ?? []) {
-      if (!isStandingVoucher(doc) || doc.date > asOfDate) continue;
+    const receiptVouchers = (await deps.voucherDocuments?.list()) ?? [];
+    const receiptVouchersById = new Map(receiptVouchers.map((doc) => [doc.id, doc]));
+    for (const doc of receiptVouchers) {
+      if (!voucherStandsAsOf(doc, receiptVouchersById, asOfDate)) continue;
       const line = doc.lines[0];
       if (!line || line.direction !== "receipt" || line.counterpartyGlAccountId !== RECEIVABLES_CONTROL_ACCOUNT_ID || line.customerId !== id) continue;
       entries.push({
@@ -1814,8 +1813,10 @@ export function createReportsRoutes(
         decrease: Money.sum(mine.map(purchaseReturnLineCredit)),
       });
     }
-    for (const doc of (await deps.voucherDocuments?.list({ status: "confirmed" })) ?? []) {
-      if (!isStandingVoucher(doc) || doc.date > asOfDate) continue;
+    const paymentVouchers = (await deps.voucherDocuments?.list()) ?? [];
+    const paymentVouchersById = new Map(paymentVouchers.map((doc) => [doc.id, doc]));
+    for (const doc of paymentVouchers) {
+      if (!voucherStandsAsOf(doc, paymentVouchersById, asOfDate)) continue;
       const line = doc.lines[0];
       if (!line || line.direction !== "payment" || line.counterpartyGlAccountId !== PAYABLES_CONTROL_ACCOUNT_ID || line.supplierId !== id) continue;
       entries.push({

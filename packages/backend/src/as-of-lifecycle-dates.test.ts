@@ -122,24 +122,102 @@ describe("reversing a reversal", () => {
     await expectTied(["08", "09", "10"]);
   });
 
-  it("a chain already in the books — a reversal that was itself reversed — still ties at every month end", async () => {
+  const statement = async () => {
+    const body = (await world.request("GET", "/reports/statements/customers/CUST-DEMO-1")).body as { closing: string; agingTotal: string; lines: { key: string }[] };
+    return { closing: BigInt(body.closing.replace(".", "")), agingTotal: BigInt(body.agingTotal.replace(".", "")), keys: body.lines.map((l) => l.key) };
+  };
+  const aged = async (asOfDate: string) => {
+    const rows = (await world.request("GET", `/reports/aging/customers?asOfDate=${asOfDate}`)).body.rows as { customerId: string; total: string }[];
+    return BigInt((rows.find((row) => row.customerId === "CUST-DEMO-1")?.total ?? "0.000000").replace(".", ""));
+  };
+
+  function mirrorEntry(sourceEntryId: string, id: string, date: string): string {
+    const entryNo = `JE-CHAIN-${id}`;
+    world.sqlite
+      .prepare(
+        `INSERT INTO journal_entry (id, entry_no, date, memo, status, source, created_at, posted_at, reverses_entry_id, reversed_by_entry_id, source_doc_type, source_doc_id, source_doc_number)
+         SELECT ?, ?, ?, memo, 'posted', 'system', created_at, posted_at, id, NULL, source_doc_type, source_doc_id, source_doc_number FROM journal_entry WHERE id = ?`,
+      )
+      .run(id, entryNo, date, sourceEntryId);
+    world.sqlite
+      .prepare(
+        `INSERT INTO journal_line (entry_id, line_no, account_id, debit, credit, memo, cost_center_id, currency, fx_rate, tax_rate_percent, project_id, cost_category, branch_id, party_id)
+         SELECT ?, line_no, account_id, credit, debit, memo, cost_center_id, currency, fx_rate, tax_rate_percent, project_id, cost_category, branch_id, party_id FROM journal_line WHERE entry_id = ?`,
+      )
+      .run(id, sourceEntryId);
+    world.sqlite.prepare(`UPDATE journal_entry SET status = 'reversed', reversed_by_entry_id = ? WHERE id = ?`).run(id, sourceEntryId);
+    return entryNo;
+  }
+
+  it("a chain already in the books — a reversal that was itself reversed — still ties at every month end, and the statement and the aging follow it", async () => {
+    const before = { statement: await statement(), standing: await aged("2026-08-20"), reversed: await aged("2026-08-31"), restored: await aged("2026-09-10") };
     await collection("LD-V-2", "2026-08-11", "250.00");
     const first = await world.request("POST", "/vouchers/LD-V-2/reverse", { date: "2026-08-31" });
     const reversal = first.body.reversal as { id: string };
     const reversalEntryId = (world.sqlite.prepare(`SELECT journal_entry_id AS id FROM voucher WHERE id = ?`).get(reversal.id) as { id: string }).id;
-    const second = await world.request("POST", `/gl/journal-entries/${encodeURIComponent(reversalEntryId)}/reverse`, { date: "2026-09-10" });
-    expect(`${second.status} ${second.status === 201 ? "" : JSON.stringify(second.body)}`.trim()).toBe("201");
-    const secondEntry = world.sqlite.prepare(`SELECT id, entry_no AS entryNo FROM journal_entry WHERE reverses_entry_id = ?`).get(reversalEntryId) as { id: string; entryNo: string };
+    const secondEntryNo = mirrorEntry(reversalEntryId, "LD-V-2-RR-JE", "2026-09-10");
     const columns = (world.sqlite.prepare(`PRAGMA table_info(voucher)`).all() as { name: string }[]).map((c) => c.name);
     const copied = columns.filter((c) => !["id", "doc_no", "date", "reverses_doc_id", "reversed_by_doc_id", "journal_entry_id"].includes(c));
     world.sqlite
       .prepare(
         `INSERT INTO voucher (id, doc_no, date, reverses_doc_id, reversed_by_doc_id, journal_entry_id, ${copied.join(", ")})
-         SELECT 'LD-V-2-RR', ?, '2026-09-10', id, NULL, ?, ${copied.join(", ")} FROM voucher WHERE id = ?`,
+         SELECT 'LD-V-2-RR', ?, '2026-09-10', id, NULL, 'LD-V-2-RR-JE', ${copied.join(", ")} FROM voucher WHERE id = ?`,
       )
-      .run(secondEntry.entryNo, secondEntry.id, reversal.id);
+      .run(secondEntryNo, reversal.id);
     world.sqlite.prepare(`UPDATE voucher SET status = 'reversed', reversed_by_doc_id = 'LD-V-2-RR' WHERE id = ?`).run(reversal.id);
 
+    const credit = 250_000_000n;
+    expect((await aged("2026-08-20")) - before.standing).toBe(-credit);
+    expect((await aged("2026-08-31")) - before.reversed).toBe(0n);
+    expect((await aged("2026-09-10")) - before.restored).toBe(-credit);
+    const now = await statement();
+    expect(now.keys).toContain("vch-LD-V-2");
+    expect(now.closing - before.statement.closing).toBe(-credit);
+    expect(now.agingTotal - before.statement.agingTotal).toBe(-credit);
     await expectTied(["08", "09", "10"]);
+  });
+});
+
+describe("reversing a journal entry directly", () => {
+  it("is refused for an entry a document owns, naming the document to reverse instead; the voucher and the receivable stay as they were", async () => {
+    const created = await world.request("POST", "/vouchers", {
+      id: "LD-V-3", date: "2026-08-12", branchId: "BR-MAIN", memo: "تحصيل", voucherType: "customer_collection", amount: "75.00", paymentMethod: "cash",
+      treasuryAccountId: "TR-DEMO-CASH", treasuryGlAccountId: "1300-1", counterpartyGlAccountId: AR, customerId: "CUST-DEMO-1",
+    });
+    expect(created.status).toBe(201);
+    expect((await world.request("POST", "/vouchers/LD-V-3/confirm", {})).status).toBe(200);
+    const voucher = world.sqlite.prepare(`SELECT journal_entry_id AS entryId, doc_no AS docNo FROM voucher WHERE id = 'LD-V-3'`).get() as { entryId: string; docNo: string };
+    const entries = world.count("journal_entry");
+
+    const refused = await world.request("POST", `/gl/journal-entries/${encodeURIComponent(voucher.entryId)}/reverse`, {});
+
+    expect(refused.status).toBe(422);
+    expect(refused.body).toMatchObject({
+      error: "JOURNAL_ENTRY_OWNED_BY_DOCUMENT",
+      message: `القيد يخص المستند ${voucher.docNo} ولا يُعكس من دفتر اليومية. اعكس المستند نفسه أو ألغِه من شاشته ليبقى المستند ودفتره الفرعي متطابقين مع القيد.`,
+    });
+    expect(String(refused.body.messageEn)).toContain(voucher.docNo);
+    expect(world.count("journal_entry")).toBe(entries);
+    expect((world.sqlite.prepare(`SELECT status FROM voucher WHERE id = 'LD-V-3'`).get() as { status: string }).status).toBe("confirmed");
+    await expectTied(["08", "09", "10"]);
+  });
+
+  it("reverses a manual journal once; its reversal is not reversed in turn", async () => {
+    const posted = await world.request("POST", "/gl/journal-entries", {
+      id: "LD-MJ-1", date: "2026-08-15", memo: "قيد يدوي",
+      lines: [{ accountId: "2170", debit: "40.00", credit: "0" }, { accountId: "2190", debit: "0", credit: "40.00" }],
+    });
+    expect(posted.status).toBe(201);
+    const reversed = await world.request("POST", "/gl/journal-entries/LD-MJ-1/reverse", { reversalId: "LD-MJ-1-REV", date: "2026-08-20" });
+    expect(reversed.status).toBe(201);
+
+    const refused = await world.request("POST", "/gl/journal-entries/LD-MJ-1-REV/reverse", { date: "2026-08-25" });
+
+    expect(refused.status).toBe(422);
+    expect(refused.body).toMatchObject({
+      error: "JOURNAL_REVERSAL_NOT_REVERSIBLE",
+      message: expect.stringContaining("قيد عكسي ولا يُعكس"),
+      messageEn: expect.stringContaining("is itself a reversal"),
+    });
   });
 });

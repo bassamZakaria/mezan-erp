@@ -27,6 +27,7 @@ export {
   voucherDocumentType,
   voucherLine,
   isStandingVoucher,
+  voucherStandsAsOf,
   voucherNetPaid,
   voucherBaseAmount,
   voucherBaseWithholding,

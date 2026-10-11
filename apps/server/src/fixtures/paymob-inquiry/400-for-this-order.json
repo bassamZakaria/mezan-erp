@@ -1,0 +1,9 @@
+{
+  "documentedAt": null,
+  "note": "",
+  "status": 400,
+  "body": {
+    "message": "bad order"
+  },
+  "expect": "unreadable"
+}

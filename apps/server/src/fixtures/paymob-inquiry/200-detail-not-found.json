@@ -1,0 +1,9 @@
+{
+  "documentedAt": null,
+  "note": "The not-found sentence under a success status is not the recognised shape.",
+  "status": 200,
+  "body": {
+    "detail": "Not found."
+  },
+  "expect": "unreadable"
+}

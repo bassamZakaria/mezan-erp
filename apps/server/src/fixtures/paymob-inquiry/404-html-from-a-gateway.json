@@ -1,0 +1,7 @@
+{
+  "documentedAt": null,
+  "note": "A 404 from something on the way.",
+  "status": 404,
+  "body": "<html><body>404 Not Found</body></html>",
+  "expect": "unreadable"
+}

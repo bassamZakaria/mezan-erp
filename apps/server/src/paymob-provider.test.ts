@@ -217,7 +217,7 @@ describe("Paymob transaction inquiry", () => {
     ]);
     expect(JSON.parse(String(calls[0]?.init.body))).toEqual({ api_key: "dashboard-api-key" });
     expect(new Headers(calls[1]?.init.headers).get("authorization")).toBe("Bearer bearer-1");
-    expect(JSON.parse(String(calls[1]?.init.body))).toEqual({ order_id: "690898" });
+    expect(JSON.parse(String(calls[1]?.init.body))).toEqual({ auth_token: "bearer-1", order_id: "690898" });
   });
 
   it("reuses one token across inquiries until it nears expiry", async () => {
@@ -263,12 +263,12 @@ describe("Paymob transaction inquiry", () => {
     ["another service's JSON", () => json({ message: "not found" }, 404)],
     ["a route that no longer exists", () => json({ detail: "The requested URL was not found on this server." }, 404)],
     ["a list", () => json([{ detail: "Not found." }], 404)],
-  ])("does not read a 404 that is %s as no transaction — it cannot say the order was never paid", async (_name, answer) => {
+  ])("reads a 404 that is %s as an answer a person must look at — it cannot say the order was never paid", async (_name, answer) => {
     const { provider } = inquiring(answer);
 
     const inquiry = await provider.inquireTransaction(request);
 
-    expect(inquiry.status).toBe(ProviderInquiryStatus.Unavailable);
+    expect(inquiry.status).toBe(ProviderInquiryStatus.Unreadable);
   });
 
   it.each([

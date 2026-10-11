@@ -485,6 +485,31 @@ describe("AppLayout — HR lookups follow the plan (D-SAAS-03)", () => {
   });
 });
 
+describe("AppLayout — a module the plan left read-only is still read (D-SAAS-03)", () => {
+  afterEach(() => {
+    persistSession(null);
+  });
+
+  it("still loads employees and job titles when HR is read-only on the plan", async () => {
+    const requests: string[] = [];
+    const answer = stubTransport({
+      ...baseHandlers(),
+      "GET /entitlements": () => ({ body: { ...entitlements, activeModules: ["sales", "accounting"], readOnlyModules: ["hr"] } }),
+      "GET /roles": () => ({ body: [] }),
+      "GET /users": () => ({ body: [] }),
+      "GET /hr/employees": () => ({ body: [] }),
+      "GET /hr/job-titles": () => ({ body: [] }),
+    });
+    renderLayout((path, init) => {
+      requests.push(path);
+      return answer(path, init);
+    }, ["/dashboard"]);
+
+    await waitFor(() => expect(requests).toContain("/hr/employees"));
+    expect(requests).toContain("/hr/job-titles");
+  });
+});
+
 describe("AppLayout — sign out", () => {
   afterEach(() => {
     persistSession(null);

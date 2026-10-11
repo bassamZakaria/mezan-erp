@@ -211,6 +211,15 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
   // MEZAN_DEMO_PASSWORD is set.
   root.get("/healthz", (c) => c.text("ok"));
 
+  // Routes match strictly and every tenant backend is its own strict app, so a
+  // trailing slash is dropped once here; re-dispatching keeps every gate below in force.
+  root.use("/api/*", async (c, next) => {
+    const url = new URL(c.req.url);
+    if (!url.pathname.endsWith("/")) return next();
+    url.pathname = url.pathname.replace(/\/+$/, "");
+    return root.fetch(new Request(url, c.req.raw), c.env);
+  });
+
   // Also above the demo basic-auth and the origin-secret gate: Paymob sends
   // neither, and the HMAC verified inside is this route's only credential.
   if (checkoutService) {
@@ -239,15 +248,7 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
   // otherwise swallow the console's routes first.
   root.route("/api/platform", platformApp);
   root.route("/api/billing", createTenantBillingRoutes({ platform, router, env, service: checkoutService, now }));
-  const signupRoutes = createSignupRoutes({ platform, router, env, now });
-  root.route(SIGNUP_BASE_PATH, signupRoutes);
-  // The router matches strictly, so `/api/signup/` would fall through to the
-  // tenant router below and answer TENANT_REQUIRED.
-  root.all(`${SIGNUP_BASE_PATH}/`, (c) => {
-    const url = new URL(c.req.url);
-    url.pathname = "/";
-    return signupRoutes.fetch(new Request(url, c.req.raw), c.env);
-  });
+  root.route(SIGNUP_BASE_PATH, createSignupRoutes({ platform, router, env, now }));
   root.route("/api", router.app);
 
   if (checkoutService && testProvider) {

@@ -43,11 +43,6 @@ export function LicenseStateChip({ state }: { state: LicenseStateNameDTO }) {
   return <StatusPill label={t(LICENSE_STATE_LABEL[state])} tone={LICENSE_STATE_TONE[state]} />;
 }
 
-/**
- * The tenants list's licence cell. A trial and a paid period both derive an
- * ACTIVE licence, so the licence state alone cannot tell them apart; while the
- * licence is active the trial is what the operator needs to see.
- */
 export function TenantLicenceChip({ state, subscriptionStatus }: { state: LicenseStateNameDTO; subscriptionStatus: SubscriptionStatusDTO | null }) {
   const { t } = useAppTranslation();
   if (state === LicenseStateCode.Active && subscriptionStatus === SubscriptionStatusCode.Trialing) {

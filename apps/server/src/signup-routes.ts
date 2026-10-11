@@ -341,7 +341,7 @@ export function createSignupRoutes(options: SignupRoutesOptions): Hono {
     verifyIpLimit.consume(ip);
 
     const parsed = verifySignupRequestSchema.safeParse(await c.req.json().catch(() => null));
-    if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    if (!parsed.success) return signupErrorResponse(c, new SignupTokenInvalidError());
 
     try {
       return c.json(await verifyInTurn(hashToken(parsed.data.token)));

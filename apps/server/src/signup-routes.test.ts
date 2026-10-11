@@ -298,10 +298,15 @@ describe("self-serve signup routes", () => {
     expect(await listedTenantCodes(app)).not.toContain("console");
   });
 
-  it("refuses a token nobody was issued", async () => {
+  it.each([
+    ["shorter than any token this server issues", "not-a-real-token"],
+    ["well-formed but never issued", "A".repeat(43)],
+    ["missing", undefined],
+  ])("tells the holder of a link whose token is %s that the link is not valid, in Arabic", async (_what, token) => {
     const app = await boot();
-    const res = await post(app, "/api/signup/verify", { token: "not-a-real-token" });
+    const res = await post(app, "/api/signup/verify", { token });
     expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "SIGNUP_TOKEN_INVALID", message: "رابط التفعيل غير صالح" });
   });
 });
 
@@ -327,6 +332,50 @@ function resetOwnerPin(app: CloudApp, tenantId: string, bearer: string | null): 
     ),
   );
 }
+
+describe("a trailing slash on an /api route", () => {
+  it("reaches the same platform, signup and tenant routes, with the request body intact", async () => {
+    const app = await boot();
+    const first = (await (await post(app, "/api/signup/verify/", { token: await startAndReadToken(app, "slashes") })).json()) as VerifyBody;
+    expect(first.tenant).toMatchObject({ code: "slashes", status: "active" });
+
+    const platformLogin = await post(app, "/api/platform/auth/login/", { email: OWNER_EMAIL, password: OWNER_PASSWORD });
+    expect(platformLogin.status).toBe(200);
+    const bearer = ((await platformLogin.json()) as { token: string }).token;
+
+    const tenants = await app.root.fetch(new Request("http://cloud.internal/api/platform/tenants/", { headers: { authorization: `Bearer ${bearer}` } }));
+    expect(tenants.status).toBe(200);
+    expect(((await tenants.json()) as { tenant: { code: string } }[]).map((row) => row.tenant.code)).toContain("slashes");
+
+    const plans = await app.root.fetch(new Request("http://cloud.internal/api/signup/plans/"));
+    expect(plans.status).toBe(200);
+    expect(((await plans.json()) as unknown[]).length).toBeGreaterThan(0);
+
+    const tenantLoginAnswer = await app.root.fetch(
+      new Request("http://cloud.internal/api/auth/login/", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-mezan-tenant": "slashes" },
+        body: JSON.stringify({ username: "owner@slashes.example", pin: first.adminPin }),
+      }),
+    );
+    expect(tenantLoginAnswer.status).toBe(200);
+    const session = ((await tenantLoginAnswer.json()) as { token: string }).token;
+
+    const customers = await app.root.fetch(
+      new Request("http://cloud.internal/api/customers/?pageSize=5", { headers: { authorization: `Bearer ${session}`, "x-mezan-tenant": "slashes" } }),
+    );
+    expect(customers.status).toBe(200);
+  });
+
+  it("still refuses a tenant route that carries no session, slash or not", async () => {
+    const app = await boot();
+    await post(app, "/api/signup/verify", { token: await startAndReadToken(app, "closed") });
+
+    const customers = await app.root.fetch(new Request("http://cloud.internal/api/customers/", { headers: { "x-mezan-tenant": "closed" } }));
+
+    expect(customers.status).toBe(401);
+  });
+});
 
 describe("the platform owner resets a tenant owner's PIN", () => {
   it("issues a new PIN once, retires the old one and ends the owner's open sessions", async () => {

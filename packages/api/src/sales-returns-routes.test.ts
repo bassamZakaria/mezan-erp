@@ -204,6 +204,26 @@ describe("what the caller may claim on a return (D102)", () => {
     expect(res.status).toBeGreaterThanOrEqual(400);
   });
 
+  it("reads the source invoice ONCE per request — each read lists every return, and two lines against one invoice are not two reads (D79)", async () => {
+    const { service } = await buildService();
+    let reads = 0;
+    const app = createSalesReturnsRoutes(service, insecureHeaderAuthContextResolver, {
+      async findConfirmedInvoice(id: string) {
+        reads += 1;
+        return id === "INV1" ? sourceInvoice : null;
+      },
+    });
+    const res = await app.fetch(
+      req("/", {
+        method: "POST",
+        permissions: "sales.return.create",
+        body: JSON.stringify({ ...payload, id: "SR-ONCE", lines: [{ ...payload.lines[0], qty: "1" }, { ...payload.lines[0], qty: "1" }] }),
+      }),
+    );
+    expect(res.status).toBe(201);
+    expect(reads).toBe(1);
+  });
+
   it("accepts exactly what the invoice has left, and refuses one micro-unit more", async () => {
     const app = await appWithInvoices();
 

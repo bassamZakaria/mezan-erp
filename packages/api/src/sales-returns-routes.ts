@@ -164,11 +164,22 @@ export function createSalesReturnsRoutes(
    * returns without an invoices module have no invoice to check against, and
    * refusing there would break them rather than protect them.
    */
+  type SourceInvoice = Awaited<ReturnType<SalesInvoiceLookupPort["findConfirmedInvoice"]>>;
+  // Scoped to ONE request: `alreadyReturnedQty` moves every time a return
+  // confirms, and a cache that outlives the request would keep serving the
+  // cap from before it did.
+  async function lookupInvoice(cache: Map<string, SourceInvoice>, sourceInvoiceId: string): Promise<SourceInvoice> {
+    if (!invoices) return null;
+    if (!cache.has(sourceInvoiceId)) cache.set(sourceInvoiceId, await invoices.findConfirmedInvoice(sourceInvoiceId));
+    return cache.get(sourceInvoiceId) ?? null;
+  }
+
   async function refuseInconsistentLine(
     line: { sourceInvoiceId: string; customerId: string; itemId: string; unitCost?: string },
+    requestInvoices: Map<string, SourceInvoice>,
   ): Promise<{ error: string; message: string } | null> {
     if (!invoices) return null;
-    const invoice = await invoices.findConfirmedInvoice(line.sourceInvoiceId);
+    const invoice = await lookupInvoice(requestInvoices, line.sourceInvoiceId);
     if (!invoice) return SOURCE_INVOICE_NOT_FOUND;
     if (invoice.customerId !== line.customerId) {
       return {
@@ -189,6 +200,7 @@ export function createSalesReturnsRoutes(
   // derived one at a time, each is offered the whole of the line it names.
   async function deriveLines(
     requested: readonly CreateSalesReturnLineInput[],
+    requestInvoices: Map<string, SourceInvoice>,
   ): Promise<{ lines: SalesReturnLine[] } | { refusal: ReturnType<typeof lineNotOnInvoice> | typeof SOURCE_INVOICE_NOT_FOUND }> {
     const claimedOf = (l: CreateSalesReturnLineInput): SalesReturnLine => ({
       itemId: l.itemId,
@@ -210,7 +222,7 @@ export function createSalesReturnsRoutes(
     const lines: SalesReturnLine[] = [];
     for (const sourceInvoiceId of new Set(requested.map((l) => l.sourceInvoiceId))) {
       const ofInvoice = requested.filter((l) => l.sourceInvoiceId === sourceInvoiceId);
-      const invoice = await invoices.findConfirmedInvoice(sourceInvoiceId);
+      const invoice = await lookupInvoice(requestInvoices, sourceInvoiceId);
       if (!invoice) return { refusal: SOURCE_INVOICE_NOT_FOUND };
       const first = ofInvoice[0] as CreateSalesReturnLineInput;
       const built = buildSalesReturnLinesFromInvoice(
@@ -401,11 +413,12 @@ export function createSalesReturnsRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
+    const requestInvoices = new Map<string, SourceInvoice>();
     for (const line of parsed.data.lines) {
-      const refusal = await refuseInconsistentLine(line);
+      const refusal = await refuseInconsistentLine(line, requestInvoices);
       if (refusal) return c.json(refusal, 422);
     }
-    const derived = await deriveLines(parsed.data.lines);
+    const derived = await deriveLines(parsed.data.lines, requestInvoices);
     if ("refusal" in derived) return c.json(derived.refusal, 422);
     try {
       const doc = await service.createDraft({

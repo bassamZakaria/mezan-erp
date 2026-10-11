@@ -448,6 +448,25 @@ describe("classifying the tax of a posted purchase line that stored none", () =>
   });
 });
 
+describe("a filed VAT return closes classification on the purchase side too", () => {
+  it("refuses to classify a purchase line once the return covering its entry's date is filed, and writes nothing", async () => {
+    const created = await call("POST", "/purchases/invoices", {
+      id: "T-PI-JUNE", supplierId: "SUPP-DEMO-1", date: "2026-06-10", dueDate: "2026-07-10", branchId: BRANCH, warehouseId: WAREHOUSE,
+      lines: [{ itemId: null, kind: "expense", description: "خدمة", qty: "1", unitCost: "200", taxRateId: null, taxRatePercent: 0 }],
+    });
+    expect(created.status).toBe(201);
+    expect((await call("POST", "/purchases/invoices/T-PI-JUNE/confirm", {})).status).toBe(200);
+    const filed = await call("POST", "/gl/vat-filings", { id: "T-VATF-2026-06", periodFrom: "2026-06-01", periodTo: "2026-06-30", netAmount: "0.00" });
+    expect(filed.status).toBe(201);
+
+    const refused = await call("POST", "/purchases/invoices/T-PI-JUNE/lines/0/classify-tax", { taxRateId: EXEMPT_RATE });
+    expect([refused.status, refused.body.error]).toEqual([422, "VAT_PERIOD_ALREADY_FILED"]);
+    expect((await call("GET", "/purchases/invoices/T-PI-JUNE")).body.lines[0].taxRateId).toBeNull();
+    const entry = (await call("GET", `/gl/journal-entries/${encodeURIComponent("PI-JE:T-PI-JUNE")}`)).body;
+    expect((entry.lines as { taxRateId: string | null }[]).every((l) => l.taxRateId === null)).toBe(true);
+  });
+});
+
 describe("what a return form may still take from an invoice is the server's figure", () => {
   it("serves each line's sold and already-returned quantity, moved only by CONFIRMED returns, and answers 409 to a second confirm", async () => {
     const stock = (lineId: string, qty: string) => ({

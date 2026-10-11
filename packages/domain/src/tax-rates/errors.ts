@@ -131,8 +131,8 @@ export class SystemTaxRateLockedError extends Error {
     readonly taxRateId: string,
     readonly taxRateName: string,
   ) {
-    super(`الضريبة «${taxRateName}» معرّفة من النظام ويستخدمها في البنود التي يصدرها بنسبة 0٪، ولا يمكن تعديلها أو إيقافها.`);
-    this.messageEn = `Tax rate "${taxRateName}" is defined by the system and named on the 0% lines it raises, so it cannot be edited or deactivated.`;
+    super(`الضريبة «${taxRateName}» معرّفة من النظام ويسمّيها على مبيعات المنشأة التي أوقفت ضريبة القيمة المضافة، ولا يمكن تعديلها أو إيقافها.`);
+    this.messageEn = `Tax rate "${taxRateName}" is defined by the system and named on the sales of a tenant whose VAT is switched off, so it cannot be edited or deactivated.`;
     this.name = "SystemTaxRateLockedError";
   }
 }

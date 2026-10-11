@@ -103,6 +103,12 @@ period directly is rejected so the reversible close step is never skipped.
   never "exceeds available (0)". A return naming no line takes the first line of its
   item with room. Any "give back against a source" path totals per source before it
   compares — work-order material returns had the same per-line hole.
+  `DocumentService.confirm` asserts the lifecycle transition BEFORE the validator
+  and the guard, so confirming a confirmed return is 409
+  `INVALID_DOCUMENT_TRANSITION`, not an overdraw read off its own posted lines. A
+  return form reads what is left of each invoice line from the server
+  (`GET /sales-returns/source-lines/:invoiceId`, and the purchase twin) — never
+  from the returns its own filtered list happens to hold.
 - Validate invoice-level discounts, not only line-level ones: an unvalidated negative
   invoice discount applied as a subtraction and turned 950.00 into 1,140.00.
 - Discounts are deducted **before** VAT; a historical document records which
@@ -210,19 +216,45 @@ Proved in `scripts/scenarios/seams.ts`; each gap is a register entry.
   rate" and stores NULL; an omitted id is inferred from the percent only above 0%
   and only when exactly one active rate has it. **A rate is never inferred at
   0%** — exempt (V003), export (V001) and not-subject (V004) are all 0% — so a
-  0% line a USER enters without a rate stores NULL. A 0% line the SYSTEM raises
-  is different: when policy zero-rates the document (tax-exempt customer, VAT
-  switched off) or the system itself builds the line (a retention release, on
-  the sales and the subcontract side), the line names the system-owned
-  «غير خاضع» rate (`SYSTEM_NOT_SUBJECT_TAX_RATE_ID` = `SYS-NOT-SUBJECT`, 0%,
-  V004). That is assignment by who raised the line, not inference from its
-  percent; a 0% rate the line itself named still wins. The row is ensured on
-  every tenant when the backend starts (`ensureSystemTaxRates`), is served with
-  `isSystem: true`, and is locked — any PATCH is 409 `TAX_RATE_SYSTEM_LOCKED` —
-  because posted lines name it. A line INHERITED from a source document (a
-  quote converted to an invoice) carries the source's stored rate exactly: a
+  0% line a USER enters without a rate stores NULL. Policy names a rate on a
+  zero-rated line in exactly two cases, and a 0% rate the line itself named
+  still wins in both. (a) The tenant's VAT is switched off: the sale is out of
+  scope and names the system-owned «غير خاضع» rate
+  (`SYSTEM_NOT_SUBJECT_TAX_RATE_ID` = `SYS-NOT-SUBJECT`, 0%, V004) — the ONLY
+  case that rate is assigned automatically. (b) The customer is tax-exempt: the
+  line names the 0% rate on that customer's card (`taxExemptionRateId` —
+  whichever active 0% rate the tenant chose; no sub-type is guessed), and with
+  none on the card it stores NULL and waits to be classified. Exemption is read
+  off the customer RECORD by the route (`customerTaxProfileOf`); a request
+  body's `customerTaxExempt` is ignored, on invoices and quotes alike. A
+  retention release, on the sales and the subcontract side, is NOT a supply:
+  its line names no rate, it reports no VAT row, and it is confirmed without
+  the ETA bridge so it never reaches the queue or the e-receipt issuer. The
+  system row is ensured AND repaired on every tenant when the backend starts
+  (`ensureSystemTaxRates` — existence is not the contract; percent, sub-type,
+  name, code and status are), is served with `isSystem: true`, and is locked —
+  any PATCH is 409 `TAX_RATE_SYSTEM_LOCKED`. Nothing a user creates may pass
+  for it: its id or code in any letter case, or its name, percent and sub-type
+  together, is 409 `TAX_RATE_RESERVED`. A line INHERITED from a source document
+  (a quote converted to an invoice) carries the source's stored rate exactly: a
   NULL stays NULL at any percent, since a stored NULL cannot say whether it
-  predates the column or answered "no rate". A rate that
+  predates the column or answered "no rate" — unless the convert request names
+  a rate for that line, under the rules below. A POSTED line whose rate is NULL
+  is classified, never edited (`planTaxClassification`,
+  `POST /sales-invoices/:id/lines/:lineId/classify-tax` and the purchase twin,
+  each behind its own `…invoice.classify_tax` permission): only NULL → a rate,
+  never rate → another rate; the rate must be active and its percent must BE
+  the line's stored percent; the invoice line and the tax tag on its journal
+  lines change in one transaction and no amount, account, date or status
+  moves; every unnamed line of the document at that percent shares a journal
+  line with it, so the request must name them all (`withLineIds`) or is 409
+  `TAX_CLASSIFICATION_SHARED_POSTING`. It is refused once the VAT return
+  covering the entry's date is filed (422 `VAT_PERIOD_ALREADY_FILED`) but not
+  by a closed fiscal period — no balance moves. A queued e-invoice is rebuilt,
+  which clears its finding; a sent or accepted e-invoice, and any e-receipt,
+  allows only a classification that leaves each line's filed sub-type as it
+  was (else 409 `TAX_CLASSIFICATION_ALREADY_FILED`). Each classification is a
+  `CLASSIFY_LINE_TAX` audit row with the line's tax before and after. A rate that
   any stored line names keeps its percent and ETA sub-type for good (409
   `TAX_RATE_IN_USE`); it may be renamed or deactivated, and an inactive rate still
   answers for lines already posted. The VAT return groups by the stored id and

@@ -24,9 +24,9 @@ type RateIdentity = Pick<TaxRate, "id" | "name" | "rate" | "status">;
 /**
  * INVARIANT: a rate is never inferred at 0%. Exempt, export and not-subject
  * are all 0% and mean different things to the authority, so a tenant holding
- * only ONE of them would otherwise have every unnamed 0% line — a retention
- * release, a tax-exempt customer's sale — filed under it. A 0% line carries a
- * rate only when the caller named one.
+ * only ONE of them would otherwise have every unnamed 0% line filed under it.
+ * A 0% line carries a rate only when something NAMED one: the line, the
+ * exempt customer's card, or the VAT-off policy.
  */
 export function inferTaxRateByPercent<T extends Pick<TaxRate, "id" | "rate" | "status">>(
   taxRates: readonly T[],

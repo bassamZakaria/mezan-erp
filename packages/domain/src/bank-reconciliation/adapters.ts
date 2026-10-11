@@ -209,7 +209,7 @@ export function createVoucherBankEntryPoster(deps: VoucherBankEntryPosterDeps): 
             voucherType: input.kind === BankEntryKind.BankCharge ? "other_expense" : "other_income",
             amount: input.amount,
             currency: treasury.currency,
-            branchId: treasury.branchId ?? COMPANY_LEVEL_VOUCHER_BRANCH,
+            branchId: input.branchId || treasury.branchId || COMPANY_LEVEL_VOUCHER_BRANCH,
             paymentMethod: "bank",
             treasuryAccountId: treasury.id,
             treasuryGlAccountId: treasury.glAccountId!,

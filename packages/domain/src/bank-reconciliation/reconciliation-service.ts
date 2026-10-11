@@ -759,6 +759,7 @@ export class BankReconciliationService {
         date,
         amount: line.amount.scaled < 0n ? line.amount.negate() : line.amount,
         treasuryAccountId: statement.treasuryAccountId,
+        branchId: statement.branchId,
         counterAccountId: accountId,
         costCenterId,
         memo,

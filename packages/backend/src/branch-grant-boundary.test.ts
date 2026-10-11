@@ -1578,7 +1578,7 @@ describe("D111 round 3 · head office pays and collects for a branch; a branch u
       expect(renamed.body.message).toMatch(ARABIC);
       expect((await caller("PATCH", `/treasury-accounts/${HQ_BANK}`, { branchId: ALEX })).status).toBe(403);
     }
-    expect(one<any>("SELECT name, branch_id FROM treasury_account WHERE id = ?", HQ_BANK)).toEqual({ name: "حساب المركز الرئيسي", branch_id: "" });
+    expect(one<any>("SELECT name, branch_id FROM treasury_account WHERE id = ?", HQ_BANK)).toEqual({ name: "حساب المركز الرئيسي", branch_id: null });
   });
 
   it("a user holding two branches still cannot pay one branch's document out of the other's drawer", async () => {
@@ -2759,5 +2759,50 @@ describe("D111 round 4 · a page of a branch's list is a whole page — a docume
       unattributed.restore();
       stated.restore();
     }
+  });
+});
+
+describe("D111 round 4 · a bank charge on the company's account takes the branch of the statement it was read from", () => {
+  const BANK = "TR-R4-CHG-HQ";
+  const imported = (id: string) => ({
+    id,
+    treasuryAccountId: BANK,
+    rawCsv: "Date,Description,Amount,Ref\n" + `${TODAY.slice(0, 10)},مصاريف بنكية,-25.00,${id}\n`,
+    mapping: { dateColumn: "Date", descriptionColumn: "Description", amountColumn: "Amount", referenceColumn: "Ref" },
+    periodStart: TODAY.slice(0, 10),
+    periodEnd: TODAY.slice(0, 10),
+    openingBalance: "0.00",
+    closingBalance: "-25.00",
+  });
+  const chargeOn = async (statementId: string) => {
+    const line = one<{ id: string }>("SELECT id FROM statement_line WHERE statement_id = ?", statementId)!.id;
+    const res = await admin("POST", `/bank-statements/${statementId}/lines/${line}/create-entry`, { accountId: "5200" });
+    expect(res.status, JSON.stringify(res.body).slice(0, 240)).toBe(201);
+    expect(res.body.held).toBe(false);
+    return {
+      voucher: one<{ branch_id: string }>("SELECT branch_id FROM voucher WHERE id = ?", res.body.voucherId)!.branch_id,
+      lines: all<{ branch_id: string | null }>("SELECT branch_id FROM journal_line WHERE entry_id = ?", res.body.entryId).map((row) => row.branch_id),
+    };
+  };
+
+  it("the statement's branch when it states one, and «غير مخصص» when it states none", async () => {
+    const created = await admin("POST", "/treasury-accounts", { id: BANK, code: "BANK-R4-CHG", name: "حساب الشركة للمصاريف", type: "bank", branchId: null, glAccountId: "1310" });
+    expect(created.status, JSON.stringify(created.body)).toBe(201);
+    expect(one("SELECT branch_id FROM treasury_account WHERE id = ?", BANK)).toEqual({ branch_id: null });
+
+    for (const id of ["R4-STMT-ALEX", "R4-STMT-NONE"]) {
+      const res = await admin("POST", "/bank-statements/import", imported(id));
+      expect(res.status, JSON.stringify(res.body).slice(0, 240)).toBe(201);
+      expect(one("SELECT branch_id FROM bank_statement WHERE id = ?", id)).toEqual({ branch_id: null });
+    }
+    sqlite.prepare("UPDATE bank_statement SET branch_id = ? WHERE id = 'R4-STMT-ALEX'").run(ALEX);
+
+    const ofBranch = await chargeOn("R4-STMT-ALEX");
+    expect(ofBranch.voucher).toBe(ALEX);
+    expect(ofBranch.lines).toEqual([ALEX, ALEX]);
+
+    const unattributed = await chargeOn("R4-STMT-NONE");
+    expect(unattributed.voucher).toBe("");
+    expect(unattributed.lines).toEqual([null, null]);
   });
 });

@@ -29,6 +29,7 @@ import {
   type PeriodCloseAttempt,
   type PeriodCloseAttemptResult,
   type PeriodCloseGuard,
+  type PeriodCloseScope,
   type SealedPeriodCloseSummary,
 } from "./period-close-routes.js";
 
@@ -66,7 +67,7 @@ export interface PeriodCloseCommitRequest {
 
 export interface PeriodCloseGuardDeps {
   readonly periods: Pick<FiscalPeriodRepository, "findById">;
-  readonly evaluate: (period: FiscalPeriod) => Promise<PeriodCloseEvaluation>;
+  readonly evaluate: (period: FiscalPeriod, scope: PeriodCloseScope) => Promise<PeriodCloseEvaluation>;
   readonly buildSummary: (input: PeriodCloseSummaryInput) => Promise<PeriodCloseSummary>;
   readonly lastClosedBy: (periodId: string) => Promise<string | null>;
   readonly singleOperatorMode: () => Promise<boolean>;
@@ -97,7 +98,7 @@ export function createPeriodCloseGuard(deps: PeriodCloseGuardDeps): PeriodCloseG
     if (!period) throw new FiscalPeriodNotFoundError(attempt.periodId);
     const next = TRANSITION[attempt.action](period);
 
-    const evaluation = await deps.evaluate(period);
+    const evaluation = await deps.evaluate(period, attempt.scope);
     const overridable = evaluation.blocking.length > 0 && attempt.overrideReason !== null && attempt.canOverride;
     const lockOverride = overridable && attempt.action === PeriodCloseAction.Lock;
     const decisionInput: PeriodCloseDecisionInput = {

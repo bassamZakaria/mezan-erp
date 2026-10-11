@@ -3,6 +3,7 @@ import { Money } from "../money/index.js";
 import { createEmployeeDirectory } from "./employee.js";
 import { createInMemoryEmployeeRepository, createInMemoryContractRepository } from "./test-helpers/in-memory-hr-repositories.js";
 import { createEmployee } from "./create-employee.js";
+import { terminateEmployee } from "./transition-employee.js";
 import { createContract } from "./create-contract.js";
 import {
   requestEmployeeAdvance,
@@ -305,6 +306,39 @@ describe("calculatePayrollRun", () => {
     expect(payslip!.paidDays).toBe(10);
     expect(payslip!.grossEarnings.toString()).toBe("436.666666");
     expect(calculated.warnings.some((w) => w.includes("احتُسب 10 من 31 يوماً بالتناسب"))).toBe(true);
+  });
+
+  it("pays someone who was in service during the month even though they have left since — a run is for its period, not for today's staff list", async () => {
+    const h = await harness();
+    const run = await createPayrollRun({ id: "r1", year: 2026, month: 1 }, h.deps);
+    const { emp } = await employeeWithContract(h, { id: "emp-left-later", monthlySalary: "9000.00" });
+    await employeeWithContract(h, { id: "emp-stays", monthlySalary: "6000.00" });
+    await h.employeeRepo.update(terminateEmployee(emp, "2026-03-20"));
+
+    const calculated = await calculatePayrollRun(run.id, h.deps);
+    const payslips = await h.payslips.listByRunId(run.id);
+
+    expect(payslips.map((p) => [p.employeeId, p.paidDays, p.netPay.toString()]).sort()).toEqual([
+      ["emp-left-later", 31, "9000.000000"],
+      ["emp-stays", 31, "6000.000000"],
+    ]);
+    expect(calculated.totalNet.toString()).toBe("15000.000000");
+    expect(calculated.totalGross.toString()).toBe("15000.000000");
+  });
+
+  it("pays a mid-month leaver to their last day of service, and leaves out someone who left before the month began", async () => {
+    const h = await harness();
+    const run = await createPayrollRun({ id: "r1", year: 2026, month: 1 }, h.deps);
+    const leaver = await employeeWithContract(h, { id: "emp-leaver", monthlySalary: "9000.00" });
+    const gone = await employeeWithContract(h, { id: "emp-gone", monthlySalary: "7000.00" });
+    await h.employeeRepo.update(terminateEmployee(leaver.emp, "2026-01-12"));
+    await h.employeeRepo.update(terminateEmployee(gone.emp, "2025-12-31"));
+
+    const calculated = await calculatePayrollRun(run.id, h.deps);
+    const payslips = await h.payslips.listByRunId(run.id);
+
+    expect(payslips.map((p) => [p.employeeId, p.paidDays, p.netPay.toString()])).toEqual([["emp-leaver", 12, "3600.000000"]]);
+    expect(calculated.totalNet.toString()).toBe("3600.000000");
   });
 
   it("D185: a mid-month joiner is prorated by CALENDAR days when the tenant's divisor setting is CALENDAR_DAYS", async () => {

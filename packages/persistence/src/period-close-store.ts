@@ -238,7 +238,6 @@ enum StoredStatus {
   EtaError = "error",
   StatementCompleted = "completed",
   BankAccountType = "bank",
-  EmployeeTerminated = "terminated",
   PayrollApproved = "approved",
   PayrollDisbursed = "disbursed",
 }
@@ -282,9 +281,9 @@ export interface PeriodCloseBankAccountRow {
   readonly firstMovementDate: string;
 }
 
-export interface PeriodClosePayrollDueRow {
-  readonly dueEmployees: number;
-  readonly uncoveredEmployees: number;
+export interface PeriodClosePayrollRunsRow {
+  /** Employees holding a payslip in an approved or disbursed run for the month. */
+  readonly paidEmployeeIds: readonly string[];
   readonly hasUnpostedRun: boolean;
 }
 
@@ -325,7 +324,7 @@ export interface PeriodCloseQueries {
   numberedDocuments(window: PeriodCloseWindow): { kind: PeriodCloseDocKind; documents: NumberedDocument[] }[];
   bankStatementsOverlapping(window: PeriodCloseWindow): PeriodCloseBankStatementRow[];
   bankAccountsWithMovement(window: PeriodCloseWindow): PeriodCloseBankAccountRow[];
-  payrollDue(window: PeriodCloseWindow): PeriodClosePayrollDueRow;
+  payrollRuns(window: PeriodCloseWindow): PeriodClosePayrollRunsRow;
   recurringRuns(): PeriodCloseRecurringRunRow[];
   recurringSkips(): PeriodCloseRecurringSkipRow[];
   openFxLineGroups(toDate: string): PeriodCloseFxLineGroup[];
@@ -440,32 +439,19 @@ function createQueries(sqlite: Database.Database): PeriodCloseQueries {
         .all(StoredStatus.BankAccountType, ...LEDGER_EFFECTIVE_STATUSES, window.startDate, nextDay(window.endDate)) as { id: string; name: string; first_movement: string }[];
       return rows.map((row) => ({ treasuryAccountId: row.id, name: row.name, firstMovementDate: row.first_movement }));
     },
-    payrollDue(window) {
+    payrollRuns(window) {
       const year = Number(window.startDate.slice(0, 4));
       const month = Number(window.startDate.slice(5, 7));
-      const due = `
-        FROM hr_employee e
-       WHERE e.hire_date <= @endDate
-         AND (e.status <> @terminated OR (e.terminated_at IS NOT NULL AND substr(e.terminated_at, 1, 10) > @endDate))
-         AND EXISTS (
-           SELECT 1 FROM hr_contract c
-            WHERE c.employee_id = e.id AND c.start_date <= @endDate AND (c.end_date IS NULL OR c.end_date >= @startDate)
-         )`;
-      const params = { startDate: window.startDate, endDate: window.endDate, terminated: StoredStatus.EmployeeTerminated, year, month, approved: StoredStatus.PayrollApproved, disbursed: StoredStatus.PayrollDisbursed };
-      const row = sqlite
+      const paid = sqlite
         .prepare(
-          `SELECT COUNT(*) AS due,
-                  SUM(CASE WHEN NOT EXISTS (
-                    SELECT 1 FROM hr_payslip p JOIN hr_payroll_run r ON r.id = p.run_id
-                     WHERE p.employee_id = e.id AND r.year = @year AND r.month = @month AND r.status IN (@approved, @disbursed)
-                  ) THEN 1 ELSE 0 END) AS uncovered
-           ${due}`,
+          `SELECT DISTINCT p.employee_id FROM hr_payslip p JOIN hr_payroll_run r ON r.id = p.run_id
+            WHERE r.year = ? AND r.month = ? AND r.status IN (?, ?)`,
         )
-        .get(params) as { due: number; uncovered: number | null };
+        .all(year, month, StoredStatus.PayrollApproved, StoredStatus.PayrollDisbursed) as { employee_id: string }[];
       const unposted = sqlite
         .prepare(`SELECT COUNT(*) AS n FROM hr_payroll_run WHERE year = ? AND month = ? AND status IN (${placeholders(UNPOSTED_PAYROLL_STATUSES)})`)
         .get(year, month, ...UNPOSTED_PAYROLL_STATUSES) as { n: number };
-      return { dueEmployees: row.due, uncoveredEmployees: row.uncovered ?? 0, hasUnpostedRun: unposted.n > 0 };
+      return { paidEmployeeIds: paid.map((row) => row.employee_id), hasUnpostedRun: unposted.n > 0 };
     },
     recurringRuns() {
       const rows = sqlite

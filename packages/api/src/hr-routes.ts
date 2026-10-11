@@ -557,7 +557,10 @@ export function createHrRoutes(deps: HrRoutesDeps, resolveAuthContext: AuthConte
     const current = await deps.employees.findById(c.req.param("id"));
     if (!current) return c.json({ error: "EMPLOYEE_NOT_FOUND" }, 404);
     try {
-      const next = terminateEmployee(current);
+      const body = (await c.req.json().catch(() => ({}))) as { effectiveDate?: unknown };
+      const today = await tenantToday(c);
+      const requested = body.effectiveDate === undefined || body.effectiveDate === null ? today : String(body.effectiveDate);
+      const next = terminateEmployee(current, requested, today);
       await deps.employees.update(next);
       return c.json(serializeEmployee(next));
     } catch (err) {

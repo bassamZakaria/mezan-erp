@@ -29,6 +29,8 @@ export interface EmployeeRef {
   readonly managerId: string | null;
   readonly hireDate: string;
   readonly status: EmployeeRefStatus;
+  /** The last day of service once `status` is terminated. Absent on a ref built before payroll read it. */
+  readonly terminatedAt?: string | null;
   readonly workerCategory: EmployeeWorkerCategory;
   /** Overtime eligibility, already resolved of the "inherit department" indirection is NOT done here — callers needing the resolved boolean combine this with the department's `overtimeEligible` default. */
   readonly overtimeEligibility: EmployeeOvertimeEligibility;

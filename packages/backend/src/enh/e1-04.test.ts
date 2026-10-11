@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { ALL_SCOPE } from "@mezan/domain";
+import { ALL_SCOPE, MODULE_CATALOG, createEntitlements } from "@mezan/domain";
 import { openSqliteConnection } from "@mezan/persistence";
 import { PeriodCloseCheckStatusDTO, type PeriodCloseCheckDTO, type PeriodCloseChecklistDTO } from "@mezan/contracts";
 import { createBackend, type BackendHandle } from "../create-backend.js";
@@ -14,11 +14,14 @@ afterEach(() => {
   for (const cleanup of cleanups.splice(0).reverse()) cleanup();
 });
 
-async function world() {
+async function world(activeModules: readonly string[] | null = null) {
   const dir = mkdtempSync(path.join(tmpdir(), "mezan-e1-04-"));
   cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
   const dbPath = path.join(dir, "books.db");
-  const backend: BackendHandle = await createBackend({ dbPath });
+  const backend: BackendHandle = await createBackend({
+    dbPath,
+    ...(activeModules ? { resolveEntitlements: () => createEntitlements({ plan: "TEST", activeModules: [...activeModules], features: {}, seats: 5, expiresAt: null }) } : {}),
+  });
   cleanups.push(() => backend.close());
   const { sqlite } = openSqliteConnection(dbPath);
   cleanups.push(() => sqlite.close());
@@ -233,11 +236,11 @@ describe("period-close checks read the real tables (ENH-E1-04)", () => {
     await expectCloseRefused(request, "07", "bank_statements");
   });
 
-  it("a month with staff in service at its end and no posted payroll run does not close clean", async () => {
+  it("a month with staff in service during it and no posted payroll run does not close clean — a May leaver is still owed May", async () => {
     const { sqlite, request, check } = await world();
     const employee = (id: string, hireDate: string, extra: Record<string, string | number | null> = {}) => {
       insert(sqlite, "hr_employee", { id, code: id, hire_date: hireDate, status: "active", ...extra });
-      insert(sqlite, "hr_contract", { id: `ct-${id}`, number: `CT-${id}`, employee_id: id, start_date: hireDate, end_date: null, status: "active" });
+      insert(sqlite, "hr_contract", { id: `ct-${id}`, number: `CT-${id}`, employee_id: id, type: "indefinite", pay_basis: "monthly", pay_frequency: "monthly", currency: "EGP", start_date: hireDate, end_date: null, status: "active" });
     };
     const payslip = (employeeId: string) =>
       insert(sqlite, "hr_payslip", { id: `ps-${employeeId}`, number: `PS-${employeeId}`, run_id: "pr-june", employee_id: employeeId, contract_id: `ct-${employeeId}`, currency: "EGP", period_start: "2026-06-01", period_end: "2026-06-30", lines_json: "[]" });
@@ -251,7 +254,7 @@ describe("period-close checks read the real tables (ENH-E1-04)", () => {
     expect(june.status).toBe("fail");
     expect(june.findings.map((f) => [f.kind, f.ref, f.state, f.count, f.fix])).toEqual([["payroll_due", "2026-06", "missing", 2, "payroll"]]);
     expect(await dueIn("07")).toEqual([3]);
-    expect(await dueIn("05")).toEqual([2]);
+    expect(await dueIn("05")).toEqual([3]);
     expect(await dueIn("04")).toEqual([3]);
     await expectCloseRefused(request, "06", "drafts");
 
@@ -263,6 +266,50 @@ describe("period-close checks read the real tables (ENH-E1-04)", () => {
     expect(await dueIn("06")).toEqual([1]);
     payslip("emp-suspended");
     expect((await check("06", "drafts")).status).toBe("pass");
+  });
+
+  it("payroll is due for whoever a run for the month would pay: a later leaver is covered by the run that paid them, a mid-month leaver is owed their final pay", async () => {
+    const { sqlite, check } = await world();
+    const employee = (id: string, extra: Record<string, string | number | null> = {}, contract: Record<string, string | number | null> = {}) => {
+      insert(sqlite, "hr_employee", { id, code: id, hire_date: "2026-01-01", status: "active", ...extra });
+      insert(sqlite, "hr_contract", { id: `ct-${id}`, number: `CT-${id}`, employee_id: id, type: "indefinite", pay_basis: "monthly", pay_frequency: "monthly", currency: "EGP", start_date: "2026-01-01", end_date: null, status: "active", ...contract });
+    };
+    const run = (month: number, status: string, employeeIds: readonly string[]) => {
+      const key = String(month).padStart(2, "0");
+      insert(sqlite, "hr_payroll_run", { id: `pr-${key}`, number: `PAY-2026-${key}`, year: 2026, month, period_start: `2026-${key}-01`, period_end: `2026-${key}-28`, currency: "EGP", status });
+      for (const id of employeeIds) {
+        insert(sqlite, "hr_payslip", { id: `ps-${key}-${id}`, number: `PS-${key}-${id}`, run_id: `pr-${key}`, employee_id: id, contract_id: `ct-${id}`, currency: "EGP", period_start: `2026-${key}-01`, period_end: `2026-${key}-28` });
+      }
+    };
+    const dueIn = async (month: string) => (await check(month, "drafts")).findings.filter((f) => f.kind === "payroll_due").map((f) => [f.state, f.count]);
+    employee("emp-stays");
+    employee("emp-left-aug", { status: "terminated", terminated_at: "2026-08-20T19:21:15.000Z" });
+    employee("emp-left-mid-july", { status: "terminated", terminated_at: "2026-07-12" });
+    employee("emp-daily", {}, { pay_basis: "daily" });
+    employee("emp-undated", { status: "terminated", terminated_at: null });
+
+    run(6, "disbursed", ["emp-stays", "emp-left-aug", "emp-left-mid-july"]);
+    expect(await dueIn("06")).toEqual([]);
+
+    run(7, "approved", ["emp-stays", "emp-left-aug"]);
+    expect(await dueIn("07")).toEqual([["missing", 1]]);
+    insert(sqlite, "hr_payslip", { id: "ps-07-final", number: "PS-07-FINAL", run_id: "pr-07", employee_id: "emp-left-mid-july", contract_id: "ct-emp-left-mid-july", currency: "EGP", period_start: "2026-07-01", period_end: "2026-07-12" });
+    expect(await dueIn("07")).toEqual([]);
+
+    expect(await dueIn("08")).toEqual([["missing", 2]]);
+    expect(await dueIn("09")).toEqual([["missing", 1]]);
+  });
+
+  it("a tenant without the HR module is not asked for a payroll run", async () => {
+    const withoutHr = await world(MODULE_CATALOG.filter((module) => module !== "hr"));
+    insert(withoutHr.sqlite, "hr_employee", { id: "emp-1", code: "emp-1", hire_date: "2026-01-01", status: "active" });
+    insert(withoutHr.sqlite, "hr_contract", { id: "ct-1", number: "CT-1", employee_id: "emp-1", type: "indefinite", pay_basis: "monthly", pay_frequency: "monthly", currency: "EGP", start_date: "2026-01-01", end_date: null, status: "active" });
+    expect((await withoutHr.check("06", "drafts")).findings.filter((f) => f.kind === "payroll_due")).toEqual([]);
+
+    const withHr = await world([...MODULE_CATALOG]);
+    insert(withHr.sqlite, "hr_employee", { id: "emp-1", code: "emp-1", hire_date: "2026-01-01", status: "active" });
+    insert(withHr.sqlite, "hr_contract", { id: "ct-1", number: "CT-1", employee_id: "emp-1", type: "indefinite", pay_basis: "monthly", pay_frequency: "monthly", currency: "EGP", start_date: "2026-01-01", end_date: null, status: "active" });
+    expect((await withHr.check("06", "drafts")).findings.filter((f) => f.kind === "payroll_due").map((f) => f.count)).toEqual([1]);
   });
 
   const UNPOSTED_SOURCES = [

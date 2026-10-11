@@ -136,6 +136,7 @@ export function toEmployeeRef(employee: Employee): EmployeeRef {
     managerId: employee.managerId,
     hireDate: employee.hireDate,
     status: employee.status,
+    terminatedAt: employee.terminatedAt,
     workerCategory: employee.workerCategory,
     overtimeEligibility: employee.overtimeEligibility,
     standardWorkHours: employee.standardWorkHours,

@@ -10,11 +10,22 @@ export function transitionEmployee(employee: Employee, to: EmployeeStatus): Empl
 }
 
 /** Terminates an employee's service (docs/archive/catalog/06 "المزيد → إنهاء الخدمة") — the one path into the terminal "terminated" status. */
-export function terminateEmployee(employee: Employee, terminatedAt: string = new Date().toISOString()): Employee {
+/**
+ * `effectiveDate` is the last day of service. Payroll reads it to decide which
+ * months still owe this person a payslip, so it is a calendar day the caller
+ * states — not the instant the button was pressed, which made someone who left
+ * on the twelfth look in service until whenever HR recorded it.
+ */
+export function terminateEmployee(employee: Employee, effectiveDate: string, today: string = effectiveDate): Employee {
   if (!canTransitionEmployee(employee.status, "terminated")) {
     throw new InvalidEmployeeTransitionError(employee.status, "terminated");
   }
-  return { ...employee, status: "terminated", terminatedAt };
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(effectiveDate) || Number.isNaN(Date.parse(`${effectiveDate}T00:00:00.000Z`))) {
+    throw new InvalidEmployeeError(["تاريخ إنهاء الخدمة مطلوب بصيغة YYYY-MM-DD"]);
+  }
+  if (effectiveDate > today) throw new InvalidEmployeeError(["تاريخ إنهاء الخدمة لا يمكن أن يكون بعد اليوم"]);
+  if (effectiveDate < employee.hireDate) throw new InvalidEmployeeError(["تاريخ إنهاء الخدمة لا يمكن أن يسبق تاريخ التعيين"]);
+  return { ...employee, status: "terminated", terminatedAt: effectiveDate };
 }
 
 /**

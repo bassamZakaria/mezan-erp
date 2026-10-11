@@ -442,3 +442,14 @@ export {
   selfieBytesMatchMime,
 } from "./self-service.js";
 export { assertDeviceBadgeAvailable, normalizeDeviceBadgeId } from "./device-badge.js";
+
+export {
+  PayrollExclusionReason,
+  contractForPeriod,
+  inServiceDuring,
+  payrollEligibility,
+  type PayrollCapabilities,
+  type PayrollEligibility,
+  type PayrollServiceSpan,
+  type PayrollWindow,
+} from "./payroll-population.js";

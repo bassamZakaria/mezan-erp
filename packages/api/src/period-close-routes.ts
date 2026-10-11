@@ -23,6 +23,7 @@ import {
   type PeriodCloseSummaryDTO,
 } from "@mezan/contracts";
 import { createPermissionGate, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
+import { hasModule } from "@mezan/domain";
 
 export interface PeriodCloseAuditInput {
   readonly action: PeriodCloseAction;
@@ -41,6 +42,7 @@ export interface PeriodCloseAttempt {
   readonly canOverride: boolean;
   readonly actor: string;
   readonly wildcardAdmin: boolean;
+  readonly scope: PeriodCloseScope;
   readonly buildAuditEvent: (input: PeriodCloseAuditInput) => AuditEvent;
 }
 
@@ -63,8 +65,21 @@ export interface SealedPeriodCloseSummary {
   readonly sealValid: boolean;
 }
 
+/** What the caller's licence covers, where a check belongs to a module the tenant may not hold. */
+export interface PeriodCloseScope {
+  readonly payrollEntitled: boolean;
+}
+
+const HR_MODULE = "hr";
+
+/** No entitlements bound means no licensing in play, which is every module. */
+export function periodCloseScopeOf(c: Context): PeriodCloseScope {
+  const entitlements = c.get("entitlements");
+  return { payrollEntitled: entitlements ? hasModule(entitlements, HR_MODULE) : true };
+}
+
 export interface PeriodCloseGuard {
-  evaluate(period: FiscalPeriod): Promise<PeriodCloseEvaluation>;
+  evaluate(period: FiscalPeriod, scope: PeriodCloseScope): Promise<PeriodCloseEvaluation>;
   attempt(attempt: PeriodCloseAttempt): Promise<PeriodCloseAttemptResult>;
   listSummaries(periodId: string): Promise<readonly SealedPeriodCloseSummary[]>;
 }
@@ -164,7 +179,7 @@ export function createPeriodCloseRoutes(deps: PeriodCloseRoutesDeps, resolveAuth
     if (!period) return c.json({ error: "NOT_FOUND" }, 404);
     const guard = deps.guard();
     if (!guard) return c.json(serializePeriodCloseError(new PeriodCloseChecksUnavailableError(period)), 503);
-    const evaluation = await guard.evaluate(period);
+    const evaluation = await guard.evaluate(period, periodCloseScopeOf(c));
     return c.json(serializePeriodCloseChecklist(evaluation, period, canOverridePeriodClose(c)));
   });
 

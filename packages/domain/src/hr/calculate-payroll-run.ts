@@ -46,6 +46,7 @@ import {
   PayrollFxRateMissingError,
   PayrollRunNotFoundError,
 } from "./errors.js";
+import { PayrollExclusionReason, inServiceDuring, payrollEligibility, type PayrollCapabilities, type PayrollWindow } from "./payroll-population.js";
 
 /**
  * The payroll calculation engine (docs/archive/catalog/06 "الرواتب").
@@ -376,36 +377,40 @@ export async function calculatePayrollRun(runId: string, deps: PayrollCalculatio
   const divisor = payrollDayDivisor(deps.dayDivisorBasis ?? "FIXED_30", periodDays);
   const warnings: string[] = [];
 
-  const employees = (await deps.employees.listActive()).filter((e) => run.branchId === null || e.branchId === run.branchId);
+  const window: PayrollWindow = { periodStart: run.periodStart, periodEnd: run.periodEnd };
+  const capabilities: PayrollCapabilities = {
+    attendanceBound: deps.workedTime !== undefined,
+    runCurrency: run.currency,
+    canConvertCurrency: deps.exchangeRates !== undefined && isBaseCurrency(run.currency),
+  };
+  // Everyone who served a day of the PERIOD, not today's staff list: a run for
+  // June still owes June's pay to someone who has left since.
+  const employees = (await deps.employees.list()).filter((e) => inServiceDuring(e, window) && (run.branchId === null || e.branchId === run.branchId));
 
   const inputs: EmployeePayrollInput[] = [];
   for (const employee of employees) {
-    const contract = pickContract(await deps.contracts.listByEmployeeId(employee.id), run.periodStart, run.periodEnd);
-    if (!contract) {
-      warnings.push(`${employee.fullNameAr} (${employee.code}): لا يوجد عقد ساري خلال الفترة — تم استبعاده.`);
+    const eligibility = payrollEligibility(employee, await deps.contracts.listByEmployeeId(employee.id), window, capabilities);
+    if (!eligibility.payable) {
+      const who = `${employee.fullNameAr} (${employee.code})`;
+      const contract = eligibility.contract;
+      if (eligibility.reason === PayrollExclusionReason.NeedsAttendance && contract) {
+        warnings.push(`${who}: أساس الدفع "${getPayBasisLabel(contract.payBasis)}" يحتاج بيانات حضور ولم يُربط مصدرها — تم استبعاده.`);
+      } else if (eligibility.reason === PayrollExclusionReason.CurrencyMismatch && contract) {
+        warnings.push(`${who}: عملة العقد (${contract.currency}) تختلف عن عملة الدورة (${run.currency}) — تم استبعاده.`);
+      } else if (eligibility.reason === PayrollExclusionReason.NoPaidDays) {
+        warnings.push(`${who}: لا توجد أيام مستحقة خلال الفترة — تم استبعاده.`);
+      } else {
+        warnings.push(`${who}: لا يوجد عقد ساري خلال الفترة — تم استبعاده.`);
+      }
       continue;
     }
-    if (contract.payBasis !== "monthly" && !deps.workedTime) {
-      warnings.push(`${employee.fullNameAr} (${employee.code}): أساس الدفع "${getPayBasisLabel(contract.payBasis)}" يحتاج بيانات حضور ولم يُربط مصدرها — تم استبعاده.`);
-      continue;
-    }
-    if (contract.currency !== run.currency && (!deps.exchangeRates || !isBaseCurrency(run.currency))) {
-      warnings.push(`${employee.fullNameAr} (${employee.code}): عملة العقد (${contract.currency}) تختلف عن عملة الدورة (${run.currency}) — تم استبعاده.`);
-      continue;
-    }
+    const { contract, paidStart, paidEnd, paidDays } = eligibility;
     if (contract.payFrequency !== "monthly") {
       warnings.push(
         contract.payBasis === "monthly"
           ? `${employee.fullNameAr} (${employee.code}): تكرار الدفع "${getPayFrequencyLabel(contract.payFrequency)}" — احتُسب راتب شهر كامل للفترة.`
           : `${employee.fullNameAr} (${employee.code}): تكرار الدفع "${getPayFrequencyLabel(contract.payFrequency)}" — احتُسب حضور الشهر كله في كشف واحد.`,
       );
-    }
-    const paidStart = maxDate(maxDate(run.periodStart, contract.startDate), employee.hireDate);
-    const paidEnd = minDate(run.periodEnd, contract.endDate ?? run.periodEnd);
-    const paidDays = inclusiveDays(paidStart, paidEnd);
-    if (paidDays <= 0) {
-      warnings.push(`${employee.fullNameAr} (${employee.code}): لا توجد أيام مستحقة خلال الفترة — تم استبعاده.`);
-      continue;
     }
     if (paidDays < periodDays) {
       warnings.push(`${employee.fullNameAr} (${employee.code}): احتُسب ${paidDays} من ${periodDays} يوماً بالتناسب.`);

@@ -34,16 +34,19 @@ describe("terminateEmployee", () => {
   it("sets status terminated and stamps terminatedAt", async () => {
     const repo = createInMemoryEmployeeRepository();
     const emp = await createEmployee(BASE, repo);
-    const terminated = terminateEmployee(emp, "2026-06-01T00:00:00.000Z");
+    const terminated = terminateEmployee(emp, "2026-06-01", "2026-06-10");
     expect(terminated.status).toBe("terminated");
-    expect(terminated.terminatedAt).toBe("2026-06-01T00:00:00.000Z");
+    expect(terminated.terminatedAt).toBe("2026-06-01");
+    expect(() => terminateEmployee(emp, "2026-06-11", "2026-06-10")).toThrow(InvalidEmployeeError);
+    expect(() => terminateEmployee(emp, "2026-06-01T00:00:00.000Z", "2026-06-10")).toThrow(InvalidEmployeeError);
+    expect(() => terminateEmployee({ ...emp, hireDate: "2026-06-05" }, "2026-06-01", "2026-06-10")).toThrow(InvalidEmployeeError);
   });
 
   it("rejects terminating an already-terminated employee", async () => {
     const repo = createInMemoryEmployeeRepository();
     const emp = await createEmployee(BASE, repo);
-    const terminated = terminateEmployee(emp);
-    expect(() => terminateEmployee(terminated)).toThrow(InvalidEmployeeTransitionError);
+    const terminated = terminateEmployee(emp, "2026-06-01");
+    expect(() => terminateEmployee(terminated, "2026-06-02")).toThrow(InvalidEmployeeTransitionError);
   });
 });
 
@@ -57,7 +60,7 @@ describe("rehireEmployee", () => {
   it("rejects a malformed rehire date", async () => {
     const repo = createInMemoryEmployeeRepository();
     const emp = await createEmployee(BASE, repo);
-    const terminated = terminateEmployee(emp, "2023-01-01T00:00:00.000Z");
+    const terminated = terminateEmployee(emp, "2023-01-01");
     expect(() => rehireEmployee(terminated, "not-a-date")).toThrow(InvalidEmployeeError);
   });
 
@@ -65,7 +68,7 @@ describe("rehireEmployee", () => {
     const repo = createInMemoryEmployeeRepository();
     const emp = await createEmployee(BASE, repo);
     // 2020-01-01 -> 2023-01-01 spans 1096 days (2020 is a leap year): 3 completed years.
-    const terminated = terminateEmployee(emp, "2023-01-01T00:00:00.000Z");
+    const terminated = terminateEmployee(emp, "2023-01-01");
     const rehired = rehireEmployee(terminated, "2026-06-01");
 
     expect(rehired.status).toBe("active");
@@ -78,7 +81,7 @@ describe("rehireEmployee", () => {
   it("accumulates priorServiceYears across repeated hire/terminate/rehire spells", async () => {
     const repo = createInMemoryEmployeeRepository();
     const emp = await createEmployee({ ...BASE, priorServiceYears: 2 }, repo);
-    const terminated = terminateEmployee(emp, "2023-01-01T00:00:00.000Z");
+    const terminated = terminateEmployee(emp, "2023-01-01");
     const rehired = rehireEmployee(terminated, "2026-06-01");
     expect(rehired.priorServiceYears).toBe(2 + 3);
   });
@@ -86,7 +89,7 @@ describe("rehireEmployee", () => {
   it("never counts a negative or zero served duration (rehire date at or before the prior hire date)", async () => {
     const repo = createInMemoryEmployeeRepository();
     const emp = await createEmployee({ ...BASE, hireDate: "2026-01-01" }, repo);
-    const terminated = terminateEmployee(emp, "2026-01-01T00:00:00.000Z");
+    const terminated = terminateEmployee(emp, "2026-01-01");
     const rehired = rehireEmployee(terminated, "2026-06-01");
     expect(rehired.priorServiceYears).toBe(0);
   });

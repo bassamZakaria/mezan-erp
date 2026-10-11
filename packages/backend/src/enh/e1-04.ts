@@ -18,6 +18,9 @@ import {
   duePeriods,
   evaluatePeriodClose,
   findSequenceGapsInWindow,
+  inServiceDuring,
+  payrollEligibility,
+  BASE_CURRENCY,
   journalDateForPeriod,
   type Asset,
   type LedgerRepository,
@@ -30,6 +33,7 @@ import {
 } from "@mezan/domain";
 import {
   createSqliteAssetRepository,
+  createSqliteContractRepository,
   createSqliteDepreciationRunRepository,
   createSqlitePeriodCloseStore,
   createSqliteRecurringJournalTemplateRepository,
@@ -99,6 +103,8 @@ function asPostedLine(group: PeriodCloseFxLineGroup, date: string): PostedLine {
   };
 }
 
+const NO_PAYROLL_DUE = { dueEmployees: 0, uncoveredEmployees: 0, hasUnpostedRun: false } as const;
+
 function depreciationBranch(asset: Asset): string | null {
   return asset.scope === AssetScope.Branch ? asset.branchId : null;
 }
@@ -108,7 +114,8 @@ function buildSources(ctx: BackendModuleContext, store: ReturnType<typeof create
   const templates = createSqliteRecurringJournalTemplateRepository(sqlite);
   const assets = createSqliteAssetRepository(sqlite);
   const depreciationRuns = createSqliteDepreciationRunRepository(sqlite);
-  closers.push(templates, assets, depreciationRuns);
+  const contracts = createSqliteContractRepository(sqlite);
+  closers.push(templates, assets, depreciationRuns, contracts);
   const { queries, fxRuns } = store;
   const accountBalances = ledgerBalances(stores.ledger);
 
@@ -158,7 +165,27 @@ function buildSources(ctx: BackendModuleContext, store: ReturnType<typeof create
 
     bankAccountsWithMovement: async (window) =>
       queries.bankAccountsWithMovement(window).map((account) => ({ treasuryAccountId: account.treasuryAccountId, label: account.name, firstMovementDate: account.firstMovementDate })),
-    payrollDue: async (window) => queries.payrollDue(window),
+    /**
+     * Who a run for the month would pay — the run's own predicate, asked of the
+     * month — less whoever a posted run has paid. Attendance is not bound to
+     * payroll here, so an hourly or daily contract is one a run cannot pay and
+     * is not counted as owed.
+     */
+    async payrollDue(window) {
+      const period = { periodStart: window.startDate, periodEnd: window.endDate };
+      const capabilities = { attendanceBound: false, runCurrency: BASE_CURRENCY, canConvertCurrency: true };
+      const { paidEmployeeIds, hasUnpostedRun } = queries.payrollRuns(window);
+      const paid = new Set(paidEmployeeIds);
+      let dueEmployees = 0;
+      let uncoveredEmployees = 0;
+      for (const employee of await stores.employees.list()) {
+        if (!inServiceDuring(employee, period)) continue;
+        if (!payrollEligibility(employee, await contracts.listByEmployeeId(employee.id), period, capabilities).payable) continue;
+        dueEmployees += 1;
+        if (!paid.has(employee.id)) uncoveredEmployees += 1;
+      }
+      return { dueEmployees, uncoveredEmployees, hasUnpostedRun };
+    },
 
     foreignCurrencies,
     fxRevaluedCurrencies: async (window) => fxRuns.currenciesRevaluedAsOf(window.endDate),
@@ -250,7 +277,7 @@ export const area: BackendArea = {
 
     const guard = createPeriodCloseGuard({
       periods: ctx.stores.fiscalPeriods,
-      evaluate(period) {
+      evaluate(period, scope) {
         const window: PeriodCloseWindow = {
           periodId: period.id,
           year: period.year,
@@ -258,7 +285,7 @@ export const area: BackendArea = {
           startDate: period.startDate,
           endDate: period.endDate,
         };
-        return evaluatePeriodClose(window, sources, {
+        return evaluatePeriodClose(window, scope.payrollEntitled ? sources : { ...sources, payrollDue: async () => NO_PAYROLL_DUE }, {
           now: new Date().toISOString(),
           onCheckFailure: ({ code, error }) => console.error(`[period-close] check "${code}" could not be evaluated for ${period.id}`, error),
         });

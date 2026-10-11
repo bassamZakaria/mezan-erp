@@ -25,6 +25,7 @@ import {
   serializePeriodCloseError,
   serializePeriodCloseRefusal,
   type PeriodCloseGuardSource,
+  periodCloseScopeOf,
 } from "./period-close-routes.js";
 
 enum PeriodAudit {
@@ -177,6 +178,7 @@ export function createFiscalPeriodsRoutes(
         canOverride,
         actor: callerUserId(c) ?? "system",
         wildcardAdmin: getAuthContext(c)?.permissions.has("*") ?? false,
+        scope: periodCloseScopeOf(c),
         buildAuditEvent: (input) =>
           buildAdminEvent(c, {
             module: PeriodAudit.Module,

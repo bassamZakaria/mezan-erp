@@ -178,14 +178,6 @@ export async function createPayrollRun(
   return run;
 }
 
-function maxDate(a: string, b: string): string {
-  return a > b ? a : b;
-}
-
-function minDate(a: string, b: string): string {
-  return a < b ? a : b;
-}
-
 /** The contract in force for the period: active, and overlapping [periodStart, periodEnd]. Latest start wins. */
 function pickContract(contracts: readonly Contract[], periodStart: string, periodEnd: string): Contract | null {
   const candidates = contracts.filter(

@@ -4,13 +4,7 @@ export interface LedgerPresenceInput {
   readonly endedOn: string | null;
 }
 
-/**
- * How many times a document's posting stands in the ledger at `asOfDate`: once
- * from its own date, and no longer from the day its reversal is DATED. The
- * ledger keeps both entries where they were dated, so a sub-ledger that drops a
- * document because it is reversed today disagrees with every month end between
- * the two dates. `-1` is the reversal dated before the document it undoes.
- */
+// The ledger keeps a document and its reversal where each is DATED, so presence ends on the reversal's date, not on the day it was recorded. -1 is a reversal dated before the document it undoes.
 export function ledgerPresenceAsOf(doc: LedgerPresenceInput, asOfDate: string | undefined): -1 | 0 | 1 {
   if (asOfDate === undefined) return doc.live ? 1 : 0;
   if (!doc.live && doc.endedOn === null) return 0;

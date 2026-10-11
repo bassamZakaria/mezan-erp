@@ -12,7 +12,8 @@ import {
 } from "@mezan/domain";
 import { createPurchaseReturnSchema } from "@mezan/contracts";
 import { type AuthContextResolver, branchScopeOf, callerUserId, createPermissionGate, warehouseScopeOf, withinScope } from "./permission-gate.js";
-import { documentBranches, storedBranchesById } from "./stored-branches.js";
+import { BranchRecordKind } from "./branch-policy.js";
+import { returnBranches, storedBranchesById, withinBranchScope } from "./stored-branches.js";
 import { handleDocumentError } from "./document-error-handling.js";
 import { refuseOutOfScopeBranches } from "./branch-scope-refusal.js";
 import { tenantDay } from "./tenant-day.js";
@@ -73,7 +74,7 @@ export function createPurchaseReturnsRoutes(
   const gate = createPermissionGate(resolveAuthContext, {
     storedBranches: storedBranchesById(
       (id) => service.findById(id),
-      (doc, c) => documentBranches(c, doc.lines.map((line) => line.branchId), doc.lines.map((line) => line.warehouseId)),
+      (doc, c) => returnBranches(c, BranchRecordKind.PurchaseReturn, doc),
     ),
   });
 
@@ -154,7 +155,7 @@ export function createPurchaseReturnsRoutes(
     // routes already apply.
     const scope = warehouseScopeOf(c);
     let rows = !scope ? list : list.filter((doc) => doc.lines.some((line) => scope.includes(line.warehouseId)));
-    rows = withinScope(rows, branchScopeOf(c), (doc) => doc.lines[0]?.branchId);
+    rows = await withinBranchScope(c, rows, (doc) => returnBranches(c, BranchRecordKind.PurchaseReturn, doc));
     if (filter.supplierId) {
       rows = rows.filter((doc) => doc.lines.some((line) => line.supplierId === filter.supplierId));
     }
@@ -216,7 +217,7 @@ export function createPurchaseReturnsRoutes(
 
   app.get("/:id", gate("purchases.return.view"), async (c) => {
     const doc = await service.findById(c.req.param("id"));
-    if (!doc || withinScope([doc], branchScopeOf(c), (d) => d.lines[0]?.branchId).length === 0) return c.json({ error: "NOT_FOUND" }, 404);
+    if (!doc || (await withinBranchScope(c, [doc], (d) => returnBranches(c, BranchRecordKind.PurchaseReturn, d))).length === 0) return c.json({ error: "NOT_FOUND" }, 404);
     return c.json(serialize(doc));
   });
 

@@ -1,5 +1,6 @@
 import type { Context } from "hono";
-import { branchGrantOf, type StoredBranchesResolver } from "./permission-gate.js";
+import { BranchAccess, BranchRecordKind, branchDirectoryOf } from "./branch-policy.js";
+import { branchGrantOf, branchScopeOf, type StoredBranchesResolver } from "./permission-gate.js";
 
 /** The branch each of `warehouseIds` belongs to; null for one no branch holds. */
 export async function branchesOfWarehouses(c: Context, warehouseIds: readonly (string | null | undefined)[]): Promise<(string | null)[]> {
@@ -21,6 +22,38 @@ export async function documentBranches(
 ): Promise<(string | null)[]> {
   const own = branchIds.filter((id): id is string => typeof id === "string" && id !== "");
   return own.length > 0 ? own : branchesOfWarehouses(c, warehouseIds);
+}
+
+interface ReturnDocument {
+  readonly id: string;
+  readonly lines: readonly { readonly branchId?: string | null; readonly warehouseId?: string | null }[];
+}
+
+/**
+ * INVARIANT: the ONE reading of a sales or purchase return's branch — each
+ * line's own, else its warehouse's, else its source invoice's — taken from the
+ * branch directory. The gate, the list, the record and its attachments all
+ * call this, so they cannot disagree about whose return it is.
+ */
+export async function returnBranches(
+  c: Context,
+  kind: BranchRecordKind.SalesReturn | BranchRecordKind.PurchaseReturn,
+  doc: ReturnDocument,
+): Promise<readonly (string | null)[]> {
+  const stored = await branchDirectoryOf(c)?.branchesOf(kind, doc.id, BranchAccess.Read);
+  return stored ?? documentBranches(c, doc.lines.map((line) => line.branchId), doc.lines.map((line) => line.warehouseId));
+}
+
+/** Rows inside the request's branch scope, by the branches each resolves to. A row no branch owns stays, as `withinScope` keeps it. */
+export async function withinBranchScope<Row>(c: Context, rows: readonly Row[], branchesOf: (row: Row) => Promise<readonly (string | null | undefined)[]>): Promise<Row[]> {
+  const scope = branchScopeOf(c);
+  if (!scope) return [...rows];
+  const kept: Row[] = [];
+  for (const row of rows) {
+    const attributed = (await branchesOf(row)).filter((id): id is string => typeof id === "string" && id !== "");
+    if (attributed.length === 0 || attributed.some((id) => scope.includes(id))) kept.push(row);
+  }
+  return kept;
 }
 
 /** A resolver for the document a route addresses by its `:id` param. */

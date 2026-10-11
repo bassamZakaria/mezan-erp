@@ -221,7 +221,7 @@ import { createFinancialReportsRoutes, type FinancialReportsRoutesDeps } from ".
 import { createLabelLayoutsRouter } from "./label-routes.js";
 import { createSequencesRoutes, type SequencesRoutesDeps } from "./sequences-routes.js";
 import { createAuditRoutes } from "./audit-routes.js";
-import { branchesOfWarehouses, documentBranches } from "./stored-branches.js";
+import { branchesOfWarehouses, documentBranches, returnBranches } from "./stored-branches.js";
 import { createSecurityReportsRoutes } from "./security-reports-routes.js";
 import { isProductionRuntime, permissionRefusalReporting, type PermissionRefusalReporter } from "./permission-gate.js";
 import { BranchAccess, BranchRecordKind, branchDirectoryOf, branchPolicyEnforcement, type BranchDirectory } from "./branch-policy.js";
@@ -923,7 +923,7 @@ function attachmentEntityBranches(options: CreateAppOptions): AttachmentEntityBr
       }
       case "sales-return": {
         const doc = await options.salesReturns?.service.findById(entityId);
-        return doc ? documentBranches(c, doc.lines.map((line) => line.branchId), doc.lines.map((line) => line.warehouseId)) : null;
+        return doc ? returnBranches(c, BranchRecordKind.SalesReturn, doc) : null;
       }
       case "purchase-invoice": {
         const invoice = await options.purchases?.invoices.findById(entityId);

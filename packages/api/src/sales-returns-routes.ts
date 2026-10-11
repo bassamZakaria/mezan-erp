@@ -25,7 +25,8 @@ import {
 } from "@mezan/contracts";
 import type { z } from "zod";
 import { type AuthContextResolver, branchScopeOf, callerUserId, createAnyPermissionGate, createPermissionGate, getAuthContext, warehouseScopeOf, withinScope } from "./permission-gate.js";
-import { documentBranches, storedBranchesById } from "./stored-branches.js";
+import { BranchRecordKind } from "./branch-policy.js";
+import { returnBranches, storedBranchesById, withinBranchScope } from "./stored-branches.js";
 import { handleDocumentError } from "./document-error-handling.js";
 import { refuseOutOfScopeBranches } from "./branch-scope-refusal.js";
 import { tenantDay, tenantToday } from "./tenant-day.js";
@@ -108,7 +109,7 @@ export function createSalesReturnsRoutes(
   const app = new Hono();
   const storedBranches = storedBranchesById(
     (id) => service.findById(id),
-    (doc, c) => documentBranches(c, doc.lines.map((line) => line.branchId), doc.lines.map((line) => line.warehouseId)),
+    (doc, c) => returnBranches(c, BranchRecordKind.SalesReturn, doc),
   );
   const gate = createPermissionGate(resolveAuthContext, { storedBranches });
   const gateAny = createAnyPermissionGate(resolveAuthContext, { storedBranches });
@@ -264,7 +265,7 @@ export function createSalesReturnsRoutes(
     const scope = warehouseScopeOf(c);
     if (!scope && ownVisibilityOnly(c)) return { rows: [], refunds: new Map() };
     let rows = !scope ? list : list.filter((doc) => doc.lines.some((line) => scope.includes(line.warehouseId)));
-    rows = withinScope(rows, branchScopeOf(c), (doc) => doc.lines[0]?.branchId);
+    rows = await withinBranchScope(c, rows, (doc) => returnBranches(c, BranchRecordKind.SalesReturn, doc));
     if (filter.customerId) {
       rows = rows.filter((doc) => doc.lines.some((line) => line.customerId === filter.customerId));
     }
@@ -356,7 +357,7 @@ export function createSalesReturnsRoutes(
 
   app.get("/:id", gateAny("sales.return.view", "sales.return.view_own"), async (c) => {
     const doc = await service.findById(c.req.param("id"));
-    if (!doc || withinScope([doc], branchScopeOf(c), (d) => d.lines[0]?.branchId).length === 0) return c.json({ error: "NOT_FOUND" }, 404);
+    if (!doc || (await withinBranchScope(c, [doc], (d) => returnBranches(c, BranchRecordKind.SalesReturn, d))).length === 0) return c.json({ error: "NOT_FOUND" }, 404);
     // A `view_own` holder gets 404, not 403: whether a return they may not see
     // exists at all is itself information, and the list already hides it.
     if (ownVisibilityOnly(c)) {

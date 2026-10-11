@@ -1838,22 +1838,63 @@ describe("D111 round 3 · a branch user does not rewrite what prices every branc
 
 describe("D111 round 3 · the attendance summary is the branch's own workforce", () => {
   const window = "from=2026-01-01&to=2026-12-31";
+  const workedIn = (branchId: string) =>
+    one<{ m: number }>(
+      "SELECT COALESCE(SUM(a.worked_minutes), 0) AS m FROM hr_attendance a JOIN hr_employee e ON e.id = a.employee_id WHERE e.branch_id = ? AND a.date BETWEEN '2026-01-01' AND '2026-12-31'",
+      branchId,
+    )!.m;
 
   it("a branch user gets a summary of its own employees and none of another branch's", async () => {
     const mainEmployee = one<{ id: string }>("SELECT e.id FROM hr_employee e JOIN hr_attendance a ON a.employee_id = e.id WHERE e.branch_id = ? LIMIT 1", MAIN)!.id;
     const company = (await admin("GET", `/hr/attendance/summary?${window}`)).body;
     expect(company.daysPresent).toBeGreaterThan(0);
-    for (const caller of [alex, alexStar]) {
+    const unowned = one<{ m: number }>(
+      "SELECT COALESCE(SUM(a.worked_minutes), 0) AS m FROM hr_attendance a LEFT JOIN hr_employee e ON e.id = a.employee_id WHERE COALESCE(e.branch_id, '') = '' AND a.date BETWEEN '2026-01-01' AND '2026-12-31'",
+    )!.m;
+    for (const [caller, seesUnowned] of [[alex, false], [alexStar, true]] as const) {
       const mine = await caller("GET", `/hr/attendance/summary?${window}`);
       expect(mine.status, JSON.stringify(mine.body).slice(0, 200)).toBe(200);
-      expect(mine.body.daysPresent).toBe(0);
-      expect(mine.body.workedMinutes).toBe(0);
+      expect(mine.body.workedMinutes).toBe(workedIn(ALEX) + (seesUnowned ? unowned : 0));
+      expect(mine.body.workedMinutes).toBeLessThan(company.workedMinutes);
       const named = await caller("GET", `/hr/attendance/summary?${window}&employeeId=${mainEmployee}`);
       expect(named.status).toBe(404);
       expect(named.body.message).toMatch(ARABIC);
     }
     const theirs = await mainOnly("GET", `/hr/attendance/summary?${window}`);
-    expect(theirs.body.daysPresent).toBe(company.daysPresent);
+    expect(theirs.body.workedMinutes).toBe(workedIn(MAIN));
+    expect(workedIn(MAIN) + workedIn(ALEX) + unowned).toBe(company.workedMinutes);
     expect((await mainOnly("GET", `/hr/attendance/summary?${window}&employeeId=${mainEmployee}`)).status).toBe(200);
   });
+});
+
+describe("D111 round 3 · a return's branch is read one way: its line's, else its warehouse's, else its source invoice's", () => {
+  const cases = [
+    ["SALES_RETURN", "/sales-returns", "R3-SRET-BY-WAREHOUSE"],
+    ["PURCHASE_RETURN", "/purchase-returns", "R3-PRET-BY-WAREHOUSE"],
+  ] as const;
+
+  beforeAll(() => {
+    for (const [docType, , id] of cases) {
+      const source = one<any>("SELECT * FROM framework_document WHERE doc_type = ? AND status = 'draft' LIMIT 1", docType) ?? one<any>("SELECT * FROM framework_document WHERE doc_type = ? LIMIT 1", docType);
+      const lines = (JSON.parse(source.lines_json) as Record<string, unknown>[]).map(({ branchId: _branch, sourceInvoiceId: _source, ...line }) => ({ ...line, warehouseId: ALEX_WAREHOUSE }));
+      const columns = Object.keys(source);
+      sqlite
+        .prepare(`INSERT INTO framework_document (${columns.join(", ")}) VALUES (${columns.map(() => "?").join(", ")})`)
+        .run(...columns.map((column) => (column === "id" ? id : column === "doc_no" ? null : column === "lines_json" ? JSON.stringify(lines) : column === "journal_entry_id" || column === "workflow_request_id" ? null : source[column])));
+    }
+  });
+
+  for (const [, path, id] of cases) {
+    it(`${path}: the list, the record and the gate agree, for a restricted session and for a narrowed one`, async () => {
+      const listed = async (caller: Caller, headers?: Record<string, string>) => rowsOf((await caller("GET", `${path}?pageSize=200`, undefined, headers)).body).map((row: any) => row.id);
+      expect(await listed(alex)).toContain(id);
+      expect(await listed(mainOnly)).not.toContain(id);
+      expect(await listed(admin, { "x-branch-scope": ALEX })).toContain(id);
+      expect(await listed(admin, { "x-branch-scope": MAIN })).not.toContain(id);
+      expect((await alex("GET", `${path}/${id}`)).status).toBe(200);
+      expect((await mainOnly("GET", `${path}/${id}`)).status).toBe(404);
+      expect((await admin("GET", `${path}/${id}`, undefined, { "x-branch-scope": ALEX })).status).toBe(200);
+      expect((await admin("GET", `${path}/${id}`, undefined, { "x-branch-scope": MAIN })).status).toBe(404);
+    });
+  }
 });

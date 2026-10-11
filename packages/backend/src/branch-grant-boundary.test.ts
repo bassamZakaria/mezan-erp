@@ -1974,3 +1974,27 @@ describe("D111 round 3 · the routes the review did not drive", () => {
     }
   });
 });
+
+describe("D111 round 3 · the chips above a branch user's list count that user's rows", () => {
+  it("installment plans, collection follow-ups and leave requests answer their counts and stats from the caller's branch", async () => {
+    const lists: readonly (readonly [list: string, counts: string, totalKey: string])[] = [
+      ["/installments/plans", "/installments/plans/counts", "all"],
+      ["/installments/follow-ups", "/installments/follow-ups/counts", "all"],
+      ["/hr/leave-requests", "/hr/leave-requests/counts", "total"],
+    ];
+    for (const [list, counts, totalKey] of lists) {
+      for (const caller of [alex, alexStar, mainOnly]) {
+        const rows = rowsOf((await caller("GET", list)).body);
+        const chips = await caller("GET", counts);
+        expect(chips.status, counts).toBe(200);
+        expect(chips.body[totalKey], counts).toBe(rows.length);
+      }
+      expect((await admin("GET", counts)).body[totalKey], counts).toBeGreaterThan(rowsOf((await alex("GET", list)).body).length);
+    }
+    for (const stats of ["/installments/plans/stats", "/installments/follow-ups/stats"]) {
+      const mine = await alex("GET", stats);
+      expect(mine.status, stats).toBe(200);
+      expect(JSON.stringify(mine.body), stats).not.toBe(JSON.stringify((await admin("GET", stats)).body));
+    }
+  });
+});

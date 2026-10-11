@@ -1,3 +1,5 @@
+import { BranchGatedAction } from "../../../branch-restriction";
+import { useBranchGate } from "../../../shell/useBranchGate";
 import { useMemo, useState } from "react";
 import {
   Button,
@@ -717,14 +719,17 @@ function DepreciationDueTab() {
 
 export function RecurringJournalsScreen() {
   const { t } = useAppTranslation();
+  const branchGate = useBranchGate();
   return (
     <ScreenTabs
       ariaLabel={t("recurringJournals.title")}
       tabs={[
         { key: "templates", label: t("recurringJournals.tab.templates"), render: () => <TemplatesTab /> },
-        { key: "due", label: t("recurringJournals.tab.due"), render: () => <DueTab /> },
-        { key: "history", label: t("recurringJournals.tab.history"), render: () => <HistoryTab /> },
-        { key: "depreciation", label: t("recurringJournals.tab.depreciation"), render: () => <DepreciationDueTab /> },
+        ...(branchGate.allows(BranchGatedAction.RecurringDue) ? [{ key: "due", label: t("recurringJournals.tab.due"), render: () => <DueTab /> }] : []),
+        ...(branchGate.allows(BranchGatedAction.RecurringSkips) ? [{ key: "history", label: t("recurringJournals.tab.history"), render: () => <HistoryTab /> }] : []),
+        ...(branchGate.allows(BranchGatedAction.RecurringDepreciationDue)
+          ? [{ key: "depreciation", label: t("recurringJournals.tab.depreciation"), render: () => <DepreciationDueTab /> }]
+          : []),
       ]}
     />
   );

@@ -200,3 +200,36 @@ describe("DashboardScreen — the panels follow the user's own layout (§8.5, §
     expect(await screen.findByText("أعمار الأرصدة")).toBeInTheDocument();
   });
 });
+
+describe("DashboardScreen — a branch-restricted session sees no company-wide tile (D111)", () => {
+  const TAX_TILE = "ضريبة القيمة المضافة المستحقة";
+  const CONTRACTING_TILE = "استثناءات المقاولات";
+
+  function renderAs(session: typeof testAdminSession) {
+    const calls: string[] = [];
+    const stub = stubTransport({ "GET /dashboard/summary": () => ({ body: summary() }) });
+    renderWithProviders(<DashboardScreen />, {
+      transport: (path, init) => {
+        calls.push(path.split("?")[0]!);
+        return stub(path, init);
+      },
+      initialSession: session,
+    });
+    return calls;
+  }
+
+  it("draws neither the VAT-due tile nor the contracting one, and asks the server for neither", async () => {
+    const calls = renderAs({ ...testAdminSession, isCompanyAdmin: false, branchScope: ["BR-ALEX"] });
+    expect(await screen.findByText("فواتير مبيعات متأخرة")).toBeInTheDocument();
+    expect(screen.queryByText(TAX_TILE)).not.toBeInTheDocument();
+    expect(screen.queryByText(CONTRACTING_TILE)).not.toBeInTheDocument();
+    expect(calls.filter((path) => path.includes("vat-return") || path.startsWith("/contracting"))).toEqual([]);
+  });
+
+  it("draws both for a session that holds every branch", async () => {
+    const calls = renderAs(testAdminSession);
+    expect(await screen.findByText(TAX_TILE)).toBeInTheDocument();
+    expect(screen.getByText(CONTRACTING_TILE)).toBeInTheDocument();
+    expect(calls.some((path) => path.includes("vat-return"))).toBe(true);
+  });
+});

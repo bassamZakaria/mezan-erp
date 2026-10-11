@@ -580,7 +580,7 @@ export function createHrTimeLeaveRoutes(deps: HrTimeLeaveRoutesDeps, resolveAuth
   // --- Leave requests (admin surface) --------------------------------------
 
   app.get("/leave-requests/counts", gate("hr.leave.view"), async (c) => {
-    const requests = await deps.leaveRequests.list();
+    const requests = await recordsInBranchGrant(c, BranchRecordKind.LeaveRequest, await deps.leaveRequests.list(), (request) => request.id);
     const count = (status: LeaveRequestStatus) => requests.filter((r) => r.status === status).length;
     return c.json({
       total: requests.length,

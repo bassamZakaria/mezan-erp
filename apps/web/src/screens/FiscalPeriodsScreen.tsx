@@ -1,3 +1,5 @@
+import { BranchGatedAction } from "../branch-restriction";
+import { useBranchGate } from "../shell/useBranchGate";
 import { useEffect, useMemo, useState } from "react";
 import {
   Button,
@@ -67,6 +69,7 @@ function isCurrentPeriod(period: FiscalPeriodDTO): boolean {
 const PAGE_SIZES = [10, 25, 50, 100] as const;
 
 export function FiscalPeriodsScreen() {
+  const branchGate = useBranchGate();
   const { t } = useAppTranslation();
   const query = useFiscalPeriods();
   const generateFiscalYear = useGenerateFiscalYear();
@@ -231,7 +234,7 @@ export function FiscalPeriodsScreen() {
         </div>
       ) : null}
 
-      <YearEndCloseCard year={selectedYear} periodsInYear={periodsInYear} />
+      {branchGate.allows(BranchGatedAction.YearEndClose) ? <YearEndCloseCard year={selectedYear} periodsInYear={periodsInYear} /> : null}
 
       <div className="mb-[18px] grid grid-cols-2 gap-[14px] lg:grid-cols-4">
         <div className="rounded-lg border border-border bg-surface p-[14px_16px]">

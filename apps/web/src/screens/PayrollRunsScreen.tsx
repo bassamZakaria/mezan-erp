@@ -1,3 +1,5 @@
+import { BranchGatedAction } from "../branch-restriction";
+import { useBranchGate } from "../shell/useBranchGate";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   Button,
@@ -150,6 +152,7 @@ function NetPayQualifierBadge({ statutory }: { statutory: boolean }) {
 }
 
 export function PayrollRunsScreen() {
+  const branchGate = useBranchGate();
   const nameOf = useEntityName();
   const { t, locale } = useAppTranslation();
   const query = usePayrollRuns();
@@ -660,9 +663,11 @@ export function PayrollRunsScreen() {
         </form>
       </SidePanel>
 
-      <div className="mt-[18px]">
-        <HrProvisionsPanel />
-      </div>
+      {branchGate.allows(BranchGatedAction.PayrollProvisions) ? (
+        <div className="mt-[18px]">
+          <HrProvisionsPanel />
+        </div>
+      ) : null}
     </div>
   );
 }

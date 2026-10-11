@@ -1,3 +1,5 @@
+import { BranchGatedAction } from "../branch-restriction";
+import { useBranchGate } from "../shell/useBranchGate";
 import { useMemo } from "react";
 import { entityName } from "../lib/entity-names";
 import { useAppTranslation } from "../i18n";
@@ -72,10 +74,13 @@ export function useIncomeStatement(
 }
 
 export function useVatReturn(window: ReportWindow): UseQueryResult<FinancialReportResult<VatReturnRow>, ApiError> {
-  return useFinancialReport<VatReturnRow>("dashboard-vat-return", "/vat-return", {
-    periodFrom: window.from,
-    periodTo: window.to,
-  });
+  const gate = useBranchGate();
+  return useFinancialReport<VatReturnRow>(
+    "dashboard-vat-return",
+    "/vat-return",
+    { periodFrom: window.from, periodTo: window.to },
+    { enabled: gate.allows(BranchGatedAction.VatReturn) },
+  );
 }
 
 export function useCustomerAging(): UseQueryResult<ReportResult<AgingCustomersRow>, ApiError> {

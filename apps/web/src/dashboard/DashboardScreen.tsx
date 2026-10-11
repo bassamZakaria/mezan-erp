@@ -1,3 +1,5 @@
+import { BranchGatedAction } from "../branch-restriction";
+import { useBranchGate } from "../shell/useBranchGate";
 import { Money as ExactMoney } from "@mezan/domain";
 import { Fragment, useMemo, useState, type ReactNode } from "react";
 import { Button, Card, Chip, Money, StatCard, useFormat } from "@mezan/ui";
@@ -145,7 +147,9 @@ export function DashboardScreen() {
    * certificate-view right so a tenant that does not run contracting never sees
    * a row about it.
    */
-  const mayViewContracting = (session?.permissions ?? []).some((p) => p === "*" || p === "contracting.certificate.view");
+  const branchGate = useBranchGate();
+  const mayViewContracting =
+    branchGate.allows(BranchGatedAction.ContractingExceptions) && (session?.permissions ?? []).some((p) => p === "*" || p === "contracting.certificate.view");
   const contractingExceptions = useContractingExceptionSummary(mayViewContracting);
 
   const greetingName = session ? firstNameOf(displayName(session, locale)) : "";
@@ -238,16 +242,20 @@ export function DashboardScreen() {
       actionLabel: t("dashboard.attention.dueSoon.action"),
       onAction: () => navigate("sales-invoices"),
     },
-    {
-      key: "tax",
-      kind: "tax",
-      tone: attention.taxDue > 0 ? "warning" : "clear",
-      title: t("dashboard.attention.tax"),
-      detail:
-        attention.taxDue > 0 ? <span className="mz-num">{format.money(attention.taxDue)}</span> : t("dashboard.attention.tax.clear"),
-      actionLabel: t("dashboard.attention.tax.action"),
-      onAction: () => navigate("financial-reports"),
-    },
+    ...(branchGate.allows(BranchGatedAction.VatReturn)
+      ? [
+          {
+            key: "tax",
+            kind: "tax" as const,
+            tone: attention.taxDue > 0 ? ("warning" as const) : ("clear" as const),
+            title: t("dashboard.attention.tax"),
+            detail:
+              attention.taxDue > 0 ? <span className="mz-num">{format.money(attention.taxDue)}</span> : t("dashboard.attention.tax.clear"),
+            actionLabel: t("dashboard.attention.tax.action"),
+            onAction: () => navigate("financial-reports"),
+          },
+        ]
+      : []),
     {
       key: "stock",
       kind: "stock",

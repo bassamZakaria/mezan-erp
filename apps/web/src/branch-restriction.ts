@@ -44,6 +44,9 @@ export const NAV_ITEM_API: Readonly<Record<string, string>> = {
   "report-simplified-regime-comparison": "/tax/simplified-regime",
   "hr-dashboard": "/hr/dashboard",
   "production-dashboard": "/manufacturing/dashboard",
+  "manufacturing-hub": "/manufacturing/dashboard",
+  devices: "/lan/sessions",
+  eta: "/eta/config",
   "settings-data-migration": "/data-migration",
   "report-security-exceptions": "/security-reports",
   "report-post-posting-changes": "/security-reports",
@@ -105,6 +108,8 @@ export enum BranchGatedAction {
   InventoryRebuild = "inventory_rebuild",
   AttendanceImport = "attendance_import",
   DeviceRegister = "device_register",
+  VatReturn = "vat_return",
+  ContractingExceptions = "contracting_exceptions",
 }
 
 export const BRANCH_GATED_ACTION_API: Readonly<Record<BranchGatedAction, string>> = {
@@ -129,6 +134,8 @@ export const BRANCH_GATED_ACTION_API: Readonly<Record<BranchGatedAction, string>
   [BranchGatedAction.InventoryRebuild]: "/inventory/rebuild",
   [BranchGatedAction.AttendanceImport]: "/hr/attendance/import",
   [BranchGatedAction.DeviceRegister]: "/lan/sessions",
+  [BranchGatedAction.VatReturn]: "/financial-reports/vat-return",
+  [BranchGatedAction.ContractingExceptions]: "/contracting/reports",
 };
 
 /** Company-wide families no signed-in screen reaches: the first-run wizard runs before there is a session. */

@@ -1,3 +1,5 @@
+import { BranchGatedAction } from "../branch-restriction";
+import { useBranchGate } from "../shell/useBranchGate";
 import { useEffect, useState } from "react";
 import {
   Button,
@@ -144,6 +146,7 @@ function fixHrefFor(finding: EtaPrevalidationFindingDTO, internalId: string): st
 const ETA_TAB_VALUES = new Set<EtaTab>(["general", "credentials", "items", "units", "submissions", "readiness", "rejections"]);
 
 export function EtaScreen() {
+  const branchGate = useBranchGate();
   const { t } = useAppTranslation();
   const pt = useEtaPrevalidationStrings();
   const [rawTab, setRawTab] = useUrlParam("tab", "general");
@@ -223,7 +226,9 @@ export function EtaScreen() {
             { id: "readiness", label: pt("tabReadiness") },
             { id: "rejections", label: pt("tabRejections") },
           ] as const
-        ).map((entry) => (
+        )
+          .filter((entry) => entry.id !== "rejections" || branchGate.allows(BranchGatedAction.EtaReports))
+          .map((entry) => (
           <button
             key={entry.id}
             type="button"
@@ -243,7 +248,7 @@ export function EtaScreen() {
       {tab === "units" ? <UnitMappingTab /> : null}
       {tab === "submissions" ? <SubmissionsTab statusKeys={STATUS_KEYS} /> : null}
       {tab === "readiness" ? <ReadinessTab /> : null}
-      {tab === "rejections" ? <RejectionsTab /> : null}
+      {tab === "rejections" && branchGate.allows(BranchGatedAction.EtaReports) ? <RejectionsTab /> : null}
     </div>
   );
 }
@@ -994,6 +999,7 @@ function ReceiptQueueCard() {
 }
 
 function SubmissionsTab({ statusKeys }: { statusKeys: Record<EtaSubmissionStatusDTO, AppTranslationKey> }) {
+  const receiptSummaryOpen = useBranchGate().allows(BranchGatedAction.EtaReceiptsSummary);
   const { t } = useAppTranslation();
   const et = useEtaStrings();
   const pt = useEtaPrevalidationStrings();
@@ -1223,7 +1229,7 @@ function SubmissionsTab({ statusKeys }: { statusKeys: Record<EtaSubmissionStatus
         </div>
       ) : null}
 
-      <ReceiptQueueCard />
+      {receiptSummaryOpen ? <ReceiptQueueCard /> : null}
 
       <div className="mb-[12px] flex flex-wrap items-center justify-end gap-[8px]">
         {selectedIds.size > 0 ? (

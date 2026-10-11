@@ -1,3 +1,4 @@
+import { branchRefusalBefore, isBranchRestricted } from "../branch-restriction";
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import type {
   AuditEventDTO,
@@ -596,6 +597,14 @@ export function withSupportCode(message: string, status: number, t?: AppTranslat
  * غير مفعّلة في باقتكم») — that must reach the screen, not the generic
  * "تعذّر تحميل…" `fallback` every other failure keeps.
  */
+const PROJECTS_API = "/projects";
+const LEADS_API = "/crm/leads";
+
+/** True when the server would refuse this read to the signed-in, branch-restricted session — the query is then never sent. */
+function refusedForBranch(session: SessionDTO, path: string): boolean {
+  return isBranchRestricted(session) && branchRefusalBefore(path, "GET") !== null;
+}
+
 const BRANCH_REFUSAL_MESSAGE_KEYS: Readonly<Record<BranchRefusalCode, AppTranslationKey>> = {
   [BranchRefusalCode.NotFound]: "branchRefusal.NOT_FOUND",
   [BranchRefusalCode.BranchOutOfScope]: "branchRefusal.BRANCH_OUT_OF_SCOPE",
@@ -3131,9 +3140,9 @@ export function useLeads(): UseQueryResult<LeadDTO[], ApiError> {
   const { request, session } = useApi();
   return useQuery<LeadDTO[], ApiError>({
     queryKey: ["crm-leads"],
-    enabled: session !== null,
+    enabled: session !== null && !refusedForBranch(session, LEADS_API),
     queryFn: async () => {
-      const res = await request("/crm/leads");
+      const res = await request(LEADS_API);
       if (!res.ok) throw await loaderError(res, t("api.leadsCouldNotBeLoaded"), t);
       return res.json<LeadDTO[]>();
     },
@@ -3341,9 +3350,9 @@ export function useProjects(): UseQueryResult<ProjectDTO[], ApiError> {
   const { request, session } = useApi();
   return useQuery<ProjectDTO[], ApiError>({
     queryKey: ["projects"],
-    enabled: session !== null,
+    enabled: session !== null && !refusedForBranch(session, PROJECTS_API),
     queryFn: async () => {
-      const res = await request("/projects");
+      const res = await request(PROJECTS_API);
       if (!res.ok) throw await loaderError(res, t("api.projectsCouldNotBeLoaded"), t);
       return res.json<ProjectDTO[]>();
     },

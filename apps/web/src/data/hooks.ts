@@ -2414,8 +2414,7 @@ export function useWarehouses(): UseQueryResult<WarehouseDTO[], ApiError> {
       }
       const res = await request("/warehouses/lookup");
       if (!res.ok) throw await loaderError(res, t("api.warehousesCouldNotBeLoaded"), t);
-      const granted = await res.json<WarehouseLookupDTO[]>();
-      return granted.map((warehouse) => ({ ...warehouse, projectId: null, custodianUserId: null }));
+      return res.json<WarehouseLookupDTO[]>();
     },
   });
 }

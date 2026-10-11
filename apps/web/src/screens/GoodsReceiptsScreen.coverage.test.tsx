@@ -365,7 +365,7 @@ describe("GoodsReceiptsScreen — the require-PO policy, once it resolves", () =
     const transport = stubTransport({
       ...baseHandlers,
       "GET /purchases/receipts": () => ({ body: [] }),
-      "GET /settings": () => ({ body: { requirePoForGrn: true } }),
+      "GET /settings/lookup": () => ({ body: { requirePoForGrn: true } }),
     });
     renderScreen(transport);
 
@@ -386,7 +386,7 @@ describe("GoodsReceiptsScreen — an ad-hoc receipt's lines", () => {
     const transport = stubTransport({
       ...baseHandlers,
       "GET /purchases/receipts": () => ({ body: [] }),
-      "GET /settings": () => ({ body: { requirePoForGrn: false } }),
+      "GET /settings/lookup": () => ({ body: { requirePoForGrn: false } }),
       "POST /purchases/receipts": (init) => {
         posted = JSON.parse((init?.body as string) ?? "{}") as Record<string, unknown>;
         return { body: goodsReceipt({ id: "gr-new", number: "GR-000099", purchaseOrderId: null }) };
@@ -440,7 +440,7 @@ describe("GoodsReceiptsScreen — an ad-hoc receipt with no warehouse to default
       ...baseHandlers,
       "GET /warehouses": () => ({ body: [] }),
       "GET /purchases/receipts": () => ({ body: [] }),
-      "GET /settings": () => ({ body: { requirePoForGrn: false } }),
+      "GET /settings/lookup": () => ({ body: { requirePoForGrn: false } }),
     });
     renderScreen(transport);
 
@@ -467,7 +467,7 @@ describe("GoodsReceiptsScreen — an ad-hoc receipt when the working location ha
       ...baseHandlers,
       "GET /warehouses": () => ({ body: offBranchWarehouse }),
       "GET /purchases/receipts": () => ({ body: [] }),
-      "GET /settings": () => ({ body: { requirePoForGrn: false } }),
+      "GET /settings/lookup": () => ({ body: { requirePoForGrn: false } }),
     });
     renderScreen(transport);
 

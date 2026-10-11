@@ -51,17 +51,7 @@ export function createWarehousesRoutes(
     const granted = getAuthContext(c)?.warehouseGrant;
     const warehouses = (await store.findAll())
       .filter((warehouse) => !branches || branches.includes(warehouse.branchId))
-      .filter((warehouse) => !granted || granted === ALL_SCOPE || granted.includes(warehouse.id))
-      .map((warehouse) => ({
-        id: warehouse.id,
-        code: warehouse.code,
-        name: warehouse.name,
-        nameEn: warehouse.nameEn,
-        branchId: warehouse.branchId,
-        type: warehouse.type,
-        isDefault: warehouse.isDefault,
-        active: warehouse.active,
-      }));
+      .filter((warehouse) => !granted || granted === ALL_SCOPE || granted.includes(warehouse.id));
     return c.json(warehouses);
   });
 

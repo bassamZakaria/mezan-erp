@@ -302,6 +302,9 @@ const ROLES = [
     description: "يتابع بيع وشراء ومخزون فرعه ويعتمد إجازات فريقه.",
     permissions: [
       "accounting.journal.view",
+      "accounting.coa.view",
+      "sales.price_list.view",
+      "purchases.supplier.view",
       "sales.invoice.view",
       "sales.invoice.view_all",
       "sales.invoice.create",

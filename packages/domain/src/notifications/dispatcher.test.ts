@@ -30,6 +30,8 @@ function store(rows: Notification[]) {
     const at = rows.findIndex((r) => r.id === id);
     if (at >= 0) rows[at] = { ...rows[at]!, channelStatus: { ...rows[at]!.channelStatus, [channel]: status } };
   };
+  const claims: { id: string; channel: string; at: string }[] = [];
+  const held = new Map<string, string>();
   const repo = {
     async save(n: Notification) {
       saved.push(n);
@@ -51,13 +53,19 @@ function store(rows: Notification[]) {
       return rows.filter((r) => Object.values(r.channelStatus).includes("queued")).slice(0, limit);
     },
     async claimChannel(id: string, channel: string, at: string) {
-      if (rows.find((r) => r.id === id)?.channelStatus[channel] !== "queued") return false;
+      if (rows.find((r) => r.id === id)?.channelStatus[channel] !== "queued") return null;
       withChannel(id, channel, NotificationChannelState.Sending);
       claimedAt.set(id, at);
-      return true;
+      claims.push({ id, channel, at });
+      const token = `claim-${claims.length}`;
+      held.set(`${id}/${channel}`, token);
+      return token;
     },
-    async settleChannel(id: string, channel: string, status: NotificationChannelStatus) {
+    async settleChannel(id: string, channel: string, status: NotificationChannelStatus, claim: string) {
+      if (held.get(`${id}/${channel}`) !== claim) return false;
+      held.delete(`${id}/${channel}`);
       withChannel(id, channel, status);
+      return true;
     },
     async requeueStaleSending(before: string) {
       let requeued = 0;
@@ -72,7 +80,7 @@ function store(rows: Notification[]) {
       return requeued;
     },
   } as unknown as NotificationDispatcherDeps["notifications"];
-  return { repo, saved, rows };
+  return { repo, saved, rows, claims };
 }
 
 function transport(outcome: DispatchOutcome, seen: string[] = []): NotificationTransport {
@@ -273,5 +281,43 @@ describe("NotificationDispatcher — draining the outbound queue (ROADMAP §3.3)
 
     expect(result.sent).toBe(50);
     expect(seen).toHaveLength(50);
+  });
+
+  it("stamps each claim with the time it was made, not the time the drain began", async () => {
+    const rows = [notification({ id: "n1" }), notification({ id: "n2" })];
+    const s = store(rows);
+    let minute = 0;
+
+    await new NotificationDispatcher({
+      notifications: s.repo,
+      transports: [transport({ kind: "sent" }, [])],
+      recipientEmail: async () => "owner@shop.test",
+      now: () => `2026-08-23T10:0${minute++}:00.000Z`,
+    }).drain();
+
+    expect(s.claims.map((c) => c.id)).toEqual(["n1", "n2"]);
+    expect(s.claims[0]!.at < s.claims[1]!.at).toBe(true);
+  });
+
+  it("does not record an outcome for a channel whose claim it lost while the mail server answered", async () => {
+    const rows = [notification()];
+    const s = store(rows);
+    const slowTransport = {
+      channel: "email" as const,
+      async send() {
+        await s.repo.requeueStaleSending("9999-01-01T00:00:00.000Z");
+        await s.repo.claimChannel("n1", "email", NOW);
+        return { kind: "rejected" as const, reason: "too late" };
+      },
+    };
+
+    await new NotificationDispatcher({
+      notifications: s.repo,
+      transports: [slowTransport],
+      recipientEmail: async () => "owner@shop.test",
+      now: () => NOW,
+    }).drain();
+
+    expect(rows[0]?.channelStatus.email).toBe("sending");
   });
 });

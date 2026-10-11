@@ -21,11 +21,12 @@ import {
   type EtaSignatureResult,
   type EtaSigningPort,
 } from "./signing.js";
-import type {
-  EtaSubmission,
-  EtaSubmissionRepository,
-  EtaSubmissionStatus,
-  EtaTransmitLogEntry,
+import {
+  EtaSubmissionState,
+  type EtaSubmission,
+  type EtaSubmissionRepository,
+  type EtaSubmissionStatus,
+  type EtaTransmitLogEntry,
 } from "./submission.js";
 import { canonicalEtaJson, unconfiguredEtaSigner, type EtaSignerPort } from "./signer.js";
 import { summarizeEtaRejections, type EtaRejectionsReport } from "./rejections-report.js";
@@ -191,6 +192,11 @@ export interface EtaReceiptPrintData {
   readonly receiptNo: string;
 }
 
+export const ETA_UNRECORDED_SUBMISSION_CODE = "MEZAN_UNRECORDED_SUBMISSION";
+const ETA_UNRECORDED_SUBMISSION_MESSAGE =
+  "أُرسل هذا المستند إلى مصلحة الضرائب ولم يُسجَّل ردّها، فلم يُرسَل مرة أخرى. راجع بوابة الفواتير الإلكترونية: إن وجدته مسجَّلًا فسجِّل رقمه (UUID) هنا، وإن لم تجده فأعده إلى الطابور ليُرسَل.";
+const HTTP_NOT_FOUND = 404;
+
 const RECEIPT_CHAIN_ATTEMPTS = 3;
 
 function queueOrder(a: EtaSubmission, b: EtaSubmission): number {
@@ -342,6 +348,7 @@ export class EtaService {
       prevalidation: rebuilt.prevalidation,
       errors: [],
       rejectionCodes: [],
+      transmitStartedAt: null,
       exclusionReason: null,
       signature: null,
     });
@@ -519,6 +526,11 @@ export class EtaService {
     if (!["ready", "pending_signature", "error"].includes(submission.status)) {
       throw new InvalidEtaTransitionError(submission.status, "submit");
     }
+    if (submission.transmitStartedAt) {
+      const settled = await this.settleUnrecorded(submission, await this.deps.config.get());
+      if (settled) return settled;
+      submission = await this.found(id);
+    }
     // ENH-011b: a `Blocking` finding means the authority would refuse this
     // document outright — refused here, before a wasted round trip, listing
     // every failing rule so a fix pass does not take one submit per rule.
@@ -553,8 +565,17 @@ export class EtaService {
       }
     }
 
-    const result = await this.transmitPort.transmit(submission, config);
-    const withLog = this.appendLog(submission, result.log);
+    submission = await this.persist({ ...submission, transmitStartedAt: this.now() });
+    let result: EtaTransmitResult;
+    try {
+      result = await this.transmitPort.transmit(submission, config);
+    } catch (err) {
+      // Never reached the authority, so nothing is awaiting a record. Any
+      // other failure — a lost turn above all — leaves the mark in place.
+      if (err instanceof EtaOfflineError) await this.persist({ ...submission, transmitStartedAt: null });
+      throw err;
+    }
+    const withLog = { ...this.appendLog(submission, result.log), transmitStartedAt: null };
     if (result.ok) {
       return this.persist({
         ...withLog,
@@ -571,6 +592,48 @@ export class EtaService {
       errors: result.errors ?? ["فشل الإرسال"],
       rejectionCodes: result.errorCodes ?? [],
     });
+  }
+
+  // A document marked as handed over whose answer was never recorded. It is
+  // never sent again on its own: the authority is asked what it holds when the
+  // UUID is known, and otherwise the document is put in front of a person.
+  // Returns null only when the authority says it has never seen it, which is
+  // the one case a resend is safe.
+  private async settleUnrecorded(submission: EtaSubmission, config: EtaConfig): Promise<EtaSubmission | null> {
+    if (!this.transmitPort.fetchStatus || !submission.etaUuid) {
+      return this.persist({
+        ...submission,
+        status: EtaSubmissionState.Error,
+        errors: [ETA_UNRECORDED_SUBMISSION_MESSAGE],
+        rejectionCodes: [ETA_UNRECORDED_SUBMISSION_CODE],
+      });
+    }
+    const result = await this.transmitPort.fetchStatus(submission, config);
+    const withLog = this.appendLog(submission, result.log);
+    if (result.state === "accepted") {
+      return this.persist({ ...withLog, status: EtaSubmissionState.Accepted, errors: [], rejectionCodes: [], transmitStartedAt: null });
+    }
+    if (result.state === "rejected") {
+      return this.persist({
+        ...withLog,
+        status: EtaSubmissionState.Error,
+        errors: result.errors,
+        rejectionCodes: result.errorCodes ?? [],
+        transmitStartedAt: null,
+      });
+    }
+    if (result.state === "pending") {
+      return this.persist({
+        ...withLog,
+        status: EtaSubmissionState.Submitted,
+        errors: [],
+        submittedAt: submission.transmitStartedAt ?? this.now(),
+        transmitStartedAt: null,
+      });
+    }
+    if (result.log?.at(-1)?.status !== HTTP_NOT_FOUND) return this.persist(withLog);
+    await this.persist({ ...withLog, status: EtaSubmissionState.Ready, errors: [], rejectionCodes: [], transmitStartedAt: null });
+    return null;
   }
 
   /**
@@ -771,16 +834,34 @@ export class EtaService {
         // The caller listed this chunk before earlier chunks went out, and each
         // of those waited on the authority. Read again now the ids are held:
         // a receipt another drive reported meanwhile is not reported twice.
+        const config = await this.deps.config.get();
+        const out: EtaSubmission[] = [];
         const still: EtaSubmission[] = [];
         for (const listed of chunk) {
-          const now = await this.found(listed.id);
-          if (now.status === "ready") still.push(now);
+          let now = await this.found(listed.id);
+          if (now.status === EtaSubmissionState.Ready && now.transmitStartedAt) {
+            const settled = await this.settleUnrecorded(now, config);
+            if (settled) out.push(settled);
+            now = settled ?? (await this.found(listed.id));
+          }
+          // A chain: each receipt names the one before it. Once a link is
+          // refused or left unsettled, the links after it are not reported.
+          if (now.status === EtaSubmissionState.Error || now.transmitStartedAt) break;
+          if (now.status === EtaSubmissionState.Ready) still.push(now);
         }
-        if (still.length === 0) return [];
-        const config = await this.deps.config.get();
-        const result = await transmitBatch(still, config);
+        if (still.length === 0) return out;
+        const startedAt = this.now();
+        for (let i = 0; i < still.length; i += 1) still[i] = await this.persist({ ...at(still, i), transmitStartedAt: startedAt });
+        let result: Awaited<ReturnType<typeof transmitBatch>>;
+        try {
+          result = await transmitBatch(still, config);
+        } catch (err) {
+          if (err instanceof EtaOfflineError) {
+            for (const s of still) await this.persist({ ...s, transmitStartedAt: null });
+          }
+          throw err;
+        }
         const byId = new Map(result.outcomes.map((o) => [o.submissionId, o]));
-        const out: EtaSubmission[] = [];
         for (const s of still) {
           const outcome = byId.get(s.id) ?? {
             submissionId: s.id,
@@ -805,7 +886,7 @@ export class EtaService {
     log: readonly EtaTransmitLogEntry[] | undefined,
     gatewaySubmissionId: string | null,
   ): Promise<EtaSubmission> {
-    const withLog = this.appendLog(submission, log);
+    const withLog = { ...this.appendLog(submission, log), transmitStartedAt: null };
     if (outcome.ok) {
       return this.persist({
         ...withLog,
@@ -856,10 +937,11 @@ export class EtaService {
   /** Authority acceptance callback: مرسل → مقبول with the assigned UUID. */
   async markAccepted(id: string, etaUuid: string): Promise<EtaSubmission> {
     const submission = await this.require(id);
-    if (submission.status !== "submitted") {
+    const unrecorded = submission.status === EtaSubmissionState.Error && Boolean(submission.transmitStartedAt);
+    if (submission.status !== EtaSubmissionState.Submitted && !unrecorded) {
       throw new InvalidEtaTransitionError(submission.status, "accept");
     }
-    return this.persist({ ...submission, status: "accepted", etaUuid, errors: [] });
+    return this.persist({ ...submission, status: EtaSubmissionState.Accepted, etaUuid, errors: [], rejectionCodes: [], transmitStartedAt: null });
   }
 
   /** Authority rejection callback: مرسل → أخطاء with error messages. */

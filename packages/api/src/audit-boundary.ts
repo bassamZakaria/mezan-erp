@@ -267,6 +267,8 @@ export interface ConnectionTurnOptions {
   readonly onYield?: (c: Context) => void;
   /** How long a request that handed the connection back waits to take it again before it is refused. */
   readonly retakeTimeoutMs?: number;
+  /** How long one whose outside work completed waits: longer, because what the outside world answered has still to be recorded. */
+  readonly completedRetakeTimeoutMs?: number;
 }
 
 function defaultTimeoutMs(c: Context): number {
@@ -387,7 +389,7 @@ export function connectionTurn(audit: AuditSink | undefined, options: Connection
           clearInterval(watchdog);
         }
       },
-      { onYield: () => onYield(c), onSuspend: () => clearInterval(watchdog), onResume: watch, retakeTimeoutMs: options.retakeTimeoutMs },
+      { onYield: () => onYield(c), onSuspend: () => clearInterval(watchdog), onResume: watch, retakeTimeoutMs: options.retakeTimeoutMs, completedRetakeTimeoutMs: options.completedRetakeTimeoutMs },
     );
     const reason = await Promise.race([held.then(() => undefined), gaveUp]);
     if (reason === undefined) {

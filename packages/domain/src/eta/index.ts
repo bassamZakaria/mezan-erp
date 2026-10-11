@@ -72,6 +72,7 @@ export {
 } from "./receipt-from-invoice.js";
 export {
   ETA_SUBMISSION_STATUSES,
+  EtaSubmissionState,
   getEtaStatusLabel,
   getEtaDocumentTypeLabel,
   type EtaDocumentType,
@@ -102,6 +103,7 @@ export {
   type EtaChainedReceiptInput,
   type EtaReceiptBatchOutcome,
   type EtaReceiptBatchResult,
+  ETA_UNRECORDED_SUBMISSION_CODE,
 } from "./service.js";
 export {
   DEFAULT_ETA_RETRY,

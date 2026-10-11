@@ -243,6 +243,9 @@ import {
   createDefaultSettings,
   NotificationDispatcher,
   NotificationChannelState,
+  ConnectionTurnLostError,
+  SETTLED_AS,
+  type DispatchOutcome,
   type NotificationTransport,
   type EtaCommandResult,
   type EtaCommandRunner,
@@ -261,6 +264,7 @@ import {
   type EtaReceiptIssuer,
 } from "./eta-receipts.js";
 import { createAuth, type AccountLockedEvent } from "./auth-routes.js";
+import { OutsideWork, OutsideWorkDeadlineError, withinDeadline } from "./outside-work.js";
 import { createDashboardRoutes } from "./dashboard-routes.js";
 import { createPreferencesRoutes } from "./preferences-routes.js";
 import { SEED_ADMIN_USER_ID, seedIfEmpty, type SeedStores } from "./seed.js";
@@ -749,7 +753,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const etaHttp = options.etaHttpClient ?? fetchEtaHttpClient();
   const etaSigningRunner = options.etaSigningRunner ?? runExternalSigningCommand;
   const etaTransmit = createEtaHttpTransmitPort({
-    http: (request) => outsideTheTurn(() => etaHttp(request)),
+    http: (request) => outsideTheTurn(() => withinDeadline(OutsideWork.EtaHttp, () => etaHttp(request))),
     sleep: (ms) => outsideTheTurn(() => new Promise<void>((resolve) => setTimeout(resolve, ms))),
     credentials: {
       read: async () => {
@@ -765,7 +769,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   });
   const etaSigner = createExternalCommandSigner({
     config: () => etaStore.config.get(),
-    run: (command, args, stdin) => outsideTheTurn(() => etaSigningRunner(command, args, stdin)),
+    run: (command, args, stdin) => outsideTheTurn(() => withinDeadline(OutsideWork.EtaSigning, () => etaSigningRunner(command, args, stdin))),
   });
   const etaService = new EtaService({
     config: etaStore.config,
@@ -2803,6 +2807,37 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     return tenant.smtpEnabled ? tenant : (options.securityMail ?? null);
   };
   const lockMailInTheTurn = inTheTurn("account lock notice");
+  const recordLateInTheTurn = inTheTurn("late notification record");
+  type MailResult = Awaited<ReturnType<typeof sendNotificationEmail>>;
+  const dispatchOutcomeOf = (sent: MailResult): DispatchOutcome =>
+    sent.outcome === "sent" ? { kind: "sent" } : { kind: sent.outcome === "offline" ? "offline" : "rejected", reason: sent.detail };
+  const emailTransport = (smtp: SmtpConfig | null): NotificationTransport => ({
+    channel: "email",
+    async send(notification, recipientEmail, claim) {
+      if (smtp === null) return { kind: "rejected", reason: "البريد الإلكتروني غير مُفعَّل في الإعدادات." };
+      // No address on the user is terminal: the next drain would find the same
+      // missing address and try forever.
+      if (!recipientEmail) return { kind: "rejected", reason: "لا يوجد بريد إلكتروني مسجَّل لهذا المستخدم." };
+      try {
+        const sent = await outsideTheTurn(() =>
+          withinDeadline(OutsideWork.Mail, () => sendMail(smtp, recipientEmail, { subject: notification.title, body: notification.body })),
+        );
+        return dispatchOutcomeOf(sent);
+      } catch (err) {
+        if (err instanceof OutsideWorkDeadlineError) return { kind: "offline", reason: err.message };
+        // The mail server answered and this drain can no longer write. What it
+        // answered is recorded under a turn of its own, against the same claim,
+        // so a message that was sent is not queued to be sent again.
+        if (err instanceof ConnectionTurnLostError && err.completed) {
+          const late = SETTLED_AS[dispatchOutcomeOf(err.completed.value as MailResult).kind];
+          void recordLateInTheTurn(() => notifications.settleChannel(notification.id, "email", late, claim)).catch((error: unknown) => {
+            console.error(`[notifications] could not record what the mail server answered for ${notification.id}`, error);
+          });
+        }
+        throw err;
+      }
+    },
+  });
   const notifyAccountLocked = async (event: AccountLockedEvent): Promise<void> => {
     const smtp = await securitySmtp();
     const admins = (await uow.users.list()).filter((u) => u.isCompanyAdmin && u.status === "active");
@@ -2834,16 +2869,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     const dispatcher = new NotificationDispatcher({
       notifications,
       recipientEmail: async (userId) => (await uow.users.findById(userId))?.email ?? null,
-      transports: [
-        {
-          channel: "email",
-          async send(notification, recipientEmail) {
-            if (!recipientEmail) return { kind: "rejected", reason: "لا يوجد بريد إلكتروني مسجَّل لهذا المستخدم." };
-            const sent = await outsideTheTurn(() => sendMail(smtp, recipientEmail, { subject: notification.title, body: notification.body }));
-            return sent.outcome === "sent" ? { kind: "sent" } : { kind: sent.outcome === "offline" ? "offline" : "rejected", reason: sent.detail };
-          },
-        },
-      ],
+      transports: [emailTransport(smtp)],
     });
     void lockMailInTheTurn(() => dispatcher.drain({ only: ids })).catch((error: unknown) => {
       console.error("[auth] the account-lock notice could not be mailed; it stays queued", error);
@@ -4162,27 +4188,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       const dispatcher = new NotificationDispatcher({
         notifications,
         recipientEmail: async (userId) => (await uow.users.findById(userId))?.email ?? null,
-        transports: [
-          {
-            channel: "email",
-            async send(notification, recipientEmail) {
-              if (!tenant.smtpEnabled) {
-                return { kind: "rejected", reason: "البريد الإلكتروني غير مُفعَّل في الإعدادات." };
-              }
-              if (!recipientEmail) {
-                // No address on the user. Terminal: the next drain would find
-                // the same missing address and try forever.
-                return { kind: "rejected", reason: "لا يوجد بريد إلكتروني مسجَّل لهذا المستخدم." };
-              }
-              const sent = await outsideTheTurn(() =>
-                sendNotificationEmail(tenant, recipientEmail, { subject: notification.title, body: notification.body }),
-              );
-              return sent.outcome === "sent"
-                ? { kind: "sent" }
-                : { kind: sent.outcome === "offline" ? "offline" : "rejected", reason: sent.detail };
-            },
-          },
-        ],
+        transports: [emailTransport(tenant.smtpEnabled ? tenant : null)],
       });
       return dispatcher.drain();
     },

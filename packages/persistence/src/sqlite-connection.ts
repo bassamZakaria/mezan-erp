@@ -228,9 +228,16 @@ export interface SqliteTurnObserver {
   onSuspend?(): void;
   onResume?(): void;
   readonly retakeTimeoutMs?: number;
+  readonly completedRetakeTimeoutMs?: number;
 }
 
 const RETAKE_TIMEOUT_MS = 10_000;
+// REQUIRED: longer than the deadline of every call made with the turn handed
+// back (OUTSIDE_WORK_DEADLINES_MS), so work that completed is never abandoned
+// while a neighbour's own outside call is still inside its deadline.
+export const COMPLETED_RETAKE_TIMEOUT_MS = 120_000;
+
+type OutsideOutcome<T> = { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error: unknown };
 
 interface TurnScope extends Lane {
   active: boolean;
@@ -479,9 +486,14 @@ export async function withSqliteTurn<T>(sqlite: Database.Database, fn: () => Pro
 
 // THE WAIT TO TAKE THE TURN AGAIN IS BOUNDED. A holder that never finishes
 // would otherwise keep every chain that handed the turn back waiting for good —
-// and with it whatever that chain holds for the length of its request.
-async function retakenInTime(scope: TurnScope): Promise<void> {
-  const waitMs = scope.observer.retakeTimeoutMs ?? RETAKE_TIMEOUT_MS;
+// and with it whatever that chain holds for the length of its request. Work
+// that COMPLETED outside waits the longer bound: its effect has happened and
+// has still to be recorded, and when even that passes its answer travels on
+// the error so the caller can record it under a turn of its own.
+async function retakenInTime<T>(scope: TurnScope, outcome: OutsideOutcome<T>): Promise<void> {
+  const waitMs = outcome.ok
+    ? (scope.observer.completedRetakeTimeoutMs ?? COMPLETED_RETAKE_TIMEOUT_MS)
+    : (scope.observer.retakeTimeoutMs ?? RETAKE_TIMEOUT_MS);
   let timer: ReturnType<typeof setTimeout> | undefined;
   const gaveUp = new Promise<true>((resolve) => {
     timer = setTimeout(() => resolve(true), waitMs);
@@ -492,7 +504,7 @@ async function retakenInTime(scope: TurnScope): Promise<void> {
   if (!lost || scope.active) return;
   scope.abandoned = true;
   scope.ended = true;
-  throw new ConnectionTurnLostError(waitMs);
+  throw new ConnectionTurnLostError(waitMs, outcome.ok ? { completed: { value: outcome.value } } : { cause: outcome.error });
 }
 
 // Database work a holder starts and does not wait for — an event subscriber, a
@@ -526,9 +538,13 @@ export async function outsideSqliteTurn<T>(sqlite: Database.Database, fn: () => 
     await handBack(scope);
     scope.observer.onSuspend?.();
   });
+  let outcome: OutsideOutcome<T>;
   try {
-    return await fn();
-  } finally {
+    outcome = { ok: true, value: await fn() };
+  } catch (error) {
+    outcome = { ok: false, error };
+  }
+  {
     scope.outside -= 1;
     void inOrder(scope, async () => {
       if (scope.outside > 0 || scope.active || scope.ended) return;
@@ -544,8 +560,10 @@ export async function outsideSqliteTurn<T>(sqlite: Database.Database, fn: () => 
       scope.observer.onResume?.();
       scope.announceRetaken();
     });
-    await retakenInTime(scope);
+    await retakenInTime(scope, outcome);
   }
+  if (!outcome.ok) throw outcome.error;
+  return outcome.value;
 }
 
 /** True while the caller's own async chain holds this connection's turn — it is a mutating request, or work one started. */

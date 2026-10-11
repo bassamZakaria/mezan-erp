@@ -50,6 +50,7 @@ export {
   NotificationDispatcher,
   DEFAULT_DISPATCH_POLICY,
   type NotificationDispatcherDeps,
+  SETTLED_AS,
   type NotificationTransport,
   type DispatchOutcome,
   type DispatchPolicy,

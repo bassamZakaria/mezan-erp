@@ -15,6 +15,7 @@ export {
   withSqliteTransaction,
   withSqliteTurn,
   outsideSqliteTurn,
+  COMPLETED_RETAKE_TIMEOUT_MS,
   type SqliteConnectionInput,
   type OpenedSqliteConnection,
   type SqliteDriver,

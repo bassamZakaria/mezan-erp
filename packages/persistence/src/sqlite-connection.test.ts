@@ -704,7 +704,7 @@ describe("outsideSqliteTurn — taking the turn again has a bound", () => {
           finallyRan = true;
         }
       },
-      { retakeTimeoutMs: 60 },
+      { retakeTimeoutMs: 60, completedRetakeTimeoutMs: 60 },
     );
     await pause(2);
     const stuck = withSqliteTurn(sqlite, () => new Promise<void>((resolve) => (releaseStuck = resolve)));
@@ -734,6 +734,86 @@ describe("outsideSqliteTurn — taking the turn again has a bound", () => {
     );
 
     expect(result).toBe(true);
+    sqlite.close();
+  });
+});
+
+describe("outsideSqliteTurn — work that finished outside is not thrown away with the turn", () => {
+  const pause = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+  it("waits the longer bound for work that completed, so what the outside world answered is recorded under the turn", async () => {
+    const { sqlite } = openSqliteConnection(":memory:");
+    sqlite.exec("CREATE TABLE filed (id TEXT PRIMARY KEY, status TEXT NOT NULL); INSERT INTO filed VALUES ('doc-1', 'ready')");
+    let delivered = 0;
+
+    const filing = withSqliteTurn(
+      sqlite,
+      async () => {
+        const answer = await outsideSqliteTurn(sqlite, async () => {
+          await pause(10);
+          delivered += 1;
+          return "accepted";
+        });
+        expect(holdsSqliteTurn(sqlite)).toBe(true);
+        sqlite.prepare("UPDATE filed SET status = ? WHERE id = 'doc-1'").run(answer);
+      },
+      { retakeTimeoutMs: 40, completedRetakeTimeoutMs: 2000 },
+    );
+    await pause(2);
+    const other = withSqliteTurn(sqlite, () => pause(200));
+    await Promise.all([filing, other]);
+
+    expect(delivered).toBe(1);
+    expect(sqlite.prepare("SELECT status FROM filed").get()).toEqual({ status: "accepted" });
+    sqlite.close();
+  });
+
+  it("hands the completed work's answer to the caller when even the longer bound passes", async () => {
+    const sqlite = new Database(":memory:");
+    let releaseStuck!: () => void;
+
+    const filing = withSqliteTurn(
+      sqlite,
+      () => outsideSqliteTurn(sqlite, async () => {
+        await pause(10);
+        return "accepted";
+      }),
+      { retakeTimeoutMs: 20, completedRetakeTimeoutMs: 60 },
+    );
+    await pause(2);
+    const stuck = withSqliteTurn(sqlite, () => new Promise<void>((resolve) => (releaseStuck = resolve)));
+    const outcome: unknown = await filing.then((value) => value, (err: unknown) => err);
+
+    expect(outcome).toBeInstanceOf(ConnectionTurnLostError);
+    expect((outcome as ConnectionTurnLostError).completed).toEqual({ value: "accepted" });
+    releaseStuck();
+    await stuck;
+    sqlite.close();
+  });
+
+  it("gives work that failed outside only the short bound, and carries its failure", async () => {
+    const sqlite = new Database(":memory:");
+    let releaseStuck!: () => void;
+    const started = Date.now();
+
+    const filing = withSqliteTurn(
+      sqlite,
+      () => outsideSqliteTurn(sqlite, async () => {
+        await pause(5);
+        throw new Error("socket hang up");
+      }),
+      { retakeTimeoutMs: 40, completedRetakeTimeoutMs: 5000 },
+    );
+    await pause(2);
+    const stuck = withSqliteTurn(sqlite, () => new Promise<void>((resolve) => (releaseStuck = resolve)));
+    const outcome: unknown = await filing.then((value) => value, (err: unknown) => err);
+
+    expect(outcome).toBeInstanceOf(ConnectionTurnLostError);
+    expect((outcome as ConnectionTurnLostError).completed).toBeUndefined();
+    expect(((outcome as ConnectionTurnLostError).cause as Error).message).toBe("socket hang up");
+    expect(Date.now() - started).toBeLessThan(2000);
+    releaseStuck();
+    await stuck;
     sqlite.close();
   });
 });

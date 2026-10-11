@@ -16,13 +16,22 @@ import type { EtaPrevalidationFinding } from "./prevalidate.js";
 
 export type EtaDocumentType = "invoice" | "credit_note" | "debit_note" | "receipt";
 
-export type EtaSubmissionStatus =
-  | "ready" // جاهز — in the queue, not yet sent
-  | "pending_signature" // بانتظار التوقيع — awaiting e-seal (v1.0)
-  | "submitted" // مرسل — transmitted, awaiting authority acceptance
-  | "accepted" // مقبول — accepted by the authority (has a UUID)
-  | "error" // أخطاء — rejected / transmission error
-  | "excluded"; // مستبعد — deliberately not submitted (reason required)
+export enum EtaSubmissionState {
+  /** جاهز — in the queue, not yet sent */
+  Ready = "ready",
+  /** بانتظار التوقيع — awaiting e-seal (v1.0) */
+  PendingSignature = "pending_signature",
+  /** مرسل — transmitted, awaiting authority acceptance */
+  Submitted = "submitted",
+  /** مقبول — accepted by the authority (has a UUID) */
+  Accepted = "accepted",
+  /** أخطاء — rejected / transmission error */
+  Error = "error",
+  /** مستبعد — deliberately not submitted (reason required) */
+  Excluded = "excluded",
+}
+
+export type EtaSubmissionStatus = `${EtaSubmissionState}`;
 
 export interface EtaSubmissionStatusDefinition {
   readonly code: EtaSubmissionStatus;
@@ -110,6 +119,13 @@ export interface EtaSubmission {
    * report's grouping; `errors` alone is prose, not a stable key.
    */
   readonly rejectionCodes?: readonly (string | null)[];
+  /**
+   * When this document was handed to the authority with no answer recorded
+   * yet; null once the answer is. REQUIRED ORDERING: written BEFORE the call,
+   * so a crash or a lost turn after the authority received it leaves this set
+   * and the next drive asks what the authority holds instead of sending again.
+   */
+  readonly transmitStartedAt?: string | null;
 }
 
 /** Persistence port for the submission queue. */

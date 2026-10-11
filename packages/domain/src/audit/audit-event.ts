@@ -118,11 +118,24 @@ export class AuditRecordingError extends Error {
   }
 }
 
-/** The holder handed its turn back around outside work and could not take it again in time: it must stop, having written nothing since. */
+export interface LostTurnOutcome {
+  /** What the outside work answered, when it finished: an effect that happened and has not been recorded. */
+  readonly completed?: { readonly value: unknown };
+  /** Why the outside work failed, when it did. */
+  readonly cause?: unknown;
+}
+
+// REQUIRED: whoever catches this must rethrow it. The holder no longer has the
+// connection's turn, so it must stop having written nothing since — a handler
+// that reads it as an ordinary failure and records one writes without the turn,
+// and one that retries the outside call repeats an effect that already happened.
 export class ConnectionTurnLostError extends Error {
-  constructor(waitedMs: number) {
-    super(`the connection's turn was not taken again within ${waitedMs}ms`);
+  readonly completed?: { readonly value: unknown };
+
+  constructor(waitedMs: number, outcome: LostTurnOutcome = {}) {
+    super(`the connection's turn was not taken again within ${waitedMs}ms`, outcome.cause === undefined ? undefined : { cause: outcome.cause });
     this.name = "ConnectionTurnLostError";
+    this.completed = outcome.completed;
   }
 }
 
@@ -131,6 +144,8 @@ export interface TurnObserver {
   onSuspend?(): void;
   onResume?(): void;
   readonly retakeTimeoutMs?: number;
+  /** The longer wait given to a holder whose outside work completed: what it answered has still to be recorded. */
+  readonly completedRetakeTimeoutMs?: number;
 }
 
 /**

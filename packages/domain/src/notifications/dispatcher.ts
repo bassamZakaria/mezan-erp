@@ -48,7 +48,7 @@ export type DispatchOutcome =
  */
 export interface NotificationTransport {
   readonly channel: NotificationChannel;
-  send(notification: Notification, recipientEmail: string | null): Promise<DispatchOutcome>;
+  send(notification: Notification, recipientEmail: string | null, claim: string): Promise<DispatchOutcome>;
 }
 
 export interface DispatchPolicy {
@@ -77,11 +77,11 @@ export interface NotificationDispatcherDeps {
   readonly notifications: NotificationRepository & {
     /** Every notification with at least one channel still `"queued"`. */
     listQueued(limit: number): Promise<readonly Notification[]>;
-    /** Moves one channel from queued to sending. False when it is no longer queued: another drain has it, or has finished it. */
-    claimChannel(id: string, channel: string, at: string): Promise<boolean>;
-    /** Writes one channel's status and nothing else on the row. */
-    settleChannel(id: string, channel: string, status: NotificationChannelStatus): Promise<void>;
-    /** Queues again every channel claimed before `before` and never settled. */
+    /** Moves one channel from queued to sending and returns the claim. Null when it is no longer queued: another drain has it, or has finished it. */
+    claimChannel(id: string, channel: string, at: string): Promise<string | null>;
+    /** Writes one channel's status and nothing else on the row — only while `claim` still holds the channel. False when it does not. */
+    settleChannel(id: string, channel: string, status: NotificationChannelStatus, claim: string): Promise<boolean>;
+    /** Queues again every channel whose own claim was made before `before` and never settled. */
     requeueStaleSending(before: string): Promise<number>;
   };
   readonly transports: readonly NotificationTransport[];
@@ -104,6 +104,13 @@ export interface DrainResult {
 
 const ONLY_SCAN_LIMIT = 10_000;
 
+/** Offline goes back to queued, so the next drain picks it up unchanged. */
+export const SETTLED_AS: Readonly<Record<DispatchOutcome["kind"], NotificationChannelState>> = {
+  sent: NotificationChannelState.Sent,
+  rejected: NotificationChannelState.Failed,
+  offline: NotificationChannelState.Queued,
+};
+
 function hoursBetween(fromIso: string, toIso: string): number {
   return (Date.parse(toIso) - Date.parse(fromIso)) / 3_600_000;
 }
@@ -118,7 +125,8 @@ export class NotificationDispatcher {
   // written, never the row as it was read before the wait.
   async drain(options: { readonly only?: ReadonlySet<string> } = {}): Promise<DrainResult> {
     const policy = this.deps.policy ?? DEFAULT_DISPATCH_POLICY;
-    const now = this.deps.now?.() ?? new Date().toISOString();
+    const clock = this.deps.now ?? (() => new Date().toISOString());
+    const now = clock();
     const notifications = this.deps.notifications;
     await notifications.requeueStaleSending(new Date(Date.parse(now) - policy.sendingTimeoutMinutes * 60_000).toISOString());
     const only = options.only;
@@ -142,10 +150,10 @@ export class NotificationDispatcher {
           skipped += 1;
           continue;
         }
-        if (!(await notifications.claimChannel(notification.id, channel, now))) continue;
+        const claim = await notifications.claimChannel(notification.id, channel, clock());
+        if (claim === null) continue;
         if (stale || !transport) {
-          await notifications.settleChannel(notification.id, channel, NotificationChannelState.Failed);
-          failed += 1;
+          if (await notifications.settleChannel(notification.id, channel, NotificationChannelState.Failed, claim)) failed += 1;
           continue;
         }
 
@@ -153,18 +161,13 @@ export class NotificationDispatcher {
         const outcome = await transport.send(
           notification,
           await this.deps.recipientEmail(notification.recipientUserId),
+          claim,
         );
-        if (outcome.kind === "sent") {
-          await notifications.settleChannel(notification.id, channel, NotificationChannelState.Sent);
-          sent += 1;
-        } else if (outcome.kind === "rejected") {
-          await notifications.settleChannel(notification.id, channel, NotificationChannelState.Failed);
-          failed += 1;
-        } else {
-          // Offline. Back to queued, so the next drain picks it up unchanged.
-          await notifications.settleChannel(notification.id, channel, NotificationChannelState.Queued);
-          stillQueued += 1;
-        }
+        const settled = SETTLED_AS[outcome.kind];
+        if (!(await notifications.settleChannel(notification.id, channel, settled, claim))) continue;
+        if (outcome.kind === "sent") sent += 1;
+        else if (outcome.kind === "rejected") failed += 1;
+        else stillQueued += 1;
       }
     }
 

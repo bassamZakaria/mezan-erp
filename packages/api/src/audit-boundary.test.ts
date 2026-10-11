@@ -598,7 +598,7 @@ describe("connectionTurn", () => {
       handedBack = resolve;
     });
     const app = new Hono();
-    app.use("*", connectionTurn(sink, { onYield: () => undefined, onHeldTooLong: () => undefined, retakeTimeoutMs: 60 }));
+    app.use("*", connectionTurn(sink, { onYield: () => undefined, onHeldTooLong: () => undefined, retakeTimeoutMs: 60, completedRetakeTimeoutMs: 60 }));
     app.post("/files-with-the-authority", async (c) => {
       await sink.outsideTurn(async () => {
         handedBack();

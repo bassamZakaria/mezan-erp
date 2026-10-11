@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ATTACHMENT_ENTITY_OWNERS, AttachmentOwner, BRANCH_POLICY_TABLE, BranchPolicy, branchPolicyFor, undeclaredPolicyOf } from "@mezan/api";
+import * as contracts from "@mezan/contracts";
 import { ATTACHMENT_ENTITY_TYPES, createEntitlements, MODULE_CATALOG } from "@mezan/domain";
 import { createBackend, type BackendHandle } from "./create-backend.js";
 
@@ -67,5 +68,47 @@ describe("D111 · every attachment entity type declares whose branch its files f
   it("only catalogue master data is shared; a person's and a document's files follow a branch", () => {
     const sharedTypes = ATTACHMENT_ENTITY_TYPES.filter((entityType) => ATTACHMENT_ENTITY_OWNERS[entityType] === AttachmentOwner.SharedMasterData);
     expect([...sharedTypes].sort()).toEqual(["customer", "item", "supplier"]);
+  });
+});
+
+describe("D111 · a scoped family whose create lets the branch be left out says how the branch is filled in", () => {
+  type Shaped = { shape?: Record<string, { isOptional(): boolean; isNullable(): boolean }>; _def?: { schema?: Shaped } };
+  const shapeOf = (schema: Shaped): Shaped["shape"] => schema.shape ?? (schema._def?.schema ? shapeOf(schema._def.schema) : undefined);
+  const branchMayBeLeftOut = (schema: unknown): boolean => {
+    const branch = shapeOf(schema as Shaped)?.["branchId"];
+    return branch !== undefined && (branch.isOptional() || branch.isNullable());
+  };
+
+  const CREATE_SCHEMA_FAMILY: Readonly<Record<string, string | null>> = {
+    createAssetSchema: "/assets",
+    createDepreciationRunSchema: "/assets/depreciation/runs",
+    createOpportunitySchema: "/crm/opportunities",
+    createPayrollRunSchema: "/hr/payroll/runs",
+    createShiftTemplateSchema: "/shift-templates",
+    openVanTripSchema: "/field/van-trips",
+    createTreasuryAccountSchema: "/treasury-accounts",
+    createCostCenterSchema: null,
+    createCustomerSchema: null,
+  };
+  const createSchemas = Object.entries(contracts).filter(([name, schema]) => /^(create|open)\w+Schema$/.test(name) && branchMayBeLeftOut(schema));
+
+  it("finds the create schemas that let the branch be left out", () => {
+    expect(createSchemas.length).toBeGreaterThan(5);
+  });
+
+  it("every such schema is tied to its route family here, so a new one cannot pass unnoticed", () => {
+    expect(createSchemas.map(([name]) => name).filter((name) => !(name in CREATE_SCHEMA_FAMILY))).toEqual([]);
+  });
+
+  it("every such scoped family defaults the branch, or holds a record no branch owns for the company", () => {
+    const silent = createSchemas.flatMap(([name]) => {
+      const prefix = CREATE_SCHEMA_FAMILY[name];
+      if (!prefix) return [];
+      const entry = BRANCH_POLICY_TABLE.find((candidate) => candidate.prefix === prefix);
+      if (!entry) return [`${name}: ${prefix} is not a declared family`];
+      if (entry.policy !== BranchPolicy.Scoped) return [];
+      return entry.defaultsBranch || entry.unownedIsCompanys ? [] : [`${prefix} (${name})`];
+    });
+    expect(silent).toEqual([]);
   });
 });

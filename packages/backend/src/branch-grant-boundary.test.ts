@@ -1598,3 +1598,40 @@ describe("D111 round 3 · head office pays and collects for a branch; a branch u
     expect(perBranch.reduce((sum, row) => sum + row.d, 0)).toBe(company);
   });
 });
+
+describe("D111 round 3 · a record raised with no branch lands in the author's only branch, on every family that lets the branch be left out", () => {
+  const cases: readonly (readonly [label: string, path: string, table: string, body: (id: string) => Record<string, unknown>])[] = [
+    ["CRM opportunity", "/crm/opportunities", "crm_opportunity", (id) => ({ id, title: "فرصة اختبار", customerId: "CUST-DEMO-2", stageId: "STAGE-CONTACTED" })],
+    [
+      "fixed asset",
+      "/assets",
+      "asset",
+      (id) => ({ id, code: id, nameAr: "أصل اختبار", categoryId: "ASSET-CAT-DEMO-1", acquisitionDate: TODAY, acquisitionCost: "1000.00" }),
+    ],
+  ];
+
+  for (const [label, path, table, body] of cases) {
+    it(`${label}: lands in the branch, its author opens it, and a two-branch author must say which`, async () => {
+      const id = `R3-DEF-${table}`;
+      const created = await alex("POST", path, body(id));
+      expect(created.status, JSON.stringify(created.body).slice(0, 300)).toBe(201);
+      expect(one<{ b: string }>(`SELECT branch_id AS b FROM ${table} WHERE id = ?`, id)?.b).toBe(ALEX);
+      expect((await alex("GET", `${path}/${id}`)).status).toBe(200);
+      expect(rowsOf((await alex("GET", path)).body).map((row: any) => row.id)).toContain(id);
+      expect((await mainOnly("GET", `${path}/${id}`)).status).toBe(404);
+
+      const several = await bothBranches("POST", path, body(`${id}-SEVERAL`));
+      expect(several.status).toBe(400);
+      expect(several.body.error).toBe("BRANCH_REQUIRED");
+      expect(several.body.message).toMatch(ARABIC);
+      expect(one(`SELECT id FROM ${table} WHERE id = ?`, `${id}-SEVERAL`)).toBeUndefined();
+    });
+  }
+
+  it("shift template: lands in the branch and is listed to its author", async () => {
+    const created = await alex("POST", "/shift-templates", { nameAr: "وردية اختبار الفرع", fromTime: "02:00", toTime: "03:00" });
+    expect(created.status, JSON.stringify(created.body).slice(0, 300)).toBe(201);
+    expect(one<{ b: string }>("SELECT branch_id AS b FROM shift_template WHERE name_ar = 'وردية اختبار الفرع'")?.b).toBe(ALEX);
+    expect(rowsOf((await alex("GET", "/shift-templates")).body).map((row: any) => row.nameAr)).toContain("وردية اختبار الفرع");
+  });
+});

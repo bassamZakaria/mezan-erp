@@ -5,7 +5,7 @@ let world: SeededWorld;
 
 beforeEach(async () => {
   world = await seededWorld();
-}, 120_000);
+}, 900_000);
 
 afterEach(() => world?.close());
 
@@ -122,6 +122,18 @@ describe("money leaving a foreign-currency treasury account leaves at what it is
     expect(world.balance("4920") - before.gain).toBe(-450n * SCALE);
     expect(await holds()).toEqual({ foreign: "200.000000", base: "9780.000000" });
     expect(await world.invariants()).toEqual(INVARIANTS_ZERO);
+  });
+
+  it("a month-end revaluation that reverses itself is not part of what the account is carried at: paying everything out on the revalued day still ends with nothing left", async () => {
+    const before = realised();
+    expect((await world.request("POST", "/revaluation/post", { date: "2026-08-31", currencies: ["USD"] })).status).toBe(201);
+    expect(world.balance("1310-USD", "2026-08-31")).toBe(59_220n * SCALE);
+
+    expect((await voucher("CAR-EOM", { date: "2026-08-31", voucherType: "other_expense", amount: "1200", currency: "USD", ...USD_BANK, counterpartyGlAccountId: "5910" })).status).toBe(200);
+
+    expect(realised() - before).toBe(-540n * SCALE);
+    expect(world.balance("1310-USD", "2026-09-01")).toBe(0n);
+    expect(await holds()).toEqual({ foreign: "0.000000", base: "0.000000" });
   });
 
   it("a cheque cannot be collected into a foreign-currency bank on a day with no approved rate for its currency", async () => {

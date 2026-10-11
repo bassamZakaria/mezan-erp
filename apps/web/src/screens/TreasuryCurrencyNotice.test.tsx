@@ -44,6 +44,16 @@ describe("the currency panel of a voucher on a foreign-currency treasury account
     expect(panel).toHaveTextContent("المعادل بالعملة الأساسية: 4935.00 EGP");
   });
 
+  it("rounds what it shows to the piastre instead of cutting it off", () => {
+    show({ voucherCurrency: "EGP", amount: 100 });
+    expect(screen.getByRole("group", { name: "عملة حساب الخزينة" })).toHaveTextContent("المبلغ بعملة الحساب: 2.03 USD");
+  });
+
+  it("takes an amount a browser number field can produce without breaking", () => {
+    show({ amount: 0.1 + 0.2 });
+    expect(screen.getByRole("group", { name: "عملة حساب الخزينة" })).toHaveTextContent("المبلغ بعملة الحساب: 0.30 USD");
+  });
+
   it("says the voucher cannot post when the date has no approved rate", () => {
     show({ date: "2026-07-01" });
     expect(screen.getByRole("alert")).toHaveTextContent("لا يوجد سعر صرف معتمد للعملة USD بتاريخ 2026-07-01");

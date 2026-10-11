@@ -99,6 +99,7 @@ import {
   isActive,
   type DocumentStatus,
   purchaseInvoiceCancelEntryId,
+  FX_REVALUATION_LINE_MEMO,
   goodsReceiptCancelEntryId,
   goodsReceiptTotalCost,
   goodsReceiptUninvoicedCost,
@@ -2997,7 +2998,16 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     differenceAccounts: () => fxDifferenceAccounts("realised"),
     async treasuryPosition(treasuryAccountId, asOfDate) {
       const held = (await foreignTreasuryBalances(asOfDate)).find((row) => row.treasuryAccountId === treasuryAccountId);
-      return held ? { foreign: held.foreignBalance, base: held.baseBalance } : null;
+      if (!held) return null;
+      // INVARIANT: a revaluation that reverses itself is not cost. Both halves are left out, on whichever day each is dated, so the carrying amount is the same before and after the reversal lands.
+      const restated = ((await ledger.listLines?.({ accountIds: [held.glAccountId], toDate: asOfDate })) ?? []).filter((line) => line.source === "system" && line.memo === FX_REVALUATION_LINE_MEMO);
+      let selfReversing = 0n;
+      for (const entryId of new Set(restated.map((line) => line.entryId))) {
+        const entry = await ledger.findById(entryId);
+        if (!entry?.reversedByEntryId && !entry?.reversesEntryId) continue;
+        for (const line of restated) if (line.entryId === entryId) selfReversing += line.debit.scaled - line.credit.scaled;
+      }
+      return { foreign: held.foreignBalance, base: Money.fromScaled(held.baseBalance.scaled - selfReversing) };
     },
   };
   const settlementPreviewer = new VoucherService({

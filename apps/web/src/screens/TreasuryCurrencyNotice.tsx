@@ -1,4 +1,4 @@
-import { Money, convertFromBase, convertToBase } from "@mezan/domain";
+import { Money, convertFromBase, convertToBase, roundMoney } from "@mezan/domain";
 import { useAppTranslation } from "../i18n";
 
 export interface TreasuryCurrencyRate {
@@ -23,7 +23,12 @@ export function approvedRateOn(rates: readonly TreasuryCurrencyRate[], currency:
 }
 
 function twoDecimals(amount: Money): string {
-  return amount.toString().replace(/(\.\d{2})\d*$/, "$1");
+  return roundMoney(amount, 2, "HALF_UP").toString().slice(0, -4);
+}
+
+/** A number field's value as money: stated to the micro-unit, never through its binary expansion. */
+function statedAmount(amount: number | null): Money {
+  return amount === null || !Number.isFinite(amount) || Math.abs(amount) >= 1e15 ? Money.zero() : Money.fromMajor(amount.toFixed(6));
 }
 
 interface TreasuryCurrencyNoticeProps {
@@ -41,7 +46,7 @@ export function TreasuryCurrencyNotice({ baseCurrency, accounts, voucherCurrency
   const { t } = useAppTranslation();
   const foreign = accounts.filter((account) => account.currency !== baseCurrency);
   if (foreign.length === 0) return null;
-  const stated = Money.fromMajor(String(amount ?? 0));
+  const stated = statedAmount(amount);
   const choices = [...new Set([...foreign.map((account) => account.currency), baseCurrency])];
 
   return (

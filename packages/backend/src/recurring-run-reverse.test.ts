@@ -71,6 +71,12 @@ describe("reversing a recurring run", () => {
     expect(fresh?.journalEntryId).not.toBe(run.journalEntryId);
     expect(await dueFor(run.templateId)).not.toContain("2026-07");
 
+    expect((await recurringFindings("fp-2026-07")).find((f) => f.ref === `${run.templateId}:2026-07`)).toMatchObject({ passed: false, state: "draft" });
+    world.sqlite.prepare(`UPDATE fiscal_period SET status = 'open' WHERE id = 'fp-2026-07'`).run();
+    const posted = await world.request("POST", `/gl/journal-entries/${encodeURIComponent(String(fresh?.journalEntryId))}/post`, {});
+    expect(posted.status, JSON.stringify(posted.body)).toBeLessThan(300);
+    expect((await recurringFindings("fp-2026-07")).find((f) => f.ref === `${run.templateId}:2026-07`)).toMatchObject({ passed: true });
+
     const again = await world.request("POST", "/gl/recurring/generate-due", { asOfDate: "2026-07-31", templateIds: [run.templateId] });
     expect((again.body.generated as unknown[]).length).toBe(0);
     expect(world.count("recurring_journal_run", `template_id = '${run.templateId}' AND period = '2026-07'`)).toBe(1);

@@ -19,6 +19,7 @@ import {
   type PurchaseInvoiceListFilter,
   type PurchaseInvoiceRepository,
   type PurchaseInvoiceStatus,
+  PurchaseInvoiceStatusCode,
 } from "@mezan/domain";
 
 /**
@@ -453,6 +454,26 @@ class SqlitePurchaseInvoiceStore implements PurchaseInvoiceRepository {
     this.write(invoice);
     // N-9: any write moves the version, whichever path made the change.
     this.versions?.bump(invoice.id);
+  }
+  async nameLineTaxRate(invoiceId: string, lineIndexes: readonly number[], taxRatePercent: number, taxRateId: string): Promise<number> {
+    const row = this.selectById.get(invoiceId) as PiRow | undefined;
+    if (!row || row.status !== PurchaseInvoiceStatusCode.Confirmed) return 0;
+    const lines = JSON.parse(row.lines) as { taxRatePercent: number; taxRateId?: string | null }[];
+    let named = 0;
+    for (const index of new Set(lineIndexes)) {
+      const line = lines[index];
+      if (!line || (line.taxRateId ?? null) !== null || line.taxRatePercent !== taxRatePercent) continue;
+      line.taxRateId = taxRateId;
+      named += 1;
+    }
+    if (named === 0) return 0;
+    // The stored lines are compared as read: a row another writer moved is left alone.
+    const written = this.sqlite
+      .prepare(`UPDATE purchase_invoice SET lines = ? WHERE id = ? AND status = ? AND lines = ?`)
+      .run(JSON.stringify(lines), invoiceId, PurchaseInvoiceStatusCode.Confirmed, row.lines).changes;
+    if (written === 0) return 0;
+    this.versions?.bump(invoiceId);
+    return named;
   }
   private write(inv: PurchaseInvoice): void {
     this.upsert.run({

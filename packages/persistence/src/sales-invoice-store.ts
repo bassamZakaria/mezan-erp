@@ -5,6 +5,7 @@ import { childRowsByParent, countMatching, FilterClauses, selectPage } from "./l
 import {
   Money,
   Qty,
+  SALES_INVOICE_ACTIVE_STATUSES,
   type AppliedSalesInvoicePromotion,
   type SalesInvoice,
   type SalesInvoiceDiscount,
@@ -457,6 +458,20 @@ class SqliteSalesInvoiceRepository implements SalesInvoiceRepository {
     // N-9: EVERY write moves the version, so a caller holding an older one is
     // detectable whichever path made the change.
     this.versions?.bump(invoice.id);
+  }
+
+  async nameLineTaxRate(invoiceId: string, lineIds: readonly string[], taxRatePercent: number, taxRateId: string): Promise<number> {
+    if (lineIds.length === 0) return 0;
+    const named = this.sqlite
+      .prepare(
+        `UPDATE sales_invoice_line SET tax_rate_id = ?
+          WHERE invoice_id = ? AND tax_rate_id IS NULL AND tax_rate_percent = ?
+            AND line_id IN (${lineIds.map(() => "?").join(",")})
+            AND invoice_id IN (SELECT id FROM sales_invoice WHERE status IN (${[...SALES_INVOICE_ACTIVE_STATUSES].map(() => "?").join(",")}))`,
+      )
+      .run(taxRateId, invoiceId, taxRatePercent, ...lineIds, ...SALES_INVOICE_ACTIVE_STATUSES).changes;
+    if (named > 0) this.versions?.bump(invoiceId);
+    return named;
   }
 
   async findById(id: string): Promise<SalesInvoice | null> {

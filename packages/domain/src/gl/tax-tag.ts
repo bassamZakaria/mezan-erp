@@ -15,16 +15,18 @@ export class JournalTaxTagUnsupportedError extends Error {
 // ENTRY's own date is filed — exactly as a posting dated there would be. A
 // closed fiscal period does not refuse it: no balance moves.
 export function createJournalTaxTagPort(deps: {
-  readonly ledger: Pick<LedgerRepository, "findById" | "retagUnnamedTaxRate">;
+  readonly ledger: Pick<LedgerRepository, "findById" | "retagUnnamedTaxRate" | "retagUntaggedTaxRate">;
   readonly vatFilings?: JournalPostingDeps["vatFilings"];
 }): JournalTaxTagPort {
   return {
-    async retagUnnamedTaxRate(entryId, taxRatePercent, taxRateId) {
+    async retagUnnamedTaxRate(entryId, taxRatePercent, taxRateId, untagged) {
       const entry = await deps.ledger.findById(entryId);
       if (!entry) return 0;
       await assertVatNotFiled(entry.date, deps.vatFilings);
       if (!deps.ledger.retagUnnamedTaxRate) throw new JournalTaxTagUnsupportedError();
-      return deps.ledger.retagUnnamedTaxRate(entryId, taxRatePercent, taxRateId);
+      const named = await deps.ledger.retagUnnamedTaxRate(entryId, taxRatePercent, taxRateId);
+      if (named > 0 || !untagged || !deps.ledger.retagUntaggedTaxRate) return named;
+      return deps.ledger.retagUntaggedTaxRate(entryId, untagged, taxRatePercent, taxRateId);
     },
   };
 }

@@ -10,7 +10,7 @@ import {
 import type { PurchaseOrder, PurchaseOrderRepository } from "./purchase-order.js";
 import type { GoodsReceipt, GoodsReceiptRepository } from "./goods-receipt.js";
 import type { PurchaseInvoice, PurchaseInvoiceRepository } from "./purchase-invoice.js";
-import type { PurchaseGlPosting, PurchaseGlPostingPort } from "./types.js";
+import { PurchaseInvoiceStatusCode, type PurchaseGlPosting, type PurchaseGlPostingPort } from "./types.js";
 
 /** Gap-free counter store; one row per (code, period). */
 export class InMemorySequenceStore implements SequenceStore {
@@ -75,6 +75,18 @@ export class InMemoryPurchaseInvoices implements PurchaseInvoiceRepository {
   }
   async update(invoice: PurchaseInvoice): Promise<void> {
     this.rows.set(invoice.id, invoice);
+  }
+  async nameLineTaxRate(invoiceId: string, lineIndexes: readonly number[], taxRatePercent: number, taxRateId: string): Promise<number> {
+    const invoice = this.rows.get(invoiceId);
+    if (!invoice || invoice.status !== PurchaseInvoiceStatusCode.Confirmed) return 0;
+    let named = 0;
+    const lines = invoice.lines.map((line, index) => {
+      if (!lineIndexes.includes(index) || (line.taxRateId ?? null) !== null || line.taxRatePercent !== taxRatePercent) return line;
+      named += 1;
+      return { ...line, taxRateId };
+    });
+    this.rows.set(invoiceId, { ...invoice, lines });
+    return named;
   }
 }
 

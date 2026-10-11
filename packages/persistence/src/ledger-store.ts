@@ -2,8 +2,10 @@ import Database from "better-sqlite3";
 import { openSqliteConnection, withSqliteTransaction, type SqliteConnectionInput } from "./sqlite-connection.js";
 import { childRowsByParent } from "./list-query.js";
 import {
+  JournalLineSide,
   Money,
   NextNumberService,
+  type UntaggedJournalLineSelector,
   type JournalEntry,
   type JournalEntrySource,
   type JournalEntryStatus,
@@ -239,6 +241,27 @@ class SqliteLedgerRepository implements LedgerRepository {
 
   async retagUnnamedTaxRate(entryId: string, taxRatePercent: number, taxRateId: string): Promise<number> {
     return this.retagTaxRate.run({ entry_id: entryId, tax_rate_percent: taxRatePercent, tax_rate_id: taxRateId }).changes;
+  }
+
+  async retagUntaggedTaxRate(entryId: string, selector: UntaggedJournalLineSelector, taxRatePercent: number, taxRateId: string): Promise<number> {
+    const clauses: string[] = [];
+    const params: unknown[] = [taxRatePercent, taxRateId, entryId, entryId];
+    if (selector.accountIds) {
+      if (selector.accountIds.length === 0) return 0;
+      clauses.push(`account_id IN (${selector.accountIds.map(() => "?").join(",")})`);
+      params.push(...selector.accountIds);
+    }
+    if (selector.side === JournalLineSide.Debit) clauses.push("debit <> 0");
+    if (selector.side === JournalLineSide.Credit) clauses.push("credit <> 0");
+    return this.sqlite
+      .prepare(
+        `UPDATE journal_line SET tax_rate_percent = ?, tax_rate_id = ?
+          WHERE entry_id = ? AND tax_rate_id IS NULL AND tax_rate_percent IS NULL
+            AND entry_id IN (SELECT id FROM journal_entry WHERE status <> 'draft')
+            AND NOT EXISTS (SELECT 1 FROM journal_line tagged WHERE tagged.entry_id = ? AND tagged.tax_rate_percent IS NOT NULL)
+            ${clauses.map((clause) => `AND ${clause}`).join(" ")}`,
+      )
+      .run(...params).changes;
   }
 
   async replaceDraft(entry: JournalEntry): Promise<void> {

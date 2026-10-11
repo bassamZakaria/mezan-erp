@@ -448,6 +448,73 @@ describe("classifying the tax of a posted purchase line that stored none", () =>
   });
 });
 
+describe("two requests racing over one posted line (D79 round 5)", () => {
+  type TaxLine = { accountId: string; taxRatePercent: number | null; taxRateId: string | null };
+  const classify = (invoiceId: string, lineId: string, taxRateId: string) =>
+    call("POST", `/sales-invoices/${invoiceId}/lines/${lineId}/classify-tax`, { taxRateId });
+  const unnamedSale = async (id: string) => {
+    expect((await sale(id, NOT_EXEMPT_CUSTOMER, [serviceLine("L1", { taxRateId: null, taxRatePercent: 0 })])).status).toBe(201);
+    expect((await call("POST", `/sales-invoices/${id}/confirm`, {})).status).toBe(200);
+  };
+  const zeroTagsOf = async (entryId: string) =>
+    (((await call("GET", `/gl/journal-entries/${encodeURIComponent(entryId)}`)).body.lines ?? []) as TaxLine[]).filter((l) => l.taxRatePercent === 0).map((l) => l.taxRateId);
+  const lineRateOf = async (id: string) => (await call("GET", `/sales-invoices/${id}`)).body.lines[0].taxRateId as string | null;
+
+  it("lets exactly one of two classifications to different rates win, and the line and its journal agree", async () => {
+    await unnamedSale("T-RACE-2");
+    const replies = await Promise.all([classify("T-RACE-2", "L1", EXEMPT_RATE), classify("T-RACE-2", "L1", EXPORT_RATE)]);
+    expect(replies.map((r) => r.status).sort()).toEqual([200, 409]);
+    const winner = replies.find((r) => r.status === 200)!.body.taxRateId;
+    expect(replies.find((r) => r.status === 409)!.body.message).toMatch(/[؀-ۿ]/);
+    expect(await lineRateOf("T-RACE-2")).toBe(winner);
+    expect(await zeroTagsOf("T-RACE-2")).toEqual([winner]);
+    const events = rowsOf((await call("GET", "/audit?stream=sensitive&entityType=SALES_INVOICE&entityId=T-RACE-2&action=CLASSIFY_LINE_TAX")).body);
+    expect(events.map((e) => e.details.after.taxRateId)).toEqual([winner]);
+  });
+
+  it.each([
+    ["void first", "T-RACE-VOID-A", true],
+    ["classify first", "T-RACE-VOID-B", false],
+  ])("keeps the invoice line, its entry and the void's reversal on ONE classification when a void races it (%s)", async (_label, id, voidFirst) => {
+    await unnamedSale(id);
+    const voiding = () => call("POST", `/sales-invoices/${id}/void`, { reason: "سباق" });
+    const [first, second] = await Promise.all(voidFirst ? [voiding(), classify(id, "L1", EXEMPT_RATE)] : [classify(id, "L1", EXEMPT_RATE), voiding()]);
+    const voided = voidFirst ? first : second;
+    expect(voided.status).toBe(200);
+    const lineRate = await lineRateOf(id);
+    expect(await zeroTagsOf(id)).toEqual([lineRate]);
+    expect(await zeroTagsOf(`${id}:void`)).toEqual([lineRate]);
+  });
+
+  it.each([
+    ["collection first", "T-RACE-PAY-A", true],
+    ["classify first", "T-RACE-PAY-B", false],
+  ])("keeps both a collection and a classification that race each other (%s)", async (_label, id, payFirst) => {
+    await unnamedSale(id);
+    const paying = () => call("POST", `/sales-invoices/${id}/payments`, { amount: "40", treasuryAccountId: "TR-DEMO-CASH", paymentMethod: "cash" });
+    const replies = await Promise.all(payFirst ? [paying(), classify(id, "L1", EXEMPT_RATE)] : [classify(id, "L1", EXEMPT_RATE), paying()]);
+    expect(replies.map((r) => r.status)).toEqual([200, 200]);
+    const invoice = (await call("GET", `/sales-invoices/${id}`)).body;
+    expect([invoice.status, invoice.amountPaid, invoice.lines[0].taxRateId]).toEqual(["partially_paid", "40.000000", EXEMPT_RATE]);
+    expect(await zeroTagsOf(id)).toEqual([EXEMPT_RATE]);
+  });
+
+  it("does the same for a purchase invoice: one of two classifications wins and the journal follows the line", async () => {
+    const created = await call("POST", "/purchases/invoices", {
+      id: "T-PI-RACE", supplierId: "SUPP-DEMO-1", date: TODAY, dueDate: "2026-09-23", branchId: BRANCH, warehouseId: WAREHOUSE,
+      lines: [{ itemId: null, kind: "expense", description: "خدمة", qty: "1", unitCost: "200", taxRateId: null, taxRatePercent: 0 }],
+    });
+    expect(created.status).toBe(201);
+    expect((await call("POST", "/purchases/invoices/T-PI-RACE/confirm", {})).status).toBe(200);
+    const pc = (taxRateId: string) => call("POST", "/purchases/invoices/T-PI-RACE/lines/0/classify-tax", { taxRateId });
+    const replies = await Promise.all([pc(EXEMPT_RATE), pc(EXPORT_RATE)]);
+    expect(replies.map((r) => r.status).sort()).toEqual([200, 409]);
+    const winner = replies.find((r) => r.status === 200)!.body.taxRateId;
+    expect((await call("GET", "/purchases/invoices/T-PI-RACE")).body.lines[0].taxRateId).toBe(winner);
+    expect(await zeroTagsOf("PI-JE:T-PI-RACE")).toEqual([winner]);
+  });
+});
+
 describe("a filed VAT return closes classification on the purchase side too", () => {
   it("refuses to classify a purchase line once the return covering its entry's date is filed, and writes nothing", async () => {
     const created = await call("POST", "/purchases/invoices", {

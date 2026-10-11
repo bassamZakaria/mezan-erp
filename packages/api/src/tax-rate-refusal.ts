@@ -4,7 +4,9 @@ import {
   JournalTaxTagUnsupportedError,
   PostedLineNotFoundError,
   TaxClassificationAlreadyFiledError,
+  TaxClassificationJournalUntaggedError,
   TaxClassificationNotPostedError,
+  TaxClassificationStaleError,
   TaxClassificationSharedPostingError,
   TaxRateAlreadyClassifiedError,
   TaxRateClassificationPercentError,
@@ -40,7 +42,12 @@ export function taxClassificationRefusal(c: Context, err: unknown): Response | n
   if (err instanceof TaxClassificationSharedPostingError) {
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, sharedLineIds: err.sharedLineRefs }, 409);
   }
-  if (err instanceof TaxClassificationNotPostedError || err instanceof TaxClassificationAlreadyFiledError) {
+  if (
+    err instanceof TaxClassificationNotPostedError ||
+    err instanceof TaxClassificationAlreadyFiledError ||
+    err instanceof TaxClassificationStaleError ||
+    err instanceof TaxClassificationJournalUntaggedError
+  ) {
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
   }
   if (err instanceof VatPeriodAlreadyFiledError || err instanceof JournalTaxTagUnsupportedError) {

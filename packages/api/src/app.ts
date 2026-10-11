@@ -1490,10 +1490,10 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
           // INVARIANT: the SAME deterministic entry ids the posting adapters
           // above and the historical import use.
           taxTags: {
-            retagUnnamedTaxRate: async (invoiceId, taxRatePercent, taxRateId) => {
+            retagUnnamedTaxRate: async (invoiceId, taxRatePercent, taxRateId, untagged) => {
               const tags = createJournalTaxTagPort({ ledger: purchases.gl.ledger, vatFilings: purchases.gl.vatFilings });
-              const posted = await tags.retagUnnamedTaxRate(`PI-JE:${invoiceId}`, taxRatePercent, taxRateId);
-              const imported = await tags.retagUnnamedTaxRate(`HIST-PI-JE:${invoiceId}`, taxRatePercent, taxRateId);
+              const posted = await tags.retagUnnamedTaxRate(`PI-JE:${invoiceId}`, taxRatePercent, taxRateId, untagged);
+              const imported = await tags.retagUnnamedTaxRate(`HIST-PI-JE:${invoiceId}`, taxRatePercent, taxRateId, untagged);
               return posted + imported;
             },
           },

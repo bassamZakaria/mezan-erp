@@ -1,4 +1,4 @@
-import type { SalesInvoice } from "../sales-invoice.js";
+import { SALES_INVOICE_ACTIVE_STATUSES, type SalesInvoice } from "../sales-invoice.js";
 import type { SalesInvoiceListFilter, SalesInvoiceRepository } from "../ports.js";
 
 /** Trivial in-memory {@link SalesInvoiceRepository} for domain-layer + UI tests. */
@@ -11,6 +11,19 @@ export class InMemorySalesInvoiceRepository implements SalesInvoiceRepository {
 
   async update(invoice: SalesInvoice): Promise<void> {
     this.rows.set(invoice.id, invoice);
+  }
+
+  async nameLineTaxRate(invoiceId: string, lineIds: readonly string[], taxRatePercent: number, taxRateId: string): Promise<number> {
+    const invoice = this.rows.get(invoiceId);
+    if (!invoice || !SALES_INVOICE_ACTIVE_STATUSES.has(invoice.status)) return 0;
+    let named = 0;
+    const lines = invoice.lines.map((line) => {
+      if (!lineIds.includes(line.lineId) || (line.taxRateId ?? null) !== null || line.taxRatePercent !== taxRatePercent) return line;
+      named += 1;
+      return { ...line, taxRateId };
+    });
+    this.rows.set(invoiceId, { ...invoice, lines });
+    return named;
   }
 
   async findById(id: string): Promise<SalesInvoice | null> {

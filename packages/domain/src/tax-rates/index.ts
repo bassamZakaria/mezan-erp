@@ -68,6 +68,13 @@ export { InvalidTaxGroupError, TaxGroupNotFoundError } from "./errors.js";
 export {
   planTaxClassification,
   TaxClassificationFilingOutcome,
+  TaxClassificationAuditAction,
+  TaxClassificationAuditModule,
+  TaxClassificationAuditEntity,
+  JournalLineSide,
+  TaxClassificationStaleError,
+  TaxClassificationJournalUntaggedError,
+  type UntaggedJournalLineSelector,
   PostedLineNotFoundError,
   TaxClassificationNotPostedError,
   TaxClassificationSharedPostingError,

@@ -1252,43 +1252,52 @@ export function createSalesInvoicesRoutes(
     }
 
     const date = (await tenantDay(c, deps.now?.() ?? new Date().toISOString()));
+    const journalEntryId = invoice.journalEntryId;
     try {
-      const reversal = await deps.gl.reverse(invoice.journalEntryId, {
-        reversalId: `${invoice.id}:void`,
-        date,
-        memo: `عكس فاتورة مبيعات ${invoice.docNo ?? invoice.id}`,
-      });
-      if (stockLines.length > 0) {
-        await deps.stockRestore!.apply({
-          sourceDocType: "SALES_INVOICE",
-          // A separate source id from the issue, whose movement ids are
-          // `${invoice.id}:${index}` — reusing it would collide in the ledger.
-          sourceDocId: `${invoice.id}:void`,
-          sourceDocNumber: invoice.docNo,
-          warehouseId: invoice.warehouseId,
+      // INVARIANT: the reversal mirrors the entry's tax tags as they stand, and
+      // the invoice is re-read under the same transaction that writes it — a
+      // classification racing this void lands wholly before it or is refused.
+      const { voided, reversal } = await deps.repo.transaction(async () => {
+        const current = (await deps.repo.findById(invoice.id)) ?? invoice;
+        assertSalesInvoiceTransition(current.id, current.status, "reversed");
+        const posted = await deps.gl.reverse(journalEntryId, {
+          reversalId: `${invoice.id}:void`,
           date,
-          lines: stockLines.map((l) => ({
-            itemId: l.itemId,
-            direction: "IN" as const,
-            qty: l.qty,
-            unitCost: l.unitCost as Money,
-          })),
+          memo: `عكس فاتورة مبيعات ${invoice.docNo ?? invoice.id}`,
         });
-      }
-      const voided: SalesInvoice = { ...invoice, status: "reversed" };
-      await deps.repo.update(voided);
-      await recordAdminEvent(deps.audit, c, {
-        module: "sales",
-        entityType: "SALES_INVOICE",
-        entityId: voided.id,
-        action: "VOID",
-        details: {
-          docNo: voided.docNo,
-          customerId: voided.customerId,
-          previousStatus: invoice.status,
-          grandTotal: totalsFor(svc, voided).grandTotal.toString(),
-          reversalJournalEntryId: reversal.journalEntryId,
-        },
+        if (stockLines.length > 0) {
+          await deps.stockRestore!.apply({
+            sourceDocType: "SALES_INVOICE",
+            // A separate source id from the issue, whose movement ids are
+            // `${invoice.id}:${index}` — reusing it would collide in the ledger.
+            sourceDocId: `${invoice.id}:void`,
+            sourceDocNumber: invoice.docNo,
+            warehouseId: invoice.warehouseId,
+            date,
+            lines: stockLines.map((l) => ({
+              itemId: l.itemId,
+              direction: "IN" as const,
+              qty: l.qty,
+              unitCost: l.unitCost as Money,
+            })),
+          });
+        }
+        const next: SalesInvoice = { ...current, status: "reversed" };
+        await deps.repo.update(next);
+        await recordAdminEvent(deps.audit, c, {
+          module: "sales",
+          entityType: "SALES_INVOICE",
+          entityId: next.id,
+          action: "VOID",
+          details: {
+            docNo: next.docNo,
+            customerId: next.customerId,
+            previousStatus: current.status,
+            grandTotal: totalsFor(svc, next).grandTotal.toString(),
+            reversalJournalEntryId: posted.journalEntryId,
+          },
+        });
+        return { voided: next, reversal: posted };
       });
       return c.json({
         ...serialize(voided, totalsFor(svc, voided), Money.zero(), maySeeCost(c)),

@@ -1,5 +1,6 @@
 export {
   AUDIT_SEVERITIES,
+  AuditSeverityCode,
   AUDIT_STREAMS,
   createAuditEvent,
   recordSecurityEvent,

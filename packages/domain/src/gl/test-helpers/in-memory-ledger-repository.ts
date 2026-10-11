@@ -9,6 +9,7 @@ import type {
   LedgerRepository,
 } from "../ledger.js";
 import type { GlDomainEvent, GlEventPublisher } from "../events.js";
+import { JournalLineSide, type UntaggedJournalLineSelector } from "../../tax-rates/classify-posted-line-tax.js";
 
 /** Statuses whose lines are committed to the ledger and count toward balances. */
 const LEDGER_STATUSES = new Set(["posted", "reversed"]);
@@ -33,6 +34,23 @@ export class InMemoryLedgerRepository implements LedgerRepository {
       if (line.taxRatePercent !== taxRatePercent || (line.taxRateId ?? null) !== null) return line;
       named += 1;
       return { ...line, taxRateId };
+    });
+    this.rows.set(entryId, { ...entry, lines });
+    return named;
+  }
+
+  async retagUntaggedTaxRate(entryId: string, selector: UntaggedJournalLineSelector, taxRatePercent: number, taxRateId: string): Promise<number> {
+    const entry = this.rows.get(entryId);
+    if (!entry || entry.status === "draft") return 0;
+    if (entry.lines.some((line) => (line.taxRatePercent ?? null) !== null)) return 0;
+    let named = 0;
+    const lines = entry.lines.map((line) => {
+      if ((line.taxRateId ?? null) !== null) return line;
+      if (selector.accountIds && !selector.accountIds.includes(line.accountId)) return line;
+      if (selector.side === JournalLineSide.Debit && line.debit.scaled === 0n) return line;
+      if (selector.side === JournalLineSide.Credit && line.credit.scaled === 0n) return line;
+      named += 1;
+      return { ...line, taxRatePercent, taxRateId };
     });
     this.rows.set(entryId, { ...entry, lines });
     return named;

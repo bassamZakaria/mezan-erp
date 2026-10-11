@@ -31,6 +31,14 @@ export interface SalesInvoiceRepository {
    * Exists so the chips cost one aggregate rather than hydrating the table.
    */
   countByStatus(filter?: SalesInvoiceListFilter): Promise<ReadonlyMap<SalesInvoice["status"], number>>;
+  /**
+   * INVARIANT: the ONE write a posted invoice line takes. It sets `taxRateId`
+   * on the named lines that store NONE at `taxRatePercent`, on an invoice
+   * still in a posted status, and returns how many it named. Nothing else on
+   * the document is written, so a concurrent collection or void is never
+   * overwritten by a stale copy.
+   */
+  nameLineTaxRate(invoiceId: string, lineIds: readonly string[], taxRatePercent: number, taxRateId: string): Promise<number>;
   /** Run `fn` in one atomic transaction. In-memory implementations may just call `fn`. */
   transaction<T>(fn: () => Promise<T>): Promise<T>;
 }

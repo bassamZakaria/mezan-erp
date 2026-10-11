@@ -27,9 +27,59 @@ export enum TaxClassificationFilingOutcome {
   FiledConsistent = "filed_consistent",
 }
 
+export enum TaxClassificationAuditAction {
+  ClassifyLineTax = "CLASSIFY_LINE_TAX",
+}
+
+export enum TaxClassificationAuditModule {
+  Sales = "sales",
+  Purchases = "purchases",
+}
+
+export enum TaxClassificationAuditEntity {
+  SalesInvoice = "SALES_INVOICE",
+  PurchaseInvoice = "PURCHASE_INVOICE",
+}
+
+export enum JournalLineSide {
+  Debit = "debit",
+  Credit = "credit",
+}
+
+// INVARIANT: an entry posted before journal lines carried a tax percent has
+// NO tagged line, so the percent cannot find them. The selector says which of
+// its lines are the document's base and tax lines; it is consulted only when
+// the entry carries no tax percent anywhere.
+export interface UntaggedJournalLineSelector {
+  readonly accountIds?: readonly string[];
+  readonly side?: JournalLineSide;
+}
+
 /** Writes the tax-rate tag on a posted entry's lines that carry none. */
 export interface JournalTaxTagPort {
-  retagUnnamedTaxRate(entryId: string, taxRatePercent: number, taxRateId: string): Promise<number>;
+  retagUnnamedTaxRate(entryId: string, taxRatePercent: number, taxRateId: string, untagged?: UntaggedJournalLineSelector): Promise<number>;
+}
+
+export class TaxClassificationStaleError extends Error {
+  readonly code = "TAX_CLASSIFICATION_STALE";
+  readonly messageEn: string;
+  constructor(readonly documentNumber: string) {
+    super(`تغيّر المستند ${documentNumber} أثناء تصنيف ضريبة بنده ولم يُحفظ شيء. أعد فتح المستند ثم صنّف البند من جديد.`);
+    this.messageEn = `Document ${documentNumber} changed while its line was being classified and nothing was saved. Reopen it and classify the line again.`;
+    this.name = "TaxClassificationStaleError";
+  }
+}
+
+export class TaxClassificationJournalUntaggedError extends Error {
+  readonly code = "TAX_CLASSIFICATION_JOURNAL_UNTAGGED";
+  readonly messageEn: string;
+  constructor(readonly documentNumber: string) {
+    super(
+      `قيد المستند ${documentNumber} لا يحمل سطراً يمكن تسمية ضريبته، فلم يُصنَّف البند حتى لا يختلف المستند عن قيده. راجع القيد مع المحاسب.`,
+    );
+    this.messageEn = `The journal entry of document ${documentNumber} has no line whose tax can be named, so the line was not classified — the document and its entry would disagree.`;
+    this.name = "TaxClassificationJournalUntaggedError";
+  }
 }
 
 export class PostedLineNotFoundError extends Error {

@@ -1,8 +1,15 @@
-import { recordSensitiveEvent } from "../audit/index.js";
+import { AuditSeverityCode, recordSensitiveEvent } from "../audit/index.js";
 import {
+  JournalLineSide,
   planTaxClassification,
+  TaxClassificationAuditAction,
+  TaxClassificationAuditEntity,
+  TaxClassificationAuditModule,
+  TaxClassificationJournalUntaggedError,
   TaxClassificationNotPostedError,
+  TaxClassificationStaleError,
   type ClassifyPostedLineTaxRequest,
+  type UntaggedJournalLineSelector,
   type TaxClassificationPlan,
   type TaxRateRepository,
 } from "../tax-rates/index.js";
@@ -19,7 +26,7 @@ export const PURCHASE_INVOICE_STATUS_LABELS_AR: Readonly<Record<PurchaseInvoiceS
 
 /** Names the rate on the invoice's posted journal lines; the composition root knows which entry is the invoice's. */
 export interface PurchaseInvoiceTaxTagPort {
-  retagUnnamedTaxRate(invoiceId: string, taxRatePercent: number, taxRateId: string): Promise<number>;
+  retagUnnamedTaxRate(invoiceId: string, taxRatePercent: number, taxRateId: string, untagged?: UntaggedJournalLineSelector): Promise<number>;
 }
 
 export interface ClassifyPurchaseInvoiceLineTaxDeps extends PurchaseAuditDeps {
@@ -48,42 +55,48 @@ export async function classifyPurchaseInvoiceLineTax(
   request: ClassifyPostedLineTaxRequest,
   deps: ClassifyPurchaseInvoiceLineTaxDeps,
 ): Promise<ClassifyPurchaseInvoiceLineTaxResult> {
-  const existing = await deps.invoices.findById(id);
-  if (!existing) throw new PurchaseInvoiceNotFoundError(id);
-  if (existing.status !== PurchaseInvoiceStatusCode.Confirmed) {
-    throw new TaxClassificationNotPostedError(PURCHASE_INVOICE_STATUS_LABELS_AR[existing.status]);
-  }
-  const taxRates = deps.taxRates ? await deps.taxRates.list() : null;
-  const plan = planTaxClassification(
-    taxRates,
-    existing.lines.map((line, index) => ({
-      lineRef: String(index),
-      label: line.description ?? line.itemId ?? `بند ${index + 1}`,
-      stored: { taxRateId: line.taxRateId ?? null, taxRatePercent: line.taxRatePercent },
-    })),
-    request,
-  );
+  // INVARIANT: the read, the plan and both writes share ONE transaction, and
+  // the invoice is written by `nameLineTaxRate` alone — never `update`.
   return atomically(deps, async () => {
-    const classified = new Set(plan.lineRefs);
-    const invoice: PurchaseInvoice = {
-      ...existing,
-      lines: existing.lines.map((line, index) => (classified.has(String(index)) ? { ...line, taxRateId: plan.after.taxRateId } : line)),
-    };
+    const existing = await deps.invoices.findById(id);
+    if (!existing) throw new PurchaseInvoiceNotFoundError(id);
+    if (existing.status !== PurchaseInvoiceStatusCode.Confirmed) {
+      throw new TaxClassificationNotPostedError(PURCHASE_INVOICE_STATUS_LABELS_AR[existing.status]);
+    }
+    const taxRates = deps.taxRates ? await deps.taxRates.list() : null;
+    const plan = planTaxClassification(
+      taxRates,
+      existing.lines.map((line, index) => ({
+        lineRef: String(index),
+        label: line.description ?? line.itemId ?? `بند ${index + 1}`,
+        stored: { taxRateId: line.taxRateId ?? null, taxRatePercent: line.taxRatePercent },
+      })),
+      request,
+    );
     // ORDER MATTERS: the journal goes first — it is what refuses a filed VAT
     // period, and it must refuse before the invoice line is written.
-    const journalLinesNamed = deps.taxTags
-      ? await deps.taxTags.retagUnnamedTaxRate(existing.id, plan.before.taxRatePercent, request.taxRateId)
-      : 0;
-    await deps.invoices.update(invoice);
+    let journalLinesNamed = 0;
+    if (deps.taxTags) {
+      journalLinesNamed = await deps.taxTags.retagUnnamedTaxRate(
+        existing.id,
+        plan.before.taxRatePercent,
+        request.taxRateId,
+        plan.lineRefs.length === existing.lines.length ? { side: JournalLineSide.Debit } : undefined,
+      );
+      if (journalLinesNamed === 0) throw new TaxClassificationJournalUntaggedError(existing.number);
+    }
+    const linesNamed = await deps.invoices.nameLineTaxRate(existing.id, plan.lineRefs.map(Number), plan.before.taxRatePercent, request.taxRateId);
+    if (linesNamed !== plan.lineRefs.length) throw new TaxClassificationStaleError(existing.number);
+    const invoice = (await deps.invoices.findById(id)) as PurchaseInvoice;
     if (deps.audit) {
       await recordSensitiveEvent(deps.audit, {
-        module: "purchases",
-        entityType: "PURCHASE_INVOICE",
+        module: TaxClassificationAuditModule.Purchases,
+        entityType: TaxClassificationAuditEntity.PurchaseInvoice,
         entityId: invoice.id,
-        action: "CLASSIFY_LINE_TAX",
+        action: TaxClassificationAuditAction.ClassifyLineTax,
         actor: deps.actor ?? "system",
         branchId: invoice.branchId ?? null,
-        severity: "WARNING",
+        severity: AuditSeverityCode.Warning,
         details: {
           invoiceId: invoice.id,
           number: invoice.number,

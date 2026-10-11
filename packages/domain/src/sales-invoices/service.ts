@@ -20,6 +20,13 @@ import {
   planTaxClassification,
   TaxClassificationFilingOutcome,
   TaxClassificationNotPostedError,
+  TaxClassificationAuditAction,
+  TaxClassificationAuditEntity,
+  TaxClassificationAuditModule,
+  TaxClassificationJournalUntaggedError,
+  TaxClassificationStaleError,
+  JournalLineSide,
+  type UntaggedJournalLineSelector,
   type ClassifyPostedLineTaxRequest,
   type JournalTaxTagPort,
   type TaxClassificationPlan,
@@ -32,7 +39,7 @@ import {
 } from "../tax-rates/index.js";
 import { occurredAtFromDocumentDate } from "../inventory/movement.js";
 import type { AllocatableInvoiceRepository } from "../vouchers/allocation.js";
-import { recordSensitiveEvent, type AuditSink } from "../audit/index.js";
+import { AuditSeverityCode, recordSensitiveEvent, type AuditSink } from "../audit/index.js";
 import type {
   DocumentGlHook,
   DocumentNumberingHook,
@@ -776,39 +783,47 @@ export class SalesInvoiceService {
    * never re-pointed — that correction is a return or a credit note.
    */
   async classifyLineTax(id: string, request: ClassifyPostedLineTaxRequest): Promise<ClassifySalesInvoiceLineTaxResult> {
-    const existing = await this.require(id);
-    if (!SALES_INVOICE_ACTIVE_STATUSES.has(existing.status)) {
-      throw new TaxClassificationNotPostedError(SALES_INVOICE_STATUS_LABELS_AR[existing.status]);
-    }
-    const taxRates = this.deps.taxRates ? await this.deps.taxRates.list() : null;
-    const plan = planTaxClassification(
-      taxRates,
-      existing.lines.map((l) => ({ lineRef: l.lineId, label: l.itemNameAr, stored: { taxRateId: l.taxRateId ?? null, taxRatePercent: l.taxRatePercent } })),
-      request,
-    );
+    // INVARIANT: the read, the plan and both writes share ONE transaction, and
+    // the invoice is written by `nameLineTaxRate` alone — never `update`. A
+    // copy read before the transaction would race a void, a collection or a
+    // second classification and write their work away.
     return this.deps.repo.transaction(async () => {
-      const classified = new Set(plan.lineRefs);
-      const invoice: SalesInvoice = {
-        ...existing,
-        lines: existing.lines.map((l) => (classified.has(l.lineId) ? { ...l, taxRateId: plan.after.taxRateId } : l)),
-      };
+      const existing = await this.require(id);
+      if (!SALES_INVOICE_ACTIVE_STATUSES.has(existing.status)) {
+        throw new TaxClassificationNotPostedError(SALES_INVOICE_STATUS_LABELS_AR[existing.status]);
+      }
+      const documentNumber = existing.docNo ?? existing.id;
+      const taxRates = this.deps.taxRates ? await this.deps.taxRates.list() : null;
+      const plan = planTaxClassification(
+        taxRates,
+        existing.lines.map((l) => ({ lineRef: l.lineId, label: l.itemNameAr, stored: { taxRateId: l.taxRateId ?? null, taxRatePercent: l.taxRatePercent } })),
+        request,
+      );
       // ORDER MATTERS: the journal goes first — it is what refuses a filed
       // VAT period, and it must refuse before the invoice line is written.
-      const journalLinesNamed =
-        existing.journalEntryId && this.deps.taxTags
-          ? await this.deps.taxTags.retagUnnamedTaxRate(existing.journalEntryId, plan.before.taxRatePercent, request.taxRateId)
-          : 0;
-      await this.deps.repo.update(invoice);
+      let journalLinesNamed = 0;
+      if (existing.journalEntryId && this.deps.taxTags) {
+        journalLinesNamed = await this.deps.taxTags.retagUnnamedTaxRate(
+          existing.journalEntryId,
+          plan.before.taxRatePercent,
+          request.taxRateId,
+          untaggedSalesJournalLines(existing, plan),
+        );
+        if (journalLinesNamed === 0) throw new TaxClassificationJournalUntaggedError(documentNumber);
+      }
+      const linesNamed = await this.deps.repo.nameLineTaxRate(existing.id, plan.lineRefs, plan.before.taxRatePercent, request.taxRateId);
+      if (linesNamed !== plan.lineRefs.length) throw new TaxClassificationStaleError(documentNumber);
+      const invoice = await this.require(id);
       const filing = (await this.deps.taxFiling?.reconcile({ before: existing, after: invoice })) ?? TaxClassificationFilingOutcome.NotQueued;
       if (this.deps.audit) {
         await recordSensitiveEvent(this.deps.audit, {
-          module: "sales",
-          entityType: "SALES_INVOICE",
+          module: TaxClassificationAuditModule.Sales,
+          entityType: TaxClassificationAuditEntity.SalesInvoice,
           entityId: invoice.id,
-          action: "CLASSIFY_LINE_TAX",
+          action: TaxClassificationAuditAction.ClassifyLineTax,
           actor: this.deps.actor ?? "system",
           branchId: invoice.branchId ?? null,
-          severity: "WARNING",
+          severity: AuditSeverityCode.Warning,
           details: {
             invoiceId: invoice.id,
             docNo: invoice.docNo,
@@ -910,4 +925,11 @@ export async function applyAllocatedSettlement(
   const updated: SalesInvoice = { ...existing, amountPaid: capped, status: nextStatus };
   await repo.update(updated);
   return updated;
+}
+
+function untaggedSalesJournalLines(invoice: SalesInvoice, plan: TaxClassificationPlan): UntaggedJournalLineSelector | undefined {
+  if (plan.lineRefs.length !== invoice.lines.length) return undefined;
+  const accountIds = new Set(invoice.lines.map((line) => line.revenueAccountId));
+  if (plan.before.taxRatePercent > 0) accountIds.add(invoice.taxAccountId);
+  return { accountIds: [...accountIds], side: JournalLineSide.Credit };
 }

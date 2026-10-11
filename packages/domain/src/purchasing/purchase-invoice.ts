@@ -111,6 +111,12 @@ export interface PurchaseInvoiceRepository {
   count?(filter?: PurchaseInvoiceListFilter): Promise<number>;
   create(invoice: PurchaseInvoice): Promise<void>;
   update(invoice: PurchaseInvoice): Promise<void>;
+  /**
+   * INVARIANT: the ONE write a posted invoice line takes — `taxRateId` on the
+   * lines at these positions that store NONE at `taxRatePercent`, on a
+   * confirmed invoice. Returns how many it named; nothing else is written.
+   */
+  nameLineTaxRate(invoiceId: string, lineIndexes: readonly number[], taxRatePercent: number, taxRateId: string): Promise<number>;
 }
 
 /**

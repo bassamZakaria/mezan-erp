@@ -242,6 +242,7 @@ describe("SalesReturnsScreen", () => {
     // Create is a sub-page, not a dialog: the list is replaced, not overlaid.
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(await screen.findByRole("heading", { name: "مرتجع مبيعات جديد" })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("button", { name: "حفظ كمسودة" })).toBeEnabled());
     fireEvent.click(screen.getByRole("button", { name: "حفظ كمسودة" }));
     expect(await screen.findByText("شركة الأمل للتجارة")).toBeInTheDocument();
   });
@@ -376,6 +377,30 @@ describe("SalesReturnsScreen", () => {
     fireEvent.click(screen.getByRole("button", { name: "إضافة بند" }));
     await waitFor(() => expect(screen.getAllByRole("combobox", { name: "الصنف" })).toHaveLength(2));
     expect(screen.getAllByRole("combobox", { name: "الصنف" })[1]!.textContent).toBe("طوب أحمر");
+  });
+
+  it("holds «إضافة بند» and both save buttons until the server has said what is left of the invoice, and offers a retry in Arabic when it cannot", async () => {
+    let fail = true;
+    const handlers = baseHandlers([], [salesInvoice()], {});
+    const transport = stubTransport({
+      ...handlers,
+      "GET /sales-returns/source-lines/*": (init, path) =>
+        fail ? { status: 500, body: { error: "INTERNAL", message: "خطأ داخلي" } } : handlers["GET /sales-returns/source-lines/*"](init, path),
+    });
+    renderWithProviders(<TestNavigation><SalesReturnsScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
+    await screen.findByText("لا توجد مرتجعات — أنشئ مرتجعاً جديداً");
+    fireEvent.click(screen.getAllByRole("button", { name: "مرتجع جديد" })[0]!);
+    await screen.findByRole("heading", { name: "مرتجع مبيعات جديد" });
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("تعذّر قراءة ما تبقّى من بنود الفاتورة");
+    for (const name of ["إضافة بند", "حفظ كمسودة", "حفظ وتأكيد"]) expect(screen.getByRole("button", { name })).toBeDisabled();
+
+    fail = false;
+    fireEvent.click(within(alert).getByRole("button", { name: "إعادة المحاولة" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "إضافة بند" })).toBeEnabled());
+    for (const name of ["حفظ كمسودة", "حفظ وتأكيد"]) expect(screen.getByRole("button", { name })).toBeEnabled();
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("removing a line drops only that item from the request, leaving the survivor's own qty and reason untouched", async () => {

@@ -210,6 +210,7 @@ describe("PurchaseReturnsScreen", () => {
     await screen.findByText("لا توجد مرتجعات — أنشئ مرتجعاً جديداً");
     fireEvent.click(screen.getAllByRole("button", { name: "مرتجع جديد" })[0]!);
     expect(screen.getByRole("heading", { name: "مرتجع مشتريات جديد" })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("button", { name: "حفظ كمسودة" })).toBeEnabled());
     fireEvent.click(screen.getByRole("button", { name: "حفظ كمسودة" }));
     expect(await screen.findByText("شركة النيل للتوريدات")).toBeInTheDocument();
   });
@@ -330,6 +331,34 @@ describe("PurchaseReturnsScreen", () => {
     fireEvent.click(screen.getByRole("button", { name: "إضافة بند" }));
     await waitFor(() => expect(screen.getAllByRole("combobox", { name: "الصنف" })).toHaveLength(2));
     expect(screen.getAllByRole("combobox", { name: "الصنف" })[1]!.textContent).toBe("طوب أحمر");
+  });
+
+  it("holds «إضافة بند» and both save buttons until the server has said what is left of the invoice, and offers a retry in Arabic when it cannot", async () => {
+    let fail = true;
+    const handlers = baseHandlers([], [purchaseInvoice()], {});
+    const transport = stubTransport({
+      ...handlers,
+      "GET /purchase-returns/source-lines/*": (init, path) =>
+        fail ? { status: 500, body: { error: "INTERNAL", message: "خطأ داخلي" } } : handlers["GET /purchase-returns/source-lines/*"](init, path),
+    });
+    renderWithProviders(
+      <WithSubPageNav>
+        <PurchaseReturnsScreen />
+      </WithSubPageNav>,
+      { transport, initialSession: testAdminSession },
+    );
+    await screen.findByText("لا توجد مرتجعات — أنشئ مرتجعاً جديداً");
+    fireEvent.click(screen.getAllByRole("button", { name: "مرتجع جديد" })[0]!);
+    await screen.findByRole("heading", { name: "مرتجع مشتريات جديد" });
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("تعذّر قراءة ما تبقّى من بنود الفاتورة");
+    for (const name of ["إضافة بند", "حفظ كمسودة", "حفظ وتأكيد"]) expect(screen.getByRole("button", { name })).toBeDisabled();
+
+    fail = false;
+    fireEvent.click(within(alert).getByRole("button", { name: "إعادة المحاولة" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "إضافة بند" })).toBeEnabled());
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("«إضافة بند» starts the new row on the next invoice line once the rows above take the whole of the first — never the same line twice by default", async () => {

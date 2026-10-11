@@ -44,6 +44,7 @@ import { nextReturnSourceLine, sourceLineOptions } from "./return-source-lines";
 import { useEntityName } from "../lib/entity-names";
 import { todayIso } from "../lib/dates";
 import { majorOf } from "../lib/money";
+import { returnLinesTotal } from "./exact-line-totals";
 import { EMPTY } from "../lib/empty";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 
@@ -59,7 +60,6 @@ const REASON_KEY: Record<SalesReturnReasonDTO, AppTranslationKey> = {
 
 
 const num = (v: string) => Number(v);
-const lineTotal = (l: SalesReturnLineDTO) => num(l.unitPrice) * num(l.qty) + num(l.taxAmount);
 
 interface LineDraft {
   key: string;
@@ -208,7 +208,9 @@ export function SalesReturnsScreen() {
   }, [firstSegment, warehouses, warehouseId, invoices, invoiceId]);
 
   const selectedInvoice = invoices.find((i) => i.id === invoiceId) ?? null;
-  const sourceLines = useReturnSourceLines(ReturnKind.Sales, firstSegment === "new" ? invoiceId : "").data?.lines ?? EMPTY;
+  const sourceLinesQuery = useReturnSourceLines(ReturnKind.Sales, firstSegment === "new" ? invoiceId : "");
+  const sourceLines = sourceLinesQuery.data?.lines ?? EMPTY;
+  const sourceLinesReady = sourceLinesQuery.isSuccess;
   const returnableLines = useMemo(
     () => (selectedInvoice?.lines ?? []).filter((l) => l.isStock && l.unitCost !== null),
     [selectedInvoice],
@@ -250,8 +252,7 @@ export function SalesReturnsScreen() {
   function nextSourceLineId(rows: readonly LineDraft[]): string {
     const returnable = new Set(returnableLines.map((l) => l.lineId));
     const known = sourceLines.filter((line) => returnable.has(line.sourceLineId));
-    const sold = known.length > 0 ? known : returnableLines.map((l) => ({ sourceLineId: l.lineId, soldQty: l.baseQty, returnedQty: "0" }));
-    return nextReturnSourceLine(sold, rows, returnableLines[0]?.lineId ?? "");
+    return nextReturnSourceLine(known, rows, returnableLines[0]?.lineId ?? "");
   }
 
   async function submit(confirmAfter: boolean) {
@@ -361,7 +362,7 @@ export function SalesReturnsScreen() {
         </div>
       ),
     },
-    { key: "total", header: t("salesReturns.col.total"), align: "end", render: (d) => <MoneyDisplay value={d.grandTotal !== undefined ? num(d.grandTotal) : d.lines.reduce((s, l) => s + lineTotal(l), 0)} /> },
+    { key: "total", header: t("salesReturns.col.total"), align: "end", render: (d) => <MoneyDisplay value={d.grandTotal !== undefined ? majorOf(d.grandTotal) : returnLinesTotal(d.lines)} /> },
     {
       key: "refundDue",
       header: t("salesReturns.col.refundDue"),
@@ -449,18 +450,27 @@ export function SalesReturnsScreen() {
                 </Button>
               </div>
             ))}
-            <Button variant="default" disabled={returnableLines.length === 0} onClick={() => setLines((prev) => [...prev, blankLine(nextSourceLineId(prev), reason)])}>
+            <Button variant="default" disabled={returnableLines.length === 0 || !sourceLinesReady} onClick={() => setLines((prev) => [...prev, blankLine(nextSourceLineId(prev), reason)])}>
               {t("salesReturns.addLine")}
             </Button>
           </div>
 
+          {sourceLinesQuery.isError ? (
+            <div role="alert" className="flex flex-wrap items-center justify-between gap-2 rounded-[8px] bg-danger-soft px-3 py-2 text-[12.5px] text-danger">
+              <span>{t("returns.sourceLinesFailed")}</span>
+              <Button size="sm" onClick={() => void sourceLinesQuery.refetch()}>
+                {t("common.retry")}
+              </Button>
+            </div>
+          ) : null}
+
           {error ? <div className="rounded-[8px] bg-danger-soft px-3 py-2 text-[12.5px] text-danger">{error}</div> : null}
 
           <div className="flex gap-2 pt-2">
-            <Button variant="default" onClick={() => submit(false)}>
+            <Button variant="default" disabled={!sourceLinesReady} onClick={() => submit(false)}>
               {t("salesReturns.saveDraft")}
             </Button>
-            <Button variant="primary" onClick={() => submit(true)}>
+            <Button variant="primary" disabled={!sourceLinesReady} onClick={() => submit(true)}>
               {t("salesReturns.saveConfirm")}
             </Button>
           </div>

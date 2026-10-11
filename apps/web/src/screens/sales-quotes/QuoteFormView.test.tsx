@@ -130,6 +130,23 @@ describe("QuoteFormView", () => {
     expect(lines[0]).not.toHaveProperty("taxRatePercent");
   });
 
+  it("refuses, in Arabic and without a request, a line whose unit price was cleared — it is never saved at zero", async () => {
+    const { getCreateBody } = renderForm();
+    await screen.findByRole("heading", { name: "عرض سعر جديد" });
+    await flushData();
+    pickFromCombobox(document.body, "العميل *", "متجر الأمل");
+    pickFromCombobox(document.body, "الصنف — بند 1", "صنف تجريبي");
+    fireEvent.change(screen.getByLabelText("سعر الوحدة"), { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: "حفظ كمسودة" }));
+    expect(await screen.findByText("أدخل سعر الوحدة لكل بند.")).toBeInTheDocument();
+    expect(getCreateBody()).toBeNull();
+
+    fireEvent.change(screen.getByLabelText("سعر الوحدة"), { target: { value: "0" } });
+    fireEvent.click(screen.getByRole("button", { name: "حفظ كمسودة" }));
+    await waitFor(() => expect(getCreateBody()).not.toBeNull());
+    expect(((getCreateBody() as { lines: { unitPrice: string }[] }).lines[0]!).unitPrice).toBe("0.000000");
+  });
+
   it("the pricing summary renders formatted Money and reacts to a percent discount, never a raw scaled-decimal string", async () => {
     renderForm();
     await screen.findByRole("heading", { name: "عرض سعر جديد" });

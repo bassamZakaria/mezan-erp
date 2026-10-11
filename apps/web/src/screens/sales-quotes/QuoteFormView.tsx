@@ -147,6 +147,10 @@ export function QuoteFormView({ onClose, initialCustomerId = "" }: { onClose: ()
       setError(t("quotes.error.needItem"));
       return;
     }
+    if (lines.some((l) => l.unitPrice !== null && !Number.isFinite(l.unitPrice))) {
+      setError(t("quotes.error.needUnitPrice"));
+      return;
+    }
     const quoteLines = domainLines.filter((l) => l.qty.scaled > 0n);
     if (quoteLines.length === 0) {
       setError(t("quotes.error.needLine"));

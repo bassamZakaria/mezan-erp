@@ -64,6 +64,7 @@ import { DERIVED_TAX, TaxRateField, lineTaxPayload, postedTaxRateLabel, type Tax
 import { useEntityName } from "../lib/entity-names";
 import { ClassifyLineTaxAction, type ClassifiableLine } from "./ClassifyLineTaxAction";
 import { UnnamedTaxNotice } from "./UnnamedTaxNotice";
+import { purchaseInvoiceLineTotal } from "./exact-line-totals";
 import { PurchaseInvoiceStatusCode } from "@mezan/domain";
 import { itemTypeIsPurchasable ,
   findCurrency} from "@mezan/domain";
@@ -118,8 +119,6 @@ const COST_CATEGORY_KEY: Record<CostCategoryDTO, AppTranslationKey> = {
 };
 
 const num = (v: string) => Number(v);
-const lineBase = (l: PurchaseInvoiceLineDTO) => Number(l.qty) * Number(l.unitCost);
-const lineTax = (l: PurchaseInvoiceLineDTO) => (lineBase(l) * l.taxRatePercent) / 100;
 
 interface DraftLine {
   itemId: string;
@@ -341,7 +340,7 @@ function InvoiceDetail({
                             taxRates={detailTaxRates}
                           />
                         </td>
-                        <td className="px-[12px] py-[10px] text-end"><MoneyValue value={lineBase(l) + lineTax(l)} showUnit={false} /></td>
+                        <td className="px-[12px] py-[10px] text-end"><MoneyValue value={purchaseInvoiceLineTotal(l)} showUnit={false} /></td>
                       </tr>
                     );
                   })}

@@ -36,6 +36,8 @@ import { PurchaseReturnPrintPage } from "../print/documents";
 import { useScreenIntent, useSubPage } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { nextReturnSourceLine, sourceLineOptions } from "./return-source-lines";
+import { majorOf } from "../lib/money";
+import { returnLinesTotal } from "./exact-line-totals";
 import { todayIso } from "../lib/dates";
 import { EMPTY } from "../lib/empty";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
@@ -52,7 +54,6 @@ const REASON_KEY: Record<PurchaseReturnReasonDTO, AppTranslationKey> = {
 
 
 const num = (v: string) => Number(v);
-const lineTotal = (l: PurchaseReturnLineDTO) => num(l.unitCost) * num(l.qty) + num(l.taxAmount);
 
 interface LineDraft {
   key: string;
@@ -130,7 +131,9 @@ export function PurchaseReturnsScreen() {
 
   const selectedInvoice = invoices.find((i) => i.id === invoiceId) ?? null;
   const returnableLines = useMemo(() => returnableLinesOf(selectedInvoice), [selectedInvoice]);
-  const sourceLines = useReturnSourceLines(ReturnKind.Purchase, firstSegment === "new" ? invoiceId : "").data?.lines ?? EMPTY;
+  const sourceLinesQuery = useReturnSourceLines(ReturnKind.Purchase, firstSegment === "new" ? invoiceId : "");
+  const sourceLines = sourceLinesQuery.data?.lines ?? EMPTY;
+  const sourceLinesReady = sourceLinesQuery.isSuccess;
 
   const [searchText, setSearchText, search] = useUrlSearch();
   const [page, setPage] = useUrlNumber("page", 1);
@@ -195,8 +198,7 @@ export function PurchaseReturnsScreen() {
   function nextSourceLineId(rows: readonly LineDraft[]): string {
     const returnable = new Set(returnableLines.map((l) => l.sourceLineId));
     const known = sourceLines.filter((line) => returnable.has(line.sourceLineId));
-    const sold = known.length > 0 ? known : returnableLines.map((l) => ({ sourceLineId: l.sourceLineId, soldQty: l.qty, returnedQty: "0" }));
-    return nextReturnSourceLine(sold, rows, returnableLines[0]?.sourceLineId ?? "");
+    return nextReturnSourceLine(known, rows, returnableLines[0]?.sourceLineId ?? "");
   }
 
   async function submit(confirmAfter: boolean) {
@@ -273,7 +275,7 @@ export function PurchaseReturnsScreen() {
       ),
     },
     { key: "supplier", header: t("common.supplier"), render: (d) => (d.lines[0] ? supplierName(d.lines[0].supplierId) : "—") },
-    { key: "total", header: t("purchaseReturns.col.total"), align: "end", render: (d) => <MoneyDisplay value={d.grandTotal !== undefined ? num(d.grandTotal) : d.lines.reduce((s, l) => s + lineTotal(l), 0)} /> },
+    { key: "total", header: t("purchaseReturns.col.total"), align: "end", render: (d) => <MoneyDisplay value={d.grandTotal !== undefined ? majorOf(d.grandTotal) : returnLinesTotal(d.lines.map((l) => ({ qty: l.qty, unitPrice: l.unitCost, taxAmount: l.taxAmount })))} /> },
     { key: "status", header: t("common.status"), render: (d) => <StatusPill label={documentStatusLabel(d.status, t)} tone={DOC_STATUS_TONE[d.status]} /> },
   ];
 
@@ -330,20 +332,29 @@ export function PurchaseReturnsScreen() {
             ))}
             <Button
               variant="default"
-              disabled={returnableLines.length === 0}
+              disabled={returnableLines.length === 0 || !sourceLinesReady}
               onClick={() => setLines((prev) => [...prev, blankLine(nextSourceLineId(prev))])}
             >
               {t("purchaseReturns.addLine")}
             </Button>
           </div>
 
+          {sourceLinesQuery.isError ? (
+            <div role="alert" className="flex flex-wrap items-center justify-between gap-2 rounded-[8px] bg-danger-soft px-3 py-2 text-[12.5px] text-danger">
+              <span>{t("returns.sourceLinesFailed")}</span>
+              <Button size="sm" onClick={() => void sourceLinesQuery.refetch()}>
+                {t("common.retry")}
+              </Button>
+            </div>
+          ) : null}
+
           {error ? <div className="rounded-[8px] bg-danger-soft px-3 py-2 text-[12.5px] text-danger">{error}</div> : null}
 
           <div className="flex gap-2 pt-2">
-            <Button variant="default" onClick={() => submit(false)}>
+            <Button variant="default" disabled={!sourceLinesReady} onClick={() => submit(false)}>
               {t("purchaseReturns.saveDraft")}
             </Button>
-            <Button variant="primary" onClick={() => submit(true)}>
+            <Button variant="primary" disabled={!sourceLinesReady} onClick={() => submit(true)}>
               {t("purchaseReturns.saveConfirm")}
             </Button>
           </div>

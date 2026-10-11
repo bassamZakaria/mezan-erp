@@ -80,6 +80,8 @@ export interface CardCheckoutRepository {
    */
   listSweepable(openedAtOrBefore: string, declinedOpenedAfter: string, limit: number): Promise<CardCheckout[]>;
   /** Marks a still-`pending` checkout as needing a person; false when it was already marked or is no longer pending. */
+  /** Notes that a sweep examined this checkout, so the next pass starts with the ones it has not reached. */
+  markSwept(checkoutId: string, now: string): Promise<void>;
   flagNeedsAttention(checkoutId: string, now: string): Promise<boolean>;
   attachSession(id: string, providerOrderRef: string, checkoutUrl: string, now: string): Promise<void>;
   /**

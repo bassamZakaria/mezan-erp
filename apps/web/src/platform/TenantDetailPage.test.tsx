@@ -625,6 +625,22 @@ describe("TenantDetailPage", () => {
       expect(await screen.findAllByRole("button", { name: "تطبيق على الاشتراك" })).toHaveLength(1);
     });
 
+    it("offers no apply action while the subscription cannot be renewed, says why, and offers it once it can", async () => {
+      const stranded: CardCheckoutDTO = { ...unapplied, id: "chk-5", failureReason: "SUBSCRIPTION_NOT_RENEWABLE" };
+      const cancelledSummary = makeSummary({}, { status: "cancelled" });
+      const first = renderDetail({
+        transport: checkoutsTransport({ "GET /tenants/tenant-1": () => ({ body: cancelledSummary }) }, [stranded]),
+        session: testPlatformSession,
+      });
+
+      expect(await screen.findByText("الاشتراك لا يقبل التجديد الآن — أعد تفعيله أولًا ثم طبِّق الدفعة")).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "تطبيق على الاشتراك" })).not.toBeInTheDocument();
+      first.unmount();
+
+      renderDetail({ transport: checkoutsTransport({}, [stranded]), session: testPlatformSession });
+      expect(await screen.findByRole("button", { name: "تطبيق على الاشتراك" })).toBeInTheDocument();
+    });
+
     it("names a payment whose reference is already recorded, and offers no apply action the server would refuse", async () => {
       const recorded: CardCheckoutDTO = { ...unapplied, id: "chk-4", failureReason: "REFERENCE_ALREADY_RECORDED" };
       renderDetail({ transport: checkoutsTransport({}, [recorded]), session: testPlatformSession });

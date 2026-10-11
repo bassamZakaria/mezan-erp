@@ -177,6 +177,7 @@ function addMissingColumns(sqlite: Database.Database): void {
     (sqlite.prepare(`PRAGMA table_info(card_checkout)`).all() as { name: string }[]).map((c) => c.name),
   );
   if (!onCheckout.has("captured_amount")) sqlite.exec(`ALTER TABLE card_checkout ADD COLUMN captured_amount INTEGER`);
+  if (!onCheckout.has("swept_at")) sqlite.exec(`ALTER TABLE card_checkout ADD COLUMN swept_at TEXT`);
   const onSubscription = new Set(
     (sqlite.prepare(`PRAGMA table_info(subscription)`).all() as { name: string }[]).map((c) => c.name),
   );
@@ -620,6 +621,7 @@ class SqliteCardCheckoutStore implements CardCheckoutRepository {
   private readonly insertPayment: Database.Statement;
   private readonly paymentUnderReference: Database.Statement;
   private readonly claimed: Database.Statement;
+  private readonly swept: Database.Statement;
 
   constructor(private readonly sqlite: Database.Database) {
     this.paymentUnderReference = sqlite.prepare(`SELECT 1 FROM payment WHERE tenant_id = ? AND reference = ? LIMIT 1`);
@@ -637,8 +639,9 @@ class SqliteCardCheckoutStore implements CardCheckoutRepository {
       `SELECT * FROM card_checkout
         WHERE created_at <= @openedAtOrBefore
           AND (status = 'pending' OR (status = 'failed' AND failure_reason = @declined AND created_at > @declinedOpenedAfter))
-        ORDER BY created_at ASC, id ASC LIMIT @limit`,
+        ORDER BY COALESCE(swept_at, '') ASC, created_at ASC, id ASC LIMIT @limit`,
     );
+    this.swept = sqlite.prepare(`UPDATE card_checkout SET swept_at = ? WHERE id = ?`);
     this.flag = sqlite.prepare(
       `UPDATE card_checkout SET failure_reason = @reason, updated_at = @now
         WHERE id = @id AND status = 'pending' AND (failure_reason IS NULL OR failure_reason <> @reason)`,
@@ -686,6 +689,10 @@ class SqliteCardCheckoutStore implements CardCheckoutRepository {
   async listSweepable(openedAtOrBefore: string, declinedOpenedAfter: string, limit: number): Promise<CardCheckout[]> {
     const rows = this.sweepable.all({ openedAtOrBefore, declinedOpenedAfter, limit, declined: CardCheckoutFailureReason.Declined });
     return (rows as CardCheckoutRow[]).map(toCardCheckout);
+  }
+
+  async markSwept(checkoutId: string, now: string): Promise<void> {
+    this.swept.run(now, checkoutId);
   }
 
   async flagNeedsAttention(checkoutId: string, now: string): Promise<boolean> {

@@ -81,10 +81,18 @@ const FAILURE_REASON_KEY: Readonly<Record<CardCheckoutFailureReason, AppTranslat
   [CardCheckoutFailureReason.ReferenceAlreadyRecorded]: "platform.cardCheckout.reason.REFERENCE_ALREADY_RECORDED",
 };
 
-// A captured payment whose reference is already a recorded payment cannot be
-// applied by hand: the server refuses it (card-checkout.ts applyUnapplied),
-// because applying it would renew the subscription a second time.
-function canApplyByHand(checkout: { readonly status: string; readonly providerRef: string | null; readonly failureReason: string | null }): boolean {
+/** Mirrors `applyRenewal` in `packages/domain/src/platform/subscription.ts`: applying a payment renews, and only these can be renewed. */
+function canRenewSubscription(status: SubscriptionStatusDTO | undefined): boolean {
+  return status === "trialing" || status === "active" || status === "past_due";
+}
+
+type AppliableCheckout = { readonly status: string; readonly providerRef: string | null; readonly failureReason: string | null };
+
+// A captured payment the server would let an owner apply by hand, were the
+// subscription renewable (card-checkout.ts applyUnapplied). One whose
+// reference is already a recorded payment is refused: applying it would renew
+// the subscription a second time.
+function isAppliable(checkout: AppliableCheckout): boolean {
   return (
     checkout.status === CardCheckoutStatus.Unapplied &&
     Boolean(checkout.providerRef) &&
@@ -463,10 +471,13 @@ export function TenantDetailPage() {
                     </span>
                   </div>
                   <div className="flex items-center gap-[10px]">
-                    {isOwner && canApplyByHand(c) ? (
+                    {isOwner && isAppliable(c) && canRenewSubscription(subscription?.status) ? (
                       <Button variant="default" size="sm" onClick={() => setApplyTarget(c)}>
                         {t("platform.cardCheckout.apply.action")}
                       </Button>
+                    ) : null}
+                    {isAppliable(c) && !canRenewSubscription(subscription?.status) ? (
+                      <span className="text-[11px] text-ink-muted">{t("platform.cardCheckout.apply.notRenewable")}</span>
                     ) : null}
                     {c.status === CardCheckoutStatus.Unapplied && c.failureReason === CardCheckoutFailureReason.ReferenceAlreadyRecorded ? (
                       <span className="text-[11px] text-ink-muted">{t("platform.cardCheckout.apply.alreadyRecorded")}</span>

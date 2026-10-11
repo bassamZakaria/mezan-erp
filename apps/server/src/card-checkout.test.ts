@@ -7,6 +7,7 @@ import {
   createTenant,
   Money,
   ProviderInquiryStatus,
+  ProviderTransactionOutcome,
   startSubscription,
   type CardCheckout,
   type PaymentProvider,
@@ -98,6 +99,17 @@ function deliver(r: Rig, checkout: CardCheckout, outcome: "success" | "failure" 
 }
 
 const reload = async (r: Rig, checkout: CardCheckout) => (await r.service.find(checkout.id))!;
+
+function failAudit(r: Rig, action: string): () => void {
+  const realAppend = r.platform.audit.append.bind(r.platform.audit);
+  r.platform.audit.append = async (event) => {
+    if (event.action === action) throw new Error("audit sink unavailable");
+    await realAppend(event);
+  };
+  return () => {
+    r.platform.audit.append = realAppend;
+  };
+}
 
 describe("card checkout — opening", () => {
   it("opens a pending checkout for the plan's own price, never a caller's figure", async () => {
@@ -256,16 +268,6 @@ describe("card checkout — the callback", () => {
 });
 
 describe("card checkout — a settlement and its audit event are one transaction", () => {
-  function failAudit(r: Rig, action: string): () => void {
-    const realAppend = r.platform.audit.append.bind(r.platform.audit);
-    r.platform.audit.append = async (event) => {
-      if (event.action === action) throw new Error("audit sink unavailable");
-      await realAppend(event);
-    };
-    return () => {
-      r.platform.audit.append = realAppend;
-    };
-  }
   const signed = (r: Rig, checkout: CardCheckout) => r.provider.simulateCallback(checkout, "success");
 
   it("records no payment and asks the provider to deliver again when the payment's event cannot be written", async () => {
@@ -564,6 +566,83 @@ describe("card checkout — sweeping checkouts whose callback never arrived", ()
     expect(await r.service.sweepPending()).toMatchObject({ examined: 5, stillPending: 4, paid: 1, unavailable: 0, needsAttention: 0 });
     expect(inquiries).toBe(5);
     expect((await reload(r, paid)).status).toBe("paid");
+  });
+
+  it("reaches a paid checkout queued behind more stuck ones than a pass examines, on the next pass", async () => {
+    const r = await rig((provider) => ({
+      ...provider,
+      inquireTransaction: async (request) => {
+        const answer = await provider.inquireTransaction(request);
+        return answer.status === ProviderInquiryStatus.Found ? answer : { status: ProviderInquiryStatus.Unreadable, reason: "the transaction belongs to another integration" };
+      },
+    }));
+    for (const code of ["shop1", "shop2", "shop3"]) {
+      await addTenant(r.platform, code);
+      await r.open(`t-${code}`);
+      r.advance(1000);
+    }
+    await addTenant(r.platform, "payer");
+    const paid = await r.open("t-payer");
+    r.provider.simulateCallback(paid, "success");
+    r.advance(SWEEP_PENDING_AFTER_MS + MINUTE);
+
+    expect(await r.service.sweepPending({ batchSize: 2 })).toMatchObject({ examined: 2, paid: 0 });
+    expect(await r.service.sweepPending({ batchSize: 2 })).toMatchObject({ examined: 2, paid: 1 });
+    expect((await reload(r, paid)).status).toBe("paid");
+  });
+
+  it("flags for a person, and never expires, an overdue checkout whose latest transaction at the provider is not a payment", async () => {
+    const r = await rig((provider) => ({
+      ...provider,
+      inquireTransaction: async (request) => {
+        const answer = await provider.inquireTransaction(request);
+        return answer.status === ProviderInquiryStatus.Found
+          ? { ...answer, transaction: { ...answer.transaction, outcome: ProviderTransactionOutcome.NotAPayment } }
+          : answer;
+      },
+    }));
+    const checkout = await r.open();
+    r.provider.simulateCallback(checkout, "success");
+    r.advance(SWEEP_EXPIRE_AFTER_MS + MINUTE);
+
+    expect(await r.service.sweepPending()).toMatchObject({ examined: 1, needsAttention: 1, expired: 0 });
+
+    const flagged = await reload(r, checkout);
+    expect(flagged.status).toBe("pending");
+    expect(flagged.failureReason).toBe("NEEDS_ATTENTION");
+    expect(await r.details("CARD_CHECKOUT_EXPIRED")).toEqual([]);
+    expect(await r.details("CARD_CHECKOUT_NEEDS_ATTENTION")).toEqual([expect.objectContaining({ checkoutId: checkout.id })]);
+  });
+
+  it("does not expire a checkout when the expiry cannot be recorded, and expires it once it can", async () => {
+    const r = await rig();
+    const checkout = await r.open();
+    r.advance(SWEEP_EXPIRE_AFTER_MS + MINUTE);
+    const restore = failAudit(r, "CARD_CHECKOUT_EXPIRED");
+
+    expect(await r.service.sweepPending()).toMatchObject({ examined: 1, expired: 0, failed: 1 });
+    expect((await reload(r, checkout)).status).toBe("pending");
+
+    restore();
+    expect(await r.service.sweepPending()).toMatchObject({ examined: 1, expired: 1 });
+    expect(await r.details("CARD_CHECKOUT_EXPIRED")).toEqual([expect.objectContaining({ checkoutId: checkout.id })]);
+  });
+
+  it("does not mark a checkout as flagged when the flag cannot be recorded, and flags it once it can", async () => {
+    const r = await rig((provider) => ({
+      ...provider,
+      inquireTransaction: async () => ({ status: ProviderInquiryStatus.Unreadable, reason: "the inquiry answer is not a transaction" }),
+    }));
+    const checkout = await r.open();
+    r.advance(SWEEP_EXPIRE_AFTER_MS + MINUTE);
+    const restore = failAudit(r, "CARD_CHECKOUT_NEEDS_ATTENTION");
+
+    expect(await r.service.sweepPending()).toMatchObject({ examined: 1, failed: 1 });
+    expect((await reload(r, checkout)).failureReason).toBeNull();
+
+    restore();
+    expect(await r.service.sweepPending()).toMatchObject({ examined: 1, needsAttention: 1 });
+    expect(await r.details("CARD_CHECKOUT_NEEDS_ATTENTION")).toHaveLength(1);
   });
 
   it("flags an unreadable checkout for a person past the expiry threshold, once, and never expires it", async () => {

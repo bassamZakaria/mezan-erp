@@ -126,6 +126,8 @@ export interface CardCheckoutSweepOptions {
   readonly expireAfterMs?: number;
   /** Wall-clock budget: once spent, the rest of the batch is reported as `deferred` and left for the next pass. */
   readonly budgetMs?: number;
+  /** Checkouts one pass examines. The least recently examined go first, so those beyond it are reached on the next pass. */
+  readonly batchSize?: number;
 }
 
 export interface CardCheckoutSweepResult {
@@ -443,28 +445,37 @@ export function createCardCheckoutService(options: CardCheckoutServiceOptions): 
 
   type SweepTally = { -readonly [K in keyof CardCheckoutSweepResult]: number };
 
+  // An expiry or a flag and the event that says why are ONE transaction: a
+  // checkout must not be closed, or marked as needing a person, with no record
+  // of it. If the event cannot be written the checkout is left as it was and
+  // the next pass tries again.
+  const recordedTogether = <T>(work: () => Promise<T>): Promise<T> => (platform.audit.atomic ? platform.audit.atomic(work) : work());
+
   async function expire(checkout: CardCheckout, why: string, tally: SweepTally): Promise<void> {
-    await checkouts.abandon(checkout.id, CardCheckoutFailureReason.Expired, nowIso());
-    const after = await checkouts.findById(checkout.id);
-    if (after?.status !== CardCheckoutStatus.Failed || after.failureReason !== CardCheckoutFailureReason.Expired) {
-      tally.alreadySettled += 1;
-      return;
-    }
-    tally.expired += 1;
-    await audit(CardCheckoutAuditAction.CheckoutExpired, checkout.tenantId, {
-      checkoutId: checkout.id, providerOrderRef: checkout.providerOrderRef, openedAt: checkout.createdAt, why,
-    }, EventSeverity.Warning);
+    const expired = await recordedTogether(async () => {
+      await checkouts.abandon(checkout.id, CardCheckoutFailureReason.Expired, nowIso());
+      const after = await checkouts.findById(checkout.id);
+      if (after?.status !== CardCheckoutStatus.Failed || after.failureReason !== CardCheckoutFailureReason.Expired) return false;
+      await mustRecord(CardCheckoutAuditAction.CheckoutExpired, checkout.tenantId, {
+        checkoutId: checkout.id, providerOrderRef: checkout.providerOrderRef, openedAt: checkout.createdAt, why,
+      }, EventSeverity.Warning);
+      return true;
+    });
+    if (expired) tally.expired += 1;
+    else tally.alreadySettled += 1;
   }
 
   // A checkout the provider knows about but whose answer we cannot read is
   // never expired on a guess: money may have been taken. Past the threshold it
   // is flagged for a person, once, and stays payable by a late callback.
   async function raise(checkout: CardCheckout, why: string, tally: SweepTally): Promise<void> {
+    await recordedTogether(async () => {
+      if (!(await checkouts.flagNeedsAttention(checkout.id, nowIso()))) return;
+      await mustRecord(CardCheckoutAuditAction.CheckoutNeedsAttention, checkout.tenantId, {
+        checkoutId: checkout.id, providerOrderRef: checkout.providerOrderRef, openedAt: checkout.createdAt, why,
+      }, EventSeverity.Warning);
+    });
     tally.needsAttention += 1;
-    if (!(await checkouts.flagNeedsAttention(checkout.id, nowIso()))) return;
-    await audit(CardCheckoutAuditAction.CheckoutNeedsAttention, checkout.tenantId, {
-      checkoutId: checkout.id, providerOrderRef: checkout.providerOrderRef, openedAt: checkout.createdAt, why,
-    }, EventSeverity.Warning);
   }
 
   async function sweepOne(checkout: CardCheckout, expireBefore: string, tally: SweepTally): Promise<void> {
@@ -516,10 +527,14 @@ export function createCardCheckoutService(options: CardCheckoutServiceOptions): 
       case SettlementDetail.Pending:
         tally.stillPending += 1;
         return;
+      // The provider HOLDS a transaction for this order — a refund, a void, one
+      // that names another checkout. Money may have moved, so it is put in
+      // front of a person; only an order the provider has no transaction for
+      // is expired.
       case SettlementDetail.NotAPayment:
       case SettlementDetail.Unmatched:
       case SettlementDetail.ReferenceMismatch:
-        return leaveOr(() => expire(checkout, `the provider's latest transaction for the order is ${result.detail}`, tally));
+        return leaveOr(() => raise(checkout, `the provider's latest transaction for the order is ${result.detail}`, tally));
     }
   }
 
@@ -529,7 +544,7 @@ export function createCardCheckoutService(options: CardCheckoutServiceOptions): 
     const startedAt = now().getTime();
     const pendingBefore = new Date(startedAt - (sweepOptions.pendingAfterMs ?? SWEEP_PENDING_AFTER_MS)).toISOString();
     const expireBefore = new Date(startedAt - (sweepOptions.expireAfterMs ?? SWEEP_EXPIRE_AFTER_MS)).toISOString();
-    const due = await checkouts.listSweepable(pendingBefore, expireBefore, SWEEP_BATCH);
+    const due = await checkouts.listSweepable(pendingBefore, expireBefore, sweepOptions.batchSize ?? SWEEP_BATCH);
     const tally: SweepTally = {
       examined: 0, paid: 0, declined: 0, unapplied: 0, expired: 0, stillPending: 0, alreadySettled: 0,
       needsAttention: 0, unavailable: 0, failed: 0, deferred: 0,
@@ -551,6 +566,7 @@ export function createCardCheckoutService(options: CardCheckoutServiceOptions): 
       tally.examined += 1;
       const unavailableBefore = tally.unavailable;
       try {
+        await checkouts.markSwept(checkout.id, nowIso());
         await sweepOne(checkout, expireBefore, tally);
       } catch (err) {
         log(`sweep failed on checkout ${checkout.id}`, err);

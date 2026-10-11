@@ -231,10 +231,24 @@ Proved in `scripts/scenarios/seams.ts`; each gap is a register entry.
   invoice, a held invoice's approval (`sales-tax-policy.structure.test.ts`
   fails a construction without it) — so a quote raised or converted while VAT
   is off is zero-rated under the system rate whatever it was priced at. The
-  rate belongs to that case alone: with VAT on, a sale carrying it is refused
-  at confirm (422 `INVALID_SALES_INVOICE`), it cannot be picked when
-  classifying (422 `TAX_RATE_SYSTEM_ONLY`), and it is refused on a customer
-  card (422 `CUSTOMER_EXEMPTION_RATE_SYSTEM`). (b) The customer is tax-exempt: the
+  rate belongs to that case alone and is never CHOSEN: with VAT on it is
+  refused on a new sales draft, a quote and a draft-line edit, and when
+  classifying a sale (all 422 `TAX_RATE_SYSTEM_ONLY`); on a purchase line and
+  a purchase classify it is refused whatever the switch says (a purchase is
+  never "the tenant outside VAT"); and it is refused on a customer card (422
+  `CUSTOMER_EXEMPTION_RATE_SYSTEM`) — a card a file already holds it on is
+  cleared when the books open. A draft posts under the switch of the day it
+  POSTS (`rerateForCurrentVat`, at draft creation, at a quote's conversion and
+  inside the confirm transaction): raised outside VAT and confirmed inside it,
+  its system-rated lines take the item's rate or the tenant's default sales
+  rate (an exempt customer's take the card rate); raised inside VAT and
+  confirmed outside it, every line that names no 0% rate of its own takes the
+  system rate and posts no output VAT. The totals follow, and the confirm
+  reply carries `taxRecalculated.message` in Arabic. A draft is never a dead
+  end: `PATCH /sales-invoices/:id/lines/:lineId` (`sales.invoice.edit`,
+  audited `EDIT_DRAFT_LINE` with before and after) changes the quantity, price
+  or rate of a DRAFT line and nothing else, and cancelling a draft that came
+  from a quote hands the quote back as accepted. (b) The customer is tax-exempt: the
   line names the 0% rate on that customer's card (`taxExemptionRateId` —
   whichever active 0% rate the tenant chose; no sub-type is guessed), and with
   none on the card it stores NULL and waits to be classified. Exemption is read

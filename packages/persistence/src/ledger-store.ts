@@ -143,6 +143,7 @@ class SqliteLedgerRepository implements LedgerRepository {
   private readonly updateDraftEntry: Database.Statement;
   private readonly insertLine: Database.Statement;
   private readonly deleteLinesByEntry: Database.Statement;
+  private readonly retagTaxRate: Database.Statement;
   private readonly deleteEntryById: Database.Statement;
   private readonly selectEntryById: Database.Statement;
   private readonly selectEntryByNo: Database.Statement;
@@ -179,6 +180,11 @@ class SqliteLedgerRepository implements LedgerRepository {
     this.insertLine = sqlite.prepare(`
       INSERT INTO journal_line (entry_id, line_no, account_id, debit, credit, memo, cost_center_id, currency, fx_rate, tax_rate_percent, tax_rate_id, project_id, cost_category, branch_id, party_id)
       VALUES (@entry_id, @line_no, @account_id, @debit, @credit, @memo, @cost_center_id, @currency, @fx_rate, @tax_rate_percent, @tax_rate_id, @project_id, @cost_category, @branch_id, @party_id)
+    `);
+    this.retagTaxRate = sqlite.prepare(`
+      UPDATE journal_line SET tax_rate_id = @tax_rate_id
+      WHERE entry_id = @entry_id AND tax_rate_id IS NULL AND tax_rate_percent = @tax_rate_percent
+        AND entry_id IN (SELECT id FROM journal_entry WHERE status <> 'draft')
     `);
     this.deleteLinesByEntry = sqlite.prepare(`DELETE FROM journal_line WHERE entry_id = ? AND entry_id IN (SELECT id FROM journal_entry WHERE status = 'draft')`);
     this.deleteEntryById = sqlite.prepare(`DELETE FROM journal_entry WHERE id = ? AND status = 'draft'`);
@@ -229,6 +235,10 @@ class SqliteLedgerRepository implements LedgerRepository {
       source_doc_id: entry.sourceDocId ?? null,
       source_doc_number: entry.sourceDocNumber ?? null,
     });
+  }
+
+  async retagUnnamedTaxRate(entryId: string, taxRatePercent: number, taxRateId: string): Promise<number> {
+    return this.retagTaxRate.run({ entry_id: entryId, tax_rate_percent: taxRatePercent, tax_rate_id: taxRateId }).changes;
   }
 
   async replaceDraft(entry: JournalEntry): Promise<void> {

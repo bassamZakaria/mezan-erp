@@ -5,6 +5,14 @@ import { InMemoryAccountRepository } from "../accounts/test-helpers/in-memory-ac
 import { InMemoryFiscalPeriodRepository } from "../fiscal-periods/test-helpers/in-memory-fiscal-period-repository.js";
 import { NextNumberService } from "../numbering/index.js";
 import { InMemoryLedgerRepository, InMemorySequenceStore, RecordingAuditSink } from "../gl/test-helpers/in-memory-ledger-repository.js";
+import { createJournalTaxTagPort } from "../gl/index.js";
+import { VatPeriodAlreadyFiledError } from "../tax/vat-filing.js";
+import {
+  TaxClassificationAlreadyFiledError,
+  TaxClassificationFilingOutcome,
+  TaxClassificationNotPostedError,
+  TaxClassificationSharedPostingError,
+} from "../tax-rates/index.js";
 import { StockLedgerService } from "../inventory/index.js";
 import { InMemoryStockLedger, InMemoryCostLayers, InMemorySnapshots } from "../inventory/test-helpers/in-memory-stores.js";
 import type { DocumentWorkflowGate, DocumentDomainEvent } from "../documents/hooks.js";
@@ -57,7 +65,10 @@ function account(id: string, overrides: Partial<Account> = {}): Account {
   };
 }
 
-async function baseDeps(overrides: Partial<SalesInvoiceServiceDeps> = {}) {
+async function baseDeps(
+  overrides: Partial<SalesInvoiceServiceDeps> = {},
+  opts: { readonly vatFilings?: { findCovering(date: string): Promise<readonly { id: string; status: string }[]> } } = {},
+) {
   const accounts = new InMemoryAccountRepository();
   await accounts.create(account(AR));
   await accounts.create(account(REVENUE, { type: "revenue", naturalBalance: "credit" }));
@@ -95,6 +106,7 @@ async function baseDeps(overrides: Partial<SalesInvoiceServiceDeps> = {}) {
     stock: stockHook,
     now: () => NOW,
     actor: "u1",
+    taxTags: createJournalTaxTagPort({ ledger, vatFilings: opts.vatFilings }),
     ...overrides,
   });
 
@@ -845,5 +857,128 @@ describe("SalesInvoiceService.createDraft — the tax rate's identity (D79)", ()
     const { svc } = await baseDeps({ taxRates });
     const invoice = await svc.createDraft(draftCmd({ lines: [{ ...serviceLine("L1", {}), inheritedTax: { taxRateId: "OLD5", taxRatePercent: 5 } }] }));
     expect(invoice.lines[0]).toMatchObject({ taxRateId: "OLD5", taxRatePercent: 5 });
+  });
+});
+
+describe("SalesInvoiceService.classifyLineTax — naming the rate of a posted line that stored none (D79 round 4)", () => {
+  const rate = (id: string, percent: number, etaSubType: TaxRate["etaSubType"]): TaxRate => ({
+    id, code: id, name: `ضريبة ${id}`, rate: percent, calculationType: "exclusive", isDefault: false,
+    outputTaxAccountId: null, inputTaxAccountId: null, etaSubType, status: "active",
+  });
+  const taxRates = { list: async () => [rate("VAT14", 14, "auto"), rate("VAT14B", 14, "auto"), rate("EXEMPT", 0, "V003"), rate("EXPORT", 0, "V001")] };
+  const unnamed = (lineId: string, taxRatePercent: number): CreateSalesInvoiceCommand["lines"][number] => ({
+    lineId, itemId: "SVC-1", itemNameAr: `خدمة ${lineId}`, isStock: false, qty: Qty.fromMajor("1"), unitPrice: Money.fromMajor("100"),
+    revenueAccountId: REVENUE, taxRateId: null, taxRatePercent,
+  });
+
+  async function posted(lines: ReturnType<typeof unnamed>[], overrides: Partial<SalesInvoiceServiceDeps> = {}, opts: Parameters<typeof baseDeps>[1] = {}) {
+    const audit = new RecordingAuditSink();
+    const deps = await baseDeps({ taxRates, audit, ...overrides }, opts);
+    await deps.svc.createDraft(draftCmd({ lines }));
+    const { invoice } = await deps.svc.confirm("inv-1");
+    const entry = await deps.ledger.findById(invoice.journalEntryId as string);
+    return { ...deps, audit, invoice, entry };
+  }
+  const journalOf = async (ledger: InMemoryLedgerRepository, entryId: string) =>
+    ((await ledger.findById(entryId))?.lines ?? []).map((l) => [l.accountId, l.debit.toString(), l.credit.toString(), l.taxRatePercent ?? null, l.taxRateId ?? null]);
+
+  it("names the invoice line and its journal lines, and moves no amount, account, date or status", async () => {
+    const { svc, repo, ledger, invoice, entry } = await posted([unnamed("L1", 14)]);
+    const before = await journalOf(ledger, entry!.id);
+    expect(before).toEqual([[AR, "114.000000", "0.000000", null, null], [REVENUE, "0.000000", "100.000000", 14, null], [TAX, "0.000000", "14.000000", 14, null]]);
+
+    const result = await svc.classifyLineTax("inv-1", { lineRef: "L1", taxRateId: "VAT14" });
+
+    expect(result.journalLinesNamed).toBe(2);
+    expect((await repo.findById("inv-1"))?.lines.map((l) => [l.taxRateId, l.taxRatePercent])).toEqual([["VAT14", 14]]);
+    expect(await journalOf(ledger, entry!.id)).toEqual([[AR, "114.000000", "0.000000", null, null], [REVENUE, "0.000000", "100.000000", 14, "VAT14"], [TAX, "0.000000", "14.000000", 14, "VAT14"]]);
+    const after = await repo.findById("inv-1");
+    expect({ ...after, lines: [] }).toEqual({ ...invoice, lines: [] });
+    expect(svc.totalsOf(after!).grandTotal.toString()).toBe(svc.totalsOf(invoice).grandTotal.toString());
+    const stored = await ledger.findById(entry!.id);
+    expect([stored?.date, stored?.status, stored?.entryNo]).toEqual([entry!.date, entry!.status, entry!.entryNo]);
+  });
+
+  it("leaves a journal line that already names a rate alone", async () => {
+    const named = { ...unnamed("L2", 14), taxRateId: "VAT14B" };
+    const { svc, ledger, entry } = await posted([unnamed("L1", 14), named]);
+    await svc.classifyLineTax("inv-1", { lineRef: "L1", taxRateId: "VAT14" });
+    const tags = (await journalOf(ledger, entry!.id)).filter((l) => l[3] === 14).map((l) => [l[0], l[4]]);
+    expect(tags).toEqual(expect.arrayContaining([[REVENUE, "VAT14"], [REVENUE, "VAT14B"], [TAX, "VAT14"], [TAX, "VAT14B"]]));
+    expect(tags).toHaveLength(4);
+  });
+
+  it("never re-points a line that names a rate, and writes nothing when it refuses", async () => {
+    const { svc, repo, ledger, entry, audit } = await posted([{ ...unnamed("L1", 0), taxRateId: "EXEMPT" }]);
+    const before = await journalOf(ledger, entry!.id);
+    await expect(svc.classifyLineTax("inv-1", { lineRef: "L1", taxRateId: "EXPORT" })).rejects.toBeInstanceOf(TaxRateAlreadyClassifiedError);
+    await expect(svc.classifyLineTax("inv-1", { lineRef: "L1", taxRateId: "EXEMPT" })).rejects.toBeInstanceOf(TaxRateAlreadyClassifiedError);
+    expect((await repo.findById("inv-1"))?.lines[0]?.taxRateId).toBe("EXEMPT");
+    expect(await journalOf(ledger, entry!.id)).toEqual(before);
+    expect(audit.events.filter((e) => e.action === "CLASSIFY_LINE_TAX")).toEqual([]);
+  });
+
+  it("refuses a rate at another percent", async () => {
+    const { svc } = await posted([unnamed("L1", 14)]);
+    await expect(svc.classifyLineTax("inv-1", { lineRef: "L1", taxRateId: "EXEMPT" })).rejects.toBeInstanceOf(TaxRateClassificationPercentError);
+  });
+
+  it("classifies the unnamed lines at one percent together, only once every one of them is named in the request", async () => {
+    const { svc, repo } = await posted([unnamed("L1", 0), unnamed("L2", 0), unnamed("L3", 14)]);
+    await expect(svc.classifyLineTax("inv-1", { lineRef: "L1", taxRateId: "EXEMPT" })).rejects.toBeInstanceOf(TaxClassificationSharedPostingError);
+    expect((await repo.findById("inv-1"))?.lines.map((l) => l.taxRateId)).toEqual([null, null, null]);
+    const result = await svc.classifyLineTax("inv-1", { lineRef: "L1", withLineRefs: ["L2"], taxRateId: "EXEMPT" });
+    expect(result.journalLinesNamed).toBe(1);
+    expect((await repo.findById("inv-1"))?.lines.map((l) => l.taxRateId)).toEqual(["EXEMPT", "EXEMPT", null]);
+  });
+
+  it("is refused on a draft and on a cancelled invoice — only a posted line is classified", async () => {
+    const { svc } = await baseDeps({ taxRates });
+    await svc.createDraft(draftCmd({ lines: [unnamed("L1", 0)] }));
+    await expect(svc.classifyLineTax("inv-1", { lineRef: "L1", taxRateId: "EXEMPT" })).rejects.toBeInstanceOf(TaxClassificationNotPostedError);
+    await svc.cancel("inv-1");
+    await expect(svc.classifyLineTax("inv-1", { lineRef: "L1", taxRateId: "EXEMPT" })).rejects.toBeInstanceOf(TaxClassificationNotPostedError);
+  });
+
+  it("is refused once the VAT return covering the entry's date is filed, and the invoice line is left unnamed", async () => {
+    const filings = { filed: false, async findCovering() { return this.filed ? [{ id: "VF-1", status: "filed" }] : []; } };
+    const { svc, repo } = await posted([unnamed("L1", 0)], {}, { vatFilings: filings });
+    filings.filed = true;
+    await expect(svc.classifyLineTax("inv-1", { lineRef: "L1", taxRateId: "EXEMPT" })).rejects.toBeInstanceOf(VatPeriodAlreadyFiledError);
+    expect((await repo.findById("inv-1"))?.lines[0]?.taxRateId).toBeNull();
+  });
+
+  it("is refused when the filed e-document contradicts it, inside the transaction and before anything is audited", async () => {
+    let seen: (string | null | undefined)[] = [];
+    const { svc, audit } = await posted([unnamed("L1", 0)], {
+      taxFiling: {
+        reconcile: async ({ before, after }) => {
+          seen = [...before.lines, ...after.lines].map((l) => l.taxRateId);
+          throw new TaxClassificationAlreadyFiledError(after.docNo ?? after.id);
+        },
+      },
+    });
+    await expect(svc.classifyLineTax("inv-1", { lineRef: "L1", taxRateId: "EXEMPT" })).rejects.toBeInstanceOf(TaxClassificationAlreadyFiledError);
+    expect(seen).toEqual([null, "EXEMPT"]);
+    expect(audit.events.filter((e) => e.action === "CLASSIFY_LINE_TAX")).toEqual([]);
+  });
+
+  it("records who classified what, with the line's tax before and after", async () => {
+    const { svc, audit, entry } = await posted([unnamed("L1", 0)], { taxFiling: { reconcile: async () => TaxClassificationFilingOutcome.Requeued } });
+    await svc.classifyLineTax("inv-1", { lineRef: "L1", taxRateId: "EXPORT" });
+    const events = audit.events.filter((e) => e.action === "CLASSIFY_LINE_TAX");
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      stream: "sensitive", module: "sales", entityType: "SALES_INVOICE", entityId: "inv-1", actor: "u1", severity: "WARNING",
+      details: {
+        lineIds: ["L1"],
+        before: { taxRateId: null, taxRatePercent: 0 },
+        after: { taxRateId: "EXPORT", taxRatePercent: 0 },
+        taxRateName: "ضريبة EXPORT",
+        journalEntryId: entry!.id,
+        journalLinesNamed: 1,
+        filing: "requeued",
+      },
+    });
   });
 });

@@ -299,6 +299,11 @@ export {
   type TaxRateDTO,
   type CreateTaxRateDTO,
   type UpdateTaxRateDTO,
+  classifyLineTaxSchema,
+  lineTaxClassificationSchema,
+  TaxClassificationFilingOutcomeCode,
+  type ClassifyLineTaxDTO,
+  type LineTaxClassificationDTO,
 } from "./tax-rate.js";
 
 export {

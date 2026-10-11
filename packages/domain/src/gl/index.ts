@@ -36,6 +36,7 @@ export {
   assertProjectRequired,
   assertPartyLines,
 } from "./post.js";
+export { createJournalTaxTagPort, JournalTaxTagUnsupportedError } from "./tax-tag.js";
 export {
   reverseJournalEntry,
   type ReverseJournalEntryOptions,

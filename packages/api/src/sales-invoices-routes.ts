@@ -65,6 +65,8 @@ import {
   salesInvoicePaymentSchema,
   salesInvoiceListQuerySchema,
   salesInvoiceSchema,
+  classifyLineTaxSchema,
+  lineTaxClassificationSchema,
   type SalesInvoiceListQueryDTO,
   type SalesInvoiceDiscountDTO,
 } from "@mezan/contracts";
@@ -72,7 +74,7 @@ import type { CurrencyCheck } from "./currency-policy.js";
 import { recordAdminEvent } from "./admin-audit.js";
 import { refuseUnknownItems, type ItemCatalogCheck } from "./item-check.js";
 import { MasterDataKind, refuseUnknownMasterData, type MasterDataChecks } from "./master-data-check.js";
-import { taxRateRefusal } from "./tax-rate-refusal.js";
+import { taxClassificationRefusal, taxRateRefusal } from "./tax-rate-refusal.js";
 import { customerTaxProfileOf, type CustomerTaxProfileSource } from "./customer-tax-profile.js";
 import { type AuthContextResolver, branchScopeOf, callerRoleCodes, createAnyPermissionGate, createPermissionGate, getAuthContext, moduleRefusalFor, warehouseScopeOf } from "./permission-gate.js";
 import { tenantDay, tenantToday } from "./tenant-day.js";
@@ -125,6 +127,11 @@ export interface SalesInvoiceRoutesDeps {
   readonly taxRates?: Pick<TaxRateRepository, "list">;
   /** Where a customer's tax exemption is read from; a request body is never believed (D79). */
   readonly customerTax?: CustomerTaxProfileSource;
+  /** Names the rate on a classified line's posted journal lines; without it `classify-tax` answers 501. */
+  readonly taxTags?: SalesInvoiceServiceDeps["taxTags"];
+  readonly taxFiling?: SalesInvoiceServiceDeps["taxFiling"];
+  /** Runs after a classification commits — issues the e-receipt a consumer sale was refused for its unnamed line. */
+  readonly afterTaxClassified?: (invoiceId: string) => Promise<void>;
   /**
    * The tenant's discount ceiling (settings §"الرقابة الائتمانية"). Optional
    * for the same reason every cross-aggregate check here is: a caller that does
@@ -539,6 +546,8 @@ export function createSalesInvoicesRoutes(
       pricing: deps.pricing,
       taxPolicy: deps.taxPolicy,
       taxRates: deps.taxRates,
+      taxTags: deps.taxTags,
+      taxFiling: deps.taxFiling,
       exchangeRates: deps.exchangeRates,
       baseCurrency: deps.baseCurrency,
       contractBilling: deps.contractBilling,
@@ -1035,6 +1044,50 @@ export function createSalesInvoicesRoutes(
       // a document that has already moved is refused rather than winning.
       version: await documentVersionOf(deps.versionGuard, invoice.id),
     });
+  });
+
+  /**
+   * تصنيف ضريبة البند — names the tax rate of a posted line that stored none.
+   * NULL → a rate at the line's own percent, and nothing else: see
+   * `SalesInvoiceService.classifyLineTax`.
+   */
+  app.post("/:id/lines/:lineId/classify-tax", gate("sales.invoice.classify_tax"), async (c) => {
+    if (!deps.taxTags || !deps.taxRates) {
+      return c.json({ error: "TAX_CLASSIFICATION_NOT_CONFIGURED", message: "تصنيف ضريبة البنود غير مُفعّل على هذا الخادم." }, 501);
+    }
+    const parsed = classifyLineTaxSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) {
+      return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    }
+    const svc = service(c);
+    const invoice = await svc.findByIdOrDocNo(c.req.param("id"));
+    if (!invoice) return c.json({ error: "NOT_FOUND" }, 404);
+    if (ownVisibilityOnly(c) && invoice.salespersonId !== (await ownSalespersonIdOf(c))) {
+      return c.json({ error: "NOT_FOUND" }, 404);
+    }
+    try {
+      const result = await svc.classifyLineTax(invoice.id, {
+        lineRef: c.req.param("lineId"),
+        withLineRefs: parsed.data.withLineIds,
+        taxRateId: parsed.data.taxRateId,
+      });
+      await stampDocumentModifier(deps.versionGuard, invoice.id, getAuthContext(c)?.userId);
+      await deps.afterTaxClassified?.(invoice.id);
+      return c.json(
+        lineTaxClassificationSchema.parse({
+          documentId: result.invoice.id,
+          documentNumber: result.invoice.docNo,
+          lineIds: result.plan.lineRefs,
+          taxRateId: parsed.data.taxRateId,
+          taxRateName: result.plan.taxRateName,
+          taxRatePercent: result.plan.after.taxRatePercent,
+          journalLinesNamed: result.journalLinesNamed,
+          filing: result.filing,
+        }),
+      );
+    } catch (err) {
+      return taxClassificationRefusal(c, err) ?? handleDomainError(c, err);
+    }
   });
 
   app.post("/:id/confirm", gate("sales.invoice.confirm"), async (c) => {

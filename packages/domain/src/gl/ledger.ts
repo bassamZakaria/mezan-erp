@@ -39,6 +39,14 @@ export interface LedgerRepository {
    * lines as fact. Callers MUST verify `status === "draft"` first (D226).
    */
   deleteDraft(entryId: string): Promise<void>;
+  /**
+   * INVARIANT: the ONE write a posted line ever takes, and it is not a
+   * correction of the books — no account, amount, date or status moves. It
+   * names the tax rate on the lines of `entryId` that carry `taxRatePercent`
+   * and NO rate id, and returns how many it named. A line that already names
+   * a rate is never touched, so a rate cannot be swapped for another.
+   */
+  retagUnnamedTaxRate?(entryId: string, taxRatePercent: number, taxRateId: string): Promise<number>;
   findById(id: string): Promise<JournalEntry | null>;
   findByEntryNo(entryNo: string): Promise<JournalEntry | null>;
   list(filter?: JournalListFilter): Promise<readonly JournalEntry[]>;

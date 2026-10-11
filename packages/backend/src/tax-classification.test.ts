@@ -48,7 +48,7 @@ async function call(method: string, path: string, body?: unknown, permissions?: 
   }
 }
 
-const rowsOf = (body: Reply["body"]): Reply["body"][] => (Array.isArray(body) ? body : (body?.items ?? body?.rows ?? []));
+const rowsOf = (body: Reply["body"]): Reply["body"][] => (Array.isArray(body) ? body : (body?.items ?? body?.rows ?? body?.events ?? []));
 
 function serviceLine(lineId: string, over: Record<string, unknown> = {}) {
   return { lineId, itemId: "ITEM-DEMO-10", itemNameAr: "خدمة", isStock: false, qty: "1", unitPrice: "100", revenueAccountId: REVENUE, ...over };
@@ -185,5 +185,265 @@ describe("a retention release is not a supply", () => {
 
     expect(rowsOf((await call("GET", "/financial-reports/vat-return?periodFrom=2026-09-02&periodTo=2026-09-02")).body)).toEqual([]);
     expect(await submissionOf(invoice.docNo)).toBeNull();
+  });
+});
+
+describe("classifying the tax of a posted line that stored none", () => {
+  const classify = (invoiceId: string, lineId: string, body: Record<string, unknown>, permissions?: readonly string[]) =>
+    call("POST", `/sales-invoices/${invoiceId}/lines/${lineId}/classify-tax`, body, permissions);
+  const journalOf = async (invoiceId: string) => {
+    const invoice = (await call("GET", `/sales-invoices/${invoiceId}`)).body;
+    const entry = (await call("GET", `/gl/journal-entries/${invoice.journalEntryId}`)).body;
+    return { invoice, entry, lines: entry.lines as { accountId: string; debit: string; credit: string; taxRatePercent: number | null; taxRateId: string | null }[] };
+  };
+  const vatRowsOn = async (date: string) =>
+    rowsOf((await call("GET", `/financial-reports/vat-return?periodFrom=${date}&periodTo=${date}`)).body) as { side: string; taxRateId: string | null; base: string; tax: string }[];
+  const moneyOnly = (lines: { accountId: string; debit: string; credit: string; taxRatePercent: number | null }[]) =>
+    lines.map((l) => [l.accountId, l.debit, l.credit, l.taxRatePercent]);
+
+  it("names the stuck line of the uncarded exempt customer's sale: NULL → «معفى», journal tagged, finding cleared, nothing else moved", async () => {
+    const before = await journalOf("T-STUCK");
+    expect(before.invoice.lines.map((l: { taxRateId: string | null }) => l.taxRateId)).toEqual([null]);
+    const trialBefore = (await call("GET", "/financial-reports/trial-balance")).body.grandTotals;
+
+    const taxed = await classify("T-STUCK", "L1", { taxRateId: VAT_RATE });
+    expect([taxed.status, taxed.body.error]).toEqual([422, "TAX_RATE_CLASSIFICATION_PERCENT_MISMATCH"]);
+    expect(taxed.body.message).toMatch(/[؀-ۿ]/);
+    expect((await journalOf("T-STUCK")).lines).toEqual(before.lines);
+
+    const done = await classify("T-STUCK", "L1", { taxRateId: EXEMPT_RATE });
+    expect(done.status).toBe(200);
+    expect(done.body).toMatchObject({ lineIds: ["L1"], taxRateId: EXEMPT_RATE, taxRatePercent: 0, journalLinesNamed: 1, filing: "requeued" });
+
+    const after = await journalOf("T-STUCK");
+    expect(after.invoice.lines.map((l: { taxRateId: string | null; taxRatePercent: number }) => [l.taxRatePercent, l.taxRateId])).toEqual([[0, EXEMPT_RATE]]);
+    expect(moneyOnly(after.lines)).toEqual(moneyOnly(before.lines));
+    expect(after.lines.filter((l) => l.taxRatePercent === 0).map((l) => l.taxRateId)).toEqual([EXEMPT_RATE]);
+    expect([after.entry.date, after.entry.status, after.entry.entryNo]).toEqual([before.entry.date, before.entry.status, before.entry.entryNo]);
+    expect(after.invoice.totals).toEqual(before.invoice.totals);
+    expect((await call("GET", "/financial-reports/trial-balance")).body.grandTotals).toEqual(trialBefore);
+
+    const submission = await submissionOf(after.invoice.docNo);
+    expect(submission.status).toBe("ready");
+    expect((submission.prevalidation ?? []).filter((f: { code: string }) => f.code === "TAX_SUBTYPE_NOT_MAPPED")).toEqual([]);
+    const payload = (await call("GET", `/eta/submissions/${submission.id}`)).body.payload;
+    expect(payload.invoiceLines[0].taxableItems[0].subType).toBe("V003");
+  });
+
+  it("refuses to move the line on to another rate, or to name it twice", async () => {
+    const other = await classify("T-STUCK", "L1", { taxRateId: EXPORT_RATE });
+    expect([other.status, other.body.error]).toEqual([409, "TAX_RATE_ALREADY_CLASSIFIED"]);
+    const again = await classify("T-STUCK", "L1", { taxRateId: EXEMPT_RATE });
+    expect(again.status).toBe(409);
+    expect((await journalOf("T-STUCK")).invoice.lines[0].taxRateId).toBe(EXEMPT_RATE);
+  });
+
+  it("leaves an audit row naming the actor and the line's tax before and after", async () => {
+    const events = rowsOf((await call("GET", "/audit?stream=sensitive&entityType=SALES_INVOICE&entityId=T-STUCK&action=CLASSIFY_LINE_TAX")).body);
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      actor: "USER-ADMIN",
+      severity: "WARNING",
+      details: { lineIds: ["L1"], before: { taxRateId: null, taxRatePercent: 0 }, after: { taxRateId: EXEMPT_RATE, taxRatePercent: 0 }, journalLinesNamed: 1, filing: "requeued" },
+    });
+  });
+
+  it("needs its own permission — viewing, confirming and voiding invoices do not carry it", async () => {
+    await sale("T-PERM", NOT_EXEMPT_CUSTOMER, [serviceLine("L1", { taxRateId: null, taxRatePercent: 0 })]);
+    await call("POST", "/sales-invoices/T-PERM/confirm", {});
+    const refused = await classify("T-PERM", "L1", { taxRateId: EXEMPT_RATE }, ["sales.invoice.view", "sales.invoice.confirm", "sales.invoice.void", "accounting.tax.view"]);
+    expect(refused.status).toBe(403);
+    const allowed = await classify("T-PERM", "L1", { taxRateId: EXEMPT_RATE }, ["sales.invoice.classify_tax", "sales.invoice.view"]);
+    expect(allowed.status).toBe(200);
+  });
+
+  it("is refused on a draft, for a line the invoice does not carry, and for an inactive rate", async () => {
+    await sale("T-DRAFT", NOT_EXEMPT_CUSTOMER, [serviceLine("L1", { taxRateId: null, taxRatePercent: 0 })]);
+    const draft = await classify("T-DRAFT", "L1", { taxRateId: EXEMPT_RATE });
+    expect([draft.status, draft.body.error]).toEqual([409, "TAX_CLASSIFICATION_NOT_POSTED"]);
+    await call("POST", "/sales-invoices/T-DRAFT/confirm", {});
+    const missing = await classify("T-DRAFT", "L9", { taxRateId: EXEMPT_RATE });
+    expect([missing.status, missing.body.error]).toEqual([404, "DOCUMENT_LINE_NOT_FOUND"]);
+    await call("POST", "/tax-rates", { id: "T-OLD-ZERO", code: "T-OLD-ZERO", name: "صفر موقوفة", rate: 0, etaSubType: "V003" });
+    expect((await call("PATCH", "/tax-rates/T-OLD-ZERO", { status: "inactive" })).body.status).toBe("inactive");
+    const inactive = await classify("T-DRAFT", "L1", { taxRateId: "T-OLD-ZERO" });
+    expect([inactive.status, inactive.body.error]).toEqual([422, "TAX_RATE_INACTIVE"]);
+  });
+
+  it("classifies an invoice's unnamed lines at one percent together, only once the request names every one of them", async () => {
+    await sale("T-SHARED", NOT_EXEMPT_CUSTOMER, [
+      serviceLine("L1", { taxRateId: null, taxRatePercent: 0 }),
+      serviceLine("L2", { taxRateId: null, taxRatePercent: 0, unitPrice: "50" }),
+      serviceLine("L3", { taxRateId: VAT_RATE }),
+    ]);
+    await call("POST", "/sales-invoices/T-SHARED/confirm", {});
+    const alone = await classify("T-SHARED", "L1", { taxRateId: EXPORT_RATE });
+    expect([alone.status, alone.body.error, alone.body.sharedLineIds]).toEqual([409, "TAX_CLASSIFICATION_SHARED_POSTING", ["L2"]]);
+    expect((await journalOf("T-SHARED")).invoice.lines.map((l: { taxRateId: string | null }) => l.taxRateId)).toEqual([null, null, VAT_RATE]);
+
+    const together = await classify("T-SHARED", "L1", { taxRateId: EXPORT_RATE, withLineIds: ["L2"] });
+    expect([together.status, together.body.lineIds, together.body.journalLinesNamed]).toEqual([200, ["L1", "L2"], 1]);
+    const { invoice, lines } = await journalOf("T-SHARED");
+    expect(invoice.lines.map((l: { taxRateId: string | null }) => l.taxRateId)).toEqual([EXPORT_RATE, EXPORT_RATE, VAT_RATE]);
+    expect(lines.filter((l) => l.taxRatePercent !== null).map((l) => [l.credit, l.taxRatePercent, l.taxRateId])).toEqual(
+      expect.arrayContaining([["150.000000", 0, EXPORT_RATE], ["100.000000", 14, VAT_RATE], ["14.000000", 14, VAT_RATE]]),
+    );
+  });
+
+  it("moves a legacy 14% line off the VAT return's unnamed row onto the named one, to the piastre", async () => {
+    const day = "2026-08-12";
+    await sale("T-LEGACY", NOT_EXEMPT_CUSTOMER, [serviceLine("L1", { taxRateId: null, taxRatePercent: 14, unitPrice: "300" })], { date: day });
+    await call("POST", "/sales-invoices/T-LEGACY/confirm", {});
+    const outputOf = (rows: Awaited<ReturnType<typeof vatRowsOn>>, taxRateId: string | null) =>
+      rows.filter((r) => r.side === "output" && r.taxRateId === taxRateId && Number(r.tax) > 0).map((r) => [r.base, r.tax]);
+    const before = await vatRowsOn(day);
+    const unnamedBefore = outputOf(before, null);
+    expect(unnamedBefore).toHaveLength(1);
+
+    const done = await classify("T-LEGACY", "L1", { taxRateId: VAT_RATE });
+    expect([done.status, done.body.journalLinesNamed]).toEqual([200, 2]);
+
+    const after = await vatRowsOn(day);
+    const total = (rows: typeof before, key: "base" | "tax") => rows.filter((r) => r.side === "output").reduce((sum, r) => sum + Math.round(Number(r[key]) * 100), 0);
+    expect([total(after, "base"), total(after, "tax")]).toEqual([total(before, "base"), total(before, "tax")]);
+    const moved = (key: 0 | 1) => Math.round(Number(unnamedBefore[0]![key]) * 100) - Math.round(Number(outputOf(after, null)[0]?.[key] ?? 0) * 100);
+    expect([moved(0), moved(1)]).toEqual([30000, 4200]);
+  });
+
+  it("issues the e-receipt a consumer sale was refused for its unnamed 0% line, once the line is classified", async () => {
+    await call("POST", "/customers", { id: "T-CONSUMER", code: "T-CONSUMER", nameAr: "مستهلك", etaBuyerType: "individual" });
+    const coded = await call("PUT", "/eta/item-mappings/ITEM-DEMO-10", { etaItemCode: "EG-311222333-10", etaCodeType: "EGS" });
+    expect(coded.status).toBe(200);
+    await sale("T-B2C", "T-CONSUMER", [serviceLine("L1", { taxRateId: null, taxRatePercent: 0 })]);
+    const confirmed = await call("POST", "/sales-invoices/T-B2C/confirm", {});
+    expect(confirmed.status).toBe(200);
+    expect(await submissionOf(docNoOf(confirmed))).toBeNull();
+
+    const done = await classify("T-B2C", "L1", { taxRateId: EXEMPT_RATE });
+    expect([done.status, done.body.filing]).toEqual([200, "not_queued"]);
+    const receipt = await submissionOf(docNoOf(confirmed));
+    expect(receipt?.documentType).toBe("receipt");
+    const payload = (await call("GET", `/eta/submissions/${receipt.id}`)).body.payload;
+    expect((payload.itemData ?? payload.invoiceLines)[0].taxableItems[0].subType).toBe("V003");
+  });
+
+  it("allows a classification an issued e-receipt already declares, and refuses one it contradicts — writing nothing", async () => {
+    await sale("T-FILED", "T-CONSUMER", [serviceLine("L1", { taxRateId: null, taxRatePercent: 14 })]);
+    const confirmed = await call("POST", "/sales-invoices/T-FILED/confirm", {});
+    expect((await submissionOf(docNoOf(confirmed)))?.documentType).toBe("receipt");
+    await sale("T-FILED-2", "T-CONSUMER", [serviceLine("L1", { taxRateId: null, taxRatePercent: 14 })]);
+    await call("POST", "/sales-invoices/T-FILED-2/confirm", {});
+    await backend.drain();
+
+    const consistent = await classify("T-FILED", "L1", { taxRateId: VAT_RATE });
+    expect([consistent.status, consistent.body.filing]).toEqual([200, "filed_consistent"]);
+
+    const table = await call("POST", "/tax-rates", { id: "T-TABLE14", code: "T-TABLE14", name: "جدول 14", rate: 14, etaSubType: "V003" });
+    expect(table.status).toBe(201);
+    const before = await journalOf("T-FILED-2");
+    const contradicting = await classify("T-FILED-2", "L1", { taxRateId: "T-TABLE14" });
+    await call("PATCH", "/tax-rates/T-TABLE14", { status: "inactive" });
+    expect([contradicting.status, contradicting.body.error]).toEqual([409, "TAX_CLASSIFICATION_ALREADY_FILED"]);
+    const after = await journalOf("T-FILED-2");
+    expect(after.invoice.lines[0].taxRateId).toBeNull();
+    expect(after.lines).toEqual(before.lines);
+  });
+
+  it("is refused once the VAT return covering the entry's date is filed", async () => {
+    await sale("T-JULY", NOT_EXEMPT_CUSTOMER, [serviceLine("L1", { taxRateId: null, taxRatePercent: 0 })], { date: "2026-07-10", dueDate: "2026-08-10" });
+    expect((await call("POST", "/sales-invoices/T-JULY/confirm", {})).status).toBe(200);
+    const filed = await call("POST", "/gl/vat-filings", { id: "T-VATF-2026-07", periodFrom: "2026-07-01", periodTo: "2026-07-31", netAmount: "0.00" });
+    expect(filed.status).toBe(201);
+    const refused = await classify("T-JULY", "L1", { taxRateId: EXEMPT_RATE });
+    expect([refused.status, refused.body.error]).toEqual([422, "VAT_PERIOD_ALREADY_FILED"]);
+    expect(refused.body.message).toMatch(/[؀-ۿ]/);
+    expect((await journalOf("T-JULY")).invoice.lines[0].taxRateId).toBeNull();
+  });
+});
+
+describe("converting a quote whose lines stored no tax rate", () => {
+  const quote = async (id: string, lines: readonly Record<string, unknown>[]) => {
+    const created = await call("POST", "/sales-quotes", { id, date: TODAY, expiryDate: "2026-09-23", customerId: NOT_EXEMPT_CUSTOMER, customerNameAr: "عميل", branchId: BRANCH, lines });
+    expect(created.status).toBe(201);
+    await call("POST", `/sales-quotes/${id}/send`, {});
+    await call("POST", `/sales-quotes/${id}/accept`, {});
+  };
+  const quoteLine = (lineId: string, over: Record<string, unknown>) => ({ lineId, itemId: "ITEM-DEMO-10", itemNameAr: "خدمة", qty: "1", unitPrice: "100", ...over });
+  const convert = (id: string, invoiceId: string, lines: readonly Record<string, unknown>[]) =>
+    call("POST", `/sales-quotes/${id}/convert-to-invoice`, {
+      id: invoiceId, dueDate: "2026-09-23", warehouseId: WAREHOUSE, arAccountId: AR, taxAccountId: OUTPUT_TAX,
+      lines: lines.map((l) => ({ isStock: false, revenueAccountId: REVENUE, ...l })),
+    });
+
+  it("carries a NULL line as NULL when the convert names nothing, and names it when the convert does", async () => {
+    await quote("T-QT-NULL", [quoteLine("QL1", { taxRateId: null, taxRatePercent: 14 }), quoteLine("QL2", { taxRateId: null, taxRatePercent: 0 })]);
+    const named = await convert("T-QT-NULL", "T-QT-NULL-INV", [{ lineId: "QL1", taxRateId: VAT_RATE }, { lineId: "QL2" }]);
+    expect(named.status).toBe(201);
+    expect(taxOf(await call("GET", "/sales-invoices/T-QT-NULL-INV"))).toEqual([[14, VAT_RATE], [0, null]]);
+  });
+
+  it("refuses a rate at another percent and a rate other than the one the quote line already names, and leaves the quote convertible", async () => {
+    await quote("T-QT-MIX", [quoteLine("QL1", { taxRateId: null, taxRatePercent: 14 }), quoteLine("QL2", { taxRateId: EXEMPT_RATE })]);
+    const repriced = await convert("T-QT-MIX", "T-QT-MIX-INV", [{ lineId: "QL1", taxRateId: EXEMPT_RATE }, { lineId: "QL2" }]);
+    expect([repriced.status, repriced.body.error]).toEqual([422, "TAX_RATE_CLASSIFICATION_PERCENT_MISMATCH"]);
+    const swapped = await convert("T-QT-MIX", "T-QT-MIX-INV", [{ lineId: "QL1" }, { lineId: "QL2", taxRateId: EXPORT_RATE }]);
+    expect([swapped.status, swapped.body.error]).toEqual([409, "TAX_RATE_ALREADY_CLASSIFIED"]);
+    expect((await call("GET", "/sales-invoices/T-QT-MIX-INV")).status).toBe(404);
+    const ok = await convert("T-QT-MIX", "T-QT-MIX-INV", [{ lineId: "QL1", taxRateId: VAT_RATE }, { lineId: "QL2", taxRateId: EXEMPT_RATE }]);
+    expect(ok.status).toBe(201);
+    expect(taxOf(await call("GET", "/sales-invoices/T-QT-MIX-INV"))).toEqual([[14, VAT_RATE], [0, EXEMPT_RATE]]);
+  });
+});
+
+describe("classifying the tax of a posted purchase line that stored none", () => {
+  const SUPPLIER = "SUPP-DEMO-1";
+  const classify = (invoiceId: string, lineIndex: string, body: Record<string, unknown>, permissions?: readonly string[]) =>
+    call("POST", `/purchases/invoices/${invoiceId}/lines/${lineIndex}/classify-tax`, body, permissions);
+  const purchase = async (id: string, lines: readonly Record<string, unknown>[]) => {
+    const created = await call("POST", "/purchases/invoices", { id, supplierId: SUPPLIER, date: TODAY, dueDate: "2026-09-23", branchId: BRANCH, warehouseId: WAREHOUSE, lines });
+    expect(created.status).toBe(201);
+    expect((await call("POST", `/purchases/invoices/${id}/confirm`, {})).status).toBe(200);
+  };
+  const expense = (over: Record<string, unknown>) => ({ itemId: null, kind: "expense", description: "خدمة", qty: "1", unitCost: "200", ...over });
+  const entryOf = async (id: string) =>
+    ((await call("GET", `/gl/journal-entries/${encodeURIComponent(`PI-JE:${id}`)}`)).body.lines ?? []) as { accountId: string; debit: string; credit: string; taxRatePercent: number | null; taxRateId: string | null }[];
+
+  it("names a 0% line and a legacy 14% line, tags the journal's cost and input-VAT lines, and moves no amount", async () => {
+    await purchase("T-PI", [expense({ taxRateId: null, taxRatePercent: 0 }), expense({ taxRateId: null, taxRatePercent: 14, unitCost: "100" })]);
+    const before = await entryOf("T-PI");
+    expect(before.filter((l) => l.taxRatePercent !== null).map((l) => l.taxRateId)).toEqual([null, null, null]);
+
+    const zero = await classify("T-PI", "0", { taxRateId: EXEMPT_RATE });
+    expect([zero.status, zero.body.lineIds, zero.body.journalLinesNamed]).toEqual([200, ["0"], 1]);
+    const taxed = await classify("T-PI", "1", { taxRateId: VAT_RATE });
+    expect([taxed.status, taxed.body.journalLinesNamed]).toEqual([200, 2]);
+
+    const invoice = (await call("GET", "/purchases/invoices/T-PI")).body;
+    expect(invoice.lines.map((l: { taxRatePercent: number; taxRateId: string | null }) => [l.taxRatePercent, l.taxRateId])).toEqual([[0, EXEMPT_RATE], [14, VAT_RATE]]);
+    const after = await entryOf("T-PI");
+    expect(after.map((l) => [l.accountId, l.debit, l.credit, l.taxRatePercent])).toEqual(before.map((l) => [l.accountId, l.debit, l.credit, l.taxRatePercent]));
+    expect(after.filter((l) => l.taxRatePercent === 0).map((l) => l.taxRateId)).toEqual([EXEMPT_RATE]);
+    expect(after.filter((l) => l.taxRatePercent === 14).map((l) => l.taxRateId)).toEqual([VAT_RATE, VAT_RATE]);
+  });
+
+  it("refuses another percent, a second rate, a draft and a caller without the permission; and audits the change", async () => {
+    const repriced = await classify("T-PI", "0", { taxRateId: EXPORT_RATE });
+    expect([repriced.status, repriced.body.error]).toEqual([409, "TAX_RATE_ALREADY_CLASSIFIED"]);
+
+    await purchase("T-PI-2", [expense({ taxRateId: null, taxRatePercent: 14 })]);
+    const mismatch = await classify("T-PI-2", "0", { taxRateId: EXEMPT_RATE });
+    expect([mismatch.status, mismatch.body.error]).toEqual([422, "TAX_RATE_CLASSIFICATION_PERCENT_MISMATCH"]);
+    const forbidden = await classify("T-PI-2", "0", { taxRateId: VAT_RATE }, ["purchases.invoice.view", "purchases.invoice.confirm", "purchases.invoice.void"]);
+    expect(forbidden.status).toBe(403);
+    expect((await call("GET", "/purchases/invoices/T-PI-2")).body.lines[0].taxRateId).toBeNull();
+
+    await call("POST", "/purchases/invoices", { id: "T-PI-DRAFT", supplierId: SUPPLIER, date: TODAY, dueDate: "2026-09-23", branchId: BRANCH, warehouseId: WAREHOUSE, lines: [expense({ taxRateId: null, taxRatePercent: 0 })] });
+    const draft = await classify("T-PI-DRAFT", "0", { taxRateId: EXEMPT_RATE });
+    expect([draft.status, draft.body.error]).toEqual([409, "TAX_CLASSIFICATION_NOT_POSTED"]);
+
+    const events = rowsOf((await call("GET", "/audit?stream=sensitive&entityType=PURCHASE_INVOICE&entityId=T-PI&action=CLASSIFY_LINE_TAX")).body);
+    expect(events.map((e) => [e.actor, e.details.lineIds, e.details.before.taxRateId, e.details.after.taxRateId]).sort()).toEqual(
+      [["USER-ADMIN", ["0"], null, EXEMPT_RATE], ["USER-ADMIN", ["1"], null, VAT_RATE]].sort(),
+    );
   });
 });

@@ -17,6 +17,12 @@ import { toBaseQty } from "../units/index.js";
 import {
   resolveDocumentLineTax,
   classifyStoredTaxRate,
+  planTaxClassification,
+  TaxClassificationFilingOutcome,
+  TaxClassificationNotPostedError,
+  type ClassifyPostedLineTaxRequest,
+  type JournalTaxTagPort,
+  type TaxClassificationPlan,
   ZeroRatingCause,
   type ZeroRating,
   resolveInheritedTaxRate,
@@ -147,6 +153,14 @@ export interface SalesInvoiceServiceDeps {
   readonly taxPolicy?: () => Promise<SalesInvoiceTaxPolicy> | SalesInvoiceTaxPolicy;
   /** Without it no draft line can be given a `taxRateId`, and a line that names one is refused. */
   readonly taxRates?: Pick<TaxRateRepository, "list">;
+  /** Names the tax rate on the posted journal lines of a line being classified (D79). */
+  readonly taxTags?: JournalTaxTagPort;
+  /**
+   * Brings the e-document the authority holds, or is about to, in line with a
+   * classification. Runs INSIDE the classification's transaction and throws to
+   * refuse it — a filed document's classification cannot be contradicted.
+   */
+  readonly taxFiling?: SalesInvoiceTaxFilingPort;
   /**
    * Exchange rates, so a foreign-currency invoice posts its base-currency
    * value at the rate that applied on its own date and keeps that rate on the
@@ -266,6 +280,17 @@ export interface ConfirmSalesInvoiceResult {
   readonly creditWarning: CreditCheckResult | null;
   /** Lines charged below the customer's assigned price list; empty when none, or when no list applies. */
   readonly pricingVariances: readonly PricingVariance[];
+}
+
+export interface SalesInvoiceTaxFilingPort {
+  reconcile(change: { readonly before: SalesInvoice; readonly after: SalesInvoice }): Promise<TaxClassificationFilingOutcome>;
+}
+
+export interface ClassifySalesInvoiceLineTaxResult {
+  readonly invoice: SalesInvoice;
+  readonly plan: TaxClassificationPlan;
+  readonly journalLinesNamed: number;
+  readonly filing: TaxClassificationFilingOutcome;
 }
 
 export class SalesInvoiceService {
@@ -740,6 +765,65 @@ export class SalesInvoiceService {
       reasons.push("نسبة خصم الفاتورة يجب أن تكون بين 0 و 100.");
     }
     if (reasons.length > 0) throw new InvalidSalesInvoiceError(reasons);
+  }
+
+  /**
+   * تصنيف ضريبة البند — names the tax rate of a POSTED line that stored none.
+   *
+   * INVARIANT: the only change is NULL → a rate at the line's own stored
+   * percent, on the invoice line and on its journal lines, in one transaction.
+   * No amount, account, date or status moves, and a line that names a rate is
+   * never re-pointed — that correction is a return or a credit note.
+   */
+  async classifyLineTax(id: string, request: ClassifyPostedLineTaxRequest): Promise<ClassifySalesInvoiceLineTaxResult> {
+    const existing = await this.require(id);
+    if (!SALES_INVOICE_ACTIVE_STATUSES.has(existing.status)) {
+      throw new TaxClassificationNotPostedError(SALES_INVOICE_STATUS_LABELS_AR[existing.status]);
+    }
+    const taxRates = this.deps.taxRates ? await this.deps.taxRates.list() : null;
+    const plan = planTaxClassification(
+      taxRates,
+      existing.lines.map((l) => ({ lineRef: l.lineId, label: l.itemNameAr, stored: { taxRateId: l.taxRateId ?? null, taxRatePercent: l.taxRatePercent } })),
+      request,
+    );
+    return this.deps.repo.transaction(async () => {
+      const classified = new Set(plan.lineRefs);
+      const invoice: SalesInvoice = {
+        ...existing,
+        lines: existing.lines.map((l) => (classified.has(l.lineId) ? { ...l, taxRateId: plan.after.taxRateId } : l)),
+      };
+      // ORDER MATTERS: the journal goes first — it is what refuses a filed
+      // VAT period, and it must refuse before the invoice line is written.
+      const journalLinesNamed =
+        existing.journalEntryId && this.deps.taxTags
+          ? await this.deps.taxTags.retagUnnamedTaxRate(existing.journalEntryId, plan.before.taxRatePercent, request.taxRateId)
+          : 0;
+      await this.deps.repo.update(invoice);
+      const filing = (await this.deps.taxFiling?.reconcile({ before: existing, after: invoice })) ?? TaxClassificationFilingOutcome.NotQueued;
+      if (this.deps.audit) {
+        await recordSensitiveEvent(this.deps.audit, {
+          module: "sales",
+          entityType: "SALES_INVOICE",
+          entityId: invoice.id,
+          action: "CLASSIFY_LINE_TAX",
+          actor: this.deps.actor ?? "system",
+          branchId: invoice.branchId ?? null,
+          severity: "WARNING",
+          details: {
+            invoiceId: invoice.id,
+            docNo: invoice.docNo,
+            lineIds: plan.lineRefs,
+            before: plan.before,
+            after: plan.after,
+            taxRateName: plan.taxRateName,
+            journalEntryId: existing.journalEntryId,
+            journalLinesNamed,
+            filing,
+          },
+        });
+      }
+      return { invoice, plan, journalLinesNamed, filing };
+    });
   }
 
   private async require(id: string): Promise<SalesInvoice> {

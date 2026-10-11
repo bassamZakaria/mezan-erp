@@ -17,6 +17,8 @@ import {
   resolveEtaVatSubType,
   SALES_INVOICE_ACTIVE_STATUSES,
   salesInvoiceTotals,
+  TaxClassificationAlreadyFiledError,
+  TaxClassificationFilingOutcome,
   type CustomerRepository,
   type DocumentEventPublisher,
   type DocumentRepository,
@@ -35,6 +37,7 @@ import {
   type SalesInvoice,
   type SalesInvoiceLine,
   type SalesInvoiceRepository,
+  type SalesInvoiceTaxFilingPort,
   type SalesReturnLine,
   type TaxRateRepository,
   type VoucherPaymentMethod,
@@ -779,6 +782,47 @@ export function createReturnEtaEnqueueBridge(deps: {
         if (error instanceof DuplicateEtaSubmissionError) return;
         console.error(`[eta] could not queue ${event.docType}/${event.docId}`, error);
       });
+    },
+  };
+}
+
+const REQUEUEABLE_SUBMISSION_STATUSES: ReadonlySet<string> = new Set(["ready", "pending_signature", "error", "excluded"]);
+
+/**
+ * What a tax classification does to the e-document of the invoice it touched.
+ *
+ * INVARIANT: a document the authority already holds — a sent or accepted
+ * e-invoice, or ANY e-receipt, which is chained and never rebuilt — keeps the
+ * classification it was filed under. The classification is allowed only when
+ * every line still declares the sub-type it declared before; otherwise it is
+ * refused, and the correction is a credit note or a refund receipt. A queued
+ * e-invoice is rebuilt from the classified invoice, which clears its finding.
+ */
+export function createSalesInvoiceTaxFiling(deps: {
+  readonly eta: EtaService;
+  readonly taxRates: Pick<TaxRateRepository, "list">;
+  readonly rebuild: ReturnType<typeof createEtaInvoiceRequeueRebuilder>;
+}): SalesInvoiceTaxFilingPort {
+  return {
+    async reconcile({ before, after }) {
+      const docNo = after.docNo;
+      if (!docNo) return TaxClassificationFilingOutcome.NotQueued;
+      const submission = await deps.eta.findByInternalId(docNo);
+      if (!submission) return TaxClassificationFilingOutcome.NotQueued;
+      if (submission.documentType === "invoice" && REQUEUEABLE_SUBMISSION_STATUSES.has(submission.status)) {
+        const rebuilt = await deps.rebuild(submission);
+        if (!rebuilt) return TaxClassificationFilingOutcome.NotQueued;
+        await deps.eta.requeue(submission.id, rebuilt);
+        return TaxClassificationFilingOutcome.Requeued;
+      }
+      const taxRates = await deps.taxRates.list();
+      const declared = (invoice: SalesInvoice): readonly string[] =>
+        invoice.lines.map((line) => resolveEtaVatSubType(resolveLineTaxRate(taxRates, line)?.etaSubType, line.taxRatePercent));
+      const filed = declared(before);
+      if (declared(after).some((subType, index) => subType !== filed[index])) {
+        throw new TaxClassificationAlreadyFiledError(docNo);
+      }
+      return TaxClassificationFilingOutcome.FiledConsistent;
     },
   };
 }

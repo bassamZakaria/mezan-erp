@@ -74,6 +74,8 @@ export {
   type CreateSalesInvoiceLine,
   type ConfirmSalesInvoiceOptions,
   type ConfirmSalesInvoiceResult,
+  type ClassifySalesInvoiceLineTaxResult,
+  type SalesInvoiceTaxFilingPort,
 } from "./service.js";
 
 export {

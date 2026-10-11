@@ -69,6 +69,7 @@ import {
   type TenantSettings,
   createDefaultSettings,
   reverseJournalEntry,
+  createJournalTaxTagPort,
   type DocumentService,
   type LandedCostService,
   type PurchaseInvoiceLookupPort,
@@ -1486,6 +1487,16 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
           // The same boundary the confirm uses, for every other purchase action:
           // the audit row and the writes it describes commit together.
           transactor: { transaction: (fn) => purchases.gl.ledger.transaction(fn) },
+          // INVARIANT: the SAME deterministic entry ids the posting adapters
+          // above and the historical import use.
+          taxTags: {
+            retagUnnamedTaxRate: async (invoiceId, taxRatePercent, taxRateId) => {
+              const tags = createJournalTaxTagPort({ ledger: purchases.gl.ledger, vatFilings: purchases.gl.vatFilings });
+              const posted = await tags.retagUnnamedTaxRate(`PI-JE:${invoiceId}`, taxRatePercent, taxRateId);
+              const imported = await tags.retagUnnamedTaxRate(`HIST-PI-JE:${invoiceId}`, taxRatePercent, taxRateId);
+              return posted + imported;
+            },
+          },
           glReverse: purchases.layers ? glReversePort : undefined,
           accounts: purchases.accounts,
           allocatable: purchases.allocatable,

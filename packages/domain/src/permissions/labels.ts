@@ -31,6 +31,7 @@ export const PERMISSION_ACTION_LABELS = {
   delete_draft: { ar: "حذف المسودة", en: "Delete draft" },
   confirm: { ar: "تأكيد", en: "Confirm" },
   void: { ar: "إبطال", en: "Void" },
+  classify_tax: { ar: "تصنيف ضريبة بند مرحّل", en: "Classify a posted line's tax" },
   cancel: { ar: "إلغاء", en: "Cancel" },
   approve: { ar: "اعتماد", en: "Approve" },
   reject: { ar: "رفض", en: "Reject" },

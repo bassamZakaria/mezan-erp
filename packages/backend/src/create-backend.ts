@@ -26,6 +26,7 @@ import {
   reverseJournalEntry,
   resolvePrice,
   createSalesInvoiceGlHook,
+  createJournalTaxTagPort,
   returnedQtyBySourceLine,
   createReturnConfirmGuard,
   ensureSystemTaxRates,
@@ -254,6 +255,7 @@ import {
 import { runExternalSigningCommand } from "./eta-signing-command.js";
 import {
   createEtaEnqueueBridge,
+  createSalesInvoiceTaxFiling,
   createEtaInvoiceRequeueRebuilder,
   createEtaReceiptIssuer,
   createReturnEtaEnqueueBridge,
@@ -1150,6 +1152,15 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     unitMappings: etaStore.unitMappings,
   });
   const salesInvoiceEvents = fanOutDocumentEvents(salesInvoiceEventBridge, etaEnqueueBridge);
+  const rebuildEtaInvoiceSubmission = createEtaInvoiceRequeueRebuilder({
+    eta: etaService,
+    items,
+    taxRates,
+    branchCodes: etaStore.branchCodes,
+    unitMappings: etaStore.unitMappings,
+    invoices: salesInvoices,
+    customers,
+  });
 
   /**
    * D-03's billing arrow, enforced on EVERY sales invoice and not just the ones
@@ -3370,6 +3381,17 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         return issued;
       },
       hasEtaReceipt: (invoiceId) => etaReceipts.hasInvoiceReceipt(invoiceId),
+      taxTags: createJournalTaxTagPort({ ledger, vatFilings }),
+      taxFiling: createSalesInvoiceTaxFiling({ eta: etaService, taxRates, rebuild: rebuildEtaInvoiceSubmission }),
+      // A consumer sale whose e-receipt was refused for its unnamed 0% line
+      // gets it now. Best-effort, as at confirm: the classification stands.
+      afterTaxClassified: async (invoiceId) => {
+        try {
+          if (await etaReceipts.issueInvoiceReceipt(invoiceId)) etaReceipts.scheduleSubmission();
+        } catch (error) {
+          console.error(`[eta] could not issue the receipt of ${invoiceId} after its tax was classified`, error);
+        }
+      },
       settlementPreview: previewSettlement((message) => new InvalidSalesInvoicePaymentError(message)),
       pricing: {
         listPriceFor: async (customerId: string, itemId: string, qty: Qty) => {
@@ -3472,15 +3494,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       // ENH-011b "Fix & Requeue" (WF-04 step 4): rebuilds the payload and the
       // pre-validation from the CURRENT masters, so a fixed item code or
       // customer TIN actually clears the finding that blocked submit.
-      rebuildSubmission: createEtaInvoiceRequeueRebuilder({
-        eta: etaService,
-        items,
-        taxRates,
-        branchCodes: etaStore.branchCodes,
-        unitMappings: etaStore.unitMappings,
-        invoices: salesInvoices,
-        customers,
-      }),
+      rebuildSubmission: rebuildEtaInvoiceSubmission,
       issueDocumentReceipt: async (kind, docId) => {
         const issued =
           kind === "invoice" ? await etaReceipts.issueInvoiceReceipt(docId) : await etaReceipts.issueReturnReceipt(docId);

@@ -62,3 +62,15 @@ export {
   type TaxGroupRateView,
 } from "./tax-group.js";
 export { InvalidTaxGroupError, TaxGroupNotFoundError } from "./errors.js";
+export {
+  planTaxClassification,
+  TaxClassificationFilingOutcome,
+  PostedLineNotFoundError,
+  TaxClassificationNotPostedError,
+  TaxClassificationSharedPostingError,
+  TaxClassificationAlreadyFiledError,
+  type PostedTaxLine,
+  type ClassifyPostedLineTaxRequest,
+  type TaxClassificationPlan,
+  type JournalTaxTagPort,
+} from "./classify-posted-line-tax.js";

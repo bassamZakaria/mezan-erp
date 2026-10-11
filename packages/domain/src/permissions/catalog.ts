@@ -1,7 +1,7 @@
 /**
  * Mezan permission catalog — a versioned TS data manifest.
  *
- * Single source of truth for the 248 permissions across 19 modules the product
+ * Single source of truth for the 250 permissions across 19 modules the product
  * actually enforces, descended from the matrix in
  * `docs/archive/catalog/09-settings-dashboard-ux.md` §permission matrix and mandated as
  * "data (a versioned TS manifest)" by `docs/archive/plan.md` §5.2. The role editor, the
@@ -58,8 +58,8 @@ export interface ModuleDef {
 export const CATALOG_VERSION = 3 as const;
 
 const CORE_MODULES: readonly ModuleDef[] = [
-  { id: "sales", labelAr: "المبيعات", count: 28 },
-  { id: "purchases", labelAr: "المشتريات", count: 31 },
+  { id: "sales", labelAr: "المبيعات", count: 29 },
+  { id: "purchases", labelAr: "المشتريات", count: 32 },
   { id: "inventory", labelAr: "المخزون", count: 20 },
   { id: "field", labelAr: "المبيعات الميدانية", count: 4 },
   { id: "accounting", labelAr: "المحاسبة", count: 16 },
@@ -93,7 +93,7 @@ const CORE_MODULES: readonly ModuleDef[] = [
 type Row = PermissionRow;
 
 const ROWS: readonly Row[] = [
-  // 1. sales — 27
+  // 1. sales — 29
   ["sales.invoice.view"],
   ["sales.invoice.view_own"],
   ["sales.invoice.view_all", "sales.invoice.view"],
@@ -102,6 +102,7 @@ const ROWS: readonly Row[] = [
   ["sales.invoice.edit", "sales.invoice.view_own"],
   ["sales.invoice.confirm", "sales.invoice.view_own"],
   ["sales.invoice.void", "sales.invoice.view_own"],
+  ["sales.invoice.classify_tax", "sales.invoice.view_own,accounting.tax.view"],
   ["sales.invoice.delete_draft", "sales.invoice.view_own"],
   ["sales.customer.view"],
   ["sales.customer.create", "sales.customer.view"],
@@ -132,7 +133,7 @@ const ROWS: readonly Row[] = [
   ["sales.promotion.view"],
   ["sales.promotion.manage", "sales.promotion.view"],
 
-  // 2. purchases — 31
+  // 2. purchases — 32
   ["purchases.supplier.view"],
   ["purchases.supplier.create", "purchases.supplier.view"],
   ["purchases.supplier.edit", "purchases.supplier.view"],
@@ -154,6 +155,7 @@ const ROWS: readonly Row[] = [
   ["purchases.invoice.create", "purchases.invoice.view_own,accounting.tax.view"],
   ["purchases.invoice.confirm", "purchases.invoice.view_own"],
   ["purchases.invoice.void", "purchases.invoice.view_own"],
+  ["purchases.invoice.classify_tax", "purchases.invoice.view_own,accounting.tax.view"],
   ["purchases.invoice.edit", "purchases.invoice.view_own"],
   ["purchases.return.view"],
   ["purchases.return.create", "purchases.return.view"],

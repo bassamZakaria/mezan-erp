@@ -105,3 +105,34 @@ export type TaxGroupMemberDTO = z.infer<typeof taxGroupMemberSchema>;
 export type UpsertTaxGroupDTO = z.infer<typeof upsertTaxGroupSchema>;
 export type TaxGroupComponentDTO = z.infer<typeof taxGroupComponentSchema>;
 export type TaxGroupDTO = z.infer<typeof taxGroupSchema>;
+
+/**
+ * POST /sales-invoices/:id/lines/:lineId/classify-tax and its purchase twin —
+ * names the tax rate of a POSTED line that stored none. `withLineIds` names
+ * the document's other unnamed lines at the same percent: they share a journal
+ * line with it and are classified together, never implicitly.
+ */
+export const classifyLineTaxSchema = z.object({
+  taxRateId: z.string().min(1),
+  withLineIds: z.array(z.string().min(1)).max(500).optional(),
+});
+
+export enum TaxClassificationFilingOutcomeCode {
+  NotQueued = "not_queued",
+  Requeued = "requeued",
+  FiledConsistent = "filed_consistent",
+}
+
+export const lineTaxClassificationSchema = z.object({
+  documentId: z.string().min(1),
+  documentNumber: z.string().nullable(),
+  lineIds: z.array(z.string()),
+  taxRateId: z.string().min(1),
+  taxRateName: z.string(),
+  taxRatePercent: z.number(),
+  journalLinesNamed: z.number().int().nonnegative(),
+  filing: z.nativeEnum(TaxClassificationFilingOutcomeCode),
+});
+
+export type ClassifyLineTaxDTO = z.infer<typeof classifyLineTaxSchema>;
+export type LineTaxClassificationDTO = z.infer<typeof lineTaxClassificationSchema>;

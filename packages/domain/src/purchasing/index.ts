@@ -161,3 +161,11 @@ export {
   type ImportHistoricalPurchaseDocumentsDeps,
   type ImportHistoricalPurchaseDocumentsResult,
 } from "./historical-import.js";
+
+export {
+  classifyPurchaseInvoiceLineTax,
+  PURCHASE_INVOICE_STATUS_LABELS_AR,
+  type PurchaseInvoiceTaxTagPort,
+  type ClassifyPurchaseInvoiceLineTaxDeps,
+  type ClassifyPurchaseInvoiceLineTaxResult,
+} from "./classify-line-tax.js";

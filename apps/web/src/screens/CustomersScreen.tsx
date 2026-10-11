@@ -43,6 +43,9 @@ import {
   sumMoney,
 } from "../data/partner-detail-hooks";
 import { TextField, NumberField, SelectField, ToggleField } from "../settings/form-controls";
+import { useLockedFields } from "../shell/useLockedFields";
+
+const CUSTOMERS_API = "/customers";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { useUrlFlag, useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 import { customerFilterFromUrl } from "../data/list-queries";
@@ -491,6 +494,7 @@ export function CustomersScreen() {
   const { t } = useAppTranslation();
   const { navigate } = useNavigation();
   const createCustomer = useCreateCustomer();
+  const locked = useLockedFields(CUSTOMERS_API);
   const updateCustomer = useUpdateCustomer();
 
   /*
@@ -638,10 +642,10 @@ export function CustomersScreen() {
     };
     try {
       if (editingId) {
-        await updateCustomer.mutateAsync({ id: editingId, patch: { ...fields, active: draft.active } });
+        await updateCustomer.mutateAsync({ id: editingId, patch: locked.withoutLocked({ ...fields, active: draft.active }) });
       } else {
         const code = draft.code.trim();
-        await createCustomer.mutateAsync({ id: crypto.randomUUID(), ...(code === "" ? {} : { code }), ...fields });
+        await createCustomer.mutateAsync({ id: crypto.randomUUID(), nameAr: fields.nameAr, ...(code === "" ? {} : { code }), ...locked.withoutLocked(fields) });
       }
       setPanelOpen(false);
     } catch (err) {
@@ -670,6 +674,7 @@ export function CustomersScreen() {
           value={draft.paymentTermsDays}
           onChange={(v) => setDraft((d) => ({ ...d, paymentTermsDays: v }))}
           min={0}
+          {...locked.props("paymentTermsDays")}
         />
         <TextField label={t("customers.field.currency")} value={draft.currency} onChange={(v) => setDraft((d) => ({ ...d, currency: v }))} placeholder="EGP" />
         <NumberField
@@ -677,7 +682,7 @@ export function CustomersScreen() {
           value={draft.creditLimit}
           onChange={(v) => setDraft((d) => ({ ...d, creditLimit: v }))}
           min={0}
-          hint={t("customers.field.creditLimitHint")}
+          {...locked.props("creditLimit", t("customers.field.creditLimitHint"))}
         />
         <TextField label={t("customers.field.category")} value={draft.category} onChange={(v) => setDraft((d) => ({ ...d, category: v }))} placeholder={t("common.uncategorized")} />
         {/* An entity reference, so a picker over the real endpoint — typing a
@@ -690,7 +695,9 @@ export function CustomersScreen() {
             options={priceListOptions}
             placeholder={t("customers.detail.noPriceList")}
             aria-label={t("customers.field.priceList")}
+            disabled={locked.isLocked("priceListId")}
           />
+          {locked.isLocked("priceListId") ? <p className="mt-[5px] text-[11.5px] text-ink-faint">{t("branchRestriction.fieldLocked")}</p> : null}
         </div>
         <TextField label={t("common.phone")} type="tel" value={draft.phone} onChange={(v) => setDraft((d) => ({ ...d, phone: v }))} placeholder="01xxxxxxxx" />
         <TextField label={t("common.email")} type="email" value={draft.email} onChange={(v) => setDraft((d) => ({ ...d, email: v }))} />
@@ -725,7 +732,7 @@ export function CustomersScreen() {
                 label={t("customers.field.taxExempt")}
                 checked={draft.taxExempt}
                 onChange={(v) => setDraft((d) => ({ ...d, taxExempt: v }))}
-                hint={t("customers.field.taxExemptHint")}
+                {...locked.props("taxExempt", t("customers.field.taxExemptHint"))}
               />
               <SelectField
                 label={t("customers.field.etaBuyerType")}
@@ -742,7 +749,7 @@ export function CustomersScreen() {
           ) : null}
         </div>
 
-        {editingId ? <ToggleField label={t("common.active")} checked={draft.active} onChange={(v) => setDraft((d) => ({ ...d, active: v }))} /> : null}
+        {editingId ? <ToggleField label={t("common.active")} checked={draft.active} onChange={(v) => setDraft((d) => ({ ...d, active: v }))} {...locked.props("active")} /> : null}
         <div className="flex justify-end gap-[9px]">
           <Button onClick={() => setPanelOpen(false)}>{t("common.cancel")}</Button>
           <Button variant="primary" onClick={submit}>

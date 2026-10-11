@@ -32,6 +32,9 @@ import {
   useSupplierAging,
 } from "../data/partner-detail-hooks";
 import { TextField, NumberField, ToggleField } from "../settings/form-controls";
+import { useLockedFields } from "../shell/useLockedFields";
+
+const SUPPLIERS_API = "/suppliers";
 import { PartyStatementTab } from "./PartyStatementTab";
 import { majorOf } from "../lib/money";
 import { useNavigation } from "../navigation";
@@ -368,6 +371,7 @@ export function SuppliersScreen() {
   const { t } = useAppTranslation();
   const createSupplier = useCreateSupplier();
   const updateSupplier = useUpdateSupplier();
+  const locked = useLockedFields(SUPPLIERS_API);
 
   const { navigate } = useNavigation();
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -477,10 +481,10 @@ export function SuppliersScreen() {
     };
     try {
       if (editingId) {
-        await updateSupplier.mutateAsync({ id: editingId, patch: { ...fields, active: draft.active } });
+        await updateSupplier.mutateAsync({ id: editingId, patch: locked.withoutLocked({ ...fields, active: draft.active }) });
       } else {
         const code = draft.code.trim();
-        await createSupplier.mutateAsync({ id: crypto.randomUUID(), ...(code === "" ? {} : { code }), ...fields });
+        await createSupplier.mutateAsync({ id: crypto.randomUUID(), nameAr: fields.nameAr, ...(code === "" ? {} : { code }), ...locked.withoutLocked(fields) });
       }
       setPanelOpen(false);
     } catch (err) {
@@ -509,6 +513,7 @@ export function SuppliersScreen() {
         value={draft.paymentTermsDays}
         onChange={(v) => setDraft((d) => ({ ...d, paymentTermsDays: v }))}
         min={0}
+        {...locked.props("paymentTermsDays")}
       />
       <TextField label={t("suppliers.field.currency")} value={draft.currency} onChange={(v) => setDraft((d) => ({ ...d, currency: v }))} placeholder="EGP" />
       <TextField label={t("suppliers.field.category")} value={draft.category} onChange={(v) => setDraft((d) => ({ ...d, category: v }))} placeholder={t("common.uncategorized")} />
@@ -527,7 +532,7 @@ export function SuppliersScreen() {
       <TextField label={t("suppliers.field.district")} value={draft.addressDistrict} onChange={(v) => setDraft((d) => ({ ...d, addressDistrict: v }))} />
       <TextField label={t("suppliers.field.street")} value={draft.addressStreet} onChange={(v) => setDraft((d) => ({ ...d, addressStreet: v }))} />
       <TextField label={t("common.notes")} value={draft.notes} onChange={(v) => setDraft((d) => ({ ...d, notes: v }))} />
-      {editingId ? <ToggleField label={t("common.active")} checked={draft.active} onChange={(v) => setDraft((d) => ({ ...d, active: v }))} /> : null}
+      {editingId ? <ToggleField label={t("common.active")} checked={draft.active} onChange={(v) => setDraft((d) => ({ ...d, active: v }))} {...locked.props("active")} /> : null}
       <div className="flex justify-end gap-[9px]">
         <Button onClick={() => setPanelOpen(false)}>{t("common.cancel")}</Button>
         <Button variant="primary" onClick={submit}>

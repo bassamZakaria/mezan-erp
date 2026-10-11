@@ -1,3 +1,4 @@
+import { useLockedFields } from "../shell/useLockedFields";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { matchesSearch } from "@mezan/domain";
 import {
@@ -179,6 +180,8 @@ const BLANK_DRAFT: ItemDraft = {
   gpcCode: "",
   status: "active",
 };
+
+const ITEMS_API = "/items";
 
 function draftFromItem(item: ItemDTO): ItemDraft {
   return {
@@ -676,6 +679,7 @@ export function ItemsScreen() {
   const brandName = (id: string | null | undefined) => (id ? nameOf(brands.find((b) => b.id === id), id) : "—");
   const seasonName = (id: string | null | undefined) => (id ? nameOf(seasons.find((x) => x.id === id), id) : "—");
   const createItem = useCreateItem();
+  const locked = useLockedFields(ITEMS_API);
   const updateItem = useUpdateItem();
   const accountsQuery = useAccounts();
   const unitsQuery = useItemUnits();
@@ -846,9 +850,11 @@ export function ItemsScreen() {
     try {
       if (editingId) {
         const { id: _id, code: _code, ...patch } = draftToItem(draft, editingId);
-        await updateItem.mutateAsync({ id: editingId, patch });
+        await updateItem.mutateAsync({ id: editingId, patch: locked.withoutLocked(patch) });
       } else {
-        await createItem.mutateAsync(draftToItem(draft, crypto.randomUUID()));
+        const created = draftToItem(draft, crypto.randomUUID());
+        const { id, nameAr, type, baseUnitCode } = created;
+        await createItem.mutateAsync({ ...locked.withoutLocked(created), id, nameAr, type, baseUnitCode });
       }
       subPage.close();
     } catch (err) {
@@ -961,19 +967,23 @@ export function ItemsScreen() {
         options={glOptions}
         value={draft.revenueAccountId ? (glOptions.find((o) => o.id === draft.revenueAccountId) ?? null) : (glOptions[0] ?? null)}
         onChange={(option) => setDraft((d) => ({ ...d, revenueAccountId: !option || option.id === DEFAULT_GL_ID ? null : option.id }))}
+        disabled={locked.isLocked("revenueAccountId")}
       />
       <EntityPicker
         label={t("items.costAccount")}
         options={glOptions}
         value={draft.cogsAccountId ? (glOptions.find((o) => o.id === draft.cogsAccountId) ?? null) : (glOptions[0] ?? null)}
         onChange={(option) => setDraft((d) => ({ ...d, cogsAccountId: !option || option.id === DEFAULT_GL_ID ? null : option.id }))}
+        disabled={locked.isLocked("cogsAccountId")}
       />
       <EntityPicker
         label={t("items.inventoryAccount")}
         options={glOptions}
         value={draft.inventoryAccountId ? (glOptions.find((o) => o.id === draft.inventoryAccountId) ?? null) : (glOptions[0] ?? null)}
         onChange={(option) => setDraft((d) => ({ ...d, inventoryAccountId: !option || option.id === DEFAULT_GL_ID ? null : option.id }))}
+        disabled={locked.isLocked("inventoryAccountId")}
       />
+      {locked.isLocked("inventoryAccountId") ? <p className="text-[11.5px] text-ink-faint">{t("branchRestriction.fieldLocked")}</p> : null}
     </>
   );
 
@@ -1028,6 +1038,7 @@ export function ItemsScreen() {
                     label={t("common.status")}
                     value={draft.status}
                     onChange={(v) => setDraft((d) => ({ ...d, status: v as ItemStatusDTO }))}
+                    {...locked.props("status")}
                     options={[
                       { value: "active", label: t("common.active") },
                       { value: "inactive", label: t("common.inactive") },
@@ -1247,7 +1258,8 @@ export function ItemsScreen() {
           <MoneyInput aria-label={t("items.salePrice")} value={draft.salePrice} onChange={(v) => setDraft((d) => ({ ...d, salePrice: v }))} />
         </Field>
         <Field label={t("items.costPrice")}>
-          <MoneyInput aria-label={t("items.costPrice")} value={draft.costPrice} onChange={(v) => setDraft((d) => ({ ...d, costPrice: v }))} />
+          <MoneyInput aria-label={t("items.costPrice")} value={draft.costPrice} onChange={(v) => setDraft((d) => ({ ...d, costPrice: v }))} disabled={locked.isLocked("costPrice")} />
+          {locked.isLocked("costPrice") ? <p className="mt-[5px] text-[11.5px] text-ink-faint">{t("branchRestriction.fieldLocked")}</p> : null}
         </Field>
         <NumberField label={t("items.taxRate")} value={draft.taxRatePercent} onChange={(v) => setDraft((d) => ({ ...d, taxRatePercent: v ?? 0 }))} min={0} />
 

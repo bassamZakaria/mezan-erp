@@ -305,7 +305,8 @@ import type {
 } from "@mezan/contracts";
 import { useApi } from "./ApiContext";
 import type { TransportResponse } from "./transport";
-import { useAppTranslation } from "../i18n";
+import { BranchRefusalCode } from "@mezan/contracts";
+import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
 /**
  * The `/sales-quotes` responses (create/list/get/send/accept/reject) — the
@@ -595,6 +596,28 @@ export function withSupportCode(message: string, status: number, t?: AppTranslat
  * غير مفعّلة في باقتكم») — that must reach the screen, not the generic
  * "تعذّر تحميل…" `fallback` every other failure keeps.
  */
+const BRANCH_REFUSAL_MESSAGE_KEYS: Readonly<Record<BranchRefusalCode, AppTranslationKey>> = {
+  [BranchRefusalCode.NotFound]: "branchRefusal.NOT_FOUND",
+  [BranchRefusalCode.BranchOutOfScope]: "branchRefusal.BRANCH_OUT_OF_SCOPE",
+  [BranchRefusalCode.CompanyWideOnly]: "branchRefusal.COMPANY_WIDE_REPORT",
+  [BranchRefusalCode.PolicyUndeclared]: "branchRefusal.BRANCH_POLICY_UNDECLARED",
+  [BranchRefusalCode.BranchRequired]: "branchRefusal.BRANCH_REQUIRED",
+  [BranchRefusalCode.TreasuryBranchMismatch]: "branchRefusal.TREASURY_BRANCH_MISMATCH",
+  [BranchRefusalCode.WarehouseBranchMismatch]: "branchRefusal.WAREHOUSE_BRANCH_MISMATCH",
+  [BranchRefusalCode.WarehouseOutOfScope]: "branchRefusal.WAREHOUSE_OUT_OF_SCOPE",
+  [BranchRefusalCode.SharedFieldRestricted]: "branchRefusal.SHARED_FIELD_RESTRICTED",
+};
+
+/**
+ * The catalogue key for a branch-boundary refusal, in the reader's language.
+ * `NOT_FOUND` is left to the server's own sentence: other routes answer that
+ * code for reasons that have nothing to do with a branch.
+ */
+export function branchRefusalMessageKey(code: string | undefined): AppTranslationKey | undefined {
+  if (code === undefined || code === BranchRefusalCode.NotFound) return undefined;
+  return (BRANCH_REFUSAL_MESSAGE_KEYS as Readonly<Record<string, AppTranslationKey>>)[code];
+}
+
 /**
  * The ApiError a loader throws, carrying everything the screen and support both
  * need. Both branches of this merge had grown their own half of this, and each
@@ -623,6 +646,8 @@ export async function loaderError(
   if (res.status === 403 && body.error === "MODULE_NOT_LICENSED" && body.message) {
     return new ApiError(res.status, body.message, undefined, undefined, body.error);
   }
+  const branchRefusal = branchRefusalMessageKey(body.error);
+  if (branchRefusal && t) return new ApiError(res.status, t(branchRefusal), undefined, undefined, body.error);
   if (body.message !== undefined && body.message !== "") return new ApiError(res.status, body.message);
   return new ApiError(res.status, withSupportCode(fallback, res.status, t));
 }

@@ -3,7 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Outlet, useLocation, useNavigate } from "react-router";
 import { AppShell, SkeletonTable, filterNavGroups, navGroupItems, type NavGroup, type NavItem } from "@mezan/ui";
 import { ALL_SCOPE } from "@mezan/domain";
-import type { BranchDTO, EraseUserDTO, RoleDTO, ScopeSelectionDTO } from "@mezan/contracts";
+import { BranchRestrictedAccess, type BranchDTO, type EraseUserDTO, type RoleDTO, type ScopeSelectionDTO } from "@mezan/contracts";
 import { TenantPreferences } from "./settings/TenantPreferences";
 
 import { useScopeSelector } from "./data/hub-hooks";
@@ -21,6 +21,8 @@ import {
   PINNED_NAV_ITEM_KEYS,
 } from "./nav-config";
 import { useAppTranslation, type AppTranslationKey } from "./i18n";
+import { isBranchRestricted, navItemAccess, withoutBranchUnavailable } from "./branch-restriction";
+import { BranchReadOnlyNotice, BranchUnavailableState } from "./shell/BranchRestrictionNotices";
 import { useApi } from "./data/ApiContext";
 import type { CommandItem, ShellUser, UserMenuItem } from "@mezan/ui";
 import {
@@ -154,6 +156,8 @@ export function AppLayout() {
     (screen: ScreenKey) => routerNavigate(pathForRoute(screen)),
     [routerNavigate],
   );
+  const branchRestricted = isBranchRestricted(session);
+  const screenAccess = branchRestricted ? navItemAccess(activeScreen === "role-editor" ? "roles" : activeScreen) : BranchRestrictedAccess.Full;
   const [editingRole, setEditingRole] = useState<RoleDTO | null>(null); // null = creating new
   const [roleTemplate, setRoleTemplate] = useState<RoleDTO | null>(null); // the role a new one is duplicated from
   const [pendingIntent, setPendingIntent] = useState<ScreenIntent | null>(null);
@@ -267,16 +271,17 @@ export function AppLayout() {
      * copy of the grant on every request. A row removed here is a row that
      * would have opened a screen whose every call answers 403.
      */
-    const visible = filterNavGroups(buildNavGroups(t), {
+    const permitted = filterNavGroups(buildNavGroups(t), {
       permissions: session?.permissions ?? EMPTY,
       activeModules: entitlements?.activeModules ?? null,
     });
+    const visible = branchRestricted ? withoutBranchUnavailable(permitted) : permitted;
     return visible.map((group) => ({
       ...group,
       items: wire(group.items),
       sections: group.sections?.map((section) => ({ ...section, items: wire(section.items) })),
     }));
-  }, [entitlements, navigate, pendingApprovalCount, session?.permissions, unreadNotificationCount, t]);
+  }, [branchRestricted, entitlements, navigate, pendingApprovalCount, session?.permissions, unreadNotificationCount, t]);
 
   /**
    * The rail's own view of `groups`, with any screen whose module the plan
@@ -645,9 +650,16 @@ export function AppLayout() {
 
         Suspense still wraps it for anything a screen suspends on internally.
       */}
-      <Suspense fallback={<ScreenLoading />}>
-        <Outlet />
-      </Suspense>
+      {screenAccess === BranchRestrictedAccess.Unavailable ? (
+        <BranchUnavailableState onGoHome={() => setActiveScreen("dashboard")} />
+      ) : (
+        <>
+          {screenAccess === BranchRestrictedAccess.ReadOnly ? <BranchReadOnlyNotice /> : null}
+          <Suspense fallback={<ScreenLoading />}>
+            <Outlet />
+          </Suspense>
+        </>
+      )}
 
       {activeScreen === "users" ? (
         <UsersPage

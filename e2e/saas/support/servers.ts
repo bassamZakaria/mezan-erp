@@ -14,6 +14,7 @@ export interface ApiServerOptions {
   readonly platformDir: string;
   readonly seedDemo: boolean;
   readonly fakeToday?: string;
+  readonly bootTimeoutMs?: number;
 }
 
 export interface WebServerOptions {
@@ -29,6 +30,7 @@ enum Signal {
 export enum RunDir {
   Platform = "mezan-saas-e2e-platform-",
   Clock = "mezan-saas-e2e-clock-",
+  Demo = "mezan-saas-e2e-demo-",
 }
 
 const RUN_DIR_NAME = new RegExp(`^(?:${Object.values(RunDir).join("|")})[A-Za-z0-9]{6}$`);
@@ -52,11 +54,13 @@ export function removeAbandonedRunDirs(): void {
 
 const LOOPBACK = "127.0.0.1";
 export const BOOT_TIMEOUT_MS = 300_000;
+export const DEMO_BOOT_TIMEOUT_MS = 600_000;
 const STOP_TIMEOUT_MS = 10_000;
 const PORT_PROBE_TIMEOUT_MS = 1_000;
 const POLL_MS = 250;
 const NO_SUCH_PROCESS = "ESRCH";
 const NO_SUCH_ENTRY = "ENOENT";
+const OUTPUT_TAIL_CHARS = 4000;
 
 export const API_SERVER_COMMAND = "pnpm exec tsx apps/server/src/index.ts";
 
@@ -144,20 +148,23 @@ interface Launched {
 }
 
 function launch(command: string, args: readonly string[], cwd: string, env: Record<string, string>): Launched {
-  const chunks: string[] = [];
+  let tail = "";
+  const keep = (data: Buffer) => {
+    tail = (tail + data.toString()).slice(-OUTPUT_TAIL_CHARS);
+  };
   let failure: Error | null = null;
   // detached: the child leads its own process group, which is the only group stopChild ever signals.
   const child = spawn(command, [...args], { cwd, env: { ...process.env, ...env }, detached: true, stdio: ["ignore", "pipe", "pipe"] });
   child.on("error", (error) => {
     failure = error;
   });
-  child.stdout?.on("data", (data: Buffer) => chunks.push(data.toString()));
-  child.stderr?.on("data", (data: Buffer) => chunks.push(data.toString()));
-  return { child, output: () => chunks.join("").slice(-4000), failure: () => failure };
+  child.stdout?.on("data", keep);
+  child.stderr?.on("data", keep);
+  return { child, output: () => tail, failure: () => failure };
 }
 
-async function waitUntilUp(url: string, launched: Launched): Promise<void> {
-  const deadline = Date.now() + BOOT_TIMEOUT_MS;
+async function waitUntilUp(url: string, launched: Launched, timeoutMs: number): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const failure = launched.failure();
     if (failure) throw new Error(`server for ${url} could not be started: ${failure.message}`);
@@ -173,14 +180,14 @@ async function waitUntilUp(url: string, launched: Launched): Promise<void> {
     }
     await wait(POLL_MS);
   }
-  throw new Error(`server for ${url} did not come up in ${BOOT_TIMEOUT_MS}ms\n${launched.output()}`);
+  throw new Error(`server for ${url} did not come up in ${timeoutMs}ms\n${launched.output()}`);
 }
 
-async function start(port: number, healthUrl: string, launchServer: () => Launched): Promise<ServerHandle> {
+async function start(port: number, healthUrl: string, launchServer: () => Launched, timeoutMs = BOOT_TIMEOUT_MS): Promise<ServerHandle> {
   await assertPortFree(port);
   const launched = launchServer();
   try {
-    await waitUntilUp(healthUrl, launched);
+    await waitUntilUp(healthUrl, launched, timeoutMs);
   } catch (error) {
     await stopChild(launched.child, port);
     throw error;
@@ -190,7 +197,7 @@ async function start(port: number, healthUrl: string, launchServer: () => Launch
 
 export function startApiServer(options: ApiServerOptions): Promise<ServerHandle> {
   const [command, ...args] = API_SERVER_COMMAND.split(" ") as [string, ...string[]];
-  return start(options.port, `http://${LOOPBACK}:${options.port}/healthz`, () => launch(command, args, process.cwd(), apiServerEnv(options)));
+  return start(options.port, `http://${LOOPBACK}:${options.port}/healthz`, () => launch(command, args, process.cwd(), apiServerEnv(options)), options.bootTimeoutMs);
 }
 
 export function startWebServer(options: WebServerOptions): Promise<ServerHandle> {

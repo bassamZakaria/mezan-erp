@@ -5,6 +5,8 @@ export const SAAS_API_PORT = 3321;
 export const SAAS_WEB_PORT = 5321;
 export const CLOCK_API_PORT = 3322;
 export const CLOCK_WEB_PORT = 5322;
+export const DEMO_API_PORT = 3323;
+export const DEMO_WEB_PORT = 5323;
 
 export const PLATFORM_DIR_ENV = "MEZAN_SAAS_E2E_PLATFORM_DIR";
 
@@ -12,11 +14,15 @@ export const SAAS_API_URL = `http://127.0.0.1:${SAAS_API_PORT}`;
 export const SAAS_WEB_URL = `http://127.0.0.1:${SAAS_WEB_PORT}`;
 export const CLOCK_API_URL = `http://127.0.0.1:${CLOCK_API_PORT}`;
 export const CLOCK_WEB_URL = `http://127.0.0.1:${CLOCK_WEB_PORT}`;
+export const DEMO_API_URL = `http://127.0.0.1:${DEMO_API_PORT}`;
+export const DEMO_WEB_URL = `http://127.0.0.1:${DEMO_WEB_PORT}`;
 
 export const TENANT_DOMAIN = "localhost";
 export const PLATFORM_OWNER_EMAIL = "owner@mezan.local";
 export const PLATFORM_OWNER_PASSWORD = "owner-password-123";
 export const MAIN_SERVER_TODAY = "2027-01-31";
+export const DEMO_SERVER_TODAY = "2026-10-11";
+export const DEMO_TENANT = { code: "demo", adminEmail: "admin@cyag.example", adminPin: "123456" } as const;
 export const SIGNUP_SOURCE_HEADER = "x-forwarded-for";
 export const WALK_DIR = "e2e-results/saas-walk";
 
@@ -62,6 +68,8 @@ export enum ApiError {
   TenantNotFound = "TENANT_NOT_FOUND",
   TenantCodeTaken = "TENANT_CODE_TAKEN",
   ValidationError = "VALIDATION_ERROR",
+  TooManyRequests = "TOO_MANY_REQUESTS",
+  WarehouseLimitReached = "WAREHOUSE_LIMIT_REACHED",
   InvalidSignature = "INVALID_SIGNATURE",
   InvalidCredentials = "INVALID_CREDENTIALS",
   Unauthenticated = "UNAUTHENTICATED",
@@ -146,6 +154,7 @@ export enum CodePrefix {
   Trial = "trial",
   Lapsing = "lapse",
   Walk = "walk",
+  BesideDemo = "beside",
 }
 
 export const SUITE_TENANT_CODE = new RegExp(`^(?:${Object.values(CodePrefix).join("|")})-[a-z0-9]{8}$`);

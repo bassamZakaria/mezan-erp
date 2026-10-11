@@ -12,9 +12,15 @@ const FORGED_LINK_REFUSAL = "رابط التفعيل غير صالح";
 let verifyUrl = "";
 let tenant: TenantLogin;
 
+const SOURCES_PER_BLOCK = 250;
+const THROTTLED_SOURCE = "10.44.0.1";
+const SIGNUPS_PER_SOURCE_PER_HOUR = 8;
+const TOO_MANY_ATTEMPTS = "محاولات كثيرة جدًا، حاول لاحقًا";
+let sourcesHandedOut = 0;
+
 function freshSource(): Record<string, string> {
-  const octet = () => 1 + Math.floor(Math.random() * 254);
-  return { [SIGNUP_SOURCE_HEADER]: `10.${octet()}.${octet()}.${octet()}` };
+  const n = sourcesHandedOut++;
+  return { [SIGNUP_SOURCE_HEADER]: `10.4.${Math.floor(n / SOURCES_PER_BLOCK)}.${1 + (n % SOURCES_PER_BLOCK)}` };
 }
 
 test.describe.configure({ mode: "serial" });
@@ -37,6 +43,21 @@ test.describe("Self-serve signup — form, verification link, first sign-in", ()
     });
     expect(withSlash.status(), await withSlash.text()).toBe(201);
     expect(((await withSlash.json()) as { devVerifyUrl: string }).devVerifyUrl).toContain("/signup/verify?token=");
+  });
+
+  test("one address is refused its ninth signup attempt in an hour, in Arabic, while another address still gets through", async ({ request }) => {
+    const attempt = (source: string) => request.post(`${SAAS_API_URL}/api/signup`, { headers: { [SIGNUP_SOURCE_HEADER]: source }, data: {} });
+    for (let n = 1; n <= SIGNUPS_PER_SOURCE_PER_HOUR; n += 1) {
+      expect((await attempt(THROTTLED_SOURCE)).status(), `attempt ${n}`).toBe(400);
+    }
+
+    const ninth = await attempt(THROTTLED_SOURCE);
+
+    expect(ninth.status()).toBe(429);
+    expect(await ninth.json()).toEqual({ error: ApiError.TooManyRequests, message: TOO_MANY_ATTEMPTS });
+    expect(Number(ninth.headers()["retry-after"])).toBeGreaterThan(0);
+    expect(Number(ninth.headers()["retry-after"])).toBeLessThanOrEqual(3600);
+    expect((await attempt(freshSource()[SIGNUP_SOURCE_HEADER] ?? "")).status()).toBe(400);
   });
 
   test("a visitor signs up and is shown the verification link in dev mode", async ({ page }) => {

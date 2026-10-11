@@ -11,7 +11,7 @@ import {
   type AuthContext,
   type ScopeSelection,
 } from "@mezan/domain";
-import { BRANCH_REFUSALS, BranchRefusalCode, grantedWarehouseIdsOf, type BranchRefusalBody } from "./branch-policy.js";
+import { BRANCH_REFUSALS, BranchRecordKind, BranchRefusalCode, grantedWarehouseIdsOf, referencesNamedIn, type BranchRefusalBody } from "./branch-policy.js";
 import { moduleRefusal, readOnlyModuleOutcome } from "./module-gate.js";
 
 /** Resolves the calling {@link AuthContext} for one request. */
@@ -207,37 +207,6 @@ export function permissionDeniedBody(permission: string): PermissionDeniedBody {
   };
 }
 
-const BODY_SCAN_DEPTH = 6;
-
-/**
- * The body keys whose warehouse decides the branch a posting lands in. A
- * transfer's `fromWarehouseId`/`toWarehouseId` are deliberately absent: a
- * transfer posts nothing to the ledger, and sending stock to another branch
- * is a legitimate act for a branch-granted user (its confirm is judged by the
- * warehouse stock leaves, on the stored document).
- */
-const POSTING_WAREHOUSE_KEYS: ReadonlySet<string> = new Set(["warehouseId", "destinationWarehouseId", "sourceWarehouseId"]);
-
-interface NamedLocations {
-  readonly branchIds: string[];
-  readonly warehouseIds: string[];
-}
-
-function locationsNamedIn(value: unknown, depth = 0, found: NamedLocations = { branchIds: [], warehouseIds: [] }): NamedLocations {
-  if (depth > BODY_SCAN_DEPTH || value === null || typeof value !== "object") return found;
-  if (Array.isArray(value)) {
-    for (const item of value) locationsNamedIn(item, depth + 1, found);
-    return found;
-  }
-  for (const [key, child] of Object.entries(value)) {
-    if (typeof child !== "string") locationsNamedIn(child, depth + 1, found);
-    else if (child === "") continue;
-    else if (key === "branchId") found.branchIds.push(child);
-    else if (POSTING_WAREHOUSE_KEYS.has(key)) found.warehouseIds.push(child);
-  }
-  return found;
-}
-
 /** The 403 a write naming a branch outside the session's grant answers with, or null when every id is inside it. */
 export function branchesOutsideGrantRefusal(
   c: Context,
@@ -247,15 +216,7 @@ export function branchesOutsideGrantRefusal(
   if (!grant || grant === ALL_SCOPE) return null;
   const foreign = [...new Set(branchIds.filter((id): id is string => typeof id === "string" && id !== "" && !grant.includes(id)))];
   if (foreign.length === 0) return null;
-  return c.json(
-    {
-      error: "BRANCH_OUT_OF_SCOPE",
-      message: "لا يمكنك تنفيذ هذا الإجراء على فرع خارج صلاحيتك.",
-      messageEn: "You cannot act on a branch outside the branches granted to you.",
-      branchIds: foreign,
-    },
-    403,
-  );
+  return c.json({ ...BRANCH_REFUSALS[BranchRefusalCode.BranchOutOfScope], branchIds: foreign }, 403);
 }
 
 /**
@@ -278,11 +239,12 @@ async function refuseBodyBranchesOutsideGrant(c: Context, ctx: AuthContext): Pro
   } catch {
     return null;
   }
-  const named = locationsNamedIn(body);
-  const branchByWarehouse = named.warehouseIds.length > 0 ? await c.get("warehouseBranches")?.() : undefined;
+  const named = referencesNamedIn(body);
+  const warehouseIds = named.filter((reference) => reference.kind === BranchRecordKind.Warehouse).map((reference) => reference.id);
+  const branchByWarehouse = warehouseIds.length > 0 ? await c.get("warehouseBranches")?.() : undefined;
   return branchesOutsideGrantRefusal(c, ctx.branchGrant, [
-    ...named.branchIds,
-    ...named.warehouseIds.map((id) => branchByWarehouse?.get(id) ?? null),
+    ...named.filter((reference) => reference.kind === BranchRecordKind.Branch).map((reference) => reference.id),
+    ...warehouseIds.map((id) => branchByWarehouse?.get(id) ?? null),
   ]);
 }
 

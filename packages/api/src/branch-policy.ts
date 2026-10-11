@@ -1,5 +1,6 @@
 import type { Context, MiddlewareHandler } from "hono";
 import { matchedRoutes } from "hono/route";
+import { METHOD_NAME_ALL } from "hono/router";
 import { ALL_SCOPE, can, type AuthContext } from "@mezan/domain";
 import type { AuthContextResolver } from "./permission-gate.js";
 
@@ -126,7 +127,10 @@ function terminalRoutePathOf(c: Context): string | undefined {
   // The FIRST concrete match is the handler that answers: `/receipts/stats`
   // also matches a later `/receipts/:id`, and reading that one would resolve
   // "stats" as a document id.
-  return matchedRoutes(c).find((route) => !route.path.endsWith("*"))?.path;
+  // A wildcard path registered for ANY method is middleware. One registered
+  // for a method is a handler, and is judged like every other route — reading
+  // it as middleware left a `/files/*` handler open to every session.
+  return matchedRoutes(c).find((route) => !route.path.endsWith("*") || route.method !== METHOD_NAME_ALL)?.path;
 }
 
 function paramsOf(routePath: string, pathname: string): Record<string, string> {
@@ -141,14 +145,14 @@ function paramsOf(routePath: string, pathname: string): Record<string, string> {
   return params;
 }
 
-interface NamedReference {
+export interface NamedReference {
   readonly key: string;
   readonly kind: BranchRecordKind;
   readonly id: string;
   readonly depth: number;
 }
 
-function referencesNamedIn(value: unknown, depth = 0, found: NamedReference[] = []): NamedReference[] {
+export function referencesNamedIn(value: unknown, depth = 0, found: NamedReference[] = []): NamedReference[] {
   if (depth > BODY_SCAN_DEPTH || value === null || typeof value !== "object") return found;
   if (Array.isArray(value)) {
     for (const item of value) referencesNamedIn(item, depth + 1, found);

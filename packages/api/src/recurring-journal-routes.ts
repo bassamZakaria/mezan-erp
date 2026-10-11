@@ -410,25 +410,14 @@ export function createRecurringJournalRoutes(deps: RecurringJournalRoutesDeps, r
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     try {
       const asOfDate = parsed.data.asOfDate ? await tenantDay(c, parsed.data.asOfDate) : await tenantToday(c, deps.now);
-      // INVARIANT: a branch-granted session generates only the templates whose
-      // lines stay inside its grant. The sweep posts each template's lines
-      // verbatim, so without this cut a click on «توليد المستحق» writes into
-      // every other branch's books. The rest are reported, never dropped.
-      const grant = branchGrantOf(c);
-      const requested = parsed.data.templateIds ? new Set(parsed.data.templateIds) : null;
-      const candidates = (await deps.templates.list()).filter((template) => !requested || requested.has(template.id));
-      const withheld = candidates.filter((template) => template.status === RecurringJournalTemplateStatus.Active && !namesOnly(template, grant));
+      // The sweep posts every due template's lines verbatim, across branches:
+      // the branch policy declares this route company-wide, so a session
+      // restricted to branches never reaches it.
       const { generated, failed } = await generateDueRecurringJournals(
         { ...(await postingDeps(c)), templates: deps.templates, runs: deps.runs, skips: deps.skips, idGen },
-        { asOfDate, templateIds: grant ? candidates.filter((template) => namesOnly(template, grant)).map((template) => template.id) : parsed.data.templateIds },
+        { asOfDate, templateIds: parsed.data.templateIds },
       );
-      const refused = withheld.map((template) => ({
-        templateId: template.id,
-        templateNameAr: template.nameAr,
-        period: asOfDate.slice(0, 7),
-        message: "القالب يرحّل على فرع خارج صلاحيتك، ولم يُولَّد. يولّده مستخدم له صلاحية على ذلك الفرع.",
-      }));
-      return c.json({ asOfDate, generated, failed: [...failed, ...refused] }, 201);
+      return c.json({ asOfDate, generated, failed }, 201);
     } catch (err) {
       return handleDomainError(c, err);
     }

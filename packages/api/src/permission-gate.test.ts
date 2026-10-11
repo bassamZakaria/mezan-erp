@@ -10,6 +10,7 @@ import {
   permissionRefusalReporting,
 } from "./permission-gate.js";
 import { entitlementsBinding } from "./module-gate.js";
+import { BRANCH_REFUSALS, BranchRefusalCode } from "./branch-policy.js";
 
 function appWithContext(permissions: string[]) {
   const ctx = createAuthContext({ userId: "u1", permissions, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
@@ -163,3 +164,30 @@ describe("isProductionRuntime — the switch two fail-closed guards hang on", ()
 function fakeContext() {
   return { req: { header: () => "*" } } as unknown as Parameters<typeof insecureHeaderAuthContextResolver>[0];
 }
+
+describe("the gate's own branch refusal is the policy's, read by the policy's scanner (D111)", () => {
+  function gatedWrite() {
+    const ctx = createAuthContext({ userId: "u1", permissions: ["inventory.transfer.create"], branchScope: ["BR-ALEX"], warehouseScope: ALL_SCOPE });
+    const gate = createPermissionGate(() => ctx);
+    const app = new Hono();
+    app.use("*", async (c, next) => {
+      c.set("warehouseBranches", async () => new Map([["WH-ALEX", "BR-ALEX"], ["WH-MAIN", "BR-MAIN"]]));
+      await next();
+    });
+    app.post("/move", gate("inventory.transfer.create"), (c) => c.json({ ok: true }));
+    return (body: unknown) => app.fetch(new Request("http://x/move", { method: "POST", body: JSON.stringify(body) }));
+  }
+
+  it("answers with the one BRANCH_OUT_OF_SCOPE body the policy declares", async () => {
+    const res = await gatedWrite()({ branchId: "BR-MAIN" });
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject(BRANCH_REFUSALS[BranchRefusalCode.BranchOutOfScope]);
+  });
+
+  it("holds every warehouse key the policy knows to the grant, a transfer's destination included", async () => {
+    const post = gatedWrite();
+    expect((await post({ lines: [{ fromWarehouseId: "WH-ALEX", toWarehouseId: "WH-MAIN" }] })).status).toBe(403);
+    expect((await post({ wipWarehouseId: "WH-MAIN" })).status).toBe(403);
+    expect((await post({ lines: [{ fromWarehouseId: "WH-ALEX", toWarehouseId: "WH-ALEX" }] })).status).toBe(200);
+  });
+});

@@ -41,6 +41,11 @@ describe("D111 · every mounted route declares what a branch-restricted session 
     expect(undeclared).toEqual([]);
   });
 
+  it("no handler is mounted on a wildcard path, where the enumeration above could not see what it serves", () => {
+    const wildcardHandlers = handle.app.routes.filter((route) => route.method !== "ALL" && route.path.includes("*")).map((route) => `${route.method} ${route.path}`);
+    expect(wildcardHandlers).toEqual([]);
+  });
+
   it("an any-method registration is a family's gate, never a handler the enumeration would miss", () => {
     const orphaned = familyGatePaths.filter((gatePath) => !mountedPaths.some((path) => path.startsWith(`${gatePath}/`)));
     expect(orphaned).toEqual([]);

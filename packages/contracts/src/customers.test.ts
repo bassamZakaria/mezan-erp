@@ -32,12 +32,20 @@ describe("customerSchema", () => {
     priceListId: null,
     creditLimit: "50000.000000",
     taxExempt: false,
+    taxExemptionRateId: null,
     etaBuyerType: "business" as const,
     commercialRegistrationNumber: null,
     address: null,
     logoAttachmentId: null,
     nationalId: null,
   };
+
+  it("carries the exemption tax rate through all three schemas — a field the contract omits is stripped behind a 201 (D79)", () => {
+    expect(customerSchema.parse({ ...customer, taxExempt: true, taxExemptionRateId: "VAT-EXEMPT" }).taxExemptionRateId).toBe("VAT-EXEMPT");
+    expect(createCustomerSchema.parse({ id: "c", nameAr: "ع", taxExempt: true, taxExemptionRateId: "VAT-EXEMPT" }).taxExemptionRateId).toBe("VAT-EXEMPT");
+    expect(updateCustomerSchema.parse({ taxExemptionRateId: null }).taxExemptionRateId).toBeNull();
+    expect(createCustomerSchema.safeParse({ id: "c", nameAr: "ع", taxExemptionRateId: "" }).success).toBe(false);
+  });
 
   it("accepts a minimal valid customer and preserves every field verbatim", () => {
     const result = customerSchema.safeParse(customer);

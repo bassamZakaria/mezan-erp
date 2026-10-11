@@ -117,6 +117,14 @@ export interface DocumentRepository<Line> {
     ids: readonly string[],
     filter?: DocumentListFilter,
   ): Promise<readonly FrameworkDocument<Line>[]>;
+  /**
+   * INVARIANT: the ONE write a posted document's lines take. It sets
+   * `taxRateId` on the lines of `docId` that cite `sourceInvoiceId`, store NO
+   * rate and carry `taxRatePercent`, and returns how many it named. Nothing
+   * else on the document is written. Optional: only a document whose lines
+   * are sourced from an invoice (a return) has anything to name.
+   */
+  nameSourcedLineTaxRate?(docId: string, sourceInvoiceId: string, taxRatePercent: number, taxRateId: string): Promise<number>;
   /** Run `fn` in one atomic transaction. In-memory implementations may just call `fn`. */
   transaction<T>(fn: () => Promise<T>): Promise<T>;
 }

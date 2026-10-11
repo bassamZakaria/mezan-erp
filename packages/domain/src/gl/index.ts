@@ -37,6 +37,7 @@ export {
   assertPartyLines,
 } from "./post.js";
 export { createJournalTaxTagPort, JournalTaxTagUnsupportedError } from "./tax-tag.js";
+export { createReturnTaxCarry } from "./tax-carry.js";
 export {
   reverseJournalEntry,
   type ReverseJournalEntryOptions,

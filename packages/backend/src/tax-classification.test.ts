@@ -847,3 +847,72 @@ describe("posting into a month whose VAT return is filed (D79 round 5)", () => {
     expect((await call("GET", "/sales-invoices/T-FILED-MAY")).body.status).toBe("draft");
   });
 });
+
+describe("a classification reaches the returns already confirmed against the line (D79 round 5)", () => {
+  type VatRow = { side: string; taxRateId: string | null; ratePercent?: number; base: string; tax: string };
+  const vatRows = async (from: string, to: string) => rowsOf((await call("GET", `/financial-reports/vat-return?periodFrom=${from}&periodTo=${to}`)).body) as VatRow[];
+  const baseOf = (rows: VatRow[], side: string, taxRateId: string | null) =>
+    rows.filter((r) => r.side === side && r.taxRateId === taxRateId).reduce((sum, r) => sum + Number(r.base), 0);
+  const taxTagsOf = async (entryId: string) =>
+    (((await call("GET", `/gl/journal-entries/${encodeURIComponent(entryId)}`)).body.lines ?? []) as { taxRatePercent: number | null; taxRateId: string | null }[])
+      .filter((l) => l.taxRatePercent !== null)
+      .map((l) => l.taxRateId);
+  const stockLine = { lineId: "L1", itemId: "ITEM-DEMO-2", itemNameAr: "صنف", isStock: true, qty: "2", unitPrice: "100", taxRateId: null, taxRatePercent: 14, revenueAccountId: REVENUE, cogsAccountId: "5100", inventoryAccountId: "1200" };
+  const salesReturn = async (id: string, sourceInvoiceId: string, date: string) => {
+    const draft = await call("POST", "/sales-returns/from-invoice", { id, date, memo: "t", warehouseId: WAREHOUSE, sourceInvoiceId, reason: "DEFECTIVE", requested: [{ itemId: "ITEM-DEMO-2", sourceLineId: "L1", qty: "1" }] });
+    expect(draft.status).toBe(201);
+    expect((await call("POST", `/sales-returns/${id}/confirm`, {})).status).toBe(200);
+  };
+
+  it("names the return's line and journal with the invoice's, and moves both off the VAT return's unnamed row", async () => {
+    await sale("T-CARRY", NOT_EXEMPT_CUSTOMER, [stockLine]);
+    expect((await call("POST", "/sales-invoices/T-CARRY/confirm", {})).status).toBe(200);
+    await salesReturn("T-CARRY-R", "T-CARRY", TODAY);
+    const before = await vatRows(TODAY, TODAY);
+
+    const done = await call("POST", "/sales-invoices/T-CARRY/lines/L1/classify-tax", { taxRateId: VAT_RATE });
+    expect(done.status).toBe(200);
+
+    const returned = (await call("GET", "/sales-returns/T-CARRY-R")).body;
+    expect(returned.lines.map((l: { taxRateId: string | null }) => l.taxRateId)).toEqual([VAT_RATE]);
+    expect(await taxTagsOf(returned.journalEntryId ?? "T-CARRY-R")).toEqual([VAT_RATE, VAT_RATE]);
+    const after = await vatRows(TODAY, TODAY);
+    expect(baseOf(after, "output", null) - baseOf(before, "output", null)).toBe(-100);
+    expect(baseOf(after, "output", VAT_RATE) - baseOf(before, "output", VAT_RATE)).toBe(100);
+    const event = rowsOf((await call("GET", "/audit?stream=sensitive&entityType=SALES_INVOICE&entityId=T-CARRY&action=CLASSIFY_LINE_TAX")).body)[0];
+    expect(event.details.carriedToDocuments).toEqual([returned.docNo]);
+  });
+
+  it("does the same for a purchase return against a purchase line", async () => {
+    await call("POST", "/purchases/invoices", { id: "T-PI-CARRY", supplierId: "SUPP-DEMO-1", date: TODAY, dueDate: "2026-09-23", branchId: BRANCH, warehouseId: WAREHOUSE, lines: [{ itemId: "ITEM-DEMO-2", kind: "inventory", qty: "4", unitCost: "72", taxRateId: null, taxRatePercent: 14 }] });
+    expect((await call("POST", "/purchases/invoices/T-PI-CARRY/confirm", {})).status).toBe(200);
+    expect((await call("POST", "/purchase-returns", { id: "T-PI-CARRY-R", date: TODAY, memo: "t", lines: [{ itemId: "ITEM-DEMO-2", warehouseId: WAREHOUSE, supplierId: "SUPP-DEMO-1", sourceInvoiceId: "T-PI-CARRY", sourceInvoiceNumber: null, sourceLineId: "0", reason: "DEFECTIVE", qty: "1" }] })).status).toBe(201);
+    expect((await call("POST", "/purchase-returns/T-PI-CARRY-R/confirm", {})).status).toBe(200);
+    const before = await vatRows(TODAY, TODAY);
+
+    expect((await call("POST", "/purchases/invoices/T-PI-CARRY/lines/0/classify-tax", { taxRateId: VAT_RATE })).status).toBe(200);
+
+    const returned = (await call("GET", "/purchase-returns/T-PI-CARRY-R")).body;
+    expect(returned.lines.map((l: { taxRateId: string | null }) => l.taxRateId)).toEqual([VAT_RATE]);
+    const after = await vatRows(TODAY, TODAY);
+    expect(baseOf(after, "input", null) - baseOf(before, "input", null)).toBe(-216);
+    expect(baseOf(after, "input", VAT_RATE) - baseOf(before, "input", VAT_RATE)).toBe(216);
+  });
+
+  it("refuses the classification, naming the return, when a return of the line sits in a month whose VAT return is filed", async () => {
+    await sale("T-CARRY-FILED", NOT_EXEMPT_CUSTOMER, [stockLine]);
+    expect((await call("POST", "/sales-invoices/T-CARRY-FILED/confirm", {})).status).toBe(200);
+    await salesReturn("T-CARRY-FILED-R", "T-CARRY-FILED", "2026-10-05");
+    expect((await call("POST", "/gl/vat-filings", { id: "T-VATF-2026-10", periodFrom: "2026-10-01", periodTo: "2026-10-31", netAmount: "0.00" })).status).toBe(201);
+    const october = await vatRows("2026-10-01", "2026-10-31");
+
+    const refused = await call("POST", "/sales-invoices/T-CARRY-FILED/lines/L1/classify-tax", { taxRateId: VAT_RATE });
+    expect([refused.status, refused.body.error]).toEqual([422, "TAX_CLASSIFICATION_RETURN_FILED"]);
+    const returned = (await call("GET", "/sales-returns/T-CARRY-FILED-R")).body;
+    expect(refused.body.message).toContain(returned.docNo);
+    expect(refused.body.message).toMatch(/[؀-ۿ]/);
+    expect((await call("GET", "/sales-invoices/T-CARRY-FILED")).body.lines[0].taxRateId).toBeNull();
+    expect(await taxTagsOf("T-CARRY-FILED")).toEqual([null, null]);
+    expect(await vatRows("2026-10-01", "2026-10-31")).toEqual(october);
+  });
+});

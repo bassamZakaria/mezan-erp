@@ -60,6 +60,52 @@ export interface JournalTaxTagPort {
   retagUnnamedTaxRate(entryId: string, taxRatePercent: number, taxRateId: string, untagged?: UntaggedJournalLineSelector): Promise<number>;
 }
 
+export interface TaxClassificationCarryRequest {
+  readonly sourceDocumentId: string;
+  readonly taxRatePercent: number;
+  readonly taxRateId: string;
+}
+
+export interface TaxClassificationCarryResult {
+  readonly documentNumbers: readonly string[];
+  readonly journalLinesNamed: number;
+}
+
+// INVARIANT: a return's line is its invoice line, given back. Naming the
+// invoice line's rate names it on every return already raised against it —
+// their lines and their journal entries — inside the same transaction, or the
+// classification does not happen at all.
+export interface TaxClassificationDependentsPort {
+  carry(request: TaxClassificationCarryRequest): Promise<TaxClassificationCarryResult>;
+}
+
+export class TaxClassificationReturnFiledError extends Error {
+  readonly code = "TAX_CLASSIFICATION_RETURN_FILED";
+  readonly messageEn: string;
+  constructor(
+    readonly returnNumber: string,
+    readonly date: string,
+  ) {
+    super(
+      `لا يمكن تصنيف ضريبة هذا البند: المرتجع ${returnNumber} الصادر عليه مؤرَّخ ${date} في فترة قُدِّم إقرار ضريبة القيمة المضافة عنها، وتصنيف البند يغيّر ما ورد في ذلك الإقرار. عدّل الإقرار أولاً.`,
+    );
+    this.messageEn = `This line's tax cannot be classified: return ${returnNumber} against it is dated ${date}, in a period whose VAT return is filed, and classifying the line would restate that return. Amend the filing first.`;
+    this.name = "TaxClassificationReturnFiledError";
+  }
+}
+
+export class TaxClassificationReturnMixedError extends Error {
+  readonly code = "TAX_CLASSIFICATION_RETURN_MIXED";
+  readonly messageEn: string;
+  constructor(readonly returnNumber: string) {
+    super(
+      `المرتجع ${returnNumber} يجمع بنوداً غير مصنّفة الضريبة من أكثر من فاتورة بالنسبة نفسها في قيد واحد. صنّف بنود الفواتير الأخرى أولاً، أو اعكس المرتجع وأصدره لكل فاتورة على حدة.`,
+    );
+    this.messageEn = `Return ${returnNumber} holds unclassified lines of more than one invoice at the same percent on one journal line. Classify the other invoices' lines first, or reverse the return and raise one per invoice.`;
+    this.name = "TaxClassificationReturnMixedError";
+  }
+}
+
 export class TaxClassificationNotASupplyError extends Error {
   readonly code = "TAX_CLASSIFICATION_NOT_A_SUPPLY";
   readonly messageEn: string;

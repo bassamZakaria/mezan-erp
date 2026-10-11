@@ -663,6 +663,8 @@ export interface CreateAppOptions {
      */
     readonly layers?: CostLayerRepository;
     readonly resolveTaxRate?: (itemId: string) => number | Promise<number>;
+    /** Carries a purchase line's tax classification to the purchase returns already raised against it. */
+    readonly taxDependents?: PurchasesRoutesDeps["taxDependents"];
     readonly taxRates?: PurchasesRoutesDeps["taxRates"];
     readonly autoBatchNo?: (input: { itemId: string; receiptNumber: string; lineIndex: number }) => Promise<string | null>;
     readonly currencyCheck?: CurrencyCheck;
@@ -1503,6 +1505,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
           pay: purchases.pay,
           settlementPreview: purchases.settlementPreview,
           resolveTaxRate: purchases.resolveTaxRate,
+          taxDependents: purchases.taxDependents,
           taxRates: purchases.taxRates ?? options.taxRateRepo,
           currencyCheck:
             purchases.currencyCheck ?? (options.settingsStore ? createCurrencyCheck(options.settingsStore) : undefined),

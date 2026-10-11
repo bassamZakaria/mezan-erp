@@ -10,6 +10,7 @@ import {
   TaxClassificationNotPostedError,
   TaxClassificationStaleError,
   type ClassifyPostedLineTaxRequest,
+  type TaxClassificationDependentsPort,
   type UntaggedJournalLineSelector,
   type TaxClassificationPlan,
   type TaxRateRepository,
@@ -35,6 +36,8 @@ export interface ClassifyPurchaseInvoiceLineTaxDeps extends PurchaseAuditDeps {
   readonly invoices: PurchaseInvoiceRepository;
   readonly taxRates?: Pick<TaxRateRepository, "list">;
   readonly taxTags?: PurchaseInvoiceTaxTagPort;
+  /** Carries a classification to the returns already raised against the line, in its transaction. */
+  readonly taxDependents?: TaxClassificationDependentsPort;
 }
 
 export interface ClassifyPurchaseInvoiceLineTaxResult {
@@ -88,6 +91,11 @@ export async function classifyPurchaseInvoiceLineTax(
       );
       if (journalLinesNamed === 0) throw new TaxClassificationJournalUntaggedError(existing.number);
     }
+    const carried = (await deps.taxDependents?.carry({
+      sourceDocumentId: existing.id,
+      taxRatePercent: plan.before.taxRatePercent,
+      taxRateId: request.taxRateId,
+    })) ?? { documentNumbers: [], journalLinesNamed: 0 };
     const linesNamed = await deps.invoices.nameLineTaxRate(existing.id, plan.lineRefs.map(Number), plan.before.taxRatePercent, request.taxRateId);
     if (linesNamed !== plan.lineRefs.length) throw new TaxClassificationStaleError(existing.number);
     const invoice = (await deps.invoices.findById(id)) as PurchaseInvoice;
@@ -108,6 +116,7 @@ export async function classifyPurchaseInvoiceLineTax(
           after: plan.after,
           taxRateName: plan.taxRateName,
           journalLinesNamed,
+          carriedToDocuments: carried.documentNumbers,
         },
       });
     }

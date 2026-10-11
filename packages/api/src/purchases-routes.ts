@@ -72,6 +72,7 @@ import {
   type TaxRateRepository,
   can,
   InvoiceDocumentKind,
+  type TaxClassificationDependentsPort,
 } from "@mezan/domain";
 import {
   createPurchaseOrderSchema,
@@ -149,6 +150,7 @@ export interface PurchasesRoutesDeps {
   readonly transactor?: PurchaseTransactor;
   /** Names the rate on a classified line's posted journal lines; without it `classify-tax` answers 501. */
   readonly taxTags?: PurchaseInvoiceTaxTagPort;
+  readonly taxDependents?: TaxClassificationDependentsPort;
   readonly accounts: PurchaseGlAccounts;
   readonly allocatable?: AllocatableInvoiceRepository;
   /**
@@ -1350,7 +1352,7 @@ export function createPurchasesRoutes(
       const result = await classifyPurchaseInvoiceLineTax(
         existing.id,
         { lineRef: c.req.param("lineId"), withLineRefs: parsed.data.withLineIds, taxRateId: parsed.data.taxRateId },
-        { invoices: deps.invoices, taxRates: deps.taxRates, taxTags: deps.taxTags, transactor: deps.transactor, audit: audit(c), actor: actor(c) },
+        { invoices: deps.invoices, taxRates: deps.taxRates, taxTags: deps.taxTags, taxDependents: deps.taxDependents, transactor: deps.transactor, audit: audit(c), actor: actor(c) },
       );
       await stampDocumentModifier(deps.invoiceVersions, result.invoice.id, actor(c));
       return c.json(

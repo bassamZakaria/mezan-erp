@@ -31,6 +31,7 @@ import {
   TaxClassificationStaleError,
   JournalLineSide,
   type UntaggedJournalLineSelector,
+  type TaxClassificationDependentsPort,
   type ClassifyPostedLineTaxRequest,
   type JournalTaxTagPort,
   type TaxClassificationPlan,
@@ -166,6 +167,8 @@ export interface SalesInvoiceServiceDeps {
    * refuse it — a filed document's classification cannot be contradicted.
    */
   readonly taxFiling?: SalesInvoiceTaxFilingPort;
+  /** Carries a classification to the returns already raised against the line, in its transaction. */
+  readonly taxDependents?: TaxClassificationDependentsPort;
   /**
    * Exchange rates, so a foreign-currency invoice posts its base-currency
    * value at the rate that applied on its own date and keeps that rate on the
@@ -839,6 +842,11 @@ export class SalesInvoiceService {
         );
         if (journalLinesNamed === 0) throw new TaxClassificationJournalUntaggedError(documentNumber);
       }
+      const carried = (await this.deps.taxDependents?.carry({
+        sourceDocumentId: existing.id,
+        taxRatePercent: plan.before.taxRatePercent,
+        taxRateId: request.taxRateId,
+      })) ?? { documentNumbers: [], journalLinesNamed: 0 };
       const linesNamed = await this.deps.repo.nameLineTaxRate(existing.id, plan.lineRefs, plan.before.taxRatePercent, request.taxRateId);
       if (linesNamed !== plan.lineRefs.length) throw new TaxClassificationStaleError(documentNumber);
       const invoice = await this.require(id);
@@ -861,6 +869,7 @@ export class SalesInvoiceService {
             taxRateName: plan.taxRateName,
             journalEntryId: existing.journalEntryId,
             journalLinesNamed,
+            carriedToDocuments: carried.documentNumbers,
             filing,
           },
         });

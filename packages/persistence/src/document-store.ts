@@ -180,6 +180,24 @@ export function createSqliteDocumentStore<Line>(
       }
       return out;
     },
+    async nameSourcedLineTaxRate(docId: string, sourceInvoiceId: string, taxRatePercent: number, taxRateId: string) {
+      const row = selectById.get(docId, docType) as DocumentRow | undefined;
+      if (!row) return 0;
+      // EXTERNAL CONTRACT: the wire names both return stores serialise.
+      const lines = JSON.parse(row.lines_json) as { sourceInvoiceId?: string; taxRatePercent?: number | null; taxRateId?: string | null }[];
+      let named = 0;
+      for (const line of lines) {
+        if (line.sourceInvoiceId !== sourceInvoiceId || (line.taxRateId ?? null) !== null || (line.taxRatePercent ?? 0) !== taxRatePercent) continue;
+        line.taxRateId = taxRateId;
+        named += 1;
+      }
+      if (named === 0) return 0;
+      // The stored lines are compared as read: a row another writer moved is left alone.
+      const written = sqlite
+        .prepare(`UPDATE framework_document SET lines_json = ? WHERE id = ? AND doc_type = ? AND lines_json = ?`)
+        .run(JSON.stringify(lines), docId, docType, row.lines_json).changes;
+      return written === 0 ? 0 : named;
+    },
     async transaction(fn) {
       return withSqliteTransaction(sqlite, fn);
     },

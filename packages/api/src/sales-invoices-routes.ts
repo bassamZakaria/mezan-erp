@@ -131,6 +131,7 @@ export interface SalesInvoiceRoutesDeps {
   /** Names the rate on a classified line's posted journal lines; without it `classify-tax` answers 501. */
   readonly taxTags?: SalesInvoiceServiceDeps["taxTags"];
   readonly taxFiling?: SalesInvoiceServiceDeps["taxFiling"];
+  readonly taxDependents?: SalesInvoiceServiceDeps["taxDependents"];
   /** Runs after a classification commits — issues the e-receipt a consumer sale was refused for its unnamed line. */
   readonly afterTaxClassified?: (invoiceId: string) => Promise<void>;
   /**
@@ -550,6 +551,7 @@ export function createSalesInvoicesRoutes(
       taxRates: deps.taxRates,
       taxTags: deps.taxTags,
       taxFiling: deps.taxFiling,
+      taxDependents: deps.taxDependents,
       exchangeRates: deps.exchangeRates,
       baseCurrency: deps.baseCurrency,
       contractBilling: deps.contractBilling,

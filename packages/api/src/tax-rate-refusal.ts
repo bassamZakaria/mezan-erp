@@ -8,6 +8,8 @@ import {
   TaxClassificationJournalUntaggedError,
   TaxClassificationNotASupplyError,
   TaxClassificationNotPostedError,
+  TaxClassificationReturnFiledError,
+  TaxClassificationReturnMixedError,
   TaxClassificationStaleError,
   TaxClassificationSharedPostingError,
   TaxRateAlreadyClassifiedError,
@@ -56,6 +58,12 @@ export function taxClassificationRefusal(c: Context, err: unknown): Response | n
   }
   if (err instanceof VatPeriodAlreadyFiledError || err instanceof JournalTaxTagUnsupportedError) {
     return c.json({ error: err.code, message: err.message }, 422);
+  }
+  if (err instanceof TaxClassificationReturnFiledError) {
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, returnNumber: err.returnNumber }, 422);
+  }
+  if (err instanceof TaxClassificationReturnMixedError) {
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, returnNumber: err.returnNumber }, 409);
   }
   return taxRateRefusal(c, err);
 }

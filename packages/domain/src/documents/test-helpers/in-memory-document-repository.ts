@@ -29,6 +29,20 @@ export class InMemoryDocumentRepository<Line> implements DocumentRepository<Line
       .sort((a, b) => (a.date === b.date ? a.createdAt.localeCompare(b.createdAt) : a.date.localeCompare(b.date)));
   }
 
+  async nameSourcedLineTaxRate(docId: string, sourceInvoiceId: string, taxRatePercent: number, taxRateId: string): Promise<number> {
+    const doc = this.rows.get(docId);
+    if (!doc) return 0;
+    let named = 0;
+    const lines = doc.lines.map((line) => {
+      const sourced = line as { sourceInvoiceId?: string; taxRatePercent?: number | null; taxRateId?: string | null };
+      if (sourced.sourceInvoiceId !== sourceInvoiceId || (sourced.taxRateId ?? null) !== null || (sourced.taxRatePercent ?? 0) !== taxRatePercent) return line;
+      named += 1;
+      return { ...line, taxRateId };
+    });
+    this.rows.set(docId, { ...doc, lines });
+    return named;
+  }
+
   async transaction<T>(fn: () => Promise<T>): Promise<T> {
     return fn();
   }

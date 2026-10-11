@@ -51,6 +51,7 @@ import {
   type SubcontractRetentionInvoicingPort,
   CERTIFICATE_WORKS_ITEM_ID,
   RETENTION_RELEASE_ITEM_ID,
+  createReturnTaxCarry,
   salesTaxPolicySource,
   InvoiceDocumentKind,
   GuaranteeService,
@@ -3286,6 +3287,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       // «من إيصال استلام» omits lines, so the route builds them from the receipt
       // — and without this port every one of those lines was taxed at 0% (D50).
       resolveTaxRate: async (itemId) => (await items.findById(itemId))?.taxRatePercent ?? 0,
+      taxDependents: createReturnTaxCarry({ returns: purchaseReturnStore, tags: createJournalTaxTagPort({ ledger, vatFilings }) }),
       /**
        * سداد للمورد from the invoice itself (R4.4) — the purchase-side mirror of
        * the sales `collect` adapter below. It creates, confirms and allocates a
@@ -3390,6 +3392,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       },
       hasEtaReceipt: (invoiceId) => etaReceipts.hasInvoiceReceipt(invoiceId),
       taxTags: createJournalTaxTagPort({ ledger, vatFilings }),
+      taxDependents: createReturnTaxCarry({ returns: salesReturnStore, tags: createJournalTaxTagPort({ ledger, vatFilings }) }),
       taxFiling: createSalesInvoiceTaxFiling({ eta: etaService, taxRates, rebuild: rebuildEtaInvoiceSubmission }),
       // A consumer sale whose e-receipt was refused for its unnamed 0% line
       // gets it now. Best-effort, as at confirm: the classification stands.

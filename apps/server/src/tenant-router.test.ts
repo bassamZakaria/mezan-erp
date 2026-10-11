@@ -364,7 +364,7 @@ describe("createTenantRouter", () => {
         dataDir,
         sweepEveryMs: 0,
         now: () => new Date(T),
-        openBackend: async () => ({ app: stub, sessions: createSessionRegistry(), backupTo: vi.fn(), drain: vi.fn(), close: vi.fn() }),
+        openBackend: async () => ({ app: stub, sessions: createSessionRegistry(), credentialsResetByAdministrator: vi.fn(), backupTo: vi.fn(), drain: vi.fn(), close: vi.fn() }),
       });
       routers.push(router);
       reachable(router.app);

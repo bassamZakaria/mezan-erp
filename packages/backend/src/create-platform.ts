@@ -19,9 +19,7 @@ export interface PlatformHandle {
   readonly audit: AuditSink;
   readonly hasher: SecretHasher;
   readonly ownerSeeded: boolean;
-  /** Runs database work no request is waiting on with the platform connection's turn held, as a tenant's background work does. */
   inTheTurn<T>(label: string, work: () => Promise<T>): Promise<T>;
-  /** Awaits the outside world (a hash, the payment provider, mail, a tenant's own database) with the turn handed back. */
   outsideTheTurn<T>(work: () => Promise<T>): Promise<T>;
   seedPlansIfEmpty(): Promise<void>;
   /** Copies the live platform database to `destination` via better-sqlite3's online backup API. */

@@ -26,6 +26,16 @@ services:
         value: /tmp/platform
       - key: MEZAN_SEED_DEMO
         value: "1"
+      # SECURITY: the hop count decides whose address a sign-in is counted
+      # against. `1` reads the entry the LAST proxy appended, which a caller
+      # can never write; a higher count than the proxies that really append
+      # reads an entry the caller wrote. Raise it only after the check in
+      # docs/DEPLOY-DEMO.md ("Whose address the demo counts") shows a proxy's
+      # address instead of yours.
+      - key: MEZAN_TRUST_PROXY
+        value: "1"
+      - key: MEZAN_TRUSTED_PROXY_HOPS
+        value: "1"
       # The free plan caps the instance at 512 MB and the seeded process sits
       # around 375 MB; without a heap ceiling V8 grows into the OOM killer.
       - key: NODE_OPTIONS

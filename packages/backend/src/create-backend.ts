@@ -515,6 +515,13 @@ export interface BackendHandle {
    */
   readonly sessions: SessionRegistry;
   /**
+   * SECURITY: every path on which an administrator sets, resets or reopens an
+   * account's credentials calls this ONE function, the platform console's
+   * included. It clears the persisted account lock and the sign-in backoff
+   * together; a reset that skips it hands out a PIN the account still refuses.
+   */
+  credentialsResetByAdministrator(account: string): void;
+  /**
    * Copies the live database to `destination` via better-sqlite3's online
    * backup API — safe to call while the app keeps serving writes, since the
    * backup reads through SQLite's own consistent snapshot rather than
@@ -2795,13 +2802,11 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   // REQUIRED: every unlock in the product — the Users screen, a PIN reset, an
   // email change — goes through this one object, and it must clear the
   // account lock as well as the backoff or the button unlocks nothing.
-  const loginThrottle: LoginThrottle = {
-    ...signInLadder,
-    unlock(account) {
-      accountLocks.clear(account);
-      signInLadder.unlock(account);
-    },
+  const credentialsResetByAdministrator = (account: string): void => {
+    accountLocks.clear(account);
+    signInLadder.unlock(account);
   };
+  const loginThrottle: LoginThrottle = { ...signInLadder, unlock: credentialsResetByAdministrator };
   const sendMail = options.sendMail ?? sendNotificationEmail;
   const securitySmtp = async (): Promise<SmtpConfig | null> => {
     const tenant = (await settings.get()) ?? createDefaultSettings();
@@ -4357,6 +4362,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   return {
     app,
     sessions,
+    credentialsResetByAdministrator,
     etaReceipts,
     backupTo: (destination) => sqlite.backup(destination).then(() => undefined),
     async drain() {

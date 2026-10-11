@@ -49,6 +49,26 @@ contract lives with the code that reads it (`apps/server/src/env.ts`).
 | `MEZAN_SUPPORT_EMAIL` | the owner's support mailbox | required with a reviewer tenant; printed on both legal pages |
 | `MEZAN_SMTP_HOST` … `MEZAN_SMTP_FROM_EMAIL` | optional | only with these does the deletion page show a form; without them it shows the support address |
 
+### The viewer-address check needs a header CloudFront does not send by default
+
+The `CLIENT ADDRESS MISMATCH` line compares the counted hop with
+`CloudFront-Viewer-Address`. CloudFront adds that header only when the cache
+behaviour's origin request policy names it
+(<https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/adding-cloudfront-headers.html>).
+`cyag-devops/modules/static-site/cdn.tf` uses the managed
+`Managed-AllViewerExceptHostHeader` policy, which forwards the viewer's own
+headers and no CloudFront header, so on this stack the header never arrives:
+the check stays silent however wrong the hop count is, and
+`MEZAN_TRUST_VIEWER_ADDRESS=1` would fall back to the hop count on every
+request. Until the origin request policy for `/api/*` and `/legal/*` forwards
+`CloudFront-Viewer-Address`, a wrong `MEZAN_TRUSTED_PROXY_HOPS` is found only by
+reading an audit event's address by hand.
+
+One policy cannot both drop the viewer's `Host` and add a CloudFront header
+(<https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/origin-request-understand-origin-request-policy.html>),
+so the change replaces the managed policy with one that lists the headers the
+API reads. It belongs to `cyag-devops`; the owner applies it there.
+
 Must **not** be set: `MEZAN_SEED_DEMO` (the server refuses it next to a
 reviewer tenant — its basic auth would block the app), `MEZAN_SEED_ADMIN_PIN`,
 `MEZAN_PAYMOB_TEST_MODE`.

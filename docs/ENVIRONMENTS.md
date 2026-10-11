@@ -45,7 +45,7 @@ wrong machine:
 | Deployment | Chain | `MEZAN_TRUSTED_PROXY_HOPS` |
 | --- | --- | --- |
 | dev, testing, staging on localhost | none | unset (`MEZAN_TRUST_PROXY=0`) |
-| Render demo | Render's proxy | `1` |
+| Render demo | Cloudflare, then Render's load balancer | `1` in `render.yaml`; `2` if the check in [DEPLOY-DEMO.md](DEPLOY-DEMO.md) shows a Cloudflare address |
 | AWS (CloudFront → API Gateway → VPC link → task) | CloudFront appends the viewer, API Gateway appends the CloudFront edge | `2` |
 
 Too low a count keys every client behind one proxy address (one office's typos

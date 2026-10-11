@@ -25,11 +25,9 @@ export enum IdempotencyKeyField {
 }
 
 export interface IdempotentCreate {
-  /** The route as it is mounted. A `:name` segment stands for one path segment, and each parent it names keeps its own keys. */
   readonly path: string;
-  /** The body field the client mints once per document it means to create. */
   readonly key?: IdempotencyKeyField;
-  /** Where the document a create made is read back from, given its key and the path the create was sent to. */
+  /** Where the document a create made is read back from. */
   readonly read: (key: string, requestPath: string) => string;
   /** How what was read fits into the first answer, when the create answers with more than the document. */
   readonly merge?: (first: unknown, current: unknown) => unknown;

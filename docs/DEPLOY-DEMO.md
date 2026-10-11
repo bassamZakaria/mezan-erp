@@ -74,6 +74,42 @@ have no `MEZAN_DEMO_PASSWORD`. Fix both by hand:
 
    A `200` on `/` without credentials means the old build is still serving.
 
+### Whose address the demo counts
+
+`render.yaml` sets `MEZAN_TRUST_PROXY=1` and `MEZAN_TRUSTED_PROXY_HOPS=1`. The
+server refuses to start with the first and no count, and without either it
+counts every caller as the one proxy address in front of it, so one visitor's
+wrong PINs hold the sign-in for everybody.
+
+Render says public traffic reaches a web service "through Cloudflare and
+Render's load balancer", that Cloudflare "appends to `X-Forwarded-For` rather
+than replacing it", and that a caller who sends their own copy "controls the
+leftmost entry"
+(<https://render.com/articles/host-pocketbase-on-render>). Render's
+documentation does not say whether its own load balancer appends an entry as
+well, so the count ships at `1`: the rightmost entry is always written by
+Render's side and never by the caller. If the load balancer does append, that
+entry is a Cloudflare address and the count must be `2`.
+
+Check it once after a deploy, from a machine whose public address you know:
+
+```sh
+curl -s https://api.ipify.org; echo
+curl -s -u "demo:$MEZAN_DEMO_PASSWORD" -X POST https://mezan-demo.onrender.com/api/platform/auth/login \
+  -H 'content-type: application/json' -H 'x-forwarded-for: 203.0.113.99' \
+  -d '{"email":"nobody@example.com","password":"wrong-on-purpose"}'
+```
+
+Then sign in to the platform console and open the audit log: the newest
+`PLATFORM_LOGIN_FAILED` event carries `origin`.
+
+- `origin` is your own address: the count is right.
+- `origin` is some other public address (Cloudflare's): set
+  `MEZAN_TRUSTED_PROXY_HOPS` to `2` in `render.yaml` and the dashboard, redeploy,
+  and run the check again.
+- `origin` is `203.0.113.99`: the count is too high. Lower it by one at once —
+  a caller is choosing the address it is counted under.
+
 ### Free-plan behaviour
 
 - The instance sleeps after 15 minutes with no traffic; the next request takes

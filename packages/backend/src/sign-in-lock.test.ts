@@ -133,6 +133,25 @@ describe("getting back into a locked account", () => {
     expect((await signIn(h, OWNER.pin, "196.221.5.5")).status).toBe(200);
   }, 120_000);
 
+  it("opens it again, on this run and after a restart, when credentials are reset from outside the tenant's own routes", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const dir = mkdtempSync(path.join(tmpdir(), "mezan-admin-reset-"));
+    dirs.push(dir);
+    const dbPath = path.join(dir, "tenant.sqlite");
+    const h = await open({ dbPath });
+    await claim(h);
+    await twentyWrongPins(h);
+    expect((await signIn(h, OWNER.pin, "196.221.5.5")).status).toBe(423);
+
+    h.credentialsResetByAdministrator(OWNER.email);
+
+    expect((await signIn(h, OWNER.pin, "196.221.5.5")).status).toBe(200);
+    h.close();
+    handles.splice(handles.indexOf(h), 1);
+    const reopened = await open({ dbPath });
+    expect((await signIn(reopened, OWNER.pin, "196.221.5.5")).status).toBe(200);
+  }, 120_000);
+
   it("opens it again when an administrator resets its PIN", async () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     const h = await open();

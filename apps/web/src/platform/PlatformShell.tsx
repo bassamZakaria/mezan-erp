@@ -1,4 +1,5 @@
 import { Navigate, NavLink, Route, Routes } from "react-router";
+import { useQueryClient } from "@tanstack/react-query";
 import { BrandMark, cn } from "@mezan/ui";
 import { useAppTranslation } from "../i18n";
 import { usePlatformApi } from "./api";
@@ -17,6 +18,7 @@ const RAIL_ITEMS = [
 export function PlatformShell() {
   const { t } = useAppTranslation();
   const { session, setSession } = usePlatformApi();
+  const queryClient = useQueryClient();
 
   return (
     <div className="flex min-h-screen flex-col bg-bg md:flex-row">
@@ -55,7 +57,10 @@ export function PlatformShell() {
           <span className="max-w-[34vw] truncate px-[4px] text-2xs text-chrome-ink-muted md:max-w-none">{session?.user.email}</span>
           <button
             type="button"
-            onClick={() => setSession(null)}
+            onClick={() => {
+              queryClient.clear();
+              setSession(null);
+            }}
             className="flex min-h-[var(--h-btn)] items-center whitespace-nowrap rounded-md px-[10px] text-start text-[13px] text-chrome-ink-muted transition-colors hover:bg-chrome-hover hover:text-chrome-ink md:w-full"
           >
             {t("platform.nav.signOut")}

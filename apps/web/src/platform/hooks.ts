@@ -1,4 +1,5 @@
-import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
+import { useMutation, useMutationState, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
+import { ownerPinResetResultSchema } from "@mezan/contracts";
 import type {
   CardCheckoutDTO,
   PlatformCardCheckoutsDTO,
@@ -113,16 +114,65 @@ export function useRetryProvisionMutation() {
   });
 }
 
-export function useResetOwnerPinMutation() {
+export enum OwnerPinResetPhase {
+  Idle = "idle",
+  Pending = "pending",
+  Issued = "issued",
+}
+
+export interface OwnerPinReset {
+  readonly phase: OwnerPinResetPhase;
+  readonly issued: OwnerPinResetResultDTO | null;
+  reset(handlers: { onError: (err: PlatformApiError) => void }): void;
+  acknowledge(): void;
+}
+
+const ownerPinResetKey = (operatorId: string, tenantId: string) => ["platform", "ownerPinReset", operatorId, tenantId] as const;
+
+/**
+ * The reset's outcome lives in the mutation cache under the operator and the tenant, not in
+ * the page: the old PIN is already dead when the answer arrives, so the new one must survive
+ * the page unmounting, and must never show on another tenant's page or to another operator.
+ */
+export function useOwnerPinReset(tenantId: string): OwnerPinReset {
   const { t } = useAppTranslation();
-  const { request } = usePlatformApi();
-  return useMutation<OwnerPinResetResultDTO, PlatformApiError, string>({
-    mutationFn: async (tenantId) => {
+  const { request, session } = usePlatformApi();
+  const queryClient = useQueryClient();
+  const mutationKey = ownerPinResetKey(session?.user.id ?? "", tenantId);
+  const mutation = useMutation<OwnerPinResetResultDTO, PlatformApiError, void>({
+    mutationKey,
+    gcTime: Infinity,
+    mutationFn: async () => {
       const res = await request(`/tenants/${tenantId}/owner-pin/reset`, { method: "POST" });
       if (!res.ok) throw new PlatformApiError(res.status, await readPlatformErrorMessage(res, t, "platform.tenantDetail.resetOwnerPin.error.generic"));
       return res.json<OwnerPinResetResultDTO>();
     },
   });
+  const latest = useMutationState({
+    filters: { mutationKey, exact: true },
+    select: (entry) => ({ status: entry.state.status, data: entry.state.data }),
+  }).at(-1);
+  const pending = latest?.status === "pending";
+  const parsed = latest?.status === "success" ? ownerPinResetResultSchema.safeParse(latest.data) : null;
+  const issued = parsed?.success ? parsed.data : null;
+
+  const forget = () => {
+    const cache = queryClient.getMutationCache();
+    for (const entry of cache.findAll({ mutationKey, exact: true })) {
+      if (entry.state.status !== "pending") cache.remove(entry);
+    }
+  };
+
+  return {
+    phase: pending ? OwnerPinResetPhase.Pending : issued ? OwnerPinResetPhase.Issued : OwnerPinResetPhase.Idle,
+    issued,
+    reset: ({ onError }) => {
+      if (pending) return;
+      forget();
+      mutation.mutate(undefined, { onError });
+    },
+    acknowledge: forget,
+  };
 }
 
 export function useSuspendTenantMutation() {

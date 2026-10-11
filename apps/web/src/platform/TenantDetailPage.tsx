@@ -1,12 +1,11 @@
-import { useState } from "react";
-import { Link, useParams, useSearchParams } from "react-router";
+import { useEffect, useState } from "react";
+import { Link, useBlocker, useParams, useSearchParams } from "react-router";
 import { Button, Card, ConfirmDialog, Money, Select, StatusPill, useFormat } from "@mezan/ui";
 import { MODULES } from "@mezan/domain";
 import {
   SubscriptionStatusCode,
   TenantWireStatus,
   type BillingCycleDTO,
-  type OwnerPinResetResultDTO,
   type ProvisionResultDTO,
   type SubscriptionStatusDTO,
   type TenantStatusDTO,
@@ -27,7 +26,8 @@ import {
   usePlansQuery,
   useResumeSubscriptionMutation,
   useResumeTenantMutation,
-  useResetOwnerPinMutation,
+  OwnerPinResetPhase,
+  useOwnerPinReset,
   useRetryProvisionMutation,
   useSuspendSubscriptionMutation,
   useSuspendTenantMutation,
@@ -114,7 +114,15 @@ export function TenantDetailPage() {
   const suspendSubscription = useSuspendSubscriptionMutation();
   const resumeSubscription = useResumeSubscriptionMutation();
   const retryProvision = useRetryProvisionMutation();
-  const resetOwnerPin = useResetOwnerPinMutation();
+  const ownerPin = useOwnerPinReset(id);
+  const holdsUndeliveredPin = ownerPin.phase !== OwnerPinResetPhase.Idle;
+  const leaving = useBlocker(holdsUndeliveredPin);
+  useEffect(() => {
+    if (!holdsUndeliveredPin) return;
+    const warn = (event: BeforeUnloadEvent) => event.preventDefault();
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [holdsUndeliveredPin]);
   const cardCheckouts = useCardCheckoutsQuery(id);
   const createCardCheckout = useCreateCardCheckoutMutation();
   const [searchParams] = useSearchParams();
@@ -125,7 +133,7 @@ export function TenantDetailPage() {
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
   const [confirmSuspend, setConfirmSuspend] = useState(false);
   const [confirmResetOwnerPin, setConfirmResetOwnerPin] = useState(false);
-  const [ownerPinReset, setOwnerPinReset] = useState<OwnerPinResetResultDTO | null>(null);
+  const ownerPinReset = ownerPin.issued;
   const [confirmArchive, setConfirmArchive] = useState(false);
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [confirmSuspendSubscription, setConfirmSuspendSubscription] = useState(false);
@@ -228,7 +236,7 @@ export function TenantDetailPage() {
             </Button>
           ) : null}
           {canResetOwnerPin(tenant.status) ? (
-            <Button variant="default" disabled={resetOwnerPin.isPending} onClick={() => setConfirmResetOwnerPin(true)}>
+            <Button variant="default" disabled={ownerPin.phase === OwnerPinResetPhase.Pending} onClick={() => setConfirmResetOwnerPin(true)}>
               {t("platform.tenantDetail.resetOwnerPin")}
             </Button>
           ) : null}
@@ -301,7 +309,7 @@ export function TenantDetailPage() {
             </div>
             <p role="status" className="text-[11.5px] font-semibold text-warning-ink">{t("platform.newTenant.result.oneTime")}</p>
             <div>
-              <Button variant="default" onClick={() => setOwnerPinReset(null)}>
+              <Button variant="default" onClick={ownerPin.acknowledge}>
                 {t("platform.tenantDetail.resetOwnerPin.hide")}
               </Button>
             </div>
@@ -534,13 +542,21 @@ export function TenantDetailPage() {
         confirmLabel={t("platform.tenantDetail.resetOwnerPin.confirm")}
         tone="danger"
         onConfirm={() => {
-          if (resetOwnerPin.isPending) return;
           setConfirmResetOwnerPin(false);
           setMutationError(null);
-          setOwnerPinReset(null);
-          resetOwnerPin.mutate(tenant.id, { onSuccess: setOwnerPinReset, onError: onMutationError });
+          ownerPin.reset({ onError: onMutationError });
         }}
         onCancel={() => setConfirmResetOwnerPin(false)}
+      />
+      <ConfirmDialog
+        open={leaving.state === "blocked"}
+        title={t("platform.tenantDetail.leaveWithPin.title")}
+        consequence={t("platform.tenantDetail.leaveWithPin.consequence")}
+        confirmLabel={t("platform.tenantDetail.leaveWithPin.leave")}
+        cancelLabel={t("platform.tenantDetail.leaveWithPin.stay")}
+        tone="danger"
+        onConfirm={() => leaving.proceed?.()}
+        onCancel={() => leaving.reset?.()}
       />
       <ConfirmDialog
         open={confirmSuspend}

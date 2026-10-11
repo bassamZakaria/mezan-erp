@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { beforeEach, describe, expect, it } from "vitest";
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
-import { Route, Routes } from "react-router";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { Link, Route, Routes } from "react-router";
+import type { Transport, TransportResponse } from "../data/transport";
 import { LicenseStateCode, SubscriptionStatusCode, TenantWireStatus, type PlanDTO, type TenantSummaryDTO } from "@mezan/contracts";
 import { TenantDetailPage } from "./TenantDetailPage";
 import { renderWithPlatformProviders, stubPlatformTransport, testPlatformSession } from "./test-support";
@@ -275,6 +276,92 @@ describe("TenantDetailPage", () => {
     expect(resets).toBe(1);
 
     fireEvent.click(screen.getByRole("button", { name: "إخفاء الرمز" }));
+    await waitFor(() => expect(screen.queryByText("305917")).not.toBeInTheDocument());
+  });
+
+  function renderConsole(transport: Transport) {
+    return renderWithPlatformProviders(
+      <Routes>
+        <Route path="tenants/:id" element={<TenantDetailPage />} />
+        <Route
+          path="tenants"
+          element={
+            <nav aria-label="قائمة الاختبار">
+              <Link to="/platform/tenants/tenant-1">افتح أكمي</Link>
+              <Link to="/platform/tenants/tenant-2">افتح الثانية</Link>
+            </nav>
+          }
+        />
+      </Routes>,
+      { transport, initialSession: testPlatformSession, route: "/platform/tenants/tenant-1" },
+    );
+  }
+
+  async function askForReset() {
+    fireEvent.click(await screen.findByRole("button", { name: "إعادة تعيين رمز المالك" }));
+    fireEvent.click(within(await screen.findByRole("dialog", { name: "إعادة تعيين رمز المالك؟" })).getByRole("button", { name: "إعادة التعيين" }));
+  }
+
+  const LEAVE_DIALOG = "مغادرة الصفحة قبل تسليم الرمز؟";
+
+  it("still shows the new PIN when the reset answers after the operator has left the page and come back, and never on another tenant's page", async () => {
+    let answer: (response: TransportResponse) => void = () => undefined;
+    const base = stubPlatformTransport({
+      "GET /tenants/tenant-1": () => ({ body: makeSummary() }),
+      "GET /tenants/tenant-2": () => ({ body: makeSummary({ id: "tenant-2", code: "other", nameAr: "منشأة ثانية", ownerEmail: "owner@other.test" }) }),
+      "GET /plans": () => ({ body: [plan, plan2] }),
+    });
+    const transport: Transport = (path, init) =>
+      path === "/tenants/tenant-1/owner-pin/reset" ? new Promise<TransportResponse>((resolve) => (answer = resolve)) : base(path, init);
+    renderConsole(transport);
+    await askForReset();
+
+    fireEvent.click(screen.getByRole("link", { name: /المنشآت/ }));
+    const leaving = await screen.findByRole("dialog", { name: LEAVE_DIALOG });
+    expect(screen.queryByRole("navigation", { name: "قائمة الاختبار" })).not.toBeInTheDocument();
+    fireEvent.click(within(leaving).getByRole("button", { name: "غادر على أي حال" }));
+    await screen.findByRole("navigation", { name: "قائمة الاختبار" });
+
+    const body = { adminEmail: "owner@acme.test", adminPin: "305917" };
+    await act(async () => {
+      answer({ status: 200, ok: true, json: <T,>() => Promise.resolve(body as T), text: () => Promise.resolve(JSON.stringify(body)) });
+    });
+    fireEvent.click(screen.getByRole("link", { name: "افتح أكمي" }));
+
+    expect(await screen.findByText("305917")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("link", { name: /المنشآت/ }));
+    fireEvent.click(within(await screen.findByRole("dialog", { name: LEAVE_DIALOG })).getByRole("button", { name: "غادر على أي حال" }));
+    fireEvent.click(await screen.findByRole("link", { name: "افتح الثانية" }));
+    await screen.findByRole("heading", { name: "منشأة ثانية", level: 1 });
+    expect(screen.queryByText("305917")).not.toBeInTheDocument();
+    expect(screen.queryByText(/لن يظهر .* مرة أخرى/)).not.toBeInTheDocument();
+  });
+
+  it("asks before leaving while the new PIN has not been acknowledged, keeps it on staying, and lets go once it is hidden", async () => {
+    const transport = stubPlatformTransport({
+      "GET /tenants/tenant-1": () => ({ body: makeSummary() }),
+      "GET /plans": () => ({ body: [plan, plan2] }),
+      "POST /tenants/tenant-1/owner-pin/reset": () => ({ body: { adminEmail: "owner@acme.test", adminPin: "305917" } }),
+    });
+    renderConsole(transport);
+    await askForReset();
+    await screen.findByText("305917");
+
+    fireEvent.click(screen.getByRole("link", { name: /المنشآت/ }));
+    fireEvent.click(within(await screen.findByRole("dialog", { name: LEAVE_DIALOG })).getByRole("button", { name: "ابقَ في الصفحة" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: LEAVE_DIALOG })).not.toBeInTheDocument());
+    expect(screen.getByText("305917")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "إخفاء الرمز" }));
+    await waitFor(() => expect(screen.queryByText("305917")).not.toBeInTheDocument());
+    fireEvent.click(screen.getByRole("link", { name: /المنشآت/ }));
+
+    await screen.findByRole("navigation", { name: "قائمة الاختبار" });
+    expect(screen.queryByRole("dialog", { name: LEAVE_DIALOG })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("link", { name: "افتح أكمي" }));
+    await screen.findByRole("heading", { name: "شركة أكمي", level: 1 });
     expect(screen.queryByText("305917")).not.toBeInTheDocument();
   });
 

@@ -1085,10 +1085,15 @@ describe("D111 round 2 · the grant holds on every family, for a non-admin and f
         expect(mine.filter((id) => theirs.includes(id)), `${label} ${path}`).toEqual([]);
       }
     }
-    for (const path of ["/gl/recurring/templates", "/gl/recurring/runs", "/inventory/writedown-runs"]) {
+    for (const path of ["/gl/recurring/templates", "/gl/recurring/runs"]) {
       expect(rowsOf((await alex("GET", path)).body), path).toEqual([]);
       expect(rowsOf((await alexWithUnattributed("GET", path)).body).length, path).toBeGreaterThan(0);
     }
+    const companyRun = one<{ id: string }>("SELECT id FROM writedown_run WHERE warehouse_id IS NULL AND lines LIKE '%WH-MAIN%' LIMIT 1")!.id;
+    for (const caller of [alex, alexWithUnattributed, alexStar]) {
+      expect(rowsOf((await caller("GET", "/inventory/writedown-runs")).body).map((row: any) => row.id)).not.toContain(companyRun);
+    }
+    expect(rowsOf((await mainOnly("GET", "/inventory/writedown-runs")).body).map((row: any) => row.id)).toContain(companyRun);
     for (const path of ["/contracting/contracts", "/contracting/certificates", "/contracting/site/issues", "/projects", "/crm/leads", "/eta/receipts/summary"]) {
       for (const [label, caller] of restricted()) {
         const res = await caller("GET", path);

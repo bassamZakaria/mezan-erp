@@ -67,4 +67,14 @@ describe("the branch directory fails loudly instead of answering «absent»", ()
       .run(requestId);
     expect(createSqliteBranchDirectory(sqlite).branchesOf(BranchRecordKind.ApprovalRequest, requestId, BranchAccess.Write)).toEqual(["BR-MAIN"]);
   });
+
+  it("reads a write-down run that names no warehouse by the warehouses of its lines, not as nobody's", () => {
+    sqlite
+      .prepare("INSERT OR REPLACE INTO writedown_run (id, period, warehouse_id, status, lines, total_amount, created_at) VALUES ('R3-WD-ALL', '2020-01', NULL, 'draft', ?, 0, '2020-01-31')")
+      .run(JSON.stringify([{ itemId: "ITEM-DEMO-1", warehouseId: "WH-MAIN" }, { itemId: "ITEM-DEMO-1", warehouseId: "WH-ALEX" }]));
+    const directory = createSqliteBranchDirectory(sqlite);
+    expect(directory.branchesOf(BranchRecordKind.WritedownRun, "R3-WD-ALL", BranchAccess.Read)).toEqual(["BR-MAIN", "BR-ALEX"]);
+    sqlite.prepare("UPDATE writedown_run SET warehouse_id = 'WH-ALEX' WHERE id = 'R3-WD-ALL'").run();
+    expect(directory.branchesOf(BranchRecordKind.WritedownRun, "R3-WD-ALL", BranchAccess.Read)).toEqual(["BR-ALEX"]);
+  });
 });

@@ -32,7 +32,6 @@ const COLUMN_SOURCES: Partial<Record<BranchRecordKind, ColumnSource>> = {
     branch: "COALESCE(NULLIF(d.branch_id, ''), (SELECT t.branch_id FROM treasury_account t WHERE t.id = d.treasury_account_id))",
   },
   [K.PhysicalCount]: { table: "physical_count", branch: OF_WAREHOUSE, numberColumn: "count_no" },
-  [K.WritedownRun]: { table: "writedown_run", branch: OF_WAREHOUSE },
   [K.WorkOrder]: { table: "work_order", branch: "(SELECT w.branch_id FROM warehouse w WHERE w.id = d.source_warehouse_id)", numberColumn: "number" },
   [K.Asset]: { table: "asset", branch: OWN_OR_WAREHOUSE },
   [K.Van]: { table: "van", branch: OWN_OR_WAREHOUSE },
@@ -148,6 +147,7 @@ export function createSqliteBranchDirectory(sqlite: Database.Database): BranchDi
     postedStock: query(
       "SELECT DISTINCT (SELECT w.branch_id FROM warehouse w WHERE w.id = m.warehouse_id) AS b FROM stock_movement m WHERE m.source_doc_id = @id OR m.source_doc_number = @id",
     ),
+    writedownRun: query("SELECT warehouse_id, lines FROM writedown_run WHERE id = @id"),
     depreciationRun: query("SELECT branch_id, lines FROM depreciation_run WHERE id = @id"),
     configInstance: query("SELECT work_order_id FROM config_instance WHERE id = @id"),
     voucherAllocation: query("SELECT voucher_id, invoice_id FROM voucher_allocation WHERE id = @id"),
@@ -203,6 +203,12 @@ export function createSqliteBranchDirectory(sqlite: Database.Database): BranchDi
     [K.StockAdjustment]: (id) => stockDocument("stock_adjustment_document", id, ["warehouseId"]),
     [K.StockTransfer]: (id) => stockDocument("stock_transfer_document", id, ["fromWarehouseId", "toWarehouseId"]),
     [K.PostedStockDocument]: (id) => found(sql.postedStock(id)),
+    [K.WritedownRun]: (id) => {
+      const row = sql.writedownRun(id)[0];
+      if (!row) return null;
+      const own = warehouseBranch(row["warehouse_id"]);
+      return own ? [own] : parseLines(row["lines"]).map((line) => warehouseBranch(line["warehouseId"]));
+    },
     [K.DepreciationRun]: (id, access) => {
       const row = sql.depreciationRun(id)[0];
       if (!row) return null;

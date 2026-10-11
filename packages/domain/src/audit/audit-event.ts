@@ -106,6 +106,14 @@ export interface AuditSink {
   outsideTurn?<T>(fn: () => Promise<T>): Promise<T>;
 }
 
+/** An event that had to be recorded with the write it describes, and could not be: that write must not commit. */
+export class AuditRecordingError extends Error {
+  constructor(cause: unknown) {
+    super("the audit log could not record this action", { cause });
+    this.name = "AuditRecordingError";
+  }
+}
+
 export interface TurnObserver {
   /** The holder gave the event loop back with the turn still held. */
   onYield?(): void;

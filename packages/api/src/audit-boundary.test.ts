@@ -3,7 +3,7 @@ import type { AddressInfo } from "node:net";
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { afterEach, describe, expect, it } from "vitest";
-import { ALL_SCOPE, createAuthContext, type AuditEvent, type AuditSink } from "@mezan/domain";
+import { ALL_SCOPE, createAuthContext, recordTransition, type AuditEvent, type AuditSink } from "@mezan/domain";
 import {
   createSqliteAuditSink,
   createSqliteBranchStore,
@@ -342,6 +342,47 @@ describe("auditBoundary", () => {
       if (before === undefined) delete process.env["NODE_ENV"];
       else process.env["NODE_ENV"] = before;
     }
+  });
+
+  it("rolls a contracting transition back and answers 503 when its change-log row cannot be written", async () => {
+    const sink = openSink("k".repeat(64));
+    sink.db.exec("CREATE TABLE certificate (id TEXT PRIMARY KEY, status TEXT NOT NULL)");
+    sink.db.prepare("INSERT INTO certificate VALUES ('PC-1', 'certified')").run();
+    const refusing: AuditSink = {
+      append: async () => {
+        throw new Error("audit sink unavailable");
+      },
+      query: (stream, limit) => sink.query(stream, limit),
+      atomic: (fn) => sink.atomic(fn),
+      insideTransaction: () => sink.insideTransaction(),
+    };
+    const failures: unknown[] = [];
+    const app = new Hono();
+    app.use("*", auditBoundary(refusing, { onAuditFailure: (err) => failures.push(err) }));
+    app.post("/contracting/certificates/:id/approve", async (c) => {
+      sink.db.prepare("UPDATE certificate SET status = 'approved' WHERE id = ?").run(c.req.param("id"));
+      await recordTransition(refusing, { entityType: "PROGRESS_CERTIFICATE", entityId: c.req.param("id"), action: "APPROVE", actor: "u1" });
+      return c.json({ status: "approved" });
+    });
+
+    const res = await app.fetch(new Request("http://x/contracting/certificates/PC-1/approve", { method: "POST" }));
+
+    expect(res.status).toBe(503);
+    expect(await res.json()).toMatchObject({ error: "AUDIT_UNAVAILABLE", message: expect.stringContaining("سجل التدقيق") });
+    expect(sink.db.prepare("SELECT status FROM certificate WHERE id = 'PC-1'").get()).toEqual({ status: "certified" });
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toMatchObject({ message: "audit sink unavailable" });
+  });
+
+  it("still lets a contracting transition through when nothing is recording it in a transaction", async () => {
+    const outside: AuditSink = {
+      append: async () => {
+        throw new Error("audit sink unavailable");
+      },
+      query: async () => [],
+    };
+
+    await expect(recordTransition(outside, { entityType: "PROGRESS_CERTIFICATE", entityId: "PC-1", action: "APPROVE", actor: "u1" })).resolves.toBeUndefined();
   });
 
   it("reports the yield and answers 503 when a handler both yields and cannot be recorded", async () => {

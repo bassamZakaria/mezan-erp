@@ -1,5 +1,5 @@
 import type { Context, MiddlewareHandler, Next } from "hono";
-import type { AuditSink } from "@mezan/domain";
+import { AuditRecordingError, type AuditSink } from "@mezan/domain";
 import { reportTurnYield } from "./turn-yields.js";
 
 export enum MutatingMethod {
@@ -196,6 +196,8 @@ export function auditBoundary(audit: AuditSink | undefined, options: AuditBounda
         });
         try {
           await next();
+          const thrown = c.error;
+          if (thrown instanceof AuditRecordingError) markAuditFailure(c, thrown.cause);
         } finally {
           clearImmediate(probe);
           openBoundaries.delete(c.req.raw);

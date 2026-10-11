@@ -1,4 +1,5 @@
 export {
+  AuditRecordingError,
   AUDIT_SEVERITIES,
   AUDIT_STREAMS,
   createAuditEvent,

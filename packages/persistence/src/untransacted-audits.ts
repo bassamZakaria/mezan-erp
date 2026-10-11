@@ -12,3 +12,16 @@ export function reportUntransactedAudit(event: string): void {
 export function drainUntransactedAudits(): string[] {
   return reported.splice(0);
 }
+
+const foreignWrites: string[] = [];
+
+// Every statement that wrote into a transaction another chain had open, since
+// the last drain (sqlite-connection.ts `watchForForeignWrites`).
+export function reportForeignWrite(statement: string): void {
+  foreignWrites.push(statement);
+  console.error(`[db] a write landed inside another operation's open transaction and will be lost if it rolls back: ${statement}`);
+}
+
+export function drainForeignWrites(): string[] {
+  return foreignWrites.splice(0);
+}

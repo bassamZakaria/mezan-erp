@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import Database from "better-sqlite3";
 import { installSchemaSync } from "./schema-sync.js";
+import { reportForeignWrite } from "./untransacted-audits.js";
 
 /**
  * What a `createSqliteXStore(...)` factory accepts in place of a bare path:
@@ -121,6 +122,7 @@ export function openSqliteConnection(
 ): OpenedSqliteConnection {
   if (typeof input !== "string") {
     installSchemaSync(input);
+    watchForForeignWrites(input);
     return { sqlite: input, owned: false };
   }
   const sqlite = new (options.driver ?? Database)(input);
@@ -135,7 +137,33 @@ export function openSqliteConnection(
   sqlite.pragma("journal_mode = WAL");
   sqlite.pragma("busy_timeout = 5000");
   installSchemaSync(sqlite);
+  watchForForeignWrites(sqlite);
   return { sqlite, owned: true };
+}
+
+const watched = new WeakSet<Database.Database>();
+
+// A WRITE THAT LANDS INSIDE ANOTHER CHAIN'S OPEN TRANSACTION IS LOST IF THAT
+// TRANSACTION ROLLS BACK, and nothing says so: the statement succeeds. Every
+// writer is meant to be unable to get there — a request holds the turn, a
+// background task takes it, and no transaction is left open across a wait —
+// so one that does is reported by the statement it ran. The suites and the
+// seed drives assert none ever is.
+function watchForForeignWrites(sqlite: Database.Database): void {
+  if (watched.has(sqlite)) return;
+  watched.add(sqlite);
+  const prepare = sqlite.prepare.bind(sqlite);
+  sqlite.prepare = ((source: string) => {
+    const statement = prepare(source);
+    if (statement.readonly) return statement;
+    const run = statement.run.bind(statement);
+    statement.run = ((...params: unknown[]) => {
+      const state = connectionStates.get(sqlite);
+      if (state?.transaction && !state.nesting.getStore()) reportForeignWrite(source.trim().replace(/\s+/g, " ").slice(0, 80));
+      return run(...params);
+    }) as typeof statement.run;
+    return statement;
+  }) as typeof sqlite.prepare;
 }
 
 let savepointCounter = 0;

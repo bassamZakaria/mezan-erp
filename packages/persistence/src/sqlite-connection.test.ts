@@ -9,6 +9,7 @@ import {
   outsideSqliteTurn,
   type SqliteDriver,
 } from "./sqlite-connection.js";
+import { drainForeignWrites } from "./untransacted-audits.js";
 
 describe("openSqliteConnection", () => {
   it("opens and owns a fresh connection for a string path, with WAL + busy_timeout set", () => {
@@ -679,6 +680,51 @@ describe("outsideSqliteTurn", () => {
   it("runs straight through for a caller that holds no turn", async () => {
     const sqlite = open();
     expect(await outsideSqliteTurn(sqlite, async () => 7)).toBe(7);
+    sqlite.close();
+  });
+});
+
+describe("a write that lands inside another chain's open transaction", () => {
+  const tick = () => new Promise<void>((resolve) => setImmediate(resolve));
+
+  it("is reported by its statement, because it is lost when that transaction rolls back", async () => {
+    const { sqlite } = openSqliteConnection(":memory:");
+    sqlite.exec("CREATE TABLE t (v TEXT)");
+    drainForeignWrites();
+
+    const rolledBack = withSqliteTransaction(sqlite, async () => {
+      sqlite.prepare("INSERT INTO t VALUES ('document')").run();
+      await tick();
+      throw new Error("period closed");
+    }).catch(() => undefined);
+    await tick();
+    sqlite.prepare("INSERT INTO t VALUES ('timer')").run();
+    await rolledBack;
+
+    expect(sqlite.prepare("SELECT v FROM t").all()).toEqual([]);
+    expect(drainForeignWrites()).toEqual(["INSERT INTO t VALUES ('timer')"]);
+    sqlite.close();
+  });
+
+  it("reports nothing for the transaction's own writes, for a read, or for a writer that waited its turn", async () => {
+    const { sqlite } = openSqliteConnection(":memory:");
+    sqlite.exec("CREATE TABLE t (v TEXT)");
+    drainForeignWrites();
+
+    const open = withSqliteTransaction(sqlite, async () => {
+      sqlite.prepare("INSERT INTO t VALUES ('document')").run();
+      await tick();
+      sqlite.prepare("INSERT INTO t VALUES ('line')").run();
+    });
+    await tick();
+    sqlite.prepare("SELECT v FROM t").all();
+    const waited = withSqliteTurn(sqlite, async () => {
+      sqlite.prepare("INSERT INTO t VALUES ('timer')").run();
+    });
+    await Promise.all([open, waited]);
+
+    expect(drainForeignWrites()).toEqual([]);
+    expect((sqlite.prepare("SELECT v FROM t ORDER BY rowid").all() as { v: string }[]).map((r) => r.v)).toEqual(["document", "line", "timer"]);
     sqlite.close();
   });
 });

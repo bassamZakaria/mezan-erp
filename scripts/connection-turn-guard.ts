@@ -1,5 +1,5 @@
 import { drainTurnYields } from "../packages/api/src/turn-yields.js";
-import { drainUntransactedAudits } from "../packages/persistence/src/untransacted-audits.js";
+import { drainForeignWrites, drainUntransactedAudits } from "../packages/persistence/src/untransacted-audits.js";
 
 function tally(reports: readonly string[]): string[] {
   const counts = new Map<string, number>();
@@ -10,11 +10,13 @@ function tally(reports: readonly string[]): string[] {
 /**
  * What a seed drive saw go wrong on the tenant's connection, as lines to
  * print: a handler that awaited the outside world while holding the turn, and
- * a change-log event appended outside any transaction. Empty when neither did.
+ * a change-log event appended outside any transaction, and a write that landed
+ * inside another operation's open transaction. Empty when none did.
  */
 export function connectionTurnFindings(): string[] {
   return [
     ...tally(drainTurnYields()).map((line) => `held the connection across outside work: ${line}`),
     ...tally(drainUntransactedAudits()).map((line) => `change-log event outside any transaction: ${line}`),
+    ...tally(drainForeignWrites()).map((line) => `write inside another operation's open transaction: ${line}`),
   ];
 }

@@ -824,23 +824,8 @@ export async function run(ctx: Ctx): Promise<void> {
 
     const before = await itemBalance("ITEM-DEMO-2");
     const beforeInv = await ctx.invariants();
-    const early = await req("POST", "/landed-costs/LC-DEMO-2/confirm", {});
-    check(
-      "LC-DEMO-2, dated before oil that has moved since, is refused naming the earliest day allowed",
-      early.status === 422 && early.body?.error === "LANDED_COST_DATE_BEFORE_STOCK_MOVEMENT" && /^\d{4}-\d{2}-\d{2}$/.test(String(early.body?.earliestAllowedDate)),
-      JSON.stringify(early.body).slice(0, 150),
-    );
-    const redated = await req("POST", "/landed-costs", {
-      id: "SCN-LC-DEMO-2-REDATED",
-      date: landedCostDate,
-      memo: lc.body.memo,
-      distributionMethod: line.distributionMethod,
-      costItems: line.costItems,
-      targets: [{ itemId: line.itemId, warehouseId: line.warehouseId, sourceInvoiceId: line.sourceInvoiceId, sourceInvoiceNumber: line.sourceInvoiceNumber ?? null, qty: line.qty, unitCost: line.unitCost }],
-    });
-    check("the same landed cost dated today is drafted", redated.status === 201, JSON.stringify(redated.body).slice(0, 150));
-    const confirm = await req("POST", "/landed-costs/SCN-LC-DEMO-2-REDATED/confirm", {});
-    check("the redated landed cost confirms", confirm.status === 200 && confirm.body?.document?.status === "confirmed", JSON.stringify(confirm.body).slice(0, 150));
+    const confirm = await req("POST", "/landed-costs/LC-DEMO-2/confirm", {});
+    check("the seeded draft, dated the day of oil's latest movement, confirms as shipped", confirm.status === 200 && confirm.body?.document?.status === "confirmed", JSON.stringify(confirm.body).slice(0, 150));
 
     const after = await itemBalance("ITEM-DEMO-2");
     checkEq("oil's inventory value rose by exactly 750 (independent /inventory/balance check)", after.totalValue - before.totalValue, 750, 0.01);

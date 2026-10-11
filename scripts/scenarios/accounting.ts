@@ -1682,9 +1682,10 @@ export async function closingAMonthStrandsTheDraftsDatedIntoIt(ctx: Ctx): Promis
 
     const after = { account: await usd(), bank: await bank("2026-08-31") };
     ctx.checkEq("the bank holds 300 − 100 − 20 = 180 more dollars", after.bank.foreign - before.bank.foreign, 180);
-    ctx.checkEq("booked at 300×48.90 − 100×49.35 − 987.00 = 8,748.00 more", after.bank.booked - before.bank.booked, 8748);
+    ctx.checkEq("carried at 300×48.90 in, less the 120 dollars that left at the 48.90 they were carried at = 8,802.00 more", after.bank.booked - before.bank.booked, 8802);
     ctx.checkEq("the treasury account reports the same dollars", ctx.n(after.account?.foreignBalance) - ctx.n(before.account?.foreignBalance), 180);
-    ctx.checkEq("restating to the closing rate of 49.35 adds 180×49.35 − 8,748.00 = 135.00 to the unrealised gain", after.bank.delta - before.bank.delta, 135);
+    ctx.checkEq("restating to the closing rate of 49.35 adds 180×49.35 − 8,802.00 = 81.00 to the unrealised gain; the other 54.00 of the 135.00 was realised when the 120 dollars left", after.bank.delta - before.bank.delta, 81);
+    ctx.checkEq("the two payments realised 120×(49.35 − 48.90) = 54.00 between them", ctx.n(payment.fx?.realised) + ctx.n(basePayment.fx?.realised), 54);
 
     for (const id of ["SCN-A-TFX-EGP", "SCN-A-TFX-OUT", "SCN-A-TFX-IN"]) {
       const date = id === "SCN-A-TFX-IN" ? "2026-08-10" : "2026-08-20";

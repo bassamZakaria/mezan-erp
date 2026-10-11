@@ -28,7 +28,7 @@ describe("employeeAdvanceStatusSchema", () => {
   });
 
   it("rejects a status outside the enum", () => {
-    expect(employeeAdvanceStatusSchema.safeParse("cancelled").success).toBe(false);
+    expect(employeeAdvanceStatusSchema.safeParse("voided").success).toBe(false);
   });
 });
 
@@ -89,7 +89,7 @@ describe("employeeAdvanceSchema", () => {
   });
 
   it("rejects an out-of-enum status", () => {
-    const result = employeeAdvanceSchema.safeParse({ ...advance, status: "cancelled" });
+    const result = employeeAdvanceSchema.safeParse({ ...advance, status: "voided" });
     expect(result.success).toBe(false);
   });
 

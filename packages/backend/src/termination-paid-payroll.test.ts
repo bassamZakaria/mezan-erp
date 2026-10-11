@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { seededWorld, type SeededWorld } from "./test-support.js";
+import { seededWorld, type SeededWorld } from "./test-helpers/seeded-world.js";
 
 let world: SeededWorld;
 

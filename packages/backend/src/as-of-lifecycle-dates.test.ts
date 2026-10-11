@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { PeriodCloseCheckStatusDTO, type PeriodCloseChecklistDTO } from "@mezan/contracts";
-import { INVARIANTS_ZERO, seededWorld, type SeededWorld } from "./test-support.js";
+import { INVARIANTS_ZERO, seededWorld, type SeededWorld } from "./test-helpers/seeded-world.js";
 
 const TIED = { inventory: "0.000000", ar: "0.000000", ap: "0.000000" };
 const AR = "1105";
@@ -56,15 +56,26 @@ describe("a cheque is read as of the day its journal entries are dated, never th
     await expectTied(["08", "09", "10"]);
   });
 
-  it("a bounce recorded half an hour after midnight in Cairo, dated that new day, belongs to the new month as its entry does", async () => {
+  it("half an hour after midnight in Cairo, a collection, a bounce and a replacement sent with no date are dated the new day — in the ledger and in the month-end reading", async () => {
     await receiveCheque("LD-CH-2", "2026-10-20", "450.00");
+    await receiveCheque("LD-CH-3", "2026-10-21", "320.00");
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-10-31T22:30:00.000Z"));
     try {
-      const bounced = await world.request("POST", "/cheques/LD-CH-2/bounce", { date: "2026-11-01" });
+      const bounced = await world.request("POST", "/cheques/LD-CH-2/bounce", {});
       expect(`${bounced.status} ${bounced.body.status}`).toBe("200 bounced");
       expect(String(bounced.body.bouncedAt).slice(0, 10)).toBe("2026-10-31");
       expect(entryDate(String(bounced.body.bounceJournalEntryId))).toBe("2026-11-01");
+
+      const collected = await world.request("POST", "/cheques/LD-CH-3/collect", { bankGlAccountId: "1310" });
+      expect(`${collected.status} ${collected.body.status}`).toBe("200 collected");
+      expect(entryDate(String(collected.body.collectionJournalEntryId))).toBe("2026-11-01");
+
+      const replaced = await world.request("POST", "/cheques/LD-CH-2/replace", {
+        newCheque: { id: "LD-CH-2R", chequeNumber: "N-LD-CH-2R", bankName: "بنك مصر", issueDate: "2026-10-25", dueDate: "2026-11-25", branchId: "BR-MAIN" },
+      });
+      expect(replaced.status).toBe(201);
+      expect(entryDate(String((replaced.body.replacement as { creationJournalEntryId: string }).creationJournalEntryId))).toBe("2026-11-01");
     } finally {
       vi.useRealTimers();
     }

@@ -150,6 +150,8 @@ export function createChequesRoutes(deps: ChequeRoutesDeps, resolveAuthContext: 
   const idGen = deps.idGen ?? (() => randomUUID());
   const service = new ChequeService(deps);
   const asOf = () => (deps.now ? deps.now() : new Date().toISOString()).slice(0, 10);
+  // No date sent means today on the TENANT's calendar: the UTC day is still yesterday for the first hours of a Cairo day, and an entry dated there lands in the month before.
+  const postingDay = (c: Context, date: string | undefined): Promise<string> => tenantDay(c, date ?? (deps.now ? deps.now() : new Date().toISOString()));
   /**
    * WHO. Read off the resolved session, never `x-user-id` — an actor the
    * caller named would make the register's attribution fiction (D80).
@@ -382,7 +384,7 @@ export function createChequesRoutes(deps: ChequeRoutesDeps, resolveAuthContext: 
       const cheque = await service.collect({
         chequeId: c.req.param("id"),
         bankGlAccountId: parsed.data.bankGlAccountId,
-        date: await tenantDay(c, parsed.data.date),
+        date: await postingDay(c, parsed.data.date),
         journalEntryId: idGen(),
         actor: actorOf(c),
       });
@@ -407,7 +409,7 @@ export function createChequesRoutes(deps: ChequeRoutesDeps, resolveAuthContext: 
     try {
       const cheque = await service.bounce({
         chequeId: c.req.param("id"),
-        date: await tenantDay(c, parsed.data.date),
+        date: await postingDay(c, parsed.data.date),
         journalEntryId: idGen(),
         actor: actorOf(c),
       });
@@ -442,7 +444,7 @@ export function createChequesRoutes(deps: ChequeRoutesDeps, resolveAuthContext: 
           branchId: d.newCheque.branchId,
           notes: d.newCheque.notes ?? null,
         },
-        date: d.date,
+        date: await postingDay(c, d.date),
         journalEntryId: idGen(),
         actor: actorOf(c),
       });

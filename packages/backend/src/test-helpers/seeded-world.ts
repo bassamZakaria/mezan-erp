@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { ALL_SCOPE, MODULE_CATALOG, createEntitlements } from "@mezan/domain";
 import { openSqliteConnection } from "@mezan/persistence";
-import { createBackend, type BackendHandle, type CreateBackendOptions } from "./create-backend.js";
+import { createBackend, type BackendHandle, type CreateBackendOptions } from "../create-backend.js";
 
 type Sqlite = ReturnType<typeof openSqliteConnection>["sqlite"];
 

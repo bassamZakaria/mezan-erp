@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { INVARIANTS_ZERO, seededWorld, type SeededWorld } from "./test-support.js";
+import { INVARIANTS_ZERO, seededWorld, type SeededWorld } from "./test-helpers/seeded-world.js";
 
 const DAY = "2026-10-05";
 const GRNI = "2120";

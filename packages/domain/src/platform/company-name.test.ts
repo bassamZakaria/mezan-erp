@@ -27,6 +27,8 @@ function signups(): SignupRequestRepository & { rows: SignupRequest[] } {
     async save(r) { rows.push(r); },
     async tryMarkVerified() { return null; },
     async tryClaimProvisioning() { return true; },
+    async renewProvisioning() { return true; },
+    async provisioningClaimedAt() { return null; },
     async releaseProvisioning() {},
   };
 }

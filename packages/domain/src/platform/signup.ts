@@ -101,6 +101,9 @@ export interface SignupRequestRepository {
   tryMarkVerified(tokenHash: string, nowIso: string): Promise<SignupRequest | null>;
   /** A claim taken before `staleBeforeIso` must be taken over: its holder died mid-provision and will never release it. */
   tryClaimProvisioning(tokenHash: string, claimId: string, nowIso: string, staleBeforeIso: string): Promise<boolean>;
+  /** False once another caller has taken the claim over: the holder must stop before it hands out a PIN. */
+  renewProvisioning(tokenHash: string, claimId: string, nowIso: string): Promise<boolean>;
+  provisioningClaimedAt(tokenHash: string): Promise<string | null>;
   releaseProvisioning(tokenHash: string, claimId: string): Promise<void>;
 }
 

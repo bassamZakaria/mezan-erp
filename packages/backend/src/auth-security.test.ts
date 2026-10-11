@@ -110,6 +110,23 @@ describe("POST /bootstrap/admin — claiming an install, and only an unclaimed o
     expect(login.status).toBe(401);
   });
 
+  it.each([
+    ["without a company", { nameAr: "attacker", email: "attacker@evil.test", pin: "999999" }, "attacker@evil.test"],
+    ["with no usable field at all", { email: 7 }, null],
+  ])("answers a claim %s on a claimed install as already provisioned, and records the refusal", async (_what, body, recordedEmail) => {
+    const app = await newBackend();
+    const claimed = await post(app, "/bootstrap/admin", { nameAr: "بسام زكريا", email: "owner@shop.test", pin: "246813", companyName: "متجر الاختبار" });
+    const owner = { authorization: `Bearer ${((await claimed.json()) as { token: string }).token}` };
+
+    const refused = await post(app, "/bootstrap/admin", body);
+
+    expect(refused.status).toBe(409);
+    expect(((await refused.json()) as { error: string }).error).toBe("TENANT_ALREADY_PROVISIONED");
+    const audit = await get(app, "/audit?stream=security&action=BOOTSTRAP_REFUSED", owner);
+    const { events } = (await audit.json()) as { events: { severity: string; details: { email: string | null } }[] };
+    expect(events.map((event) => [event.severity, event.details.email])).toEqual([["CRITICAL", recordedEmail]]);
+  });
+
   it("re-running the wizard with an EXISTING admin's address returns 409 and no session (S1's second door)", async () => {
     // This was the subtler half: a duplicate email used to return the
     // existing admin's session "for wizard idempotency", so naming a known

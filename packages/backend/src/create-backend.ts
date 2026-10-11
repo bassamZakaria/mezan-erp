@@ -591,6 +591,7 @@ export interface CreateBackendOptions {
    * writable.
    */
   readonly resolveLicenseState?: CreateAppOptions["resolveLicenseState"];
+  readonly onUserEmailChanged?: CreateAppOptions["onUserEmailChanged"];
   /**
    * The VERIFIED capability set every module-gated route group is checked
    * against, and that `GET /entitlements` and `/roles` report.
@@ -2999,6 +3000,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const app = createApp(uow, {
     resolveAuthContext,
     security: { sessions, loginThrottle },
+    ...(options.onUserEmailChanged ? { onUserEmailChanged: options.onUserEmailChanged } : {}),
     onPermissionRefused,
     // The LAN routes need the SAME session registry the auth routes issue
     // into, or a disconnect revokes a token nobody is holding.

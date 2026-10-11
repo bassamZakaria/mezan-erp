@@ -116,3 +116,26 @@ export const activateTenant = (cmd: TenantTransitionCommand, repo: TenantReposit
 export const suspendTenant = (cmd: TenantTransitionCommand, repo: TenantRepository) => transition(cmd, "suspended", repo);
 export const archiveTenant = (cmd: TenantTransitionCommand, repo: TenantRepository) => transition(cmd, "archived", repo);
 export const resumeTenant = (cmd: TenantTransitionCommand, repo: TenantRepository) => transition(cmd, "active", repo, ["suspended"]);
+
+export interface ChangeTenantOwnerEmailCommand {
+  readonly code: string;
+  readonly before: string;
+  readonly after: string;
+  readonly now: string;
+}
+
+/** Null when the address that changed is not the one this tenant's owner is recorded under. */
+export async function followTenantOwnerEmail(cmd: ChangeTenantOwnerEmailCommand, repo: TenantRepository): Promise<Tenant | null> {
+  const now = isoTimestamp(cmd.now);
+  const after = normalizeEmail(cmd.after);
+  const reasons: string[] = [];
+  if (!now) reasons.push("الطابع الزمني الحالي غير صالح (يجب أن يكون بصيغة ISO-8601)");
+  if (after === "") reasons.push("بريد المالك مطلوب");
+  if (!now || reasons.length > 0) throw new InvalidTenantError(reasons);
+  const tenant = await repo.findByCode(cmd.code);
+  if (!tenant) throw new TenantNotFoundError(cmd.code);
+  if (tenant.ownerEmail !== normalizeEmail(cmd.before) || tenant.ownerEmail === after) return null;
+  const next: Tenant = { ...tenant, ownerEmail: after, updatedAt: now };
+  await repo.save(next);
+  return next;
+}

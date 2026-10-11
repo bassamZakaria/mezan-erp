@@ -171,4 +171,22 @@ describe("signup provisioning claim", () => {
     expect(await signupRequests.tryClaimProvisioning(TOKEN, "other", "2026-01-15T10:00:02.000Z", "2026-01-15T09:58:02.000Z")).toBe(false);
     close();
   });
+
+  it("stays with a holder that keeps renewing it, and tells a holder that lost it so", async () => {
+    const { signupRequests, close } = createSqlitePlatformStores(":memory:");
+    await signupRequests.tryClaimProvisioning(TOKEN, "slow", "2026-01-15T09:58:00.000Z", "2026-01-15T09:56:00.000Z");
+    expect(await signupRequests.provisioningClaimedAt(TOKEN)).toBe("2026-01-15T09:58:00.000Z");
+
+    expect(await signupRequests.renewProvisioning(TOKEN, "slow", "2026-01-15T10:00:00.000Z")).toBe(true);
+    expect(await signupRequests.provisioningClaimedAt(TOKEN)).toBe("2026-01-15T10:00:00.000Z");
+    expect(await signupRequests.tryClaimProvisioning(TOKEN, "eager", "2026-01-15T10:00:01.000Z", "2026-01-15T09:58:01.000Z")).toBe(false);
+
+    expect(await signupRequests.tryClaimProvisioning(TOKEN, "eager", "2026-01-15T10:03:00.000Z", "2026-01-15T10:01:00.000Z")).toBe(true);
+    expect(await signupRequests.renewProvisioning(TOKEN, "slow", "2026-01-15T10:03:01.000Z")).toBe(false);
+    expect(await signupRequests.provisioningClaimedAt(TOKEN)).toBe("2026-01-15T10:03:00.000Z");
+
+    await signupRequests.releaseProvisioning(TOKEN, "eager");
+    expect(await signupRequests.provisioningClaimedAt(TOKEN)).toBeNull();
+    close();
+  });
 });

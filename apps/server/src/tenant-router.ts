@@ -4,6 +4,8 @@ import { mkdirSync } from "node:fs";
 import { timingSafeEqual } from "node:crypto";
 import { createBackend, type BackendHandle, type PlatformHandle } from "@mezan/backend";
 import type { SqliteOpenOptions } from "@mezan/persistence";
+import type { UserEmailChange } from "@mezan/api";
+import { followTenantOwnerEmail, recordSecurityEvent } from "@mezan/domain";
 import { createBackendCache, type BackendCache } from "./backend-cache.js";
 import { createTenantResolvers, type TenantResolvers } from "./tenant-entitlements.js";
 import { resolveTenantCode, TENANT_HEADER } from "./tenant-resolver.js";
@@ -18,9 +20,13 @@ export interface TenantRouterOptions {
   readonly ttlMs?: number;
   readonly sweepEveryMs?: number;
   readonly now?: () => Date;
-  readonly openBackend?: (code: string, dbPath: string, resolvers: TenantResolvers) => Promise<BackendHandle>;
+  readonly openBackend?: (code: string, dbPath: string, resolvers: TenantResolvers, hooks: TenantBackendHooks) => Promise<BackendHandle>;
   /** Passed straight through to every tenant `createBackend` call (e.g. `{ exclusive: true }` on EFS). Ignored when `openBackend` is supplied. */
   readonly connection?: SqliteOpenOptions;
+}
+
+export interface TenantBackendHooks {
+  readonly onUserEmailChanged: (change: UserEmailChange) => Promise<void>;
 }
 
 function safeEqual(provided: string, secret: string): boolean {
@@ -88,13 +94,39 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
     }
     return r;
   };
-  const openBackend = options.openBackend ?? (async (_code, dbPath, r) => {
+  const clock = options.now ?? (() => new Date());
+  const hooksFor = (code: string): TenantBackendHooks => ({
+    // Runs inside the tenant's own save: the audit row is part of the change, so its failure undoes both.
+    onUserEmailChanged: async (change) => {
+      const at = clock().toISOString();
+      const before = await options.platform.stores.tenants.findByCode(code);
+      const tenant = await followTenantOwnerEmail({ code, before: change.before, after: change.after, now: at }, options.platform.stores.tenants);
+      if (!tenant || !before) return;
+      try {
+        await recordSecurityEvent(options.platform.audit, {
+          module: "platform",
+          entityType: "PLATFORM",
+          entityId: tenant.id,
+          action: "TENANT_OWNER_EMAIL_CHANGED",
+          actor: `tenant:${code}:${change.actorId}`,
+          severity: "CRITICAL",
+          timestamp: at,
+          details: { code, before: before.ownerEmail, after: tenant.ownerEmail, userId: change.userId },
+        });
+      } catch (err) {
+        await options.platform.stores.tenants.save(before);
+        throw err;
+      }
+    },
+  });
+  const openBackend = options.openBackend ?? (async (code, dbPath, r, hooks) => {
     mkdirSync(path.dirname(dbPath), { recursive: true });
     return createBackend({
       dbPath,
       connection: options.connection,
       resolveEntitlements: () => r.resolveEntitlements(),
       resolveLicenseState: () => r.resolveLicenseState(),
+      onUserEmailChanged: hooks.onUserEmailChanged,
     });
   });
   const cache: BackendCache<BackendHandle> = createBackendCache({
@@ -105,7 +137,7 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
     open: async (code) => {
       const tenant = await options.platform.stores.tenants.findByCode(code);
       if (!tenant) throw new Error("TENANT_NOT_FOUND");
-      return openBackend(code, tenantDbPath(options.dataDir, tenant.dbFile), resolversFor(code));
+      return openBackend(code, tenantDbPath(options.dataDir, tenant.dbFile), resolversFor(code), hooksFor(code));
     },
   });
 

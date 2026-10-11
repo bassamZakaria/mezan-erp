@@ -24,7 +24,7 @@ import {
   type StartSignupResultDTO,
   type VerifySignupResultDTO,
 } from "@mezan/contracts";
-import { provisionTenant, TenantProvisioningError } from "./provision-tenant.js";
+import { provisionTenant, ProvisioningSupersededError, TenantProvisioningError } from "./provision-tenant.js";
 import { forwardedOrigin } from "./billing-routes.js";
 import { createRateLimiter } from "./rate-limit.js";
 import type { CloudEnv } from "./env.js";
@@ -34,8 +34,10 @@ export const SIGNUP_BASE_PATH = "/api/signup";
 
 const TOKEN_EXPIRES_IN_MS = 24 * 60 * 60 * 1000;
 const PROVISION_CLAIM_STALE_MS = 2 * 60_000;
+const PROVISION_HEARTBEAT_MS = 30_000;
 const PROVISION_WAIT_MS = 30_000;
-const PROVISION_POLL_MS = 50;
+const PROVISION_POLL_FIRST_MS = 50;
+const PROVISION_POLL_MAX_MS = 1_000;
 const PROVISION_RETRY_AFTER_SECONDS = 5;
 
 export class SignupVerificationBusyError extends Error {
@@ -136,6 +138,8 @@ export interface SignupRoutesOptions {
   readonly router: TenantRouter;
   readonly env: CloudEnv;
   readonly now?: () => Date;
+  readonly provisionWaitMs?: number;
+  readonly provisionHeartbeatMs?: number;
 }
 
 /**
@@ -151,6 +155,8 @@ export interface SignupRoutesOptions {
 export function createSignupRoutes(options: SignupRoutesOptions): Hono {
   const { platform, router, env } = options;
   const now = options.now ?? (() => new Date());
+  const provisionWaitMs = options.provisionWaitMs ?? PROVISION_WAIT_MS;
+  const provisionHeartbeatMs = options.provisionHeartbeatMs ?? PROVISION_HEARTBEAT_MS;
 
   // Deliberately generous per-IP, tighter per-email — an office behind one
   // NAT address signing up several trials in an hour is normal; the same
@@ -289,7 +295,7 @@ export function createSignupRoutes(options: SignupRoutesOptions): Hono {
     return { tenant, adminEmail: request.ownerEmail, adminPin: null, alreadyVerified: true };
   }
 
-  async function settleVerification(request: SignupRequest): Promise<VerifySignupResultDTO> {
+  async function settleVerification(request: SignupRequest, stillOurs: () => Promise<boolean>): Promise<VerifySignupResultDTO> {
     const settled = await tenantSettledBy(request);
     if (settled) return alreadyVerifiedAnswer(settled, request);
 
@@ -305,31 +311,63 @@ export function createSignupRoutes(options: SignupRoutesOptions): Hono {
           billingCycle: request.billingCycle,
           trial: true,
         },
-        { platform, router, now },
+        { platform, router, now, stillOurs },
       );
       router.invalidate(provisioned.tenant.code);
       return { ...provisioned, alreadyVerified: provisioned.adminPin === null };
     } catch (err) {
+      if (err instanceof ProvisioningSupersededError) throw err;
       const settledMeanwhile = await tenantSettledBy(request).catch(() => null);
       if (settledMeanwhile) return alreadyVerifiedAnswer(settledMeanwhile, request);
       throw err;
     }
   }
 
-  async function verifyInTurn(tokenHash: string): Promise<VerifySignupResultDTO> {
-    const request = await verifySignup(tokenHash, platform.stores.signupRequests, now().toISOString());
-    const claims = platform.stores.signupRequests;
-    const claimId = randomUUID();
-    const giveUpAt = Date.now() + PROVISION_WAIT_MS;
+  const claims = platform.stores.signupRequests;
+
+  function claimIsLive(claimedAt: string | null): boolean {
+    return claimedAt !== null && new Date(claimedAt).getTime() >= now().getTime() - PROVISION_CLAIM_STALE_MS;
+  }
+
+  // Waiting only reads: a write transaction per poll would queue every waiter behind the platform database's single writer.
+  async function waitWhileClaimed(tokenHash: string, giveUpAt: number): Promise<boolean> {
+    let delay = PROVISION_POLL_FIRST_MS;
     for (;;) {
+      if (!claimIsLive(await claims.provisioningClaimedAt(tokenHash))) return true;
+      const left = giveUpAt - Date.now();
+      if (left <= 0) return false;
+      await pause(Math.min(delay, left));
+      delay = Math.min(delay * 2, PROVISION_POLL_MAX_MS);
+    }
+  }
+
+  async function answerOfTheWinner(request: SignupRequest, tokenHash: string, giveUpAt: number): Promise<VerifySignupResultDTO> {
+    const released = (await waitWhileClaimed(tokenHash, giveUpAt)) && (await claims.provisioningClaimedAt(tokenHash)) === null;
+    const settled = released ? await tenantSettledBy(request) : null;
+    if (!settled) throw new SignupVerificationBusyError();
+    return alreadyVerifiedAnswer(settled, request);
+  }
+
+  async function verifyInTurn(tokenHash: string): Promise<VerifySignupResultDTO> {
+    const request = await verifySignup(tokenHash, claims, now().toISOString());
+    const claimId = randomUUID();
+    const giveUpAt = Date.now() + provisionWaitMs;
+    for (;;) {
+      if (!(await waitWhileClaimed(tokenHash, giveUpAt))) throw new SignupVerificationBusyError();
       const at = now().getTime();
       if (await claims.tryClaimProvisioning(tokenHash, claimId, new Date(at).toISOString(), new Date(at - PROVISION_CLAIM_STALE_MS).toISOString())) break;
       if (Date.now() >= giveUpAt) throw new SignupVerificationBusyError();
-      await pause(PROVISION_POLL_MS);
     }
+    const stillOurs = () => claims.renewProvisioning(tokenHash, claimId, now().toISOString());
+    const heartbeat = setInterval(() => void stillOurs().catch((err: unknown) => console.error("[signup] provisioning claim heartbeat failed", err)), provisionHeartbeatMs);
+    heartbeat.unref();
     try {
-      return await settleVerification(request);
+      return await settleVerification(request, stillOurs);
+    } catch (err) {
+      if (err instanceof ProvisioningSupersededError) return await answerOfTheWinner(request, tokenHash, giveUpAt);
+      throw err;
     } finally {
+      clearInterval(heartbeat);
       await claims.releaseProvisioning(tokenHash, claimId);
     }
   }

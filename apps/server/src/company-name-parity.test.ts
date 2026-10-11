@@ -10,7 +10,10 @@ const FORBIDDEN = [
 
 const KEPT = ["\u200C", "\u200D", "\u200E", "\u200F", "\u061C", "\u00A0", "ـ", "’", "&"];
 
+const WRITTEN_AS_EGYPTIANS_WRITE = ["مخبز ٢٤ ساعة", "شَرِكَةُ النِّيلِ", "مطعم «الأصيل»", "مكتبة \"الشروق\" — فرع ٣", "صيدلية د. منى (المعادي)"];
+
 const SAMPLES = [
+  ...WRITTEN_AS_EGYPTIANS_WRITE,
   "",
   "   ",
   "شركة النيل",
@@ -29,6 +32,11 @@ describe("the company-name rule is the same on the wire and in the domain", () =
 
   it.each(SAMPLES.map((sample) => [JSON.stringify(sample).slice(0, 40), sample]))("agrees on %s", (_shown, sample) => {
     expect(companyNameSchema.safeParse(sample).success).toBe(companyNameProblem(sample) === null);
+  });
+
+  it.each(WRITTEN_AS_EGYPTIANS_WRITE)("accepts %s on the wire and in the domain, unchanged", (name) => {
+    expect(companyNameProblem(name)).toBeNull();
+    expect(companyNameSchema.parse(name)).toBe(name);
   });
 
   it("refuses every forbidden character and keeps every joiner and mark", () => {

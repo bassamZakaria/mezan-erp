@@ -7,6 +7,7 @@ import { createBackend, createPlatform, type PlatformHandle } from "@mezan/backe
 import { TenantStatusCode, type Subscription } from "@mezan/domain";
 import { createCloudApp, type CloudApp } from "./cloud-app.js";
 import { createSignupRoutes } from "./signup-routes.js";
+import { provisionTenant } from "./provision-tenant.js";
 import { createTenantRouter, TENANT_HEADER, type TenantRouter } from "./tenant-router.js";
 import { COMPANY_NAME_MAX_LENGTH } from "@mezan/domain";
 import { parseEnv } from "./env.js";
@@ -31,6 +32,7 @@ const OWNER_PASSWORD = "owner-password-123";
 enum TenantTransition {
   Suspend = "suspend",
   Archive = "archive",
+  Resume = "resume",
 }
 
 interface VerifyBody {
@@ -399,6 +401,23 @@ describe("the platform owner resets a tenant owner's PIN", () => {
     expect((await cloudLogin(app, "locked", body.adminPin)).status).toBe(200);
   });
 
+  it("resets the owner's PIN on a suspended tenant, where the new PIN is accepted once the tenant is resumed", async () => {
+    const app = await boot();
+    const first = (await (await post(app, "/api/signup/verify", { token: await startAndReadToken(app, "paused") })).json()) as VerifyBody;
+    const oldPin = first.adminPin ?? "";
+    await moveTenant(app, first.tenant.id, TenantTransition.Suspend);
+
+    const reset = await resetOwnerPin(app, first.tenant.id, await platformBearer(app));
+
+    expect(reset.status).toBe(200);
+    const { adminPin } = (await reset.json()) as { adminPin: string };
+    expect(adminPin).toMatch(/^[0-9]{6}$/);
+    expect(adminPin).not.toBe(oldPin);
+    await moveTenant(app, first.tenant.id, TenantTransition.Resume);
+    expect((await cloudLogin(app, "paused", oldPin)).status).toBe(401);
+    expect((await cloudLogin(app, "paused", adminPin)).status).toBe(200);
+  });
+
   it("is refused without a platform session, and for a tenant session", async () => {
     const app = await boot();
     const first = (await (await post(app, "/api/signup/verify", { token: await startAndReadToken(app, "guarded") })).json()) as VerifyBody;
@@ -432,6 +451,97 @@ describe("the platform owner resets a tenant owner's PIN", () => {
   it("answers 404 for a tenant that does not exist", async () => {
     const app = await boot();
     expect((await resetOwnerPin(app, "no-such-tenant", await platformBearer(app))).status).toBe(404);
+  });
+
+  it("follows the owner to a new email changed inside the tenant, so the reset still reaches their account", async () => {
+    const app = await boot();
+    const first = (await (await post(app, "/api/signup/verify", { token: await startAndReadToken(app, "moved") })).json()) as VerifyBody;
+    const session = ((await (await cloudLogin(app, "moved", first.adminPin ?? "")).json()) as { token: string }).token;
+    const tenantHeaders = { authorization: `Bearer ${session}`, "x-mezan-tenant": "moved", "content-type": "application/json" };
+    const users = (await (await app.root.fetch(new Request("http://cloud.internal/api/users", { headers: tenantHeaders }))).json()) as Record<string, unknown>[];
+    const owner = users.find((user) => user["email"] === "owner@moved.example");
+    const bearer = await platformBearer(app);
+    const recordedOwner = async () =>
+      ((await (await app.root.fetch(new Request("http://cloud.internal/api/platform/tenants", { headers: { authorization: `Bearer ${bearer}` } }))).json()) as {
+        tenant: { code: string; ownerEmail: string };
+      }[]).find((row) => row.tenant.code === "moved")?.tenant.ownerEmail;
+
+    const changed = await app.root.fetch(
+      new Request(`http://cloud.internal/api/users/${String(owner?.["id"])}`, {
+        method: "PUT",
+        headers: tenantHeaders,
+        body: JSON.stringify({ ...owner, email: " Sara@Moved-Shop.example " }),
+      }),
+    );
+
+    expect(changed.status).toBe(200);
+    expect(await recordedOwner()).toBe("sara@moved-shop.example");
+    const reset = await resetOwnerPin(app, first.tenant.id, bearer);
+    expect(reset.status).toBe(200);
+    const body = (await reset.json()) as { adminEmail: string; adminPin: string };
+    expect(body.adminEmail).toBe("sara@moved-shop.example");
+    const signedIn = await app.root.fetch(
+      new Request("http://cloud.internal/api/auth/login", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-mezan-tenant": "moved" },
+        body: JSON.stringify({ username: "sara@moved-shop.example", pin: body.adminPin }),
+      }),
+    );
+    expect(signedIn.status).toBe(200);
+    const rows = await (await openPlatform(dirs[dirs.length - 1] ?? "")).audit.query("security");
+    expect(rows.filter((row) => row.action === "TENANT_OWNER_EMAIL_CHANGED")).toMatchObject([
+      { entityId: first.tenant.id, severity: "CRITICAL", details: { code: "moved", before: "owner@moved.example", after: "sara@moved-shop.example" } },
+    ]);
+  });
+
+  it("leaves the recorded owner alone when another user's email changes, and undoes the owner's change when the platform cannot record it", async () => {
+    const dataDir = platformDir();
+    const platform = await openPlatform(dataDir);
+    let refuseSave = false;
+    const tenants = Object.create(platform.stores.tenants) as PlatformHandle["stores"]["tenants"];
+    tenants.save = async (tenant) => {
+      if (refuseSave) throw new Error("the platform database refused the tenant");
+      await platform.stores.tenants.save(tenant);
+    };
+    const router = createTenantRouter({ platform: { ...platform, stores: { ...platform.stores, tenants } }, dataDir, sweepEveryMs: 0, now: () => new Date(T) });
+    routers.push(router);
+    const { adminPin } = await provisionTenant(
+      { code: "steady", nameAr: "ثابتة", ownerEmail: "owner@steady.example", ownerNameAr: "المالك", planId: "PLAN-CORE", billingCycle: "monthly", trial: false },
+      { platform, router, now: () => new Date(T) },
+    );
+    router.invalidate("steady");
+    const session = ((await (await tenantLogin(router, "steady", adminPin)).json()) as { token: string }).token;
+    const call = (method: string, route: string, body?: unknown) =>
+      Promise.resolve(
+        router.app.fetch(
+          new Request(`http://ignored${route}`, {
+            method,
+            headers: { authorization: `Bearer ${session}`, [TENANT_HEADER]: "steady", "content-type": "application/json" },
+            ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+          }),
+        ),
+      );
+    const users = (await (await call("GET", "/users")).json()) as Record<string, unknown>[];
+    const owner = users.find((user) => user["email"] === "owner@steady.example");
+    const roles = (await (await call("GET", "/roles")).json()) as { id: string }[];
+    const clerk = await call("POST", "/users", {
+      nameAr: "موظف", nameEn: null, email: "clerk@steady.example", phone: null, roleId: roles[0]?.id, isCompanyAdmin: false,
+      employeeId: null, branchScope: "*", warehouseScope: "*", status: "active", password: "clerk-password-1",
+      acknowledge: true, reason: "اختبار",
+    });
+    expect(clerk.status).toBe(201);
+    const clerkRow = (await clerk.json()) as Record<string, unknown>;
+
+    expect((await call("PUT", `/users/${String(clerkRow["id"])}`, { ...clerkRow, email: "clerk2@steady.example" })).status).toBe(200);
+    expect((await platform.stores.tenants.findByCode("steady"))?.ownerEmail).toBe("owner@steady.example");
+
+    refuseSave = true;
+    const refused = await call("PUT", `/users/${String(owner?.["id"])}`, { ...owner, email: "new@steady.example" });
+
+    expect(refused.status).toBe(500);
+    expect((await platform.stores.tenants.findByCode("steady"))?.ownerEmail).toBe("owner@steady.example");
+    const after = (await (await call("GET", "/users")).json()) as Record<string, unknown>[];
+    expect(after.find((user) => user["id"] === owner?.["id"])?.["email"]).toBe("owner@steady.example");
   });
 
   it("records the operator who retried a provision as the actor of the tenant's PIN reset", async () => {
@@ -484,12 +594,23 @@ async function openPlatform(dataDir: string): Promise<PlatformHandle> {
   return platform;
 }
 
-function signupProcess(platform: PlatformHandle, dataDir: string, saveSubscription?: (save: SaveSubscription) => SaveSubscription): SignupProcess {
+type SignupStores = PlatformHandle["stores"];
+
+interface SignupProcessOptions {
+  readonly saveSubscription?: (save: SaveSubscription) => SaveSubscription;
+  readonly now?: () => Date;
+  readonly stores?: (stores: SignupStores) => Partial<SignupStores>;
+  readonly provisionWaitMs?: number;
+  readonly provisionHeartbeatMs?: number;
+}
+
+function signupProcess(platform: PlatformHandle, dataDir: string, options: SignupProcessOptions | SignupProcessOptions["saveSubscription"] = {}): SignupProcess {
+  const { saveSubscription, now = () => new Date(T), stores, provisionWaitMs, provisionHeartbeatMs } = typeof options === "function" ? { saveSubscription: options } : options;
   const router = createTenantRouter({
     platform,
     dataDir,
     sweepEveryMs: 0,
-    now: () => new Date(T),
+    now,
     openBackend: async (_code, dbPath, resolvers) => {
       mkdirSync(path.dirname(dbPath), { recursive: true });
       return createBackend({
@@ -500,11 +621,32 @@ function signupProcess(platform: PlatformHandle, dataDir: string, saveSubscripti
     },
   });
   routers.push(router);
-  const subscriptions = Object.create(platform.stores.subscriptions) as PlatformHandle["stores"]["subscriptions"];
+  const subscriptions = Object.create(platform.stores.subscriptions) as SignupStores["subscriptions"];
   if (saveSubscription) subscriptions.save = saveSubscription((subscription) => platform.stores.subscriptions.save(subscription));
-  const seen: PlatformHandle = saveSubscription ? { ...platform, stores: { ...platform.stores, subscriptions } } : platform;
-  const signup = createSignupRoutes({ platform: seen, router, env: { ...parseEnv({}), platformDir: dataDir }, now: () => new Date(T) });
+  const withSubscriptions: SignupStores = saveSubscription ? { ...platform.stores, subscriptions } : platform.stores;
+  const seen: PlatformHandle = { ...platform, stores: { ...withSubscriptions, ...stores?.(withSubscriptions) } };
+  const signup = createSignupRoutes({ platform: seen, router, env: { ...parseEnv({}), platformDir: dataDir }, now, provisionWaitMs, provisionHeartbeatMs });
   return { signup, router };
+}
+
+function deferred(): { readonly reached: Promise<void>; readonly promise: Promise<void>; arrive(): void; release(): void } {
+  let release = (): void => undefined;
+  let arrive = (): void => undefined;
+  const promise = new Promise<void>((resolve) => (release = resolve));
+  const reached = new Promise<void>((resolve) => (arrive = resolve));
+  return { reached, promise, arrive, release };
+}
+
+function stallingAfterThePin(gate: ReturnType<typeof deferred>): (stores: SignupStores) => Partial<SignupStores> {
+  return (stores) => {
+    const subscriptions = Object.create(stores.subscriptions) as SignupStores["subscriptions"];
+    subscriptions.findLiveByTenant = async (tenantId) => {
+      gate.arrive();
+      await gate.promise;
+      return stores.subscriptions.findLiveByTenant(tenantId);
+    };
+    return { subscriptions };
+  };
 }
 
 function send(app: Hono, route: string, body: unknown): Promise<Response> {
@@ -599,5 +741,125 @@ describe("signup verification when provisioning fails or is shared between proce
 
     expect(answer.status).toBe(500);
     expect(((await answer.json()) as { error: string }).error).toBe("TENANT_PROVISIONING_FAILED");
+  });
+});
+
+describe("a signup verification whose provisioning claim is contested", () => {
+  const LATER = "2026-01-15T00:03:00.000Z";
+
+  it("hands exactly one working PIN when a second process takes a stalled provision over and the first then wakes up", async () => {
+    const dataDir = platformDir();
+    const platform = await openPlatform(dataDir);
+    const stalled = deferred();
+    const takeover = deferred();
+    const waiting = deferred();
+    const first = signupProcess(platform, dataDir, {
+      stores: (stores) => {
+        const signupRequests = Object.create(stores.signupRequests) as SignupStores["signupRequests"];
+        signupRequests.provisioningClaimedAt = async (tokenHash) => {
+          waiting.arrive();
+          return stores.signupRequests.provisioningClaimedAt(tokenHash);
+        };
+        return { ...stallingAfterThePin(stalled)(stores), signupRequests };
+      },
+    });
+    const second = signupProcess(await openPlatform(dataDir), dataDir, { now: () => new Date(LATER), stores: stallingAfterThePin(takeover) });
+    const token = await startOn(first.signup, "contested");
+
+    const slow = send(first.signup, "/verify", { token });
+    await stalled.reached;
+    const fast = send(second.signup, "/verify", { token });
+    await takeover.reached;
+    stalled.release();
+    await Promise.race([slow, waiting.reached]);
+    takeover.release();
+
+    const answers = await Promise.all([slow, fast]);
+    const bodies = (await Promise.all(answers.map((answer) => answer.json()))) as VerifyBody[];
+    expect(answers.map((answer) => answer.status)).toEqual([200, 200]);
+    const pins = bodies.map((body) => body.adminPin).filter((pin): pin is string => pin !== null);
+    expect(pins).toHaveLength(1);
+    expect((await tenantLogin(second.router, "contested", pins[0] ?? null)).status).toBe(200);
+    expect(bodies[0]).toMatchObject({ adminPin: null, alreadyVerified: true });
+    expect(bodies[1]).toMatchObject({ alreadyVerified: false });
+    expect((await platform.stores.subscriptions.listByTenant(bodies[1]?.tenant.id ?? "")).length).toBe(1);
+  });
+
+  it("answers 503 with a retry hint to a second opener that outwaits a live provision, without writing to the platform database while it waits", async () => {
+    const dataDir = platformDir();
+    const platform = await openPlatform(dataDir);
+    const stalled = deferred();
+    const holder = signupProcess(platform, dataDir, { stores: stallingAfterThePin(stalled) });
+    let claimAttempts = 0;
+    let claimReads = 0;
+    const waiter = signupProcess(await openPlatform(dataDir), dataDir, {
+      provisionWaitMs: 400,
+      stores: (stores) => {
+        const signupRequests = Object.create(stores.signupRequests) as SignupStores["signupRequests"];
+        signupRequests.tryClaimProvisioning = async (...args) => {
+          claimAttempts += 1;
+          return stores.signupRequests.tryClaimProvisioning(...args);
+        };
+        signupRequests.provisioningClaimedAt = async (tokenHash) => {
+          claimReads += 1;
+          return stores.signupRequests.provisioningClaimedAt(tokenHash);
+        };
+        return { signupRequests };
+      },
+    });
+    const token = await startOn(holder.signup, "patient");
+
+    const held = send(holder.signup, "/verify", { token });
+    await stalled.reached;
+    const busy = await send(waiter.signup, "/verify", { token });
+
+    expect(busy.status).toBe(503);
+    expect(busy.headers.get("retry-after")).toBe("5");
+    expect(await busy.json()).toEqual({ error: "SIGNUP_VERIFICATION_IN_PROGRESS", message: "جارٍ تفعيل الحساب الآن. أعد فتح الرابط بعد لحظات." });
+    expect(claimAttempts).toBe(0);
+    expect(claimReads).toBeGreaterThan(1);
+    expect(claimReads).toBeLessThanOrEqual(5);
+
+    stalled.release();
+    const delivered = (await (await held).json()) as VerifyBody;
+    expect(delivered.adminPin).toMatch(/^\d{6}$/);
+    expect((await tenantLogin(holder.router, "patient", delivered.adminPin)).status).toBe(200);
+    const reopened = await send(waiter.signup, "/verify", { token });
+    expect((await reopened.json()) as VerifyBody).toMatchObject({ adminPin: null, alreadyVerified: true });
+  });
+
+  it("keeps a slow but living provision's claim, so a later opener waits instead of taking it over", async () => {
+    const dataDir = platformDir();
+    const platform = await openPlatform(dataDir);
+    const stalled = deferred();
+    const renewed = deferred();
+    let holderClock = T;
+    const holder = signupProcess(platform, dataDir, {
+      now: () => new Date(holderClock),
+      provisionHeartbeatMs: 10,
+      stores: (stores) => {
+        const signupRequests = Object.create(stores.signupRequests) as SignupStores["signupRequests"];
+        signupRequests.renewProvisioning = async (tokenHash, claimId, nowIso) => {
+          const kept = await stores.signupRequests.renewProvisioning(tokenHash, claimId, nowIso);
+          if (nowIso === LATER) renewed.arrive();
+          return kept;
+        };
+        return { ...stallingAfterThePin(stalled)(stores), signupRequests };
+      },
+    });
+    const later = signupProcess(await openPlatform(dataDir), dataDir, { now: () => new Date(LATER), provisionWaitMs: 100 });
+    const token = await startOn(holder.signup, "living");
+
+    const held = send(holder.signup, "/verify", { token });
+    await stalled.reached;
+    holderClock = LATER;
+    await renewed.reached;
+    const busy = await send(later.signup, "/verify", { token });
+
+    expect(busy.status).toBe(503);
+    stalled.release();
+    const delivered = (await (await held).json()) as VerifyBody;
+    expect(delivered).toMatchObject({ alreadyVerified: false });
+    expect((await tenantLogin(holder.router, "living", delivered.adminPin)).status).toBe(200);
   });
 });

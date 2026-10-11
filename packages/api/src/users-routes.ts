@@ -87,7 +87,20 @@ function userErrorResponse(c: Context, err: unknown) {
   throw err;
 }
 
+export interface UserEmailChange {
+  readonly userId: string;
+  readonly before: string;
+  readonly after: string;
+  readonly actorId: string;
+}
+
 export interface UsersRoutesOptions {
+  /**
+   * Runs INSIDE the transaction that saves the new email: a throw undoes the
+   * edit. The cloud edition keeps the platform's recorded owner email in step
+   * here, so the two never commit apart.
+   */
+  readonly onEmailChanged?: (change: UserEmailChange) => Promise<void>;
   /**
    * The tenant's allowed email domains, read per request rather than captured
    * at mount: an admin who adds a domain in الإعدادات must not have to restart
@@ -143,7 +156,7 @@ export function createUsersRoutes(
   resolveAuthContext: AuthContextResolver,
   options: UsersRoutesOptions = {},
 ) {
-  const { readAllowedEmailDomains, audit, sessions, loginThrottle, erasure } = options;
+  const { readAllowedEmailDomains, audit, sessions, loginThrottle, erasure, onEmailChanged } = options;
   const gate = createPermissionGate(resolveAuthContext);
   const app = new Hono();
 
@@ -533,7 +546,7 @@ export function createUsersRoutes(
       const user = await uow.transaction(async (tx) => {
         const current = await tx.users.findById(id);
         if (!current) throw new UserNotFoundError(id);
-        return saveUser(
+        const saved = await saveUser(
           // The account keeps the date it was created on; stamping `now` here
           // reset it on every edit.
           { id, ...parsed.data, createdAt: current.createdAt },
@@ -541,6 +554,10 @@ export function createUsersRoutes(
           hasher,
           await saveOptions(),
         );
+        if (onEmailChanged && saved.email !== current.email) {
+          await onEmailChanged({ userId: id, before: current.email, after: saved.email, actorId: getAuthContext(c)?.userId ?? "unknown" });
+        }
+        return saved;
       });
       await auditUser(c, user, "UPDATE", before, change);
       await auditCredentialReset(c, user, change);

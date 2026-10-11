@@ -727,6 +727,8 @@ class SqliteSignupRequestStore implements SignupRequestRepository {
   private readonly markVerified: Database.Statement;
   private readonly claim: (tokenHash: string, claimId: string, nowIso: string, staleBeforeIso: string) => boolean;
   private readonly release: Database.Statement;
+  private readonly renew: Database.Statement;
+  private readonly claimedAt: Database.Statement;
 
   constructor(sqlite: Database.Database) {
     const dropStaleClaim = sqlite.prepare(`DELETE FROM signup_provision_claim WHERE token_hash = ? AND claimed_at < ?`);
@@ -740,6 +742,8 @@ class SqliteSignupRequestStore implements SignupRequestRepository {
       })
       .immediate;
     this.release = sqlite.prepare(`DELETE FROM signup_provision_claim WHERE token_hash = ? AND claim_id = ?`);
+    this.renew = sqlite.prepare(`UPDATE signup_provision_claim SET claimed_at = ? WHERE token_hash = ? AND claim_id = ?`);
+    this.claimedAt = sqlite.prepare(`SELECT claimed_at FROM signup_provision_claim WHERE token_hash = ?`);
     this.upsert = sqlite.prepare(
       `INSERT INTO signup_request (id, code, name_ar, name_en, owner_email, owner_name_ar, plan_id, billing_cycle,
          token_hash, status, expires_at, created_at, verified_at)
@@ -780,6 +784,15 @@ class SqliteSignupRequestStore implements SignupRequestRepository {
 
   async tryClaimProvisioning(tokenHash: string, claimId: string, nowIso: string, staleBeforeIso: string): Promise<boolean> {
     return this.claim(tokenHash, claimId, nowIso, staleBeforeIso);
+  }
+
+  async renewProvisioning(tokenHash: string, claimId: string, nowIso: string): Promise<boolean> {
+    return this.renew.run(nowIso, tokenHash, claimId).changes === 1;
+  }
+
+  async provisioningClaimedAt(tokenHash: string): Promise<string | null> {
+    const row = this.claimedAt.get(tokenHash) as { claimed_at: string } | undefined;
+    return row?.claimed_at ?? null;
   }
 
   async releaseProvisioning(tokenHash: string, claimId: string): Promise<void> {

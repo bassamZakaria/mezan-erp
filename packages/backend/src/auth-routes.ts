@@ -394,12 +394,10 @@ export function createAuthRoutes(deps: AuthRoutesDeps) {
    * with no credential.
    */
   app.post("/bootstrap/admin", async (c) => {
-    const parsed = bootstrapAdminRequestSchema.safeParse(await c.req.json().catch(() => null));
-    if (!parsed.success) {
-      return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
-    }
+    const raw: unknown = await c.req.json().catch(() => null);
     if (await tenantIsClaimed()) {
-      await security(c, "BOOTSTRAP_REFUSED", "CRITICAL", { email: parsed.data.email });
+      const attempted = typeof raw === "object" && raw !== null ? (raw as Record<string, unknown>)["email"] : null;
+      await security(c, "BOOTSTRAP_REFUSED", "CRITICAL", { email: typeof attempted === "string" ? attempted.slice(0, 320) : null });
       return c.json(
         {
           error: "TENANT_ALREADY_PROVISIONED",
@@ -407,6 +405,10 @@ export function createAuthRoutes(deps: AuthRoutesDeps) {
         },
         409,
       );
+    }
+    const parsed = bootstrapAdminRequestSchema.safeParse(raw);
+    if (!parsed.success) {
+      return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
     await seedIfEmpty(deps.seedStores);
     try {

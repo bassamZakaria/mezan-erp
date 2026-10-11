@@ -41,8 +41,14 @@ export function ClassifyLineTaxAction({ document, documentId, posted, documentKi
   const [error, setError] = useState<string | null>(null);
 
   const candidates = useMemo(
-    () => taxRates.filter((rate) => rate.status === TaxRateStatusCode.Active && rate.rate === line.taxRatePercent),
-    [taxRates, line.taxRatePercent],
+    () =>
+      taxRates.filter(
+        (rate) =>
+          rate.status === TaxRateStatusCode.Active &&
+          rate.rate === line.taxRatePercent &&
+          !(document === ClassifiableDocument.SalesInvoice && rate.isSystem === true),
+      ),
+    [taxRates, line.taxRatePercent, document],
   );
   const companions = useMemo(
     () => lines.filter((other) => other.lineId !== line.lineId && other.taxRateId === null && other.taxRatePercent === line.taxRatePercent),

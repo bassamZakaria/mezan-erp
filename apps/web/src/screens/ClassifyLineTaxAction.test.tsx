@@ -116,6 +116,25 @@ describe("ClassifyLineTaxAction — «تصنيف ضريبة البند» on a po
     expect(screen.queryByRole("button", { name: /تصنيف ضريبة البند/ })).toBeNull();
   });
 
+  it("never offers the system's «غير خاضع» rate on a sale — the server names it only for a tenant whose VAT is off — and does offer it on a purchase", async () => {
+    const system = taxRate({ id: "SYS-NOT-SUBJECT", code: "SYS-NOT-SUBJECT", name: "غير خاضع", rate: 0, isDefault: false, etaSubType: "V004", isSystem: true });
+    const withSystem = [...TAX_RATES, system];
+    const optionsFor = async (document: ClassifiableDocument) => {
+      const { unmount } = renderWithProviders(
+        <ClassifyLineTaxAction document={document} documentId="INV-1" posted line={LINES[0]!} lines={LINES} taxRates={withSystem} />,
+        { transport: stubTransport({}), initialSession: testAdminSession },
+      );
+      fireEvent.click(screen.getByRole("button", { name: "تصنيف ضريبة البند «خدمة توصيل»" }));
+      await screen.findByRole("dialog", { name: "تصنيف ضريبة البند" });
+      fireEvent.click(screen.getByLabelText("الضريبة"));
+      const options = screen.getAllByRole("option").map((o) => o.textContent);
+      unmount();
+      return options;
+    };
+    expect(await optionsFor(ClassifiableDocument.SalesInvoice)).not.toContain("غير خاضع · 0٪");
+    expect(await optionsFor(ClassifiableDocument.PurchaseInvoice)).toContain("غير خاضع · 0٪");
+  });
+
   it("is absent on a retention release, which is not a supply and has no tax to classify", () => {
     renderAction(LINES[0]!, { documentKind: InvoiceDocumentKind.RetentionRelease });
     expect(screen.queryByRole("button", { name: /تصنيف ضريبة البند/ })).not.toBeInTheDocument();

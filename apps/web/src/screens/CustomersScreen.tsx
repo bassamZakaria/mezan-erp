@@ -536,7 +536,7 @@ export function CustomersScreen() {
     () => [
       { value: "", label: t("customers.field.taxExemptionRateNone") },
       ...taxRates
-        .filter((rate) => rate.rate === 0 && (rate.status === TaxRateStatusCode.Active || rate.id === draft.taxExemptionRateId))
+        .filter((rate) => rate.rate === 0 && rate.isSystem !== true && (rate.status === TaxRateStatusCode.Active || rate.id === draft.taxExemptionRateId))
         .map((rate) => ({ value: rate.id, label: rate.name })),
     ],
     [taxRates, draft.taxExemptionRateId, t],

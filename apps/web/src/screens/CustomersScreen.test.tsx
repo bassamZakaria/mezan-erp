@@ -1183,6 +1183,7 @@ describe("CustomersScreen", () => {
       taxRate({ id: "VAT-EXEMPT", code: "VAT-EXEMPT", name: "معفى من الضريبة", rate: 0, isDefault: false, etaSubType: "V003" }),
       taxRate({ id: "VAT-EXPORT", code: "VAT-EXPORT", name: "تصدير — نسبة صفر", rate: 0, isDefault: false, etaSubType: "V001" }),
       taxRate({ id: "OLD-ZERO", code: "OLD-ZERO", name: "صفر قديمة", rate: 0, isDefault: false, etaSubType: "V003", status: "inactive" }),
+      taxRate({ id: "SYS-NOT-SUBJECT", code: "SYS-NOT-SUBJECT", name: "غير خاضع", rate: 0, isDefault: false, etaSubType: "V004", isSystem: true }),
     ];
 
     async function openAdvanced() {

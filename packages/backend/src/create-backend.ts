@@ -25,6 +25,7 @@ import {
   InvalidPurchaseDocumentError,
   assertPeriodOpen,
   assertVatNotFiled,
+  NoFiscalPeriodForDateError,
   postJournalEntry,
   reverseJournalEntry,
   resolvePrice,
@@ -1014,11 +1015,12 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       return { allowNegativeStock: current.allowNegativeStock, allowBackorder: current.allowBackorder };
     },
     transaction: stockLedger.transaction,
-    // A day no generated period covers is not a shut one: only the GL insists
-    // on a period existing, and a stock-only tenant may never generate any.
+    // A tenant that never generated a period has no calendar to be outside of.
+    // Once it has one, a day no period covers is refused as the GL refuses it.
     periodGate: async (date) => {
       const period = await fiscalPeriods.findByDate(date);
-      if (period) assertOpenForPosting(period);
+      if (period) return assertOpenForPosting(period);
+      if ((await fiscalPeriods.list()).length > 0) throw new NoFiscalPeriodForDateError(date);
     },
     // Only activates when a caller ALSO passes a per-call `gl` (StockLedgerService
     // posts only when BOTH are present) — today that's every stock-adjustment

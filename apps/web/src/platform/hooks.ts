@@ -129,11 +129,6 @@ export interface OwnerPinReset {
 
 const ownerPinResetKey = (operatorId: string, tenantId: string) => ["platform", "ownerPinReset", operatorId, tenantId] as const;
 
-/**
- * The reset's outcome lives in the mutation cache under the operator and the tenant, not in
- * the page: the old PIN is already dead when the answer arrives, so the new one must survive
- * the page unmounting, and must never show on another tenant's page or to another operator.
- */
 export function useOwnerPinReset(tenantId: string): OwnerPinReset {
   const { t } = useAppTranslation();
   const { request, session } = usePlatformApi();

@@ -331,7 +331,6 @@ export function createSignupRoutes(options: SignupRoutesOptions): Hono {
     return claimedAt !== null && new Date(claimedAt).getTime() >= now().getTime() - PROVISION_CLAIM_STALE_MS;
   }
 
-  // Waiting only reads: a write transaction per poll would queue every waiter behind the platform database's single writer.
   async function waitWhileClaimed(tokenHash: string, giveUpAt: number): Promise<boolean> {
     let delay = PROVISION_POLL_FIRST_MS;
     for (;;) {

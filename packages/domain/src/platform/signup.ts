@@ -106,7 +106,6 @@ export interface SignupRequestRepository {
   renewProvisioning(tokenHash: string, claimId: string, nowIso: string): Promise<boolean>;
   provisioningClaimedAt(tokenHash: string): Promise<string | null>;
   releaseProvisioning(tokenHash: string, claimId: string): Promise<void>;
-  /** A used link is matched to its tenant by owner email, so it has to follow the owner when the tenant's recorded email moves. */
   followOwnerEmail(code: string, before: string, after: string): Promise<void>;
 }
 
@@ -180,7 +179,6 @@ export async function startSignup(
   return request;
 }
 
-/** A used link keeps answering "already activated" this long — long enough for a prefetching mail scanner and a late second click — and is then only a pointer to the sign-in page. */
 export const VERIFIED_LINK_VALID_MS = 30 * 24 * 60 * 60 * 1000;
 
 /**

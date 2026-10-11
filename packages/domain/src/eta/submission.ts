@@ -117,7 +117,6 @@ export interface EtaSubmissionRepository {
   findById(id: string): Promise<EtaSubmission | null>;
   findByInternalId(internalId: string): Promise<EtaSubmission | null>;
   list(status?: EtaSubmissionStatus): Promise<EtaSubmission[]>;
-  /** The status of the RECEIPT carrying this authority UUID, without loading it: the receipt queue asks once per refund. */
   statusByEtaUuid(etaUuid: string): Promise<EtaSubmissionStatus | null>;
   create(submission: EtaSubmission): Promise<void>;
   update(submission: EtaSubmission): Promise<void>;

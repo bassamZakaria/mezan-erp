@@ -16,7 +16,6 @@ import {
 
 const TENANT_STATUSES: readonly string[] = Object.values(TenantStatusCode);
 
-// A status outside the closed set would be read back by every list this row appears in; refuse it at the one door in.
 function assertKnownStatus(kind: string, status: string, known: readonly string[]): void {
   if (!known.includes(status)) throw new Error(`refusing to store ${kind} status "${status}"`);
 }

@@ -36,11 +36,7 @@ export interface Subscription {
   readonly extraWarehouses: number;
   readonly currentPeriodStart: string;
   readonly currentPeriodEnd: string;
-  /**
-   * The day of the month this subscription is billed on. A period that starts on the 31st
-   * ends on 28 February, and without this the next one would start — and stay — on the 28th.
-   * Absent only on rows stored before it existed; {@link billingAnchorDayOf} answers for those.
-   */
+  /** Absent only on rows stored before it existed; {@link billingAnchorDayOf} answers for those. */
   readonly billingAnchorDay?: number;
   readonly trialEndsAt: string | null;
   /**

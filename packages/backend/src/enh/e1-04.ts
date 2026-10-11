@@ -295,7 +295,7 @@ export const area: BackendArea = {
       },
       buildSummary,
       lastClosedBy: async (periodId) => store.queries.lastAuditedCloser(periodId) ?? (await store.summaries.list({ periodId }))[0]?.closedBy ?? null,
-      singleOperatorMode: async () => ((await ctx.stores.settings.get()) ?? createDefaultSettings()).contractingSingleOperatorMode,
+      singleOperatorMode: async () => ((await ctx.stores.settings.get()) ?? createDefaultSettings()).periodCloseSingleOperatorMode,
       async listSummaries(periodId) {
         const audited = new Set(store.queries.auditedSeals(periodId));
         return (await store.summaries.list({ periodId })).map((summary) => ({ summary, sealValid: verifyPeriodCloseSeal(summary, audited) }));

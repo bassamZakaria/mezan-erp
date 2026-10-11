@@ -610,6 +610,7 @@ export async function seedAccess(app: App): Promise<void> {
     // wildcard admin is subject to فصل المهام exactly like they are. A demo
     // that waived it could not show the rule refusing anything.
     contractingSingleOperatorMode: false,
+    periodCloseSingleOperatorMode: false,
   });
 
   // --- الأدوار ---

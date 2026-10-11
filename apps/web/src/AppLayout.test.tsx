@@ -562,7 +562,8 @@ describe("AppLayout — first-run wizard", () => {
     fireEvent.click(await screen.findByRole("button", { name: "التالي" }));
 
     // Step 2 — admin account.
-    fireEvent.change(await screen.findByLabelText("الاسم الكامل"), { target: { value: "مدير النظام" } });
+    fireEvent.change(await screen.findByLabelText("اسم المنشأة", { exact: false }), { target: { value: "متجر الاختبار" } });
+    fireEvent.change(screen.getByLabelText("الاسم الكامل"), { target: { value: "مدير النظام" } });
     fireEvent.change(screen.getByLabelText("البريد الإلكتروني", { exact: false }), { target: { value: "admin@cyag.example" } });
     fireEvent.change(screen.getByLabelText("الرمز السرّي (٦ أرقام)"), { target: { value: "123456" } });
     fireEvent.change(screen.getByLabelText("تأكيد رمز PIN"), { target: { value: "123456" } });

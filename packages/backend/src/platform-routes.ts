@@ -53,6 +53,8 @@ import {
   subscriptionResumeRequestSchema,
   recordPaymentRequestSchema,
   planCreateRequestSchema,
+  subscriptionStatusSchema,
+  licenseStateNameSchema,
   planUpdateRequestSchema,
   createPlatformUserRequestSchema,
   type CreateTenantRequestDTO,
@@ -144,7 +146,7 @@ async function tenantSummary(platform: PlatformHandle, tenant: Tenant, nowIso: s
     tenant: serializeTenant(tenant),
     subscription: subscription
       ? {
-          id: subscription.id, tenantId: subscription.tenantId, planId: subscription.planId, status: subscription.status,
+          id: subscription.id, tenantId: subscription.tenantId, planId: subscription.planId, status: subscriptionStatusSchema.parse(subscription.status),
           billingCycle: subscription.billingCycle, addOnModules: [...subscription.addOnModules],
           extraSeats: subscription.extraSeats, extraBranches: subscription.extraBranches, extraWarehouses: subscription.extraWarehouses,
           currentPeriodStart: subscription.currentPeriodStart, currentPeriodEnd: subscription.currentPeriodEnd,
@@ -153,7 +155,7 @@ async function tenantSummary(platform: PlatformHandle, tenant: Tenant, nowIso: s
         }
       : null,
     plan: plan ? serializePlan(plan) : null,
-    licenseState,
+    licenseState: { ...licenseState, state: licenseStateNameSchema.parse(licenseState.state) },
     entitlements: entitlements
       ? {
           plan: entitlements.plan,

@@ -902,12 +902,14 @@ export {
   loginResponseSchema,
   bootstrapAdminRequestSchema,
   bootstrapSeedResultSchema,
+  UNDISCLOSED_TENANT_NAME,
   type LoginRequestDTO,
   type SessionDTO,
   type LoginResponseDTO,
   type BootstrapAdminRequestDTO,
   type BootstrapSeedResultDTO,
 } from "./auth.js";
+export { COMPANY_NAME_MAX_LENGTH, companyNameSchema } from "./company-name.js";
 // --- accounting depth cluster (phase9/accounting-depth) ---
 export {
   exchangeRateTypeSchema,

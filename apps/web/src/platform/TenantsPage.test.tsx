@@ -3,7 +3,7 @@ import "@testing-library/jest-dom/vitest";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, screen, within } from "@testing-library/react";
 import { useLocation } from "react-router";
-import type { PlanDTO, TenantSummaryDTO } from "@mezan/contracts";
+import { LicenseStateCode, SubscriptionStatusCode, type PlanDTO, type TenantSummaryDTO } from "@mezan/contracts";
 import type { Transport } from "../data/transport";
 import { TenantsPage } from "./TenantsPage";
 import { renderWithPlatformProviders, stubPlatformTransport, testPlatformSession } from "./test-support";
@@ -46,7 +46,7 @@ const tenantSummary: TenantSummaryDTO = {
     id: "sub-1",
     tenantId: "tenant-1",
     planId: "plan-1",
-    status: "active",
+    status: SubscriptionStatusCode.Active,
     billingCycle: "monthly",
     addOnModules: [],
     extraSeats: 0,
@@ -61,7 +61,7 @@ const tenantSummary: TenantSummaryDTO = {
     updatedAt: "2026-09-01T00:00:00.000Z",
   },
   plan,
-  licenseState: { state: "ACTIVE", canWrite: true, usable: true },
+  licenseState: { state: LicenseStateCode.Active, canWrite: true, usable: true },
   entitlements: null,
   payments: [],
 };
@@ -111,7 +111,7 @@ describe("TenantsPage", () => {
   it("marks a tenant on trial as «تجريبي» in the licence column, so an operator can tell it from a paying one (D-SAAS-09)", async () => {
     const trialing: TenantSummaryDTO = {
       ...tenantSummary,
-      subscription: { ...tenantSummary.subscription!, status: "trialing", trialEndsAt: "2026-10-01T00:00:00.000Z" },
+      subscription: { ...tenantSummary.subscription!, status: SubscriptionStatusCode.Trialing, trialEndsAt: "2026-10-01T00:00:00.000Z" },
     };
     renderWithPlatformProviders(<TenantsPage />, {
       transport: stubPlatformTransport({ ...baseHandlers(), "GET /tenants": () => ({ body: [trialing] }) }),
@@ -126,8 +126,8 @@ describe("TenantsPage", () => {
   it("keeps the licence state when a trialing tenant's licence is no longer active", async () => {
     const lapsed: TenantSummaryDTO = {
       ...tenantSummary,
-      subscription: { ...tenantSummary.subscription!, status: "trialing" },
-      licenseState: { state: "READ_ONLY", canWrite: false, usable: true },
+      subscription: { ...tenantSummary.subscription!, status: SubscriptionStatusCode.Trialing },
+      licenseState: { state: LicenseStateCode.ReadOnly, canWrite: false, usable: true },
     };
     renderWithPlatformProviders(<TenantsPage />, {
       transport: stubPlatformTransport({ ...baseHandlers(), "GET /tenants": () => ({ body: [lapsed] }) }),
@@ -225,6 +225,7 @@ describe("TenantsPage", () => {
     fireEvent.click(await screen.findByRole("button", { name: "منشأة جديدة" }));
     const dialog = screen.getByRole("dialog");
     fireEvent.change(within(dialog).getByLabelText("الكود"), { target: { value: "newco" } });
+    expect(within(dialog).getByLabelText("الاسم بالعربية")).toHaveAttribute("maxlength", "200");
     fireEvent.change(within(dialog).getByLabelText("الاسم بالعربية"), { target: { value: "شركة جديدة" } });
     fireEvent.change(within(dialog).getByLabelText("اسم مالك الحساب"), { target: { value: "مالك الحساب" } });
     fireEvent.change(within(dialog).getByLabelText("البريد الإلكتروني لمالك الحساب"), { target: { value: "owner@newco.test" } });

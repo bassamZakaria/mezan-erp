@@ -41,9 +41,10 @@ export interface TextFieldProps {
   disabled?: boolean;
   type?: "text" | "email" | "tel" | "date" | "password" | "number";
   autoComplete?: string;
+  maxLength?: number;
 }
 
-export function TextField({ label, value, onChange, placeholder, hint, disabled, type = "text", autoComplete }: TextFieldProps) {
+export function TextField({ label, value, onChange, placeholder, hint, disabled, type = "text", autoComplete, maxLength }: TextFieldProps) {
   const id = useId();
   return (
     <Field label={label} hint={hint} htmlFor={id}>
@@ -54,6 +55,7 @@ export function TextField({ label, value, onChange, placeholder, hint, disabled,
         placeholder={placeholder}
         disabled={disabled}
         autoComplete={autoComplete}
+        maxLength={maxLength}
         onChange={(e) => onChange(e.target.value)}
       />
     </Field>

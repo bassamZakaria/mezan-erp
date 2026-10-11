@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { billingCycleSchema, planSchema, provisionResultSchema } from "./platform.js";
+import { companyNameSchema } from "./company-name.js";
 
 /**
  * Wire contracts for the public self-serve signup flow
@@ -41,7 +42,7 @@ export const signupCheckCodeResponseSchema = z.object({
  */
 export const startSignupRequestSchema = z.object({
   code: slugSchema,
-  nameAr: z.string().trim().min(1),
+  nameAr: companyNameSchema,
   nameEn: z.string().trim().min(1).nullable().optional(),
   ownerEmail: emailRequestSchema,
   ownerNameAr: z.string().trim().min(1),

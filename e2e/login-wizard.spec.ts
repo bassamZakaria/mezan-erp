@@ -153,6 +153,10 @@ test.describe("First-run wizard", () => {
     const adminStep = wizardStep(page, "إنشاء حساب المسؤول");
     await expect(adminStep).toBeVisible();
 
+    await page.getByRole("button", { name: "التالي" }).click();
+    await expect(adminStep.getByRole("alert")).toHaveText("اسم المنشأة مطلوب.");
+    await adminStep.getByLabel("اسم المنشأة").fill("متجر سارة");
+
     // Missing name/email.
     await page.getByRole("button", { name: "التالي" }).click();
     await expect(adminStep.getByRole("alert")).toHaveText("الاسم الكامل والبريد الإلكتروني مطلوبان.");

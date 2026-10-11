@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { createCloudApp, type CloudApp } from "./cloud-app.js";
+import { COMPANY_NAME_MAX_LENGTH } from "@mezan/domain";
 import { parseEnv } from "./env.js";
 
 const T = "2026-01-15T00:00:00.000Z";
@@ -60,15 +61,18 @@ function post(app: CloudApp, route: string, body: unknown): Promise<Response> {
   );
 }
 
-async function startAndReadToken(app: CloudApp, code: string): Promise<string> {
-  const started = await post(app, "/api/signup", {
-    code,
-    nameAr: "متجر الياسمين",
-    ownerEmail: `owner@${code}.example`,
-    ownerNameAr: "سارة",
-    planId: "PLAN-CORE",
-    billingCycle: "monthly",
-  });
+function signupBody(code: string, nameAr: string): Record<string, string> {
+  return { code, nameAr, ownerEmail: `owner@${code}.example`, ownerNameAr: "سارة", planId: "PLAN-CORE", billingCycle: "monthly" };
+}
+
+async function platformBearer(app: CloudApp): Promise<string> {
+  const login = await post(app, "/api/platform/auth/login", { email: OWNER_EMAIL, password: OWNER_PASSWORD });
+  expect(login.status).toBe(200);
+  return ((await login.json()) as { token: string }).token;
+}
+
+async function startAndReadToken(app: CloudApp, code: string, nameAr = "متجر الياسمين"): Promise<string> {
+  const started = await post(app, "/api/signup", signupBody(code, nameAr));
   expect(started.status).toBe(201);
   const { devVerifyUrl } = (await started.json()) as { devVerifyUrl: string };
   return new URL(devVerifyUrl).searchParams.get("token") ?? "";
@@ -211,6 +215,78 @@ describe("self-serve signup routes", () => {
     expect(body.error).toBe("SIGNUP_TOKEN_INVALID");
     expect(body.alreadyVerified).toBeUndefined();
     expect(body.tenant).toBeUndefined();
+  });
+
+  it("refuses at signup a company name longer than the claim accepts, instead of burning the link on a tenant that can never be claimed", async () => {
+    const app = await boot();
+
+    const refused = await post(app, "/api/signup", signupBody("toolong", "ش".repeat(COMPANY_NAME_MAX_LENGTH + 1)));
+
+    expect(refused.status).toBe(400);
+    expect(((await refused.json()) as { error: string }).error).toBe("VALIDATION_ERROR");
+    expect(await listedTenantCodes(app)).not.toContain("toolong");
+  });
+
+  it("activates a tenant whose company name is exactly as long as the claim accepts", async () => {
+    const app = await boot();
+    const longest = "ش".repeat(COMPANY_NAME_MAX_LENGTH);
+    const token = await startAndReadToken(app, "longest", `  ${longest}  `);
+
+    const verified = await post(app, "/api/signup/verify", { token });
+
+    expect(verified.status).toBe(200);
+    const body = (await verified.json()) as VerifyBody;
+    expect(body.tenant.status).toBe("active");
+    expect(body.adminPin).toMatch(/^\d{6}$/);
+    const login = await app.root.fetch(
+      new Request("http://cloud.internal/api/auth/login", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-mezan-tenant": "longest" },
+        body: JSON.stringify({ username: "owner@longest.example", pin: body.adminPin }),
+      }),
+    );
+    expect(((await login.json()) as { tenantName: string }).tenantName).toBe(longest);
+  });
+
+  it.each([
+    ["a right-to-left override", "شركة \u202Eevil"],
+    ["a directional isolate", "شركة \u2066evil\u2069"],
+    ["a line break", "شركة\nالنيل"],
+    ["a control character", "شركة\u0007النيل"],
+  ])("refuses a company name carrying %s at signup", async (_what, nameAr) => {
+    const app = await boot();
+
+    const refused = await post(app, "/api/signup", signupBody("crafted", nameAr));
+
+    expect(refused.status).toBe(400);
+    expect(((await refused.json()) as { error: string }).error).toBe("VALIDATION_ERROR");
+  });
+
+  it("keeps the joiners Arabic-script names are written with", async () => {
+    const app = await boot();
+
+    const accepted = await post(app, "/api/signup", signupBody("joiner", "می\u200Cخواهم للتجارة"));
+
+    expect(accepted.status).toBe(201);
+  });
+
+  it.each([
+    ["longer than the claim accepts", "ش".repeat(COMPANY_NAME_MAX_LENGTH + 1)],
+    ["carrying a right-to-left override", "شركة \u202Eevil"],
+  ])("refuses a tenant created in the console with a name %s, and creates nothing", async (_what, nameAr) => {
+    const app = await boot();
+    const token = await platformBearer(app);
+
+    const refused = await app.root.fetch(
+      new Request("http://cloud.internal/api/platform/tenants", {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+        body: JSON.stringify({ ...signupBody("console", nameAr), trial: true }),
+      }),
+    );
+
+    expect(refused.status).toBe(400);
+    expect(await listedTenantCodes(app)).not.toContain("console");
   });
 
   it("refuses a token nobody was issued", async () => {

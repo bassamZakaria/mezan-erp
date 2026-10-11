@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { scopeSelectionSchema } from "./roles.js";
+import { companyNameSchema } from "./company-name.js";
 
 /**
  * Real desktop login (docs/archive/plan.md — username + PIN). `POST /auth/login`
@@ -18,6 +19,9 @@ export const loginRequestSchema = z.object({
   username: z.string().min(1),
   pin: z.string().regex(/^\d{6}$/),
 });
+
+/** What an anonymous caller is told a claimed tenant is called: the product's name, the same for every tenant. */
+export const UNDISCLOSED_TENANT_NAME = "Mezan";
 
 /** The authenticated session — identity + effective authority. */
 export const sessionSchema = z.object({
@@ -59,12 +63,7 @@ export const bootstrapAdminRequestSchema = z.object({
   /** The first admin's email — and, from this moment on, their login. */
   email: z.string().trim().toLowerCase().email(),
   pin: z.string().regex(/^\d{6}$/),
-  /**
-   * The company being claimed, as opposed to `nameAr`, which is the admin's own
-   * name. Cloud provisioning sends the name the tenant was created with; the
-   * desktop wizard sends none and the install keeps its seeded name.
-   */
-  companyName: z.string().trim().min(1).max(200).nullable().default(null),
+  companyName: companyNameSchema,
 });
 
 /** Result of the idempotent `POST /bootstrap/seed` — what the empty-DB seed created (or found). */

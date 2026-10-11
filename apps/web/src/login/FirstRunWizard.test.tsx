@@ -8,8 +8,11 @@ import { renderWithProviders, stubTransport, testAdminSession } from "../data/te
 const EMPTY_COUNTS = { accounts: 0, taxRates: 0, branches: 0, warehouses: 0, fiscalPeriods: 0, users: 0 };
 const SEEDED_COUNTS = { accounts: 30, taxRates: 1, branches: 1, warehouses: 1, fiscalPeriods: 12, users: 1 };
 
+const claims: unknown[] = [];
+
 function wizardTransport() {
   let counts = EMPTY_COUNTS;
+  claims.length = 0;
   return stubTransport({
     "GET /tenant": () => ({ body: { name: "Cyag" } }),
     "GET /bootstrap/status": () => ({ body: counts }),
@@ -17,7 +20,10 @@ function wizardTransport() {
       counts = SEEDED_COUNTS;
       return { body: counts };
     },
-    "POST /bootstrap/admin": () => ({ status: 201, body: testAdminSession }),
+    "POST /bootstrap/admin": (init) => {
+      claims.push(JSON.parse(String(init?.body)));
+      return { status: 201, body: testAdminSession };
+    },
   });
 }
 
@@ -31,7 +37,10 @@ function goToAdminStep() {
   fireEvent.click(screen.getByRole("button", { name: "التالي" }));
 }
 
-function fillAdminForm() {
+const COMPANY = "متجر الياسمين";
+
+function fillAdminForm(company = COMPANY) {
+  fireEvent.change(screen.getByLabelText("اسم المنشأة", { exact: false }), { target: { value: company } });
   fireEvent.change(screen.getByLabelText("الاسم الكامل"), { target: { value: "سارة حسن" } });
   // `exact: false`: the email label's `<label>` wrapper also carries a hint
   // sentence ("هذا البريد هو اسم الدخول لهذا الحساب.") as a sibling of the
@@ -77,6 +86,7 @@ describe.each(["light", "dark"] as const)("FirstRunWizard (%s theme)", (theme) =
     goToAdminStep();
     expect(screen.getByRole("heading", { name: "إنشاء حساب المسؤول" })).toBeInTheDocument();
 
+    fireEvent.change(screen.getByLabelText("اسم المنشأة", { exact: false }), { target: { value: COMPANY } });
     fireEvent.click(screen.getByRole("button", { name: "التالي" }));
     expect(screen.getByRole("alert")).toHaveTextContent("الاسم الكامل والبريد الإلكتروني مطلوبان");
 
@@ -88,6 +98,7 @@ describe.each(["light", "dark"] as const)("FirstRunWizard (%s theme)", (theme) =
   it("rejects a PIN that isn't 6 digits, then a PIN whose confirmation doesn't match", () => {
     renderWizard();
     goToAdminStep();
+    fireEvent.change(screen.getByLabelText("اسم المنشأة", { exact: false }), { target: { value: COMPANY } });
     fireEvent.change(screen.getByLabelText("الاسم الكامل"), { target: { value: "سارة حسن" } });
     fireEvent.change(screen.getByLabelText("البريد الإلكتروني", { exact: false }), {
       target: { value: "sara@cyag.example" },
@@ -102,6 +113,45 @@ describe.each(["light", "dark"] as const)("FirstRunWizard (%s theme)", (theme) =
     fireEvent.change(screen.getByLabelText("تأكيد رمز PIN"), { target: { value: "222222" } });
     fireEvent.click(screen.getByRole("button", { name: "التالي" }));
     expect(screen.getByRole("alert")).toHaveTextContent("رمز PIN وتأكيده غير متطابقين.");
+  });
+
+  it("sends the company's own name with the claim, so the install never prints the seeded one", async () => {
+    renderWizard();
+    goToAdminStep();
+    fillAdminForm(`  ${COMPANY}  `);
+    fireEvent.click(screen.getByRole("button", { name: "التالي" }));
+    await screen.findByRole("heading", { name: "تهيئة البيانات الأساسية" });
+
+    expect(claims).toEqual([{ nameAr: "سارة حسن", nameEn: null, email: "sara@cyag.example", pin: "432198", companyName: COMPANY }]);
+  });
+
+  it("does not claim the install until the company is named", () => {
+    renderWizard();
+    goToAdminStep();
+    fillAdminForm("   ");
+    fireEvent.click(screen.getByRole("button", { name: "التالي" }));
+
+    expect(screen.getByRole("alert")).toHaveTextContent("اسم المنشأة مطلوب.");
+    expect(claims).toEqual([]);
+    expect(screen.getByRole("heading", { name: "إنشاء حساب المسؤول" })).toBeInTheDocument();
+  });
+
+  it("refuses a company name carrying a direction override, and caps its length on the field", () => {
+    renderWizard();
+    goToAdminStep();
+    fillAdminForm("شركة \u202Eevil");
+    fireEvent.click(screen.getByRole("button", { name: "التالي" }));
+
+    expect(screen.getByRole("alert")).toHaveTextContent("اسم المنشأة يحتوي على رموز غير مسموح بها.");
+    expect(claims).toEqual([]);
+    expect(screen.getByLabelText("اسم المنشأة", { exact: false })).toHaveAttribute("maxlength", "200");
+  });
+
+  it("greets a new install without the seeded company's name", async () => {
+    renderWizard();
+    await waitFor(() => expect(screen.getByText(/إعداد نظام ميزان/)).toBeInTheDocument());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(document.body).not.toHaveTextContent("Cyag");
   });
 
   it("requires the base data to exist before التالي, and تشغيل التهيئة seeds it for real", async () => {

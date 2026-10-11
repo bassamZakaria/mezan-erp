@@ -573,7 +573,7 @@ describe("what the LAN socket exposes to a stranger (D109)", () => {
     const takeover = await lanFetch(port, "/bootstrap/admin", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ nameAr: "دخيل", nameEn: null, email: "x@y.com", pin: "123456" }),
+      body: JSON.stringify({ nameAr: "دخيل", nameEn: null, email: "x@y.com", pin: "123456", companyName: "متجر الاختبار" }),
     });
     expect(takeover.status).toBe(404);
     expect((await backend.app.fetch(new Request("http://ipc/bootstrap/status"))).status).toBe(200);

@@ -14,7 +14,7 @@ import {
   type SettingsRepository,
   type User,
 } from "@mezan/domain";
-import { loginRequestSchema, bootstrapAdminRequestSchema, type SessionDTO } from "@mezan/contracts";
+import { loginRequestSchema, bootstrapAdminRequestSchema, UNDISCLOSED_TENANT_NAME, type SessionDTO } from "@mezan/contracts";
 import {
   createLoginThrottle,
   readSessionToken,
@@ -52,12 +52,7 @@ export interface AuthRoutesDeps {
   readonly resolveEntitlements?: (c: Context) => Promise<Entitlements | null | undefined> | Entitlements | null | undefined;
 }
 
-/**
- * What an anonymous caller is told a claimed tenant is called: the product's
- * name, identical for every tenant, so the answer carries nothing about whose
- * books these are.
- */
-export const UNDISCLOSED_TENANT_NAME = "Mezan";
+export { UNDISCLOSED_TENANT_NAME };
 
 async function tenantName(settings: SettingsRepository): Promise<string> {
   const s = await settings.get();
@@ -201,10 +196,10 @@ export function createAuthRoutes(deps: AuthRoutesDeps) {
    * anonymous, so a name written before the claim is recorded would let a
    * refused or failed request rename somebody else's tenant.
    */
-  async function recordTenantClaim(at: string, companyName: string | null): Promise<void> {
+  async function recordTenantClaim(at: string, companyName: string): Promise<void> {
     const settings = await deps.settings.get();
     if (!settings || settings.tenantClaimedAt) return;
-    await deps.settings.save({ ...settings, tenantClaimedAt: at, companyName: companyName ?? settings.companyName });
+    await deps.settings.save({ ...settings, tenantClaimedAt: at, companyName });
   }
 
   /**

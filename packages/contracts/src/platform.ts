@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { entitlementsSchema } from "./entitlements.js";
 import { nonNegativeMoneyString } from "./money-string.js";
+import { companyNameSchema } from "./company-name.js";
 
 /**
  * Wire contracts for the platform console
@@ -77,7 +78,7 @@ export const billingCycleSchema = z.enum(["monthly", "yearly"]);
 
 export const createTenantRequestSchema = z.object({
   code: slugSchema,
-  nameAr: z.string().min(1),
+  nameAr: companyNameSchema,
   nameEn: z.string().min(1).nullable().optional(),
   ownerEmail: emailRequestSchema,
   ownerNameAr: z.string().min(1),
@@ -139,9 +140,7 @@ export enum SubscriptionStatusCode {
   Cancelled = "cancelled",
 }
 
-const SUBSCRIPTION_STATUSES = ["trialing", "active", "past_due", "suspended", "cancelled"] as const satisfies readonly `${SubscriptionStatusCode}`[];
-
-export const subscriptionStatusSchema = z.enum(SUBSCRIPTION_STATUSES);
+export const subscriptionStatusSchema = z.nativeEnum(SubscriptionStatusCode);
 
 export const subscriptionSchema = z.object({
   id: z.string().min(1),
@@ -232,9 +231,7 @@ export enum LicenseStateCode {
   Unlicensed = "UNLICENSED",
 }
 
-const LICENSE_STATES = ["ACTIVE", "GRACE", "READ_ONLY", "INVALID", "UNLICENSED"] as const satisfies readonly `${LicenseStateCode}`[];
-
-export const licenseStateNameSchema = z.enum(LICENSE_STATES);
+export const licenseStateNameSchema = z.nativeEnum(LicenseStateCode);
 
 export const licenseStateReasonSchema = z.enum([
   "TENANT_ARCHIVED",

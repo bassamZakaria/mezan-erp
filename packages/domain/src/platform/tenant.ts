@@ -7,6 +7,7 @@ import {
   TenantCodeTakenError,
   TenantNotFoundError,
 } from "./errors.js";
+import { CompanyNameProblem, companyNameProblem, companyNameProblemAr } from "./company-name.js";
 
 export enum TenantStatusCode {
   Provisioning = "provisioning",
@@ -53,7 +54,9 @@ function validate(cmd: CreateTenantCommand): string[] {
   const reasons: string[] = [];
   if (cmd.id.trim() === "") reasons.push("المعرّف مطلوب");
   if (!isValidSlug(cmd.code)) reasons.push("الرمز يجب أن يكون من 3 إلى 32 حرفًا إنجليزيًا صغيرًا أو رقمًا أو شرطة داخلية");
-  if (cmd.nameAr.trim() === "") reasons.push("الاسم بالعربية مطلوب");
+  const nameProblem = companyNameProblem(cmd.nameAr);
+  if (nameProblem === CompanyNameProblem.Empty) reasons.push("الاسم بالعربية مطلوب");
+  else if (nameProblem) reasons.push(companyNameProblemAr(nameProblem));
   if (normalizeEmail(cmd.ownerEmail) === "") reasons.push("بريد المالك مطلوب");
   return reasons;
 }

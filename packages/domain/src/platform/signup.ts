@@ -1,5 +1,6 @@
 import { emailDomain, normalizeEmail } from "../users/save-user.js";
 import { isValidSlug } from "./slug.js";
+import { CompanyNameProblem, companyNameProblem, companyNameProblemAr } from "./company-name.js";
 import { isoTimestamp } from "./validation.js";
 import type { BillingCycle } from "./subscription.js";
 import type { PlanRepository } from "./plan.js";
@@ -118,7 +119,9 @@ function validate(cmd: StartSignupCommand): string[] {
   const reasons: string[] = [];
   if (cmd.id.trim() === "") reasons.push("المعرّف مطلوب");
   if (!isValidSlug(cmd.code)) reasons.push("رمز المنشأة يجب أن يكون من 3 إلى 32 حرفًا إنجليزيًا صغيرًا أو رقمًا أو شرطة داخلية");
-  if (cmd.nameAr.trim() === "") reasons.push("اسم المنشأة بالعربية مطلوب");
+  const nameProblem = companyNameProblem(cmd.nameAr);
+  if (nameProblem === CompanyNameProblem.Empty) reasons.push("اسم المنشأة بالعربية مطلوب");
+  else if (nameProblem) reasons.push(companyNameProblemAr(nameProblem));
   if (cmd.ownerNameAr.trim() === "") reasons.push("اسم المالك مطلوب");
   if (normalizeEmail(cmd.ownerEmail) === "") reasons.push("البريد الإلكتروني مطلوب");
   if (cmd.tokenHash.trim() === "") reasons.push("رمز التفعيل مطلوب");

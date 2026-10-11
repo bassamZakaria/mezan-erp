@@ -3,7 +3,7 @@ import "@testing-library/jest-dom/vitest";
 import { beforeEach, describe, expect, it } from "vitest";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { Route, Routes } from "react-router";
-import type { PlanDTO, TenantSummaryDTO } from "@mezan/contracts";
+import { LicenseStateCode, SubscriptionStatusCode, type PlanDTO, type TenantSummaryDTO } from "@mezan/contracts";
 import { TenantDetailPage } from "./TenantDetailPage";
 import { renderWithPlatformProviders, stubPlatformTransport, testPlatformSession } from "./test-support";
 import type { PlatformSession } from "./session";
@@ -58,7 +58,7 @@ function makeSummary(overrides: Partial<TenantSummaryDTO["tenant"]> = {}, subOve
       id: "sub-1",
       tenantId: "tenant-1",
       planId: "plan-1",
-      status: "active",
+      status: SubscriptionStatusCode.Active,
       billingCycle: "monthly",
       addOnModules: [],
       extraSeats: 0,
@@ -74,7 +74,7 @@ function makeSummary(overrides: Partial<TenantSummaryDTO["tenant"]> = {}, subOve
       ...subOverrides,
     },
     plan,
-    licenseState: { state: "ACTIVE", canWrite: true, usable: true },
+    licenseState: { state: LicenseStateCode.Active, canWrite: true, usable: true },
     entitlements: null,
     payments: [],
   };
@@ -323,8 +323,8 @@ describe("TenantDetailPage", () => {
 
   it("resuming a suspended subscription requires a reason, and confirming sends it to the server", async () => {
     let resumedBody: unknown = null;
-    const summary = makeSummary({}, { status: "suspended" });
-    const resumed = { ...summary.subscription!, status: "active" as const };
+    const summary = makeSummary({}, { status: SubscriptionStatusCode.Suspended });
+    const resumed = { ...summary.subscription!, status: SubscriptionStatusCode.Active };
     const transport = stubPlatformTransport({
       "GET /tenants/tenant-1": () => ({ body: resumedBody ? { ...summary, subscription: resumed } : summary }),
       "GET /plans": () => ({ body: [plan, plan2] }),

@@ -7,16 +7,15 @@ import {
   TextInput,
 } from "@mezan/ui";
 import type { BootstrapSeedResultDTO } from "@mezan/contracts";
+import { COMPANY_NAME_MAX_LENGTH, CompanyNameProblem, companyNameProblem } from "@mezan/domain";
 import {
   isDesktopHost,
   useBootstrapSeed,
   useBootstrapStatus,
   useCreateFirstAdmin,
   useDesktopLicence,
-  useTenantInfo,
 } from "../data/hooks";
 import { useLicenceImport } from "../data/license-hooks";
-import { loadTenantCode } from "../data/session";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { PortableImportPanel } from "../settings/PortableImportPanel";
 
@@ -50,6 +49,12 @@ const STEPS = [
 ] as const satisfies readonly { key: string; labelKey: AppTranslationKey }[];
 
 type StepKey = (typeof STEPS)[number]["key"];
+
+const COMPANY_NAME_ERROR: Record<CompanyNameProblem, AppTranslationKey> = {
+  [CompanyNameProblem.Empty]: "firstRun.companyNameRequired",
+  [CompanyNameProblem.TooLong]: "firstRun.companyNameTooLong",
+  [CompanyNameProblem.ForbiddenCharacter]: "firstRun.companyNameForbidden",
+};
 
 export interface FirstRunWizardProps {
   onFinish: () => void;
@@ -105,13 +110,13 @@ export function FirstRunWizard({ onFinish, onCancel }: FirstRunWizardProps) {
 
   const seedMutation = useBootstrapSeed();
   const seedStatus = useBootstrapStatus();
-  const tenantName = useTenantInfo(loadTenantCode()).data?.name ?? "";
   const createAdmin = useCreateFirstAdmin();
 
   const licence = useDesktopLicence();
   const importLicence = useLicenceImport();
   const licenceStatus = licence.data && licence.data.ok ? licence.data : null;
 
+  const [companyName, setCompanyName] = useState("");
   const [adminName, setAdminName] = useState("");
   const [adminEmail, setAdminEmail] = useState("");
   const [adminPin, setAdminPin] = useState("");
@@ -135,6 +140,11 @@ export function FirstRunWizard({ onFinish, onCancel }: FirstRunWizardProps) {
 
 
   function handleAdminNext() {
+    const nameProblem = companyNameProblem(companyName);
+    if (nameProblem) {
+      setAdminError(t(COMPANY_NAME_ERROR[nameProblem]));
+      return;
+    }
     if (!adminName.trim() || !adminEmail.trim()) {
       setAdminError(t("firstRun.theFullNameAndThe"));
       return;
@@ -154,7 +164,7 @@ export function FirstRunWizard({ onFinish, onCancel }: FirstRunWizardProps) {
     }
     // Persist the admin for real and establish their session, then advance.
     createAdmin.mutate(
-      { nameAr: adminName.trim(), nameEn: null, email: adminEmail.trim().toLowerCase(), pin: adminPin, companyName: null },
+      { nameAr: adminName.trim(), nameEn: null, email: adminEmail.trim().toLowerCase(), pin: adminPin, companyName: companyName.trim() },
       {
         onSuccess: () => {
           setAdminCreated(true);
@@ -216,7 +226,7 @@ export function FirstRunWizard({ onFinish, onCancel }: FirstRunWizardProps) {
           <BrandMark className="h-[28px] w-[28px] text-brand" />
           <div>
             <h1 className="font-display text-[17px] font-bold text-ink">{t("firstRun.firstRunWizard")}</h1>
-            <p className="text-[11.5px] text-ink-faint">{t("firstRun.settingMezanUpForA")} {tenantName} {t("firstRun.forTheFirstTime")}</p>
+            <p className="text-[11.5px] text-ink-faint">{t("firstRun.settingMezanUp")}</p>
           </div>
         </div>
 
@@ -286,6 +296,11 @@ export function FirstRunWizard({ onFinish, onCancel }: FirstRunWizardProps) {
             <h2 className="font-display text-[15px] font-bold text-ink">{t("firstRun.createTheAdministratorAccount")}</h2>
             <p className="mt-[4px] text-[12.5px] text-ink-muted">{t("firstRun.thisAccountWillHoldFull")}</p>
             <div className="mt-[14px] grid grid-cols-1 gap-[12px] sm:grid-cols-2">
+              <label className="flex flex-col gap-[6px] sm:col-span-2">
+                <span className="text-[12.5px] font-semibold text-ink">{t("firstRun.companyName")}</span>
+                <TextInput value={companyName} maxLength={COMPANY_NAME_MAX_LENGTH} required onChange={(e) => setCompanyName(e.target.value)} />
+                <span className="text-[11px] text-ink-faint">{t("firstRun.companyNameHint")}</span>
+              </label>
               <label className="flex flex-col gap-[6px]">
                 <span className="text-[12.5px] font-semibold text-ink">{t("firstRun.fullName")}</span>
                 <TextInput value={adminName} onChange={(e) => setAdminName(e.target.value)} />

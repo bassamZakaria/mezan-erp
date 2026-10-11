@@ -118,7 +118,7 @@ async function bootstrapAdmin(router: TenantRouter, code: string): Promise<strin
     new Request("http://ignored/bootstrap/admin", {
       method: "POST",
       headers: { "content-type": "application/json", [TENANT_HEADER]: code },
-      body: JSON.stringify({ nameAr: "المدير", email: `owner-${code}@example.com`, pin: "123456" }),
+      body: JSON.stringify({ nameAr: "المدير", email: `owner-${code}@example.com`, pin: "123456", companyName: "متجر الاختبار" }),
     }),
   );
   expect(res.status).toBe(201);
@@ -441,7 +441,7 @@ describe("createTenantRouter", () => {
         new Request("http://ignored/bootstrap/admin", {
           method: "POST",
           headers: { "content-type": "application/json", [TENANT_HEADER]: "susp" },
-          body: JSON.stringify({ nameAr: "المدير", email: "owner-susp@example.com", pin: "123456" }),
+          body: JSON.stringify({ nameAr: "المدير", email: "owner-susp@example.com", pin: "123456", companyName: "متجر الاختبار" }),
         }),
       );
       expect(res.status).toBe(201);

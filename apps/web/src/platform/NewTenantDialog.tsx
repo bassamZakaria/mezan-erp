@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Button, SidePanel } from "@mezan/ui";
 import type { BillingCycleDTO, CreateTenantRequestDTO, PlanDTO, ProvisionResultDTO } from "@mezan/contracts";
 import { useAppTranslation } from "../i18n";
+import { COMPANY_NAME_MAX_LENGTH } from "@mezan/contracts";
 import { FormError, SelectField, TextField, ToggleField } from "../settings/form-controls";
 import { PlatformApiError } from "./api";
 import { useCreateTenantMutation } from "./hooks";
@@ -134,7 +135,7 @@ export function NewTenantDialog({ open, onClose, plans }: NewTenantDialogProps) 
             onChange={(v) => setDraft((d) => ({ ...d, code: v.trim().toLowerCase() }))}
             hint={t("platform.newTenant.codeHint")}
           />
-          <TextField label={t("platform.newTenant.nameAr")} value={draft.nameAr} onChange={(v) => setDraft((d) => ({ ...d, nameAr: v }))} />
+          <TextField label={t("platform.newTenant.nameAr")} value={draft.nameAr} maxLength={COMPANY_NAME_MAX_LENGTH} onChange={(v) => setDraft((d) => ({ ...d, nameAr: v }))} />
           <TextField
             label={t("platform.newTenant.nameEn")}
             value={draft.nameEn}

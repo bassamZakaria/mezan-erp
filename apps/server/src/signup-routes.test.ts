@@ -457,7 +457,8 @@ describe("the platform owner resets a tenant owner's PIN", () => {
 
   it("follows the owner to a new email changed inside the tenant, so the reset still reaches their account", async () => {
     const app = await boot();
-    const first = (await (await post(app, "/api/signup/verify", { token: await startAndReadToken(app, "moved") })).json()) as VerifyBody;
+    const linkToken = await startAndReadToken(app, "moved");
+    const first = (await (await post(app, "/api/signup/verify", { token: linkToken })).json()) as VerifyBody;
     const session = ((await (await cloudLogin(app, "moved", first.adminPin ?? "")).json()) as { token: string }).token;
     const tenantHeaders = { authorization: `Bearer ${session}`, "x-mezan-tenant": "moved", "content-type": "application/json" };
     const users = (await (await app.root.fetch(new Request("http://cloud.internal/api/users", { headers: tenantHeaders }))).json()) as Record<string, unknown>[];
@@ -478,6 +479,9 @@ describe("the platform owner resets a tenant owner's PIN", () => {
 
     expect(changed.status).toBe(200);
     expect(await recordedOwner()).toBe("sara@moved-shop.example");
+    const reopened = await post(app, "/api/signup/verify", { token: linkToken });
+    expect(reopened.status).toBe(200);
+    expect((await reopened.json()) as VerifyBody).toMatchObject({ adminEmail: "sara@moved-shop.example", adminPin: null, alreadyVerified: true });
     const reset = await resetOwnerPin(app, first.tenant.id, bearer);
     expect(reset.status).toBe(200);
     const body = (await reset.json()) as { adminEmail: string; adminPin: string };

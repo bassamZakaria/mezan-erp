@@ -106,6 +106,8 @@ export interface SignupRequestRepository {
   renewProvisioning(tokenHash: string, claimId: string, nowIso: string): Promise<boolean>;
   provisioningClaimedAt(tokenHash: string): Promise<string | null>;
   releaseProvisioning(tokenHash: string, claimId: string): Promise<void>;
+  /** A used link is matched to its tenant by owner email, so it has to follow the owner when the tenant's recorded email moves. */
+  followOwnerEmail(code: string, before: string, after: string): Promise<void>;
 }
 
 export interface StartSignupCommand {

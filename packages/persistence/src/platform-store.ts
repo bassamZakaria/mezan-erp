@@ -742,6 +742,7 @@ class SqliteSignupRequestStore implements SignupRequestRepository {
   private readonly claim: (tokenHash: string, claimId: string, nowIso: string, staleBeforeIso: string) => boolean;
   private readonly release: Database.Statement;
   private readonly renew: Database.Statement;
+  private readonly followOwner: Database.Statement;
   private readonly claimedAt: Database.Statement;
 
   constructor(sqlite: Database.Database) {
@@ -756,6 +757,7 @@ class SqliteSignupRequestStore implements SignupRequestRepository {
       })
       .immediate;
     this.release = sqlite.prepare(`DELETE FROM signup_provision_claim WHERE token_hash = ? AND claim_id = ?`);
+    this.followOwner = sqlite.prepare(`UPDATE signup_request SET owner_email = ? WHERE code = ? AND owner_email = ? AND status = ?`);
     this.renew = sqlite.prepare(`UPDATE signup_provision_claim SET claimed_at = ? WHERE token_hash = ? AND claim_id = ?`);
     this.claimedAt = sqlite.prepare(`SELECT claimed_at FROM signup_provision_claim WHERE token_hash = ?`);
     this.upsert = sqlite.prepare(
@@ -807,6 +809,10 @@ class SqliteSignupRequestStore implements SignupRequestRepository {
   async provisioningClaimedAt(tokenHash: string): Promise<string | null> {
     const row = this.claimedAt.get(tokenHash) as { claimed_at: string } | undefined;
     return row?.claimed_at ?? null;
+  }
+
+  async followOwnerEmail(code: string, before: string, after: string): Promise<void> {
+    this.followOwner.run(after, code, before, SignupRequestStatus.Verified);
   }
 
   async releaseProvisioning(tokenHash: string, claimId: string): Promise<void> {

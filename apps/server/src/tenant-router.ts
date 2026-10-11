@@ -104,6 +104,7 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
       const tenant = await followTenantOwnerEmail({ code, before: change.before, after: change.after, now: at }, options.platform.stores.tenants);
       if (!tenant || !before) return;
       try {
+        await options.platform.stores.signupRequests.followOwnerEmail(code, before.ownerEmail, tenant.ownerEmail);
         await recordSecurityEvent(options.platform.audit, {
           module: "platform",
           entityType: "PLATFORM",
@@ -116,6 +117,7 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
         });
       } catch (err) {
         await options.platform.stores.tenants.save(before);
+        await options.platform.stores.signupRequests.followOwnerEmail(code, tenant.ownerEmail, before.ownerEmail);
         throw err;
       }
     },

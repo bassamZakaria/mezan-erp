@@ -115,6 +115,7 @@ import {
 import { createSettingsRoutes } from "./settings-routes.js";
 import { tenantTimeZoneMiddleware } from "./tenant-day.js";
 import { createCurrencyCheck, type CurrencyCheck } from "./currency-policy.js";
+import { postingRefusal } from "./posting-refusal.js";
 import { createBranchesRoutes } from "./branches-routes.js";
 import { createWarehousesRoutes } from "./warehouses-routes.js";
 import {
@@ -1759,6 +1760,8 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
    * JSON body in the shape every client already parses.
    */
   app.onError((err, c) => {
+    const refusal = postingRefusal(c, err);
+    if (refusal) return refusal;
     try {
       console.error(`[api] unhandled error on ${c.req.method} ${c.req.path}`, err);
     } catch {

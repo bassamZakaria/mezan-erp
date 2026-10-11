@@ -822,3 +822,28 @@ describe("the tenant's VAT switch reaches every path that raises a sale (D79 rou
     expect((await call("GET", "/sales-invoices/T-INV-CLASSIFY-SYSTEM")).body.lines[0].taxRateId).toBeNull();
   });
 });
+
+describe("posting into a month whose VAT return is filed (D79 round 5)", () => {
+  it("is refused with an Arabic 422 where a sales or a purchase invoice is confirmed, never a 500", async () => {
+    const filings = rowsOf((await call("GET", "/gl/vat-filings")).body) as { periodFrom: string; periodTo: string }[];
+    if (!filings.some((f) => f.periodFrom <= "2026-05-10" && f.periodTo >= "2026-05-10")) {
+      expect((await call("POST", "/gl/vat-filings", { id: "T-VATF-2026-05", periodFrom: "2026-05-01", periodTo: "2026-05-31", netAmount: "0.00" })).status).toBe(201);
+    }
+    const refusals: [string, Reply][] = [];
+
+    await sale("T-FILED-MAY", NOT_EXEMPT_CUSTOMER, [serviceLine("L1", { taxRateId: VAT_RATE })], { date: "2026-05-10", dueDate: "2026-06-10" });
+    refusals.push(["sales invoice confirm", await call("POST", "/sales-invoices/T-FILED-MAY/confirm", {})]);
+
+    await call("POST", "/purchases/invoices", {
+      id: "T-PI-FILED-MAY", supplierId: "SUPP-DEMO-1", date: "2026-05-10", dueDate: "2026-06-10", branchId: BRANCH, warehouseId: WAREHOUSE,
+      lines: [{ itemId: null, kind: "expense", description: "خدمة", qty: "1", unitCost: "200", taxRateId: VAT_RATE }],
+    });
+    refusals.push(["purchase invoice confirm", await call("POST", "/purchases/invoices/T-PI-FILED-MAY/confirm", {})]);
+
+    for (const [route, reply] of refusals) {
+      expect([route, reply.status, reply.body?.error]).toEqual([route, 422, "VAT_PERIOD_ALREADY_FILED"]);
+      expect(reply.body.message).toMatch(/[؀-ۿ]/);
+    }
+    expect((await call("GET", "/sales-invoices/T-FILED-MAY")).body.status).toBe("draft");
+  });
+});

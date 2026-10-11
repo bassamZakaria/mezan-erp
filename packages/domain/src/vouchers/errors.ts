@@ -121,6 +121,16 @@ export class AllocationExceedsError extends Error {
   }
 }
 
+export class AllocationIdTakenError extends Error {
+  readonly code = "DUPLICATE_ALLOCATION";
+  readonly messageEn: string;
+  constructor(readonly allocationId: string) {
+    super("سبق تسجيل تخصيص بهذا المعرّف، فلم يُسجَّل هذا الطلب مرة ثانية.");
+    this.name = "AllocationIdTakenError";
+    this.messageEn = "An allocation is already recorded under this id, so this request was not recorded a second time.";
+  }
+}
+
 /** Raised when reversing an allocation that is already reversed. */
 export class AllocationAlreadyReversedError extends Error {
   readonly code = "ALLOCATION_ALREADY_REVERSED";

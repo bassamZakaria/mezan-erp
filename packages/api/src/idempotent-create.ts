@@ -19,10 +19,18 @@ export interface IdempotentRequests {
   forget(before: string): number;
 }
 
+export enum IdempotencyKeyField {
+  Id = "id",
+  AllocationId = "allocationId",
+}
+
 export interface IdempotentCreate {
+  /** The route as it is mounted. A `:name` segment stands for one path segment, and each parent it names keeps its own keys. */
   readonly path: string;
-  /** Where the document a create made is read back from. */
-  readonly read: (id: string) => string;
+  /** The body field the client mints once per document it means to create. */
+  readonly key?: IdempotencyKeyField;
+  /** Where the document a create made is read back from, given its key and the path the create was sent to. */
+  readonly read: (key: string, requestPath: string) => string;
   /** How what was read fits into the first answer, when the create answers with more than the document. */
   readonly merge?: (first: unknown, current: unknown) => unknown;
 }
@@ -32,19 +40,34 @@ const byId =
   (id: string): string =>
     `${mount}/${encodeURIComponent(id)}`;
 
+const underTheRequest = (key: string, requestPath: string): string => `${requestPath}/${encodeURIComponent(key)}`;
+const parentOfTheRequest = (_key: string, requestPath: string): string => requestPath.slice(0, requestPath.lastIndexOf("/"));
+
 /** Creates that post money or stock on one request, or open a document a second copy of which would be confirmed too. */
 export const IDEMPOTENT_CREATES: readonly IdempotentCreate[] = [
   { path: "/sales-invoices", read: byId("/sales-invoices") },
   { path: "/vouchers", read: byId("/vouchers") },
   { path: "/vouchers/collections", read: byId("/vouchers"), merge: (first, voucher) => ({ ...(first as object), voucher }) },
+  { path: "/vouchers/:id/allocations", key: IdempotencyKeyField.AllocationId, read: underTheRequest },
   { path: "/sales-returns", read: byId("/sales-returns") },
   { path: "/sales-returns/from-invoice", read: byId("/sales-returns") },
   { path: "/purchase-returns", read: byId("/purchase-returns") },
   { path: "/purchases/invoices", read: byId("/purchases/invoices") },
   { path: "/cheques", read: byId("/cheques") },
+  { path: "/cheques/:id/allocations", key: IdempotencyKeyField.AllocationId, read: parentOfTheRequest },
   { path: "/landed-costs", read: byId("/landed-costs") },
   { path: "/gl/journal-entries", read: byId("/gl/journal-entries") },
+  { path: "/inventory/stock-adjustments/draft", read: byId("/inventory/stock-adjustments") },
+  { path: "/inventory/stock-transfers/draft", read: byId("/inventory/stock-transfers") },
 ];
+
+const SEGMENT_PARAMETER = /:[A-Za-z]\w*/g;
+const REGEXP_SPECIALS = /[.*+?^${}()|[\]\\]/g;
+
+function matcherOf(path: string): RegExp {
+  const literal = path.split(SEGMENT_PARAMETER).map((part) => part.replace(REGEXP_SPECIALS, "\\$&"));
+  return new RegExp(`^${literal.join("[^/]+")}$`);
+}
 
 const KEPT_FOR_MS = 7 * 24 * 60 * 60_000;
 const FORGET_EVERY_MS = 60 * 60_000;
@@ -85,9 +108,9 @@ interface Pending {
 
 class AnswerNotRecorded extends Error {}
 
-function clientKey(body: unknown): string | null {
+function clientKey(body: unknown, field: IdempotencyKeyField): string | null {
   if (body === null || typeof body !== "object") return null;
-  const id = (body as { id?: unknown }).id;
+  const id = (body as Partial<Record<IdempotencyKeyField, unknown>>)[field];
   return typeof id === "string" && id !== "" ? id : null;
 }
 
@@ -114,7 +137,11 @@ function canonical(value: unknown): unknown {
 export function idempotentCreate(options: IdempotentCreateOptions): IdempotentCreateMiddleware {
   const { requests, resolveAuthContext, audit, readCurrent } = options;
   const now = options.now ?? (() => new Date());
-  const creates = new Map((options.creates ?? IDEMPOTENT_CREATES).map((create) => [create.path, create]));
+  const declared = options.creates ?? IDEMPOTENT_CREATES;
+  const exact = new Map(declared.filter((create) => !create.path.includes(":")).map((create) => [create.path, create]));
+  const patterned = declared.filter((create) => create.path.includes(":")).map((create) => ({ create, matches: matcherOf(create.path) }));
+  const createAt = (path: string): IdempotentCreate | undefined =>
+    exact.get(path) ?? patterned.find((candidate) => candidate.matches.test(path))?.create;
   const inFlight = new Map<string, Promise<void>>();
   const pending = new WeakMap<Context, Pending>();
   let forgotAt: number | null = null;
@@ -128,9 +155,10 @@ export function idempotentCreate(options: IdempotentCreateOptions): IdempotentCr
 
   async function asItStandsNow(c: Context, create: IdempotentCreate, key: string, first: IdempotentAnswer): Promise<Response> {
     const headers = { "content-type": JSON_TYPE, [IDEMPOTENT_REPLAY_HEADER]: "true" };
-    const current = await readCurrent(c, create.read(key));
+    const readAt = create.read(key, c.req.path);
+    const current = await readCurrent(c, readAt);
     if (current.status === NOT_FOUND) {
-      const gone = options.stillExists ? !(await options.stillExists(c, create.read(key))) : true;
+      const gone = options.stillExists ? !(await options.stillExists(c, readAt)) : true;
       if (gone) return new Response(await current.text(), { status: NOT_FOUND, headers });
       return new Response(first.body, { status: first.status, headers });
     }
@@ -140,7 +168,7 @@ export function idempotentCreate(options: IdempotentCreateOptions): IdempotentCr
   }
 
   const replay: MiddlewareHandler = async (c, next) => {
-    const create = creates.get(c.req.path);
+    const create = createAt(c.req.path);
     if (!create || c.req.method !== MutatingMethod.Post) return next();
     await preloadBody(c);
     let body: unknown = null;
@@ -149,7 +177,7 @@ export function idempotentCreate(options: IdempotentCreateOptions): IdempotentCr
     } catch {
       return next();
     }
-    const key = clientKey(body);
+    const key = clientKey(body, create.key ?? IdempotencyKeyField.Id);
     if (key === null) return next();
     const caller = await resolveAuthContext(c);
     if (!caller.authenticated) return next();

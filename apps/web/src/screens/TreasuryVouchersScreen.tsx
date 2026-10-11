@@ -623,6 +623,12 @@ function VoucherDetailView({
   const [reversingAllocId, setReversingAllocId] = useState<string | null>(null);
   const [invoiceId, setInvoiceId] = useState("");
   const [allocAmount, setAllocAmount] = useState<number | null>(null);
+  const [allocationAlreadySaved, setAllocationAlreadySaved] = useState(false);
+  const allocationId = useDocumentId(() => {
+    setAllocationAlreadySaved(true);
+    setInvoiceId("");
+    setAllocAmount(null);
+  });
   const [reverseConfirmOpen, setReverseConfirmOpen] = useState(false);
   const [reverseDate, setReverseDate] = useState(todayIso());
 
@@ -666,10 +672,13 @@ function VoucherDetailView({
     setBusy(true);
     setError(null);
     try {
-      await createAllocation.mutateAsync({ voucherId: doc.id, body: { invoiceId, amount: String(allocAmount) } });
+      await createAllocation.mutateAsync({ voucherId: doc.id, body: { allocationId: allocationId.current(), invoiceId, amount: String(allocAmount) } });
+      allocationId.renew();
+      setAllocationAlreadySaved(false);
       setInvoiceId("");
       setAllocAmount(null);
     } catch (err) {
+      if (allocationId.recover(err)) return;
       setError(err instanceof Error ? err.message : t("vouchers.theAmountCouldNotBe"));
     } finally {
       setBusy(false);
@@ -815,6 +824,11 @@ function VoucherDetailView({
         {doc.status === "confirmed" && summary.needsAllocation ? (
           <Card className="flex flex-col gap-[12px] p-[16px_18px]">
             <h3 className="font-display text-[13.5px] font-bold text-ink">{t("vouchers.allocateAnAmountToAn")}</h3>
+            {allocationAlreadySaved ? (
+              <div role="status" className="rounded-md border border-warning bg-warning-soft px-[12px] py-[10px] text-[12.5px] text-warning-ink">
+                {t("vouchers.allocationAlreadySaved")}
+              </div>
+            ) : null}
             {openInvoices.length === 0 ? (
               <div className="text-[12.5px] text-ink-muted">{t("vouchers.thisPartyHasNoOpen")}</div>
             ) : (

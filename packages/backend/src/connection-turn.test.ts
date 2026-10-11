@@ -455,10 +455,169 @@ describe("a create sent again because its answer never arrived", () => {
     const t = await shop();
 
     for (const create of IDEMPOTENT_CREATES) {
-      const read = await t.call("GET", create.read("no-such-document"));
+      const readAt = create.read("no-such-document", create.path.replace(/:\w+/g, "no-such-parent"));
+      const read = await t.call("GET", readAt);
       expect(read.status, create.path).toBe(404);
-      expect(typeof read.body, `${create.path} is read back from ${create.read("…")}, which no route serves`).toBe("object");
+      expect(typeof read.body, `${create.path} is read back from ${readAt}, which no route serves`).toBe("object");
     }
+  });
+
+  const adjustment = (id: string, qty = "10") => ({
+    id,
+    date: "2026-08-22",
+    lines: [{ itemId: "STK-1", warehouseId: "WH-MAIN", reason: "INITIAL_STOCK", direction: "IN", qty, unitCost: "5.00" }],
+  });
+  const transfer = (id: string, qty = "4") => ({
+    id,
+    date: "2026-08-22",
+    lines: [{ itemId: "STK-1", fromWarehouseId: "WH-MAIN", toWarehouseId: "WH-2", qty }],
+  });
+
+  async function stockroom() {
+    const t = await shop();
+    const made = async (path: string, body: unknown) => {
+      const got = await t.call("POST", path, body);
+      expect(got.status, `${path} ${JSON.stringify(got.body)}`).toBeLessThan(300);
+      return got;
+    };
+    await made("/items", { id: "STK-1", code: "STK-1", nameAr: "صنف مخزني", type: "stock", baseUnitCode: "PCS" });
+    return { ...t, made };
+  }
+
+  it("drafts one stock adjustment when the draft is sent twice, and it takes one number and posts one entry", async () => {
+    const t = await stockroom();
+    const body = adjustment("bbbbbbbb-aaaa-4bbb-8ccc-00000000000b");
+    const entriesBefore = (await t.listed("/gl/journal-entries")).length;
+
+    const first = await t.call("POST", "/inventory/stock-adjustments/draft", body);
+    const resent = await t.call("POST", "/inventory/stock-adjustments/draft", body);
+
+    expect(first.status, JSON.stringify(first.body)).toBe(201);
+    expect(resent).toMatchObject({ status: 201, replayed: "true", body: first.body });
+    expect(await t.listed("/inventory/stock-adjustments")).toHaveLength(1);
+
+    await t.made(`/inventory/stock-adjustments/${body.id}/confirm`, {});
+    const afterConfirm = await t.call("POST", "/inventory/stock-adjustments/draft", body);
+
+    expect(afterConfirm).toMatchObject({ status: 201, replayed: "true", body: { id: body.id, status: "confirmed", docNo: expect.any(String) } });
+    expect(await t.listed("/inventory/stock-adjustments")).toHaveLength(1);
+    expect((await t.listed("/gl/journal-entries")).length).toBe(entriesBefore + 1);
+  });
+
+  it("drafts one stock transfer when the draft is sent twice, and moves the stock once", async () => {
+    const t = await stockroom();
+    await t.made("/warehouses", { id: "WH-2", code: "WH-2", name: "Second", nameAr: "مخزن ثانٍ", branchId: "BR-MAIN" });
+    await t.made("/inventory/stock-adjustments/draft", adjustment("bbbbbbbb-aaaa-4bbb-8ccc-00000000000c"));
+    await t.made("/inventory/stock-adjustments/bbbbbbbb-aaaa-4bbb-8ccc-00000000000c/confirm", {});
+    const body = transfer("cccccccc-aaaa-4bbb-8ccc-00000000000c");
+
+    const [a, b] = await Promise.all([
+      t.call("POST", "/inventory/stock-transfers/draft", body),
+      t.call("POST", "/inventory/stock-transfers/draft", body),
+    ]);
+
+    expect(a.status, JSON.stringify(a.body)).toBe(201);
+    expect([a.replayed, b.replayed].sort()).toEqual([null, "true"].sort());
+    expect(await t.listed("/inventory/stock-transfers")).toHaveLength(1);
+
+    await t.made(`/inventory/stock-transfers/${body.id}/confirm`, {});
+    const afterConfirm = await t.call("POST", "/inventory/stock-transfers/draft", body);
+
+    expect(afterConfirm).toMatchObject({ status: 201, replayed: "true", body: { id: body.id, status: "confirmed", docNo: expect.any(String) } });
+    expect(await t.listed("/inventory/stock-transfers")).toHaveLength(1);
+  });
+
+  const stockDrafts: readonly (readonly [string, (id: string, qty?: string) => object])[] = [
+    ["/inventory/stock-adjustments", adjustment],
+    ["/inventory/stock-transfers", transfer],
+  ];
+
+  it.each(stockDrafts)("refuses a draft under %s resent with other contents, and another user's send of the same id", async (mount, build) => {
+    const t = await stockroom();
+    await t.made("/warehouses", { id: "WH-2", code: "WH-2", name: "Second", nameAr: "مخزن ثانٍ", branchId: "BR-MAIN" });
+    const id = "dddddddd-aaaa-4bbb-8ccc-00000000000d";
+    await t.made(`${mount}/draft`, build(id));
+    const colleague = t.handle.sessions.issue({ userId: "user-b", permissions: ["*"], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
+
+    const changed = await t.call("POST", `${mount}/draft`, build(id, "7"));
+    const asColleague = await t.call("POST", `${mount}/draft`, build(id), { authorization: `Bearer ${colleague}`, "content-type": "application/json" });
+
+    expect(changed).toMatchObject({ status: 409, body: { error: "IDEMPOTENCY_KEY_REUSED", message: expect.stringContaining("ببيانات مختلفة") } });
+    expect(asColleague.replayed).toBeNull();
+    expect(asColleague.status).toBeGreaterThanOrEqual(400);
+    expect(await t.listed(mount)).toHaveLength(1);
+  });
+
+  async function owedAndPaid() {
+    const t = await shop();
+    const made = async (path: string, body: unknown) => {
+      const got = await t.call("POST", path, body);
+      expect(got.status, `${path} ${JSON.stringify(got.body)}`).toBeLessThan(300);
+      return got;
+    };
+    const owed = invoice("eeeeeeee-aaaa-4bbb-8ccc-00000000000e", "1000");
+    await made("/sales-invoices", owed);
+    await made(`/sales-invoices/${owed.id}/confirm`, {});
+    const paid = collection("eeeeeeee-aaaa-4bbb-8ccc-00000000000f", "600.00");
+    await made("/vouchers/collections", paid);
+    const allocation = (allocationId: string, amount = "200.00") => ({ allocationId, invoiceId: owed.id, amount });
+    const allocated = async () =>
+      ((await t.call("GET", `/vouchers/${paid.id}/allocations`)).body as { allocations: { id: string; amount: string }[] }).allocations;
+    return { ...t, made, owed, paid, allocation, allocated, path: `/vouchers/${paid.id}/allocations` };
+  }
+
+  it("allocates a voucher to an invoice once when the allocation is sent twice, and posts nothing more", async () => {
+    const t = await owedAndPaid();
+    const body = t.allocation("ffffffff-aaaa-4bbb-8ccc-000000000001");
+    const entriesBefore = (await t.listed("/gl/journal-entries")).length;
+
+    const first = await t.call("POST", t.path, body);
+    const resent = await t.call("POST", t.path, body);
+
+    expect(first.status, JSON.stringify(first.body)).toBe(201);
+    expect(resent).toMatchObject({ status: 201, replayed: "true", body: { id: body.allocationId, amount: first.body && (first.body as { amount: string }).amount } });
+    expect(await t.allocated()).toHaveLength(1);
+    expect((await t.listed("/gl/journal-entries")).length).toBe(entriesBefore);
+  });
+
+  it("allocates once when both sends of an allocation are in flight together", async () => {
+    const t = await owedAndPaid();
+    const body = t.allocation("ffffffff-aaaa-4bbb-8ccc-000000000002");
+
+    const [a, b] = await Promise.all([t.call("POST", t.path, body), t.call("POST", t.path, body)]);
+
+    expect([a.status, b.status]).toEqual([201, 201]);
+    expect([a.replayed, b.replayed].sort()).toEqual([null, "true"].sort());
+    expect(await t.allocated()).toHaveLength(1);
+  });
+
+  it("refuses an allocation id resent with another amount, and another user's send of it, and allocates nothing more", async () => {
+    const t = await owedAndPaid();
+    const id = "ffffffff-aaaa-4bbb-8ccc-000000000003";
+    await t.made(t.path, t.allocation(id));
+    const colleague = t.handle.sessions.issue({ userId: "user-b", permissions: ["*"], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
+
+    const changed = await t.call("POST", t.path, t.allocation(id, "300.00"));
+    const asColleague = await t.call("POST", t.path, t.allocation(id), { authorization: `Bearer ${colleague}`, "content-type": "application/json" });
+
+    expect(changed).toMatchObject({ status: 409, body: { error: "IDEMPOTENCY_KEY_REUSED" } });
+    expect(asColleague.replayed).toBeNull();
+    expect(asColleague.status).toBeGreaterThanOrEqual(400);
+    expect(await t.allocated()).toEqual([expect.objectContaining({ id, amount: expect.stringMatching(/^200/) })]);
+  });
+
+  it("refuses an allocation id already used on another voucher instead of answering with that voucher's, and relieves the invoice once", async () => {
+    const t = await owedAndPaid();
+    const second = collection("eeeeeeee-aaaa-4bbb-8ccc-0000000000aa", "100.00");
+    await t.made("/vouchers/collections", second);
+    const id = "ffffffff-aaaa-4bbb-8ccc-000000000004";
+    await t.made(t.path, t.allocation(id, "50.00"));
+
+    const elsewhere = await t.call("POST", `/vouchers/${second.id}/allocations`, t.allocation(id, "50.00"));
+
+    expect(elsewhere).toMatchObject({ status: 409, replayed: null, body: { error: "DUPLICATE_ALLOCATION", message: expect.stringContaining("سبق تسجيل تخصيص") } });
+    const open = (await t.call("GET", "/open-invoices?kind=sales&partyId=CUST-1")).body as { id: string; outstanding: string }[];
+    expect(open.find((row) => row.id === t.owed.id)?.outstanding).toMatch(/^950(\.0+)?$/);
   });
 
   it("records nothing for a create that was refused, so the corrected resend goes through", async () => {

@@ -10,6 +10,7 @@ import type { JournalEntryDTO } from "../data/hooks";
 import { NavigationProvider } from "../navigation";
 
 afterEach(() => {
+  vi.restoreAllMocks();
   document.documentElement.removeAttribute("data-theme");
 });
 
@@ -268,6 +269,74 @@ describe("StockAdjustmentsScreen — create: reason picker + INITIAL_STOCK flow"
 
     await waitFor(() => expect(screen.getByRole("heading", { name: "تسويات المخزون" })).toBeInTheDocument());
     expect(await screen.findByText("ADJ-000006")).toBeInTheDocument();
+  });
+});
+
+describe("StockAdjustmentsScreen — a save pressed again", () => {
+  async function fillOpeningBalance() {
+    fireEvent.click((await screen.findAllByRole("button", { name: "تسوية جديدة" }))[0]!);
+    fireEvent.click(screen.getByRole("button", { name: /رصيد افتتاحي/ }));
+    chooseSelectOption("الصنف للسطر 1", "منتج 3");
+    fireEvent.change(screen.getByLabelText("الكمية للسطر 1"), { target: { value: "40" } });
+    fireEvent.change(screen.getByLabelText("سعر التكلفة للسطر 1"), { target: { value: "60" } });
+  }
+  const draftOf = (body: { id: string; date: string; memo?: string; lines: StockAdjustmentDocumentDTO["lines"] }): StockAdjustmentDocumentDTO => ({
+    id: body.id, docType: "STOCK_ADJUSTMENT", docNo: null, date: body.date, memo: body.memo ?? "", status: "draft", lines: body.lines,
+    createdAt: "2026-08-22T10:00:00.000Z", confirmedAt: null, journalEntryId: null,
+  });
+
+  it("sends the same id after a confirm that failed, and a new id for the next adjustment", async () => {
+    const sentIds: string[] = [];
+    let current = [adj1];
+    let confirms = 0;
+    const transport = stubTransport({
+      ...baseHandlers(() => current),
+      "POST /inventory/stock-adjustments/draft": (init) => {
+        const created = draftOf(JSON.parse((init?.body as string) ?? "{}"));
+        sentIds.push(created.id);
+        current = [adj1, created];
+        return { status: 201, body: created };
+      },
+      "POST /inventory/stock-adjustments/*/confirm": () => {
+        confirms += 1;
+        if (confirms === 1) return { status: 503, body: { error: "DATABASE_BUSY", message: "الخادم مشغول، أعد المحاولة" } };
+        const confirmed = { ...current[current.length - 1]!, status: "confirmed" as const, docNo: `ADJ-00001${confirms}` };
+        current = [adj1, confirmed];
+        return { body: { document: confirmed, held: false } };
+      },
+    });
+    renderWithProviders(<TestNavigation><StockAdjustmentsScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
+
+    await fillOpeningBalance();
+    fireEvent.click(screen.getByRole("button", { name: "اعتماد التسوية" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("الخادم مشغول");
+    fireEvent.click(screen.getByRole("button", { name: "اعتماد التسوية" }));
+    await waitFor(() => expect(screen.getByRole("heading", { name: "تسويات المخزون" })).toBeInTheDocument());
+
+    await fillOpeningBalance();
+    fireEvent.click(screen.getByRole("button", { name: "اعتماد التسوية" }));
+    await waitFor(() => expect(sentIds).toHaveLength(3));
+
+    expect(sentIds[1]).toBe(sentIds[0]);
+    expect(sentIds[2]).not.toBe(sentIds[0]);
+  });
+
+  it("opens the adjustment already saved, with a notice, when its id was used with other contents", async () => {
+    let current = [adj1];
+    const transport = stubTransport({
+      ...baseHandlers(() => current),
+      "POST /inventory/stock-adjustments/draft": (init) => {
+        current = [adj1, { ...draftOf(JSON.parse((init?.body as string) ?? "{}")), status: "confirmed", docNo: "ADJ-000077" }];
+        return { status: 409, body: { error: "IDEMPOTENCY_KEY_REUSED", message: "سبق تسجيل مستند بهذا المعرّف ببيانات مختلفة" } };
+      },
+    });
+    renderWithProviders(<TestNavigation><StockAdjustmentsScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
+
+    await fillOpeningBalance();
+    fireEvent.click(screen.getByRole("button", { name: "اعتماد التسوية" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent("سبق حفظ هذا المستند، ففُتح المستند المحفوظ بدل إنشاء آخر");
+    expect(await screen.findByText("ADJ-000077")).toBeInTheDocument();
   });
 });
 

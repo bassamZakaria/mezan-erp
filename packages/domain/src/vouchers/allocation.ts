@@ -21,6 +21,7 @@ import { convertFromBase, convertToBase } from "../exchange-rates/convert.js";
 import {
   AllocationAlreadyReversedError,
   AllocationExceedsError,
+  AllocationIdTakenError,
   AllocationMismatchError,
   AllocationNotFoundError,
   InvoiceNotFoundError,
@@ -254,6 +255,7 @@ export async function allocate(
   if (input.amount.scaled <= 0n) {
     throw new AllocationExceedsError("مبلغ التخصيص يجب أن يكون أكبر من صفر.");
   }
+  if (await deps.allocations.findById(input.allocationId)) throw new AllocationIdTakenError(input.allocationId);
   const invoice = await deps.invoices.findById(input.invoiceId);
   if (!invoice) throw new InvoiceNotFoundError(input.invoiceId);
   if (invoice.kind !== input.expectedKind) {

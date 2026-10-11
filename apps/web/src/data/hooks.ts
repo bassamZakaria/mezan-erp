@@ -2588,7 +2588,7 @@ export function useCreateAllocation() {
   return useMutation<VoucherAllocationDTO, ApiError, { voucherId: string; body: CreateAllocationDTO }>({
     mutationFn: async ({ voucherId, body }) => {
       const res = await request(`/vouchers/${voucherId}/allocations`, { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theAmountCouldNotBe"), t));
+      if (!res.ok) throw await codedError(res, t("api.theAmountCouldNotBe"), t);
       return res.json<VoucherAllocationDTO>();
     },
     onSuccess: () => invalidateVouchers(queryClient),
@@ -5292,7 +5292,7 @@ export function useCreateStockAdjustment() {
   return useMutation<StockAdjustmentDocumentDTO, ApiError, CreateStockAdjustmentDTO>({
     mutationFn: async (body) => {
       const res = await request("/inventory/stock-adjustments/draft", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theStockAdjustmentCouldNot"), t));
+      if (!res.ok) throw await codedError(res, t("api.theStockAdjustmentCouldNot"), t);
       return res.json<StockAdjustmentDocumentDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["stock-adjustments"] }),
@@ -5387,7 +5387,7 @@ export function useCreateStockTransfer() {
   return useMutation<StockTransferDocumentDTO, ApiError, CreateStockTransferDTO>({
     mutationFn: async (body) => {
       const res = await request("/inventory/stock-transfers/draft", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theStockTransferCouldNot"), t));
+      if (!res.ok) throw await codedError(res, t("api.theStockTransferCouldNot"), t);
       return res.json<StockTransferDocumentDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["stock-transfers"] }),

@@ -27,6 +27,7 @@ import {
   AllocationNotFoundError,
   AllocationMismatchError,
   AllocationExceedsError,
+  AllocationIdTakenError,
   SettlementRateMissingError,
   ReversalDateBeforeOriginalError,
   allocationFxDifference,
@@ -199,7 +200,8 @@ function handleDomainError(c: Context, err: unknown): Response {
     err instanceof ApprovalRequestRejectedError ||
     err instanceof VoucherNotAllocatableError ||
     err instanceof VoucherNotConfirmedError ||
-    err instanceof AllocationAlreadyReversedError
+    err instanceof AllocationAlreadyReversedError ||
+    err instanceof AllocationIdTakenError
   ) {
     return refuse(err, 409);
   }
@@ -804,6 +806,14 @@ export function createVouchersRoutes(
       allocationSummary: serializeSummary(await svc.allocationSummary(doc)),
       allocations: allocations.map(serializeAllocation),
     });
+  });
+
+  app.get("/:id/allocations/:allocationId", gate("treasury.allocation.view"), async (c) => {
+    const svc = serviceFor(c);
+    const doc = await findInScope(c, svc, c.req.param("id"));
+    const allocation = doc ? (await svc.listAllocations(doc.id)).find((a) => a.id === c.req.param("allocationId")) : undefined;
+    if (!allocation) return c.json({ error: "NOT_FOUND" }, 404);
+    return c.json(serializeAllocation(allocation));
   });
 
   app.post("/:id/allocations", gate("treasury.allocation.manage"), async (c) => {

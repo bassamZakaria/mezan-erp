@@ -1,4 +1,5 @@
 import { createContext, createElement, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
+import { QueryClientContext } from "@tanstack/react-query";
 import { createHttpTransport, type Transport, type TransportResponse } from "../data/transport";
 import type { AppTranslationKey } from "../i18n";
 import { loadPersistedPlatformSession, persistPlatformSession, type PlatformSession } from "./session";
@@ -24,6 +25,8 @@ export class PlatformApiError extends Error {
 interface PlatformApiContextValue {
   readonly session: PlatformSession | null;
   setSession(session: PlatformSession | null): void;
+  /** Ends the session and empties the query cache with it: what a sign-out and an expired token both do. */
+  endSession(): void;
   request(path: string, init?: RequestInit): Promise<TransportResponse>;
 }
 
@@ -47,11 +50,17 @@ export function PlatformApiProvider({ children, transport, initialSession }: Pla
     setSessionState(next);
     persistPlatformSession(next);
   }, []);
+  const queryClient = useContext(QueryClientContext);
+  const endSession = useCallback(() => {
+    queryClient?.clear();
+    setSession(null);
+  }, [queryClient, setSession]);
 
   const value = useMemo<PlatformApiContextValue>(
     () => ({
       session,
       setSession,
+      endSession,
       async request(path, init) {
         const headers = new Headers(init?.headers);
         if (session) headers.set("authorization", `Bearer ${session.token}`);
@@ -62,12 +71,12 @@ export function PlatformApiProvider({ children, transport, initialSession }: Pla
         // password is a 401 the login screen reports itself, not a session
         // that went stale.
         if (response.status === 401 && session !== null && !path.startsWith("/auth/login")) {
-          setSession(null);
+          endSession();
         }
         return response;
       },
     }),
-    [session, setSession, resolvedTransport],
+    [session, setSession, endSession, resolvedTransport],
   );
 
   return createElement(PlatformApiContext.Provider, { value }, children);

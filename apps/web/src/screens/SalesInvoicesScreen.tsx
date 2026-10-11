@@ -38,7 +38,7 @@ import {
   type SalesInvoiceLine,
   type SalesInvoiceDiscount,
   type SalesInvoiceDiscountType,
-  type SalesInvoiceLineDiscountType, itemTypeIsSellable, findCurrency, convertToBase, extend,} from "@mezan/domain";
+  type SalesInvoiceLineDiscountType, itemTypeIsSellable, findCurrency, convertToBase, extend, SALES_INVOICE_ACTIVE_STATUSES,} from "@mezan/domain";
 import type { ProjectDTO, SalesInvoiceListQueryDTO, SalesInvoiceStatusDTO, TaxRateDTO } from "@mezan/contracts";
 import { SalesInvoicePrintPage } from "../print/SalesInvoicePrintPage";
 import {
@@ -70,6 +70,7 @@ import {
   type SalesInvoiceDTO,
   useTreasuryAccounts,
   useAllowedCurrencies,
+  ClassifiableDocument,
 } from "../data/hooks";
 import { useWorkingLocation } from "../data/hub-hooks";
 import { useAuditLog } from "../data/platform-hooks";
@@ -83,6 +84,7 @@ import { AttachmentsTab } from "../attachments/AttachmentsTab";
 import { salesInvoiceStatusLabel } from "../domain-labels";
 import { documentStatusLabel } from "../doc-status";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { ClassifyLineTaxAction } from "./ClassifyLineTaxAction";
 import { DERIVED_TAX, TaxRateField, appliedTaxPercent, chosenTaxRateId, lineTaxPayload, postedTaxRateLabel, type TaxChoice } from "./tax-rate-field";
 import { todayIso } from "../lib/dates";
 import { EMPTY } from "../lib/empty";
@@ -1591,6 +1593,14 @@ function InvoiceDetailView({
                           <td className="px-[15px] py-[11px] text-end">
                             {lt ? <MoneyDisplay currencyLabel={docCurrencyLabel} value={toMajor(lt.tax.toString())} /> : "—"}
                             <span className="block text-[11px] text-ink-faint">{postedTaxRateLabel(detailTaxRates, l, t)}</span>
+                            <ClassifyLineTaxAction
+                              document={ClassifiableDocument.SalesInvoice}
+                              documentId={invoice.id}
+                              posted={SALES_INVOICE_ACTIVE_STATUSES.has(invoice.status)}
+                              line={{ lineId: l.lineId, label: l.itemNameAr, taxRatePercent: l.taxRatePercent, taxRateId: l.taxRateId ?? null }}
+                              lines={invoice.lines.map((other) => ({ lineId: other.lineId, label: other.itemNameAr, taxRatePercent: other.taxRatePercent, taxRateId: other.taxRateId ?? null }))}
+                              taxRates={detailTaxRates}
+                            />
                           </td>
                           <td className="px-[15px] py-[11px] text-end">
                             {cost ? <MoneyDisplay currencyLabel={baseLabel} value={toMajor(cost.toString())} /> : "—"}

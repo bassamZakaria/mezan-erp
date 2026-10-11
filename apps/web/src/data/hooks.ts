@@ -216,6 +216,8 @@ import type {
   UpdateAccountRoutingDTO,
   SalesReturnDocumentDTO,
   ReturnSourceLinesDTO,
+  ClassifyLineTaxDTO,
+  LineTaxClassificationDTO,
   SessionDTO,
   SettleVanTripDTO,
   StartPhysicalCountDTO,
@@ -3060,6 +3062,40 @@ export function useConfirmSalesInvoice() {
       return res.json<SalesInvoiceDTO & { held: boolean }>();
     },
     onSuccess: () => invalidateSalesInvoices(queryClient),
+  });
+}
+
+export enum ClassifiableDocument {
+  SalesInvoice = "sales-invoices",
+  PurchaseInvoice = "purchases/invoices",
+}
+
+export interface ClassifyLineTaxAct {
+  readonly documentId: string;
+  readonly lineId: string;
+  readonly taxRateId: string;
+  readonly withLineIds: readonly string[];
+}
+
+/** «تصنيف ضريبة البند» — names the tax rate of a posted line that stored none. */
+export function useClassifyLineTax(document: ClassifiableDocument) {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<LineTaxClassificationDTO, ApiError, ClassifyLineTaxAct>({
+    mutationFn: async ({ documentId, lineId, taxRateId, withLineIds }) => {
+      const dto: ClassifyLineTaxDTO = { taxRateId, ...(withLineIds.length > 0 ? { withLineIds: [...withLineIds] } : {}) };
+      const res = await request(`/${document}/${encodeURIComponent(documentId)}/lines/${encodeURIComponent(lineId)}/classify-tax`, {
+        method: "POST",
+        body: JSON.stringify(dto),
+      });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.lineTaxCouldNotBeClassified"), t));
+      return res.json<LineTaxClassificationDTO>();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [document === ClassifiableDocument.SalesInvoice ? "sales-invoices" : "purchase-invoices"] });
+      queryClient.invalidateQueries({ queryKey: ["eta-submissions"] });
+    },
   });
 }
 

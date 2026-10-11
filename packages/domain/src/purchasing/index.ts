@@ -11,6 +11,7 @@ export {
   type PurchaseOrderStatus,
   type GoodsReceiptStatus,
   type PurchaseInvoiceStatus,
+  PurchaseInvoiceStatusCode,
   type PurchaseGlPosting,
   type PurchaseGlPostingLine,
   type PurchaseGlPostingPort,

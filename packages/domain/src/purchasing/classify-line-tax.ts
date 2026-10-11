@@ -9,11 +9,12 @@ import {
 import { atomically, type PurchaseAuditDeps } from "./audit.js";
 import { PurchaseInvoiceNotFoundError } from "./errors.js";
 import type { PurchaseInvoice, PurchaseInvoiceRepository } from "./purchase-invoice.js";
+import { PurchaseInvoiceStatusCode } from "./types.js";
 
-export const PURCHASE_INVOICE_STATUS_LABELS_AR: Readonly<Record<PurchaseInvoice["status"], string>> = {
-  draft: "مسودة",
-  confirmed: "مؤكدة",
-  cancelled: "ملغاة",
+export const PURCHASE_INVOICE_STATUS_LABELS_AR: Readonly<Record<PurchaseInvoiceStatusCode, string>> = {
+  [PurchaseInvoiceStatusCode.Draft]: "مسودة",
+  [PurchaseInvoiceStatusCode.Confirmed]: "مؤكدة",
+  [PurchaseInvoiceStatusCode.Cancelled]: "ملغاة",
 };
 
 /** Names the rate on the invoice's posted journal lines; the composition root knows which entry is the invoice's. */
@@ -49,7 +50,7 @@ export async function classifyPurchaseInvoiceLineTax(
 ): Promise<ClassifyPurchaseInvoiceLineTaxResult> {
   const existing = await deps.invoices.findById(id);
   if (!existing) throw new PurchaseInvoiceNotFoundError(id);
-  if (existing.status !== "confirmed") {
+  if (existing.status !== PurchaseInvoiceStatusCode.Confirmed) {
     throw new TaxClassificationNotPostedError(PURCHASE_INVOICE_STATUS_LABELS_AR[existing.status]);
   }
   const taxRates = deps.taxRates ? await deps.taxRates.list() : null;

@@ -27,7 +27,12 @@ export type PurchaseOrderStatus =
 export type GoodsReceiptStatus = "draft" | "confirmed" | "cancelled";
 
 /** فاتورة المشتريات lifecycle (docs/archive/catalog/02 §Purchase Invoices). */
-export type PurchaseInvoiceStatus = "draft" | "confirmed" | "cancelled";
+export enum PurchaseInvoiceStatusCode {
+  Draft = "draft",
+  Confirmed = "confirmed",
+  Cancelled = "cancelled",
+}
+export type PurchaseInvoiceStatus = `${PurchaseInvoiceStatusCode}`;
 
 /**
  * The purchase-strictness gates (docs/archive/catalog/09 §"التحكم في المشتريات"): a

@@ -50,6 +50,7 @@ import {
   useBranches,
   useWarehouses,
   useAllowedCurrencies,
+  ClassifiableDocument,
 } from "../data/hooks";
 import { majorOf } from "../lib/money";
 import { useDebounced } from "../lib/use-debounced";
@@ -61,6 +62,8 @@ import { AttachmentsTab } from "../attachments/AttachmentsTab";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { DERIVED_TAX, TaxRateField, lineTaxPayload, postedTaxRateLabel, type TaxChoice } from "./tax-rate-field";
 import { useEntityName } from "../lib/entity-names";
+import { ClassifyLineTaxAction, type ClassifiableLine } from "./ClassifyLineTaxAction";
+import { PurchaseInvoiceStatusCode } from "@mezan/domain";
 import { itemTypeIsPurchasable ,
   findCurrency} from "@mezan/domain";
 import { todayIso } from "../lib/dates";
@@ -179,6 +182,18 @@ function InvoiceDetail({
   const settledInBase = Boolean(invoice.fxRate);
   const docCurrencyLabel = settledInBase ? invoice.currency : undefined;
   const settlementTotal = num(invoice.baseTotal ?? invoice.total);
+
+  // EXTERNAL CONTRACT: a purchase invoice line has no id; the server names it by its position.
+  const classifiableLines = useMemo<ClassifiableLine[]>(
+    () =>
+      invoice.lines.map((line, index) => ({
+        lineId: String(index),
+        label: line.itemId ? itemName(line.itemId) : (line.description ?? String(index + 1)),
+        taxRatePercent: line.taxRatePercent,
+        taxRateId: line.taxRateId ?? null,
+      })),
+    [invoice.lines, itemName],
+  );
 
   const fulfilment = useMemo(() => {
     const map = new Map<number, PurchaseInvoiceLineFulfilmentDTO>();
@@ -307,7 +322,17 @@ function InvoiceDetail({
                         <td className="px-[12px] py-[10px] text-end">{stockLine && row ? <QtyDisplay value={row.consumedQty} /> : "—"}</td>
                         <td className="px-[12px] py-[10px] text-end">{stockLine && row ? <QtyDisplay value={row.remainingQty} /> : "—"}</td>
                         <td className="px-[12px] py-[10px] text-end"><MoneyValue value={num(l.unitCost)} showUnit={false} /></td>
-                        <td className="px-[12px] py-[10px] text-end">{postedTaxRateLabel(detailTaxRates, l, t)}</td>
+                        <td className="px-[12px] py-[10px] text-end">
+                          {postedTaxRateLabel(detailTaxRates, l, t)}
+                          <ClassifyLineTaxAction
+                            document={ClassifiableDocument.PurchaseInvoice}
+                            documentId={invoice.id}
+                            posted={invoice.status === PurchaseInvoiceStatusCode.Confirmed}
+                            line={classifiableLines[i]!}
+                            lines={classifiableLines}
+                            taxRates={detailTaxRates}
+                          />
+                        </td>
                         <td className="px-[12px] py-[10px] text-end"><MoneyValue value={lineBase(l) + lineTax(l)} showUnit={false} /></td>
                       </tr>
                     );

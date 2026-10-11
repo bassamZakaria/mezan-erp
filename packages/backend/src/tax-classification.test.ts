@@ -500,6 +500,54 @@ describe("classifying the tax of a posted purchase line that stored none", () =>
   });
 });
 
+describe("who in the seeded tenant may classify (D79 round 5)", () => {
+  async function signIn(username: string) {
+    const res = await backend.app.fetch(
+      new Request("http://local/auth/login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ username, pin: "123456" }) }),
+    );
+    return { status: res.status, body: (await res.json()) as { token: string; permissions: string[] } };
+  }
+  const as = async (bearer: string, method: string, path: string, body?: unknown) => {
+    const res = await backend.app.fetch(
+      new Request(`http://local${path}`, {
+        method,
+        headers: { "content-type": "application/json", authorization: `Bearer ${bearer}`, "x-branch-scope": "*", "x-warehouse-scope": "*" },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      }),
+    );
+    return { status: res.status, body: (await res.json()) as { taxRateId?: string } };
+  };
+
+  it.each([
+    ["the accountant", "mona.abdelrahman@cyag.example"],
+    ["the finance manager", "tarek.mansour@cyag.example"],
+  ])("%s holds both classify permissions and classifies a posted sales and purchase line", async (_label, email) => {
+    const session = await signIn(email);
+    expect(session.status).toBe(200);
+    expect(session.body.permissions).toEqual(expect.arrayContaining(["sales.invoice.classify_tax", "purchases.invoice.classify_tax"]));
+
+    const tag = email.split(".")[0]!.toUpperCase();
+    await sale(`T-SEEDED-${tag}`, NOT_EXEMPT_CUSTOMER, [serviceLine("L1", { taxRateId: null, taxRatePercent: 0 })]);
+    await call("POST", `/sales-invoices/T-SEEDED-${tag}/confirm`, {});
+    const sold = await as(session.body.token, "POST", `/sales-invoices/T-SEEDED-${tag}/lines/L1/classify-tax`, { taxRateId: EXEMPT_RATE });
+    expect([sold.status, sold.body.taxRateId]).toEqual([200, EXEMPT_RATE]);
+
+    await call("POST", "/purchases/invoices", {
+      id: `T-PI-SEEDED-${tag}`, supplierId: "SUPP-DEMO-1", date: TODAY, dueDate: "2026-09-23", branchId: BRANCH, warehouseId: WAREHOUSE,
+      lines: [{ itemId: null, kind: "expense", description: "خدمة", qty: "1", unitCost: "200", taxRateId: null, taxRatePercent: 0 }],
+    });
+    await call("POST", `/purchases/invoices/T-PI-SEEDED-${tag}/confirm`, {});
+    const bought = await as(session.body.token, "POST", `/purchases/invoices/T-PI-SEEDED-${tag}/lines/0/classify-tax`, { taxRateId: EXEMPT_RATE });
+    expect([bought.status, bought.body.taxRateId]).toEqual([200, EXEMPT_RATE]);
+  });
+
+  it("does not hand the permission to a sales representative", async () => {
+    const session = await signIn("karim.fouad@cyag.example");
+    expect(session.status).toBe(200);
+    expect(session.body.permissions).not.toContain("sales.invoice.classify_tax");
+  });
+});
+
 describe("two requests racing over one posted line (D79 round 5)", () => {
   type TaxLine = { accountId: string; taxRatePercent: number | null; taxRateId: string | null };
   const classify = (invoiceId: string, lineId: string, taxRateId: string) =>

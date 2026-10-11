@@ -12,7 +12,8 @@ import { AppI18nProvider } from "../i18n";
 import { rememberDeviceUser } from "./device-users";
 import { MemoryRouter } from "react-router";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
-import type { Transport } from "../data/transport";
+import type { Transport, TransportResponse } from "../data/transport";
+import { PLATFORM_LOOKUP_FIRST_RETRY_MS, PLATFORM_LOOKUP_MAX_RETRY_MS } from "../data/hooks";
 
 function SessionProbe() {
   const { session } = useApi();
@@ -599,17 +600,31 @@ describe("LoginScreen — SaaS company code", () => {
     expect(await screen.findByText("جارٍ التحقق من المنشأة…")).toBeInTheDocument();
   });
 
-  it.each([
-    ["answers 500", (): Promise<never> | null => null],
-    ["cannot be reached at all", (): Promise<never> | null => Promise.reject(new Error("network down"))],
-  ])("holds sign-in behind a retry while /platform/resolve %s, and opens it once the lookup answers", async (_what, failure) => {
-    let failing = true;
-    const base = stubTransport({
-      ...preAuth,
-      "GET /platform/resolve": () => (failing ? { status: 500, body: {} } : { body: { mode: "subdomain", exists: true } }),
-      "POST /auth/login": () => ({ body: testAdminSession }),
-    });
-    const transport: Transport = (path, init) => (failing && path.startsWith("/platform/resolve") ? (failure() ?? base(path, init)) : base(path, init));
+  it("does not gate submission when /platform/resolve answers 500 — a normal sign-in still succeeds (regression: desktop and every existing transport never serve this route, so gating on any error hung sign-in forever)", async () => {
+    renderWithProviders(
+      <>
+        <LoginScreen onStartWizard={() => {}} />
+        <SessionProbe />
+      </>,
+      {
+        transport: stubTransport({
+          ...preAuth,
+          "GET /platform/resolve": () => ({ status: 500, body: {} }),
+          "POST /auth/login": () => ({ body: testAdminSession }),
+        }),
+      },
+    );
+    await vi.waitFor(() => expect(screen.queryByText("جارٍ التحقق من المنشأة…")).not.toBeInTheDocument());
+    expect(screen.queryByText("تعذّر الوصول إلى الخادم")).not.toBeInTheDocument();
+    fillPin("123456");
+    fireEvent.click(screen.getByRole("button", { name: "دخول" }));
+    await vi.waitFor(() => expect(screen.getByTestId("session")).toHaveTextContent(testAdminSession.nameAr));
+  });
+
+  it("does not gate submission when /platform/resolve's fetch throws — a normal sign-in still succeeds", async () => {
+    const base = stubTransport({ ...preAuth, "POST /auth/login": () => ({ body: testAdminSession }) });
+    const transport: Transport = (path, init) =>
+      path.startsWith("/platform/resolve") ? Promise.reject(new Error("network down")) : base(path, init);
     renderWithProviders(
       <>
         <LoginScreen onStartWizard={() => {}} />
@@ -617,16 +632,158 @@ describe("LoginScreen — SaaS company code", () => {
       </>,
       { transport },
     );
-
-    expect(await screen.findByRole("alert")).toHaveTextContent("تعذّر الوصول إلى الخادم. تحقّق من الاتصال ثم أعد المحاولة.");
-    expect(screen.queryByRole("button", { name: "دخول" })).not.toBeInTheDocument();
-
-    failing = false;
-    fireEvent.click(screen.getByRole("button", { name: "إعادة المحاولة" }));
-    await screen.findByRole("button", { name: "دخول" });
     fillPin("123456");
     fireEvent.click(screen.getByRole("button", { name: "دخول" }));
     await vi.waitFor(() => expect(screen.getByTestId("session")).toHaveTextContent(testAdminSession.nameAr));
+  });
+
+  describe("while the company lookup is failing", () => {
+    const HTML_ERROR_PAGE: TransportResponse = {
+      status: 502,
+      ok: false,
+      json: () => Promise.reject(new SyntaxError("Unexpected token < in JSON")),
+      text: () => Promise.resolve("<html><body>Bad Gateway</body></html>"),
+    };
+    const HTML_INSTEAD_OF_JSON: TransportResponse = { ...HTML_ERROR_PAGE, status: 200, ok: true };
+
+    function failingLookup(failure: () => Promise<TransportResponse>, handlers: Parameters<typeof stubTransport>[0] = {}) {
+      const state = { failing: true, lookups: 0, requests: [] as string[] };
+      const base = stubTransport({ ...preAuth, "POST /auth/login": () => ({ body: testAdminSession }), ...handlers });
+      const transport: Transport = (path, init) => {
+        state.requests.push(path);
+        if (!path.startsWith("/platform/resolve")) return base(path, init);
+        state.lookups += 1;
+        return state.failing ? failure() : base(path, init);
+      };
+      return { state, transport };
+    }
+
+    const jsonFailure = (status: number, body: unknown = {}, retryAfter?: string) => (): Promise<TransportResponse> =>
+      Promise.resolve({
+        status,
+        ok: false,
+        json: <T,>() => Promise.resolve(body as T),
+        text: () => Promise.resolve(JSON.stringify(body)),
+        header: (name: string) => (name.toLowerCase() === "retry-after" ? (retryAfter ?? null) : null),
+      });
+
+    afterEach(() => vi.useRealTimers());
+
+    it.each([
+      ["answers 500", jsonFailure(500)],
+      ["answers a 502 HTML page", () => Promise.resolve(HTML_ERROR_PAGE)],
+      ["answers 200 with an HTML body", () => Promise.resolve(HTML_INSTEAD_OF_JSON)],
+      ["answers 429", jsonFailure(429, { error: "TOO_MANY_REQUESTS" }, "30")],
+      ["cannot be reached", () => Promise.reject(new Error("network down"))],
+    ])("shows the sign-in form at once, with the company-code field, no blocking panel and no alert, when the lookup %s", async (_what, failure) => {
+      const { transport } = failingLookup(failure);
+      renderWithProviders(<LoginScreen onStartWizard={() => {}} />, { transport });
+
+      expect(await screen.findByRole("textbox", { name: "رمز المنشأة" })).toBeInTheDocument();
+      expect(screen.getByLabelText("رمز PIN رقم 1")).toBeEnabled();
+      expect(screen.queryByRole("button", { name: "إعادة المحاولة" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+      expect(screen.queryByText("جارٍ التحقق من المنشأة…")).not.toBeInTheDocument();
+    });
+
+    it("signs in without a company code, as a subdomain needs, and says nothing about the lookup", async () => {
+      const { transport, state } = failingLookup(jsonFailure(503));
+      renderWithProviders(
+        <>
+          <LoginScreen onStartWizard={() => {}} />
+          <SessionProbe />
+        </>,
+        { transport },
+      );
+      await screen.findByRole("textbox", { name: "رمز المنشأة" });
+
+      fillPin("123456");
+
+      await vi.waitFor(() => expect(screen.getByTestId("session")).toHaveTextContent(testAdminSession.nameAr));
+      expect(state.requests.filter((path) => path === "/tenant" || path === "/entitlements" || path === "/bootstrap/status")).toEqual([]);
+    });
+
+    it("signs in with a typed company code it could not confirm, and says so in a notice that blocks nothing", async () => {
+      const { transport } = failingLookup(jsonFailure(503), { "GET /tenant": () => ({ status: 503, body: {} }) });
+      renderWithProviders(
+        <>
+          <LoginScreen onStartWizard={() => {}} />
+          <SessionProbe />
+        </>,
+        { transport },
+      );
+      const code = await screen.findByRole("textbox", { name: "رمز المنشأة" });
+      fireEvent.change(code, { target: { value: "acme" } });
+      fireEvent.blur(code);
+      expect(screen.queryByText("تعذّر التأكد من رمز المنشأة الآن. سنحاول تسجيل الدخول به كما هو.")).not.toBeInTheDocument();
+
+      fillPin("123456");
+
+      expect(await screen.findByText("تعذّر التأكد من رمز المنشأة الآن. سنحاول تسجيل الدخول به كما هو.")).toHaveAttribute("role", "status");
+      await vi.waitFor(() => expect(screen.getByTestId("session")).toHaveTextContent(testAdminSession.nameAr));
+      expect(loadTenantCode()).toBe("acme");
+    });
+
+    it("looks again on its own and settles into the answered mode with no click", async () => {
+      vi.useFakeTimers();
+      const { transport, state } = failingLookup(jsonFailure(500), { "GET /platform/resolve": () => ({ body: { mode: "subdomain", exists: true } }) });
+      renderWithProviders(<LoginScreen onStartWizard={() => {}} />, { transport });
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+      expect(screen.getByRole("textbox", { name: "رمز المنشأة" })).toBeInTheDocument();
+      expect(state.lookups).toBe(1);
+
+      state.failing = false;
+      await act(async () => { await vi.advanceTimersByTimeAsync(PLATFORM_LOOKUP_FIRST_RETRY_MS); });
+
+      expect(state.lookups).toBe(2);
+      await vi.waitFor(() => expect(screen.queryByRole("textbox", { name: "رمز المنشأة" })).not.toBeInTheDocument());
+      expect(state.lookups).toBe(2);
+    });
+
+    it("backs off between lookups, never past the cap, and keeps looking", async () => {
+      vi.useFakeTimers();
+      const { transport, state } = failingLookup(jsonFailure(500));
+      renderWithProviders(<LoginScreen onStartWizard={() => {}} />, { transport });
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(PLATFORM_LOOKUP_FIRST_RETRY_MS - 1); });
+      expect(state.lookups).toBe(1);
+      await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+      expect(state.lookups).toBe(2);
+      await act(async () => { await vi.advanceTimersByTimeAsync(PLATFORM_LOOKUP_FIRST_RETRY_MS * 2 - 1); });
+      expect(state.lookups).toBe(2);
+      await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+      expect(state.lookups).toBe(3);
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(PLATFORM_LOOKUP_MAX_RETRY_MS * 20); });
+      const settled = state.lookups;
+      await act(async () => { await vi.advanceTimersByTimeAsync(PLATFORM_LOOKUP_MAX_RETRY_MS); });
+      expect(state.lookups).toBe(settled + 1);
+    });
+
+    it("waits as long as Retry-After asks before it looks again", async () => {
+      vi.useFakeTimers();
+      const { transport, state } = failingLookup(jsonFailure(429, { error: "TOO_MANY_REQUESTS" }, "7"));
+      renderWithProviders(<LoginScreen onStartWizard={() => {}} />, { transport });
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(6_999); });
+      expect(state.lookups).toBe(1);
+      await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+      expect(state.lookups).toBe(2);
+    });
+
+    it.each([
+      [429, { error: "TOO_MANY_REQUESTS", message: "طلبات كثيرة من هذا الجهاز. انتظر قليلاً ثم أعد المحاولة." }],
+      [403, { error: "OFF_SUBNET", message: "هذا الجهاز ليس على شبكة المنشأة. This device is not on the company network." }],
+    ])("shows the form and the host's own message when a till's host answers the lookup with %s", async (status, body) => {
+      const { transport } = failingLookup(jsonFailure(status, body));
+      renderWithProviders(<LoginScreen onStartWizard={() => {}} />, { transport });
+
+      expect(await screen.findByText(body.message)).toHaveAttribute("role", "status");
+      expect(screen.getByLabelText("رمز PIN رقم 1")).toBeEnabled();
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    });
   });
 
   it("does not gate submission when /platform/resolve simply doesn't exist (desktop/LAN backends, a plain 404)", async () => {

@@ -11,6 +11,8 @@ export interface TransportResponse {
   readonly ok: boolean;
   json<T = unknown>(): Promise<T>;
   text(): Promise<string>;
+  /** A response header by its lower-case name, where the transport carries headers. */
+  header?(name: string): string | null;
 }
 
 export type Transport = (path: string, init?: RequestInit) => Promise<TransportResponse>;
@@ -38,6 +40,7 @@ export function createHttpTransport(baseUrl = "/api"): Transport {
       ok: res.ok,
       json: <T,>() => res.json() as Promise<T>,
       text: () => res.text(),
+      header: (name) => res.headers.get(name),
     };
   };
 }
@@ -84,6 +87,7 @@ export function createElectronTransport(bridge: MezanBridge): Transport {
       ok: res.status >= 200 && res.status < 400,
       json: <T,>() => Promise.resolve(JSON.parse(res.body) as T),
       text: () => Promise.resolve(res.body),
+      header: (name) => res.headers[name] ?? null,
     };
   };
 }

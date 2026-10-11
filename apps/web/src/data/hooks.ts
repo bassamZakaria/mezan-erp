@@ -455,34 +455,76 @@ export function useTenantInfo(
   });
 }
 
-export function usePlatformResolve(options: { enabled?: boolean } = {}): UseQueryResult<PlatformResolveDTO, ApiError> {
-  const { t } = useAppTranslation();
-  const { request } = useApi();
-  return useQuery<PlatformResolveDTO, ApiError>({
-    queryKey: ["platform", "resolve"],
-    enabled: options.enabled ?? true,
-    queryFn: async () => {
-      const res = await request("/platform/resolve");
-      if (!res.ok) throw await loaderError(res, t("api.theCompanySDetailsCould"));
-      return res.json<PlatformResolveDTO>();
-    },
-  });
+export const PLATFORM_LOOKUP_FIRST_RETRY_MS = 1_000;
+export const PLATFORM_LOOKUP_MAX_RETRY_MS = 30_000;
+const PLATFORM_LOOKUP_MAX_RETRY_AFTER_MS = 5 * 60_000;
+const UNREADABLE_LOOKUP_STATUS = 502;
+const TENANT_RESOLVE_MODES: readonly string[] = Object.values(TenantResolveMode);
+
+function retryAfterSecondsOf(res: TransportResponse): number | undefined {
+  const seconds = Number(res.header?.("retry-after") ?? "");
+  return Number.isFinite(seconds) && seconds > 0 ? seconds : undefined;
+}
+
+export function platformLookupRetryDelay(failureCount: number, error: unknown): number {
+  const backoff = Math.min(PLATFORM_LOOKUP_MAX_RETRY_MS, PLATFORM_LOOKUP_FIRST_RETRY_MS * 2 ** Math.min(failureCount, 16));
+  const asked = error instanceof ApiError && error.retryAfterSeconds !== undefined ? error.retryAfterSeconds * 1000 : 0;
+  return Math.min(PLATFORM_LOOKUP_MAX_RETRY_AFTER_MS, Math.max(asked, backoff));
 }
 
 export function noPlatformInFront(error: unknown): boolean {
   return error instanceof ApiError && error.status === 404;
 }
 
+/**
+ * Which company this address serves. A 404 means there is no platform in
+ * front (desktop, a LAN till's host) and is final. Any other failure is
+ * retried in the background for as long as the screen is open: nothing waits
+ * on it, and `failureCount` says it has not answered yet.
+ */
+export function usePlatformResolve(options: { enabled?: boolean } = {}): UseQueryResult<PlatformResolveDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  return useQuery<PlatformResolveDTO, ApiError>({
+    queryKey: ["platform", "resolve"],
+    enabled: options.enabled ?? true,
+    retry: (_failureCount, error) => !noPlatformInFront(error),
+    retryDelay: platformLookupRetryDelay,
+    queryFn: async () => {
+      const res = await request("/platform/resolve");
+      if (!res.ok) {
+        const refused = await loaderError(res, t("api.theCompanySDetailsCould"));
+        throw new ApiError(res.status, refused.message, undefined, retryAfterSecondsOf(res));
+      }
+      const body = await res.json<Partial<PlatformResolveDTO> | null>().catch(() => null);
+      if (!body || typeof body.exists !== "boolean" || !TENANT_RESOLVE_MODES.includes(String(body.mode))) {
+        throw new ApiError(UNREADABLE_LOOKUP_STATUS, t("api.theCompanySDetailsCould"));
+      }
+      return { mode: body.mode as TenantResolveMode, exists: body.exists };
+    },
+  });
+}
+
+/** True while the lookup has failed at least once and has not answered since. A missing platform is an answer, not a failure. */
+export function platformLookupFailing(resolve: Pick<UseQueryResult<PlatformResolveDTO, ApiError>, "data" | "failureCount" | "failureReason">): boolean {
+  return resolve.data === undefined && resolve.failureCount > 0 && !noPlatformInFront(resolve.failureReason);
+}
+
+// SECURITY (D-SAAS-06): a tenant-scoped request must never leave before a
+// company is known, and a lookup that failed knows nothing. While it fails the
+// only company there can be is one the person typed and confirmed.
 export function useCompanyKnown(): boolean {
   const { session } = useApi();
   const alreadyKnown = session !== null || isDesktopHost();
   const resolve = usePlatformResolve({ enabled: !alreadyKnown });
   const storedCode = useSyncExternalStore(subscribeTenantCode, loadTenantCode, () => null);
+  const companyTyped = storedCode !== null && storedCode !== "";
   if (alreadyKnown) return true;
   if (resolve.isError) return noPlatformInFront(resolve.error);
+  if (platformLookupFailing(resolve)) return companyTyped;
   if (!resolve.data) return false;
   if (resolve.data.mode === TenantResolveMode.Subdomain) return resolve.data.exists;
-  return storedCode !== null && storedCode !== "";
+  return companyTyped;
 }
 
 /** What base data already exists — drives the wizard's seed checklist without triggering a seed. */

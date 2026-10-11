@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type ChangeEvent, type Fo
 import { useQueryClient } from "@tanstack/react-query";
 import { BrandMark, Button, Copyright, TextInput, cn } from "@mezan/ui";
 import { TenantResolveMode } from "@mezan/contracts";
-import { noPlatformInFront, useLogin, usePlatformResolve, useTenantInfo } from "../data/hooks";
+import { ApiError, platformLookupFailing, useLogin, usePlatformResolve, useTenantInfo } from "../data/hooks";
 import { useAppVersion } from "../data/hub-hooks";
 import {
   clearSessionExpired,
@@ -25,6 +25,7 @@ import { readDeviceUsers, rememberDeviceUser, type DeviceUser } from "./device-u
 import { PairHostLink } from "./PairHostLink";
 
 const PIN_LENGTH = 6;
+const HOST_REFUSAL_STATUSES: readonly number[] = [403, 429];
 const TENANT_CODE_RE = /^[a-z0-9](?:[a-z0-9-]{1,30}[a-z0-9])$/;
 
 /**
@@ -84,6 +85,23 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
 
   const platformResolve = usePlatformResolve();
   const tenantMode = platformResolve.data?.mode;
+  const lookupFailingNow = platformLookupFailing(platformResolve);
+  const lookupAnswered = platformResolve.data !== undefined || platformResolve.isError;
+  const lookupRefusal = platformResolve.failureReason;
+  const hostMessageNow =
+    lookupRefusal instanceof ApiError && HOST_REFUSAL_STATUSES.includes(lookupRefusal.status) && lookupRefusal.message !== "" ? lookupRefusal.message : null;
+  // Changing the company clears the query cache, and with it the lookup's own
+  // failure count. What the lookup last said is kept here until it answers, so
+  // the company-code field does not vanish under the person typing in it.
+  const [lastLookupFailure, setLastLookupFailure] = useState<{ readonly hostMessage: string | null } | null>(null);
+  useEffect(() => {
+    if (lookupFailingNow) setLastLookupFailure({ hostMessage: hostMessageNow });
+    else if (lookupAnswered) setLastLookupFailure(null);
+  }, [lookupFailingNow, lookupAnswered, hostMessageNow]);
+  const lookupFailing = lookupFailingNow || (lastLookupFailure !== null && !lookupAnswered);
+  const hostMessage = lookupFailingNow ? hostMessageNow : lookupFailing ? (lastLookupFailure?.hostMessage ?? null) : null;
+  const companyCodeOffered = tenantMode === TenantResolveMode.Code || lookupFailing;
+  const [companyUnconfirmed, setCompanyUnconfirmed] = useState(false);
   const [tenantCode, setTenantCode] = useState(() => openingTenantCode() ?? "");
   const [resolvedCode, setResolvedCode] = useState(() => openingTenantCode() ?? "");
   const tenantCodeInvalid = tenantCode !== "" && !TENANT_CODE_RE.test(tenantCode);
@@ -265,6 +283,7 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
     if (submittedFor.current === attempt) return;
     submittedFor.current = attempt;
     setError(null);
+    setCompanyUnconfirmed(lookupFailing && tenantCode.trim() !== "" && !tenantInfo.isSuccess);
     login.mutate(
       { username: identity, pin },
       {
@@ -359,25 +378,6 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
     ? t("login.pin")
     : t("login.who.pinFor", { name: selected ? displayName(selected, locale) : "" });
 
-  if (platformResolve.isError && !noPlatformInFront(platformResolve.error)) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-bg p-[24px]">
-        <div className="flex w-full max-w-[380px] flex-col gap-[14px] rounded-lg border border-border bg-surface p-[28px] shadow-2">
-          <div className="flex items-center gap-[10px]">
-            <BrandMark className="h-[30px] w-[30px] flex-none text-brand" />
-            <span className="mz-disp text-[17px] font-bold text-ink">{t("shell.brand.name")}</span>
-          </div>
-          <p role="alert" className="text-[13px] text-ink">
-            {t("login.platformUnreachable")}
-          </p>
-          <Button variant="primary" disabled={platformResolve.isFetching} onClick={() => void platformResolve.refetch()}>
-            {t("login.platformRetry")}
-          </Button>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="flex min-h-screen items-center justify-center bg-bg p-[24px]">
       {/* The mark, oversized and barely there, anchors the empty quadrant
@@ -398,8 +398,14 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
           <span className="ms-auto text-2xs text-ink-faint">{t("login.branchHint")}</span>
         </div>
 
-        {platformResolve.isLoading ? (
+        {platformResolve.isLoading && !lookupFailing ? (
           <p className="mt-[4px] text-2xs text-ink-faint">{t("login.platformChecking")}</p>
+        ) : null}
+
+        {hostMessage ? (
+          <p role="status" className="mt-[12px] rounded-md border border-warning bg-warning-soft px-[12px] py-[9px] text-xs text-warning-ink">
+            {hostMessage}
+          </p>
         ) : null}
 
         {/* A session that ended says so, rather than looking like a fresh start
@@ -482,7 +488,7 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
           </div>
         ) : null}
 
-        {tenantMode === TenantResolveMode.Code ? (
+        {companyCodeOffered ? (
           <div className="mt-[14px] flex flex-col gap-[6px]">
             <label className="flex flex-col gap-[6px]">
               <span className="text-xs font-semibold text-ink">{t("login.tenantCode")}</span>
@@ -561,6 +567,12 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
             />
           ))}
         </div>
+
+        {companyUnconfirmed ? (
+          <p role="status" className="mt-[10px] text-xs text-warning-ink">
+            {t("login.companyUnconfirmed")}
+          </p>
+        ) : null}
 
         {error ? (
           <p role="alert" className="mt-[10px] text-xs font-semibold text-danger-ink">

@@ -30,6 +30,7 @@ const SECOND_NAME = "مؤسسة الدلتا";
 const NAME_AT_SIGNUP = "شركة الاسم الأول";
 const NAME_AFTER_RENAME = "الاسم التجاري بعد التعديل";
 const WIZARD_LINK = "الإعداد الأولي";
+const TENANT_SCOPED_BEFORE_SIGN_IN: readonly string[] = ["/api/tenant", "/api/entitlements", "/api/bootstrap/status"];
 
 let tenant: TenantLogin;
 let second: TenantLogin;
@@ -126,6 +127,51 @@ test.describe("PLT-SAAS-08 — resolving a tenant reveals nothing before sign-in
 
     await field.fill("Bad Code!");
     await expect(page.getByRole("alert")).toHaveText("رمز المنشأة غير صالح");
+  });
+
+  test("a failing company lookup holds nothing back: the form is there at once, nothing tenant-scoped is asked without a company, and a typed company signs in", async ({ page }) => {
+    const tenantScoped: string[] = [];
+    let lookups = 0;
+    await page.route("**/api/platform/resolve", (route) => {
+      lookups += 1;
+      return route.fulfill({ status: 502, contentType: "text/html", body: "<html><body>Bad Gateway</body></html>" });
+    });
+    page.on("request", (request) => {
+      const path = new URL(request.url()).pathname;
+      if (TENANT_SCOPED_BEFORE_SIGN_IN.includes(path)) tenantScoped.push(path);
+    });
+
+    await page.goto("/");
+    await expect(page.getByLabel("رمز PIN رقم 1")).toBeEnabled();
+    await expect(page.getByRole("textbox", { name: "رمز المنشأة" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "إعادة المحاولة" })).toHaveCount(0);
+    await expect(page.getByRole("alert")).toHaveCount(0);
+    await expect.poll(() => lookups).toBeGreaterThan(1);
+    expect(tenantScoped).toEqual([]);
+
+    await enterTenantCode(page, tenant.code);
+    await enterCredentials(page, tenant.adminEmail, tenant.adminPin);
+    await expect(page.getByRole("button", { name: "تسجيل الخروج" })).toBeVisible();
+    expect((await storedSession(page))?.tenantName).toBe(TENANT_NAME);
+  });
+
+  test("on a subdomain a failing company lookup does not stand between the owner and sign-in, and the screen settles by itself when the lookup answers", async ({ page }) => {
+    const origin = `http://${second.code}.${TENANT_DOMAIN}:${SAAS_WEB_PORT}`;
+    let failing = true;
+    await page.route("**/api/platform/resolve", (route) => (failing ? route.fulfill({ status: 500, contentType: "application/json", body: "{}" }) : route.fallback()));
+
+    await page.goto(`${origin}/`);
+    await expect(page.getByRole("textbox", { name: "رمز المنشأة" })).toBeVisible();
+    failing = false;
+    await expect(page.getByRole("textbox", { name: "رمز المنشأة" })).toHaveCount(0);
+    failing = true;
+    await page.reload();
+    await expect(page.getByRole("textbox", { name: "رمز المنشأة" })).toBeVisible();
+
+    await page.getByRole("textbox", { name: "البريد الإلكتروني" }).fill(second.adminEmail);
+    await fillPin(page, second.adminPin);
+    await expect(page.getByRole("button", { name: "تسجيل الخروج" })).toBeVisible();
+    expect((await storedSession(page))?.tenantName).toBe(SECOND_NAME);
   });
 
   test("subdomain mode shows no company-code field and no name, and signs straight into the tenant", async ({ page }) => {

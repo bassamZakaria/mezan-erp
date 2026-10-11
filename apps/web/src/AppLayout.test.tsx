@@ -16,6 +16,7 @@
  */
 import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { PLATFORM_LOOKUP_FIRST_RETRY_MS } from "./data/hooks";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient } from "@tanstack/react-query";
 import { createMemoryRouter, RouterProvider, useLocation } from "react-router";
@@ -570,23 +571,41 @@ describe("AppLayout — nothing tenant-scoped is asked before a company is known
   it.each([
     ["is failing", 503],
     ["is throttling this address", 429],
-  ])("keeps the gate closed and offers a retry while the company lookup %s, then goes on once it answers", async (_what, status) => {
-    clearTenantCode();
-    let failing = true;
-    const requests = signedOut(() => (failing ? { status, body: { error: "UPSTREAM" } } : { body: { mode: "subdomain", exists: true } }));
+  ])("opens sign-in at once while the company lookup %s, asks nothing tenant-scoped until a company is known, and goes on by itself once the lookup answers", async (_what, status) => {
+    vi.useFakeTimers();
+    try {
+      clearTenantCode();
+      let failing = true;
+      const requests = signedOut(() => (failing ? { status, body: { error: "UPSTREAM" } } : { body: { mode: "subdomain", exists: true } }));
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("تعذّر الوصول إلى الخادم. تحقّق من الاتصال ثم أعد المحاولة.");
+      expect(screen.getByLabelText("رمز PIN رقم 1")).toBeEnabled();
+      expect(screen.queryByRole("button", { name: "إعادة المحاولة" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+      expect(requests.filter((path) => path === "/bootstrap/status" || path === "/entitlements" || path === "/tenant")).toEqual([]);
+
+      failing = false;
+      await act(async () => { await vi.advanceTimersByTimeAsync(PLATFORM_LOOKUP_FIRST_RETRY_MS); });
+
+      await vi.waitFor(() => expect(requests).toContain("/bootstrap/status"));
+      expect(requests).toContain("/entitlements");
+      expect(requests.filter((path) => path === "/platform/resolve")).toHaveLength(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("asks the tenant-scoped questions under a company the person confirmed, even though the lookup is still failing", async () => {
+    clearTenantCode();
+    const requests = signedOut(() => ({ status: 503, body: { error: "UPSTREAM" } }));
+    await screen.findByRole("textbox", { name: "رمز المنشأة" });
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(requests.filter((path) => path === "/bootstrap/status" || path === "/entitlements")).toEqual([]);
-    expect(screen.queryByLabelText("البريد الإلكتروني")).not.toBeInTheDocument();
 
-    failing = false;
-    fireEvent.click(screen.getByRole("button", { name: "إعادة المحاولة" }));
+    act(() => persistTenantCode("acme"));
 
     await waitFor(() => expect(requests).toContain("/bootstrap/status"));
     expect(requests).toContain("/entitlements");
-    expect(await screen.findByLabelText("البريد الإلكتروني")).toBeInTheDocument();
-    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 });
 

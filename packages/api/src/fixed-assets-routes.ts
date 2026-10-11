@@ -26,6 +26,7 @@ import {
   type FiscalPeriodRepository,
   VatPeriodAlreadyFiledError,
   DuplicateDepreciationPeriodError,
+  AssetAlreadyDepreciatedError,
   NoDepreciableAssetsError,
   ReversalDateBeforeOriginalError,
   LaterDepreciationRunExistsError,
@@ -204,7 +205,8 @@ function handleDomainError(c: Context, err: unknown) {
     err instanceof InvalidAssetDisposalError ||
     err instanceof InvalidAssetCategoryError ||
     err instanceof InvalidAssetError ||
-    err instanceof NoDepreciableAssetsError
+    err instanceof NoDepreciableAssetsError ||
+    err instanceof AssetAlreadyDepreciatedError
   ) {
     return refuse(err, 422);
   }

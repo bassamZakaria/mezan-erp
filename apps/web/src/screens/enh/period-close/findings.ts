@@ -73,6 +73,7 @@ const FINDING_STATE_KEY: Readonly<Record<PeriodCloseFindingStateDTO, AppTranslat
   [PeriodCloseFindingStateDTO.Reversed]: "periodClose.state.reversed",
   [PeriodCloseFindingStateDTO.NotCovered]: "periodClose.state.not_covered",
   [PeriodCloseFindingStateDTO.ForcedFinalization]: "periodClose.state.forced_finalization",
+  [PeriodCloseFindingStateDTO.DoubleCharged]: "periodClose.state.double_charged",
 };
 
 const DOC_KIND_KEY: Readonly<Record<PeriodCloseDocKindDTO, AppTranslationKey>> = {
@@ -173,8 +174,11 @@ export function findingFigure(finding: PeriodCloseFindingDTO, t: Translate, form
     case PeriodCloseFindingKindDTO.Drafts:
     case PeriodCloseFindingKindDTO.PendingApproval:
       return t("periodClose.finding.count", { count: format.number(finding.count ?? 0) });
-    case PeriodCloseFindingKindDTO.DepreciationRun:
-      return t(finding.passed ? "periodClose.finding.assetsCovered" : "periodClose.finding.assetsUncovered", { count: format.number(finding.count ?? 0) });
+    case PeriodCloseFindingKindDTO.DepreciationRun: {
+      if (finding.passed) return t("periodClose.finding.assetsCovered", { count: format.number(finding.count ?? 0) });
+      const key = finding.state === PeriodCloseFindingStateDTO.DoubleCharged ? "periodClose.finding.assetsDoubleCharged" : "periodClose.finding.assetsUncovered";
+      return t(key, { count: format.number(finding.count ?? 0), assets: finding.items.slice(1).join(t("periodClose.listSeparator")) });
+    }
     case PeriodCloseFindingKindDTO.PayrollDue:
       return t("periodClose.finding.employeesUnpaid", { count: format.number(finding.count ?? 0) });
     case PeriodCloseFindingKindDTO.RecurringTemplate:

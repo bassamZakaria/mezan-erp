@@ -101,6 +101,7 @@ export enum PeriodCloseFindingStateDTO {
   Reversed = "reversed",
   NotCovered = "not_covered",
   ForcedFinalization = "forced_finalization",
+  DoubleCharged = "double_charged",
 }
 
 export enum PeriodCloseErrorCodeDTO {

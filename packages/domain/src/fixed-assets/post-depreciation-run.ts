@@ -5,6 +5,7 @@ import type { AssetCategoryRepository } from "./asset-category.js";
 import type { DepreciationRun, DepreciationRunRepository } from "./depreciation-run.js";
 import { depreciableBase, periodBounds } from "./depreciation.js";
 import {
+  AssetAlreadyDepreciatedError,
   AssetCategoryNotFoundError,
   AssetNotFoundError,
   DepreciationRunNotDraftError,
@@ -71,6 +72,14 @@ export async function postDepreciationRun(runId: string, deps: PostDepreciationR
     if (!asset) throw new AssetNotFoundError(line.assetId);
     assetsById.set(line.assetId, asset);
   }
+
+  const chargedElsewhere = new Set(
+    (await deps.runs.list())
+      .filter((other) => other.id !== run.id && other.period === run.period && other.status === "posted")
+      .flatMap((other) => other.lines.map((line) => line.assetId)),
+  );
+  const alreadyCharged = run.lines.filter((line) => chargedElsewhere.has(line.assetId)).map((line) => assetsById.get(line.assetId)?.code ?? line.assetId);
+  if (alreadyCharged.length > 0) throw new AssetAlreadyDepreciatedError(run.period, alreadyCharged);
 
   const totalsByPair = new Map<
     string,

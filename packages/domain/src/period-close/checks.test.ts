@@ -225,9 +225,9 @@ describe("evaluatePeriodClose", () => {
   it("requires every branch's depreciable assets to be covered by a posted run — one branch's run does not clear another", async () => {
     const evaluation = await evaluate({
       depreciation: async () => [
-        { branchId: "BR-MAIN", dueAssets: 4, uncoveredAssets: 0, hasDraftRun: false },
-        { branchId: "BR-ALEX", dueAssets: 2, uncoveredAssets: 2, hasDraftRun: false },
-        { branchId: null, dueAssets: 0, uncoveredAssets: 0, hasDraftRun: false },
+        { branchId: "BR-MAIN", dueAssets: 4, uncoveredAssets: 0, uncoveredAssetCodes: [], doubleChargedAssetCodes: [], hasDraftRun: false },
+        { branchId: "BR-ALEX", dueAssets: 2, uncoveredAssets: 2, uncoveredAssetCodes: ["AST-1", "AST-2"], doubleChargedAssetCodes: [], hasDraftRun: false },
+        { branchId: null, dueAssets: 0, uncoveredAssets: 0, uncoveredAssetCodes: [], doubleChargedAssetCodes: [], hasDraftRun: false },
       ],
     });
     expect(evaluation.blocking).toEqual([PeriodCloseCheckCode.Depreciation]);
@@ -236,12 +236,18 @@ describe("evaluatePeriodClose", () => {
       ["2026-06:BR-ALEX", false, 2, PeriodCloseFindingState.Missing],
     ]);
 
-    const draft = await evaluate({ depreciation: async () => [{ branchId: null, dueAssets: 3, uncoveredAssets: 3, hasDraftRun: true }] });
+    const draft = await evaluate({ depreciation: async () => [{ branchId: null, dueAssets: 3, uncoveredAssets: 3, uncoveredAssetCodes: ["AST-1", "AST-2", "AST-3"], doubleChargedAssetCodes: [], hasDraftRun: true }] });
     expect(checkOf(draft, PeriodCloseCheckCode.Depreciation).findings[0]).toMatchObject({ ref: "2026-06:general", state: PeriodCloseFindingState.Draft, passed: false });
 
-    const covered = await evaluate({ depreciation: async () => [{ branchId: null, dueAssets: 3, uncoveredAssets: 0, hasDraftRun: false }] });
+    const covered = await evaluate({ depreciation: async () => [{ branchId: null, dueAssets: 3, uncoveredAssets: 0, uncoveredAssetCodes: [], doubleChargedAssetCodes: [], hasDraftRun: false }] });
     expect(covered.blocking).toEqual([]);
-    const nothingDue = await evaluate({ depreciation: async () => [{ branchId: null, dueAssets: 0, uncoveredAssets: 0, hasDraftRun: false }] });
+    const twice = await evaluate({ depreciation: async () => [{ branchId: "BR-MAIN", dueAssets: 3, uncoveredAssets: 0, uncoveredAssetCodes: [], doubleChargedAssetCodes: ["AST-0002"], hasDraftRun: false }] });
+    expect(twice.blocking).toEqual([PeriodCloseCheckCode.Depreciation]);
+    expect(checkOf(twice, PeriodCloseCheckCode.Depreciation).findings.map((f) => [f.ref, f.passed, f.count, f.state, f.items])).toEqual([
+      ["2026-06:BR-MAIN", true, 3, PeriodCloseFindingState.Ok, ["2026-06"]],
+      ["2026-06:BR-MAIN:double_charged", false, 1, PeriodCloseFindingState.DoubleCharged, ["2026-06", "AST-0002"]],
+    ]);
+    const nothingDue = await evaluate({ depreciation: async () => [{ branchId: null, dueAssets: 0, uncoveredAssets: 0, uncoveredAssetCodes: [], doubleChargedAssetCodes: [], hasDraftRun: false }] });
     expect(checkOf(nothingDue, PeriodCloseCheckCode.Depreciation).status).toBe(PeriodCloseCheckStatus.NotApplicable);
   });
 

@@ -134,6 +134,21 @@ export class DuplicateDepreciationPeriodError extends Error {
 }
 
 /** Raised when a new depreciation run would contain zero lines (no eligible asset has anything due for the period). */
+export class AssetAlreadyDepreciatedError extends Error {
+  readonly code = "ASSET_ALREADY_DEPRECIATED";
+  readonly messageEn: string;
+  constructor(
+    readonly period: string,
+    readonly assetCodes: readonly string[],
+  ) {
+    super(
+      `${assetCodes.length === 1 ? "الأصل" : "الأصول"} ${assetCodes.join("، ")} ${assetCodes.length === 1 ? "حُمِّل" : "حُمِّلت"} إهلاك الفترة "${period}" في تشغيل مرحَّل آخر. ألغِ هذا التشغيل وأنشئ تشغيلاً جديداً للأصول الباقية فقط.`,
+    );
+    this.messageEn = `${assetCodes.length === 1 ? "Asset" : "Assets"} ${assetCodes.join(", ")} ${assetCodes.length === 1 ? "was" : "were"} already charged depreciation for period "${period}" by another posted run. Discard this run and draft a new one for the remaining assets only.`;
+    this.name = "AssetAlreadyDepreciatedError";
+  }
+}
+
 export class NoDepreciableAssetsError extends Error {
   readonly code = "NO_DEPRECIABLE_ASSETS";
   readonly messageEn: string;

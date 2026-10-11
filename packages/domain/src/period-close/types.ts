@@ -112,6 +112,7 @@ export enum PeriodCloseFindingState {
   Reversed = "reversed",
   NotCovered = "not_covered",
   ForcedFinalization = "forced_finalization",
+  DoubleCharged = "double_charged",
 }
 
 export enum PeriodCloseEntryState {
@@ -209,6 +210,8 @@ export interface PeriodCloseDepreciationGroup {
   readonly branchId: string | null;
   readonly dueAssets: number;
   readonly uncoveredAssets: number;
+  readonly uncoveredAssetCodes: readonly string[];
+  readonly doubleChargedAssetCodes: readonly string[];
   readonly hasDraftRun: boolean;
 }
 

@@ -1,6 +1,6 @@
 import type Database from "better-sqlite3";
 import { createRecurringJournalRoutes } from "@mezan/api";
-import { createRecurringJournalCommitmentSource, depreciationRunsCoverPeriod, routedAccountId, type PartyControlKind, type CommitmentSource } from "@mezan/domain";
+import { DEPRECIABLE_ASSET_STATUSES, createRecurringJournalCommitmentSource, depreciationRunsCoverPeriod, routedAccountId, type PartyControlKind, type CommitmentSource } from "@mezan/domain";
 import {
   createSqliteAccountRoutingStore,
   createSqliteAssetRepository,
@@ -25,8 +25,6 @@ const commitmentSourceRegistry = new WeakMap<Database.Database, CommitmentSource
 export function getRecurringJournalCommitmentSource(sqlite: Database.Database): CommitmentSource | undefined {
   return commitmentSourceRegistry.get(sqlite);
 }
-
-const DEPRECIABLE_ASSET_STATUSES = new Set(["active", "under_maintenance"]);
 
 export const area: BackendArea = {
   mount(ctx: BackendModuleContext) {

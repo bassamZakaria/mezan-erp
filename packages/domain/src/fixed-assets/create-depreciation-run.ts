@@ -30,7 +30,7 @@ function parsePeriod(period: string): DepreciationPeriod {
   return { year: Number(match[1]), month: Number(match[2]) };
 }
 
-const DEPRECIABLE_STATUSES: ReadonlySet<Asset["status"]> = new Set<Asset["status"]>(["active", "under_maintenance"]);
+export const DEPRECIABLE_ASSET_STATUSES: ReadonlySet<Asset["status"]> = new Set<Asset["status"]>(["active", "under_maintenance"]);
 
 /**
  * Whether the period's runs account for every asset that has depreciation to
@@ -43,7 +43,7 @@ export function depreciationRunsCoverPeriod(assets: readonly Asset[], runs: read
   const covered = new Set(periodRuns.flatMap((run) => run.lines.map((line) => line.assetId)));
   const month = parsePeriod(period);
   return assets.every(
-    (asset) => covered.has(asset.id) || !DEPRECIABLE_STATUSES.has(asset.status) || computeMonthlyDepreciation(asset, month).amount.scaled === 0n,
+    (asset) => covered.has(asset.id) || !DEPRECIABLE_ASSET_STATUSES.has(asset.status) || computeMonthlyDepreciation(asset, month).amount.scaled === 0n,
   );
 }
 
@@ -71,8 +71,14 @@ export async function createDepreciationRun(
     if (fiscalPeriod) assertOpenForPosting(fiscalPeriod);
   }
   const allAssets = await deps.assets.list();
+  // A run is scoped to a branch, but an asset is charged once a month whichever run reaches it first.
+  const alreadyOnARun = new Set(
+    (await deps.runs.list())
+      .filter((run) => run.period === cmd.period && run.status !== "cancelled")
+      .flatMap((run) => run.lines.map((line) => line.assetId)),
+  );
   const eligible = allAssets.filter((asset) => {
-    if (asset.status !== "active") return false;
+    if (asset.status !== "active" || alreadyOnARun.has(asset.id)) return false;
     if (branchId === null) return true;
     if (asset.scope === "general") return true;
     if (asset.scope === "branch") return asset.branchId === branchId;

@@ -261,19 +261,32 @@ const depreciationCheck: PeriodCloseCheckDefinition = {
   fix: PeriodCloseFixTarget.DepreciationRuns,
   async evaluate(window, sources) {
     const groups = (await sources.depreciation(window)).filter((group) => group.dueAssets > 0);
-    const findings = groups.map((group) => {
+    const findings = groups.flatMap((group) => {
       const covered = group.uncoveredAssets === 0;
       const open = group.hasDraftRun ? PeriodCloseFindingState.Draft : PeriodCloseFindingState.Missing;
-      return finding({
+      const ref = `${periodMonthKey(window)}:${group.branchId ?? GENERAL_BRANCH_REF}`;
+      const coverage = finding({
         kind: PeriodCloseFindingKind.DepreciationRun,
-        ref: `${periodMonthKey(window)}:${group.branchId ?? GENERAL_BRANCH_REF}`,
+        ref,
         label: group.branchId,
         state: covered ? PeriodCloseFindingState.Ok : open,
         passed: covered,
         fix: PeriodCloseFixTarget.DepreciationRuns,
         count: covered ? group.dueAssets : group.uncoveredAssets,
-        items: [periodMonthKey(window)],
+        items: [periodMonthKey(window), ...group.uncoveredAssetCodes.slice(0, MAX_LISTED_ITEMS)],
       });
+      if (group.doubleChargedAssetCodes.length === 0) return [coverage];
+      const doubleCharged = finding({
+        kind: PeriodCloseFindingKind.DepreciationRun,
+        ref: `${ref}:${PeriodCloseFindingState.DoubleCharged}`,
+        label: group.branchId,
+        state: PeriodCloseFindingState.DoubleCharged,
+        passed: false,
+        fix: PeriodCloseFixTarget.DepreciationRuns,
+        count: group.doubleChargedAssetCodes.length,
+        items: [periodMonthKey(window), ...group.doubleChargedAssetCodes.slice(0, MAX_LISTED_ITEMS)],
+      });
+      return [coverage, doubleCharged];
     });
     return outcome(findings, findings.length > 0);
   },

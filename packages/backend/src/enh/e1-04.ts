@@ -210,21 +210,27 @@ function buildSources(ctx: BackendModuleContext, store: ReturnType<typeof create
       const period = { year: window.year, month: Number(periodKey.slice(5, 7)) };
       const [allAssets, allRuns] = await Promise.all([assets.list(), depreciationRuns.list()]);
       const periodRuns = allRuns.filter((run) => run.period === periodKey);
-      const covered = new Set(periodRuns.filter((run) => run.status === SourceStatus.Posted).flatMap((run) => run.lines.map((line) => line.assetId)));
+      const postedLines = periodRuns.filter((run) => run.status === SourceStatus.Posted).flatMap((run) => run.lines.map((line) => line.assetId));
+      const covered = new Set(postedLines);
+      const doubleCharged = new Set(postedLines.filter((assetId, index) => postedLines.indexOf(assetId) !== index));
       const hasDraftRun = periodRuns.some((run) => run.status === SourceStatus.Draft);
       const disposedOn = new Map(queries.assetDisposalDates().map((disposal) => [disposal.assetId, disposal.date]));
       const inServiceAtPeriodEnd = (asset: Asset): boolean =>
         asset.status === SourceStatus.Active || (asset.status === SourceStatus.Disposed && (disposedOn.get(asset.id) ?? "") > window.endDate);
-      const groups = new Map<string | null, { dueAssets: number; uncoveredAssets: number }>();
+      const groups = new Map<string | null, { dueAssets: number; uncoveredAssets: number; uncoveredAssetCodes: string[]; doubleChargedAssetCodes: string[] }>();
       for (const asset of allAssets) {
         const due =
           covered.has(asset.id) ||
           (inServiceAtPeriodEnd(asset) && computeMonthlyDepreciation({ ...asset, status: ASSET_IN_SERVICE }, period).amount.scaled > 0n);
         if (!due) continue;
         const branchId = depreciationBranch(asset);
-        const group = groups.get(branchId) ?? { dueAssets: 0, uncoveredAssets: 0 };
+        const group = groups.get(branchId) ?? { dueAssets: 0, uncoveredAssets: 0, uncoveredAssetCodes: [], doubleChargedAssetCodes: [] };
         group.dueAssets += 1;
-        if (!covered.has(asset.id)) group.uncoveredAssets += 1;
+        if (!covered.has(asset.id)) {
+          group.uncoveredAssets += 1;
+          group.uncoveredAssetCodes.push(asset.code);
+        }
+        if (doubleCharged.has(asset.id)) group.doubleChargedAssetCodes.push(asset.code);
         groups.set(branchId, group);
       }
       return [...groups.entries()].map(([branchId, group]): PeriodCloseDepreciationGroup => ({ branchId, ...group, hasDraftRun }));

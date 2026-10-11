@@ -11,6 +11,7 @@ import {
   salesReturnLineCredit,
   sumRefunds,
   SalesReturnNotRefundableError,
+  SalesReturnRefundTreasuryBranchError,
   type DocumentService,
   type FrameworkDocument,
   type SalesInvoiceLookupPort,
@@ -516,6 +517,9 @@ export function createSalesReturnsRoutes(
     } catch (err) {
       if (err instanceof SalesReturnNotRefundableError) {
         return c.json({ error: err.code, message: err.message }, 422);
+      }
+      if (err instanceof SalesReturnRefundTreasuryBranchError) {
+        return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 422);
       }
       return handleDocumentError(c, err);
     }

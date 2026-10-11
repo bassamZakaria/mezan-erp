@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { Hono, type Context } from "hono";
+import { Hono, type Context, type MiddlewareHandler } from "hono";
 import {
   ALL_SCOPE,
   saveUser,
@@ -428,7 +428,7 @@ export function createUsersRoutes(
   async function refuseIfTargetOutranks(c: Context, targetId: string) {
     const ctx = getAuthContext(c);
     const target = await uow.users.findById(targetId);
-    if (!target) return c.json({ error: "USER_NOT_FOUND", message: "المستخدم غير موجود." }, 404);
+    if (!target) return userNotFound(c);
     if (!ctx || targetOutranksCaller(ctx, await authorityOf(target))) {
       await auditRefusal(c, targetId, { reason: "TARGET_OUTRANKS_CALLER", targetEmail: target.email });
       return refuseOutranked(c);
@@ -451,12 +451,28 @@ export function createUsersRoutes(
   /**
    * SECURITY: a branch-restricted session administers the users of its own
    * branches. A user it could not have created — one granted another branch,
-   * or every branch — is not listed to it and does not open by id.
+   * every branch, or no branch at all — is not listed to it and is not there
+   * on any by-id route.
    */
   const withinCallersBranches = (c: Context, user: User): boolean => {
     const grant = branchGrantOf(c);
     if (!grant) return true;
-    return user.branchScope !== ALL_SCOPE && user.branchScope.every((branchId) => grant.includes(branchId));
+    return user.branchScope !== ALL_SCOPE && user.branchScope.length > 0 && user.branchScope.every((branchId) => grant.includes(branchId));
+  };
+
+  const userNotFound = (c: Context) =>
+    c.json({ error: "USER_NOT_FOUND", message: "المستخدم غير موجود.", messageEn: "The user does not exist." }, 404);
+
+  /**
+   * SECURITY: mounted on EVERY by-id route, after its permission gate. A user
+   * outside the caller's branches answers exactly as an id nobody holds, so no
+   * route's own refusal tells the two apart.
+   */
+  const visibleTarget: MiddlewareHandler = async (c, next) => {
+    const user = await uow.users.findById(c.req.param("id") ?? "");
+    if (user && withinCallersBranches(c, user)) return next();
+    if (user && c.req.method !== "GET") await auditRefusal(c, user.id, { reason: "TARGET_OUTSIDE_CALLER_BRANCHES", targetEmail: user.email });
+    return userNotFound(c);
   };
 
   app.get("/", gate("admin.users.view"), async (c) => {
@@ -464,10 +480,9 @@ export function createUsersRoutes(
     return c.json(users.filter((user) => withinCallersBranches(c, user)).map(serializeUser));
   });
 
-  app.get("/:id", gate("admin.users.view"), async (c) => {
+  app.get("/:id", gate("admin.users.view"), visibleTarget, async (c) => {
     const user = await uow.users.findById(c.req.param("id"));
-    if (!user || !withinCallersBranches(c, user)) return c.json({ error: "NOT_FOUND" }, 404);
-    return c.json(serializeUser(user));
+    return user ? c.json(serializeUser(user)) : userNotFound(c);
   });
 
   app.post("/", gate("admin.users.create"), async (c) => {
@@ -500,7 +515,7 @@ export function createUsersRoutes(
     }
   });
 
-  app.put("/:id", gate("admin.users.edit"), async (c) => {
+  app.put("/:id", gate("admin.users.edit"), visibleTarget, async (c) => {
     const parsed = updateUserSchema.safeParse(await c.req.json());
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
@@ -510,7 +525,7 @@ export function createUsersRoutes(
     const before = await uow.users.findById(id);
     // A PUT is an EDIT. Letting an unknown id fall through created the account
     // instead, so a caller-chosen id was a second, unaudited create route.
-    if (!before) return c.json({ error: "USER_NOT_FOUND", message: "المستخدم غير موجود." }, 404);
+    if (!before) return userNotFound(c);
     const erasedRefusal = refuseErased(c, before);
     if (erasedRefusal) return erasedRefusal;
     const outranked = await refuseIfTargetOutranks(c, id);
@@ -580,7 +595,7 @@ export function createUsersRoutes(
     }
   });
 
-  app.post("/:id/deactivate", gate("admin.users.deactivate"), async (c) => {
+  app.post("/:id/deactivate", gate("admin.users.deactivate"), visibleTarget, async (c) => {
     const outranked = await refuseIfTargetOutranks(c, c.req.param("id"));
     if (outranked) return outranked;
     try {
@@ -595,7 +610,7 @@ export function createUsersRoutes(
     }
   });
 
-  app.post("/:id/activate", gate("admin.users.edit"), async (c) => {
+  app.post("/:id/activate", gate("admin.users.edit"), visibleTarget, async (c) => {
     const id = c.req.param("id");
     const outranked = await refuseIfTargetOutranks(c, id);
     if (outranked) return outranked;
@@ -628,9 +643,9 @@ export function createUsersRoutes(
    * Gated on its own permission so the branch manager standing beside the till
    * can use it without also being handed every colleague's PIN.
    */
-  app.post("/:id/unlock", gate("admin.users.unlock"), async (c) => {
+  app.post("/:id/unlock", gate("admin.users.unlock"), visibleTarget, async (c) => {
     const user = await uow.users.findById(c.req.param("id"));
-    if (!user) return c.json({ error: "USER_NOT_FOUND", message: "المستخدم غير موجود." }, 404);
+    if (!user) return userNotFound(c);
     const erasedRefusal = refuseErased(c, user);
     if (erasedRefusal) return erasedRefusal;
     const outranked = await refuseIfTargetOutranks(c, c.req.param("id"));
@@ -658,7 +673,7 @@ export function createUsersRoutes(
      * reads as failed, and the retry must not re-run the linked-data sweep
      * against records the first pass already anonymised.
      */
-    app.post("/:id/erase", gate("admin.users.erase_personal"), async (c) => {
+    app.post("/:id/erase", gate("admin.users.erase_personal"), visibleTarget, async (c) => {
       const parsed = eraseUserSchema.safeParse(await c.req.json().catch(() => ({})));
       if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
       const id = c.req.param("id");
@@ -667,7 +682,7 @@ export function createUsersRoutes(
       const outranked = await refuseIfTargetOutranks(c, id);
       if (outranked) return outranked;
       const target = await uow.users.findById(id);
-      if (!target) return c.json({ error: "USER_NOT_FOUND", message: "المستخدم غير موجود." }, 404);
+      if (!target) return userNotFound(c);
       if (isErasedUser(target)) {
         return c.json({
           user: serializeUser(target),

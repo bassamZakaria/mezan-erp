@@ -95,6 +95,7 @@ import {
   purchaseReturnGrandTotal,
   salesReturnGrandTotal,
   SalesReturnNotRefundableError,
+  SalesReturnRefundTreasuryBranchError,
   totalLandedCost,
   Money,
   getAdjustmentReasonDefinition,
@@ -3899,6 +3900,10 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
           if (!treasury?.glAccountId) {
             throw new SalesReturnNotRefundableError("حساب الخزينة غير موجود أو بلا حساب دفتري.");
           }
+          // A return's lines land in one branch's stores, so its branch is a
+          // single one: the header's.
+          const returnBranchId = (await bridgedDocumentBranchIds(deferredBranchDirectory, "SALES_RETURN", command.returnId))[0] ?? null;
+          if (returnBranchId !== null && treasury.branchId !== null && treasury.branchId !== returnBranchId) throw new SalesReturnRefundTreasuryBranchError();
           const customer = await customers.findById(command.customerId);
           const voucherId = `REFUND:${command.returnId}:${randomUUID()}`;
           const service = new VoucherService({
@@ -3925,7 +3930,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
             // to the return's branch — the account's own only when the return
             // has none. Booking it to a company-level account's "no branch"
             // left a branch's refund outside that branch's books.
-            branchId: (await bridgedDocumentBranchIds(deferredBranchDirectory, "SALES_RETURN", command.returnId))[0] ?? treasury.branchId ?? COMPANY_LEVEL_VOUCHER_BRANCH,
+            branchId: returnBranchId ?? treasury.branchId ?? COMPANY_LEVEL_VOUCHER_BRANCH,
             paymentMethod: command.paymentMethod,
             treasuryAccountId: command.treasuryAccountId,
             treasuryGlAccountId: treasury.glAccountId,

@@ -1368,30 +1368,45 @@ describe("D111 round 3 · a branch-restricted administrator cannot administer it
     expect(JSON.parse(stored(BRANCH_ADMIN).branch_scope)).toEqual([ALEX]);
   });
 
-  it("cannot set the PIN or password of an account that reaches further than it does", async () => {
+  const expectNotThere = (res: Res) => {
+    expect(res.status, JSON.stringify(res.body).slice(0, 200)).toBe(404);
+    expect(res.body?.error).toBe("USER_NOT_FOUND");
+    expect(res.body?.message).toMatch(ARABIC);
+  };
+
+  it("cannot set the PIN or password of an account that reaches further than it does: that account is not there for it", async () => {
     const before = stored(HQ_ACCOUNTANT);
     const edit = account("r3-hq-accountant@cyag.example", { roleId, branchScope: ALL_SCOPE, password: undefined });
-    expectEscalationRefused(await branchAdmin("PUT", `/users/${HQ_ACCOUNTANT}`, { ...edit, pin: "432100" }));
-    expectEscalationRefused(await branchAdmin("PUT", `/users/${HQ_ACCOUNTANT}`, { ...edit, password: "an-attackers-password" }));
+    expectNotThere(await branchAdmin("PUT", `/users/${HQ_ACCOUNTANT}`, { ...edit, pin: "432100" }));
+    expectNotThere(await branchAdmin("PUT", `/users/${HQ_ACCOUNTANT}`, { ...edit, password: "an-attackers-password" }));
     expect(stored(HQ_ACCOUNTANT)).toEqual(before);
   });
 
   it("cannot change the role of, make an administrator of, deactivate, reactivate or unlock such an account", async () => {
     const before = stored(HQ_ACCOUNTANT);
     const otherRole = one<{ id: string }>("SELECT id FROM role WHERE id <> ? LIMIT 1", roleId)!.id;
-    expectEscalationRefused(await branchAdmin("PUT", `/users/${HQ_ACCOUNTANT}`, account("r3-hq-accountant@cyag.example", { roleId: otherRole, branchScope: [ALEX], password: undefined })));
-    expectEscalationRefused(await branchAdmin("PUT", `/users/${HQ_ACCOUNTANT}`, account("r3-hq-accountant@cyag.example", { isCompanyAdmin: true, branchScope: [ALEX], password: undefined })));
+    expectNotThere(await branchAdmin("PUT", `/users/${HQ_ACCOUNTANT}`, account("r3-hq-accountant@cyag.example", { roleId: otherRole, branchScope: [ALEX], password: undefined })));
+    expectNotThere(await branchAdmin("PUT", `/users/${HQ_ACCOUNTANT}`, account("r3-hq-accountant@cyag.example", { isCompanyAdmin: true, branchScope: [ALEX], password: undefined })));
     for (const action of ["deactivate", "activate", "unlock"]) {
-      expectEscalationRefused(await branchAdmin("POST", `/users/${HQ_ACCOUNTANT}/${action}`, {}));
+      expectNotThere(await branchAdmin("POST", `/users/${HQ_ACCOUNTANT}/${action}`, {}));
     }
     expect(stored(HQ_ACCOUNTANT)).toEqual(before);
-    expectEscalationRefused(await branchAdmin("POST", "/users/USER-ADMIN/deactivate", {}));
+    expectNotThere(await branchAdmin("POST", "/users/USER-ADMIN/deactivate", {}));
     expect(stored("USER-ADMIN").status).toBe("active");
+  });
+
+  it("the attempt on an account it cannot see is still written to the audit trail", async () => {
+    const attempts = () => one<{ n: number }>("SELECT count(*) AS n FROM audit_event WHERE action = 'PRIVILEGE_ESCALATION_DENIED' AND entity_id = ?", HQ_ACCOUNTANT)!.n;
+    const before = attempts();
+    expectNotThere(await branchAdmin("POST", `/users/${HQ_ACCOUNTANT}/deactivate`, {}));
+    expect(attempts()).toBe(before + 1);
+    expectNotThere(await branchAdmin("GET", `/users/${HQ_ACCOUNTANT}`));
+    expect(attempts()).toBe(before + 1);
   });
 
   it("is refused the same way when it is a non-admin holding every permission", async () => {
     const before = stored(HQ_ACCOUNTANT);
-    expectEscalationRefused(await alex("PUT", `/users/${HQ_ACCOUNTANT}`, account("r3-hq-accountant@cyag.example", { roleId, branchScope: ALL_SCOPE, password: undefined, pin: "432100" })));
+    expectNotThere(await alex("PUT", `/users/${HQ_ACCOUNTANT}`, account("r3-hq-accountant@cyag.example", { roleId, branchScope: ALL_SCOPE, password: undefined, pin: "432100" })));
     expectEscalationRefused(await alex("POST", "/users", account("r3-alex-minted@cyag.example", { roleId, branchScope: ALL_SCOPE })));
     expect(stored(HQ_ACCOUNTANT)).toEqual(before);
   });
@@ -2897,5 +2912,81 @@ describe("D111 round 5 · a return is taken at the counter the goods come back t
     expect(company).toBe(0);
     expect(netByBranch().reduce((sum, row) => sum + row.net, 0)).toBe(company);
     expect(one<{ n: number }>("SELECT count(*) AS n FROM journal_line WHERE branch_id = ''")!.n).toBe(0);
+  });
+});
+
+describe("D111 round 5 · a user outside a branch admin's branches is not there, on every by-id route", () => {
+  const HIDDEN_BY_SCOPE = "D111-R5-USER-NOSCOPE";
+  let branchAdmin: typeof alex;
+  let hiddenIds: string[];
+
+  beforeAll(async () => {
+    branchAdmin = callerFor(handle.sessions.issue({ userId: "USER-R5-BRANCH-ADMIN", permissions: ["*"], roleCode: null, branchScope: [ALEX], warehouseScope: ALL_SCOPE }));
+    const everyBranch = one<{ id: string }>(`SELECT id FROM "user" WHERE branch_scope = '"*"' AND is_company_admin = 0 AND erased_at IS NULL LIMIT 1`)?.id;
+    const template = one<Record<string, unknown>>(`SELECT * FROM "user" WHERE id = ?`, everyBranch)!;
+    const columns = Object.keys(template);
+    sqlite
+      .prepare(`INSERT INTO "user" (${columns.join(", ")}) VALUES (${columns.map(() => "?").join(", ")})`)
+      .run(...columns.map((column) => (column === "id" ? HIDDEN_BY_SCOPE : column === "email" ? "r5-noscope@cyag.example" : column === "branch_scope" ? "[]" : template[column])));
+    hiddenIds = [everyBranch!, HIDDEN_BY_SCOPE];
+  });
+
+  it("a user granted no branch at all is listed only to an unrestricted admin", async () => {
+    expect(rowsOf((await admin("GET", "/users")).body).map((user: any) => user.id)).toContain(HIDDEN_BY_SCOPE);
+    expect(rowsOf((await branchAdmin("GET", "/users")).body).map((user: any) => user.id)).not.toContain(HIDDEN_BY_SCOPE);
+  });
+
+  it("every mounted by-id route answers a hidden user exactly as it answers an id nobody holds", async () => {
+    const byId = handle.app.routes.filter((route) => route.method !== "ALL" && /^\/users\/:id(\/|$)/.test(route.path));
+    expect(byId.length).toBeGreaterThanOrEqual(5);
+    const bodies: Record<string, unknown> = { PUT: { nameAr: "اسم جديد" }, POST: {} };
+    for (const route of byId) {
+      const call = (id: string) => branchAdmin(route.method, route.path.replace(":id", id), route.method === "GET" ? undefined : (bodies[route.method] ?? {}));
+      const missing = await call("D111-R5-NO-SUCH-USER");
+      expect(missing.status, `${route.method} ${route.path}`).toBe(404);
+      expect(missing.body?.message).toMatch(ARABIC);
+      for (const id of hiddenIds) {
+        const before = JSON.stringify(one(`SELECT * FROM "user" WHERE id = ?`, id));
+        const hidden = await call(id);
+        expect(hidden.status, `${route.method} ${route.path} ${id}`).toBe(missing.status);
+        expect(hidden.body, `${route.method} ${route.path} ${id}`).toEqual(missing.body);
+        expect(JSON.stringify(one(`SELECT * FROM "user" WHERE id = ?`, id))).toBe(before);
+      }
+    }
+  });
+});
+
+describe("D111 round 5 · a refund is booked to its return's branch and paid from that branch's drawer or the company's account", () => {
+  const vouchersFor = (returnId: string) => one<{ n: number }>("SELECT count(*) AS n FROM voucher WHERE id LIKE ?", `REFUND:${returnId}:%`)!.n;
+
+  it("is refused out of another branch's drawer, for head office too, and nothing is posted", async () => {
+    const entries = one<{ n: number }>("SELECT count(*) AS n FROM journal_entry")!.n;
+    for (const [caller, status, error] of [[admin, 422, "SALES_RETURN_REFUND_TREASURY_BRANCH"], [bothBranches, 403, "TREASURY_BRANCH_MISMATCH"]] as const) {
+      const res = await caller("POST", "/sales-returns/D111-R4-REFUND-SRT/refund", { amount: "5.00", treasuryAccountId: "TR-DEMO-CASH", paymentMethod: "cash" });
+      expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(status);
+      expect(res.body?.error).toBe(error);
+      expect(res.body?.message).toMatch(ARABIC);
+    }
+    expect(one<{ n: number }>("SELECT count(*) AS n FROM journal_entry")!.n).toBe(entries);
+    expect(one<{ n: number }>("SELECT count(*) AS n FROM voucher WHERE id LIKE 'REFUND:D111-R4-REFUND-SRT:%' AND treasury_account_id = 'TR-DEMO-CASH'")!.n).toBe(0);
+  });
+
+  it("is paid from the return's own branch's drawer and carries that branch", async () => {
+    const funded = await admin("POST", "/vouchers", { ...voucher("D111-R5-REFUND-FUND", ALEX, "TR-DEMO-CASH-ALEX", "1300-ALEX"), amount: "50.00" });
+    expect(funded.status, JSON.stringify(funded.body).slice(0, 200)).toBe(201);
+    expect((await admin("POST", "/vouchers/D111-R5-REFUND-FUND/confirm", {})).status).toBe(200);
+    const before = vouchersFor("D111-R4-REFUND-SRT");
+    const res = await admin("POST", "/sales-returns/D111-R4-REFUND-SRT/refund", { amount: "5.00", treasuryAccountId: "TR-DEMO-CASH-ALEX", paymentMethod: "cash" });
+    expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+    expect(vouchersFor("D111-R4-REFUND-SRT")).toBe(before + 1);
+    expect(one<{ b: string }>("SELECT branch_id AS b FROM voucher WHERE id = ?", res.body.voucherId)!.b).toBe(ALEX);
+  });
+
+  it("a return taken at branch B for branch A's invoice is refunded as branch B's", async () => {
+    const res = await admin("POST", "/sales-returns/D111-R5-XRET-ADMIN/refund", { amount: "5.00", treasuryAccountId: "TR-DEMO-CASH-ALEX", paymentMethod: "cash" });
+    expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+    expect(one<{ b: string }>("SELECT branch_id AS b FROM voucher WHERE id = ?", res.body.voucherId)!.b).toBe(ALEX);
+    const fromSellingBranch = await admin("POST", "/sales-returns/D111-R5-XRET-ADMIN/refund", { amount: "5.00", treasuryAccountId: "TR-DEMO-CASH", paymentMethod: "cash" });
+    expect(fromSellingBranch.status).toBe(422);
   });
 });

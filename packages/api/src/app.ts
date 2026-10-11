@@ -26,6 +26,7 @@ import {
   type AllocatableInvoiceRepository,
   type BarcodeConfigRepository,
   type AuditQueryPort,
+  ForeignWriteError,
   type AuditSink,
   type LabelLayoutRepository,
   type Entitlements,
@@ -223,7 +224,7 @@ import { createFinancialReportsRoutes, type FinancialReportsRoutesDeps } from ".
 import { createLabelLayoutsRouter } from "./label-routes.js";
 import { createSequencesRoutes, type SequencesRoutesDeps } from "./sequences-routes.js";
 import { createAuditRoutes } from "./audit-routes.js";
-import { AUDITED_MOUNTS, MutatingMethod, auditBoundary, beforeTheTurn, connectionTurn, type BoundaryPreparation } from "./audit-boundary.js";
+import { AUDITED_MOUNTS, AuditBoundaryRefusal, MutatingMethod, auditBoundary, beforeTheTurn, connectionTurn, type BoundaryPreparation } from "./audit-boundary.js";
 import { createPrecomputingHasher, type PrecomputingHasher } from "./precomputed-secrets.js";
 import { requestBodyLimit } from "./body-limit.js";
 import { IDEMPOTENT_CREATES, idempotentCreate, type IdempotentRequests } from "./idempotent-create.js";
@@ -1824,6 +1825,17 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
       console.error(`[api] unhandled error on ${c.req.method} ${c.req.path}`, err);
     } catch {
       // A logger that throws must not turn a 500 into a crash.
+    }
+    if (err instanceof ForeignWriteError) {
+      c.header("retry-after", "2");
+      return c.json(
+        {
+          error: AuditBoundaryRefusal.ConnectionBusy,
+          message: "تعذّر تنفيذ العملية الآن لأن قاعدة البيانات مشغولة بعملية أخرى، فلم يُحفظ أي تغيير. حاول مرة أخرى بعد قليل.",
+          messageEn: "The database was busy with another operation, so nothing was saved. Try again shortly.",
+        },
+        503,
+      );
     }
     return c.json({ error: "INTERNAL", message: "خطأ داخلي" }, 500);
   });

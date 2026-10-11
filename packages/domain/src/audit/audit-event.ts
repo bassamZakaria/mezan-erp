@@ -118,6 +118,14 @@ export class AuditRecordingError extends Error {
   }
 }
 
+/** A statement issued from outside the chain that owns the open transaction: refused before it runs, because it would commit or vanish with somebody else's work. */
+export class ForeignWriteError extends Error {
+  constructor(readonly statement: string) {
+    super(`a write was issued inside another operation's open transaction and was refused: ${statement}`);
+    this.name = "ForeignWriteError";
+  }
+}
+
 export interface LostTurnOutcome {
   /** What the outside work answered, when it finished: an effect that happened and has not been recorded. */
   readonly completed?: { readonly value: unknown };

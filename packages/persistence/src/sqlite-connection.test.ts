@@ -10,7 +10,7 @@ import {
   holdsSqliteTurn,
   type SqliteDriver,
 } from "./sqlite-connection.js";
-import { ConnectionTurnLostError } from "@mezan/domain";
+import { ConnectionTurnLostError, ForeignWriteError } from "@mezan/domain";
 import { drainForeignWrites } from "./untransacted-audits.js";
 
 describe("openSqliteConnection", () => {
@@ -821,7 +821,7 @@ describe("outsideSqliteTurn — work that finished outside is not thrown away wi
 describe("a write that lands inside another chain's open transaction", () => {
   const tick = () => new Promise<void>((resolve) => setImmediate(resolve));
 
-  it("is reported by its statement, because it is lost when that transaction rolls back", async () => {
+  it("is refused before it runs and reported by its statement, because it would be lost when that transaction rolls back", async () => {
     const { sqlite } = openSqliteConnection(":memory:");
     sqlite.exec("CREATE TABLE t (v TEXT)");
     drainForeignWrites();
@@ -832,15 +832,17 @@ describe("a write that lands inside another chain's open transaction", () => {
       throw new Error("period closed");
     }).catch(() => undefined);
     await tick();
-    sqlite.prepare("INSERT INTO t VALUES ('timer')").run();
+    expect(() => sqlite.prepare("INSERT INTO t VALUES ('timer')").run()).toThrow(ForeignWriteError);
     await rolledBack;
 
     expect(sqlite.prepare("SELECT v FROM t").all()).toEqual([]);
     expect(drainForeignWrites()).toEqual(["INSERT INTO t VALUES ('timer')"]);
+    sqlite.prepare("INSERT INTO t VALUES ('afterwards')").run();
+    expect(sqlite.prepare("SELECT v FROM t").all()).toEqual([{ v: "afterwards" }]);
     sqlite.close();
   });
 
-  it("is reported however it was issued: a RETURNING statement read with get or all, an exec, and the driver's own transaction", async () => {
+  it("is refused however it was issued: a RETURNING statement read with get or all, an exec, and the driver's own transaction", async () => {
     const { sqlite } = openSqliteConnection(":memory:");
     sqlite.exec("CREATE TABLE t (v TEXT)");
     drainForeignWrites();
@@ -851,10 +853,10 @@ describe("a write that lands inside another chain's open transaction", () => {
       throw new Error("period closed");
     }).catch(() => undefined);
     await tick();
-    sqlite.prepare("INSERT INTO t VALUES ('got') RETURNING v").get();
-    sqlite.prepare("INSERT INTO t VALUES ('listed') RETURNING v").all();
-    sqlite.exec("INSERT INTO t VALUES ('executed')");
-    sqlite.transaction(() => undefined)();
+    expect(() => sqlite.prepare("INSERT INTO t VALUES ('got') RETURNING v").get()).toThrow(ForeignWriteError);
+    expect(() => sqlite.prepare("INSERT INTO t VALUES ('listed') RETURNING v").all()).toThrow(ForeignWriteError);
+    expect(() => sqlite.exec("INSERT INTO t VALUES ('executed')")).toThrow(ForeignWriteError);
+    expect(() => sqlite.transaction(() => undefined)()).toThrow(ForeignWriteError);
     sqlite.exec("PRAGMA user_version");
     await rolledBack;
 

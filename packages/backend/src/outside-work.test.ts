@@ -22,3 +22,29 @@ describe("work done with the tenant's connection handed back", () => {
     await expect(withinDeadline(OutsideWork.EtaHttp, never, quick)).rejects.toBeInstanceOf(OutsideWorkDeadlineError);
   });
 });
+
+describe("a write issued inside another operation's open transaction", () => {
+  it("is answered 503 in Arabic by the request that issued it, and changes nothing", async () => {
+    const { createBackend } = await import("./create-backend.js");
+    const { ForeignWriteError } = await import("@mezan/domain");
+    const { Hono } = await import("hono");
+    const backend = await createBackend({ dbPath: ":memory:" });
+    try {
+      const app = backend.app as unknown as InstanceType<typeof Hono>;
+      app.get("/__test/foreign-write", () => {
+        throw new ForeignWriteError("UPDATE thing SET v = 1");
+      });
+      const errors: unknown[] = [];
+      const original = console.error;
+      console.error = (...args: unknown[]) => void errors.push(args);
+      const res = await backend.app.fetch(new Request("http://local/__test/foreign-write"));
+      console.error = original;
+
+      expect(res.status).toBe(503);
+      expect(res.headers.get("retry-after")).toBe("2");
+      expect(await res.json()).toMatchObject({ error: "DATABASE_BUSY", message: expect.stringContaining("مشغولة") });
+    } finally {
+      backend.close();
+    }
+  });
+});

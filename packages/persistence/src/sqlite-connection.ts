@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import Database from "better-sqlite3";
-import { ConnectionTurnLostError } from "@mezan/domain";
+import { ConnectionTurnLostError, ForeignWriteError } from "@mezan/domain";
 import { installSchemaSync } from "./schema-sync.js";
 import { reportForeignWrite } from "./untransacted-audits.js";
 
@@ -148,8 +148,13 @@ const watched = new WeakSet<Database.Database>();
 // TRANSACTION ROLLS BACK, and nothing says so: the statement succeeds. Every
 // writer is meant to be unable to get there — a request holds the turn, a
 // background task takes it, and no transaction is left open across a wait —
-// so one that does is reported by the statement it ran. The suites and the
-// seed drives assert none ever is.
+// so one that does is REFUSED before it runs and reported by its statement.
+// The suites and the seed drives assert none ever is.
+function refuseForeignWrite(statement: string): never {
+  reportForeignWrite(statement);
+  throw new ForeignWriteError(statement);
+}
+
 function watchForForeignWrites(sqlite: Database.Database): void {
   if (watched.has(sqlite)) return;
   watched.add(sqlite);
@@ -168,7 +173,7 @@ function watchForForeignWrites(sqlite: Database.Database): void {
     for (const method of WRITING_STATEMENT_METHODS) {
       const original = statement[method].bind(statement) as (...params: unknown[]) => unknown;
       (statement as unknown as Record<string, unknown>)[method] = (...params: unknown[]) => {
-        if (foreign()) reportForeignWrite(named(source));
+        if (foreign()) refuseForeignWrite(named(source));
         return original(...params);
       };
     }
@@ -177,7 +182,7 @@ function watchForForeignWrites(sqlite: Database.Database): void {
 
   const exec = sqlite.exec.bind(sqlite);
   sqlite.exec = ((source: string) => {
-    if (foreign() && !READ_ONLY_EXEC.test(source)) reportForeignWrite(named(source));
+    if (foreign() && !READ_ONLY_EXEC.test(source)) refuseForeignWrite(named(source));
     return exec(source);
   }) as typeof sqlite.exec;
 
@@ -186,7 +191,7 @@ function watchForForeignWrites(sqlite: Database.Database): void {
   const transaction = sqlite.transaction.bind(sqlite) as (fn: (...args: unknown[]) => unknown) => unknown;
   sqlite.transaction = ((fn: (...args: unknown[]) => unknown) =>
     transaction((...args: unknown[]) => {
-      if (foreign()) reportForeignWrite(DRIVER_TRANSACTION);
+      if (foreign()) refuseForeignWrite(DRIVER_TRANSACTION);
       return fn(...args);
     })) as typeof sqlite.transaction;
 }

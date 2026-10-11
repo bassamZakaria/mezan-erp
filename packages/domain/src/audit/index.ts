@@ -2,6 +2,7 @@ export {
   AuditRecordingError,
   AuditStreamName,
   ConnectionTurnLostError,
+  ForeignWriteError,
   AUDIT_SEVERITIES,
   AUDIT_STREAMS,
   createAuditEvent,

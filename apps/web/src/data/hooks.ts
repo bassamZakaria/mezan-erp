@@ -304,6 +304,7 @@ import type {
   RecurringJournalTemplateStatusDTO,
   SkipRecurringJournalOccurrenceDTO,
 } from "@mezan/contracts";
+import { TenantResolveMode, type PlatformResolveDTO } from "@mezan/contracts";
 import { useApi } from "./ApiContext";
 import type { TransportResponse } from "./transport";
 import { useAppTranslation } from "../i18n";
@@ -454,16 +455,6 @@ export function useTenantInfo(
   });
 }
 
-/**
- * Deliberately name-free: this is an unauthenticated lookup anyone who knows
- * (or guesses) a tenant code can call, so it must never become a
- * name-enumeration oracle (see `tenant-router.ts`'s `/platform/resolve`).
- */
-export interface PlatformResolveDTO {
-  readonly mode: `${TenantResolveMode}`;
-  readonly exists: boolean;
-}
-
 export function usePlatformResolve(options: { enabled?: boolean } = {}): UseQueryResult<PlatformResolveDTO, ApiError> {
   const { t } = useAppTranslation();
   const { request } = useApi();
@@ -478,19 +469,17 @@ export function usePlatformResolve(options: { enabled?: boolean } = {}): UseQuer
   });
 }
 
-export enum TenantResolveMode {
-  Subdomain = "subdomain",
-  Code = "code",
+export function noPlatformInFront(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 404;
 }
 
-// A backend with no platform in front (desktop, LAN till) has no /platform/resolve and no
-// company code: there the company is always known, and the first-run wizard depends on it.
 export function useCompanyKnown(): boolean {
   const { session } = useApi();
   const alreadyKnown = session !== null || isDesktopHost();
   const resolve = usePlatformResolve({ enabled: !alreadyKnown });
   const storedCode = useSyncExternalStore(subscribeTenantCode, loadTenantCode, () => null);
-  if (alreadyKnown || resolve.isError) return true;
+  if (alreadyKnown) return true;
+  if (resolve.isError) return noPlatformInFront(resolve.error);
   if (!resolve.data) return false;
   if (resolve.data.mode === TenantResolveMode.Subdomain) return resolve.data.exists;
   return storedCode !== null && storedCode !== "";

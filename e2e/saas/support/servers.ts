@@ -38,8 +38,6 @@ export function newRunDir(kind: RunDir): string {
   return mkdtempSync(path.join(tmpdir(), kind));
 }
 
-// A killed run cannot remove its own directory. Only directories this suite named, and only
-// ones old enough that no live run can own them, are removed.
 export function removeAbandonedRunDirs(): void {
   for (const entry of readdirSync(tmpdir(), { withFileTypes: true })) {
     if (!entry.isDirectory() || !RUN_DIR_NAME.test(entry.name)) continue;
@@ -123,8 +121,6 @@ async function portReleased(port: number): Promise<boolean> {
   return false;
 }
 
-// The child is the package-manager wrapper; the server is a descendant in the same
-// group and can outlive it, so a stop is only done once the port is free again.
 async function stopChild(child: ChildProcess, port: number): Promise<void> {
   if (child.pid === undefined) return;
   if (!hasExited(child)) {

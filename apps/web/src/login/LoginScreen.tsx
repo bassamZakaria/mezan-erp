@@ -1,12 +1,12 @@
-import { useEffect, useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { BrandMark, Button, Copyright, TextInput, cn } from "@mezan/ui";
-import { useLogin, usePlatformResolve, useTenantInfo } from "../data/hooks";
+import { TenantResolveMode } from "@mezan/contracts";
+import { noPlatformInFront, useLogin, usePlatformResolve, useTenantInfo } from "../data/hooks";
 import { useAppVersion } from "../data/hub-hooks";
 import {
   clearSessionExpired,
   clearTenantCode,
-  deviceSharedAcrossTenants,
   forgetTenantCodeForEmail,
   clearTenantCodeConfirmed,
   loadTenantCode,
@@ -14,6 +14,7 @@ import {
   persistTenantCode,
   rememberTenantCodeForEmail,
   sessionExpiredPending,
+  tenantCodeIsLeftover,
   tenantCodeConfirmedThisVisit,
   tenantCodeForEmail,
 } from "../data/session";
@@ -41,12 +42,8 @@ function formatWait(seconds: number): string {
  */
 const DEFAULT_USERNAME = "admin@cyag.example";
 
-// Runs inside a state initializer, which StrictMode calls twice and which runs
-// again on every remount: it must stay idempotent, and it must never drop a code
-// the operator at the machine has just confirmed.
-function openingTenantCode(): string {
-  if (deviceSharedAcrossTenants() && !tenantCodeConfirmedThisVisit()) clearTenantCode();
-  return loadTenantCode() ?? "";
+function openingTenantCode(): string | null {
+  return tenantCodeIsLeftover() ? null : loadTenantCode();
 }
 
 export interface LoginScreenProps {
@@ -79,17 +76,23 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
   const login = useLogin();
   const queryClient = useQueryClient();
 
+  // Must stay the first hook: a layout effect here runs before any query in the tree
+  // subscribes, so no request is ever sent under the previous operator's company.
+  useLayoutEffect(() => {
+    if (tenantCodeIsLeftover()) clearTenantCode();
+  }, []);
+
   const platformResolve = usePlatformResolve();
   const tenantMode = platformResolve.data?.mode;
-  const [tenantCode, setTenantCode] = useState(openingTenantCode);
-  const [resolvedCode, setResolvedCode] = useState(openingTenantCode);
+  const [tenantCode, setTenantCode] = useState(() => openingTenantCode() ?? "");
+  const [resolvedCode, setResolvedCode] = useState(() => openingTenantCode() ?? "");
   const tenantCodeInvalid = tenantCode !== "" && !TENANT_CODE_RE.test(tenantCode);
-  const tenantInfo = useTenantInfo(tenantMode === "subdomain" ? null : resolvedCode || null, {
-    enabled: tenantMode === "subdomain" || resolvedCode !== "",
+  const tenantInfo = useTenantInfo(tenantMode === TenantResolveMode.Subdomain ? null : resolvedCode || null, {
+    enabled: tenantMode === TenantResolveMode.Subdomain || resolvedCode !== "",
   });
   const tenantNotFound = resolvedCode !== "" && tenantInfo.isError && tenantInfo.error?.status === 404;
 
-  const [remembered, setRemembered] = useState<DeviceUser[]>(() => readDeviceUsers());
+  const [remembered, setRemembered] = useState<DeviceUser[]>(() => readDeviceUsers(openingTenantCode()));
   const [selected, setSelected] = useState<DeviceUser | null>(remembered[0] ?? null);
   /** True once «آخر» is chosen, or when the device remembers nobody at all. */
   const [typing, setTyping] = useState(remembered.length === 0);
@@ -188,7 +191,7 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
    * company" action should do that.
    */
   function handleEmailBlur() {
-    if (tenantMode !== "code" || codeConfirmedThisVisitRef.current) return;
+    if (tenantMode !== TenantResolveMode.Code || codeConfirmedThisVisitRef.current) return;
     const mapped = tenantCodeForEmail(username);
     if (!mapped || mapped === resolvedCode) return;
     const before = loadTenantCode();
@@ -243,7 +246,7 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
     !tenantCodeInvalid;
 
   function submit() {
-    if (tenantMode === "code" && tenantCode.trim() === "") {
+    if (tenantMode === TenantResolveMode.Code && tenantCode.trim() === "") {
       setError(t("login.tenantRequired"));
       return;
     }
@@ -261,7 +264,7 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
         onSuccess: (session) => {
           clearTenantCodeConfirmed();
           rememberDeviceUser(session);
-          if (tenantMode === "code" && resolvedCode !== "") rememberTenantCodeForEmail(session.email, resolvedCode);
+          if (tenantMode === TenantResolveMode.Code && resolvedCode !== "") rememberTenantCodeForEmail(session.email, resolvedCode);
         },
         onError: (err) => {
           setError(err.message || t("login.error.generic"));
@@ -345,6 +348,25 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
   const pinLabel = typing
     ? t("login.pin")
     : t("login.who.pinFor", { name: selected ? displayName(selected, locale) : "" });
+
+  if (platformResolve.isError && !noPlatformInFront(platformResolve.error)) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-bg p-[24px]">
+        <div className="flex w-full max-w-[380px] flex-col gap-[14px] rounded-lg border border-border bg-surface p-[28px] shadow-2">
+          <div className="flex items-center gap-[10px]">
+            <BrandMark className="h-[30px] w-[30px] flex-none text-brand" />
+            <span className="mz-disp text-[17px] font-bold text-ink">{t("shell.brand.name")}</span>
+          </div>
+          <p role="alert" className="text-[13px] text-ink">
+            {t("login.platformUnreachable")}
+          </p>
+          <Button variant="primary" disabled={platformResolve.isFetching} onClick={() => void platformResolve.refetch()}>
+            {t("login.platformRetry")}
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-bg p-[24px]">
@@ -450,7 +472,7 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
           </div>
         ) : null}
 
-        {tenantMode === "code" ? (
+        {tenantMode === TenantResolveMode.Code ? (
           <div className="mt-[14px] flex flex-col gap-[6px]">
             <label className="flex flex-col gap-[6px]">
               <span className="text-xs font-semibold text-ink">{t("login.tenantCode")}</span>

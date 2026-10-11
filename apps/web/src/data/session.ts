@@ -240,6 +240,10 @@ export function deviceSharedAcrossTenants(): boolean {
   return new Set(Object.values(readTenantCodeByEmail())).size > 1;
 }
 
+export function tenantCodeIsLeftover(): boolean {
+  return loadTenantCode() !== null && deviceSharedAcrossTenants() && !tenantCodeConfirmedThisVisit();
+}
+
 export function rememberTenantCodeForEmail(email: string, code: string): void {
   const storage = getSessionStorage();
   if (!storage) return;

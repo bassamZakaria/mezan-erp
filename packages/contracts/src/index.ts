@@ -1738,6 +1738,8 @@ export {
   tenantStatusSchema,
   TenantWireStatus,
   tenantStatusOf,
+  TenantResolveMode,
+  type PlatformResolveDTO,
   tenantDTOOf,
   subscriptionStatusOf,
   tenantSchema,

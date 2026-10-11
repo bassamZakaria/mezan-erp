@@ -1,6 +1,11 @@
 import type { ScopeSelection } from "../permissions/auth-context.js";
 
-export type UserStatus = "active" | "inactive";
+export enum UserStatusCode {
+  Active = "active",
+  Inactive = "inactive",
+}
+
+export type UserStatus = `${UserStatusCode}`;
 
 /**
  * A tenant user account (docs/archive/catalog/09 §المستخدمون). Scoping is

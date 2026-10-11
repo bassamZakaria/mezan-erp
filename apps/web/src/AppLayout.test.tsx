@@ -566,6 +566,28 @@ describe("AppLayout — nothing tenant-scoped is asked before a company is known
     expect(requests).toContain("/entitlements");
     expect(await screen.findByRole("heading", { name: "معالج الإعداد الأولي" })).toBeInTheDocument();
   });
+
+  it.each([
+    ["is failing", 503],
+    ["is throttling this address", 429],
+  ])("keeps the gate closed and offers a retry while the company lookup %s, then goes on once it answers", async (_what, status) => {
+    clearTenantCode();
+    let failing = true;
+    const requests = signedOut(() => (failing ? { status, body: { error: "UPSTREAM" } } : { body: { mode: "subdomain", exists: true } }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("تعذّر الوصول إلى الخادم. تحقّق من الاتصال ثم أعد المحاولة.");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(requests.filter((path) => path === "/bootstrap/status" || path === "/entitlements")).toEqual([]);
+    expect(screen.queryByLabelText("البريد الإلكتروني")).not.toBeInTheDocument();
+
+    failing = false;
+    fireEvent.click(screen.getByRole("button", { name: "إعادة المحاولة" }));
+
+    await waitFor(() => expect(requests).toContain("/bootstrap/status"));
+    expect(requests).toContain("/entitlements");
+    expect(await screen.findByLabelText("البريد الإلكتروني")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
 });
 
 describe("AppLayout — sign out", () => {

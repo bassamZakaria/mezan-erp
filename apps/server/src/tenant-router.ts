@@ -5,6 +5,7 @@ import { timingSafeEqual } from "node:crypto";
 import { createBackend, type BackendHandle, type PlatformHandle } from "@mezan/backend";
 import type { SqliteOpenOptions } from "@mezan/persistence";
 import type { UserEmailChange } from "@mezan/api";
+import { TenantResolveMode, type PlatformResolveDTO } from "@mezan/contracts";
 import { followTenantOwnerEmail, recordSecurityEvent } from "@mezan/domain";
 import { createBackendCache, type BackendCache } from "./backend-cache.js";
 import { createTenantResolvers, type TenantResolvers } from "./tenant-entitlements.js";
@@ -165,11 +166,12 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
    * it echoes back the code the person typed.
    */
   app.get("/platform/resolve", async (c) => {
-    const mode = hostMatchesTenantDomain(c.req.raw, resolverOptions) ? "subdomain" : "code";
+    const mode = hostMatchesTenantDomain(c.req.raw, resolverOptions) ? TenantResolveMode.Subdomain : TenantResolveMode.Code;
     const code = resolveTenantCode(c.req.raw, resolverOptions);
     const tenant = code ? await options.platform.stores.tenants.findByCode(code) : null;
     const exists = Boolean(tenant && (tenant.status === "active" || tenant.status === "suspended"));
-    return c.json({ mode, exists });
+    const body: PlatformResolveDTO = { mode, exists };
+    return c.json(body);
   });
 
   /** `c.req.path`/`routePath` stay undecoded, unlike `c.req.param`, so an encoded segment (e.g. `%2F`) survives the forward. */

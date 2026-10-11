@@ -124,6 +124,7 @@ import {
   type OpeningBalanceEntryRef,
   tenantTodayIso,
   BASE_CURRENCY,
+  UserStatusCode,
 } from "@mezan/domain";
 import {
   openSqliteConnection,
@@ -479,6 +480,10 @@ function fanOutDocumentEvents(...publishers: readonly DocumentEventPublisher[]):
       for (const publisher of publishers) publisher.publish(event);
     },
   };
+}
+
+export enum SecurityEventOrigin {
+  Platform = "platform",
 }
 
 export enum OwnerPinResetOutcome {
@@ -4239,7 +4244,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
 
   async function resetOwnerPin(cmd: ResetOwnerPinCommand): Promise<OwnerPinResetOutcome> {
     const owner = await uow.users.findByEmail(cmd.email.trim().toLowerCase());
-    if (!owner || !owner.isCompanyAdmin || owner.status !== "active") return OwnerPinResetOutcome.OwnerNotFound;
+    if (!owner || !owner.isCompanyAdmin || owner.status !== UserStatusCode.Active) return OwnerPinResetOutcome.OwnerNotFound;
     if (cmd.onlyIfNeverSignedIn && owner.lastLoginAt !== null) return OwnerPinResetOutcome.AlreadySignedIn;
     await uow.users.save({ ...owner, pinHash: await hasher.hash(cmd.pin) });
     sessions.revokeUser(owner.id);
@@ -4251,7 +4256,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       action: "OWNER_PIN_RESET",
       actor: cmd.actor,
       severity: "CRITICAL",
-      details: { email: owner.email, onlyIfNeverSignedIn: cmd.onlyIfNeverSignedIn, origin: "platform" },
+      details: { email: owner.email, onlyIfNeverSignedIn: cmd.onlyIfNeverSignedIn, origin: SecurityEventOrigin.Platform },
     });
     return OwnerPinResetOutcome.Reset;
   }

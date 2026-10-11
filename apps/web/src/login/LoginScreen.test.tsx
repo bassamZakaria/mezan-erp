@@ -1,12 +1,12 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import type { ReactElement } from "react";
+import { useState, useSyncExternalStore, type ReactElement } from "react";
 import { LoginScreen } from "./LoginScreen";
 import { useApi, ApiProvider } from "../data/ApiContext";
-import { markSessionExpired, rememberTenantCodeForEmail } from "../data/session";
+import { loadTenantCode, markSessionExpired, persistTenantCode, rememberTenantCodeForEmail, subscribeTenantCode } from "../data/session";
 import { createQueryClient } from "../data/queryClient";
 import { AppI18nProvider } from "../i18n";
 import { rememberDeviceUser } from "./device-users";
@@ -388,6 +388,46 @@ describe("LoginScreen — SaaS company code", () => {
     expect(localStorage.getItem("mezan.tenantCode")).toBe("acme");
   });
 
+  it("drops the leftover company without updating another component while it renders, and sends no request under it", async () => {
+    rememberTenantCodeForEmail("a@acme.example", "acme");
+    rememberTenantCodeForEmail("b@nile.example", "nile");
+    function CodeProbe() {
+      const code = useSyncExternalStore(subscribeTenantCode, loadTenantCode, () => null);
+      return <span data-testid="stored-code">{code ?? "none"}</span>;
+    }
+    function Shell() {
+      const [signedOut, setSignedOut] = useState(false);
+      return (
+        <>
+          <CodeProbe />
+          <button type="button" onClick={() => setSignedOut(true)}>sign out</button>
+          {signedOut ? <LoginScreen onStartWizard={() => {}} /> : null}
+        </>
+      );
+    }
+    const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const requests: (string | null)[] = [];
+    const transport = stubTransport({ ...preAuth, "GET /platform/resolve": () => ({ body: { mode: "code", exists: true } }) });
+    renderWithProviders(<Shell />, {
+      transport: (path, init) => {
+        requests.push(new Headers(init?.headers).get("x-mezan-tenant"));
+        return transport(path, init);
+      },
+    });
+    act(() => persistTenantCode("nile"));
+    expect(screen.getByTestId("stored-code")).toHaveTextContent("nile");
+
+    fireEvent.click(screen.getByRole("button", { name: "sign out" }));
+
+    expect(await screen.findByLabelText("رمز المنشأة")).toHaveValue("");
+    await waitFor(() => expect(screen.getByTestId("stored-code")).toHaveTextContent("none"));
+    const warnings = errors.mock.calls.map((call) => String(call[0])).filter((message) => message.includes("while rendering a different component"));
+    errors.mockRestore();
+    expect(warnings).toEqual([]);
+    expect(localStorage.getItem("mezan.tenantCode")).toBeNull();
+    expect(requests.filter((code) => code !== null)).toEqual([]);
+  });
+
   it("keeps the company the operator just confirmed when the screen mounts again — opening the setup wizard and cancelling must not wipe it", async () => {
     rememberTenantCodeForEmail("a@acme.example", "acme");
     rememberTenantCodeForEmail("b@nile.example", "nile");
@@ -518,31 +558,17 @@ describe("LoginScreen — SaaS company code", () => {
     expect(await screen.findByText("جارٍ التحقق من المنشأة…")).toBeInTheDocument();
   });
 
-  it("does not gate submission when /platform/resolve answers 500 — a normal sign-in still succeeds (regression: desktop and every existing transport never serve this route, so gating on any error hung sign-in forever)", async () => {
-    renderWithProviders(
-      <>
-        <LoginScreen onStartWizard={() => {}} />
-        <SessionProbe />
-      </>,
-      {
-        transport: stubTransport({
-          ...preAuth,
-          "GET /platform/resolve": () => ({ status: 500, body: {} }),
-          "POST /auth/login": () => ({ body: testAdminSession }),
-        }),
-      },
-    );
-    await vi.waitFor(() => expect(screen.queryByText("جارٍ التحقق من المنشأة…")).not.toBeInTheDocument());
-    expect(screen.queryByText("تعذّر الوصول إلى الخادم")).not.toBeInTheDocument();
-    fillPin("123456");
-    fireEvent.click(screen.getByRole("button", { name: "دخول" }));
-    await vi.waitFor(() => expect(screen.getByTestId("session")).toHaveTextContent(testAdminSession.nameAr));
-  });
-
-  it("does not gate submission when /platform/resolve's fetch throws — a normal sign-in still succeeds", async () => {
-    const base = stubTransport({ ...preAuth, "POST /auth/login": () => ({ body: testAdminSession }) });
-    const transport: Transport = (path, init) =>
-      path.startsWith("/platform/resolve") ? Promise.reject(new Error("network down")) : base(path, init);
+  it.each([
+    ["answers 500", (): Promise<never> | null => null],
+    ["cannot be reached at all", (): Promise<never> | null => Promise.reject(new Error("network down"))],
+  ])("holds sign-in behind a retry while /platform/resolve %s, and opens it once the lookup answers", async (_what, failure) => {
+    let failing = true;
+    const base = stubTransport({
+      ...preAuth,
+      "GET /platform/resolve": () => (failing ? { status: 500, body: {} } : { body: { mode: "subdomain", exists: true } }),
+      "POST /auth/login": () => ({ body: testAdminSession }),
+    });
+    const transport: Transport = (path, init) => (failing && path.startsWith("/platform/resolve") ? (failure() ?? base(path, init)) : base(path, init));
     renderWithProviders(
       <>
         <LoginScreen onStartWizard={() => {}} />
@@ -550,6 +576,13 @@ describe("LoginScreen — SaaS company code", () => {
       </>,
       { transport },
     );
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("تعذّر الوصول إلى الخادم. تحقّق من الاتصال ثم أعد المحاولة.");
+    expect(screen.queryByRole("button", { name: "دخول" })).not.toBeInTheDocument();
+
+    failing = false;
+    fireEvent.click(screen.getByRole("button", { name: "إعادة المحاولة" }));
+    await screen.findByRole("button", { name: "دخول" });
     fillPin("123456");
     fireEvent.click(screen.getByRole("button", { name: "دخول" }));
     await vi.waitFor(() => expect(screen.getByTestId("session")).toHaveTextContent(testAdminSession.nameAr));

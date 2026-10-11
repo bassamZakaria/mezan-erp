@@ -1,5 +1,6 @@
 import type { UseQueryResult } from "@tanstack/react-query";
 import type { EntitlementsDTO } from "@mezan/contracts";
+import { hasModule, hasReadOnlyModule } from "@mezan/domain";
 
 export enum PlanModule {
   Hr = "hr",
@@ -7,8 +8,6 @@ export enum PlanModule {
 }
 
 export function planIncludesModule(entitlements: Pick<UseQueryResult<EntitlementsDTO>, "data" | "isError">, module: PlanModule): boolean {
-  if (entitlements.data) {
-    return entitlements.data.activeModules.includes(module) || (entitlements.data.readOnlyModules ?? []).includes(module);
-  }
+  if (entitlements.data) return hasModule(entitlements.data, module) || hasReadOnlyModule(entitlements.data, module);
   return entitlements.isError;
 }

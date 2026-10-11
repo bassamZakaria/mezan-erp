@@ -213,8 +213,6 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
   // MEZAN_DEMO_PASSWORD is set.
   root.get("/healthz", (c) => c.text("ok"));
 
-  // Routes match strictly and every tenant backend is its own strict app, so a
-  // trailing slash is dropped once here; re-dispatching keeps every gate below in force.
   root.use("/api/*", async (c, next) => {
     const url = new URL(c.req.url);
     if (!url.pathname.endsWith("/")) return next();

@@ -98,6 +98,17 @@ export function tenantDTOOf(stored: Omit<z.infer<typeof tenantSchema>, "status">
   };
 }
 
+export enum TenantResolveMode {
+  Subdomain = "subdomain",
+  Code = "code",
+}
+
+/** Name-free on purpose: anyone who guesses a tenant code can ask, so it answers only whether that tenant is usable. */
+export interface PlatformResolveDTO {
+  readonly mode: TenantResolveMode;
+  readonly exists: boolean;
+}
+
 export const billingCycleSchema = z.enum(["monthly", "yearly"]);
 
 export const createTenantRequestSchema = z.object({

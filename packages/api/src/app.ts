@@ -68,6 +68,8 @@ import {
   type HistoricalSalesImportGlAccounts,
   type TenantSettings,
   createDefaultSettings,
+  salesTaxPolicySource,
+  type SalesTaxPolicySource,
   reverseJournalEntry,
   createJournalTaxTagPort,
   type DocumentService,
@@ -1136,6 +1138,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
       app.route("/field/vans", createVansRoutes(options.fieldSales.vans, resolveAuth, options.fieldSales.masterData));
     }
   }
+  const salesTaxPolicy = salesTaxPolicyOf(options);
   if (options.salesInvoices) {
     const salesInvoices = options.salesInvoices;
     // Auto-wire credit control (docs/archive/catalog/01/09 §"الرقابة الائتمانية") when
@@ -1200,18 +1203,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
           exchangeRates: salesInvoices.exchangeRates ?? options.exchangeRateRepo,
           taxRates: salesInvoices.taxRates ?? options.taxRateRepo,
           customerTax: salesInvoices.customerTax ?? (options.customerStore ? customerTaxProfileFrom(options.customerStore) : undefined),
-          taxPolicy:
-            salesInvoices.taxPolicy ??
-            (options.settingsStore
-              ? async () => {
-                  const settings = (await options.settingsStore!.get()) ?? createDefaultSettings();
-                  return {
-                    enabled: settings.taxEnabled,
-                    defaultRatePercent: settings.defaultTaxRate,
-                    inclusive: settings.taxCalculation === "INCLUSIVE",
-                  };
-                }
-              : undefined),
+          taxPolicy: salesTaxPolicy,
           discountPolicy:
             salesInvoices.discountPolicy ??
             (options.settingsStore
@@ -1280,6 +1272,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
           ...salesQuotes,
           taxRates: salesQuotes.taxRates ?? options.taxRateRepo,
           customerTax: salesQuotes.customerTax ?? (options.customerStore ? customerTaxProfileFrom(options.customerStore) : undefined),
+          taxPolicy: salesQuotes.taxPolicy ?? salesTaxPolicy,
           invoice,
         },
         resolveAuth,
@@ -1784,6 +1777,13 @@ export type App = ReturnType<typeof createApp>;
  * draft. Only the action types whose documents this app actually mounts are
  * resolvable; anything else decides the request alone.
  */
+// INVARIANT: the ONE place the app resolves the tenant's VAT switch for a
+// sale. The invoice routes, the quote routes (and their conversion) and the
+// approval of a held invoice all read it from here.
+function salesTaxPolicyOf(options: CreateAppOptions): SalesTaxPolicySource | undefined {
+  return options.salesInvoices?.taxPolicy ?? (options.settingsStore ? salesTaxPolicySource(options.settingsStore) : undefined);
+}
+
 function buildHeldDocumentResolver(options: CreateAppOptions) {
   const fromDocumentService = <L>(svc: DocumentService<L>): HeldDocumentActions => ({
     heldRequestId: async (docId) => (await svc.findById(docId))?.workflowRequestId ?? null,
@@ -1812,7 +1812,7 @@ function buildHeldDocumentResolver(options: CreateAppOptions) {
     };
   }
   if (options.salesInvoices) {
-    const invoices = options.salesInvoices;
+    const invoices = { ...options.salesInvoices, taxPolicy: salesTaxPolicyOf(options) };
     actions.SALES_INVOICE_CONFIRM = {
       heldRequestId: async (docId) => (await new SalesInvoiceService(invoices).findById(docId))?.workflowRequestId ?? null,
       confirm: async (docId, actor) => {

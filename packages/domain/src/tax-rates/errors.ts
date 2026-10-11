@@ -33,6 +33,21 @@ export class DuplicateTaxRateIdError extends Error {
   }
 }
 
+export class SystemTaxRateOnlyError extends Error {
+  readonly code = "TAX_RATE_SYSTEM_ONLY";
+  readonly messageEn: string;
+  constructor(
+    readonly taxRateId: string,
+    readonly taxRateName: string,
+  ) {
+    super(
+      `الضريبة «${taxRateName}» يسمّيها النظام وحده على مبيعات منشأة أوقفت ضريبة القيمة المضافة، ولا تُختار لبند والضريبة مفعّلة. اختر ضريبة بنسبة 0٪ من ضرائب المنشأة.`,
+    );
+    this.messageEn = `Tax rate "${taxRateName}" is named only by the system, on the sales of a tenant whose VAT is switched off; it cannot be picked for a line while VAT is on. Pick one of the tenant's own 0% rates.`;
+    this.name = "SystemTaxRateOnlyError";
+  }
+}
+
 export class InactiveTaxRateError extends Error {
   readonly code = "TAX_RATE_INACTIVE";
   readonly messageEn: string;

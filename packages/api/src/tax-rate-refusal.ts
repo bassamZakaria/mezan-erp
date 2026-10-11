@@ -1,6 +1,7 @@
 import type { Context } from "hono";
 import {
   InactiveTaxRateError,
+  SystemTaxRateOnlyError,
   JournalTaxTagUnsupportedError,
   PostedLineNotFoundError,
   TaxClassificationAlreadyFiledError,
@@ -24,6 +25,7 @@ export function taxRateRefusal(c: Context, err: unknown): Response | null {
   if (
     err instanceof TaxRateNotFoundError ||
     err instanceof InactiveTaxRateError ||
+    err instanceof SystemTaxRateOnlyError ||
     err instanceof TaxRateUnverifiableError ||
     err instanceof TaxRatePercentMismatchError ||
     err instanceof TaxRateClassificationPercentError

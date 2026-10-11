@@ -26,6 +26,7 @@ import {
   type CreateSalesInvoiceCommand,
   type TaxRateRepository,
   QuotaKind,
+  type SalesTaxPolicySource,
 } from "@mezan/domain";
 import { withQuota, quotaRefusalResponse, type QuotaEnforcement } from "./plan-quota.js";
 import {
@@ -79,6 +80,8 @@ export interface SalesQuoteRoutesDeps {
   readonly taxRates?: Pick<TaxRateRepository, "list">;
   /** Where a customer's tax exemption is read from; a request body is never believed (D79). */
   readonly customerTax?: CustomerTaxProfileSource;
+  /** The tenant's VAT switch, for the quote and for the invoice it converts into. */
+  readonly taxPolicy?: SalesTaxPolicySource;
   readonly numbering: DocumentNumberingHook;
   readonly now?: () => string;
   /** Generates a quote id when the request omits one. Defaults to a UUID. */
@@ -236,6 +239,7 @@ export function createSalesQuotesRoutes(
       repo: deps.repo,
       numbering: deps.numbering,
       taxRates: deps.taxRates,
+      taxPolicy: deps.taxPolicy,
       now: deps.now,
       actor: getAuthContext(c)?.userId ?? "system",
     };
@@ -554,6 +558,7 @@ export function createSalesQuotesRoutes(
       gl: deps.invoice.gl,
       stock: deps.invoice.stock,
       taxRates: deps.taxRates,
+      taxPolicy: deps.taxPolicy,
       now: deps.now,
       actor: ctx?.userId ?? "system",
     });

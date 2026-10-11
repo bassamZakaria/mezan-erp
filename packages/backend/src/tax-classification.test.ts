@@ -671,3 +671,74 @@ describe("what a return form may still take from an invoice is the server's figu
     expect([again.status, again.body.error]).toEqual([409, "INVALID_DOCUMENT_TRANSITION"]);
   });
 });
+
+describe("the tenant's VAT switch reaches every path that raises a sale (D79 round 5)", () => {
+  const quoteLines = [
+    { lineId: "A", itemId: "ITEM-DEMO-10", itemNameAr: "خدمة", qty: "1", unitPrice: "100", taxRatePercent: 0, taxRateId: null },
+    { lineId: "B", itemId: "ITEM-DEMO-10", itemNameAr: "خدمة", qty: "1", unitPrice: "100", taxRateId: VAT_RATE },
+  ];
+  const quote = (id: string) =>
+    call("POST", "/sales-quotes", { id, date: TODAY, expiryDate: "2026-09-30", customerId: NOT_EXEMPT_CUSTOMER, customerNameAr: "عميل", branchId: BRANCH, lines: quoteLines });
+  const accept = async (id: string) => {
+    for (const action of ["send", "accept"]) expect((await call("POST", `/sales-quotes/${id}/${action}`, {})).status).toBe(200);
+  };
+  const convert = (quoteId: string, id: string) =>
+    call("POST", `/sales-quotes/${quoteId}/convert-to-invoice`, {
+      id, dueDate: "2026-09-30", warehouseId: WAREHOUSE, arAccountId: AR, taxAccountId: OUTPUT_TAX,
+      lines: quoteLines.map((l) => ({ lineId: l.lineId, isStock: false, revenueAccountId: REVENUE })),
+    });
+  const setVat = async (taxEnabled: boolean) => {
+    const settings = (await call("GET", "/settings")).body;
+    expect((await call("PUT", "/settings", { ...settings, taxEnabled })).status).toBe(200);
+  };
+
+  it("zero-rates a quote raised, and a quote converted, while VAT is off — under the system rate, posting no VAT", async () => {
+    expect((await quote("T-QT-BEFORE-OFF")).status).toBe(201);
+    await accept("T-QT-BEFORE-OFF");
+    await setVat(false);
+    try {
+      const raised = await quote("T-QT-VAT-OFF");
+      expect([raised.status, taxOf(raised)]).toEqual([201, [[0, SYSTEM_RATE], [0, SYSTEM_RATE]]]);
+      await accept("T-QT-VAT-OFF");
+
+      const converted = await convert("T-QT-BEFORE-OFF", "T-INV-CONVERTED-OFF");
+      expect(converted.status).toBe(201);
+      const drafted = await call("GET", "/sales-invoices/T-INV-CONVERTED-OFF");
+      expect(taxOf(drafted)).toEqual([[0, SYSTEM_RATE], [0, SYSTEM_RATE]]);
+      expect(drafted.body.totals.taxTotal).toBe("0.000000");
+      const confirmed = await call("POST", "/sales-invoices/T-INV-CONVERTED-OFF/confirm", {});
+      expect(confirmed.status).toBe(200);
+      const invoice = (await call("GET", "/sales-invoices/T-INV-CONVERTED-OFF")).body;
+      const entry = (await call("GET", `/gl/journal-entries/${invoice.journalEntryId}`)).body;
+      expect((entry.lines as { accountId: string }[]).some((l) => l.accountId === OUTPUT_TAX)).toBe(false);
+    } finally {
+      await setVat(true);
+    }
+  });
+
+  it("refuses, at confirm and in Arabic, a sale that carries the system rate once VAT is on again", async () => {
+    const converted = await convert("T-QT-VAT-OFF", "T-INV-STALE-SYSTEM");
+    expect(converted.status).toBe(201);
+    const refused = await call("POST", "/sales-invoices/T-INV-STALE-SYSTEM/confirm", {});
+    expect([refused.status, refused.body.error]).toEqual([422, "INVALID_SALES_INVOICE"]);
+    expect(refused.body.message).toMatch(/غير خاضع/);
+    expect((await call("GET", "/sales-invoices/T-INV-STALE-SYSTEM")).body.status).toBe("draft");
+
+    const named = await sale("T-INV-NAMED-SYSTEM", NOT_EXEMPT_CUSTOMER, [serviceLine("L1", { taxRateId: SYSTEM_RATE })]);
+    if (named.status === 201) {
+      const second = await call("POST", "/sales-invoices/T-INV-NAMED-SYSTEM/confirm", {});
+      expect([second.status, second.body.error]).toEqual([422, "INVALID_SALES_INVOICE"]);
+    } else {
+      expect(named.status).toBe(422);
+    }
+  });
+
+  it("refuses to classify a posted line under the system rate while VAT is on", async () => {
+    await sale("T-INV-CLASSIFY-SYSTEM", NOT_EXEMPT_CUSTOMER, [serviceLine("L1", { taxRateId: null, taxRatePercent: 0 })]);
+    await call("POST", "/sales-invoices/T-INV-CLASSIFY-SYSTEM/confirm", {});
+    const refused = await call("POST", "/sales-invoices/T-INV-CLASSIFY-SYSTEM/lines/L1/classify-tax", { taxRateId: SYSTEM_RATE });
+    expect([refused.status, refused.body.error]).toEqual([422, "TAX_RATE_SYSTEM_ONLY"]);
+    expect(refused.body.message).toMatch(/[؀-ۿ]/);
+    expect((await call("GET", "/sales-invoices/T-INV-CLASSIFY-SYSTEM")).body.lines[0].taxRateId).toBeNull();
+  });
+});

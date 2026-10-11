@@ -21,6 +21,9 @@ import {
   TaxClassificationFilingOutcome,
   TaxClassificationNotPostedError,
   TaxClassificationNotASupplyError,
+  SystemTaxRateOnlyError,
+  SYSTEM_NOT_SUBJECT_TAX_RATE,
+  isSystemTaxRate,
   TaxClassificationAuditAction,
   TaxClassificationAuditEntity,
   TaxClassificationAuditModule,
@@ -40,6 +43,7 @@ import {
 } from "../tax-rates/index.js";
 import { occurredAtFromDocumentDate } from "../inventory/movement.js";
 import { InvoiceDocumentKind, isRetentionRelease } from "../documents/invoice-document-kind.js";
+import type { SalesInvoiceTaxPolicy, SalesTaxPolicySource } from "./tax-policy.js";
 import type { AllocatableInvoiceRepository } from "../vouchers/allocation.js";
 import { AuditSeverityCode, recordSensitiveEvent, type AuditSink } from "../audit/index.js";
 import type {
@@ -123,15 +127,7 @@ export interface PricingVariance {
 /** The workflow action gated on confirm (docs/archive/catalog/09). */
 const GATE_ACTION: GateableActionType = "SALES_INVOICE_CONFIRM";
 
-/** The tenant's VAT rules as a document sees them (settings §"الضريبة"). */
-export interface SalesInvoiceTaxPolicy {
-  /** VAT switched off: every line on a new invoice is raised at a zero rate. */
-  readonly enabled: boolean;
-  /** The rate a line that names none is raised at. */
-  readonly defaultRatePercent: number;
-  /** Unit prices already contain the tax. */
-  readonly inclusive: boolean;
-}
+export type { SalesInvoiceTaxPolicy };
 
 export interface SalesInvoiceServiceDeps {
   readonly repo: SalesInvoiceRepository;
@@ -159,7 +155,7 @@ export interface SalesInvoiceServiceDeps {
    * and stamped onto it. Omit and an invoice behaves as it always did: tax
    * added on top, and a line with no rate carries none.
    */
-  readonly taxPolicy?: () => Promise<SalesInvoiceTaxPolicy> | SalesInvoiceTaxPolicy;
+  readonly taxPolicy?: SalesTaxPolicySource;
   /** Without it no draft line can be given a `taxRateId`, and a line that names one is refused. */
   readonly taxRates?: Pick<TaxRateRepository, "list">;
   /** Names the tax rate on the posted journal lines of a line being classified (D79). */
@@ -366,6 +362,7 @@ export class SalesInvoiceService {
   async confirm(id: string, opts: ConfirmSalesInvoiceOptions = {}): Promise<ConfirmSalesInvoiceResult> {
     const existing = await this.require(id);
     this.validate(existing);
+    await this.assertNoStaleSystemRate(existing);
 
     const effects = this.effectsOf(existing);
     if (effects.blocked) {
@@ -649,6 +646,21 @@ export class SalesInvoiceService {
 
   // --- internals ---
 
+  // INVARIANT: the system's «غير خاضع» rate says the TENANT is outside VAT.
+  // A draft raised while VAT was off, or converted from a quote raised then,
+  // may not post under it once VAT is on — its lines are re-rated first.
+  private async assertNoStaleSystemRate(invoice: SalesInvoice): Promise<void> {
+    if (!this.deps.taxPolicy || !(await this.deps.taxPolicy()).enabled) return;
+    const stale = invoice.lines.filter((line) => line.taxRateId !== null && isSystemTaxRate(line.taxRateId));
+    if (stale.length === 0) return;
+    throw new InvalidSalesInvoiceError(
+      stale.map(
+        (line) =>
+          `الصنف "${line.itemNameAr}": مسجّل تحت «${SYSTEM_NOT_SUBJECT_TAX_RATE.name}»، وهي ضريبة يسمّيها النظام للمنشأة التي أوقفت ضريبة القيمة المضافة. الضريبة مفعّلة الآن — اختر ضريبة البند ثم أكّد.`,
+      ),
+    );
+  }
+
   private async resolveTaxPolicy(): Promise<SalesInvoiceTaxPolicy> {
     if (!this.deps.taxPolicy) return { enabled: true, defaultRatePercent: 0, inclusive: false };
     return this.deps.taxPolicy();
@@ -659,14 +671,22 @@ export class SalesInvoiceService {
     taxPolicy: SalesInvoiceTaxPolicy,
     taxRates: readonly TaxRate[] | null,
   ): SalesInvoice {
-    const zeroRating: ZeroRating | null = !taxPolicy.enabled
-      ? { cause: ZeroRatingCause.VatOff }
-      : cmd.customerTaxExempt === true
-        ? { cause: ZeroRatingCause.ExemptCustomer, exemptionTaxRateId: cmd.customerTaxExemptionRateId ?? null }
-        : null;
+    const zeroRating: ZeroRating | null =
+      cmd.documentKind === InvoiceDocumentKind.RetentionRelease
+        ? null
+        : !taxPolicy.enabled
+          ? { cause: ZeroRatingCause.VatOff }
+          : cmd.customerTaxExempt === true
+            ? { cause: ZeroRatingCause.ExemptCustomer, exemptionTaxRateId: cmd.customerTaxExemptionRateId ?? null }
+            : null;
     const appliedTax = (l: CreateSalesInvoiceLine): AppliedTaxRate => {
       if (!l.inheritedTax) return resolveDocumentLineTax(taxRates, l, { defaultPercent: taxPolicy.defaultRatePercent, zeroRating });
       const inherited = resolveInheritedTaxRate(taxRates, l.inheritedTax);
+      // VAT is off NOW: the sale is out of scope whatever its source document
+      // was priced at. Only a 0% rate the source itself named is kept.
+      if (zeroRating?.cause === ZeroRatingCause.VatOff) {
+        return resolveDocumentLineTax(taxRates, inherited.taxRatePercent === 0 ? { taxRateId: inherited.taxRateId ?? undefined } : {}, { defaultPercent: 0, zeroRating });
+      }
       if (typeof l.inheritedTaxRateId === "string") return classifyStoredTaxRate(taxRates, inherited, l.inheritedTaxRateId);
       const raisedBySystem = zeroRating !== null && inherited.taxRateId === null && inherited.taxRatePercent === 0;
       return raisedBySystem ? resolveDocumentLineTax(taxRates, {}, { defaultPercent: 0, zeroRating }) : inherited;
@@ -804,6 +824,9 @@ export class SalesInvoiceService {
         existing.lines.map((l) => ({ lineRef: l.lineId, label: l.itemNameAr, stored: { taxRateId: l.taxRateId ?? null, taxRatePercent: l.taxRatePercent } })),
         request,
       );
+      if (isSystemTaxRate(request.taxRateId) && this.deps.taxPolicy && (await this.deps.taxPolicy()).enabled) {
+        throw new SystemTaxRateOnlyError(request.taxRateId, plan.taxRateName);
+      }
       // ORDER MATTERS: the journal goes first — it is what refuses a filed
       // VAT period, and it must refuse before the invoice line is written.
       let journalLinesNamed = 0;

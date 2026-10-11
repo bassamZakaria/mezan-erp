@@ -17,6 +17,7 @@ import { assertTransition } from "./status.js";
 import { computeQuoteTotals, type SalesQuoteTotals } from "./totals.js";
 import { describeQuoteEffects } from "./effects.js";
 import type { SalesQuoteListFilter, SalesQuoteRepository } from "./ports.js";
+import type { SalesTaxPolicySource } from "../sales-invoices/tax-policy.js";
 import {
   DuplicateSalesQuoteError,
   InvalidSalesQuoteError,
@@ -27,6 +28,8 @@ export interface SalesQuoteServiceDeps {
   readonly repo: SalesQuoteRepository;
   readonly numbering: DocumentNumberingHook;
   readonly taxRates?: Pick<TaxRateRepository, "list">;
+  /** The tenant's VAT switch; omit and a quote is priced as if VAT were on. */
+  readonly taxPolicy?: SalesTaxPolicySource;
   /** ISO-8601 UTC "now"; overridable for deterministic tests. */
   readonly now?: () => string;
   readonly actor?: string;
@@ -96,7 +99,8 @@ export class SalesQuoteService {
     if (await this.deps.repo.findById(cmd.id)) {
       throw new DuplicateSalesQuoteError(cmd.id);
     }
-    const quote = this.buildDraft(cmd, this.deps.taxRates ? await this.deps.taxRates.list() : null);
+    const vatOff = this.deps.taxPolicy ? !(await this.deps.taxPolicy()).enabled : false;
+    const quote = this.buildDraft(cmd, this.deps.taxRates ? await this.deps.taxRates.list() : null, vatOff);
     this.validate(quote);
     await this.deps.repo.save(quote);
     return quote;
@@ -173,9 +177,10 @@ export class SalesQuoteService {
 
   // --- internals ---
 
-  private buildDraft(cmd: CreateSalesQuoteCommand, taxRates: readonly TaxRate[] | null): SalesQuote {
-    const zeroRating: ZeroRating | null =
-      cmd.customerTaxExempt === true
+  private buildDraft(cmd: CreateSalesQuoteCommand, taxRates: readonly TaxRate[] | null, vatOff: boolean): SalesQuote {
+    const zeroRating: ZeroRating | null = vatOff
+      ? { cause: ZeroRatingCause.VatOff }
+      : cmd.customerTaxExempt === true
         ? { cause: ZeroRatingCause.ExemptCustomer, exemptionTaxRateId: cmd.customerTaxExemptionRateId ?? null }
         : null;
     const lines: SalesQuoteLine[] = cmd.lines.map((l) => {

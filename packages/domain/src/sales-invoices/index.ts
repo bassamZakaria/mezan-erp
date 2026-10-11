@@ -60,6 +60,8 @@ export type {
   SalesInvoicePromotionRequest,
 } from "./ports.js";
 
+export { salesTaxPolicyFromSettings, salesTaxPolicySource, type SalesTaxPolicySource } from "./tax-policy.js";
+
 export {
   SalesInvoiceService,
   applyAllocatedSettlement,

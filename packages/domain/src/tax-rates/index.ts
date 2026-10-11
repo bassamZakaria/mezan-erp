@@ -22,6 +22,7 @@ export {
   TaxRateNotFoundError,
   InvalidTaxRateError,
   InactiveTaxRateError,
+  SystemTaxRateOnlyError,
   TaxRatePercentMismatchError,
   TaxRateUnverifiableError,
   TaxRateInUseError,

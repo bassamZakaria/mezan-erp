@@ -51,6 +51,7 @@ import {
   type SubcontractRetentionInvoicingPort,
   CERTIFICATE_WORKS_ITEM_ID,
   RETENTION_RELEASE_ITEM_ID,
+  salesTaxPolicySource,
   InvoiceDocumentKind,
   GuaranteeService,
   type CertificateInvoicingPort,
@@ -1231,6 +1232,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         // never hears about (D5) — the authority sees the tenant's certificate
         // billing simply missing.
         events: salesInvoiceEvents,
+        taxPolicy: salesTaxPolicySource(settings),
         // The REAL actor, not "system": this invoice is a live receivable, and
         // its audit row named nobody.
         actor: cmd.actor ?? "system",
@@ -1435,6 +1437,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         // receivable reclass (Dr AR / Cr retention), not a supply: it must
         // never reach the ETA queue or the e-receipt issuer.
         events: salesInvoiceEventBridge,
+        taxPolicy: salesTaxPolicySource(settings),
         // The REAL actor, not "system": this invoice is a live receivable, and
         // its audit row named nobody.
         actor: cmd.actor ?? "system",

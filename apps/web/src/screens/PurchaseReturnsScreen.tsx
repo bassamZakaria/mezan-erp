@@ -133,7 +133,7 @@ export function PurchaseReturnsScreen() {
   const returnableLines = useMemo(() => returnableLinesOf(selectedInvoice), [selectedInvoice]);
   const sourceLinesQuery = useReturnSourceLines(ReturnKind.Purchase, firstSegment === "new" ? invoiceId : "");
   const sourceLines = sourceLinesQuery.data?.lines ?? EMPTY;
-  const sourceLinesReady = sourceLinesQuery.isSuccess;
+  const sourceLinesReady = invoiceId === "" || sourceLinesQuery.isSuccess;
 
   const [searchText, setSearchText, search] = useUrlSearch();
   const [page, setPage] = useUrlNumber("page", 1);

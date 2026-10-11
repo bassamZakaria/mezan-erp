@@ -210,7 +210,7 @@ export function SalesReturnsScreen() {
   const selectedInvoice = invoices.find((i) => i.id === invoiceId) ?? null;
   const sourceLinesQuery = useReturnSourceLines(ReturnKind.Sales, firstSegment === "new" ? invoiceId : "");
   const sourceLines = sourceLinesQuery.data?.lines ?? EMPTY;
-  const sourceLinesReady = sourceLinesQuery.isSuccess;
+  const sourceLinesReady = invoiceId === "" || sourceLinesQuery.isSuccess;
   const returnableLines = useMemo(
     () => (selectedInvoice?.lines ?? []).filter((l) => l.isStock && l.unitCost !== null),
     [selectedInvoice],

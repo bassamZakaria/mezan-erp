@@ -59,6 +59,52 @@ export interface GoodsReceiptLine {
   readonly expiryDate?: string | null;
   /** فئة التكلفة — only meaningful with the receipt's `projectId` (D-01). */
   readonly costCategory?: CostCategory | null;
+  /** INVARIANT: moved only by a purchase invoice confirming or cancelling against this line, inside that invoice's transaction; GL 2120 holds (qty − invoicedQty) × unitCost for every confirmed receipt. */
+  readonly invoicedQty?: Qty;
+}
+
+export enum GoodsReceiptInvoicingStatus {
+  NotInvoiced = "not_invoiced",
+  PartiallyInvoiced = "partially_invoiced",
+  Invoiced = "invoiced",
+}
+
+export function receiptLineInvoicedQty(receipt: Pick<GoodsReceipt, "invoiced">, line: GoodsReceiptLine): Qty {
+  if (line.invoicedQty !== undefined) return line.invoicedQty;
+  return receipt.invoiced ? line.qty : Qty.zero();
+}
+
+export function receiptLineRemainingQty(receipt: Pick<GoodsReceipt, "invoiced">, line: GoodsReceiptLine): Qty {
+  return line.qty.subtract(receiptLineInvoicedQty(receipt, line));
+}
+
+export function goodsReceiptInvoicingStatus(receipt: Pick<GoodsReceipt, "invoiced" | "lines">): GoodsReceiptInvoicingStatus {
+  const billed = receipt.lines.map((line) => receiptLineInvoicedQty(receipt, line));
+  if (billed.every((qty) => qty.isZero())) return GoodsReceiptInvoicingStatus.NotInvoiced;
+  const full = receipt.lines.every((line, index) => (billed[index] as Qty).compare(line.qty) >= 0);
+  return full ? GoodsReceiptInvoicingStatus.Invoiced : GoodsReceiptInvoicingStatus.PartiallyInvoiced;
+}
+
+export function goodsReceiptUninvoicedCost(receipt: Pick<GoodsReceipt, "invoiced" | "lines">): Money {
+  return Money.sum(receipt.lines.map((line) => extend(receiptLineRemainingQty(receipt, line), line.unitCost)));
+}
+
+export interface ReceiptLineBilling {
+  readonly lineIndex: number;
+  readonly qty: Qty;
+}
+
+function withBilling(receipt: GoodsReceipt, billings: readonly ReceiptLineBilling[], sign: 1 | -1): GoodsReceipt {
+  const lines = receipt.lines.map((line, index) => {
+    let invoicedQty = receiptLineInvoicedQty(receipt, line);
+    for (const billing of billings) {
+      if (billing.lineIndex !== index) continue;
+      invoicedQty = sign === 1 ? invoicedQty.add(billing.qty) : invoicedQty.subtract(billing.qty);
+    }
+    return { ...line, invoicedQty };
+  });
+  const next = { ...receipt, lines };
+  return { ...next, invoiced: goodsReceiptInvoicingStatus({ invoiced: false, lines }) === GoodsReceiptInvoicingStatus.Invoiced };
 }
 
 export interface GoodsReceipt {
@@ -512,7 +558,7 @@ export async function cancelGoodsReceipt(
   if (receipt.status === "cancelled") {
     throw new PurchaseDocumentNotDraftError(id, receipt.status);
   }
-  if (receipt.invoiced) throw new GoodsReceiptAlreadyInvoicedError(id);
+  if (goodsReceiptInvoicingStatus(receipt) !== GoodsReceiptInvoicingStatus.NotInvoiced) throw new GoodsReceiptAlreadyInvoicedError(id);
   if (options.date !== undefined && options.date < receipt.date) {
     throw new ReversalDateBeforeOriginalError(id, options.date, receipt.date);
   }
@@ -581,22 +627,19 @@ export async function cancelGoodsReceipt(
   });
 }
 
-/** Mark a receipt as invoiced (called when a purchase invoice confirms against it). */
-export async function markGoodsReceiptInvoiced(
-  id: string,
-  deps: Pick<ConfirmGoodsReceiptDeps, "receipts">,
-): Promise<void> {
+export async function billGoodsReceipt(id: string, billings: readonly ReceiptLineBilling[], deps: Pick<ConfirmGoodsReceiptDeps, "receipts">): Promise<void> {
   const receipt = await deps.receipts.findById(id);
   if (!receipt) throw new GoodsReceiptNotFoundError(id);
-  if (receipt.invoiced) return;
-  await deps.receipts.update({ ...receipt, invoiced: true });
+  await deps.receipts.update(withBilling(receipt, billings, 1));
 }
 
-export async function releaseGoodsReceiptFromInvoice(
-  id: string,
-  deps: Pick<ConfirmGoodsReceiptDeps, "receipts">,
-): Promise<void> {
+/** `billings` null = an invoice confirmed before billing was tracked per line: it cleared the whole receipt, so the whole receipt is released. */
+export async function unbillGoodsReceipt(id: string, billings: readonly ReceiptLineBilling[] | null, deps: Pick<ConfirmGoodsReceiptDeps, "receipts">): Promise<void> {
   const receipt = await deps.receipts.findById(id);
-  if (!receipt?.invoiced) return;
-  await deps.receipts.update({ ...receipt, invoiced: false });
+  if (!receipt) return;
+  if (billings === null) {
+    await deps.receipts.update({ ...receipt, invoiced: false, lines: receipt.lines.map((line) => ({ ...line, invoicedQty: Qty.zero() })) });
+    return;
+  }
+  await deps.receipts.update(withBilling(receipt, billings, -1));
 }

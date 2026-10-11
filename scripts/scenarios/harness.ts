@@ -150,12 +150,12 @@ export async function boot() {
   }
 
   /**
-   * بضاعة واردة لم تُفوتر (GL 2120) holds exactly the cost of the confirmed
-   * receipts no invoice has cleared: a fully invoiced receipt leaves nothing
-   * in it, whatever price the invoice stated.
+   * بضاعة واردة لم تُفوتر (GL 2120) holds exactly, per confirmed receipt line,
+   * the quantity no invoice has billed yet at the receipt's cost — whatever
+   * price an invoice stated for the quantity it did bill.
    */
   async function goodsReceivedNotInvoicedGap(): Promise<bigint | null> {
-    const receipts = await req("GET", "/purchases/receipts?status=confirmed&invoiced=false&pageSize=10000");
+    const receipts = await req("GET", "/purchases/receipts?status=confirmed&pageSize=10000");
     const ledger = await req("GET", "/gl/accounts/2120/ledger");
     const list = rows(receipts.body);
     const credit = scaled(ledger.body?.balance?.credit);
@@ -163,9 +163,9 @@ export async function boot() {
     if (receipts.status !== 200 || credit === null || debit === null) return null;
     let accrued = 0n;
     for (const receipt of list) {
-      if (receipt.status !== "confirmed" || receipt.invoiced !== false) continue;
+      if (receipt.status !== "confirmed") continue;
       for (const line of receipt.lines ?? []) {
-        const qty = scaled(line.qty);
+        const qty = scaled(line.remainingQty);
         const unitCost = scaled(line.unitCost);
         if (qty === null || unitCost === null) return null;
         accrued += (qty * unitCost) / 1_000_000n;

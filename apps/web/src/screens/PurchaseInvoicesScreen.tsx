@@ -607,8 +607,10 @@ export function PurchaseInvoicesScreen() {
   const receiptLines: PreviewLine[] = useMemo(() => {
     const receipt = confirmedReceipts.find((r) => r.id === pickedReceipt?.id);
     if (!receipt) return [];
-    return receipt.lines.map((l) => ({ itemId: l.itemId, qty: Number(l.qty), unitCost: Number(l.unitCost), taxRatePercent: 0 }));
+    return receipt.lines.map((l) => ({ itemId: l.itemId, qty: Number(l.remainingQty), unitCost: Number(l.unitCost), taxRatePercent: 0 }));
   }, [pickedReceipt, confirmedReceipts]);
+  const [billQty, setBillQty] = useState<Record<number, number>>({});
+  const billedQty = (index: number, remaining: number): number => billQty[index] ?? remaining;
 
   /**
    * The list had a document-state dimension only (draft / confirmed /
@@ -732,7 +734,14 @@ export function PurchaseInvoicesScreen() {
       if (method === "from-receipt") {
         const receipt = confirmedReceipts.find((r) => r.id === pickedReceipt?.id);
         if (!receipt || receiptLines.length === 0) return;
+        const quantities = receiptLines.map((l, lineIndex) => ({ lineIndex, qty: billedQty(lineIndex, l.qty), remaining: l.qty }));
+        if (quantities.some((q) => Number.isNaN(q.qty) || q.qty < 0 || q.qty > q.remaining) || quantities.every((q) => q.qty === 0)) {
+          setFormError(t("purchaseInvoices.billQty.invalid"));
+          return;
+        }
+        const partial = quantities.some((q) => q.qty !== q.remaining);
         await createInvoice.mutateAsync({
+          ...(partial ? { receiptQuantities: quantities.filter((q) => q.qty > 0).map((q) => ({ lineIndex: q.lineIndex, qty: String(q.qty) })) } : {}),
           id: crypto.randomUUID(),
           supplierId: receipt.supplierId,
           date,
@@ -836,19 +845,27 @@ export function PurchaseInvoicesScreen() {
 
         {!methodChosen ? null : method === "from-receipt" ? (
           <>
-            <EntityPicker label={t("purchaseInvoices.field.receipt")} value={pickedReceipt} onChange={setPickedReceipt} options={receiptOptions} placeholder={t("purchaseInvoices.field.receiptPlaceholder")} emptyMessage={t("purchaseInvoices.field.receiptEmpty")} />
+            <EntityPicker label={t("purchaseInvoices.field.receipt")} value={pickedReceipt} onChange={(option) => { setPickedReceipt(option); setBillQty({}); }} options={receiptOptions} placeholder={t("purchaseInvoices.field.receiptPlaceholder")} emptyMessage={t("purchaseInvoices.field.receiptEmpty")} />
             {receiptLines.length > 0 ? (
               <div className="rounded-lg border border-border bg-surface p-[12px]">
                 <div className="mb-[8px] text-[12.5px] font-semibold text-ink">{t("purchaseInvoices.linesAuto")}</div>
                 <table className="w-full border-collapse text-[12.5px]">
                   <tbody>
-                    {receiptLines.map((l, i) => (
-                      <tr key={i} className="border-b border-border last:border-b-0">
-                        <td className="py-[7px]">{itemName(l.itemId)}</td>
-                        <td className="py-[7px] text-end"><QtyDisplay value={l.qty} /></td>
-                        <td className="py-[7px] text-end"><MoneyValue value={l.unitCost} showUnit={false} /></td>
-                      </tr>
-                    ))}
+                    {receiptLines.map((l, i) =>
+                      l.qty <= 0 ? null : (
+                        <tr key={i} className="border-b border-border last:border-b-0">
+                          <td className="py-[7px]">{itemName(l.itemId)}</td>
+                          <td className="py-[7px] text-end">
+                            <span className="text-ink-muted">{t("purchaseInvoices.billQty.remaining")} </span>
+                            <QtyDisplay value={l.qty} />
+                          </td>
+                          <td className="w-[120px] py-[7px] ps-[10px]">
+                            <NumberField label={t("purchaseInvoices.billQty.label")} value={billedQty(i, l.qty)} min={0} max={l.qty} onChange={(v) => setBillQty((prev) => ({ ...prev, [i]: v }))} />
+                          </td>
+                          <td className="py-[7px] text-end"><MoneyValue value={l.unitCost} showUnit={false} /></td>
+                        </tr>
+                      ),
+                    )}
                   </tbody>
                 </table>
               </div>

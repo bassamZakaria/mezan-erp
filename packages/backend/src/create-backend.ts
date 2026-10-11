@@ -99,6 +99,9 @@ import {
   isActive,
   type DocumentStatus,
   purchaseInvoiceCancelEntryId,
+  goodsReceiptCancelEntryId,
+  goodsReceiptTotalCost,
+  goodsReceiptUninvoicedCost,
   salesInvoiceVoidEntryId,
   PartyRequiredOnControlAccountError,
   CUSTOMER_OPENING_BALANCE_DOC_TYPE,
@@ -1546,7 +1549,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     post: async (posting: PurchaseGlPosting) => {
       await postJournalEntry(
         {
-          id: `PI-JE:${posting.sourceDocId}`,
+          id: `PI-JE:${posting.sourceDocId}${posting.entrySuffix ?? ""}`,
           date: posting.date,
           memo: posting.memo,
           source: "system",
@@ -2569,6 +2572,35 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       if (line.accountId === AP_CONTROL) apScaled -= net;
     }
 
+    // بضاعة واردة لم تُفوتر: read live from the quantity each receipt line still has uninvoiced, and as of a past day from the documents that had posted by then — a receipt at its cost, less what each invoice on it had billed at that cost.
+    const receiptRows = await goodsReceipts.list();
+    let grniScaled = 0n;
+    if (asOfDate === undefined) {
+      for (const receipt of receiptRows) if (receipt.status === "confirmed") grniScaled += goodsReceiptUninvoicedCost(receipt).scaled;
+    } else {
+      const receiptCancelDates = await entryDatesOf(receiptRows.filter((r) => r.status === "cancelled").map((r) => goodsReceiptCancelEntryId(r.id)));
+      const receiptsById = new Map(receiptRows.map((r) => [r.id, r]));
+      for (const receipt of receiptRows) {
+        if (receipt.status === "draft") continue;
+        const ended = receiptCancelDates.get(goodsReceiptCancelEntryId(receipt.id)) ?? null;
+        if (receipt.status === "cancelled" && ended === null) continue;
+        grniScaled += invoicePresence(receipt.date, receipt.status === "confirmed", ended) * goodsReceiptTotalCost(receipt).scaled;
+      }
+      for (const inv of purchInvoices) {
+        const receipt = inv.receiptId ? receiptsById.get(inv.receiptId) : undefined;
+        if (!receipt || inv.status === "draft") continue;
+        const ended = undoneEntryDates.get(purchaseInvoiceCancelEntryId(inv.id)) ?? null;
+        if (inv.status === "cancelled" && ended === null) continue;
+        const presence = invoicePresence(inv.date, inv.status === "confirmed", ended);
+        if (presence === 0n) continue;
+        const tracked = inv.lines.some((line) => line.receiptBillings !== undefined);
+        const relieved = tracked
+          ? inv.lines.flatMap((line) => line.receiptBillings ?? []).reduce((sum, billing) => sum + extendQtyByPrice(billing.qty, receipt.lines[billing.lineIndex]?.unitCost ?? Money.zero()).scaled, 0n)
+          : goodsReceiptTotalCost(receipt).scaled;
+        grniScaled -= presence * relieved;
+      }
+    }
+
     let inventoryScaled = 0n;
     if (asOfDate === undefined) {
       for (const snap of snapshots) inventoryScaled += snap.totalValue.scaled;
@@ -2685,6 +2717,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       { key: "inventory", label: "تقييم المخزون مقابل دفتر الأستاذ", controlAccountId: INVENTORY_CONTROL, naturalBalance: "debit" as const, subLedgerBalance: Money.fromScaled(inventoryScaled) },
       { key: "ar", label: "ذمم العملاء مقابل دفتر الأستاذ", controlAccountId: AR_CONTROL, naturalBalance: "debit" as const, subLedgerBalance: Money.fromScaled(arScaled) },
       { key: "ap", label: "ذمم الموردين مقابل دفتر الأستاذ", controlAccountId: AP_CONTROL, naturalBalance: "credit" as const, subLedgerBalance: Money.fromScaled(apScaled) },
+      { key: "grni", label: "بضاعة واردة لم تُفوتر مقابل دفتر الأستاذ", controlAccountId: PURCHASE_GL_ACCOUNTS.goodsReceivedNotInvoicedAccountId as string, naturalBalance: "credit" as const, subLedgerBalance: Money.fromScaled(grniScaled) },
       { key: "contracting_retention_receivable", label: "محتجزات لدى العملاء مقابل دفتر الأستاذ", controlAccountId: account("contracting.retention_receivable", "1150"), naturalBalance: "debit" as const, subLedgerBalance: Money.fromScaled(retentionReceivableScaled) },
       { key: "contracting_retention_payable", label: "محتجزات مقاولي الباطن مقابل دفتر الأستاذ", controlAccountId: account("contracting.retention_payable", "2195"), naturalBalance: "credit" as const, subLedgerBalance: Money.fromScaled(retentionPayableScaled) },
       { key: "contracting_customer_advances", label: "دفعات مقدمة من العملاء مقابل دفتر الأستاذ", controlAccountId: advanceAccountId, naturalBalance: "credit" as const, subLedgerBalance: Money.fromScaled(customerAdvancesScaled) },

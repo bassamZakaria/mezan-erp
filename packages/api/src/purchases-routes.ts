@@ -37,7 +37,14 @@ import {
   PurchaseOrderRequiredError,
   PurchaseItemsAlreadyConsumedError,
   GoodsReceiptAlreadyInvoicedError,
+  GoodsReceiptInvoicedRefusal,
   InvoiceDoesNotMatchReceiptError,
+  InvoiceExceedsReceiptError,
+  GoodsReceiptInvoicingStatus,
+  goodsReceiptInvoicingStatus,
+  goodsReceiptUninvoicedCost,
+  receiptLineInvoicedQty,
+  receiptLineRemainingQty,
   LandedCostStandsOnDocumentError,
   InvalidJournalEntryError,
   AccountNotFoundError,
@@ -277,9 +284,13 @@ function serializeReceipt(r: GoodsReceipt) {
       batchNo: l.batchNo ?? null,
       expiryDate: l.expiryDate ?? null,
       costCategory: l.costCategory ?? null,
+      invoicedQty: receiptLineInvoicedQty(r, l).toString(),
+      remainingQty: receiptLineRemainingQty(r, l).toString(),
     })),
     status: r.status,
-    invoiced: r.invoiced,
+    invoiced: goodsReceiptInvoicingStatus(r) === GoodsReceiptInvoicingStatus.Invoiced,
+    invoicingStatus: goodsReceiptInvoicingStatus(r),
+    uninvoicedCost: goodsReceiptUninvoicedCost(r).toString(),
     totalCost: goodsReceiptTotalCost(r).toString(),
     createdBy: r.createdBy,
     createdAt: r.createdAt,
@@ -361,6 +372,7 @@ function handleDomainError(c: Context, err: unknown): Response {
     err instanceof PurchaseItemsAlreadyConsumedError ||
     err instanceof GoodsReceiptAlreadyInvoicedError ||
     err instanceof InvoiceDoesNotMatchReceiptError ||
+    err instanceof InvoiceExceedsReceiptError ||
     err instanceof LandedCostStandsOnDocumentError
   ) {
     return c.json(
@@ -1300,7 +1312,8 @@ export function createPurchasesRoutes(
         for (const line of receipt.lines) {
           if (!rates.has(line.itemId)) rates.set(line.itemId, await resolveTaxRate(line.itemId));
         }
-        lines = buildInvoiceLinesFromReceipt(receipt, (itemId) => rates.get(itemId) ?? 0);
+        lines = buildInvoiceLinesFromReceipt(receipt, (itemId) => rates.get(itemId) ?? 0, parsed.data.receiptQuantities?.map((q) => ({ lineIndex: q.lineIndex, qty: Qty.fromMajor(q.qty) })));
+        if (lines.length === 0) throw new GoodsReceiptAlreadyInvoicedError(receipt.id, GoodsReceiptInvoicedRefusal.SecondInvoice);
       } else {
         return c.json({ error: "VALIDATION_ERROR", message: "lines or receiptId is required" }, 400);
       }

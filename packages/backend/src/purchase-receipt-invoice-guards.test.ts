@@ -48,8 +48,8 @@ describe("one receipt is invoiced once", () => {
     expect(second.status).toBe(422);
     expect(second.body).toEqual({
       error: "GOODS_RECEIPT_ALREADY_INVOICED",
-      message: `إذن الاستلام "${receiptId}" عليه فاتورة مشتريات مؤكدة بالفعل، ولا تُؤكَّد عليه فاتورة ثانية. ألغِ الفاتورة القائمة أولاً إن كانت هذه هي الصحيحة.`,
-      messageEn: `Goods receipt "${receiptId}" already has a confirmed purchase invoice; a second one cannot be confirmed against it. Cancel the standing invoice first if this is the right one.`,
+      message: `إذن الاستلام "${receiptId}" فُوترت كل كمياته بفواتير مشتريات مؤكدة، ولا تُؤكَّد عليه فاتورة أخرى. ألغِ الفاتورة القائمة أولاً إن كانت هذه هي الصحيحة.`,
+      messageEn: `Goods receipt "${receiptId}" is already fully billed by confirmed purchase invoices; another one cannot be confirmed against it. Cancel the standing invoice first if this is the right one.`,
     });
     expect(invoiceStatus("G2A-PI2")).toBe("draft");
     expect(world.balance("2120")).toBe(accrualBefore);

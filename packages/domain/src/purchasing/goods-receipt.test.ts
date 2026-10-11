@@ -8,7 +8,11 @@ import {
   buildGoodsReceiptPosting,
   buildReceiptLinesFromOrder,
   goodsReceiptTotalCost,
-  markGoodsReceiptInvoiced,
+  billGoodsReceipt,
+  unbillGoodsReceipt,
+  goodsReceiptInvoicingStatus,
+  goodsReceiptUninvoicedCost,
+  GoodsReceiptInvoicingStatus,
 } from "./goods-receipt.js";
 import { createPurchaseOrder, confirmPurchaseOrder, cancelPurchaseOrder } from "./purchase-order.js";
 import {
@@ -394,19 +398,38 @@ describe("goods receipt — cancel with trackSoldPurchaseItems on and nothing co
   });
 });
 
-describe("markGoodsReceiptInvoiced", () => {
-  it("flags a receipt invoiced, idempotently", async () => {
+describe("billGoodsReceipt", () => {
+  it("is invoiced only once every line is fully billed, and a cancel gives back exactly what it billed", async () => {
     const { orders, numbering } = await sentOrder();
     const receipts = new InMemoryGoodsReceipts();
-    await createGoodsReceipt({ id: "gr-1", purchaseOrderId: "po-1", date: "2026-08-22" }, { receipts, orders, numbering });
-    await markGoodsReceiptInvoiced("gr-1", { receipts });
-    expect((await receipts.findById("gr-1"))?.invoiced).toBe(true);
-    await expect(markGoodsReceiptInvoiced("gr-1", { receipts })).resolves.toBeUndefined();
+    const receipt = await createGoodsReceipt({ id: "gr-1", purchaseOrderId: "po-1", date: "2026-08-22" }, { receipts, orders, numbering });
+    const whole = receipt.lines.map((line, lineIndex) => ({ lineIndex, qty: line.qty }));
+    const first = { lineIndex: 0, qty: Qty.fromMajor("1") };
+
+    await billGoodsReceipt("gr-1", [first], { receipts });
+    const partly = await receipts.findById("gr-1");
+    expect(partly?.invoiced).toBe(false);
+    expect(goodsReceiptInvoicingStatus(partly!)).toBe(GoodsReceiptInvoicingStatus.PartiallyInvoiced);
+
+    await unbillGoodsReceipt("gr-1", [first], { receipts });
+    expect(goodsReceiptInvoicingStatus((await receipts.findById("gr-1"))!)).toBe(GoodsReceiptInvoicingStatus.NotInvoiced);
+
+    await billGoodsReceipt("gr-1", whole, { receipts });
+    const full = await receipts.findById("gr-1");
+    expect(full?.invoiced).toBe(true);
+    expect(goodsReceiptInvoicingStatus(full!)).toBe(GoodsReceiptInvoicingStatus.Invoiced);
   });
 
-  it("404s marking an unknown receipt invoiced", async () => {
+  it("reads a receipt flagged invoiced before billing was tracked per line as fully billed", () => {
+    const line = { itemId: "i", description: null, qty: Qty.fromMajor("5"), unitCost: Money.fromMajor("2") };
+    expect(goodsReceiptInvoicingStatus({ invoiced: true, lines: [line] })).toBe(GoodsReceiptInvoicingStatus.Invoiced);
+    expect(goodsReceiptUninvoicedCost({ invoiced: true, lines: [line] }).toString()).toBe("0.000000");
+    expect(goodsReceiptUninvoicedCost({ invoiced: false, lines: [line] }).toString()).toBe("10.000000");
+  });
+
+  it("404s billing an unknown receipt", async () => {
     const receipts = new InMemoryGoodsReceipts();
-    await expect(markGoodsReceiptInvoiced("nope", { receipts })).rejects.toThrow(GoodsReceiptNotFoundError);
+    await expect(billGoodsReceipt("nope", [], { receipts })).rejects.toThrow(GoodsReceiptNotFoundError);
   });
 });
 

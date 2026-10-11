@@ -1166,9 +1166,8 @@ export class StockLedgerService {
    * invoice states into the receipt's goods, as a value-only movement on the
    * receipt's layers. Only the share still on hand is carried; the rest comes
    * back as `unabsorbed` for the caller to post to purchase price variance.
-   * When a movement on the position is dated after `occurredAt`, nothing is
-   * carried at all: stock already moved at the old cost on a later day, and a
-   * value dated before it would put stock and GL 1200 on different days.
+   * INVARIANT: the movement is never dated before the position's latest one —
+   * the returned `occurredAt` is the day GL 1200 must take the absorbed share.
    */
   async applyReceiptCostVariance(command: {
     readonly varianceDocId: string;
@@ -1178,14 +1177,16 @@ export class StockLedgerService {
     readonly warehouseId: string;
     readonly valueDelta: Money;
     readonly occurredAt: string;
-  }): Promise<{ readonly absorbed: Money; readonly unabsorbed: Money }> {
-    if (command.valueDelta.scaled === 0n) return { absorbed: Money.zero(), unabsorbed: Money.zero() };
+    readonly lateOccurredAt?: string;
+  }): Promise<{ readonly absorbed: Money; readonly unabsorbed: Money; readonly occurredAt: string }> {
+    if (command.valueDelta.scaled === 0n) return { absorbed: Money.zero(), unabsorbed: Money.zero(), occurredAt: command.occurredAt };
     return this.runInTransaction(async () => {
       const movements = await this.deps.ledger.listByPosition(command.itemId, command.warehouseId);
       const last = movements[movements.length - 1]?.occurredAt;
-      if (last && last.slice(0, 10) > command.occurredAt.slice(0, 10)) return { absorbed: Money.zero(), unabsorbed: command.valueDelta };
       const before = movements.length === 0 ? emptyPosition(command.itemId, command.warehouseId) : replay(command.itemId, command.warehouseId, movements);
-      const occurredAt = last && last > command.occurredAt ? last : command.occurredAt;
+      const movedLater = last !== undefined && last.slice(0, 10) > command.occurredAt.slice(0, 10);
+      const wanted = movedLater && command.lateOccurredAt && command.lateOccurredAt > command.occurredAt ? command.lateOccurredAt : command.occurredAt;
+      const occurredAt = last && last > wanted ? last : wanted;
       await this.assertPeriodOpen(occurredAt);
       const negative = command.valueDelta.scaled < 0n;
       await this.deps.ledger.append({
@@ -1205,7 +1206,7 @@ export class StockLedgerService {
       });
       const after = await this.rebuildWithin(command.itemId, command.warehouseId);
       const unabsorbed = Money.fromScaled(after.unabsorbedRevaluation.scaled - before.unabsorbedRevaluation.scaled);
-      return { absorbed: Money.fromScaled(command.valueDelta.scaled - unabsorbed.scaled), unabsorbed };
+      return { absorbed: Money.fromScaled(command.valueDelta.scaled - unabsorbed.scaled), unabsorbed, occurredAt };
     });
   }
 
@@ -1214,16 +1215,17 @@ export class StockLedgerService {
     readonly reversalId: string;
     readonly positions: readonly { itemId: string; warehouseId: string }[];
     readonly occurredAt: string;
-  }): Promise<boolean> {
+  }): Promise<{ readonly takenBack: boolean; readonly occurredOn: string | null }> {
     return this.runInTransaction(async () => {
       const found: { movement: StockMovement; last: string }[] = [];
       for (const position of command.positions) {
         const movements = await this.deps.ledger.listByPosition(position.itemId, position.warehouseId);
         const index = movements.findIndex((m) => m.sourceDocType === "PURCHASE_INVOICE" && m.sourceDocId === command.varianceDocId && isRevaluation(m));
         if (index === -1) continue;
-        if (movements.slice(index + 1).some((m) => m.direction === "OUT" && !isRevaluation(m))) return false;
+        if (movements.slice(index + 1).some((m) => m.direction === "OUT" && !isRevaluation(m))) return { takenBack: false, occurredOn: null };
         found.push({ movement: movements[index]!, last: movements[movements.length - 1]!.occurredAt });
       }
+      let occurredOn: string | null = null;
       for (const { movement, last } of found) {
         const occurredAt = last > command.occurredAt ? last : command.occurredAt;
         await this.assertPeriodOpen(occurredAt);
@@ -1236,8 +1238,9 @@ export class StockLedgerService {
           occurredAt,
         });
         await this.rebuildWithin(movement.itemId, movement.warehouseId);
+        if (occurredOn === null || occurredAt.slice(0, 10) > occurredOn) occurredOn = occurredAt.slice(0, 10);
       }
-      return true;
+      return { takenBack: true, occurredOn };
     });
   }
 

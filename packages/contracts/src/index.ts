@@ -549,6 +549,8 @@ export {
   type PurchaseInvoiceLineFulfilmentDTO,
   type PurchaseInvoiceFulfilmentDTO,
   type PurchaseInvoicePaymentDTO,
+  GoodsReceiptInvoicingStatusDTO,
+  goodsReceiptInvoicingStatusSchema,
   purchaseRfqStatusSchema,
   purchaseRfqLineSchema,
   purchaseRfqSchema,

@@ -1406,7 +1406,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
       post: async (posting: PurchaseGlPosting) => {
         await postJournalEntry(
           {
-            id: `PI-JE:${posting.sourceDocId}`,
+            id: `PI-JE:${posting.sourceDocId}${posting.entrySuffix ?? ""}`,
             date: posting.date,
             memo: posting.memo,
             source: "system",

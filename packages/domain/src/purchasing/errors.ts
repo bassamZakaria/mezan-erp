@@ -122,12 +122,12 @@ export class GoodsReceiptAlreadyInvoicedError extends Error {
     super(
       refusal === GoodsReceiptInvoicedRefusal.Cancel
         ? `إذن الاستلام "${id}" تمت فوترته ولا يمكن إلغاؤه.`
-        : `إذن الاستلام "${id}" عليه فاتورة مشتريات مؤكدة بالفعل، ولا تُؤكَّد عليه فاتورة ثانية. ألغِ الفاتورة القائمة أولاً إن كانت هذه هي الصحيحة.`,
+        : `إذن الاستلام "${id}" فُوترت كل كمياته بفواتير مشتريات مؤكدة، ولا تُؤكَّد عليه فاتورة أخرى. ألغِ الفاتورة القائمة أولاً إن كانت هذه هي الصحيحة.`,
     );
     this.messageEn =
       refusal === GoodsReceiptInvoicedRefusal.Cancel
         ? `Goods receipt "${id}" has been invoiced and cannot be cancelled.`
-        : `Goods receipt "${id}" already has a confirmed purchase invoice; a second one cannot be confirmed against it. Cancel the standing invoice first if this is the right one.`;
+        : `Goods receipt "${id}" is already fully billed by confirmed purchase invoices; another one cannot be confirmed against it. Cancel the standing invoice first if this is the right one.`;
     this.name = "GoodsReceiptAlreadyInvoicedError";
   }
 }
@@ -142,6 +142,25 @@ export class InvoiceDoesNotMatchReceiptError extends Error {
     super(`فاتورة المشتريات لا تطابق إذن الاستلام "${receiptId}": ${reasons.map((r) => r.ar).join("، ")}.`);
     this.messageEn = `The purchase invoice does not match goods receipt "${receiptId}": ${reasons.map((r) => r.en).join("; ")}.`;
     this.name = "InvoiceDoesNotMatchReceiptError";
+  }
+}
+
+export class InvoiceExceedsReceiptError extends Error {
+  readonly code = "INVOICE_EXCEEDS_RECEIPT";
+  readonly messageEn: string;
+  constructor(
+    readonly receiptId: string,
+    readonly excess: readonly { readonly itemId: string; readonly requested: string; readonly remaining: string }[],
+  ) {
+    super(
+      `فاتورة المشتريات تتجاوز الكمية المتبقية بدون فوترة في إذن الاستلام "${receiptId}": ${excess
+        .map((e) => `الصنف "${e.itemId}" مطلوب فوترة ${e.requested} والمتبقي ${e.remaining}`)
+        .join("، ")}.`,
+    );
+    this.messageEn = `The purchase invoice bills more than goods receipt "${receiptId}" still has uninvoiced: ${excess
+      .map((e) => `item "${e.itemId}" requested ${e.requested}, remaining ${e.remaining}`)
+      .join("; ")}.`;
+    this.name = "InvoiceExceedsReceiptError";
   }
 }
 

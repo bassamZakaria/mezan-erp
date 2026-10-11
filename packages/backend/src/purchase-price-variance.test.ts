@@ -76,14 +76,17 @@ describe("an invoice priced differently from its receipt", () => {
     expect(await world.invariants()).toEqual(INVARIANTS_ZERO);
   });
 
-  it("an invoice dated before a later movement of the goods leaves stock as dated and takes the whole difference to variance", async () => {
+  it("an invoice dated before a later movement of the goods expenses only the issued share; the goods on hand take theirs on a day stock and ledger share", async () => {
     const itemId = await receive("PPV-D");
     await sell("PPV-D", itemId, "1", "2026-10-08");
     const before = balances();
+    const inventoryOnSaleDay = world.balance("1200", "2026-10-08");
 
     await invoiceAt("PPV-D", itemId, "55", "2026-10-06");
 
-    expect(moved(before)).toEqual({ "1200": 0n, "2120": 500n, "5080": 50n, "2100": -550n });
+    expect(moved(before)).toEqual({ "1200": 45n, "2120": 500n, "5080": 5n, "2100": -550n });
+    expect(world.balance("1200", "2026-10-08")).toBe(inventoryOnSaleDay);
+    expect(layerCost(itemId)).toEqual([55n]);
     expect(await world.invariants()).toEqual(INVARIANTS_ZERO);
   });
 

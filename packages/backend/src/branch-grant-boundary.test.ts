@@ -312,13 +312,15 @@ describe("D111 round 1 · a request body cannot smuggle another branch", () => {
     expect(exists("work_order", "D111-WO-FOREIGN")).toBe(false);
   });
 
-  it("does not treat a stock transfer's destination as a posting branch", async () => {
+  it("refuses a stock transfer whose destination is another branch's warehouse", async () => {
     const res = await alex("POST", "/inventory/stock-transfers/draft", {
       id: "D111-TRF-OUT",
       date: TODAY,
       lines: [{ itemId: "ITEM-DEMO-1", fromWarehouseId: ALEX_WAREHOUSE, toWarehouseId: MAIN_WAREHOUSE, qty: "1" }],
     });
-    expect(res.status, JSON.stringify(res.body).slice(0, 200)).toBe(201);
+    expect(res.status, JSON.stringify(res.body).slice(0, 200)).toBe(403);
+    expect(res.body.error).toBe("BRANCH_OUT_OF_SCOPE");
+    expect(exists("stock_transfer_document", "D111-TRF-OUT")).toBe(false);
   });
 
   it("accepts the branch's own document", async () => {
@@ -646,8 +648,14 @@ describe("D111 · an id-addressed route checks the stored document's branch, not
       const theirs = await mainOnly("GET", `${path}?pageSize=200`);
       expect(rowsOf(theirs.body).map((entry: any) => entry.id), `${path} must list it to the branch's own user`).toContain(foreignId);
     }
+    const outbound = await admin("POST", "/inventory/stock-transfers/draft", {
+      id: "D111-TRF-OUT-BY-HQ",
+      date: TODAY,
+      lines: [{ itemId: "ITEM-DEMO-1", fromWarehouseId: ALEX_WAREHOUSE, toWarehouseId: MAIN_WAREHOUSE, qty: "1" }],
+    });
+    expect(outbound.status).toBe(201);
     const transfers = rowsOf((await alex("GET", "/inventory/stock-transfers?pageSize=200")).body).map((entry: any) => entry.id);
-    expect(transfers).toContain("D111-TRF-OUT");
+    expect(transfers).toContain("D111-TRF-OUT-BY-HQ");
   });
 
   it("received-not-invoiced (GRNI): naming another branch's warehouse returns none of its receipts, counts or value", async () => {
@@ -891,17 +899,6 @@ describe("D111 round 2 · the grant holds on every family, for a non-admin and f
     expect(mismatched.body.message).toMatch(ARABIC);
     expect(exists("voucher", "D111-R2-V-MISMATCH")).toBe(false);
 
-    const byTheOwner = await admin("POST", "/vouchers", voucher("D111-R2-V-ADMIN-MISMATCH", ALEX, "TR-DEMO-CASH", "1300-1"));
-    expect(byTheOwner.status).toBe(403);
-    expect(byTheOwner.body.error).toBe("TREASURY_BRANCH_MISMATCH");
-    expect(byTheOwner.body.message).toMatch(ARABIC);
-    expect(exists("voucher", "D111-R2-V-ADMIN-MISMATCH")).toBe(false);
-    const payroll = () => fingerprint("SELECT status, disbursement_voucher_id FROM hr_payroll_run WHERE id = 'PR-DEMO-2'");
-    const payrollBefore = payroll();
-    const paidElsewhere = await admin("POST", "/hr/payroll/runs/PR-DEMO-2/disburse", { treasuryAccountId: "TR-DEMO-CASH-ALEX", date: TODAY });
-    expect(paidElsewhere.status).toBe(403);
-    expect(paidElsewhere.body.error).toBe("TREASURY_BRANCH_MISMATCH");
-    expect(payroll()).toBe(payrollBefore);
     expect(drawer()).toBe(before);
 
     const sameBranch = await admin("POST", "/vouchers", voucher("D111-R2-V-ADMIN-OK", ALEX, "TR-DEMO-CASH-ALEX", "1300-1"));
@@ -1455,4 +1452,149 @@ describe("D111 round 3 · an employee's or an attendance record's files are the 
       .map((name) => (name === "code" || name === "employee_no" || name === "national_id" ? `'R3-' || ${name}` : name))
       .join(", ");
   }
+});
+
+describe("D111 round 3 · stock crosses a branch line only by a session that holds both sides", () => {
+  const transfer = (id: string) => ({ id, date: TODAY, lines: [{ itemId: "ITEM-DEMO-1", fromWarehouseId: ALEX_WAREHOUSE, toWarehouseId: MAIN_WAREHOUSE, qty: "1" }] });
+  const received = () => JSON.stringify(all("SELECT COUNT(*) AS n, COALESCE(SUM(CAST(qty AS REAL)), 0) AS q FROM stock_movement WHERE warehouse_id = ?", MAIN_WAREHOUSE));
+
+  it("a branch user cannot push stock into another branch's warehouse, on the document route or the legacy one", async () => {
+    const before = received();
+    for (const caller of [alex, alexStar]) {
+      const drafted = await caller("POST", "/inventory/stock-transfers/draft", transfer("R3-TRF-PUSH"));
+      expect(drafted.status).toBe(403);
+      expect(drafted.body.error).toBe("BRANCH_OUT_OF_SCOPE");
+      expect(drafted.body.message).toMatch(ARABIC);
+      const legacy = await caller("POST", "/inventory/transfers", {
+        transferId: "R3-TRF-LEGACY-PUSH",
+        fromWarehouseId: ALEX_WAREHOUSE,
+        toWarehouseId: MAIN_WAREHOUSE,
+        occurredAt: TODAY,
+        lines: [{ itemId: "ITEM-DEMO-1", qty: "1" }],
+      });
+      expect(legacy.status).toBe(403);
+      expect(legacy.body.error).toBe("BRANCH_OUT_OF_SCOPE");
+    }
+    expect(one("SELECT id FROM stock_transfer_document WHERE id = 'R3-TRF-PUSH'")).toBeUndefined();
+    expect(received()).toBe(before);
+  });
+
+  it("nor confirm a cross-branch draft someone else raised", async () => {
+    expect((await admin("POST", "/inventory/stock-transfers/draft", transfer("R3-TRF-HELD"))).status).toBe(201);
+    const before = received();
+    for (const caller of [alex, alexStar]) expectRefusedInArabic(await caller("POST", "/inventory/stock-transfers/R3-TRF-HELD/confirm", {}));
+    expect(one<any>("SELECT status FROM stock_transfer_document WHERE id = 'R3-TRF-HELD'").status).toBe("draft");
+    expect(received()).toBe(before);
+    expect((await alex("GET", "/inventory/stock-transfers/R3-TRF-HELD")).status).toBe(200);
+  });
+
+  it("a session holding both branches, and an unrestricted one, still move stock between them", async () => {
+    expect((await bothBranches("POST", "/inventory/stock-transfers/draft", transfer("R3-TRF-BOTH"))).status).toBe(201);
+    expect((await admin("POST", "/inventory/stock-transfers/draft", transfer("R3-TRF-ADMIN"))).status).toBe(201);
+  });
+});
+
+describe("D111 round 3 · a document's warehouse belongs to the document's branch, for every session", () => {
+  function expectMismatch(res: Res) {
+    expect(res.status, JSON.stringify(res.body).slice(0, 200)).toBe(422);
+    expect(res.body.error).toBe("WAREHOUSE_BRANCH_MISMATCH");
+    expect(res.body.message).toMatch(ARABIC);
+  }
+
+  it("refuses a header branch and a warehouse that disagree, for an unrestricted admin and a two-branch user", async () => {
+    for (const [label, caller] of [["admin", admin], ["both", bothBranches]] as const) {
+      expectMismatch(await caller("POST", "/sales-invoices", salesInvoice(`R3-WB-INV-${label}`, ALEX, MAIN_WAREHOUSE)));
+      expectMismatch(await caller("POST", "/purchases/invoices", purchaseInvoice(`R3-WB-PI-${label}`, MAIN, ALEX_WAREHOUSE)));
+      expect(one("SELECT id FROM sales_invoice WHERE id = ?", `R3-WB-INV-${label}`)).toBeUndefined();
+      expect(one("SELECT id FROM purchase_invoice WHERE id = ?", `R3-WB-PI-${label}`)).toBeUndefined();
+    }
+  });
+
+  it("refuses a line whose warehouse is outside the header's branch", async () => {
+    const body = { ...salesInvoice("R3-WB-LINE", ALEX, ALEX_WAREHOUSE) } as any;
+    body.lines = [{ ...body.lines[0], warehouseId: MAIN_WAREHOUSE }];
+    expectMismatch(await admin("POST", "/sales-invoices", body));
+  });
+
+  it("accepts the pair that agrees, and a transfer, which has two warehouses by nature", async () => {
+    expect((await admin("POST", "/sales-invoices", salesInvoice("R3-WB-OK", ALEX, ALEX_WAREHOUSE))).status).toBe(201);
+    const moved = await admin("POST", "/inventory/stock-transfers/draft", {
+      id: "R3-WB-TRF",
+      date: TODAY,
+      lines: [{ itemId: "ITEM-DEMO-1", fromWarehouseId: MAIN_WAREHOUSE, toWarehouseId: ALEX_WAREHOUSE, qty: "1" }],
+    });
+    expect(moved.status).toBe(201);
+  });
+});
+
+describe("D111 round 3 · head office pays and collects for a branch; a branch user cannot reach into another branch's cash", () => {
+  const HQ_BANK = "TR-R3-HQ-BANK";
+  const unbalancedByBranch = (entryId: string) =>
+    all("SELECT branch_id, SUM(debit) - SUM(credit) AS d FROM journal_line WHERE entry_id = ? GROUP BY branch_id HAVING d <> 0", entryId);
+  const entryOf = (voucherId: string) => one<{ id: string }>("SELECT journal_entry_id AS id FROM voucher WHERE id = ?", voucherId)!.id;
+
+  it("an unrestricted admin pays a branch's expense out of the head-office bank, and the entry balances inside the branch", async () => {
+    const paid = await admin("POST", "/vouchers", { ...voucher("R3-HQ-PAYS", ALEX, "TR-DEMO-BANK", "1310"), paymentMethod: "bank" });
+    expect(paid.status, JSON.stringify(paid.body).slice(0, 300)).toBe(201);
+    const confirmed = await admin("POST", "/vouchers/R3-HQ-PAYS/confirm", {});
+    expect(confirmed.status, JSON.stringify(confirmed.body).slice(0, 300)).toBe(200);
+    const lines = all<{ branch_id: string }>("SELECT branch_id FROM journal_line WHERE entry_id = ?", entryOf("R3-HQ-PAYS"));
+    expect(lines.length).toBeGreaterThan(1);
+    expect(new Set(lines.map((line) => line.branch_id))).toEqual(new Set([ALEX]));
+    expect(unbalancedByBranch(entryOf("R3-HQ-PAYS"))).toEqual([]);
+  });
+
+  it("a bank account can be the company's, held by no branch", async () => {
+    const created = await admin("POST", "/treasury-accounts", { id: HQ_BANK, code: "BANK-R3-HQ", name: "حساب المركز الرئيسي", type: "bank", branchId: null, glAccountId: "1310" });
+    expect(created.status, JSON.stringify(created.body).slice(0, 300)).toBe(201);
+    expect((await admin("GET", `/treasury-accounts/${HQ_BANK}`)).body.branchId).toBeNull();
+  });
+
+  it("a branch user sees and uses the company's account and its own branch's, and nothing of another branch's", async () => {
+    for (const caller of [alex, alexStar]) {
+      const ids = rowsOf((await caller("GET", "/treasury-accounts")).body).map((row: any) => row.id);
+      expect(ids).toContain(HQ_BANK);
+      expect(ids).toContain("TR-DEMO-CASH-ALEX");
+      expect(ids).not.toContain("TR-DEMO-CASH");
+      expect((await caller("GET", `/treasury-accounts/${HQ_BANK}`)).status).toBe(200);
+    }
+    const collected = await alex("POST", "/vouchers", { ...voucher("R3-BRANCH-USES-HQ", ALEX, HQ_BANK, "1310"), paymentMethod: "bank" });
+    expect(collected.status, JSON.stringify(collected.body).slice(0, 300)).toBe(201);
+    expect((await alex("POST", "/vouchers/R3-BRANCH-USES-HQ/confirm", {})).status).toBe(200);
+    expect(unbalancedByBranch(entryOf("R3-BRANCH-USES-HQ"))).toEqual([]);
+  });
+
+  it("a branch user cannot change the company's account, nor take it for its branch", async () => {
+    for (const caller of [alex, alexStar]) {
+      const renamed = await caller("PATCH", `/treasury-accounts/${HQ_BANK}`, { name: "حسابي" });
+      expect(renamed.status).toBe(403);
+      expect(renamed.body.message).toMatch(ARABIC);
+      expect((await caller("PATCH", `/treasury-accounts/${HQ_BANK}`, { branchId: ALEX })).status).toBe(403);
+    }
+    expect(one<any>("SELECT name, branch_id FROM treasury_account WHERE id = ?", HQ_BANK)).toEqual({ name: "حساب المركز الرئيسي", branch_id: "" });
+  });
+
+  it("a user holding two branches still cannot pay one branch's document out of the other's drawer", async () => {
+    const res = await bothBranches("POST", "/vouchers", voucher("R3-BOTH-MISMATCH", ALEX, "TR-DEMO-CASH", "1300-1"));
+    expect(res.status).toBe(403);
+    expect(res.body.error).toBe("TREASURY_BRANCH_MISMATCH");
+  });
+
+  it("an unrestricted admin disburses a branch's payroll centrally, out of the company's account", async () => {
+    const run = one<{ id: string; branch_id: string }>("SELECT id, branch_id FROM hr_payroll_run WHERE status = 'approved' LIMIT 1")!;
+    const funded = await admin("POST", "/vouchers", { ...voucher("R3-HQ-FUND", MAIN, HQ_BANK, "1310"), amount: "900000.00", paymentMethod: "bank" });
+    expect(funded.status, JSON.stringify(funded.body).slice(0, 300)).toBe(201);
+    expect((await admin("POST", "/vouchers/R3-HQ-FUND/confirm", {})).status).toBe(200);
+    const disbursed = await admin("POST", `/hr/payroll/runs/${run.id}/disburse`, { treasuryAccountId: HQ_BANK, branchId: run.branch_id, date: TODAY });
+    expect(disbursed.status, JSON.stringify(disbursed.body).slice(0, 300)).toBe(200);
+    expect(one<any>("SELECT status FROM hr_payroll_run WHERE id = ?", run.id).status).toBe("disbursed");
+  });
+
+  it("the books still balance for the company and inside every branch", () => {
+    expect(all("SELECT entry_id FROM journal_line GROUP BY entry_id HAVING SUM(debit) <> SUM(credit)")).toEqual([]);
+    const company = one<{ d: number }>("SELECT SUM(debit) - SUM(credit) AS d FROM journal_line")!.d;
+    const perBranch = all<{ d: number }>("SELECT SUM(debit) - SUM(credit) AS d FROM journal_line GROUP BY COALESCE(branch_id, '')");
+    expect(company).toBe(0);
+    expect(perBranch.reduce((sum, row) => sum + row.d, 0)).toBe(company);
+  });
 });

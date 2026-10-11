@@ -1852,3 +1852,17 @@ export {
 
 export * from "./pos/index.js";
 export * from "./enh/index.js";
+export {
+  BODY_REFERENCE_KEYS,
+  BRANCH_POLICY_TABLE,
+  BRANCH_REFUSALS,
+  BranchAccess,
+  BranchPolicy,
+  BranchRecordKind,
+  BranchRefusalCode,
+  ScopedReads,
+  VIEW_UNATTRIBUTED_PERMISSION,
+  type BranchDirectory,
+  type BranchPolicyEntry,
+  type BranchRefusalBody,
+} from "./branch-policy.js";

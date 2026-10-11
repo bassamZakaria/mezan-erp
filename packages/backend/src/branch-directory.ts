@@ -201,8 +201,7 @@ export function createSqliteBranchDirectory(sqlite: Database.Database): BranchDi
       return row ? (templateId ? (resolve(K.RecurringTemplate, templateId, access) ?? []) : []) : null;
     },
     [K.StockAdjustment]: (id) => stockDocument("stock_adjustment_document", id, ["warehouseId"]),
-    [K.StockTransfer]: (id, access) =>
-      stockDocument("stock_transfer_document", id, access === BranchAccess.Read ? ["fromWarehouseId", "toWarehouseId"] : ["fromWarehouseId"]),
+    [K.StockTransfer]: (id) => stockDocument("stock_transfer_document", id, ["fromWarehouseId", "toWarehouseId"]),
     [K.PostedStockDocument]: (id) => found(sql.postedStock(id)),
     [K.DepreciationRun]: (id, access) => {
       const row = sql.depreciationRun(id)[0];

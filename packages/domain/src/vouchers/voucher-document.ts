@@ -38,6 +38,12 @@ import {
  * are resolved by the caller (treasury account → its GL account; customer →
  * receivable; income/expense → the picked account) so the domain stays pure.
  */
+/**
+ * The branch of a voucher raised on an account the company holds and no branch
+ * owns. Its journal lines post with no branch — «غير مخصص».
+ */
+export const COMPANY_LEVEL_VOUCHER_BRANCH = "";
+
 export interface VoucherLine {
   readonly voucherType: VoucherType;
   readonly direction: VoucherDirection;
@@ -321,7 +327,7 @@ export const voucherDocumentType: DocumentTypeDefinition<VoucherLine> = {
       memo: doc.memo,
       // بُعد الفرع (DEC-20) on both legs: a branch cash statement that saw the
       // counterparty leg but not the treasury one would not balance.
-      lines: buildVoucherLines(line).map((l) => ({ ...l, branchId: line.branchId ?? null })),
+      lines: buildVoucherLines(line).map((l) => ({ ...l, branchId: line.branchId || null })),
     };
   },
 

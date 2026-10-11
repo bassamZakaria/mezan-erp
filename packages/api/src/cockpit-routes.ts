@@ -151,7 +151,7 @@ async function cashByTreasury(
   for (const account of treasury) {
     if (!account.glAccountId) continue;
     const branches = branchesPerGl.get(account.glAccountId) ?? new Set<string>();
-    branches.add(account.branchId);
+    if (account.branchId) branches.add(account.branchId);
     branchesPerGl.set(account.glAccountId, branches);
   }
   const scoped = withinScope(treasury, branchScopeOf(c), (t) => t.branchId).filter(
@@ -174,7 +174,7 @@ async function cashByTreasury(
     const shared = gl !== null && (branchesPerGl.get(gl)?.size ?? 0) > 1;
     if (gl && !seen.has(gl)) {
       seen.add(gl);
-      const held = view.narrowed && shared ? await branchAttributed(gl) : (await deps.ledger.accountBalance(gl, today)).balance;
+      const held = view.narrowed && (shared || account.branchId === null) ? await branchAttributed(gl) : (await deps.ledger.accountBalance(gl, today)).balance;
       total += held.scaled;
       balance = held.toString();
     }

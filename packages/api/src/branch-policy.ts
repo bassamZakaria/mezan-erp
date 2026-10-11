@@ -3,359 +3,37 @@ import { matchedRoutes } from "hono/route";
 import { ALL_SCOPE, can, type AuthContext } from "@mezan/domain";
 import type { AuthContextResolver } from "./permission-gate.js";
 
-export const VIEW_UNATTRIBUTED_PERMISSION = "accounting.reports.view_unattributed";
+import {
+  BODY_REFERENCE_KEYS,
+  BRANCH_POLICY_TABLE,
+  BRANCH_REFUSALS,
+  BranchAccess,
+  BranchPolicy,
+  BranchRecordKind,
+  BranchRefusalCode,
+  ScopedReads,
+  VIEW_UNATTRIBUTED_PERMISSION,
+  type BranchDirectory,
+  type BranchPolicyEntry,
+  type BranchRefusalBody,
+} from "@mezan/contracts";
 
-export enum BranchPolicy {
-  Scoped = "scoped",
-  CompanyWide = "company_wide",
-  MasterDataShared = "master_data_shared",
-  SharedReadOnly = "shared_read_only",
-  SelfOnly = "self_only",
-  Public = "public",
-}
-
-export enum BranchRecordKind {
-  Branch = "branch",
-  Warehouse = "warehouse",
-  TreasuryAccount = "treasury_account",
-  SalesInvoice = "sales_invoice",
-  SalesQuote = "sales_quote",
-  SalesReturn = "sales_return",
-  PurchaseOrder = "purchase_order",
-  GoodsReceipt = "goods_receipt",
-  PurchaseInvoice = "purchase_invoice",
-  PurchaseReturn = "purchase_return",
-  Rfq = "rfq",
-  LandedCost = "landed_cost",
-  Voucher = "voucher",
-  VoucherAllocation = "voucher_allocation",
-  Cheque = "cheque",
-  BankStatement = "bank_statement",
-  JournalEntry = "journal_entry",
-  RecurringTemplate = "recurring_template",
-  RecurringRun = "recurring_run",
-  StockAdjustment = "stock_adjustment",
-  StockTransfer = "stock_transfer",
-  PostedStockDocument = "posted_stock_document",
-  PhysicalCount = "physical_count",
-  WritedownRun = "writedown_run",
-  WorkOrder = "work_order",
-  ConfigInstance = "config_instance",
-  Asset = "asset",
-  DepreciationRun = "depreciation_run",
-  Van = "van",
-  VanTrip = "van_trip",
-  Employee = "employee",
-  EmployeeContract = "employee_contract",
-  Attendance = "attendance",
-  LeaveRequest = "leave_request",
-  LeaveBalance = "leave_balance",
-  EmployeeAdvance = "employee_advance",
-  Garnishment = "garnishment",
-  PayrollRun = "payroll_run",
-  Payslip = "payslip",
-  PosTerminal = "pos_terminal",
-  ShiftTemplate = "shift_template",
-  CostCenter = "cost_center",
-  Customer = "customer",
-  Supplier = "supplier",
-  CrmOpportunity = "crm_opportunity",
-  CrmActivity = "crm_activity",
-  InstallmentPlan = "installment_plan",
-  CollectionFollowUp = "collection_follow_up",
-  ApprovalRequest = "approval_request",
-  EtaSubmission = "eta_submission",
-  EtaReceipt = "eta_receipt",
-  AnyInvoice = "any_invoice",
-  SourceDocument = "source_document",
-  AnyDocument = "any_document",
-}
-
-export enum ScopedReads {
-  Rows = "rows",
-  HandlerNarrows = "handler_narrows",
-  Refused = "refused",
-}
-
-/**
- * Where a record's branch is read from. `null` means no such record;
- * an empty or all-null list means it exists and no branch owns it.
- */
-export enum BranchAccess {
-  Read = "read",
-  Write = "write",
-}
-
-export interface BranchDirectory {
-  branchesOf(kind: BranchRecordKind, id: string, access: BranchAccess): Promise<readonly (string | null)[] | null> | readonly (string | null)[] | null;
-}
-
-export interface BranchPolicyEntry {
-  readonly prefix: string;
-  readonly policy: BranchPolicy;
-  readonly params?: Readonly<Record<string, BranchRecordKind | null>>;
-  readonly reads?: ScopedReads;
-  readonly rows?: BranchRecordKind;
-  readonly handlerNarrowed?: readonly string[];
-  readonly companyWide?: readonly string[];
-  readonly defaultsBranch?: boolean;
-  readonly defaultsLineBranch?: boolean;
-  readonly exemptBodyKeys?: readonly string[];
-  readonly query?: Readonly<Record<string, BranchRecordKind>>;
-}
+export {
+  BODY_REFERENCE_KEYS,
+  BRANCH_POLICY_TABLE,
+  BRANCH_REFUSALS,
+  BranchAccess,
+  BranchPolicy,
+  BranchRecordKind,
+  BranchRefusalCode,
+  ScopedReads,
+  VIEW_UNATTRIBUTED_PERMISSION,
+  type BranchDirectory,
+  type BranchPolicyEntry,
+  type BranchRefusalBody,
+};
 
 const K = BranchRecordKind;
-const COUNTS_AND_STATS = ["/counts", "/stats"] as const;
-
-function scoped(prefix: string, record: BranchRecordKind, extra: Partial<BranchPolicyEntry> = {}): BranchPolicyEntry {
-  return { prefix, policy: BranchPolicy.Scoped, rows: record, reads: ScopedReads.Rows, ...extra, params: { id: record, ...extra.params } };
-}
-
-function handlerScoped(prefix: string, extra: Partial<BranchPolicyEntry> = {}): BranchPolicyEntry {
-  return { prefix, policy: BranchPolicy.Scoped, reads: ScopedReads.HandlerNarrows, ...extra };
-}
-
-function shared(prefix: string, params?: Readonly<Record<string, BranchRecordKind | null>>): BranchPolicyEntry {
-  return { prefix, policy: BranchPolicy.MasterDataShared, ...(params ? { params } : {}) };
-}
-
-function readOnly(prefix: string): BranchPolicyEntry {
-  return { prefix, policy: BranchPolicy.SharedReadOnly };
-}
-
-function companyWide(prefix: string): BranchPolicyEntry {
-  return { prefix, policy: BranchPolicy.CompanyWide };
-}
-
-function own(prefix: string): BranchPolicyEntry {
-  return { prefix, policy: BranchPolicy.SelfOnly };
-}
-
-function open(prefix: string): BranchPolicyEntry {
-  return { prefix, policy: BranchPolicy.Public };
-}
-
-/**
- * SECURITY INVARIANT: this table is the only thing that opens a route to a
- * branch-restricted session. A mounted route whose path matches no prefix is
- * refused to one (`branch-policy.structure.test.ts` fails the build first), so
- * a family added later is closed until someone declares what it is.
- */
-export const BRANCH_POLICY_TABLE: readonly BranchPolicyEntry[] = [
-  open("/health"),
-  open("/auth"),
-  open("/bootstrap/status"),
-  companyWide("/bootstrap"),
-  open("/license"),
-  open("/entitlements"),
-  open("/plan-usage"),
-  open("/tenant"),
-  open("/documents/types"),
-  handlerScoped("/documents/journal"),
-  own("/profile"),
-  own("/preferences"),
-  own("/notifications"),
-  own("/hr/self"),
-  { ...own("/lan"), companyWide: ["GET /sessions", "/sessions/:sessionId"] },
-
-  readOnly("/settings"),
-  readOnly("/accounting"),
-  readOnly("/accounts"),
-  readOnly("/fiscal-periods"),
-  readOnly("/tax-rates"),
-  readOnly("/tax-groups"),
-  readOnly("/exchange-rates"),
-  readOnly("/sequences"),
-  readOnly("/roles"),
-  shared("/users"),
-  readOnly("/branches"),
-  readOnly("/barcode-config"),
-  readOnly("/print-template-config"),
-  readOnly("/label-layouts"),
-  readOnly("/notification-rules"),
-  readOnly("/workflow/configs"),
-  readOnly("/pos/settings"),
-  readOnly("/pos/payment-methods"),
-  readOnly("/eta/config"),
-  readOnly("/eta/activity-codes"),
-  readOnly("/eta/branch-codes"),
-  readOnly("/eta/item-mappings"),
-  readOnly("/eta/tax-subtypes"),
-  readOnly("/eta/unit-codes"),
-  readOnly("/eta/unit-mappings"),
-  readOnly("/gl/party-control-accounts"),
-  readOnly("/hr/payroll/statutory-flag"),
-  readOnly("/hr/payroll/statutory-tables"),
-  readOnly("/hr/payroll/components"),
-  readOnly("/hr/holidays"),
-  readOnly("/hr/leave-policies"),
-  readOnly("/hr/departments"),
-  readOnly("/hr/job-titles"),
-  readOnly("/bank-statements/rules"),
-  readOnly("/crm/pipeline-stages"),
-  readOnly("/assets/categories"),
-  readOnly("/manufacturing/work-stations"),
-
-  shared("/items"),
-  shared("/item-units"),
-  shared("/item-categories"),
-  shared("/item-brands"),
-  shared("/item-seasons"),
-  shared("/item-specifications"),
-  shared("/inventory/product-templates"),
-  shared("/price-lists"),
-  shared("/promotions"),
-  shared("/manufacturing/boms"),
-  shared("/manufacturing/configurable-products"),
-  shared("/customers", { id: K.Customer }),
-  shared("/suppliers", { id: K.Supplier }),
-  shared("/cost-centers", { id: K.CostCenter }),
-
-  companyWide("/data-migration"),
-  companyWide("/security-reports"),
-  companyWide("/audit/verify"),
-  companyWide("/revaluation"),
-  companyWide("/reconciliation"),
-  companyWide("/tax"),
-  companyWide("/gl/year-end-close"),
-  companyWide("/gl/vat-filings"),
-  companyWide("/gl/opening-balance-duplicates"),
-  companyWide("/gl/balances-by-currency"),
-  companyWide("/gl/recurring/generate-due"),
-  companyWide("/gl/recurring/due"),
-  companyWide("/gl/recurring/depreciation-due"),
-  companyWide("/gl/recurring/skips"),
-  companyWide("/sales/historical-import"),
-  companyWide("/purchases/historical-import"),
-  companyWide("/inventory/rebuild"),
-  companyWide("/inventory/drift"),
-  companyWide("/projects"),
-  companyWide("/contracting"),
-  companyWide("/crm/leads"),
-  companyWide("/hr/dashboard"),
-  companyWide("/hr/leave-accrual-batches"),
-  companyWide("/hr/payroll/provisions"),
-  companyWide("/manufacturing/dashboard"),
-  companyWide("/eta/receipts/summary"),
-  companyWide("/eta/reports"),
-  companyWide("/eta/test-connection"),
-  companyWide("/eta/submissions/process"),
-  companyWide("/eta/submissions/submit-all"),
-  companyWide("/eta/submissions/bulk-requeue-submit"),
-  companyWide("/installments/plans/overdue"),
-
-  handlerScoped("/audit"),
-  handlerScoped("/dashboard"),
-  handlerScoped("/cash-forecast"),
-  handlerScoped("/cost-center-pl"),
-  handlerScoped("/financial-reports"),
-  handlerScoped("/reports", { params: { id: null } }),
-  handlerScoped("/attachments", { params: { id: null } }),
-  handlerScoped("/gl/journal-entries", { params: { id: K.JournalEntry }, defaultsLineBranch: true }),
-  handlerScoped("/gl/accounts", { params: { accountId: null } }),
-  scoped("/gl/recurring/templates", K.RecurringTemplate, { params: { entryId: K.JournalEntry } }),
-  scoped("/gl/recurring/runs", K.RecurringRun),
-
-  scoped("/warehouses", K.Warehouse),
-  scoped("/treasury-accounts", K.TreasuryAccount, { handlerNarrowed: COUNTS_AND_STATS }),
-  scoped("/sales-invoices", K.SalesInvoice, { handlerNarrowed: COUNTS_AND_STATS, defaultsBranch: true }),
-  scoped("/sales-quotes", K.SalesQuote, { handlerNarrowed: COUNTS_AND_STATS, defaultsBranch: true }),
-  scoped("/sales-returns", K.SalesReturn, { handlerNarrowed: COUNTS_AND_STATS }),
-  scoped("/purchases/orders", K.PurchaseOrder, { handlerNarrowed: COUNTS_AND_STATS, defaultsBranch: true }),
-  scoped("/purchases/receipts", K.GoodsReceipt, { handlerNarrowed: COUNTS_AND_STATS }),
-  scoped("/purchases/invoices", K.PurchaseInvoice, { handlerNarrowed: COUNTS_AND_STATS, defaultsBranch: true }),
-  scoped("/purchase-returns", K.PurchaseReturn, { handlerNarrowed: COUNTS_AND_STATS }),
-  scoped("/rfqs", K.Rfq, { handlerNarrowed: COUNTS_AND_STATS, defaultsBranch: true }),
-  scoped("/landed-costs", K.LandedCost),
-  scoped("/vouchers", K.Voucher, { handlerNarrowed: COUNTS_AND_STATS, defaultsBranch: true }),
-  scoped("/allocations", K.VoucherAllocation),
-  scoped("/open-invoices", K.AnyInvoice),
-  scoped("/cheques", K.Cheque, { handlerNarrowed: COUNTS_AND_STATS, defaultsBranch: true }),
-  scoped("/bank-statements", K.BankStatement, {
-    params: { treasuryAccountId: K.TreasuryAccount, lineId: null, suggestionId: null },
-  }),
-  scoped("/assets", K.Asset, { handlerNarrowed: COUNTS_AND_STATS }),
-  scoped("/assets/depreciation/runs", K.DepreciationRun, { handlerNarrowed: COUNTS_AND_STATS }),
-  scoped("/field/vans", K.Van),
-  scoped("/field/van-trips", K.VanTrip),
-  scoped("/pos/terminals", K.PosTerminal),
-  scoped("/shift-templates", K.ShiftTemplate),
-  scoped("/crm/opportunities", K.CrmOpportunity),
-  scoped("/crm/activities", K.CrmActivity),
-  scoped("/installments/plans", K.InstallmentPlan, { handlerNarrowed: [] }),
-  scoped("/installments/follow-ups", K.CollectionFollowUp),
-  scoped("/workflow/requests", K.ApprovalRequest, { handlerNarrowed: ["/pending-count"] }),
-  scoped("/eta/submissions", K.EtaSubmission),
-  scoped("/eta/receipts", K.EtaReceipt, { params: { internalId: K.EtaReceipt, kind: null, docId: K.SourceDocument }, rows: K.EtaReceipt }),
-
-  scoped("/inventory/stock-adjustments", K.StockAdjustment, { handlerNarrowed: COUNTS_AND_STATS }),
-  scoped("/inventory/stock-transfers", K.StockTransfer, { handlerNarrowed: COUNTS_AND_STATS, exemptBodyKeys: ["toWarehouseId"] }),
-  scoped("/inventory/physical-counts", K.PhysicalCount, { handlerNarrowed: COUNTS_AND_STATS }),
-  scoped("/inventory/writedown-runs", K.WritedownRun),
-  scoped("/inventory/adjustments", K.PostedStockDocument),
-  scoped("/inventory/transfers", K.PostedStockDocument, { exemptBodyKeys: ["toWarehouseId"] }),
-  handlerScoped("/inventory", { params: { itemId: null }, query: { warehouseId: K.Warehouse } }),
-
-  scoped("/manufacturing/work-orders", K.WorkOrder, { handlerNarrowed: COUNTS_AND_STATS }),
-  scoped("/manufacturing/config-instances", K.ConfigInstance),
-
-  scoped("/hr/employees", K.Employee),
-  scoped("/hr/contracts", K.EmployeeContract),
-  scoped("/hr/attendance", K.Attendance, { companyWide: ["/import"] }),
-  scoped("/hr/leave-requests", K.LeaveRequest),
-  scoped("/hr/leave-balances", K.LeaveBalance),
-  scoped("/hr/advances", K.EmployeeAdvance),
-  scoped("/hr/payroll/garnishments", K.Garnishment),
-  scoped("/hr/payroll/runs", K.PayrollRun, { defaultsBranch: true }),
-  scoped("/hr/payroll/payslips", K.Payslip),
-];
-
-/**
- * The record a body key names. A request that names one outside the grant is
- * refused before its handler runs, whatever the route — so a new route that
- * accepts `receiptId` is held to the grant without knowing this table exists.
- */
-export const BODY_REFERENCE_KEYS: Readonly<Record<string, BranchRecordKind>> = {
-  branchId: K.Branch,
-  warehouseId: K.Warehouse,
-  sourceWarehouseId: K.Warehouse,
-  destinationWarehouseId: K.Warehouse,
-  fromWarehouseId: K.Warehouse,
-  toWarehouseId: K.Warehouse,
-  wipWarehouseId: K.Warehouse,
-  vanWarehouseId: K.Warehouse,
-  transitWarehouseId: K.Warehouse,
-  treasuryAccountId: K.TreasuryAccount,
-  counterTreasuryAccountId: K.TreasuryAccount,
-  bankTreasuryAccountId: K.TreasuryAccount,
-  drawerTreasuryAccountId: K.TreasuryAccount,
-  sourceTreasuryAccountId: K.TreasuryAccount,
-  vanTreasuryAccountId: K.TreasuryAccount,
-  receiptId: K.GoodsReceipt,
-  purchaseOrderId: K.PurchaseOrder,
-  orderId: K.SourceDocument,
-  quoteId: K.SalesQuote,
-  invoiceId: K.AnyInvoice,
-  sourceInvoiceId: K.SourceDocument,
-  voucherId: K.Voucher,
-  chequeId: K.Cheque,
-  statementId: K.BankStatement,
-  rfqId: K.Rfq,
-  vanId: K.Van,
-  tripId: K.VanTrip,
-  terminalId: K.PosTerminal,
-  employeeId: K.Employee,
-  runId: K.PayrollRun,
-  assetId: K.Asset,
-  workOrderId: K.WorkOrder,
-  opportunityId: K.CrmOpportunity,
-  relatedOpportunityId: K.CrmOpportunity,
-  costCenterId: K.CostCenter,
-  installmentPlanId: K.InstallmentPlan,
-  planId: K.InstallmentPlan,
-  templateId: K.RecurringTemplate,
-  docId: K.AnyDocument,
-};
 
 export const TREASURY_HOLDER_KEYS: ReadonlySet<string> = new Set(["treasuryAccountId", "drawerTreasuryAccountId"]);
 const RESTRICTED_TREASURY_HOLDER_KEYS: ReadonlySet<string> = new Set([...TREASURY_HOLDER_KEYS, "bankTreasuryAccountId"]);
@@ -367,61 +45,14 @@ const QUERY_BRANCH_KEYS = ["branchId", "branchIds", "branch"] as const;
 const UNATTRIBUTED_QUERY_VALUE = "__unattributed__";
 const BODY_SCAN_DEPTH = 6;
 
-export enum BranchRefusalCode {
-  NotFound = "NOT_FOUND",
-  BranchOutOfScope = "BRANCH_OUT_OF_SCOPE",
-  CompanyWideOnly = "COMPANY_WIDE_REPORT",
-  PolicyUndeclared = "BRANCH_POLICY_UNDECLARED",
-  BranchRequired = "BRANCH_REQUIRED",
-  TreasuryBranchMismatch = "TREASURY_BRANCH_MISMATCH",
-}
-
-export interface BranchRefusalBody {
-  readonly error: BranchRefusalCode;
-  readonly message: string;
-  readonly messageEn: string;
-}
-
-export const BRANCH_REFUSALS: Readonly<Record<BranchRefusalCode, BranchRefusalBody>> = {
-  [BranchRefusalCode.NotFound]: {
-    error: BranchRefusalCode.NotFound,
-    message: "المستند غير موجود أو يخص فرعًا خارج صلاحيتك.",
-    messageEn: "This document does not exist or belongs to a branch outside the branches granted to you.",
-  },
-  [BranchRefusalCode.BranchOutOfScope]: {
-    error: BranchRefusalCode.BranchOutOfScope,
-    message: "لا يمكنك تنفيذ هذا الإجراء: يمس فرعًا خارج صلاحيتك.",
-    messageEn: "You cannot do this: it touches a branch outside the branches granted to you.",
-  },
-  [BranchRefusalCode.CompanyWideOnly]: {
-    error: BranchRefusalCode.CompanyWideOnly,
-    message: "هذه البيانات على مستوى الشركة كلها، ولا تتاح لحساب مقيّد بفروع محددة.",
-    messageEn: "This is company-wide data and is not available to an account restricted to specific branches.",
-  },
-  [BranchRefusalCode.PolicyUndeclared]: {
-    error: BranchRefusalCode.PolicyUndeclared,
-    message: "هذه الشاشة غير متاحة لحساب مقيّد بفروع محددة.",
-    messageEn: "This surface is not available to an account restricted to specific branches.",
-  },
-  [BranchRefusalCode.BranchRequired]: {
-    error: BranchRefusalCode.BranchRequired,
-    message: "حدد الفرع: حسابك مصرح له بأكثر من فرع، ولا يُسجَّل مستند بلا فرع.",
-    messageEn: "Choose a branch: your account holds several, and a document cannot be recorded without one.",
-  },
-  [BranchRefusalCode.TreasuryBranchMismatch]: {
-    error: BranchRefusalCode.TreasuryBranchMismatch,
-    message: "الخزينة أو الحساب البنكي يتبع فرعًا غير فرع المستند.",
-    messageEn: "The cash or bank account belongs to a different branch from the document.",
-  },
-};
-
-const REFUSAL_STATUS: Readonly<Record<BranchRefusalCode, 400 | 403 | 404>> = {
+const REFUSAL_STATUS: Readonly<Record<BranchRefusalCode, 400 | 403 | 404 | 422>> = {
   [BranchRefusalCode.NotFound]: 404,
   [BranchRefusalCode.BranchOutOfScope]: 403,
   [BranchRefusalCode.CompanyWideOnly]: 403,
   [BranchRefusalCode.PolicyUndeclared]: 403,
   [BranchRefusalCode.BranchRequired]: 400,
   [BranchRefusalCode.TreasuryBranchMismatch]: 403,
+  [BranchRefusalCode.WarehouseBranchMismatch]: 422,
 };
 
 export function branchRefusal(c: Context, code: BranchRefusalCode): Response {
@@ -583,6 +214,10 @@ async function storedRecordRefusal(c: Context, session: Session, entry: BranchPo
     }
     const standing = standingOf(session, await lookup(session, kind, value));
     if (standing === Standing.Granted) continue;
+    if (standing === Standing.Unattributed && entry.unownedIsCompanys) {
+      if (isRead(c)) continue;
+      return branchRefusal(c, BranchRefusalCode.CompanyWideOnly);
+    }
     if (standing === Standing.Unattributed && (sharedData || session.seesUnattributed)) continue;
     if (standing === Standing.Absent && sharedData) continue;
     if (standing === Standing.PartlyForeign) {
@@ -613,7 +248,6 @@ async function readJsonBody(c: Context): Promise<unknown> {
  */
 async function bodyRefusal(c: Context, session: Session, entry: BranchPolicyEntry, body: unknown): Promise<Response | null> {
   for (const reference of referencesNamedIn(body)) {
-    if (entry.exemptBodyKeys?.includes(reference.key)) continue;
     const standing = standingOf(session, await lookup(session, reference.kind, reference.id));
     if (standing === Standing.Foreign || standing === Standing.PartlyForeign) {
       return branchRefusal(c, NAMED_LOCATION_KINDS.has(reference.kind) ? BranchRefusalCode.BranchOutOfScope : BranchRefusalCode.NotFound);
@@ -623,11 +257,11 @@ async function bodyRefusal(c: Context, session: Session, entry: BranchPolicyEntr
 }
 
 /**
- * LEDGER INVARIANT, for every session: money is not paid out of, or into, an
- * account held by a branch other than the document's. The journal is stamped
- * with the document's branch, so a mismatch books one branch's cash movement
- * on another branch's drawer. A session restricted to branches is also held
- * to it for the bank a cheque is banked in.
+ * For a session restricted to branches: money is not paid out of, or into, an
+ * account held by a branch other than the document's, even one the session
+ * also holds. An account no branch owns is the company's and serves every
+ * branch. An unrestricted session is not held to this — head office pays a
+ * branch's expense, banks a branch's collection and runs payroll centrally.
  */
 async function treasuryMismatchRefusal(
   c: Context,
@@ -660,6 +294,41 @@ async function treasuryMismatchRefusal(
     if (held.some((id) => !documentBranches.has(id))) return branchRefusal(c, BranchRefusalCode.TreasuryBranchMismatch);
   }
   return null;
+}
+
+const DOCUMENT_WAREHOUSE_KEY = "warehouseId";
+
+/**
+ * LEDGER INVARIANT, for every session: a document's warehouse belongs to the
+ * document's branch. The journal is stamped with the branch and the stock
+ * leaves the warehouse, so a pair that disagrees books one branch's sale
+ * against another branch's stock.
+ */
+async function warehouseBranchRefusal(
+  c: Context,
+  resolve: (kind: BranchRecordKind, id: string) => Promise<readonly (string | null)[] | null>,
+  entry: BranchPolicyEntry | undefined,
+  body: unknown,
+): Promise<Response | null> {
+  if (entry?.movesBetweenWarehouses) return null;
+  const disagrees = async (value: unknown, inherited: string | undefined, depth: number): Promise<boolean> => {
+    if (depth > BODY_SCAN_DEPTH || value === null || typeof value !== "object") return false;
+    if (Array.isArray(value)) {
+      for (const item of value) if (await disagrees(item, inherited, depth + 1)) return true;
+      return false;
+    }
+    const record = value as Record<string, unknown>;
+    const stated = record["branchId"];
+    const branch = typeof stated === "string" && stated !== "" ? stated : inherited;
+    const warehouse = record[DOCUMENT_WAREHOUSE_KEY];
+    if (branch !== undefined && typeof warehouse === "string" && warehouse !== "") {
+      const held = ((await resolve(K.Warehouse, warehouse)) ?? []).filter((id): id is string => typeof id === "string" && id !== "");
+      if (held.some((id) => id !== branch)) return true;
+    }
+    for (const child of Object.values(record)) if (await disagrees(child, branch, depth + 1)) return true;
+    return false;
+  };
+  return (await disagrees(body, undefined, 0)) ? branchRefusal(c, BranchRefusalCode.WarehouseBranchMismatch) : null;
 }
 
 /**
@@ -701,6 +370,11 @@ function defaultBranchRefusal(c: Context, session: Session, entry: BranchPolicyE
   delete cache["json"];
   cache["text"] = Promise.resolve(JSON.stringify(defaulted));
   return null;
+}
+
+function companysRecordRefusal(c: Context, entry: BranchPolicyEntry, body: unknown): Response | null {
+  if (!entry.unownedIsCompanys || body === null || typeof body !== "object" || Array.isArray(body)) return null;
+  return (body as Record<string, unknown>)["branchId"] === null ? branchRefusal(c, BranchRefusalCode.CompanyWideOnly) : null;
 }
 
 async function queryRefusal(c: Context, session: Session, entry: BranchPolicyEntry): Promise<Response | null> {
@@ -746,7 +420,7 @@ export async function recordsInBranchGrant<Row>(c: Context, kind: BranchRecordKi
   return kept;
 }
 
-async function rowVisible(session: Session, kind: BranchRecordKind, row: unknown): Promise<boolean> {
+async function rowVisible(session: Session, kind: BranchRecordKind, row: unknown, unownedIsCompanys: boolean): Promise<boolean> {
   if (row === null || typeof row !== "object") return true;
   const record = row as Record<string, unknown>;
   let branches: readonly (string | null)[] | null = typeof record["id"] === "string" ? await lookup(session, kind, record["id"]) : null;
@@ -757,29 +431,29 @@ async function rowVisible(session: Session, kind: BranchRecordKind, row: unknown
   }
   const standing = standingOf(session, branches);
   if (standing === Standing.Granted || standing === Standing.PartlyForeign) return true;
-  return standing === Standing.Unattributed && session.seesUnattributed;
+  return standing === Standing.Unattributed && (unownedIsCompanys || session.seesUnattributed);
 }
 
-async function narrowRows(session: Session, kind: BranchRecordKind, rows: readonly unknown[]): Promise<unknown[]> {
+async function narrowRows(session: Session, kind: BranchRecordKind, rows: readonly unknown[], unownedIsCompanys: boolean): Promise<unknown[]> {
   const kept: unknown[] = [];
-  for (const row of rows) if (await rowVisible(session, kind, row)) kept.push(row);
+  for (const row of rows) if (await rowVisible(session, kind, row, unownedIsCompanys)) kept.push(row);
   return kept;
 }
 
-async function narrowListResponse(c: Context, session: Session, kind: BranchRecordKind): Promise<void> {
+async function narrowListResponse(c: Context, session: Session, kind: BranchRecordKind, unownedIsCompanys: boolean): Promise<void> {
   const response = c.res;
   if (response.status !== 200 || !(response.headers.get("content-type") ?? "").includes("application/json")) return;
   const payload: unknown = await response.clone().json();
   let narrowed: unknown;
   if (Array.isArray(payload)) {
-    narrowed = await narrowRows(session, kind, payload);
+    narrowed = await narrowRows(session, kind, payload, unownedIsCompanys);
   } else if (payload !== null && typeof payload === "object") {
     const record = { ...(payload as Record<string, unknown>) };
     let sawRows = false;
     for (const [key, value] of Object.entries(record)) {
       if (!Array.isArray(value)) continue;
       sawRows = true;
-      const kept = await narrowRows(session, kind, value);
+      const kept = await narrowRows(session, kind, value, unownedIsCompanys);
       if (typeof record["total"] === "number" && record["total"] === value.length) record["total"] = kept.length;
       record[key] = kept;
     }
@@ -825,7 +499,7 @@ export function branchPolicyEnforcement(options: BranchPolicyEnforcementOptions)
     if (ctx.branchGrant === ALL_SCOPE) {
       if (isRead(c) || !directory) return next();
       const resolve = async (kind: BranchRecordKind, id: string) => (kind === K.Branch ? [id] : directory.branchesOf(kind, id, BranchAccess.Write));
-      const mismatch = await treasuryMismatchRefusal(c, resolve, TREASURY_HOLDER_KEYS, branchPolicyFor(routePath, table), routePath, await readJsonBody(c));
+      const mismatch = await warehouseBranchRefusal(c, resolve, branchPolicyFor(routePath, table), await readJsonBody(c));
       return mismatch ?? next();
     }
 
@@ -860,7 +534,9 @@ export function branchPolicyEnforcement(options: BranchPolicyEnforcementOptions)
     if (!isRead(c)) {
       const body = await readJsonBody(c);
       const refusal =
+        companysRecordRefusal(c, entry, body) ??
         (await bodyRefusal(c, session, entry, body)) ??
+        (await warehouseBranchRefusal(c, (kind, id) => lookup(session, kind, id), entry, body)) ??
         (await treasuryMismatchRefusal(c, (kind, id) => lookup(session, kind, id), RESTRICTED_TREASURY_HOLDER_KEYS, entry, routePath, body)) ??
         defaultBranchRefusal(c, session, entry, routePath, body);
       if (refusal) return refusal;
@@ -871,6 +547,6 @@ export function branchPolicyEnforcement(options: BranchPolicyEnforcementOptions)
     const reads = subPathListed(entry, routePath, entry.handlerNarrowed) ? ScopedReads.HandlerNarrows : (entry.reads ?? ScopedReads.Refused);
     if (reads === ScopedReads.Refused) return branchRefusal(c, BranchRefusalCode.CompanyWideOnly);
     await next();
-    if (reads === ScopedReads.Rows && entry.rows) await narrowListResponse(c, session, entry.rows);
+    if (reads === ScopedReads.Rows && entry.rows) await narrowListResponse(c, session, entry.rows, entry.unownedIsCompanys === true);
   };
 }

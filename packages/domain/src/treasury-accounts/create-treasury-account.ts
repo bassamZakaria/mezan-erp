@@ -22,7 +22,7 @@ export interface CreateTreasuryAccountCommand {
   readonly currency?: string;
   /** رقم الحساب البنكي / IBAN as the bank states it; trimmed, and empty is stored as null. */
   readonly bankAccountNumber?: string | null;
-  readonly branchId: string;
+  readonly branchId: string | null;
   readonly glAccountId?: string | null;
   /** Exact decimal string (e.g. "0.00", "338.00") — parsed via `Money.fromMajor`. */
   readonly openingBalance?: string;

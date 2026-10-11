@@ -11,7 +11,7 @@ import { BASE_CURRENCY } from "../exchange-rates/exchange-rate.js";
 import { convertFromBase } from "../exchange-rates/convert.js";
 import type { TreasuryAccountRepository } from "../treasury-accounts/treasury-account.js";
 import { VoucherService, type VoucherServiceDeps } from "../vouchers/voucher-service.js";
-import { voucherLine, type VoucherDocument } from "../vouchers/voucher-document.js";
+import { COMPANY_LEVEL_VOUCHER_BRANCH, voucherLine, type VoucherDocument } from "../vouchers/voucher-document.js";
 import type { TreasuryLedgerCandidate, TreasuryLedgerReader } from "./matching.js";
 import { BankEntryKind, type BankEntryPoster } from "./entry-poster.js";
 
@@ -209,7 +209,7 @@ export function createVoucherBankEntryPoster(deps: VoucherBankEntryPosterDeps): 
             voucherType: input.kind === BankEntryKind.BankCharge ? "other_expense" : "other_income",
             amount: input.amount,
             currency: treasury.currency,
-            branchId: treasury.branchId,
+            branchId: treasury.branchId ?? COMPANY_LEVEL_VOUCHER_BRANCH,
             paymentMethod: "bank",
             treasuryAccountId: treasury.id,
             treasuryGlAccountId: treasury.glAccountId!,

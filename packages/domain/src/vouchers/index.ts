@@ -30,6 +30,7 @@ export {
   voucherNetPaid,
   voucherBaseAmount,
   voucherBaseWithholding,
+  COMPANY_LEVEL_VOUCHER_BRANCH,
 } from "./voucher-document.js";
 
 export {

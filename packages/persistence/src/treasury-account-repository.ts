@@ -38,6 +38,13 @@ interface TreasuryAccountRow {
   status: string;
 }
 
+/**
+ * INVARIANT: `branch_id` is NOT NULL on every installed database, so an
+ * account no branch owns is stored as the empty string and read back as null.
+ * The branch directory reads '' as unowned the same way.
+ */
+const COMPANY_LEVEL_BRANCH = "";
+
 function toTreasuryAccount(row: TreasuryAccountRow): TreasuryAccount {
   return {
     id: row.id,
@@ -47,7 +54,7 @@ function toTreasuryAccount(row: TreasuryAccountRow): TreasuryAccount {
     type: row.type as TreasuryAccountType,
     currency: row.currency,
     bankAccountNumber: row.bank_account_number ?? null,
-    branchId: row.branch_id,
+    branchId: row.branch_id === COMPANY_LEVEL_BRANCH ? null : row.branch_id,
     glAccountId: row.gl_account_id,
     openingBalance: Money.fromScaled(row.opening_balance),
     openingBalanceDate: row.opening_balance_date,
@@ -117,7 +124,7 @@ class SqliteTreasuryAccountRepository implements TreasuryAccountRepository {
       type: account.type,
       currency: account.currency,
       bank_account_number: account.bankAccountNumber,
-      branch_id: account.branchId,
+      branch_id: account.branchId ?? COMPANY_LEVEL_BRANCH,
       gl_account_id: account.glAccountId,
       opening_balance: account.openingBalance.toScaledNumber(),
       opening_balance_date: account.openingBalanceDate,

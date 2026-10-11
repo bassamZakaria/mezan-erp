@@ -299,6 +299,24 @@ describe("LoginScreen — SaaS company code", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("اسم المستخدم أو رمز PIN غير صحيح.");
   });
 
+  it("says the server is busy and holds the button for the seconds it was told to wait", async () => {
+    renderWithProviders(<LoginScreen onStartWizard={() => {}} />, {
+      transport: stubTransport({
+        ...preAuth,
+        "GET /platform/resolve": () => ({ body: { mode: "code", exists: true } }),
+        "POST /auth/login": () => ({
+          status: 503,
+          body: { error: "SIGN_IN_BUSY", retryAfterSeconds: 2, message: "الخادم مشغول الآن بطلبات دخول أخرى، ولم تُحتسب هذه المحاولة. أعد المحاولة بعد ثوانٍ." },
+        }),
+      }),
+    });
+    fireEvent.change(await screen.findByLabelText("رمز المنشأة"), { target: { value: "cyag" } });
+    fillPin("123456");
+    expect(await screen.findByRole("alert")).toHaveTextContent("الخادم مشغول الآن");
+    fillPin("123456");
+    expect(screen.getByRole("button", { name: /الحساب مقفل|انتظر|بعد/ })).toBeDisabled();
+  });
+
   it("offers a place to type the mailed code when the account is locked, and opens the account with it", async () => {
     let unlockBody: unknown = null;
     renderWithProviders(<LoginScreen onStartWizard={() => {}} />, {

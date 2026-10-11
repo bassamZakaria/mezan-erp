@@ -1,4 +1,6 @@
 import { DEFAULT_BASE_URL } from "@/config";
+import { StepUpOverlay } from "@/components/step-up-overlay";
+import { withStepUp } from "./step-up";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AppState } from "react-native";
 import { loginResponseSchema, type SessionDTO } from "@mezan/contracts";
@@ -33,6 +35,9 @@ const SessionContext = createContext<SessionState | null>(null);
 function scopeHeader(scope: SessionDTO["branchScope"]): string {
   return scope === ScopeAll.Every ? ScopeAll.Every : scope.join(",");
 }
+
+const STEP_UP_PATH = "/auth/step-up";
+const STEP_UP_FAILED = "رمز PIN غير صحيح.";
 
 export function SessionProvider({ children }: { children: ReactNode }): ReactNode {
   const [ready, setReady] = useState(false);
@@ -87,6 +92,8 @@ export function SessionProvider({ children }: { children: ReactNode }): ReactNod
     return () => subscription.remove();
   }, []);
 
+  const [stepUp, setStepUp] = useState<{ message: string; cancel: () => void; confirm: (pin: string) => Promise<string | null> } | null>(null);
+
   const unlock = useCallback(async (promptMessage: string, cancelLabel: string) => {
     const confirmed = await confirmDeviceOwner(promptMessage, cancelLabel);
     if (confirmed) setLocked(false);
@@ -115,7 +122,25 @@ export function SessionProvider({ children }: { children: ReactNode }): ReactNod
   const request = useCallback(
     async <T,>(path: string, options?: RequestOptions<T>): Promise<T> => {
       try {
-        return await apiRequest<T>(credentials, path, options);
+        return await withStepUp(
+          () => apiRequest<T>(credentials, path, options),
+          (message) =>
+            new Promise<boolean>((resolve) => {
+              setStepUp({
+                message,
+                cancel: () => resolve(false),
+                confirm: async (pin) => {
+                  try {
+                    await apiRequest(credentials, STEP_UP_PATH, { method: HttpMethod.Post, body: { pin } });
+                    resolve(true);
+                    return null;
+                  } catch (failure) {
+                    return failure instanceof ApiError && failure.serverMessage ? failure.serverMessage : STEP_UP_FAILED;
+                  }
+                },
+              });
+            }).finally(() => setStepUp(null)),
+        );
       } catch (error) {
         // A dead token must end the session here, or every screen renders its own sign-in prompt.
         if (error instanceof ApiError && error.failure === ApiFailure.Unauthorized && session) await signOut();
@@ -161,7 +186,12 @@ export function SessionProvider({ children }: { children: ReactNode }): ReactNod
     [ready, session, locked, unlock, connection, signIn, signOut, request, can],
   );
 
-  return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
+  return (
+    <SessionContext.Provider value={value}>
+      {children}
+      {stepUp ? <StepUpOverlay message={stepUp.message} onCancel={stepUp.cancel} onConfirm={stepUp.confirm} /> : null}
+    </SessionContext.Provider>
+  );
 }
 
 export function useSession(): SessionState {

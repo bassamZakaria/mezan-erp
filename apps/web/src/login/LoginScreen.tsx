@@ -61,6 +61,8 @@ export interface LoginScreenProps {
  * The PIN auto-submits on the fourth digit: at 60 logins a month, a Tab to a
  * button the form already knows how to press is pure friction.
  */
+const SERVER_BUSY = 503;
+
 export function LoginScreen({ onStartWizard }: LoginScreenProps) {
   const { t, locale } = useAppTranslation();
   const appVersion = useAppVersion();
@@ -211,6 +213,7 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
    * floor at 6pm does not read carefully; it presses the button again.
    */
   const [lockedForSeconds, setLockedForSeconds] = useState(0);
+  const [waitingOnBusyServer, setWaitingOnBusyServer] = useState(false);
   const [unlockOffered, setUnlockOffered] = useState(false);
   const [unlockCode, setUnlockCode] = useState("");
   const [unlockedNotice, setUnlockedNotice] = useState(false);
@@ -268,8 +271,10 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
         onError: (err) => {
           setError(err.message || t("login.error.generic"));
           setUnlockOffered(err instanceof AccountLockedError && err.unlockByCode);
-          if (err.status === 429 && typeof err.retryAfterSeconds === "number") {
+          if ((err.status === 429 || err.status === SERVER_BUSY) && typeof err.retryAfterSeconds === "number") {
             setLockedForSeconds(Math.max(1, Math.ceil(err.retryAfterSeconds)));
+            setWaitingOnBusyServer(err.status === SERVER_BUSY);
+            submittedFor.current = "";
           }
           setPinDigits(Array(PIN_LENGTH).fill(""));
           inputRefs.current[0]?.focus();
@@ -561,7 +566,7 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
         ) : null}
 
         <Button type="submit" variant="primary" disabled={!canSubmit} className="mt-[16px] w-full justify-center py-[12px]">
-          {lockedForSeconds > 0 ? `${t("login.lockedFor")} ${formatWait(lockedForSeconds)}` : t("login.submit")}
+          {lockedForSeconds > 0 ? `${t(waitingOnBusyServer ? "login.busyFor" : "login.lockedFor")} ${formatWait(lockedForSeconds)}` : t("login.submit")}
         </Button>
 
         <div className="mt-[16px] flex items-center gap-[10px] text-2xs text-ink-faint">

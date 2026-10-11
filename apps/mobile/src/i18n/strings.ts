@@ -180,6 +180,11 @@ export interface Strings {
     readonly approvals: string;
     readonly approvalsSubtitle: string;
   };
+  readonly stepUp: {
+    readonly title: string;
+    readonly pin: string;
+    readonly confirm: string;
+  };
   readonly common: {
     readonly retry: string;
     readonly signOut: string;
@@ -381,6 +386,7 @@ const AR: Strings = {
     approvals: "الموافقات",
     approvalsSubtitle: "الطلبات بانتظار اعتمادك",
   },
+  stepUp: { title: "تأكيد رمز PIN", pin: "رمز PIN", confirm: "تأكيد" },
   common: {
     retry: "إعادة المحاولة",
     signOut: "تسجيل الخروج",
@@ -582,6 +588,7 @@ const EN: Strings = {
     approvals: "Approvals",
     approvalsSubtitle: "The requests waiting on you",
   },
+  stepUp: { title: "Confirm your PIN", pin: "PIN", confirm: "Confirm" },
   common: {
     retry: "Try again",
     signOut: "Sign out",

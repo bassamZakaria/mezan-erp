@@ -37,7 +37,8 @@ export async function run(ctx: Ctx): Promise<void> {
   const dir = mkdtempSync(join(tmpdir(), "mezan-freemium-"));
   const env: CloudEnv = {
     platformDir: dir,
-    trustProxy: false,
+    trustProxy: true,
+    clientSource: { trustedProxyHops: 2, trustViewerAddress: false, compareViewerAddress: false },
     sqliteExclusive: false,
     platformOwnerEmail: "owner@platform.example",
     platformOwnerPassword: "platform-owner-password",
@@ -62,7 +63,7 @@ export async function run(ctx: Ctx): Promise<void> {
     const res = await root.fetch(
       new Request(`http://scenario${path}`, {
         method,
-        headers: { "content-type": "application/json", "x-mezan-tenant": TENANT, ...headers },
+        headers: { "content-type": "application/json", "x-mezan-tenant": TENANT, "x-forwarded-for": "41.33.10.10, 130.176.1.1", ...headers },
         body: body === undefined ? undefined : JSON.stringify(body),
       }),
     );

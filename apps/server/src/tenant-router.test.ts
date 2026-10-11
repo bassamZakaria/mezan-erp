@@ -477,4 +477,42 @@ describe("createTenantRouter", () => {
       expect(freshRes.status).toBe(200);
     });
   });
+
+  describe("tenant sign-in from one address", () => {
+    const signIn = (router: TenantRouter, code: string, username: string, forwardedFor: string, pin = "000000") =>
+      router.app.fetch(
+        new Request("http://ignored/auth/login", {
+          method: "POST",
+          headers: { "content-type": "application/json", [TENANT_HEADER]: code, "x-forwarded-for": forwardedFor },
+          body: JSON.stringify({ username, pin }),
+        }),
+      );
+
+    it("holds an address after thirty failures across tenants and accounts, before the tenant is asked again", async () => {
+      const platform = await seedPlatform();
+      const { router } = newRouter(platform, { trustForwardedHost: true });
+      await bootstrapAdmin(router, "cyag");
+      await bootstrapAdmin(router, "nile");
+      for (let i = 0; i < 31; i += 1) {
+        expect((await signIn(router, i % 2 === 0 ? "cyag" : "nile", `ghost${i}@example.com`, "203.0.113.9")).status).toBe(401);
+      }
+
+      const held = await signIn(router, "cyag", "owner-cyag@example.com", "203.0.113.9", "123456");
+      const elsewhere = await signIn(router, "cyag", "owner-cyag@example.com", "198.51.100.4", "123456");
+
+      expect(held.status).toBe(429);
+      expect(await held.json()).toMatchObject({ error: "TOO_MANY_ATTEMPTS", message: expect.stringContaining("محاولات دخول كثيرة") });
+      expect(held.headers.get("retry-after")).toBe("60");
+      expect(elsewhere.status).toBe(200);
+    }, 120_000);
+
+    it("ignores a forwarded address it was not told to trust", async () => {
+      const platform = await seedPlatform();
+      const { router } = newRouter(platform);
+      await bootstrapAdmin(router, "cyag");
+      for (let i = 0; i < 31; i += 1) await signIn(router, "cyag", `ghost${i}@example.com`, "203.0.113.9");
+
+      expect((await signIn(router, "cyag", "owner-cyag@example.com", "203.0.113.9", "123456")).status).toBe(200);
+    }, 120_000);
+  });
 });

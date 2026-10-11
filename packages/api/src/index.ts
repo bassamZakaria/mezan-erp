@@ -103,3 +103,4 @@ export {
 export * from "./pos/index.js";
 export * from "./enh/index.js";
 export { AUDITED_MOUNTS, MutatingMethod, type AuditedMount, type BoundaryPreparation } from "./audit-boundary.js";
+export { BodyLimitBytes, requestBodyLimit } from "./body-limit.js";

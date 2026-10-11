@@ -247,3 +247,74 @@ describe("computeEtaReadiness", () => {
     expect(computeEtaReadiness(full).percent).toBe(100);
   });
 });
+
+describe("EtaService — one sender per document", () => {
+  function slowPort() {
+    let answer!: (result: { ok: true; etaUuid: string }) => void;
+    let calls = 0;
+    const port: EtaTransmitPort = {
+      transmit: () =>
+        new Promise((resolve) => {
+          calls += 1;
+          answer = resolve;
+        }),
+    };
+    return { port, answer: () => answer({ ok: true, etaUuid: "UUID-1" }), calls: () => calls };
+  }
+
+  it("refuses a second submit while the first is with the authority, and transmits once", async () => {
+    const slow = slowPort();
+    const { svc } = service({}, slow.port);
+    const queued = await svc.enqueue(doc);
+    const first = svc.submit(queued.id);
+    await new Promise((resolve) => setImmediate(resolve));
+
+    await expect(svc.submit(queued.id)).rejects.toMatchObject({ code: "ETA_SUBMISSION_IN_PROGRESS" });
+
+    slow.answer();
+    expect((await first).status).toBe("submitted");
+    expect(slow.calls()).toBe(1);
+  });
+
+  it("refuses to exclude a document in flight, so the outcome about to be written cannot overwrite the exclusion", async () => {
+    const slow = slowPort();
+    const { svc } = service({}, slow.port);
+    const queued = await svc.enqueue(doc);
+    const first = svc.submit(queued.id);
+    await new Promise((resolve) => setImmediate(resolve));
+
+    await expect(svc.exclude(queued.id, "أُدخل بالخطأ")).rejects.toMatchObject({ code: "ETA_SUBMISSION_IN_PROGRESS" });
+
+    slow.answer();
+    expect((await first).status).toBe("submitted");
+  });
+
+  it("leaves a document in flight queued in a batch run rather than failing the run", async () => {
+    const slow = slowPort();
+    const { svc } = service({}, slow.port);
+    const queued = await svc.enqueue(doc);
+    const first = svc.submit(queued.id);
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(await svc.submitAllReady()).toEqual({ submitted: [], queued: [queued.id] });
+
+    slow.answer();
+    await first;
+  });
+
+  it("frees the document once the attempt fails, so it can be sent again", async () => {
+    let fail = true;
+    const port: EtaTransmitPort = {
+      async transmit() {
+        if (fail) throw new Error("socket hang up");
+        return { ok: true, etaUuid: "UUID-2" };
+      },
+    };
+    const { svc } = service({}, port);
+    const queued = await svc.enqueue(doc);
+    await expect(svc.submit(queued.id)).rejects.toThrow("socket hang up");
+
+    fail = false;
+    expect((await svc.submit(queued.id)).status).toBe("submitted");
+  });
+});

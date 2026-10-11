@@ -515,7 +515,7 @@ export class EtaService {
   }
 
   private async submitHeld(id: string): Promise<EtaSubmission> {
-    let submission = await this.deps.submissions.findById(id).then((found) => found ?? this.require(id));
+    let submission = await this.found(id);
     if (!["ready", "pending_signature", "error"].includes(submission.status)) {
       throw new InvalidEtaTransitionError(submission.status, "submit");
     }
@@ -584,7 +584,7 @@ export class EtaService {
   }
 
   private async refreshStatusHeld(id: string): Promise<EtaSubmission> {
-    const submission = await this.deps.submissions.findById(id).then((found) => found ?? this.require(id));
+    const submission = await this.found(id);
     if (submission.status !== "submitted") throw new InvalidEtaTransitionError(submission.status, "refresh");
     if (!this.transmitPort.fetchStatus || !submission.etaUuid) throw new EtaOfflineError();
     const config = await this.deps.config.get();
@@ -901,6 +901,10 @@ export class EtaService {
 
   private async require(id: string): Promise<EtaSubmission> {
     if (this.inFlight.has(id)) throw new EtaSubmissionInFlightError(id);
+    return this.found(id);
+  }
+
+  private async found(id: string): Promise<EtaSubmission> {
     const submission = await this.deps.submissions.findById(id);
     if (!submission) throw new EtaSubmissionNotFoundError(id);
     return submission;

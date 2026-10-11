@@ -195,3 +195,49 @@ describe("a tenant's connection while the signing program is slow", () => {
     expect((await t.addBrand()).status).toBe(201);
   });
 });
+
+describe("how much of a request the server will hold", () => {
+  const padded = (bytes: number) => ({ id: "brand-big", code: "BIG", name: "Big", nameAr: "كبير", notes: "x".repeat(bytes) });
+
+  it("refuses an anonymous body over 64 KiB before anything reads it, in Arabic", async () => {
+    const t = await open();
+
+    const refused = await t.call("POST", "/auth/login", { username: "nobody@example.eg", pin: "123456", padding: "x".repeat(70 * 1024) }, { "content-type": "application/json" });
+
+    expect(refused).toMatchObject({ status: 413, body: { error: "PAYLOAD_TOO_LARGE", message: expect.stringContaining("أكبر من المسموح") } });
+  });
+
+  it("refuses an oversized body sent with no declared length just the same", async () => {
+    const t = await open();
+    const chunk = new TextEncoder().encode("x".repeat(16 * 1024));
+    let sent = 0;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (sent >= 8) controller.close();
+        else controller.enqueue(chunk);
+        sent += 1;
+      },
+    });
+
+    const res = await t.handle.app.fetch(
+      new Request("http://local/auth/login", { method: "POST", body, headers: { "content-type": "application/json" }, duplex: "half" } as RequestInit),
+    );
+
+    expect(res.status).toBe(413);
+  });
+
+  it("gives a signed-in caller room for a document and not for a file on a route that takes none", async () => {
+    const t = await open();
+
+    expect((await t.call("POST", "/item-brands", padded(1024 * 1024))).status).not.toBe(413);
+    expect((await t.call("POST", "/item-brands", padded(3 * 1024 * 1024))).status).toBe(413);
+  });
+
+  it("gives a signed-in caller room for a file on a route that takes files, and an anonymous one none", async () => {
+    const t = await open();
+    const file = { padding: "x".repeat(6 * 1024 * 1024) };
+
+    expect((await t.call("POST", "/attachments", file)).status).not.toBe(413);
+    expect((await t.call("POST", "/attachments", file, { "content-type": "application/json" })).status).toBe(413);
+  });
+});

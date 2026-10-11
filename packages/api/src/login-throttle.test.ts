@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createLoginThrottle, throttleKey } from "./login-throttle.js";
+import { createLoginThrottle, createSourceThrottle, throttleKey } from "./login-throttle.js";
 
 /**
  * S6. A Mezan credential is a six-digit PIN — one million combinations. With
@@ -254,5 +254,59 @@ describe("createLoginThrottle — the sequence has to cost something", () => {
     // "owner@shop.test@10.0.0.5".
     expect(throttle.retryAfter(throttleKey("owner@shop.test", "10.0.0.9"))).toBeGreaterThan(0);
     expect(throttle.retryAfter(throttleKey("owner", "10.0.0.9"))).toBe(0);
+  });
+});
+
+describe("createSourceThrottle — failures from one address, whichever accounts they name", () => {
+  function sourcesAt(start = 1_000_000) {
+    let now = start;
+    return {
+      sources: createSourceThrottle(() => now),
+      advance: (ms: number) => {
+        now += ms;
+      },
+    };
+  }
+
+  it("lets a shop's worth of typos through and holds the thirty-first failure", () => {
+    const { sources } = sourcesAt();
+    for (let i = 0; i < 30; i += 1) expect(sources.fail("192.168.1.66")).toBe(0);
+    expect(sources.retryAfter("192.168.1.66")).toBe(0);
+
+    expect(sources.fail("192.168.1.66")).toBe(60);
+    expect(sources.retryAfter("192.168.1.66")).toBe(60);
+  });
+
+  it("holds only the address that failed", () => {
+    const { sources } = sourcesAt();
+    for (let i = 0; i < 31; i += 1) sources.fail("192.168.1.66");
+
+    expect(sources.retryAfter("192.168.1.40")).toBe(0);
+  });
+
+  it("doubles the wait with each further failure, up to fifteen minutes", () => {
+    const { sources, advance } = sourcesAt();
+    for (let i = 0; i < 31; i += 1) sources.fail("192.168.1.66");
+    advance(60_000);
+    expect(sources.retryAfter("192.168.1.66")).toBe(0);
+
+    expect(sources.fail("192.168.1.66")).toBe(120);
+    for (let i = 0; i < 10; i += 1) sources.fail("192.168.1.66");
+    expect(sources.retryAfter("192.168.1.66")).toBe(15 * 60);
+  });
+
+  it("forgets an address that has been quiet for an hour", () => {
+    const { sources, advance } = sourcesAt();
+    for (let i = 0; i < 30; i += 1) sources.fail("192.168.1.66");
+    advance(60 * 60_000 + 1);
+
+    expect(sources.fail("192.168.1.66")).toBe(0);
+  });
+
+  it("keeps no more than ten thousand addresses, however many are sent", () => {
+    const { sources } = sourcesAt();
+    for (let i = 0; i < 10_050; i += 1) sources.fail(`10.${i >> 16}.${(i >> 8) & 255}.${i & 255}`);
+
+    expect(sources.size()).toBe(10_000);
   });
 });

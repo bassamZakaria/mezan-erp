@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { readFile } from "node:fs/promises";
+import { bodyLimit } from "hono/body-limit";
 import path from "node:path";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono, type MiddlewareHandler } from "hono";
@@ -32,6 +33,8 @@ import type { CloudEnv } from "./env.js";
 // An owner pressing the button waits on this request; whatever the pass has
 // not reached by then is reported as deferred and left to the timer.
 const OPERATOR_SWEEP_BUDGET_MS = 20_000;
+
+const PLATFORM_BODY_BYTES = 256 * 1024;
 
 export interface CreateCloudAppOptions {
   readonly now?: () => Date;
@@ -230,6 +233,13 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
 
   // `/api/platform` before `/api`: the tenant router's own catch-all would
   // otherwise swallow the console's routes first.
+  // The platform's own forms are a few fields each. A tenant's request is
+  // limited by the tenant app, which knows who is asking (api body-limit.ts).
+  const platformBody = bodyLimit({
+    maxSize: PLATFORM_BODY_BYTES,
+    onError: (c) => c.json({ error: "PAYLOAD_TOO_LARGE", message: "حجم البيانات المرسلة أكبر من المسموح به." }, 413),
+  });
+  for (const mount of ["/api/platform/*", "/api/billing/*", "/api/signup/*"]) root.use(mount, platformBody);
   root.route("/api/platform", platformApp);
   root.route("/api/billing", createTenantBillingRoutes({ platform, router, env, service: checkoutService, now }));
   root.route("/api/signup", createSignupRoutes({ platform, router, env, now }));

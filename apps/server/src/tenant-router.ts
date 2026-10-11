@@ -1,7 +1,8 @@
-import { Hono, type MiddlewareHandler } from "hono";
+import { Hono, type Context, type MiddlewareHandler } from "hono";
 import path from "node:path";
 import { mkdirSync } from "node:fs";
 import { timingSafeEqual } from "node:crypto";
+import { createSourceThrottle, requestOrigin, type SourceThrottle } from "@mezan/api";
 import { createBackend, type BackendHandle, type PlatformHandle } from "@mezan/backend";
 import type { SqliteOpenOptions } from "@mezan/persistence";
 import { createBackendCache, type BackendCache } from "./backend-cache.js";
@@ -19,6 +20,8 @@ export interface TenantRouterOptions {
   readonly sweepEveryMs?: number;
   readonly now?: () => Date;
   readonly openBackend?: (code: string, dbPath: string, resolvers: TenantResolvers) => Promise<BackendHandle>;
+  /** Failed tenant sign-ins per client address, across every tenant. Defaults to a fresh one. */
+  readonly signInSources?: SourceThrottle;
   /** Passed straight through to every tenant `createBackend` call (e.g. `{ exclusive: true }` on EFS). Ignored when `openBackend` is supplied. */
   readonly connection?: SqliteOpenOptions;
 }
@@ -43,6 +46,23 @@ export function requireOriginSecret(secret?: string): MiddlewareHandler {
     }
     return next();
   };
+}
+
+const SIGN_IN = "/auth/login";
+const INVALID_CREDENTIALS = 401;
+
+// A tenant backend is reached through `app.fetch`, with no socket under the
+// request, so it cannot tell one caller from another and counts every sign-in
+// as its own console's. The address is known here, at the edge: the forwarded
+// one only when this deployment sits behind a proxy that sets it.
+function signInSource(c: Context, trustForwarded: boolean): string | null {
+  const forwarded = trustForwarded ? c.req.header("x-forwarded-for")?.split(",")[0]?.trim() : undefined;
+  return forwarded || requestOrigin(c);
+}
+
+function waitPhrase(seconds: number): string {
+  if (seconds < 120) return `${seconds} ثانية`;
+  return `${Math.ceil(seconds / 60)} دقيقة`;
 }
 
 export interface TenantRouter {
@@ -109,6 +129,8 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
     },
   });
 
+  const signInSources = options.signInSources ?? createSourceThrottle(options.now ? () => options.now!().getTime() : undefined);
+
   const app = new Hono();
   const resolverOptions = {
     tenantDomain: options.tenantDomain,
@@ -152,7 +174,21 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
     const prefixLen = c.req.routePath.length - REST_PATTERN.length;
     const subPath = c.req.path.slice(prefixLen) || "/";
     const targetUrl = new URL(`${subPath}${new URL(c.req.raw.url).search}`, c.req.raw.url);
-    return backend.app.fetch(new Request(targetUrl, c.req.raw));
+    const forwarded = new Request(targetUrl, c.req.raw);
+    if (c.req.method !== "POST" || subPath !== SIGN_IN) return backend.app.fetch(forwarded);
+
+    const source = signInSource(c, options.trustForwardedHost === true);
+    const wait = source ? signInSources.retryAfter(source) : 0;
+    if (wait > 0) {
+      c.header("retry-after", String(wait));
+      return c.json(
+        { error: "TOO_MANY_ATTEMPTS", retryAfterSeconds: wait, message: `محاولات دخول كثيرة. حاول بعد ${waitPhrase(wait)}.` },
+        429,
+      );
+    }
+    const answer = await backend.app.fetch(forwarded);
+    if (source && answer.status === INVALID_CREDENTIALS) signInSources.fail(source);
+    return answer;
   });
 
   return {

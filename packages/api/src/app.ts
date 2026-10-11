@@ -222,6 +222,7 @@ import { createSequencesRoutes, type SequencesRoutesDeps } from "./sequences-rou
 import { createAuditRoutes } from "./audit-routes.js";
 import { AUDITED_MOUNTS, MutatingMethod, auditBoundary, beforeTheTurn, connectionTurn, type BoundaryPreparation } from "./audit-boundary.js";
 import { createPrecomputingHasher, type PrecomputingHasher } from "./precomputed-secrets.js";
+import { requestBodyLimit } from "./body-limit.js";
 import { createSecurityReportsRoutes } from "./security-reports-routes.js";
 import { isProductionRuntime, permissionRefusalReporting, type PermissionRefusalReporter } from "./permission-gate.js";
 import { createBarcodeConfigRoutes } from "./barcode-config-routes.js";
@@ -949,6 +950,8 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   // database is busy, and it reads nothing from it.
   const health = options.health;
   if (health) app.get("/health", (c) => c.json(health()));
+
+  app.use("*", requestBodyLimit(resolveAuth));
 
   const preparations: Readonly<Record<string, BoundaryPreparation>> = { "/users": hashUserSecretsBeforeTheTransaction };
   for (const [prefix, prepare] of Object.entries(preparations)) {

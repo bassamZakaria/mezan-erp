@@ -561,3 +561,37 @@ describe("POST /auth/logout — revoking a session needs to be the machine that 
     expect(after.status).toBe(401);
   });
 });
+
+describe("POST /auth/login — an address that names a different account each time is held too", () => {
+  const fromAddress = (address: string) => ({ incoming: { socket: { remoteAddress: address } } });
+  const attempt = (app: App, username: string, address: string, pin = "000000") =>
+    app.fetch(
+      new Request("http://local/auth/login", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ username, pin }),
+      }),
+      fromAddress(address),
+    );
+
+  it("answers 429 once thirty accounts have been tried from one address, and still serves another address", async () => {
+    const app = await newBackend();
+    for (let i = 0; i < 30; i += 1) expect((await attempt(app, `ghost${i}@shop.test`, "192.168.1.66")).status).toBe(401);
+
+    const held = await attempt(app, "ghost30@shop.test", "192.168.1.66");
+    const next = await attempt(app, "ghost31@shop.test", "192.168.1.66");
+    const owner = await attempt(app, SEED_ADMIN_EMAIL, "192.168.1.40", SEED_ADMIN_PIN);
+
+    expect(held.status).toBe(429);
+    expect(next.status).toBe(429);
+    expect(await next.json()).toMatchObject({ error: "TOO_MANY_ATTEMPTS", retryAfterSeconds: expect.any(Number) });
+    expect(owner.status).toBe(200);
+  }, 60_000);
+
+  it("refuses the right PIN from a held address, so the hold cannot be guessed through", async () => {
+    const app = await newBackend();
+    for (let i = 0; i < 31; i += 1) await attempt(app, `ghost${i}@shop.test`, "192.168.1.66");
+
+    expect((await attempt(app, SEED_ADMIN_EMAIL, "192.168.1.66", SEED_ADMIN_PIN)).status).toBe(429);
+  }, 60_000);
+});
